@@ -9,7 +9,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRIBUTORS ``AS IS''
  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
  * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
@@ -23,29 +23,32 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#pragma once
+#include "config.h"
 
-#include <wtf/Ref.h>
+#if USE(CURL)
+#include "SynchronousLoaderClient.h"
+
+#include "AuthenticationChallenge.h"
+#include "NotImplemented.h"
+#include "ResourceHandleInternal.h"
+#include "SecurityOrigin.h"
 
 namespace WebCore {
 
-class CertificateInfo;
-class CurlRequest;
-class CurlResponse;
-class NetworkLoadMetrics;
-class ResourceError;
-class SharedBuffer;
+void SynchronousLoaderClient::didReceiveAuthenticationChallenge(ResourceHandle* handle, const AuthenticationChallenge& challenge)
+{
+    handle->receivedRequestToContinueWithoutCredential(challenge);
+}
 
-class CurlRequestClient {
-public:
-    virtual void ref() = 0;
-    virtual void deref() = 0;
+ResourceError SynchronousLoaderClient::platformBadResponseError()
+{
+    int errorCode = 0;
+    URL failingURL;
+    String localizedDescription("Bad Server Response"_s);
 
-    virtual void curlDidSendData(CurlRequest&, unsigned long long bytesSent, unsigned long long totalBytesToBeSent) = 0;
-    virtual void curlDidReceiveResponse(CurlRequest&, CurlResponse&&) = 0;
-    virtual void curlDidReceiveData(CurlRequest&, const SharedBuffer&) = 0;
-    virtual void curlDidComplete(CurlRequest&, NetworkLoadMetrics&&) = 0;
-    virtual void curlDidFailWithError(CurlRequest&, ResourceError&&, CertificateInfo&&) = 0;
-};
+    return ResourceError("CURL"_s, errorCode, failingURL, localizedDescription);
+}
 
-} // namespace WebCore
+}
+
+#endif

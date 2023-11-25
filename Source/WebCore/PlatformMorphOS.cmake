@@ -41,6 +41,7 @@ list(APPEND WebCore_LIBRARIES
 )
 
 list(APPEND WebCore_SOURCES
+    inspector/LegacyWebSocketInspectorInstrumentation.cpp
     editing/morphos/EditorMorphOS.cpp
     editing/morphos/AutofillElements.cpp
     platform/morphos/Altivec.cpp

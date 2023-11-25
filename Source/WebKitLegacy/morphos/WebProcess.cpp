@@ -19,7 +19,7 @@
 #include <WebCore/CurlCacheManager.h>
 #include <WebCore/ProcessWarming.h>
 #include <WebCore/DocumentLoader.h>
-#include <WebCore/DOMWindow.h>
+#include <WebCore/LocalDOMWindow.h>
 #include <WebCore/FrameLoader.h>
 #include <WebCore/MediaPlayerMorphOS.h>
 #include <WebCore/FontCascade.h>
@@ -52,20 +52,22 @@
 #include "WebSWServerConnection.h"
 #include "WebSWContextManagerConnection.h"
 #include "storage/WebStorageTrackerClient.h"
+#if HAS_CACHE_STORAGE
 #include "cache/WebCacheStorageProvider.h"
 #include "cache/CacheStorageEngineConnection.h"
+#endif
 #include "StorageTracker.h"
 #include <WebCore/SWContextManager.h>
 #include "ServiceWorkerSoftUpdateLoader.h"
 #include <WebCore/PageConsoleClient.h>
 #include <WebCore/DeprecatedGlobalSettings.h>
 #include <libraries/charsets.h>
+#include <proto/exec.h>
 #include "Gamepad.h"
 #if !MORPHOS_MINIMAL
 #include "WebDatabaseManager.h"
 #endif
 
-// bloody include shit
 extern "C" {
 LONG WaitSelect(LONG nfds, fd_set *readfds, fd_set *writefds, fd_set *exeptfds,
                 struct timeval *timeout, ULONG *maskp);
@@ -165,8 +167,10 @@ QUAD calculateMaxCacheSize(const char *path)
 
 WebProcess::WebProcess()
 	: m_sessionID(PAL::SessionID::defaultSessionID())
+#if HAS_CACHE_STORAGE
 	, m_cacheStorageProvider(WebCacheStorageProvider::create())
     , m_cacheStorageEngineConnection(CacheStorageEngineConnection::create())
+#endif
     , m_networkSession(NetworkSession::create())
 {
 }
@@ -509,7 +513,7 @@ dprintf("Parsing easylist.txt; this will take a while... and will be faster on n
 void WebProcess::terminate()
 {
 	D(dprintf("%s\n", __PRETTY_FUNCTION__));
-	WebCore::DOMWindow::dispatchAllPendingUnloadEvents();
+	WebCore::LocalDOMWindow::dispatchAllPendingUnloadEvents();
 	WebCore::CurlContext::singleton().stopThread();
 	NetworkStorageSessionMap::destroyAllSessions();
 	WebStorageNamespaceProvider::closeLocalStorage();
@@ -574,7 +578,7 @@ float WebProcess::timeToNextTimerEvent()
 
 void WebProcess::dispatchAllEvents()
 {
-	WebCore::DOMWindow::dispatchAllPendingBeforeUnloadEvents();
+	WebCore::LocalDOMWindow::dispatchAllPendingBeforeUnloadEvents();
 }
 
 WebPage* WebProcess::webPage(WebCore::PageIdentifier pageID) const

@@ -14,6 +14,9 @@ set(WebKitLegacy_SOURCES
     WebCoreSupport/NetworkStorageSessionMap.cpp
     WebCoreSupport/WebBroadcastChannelRegistry.cpp
     WebCoreSupport/WebResourceLoadScheduler.cpp
+    WebCoreSupport/LegacySocketProvider.cpp
+    WebCoreSupport/WebSocketChannel.cpp
+    WebCoreSupport/SocketStreamHandle.cpp
 )
 
 if (NOT "${PORT}" STREQUAL "MorphOS")

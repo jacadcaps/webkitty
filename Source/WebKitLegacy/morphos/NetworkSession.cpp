@@ -3,6 +3,7 @@
 
 namespace WebKit {
 
+#if HAS_CACHE_STORAGE
 CacheStorage::Engine& NetworkSession::ensureCacheEngine()
 {
     if (m_cacheEngine)
@@ -16,6 +17,7 @@ void NetworkSession::clearCacheEngine()
 {
     m_cacheEngine = nullptr;
 }
+#endif
 
 PAL::SessionID NetworkSession::sessionID() const
 {
@@ -24,9 +26,12 @@ PAL::SessionID NetworkSession::sessionID() const
 
 void NetworkSession::shutdown()
 {
+#if HAS_CACHE_STORAGE
+
     if (m_cacheEngine)
         m_cacheEngine->shutdown();
     m_cacheEngine = nullptr;
+#endif
 }
 
 }

@@ -110,11 +110,6 @@ public:
     CurlRequestScheduler& scheduler() { return *m_scheduler; }
     WEBCORE_EXPORT CurlStreamScheduler& streamScheduler();
 
-    // Alt-Svc
-    const String& alternativeServicesStorageFile() const { return m_alternativeServicesStorageFile; }
-    void setAlternativeServicesStorageFile(const String& cacheFile) { m_alternativeServicesStorageFile = cacheFile; }
-    void clearAlternativeServicesStorageFile();
-
     // Proxy
     const CurlProxySettings& proxySettings() const { return m_proxySettings; }
     void setProxySettings(const CurlProxySettings& settings) { m_proxySettings = settings; }
@@ -125,15 +120,10 @@ public:
     // SSL
     CurlSSLHandle& sslHandle() { return m_sslHandle; }
 
-    // Supported features
-    bool isAltSvcEnabled() const { return m_isAltSvcEnabled; }
-    bool isHttp2Enabled() const { return m_isHttp2Enabled; }
-    bool isHttp3Enabled() const { return m_isHttp3Enabled; }
-
-#if OS(MORPHOS)
+    // HTTP/2
     bool isHttp2Enabled(bool forPost = false) const;
+
     void setIsHttp2Enabled(bool enabled, bool enabledForPost) { m_http2Enabled = enabled; m_http2POSTEnabled = enabledForPost; }
-#endif
 
     // Timeout
     Seconds dnsCacheTimeout() const { return m_dnsCacheTimeout; }
@@ -158,15 +148,12 @@ private:
     CurlSSLHandle m_sslHandle;
     std::unique_ptr<CurlRequestScheduler> m_scheduler;
 
-    bool m_isAltSvcEnabled { false };
-    bool m_isHttp2Enabled { false };
-    bool m_isHttp3Enabled { false };
-
     Seconds m_dnsCacheTimeout { Seconds::fromMinutes(5) };
     Seconds m_connectTimeout { 30.0 };
     Seconds m_defaultTimeoutInterval { 60.0 };
 
-    String m_alternativeServicesStorageFile;
+    bool m_http2Enabled { true };
+    bool m_http2POSTEnabled { true };
 
 #ifndef NDEBUG
     FILE* m_logFile { nullptr };
@@ -191,6 +178,7 @@ public:
     CURLMcode addHandle(CURL*);
     CURLMcode removeHandle(CURL*);
 
+    CURLMcode getFdSet(fd_set&, fd_set&, fd_set&, int&);
     CURLMcode poll(const Vector<curl_waitfd>&, int);
     CURLMcode wakeUp();
     CURLMcode perform(int&);
@@ -263,32 +251,29 @@ public:
     void enableShareHandle();
 
     void setUrl(const URL&);
-    void enableSSL();
+    void enableSSLForHost(const String&);
 
     void appendRequestHeaders(const HTTPHeaderMap&);
     void appendRequestHeader(const String& name, const String& value);
     void appendRequestHeader(const String& name);
     void removeRequestHeader(const String& name);
 
-#if OS(MORPHOS)
     void enableHttp(bool post = false);
-#else
-    void enableHttp();
-#endif
     void enableHttpGetRequest();
     void enableHttpHeadRequest();
-    void enableHttpPostRequest(curl_off_t size);
-    void enableHttpPutRequest(curl_off_t size);
+    void enableHttpPostRequest();
+    void setPostFields(const uint8_t*, long);
+    void setPostFieldLarge(curl_off_t);
+    void enableHttpPutRequest();
+    void setInFileSizeLarge(curl_off_t);
     void setHttpCustomRequest(const String&);
+    void setResumeOffset(long long);
 
     void enableConnectionOnly();
 
     void enableAcceptEncoding();
-#if OS(MORPHOS)
     void disableAcceptEncoding();
-#endif
     void enableAllowedProtocols();
-    void enableAltSvc();
 
     void setHttpAuthUserPass(const String&, const String&, long authType = CURLAUTH_ANY);
 
@@ -297,10 +282,11 @@ public:
     void setCACertBlob(void*, size_t);
     void setSslVerifyPeer(VerifyPeer);
     void setSslVerifyHost(VerifyHost);
+    void setSslCert(const char*);
+    void setSslCertType(const char*);
+    void setSslKeyPassword(const char*);
     void setSslCipherList(const char*);
-#if OS(MORPHOS)
     void setSslCipherListTLS1_3(const char*);
-#endif
     void setSslECCurves(const char*);
 
     void enableProxyIfExists();
@@ -330,6 +316,8 @@ public:
 
     std::optional<CertificateInfo> certificateInfo() const;
 
+    static long long maxCurlOffT();
+
     // socket
     Expected<curl_socket_t, CURLcode> getActiveSocket();
     CURLcode send(const uint8_t*, size_t, size_t&);
@@ -348,6 +336,7 @@ private:
     };
 
     void enableRequestHeaders();
+    static int expectedSizeOfCurlOffT();
 
     static CURLcode willSetupSslCtxCallback(CURL*, void* sslCtx, void* userData);
     CURLcode willSetupSslCtx(void* sslCtx);

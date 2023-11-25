@@ -72,7 +72,7 @@ void WebCacheStorageConnection::retrieveCaches(const WebCore::ClientOrigin& orig
     connection().caches(WebCore::ClientOrigin(origin), updateCounter, WTFMove(callback));
 }
 
-void WebCacheStorageConnection::retrieveRecords(WebCore::DOMCacheIdentifier cacheIdentifier, WebCore::RetrieveRecordsOptions&& options, WebCore::DOMCacheEngine::RecordsCallback&& callback)
+void WebCacheStorageConnection::retrieveRecords(WebCore::DOMCacheIdentifier cacheIdentifier, WebCore::RetrieveRecordsOptions&& options, WebCore::DOMCacheEngine::CrossThreadRecordsCallback&& callback)
 {
     D(dprintf("%s\n", __PRETTY_FUNCTION__));
     connection().retrieveRecords(cacheIdentifier, WTFMove(options), WTFMove(callback));
@@ -84,10 +84,30 @@ void WebCacheStorageConnection::batchDeleteOperation(WebCore::DOMCacheIdentifier
     connection().deleteMatchingRecords(cacheIdentifier, WebCore::ResourceRequest(request), WTFMove(options), WTFMove(callback));
 }
 
-void WebCacheStorageConnection::batchPutOperation(WebCore::DOMCacheIdentifier cacheIdentifier, Vector<Record>&& records, WebCore::DOMCacheEngine::RecordIdentifiersCallback&& callback)
+Record fromCrossThreadRecord(CrossThreadRecord& record)
+{
+    return Record {
+        record.identifier,
+        record.updateResponseCounter,
+        record.requestHeadersGuard,
+        WTFMove(record.request),
+        WTFMove(record.options),
+        WTFMove(record.referrer),
+        record.responseHeadersGuard,
+        WebCore::ResourceResponse::fromCrossThreadData(WTFMove(record.response)),
+        WTFMove(record.responseBody),
+        record.responseBodySize
+    };
+}
+
+void WebCacheStorageConnection::batchPutOperation(WebCore::DOMCacheIdentifier cacheIdentifier, Vector<CrossThreadRecord>&& records, WebCore::DOMCacheEngine::RecordIdentifiersCallback&& callback)
 {
     D(dprintf("%s\n", __PRETTY_FUNCTION__));
-    connection().putRecords(cacheIdentifier, WTFMove(records), WTFMove(callback));
+    Vector<Record> r;
+    r.reserveCapacity(records.size());
+    for(auto& ctr : records)
+        r.append(fromCrossThreadRecord(ctr));
+    connection().putRecords(cacheIdentifier, WTFMove(r), WTFMove(callback));
 }
 
 void WebCacheStorageConnection::reference(WebCore::DOMCacheIdentifier cacheIdentifier)

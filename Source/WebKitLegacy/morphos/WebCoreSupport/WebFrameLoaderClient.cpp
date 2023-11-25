@@ -38,11 +38,11 @@
 #include <WebCore/DOMWrapperWorld.h>
 #include <WebCore/DocumentLoader.h>
 #include <WebCore/FormState.h>
-#include <WebCore/Frame.h>
+#include <WebCore/LocalFrame.h>
 #include <WebCore/FrameLoadRequest.h>
 #include <WebCore/FrameLoader.h>
 #include <WebCore/FrameLoaderTypes.h>
-#include <WebCore/FrameView.h>
+#include <WebCore/LocalFrameView.h>
 #include <WebCore/HTMLFormElement.h>
 #include <WebCore/HistoryController.h>
 #include <WebCore/HistoryItem.h>
@@ -94,14 +94,6 @@ WebFrameLoaderClient::~WebFrameLoaderClient()
 {
 	D(dprintf("%s: this %p\n", __PRETTY_FUNCTION__, this));
 	m_frame->invalidate();
-}
-
-std::optional<PageIdentifier> WebFrameLoaderClient::pageID() const
-{
-    if (m_frame->page())
-        return m_frame->page()->pageID();
-
-    return std::nullopt;
 }
 
 #if ENABLE(RESOURCE_LOAD_STATISTICS)
@@ -558,7 +550,7 @@ void WebFrameLoaderClient::dispatchDidLayout()
 #endif
 }
 
-Frame* WebFrameLoaderClient::dispatchCreatePage(const NavigationAction& navigationAction, WebCore::NewFrameOpenerPolicy)
+LocalFrame* WebFrameLoaderClient::dispatchCreatePage(const NavigationAction& navigationAction, WebCore::NewFrameOpenerPolicy)
 {
     WebPage* webPage = m_frame->page();
     if (!webPage)
@@ -569,7 +561,7 @@ Frame* WebFrameLoaderClient::dispatchCreatePage(const NavigationAction& navigati
     if (!newPage)
         return nullptr;
 	
-    return &newPage->mainFrame();
+    return downcast<LocalFrame>(&newPage->mainFrame());
 }
 
 void WebFrameLoaderClient::dispatchShow()
@@ -1293,7 +1285,7 @@ void WebFrameLoaderClient::convertMainResourceLoadToDownload(DocumentLoader *doc
     m_frame->convertMainResourceLoadToDownload(documentLoader, request, response);
 }
 
-RefPtr<Frame> WebFrameLoaderClient::createFrame(const WTF::AtomString& name, HTMLFrameOwnerElement&ownerElement)
+RefPtr<LocalFrame> WebFrameLoaderClient::createFrame(const WTF::AtomString& name, HTMLFrameOwnerElement&ownerElement)
 {
     auto* webPage = m_frame->page();
 

@@ -4,7 +4,7 @@
 #import <WebCore/UserGestureIndicator.h>
 #define __OBJC__
 
-static WTF::HashMap<UUID, id> _notificationLookup;
+static WTF::HashMap<WTF::UUID, id> _notificationLookup;
 
 @implementation WkNotificationPrivate
 

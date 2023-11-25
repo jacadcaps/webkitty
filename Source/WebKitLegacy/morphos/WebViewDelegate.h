@@ -16,6 +16,7 @@ namespace WebCore {
 	class WindowFeatures;
 	class ResourceError;
 	class ResourceRequest;
+    class ResourceHandle;
 	class FileChooser;
 	class ResourceResponse;
 	class AuthenticationChallenge;

@@ -76,26 +76,26 @@ list(APPEND WebKitLegacy_SOURCES_WebCoreSupport
     morphos/WebCoreSupport/WebNotificationClient.cpp
 )
 
-list(APPEND WebKitLegacy_SOURCES_WebCoreSupport
-    morphos/cache/CacheStorageEngine.cpp
-    morphos/cache/CacheStorageEngineCache.cpp
-    morphos/cache/CacheStorageEngineCaches.cpp
-    morphos/cache/NetworkCacheCoders.cpp
-    morphos/cache/NetworkCacheDataCurl.cpp
-    morphos/cache/NetworkCacheIOChannelCurl.cpp
-    morphos/cache/NetworkCacheSubresourcesEntry.cpp
-    morphos/cache/NetworkCacheBlobStorage.cpp
-    morphos/cache/NetworkCacheEntry.cpp
-    morphos/cache/NetworkCacheKey.cpp
-    morphos/cache/PrefetchCache.cpp
-    morphos/cache/NetworkCacheData.cpp
-    morphos/cache/NetworkCacheFileSystem.cpp
-    morphos/cache/NetworkCacheStorage.cpp
-#    morphos/cache/NetworkCache.cpp
-    morphos/cache/CacheStorageEngineConnection.cpp
-    morphos/cache/WebCacheStorageProvider.cpp
-    morphos/cache/WebCacheStorageConnection.cpp
-    )
+#list(APPEND WebKitLegacy_SOURCES_WebCoreSupport
+#    morphos/cache/CacheStorageEngine.cpp
+#    morphos/cache/CacheStorageEngineCache.cpp
+#    morphos/cache/CacheStorageEngineCaches.cpp
+#    morphos/cache/NetworkCacheCoders.cpp
+#    morphos/cache/NetworkCacheDataCurl.cpp
+#    morphos/cache/NetworkCacheIOChannelCurl.cpp
+#    morphos/cache/NetworkCacheSubresourcesEntry.cpp
+#    morphos/cache/NetworkCacheBlobStorage.cpp
+#    morphos/cache/NetworkCacheEntry.cpp
+#    morphos/cache/NetworkCacheKey.cpp
+#    morphos/cache/PrefetchCache.cpp
+#    morphos/cache/NetworkCacheData.cpp
+#    morphos/cache/NetworkCacheFileSystem.cpp
+#    morphos/cache/NetworkCacheStorage.cpp
+##    morphos/cache/NetworkCache.cpp
+#    morphos/cache/CacheStorageEngineConnection.cpp
+#    morphos/cache/WebCacheStorageProvider.cpp
+#    morphos/cache/WebCacheStorageConnection.cpp
+#    )
 
 if (NOT MORPHOS_MINIMAL)
 	list(APPEND WebKitLegacy_ABP

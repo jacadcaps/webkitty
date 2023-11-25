@@ -30,17 +30,13 @@
 #include "NetworkCacheCoders.h"
 #include "NetworkCacheIOChannel.h"
 #include "NetworkCacheKey.h"
-#if OS(MORPHOS)
 #include <WebCore/ResourceError.h>
 #include <WebCore/ResourceRequest.h>
 #include <WebCore/CertificateInfo.h>
 #include <WebCore/CurlProxySettings.h>
 #include <WebCore/ResourceResponse.h>
 #include <WebCore/HTTPHeaderMap.h>
-#else
-#include "NetworkProcess.h"
-#include "WebCoreArgumentCoders.h"
-#endif
+#include <WebCore/OriginAccessPatterns.h>
 #include <WebCore/CacheQueryOptions.h>
 #include <WebCore/CrossOriginAccessControl.h>
 #include <WebCore/HTTPParsers.h>
@@ -97,7 +93,7 @@ static inline void updateVaryInformation(RecordInformation& recordInformation, c
     }
 
     varyValue.split(',', [&](StringView view) {
-        if (!recordInformation.hasVaryStar && stripLeadingAndTrailingHTTPSpaces(view) == "*"_s)
+        if (!recordInformation.hasVaryStar && view.trim(isASCIIWhitespaceWithoutFF<UChar>) == "*"_s)
             recordInformation.hasVaryStar = true;
         recordInformation.varyHeaders.add(view.toString(), request.httpHeaderField(view));
     });
@@ -294,7 +290,7 @@ void Cache::retrieveRecords(const RetrieveRecordsOptions& options, RecordsCallba
             if (record.response.type() != ResourceResponse::Type::Opaque)
                 continue;
 
-            if (validateCrossOriginResourcePolicy(options.crossOriginEmbedderPolicy.value, options.sourceOrigin, record.request.url(), record.response, ForNavigation::No)) {
+            if (validateCrossOriginResourcePolicy(options.crossOriginEmbedderPolicy.value, options.sourceOrigin, record.request.url(), record.response, ForNavigation::No, WebCore::EmptyOriginAccessPatterns::singleton())) {
                 callback(makeUnexpected(DOMCacheEngine::Error::CORP));
                 return;
             }

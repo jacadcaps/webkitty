@@ -1249,7 +1249,7 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
         makeUniqueRef<WebEditorClient>(this),
         LegacySocketProvider::create(),
         WebCore::WebRTCProvider::create(),
-        WebProcess::singleton().cacheStorageProvider(),
+        WebCore::CacheStorageProvider::create(),
         m_webPageGroup->userContentController(),
         BackForwardClientMorphOS::create(this),
         WebCore::CookieJar::create(storageProvider.copyRef()),

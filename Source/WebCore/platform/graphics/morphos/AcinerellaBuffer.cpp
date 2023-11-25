@@ -83,7 +83,7 @@ public:
 		if (m_curlRequest)
 		{
 			m_curlRequest->setResumeOffset(static_cast<long long>(m_bufferPositionAbs));
-			m_curlRequest->resume();
+			m_curlRequest->start();
 		}
 	}
 
@@ -224,7 +224,7 @@ public:
 				if (m_curlRequest)
 				{
 					m_curlRequest->setResumeOffset(static_cast<long long>(abs));
-					m_curlRequest->resume();
+					m_curlRequest->start();
 				}
 			}
 			D(dprintf("%s(%p): resuming...\n", __PRETTY_FUNCTION__, this));
@@ -321,7 +321,7 @@ public:
 				if (m_curlRequest)
 				{
 					m_curlRequest->setResumeOffset(static_cast<long long>(m_bufferPositionAbs));
-					m_curlRequest->resume();
+					m_curlRequest->start();
 				}
 
 				D(dprintf("%s(%p): redirected to %s\n", __PRETTY_FUNCTION__, this, location.utf8().data()));
@@ -626,7 +626,7 @@ public:
 
 		if (m_curlRequest)
 		{
-			m_curlRequest->resume();
+			m_curlRequest->start();
 		}
 		else
 		{
@@ -643,7 +643,7 @@ public:
 
 		if (m_curlRequest)
 		{
-			m_curlRequest->resume();
+			m_curlRequest->start();
 		}
 		else
 		{
@@ -763,7 +763,7 @@ public:
 				m_curlRequest = createCurlRequest(newRequest);
 				if (m_curlRequest)
 				{
-					m_curlRequest->resume();
+					m_curlRequest->start();
 				}
 				else
 				{

@@ -39,7 +39,7 @@
 #include <WebCore/FileChooser.h>
 #include <WebCore/FileIconLoader.h>
 #include <WebCore/FloatRect.h>
-#include <WebCore/WebCore::LocalFrame.h>
+#include <WebCore/LocalFrame.h>
 #include <WebCore/FrameLoadRequest.h>
 #include <WebCore/FrameView.h>
 //#include <WebCore/FullScreenController.h>
@@ -87,12 +87,12 @@ void WebChromeClient::setWindowRect(const FloatRect& r)
 	notImplemented();
 }
 
-FloatRect WebChromeClient::windowRect()
+FloatRect WebChromeClient::windowRect() const
 {
     return { FloatPoint(0.f, 0.f), FloatSize(m_webPage.size()) };
 }
 
-FloatRect WebChromeClient::pageRect()
+FloatRect WebChromeClient::pageRect() const
 {
 	notImplemented();
 	return windowRect();
@@ -112,7 +112,7 @@ void WebChromeClient::unfocus()
 //    m_webPage.updateActiveState();
 }
 
-bool WebChromeClient::canTakeFocus(FocusDirection direction)
+bool WebChromeClient::canTakeFocus(FocusDirection direction) const
 {
 	notImplemented();
 	return true;
@@ -433,7 +433,7 @@ bool WebChromeClient::supportsVideoFullscreen(WebCore::HTMLMediaElementEnums::Vi
 	return true;
 }
 
-bool WebChromeClient::shouldUseTiledBackingForFrameView(const FrameView& frameView) const
+bool WebChromeClient::shouldUseTiledBackingForFrameView(const LocalFrameView& frameView) const
 {
     return false;
 }

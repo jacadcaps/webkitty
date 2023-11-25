@@ -598,7 +598,7 @@ void WebDownload::setUserPassword(const String& user, const String &password)
 {
     [_delegate downloadDidBegin:self];
 
-	auto result = WebCore::DataURLDecoder::decode(_url, WebCore::DataURLDecoder::Mode::Legacy);
+	auto result = WebCore::DataURLDecoder::decode(_url);
 
     if (result)
     {

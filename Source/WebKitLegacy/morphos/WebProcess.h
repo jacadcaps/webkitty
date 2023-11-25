@@ -63,8 +63,10 @@ public:
 	PAL::SessionID sessionID() const { ASSERT(m_sessionID); return *m_sessionID; }
 	RefPtr<WebCore::NetworkingContext> networkingContext() { return m_dummyNetworkingContext; }
 
+#if HAS_CACHE_STORAGE
 	WebCore::CacheStorageProvider& cacheStorageProvider() { return m_cacheStorageProvider.get(); }
     CacheStorageEngineConnection& cacheStorageEngineConnection() { return *m_cacheStorageEngineConnection.get(); }
+#endif
     NetworkSession& networkSession() { return *m_networkSession.get(); }
 
     // those two are to simplify NetworkCache stuff
@@ -144,9 +146,12 @@ protected:
     bool                 m_urlFilterInitialized = false;
 #endif
     std::optional<PAL::SessionID> m_sessionID;
+#if HAS_CACHE_STORAGE
     Ref<WebCore::CacheStorageProvider> m_cacheStorageProvider;
-    RefPtr<WebCore::NetworkingContext> m_dummyNetworkingContext;
     RefPtr<CacheStorageEngineConnection> m_cacheStorageEngineConnection;
+#endif
+
+    RefPtr<WebCore::NetworkingContext> m_dummyNetworkingContext;
 
     std::function<void()> m_fLastPageClosed;
     std::unique_ptr<NetworkSession> m_networkSession;
