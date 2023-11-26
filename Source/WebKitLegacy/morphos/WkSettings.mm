@@ -650,6 +650,7 @@ static cairo_antialias_t defaultAA;
 
 + (void)setCaching:(WkGlobalSettings_Caching)caching
 {
+    WTF::initializeMainThread();
 	WebKit::CacheModel cacheModel = WebKit::CacheModel::PrimaryWebBrowser;
 	if (WkGlobalSettings_Caching_Minimal == caching)
 		cacheModel = WebKit::CacheModel::DocumentViewer;
