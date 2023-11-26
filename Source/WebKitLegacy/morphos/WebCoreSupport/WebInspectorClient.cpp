@@ -210,7 +210,6 @@ WebInspectorClient::~WebInspectorClient()
 void WebInspectorClient::inspectedPageDestroyed()
 {
 	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
-    delete this;
 }
 
 void WebInspectorClient::inspectedPageWillBeDestroyed()

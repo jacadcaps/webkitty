@@ -41,6 +41,7 @@ class WebChromeClient final : public WebCore::ChromeClient {
 	WTF_MAKE_FAST_ALLOCATED;
 public:
     WebChromeClient(WebKit::WebPage&);
+    ~WebChromeClient() = default;
 
     WebPage* webPage() const { return &m_webPage; }
     WebPage& page() const { return m_webPage; }

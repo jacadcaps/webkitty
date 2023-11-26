@@ -47,7 +47,6 @@ WebContextMenuClient::WebContextMenuClient(WebPage* webView)
 
 void WebContextMenuClient::contextMenuDestroyed()
 {
-    delete this;
 }
 
 void WebContextMenuClient::downloadURL(const URL& url)

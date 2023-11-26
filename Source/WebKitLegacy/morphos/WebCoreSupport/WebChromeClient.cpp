@@ -79,7 +79,6 @@ WebChromeClient::WebChromeClient(WebKit::WebPage& webPage)
 
 void WebChromeClient::chromeDestroyed()
 {
-    delete this;
 }
 
 void WebChromeClient::setWindowRect(const FloatRect& r)
