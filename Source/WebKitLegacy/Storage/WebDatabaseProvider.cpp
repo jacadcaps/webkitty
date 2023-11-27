@@ -42,14 +42,6 @@ WebDatabaseProvider::~WebDatabaseProvider()
 {
 }
 
-#if OS(MORPHOS)
-void WebDatabaseProvider::shutdown()
-{
-    for (auto& server : m_idbServerMap.values())
-        server->shutdown();
-}
-#endif
-
 WebCore::IDBClient::IDBConnectionToServer& WebDatabaseProvider::idbConnectionToServerForSession(PAL::SessionID sessionID)
 {
     return m_idbServerMap.ensure(sessionID, [&sessionID] {

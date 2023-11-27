@@ -58,10 +58,6 @@ public:
 
     virtual ~InProcessIDBServer();
 
-#if OS(MORPHOS)
-    void shutdown();
-#endif
-
     WebCore::IDBClient::IDBConnectionToServer& connectionToServer() const;
     WebCore::IDBServer::IDBConnectionToClient& connectionToClient() const;
     WebCore::IDBServer::IDBServer& server() { return *m_server; }

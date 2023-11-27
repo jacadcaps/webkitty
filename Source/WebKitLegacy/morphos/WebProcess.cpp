@@ -518,7 +518,6 @@ void WebProcess::terminate()
 	NetworkStorageSessionMap::destroyAllSessions();
 	WebStorageNamespaceProvider::closeLocalStorage();
 	CurlCacheManager::singleton().setStorageSizeLimit(0);
-    WebDatabaseProvider::singleton().shutdown();
 
 #if ENABLE(SERVICE_WORKER)
     m_swServer.reset();
