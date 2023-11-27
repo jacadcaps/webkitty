@@ -48,7 +48,7 @@ public:
 
 #if OS(MORPHOS)
     static Seconds defaultMinimumInterval() { return 30_ms; }
-    static Seconds defaultAlignmentInterval() { return 10_s; }
+    static Seconds defaultAlignmentInterval() { return 10_ms; }
     static Seconds defaultAlignmentIntervalInLowPowerMode() { return 250_ms; }
     static Seconds nonInteractedCrossOriginFrameAlignmentInterval() { return 500_ms; }
     static Seconds hiddenPageAlignmentInterval() { return 3_s; }
