@@ -348,7 +348,9 @@ void RenderText::styleDidChange(StyleDifference diff, const RenderStyle* oldStyl
     if (needsResetText || oldTransform != newStyle.textTransform() || oldSecurity != newStyle.textSecurity())
         RenderText::setText(originalText(), true);
 }
+#if OS(MORPHOS)
 #pragma GCC diagnostic pop
+#endif
 
 void RenderText::removeAndDestroyTextBoxes()
 {
