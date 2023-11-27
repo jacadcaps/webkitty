@@ -423,6 +423,10 @@ void WebProcess::initialize(int sigbit)
 // TODO: check this
 //    SharedWorkerProvider::setSharedProvider(WebSharedWorkerProvider::singleton());
 
+    WTF::RunLoop::setWakeUpCallback([&] {
+        signalMainThread();
+    });
+
 #if USE_ADFILTER
 	WTF::String easyListPath = "PROGDIR:Resources/easylist.txt"_s;
 	WTF::String easyListSerializedPath = "PROGDIR:Resources/easylist.dat"_s;
