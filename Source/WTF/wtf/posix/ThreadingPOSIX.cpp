@@ -674,8 +674,12 @@ bool ThreadCondition::timedWait(Mutex& mutex, WallTime absoluteTime)
     if (std::isinf(absoluteTime)) {
         if (absoluteTime == -WallTime::infinity())
             return false;
+#if OS(MORPHOS)
+        return wait(mutex);
+#else
         wait(mutex);
         return true;
+#endif
     }
 
     if (absoluteTime < WallTime::now())
