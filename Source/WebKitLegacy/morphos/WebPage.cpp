@@ -2414,49 +2414,30 @@ void WebPage::draw(struct RastPort *rp, const int x, const int y, const int widt
 {
 	auto* coreFrame = m_mainFrame->coreFrame();
 	if (!coreFrame || !m_drawContext)
-	{
 		return;
-	}
 	
     auto* frameView = coreFrame->view();
     if (!frameView)
-	{
 		return;
-	}
 
-    m_page->updateRendering();
-	m_page->finalizeRenderingUpdate({ });
-	
-	if (m_needsCompositingFlush)
-	{
-		m_needsCompositingFlush = false;
-
-		OptionSet<FinalizeRenderingUpdateFlags> flags;
-		m_page->finalizeRenderingUpdate(flags);
-
-		coreFrame->view()->availableContentSizeChanged(WebCore::ScrollableArea::AvailableSizeChangeReason::AreaSizeChanged);
-		coreFrame->view()->updateLayoutAndStyleIfNeededRecursive();
-	}
-
-#if 0
-	frameView->updateLayoutAndStyleIfNeededRecursive();
-//	frameView->updateCompositingLayersAfterLayout();
-	frameView->setPaintBehavior(PaintBehavior::FlattenCompositingLayers);
-#endif
-//	IntSize s = frameView->autoSizingIntrinsicContentSize();
 	auto scroll = frameView->scrollPosition();
 
-//	dprintf("draw to %p at %d %d : %dx%d, %d %d renderable %d\n", rp, x,y, width, height, s.width(), s.height(), frameView->isSoftwareRenderable());
-
-	// FrameTree& tree = coreFrame->tree();
-
-#if 0
-    for (Frame* child = tree.firstRenderedChild(); child; child = child->tree().traverseNextRendered(coreFrame)) {
-        if (!child->view())
-            continue;
-		dprintf("maybe render child frame %p\n", child);
+    if (width != m_drawContext->width() || height != m_drawContext->height()) {
+        frameView->availableContentSizeChanged(WebCore::ScrollableArea::AvailableSizeChangeReason::AreaSizeChanged);
     }
-#endif
+
+	if (m_needsCompositingFlush) {
+		m_needsCompositingFlush = false;
+
+        m_page->updateRendering();
+        m_page->finalizeRenderingUpdate({ });
+
+//		coreFrame->view()->availableContentSizeChanged(WebCore::ScrollableArea::AvailableSizeChangeReason::AreaSizeChanged);
+//		coreFrame->view()->updateLayoutAndStyleIfNeededRecursive();
+	}
+    else {
+        frameView->updateLayoutAndStyleIfNeededRecursive();
+    }
 
 #if 0
 	if (frameView->renderView())
