@@ -76,6 +76,7 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/adwaita/ScrollbarThemeAdwaita.h
     platform/graphics/morphos/MediaPlayerMorphOS.h
     platform/morphos/SelectionData.h
+    inspector/LegacyWebSocketInspectorInstrumentation.h
 )
 
 if (NOT MORPHOS_MINIMAL)
