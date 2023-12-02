@@ -370,7 +370,11 @@ void JSGenericTypedArrayView<Adaptor>::copyFromInt32ShapeArray(size_t offset, JS
     for (size_t i = 0; i < length; ++i) {
         JSValue value = array->butterfly()->contiguous().at(array, static_cast<unsigned>(i + objectOffset)).get();
         if (LIKELY(!!value))
+#if CPU(BIG_ENDIAN)
+            setIndexQuicklyToNativeValue(offset + i, flipBytes(Adaptor::toNativeFromInt32(value.asInt32())));
+#else
             setIndexQuicklyToNativeValue(offset + i, Adaptor::toNativeFromInt32(value.asInt32()));
+#endif
         else
             setIndexQuicklyToNativeValue(offset + i, Adaptor::toNativeFromUndefined());
     }
