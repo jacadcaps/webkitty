@@ -811,12 +811,30 @@ ALWAYS_INLINE EncodedJSValue genericTypedArrayViewPrivateFuncFromFast(VM& vm, JS
         RETURN_IF_EXCEPTION(scope, { });
 
         if (indexingType == Int32Shape) {
+#if CPU(BIG_ENDIAN)
+            for (unsigned i = 0; i < length; i++) {
+                JSValue value = array->butterfly()->contiguous().at(array, i).get();
+                if (LIKELY(!!value))
+                    result->setIndexQuicklyToNativeValue(i, ViewClass::Adaptor::toNativeFromInt32(value.asInt32()));
+                else
+                    result->setIndexQuicklyToNativeValue(i, ViewClass::Adaptor::toNativeFromUndefined());
+            }
+        } else {
+            ASSERT(indexingType == DoubleShape);
+            for (unsigned i = 0; i < length; i++) {
+                double d = array->butterfly()->contiguousDouble().at(array, i);
+                result->setIndexQuicklyToNativeValue(i, ViewClass::Adaptor::toNativeFromDouble(d));
+            }
+#else
             result->copyFromInt32ShapeArray(0, array, 0, length);
             return JSValue::encode(result);
+#endif
         }
 
+#if !CPU(BIG_ENDIAN)
         ASSERT(indexingType == DoubleShape);
         result->copyFromDoubleShapeArray(0, array, 0, length);
+#endif
         return JSValue::encode(result);
     }
 
