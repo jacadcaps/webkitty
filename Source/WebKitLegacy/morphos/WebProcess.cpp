@@ -23,6 +23,7 @@
 #include <WebCore/FrameLoader.h>
 #include <WebCore/MediaPlayerMorphOS.h>
 #include <WebCore/FontCascade.h>
+#include <WebCore/PageDebugger.h>
 #include <wtf/Algorithms.h>
 #include <wtf/Language.h>
 #include <wtf/ProcessPrivilege.h>
@@ -986,7 +987,7 @@ bool WebProcess::removeServiceWorkerRegistration(WebCore::ServiceWorkerRegistrat
 
 #endif
 
-}
+} // namespace WebKit
 
 RefPtr<WebCore::SharedBuffer> loadResourceIntoBuffer(const char* name);
 RefPtr<WebCore::SharedBuffer> loadResourceIntoBuffer(const char* name)
@@ -1022,4 +1023,13 @@ bool shouldLoadResource(const WebCore::ContentExtensions::ResourceLoadInfo& info
 #else
 	return true;
 #endif
+}
+
+bool WebCore::PageDebugger::platformShouldContinueRunningEventLoopWhilePaused()
+{
+// TODO: this needs to smartly run the events pump somehow, but might be tricky with MUI
+// for now, returning false here means we won't busyloop forever in the Inspector
+    RunLoop::cycle();
+    return false;
+//    return RunLoop::cycle() != RunLoop::CycleResult::Stop;
 }
