@@ -354,7 +354,11 @@ void FrameSelection::setSelectionByMouseIfDifferent(const VisibleSelection& pass
         intent = AXTextStateChangeIntent(AXTextStateChangeTypeSelectionMove, AXTextSelection { AXTextSelectionDirectionDiscontiguous, AXTextSelectionGranularityUnknown, false });
     else
         intent = AXTextStateChangeIntent();
+#if OS(MORPHOS)
+    setSelection(newSelection, defaultSetSelectionOptions() | SetSelectionOption::FireSelectEvent | SetSelectionOption::IsUserTriggered, intent, CursorAlignOnScroll::IfNeeded, granularity);
+#else
     setSelection(newSelection, defaultSetSelectionOptions() | SetSelectionOption::FireSelectEvent, intent, CursorAlignOnScroll::IfNeeded, granularity);
+#endif
 }
 
 bool FrameSelection::setSelectionWithoutUpdatingAppearance(const VisibleSelection& newSelectionPossiblyWithoutDirection, OptionSet<SetSelectionOption> options, CursorAlignOnScroll align, TextGranularity granularity)
