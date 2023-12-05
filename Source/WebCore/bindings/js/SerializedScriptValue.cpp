@@ -1602,7 +1602,9 @@ private:
                 RETURN_IF_EXCEPTION(scope, false);
 
                 write(ErrorInstanceTag);
+#if ENABLE(WEB_CRYPTO)
                 write(errorNameToSerializableErrorType(errorTypeString));
+#endif
                 writeNullableString(message);
                 write(line);
                 write(column);
