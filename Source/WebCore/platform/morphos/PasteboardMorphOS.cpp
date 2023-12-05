@@ -40,6 +40,8 @@
 #include <libraries/charsets.h>
 #include <libraries/clipboard.h>
 
+#define D(x) 
+
 namespace WebCore {
 
 enum ClipboardDataType {
@@ -53,6 +55,7 @@ enum ClipboardDataType {
 
 std::unique_ptr<Pasteboard> Pasteboard::createForCopyAndPaste(std::unique_ptr<PasteboardContext>&& context)
 {
+    D(dprintf("%s:\n", __PRETTY_FUNCTION__));
     return std::make_unique<Pasteboard>(WTFMove(context), "CLIPBOARD"_s);
 }
 
@@ -85,7 +88,8 @@ Pasteboard::Pasteboard(std::unique_ptr<PasteboardContext>&& context)
 
 bool Pasteboard::hasData()
 {
-     notImplemented();
+    if (m_selectionData)
+        return m_selectionData->hasText() || m_selectionData->hasMarkup() || m_selectionData->hasURIList() || m_selectionData->hasImage() || m_selectionData->hasCustomData();
     return false;
 }
 
@@ -113,6 +117,13 @@ Vector<String> Pasteboard::typesForLegacyUnsafeBindings()
 
 String Pasteboard::readOrigin()
 {
+    if (m_selectionData) {
+        if (auto* buffer = m_selectionData->customData())
+            return PasteboardCustomData::fromSharedBuffer(*buffer).origin();
+
+        return { };
+    }
+    
     return { };
 }
 
@@ -173,12 +184,20 @@ String Pasteboard::readString(const String& type)
 
 String Pasteboard::readStringInCustomData(const String&type)
 {
-    notImplemented();
+    D(dprintf("%s:\n", __PRETTY_FUNCTION__));
+    if (m_selectionData) {
+        if (auto* buffer = m_selectionData->customData())
+            return PasteboardCustomData::fromSharedBuffer(*buffer).readStringInCustomData(type);
+
+        return { };
+    }
+
     return { };
 }
 
 void Pasteboard::writeString(const String& type, const String& text)
 {
+    D(dprintf("%s:\n", __PRETTY_FUNCTION__));
 	auto ctype = selectionDataTypeFromHTMLClipboardType(type);
 	
 	if (ctype == ClipboardDataTypeText || ctype == ClipboardDataTypeUnknown)
@@ -244,16 +263,19 @@ void Pasteboard::read(PasteboardFileReader&, std::optional<size_t>)
 
 void Pasteboard::write(const PasteboardURL& url)
 {
+    D(dprintf("%s:\n", __PRETTY_FUNCTION__));
      writePlainText(url.url.string(), CanSmartReplace);
 }
 
 void Pasteboard::writeTrustworthyWebURLsPboardType(const PasteboardURL&)
 {
+    D(dprintf("%s:\n", __PRETTY_FUNCTION__));
     notImplemented();
 }
 
 void Pasteboard::write(const PasteboardImage& image)
 {
+    D(dprintf("%s:\n", __PRETTY_FUNCTION__));
     auto nativeImage = image.image->nativeImageForCurrentFrame();
     if (!nativeImage)
         return;
@@ -315,6 +337,7 @@ void Pasteboard::write(const PasteboardImage& image)
 
 void Pasteboard::write(const PasteboardWebContent& content)
 {
+    D(dprintf("%s:\n", __PRETTY_FUNCTION__));
     if (!content.text.isEmpty())
     {
 	     writePlainText(content.text, CanSmartReplace);
@@ -329,6 +352,7 @@ void Pasteboard::write(const PasteboardWebContent& content)
 
 void Pasteboard::write(const PasteboardBuffer&)
 {
+    D(dprintf("%s:\n", __PRETTY_FUNCTION__));
 }
 
 Pasteboard::FileContentState Pasteboard::fileContentState()
@@ -345,21 +369,36 @@ bool Pasteboard::canSmartReplace()
 
 void Pasteboard::writeMarkup(const String&)
 {
+    D(dprintf("%s:\n", __PRETTY_FUNCTION__));
      notImplemented();
 }
 
 void Pasteboard::writePlainText(const String& text, SmartReplaceOption)
 {
+    D(dprintf("%s:\n", __PRETTY_FUNCTION__));
     writeString("text/plain;charset=utf-8"_s, text);
 }
 
-void Pasteboard::writeCustomData(const Vector<PasteboardCustomData>&)
+void Pasteboard::writeCustomData(const Vector<PasteboardCustomData>& data)
 {
-     notImplemented();
+    D(dprintf("%s:\n", __PRETTY_FUNCTION__));
+    if (m_selectionData) {
+        D(dprintf("%s: has selectiondata\n", __PRETTY_FUNCTION__));
+        if (!data.isEmpty()) {
+            const auto& customData = data[0];
+            customData.forEachPlatformString([this] (auto& type, auto& string) {
+                writeString(type, string);
+            });
+            if (customData.hasSameOriginCustomData() || !customData.origin().isEmpty())
+                m_selectionData->setCustomData(customData.createSharedBuffer());
+        }
+        return;
+    }
 }
 
 void Pasteboard::write(const Color&)
 {
+    D(dprintf("%s:\n", __PRETTY_FUNCTION__));
      notImplemented();
 }
 
