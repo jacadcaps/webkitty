@@ -4,7 +4,7 @@ The MorphOS' WebKit port
 Source code available under BSD license / other licenses where applicable. All of the MorphOS specific files are to be assumed BSD Licensed:
 
 BSD License
-Copyright (C) 2020-2021 Jacek Piszczek. All rights reserved.
+Copyright (C) 2020-2023 Jacek Piszczek. All rights reserved.
 Redistribution and use in source and binary forms, with or without modification, are permitted
 provided that the following conditions are met:
 1. Redistributions of source code must retain the above copyright notice, this list of
