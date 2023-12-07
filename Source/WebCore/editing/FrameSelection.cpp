@@ -484,8 +484,10 @@ void FrameSelection::setSelection(const VisibleSelection& selection, OptionSet<S
     if (frameView && frameView->layoutContext().isLayoutPending())
         return;
 
+#if !OS(MORPHOS) // TODO: figure out how to ensure all setSelection calls have this flag set correctly..
     if (!(options & SetSelectionOption::IsUserTriggered))
         return;
+#endif
 
     updateAndRevealSelection(intent, options.contains(SetSelectionOption::SmoothScroll) ? ScrollBehavior::Smooth : ScrollBehavior::Instant,
         options.contains(SetSelectionOption::RevealSelectionBounds) ? RevealExtentOption::DoNotRevealExtent : RevealExtentOption::RevealExtent,
