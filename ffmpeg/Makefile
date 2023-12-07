@@ -11,7 +11,7 @@ all: .buildstamp
 	(cd opus-$(OPUS_VERSION) && CC="ppc-morphos-gcc-9 -noixemul" LD=ppc-morphos-ld make -j$(shell nproc) )
 	(cd opus-$(OPUS_VERSION) && make DESTDIR="$(abspath ./)/instdir" install)
 	rm -rf ffmpeg-$(FFMPEG_VERSION)
-	(../../../../aboxtools/xz/xz -dcf ffmpeg-$(FFMPEG_VERSION).tar.xz | tar -x)
+	(xz -dcf ffmpeg-$(FFMPEG_VERSION).tar.xz | tar -x)
 	(cd ffmpeg-$(FFMPEG_VERSION) && patch -p1 <../ffmpeg-$(FFMPEG_VERSION).diff)
 	(cd ffmpeg-$(FFMPEG_VERSION) && CFLAGS="-noixemul -O3 -I$(abspath instdir/include) -I$(abspath aom-build/instdir/include)" LDFLAGS="-noixemul -L$(abspath instdir/lib) -L$(abspath aom-build/instdir/lib) " \
 		PKG_CONFIG_PATH="$(abspath instdir/lib/pkgconfig):$(abspath aom-build/instdir/lib/pkgconfig)" ./configure --prefix="$(abspath ./instdir)" --cc=/gg/bin/ppc-morphos-gcc-9 --ld=/gg/bin/ppc-morphos-gcc-9 \
@@ -26,7 +26,7 @@ all: .buildstamp
 		--enable-demuxer=matroska --enable-libopus --enable-decoder=opus --enable-demuxer=mpegts --enable-demuxer=mpegtsraw --enable-parser=h264 \
 		--enable-demuxer=hevc --enable-decoder=hevc --enable-decoder=mjpeg \
 		--enable-decoder=pcm_s16le --enable-demuxer=wav \
-		--disable-ffmpeg --disable-ffplay --pkg-config-flags="--static" --pkg-config=pkg-config)
+		--disable-ffmpeg --disable-ffplay --disable-doc --pkg-config-flags="--static" --pkg-config=pkg-config)
 #--enable-libaom --enable-decoder=libaom_av1 \
 	# remove "-maltivec -mabi=altivec" from generic CFLAGS
 	perl -pi -e 's/-maltivec -mabi=altivec//' ffmpeg-$(FFMPEG_VERSION)/ffbuild/config.mak
