@@ -102,7 +102,11 @@ public:
     IntRect clipBounds() const final;
     void clipToImageBuffer(ImageBuffer&, const FloatRect&) final;
     
+#if OS(MORPHOS)
+	RenderingMode renderingMode() const final { return RenderingMode::Unaccelerated; }
+#else
     RenderingMode renderingMode() const final;
+#endif
 
     cairo_t* cr() const;
     Vector<float>& layers();

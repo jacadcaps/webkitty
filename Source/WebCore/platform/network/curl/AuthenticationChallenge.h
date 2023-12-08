@@ -33,7 +33,7 @@ namespace WebCore {
 
 class CurlResponse;
 
-class AuthenticationChallenge final : public AuthenticationChallengeBase {
+class WEBCORE_EXPORT AuthenticationChallenge final : public AuthenticationChallengeBase {
 public:
     AuthenticationChallenge()
     {
@@ -44,10 +44,10 @@ public:
     {
     }
 
-    WEBCORE_EXPORT AuthenticationChallenge(const CurlResponse&, unsigned, const ResourceResponse&);
-    WEBCORE_EXPORT AuthenticationChallenge(const URL&, const CertificateInfo&, const ResourceError&);
+    AuthenticationChallenge(const CurlResponse&, unsigned, const ResourceResponse&, AuthenticationClient* = nullptr);
+    AuthenticationChallenge(const URL&, const CertificateInfo&, const ResourceError&, AuthenticationClient* = nullptr);
 
-    AuthenticationClient* authenticationClient() const { return nullptr; }
+    AuthenticationClient* authenticationClient() const { return m_authenticationClient.get(); }
 
 private:
     ProtectionSpace::ServerType protectionSpaceServerTypeFromURI(const URL&, bool isForProxy);
@@ -57,6 +57,8 @@ private:
     ProtectionSpace::AuthenticationScheme authenticationSchemeFromCurlAuth(long);
     String parseRealm(const ResourceResponse&);
     void removeLeadingAndTrailingQuotes(String&);
+
+    RefPtr<AuthenticationClient> m_authenticationClient;
 };
 
 } // namespace WebCore

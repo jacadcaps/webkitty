@@ -182,7 +182,7 @@ void PageDebugger::setJavaScriptPaused(LocalFrame& frame, bool paused)
     }
 }
 
-#if !PLATFORM(MAC)
+#if !PLATFORM(MAC) && !OS(MORPHOS)
 bool PageDebugger::platformShouldContinueRunningEventLoopWhilePaused()
 {
     return RunLoop::cycle() != RunLoop::CycleResult::Stop;

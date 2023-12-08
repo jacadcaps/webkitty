@@ -39,9 +39,15 @@
 #include <wtf/MathExtras.h>
 #include <wtf/text/WTFString.h>
 
+#if OS(MORPHOS)
+#define _NO_PPCINLINE
+#include <proto/harfbuzz.h>
+#include <libraries/harfbuzz.h>
+#else
 #if ENABLE(MATHML) && USE(HARFBUZZ)
 #include <hb-ft.h>
 #include <hb-ot.h>
+#endif
 #endif
 
 namespace WebCore {

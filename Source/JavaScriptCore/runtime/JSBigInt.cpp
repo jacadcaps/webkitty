@@ -58,6 +58,10 @@
 #include <wtf/Int128.h>
 #include <wtf/MathExtras.h>
 
+#ifndef UINT64_MAX
+#define UINT64_MAX 0xffffffffffffffffULL /* 18446744073709551615ULL */
+#endif
+
 namespace JSC {
 
 const ClassInfo JSBigInt::s_info = { "BigInt"_s, nullptr, nullptr, nullptr, CREATE_METHOD_TABLE(JSBigInt) };

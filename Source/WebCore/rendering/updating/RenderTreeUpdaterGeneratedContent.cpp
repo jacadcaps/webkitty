@@ -220,6 +220,19 @@ void RenderTreeUpdater::GeneratedContent::updateBackdropRenderer(RenderElement& 
 
 bool RenderTreeUpdater::GeneratedContent::needsPseudoElement(const RenderStyle* style)
 {
+#if OS(MORPHOS)
+    // this appears to be broken in this version of WebKit
+    // causes PayPal Send and Request page to not render contents at all - it appears that the pseudo element
+    // renders things over
+#if 0
+if (style && style->display() == DisplayType::Block && style->position() == PositionType::Fixed) {
+dprintf("style %p: hasc %d an %d tr %d 3d %d bfv %d sn %d type %d\n", style, style->hasClip(), style->hasAnimations(), style->hasTransitions(), style->preserves3D(), int(style->backfaceVisibility()), style->hasSnapPosition(), int(style->styleType()));
+}
+#endif
+    if (style && style->display() == DisplayType::Block && style->position() == PositionType::Fixed && style->styleType() == PseudoId::Before &&
+        !style->hasAnimations() && !style->hasTransitions())
+        return false;
+#endif
     if (!style)
         return false;
     if (!m_updater.renderTreePosition().parent().canHaveGeneratedChildren())

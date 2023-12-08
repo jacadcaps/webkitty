@@ -14,8 +14,16 @@ set(WebKitLegacy_SOURCES
     WebCoreSupport/NetworkStorageSessionMap.cpp
     WebCoreSupport/WebBroadcastChannelRegistry.cpp
     WebCoreSupport/WebResourceLoadScheduler.cpp
-    WebCoreSupport/WebViewGroup.cpp
+    WebCoreSupport/LegacySocketProvider.cpp
+    WebCoreSupport/WebSocketChannel.cpp
+    WebCoreSupport/SocketStreamHandle.cpp
 )
+
+if (NOT "${PORT}" STREQUAL "MorphOS")
+    set(WebKitLegacy_SOURCES $(WebKitLegacy_SOURCES)
+        WebCoreSupport/WebViewGroup.cpp
+        )
+endif()
 
 set(WebKitLegacy_PRIVATE_INCLUDE_DIRECTORIES
     "${CMAKE_BINARY_DIR}"

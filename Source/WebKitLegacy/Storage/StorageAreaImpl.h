@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include "WebKit.h"
 #include <WebCore/SecurityOriginData.h>
 #include <WebCore/StorageArea.h>
 #include <WebCore/StorageMap.h>

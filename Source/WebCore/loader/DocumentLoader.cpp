@@ -272,8 +272,9 @@ void DocumentLoader::setMainDocumentError(const ResourceError& error)
     if (!error.isNull())
         DOCUMENTLOADER_RELEASE_LOG("setMainDocumentError: (type=%d, code=%d)", static_cast<int>(error.type()), error.errorCode());
 
-    m_mainDocumentError = error;    
-    frameLoader()->client().setMainDocumentError(this, error);
+    m_mainDocumentError = error;
+    if (!!frameLoader())
+		frameLoader()->client().setMainDocumentError(this, error);
 }
 
 void DocumentLoader::mainReceivedError(const ResourceError& error)
@@ -285,6 +286,8 @@ void DocumentLoader::mainReceivedError(const ResourceError& error)
 
     if (!error.isNull())
         DOCUMENTLOADER_RELEASE_LOG("mainReceivedError: (type=%d, code=%d)", static_cast<int>(error.type()), error.errorCode());
+
+	Ref<DocumentLoader> protectedThis(*this);
 
     if (m_identifierForLoadWithoutResourceLoader) {
         ASSERT(!mainResourceLoader());
@@ -301,7 +304,8 @@ void DocumentLoader::mainReceivedError(const ResourceError& error)
 
     setMainDocumentError(error);
     clearMainResourceLoader();
-    frameLoader()->receivedMainResourceError(error);
+    if (!!frameLoader())
+		frameLoader()->receivedMainResourceError(error);
 }
 
 void DocumentLoader::frameDestroyed()

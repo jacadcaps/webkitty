@@ -68,7 +68,7 @@ public:
     void disconnect();
     void targetDestroyed(Element&);
 
-    static size_t maxElementDepth() { return SIZE_MAX; }
+    static size_t maxElementDepth() { return 1000000; }
     size_t gatherObservations(size_t depth);
     void deliverObservations();
     bool hasSkippedObservations() const { return m_hasSkippedObservations; }
