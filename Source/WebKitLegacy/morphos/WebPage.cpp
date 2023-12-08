@@ -4064,4 +4064,83 @@ void WebPage::setRootGraphicsLayer(WebCore::GraphicsLayer* graphicsLayer)
     m_graphicsLayer = graphicsLayer;
 }
 
+bool WebPage::screenshotToFile(const char *fileName)
+{
+    if (!fileName || !*fileName)
+        return false;
+
+	auto* coreFrame = m_mainFrame->coreFrame();
+	if (!coreFrame || !m_drawContext)
+	{
+		return false;
+	}
+	
+	if (m_transitioning)
+		return false;
+	
+    auto* frameView = coreFrame->view();
+    if (!frameView)
+    {
+    	return false;
+	}
+
+    auto* localMainFrame = mainFrame();
+    if (!localMainFrame)
+        return false;
+
+    auto rect = WebCore::IntRect(WebCore::IntPoint(0, 0), frameView->contentsSize());
+    auto snapshotRect = WebCore::IntRect(localMainFrame->view()->clientToDocumentRect(rect));
+
+	auto *surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, snapshotRect.width(), snapshotRect.height());
+	if (nullptr == surface)
+	{
+		return false;
+	}
+
+	auto *cairo = cairo_create(surface);
+	if (nullptr == cairo)
+	{
+		cairo_surface_destroy(surface);
+		return false;
+	}
+ 
+    bool ok = false;
+
+	{
+		WebCore::GraphicsContextCairo gc(cairo);
+//		WebCore::IntRect rect(0, 0, width, height);
+		gc.save();
+		gc.clip(snapshotRect);
+		gc.setImageInterpolationQuality(WebCore::InterpolationQuality::Default);
+
+		OptionSet<WebCore::PaintBehavior> oldBehavior = frameView->paintBehavior();
+		OptionSet<WebCore::PaintBehavior> paintBehavior = oldBehavior;
+		auto oldScroll = frameView->scrollPosition();
+
+		paintBehavior.add(WebCore::PaintBehavior::FlattenCompositingLayers);
+		paintBehavior.add(WebCore::PaintBehavior::Snapshotting);
+		frameView->setPaintBehavior(paintBehavior);
+		m_ignoreScroll = true;
+		frameView->WebCore::ScrollView::scrollTo(WebCore::ScrollPosition(0, 0));
+
+        LocalFrameView::CoordinateSpaceForSnapshot coordinateSpace = LocalFrameView::DocumentCoordinates;
+        LocalFrameView::SelectionInSnapshot shouldIncludeSelection = LocalFrameView::IncludeSelection;
+        
+		frameView->paintContentsForSnapshot(gc, snapshotRect, shouldIncludeSelection, coordinateSpace);
+
+		frameView->setPaintBehavior(oldBehavior);
+		frameView->WebCore::ScrollView::scrollTo(oldScroll);
+		gc.restore();
+		m_ignoreScroll = false;
+
+		cairo_surface_flush(surface);
+        ok = CAIRO_STATUS_SUCCESS == cairo_surface_write_to_png(surface, fileName);
+	}
+
+	cairo_destroy(cairo);
+	cairo_surface_destroy(surface);
+
+    return ok;
 }
+
+} // namespace

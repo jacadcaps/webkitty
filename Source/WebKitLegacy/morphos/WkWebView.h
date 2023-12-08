@@ -238,6 +238,8 @@ typedef enum {
 - (int)visibleHeight;
 
 - (BOOL)screenShotRectAtX:(int)x y:(int)y intoRastPort:(struct RastPort *)rp withWidth:(ULONG)width height:(ULONG)height;
+- (BOOL)screenShotPageToFile:(OBString *)path;
+
 - (void)primeLayoutForWidth:(int)width height:(int)height;
 
 - (WkPrintingState *)beginPrinting;

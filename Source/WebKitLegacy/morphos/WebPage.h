@@ -291,6 +291,8 @@ public:
     void inspectorHighlightUpdated();
 
     void setRootGraphicsLayer(WebCore::GraphicsLayer*);
+    
+    bool screenshotToFile(const char *fileName);
 
 protected:
 	WebPage(WebCore::PageIdentifier, WebPageCreationParameters&&);

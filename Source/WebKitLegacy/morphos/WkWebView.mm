@@ -4065,6 +4065,12 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	return webPage->drawRect(x, y, width, height, rp);
 }
 
+- (BOOL)screenShotPageToFile:(OBString *)path
+{
+	auto webPage = [_private page];
+    return webPage->screenshotToFile([path nativeCString]);
+}
+
 - (BOOL)searchFor:(OBString *)string direction:(BOOL)forward caseSensitive:(BOOL)caseFlag wrap:(BOOL)wrapFlag startInSelection:(BOOL)startInSelection
 {
     if (![string length])
