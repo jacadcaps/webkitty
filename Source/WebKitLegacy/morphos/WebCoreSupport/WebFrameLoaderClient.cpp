@@ -74,7 +74,7 @@
 #include <wtf/HexNumber.h>
 #include "../../WTF/wtf/morphos/MD5.h"
 
-#define D(x)
+#define D(x) 
 
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 #pragma GCC diagnostic ignored "-Wmisleading-indentation"
@@ -1071,8 +1071,8 @@ bool WebFrameLoaderClient::canShowMIMEType(const String& mimeType) const
 {
     bool canShow = mimeType.isNull()
         || MIMETypeRegistry::isSupportedImageMIMEType(mimeType)
-        || MIMETypeRegistry::isSupportedNonImageMIMEType(mimeType)
-        || MIMETypeRegistry::isSupportedMediaMIMEType(mimeType);
+        || MIMETypeRegistry::isSupportedNonImageMIMEType(mimeType);
+//        || MIMETypeRegistry::isSupportedMediaMIMEType(mimeType); // player can't play stuff directly atm
 
     D(dprintf("%s: %s %d\n", __PRETTY_FUNCTION__, mimeType.utf8().data(), canShow));
 
