@@ -61,6 +61,7 @@ private:
     QUAD                          m_size { 0 };
     QUAD                          m_receivedSize { 0 };
     WTF::String                   m_user, m_password;
+    bool                          m_didResume { 0 };
 };
 
 @interface _WkDownload : WkDownload
@@ -177,7 +178,7 @@ bool WebDownload::resume()
 	if (m_download && m_download->isCancelled())
 	{
 		m_download->resume();
-		m_receivedSize = m_download->resumeOffset();
+        m_didResume = true;
 		return true;
 	}
 
@@ -196,8 +197,12 @@ void WebDownload::didReceiveResponse(const WebCore::ResourceResponse& response)
 			// (add received size to handle resuming)
 			// try to keep m_size if already set! (see the case in which we dl from a pending response)
 			// the response here is often bogus in that case :|
-			if (0 == m_size || m_receivedSize)
+			if (0 == m_size || m_didResume)
+            {
+                m_didResume = false;
+                m_receivedSize = m_download->resumeOffset();
 				m_size = m_download->resumeOffset() + response.expectedContentLength();
+            }
 			[[m_outerObject delegate] didReceiveResponse:m_outerObject];
 
 			// redirection
