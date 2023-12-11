@@ -40,6 +40,7 @@
 #include <wtf/NeverDestroyed.h>
 #include <wtf/text/CString.h>
 #include <wtf/text/StringConcatenateNumbers.h>
+#include <wtf/StringPrintStream.h>
 
 #if OS(WINDOWS)
 #include "WebCoreBundleWin.h"
@@ -675,6 +676,13 @@ void CurlHandle::setHttpCustomRequest(const String& method)
 void CurlHandle::setResumeOffset(long long offset)
 {
 	curl_easy_setopt(m_handle, CURLOPT_RESUME_FROM_LARGE, curl_off_t(offset));
+}
+
+void CurlHandle::setRange(long long start, long long end)
+{
+    StringPrintStream out;
+    out.printf("%llu-%llu", start, end);
+    curl_easy_setopt(m_handle, CURLOPT_RANGE, out.toCString().data());
 }
 
 void CurlHandle::enableAcceptEncoding()

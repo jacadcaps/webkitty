@@ -268,6 +268,7 @@ public:
     void setInFileSizeLarge(curl_off_t);
     void setHttpCustomRequest(const String&);
     void setResumeOffset(long long);
+    void setRange(long long start, long long end);
 
     void enableConnectionOnly();
 

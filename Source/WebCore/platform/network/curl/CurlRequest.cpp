@@ -289,11 +289,29 @@ CURL* CurlRequest::setupTransfer()
 
     m_curlHandle->setTimeout(timeoutInterval());
 
-    if (m_downloadResumeOffset > 0)
+    if (m_downloadPendingResume) {
+        Locker locker { m_downloadMutex };
+        if (m_downloadPendingResume) {
+            m_downloadPendingResume = false;
+            m_downloadFileHandle = FileSystem::openFile(m_downloadFilePath, FileSystem::FileOpenMode::ReadWrite);
+            if (m_downloadFileHandle != FileSystem::invalidPlatformFileHandle) {
+                m_downloadResumeOffset = FileSystem::seekFile(m_downloadFileHandle, 0, FileSystem::FileSeekOrigin::End);
+            }
+            else {
+                m_downloadResumeOffset = 0;
+            }
+        }
+    }
+
+    if (m_downloadEndOffset > 0) {
+        m_curlHandle->setRange(m_downloadResumeOffset, m_downloadEndOffset);
+    }
+    else if (m_downloadResumeOffset > 0) {
         m_curlHandle->setResumeOffset(m_downloadResumeOffset);
+    }
 
     // Disable automatic decompression when downloading to a file
-    if (m_isEnabledDownloadToFile)
+    if (m_isEnabledDownloadToFile || m_disableAcceptEncoding)
         m_curlHandle->disableAcceptEncoding();
 
     m_performStartTime = MonotonicTime::now();
@@ -806,16 +824,8 @@ void CurlRequest::resumeDownloadToFile(const String &tmpDownloadPath)
 {
     LockHolder locker(m_downloadMutex);
     m_isEnabledDownloadToFile = true;
-	m_downloadFileHandle = FileSystem::openFile(tmpDownloadPath, FileSystem::FileOpenMode::ReadWrite);
-	if (m_downloadFileHandle != FileSystem::invalidPlatformFileHandle)
-	{
-		m_downloadFilePath = tmpDownloadPath;
-		m_downloadResumeOffset = FileSystem::seekFile(m_downloadFileHandle, 0, FileSystem::FileSeekOrigin::End);
-	}
-	else
-	{
-		m_downloadResumeOffset = 0;
-	}
+    m_downloadFilePath = tmpDownloadPath;
+    m_downloadPendingResume = true;
 }
 
 String CurlRequest::getDownloadedFilePath()
@@ -835,8 +845,7 @@ void CurlRequest::writeDataToDownloadFileIfEnabled(const FragmentedSharedBuffer&
         if (m_downloadFilePath.isEmpty())
             m_downloadFilePath = FileSystem::openTemporaryFile("download"_s, m_downloadFileHandle);
 
-        if (m_downloadFilePath.isEmpty() && m_downloadFileHandle != FileSystem::invalidPlatformFileHandle)
-        {
+        if (m_downloadFilePath.isEmpty() && m_downloadFileHandle != FileSystem::invalidPlatformFileHandle) {
             FileSystem::closeFile(m_downloadFileHandle);
             m_downloadFileHandle = FileSystem::invalidPlatformFileHandle;
         }

@@ -84,6 +84,7 @@ public:
 
     long long resumeOffset() { return m_downloadResumeOffset; }
     void setResumeOffset(long long offset) { m_downloadResumeOffset = offset; }
+    void setResumeOffset(long long offset, long long endoffset) { m_downloadResumeOffset = offset; m_downloadEndOffset = endoffset; }
 
     const ResourceRequest& resourceRequest() const { return m_request; }
     bool isCancelled();
@@ -104,6 +105,8 @@ public:
     String getDownloadedFilePath();
 		
     static void SetDownloadPath(const String &downloadPath) { m_downloadPath = downloadPath; }
+
+    void disableAcceptEncoding(bool disable) { m_disableAcceptEncoding = disable; }
 
 private:
     enum class Action {
@@ -218,12 +221,15 @@ private:
     String m_downloadFilePath;
     FileSystem::PlatformFileHandle m_downloadFileHandle { FileSystem::invalidPlatformFileHandle };
     long long m_downloadResumeOffset { 0 };
+    long long m_downloadEndOffset { 0 };
+    bool m_downloadPendingResume { false };
     static String m_downloadPath;
 
     bool m_captureExtraMetrics;
     HTTPHeaderMap m_requestHeaders;
     MonotonicTime m_performStartTime;
     size_t m_totalReceivedSize { 0 };
+    bool m_disableAcceptEncoding { false };
 };
 
 } // namespace WebCore
