@@ -387,6 +387,9 @@ RefPtr<AudioBus> createBusFromInMemoryAudioFile(const void* data, size_t dataSiz
 RefPtr<AudioBus> createBusFromAudioFile(const char* filePath, bool mixToMono, float sampleRate)
 {
 	notImplemented();
+    (void)filePath;
+    (void)mixToMono;
+    (void)sampleRate;
 	return nullptr;
 }
 
