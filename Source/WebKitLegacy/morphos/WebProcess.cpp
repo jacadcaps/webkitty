@@ -564,7 +564,7 @@ void WebProcess::waitForThreads()
 				}
 			}
 		}
-		Delay(10);
+		Delay(20);
 		RunLoop::current().iterate();
 	}
 	D(dprintf("..done waiting\n"));

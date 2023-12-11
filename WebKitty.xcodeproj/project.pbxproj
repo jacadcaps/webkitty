@@ -83,7 +83,6 @@
 		016C0E8227E4EEAC008E755F /* WkResourceResponse.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkResourceResponse.h; path = Source/WebKitLegacy/morphos/WkResourceResponse.h; sourceTree = "<group>"; };
 		016C0E8327E4EEAC008E755F /* WkHistory.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkHistory.h; path = Source/WebKitLegacy/morphos/WkHistory.h; sourceTree = "<group>"; };
 		016C0E8427E4EEAC008E755F /* WkResourceResponse.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WkResourceResponse.mm; path = Source/WebKitLegacy/morphos/WkResourceResponse.mm; sourceTree = "<group>"; };
-		016C0E8527E4EEAC008E755F /* FrameInfoData.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = FrameInfoData.h; path = Source/WebKitLegacy/morphos/FrameInfoData.h; sourceTree = "<group>"; };
 		016C0E8627E4EEAC008E755F /* WkUserScript_private.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkUserScript_private.h; path = Source/WebKitLegacy/morphos/WkUserScript_private.h; sourceTree = "<group>"; };
 		016C0E8727E4EEAC008E755F /* WebDatabaseManager.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WebDatabaseManager.h; path = Source/WebKitLegacy/morphos/WebDatabaseManager.h; sourceTree = "<group>"; };
 		016C0E8827E4EEAC008E755F /* WkCertificate.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkCertificate.h; path = Source/WebKitLegacy/morphos/WkCertificate.h; sourceTree = "<group>"; };
@@ -181,7 +180,6 @@
 				016C0E9127E4EEAC008E755F /* BackForwardClient.h */,
 				016C0E7927E4EEAB008E755F /* CacheModel.cpp */,
 				016C0EA727E4EEAD008E755F /* CacheModel.h */,
-				016C0E8527E4EEAC008E755F /* FrameInfoData.h */,
 				016C0E7B27E4EEAB008E755F /* Gamepad.cpp */,
 				016C0EAB27E4EEAD008E755F /* Gamepad.h */,
 				016C0E6627E4EE77008E755F /* OptionsMorphOS.cmake */,
