@@ -726,7 +726,6 @@ void MediaSourceBufferPrivateMorphOS::seekToTime(const MediaTime&mt)
 	if (m_seeking)
 		m_seeking = false;
 
-	int enqueueCount = m_enqueueCount;
 	SourceBufferPrivate::seekToTime(mt);
 }
 
@@ -1025,7 +1024,7 @@ void MediaSourceBufferPrivateMorphOS::setActive(bool isActive)
 	}
 }
 
-void MediaSourceBufferPrivateMorphOS::notifyClientWhenReadyForMoreSamples(const AtomString&trackID)
+void MediaSourceBufferPrivateMorphOS::notifyClientWhenReadyForMoreSamples(const AtomString&)
 {
 }
 
@@ -1127,7 +1126,7 @@ void MediaSourceBufferPrivateMorphOS::initialize(bool success,
 		m_muxer->setDecoderMask(decoderIndexMask, m_audioDecoderMask);
 		for (int i = 0; i < std::min(Acinerella::AcinerellaMuxedBuffer::maxDecoders, acinerella->instance()->stream_count); i++)
 			m_maxBuffer[i] = m_muxer->maxBufferSizeForMediaSourceDecoder(i);
-		m_muxer->setSinkFunction([this, protectedThis = Ref{*this}](int decoderIndex, int sizeLeft, uint32_t bytesInBuffer) {
+		m_muxer->setSinkFunction([this, protectedThis = Ref{*this}](int decoderIndex, int , uint32_t bytesInBuffer) {
 			if (bytesInBuffer < m_maxBuffer[decoderIndex] / 2)
 				becomeReadyForMoreSamples(decoderIndex);
 			return false; // avoid blocking the pipeline!
@@ -1152,8 +1151,8 @@ void MediaSourceBufferPrivateMorphOS::initialize(bool success,
 }
 
 void MediaSourceBufferPrivateMorphOS::reinitialize(bool success,
-	WebCore::SourceBufferPrivateClient::InitializationSegment& segment,
-	MediaPlayerMorphOSInfo& minfo)
+	WebCore::SourceBufferPrivateClient::InitializationSegment&,
+	MediaPlayerMorphOSInfo&)
 {
 	RefPtr<Acinerella::AcinerellaPointer> acinerella = m_reader->acinerella();
 
@@ -1164,7 +1163,6 @@ void MediaSourceBufferPrivateMorphOS::reinitialize(bool success,
 
 	EP_SCOPE(initialize);
 	DM(dprintf("[MS]ac initialized, stream count %d\n", acinerella->instance()->stream_count));
-	double duration = 0.0;
 	uint32_t decoderIndexMask = 0;
 
     if (m_reader->numDecoders() != m_numDecoders) {
@@ -1361,7 +1359,7 @@ void MediaSourceBufferPrivateMorphOS::onDecoderUpdatedPosition(RefPtr<Acinerella
 	}
 }
 
-void MediaSourceBufferPrivateMorphOS::onDecoderUpdatedDuration(RefPtr<Acinerella::AcinerellaDecoder>, double duration)
+void MediaSourceBufferPrivateMorphOS::onDecoderUpdatedDuration(RefPtr<Acinerella::AcinerellaDecoder>, double)
 {
 	// live streams
 }

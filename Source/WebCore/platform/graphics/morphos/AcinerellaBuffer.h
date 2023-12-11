@@ -66,6 +66,8 @@ public:
 	virtual bool markLastFrameRead() { return true; };
 	
 	virtual bool isEncrypted() const { return false; }
+ 
+    virtual void getErrorMessage(WTF::String& error) { (void)error; };
 
 	// Acinerella Thread Methods
 	static const int eRead_EOFWhileInitializing = -3;

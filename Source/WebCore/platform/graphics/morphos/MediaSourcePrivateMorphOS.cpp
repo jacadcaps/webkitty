@@ -55,6 +55,7 @@ MediaSourcePrivateMorphOS::~MediaSourcePrivateMorphOS()
 MediaSourcePrivate::AddStatus MediaSourcePrivateMorphOS::addSourceBuffer(const ContentType& contentType, bool webMParserEnabled, RefPtr<SourceBufferPrivate>& buffer)
 {
 	D(dprintf("%s: '%s'\n", __PRETTY_FUNCTION__, contentType.raw().utf8().data()));
+    (void)webMParserEnabled;
 
     MediaEngineSupportParameters parameters;
     parameters.isMediaSource = true;
@@ -99,7 +100,7 @@ void MediaSourcePrivateMorphOS::markEndOfStream(EndOfStreamStatus status)
 {
 	DEOS(dprintf("%s: \n", __PRETTY_FUNCTION__));
     if (status == EosNoError && m_player)
-        m_player->accSetNetworkState(MediaPlayer::NetworkState::Loaded);
+        m_player->accSetNetworkState(MediaPlayer::NetworkState::Loaded, { });
     m_ended = true;
 }
 
@@ -494,6 +495,8 @@ void MediaSourcePrivateMorphOS::onAudioSourceBufferUpdatedPosition(RefPtr<MediaS
 
 void MediaSourcePrivateMorphOS::onVideoSourceBufferUpdatedPosition(RefPtr<MediaSourceBufferPrivateMorphOS>& buffer, double position)
 {
+    (void)buffer;
+
 	if (m_orphaned)
 		return;
 

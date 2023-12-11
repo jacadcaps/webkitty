@@ -89,7 +89,7 @@ public:
 
 	void accInitialized(MediaPlayerMorphOSInfo info) override;
 	void accUpdated(MediaPlayerMorphOSInfo info) override;
-	void accSetNetworkState(WebCore::MediaPlayerEnums::NetworkState state) override;
+	void accSetNetworkState(WebCore::MediaPlayerEnums::NetworkState state, const WTF::String &error) override;
 	void accSetReadyState(WebCore::MediaPlayerEnums::ReadyState state) override;
 	void accSetBufferLength(double buffer) override;
 	void accSetPosition(double buffer) override;
@@ -116,6 +116,8 @@ public:
 	void selectHLSStream(const String& url) override;
 
     DestinationColorSpace colorSpace() final { return DestinationColorSpace::SRGB(); }
+    
+    String errorMessage() const final;
 protected:
 	MediaPlayer* m_player;
 	RefPtr<Acinerella::Acinerella> m_acinerella;
@@ -124,6 +126,7 @@ protected:
 	MediaPlayerMorphOSStreamSettings m_streamSettings;
 	MediaTime m_duration = MediaTime::invalidTime();
 	MediaTime m_currentTime;
+    String m_errorMessage;
     PlatformTimeRanges m_buffered;
 	int   m_width = 1280;
 	int   m_height = 740;

@@ -82,7 +82,8 @@ public:
 		m_curlRequest = createCurlRequest(m_request);
 		if (m_curlRequest)
 		{
-			m_curlRequest->setResumeOffset(static_cast<long long>(m_bufferPositionAbs));
+            m_curlRequest->disableAcceptEncoding(true);
+			m_curlRequest->setResumeOffset(static_cast<long long>(m_bufferPositionAbs));//, static_cast<long long>(m_bufferPositionAbs + m_readAhead));
 			m_curlRequest->start();
 		}
 	}
@@ -110,6 +111,11 @@ public:
 	{
 		return m_length > 0;
 	}
+ 
+    void getErrorMessage(WTF::String& error)
+    {
+        error = m_errorMessage;
+    };
 
 	int read(uint8_t *outBuffer, int size, int64_t readPosition) override
 	{
@@ -223,7 +229,8 @@ public:
 				m_curlRequest = createCurlRequest(m_request);
 				if (m_curlRequest)
 				{
-					m_curlRequest->setResumeOffset(static_cast<long long>(abs));
+                    m_curlRequest->disableAcceptEncoding(true);
+					m_curlRequest->setResumeOffset(static_cast<long long>(abs));//, static_cast<long long>(abs + m_readAhead));
 					m_curlRequest->start();
 				}
 			}
@@ -320,7 +327,8 @@ public:
 				m_curlRequest = createCurlRequest(newRequest);
 				if (m_curlRequest)
 				{
-					m_curlRequest->setResumeOffset(static_cast<long long>(m_bufferPositionAbs));
+                    m_curlRequest->disableAcceptEncoding(true);
+					m_curlRequest->setResumeOffset(static_cast<long long>(m_bufferPositionAbs));//, static_cast<long long>(m_bufferPositionAbs + m_readAhead));
 					m_curlRequest->start();
 				}
 
@@ -334,7 +342,7 @@ public:
 	
 	void curlDidReceiveData(CurlRequest& request, const SharedBuffer& buffer) override
 	{
-		D(dprintf("%s(%p): %d bytes, currently buffered size: %d\n", __PRETTY_FUNCTION__, this, buffer->size(), m_bufferSize));
+		D(dprintf("%s(%p): %d bytes, currently buffered size: %d\n", __PRETTY_FUNCTION__, this, buffer.size(), m_bufferSize));
 		if (m_curlRequest.get() == &request)
 		{
 			if (buffer.size())
@@ -382,6 +390,7 @@ public:
 			m_isPaused = true;
 			m_didFailLoading = true;
 			m_eventSemaphore.signal();
+            m_errorMessage = error.localizedDescription();
 			if (error.type() != ResourceError::Type::Timeout && error.type() != ResourceError::Type::Cancellation)
 				m_nonRecoverableErrors ++;
 			D(dprintf("%s(%p): error type %d code %d %s nrcount %d\n", __PRETTY_FUNCTION__, this, int(error.type()), int(error.errorCode()), error.localizedDescription().utf8().data(), m_nonRecoverableErrors));
@@ -390,6 +399,7 @@ public:
 protected:
 	ResourceRequest                  m_request;
 	ResourceResponse                 m_response;
+    String                           m_errorMessage;
 	unsigned                         m_redirectCount = 0;
 	BinarySemaphore                  m_eventSemaphore;
 	RefPtr<CurlRequest>              m_curlRequest;
@@ -458,7 +468,7 @@ public:
 			if (success)
 			{
                 m_bufferBuilder.append(*m_request->buffer());
-				DP(dprintf("%s(%p): received, total len %d (%d)\n", __PRETTY_FUNCTION__, this, m_buffer->size(), buffer->size()));
+				DP(dprintf("%s(%p): received, total len %d (%d)\n", __PRETTY_FUNCTION__, this, m_buffer->size(), m_request->buffer()->size()));
 
 #if ENABLE(WEB_CRYPTO)
 				if (!!m_encryptionKey)
@@ -626,6 +636,7 @@ public:
 
 		if (m_curlRequest)
 		{
+            m_curlRequest->disableAcceptEncoding(true);
 			m_curlRequest->start();
 		}
 		else
@@ -643,6 +654,7 @@ public:
 
 		if (m_curlRequest)
 		{
+            m_curlRequest->disableAcceptEncoding(true);
 			m_curlRequest->start();
 		}
 		else
@@ -763,6 +775,7 @@ public:
 				m_curlRequest = createCurlRequest(newRequest);
 				if (m_curlRequest)
 				{
+                    m_curlRequest->disableAcceptEncoding(true);
 					m_curlRequest->start();
 				}
 				else

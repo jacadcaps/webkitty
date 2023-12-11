@@ -804,9 +804,10 @@ void MediaPlayerPrivateMorphOS::accUpdated(MediaPlayerMorphOSInfo info)
 	}
 }
 
-void MediaPlayerPrivateMorphOS::accSetNetworkState(WebCore::MediaPlayerEnums::NetworkState state)
+void MediaPlayerPrivateMorphOS::accSetNetworkState(WebCore::MediaPlayerEnums::NetworkState state, const WTF::String &error)
 {
 	m_networkState = state;
+    m_errorMessage = error;
 	m_player->networkStateChanged();
 }
 
@@ -910,6 +911,12 @@ void MediaPlayerPrivateMorphOS::selectHLSStream(const String& url)
 {
 	if (m_acinerella)
 		m_acinerella->selectStream(url, m_currentTime.toDouble());
+}
+
+String MediaPlayerPrivateMorphOS::errorMessage() const
+{
+    D(dprintf("%s: %s\n", __func__, m_errorMessage.utf8().data()));
+    return m_errorMessage;
 }
 
 }

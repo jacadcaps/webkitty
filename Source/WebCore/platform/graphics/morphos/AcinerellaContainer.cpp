@@ -12,12 +12,12 @@
 #include <proto/exec.h>
 #include <exec/system.h>
 
-#define D(x)
+#define D(x) 
 #define DNP(x)
-#define DIO(x) 
+#define DIO(x)
 #define DINIT(x)
 
-#define DDUMP(x) 
+#define DDUMP(x)
 
 namespace WebCore {
 namespace Acinerella {
@@ -616,7 +616,7 @@ bool Acinerella::initialize()
 				WTF::callOnMainThread([this, protectedThis = Ref{*this}]() {
 					if (m_client)
 					{
-						m_client->accSetNetworkState(WebCore::MediaPlayerEnums::NetworkState::Loading);
+						m_client->accSetNetworkState(WebCore::MediaPlayerEnums::NetworkState::Loading, { });
 					}
 				});
 
@@ -1140,6 +1140,18 @@ int Acinerella::read(uint8_t *buf, int size)
 		{
 			rc = 0;
 		}
+        else if (rc == AcinerellaNetworkBuffer::eRead_Error)
+        {
+			DIO(dprintf("ERROR!\n"));
+                WTF::String message;
+                buffer->getErrorMessage(message);
+				WTF::callOnMainThread([this, protectedThis = Ref{*this}, error = message]() {
+					if (m_client)
+					{
+						m_client->accSetNetworkState(WebCore::MediaPlayerEnums::NetworkState::FormatError, error);
+					}
+				});
+        }
 		
 		return rc;
 	}
