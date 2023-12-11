@@ -694,6 +694,12 @@ ExceptionOr<void> ContainerNode::removeChild(Node& oldChild)
     Ref protectedThis { *this };
     Ref protectedOldChild { oldChild };
 
+#if OS(MORPHOS) // why?
+    if (!is<Node>(&oldChild)) {
+        return Exception { NotFoundError };
+    }
+#endif
+
     // NotFoundError: Raised if oldChild is not a child of this node.
     if (oldChild.parentNode() != this)
         return Exception { NotFoundError };

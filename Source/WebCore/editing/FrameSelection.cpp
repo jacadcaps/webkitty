@@ -2220,8 +2220,21 @@ static Vector<Style::PseudoClassChangeInvalidation> invalidateFocusedElementAndS
 
 void FrameSelection::pageActivationChanged()
 {
+#if OS(MORPHOS)
+    // NOTE: not exactly sure why but seeing crashes at this offset
+    if (!m_document)
+        return;
+    RefPtr<Document> document = m_document.get();
+    if (!document)
+        return;
+    bool isActive = isPageActive(document.get());
+    RefPtr focusedElement = document->focusedElement();
+    if (!focusedElement)
+        return;
+#else
     bool isActive = isPageActive(m_document.get());
     RefPtr focusedElement = m_document->focusedElement();
+#endif
     {
         auto invalidations = invalidateFocusedElementAndShadowIncludingAncestors(focusedElement.get(), m_focused && isActive);
         m_isActive = isActive;
