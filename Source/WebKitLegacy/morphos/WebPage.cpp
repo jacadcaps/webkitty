@@ -2422,22 +2422,18 @@ void WebPage::draw(struct RastPort *rp, const int x, const int y, const int widt
 
 	auto scroll = frameView->scrollPosition();
 
-    if (width != m_drawContext->width() || height != m_drawContext->height()) {
-        frameView->availableContentSizeChanged(WebCore::ScrollableArea::AvailableSizeChangeReason::AreaSizeChanged);
-    }
-
 	if (m_needsCompositingFlush) {
 		m_needsCompositingFlush = false;
 
         m_page->updateRendering();
         m_page->finalizeRenderingUpdate({ });
-
-//		coreFrame->view()->availableContentSizeChanged(WebCore::ScrollableArea::AvailableSizeChangeReason::AreaSizeChanged);
-//		coreFrame->view()->updateLayoutAndStyleIfNeededRecursive();
 	}
-    else {
-        frameView->updateLayoutAndStyleIfNeededRecursive();
+
+    if (width != m_drawContext->width() || height != m_drawContext->height()) {
+        frameView->availableContentSizeChanged(WebCore::ScrollableArea::AvailableSizeChangeReason::AreaSizeChanged);
     }
+
+    m_page->layoutIfNeeded();
 
 #if 0
 	if (frameView->renderView())
