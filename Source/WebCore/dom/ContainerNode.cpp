@@ -182,18 +182,12 @@ static ContainerNode::ChildChange makeChildChangeForRemoval(Node& childToRemove,
     };
 }
 
-#if OS(MORPHOS)
-#pragma GCC diagnostic push
-#pragma GCC optimize ("O2")
-#endif
-
-#if OS(MORPHOS)
-bool ContainerNode::removeNodeWithScriptAssertion(Node& childToRemove, ChildChange::Source source)
-#else
 ALWAYS_INLINE bool ContainerNode::removeNodeWithScriptAssertion(Node& childToRemove, ChildChange::Source source)
-#endif
 {
     Ref<Node> protectedChildToRemove(childToRemove);
+#if OS(MORPHOS)
+    RefPtr<Node> reallyProtectedChildToRemove(&childToRemove);
+#endif
     ASSERT_WITH_SECURITY_IMPLICATION(childToRemove.parentNode() == this);
     {
         ScriptDisallowedScope::InMainThread scriptDisallowedScope;
@@ -253,11 +247,6 @@ ALWAYS_INLINE bool ContainerNode::removeNodeWithScriptAssertion(Node& childToRem
 
     return true;
 }
-
-#if OS(MORPHOS)
-#pragma GCC diagnostic pop
-#endif
-
 
 enum class ReplacedAllChildren { No, YesIncludingElements, YesNotIncludingElements };
 
@@ -680,11 +669,6 @@ void ContainerNode::disconnectDescendantFrames()
     disconnectSubframesIfNeeded(*this, SubframeDisconnectPolicy::RootAndDescendants);
 }
 
-#if OS(MORPHOS)
-#pragma GCC diagnostic push
-#pragma GCC optimize ("O2")
-#endif
-
 ExceptionOr<void> ContainerNode::removeChild(Node& oldChild)
 {
     // Check that this node is not "floating".
@@ -693,12 +677,6 @@ ExceptionOr<void> ContainerNode::removeChild(Node& oldChild)
 
     Ref protectedThis { *this };
     Ref protectedOldChild { oldChild };
-
-#if OS(MORPHOS) // why?
-    if (!is<Node>(&oldChild)) {
-        return Exception { NotFoundError };
-    }
-#endif
 
     // NotFoundError: Raised if oldChild is not a child of this node.
     if (oldChild.parentNode() != this)
@@ -720,10 +698,6 @@ ExceptionOr<void> ContainerNode::removeChild(Node& oldChild)
 
     return { };
 }
-
-#if OS(MORPHOS)
-#pragma GCC diagnostic pop
-#endif
 
 void ContainerNode::removeBetween(Node* previousChild, Node* nextChild, Node& oldChild)
 {
