@@ -185,9 +185,6 @@ static ContainerNode::ChildChange makeChildChangeForRemoval(Node& childToRemove,
 ALWAYS_INLINE bool ContainerNode::removeNodeWithScriptAssertion(Node& childToRemove, ChildChange::Source source)
 {
     Ref<Node> protectedChildToRemove(childToRemove);
-#if OS(MORPHOS)
-    RefPtr<Node> reallyProtectedChildToRemove(&childToRemove);
-#endif
     ASSERT_WITH_SECURITY_IMPLICATION(childToRemove.parentNode() == this);
     {
         ScriptDisallowedScope::InMainThread scriptDisallowedScope;

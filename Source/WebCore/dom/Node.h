@@ -802,6 +802,13 @@ ALWAYS_INLINE void Node::deref() const
         const_cast<Node&>(*this).removedLastRef();
         return;
     }
+#if OS(MORPHOS)
+// why does this happen?
+    volatile auto x = this;
+    if (!x) {
+        return;
+    }
+#endif
     m_refCountAndParentBit = updatedRefCount;
 }
 
