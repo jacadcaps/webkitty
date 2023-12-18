@@ -1475,6 +1475,12 @@ static inline bool canUseSetDataOptimization(const Text& containerChild, const C
 
 ExceptionOr<void> replaceChildrenWithFragment(ContainerNode& container, Ref<DocumentFragment>&& fragment)
 {
+#if OS(MORPHOS)
+    volatile auto *xContainer = &container;
+    if (!xContainer)
+        return { };
+#endif
+
     Ref<ContainerNode> containerNode(container);
     ChildListMutationScope mutation(containerNode);
 
