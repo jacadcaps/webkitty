@@ -32,6 +32,8 @@
 #include "CurlResponse.h"
 #include "ProtectionSpace.h"
 #include "ResourceRequest.h"
+#include <wtf/FileSystem.h>
+#include <wtf/MessageQueue.h>
 #include <wtf/MonotonicTime.h>
 #include <wtf/Noncopyable.h>
 
@@ -41,11 +43,17 @@ class CurlRequestClient;
 class NetworkLoadMetrics;
 class ResourceError;
 class FragmentedSharedBuffer;
+class SynchronousLoaderMessageQueue;
 
 class CurlRequest : public ThreadSafeRefCounted<CurlRequest>, public CurlRequestSchedulerClient, public CurlMultipartHandleClient {
     WTF_MAKE_NONCOPYABLE(CurlRequest);
 
 public:
+    enum class ShouldSuspend : bool {
+        No = false,
+        Yes = true
+    };
+
     enum class EnableMultipart : bool {
         No = false,
         Yes = true
@@ -56,9 +64,9 @@ public:
         Extended
     };
 
-    static Ref<CurlRequest> create(const ResourceRequest& request, CurlRequestClient& client, EnableMultipart enableMultipart = EnableMultipart::No, CaptureNetworkLoadMetrics captureMetrics = CaptureNetworkLoadMetrics::Basic)
+    static Ref<CurlRequest> create(const ResourceRequest& request, CurlRequestClient& client, ShouldSuspend shouldSuspend = ShouldSuspend::No, EnableMultipart enableMultipart = EnableMultipart::No, CaptureNetworkLoadMetrics captureMetrics = CaptureNetworkLoadMetrics::Basic, RefPtr<SynchronousLoaderMessageQueue>&& messageQueue = nullptr)
     {
-        return adoptRef(*new CurlRequest(request, &client, enableMultipart, captureMetrics));
+        return adoptRef(*new CurlRequest(request, &client, shouldSuspend, enableMultipart, captureMetrics, WTFMove(messageQueue)));
     }
 
     virtual ~CurlRequest();
@@ -69,8 +77,14 @@ public:
     bool isServerTrustEvaluationDisabled() { return m_shouldDisableServerTrustEvaluation; }
     void disableServerTrustEvaluation() { m_shouldDisableServerTrustEvaluation = true; }
 
-    WEBCORE_EXPORT void resume();
+    WEBCORE_EXPORT void start();
     WEBCORE_EXPORT void cancel();
+    WEBCORE_EXPORT void suspend();
+    WEBCORE_EXPORT void resume();
+
+    long long resumeOffset() { return m_downloadResumeOffset; }
+    void setResumeOffset(long long offset) { m_downloadResumeOffset = offset; }
+    void setResumeOffset(long long offset, long long endoffset) { m_downloadResumeOffset = offset; m_downloadEndOffset = endoffset; }
 
     const ResourceRequest& resourceRequest() const { return m_request; }
     bool isCancelled();
@@ -83,8 +97,26 @@ public:
     // Processing for DidReceiveResponse
     WEBCORE_EXPORT void completeDidReceiveResponse();
 
+    // Download
+    void enableDownloadToFile();
+    void resumeDownloadToFile(const String &tmpDownloadPath);
+    void setDeletesDownloadFileOnCancelOrError(bool deletesFile) { m_deletesDownloadFileOnCancelOrError = deletesFile; }
+    long long getDownloadResumeOffset() const { return m_downloadResumeOffset; }
+    String getDownloadedFilePath();
+		
+    static void SetDownloadPath(const String &downloadPath) { m_downloadPath = downloadPath; }
+
+    void disableAcceptEncoding(bool disable) { m_disableAcceptEncoding = disable; }
+
 private:
-    WEBCORE_EXPORT CurlRequest(const ResourceRequest&, CurlRequestClient*, EnableMultipart, CaptureNetworkLoadMetrics);
+    enum class Action {
+        None,
+        ReceiveData,
+        StartTransfer,
+        FinishTransfer
+    };
+
+    WEBCORE_EXPORT CurlRequest(const ResourceRequest&, CurlRequestClient*, ShouldSuspend, EnableMultipart, CaptureNetworkLoadMetrics, RefPtr<SynchronousLoaderMessageQueue>&&);
 
     void retain() override { ref(); }
     void release() override { deref(); }
@@ -107,6 +139,7 @@ private:
     void didCompleteTransfer(CURLcode) override;
     void didCancelTransfer() override;
     void finalizeTransfer();
+    void invokeCancel();
 
     int didReceiveDebugInfo(curl_infotype, char*, size_t);
 
@@ -114,14 +147,26 @@ private:
     void appendAcceptLanguageHeader(HTTPHeaderMap&);
     void setupPOST();
     void setupPUT();
+    void setupSendData(bool forPutMethod);
 
     // Processing for DidReceiveResponse
     bool needToInvokeDidReceiveResponse() const { return m_didReceiveResponse && !m_didNotifyResponse; }
-    bool needToInvokeDidCancelTransfer() const { return m_didNotifyResponse && !m_didReturnFromNotify && m_mustInvokeCancelTransfer; }
+    bool needToInvokeDidCancelTransfer() const { return m_didNotifyResponse && !m_didReturnFromNotify && m_actionAfterInvoke == Action::FinishTransfer; }
     void invokeDidReceiveResponseForFile(const URL&);
-    void invokeDidReceiveResponse(const CurlResponse&, Function<void()>&& completionHandler = { });
+    void invokeDidReceiveResponse(const CurlResponse&, Action);
+    void setRequestPaused(bool);
+    void setCallbackPaused(bool);
+    void pausedStatusChanged();
+    bool shouldBePaused() const { return m_isPausedOfRequest || m_isPausedOfCallback; };
+    void updateHandlePauseState(bool);
+    bool isHandlePaused() const;
 
     NetworkLoadMetrics networkLoadMetrics();
+
+    // Download
+    void writeDataToDownloadFileIfEnabled(const FragmentedSharedBuffer&);
+    void closeDownloadFile();
+    void cleanupDownloadFile();
 
     // Callback functions for curl
     static size_t willSendDataCallback(char*, size_t, size_t, void*);
@@ -134,6 +179,7 @@ private:
     Lock m_statusMutex;
     bool m_cancelled { false };
     bool m_completed { false };
+    RefPtr<SynchronousLoaderMessageQueue> m_messageQueue;
 
     ResourceRequest m_request;
     String m_user;
@@ -142,22 +188,48 @@ private:
     bool m_shouldDisableServerTrustEvaluation { false };
     bool m_enableMultipart { false };
 
+    enum class StartState : uint8_t { StartSuspended, WaitingForStart, DidStart };
+    StartState m_startState;
+    
     std::unique_ptr<CurlHandle> m_curlHandle;
     CurlFormDataStream m_formDataStream;
     std::unique_ptr<CurlMultipartHandle> m_multipartHandle;
 
     CurlResponse m_response;
-    bool m_didStartTransfer { false };
     bool m_didReceiveResponse { false };
     bool m_didNotifyResponse { false };
     bool m_didReturnFromNotify { false };
-    bool m_mustInvokeCancelTransfer { false };
-    Function<void()> m_responseCompletionHandler;
+    Action m_actionAfterInvoke { Action::None };
+    CURLcode m_finishedResultCode { CURLE_OK };
+
+    bool m_isPausedOfRequest { false };
+    bool m_isPausedOfCallback { false };
+    Lock m_pauseStateMutex;
+    // Following `m_isHandlePaused` is actual paused state of CurlHandle. It's required because pause
+    // request coming from main thread has a time lag until it invokes and receive callback can
+    // change the state by returning a special value. So that is must be managed by this flag.
+    // Unfortunately libcurl doesn't have an interface to check the state.
+    // There's also no need to protect this flag by the mutex because it is and MUST BE accessed only
+    // within worker thread. The access must be using accessor to detect irregular usage.
+    // [TODO] When libcurl is updated to fetch paused state, remove this state variable and
+    // setter/getter above.
+    bool m_isHandlePaused { false };
+
+    Lock m_downloadMutex;
+    bool m_isEnabledDownloadToFile { false };
+    bool m_deletesDownloadFileOnCancelOrError { false };
+    String m_downloadFilePath;
+    FileSystem::PlatformFileHandle m_downloadFileHandle { FileSystem::invalidPlatformFileHandle };
+    long long m_downloadResumeOffset { 0 };
+    long long m_downloadEndOffset { 0 };
+    bool m_downloadPendingResume { false };
+    static String m_downloadPath;
 
     bool m_captureExtraMetrics;
     HTTPHeaderMap m_requestHeaders;
     MonotonicTime m_performStartTime;
     size_t m_totalReceivedSize { 0 };
+    bool m_disableAcceptEncoding { false };
 };
 
 } // namespace WebCore

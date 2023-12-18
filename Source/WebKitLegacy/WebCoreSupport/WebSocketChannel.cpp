@@ -29,10 +29,15 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "WebKit.h"
 #include "WebSocketChannel.h"
 
 #include "SocketStreamHandle.h"
+#if OS(MORPHOS)
+#include <WebCore/SocketStreamHandleImpl.h>
+#else
 #include "SocketStreamHandleImpl.h"
+#endif
 #include <JavaScriptCore/ArrayBuffer.h>
 #include <WebCore/Blob.h>
 #include <WebCore/CookieJar.h>

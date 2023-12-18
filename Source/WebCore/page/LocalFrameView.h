@@ -573,6 +573,9 @@ public:
     IntPoint lastKnownMousePositionInView() const final;
     bool isHandlingWheelEvent() const final;
     bool shouldSetCursor() const;
+#if OS(MORPHOS)
+    void setCursor(const Cursor&) final;
+#endif
 
     WEBCORE_EXPORT bool useDarkAppearance() const final;
     OptionSet<StyleColorOptions> styleColorOptions() const;

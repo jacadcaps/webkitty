@@ -47,6 +47,10 @@
 #include <stdlib.h>
 #include <wtf/ExportMacros.h>
 
+#if OS(MORPHOS)
+extern "C" { void dprintf(const char *, ...); }
+#endif
+
 #if OS(DARWIN)
 #include <wtf/spi/darwin/AbortWithReasonSPI.h>
 #endif
@@ -127,7 +131,7 @@ extern "C" void _ReadWriteBarrier(void);
 #define WTF_ATTRIBUTE_PRINTF(formatStringArgument, extraArguments)
 #endif
 
-#if PLATFORM(IOS_FAMILY)
+#if PLATFORM(IOS_FAMILY) || OS(MORPHOS)
 /* For a project that uses WTF but has no config.h, we need to explicitly set the export defines here. */
 #ifndef WTF_EXPORT_PRIVATE
 #define WTF_EXPORT_PRIVATE
@@ -667,10 +671,18 @@ constexpr bool assertionFailureDueToUnreachableCode = false;
 
 #if !ASSERT_ENABLED
 
+#if OS(MORPHOS)
+#define RELEASE_ASSERT(assertion, ...) do { \
+    if (UNLIKELY(!(assertion))) { \
+        dprintf("WTFReleaseAssert in %s/%d\n", __FILE__, __LINE__); CRASH(); \
+	}\
+} while (0)
+#else
 #define RELEASE_ASSERT(assertion, ...) do { \
     if (UNLIKELY(!(assertion))) \
         CRASH_WITH_INFO(__VA_ARGS__); \
 } while (0)
+#endif
 #define RELEASE_ASSERT_WITH_MESSAGE(assertion, ...) RELEASE_ASSERT(assertion)
 #define RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(assertion) RELEASE_ASSERT(assertion)
 #define RELEASE_ASSERT_NOT_REACHED(...) CRASH_WITH_INFO(__VA_ARGS__)

@@ -30,6 +30,7 @@
 #include <wtf/MainThread.h>
 #include <wtf/ProcessID.h>
 #include <wtf/ProcessPrivilege.h>
+#include <wtf/NeverDestroyed.h>
 #include <wtf/UUID.h>
 #include <wtf/text/StringConcatenateNumbers.h>
 
@@ -58,6 +59,12 @@ WebCore::NetworkStorageSession& NetworkStorageSessionMap::defaultStorageSession(
     if (!defaultNetworkStorageSession())
         defaultNetworkStorageSession() = makeUnique<WebCore::NetworkStorageSession>(PAL::SessionID::defaultSessionID());
     return *defaultNetworkStorageSession();
+}
+
+void NetworkStorageSessionMap::destroyAllSessions()
+{
+	globalSessionMap().clear();
+	defaultNetworkStorageSession() = nullptr;
 }
 
 void NetworkStorageSessionMap::switchToNewTestingSession()

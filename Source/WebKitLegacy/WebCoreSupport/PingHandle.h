@@ -25,13 +25,16 @@
 
 #pragma once
 
+#include "WebKit.h"
 #include <WebCore/ResourceError.h>
 #include <WebCore/ResourceHandle.h>
 #include <WebCore/ResourceHandleClient.h>
 #include <WebCore/ResourceLoaderOptions.h>
 #include <WebCore/ResourceRequest.h>
 #include <WebCore/ResourceResponse.h>
+#ifndef __MORPHOS__
 #include <WebCore/SharedBuffer.h>
+#endif
 #include <WebCore/Timer.h>
 #include <wtf/CompletionHandler.h>
 

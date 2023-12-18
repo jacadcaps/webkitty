@@ -112,6 +112,7 @@ private:
 class Timer : public TimerBase {
     WTF_MAKE_FAST_ALLOCATED;
 public:
+#ifndef __MORPHOS_DISABLE
     static void schedule(Seconds delay, Function<void()>&& function)
     {
         auto* timer = new Timer([] { });
@@ -127,6 +128,7 @@ public:
         : m_function(std::bind(function, &object))
     {
     }
+#endif
 
     Timer(Function<void()>&& function)
         : m_function(WTFMove(function))
