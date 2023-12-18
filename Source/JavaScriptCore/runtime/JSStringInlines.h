@@ -337,8 +337,13 @@ inline JSString* jsAtomString(JSGlobalObject* globalObject, VM& vm, JSString* s1
     unsigned length2 = s2->length();
     if (!length2)
         RELEASE_AND_RETURN(scope, jsAtomString(globalObject, vm, s1));
+#if OS(MORPHOS)
+    auto sum = checkedSum<int32_t>(length1, length2);
+    if (static_cast<unsigned>(sum) >= JSString::MaxLength) {
+#else
     static_assert(JSString::MaxLength == std::numeric_limits<int32_t>::max());
     if (sumOverflows<int32_t>(length1, length2)) {
+#endif
         throwOutOfMemoryError(globalObject, scope);
         return nullptr;
     }
@@ -425,8 +430,13 @@ inline JSString* jsAtomString(JSGlobalObject* globalObject, VM& vm, JSString* s1
     if (!length3)
         RELEASE_AND_RETURN(scope, jsAtomString(globalObject, vm, s1, s2));
 
+#if OS(MORPHOS)
+    auto sum = checkedSum<int32_t>(length1, length2, length3);
+    if (static_cast<unsigned>(sum) >= JSString::MaxLength) {
+#else
     static_assert(JSString::MaxLength == std::numeric_limits<int32_t>::max());
     if (sumOverflows<int32_t>(length1, length2, length3)) {
+#endif
         throwOutOfMemoryError(globalObject, scope);
         return nullptr;
     }
