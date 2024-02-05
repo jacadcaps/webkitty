@@ -1568,6 +1568,9 @@ void MediaPlayerPrivateGStreamer::handleStreamCollectionMessage(GstMessage* mess
     if (m_isLegacyPlaybin)
         return;
 
+    if (!m_source)
+        return;
+
     // GStreamer workaround: Unfortunately, when we have a stream-collection aware source (like
     // WebKitMediaSrc) parsebin and decodebin3 emit their own stream-collection messages, but late,
     // and sometimes with duplicated streams. Let's only listen for stream-collection messages from
@@ -1859,7 +1862,7 @@ void MediaPlayerPrivateGStreamer::handleMessage(GstMessage* message)
 
         if (GST_CLOCK_TIME_IS_VALID(gstreamerPosition))
             playbackPosition = MediaTime(gstreamerPosition, GST_SECOND);
-        if (!eosFlagIsSetInSink && playbackPosition.isValid() && duration.isValid()
+        if (!player->isLooping() && !eosFlagIsSetInSink && playbackPosition.isValid() && duration.isValid()
             && ((m_playbackRate >= 0 && playbackPosition < duration && duration.isFinite())
             || (m_playbackRate < 0 && playbackPosition > MediaTime::zeroTime()))) {
             GST_DEBUG_OBJECT(pipeline(), "EOS received but position %s is still in the finite playable limits [%s, %s], ignoring it",
@@ -2677,7 +2680,7 @@ bool MediaPlayerPrivateGStreamer::loadNextLocation()
 
         changePipelineState(GST_STATE_READY);
         auto securityOrigin = SecurityOrigin::create(m_url);
-        if (securityOrigin->canRequest(newUrl, EmptyOriginAccessPatterns::singleton())) {
+        if (securityOrigin->canRequest(newUrl, originAccessPatternsForWebProcessOrEmpty())) {
             GST_INFO_OBJECT(pipeline(), "New media url: %s", newUrl.string().utf8().data());
 
             auto player = m_player.get();
@@ -3050,7 +3053,10 @@ void MediaPlayerPrivateGStreamer::setupCodecProbe(GstElement* element)
         }
 
         GST_INFO_OBJECT(player->pipeline(), "Setting codec for stream %s to %s", streamId.get(), codec.get());
-        player->m_codecs.add(String::fromLatin1(streamId.get()), String::fromLatin1(codec.get()));
+        {
+            Locker locker { player->m_codecsLock };
+            player->m_codecs.add(String::fromLatin1(streamId.get()), String::fromLatin1(codec.get()));
+        }
         return GST_PAD_PROBE_REMOVE;
     }), this, nullptr);
 #else
@@ -4461,6 +4467,7 @@ void MediaPlayerPrivateGStreamer::checkPlayingConsistency()
 
 String MediaPlayerPrivateGStreamer::codecForStreamId(const String& streamId)
 {
+    Locker locker { m_codecsLock };
     if (UNLIKELY(!m_codecs.contains(streamId)))
         return emptyString();
 

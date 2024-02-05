@@ -59,7 +59,7 @@ static GstStaticPadTemplate srcTemplate = GST_STATIC_PAD_TEMPLATE("src",
 
 struct _WebKitWebAudioSrcPrivate {
     gfloat sampleRate;
-    AudioBus* bus;
+    RefPtr<AudioBus> bus;
     AudioDestinationGStreamer* destination;
     guint framesToPull;
     guint bufferSize;
@@ -69,6 +69,7 @@ struct _WebKitWebAudioSrcPrivate {
 
     GRefPtr<GstElement> source;
     GRefPtr<GstCaps> caps;
+    GstAudioInfo info;
 
     // src pad of the element, interleaved wav data is pushed to it.
     GstPad* sourcePad;
@@ -101,7 +102,6 @@ struct _WebKitWebAudioSrcPrivate {
 
 enum {
     PROP_RATE = 1,
-    PROP_BUS,
     PROP_DESTINATION,
     PROP_FRAMES
 };
@@ -191,12 +191,6 @@ static void webkit_web_audio_src_class_init(WebKitWebAudioSrcClass* webKitWebAud
                                                        G_MINDOUBLE, G_MAXDOUBLE,
                                                        44100.0, flags));
 
-    g_object_class_install_property(objectClass,
-                                    PROP_BUS,
-                                    g_param_spec_pointer("bus",
-                                                         nullptr, nullptr,
-                                                         flags));
-
     g_object_class_install_property(objectClass, PROP_DESTINATION, g_param_spec_pointer("destination", "destination",
         "Destination", flags));
 
@@ -214,7 +208,6 @@ static void webKitWebAudioSrcConstructed(GObject* object)
     WebKitWebAudioSrc* src = WEBKIT_WEB_AUDIO_SRC(object);
     WebKitWebAudioSrcPrivate* priv = src->priv;
 
-    ASSERT(priv->bus);
     ASSERT(priv->destination);
     ASSERT(priv->sampleRate);
 
@@ -227,12 +220,9 @@ static void webKitWebAudioSrcConstructed(GObject* object)
     gst_task_set_lock(priv->task.get(), &priv->mutex);
 
     priv->source = makeGStreamerElement("appsrc", "webaudioSrc");
-    priv->caps = adoptGRef(getGStreamerAudioCaps(priv->sampleRate, priv->bus->numberOfChannels()));
 
     // Configure the appsrc for minimal latency.
-    g_object_set(priv->source.get(), "max-bytes", static_cast<guint64>(2 * priv->bufferSize * priv->bus->numberOfChannels()), "block", TRUE,
-        "blocksize", priv->bufferSize,
-        "format", GST_FORMAT_TIME, "caps", priv->caps.get(), nullptr);
+    g_object_set(priv->source.get(), "block", TRUE, "blocksize", priv->bufferSize, "format", GST_FORMAT_TIME, nullptr);
 
     gst_bin_add(GST_BIN(src), priv->source.get());
     // appsrc's src pad is the only visible pad of our element.
@@ -248,9 +238,6 @@ static void webKitWebAudioSrcSetProperty(GObject* object, guint propertyId, cons
     switch (propertyId) {
     case PROP_RATE:
         priv->sampleRate = g_value_get_float(value);
-        break;
-    case PROP_BUS:
-        priv->bus = static_cast<AudioBus*>(g_value_get_pointer(value));
         break;
     case PROP_DESTINATION:
         priv->destination = static_cast<AudioDestinationGStreamer*>(g_value_get_pointer(value));
@@ -274,9 +261,6 @@ static void webKitWebAudioSrcGetProperty(GObject* object, guint propertyId, GVal
     case PROP_RATE:
         g_value_set_float(value, priv->sampleRate);
         break;
-    case PROP_BUS:
-        g_value_set_pointer(value, priv->bus);
-        break;
     case PROP_DESTINATION:
         g_value_set_pointer(value, priv->destination);
         break;
@@ -289,7 +273,7 @@ static void webKitWebAudioSrcGetProperty(GObject* object, guint propertyId, GVal
     }
 }
 
-static GRefPtr<GstBuffer> webKitWebAudioSrcAllocateBuffers(WebKitWebAudioSrc* src)
+static GRefPtr<GstBuffer> webKitWebAudioSrcAllocateBuffer(WebKitWebAudioSrc* src)
 {
     WebKitWebAudioSrcPrivate* priv = src->priv;
 
@@ -313,17 +297,15 @@ static GRefPtr<GstBuffer> webKitWebAudioSrcAllocateBuffers(WebKitWebAudioSrc* sr
     }
 
     ASSERT(buffer);
-    ASSERT(priv->caps);
+    ASSERT(&priv->info);
+    gst_buffer_add_audio_meta(buffer.get(), &priv->info, priv->framesToPull, nullptr);
 
-    // Attach audio meta on buffer.
-    GstAudioInfo info;
-    gst_audio_info_from_caps(&info, priv->caps.get());
-    gst_buffer_add_audio_meta(buffer.get(), &info, priv->framesToPull, nullptr);
-
-    GstMappedBuffer mappedBuffer(buffer.get(), GST_MAP_READWRITE);
-    ASSERT(mappedBuffer);
-    for (unsigned channelIndex = 0; channelIndex < priv->bus->numberOfChannels(); channelIndex++)
-        priv->bus->setChannelMemory(channelIndex, reinterpret_cast<float*>(mappedBuffer.data() + channelIndex * priv->bufferSize), priv->framesToPull);
+    {
+        GstMappedBuffer mappedBuffer(buffer.get(), GST_MAP_READ);
+        ASSERT(mappedBuffer);
+        for (unsigned channelIndex = 0; channelIndex < priv->bus->numberOfChannels(); channelIndex++)
+            priv->bus->setChannelMemory(channelIndex, reinterpret_cast<float*>(mappedBuffer.data() + channelIndex * priv->bufferSize), priv->framesToPull);
+    }
 
     return buffer;
 }
@@ -355,7 +337,8 @@ static void webKitWebAudioSrcRenderAndPushFrames(const GRefPtr<GstElement>& elem
     }
 
     // FIXME: Add support for local/live audio input.
-    priv->destination->callRenderCallback(nullptr, priv->bus, priv->framesToPull, outputTimestamp);
+    if (priv->bus)
+        priv->destination->callRenderCallback(nullptr, priv->bus.get(), priv->framesToPull, outputTimestamp);
 
     if (!priv->hasRenderedAudibleFrame && !priv->bus->isSilent()) {
         priv->destination->notifyIsPlaying(true);
@@ -381,7 +364,7 @@ static void webKitWebAudioSrcRenderAndPushFrames(const GRefPtr<GstElement>& elem
 static void webKitWebAudioSrcRenderIteration(WebKitWebAudioSrc* src)
 {
     auto* priv = src->priv;
-    auto buffer = webKitWebAudioSrcAllocateBuffers(src);
+    auto buffer = webKitWebAudioSrcAllocateBuffer(src);
     if (!buffer) {
         gst_task_stop(priv->task.get());
         return;
@@ -467,6 +450,15 @@ static GstStateChangeReturn webKitWebAudioSrcChangeState(GstElement* element, Gs
     }
 
     return returnValue;
+}
+
+void webkitWebAudioSourceSetBus(WebKitWebAudioSrc* src, RefPtr<AudioBus> bus)
+{
+    auto priv = src->priv;
+    priv->bus = bus;
+    priv->caps = adoptGRef(getGStreamerAudioCaps(priv->sampleRate, priv->bus->numberOfChannels()));
+    gst_audio_info_from_caps(&priv->info, priv->caps.get());
+    g_object_set(priv->source.get(), "max-bytes", static_cast<guint64>(2 * priv->bufferSize * priv->bus->numberOfChannels()), "caps", priv->caps.get(), nullptr);
 }
 
 void webkitWebAudioSourceSetDispatchToRenderThreadFunction(WebKitWebAudioSrc* src, Function<void(Function<void()>&&)>&& function)
