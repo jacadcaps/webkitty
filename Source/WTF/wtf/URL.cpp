@@ -280,6 +280,8 @@ String URL::fileSystemPath() const
 #if PLATFORM(WIN)
     if (result.startsWith('/'))
         result = result.substring(1);
+#elif OS(MORPHOS)
+    result = FileSystem::stringFromFileSystemRepresentation(FileSystem::fileSystemRepresentation(result).data());
 #endif
     return result;
 }

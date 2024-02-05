@@ -36,6 +36,10 @@
 #include <windows.h>
 #endif
 
+#if OS(MORPHOS)
+#include <proto/exec.h>
+#endif
+
 namespace WTF {
 
 void exitProcess(int status)
@@ -68,6 +72,8 @@ void terminateProcess(int status)
     // On Windows, exitProcess and terminateProcess do the same thing due to its more complicated main thread handling.
     // See comment in exitProcess.
     exitProcess(status);
+#elif OS(MORPHOS)
+    Wait(0);
 #else
     _exit(status);
 #endif

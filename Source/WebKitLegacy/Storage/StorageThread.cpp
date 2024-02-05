@@ -23,6 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "WebKit.h"
 #include "StorageThread.h"
 
 #include <wtf/AutodrainedPool.h>
@@ -66,6 +67,7 @@ void StorageThread::start()
             });
         }
     }
+
     activeStorageThreads().add(this);
 }
 
@@ -88,6 +90,8 @@ void StorageThread::dispatch(Function<void ()>&& function)
 
 void StorageThread::terminate()
 {
+	if (!m_thread)
+		return;
     ASSERT(isMainThread());
     ASSERT(!m_queue.killed() && m_thread);
     activeStorageThreads().remove(this);

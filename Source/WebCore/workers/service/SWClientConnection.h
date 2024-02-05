@@ -143,7 +143,9 @@ public:
     using RetrieveRecordResponseBodyCallback = Function<void(Expected<RefPtr<SharedBuffer>, ResourceError>&&)>;
     virtual void retrieveRecordResponseBody(BackgroundFetchRecordIdentifier, RetrieveRecordResponseBodyCallback&&) = 0;
 
+#if !OS(MORPHOS)
 protected:
+#endif
     WEBCORE_EXPORT SWClientConnection();
 
     WEBCORE_EXPORT void jobRejectedInServer(ServiceWorkerJobIdentifier, ExceptionData&&);

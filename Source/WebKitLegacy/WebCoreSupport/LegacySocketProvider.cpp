@@ -23,9 +23,8 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#import "LegacySocketProvider.h"
-
-#import "WebSocketChannel.h"
+#include "LegacySocketProvider.h"
+#include "WebSocketChannel.h"
 
 RefPtr<WebCore::ThreadableWebSocketChannel> LegacySocketProvider::createWebSocketChannel(WebCore::Document& document, WebCore::WebSocketChannelClient& client)
 {

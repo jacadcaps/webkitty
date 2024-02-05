@@ -147,7 +147,7 @@ static Vector<String> patternToFamilies(FcPattern& pattern)
 {
     char* patternChars = reinterpret_cast<char*>(FcPatternFormat(&pattern, reinterpret_cast<const FcChar8*>("%{family}")));
     String patternString = String::fromUTF8(patternChars);
-    free(patternChars);
+    // free(patternChars);
 
     return patternString.split(',');
 }

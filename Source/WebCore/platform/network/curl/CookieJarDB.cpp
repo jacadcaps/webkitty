@@ -24,7 +24,7 @@
 
 #include "config.h"
 #include "CookieJarDB.h"
-#include "cookieJar.h"
+#include "CookieJar.h"
 
 #include "CookieUtil.h"
 #include "Logging.h"
@@ -138,7 +138,7 @@ bool CookieJarDB::openDatabase()
     }
 
     if (!existsDatabaseFile) {
-        if (!isOnMemory() && !FileSystem::makeAllDirectories(FileSystem::parentPath(m_databasePath)))
+        if (!FileSystem::makeAllDirectories(FileSystem::parentPath(m_databasePath)))
             LOG_ERROR("Unable to create the Cookie Database path %s", m_databasePath.utf8().data());
 
         m_database.open(m_databasePath);

@@ -39,6 +39,11 @@
  */
 
 #include "config.h"
+
+#if OS(MORPHOS)
+#define __WANT_PNG_1_6__
+#endif
+
 #include "PNGImageDecoder.h"
 
 #include "Color.h"
@@ -51,6 +56,9 @@
 #define JMPBUF(png_ptr) png_jmpbuf(png_ptr)
 #else
 #define JMPBUF(png_ptr) png_ptr->jmpbuf
+#if OS(MORPHOS)
+#error "Fail"
+#endif
 #endif
 
 namespace WebCore {
@@ -529,6 +537,8 @@ void PNGImageDecoder::rowAvailable(unsigned char* rowBuffer, unsigned rowIndex, 
     // Write the decoded row pixels to the frame buffer.
     auto* destRow = buffer.backingStore()->pixelAt(0, rowIndex);
     auto* address = destRow;
+    if (!address)
+		return;
     int width = size().width();
     unsigned char nonTrivialAlphaMask = 0;
 

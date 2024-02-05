@@ -406,7 +406,7 @@ TextStream& operator<<(TextStream& ts, const Image& image)
     return ts;
 }
 
-#if !PLATFORM(COCOA) && !PLATFORM(GTK) && !PLATFORM(WIN)
+#if !PLATFORM(COCOA) && !PLATFORM(GTK) && !PLATFORM(WIN) && !OS(MORPHOS)
 
 void BitmapImage::invalidatePlatformData()
 {

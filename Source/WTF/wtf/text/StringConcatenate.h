@@ -471,10 +471,17 @@ auto handleWithAdapters(Func&& func, StringTypes&& ...strings) -> decltype(auto)
 template<typename StringTypeAdapter, typename... StringTypeAdapters>
 String tryMakeStringFromAdapters(StringTypeAdapter adapter, StringTypeAdapters ...adapters)
 {
+#if OS(MORPHOS)
+    auto sum = checkedSum<int32_t>(adapter.length(), adapters.length()...);
+    unsigned length = sum;
+    if (sum.hasOverflowed() || length >= String::MaxLength)
+        return String();
+#else
     static_assert(String::MaxLength == std::numeric_limits<int32_t>::max());
     auto sum = checkedSum<int32_t>(adapter.length(), adapters.length()...);
     if (sum.hasOverflowed())
         return String();
+#endif
 
     bool areAllAdapters8Bit = are8Bit(adapter, adapters...);
     return tryMakeStringImplFromAdaptersInternal(sum, areAllAdapters8Bit, adapter, adapters...);
@@ -498,6 +505,12 @@ String makeString(StringTypes... strings)
 template<typename StringTypeAdapter, typename... StringTypeAdapters>
 AtomString tryMakeAtomStringFromAdapters(StringTypeAdapter adapter, StringTypeAdapters ...adapters)
 {
+#if OS(MORPHOS)
+    auto sum = checkedSum<int32_t>(adapter.length(), adapters.length()...);
+    unsigned length = sum;
+    if (sum.hasOverflowed() || length >= String::MaxLength)
+        return AtomString();
+#else
     static_assert(String::MaxLength == std::numeric_limits<int32_t>::max());
     auto sum = checkedSum<int32_t>(adapter.length(), adapters.length()...);
     if (sum.hasOverflowed())
@@ -505,6 +518,7 @@ AtomString tryMakeAtomStringFromAdapters(StringTypeAdapter adapter, StringTypeAd
 
     unsigned length = sum;
     ASSERT(length <= String::MaxLength);
+#endif
 
     bool areAllAdapters8Bit = are8Bit(adapter, adapters...);
     constexpr size_t maxLengthToUseStackVariable = 64;

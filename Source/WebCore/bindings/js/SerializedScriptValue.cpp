@@ -125,6 +125,12 @@
 #define ASSUME_LITTLE_ENDIAN 1
 #endif
 
+#if OS(MORPHOS)
+    #ifndef UINT64_MAX
+    #define UINT64_MAX 0xffffffffffffffff
+    #endif
+#endif
+
 namespace WebCore {
 
 using namespace JSC;
@@ -1776,7 +1782,9 @@ private:
                 RETURN_IF_EXCEPTION(scope, false);
 
                 write(ErrorInstanceTag);
+#if ENABLE(WEB_CRYPTO)
                 write(errorNameToSerializableErrorType(errorTypeString));
+#endif
                 writeNullableString(message);
                 write(line);
                 write(column);

@@ -42,14 +42,21 @@ unsigned StringBuilder::expandedCapacity(unsigned capacity, unsigned requiredCap
 
 void StringBuilder::didOverflow()
 {
+#if !OS(MORPHOS)
     if (m_shouldCrashOnOverflow)
         CRASH();
+#endif
     m_length = std::numeric_limits<unsigned>::max();
 }
 
 void StringBuilder::reifyString() const
 {
+#if OS(MORPHOS)
+    if (hasOverflowed())
+        return;
+#else
     RELEASE_ASSERT(!hasOverflowed());
+#endif
 
     // Check if the string already exists.
     if (!m_string.isNull()) {

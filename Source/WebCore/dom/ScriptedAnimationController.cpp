@@ -36,6 +36,18 @@
 #include <wtf/Ref.h>
 #include <wtf/SystemTracing.h>
 
+#if OS(MORPHOS)
+static const Seconds fullSpeedAnimationInterval { 30_ms };
+static const Seconds halfSpeedThrottlingAnimationInterval { 60_ms };
+static const Seconds aggressiveThrottlingAnimationInterval { 10_s };
+#else
+// Allow a little more than 60fps to make sure we can at least hit that frame rate.
+static const Seconds fullSpeedAnimationInterval { 15_ms };
+// Allow a little more than 30fps to make sure we can at least hit that frame rate.
+static const Seconds halfSpeedThrottlingAnimationInterval { 30_ms };
+static const Seconds aggressiveThrottlingAnimationInterval { 10_s };
+#endif
+
 namespace WebCore {
 
 ScriptedAnimationController::ScriptedAnimationController(Document& document)

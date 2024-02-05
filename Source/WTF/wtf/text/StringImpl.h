@@ -144,7 +144,11 @@ struct StringStats {
 class STRING_IMPL_ALIGNMENT StringImplShape {
     WTF_MAKE_NONCOPYABLE(StringImplShape);
 public:
+#if OS(MORPHOS)
+    static constexpr unsigned MaxLength = 64 * 1024 * 1024;
+#else
     static constexpr unsigned MaxLength = std::numeric_limits<int32_t>::max();
+#endif
 
 protected:
     StringImplShape(unsigned refCount, unsigned length, const LChar*, unsigned hashAndFlags);

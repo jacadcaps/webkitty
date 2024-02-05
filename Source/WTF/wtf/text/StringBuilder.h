@@ -283,7 +283,12 @@ inline AtomString StringBuilder::toAtomString() const
 
 inline unsigned StringBuilder::length() const
 {
+#if OS(MORPHOS)
+    if (UNLIKELY(hasOverflowed()))
+        return 0;
+#else
     RELEASE_ASSERT(!hasOverflowed());
+#endif
     return m_length;
 }
 
