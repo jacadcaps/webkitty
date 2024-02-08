@@ -128,6 +128,11 @@ Ref<Document> DocumentWriter::createDocument(const URL& url, ScriptExecutionCont
     return DOMImplementation::createDocument(m_mimeType, m_frame.get(), m_frame->settings(), url, documentIdentifier);
 }
 
+#if OS(MORPHOS)
+#pragma GCC diagnostic push
+#pragma GCC optimize ("O2")
+#endif
+
 bool DocumentWriter::begin(const URL& urlReference, bool dispatch, Document* ownerDocument, ScriptExecutionContextIdentifier documentIdentifier, const NavigationAction* triggeringAction)
 {
     // We grab a local copy of the URL because it's easy for callers to supply
@@ -238,6 +243,10 @@ bool DocumentWriter::begin(const URL& urlReference, bool dispatch, Document* own
     m_state = State::Started;
     return true;
 }
+
+#if OS(MORPHOS)
+#pragma GCC diagnostic pop
+#endif
 
 TextResourceDecoder& DocumentWriter::decoder()
 {

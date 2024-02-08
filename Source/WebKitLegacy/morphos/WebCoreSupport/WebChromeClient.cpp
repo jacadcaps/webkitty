@@ -247,19 +247,16 @@ KeyboardUIMode WebChromeClient::keyboardUIMode()
 
 void WebChromeClient::invalidateRootView(const IntRect& windowRect)
 {
-    ASSERT(core(m_webPage.topLevelFrame()));
     m_webPage.repaint(windowRect);
 }
 
 void WebChromeClient::invalidateContentsAndRootView(const IntRect& windowRect)
 {
-    ASSERT(core(m_webPage.topLevelFrame()));
     m_webPage.repaint(windowRect);
 }
 
 void WebChromeClient::invalidateContentsForSlowScroll(const IntRect& windowRect)
 {
-    ASSERT(core(m_webPage.topLevelFrame()));
     m_webPage.repaint(windowRect);
 }
 

@@ -1402,7 +1402,6 @@ notImplemented();
 
 Ref<FrameNetworkingContext> WebFrameLoaderClient::createNetworkingContext()
 {
-    ASSERT(!hasProcessPrivilege(ProcessPrivilege::CanAccessRawCookies));
     return WebFrameNetworkingContext::create(m_frame->coreFrame());
 }
 

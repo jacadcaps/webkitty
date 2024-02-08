@@ -1473,6 +1473,11 @@ static inline bool canUseSetDataOptimization(const Text& containerChild, const C
     return !authorScriptMayHaveReference && !mutationScope.canObserve() && !hasMutationEventListeners(containerChild.document());
 }
 
+#if OS(MORPHOS)
+#pragma GCC diagnostic push
+#pragma GCC optimize ("O2")
+#endif
+
 ExceptionOr<void> replaceChildrenWithFragment(ContainerNode& container, Ref<DocumentFragment>&& fragment)
 {
 #if OS(MORPHOS)
@@ -1505,5 +1510,9 @@ ExceptionOr<void> replaceChildrenWithFragment(ContainerNode& container, Ref<Docu
     ASSERT(!fragment->wrapper());
     return result;
 }
+
+#if OS(MORPHOS)
+#pragma GCC diagnostic pop
+#endif
 
 }

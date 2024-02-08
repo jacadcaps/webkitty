@@ -401,7 +401,7 @@ void AcinerellaDecoder::threadEntryPoint()
 
 void AcinerellaDecoder::dispatch(Function<void ()>&& function)
 {
-	ASSERT(!m_queue.killed() && m_thread);
+	ASSERT(!m_queue.killed());
 	if (m_terminating)
 		return;
 	m_queue.append(makeUnique<Function<void ()>>(WTFMove(function)));
