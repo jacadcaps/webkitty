@@ -111,6 +111,7 @@ ResourceResponse::ResourceResponse(CurlResponse& response)
         if (pos != notFound) {
             auto extension = lastPathComponent.substring(pos + 1);
             mimeType = MIMETypeRegistry::mimeTypeForExtension(extension);
+            setHTTPHeaderField(HTTPHeaderName::ContentType, mimeType);
         }
 	}
     setMimeType(AtomString { mimeType.convertToASCIILowercase() });
