@@ -8,34 +8,6 @@
 
 /* Begin PBXBuildFile section */
 		013D3C9A2463448700805F29 /* Makefile in Sources */ = {isa = PBXBuildFile; fileRef = 013D3C992463448700805F29 /* Makefile */; };
-		016C0EB127E4EEAD008E755F /* WkNetworkRequestMutable.mm in Sources */ = {isa = PBXBuildFile; fileRef = 016C0E6927E4EEAB008E755F /* WkNetworkRequestMutable.mm */; };
-		016C0EB227E4EEAD008E755F /* WebApplicationCache.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 016C0E6A27E4EEAB008E755F /* WebApplicationCache.cpp */; };
-		016C0EB327E4EEAD008E755F /* WkSettings.mm in Sources */ = {isa = PBXBuildFile; fileRef = 016C0E6B27E4EEAB008E755F /* WkSettings.mm */; };
-		016C0EB427E4EEAD008E755F /* WkHistory.mm in Sources */ = {isa = PBXBuildFile; fileRef = 016C0E6D27E4EEAB008E755F /* WkHistory.mm */; };
-		016C0EB527E4EEAD008E755F /* WebPage.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 016C0E6E27E4EEAB008E755F /* WebPage.cpp */; };
-		016C0EB627E4EEAD008E755F /* WebDragClient.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 016C0E7027E4EEAB008E755F /* WebDragClient.cpp */; };
-		016C0EB727E4EEAD008E755F /* WkError.mm in Sources */ = {isa = PBXBuildFile; fileRef = 016C0E7127E4EEAB008E755F /* WkError.mm */; };
-		016C0EB827E4EEAD008E755F /* CacheModel.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 016C0E7927E4EEAB008E755F /* CacheModel.cpp */; };
-		016C0EB927E4EEAD008E755F /* Gamepad.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 016C0E7B27E4EEAB008E755F /* Gamepad.cpp */; };
-		016C0EBA27E4EEAD008E755F /* WebDatabaseManager.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 016C0E7D27E4EEAB008E755F /* WebDatabaseManager.cpp */; };
-		016C0EBB27E4EEAD008E755F /* PopupMenu.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 016C0E8127E4EEAC008E755F /* PopupMenu.cpp */; };
-		016C0EBC27E4EEAD008E755F /* WkResourceResponse.mm in Sources */ = {isa = PBXBuildFile; fileRef = 016C0E8427E4EEAC008E755F /* WkResourceResponse.mm */; };
-		016C0EBD27E4EEAD008E755F /* BackForwardClient.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 016C0E8927E4EEAC008E755F /* BackForwardClient.cpp */; };
-		016C0EBE27E4EEAD008E755F /* WkCertificate.mm in Sources */ = {isa = PBXBuildFile; fileRef = 016C0E8A27E4EEAC008E755F /* WkCertificate.mm */; };
-		016C0EBF27E4EEAD008E755F /* WkFavIcon.mm in Sources */ = {isa = PBXBuildFile; fileRef = 016C0E8B27E4EEAC008E755F /* WkFavIcon.mm */; };
-		016C0EC027E4EEAD008E755F /* WkNotification.mm in Sources */ = {isa = PBXBuildFile; fileRef = 016C0E8C27E4EEAC008E755F /* WkNotification.mm */; };
-		016C0EC127E4EEAD008E755F /* WkWebView.mm in Sources */ = {isa = PBXBuildFile; fileRef = 016C0E8E27E4EEAC008E755F /* WkWebView.mm */; };
-		016C0EC227E4EEAD008E755F /* WebProcess.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 016C0E9027E4EEAC008E755F /* WebProcess.cpp */; };
-		016C0EC327E4EEAD008E755F /* WkUserScript.mm in Sources */ = {isa = PBXBuildFile; fileRef = 016C0E9627E4EEAC008E755F /* WkUserScript.mm */; };
-		016C0EC427E4EEAD008E755F /* WkPrinting.mm in Sources */ = {isa = PBXBuildFile; fileRef = 016C0E9727E4EEAC008E755F /* WkPrinting.mm */; };
-		016C0EC527E4EEAD008E755F /* WkHitTest.mm in Sources */ = {isa = PBXBuildFile; fileRef = 016C0E9827E4EEAC008E755F /* WkHitTest.mm */; };
-		016C0EC627E4EEAD008E755F /* WkCertificateViewer.mm in Sources */ = {isa = PBXBuildFile; fileRef = 016C0E9D27E4EEAC008E755F /* WkCertificateViewer.mm */; };
-		016C0EC727E4EEAD008E755F /* WkDownload.mm in Sources */ = {isa = PBXBuildFile; fileRef = 016C0E9F27E4EEAC008E755F /* WkDownload.mm */; };
-		016C0EC827E4EEAD008E755F /* WkMedia.mm in Sources */ = {isa = PBXBuildFile; fileRef = 016C0EA027E4EEAC008E755F /* WkMedia.mm */; };
-		016C0EC927E4EEAD008E755F /* WebDocumentLoader.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 016C0EA327E4EEAC008E755F /* WebDocumentLoader.cpp */; };
-		016C0ECA27E4EEAD008E755F /* WebFrame.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 016C0EA927E4EEAD008E755F /* WebFrame.cpp */; };
-		016C0ECB27E4EEAD008E755F /* WkFileDialog.mm in Sources */ = {isa = PBXBuildFile; fileRef = 016C0EB027E4EEAD008E755F /* WkFileDialog.mm */; };
-		016C0ECE27E4EEC8008E755F /* WkCache.mm in Sources */ = {isa = PBXBuildFile; fileRef = 016C0ECD27E4EEC8008E755F /* WkCache.mm */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -52,82 +24,6 @@
 
 /* Begin PBXFileReference section */
 		013D3C992463448700805F29 /* Makefile */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.make; path = Makefile; sourceTree = "<group>"; };
-		016C0E6627E4EE77008E755F /* OptionsMorphOS.cmake */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; name = OptionsMorphOS.cmake; path = Source/cmake/OptionsMorphOS.cmake; sourceTree = "<group>"; };
-		016C0E6727E4EE99008E755F /* PlatformMorphOS.cmake */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; name = PlatformMorphOS.cmake; path = Source/WebKitLegacy/PlatformMorphOS.cmake; sourceTree = "<group>"; };
-		016C0E6827E4EEAB008E755F /* WkFileDialog_private.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkFileDialog_private.h; path = Source/WebKitLegacy/morphos/WkFileDialog_private.h; sourceTree = "<group>"; };
-		016C0E6927E4EEAB008E755F /* WkNetworkRequestMutable.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WkNetworkRequestMutable.mm; path = Source/WebKitLegacy/morphos/WkNetworkRequestMutable.mm; sourceTree = "<group>"; };
-		016C0E6A27E4EEAB008E755F /* WebApplicationCache.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = WebApplicationCache.cpp; path = Source/WebKitLegacy/morphos/WebApplicationCache.cpp; sourceTree = "<group>"; };
-		016C0E6B27E4EEAB008E755F /* WkSettings.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WkSettings.mm; path = Source/WebKitLegacy/morphos/WkSettings.mm; sourceTree = "<group>"; };
-		016C0E6C27E4EEAB008E755F /* WebCoreSupport */ = {isa = PBXFileReference; lastKnownFileType = folder; name = WebCoreSupport; path = Source/WebKitLegacy/morphos/WebCoreSupport; sourceTree = "<group>"; };
-		016C0E6D27E4EEAB008E755F /* WkHistory.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WkHistory.mm; path = Source/WebKitLegacy/morphos/WkHistory.mm; sourceTree = "<group>"; };
-		016C0E6E27E4EEAB008E755F /* WebPage.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = WebPage.cpp; path = Source/WebKitLegacy/morphos/WebPage.cpp; sourceTree = "<group>"; };
-		016C0E6F27E4EEAB008E755F /* WkHitTest.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkHitTest.h; path = Source/WebKitLegacy/morphos/WkHitTest.h; sourceTree = "<group>"; };
-		016C0E7027E4EEAB008E755F /* WebDragClient.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = WebDragClient.cpp; path = Source/WebKitLegacy/morphos/WebDragClient.cpp; sourceTree = "<group>"; };
-		016C0E7127E4EEAB008E755F /* WkError.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WkError.mm; path = Source/WebKitLegacy/morphos/WkError.mm; sourceTree = "<group>"; };
-		016C0E7227E4EEAB008E755F /* WkNetworkRequestMutable.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkNetworkRequestMutable.h; path = Source/WebKitLegacy/morphos/WkNetworkRequestMutable.h; sourceTree = "<group>"; };
-		016C0E7327E4EEAB008E755F /* WkResourceResponse_private.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkResourceResponse_private.h; path = Source/WebKitLegacy/morphos/WkResourceResponse_private.h; sourceTree = "<group>"; };
-		016C0E7427E4EEAB008E755F /* WkError_private.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkError_private.h; path = Source/WebKitLegacy/morphos/WkError_private.h; sourceTree = "<group>"; };
-		016C0E7527E4EEAB008E755F /* WkFileDialog.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkFileDialog.h; path = Source/WebKitLegacy/morphos/WkFileDialog.h; sourceTree = "<group>"; };
-		016C0E7627E4EEAB008E755F /* storage */ = {isa = PBXFileReference; lastKnownFileType = folder; name = storage; path = Source/WebKitLegacy/morphos/storage; sourceTree = "<group>"; };
-		016C0E7727E4EEAB008E755F /* WkUserScript.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkUserScript.h; path = Source/WebKitLegacy/morphos/WkUserScript.h; sourceTree = "<group>"; };
-		016C0E7827E4EEAB008E755F /* WkSettings.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkSettings.h; path = Source/WebKitLegacy/morphos/WkSettings.h; sourceTree = "<group>"; };
-		016C0E7927E4EEAB008E755F /* CacheModel.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = CacheModel.cpp; path = Source/WebKitLegacy/morphos/CacheModel.cpp; sourceTree = "<group>"; };
-		016C0E7A27E4EEAB008E755F /* ABPFilterParser */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ABPFilterParser; path = Source/WebKitLegacy/morphos/ABPFilterParser; sourceTree = "<group>"; };
-		016C0E7B27E4EEAB008E755F /* Gamepad.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = Gamepad.cpp; path = Source/WebKitLegacy/morphos/Gamepad.cpp; sourceTree = "<group>"; };
-		016C0E7C27E4EEAB008E755F /* WebPage.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WebPage.h; path = Source/WebKitLegacy/morphos/WebPage.h; sourceTree = "<group>"; };
-		016C0E7D27E4EEAB008E755F /* WebDatabaseManager.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = WebDatabaseManager.cpp; path = Source/WebKitLegacy/morphos/WebDatabaseManager.cpp; sourceTree = "<group>"; };
-		016C0E7E27E4EEAC008E755F /* WkNotification.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkNotification.h; path = Source/WebKitLegacy/morphos/WkNotification.h; sourceTree = "<group>"; };
-		016C0E7F27E4EEAC008E755F /* WkPrinting_private.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkPrinting_private.h; path = Source/WebKitLegacy/morphos/WkPrinting_private.h; sourceTree = "<group>"; };
-		016C0E8027E4EEAC008E755F /* WkCertificate_private.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkCertificate_private.h; path = Source/WebKitLegacy/morphos/WkCertificate_private.h; sourceTree = "<group>"; };
-		016C0E8127E4EEAC008E755F /* PopupMenu.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = PopupMenu.cpp; path = Source/WebKitLegacy/morphos/PopupMenu.cpp; sourceTree = "<group>"; };
-		016C0E8227E4EEAC008E755F /* WkResourceResponse.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkResourceResponse.h; path = Source/WebKitLegacy/morphos/WkResourceResponse.h; sourceTree = "<group>"; };
-		016C0E8327E4EEAC008E755F /* WkHistory.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkHistory.h; path = Source/WebKitLegacy/morphos/WkHistory.h; sourceTree = "<group>"; };
-		016C0E8427E4EEAC008E755F /* WkResourceResponse.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WkResourceResponse.mm; path = Source/WebKitLegacy/morphos/WkResourceResponse.mm; sourceTree = "<group>"; };
-		016C0E8627E4EEAC008E755F /* WkUserScript_private.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkUserScript_private.h; path = Source/WebKitLegacy/morphos/WkUserScript_private.h; sourceTree = "<group>"; };
-		016C0E8727E4EEAC008E755F /* WebDatabaseManager.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WebDatabaseManager.h; path = Source/WebKitLegacy/morphos/WebDatabaseManager.h; sourceTree = "<group>"; };
-		016C0E8827E4EEAC008E755F /* WkCertificate.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkCertificate.h; path = Source/WebKitLegacy/morphos/WkCertificate.h; sourceTree = "<group>"; };
-		016C0E8927E4EEAC008E755F /* BackForwardClient.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = BackForwardClient.cpp; path = Source/WebKitLegacy/morphos/BackForwardClient.cpp; sourceTree = "<group>"; };
-		016C0E8A27E4EEAC008E755F /* WkCertificate.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WkCertificate.mm; path = Source/WebKitLegacy/morphos/WkCertificate.mm; sourceTree = "<group>"; };
-		016C0E8B27E4EEAC008E755F /* WkFavIcon.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WkFavIcon.mm; path = Source/WebKitLegacy/morphos/WkFavIcon.mm; sourceTree = "<group>"; };
-		016C0E8C27E4EEAC008E755F /* WkNotification.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WkNotification.mm; path = Source/WebKitLegacy/morphos/WkNotification.mm; sourceTree = "<group>"; };
-		016C0E8D27E4EEAC008E755F /* WkNetworkRequestMutable_private.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkNetworkRequestMutable_private.h; path = Source/WebKitLegacy/morphos/WkNetworkRequestMutable_private.h; sourceTree = "<group>"; };
-		016C0E8E27E4EEAC008E755F /* WkWebView.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WkWebView.mm; path = Source/WebKitLegacy/morphos/WkWebView.mm; sourceTree = "<group>"; };
-		016C0E8F27E4EEAC008E755F /* WkHitTest_private.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkHitTest_private.h; path = Source/WebKitLegacy/morphos/WkHitTest_private.h; sourceTree = "<group>"; };
-		016C0E9027E4EEAC008E755F /* WebProcess.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = WebProcess.cpp; path = Source/WebKitLegacy/morphos/WebProcess.cpp; sourceTree = "<group>"; };
-		016C0E9127E4EEAC008E755F /* BackForwardClient.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = BackForwardClient.h; path = Source/WebKitLegacy/morphos/BackForwardClient.h; sourceTree = "<group>"; };
-		016C0E9227E4EEAC008E755F /* WkDownload.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkDownload.h; path = Source/WebKitLegacy/morphos/WkDownload.h; sourceTree = "<group>"; };
-		016C0E9327E4EEAC008E755F /* WkMedia_private.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkMedia_private.h; path = Source/WebKitLegacy/morphos/WkMedia_private.h; sourceTree = "<group>"; };
-		016C0E9427E4EEAC008E755F /* WkMedia.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkMedia.h; path = Source/WebKitLegacy/morphos/WkMedia.h; sourceTree = "<group>"; };
-		016C0E9527E4EEAC008E755F /* PopupMenu.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = PopupMenu.h; path = Source/WebKitLegacy/morphos/PopupMenu.h; sourceTree = "<group>"; };
-		016C0E9627E4EEAC008E755F /* WkUserScript.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WkUserScript.mm; path = Source/WebKitLegacy/morphos/WkUserScript.mm; sourceTree = "<group>"; };
-		016C0E9727E4EEAC008E755F /* WkPrinting.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WkPrinting.mm; path = Source/WebKitLegacy/morphos/WkPrinting.mm; sourceTree = "<group>"; };
-		016C0E9827E4EEAC008E755F /* WkHitTest.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WkHitTest.mm; path = Source/WebKitLegacy/morphos/WkHitTest.mm; sourceTree = "<group>"; };
-		016C0E9927E4EEAC008E755F /* WkWebView.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkWebView.h; path = Source/WebKitLegacy/morphos/WkWebView.h; sourceTree = "<group>"; };
-		016C0E9A27E4EEAC008E755F /* WebDocumentLoader.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WebDocumentLoader.h; path = Source/WebKitLegacy/morphos/WebDocumentLoader.h; sourceTree = "<group>"; };
-		016C0E9B27E4EEAC008E755F /* WkFavIcon_private.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkFavIcon_private.h; path = Source/WebKitLegacy/morphos/WkFavIcon_private.h; sourceTree = "<group>"; };
-		016C0E9C27E4EEAC008E755F /* WkCertificateViewer.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkCertificateViewer.h; path = Source/WebKitLegacy/morphos/WkCertificateViewer.h; sourceTree = "<group>"; };
-		016C0E9D27E4EEAC008E755F /* WkCertificateViewer.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WkCertificateViewer.mm; path = Source/WebKitLegacy/morphos/WkCertificateViewer.mm; sourceTree = "<group>"; };
-		016C0E9E27E4EEAC008E755F /* WkPrinting.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkPrinting.h; path = Source/WebKitLegacy/morphos/WkPrinting.h; sourceTree = "<group>"; };
-		016C0E9F27E4EEAC008E755F /* WkDownload.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WkDownload.mm; path = Source/WebKitLegacy/morphos/WkDownload.mm; sourceTree = "<group>"; };
-		016C0EA027E4EEAC008E755F /* WkMedia.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WkMedia.mm; path = Source/WebKitLegacy/morphos/WkMedia.mm; sourceTree = "<group>"; };
-		016C0EA127E4EEAC008E755F /* WebViewDelegate.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WebViewDelegate.h; path = Source/WebKitLegacy/morphos/WebViewDelegate.h; sourceTree = "<group>"; };
-		016C0EA227E4EEAC008E755F /* WkFavIcon.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkFavIcon.h; path = Source/WebKitLegacy/morphos/WkFavIcon.h; sourceTree = "<group>"; };
-		016C0EA327E4EEAC008E755F /* WebDocumentLoader.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = WebDocumentLoader.cpp; path = Source/WebKitLegacy/morphos/WebDocumentLoader.cpp; sourceTree = "<group>"; };
-		016C0EA427E4EEAC008E755F /* WebKit.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WebKit.h; path = Source/WebKitLegacy/morphos/WebKit.h; sourceTree = "<group>"; };
-		016C0EA527E4EEAC008E755F /* WebProcess.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WebProcess.h; path = Source/WebKitLegacy/morphos/WebProcess.h; sourceTree = "<group>"; };
-		016C0EA627E4EEAD008E755F /* WebDragClient.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WebDragClient.h; path = Source/WebKitLegacy/morphos/WebDragClient.h; sourceTree = "<group>"; };
-		016C0EA727E4EEAD008E755F /* CacheModel.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = CacheModel.h; path = Source/WebKitLegacy/morphos/CacheModel.h; sourceTree = "<group>"; };
-		016C0EA827E4EEAD008E755F /* WkError.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkError.h; path = Source/WebKitLegacy/morphos/WkError.h; sourceTree = "<group>"; };
-		016C0EA927E4EEAD008E755F /* WebFrame.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = WebFrame.cpp; path = Source/WebKitLegacy/morphos/WebFrame.cpp; sourceTree = "<group>"; };
-		016C0EAA27E4EEAD008E755F /* WkDownload_private.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkDownload_private.h; path = Source/WebKitLegacy/morphos/WkDownload_private.h; sourceTree = "<group>"; };
-		016C0EAB27E4EEAD008E755F /* Gamepad.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = Gamepad.h; path = Source/WebKitLegacy/morphos/Gamepad.h; sourceTree = "<group>"; };
-		016C0EAC27E4EEAD008E755F /* WkHistory_private.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkHistory_private.h; path = Source/WebKitLegacy/morphos/WkHistory_private.h; sourceTree = "<group>"; };
-		016C0EAD27E4EEAD008E755F /* WkNotification_private.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkNotification_private.h; path = Source/WebKitLegacy/morphos/WkNotification_private.h; sourceTree = "<group>"; };
-		016C0EAE27E4EEAD008E755F /* WebFrame.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WebFrame.h; path = Source/WebKitLegacy/morphos/WebFrame.h; sourceTree = "<group>"; };
-		016C0EAF27E4EEAD008E755F /* WebApplicationCache.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WebApplicationCache.h; path = Source/WebKitLegacy/morphos/WebApplicationCache.h; sourceTree = "<group>"; };
-		016C0EB027E4EEAD008E755F /* WkFileDialog.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WkFileDialog.mm; path = Source/WebKitLegacy/morphos/WkFileDialog.mm; sourceTree = "<group>"; };
-		016C0ECC27E4EEC8008E755F /* WkCache.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = WkCache.h; path = Source/WebKitLegacy/morphos/WkCache.h; sourceTree = "<group>"; };
-		016C0ECD27E4EEC8008E755F /* WkCache.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WkCache.mm; path = Source/WebKitLegacy/morphos/WkCache.mm; sourceTree = "<group>"; };
 		016C0ECF27E6A28B008E755F /* morphos.cmake.in */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = morphos.cmake.in; sourceTree = "<group>"; };
 		016C0ED027E6A28B008E755F /* link.sh.in */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = link.sh.in; sourceTree = "<group>"; };
 		016C0ED127E6A28B008E755F /* CMakeLists.txt */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = CMakeLists.txt; sourceTree = "<group>"; };
@@ -161,7 +57,6 @@
 				019E907326FB9D4D00C68B31 /* JavaScriptCore */,
 				016C0ED027E6A28B008E755F /* link.sh.in */,
 				013D3C992463448700805F29 /* Makefile */,
-				016C0E6427E4EE24008E755F /* MorphOS */,
 				016C0ECF27E6A28B008E755F /* morphos.cmake.in */,
 				019E907626FB9D4D00C68B31 /* WebCore */,
 				019E907226FB9D4C00C68B31 /* WebKit */,
@@ -172,95 +67,12 @@
 			sourceTree = "<group>";
 			usesTabs = 0;
 		};
-		016C0E6427E4EE24008E755F /* MorphOS */ = {
-			isa = PBXGroup;
-			children = (
-				016C0E7A27E4EEAB008E755F /* ABPFilterParser */,
-				016C0E8927E4EEAC008E755F /* BackForwardClient.cpp */,
-				016C0E9127E4EEAC008E755F /* BackForwardClient.h */,
-				016C0E7927E4EEAB008E755F /* CacheModel.cpp */,
-				016C0EA727E4EEAD008E755F /* CacheModel.h */,
-				016C0E7B27E4EEAB008E755F /* Gamepad.cpp */,
-				016C0EAB27E4EEAD008E755F /* Gamepad.h */,
-				016C0E6627E4EE77008E755F /* OptionsMorphOS.cmake */,
-				016C0E6727E4EE99008E755F /* PlatformMorphOS.cmake */,
-				016C0E8127E4EEAC008E755F /* PopupMenu.cpp */,
-				016C0E9527E4EEAC008E755F /* PopupMenu.h */,
-				016C0E7627E4EEAB008E755F /* storage */,
-				016C0E6A27E4EEAB008E755F /* WebApplicationCache.cpp */,
-				016C0EAF27E4EEAD008E755F /* WebApplicationCache.h */,
-				016C0E6C27E4EEAB008E755F /* WebCoreSupport */,
-				016C0E7D27E4EEAB008E755F /* WebDatabaseManager.cpp */,
-				016C0E8727E4EEAC008E755F /* WebDatabaseManager.h */,
-				016C0EA327E4EEAC008E755F /* WebDocumentLoader.cpp */,
-				016C0E9A27E4EEAC008E755F /* WebDocumentLoader.h */,
-				016C0E7027E4EEAB008E755F /* WebDragClient.cpp */,
-				016C0EA627E4EEAD008E755F /* WebDragClient.h */,
-				016C0EA927E4EEAD008E755F /* WebFrame.cpp */,
-				016C0EAE27E4EEAD008E755F /* WebFrame.h */,
-				016C0EA427E4EEAC008E755F /* WebKit.h */,
-				016C0E6E27E4EEAB008E755F /* WebPage.cpp */,
-				016C0E7C27E4EEAB008E755F /* WebPage.h */,
-				016C0E9027E4EEAC008E755F /* WebProcess.cpp */,
-				016C0EA527E4EEAC008E755F /* WebProcess.h */,
-				016C0EA127E4EEAC008E755F /* WebViewDelegate.h */,
-				016C0ECC27E4EEC8008E755F /* WkCache.h */,
-				016C0ECD27E4EEC8008E755F /* WkCache.mm */,
-				016C0E8027E4EEAC008E755F /* WkCertificate_private.h */,
-				016C0E8827E4EEAC008E755F /* WkCertificate.h */,
-				016C0E8A27E4EEAC008E755F /* WkCertificate.mm */,
-				016C0E9C27E4EEAC008E755F /* WkCertificateViewer.h */,
-				016C0E9D27E4EEAC008E755F /* WkCertificateViewer.mm */,
-				016C0EAA27E4EEAD008E755F /* WkDownload_private.h */,
-				016C0E9227E4EEAC008E755F /* WkDownload.h */,
-				016C0E9F27E4EEAC008E755F /* WkDownload.mm */,
-				016C0E7427E4EEAB008E755F /* WkError_private.h */,
-				016C0EA827E4EEAD008E755F /* WkError.h */,
-				016C0E7127E4EEAB008E755F /* WkError.mm */,
-				016C0E9B27E4EEAC008E755F /* WkFavIcon_private.h */,
-				016C0EA227E4EEAC008E755F /* WkFavIcon.h */,
-				016C0E8B27E4EEAC008E755F /* WkFavIcon.mm */,
-				016C0E6827E4EEAB008E755F /* WkFileDialog_private.h */,
-				016C0E7527E4EEAB008E755F /* WkFileDialog.h */,
-				016C0EB027E4EEAD008E755F /* WkFileDialog.mm */,
-				016C0EAC27E4EEAD008E755F /* WkHistory_private.h */,
-				016C0E8327E4EEAC008E755F /* WkHistory.h */,
-				016C0E6D27E4EEAB008E755F /* WkHistory.mm */,
-				016C0E8F27E4EEAC008E755F /* WkHitTest_private.h */,
-				016C0E6F27E4EEAB008E755F /* WkHitTest.h */,
-				016C0E9827E4EEAC008E755F /* WkHitTest.mm */,
-				016C0E9327E4EEAC008E755F /* WkMedia_private.h */,
-				016C0E9427E4EEAC008E755F /* WkMedia.h */,
-				016C0EA027E4EEAC008E755F /* WkMedia.mm */,
-				016C0E8D27E4EEAC008E755F /* WkNetworkRequestMutable_private.h */,
-				016C0E7227E4EEAB008E755F /* WkNetworkRequestMutable.h */,
-				016C0E6927E4EEAB008E755F /* WkNetworkRequestMutable.mm */,
-				016C0EAD27E4EEAD008E755F /* WkNotification_private.h */,
-				016C0E7E27E4EEAC008E755F /* WkNotification.h */,
-				016C0E8C27E4EEAC008E755F /* WkNotification.mm */,
-				016C0E7F27E4EEAC008E755F /* WkPrinting_private.h */,
-				016C0E9E27E4EEAC008E755F /* WkPrinting.h */,
-				016C0E9727E4EEAC008E755F /* WkPrinting.mm */,
-				016C0E7327E4EEAB008E755F /* WkResourceResponse_private.h */,
-				016C0E8227E4EEAC008E755F /* WkResourceResponse.h */,
-				016C0E8427E4EEAC008E755F /* WkResourceResponse.mm */,
-				016C0E7827E4EEAB008E755F /* WkSettings.h */,
-				016C0E6B27E4EEAB008E755F /* WkSettings.mm */,
-				016C0E8627E4EEAC008E755F /* WkUserScript_private.h */,
-				016C0E7727E4EEAB008E755F /* WkUserScript.h */,
-				016C0E9627E4EEAC008E755F /* WkUserScript.mm */,
-				016C0E9927E4EEAC008E755F /* WkWebView.h */,
-				016C0E8E27E4EEAC008E755F /* WkWebView.mm */,
-			);
-			name = MorphOS;
-			sourceTree = "<group>";
-		};
 /* End PBXGroup section */
 
 /* Begin PBXLegacyTarget section */
 		0181D480235CC46D00848B6D /* WebKitty-Build */ = {
 			isa = PBXLegacyTarget;
-			buildArgumentsString = "-p 10022 morphos@localhost (cd ~/morphos/morphoswb/apps/webkitty/cross-build && PATH=/gg/bin:$$PATH && make $(ACTION) )";
+			buildArgumentsString = "192.168.2.8 \"schroot -c morphos -u jaca -- /usr/bin/bash -c 'cd morphos/morphoswb/apps/wayfarer && export PATH=$PATH:/gg/bin && make withWebKit.a'\"";
 			buildConfigurationList = 0181D483235CC46D00848B6D /* Build configuration list for PBXLegacyTarget "WebKitty-Build" */;
 			buildPhases = (
 			);
@@ -333,35 +145,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				016C0EC427E4EEAD008E755F /* WkPrinting.mm in Sources */,
-				016C0EC627E4EEAD008E755F /* WkCertificateViewer.mm in Sources */,
-				016C0EC227E4EEAD008E755F /* WebProcess.cpp in Sources */,
-				016C0EBA27E4EEAD008E755F /* WebDatabaseManager.cpp in Sources */,
-				016C0ECA27E4EEAD008E755F /* WebFrame.cpp in Sources */,
-				016C0EB327E4EEAD008E755F /* WkSettings.mm in Sources */,
-				016C0EC827E4EEAD008E755F /* WkMedia.mm in Sources */,
-				016C0EB427E4EEAD008E755F /* WkHistory.mm in Sources */,
-				016C0EBD27E4EEAD008E755F /* BackForwardClient.cpp in Sources */,
-				016C0EB227E4EEAD008E755F /* WebApplicationCache.cpp in Sources */,
-				016C0EC527E4EEAD008E755F /* WkHitTest.mm in Sources */,
-				016C0EB527E4EEAD008E755F /* WebPage.cpp in Sources */,
-				016C0EC027E4EEAD008E755F /* WkNotification.mm in Sources */,
-				016C0EC927E4EEAD008E755F /* WebDocumentLoader.cpp in Sources */,
-				016C0EB627E4EEAD008E755F /* WebDragClient.cpp in Sources */,
-				016C0EBC27E4EEAD008E755F /* WkResourceResponse.mm in Sources */,
-				016C0EB927E4EEAD008E755F /* Gamepad.cpp in Sources */,
-				016C0ECE27E4EEC8008E755F /* WkCache.mm in Sources */,
-				016C0EB827E4EEAD008E755F /* CacheModel.cpp in Sources */,
 				013D3C9A2463448700805F29 /* Makefile in Sources */,
-				016C0EB727E4EEAD008E755F /* WkError.mm in Sources */,
-				016C0EBF27E4EEAD008E755F /* WkFavIcon.mm in Sources */,
-				016C0ECB27E4EEAD008E755F /* WkFileDialog.mm in Sources */,
-				016C0EBE27E4EEAD008E755F /* WkCertificate.mm in Sources */,
-				016C0EB127E4EEAD008E755F /* WkNetworkRequestMutable.mm in Sources */,
-				016C0EC327E4EEAD008E755F /* WkUserScript.mm in Sources */,
-				016C0EBB27E4EEAD008E755F /* PopupMenu.cpp in Sources */,
-				016C0EC127E4EEAD008E755F /* WkWebView.mm in Sources */,
-				016C0EC727E4EEAD008E755F /* WkDownload.mm in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
