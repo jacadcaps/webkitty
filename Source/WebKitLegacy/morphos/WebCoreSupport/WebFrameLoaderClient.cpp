@@ -581,16 +581,18 @@ void WebFrameLoaderClient::dispatchDecidePolicyForResponse(const ResourceRespons
 
     if (!webPage) {
     	D(dprintf("%s: ignore!\n", __PRETTY_FUNCTION__));
-        function(PolicyAction::Ignore, identifier);
+        RunLoop::main().dispatch([callback = WTFMove(function), identifier = identifier] {
+            callback(PolicyAction::Ignore, identifier);
+        });
         return;
     }
 
-/* ?? not sure this makes any sense?
     if (!request.url().string()) {
-    	D(dprintf("%s: use!\n", __PRETTY_FUNCTION__));
-        function(PolicyAction::Use, identifier);
+        RunLoop::main().dispatch([callback = WTFMove(function), identifier = identifier] {
+            callback(PolicyAction::Use, identifier);
+        });
         return;
-    } */
+    }
 
 	// undisplayable mime AND this is a top navigation - meaning the url the user clicked on or typed in
 	if (response.isAttachment() || (!canShowMIMEType(response.mimeType()) && !response.mimeType().isNull() && request.isTopSite()))
@@ -603,12 +605,16 @@ void WebFrameLoaderClient::dispatchDecidePolicyForResponse(const ResourceRespons
 			return;
 		}
     	D(dprintf("%s: ignore post download\n", __PRETTY_FUNCTION__));
-		function(PolicyAction::Ignore, identifier);
+        RunLoop::main().dispatch([callback = WTFMove(function), identifier = identifier] {
+            callback(PolicyAction::Ignore, identifier);
+        });
 		return;
 	}
 
    	D(dprintf("%s: use!\n", __PRETTY_FUNCTION__));
-	function(PolicyAction::Use, identifier);
+        RunLoop::main().dispatch([callback = WTFMove(function), identifier = identifier] {
+            callback(PolicyAction::Use, identifier);
+        });
 }
 
 void WebFrameLoaderClient::dispatchDecidePolicyForNewWindowAction(const NavigationAction& navigationAction, const ResourceRequest& request,
@@ -616,7 +622,9 @@ void WebFrameLoaderClient::dispatchDecidePolicyForNewWindowAction(const Navigati
 {
     WebPage* webPage = m_frame->page();
     if (!webPage) {
-        function(PolicyAction::Ignore, identifier);
+        RunLoop::main().dispatch([callback = WTFMove(function), identifier = identifier] {
+            callback(PolicyAction::Ignore, identifier);
+        });
         return;
     }
 
@@ -624,13 +632,16 @@ void WebFrameLoaderClient::dispatchDecidePolicyForNewWindowAction(const Navigati
 	{
 		if (!webPage->_fShouldNavigateToURL(request.url(), true))
 		{
-        	function(PolicyAction::Ignore, identifier);
+            RunLoop::main().dispatch([callback = WTFMove(function), identifier = identifier] {
+                callback(PolicyAction::Ignore, identifier);
+            });
 			return;
 		}
 	}
 
-	notImplemented();
-	function(PolicyAction::Use, identifier);
+    RunLoop::main().dispatch([callback = WTFMove(function), identifier = identifier] {
+        callback(PolicyAction::Use, identifier);
+    });
 }
 
 void WebFrameLoaderClient::applyToDocumentLoader(WebsitePoliciesData&& websitePolicies)
@@ -654,11 +665,13 @@ void WebFrameLoaderClient::applyToDocumentLoader(WebsitePoliciesData&& websitePo
 }
 
 void WebFrameLoaderClient::dispatchDecidePolicyForNavigationAction(const NavigationAction& navigationAction, const ResourceRequest& request, const ResourceResponse& redirectResponse,
-    FormState* formState, PolicyDecisionMode policyDecisionMode, WebCore::PolicyCheckIdentifier requestIdentifier, FramePolicyFunction&& function)
+    FormState* formState, PolicyDecisionMode policyDecisionMode, WebCore::PolicyCheckIdentifier identifier, FramePolicyFunction&& function)
 {
     WebPage* webPage = m_frame->page();
     if (!webPage) {
-        function(PolicyAction::Ignore, requestIdentifier);
+        RunLoop::main().dispatch([callback = WTFMove(function), identifier = identifier] {
+            callback(PolicyAction::Ignore, identifier);
+        });
         return;
     }
 
@@ -669,7 +682,9 @@ void WebFrameLoaderClient::dispatchDecidePolicyForNavigationAction(const Navigat
         if (!webPage->_fShouldNavigateToURL(request.url(), false))
         {
             D(dprintf("%s: cancelled by handler\n", __PRETTY_FUNCTION__));
-            function(PolicyAction::Ignore, requestIdentifier);
+            RunLoop::main().dispatch([callback = WTFMove(function), identifier = identifier] {
+                callback(PolicyAction::Ignore, identifier);
+            });
             return;
         }
     }
@@ -679,7 +694,9 @@ void WebFrameLoaderClient::dispatchDecidePolicyForNavigationAction(const Navigat
 
     // Always ignore requests with empty URLs. 
     if (request.isEmpty()) {
-        function(PolicyAction::Ignore, requestIdentifier);
+        RunLoop::main().dispatch([callback = WTFMove(function), identifier = identifier] {
+            callback(PolicyAction::Ignore, identifier);
+        });
         return;
     }
 
@@ -690,15 +707,19 @@ void WebFrameLoaderClient::dispatchDecidePolicyForNavigationAction(const Navigat
 		// should we download this??
 		if (webPage->_fDownloadAsk)
 		{
-			webPage->_fDownloadAsk(redirectResponse, request, requestIdentifier, navigationAction.downloadAttribute().string(), std::move(function));
+			webPage->_fDownloadAsk(redirectResponse, request, identifier, navigationAction.downloadAttribute().string(), std::move(function));
 			return;
 		}
     	D(dprintf("%s: ignore post download\n", __PRETTY_FUNCTION__));
-		function(PolicyAction::Ignore, requestIdentifier);
+        RunLoop::main().dispatch([callback = WTFMove(function), identifier = identifier] {
+            callback(PolicyAction::Ignore, identifier);
+        });
 		return;
 	}
 
-	function(PolicyAction::Use, requestIdentifier);
+    RunLoop::main().dispatch([callback = WTFMove(function), identifier = identifier] {
+        callback(PolicyAction::Use, identifier);
+    });
 }
 
 void WebFrameLoaderClient::cancelPolicyCheck()
@@ -760,27 +781,7 @@ D(dprintf("%s: \n", __PRETTY_FUNCTION__));
 		m_didSendFormEvent = true;
 	}
 
-	notImplemented();
-	completionHandler();
-#if 0
-    auto& form = formState.form();
-
-    auto* sourceCoreFrame = formState.sourceDocument().frame();
-    if (!sourceCoreFrame)
-        return completionHandler();
-    auto* sourceFrame = WebFrame::fromCoreFrame(*sourceCoreFrame);
-    if (!sourceFrame)
-        return completionHandler();
-
-    auto& values = formState.textFieldValues();
-
-    RefPtr<API::Object> userData;
-    webPage->injectedBundleFormClient().willSubmitForm(webPage, &form, m_frame, sourceFrame, values, userData);
-
-    uint64_t listenerID = m_frame->setUpWillSubmitFormListener(WTFMove(completionHandler));
-
-    webPage->send(Messages::WebPageProxy::WillSubmitForm(m_frame->frameID(), sourceFrame->frameID(), values, listenerID, UserData(WebProcess::singleton().transformObjectsToHandles(userData.get()).get())));
-#endif
+    completionHandler();
 }
 
 void WebFrameLoaderClient::revertToProvisionalState(DocumentLoader*)
