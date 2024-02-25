@@ -186,8 +186,16 @@ template<typename T, typename Deleter = std::default_delete<T>> class RefCounted
 public:
     void deref() const
     {
+#if OS(MORPHOS)
+        volatile void* vThis = (volatile void *)this;
+        if (LIKELY(vThis != nullptr)) {
+            if (derefBase())
+                Deleter()(const_cast<T*>(static_cast<const T*>(this)));
+        }
+#else
         if (derefBase())
             Deleter()(const_cast<T*>(static_cast<const T*>(this)));
+#endif
     }
 
 protected:
