@@ -469,8 +469,8 @@ void TimerBase::setNextFireTime(MonotonicTime newTime)
 {
     ASSERT(canCurrentThreadAccessThreadLocalData(m_thread));
     RELEASE_ASSERT(canCurrentThreadAccessThreadLocalData(m_thread) || shouldSuppressThreadSafetyCheck());
-    bool timerHasBeenDeleted = std::isnan(m_unalignedNextFireTime);
-    RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(!timerHasBeenDeleted);
+//    bool timerHasBeenDeleted = std::isnan(m_unalignedNextFireTime);
+//    RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(!timerHasBeenDeleted);
 
     if (m_unalignedNextFireTime != newTime) {
         // RELEASE_ASSERT(!std::isnan(newTime));
