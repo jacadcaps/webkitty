@@ -105,6 +105,9 @@ public:
 
 	bool touchEventsEnabled() const;
 	void setTouchEventsEnabled(bool enabled);
+ 
+    bool externalNetworkRequestsEnabled() const { return m_externalNetworkRequestsEnabled; }
+    void setExternalNetworkRequestsEnabled(bool enabled) { m_externalNetworkRequestsEnabled = enabled; }
 
 	void setVisibleSize(const int width, const int height);
 	void setScroll(const int x, const int y);
@@ -362,6 +365,7 @@ private:
     bool m_darkMode { false };
     bool m_dragging { false };
     bool m_dragInside { false };
+    bool m_externalNetworkRequestsEnabled { true };
     RefPtr<WebCore::Element> m_focusedElement;
     RefPtr<WebCore::Element> m_fullscreenElement;
     ContextMenuHandling m_cmHandling { ContextMenuHandling::Default };

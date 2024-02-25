@@ -853,13 +853,13 @@ void WebProcess::signalMainThread()
 bool WebProcess::shouldAllowRequest(const char *url, const char *mainPageURL, WebCore::DocumentLoader& loader)
 {
 #if USE_ADFILTER
-    if (!m_urlFilterInitialized)
+    if (UNLIKELY(!m_urlFilterInitialized))
         return true;
 
 	WebFrame *frame = WebFrame::fromCoreFrame(*loader.frame());
     WebPage *page = frame ? frame->page() : nullptr;
 
-	if (page && !page->adBlockingEnabled())
+	if (LIKELY(page) && !page->adBlockingEnabled())
 		return true;
 
 	if (m_urlFilter.matches(url, ABP::FONoFilterOption, mainPageURL))
@@ -1017,10 +1017,31 @@ bool shouldLoadResource(const WebCore::ContentExtensions::ResourceLoadInfo& info
 {
 #if USE_ADFILTER
 	static WebKit::WebProcess &instance = WebKit::WebProcess::singleton();
-	auto url = info.resourceURL.string().utf8();
-	auto mainurl = info.mainDocumentURL.string().utf8();
+	auto url = info.resourceURL.string().ascii();
+	auto mainurl = info.mainDocumentURL.string().ascii();
 	return instance.shouldAllowRequest(url.data(), mainurl.data(), loader);
 #else
+    auto frameLoader = loader.frameLoader();
+    if (LIKELY(frameLoader)) {
+        auto loaderClient = WebKit::toWebFrameLoaderClient(frameLoader->client());
+        if (LIKELY(loaderClient))
+        {
+            WebKit::WebPage *page = loaderClient->webFrame().page();
+
+            auto url = info.resourceURL.string().ascii();
+            auto mainurl = info.mainDocumentURL.string().ascii();
+
+            // dprintf("%s: url '%s' main '%s' ext? %d\n", __PRETTY_FUNCTION__, url.data(), mainurl.data(), page && page->externalNetworkRequestsEnabled());
+
+            if (LIKELY(page) && UNLIKELY(!page->externalNetworkRequestsEnabled())) {
+                if (0 == strncmp(url.data(), "data:", 5))
+                    return true; // treat as local resource
+                if (0 == strncmp(mainurl.data(), "file:", 5) && 0 != strncmp(url.data(), "file:", 5)) {
+                    return false;
+                }
+            }
+        }
+    }
 	return true;
 #endif
 }

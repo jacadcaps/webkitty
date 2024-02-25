@@ -3372,7 +3372,12 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 {
 	auto webPage = [_private page];
 	webPage->setJavaScriptEnabled([settings javaScriptEnabled]);
+#if USE_ADFILTER
 	webPage->setAdBlockingEnabled([settings adBlockerEnabled]);
+#else
+	webPage->setAdBlockingEnabled([settings adBlockerEnabled]);
+    webPage->setExternalNetworkRequestsEnabled(![settings adBlockerEnabled]);
+#endif
 	webPage->setThirdPartyCookiesAllowed([settings thirdPartyCookiesAllowed]);
 	webPage->setContextMenuHandling(WebKit::WebPage::ContextMenuHandling([settings contextMenuHandling]));
 	webPage->setLocalStorageEnabled([settings localStorageEnabled]);
