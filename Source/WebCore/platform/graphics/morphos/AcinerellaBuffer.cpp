@@ -467,6 +467,10 @@ public:
 		m_request = AcinerellaNetworkFileRequest::create(m_url, [this, protect = Ref{*this}](bool success) {
 			if (success)
 			{
+                // can happen if request got cancelled but processing of data is already pending
+                if (!m_request)
+                    return;
+
                 m_bufferBuilder.append(*m_request->buffer());
 				DP(dprintf("%s(%p): received, total len %d (%d)\n", __PRETTY_FUNCTION__, this, m_buffer->size(), m_request->buffer()->size()));
 
