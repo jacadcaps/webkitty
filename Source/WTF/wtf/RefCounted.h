@@ -129,6 +129,14 @@ protected:
     {
         applyRefDerefThreadingCheck();
 
+#ifdef __MORPHOS__
+        volatile void* vAddr = (volatile void *)&m_refCount;
+        if (vAddr < (void *)0x1000) {
+            dprintf("%s: this is null/invalid!\n", __func__);
+            return false;
+        }
+#endif
+
 #if CHECK_REF_COUNTED_LIFECYCLE
         ASSERT_WITH_SECURITY_IMPLICATION(!m_deletionHasBegun);
         ASSERT(!m_adoptionIsRequired);
@@ -186,16 +194,8 @@ template<typename T, typename Deleter = std::default_delete<T>> class RefCounted
 public:
     void deref() const
     {
-#if OS(MORPHOS)
-        volatile void* vThis = (volatile void *)this;
-        if (LIKELY(vThis != nullptr)) {
-            if (derefBase())
-                Deleter()(const_cast<T*>(static_cast<const T*>(this)));
-        }
-#else
         if (derefBase())
             Deleter()(const_cast<T*>(static_cast<const T*>(this)));
-#endif
     }
 
 protected:

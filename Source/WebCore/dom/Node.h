@@ -788,6 +788,15 @@ ALWAYS_INLINE void Node::ref() const
 
 ALWAYS_INLINE void Node::deref() const
 {
+#ifdef __MORPHOS__
+// why does this happen?
+    volatile void* vAddr = (volatile void *)&m_refCountAndParentBit;
+    if (vAddr < (void *)0x1000) {
+        dprintf("%s: this is null/invalid!\n", __func__);
+        return;
+    }
+#endif
+
     ASSERT(isMainThread());
     ASSERT(refCount());
     ASSERT(!m_deletionHasBegun);
@@ -803,13 +812,6 @@ ALWAYS_INLINE void Node::deref() const
         const_cast<Node&>(*this).removedLastRef();
         return;
     }
-#if OS(MORPHOS)
-// why does this happen?
-    volatile auto x = this;
-    if (!x) {
-        return;
-    }
-#endif
     m_refCountAndParentBit = updatedRefCount;
 }
 
