@@ -29,7 +29,7 @@
 #include <proto/graphics.h>
 
 #define D(x)
-#define DSYNC(x)
+#define DSYNC(x) 
 #define DOVL(x)
 #define DFRAME(x) 
 
@@ -175,12 +175,17 @@ void AcinerellaVideoDecoder::onFrameDecoded(const AcinerellaDecodedFrame &frame)
 	DFRAME(dprintf("\033[35m[VD]%s: %p [>> %f pts %f]\033[0m\n", __func__, this, float(m_bufferedSeconds), float(frame.pts())));
 
 	auto *avframe = frame.frame();
-	if (m_isHLS)// && avframe->timecode <= 0.0)
+
+    // YT nominally marks both audio and video correctly these days, so this is normally unnecessary
+    // would have to be synced with audio decoder code!
+    #if 0
+	if (m_isHLS && avframe->timecode <= 0.0)
 	{
 		auto *nonconstframe = const_cast<ac_decoder_frame *>(avframe);
 		nonconstframe->timecode = m_liveTimeCode;
 		m_liveTimeCode += m_frameDuration;
 	}
+    #endif
 
 	m_pullEvent.signal();
 	if (!m_didShowFirstFrame && m_overlayHandle)

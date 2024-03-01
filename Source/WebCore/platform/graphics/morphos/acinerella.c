@@ -813,6 +813,9 @@ lp_ac_package CALL_CONVT ac_read_package(lp_ac_instance pacInstance) {
 	if (pkt->pPack->dts != AV_NOPTS_VALUE) {
 		pkt->pts = pkt->pPack->dts;
 	}
+    else {
+        pkt->pts = pkt->pPack->pts;
+    }
 	pkt->package.stream_index = pkt->pPack->stream_index;
 	return (lp_ac_package)(pkt);
 
@@ -1058,8 +1061,8 @@ lp_ac_decoder CALL_CONVT ac_create_decoder_ex(lp_ac_instance pacInstance, int nb
 	if (result) {
 		result->decoder.timecode = 0;
 		result->last_timecode = 0;
-		result->sought = 1;
-		result->doseek = 1;
+		result->sought = 0;
+		result->doseek = 0;
 	}
 
 	return (lp_ac_decoder)result;
