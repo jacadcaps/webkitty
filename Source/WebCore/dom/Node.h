@@ -792,7 +792,6 @@ ALWAYS_INLINE void Node::deref() const
 // why does this happen?
     volatile void* vAddr = (volatile void *)&m_refCountAndParentBit;
     if (vAddr < (void *)0x1000) {
-        dprintf("%s: this is null/invalid!\n", __func__);
         return;
     }
 #endif
