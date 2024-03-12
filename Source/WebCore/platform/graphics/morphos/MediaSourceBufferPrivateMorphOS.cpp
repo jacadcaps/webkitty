@@ -17,22 +17,22 @@
 #include <proto/dos.h>
 #include <proto/exec.h>
 
-#define D(x) 
+#define D(x)
 #define DR(x) //do { if (m_videoDecoderMask == 1) x; } while (0);
 #define DIO(x) //do { if (m_videoDecoderMask == 1) x; } while (0);
 #define DM(x)
 #define DI(x)
 #define DN(x)
 #define DNERR(x)
-#define DAPPEND(x)
+#define DAPPEND(x) // do { if (m_audioDecoderMask != 0) x; } while (0);
 #define DBR(x)
 #define DRMS(x)
 #define DENABLED(x)
 #define DLIFETIME(x)
-#define DSEEK(x)
-#define DENQ(x)  //do { if (m_audioDecoderMask == 0) x; } while (0);
-#define DRECEIVED(x) //do { if (m_audioDecoderMask == 0) x; } while (0);
-#define DENQDEBUGSTEPS 1
+#define DSEEK(x) 
+#define DENQ(x)  // do { if (m_audioDecoderMask != 0) x; } while (0);
+#define DRECEIVED(x) // do { if (m_audioDecoderMask != 0) x; } while (0);
+#define DENQDEBUGSTEPS 20
 
 // #pragma GCC optimize ("O0")
 // #define DEBUG_FILE
@@ -498,7 +498,7 @@ MediaSourceBufferPrivateMorphOS::~MediaSourceBufferPrivateMorphOS()
 void MediaSourceBufferPrivateMorphOS::appendInternal(Ref<SharedBuffer>&& buffer)
 {
 	EP_EVENT(append);
-	DAPPEND(dprintf("[MS][%c]%s bytes %lu main %d appendcnt %d\n", m_audioDecoderMask == 0 ?'V':'A', __func__, vector.size(), isMainThread(), m_appendCount));
+	DAPPEND(dprintf("[MS][%c]%s bytes %lu main %d appendcnt %d\n", m_audioDecoderMask == 0 ?'V':'A', __func__, buffer->size(), isMainThread(), m_appendCount));
 
 	if (m_initializationBuffer.size() == 0)
 	{
@@ -1124,8 +1124,9 @@ void MediaSourceBufferPrivateMorphOS::initialize(bool success,
 	if (decoderIndexMask != 0)
 	{
 		m_muxer->setDecoderMask(decoderIndexMask, m_audioDecoderMask);
-		for (int i = 0; i < std::min(Acinerella::AcinerellaMuxedBuffer::maxDecoders, acinerella->instance()->stream_count); i++)
-			m_maxBuffer[i] = m_muxer->maxBufferSizeForMediaSourceDecoder(i);
+		for (int i = 0; i < std::min(Acinerella::AcinerellaMuxedBuffer::maxDecoders, acinerella->instance()->stream_count); i++) {
+            m_maxBuffer[i] = m_muxer->maxBufferSizeForMediaSourceDecoder(i);
+        }
 		m_muxer->setSinkFunction([this, protectedThis = Ref{*this}](int decoderIndex, int , uint32_t bytesInBuffer) {
 			if (bytesInBuffer < m_maxBuffer[decoderIndex] / 2)
 				becomeReadyForMoreSamples(decoderIndex);

@@ -12,7 +12,7 @@
 
 #define D(x)
 #define DLIFETIME(x)
-#define DDUMP(x)
+#define DDUMP(x) 
 #define DSEEK(x)
 #define DEOS(x)
 #define DPLAY(x) 

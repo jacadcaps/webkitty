@@ -160,7 +160,7 @@ protected:
 	void onDurationChanged();
 	void onReadyToPlay();
 	void onEnded();
-	virtual void flush();
+	virtual void flush(bool willSeek);
 	virtual void onGetReadyToPlay() { };
 	virtual void onCoolDown() { };
 
@@ -174,6 +174,7 @@ protected:
 	// call from: Own thread, under m_lock!
 	virtual void onDecoderChanged(RefPtr<AcinerellaPointer>) { }
 	virtual void onFrameDecoded(const AcinerellaDecodedFrame &) { }
+    virtual bool acceptPackage(RefPtr<AcinerellaPackage>&, double pts) { return true; }
 
 	// call from: Own thread
 	virtual void startPlaying() = 0;

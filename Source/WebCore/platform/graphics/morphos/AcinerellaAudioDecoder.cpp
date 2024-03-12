@@ -19,8 +19,8 @@ namespace Acinerella {
 #undef AHI_BASE_NAME
 #define AHI_BASE_NAME m_ahiBase
 
-#define D(x) 
-#define DTHREAD(x)
+#define D(x)
+#define DTHREAD(x) 
 #define DAAR(x)
 #define DFILL(x)
 #define DSPAM(x)
@@ -360,6 +360,14 @@ void AcinerellaAudioDecoder::onFrameDecoded(const AcinerellaDecodedFrame &frame)
 
 	DSPAM(dprintf("[AD]%s: buffered %f. frametime %f\n", __func__, float(m_bufferedSeconds), float(avframe->timecode)));
 
+    if (m_didUnderrun && m_playing && isWarmedUp())
+    {
+        signalAHIThread([&](){
+            m_ahiThreadTransitionPlaying.store(true);
+            m_ahiThreadTransitionPaused.store(false);
+        });
+    }
+
 #if 0
 	if (m_isHLS)// && avframe->timecode <= 0.0)
 	{
@@ -370,31 +378,52 @@ void AcinerellaAudioDecoder::onFrameDecoded(const AcinerellaDecodedFrame &frame)
 #endif
 }
 
+bool AcinerellaAudioDecoder::acceptPackage(RefPtr<AcinerellaPackage>&, double pts)
+{
+    if (pts < m_position)
+        return false;
+    return true;
+}
+
 double AcinerellaAudioDecoder::position() const
 {
 	return m_position;
 }
 
-void AcinerellaAudioDecoder::flush()
+void AcinerellaAudioDecoder::flush(bool willSeek)
 {
 	D(dprintf("[AD]%s: flushing audio\n", __func__));
 	EP_SCOPE(flush);
 
-    ahiCleanup();
+    if (willSeek)
+    {
+        ahiCleanup();
 
-	AcinerellaDecoder::flush();
+        AcinerellaDecoder::flush(true);
 
-	m_bufferedSeconds = 0;
-	m_bufferedSamples = 0;
-	m_position = 0;
-    m_ahiFrameOffset = 0;
-    m_didUnderrun = false;
+        m_bufferedSeconds = 0;
+        m_bufferedSamples = 0;
+        m_position = 0;
+        m_ahiFrameOffset = 0;
+        m_didUnderrun = false;
 
-	if (m_playing)
-	{
-		decodeUntilBufferFull();
-        startPlaying();
-	}
+        if (m_playing)
+        {
+            decodeUntilBufferFull();
+            startPlaying();
+        }
+    }
+    else
+    {
+        AcinerellaDecoder::flush(false);
+        m_bufferedSeconds = 0;
+        m_bufferedSamples = 0;
+        if (m_playing)
+        {
+            decodeUntilBufferFull();
+            startPlaying();
+        }
+    }
 }
 
 void AcinerellaAudioDecoder::dumpStatus()
@@ -555,7 +584,7 @@ void AcinerellaAudioDecoder::ahiThreadEntryPoint()
                 
                     if (requestComplete->timeToAnnounce() > nextPositionToAnnounce)
                     {
-                        nextPositionToAnnounce = requestComplete->timeToAnnounce() + 0.33;
+                        nextPositionToAnnounce = requestComplete->timeToAnnounce() + 0.2;
                         dispatch([this, positionToAnnounce(requestComplete->timeToAnnounce()), protectedThis(Ref{*this})]() {
                             if (!m_ahiThreadShuttingDown)
                             {

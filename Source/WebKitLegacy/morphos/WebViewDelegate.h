@@ -55,7 +55,7 @@ struct WebViewDelegate
 	std::function<void(const WebCore::ResourceError &)>  _fDidFailWithError;
 	std::function<bool(const WebCore::ResourceRequest&)> _fCanHandleRequest;
 	std::function<void()>                                _fDidLoadInsecureContent;
-	std::function<bool(const WTF::URL& url, bool newWindow)> _fShouldNavigateToURL;
+	std::function<bool(const WTF::URL& url, bool newWindow, bool isTopSite)> _fShouldNavigateToURL;
 	std::function<void(const WebCore::ResourceResponse&, bool requsestWithAuth)> _fDidReceiveResponse;
 
 	std::function<bool(const WTF::String&, const WebCore::WindowFeatures&)>      _fCanOpenWindow;

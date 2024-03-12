@@ -630,7 +630,7 @@ void WebFrameLoaderClient::dispatchDecidePolicyForNewWindowAction(const Navigati
 
 	if (webPage && webPage->_fShouldNavigateToURL)
 	{
-		if (!webPage->_fShouldNavigateToURL(request.url(), true))
+		if (!webPage->_fShouldNavigateToURL(request.url(), true, true))
 		{
             RunLoop::main().dispatch([callback = WTFMove(function), identifier = identifier] {
                 callback(PolicyAction::Ignore, identifier);
@@ -679,7 +679,7 @@ void WebFrameLoaderClient::dispatchDecidePolicyForNavigationAction(const Navigat
 
     if (webPage && webPage->_fShouldNavigateToURL)
     {
-        if (!webPage->_fShouldNavigateToURL(request.url(), false))
+        if (!webPage->_fShouldNavigateToURL(request.url(), false, request.isTopSite()))
         {
             D(dprintf("%s: cancelled by handler\n", __PRETTY_FUNCTION__));
             RunLoop::main().dispatch([callback = WTFMove(function), identifier = identifier] {

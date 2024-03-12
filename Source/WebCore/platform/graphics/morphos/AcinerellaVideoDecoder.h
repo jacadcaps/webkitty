@@ -65,7 +65,7 @@ protected:
 
 	void onFrameDecoded(const AcinerellaDecodedFrame &frame) override;
 	void onDecoderChanged(RefPtr<AcinerellaPointer> acinerella) override;
-	void flush() override;
+	void flush(bool willSeek) override;
 	void onCoolDown() override;
 
 	void pullThreadEntryPoint();

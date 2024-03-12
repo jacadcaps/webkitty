@@ -105,7 +105,8 @@ protected:
 	void onThreadShutdown() override;
 	void onGetReadyToPlay() override;
 	void onFrameDecoded(const AcinerellaDecodedFrame &frame) override;
-	void flush() override;
+    bool acceptPackage(RefPtr<AcinerellaPackage>&, double pts) override;
+	void flush(bool willSeek) override;
 	bool initializeAudio();
 	void onCoolDown() override;
 	void ahiCleanup();

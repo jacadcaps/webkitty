@@ -1287,8 +1287,8 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
     settings.setScriptEnabled(true);
     settings.setScriptMarkupEnabled(true);
     // settings.setDeferredCSSParserEnabled(true);
-    settings.setDeviceWidth(1920);
-    settings.setDeviceHeight(1080);
+    settings.setDeviceWidth(1280);
+    settings.setDeviceHeight(720);
 //    settings.setEnforceCSSMIMETypeInNoQuirksMode(true);
     settings.setShrinksStandaloneImagesToFit(true);
 //    settings.setSubpixelAntialiasedLayerTextEnabled(true);

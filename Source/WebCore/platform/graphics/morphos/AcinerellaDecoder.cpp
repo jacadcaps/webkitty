@@ -130,7 +130,7 @@ void AcinerellaDecoder::pause(bool willSeek)
 		m_readying = false;
 		stopPlaying();
 		if (willSeek)
-			flush();
+			flush(true);
 	});
 }
 
@@ -176,7 +176,7 @@ bool AcinerellaDecoder::decodeNextFrame()
 			if (!m_isHLS)
 			{
 				ac_flush_buffers(decoder);
-				flush();
+				flush(false);
 			}
 
 			return true;
@@ -185,6 +185,9 @@ bool AcinerellaDecoder::decodeNextFrame()
 		if (buffer->package())
 		{
 			double pts = ac_get_package_pts(acinerella->instance(), buffer->package());
+
+            if (!acceptPackage(buffer, pts))
+                return true;
 
 			if (m_droppingFrames)
 			{
@@ -309,7 +312,7 @@ void AcinerellaDecoder::dropUntilPTS(double pts)
 	m_droppingUntilKeyFrame = false;
 }
 
-void AcinerellaDecoder::flush()
+void AcinerellaDecoder::flush(bool willSeek)
 {
 	D(dprintf("[%s]%s: islive %d\033[0m\n", isAudio() ? "\033[33mA":"\033[35mV", __func__, this, m_isLive));
 	auto lock = Locker(m_lock);
@@ -379,7 +382,7 @@ void AcinerellaDecoder::terminate()
 
 void AcinerellaDecoder::threadEntryPoint()
 {
-	SetTaskPri(FindTask(0), isAudio() ? 3 : 2);
+	SetTaskPri(FindTask(0), isAudio() ? 3 : 0);
 
 	RefPtr<AcinerellaDecoder> refSelf = WTF::Ref{*this};
 

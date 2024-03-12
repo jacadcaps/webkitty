@@ -201,11 +201,12 @@ void AcinerellaVideoDecoder::onFrameDecoded(const AcinerellaDecodedFrame &frame)
     }
 }
 
-void AcinerellaVideoDecoder::flush()
+void AcinerellaVideoDecoder::flush(bool willSeek)
 {
 	DSYNC(dprintf("\033[35m[VD]%s: %p\033[0m\n", __func__, this));
-	AcinerellaDecoder::flush();
-	m_hasAudioPosition = false;
+	AcinerellaDecoder::flush(willSeek);
+    if (willSeek)
+        m_hasAudioPosition = false;
 	m_bufferedSeconds = 0;
 	m_frameCount = 0;
 	m_liveTimeCode = 0;
@@ -221,17 +222,15 @@ void AcinerellaVideoDecoder::dumpStatus()
 void AcinerellaVideoDecoder::setAudioPresentationTime(double apts)
 {
 	DSYNC(dprintf("\033[35m[VD]%s: %p -> %f\033[0m\n", __func__, this, float(apts)));
-	float delta;
+
 	{
 		auto lock = Locker(m_audioLock);
 		m_audioPositionRealTime = MonotonicTime::now();
-		delta = fabs(m_audioPosition - apts);
 		m_audioPosition = apts;
 		m_hasAudioPosition = true;
 	}
 
-	if (delta > 2.0)
-		m_frameEvent.signal(); // abort a possible long sleep
+    m_frameEvent.signal(); // abort a possible long sleep
 }
 
 bool AcinerellaVideoDecoder::getAudioPresentationTime(double &time)
@@ -244,7 +243,7 @@ bool AcinerellaVideoDecoder::getAudioPresentationTime(double &time)
 		time = m_audioPosition + (MonotonicTime::now() - m_audioPositionRealTime).value();
 		
 		// In case of a stall, don't over-report the audio position, but cause a stall on the video pipeline too!
-		time = std::min(time, m_audioPosition + 1.5);
+		time = std::min(time, m_audioPosition + 0.5);
 		
 		return true;
 	}
@@ -554,7 +553,7 @@ void AcinerellaVideoDecoder::blitFrameLocked()
 void AcinerellaVideoDecoder::pullThreadEntryPoint()
 {
 	D(dprintf("\033[36m[VD]%s: %p\033[0m\n", __func__, this));
-	SetTaskPri(FindTask(0), 3);
+	SetTaskPri(FindTask(0), 0);
 
 	while (!m_terminating)
 	{
@@ -667,8 +666,8 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 							{
 								if (getAudioPresentationTime(audioAt))
 								{
-									sleepFor = Seconds((pts - audioAt) + (nextPts - pts));
-									if (audioAt > 1.0)
+									sleepFor = Seconds((nextPts - pts) - (audioAt - pts));
+									if (audioAt > 0.5)
 										canDropFrames = true;
 								}
 								else
@@ -703,14 +702,17 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 
 				if (sleepFor.value() > 0.0)
 				{
-					if (sleepFor.value() > 1.0)
+					if (sleepFor.value() > (m_frameDuration * 10))
 					{
 						DSYNC(dprintf("\033[36m[VD]%s: long sleep %f to catch to %f\033[0m\n", __func__, float(sleepFor.value()), float(audioAt)));
+                        m_frameEvent.waitFor(10_s);
 					}
-
-					m_frameEvent.waitFor(sleepFor);
+                    else
+                    {
+                        m_frameEvent.waitFor(sleepFor);
+                    }
 				}
-				else if (m_canDropKeyFrames && canDropFrames && sleepFor.value() < -2.5)
+				else if (m_canDropKeyFrames && canDropFrames && sleepFor.value() < -1.0)
 				{
 					DSYNC(dprintf("\033[36m[VD]%s: dropping video frames until %f\033[0m\n", __func__, float(audioAt) + 1.0));
 					
@@ -719,7 +721,7 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 						while (m_decodedFrames.size())
 						{
 							auto pts = m_decodedFrames.first().pts();
-							if (pts >= audioAt + 1.0)
+							if (pts >= audioAt + 0.5)
 								break;
 							DSYNC(dprintf("\033[36m[VD]%s: droppped frame at %f\033[0m\n", __func__, float(pts)));
 							m_decodedFrames.removeFirst();
@@ -727,7 +729,7 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 						}
 					}
 						
-					dropUntilPTS(audioAt + 1.0);
+					dropUntilPTS(audioAt + 0.5);
 				}
 				else if (sleepFor.value() < -(m_frameDuration * 0.1))
 				{

@@ -106,7 +106,13 @@ typedef enum {
 
 @protocol WkWebViewAllRequestsHandlerDelegate <OBObject>
 
-- (BOOL)webView:(WkWebView *)view wantsToNavigateToURL:(OBURL *)url;
+typedef enum {
+    WkWebViewAllRequestsHandlerTarget_MainFrame,
+    WkWebViewAllRequestsHandlerTarget_NewWindow,
+    WkWebViewAllRequestsHandlerTarget_SubFrame
+} WkWebViewAllRequestsHandlerTarget;
+
+- (BOOL)webView:(WkWebView *)view wantsToNavigateToURL:(OBURL *)url intoTarget:(WkWebViewAllRequestsHandlerTarget)target;
 
 @end
 

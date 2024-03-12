@@ -2522,7 +2522,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			return false;
 		};
 		
-		webPage->_fShouldNavigateToURL = [self](const WTF::URL &url, bool window) -> bool {
+		webPage->_fShouldNavigateToURL = [self](const WTF::URL &url, bool window, bool isTopSite) -> bool {
 			validateObjCContext();
 			WkWebViewPrivate *privateObject = [self privateObject];
 			WTF::String protocol = url.protocol().toString();
@@ -2532,7 +2532,12 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			{
 				auto uurl = url.string().utf8();
 				OBURL *url = [OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]];
-				if (![allHandler webView:self wantsToNavigateToURL:url])
+                auto target = WkWebViewAllRequestsHandlerTarget_MainFrame;
+                if (window)
+                    target = WkWebViewAllRequestsHandlerTarget_NewWindow;
+                else if (!isTopSite)
+                    target = WkWebViewAllRequestsHandlerTarget_SubFrame;
+				if (![allHandler webView:self wantsToNavigateToURL:url intoTarget:target])
 					return false;
 			}
 
