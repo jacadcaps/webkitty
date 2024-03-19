@@ -275,6 +275,7 @@ public:
 
 	void startDownload(const WTF::URL &url);
 	void flushCompositing();
+    void scheduleRenderingUpdate();
 
 	WTF::String misspelledWord(WebCore::HitTestResult &hitTest);
 	WTF::Vector<WTF::String> misspelledWordSuggestions(WebCore::HitTestResult &hitTest);

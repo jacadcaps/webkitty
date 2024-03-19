@@ -383,6 +383,17 @@ void WebChromeClient::triggerRenderingUpdate()
 	m_webPage.flushCompositing();
 }
 
+bool WebChromeClient::scheduleRenderingUpdate()
+{
+    m_webPage.scheduleRenderingUpdate();
+    return true;
+}
+
+void WebChromeClient::renderingUpdateFramesPerSecondChanged()
+{
+// dprintf("%s:\n", __PRETTY_FUNCTION__);
+}
+
 bool WebChromeClient::selectItemWritingDirectionIsNatural()
 {
     return false;

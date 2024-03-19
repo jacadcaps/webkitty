@@ -1347,13 +1347,13 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 	settings.setHiddenPageCSSAnimationSuspensionEnabled(true);
 	settings.setAnimatedImageAsyncDecodingEnabled(false);
 
-    settings.setWebAnimationsCompositeOperationsEnabled(true);
+    settings.setWebAnimationsCompositeOperationsEnabled(false);
     settings.setWebAnimationsMutableTimelinesEnabled(true);
     settings.setCSSCustomPropertiesAndValuesEnabled(true);
 
 //	settings.setViewportFitEnabled(true);
 	settings.setConstantPropertiesEnabled(true);
-
+ 
 #if ENABLE(FULLSCREEN_API)
        settings.setFullScreenEnabled(true);
 #endif
@@ -2433,7 +2433,14 @@ void WebPage::draw(struct RastPort *rp, const int x, const int y, const int widt
         frameView->availableContentSizeChanged(WebCore::ScrollableArea::AvailableSizeChangeReason::AreaSizeChanged);
     }
 
+    // NOTE: order of this calls matters!
     m_page->layoutIfNeeded();
+    m_page->updateRendering();
+
+    OptionSet<FinalizeRenderingUpdateFlags> flags;
+    flags.add(FinalizeRenderingUpdateFlags::ApplyScrollingTreeLayerPositions);
+
+    m_page->finalizeRenderingUpdate(flags);
 
 #if 0
 	if (frameView->renderView())
@@ -2812,6 +2819,12 @@ void WebPage::flushCompositing()
     if (m_graphicsLayer)
         dumpLayer(m_graphicsLayer, 0);
 #endif
+}
+
+void WebPage::scheduleRenderingUpdate()
+{
+	if (_fInvalidate)
+		_fInvalidate(false);
 }
 
 bool WebPage::drawRect(const int x, const int y, const int width, const int height, struct RastPort *rp)
@@ -4084,18 +4097,26 @@ bool WebPage::screenshotToFile(const char *fileName)
     if (!localMainFrame)
         return false;
 
+    auto oldScroll = frameView->scrollPosition();
+    m_ignoreScroll = true;
+    frameView->WebCore::ScrollView::scrollTo(WebCore::ScrollPosition(0, 0));
+
     auto rect = WebCore::IntRect(WebCore::IntPoint(0, 0), frameView->contentsSize());
     auto snapshotRect = WebCore::IntRect(localMainFrame->view()->clientToDocumentRect(rect));
 
 	auto *surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, snapshotRect.width(), snapshotRect.height());
 	if (nullptr == surface)
 	{
+		frameView->WebCore::ScrollView::scrollTo(oldScroll);
+		m_ignoreScroll = false;
 		return false;
 	}
 
 	auto *cairo = cairo_create(surface);
 	if (nullptr == cairo)
 	{
+		frameView->WebCore::ScrollView::scrollTo(oldScroll);
+		m_ignoreScroll = false;
 		cairo_surface_destroy(surface);
 		return false;
 	}
@@ -4111,13 +4132,10 @@ bool WebPage::screenshotToFile(const char *fileName)
 
 		OptionSet<WebCore::PaintBehavior> oldBehavior = frameView->paintBehavior();
 		OptionSet<WebCore::PaintBehavior> paintBehavior = oldBehavior;
-		auto oldScroll = frameView->scrollPosition();
 
 		paintBehavior.add(WebCore::PaintBehavior::FlattenCompositingLayers);
 		paintBehavior.add(WebCore::PaintBehavior::Snapshotting);
 		frameView->setPaintBehavior(paintBehavior);
-		m_ignoreScroll = true;
-		frameView->WebCore::ScrollView::scrollTo(WebCore::ScrollPosition(0, 0));
 
         LocalFrameView::CoordinateSpaceForSnapshot coordinateSpace = LocalFrameView::DocumentCoordinates;
         LocalFrameView::SelectionInSnapshot shouldIncludeSelection = LocalFrameView::IncludeSelection;

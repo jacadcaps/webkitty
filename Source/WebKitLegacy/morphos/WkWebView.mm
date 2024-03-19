@@ -773,8 +773,7 @@ namespace  {
 
 - (void)onDrawPendingTimer
 {
-    if (_drawPending)
-        [_paintPerform perform];
+    [_paintPerform perform];
 }
 
 - (void)setDrawPendingWithSchedule:(BOOL)schedule
@@ -786,32 +785,44 @@ namespace  {
 		[_paintTimer invalidate];
 		[_paintTimer release];
 		_paintTimer = nil;
-
-		_drawPending = YES;
+        _drawPending = NO;
 
 		if (schedule && _paintPerform)
 		{
 			static double divider = (double)_drawTimeBase;
-			double interval = _drawTime;
+			double drawTime = _drawTime;
 			double timeSinceLast = (__builtin_ppc_get_timebase() - _drawTimeLast);
+            double waitTime;
 
-			interval /= divider;
+			drawTime /= divider;
 			timeSinceLast /= divider;
 
-			interval *= 3.0;
-
-			if (timeSinceLast > interval || interval < 0.016)
-				interval = 0.016;
-			if (interval > 0.7)
-				interval = 0.7;
-			_paintTimer = [[OBScheduledTimer scheduledTimerWithInterval:interval perform:[OBPerform performSelector:@selector(onDrawPendingTimer) target:self] repeats:NO] retain];
+			if (timeSinceLast > waitTime || waitTime < 0.016)
+				waitTime = 0.016;
+			if (waitTime > 0.5)
+				waitTime = 0.5;
+    
+            // dprintf("waitTime %f lastdraw %f webcore %f\n", (float)waitTime, (float)drawTime, (float)_page->corePage()->preferredRenderingUpdateInterval().seconds());
+            // waitTime =_page->corePage()->preferredRenderingUpdateInterval().seconds();
+            
+			_paintTimer = [[OBScheduledTimer scheduledTimerWithInterval:waitTime perform:[OBPerform performSelector:@selector(onDrawPendingTimer) target:self] repeats:NO] retain];
+            if (_paintTimer)
+                _drawPending = YES;
 		}
 	}
 }
 
+- (void)willDraw
+{
+    _drawPending = NO;
+
+    [_paintTimer invalidate];
+    [_paintTimer release];
+    _paintTimer = nil;
+}
+
 - (void)drawFinishedIn:(UQUAD)timebaseticks
 {
-	_drawPending = NO;
 	_drawTime = timebaseticks;
 	_drawTimeLast = __builtin_ppc_get_timebase();
 }
@@ -3547,6 +3558,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 - (BOOL)draw:(ULONG)flags
 {
 	EP_SCOPE(draw);
+    [_private willDraw];
 
 	[super draw:flags];
 
@@ -3898,7 +3910,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 {
     EP_SCOPE(drawRequest);
 
-	if (![_private drawPending] || force || [_private isHandlingUserInput])
+	if (![_private drawPendingWithSchedule] || force || [_private isHandlingUserInput])
 	{
 		[_private setDrawPendingWithSchedule:!force];
 

@@ -134,7 +134,10 @@ protected:
     // the changes appear on the screen in synchrony with updates to GraphicsLayers.
     void setNeedsOneShotDrawingSynchronization() final { }
     void triggerRenderingUpdate() final;
-		
+
+    bool scheduleRenderingUpdate() final;
+    void renderingUpdateFramesPerSecondChanged() final;
+
     CompositingTriggerFlags allowedCompositingTriggers() const final
     {
         return static_cast<CompositingTriggerFlags>(ScrollableNonMainFrameTrigger);

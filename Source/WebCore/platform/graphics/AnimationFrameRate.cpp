@@ -30,7 +30,11 @@
 
 namespace WebCore {
 
+#if OS(MORPHOS)
+static constexpr OptionSet<ThrottlingReason> halfSpeedThrottlingReasons { ThrottlingReason::LowPowerMode };
+#else
 static constexpr OptionSet<ThrottlingReason> halfSpeedThrottlingReasons { };
+#endif
 
 FramesPerSecond framesPerSecondNearestFullSpeed(FramesPerSecond nominalFramesPerSecond)
 {
