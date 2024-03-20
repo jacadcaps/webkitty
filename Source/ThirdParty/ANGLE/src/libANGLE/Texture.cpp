@@ -16,6 +16,7 @@
 #include "libANGLE/State.h"
 #include "libANGLE/Surface.h"
 #include "libANGLE/formatutils.h"
+#include "libANGLE/renderer/ContextImpl.h"
 #include "libANGLE/renderer/GLImplFactory.h"
 #include "libANGLE/renderer/TextureImpl.h"
 
@@ -24,6 +25,10 @@ namespace gl
 
 namespace
 {
+constexpr angle::SubjectIndex kBufferSubjectIndex = 2;
+static_assert(kBufferSubjectIndex != rx::kTextureImageImplObserverMessageIndex, "Index collision");
+static_assert(kBufferSubjectIndex != rx::kTextureImageSiblingMessageIndex, "Index collision");
+
 bool IsPointSampled(const SamplerState &samplerState)
 {
     return (samplerState.getMagFilter() == GL_NEAREST &&
@@ -49,21 +54,44 @@ InitState DetermineInitState(const Context *context, Buffer *unpackBuffer, const
 }
 }  // namespace
 
-bool IsMipmapFiltered(const SamplerState &samplerState)
+GLenum ConvertToNearestFilterMode(GLenum filterMode)
 {
-    switch (samplerState.getMinFilter())
+    switch (filterMode)
     {
-        case GL_NEAREST:
         case GL_LINEAR:
-            return false;
-        case GL_NEAREST_MIPMAP_NEAREST:
+            return GL_NEAREST;
         case GL_LINEAR_MIPMAP_NEAREST:
-        case GL_NEAREST_MIPMAP_LINEAR:
+            return GL_NEAREST_MIPMAP_NEAREST;
         case GL_LINEAR_MIPMAP_LINEAR:
-            return true;
+            return GL_NEAREST_MIPMAP_LINEAR;
         default:
-            UNREACHABLE();
+            return filterMode;
+    }
+}
+
+GLenum ConvertToNearestMipFilterMode(GLenum filterMode)
+{
+    switch (filterMode)
+    {
+        case GL_LINEAR_MIPMAP_LINEAR:
+            return GL_LINEAR_MIPMAP_NEAREST;
+        case GL_NEAREST_MIPMAP_LINEAR:
+            return GL_NEAREST_MIPMAP_NEAREST;
+        default:
+            return filterMode;
+    }
+}
+
+bool IsMipmapSupported(const TextureType &type)
+{
+    switch (type)
+    {
+        case TextureType::_2DMultisample:
+        case TextureType::_2DMultisampleArray:
+        case TextureType::Buffer:
             return false;
+        default:
+            return true;
     }
 }
 
@@ -99,13 +127,19 @@ TextureState::TextureState(TextureType type)
       mBaseLevel(0),
       mMaxLevel(kInitialMaxLevel),
       mDepthStencilTextureMode(GL_DEPTH_COMPONENT),
+      mIsInternalIncompleteTexture(false),
+      mHasBeenBoundAsImage(false),
+      mHasBeenBoundAsAttachment(false),
       mImmutableFormat(false),
       mImmutableLevels(0),
       mUsage(GL_NONE),
+      mHasProtectedContent(false),
+      mRenderabilityValidation(true),
+      mTilingMode(gl::TilingMode::Optimal),
       mImageDescs((IMPLEMENTATION_MAX_TEXTURE_LEVELS + 1) * (type == TextureType::CubeMap ? 6 : 1)),
       mCropRect(0, 0, 0, 0),
       mGenerateMipmapHint(GL_FALSE),
-      mInitState(InitState::MayNeedInit),
+      mInitState(InitState::Initialized),
       mCachedSamplerFormat(SamplerFormat::InvalidEnum),
       mCachedSamplerCompareMode(GL_NONE),
       mCachedSamplerFormatValid(false)
@@ -151,7 +185,7 @@ GLuint TextureState::getMipmapMaxLevel() const
     if (mType == TextureType::_3D)
     {
         const int maxDim  = std::max(std::max(baseImageDesc.size.width, baseImageDesc.size.height),
-                                    baseImageDesc.size.depth);
+                                     baseImageDesc.size.depth);
         expectedMipLevels = static_cast<GLuint>(log2(maxDim));
     }
     else
@@ -221,6 +255,12 @@ const ImageDesc &TextureState::getBaseLevelDesc() const
     return getImageDesc(getBaseImageTarget(), getEffectiveBaseLevel());
 }
 
+const ImageDesc &TextureState::getLevelZeroDesc() const
+{
+    ASSERT(mType != TextureType::CubeMap || isCubeComplete());
+    return getImageDesc(getBaseImageTarget(), 0);
+}
+
 void TextureState::setCrop(const Rectangle &rect)
 {
     mCropRect = rect;
@@ -243,16 +283,22 @@ GLenum TextureState::getGenerateMipmapHint() const
 
 SamplerFormat TextureState::computeRequiredSamplerFormat(const SamplerState &samplerState) const
 {
-    const ImageDesc &baseImageDesc = getImageDesc(getBaseImageTarget(), getEffectiveBaseLevel());
-    if ((baseImageDesc.format.info->format == GL_DEPTH_COMPONENT ||
-         baseImageDesc.format.info->format == GL_DEPTH_STENCIL) &&
+    const InternalFormat &info =
+        *getImageDesc(getBaseImageTarget(), getEffectiveBaseLevel()).format.info;
+    if ((info.format == GL_DEPTH_COMPONENT ||
+         (info.format == GL_DEPTH_STENCIL && mDepthStencilTextureMode == GL_DEPTH_COMPONENT)) &&
         samplerState.getCompareMode() != GL_NONE)
     {
         return SamplerFormat::Shadow;
     }
+    else if (info.format == GL_STENCIL_INDEX ||
+             (info.format == GL_DEPTH_STENCIL && mDepthStencilTextureMode == GL_STENCIL_INDEX))
+    {
+        return SamplerFormat::Unsigned;
+    }
     else
     {
-        switch (baseImageDesc.format.info->componentType)
+        switch (info.componentType)
         {
             case GL_UNSIGNED_NORMALIZED:
             case GL_SIGNED_NORMALIZED:
@@ -271,7 +317,93 @@ SamplerFormat TextureState::computeRequiredSamplerFormat(const SamplerState &sam
 bool TextureState::computeSamplerCompleteness(const SamplerState &samplerState,
                                               const State &state) const
 {
-    if (mBaseLevel > mMaxLevel)
+    // Buffer textures cannot be incomplete.
+    if (mType == TextureType::Buffer)
+    {
+        return true;
+    }
+
+    // Check for all non-format-based completeness rules
+    if (!computeSamplerCompletenessForCopyImage(samplerState, state))
+    {
+        return false;
+    }
+
+    // OpenGL ES 3.2, Sections 8.8 and 11.1.3.3
+    // Multisample textures do not have mipmaps and filter state is ignored.
+    if (IsMultisampled(mType))
+    {
+        return true;
+    }
+
+    // OpenGL ES 3.2, Section 8.17
+    // A texture is complete unless either the magnification filter is not NEAREST,
+    // or the minification filter is neither NEAREST nor NEAREST_MIPMAP_NEAREST; and any of
+    if (IsPointSampled(samplerState))
+    {
+        return true;
+    }
+
+    const InternalFormat *info =
+        getImageDesc(getBaseImageTarget(), getEffectiveBaseLevel()).format.info;
+
+    // The effective internal format specified for the texture images
+    // is a sized internal color format that is not texture-filterable.
+    if (!info->isDepthOrStencil())
+    {
+        return info->filterSupport(state.getClientVersion(), state.getExtensions());
+    }
+
+    // The effective internal format specified for the texture images
+    // is a sized internal depth or depth and stencil format (see table 8.11),
+    // and the value of TEXTURE_COMPARE_MODE is NONE.
+    if (info->depthBits > 0 && samplerState.getCompareMode() == GL_NONE)
+    {
+        // Note: we restrict this validation to sized types. For the OES_depth_textures
+        // extension, due to some underspecification problems, we must allow linear filtering
+        // for legacy compatibility with WebGL 1.0.
+        // See http://crbug.com/649200
+        if (state.getClientMajorVersion() >= 3 && info->sized)
+        {
+            return false;
+        }
+    }
+
+    if (info->stencilBits > 0)
+    {
+        if (info->depthBits > 0)
+        {
+            // The internal format of the texture is DEPTH_STENCIL,
+            // and the value of DEPTH_STENCIL_TEXTURE_MODE for the
+            // texture is STENCIL_INDEX.
+            if (mDepthStencilTextureMode == GL_STENCIL_INDEX)
+            {
+                return false;
+            }
+        }
+        else
+        {
+            // The internal format is STENCIL_INDEX.
+            return false;
+        }
+    }
+
+    return true;
+}
+
+// CopyImageSubData has more lax rules for texture completeness: format-based completeness rules are
+// ignored, so a texture can still be considered complete even if it violates format-specific
+// conditions
+bool TextureState::computeSamplerCompletenessForCopyImage(const SamplerState &samplerState,
+                                                          const State &state) const
+{
+    // Buffer textures cannot be incomplete.
+    if (mType == TextureType::Buffer)
+    {
+        return true;
+    }
+
+    if (!mImmutableFormat && mBaseLevel > mMaxLevel)
     {
         return false;
     }
@@ -290,19 +422,7 @@ bool TextureState::computeSamplerCompleteness(const SamplerState &samplerState,
         return false;
     }
 
-    // According to es 3.1 spec, texture is justified as incomplete if sized internalformat is
-    // unfilterable(table 20.11) and filter is not GL_NEAREST(8.16). The default value of minFilter
-    // is NEAREST_MIPMAP_LINEAR and magFilter is LINEAR(table 20.11,). For multismaple texture,
-    // filter state of multisample texture is ignored(11.1.3.3). So it shouldn't be judged as
-    // incomplete texture. So, we ignore filtering for multisample texture completeness here.
-    if (!IsMultisampled(mType) &&
-        !baseImageDesc.format.info->filterSupport(state.getClientVersion(),
-                                                  state.getExtensions()) &&
-        !IsPointSampled(samplerState))
-    {
-        return false;
-    }
-    bool npotSupport = state.getExtensions().textureNPOTOES || state.getClientMajorVersion() >= 3;
+    bool npotSupport = state.getExtensions().textureNpotOES || state.getClientMajorVersion() >= 3;
     if (!npotSupport)
     {
         if ((samplerState.getWrapS() != GL_CLAMP_TO_EDGE &&
@@ -314,7 +434,7 @@ bool TextureState::computeSamplerCompleteness(const SamplerState &samplerState,
         }
     }
 
-    if (mType != TextureType::_2DMultisample && IsMipmapFiltered(samplerState))
+    if (IsMipmapSupported(mType) && IsMipmapFiltered(samplerState.getMinFilter()))
     {
         if (!npotSupport)
         {
@@ -349,7 +469,7 @@ bool TextureState::computeSamplerCompleteness(const SamplerState &samplerState,
     // completeness.
     if (mType == TextureType::External)
     {
-        if (!state.getExtensions().eglImageExternalWrapModesEXT)
+        if (!state.getExtensions().EGLImageExternalWrapModesEXT)
         {
             if (samplerState.getWrapS() != GL_CLAMP_TO_EDGE ||
                 samplerState.getWrapT() != GL_CLAMP_TO_EDGE)
@@ -359,49 +479,6 @@ bool TextureState::computeSamplerCompleteness(const SamplerState &samplerState,
         }
 
         if (samplerState.getMinFilter() != GL_LINEAR && samplerState.getMinFilter() != GL_NEAREST)
-        {
-            return false;
-        }
-    }
-
-    // OpenGLES 3.0.2 spec section 3.8.13 states that a texture is not mipmap complete if:
-    // The internalformat specified for the texture arrays is a sized internal depth or
-    // depth and stencil format (see table 3.13), the value of TEXTURE_COMPARE_-
-    // MODE is NONE, and either the magnification filter is not NEAREST or the mini-
-    // fication filter is neither NEAREST nor NEAREST_MIPMAP_NEAREST.
-    if (!IsMultisampled(mType) && baseImageDesc.format.info->depthBits > 0 &&
-        state.getClientMajorVersion() >= 3)
-    {
-        // Note: we restrict this validation to sized types. For the OES_depth_textures
-        // extension, due to some underspecification problems, we must allow linear filtering
-        // for legacy compatibility with WebGL 1.
-        // See http://crbug.com/649200
-        if (samplerState.getCompareMode() == GL_NONE && baseImageDesc.format.info->sized)
-        {
-            if ((samplerState.getMinFilter() != GL_NEAREST &&
-                 samplerState.getMinFilter() != GL_NEAREST_MIPMAP_NEAREST) ||
-                samplerState.getMagFilter() != GL_NEAREST)
-            {
-                return false;
-            }
-        }
-    }
-
-    // OpenGLES 3.1 spec section 8.16 states that a texture is not mipmap complete if:
-    // The internalformat specified for the texture is DEPTH_STENCIL format, the value of
-    // DEPTH_STENCIL_TEXTURE_MODE is STENCIL_INDEX, and either the magnification filter is
-    // not NEAREST or the minification filter is neither NEAREST nor NEAREST_MIPMAP_NEAREST.
-    // However, the ES 3.1 spec differs from the statement above, because it is incorrect.
-    // See the issue at https://github.com/KhronosGroup/OpenGL-API/issues/33.
-    // For multismaple texture, filter state of multisample texture is ignored(11.1.3.3).
-    // So it shouldn't be judged as incomplete texture. So, we ignore filtering for multisample
-    // texture completeness here.
-    if (!IsMultisampled(mType) && baseImageDesc.format.info->depthBits > 0 &&
-        mDepthStencilTextureMode == GL_STENCIL_INDEX)
-    {
-        if ((samplerState.getMinFilter() != GL_NEAREST &&
-             samplerState.getMinFilter() != GL_NEAREST_MIPMAP_NEAREST) ||
-            samplerState.getMagFilter() != GL_NEAREST)
         {
             return false;
         }
@@ -510,22 +587,42 @@ GLuint TextureState::getEnabledLevelCount() const
 
     // The mip chain will have either one or more sequential levels, or max levels,
     // but not a sparse one.
-    for (size_t descIndex = baseLevel; descIndex < mImageDescs.size();)
+    Optional<Extents> expectedSize;
+    for (size_t enabledLevel = baseLevel; enabledLevel <= maxLevel; ++enabledLevel, ++levelCount)
     {
-        if (!mImageDescs[descIndex].size.empty())
+        // Note: for cube textures, we only check the first face.
+        TextureTarget target     = TextureTypeToTarget(mType, 0);
+        size_t descIndex         = GetImageDescIndex(target, enabledLevel);
+        const Extents &levelSize = mImageDescs[descIndex].size;
+
+        if (levelSize.empty())
         {
-            levelCount++;
+            break;
         }
-        descIndex = (mType == TextureType::CubeMap) ? descIndex + 6 : descIndex + 1;
+        if (expectedSize.valid())
+        {
+            Extents newSize = expectedSize.value();
+            newSize.width   = std::max(1, newSize.width >> 1);
+            newSize.height  = std::max(1, newSize.height >> 1);
+
+            if (!IsArrayTextureType(mType))
+            {
+                newSize.depth = std::max(1, newSize.depth >> 1);
+            }
+
+            if (newSize != levelSize)
+            {
+                break;
+            }
+        }
+        expectedSize = levelSize;
     }
-    // The original image already takes account into the levelCount.
-    levelCount = std::min(maxLevel - baseLevel + 1, levelCount);
 
     return levelCount;
 }
 
 ImageDesc::ImageDesc()
-    : ImageDesc(Extents(0, 0, 0), Format::Invalid(), 0, GL_TRUE, InitState::MayNeedInit)
+    : ImageDesc(Extents(0, 0, 0), Format::Invalid(), 0, GL_TRUE, InitState::Initialized)
 {}
 
 ImageDesc::ImageDesc(const Extents &size, const Format &format, const InitState initState)
@@ -571,6 +668,27 @@ void TextureState::setImageDesc(TextureTarget target, size_t level, const ImageD
     if (desc.initState == InitState::MayNeedInit)
     {
         mInitState = InitState::MayNeedInit;
+    }
+    else
+    {
+        // Scan for any uninitialized images. If there are none, set the init state of the entire
+        // texture to initialized. The cost of the scan is only paid after doing image
+        // initialization which is already very expensive.
+        bool allImagesInitialized = true;
+
+        for (const ImageDesc &initDesc : mImageDescs)
+        {
+            if (initDesc.initState == InitState::MayNeedInit)
+            {
+                allImagesInitialized = false;
+                break;
+            }
+        }
+
+        if (allImagesInitialized)
+        {
+            mInitState = InitState::Initialized;
+        }
     }
 }
 
@@ -643,16 +761,34 @@ void TextureState::clearImageDescs()
     }
 }
 
+TextureBufferContentsObservers::TextureBufferContentsObservers(Texture *texture) : mTexture(texture)
+{}
+
+void TextureBufferContentsObservers::enableForBuffer(Buffer *buffer)
+{
+    buffer->addContentsObserver(mTexture);
+}
+
+void TextureBufferContentsObservers::disableForBuffer(Buffer *buffer)
+{
+    buffer->removeContentsObserver(mTexture);
+}
+
 Texture::Texture(rx::GLImplFactory *factory, TextureID id, TextureType type)
     : RefCountObject(factory->generateSerial(), id),
       mState(type),
       mTexture(factory->createTexture(mState)),
       mImplObserver(this, rx::kTextureImageImplObserverMessageIndex),
-      mLabel(),
+      mBufferObserver(this, kBufferSubjectIndex),
       mBoundSurface(nullptr),
-      mBoundStream(nullptr)
+      mBoundStream(nullptr),
+      mBufferContentsObservers(this)
 {
     mImplObserver.bind(mTexture);
+    if (mTexture)
+    {
+        mTexture->setContentsObservers(&mBufferContentsObservers);
+    }
 
     // Initially assume the implementation is dirty.
     mDirtyBits.set(DIRTY_BIT_IMPLEMENTATION);
@@ -660,6 +796,8 @@ Texture::Texture(rx::GLImplFactory *factory, TextureID id, TextureType type)
 
 void Texture::onDestroy(const Context *context)
 {
+    onStateChange(angle::SubjectMessage::TextureIDDeleted);
+
     if (mBoundSurface)
     {
         ANGLE_SWALLOW_ERR(mBoundSurface->releaseTexImage(context, EGL_BACK_BUFFER));
@@ -671,7 +809,10 @@ void Texture::onDestroy(const Context *context)
         mBoundStream = nullptr;
     }
 
-    (void)(orphanImages(context));
+    egl::RefCountObjectReleaser<egl::Image> releaseImage;
+    (void)orphanImages(context, &releaseImage);
+
+    mState.mBuffer.set(context, nullptr, 0, 0);
 
     if (mTexture)
     {
@@ -684,21 +825,24 @@ Texture::~Texture()
     SafeDelete(mTexture);
 }
 
-void Texture::setLabel(const Context *context, const std::string &label)
+angle::Result Texture::setLabel(const Context *context, const std::string &label)
 {
-    mLabel = label;
-    signalDirtyState(DIRTY_BIT_LABEL);
+    mState.mLabel = label;
+    return mTexture->onLabelUpdate(context);
 }
 
 const std::string &Texture::getLabel() const
 {
-    return mLabel;
+    return mState.mLabel;
 }
 
 void Texture::setSwizzleRed(const Context *context, GLenum swizzleRed)
 {
-    mState.mSwizzleState.swizzleRed = swizzleRed;
-    signalDirtyState(DIRTY_BIT_SWIZZLE_RED);
+    if (mState.mSwizzleState.swizzleRed != swizzleRed)
+    {
+        mState.mSwizzleState.swizzleRed = swizzleRed;
+        signalDirtyState(DIRTY_BIT_SWIZZLE_RED);
+    }
 }
 
 GLenum Texture::getSwizzleRed() const
@@ -708,8 +852,11 @@ GLenum Texture::getSwizzleRed() const
 
 void Texture::setSwizzleGreen(const Context *context, GLenum swizzleGreen)
 {
-    mState.mSwizzleState.swizzleGreen = swizzleGreen;
-    signalDirtyState(DIRTY_BIT_SWIZZLE_GREEN);
+    if (mState.mSwizzleState.swizzleGreen != swizzleGreen)
+    {
+        mState.mSwizzleState.swizzleGreen = swizzleGreen;
+        signalDirtyState(DIRTY_BIT_SWIZZLE_GREEN);
+    }
 }
 
 GLenum Texture::getSwizzleGreen() const
@@ -719,8 +866,11 @@ GLenum Texture::getSwizzleGreen() const
 
 void Texture::setSwizzleBlue(const Context *context, GLenum swizzleBlue)
 {
-    mState.mSwizzleState.swizzleBlue = swizzleBlue;
-    signalDirtyState(DIRTY_BIT_SWIZZLE_BLUE);
+    if (mState.mSwizzleState.swizzleBlue != swizzleBlue)
+    {
+        mState.mSwizzleState.swizzleBlue = swizzleBlue;
+        signalDirtyState(DIRTY_BIT_SWIZZLE_BLUE);
+    }
 }
 
 GLenum Texture::getSwizzleBlue() const
@@ -730,8 +880,11 @@ GLenum Texture::getSwizzleBlue() const
 
 void Texture::setSwizzleAlpha(const Context *context, GLenum swizzleAlpha)
 {
-    mState.mSwizzleState.swizzleAlpha = swizzleAlpha;
-    signalDirtyState(DIRTY_BIT_SWIZZLE_ALPHA);
+    if (mState.mSwizzleState.swizzleAlpha != swizzleAlpha)
+    {
+        mState.mSwizzleState.swizzleAlpha = swizzleAlpha;
+        signalDirtyState(DIRTY_BIT_SWIZZLE_ALPHA);
+    }
 }
 
 GLenum Texture::getSwizzleAlpha() const
@@ -741,8 +894,10 @@ GLenum Texture::getSwizzleAlpha() const
 
 void Texture::setMinFilter(const Context *context, GLenum minFilter)
 {
-    mState.mSamplerState.setMinFilter(minFilter);
-    signalDirtyState(DIRTY_BIT_MIN_FILTER);
+    if (mState.mSamplerState.setMinFilter(minFilter))
+    {
+        signalDirtyState(DIRTY_BIT_MIN_FILTER);
+    }
 }
 
 GLenum Texture::getMinFilter() const
@@ -752,8 +907,10 @@ GLenum Texture::getMinFilter() const
 
 void Texture::setMagFilter(const Context *context, GLenum magFilter)
 {
-    mState.mSamplerState.setMagFilter(magFilter);
-    signalDirtyState(DIRTY_BIT_MAG_FILTER);
+    if (mState.mSamplerState.setMagFilter(magFilter))
+    {
+        signalDirtyState(DIRTY_BIT_MAG_FILTER);
+    }
 }
 
 GLenum Texture::getMagFilter() const
@@ -763,8 +920,10 @@ GLenum Texture::getMagFilter() const
 
 void Texture::setWrapS(const Context *context, GLenum wrapS)
 {
-    mState.mSamplerState.setWrapS(wrapS);
-    signalDirtyState(DIRTY_BIT_WRAP_S);
+    if (mState.mSamplerState.setWrapS(wrapS))
+    {
+        signalDirtyState(DIRTY_BIT_WRAP_S);
+    }
 }
 
 GLenum Texture::getWrapS() const
@@ -774,8 +933,12 @@ GLenum Texture::getWrapS() const
 
 void Texture::setWrapT(const Context *context, GLenum wrapT)
 {
-    mState.mSamplerState.setWrapT(wrapT);
-    signalDirtyState(DIRTY_BIT_WRAP_T);
+    if (mState.mSamplerState.getWrapT() == wrapT)
+        return;
+    if (mState.mSamplerState.setWrapT(wrapT))
+    {
+        signalDirtyState(DIRTY_BIT_WRAP_T);
+    }
 }
 
 GLenum Texture::getWrapT() const
@@ -785,8 +948,10 @@ GLenum Texture::getWrapT() const
 
 void Texture::setWrapR(const Context *context, GLenum wrapR)
 {
-    mState.mSamplerState.setWrapR(wrapR);
-    signalDirtyState(DIRTY_BIT_WRAP_R);
+    if (mState.mSamplerState.setWrapR(wrapR))
+    {
+        signalDirtyState(DIRTY_BIT_WRAP_R);
+    }
 }
 
 GLenum Texture::getWrapR() const
@@ -796,8 +961,10 @@ GLenum Texture::getWrapR() const
 
 void Texture::setMaxAnisotropy(const Context *context, float maxAnisotropy)
 {
-    mState.mSamplerState.setMaxAnisotropy(maxAnisotropy);
-    signalDirtyState(DIRTY_BIT_MAX_ANISOTROPY);
+    if (mState.mSamplerState.setMaxAnisotropy(maxAnisotropy))
+    {
+        signalDirtyState(DIRTY_BIT_MAX_ANISOTROPY);
+    }
 }
 
 float Texture::getMaxAnisotropy() const
@@ -807,8 +974,10 @@ float Texture::getMaxAnisotropy() const
 
 void Texture::setMinLod(const Context *context, GLfloat minLod)
 {
-    mState.mSamplerState.setMinLod(minLod);
-    signalDirtyState(DIRTY_BIT_MIN_LOD);
+    if (mState.mSamplerState.setMinLod(minLod))
+    {
+        signalDirtyState(DIRTY_BIT_MIN_LOD);
+    }
 }
 
 GLfloat Texture::getMinLod() const
@@ -818,8 +987,10 @@ GLfloat Texture::getMinLod() const
 
 void Texture::setMaxLod(const Context *context, GLfloat maxLod)
 {
-    mState.mSamplerState.setMaxLod(maxLod);
-    signalDirtyState(DIRTY_BIT_MAX_LOD);
+    if (mState.mSamplerState.setMaxLod(maxLod))
+    {
+        signalDirtyState(DIRTY_BIT_MAX_LOD);
+    }
 }
 
 GLfloat Texture::getMaxLod() const
@@ -829,8 +1000,10 @@ GLfloat Texture::getMaxLod() const
 
 void Texture::setCompareMode(const Context *context, GLenum compareMode)
 {
-    mState.mSamplerState.setCompareMode(compareMode);
-    signalDirtyState(DIRTY_BIT_COMPARE_MODE);
+    if (mState.mSamplerState.setCompareMode(compareMode))
+    {
+        signalDirtyState(DIRTY_BIT_COMPARE_MODE);
+    }
 }
 
 GLenum Texture::getCompareMode() const
@@ -840,8 +1013,10 @@ GLenum Texture::getCompareMode() const
 
 void Texture::setCompareFunc(const Context *context, GLenum compareFunc)
 {
-    mState.mSamplerState.setCompareFunc(compareFunc);
-    signalDirtyState(DIRTY_BIT_COMPARE_FUNC);
+    if (mState.mSamplerState.setCompareFunc(compareFunc))
+    {
+        signalDirtyState(DIRTY_BIT_COMPARE_FUNC);
+    }
 }
 
 GLenum Texture::getCompareFunc() const
@@ -851,8 +1026,10 @@ GLenum Texture::getCompareFunc() const
 
 void Texture::setSRGBDecode(const Context *context, GLenum sRGBDecode)
 {
-    mState.mSamplerState.setSRGBDecode(sRGBDecode);
-    signalDirtyState(DIRTY_BIT_SRGB_DECODE);
+    if (mState.mSamplerState.setSRGBDecode(sRGBDecode))
+    {
+        signalDirtyState(DIRTY_BIT_SRGB_DECODE);
+    }
 }
 
 GLenum Texture::getSRGBDecode() const
@@ -863,8 +1040,7 @@ GLenum Texture::getSRGBDecode() const
 void Texture::setSRGBOverride(const Context *context, GLenum sRGBOverride)
 {
     SrgbOverride oldOverride = mState.mSrgbOverride;
-    mState.mSrgbOverride =
-        (sRGBOverride == GL_SRGB) ? SrgbOverride::Enabled : SrgbOverride::Default;
+    mState.mSrgbOverride = (sRGBOverride == GL_SRGB) ? SrgbOverride::SRGB : SrgbOverride::Default;
     if (mState.mSrgbOverride != oldOverride)
     {
         signalDirtyState(DIRTY_BIT_SRGB_OVERRIDE);
@@ -873,7 +1049,7 @@ void Texture::setSRGBOverride(const Context *context, GLenum sRGBOverride)
 
 GLenum Texture::getSRGBOverride() const
 {
-    return (mState.mSrgbOverride == SrgbOverride::Enabled) ? GL_SRGB : GL_NONE;
+    return (mState.mSrgbOverride == SrgbOverride::SRGB) ? GL_SRGB : GL_NONE;
 }
 
 const SamplerState &Texture::getSamplerState() const
@@ -945,6 +1121,32 @@ GLenum Texture::getUsage() const
     return mState.mUsage;
 }
 
+void Texture::setProtectedContent(Context *context, bool hasProtectedContent)
+{
+    mState.mHasProtectedContent = hasProtectedContent;
+}
+
+bool Texture::hasProtectedContent() const
+{
+    return mState.mHasProtectedContent;
+}
+
+void Texture::setRenderabilityValidation(Context *context, bool renderabilityValidation)
+{
+    mState.mRenderabilityValidation = renderabilityValidation;
+    signalDirtyState(DIRTY_BIT_RENDERABILITY_VALIDATION_ANGLE);
+}
+
+void Texture::setTilingMode(Context *context, GLenum tilingMode)
+{
+    mState.mTilingMode = gl::FromGLenum<gl::TilingMode>(tilingMode);
+}
+
+GLenum Texture::getTilingMode() const
+{
+    return gl::ToGLenum(mState.mTilingMode);
+}
+
 const TextureState &Texture::getTextureState() const
 {
     return mState;
@@ -1002,6 +1204,61 @@ bool Texture::isMipmapComplete() const
     return mState.computeMipmapCompleteness();
 }
 
+GLuint Texture::getFoveatedFeatureBits() const
+{
+    return mState.mFoveationState.getFoveatedFeatureBits();
+}
+
+void Texture::setFoveatedFeatureBits(const GLuint features)
+{
+    mState.mFoveationState.setFoveatedFeatureBits(features);
+}
+
+bool Texture::isFoveationEnabled() const
+{
+    return (mState.mFoveationState.getFoveatedFeatureBits() & GL_FOVEATION_ENABLE_BIT_QCOM);
+}
+
+GLuint Texture::getSupportedFoveationFeatures() const
+{
+    return mState.mFoveationState.getSupportedFoveationFeatures();
+}
+
+GLfloat Texture::getMinPixelDensity() const
+{
+    return mState.mFoveationState.getMinPixelDensity();
+}
+
+void Texture::setMinPixelDensity(const GLfloat density)
+{
+    mState.mFoveationState.setMinPixelDensity(density);
+}
+
+void Texture::setFocalPoint(uint32_t layer,
+                            uint32_t focalPointIndex,
+                            float focalX,
+                            float focalY,
+                            float gainX,
+                            float gainY,
+                            float foveaArea)
+{
+    gl::FocalPoint newFocalPoint(focalX, focalY, gainX, gainY, foveaArea);
+    if (mState.mFoveationState.getFocalPoint(layer, focalPointIndex) == newFocalPoint)
+    {
+        // Nothing to do, early out.
+        return;
+    }
+
+    mState.mFoveationState.setFocalPoint(layer, focalPointIndex, newFocalPoint);
+    mState.mFoveationState.setFoveatedFeatureBits(GL_FOVEATION_ENABLE_BIT_QCOM);
+    onStateChange(angle::SubjectMessage::FoveatedRenderingStateChanged);
+}
+
+const FocalPoint &Texture::getFocalPoint(uint32_t layer, uint32_t focalPoint) const
+{
+    return mState.mFoveationState.getFocalPoint(layer, focalPoint);
+}
+
 egl::Surface *Texture::getBoundSurface() const
 {
     return mBoundSurface;
@@ -1052,7 +1309,15 @@ void Texture::signalDirtyState(size_t dirtyBit)
     mDirtyBits.set(dirtyBit);
     invalidateCompletenessCache();
     mState.mCachedSamplerFormatValid = false;
-    onStateChange(angle::SubjectMessage::DirtyBitsFlagged);
+
+    if (dirtyBit == DIRTY_BIT_BASE_LEVEL || dirtyBit == DIRTY_BIT_MAX_LEVEL)
+    {
+        onStateChange(angle::SubjectMessage::SubjectChanged);
+    }
+    else
+    {
+        onStateChange(angle::SubjectMessage::DirtyBitsFlagged);
+    }
 }
 
 angle::Result Texture::setImage(Context *context,
@@ -1070,7 +1335,9 @@ angle::Result Texture::setImage(Context *context,
 
     // Release from previous calls to eglBindTexImage, to avoid calling the Impl after
     ANGLE_TRY(releaseTexImageInternal(context));
-    ANGLE_TRY(orphanImages(context));
+
+    egl::RefCountObjectReleaser<egl::Image> releaseImage;
+    ANGLE_TRY(orphanImages(context, &releaseImage));
 
     ImageIndex index = ImageIndex::MakeFromTarget(target, level, size.depth);
 
@@ -1125,7 +1392,9 @@ angle::Result Texture::setCompressedImage(Context *context,
 
     // Release from previous calls to eglBindTexImage, to avoid calling the Impl after
     ANGLE_TRY(releaseTexImageInternal(context));
-    ANGLE_TRY(orphanImages(context));
+
+    egl::RefCountObjectReleaser<egl::Image> releaseImage;
+    ANGLE_TRY(orphanImages(context, &releaseImage));
 
     ImageIndex index = ImageIndex::MakeFromTarget(target, level, size.depth);
 
@@ -1174,7 +1443,9 @@ angle::Result Texture::copyImage(Context *context,
 
     // Release from previous calls to eglBindTexImage, to avoid calling the Impl after
     ANGLE_TRY(releaseTexImageInternal(context));
-    ANGLE_TRY(orphanImages(context));
+
+    egl::RefCountObjectReleaser<egl::Image> releaseImage;
+    ANGLE_TRY(orphanImages(context, &releaseImage));
 
     ImageIndex index = ImageIndex::MakeFromTarget(target, level, 1);
 
@@ -1187,9 +1458,17 @@ angle::Result Texture::copyImage(Context *context,
     // the copy lies entirely off the source framebuffer, initialize as though a zero-size box is
     // going to be set during the copy operation.
     Box destBox;
+    bool forceCopySubImage = false;
     if (context->isRobustResourceInitEnabled())
     {
-        Extents fbSize = source->getReadColorAttachment()->getSize();
+        const FramebufferAttachment *sourceReadAttachment = source->getReadColorAttachment();
+        Extents fbSize                                    = sourceReadAttachment->getSize();
+        // Force using copySubImage when the source area is out of bounds AND
+        // we're not copying to and from the same texture
+        forceCopySubImage = ((sourceArea.x < 0) || (sourceArea.y < 0) ||
+                             ((sourceArea.x + sourceArea.width) > fbSize.width) ||
+                             ((sourceArea.y + sourceArea.height) > fbSize.height)) &&
+                            (sourceReadAttachment->getResource() != this);
         Rectangle clippedArea;
         if (ClipRectangle(sourceArea, Rectangle(0, 0, fbSize.width, fbSize.height), &clippedArea))
         {
@@ -1200,17 +1479,18 @@ angle::Result Texture::copyImage(Context *context,
         }
     }
 
+    InitState initState = DetermineInitState(context, nullptr, nullptr);
+
     // If we need to initialize the destination texture we split the call into a create call,
     // an initializeContents call, and then a copySubImage call. This ensures the destination
     // texture exists before we try to clear it.
     Extents size(sourceArea.width, sourceArea.height, 1);
-    if (doesSubImageNeedInit(context, index, destBox))
+    if (forceCopySubImage || doesSubImageNeedInit(context, index, destBox))
     {
         ANGLE_TRY(mTexture->setImage(context, index, internalFormat, size,
                                      internalFormatInfo.format, internalFormatInfo.type,
                                      PixelUnpackState(), nullptr, nullptr));
-        mState.setImageDesc(target, level,
-                            ImageDesc(size, Format(internalFormatInfo), InitState::MayNeedInit));
+        mState.setImageDesc(target, level, ImageDesc(size, Format(internalFormatInfo), initState));
         ANGLE_TRY(ensureSubImageInitialized(context, index, destBox));
         ANGLE_TRY(mTexture->copySubImage(context, index, Offset(), sourceArea, source));
     }
@@ -1225,7 +1505,7 @@ angle::Result Texture::copyImage(Context *context,
     ANGLE_TRY(handleMipmapGenerationHint(context, level));
 
     // Because this could affect the texture storage we might need to init other layers/levels.
-    signalDirtyStorage(InitState::MayNeedInit);
+    signalDirtyStorage(initState);
 
     return angle::Result::Continue;
 }
@@ -1269,6 +1549,52 @@ angle::Result Texture::copySubImage(Context *context,
     return angle::Result::Continue;
 }
 
+angle::Result Texture::copyRenderbufferSubData(Context *context,
+                                               const gl::Renderbuffer *srcBuffer,
+                                               GLint srcLevel,
+                                               GLint srcX,
+                                               GLint srcY,
+                                               GLint srcZ,
+                                               GLint dstLevel,
+                                               GLint dstX,
+                                               GLint dstY,
+                                               GLint dstZ,
+                                               GLsizei srcWidth,
+                                               GLsizei srcHeight,
+                                               GLsizei srcDepth)
+{
+    ANGLE_TRY(mTexture->copyRenderbufferSubData(context, srcBuffer, srcLevel, srcX, srcY, srcZ,
+                                                dstLevel, dstX, dstY, dstZ, srcWidth, srcHeight,
+                                                srcDepth));
+
+    signalDirtyStorage(InitState::Initialized);
+
+    return angle::Result::Continue;
+}
+
+angle::Result Texture::copyTextureSubData(Context *context,
+                                          const gl::Texture *srcTexture,
+                                          GLint srcLevel,
+                                          GLint srcX,
+                                          GLint srcY,
+                                          GLint srcZ,
+                                          GLint dstLevel,
+                                          GLint dstX,
+                                          GLint dstY,
+                                          GLint dstZ,
+                                          GLsizei srcWidth,
+                                          GLsizei srcHeight,
+                                          GLsizei srcDepth)
+{
+    ANGLE_TRY(mTexture->copyTextureSubData(context, srcTexture, srcLevel, srcX, srcY, srcZ,
+                                           dstLevel, dstX, dstY, dstZ, srcWidth, srcHeight,
+                                           srcDepth));
+
+    signalDirtyStorage(InitState::Initialized);
+
+    return angle::Result::Continue;
+}
+
 angle::Result Texture::copyTexture(Context *context,
                                    TextureTarget target,
                                    GLint level,
@@ -1285,7 +1611,9 @@ angle::Result Texture::copyTexture(Context *context,
 
     // Release from previous calls to eglBindTexImage, to avoid calling the Impl after
     ANGLE_TRY(releaseTexImageInternal(context));
-    ANGLE_TRY(orphanImages(context));
+
+    egl::RefCountObjectReleaser<egl::Image> releaseImage;
+    ANGLE_TRY(orphanImages(context, &releaseImage));
 
     // Initialize source texture.
     // Note: we don't have a way to notify which portions of the image changed currently.
@@ -1342,7 +1670,9 @@ angle::Result Texture::copyCompressedTexture(Context *context, const Texture *so
 {
     // Release from previous calls to eglBindTexImage, to avoid calling the Impl after
     ANGLE_TRY(releaseTexImageInternal(context));
-    ANGLE_TRY(orphanImages(context));
+
+    egl::RefCountObjectReleaser<egl::Image> releaseImage;
+    ANGLE_TRY(orphanImages(context, &releaseImage));
 
     ANGLE_TRY(mTexture->copyCompressedTexture(context, source));
 
@@ -1364,16 +1694,18 @@ angle::Result Texture::setStorage(Context *context,
 
     // Release from previous calls to eglBindTexImage, to avoid calling the Impl after
     ANGLE_TRY(releaseTexImageInternal(context));
-    ANGLE_TRY(orphanImages(context));
+
+    egl::RefCountObjectReleaser<egl::Image> releaseImage;
+    ANGLE_TRY(orphanImages(context, &releaseImage));
 
     mState.mImmutableFormat = true;
     mState.mImmutableLevels = static_cast<GLuint>(levels);
+    mState.clearImageDescs();
+    InitState initState = DetermineInitState(context, nullptr, nullptr);
+    mState.setImageDescChain(0, static_cast<GLuint>(levels - 1), size, Format(internalFormat),
+                             initState);
 
     ANGLE_TRY(mTexture->setStorage(context, type, levels, internalFormat, size));
-
-    mState.clearImageDescs();
-    mState.setImageDescChain(0, static_cast<GLuint>(levels - 1), size, Format(internalFormat),
-                             InitState::MayNeedInit);
 
     // Changing the texture to immutable can trigger a change in the base and max levels:
     // GLES 3.0.4 section 3.8.10 pg 158:
@@ -1382,7 +1714,7 @@ angle::Result Texture::setStorage(Context *context,
     mDirtyBits.set(DIRTY_BIT_BASE_LEVEL);
     mDirtyBits.set(DIRTY_BIT_MAX_LEVEL);
 
-    signalDirtyStorage(InitState::MayNeedInit);
+    signalDirtyStorage(initState);
 
     return angle::Result::Continue;
 }
@@ -1399,7 +1731,9 @@ angle::Result Texture::setImageExternal(Context *context,
 
     // Release from previous calls to eglBindTexImage, to avoid calling the Impl after
     ANGLE_TRY(releaseTexImageInternal(context));
-    ANGLE_TRY(orphanImages(context));
+
+    egl::RefCountObjectReleaser<egl::Image> releaseImage;
+    ANGLE_TRY(orphanImages(context, &releaseImage));
 
     ImageIndex index = ImageIndex::MakeFromTarget(target, level, size.depth);
 
@@ -1417,7 +1751,7 @@ angle::Result Texture::setImageExternal(Context *context,
 
 angle::Result Texture::setStorageMultisample(Context *context,
                                              TextureType type,
-                                             GLsizei samples,
+                                             GLsizei samplesIn,
                                              GLint internalFormat,
                                              const Extents &size,
                                              bool fixedSampleLocations)
@@ -1426,22 +1760,24 @@ angle::Result Texture::setStorageMultisample(Context *context,
 
     // Release from previous calls to eglBindTexImage, to avoid calling the Impl after
     ANGLE_TRY(releaseTexImageInternal(context));
-    ANGLE_TRY(orphanImages(context));
+
+    egl::RefCountObjectReleaser<egl::Image> releaseImage;
+    ANGLE_TRY(orphanImages(context, &releaseImage));
 
     // Potentially adjust "samples" to a supported value
     const TextureCaps &formatCaps = context->getTextureCaps().get(internalFormat);
-    samples                       = formatCaps.getNearestSamples(samples);
-
-    ANGLE_TRY(mTexture->setStorageMultisample(context, type, samples, internalFormat, size,
-                                              fixedSampleLocations));
+    GLsizei samples               = formatCaps.getNearestSamples(samplesIn);
 
     mState.mImmutableFormat = true;
     mState.mImmutableLevels = static_cast<GLuint>(1);
     mState.clearImageDescs();
+    InitState initState = DetermineInitState(context, nullptr, nullptr);
     mState.setImageDescChainMultisample(size, Format(internalFormat), samples, fixedSampleLocations,
-                                        InitState::MayNeedInit);
+                                        initState);
 
-    signalDirtyStorage(InitState::MayNeedInit);
+    ANGLE_TRY(mTexture->setStorageMultisample(context, type, samples, internalFormat, size,
+                                              fixedSampleLocations));
+    signalDirtyStorage(initState);
 
     return angle::Result::Continue;
 }
@@ -1452,22 +1788,28 @@ angle::Result Texture::setStorageExternalMemory(Context *context,
                                                 GLenum internalFormat,
                                                 const Extents &size,
                                                 MemoryObject *memoryObject,
-                                                GLuint64 offset)
+                                                GLuint64 offset,
+                                                GLbitfield createFlags,
+                                                GLbitfield usageFlags,
+                                                const void *imageCreateInfoPNext)
 {
     ASSERT(type == mState.mType);
 
     // Release from previous calls to eglBindTexImage, to avoid calling the Impl after
     ANGLE_TRY(releaseTexImageInternal(context));
-    ANGLE_TRY(orphanImages(context));
+
+    egl::RefCountObjectReleaser<egl::Image> releaseImage;
+    ANGLE_TRY(orphanImages(context, &releaseImage));
 
     ANGLE_TRY(mTexture->setStorageExternalMemory(context, type, levels, internalFormat, size,
-                                                 memoryObject, offset));
+                                                 memoryObject, offset, createFlags, usageFlags,
+                                                 imageCreateInfoPNext));
 
     mState.mImmutableFormat = true;
     mState.mImmutableLevels = static_cast<GLuint>(levels);
     mState.clearImageDescs();
     mState.setImageDescChain(0, static_cast<GLuint>(levels - 1), size, Format(internalFormat),
-                             InitState::MayNeedInit);
+                             InitState::Initialized);
 
     // Changing the texture to immutable can trigger a change in the base and max levels:
     // GLES 3.0.4 section 3.8.10 pg 158:
@@ -1488,9 +1830,10 @@ angle::Result Texture::generateMipmap(Context *context)
 
     // EGL_KHR_gl_image states that images are only orphaned when generating mipmaps if the texture
     // is not mip complete.
+    egl::RefCountObjectReleaser<egl::Image> releaseImage;
     if (!isMipmapComplete())
     {
-        ANGLE_TRY(orphanImages(context));
+        ANGLE_TRY(orphanImages(context, &releaseImage));
     }
 
     const GLuint baseLevel = mState.getEffectiveBaseLevel();
@@ -1501,7 +1844,15 @@ angle::Result Texture::generateMipmap(Context *context)
         return angle::Result::Continue;
     }
 
-    ANGLE_TRY(syncState(context, TextureCommand::GenerateMipmap));
+    // If any dimension is zero, this is a no-op:
+    //
+    // > Otherwise, if level_base is not defined, or if any dimension is zero, all mipmap levels are
+    // > left unchanged. This is not an error.
+    const ImageDesc &baseImageInfo = mState.getImageDesc(mState.getBaseImageTarget(), baseLevel);
+    if (baseImageInfo.size.empty())
+    {
+        return angle::Result::Continue;
+    }
 
     // Clear the base image(s) immediately if needed
     if (context->isRobustResourceInitEnabled())
@@ -1516,16 +1867,16 @@ angle::Result Texture::generateMipmap(Context *context)
 
             if (desc.initState == InitState::MayNeedInit)
             {
-                ANGLE_TRY(initializeContents(context, index));
+                ANGLE_TRY(initializeContents(context, GL_NONE, index));
             }
         }
     }
 
+    ANGLE_TRY(syncState(context, Command::GenerateMipmap));
     ANGLE_TRY(mTexture->generateMipmap(context));
 
     // Propagate the format and size of the base mip to the smaller ones. Cube maps are guaranteed
     // to have faces of the same size and format so any faces can be picked.
-    const ImageDesc &baseImageInfo = mState.getImageDesc(mState.getBaseImageTarget(), baseLevel);
     mState.setImageDescChain(baseLevel, maxLevel, baseImageInfo.size, baseImageInfo.format,
                              InitState::Initialized);
 
@@ -1537,13 +1888,7 @@ angle::Result Texture::generateMipmap(Context *context)
 angle::Result Texture::bindTexImageFromSurface(Context *context, egl::Surface *surface)
 {
     ASSERT(surface);
-
-    if (mBoundSurface)
-    {
-        ANGLE_TRY(releaseTexImageFromSurface(context));
-    }
-
-    ANGLE_TRY(mTexture->bindTexImage(context, surface));
+    ASSERT(!mBoundSurface);
     mBoundSurface = surface;
 
     // Set the image info to the size and format of the surface
@@ -1551,6 +1896,10 @@ angle::Result Texture::bindTexImageFromSurface(Context *context, egl::Surface *s
     Extents size(surface->getWidth(), surface->getHeight(), 1);
     ImageDesc desc(size, surface->getBindTexImageFormat(), InitState::Initialized);
     mState.setImageDesc(NonCubeTextureTypeToTarget(mState.mType), 0, desc);
+    mState.mHasProtectedContent = surface->hasProtectedContent();
+
+    ANGLE_TRY(mTexture->bindTexImage(context, surface));
+
     signalDirtyStorage(InitState::Initialized);
     return angle::Result::Continue;
 }
@@ -1564,6 +1913,7 @@ angle::Result Texture::releaseTexImageFromSurface(const Context *context)
     // Erase the image info for level 0
     ASSERT(mState.mType == TextureType::_2D || mState.mType == TextureType::Rectangle);
     mState.clearImageDesc(NonCubeTextureTypeToTarget(mState.mType), 0);
+    mState.mHasProtectedContent = false;
     signalDirtyStorage(InitState::Initialized);
     return angle::Result::Continue;
 }
@@ -1630,31 +1980,65 @@ angle::Result Texture::releaseTexImageInternal(Context *context)
     return angle::Result::Continue;
 }
 
-angle::Result Texture::setEGLImageTarget(Context *context,
-                                         TextureType type,
-                                         egl::Image *imageTarget)
+angle::Result Texture::setEGLImageTargetImpl(Context *context,
+                                             TextureType type,
+                                             GLuint levels,
+                                             egl::Image *imageTarget)
 {
     ASSERT(type == mState.mType);
-    ASSERT(type == TextureType::_2D || type == TextureType::External ||
-           type == TextureType::_2DArray);
 
     // Release from previous calls to eglBindTexImage, to avoid calling the Impl after
     ANGLE_TRY(releaseTexImageInternal(context));
-    ANGLE_TRY(orphanImages(context));
 
-    ANGLE_TRY(mTexture->setEGLImageTarget(context, type, imageTarget));
+    egl::RefCountObjectReleaser<egl::Image> releaseImage;
+    ANGLE_TRY(orphanImages(context, &releaseImage));
 
     setTargetImage(context, imageTarget);
-
-    Extents size(static_cast<int>(imageTarget->getWidth()),
-                 static_cast<int>(imageTarget->getHeight()), 1);
 
     auto initState = imageTarget->sourceInitState();
 
     mState.clearImageDescs();
-    mState.setImageDesc(NonCubeTextureTypeToTarget(type), 0,
-                        ImageDesc(size, imageTarget->getFormat(), initState));
+    mState.setImageDescChain(0, levels - 1, imageTarget->getExtents(), imageTarget->getFormat(),
+                             initState);
+    mState.mHasProtectedContent = imageTarget->hasProtectedContent();
+
+    ANGLE_TRY(mTexture->setEGLImageTarget(context, type, imageTarget));
+
     signalDirtyStorage(initState);
+
+    return angle::Result::Continue;
+}
+
+angle::Result Texture::setEGLImageTarget(Context *context,
+                                         TextureType type,
+                                         egl::Image *imageTarget)
+{
+    ASSERT(type == TextureType::_2D || type == TextureType::External ||
+           type == TextureType::_2DArray);
+
+    return setEGLImageTargetImpl(context, type, 1u, imageTarget);
+}
+
+angle::Result Texture::setStorageEGLImageTarget(Context *context,
+                                                TextureType type,
+                                                egl::Image *imageTarget,
+                                                const GLint *attrib_list)
+{
+    ASSERT(type == TextureType::External || type == TextureType::_3D || type == TextureType::_2D ||
+           type == TextureType::_2DArray || type == TextureType::CubeMap ||
+           type == TextureType::CubeMapArray);
+
+    ANGLE_TRY(setEGLImageTargetImpl(context, type, imageTarget->getLevelCount(), imageTarget));
+
+    mState.mImmutableLevels = imageTarget->getLevelCount();
+    mState.mImmutableFormat = true;
+
+    // Changing the texture to immutable can trigger a change in the base and max levels:
+    // GLES 3.0.4 section 3.8.10 pg 158:
+    // "For immutable-format textures, levelbase is clamped to the range[0;levels],levelmax is then
+    // clamped to the range[levelbase;levels].
+    mDirtyBits.set(DIRTY_BIT_BASE_LEVEL);
+    mDirtyBits.set(DIRTY_BIT_MAX_LEVEL);
 
     return angle::Result::Continue;
 }
@@ -1723,6 +2107,19 @@ bool Texture::isRenderable(const Context *context,
         return true;
     }
 
+    // Skip the renderability checks if it is set via glTexParameteri and current
+    // context is less than GLES3. Note that we should not skip the check if the
+    // texture is not renderable at all. Otherwise we would end up rendering to
+    // textures like compressed textures that are not really renderable.
+    if (context->getImplementation()
+            ->getNativeTextureCaps()
+            .get(getAttachmentFormat(binding, imageIndex).info->sizedInternalFormat)
+            .textureAttachment &&
+        !mState.renderabilityValidation() && context->getClientMajorVersion() < 3)
+    {
+        return true;
+    }
+
     return getAttachmentFormat(binding, imageIndex)
         .info->textureAttachmentSupport(context->getClientVersion(), context->getExtensions());
 }
@@ -1752,6 +2149,17 @@ const ColorGeneric &Texture::getBorderColor() const
     return mState.mSamplerState.getBorderColor();
 }
 
+GLint Texture::getRequiredTextureImageUnits(const Context *context) const
+{
+    // Only external texture types can return non-1.
+    if (mState.mType != TextureType::External)
+    {
+        return 1;
+    }
+
+    return mTexture->getRequiredExternalTextureImageUnits(context);
+}
+
 void Texture::setCrop(const Rectangle &rect)
 {
     mState.setCrop(rect);
@@ -1772,13 +2180,76 @@ GLenum Texture::getGenerateMipmapHint() const
     return mState.getGenerateMipmapHint();
 }
 
-void Texture::onAttach(const Context *context)
+angle::Result Texture::setBuffer(const gl::Context *context,
+                                 gl::Buffer *buffer,
+                                 GLenum internalFormat)
 {
-    addRef();
+    // Use 0 to indicate that the size is taken from whatever size the buffer has when the texture
+    // buffer is used.
+    return setBufferRange(context, buffer, internalFormat, 0, 0);
 }
 
-void Texture::onDetach(const Context *context)
+angle::Result Texture::setBufferRange(const gl::Context *context,
+                                      gl::Buffer *buffer,
+                                      GLenum internalFormat,
+                                      GLintptr offset,
+                                      GLsizeiptr size)
 {
+    mState.mImmutableFormat = true;
+    mState.mBuffer.set(context, buffer, offset, size);
+    ANGLE_TRY(mTexture->setBuffer(context, internalFormat));
+
+    mState.clearImageDescs();
+    if (buffer == nullptr)
+    {
+        mBufferObserver.reset();
+        InitState initState = DetermineInitState(context, nullptr, nullptr);
+        signalDirtyStorage(initState);
+        return angle::Result::Continue;
+    }
+
+    size = GetBoundBufferAvailableSize(mState.mBuffer);
+
+    mState.mImmutableLevels           = static_cast<GLuint>(1);
+    InternalFormat internalFormatInfo = GetSizedInternalFormatInfo(internalFormat);
+    Format format(internalFormat);
+    Extents extents(static_cast<GLuint>(size / internalFormatInfo.pixelBytes), 1, 1);
+    InitState initState = buffer->initState();
+    mState.setImageDesc(TextureTarget::Buffer, 0, ImageDesc(extents, format, initState));
+
+    signalDirtyStorage(initState);
+
+    // Observe modifications to the buffer, so that extents can be updated.
+    mBufferObserver.bind(buffer);
+
+    return angle::Result::Continue;
+}
+
+const OffsetBindingPointer<Buffer> &Texture::getBuffer() const
+{
+    return mState.mBuffer;
+}
+
+void Texture::onAttach(const Context *context, rx::UniqueSerial framebufferSerial)
+{
+    addRef();
+
+    // Duplicates allowed for multiple attachment points. See the comment in the header.
+    mBoundFramebufferSerials.push_back(framebufferSerial);
+
+    if (!mState.mHasBeenBoundAsAttachment)
+    {
+        mDirtyBits.set(DIRTY_BIT_BOUND_AS_ATTACHMENT);
+        mState.mHasBeenBoundAsAttachment = true;
+    }
+}
+
+void Texture::onDetach(const Context *context, rx::UniqueSerial framebufferSerial)
+{
+    // Erase first instance. If there are multiple bindings, leave the others.
+    ASSERT(isBoundToFramebuffer(framebufferSerial));
+    mBoundFramebufferSerials.remove_and_permute(framebufferSerial);
+
     release(context);
 }
 
@@ -1792,11 +2263,12 @@ GLuint Texture::getNativeID() const
     return mTexture->getNativeID();
 }
 
-angle::Result Texture::syncState(const Context *context, TextureCommand source)
+angle::Result Texture::syncState(const Context *context, Command source)
 {
-    ASSERT(hasAnyDirtyBit() || source == TextureCommand::GenerateMipmap);
+    ASSERT(hasAnyDirtyBit() || source == Command::GenerateMipmap);
     ANGLE_TRY(mTexture->syncState(context, mDirtyBits, source));
     mDirtyBits.reset();
+    mState.mInitState = InitState::Initialized;
     return angle::Result::Continue;
 }
 
@@ -1823,13 +2295,23 @@ bool Texture::isSamplerComplete(const Context *context, const Sampler *optionalS
     return mCompletenessCache.samplerComplete;
 }
 
+// CopyImageSubData requires that we ignore format-based completeness rules
+bool Texture::isSamplerCompleteForCopyImage(const Context *context,
+                                            const Sampler *optionalSampler) const
+{
+    const gl::SamplerState &samplerState =
+        optionalSampler ? optionalSampler->getSamplerState() : mState.mSamplerState;
+    const gl::State &contextState = context->getState();
+    return mState.computeSamplerCompletenessForCopyImage(samplerState, contextState);
+}
+
 Texture::SamplerCompletenessCache::SamplerCompletenessCache()
-    : context(0), samplerState(), samplerComplete(false)
+    : context({0}), samplerState(), samplerComplete(false)
 {}
 
 void Texture::invalidateCompletenessCache() const
 {
-    mCompletenessCache.context = 0;
+    mCompletenessCache.context = {0};
 }
 
 angle::Result Texture::ensureInitialized(const Context *context)
@@ -1852,7 +2334,7 @@ angle::Result Texture::ensureInitialized(const Context *context)
         if (desc.initState == InitState::MayNeedInit && !desc.size.empty())
         {
             ASSERT(mState.mInitState == InitState::MayNeedInit);
-            ANGLE_TRY(initializeContents(context, index));
+            ANGLE_TRY(initializeContents(context, GL_NONE, index));
             desc.initState = InitState::Initialized;
             anyDirty       = true;
         }
@@ -1866,7 +2348,7 @@ angle::Result Texture::ensureInitialized(const Context *context)
     return angle::Result::Continue;
 }
 
-InitState Texture::initState(const ImageIndex &imageIndex) const
+InitState Texture::initState(GLenum /*binding*/, const ImageIndex &imageIndex) const
 {
     // As an ImageIndex that represents an entire level of a cube map corresponds to 6 ImageDescs,
     // we need to check all the related ImageDescs.
@@ -1886,7 +2368,7 @@ InitState Texture::initState(const ImageIndex &imageIndex) const
     return mState.getImageDesc(imageIndex).initState;
 }
 
-void Texture::setInitState(const ImageIndex &imageIndex, InitState initState)
+void Texture::setInitState(GLenum binding, const ImageIndex &imageIndex, InitState initState)
 {
     // As an ImageIndex that represents an entire level of a cube map corresponds to 6 ImageDescs,
     // we need to update all the related ImageDescs.
@@ -1895,7 +2377,8 @@ void Texture::setInitState(const ImageIndex &imageIndex, InitState initState)
         const GLint levelIndex = imageIndex.getLevelIndex();
         for (TextureTarget cubeFaceTarget : AllCubeFaceTextureTargets())
         {
-            setInitState(ImageIndex::MakeCubeMapFace(cubeFaceTarget, levelIndex), initState);
+            setInitState(binding, ImageIndex::MakeCubeMapFace(cubeFaceTarget, levelIndex),
+                         initState);
         }
     }
     else
@@ -1904,6 +2387,19 @@ void Texture::setInitState(const ImageIndex &imageIndex, InitState initState)
         newDesc.initState = initState;
         mState.setImageDesc(imageIndex.getTarget(), imageIndex.getLevelIndex(), newDesc);
     }
+}
+
+void Texture::setInitState(InitState initState)
+{
+    for (ImageDesc &imageDesc : mState.mImageDescs)
+    {
+        // Only modify defined images, undefined images will remain in the initialized state
+        if (!imageDesc.size.empty())
+        {
+            imageDesc.initState = initState;
+        }
+    }
+    mState.mInitState = initState;
 }
 
 bool Texture::doesSubImageNeedInit(const Context *context,
@@ -1934,9 +2430,10 @@ angle::Result Texture::ensureSubImageInitialized(const Context *context,
     {
         // NOTE: do not optimize this to only initialize the passed area of the texture, or the
         // initialization logic in copySubImage will be incorrect.
-        ANGLE_TRY(initializeContents(context, imageIndex));
+        ANGLE_TRY(initializeContents(context, GL_NONE, imageIndex));
     }
-    setInitState(imageIndex, InitState::Initialized);
+    // Note: binding is ignored for textures.
+    setInitState(GL_NONE, imageIndex, InitState::Initialized);
     return angle::Result::Continue;
 }
 
@@ -1955,11 +2452,14 @@ void Texture::onSubjectStateChange(angle::SubjectIndex index, angle::SubjectMess
     switch (message)
     {
         case angle::SubjectMessage::ContentsChanged:
-            // ContentsChange is originates from TextureStorage11::resolveAndReleaseTexture
-            // which resolves the underlying multisampled texture if it exists and so
-            // Texture will signal dirty storage to invalidate its own cache and the
-            // attached framebuffer's cache.
-            signalDirtyStorage(InitState::Initialized);
+            if (index != kBufferSubjectIndex)
+            {
+                // ContentsChange originates from TextureStorage11::resolveAndReleaseTexture
+                // which resolves the underlying multisampled texture if it exists and so
+                // Texture will signal dirty storage to invalidate its own cache and the
+                // attached framebuffer's cache.
+                signalDirtyStorage(InitState::Initialized);
+            }
             break;
         case angle::SubjectMessage::DirtyBitsFlagged:
             signalDirtyState(DIRTY_BIT_IMPLEMENTATION);
@@ -1980,11 +2480,64 @@ void Texture::onSubjectStateChange(angle::SubjectIndex index, angle::SubjectMess
             {
                 notifySiblings(message);
             }
+            else if (index == kBufferSubjectIndex)
+            {
+                const gl::Buffer *buffer = mState.mBuffer.get();
+                ASSERT(buffer != nullptr);
+
+                // Update cached image desc based on buffer size.
+                GLsizeiptr size = GetBoundBufferAvailableSize(mState.mBuffer);
+
+                ImageDesc desc          = mState.getImageDesc(TextureTarget::Buffer, 0);
+                const GLuint pixelBytes = desc.format.info->pixelBytes;
+                desc.size.width         = static_cast<GLuint>(size / pixelBytes);
+
+                mState.setImageDesc(TextureTarget::Buffer, 0, desc);
+            }
+            break;
+        case angle::SubjectMessage::StorageReleased:
+            // When the TextureStorage is released, it needs to update the
+            // RenderTargetCache of the Framebuffer attaching this Texture.
+            // This is currently only for D3D back-end. See http://crbug.com/1234829
+            if (index == rx::kTextureImageImplObserverMessageIndex)
+            {
+                onStateChange(angle::SubjectMessage::StorageReleased);
+            }
+            break;
+        case angle::SubjectMessage::SubjectMapped:
+        case angle::SubjectMessage::SubjectUnmapped:
+        case angle::SubjectMessage::BindingChanged:
+        {
+            ASSERT(index == kBufferSubjectIndex);
+            gl::Buffer *buffer = mState.mBuffer.get();
+            ASSERT(buffer != nullptr);
+            if (buffer->hasContentsObserver(this))
+            {
+                onBufferContentsChange();
+            }
+        }
+        break;
+        case angle::SubjectMessage::InitializationComplete:
+            ASSERT(index == rx::kTextureImageImplObserverMessageIndex);
+            setInitState(InitState::Initialized);
+            break;
+        case angle::SubjectMessage::InternalMemoryAllocationChanged:
+            // Need to mark the texture dirty to give the back end a chance to handle the new
+            // buffer. For example, the Vulkan back end needs to create a new buffer view that
+            // points to the newly allocated buffer and update the texture descriptor set.
+            signalDirtyState(DIRTY_BIT_IMPLEMENTATION);
             break;
         default:
             UNREACHABLE();
             break;
     }
+}
+
+void Texture::onBufferContentsChange()
+{
+    mState.mInitState = InitState::MayNeedInit;
+    signalDirtyState(DIRTY_BIT_IMPLEMENTATION);
+    onStateChange(angle::SubjectMessage::ContentsChanged);
 }
 
 GLenum Texture::getImplementationColorReadFormat(const Context *context) const
@@ -2006,24 +2559,38 @@ angle::Result Texture::getTexImage(const Context *context,
                                    GLenum type,
                                    void *pixels)
 {
-    if (hasAnyDirtyBit())
+    // No-op if the image level is empty.
+    if (getExtents(target, level).empty())
     {
-        ANGLE_TRY(syncState(context, TextureCommand::Other));
+        return angle::Result::Continue;
     }
 
     return mTexture->getTexImage(context, packState, packBuffer, target, level, format, type,
                                  pixels);
 }
 
-void Texture::onBindAsImageTexture(ContextID contextID)
+angle::Result Texture::getCompressedTexImage(const Context *context,
+                                             const PixelPackState &packState,
+                                             Buffer *packBuffer,
+                                             TextureTarget target,
+                                             GLint level,
+                                             void *pixels)
 {
-    ContextBindingCount &bindingCount = mState.getBindingCount(contextID);
+    // No-op if the image level is empty.
+    if (getExtents(target, level).empty())
+    {
+        return angle::Result::Continue;
+    }
 
-    ASSERT(bindingCount.imageBindingCount < std::numeric_limits<uint32_t>::max());
-    mState.getBindingCount(contextID).imageBindingCount++;
-    if (bindingCount.imageBindingCount == 1)
+    return mTexture->getCompressedTexImage(context, packState, packBuffer, target, level, pixels);
+}
+
+void Texture::onBindAsImageTexture()
+{
+    if (!mState.mHasBeenBoundAsImage)
     {
         mDirtyBits.set(DIRTY_BIT_BOUND_AS_IMAGE);
+        mState.mHasBeenBoundAsImage = true;
     }
 }
 

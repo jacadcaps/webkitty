@@ -102,11 +102,8 @@ private:
             
             switch (node->op()) {
             case MovHint:
-                m_values.operand(node->unlinkedOperand()) = node->child1().node();
-                break;
-                
             case ZombieHint:
-                m_values.operand(node->unlinkedOperand()) = nullptr;
+                m_values.operand(node->unlinkedOperand()) = node->child1().node();
                 break;
 
             case GetLocal:

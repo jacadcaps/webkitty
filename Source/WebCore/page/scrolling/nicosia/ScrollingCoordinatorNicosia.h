@@ -29,29 +29,17 @@
 
 #if ENABLE(ASYNC_SCROLLING) && USE(NICOSIA)
 
-#include "AsyncScrollingCoordinator.h"
-
-#include <wtf/RunLoop.h>
+#include "ThreadedScrollingCoordinator.h"
 
 namespace WebCore {
 
-class ScrollingCoordinatorNicosia final : public AsyncScrollingCoordinator {
+class ScrollingCoordinatorNicosia final : public ThreadedScrollingCoordinator {
 public:
     explicit ScrollingCoordinatorNicosia(Page*);
     virtual ~ScrollingCoordinatorNicosia();
 
-    void pageDestroyed() override;
-
-    void commitTreeStateIfNeeded() override;
-
-    bool handleWheelEvent(FrameView&, const PlatformWheelEvent&) override;
-
 private:
-    void scheduleTreeStateCommit() override;
-
-    void commitTreeState();
-
-    RunLoop::Timer<ScrollingCoordinatorNicosia> m_scrollingStateTreeCommitterTimer;
+    void didCompletePlatformRenderingUpdate() final;
 };
 
 } // namespace WebCore

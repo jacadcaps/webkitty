@@ -29,13 +29,12 @@
 #import "config.h"
 #import "WebAccessibilityObjectWrapperBase.h"
 
-#if ENABLE(ACCESSIBILITY)
-
+#import "AXCoreObject.h"
+#import "AXIsolatedObject.h"
 #import "AXObjectCache.h"
 #import "AccessibilityARIAGridRow.h"
 #import "AccessibilityList.h"
 #import "AccessibilityListBox.h"
-#import "AccessibilityObjectInterface.h"
 #import "AccessibilityRenderObject.h"
 #import "AccessibilityScrollView.h"
 #import "AccessibilitySpinButton.h"
@@ -43,17 +42,10 @@
 #import "AccessibilityTableCell.h"
 #import "AccessibilityTableColumn.h"
 #import "AccessibilityTableRow.h"
-#import "Chrome.h"
-#import "ChromeClient.h"
 #import "ColorMac.h"
 #import "ContextMenuController.h"
 #import "Editing.h"
-#import "Font.h"
-#import "FontCascade.h"
-#import "Frame.h"
-#import "FrameLoaderClient.h"
 #import "FrameSelection.h"
-#import "HTMLNames.h"
 #import "LayoutRect.h"
 #import "LocalizedStrings.h"
 #import "Page.h"
@@ -62,21 +54,19 @@
 #import "RenderWidget.h"
 #import "ScrollView.h"
 #import "TextCheckerClient.h"
+#import "TextIterator.h"
 #import "VisibleUnits.h"
-#import "WebCoreFrameView.h"
+#import <Accessibility/Accessibility.h>
 #import <wtf/cocoa/VectorCocoa.h>
+#import <pal/cocoa/AccessibilitySoftLink.h>
 
 #if PLATFORM(MAC)
 #import "WebAccessibilityObjectWrapperMac.h"
-#import <pal/spi/mac/HIServicesSPI.h>
 #else
-#import "WAKView.h"
-#import "WAKWindow.h"
 #import "WebAccessibilityObjectWrapperIOS.h"
 #endif
 
 using namespace WebCore;
-using namespace HTMLNames;
 
 // Search Keys
 #ifndef NSAccessibilityAnyTypeSearchKey
@@ -268,70 +258,85 @@ static NSArray *convertMathPairsToNSArray(const AccessibilityObject::Accessibili
     }).autorelease();
 }
 
-NSArray *convertToNSArray(const WebCore::AXCoreObject::AccessibilityChildrenVector& children)
+NSArray *makeNSArray(const WebCore::AXCoreObject::AccessibilityChildrenVector& children)
 {
-    return createNSArray(children, [] (auto& child) -> id {
+    return createNSArray(children, [] (const auto& child) -> id {
+        if (!child)
+            return nil;
+
         auto wrapper = child->wrapper();
+
         // We want to return the attachment view instead of the object representing the attachment,
         // otherwise, we get palindrome errors in the AX hierarchy.
-        if (child->isAttachment() && wrapper.attachmentView)
-            return wrapper.attachmentView;
+        if (child->isAttachment()) {
+            if (id attachmentView = wrapper.attachmentView)
+                return attachmentView;
+        }
+
         return wrapper;
     }).autorelease();
 }
 
 @implementation WebAccessibilityObjectWrapperBase
 
-@synthesize identifier=_identifier;
+@synthesize identifier = _identifier;
 
-- (id)initWithAccessibilityObject:(AXCoreObject*)axObject
+- (id)initWithAccessibilityObject:(AccessibilityObject*)axObject
 {
+    ASSERT(isMainThread());
+
     if (!(self = [super init]))
         return nil;
-
     [self attachAXObject:axObject];
     return self;
 }
 
-- (void)attachAXObject:(AXCoreObject*)axObject
+- (void)attachAXObject:(AccessibilityObject*)axObject
 {
-    ASSERT(axObject && (_identifier == InvalidAXID || _identifier == axObject->objectID()));
+    ASSERT(axObject && (!_identifier.isValid() || _identifier == axObject->objectID()));
     m_axObject = axObject;
-    if (_identifier == InvalidAXID)
+    if (!_identifier.isValid())
         _identifier = m_axObject->objectID();
 }
 
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
-- (void)attachIsolatedObject:(AXCoreObject*)isolatedObject
+- (void)attachIsolatedObject:(AXIsolatedObject*)isolatedObject
 {
-    ASSERT(isolatedObject && (_identifier == InvalidAXID || _identifier == isolatedObject->objectID()));
+    ASSERT(isolatedObject && (!_identifier.isValid() || _identifier == isolatedObject->objectID()));
     m_isolatedObject = isolatedObject;
-    if (_identifier == InvalidAXID)
-        _identifier = m_isolatedObject->objectID();
+    if (isMainThread())
+        m_isolatedObjectInitialized = true;
+
+    if (!_identifier.isValid())
+        _identifier = m_isolatedObject.get()->objectID();
+}
+
+- (BOOL)hasIsolatedObject
+{
+    return !!m_isolatedObject.get();
 }
 #endif
 
 - (void)detach
 {
     ASSERT(isMainThread());
-    _identifier = InvalidAXID;
+    _identifier = { };
     m_axObject = nullptr;
 }
 
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
 - (void)detachIsolatedObject:(AccessibilityDetachmentType)detachmentType
 {
-    ASSERT_UNUSED(detachmentType, detachmentType == AccessibilityDetachmentType::ElementChanged ? _identifier != InvalidAXID && m_axObject : true);
     m_isolatedObject = nullptr;
 }
 #endif
 
+#if PLATFORM(MAC)
 - (WebCore::AXCoreObject*)updateObjectBackingStore
 {
     // Calling updateBackingStore() can invalidate this element so self must be retained.
     // If it does become invalidated, self.axBackingObject will be nil.
-    CFRetain((__bridge CFTypeRef)self);
-    CFAutorelease((__bridge CFTypeRef)self);
+    retainPtr(self).autorelease();
 
     auto* backingObject = self.axBackingObject;
     if (!backingObject)
@@ -341,26 +346,44 @@ NSArray *convertToNSArray(const WebCore::AXCoreObject::AccessibilityChildrenVect
 
     return self.axBackingObject;
 }
+#else
+- (BOOL)_prepareAccessibilityCall
+{
+    // rdar://7980318 if we start a call, then block in WebThreadLock(), then we're dealloced on another, thread, we could
+    // crash, so we should retain ourself for the duration of usage here.
+    retainPtr(self).autorelease();
+
+    WebThreadLock();
+
+    // If we came back from our thread lock and we were detached, we will no longer have an self.axBackingObject.
+    if (!self.axBackingObject)
+        return NO;
+
+    self.axBackingObject->updateBackingStore();
+    if (!self.axBackingObject)
+        return NO;
+
+    return YES;
+}
+#endif
 
 - (id)attachmentView
 {
     return nil;
 }
 
-// This should be the "visible" text that's actually on the screen if possible.
-// If there's alternative text, that can override the title.
-- (NSString *)baseAccessibilityTitle
-{
-    return self.axBackingObject->titleAttributeValue();
-}
-
 - (WebCore::AXCoreObject*)axBackingObject
 {
+    if (isMainThread())
+        return m_axObject.get();
+
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
-    if (AXObjectCache::isIsolatedTreeEnabled())
-        return m_isolatedObject;
+    ASSERT(AXObjectCache::isIsolatedTreeEnabled());
+    return m_isolatedObject.get().get();
+#else
+    ASSERT_NOT_REACHED();
+    return nullptr;
 #endif
-    return m_axObject;
 }
 
 - (BOOL)isIsolatedObject
@@ -373,15 +396,31 @@ NSArray *convertToNSArray(const WebCore::AXCoreObject::AccessibilityChildrenVect
 #endif
 }
 
-- (NSString *)baseAccessibilityDescription
-{
-    return self.axBackingObject->descriptionAttributeValue();
-}
-
 - (NSArray<NSString *> *)baseAccessibilitySpeechHint
 {
     return [(NSString *)self.axBackingObject->speechHintAttributeValue() componentsSeparatedByString:@" "];
 }
+
+#if HAVE(ACCESSIBILITY_FRAMEWORK)
+- (NSArray<AXCustomContent *> *)accessibilityCustomContent
+{
+    RefPtr<AXCoreObject> backingObject = [self baseUpdateBackingStore];
+    if (!backingObject)
+        return nil;
+    
+    RetainPtr<NSMutableArray<AXCustomContent *>> accessibilityCustomContent = nil;
+    auto extendedDescription = backingObject->extendedDescription();
+    if (extendedDescription.length()) {
+        accessibilityCustomContent = adoptNS([[NSMutableArray alloc] init]);
+        AXCustomContent *contentItem = [PAL::getAXCustomContentClass() customContentWithLabel:WEB_UI_STRING("description", "description detail") value:extendedDescription];
+        // Set this to high, so that it's always spoken.
+        [contentItem setImportance:AXCustomContentImportanceHigh];
+        [accessibilityCustomContent addObject:contentItem];
+    }
+    
+    return accessibilityCustomContent.autorelease();
+}
+#endif
 
 - (NSString *)baseAccessibilityHelpText
 {
@@ -446,12 +485,33 @@ static void convertPathToScreenSpaceFunction(PathConversionInfo& conversion, con
 
 - (CGPathRef)convertPathToScreenSpace:(const Path&)path
 {
-    PathConversionInfo conversion = { self, CGPathCreateMutable() };
-    path.apply([&conversion](const PathElement& pathElement) {
+    auto convertedPath = adoptCF(CGPathCreateMutable());
+    PathConversionInfo conversion = { self, convertedPath.get() };
+    path.applyElements([&conversion](const PathElement& pathElement) {
         convertPathToScreenSpaceFunction(conversion, pathElement);
     });
-    CFAutorelease(conversion.path);
-    return conversion.path;
+    return convertedPath.autorelease();
+}
+
+// Determine the visible range by checking intersection of unobscuredContentRect and a range of text by
+// advancing forward by line from top and backwards by line from the bottom, until we have a visible range.
+- (NSRange)accessibilityVisibleCharacterRange
+{
+    return Accessibility::retrieveValueFromMainThread<NSRange>([protectedSelf = retainPtr(self)] () -> NSRange {
+        auto backingObject = protectedSelf.get().baseUpdateBackingStore;
+        if (!backingObject)
+            return NSMakeRange(NSNotFound, 0);
+
+        auto elementRange = makeNSRange(backingObject->simpleRange());
+        if (elementRange.location == NSNotFound)
+            return elementRange;
+        
+        auto visibleRange = makeNSRange(backingObject->visibleCharacterRange());
+        if (visibleRange.location == NSNotFound)
+            return visibleRange;
+
+        return NSMakeRange(visibleRange.location - elementRange.location, visibleRange.length);
+    });
 }
 
 - (id)_accessibilityWebDocumentView
@@ -463,66 +523,163 @@ static void convertPathToScreenSpaceFunction(PathConversionInfo& conversion, con
 
 - (CGRect)convertRectToSpace:(const WebCore::FloatRect&)rect space:(AccessibilityConversionSpace)space
 {
-    if (!self.axBackingObject)
+    auto* backingObject = self.axBackingObject;
+    if (!backingObject)
         return CGRectZero;
-    
-    CGSize size = CGSizeMake(rect.size().width(), rect.size().height());
-    CGPoint point = CGPointMake(rect.x(), rect.y());
-    
-    CGRect cgRect = CGRectMake(point.x, point.y, size.width, size.height);
 
-    // WebKit1 code path... platformWidget() exists.
-    FrameView* frameView = self.axBackingObject->documentFrameView();
-#if PLATFORM(IOS_FAMILY)
-    WAKView* documentView = frameView ? frameView->documentView() : nullptr;
-    if (documentView) {
-        cgRect = [documentView convertRect:cgRect toView:nil];
-        
-        // we need the web document view to give us our final screen coordinates
-        // because that can take account of the scroller
-        id webDocument = [self _accessibilityWebDocumentView];
-        if (webDocument)
-            cgRect = [webDocument convertRect:cgRect toView:nil];
-        return cgRect;
-    }
+    return backingObject->convertRectToPlatformSpace(rect, space);
+}
+
+NSRange makeNSRange(std::optional<SimpleRange> range)
+{
+    if (!range)
+        return NSMakeRange(NSNotFound, 0);
+    
+    auto& document = range->start.document();
+    auto* frame = document.frame();
+    if (!frame)
+        return NSMakeRange(NSNotFound, 0);
+
+    auto* rootEditableElement = frame->selection().selection().rootEditableElement();
+    auto* scope = rootEditableElement ? rootEditableElement : document.documentElement();
+    if (!scope)
+        return NSMakeRange(NSNotFound, 0);
+
+    // Mouse events may cause TSM to attempt to create an NSRange for a portion of the view
+    // that is not inside the current editable region. These checks ensure we don't produce
+    // potentially invalid data when responding to such requests.
+    if (!scope->contains(range->start.container.ptr()) || !scope->contains(range->end.container.ptr()))
+        return NSMakeRange(NSNotFound, 0);
+
+    return NSMakeRange(characterCount({ { *scope, 0 }, range->start }), characterCount(*range));
+}
+
+std::optional<SimpleRange> makeDOMRange(Document* document, NSRange range)
+{
+    if (range.location == NSNotFound)
+        return std::nullopt;
+
+    // our critical assumption is that we are only called by input methods that
+    // concentrate on a given area containing the selection
+    // We have to do this because of text fields and textareas. The DOM for those is not
+    // directly in the document DOM, so serialization is problematic. Our solution is
+    // to use the root editable element of the selection start as the positional base.
+    // That fits with AppKit's idea of an input context.
+    auto selectionRoot = document->frame()->selection().selection().rootEditableElement();
+    auto scope = selectionRoot ? selectionRoot : document->documentElement();
+    if (!scope)
+        return std::nullopt;
+
+    return resolveCharacterRange(makeRangeSelectingNodeContents(*scope), range);
+}
+
+- (WebCore::AXCoreObject*)baseUpdateBackingStore
+{
+#if PLATFORM(MAC)
+    auto* backingObject = self.updateObjectBackingStore;
+    if (!backingObject)
+        return nullptr;
 #else
-    if (frameView && frameView->platformWidget()) {
-        NSRect nsRect = NSRectFromCGRect(cgRect);
-        NSView* view = frameView->documentView();
-        ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-        nsRect = [[view window] convertRectToScreen:[view convertRect:nsRect toView:nil]];
-        ALLOW_DEPRECATED_DECLARATIONS_END
-        return NSRectToCGRect(nsRect);
-    }
+    if (![self _prepareAccessibilityCall])
+        return nullptr;
+    auto* backingObject = self.axBackingObject;
 #endif
-    else
-        return static_cast<CGRect>(self.axBackingObject->convertFrameToSpace(rect, space));
+    return backingObject;
+}
+
+- (NSArray<NSDictionary *> *)lineRectsAndText
+{
+    ASSERT(isMainThread());
+
+    RefPtr backingObject = dynamicDowncast<AccessibilityObject>(self.baseUpdateBackingStore);
+    if (!backingObject)
+        return nil;
+
+    auto range = backingObject->simpleRange();
+    if (!range)
+        return nil;
+
+    Vector<std::pair<IntRect, RetainPtr<NSAttributedString>>> lines;
+    auto start = VisiblePosition { makeContainerOffsetPosition(range->start) };
+    auto rangeEnd = VisiblePosition { makeContainerOffsetPosition(range->end) };
+    while (!start.isNull() && start <= rangeEnd) {
+        auto end = backingObject->nextLineEndPosition(start);
+        if (end <= start)
+            break;
+
+        auto rect = backingObject->boundsForVisiblePositionRange({start, end});
+
+        auto lineRange = makeSimpleRange(start, end);
+        if (!lineRange)
+            break;
+
+        auto content = backingObject->contentForRange(*lineRange, AXCoreObject::SpellCheck::Yes);
+        auto text = adoptNS([[NSMutableAttributedString alloc] init]);
+        for (id item in content.get()) {
+            if ([item isKindOfClass:NSAttributedString.class])
+                [text appendAttributedString:item];
+            else if ([item isKindOfClass:WebAccessibilityObjectWrapper.class]) {
+#if PLATFORM(MAC)
+                auto *wrapper = static_cast<WebAccessibilityObjectWrapper *>(item);
+                auto* object = wrapper.axBackingObject;
+                if (!object)
+                    continue;
+
+                NSString *label;
+                switch (object->roleValue()) {
+                case AccessibilityRole::StaticText:
+                    label = object->stringValue();
+                    break;
+                case AccessibilityRole::Image: {
+                    String name = object->titleAttributeValue();
+                    if (name.isEmpty())
+                        name = object->descriptionAttributeValue();
+                    label = name;
+                    break;
+                }
+                default:
+                    label = nil;
+                    break;
+                }
+#else
+                NSString *label = static_cast<WebAccessibilityObjectWrapper *>(item).accessibilityLabel;
+#endif
+                if (!label)
+                    continue;
+
+                auto attributedLabel = adoptNS([[NSAttributedString alloc] initWithString:label]);
+                [text appendAttributedString:attributedLabel.get()];
+            }
+        }
+        lines.append({rect, text});
+
+        start = end;
+        // If start is at a hard breakline "\n", move to the beginning of the next line.
+        while (isEndOfLine(start)) {
+            end = start.next();
+            auto endOfLineRange = makeSimpleRange(start, end);
+            if (!endOfLineRange)
+                break;
+
+            TextIterator it(*endOfLineRange);
+            if (it.atEnd() || it.text().length() != 1 || it.text()[0] != '\n')
+                break;
+
+            start = end;
+        }
+    }
+
+    if (lines.isEmpty())
+        return nil;
+    return createNSArray(lines, [self] (const auto& line) {
+        return @{ @"rect": [NSValue valueWithRect:[self convertRectToSpace:FloatRect(line.first) space:AccessibilityConversionSpace::Screen]],
+                  @"text": line.second.get() };
+    }).autorelease();
 }
 
 - (NSString *)ariaLandmarkRoleDescription
 {
     return self.axBackingObject->ariaLandmarkRoleDescription();
-}
-
-- (void)baseAccessibilitySetFocus:(BOOL)focus
-{
-    // If focus is just set without making the view the first responder, then keyboard focus won't move to the right place.
-    if (focus && !self.axBackingObject->document()->frame()->selection().isFocusedAndActive()) {
-        FrameView* frameView = self.axBackingObject->documentFrameView();
-        Page* page = self.axBackingObject->page();
-        if (page && frameView) {
-            ChromeClient& chromeClient = page->chrome().client();
-            chromeClient.focus();
-
-            // Legacy WebKit1 case.
-            if (frameView->platformWidget())
-                chromeClient.makeFirstResponder(frameView->platformWidget());
-            else
-                chromeClient.assistiveTechnologyMakeFirstResponder();
-        }
-    }
-
-    self.axBackingObject->setFocused(focus);
 }
 
 - (NSString *)accessibilityPlatformMathSubscriptKey
@@ -592,7 +749,7 @@ static bool isValueTypeSupported(id value)
 static NSArray *arrayRemovingNonSupportedTypes(NSArray *array)
 {
     ASSERT([array isKindOfClass:[NSArray class]]);
-    NSMutableArray *mutableArray = [array mutableCopy];
+    auto mutableArray = adoptNS([array mutableCopy]);
     for (NSUInteger i = 0; i < [mutableArray count];) {
         id value = [mutableArray objectAtIndex:i];
         if ([value isKindOfClass:[NSDictionary class]])
@@ -605,7 +762,7 @@ static NSArray *arrayRemovingNonSupportedTypes(NSArray *array)
         }
         i++;
     }
-    return [mutableArray autorelease];
+    return mutableArray.autorelease();
 }
 
 static NSDictionary *dictionaryRemovingNonSupportedTypes(NSDictionary *dictionary)
@@ -613,7 +770,7 @@ static NSDictionary *dictionaryRemovingNonSupportedTypes(NSDictionary *dictionar
     if (!dictionary)
         return nil;
     ASSERT([dictionary isKindOfClass:[NSDictionary class]]);
-    NSMutableDictionary *mutableDictionary = [dictionary mutableCopy];
+    auto mutableDictionary = adoptNS([dictionary mutableCopy]);
     for (NSString *key in dictionary) {
         id value = [dictionary objectForKey:key];
         if ([value isKindOfClass:[NSDictionary class]])
@@ -623,7 +780,7 @@ static NSDictionary *dictionaryRemovingNonSupportedTypes(NSDictionary *dictionar
         else if (!isValueTypeSupported(value))
             [mutableDictionary removeObjectForKey:key];
     }
-    return [mutableDictionary autorelease];
+    return mutableDictionary.autorelease();
 }
 
 - (void)accessibilityPostedNotification:(NSString *)notificationName userInfo:(NSDictionary *)userInfo
@@ -636,21 +793,19 @@ static NSDictionary *dictionaryRemovingNonSupportedTypes(NSDictionary *dictionar
     }
 }
 
-#ifndef NDEBUG
 - (NSString *)innerHTML
 {
-    if (auto* element = self.axBackingObject->element())
-        return element->innerHTML();
+    if (RefPtr<AXCoreObject> backingObject = self.axBackingObject)
+        return backingObject->innerHTML();
     return nil;
 }
 
 - (NSString *)outerHTML
 {
-    if (auto* element = self.axBackingObject->element())
-        return element->outerHTML();
+    if (RefPtr<AXCoreObject> backingObject = self.axBackingObject)
+        return backingObject->outerHTML();
     return nil;
 }
-#endif
 
 #pragma mark Search helpers
 
@@ -670,7 +825,7 @@ static AccessibilitySearchKeyMap* createAccessibilitySearchKeyMap()
         { NSAccessibilityBlockquoteSearchKey, AccessibilitySearchKey::Blockquote },
         { NSAccessibilityBoldFontSearchKey, AccessibilitySearchKey::BoldFont },
         { NSAccessibilityButtonSearchKey, AccessibilitySearchKey::Button },
-        { NSAccessibilityCheckBoxSearchKey, AccessibilitySearchKey::CheckBox },
+        { NSAccessibilityCheckBoxSearchKey, AccessibilitySearchKey::Checkbox },
         { NSAccessibilityControlSearchKey, AccessibilitySearchKey::Control },
         { NSAccessibilityDifferentTypeSearchKey, AccessibilitySearchKey::DifferentType },
         { NSAccessibilityFontChangeSearchKey, AccessibilitySearchKey::FontChange },
@@ -708,7 +863,7 @@ static AccessibilitySearchKeyMap* createAccessibilitySearchKeyMap()
     };
     
     AccessibilitySearchKeyMap* searchKeyMap = new AccessibilitySearchKeyMap;
-    for (size_t i = 0; i < WTF_ARRAY_LENGTH(searchKeys); i++)
+    for (size_t i = 0; i < std::size(searchKeys); i++)
         searchKeyMap->set(searchKeys[i].key, searchKeys[i].value);
     
     return searchKeyMap;
@@ -724,10 +879,10 @@ static AccessibilitySearchKey accessibilitySearchKeyForString(const String& valu
     return static_cast<int>(searchKey) ? searchKey : AccessibilitySearchKey::AnyType;
 }
 
-static Optional<AccessibilitySearchKey> makeVectorElement(const AccessibilitySearchKey*, id arrayElement)
+static std::optional<AccessibilitySearchKey> makeVectorElement(const AccessibilitySearchKey*, id arrayElement)
 {
     if (![arrayElement isKindOfClass:NSString.class])
-        return WTF::nullopt;
+        return std::nullopt;
     return { { accessibilitySearchKeyForString(arrayElement) } };
 }
 
@@ -776,5 +931,3 @@ AccessibilitySearchCriteria accessibilitySearchCriteriaForSearchPredicateParamet
 }
 
 @end
-
-#endif // ENABLE(ACCESSIBILITY)

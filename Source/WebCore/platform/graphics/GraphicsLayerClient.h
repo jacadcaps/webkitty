@@ -25,7 +25,9 @@
 
 #pragma once
 
+#include "LayerTreeAsTextOptions.h"
 #include "TiledBacking.h"
+#include "TransformationMatrix.h"
 #include <wtf/Forward.h>
 #include <wtf/OptionSet.h>
 
@@ -37,7 +39,18 @@ class GraphicsContext;
 class GraphicsLayer;
 class IntPoint;
 class IntRect;
-class TransformationMatrix;
+
+enum class AnimatedProperty : uint8_t {
+    Invalid,
+    Translate,
+    Scale,
+    Rotate,
+    Transform,
+    Opacity,
+    BackgroundColor,
+    Filter,
+    WebkitBackdropFilter,
+};
 
 enum class GraphicsLayerPaintingPhase {
     Background            = 1 << 0,
@@ -49,42 +62,17 @@ enum class GraphicsLayerPaintingPhase {
     ChildClippingMask     = 1 << 6,
 };
 
-enum AnimatedPropertyID {
-    AnimatedPropertyInvalid,
-    AnimatedPropertyTransform,
-    AnimatedPropertyOpacity,
-    AnimatedPropertyBackgroundColor,
-    AnimatedPropertyFilter,
-#if ENABLE(FILTERS_LEVEL_2)
-    AnimatedPropertyWebkitBackdropFilter,
-#endif
+enum class PlatformLayerTreeAsTextFlags : uint8_t {
+    Debug = 1 << 0,
+    IgnoreChildren = 1 << 1,
+    IncludeModels = 1 << 2,
 };
 
-enum LayerTreeAsTextBehaviorFlags {
-    LayerTreeAsTextBehaviorNormal               = 0,
-    LayerTreeAsTextDebug                        = 1 << 0, // Dump extra debugging info like layer addresses.
-    LayerTreeAsTextIncludeVisibleRects          = 1 << 1,
-    LayerTreeAsTextIncludeTileCaches            = 1 << 2,
-    LayerTreeAsTextIncludeRepaintRects          = 1 << 3,
-    LayerTreeAsTextIncludePaintingPhases        = 1 << 4,
-    LayerTreeAsTextIncludeContentLayers         = 1 << 5,
-    LayerTreeAsTextIncludePageOverlayLayers     = 1 << 6,
-    LayerTreeAsTextIncludeAcceleratesDrawing    = 1 << 7,
-    LayerTreeAsTextIncludeClipping              = 1 << 8,
-    LayerTreeAsTextIncludeBackingStoreAttached  = 1 << 9,
-    LayerTreeAsTextIncludeRootLayerProperties   = 1 << 10,
-    LayerTreeAsTextIncludeEventRegion           = 1 << 11,
-    LayerTreeAsTextIncludeDeepColor             = 1 << 12,
-    LayerTreeAsTextShowAll                      = 0xFFFF
+// See WebCore::PaintBehavior.
+enum class GraphicsLayerPaintBehavior : uint8_t {
+    DefaultAsynchronousImageDecode = 1 << 0,
+    ForceSynchronousImageDecode = 1 << 1,
 };
-typedef unsigned LayerTreeAsTextBehavior;
-
-enum GraphicsLayerPaintFlags {
-    GraphicsLayerPaintNormal                    = 0,
-    GraphicsLayerPaintSnapshotting              = 1 << 0,
-    GraphicsLayerPaintFirstTilePaint            = 1 << 1,
-};
-typedef unsigned GraphicsLayerPaintBehavior;
     
 class GraphicsLayerClient {
 public:
@@ -99,11 +87,11 @@ public:
     // Notification that a layer property changed that requires a subsequent call to flushCompositingState()
     // to appear on the screen.
     virtual void notifyFlushRequired(const GraphicsLayer*) { }
-    
-    // Notification that this layer requires a flush before the next display refresh.
-    virtual void notifyFlushBeforeDisplayRefresh(const GraphicsLayer*) { }
 
-    virtual void paintContents(const GraphicsLayer*, GraphicsContext&, const FloatRect& /* inClip */, GraphicsLayerPaintBehavior) { }
+    // Notification that this layer requires a flush on the next display refresh.
+    virtual void notifySubsequentFlushRequired(const GraphicsLayer*) { }
+
+    virtual void paintContents(const GraphicsLayer*, GraphicsContext&, const FloatRect& /* inClip */, OptionSet<GraphicsLayerPaintBehavior>) { }
     virtual void didChangePlatformLayerForLayer(const GraphicsLayer*) { }
 
     // Provides current transform (taking transform-origin and animations into account). Input matrix has been
@@ -125,19 +113,26 @@ public:
 
     virtual bool isTrackingRepaints() const { return false; }
 
-    virtual bool shouldSkipLayerInDump(const GraphicsLayer*, LayerTreeAsTextBehavior) const { return false; }
-    virtual bool shouldDumpPropertyForLayer(const GraphicsLayer*, const char*, LayerTreeAsTextBehavior) const { return true; }
+    virtual bool shouldSkipLayerInDump(const GraphicsLayer*, OptionSet<LayerTreeAsTextOptions>) const { return false; }
+    virtual bool shouldDumpPropertyForLayer(const GraphicsLayer*, const char*, OptionSet<LayerTreeAsTextOptions>) const { return true; }
 
     virtual bool shouldAggressivelyRetainTiles(const GraphicsLayer*) const { return false; }
     virtual bool shouldTemporarilyRetainTileCohorts(const GraphicsLayer*) const { return true; }
 
     virtual bool useGiantTiles() const { return false; }
+    virtual bool useCSS3DTransformInteroperability() const { return false; }
 
     virtual bool needsPixelAligment() const { return false; }
 
     virtual bool needsIOSDumpRenderTreeMainFrameRenderViewLayerIsAlwaysOpaqueHack(const GraphicsLayer&) const { return false; }
 
     virtual void logFilledVisibleFreshTile(unsigned) { };
+
+    virtual TransformationMatrix transformMatrixForProperty(AnimatedProperty) const { return { }; }
+
+    virtual bool layerContainsBitmapOnly(const GraphicsLayer*) const { return false; }
+
+    virtual bool layerNeedsPlatformContext(const GraphicsLayer*) const { return false; }
 
 #ifndef NDEBUG
     // RenderLayerBacking overrides this to verify that it is not

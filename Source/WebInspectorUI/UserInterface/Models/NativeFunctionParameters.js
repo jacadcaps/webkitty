@@ -249,6 +249,8 @@ WI.NativePrototypeFunctionParameters = {
         filter: "callback, [thisArg]",
         find: "callback, [thisArg]",
         findIndex: "callback, [thisArg]",
+        findLast: "callback, [thisArg]",
+        findLastIndex: "callback, [thisArg]",
         forEach: "callback, [thisArg]",
         includes: "searchValue, [startIndex=0]",
         indexOf: "searchValue, [startIndex=0]",
@@ -606,9 +608,7 @@ WI.NativePrototypeFunctionParameters = {
     CSSStyleDeclaration: {
         getPropertyCSSValue: "[propertyName]",
         getPropertyPriority: "[propertyName]",
-        getPropertyShorthand: "[propertyName]",
         getPropertyValue: "[propertyName]",
-        isPropertyImplicit: "[propertyName]",
         item: "[index]",
         removeProperty: "[propertyName]",
         setProperty: "[propertyName], [value], [priority]",
@@ -646,6 +646,7 @@ WI.NativePrototypeFunctionParameters = {
         clearRect: "x, y, width, height",
         clip: "path, [winding]",
         createImageData: "imagedata",
+        createConicGradient: "angle, x, y",
         createLinearGradient: "x0, y0, x1, y1",
         createPattern: "canvas, repetitionType",
         createRadialGradient: "x0, y0, r0, x1, y1, r1",
@@ -1268,11 +1269,6 @@ WI.NativePrototypeFunctionParameters = {
         __proto__: null,
     },
 
-    QuickTimePluginReplacement: {
-        postEvent: "eventName",
-        __proto__: null,
-    },
-
     RTCDTMFSender: {
         insertDTMF: "tones, [duration], [interToneGap]",
         __proto__: null,
@@ -1696,11 +1692,6 @@ WI.NativePrototypeFunctionParameters = {
         __proto__: null,
     },
 
-    StyleMedia: {
-        matchMedium: "[mediaquery]",
-        __proto__: null,
-    },
-
     StyleSheetList: {
         item: "[index]",
         __proto__: null,
@@ -1872,6 +1863,14 @@ WI.NativePrototypeFunctionParameters = {
 
     WebGLDrawBuffers: {
         drawBuffersWEBGL: "buffers",
+        __proto__: null,
+    },
+
+    WebGLMultiDraw: {
+        multiDrawArraysWebGL: "mode, firstsList, firstsOffset, countsList, countsOffset, drawcount",
+        multiDrawArraysInstancedWebGL: "mode, firstsList, firstsOffset, countsList, countsOffset, instanceCountsList, instanceCountsOffset, drawcount",
+        multiDrawElementsWebGL: "mode, countsList, countsOffset, type, offsetsList, offsetsOffset, drawcount",
+        multiDrawElementsInstancedWebGL: "mode, countsList, countsOffset, type, offsetsList, offsetsOffset, instanceCountsList, instanceCountsOffset, drawcount",
         __proto__: null,
     },
 

@@ -37,12 +37,12 @@ class MathMLOperatorElement final : public MathMLTokenElement {
 public:
     static Ref<MathMLOperatorElement> create(const QualifiedName& tagName, Document&);
     struct OperatorChar {
-        UChar32 character { 0 };
+        char32_t character { 0 };
         bool isVertical { true };
     };
     static OperatorChar parseOperatorChar(const String&);
     const OperatorChar& operatorChar();
-    void setOperatorFormDirty() { m_dictionaryProperty = WTF::nullopt; }
+    void setOperatorFormDirty() { m_dictionaryProperty = std::nullopt; }
     MathMLOperatorDictionary::Form form() { return dictionaryProperty().form; }
     bool hasProperty(MathMLOperatorDictionary::Flag);
     Length defaultLeadingSpace();
@@ -56,11 +56,11 @@ private:
     MathMLOperatorElement(const QualifiedName& tagName, Document&);
     RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
     void childrenChanged(const ChildChange&) final;
-    void parseAttribute(const QualifiedName&, const AtomString&) final;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
 
-    Optional<OperatorChar> m_operatorChar;
+    std::optional<OperatorChar> m_operatorChar;
 
-    Optional<MathMLOperatorDictionary::Property> m_dictionaryProperty;
+    std::optional<MathMLOperatorDictionary::Property> m_dictionaryProperty;
     MathMLOperatorDictionary::Property computeDictionaryProperty();
     const MathMLOperatorDictionary::Property& dictionaryProperty();
 
@@ -71,10 +71,10 @@ private:
     OperatorProperties m_properties;
     void computeOperatorFlag(MathMLOperatorDictionary::Flag);
 
-    Optional<Length> m_leadingSpace;
-    Optional<Length> m_trailingSpace;
-    Optional<Length> m_minSize;
-    Optional<Length> m_maxSize;
+    std::optional<Length> m_leadingSpace;
+    std::optional<Length> m_trailingSpace;
+    std::optional<Length> m_minSize;
+    std::optional<Length> m_maxSize;
 };
 
 }

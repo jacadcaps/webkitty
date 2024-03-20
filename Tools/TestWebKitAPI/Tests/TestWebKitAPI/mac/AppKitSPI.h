@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,8 +30,13 @@
 #import <AppKit/NSInspectorBar.h>
 #import <AppKit/NSInspectorBarItemController.h>
 #import <AppKit/NSInspectorBar_Private.h>
+#import <AppKit/NSMenu_Private.h>
 #import <AppKit/NSTextInputClient_Private.h>
 #import <AppKit/NSWindow_Private.h>
+
+#if HAVE(NSSCROLLVIEW_SEPARATOR_TRACKING_ADAPTER)
+#import <AppKit/NSScrollViewSeparatorTrackingAdapter_Private.h>
+#endif
 
 #else
 
@@ -77,6 +82,17 @@ NSString * const NSInspectorBarTextAlignmentItemIdentifier = @"NSInspectorBarTex
 @interface NSWindow (NSInspectorBarSupport)
 - (NSInspectorBar *)inspectorBar;
 - (void)setInspectorBar:(NSInspectorBar *)bar;
+@end
+
+#if HAVE(NSSCROLLVIEW_SEPARATOR_TRACKING_ADAPTER)
+@protocol NSScrollViewSeparatorTrackingAdapter
+@property (readonly) NSRect scrollViewFrame;
+@property (readonly) BOOL hasScrolledContentsUnderTitlebar;
+@end
+#endif
+
+@interface NSMenu (SPI)
+@property (readonly) NSView *_presentingView;
 @end
 
 #endif

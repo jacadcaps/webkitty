@@ -35,8 +35,13 @@ WI.GeneralStyleDetailsSidebarPanel = class GeneralStyleDetailsSidebarPanel exten
         this._panel = new panelConstructor(this);
         this._panel.addEventListener(WI.StyleDetailsPanel.Event.NodeChanged, this._handleNodeChanged, this);
 
-        this._classListContainerToggledSetting = new WI.Setting("class-list-container-toggled", false);
-        this._forcedPseudoClassCheckboxes = {};
+        if (this._panel.supportsToggleCSSClassList && InspectorBackend.hasCommand("DOM.resolveNode"))
+            this._classListContainerToggledSetting = new WI.Setting(identifier + "-class-list-container-toggled", !!WI.Setting.migrateValue("class-list-container-toggled"));
+
+        if (this._panel.supportsToggleCSSForcedPseudoClass && WI.cssManager.canForcePseudoClass()) {
+            this._forcedPseudoClassContainerToggledSetting = new WI.Setting(identifier + "-forced-pseudo-class-container-toggled", this._panel.initialToggleCSSForcedPseudoClassState);
+            this._checkboxForForcedPseudoClass = new Map;
+        }
     }
 
     // Public
@@ -53,38 +58,24 @@ WI.GeneralStyleDetailsSidebarPanel = class GeneralStyleDetailsSidebarPanel exten
         return nodeToInspect.nodeType() === Node.ELEMENT_NODE;
     }
 
-    hidden()
+    attached()
     {
-        super.hidden();
-
-        if (this._panel)
-            this._panel.hidden();
-    }
-
-    shown()
-    {
-        super.shown();
+        super.attached();
 
         if (!this._panel)
             return;
 
         console.assert(this.visible, `Shown panel ${this._identifier} must be visible.`);
 
-        this._updateNoForcedPseudoClassesScrollOffset();
-        this._panel.shown();
         this._panel.markAsNeedsRefresh(this.domNode);
     }
 
     // StyleDetailsPanel delegate
 
-    styleDetailsPanelFocusLastPseudoClassCheckbox(styleDetailsPanel)
-    {
-        this._forcedPseudoClassCheckboxes[WI.CSSManager.ForceablePseudoClasses.lastValue].focus();
-    }
-
     styleDetailsPanelFocusFilterBar(styleDetailsPanel)
     {
-        this._filterBar.inputField.focus();
+        if (this._filterBar)
+            this._filterBar.inputField.focus();
     }
 
     // Protected
@@ -95,11 +86,14 @@ WI.GeneralStyleDetailsSidebarPanel = class GeneralStyleDetailsSidebarPanel exten
         if (!domNode || domNode.destroyed)
             return;
 
-        this.contentView.element.scrollTop = this._initialScrollOffset;
+        this.contentView.element.scrollTop = 0;
         this._panel.markAsNeedsRefresh(domNode);
 
-        this._updatePseudoClassCheckboxes();
-        this._populateClassToggles();
+        if (this._forcedPseudoClassContainerToggledSetting)
+            this._updatePseudoClassCheckboxes();
+
+        if (this._classListContainerToggledSetting)
+            this._populateClassToggles();
     }
 
     addEventListeners()
@@ -108,9 +102,13 @@ WI.GeneralStyleDetailsSidebarPanel = class GeneralStyleDetailsSidebarPanel exten
         if (!effectiveDOMNode)
             return;
 
-        effectiveDOMNode.addEventListener(WI.DOMNode.Event.EnabledPseudoClassesChanged, this._updatePseudoClassCheckboxes, this);
-        effectiveDOMNode.addEventListener(WI.DOMNode.Event.AttributeModified, this._handleNodeAttributeModified, this);
-        effectiveDOMNode.addEventListener(WI.DOMNode.Event.AttributeRemoved, this._handleNodeAttributeRemoved, this);
+        if (this._forcedPseudoClassContainerToggledSetting)
+            effectiveDOMNode.addEventListener(WI.DOMNode.Event.EnabledPseudoClassesChanged, this._updatePseudoClassCheckboxes, this);
+
+        if (this._classListContainerToggledSetting) {
+            effectiveDOMNode.addEventListener(WI.DOMNode.Event.AttributeModified, this._handleNodeAttributeModified, this);
+            effectiveDOMNode.addEventListener(WI.DOMNode.Event.AttributeRemoved, this._handleNodeAttributeRemoved, this);
+        }
     }
 
     removeEventListeners()
@@ -119,50 +117,21 @@ WI.GeneralStyleDetailsSidebarPanel = class GeneralStyleDetailsSidebarPanel exten
         if (!effectiveDOMNode)
             return;
 
-        effectiveDOMNode.removeEventListener(null, null, this);
+        if (this._forcedPseudoClassContainerToggledSetting)
+            effectiveDOMNode.removeEventListener(WI.DOMNode.Event.EnabledPseudoClassesChanged, this._updatePseudoClassCheckboxes, this);
+
+        if (this._classListContainerToggledSetting) {
+            effectiveDOMNode.removeEventListener(WI.DOMNode.Event.AttributeModified, this._handleNodeAttributeModified, this);
+            effectiveDOMNode.removeEventListener(WI.DOMNode.Event.AttributeRemoved, this._handleNodeAttributeRemoved, this);
+        }
     }
 
     initialLayout()
     {
-        if (WI.cssManager.canForcePseudoClasses()) {
-            this._forcedPseudoClassContainer = document.createElement("div");
-            this._forcedPseudoClassContainer.className = "pseudo-classes";
+        this.contentView.addSubview(this._panel);
 
-            let groupElement = null;
-
-            WI.CSSManager.ForceablePseudoClasses.forEach(function(pseudoClass) {
-                // We don't localize the label since it is a CSS pseudo-class from the CSS standard.
-                let label = pseudoClass.capitalize();
-
-                let labelElement = document.createElement("label");
-
-                let checkboxElement = document.createElement("input");
-                checkboxElement.addEventListener("keydown", this._handleForcedPseudoClassCheckboxKeydown.bind(this, pseudoClass));
-                checkboxElement.addEventListener("change", this._forcedPseudoClassCheckboxChanged.bind(this, pseudoClass));
-                checkboxElement.type = "checkbox";
-
-                this._forcedPseudoClassCheckboxes[pseudoClass] = checkboxElement;
-
-                labelElement.appendChild(checkboxElement);
-                labelElement.append(label);
-
-                if (!groupElement || groupElement.children.length === 2) {
-                    groupElement = document.createElement("div");
-                    groupElement.className = "group";
-                    this._forcedPseudoClassContainer.appendChild(groupElement);
-                }
-
-                groupElement.appendChild(labelElement);
-            }, this);
-
-            this.contentView.element.appendChild(this._forcedPseudoClassContainer);
-        }
-
-        this._showPanel(this._panel);
-
-        if (InspectorBackend.hasCommand("DOM.resolveNode")) {
+        if (this._classListContainerToggledSetting) {
             this._classListContainer = this.element.createChild("div", "class-list-container");
-            this._classListContainer.hidden = true;
 
             this._addClassContainer = this._classListContainer.createChild("div", "new-class");
             this._addClassContainer.title = WI.UIString("Add a Class");
@@ -175,6 +144,25 @@ WI.GeneralStyleDetailsSidebarPanel = class GeneralStyleDetailsSidebarPanel exten
             this._addClassInput.addEventListener("blur", this._addClassInputBlur.bind(this));
         }
 
+        if (this._forcedPseudoClassContainerToggledSetting) {
+            this._forcedPseudoClassContainer = this.element.appendChild(document.createElement("div"));
+            this._forcedPseudoClassContainer.className = "forced-pseudo-class-container";
+
+            for (let pseudoClass of Object.values(WI.CSSManager.ForceablePseudoClass)) {
+                if (!WI.cssManager.canForcePseudoClass(pseudoClass))
+                    continue;
+
+                let labelElement = this._forcedPseudoClassContainer.appendChild(document.createElement("label"));
+
+                let checkboxElement = labelElement.appendChild(document.createElement("input"));
+                checkboxElement.addEventListener("change", this._forcedPseudoClassCheckboxChanged.bind(this, pseudoClass));
+                checkboxElement.type = "checkbox";
+                this._checkboxForForcedPseudoClass.set(pseudoClass, checkboxElement);
+
+                labelElement.append(WI.CSSManager.displayNameForForceablePseudoClass(pseudoClass));
+            }
+        }
+
         let optionsContainer = this.element.createChild("div", "options-container");
 
         let newRuleButton = optionsContainer.createChild("img", "new-rule");
@@ -182,31 +170,41 @@ WI.GeneralStyleDetailsSidebarPanel = class GeneralStyleDetailsSidebarPanel exten
         newRuleButton.addEventListener("click", this._newRuleButtonClicked.bind(this));
         newRuleButton.addEventListener("contextmenu", this._newRuleButtonContextMenu.bind(this));
 
-        this._filterBar = new WI.FilterBar;
-        this._filterBar.addEventListener(WI.FilterBar.Event.FilterDidChange, this._filterDidChange, this);
-        this._filterBar.inputField.addEventListener("keydown", this._handleFilterBarInputFieldKeyDown.bind(this));
-        optionsContainer.appendChild(this._filterBar.element);
+        if (typeof this._panel.filterDidChange === "function") {
+            this._filterBar = new WI.FilterBar;
+            this._filterBar.addEventListener(WI.FilterBar.Event.FilterDidChange, this._filterDidChange, this);
+            this._filterBar.inputField.addEventListener("keydown", this._handleFilterBarInputFieldKeyDown.bind(this));
+            this.contentView.element.classList.add("has-filter-bar");
 
-        if (this._classListContainer) {
-            this._classToggleButton = optionsContainer.createChild("button", "toggle-class-toggle");
-            this._classToggleButton.textContent = WI.UIString("Classes");
-            this._classToggleButton.title = WI.UIString("Toggle Classes");
-            this._classToggleButton.addEventListener("click", this._classToggleButtonClicked.bind(this));
+            optionsContainer.appendChild(this._filterBar.element);
+        }
 
-            if (this._classListContainerToggledSetting.value)
-                this._classToggleButtonClicked();
+        if (this._classListContainerToggledSetting) {
+            this._classListToggleButton = optionsContainer.createChild("button", "toggle class-list");
+            this._classListToggleButton.textContent = WI.UIString("Classes");
+            this._classListToggleButton.title = WI.UIString("Toggle Classes");
+            this._classListToggleButton.addEventListener("click", this._classListToggleButtonClicked.bind(this));
+
+            this._updateClassListContainer();
+        }
+
+        if (this._forcedPseudoClassContainerToggledSetting) {
+            this._forcedPseudoClassToggleButton = optionsContainer.appendChild(document.createElement("button"));
+            this._forcedPseudoClassToggleButton.className = "toggle forced-pseudo-class";
+            this._forcedPseudoClassToggleButton.textContent = WI.UIString("Pseudo", "Pseudo @ Styles details sidebar panel", "Label for button that shows controls for toggling CSS pseudo-classes on the selected element.");
+            this._forcedPseudoClassToggleButton.title = WI.UIString("Toggle Pseudo Classes");
+            this._forcedPseudoClassToggleButton.addEventListener("click", this._forcedPseudoClassToggleButtonClicked.bind(this));
+
+            this._updateForcedPseudoClassContainer();
         }
 
         WI.cssManager.addEventListener(WI.CSSManager.Event.StyleSheetAdded, this._styleSheetAddedOrRemoved, this);
         WI.cssManager.addEventListener(WI.CSSManager.Event.StyleSheetRemoved, this._styleSheetAddedOrRemoved, this);
-
     }
 
     sizeDidChange()
     {
         super.sizeDidChange();
-
-        this._updateNoForcedPseudoClassesScrollOffset();
 
         if (this._panel)
             this._panel.sizeDidChange();
@@ -214,48 +212,27 @@ WI.GeneralStyleDetailsSidebarPanel = class GeneralStyleDetailsSidebarPanel exten
 
     // Private
 
-    get _initialScrollOffset()
+    _updateClassListContainer()
     {
-        if (!WI.cssManager.canForcePseudoClasses())
-            return 0;
-        return this.domNode && this.domNode.enabledPseudoClasses.length ? 0 : WI.GeneralStyleDetailsSidebarPanel.NoForcedPseudoClassesScrollOffset;
+        let hidden = !this._classListContainerToggledSetting.value;
+        this._classListToggleButton.classList.toggle("selected", !hidden);
+        this._classListContainer.hidden = hidden;
+
+        this._populateClassToggles();
     }
 
-    _updateNoForcedPseudoClassesScrollOffset()
+    _updateForcedPseudoClassContainer()
     {
-        if (this._forcedPseudoClassContainer)
-            WI.GeneralStyleDetailsSidebarPanel.NoForcedPseudoClassesScrollOffset = this._forcedPseudoClassContainer.offsetHeight;
-    }
-
-    _showPanel()
-    {
-        this.contentView.addSubview(this._panel);
-
-        let hasFilter = typeof this._panel.filterDidChange === "function";
-        this.contentView.element.classList.toggle("has-filter-bar", hasFilter);
-        if (this._filterBar)
-            this.contentView.element.classList.toggle(WI.GeneralStyleDetailsSidebarPanel.FilterInProgressClassName, hasFilter && this._filterBar.hasActiveFilters());
-
-        this._panel.shown();
+        let hidden = !this._forcedPseudoClassContainerToggledSetting.value;
+        this._forcedPseudoClassToggleButton.classList.toggle("selected", !hidden);
+        this._forcedPseudoClassContainer.hidden = hidden;
     }
 
     _handleNodeChanged(event)
     {
         this.contentView.element.classList.toggle("supports-new-rule", this._panel.supportsNewRule);
-    }
-
-    _handleForcedPseudoClassCheckboxKeydown(pseudoClass, event)
-    {
-        if (event.key !== "Tab" || event.shiftKey)
-            return;
-
-        if (WI.CSSManager.ForceablePseudoClasses.lastValue === pseudoClass) {
-            // Last checkbox is currently focused.
-            if (this._panel.focusFirstSection) {
-                this._panel.focusFirstSection();
-                event.preventDefault();
-            }
-        }
+        this.contentView.element.classList.toggle("supports-toggle-class-list", this._panel.supportsToggleCSSClassList);
+        this.contentView.element.classList.toggle("supports-toggle-forced-pseudo-class", this._panel.supportsToggleCSSForcedPseudoClass);
     }
 
     _forcedPseudoClassCheckboxChanged(pseudoClass, event)
@@ -269,7 +246,7 @@ WI.GeneralStyleDetailsSidebarPanel = class GeneralStyleDetailsSidebarPanel exten
 
         effectiveDOMNode.setPseudoClassEnabled(pseudoClass, event.target.checked);
 
-        this._forcedPseudoClassCheckboxes[pseudoClass].focus();
+        this._checkboxForForcedPseudoClass.get(pseudoClass).focus();
     }
 
     _updatePseudoClassCheckboxes()
@@ -283,10 +260,8 @@ WI.GeneralStyleDetailsSidebarPanel = class GeneralStyleDetailsSidebarPanel exten
 
         let enabledPseudoClasses = effectiveDOMNode.enabledPseudoClasses;
 
-        for (let pseudoClass in this._forcedPseudoClassCheckboxes) {
-            let checkboxElement = this._forcedPseudoClassCheckboxes[pseudoClass];
+        for (let [pseudoClass, checkboxElement] of this._checkboxForForcedPseudoClass)
             checkboxElement.checked = enabledPseudoClasses.includes(pseudoClass);
-        }
     }
 
     _handleNodeAttributeModified(event)
@@ -313,12 +288,26 @@ WI.GeneralStyleDetailsSidebarPanel = class GeneralStyleDetailsSidebarPanel exten
             this._panel.newRuleButtonContextMenu(event);
     }
 
-    _classToggleButtonClicked(event)
+    _classListToggleButtonClicked(event)
     {
-        this._classToggleButton.classList.toggle("selected");
-        this._classListContainer.hidden = !this._classListContainer.hidden;
-        this._classListContainerToggledSetting.value = !this._classListContainer.hidden;
-        this._populateClassToggles();
+        if (this._forcedPseudoClassContainerToggledSetting) {
+            this._forcedPseudoClassContainerToggledSetting.value = false;
+            this._updateForcedPseudoClassContainer();
+        }
+
+        this._classListContainerToggledSetting.value = !this._classListContainerToggledSetting.value;
+        this._updateClassListContainer();
+    }
+
+    _forcedPseudoClassToggleButtonClicked(event)
+    {
+        if (this._classListContainerToggledSetting) {
+            this._classListContainerToggledSetting.value = false;
+            this._updateClassListContainer();
+        }
+
+        this._forcedPseudoClassContainerToggledSetting.value = !this._forcedPseudoClassContainerToggledSetting.value;
+        this._updateForcedPseudoClassContainer();
     }
 
     _addClassContainerClicked(event)
@@ -422,6 +411,9 @@ WI.GeneralStyleDetailsSidebarPanel = class GeneralStyleDetailsSidebarPanel exten
 
     _filterDidChange()
     {
+        if (!this._filterBar)
+            return;
+
         this.contentView.element.classList.toggle(WI.GeneralStyleDetailsSidebarPanel.FilterInProgressClassName, this._filterBar.hasActiveFilters());
 
         this._panel.filterDidChange(this._filterBar);
@@ -440,11 +432,14 @@ WI.GeneralStyleDetailsSidebarPanel = class GeneralStyleDetailsSidebarPanel exten
 
     _styleSheetAddedOrRemoved()
     {
-        this.needsLayout();
+        let domNode = this.domNode;
+        if (!domNode || domNode.destroyed)
+            return;
+
+        this._panel.markAsNeedsRefresh(domNode);
     }
 };
 
-WI.GeneralStyleDetailsSidebarPanel.NoForcedPseudoClassesScrollOffset = 30; // Default height of the forced pseudo classes container. Updated in sizeDidChange.
 WI.GeneralStyleDetailsSidebarPanel.FilterInProgressClassName = "filter-in-progress";
 WI.GeneralStyleDetailsSidebarPanel.FilterMatchingSectionHasLabelClassName = "filter-section-has-label";
 WI.GeneralStyleDetailsSidebarPanel.FilterMatchSectionClassName = "filter-matching";

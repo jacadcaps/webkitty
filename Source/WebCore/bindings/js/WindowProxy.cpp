@@ -22,9 +22,9 @@
 #include "WindowProxy.h"
 
 #include "CommonVM.h"
-#include "Frame.h"
 #include "GCController.h"
 #include "JSWindowProxy.h"
+#include "LocalFrame.h"
 #include "Page.h"
 #include "PageConsoleClient.h"
 #include "PageGroup.h"
@@ -52,8 +52,8 @@ static void collectGarbageAfterWindowProxyDestruction()
         GCController::singleton().garbageCollectSoon();
 }
 
-WindowProxy::WindowProxy(AbstractFrame& frame)
-    : m_frame(&frame)
+WindowProxy::WindowProxy(Frame& frame)
+    : m_frame(frame)
     , m_jsWindowProxies(makeUniqueRef<ProxyMap>())
 {
 }
@@ -62,6 +62,11 @@ WindowProxy::~WindowProxy()
 {
     ASSERT(!m_frame);
     ASSERT(m_jsWindowProxies->isEmpty());
+}
+
+Frame* WindowProxy::frame() const
+{
+    return m_frame.get();
 }
 
 void WindowProxy::detachFromFrame()
@@ -79,6 +84,14 @@ void WindowProxy::detachFromFrame()
         }
         collectGarbageAfterWindowProxyDestruction();
     }
+}
+
+void WindowProxy::replaceFrame(Frame& frame)
+{
+    ASSERT(m_frame);
+    ASSERT(is<LocalFrame>(m_frame) != is<LocalFrame>(frame));
+    m_frame = frame;
+    setDOMWindow(frame.window());
 }
 
 void WindowProxy::destroyJSWindowProxy(DOMWrapperWorld& world)
@@ -121,12 +134,12 @@ JSWindowProxy& WindowProxy::createJSWindowProxyWithInitializedScript(DOMWrapperW
 
     JSLockHolder lock(world.vm());
     auto& windowProxy = createJSWindowProxy(world);
-    if (is<Frame>(*m_frame))
-        downcast<Frame>(*m_frame).script().initScriptForWindowProxy(windowProxy);
+    if (auto* localFrame = dynamicDowncast<LocalFrame>(*m_frame))
+        localFrame->script().initScriptForWindowProxy(windowProxy);
     return windowProxy;
 }
 
-void WindowProxy::clearJSWindowProxiesNotMatchingDOMWindow(AbstractDOMWindow* newDOMWindow, bool goingIntoBackForwardCache)
+void WindowProxy::clearJSWindowProxiesNotMatchingDOMWindow(DOMWindow* newDOMWindow, bool goingIntoBackForwardCache)
 {
     if (m_jsWindowProxies->isEmpty())
         return;
@@ -140,7 +153,7 @@ void WindowProxy::clearJSWindowProxiesNotMatchingDOMWindow(AbstractDOMWindow* ne
         // Clear the debugger and console from the current window before setting the new window.
         windowProxy->attachDebugger(nullptr);
         windowProxy->window()->setConsoleClient(nullptr);
-        if (auto* jsDOMWindow = jsDynamicCast<JSDOMWindowBase*>(windowProxy->vm(), windowProxy->window()))
+        if (auto* jsDOMWindow = jsDynamicCast<JSDOMWindowBase*>(windowProxy->window()))
             jsDOMWindow->willRemoveFromWindowProxy();
     }
 
@@ -150,7 +163,7 @@ void WindowProxy::clearJSWindowProxiesNotMatchingDOMWindow(AbstractDOMWindow* ne
         collectGarbageAfterWindowProxyDestruction();
 }
 
-void WindowProxy::setDOMWindow(AbstractDOMWindow* newDOMWindow)
+void WindowProxy::setDOMWindow(DOMWindow* newDOMWindow)
 {
     ASSERT(newDOMWindow);
 
@@ -169,21 +182,21 @@ void WindowProxy::setDOMWindow(AbstractDOMWindow* newDOMWindow)
 
         ScriptController* scriptController = nullptr;
         Page* page = nullptr;
-        if (is<Frame>(*m_frame)) {
-            auto& frame = downcast<Frame>(*m_frame);
-            scriptController = &frame.script();
-            page = frame.page();
+        if (auto* localFrame = dynamicDowncast<LocalFrame>(*m_frame)) {
+            scriptController = &localFrame->script();
+            page = localFrame->page();
         }
 
         // ScriptController's m_cacheableBindingRootObject persists between page navigations
-        // so needs to know about the new JSDOMWindow.
+        // so needs to know about the new JSLocalDOMWindow.
         if (auto* cacheableBindingRootObject = scriptController ? scriptController->existingCacheableBindingRootObject() : nullptr)
             cacheableBindingRootObject->updateGlobalObject(windowProxy->window());
 
         windowProxy->attachDebugger(page ? page->debugger() : nullptr);
-        if (page)
+        if (page) {
             windowProxy->window()->setProfileGroup(page->group().identifier());
-        windowProxy->window()->setConsoleClient(page ? &page->console() : nullptr);
+            windowProxy->window()->setConsoleClient(page->console());
+        }
     }
 }
 
@@ -193,7 +206,7 @@ void WindowProxy::attachDebugger(JSC::Debugger* debugger)
         windowProxy->attachDebugger(debugger);
 }
 
-AbstractDOMWindow* WindowProxy::window() const
+DOMWindow* WindowProxy::window() const
 {
     return m_frame ? m_frame->window() : nullptr;
 }

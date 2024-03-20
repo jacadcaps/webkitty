@@ -1,5 +1,5 @@
 # Copyright (c) 2009 Google Inc. All rights reserved.
-# Copyright (c) 2009, 2018 Apple Inc. All rights reserved.
+# Copyright (c) 2009-2021 Apple Inc. All rights reserved.
 # Copyright (c) 2010 Research In Motion Limited. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -36,8 +36,8 @@ _log = logging.getLogger(__name__)
 
 
 class Attachment(object):
-    revert_preamble = "REVERT of r"
-    rollout_preamble = "ROLLOUT of r"
+    fast_cq_preamble = "[fast-cq] "
+    revert_preamble = "REVERT of "
 
     def __init__(self, attachment_dictionary, bug):
         self._attachment_dictionary = attachment_dictionary
@@ -51,13 +51,6 @@ class Attachment(object):
 
     def id(self):
         return int(self._attachment_dictionary.get("id"))
-
-    @memoized
-    def attacher(self):
-        return self._bugzilla().committers.contributor_by_email(self.attacher_email())
-
-    def attacher_email(self):
-        return self._attachment_dictionary.get("attacher_email")
 
     def bug(self):
         return self._bug
@@ -74,17 +67,8 @@ class Attachment(object):
     def is_patch(self):
         return not not self._attachment_dictionary.get("is_patch")
 
-    def is_obsolete(self):
-        return not not self._attachment_dictionary.get("is_obsolete")
-
-    def is_revert(self):
-        return self.name().startswith(self.revert_preamble) or self.name().startswith(self.rollout_preamble)
-
     def name(self):
         return self._attachment_dictionary.get("name")
-
-    def attach_date(self):
-        return self._attachment_dictionary.get("attach_date")
 
     def review(self):
         return self._attachment_dictionary.get("review")

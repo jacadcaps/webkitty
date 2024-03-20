@@ -36,7 +36,7 @@
 #import <wtf/RetainPtr.h>
 #import <wtf/WeakObjCPtr.h>
 
-@interface WKReloadFrameErrorRecoveryAttempter () <_WKErrorRecoveryAttempting>
+@interface WKReloadFrameErrorRecoveryAttempter ()
 @end
 
 @implementation WKReloadFrameErrorRecoveryAttempter {
@@ -63,11 +63,26 @@
     if (!webView)
         return NO;
 
-    WebKit::WebFrameProxy* webFrameProxy = webView->_page->process().webFrame(_frameHandle->_frameHandle->frameID());
+    RefPtr webFrameProxy = WebKit::WebFrameProxy::webFrame(_frameHandle->_frameHandle->frameID());
     if (!webFrameProxy)
         return NO;
 
-    webFrameProxy->loadURL(URL(URL(), _urlString));
+    webFrameProxy->loadURL(URL { _urlString });
+    return YES;
+}
+
+- (void)encodeWithCoder:(NSCoder *)coder
+{
+}
+
+- (instancetype)initWithCoder:(NSCoder *)coder
+{
+    self = [super init];
+    return self;
+}
+
++ (BOOL)supportsSecureCoding
+{
     return YES;
 }
 

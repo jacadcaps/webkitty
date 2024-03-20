@@ -43,7 +43,7 @@ WI.HeapSnapshotInstanceDataGridNode = class HeapSnapshotInstanceDataGridNode ext
         this._base = base || null;
 
         if (hasChildren)
-            this.addEventListener("populate", this._populate, this);
+            this.addEventListener(WI.DataGridNode.Event.Populate, this._populate, this);
     }
 
     // Static
@@ -81,12 +81,12 @@ WI.HeapSnapshotInstanceDataGridNode = class HeapSnapshotInstanceDataGridNode ext
             if (node.className === "string") {
                 WI.heapManager.getPreview(node, function(error, string, functionDetails, objectPreviewPayload) {
                     let remoteObject = error ? WI.RemoteObject.fromPrimitiveValue(undefined) : WI.RemoteObject.fromPrimitiveValue(string);
-                    WI.consoleLogViewController.appendImmediateExecutionWithResult(text, remoteObject, addSpecialUserLogClass, shouldRevealConsole);
+                    WI.consoleLogViewController.appendImmediateExecutionWithResult(text, remoteObject, {addSpecialUserLogClass, shouldRevealConsole});
                 });
             } else {
                 WI.heapManager.getRemoteObject(node, WI.RuntimeManager.ConsoleObjectGroup, function(error, remoteObjectPayload) {
                     let remoteObject = error ? WI.RemoteObject.fromPrimitiveValue(undefined) : WI.RemoteObject.fromPayload(remoteObjectPayload, WI.assumingMainTarget());
-                    WI.consoleLogViewController.appendImmediateExecutionWithResult(text, remoteObject, addSpecialUserLogClass, shouldRevealConsole);
+                    WI.consoleLogViewController.appendImmediateExecutionWithResult(text, remoteObject, {addSpecialUserLogClass, shouldRevealConsole});
                 });
             }
         });
@@ -216,7 +216,7 @@ WI.HeapSnapshotInstanceDataGridNode = class HeapSnapshotInstanceDataGridNode ext
 
     _populate()
     {
-        this.removeEventListener("populate", this._populate, this);
+        this.removeEventListener(WI.DataGridNode.Event.Populate, this._populate, this);
 
         function propertyName(edge) {
             return edge ? WI.HeapSnapshotRootPath.pathComponentForIndividualEdge(edge) : "";

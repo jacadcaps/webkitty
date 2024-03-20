@@ -36,24 +36,21 @@ using namespace WebCore;
 
 void SampleBufferDisplayLayerManager::didReceiveLayerMessage(IPC::Connection& connection, IPC::Decoder& decoder)
 {
-    if (auto* layer = m_layers.get(makeObjectIdentifier<SampleBufferDisplayLayerIdentifierType>(decoder.destinationID())).get())
+    if (auto* layer = m_layers.get(ObjectIdentifier<SampleBufferDisplayLayerIdentifierType>(decoder.destinationID())).get())
         layer->didReceiveMessage(connection, decoder);
 }
 
-std::unique_ptr<WebCore::SampleBufferDisplayLayer> SampleBufferDisplayLayerManager::createLayer(SampleBufferDisplayLayer::Client& client)
+RefPtr<WebCore::SampleBufferDisplayLayer> SampleBufferDisplayLayerManager::createLayer(WebCore::SampleBufferDisplayLayer::Client& client)
 {
     auto layer = SampleBufferDisplayLayer::create(*this, client);
-    if (!layer)
-        return { };
-
-    m_layers.add(layer->identifier(), makeWeakPtr(*layer));
+    m_layers.add(layer->identifier(), layer.get());
     return layer;
 }
 
 void SampleBufferDisplayLayerManager::addLayer(SampleBufferDisplayLayer& layer)
 {
     ASSERT(!m_layers.contains(layer.identifier()));
-    m_layers.add(layer.identifier(), makeWeakPtr(layer));
+    m_layers.add(layer.identifier(), layer);
 }
 
 void SampleBufferDisplayLayerManager::removeLayer(SampleBufferDisplayLayer& layer)

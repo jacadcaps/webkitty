@@ -6,25 +6,31 @@
 
 // WindowSurfaceEAGL.cpp: EAGL implementation of egl::Surface
 
+#import "libANGLE/renderer/gl/eagl/WindowSurfaceEAGL.h"
+
+#import <QuartzCore/QuartzCore.h>
+
+#import "common/debug.h"
 #import "common/platform.h"
+#import "libANGLE/Context.h"
+#import "libANGLE/renderer/gl/FramebufferGL.h"
+#import "libANGLE/renderer/gl/RendererGL.h"
+#import "libANGLE/renderer/gl/StateManagerGL.h"
+#import "libANGLE/renderer/gl/eagl/DisplayEAGL.h"
+#import "libANGLE/renderer/gl/eagl/FunctionsEAGL.h"
 
-#if defined(ANGLE_PLATFORM_IOS) && !defined(ANGLE_PLATFORM_MACCATALYST)
+#if defined(ANGLE_PLATFORM_MACCATALYST)
 
-#    import "libANGLE/renderer/gl/eagl/WindowSurfaceEAGL.h"
+// TODO(dino): Necessary because CAEAGLLayer is not in the public QuartzCore headers in this
+// configuration.
+// TODO(dino): Check that this won't cause an application using ANGLE directly to be flagged
+// for non-public API use on Apple's App Store.
+@interface CAEAGLLayer : CALayer
+@end
 
-#    import "common/debug.h"
-#    import "libANGLE/Context.h"
-#    import "libANGLE/renderer/gl/FramebufferGL.h"
-#    import "libANGLE/renderer/gl/RendererGL.h"
-#    import "libANGLE/renderer/gl/StateManagerGL.h"
-#    import "libANGLE/renderer/gl/eagl/DisplayEAGL.h"
+#endif
 
-#    import <OpenGLES/EAGL.h>
-#    import <QuartzCore/QuartzCore.h>
-
-// TODO(anglebug.com/4275): It's not clear why this needs to be an EAGLLayer.
-
-@interface WebSwapLayer : CAEAGLLayer {
+@interface SwapLayerEAGL : CAEAGLLayer {
     EAGLContextObj mDisplayContext;
 
     bool initialized;
@@ -38,7 +44,7 @@
             withFunctions:(const rx::FunctionsGL *)functions;
 @end
 
-@implementation WebSwapLayer
+@implementation SwapLayerEAGL
 - (id)initWithSharedState:(rx::SharedSwapState *)swapState
               withContext:(EAGLContextObj)displayContext
             withFunctions:(const rx::FunctionsGL *)functions
@@ -69,7 +75,7 @@
     }
     pthread_mutex_unlock(&mSwapState->mutex);
 
-    [EAGLContext setCurrentContext:mDisplayContext];
+    [getEAGLContextClass() setCurrentContext:mDisplayContext];
 
     if (!initialized)
     {
@@ -105,7 +111,7 @@
 
     mFunctions->bindRenderbuffer(GL_RENDERBUFFER, texture.texture);
     [mDisplayContext presentRenderbuffer:GL_RENDERBUFFER];
-    [EAGLContext setCurrentContext:nil];
+    [getEAGLContextClass() setCurrentContext:nil];
 }
 @end
 
@@ -119,11 +125,12 @@ WindowSurfaceEAGL::WindowSurfaceEAGL(const egl::SurfaceState &state,
     : SurfaceGL(state),
       mSwapLayer(nil),
       mCurrentSwapId(0),
-      mLayer(reinterpret_cast<CALayer *>(layer)),
+      mLayer((__bridge CALayer *)layer),
       mContext(context),
       mFunctions(renderer->getFunctions()),
       mStateManager(renderer->getStateManager()),
-      mDSRenderbuffer(0)
+      mDSRenderbuffer(0),
+      mFramebufferID(0)
 {
     pthread_mutex_init(&mSwapState.mutex, nullptr);
 }
@@ -131,6 +138,12 @@ WindowSurfaceEAGL::WindowSurfaceEAGL(const egl::SurfaceState &state,
 WindowSurfaceEAGL::~WindowSurfaceEAGL()
 {
     pthread_mutex_destroy(&mSwapState.mutex);
+
+    if (mFramebufferID != 0)
+    {
+        mStateManager->deleteFramebuffer(mFramebufferID);
+        mFramebufferID = 0;
+    }
 
     if (mDSRenderbuffer != 0)
     {
@@ -141,7 +154,6 @@ WindowSurfaceEAGL::~WindowSurfaceEAGL()
     if (mSwapLayer != nil)
     {
         [mSwapLayer removeFromSuperlayer];
-        [mSwapLayer release];
         mSwapLayer = nil;
     }
 
@@ -174,9 +186,9 @@ egl::Error WindowSurfaceEAGL::initialize(const egl::Display *display)
     mSwapState.lastRendered   = &mSwapState.textures[1];
     mSwapState.beingPresented = &mSwapState.textures[2];
 
-    mSwapLayer = [[WebSwapLayer alloc] initWithSharedState:&mSwapState
-                                               withContext:mContext
-                                             withFunctions:mFunctions];
+    mSwapLayer = [[SwapLayerEAGL alloc] initWithSharedState:&mSwapState
+                                                withContext:mContext
+                                              withFunctions:mFunctions];
     [mLayer addSublayer:mSwapLayer];
     [mSwapLayer setContentsScale:[mLayer contentsScale]];
 
@@ -223,8 +235,9 @@ egl::Error WindowSurfaceEAGL::swap(const gl::Context *context)
         texture.height = height;
     }
 
-    FramebufferGL *framebufferGL = GetImplAs<FramebufferGL>(context->getFramebuffer({0}));
-    stateManager->bindFramebuffer(GL_FRAMEBUFFER, framebufferGL->getFramebufferID());
+    ASSERT(mFramebufferID ==
+           GetImplAs<FramebufferGL>(context->getFramebuffer({0}))->getFramebufferID());
+    stateManager->bindFramebuffer(GL_FRAMEBUFFER, mFramebufferID);
     functions->framebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
                                     mSwapState.beingRendered->texture, 0);
 
@@ -287,23 +300,33 @@ EGLint WindowSurfaceEAGL::getSwapBehavior() const
     return EGL_BUFFER_DESTROYED;
 }
 
-FramebufferImpl *WindowSurfaceEAGL::createDefaultFramebuffer(const gl::Context *context,
-                                                             const gl::FramebufferState &state)
+egl::Error WindowSurfaceEAGL::attachToFramebuffer(const gl::Context *context,
+                                                  gl::Framebuffer *framebuffer)
 {
-    const FunctionsGL *functions = GetFunctionsGL(context);
-    StateManagerGL *stateManager = GetStateManagerGL(context);
+    FramebufferGL *framebufferGL = GetImplAs<FramebufferGL>(framebuffer);
+    ASSERT(framebufferGL->getFramebufferID() == 0);
+    if (mFramebufferID == 0)
+    {
+        GLuint framebufferID = 0;
+        mFunctions->genFramebuffers(1, &framebufferID);
+        mStateManager->bindFramebuffer(GL_FRAMEBUFFER, framebufferID);
+        mFunctions->framebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                                         mSwapState.beingRendered->texture, 0);
+        mFunctions->framebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT,
+                                            GL_RENDERBUFFER, mDSRenderbuffer);
+        mFramebufferID = framebufferID;
+    }
+    framebufferGL->setFramebufferID(mFramebufferID);
+    return egl::NoError();
+}
 
-    GLuint framebuffer = 0;
-    functions->genFramebuffers(1, &framebuffer);
-    stateManager->bindFramebuffer(GL_FRAMEBUFFER, framebuffer);
-    functions->framebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
-                                    mSwapState.beingRendered->texture, 0);
-    functions->framebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER,
-                                       mDSRenderbuffer);
-
-    return new FramebufferGL(state, framebuffer, true, false);
+egl::Error WindowSurfaceEAGL::detachFromFramebuffer(const gl::Context *context,
+                                                    gl::Framebuffer *framebuffer)
+{
+    FramebufferGL *framebufferGL = GetImplAs<FramebufferGL>(framebuffer);
+    ASSERT(framebufferGL->getFramebufferID() == mFramebufferID);
+    framebufferGL->setFramebufferID(0);
+    return egl::NoError();
 }
 
 }  // namespace rx
-
-#endif  // defined(ANGLE_PLATFORM_IOS)

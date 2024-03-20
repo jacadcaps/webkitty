@@ -31,7 +31,6 @@
 #include "TrackPrivateBaseGStreamer.h"
 #include "VideoTrackPrivate.h"
 
-#include <gst/gst.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
@@ -39,34 +38,42 @@ class MediaPlayerPrivateGStreamer;
 
 class VideoTrackPrivateGStreamer final : public VideoTrackPrivate, public TrackPrivateBaseGStreamer {
 public:
-    static Ref<VideoTrackPrivateGStreamer> create(WeakPtr<MediaPlayerPrivateGStreamer> player, gint index, GRefPtr<GstPad> pad)
+    static Ref<VideoTrackPrivateGStreamer> create(WeakPtr<MediaPlayerPrivateGStreamer> player, unsigned index, GRefPtr<GstPad>&& pad, bool shouldHandleStreamStartEvent = true)
     {
-        return adoptRef(*new VideoTrackPrivateGStreamer(player, index, pad));
+        return adoptRef(*new VideoTrackPrivateGStreamer(player, index, WTFMove(pad), shouldHandleStreamStartEvent));
     }
 
-    static Ref<VideoTrackPrivateGStreamer> create(WeakPtr<MediaPlayerPrivateGStreamer> player, gint index, GRefPtr<GstStream> stream)
+    static Ref<VideoTrackPrivateGStreamer> create(WeakPtr<MediaPlayerPrivateGStreamer> player, unsigned index, GstStream* stream)
     {
         return adoptRef(*new VideoTrackPrivateGStreamer(player, index, stream));
     }
 
     Kind kind() const final;
 
-    void disconnect() override;
+    void disconnect() final;
 
-    void setSelected(bool) override;
-    void setActive(bool enabled) override { setSelected(enabled); }
+    void setSelected(bool) final;
+    void setActive(bool enabled) final { setSelected(enabled); }
 
-    int trackIndex() const override { return m_index; }
+    int trackIndex() const final { return m_index; }
 
-    AtomString id() const override { return m_id; }
-    AtomString label() const override { return m_label; }
-    AtomString language() const override { return m_language; }
+    TrackID id() const final { return m_index; }
+    std::optional<AtomString> trackUID() const final { return m_stringId; }
+    AtomString label() const final { return m_label; }
+    AtomString language() const final { return m_language; }
+
+    void updateConfigurationFromCaps(GRefPtr<GstCaps>&&) final;
+
+protected:
+    void updateConfigurationFromTags(GRefPtr<GstTagList>&&) final;
+
+    void tagsChanged(GRefPtr<GstTagList>&& tags) final { updateConfigurationFromTags(WTFMove(tags)); }
+    void capsChanged(const String&, GRefPtr<GstCaps>&&) final;
 
 private:
-    VideoTrackPrivateGStreamer(WeakPtr<MediaPlayerPrivateGStreamer>, gint index, GRefPtr<GstPad>);
-    VideoTrackPrivateGStreamer(WeakPtr<MediaPlayerPrivateGStreamer>, gint index, GRefPtr<GstStream>);
+    VideoTrackPrivateGStreamer(WeakPtr<MediaPlayerPrivateGStreamer>, unsigned index, GRefPtr<GstPad>&&, bool shouldHandleStreamStartEvent);
+    VideoTrackPrivateGStreamer(WeakPtr<MediaPlayerPrivateGStreamer>, unsigned index, GstStream*);
 
-    AtomString m_id;
     WeakPtr<MediaPlayerPrivateGStreamer> m_player;
 };
 

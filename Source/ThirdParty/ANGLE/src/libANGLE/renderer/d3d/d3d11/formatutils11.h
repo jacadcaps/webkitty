@@ -17,6 +17,7 @@
 #include "libANGLE/formatutils.h"
 #include "libANGLE/renderer/copyvertex.h"
 #include "libANGLE/renderer/d3d/formatutilsD3D.h"
+#include "libANGLE/renderer/dxgi_format_map.h"
 #include "libANGLE/renderer/renderer_utils.h"
 
 namespace rx
@@ -26,11 +27,17 @@ struct Renderer11DeviceCaps;
 namespace d3d11
 {
 
+struct Format;
+
 // A texture might be stored as DXGI_FORMAT_R16_TYPELESS but store integer components,
 // which are accessed through an DXGI_FORMAT_R16_SINT view. It's easy to write code which queries
 // information about the wrong format. Therefore, use of this should be avoided where possible.
 
 bool SupportsMipGen(DXGI_FORMAT dxgiFormat, D3D_FEATURE_LEVEL featureLevel);
+
+bool IsSupportedMultiplanarFormat(DXGI_FORMAT dxgiFormat);
+
+const Format &GetYUVPlaneFormat(DXGI_FORMAT dxgiFormat, int plane);
 
 struct DXGIFormatSize
 {
@@ -56,16 +63,7 @@ struct VertexFormat : private angle::NonCopyable
 
 const VertexFormat &GetVertexFormatInfo(angle::FormatID vertexFormatID,
                                         D3D_FEATURE_LEVEL featureLevel);
-
-// Auto-generated in dxgi_format_map_autogen.cpp.
-GLenum GetComponentType(DXGI_FORMAT dxgiFormat);
-
 }  // namespace d3d11
-
-namespace d3d11_angle
-{
-const angle::Format &GetFormat(DXGI_FORMAT dxgiFormat);
-}
 
 }  // namespace rx
 

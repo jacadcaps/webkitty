@@ -30,6 +30,8 @@
 
 #if PLATFORM(COCOA)
 #include "CredentialCocoa.h"
+#elif USE(SOUP)
+#include "CredentialSoup.h"
 #else
 
 #include "CredentialBase.h"
@@ -45,6 +47,11 @@ public:
 
     Credential(const String& user, const String& password, CredentialPersistence persistence)
         : CredentialBase(user, password, persistence)
+    {
+    }
+
+    Credential(NonPlatformData&& data)
+        : CredentialBase(data.user, data.password, data.persistence)
     {
     }
 

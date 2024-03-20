@@ -26,7 +26,7 @@
 #import "config.h"
 #import "NetworkCacheData.h"
 
-#import "SharedMemory.h"
+#import <WebCore/SharedMemory.h>
 #import <dispatch/dispatch.h>
 #import <sys/mman.h>
 #import <sys/stat.h>
@@ -69,12 +69,12 @@ bool Data::isNull() const
     return !m_dispatchData;
 }
 
-bool Data::apply(const Function<bool (const uint8_t*, size_t)>& applier) const
+bool Data::apply(const Function<bool(std::span<const uint8_t>)>& applier) const
 {
     if (!m_size)
         return false;
     return dispatch_data_apply(m_dispatchData.get(), [&applier](dispatch_data_t, size_t, const void* data, size_t size) {
-        return applier(static_cast<const uint8_t*>(data), size);
+        return applier({ static_cast<const uint8_t*>(data), size });
     });
 }
 
@@ -105,12 +105,12 @@ Data Data::adoptMap(FileSystem::MappedFileData&& mappedFile, FileSystem::Platfor
     return { WTFMove(bodyMap), Data::Backing::Map };
 }
 
-RefPtr<SharedMemory> Data::tryCreateSharedMemory() const
+RefPtr<WebCore::SharedMemory> Data::tryCreateSharedMemory() const
 {
     if (isNull() || !isMap())
         return nullptr;
 
-    return SharedMemory::wrapMap(const_cast<uint8_t*>(data()), m_size, SharedMemory::Protection::ReadOnly);
+    return WebCore::SharedMemory::wrapMap(const_cast<uint8_t*>(data()), m_size, WebCore::SharedMemory::Protection::ReadOnly);
 }
 
 }

@@ -34,6 +34,8 @@
 #include "HTMLNames.h"
 #include "HTMLProgressElement.h"
 #include "RenderProgress.h"
+#include "RenderStyleInlines.h"
+#include "UserAgentParts.h"
 #include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
@@ -49,13 +51,13 @@ ProgressShadowElement::ProgressShadowElement(Document& document)
 
 HTMLProgressElement* ProgressShadowElement::progressElement() const
 {
-    return downcast<HTMLProgressElement>(shadowHost());
+    return checkedDowncast<HTMLProgressElement>(shadowHost());
 }
 
 bool ProgressShadowElement::rendererIsNeeded(const RenderStyle& style)
 {
     RenderObject* progressRenderer = progressElement()->renderer();
-    return progressRenderer && !progressRenderer->style().hasAppearance() && HTMLDivElement::rendererIsNeeded(style);
+    return progressRenderer && !progressRenderer->style().hasEffectiveAppearance() && HTMLDivElement::rendererIsNeeded(style);
 }
 
 ProgressInnerElement::ProgressInnerElement(Document& document)
@@ -71,7 +73,7 @@ RenderPtr<RenderElement> ProgressInnerElement::createElementRenderer(RenderStyle
 bool ProgressInnerElement::rendererIsNeeded(const RenderStyle& style)
 {
     RenderObject* progressRenderer = progressElement()->renderer();
-    return progressRenderer && !progressRenderer->style().hasAppearance() && HTMLDivElement::rendererIsNeeded(style);    
+    return progressRenderer && !progressRenderer->style().hasEffectiveAppearance() && HTMLDivElement::rendererIsNeeded(style);    
 }
 
 ProgressBarElement::ProgressBarElement(Document& document)
@@ -84,32 +86,29 @@ ProgressValueElement::ProgressValueElement(Document& document)
 {
 }
 
-void ProgressValueElement::setWidthPercentage(double width)
+void ProgressValueElement::setInlineSizePercentage(double size)
 {
-    setInlineStyleProperty(CSSPropertyWidth, width, CSSUnitType::CSS_PERCENTAGE);
+    setInlineStyleProperty(CSSPropertyInlineSize, size, CSSUnitType::CSS_PERCENTAGE);
 }
 
 Ref<ProgressInnerElement> ProgressInnerElement::create(Document& document)
 {
-    static MainThreadNeverDestroyed<const AtomString> webkitProgressInnerElementName("-webkit-progress-inner-element", AtomString::ConstructFromLiteral);
     Ref<ProgressInnerElement> result = adoptRef(*new ProgressInnerElement(document));
-    result->setPseudo(webkitProgressInnerElementName);
+    result->setUserAgentPart(UserAgentParts::webkitProgressInnerElement());
     return result;
 }
 
 Ref<ProgressBarElement> ProgressBarElement::create(Document& document)
 {
-    static MainThreadNeverDestroyed<const AtomString> webkitProgressBarName("-webkit-progress-bar", AtomString::ConstructFromLiteral);
     Ref<ProgressBarElement> result = adoptRef(*new ProgressBarElement(document));
-    result->setPseudo(webkitProgressBarName);
+    result->setUserAgentPart(UserAgentParts::webkitProgressBar());
     return result;
 }
 
 Ref<ProgressValueElement> ProgressValueElement::create(Document& document)
 {
-    static MainThreadNeverDestroyed<const AtomString> webkitProgressValueName("-webkit-progress-value", AtomString::ConstructFromLiteral);
     Ref<ProgressValueElement> result = adoptRef(*new ProgressValueElement(document));
-    result->setPseudo(webkitProgressValueName);
+    result->setUserAgentPart(UserAgentParts::webkitProgressValue());
     return result;
 }
 

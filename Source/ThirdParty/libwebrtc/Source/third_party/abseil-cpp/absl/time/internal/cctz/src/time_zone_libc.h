@@ -15,26 +15,28 @@
 #ifndef ABSL_TIME_INTERNAL_CCTZ_TIME_ZONE_LIBC_H_
 #define ABSL_TIME_INTERNAL_CCTZ_TIME_ZONE_LIBC_H_
 
+#include <memory>
 #include <string>
 
+#include "absl/base/config.h"
 #include "time_zone_if.h"
 
 namespace absl {
+ABSL_NAMESPACE_BEGIN
 namespace time_internal {
 namespace cctz {
 
 // A time zone backed by gmtime_r(3), localtime_r(3), and mktime(3),
 // and which therefore only supports UTC and the local time zone.
-// TODO: Add support for fixed offsets from UTC.
 class TimeZoneLibC : public TimeZoneIf {
  public:
-  explicit TimeZoneLibC(const std::string& name);
+  // Factory.
+  static std::unique_ptr<TimeZoneLibC> Make(const std::string& name);
 
   // TimeZoneIf implementations.
   time_zone::absolute_lookup BreakTime(
       const time_point<seconds>& tp) const override;
-  time_zone::civil_lookup MakeTime(
-      const civil_second& cs) const override;
+  time_zone::civil_lookup MakeTime(const civil_second& cs) const override;
   bool NextTransition(const time_point<seconds>& tp,
                       time_zone::civil_transition* trans) const override;
   bool PrevTransition(const time_point<seconds>& tp,
@@ -43,11 +45,16 @@ class TimeZoneLibC : public TimeZoneIf {
   std::string Description() const override;
 
  private:
+  explicit TimeZoneLibC(const std::string& name);
+  TimeZoneLibC(const TimeZoneLibC&) = delete;
+  TimeZoneLibC& operator=(const TimeZoneLibC&) = delete;
+
   const bool local_;  // localtime or UTC
 };
 
 }  // namespace cctz
 }  // namespace time_internal
+ABSL_NAMESPACE_END
 }  // namespace absl
 
 #endif  // ABSL_TIME_INTERNAL_CCTZ_TIME_ZONE_LIBC_H_

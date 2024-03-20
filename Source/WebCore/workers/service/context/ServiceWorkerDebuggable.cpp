@@ -27,7 +27,6 @@
 #include "ServiceWorkerDebuggable.h"
 
 #if ENABLE(REMOTE_INSPECTOR)
-#if ENABLE(SERVICE_WORKER)
 
 #include "ServiceWorkerInspectorProxy.h"
 #include "ServiceWorkerThreadProxy.h"
@@ -52,12 +51,11 @@ void ServiceWorkerDebuggable::disconnect(FrontendChannel& channel)
     m_serviceWorkerThreadProxy.inspectorProxy().disconnectFromWorker(channel);
 }
 
-void ServiceWorkerDebuggable::dispatchMessageFromRemote(const String& message)
+void ServiceWorkerDebuggable::dispatchMessageFromRemote(String&& message)
 {
-    m_serviceWorkerThreadProxy.inspectorProxy().sendMessageToWorker(message);
+    m_serviceWorkerThreadProxy.inspectorProxy().sendMessageToWorker(WTFMove(message));
 }
 
 } // namespace WebCore
 
-#endif // ENABLE(SERVICE_WORKER)
 #endif // ENABLE(REMOTE_INSPECTOR)

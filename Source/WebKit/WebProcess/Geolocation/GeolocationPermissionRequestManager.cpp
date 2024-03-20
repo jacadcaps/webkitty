@@ -30,14 +30,15 @@
 
 #include "FrameInfoData.h"
 #include "GeolocationIdentifier.h"
+#include "MessageSenderInlines.h"
 #include "WebCoreArgumentCoders.h"
 #include "WebFrame.h"
 #include "WebPage.h"
 #include "WebPageProxyMessages.h"
 #include <WebCore/Document.h>
-#include <WebCore/Frame.h>
 #include <WebCore/FrameLoader.h>
 #include <WebCore/Geolocation.h>
+#include <WebCore/LocalFrame.h>
 #include <WebCore/SecurityOrigin.h>
 #include <WebCore/SecurityOriginData.h>
 
@@ -49,9 +50,11 @@ GeolocationPermissionRequestManager::GeolocationPermissionRequestManager(WebPage
 {
 }
 
+GeolocationPermissionRequestManager::~GeolocationPermissionRequestManager() = default;
+
 void GeolocationPermissionRequestManager::startRequestForGeolocation(Geolocation& geolocation)
 {
-    Frame* frame = geolocation.frame();
+    auto* frame = geolocation.frame();
 
     ASSERT_WITH_MESSAGE(frame, "It is not well understood in which cases the Geolocation is alive after its frame goes away. If you hit this assertion, please add a test covering this case.");
     if (!frame) {
@@ -61,10 +64,10 @@ void GeolocationPermissionRequestManager::startRequestForGeolocation(Geolocation
 
     GeolocationIdentifier geolocationID = GeolocationIdentifier::generate();
 
-    m_geolocationToIDMap.set(&geolocation, geolocationID);
-    m_idToGeolocationMap.set(geolocationID, &geolocation);
+    m_geolocationToIDMap.set(geolocation, geolocationID);
+    m_idToGeolocationMap.set(geolocationID, geolocation);
 
-    WebFrame* webFrame = WebFrame::fromCoreFrame(*frame);
+    auto webFrame = WebFrame::fromCoreFrame(*frame);
     ASSERT(webFrame);
 
     m_page.send(Messages::WebPageProxy::RequestGeolocationPermissionForFrame(geolocationID, webFrame->info()));
@@ -85,10 +88,10 @@ void GeolocationPermissionRequestManager::cancelRequestForGeolocation(Geolocatio
 
 void GeolocationPermissionRequestManager::didReceiveGeolocationPermissionDecision(GeolocationIdentifier geolocationID, const String& authorizationToken)
 {
-    Geolocation* geolocation = m_idToGeolocationMap.take(geolocationID);
+    RefPtr geolocation = m_idToGeolocationMap.take(geolocationID).get();
     if (!geolocation)
         return;
-    m_geolocationToIDMap.remove(geolocation);
+    m_geolocationToIDMap.remove(geolocation.get());
 
     geolocation->setIsAllowed(!authorizationToken.isNull(), authorizationToken);
 }

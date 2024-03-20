@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,6 +29,7 @@
 #include "Options.h"
 #include <wtf/DataLog.h>
 #include <wtf/Lock.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
 
@@ -38,22 +39,23 @@ namespace {
 
 class CompilerTimingScopeState {
     WTF_MAKE_NONCOPYABLE(CompilerTimingScopeState);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(CompilerTimingScopeState);
 public:
     CompilerTimingScopeState() { }
     
     Seconds addToTotal(const char* compilerName, const char* name, Seconds duration)
     {
-        auto locker = holdLock(lock);
+        Locker locker { lock };
 
         for (auto& tuple : totals) {
-            if (String(std::get<0>(tuple)) == String(compilerName) && String(std::get<1>(tuple)) == String(name)) {
+            if (!strcmp(std::get<0>(tuple), compilerName) && !strcmp(std::get<1>(tuple), name)) {
                 std::get<2>(tuple) += duration;
+                std::get<3>(tuple) = std::max(std::get<3>(tuple), duration);
                 return std::get<2>(tuple);
             }
         }
 
-        totals.append({ compilerName, name, duration });
+        totals.append({ compilerName, name, duration, duration });
         return duration;
     }
 
@@ -61,14 +63,16 @@ public:
     {
         for (auto& tuple : totals) {
             dataLogLn(
-                "[", std::get<0>(tuple), "] ", std::get<1>(tuple), " total ms: ", std::get<2>(tuple).milliseconds());
+                "total ms: ", FixedWidthDouble(std::get<2>(tuple).milliseconds(), 8, 3), " max ms: ", FixedWidthDouble(std::get<3>(tuple).milliseconds(), 7, 3), " [", std::get<0>(tuple), "] ", std::get<1>(tuple));
         }
     }
     
 private:
-    Vector<std::tuple<const char*, const char*, Seconds>> totals;
+    Vector<std::tuple<const char*, const char*, Seconds, Seconds>> totals;
     Lock lock;
 };
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(CompilerTimingScopeState);
 
 CompilerTimingScopeState& compilerTimingScopeState()
 {

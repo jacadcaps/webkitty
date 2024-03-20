@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright (C) 2010 Google Inc. All rights reserved.
 # Copyright (C) 2013-2019 Apple Inc. All rights reserved.
 #
@@ -26,26 +27,42 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+# Copyright (c) 2017 Michał Bultrowicz (https://gist.github.com/butla/2d9a4c0f35ea47b7452156c96a4e7b12)
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
 
 """Abstract base class of Port-specific entry points for the layout tests
 test infrastructure (the Port and Driver classes)."""
 
 import argparse
 import difflib
-import json
 import logging
 import os
 import optparse
 import re
+import socket
 import sys
+import time
 
 from collections import OrderedDict
-from functools import partial
-from webkitcorepy import string_utils
+from webkitcorepy import string_utils, decorators
+from webkitscmpy import local
 
-from webkitpy.common import find_files
 from webkitpy.common import read_checksum_from_png
-from webkitpy.common.checkout.scm.detection import SCMDetector
 from webkitpy.common.memoized import memoized
 from webkitpy.common.prettypatch import PrettyPatch
 from webkitpy.common.system import path, pemfile
@@ -59,7 +76,8 @@ from webkitpy.port import driver
 from webkitpy.port import image_diff
 from webkitpy.port import server_process
 from webkitpy.port.factory import PortFactory
-from webkitpy.layout_tests.servers import apache_http_server, http_server, http_server_base
+from webkitpy.port.image_diff import ImageDiffResult
+from webkitpy.layout_tests.servers import apache_http_server, http_server_base
 from webkitpy.layout_tests.servers import web_platform_test_server
 from webkitpy.layout_tests.servers import websocket_server
 
@@ -78,11 +96,19 @@ class Port(object):
     # Test names resemble unix relative paths, and use '/' as a directory separator.
     TEST_PATH_SEPARATOR = '/'
 
-    ALL_BUILD_TYPES = ('debug', 'release')
+    ALL_BUILD_TYPES = ('debug', 'release', 'guard-malloc', 'asan')
 
     DEFAULT_ARCHITECTURE = 'x86'
     DEVICE_TYPE = None
     DEFAULT_DEVICE_TYPES = []
+
+    # Do test runners support alias hostnames such as web-platform.test
+    supports_localhost_aliases = False
+
+    helper = None
+    _web_platform_test_server = None
+    _websocket_secure_server = None
+    _websocket_server = None
 
     @classmethod
     def determine_full_port_name(cls, host, options, port_name):
@@ -118,19 +144,16 @@ class Port(object):
         self._config = port_config.Config(self._executive, self._filesystem, self.port_name)
         self.pretty_patch = PrettyPatch(self._executive, self.path_from_webkit_base(), self._filesystem)
 
-        self._helper = None
         self._http_server = None
-        self._websocket_server = None
-        self._websocket_secure_server = None
-        self._web_platform_test_server = None
         self._image_differ = None
         self._server_process_constructor = server_process.ServerProcess  # overridable for testing
         self._test_runner_process_constructor = server_process.ServerProcess
 
+        self.set_option_default('gather-expected-crash-logs', True)
+
         if not hasattr(options, 'configuration') or not options.configuration:
             self.set_option_default('configuration', self.default_configuration())
         self._test_configuration = None
-        self._reftest_list = {}
         self._results_directory = None
         self._root_was_set = hasattr(options, 'root') and options.root
         self._jhbuild_wrapper = []
@@ -143,9 +166,6 @@ class Port(object):
 
     def architecture(self):
         return self.get_option('architecture') or self.DEFAULT_ARCHITECTURE
-
-    def set_architecture(self, arch):
-        self.set_option('architecture', arch)
 
     def additional_drt_flag(self):
         return []
@@ -186,13 +206,6 @@ class Port(object):
         # An empty list would indicate a port was incapable of running tests.
         return [None]
 
-    def worker_startup_delay_secs(self):
-        # FIXME: If we start workers up too quickly, DumpRenderTree appears
-        # to thrash on something and time out its first few tests. Until
-        # we can figure out what's going on, sleep a bit in between
-        # workers. See https://bugs.webkit.org/show_bug.cgi?id=79147 .
-        return 0.1
-
     def baseline_path(self):
         """Return the absolute path to the directory to store new baselines in for this port."""
         # FIXME: remove once all callers are calling either baseline_version_dir() or baseline_platform_dir()
@@ -228,6 +241,23 @@ class Port(object):
         if target_port:
             return factory.get(target_port).default_baseline_search_path()
         return []
+
+    def all_baseline_search_paths(self, device_type=None):
+        paths = (
+            set(self.get_option("additional_platform_directory", []))
+            | set(self._compare_baseline())
+            | set(self._filesystem.glob(self._webkit_baseline_path("*")))
+        )
+
+        assert {p for p in paths if self._filesystem.isdir(p)}.issuperset(
+            {
+                p
+                for p in self.baseline_search_path(device_type=device_type)
+                if self._filesystem.isdir(p)
+            }
+        )
+
+        return paths
 
     def check_build(self):
         """This routine is used to ensure that the build is up to date
@@ -275,7 +305,7 @@ class Port(object):
 
     def check_image_diff(self, override_step=None, logging=True):
         """This routine is used to check whether image_diff binary exists."""
-        image_diff_path = self._path_to_default_image_diff()
+        image_diff_path = self._path_to_image_diff()
         if not self._filesystem.exists(image_diff_path):
             if logging:
                 _log.error("ImageDiff was not found at %s" % image_diff_path)
@@ -283,10 +313,7 @@ class Port(object):
         return True
 
     def check_httpd(self):
-        if self._uses_apache():
-            httpd_path = self._path_to_apache()
-        else:
-            httpd_path = self._path_to_lighttpd()
+        httpd_path = self._path_to_apache()
 
         try:
             server_name = self._filesystem.basename(httpd_path)
@@ -316,11 +343,14 @@ class Port(object):
         If an error occurs (like ImageDiff isn't found, or crashes, we log an error and return True (for a diff).
         """
         if not actual_contents and not expected_contents:
-            return (None, 0, None)
+            return ImageDiffResult(passed=True, diff_image=None, difference=0)
+
         if not actual_contents or not expected_contents:
-            return (True, 0, None)
+            return ImageDiffResult(passed=False, diff_image=b'', difference=1)
+
         if not self._image_differ:
             self._image_differ = image_diff.ImageDiffer(self)
+
         self.set_option_default('tolerance', 0.1)
         if tolerance is None:
             tolerance = self.get_option('tolerance')
@@ -361,35 +391,29 @@ class Port(object):
             return 'WebKitTestRunner'
         return 'DumpRenderTree'
 
-    def expected_baselines_by_extension(self, test_name):
-        """Returns a dict mapping baseline suffix to relative path for each baseline in
-        a test. For reftests, it returns ".==" or ".!=" instead of the suffix."""
-        # FIXME: The name similarity between this and expected_baselines() below, is unfortunate.
-        # We should probably rename them both.
-        baseline_dict = {}
-        reference_files = self.reference_files(test_name)
-        if reference_files:
-            # FIXME: How should this handle more than one type of reftest?
-            baseline_dict['.' + reference_files[0][0]] = self.relative_test_filename(reference_files[0][1])
-
-        for extension in self.baseline_extensions():
-            path = self.expected_filename(test_name, extension, return_default=False)
-            baseline_dict[extension] = self.relative_test_filename(path) if path else path
-
-        return baseline_dict
-
-    def baseline_extensions(self):
-        """Returns a tuple of all of the non-reftest baseline extensions we use. The extensions include the leading '.'."""
-        return ('.wav', '.webarchive', '.txt', '.png')
-
     def _expected_baselines_for_suffixes(self, test_name, suffixes, all_baselines=False, device_type=None):
         baseline_search_path = self.baseline_search_path(device_type=device_type) + [self.layout_tests_dir()]
+        fs = self._filesystem
+
+        variant = ''
+        if '?' in test_name:
+            (test_name, variant) = test_name.split('?', 1)
+        if '#' in test_name:
+            (test_name, variant) = test_name.split('#', 1)
+
+        baseline_ext_parts = fs.splitext(test_name)
+
+        baseline_name_root = baseline_ext_parts[0]
+        if len(variant):
+            baseline_name_root += "_" + re.sub(r'[|* <>:]', '_', variant)
+        baseline_name_root += '-expected'
 
         baselines = []
         for platform_dir in baseline_search_path:
+            unsuffixed = fs.join(platform_dir, baseline_name_root)
             for suffix in suffixes:
-                baseline_filename = self._filesystem.splitext(test_name)[0] + '-expected' + suffix
-                if self._filesystem.exists(self._filesystem.join(platform_dir, baseline_filename)):
+                if fs.exists(unsuffixed + suffix):
+                    baseline_filename = baseline_name_root + suffix
                     baselines.append((platform_dir, baseline_filename))
 
             if not all_baselines and baselines:
@@ -399,7 +423,7 @@ class Port(object):
             return baselines
 
         for suffix in suffixes:
-            baselines.append((None, self._filesystem.splitext(test_name)[0] + '-expected' + suffix))
+            baselines.append((None, baseline_name_root + suffix))
         return baselines
 
     def expected_baselines(self, test_name, suffix, all_baselines=False, device_type=None):
@@ -479,6 +503,12 @@ class Port(object):
             return None
         return self._filesystem.read_binary_file(baseline_path)
 
+    def is_unexpected_crash(self, test_name):
+        from webkitpy.layout_tests.models.test_expectations import TestExpectations, CRASH
+        expectations = TestExpectations(self, [test_name, ])
+        expectations.parse_all_expectations()
+        return CRASH not in expectations.filtered_expectations_for_test(test_name, False, False)
+
     def expected_text(self, test_name, device_type=None):
         """Returns the text output we expect the test to produce, or None
         if we don't expect there to be any text output.
@@ -494,38 +524,13 @@ class Port(object):
         text = string_utils.decode(self._filesystem.read_binary_file(baseline_path), target_type=str)
         return text.replace("\r\n", "\n")
 
-    def _get_reftest_list(self, test_name):
-        dirname = self._filesystem.join(self.layout_tests_dir(), self._filesystem.dirname(test_name))
-        if dirname not in self._reftest_list:
-            self._reftest_list[dirname] = Port._parse_reftest_list(self._filesystem, dirname)
-        return self._reftest_list[dirname]
-
-    @staticmethod
-    def _parse_reftest_list(filesystem, test_dirpath):
-        reftest_list_path = filesystem.join(test_dirpath, 'reftest.list')
-        if not filesystem.isfile(reftest_list_path):
-            return None
-        reftest_list_file = filesystem.read_text_file(reftest_list_path)
-
-        parsed_list = {}
-        for line in reftest_list_file.split('\n'):
-            line = re.sub('#.+$', '', line)
-            split_line = line.split()
-            if len(split_line) < 3:
-                continue
-            expectation_type, test_file, ref_file = split_line
-            parsed_list.setdefault(filesystem.join(test_dirpath, test_file), []).append((expectation_type, filesystem.join(test_dirpath, ref_file)))
-        return parsed_list
+    _supported_reference_extensions = ('.html', '.xml', '.xhtml', '.htm', '.svg', '.xht')
 
     def reference_files(self, test_name, device_type=None):
         """Return a list of expectation (== or !=) and filename pairs"""
 
         if self.get_option('treat_ref_tests_as_pixel_tests'):
             return []
-
-        result = self._get_reftest_list(test_name)
-        if result:
-            return result.get(self._filesystem.join(self.layout_tests_dir(), test_name), [])
 
         result = []
         suffixes = []
@@ -540,93 +545,6 @@ class Port(object):
                 self._filesystem.join(platform_dir, baseline_filename),
             ))
         return result
-
-    def potential_test_names_from_expected_file(self, path):
-        """Return potential test names if any from a potential expected file path, relative to LayoutTests directory."""
-
-        if not '-expected.' in path:
-            return None
-
-        if path.startswith('platform' + self._filesystem.sep):
-            steps = path.split(self._filesystem.sep)
-            path = self._filesystem.join(self._filesystem.sep.join(steps[2:]))
-
-        return [self.host.filesystem.relpath(test, self.layout_tests_dir()) for test in self._filesystem.glob(re.sub('-expected.*', '.*', self._filesystem.join(self.layout_tests_dir(), path))) if self._filesystem.isfile(test)]
-
-    def tests(self, paths, device_type=None):
-        """Return the list of tests found. Both generic and platform-specific tests matching paths should be returned."""
-        expanded_paths = self._expanded_paths(paths, device_type=device_type)
-        return self._real_tests(expanded_paths)
-
-    def _expanded_paths(self, paths, device_type=None):
-        expanded_paths = []
-        fs = self._filesystem
-        all_platform_dirs = [path for path in fs.glob(fs.join(self.layout_tests_dir(), 'platform', '*')) if fs.isdir(path)]
-        for path in paths:
-            expanded_paths.append(path)
-            if self.test_isdir(path) and not path.startswith('platform') and not fs.isabs(path):
-                for platform_dir in all_platform_dirs:
-                    if fs.isdir(fs.join(platform_dir, path)) and platform_dir in self.baseline_search_path(device_type=device_type):
-                        expanded_paths.append(self.relative_test_filename(fs.join(platform_dir, path)))
-
-        return expanded_paths
-
-    def _real_tests(self, paths):
-        # When collecting test cases, skip these directories
-        skipped_directories = set(['.svn', '_svn', 'resources', 'support', 'script-tests', 'reference', 'reftest'])
-        files = find_files.find(self._filesystem, self.layout_tests_dir(), paths, skipped_directories, partial(Port._is_test_file, self), self.test_key)
-        return [self.relative_test_filename(f) for f in files]
-
-    # When collecting test cases, we include any file with these extensions.
-    _supported_test_extensions = set(['.html', '.shtml', '.xml', '.xhtml', '.pl', '.htm', '.php', '.svg', '.mht', '.xht'])
-    _supported_reference_extensions = set(['.html', '.xml', '.xhtml', '.htm', '.svg', '.xht'])
-
-    def is_w3c_resource_file(self, filesystem, dirname, filename):
-        path = filesystem.join(dirname, filename)
-        w3c_path = filesystem.join(self.layout_tests_dir(), "imported", "w3c")
-        if not w3c_path in path:
-            return False
-
-        if not self._w3c_resource_files:
-            filepath = filesystem.join(w3c_path, "resources", "resource-files.json")
-            json_data = filesystem.read_text_file(filepath)
-            self._w3c_resource_files = json.loads(json_data)
-
-        subpath = path[len(w3c_path) + 1:].replace('\\', '/')
-        if subpath in self._w3c_resource_files["files"]:
-            return True
-        for dirpath in self._w3c_resource_files["directories"]:
-            if dirpath in subpath:
-                return True
-        return False
-
-    @staticmethod
-    # If any changes are made here be sure to update the isUsedInReftest method in old-run-webkit-tests as well.
-    def is_reference_html_file(filesystem, dirname, filename):
-        if filename.startswith('ref-') or filename.startswith('notref-'):
-            return True
-        filename_wihout_ext, ext = filesystem.splitext(filename)
-        if ext not in Port._supported_reference_extensions:
-            return False
-        for suffix in ['-expected', '-expected-mismatch', '-ref', '-notref']:
-            if filename_wihout_ext.endswith(suffix):
-                return True
-        return False
-
-    @staticmethod
-    def _has_supported_extension(filesystem, filename):
-        """Return true if filename is one of the file extensions we want to run a test on."""
-        extension = filesystem.splitext(filename)[1]
-        return extension in Port._supported_test_extensions
-
-    def _is_test_file(self, filesystem, dirname, filename):
-        if not Port._has_supported_extension(filesystem, filename):
-            return False
-        if Port.is_reference_html_file(filesystem, dirname, filename):
-            return False
-        if self.is_w3c_resource_file(filesystem, dirname, filename):
-            return False
-        return True
 
     def test_key(self, test_name):
         """Turns a test name into a list with two sublists, the natural key of the
@@ -651,13 +569,7 @@ class Port(object):
             except ValueError:
                 return val
 
-        return [tryint(chunk) for chunk in re.split('(\d+)', string_to_split)]
-
-    def test_dirs(self):
-        """Returns the list of top-level test directories."""
-        layout_tests_dir = self.layout_tests_dir()
-        return filter(lambda x: self._filesystem.isdir(self._filesystem.join(layout_tests_dir, x)),
-                      self._filesystem.listdir(layout_tests_dir))
+        return [(tryint(chunk), chunk) for chunk in re.split(r'(\d+)', string_to_split)]
 
     @memoized
     def test_isfile(self, test_name):
@@ -676,7 +588,18 @@ class Port(object):
         """Return True if the test name refers to an existing test or baseline."""
         # Used by test_expectations.py to determine if an entry refers to a
         # valid test and by printing.py to determine if baselines exist.
-        return self.test_isfile(test_name) or self.test_isdir(test_name)
+        if self.test_isfile(test_name) or self.test_isdir(test_name):
+            return True
+        if '?' in test_name or '#' in test_name:
+            fs = self._filesystem
+            ext_parts = fs.splitext(test_name)
+            test_name = ext_parts[0]
+            if len(ext_parts) > 1 and '?' in ext_parts[1]:
+                test_name += ext_parts[1].split('?')[0]
+            if len(ext_parts) > 1 and '#' in ext_parts[1]:
+                test_name += ext_parts[1].split('#')[0]
+            return self.test_isfile(test_name)
+        return False
 
     def split_test(self, test_name):
         """Splits a test name into the 'directory' part and the 'basename' part."""
@@ -714,6 +637,13 @@ class Port(object):
         return self._webkit_finder.webkit_base()
 
     def path_from_webkit_base(self, *comps):
+        # Ports can override the LayoutTests/PerformanceTests paths from the base, so adjust here.
+        if len(comps) > 0:
+            if comps[0] == "LayoutTests":
+                return self._filesystem.join(self.layout_tests_dir(), *comps[1:])
+            if comps[0] == "PerformanceTests":
+                return self._filesystem.join(self.perf_tests_dir(), *comps[1:])
+
         return self._webkit_finder.path_from_webkit_base(*comps)
 
     def path_to_script(self, script_name):
@@ -722,14 +652,16 @@ class Port(object):
     def layout_tests_dir(self):
         if self._layout_tests_dir:
             return self._layout_tests_dir
-        return self._webkit_finder.layout_tests_dir()
+        return self._filesystem.join(self.webkit_base(), "LayoutTests")
 
     def perf_tests_dir(self):
-        return self._webkit_finder.perf_tests_dir()
+        return self._filesystem.join(self.webkit_base(), "PerformanceTests")
 
-    def skipped_layout_tests(self, test_list, device_type=None):
+    def skipped_layout_tests(self, device_type=None):
         """Returns tests skipped outside of the TestExpectations files."""
-        return set(self._tests_for_other_platforms(device_type=device_type)).union(self._skipped_tests_for_unsupported_features(test_list))
+        return set(self._tests_for_other_platforms(device_type=device_type)) | set(
+            self.get_option("ignore_tests", [])
+        )
 
     @memoized
     def skipped_perf_tests(self):
@@ -806,18 +738,6 @@ class Port(object):
     def path_to_generic_test_expectations_file(self):
         return self._filesystem.join(self.layout_tests_dir(), 'TestExpectations')
 
-    @memoized
-    def path_to_test_expectations_file(self):
-        """Update the test expectations to the passed-in string.
-
-        This is used by the rebaselining tool. Raises NotImplementedError
-        if the port does not use expectations files."""
-
-        # FIXME: We need to remove this when we make rebaselining work with multiple files and just generalize expectations_files().
-
-        # test_expectations are always in mac/ not mac-leopard/ by convention, hence we use port_name instead of name().
-        return self._filesystem.join(self._webkit_baseline_path(self.port_name), 'TestExpectations')
-
     def relative_test_filename(self, filename):
         """Returns a test_name a relative unix-style path for a filename under the LayoutTests
         directory. Ports may legitimately return abspaths here if no relpath makes sense."""
@@ -835,12 +755,6 @@ class Port(object):
         host = target_host or self.host
         return host.filesystem.join(host.filesystem.map_base_host_path(self.layout_tests_dir()), test_name.replace(self.TEST_PATH_SEPARATOR, self.host.filesystem.sep))
 
-    def jsc_results_directory(self):
-        return self._build_path()
-
-    def bindings_results_directory(self):
-        return self._build_path()
-
     def results_directory(self):
         """Absolute path to the place to store the test results (uses --results-directory)."""
         if not self._results_directory:
@@ -850,9 +764,6 @@ class Port(object):
 
     def perf_results_directory(self):
         return self._build_path()
-
-    def python_unittest_results_directory(self):
-        return self._build_path('python-unittest-results')
 
     def default_results_directory(self):
         """Absolute path to the default place to store the test results."""
@@ -870,15 +781,12 @@ class Port(object):
             self._image_differ.stop()
             self._image_differ = None
 
-    # FIXME: os.environ access should be moved to onto a common/system class to be more easily mockable.
-    def _value_or_default_from_environ(self, name, default=None):
-        if name in os.environ:
-            return os.environ[name]
-        return default
-
     def _copy_value_from_environ_if_set(self, clean_env, name):
         if name in os.environ:
             clean_env[name] = os.environ[name]
+
+    def port_adjust_environment_for_test_driver(self, env):
+        return env
 
     def setup_environ_for_server(self, server_name=None):
         # We intentionally copy only a subset of os.environ when
@@ -930,6 +838,9 @@ class Port(object):
             [name, value] = string_variable.split('=', 1)
             clean_env[name] = value
 
+        # FIXME: Some tests fail if the time zone is not set to US/Pacific (<https://webkit.org/b/186612>)
+        clean_env['TZ'] = 'US/Pacific'
+
         return clean_env
 
     def _clear_global_caches_and_temporary_files(self):
@@ -967,12 +878,12 @@ class Port(object):
         ports = []
         if self._http_server:
             ports.extend(self._http_server.ports_to_forward())
-        if self._websocket_server:
-            ports.extend(self._websocket_server.ports_to_forward())
-        if self._websocket_server:
-            ports.extend(self._websocket_secure_server.ports_to_forward())
-        if self._web_platform_test_server:
-            ports.extend(self._web_platform_test_server.ports_to_forward())
+        if Port._websocket_server:
+            ports.extend(Port._websocket_server.ports_to_forward())
+        if Port._websocket_server:
+            ports.extend(Port._websocket_secure_server.ports_to_forward())
+        if Port._web_platform_test_server:
+            ports.extend(Port._web_platform_test_server.ports_to_forward())
         return ports
 
     def start_http_server(self, additional_dirs=None):
@@ -984,10 +895,7 @@ class Port(object):
             return
 
         http_port = self.get_option('http_port')
-        if self._uses_apache():
-            server = apache_http_server.LayoutTestApacheHttpd(self, self.results_directory(), additional_dirs=additional_dirs, port=http_port)
-        else:
-            server = http_server.Lighttpd(self, self.results_directory(), additional_dirs=additional_dirs, port=http_port)
+        server = apache_http_server.LayoutTestApacheHttpd(self, self.results_directory(), additional_dirs=additional_dirs, port=http_port)
 
         server.start()
         self._http_server = server
@@ -998,12 +906,12 @@ class Port(object):
         return http_server_base.is_http_server_running()
 
     def is_websocket_server_running(self):
-        if self._websocket_server:
+        if Port._websocket_server:
             return True
         return websocket_server.is_web_socket_server_running()
 
     def is_wpt_server_running(self):
-        if self._web_platform_test_server:
+        if Port._web_platform_test_server:
             return True
         return web_platform_test_server.is_wpt_server_running(self)
 
@@ -1011,14 +919,14 @@ class Port(object):
         """Start a web server. Raise an error if it can't start or is already running.
 
         Ports can stub this out if they don't need a websocket server to be running."""
-        assert not self._websocket_server, 'Already running a websocket server.'
+        assert not Port._websocket_server, 'Already running a websocket server.'
 
         server = websocket_server.PyWebSocket(self, self.results_directory())
         server.start()
-        self._websocket_server = server
+        Port._websocket_server = server
 
         websocket_server_temporary_directory = self._filesystem.mkdtemp(prefix='webkitpy-websocket-server')
-        self._websocket_server_temporary_directory = websocket_server_temporary_directory
+        Port._websocket_server_temporary_directory = websocket_server_temporary_directory
 
         pem_file = self._filesystem.join(self.layout_tests_dir(), "http", "conf", "webkit-httpd.pem")
         pem = pemfile.load(self._filesystem, pem_file)
@@ -1027,25 +935,46 @@ class Port(object):
         private_key_file = self._filesystem.join(str(websocket_server_temporary_directory), 'webkit-httpd.key')
         self._filesystem.write_text_file(private_key_file, pem.private_key)
 
-        secure_server = self._websocket_secure_server = websocket_server.PyWebSocket(self, self.results_directory(),
+        secure_server = Port._websocket_secure_server = websocket_server.PyWebSocket(self, self.results_directory(),
             use_tls=True, port=websocket_server.PyWebSocket.DEFAULT_WSS_PORT, private_key=private_key_file, certificate=certificate_file)
         secure_server.start()
-        self._websocket_secure_server = secure_server
+        Port._websocket_secure_server = secure_server
 
     def start_web_platform_test_server(self, additional_dirs=None, number_of_servers=None):
-        assert not self._web_platform_test_server, 'Already running a Web Platform Test server.'
+        assert not Port._web_platform_test_server, 'Already running a Web Platform Test server.'
 
-        self._web_platform_test_server = web_platform_test_server.WebPlatformTestServer(self, "wptwk")
-        self._web_platform_test_server.start()
+        Port._web_platform_test_server = web_platform_test_server.WebPlatformTestServer(self, "wptwk")
+        Port._web_platform_test_server.start()
+
+        # Wait until a 5 seconds timeout happens or the HTTP server has actually finally started.
+        # https://gist.github.com/butla/2d9a4c0f35ea47b7452156c96a4e7b12
+        port = Port._web_platform_test_server.first_port(self)
+        if port is None:
+            return
+        host = 'localhost'
+        start_time = time.perf_counter()
+        timeout = 5
+        while True:
+            try:
+                with socket.create_connection((host, port), timeout=timeout):
+                    break
+            except OSError:
+                time.sleep(0.01)
+                if time.perf_counter() - start_time >= timeout:
+                    raise TimeoutError('Waited too long for the port {} on host {} to start accepting '
+                                       'connections.'.format(port, host))
 
     def web_platform_test_server_doc_root(self):
         return web_platform_test_server.doc_root(self).replace('\\', self.TEST_PATH_SEPARATOR) + self.TEST_PATH_SEPARATOR
 
-    def web_platform_test_server_base_http_url(self):
-        return web_platform_test_server.base_http_url(self)
+    def web_platform_test_server_base_http_url(self, localhost_only=False):
+        return web_platform_test_server.base_http_url(self, localhost_only)
 
-    def web_platform_test_server_base_https_url(self):
-        return web_platform_test_server.base_https_url(self)
+    def web_platform_test_server_base_https_url(self, localhost_only=False):
+        return web_platform_test_server.base_https_url(self, localhost_only)
+
+    def web_platform_test_server_base_h2_url(self, localhost_only=False):
+        return web_platform_test_server.base_h2_url(self, localhost_only)
 
     def http_server_supports_ipv6(self):
         # Cygwin is the only platform to still use Apache 1.3, which only supports IPV4.
@@ -1056,9 +985,16 @@ class Port(object):
 
     def stop_helper(self):
         """Shut down the test helper if it is running. Do nothing if
-        it isn't, or it isn't available. If a port overrides start_helper()
-        it must override this routine as well."""
-        pass
+        it isn't, or it isn't available."""
+        if Port.helper:
+            _log.debug("Stopping LayoutTestHelper")
+            try:
+                Port.helper.stdin.write(b"x\n")
+                Port.helper.stdin.close()
+                Port.helper.wait()
+            except IOError as e:
+                _log.debug("IOError raised while stopping helper: %s" % str(e))
+            Port.helper = None
 
     def stop_http_server(self):
         """Shut down the http server if it is running. Do nothing if it isn't."""
@@ -1068,19 +1004,19 @@ class Port(object):
 
     def stop_websocket_server(self):
         """Shut down the websocket server if it is running. Do nothing if it isn't."""
-        if self._websocket_server:
-            self._websocket_server.stop()
-            self._websocket_server = None
-        if self._websocket_secure_server:
-            self._websocket_secure_server.stop()
-            self._websocket_secure_server = None
-        if self._websocket_server_temporary_directory:
-            self._filesystem.rmtree(str(self._websocket_server_temporary_directory))
+        if Port._websocket_server:
+            Port._websocket_server.stop()
+            Port._websocket_server = None
+        if Port._websocket_secure_server:
+            Port._websocket_secure_server.stop()
+            Port._websocket_secure_server = None
+        if Port._websocket_server_temporary_directory:
+            self._filesystem.rmtree(str(Port._websocket_server_temporary_directory))
 
     def stop_web_platform_test_server(self):
-        if self._web_platform_test_server:
-            self._web_platform_test_server.stop()
-            self._web_platform_test_server = None
+        if Port._web_platform_test_server:
+            Port._web_platform_test_server.stop()
+            Port._web_platform_test_server = None
 
     def exit_code_from_summarized_results(self, unexpected_results):
         """Given summarized results, compute the exit code to be returned by new-run-webkit-tests.
@@ -1096,7 +1032,13 @@ class Port(object):
     def test_configuration(self):
         """Returns the current TestConfiguration for the port."""
         if not self._test_configuration:
-            self._test_configuration = TestConfiguration(self.version_name(), self.architecture(), self._options.configuration.lower())
+            if self.get_option('guard_malloc'):
+                style = 'guard-malloc'
+            elif self._config.asan:
+                style = 'asan'
+            else:
+                style = self._options.configuration.lower()
+            self._test_configuration = TestConfiguration(self.version_name(), self.architecture(), style)
         return self._test_configuration
 
     # FIXME: Belongs on a Platform object.
@@ -1117,14 +1059,6 @@ class Port(object):
         Returns a dictionary, each key representing a macro term ('win', for example),
         and value being a list of valid configuration specifiers (such as ['xp', 'vista', 'win7'])."""
         return {}
-
-    def all_baseline_variants(self):
-        """Returns a list of platform names sufficient to cover all the baselines.
-
-        The list should be sorted so that a later platform  will reuse
-        an earlier platform's baselines if they are the same (e.g.,
-        'snowleopard' should precede 'leopard')."""
-        raise NotImplementedError
 
     def uses_test_expectations_file(self):
         # This is different from checking test_expectations() is None, because
@@ -1202,6 +1136,19 @@ class Port(object):
     def experimental_feature(self):
         return self.get_option("experimental_feature", [])
 
+    def localhost_aliases(self):
+        if not self.supports_localhost_aliases or self.get_option("disable_wpt_hostname_aliases"):
+            return []
+
+        # Documented here: https://github.com/web-platform-tests/wpt/blob/master/docs/writing-tests/server-features.md#tests-involving-multiple-origins
+        domains = []
+        for domain in ("web-platform.test", "not-web-platform.test"):
+            domains.append(domain)
+            for subdomain in ("www", "www1", "www2", "xn--n8j6ds53lwwkrqhv28a", "xn--lve-6lad"):
+                domains.append(subdomain + "." + domain)
+
+        return domains
+
     def default_configuration(self):
         return self._config.default_configuration()
 
@@ -1211,9 +1158,6 @@ class Port(object):
     # The routines below should only be called by routines in this class
     # or any of its subclasses.
     #
-
-    def _uses_apache(self):
-        return True
 
     # FIXME: This does not belong on the port object.
     @memoized
@@ -1228,16 +1172,6 @@ class Port(object):
                 return path
         _log.error("Could not find apache. Not installed or unknown path.")
         return None
-
-    def _is_fedora_php_version_7(self):
-        if self._filesystem.exists("/etc/httpd/modules/libphp7.so"):
-            return True
-        return False
-
-    def _is_darwin_php_version_7(self):
-        if self._filesystem.exists("/usr/libexec/apache2/libphp7.so"):
-            return True
-        return False
 
     # FIXME: This belongs on some platform abstraction instead of Port.
     def _is_redhat_based(self):
@@ -1256,45 +1190,17 @@ class Port(object):
         config = self._executive.run_command([self._path_to_apache(), '-v'])
         return re.sub(r'(?:.|\n)*Server version: Apache/(\d+\.\d+)(?:.|\n)*', r'\1', config)
 
-    def _debian_php_version(self):
-        prefix = "/usr/lib/apache2/modules/"
-        for version in ("7.0", "7.1", "7.2", "7.3", "7.4"):
-            if self._filesystem.exists("%s/libphp%s.so" % (prefix, version)):
-                return "-php%s" % version
-        _log.error("No libphp7.x.so found in %s" % prefix)
-        return ""
-
-    def _darwin_php_version(self):
-        if self._is_darwin_php_version_7():
-            return "-php7"
-        return ""
-
-    def _fedora_php_version(self):
-        if self._is_fedora_php_version_7():
-            return "-php7"
-        return ""
-
-    def _win_php_version(self):
-        root = os.environ.get('XAMPP_ROOT', 'C:\\xampp')
-        prefix = self._filesystem.join(root, 'php')
-        for version in ('5', '7'):
-            conf = self._filesystem.join(prefix, "php{}ts.dll".format(version))
-            if self._filesystem.exists(conf):
-                return "-php{}".format(version)
-        _log.error("No php?ts.dll found in {}".format(prefix))
-        return ""
-
     # We pass sys_platform into this method to make it easy to unit test.
     def _apache_config_file_name_for_platform(self, sys_platform):
         if sys_platform in ['cygwin', 'win32']:
-            return 'win-httpd-' + self._apache_version() + self._win_php_version() + '.conf'
+            return 'win-httpd-' + self._apache_version() + '.conf'
         if sys_platform == 'darwin':
-            return 'apache' + self._apache_version() + self._darwin_php_version() + '-httpd.conf'
+            return 'apache' + self._apache_version() + '-darwin-httpd.conf'
         if sys_platform.startswith('linux'):
             if self._is_redhat_based():
-                return 'fedora-httpd-' + self._apache_version() + self._fedora_php_version() + '.conf'
+                return 'fedora-httpd-' + self._apache_version() + '.conf'
             if self._is_debian_based():
-                return 'debian-httpd-' + self._apache_version() + self._debian_php_version() + '.conf'
+                return 'debian-httpd-' + self._apache_version() + '.conf'
             if self._is_arch_based():
                 return 'archlinux-httpd.conf'
             if self._is_flatpak():
@@ -1356,10 +1262,6 @@ class Port(object):
     def _path_to_user_cache_directory(self, suffix=None):
         return None
 
-    def _path_to_webcore_library(self):
-        """Returns the full path to a built copy of WebCore."""
-        return None
-
     def _path_to_helper(self):
         """Returns the full path to the layout_test_helper binary, which
         is used to help configure the system for the test run, or None
@@ -1379,7 +1281,7 @@ class Port(object):
         args.append("--%s" % self.get_option('platform'))
         return self._executive.run_command([miniBrowser] + args, stdout=None, cwd=self.webkit_base(), return_stderr=False, decode_output=False, ignore_errors=True)
 
-    @memoized
+    @decorators.Memoize()
     def _path_to_image_diff(self):
         """Returns the full path to the image_diff binary, or None if it is not available.
 
@@ -1395,24 +1297,6 @@ class Port(object):
 
     def path_to_api_test_binaries(self):
         return {binary: self._build_path(binary) for binary in self.API_TEST_BINARY_NAMES}
-
-    def _path_to_lighttpd(self):
-        """Returns the path to the LigHTTPd binary.
-
-        This is needed only by ports that use the http_server.py module."""
-        raise NotImplementedError('Port._path_to_lighttpd')
-
-    def _path_to_lighttpd_modules(self):
-        """Returns the path to the LigHTTPd modules directory.
-
-        This is needed only by ports that use the http_server.py module."""
-        raise NotImplementedError('Port._path_to_lighttpd_modules')
-
-    def _path_to_lighttpd_php(self):
-        """Returns the path to the LigHTTPd PHP executable.
-
-        This is needed only by ports that use the http_server.py module."""
-        raise NotImplementedError('Port._path_to_lighttpd_php')
 
     def _webkit_baseline_path(self, platform):
         """Return the  full path to the top of the baseline tree for a
@@ -1449,18 +1333,6 @@ class Port(object):
 
     def sample_process(self, name, pid, target_host=None):
         pass
-
-    def should_run_as_pixel_test(self, test_input):
-        if not self._options.pixel_tests:
-            return False
-        if self._options.pixel_test_directories:
-            return any(test_input.test_name.startswith(directory) for directory in self._options.pixel_test_directories)
-        return self._should_run_as_pixel_test(test_input)
-
-    def _should_run_as_pixel_test(self, test_input):
-        # Default behavior is to allow all test to run as pixel tests if --pixel-tests is on and
-        # --pixel-test-directory is not specified.
-        return True
 
     def _in_flatpak_sandbox(self):
         return self._filesystem.exists("/.flatpak-info")
@@ -1529,6 +1401,7 @@ class Port(object):
         env = environment.to_dictionary()
         try:
             self._run_script("build-imagediff", env=env)
+            self._path_to_image_diff.clear()
         except ScriptError as e:
             _log.error(e.message_with_output(output_limit=None))
             return False
@@ -1545,16 +1418,13 @@ class Port(object):
         # that isn't in our baseline search path (this mirrors what
         # old-run-webkit-tests does in findTestsToRun()).
         # Note this returns LayoutTests/platform/*, not platform/*/*.
-        entries = self._filesystem.glob(self._webkit_baseline_path('*'))
+        entries = self.all_baseline_search_paths(device_type=device_type)
         dirs_to_skip = []
         for entry in entries:
             if self._filesystem.isdir(entry) and entry not in self.test_search_path(device_type=device_type):
                 basename = self._filesystem.basename(entry)
                 dirs_to_skip.append('platform/%s' % basename)
         return dirs_to_skip
-
-    def _skipped_tests_for_unsupported_features(self, test_list):
-        return []
 
     def _wk2_port_name(self):
         # By current convention, the WebKit2 name is always mac-wk2, win-wk2, not mac-leopard-wk2, etc,
@@ -1566,9 +1436,8 @@ class Port(object):
     def stderr_patterns_to_strip(self):
         return []
 
-    def test_expectations_file_position(self):
-        # By default baseline search path schema is i.e. port-wk2 -> wk2 -> port -> generic, so port expectations file is at second to last position.
-        return 1
+    def logging_detectors_to_strip_text_start(self, test_name):
+        return []
 
     def did_spawn_worker(self, worker_number):
         # This is overridden by ports that need to do work in the parent process after a worker subprocess is spawned,
@@ -1603,31 +1472,35 @@ class Port(object):
     def commits_for_upload(self):
         from webkitpy.results.upload import Upload
 
-        self.host.initialize_scm()
         repos = {}
         if port_config.apple_additions() and getattr(port_config.apple_additions(), 'repos', False):
-            repos = port_config.apple_additions().repos()
-        repos['webkit'] = self.host.scm().checkout_root
+            repos = {
+                name: local.Scm.from_path(pth)
+                for name, pth in port_config.apple_additions().repos().items()
+            }
+
+        if 'webkit' not in repos:
+            try:
+                repos['webkit'] = local.Scm.from_path(self.host.filesystem.getcwd())
+            except OSError:
+                repos['webkit'] = local.Scm.from_path(self.host.filesystem.dirname(__file__))
+
         commits = []
-        for repo_id, path in repos.items():
-            scm = SCMDetector(self._filesystem, self._executive).detect_scm_system(path)
+        for repo_id, repo in repos.items():
+            if repo.is_git:
+                # Git commits are completely defined locally, so upload the fully defined commit.
+                commit = repo.commit()
+                commit = commit.Encoder().default(commit)
+                commit['repository_id'] = repo_id
+                commits.append(commit)
 
-            # If using git-svn for WebKit, prefer the SVN branch/revision.
-            svn_revision = scm.svn_revision(path)
-            if repo_id == 'webkit' and svn_revision:
-                used_revision = svn_revision
             else:
-                used_revision = scm.native_revision(path)
-
-            svn_branch = scm.svn_branch(path)
-            if repo_id == 'webkit' and svn_branch:
-                used_branch = svn_branch
-            else:
-                used_branch = scm.native_branch(path)
-
-            commits.append(Upload.create_commit(
-                repository_id=repo_id,
-                id=used_revision,
-                branch=used_branch,
-            ))
+                # Subversion commits require network requests to become fully defined, so provide partial commits
+                # and let the backend handle them.
+                commit = repo.commit(include_log=False, include_identifier=False)
+                commits.append(Upload.create_commit(
+                    repository_id=repo_id,
+                    id=str(commit.revision or commit.hash),
+                    branch=commit.branch,
+                ))
         return commits

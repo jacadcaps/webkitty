@@ -26,6 +26,14 @@
 
 using namespace WebKit;
 
+/**
+ * WebKitCredential:
+ *
+ * Groups information used for user authentication.
+ *
+ * Since: 2.2
+ */
+
 struct _WebKitCredential {
     _WebKitCredential(const WebCore::Credential& coreCredential)
         : credential(coreCredential)
@@ -42,11 +50,11 @@ G_DEFINE_BOXED_TYPE(WebKitCredential, webkit_credential, webkit_credential_copy,
 static inline WebKitCredentialPersistence toWebKitCredentialPersistence(WebCore::CredentialPersistence corePersistence)
 {
     switch (corePersistence) {
-    case WebCore::CredentialPersistenceNone:
+    case WebCore::CredentialPersistence::None:
         return WEBKIT_CREDENTIAL_PERSISTENCE_NONE;
-    case WebCore::CredentialPersistenceForSession:
+    case WebCore::CredentialPersistence::ForSession:
         return WEBKIT_CREDENTIAL_PERSISTENCE_FOR_SESSION;
-    case WebCore::CredentialPersistencePermanent:
+    case WebCore::CredentialPersistence::Permanent:
         return WEBKIT_CREDENTIAL_PERSISTENCE_PERMANENT;
     default:
         ASSERT_NOT_REACHED();
@@ -58,14 +66,14 @@ static inline WebCore::CredentialPersistence toWebCoreCredentialPersistence(WebK
 {
     switch (kitPersistence) {
     case WEBKIT_CREDENTIAL_PERSISTENCE_NONE:
-        return WebCore::CredentialPersistenceNone;
+        return WebCore::CredentialPersistence::None;
     case WEBKIT_CREDENTIAL_PERSISTENCE_FOR_SESSION:
-        return WebCore::CredentialPersistenceForSession;
+        return WebCore::CredentialPersistence::ForSession;
     case WEBKIT_CREDENTIAL_PERSISTENCE_PERMANENT:
-        return WebCore::CredentialPersistencePermanent;
+        return WebCore::CredentialPersistence::Permanent;
     default:
         ASSERT_NOT_REACHED();
-        return WebCore::CredentialPersistenceNone;
+        return WebCore::CredentialPersistence::None;
     }
 }
 
@@ -100,6 +108,56 @@ WebKitCredential* webkit_credential_new(const gchar* username, const gchar* pass
     g_return_val_if_fail(password, 0);
 
     return webkitCredentialCreate(WebCore::Credential(String::fromUTF8(username), String::fromUTF8(password), toWebCoreCredentialPersistence(persistence)));
+}
+
+/**
+ * webkit_credential_new_for_certificate_pin:
+ * @pin: The PIN for the new credential
+ * @persistence: The #WebKitCredentialPersistence of the new credential
+ *
+ * Create a new credential from the provided PIN and persistence mode.
+ *
+ * Note that %WEBKIT_CREDENTIAL_PERSISTENCE_PERMANENT is not supported for certificate pin credentials.
+ *
+ * Returns: (transfer full): A #WebKitCredential.
+ *
+ * Since: 2.34
+ */
+WebKitCredential* webkit_credential_new_for_certificate_pin(const gchar* pin, WebKitCredentialPersistence persistence)
+{
+    g_return_val_if_fail(pin, 0);
+
+    if (persistence == WEBKIT_CREDENTIAL_PERSISTENCE_PERMANENT) {
+        g_warning("Permanent persistence is not supported for certificate pin credentials. Session persistence will be used instead.");
+        persistence = WEBKIT_CREDENTIAL_PERSISTENCE_FOR_SESSION;
+    }
+
+    return webkitCredentialCreate(WebCore::Credential(emptyString(), String::fromUTF8(pin), toWebCoreCredentialPersistence(persistence)));
+}
+
+/**
+ * webkit_credential_new_for_certificate:
+ * @certificate: (nullable): The #GTlsCertificate, or %NULL
+ * @persistence: The #WebKitCredentialPersistence of the new credential
+ *
+ * Create a new credential from the @certificate and persistence mode.
+ *
+ * Note that %WEBKIT_CREDENTIAL_PERSISTENCE_PERMANENT is not supported for certificate credentials.
+ *
+ * Returns: (transfer full): A #WebKitCredential.
+ *
+ * Since: 2.34
+ */
+WebKitCredential* webkit_credential_new_for_certificate(GTlsCertificate* certificate, WebKitCredentialPersistence persistence)
+{
+    g_return_val_if_fail(!certificate || G_IS_TLS_CERTIFICATE(certificate), nullptr);
+
+    if (persistence == WEBKIT_CREDENTIAL_PERSISTENCE_PERMANENT) {
+        g_warning("Permanent persistence is not supported for certificate credentials. Session persistence will be used instead.");
+        persistence = WEBKIT_CREDENTIAL_PERSISTENCE_FOR_SESSION;
+    }
+
+    return webkitCredentialCreate(WebCore::Credential(certificate, toWebCoreCredentialPersistence(persistence)));
 }
 
 /**
@@ -188,6 +246,23 @@ gboolean webkit_credential_has_password(WebKitCredential* credential)
     g_return_val_if_fail(credential, FALSE);
 
     return credential->credential.hasPassword();
+}
+
+/**
+ * webkit_credential_get_certificate:
+ * @credential: a #WebKitCredential
+ *
+ * Get the certificate currently held by this #WebKitCredential.
+ *
+ * Returns: (transfer none): a #GTlsCertificate, or %NULL
+ *
+ * Since: 2.34
+ */
+GTlsCertificate* webkit_credential_get_certificate(WebKitCredential* credential)
+{
+    g_return_val_if_fail(credential, NULL);
+
+    return credential->credential.certificate();
 }
 
 /**

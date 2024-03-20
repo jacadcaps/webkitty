@@ -30,27 +30,150 @@
 
 #if PLATFORM(MAC)
 
+#import <pal/spi/mac/HIServicesSPI.h>
+#import <wtf/RetainPtr.h>
+
 #ifndef NSAccessibilityPrimaryScreenHeightAttribute
 #define NSAccessibilityPrimaryScreenHeightAttribute @"_AXPrimaryScreenHeight"
 #endif
 
+#ifndef NSAccessibilityChildrenInNavigationOrderAttribute
+#define NSAccessibilityChildrenInNavigationOrderAttribute @"AXChildrenInNavigationOrder"
+#endif
+
+// NSAttributedString support.
+
+#ifndef NSAccessibilityBlockQuoteLevelAttribute
+#define NSAccessibilityBlockQuoteLevelAttribute @"AXBlockQuoteLevel"
+#endif
+
+#ifndef NSAccessibilityExpandedTextValueAttribute
+#define NSAccessibilityExpandedTextValueAttribute @"AXExpandedTextValue"
+#endif
+
+#ifndef NSAccessibilityTextCompletionAttribute
+#define NSAccessibilityTextCompletionAttribute @"AXTextCompletion"
+#endif
+
+extern "C" AXUIElementRef NSAccessibilityCreateAXUIElementRef(id element);
+
+// TextMarker and TextMarkerRange API constants.
+
+// TextMarker attributes:
+#define AXTextMarkerIsNullAttribute @"AXTextMarkerIsNull"
+#define AXTextMarkerIsValidAttribute @"AXTextMarkerIsValid"
+#define AXIndexForTextMarkerAttribute @"AXIndexForTextMarker"
+#define AXTextMarkerForIndexAttribute @"AXTextMarkerForIndex"
+#define AXNextTextMarkerForTextMarkerAttribute @"AXNextTextMarkerForTextMarker"
+#define AXPreviousTextMarkerForTextMarkerAttribute @"AXPreviousTextMarkerForTextMarker"
+
+// AXUIElement attributes:
+#define AXUIElementForTextMarkerAttribute @"AXUIElementForTextMarker"
+#define AXTextMarkerRangeForUIElementAttribute @"AXTextMarkerRangeForUIElement"
+#define AXStartTextMarkerAttribute @"AXStartTextMarker"
+#define AXEndTextMarkerAttribute @"AXEndTextMarker"
+
+// TextMarkerRange creation:
+#define AXTextMarkerRangeForNSRangeAttribute @"AXTextMarkerRangeForNSRange"
+#define AXTextMarkerRangeForTextMarkersAttribute @"AXTextMarkerRangeForTextMarkers"
+#define AXTextMarkerRangeForUnorderedTextMarkersAttribute @"AXTextMarkerRangeForUnorderedTextMarkers"
+
+// TextMarkerRange attributes:
+#define AXLengthForTextMarkerRangeAttribute @"AXLengthForTextMarkerRange"
+#define AXStartTextMarkerForTextMarkerRangeAttribute @"AXStartTextMarkerForTextMarkerRange"
+#define AXEndTextMarkerForTextMarkerRangeAttribute @"AXEndTextMarkerForTextMarkerRange"
+
+// Text extraction:
+#define AXStringForTextMarkerRangeAttribute @"AXStringForTextMarkerRange"
+#define AXAttributedStringForTextMarkerRangeAttribute @"AXAttributedStringForTextMarkerRange"
+#define AXAttributedStringForTextMarkerRangeWithOptionsAttribute @"AXAttributedStringForTextMarkerRangeWithOptions"
+
+// Geometry attributes:
+#define AXTextMarkerForPositionAttribute @"AXTextMarkerForPosition" // FIXME: should be AXTextMarkerForPoint.
+#define AXBoundsForTextMarkerRangeAttribute @"AXBoundsForTextMarkerRange"
+#define AXStartTextMarkerForBoundsAttribute @"AXStartTextMarkerForBounds"
+#define AXEndTextMarkerForBoundsAttribute @"AXEndTextMarkerForBounds"
+
+// Line attributes:
+#define AXLineForTextMarkerAttribute @"AXLineForTextMarker"
+#define AXTextMarkerRangeForLineAttribute @"AXTextMarkerRangeForLine"
+#define AXLineTextMarkerRangeForTextMarkerAttribute @"AXLineTextMarkerRangeForTextMarker"
+#define AXLeftLineTextMarkerRangeForTextMarkerAttribute @"AXLeftLineTextMarkerRangeForTextMarker"
+#define AXRightLineTextMarkerRangeForTextMarkerAttribute @"AXRightLineTextMarkerRangeForTextMarker"
+#define AXNextLineEndTextMarkerForTextMarkerAttribute @"AXNextLineEndTextMarkerForTextMarker"
+#define AXPreviousLineStartTextMarkerForTextMarkerAttribute @"AXPreviousLineStartTextMarkerForTextMarker"
+
+// Word attributes:
+#define AXLeftWordTextMarkerRangeForTextMarkerAttribute @"AXLeftWordTextMarkerRangeForTextMarker"
+#define AXRightWordTextMarkerRangeForTextMarkerAttribute @"AXRightWordTextMarkerRangeForTextMarker"
+#define AXNextWordEndTextMarkerForTextMarkerAttribute @"AXNextWordEndTextMarkerForTextMarker"
+#define AXPreviousWordStartTextMarkerForTextMarkerAttribute @"AXPreviousWordStartTextMarkerForTextMarker"
+
+// Sentence attributes:
+#define AXSentenceTextMarkerRangeForTextMarkerAttribute @"AXSentenceTextMarkerRangeForTextMarker"
+#define AXNextSentenceEndTextMarkerForTextMarkerAttribute @"AXNextSentenceEndTextMarkerForTextMarker"
+#define AXPreviousSentenceStartTextMarkerForTextMarkerAttribute @"AXPreviousSentenceStartTextMarkerForTextMarker"
+
+// Paragraph attributes:
+#define AXParagraphTextMarkerRangeForTextMarkerAttribute @"AXParagraphTextMarkerRangeForTextMarker"
+#define AXNextParagraphEndTextMarkerForTextMarkerAttribute @"AXNextParagraphEndTextMarkerForTextMarker"
+#define AXPreviousParagraphStartTextMarkerForTextMarkerAttribute @"AXPreviousParagraphStartTextMarkerForTextMarker"
+
+// Other ranges:
+#define AXDidSpellCheckAttribute @"AXDidSpellCheck"
+#define AXMisspellingTextMarkerRangeAttribute @"AXMisspellingTextMarkerRange"
+#define AXSelectedTextMarkerRangeAttribute @"AXSelectedTextMarkerRange"
+#define AXStyleTextMarkerRangeForTextMarkerAttribute @"AXStyleTextMarkerRangeForTextMarker"
+
+#if ENABLE(TREE_DEBUGGING)
+#define AXTextMarkerDebugDescriptionAttribute @"AXTextMarkerDebugDescription"
+#define AXTextMarkerRangeDebugDescriptionAttribute @"AXTextMarkerRangeDebugDescription"
+#define AXTextMarkerNodeDebugDescriptionAttribute @"AXTextMarkerNodeDebugDescription"
+#define AXTextMarkerNodeTreeDebugDescriptionAttribute @"AXTextMarkerNodeTreeDebugDescription"
+#endif
+
 @interface WebAccessibilityObjectWrapper : WebAccessibilityObjectWrapperBase
 
-- (id)textMarkerRangeFromVisiblePositions:(const WebCore::VisiblePosition&)startPosition endPosition:(const WebCore::VisiblePosition&)endPosition;
-- (id)textMarkerForVisiblePosition:(const WebCore::VisiblePosition&)visiblePos;
-- (id)textMarkerForFirstPositionInTextControl:(WebCore::HTMLTextFormControlElement&)textControl;
+- (RetainPtr<AXTextMarkerRef>)textMarkerForFirstPositionInTextControl:(WebCore::HTMLTextFormControlElement&)textControl;
 
 // When a plugin uses a WebKit control to act as a surrogate view (e.g. PDF use WebKit to create text fields).
 - (id)associatedPluginParent;
 
 @end
 
+#else
+
+typedef const struct __AXTextMarker* AXTextMarkerRef;
+typedef const struct __AXTextMarkerRange* AXTextMarkerRangeRef;
+
 #endif // PLATFORM(MAC)
 
 namespace WebCore {
 
-id textMarkerRangeFromMarkers(id textMarker1, id textMarker2);
-id textMarkerForVisiblePosition(AXObjectCache*, const VisiblePosition&);
-id textMarkerRangeFromVisiblePositions(AXObjectCache*, const VisiblePosition&, const VisiblePosition&);
+class AccessibilityObject;
+struct CharacterOffset;
 
-}
+// TextMarker and TextMarkerRange public funcstions.
+// FIXME: TextMarker and TextMarkerRange should become classes on their own right, wrapping the system objects.
+
+RetainPtr<AXTextMarkerRangeRef> textMarkerRangeFromMarkers(AXTextMarkerRef, AXTextMarkerRef);
+AccessibilityObject* accessibilityObjectForTextMarker(AXObjectCache*, AXTextMarkerRef);
+
+// TextMarker <-> VisiblePosition conversion.
+AXTextMarkerRef textMarkerForVisiblePosition(AXObjectCache*, const VisiblePosition&);
+VisiblePosition visiblePositionForTextMarker(AXObjectCache*, AXTextMarkerRef);
+
+// TextMarkerRange <-> VisiblePositionRange conversion.
+AXTextMarkerRangeRef textMarkerRangeFromVisiblePositions(AXObjectCache*, const VisiblePosition&, const VisiblePosition&);
+VisiblePositionRange visiblePositionRangeForTextMarkerRange(AXObjectCache*, AXTextMarkerRangeRef);
+
+// TextMarker <-> CharacterOffset conversion.
+AXTextMarkerRef textMarkerForCharacterOffset(AXObjectCache*, const CharacterOffset&);
+CharacterOffset characterOffsetForTextMarker(AXObjectCache*, AXTextMarkerRef);
+
+// TextMarkerRange <-> SimpleRange conversion.
+AXTextMarkerRef startOrEndTextMarkerForRange(AXObjectCache*, const std::optional<SimpleRange>&, bool isStart);
+AXTextMarkerRangeRef textMarkerRangeFromRange(AXObjectCache*, const std::optional<SimpleRange>&);
+std::optional<SimpleRange> rangeForTextMarkerRange(AXObjectCache*, AXTextMarkerRangeRef);
+
+} // namespace WebCore

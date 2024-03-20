@@ -20,9 +20,10 @@
 #include <string.h>
 
 #include "gtest/gtest.h"
-#include "absl/base/internal/raw_logging.h"
+#include "absl/log/log.h"
 
 namespace absl {
+ABSL_NAMESPACE_BEGIN
 namespace debugging_internal {
 namespace {
 
@@ -32,7 +33,7 @@ static void SimpleSignalHandler(int signo) {
 
   // Never true, but prevents compiler from optimizing buf out.
   if (signo == 0) {
-    ABSL_RAW_LOG(INFO, "%p", static_cast<void*>(buf));
+    LOG(INFO) << static_cast<void*>(buf);
   }
 }
 
@@ -43,6 +44,7 @@ TEST(SignalHandlerStackConsumptionTest, MeasuresStackConsumption) {
 
 }  // namespace
 }  // namespace debugging_internal
+ABSL_NAMESPACE_END
 }  // namespace absl
 
 #endif  // ABSL_INTERNAL_HAVE_DEBUGGING_STACK_CONSUMPTION

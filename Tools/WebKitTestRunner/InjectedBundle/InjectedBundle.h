@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2020 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,20 +25,18 @@
 
 #pragma once
 
+#include "AccessibilityController.h"
 #include "EventSendingController.h"
 #include "GCController.h"
 #include "TestRunner.h"
 #include "TextInputController.h"
 #include <WebKit/WKBase.h>
+#include <WebKit/WKBundlePage.h>
 #include <WebKit/WKRetainPtr.h>
 #include <sstream>
 #include <wtf/Forward.h>
 #include <wtf/RefPtr.h>
 #include <wtf/Vector.h>
-
-#if HAVE(ACCESSIBILITY)
-#include "AccessibilityController.h"
-#endif
 
 namespace WTR {
 
@@ -51,24 +49,21 @@ public:
     // Initialize the InjectedBundle.
     void initialize(WKBundleRef, WKTypeRef initializationUserData);
 
-    WKBundleRef bundle() const { return m_bundle; }
-    WKBundlePageGroupRef pageGroup() const { return m_pageGroup; }
+    WKBundleRef bundle() const { return m_bundle.get(); }
 
     TestRunner* testRunner() { return m_testRunner.get(); }
     GCController* gcController() { return m_gcController.get(); }
     EventSendingController* eventSendingController() { return m_eventSendingController.get(); }
     TextInputController* textInputController() { return m_textInputController.get(); }
-#if HAVE(ACCESSIBILITY)
     AccessibilityController* accessibilityController() { return m_accessibilityController.get(); }
-#endif
 
     InjectedBundlePage* page() const;
+    WKBundlePageRef pageRef() const;
     size_t pageCount() const { return m_pages.size(); }
-    void closeOtherPages();
 
     void dumpBackForwardListsForAllPages(StringBuilder&);
 
-    void done();
+    void done(bool forceRepaint);
     void setAudioResult(WKDataRef audioData) { m_audioResult = audioData; }
     void setPixelResult(WKImageRef image) { m_pixelResult = image; m_pixelResultIsPending = false; }
     void setPixelResultIsPending(bool isPending) { m_pixelResultIsPending = isPending; }
@@ -82,26 +77,35 @@ public:
     bool shouldDumpPixels() const { return m_dumpPixels; }
     bool dumpJSConsoleLogInStdErr() const { return m_dumpJSConsoleLogInStdErr; };
 
-    void outputText(const String&);
+    enum class IsFinalTestOutput : bool { No, Yes };
+    void outputText(StringView, IsFinalTestOutput = IsFinalTestOutput::No);
     void dumpToStdErr(const String&);
     void postNewBeforeUnloadReturnValue(bool);
     void postAddChromeInputField();
     void postRemoveChromeInputField();
+    void postSetTextInChromeInputField(const String&);
+    void postSelectChromeInputField();
+    void postGetSelectedTextInChromeInputField();
     void postFocusWebView();
     void postSetBackingScaleFactor(double);
     void postSetWindowIsKey(bool);
     void postSetViewSize(double width, double height);
-    void postSimulateWebNotificationClick(uint64_t notificationID);
+    void postSimulateWebNotificationClick(WKDataRef notificationID);
+    void postSimulateWebNotificationClickForServiceWorkerNotifications();
     void postSetAddsVisitedLinks(bool);
 
     // Geolocation.
     void setGeolocationPermission(bool);
-    void setMockGeolocationPosition(double latitude, double longitude, double accuracy, bool providesAltitude, double altitude, bool providesAltitudeAccuracy, double altitudeAccuracy, bool providesHeading, double heading, bool providesSpeed, double speed, bool providesFloorLevel, double floorLevel);
+    void setMockGeolocationPosition(double latitude, double longitude, double accuracy, std::optional<double> altitude, std::optional<double> altitudeAccuracy, std::optional<double> heading, std::optional<double> speed, std::optional<double> floorLevel);
     void setMockGeolocationPositionUnavailableError(WKStringRef errorMessage);
     bool isGeolocationProviderActive() const;
 
+    // Screen Wake Lock.
+    void setScreenWakeLockPermission(bool);
+
     // MediaStream.
-    void setUserMediaPermission(bool);
+    void setCameraPermission(bool);
+    void setMicrophonePermission(bool);
     void resetUserMediaPermission();
     void setUserMediaPersistentPermissionForOrigin(bool permission, WKStringRef origin, WKStringRef parentOrigin);
     unsigned userMediaPermissionRequestCountForOrigin(WKStringRef origin, WKStringRef parentOrigin) const;
@@ -145,40 +149,42 @@ public:
     void increaseUserScriptInjectedCount() { ++m_userScriptInjectedCount; }
     size_t userScriptInjectedCount() const { return m_userScriptInjectedCount; }
 
+    void clearResourceLoadStatistics();
+    void reloadFromOrigin();
+
+    WKRetainPtr<WKStringRef> getBackgroundFetchIdentifier();
+    WKRetainPtr<WKStringRef> lastAddedBackgroundFetchIdentifier() const;
+    WKRetainPtr<WKStringRef> lastRemovedBackgroundFetchIdentifier() const;
+    WKRetainPtr<WKStringRef> lastUpdatedBackgroundFetchIdentifier() const;
+    WKRetainPtr<WKStringRef> backgroundFetchState(WKStringRef);
+
 private:
     InjectedBundle() = default;
     ~InjectedBundle();
 
     static void didCreatePage(WKBundleRef, WKBundlePageRef, const void* clientInfo);
     static void willDestroyPage(WKBundleRef, WKBundlePageRef, const void* clientInfo);
-    static void didInitializePageGroup(WKBundleRef, WKBundlePageGroupRef, const void* clientInfo);
     static void didReceiveMessage(WKBundleRef, WKStringRef messageName, WKTypeRef messageBody, const void* clientInfo);
     static void didReceiveMessageToPage(WKBundleRef, WKBundlePageRef, WKStringRef messageName, WKTypeRef messageBody, const void* clientInfo);
 
     void didCreatePage(WKBundlePageRef);
     void willDestroyPage(WKBundlePageRef);
-    void didInitializePageGroup(WKBundlePageGroupRef);
     void didReceiveMessage(WKStringRef messageName, WKTypeRef messageBody);
     void didReceiveMessageToPage(WKBundlePageRef, WKStringRef messageName, WKTypeRef messageBody);
 
     void setUpInjectedBundleClients(WKBundlePageRef);
 
+    void setAllowedHosts(WKDictionaryRef settings);
+
     void platformInitialize(WKTypeRef initializationUserData);
-    void resetLocalSettings();
 
     enum class BegingTestingMode { New, Resume };
     void beginTesting(WKDictionaryRef initialSettings, BegingTestingMode);
 
-    bool booleanForKey(WKDictionaryRef, const char* key);
-    String stringForKey(WKDictionaryRef, const char* key);
-
-    WKBundleRef m_bundle { nullptr };
-    WKBundlePageGroupRef m_pageGroup { nullptr };
+    WKRetainPtr<WKBundleRef> m_bundle;
     Vector<std::unique_ptr<InjectedBundlePage>> m_pages;
 
-#if HAVE(ACCESSIBILITY)
     RefPtr<AccessibilityController> m_accessibilityController;
-#endif
     RefPtr<TestRunner> m_testRunner;
     RefPtr<GCController> m_gcController;
     RefPtr<EventSendingController> m_eventSendingController;
@@ -208,6 +214,66 @@ private:
     Vector<String> m_allowedHosts;
 
     size_t m_userScriptInjectedCount { 0 };
+
+    WKRetainPtr<WKCaptionUserPreferencesTestingModeTokenRef> m_captionUserPreferencesTestingModeToken;
 };
+
+void postMessage(const char* name);
+void postMessage(const char* name, bool value);
+void postMessage(const char* name, int value);
+void postMessage(const char* name, unsigned value);
+void postMessage(const char* name, uint64_t value);
+void postMessage(const char* name, const char* value);
+void postMessage(const char* name, JSStringRef value);
+void postMessage(const char* name, const void* value) = delete;
+
+void postSynchronousMessage(const char* name);
+void postSynchronousMessage(const char* name, bool value);
+void postSynchronousMessage(const char* name, int value);
+void postSynchronousMessage(const char* name, unsigned value);
+void postSynchronousMessage(const char* name, uint64_t value);
+void postSynchronousMessage(const char* name, double value);
+void postSynchronousMessage(const char* name, const char* value);
+void postSynchronousMessage(const char* name, const void* value) = delete;
+
+void postPageMessage(const char* name);
+void postPageMessage(const char* name, bool value);
+void postPageMessage(const char* name, const char* value);
+void postPageMessage(const char* name, WKStringRef value);
+void postPageMessage(const char* name, WKDataRef value);
+void postPageMessage(const char* name, const void* value) = delete;
+
+void postSynchronousPageMessage(const char* name);
+void postSynchronousPageMessage(const char* name, bool value);
+void postSynchronousPageMessage(const char* name, const char* value);
+void postSynchronousPageMessage(const char* name, const void* value) = delete;
+
+template<typename T> void postMessage(const char* name, const WKRetainPtr<T>& value)
+{
+    WKBundlePostMessage(InjectedBundle::singleton().bundle(), toWK(name).get(), value.get());
+}
+
+template<typename T> void postSynchronousMessage(const char* name, const WKRetainPtr<T>& value)
+{
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    WKBundlePostSynchronousMessage(InjectedBundle::singleton().bundle(), toWK(name).get(), value.get(), nullptr);
+    ALLOW_DEPRECATED_DECLARATIONS_END
+}
+
+template<typename T> void postPageMessage(const char* name, const WKRetainPtr<T>& value)
+{
+    if (auto page = InjectedBundle::singleton().pageRef())
+        WKBundlePagePostMessage(page, toWK(name).get(), value.get());
+}
+
+template<typename T> void postSynchronousPageMessage(const char* name, const WKRetainPtr<T>& value)
+{
+    if (auto page = InjectedBundle::singleton().pageRef()) {
+        // EventSender needs a layout
+        if (!strcmp(name, "EventSender"))
+            WKBundlePageLayoutIfNeeded(page);
+        WKBundlePagePostSynchronousMessageForTesting(page, toWK(name).get(), value.get(), nullptr);
+    }
+}
 
 } // namespace WTR

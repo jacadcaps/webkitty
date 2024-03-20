@@ -25,5 +25,8 @@
 
 [
     Conditional=WEBGL,
+    EnabledBySetting=WebGLEnabled,
+    GenerateIsReachable=Impl,
+    Exposed=(Window,Worker)
 ] interface WebGLBuffer {
 };

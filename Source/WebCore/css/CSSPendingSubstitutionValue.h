@@ -1,5 +1,5 @@
 // Copyright 2015 The Chromium Authors. All rights reserved.
-// Copyright (C) 2016 Apple Inc. All rights reserved.
+// Copyright (C) 2016-2021 Apple Inc. All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
 // modification, are permitted provided that the following conditions are
@@ -29,11 +29,12 @@
 
 #pragma once
 
-#include "CSSPropertyNames.h"
 #include "CSSValue.h"
 #include "CSSVariableReferenceValue.h"
 
 namespace WebCore {
+
+class CSSProperty;
 
 class CSSPendingSubstitutionValue : public CSSValue {
 public:
@@ -48,6 +49,8 @@ public:
     bool equals(const CSSPendingSubstitutionValue& other) const { return m_shorthandValue.ptr() == other.m_shorthandValue.ptr(); }
     static String customCSSText() { return emptyString(); }
 
+    RefPtr<CSSValue> resolveValue(Style::BuilderState&, CSSPropertyID) const;
+
 private:
     CSSPendingSubstitutionValue(CSSPropertyID shorthandPropertyId, Ref<CSSVariableReferenceValue>&& shorthandValue)
         : CSSValue(PendingSubstitutionValueClass)
@@ -58,9 +61,10 @@ private:
 
     const CSSPropertyID m_shorthandPropertyId;
     Ref<CSSVariableReferenceValue> m_shorthandValue;
+
+    mutable Vector<CSSProperty> m_cachedPropertyValues;
 };
 
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_CSS_VALUE(CSSPendingSubstitutionValue, isPendingSubstitutionValue())
-

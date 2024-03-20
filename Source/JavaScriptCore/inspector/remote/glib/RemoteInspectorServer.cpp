@@ -57,7 +57,7 @@ static RemoteInspector::Client::SessionCapabilities processSessionCapabilities(G
         const char* host;
         const char* certificateFile;
         while (g_variant_iter_loop(&iter, "(&s&s)", &host, &certificateFile))
-            capabilities.certificates.uncheckedAppend({ String::fromUTF8(host), String::fromUTF8(certificateFile) });
+            capabilities.certificates.append({ String::fromUTF8(host), String::fromUTF8(certificateFile) });
     }
 
     if (GRefPtr<GVariant> proxy = g_variant_lookup_value(sessionCapabilities, "proxy", G_VARIANT_TYPE("a{sv}"))) {
@@ -66,6 +66,10 @@ static RemoteInspector::Client::SessionCapabilities processSessionCapabilities(G
         const char* proxyType;
         g_variant_lookup(proxy.get(), "type", "&s", &proxyType);
         capabilities.proxy->type = String::fromUTF8(proxyType);
+
+        const char* autoconfigURL;
+        if (g_variant_lookup(proxy.get(), "autoconfigURL", "&s", &autoconfigURL))
+            capabilities.proxy->autoconfigURL = String::fromUTF8(autoconfigURL);
 
         const char* ftpURL;
         if (g_variant_lookup(proxy.get(), "ftpURL", "&s", &ftpURL))
@@ -182,17 +186,20 @@ RemoteInspectorServer::~RemoteInspectorServer()
         g_signal_handlers_disconnect_matched(m_service.get(), G_SIGNAL_MATCH_DATA, 0, 0, nullptr, nullptr, this);
 }
 
-bool RemoteInspectorServer::start(const char* address, unsigned port)
+bool RemoteInspectorServer::start(GRefPtr<GSocketAddress>&& socketAddress)
 {
     m_service = adoptGRef(g_socket_service_new());
     g_signal_connect(m_service.get(), "incoming", G_CALLBACK(incomingConnectionCallback), this);
 
-    GRefPtr<GSocketAddress> socketAddress = adoptGRef(g_inet_socket_address_new_from_string(address, port));
+    GRefPtr<GSocketAddress> effectiveAddress;
     GUniqueOutPtr<GError> error;
-    if (!g_socket_listener_add_address(G_SOCKET_LISTENER(m_service.get()), socketAddress.get(), G_SOCKET_TYPE_STREAM, G_SOCKET_PROTOCOL_TCP, nullptr, nullptr, &error.outPtr())) {
-        g_warning("Failed to start remote inspector server on %s:%u: %s\n", address, port, error->message);
+    if (!g_socket_listener_add_address(G_SOCKET_LISTENER(m_service.get()), socketAddress.get(), G_SOCKET_TYPE_STREAM, G_SOCKET_PROTOCOL_TCP, nullptr, &effectiveAddress.outPtr(), &error.outPtr())) {
+        GUniquePtr<char> address(g_socket_connectable_to_string(G_SOCKET_CONNECTABLE(socketAddress.get())));
+        g_warning("Failed to start remote inspector server on %s: %s", address.get(), error->message);
         return false;
     }
+
+    m_port = g_inet_socket_address_get_port(G_INET_SOCKET_ADDRESS(effectiveAddress.get()));
 
     return true;
 }
@@ -319,7 +326,9 @@ void RemoteInspectorServer::sendMessageToFrontend(SocketConnection& remoteInspec
 
     uint64_t connectionID = m_remoteInspectorConnectionToIDMap.get(&remoteInspectorConnection);
     auto connectionTargetPair = std::make_pair(connectionID, targetID);
-    ASSERT(m_automationTargets.contains(connectionTargetPair) || m_inspectionTargets.contains(connectionTargetPair));
+    if (!m_automationTargets.contains(connectionTargetPair) && !m_inspectionTargets.contains(connectionTargetPair))
+        return;
+
     SocketConnection* clientConnection = m_inspectionTargets.contains(connectionTargetPair) ? m_clientConnection : m_automationConnection;
     ASSERT(clientConnection);
     clientConnection->sendMessage("SendMessageToFrontend", g_variant_new("(tt&s)", connectionID, targetID, message));

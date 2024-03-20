@@ -30,10 +30,13 @@
 #include "config.h"
 #include "VTTScanner.h"
 
+#include <wtf/text/StringToIntegerConversion.h>
+
 namespace WebCore {
 
 VTTScanner::VTTScanner(const String& line)
-    : m_is8Bit(line.is8Bit())
+    : m_source(line)
+    , m_is8Bit(line.is8Bit())
 {
     if (m_is8Bit) {
         m_data.characters8 = line.characters8();
@@ -59,9 +62,9 @@ bool VTTScanner::scan(const LChar* characters, size_t charactersCount)
         return false;
     bool matched;
     if (m_is8Bit)
-        matched = WTF::equal(m_data.characters8, characters, charactersCount);
+        matched = equal(m_data.characters8, characters, charactersCount);
     else
-        matched = WTF::equal(m_data.characters16, characters, charactersCount);
+        matched = equal(m_data.characters16, characters, charactersCount);
     if (matched)
         advance(charactersCount);
     return matched;
@@ -78,9 +81,9 @@ bool VTTScanner::scanRun(const Run& run, const String& toMatch)
         return false;
     bool matched;
     if (m_is8Bit)
-        matched = WTF::equal(toMatch.impl(), m_data.characters8, matchLength);
+        matched = equal(toMatch.impl(), m_data.characters8, matchLength);
     else
-        matched = WTF::equal(toMatch.impl(), m_data.characters16, matchLength);
+        matched = equal(toMatch.impl(), m_data.characters16, matchLength);
     if (matched)
         seekTo(run.end());
     return matched;
@@ -115,26 +118,24 @@ String VTTScanner::restOfInputAsString()
     return extractString(rest);
 }
 
-unsigned VTTScanner::scanDigits(int& number)
+unsigned VTTScanner::scanDigits(unsigned& number)
 {
     Run runOfDigits = collectWhile<isASCIIDigit>();
     if (runOfDigits.isEmpty()) {
         number = 0;
         return 0;
     }
-    bool validNumber;
-    size_t numDigits = runOfDigits.length();
-    if (m_is8Bit)
-        number = charactersToIntStrict(m_data.characters8, numDigits, &validNumber);
-    else
-        number = charactersToIntStrict(m_data.characters16, numDigits, &validNumber);
 
-    // Since we know that scanDigits only scanned valid (ASCII) digits (and
-    // hence that's what got passed to charactersToInt()), the remaining
-    // failure mode for charactersToInt() is overflow, so if |validNumber| is
-    // not true, then set |number| to the maximum int value.
-    if (!validNumber)
-        number = std::numeric_limits<int>::max();
+    StringView string;
+    unsigned numDigits = runOfDigits.length();
+    if (m_is8Bit)
+        string = { m_data.characters8, numDigits };
+    else
+        string = { m_data.characters16, numDigits };
+
+    // Since these are ASCII digits, the only failure mode is overflow, so use the maximum unsigned value.
+    number = parseInteger<unsigned>(string).value_or(std::numeric_limits<unsigned>::max());
+
     // Consume the digits.
     seekTo(runOfDigits.end());
     return numDigits;

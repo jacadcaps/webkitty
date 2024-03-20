@@ -37,6 +37,7 @@
 - (instancetype)initWithView:(WKContentView *)view control:(RetainPtr<NSObject <WKFormControl>>&&)control NS_DESIGNATED_INITIALIZER;
 
 - (void)beginEditing;
+- (void)updateEditing;
 - (void)endEditing;
 - (UIView *)assistantView;
 - (BOOL)handleKeyEvent:(UIEvent *)event;
@@ -44,6 +45,7 @@
 @property (nonatomic, readonly) WKContentView *view;
 @property (nonatomic, readonly) NSObject <WKFormControl> *control;
 @property (nonatomic, readonly, getter=isEditing) BOOL editing;
+@property (nonatomic) BOOL singleTapShouldEndEditing;
 
 @end
 

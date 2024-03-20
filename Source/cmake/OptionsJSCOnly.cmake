@@ -2,6 +2,10 @@ find_package(Threads REQUIRED)
 
 if (MSVC)
     include(OptionsMSVC)
+else ()
+    set(CMAKE_C_VISIBILITY_PRESET hidden)
+    set(CMAKE_CXX_VISIBILITY_PRESET hidden)
+    set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
 endif ()
 
 add_definitions(-DBUILDING_JSCONLY__)
@@ -36,6 +40,7 @@ set(ENABLE_WEBCORE OFF)
 set(ENABLE_WEBKIT_LEGACY OFF)
 set(ENABLE_WEBKIT OFF)
 set(ENABLE_WEBINSPECTORUI OFF)
+set(ENABLE_WEBGL OFF)
 
 if (WIN32)
     set(ENABLE_API_TESTS OFF)
@@ -47,10 +52,10 @@ if (WTF_CPU_ARM OR WTF_CPU_MIPS)
     SET_AND_EXPOSE_TO_BUILD(USE_CAPSTONE TRUE)
 endif ()
 
-# FIXME: JSCOnly on WIN32 seems to only work with fully static build
-# https://bugs.webkit.org/show_bug.cgi?id=172862
-if (NOT ENABLE_STATIC_JSC AND NOT WIN32)
+if (NOT ENABLE_STATIC_JSC)
     set(JavaScriptCore_LIBRARY_TYPE SHARED)
+    set(bmalloc_LIBRARY_TYPE OBJECT)
+    set(WTF_LIBRARY_TYPE OBJECT)
 endif ()
 
 if (WIN32)
@@ -96,7 +101,7 @@ else ()
     SET_AND_EXPOSE_TO_BUILD(WTF_DEFAULT_EVENT_LOOP 0)
 endif ()
 
-find_package(ICU 60.2 REQUIRED COMPONENTS data i18n uc)
+find_package(ICU 61.2 REQUIRED COMPONENTS data i18n uc)
 if (APPLE)
     add_definitions(-DU_DISABLE_RENAMING=1)
 endif ()

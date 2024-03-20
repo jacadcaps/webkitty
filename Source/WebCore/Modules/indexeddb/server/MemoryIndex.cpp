@@ -26,8 +26,6 @@
 #include "config.h"
 #include "MemoryIndex.h"
 
-#if ENABLE(INDEXED_DATABASE)
-
 #include "IDBError.h"
 #include "IDBGetAllResult.h"
 #include "IDBGetResult.h"
@@ -67,7 +65,7 @@ void MemoryIndex::cursorDidBecomeDirty(MemoryIndexCursor& cursor)
 
 void MemoryIndex::objectStoreCleared()
 {
-    auto transaction = m_objectStore.writeTransaction();
+    auto transaction = m_objectStore->writeTransaction();
     ASSERT(transaction);
 
     transaction->indexCleared(*this, WTFMove(m_records));
@@ -91,16 +89,16 @@ void MemoryIndex::notifyCursorsOfAllRecordsChanged()
 
 void MemoryIndex::clearIndexValueStore()
 {
-    ASSERT(m_objectStore.writeTransaction());
-    ASSERT(m_objectStore.writeTransaction()->isAborting());
+    ASSERT(m_objectStore->writeTransaction());
+    ASSERT(m_objectStore->writeTransaction()->isAborting());
 
     m_records = nullptr;
 }
 
 void MemoryIndex::replaceIndexValueStore(std::unique_ptr<IndexValueStore>&& valueStore)
 {
-    ASSERT(m_objectStore.writeTransaction());
-    ASSERT(m_objectStore.writeTransaction()->isAborting());
+    ASSERT(m_objectStore->writeTransaction());
+    ASSERT(m_objectStore->writeTransaction()->isAborting());
 
     m_records = WTFMove(valueStore);
 }
@@ -126,7 +124,7 @@ IDBGetResult MemoryIndex::getResultForKeyRange(IndexedDB::IndexRecordType type, 
     if (!keyValue)
         return { };
 
-    return type == IndexedDB::IndexRecordType::Key ? IDBGetResult(*keyValue) : IDBGetResult(*keyValue, m_objectStore.valueForKeyRange(*keyValue), m_objectStore.info().keyPath());
+    return type == IndexedDB::IndexRecordType::Key ? IDBGetResult(*keyValue) : IDBGetResult(*keyValue, m_objectStore->valueForKeyRange(*keyValue), m_objectStore->info().keyPath());
 }
 
 uint64_t MemoryIndex::countForKeyRange(const IDBKeyRangeData& inRange)
@@ -152,11 +150,11 @@ uint64_t MemoryIndex::countForKeyRange(const IDBKeyRangeData& inRange)
     return count;
 }
 
-void MemoryIndex::getAllRecords(const IDBKeyRangeData& keyRangeData, Optional<uint32_t> count, IndexedDB::GetAllType type, IDBGetAllResult& result) const
+void MemoryIndex::getAllRecords(const IDBKeyRangeData& keyRangeData, std::optional<uint32_t> count, IndexedDB::GetAllType type, IDBGetAllResult& result) const
 {
     LOG(IndexedDB, "MemoryIndex::getAllRecords");
 
-    result = { type, m_objectStore.info().keyPath() };
+    result = { type, m_objectStore->info().keyPath() };
 
     if (!m_records)
         return;
@@ -181,7 +179,7 @@ void MemoryIndex::getAllRecords(const IDBKeyRangeData& keyRangeData, Optional<ui
         for (auto& keyValue : allValues) {
             result.addKey(IDBKeyData(keyValue));
             if (type == IndexedDB::GetAllType::Values)
-                result.addValue(m_objectStore.valueForKeyRange(keyValue));
+                result.addValue(m_objectStore->valueForKeyRange(keyValue));
         }
 
         currentCount += allValues.size();
@@ -210,7 +208,7 @@ IDBError MemoryIndex::putIndexKey(const IDBKeyData& valueKey, const IndexKey& in
     if (m_info.unique()) {
         for (auto& key : keys) {
             if (m_records->contains(key))
-                return IDBError(ConstraintError);
+                return IDBError(ExceptionCode::ConstraintError);
         }
     }
 
@@ -265,5 +263,3 @@ MemoryIndexCursor* MemoryIndex::maybeOpenCursor(const IDBCursorInfo& info)
 
 } // namespace IDBServer
 } // namespace WebCore
-
-#endif // ENABLE(INDEXED_DATABASE)

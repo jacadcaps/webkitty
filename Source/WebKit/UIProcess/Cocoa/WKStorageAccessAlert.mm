@@ -26,10 +26,18 @@
 #import "config.h"
 #import "WKStorageAccessAlert.h"
 
+#import <wtf/HashMap.h>
+
+#if PLATFORM(IOS_FAMILY)
+#import "UIKitSPI.h"
+#import "UIKitUtilities.h"
+#endif
+
 #if PLATFORM(COCOA) && !PLATFORM(WATCHOS) && !PLATFORM(APPLETV)
 
 #import "WKWebViewInternal.h"
 #import <WebCore/LocalizedStrings.h>
+#import <WebCore/NetworkStorageSession.h>
 #import <WebCore/RegistrableDomain.h>
 #import <wtf/BlockPtr.h>
 
@@ -37,10 +45,6 @@ namespace WebKit {
 
 void presentStorageAccessAlert(WKWebView *webView, const WebCore::RegistrableDomain& requesting, const WebCore::RegistrableDomain& current, CompletionHandler<void(bool)>&& completionHandler)
 {
-    auto completionBlock = makeBlockPtr([completionHandler = WTFMove(completionHandler)](bool shouldAllow) mutable {
-        completionHandler(shouldAllow);
-    });
-
     auto requestingDomain = requesting.string().createCFString();
     auto currentDomain = current.string().createCFString();
 
@@ -51,13 +55,65 @@ void presentStorageAccessAlert(WKWebView *webView, const WebCore::RegistrableDom
 #endif
 
     NSString *informativeText = [NSString stringWithFormat:WEB_UI_NSSTRING(@"This will allow “%@” to track your activity.", @"Informative text for requesting cross-site cookie and website data access."), requestingDomain.get()];
+
+    displayStorageAccessAlert(webView, alertTitle, informativeText, nil, WTFMove(completionHandler));
+}
+
+void presentStorageAccessAlertQuirk(WKWebView *webView, const WebCore::RegistrableDomain& firstRequesting, const WebCore::RegistrableDomain& secondRequesting, const WebCore::RegistrableDomain& current, CompletionHandler<void(bool)>&& completionHandler)
+{
+    auto firstRequestingDomain = firstRequesting.string().createCFString();
+    auto secondRequestingDomain = secondRequesting.string().createCFString();
+    auto currentDomain = current.string().createCFString();
+
+#if PLATFORM(MAC)
+    NSString *alertTitle = [NSString stringWithFormat:WEB_UI_NSSTRING(@"Do you want to allow “%@” and “%@” to use cookies and website data while browsing “%@”?", @"Message for requesting cross-site cookie and website data access."), firstRequestingDomain.get(), secondRequestingDomain.get(), currentDomain.get()];
+#else
+    NSString *alertTitle = [NSString stringWithFormat:WEB_UI_NSSTRING(@"Allow “%@” and “%@” to use cookies and website data while browsing “%@”?", @"Message for requesting cross-site cookie and website data access."), firstRequestingDomain.get(), secondRequestingDomain.get(), currentDomain.get()];
+#endif
+
+    NSString *informativeText = [NSString stringWithFormat:WEB_UI_NSSTRING(@"This will allow “%@” and “%@” to track your activity.", @"Informative text for requesting cross-site cookie and website data access."), firstRequestingDomain.get(), secondRequestingDomain.get()];
+    
+    displayStorageAccessAlert(webView, alertTitle, informativeText, nil, WTFMove(completionHandler));
+}
+
+void presentStorageAccessAlertSSOQuirk(WKWebView *webView, const String& organizationName, const HashMap<WebCore::RegistrableDomain, Vector<WebCore::RegistrableDomain>>& domainPairings, CompletionHandler<void(bool)>&& completionHandler)
+{
+    NSString *alertTitle = [NSString stringWithFormat:WEB_UI_NSSTRING(@"Are you logging in to this website, and do you want to allow other %@ sites access to your website data while browsing the websites listed below?", @"Message for requesting cross-site cookie and website data access."), organizationName.createCFString().get()];
+    NSString *informativeText = [NSString stringWithFormat:WEB_UI_NSSTRING(@"Allowing access to website data is necessary for the website to work correctly.", @"Informative text for requesting cross-site cookie and website data access.")];
+
+    auto* accessoryTextList = [NSMutableArray arrayWithCapacity:domainPairings.size()];
+    for (const auto& domains : domainPairings) {
+        auto embeddedDomains = makeStringByJoining(domains.value.map([](auto& domain) { return domain.string(); }).span(), "\n  - "_s);
+        NSString *accessoryText = [NSString stringWithFormat:WEB_UI_NSSTRING(@"While you are visiting %@, the following related websites will gain access to their cookies:\n  - %@", @"Accessory text for requesting cross-site cookie and website data access."), domains.key.string().createCFString().get(), embeddedDomains.createCFString().get()];
+        [accessoryTextList addObject:accessoryText];
+    }
+    displayStorageAccessAlert(webView, alertTitle, informativeText, accessoryTextList, WTFMove(completionHandler));
+}
+
+void displayStorageAccessAlert(WKWebView *webView, NSString *alertTitle, NSString *informativeText, NSArray<NSString *> *accessoryTextList, CompletionHandler<void(bool)>&& completionHandler)
+{
+    auto completionBlock = makeBlockPtr([completionHandler = WTFMove(completionHandler)](bool shouldAllow) mutable {
+        completionHandler(shouldAllow);
+    });
+
     NSString *allowButtonString = WEB_UI_STRING_KEY(@"Allow", "Allow (cross-site cookie and website data access)", @"Button title in Storage Access API prompt");
-    NSString *doNotAllowButtonString = WEB_UI_STRING_KEY(@"Don't Allow", "Don't Allow (cross-site cookie and website data access)", @"Button title in Storage Access API prompt");
+    NSString *doNotAllowButtonString = WEB_UI_STRING_KEY(@"Don’t Allow", "Don’t Allow (cross-site cookie and website data access)", @"Button title in Storage Access API prompt");
 
 #if PLATFORM(MAC)
     auto alert = adoptNS([NSAlert new]);
     [alert setMessageText:alertTitle];
     [alert setInformativeText:informativeText];
+    if (accessoryTextList) {
+        auto accessory = adoptNS([[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, 200, 15)]);
+        auto *mutableString = [[accessory textStorage] mutableString];
+        [mutableString setString:[accessoryTextList componentsJoinedByString:@"\n"]];
+        [[accessory textStorage] setFont:[NSFont systemFontOfSize:[NSFont systemFontSize]]];
+        [[accessory textStorage] setForegroundColor:NSColor.whiteColor];
+        [accessory setEditable:NO];
+        [accessory setDrawsBackground:NO];
+        [alert setAccessoryView:accessory.get()];
+        [alert layout];
+    }
     [alert addButtonWithTitle:allowButtonString];
     [alert addButtonWithTitle:doNotAllowButtonString];
     [alert beginSheetModalForWindow:webView.window completionHandler:[completionBlock](NSModalResponse returnCode) {
@@ -65,7 +121,15 @@ void presentStorageAccessAlert(WKWebView *webView, const WebCore::RegistrableDom
         completionBlock(shouldAllow);
     }];
 #else
-    UIAlertController* alert = [UIAlertController alertControllerWithTitle:alertTitle message:informativeText preferredStyle:UIAlertControllerStyleAlert];
+    auto alert = WebKit::createUIAlertController(alertTitle, informativeText);
+
+    if (accessoryTextList) {
+        [accessoryTextList enumerateObjectsUsingBlock:^(NSString *line, NSUInteger index, BOOL *stop) {
+            [alert addTextFieldWithConfigurationHandler:[&line](UITextField *textField) {
+                textField.text = line;
+            }];
+        }];
+    }
 
     UIAlertAction* allowAction = [UIAlertAction actionWithTitle:allowButtonString style:UIAlertActionStyleCancel handler:[completionBlock](UIAlertAction *action) {
         completionBlock(true);
@@ -78,7 +142,7 @@ void presentStorageAccessAlert(WKWebView *webView, const WebCore::RegistrableDom
     [alert addAction:doNotAllowAction];
     [alert addAction:allowAction];
 
-    [[UIViewController _viewControllerForFullScreenPresentationFromView:webView] presentViewController:alert animated:YES completion:nil];
+    [webView._wk_viewControllerForFullScreenPresentation presentViewController:alert.get() animated:YES completion:nil];
 #endif
 }
 

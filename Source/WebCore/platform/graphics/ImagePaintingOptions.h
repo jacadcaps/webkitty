@@ -28,96 +28,87 @@
 #include "DecodingOptions.h"
 #include "GraphicsTypes.h"
 #include "ImageOrientation.h"
+#include "ImageTypes.h"
+#include <initializer_list>
+#include <wtf/Forward.h>
 
 namespace WebCore {
 
 struct ImagePaintingOptions {
-    template<typename... Options>
-    ImagePaintingOptions(Options... options)
+    template<typename Type> static constexpr bool isOptionType =
+        std::is_same_v<Type, CompositeOperator>
+        || std::is_same_v<Type, BlendMode>
+        || std::is_same_v<Type, DecodingMode>
+        || std::is_same_v<Type, ImageOrientation>
+        || std::is_same_v<Type, ImageOrientation::Orientation>
+        || std::is_same_v<Type, InterpolationQuality>
+        || std::is_same_v<Type, AllowImageSubsampling>
+        || std::is_same_v<Type, ShowDebugBackground>;
+
+    // This is a single-argument initializer to support pattern of
+    // ImageDrawResult drawImage(..., ImagePaintingOptions = { ImageOrientation::Orientation::FromImage });
+    // Should be removed once the pattern is not so prevalent.
+    template<typename T, typename = std::enable_if_t<isOptionType<std::decay_t<T>>>>
+    ImagePaintingOptions(std::initializer_list<T> options)
     {
-        setOption(options...);
+        for (auto& option : options)
+            setOption(option);
+    }
+    template<typename T, typename = std::enable_if_t<isOptionType<std::decay_t<T>>>>
+    explicit ImagePaintingOptions(T option)
+    {
+        setOption(option);
+    }
+
+    template<typename T, typename U, typename... Rest, typename = std::enable_if_t<isOptionType<std::decay_t<T>>>>
+    ImagePaintingOptions(T first, U second, Rest... rest)
+    {
+        setOption(first);
+        setOption(second);
+        (setOption(rest), ...);
     }
 
     template<typename... Overrides>
     ImagePaintingOptions(const ImagePaintingOptions& other, Overrides... overrides)
         : ImagePaintingOptions(other)
     {
-        setOption(overrides...);
+        (setOption(overrides), ...);
     }
 
     ImagePaintingOptions() = default;
     ImagePaintingOptions(const ImagePaintingOptions&) = default;
+    ImagePaintingOptions(ImagePaintingOptions&&) = default;
+    ImagePaintingOptions& operator=(const ImagePaintingOptions&) = default;
+    ImagePaintingOptions& operator=(ImagePaintingOptions&&) = default;
 
     CompositeOperator compositeOperator() const { return m_compositeOperator; }
     BlendMode blendMode() const { return m_blendMode; }
     DecodingMode decodingMode() const { return m_decodingMode; }
     ImageOrientation orientation() const { return m_orientation; }
     InterpolationQuality interpolationQuality() const { return m_interpolationQuality; }
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static Optional<ImagePaintingOptions> decode(Decoder&);
+    AllowImageSubsampling allowImageSubsampling() const { return m_allowImageSubsampling; }
+    ShowDebugBackground showDebugBackground() const { return m_showDebugBackground; }
 
 private:
-    template <typename First, typename... Rest>
-    void setOption(First first, Rest... rest)
-    {
-        setOption(first);
-        setOption(rest...);
-    }
-
     void setOption(CompositeOperator compositeOperator) { m_compositeOperator = compositeOperator; }
     void setOption(BlendMode blendMode) { m_blendMode = blendMode; }
     void setOption(DecodingMode decodingMode) { m_decodingMode = decodingMode; }
-    void setOption(ImageOrientation orientation) { m_orientation = orientation; }
+    void setOption(ImageOrientation orientation) { m_orientation = orientation.orientation(); }
     void setOption(ImageOrientation::Orientation orientation) { m_orientation = orientation; }
     void setOption(InterpolationQuality interpolationQuality) { m_interpolationQuality = interpolationQuality; }
+    void setOption(AllowImageSubsampling allowImageSubsampling) { m_allowImageSubsampling = allowImageSubsampling; }
+    void setOption(ShowDebugBackground showDebugBackground) { m_showDebugBackground = showDebugBackground; }
 
-    CompositeOperator m_compositeOperator { CompositeOperator::SourceOver };
-    BlendMode m_blendMode { BlendMode::Normal };
-    DecodingMode m_decodingMode { DecodingMode::Synchronous };
-    ImageOrientation m_orientation { ImageOrientation::None };
-    InterpolationQuality m_interpolationQuality { InterpolationQuality::Default };
+    BlendMode m_blendMode : 5 { BlendMode::Normal };
+    DecodingMode m_decodingMode : 3 { DecodingMode::Synchronous };
+    CompositeOperator m_compositeOperator : 4 { CompositeOperator::SourceOver };
+    ImageOrientation::Orientation m_orientation : 4 { ImageOrientation::Orientation::None };
+    InterpolationQuality m_interpolationQuality : 4 { InterpolationQuality::Default };
+    AllowImageSubsampling m_allowImageSubsampling : 1 { AllowImageSubsampling::No };
+    ShowDebugBackground m_showDebugBackground : 1 { ShowDebugBackground::No };
 };
+static_assert(sizeof(ImagePaintingOptions) <= sizeof(uint64_t), "Pass by value");
 
-template<class Encoder>
-void ImagePaintingOptions::encode(Encoder& encoder) const
-{
-    encoder << m_compositeOperator;
-    encoder << m_blendMode;
-    encoder << m_decodingMode;
-    encoder << ImageOrientation::Orientation(m_orientation);
-    encoder << m_interpolationQuality;
-}
-
-template<class Decoder>
-Optional<ImagePaintingOptions> ImagePaintingOptions::decode(Decoder& decoder)
-{
-    Optional<CompositeOperator> compositeOperator;
-    decoder >> compositeOperator;
-    if (!compositeOperator)
-        return WTF::nullopt;
-
-    Optional<BlendMode> blendMode;
-    decoder >> blendMode;
-    if (!blendMode)
-        return WTF::nullopt;
-
-    Optional<DecodingMode> decodingMode;
-    decoder >> decodingMode;
-    if (!decodingMode)
-        return WTF::nullopt;
-
-    Optional<ImageOrientation::Orientation> orientation;
-    decoder >> orientation;
-    if (!orientation)
-        return WTF::nullopt;
-
-    Optional<InterpolationQuality> interpolationQuality;
-    decoder >> interpolationQuality;
-    if (!interpolationQuality)
-        return WTF::nullopt;
-
-    return ImagePaintingOptions { *compositeOperator, *blendMode, *decodingMode, *orientation, *interpolationQuality };
-}
+WEBCORE_EXPORT TextStream& operator<<(TextStream&, ImagePaintingOptions);
 
 }

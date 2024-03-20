@@ -10,8 +10,12 @@
 
 #include "modules/congestion_controller/goog_cc/delay_based_bwe.h"
 
+#include <cstdint>
+
+#include "api/network_state_predictor.h"
 #include "api/transport/network_types.h"
-#include "modules/congestion_controller/goog_cc/acknowledged_bitrate_estimator.h"
+#include "api/units/data_rate.h"
+#include "api/units/time_delta.h"
 #include "modules/congestion_controller/goog_cc/delay_based_bwe_unittest_helper.h"
 #include "system_wrappers/include/clock.h"
 #include "test/gtest.h"
@@ -121,7 +125,7 @@ TEST_F(DelayBasedBweTest, ProbeDetectionSlowerArrivalHighBitrate) {
 TEST_F(DelayBasedBweTest, GetExpectedBwePeriodMs) {
   auto default_interval = bitrate_estimator_->GetExpectedBwePeriod();
   EXPECT_GT(default_interval.ms(), 0);
-  CapacityDropTestHelper(1, true, 333, 0);
+  CapacityDropTestHelper(1, true, 533, 0);
   auto interval = bitrate_estimator_->GetExpectedBwePeriod();
   EXPECT_GT(interval.ms(), 0);
   EXPECT_NE(interval.ms(), default_interval.ms());
@@ -131,15 +135,20 @@ TEST_F(DelayBasedBweTest, InitialBehavior) {
   InitialBehaviorTestHelper(730000);
 }
 
+TEST_F(DelayBasedBweTest, InitializeResult) {
+  DelayBasedBwe::Result result;
+  EXPECT_EQ(result.delay_detector_state, BandwidthUsage::kBwNormal);
+}
+
 TEST_F(DelayBasedBweTest, RateIncreaseReordering) {
   RateIncreaseReorderingTestHelper(730000);
 }
 TEST_F(DelayBasedBweTest, RateIncreaseRtpTimestamps) {
-  RateIncreaseRtpTimestampsTestHelper(622);
+  RateIncreaseRtpTimestampsTestHelper(617);
 }
 
 TEST_F(DelayBasedBweTest, CapacityDropOneStream) {
-  CapacityDropTestHelper(1, false, 300, 0);
+  CapacityDropTestHelper(1, false, 500, 0);
 }
 
 TEST_F(DelayBasedBweTest, CapacityDropPosOffsetChange) {
@@ -151,7 +160,7 @@ TEST_F(DelayBasedBweTest, CapacityDropNegOffsetChange) {
 }
 
 TEST_F(DelayBasedBweTest, CapacityDropOneStreamWrap) {
-  CapacityDropTestHelper(1, true, 333, 0);
+  CapacityDropTestHelper(1, true, 533, 0);
 }
 
 TEST_F(DelayBasedBweTest, TestTimestampGrouping) {
@@ -186,19 +195,16 @@ TEST_F(DelayBasedBweTest, TestInitialOveruse) {
   // Needed to initialize the AimdRateControl.
   bitrate_estimator_->SetStartBitrate(kStartBitrate);
 
-  // Produce 30 frames (in 1/3 second) and give them to the estimator.
+  // Produce 40 frames (in 1/3 second) and give them to the estimator.
   int64_t bitrate_bps = kStartBitrate.bps();
   bool seen_overuse = false;
-  for (int i = 0; i < 30; ++i) {
+  for (int i = 0; i < 40; ++i) {
     bool overuse = GenerateAndProcessFrame(kDummySsrc, bitrate_bps);
-    // The purpose of this test is to ensure that we back down even if we don't
-    // have any acknowledged bitrate estimate yet. Hence, if the test works
-    // as expected, we should not have a measured bitrate yet.
-    EXPECT_FALSE(acknowledged_bitrate_estimator_->bitrate().has_value());
     if (overuse) {
       EXPECT_TRUE(bitrate_observer_.updated());
-      EXPECT_NEAR(bitrate_observer_.latest_bitrate(), kStartBitrate.bps() / 2,
-                  15000);
+      EXPECT_LE(bitrate_observer_.latest_bitrate(), kInitialCapacity.bps());
+      EXPECT_GT(bitrate_observer_.latest_bitrate(),
+                0.8 * kInitialCapacity.bps());
       bitrate_bps = bitrate_observer_.latest_bitrate();
       seen_overuse = true;
       break;
@@ -208,64 +214,42 @@ TEST_F(DelayBasedBweTest, TestInitialOveruse) {
     }
   }
   EXPECT_TRUE(seen_overuse);
-  EXPECT_NEAR(bitrate_observer_.latest_bitrate(), kStartBitrate.bps() / 2,
-              15000);
+  EXPECT_LE(bitrate_observer_.latest_bitrate(), kInitialCapacity.bps());
+  EXPECT_GT(bitrate_observer_.latest_bitrate(), 0.8 * kInitialCapacity.bps());
 }
 
-class DelayBasedBweTestWithBackoffTimeoutExperiment : public DelayBasedBweTest {
- public:
-  DelayBasedBweTestWithBackoffTimeoutExperiment()
-      : DelayBasedBweTest(
-            "WebRTC-BweAimdRateControlConfig/initial_backoff_interval:200ms/") {
-  }
-};
+TEST_F(DelayBasedBweTest, TestTimestampPrecisionHandling) {
+  // This test does some basic checks to make sure that timestamps with higher
+  // than millisecond precision are handled properly and do not cause any
+  // problems in the estimator. Specifically, previously reported in
+  // webrtc:14023 and described in more details there, the rounding to the
+  // nearest milliseconds caused discrepancy in the accumulated delay. This lead
+  // to false-positive overuse detection.
+  // Technical details of the test:
+  // Send times(ms): 0.000,  9.725, 20.000, 29.725, 40.000, 49.725, ...
+  // Recv times(ms): 0.500, 10.000, 20.500, 30.000, 40.500, 50.000, ...
+  // Send deltas(ms):   9.750,  10.250,  9.750, 10.250,  9.750, ...
+  // Recv deltas(ms):   9.500,  10.500,  9.500, 10.500,  9.500, ...
+  // There is no delay building up between the send times and the receive times,
+  // therefore this case should never lead to an overuse detection. However, if
+  // the time deltas were accidentally rounded to the nearest milliseconds, then
+  // all the send deltas would be equal to 10ms while some recv deltas would
+  // round up to 11ms which would lead in a false illusion of delay build up.
+  uint32_t last_bitrate = bitrate_observer_.latest_bitrate();
+  for (int i = 0; i < 1000; ++i) {
+    clock_.AdvanceTimeMicroseconds(500);
+    IncomingFeedback(clock_.CurrentTime(),
+                     clock_.CurrentTime() - TimeDelta::Micros(500), 1000,
+                     PacedPacketInfo());
+    clock_.AdvanceTimeMicroseconds(9500);
+    IncomingFeedback(clock_.CurrentTime(),
+                     clock_.CurrentTime() - TimeDelta::Micros(250), 1000,
+                     PacedPacketInfo());
+    clock_.AdvanceTimeMicroseconds(10000);
 
-// This test subsumes and improves DelayBasedBweTest.TestInitialOveruse above.
-TEST_F(DelayBasedBweTestWithBackoffTimeoutExperiment, TestInitialOveruse) {
-  const DataRate kStartBitrate = DataRate::KilobitsPerSec(300);
-  const DataRate kInitialCapacity = DataRate::KilobitsPerSec(200);
-  const uint32_t kDummySsrc = 0;
-  // High FPS to ensure that we send a lot of packets in a short time.
-  const int kFps = 90;
-
-  stream_generator_->AddStream(new test::RtpStream(kFps, kStartBitrate.bps()));
-  stream_generator_->set_capacity_bps(kInitialCapacity.bps());
-
-  // Needed to initialize the AimdRateControl.
-  bitrate_estimator_->SetStartBitrate(kStartBitrate);
-
-  // Produce 30 frames (in 1/3 second) and give them to the estimator.
-  int64_t bitrate_bps = kStartBitrate.bps();
-  bool seen_overuse = false;
-  for (int frames = 0; frames < 30 && !seen_overuse; ++frames) {
-    bool overuse = GenerateAndProcessFrame(kDummySsrc, bitrate_bps);
-    // The purpose of this test is to ensure that we back down even if we don't
-    // have any acknowledged bitrate estimate yet. Hence, if the test works
-    // as expected, we should not have a measured bitrate yet.
-    EXPECT_FALSE(acknowledged_bitrate_estimator_->bitrate().has_value());
-    if (overuse) {
-      EXPECT_TRUE(bitrate_observer_.updated());
-      EXPECT_NEAR(bitrate_observer_.latest_bitrate(), kStartBitrate.bps() / 2,
-                  15000);
-      bitrate_bps = bitrate_observer_.latest_bitrate();
-      seen_overuse = true;
-    } else if (bitrate_observer_.updated()) {
-      bitrate_bps = bitrate_observer_.latest_bitrate();
-      bitrate_observer_.Reset();
-    }
-  }
-  EXPECT_TRUE(seen_overuse);
-  // Continue generating an additional 15 frames (equivalent to 167 ms) and
-  // verify that we don't back down further.
-  for (int frames = 0; frames < 15 && seen_overuse; ++frames) {
-    bool overuse = GenerateAndProcessFrame(kDummySsrc, bitrate_bps);
-    EXPECT_FALSE(overuse);
-    if (bitrate_observer_.updated()) {
-      bitrate_bps = bitrate_observer_.latest_bitrate();
-      EXPECT_GE(bitrate_bps, kStartBitrate.bps() / 2 - 15000);
-      EXPECT_LE(bitrate_bps, kInitialCapacity.bps() + 15000);
-      bitrate_observer_.Reset();
-    }
+    // The bitrate should never decrease in this test.
+    EXPECT_LE(last_bitrate, bitrate_observer_.latest_bitrate());
+    last_bitrate = bitrate_observer_.latest_bitrate();
   }
 }
 

@@ -27,7 +27,7 @@
 
 namespace WebCore {
 
-enum class ColorGamut {
+enum class ColorGamut : uint8_t {
     SRGB,
     P3,
     Rec2020,

@@ -30,6 +30,8 @@
 #import "WebScriptObjectProtocol.h"
 #import "objc_instance.h"
 #import <JavaScriptCore/JSGlobalObjectInlines.h>
+#import <wtf/NeverDestroyed.h>
+#import <wtf/RetainPtr.h>
 
 namespace JSC {
 namespace Bindings {
@@ -39,22 +41,26 @@ ObjcClass::ObjcClass(ClassStructPtr aClass)
 {
 }
 
-static CFMutableDictionaryRef classesByIsA = 0;
+static RetainPtr<CFMutableDictionaryRef>& classesByIsA()
+{
+    static NeverDestroyed<RetainPtr<CFMutableDictionaryRef>> classesByIsA;
+    return classesByIsA;
+}
 
 static void _createClassesByIsAIfNecessary()
 {
-    if (!classesByIsA)
-        classesByIsA = CFDictionaryCreateMutable(NULL, 0, NULL, NULL);
+    if (!classesByIsA())
+        classesByIsA() = adoptCF(CFDictionaryCreateMutable(NULL, 0, NULL, NULL));
 }
 
 ObjcClass* ObjcClass::classForIsA(ClassStructPtr isa)
 {
     _createClassesByIsAIfNecessary();
 
-    auto aClass = reinterpret_cast<ObjcClass*>(const_cast<void*>(CFDictionaryGetValue(classesByIsA, (__bridge CFTypeRef)isa)));
+    auto aClass = reinterpret_cast<ObjcClass*>(const_cast<void*>(CFDictionaryGetValue(classesByIsA().get(), (__bridge CFTypeRef)isa)));
     if (!aClass) {
         aClass = new ObjcClass(isa);
-        CFDictionaryAddValue(classesByIsA, (__bridge CFTypeRef)isa, aClass);
+        CFDictionaryAddValue(classesByIsA().get(), (__bridge CFTypeRef)isa, aClass);
     }
 
     return aClass;
@@ -84,11 +90,11 @@ static inline void convertJSMethodNameToObjc(const CString& jsName, JSNameConver
     while (true) {
         if (*source == '$') {
             ++source;
-            buffer.uncheckedAppend(*source);
+            buffer.append(*source);
         } else if (*source == '_')
-            buffer.uncheckedAppend(':');
+            buffer.append(':');
         else
-            buffer.uncheckedAppend(*source);
+            buffer.append(*source);
 
         if (!*source)
             return;

@@ -33,6 +33,25 @@
 
 namespace Nicosia {
 
+Lock Buffer::s_layersMemoryUsageLock;
+double Buffer::s_currentLayersMemoryUsage = 0.0;
+double Buffer::s_maxLayersMemoryUsage = 0.0;
+
+void Buffer::resetMemoryUsage()
+{
+    Locker locker { s_layersMemoryUsageLock };
+    s_maxLayersMemoryUsage = s_currentLayersMemoryUsage;
+}
+
+double Buffer::getMemoryUsage()
+{
+    // The memory usage is max of memory usage since last resetMemoryUsage or getMemoryUsage.
+    Locker locker { s_layersMemoryUsageLock };
+    const auto memoryUsage = s_maxLayersMemoryUsage;
+    s_maxLayersMemoryUsage = s_currentLayersMemoryUsage;
+    return memoryUsage;
+}
+
 Ref<Buffer> Buffer::create(const WebCore::IntSize& size, Flags flags)
 {
     return adoptRef(*new Buffer(size, flags));
@@ -42,22 +61,35 @@ Buffer::Buffer(const WebCore::IntSize& size, Flags flags)
     : m_size(size)
     , m_flags(flags)
 {
-    auto checkedArea = size.area() * 4;
-    m_data = MallocPtr<unsigned char>::tryZeroedMalloc(checkedArea.unsafeGet());
+    const auto checkedArea = size.area() * 4;
+    m_data = MallocPtr<unsigned char>::tryZeroedMalloc(checkedArea);
+
+    {
+        Locker locker { s_layersMemoryUsageLock };
+        s_currentLayersMemoryUsage += checkedArea;
+        s_maxLayersMemoryUsage = std::max(s_maxLayersMemoryUsage, s_currentLayersMemoryUsage);
+    }
 }
 
-Buffer::~Buffer() = default;
+Buffer::~Buffer()
+{
+    const auto checkedArea = m_size.area().value() * 4;
+    {
+        Locker locker { s_layersMemoryUsageLock };
+        s_currentLayersMemoryUsage -= checkedArea;
+    }
+}
 
 void Buffer::beginPainting()
 {
-    LockHolder locker(m_painting.lock);
+    Locker locker { m_painting.lock };
     ASSERT(m_painting.state == PaintingState::Complete);
     m_painting.state = PaintingState::InProgress;
 }
 
 void Buffer::completePainting()
 {
-    LockHolder locker(m_painting.lock);
+    Locker locker { m_painting.lock };
     ASSERT(m_painting.state == PaintingState::InProgress);
     m_painting.state = PaintingState::Complete;
     m_painting.condition.notifyOne();
@@ -65,7 +97,7 @@ void Buffer::completePainting()
 
 void Buffer::waitUntilPaintingComplete()
 {
-    LockHolder locker(m_painting.lock);
+    Locker locker { m_painting.lock };
     m_painting.condition.wait(m_painting.lock,
         [this] { return m_painting.state == PaintingState::Complete; });
 }

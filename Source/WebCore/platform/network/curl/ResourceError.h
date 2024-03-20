@@ -31,36 +31,40 @@
 namespace WebCore {
 
 class ResourceError : public ResourceErrorBase {
-    friend class ResourceErrorBase;
-
 public:
     ResourceError(Type type = Type::Null)
         : ResourceErrorBase(type)
     {
     }
 
-    ResourceError(const String& domain, int errorCode, const URL& failingURL, const String& localizedDescription, Type type = Type::General)
-        : ResourceErrorBase(domain, errorCode, failingURL, localizedDescription, type)
+    ResourceError(const String& domain, int errorCode, const URL& failingURL, const String& localizedDescription, Type type = Type::General, IsSanitized isSanitized = IsSanitized::No)
+        : ResourceErrorBase(domain, errorCode, failingURL, localizedDescription, type, isSanitized)
     {
     }
 
-    WEBCORE_EXPORT static ResourceError httpError(int errorCode, const URL& failingURL, Type = Type::General);
-    static ResourceError sslError(int errorCode, unsigned sslErrors, const URL& failingURL);
+    struct IPCData {
+        Type type;
+        String domain;
+        int errorCode;
+        URL failingURL;
+        String localizedDescription;
+        IsSanitized isSanitized;
+    };
+    WEBCORE_EXPORT static ResourceError fromIPCData(std::optional<IPCData>&&);
+    WEBCORE_EXPORT std::optional<IPCData> ipcData() const;
 
-    unsigned sslErrors() const { return m_sslErrors; }
-    void setSslErrors(unsigned sslErrors) { m_sslErrors = sslErrors; }
+    WEBCORE_EXPORT ResourceError(int curlCode, const URL& failingURL, Type = Type::General);
 
-    bool isSSLConnectError() const;
-    WEBCORE_EXPORT bool isSSLCertVerificationError() const;
+    WEBCORE_EXPORT bool isCertificationVerificationError() const;
+
+    ErrorRecoveryMethod errorRecoveryMethod() const { return ErrorRecoveryMethod::NoRecovery; }
 
     static bool platformCompare(const ResourceError& a, const ResourceError& b);
 
 private:
+    friend class ResourceErrorBase;
+
     void doPlatformIsolatedCopy(const ResourceError&);
-
-    static const char* const curlErrorDomain;
-
-    unsigned m_sslErrors { 0 };
 };
 
 } // namespace WebCore

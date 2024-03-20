@@ -17,7 +17,6 @@ _WebKitPlatformSystemRootDirectory
 _WebKitSetBackgroundAndForegroundNotificationNames
 _WebKitSetEndBackgroundTaskBlock
 _WebKitSetInvalidWebBackgroundTaskIdentifier
-_WebKitSetIsClassic
 _WebKitSetStartBackgroundTaskBlock
 _WebOpenPanelConfigurationAllowMultipleFilesKey
 _WebOpenPanelConfigurationMimeTypesKey
@@ -39,9 +38,6 @@ _WebViewportWidthKey
 # For estimated progress notifications
 _WebViewProgressBackgroundColorKey
 _WebViewProgressEstimatedProgressKey
-
-# For WebInspector notifications
-__WebViewRemoteInspectorHasSessionChangedNotification
 
 # WebKit1 internal types exposed for WebKit2.
 .objc_class_name_WebGeolocationCoreLocationProvider

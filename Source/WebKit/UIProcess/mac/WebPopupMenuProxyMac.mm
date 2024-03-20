@@ -83,8 +83,9 @@ void WebPopupMenuProxyMac::populate(const Vector<WebPopupItem>& items, NSFont *f
                 font, NSFontAttributeName,
             nil]);
             if (items[i].m_hasTextDirectionOverride) {
-                RetainPtr<NSNumber> writingDirectionValue = adoptNS([[NSNumber alloc] initWithInteger:writingDirection + NSWritingDirectionOverride]);
-                RetainPtr<NSArray> writingDirectionArray = adoptNS([[NSArray alloc] initWithObjects:writingDirectionValue.get(), nil]);
+                auto writingDirectionValue = static_cast<NSInteger>(writingDirection) + static_cast<NSInteger>(NSWritingDirectionOverride);
+                RetainPtr<NSNumber> writingDirectionNumber = adoptNS([[NSNumber alloc] initWithInteger:writingDirectionValue]);
+                RetainPtr<NSArray> writingDirectionArray = adoptNS([[NSArray alloc] initWithObjects:writingDirectionNumber.get(), nil]);
                 [attributes setObject:writingDirectionArray.get() forKey:NSWritingDirectionAttributeName];
             }
             RetainPtr<NSAttributedString> string = adoptNS([[NSAttributedString alloc] initWithString:nsStringFromWebCoreString(items[i].m_text) attributes:attributes.get()]);
@@ -106,9 +107,15 @@ void WebPopupMenuProxyMac::showPopupMenu(const IntRect& rect, TextDirection text
 
     BEGIN_BLOCK_OBJC_EXCEPTIONS
 
-    if (NSDictionary *fontAttributes = static_cast<NSDictionary *>(data.fontInfo.fontAttributeDictionary.get()))
-        font = fontWithAttributes(fontAttributes, ((pageScaleFactor != 1) ? [fontAttributes[NSFontSizeAttribute] floatValue] * pageScaleFactor : 0));
-    else
+    if (NSDictionary *fontAttributes = static_cast<NSDictionary *>(data.fontInfo.fontAttributeDictionary.get())) {
+        auto scaledFontSize = [fontAttributes[NSFontSizeAttribute] floatValue] * pageScaleFactor;
+
+        font = fontWithAttributes(fontAttributes, ((pageScaleFactor != 1) ? scaledFontSize : 0));
+        // font will be nil when using a custom font. However, we should still
+        // honor the font size, matching other browsers.
+        if (!font)
+            font = [NSFont menuFontOfSize:scaledFontSize];
+    } else
         font = [NSFont menuFontOfSize:0];
     
     END_BLOCK_OBJC_EXCEPTIONS
@@ -152,20 +159,18 @@ void WebPopupMenuProxyMac::showPopupMenu(const IntRect& rect, TextDirection text
 
     NSControlSize controlSize;
     switch (data.menuSize) {
-    case WebCore::PopupMenuStyle::PopupMenuSizeNormal:
+    case WebCore::PopupMenuStyle::Size::Normal:
         controlSize = NSControlSizeRegular;
         break;
-    case WebCore::PopupMenuStyle::PopupMenuSizeSmall:
+    case WebCore::PopupMenuStyle::Size::Small:
         controlSize = NSControlSizeSmall;
         break;
-    case WebCore::PopupMenuStyle::PopupMenuSizeMini:
+    case WebCore::PopupMenuStyle::Size::Mini:
         controlSize = NSControlSizeMini;
         break;
-#if HAVE(LARGE_CONTROL_SIZE)
-    case PopupMenuStyle::PopupMenuSizeLarge:
+    case WebCore::PopupMenuStyle::Size::Large:
         controlSize = NSControlSizeLarge;
         break;
-#endif
     }
 
     Ref<WebPopupMenuProxyMac> protect(*this);

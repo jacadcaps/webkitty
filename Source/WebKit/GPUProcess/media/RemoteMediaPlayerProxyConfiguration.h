@@ -28,6 +28,9 @@
 #if ENABLE(GPU_PROCESS)
 
 #include <WebCore/ContentType.h>
+#include <WebCore/FourCC.h>
+#include <WebCore/LayoutRect.h>
+#include <WebCore/PlatformTextTrack.h>
 #include <WebCore/SecurityOriginData.h>
 #include <wtf/text/WTFString.h>
 
@@ -39,93 +42,25 @@ struct RemoteMediaPlayerProxyConfiguration {
     String sourceApplicationIdentifier;
     String networkInterfaceName;
     Vector<WebCore::ContentType> mediaContentTypesRequiringHardwareSupport;
+    std::optional<Vector<String>> allowedMediaContainerTypes;
+    std::optional<Vector<String>> allowedMediaCodecTypes;
+    std::optional<Vector<WebCore::FourCC>> allowedMediaVideoCodecIDs;
+    std::optional<Vector<WebCore::FourCC>> allowedMediaAudioCodecIDs;
+    std::optional<Vector<WebCore::FourCC>> allowedMediaCaptionFormatTypes;
+    WebCore::LayoutRect playerContentBoxRect;
     Vector<String> preferredAudioCharacteristics;
+#if ENABLE(AVF_CAPTIONS)
+    Vector<WebCore::PlatformTextTrackData> outOfBandTrackData;
+#endif
     WebCore::SecurityOriginData documentSecurityOrigin;
+    WebCore::IntSize presentationSize { };
+    WebCore::FloatSize videoLayerSize { };
     uint64_t logIdentifier { 0 };
     bool shouldUsePersistentCache { false };
-    bool isVideo { 0 };
-
-    template<class Encoder>
-    void encode(Encoder& encoder) const
-    {
-        encoder << referrer;
-        encoder << userAgent;
-        encoder << sourceApplicationIdentifier;
-        encoder << networkInterfaceName;
-        encoder << mediaContentTypesRequiringHardwareSupport;
-        encoder << preferredAudioCharacteristics;
-        encoder << documentSecurityOrigin;
-        encoder << logIdentifier;
-        encoder << shouldUsePersistentCache;
-        encoder << isVideo;
-    }
-
-    template <class Decoder>
-    static Optional<RemoteMediaPlayerProxyConfiguration> decode(Decoder& decoder)
-    {
-        Optional<String> referrer;
-        decoder >> referrer;
-        if (!referrer)
-            return WTF::nullopt;
-
-        Optional<String> userAgent;
-        decoder >> userAgent;
-        if (!userAgent)
-            return WTF::nullopt;
-
-        Optional<String> sourceApplicationIdentifier;
-        decoder >> sourceApplicationIdentifier;
-        if (!sourceApplicationIdentifier)
-            return WTF::nullopt;
-
-        Optional<String> networkInterfaceName;
-        decoder >> networkInterfaceName;
-        if (!networkInterfaceName)
-            return WTF::nullopt;
-
-        Optional<Vector<WebCore::ContentType>> mediaContentTypesRequiringHardwareSupport;
-        decoder >> mediaContentTypesRequiringHardwareSupport;
-        if (!mediaContentTypesRequiringHardwareSupport)
-            return WTF::nullopt;
-
-        Optional<Vector<String>> preferredAudioCharacteristics;
-        decoder >> preferredAudioCharacteristics;
-        if (!preferredAudioCharacteristics)
-            return WTF::nullopt;
-
-        Optional<WebCore::SecurityOriginData> documentSecurityOrigin;
-        decoder >> documentSecurityOrigin;
-        if (!documentSecurityOrigin)
-            return WTF::nullopt;
-
-        Optional<uint64_t> logIdentifier;
-        decoder >> logIdentifier;
-        if (!logIdentifier)
-            return WTF::nullopt;
-
-        Optional<bool> shouldUsePersistentCache;
-        decoder >> shouldUsePersistentCache;
-        if (!shouldUsePersistentCache)
-            return WTF::nullopt;
-
-        Optional<bool> isVideo;
-        decoder >> isVideo;
-        if (!isVideo)
-            return WTF::nullopt;
-
-        return {{
-            WTFMove(*referrer),
-            WTFMove(*userAgent),
-            WTFMove(*sourceApplicationIdentifier),
-            WTFMove(*networkInterfaceName),
-            WTFMove(*mediaContentTypesRequiringHardwareSupport),
-            WTFMove(*preferredAudioCharacteristics),
-            WTFMove(*documentSecurityOrigin),
-            *logIdentifier,
-            *shouldUsePersistentCache,
-            *isVideo,
-        }};
-    }
+    bool isVideo { false };
+    bool renderingCanBeAccelerated { false };
+    bool prefersSandboxedParsing { false };
+    bool shouldDisableHDR { false };
 };
 
 } // namespace WebKit

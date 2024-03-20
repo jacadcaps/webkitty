@@ -28,41 +28,61 @@
 #include "config.h"
 #include "ScriptExecutionContext.h"
 
+#include "CSSValuePool.h"
 #include "CachedScript.h"
 #include "CommonVM.h"
+#include "CrossOriginOpenerPolicy.h"
 #include "DOMTimer.h"
-#include "DOMWindow.h"
 #include "DatabaseContext.h"
 #include "Document.h"
+#include "EmptyScriptExecutionContext.h"
 #include "ErrorEvent.h"
+#include "FontLoadRequest.h"
+#include "FrameDestructionObserverInlines.h"
 #include "JSDOMExceptionHandling.h"
-#include "JSDOMWindow.h"
+#include "JSDOMPromiseDeferred.h"
+#include "JSLocalDOMWindow.h"
+#include "JSWorkerGlobalScope.h"
+#include "JSWorkletGlobalScope.h"
 #include "LegacySchemeRegistry.h"
+#include "LocalDOMWindow.h"
 #include "MessagePort.h"
 #include "Navigator.h"
+#include "OriginAccessPatterns.h"
 #include "Page.h"
+#include "Performance.h"
 #include "PublicURLManager.h"
+#include "RTCDataChannelRemoteHandlerConnection.h"
 #include "RejectedPromiseTracker.h"
 #include "ResourceRequest.h"
 #include "SWClientConnection.h"
 #include "SWContextManager.h"
 #include "ScriptController.h"
 #include "ScriptDisallowedScope.h"
-#include "ScriptState.h"
 #include "ServiceWorker.h"
 #include "ServiceWorkerGlobalScope.h"
 #include "ServiceWorkerProvider.h"
 #include "Settings.h"
+#include "WebCoreJSClientData.h"
+#include "WebCoreOpaqueRoot.h"
 #include "WorkerGlobalScope.h"
+#include "WorkerLoaderProxy.h"
 #include "WorkerNavigator.h"
+#include "WorkerOrWorkletGlobalScope.h"
+#include "WorkerOrWorkletScriptController.h"
+#include "WorkerOrWorkletThread.h"
 #include "WorkerThread.h"
 #include "WorkletGlobalScope.h"
-#include "WorkletScriptController.h"
+#include <JavaScriptCore/CallFrame.h>
 #include <JavaScriptCore/CatchScope.h>
+#include <JavaScriptCore/DeferredWorkTimer.h>
 #include <JavaScriptCore/Exception.h>
 #include <JavaScriptCore/JSPromise.h>
 #include <JavaScriptCore/ScriptCallStack.h>
+#include <JavaScriptCore/StackVisitor.h>
 #include <JavaScriptCore/StrongInlines.h>
+#include <JavaScriptCore/VM.h>
+#include <wtf/Lock.h>
 #include <wtf/MainThread.h>
 #include <wtf/Ref.h>
 #include <wtf/SetForScope.h>
@@ -70,8 +90,10 @@
 namespace WebCore {
 using namespace Inspector;
 
+static std::atomic<CrossOriginMode> globalCrossOriginMode { CrossOriginMode::Shared };
+
 static Lock allScriptExecutionContextsMapLock;
-static HashMap<ScriptExecutionContextIdentifier, ScriptExecutionContext*>& allScriptExecutionContextsMap()
+static HashMap<ScriptExecutionContextIdentifier, ScriptExecutionContext*>& allScriptExecutionContextsMap() WTF_REQUIRES_LOCK(allScriptExecutionContextsMapLock)
 {
     static NeverDestroyed<HashMap<ScriptExecutionContextIdentifier, ScriptExecutionContext*>> contexts;
     ASSERT(allScriptExecutionContextsMapLock.isLocked());
@@ -96,31 +118,42 @@ public:
     RefPtr<ScriptCallStack> m_callStack;
 };
 
-ScriptExecutionContext::ScriptExecutionContext()
+ScriptExecutionContext::ScriptExecutionContext(Type type, ScriptExecutionContextIdentifier contextIdentifier)
+    : m_identifier(contextIdentifier ? contextIdentifier : ScriptExecutionContextIdentifier::generate())
+    , m_type(type)
 {
 }
 
-ScriptExecutionContextIdentifier ScriptExecutionContext::contextIdentifier() const
+std::unique_ptr<ContentSecurityPolicy> ScriptExecutionContext::makeEmptyContentSecurityPolicy()
 {
-    ASSERT(isContextThread());
-    if (!m_contextIdentifier) {
-        Locker<Lock> locker(allScriptExecutionContextsMapLock);
+    return makeUnique<ContentSecurityPolicy>(URL { emptyString() }, *this);
+}
 
-        m_contextIdentifier = ScriptExecutionContextIdentifier::generate();
+void ScriptExecutionContext::regenerateIdentifier()
+{
+    Locker locker { allScriptExecutionContextsMapLock };
 
-        ASSERT(!allScriptExecutionContextsMap().contains(m_contextIdentifier));
-        allScriptExecutionContextsMap().add(m_contextIdentifier, const_cast<ScriptExecutionContext*>(this));
-    }
-    return m_contextIdentifier;
+    ASSERT(allScriptExecutionContextsMap().contains(m_identifier));
+    allScriptExecutionContextsMap().remove(m_identifier);
+
+    m_identifier = ScriptExecutionContextIdentifier::generate();
+
+    ASSERT(!allScriptExecutionContextsMap().contains(m_identifier));
+    allScriptExecutionContextsMap().add(m_identifier, this);
+}
+
+void ScriptExecutionContext::addToContextsMap()
+{
+    Locker locker { allScriptExecutionContextsMapLock };
+    ASSERT(!allScriptExecutionContextsMap().contains(m_identifier));
+    allScriptExecutionContextsMap().add(m_identifier, this);
 }
 
 void ScriptExecutionContext::removeFromContextsMap()
 {
-    if (m_contextIdentifier) {
-        Locker<Lock> locker(allScriptExecutionContextsMapLock);
-        ASSERT(allScriptExecutionContextsMap().contains(m_contextIdentifier));
-        allScriptExecutionContextsMap().remove(m_contextIdentifier);
-    }
+    Locker locker { allScriptExecutionContextsMapLock };
+    ASSERT(allScriptExecutionContextsMap().contains(m_identifier));
+    allScriptExecutionContextsMap().remove(m_identifier);
 }
 
 #if !ASSERT_ENABLED
@@ -152,29 +185,39 @@ ScriptExecutionContext::~ScriptExecutionContext()
     checkConsistency();
 
 #if ASSERT_ENABLED
-    if (m_contextIdentifier) {
-        Locker<Lock> locker(allScriptExecutionContextsMapLock);
-        ASSERT_WITH_MESSAGE(!allScriptExecutionContextsMap().contains(m_contextIdentifier),
-            "A ScriptExecutionContext subclass instance implementing postTask should have already removed itself from the map");
+    {
+        Locker locker { allScriptExecutionContextsMapLock };
+        ASSERT_WITH_MESSAGE(!allScriptExecutionContextsMap().contains(m_identifier), "A ScriptExecutionContext subclass instance implementing postTask should have already removed itself from the map");
     }
 
     m_inScriptExecutionContextDestructor = true;
 #endif // ASSERT_ENABLED
 
-#if ENABLE(SERVICE_WORKER)
+    auto callbacks = WTFMove(m_notificationCallbacks);
+    for (auto& callback : callbacks.values())
+        callback();
+
+    auto postMessageCompletionHandlers = WTFMove(m_processMessageWithMessagePortsSoonHandlers);
+    for (auto& completionHandler : postMessageCompletionHandlers)
+        completionHandler();
+
     setActiveServiceWorker(nullptr);
-#endif
 
     while (auto* destructionObserver = m_destructionObservers.takeAny())
         destructionObserver->contextDestroyed();
+
+    setContentSecurityPolicy(nullptr);
 
 #if ASSERT_ENABLED
     m_inScriptExecutionContextDestructor = false;
 #endif
 }
 
-void ScriptExecutionContext::processMessageWithMessagePortsSoon()
+void ScriptExecutionContext::processMessageWithMessagePortsSoon(CompletionHandler<void()>&& completionHandler)
 {
+    ASSERT(isContextThread());
+    m_processMessageWithMessagePortsSoonHandlers.append(WTFMove(completionHandler));
+
     if (m_willprocessMessageWithMessagePortsSoon)
         return;
 
@@ -186,11 +229,14 @@ void ScriptExecutionContext::processMessageWithMessagePortsSoon()
 
 void ScriptExecutionContext::dispatchMessagePortEvents()
 {
+    ASSERT(isContextThread());
     checkConsistency();
 
     Ref<ScriptExecutionContext> protectedThis(*this);
     ASSERT(m_willprocessMessageWithMessagePortsSoon);
     m_willprocessMessageWithMessagePortsSoon = false;
+
+    auto completionHandlers = std::exchange(m_processMessageWithMessagePortsSoonHandlers, Vector<CompletionHandler<void()>> { });
 
     // Make a frozen copy of the ports so we can iterate while new ones might be added or destroyed.
     for (auto* messagePort : copyToVector(m_messagePorts)) {
@@ -200,20 +246,21 @@ void ScriptExecutionContext::dispatchMessagePortEvents()
         if (m_messagePorts.contains(messagePort) && messagePort->started())
             messagePort->dispatchMessages();
     }
+
+    for (auto& completionHandler : completionHandlers)
+        completionHandler();
 }
 
 void ScriptExecutionContext::createdMessagePort(MessagePort& messagePort)
 {
-    ASSERT((is<Document>(*this) && isMainThread())
-        || (is<WorkerGlobalScope>(*this) && downcast<WorkerGlobalScope>(*this).thread().thread() == &Thread::current()));
+    ASSERT(isContextThread());
 
     m_messagePorts.add(&messagePort);
 }
 
 void ScriptExecutionContext::destroyedMessagePort(MessagePort& messagePort)
 {
-    ASSERT((is<Document>(*this) && isMainThread())
-        || (is<WorkerGlobalScope>(*this) && downcast<WorkerGlobalScope>(*this).thread().thread() == &Thread::current()));
+    ASSERT(isContextThread());
 
     m_messagePorts.remove(&messagePort);
 }
@@ -222,13 +269,23 @@ void ScriptExecutionContext::didLoadResourceSynchronously(const URL&)
 {
 }
 
+CSSValuePool& ScriptExecutionContext::cssValuePool()
+{
+    return CSSValuePool::singleton();
+}
+
+std::unique_ptr<FontLoadRequest> ScriptExecutionContext::fontLoadRequest(const String&, bool, bool, LoadedFromOpaqueSource)
+{
+    return nullptr;
+}
+
 void ScriptExecutionContext::forEachActiveDOMObject(const Function<ShouldContinue(ActiveDOMObject&)>& apply) const
 {
     // It is not allowed to run arbitrary script or construct new ActiveDOMObjects while we are iterating over ActiveDOMObjects.
     // An ASSERT_WITH_SECURITY_IMPLICATION or RELEASE_ASSERT will fire if this happens, but it's important to code
     // suspend() / resume() / stop() functions so it will not happen!
     ScriptDisallowedScope scriptDisallowedScope;
-    SetForScope<bool> activeDOMObjectAdditionForbiddenScope(m_activeDOMObjectAdditionForbidden, true);
+    SetForScope activeDOMObjectAdditionForbiddenScope(m_activeDOMObjectAdditionForbidden, true);
 
     // Make a frozen copy of the objects so we can iterate while new ones might be destroyed.
     auto possibleActiveDOMObjects = copyToVector(m_activeDOMObjects);
@@ -244,6 +301,44 @@ void ScriptExecutionContext::forEachActiveDOMObject(const Function<ShouldContinu
         if (apply(*activeDOMObject) == ShouldContinue::No)
             break;
     }
+}
+
+JSC::ScriptExecutionStatus ScriptExecutionContext::jscScriptExecutionStatus() const
+{
+    if (activeDOMObjectsAreSuspended())
+        return JSC::ScriptExecutionStatus::Suspended;
+    if (activeDOMObjectsAreStopped())
+        return JSC::ScriptExecutionStatus::Stopped;
+    return JSC::ScriptExecutionStatus::Running;
+}
+
+URL ScriptExecutionContext::currentSourceURL() const
+{
+    auto* globalObject = this->globalObject();
+    if (!globalObject)
+        return { };
+
+    auto& vm = globalObject->vm();
+    auto* topCallFrame = vm.topCallFrame;
+    if (!topCallFrame)
+        return { };
+
+    URL sourceURL;
+    JSC::StackVisitor::visit(topCallFrame, vm, [&sourceURL](auto& visitor) {
+        if (visitor->isNativeFrame())
+            return IterationStatus::Continue;
+
+        auto urlString = visitor->sourceURL();
+        if (urlString.isEmpty())
+            return IterationStatus::Continue;
+
+        sourceURL = URL { WTFMove(urlString) };
+        if (sourceURL.isValid())
+            return IterationStatus::Continue;
+
+        return IterationStatus::Done;
+    });
+    return sourceURL;
 }
 
 void ScriptExecutionContext::suspendActiveDOMObjects(ReasonForSuspension why)
@@ -280,11 +375,13 @@ void ScriptExecutionContext::resumeActiveDOMObjects(ReasonForSuspension why)
         return ShouldContinue::Yes;
     });
 
+    vm().deferredWorkTimer->didResumeScriptExecutionOwner();
+
     m_activeDOMObjectsAreSuspended = false;
 
     // In case there were pending messages at the time the script execution context entered the BackForwardCache,
     // make sure those get dispatched shortly after restoring from the BackForwardCache.
-    processMessageWithMessagePortsSoon();
+    processMessageWithMessagePortsSoon([] { });
 }
 
 void ScriptExecutionContext::stopActiveDOMObjects()
@@ -298,6 +395,11 @@ void ScriptExecutionContext::stopActiveDOMObjects()
     forEachActiveDOMObject([](auto& activeDOMObject) {
         activeDOMObject.stop();
         return ShouldContinue::Yes;
+    });
+    m_deferredPromises.clear();
+
+    m_nativePromiseRequests.forEach([] (auto& request) {
+        request.disconnect();
     });
 }
 
@@ -337,19 +439,30 @@ void ScriptExecutionContext::willDestroyDestructionObserver(ContextDestructionOb
     m_destructionObservers.remove(&observer);
 }
 
+RefPtr<RTCDataChannelRemoteHandlerConnection> ScriptExecutionContext::createRTCDataChannelRemoteHandlerConnection()
+{
+    return nullptr;
+}
+
 // FIXME: Should this function be in SecurityContext or SecurityOrigin instead?
-bool ScriptExecutionContext::canIncludeErrorDetails(CachedScript* script, const String& sourceURL)
+bool ScriptExecutionContext::canIncludeErrorDetails(CachedScript* script, const String& sourceURL, bool fromModule)
 {
     ASSERT(securityOrigin());
+    // Errors from module scripts are never muted.
+    if (fromModule)
+        return true;
+    URL completeSourceURL = completeURL(sourceURL);
+    if (completeSourceURL.protocolIsData())
+        return true;
     if (script) {
         ASSERT(script->origin());
         ASSERT(securityOrigin()->toString() == script->origin()->toString());
         return script->isCORSSameOrigin();
     }
-    return securityOrigin()->canRequest(completeURL(sourceURL));
+    return securityOrigin()->canRequest(completeSourceURL, OriginAccessPatternsForWebProcess::singleton());
 }
 
-void ScriptExecutionContext::reportException(const String& errorMessage, int lineNumber, int columnNumber, const String& sourceURL, JSC::Exception* exception, RefPtr<ScriptCallStack>&& callStack, CachedScript* cachedScript)
+void ScriptExecutionContext::reportException(const String& errorMessage, int lineNumber, int columnNumber, const String& sourceURL, JSC::Exception* exception, RefPtr<ScriptCallStack>&& callStack, CachedScript* cachedScript, bool fromModule)
 {
     if (m_inDispatchErrorEvent) {
         if (!m_pendingExceptions)
@@ -359,7 +472,7 @@ void ScriptExecutionContext::reportException(const String& errorMessage, int lin
     }
 
     // First report the original exception and only then all the nested ones.
-    if (!dispatchErrorEvent(errorMessage, lineNumber, columnNumber, sourceURL, exception, cachedScript))
+    if (!dispatchErrorEvent(errorMessage, lineNumber, columnNumber, sourceURL, exception, cachedScript, fromModule))
         logExceptionToConsole(errorMessage, sourceURL, lineNumber, columnNumber, callStack.copyRef());
 
     if (!m_pendingExceptions)
@@ -373,19 +486,35 @@ void ScriptExecutionContext::reportException(const String& errorMessage, int lin
 void ScriptExecutionContext::reportUnhandledPromiseRejection(JSC::JSGlobalObject& state, JSC::JSPromise& promise, RefPtr<Inspector::ScriptCallStack>&& callStack)
 {
     Page* page = nullptr;
-    if (is<Document>(this))
-        page = downcast<Document>(this)->page();
+    if (auto* document = dynamicDowncast<Document>(*this))
+        page = document->page();
     // FIXME: allow Workers to mute unhandled promise rejection messages.
 
     if (page && !page->settings().unhandledPromiseRejectionToConsoleEnabled())
         return;
 
-    JSC::VM& vm = state.vm();
+    Ref vm = state.vm();
     auto scope = DECLARE_CATCH_SCOPE(vm);
-
     JSC::JSValue result = promise.result(vm);
     String resultMessage = retrieveErrorMessage(state, vm, result, scope);
-    String errorMessage = makeString("Unhandled Promise Rejection: ", resultMessage);
+    String errorMessage;
+
+    auto tryMakeErrorString = [&] (unsigned length) -> String {
+        bool addEllipsis = length != resultMessage.length();
+        return tryMakeString("Unhandled Promise Rejection: ", StringView(resultMessage).left(length), addEllipsis ? "..." : "");
+    };
+
+    if (!!resultMessage && !scope.exception()) {
+        constexpr unsigned maxLength = 200;
+        constexpr unsigned shortLength = 10;
+        errorMessage = tryMakeErrorString(std::min(resultMessage.length(), maxLength));
+        if (!errorMessage && resultMessage.length() > shortLength)
+            errorMessage = tryMakeErrorString(shortLength);
+    }
+
+    if (!errorMessage)
+        errorMessage = "Unhandled Promise Rejection"_s;
+
     std::unique_ptr<Inspector::ConsoleMessage> message;
     if (callStack)
         message = makeUnique<Inspector::ConsoleMessage>(MessageSource::JS, MessageType::Log, MessageLevel::Error, errorMessage, callStack.releaseNonNull());
@@ -396,17 +525,17 @@ void ScriptExecutionContext::reportUnhandledPromiseRejection(JSC::JSGlobalObject
 
 void ScriptExecutionContext::addConsoleMessage(MessageSource source, MessageLevel level, const String& message, const String& sourceURL, unsigned lineNumber, unsigned columnNumber, JSC::JSGlobalObject* state, unsigned long requestIdentifier)
 {
-    addMessage(source, level, message, sourceURL, lineNumber, columnNumber, 0, state, requestIdentifier);
+    addMessage(source, level, message, sourceURL, lineNumber, columnNumber, nullptr, state, requestIdentifier);
 }
 
-bool ScriptExecutionContext::dispatchErrorEvent(const String& errorMessage, int lineNumber, int columnNumber, const String& sourceURL, JSC::Exception* exception, CachedScript* cachedScript)
+bool ScriptExecutionContext::dispatchErrorEvent(const String& errorMessage, int lineNumber, int columnNumber, const String& sourceURL, JSC::Exception* exception, CachedScript* cachedScript, bool fromModule)
 {
-    auto* target = errorEventTarget();
+    RefPtr target = errorEventTarget();
     if (!target)
         return false;
 
     RefPtr<ErrorEvent> errorEvent;
-    if (canIncludeErrorDetails(cachedScript, sourceURL))
+    if (canIncludeErrorDetails(cachedScript, sourceURL, fromModule))
         errorEvent = ErrorEvent::create(errorMessage, sourceURL, lineNumber, columnNumber, { vm(), exception ? exception->value() : JSC::jsNull() });
     else
         errorEvent = ErrorEvent::create("Script error."_s, { }, 0, 0, { });
@@ -424,6 +553,11 @@ int ScriptExecutionContext::circularSequentialID()
     if (m_circularSequentialID <= 0)
         m_circularSequentialID = 1;
     return m_circularSequentialID;
+}
+
+Ref<JSC::VM> ScriptExecutionContext::protectedVM()
+{
+    return vm();
 }
 
 PublicURLManager& ScriptExecutionContext::publicURLManager()
@@ -453,8 +587,9 @@ Seconds ScriptExecutionContext::minimumDOMTimerInterval() const
 
 void ScriptExecutionContext::didChangeTimerAlignmentInterval()
 {
+    auto& eventLoop = this->eventLoop();
     for (auto& timer : m_timeouts.values())
-        timer->didChangeAlignmentInterval();
+        eventLoop.didChangeTimerAlignmentInterval(timer->timer());
 }
 
 Seconds ScriptExecutionContext::domTimerAlignmentInterval(bool) const
@@ -462,29 +597,20 @@ Seconds ScriptExecutionContext::domTimerAlignmentInterval(bool) const
     return DOMTimer::defaultAlignmentInterval();
 }
 
-JSC::VM& ScriptExecutionContext::vm()
-{
-    if (is<Document>(*this))
-        return commonVM();
-    if (is<WorkerGlobalScope>(*this))
-        return downcast<WorkerGlobalScope>(*this).script()->vm();
-#if ENABLE(CSS_PAINTING_API)
-    if (is<WorkletGlobalScope>(*this))
-        return downcast<WorkletGlobalScope>(*this).script()->vm();
-#endif
-
-    RELEASE_ASSERT_NOT_REACHED();
-    return commonVM();
-}
-
-RejectedPromiseTracker& ScriptExecutionContext::ensureRejectedPromiseTrackerSlow()
+RejectedPromiseTracker* ScriptExecutionContext::ensureRejectedPromiseTrackerSlow()
 {
     // ScriptExecutionContext::vm() in Worker is only available after WorkerGlobalScope initialization is done.
     // When initializing ScriptExecutionContext, vm() is not ready.
 
     ASSERT(!m_rejectedPromiseTracker);
-    m_rejectedPromiseTracker = makeUnique<RejectedPromiseTracker>(*this, vm());
-    return *m_rejectedPromiseTracker.get();
+    if (auto* globalScope = dynamicDowncast<WorkerOrWorkletGlobalScope>(*this)) {
+        auto* scriptController = globalScope->script();
+        // Do not re-create the promise tracker if we are in a worker / worklet whose execution is terminating.
+        if (!scriptController || scriptController->isTerminatingExecution())
+            return nullptr;
+    }
+    m_rejectedPromiseTracker = makeUnique<RejectedPromiseTracker>(*this, protectedVM());
+    return m_rejectedPromiseTracker.get();
 }
 
 void ScriptExecutionContext::removeRejectedPromiseTracker()
@@ -509,20 +635,17 @@ bool ScriptExecutionContext::hasPendingActivity() const
     return false;
 }
 
-JSC::JSGlobalObject* ScriptExecutionContext::execState()
+JSC::JSGlobalObject* ScriptExecutionContext::globalObject() const
 {
-    if (is<Document>(*this)) {
-        Document& document = downcast<Document>(*this);
-        auto* frame = document.frame();
+    if (auto* document = dynamicDowncast<Document>(*this)) {
+        auto frame = document->frame();
         return frame ? frame->script().globalObject(mainThreadNormalWorld()) : nullptr;
     }
 
-    if (is<WorkerGlobalScope>(*this))
-        return execStateFromWorkerGlobalScope(downcast<WorkerGlobalScope>(*this));
-#if ENABLE(CSS_PAINTING_API)
-    if (is<WorkletGlobalScope>(*this))
-        return execStateFromWorkletGlobalScope(downcast<WorkletGlobalScope>(*this));
-#endif
+    if (auto* globalScope = dynamicDowncast<WorkerOrWorkletGlobalScope>(*this)) {
+        auto script = globalScope->script();
+        return script ? script->globalScopeWrapper() : nullptr;
+    }
 
     ASSERT_NOT_REACHED();
     return nullptr;
@@ -530,22 +653,27 @@ JSC::JSGlobalObject* ScriptExecutionContext::execState()
 
 String ScriptExecutionContext::domainForCachePartition() const
 {
-    return m_domainForCachePartition.isNull() ? topOrigin().domainForCachePartition() : m_domainForCachePartition;
+    if (!m_domainForCachePartition.isNull())
+        return m_domainForCachePartition;
+
+    if (m_storageBlockingPolicy != StorageBlockingPolicy::BlockThirdParty)
+        return emptyString();
+
+    return topOrigin().domainForCachePartition();
 }
 
 bool ScriptExecutionContext::allowsMediaDevices() const
 {
 #if ENABLE(MEDIA_STREAM)
-    if (!is<Document>(*this))
+    auto* document = dynamicDowncast<Document>(*this);
+    if (!document)
         return false;
-    auto page = downcast<Document>(*this).page();
+    auto page = document->page();
     return page ? !page->settings().mediaCaptureRequiresSecureConnection() : false;
 #else
     return false;
 #endif
 }
-
-#if ENABLE(SERVICE_WORKER)
 
 ServiceWorker* ScriptExecutionContext::activeServiceWorker() const
 {
@@ -571,8 +699,8 @@ void ScriptExecutionContext::unregisterServiceWorker(ServiceWorker& serviceWorke
 ServiceWorkerContainer* ScriptExecutionContext::serviceWorkerContainer()
 {
     NavigatorBase* navigator = nullptr;
-    if (is<Document>(*this)) {
-        if (auto* window = downcast<Document>(*this).domWindow())
+    if (auto* document = dynamicDowncast<Document>(*this)) {
+        if (auto* window = document->domWindow())
             navigator = window->optionalNavigator();
     } else
         navigator = downcast<WorkerGlobalScope>(*this).optionalNavigator();
@@ -583,8 +711,8 @@ ServiceWorkerContainer* ScriptExecutionContext::serviceWorkerContainer()
 ServiceWorkerContainer* ScriptExecutionContext::ensureServiceWorkerContainer()
 {
     NavigatorBase* navigator = nullptr;
-    if (is<Document>(*this)) {
-        if (auto* window = downcast<Document>(*this).domWindow())
+    if (auto* document = dynamicDowncast<Document>(*this)) {
+        if (auto* window = document->domWindow())
             navigator = &window->navigator();
     } else
         navigator = &downcast<WorkerGlobalScope>(*this).navigator();
@@ -592,11 +720,21 @@ ServiceWorkerContainer* ScriptExecutionContext::ensureServiceWorkerContainer()
     return navigator ? &navigator->serviceWorker() : nullptr;
 }
 
-#endif
+void ScriptExecutionContext::setCrossOriginMode(CrossOriginMode crossOriginMode)
+{
+    globalCrossOriginMode = crossOriginMode;
+    if (crossOriginMode == CrossOriginMode::Isolated)
+        Performance::allowHighPrecisionTime();
+}
+
+CrossOriginMode ScriptExecutionContext::crossOriginMode()
+{
+    return globalCrossOriginMode;
+}
 
 bool ScriptExecutionContext::postTaskTo(ScriptExecutionContextIdentifier identifier, Task&& task)
 {
-    Locker<Lock> locker(allScriptExecutionContextsMapLock);
+    Locker locker { allScriptExecutionContextsMapLock };
     auto* context = allScriptExecutionContextsMap().get(identifier);
 
     if (!context)
@@ -604,6 +742,228 @@ bool ScriptExecutionContext::postTaskTo(ScriptExecutionContextIdentifier identif
 
     context->postTask(WTFMove(task));
     return true;
+}
+
+bool ScriptExecutionContext::postTaskForModeToWorkerOrWorklet(ScriptExecutionContextIdentifier identifier, Task&& task, const String& mode)
+{
+    Locker locker { allScriptExecutionContextsMapLock };
+    auto* context = dynamicDowncast<WorkerOrWorkletGlobalScope>(allScriptExecutionContextsMap().get(identifier));
+
+    if (!context)
+        return false;
+
+    context->postTaskForMode(WTFMove(task), mode);
+    return true;
+}
+
+bool ScriptExecutionContext::ensureOnContextThread(ScriptExecutionContextIdentifier identifier, Task&& task)
+{
+    ScriptExecutionContext* context = nullptr;
+    {
+        Locker locker { allScriptExecutionContextsMapLock };
+        context = allScriptExecutionContextsMap().get(identifier);
+
+        if (!context)
+            return false;
+
+        if (!context->isContextThread()) {
+            context->postTask(WTFMove(task));
+            return true;
+        }
+    }
+
+    task.performTask(*context);
+    return true;
+}
+
+void ScriptExecutionContext::postTaskToResponsibleDocument(Function<void(Document&)>&& callback)
+{
+    if (auto* document = dynamicDowncast<Document>(*this)) {
+        callback(*document);
+        return;
+    }
+
+    auto* workerOrWorketGlobalScope = dynamicDowncast<WorkerOrWorkletGlobalScope>(*this);
+    ASSERT(workerOrWorketGlobalScope);
+    if (!workerOrWorketGlobalScope)
+        return;
+
+    if (RefPtr thread = workerOrWorketGlobalScope->workerOrWorkletThread()) {
+        if (auto* workerLoaderProxy = thread->workerLoaderProxy()) {
+            workerLoaderProxy->postTaskToLoader([callback = WTFMove(callback)](auto&& context) {
+                callback(downcast<Document>(context));
+            });
+        }
+        return;
+    }
+
+    if (auto document = downcast<WorkletGlobalScope>(*this).responsibleDocument())
+        callback(*document);
+}
+
+static bool isOriginEquivalentToLocal(const SecurityOrigin& origin)
+{
+    return origin.isLocal() && !origin.needsStorageAccessFromFileURLsQuirk() && !origin.hasUniversalAccess();
+}
+
+ScriptExecutionContext::HasResourceAccess ScriptExecutionContext::canAccessResource(ResourceType type) const
+{
+    auto* origin = securityOrigin();
+    if (!origin || origin->isOpaque())
+        return HasResourceAccess::No;
+
+    switch (type) {
+    case ResourceType::Cookies:
+    case ResourceType::Geolocation:
+        return HasResourceAccess::Yes;
+    case ResourceType::ApplicationCache:
+    case ResourceType::Plugin:
+    case ResourceType::WebSQL:
+    case ResourceType::IndexedDB:
+    case ResourceType::LocalStorage:
+    case ResourceType::StorageManager:
+        if (isOriginEquivalentToLocal(*origin))
+            return HasResourceAccess::No;
+        FALLTHROUGH;
+    case ResourceType::SessionStorage:
+        if (m_storageBlockingPolicy == StorageBlockingPolicy::BlockAll)
+            return HasResourceAccess::No;
+        if ((m_storageBlockingPolicy == StorageBlockingPolicy::BlockThirdParty) && !topOrigin().isSameOriginAs(*origin) && !origin->hasUniversalAccess())
+            return HasResourceAccess::DefaultForThirdParty;
+        return HasResourceAccess::Yes;
+    }
+    RELEASE_ASSERT_NOT_REACHED();
+}
+
+ScriptExecutionContext::NotificationCallbackIdentifier ScriptExecutionContext::addNotificationCallback(CompletionHandler<void()>&& callback)
+{
+    auto identifier = NotificationCallbackIdentifier::generate();
+    m_notificationCallbacks.add(identifier, WTFMove(callback));
+    return identifier;
+}
+
+CompletionHandler<void()> ScriptExecutionContext::takeNotificationCallback(NotificationCallbackIdentifier identifier)
+{
+    return m_notificationCallbacks.take(identifier);
+}
+
+void ScriptExecutionContext::addDeferredPromise(Ref<DeferredPromise>&& promise)
+{
+    m_deferredPromises.add(WTFMove(promise));
+}
+
+RefPtr<DeferredPromise> ScriptExecutionContext::takeDeferredPromise(DeferredPromise* promise)
+{
+    return m_deferredPromises.take(promise);
+}
+
+CheckedRef<EventLoopTaskGroup> ScriptExecutionContext::checkedEventLoop()
+{
+    return eventLoop();
+}
+
+void ScriptExecutionContext::ref()
+{
+    switch (m_type) {
+    case Type::Document:
+        uncheckedDowncast<Document>(*this).ref();
+        break;
+    case Type::WorkerOrWorkletGlobalScope:
+        uncheckedDowncast<WorkerOrWorkletGlobalScope>(*this).ref();
+        break;
+    case Type::EmptyScriptExecutionContext:
+        uncheckedDowncast<EmptyScriptExecutionContext>(*this).ref();
+        break;
+    }
+}
+
+void ScriptExecutionContext::deref()
+{
+    switch (m_type) {
+    case Type::Document:
+        uncheckedDowncast<Document>(*this).deref();
+        break;
+    case Type::WorkerOrWorkletGlobalScope:
+        uncheckedDowncast<WorkerOrWorkletGlobalScope>(*this).deref();
+        break;
+    case Type::EmptyScriptExecutionContext:
+        uncheckedDowncast<EmptyScriptExecutionContext>(*this).deref();
+        break;
+    }
+}
+
+void ScriptExecutionContext::refAllowingPartiallyDestroyed()
+{
+    switch (m_type) {
+    case Type::Document:
+        uncheckedDowncast<Document>(*this).refAllowingPartiallyDestroyed();
+        break;
+    case Type::WorkerOrWorkletGlobalScope:
+        uncheckedDowncast<WorkerOrWorkletGlobalScope>(*this).refAllowingPartiallyDestroyed();
+        break;
+    case Type::EmptyScriptExecutionContext:
+        uncheckedDowncast<EmptyScriptExecutionContext>(*this).refAllowingPartiallyDestroyed();
+        break;
+    }
+}
+
+void ScriptExecutionContext::derefAllowingPartiallyDestroyed()
+{
+    switch (m_type) {
+    case Type::Document:
+        uncheckedDowncast<Document>(*this).derefAllowingPartiallyDestroyed();
+        break;
+    case Type::WorkerOrWorkletGlobalScope:
+        uncheckedDowncast<WorkerOrWorkletGlobalScope>(*this).derefAllowingPartiallyDestroyed();
+        break;
+    case Type::EmptyScriptExecutionContext:
+        uncheckedDowncast<EmptyScriptExecutionContext>(*this).derefAllowingPartiallyDestroyed();
+        break;
+    }
+}
+
+class ScriptExecutionContextDispatcher final
+    : public ThreadSafeRefCounted<ScriptExecutionContextDispatcher>
+    , public RefCountedSerialFunctionDispatcher {
+public:
+    static Ref<ScriptExecutionContextDispatcher> create(ScriptExecutionContext& context) { return adoptRef(*new ScriptExecutionContextDispatcher(context)); }
+
+    // RefCountedSerialFunctionDispatcher
+    void ref() const final { ThreadSafeRefCounted::ref(); }
+    void deref() const final { ThreadSafeRefCounted::deref(); }
+
+private:
+    explicit ScriptExecutionContextDispatcher(ScriptExecutionContext& context)
+        : m_identifier(context.identifier())
+        , m_threadId(context.isWorkerGlobalScope() ? Thread::current().uid() : 1)
+    {
+    }
+
+    // RefCountedSerialFunctionDispatcher
+    void dispatch(Function<void()>&& callback) final
+    {
+        if (m_threadId == 1) {
+            callOnMainThread(WTFMove(callback));
+            return;
+        }
+        ScriptExecutionContext::postTaskTo(m_identifier, WTFMove(callback));
+    }
+    bool isCurrent() const final { return m_threadId == Thread::current().uid(); }
+
+    ScriptExecutionContextIdentifier m_identifier;
+    const uint32_t m_threadId { 1 };
+};
+
+RefCountedSerialFunctionDispatcher& ScriptExecutionContext::nativePromiseDispatcher()
+{
+    if (!m_nativePromiseDispatcher)
+        m_nativePromiseDispatcher = ScriptExecutionContextDispatcher::create(*this);
+    return *m_nativePromiseDispatcher;
+}
+
+WebCoreOpaqueRoot root(ScriptExecutionContext* context)
+{
+    return WebCoreOpaqueRoot { context };
 }
 
 } // namespace WebCore

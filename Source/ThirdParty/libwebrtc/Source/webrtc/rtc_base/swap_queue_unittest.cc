@@ -135,7 +135,7 @@ TEST(SwapQueueTest, SuccessfulItemVerifyFunctor) {
 }
 
 #if RTC_DCHECK_IS_ON && GTEST_HAS_DEATH_TEST && !defined(WEBRTC_ANDROID)
-TEST(SwapQueueTest, UnsuccessfulItemVerifyFunctor) {
+TEST(SwapQueueDeathTest, UnsuccessfulItemVerifyFunctor) {
   // Queue item verifier for the test.
   auto minus_2_verifier = [](const int& i) { return i > -2; };
   SwapQueue<int, decltype(minus_2_verifier)> queue(2, minus_2_verifier);
@@ -144,21 +144,19 @@ TEST(SwapQueueTest, UnsuccessfulItemVerifyFunctor) {
   int invalid_value = -4;
   EXPECT_TRUE(queue.Insert(&valid_value));
   EXPECT_TRUE(queue.Remove(&valid_value));
-  bool result;
-  EXPECT_DEATH(result = queue.Insert(&invalid_value), "");
+  EXPECT_DEATH((void)queue.Insert(&invalid_value), "");
 }
 
-TEST(SwapQueueTest, UnSuccessfulItemVerifyInsert) {
+TEST(SwapQueueDeathTest, UnSuccessfulItemVerifyInsert) {
   std::vector<int> template_element(kChunkSize);
   SwapQueue<std::vector<int>,
             SwapQueueItemVerifier<std::vector<int>, &LengthVerifierFunction>>
       queue(2, template_element);
   std::vector<int> invalid_chunk(kChunkSize - 1, 0);
-  bool result;
-  EXPECT_DEATH(result = queue.Insert(&invalid_chunk), "");
+  EXPECT_DEATH((void)queue.Insert(&invalid_chunk), "");
 }
 
-TEST(SwapQueueTest, UnSuccessfulItemVerifyRemove) {
+TEST(SwapQueueDeathTest, UnSuccessfulItemVerifyRemove) {
   std::vector<int> template_element(kChunkSize);
   SwapQueue<std::vector<int>,
             SwapQueueItemVerifier<std::vector<int>, &LengthVerifierFunction>>
@@ -167,8 +165,7 @@ TEST(SwapQueueTest, UnSuccessfulItemVerifyRemove) {
   std::vector<int> valid_chunk(kChunkSize, 0);
   EXPECT_TRUE(queue.Insert(&valid_chunk));
   EXPECT_EQ(valid_chunk.size(), kChunkSize);
-  bool result;
-  EXPECT_DEATH(result = queue.Remove(&invalid_chunk), "");
+  EXPECT_DEATH((void)queue.Remove(&invalid_chunk), "");
 }
 #endif
 

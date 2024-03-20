@@ -12,12 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef ABSL_BASE_INLINE_VARIABLE_TESTING_H_
-#define ABSL_BASE_INLINE_VARIABLE_TESTING_H_
+#ifndef ABSL_BASE_INTERNAL_INLINE_VARIABLE_TESTING_H_
+#define ABSL_BASE_INTERNAL_INLINE_VARIABLE_TESTING_H_
 
 #include "absl/base/internal/inline_variable.h"
 
 namespace absl {
+ABSL_NAMESPACE_BEGIN
 namespace inline_variable_testing_internal {
 
 struct Foo {
@@ -39,6 +40,7 @@ const int& get_int_a();
 const int& get_int_b();
 
 }  // namespace inline_variable_testing_internal
+ABSL_NAMESPACE_END
 }  // namespace absl
 
-#endif  // ABSL_BASE_INLINE_VARIABLE_TESTING_H_
+#endif  // ABSL_BASE_INTERNAL_INLINE_VARIABLE_TESTING_H_

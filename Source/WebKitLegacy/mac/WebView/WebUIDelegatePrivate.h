@@ -28,13 +28,8 @@
 
 #import <WebKitLegacy/WebAllowDenyPolicyListener.h>
 #import <WebKitLegacy/WebUIDelegate.h>
-
-#if !defined(ENABLE_DASHBOARD_SUPPORT)
-#if !TARGET_OS_IPHONE
-#define ENABLE_DASHBOARD_SUPPORT 1
-#else
-#define ENABLE_DASHBOARD_SUPPORT 0
-#endif
+#if TARGET_OS_IPHONE
+#import <WebKitLegacy/WAKView.h>
 #endif
 
 #if !defined(ENABLE_FULLSCREEN_API)
@@ -107,6 +102,14 @@ enum {
     WebMenuItemTagToggleVideoFullscreen,
     WebMenuItemTagShareMenu,
     WebMenuItemTagToggleVideoEnhancedFullscreen,
+    WebMenuItemTagAddHighlightToCurrentQuickNote,
+    WebMenuItemTagAddHighlightToNewQuickNote,
+    WebMenuItemTagRevealImage,
+    WebMenuItemTagTranslate,
+    WebMenuItemTagPlayAllAnimations,
+    WebMenuItemTagPauseAllAnimations,
+    WebMenuItemTagPlayAnimation,
+    WebMenuItemTagPauseAnimation,
 };
 
 // Deprecated; remove when there are no more clients.
@@ -200,12 +203,10 @@ extern NSString *WebConsoleMessageErrorMessageLevel;
 */
 - (void)webView:(WebView *)webView addMessageToConsole:(NSDictionary *)message withSource:(NSString *)source;
 
+#if TARGET_OS_IPHONE
+- (WAKView *)webView:(WebView *)webView plugInViewWithArguments:(NSDictionary *)arguments;
+#else
 - (NSView *)webView:(WebView *)webView plugInViewWithArguments:(NSDictionary *)arguments;
-
-#if ENABLE_DASHBOARD_SUPPORT
-// FIXME: Remove this method once it is verified no one is dependent on it.
-// regions is an dictionary whose keys are regions label and values are arrays of WebDashboardRegions.
-- (void)webView:(WebView *)webView dashboardRegionsChanged:(NSDictionary *)regions;
 #endif
 
 #if !TARGET_OS_IPHONE
@@ -311,7 +312,5 @@ extern NSString *WebConsoleMessageErrorMessageLevel;
 #endif
 
 - (NSData *)webCryptoMasterKeyForWebView:(WebView *)sender;
-
-- (NSString *)signedPublicKeyAndChallengeStringForWebView:(WebView *)sender;
 
 @end

@@ -25,21 +25,19 @@
 
 #pragma once
 
-#include <wtf/EnumTraits.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
 class Credential;
 
-enum CredentialPersistence {
-    CredentialPersistenceNone,
-    CredentialPersistenceForSession,
-    CredentialPersistencePermanent
+enum class CredentialPersistence : uint8_t {
+    None,
+    ForSession,
+    Permanent
 };
 
 class CredentialBase {
-
 public:
     WEBCORE_EXPORT bool isEmpty() const;
     
@@ -51,6 +49,16 @@ public:
     bool encodingRequiresPlatformData() const { return false; }
 
     WEBCORE_EXPORT static bool compare(const Credential&, const Credential&);
+
+    WEBCORE_EXPORT String serializationForBasicAuthorizationHeader() const;
+
+    struct NonPlatformData {
+        String user;
+        String password;
+        CredentialPersistence persistence;
+    };
+
+    WEBCORE_EXPORT NonPlatformData nonPlatformData() const;
 
 protected:
     WEBCORE_EXPORT CredentialBase();
@@ -66,19 +74,5 @@ private:
 };
 
 inline bool operator==(const Credential& a, const Credential& b) { return CredentialBase::compare(a, b); }
-inline bool operator!=(const Credential& a, const Credential& b) { return !(a == b); }
     
 } // namespace WebCore
-
-namespace WTF {
-
-template<> struct EnumTraits<WebCore::CredentialPersistence> {
-    using values = EnumValues<
-        WebCore::CredentialPersistence,
-        WebCore::CredentialPersistence::CredentialPersistenceNone,
-        WebCore::CredentialPersistence::CredentialPersistenceForSession,
-        WebCore::CredentialPersistence::CredentialPersistencePermanent
-    >;
-};
-
-} // namespace WTF

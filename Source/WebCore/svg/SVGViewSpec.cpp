@@ -34,7 +34,7 @@ namespace WebCore {
 
 SVGViewSpec::SVGViewSpec(SVGElement& contextElement)
     : SVGFitToViewBox(&contextElement, SVGPropertyAccess::ReadOnly)
-    , m_contextElement(makeWeakPtr(contextElement))
+    , m_contextElement(contextElement)
     , m_transform(SVGTransformList::create(&contextElement, SVGPropertyAccess::ReadOnly))
 {
     static std::once_flag onceFlag;
@@ -43,14 +43,11 @@ SVGViewSpec::SVGViewSpec(SVGElement& contextElement)
     });
 }
 
-SVGElement* SVGViewSpec::viewTarget() const
+RefPtr<SVGElement> SVGViewSpec::viewTarget() const
 {
     if (!m_contextElement)
         return nullptr;
-    auto* element = m_contextElement->treeScope().getElementById(m_viewTargetString);
-    if (!is<SVGElement>(element))
-        return nullptr;
-    return downcast<SVGElement>(element);
+    return dynamicDowncast<SVGElement>(m_contextElement->treeScope().getElementById(m_viewTargetString));
 }
 
 void SVGViewSpec::reset()
@@ -68,7 +65,7 @@ template<typename CharacterType> static constexpr CharacterType transformSpec[] 
 template<typename CharacterType> static constexpr CharacterType zoomAndPanSpec[] = {'z', 'o', 'o', 'm', 'A', 'n', 'd', 'P', 'a', 'n'};
 template<typename CharacterType> static constexpr CharacterType viewTargetSpec[] =  {'v', 'i', 'e', 'w', 'T', 'a', 'r', 'g', 'e', 't'};
 
-bool SVGViewSpec::parseViewSpec(const StringView& string)
+bool SVGViewSpec::parseViewSpec(StringView string)
 {
     return readCharactersForParsing(string, [&](auto buffer) -> bool {
         using CharacterType = typename decltype(buffer)::CharacterType;

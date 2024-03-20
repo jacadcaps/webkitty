@@ -25,13 +25,15 @@
 
 #pragma once
 
-#if ENABLE(WEBGL)
-
 #include "WebGLExtension.h"
+#include "WebGLRenderingContextBase.h"
+#include <wtf/IsoMalloc.h>
+#include <wtf/Noncopyable.h>
 
 namespace WebCore {
 
-class WebGLDebugRendererInfo final : public WebGLExtension {
+class WebGLDebugRendererInfo final : public WebGLExtension<WebGLRenderingContextBase> {
+    WTF_MAKE_ISO_ALLOCATED(WebGLDebugRendererInfo);
 public:
     enum EnumType {
         UNMASKED_VENDOR_WEBGL = 0x9245,
@@ -39,11 +41,7 @@ public:
     };
 
     explicit WebGLDebugRendererInfo(WebGLRenderingContextBase&);
-    virtual ~WebGLDebugRendererInfo();
-
-    ExtensionName getName() const override;
+    ~WebGLDebugRendererInfo();
 };
 
 } // namespace WebCore
-
-#endif

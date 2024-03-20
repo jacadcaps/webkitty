@@ -29,6 +29,8 @@
 
 #if ENABLE(MATHML)
 
+#include "ElementInlines.h"
+#include "NodeName.h"
 #include "RenderMathMLOperator.h"
 #include <wtf/IsoMallocInlines.h>
 #include <wtf/unicode/CharacterNames.h>
@@ -79,11 +81,11 @@ Property MathMLOperatorElement::computeDictionaryProperty()
     // We first determine the form attribute and use the default spacing and properties.
     const auto& value = attributeWithoutSynchronization(formAttr);
     bool explicitForm = true;
-    if (value == "prefix")
+    if (value == "prefix"_s)
         dictionaryProperty.form = Prefix;
-    else if (value == "infix")
+    else if (value == "infix"_s)
         dictionaryProperty.form = Infix;
-    else if (value == "postfix")
+    else if (value == "postfix"_s)
         dictionaryProperty.form = Postfix;
     else {
         // FIXME: We should use more advanced heuristics indicated in the specification to determine the operator form (https://bugs.webkit.org/show_bug.cgi?id=124829).
@@ -136,7 +138,7 @@ void MathMLOperatorElement::computeOperatorFlag(MathMLOperatorDictionary::Flag f
 {
     ASSERT(m_properties.dirtyFlags & flag);
 
-    Optional<BooleanValue> property;
+    std::optional<BooleanValue> property;
     const auto& name = propertyFlagToAttributeName(flag);
     const BooleanValue& value = cachedBooleanAttribute(name, property);
     switch (value) {
@@ -203,59 +205,71 @@ const MathMLElement::Length& MathMLOperatorElement::maxSize()
 
 void MathMLOperatorElement::childrenChanged(const ChildChange& change)
 {
-    m_operatorChar = WTF::nullopt;
-    m_dictionaryProperty = WTF::nullopt;
+    m_operatorChar = std::nullopt;
+    m_dictionaryProperty = std::nullopt;
     m_properties.dirtyFlags = MathMLOperatorDictionary::allFlags;
     MathMLTokenElement::childrenChanged(change);
 }
 
-static Optional<MathMLOperatorDictionary::Flag> attributeNameToPropertyFlag(const QualifiedName& name)
+void MathMLOperatorElement::attributeChanged(const QualifiedName& name, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason attributeModificationReason)
 {
-    if (name == accentAttr)
-        return Accent;
-    if (name == fenceAttr)
-        return Fence;
-    if (name == largeopAttr)
-        return LargeOp;
-    if (name == movablelimitsAttr)
-        return MovableLimits;
-    if (name == separatorAttr)
-        return Separator;
-    if (name == stretchyAttr)
-        return Stretchy;
-    if (name == symmetricAttr)
-        return Symmetric;
-    return WTF::nullopt;
-}
-
-void MathMLOperatorElement::parseAttribute(const QualifiedName& name, const AtomString& value)
-{
-    if (name == formAttr) {
-        m_dictionaryProperty = WTF::nullopt;
+    switch (name.nodeName()) {
+    case AttributeNames::formAttr:
+        m_dictionaryProperty = std::nullopt;
         m_properties.dirtyFlags = MathMLOperatorDictionary::allFlags;
-    } else if (auto flag = attributeNameToPropertyFlag(name))
-        m_properties.dirtyFlags |= flag.value();
-    else if (name == lspaceAttr)
-        m_leadingSpace = WTF::nullopt;
-    else if (name == rspaceAttr)
-        m_trailingSpace = WTF::nullopt;
-    else if (name == minsizeAttr)
-        m_minSize = WTF::nullopt;
-    else if (name == maxsizeAttr)
-        m_maxSize = WTF::nullopt;
-
-    if ((name == stretchyAttr || name == lspaceAttr || name == rspaceAttr || name == movablelimitsAttr) && renderer()) {
-        downcast<RenderMathMLOperator>(*renderer()).updateFromElement();
-        return;
+        break;
+    case AttributeNames::lspaceAttr:
+        m_leadingSpace = std::nullopt;
+        if (renderer())
+            downcast<RenderMathMLOperator>(*renderer()).updateFromElement();
+        break;
+    case AttributeNames::rspaceAttr:
+        m_trailingSpace = std::nullopt;
+        if (renderer())
+            downcast<RenderMathMLOperator>(*renderer()).updateFromElement();
+        break;
+    case AttributeNames::minsizeAttr:
+        m_minSize = std::nullopt;
+        break;
+    case AttributeNames::maxsizeAttr:
+        m_maxSize = std::nullopt;
+        break;
+    case AttributeNames::stretchyAttr:
+        m_properties.dirtyFlags |= Stretchy;
+        if (renderer())
+            downcast<RenderMathMLOperator>(*renderer()).updateFromElement();
+        break;
+    case AttributeNames::movablelimitsAttr:
+        m_properties.dirtyFlags |= MovableLimits;
+        if (renderer())
+            downcast<RenderMathMLOperator>(*renderer()).updateFromElement();
+        break;
+    case AttributeNames::accentAttr:
+        m_properties.dirtyFlags |= Accent;
+        break;
+    case AttributeNames::fenceAttr:
+        m_properties.dirtyFlags |= Fence;
+        break;
+    case AttributeNames::largeopAttr:
+        m_properties.dirtyFlags |= LargeOp;
+        break;
+    case AttributeNames::separatorAttr:
+        m_properties.dirtyFlags |= Separator;
+        break;
+    case AttributeNames::symmetricAttr:
+        m_properties.dirtyFlags |= Symmetric;
+        break;
+    default:
+        break;
     }
 
-    MathMLTokenElement::parseAttribute(name, value);
+    MathMLTokenElement::attributeChanged(name, oldValue, newValue, attributeModificationReason);
 }
 
 RenderPtr<RenderElement> MathMLOperatorElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
 {
     ASSERT(hasTagName(MathMLNames::moTag));
-    return createRenderer<RenderMathMLOperator>(*this, WTFMove(style));
+    return createRenderer<RenderMathMLOperator>(RenderObject::Type::MathMLOperator, *this, WTFMove(style));
 }
 
 }

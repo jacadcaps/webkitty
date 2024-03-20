@@ -1,4 +1,5 @@
 # Copyright (C) 2013 Adobe Systems Incorporated. All rights reserved.
+# Copyright (C) 2020 Apple Inc. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -32,10 +33,11 @@ import unittest
 from webkitcorepy import unicode
 
 from webkitpy.common.host import Host
-from webkitpy.common.system.outputcapture import OutputCapture
 from webkitpy.common.webkit_finder import WebKitFinder
 from webkitpy.thirdparty.BeautifulSoup import BeautifulSoup
 from webkitpy.w3c.test_converter import _W3CTestConverter
+
+from webkitcorepy import OutputCapture
 
 DUMMY_FILENAME = 'dummy.html'
 DUMMY_PATH = 'dummy/testharness/path'
@@ -78,19 +80,16 @@ CSS FOR TEST
 </head>
 <body>
 CONTENT OF TEST
+&lt;We shouldn't convert HTML characters.&gt;
 </body>
 </html>
 """
         converter = _W3CTestConverter(DUMMY_PATH, DUMMY_FILENAME, None)
 
-        oc = OutputCapture()
-        oc.capture_output()
-        try:
+        with OutputCapture():
             converter.feed(test_html)
             converter.close()
             converted = converter.output()
-        finally:
-            oc.restore_output()
 
         self.verify_no_conversion_happened(converted, test_html)
 
@@ -109,7 +108,7 @@ CONTENT OF TEST
         converted = converter.output()
 
         self.verify_conversion_happened(converted)
-        self.verify_test_harness_paths(converter, converted[2], fake_dir_path, 1, 1)
+        self.verify_test_harness_paths(converted[2], 1, 1)
         self.verify_prefixed_properties(converted, [])
         self.verify_prefixed_property_values(converted, [])
 
@@ -135,17 +134,13 @@ CONTENT OF TEST
         converter = _W3CTestConverter(fake_dir_path, DUMMY_FILENAME, None)
         test_content = self.generate_test_content_properties_and_values(converter.prefixed_properties, converter.prefixed_property_values, 1, test_html)
 
-        oc = OutputCapture()
-        oc.capture_output()
-        try:
+        with OutputCapture():
             converter.feed(test_content[2])
             converter.close()
             converted = converter.output()
-        finally:
-            oc.restore_output()
 
         self.verify_conversion_happened(converted)
-        self.verify_test_harness_paths(converter, converted[2], fake_dir_path, 1, 1)
+        self.verify_test_harness_paths(converted[2], 1, 1)
         self.verify_prefixed_properties(converted, test_content[0])
         self.verify_prefixed_property_values(converted, test_content[1])
 
@@ -172,18 +167,14 @@ CONTENT OF TEST
         fake_dir_path = self.fake_dir_path('harnessandprops')
         converter = _W3CTestConverter(fake_dir_path, DUMMY_FILENAME, None)
 
-        oc = OutputCapture()
-        oc.capture_output()
-        try:
+        with OutputCapture():
             test_content = self.generate_test_content_properties_and_values(converter.prefixed_properties, converter.prefixed_property_values, 2, test_html)
             converter.feed(test_content[2])
             converter.close()
             converted = converter.output()
-        finally:
-            oc.restore_output()
 
         self.verify_conversion_happened(converted)
-        self.verify_test_harness_paths(converter, converted[2], fake_dir_path, 1, 1)
+        self.verify_test_harness_paths(converted[2], 1, 1)
         self.verify_prefixed_properties(converted, test_content[0])
         self.verify_prefixed_property_values(converted, test_content[1])
 
@@ -199,17 +190,13 @@ CONTENT OF TEST
         fake_dir_path = self.fake_dir_path('testharnesspaths')
         converter = _W3CTestConverter(fake_dir_path, DUMMY_FILENAME, None)
 
-        oc = OutputCapture()
-        oc.capture_output()
-        try:
+        with OutputCapture():
             converter.feed(test_html)
             converter.close()
             converted = converter.output()
-        finally:
-            oc.restore_output()
 
         self.verify_conversion_happened(converted)
-        self.verify_test_harness_paths(converter, converted[2], fake_dir_path, 2, 1)
+        self.verify_test_harness_paths(converted[2], 2, 1)
 
     def test_convert_prefixed_properties(self):
         """ Tests convert_prefixed_properties() file that has 20 properties requiring the -webkit- prefix:
@@ -277,16 +264,12 @@ CONTENT OF TEST
 </html>
 """
         converter = _W3CTestConverter(DUMMY_PATH, DUMMY_FILENAME, None)
-        test_content = self.generate_test_content_properties_and_values(converter.prefixed_properties, converter.prefixed_property_values, 20, test_html)
+        test_content = self.generate_test_content_properties_and_values(converter.prefixed_properties, converter.prefixed_property_values, 17, test_html)
 
-        oc = OutputCapture()
-        oc.capture_output()
-        try:
+        with OutputCapture():
             converter.feed(test_content[2])
             converter.close()
             converted = converter.output()
-        finally:
-            oc.restore_output()
 
         self.verify_conversion_happened(converted)
         self.verify_prefixed_properties(converted, test_content[0])
@@ -311,14 +294,10 @@ CONTENT OF TEST
                                        'elements': ['script', 'style', 'img', 'link', 'video']}
         converter = _W3CTestConverter(DUMMY_PATH, DUMMY_FILENAME, test_reference_support_info)
 
-        oc = OutputCapture()
-        oc.capture_output()
-        try:
+        with OutputCapture():
             converter.feed(test_html)
             converter.close()
             converted = converter.output()
-        finally:
-            oc.restore_output()
 
         self.verify_conversion_happened(converted)
         self.verify_reference_relative_paths(converted, test_reference_support_info)
@@ -362,14 +341,10 @@ CONTENT OF TEST
         test_reference_support_info = {'reference_relpath': '../', 'files': ['../support/yyy.png', '../support/yy.png', '../../another/directory/x.png']}
         converter = _W3CTestConverter(DUMMY_PATH, DUMMY_FILENAME, test_reference_support_info)
 
-        oc = OutputCapture()
-        oc.capture_output()
-        try:
+        with OutputCapture():
             converter.feed(test_html)
             converter.close()
             converted = converter.output()
-        finally:
-            oc.restore_output()
 
         self.verify_conversion_happened(converted)
 
@@ -385,21 +360,13 @@ CONTENT OF TEST
     def verify_no_conversion_happened(self, converted, original):
         self.assertEqual(converted[2], original, 'test should not have been converted')
 
-    def verify_test_harness_paths(self, converter, converted, test_path, num_src_paths, num_href_paths):
+    def verify_test_harness_paths(self, converted, num_src_paths, num_href_paths):
         if isinstance(converted, str) or isinstance(converted, unicode):
             converted = BeautifulSoup(converted)
 
-        resources_dir = converter.path_from_webkit_root("LayoutTests", "resources")
-
-        # Verify the original paths are gone, and the new paths are present.
-        orig_path_pattern = re.compile('\"/resources/testharness')
-        self.assertEquals(len(converted.findAll(src=orig_path_pattern)), 0, 'testharness src path was not converted')
-        self.assertEquals(len(converted.findAll(href=orig_path_pattern)), 0, 'testharness href path was not converted')
-
-        new_relpath = os.path.relpath(resources_dir, test_path)
-        relpath_pattern = re.compile(new_relpath)
-        self.assertEquals(len(converted.findAll(src=relpath_pattern)), num_src_paths, 'testharness src relative path not correct')
-        self.assertEquals(len(converted.findAll(href=relpath_pattern)), num_href_paths, 'testharness href relative path not correct')
+        orig_path_pattern = re.compile('^/resources/testharness')
+        self.assertEqual(len(converted.findAll(src=orig_path_pattern)), num_src_paths, 'testharness src path should not have been converted')
+        self.assertEqual(len(converted.findAll(href=orig_path_pattern)), num_href_paths, 'testharness href path should not have been converted')
 
     def verify_prefixed_properties(self, converted, test_properties):
         self.assertEqual(len(set(converted[0])), len(set(test_properties)), 'Incorrect number of properties converted')
@@ -428,11 +395,8 @@ CONTENT OF TEST
         return (test_content_properties[0], test_content_property_values[0], test_content_property_values[1])
 
     def generate_test_content(self, full_list, num_test, suffix, html):
-        test_list = []
-        count = 0
-        while count < num_test:
-            test_list.append(full_list[count])
-            count += 1
+        assert num_test <= len(full_list), "can't generate more tests than we have input data for"
+        test_list = full_list[:num_test]
 
         # Replace the tokens in the testhtml with the test properties or values.
         # Walk backward through the list to replace the double-digit tokens first.

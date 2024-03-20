@@ -29,6 +29,7 @@
 
 #if ENABLE(VIDEO)
 
+#include "TrackPrivateBaseClient.h"
 #include <wtf/LoggerHelper.h>
 #include <wtf/MediaTime.h>
 #include <wtf/ThreadSafeRefCounted.h>
@@ -36,14 +37,7 @@
 
 namespace WebCore {
 
-class TrackPrivateBaseClient {
-public:
-    virtual ~TrackPrivateBaseClient() = default;
-    virtual void idChanged(const AtomString&) = 0;
-    virtual void labelChanged(const AtomString&) = 0;
-    virtual void languageChanged(const AtomString&) = 0;
-    virtual void willRemove() = 0;
-};
+using TrackID = uint64_t;
 
 class WEBCORE_EXPORT TrackPrivateBase
     : public ThreadSafeRefCounted<TrackPrivateBase, WTF::DestructionThread::Main>
@@ -58,11 +52,13 @@ public:
 
     virtual TrackPrivateBaseClient* client() const = 0;
 
-    virtual AtomString id() const { return emptyAtom(); }
+    virtual TrackID id() const { return 0; }
     virtual AtomString label() const { return emptyAtom(); }
     virtual AtomString language() const { return emptyAtom(); }
 
     virtual int trackIndex() const { return 0; }
+    virtual std::optional<AtomString> trackUID() const;
+    virtual std::optional<bool> defaultEnabled() const;
 
     virtual MediaTime startTimeVariance() const { return MediaTime::zeroTime(); }
 
@@ -71,6 +67,11 @@ public:
         if (auto* client = this->client())
             client->willRemove();
     }
+
+    bool operator==(const TrackPrivateBase&) const;
+
+    enum class Type { Video, Audio, Text };
+    virtual Type type() const = 0;
 
 #if !RELEASE_LOG_DISABLED
     virtual void setLogger(const Logger&, const void*);

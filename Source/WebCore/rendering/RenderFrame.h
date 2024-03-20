@@ -42,8 +42,7 @@ public:
 private:
     void frameOwnerElement() const = delete;
 
-    const char* renderName() const final { return "RenderFrame"; }
-    bool isFrame() const final { return true; }
+    ASCIILiteral renderName() const final { return "RenderFrame"_s; }
 };
 
 inline RenderFrame* HTMLFrameElement::renderer() const
@@ -53,4 +52,4 @@ inline RenderFrame* HTMLFrameElement::renderer() const
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderFrame, isFrame())
+SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderFrame, isRenderFrame())

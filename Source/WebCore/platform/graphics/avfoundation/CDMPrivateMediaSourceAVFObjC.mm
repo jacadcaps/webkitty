@@ -29,12 +29,12 @@
 #if ENABLE(LEGACY_ENCRYPTED_MEDIA) && ENABLE(MEDIA_SOURCE)
 
 #import "CDMSessionAVContentKeySession.h"
-#import "CDMSessionAVStreamSession.h"
 #import "ContentType.h"
 #import "LegacyCDM.h"
 #import "MediaPlayerPrivateMediaSourceAVFObjC.h"
 #import <JavaScriptCore/RegularExpression.h>
 #import <wtf/NeverDestroyed.h>
+#import <wtf/text/StringToIntegerConversion.h>
 #import <wtf/text/StringView.h>
 
 #import "VideoToolboxSoftLink.h"
@@ -43,25 +43,20 @@ using JSC::Yarr::RegularExpression;
 
 namespace WebCore {
 
-auto CDMPrivateMediaSourceAVFObjC::parseKeySystem(const String& keySystem) -> Optional<KeySystemParameters>
+auto CDMPrivateMediaSourceAVFObjC::parseKeySystem(const String& keySystem) -> std::optional<KeySystemParameters>
 {
-    static NeverDestroyed<RegularExpression> keySystemRE("^com\\.apple\\.fps\\.[23]_\\d+(?:,\\d+)*$", JSC::Yarr::TextCaseInsensitive);
+    static NeverDestroyed<RegularExpression> keySystemRE("^com\\.apple\\.fps\\.[23]_\\d+(?:,\\d+)*$"_s, OptionSet<JSC::Yarr::Flags> { JSC::Yarr::Flags::IgnoreCase });
 
-    if (keySystem.isEmpty())
-        return WTF::nullopt;
-    
     if (keySystemRE.get().match(keySystem) < 0)
-        return WTF::nullopt;
-    
+        return std::nullopt;
+
     StringView keySystemView { keySystem };
 
-    int cdmVersion = keySystemView.substring(14, 1).toInt();
-    
+    int cdmVersion = parseInteger<int>(keySystemView.substring(14, 1)).value();
     Vector<int> protocolVersions;
-    for (StringView protocolVersionString : keySystemView.substring(16).split(','))
-        protocolVersions.append(protocolVersionString.toInt());
-    
-    return {{ cdmVersion, WTFMove(protocolVersions) }};
+    for (auto protocolVersionString : keySystemView.substring(16).split(','))
+        protocolVersions.append(parseInteger<int>(protocolVersionString).value());
+    return { { cdmVersion, WTFMove(protocolVersions) } };
 }
 
 CDMPrivateMediaSourceAVFObjC::~CDMPrivateMediaSourceAVFObjC()
@@ -72,12 +67,9 @@ CDMPrivateMediaSourceAVFObjC::~CDMPrivateMediaSourceAVFObjC()
 
 static bool queryDecoderAvailability()
 {
-    if (!canLoad_VideoToolbox_VTGetGVADecoderAvailability())
-#if HAVE(AVSTREAMSESSION)
-        return false;
-#else
+    if (!canLoad_VideoToolbox_VTGetGVADecoderAvailability()) {
         return true;
-#endif
+    }
     uint32_t totalInstanceCount = 0;
     OSStatus status = VTGetGVADecoderAvailability(&totalInstanceCount, nullptr);
     return status == noErr && totalInstanceCount;
@@ -107,30 +99,30 @@ bool CDMPrivateMediaSourceAVFObjC::supportsKeySystemAndMimeType(const String& ke
         return true;
 
     // FIXME: Why is this ignoring case since the check in supportsMIMEType is checking case?
-    if (equalLettersIgnoringASCIICase(mimeType, "keyrelease"))
+    if (equalLettersIgnoringASCIICase(mimeType, "keyrelease"_s))
         return true;
 
     MediaEngineSupportParameters parameters;
     parameters.isMediaSource = true;
     parameters.type = ContentType(mimeType);
 
-    return MediaPlayerPrivateMediaSourceAVFObjC::supportsType(parameters) != MediaPlayer::SupportsType::IsNotSupported;
+    return MediaPlayerPrivateMediaSourceAVFObjC::supportsTypeAndCodecs(parameters) != MediaPlayer::SupportsType::IsNotSupported;
 }
 
 bool CDMPrivateMediaSourceAVFObjC::supportsMIMEType(const String& mimeType)
 {
     // FIXME: Why is this checking case since the check in supportsKeySystemAndMimeType is ignoring case?
-    if (mimeType == "keyrelease")
+    if (mimeType == "keyrelease"_s)
         return true;
 
     MediaEngineSupportParameters parameters;
     parameters.isMediaSource = true;
     parameters.type = ContentType(mimeType);
 
-    return MediaPlayerPrivateMediaSourceAVFObjC::supportsType(parameters) != MediaPlayer::SupportsType::IsNotSupported;
+    return MediaPlayerPrivateMediaSourceAVFObjC::supportsTypeAndCodecs(parameters) != MediaPlayer::SupportsType::IsNotSupported;
 }
 
-std::unique_ptr<LegacyCDMSession> CDMPrivateMediaSourceAVFObjC::createSession(LegacyCDMSessionClient* client)
+std::unique_ptr<LegacyCDMSession> CDMPrivateMediaSourceAVFObjC::createSession(LegacyCDMSessionClient& client)
 {
     String keySystem = m_cdm->keySystem(); // Local copy for StringView usage
     auto parameters = parseKeySystem(m_cdm->keySystem());
@@ -138,22 +130,7 @@ std::unique_ptr<LegacyCDMSession> CDMPrivateMediaSourceAVFObjC::createSession(Le
     if (!parameters)
         return nullptr;
 
-    std::unique_ptr<CDMSessionMediaSourceAVFObjC> session;
-    
-#if HAVE(AVSTREAMSESSION)
-    bool shouldUseAVContentKeySession = parameters.value().version == 3;
-#else
-    bool shouldUseAVContentKeySession = true;
-#endif
-    
-    if (shouldUseAVContentKeySession && CDMSessionAVContentKeySession::isAvailable())
-        session = makeUnique<CDMSessionAVContentKeySession>(WTFMove(parameters.value().protocols), parameters.value().version, *this, client);
-    else
-#if HAVE(AVSTREAMSESSION)
-        session = makeUnique<CDMSessionAVStreamSession>(WTFMove(parameters.value().protocols), *this, client);
-#else
-        return nullptr;
-#endif
+    auto session = makeUnique<CDMSessionAVContentKeySession>(WTFMove(parameters.value().protocols), parameters.value().version, *this, client);
 
     m_sessions.append(session.get());
     return WTFMove(session);

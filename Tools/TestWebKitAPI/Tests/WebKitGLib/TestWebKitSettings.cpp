@@ -33,6 +33,8 @@
 #include "TestMain.h"
 #include "WebKitTestServer.h"
 #include "WebViewTest.h"
+#include <WebCore/SoupVersioning.h>
+#include <wtf/HashSet.h>
 #include <wtf/glib/GRefPtr.h>
 
 static WebKitTestServer* gServer;
@@ -51,15 +53,25 @@ static void testWebKitSettings(Test*, gconstpointer)
     webkit_settings_set_auto_load_images(settings, FALSE);
     g_assert_false(webkit_settings_get_auto_load_images(settings));
 
-    // load-icons-ignoring-image-load-setting is false by default.
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    // load-icons-ignoring-image-load-setting is deprecated and always false.
+    // Make warnings non-fatal for this test to make it pass.
+    Test::removeLogFatalFlag(G_LOG_LEVEL_WARNING);
     g_assert_false(webkit_settings_get_load_icons_ignoring_image_load_setting(settings));
     webkit_settings_set_load_icons_ignoring_image_load_setting(settings, TRUE);
-    g_assert_true(webkit_settings_get_load_icons_ignoring_image_load_setting(settings));
+    g_assert_false(webkit_settings_get_load_icons_ignoring_image_load_setting(settings));
+    Test::addLogFatalFlag(G_LOG_LEVEL_WARNING);
+    ALLOW_DEPRECATED_DECLARATIONS_END
     
-    // Offline application cache is true by default.
-    g_assert_true(webkit_settings_get_enable_offline_web_application_cache(settings));
-    webkit_settings_set_enable_offline_web_application_cache(settings, FALSE);
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    // Offline application cache is deprecated and always false.
+    // Make warnings non-fatal for this test to make it pass.
+    Test::removeLogFatalFlag(G_LOG_LEVEL_WARNING);
     g_assert_false(webkit_settings_get_enable_offline_web_application_cache(settings));
+    webkit_settings_set_enable_offline_web_application_cache(settings, TRUE);
+    g_assert_false(webkit_settings_get_enable_offline_web_application_cache(settings));
+    Test::addLogFatalFlag(G_LOG_LEVEL_WARNING);
+    ALLOW_DEPRECATED_DECLARATIONS_END
 
     // Local storage is enable by default.
     g_assert_true(webkit_settings_get_enable_html5_local_storage(settings));
@@ -70,26 +82,6 @@ static void testWebKitSettings(Test*, gconstpointer)
     g_assert_true(webkit_settings_get_enable_html5_database(settings));
     webkit_settings_set_enable_html5_database(settings, FALSE);
     g_assert_false(webkit_settings_get_enable_html5_database(settings));
-
-    // XSS Auditor is enabled by default.
-    g_assert_true(webkit_settings_get_enable_xss_auditor(settings));
-    webkit_settings_set_enable_xss_auditor(settings, FALSE);
-    g_assert_false(webkit_settings_get_enable_xss_auditor(settings));
-
-    // Frame flattening is disabled by default.
-    g_assert_false(webkit_settings_get_enable_frame_flattening(settings));
-    webkit_settings_set_enable_frame_flattening(settings, TRUE);
-    g_assert_true(webkit_settings_get_enable_frame_flattening(settings));
-
-    // Plugins are enabled by default.
-    g_assert_true(webkit_settings_get_enable_plugins(settings));
-    webkit_settings_set_enable_plugins(settings, FALSE);
-    g_assert_false(webkit_settings_get_enable_plugins(settings));
-
-    // Java is enabled by default.
-    g_assert_true(webkit_settings_get_enable_java(settings));
-    webkit_settings_set_enable_java(settings, FALSE);
-    g_assert_false(webkit_settings_get_enable_java(settings));
 
     // By default, JavaScript can open windows automatically is disabled.
     g_assert_false(webkit_settings_get_javascript_can_open_windows_automatically(settings));
@@ -169,8 +161,7 @@ static void testWebKitSettings(Test*, gconstpointer)
     g_assert_cmpuint(webkit_settings_font_size_to_points(8), ==, 6);
     g_assert_cmpuint(webkit_settings_font_size_to_points(24), ==, 18);
 
-    // Test font size on DPI change. The font size value in pixels should scale
-    // accordingly, while the font size value in points should remain the same.
+    // Test font size on DPI change.
     if (gtkSettings) {
         // At 96 DPI, 20 pixels is 15 points.
         webkit_settings_set_default_font_size(settings, 20);
@@ -181,12 +172,12 @@ static void testWebKitSettings(Test*, gconstpointer)
 
         // Set DPI to 120. The scaling factor is 120 / 96 == 1.25.
         g_object_set(gtkSettings, "gtk-xft-dpi", 120 * 1024, nullptr);
-        g_assert_cmpuint(webkit_settings_get_default_font_size(settings), ==, 25);
-        g_assert_cmpuint(webkit_settings_font_size_to_points(webkit_settings_get_default_font_size(settings)), ==, 15);
-        g_assert_cmpuint(webkit_settings_get_default_monospace_font_size(settings), ==, 20);
-        g_assert_cmpuint(webkit_settings_font_size_to_points(webkit_settings_get_default_monospace_font_size(settings)), ==, 12);
+        g_assert_cmpuint(webkit_settings_get_default_font_size(settings), ==, 20);
+        g_assert_cmpuint(webkit_settings_font_size_to_points(webkit_settings_get_default_font_size(settings) * 1.25), ==, 15);
+        g_assert_cmpuint(webkit_settings_get_default_monospace_font_size(settings), ==, 16);
+        g_assert_cmpuint(webkit_settings_font_size_to_points(webkit_settings_get_default_monospace_font_size(settings) * 1.25), ==, 12);
 
-        // Set DPI back to 96. The scaling factor is 96 / 120 == 0.8.
+        // Set DPI back to 96.
         g_object_set(gtkSettings, "gtk-xft-dpi", 96 * 1024, nullptr);
         g_assert_cmpuint(webkit_settings_get_default_font_size(settings), ==, 20);
         g_assert_cmpuint(webkit_settings_font_size_to_points(webkit_settings_get_default_font_size(settings)), ==, 15);
@@ -281,25 +272,25 @@ static void testWebKitSettings(Test*, gconstpointer)
     webkit_settings_set_enable_page_cache(settings, FALSE);
     g_assert_false(webkit_settings_get_enable_page_cache(settings));
 
-    // By default, smooth scrolling is disabled.
-    g_assert_false(webkit_settings_get_enable_smooth_scrolling(settings));
-    webkit_settings_set_enable_smooth_scrolling(settings, TRUE);
+    // By default, smooth scrolling is enabled.
     g_assert_true(webkit_settings_get_enable_smooth_scrolling(settings));
-
-    // By default, accelerated 2D canvas is disabled.
-    g_assert_false(webkit_settings_get_enable_accelerated_2d_canvas(settings));
-    webkit_settings_set_enable_accelerated_2d_canvas(settings, TRUE);
-    g_assert_true(webkit_settings_get_enable_accelerated_2d_canvas(settings));
+    webkit_settings_set_enable_smooth_scrolling(settings, FALSE);
+    g_assert_false(webkit_settings_get_enable_smooth_scrolling(settings));
 
     // By default, writing of console messages to stdout is disabled.
     g_assert_false(webkit_settings_get_enable_write_console_messages_to_stdout(settings));
     webkit_settings_set_enable_write_console_messages_to_stdout(settings, TRUE);
     g_assert_true(webkit_settings_get_enable_write_console_messages_to_stdout(settings));
 
-    // MediaStream is disabled by default.
-    g_assert_false(webkit_settings_get_enable_media_stream(settings));
-    webkit_settings_set_enable_media_stream(settings, TRUE);
+    // MediaStream is enabled by default as experimental feature.
     g_assert_true(webkit_settings_get_enable_media_stream(settings));
+    webkit_settings_set_enable_media_stream(settings, FALSE);
+    g_assert_false(webkit_settings_get_enable_media_stream(settings));
+
+    // By default, WebRTC is disabled
+    g_assert_false(webkit_settings_get_enable_webrtc(settings));
+    webkit_settings_set_enable_webrtc(settings, TRUE);
+    g_assert_true(webkit_settings_get_enable_webrtc(settings));
 
     // By default, SpatialNavigation is disabled
     g_assert_false(webkit_settings_get_enable_spatial_navigation(settings));
@@ -349,16 +340,16 @@ static void testWebKitSettings(Test*, gconstpointer)
     g_assert_cmpstr(nullptr, ==, webkit_settings_get_media_content_types_requiring_hardware_support(settings));
 
 #if PLATFORM(GTK)
-#if !USE(GTK4)
-    // Ondemand is the default hardware acceleration policy.
-    g_assert_cmpuint(webkit_settings_get_hardware_acceleration_policy(settings), ==, WEBKIT_HARDWARE_ACCELERATION_POLICY_ON_DEMAND);
+    // Always is the default hardware acceleration policy.
+    g_assert_cmpuint(webkit_settings_get_hardware_acceleration_policy(settings), ==, WEBKIT_HARDWARE_ACCELERATION_POLICY_ALWAYS);
     webkit_settings_set_hardware_acceleration_policy(settings, WEBKIT_HARDWARE_ACCELERATION_POLICY_NEVER);
     g_assert_cmpuint(webkit_settings_get_hardware_acceleration_policy(settings), ==, WEBKIT_HARDWARE_ACCELERATION_POLICY_NEVER);
-    webkit_settings_set_hardware_acceleration_policy(settings, WEBKIT_HARDWARE_ACCELERATION_POLICY_ALWAYS);
-    g_assert_cmpuint(webkit_settings_get_hardware_acceleration_policy(settings), ==, WEBKIT_HARDWARE_ACCELERATION_POLICY_ALWAYS);
+#if !USE(GTK4)
     webkit_settings_set_hardware_acceleration_policy(settings, WEBKIT_HARDWARE_ACCELERATION_POLICY_ON_DEMAND);
     g_assert_cmpuint(webkit_settings_get_hardware_acceleration_policy(settings), ==, WEBKIT_HARDWARE_ACCELERATION_POLICY_ON_DEMAND);
 #endif
+    webkit_settings_set_hardware_acceleration_policy(settings, WEBKIT_HARDWARE_ACCELERATION_POLICY_ALWAYS);
+    g_assert_cmpuint(webkit_settings_get_hardware_acceleration_policy(settings), ==, WEBKIT_HARDWARE_ACCELERATION_POLICY_ALWAYS);
 
     // Back-forward navigation gesture is disabled by default
     g_assert_false(webkit_settings_get_enable_back_forward_navigation_gestures(settings));
@@ -371,6 +362,38 @@ static void testWebKitSettings(Test*, gconstpointer)
     webkit_settings_set_enable_javascript_markup(settings, FALSE);
     g_assert_false(webkit_settings_get_enable_javascript_markup(settings));
 
+#if !ENABLE(2022_GLIB_API)
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    // Accelerated 2D canvas is deprecated and always disabled.
+    g_assert_false(webkit_settings_get_enable_accelerated_2d_canvas(settings));
+    webkit_settings_set_enable_accelerated_2d_canvas(settings, TRUE);
+    g_assert_false(webkit_settings_get_enable_accelerated_2d_canvas(settings));
+
+    // XSS Auditor is deprecated and always disabled.
+    g_assert_false(webkit_settings_get_enable_xss_auditor(settings));
+    webkit_settings_set_enable_xss_auditor(settings, TRUE);
+    g_assert_false(webkit_settings_get_enable_xss_auditor(settings));
+
+    // Frame flattening is deprecated and always disabled.
+    g_assert_false(webkit_settings_get_enable_frame_flattening(settings));
+    webkit_settings_set_enable_frame_flattening(settings, TRUE);
+    g_assert_false(webkit_settings_get_enable_frame_flattening(settings));
+
+    // Java is not supported, and always disabled.
+    // Make warnings non-fatal for this test to make it pass.
+    Test::removeLogFatalFlag(G_LOG_LEVEL_WARNING);
+    g_assert_false(webkit_settings_get_enable_java(settings));
+    webkit_settings_set_enable_java(settings, FALSE);
+    g_assert_false(webkit_settings_get_enable_java(settings));
+    Test::addLogFatalFlag(G_LOG_LEVEL_WARNING);
+ALLOW_DEPRECATED_DECLARATIONS_END
+#endif
+
+    // WebSecurity is enabled by default.
+    g_assert_false(webkit_settings_get_disable_web_security(settings));
+    webkit_settings_set_disable_web_security(settings, TRUE);
+    g_assert_true(webkit_settings_get_disable_web_security(settings));
+
     g_object_unref(G_OBJECT(settings));
 }
 
@@ -379,12 +402,60 @@ void testWebKitSettingsNewWithSettings(Test* test, gconstpointer)
     GRefPtr<WebKitSettings> settings = adoptGRef(webkit_settings_new_with_settings(
         "enable-javascript", FALSE,
         "auto-load-images", FALSE,
-        "load-icons-ignoring-image-load-setting", TRUE,
         nullptr));
     test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(settings.get()));
     g_assert_false(webkit_settings_get_enable_javascript(settings.get()));
     g_assert_false(webkit_settings_get_auto_load_images(settings.get()));
-    g_assert_true(webkit_settings_get_load_icons_ignoring_image_load_setting(settings.get()));
+}
+
+void testWebKitFeatures(Test* test, gconstpointer)
+{
+    g_autoptr(WebKitFeatureList) allFeatures = webkit_settings_get_all_features();
+    g_assert_nonnull(allFeatures);
+
+    auto allFeaturesCount = webkit_feature_list_get_length(allFeatures);
+
+    {
+        // Keep a set of identifiers to validate their uniqueness.
+        HashSet<String> featureIdentifiers;
+        featureIdentifiers.reserveInitialCapacity(allFeaturesCount);
+        for (gsize i = 0; i < allFeaturesCount; i++) {
+            auto* feature = webkit_feature_list_get(allFeatures, i);
+            g_assert_nonnull(webkit_feature_get_identifier(feature));
+            g_assert_nonnull(webkit_feature_get_category(feature));
+
+            auto identifier = String::fromUTF8(webkit_feature_get_identifier(feature));
+            g_assert_false(featureIdentifiers.contains(identifier));
+            featureIdentifiers.add(WTFMove(identifier));
+        }
+
+        g_assert_cmpuint(featureIdentifiers.size(), ==, allFeaturesCount);
+    }
+
+    // These are subsets of the list of all features.
+    g_autoptr(WebKitFeatureList) experimentalFeatures = webkit_settings_get_experimental_features();
+    g_assert_nonnull(experimentalFeatures);
+    g_assert_cmpuint(allFeaturesCount, >=, webkit_feature_list_get_length(experimentalFeatures));
+
+    g_autoptr(WebKitFeatureList) developmentFeatures = webkit_settings_get_development_features();
+    g_assert_nonnull(developmentFeatures);
+    g_assert_cmpuint(allFeaturesCount, >=, webkit_feature_list_get_length(developmentFeatures));
+
+    // Try toggling a feature.
+    GRefPtr<WebKitSettings> settings = adoptGRef(webkit_settings_new());
+    auto* feature = webkit_feature_list_get(experimentalFeatures, 0);
+    auto wasEnabled = webkit_settings_get_feature_enabled(settings.get(), feature);
+    webkit_settings_set_feature_enabled(settings.get(), feature, !wasEnabled);
+    g_assert(wasEnabled != webkit_settings_get_feature_enabled(settings.get(), feature));
+
+    // Check that enabled status is the same as the declared default.
+    // FIXME(255779): Some defaults are overriden in code and out of sync with UnifiedWebPreferences.yaml
+#if 0
+    for (gsize i = 0; i < allFeaturesCount; i++) {
+        auto* feature = webkit_feature_list_get(allFeatures, i);
+        g_assert(webkit_settings_get_feature_enabled(settings.get(), feature) == webkit_feature_get_default_value(feature));
+    }
+#endif
 }
 
 #if PLATFORM(GTK)
@@ -456,7 +527,7 @@ static void testWebKitSettingsJavaScriptMarkup(WebViewTest* test, gconstpointer)
         " </body>"
         "</html>";
     test->loadHtml(html, nullptr);
-    test->waitUntilLoadFinished();
+    test->waitUntilTitleChanged();
 
     g_assert_cmpstr(webkit_web_view_get_title(test->m_webView), ==, "No JavaScript allowed");
     auto* jsResult = test->runJavaScriptAndWaitUntilFinished("document.getElementsByTagName('script').length", nullptr);
@@ -466,20 +537,25 @@ static void testWebKitSettingsJavaScriptMarkup(WebViewTest* test, gconstpointer)
     webkit_settings_set_enable_javascript_markup(webkit_web_view_get_settings(test->m_webView), TRUE);
 }
 
+#if USE(SOUP2)
 static void serverCallback(SoupServer* server, SoupMessage* message, const char* path, GHashTable*, SoupClientContext*, gpointer)
+#else
+static void serverCallback(SoupServer* server, SoupServerMessage* message, const char* path, GHashTable*, gpointer)
+#endif
 {
-    if (message->method != SOUP_METHOD_GET) {
-        soup_message_set_status(message, SOUP_STATUS_NOT_IMPLEMENTED);
+    if (soup_server_message_get_method(message) != SOUP_METHOD_GET) {
+        soup_server_message_set_status(message, SOUP_STATUS_NOT_IMPLEMENTED, nullptr);
         return;
     }
 
     if (g_str_equal(path, "/")) {
-        const char* userAgent = soup_message_headers_get_one(message->request_headers, "User-Agent");
-        soup_message_set_status(message, SOUP_STATUS_OK);
-        soup_message_body_append(message->response_body, SOUP_MEMORY_COPY, userAgent, strlen(userAgent));
-        soup_message_body_complete(message->response_body);
+        const char* userAgent = soup_message_headers_get_one(soup_server_message_get_request_headers(message), "User-Agent");
+        auto* responseBody = soup_server_message_get_response_body(message);
+        soup_message_body_append(responseBody, SOUP_MEMORY_COPY, userAgent, strlen(userAgent));
+        soup_message_body_complete(responseBody);
+        soup_server_message_set_status(message, SOUP_STATUS_OK, nullptr);
     } else
-        soup_message_set_status(message, SOUP_STATUS_NOT_FOUND);
+        soup_server_message_set_status(message, SOUP_STATUS_NOT_FOUND, nullptr);
 }
 
 void beforeAll()
@@ -489,6 +565,7 @@ void beforeAll()
 
     Test::add("WebKitSettings", "webkit-settings", testWebKitSettings);
     Test::add("WebKitSettings", "new-with-settings", testWebKitSettingsNewWithSettings);
+    Test::add("WebKitSettings", "features", testWebKitFeatures);
 #if PLATFORM(GTK)
     WebViewTest::add("WebKitSettings", "user-agent", testWebKitSettingsUserAgent);
 #endif

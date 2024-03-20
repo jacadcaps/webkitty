@@ -25,6 +25,7 @@
 #include "absl/strings/str_format.h"
 
 namespace absl {
+ABSL_NAMESPACE_BEGIN
 namespace random_internal {
 namespace {
 
@@ -212,7 +213,7 @@ double BetaIncompleteImpl(const double x, const double p, const double q,
   double result = 1.;
   int ns = static_cast<int>(q + xc * psq);
 
-  // Use the soper reduction forumla.
+  // Use the soper reduction formula.
   double rx = (ns == 0) ? x : x / xc;
   double temp = q - ai;
   for (;;) {
@@ -235,7 +236,7 @@ double BetaIncompleteImpl(const double x, const double p, const double q,
     }
   }
 
-  // NOTE: See also TOMS Alogrithm 708.
+  // NOTE: See also TOMS Algorithm 708.
   // http://www.netlib.org/toms/index.html
   //
   // NOTE: The NWSC library also includes BRATIO / ISUBX (p87)
@@ -246,7 +247,7 @@ double BetaIncompleteImpl(const double x, const double p, const double q,
 // https://www.jstor.org/stable/2346798?read-now=1&seq=4#page_scan_tab_contents
 // https://www.jstor.org/stable/2346887?seq=1#page_scan_tab_contents
 //
-// XINBTA(p, q, beta, alhpa)
+// XINBTA(p, q, beta, alpha)
 //  p:     the value of the parameter p.
 //  q:     the value of the parameter q.
 //  beta:  the value of ln B(p, q)
@@ -413,4 +414,5 @@ double MaxErrorTolerance(double acceptance_probability) {
 }
 
 }  // namespace random_internal
+ABSL_NAMESPACE_END
 }  // namespace absl

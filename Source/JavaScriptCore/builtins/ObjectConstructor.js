@@ -2,6 +2,7 @@
  * Copyright (C) 2016 Oleksandr Skachkov <gskachkov@gmail.com>.
  * Copyright (C) 2015 Jordan Harband. All rights reserved.
  * Copyright (C) 2018 Yusuke Suzuki <yusukesuzuki@slowstart.org>.
+ * Copyright (C) 2023 Devin Rousso <webkit@devinrousso.com>.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,22 +26,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-function entries(object)
-{
-    "use strict";
-
-    var obj = @toObject(object, "Object.entries requires that input parameter not be null or undefined");
-    var names = @Object.@getOwnPropertyNames(obj);
-    var properties = [];
-    for (var i = 0, length = names.length; i < length; ++i) {
-        var name = names[i];
-        if (@propertyIsEnumerable(obj, name))
-            properties.@push([name, obj[name]]);
-    }
-
-    return properties;
-}
-
 function fromEntries(iterable)
 {
     "use strict";
@@ -56,4 +41,29 @@ function fromEntries(iterable)
     }
 
     return object;
+}
+
+function groupBy(items, callback)
+{
+    "use strict";
+
+    if (!@isObject(items))
+        @throwTypeError("Object.groupBy requires that the first argument must be an object");
+
+    if (!@isCallable(callback))
+        @throwTypeError("Object.groupBy requires that the second argument must be a function");
+
+    var groups = @Object.@create(null);
+    var k = 0;
+    for (var item of items) {
+        var key = @toPropertyKey(callback.@call(@undefined, item, k));
+        var group = groups[key];
+        if (!group) {
+            group = [];
+            @putByValDirect(groups, key, group);
+        }
+        @putByValDirect(group, group.length, item);
+        ++k;
+    }
+    return groups;
 }

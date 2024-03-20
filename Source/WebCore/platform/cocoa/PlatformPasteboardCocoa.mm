@@ -38,10 +38,10 @@
 
 namespace WebCore {
 
-Optional<Vector<PasteboardItemInfo>> PlatformPasteboard::allPasteboardItemInfo(int64_t changeCount)
+std::optional<Vector<PasteboardItemInfo>> PlatformPasteboard::allPasteboardItemInfo(int64_t changeCount)
 {
     if (changeCount != [m_pasteboard changeCount])
-        return WTF::nullopt;
+        return std::nullopt;
 
     Vector<PasteboardItemInfo> itemInfo;
     int numberOfItems = count();
@@ -49,9 +49,9 @@ Optional<Vector<PasteboardItemInfo>> PlatformPasteboard::allPasteboardItemInfo(i
     for (NSInteger itemIndex = 0; itemIndex < numberOfItems; ++itemIndex) {
         auto item = informationForItemAtIndex(itemIndex, changeCount);
         if (!item)
-            return WTF::nullopt;
+            return std::nullopt;
 
-        itemInfo.uncheckedAppend(WTFMove(*item));
+        itemInfo.append(WTFMove(*item));
     }
     return itemInfo;
 }
@@ -74,8 +74,10 @@ String PlatformPasteboard::urlStringSuitableForLoading(String& title)
 
 #if PLATFORM(IOS_FAMILY)
     UNUSED_PARAM(title);
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     String urlPasteboardType = kUTTypeURL;
     String stringPasteboardType = kUTTypeText;
+ALLOW_DEPRECATED_DECLARATIONS_END
 #else
     String urlPasteboardType = legacyURLPasteboardType();
     String stringPasteboardType = legacyStringPasteboardType();

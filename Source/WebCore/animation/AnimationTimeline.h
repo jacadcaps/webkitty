@@ -26,67 +26,39 @@
 
 #pragma once
 
-#include "CSSValue.h"
-#include "ComputedEffectTiming.h"
-#include "RenderStyle.h"
-#include "WebAnimation.h"
+#include "WebAnimationTypes.h"
 #include <wtf/Forward.h>
-#include <wtf/HashMap.h>
-#include <wtf/ListHashSet.h>
-#include <wtf/Markable.h>
-#include <wtf/Optional.h>
-#include <wtf/Ref.h>
 #include <wtf/RefCounted.h>
 #include <wtf/Seconds.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
-class CSSAnimation;
-class CSSTransition;
-class DeclarativeAnimation;
-class Element;
+class WebAnimation;
 
 class AnimationTimeline : public RefCounted<AnimationTimeline>, public CanMakeWeakPtr<AnimationTimeline> {
 public:
     virtual ~AnimationTimeline();
 
     virtual bool isDocumentTimeline() const { return false; }
+    virtual bool isScrollTimeline() const { return false; }
+    virtual bool isViewTimeline() const { return false; }
 
     const AnimationCollection& relevantAnimations() const { return m_animations; }
 
-    void forgetAnimation(WebAnimation*);
     virtual void animationTimingDidChange(WebAnimation&);
     virtual void removeAnimation(WebAnimation&);
 
-    Optional<double> bindingsCurrentTime();
-    virtual Optional<Seconds> currentTime() { return m_currentTime; }
-
-    enum class Ordering : uint8_t { Sorted, Unsorted };
-    Vector<RefPtr<WebAnimation>> animationsForElement(Element&, Ordering = Ordering::Unsorted) const;
-
-    void elementWasRemoved(Element&);
-
-    void willChangeRendererForElement(Element&);
-    void cancelDeclarativeAnimationsForElement(Element&, WebAnimation::Silently);
-
-    virtual void animationWasAddedToElement(WebAnimation&, Element&);
-    virtual void animationWasRemovedFromElement(WebAnimation&, Element&);
-
-    void removeDeclarativeAnimationFromListsForOwningElement(WebAnimation&, Element&);
-
-    void updateCSSAnimationsForElement(Element&, const RenderStyle* currentStyle, const RenderStyle& afterChangeStyle);
-    void updateCSSTransitionsForElement(Element&, const RenderStyle& currentStyle, const RenderStyle& newStyle);
+    std::optional<double> bindingsCurrentTime();
+    virtual std::optional<Seconds> currentTime() { return m_currentTime; }
 
 protected:
-    explicit AnimationTimeline();
+    AnimationTimeline();
 
-    Vector<WeakPtr<WebAnimation>> m_allAnimations;
     AnimationCollection m_animations;
 
 private:
     void updateGlobalPosition(WebAnimation&);
-    void updateCSSTransitionsForElementAndProperty(Element&, CSSPropertyID, const RenderStyle& currentStyle, const RenderStyle& afterChangeStyle, const MonotonicTime);
-    void removeCSSAnimationCreatedByMarkup(Element&, CSSAnimation&);
 
     Markable<Seconds, Seconds::MarkableTraits> m_currentTime;
 };

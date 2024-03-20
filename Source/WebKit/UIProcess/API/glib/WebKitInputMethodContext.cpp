@@ -21,6 +21,7 @@
 #include "WebKitInputMethodContext.h"
 
 #include "WebKitEnumTypes.h"
+#include "WebKitInitialize.h"
 #include "WebKitInputMethodContextPrivate.h"
 #include "WebKitWebView.h"
 #include <glib/gi18n-lib.h>
@@ -29,10 +30,10 @@
 using namespace WebCore;
 
 /**
- * SECTION: WebKitInputMethodContext
- * @Short_description: Base class for input method contexts
- * @Title: WebKitInputMethodContext
+ * WebKitInputMethodContext:
  * @See_also: #WebKitWebView
+ *
+ * Base class for input method contexts.
  *
  * WebKitInputMethodContext defines the interface to implement WebKit input methods.
  * The input methods are used by WebKit, when editable content is focused, to map from
@@ -48,10 +49,12 @@ using namespace WebCore;
 
 enum {
     PROP_0,
-
     PROP_INPUT_PURPOSE,
-    PROP_INPUT_HINTS
+    PROP_INPUT_HINTS,
+    N_PROPERTIES,
 };
+
+static GParamSpec* sObjProperties[N_PROPERTIES] = { nullptr, };
 
 enum {
     PREEDIT_STARTED,
@@ -64,6 +67,14 @@ enum {
 
     LAST_SIGNAL
 };
+
+/**
+ * WebKitInputMethodUnderline:
+ *
+ * Range of text in an preedit string to be shown underlined.
+ *
+ * Since: 2.28
+ */
 
 G_DEFINE_BOXED_TYPE(WebKitInputMethodUnderline, webkit_input_method_underline, webkit_input_method_underline_copy, webkit_input_method_underline_free)
 
@@ -203,45 +214,43 @@ static void webkitInputMethodContextGetProperty(GObject* object, guint propId, G
 
 static void webkit_input_method_context_class_init(WebKitInputMethodContextClass* klass)
 {
+    WebKit::webkitInitialize();
+
     GObjectClass* gObjectClass = G_OBJECT_CLASS(klass);
     gObjectClass->set_property = webkitInputMethodContextSetProperty;
     gObjectClass->get_property = webkitInputMethodContextGetProperty;
 
     /**
-     * WebKitInputMethodContext::input-purpose:
+     * WebKitInputMethodContext:input-purpose:
      *
      * The #WebKitInputPurpose of the input associated with this context.
      *
      * Since: 2.28
      */
-    g_object_class_install_property(
-        gObjectClass,
-        PROP_INPUT_PURPOSE,
+    sObjProperties[PROP_INPUT_PURPOSE] =
         g_param_spec_enum(
             "input-purpose",
-            _("Input Purpose"),
-            _("The purpose of the input associated"),
+            nullptr, nullptr,
             WEBKIT_TYPE_INPUT_PURPOSE,
             WEBKIT_INPUT_PURPOSE_FREE_FORM,
-            WEBKIT_PARAM_READWRITE));
+            WEBKIT_PARAM_READWRITE);
 
     /**
-     * WebKitInputMethodContext::input-hints:
+     * WebKitInputMethodContext:input-hints:
      *
      * The #WebKitInputHints of the input associated with this context.
      *
      * Since: 2.28
      */
-    g_object_class_install_property(
-        gObjectClass,
-        PROP_INPUT_HINTS,
+    sObjProperties[PROP_INPUT_HINTS] =
         g_param_spec_flags(
             "input-hints",
-            _("Input Hints"),
-            _("The hints of the input associated"),
+            nullptr, nullptr,
             WEBKIT_TYPE_INPUT_HINTS,
             WEBKIT_INPUT_HINT_NONE,
-            WEBKIT_PARAM_READWRITE));
+            WEBKIT_PARAM_READWRITE);
+
+    g_object_class_install_properties(gObjectClass, N_PROPERTIES, sObjProperties);
 
     /**
      * WebKitInputMethodContext::preedit-started:
@@ -372,10 +381,12 @@ void webkit_input_method_context_set_enable_preedit(WebKitInputMethodContext* co
  * webkit_input_method_context_get_preedit:
  * @context: a #WebKitInputMethodContext
  * @text: (out) (transfer full) (nullable): location to store the preedit string
- * @underlines: (out) (transfer full) (nullable) (element-type WebKit2.InputMethodUnderline): location to store the underlines as a #GList of #WebKitInputMethodUnderline
+ * @underlines: (out) (transfer full) (nullable) (element-type WebKitInputMethodUnderline): location to store the underlines as a #GList of #WebKitInputMethodUnderline
  * @cursor_offset: (out) (nullable): location to store the position of cursor in preedit string
  *
- * Get the current preedit string for the @context, and a list of WebKitInputMethodUnderline to apply to the string.
+ *  Get the pre-edit string and a list of WebKitInputMethodUnderline.
+ *
+ * Get the current pre-edit string for the @context, and a list of WebKitInputMethodUnderline to apply to the string.
  * The string will be displayed inserted at @cursor_offset.
  *
  * Since: 2.28
@@ -462,6 +473,7 @@ void webkit_input_method_context_notify_cursor_area(WebKitInputMethodContext* co
  * @selection_index: the byte index of the selection cursor within @text.
  *
  * Notify @context that the context surrounding the cursor has changed.
+ *
  * If there's no selection @selection_index is the same as @cursor_index.
  *
  * Since: 2.28
@@ -486,7 +498,9 @@ void webkit_input_method_context_notify_surrounding(WebKitInputMethodContext* co
  * webkit_input_method_context_reset:
  * @context: a #WebKitInputMethodContext
  *
- * Reset the @context. This will typically cause the input to clear the preedit state.
+ * Reset the @context.
+ *
+ * This will typically cause the input to clear the preedit state.
  *
  * Since: 2.28
  */
@@ -533,7 +547,7 @@ void webkit_input_method_context_set_input_purpose(WebKitInputMethodContext* con
         return;
 
     context->priv->purpose = purpose;
-    g_object_notify(G_OBJECT(context), "input-purpose");
+    g_object_notify_by_pspec(G_OBJECT(context), sObjProperties[PROP_INPUT_PURPOSE]);
 }
 
 /**
@@ -553,7 +567,7 @@ WebKitInputHints webkit_input_method_context_get_input_hints(WebKitInputMethodCo
     return context->priv->hints;
 }
 
-/*
+/**
  * webkit_input_method_context_set_input_hints:
  * @context: a #WebKitInputMethodContext
  * @hints: a #WebKitInputHints
@@ -570,5 +584,5 @@ void webkit_input_method_context_set_input_hints(WebKitInputMethodContext* conte
         return;
 
     context->priv->hints = hints;
-    g_object_notify(G_OBJECT(context), "input-hints");
+    g_object_notify_by_pspec(G_OBJECT(context), sObjProperties[PROP_INPUT_HINTS]);
 }

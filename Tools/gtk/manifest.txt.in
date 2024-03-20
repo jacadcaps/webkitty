@@ -43,14 +43,11 @@ exclude \.xcconfig$
 exclude \.xcodeproj$
 
 # Exclude directories from other ports
-exclude .*\/(Configurations|mac|ios|cf|cg|cocoa|Cocoa|objc|avfoundation|ca|curl|win|wpe)\/.*$
+exclude .*\/(Configurations|mac|ios|cf|cg|cocoa|Cocoa|objc|avfoundation|ca|curl|win|wpe|libwpe)\/.*$
 
 directory Source
 exclude Source/JavaScriptCore/tests
-exclude Source/ThirdParty/capstone
-exclude Source/ThirdParty/libwebrtc
-exclude Source/ThirdParty/qunit
-exclude Source/ThirdParty/openvr
+exclude Source/WebCore/PAL/ThirdParty
 exclude Source/WebCore/platform/audio/resources
 exclude Source/WebCore/bindings/scripts/test
 exclude Source/WebCore/Resources
@@ -61,6 +58,14 @@ exclude Source/cmake/OptionsAppleWin.cmake$
 exclude Source/cmake/OptionsWPE.cmake$
 exclude Source/WebInspectorUI/Tools
 
+exclude Source/ThirdParty
+directory Source/ThirdParty/ANGLE
+directory Source/ThirdParty/gtest
+directory Source/ThirdParty/pdfjs
+# We need to include ThirdParty/pdfjs/web/locale/ca/viewer.ftl manually, because ca directories are excluded as port specific.
+file Source/ThirdParty/pdfjs/web/locale/ca/viewer.ftl
+directory Source/ThirdParty/xdgmime
+
 exclude Source/WebKit/Resources
 directory Source/WebKit/Resources/gtk
 
@@ -69,12 +74,12 @@ exclude Source/WebKit/gtk/NEWS$
 # We do want to include the NEWS, but we want it to be in the root of the archive.
 file Source/WebKit/gtk/NEWS NEWS
 
-file Source/WebCore/en.lproj/mediaControlsLocalizedStrings.js Source/WebCore/en.lproj/mediaControlsLocalizedStrings.js
 file Source/WebInspectorUI/Localizations/en.lproj/localizedStrings.js Source/WebInspectorUI/Localizations/en.lproj/localizedStrings.js
 
 # Include only the resources we actually build
 file Source/WebCore/Resources/missingImage.png
 file Source/WebCore/Resources/missingImage@2x.png
+file Source/WebCore/Resources/missingImage@3x.png
 file Source/WebCore/Resources/panIcon.png
 file Source/WebCore/Resources/plugIns.js
 file Source/WebCore/Resources/textAreaResizeCorner.png
@@ -90,8 +95,9 @@ exclude Tools/gtk/ycm_extra_conf.py
 
 file Tools/glib/common.py
 file Tools/glib/generate-inspector-gresource-manifest.py
+file Tools/glib/generate-modern-media-controls-gresource-manifest.py
+file Tools/glib/generate-pdfjs-resource-manifest.py
 
-directory Tools/gtkdoc
 directory Tools/MiniBrowser
 directory Tools/TestWebKitAPI
 
@@ -99,6 +105,6 @@ file CMakeLists.txt
 file Tools/CMakeLists.txt
 file Tools/PlatformGTK.cmake
 
-directory ${CMAKE_BINARY_DIR}/Documentation/webkit2gtk-${WEBKITGTK_API_VERSION}/html/webkit2gtk-${WEBKITGTK_API_VERSION} Documentation/webkit2gtk-${WEBKITGTK_API_VERSION}/html
-directory ${CMAKE_BINARY_DIR}/Documentation/webkitdomgtk-${WEBKITGTK_API_VERSION}/html/webkitdomgtk-${WEBKITGTK_API_VERSION} Documentation/webkitdomgtk-${WEBKITGTK_API_VERSION}/html
-directory ${CMAKE_BINARY_DIR}/Documentation/jsc-glib-${WEBKITGTK_API_VERSION}/html/jsc-glib-${WEBKITGTK_API_VERSION} Documentation/jsc-glib-${WEBKITGTK_API_VERSION}/html
+directory ${CMAKE_BINARY_DIR}/Documentation/javascriptcoregtk-${WEBKITGTK_API_VERSION} Documentation/jsc-glib-${WEBKITGTK_API_VERSION}
+directory ${CMAKE_BINARY_DIR}/Documentation/webkit${WEBKITGTK_API_INFIX}gtk-${WEBKITGTK_API_VERSION} Documentation/webkit${WEBKITGTK_API_INFIX}gtk-${WEBKITGTK_API_VERSION}
+directory ${CMAKE_BINARY_DIR}/Documentation/webkit${WEBKITGTK_API_INFIX}gtk-web-process-extension-${WEBKITGTK_API_VERSION} Documentation/webkit${WEBKITGTK_API_INFIX}gtk-web-process-extension-${WEBKITGTK_API_VERSION}

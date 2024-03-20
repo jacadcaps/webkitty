@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2006 Nikolas Zimmermann <zimmermann@kde.org>
- * Copyright (C) Research In Motion Limited 2010. All rights reserved.
+ * Copyright (C) 2021, 2022, 2023, 2024 Igalia S.L.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -20,56 +19,47 @@
 
 #pragma once
 
-#include "ImageBuffer.h"
-#include "Pattern.h"
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
+#include "AffineTransform.h"
 #include "PatternAttributes.h"
-#include "RenderSVGResourceContainer.h"
+#include "RenderSVGResourcePaintServer.h"
 #include "SVGPatternElement.h"
-#include <memory>
-#include <wtf/IsoMallocInlines.h>
-#include <wtf/HashMap.h>
+
+class Pattern;
 
 namespace WebCore {
 
-struct PatternData {
-    WTF_MAKE_FAST_ALLOCATED;
-public:
-    RefPtr<Pattern> pattern;
-    AffineTransform transform;
-};
-
-class RenderSVGResourcePattern final : public RenderSVGResourceContainer {
+class RenderSVGResourcePattern : public RenderSVGResourcePaintServer {
     WTF_MAKE_ISO_ALLOCATED(RenderSVGResourcePattern);
 public:
-    RenderSVGResourcePattern(SVGPatternElement&, RenderStyle&&);
-    SVGPatternElement& patternElement() const;
+    RenderSVGResourcePattern(SVGElement&, RenderStyle&&);
+    virtual ~RenderSVGResourcePattern();
 
-    void removeAllClientsFromCache(bool markForInvalidation = true) override;
-    void removeClientFromCache(RenderElement&, bool markForInvalidation = true) override;
+    inline SVGPatternElement& patternElement() const;
 
-    bool applyResource(RenderElement&, const RenderStyle&, GraphicsContext*&, OptionSet<RenderSVGResourceMode>) override;
-    void postApplyResource(RenderElement&, GraphicsContext*&, OptionSet<RenderSVGResourceMode>, const Path*, const RenderSVGShape*) override;
-    FloatRect resourceBoundingBox(const RenderObject&) override { return FloatRect(); }
+    bool prepareFillOperation(GraphicsContext&, const RenderLayerModelObject&, const RenderStyle&) final;
+    bool prepareStrokeOperation(GraphicsContext&, const RenderLayerModelObject&, const RenderStyle&) final;
 
-    RenderSVGResourceType resourceType() const override { return PatternResourceType; }
+    void invalidatePattern()
+    {
+        m_attributes = std::nullopt;
+        repaintAllClients();
+    }
 
-    void collectPatternAttributes(PatternAttributes&) const;
+protected:
+    RefPtr<Pattern> buildPattern(GraphicsContext&, const RenderLayerModelObject&);
 
-private:
-    void element() const = delete;
-    const char* renderName() const override { return "RenderSVGResourcePattern"; }
+    void collectPatternAttributesIfNeeded();
 
-    bool buildTileImageTransform(RenderElement&, const PatternAttributes&, const SVGPatternElement&, FloatRect& patternBoundaries, AffineTransform& tileImageTransform) const;
+    bool buildTileImageTransform(const RenderElement&, const PatternAttributes&, const SVGPatternElement&, FloatRect& patternBoundaries, AffineTransform& tileImageTransform) const;
 
-    std::unique_ptr<ImageBuffer> createTileImage(const PatternAttributes&, const FloatRect& tileBoundaries, const FloatRect& absoluteTileBoundaries, const AffineTransform& tileImageTransform, FloatRect& clampedAbsoluteTileBoundaries, RenderingMode) const;
+    RefPtr<ImageBuffer> createTileImage(const PatternAttributes&, const FloatRect&, const FloatRect& scale, const AffineTransform& tileImageTransform) const;
 
-    PatternData* buildPattern(RenderElement&, OptionSet<RenderSVGResourceMode>, GraphicsContext&);
-
-    PatternAttributes m_attributes;
-    HashMap<RenderElement*, std::unique_ptr<PatternData>> m_patternMap;
-    bool m_shouldCollectPatternAttributes { true };
+    std::optional<PatternAttributes> m_attributes;
 };
 
-} // namespace WebCore
+}
 
-SPECIALIZE_TYPE_TRAITS_RENDER_SVG_RESOURCE(RenderSVGResourcePattern, PatternResourceType)
+SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderSVGResourcePattern, isRenderSVGResourcePattern())
+
+#endif // ENABLE(LAYER_BASED_SVG_ENGINE)

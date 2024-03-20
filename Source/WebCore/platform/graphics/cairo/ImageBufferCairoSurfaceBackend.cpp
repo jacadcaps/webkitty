@@ -34,29 +34,25 @@
 #include "CairoOperations.h"
 #include "Color.h"
 #include "GraphicsContext.h"
-#include "GraphicsContextImplCairo.h"
 #include "ImageBufferUtilitiesCairo.h"
-#include "ImageData.h"
+#include "PixelBuffer.h"
 #include <cairo.h>
 
 #if USE(CAIRO)
 
 namespace WebCore {
 
-ImageBufferCairoSurfaceBackend::ImageBufferCairoSurfaceBackend(const FloatSize& logicalSize, const IntSize& backendSize, float resolutionScale, ColorSpace colorSpace, RefPtr<cairo_surface_t>&& surface)
-    : ImageBufferCairoBackend(logicalSize, backendSize, resolutionScale, colorSpace)
+ImageBufferCairoSurfaceBackend::ImageBufferCairoSurfaceBackend(const Parameters& parameters, RefPtr<cairo_surface_t>&& surface)
+    : ImageBufferCairoBackend(parameters)
     , m_surface(WTFMove(surface))
+    , m_context(m_surface.get())
 {
     ASSERT(cairo_surface_status(m_surface.get()) == CAIRO_STATUS_SUCCESS);
-
-    RefPtr<cairo_t> cr = adoptRef(cairo_create(m_surface.get()));
-    m_platformContext.setCr(cr.get());
-    m_context = makeUnique<GraphicsContext>(GraphicsContextImplCairo::createFactory(m_platformContext));
 }
 
-GraphicsContext& ImageBufferCairoSurfaceBackend::context() const
+GraphicsContext& ImageBufferCairoSurfaceBackend::context()
 {
-    return *m_context;
+    return m_context;
 }
 
 unsigned ImageBufferCairoSurfaceBackend::bytesPerRow() const
@@ -64,68 +60,54 @@ unsigned ImageBufferCairoSurfaceBackend::bytesPerRow() const
     return cairo_image_surface_get_stride(m_surface.get());
 }
 
-NativeImagePtr ImageBufferCairoSurfaceBackend::copyNativeImage(BackingStoreCopy copyBehavior) const
+RefPtr<NativeImage> ImageBufferCairoSurfaceBackend::copyNativeImage()
 {
-    switch (copyBehavior) {
-    case CopyBackingStore: {
-        auto copy = adoptRef(cairo_image_surface_create(CAIRO_FORMAT_ARGB32,
-        cairo_image_surface_get_width(m_surface.get()),
-        cairo_image_surface_get_height(m_surface.get())));
+    auto copy = adoptRef(cairo_image_surface_create(CAIRO_FORMAT_ARGB32,
+    cairo_image_surface_get_width(m_surface.get()),
+    cairo_image_surface_get_height(m_surface.get())));
 
-        auto cr = adoptRef(cairo_create(copy.get()));
-        cairo_set_operator(cr.get(), CAIRO_OPERATOR_SOURCE);
-        cairo_set_source_surface(cr.get(), m_surface.get(), 0, 0);
-        cairo_paint(cr.get());
+    auto cr = adoptRef(cairo_create(copy.get()));
+    cairo_set_operator(cr.get(), CAIRO_OPERATOR_SOURCE);
+    cairo_set_source_surface(cr.get(), m_surface.get(), 0, 0);
+    cairo_paint(cr.get());
 
-        return copy;
-    }
-
-    case DontCopyBackingStore:
-        return m_surface;
-    }
-
-    ASSERT_NOT_REACHED();
-    return nullptr;
+    return NativeImage::create(WTFMove(copy));
 }
 
-NativeImagePtr ImageBufferCairoSurfaceBackend::cairoSurfaceCoerceToImage() const
+RefPtr<NativeImage> ImageBufferCairoSurfaceBackend::createNativeImageReference()
 {
-    BackingStoreCopy copyBehavior;
+    return NativeImage::create(RefPtr { m_surface.get() });
+}
+
+RefPtr<cairo_surface_t> ImageBufferCairoSurfaceBackend::createCairoSurface()
+{
+    return RefPtr { m_surface.get() };
+}
+
+RefPtr<NativeImage> ImageBufferCairoSurfaceBackend::cairoSurfaceCoerceToImage()
+{
     if (cairo_surface_get_type(m_surface.get()) == CAIRO_SURFACE_TYPE_IMAGE && cairo_surface_get_content(m_surface.get()) == CAIRO_CONTENT_COLOR_ALPHA)
-        copyBehavior = DontCopyBackingStore;
-    else
-        copyBehavior = CopyBackingStore;
-    return copyNativeImage(copyBehavior);
+        return createNativeImageReference();
+    return copyNativeImage();
 }
 
-Vector<uint8_t> ImageBufferCairoSurfaceBackend::toBGRAData() const
+void ImageBufferCairoSurfaceBackend::getPixelBuffer(const IntRect& srcRect, PixelBuffer& destination)
 {
-    auto surface = cairoSurfaceCoerceToImage();
-    cairo_surface_flush(surface.get());
-
-    Vector<uint8_t> imageData;
-    if (cairo_surface_status(surface.get()))
-        return imageData;
-
-    auto pixels = cairo_image_surface_get_data(surface.get());
-    imageData.append(pixels, cairo_image_surface_get_stride(surface.get()) *
-        cairo_image_surface_get_height(surface.get()));
-
-    return imageData;
+    ImageBufferBackend::getPixelBuffer(srcRect, cairo_image_surface_get_data(m_surface.get()), destination);
 }
 
-RefPtr<ImageData> ImageBufferCairoSurfaceBackend::getImageData(AlphaPremultiplication outputFormat, const IntRect& srcRect) const
+void ImageBufferCairoSurfaceBackend::putPixelBuffer(const PixelBuffer& pixelBuffer, const IntRect& srcRect, const IntPoint& destPoint, AlphaPremultiplication destFormat)
 {
-    return ImageBufferBackend::getImageData(outputFormat, srcRect, cairo_image_surface_get_data(m_surface.get()));
+    ImageBufferBackend::putPixelBuffer(pixelBuffer, srcRect, destPoint, destFormat, cairo_image_surface_get_data(m_surface.get()));
+
+    cairo_surface_mark_dirty_rectangle(m_surface.get(), destPoint.x(), destPoint.y(), srcRect.width(), srcRect.height());
 }
 
-void ImageBufferCairoSurfaceBackend::putImageData(AlphaPremultiplication inputFormat, const ImageData& imageData, const IntRect& srcRect, const IntPoint& destPoint, AlphaPremultiplication destFormat)
+String ImageBufferCairoSurfaceBackend::debugDescription() const
 {
-    ImageBufferBackend::putImageData(inputFormat, imageData, srcRect, destPoint, destFormat, cairo_image_surface_get_data(m_surface.get()));
-
-    IntRect srcRectScaled = toBackendCoordinates(srcRect);
-    IntPoint destPointScaled = toBackendCoordinates(destPoint);
-    cairo_surface_mark_dirty_rectangle(m_surface.get(), destPointScaled.x(), destPointScaled.y(), srcRectScaled.width(), srcRectScaled.height());
+    TextStream stream;
+    stream << "ImageBufferCairoSurfaceBackend " << this << " " << m_surface.get();
+    return stream.release();
 }
 
 } // namespace WebCore

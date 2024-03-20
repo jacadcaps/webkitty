@@ -27,19 +27,24 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import pickle
 import unittest
 
 from webkitpy.common.host_mock import MockHost
 from webkitpy.common.system.systemhost_mock import MockSystemHost
 from webkitpy.layout_tests import run_webkit_tests
-from webkitpy.layout_tests.controllers.layout_test_runner import LayoutTestRunner, Sharder, TestRunInterruptedException
-from webkitpy.layout_tests.models import test_expectations
-from webkitpy.layout_tests.models import test_failures
-from webkitpy.layout_tests.models.test_run_results import TestRunResults
+from webkitpy.layout_tests.controllers.layout_test_runner import (
+    LayoutTestRunner,
+    Sharder,
+    TestRunInterruptedException,
+    TestShard,
+)
+from webkitpy.layout_tests.models import test_expectations, test_failures
+from webkitpy.layout_tests.models.test import Test
 from webkitpy.layout_tests.models.test_input import TestInput
 from webkitpy.layout_tests.models.test_results import TestResult
+from webkitpy.layout_tests.models.test_run_results import TestRunResults
 from webkitpy.port.test import TestPort
-
 
 TestExpectations = test_expectations.TestExpectations
 
@@ -78,13 +83,13 @@ class LayoutTestRunnerTests(unittest.TestCase):
 
         host = MockHost()
         port = port or host.port_factory.get(options.platform, options=options)
-        return LayoutTestRunner(options, port, FakePrinter(), port.results_directory(), lambda test_name: False)
+        return LayoutTestRunner(options, port, FakePrinter(), port.results_directory())
 
     def _run_tests(self, runner, tests):
-        test_inputs = [TestInput(test, 6000) for test in tests]
+        test_inputs = [TestInput(Test(test), 6000) for test in tests]
         expectations = TestExpectations(runner._port, tests)
         expectations.parse_all_expectations()
-        runner.run_tests(expectations, test_inputs, set(),
+        runner.run_tests(expectations, test_inputs,
             num_workers=1, needs_http=any('http' in test for test in tests), needs_websockets=any(['websocket' in test for test in tests]), needs_web_platform_test_server=any(['imported/w3c' in test for test in tests]), retrying=False)
 
     def test_interrupt_if_at_failure_limits(self):
@@ -92,7 +97,7 @@ class LayoutTestRunnerTests(unittest.TestCase):
         runner._options.exit_after_n_failures = None
         runner._options.exit_after_n_crashes_or_times = None
         test_names = ['passes/text.html', 'passes/image.html']
-        runner._test_inputs = [TestInput(test_name, 6000) for test_name in test_names]
+        runner._test_inputs = [TestInput(Test(test_name), 6000) for test_name in test_names]
 
         expectations = TestExpectations(runner._port, test_names)
         expectations.parse_all_expectations()
@@ -116,7 +121,7 @@ class LayoutTestRunnerTests(unittest.TestCase):
 
         runner._options.exit_after_n_crashes_or_timeouts = None
         runner._options.exit_after_n_failures = 10
-        exception = self.assertRaises(TestRunInterruptedException, runner._interrupt_if_at_failure_limits, run_results)
+        self.assertRaises(TestRunInterruptedException, runner._interrupt_if_at_failure_limits, run_results)
 
     def test_update_summary_with_result(self):
         # Reftests expected to be image mismatch should be respected when pixel_tests=False.
@@ -125,27 +130,46 @@ class LayoutTestRunnerTests(unittest.TestCase):
         runner._options.world_leaks = False
         test = 'failures/expected/reftest.html'
         leak_test = 'failures/expected/leak.html'
-        expectations = TestExpectations(runner._port, tests=[test, leak_test])
+        timeout_test = 'failures/expected/timeout.html'
+        expectations = TestExpectations(runner._port, tests=[test, leak_test, timeout_test])
         expectations.parse_all_expectations()
         runner._expectations = expectations
 
-        run_results = TestRunResults(expectations, 1)
-        result = TestResult(test_name=test, failures=[test_failures.FailureReftestMismatchDidNotOccur()], reftest_type=['!='])
-        runner._update_summary_with_result(run_results, result)
-        self.assertEqual(1, run_results.expected)
-        self.assertEqual(0, run_results.unexpected)
+        runner._current_run_results = TestRunResults(expectations, 1)
+        result = TestResult(test, failures=[test_failures.FailureReftestMismatchDidNotOccur()], reftest_type=['!='])
+        runner.update_summary_with_result(result)
+        self.assertEqual(1, runner._current_run_results.expected)
+        self.assertEqual(0, runner._current_run_results.unexpected)
 
-        run_results = TestRunResults(expectations, 1)
-        result = TestResult(test_name=test, failures=[], reftest_type=['=='])
-        runner._update_summary_with_result(run_results, result)
-        self.assertEqual(0, run_results.expected)
-        self.assertEqual(1, run_results.unexpected)
+        runner._current_run_results = TestRunResults(expectations, 1)
+        result = TestResult(test, failures=[], reftest_type=['=='])
+        runner.update_summary_with_result(result)
+        self.assertEqual(0, runner._current_run_results.expected)
+        self.assertEqual(1, runner._current_run_results.unexpected)
 
-        run_results = TestRunResults(expectations, 1)
-        result = TestResult(test_name=leak_test, failures=[])
-        runner._update_summary_with_result(run_results, result)
-        self.assertEqual(1, run_results.expected)
-        self.assertEqual(0, run_results.unexpected)
+        runner._current_run_results = TestRunResults(expectations, 1)
+        result = TestResult(leak_test, failures=[])
+        runner.update_summary_with_result(result)
+        self.assertEqual(1, runner._current_run_results.expected)
+        self.assertEqual(0, runner._current_run_results.unexpected)
+
+        runner._current_run_results = TestRunResults(expectations, 3)
+        result = TestResult(timeout_test, failures=[])
+        runner.update_summary_with_result(result)
+        self.assertEqual(0, runner._current_run_results.expected)
+        self.assertEqual(1, runner._current_run_results.unexpected)
+        result = TestResult(timeout_test, failures=[test_failures.FailureTextMismatch()])
+        runner.update_summary_with_result(result)
+        self.assertEqual(0, runner._current_run_results.expected)
+        self.assertEqual(2, runner._current_run_results.unexpected)
+        result = TestResult(timeout_test, failures=[])
+        runner.update_summary_with_result(result)
+        self.assertEqual(0, runner._current_run_results.expected)
+        self.assertEqual(3, runner._current_run_results.unexpected)
+        result = TestResult(timeout_test, failures=[])
+        runner.update_summary_with_result(result)
+        self.assertEqual(0, runner._current_run_results.expected)
+        self.assertEqual(4, runner._current_run_results.unexpected)
 
     def test_servers_started(self):
 
@@ -261,7 +285,7 @@ class SharderTests(unittest.TestCase):
     ]
 
     def get_test_input(self, test_file):
-        return TestInput(test_file, needs_servers=(test_file.startswith('http')))
+        return TestInput(Test(test_file), needs_servers=(test_file.startswith('http')))
 
     def get_shards(self, num_workers, fully_parallel, test_list=None):
         port = TestPort(MockSystemHost())
@@ -302,3 +326,34 @@ class SharderTests(unittest.TestCase):
              ('.', ['dom/html/level2/html/HTMLAnchorElement03.html']),
              ('.', ['ietestcenter/Javascript/11.1.5_4-4-c-1.html']),
              ('.', ['dom/html/level2/html/HTMLAnchorElement06.html'])])
+
+
+class ShardTests(unittest.TestCase):
+    def test_pickle(self):
+        tests = [
+            Test(
+                test_path="failures/expected/empty.html",
+            ),
+            Test(
+                test_path="failures/expected/mismatch.html",
+                reference_files=(
+                    (
+                        "!=",
+                        "/test.checkout/LayoutTests/failures/expected/mismatch-expected-mismatch.html",
+                    ),
+                ),
+            ),
+            Test(
+                test_path="failures/expected/image.html",
+                expected_text_path="/test.checkout/LayoutTests/failures/expected/image-expected.txt",
+                expected_image_path="/test.checkout/LayoutTests/failures/expected/image-expected.png",
+            ),
+            Test(
+                test_path="failures/expected/audio.html",
+                expected_audio_path="/test.checkout/LayoutTests/failures/expected/audio-expected.wav",
+            ),
+        ]
+        test_inputs = [TestInput(t) for t in tests]
+        shard = TestShard("failures/expected", test_inputs)
+        reloaded_shard = pickle.loads(pickle.dumps(shard))
+        self.assertEqual(shard, reloaded_shard)

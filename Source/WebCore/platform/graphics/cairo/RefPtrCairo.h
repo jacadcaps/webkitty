@@ -17,8 +17,7 @@
  *  Boston, MA 02110-1301, USA.
  */
 
-#ifndef RefPtrCairo_h
-#define RefPtrCairo_h
+#pragma once
 
 #if USE(CAIRO)
 
@@ -33,26 +32,42 @@ typedef struct _cairo_region cairo_region_t;
 
 namespace WTF {
 
-template<> void refIfNotNull(cairo_t* ptr);
-template<> WEBCORE_EXPORT void derefIfNotNull(cairo_t* ptr);
+template<>
+struct DefaultRefDerefTraits<cairo_t> {
+    WEBCORE_EXPORT static cairo_t* refIfNotNull(cairo_t*);
+    WEBCORE_EXPORT static void derefIfNotNull(cairo_t*);
+};
 
-template<> WEBCORE_EXPORT void refIfNotNull(cairo_surface_t* ptr);
-template<> WEBCORE_EXPORT void derefIfNotNull(cairo_surface_t* ptr);
+template<>
+struct DefaultRefDerefTraits<cairo_surface_t> {
+    WEBCORE_EXPORT static cairo_surface_t* refIfNotNull(cairo_surface_t*);
+    WEBCORE_EXPORT static void derefIfNotNull(cairo_surface_t*);
+};
 
-template<> void refIfNotNull(cairo_font_face_t* ptr);
-template<> void derefIfNotNull(cairo_font_face_t* ptr);
+template<>
+struct DefaultRefDerefTraits<cairo_font_face_t> {
+    static cairo_font_face_t* refIfNotNull(cairo_font_face_t*);
+    static void derefIfNotNull(cairo_font_face_t*);
+};
 
-template<> void refIfNotNull(cairo_scaled_font_t* ptr);
-template<> void derefIfNotNull(cairo_scaled_font_t* ptr);
+template<>
+struct DefaultRefDerefTraits<cairo_scaled_font_t> {
+    static cairo_scaled_font_t* refIfNotNull(cairo_scaled_font_t*);
+    WEBCORE_EXPORT static void derefIfNotNull(cairo_scaled_font_t*);
+};
 
-template<> void refIfNotNull(cairo_pattern_t*);
-template<> void derefIfNotNull(cairo_pattern_t*);
+template<>
+struct DefaultRefDerefTraits<cairo_pattern_t> {
+    static cairo_pattern_t* refIfNotNull(cairo_pattern_t*);
+    static void derefIfNotNull(cairo_pattern_t*);
+};
 
-template<> void refIfNotNull(cairo_region_t*);
-template<> void derefIfNotNull(cairo_region_t*);
+template<>
+struct DefaultRefDerefTraits<cairo_region_t> {
+    static cairo_region_t* refIfNotNull(cairo_region_t*);
+    static void derefIfNotNull(cairo_region_t*);
+};
 
 } // namespace WTF
 
 #endif // USE(CAIRO)
-
-#endif // RefPtrCairo_h

@@ -50,6 +50,7 @@ from webkitpy.style.checker import CheckerDispatcher
 from webkitpy.style.checker import ProcessorBase
 from webkitpy.style.checker import StyleProcessor
 from webkitpy.style.checker import StyleProcessorConfiguration
+from webkitpy.style.checkers.basexcconfig import BaseXcconfigChecker
 from webkitpy.style.checkers.changelog import ChangeLogChecker
 from webkitpy.style.checkers.cpp import CppChecker
 from webkitpy.style.checkers.js import JSChecker
@@ -319,7 +320,7 @@ class CheckerDispatcherSkipTest(unittest.TestCase):
                                             expected):
         # Check the file type before asserting the return value.
         checker = self._dispatcher.dispatch(file_path=path,
-                                            handle_style_error=None,
+                                            handle_style_error=DefaultStyleErrorHandler('', None, None, []),
                                             min_confidence=3,
                                             commit_queue=False)
         message = 'while checking: %s' % path
@@ -338,15 +339,23 @@ class CheckerDispatcherSkipTest(unittest.TestCase):
         # Check files with non-NONE file type.  These examples must be
         # drawn from the _SKIPPED_FILES_WITHOUT_WARNING configuration
         # variable.
-        path = os.path.join('LayoutTests', 'foo.txt')
-        self._assert_should_skip_without_warning(path,
-                                                 is_checker_none=False,
-                                                 expected=True)
+        paths = [
+            os.path.join('LayoutTests', 'foo.txt'),
+            os.path.join('WebDriverTests', 'foo.py'),
+        ]
+        for path in paths:
+            self._assert_should_skip_without_warning(path,
+                                                     is_checker_none=False,
+                                                     expected=True)
 
     def test_should_skip_without_warning__false(self):
         """Test should_skip_without_warning() for False return values."""
         paths = ['foo.txt',
                  os.path.join('LayoutTests', 'ChangeLog'),
+                 os.path.join('LayoutTests', 'foo.py'),
+                 os.path.join('LayoutTests', 'TestExpectations'),
+                 os.path.join('WebDriverTests', 'ChangeLog'),
+                 os.path.join('WebDriverTests', 'TestExpectations.json'),
         ]
 
         for path in paths:
@@ -399,6 +408,10 @@ class CheckerDispatcherDispatchTest(unittest.TestCase):
                              "got_class": got_class,
                              "expected_class": expected_class})
 
+    def assert_checker_basexcconfig(self, file_path):
+        """Assert that the dispatched checker is a BaseXcconfigChecker."""
+        self.assert_checker(file_path, BaseXcconfigChecker)
+
     def assert_checker_changelog(self, file_path):
         """Assert that the dispatched checker is a ChangeLogChecker."""
         self.assert_checker(file_path, ChangeLogChecker)
@@ -426,6 +439,25 @@ class CheckerDispatcherDispatchTest(unittest.TestCase):
     def assert_checker_xml(self, file_path):
         """Assert that the dispatched checker is a XMLChecker."""
         self.assert_checker(file_path, XMLChecker)
+
+    def test_basexcconfig_paths(self):
+        """Test paths that should be checked as Base.xcconfig files."""
+        paths = [
+            'Base.xcconfig',
+            os.path.join('Source', 'WebCore', 'Configurations', 'Base.xcconfig'),
+            'General.xcconfig',
+            os.path.join('Source', 'ThirdParty', 'gtest', 'xcode', 'Config', 'General.xcconfig'),
+        ]
+
+        for path in paths:
+            self.assert_checker_basexcconfig(path)
+
+        # Check checker attributes on a typical input.
+        file_path = paths[0]
+        self.assert_checker_basexcconfig(file_path)
+        checker = self.dispatch(file_path)
+        self.assertEqual(checker._file_path, file_path)
+        self.assertEqual(checker._handle_style_error, self.mock_handle_style_error)
 
     def test_changelog_paths(self):
         """Test paths that should be checked as ChangeLog."""
@@ -501,7 +533,7 @@ class CheckerDispatcherDispatchTest(unittest.TestCase):
         """Test paths that should be checked as JSON."""
         paths = [
            os.path.join('Source', 'WebCore', 'inspector', 'Inspector.json'),
-           os.path.join('Tools', 'BuildSlaveSupport', 'build.webkit.org-config', 'config.json'),
+           os.path.join('Tools', 'CISupport', 'build-webkit-org', 'config.json'),
         ]
 
         for path in paths:
@@ -550,7 +582,6 @@ class CheckerDispatcherDispatchTest(unittest.TestCase):
            "foo.html",
            "foo.idl",
            "foo.in",
-           "foo.php",
            "foo.pl",
            "foo.pm",
            "foo.pri",
@@ -601,10 +632,11 @@ class CheckerDispatcherDispatchTest(unittest.TestCase):
     def test_none_paths(self):
         """Test paths that have no file type.."""
         paths = [
-           "Makefile",
-           "foo.asdf",  # Non-sensical file extension.
-           "foo.exe",
-            ]
+            "Makefile",
+            "foo.asdf",  # Non-sensical file extension.
+            "foo.exe",
+            "foo.php",
+        ]
 
         for path in paths:
             self.assert_checker_none(path)
@@ -727,6 +759,9 @@ class StyleProcessor_CodeCoverageTest(LoggingTestCase):
         def __init__(self):
             self.dispatched_checker = None
 
+        def is_valid_file(self, file_path):
+            return not file_path.endswith('invalid_file.txt')
+
         def should_skip_with_warning(self, file_path):
             return file_path.endswith('skip_with_warning.txt')
 
@@ -836,6 +871,15 @@ class StyleProcessor_CodeCoverageTest(LoggingTestCase):
         file_path = os.path.join('foo', 'skip_process.txt')
 
         self.assertTrue(self._processor.should_process(file_path))
+
+    def test_invalid_file(self):
+        """Test should_process() for an invalid file."""
+        file_path = os.path.join('foo', 'invalid_file.txt')
+
+        self.assertFalse(self._processor.should_process(file_path))
+
+        self.assertLog(['ERROR: foo/invalid_file.txt(-):  File type is unsupported by the WebKit '
+                        'project  [policy/language] [5]\n'.format(os.path.join('foo', 'skip_with_warning.txt'))])
 
     def test_process__checker_dispatched(self):
         """Test the process() method for a path with a dispatched checker."""

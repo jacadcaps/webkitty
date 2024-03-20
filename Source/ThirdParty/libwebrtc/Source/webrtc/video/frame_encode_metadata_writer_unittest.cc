@@ -40,8 +40,7 @@ class FakeEncodedImageCallback : public EncodedImageCallback {
  public:
   FakeEncodedImageCallback() : num_frames_dropped_(0) {}
   Result OnEncodedImage(const EncodedImage& encoded_image,
-                        const CodecSpecificInfo* codec_specific_info,
-                        const RTPFragmentationHeader* fragmentation) override {
+                        const CodecSpecificInfo* codec_specific_info) override {
     return Result(Result::OK);
   }
   void OnDroppedFrame(DropReason reason) override { ++num_frames_dropped_; }
@@ -62,10 +61,10 @@ bool IsTimingFrame(const EncodedImage& image) {
          image.timing_.flags != VideoSendTiming::kNotTriggered;
 }
 
-// Emulates |num_frames| on |num_streams| frames with capture timestamps
+// Emulates `num_frames` on `num_streams` frames with capture timestamps
 // increased by 1 from 0. Size of each frame is between
-// |min_frame_size| and |max_frame_size|, outliers are counted relatevely to
-// |average_frame_sizes[]| for each stream.
+// `min_frame_size` and `max_frame_size`, outliers are counted relatevely to
+// `average_frame_sizes[]` for each stream.
 std::vector<std::vector<FrameType>> GetTimingFrames(
     const int64_t delay_ms,
     const size_t min_frame_size,
@@ -79,7 +78,7 @@ std::vector<std::vector<FrameType>> GetTimingFrames(
   codec_settings.numberOfSimulcastStreams = num_streams;
   codec_settings.timing_frame_thresholds = {delay_ms,
                                             kDefaultOutlierFrameSizePercent};
-  encode_timer.OnEncoderInit(codec_settings, false);
+  encode_timer.OnEncoderInit(codec_settings);
   const size_t kFramerate = 30;
   VideoBitrateAllocation bitrate_allocation;
   for (int si = 0; si < num_streams; ++si) {
@@ -106,7 +105,7 @@ std::vector<std::vector<FrameType>> GetTimingFrames(
       image.SetEncodedData(EncodedImageBuffer::Create(max_frame_size));
       image.set_size(FrameSize(min_frame_size, max_frame_size, si, i));
       image.capture_time_ms_ = current_timestamp;
-      image.SetTimestamp(static_cast<uint32_t>(current_timestamp * 90));
+      image.SetRtpTimestamp(static_cast<uint32_t>(current_timestamp * 90));
       image.SetSpatialIndex(si);
 
       if (dropped) {
@@ -199,14 +198,14 @@ TEST(FrameEncodeMetadataWriterTest, NoTimingFrameIfNoEncodeStartTime) {
   EncodedImage image;
   image.SetEncodedData(EncodedImageBuffer::Create(kFrameSize));
   image.capture_time_ms_ = timestamp;
-  image.SetTimestamp(static_cast<uint32_t>(timestamp * 90));
+  image.SetRtpTimestamp(static_cast<uint32_t>(timestamp * 90));
 
   FakeEncodedImageCallback sink;
   FrameEncodeMetadataWriter encode_timer(&sink);
   VideoCodec codec_settings;
   // Make all frames timing frames.
   codec_settings.timing_frame_thresholds.delay_ms = 1;
-  encode_timer.OnEncoderInit(codec_settings, false);
+  encode_timer.OnEncoderInit(codec_settings);
   VideoBitrateAllocation bitrate_allocation;
   bitrate_allocation.SetBitrate(0, 0, 500000);
   encode_timer.OnSetRates(bitrate_allocation, 30);
@@ -223,55 +222,10 @@ TEST(FrameEncodeMetadataWriterTest, NoTimingFrameIfNoEncodeStartTime) {
 
   // New frame, now skip OnEncodeStarted. Should not result in timing frame.
   image.capture_time_ms_ = ++timestamp;
-  image.SetTimestamp(static_cast<uint32_t>(timestamp * 90));
+  image.SetRtpTimestamp(static_cast<uint32_t>(timestamp * 90));
   image.timing_ = EncodedImage::Timing();
   encode_timer.FillTimingInfo(0, &image);
   EXPECT_FALSE(IsTimingFrame(image));
-}
-
-TEST(FrameEncodeMetadataWriterTest,
-     AdjustsCaptureTimeForInternalSourceEncoder) {
-  const int64_t kEncodeStartDelayMs = 2;
-  const int64_t kEncodeFinishDelayMs = 10;
-  constexpr size_t kFrameSize = 500;
-
-  int64_t timestamp = 1;
-  EncodedImage image;
-  image.SetEncodedData(EncodedImageBuffer::Create(kFrameSize));
-  image.capture_time_ms_ = timestamp;
-  image.SetTimestamp(static_cast<uint32_t>(timestamp * 90));
-
-  FakeEncodedImageCallback sink;
-  FrameEncodeMetadataWriter encode_timer(&sink);
-
-  VideoCodec codec_settings;
-  // Make all frames timing frames.
-  codec_settings.timing_frame_thresholds.delay_ms = 1;
-  encode_timer.OnEncoderInit(codec_settings, true);
-
-  VideoBitrateAllocation bitrate_allocation;
-  bitrate_allocation.SetBitrate(0, 0, 500000);
-  encode_timer.OnSetRates(bitrate_allocation, 30);
-
-  // Verify a single frame without encode timestamps isn't a timing frame.
-  encode_timer.FillTimingInfo(0, &image);
-  EXPECT_FALSE(IsTimingFrame(image));
-
-  // New frame, but this time with encode timestamps set in timing_.
-  // This should be a timing frame.
-  image.capture_time_ms_ = ++timestamp;
-  image.SetTimestamp(static_cast<uint32_t>(timestamp * 90));
-  image.timing_ = EncodedImage::Timing();
-  image.timing_.encode_start_ms = timestamp + kEncodeStartDelayMs;
-  image.timing_.encode_finish_ms = timestamp + kEncodeFinishDelayMs;
-
-  encode_timer.FillTimingInfo(0, &image);
-  EXPECT_TRUE(IsTimingFrame(image));
-
-  // Frame is captured kEncodeFinishDelayMs before it's encoded, so restored
-  // capture timestamp should be kEncodeFinishDelayMs in the past.
-  EXPECT_NEAR(image.capture_time_ms_, rtc::TimeMillis() - kEncodeFinishDelayMs,
-              1);
 }
 
 TEST(FrameEncodeMetadataWriterTest, NotifiesAboutDroppedFrames) {
@@ -282,7 +236,7 @@ TEST(FrameEncodeMetadataWriterTest, NotifiesAboutDroppedFrames) {
 
   FakeEncodedImageCallback sink;
   FrameEncodeMetadataWriter encode_timer(&sink);
-  encode_timer.OnEncoderInit(VideoCodec(), false);
+  encode_timer.OnEncoderInit(VideoCodec());
   // Any non-zero bitrate needed to be set before the first frame.
   VideoBitrateAllocation bitrate_allocation;
   bitrate_allocation.SetBitrate(0, 0, 500000);
@@ -296,7 +250,7 @@ TEST(FrameEncodeMetadataWriterTest, NotifiesAboutDroppedFrames) {
                          .build();
 
   image.capture_time_ms_ = kTimestampMs1;
-  image.SetTimestamp(static_cast<uint32_t>(image.capture_time_ms_ * 90));
+  image.SetRtpTimestamp(static_cast<uint32_t>(image.capture_time_ms_ * 90));
   frame.set_timestamp(image.capture_time_ms_ * 90);
   frame.set_timestamp_us(image.capture_time_ms_ * 1000);
   encode_timer.OnEncodeStarted(frame);
@@ -305,7 +259,7 @@ TEST(FrameEncodeMetadataWriterTest, NotifiesAboutDroppedFrames) {
   encode_timer.FillTimingInfo(0, &image);
 
   image.capture_time_ms_ = kTimestampMs2;
-  image.SetTimestamp(static_cast<uint32_t>(image.capture_time_ms_ * 90));
+  image.SetRtpTimestamp(static_cast<uint32_t>(image.capture_time_ms_ * 90));
   image.timing_ = EncodedImage::Timing();
   frame.set_timestamp(image.capture_time_ms_ * 90);
   frame.set_timestamp_us(image.capture_time_ms_ * 1000);
@@ -315,7 +269,7 @@ TEST(FrameEncodeMetadataWriterTest, NotifiesAboutDroppedFrames) {
   EXPECT_EQ(0u, sink.GetNumFramesDropped());
 
   image.capture_time_ms_ = kTimestampMs3;
-  image.SetTimestamp(static_cast<uint32_t>(image.capture_time_ms_ * 90));
+  image.SetRtpTimestamp(static_cast<uint32_t>(image.capture_time_ms_ * 90));
   image.timing_ = EncodedImage::Timing();
   frame.set_timestamp(image.capture_time_ms_ * 90);
   frame.set_timestamp_us(image.capture_time_ms_ * 1000);
@@ -324,7 +278,7 @@ TEST(FrameEncodeMetadataWriterTest, NotifiesAboutDroppedFrames) {
   EXPECT_EQ(1u, sink.GetNumFramesDropped());
 
   image.capture_time_ms_ = kTimestampMs4;
-  image.SetTimestamp(static_cast<uint32_t>(image.capture_time_ms_ * 90));
+  image.SetRtpTimestamp(static_cast<uint32_t>(image.capture_time_ms_ * 90));
   image.timing_ = EncodedImage::Timing();
   frame.set_timestamp(image.capture_time_ms_ * 90);
   frame.set_timestamp_us(image.capture_time_ms_ * 1000);
@@ -339,14 +293,14 @@ TEST(FrameEncodeMetadataWriterTest, RestoresCaptureTimestamps) {
   FakeEncodedImageCallback sink;
 
   FrameEncodeMetadataWriter encode_timer(&sink);
-  encode_timer.OnEncoderInit(VideoCodec(), false);
+  encode_timer.OnEncoderInit(VideoCodec());
   // Any non-zero bitrate needed to be set before the first frame.
   VideoBitrateAllocation bitrate_allocation;
   bitrate_allocation.SetBitrate(0, 0, 500000);
   encode_timer.OnSetRates(bitrate_allocation, 30);
 
   image.capture_time_ms_ = kTimestampMs;  // Correct timestamp.
-  image.SetTimestamp(static_cast<uint32_t>(image.capture_time_ms_ * 90));
+  image.SetRtpTimestamp(static_cast<uint32_t>(image.capture_time_ms_ * 90));
   VideoFrame frame = VideoFrame::Builder()
                          .set_timestamp_ms(image.capture_time_ms_)
                          .set_timestamp_rtp(image.capture_time_ms_ * 90)
@@ -364,13 +318,13 @@ TEST(FrameEncodeMetadataWriterTest, CopiesRotation) {
   FakeEncodedImageCallback sink;
 
   FrameEncodeMetadataWriter encode_timer(&sink);
-  encode_timer.OnEncoderInit(VideoCodec(), false);
+  encode_timer.OnEncoderInit(VideoCodec());
   // Any non-zero bitrate needed to be set before the first frame.
   VideoBitrateAllocation bitrate_allocation;
   bitrate_allocation.SetBitrate(0, 0, 500000);
   encode_timer.OnSetRates(bitrate_allocation, 30);
 
-  image.SetTimestamp(static_cast<uint32_t>(kTimestampMs * 90));
+  image.SetRtpTimestamp(static_cast<uint32_t>(kTimestampMs * 90));
   VideoFrame frame = VideoFrame::Builder()
                          .set_timestamp_ms(kTimestampMs)
                          .set_timestamp_rtp(kTimestampMs * 90)
@@ -390,13 +344,13 @@ TEST(FrameEncodeMetadataWriterTest, SetsContentType) {
   FrameEncodeMetadataWriter encode_timer(&sink);
   VideoCodec codec;
   codec.mode = VideoCodecMode::kScreensharing;
-  encode_timer.OnEncoderInit(codec, false);
+  encode_timer.OnEncoderInit(codec);
   // Any non-zero bitrate needed to be set before the first frame.
   VideoBitrateAllocation bitrate_allocation;
   bitrate_allocation.SetBitrate(0, 0, 500000);
   encode_timer.OnSetRates(bitrate_allocation, 30);
 
-  image.SetTimestamp(static_cast<uint32_t>(kTimestampMs * 90));
+  image.SetRtpTimestamp(static_cast<uint32_t>(kTimestampMs * 90));
   VideoFrame frame = VideoFrame::Builder()
                          .set_timestamp_ms(kTimestampMs)
                          .set_timestamp_rtp(kTimestampMs * 90)
@@ -414,7 +368,7 @@ TEST(FrameEncodeMetadataWriterTest, CopiesColorSpace) {
   FakeEncodedImageCallback sink;
 
   FrameEncodeMetadataWriter encode_timer(&sink);
-  encode_timer.OnEncoderInit(VideoCodec(), false);
+  encode_timer.OnEncoderInit(VideoCodec());
   // Any non-zero bitrate needed to be set before the first frame.
   VideoBitrateAllocation bitrate_allocation;
   bitrate_allocation.SetBitrate(0, 0, 500000);
@@ -422,7 +376,7 @@ TEST(FrameEncodeMetadataWriterTest, CopiesColorSpace) {
 
   webrtc::ColorSpace color_space =
       CreateTestColorSpace(/*with_hdr_metadata=*/true);
-  image.SetTimestamp(static_cast<uint32_t>(kTimestampMs * 90));
+  image.SetRtpTimestamp(static_cast<uint32_t>(kTimestampMs * 90));
   VideoFrame frame = VideoFrame::Builder()
                          .set_timestamp_ms(kTimestampMs)
                          .set_timestamp_rtp(kTimestampMs * 90)
@@ -441,14 +395,14 @@ TEST(FrameEncodeMetadataWriterTest, CopiesPacketInfos) {
   FakeEncodedImageCallback sink;
 
   FrameEncodeMetadataWriter encode_timer(&sink);
-  encode_timer.OnEncoderInit(VideoCodec(), false);
+  encode_timer.OnEncoderInit(VideoCodec());
   // Any non-zero bitrate needed to be set before the first frame.
   VideoBitrateAllocation bitrate_allocation;
   bitrate_allocation.SetBitrate(0, 0, 500000);
   encode_timer.OnSetRates(bitrate_allocation, 30);
 
   RtpPacketInfos packet_infos = CreatePacketInfos(3);
-  image.SetTimestamp(static_cast<uint32_t>(kTimestampMs * 90));
+  image.SetRtpTimestamp(static_cast<uint32_t>(kTimestampMs * 90));
   VideoFrame frame = VideoFrame::Builder()
                          .set_timestamp_ms(kTimestampMs)
                          .set_timestamp_rtp(kTimestampMs * 90)
@@ -462,83 +416,55 @@ TEST(FrameEncodeMetadataWriterTest, CopiesPacketInfos) {
 
 TEST(FrameEncodeMetadataWriterTest, DoesNotRewriteBitstreamWithoutCodecInfo) {
   uint8_t buffer[] = {1, 2, 3};
-  EncodedImage image(buffer, sizeof(buffer), sizeof(buffer));
-  const RTPFragmentationHeader fragmentation;
+  auto image_buffer = EncodedImageBuffer::Create(buffer, sizeof(buffer));
+  EncodedImage image;
+  image.SetEncodedData(image_buffer);
 
   FakeEncodedImageCallback sink;
   FrameEncodeMetadataWriter encode_metadata_writer(&sink);
-  EXPECT_EQ(
-      encode_metadata_writer.UpdateBitstream(nullptr, &fragmentation, &image),
-      nullptr);
-  EXPECT_EQ(image.data(), buffer);
+  encode_metadata_writer.UpdateBitstream(nullptr, &image);
+  EXPECT_EQ(image.GetEncodedData(), image_buffer);
   EXPECT_EQ(image.size(), sizeof(buffer));
 }
 
 TEST(FrameEncodeMetadataWriterTest, DoesNotRewriteVp8Bitstream) {
   uint8_t buffer[] = {1, 2, 3};
-  EncodedImage image(buffer, sizeof(buffer), sizeof(buffer));
+  auto image_buffer = EncodedImageBuffer::Create(buffer, sizeof(buffer));
+  EncodedImage image;
+  image.SetEncodedData(image_buffer);
   CodecSpecificInfo codec_specific_info;
   codec_specific_info.codecType = kVideoCodecVP8;
-  const RTPFragmentationHeader fragmentation;
 
   FakeEncodedImageCallback sink;
   FrameEncodeMetadataWriter encode_metadata_writer(&sink);
-  EXPECT_EQ(encode_metadata_writer.UpdateBitstream(&codec_specific_info,
-                                                   &fragmentation, &image),
-            nullptr);
-  EXPECT_EQ(image.data(), buffer);
-  EXPECT_EQ(image.size(), sizeof(buffer));
-}
-
-TEST(FrameEncodeMetadataWriterTest,
-     DoesNotRewriteH264BitstreamWithoutFragmentation) {
-  uint8_t buffer[] = {1, 2, 3};
-  EncodedImage image(buffer, sizeof(buffer), sizeof(buffer));
-  CodecSpecificInfo codec_specific_info;
-  codec_specific_info.codecType = kVideoCodecH264;
-
-  FakeEncodedImageCallback sink;
-  FrameEncodeMetadataWriter encode_metadata_writer(&sink);
-  EXPECT_EQ(encode_metadata_writer.UpdateBitstream(&codec_specific_info,
-                                                   nullptr, &image),
-            nullptr);
-  EXPECT_EQ(image.data(), buffer);
+  encode_metadata_writer.UpdateBitstream(&codec_specific_info, &image);
+  EXPECT_EQ(image.GetEncodedData(), image_buffer);
   EXPECT_EQ(image.size(), sizeof(buffer));
 }
 
 TEST(FrameEncodeMetadataWriterTest, RewritesH264BitstreamWithNonOptimalSps) {
-  uint8_t original_sps[] = {0,    0,    0,    1,    H264::NaluType::kSps,
-                            0x00, 0x00, 0x03, 0x03, 0xF4,
-                            0x05, 0x03, 0xC7, 0xC0};
+  const uint8_t kOriginalSps[] = {0,    0,    0,    1,    H264::NaluType::kSps,
+                                  0x00, 0x00, 0x03, 0x03, 0xF4,
+                                  0x05, 0x03, 0xC7, 0xC0};
   const uint8_t kRewrittenSps[] = {0,    0,    0,    1,    H264::NaluType::kSps,
                                    0x00, 0x00, 0x03, 0x03, 0xF4,
                                    0x05, 0x03, 0xC7, 0xE0, 0x1B,
                                    0x41, 0x10, 0x8D, 0x00};
 
-  EncodedImage image(original_sps, sizeof(original_sps), sizeof(original_sps));
+  EncodedImage image;
+  image.SetEncodedData(
+      EncodedImageBuffer::Create(kOriginalSps, sizeof(kOriginalSps)));
   image._frameType = VideoFrameType::kVideoFrameKey;
 
   CodecSpecificInfo codec_specific_info;
   codec_specific_info.codecType = kVideoCodecH264;
 
-  RTPFragmentationHeader fragmentation;
-  fragmentation.VerifyAndAllocateFragmentationHeader(1);
-  fragmentation.fragmentationOffset[0] = 4;
-  fragmentation.fragmentationLength[0] = sizeof(original_sps) - 4;
-
   FakeEncodedImageCallback sink;
   FrameEncodeMetadataWriter encode_metadata_writer(&sink);
-  std::unique_ptr<RTPFragmentationHeader> modified_fragmentation =
-      encode_metadata_writer.UpdateBitstream(&codec_specific_info,
-                                             &fragmentation, &image);
+  encode_metadata_writer.UpdateBitstream(&codec_specific_info, &image);
 
-  ASSERT_NE(modified_fragmentation, nullptr);
   EXPECT_THAT(std::vector<uint8_t>(image.data(), image.data() + image.size()),
               testing::ElementsAreArray(kRewrittenSps));
-  ASSERT_THAT(modified_fragmentation->fragmentationVectorSize, 1U);
-  EXPECT_EQ(modified_fragmentation->fragmentationOffset[0], 4U);
-  EXPECT_EQ(modified_fragmentation->fragmentationLength[0],
-            sizeof(kRewrittenSps) - 4);
 }
 
 }  // namespace test

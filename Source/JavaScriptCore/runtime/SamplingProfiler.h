@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,11 +31,15 @@
 #include "CodeBlockHash.h"
 #include "JITCode.h"
 #include "MachineStackMarker.h"
+#include "NativeCallee.h"
+#include "PCToCodeOriginMap.h"
 #include "WasmCompilationMode.h"
 #include "WasmIndexOrName.h"
+#include <wtf/Box.h>
 #include <wtf/HashSet.h>
 #include <wtf/Lock.h>
 #include <wtf/Stopwatch.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 #include <wtf/WeakRandom.h>
 
@@ -45,7 +49,7 @@ class VM;
 class ExecutableBase;
 
 class SamplingProfiler : public ThreadSafeRefCounted<SamplingProfiler> {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(SamplingProfiler);
 public:
 
     struct UnprocessedStackFrame {
@@ -65,16 +69,21 @@ public:
         CalleeBits unverifiedCallee;
         CodeBlock* verifiedCodeBlock { nullptr };
         CallSiteIndex callSiteIndex;
+        NativeCallee::Category nativeCalleeCategory { NativeCallee::Category::InlineCache };
 #if ENABLE(WEBASSEMBLY)
-        Optional<Wasm::IndexOrName> wasmIndexOrName;
+        std::optional<Wasm::IndexOrName> wasmIndexOrName;
 #endif
-        Optional<Wasm::CompilationMode> wasmCompilationMode;
+        std::optional<Wasm::CompilationMode> wasmCompilationMode;
+#if ENABLE(JIT)
+        Box<PCToCodeOriginMap> wasmPCMap;
+#endif
     };
 
     enum class FrameType { 
         Executable,
         Wasm,
         Host,
+        RegExp,
         C,
         Unknown,
     };
@@ -92,10 +101,12 @@ public:
         const void* cCodePC { nullptr };
         ExecutableBase* executable { nullptr };
         JSObject* callee { nullptr };
+        RegExp* regExp { nullptr };
 #if ENABLE(WEBASSEMBLY)
-        Optional<Wasm::IndexOrName> wasmIndexOrName;
+        std::optional<Wasm::IndexOrName> wasmIndexOrName;
 #endif
-        Optional<Wasm::CompilationMode> wasmCompilationMode;
+        std::optional<Wasm::CompilationMode> wasmCompilationMode;
+        BytecodeIndex wasmOffset;
 
         struct CodeLocation {
             bool hasCodeBlockHash() const
@@ -110,53 +121,55 @@ public:
 
             bool hasExpressionInfo() const
             {
-                return lineNumber != std::numeric_limits<unsigned>::max()
-                    && columnNumber != std::numeric_limits<unsigned>::max();
+                return lineColumn.line != std::numeric_limits<unsigned>::max()
+                    && lineColumn.column != std::numeric_limits<unsigned>::max();
             }
 
             // These attempt to be expression-level line and column number.
-            unsigned lineNumber { std::numeric_limits<unsigned>::max() };
-            unsigned columnNumber { std::numeric_limits<unsigned>::max() };
+            LineColumn lineColumn { std::numeric_limits<unsigned>::max(), std::numeric_limits<unsigned>::max() };
             BytecodeIndex bytecodeIndex;
             CodeBlockHash codeBlockHash;
             JITType jitType { JITType::None };
+            bool isRegExp { false };
         };
 
         CodeLocation semanticLocation;
-        Optional<std::pair<CodeLocation, CodeBlock*>> machineLocation; // This is non-null if we were inlined. It represents the machine frame we were inlined into.
+        std::optional<std::pair<CodeLocation, CodeBlock*>> machineLocation; // This is non-null if we were inlined. It represents the machine frame we were inlined into.
 
         bool hasExpressionInfo() const { return semanticLocation.hasExpressionInfo(); }
         unsigned lineNumber() const
         {
             ASSERT(hasExpressionInfo());
-            return semanticLocation.lineNumber;
+            return semanticLocation.lineColumn.line;
         }
         unsigned columnNumber() const
         {
             ASSERT(hasExpressionInfo());
-            return semanticLocation.columnNumber;
+            return semanticLocation.lineColumn.column;
         }
 
         // These are function-level data.
         String nameFromCallee(VM&);
         String displayName(VM&);
-        String displayNameForJSONTests(VM&); // Used for JSC stress tests because they want the "(anonymous function)" string for anonymous functions and they want "(eval)" for eval'd code.
         int functionStartLine();
         unsigned functionStartColumn();
-        intptr_t sourceID();
+        SourceID sourceID();
         String url();
     };
 
     struct UnprocessedStackTrace {
-        Seconds timestamp;
+        MonotonicTime timestamp;
+        Seconds stopwatchTimestamp;
         void* topPC;
         bool topFrameIsLLInt;
         void* llintPC;
+        RegExp* regExp;
         Vector<UnprocessedStackFrame> frames;
     };
 
     struct StackTrace {
-        Seconds timestamp;
+        MonotonicTime timestamp;
+        Seconds stopwatchTimestamp;
         Vector<StackFrame> frames;
         StackTrace()
         { }
@@ -171,19 +184,19 @@ public:
     void noticeJSLockAcquisition();
     void noticeVMEntry();
     void shutdown();
-    void visit(SlotVisitor&);
-    Lock& getLock() { return m_lock; }
+    template<typename Visitor> void visit(Visitor&) WTF_REQUIRES_LOCK(m_lock);
+    Lock& getLock() WTF_RETURNS_LOCK(m_lock) { return m_lock; }
     void setTimingInterval(Seconds interval) { m_timingInterval = interval; }
     JS_EXPORT_PRIVATE void start();
-    void start(const AbstractLocker&);
-    Vector<StackTrace> releaseStackTraces(const AbstractLocker&);
-    JS_EXPORT_PRIVATE String stackTracesAsJSON();
+    void startWithLock() WTF_REQUIRES_LOCK(m_lock);
+    Vector<StackTrace> releaseStackTraces() WTF_REQUIRES_LOCK(m_lock);
+    JS_EXPORT_PRIVATE Ref<JSON::Value> stackTracesAsJSON();
     JS_EXPORT_PRIVATE void noticeCurrentThreadAsJSCExecutionThread();
-    void noticeCurrentThreadAsJSCExecutionThread(const AbstractLocker&);
-    void processUnverifiedStackTraces(const AbstractLocker&);
-    void setStopWatch(const AbstractLocker&, Ref<Stopwatch>&& stopwatch) { m_stopwatch = WTFMove(stopwatch); }
-    void pause(const AbstractLocker&);
-    void clearData(const AbstractLocker&);
+    void noticeCurrentThreadAsJSCExecutionThreadWithLock() WTF_REQUIRES_LOCK(m_lock);
+    void processUnverifiedStackTraces() WTF_REQUIRES_LOCK(m_lock);
+    void setStopWatch(Ref<Stopwatch>&& stopwatch) WTF_REQUIRES_LOCK(m_lock) { m_stopwatch = WTFMove(stopwatch); }
+    void pause() WTF_REQUIRES_LOCK(m_lock);
+    void clearData() WTF_REQUIRES_LOCK(m_lock);
 
     // Used for debugging in the JSC shell/DRT.
     void registerForReportAtExit();
@@ -196,25 +209,24 @@ public:
     JS_EXPORT_PRIVATE Thread* thread() const;
 
 private:
-    void createThreadIfNecessary(const AbstractLocker&);
+    void createThreadIfNecessary() WTF_REQUIRES_LOCK(m_lock);
     void timerLoop();
-    void takeSample(const AbstractLocker&, Seconds& stackTraceProcessingTime);
+    void takeSample(Seconds& stackTraceProcessingTime) WTF_REQUIRES_LOCK(m_lock);
 
     Lock m_lock;
-    bool m_isPaused;
-    bool m_isShutDown;
+    bool m_isPaused WTF_GUARDED_BY_LOCK(m_lock);
+    bool m_isShutDown WTF_GUARDED_BY_LOCK(m_lock);
     bool m_needsReportAtExit { false };
     VM& m_vm;
     WeakRandom m_weakRandom;
-    Ref<Stopwatch> m_stopwatch;
-    Vector<StackTrace> m_stackTraces;
-    Vector<UnprocessedStackTrace> m_unprocessedStackTraces;
+    Ref<Stopwatch> m_stopwatch WTF_GUARDED_BY_LOCK(m_lock);
+    Vector<StackTrace> m_stackTraces WTF_GUARDED_BY_LOCK(m_lock);
+    Vector<UnprocessedStackTrace> m_unprocessedStackTraces WTF_GUARDED_BY_LOCK(m_lock);
     Seconds m_timingInterval;
-    Seconds m_lastTime;
     RefPtr<Thread> m_thread;
-    RefPtr<Thread> m_jscExecutionThread;
-    HashSet<JSCell*> m_liveCellPointers;
-    Vector<UnprocessedStackFrame> m_currentFrames;
+    RefPtr<Thread> m_jscExecutionThread WTF_GUARDED_BY_LOCK(m_lock);
+    HashSet<JSCell*> m_liveCellPointers WTF_GUARDED_BY_LOCK(m_lock);
+    Vector<UnprocessedStackFrame> m_currentFrames WTF_GUARDED_BY_LOCK(m_lock);
 };
 
 } // namespace JSC

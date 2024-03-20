@@ -27,12 +27,10 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import logging
-import sys
 
-from webkitpy.common.checkout.scm import AuthenticationError, AmbiguousCommitError
+from webkitpy.common.checkout.scm import AmbiguousCommitError, AuthenticationError
 from webkitpy.common.config import urls
 from webkitpy.common.system.executive import ScriptError
-from webkitpy.common.system.user import User
 from webkitpy.tool.steps.abstractstep import AbstractStep
 from webkitpy.tool.steps.options import Options
 
@@ -61,7 +59,7 @@ class Commit(AbstractStep):
         args.extend(test_expectations_files)
         try:
             self._tool.executive.run_and_throw_if_fail(self._tool.deprecated_port().check_webkit_style_command() + args, cwd=self._tool.scm().checkout_root)
-        except ScriptError as e:
+        except ScriptError:
             if self._options.non_interactive:
                 raise
             if not self._tool.user.confirm("Are you sure you want to continue?", default="n"):

@@ -47,8 +47,11 @@ private:
     void insertText1AndTrimText2();
     
 #ifndef NDEBUG
-    void getNodesInCommand(HashSet<Node*>&) override;
+    void getNodesInCommand(HashSet<Ref<Node>>&) override;
 #endif
+
+    RefPtr<Text> protectedText1() const { return m_text1; }
+    Ref<Text> protectedText2() const { return m_text2; }
 
     RefPtr<Text> m_text1;
     Ref<Text> m_text2;

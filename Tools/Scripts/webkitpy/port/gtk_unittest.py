@@ -1,4 +1,5 @@
 # Copyright (C) 2011 Google Inc. All rights reserved.
+# Copyright (C) 2020 Apple Inc. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are
@@ -26,30 +27,24 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import logging
 import os
 import sys
 import unittest
 
 from webkitpy.common.system.executive_mock import MockExecutive
 from webkitpy.common.system.filesystem_mock import MockFileSystem
-from webkitpy.common.system.outputcapture import OutputCapture
-from webkitpy.port.config import clear_cached_configuration
 from webkitpy.port.gtk import GtkPort
-from webkitpy.port.pulseaudio_sanitizer_mock import PulseAudioSanitizerMock
 from webkitpy.port import port_testcase
 from webkitpy.thirdparty.mock import Mock
 from webkitpy.tool.mocktool import MockOptions
+
+from webkitcorepy import OutputCapture
 
 
 class GtkPortTest(port_testcase.PortTestCase):
     port_name = 'gtk'
     port_maker = GtkPort
-
-    # Additionally mocks out the PulseAudioSanitizer methods.
-    def make_port(self, host=None, port_name=None, options=None, os_name=None, os_version=None, **kwargs):
-        port = super(GtkPortTest, self).make_port(host, port_name, options, os_name, os_version, **kwargs)
-        port._pulseaudio_sanitizer = PulseAudioSanitizerMock()
-        return port
 
     def test_default_baseline_search_path(self):
         port = self.make_port()
@@ -72,8 +67,16 @@ class GtkPortTest(port_testcase.PortTestCase):
         port._filesystem = MockFileSystem({
             "/mock-build/bin/MiniBrowser": ""
         })
-        expected_logs = "MOCK run_command: ['/mock-build/bin/MiniBrowser', 'file://test.html'], cwd=/mock-checkout\n"
-        OutputCapture().assert_outputs(self, port.show_results_html_file, ["test.html"], expected_logs=expected_logs)
+        with OutputCapture(level=logging.INFO) as captured:
+            port.show_results_html_file('test.html')
+            mock_command, mock_env = captured.root.log.getvalue().split(' env=')
+        self.assertEqual(
+            mock_command,
+            "MOCK run_command: ['/mock-build/bin/MiniBrowser', 'file://test.html'], cwd=/mock-checkout,"
+        )
+        # Check the environment variables defined by port.setup_environ_for_minibrowser()
+        for mb_env_var in ['LD_LIBRARY_PATH', 'WEBKIT_INJECTED_BUNDLE_PATH', 'WEBKIT_EXEC_PATH']:
+            self.assertTrue(mb_env_var in mock_env)
 
     def test_default_timeout_ms(self):
         self.assertEqual(self.make_port(options=MockOptions(configuration='Release')).default_timeout_ms(), 15000)
@@ -86,7 +89,6 @@ class GtkPortTest(port_testcase.PortTestCase):
         pass
 
     def test_default_upload_configuration(self):
-        clear_cached_configuration()
         port = self.make_port()
         configuration = port.configuration_for_upload()
         self.assertEqual(configuration['architecture'], port.architecture())
@@ -94,3 +96,44 @@ class GtkPortTest(port_testcase.PortTestCase):
         self.assertEqual(configuration['platform'], 'GTK')
         self.assertEqual(configuration['style'], 'release')
         self.assertEqual(configuration['version_name'], 'Xvfb')
+
+    def test_gtk4_expectations_binary_only(self):
+        port = self.make_port()
+        port._filesystem = MockFileSystem({
+            "/mock-build/lib/libwebkitgtk-6.0.so": ""
+        })
+        with OutputCapture() as _:
+            self.assertEqual(port.expectations_files(),
+                              ['/mock-checkout/LayoutTests/TestExpectations',
+                               '/mock-checkout/LayoutTests/platform/wk2/TestExpectations',
+                               '/mock-checkout/LayoutTests/platform/glib/TestExpectations',
+                               '/mock-checkout/LayoutTests/platform/gtk/TestExpectations',
+                               '/mock-checkout/LayoutTests/platform/gtk4/TestExpectations'])
+
+    def test_gtk3_expectations_binary_only(self):
+        port = self.make_port()
+        port._filesystem = MockFileSystem({
+            "/mock-build/lib/libwebkit2gtk-4.0.so": ""
+        })
+
+        with OutputCapture() as _:
+            self.assertEqual(port.expectations_files(),
+                              ['/mock-checkout/LayoutTests/TestExpectations',
+                               '/mock-checkout/LayoutTests/platform/wk2/TestExpectations',
+                               '/mock-checkout/LayoutTests/platform/glib/TestExpectations',
+                               '/mock-checkout/LayoutTests/platform/gtk/TestExpectations'])
+
+    def test_gtk_expectations_both_binaries(self):
+        port = self.make_port()
+        port._filesystem = MockFileSystem({
+            "/mock-build/lib/libwebkit2gtk-4.0.so": "",
+            "/mock-build/lib/libwebkitgtk-6.0.so": ""
+        })
+
+        with OutputCapture() as captured:
+            self.assertEqual(port.expectations_files(),
+                              ['/mock-checkout/LayoutTests/TestExpectations',
+                               '/mock-checkout/LayoutTests/platform/wk2/TestExpectations',
+                               '/mock-checkout/LayoutTests/platform/glib/TestExpectations',
+                               '/mock-checkout/LayoutTests/platform/gtk/TestExpectations'])
+            self.assertEqual(captured.root.log.getvalue(), 'Multiple WebKit2GTK libraries found. Skipping GTK4 detection.\n')

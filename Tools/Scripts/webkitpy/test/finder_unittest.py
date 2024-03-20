@@ -24,8 +24,9 @@ import logging
 import unittest
 
 from webkitpy.common.system.filesystem_mock import MockFileSystem
-from webkitpy.common.system.outputcapture import OutputCapture
 from webkitpy.test.finder import Finder
+
+from webkitcorepy import OutputCapture
 
 
 class FinderTest(unittest.TestCase):
@@ -33,6 +34,8 @@ class FinderTest(unittest.TestCase):
         files = {
           '/foo/bar/baz.py': '',
           '/foo/bar/baz_unittest.py': '',
+          '/foo/libraries/corelib/baz.py': '',
+          '/foo/libraries/corelib/baz_unittest.py': '',
           '/foo2/bar2/baz2.py': '',
           '/foo2/bar2/baz2.pyc': '',
           '/foo2/bar2/baz2_integrationtest.py': '',
@@ -42,7 +45,8 @@ class FinderTest(unittest.TestCase):
         self.fs = MockFileSystem(files)
         self.finder = Finder(self.fs)
         self.finder.add_tree('/foo', 'bar')
-        self.finder.add_tree('/foo2')
+        self.finder.add_tree('/foo2', 'bar2')
+        self.finder.add_tree('/foo/libraries', 'corelib')
 
         # Here we have to jump through a hoop to make sure test-webkitpy doesn't log
         # any messages from these tests :(.
@@ -59,7 +63,7 @@ class FinderTest(unittest.TestCase):
 
     def test_additional_system_paths(self):
         self.assertEqual(self.finder.additional_paths(['/usr']),
-                          ['/foo', '/foo2'])
+                         ['/foo', '/foo2', '/foo/libraries'])
 
     def test_is_module(self):
         self.assertTrue(self.finder.is_module('bar.baz'))
@@ -83,8 +87,8 @@ class FinderTest(unittest.TestCase):
         self.assertEqual(self.finder.find_names(names, find_all), expected_names)
 
     def test_default_names(self):
-        self.check_names([], ['bar.baz_unittest', 'bar2.baz2_integrationtest'], find_all=True)
-        self.check_names([], ['bar.baz_unittest', 'bar2.baz2_integrationtest'], find_all=False)
+        self.check_names([], ['bar.baz_unittest', 'bar2.baz2_integrationtest', 'corelib.baz_unittest'], find_all=True)
+        self.check_names([], ['bar.baz_unittest', 'bar2.baz2_integrationtest', 'corelib.baz_unittest'], find_all=False)
 
         # Should return the names given it, even if they don't exist.
         self.check_names(['foobar'], ['foobar'], find_all=False)
@@ -100,27 +104,28 @@ class FinderTest(unittest.TestCase):
         self.fs.chdir('/')
         self.check_names(['bar'], ['bar.baz_unittest'])
         self.check_names(['/foo/bar/'], ['bar.baz_unittest'])
+        self.check_names(['corelib'], ['corelib.baz_unittest'])
 
         # This works 'by accident' since it maps onto a package.
         self.check_names(['bar/'], ['bar.baz_unittest'])
 
         # This should log an error, since it's outside the trees.
-        oc = OutputCapture()
-        oc.set_log_level(logging.ERROR)
-        oc.capture_output()
-        try:
+        with OutputCapture(level=logging.ERROR) as captured:
             self.check_names(['/tmp/another_unittest.py'], [])
-        finally:
-            _, _, logs = oc.restore_output()
-            self.assertIn('another_unittest.py', logs)
+        self.assertIn('another_unittest.py', captured.root.log.getvalue())
 
         # Paths that don't exist are errors.
-        oc.capture_output()
-        try:
+        with OutputCapture(level=logging.INFO) as captured:
             self.check_names(['/foo/bar/notexist_unittest.py'], [])
-        finally:
-            _, _, logs = oc.restore_output()
-            self.assertIn('notexist_unittest.py', logs)
+        self.assertIn('notexist_unittest.py', captured.root.log.getvalue())
 
         # Names that don't exist are caught later, at load time.
         self.check_names(['bar.notexist_unittest'], ['bar.notexist_unittest'])
+
+    def test_non_package(self):
+        finder = Finder(self.fs)
+        finder.add_tree('/foo/bar', '')
+        expected_names = ['baz_unittest']
+        self.assertEqual(finder.find_names([], True), expected_names)
+        self.assertEqual(finder.find_names([], False), expected_names)
+        self.assertEqual(finder.find_names(['baz_unittest'], False), expected_names)

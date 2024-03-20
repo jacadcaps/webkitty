@@ -29,7 +29,10 @@
 
 #include "CSSSelector.h"
 #include "Element.h"
+#include "SelectorMatchingState.h"
 #include "StyleRelations.h"
+#include "StyleScopeOrdinal.h"
+#include "StyleScrollbarState.h"
 
 namespace WebCore {
 
@@ -37,16 +40,6 @@ class CSSSelector;
 class Element;
 class RenderScrollbar;
 class RenderStyle;
-
-struct StyleScrollbarState {
-    ScrollbarPart scrollbarPart { NoPart };
-    ScrollbarPart hoveredPart { NoPart };
-    ScrollbarPart pressedPart { NoPart };
-    ScrollbarOrientation orientation { VerticalScrollbar };
-    ScrollbarButtonsPlacement buttonsPlacement { ScrollbarButtonsNone };
-    bool enabled { false };
-    bool scrollCornerIsVisible { false };
-};
 
 class SelectorChecker {
     WTF_MAKE_NONCOPYABLE(SelectorChecker);
@@ -89,16 +82,20 @@ public:
         { }
 
         const SelectorChecker::Mode resolvingMode;
+        // FIXME: Switch to PseudoElementIdentifier.
         PseudoId pseudoId { PseudoId::None };
-        Optional<StyleScrollbarState> scrollbarState;
-        AtomString nameForHightlightPseudoElement;
+        AtomString pseudoElementNameArgument;
+        std::optional<StyleScrollbarState> scrollbarState;
         const ContainerNode* scope { nullptr };
-        bool isMatchingHostPseudoClass { false };
-        const Element* shadowHostInPartRuleScope { nullptr };
+        const Element* hasScope { nullptr };
+        bool matchesAllHasScopes { false };
+        Style::ScopeOrdinal styleScopeOrdinal { Style::ScopeOrdinal::Element };
+        Style::SelectorMatchingState* selectorMatchingState { nullptr };
 
         // FIXME: It would be nicer to have a separate object for return values. This requires some more work in the selector compiler.
         Style::Relations styleRelations;
         PseudoIdSet pseudoIDSet;
+        bool matchedInsideScope { false };
     };
 
     bool match(const CSSSelector&, const Element&, CheckingContext&) const;
@@ -106,8 +103,6 @@ public:
     bool matchHostPseudoClass(const CSSSelector&, const Element&, CheckingContext&) const;
 
     static bool isCommonPseudoClassSelector(const CSSSelector*);
-    static bool matchesFocusPseudoClass(const Element&);
-    static bool matchesDirectFocusPseudoClass(const Element&);
     static bool attributeSelectorMatches(const Element&, const QualifiedName&, const AtomString& attributeValue, const CSSSelector&);
 
     enum LinkMatchMask { MatchDefault = 0, MatchLink = 1, MatchVisited = 2, MatchAll = MatchLink | MatchVisited };
@@ -119,6 +114,7 @@ private:
     MatchResult matchRecursively(CheckingContext&, const LocalContext&, PseudoIdSet&) const;
     bool checkOne(CheckingContext&, const LocalContext&, MatchType&) const;
     bool matchSelectorList(CheckingContext&, const LocalContext&, const Element&, const CSSSelectorList&) const;
+    bool matchHasPseudoClass(CheckingContext&, const Element&, const CSSSelector&) const;
 
     bool checkScrollbarPseudoClass(const CheckingContext&, const Element&, const CSSSelector&) const;
 
@@ -128,14 +124,13 @@ private:
 
 inline bool SelectorChecker::isCommonPseudoClassSelector(const CSSSelector* selector)
 {
-    if (selector->match() != CSSSelector::PseudoClass)
+    if (selector->match() != CSSSelector::Match::PseudoClass)
         return false;
-    CSSSelector::PseudoClassType pseudoType = selector->pseudoClassType();
-    return pseudoType == CSSSelector::PseudoClassLink
-        || pseudoType == CSSSelector::PseudoClassAnyLink
-        || pseudoType == CSSSelector::PseudoClassAnyLinkDeprecated
-        || pseudoType == CSSSelector::PseudoClassVisited
-        || pseudoType == CSSSelector::PseudoClassFocus;
+    auto pseudoType = selector->pseudoClass();
+    return pseudoType == CSSSelector::PseudoClass::Link
+        || pseudoType == CSSSelector::PseudoClass::AnyLink
+        || pseudoType == CSSSelector::PseudoClass::Visited
+        || pseudoType == CSSSelector::PseudoClass::Focus;
 }
 
 } // namespace WebCore

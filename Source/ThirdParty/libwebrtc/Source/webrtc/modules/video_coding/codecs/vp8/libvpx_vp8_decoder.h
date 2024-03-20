@@ -13,9 +13,10 @@
 
 #include <memory>
 
+#include "absl/types/optional.h"
 #include "api/video/encoded_image.h"
 #include "api/video_codecs/video_decoder.h"
-#include "common_video/include/i420_buffer_pool.h"
+#include "common_video/include/video_frame_buffer_pool.h"
 #include "modules/video_coding/codecs/vp8/include/vp8.h"
 #include "modules/video_coding/include/video_codec_interface.h"
 #include "vpx/vp8dx.h"
@@ -28,8 +29,12 @@ class LibvpxVp8Decoder : public VideoDecoder {
   LibvpxVp8Decoder();
   ~LibvpxVp8Decoder() override;
 
-  int InitDecode(const VideoCodec* inst, int number_of_cores) override;
+  bool Configure(const Settings& settings) override;
+  int Decode(const EncodedImage& input_image,
+             int64_t /*render_time_ms*/) override;
 
+  // TODO(bugs.webrtc.org/15444): Remove once all subclasses have been migrated
+  // to expecting calls Decode without a missing_frames param.
   int Decode(const EncodedImage& input_image,
              bool missing_frames,
              int64_t /*render_time_ms*/) override;
@@ -37,12 +42,16 @@ class LibvpxVp8Decoder : public VideoDecoder {
   int RegisterDecodeCompleteCallback(DecodedImageCallback* callback) override;
   int Release() override;
 
+  DecoderInfo GetDecoderInfo() const override;
   const char* ImplementationName() const override;
 
   struct DeblockParams {
-    int max_level = 6;   // Deblocking strength: [0, 16].
-    int degrade_qp = 1;  // If QP value is below, start lowering |max_level|.
-    int min_qp = 0;      // If QP value is below, turn off deblocking.
+    DeblockParams() : max_level(6), degrade_qp(1), min_qp(0) {}
+    DeblockParams(int max_level, int degrade_qp, int min_qp)
+        : max_level(max_level), degrade_qp(degrade_qp), min_qp(min_qp) {}
+    int max_level;   // Deblocking strength: [0, 16].
+    int degrade_qp;  // If QP value is below, start lowering `max_level`.
+    int min_qp;      // If QP value is below, turn off deblocking.
   };
 
  private:
@@ -51,17 +60,16 @@ class LibvpxVp8Decoder : public VideoDecoder {
                   uint32_t timeStamp,
                   int qp,
                   const webrtc::ColorSpace* explicit_color_space);
-  const bool use_postproc_arm_;
+  const bool use_postproc_;
 
-  I420BufferPool buffer_pool_;
+  VideoFrameBufferPool buffer_pool_;
   DecodedImageCallback* decode_complete_callback_;
   bool inited_;
   vpx_codec_ctx_t* decoder_;
-  int propagation_cnt_;
   int last_frame_width_;
   int last_frame_height_;
   bool key_frame_required_;
-  DeblockParams deblock_;
+  const absl::optional<DeblockParams> deblock_params_;
   const std::unique_ptr<QpSmoother> qp_smoother_;
 };
 

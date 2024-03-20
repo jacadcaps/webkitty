@@ -84,7 +84,12 @@ WI.NavigationSidebarPanel = class NavigationSidebarPanel extends WI.SidebarPanel
     closed()
     {
         window.removeEventListener("resize", this._boundUpdateContentOverflowShadowVisibilitySoon);
-        WI.Frame.removeEventListener(null, null, this);
+
+        if (this._shouldAutoPruneStaleTopLevelResourceTreeElements) {
+            WI.Frame.removeEventListener(WI.Frame.Event.MainResourceDidChange, this._checkForStaleResources, this);
+            WI.Frame.removeEventListener(WI.Frame.Event.ChildFrameWasRemoved, this._checkForStaleResources, this);
+            WI.Frame.removeEventListener(WI.Frame.Event.ResourceWasRemoved, this._checkForStaleResources, this);
+        }
     }
 
     get contentBrowser()
@@ -466,11 +471,14 @@ WI.NavigationSidebarPanel = class NavigationSidebarPanel extends WI.SidebarPanel
         treeElement.hidden = true;
     }
 
-    shown()
+    attached()
     {
-        super.shown();
+        super.attached();
 
         this._updateContentOverflowShadowVisibilityDebouncer.force();
+
+        if (this._contentBrowser && !this._contentBrowser.currentContentView)
+            this.showDefaultContentView();
     }
 
     // Protected
@@ -493,7 +501,7 @@ WI.NavigationSidebarPanel = class NavigationSidebarPanel extends WI.SidebarPanel
 
                 // Local Overrides are never stale resources.
                 let resource = treeElement.resource;
-                if (resource.isLocalResourceOverride)
+                if (resource.localResourceOverride)
                     continue;
 
                 if (!resource.parentFrame || resource.parentFrame.isDetached())
@@ -652,6 +660,7 @@ WI.NavigationSidebarPanel = class NavigationSidebarPanel extends WI.SidebarPanel
             || treeElement instanceof WI.DOMBreakpointTreeElement
             || treeElement instanceof WI.EventBreakpointTreeElement
             || treeElement instanceof WI.URLBreakpointTreeElement
+            || treeElement instanceof WI.SymbolicBreakpointTreeElement
             || treeElement instanceof WI.CSSStyleSheetTreeElement
             || typeof treeElement.representedObject === "string"
             || treeElement.representedObject instanceof String;

@@ -28,6 +28,7 @@
 
 #if ENABLE(DRAG_SUPPORT) && USE(GTK4)
 
+#include "SandboxExtension.h"
 #include "WebKitWebViewBasePrivate.h"
 #include <WebCore/DragData.h>
 #include <WebCore/GtkUtilities.h>
@@ -49,13 +50,12 @@ DropTarget::DropTarget(GtkWidget* webView)
     gdk_content_formats_builder_add_mime_type(formatsBuilder, "text/uri-list");
     gdk_content_formats_builder_add_mime_type(formatsBuilder, "_NETSCAPE_URL");
     gdk_content_formats_builder_add_mime_type(formatsBuilder, "application/vnd.webkitgtk.smartpaste");
-    gdk_content_formats_builder_add_mime_type(formatsBuilder, PasteboardCustomData::gtkType());
+    gdk_content_formats_builder_add_mime_type(formatsBuilder, PasteboardCustomData::gtkType().characters());
     auto* target = gtk_drop_target_async_new(gdk_content_formats_builder_free_to_formats(formatsBuilder),
         static_cast<GdkDragAction>(GDK_ACTION_COPY | GDK_ACTION_MOVE | GDK_ACTION_LINK));
     g_signal_connect(target, "accept", G_CALLBACK(+[](GtkDropTargetAsync*, GdkDrop* gdkDrop, gpointer userData) -> gboolean {
         auto& drop = *static_cast<DropTarget*>(userData);
-        drop.m_drop = gdkDrop;
-        drop.accept();
+        drop.accept(gdkDrop);
         return TRUE;
     }), this);
 
@@ -102,9 +102,10 @@ DropTarget::~DropTarget()
     g_cancellable_cancel(m_cancellable.get());
 }
 
-void DropTarget::accept(unsigned)
+void DropTarget::accept(GdkDrop* drop, std::optional<WebCore::IntPoint> position, unsigned)
 {
-    m_position = WTF::nullopt;
+    m_drop = drop;
+    m_position = position;
     m_selectionData = SelectionData();
     m_dataRequestCount = 0;
     m_cancellable = adoptGRef(g_cancellable_new());
@@ -160,7 +161,7 @@ void DropTarget::accept(unsigned)
                     else
                         m_selectionData->setMarkup(String::fromUTF8(reinterpret_cast<const char*>(markupData), length));
                 }
-            } else if (mimeType == "_NETSCAPE_URL") {
+            } else if (mimeType == "_NETSCAPE_URL"_s) {
                 gsize length;
                 const auto* urlData = g_bytes_get_data(data.get(), &length);
                 if (length) {
@@ -169,12 +170,12 @@ void DropTarget::accept(unsigned)
                     if (url.isValid())
                         m_selectionData->setURL(url, tokens.size() > 1 ? tokens[1] : String());
                 }
-            } else if (mimeType == "text/uri-list") {
+            } else if (mimeType == "text/uri-list"_s) {
                 gsize length;
                 const auto* uriListData = g_bytes_get_data(data.get(), &length);
                 if (length)
                     m_selectionData->setURIList(String::fromUTF8(reinterpret_cast<const char*>(uriListData), length));
-            } else if (mimeType == "application/vnd.webkitgtk.smartpaste")
+            } else if (mimeType == "application/vnd.webkitgtk.smartpaste"_s)
                 m_selectionData->setCanSmartReplace(true);
             else if (mimeType == PasteboardCustomData::gtkType()) {
                 if (g_bytes_get_size(data.get()))
@@ -294,14 +295,14 @@ void DropTarget::leave()
     auto* page = webkitWebViewBaseGetPage(WEBKIT_WEB_VIEW_BASE(m_webView));
     ASSERT(page);
 
-    auto position = m_position.valueOr(IntPoint());
+    auto position = m_position.value_or(IntPoint());
     DragData dragData(&m_selectionData.value(), position, position, { });
     page->dragExited(dragData);
     page->resetCurrentDragInformation();
 
     m_drop = nullptr;
-    m_position = WTF::nullopt;
-    m_selectionData = WTF::nullopt;
+    m_position = std::nullopt;
+    m_selectionData = std::nullopt;
     m_cancellable = nullptr;
 }
 

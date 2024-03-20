@@ -41,6 +41,7 @@
 #include "absl/random/seed_sequences.h"  // IWYU pragma: export
 
 namespace absl {
+ABSL_NAMESPACE_BEGIN
 
 // -----------------------------------------------------------------------------
 // absl::BitGen
@@ -67,7 +68,7 @@ namespace absl {
 //
 // `absl::BitGen` may be constructed with an optional seed sequence type,
 // conforming to [rand.req.seed_seq], which will be mixed with additional
-// non-deterministic data.
+// non-deterministic data as detailed below.
 //
 // Example:
 //
@@ -78,15 +79,15 @@ namespace absl {
 //  // Generate an integer value in the closed interval [1,6]
 //  int die_roll2 = absl::uniform_int_distribution<int>(1, 6)(gen_with_seed);
 //
+// Constructing two `absl::BitGen`s with the same seed sequence in the same
+// process will produce the same sequence of variates, but need not do so across
+// multiple processes even if they're executing the same binary.
+//
 // `absl::BitGen` meets the requirements of the Uniform Random Bit Generator
 // (URBG) concept as per the C++17 standard [rand.req.urng] though differs
 // slightly with [rand.req.eng]. Like its standard library equivalents (e.g.
 // `std::mersenne_twister_engine`) `absl::BitGen` is not cryptographically
 // secure.
-//
-// Constructing two `absl::BitGen`s with the same seed sequence in the same
-// binary will produce the same sequence of variates within the same binary, but
-// need not do so across multiple binary invocations.
 //
 // This type has been optimized to perform better than Mersenne Twister
 // (https://en.wikipedia.org/wiki/Mersenne_Twister) and many other complex URBG
@@ -108,7 +109,7 @@ namespace absl {
 
 // absl::BitGen::max()
 //
-// Returns the largest possible value from this bit generator., and
+// Returns the largest possible value from this bit generator.
 
 // absl::BitGen::discard(num)
 //
@@ -146,7 +147,7 @@ using BitGen = random_internal::NonsecureURBGBase<
 //
 // `absl::InsecureBitGen` may be constructed with an optional seed sequence
 // type, conforming to [rand.req.seed_seq], which will be mixed with additional
-// non-deterministic data. (See std_seed_seq.h for more information.)
+// non-deterministic data, as detailed in the `absl::BitGen` comment.
 //
 // `absl::InsecureBitGen` meets the requirements of the Uniform Random Bit
 // Generator (URBG) concept as per the C++17 standard [rand.req.urng] though
@@ -182,6 +183,7 @@ using InsecureBitGen =
 // discards the intermediate results.
 // ---------------------------------------------------------------------------
 
+ABSL_NAMESPACE_END
 }  // namespace absl
 
 #endif  // ABSL_RANDOM_RANDOM_H_

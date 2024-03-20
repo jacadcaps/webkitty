@@ -25,9 +25,9 @@
 
 #import "config.h"
 
+#import "DeprecatedGlobalValues.h"
 #import "PlatformUtilities.h"
 #import "Test.h"
-
 #import <WebKit/WKUserContentControllerPrivate.h>
 #import <WebKit/WKWebViewConfigurationPrivate.h>
 #import <WebKit/WKWebViewPrivate.h>
@@ -36,9 +36,6 @@
 #import <WebKit/_WKWebsiteDataStoreConfiguration.h>
 #import <wtf/Deque.h>
 #import <wtf/RetainPtr.h>
-
-static bool receivedScriptMessage;
-static Deque<RetainPtr<WKScriptMessage>> scriptMessages;
 
 @interface IndexedDBStructuredCloneBackwardCompatibilityMessageHandler : NSObject <WKScriptMessageHandler>
 @end
@@ -65,16 +62,6 @@ static Deque<RetainPtr<WKScriptMessage>> scriptMessages;
 
 @end
 
-static WKScriptMessage *getNextMessage()
-{
-    if (scriptMessages.isEmpty()) {
-        receivedScriptMessage = false;
-        TestWebKitAPI::Util::run(&receivedScriptMessage);
-    }
-
-    return [[scriptMessages.takeFirst() retain] autorelease];
-}
-
 TEST(IndexedDB, StructuredCloneBackwardCompatibility)
 {
     RetainPtr<IndexedDBStructuredCloneBackwardCompatibilityMessageHandler> handler
@@ -93,7 +80,7 @@ TEST(IndexedDB, StructuredCloneBackwardCompatibility)
 
     RetainPtr<_WKWebsiteDataStoreConfiguration> websiteDataStoreConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] init]);
     websiteDataStoreConfiguration.get()._indexedDBDatabaseDirectory = idbPath;
-    configuration.get().websiteDataStore = [[[WKWebsiteDataStore alloc] _initWithConfiguration:websiteDataStoreConfiguration.get()] autorelease];
+    configuration.get().websiteDataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:websiteDataStoreConfiguration.get()]).get();
 
     idbPath = [idbPath URLByAppendingPathComponent:@"file__0"];
     idbPath = [idbPath URLByAppendingPathComponent:@"backward_compatibility"];

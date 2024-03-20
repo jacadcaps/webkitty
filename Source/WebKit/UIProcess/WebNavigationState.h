@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,8 +25,10 @@
 
 #pragma once
 
+#include <WebCore/ProcessIdentifier.h>
 #include <wtf/HashMap.h>
 #include <wtf/Ref.h>
+#include <wtf/WeakPtr.h>
 
 namespace API {
 class Navigation;
@@ -44,30 +46,35 @@ namespace WebKit {
 class WebPageProxy;
 class WebBackForwardListItem;
 
-class WebNavigationState {
+class WebNavigationState : public CanMakeWeakPtr<WebNavigationState> {
     WTF_MAKE_FAST_ALLOCATED;
 public:
     explicit WebNavigationState();
     ~WebNavigationState();
 
-    Ref<API::Navigation> createBackForwardNavigation(WebBackForwardListItem& targetItem, WebBackForwardListItem* currentItem, WebCore::FrameLoadType);
-    Ref<API::Navigation> createLoadRequestNavigation(WebCore::ResourceRequest&&, WebBackForwardListItem* currentItem);
-    Ref<API::Navigation> createReloadNavigation(WebBackForwardListItem* currentAndTargetItem);
-    Ref<API::Navigation> createLoadDataNavigation(std::unique_ptr<API::SubstituteData>&&);
+    Ref<API::Navigation> createBackForwardNavigation(WebCore::ProcessIdentifier, Ref<WebBackForwardListItem>&& targetItem, RefPtr<WebBackForwardListItem>&& currentItem, WebCore::FrameLoadType);
+    Ref<API::Navigation> createLoadRequestNavigation(WebCore::ProcessIdentifier, WebCore::ResourceRequest&&, RefPtr<WebBackForwardListItem>&& currentItem);
+    Ref<API::Navigation> createReloadNavigation(WebCore::ProcessIdentifier, RefPtr<WebBackForwardListItem>&& currentAndTargetItem);
+    Ref<API::Navigation> createLoadDataNavigation(WebCore::ProcessIdentifier, std::unique_ptr<API::SubstituteData>&&);
+    Ref<API::Navigation> createSimulatedLoadWithDataNavigation(WebCore::ProcessIdentifier, WebCore::ResourceRequest&&, std::unique_ptr<API::SubstituteData>&&, RefPtr<WebBackForwardListItem>&& currentItem);
 
     bool hasNavigation(uint64_t navigationID) const { return m_navigations.contains(navigationID); }
     API::Navigation* navigation(uint64_t navigationID);
     RefPtr<API::Navigation> takeNavigation(uint64_t navigationID);
-    void didDestroyNavigation(uint64_t navigationID);
+    void didDestroyNavigation(WebCore::ProcessIdentifier, uint64_t navigationID);
     void clearAllNavigations();
+
+    void clearNavigationsFromProcess(WebCore::ProcessIdentifier);
 
     uint64_t generateNavigationID()
     {
         return ++m_navigationID;
     }
 
+    using NavigationMap = HashMap<uint64_t, RefPtr<API::Navigation>>;
+
 private:
-    HashMap<uint64_t, RefPtr<API::Navigation>> m_navigations;
+    NavigationMap m_navigations;
     uint64_t m_navigationID { 0 };
 };
 

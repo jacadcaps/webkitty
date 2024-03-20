@@ -50,8 +50,11 @@ class TextFieldInputType : public InputType, protected SpinButtonElement::SpinBu
     , private DataListSuggestionsClient, protected DataListButtonElement::DataListButtonOwner
 #endif
 {
+public:
+    bool valueMissing(const String&) const final;
+
 protected:
-    explicit TextFieldInputType(HTMLInputElement&);
+    explicit TextFieldInputType(Type, HTMLInputElement&);
     virtual ~TextFieldInputType();
     ShouldCallBaseEventHandler handleKeydownEvent(KeyboardEvent&) override;
     void handleKeydownEventForSpinButton(KeyboardEvent&);
@@ -63,7 +66,6 @@ protected:
     HTMLElement* innerBlockElement() const final;
     RefPtr<TextControlInnerTextElement> innerTextElement() const final;
     HTMLElement* innerSpinButtonElement() const final;
-    HTMLElement* capsLockIndicatorElement() const final;
     HTMLElement* autoFillButtonElement() const final;
 #if ENABLE(DATALIST_ELEMENT)
     HTMLElement* dataListButtonElement() const final;
@@ -71,14 +73,14 @@ protected:
 
     virtual bool needsContainer() const;
     void createShadowSubtree() override;
-    void destroyShadowSubtree() override;
+    void removeShadowSubtree() override;
     void attributeChanged(const QualifiedName&) override;
     void disabledStateChanged() final;
     void readOnlyStateChanged() final;
     bool supportsReadOnly() const final;
     void handleFocusEvent(Node* oldFocusedNode, FocusDirection) final;
     void handleBlurEvent() final;
-    void setValue(const String&, bool valueChanged, TextFieldEventBehavior) override;
+    void setValue(const String&, bool valueChanged, TextFieldEventBehavior, TextControlSetValueSelection) override;
     void updateInnerTextValue() final;
     String sanitizeValue(const String&) const override;
 
@@ -88,9 +90,7 @@ protected:
 private:
     bool isKeyboardFocusable(KeyboardEvent*) const final;
     bool isMouseFocusable() const final;
-    bool isTextField() const final;
     bool isEmptyValue() const final;
-    bool valueMissing(const String&) const final;
     void handleBeforeTextInsertedEvent(BeforeTextInsertedEvent&) final;
     void forwardEvent(Event&) final;
     bool shouldSubmitImplicitly(Event&) final;
@@ -99,7 +99,7 @@ private:
     bool shouldRespectListAttribute() override;
     HTMLElement* placeholderElement() const final;
     void updatePlaceholderText() final;
-    bool appendFormData(DOMFormData&, bool multipart) const final;
+    bool appendFormData(DOMFormData&) const final;
     void subtreeHasChanged() final;
     void capsLockStateMayHaveChanged() final;
     void updateAutoFillButton() final;
@@ -107,8 +107,8 @@ private:
 
     // SpinButtonElement::SpinButtonOwner functions.
     void focusAndSelectSpinButtonOwner() final;
-    bool shouldSpinButtonRespondToMouseEvents() final;
-    bool shouldSpinButtonRespondToWheelEvents() final;
+    bool shouldSpinButtonRespondToMouseEvents() const final;
+    bool shouldSpinButtonRespondToWheelEvents() const final;
     void spinButtonStepDown() final;
     void spinButtonStepUp() final;
 
@@ -120,15 +120,19 @@ private:
     bool shouldDrawCapsLockIndicator() const;
     bool shouldDrawAutoFillButton() const;
 
-    void createContainer();
+    enum class PreserveSelectionRange : bool { No, Yes };
+    void createContainer(PreserveSelectionRange = PreserveSelectionRange::Yes);
     void createAutoFillButton(AutoFillButtonType);
 
 #if ENABLE(DATALIST_ELEMENT)
     void createDataListDropdownIndicator();
     bool isPresentingAttachedView() const final;
+    bool isFocusingWithDataListDropdown() const final;
     void dataListMayHaveChanged() final;
     void displaySuggestions(DataListSuggestionActivationType);
     void closeSuggestions();
+
+    void showPicker() override;
 
     // DataListSuggestionsClient
     IntRect elementRectInRootViewCoordinates() const final;
@@ -136,9 +140,8 @@ private:
     void didSelectDataListOption(const String&) final;
     void didCloseSuggestions() final;
 
-    static bool shouldOnlyShowDataListDropdownButtonWhenFocusedOrEdited();
-
     void dataListButtonElementWasClicked() final;
+    bool m_isFocusingWithDataListDropdown { false };
     RefPtr<DataListButtonElement> m_dataListDropdownIndicator;
 
     std::pair<String, Vector<DataListSuggestion>> m_cachedSuggestions;

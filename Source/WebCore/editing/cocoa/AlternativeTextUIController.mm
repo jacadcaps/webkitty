@@ -27,7 +27,6 @@
 #import "AlternativeTextUIController.h"
 
 #import "FloatRect.h"
-#import <wtf/cocoa/VectorCocoa.h>
 
 #if USE(APPKIT)
 #import <AppKit/NSSpellChecker.h>
@@ -41,14 +40,19 @@
 
 namespace WebCore {
 
-DictationContext AlternativeTextUIController::addAlternatives(NSTextAlternatives *alternatives)
+DictationContext AlternativeTextUIController::addAlternatives(PlatformTextAlternatives *alternatives)
 {
     return m_contextController.addAlternatives(alternatives);
 }
 
-Vector<String> AlternativeTextUIController::alternativesForContext(DictationContext context)
+void AlternativeTextUIController::replaceAlternatives(PlatformTextAlternatives *alternatives, DictationContext context)
 {
-    return makeVector<String>(m_contextController.alternativesForContext(context).alternativeStrings);
+    m_contextController.replaceAlternatives(alternatives, context);
+}
+
+PlatformTextAlternatives *AlternativeTextUIController::alternativesForContext(DictationContext context)
+{
+    return m_contextController.alternativesForContext(context);
 }
 
 void AlternativeTextUIController::clear()
@@ -66,7 +70,7 @@ void AlternativeTextUIController::showAlternatives(NSView *view, const FloatRect
 
     m_view = view;
 
-    NSTextAlternatives *alternatives = m_contextController.alternativesForContext(context);
+    PlatformTextAlternatives *alternatives = m_contextController.alternativesForContext(context);
     if (!alternatives)
         return;
 
@@ -78,7 +82,7 @@ void AlternativeTextUIController::showAlternatives(NSView *view, const FloatRect
     }];
 }
 
-void AlternativeTextUIController::handleAcceptedAlternative(NSString *acceptedAlternative, DictationContext context, NSTextAlternatives *alternatives)
+void AlternativeTextUIController::handleAcceptedAlternative(NSString *acceptedAlternative, DictationContext context, PlatformTextAlternatives *alternatives)
 {
     [alternatives noteSelectedAlternativeString:acceptedAlternative];
     m_contextController.removeAlternativesForContext(context);

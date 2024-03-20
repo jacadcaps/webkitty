@@ -47,9 +47,11 @@ private:
     void doApply() override;
     void doUnapply() override;
     void doReapply() override;
+
+    Ref<Text> protectedNode() const { return m_node.get(); }
     
 #ifndef NDEBUG
-    void getNodesInCommand(HashSet<Node*>&) override;
+    void getNodesInCommand(HashSet<Ref<Node>>&) override;
 #endif
     
     Ref<Text> m_node;

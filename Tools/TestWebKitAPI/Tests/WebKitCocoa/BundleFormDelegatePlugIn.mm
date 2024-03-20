@@ -70,9 +70,7 @@
     if (!_shouldUseCustomClass)
         return nil;
 
-    NSUnitConverterLinear *kilometersToMeters = [[NSUnitConverterLinear alloc] initWithCoefficient:1000.0 constant:0.0];
-
-    return [kilometersToMeters autorelease];
+    return adoptNS([[NSUnitConverterLinear alloc] initWithCoefficient:1000.0 constant:0.0]).autorelease();
 }
 
 - (void)_webProcessPlugInBrowserContextController:(WKWebProcessPlugInBrowserContextController *)controller didFocusTextField:(WKWebProcessPlugInNodeHandle *)textField inFrame:(WKWebProcessPlugInFrame *)frame
@@ -80,4 +78,24 @@
     [_remoteObject didGetFocus];
 }
 
+@end
+
+@interface BundleFormDelegatePlugInWithUserInfo : NSObject <WKWebProcessPlugIn, WKWebProcessPlugInFormDelegatePrivate>
+@end
+@implementation BundleFormDelegatePlugInWithUserInfo
+- (void)webProcessPlugIn:(WKWebProcessPlugInController *)plugInController didCreateBrowserContextController:(WKWebProcessPlugInBrowserContextController *)browserContextController
+{
+    [browserContextController _setFormDelegate:self];
+}
+- (NSObject <NSSecureCoding> *)_webProcessPlugInBrowserContextController:(WKWebProcessPlugInBrowserContextController *)controller willSubmitForm:(WKWebProcessPlugInNodeHandle *)form toFrame:(WKWebProcessPlugInFrame *)frame fromFrame:(WKWebProcessPlugInFrame *)sourceFrame withValues:(NSDictionary *)values
+{
+    return @{
+        @"NumberKey": @(24),
+        @"StringKey": @"StringValue",
+        @"ArrayKey": @[ @(123), NSDate.now, @"Only 123 and this string should be serialized" ],
+        @"DictionaryKey": @{ @"NestedDictionaryKey": @{ @"NestedArrayKey": @[ @YES ] } },
+        [NSData dataWithBytes:"abc" length:3]: @"Should not be serialized",
+        @"DataKey": [NSData dataWithBytes:"def" length:3]
+    };
+}
 @end

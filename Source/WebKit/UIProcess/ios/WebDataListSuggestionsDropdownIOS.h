@@ -26,14 +26,27 @@
 #if ENABLE(DATALIST_ELEMENT) && PLATFORM(IOS_FAMILY)
 
 #import "UIKitSPI.h"
+#import "WKBrowserEngineDefinitions.h"
 #import "WebDataListSuggestionsDropdown.h"
+#import <pal/spi/ios/BrowserEngineKitSPI.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/Vector.h>
 
 OBJC_CLASS WKContentView;
-OBJC_CLASS WKDataListSuggestionsControl;
 
-@interface WKDataListTextSuggestion : UITextSuggestion
+@interface WKDataListTextSuggestion : WKBETextSuggestion
++ (instancetype)textSuggestionWithInputText:(NSString *)inputText;
+@end
+
+@interface WKDataListSuggestionsControl : NSObject
+
+@property (nonatomic, readonly) BOOL isShowingSuggestions;
+
+- (instancetype)initWithInformation:(WebCore::DataListSuggestionInformation&&)information inView:(WKContentView *)view;
+- (void)updateWithInformation:(WebCore::DataListSuggestionInformation&&)information;
+- (void)didSelectOptionAtIndex:(NSInteger)index;
+- (void)invalidate;
+
 @end
 
 namespace WebKit {

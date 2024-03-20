@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005, 2006 Apple Inc.  All rights reserved.
+ * Copyright (C) 2005-2023 Apple Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,7 +26,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-
 #import "WebPluginController.h"
 
 #import "DOMNodeInternal.h"
@@ -51,11 +50,11 @@
 #import <JavaScriptCore/JSLock.h>
 #import <WebCore/CommonVM.h>
 #import <WebCore/DocumentLoader.h>
-#import <WebCore/Frame.h>
 #import <WebCore/FrameLoadRequest.h>
 #import <WebCore/FrameLoader.h>
 #import <WebCore/HTMLMediaElement.h>
 #import <WebCore/HTMLNames.h>
+#import <WebCore/LocalFrame.h>
 #import <WebCore/ResourceRequest.h>
 #import <WebCore/ScriptController.h>
 #import <WebCore/UserGestureIndicator.h>
@@ -67,8 +66,8 @@
 #import "DOMElementInternal.h"
 #import "WebUIKitDelegate.h"
 #import <WebCore/AudioSession.h>
-#import <WebCore/FrameView.h>
 #import <WebCore/GraphicsLayer.h>
+#import <WebCore/LocalFrameView.h>
 #import <WebCore/RuntimeApplicationChecks.h>
 #import <WebCore/WebCoreThreadRun.h>
 #import <wtf/SoftLinking.h>
@@ -98,79 +97,35 @@ static void installFlip4MacPlugInWorkaroundIfNecessary();
 #endif
 
 
-static NSMutableSet *pluginViews = nil;
-
-#if PLATFORM(IOS_FAMILY)
-static void initializeAudioSession()
+static RetainPtr<NSMutableSet>& pluginViews()
 {
-    static bool wasAudioSessionInitialized;
-    if (wasAudioSessionInitialized)
-        return;
-
-    wasAudioSessionInitialized = true;
-    if (!WebCore::IOSApplication::isMobileSafari())
-        return;
-
-    WebCore::AudioSession::sharedSession().setCategory(WebCore::AudioSession::MediaPlayback, WebCore::RouteSharingPolicy::Default);
+    static NeverDestroyed<RetainPtr<NSMutableSet>> pluginViews;
+    return pluginViews;
 }
-#endif
 
 @implementation WebPluginController
 
 - (NSView *)plugInViewWithArguments:(NSDictionary *)arguments fromPluginPackage:(WebPluginPackage *)pluginPackage
 {
-#if PLATFORM(IOS_FAMILY)
-    initializeAudioSession();
-#endif
-
-    [pluginPackage load];
-
-    NSView *view = nil;
-
-#if PLATFORM(IOS_FAMILY)
-    {
-        WebView *webView = [_documentView _webView];
-        JSC::JSLock::DropAllLocks dropAllLocks(WebCore::commonVM());
-        view = [[webView _UIKitDelegateForwarder] webView:webView plugInViewWithArguments:arguments fromPlugInPackage:pluginPackage];
-    }
-#else
-    Class viewFactory = [pluginPackage viewFactory];
-    if ([viewFactory respondsToSelector:@selector(plugInViewWithArguments:)]) {
-        JSC::JSLock::DropAllLocks dropAllLocks(WebCore::commonVM());
-        view = [viewFactory plugInViewWithArguments:arguments];
-    } else if ([viewFactory respondsToSelector:@selector(pluginViewWithArguments:)]) {
-        JSC::JSLock::DropAllLocks dropAllLocks(WebCore::commonVM());
-        view = [viewFactory pluginViewWithArguments:arguments];
-    }
-#endif
-
-    if (view == nil) {
-        return nil;
-    }
-    
-    if (pluginViews == nil) {
-        pluginViews = [[NSMutableSet alloc] init];
-    }
-    [pluginViews addObject:view];
-
-    return view;
+    return nil;
 }
 
 #if PLATFORM(IOS_FAMILY)
 + (void)addPlugInView:(NSView *)view
 {
-    if (pluginViews == nil)
-        pluginViews = [[NSMutableSet alloc] init];
+    auto& views = pluginViews();
+    if (!views)
+        views = adoptNS([[NSMutableSet alloc] init]);
 
     ASSERT(view);
     if (view)
-        [pluginViews addObject:view];
+        [views addObject:view];
 }
 #endif
 
 + (BOOL)isPlugInView:(NSView *)view
 {
-    return [pluginViews containsObject:view];
+    return [pluginViews() containsObject:view];
 }
 
 - (id)initWithDocumentView:(NSView *)view
@@ -379,13 +334,8 @@ static void initializeAudioSession()
         if (_started)
             [self stopOnePlugin:view];
         [self destroyOnePlugin:view];
-
-#if ENABLE(NETSCAPE_PLUGIN_API)
-        if (auto* frame = core([self webFrame]))
-            frame->script().cleanupScriptObjectsForPlugin(self);
-#endif
         
-        [pluginViews removeObject:view];
+        [pluginViews() removeObject:view];
 #if !PLATFORM(IOS_FAMILY)
         [[_documentView _webView] removePluginInstanceView:view];
 #endif
@@ -427,13 +377,8 @@ static void cancelOutstandingCheck(const void *item, void *context)
     for (int i = 0; i < viewsCount; i++) {
         id aView = [_views objectAtIndex:i];
         [self destroyOnePlugin:aView];
-        
-#if ENABLE(NETSCAPE_PLUGIN_API)
-        if (auto* frame = core([self webFrame]))
-            frame->script().cleanupScriptObjectsForPlugin(self);
-#endif
-        
-        [pluginViews removeObject:aView];
+
+        [pluginViews() removeObject:aView];
 #if !PLATFORM(IOS_FAMILY)
         [[_documentView _webView] removePluginInstanceView:aView];
 #endif
@@ -538,9 +483,7 @@ static void cancelOutstandingCheck(const void *item, void *context)
     bool primary = true;
     if (auto* frame = core([self webFrame]))
         primary = frame->selection().isFocusedAndActive();
-    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    return primary ? [NSColor selectedTextBackgroundColor] : [NSColor secondarySelectedControlColor];
-    ALLOW_DEPRECATED_DECLARATIONS_END
+    return primary ? [NSColor selectedTextBackgroundColor] : [NSColor unemphasizedSelectedContentBackgroundColor];
 }
 
 // For compatibility only.
@@ -574,13 +517,12 @@ static void cancelOutstandingCheck(const void *item, void *context)
     else {
         // Cancel the load since this plug-in does its own loading.
         // FIXME: See <rdar://problem/4258008> for a problem with this.
-        NSError *error = [[NSError alloc] _initWithPluginErrorCode:WebKitErrorPlugInWillHandleLoad
+        auto error = adoptNS([[NSError alloc] _initWithPluginErrorCode:WebKitErrorPlugInWillHandleLoad
                                                         contentURL:[response URL]
                                                      pluginPageURL:nil
                                                         pluginName:nil // FIXME: Get this from somewhere
-                                                          MIMEType:[response MIMEType]];
-        [_dataSource _documentLoader]->cancelMainResourceLoad(error);
-        [error release];
+                                                          MIMEType:[response MIMEType]]);
+        [_dataSource _documentLoader]->cancelMainResourceLoad(error.get());
     }        
 }
 
@@ -653,19 +595,19 @@ static alertDidEndIMP original_TSUpdateCheck_alertDidEnd_returnCode_contextInfo_
 
 static void WebKit_TSUpdateCheck_alertDidEnd_returnCode_contextInfo_(id object, SEL selector, NSAlert *alert, NSInteger returnCode, void* contextInfo)
 {
-    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     [[(TSUpdateCheck *)object delegate] autorelease];
-    ALLOW_DEPRECATED_DECLARATIONS_END
+ALLOW_DEPRECATED_DECLARATIONS_END
 
     original_TSUpdateCheck_alertDidEnd_returnCode_contextInfo_(object, selector, alert, returnCode, contextInfo);
 }
 
 static void WebKit_NSAlert_beginSheetModalForWindow_modalDelegate_didEndSelector_contextInfo_(id object, SEL selector, NSWindow *window, id modalDelegate, SEL didEndSelector, void* contextInfo)
 {
-    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     if (isKindOfClass(modalDelegate, @"TSUpdateCheck"))
         [[(TSUpdateCheck *)modalDelegate delegate] retain];
-    ALLOW_DEPRECATED_DECLARATIONS_END
+ALLOW_DEPRECATED_DECLARATIONS_END
 
     original_NSAlert_beginSheetModalForWindow_modalDelegate_didEndSelector_contextInfo_(object, selector, window, modalDelegate, didEndSelector, contextInfo);
 }

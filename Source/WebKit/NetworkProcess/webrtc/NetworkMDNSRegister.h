@@ -27,9 +27,10 @@
 
 #if ENABLE(WEB_RTC)
 
-#include "MDNSRegisterIdentifier.h"
 #include "RTCNetwork.h"
-#include <WebCore/DocumentIdentifier.h>
+#include <WebCore/ProcessQualified.h>
+#include <WebCore/ScriptExecutionContextIdentifier.h>
+#include <wtf/CheckedRef.h>
 #include <wtf/Expected.h>
 #include <wtf/Forward.h>
 #include <wtf/HashMap.h>
@@ -53,6 +54,10 @@ namespace PAL {
 class SessionID;
 }
 
+namespace WebCore {
+enum class MDNSRegisterError : uint8_t;
+}
+
 namespace WebKit {
 
 class NetworkConnectionToWebProcess;
@@ -64,15 +69,20 @@ public:
 
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&);
 
+#if ENABLE_MDNS
+    void closeAndForgetService(DNSServiceRef);
+#endif
+
 private:
-    void unregisterMDNSNames(WebCore::DocumentIdentifier);
-    void registerMDNSName(MDNSRegisterIdentifier, WebCore::DocumentIdentifier, const String& ipAddress);
-    
+    void unregisterMDNSNames(WebCore::ScriptExecutionContextIdentifier);
+    void registerMDNSName(WebCore::ScriptExecutionContextIdentifier, const String& ipAddress, CompletionHandler<void(const String&, std::optional<WebCore::MDNSRegisterError>)>&&);
+
     PAL::SessionID sessionID() const;
 
-    NetworkConnectionToWebProcess& m_connection;
+    WeakRef<NetworkConnectionToWebProcess> m_connection;
 #if ENABLE_MDNS
-    HashMap<WebCore::DocumentIdentifier, DNSServiceRef> m_services;
+    struct DNSServiceDeallocator;
+    HashMap<WebCore::ScriptExecutionContextIdentifier, std::unique_ptr<_DNSServiceRef_t, DNSServiceDeallocator>> m_services;
 #endif
 };
 

@@ -38,7 +38,7 @@ public:
     RenderReplica(Document&, RenderStyle&&);
     virtual ~RenderReplica();
 
-    const char* renderName() const override { return "RenderReplica"; }
+    ASCIILiteral renderName() const override { return "RenderReplica"_s; }
 
     bool requiresLayer() const override { return true; }
 
@@ -47,9 +47,10 @@ public:
     void paint(PaintInfo&, const LayoutPoint&) override;
 
 private:
-    bool isReplica() const override { return true; }
     bool canHaveChildren() const override { return false; }
     void computePreferredLogicalWidths() override;
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderReplica, isRenderReplica())

@@ -25,6 +25,8 @@
 
 #pragma once
 
+#include "DownloadID.h"
+#include "IdentifierTypes.h"
 #include "MessageReceiver.h"
 #include "NetworkProcessSupplement.h"
 #include "WebPageProxyIdentifier.h"
@@ -48,13 +50,12 @@ class SessionID;
 namespace WebCore {
 class AuthenticationChallenge;
 class Credential;
-struct SecurityOriginData;
+class SecurityOriginData;
 }
 
 namespace WebKit {
 
 class Download;
-class DownloadID;
 class NetworkProcess;
 class WebFrame;
 enum class NegotiatedLegacyTLS : bool { No, Yes };
@@ -62,23 +63,31 @@ enum class NegotiatedLegacyTLS : bool { No, Yes };
 enum class AuthenticationChallengeDisposition : uint8_t;
 using ChallengeCompletionHandler = CompletionHandler<void(AuthenticationChallengeDisposition, const WebCore::Credential&)>;
 
-class AuthenticationManager : public NetworkProcessSupplement, public IPC::MessageReceiver, public CanMakeWeakPtr<AuthenticationManager> {
+class AuthenticationManager : public NetworkProcessSupplement, public IPC::MessageReceiver {
     WTF_MAKE_FAST_ALLOCATED;
     WTF_MAKE_NONCOPYABLE(AuthenticationManager);
 public:
     explicit AuthenticationManager(NetworkProcess&);
+    ~AuthenticationManager();
 
-    static const char* supplementName();
+    static ASCIILiteral supplementName();
 
     void didReceiveAuthenticationChallenge(PAL::SessionID, WebPageProxyIdentifier, const WebCore::SecurityOriginData* , const WebCore::AuthenticationChallenge&, NegotiatedLegacyTLS, ChallengeCompletionHandler&&);
     void didReceiveAuthenticationChallenge(IPC::MessageSender& download, const WebCore::AuthenticationChallenge&, ChallengeCompletionHandler&&);
 
-    void completeAuthenticationChallenge(uint64_t challengeID, AuthenticationChallengeDisposition, WebCore::Credential&&);
+    void completeAuthenticationChallenge(AuthenticationChallengeIdentifier, AuthenticationChallengeDisposition, WebCore::Credential&&);
 
     void negotiatedLegacyTLS(WebPageProxyIdentifier) const;
 
 private:
+    Ref<NetworkProcess> protectedProcess() const;
     struct Challenge {
+        WTF_MAKE_STRUCT_FAST_ALLOCATED;
+        Challenge(WebPageProxyIdentifier pageID, const WebCore::AuthenticationChallenge& challenge, ChallengeCompletionHandler&& completionHandler)
+            : pageID(pageID)
+            , challenge(challenge)
+            , completionHandler(WTFMove(completionHandler)) { }
+        
         WebPageProxyIdentifier pageID;
         WebCore::AuthenticationChallenge challenge;
         ChallengeCompletionHandler completionHandler;
@@ -92,14 +101,14 @@ private:
     // IPC::MessageReceiver
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) override;
 
-    uint64_t addChallengeToChallengeMap(Challenge&&);
-    bool shouldCoalesceChallenge(WebPageProxyIdentifier, uint64_t challengeID, const WebCore::AuthenticationChallenge&) const;
+    AuthenticationChallengeIdentifier addChallengeToChallengeMap(UniqueRef<Challenge>&&);
+    bool shouldCoalesceChallenge(WebPageProxyIdentifier, AuthenticationChallengeIdentifier, const WebCore::AuthenticationChallenge&) const;
 
-    Vector<uint64_t> coalesceChallengesMatching(uint64_t challengeID) const;
+    Vector<AuthenticationChallengeIdentifier> coalesceChallengesMatching(AuthenticationChallengeIdentifier) const;
 
-    NetworkProcess& m_process;
+    WeakRef<NetworkProcess> m_process;
 
-    HashMap<uint64_t, Challenge> m_challenges;
+    HashMap<AuthenticationChallengeIdentifier, UniqueRef<Challenge>> m_challenges;
 };
 
 } // namespace WebKit

@@ -26,6 +26,7 @@
 
 [
     Conditional=WEBGL,
-    ImplementationLacksVTable,
+    EnabledBySetting=WebGLEnabled,
+    Exposed=(Window,Worker)
 ] interface WebGLUniformLocation {
 };

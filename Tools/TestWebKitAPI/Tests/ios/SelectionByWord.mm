@@ -30,7 +30,7 @@
 #import "PlatformUtilities.h"
 #import "TestInputDelegate.h"
 #import "TestWKWebView.h"
-#import "UIKitSPI.h"
+#import "UIKitSPIForTesting.h"
 #import <wtf/BlockPtr.h>
 
 TEST(SelectionTests, ByWordAtEndOfDocument)
@@ -53,6 +53,24 @@ TEST(SelectionTests, ByWordAtEndOfDocument)
     EXPECT_WK_STREQ([webView stringByEvaluatingJavaScript:@"getSelection().focusOffset"], "15");
 
     EXPECT_WK_STREQ([webView stringByEvaluatingJavaScript:@"getSelection().toString()"], "Three");
+}
+
+TEST(SelectionTests, SelectWordForReplacementWithDictationAlternative)
+{
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 320, 320)]);
+    [webView synchronouslyLoadTestPageNamed:@"editable-responsive-body"];
+
+    auto contentView = [webView textInputContentView];
+    [contentView selectAll:nil];
+    [contentView insertText:@"foo bar"];
+    [webView waitForNextPresentationUpdate];
+
+    auto alternatives = adoptNS([[NSTextAlternatives alloc] initWithPrimaryString:@"foo bar" alternativeStrings:@[ @"baz" ]]);
+    [[webView textInputContentView] addTextAlternatives:alternatives.get()];
+    [[webView textInputContentView] selectWordForReplacement];
+    [webView waitForNextPresentationUpdate];
+
+    EXPECT_WK_STREQ("foo bar", [webView selectedText]);
 }
 
 @interface SelectionChangeListener : NSObject <UITextInputDelegate>

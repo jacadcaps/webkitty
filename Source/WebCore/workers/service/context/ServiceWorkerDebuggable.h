@@ -26,7 +26,6 @@
 #pragma once
 
 #if ENABLE(REMOTE_INSPECTOR)
-#if ENABLE(SERVICE_WORKER)
 
 #include "ServiceWorkerContextData.h"
 #include <JavaScriptCore/RemoteInspectionTarget.h>
@@ -51,7 +50,7 @@ public:
 
     void connect(Inspector::FrontendChannel&, bool isAutomaticConnection = false, bool immediatelyPause = false) final;
     void disconnect(Inspector::FrontendChannel&) final;
-    void dispatchMessageFromRemote(const String& message) final;
+    void dispatchMessageFromRemote(String&& message) final;
 
 private:
     ServiceWorkerThreadProxy& m_serviceWorkerThreadProxy;
@@ -62,5 +61,4 @@ private:
 
 SPECIALIZE_TYPE_TRAITS_CONTROLLABLE_TARGET(WebCore::ServiceWorkerDebuggable, ServiceWorker);
 
-#endif // ENABLE(SERVICE_WORKER)
 #endif // ENABLE(REMOTE_INSPECTOR)

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006 Apple Inc.  All rights reserved.
+ * Copyright (C) 2006-2023 Apple Inc.  All rights reserved.
  * Copyright (C) 2006 Michael Emmel mike.emmel@gmail.com
  * Copyright (C) 2007, 2008 Alp Toker <alp@atoker.com>
  * Copyright (C) 2009 Dirk Schulze <krit@webkit.org>
@@ -41,29 +41,34 @@
 #include "Gradient.h"
 #include "GraphicsContext.h"
 #include "ImageBuffer.h"
+#include "PathCairo.h"
 #include "Pattern.h"
-#include "PlatformContextCairo.h"
 #include "RefPtrCairo.h"
 #include "ShadowBlur.h"
+#include <unicode/uchar.h>
 
 namespace WebCore {
 
-void FontCascade::drawGlyphs(GraphicsContext& context, const Font& font, const GlyphBuffer& glyphBuffer,
-    unsigned from, unsigned numGlyphs, const FloatPoint& point, FontSmoothingMode fontSmoothingMode)
+void FontCascade::drawGlyphs(GraphicsContext& context, const Font& font, const GlyphBufferGlyph* glyphs,
+    const GlyphBufferAdvance* advances, unsigned numGlyphs, const FloatPoint& point,
+    FontSmoothingMode fontSmoothingMode)
 {
     if (!font.platformData().size())
         return;
 
     auto xOffset = point.x();
-    Vector<cairo_glyph_t> glyphs(numGlyphs);
+    Vector<cairo_glyph_t> cairoGlyphs;
+    cairoGlyphs.reserveInitialCapacity(numGlyphs);
     {
-        ASSERT(from + numGlyphs <= glyphBuffer.size());
-        auto* glyphsData = glyphBuffer.glyphs(from);
-        auto* advances = glyphBuffer.advances(from);
-
         auto yOffset = point.y();
         for (size_t i = 0; i < numGlyphs; ++i) {
-            glyphs[i] = { glyphsData[i], xOffset, yOffset };
+            bool append = true;
+#if PLATFORM(WIN)
+            // GlyphBuffer::makeGlyphInvisible expects 0xFFFF glyph is invisible. However, DirectWrite shows a blank square for it.
+            append = glyphs[i] != 0xFFFF;
+#endif
+            if (append)
+                cairoGlyphs.append({ glyphs[i], xOffset, yOffset });
             xOffset += advances[i].width();
             yOffset += advances[i].height();
         }
@@ -72,12 +77,14 @@ void FontCascade::drawGlyphs(GraphicsContext& context, const Font& font, const G
     cairo_scaled_font_t* scaledFont = font.platformData().scaledFont();
     double syntheticBoldOffset = font.syntheticBoldOffset();
 
+    if (!font.allowsAntialiasing())
+        fontSmoothingMode = FontSmoothingMode::NoSmoothing;
+
     ASSERT(context.hasPlatformContext());
     auto& state = context.state();
     Cairo::drawGlyphs(*context.platformContext(), Cairo::FillSource(state), Cairo::StrokeSource(state),
-        Cairo::ShadowState(state), point, scaledFont, syntheticBoldOffset, glyphs, xOffset,
-        state.textDrawingMode, state.strokeThickness, state.shadowOffset, state.shadowColor,
-        fontSmoothingMode);
+        Cairo::ShadowState(state), point, scaledFont, syntheticBoldOffset, cairoGlyphs, xOffset,
+        state.textDrawingMode(), state.strokeThickness(), state.dropShadow(), fontSmoothingMode);
 }
 
 Path Font::platformPathForGlyph(Glyph glyph) const
@@ -93,7 +100,53 @@ Path Font::platformPathForGlyph(Glyph glyph) const
         cairo_translate(cr.get(), syntheticBoldOffset, 0);
         cairo_glyph_path(cr.get(), &cairoGlyph, 1);
     }
-    return Path(WTFMove(cr));
+    return { PathCairo::create(WTFMove(cr)) };
+}
+
+FloatRect Font::platformBoundsForGlyph(Glyph glyph) const
+{
+    if (!m_platformData.size())
+        return FloatRect();
+
+    cairo_glyph_t cglyph = { glyph, 0, 0 };
+    cairo_text_extents_t extents;
+    cairo_scaled_font_glyph_extents(m_platformData.scaledFont(), &cglyph, 1, &extents);
+
+    if (cairo_scaled_font_status(m_platformData.scaledFont()) == CAIRO_STATUS_SUCCESS)
+        return FloatRect(extents.x_bearing, extents.y_bearing, extents.width, extents.height);
+
+    return FloatRect();
+}
+
+float Font::platformWidthForGlyph(Glyph glyph) const
+{
+    if (!m_platformData.size())
+        return 0;
+
+    if (cairo_scaled_font_status(m_platformData.scaledFont()) != CAIRO_STATUS_SUCCESS)
+        return m_spaceWidth;
+
+    cairo_glyph_t cairoGlyph = { glyph, 0, 0 };
+    cairo_text_extents_t extents;
+    cairo_scaled_font_glyph_extents(m_platformData.scaledFont(), &cairoGlyph, 1, &extents);
+    float width = platformData().orientation() == FontOrientation::Horizontal ? extents.x_advance : -extents.y_advance;
+    return width ? width : m_spaceWidth;
+}
+
+ResolvedEmojiPolicy FontCascade::resolveEmojiPolicy(FontVariantEmoji fontVariantEmoji, char32_t)
+{
+    // FIXME: https://bugs.webkit.org/show_bug.cgi?id=259205 We can't return RequireText or RequireEmoji
+    // unless we have a way of knowing whether a font/glyph is color or not.
+    switch (fontVariantEmoji) {
+    case FontVariantEmoji::Normal:
+    case FontVariantEmoji::Unicode:
+        return ResolvedEmojiPolicy::NoPreference;
+    case FontVariantEmoji::Text:
+        return ResolvedEmojiPolicy::RequireText;
+    case FontVariantEmoji::Emoji:
+        return ResolvedEmojiPolicy::RequireEmoji;
+    }
+    return ResolvedEmojiPolicy::NoPreference;
 }
 
 } // namespace WebCore

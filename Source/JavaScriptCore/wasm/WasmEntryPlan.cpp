@@ -32,6 +32,7 @@
 #include <wtf/MonotonicTime.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/SystemTracing.h>
+#include <wtf/text/StringConcatenateNumbers.h>
 
 #if ENABLE(WEBASSEMBLY)
 
@@ -41,20 +42,20 @@ namespace WasmEntryPlanInternal {
 static constexpr bool verbose = false;
 }
 
-EntryPlan::EntryPlan(Context* context, Ref<ModuleInformation> info, AsyncWork work, CompletionTask&& task)
-    : Base(context, WTFMove(info), WTFMove(task))
+EntryPlan::EntryPlan(VM& vm, Ref<ModuleInformation> info, CompilerMode compilerMode, CompletionTask&& task)
+    : Base(vm, WTFMove(info), WTFMove(task))
     , m_streamingParser(m_moduleInformation.get(), *this)
     , m_state(State::Validated)
-    , m_asyncWork(work)
+    , m_compilerMode(compilerMode)
 {
 }
 
-EntryPlan::EntryPlan(Context* context, Vector<uint8_t>&& source, AsyncWork work, CompletionTask&& task)
-    : Base(context, WTFMove(task))
+EntryPlan::EntryPlan(VM& vm, Vector<uint8_t>&& source, CompilerMode compilerMode, CompletionTask&& task)
+    : Base(vm, WTFMove(task))
     , m_source(WTFMove(source))
     , m_streamingParser(m_moduleInformation.get(), *this)
     , m_state(State::Initial)
-    , m_asyncWork(work)
+    , m_compilerMode(compilerMode)
 {
 }
 
@@ -89,13 +90,14 @@ bool EntryPlan::parseAndValidateModule(const uint8_t* source, size_t sourceLengt
 
     m_streamingParser.addBytes(source, sourceLength);
     {
-        auto locker = holdLock(m_lock);
+        Locker locker { m_lock };
         if (failed())
             return false;
     }
 
     if (m_streamingParser.finalize() != StreamingParser::State::Finished) {
-        fail(holdLock(m_lock), m_streamingParser.errorMessage());
+        Locker locker { m_lock };
+        fail(m_streamingParser.errorMessage());
         return false;
     }
 
@@ -113,28 +115,35 @@ void EntryPlan::prepare()
 
     const auto& functions = m_moduleInformation->functions;
     m_numberOfFunctions = functions.size();
-    if (!tryReserveCapacity(m_wasmToWasmExitStubs, m_moduleInformation->importFunctionSignatureIndices.size(), " WebAssembly to JavaScript stubs")
+    if (!tryReserveCapacity(m_wasmToWasmExitStubs, m_moduleInformation->importFunctionTypeIndices.size(), " WebAssembly to JavaScript stubs")
         || !tryReserveCapacity(m_unlinkedWasmToWasmCalls, functions.size(), " unlinked WebAssembly to WebAssembly calls"))
         return;
 
     m_unlinkedWasmToWasmCalls.resize(functions.size());
 
+#if ENABLE(JIT)
+    m_wasmToWasmExitStubs.resize(m_moduleInformation->importFunctionTypeIndices.size());
+    unsigned importFunctionIndex = 0;
     for (unsigned importIndex = 0; importIndex < m_moduleInformation->imports.size(); ++importIndex) {
         Import* import = &m_moduleInformation->imports[importIndex];
         if (import->kind != ExternalKind::Function)
             continue;
-        unsigned importFunctionIndex = m_wasmToWasmExitStubs.size();
         dataLogLnIf(WasmEntryPlanInternal::verbose, "Processing import function number ", importFunctionIndex, ": ", makeString(import->module), ": ", makeString(import->field));
         auto binding = wasmToWasm(importFunctionIndex);
         if (UNLIKELY(!binding)) {
             switch (binding.error()) {
-            case BindingFailure::OutOfMemory:
-                return fail(holdLock(m_lock), makeString("Out of executable memory at import ", String::number(importIndex)));
+            case BindingFailure::OutOfMemory: {
+                Locker locker { m_lock };
+                m_wasmToWasmExitStubs.resize(importFunctionIndex);
+                return fail(makeString("Out of executable memory at import "_s, importIndex));
+            }
             }
             RELEASE_ASSERT_NOT_REACHED();
         }
-        m_wasmToWasmExitStubs.uncheckedAppend(binding.value());
+        m_wasmToWasmExitStubs[importFunctionIndex++] = binding.value();
     }
+    ASSERT(importFunctionIndex == m_wasmToWasmExitStubs.size());
+#endif
 
     const uint32_t importFunctionCount = m_moduleInformation->importFunctionCount();
     for (const auto& exp : m_moduleInformation->exports) {
@@ -143,9 +152,9 @@ void EntryPlan::prepare()
     }
 
     for (const auto& element : m_moduleInformation->elements) {
-        for (const uint32_t elementIndex : element.functionIndices) {
-            if (elementIndex >= importFunctionCount)
-                m_exportedFunctionIndices.add(elementIndex - importFunctionCount);
+        for (uint32_t i = 0; i < element.length(); i++) {
+            if (element.initTypes[i] == Element::InitializationType::FromRefFunc && element.initialBitsOrIndices[i] >= importFunctionCount)
+                m_exportedFunctionIndices.add(element.initialBitsOrIndices[i] - importFunctionCount);
         }
     }
 
@@ -164,17 +173,17 @@ public:
     ThreadCountHolder(EntryPlan& plan)
         : m_plan(plan)
     {
-        LockHolder locker(m_plan.m_lock);
+        Locker locker { m_plan.m_lock };
         m_plan.m_numberOfActiveThreads++;
     }
 
     ~ThreadCountHolder()
     {
-        LockHolder locker(m_plan.m_lock);
+        Locker locker { m_plan.m_lock };
         m_plan.m_numberOfActiveThreads--;
 
         if (!m_plan.m_numberOfActiveThreads && !m_plan.hasWork())
-            m_plan.complete(locker);
+            m_plan.complete();
     }
 
     EntryPlan& m_plan;
@@ -189,7 +198,7 @@ void EntryPlan::compileFunctions(CompilationEffort effort)
     if (!hasWork())
         return;
 
-    Optional<TraceScope> traceScope;
+    std::optional<TraceScope> traceScope;
     if (Options::useTracePoints())
         traceScope.emplace(WebAssemblyCompileStart, WebAssemblyCompileEnd);
     ThreadCountHolder holder(*this);
@@ -201,7 +210,7 @@ void EntryPlan::compileFunctions(CompilationEffort effort)
 
         uint32_t functionIndex;
         {
-            auto locker = holdLock(m_lock);
+            Locker locker { m_lock };
             if (m_currentIndex >= m_numberOfFunctions) {
                 if (hasWork())
                     moveToState(State::Compiled);
@@ -216,17 +225,17 @@ void EntryPlan::compileFunctions(CompilationEffort effort)
     }
 }
 
-void EntryPlan::complete(const AbstractLocker& locker)
+void EntryPlan::complete()
 {
     ASSERT(m_state != State::Compiled || m_currentIndex >= m_moduleInformation->functions.size());
     dataLogLnIf(WasmEntryPlanInternal::verbose, "Starting Completion");
 
     if (!failed() && m_state == State::Compiled)
-        didCompleteCompilation(locker);
+        didCompleteCompilation();
 
     if (!isComplete()) {
         moveToState(State::Completed);
-        runCompletionTasks(locker);
+        runCompletionTasks();
     }
 }
 

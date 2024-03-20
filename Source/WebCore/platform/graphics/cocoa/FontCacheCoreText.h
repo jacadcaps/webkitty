@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc.  All rights reserved.
+ * Copyright (C) 2017-2023 Apple Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,10 +29,14 @@
 #pragma once
 
 #include "FontDescription.h"
+#include "ShouldLocalizeAxisNames.h"
 
 #include <CoreText/CTFont.h>
 
 namespace WebCore {
+
+class FontCreationContext;
+class UnrealizedCoreTextFont;
 
 struct SynthesisPair {
     explicit SynthesisPair(bool needsSyntheticBold, bool needsSyntheticOblique)
@@ -50,16 +54,49 @@ struct SynthesisPair {
     bool needsSyntheticOblique;
 };
 
-RetainPtr<CTFontRef> preparePlatformFont(CTFontRef, const FontDescription&, const FontFeatureSettings* fontFaceFeatures, FontSelectionSpecifiedCapabilities fontFaceCapabilities, bool applyWeightWidthSlopeVariations = true);
-SynthesisPair computeNecessarySynthesis(CTFontRef, const FontDescription&, bool isPlatformFont = false);
-RetainPtr<CTFontRef> platformFontWithFamilySpecialCase(const AtomString& family, const FontDescription&, float size, AllowUserInstalledFonts);
+struct VariationDefaults {
+    String axisName;
+    float defaultValue;
+    float minimumValue;
+    float maximumValue;
+
+    bool contains(float value) const
+    {
+        ASSERT(minimumValue <= maximumValue);
+        return value >= minimumValue && value <= maximumValue;
+    }
+
+    float clamp(float value) const
+    {
+        ASSERT(minimumValue <= maximumValue);
+        return std::clamp(value, minimumValue, maximumValue);
+    }
+};
+
+typedef HashMap<FontTag, VariationDefaults, FourCharacterTagHash, FourCharacterTagHashTraits> VariationDefaultsMap;
+
+enum class FontTypeForPreparation : bool {
+    SystemFont,
+    NonSystemFont
+};
+enum class ApplyTraitsVariations : bool { No, Yes };
+RetainPtr<CTFontRef> preparePlatformFont(UnrealizedCoreTextFont&&, const FontDescription&, const FontCreationContext&, FontTypeForPreparation = FontTypeForPreparation::NonSystemFont, ApplyTraitsVariations = ApplyTraitsVariations::Yes);
+enum class ShouldComputePhysicalTraits : bool { No, Yes };
+SynthesisPair computeNecessarySynthesis(CTFontRef, const FontDescription&, ShouldComputePhysicalTraits = ShouldComputePhysicalTraits::No, bool isPlatformFont = false);
 RetainPtr<CTFontRef> platformFontWithFamily(const AtomString& family, FontSelectionRequest, TextRenderingMode, float size);
-bool requiresCustomFallbackFont(UChar32 character);
 FontSelectionCapabilities capabilitiesForFontDescriptor(CTFontDescriptorRef);
 void addAttributesForInstalledFonts(CFMutableDictionaryRef attributes, AllowUserInstalledFonts);
 RetainPtr<CTFontRef> createFontForInstalledFonts(CTFontDescriptorRef, CGFloat size, AllowUserInstalledFonts);
 RetainPtr<CTFontRef> createFontForInstalledFonts(CTFontRef, AllowUserInstalledFonts);
 void addAttributesForWebFonts(CFMutableDictionaryRef attributes, AllowUserInstalledFonts);
 RetainPtr<CFSetRef> installedFontMandatoryAttributes(AllowUserInstalledFonts);
+WEBCORE_EXPORT void setOverrideEnhanceTextLegibility(bool);
+bool fontNameIsSystemFont(CFStringRef);
 
-}
+CFStringRef getUIContentSizeCategoryDidChangeNotificationName();
+WEBCORE_EXPORT void setContentSizeCategory(const String&);
+WEBCORE_EXPORT CFStringRef contentSizeCategory();
+
+VariationDefaultsMap defaultVariationValues(CTFontRef, ShouldLocalizeAxisNames);
+
+} // namespace WebCore

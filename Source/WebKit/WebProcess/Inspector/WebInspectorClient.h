@@ -55,7 +55,7 @@ private:
 
     Inspector::FrontendChannel* openLocalFrontend(WebCore::InspectorController*) override;
     void bringFrontendToFront() override;
-    void didResizeMainFrame(WebCore::Frame*) override;
+    void didResizeMainFrame(WebCore::LocalFrame*) override;
 
     void highlight() override;
     void hideHighlight() override;
@@ -72,8 +72,12 @@ private:
 
     bool overridesShowPaintRects() const override { return true; }
     void showPaintRect(const WebCore::FloatRect&) override;
+    unsigned paintRectCount() const override { return m_paintRectLayers.size(); }
 
-    void setDeveloperPreferenceOverride(WebCore::InspectorClient::DeveloperPreference, Optional<bool>) final;
+    void setDeveloperPreferenceOverride(WebCore::InspectorClient::DeveloperPreference, std::optional<bool>) final;
+#if ENABLE(INSPECTOR_NETWORK_THROTTLING)
+    bool setEmulatedConditions(std::optional<int64_t>&& bytesPerSecondLimit) final;
+#endif
 
     // PageOverlay::Client
     void willMoveToPage(WebCore::PageOverlay&, WebCore::Page*) override;
@@ -83,7 +87,7 @@ private:
 
     void animationEndedForLayer(const WebCore::GraphicsLayer*);
 
-    WebPage* m_page;
+    WeakPtr<WebPage> m_page;
     WebCore::PageOverlay* m_highlightOverlay;
     
     RefPtr<WebCore::PageOverlay> m_paintRectOverlay;

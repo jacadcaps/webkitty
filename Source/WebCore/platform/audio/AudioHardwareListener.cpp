@@ -26,22 +26,57 @@
 #include "config.h"
 #include "AudioHardwareListener.h"
 
+#include <wtf/Function.h>
+#include <wtf/NeverDestroyed.h>
+
+#if PLATFORM(MAC)
+#include "AudioHardwareListenerMac.h"
+#endif
+
 namespace WebCore {
 
-#if !PLATFORM(MAC)
+static AudioHardwareListener::CreationFunction& audioHardwareListenerCreationFunction()
+{
+    static NeverDestroyed<AudioHardwareListener::CreationFunction> creationFunction;
+    return creationFunction;
+}
+
+void AudioHardwareListener::setCreationFunction(CreationFunction&& function)
+{
+    audioHardwareListenerCreationFunction() = WTFMove(function);
+}
+
+void AudioHardwareListener::resetCreationFunction()
+{
+    audioHardwareListenerCreationFunction() = [] (AudioHardwareListener::Client& client) {
+#if PLATFORM(MAC)
+        return AudioHardwareListenerMac::create(client);
+#else
+        class RefCountedAudioHardwareListener : public AudioHardwareListener, public RefCounted<RefCountedAudioHardwareListener> {
+        public:
+            RefCountedAudioHardwareListener(AudioHardwareListener::Client& client)
+                : AudioHardwareListener(client) { }
+            void ref() const final { RefCounted<RefCountedAudioHardwareListener>::ref(); }
+            void deref() const final { RefCounted<RefCountedAudioHardwareListener>::deref(); }
+        };
+        return adoptRef(*new RefCountedAudioHardwareListener(client));
+#endif
+    };
+}
+
 Ref<AudioHardwareListener> AudioHardwareListener::create(Client& client)
 {
-    return adoptRef(*new AudioHardwareListener(client));
+    if (!audioHardwareListenerCreationFunction())
+        resetCreationFunction();
+
+    return audioHardwareListenerCreationFunction()(client);
 }
-#endif
 
 AudioHardwareListener::AudioHardwareListener(Client& client)
     : m_client(client)
-    , m_activity(AudioHardwareActivityType::Unknown)
-    , m_outputDeviceSupportsLowPowerMode(false)
 {
 #if PLATFORM(IOS_FAMILY)
-    m_outputDeviceSupportsLowPowerMode = true;
+    m_supportedBufferSizes = { 32, 4096 };
 #endif
 }
 

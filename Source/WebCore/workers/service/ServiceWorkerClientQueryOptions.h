@@ -25,43 +25,14 @@
 
 #pragma once
 
-#if ENABLE(SERVICE_WORKER)
-
 #include "ServiceWorkerClientType.h"
-#include <wtf/Optional.h>
+#include <optional>
 
 namespace WebCore {
 
 struct ServiceWorkerClientQueryOptions {
     bool includeUncontrolled { false };
     ServiceWorkerClientType type { ServiceWorkerClientType::Window };
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static Optional<ServiceWorkerClientQueryOptions> decode(Decoder&);
 };
 
-template<class Encoder>
-void ServiceWorkerClientQueryOptions::encode(Encoder& encoder) const
-{
-    encoder << includeUncontrolled << type;
-}
-
-template<class Decoder>
-Optional<ServiceWorkerClientQueryOptions> ServiceWorkerClientQueryOptions::decode(Decoder& decoder)
-{
-    Optional<bool> includeUncontrolled;
-    decoder >> includeUncontrolled;
-    if (!includeUncontrolled)
-        return WTF::nullopt;
-
-    Optional<ServiceWorkerClientType> type;
-    decoder >> type;
-    if (!type)
-        return WTF::nullopt;
-
-    return { { *includeUncontrolled, *type } };
-}
-
 } // namespace WebCore
-
-#endif // ENABLE(SERVICE_WORKER)

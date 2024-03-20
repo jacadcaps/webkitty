@@ -24,52 +24,8 @@
  */
 
 #import "config.h"
-#import "_WKExperimentalFeatureInternal.h"
+#import "_WKExperimentalFeature.h"
 
+// Empty implementation for binary compatibility. All logic should live in the superclass, _WKFeature.
 @implementation _WKExperimentalFeature
-
-- (void)dealloc
-{
-    _experimentalFeature->API::ExperimentalFeature::~ExperimentalFeature();
-
-    [super dealloc];
-}
-
-- (NSString *)description
-{
-    return [NSString stringWithFormat:@"<%@: %p; name = %@; key = %@; defaultValue = %s >", NSStringFromClass(self.class), self, self.name, self.key, self.defaultValue ? "on" : "off"];
-}
-
-- (NSString *)name
-{
-    return _experimentalFeature->name();
-}
-
-- (NSString *)key
-{
-    return _experimentalFeature->key();
-}
-
-- (NSString *)details
-{
-    return _experimentalFeature->details();
-}
-
-- (BOOL)defaultValue
-{
-    return _experimentalFeature->defaultValue();
-}
-
-- (BOOL)isHidden
-{
-    return _experimentalFeature->isHidden();
-}
-
-#pragma mark WKObject protocol implementation
-
-- (API::Object&)_apiObject
-{
-    return *_experimentalFeature;
-}
-
 @end

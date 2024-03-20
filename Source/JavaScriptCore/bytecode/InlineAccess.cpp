@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -149,14 +149,12 @@ void InlineAccess::dumpCacheSizesAndCrash()
 }
 
 
-template <typename Function>
-ALWAYS_INLINE static bool linkCodeInline(const char* name, CCallHelpers& jit, StructureStubInfo& stubInfo, const Function& function)
+ALWAYS_INLINE static bool linkCodeInline(const char* name, CCallHelpers& jit, StructureStubInfo& stubInfo)
 {
-    if (jit.m_assembler.buffer().codeSize() <= stubInfo.inlineSize()) {
+    if (jit.m_assembler.buffer().codeSize() <= stubInfo.inlineCodeSize()) {
         bool needsBranchCompaction = true;
-        LinkBuffer linkBuffer(jit, stubInfo.start, stubInfo.inlineSize(), JITCompilationMustSucceed, needsBranchCompaction);
+        LinkBuffer linkBuffer(jit, stubInfo.startLocation, stubInfo.inlineCodeSize(), LinkBuffer::Profile::InlineCache, JITCompilationMustSucceed, needsBranchCompaction);
         ASSERT(linkBuffer.isValid());
-        function(linkBuffer);
         FINALIZE_CODE(linkBuffer, NoPtrTag, "InlineAccessType: '%s'", name);
         return true;
     }
@@ -169,27 +167,32 @@ ALWAYS_INLINE static bool linkCodeInline(const char* name, CCallHelpers& jit, St
     constexpr bool failIfCantInline = false;
     if (failIfCantInline) {
         dataLog("Failure for: ", name, "\n");
-        dataLog("real size: ", jit.m_assembler.buffer().codeSize(), " inline size:", stubInfo.inlineSize(), "\n");
+        dataLog("real size: ", jit.m_assembler.buffer().codeSize(), " inline size:", stubInfo.inlineCodeSize(), "\n");
         CRASH();
     }
 
     return false;
 }
 
-bool InlineAccess::generateSelfPropertyAccess(StructureStubInfo& stubInfo, Structure* structure, PropertyOffset offset)
+bool InlineAccess::generateSelfPropertyAccess(CodeBlock* codeBlock, StructureStubInfo& stubInfo, Structure* structure, PropertyOffset offset)
 {
     if (!stubInfo.hasConstantIdentifier)
         return false;
 
+    if (codeBlock->useDataIC()) {
+        // These dynamic slots get filled in by StructureStubInfo. Nothing else to do.
+        return true;
+    }
+
     CCallHelpers jit;
     
-    GPRReg base = stubInfo.baseGPR;
+    GPRReg base = stubInfo.m_baseGPR;
     JSValueRegs value = stubInfo.valueRegs();
 
-    auto branchToSlowPath = jit.patchableBranch32(
+    jit.patchableBranch32(
         MacroAssembler::NotEqual,
         MacroAssembler::Address(base, JSCell::structureIDOffset()),
-        MacroAssembler::TrustedImm32(bitwise_cast<uint32_t>(structure->id())));
+        MacroAssembler::TrustedImm32(bitwise_cast<uint32_t>(structure->id()))).linkThunk(stubInfo.slowPathStartLocation, &jit);
     GPRReg storage;
     if (isInlineOffset(offset))
         storage = base;
@@ -201,21 +204,24 @@ bool InlineAccess::generateSelfPropertyAccess(StructureStubInfo& stubInfo, Struc
     jit.loadValue(
         MacroAssembler::Address(storage, offsetRelativeToBase(offset)), value);
 
-    bool linkedCodeInline = linkCodeInline("property access", jit, stubInfo, [&] (LinkBuffer& linkBuffer) {
-        linkBuffer.link(branchToSlowPath, stubInfo.slowPathStartLocation);
-    });
-    return linkedCodeInline;
+    return linkCodeInline("property access", jit, stubInfo);
 }
 
 ALWAYS_INLINE static GPRReg getScratchRegister(StructureStubInfo& stubInfo)
 {
-    ScratchRegisterAllocator allocator(stubInfo.usedRegisters);
-    allocator.lock(stubInfo.baseGPR);
-    allocator.lock(stubInfo.valueGPR);
+    ScratchRegisterAllocator allocator(stubInfo.usedRegisters.toRegisterSet());
+    allocator.lock(stubInfo.m_baseGPR);
+    allocator.lock(stubInfo.m_valueGPR);
+    allocator.lock(stubInfo.m_extraGPR);
+    allocator.lock(stubInfo.m_extra2GPR);
 #if USE(JSVALUE32_64)
-    allocator.lock(stubInfo.baseTagGPR);
-    allocator.lock(stubInfo.valueTagGPR);
+    allocator.lock(stubInfo.m_baseTagGPR);
+    allocator.lock(stubInfo.m_valueTagGPR);
+    allocator.lock(stubInfo.m_extraTagGPR);
+    allocator.lock(stubInfo.m_extra2TagGPR);
 #endif
+    allocator.lock(stubInfo.m_stubInfoGPR);
+    allocator.lock(stubInfo.m_arrayProfileGPR);
     GPRReg scratch = allocator.allocateScratchGPR();
     if (allocator.didReuseRegisters())
         return InvalidGPRReg;
@@ -227,10 +233,13 @@ ALWAYS_INLINE static bool hasFreeRegister(StructureStubInfo& stubInfo)
     return getScratchRegister(stubInfo) != InvalidGPRReg;
 }
 
-bool InlineAccess::canGenerateSelfPropertyReplace(StructureStubInfo& stubInfo, PropertyOffset offset)
+bool InlineAccess::canGenerateSelfPropertyReplace(CodeBlock* codeBlock, StructureStubInfo& stubInfo, PropertyOffset offset)
 {
     if (!stubInfo.hasConstantIdentifier)
         return false;
+
+    if (codeBlock->useDataIC())
+        return true;
 
     if (isInlineOffset(offset))
         return true;
@@ -238,22 +247,27 @@ bool InlineAccess::canGenerateSelfPropertyReplace(StructureStubInfo& stubInfo, P
     return hasFreeRegister(stubInfo);
 }
 
-bool InlineAccess::generateSelfPropertyReplace(StructureStubInfo& stubInfo, Structure* structure, PropertyOffset offset)
+bool InlineAccess::generateSelfPropertyReplace(CodeBlock* codeBlock, StructureStubInfo& stubInfo, Structure* structure, PropertyOffset offset)
 {
     if (!stubInfo.hasConstantIdentifier)
         return false;
 
-    ASSERT(canGenerateSelfPropertyReplace(stubInfo, offset));
+    ASSERT(canGenerateSelfPropertyReplace(codeBlock, stubInfo, offset));
+
+    if (codeBlock->useDataIC()) {
+        // These dynamic slots get filled in by StructureStubInfo. Nothing else to do.
+        return true;
+    }
 
     CCallHelpers jit;
 
-    GPRReg base = stubInfo.baseGPR;
+    GPRReg base = stubInfo.m_baseGPR;
     JSValueRegs value = stubInfo.valueRegs();
 
-    auto branchToSlowPath = jit.patchableBranch32(
+    jit.patchableBranch32(
         MacroAssembler::NotEqual,
         MacroAssembler::Address(base, JSCell::structureIDOffset()),
-        MacroAssembler::TrustedImm32(bitwise_cast<uint32_t>(structure->id())));
+        MacroAssembler::TrustedImm32(bitwise_cast<uint32_t>(structure->id()))).linkThunk(stubInfo.slowPathStartLocation, &jit);
 
     GPRReg storage;
     if (isInlineOffset(offset))
@@ -267,17 +281,17 @@ bool InlineAccess::generateSelfPropertyReplace(StructureStubInfo& stubInfo, Stru
     jit.storeValue(
         value, MacroAssembler::Address(storage, offsetRelativeToBase(offset)));
 
-    bool linkedCodeInline = linkCodeInline("property replace", jit, stubInfo, [&] (LinkBuffer& linkBuffer) {
-        linkBuffer.link(branchToSlowPath, stubInfo.slowPathStartLocation);
-    });
-    return linkedCodeInline;
+    return linkCodeInline("property replace", jit, stubInfo);
 }
 
-bool InlineAccess::isCacheableArrayLength(StructureStubInfo& stubInfo, JSArray* array)
+bool InlineAccess::isCacheableArrayLength(CodeBlock* codeBlock, StructureStubInfo& stubInfo, JSArray* array)
 {
     ASSERT(array->indexingType() & IsArray);
 
     if (!stubInfo.hasConstantIdentifier)
+        return false;
+
+    if (codeBlock->useDataIC())
         return false;
 
     if (!hasFreeRegister(stubInfo))
@@ -286,58 +300,60 @@ bool InlineAccess::isCacheableArrayLength(StructureStubInfo& stubInfo, JSArray* 
     return !hasAnyArrayStorage(array->indexingType()) && array->indexingType() != ArrayClass;
 }
 
-bool InlineAccess::generateArrayLength(StructureStubInfo& stubInfo, JSArray* array)
+bool InlineAccess::generateArrayLength(CodeBlock* codeBlock, StructureStubInfo& stubInfo, JSArray* array)
 {
-    ASSERT(isCacheableArrayLength(stubInfo, array));
+    ASSERT_UNUSED(codeBlock, !codeBlock->useDataIC());
+    ASSERT_UNUSED(codeBlock, isCacheableArrayLength(codeBlock, stubInfo, array));
 
     if (!stubInfo.hasConstantIdentifier)
         return false;
 
     CCallHelpers jit;
 
-    GPRReg base = stubInfo.baseGPR;
+    GPRReg base = stubInfo.m_baseGPR;
     JSValueRegs value = stubInfo.valueRegs();
     GPRReg scratch = getScratchRegister(stubInfo);
 
     jit.load8(CCallHelpers::Address(base, JSCell::indexingTypeAndMiscOffset()), scratch);
     jit.and32(CCallHelpers::TrustedImm32(IndexingTypeMask), scratch);
-    auto branchToSlowPath = jit.patchableBranch32(
-        CCallHelpers::NotEqual, scratch, CCallHelpers::TrustedImm32(array->indexingType()));
+    jit.patchableBranch32(
+        CCallHelpers::NotEqual, scratch, CCallHelpers::TrustedImm32(array->indexingType())).linkThunk(stubInfo.slowPathStartLocation, &jit);
     jit.loadPtr(CCallHelpers::Address(base, JSObject::butterflyOffset()), value.payloadGPR());
     jit.load32(CCallHelpers::Address(value.payloadGPR(), ArrayStorage::lengthOffset()), value.payloadGPR());
     jit.boxInt32(value.payloadGPR(), value);
 
-    bool linkedCodeInline = linkCodeInline("array length", jit, stubInfo, [&] (LinkBuffer& linkBuffer) {
-        linkBuffer.link(branchToSlowPath, stubInfo.slowPathStartLocation);
-    });
-    return linkedCodeInline;
+    return linkCodeInline("array length", jit, stubInfo);
 }
 
-bool InlineAccess::isCacheableStringLength(StructureStubInfo& stubInfo)
+bool InlineAccess::isCacheableStringLength(CodeBlock* codeBlock, StructureStubInfo& stubInfo)
 {
     if (!stubInfo.hasConstantIdentifier)
+        return false;
+
+    if (codeBlock->useDataIC())
         return false;
 
     return hasFreeRegister(stubInfo);
 }
 
-bool InlineAccess::generateStringLength(StructureStubInfo& stubInfo)
+bool InlineAccess::generateStringLength(CodeBlock* codeBlock, StructureStubInfo& stubInfo)
 {
-    ASSERT(isCacheableStringLength(stubInfo));
+    ASSERT_UNUSED(codeBlock, !codeBlock->useDataIC());
+    ASSERT_UNUSED(codeBlock, isCacheableStringLength(codeBlock, stubInfo));
 
     if (!stubInfo.hasConstantIdentifier)
         return false;
 
     CCallHelpers jit;
 
-    GPRReg base = stubInfo.baseGPR;
+    GPRReg base = stubInfo.m_baseGPR;
     JSValueRegs value = stubInfo.valueRegs();
     GPRReg scratch = getScratchRegister(stubInfo);
 
-    auto branchToSlowPath = jit.patchableBranch8(
+    jit.patchableBranch8(
         CCallHelpers::NotEqual,
         CCallHelpers::Address(base, JSCell::typeInfoTypeOffset()),
-        CCallHelpers::TrustedImm32(StringType));
+        CCallHelpers::TrustedImm32(StringType)).linkThunk(stubInfo.slowPathStartLocation, &jit);
 
     jit.loadPtr(CCallHelpers::Address(base, JSString::offsetOfValue()), scratch);
     auto isRope = jit.branchIfRopeStringImpl(scratch);
@@ -350,48 +366,55 @@ bool InlineAccess::generateStringLength(StructureStubInfo& stubInfo)
     done.link(&jit);
     jit.boxInt32(value.payloadGPR(), value);
 
-    bool linkedCodeInline = linkCodeInline("string length", jit, stubInfo, [&] (LinkBuffer& linkBuffer) {
-        linkBuffer.link(branchToSlowPath, stubInfo.slowPathStartLocation);
-    });
-    return linkedCodeInline;
+    return linkCodeInline("string length", jit, stubInfo);
 }
 
 
-bool InlineAccess::generateSelfInAccess(StructureStubInfo& stubInfo, Structure* structure)
+bool InlineAccess::generateSelfInAccess(CodeBlock* codeBlock, StructureStubInfo& stubInfo, Structure* structure)
 {
     CCallHelpers jit;
 
     if (!stubInfo.hasConstantIdentifier)
         return false;
 
-    GPRReg base = stubInfo.baseGPR;
+    if (codeBlock->useDataIC()) {
+        // These dynamic slots get filled in by StructureStubInfo. Nothing else to do.
+        return true;
+    }
+
+    GPRReg base = stubInfo.m_baseGPR;
     JSValueRegs value = stubInfo.valueRegs();
 
-    auto branchToSlowPath = jit.patchableBranch32(
+    jit.patchableBranch32(
         MacroAssembler::NotEqual,
         MacroAssembler::Address(base, JSCell::structureIDOffset()),
-        MacroAssembler::TrustedImm32(bitwise_cast<uint32_t>(structure->id())));
+        MacroAssembler::TrustedImm32(bitwise_cast<uint32_t>(structure->id()))).linkThunk(stubInfo.slowPathStartLocation, &jit);
     jit.boxBoolean(true, value);
 
-    bool linkedCodeInline = linkCodeInline("in access", jit, stubInfo, [&] (LinkBuffer& linkBuffer) {
-        linkBuffer.link(branchToSlowPath, stubInfo.slowPathStartLocation);
-    });
-    return linkedCodeInline;
+    return linkCodeInline("in access", jit, stubInfo);
 }
 
-void InlineAccess::rewireStubAsJump(StructureStubInfo& stubInfo, CodeLocationLabel<JITStubRoutinePtrTag> target)
+void InlineAccess::rewireStubAsJumpInAccess(CodeBlock* codeBlock, StructureStubInfo& stubInfo, InlineCacheHandler& handler)
 {
-    CCallHelpers jit;
+    stubInfo.m_handler = &handler;
+    if (codeBlock->useDataIC()) {
+        stubInfo.m_codePtr = handler.callTarget();
+        stubInfo.m_inlineAccessBaseStructureID.clear(); // Clear out the inline access code.
+        return;
+    }
 
-    auto jump = jit.jump();
+    CCallHelpers::replaceWithJump(stubInfo.startLocation.retagged<JSInternalPtrTag>(), CodeLocationLabel { handler.callTarget() });
+}
 
-    // We don't need a nop sled here because nobody should be jumping into the middle of an IC.
-    bool needsBranchCompaction = false;
-    LinkBuffer linkBuffer(jit, stubInfo.start, jit.m_assembler.buffer().codeSize(), JITCompilationMustSucceed, needsBranchCompaction);
-    RELEASE_ASSERT(linkBuffer.isValid());
-    linkBuffer.link(jump, target);
-
-    FINALIZE_CODE(linkBuffer, NoPtrTag, "InlineAccess: linking constant jump");
+void InlineAccess::resetStubAsJumpInAccess(CodeBlock* codeBlock, StructureStubInfo& stubInfo)
+{
+    if (JITCode::isBaselineCode(codeBlock->jitType()) && Options::useHandlerIC()) {
+        auto handler = InlineCacheCompiler::generateSlowPathHandler(codeBlock->vm(), stubInfo.accessType);
+        InlineAccess::rewireStubAsJumpInAccess(codeBlock, stubInfo, handler.get());
+        return;
+    }
+    auto handler = InlineCacheHandler::createNonHandlerSlowPath(stubInfo.slowPathStartLocation);
+    InlineAccess::rewireStubAsJumpInAccess(codeBlock, stubInfo, handler.get());
 }
 
 } // namespace JSC

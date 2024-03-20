@@ -27,9 +27,11 @@
 
 #include "CSSPropertyNames.h"
 #include "CSSValueKeywords.h"
+#include "ElementInlines.h"
 #include "HTMLNames.h"
 #include "HTMLParserIdioms.h"
 #include "HTMLTableElement.h"
+#include "NodeName.h"
 #include "RenderTableCell.h"
 #include <wtf/IsoMallocInlines.h>
 
@@ -90,46 +92,51 @@ int HTMLTableCellElement::cellIndex() const
     return index;
 }
 
-bool HTMLTableCellElement::isPresentationAttribute(const QualifiedName& name) const
+bool HTMLTableCellElement::hasPresentationalHintsForAttribute(const QualifiedName& name) const
 {
-    if (name == nowrapAttr || name == widthAttr || name == heightAttr)
+    switch (name.nodeName()) {
+    case AttributeNames::nowrapAttr:
+    case AttributeNames::widthAttr:
+    case AttributeNames::heightAttr:
         return true;
-    return HTMLTablePartElement::isPresentationAttribute(name);
+    default:
+        break;
+    }
+    return HTMLTablePartElement::hasPresentationalHintsForAttribute(name);
 }
 
-void HTMLTableCellElement::collectStyleForPresentationAttribute(const QualifiedName& name, const AtomString& value, MutableStyleProperties& style)
+void HTMLTableCellElement::collectPresentationalHintsForAttribute(const QualifiedName& name, const AtomString& value, MutableStyleProperties& style)
 {
-    if (name == nowrapAttr)
-        addPropertyToPresentationAttributeStyle(style, CSSPropertyWhiteSpace, CSSValueWebkitNowrap);
-    else if (name == widthAttr) {
-        if (!value.isEmpty()) {
-            int widthInt = value.toInt();
-            if (widthInt > 0) // width="0" is ignored for compatibility with WinIE.
-                addHTMLLengthToStyle(style, CSSPropertyWidth, value);
-        }
-    } else if (name == heightAttr) {
-        if (!value.isEmpty()) {
-            int heightInt = value.toInt();
-            if (heightInt > 0) // height="0" is ignored for compatibility with WinIE.
-                addHTMLLengthToStyle(style, CSSPropertyHeight, value);
-        }
-    } else
-        HTMLTablePartElement::collectStyleForPresentationAttribute(name, value, style);
+    switch (name.nodeName()) {
+    case AttributeNames::nowrapAttr:
+        addPropertyToPresentationalHintStyle(style, CSSPropertyWhiteSpaceCollapse, CSSValueCollapse);
+        addPropertyToPresentationalHintStyle(style, CSSPropertyTextWrapMode, CSSValueNowrap);
+        break;
+    case AttributeNames::widthAttr:
+        // width="0" is not allowed for compatibility with WinIE.
+        addHTMLLengthToStyle(style, CSSPropertyWidth, value, AllowZeroValue::No);
+        break;
+    case AttributeNames::heightAttr:
+        // width="0" is not allowed for compatibility with WinIE.
+        addHTMLLengthToStyle(style, CSSPropertyHeight, value, AllowZeroValue::No);
+        break;
+    default:
+        HTMLTablePartElement::collectPresentationalHintsForAttribute(name, value, style);
+        break;
+    }
 }
 
-void HTMLTableCellElement::parseAttribute(const QualifiedName& name, const AtomString& value)
+void HTMLTableCellElement::attributeChanged(const QualifiedName& name, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason attributeModificationReason)
 {
-    if (name == rowspanAttr) {
-        if (is<RenderTableCell>(renderer()))
-            downcast<RenderTableCell>(*renderer()).colSpanOrRowSpanChanged();
-    } else if (name == colspanAttr) {
-        if (is<RenderTableCell>(renderer()))
-            downcast<RenderTableCell>(*renderer()).colSpanOrRowSpanChanged();
-    } else
-        HTMLTablePartElement::parseAttribute(name, value);
+    HTMLTablePartElement::attributeChanged(name, oldValue, newValue, attributeModificationReason);
+
+    if (name == rowspanAttr || name == colspanAttr) {
+        if (CheckedPtr tableCell = dynamicDowncast<RenderTableCell>(renderer()))
+            tableCell->colSpanOrRowSpanChanged();
+    }
 }
 
-const StyleProperties* HTMLTableCellElement::additionalPresentationAttributeStyle() const
+const MutableStyleProperties* HTMLTableCellElement::additionalPresentationalHintStyle() const
 {
     if (auto table = findParentTable())
         return table->additionalCellStyle();
@@ -169,10 +176,10 @@ void HTMLTableCellElement::setRowSpanForBindings(unsigned n)
 const AtomString& HTMLTableCellElement::scope() const
 {
     // https://html.spec.whatwg.org/multipage/tables.html#attr-th-scope
-    static MainThreadNeverDestroyed<const AtomString> row("row", AtomString::ConstructFromLiteral);
-    static MainThreadNeverDestroyed<const AtomString> col("col", AtomString::ConstructFromLiteral);
-    static MainThreadNeverDestroyed<const AtomString> rowgroup("rowgroup", AtomString::ConstructFromLiteral);
-    static MainThreadNeverDestroyed<const AtomString> colgroup("colgroup", AtomString::ConstructFromLiteral);
+    static MainThreadNeverDestroyed<const AtomString> row("row"_s);
+    static MainThreadNeverDestroyed<const AtomString> col("col"_s);
+    static MainThreadNeverDestroyed<const AtomString> rowgroup("rowgroup"_s);
+    static MainThreadNeverDestroyed<const AtomString> colgroup("colgroup"_s);
 
     const AtomString& value = attributeWithoutSynchronization(HTMLNames::scopeAttr);
 
@@ -201,12 +208,11 @@ void HTMLTableCellElement::addSubresourceAttributeURLs(ListHashSet<URL>& urls) c
 
 HTMLTableCellElement* HTMLTableCellElement::cellAbove() const
 {
-    auto* cellRenderer = renderer();
-    if (!is<RenderTableCell>(cellRenderer))
+    auto* tableCellRenderer = dynamicDowncast<RenderTableCell>(renderer());
+    if (!tableCellRenderer)
         return nullptr;
 
-    auto& tableCellRenderer = downcast<RenderTableCell>(*cellRenderer);
-    auto* cellAboveRenderer = tableCellRenderer.table()->cellAbove(&tableCellRenderer);
+    auto* cellAboveRenderer = tableCellRenderer->table()->cellAbove(tableCellRenderer);
     if (!cellAboveRenderer)
         return nullptr;
 

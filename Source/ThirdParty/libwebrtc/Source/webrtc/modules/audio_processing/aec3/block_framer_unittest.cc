@@ -64,14 +64,13 @@ bool VerifySubFrame(
   return true;
 }
 
-void FillBlock(size_t block_counter,
-               std::vector<std::vector<std::vector<float>>>* block) {
-  for (size_t band = 0; band < block->size(); ++band) {
-    for (size_t channel = 0; channel < (*block)[band].size(); ++channel) {
-      for (size_t sample = 0; sample < (*block)[band][channel].size();
-           ++sample) {
-        (*block)[band][channel][sample] = ComputeSampleValue(
-            block_counter, kBlockSize, band, channel, sample, 0);
+void FillBlock(size_t block_counter, Block* block) {
+  for (int band = 0; band < block->NumBands(); ++band) {
+    for (int channel = 0; channel < block->NumChannels(); ++channel) {
+      auto b = block->View(band, channel);
+      for (size_t sample = 0; sample < kBlockSize; ++sample) {
+        b[sample] = ComputeSampleValue(block_counter, kBlockSize, band, channel,
+                                       sample, 0);
       }
     }
   }
@@ -82,9 +81,7 @@ void RunFramerTest(int sample_rate_hz, size_t num_channels) {
   constexpr size_t kNumSubFramesToProcess = 10;
   const size_t num_bands = NumBandsForRate(sample_rate_hz);
 
-  std::vector<std::vector<std::vector<float>>> block(
-      num_bands, std::vector<std::vector<float>>(
-                     num_channels, std::vector<float>(kBlockSize, 0.f)));
+  Block block(num_bands, num_channels);
   std::vector<std::vector<std::vector<float>>> output_sub_frame(
       num_bands, std::vector<std::vector<float>>(
                      num_channels, std::vector<float>(kSubFrameLength, 0.f)));
@@ -117,16 +114,12 @@ void RunWronglySizedInsertAndExtractParametersTest(
     size_t correct_num_channels,
     size_t num_block_bands,
     size_t num_block_channels,
-    size_t block_length,
     size_t num_sub_frame_bands,
     size_t num_sub_frame_channels,
     size_t sub_frame_length) {
   const size_t correct_num_bands = NumBandsForRate(sample_rate_hz);
 
-  std::vector<std::vector<std::vector<float>>> block(
-      num_block_bands,
-      std::vector<std::vector<float>>(num_block_channels,
-                                      std::vector<float>(block_length, 0.f)));
+  Block block(num_block_bands, num_block_channels);
   std::vector<std::vector<std::vector<float>>> output_sub_frame(
       num_sub_frame_bands,
       std::vector<std::vector<float>>(
@@ -145,18 +138,11 @@ void RunWronglySizedInsertAndExtractParametersTest(
 void RunWronglySizedInsertParameterTest(int sample_rate_hz,
                                         size_t correct_num_channels,
                                         size_t num_block_bands,
-                                        size_t num_block_channels,
-                                        size_t block_length) {
+                                        size_t num_block_channels) {
   const size_t correct_num_bands = NumBandsForRate(sample_rate_hz);
 
-  std::vector<std::vector<std::vector<float>>> correct_block(
-      correct_num_bands,
-      std::vector<std::vector<float>>(correct_num_channels,
-                                      std::vector<float>(kBlockSize, 0.f)));
-  std::vector<std::vector<std::vector<float>>> wrong_block(
-      num_block_bands,
-      std::vector<std::vector<float>>(num_block_channels,
-                                      std::vector<float>(block_length, 0.f)));
+  Block correct_block(correct_num_bands, correct_num_channels);
+  Block wrong_block(num_block_bands, num_block_channels);
   std::vector<std::vector<std::vector<float>>> output_sub_frame(
       correct_num_bands,
       std::vector<std::vector<float>>(
@@ -183,10 +169,7 @@ void RunWronglyInsertOrderTest(int sample_rate_hz,
                                size_t num_preceeding_api_calls) {
   const size_t correct_num_bands = NumBandsForRate(sample_rate_hz);
 
-  std::vector<std::vector<std::vector<float>>> block(
-      correct_num_bands,
-      std::vector<std::vector<float>>(num_channels,
-                                      std::vector<float>(kBlockSize, 0.f)));
+  Block block(correct_num_bands, num_channels);
   std::vector<std::vector<std::vector<float>>> output_sub_frame(
       correct_num_bands,
       std::vector<std::vector<float>>(
@@ -214,7 +197,8 @@ std::string ProduceDebugText(int sample_rate_hz, size_t num_channels) {
 }  // namespace
 
 #if RTC_DCHECK_IS_ON && GTEST_HAS_DEATH_TEST && !defined(WEBRTC_ANDROID)
-TEST(BlockFramer, WrongNumberOfBandsInBlockForInsertBlockAndExtractSubFrame) {
+TEST(BlockFramerDeathTest,
+     WrongNumberOfBandsInBlockForInsertBlockAndExtractSubFrame) {
   for (auto rate : {16000, 32000, 48000}) {
     for (auto correct_num_channels : {1, 2, 8}) {
       SCOPED_TRACE(ProduceDebugText(rate, correct_num_channels));
@@ -222,12 +206,12 @@ TEST(BlockFramer, WrongNumberOfBandsInBlockForInsertBlockAndExtractSubFrame) {
       const size_t wrong_num_bands = (correct_num_bands % 3) + 1;
       RunWronglySizedInsertAndExtractParametersTest(
           rate, correct_num_channels, wrong_num_bands, correct_num_channels,
-          kBlockSize, correct_num_bands, correct_num_channels, kSubFrameLength);
+          correct_num_bands, correct_num_channels, kSubFrameLength);
     }
   }
 }
 
-TEST(BlockFramer,
+TEST(BlockFramerDeathTest,
      WrongNumberOfChannelsInBlockForInsertBlockAndExtractSubFrame) {
   for (auto rate : {16000, 32000, 48000}) {
     for (auto correct_num_channels : {1, 2, 8}) {
@@ -236,12 +220,12 @@ TEST(BlockFramer,
       const size_t wrong_num_channels = correct_num_channels + 1;
       RunWronglySizedInsertAndExtractParametersTest(
           rate, correct_num_channels, correct_num_bands, wrong_num_channels,
-          kBlockSize, correct_num_bands, correct_num_channels, kSubFrameLength);
+          correct_num_bands, correct_num_channels, kSubFrameLength);
     }
   }
 }
 
-TEST(BlockFramer,
+TEST(BlockFramerDeathTest,
      WrongNumberOfBandsInSubFrameForInsertBlockAndExtractSubFrame) {
   for (auto rate : {16000, 32000, 48000}) {
     for (auto correct_num_channels : {1, 2, 8}) {
@@ -250,12 +234,12 @@ TEST(BlockFramer,
       const size_t wrong_num_bands = (correct_num_bands % 3) + 1;
       RunWronglySizedInsertAndExtractParametersTest(
           rate, correct_num_channels, correct_num_bands, correct_num_channels,
-          kBlockSize, wrong_num_bands, correct_num_channels, kSubFrameLength);
+          wrong_num_bands, correct_num_channels, kSubFrameLength);
     }
   }
 }
 
-TEST(BlockFramer,
+TEST(BlockFramerDeathTest,
      WrongNumberOfChannelsInSubFrameForInsertBlockAndExtractSubFrame) {
   for (auto rate : {16000, 32000, 48000}) {
     for (auto correct_num_channels : {1, 2, 8}) {
@@ -264,25 +248,12 @@ TEST(BlockFramer,
       const size_t wrong_num_channels = correct_num_channels + 1;
       RunWronglySizedInsertAndExtractParametersTest(
           rate, correct_num_channels, correct_num_bands, correct_num_channels,
-          kBlockSize, correct_num_bands, wrong_num_channels, kSubFrameLength);
+          correct_num_bands, wrong_num_channels, kSubFrameLength);
     }
   }
 }
 
-TEST(BlockFramer, WrongNumberOfSamplesInBlockForInsertBlockAndExtractSubFrame) {
-  for (auto rate : {16000, 32000, 48000}) {
-    for (auto correct_num_channels : {1, 2, 8}) {
-      SCOPED_TRACE(ProduceDebugText(rate, correct_num_channels));
-      const size_t correct_num_bands = NumBandsForRate(rate);
-      RunWronglySizedInsertAndExtractParametersTest(
-          rate, correct_num_channels, correct_num_bands, correct_num_channels,
-          kBlockSize - 1, correct_num_bands, correct_num_channels,
-          kSubFrameLength);
-    }
-  }
-}
-
-TEST(BlockFramer,
+TEST(BlockFramerDeathTest,
      WrongNumberOfSamplesInSubFrameForInsertBlockAndExtractSubFrame) {
   const size_t correct_num_channels = 1;
   for (auto rate : {16000, 32000, 48000}) {
@@ -290,50 +261,35 @@ TEST(BlockFramer,
     const size_t correct_num_bands = NumBandsForRate(rate);
     RunWronglySizedInsertAndExtractParametersTest(
         rate, correct_num_channels, correct_num_bands, correct_num_channels,
-        kBlockSize, correct_num_bands, correct_num_channels,
-        kSubFrameLength - 1);
+        correct_num_bands, correct_num_channels, kSubFrameLength - 1);
   }
 }
 
-TEST(BlockFramer, WrongNumberOfBandsInBlockForInsertBlock) {
+TEST(BlockFramerDeathTest, WrongNumberOfBandsInBlockForInsertBlock) {
   for (auto rate : {16000, 32000, 48000}) {
     for (auto correct_num_channels : {1, 2, 8}) {
       SCOPED_TRACE(ProduceDebugText(rate, correct_num_channels));
       const size_t correct_num_bands = NumBandsForRate(rate);
       const size_t wrong_num_bands = (correct_num_bands % 3) + 1;
       RunWronglySizedInsertParameterTest(rate, correct_num_channels,
-                                         wrong_num_bands, correct_num_channels,
-                                         kBlockSize);
+                                         wrong_num_bands, correct_num_channels);
     }
   }
 }
 
-TEST(BlockFramer, WrongNumberOfChannelsInBlockForInsertBlock) {
+TEST(BlockFramerDeathTest, WrongNumberOfChannelsInBlockForInsertBlock) {
   for (auto rate : {16000, 32000, 48000}) {
     for (auto correct_num_channels : {1, 2, 8}) {
       SCOPED_TRACE(ProduceDebugText(rate, correct_num_channels));
       const size_t correct_num_bands = NumBandsForRate(rate);
       const size_t wrong_num_channels = correct_num_channels + 1;
       RunWronglySizedInsertParameterTest(rate, correct_num_channels,
-                                         correct_num_bands, wrong_num_channels,
-                                         kBlockSize);
+                                         correct_num_bands, wrong_num_channels);
     }
   }
 }
 
-TEST(BlockFramer, WrongNumberOfSamplesInBlockForInsertBlock) {
-  for (auto rate : {16000, 32000, 48000}) {
-    for (auto correct_num_channels : {1, 2, 8}) {
-      SCOPED_TRACE(ProduceDebugText(rate, correct_num_channels));
-      const size_t correct_num_bands = NumBandsForRate(rate);
-      RunWronglySizedInsertParameterTest(rate, correct_num_channels,
-                                         correct_num_bands,
-                                         correct_num_channels, kBlockSize - 1);
-    }
-  }
-}
-
-TEST(BlockFramer, WrongNumberOfPreceedingApiCallsForInsertBlock) {
+TEST(BlockFramerDeathTest, WrongNumberOfPreceedingApiCallsForInsertBlock) {
   for (size_t num_channels : {1, 2, 8}) {
     for (auto rate : {16000, 32000, 48000}) {
       for (size_t num_calls = 0; num_calls < 4; ++num_calls) {
@@ -351,23 +307,20 @@ TEST(BlockFramer, WrongNumberOfPreceedingApiCallsForInsertBlock) {
 }
 
 // Verifies that the verification for 0 number of channels works.
-TEST(BlockFramer, ZeroNumberOfChannelsParameter) {
+TEST(BlockFramerDeathTest, ZeroNumberOfChannelsParameter) {
   EXPECT_DEATH(BlockFramer(16000, 0), "");
 }
 
 // Verifies that the verification for 0 number of bands works.
-TEST(BlockFramer, ZeroNumberOfBandsParameter) {
+TEST(BlockFramerDeathTest, ZeroNumberOfBandsParameter) {
   EXPECT_DEATH(BlockFramer(0, 1), "");
 }
 
 // Verifies that the verification for null sub_frame pointer works.
-TEST(BlockFramer, NullSubFrameParameter) {
-  EXPECT_DEATH(BlockFramer(1, 1).InsertBlockAndExtractSubFrame(
-                   std::vector<std::vector<std::vector<float>>>(
-                       1, std::vector<std::vector<float>>(
-                              1, std::vector<float>(kBlockSize, 0.f))),
-                   nullptr),
-               "");
+TEST(BlockFramerDeathTest, NullSubFrameParameter) {
+  EXPECT_DEATH(
+      BlockFramer(1, 1).InsertBlockAndExtractSubFrame(Block(1, 1), nullptr),
+      "");
 }
 
 #endif

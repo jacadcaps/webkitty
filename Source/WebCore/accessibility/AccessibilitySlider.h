@@ -45,11 +45,10 @@ protected:
 
 private:
     HTMLInputElement* inputElement() const;
-    AXCoreObject* elementAccessibilityHitTest(const IntPoint&) const override;
+    AccessibilityObject* elementAccessibilityHitTest(const IntPoint&) const final;
 
-    AccessibilityRole roleValue() const override { return AccessibilityRole::Slider; }
-    bool isSlider() const final { return true; }
-    bool isInputSlider() const override { return true; }
+    AccessibilityRole determineAccessibilityRole() final { return AccessibilityRole::Slider; }
+
     bool isControl() const override { return true; }
     
     void addChildren() override;
@@ -69,7 +68,7 @@ public:
     static Ref<AccessibilitySliderThumb> create();
     virtual ~AccessibilitySliderThumb() = default;
 
-    AccessibilityRole roleValue() const override { return AccessibilityRole::SliderThumb; }
+    AccessibilityRole determineAccessibilityRole() final { return AccessibilityRole::SliderThumb; }
     LayoutRect elementRect() const override;
 
 private:
@@ -81,4 +80,6 @@ private:
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_ACCESSIBILITY(AccessibilitySliderThumb, isSliderThumb())
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::AccessibilitySliderThumb) \
+    static bool isType(const WebCore::AccessibilityObject& object) { return object.isSliderThumb(); } \
+SPECIALIZE_TYPE_TRAITS_END()

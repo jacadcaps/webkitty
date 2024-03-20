@@ -29,108 +29,99 @@
 #include "WebProcessPool.h"
 
 #include "LegacyGlobalSettings.h"
+#include "MemoryPressureMonitor.h"
 #include "WebMemoryPressureHandler.h"
 #include "WebProcessCreationParameters.h"
-#include <JavaScriptCore/RemoteInspectorServer.h>
 #include <WebCore/PlatformDisplay.h>
 #include <wtf/FileSystem.h>
-#include <wtf/glib/GUniquePtr.h>
+#include <wtf/glib/Sandbox.h>
+
+#if ENABLE(REMOTE_INSPECTOR)
+#include <JavaScriptCore/RemoteInspector.h>
+#endif
 
 #if USE(GSTREAMER)
 #include <WebCore/GStreamerCommon.h>
-#endif
-
-#if PLATFORM(WAYLAND)
-#if USE(WPE_RENDERER)
-#include "AcceleratedBackingStoreWayland.h"
-#else
-#include "WaylandCompositor.h"
-#endif
 #endif
 
 #if USE(WPE_RENDERER)
 #include <wpe/wpe.h>
 #endif
 
+#if PLATFORM(GTK) || (PLATFORM(WPE) && ENABLE(WPE_PLATFORM))
+#include "ScreenManager.h"
+#endif
+
+#if PLATFORM(GTK)
+#if USE(EGL)
+#include "AcceleratedBackingStoreDMABuf.h"
+#endif
+#include "GtkSettingsManager.h"
+#endif
+
+#if PLATFORM(WPE) && ENABLE(WPE_PLATFORM)
+#include <wpe/wpe-platform.h>
+#endif
+
 namespace WebKit {
 
-#if ENABLE(REMOTE_INSPECTOR)
-static void initializeRemoteInspectorServer(const char* address)
+void WebProcessPool::platformInitialize(NeedsGlobalStaticInitialization)
 {
-    if (Inspector::RemoteInspectorServer::singleton().isRunning())
-        return;
-
-    if (!address[0])
-        return;
-
-    GUniquePtr<char> inspectorAddress(g_strdup(address));
-    char* portPtr = g_strrstr(inspectorAddress.get(), ":");
-    if (!portPtr)
-        return;
-
-    *portPtr = '\0';
-    portPtr++;
-    guint64 port = g_ascii_strtoull(portPtr, nullptr, 10);
-    if (!port)
-        return;
-
-    Inspector::RemoteInspectorServer::singleton().start(inspectorAddress.get(), port);
-}
-#endif
-
-static bool memoryPressureMonitorDisabled()
-{
-    static const char* disableMemoryPressureMonitor = getenv("WEBKIT_DISABLE_MEMORY_PRESSURE_MONITOR");
-    return disableMemoryPressureMonitor && !strcmp(disableMemoryPressureMonitor, "1");
-}
-
-void WebProcessPool::platformInitialize()
-{
-#if PLATFORM(GTK)
     m_alwaysUsesComplexTextCodePath = true;
-#endif
+
     if (const char* forceComplexText = getenv("WEBKIT_FORCE_COMPLEX_TEXT"))
         m_alwaysUsesComplexTextCodePath = !strcmp(forceComplexText, "1");
 
-#if ENABLE(REMOTE_INSPECTOR)
-    if (const char* address = g_getenv("WEBKIT_INSPECTOR_SERVER"))
-        initializeRemoteInspectorServer(address);
-#endif
-
-    if (!memoryPressureMonitorDisabled())
+#if OS(LINUX)
+    if (!MemoryPressureMonitor::disabled())
         installMemoryPressureHandler();
+#endif
 }
 
 void WebProcessPool::platformInitializeWebProcess(const WebProcessProxy& process, WebProcessCreationParameters& parameters)
 {
-#if PLATFORM(WPE)
-    parameters.isServiceWorkerProcess = process.isRunningServiceWorkers();
+#if PLATFORM(WPE) && ENABLE(WPE_PLATFORM)
+    bool usingWPEPlatformAPI = !!g_type_class_peek(WPE_TYPE_DISPLAY);
+#endif
 
-    if (!parameters.isServiceWorkerProcess) {
-        parameters.hostClientFileDescriptor = wpe_renderer_host_create_client();
-        parameters.implementationLibraryName = FileSystem::fileSystemRepresentation(wpe_loader_get_loaded_implementation_library_name());
+#if USE(GBM)
+#if PLATFORM(WPE) && ENABLE(WPE_PLATFORM)
+    if (usingWPEPlatformAPI)
+        parameters.renderDeviceFile = String::fromUTF8(wpe_render_node_device());
+    else
+        parameters.renderDeviceFile = WebCore::PlatformDisplay::sharedDisplay().drmRenderNodeFile();
+#else
+    parameters.renderDeviceFile = WebCore::PlatformDisplay::sharedDisplay().drmRenderNodeFile();
+#endif
+#endif
+
+#if PLATFORM(GTK) && USE(EGL)
+    parameters.dmaBufRendererBufferMode = AcceleratedBackingStoreDMABuf::rendererBufferMode();
+#elif PLATFORM(WPE) && ENABLE(WPE_PLATFORM)
+    if (usingWPEPlatformAPI) {
+#if USE(GBM)
+        if (!parameters.renderDeviceFile.isEmpty())
+            parameters.dmaBufRendererBufferMode.add(DMABufRendererBufferMode::Hardware);
+#endif
+        parameters.dmaBufRendererBufferMode.add(DMABufRendererBufferMode::SharedMemory);
     }
 #endif
 
-#if PLATFORM(WAYLAND)
-    if (WebCore::PlatformDisplay::sharedDisplay().type() == WebCore::PlatformDisplay::Type::Wayland) {
-#if USE(WPE_RENDERER)
-        wpe_loader_init("libWPEBackend-fdo-1.0.so");
-        if (AcceleratedBackingStoreWayland::checkRequirements()) {
-            parameters.hostClientFileDescriptor = wpe_renderer_host_create_client();
-            parameters.implementationLibraryName = FileSystem::fileSystemRepresentation(wpe_loader_get_loaded_implementation_library_name());
-        }
-#elif USE(EGL)
-        parameters.waylandCompositorDisplayName = WaylandCompositor::singleton().displayName();
-#endif
+#if PLATFORM(WPE)
+    parameters.isServiceWorkerProcess = process.isRunningServiceWorkers();
+
+    if (!parameters.isServiceWorkerProcess && parameters.dmaBufRendererBufferMode.isEmpty()) {
+        parameters.hostClientFileDescriptor = UnixFileDescriptor { wpe_renderer_host_create_client(), UnixFileDescriptor::Adopt };
+        parameters.implementationLibraryName = FileSystem::fileSystemRepresentation(String::fromLatin1(wpe_loader_get_loaded_implementation_library_name()));
     }
 #endif
 
     parameters.memoryCacheDisabled = m_memoryCacheDisabled || LegacyGlobalSettings::singleton().cacheModel() == CacheModel::DocumentViewer;
-    parameters.proxySettings = m_networkProxySettings;
 
-    if (memoryPressureMonitorDisabled())
+#if OS(LINUX)
+    if (MemoryPressureMonitor::disabled())
         parameters.shouldSuppressMemoryPressureHandler = true;
+#endif
 
 #if USE(GSTREAMER)
     parameters.gstreamerOptions = WebCore::extractGStreamerOptionsFromCommandLine();
@@ -138,6 +129,44 @@ void WebProcessPool::platformInitializeWebProcess(const WebProcessProxy& process
 
 #if PLATFORM(GTK) && !USE(GTK4)
     parameters.useSystemAppearanceForScrollbars = m_configuration->useSystemAppearanceForScrollbars();
+#endif
+
+    parameters.memoryPressureHandlerConfiguration = m_configuration->memoryPressureHandlerConfiguration();
+
+    parameters.disableFontHintingForTesting = m_configuration->disableFontHintingForTesting();
+
+    GApplication* app = g_application_get_default();
+    if (app)
+        parameters.applicationID = String::fromLatin1(g_application_get_application_id(app));
+    parameters.applicationName = String::fromLatin1(g_get_application_name());
+
+#if ENABLE(REMOTE_INSPECTOR)
+    parameters.inspectorServerAddress = Inspector::RemoteInspector::inspectorServerAddress();
+#endif
+
+#if USE(ATSPI)
+    parameters.accessibilityBusAddress = [this] {
+        if (auto* address = getenv("WEBKIT_A11Y_BUS_ADDRESS"))
+            return String::fromUTF8(address);
+
+        if (m_sandboxEnabled) {
+            String& address = sandboxedAccessibilityBusAddress();
+            if (!address.isNull())
+                return address;
+        }
+
+        return WebCore::PlatformDisplay::sharedDisplay().accessibilityBusAddress();
+    }();
+#endif
+
+#if PLATFORM(GTK)
+    parameters.gtkSettings = GtkSettingsManager::singleton().settingsState();
+    parameters.screenProperties = ScreenManager::singleton().collectScreenProperties();
+#endif
+
+#if PLATFORM(WPE) && ENABLE(WPE_PLATFORM)
+    if (usingWPEPlatformAPI)
+        parameters.screenProperties = ScreenManager::singleton().collectScreenProperties();
 #endif
 }
 

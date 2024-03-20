@@ -26,6 +26,7 @@
 #pragma once
 
 #include "ElementAndTextDescendantIterator.h"
+#include "ElementRareData.h"
 #include "HTMLSlotElement.h"
 #include "ShadowRoot.h"
 
@@ -44,7 +45,6 @@ public:
     Node* operator->() { return &current(); }
 
     bool operator==(const ComposedTreeIterator& other) const { return context().iterator == other.context().iterator; }
-    bool operator!=(const ComposedTreeIterator& other) const { return context().iterator != other.context().iterator; }
 
     ComposedTreeIterator& operator++() { return traverseNext(); }
 
@@ -86,8 +86,8 @@ private:
 };
 
 inline ComposedTreeIterator::ComposedTreeIterator()
+    : m_contextStack({ Context { } })
 {
-    m_contextStack.uncheckedAppend({ });
 }
 
 inline ComposedTreeIterator& ComposedTreeIterator::traverseNext()
@@ -224,9 +224,9 @@ inline Node* firstChildInComposedTreeIgnoringUserAgentShadow(Node& node)
 {
     if (auto* shadowRoot = shadowRootIgnoringUserAgentShadow(node))
         return shadowRoot->firstChild();
-    if (is<HTMLSlotElement>(node)) {
-        if (auto* assignedNodes = downcast<HTMLSlotElement>(node).assignedNodes())
-            return assignedNodes->at(0);
+    if (auto slot = dynamicDowncast<HTMLSlotElement>(node)) {
+        if (auto* assignedNodes = slot->assignedNodes())
+            return assignedNodes->at(0).get();
     }
     return node.firstChild();
 }
@@ -239,7 +239,7 @@ inline Node* nextSiblingInComposedTreeIgnoringUserAgentShadow(Node& node)
         auto nodeIndex = assignedNodes->find(&node);
         ASSERT(nodeIndex != notFound);
         if (assignedNodes->size() > nodeIndex + 1)
-            return assignedNodes->at(nodeIndex + 1);
+            return assignedNodes->at(nodeIndex + 1).get();
         return nullptr;
     }
     return node.nextSibling();

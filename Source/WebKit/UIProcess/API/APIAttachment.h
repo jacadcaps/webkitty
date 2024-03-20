@@ -28,17 +28,23 @@
 #if ENABLE(ATTACHMENT_ELEMENT)
 
 #include "APIObject.h"
-#include "GenericCallback.h"
 #include "WKBase.h"
+#include <WebCore/AttachmentAssociatedElement.h>
+#include <wtf/Function.h>
+#include <wtf/Lock.h>
 #include <wtf/RefPtr.h>
 #include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
 
+OBJC_CLASS NSData;
 OBJC_CLASS NSFileWrapper;
 OBJC_CLASS NSString;
 
 namespace WebCore {
+enum class AttachmentAssociatedElementType : uint8_t;
+
 class SharedBuffer;
+class FragmentedSharedBuffer;
 }
 
 namespace WebKit {
@@ -55,17 +61,15 @@ public:
     enum class InsertionState : uint8_t { NotInserted, Inserted };
 
     const WTF::String& identifier() const { return m_identifier; }
-    void updateAttributes(Function<void(WebKit::CallbackBase::Error)>&&);
+    void updateAttributes(CompletionHandler<void()>&&);
 
     void invalidate();
     bool isValid() const { return !!m_webPage; }
 
 #if PLATFORM(COCOA)
-    NSFileWrapper *fileWrapper() const;
-    void setFileWrapper(NSFileWrapper *fileWrapper) { m_fileWrapper = fileWrapper; }
+    void doWithFileWrapper(Function<void(NSFileWrapper *)>&&) const;
+    void setFileWrapper(NSFileWrapper *);
     void setFileWrapperAndUpdateContentType(NSFileWrapper *, NSString *contentType);
-    void setFileWrapperGenerator(Function<RetainPtr<NSFileWrapper>(void)>&&);
-    void invalidateGeneratedFileWrapper();
     WTF::String utiType() const;
 #endif
     WTF::String mimeType() const;
@@ -82,11 +86,14 @@ public:
 
     bool isEmpty() const;
 
-    RefPtr<WebCore::SharedBuffer> enclosingImageData() const;
-    Optional<uint64_t> fileSizeForDisplay() const;
+    RefPtr<WebCore::FragmentedSharedBuffer> associatedElementData() const;
+#if PLATFORM(COCOA)
+    NSData *associatedElementNSData() const;
+#endif
+    std::optional<uint64_t> fileSizeForDisplay() const;
 
-    void setHasEnclosingImage(bool hasEnclosingImage) { m_hasEnclosingImage = hasEnclosingImage; }
-    bool hasEnclosingImage() const { return m_hasEnclosingImage; }
+    void setAssociatedElementType(WebCore::AttachmentAssociatedElementType associatedElementType) { m_associatedElementType = associatedElementType; }
+    WebCore::AttachmentAssociatedElementType associatedElementType() const { return m_associatedElementType; }
 
     RefPtr<WebCore::SharedBuffer> createSerializedRepresentation() const;
     void updateFromSerializedRepresentation(Ref<WebCore::SharedBuffer>&&, const WTF::String& contentType);
@@ -95,15 +102,15 @@ private:
     explicit Attachment(const WTF::String& identifier, WebKit::WebPageProxy&);
 
 #if PLATFORM(COCOA)
-    mutable RetainPtr<NSFileWrapper> m_fileWrapper;
-    Function<RetainPtr<NSFileWrapper>(void)> m_fileWrapperGenerator;
+    mutable Lock m_fileWrapperLock;
+    RetainPtr<NSFileWrapper> m_fileWrapper WTF_GUARDED_BY_LOCK(m_fileWrapperLock);
 #endif
     WTF::String m_identifier;
     WTF::String m_filePath;
     WTF::String m_contentType;
     WeakPtr<WebKit::WebPageProxy> m_webPage;
     InsertionState m_insertionState { InsertionState::NotInserted };
-    bool m_hasEnclosingImage { false };
+    WebCore::AttachmentAssociatedElementType m_associatedElementType { WebCore::AttachmentAssociatedElementType::None };
 };
 
 } // namespace API

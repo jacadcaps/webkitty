@@ -27,6 +27,7 @@
 
 #if ENABLE(GPU_PROCESS) && USE(AUDIO_SESSION)
 
+#include "GPUProcessConnection.h"
 #include "MessageReceiver.h"
 #include "RemoteAudioSessionConfiguration.h"
 #include <WebCore/AudioSession.h>
@@ -42,16 +43,23 @@ class WebProcess;
 
 class RemoteAudioSession final
     : public WebCore::AudioSession
-    , IPC::MessageReceiver {
+    , public WebCore::AudioSession::InterruptionObserver
+    , public GPUProcessConnection::Client
+    , IPC::MessageReceiver
+    , public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<RemoteAudioSession> {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    static UniqueRef<RemoteAudioSession> create(WebProcess&);
-    virtual ~RemoteAudioSession();
+    static UniqueRef<RemoteAudioSession> create();
+    ~RemoteAudioSession();
+
+    void ref() const final { return ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<RemoteAudioSession>::ref(); }
+    void deref() const final { return ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<RemoteAudioSession>::deref(); }
+    ThreadSafeWeakPtrControlBlock& controlBlock() const final { return ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<RemoteAudioSession>::controlBlock(); }
 
 private:
-    friend UniqueRef<RemoteAudioSession> WTF::makeUniqueRefWithoutFastMallocCheck<RemoteAudioSession>(WebProcess&, RemoteAudioSessionConfiguration&&);
-    RemoteAudioSession(WebProcess&, RemoteAudioSessionConfiguration&&);
-    IPC::Connection& connection();
+    friend UniqueRef<RemoteAudioSession> WTF::makeUniqueRefWithoutFastMallocCheck<RemoteAudioSession>();
+    RemoteAudioSession();
+    IPC::Connection& ensureConnection();
 
     // IPC::MessageReceiver
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
@@ -59,23 +67,59 @@ private:
     // Messages
     void configurationChanged(RemoteAudioSessionConfiguration&&);
 
+    // GPUProcessConnection::Client
+    void gpuProcessConnectionDidClose(GPUProcessConnection&) final;
+
     // AudioSession
-    void setCategory(CategoryType, WebCore::RouteSharingPolicy) final;
-    void setPreferredBufferSize(size_t) final;
+    void setCategory(CategoryType, Mode, WebCore::RouteSharingPolicy) final;
+    CategoryType category() const final;
+    Mode mode() const final;
+
+    WebCore::RouteSharingPolicy routeSharingPolicy() const final { return m_routeSharingPolicy; }
+    String routingContextUID() const final { return configuration().routingContextUID; }
+
+    float sampleRate() const final { return configuration().sampleRate; }
+    size_t bufferSize() const final { return configuration().bufferSize; }
+    size_t numberOfOutputChannels() const final { return configuration().numberOfOutputChannels; }
+    size_t maximumNumberOfOutputChannels() const final { return configuration().maximumNumberOfOutputChannels; }
+
     bool tryToSetActiveInternal(bool) final;
 
-    CategoryType category() const final { return m_configuration.category; }
-    WebCore::RouteSharingPolicy routeSharingPolicy() const final { return m_configuration.routeSharingPolicy; }
-    String routingContextUID() const final { return m_configuration.routingContextUID; }
-    float sampleRate() const final { return m_configuration.sampleRate; }
-    size_t bufferSize() const final { return m_configuration.bufferSize; }
-    size_t numberOfOutputChannels() const final { return m_configuration.numberOfOutputChannels; }
-    size_t preferredBufferSize() const final { return m_configuration.preferredBufferSize; }
-    bool isMuted() const final { return m_configuration.isMuted; }
-    bool isActive() const final { return m_configuration.isActive; }
+    size_t preferredBufferSize() const final { return configuration().preferredBufferSize; }
+    void setPreferredBufferSize(size_t) final;
+        
+    void addConfigurationChangeObserver(ConfigurationChangeObserver&) final;
+    void removeConfigurationChangeObserver(ConfigurationChangeObserver&) final;
 
-    WebProcess& m_process;
-    RemoteAudioSessionConfiguration m_configuration;
+    void setIsPlayingToBluetoothOverride(std::optional<bool>) final;
+
+    bool isMuted() const final { return configuration().isMuted; }
+
+    bool isActive() const final { return configuration().isActive; }
+
+    void beginInterruptionForTesting() final;
+    void endInterruptionForTesting() final;
+    void clearInterruptionFlagForTesting() final { m_isInterruptedForTesting = false; }
+
+    const RemoteAudioSessionConfiguration& configuration() const;
+    RemoteAudioSessionConfiguration& configuration();
+    void initializeConfigurationIfNecessary();
+
+    void beginInterruptionRemote();
+    void endInterruptionRemote(MayResume);
+
+    // InterruptionObserver
+    void beginAudioSessionInterruption() final;
+    void endAudioSessionInterruption(WebCore::AudioSession::MayResume) final;
+
+    WeakHashSet<ConfigurationChangeObserver> m_configurationChangeObservers;
+    CategoryType m_category { CategoryType::None };
+    Mode m_mode { Mode::Default };
+    WebCore::RouteSharingPolicy m_routeSharingPolicy { WebCore::RouteSharingPolicy::Default };
+    bool m_isPlayingToBluetoothOverrideChanged { false };
+    std::optional<RemoteAudioSessionConfiguration> m_configuration;
+    ThreadSafeWeakPtr<GPUProcessConnection> m_gpuProcessConnection;
+    bool m_isInterruptedForTesting { false };
 };
 
 }

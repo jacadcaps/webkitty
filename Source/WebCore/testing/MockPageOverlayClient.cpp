@@ -27,9 +27,9 @@
 #include "MockPageOverlayClient.h"
 
 #include "Document.h"
-#include "Frame.h"
 #include "GraphicsContext.h"
 #include "GraphicsLayer.h"
+#include "LocalFrame.h"
 #include "Page.h"
 #include "PageOverlayController.h"
 #include "PlatformMouseEvent.h"
@@ -67,13 +67,13 @@ void MockPageOverlayClient::uninstallAllOverlays()
     }
 }
 
-String MockPageOverlayClient::layerTreeAsText(Page& page, LayerTreeFlags flags)
+String MockPageOverlayClient::layerTreeAsText(Page& page, OptionSet<LayerTreeAsTextOptions> options)
 {
     GraphicsLayer* viewOverlayRoot = page.pageOverlayController().viewOverlayRootLayer();
     GraphicsLayer* documentOverlayRoot = page.pageOverlayController().documentOverlayRootLayer();
     
-    return "View-relative:\n" + (viewOverlayRoot ? viewOverlayRoot->layerTreeAsText(flags | LayerTreeAsTextIncludePageOverlayLayers) : "(no view-relative overlay root)")
-        + "\n\nDocument-relative:\n" + (documentOverlayRoot ? documentOverlayRoot->layerTreeAsText(flags | LayerTreeAsTextIncludePageOverlayLayers) : "(no document-relative overlay root)");
+    return "View-relative:\n" + (viewOverlayRoot ? viewOverlayRoot->layerTreeAsText(options | LayerTreeAsTextOptions::IncludePageOverlayLayers) : "(no view-relative overlay root)"_s)
+        + "\n\nDocument-relative:\n" + (documentOverlayRoot ? documentOverlayRoot->layerTreeAsText(options | LayerTreeAsTextOptions::IncludePageOverlayLayers) : "(no document-relative overlay root)"_s);
 }
 
 void MockPageOverlayClient::willMoveToPage(PageOverlay&, Page*)
@@ -86,20 +86,8 @@ void MockPageOverlayClient::didMoveToPage(PageOverlay& overlay, Page* page)
         overlay.setNeedsDisplay();
 }
 
-void MockPageOverlayClient::drawRect(PageOverlay& overlay, GraphicsContext& context, const IntRect& dirtyRect)
+void MockPageOverlayClient::drawRect(PageOverlay& overlay, GraphicsContext& context, const IntRect&)
 {
-    StringBuilder message;
-    message.appendLiteral("MockPageOverlayClient::drawRect dirtyRect (");
-    message.appendNumber(dirtyRect.x());
-    message.appendLiteral(", ");
-    message.appendNumber(dirtyRect.y());
-    message.appendLiteral(", ");
-    message.appendNumber(dirtyRect.width());
-    message.appendLiteral(", ");
-    message.appendNumber(dirtyRect.height());
-    message.appendLiteral(")");
-    overlay.page()->mainFrame().document()->addConsoleMessage(MessageSource::Other, MessageLevel::Debug, message.toString());
-
     GraphicsContextStateSaver stateSaver(context);
 
     FloatRect insetRect = overlay.bounds();
@@ -117,18 +105,14 @@ void MockPageOverlayClient::drawRect(PageOverlay& overlay, GraphicsContext& cont
 
 bool MockPageOverlayClient::mouseEvent(PageOverlay& overlay, const PlatformMouseEvent& event)
 {
-    StringBuilder message;
-    message.appendLiteral("MockPageOverlayClient::mouseEvent location (");
-    message.appendNumber(event.position().x());
-    message.appendLiteral(", ");
-    message.appendNumber(event.position().y());
-    message.appendLiteral(")");
-    overlay.page()->mainFrame().document()->addConsoleMessage(MessageSource::Other, MessageLevel::Debug, message.toString());
-
+    if (auto* localMainFrame = dynamicDowncast<LocalFrame>(overlay.page()->mainFrame())) {
+        localMainFrame->document()->addConsoleMessage(MessageSource::Other, MessageLevel::Debug,
+            makeString("MockPageOverlayClient::mouseEvent location (", event.position().x(), ", ", event.position().y(), ')'));
+    }
     return false;
 }
 
-void MockPageOverlayClient::didScrollFrame(PageOverlay&, Frame&)
+void MockPageOverlayClient::didScrollFrame(PageOverlay&, LocalFrame&)
 {
 }
 

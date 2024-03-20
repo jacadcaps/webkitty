@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2014, 2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,8 +29,9 @@
 #if PLATFORM(IOS_FAMILY)
 
 #import <WebCore/FloatQuad.h>
+#import <WebCore/FloatRect.h>
 #import <WebCore/GeometryUtilities.h>
-#import <WebCore/InspectorOverlay.h>
+#import <WebCore/GraphicsContextCG.h>
 
 @implementation WKInspectorHighlightView
 
@@ -38,20 +39,20 @@
 {
     if (!(self = [super initWithFrame:frame]))
         return nil;
-    _layers = [[NSMutableArray alloc] init];
+    _layers = adoptNS([[NSMutableArray alloc] init]);
+    self.opaque = NO;
     return self;
 }
 
 - (void)dealloc
 {
     [self _removeAllLayers];
-    [_layers release];
     [super dealloc];
 }
 
 - (void)_removeAllLayers
 {
-    for (CAShapeLayer *layer in _layers)
+    for (CAShapeLayer *layer in _layers.get())
         [layer removeFromSuperlayer];
     [_layers removeAllObjects];
 }
@@ -61,13 +62,11 @@
     if ([_layers count] == numLayers)
         return;
 
-    [self _removeAllLayers];
-
     for (NSUInteger i = 0; i < numLayers; ++i) {
-        CAShapeLayer *layer = [[CAShapeLayer alloc] init];
-        [_layers addObject:layer];
-        [self.layer addSublayer:layer];
-        [layer release];
+        auto layer = adoptNS([[CAShapeLayer alloc] init]);
+        layer.get().position = CGPointMake(-self.frame.origin.x, -self.frame.origin.y);
+        [_layers addObject:layer.get()];
+        [self.layer addSublayer:layer.get()];
     }
 }
 
@@ -186,31 +185,30 @@ static void layerPathWithHole(CAShapeLayer *layer, const WebCore::FloatQuad& out
         innerHole = quadIntersection(outerQuad, holeQuad);
 
     // Clockwise inside rect (hole), Counter-Clockwise outside rect (fill).
-    CGMutablePathRef path = CGPathCreateMutable();
-    CGPathMoveToPoint(path, 0, innerHole.p1().x(), innerHole.p1().y());
-    CGPathAddLineToPoint(path, 0, innerHole.p2().x(), innerHole.p2().y());
-    CGPathAddLineToPoint(path, 0, innerHole.p3().x(), innerHole.p3().y());
-    CGPathAddLineToPoint(path, 0, innerHole.p4().x(), innerHole.p4().y());
-    CGPathMoveToPoint(path, 0, outerQuad.p1().x(), outerQuad.p1().y());
-    CGPathAddLineToPoint(path, 0, outerQuad.p4().x(), outerQuad.p4().y());
-    CGPathAddLineToPoint(path, 0, outerQuad.p3().x(), outerQuad.p3().y());
-    CGPathAddLineToPoint(path, 0, outerQuad.p2().x(), outerQuad.p2().y());
-    layer.path = path;
-    CGPathRelease(path);
+    auto path = adoptCF(CGPathCreateMutable());
+    CGPathMoveToPoint(path.get(), 0, innerHole.p1().x(), innerHole.p1().y());
+    CGPathAddLineToPoint(path.get(), 0, innerHole.p2().x(), innerHole.p2().y());
+    CGPathAddLineToPoint(path.get(), 0, innerHole.p3().x(), innerHole.p3().y());
+    CGPathAddLineToPoint(path.get(), 0, innerHole.p4().x(), innerHole.p4().y());
+    CGPathMoveToPoint(path.get(), 0, outerQuad.p1().x(), outerQuad.p1().y());
+    CGPathAddLineToPoint(path.get(), 0, outerQuad.p4().x(), outerQuad.p4().y());
+    CGPathAddLineToPoint(path.get(), 0, outerQuad.p3().x(), outerQuad.p3().y());
+    CGPathAddLineToPoint(path.get(), 0, outerQuad.p2().x(), outerQuad.p2().y());
+    layer.path = path.get();
 }
 
 static void layerPath(CAShapeLayer *layer, const WebCore::FloatQuad& outerQuad)
 {
-    CGMutablePathRef path = CGPathCreateMutable();
-    CGPathMoveToPoint(path, 0, outerQuad.p1().x(), outerQuad.p1().y());
-    CGPathAddLineToPoint(path, 0, outerQuad.p4().x(), outerQuad.p4().y());
-    CGPathAddLineToPoint(path, 0, outerQuad.p3().x(), outerQuad.p3().y());
-    CGPathAddLineToPoint(path, 0, outerQuad.p2().x(), outerQuad.p2().y());
-    layer.path = path;
-    CGPathRelease(path);
+    auto path = adoptCF(CGPathCreateMutable());
+    CGPathMoveToPoint(path.get(), 0, outerQuad.p1().x(), outerQuad.p1().y());
+    CGPathAddLineToPoint(path.get(), 0, outerQuad.p4().x(), outerQuad.p4().y());
+    CGPathAddLineToPoint(path.get(), 0, outerQuad.p3().x(), outerQuad.p3().y());
+    CGPathAddLineToPoint(path.get(), 0, outerQuad.p2().x(), outerQuad.p2().y());
+    CGPathCloseSubpath(path.get());
+    layer.path = path.get();
 }
 
-- (void)_layoutForNodeHighlight:(const WebCore::Highlight&)highlight offset:(unsigned)offset
+- (void)_layoutForNodeHighlight:(const WebCore::InspectorOverlay::Highlight&)highlight offset:(unsigned)offset
 {
     ASSERT([_layers count] >= offset + 4);
     ASSERT(highlight.quads.size() >= offset + 4);
@@ -227,10 +225,10 @@ static void layerPath(CAShapeLayer *layer, const WebCore::FloatQuad& outerQuad)
     WebCore::FloatQuad paddingQuad = highlight.quads[offset + 2];
     WebCore::FloatQuad contentQuad = highlight.quads[offset + 3];
 
-    marginLayer.fillColor = cachedCGColor(highlight.marginColor);
-    borderLayer.fillColor = cachedCGColor(highlight.borderColor);
-    paddingLayer.fillColor = cachedCGColor(highlight.paddingColor);
-    contentLayer.fillColor = cachedCGColor(highlight.contentColor);
+    marginLayer.fillColor = cachedCGColor(highlight.marginColor).get();
+    borderLayer.fillColor = cachedCGColor(highlight.borderColor).get();
+    paddingLayer.fillColor = cachedCGColor(highlight.paddingColor).get();
+    contentLayer.fillColor = cachedCGColor(highlight.contentColor).get();
 
     layerPathWithHole(marginLayer, marginQuad, borderQuad);
     layerPathWithHole(borderLayer, borderQuad, paddingQuad);
@@ -238,12 +236,10 @@ static void layerPath(CAShapeLayer *layer, const WebCore::FloatQuad& outerQuad)
     layerPath(contentLayer, contentQuad);
 }
 
-- (void)_layoutForNodeListHighlight:(const WebCore::Highlight&)highlight
+- (void)_layoutForNodeListHighlight:(const WebCore::InspectorOverlay::Highlight&)highlight
 {
-    if (!highlight.quads.size()) {
-        [self _removeAllLayers];
+    if (!highlight.quads.size())
         return;
-    }
 
     unsigned nodeCount = highlight.quads.size() / 4;
     [self _createLayers:nodeCount * 4];
@@ -252,30 +248,55 @@ static void layerPath(CAShapeLayer *layer, const WebCore::FloatQuad& outerQuad)
         [self _layoutForNodeHighlight:highlight offset:i * 4];
 }
 
-- (void)_layoutForRectsHighlight:(const WebCore::Highlight&)highlight
+- (void)_layoutForRectsHighlight:(const WebCore::InspectorOverlay::Highlight&)highlight
 {
     NSUInteger numLayers = highlight.quads.size();
-    if (!numLayers) {
-        [self _removeAllLayers];
+    if (!numLayers)
         return;
-    }
 
     [self _createLayers:numLayers];
 
-    CGColorRef contentColor = cachedCGColor(highlight.contentColor);
+    auto contentColor = cachedCGColor(highlight.contentColor);
     for (NSUInteger i = 0; i < numLayers; ++i) {
         CAShapeLayer *layer = [_layers objectAtIndex:i];
-        layer.fillColor = contentColor;
+        layer.fillColor = contentColor.get();
         layerPath(layer, highlight.quads[i]);
     }
 }
 
-- (void)update:(const WebCore::Highlight&)highlight
+- (void)drawRect:(CGRect)dirtyRect
 {
-    if (highlight.type == WebCore::HighlightType::Node || highlight.type == WebCore::HighlightType::NodeList)
+    [super drawRect:dirtyRect];
+
+    if (!_highlight)
+        return;
+
+    auto context = WebCore::GraphicsContextCG(UIGraphicsGetCurrentContext());
+    context.clip({ dirtyRect });
+    context.translate(-self.frame.origin.x, -self.frame.origin.y);
+
+    for (auto gridHighlightOverlay : _highlight->gridHighlightOverlays)
+        WebCore::InspectorOverlay::drawGridOverlay(context, gridHighlightOverlay);
+
+    for (auto flexHighlightOverlay : _highlight->flexHighlightOverlays)
+        WebCore::InspectorOverlay::drawFlexOverlay(context, flexHighlightOverlay);
+}
+
+- (void)update:(const WebCore::InspectorOverlay::Highlight&)highlight scale:(double)scale frame:(const WebCore::FloatRect&)frame
+{
+    [self _removeAllLayers];
+
+    _highlight = highlight;
+    self.contentScaleFactor = UIScreen.mainScreen.scale * scale;
+    self.frame = frame;
+
+    if (highlight.type == WebCore::InspectorOverlay::Highlight::Type::Node || highlight.type == WebCore::InspectorOverlay::Highlight::Type::NodeList)
         [self _layoutForNodeListHighlight:highlight];
-    else if (highlight.type == WebCore::HighlightType::Rects)
+    else if (highlight.type == WebCore::InspectorOverlay::Highlight::Type::Rects)
         [self _layoutForRectsHighlight:highlight];
+
+    
+    [self setNeedsDisplay];
 }
 
 @end

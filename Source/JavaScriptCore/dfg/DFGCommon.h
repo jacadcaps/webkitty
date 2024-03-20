@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include "DFGCompilationMode.h"
+#include "JITCompilationMode.h"
 
 #if ENABLE(DFG_JIT)
 
@@ -66,17 +66,17 @@ enum SwitchKind {
     SwitchCell
 };
 
-inline bool verboseCompilationEnabled(CompilationMode mode = DFGMode)
+inline bool verboseCompilationEnabled(JITCompilationMode mode = JITCompilationMode::DFG)
 {
     return Options::verboseCompilation() || Options::dumpGraphAtEachPhase() || (isFTL(mode) && Options::verboseFTLCompilation());
 }
 
-inline bool logCompilationChanges(CompilationMode mode = DFGMode)
+inline bool logCompilationChanges(JITCompilationMode mode = JITCompilationMode::DFG)
 {
     return verboseCompilationEnabled(mode) || Options::logCompilationChanges();
 }
 
-inline bool shouldDumpGraphAtEachPhase(CompilationMode mode)
+inline bool shouldDumpGraphAtEachPhase(JITCompilationMode mode = JITCompilationMode::DFG)
 {
     if (isFTL(mode))
         return Options::dumpGraphAtEachPhase() || Options::dumpDFGFTLGraphAtEachPhase();
@@ -92,7 +92,7 @@ inline bool validationEnabled()
 #endif
 }
 
-inline bool enableInt52()
+inline bool constexpr enableInt52()
 {
 #if USE(JSVALUE64)
     return true;
@@ -252,7 +252,8 @@ inline KillStatus killStatusForDoesKill(bool doesKill)
 
 enum class PlanStage {
     Initial,
-    AfterFixup
+    AfterFixup,
+    LICMAndLater
 };
 
 // If possible, this will acquire a lock to make sure that if multiple threads
@@ -359,7 +360,7 @@ inline CapabilityLevel leastUpperBound(CapabilityLevel a, CapabilityLevel b)
 }
 
 // Unconditionally disable DFG disassembly support if the DFG is not compiled in.
-inline bool shouldDumpDisassembly(CompilationMode mode = DFGMode)
+inline bool shouldDumpDisassembly(JITCompilationMode mode = JITCompilationMode::DFG)
 {
 #if ENABLE(DFG_JIT)
     return Options::dumpDisassembly() || Options::dumpDFGDisassembly() || (isFTL(mode) && Options::dumpFTLDisassembly());

@@ -27,10 +27,17 @@
 
 #include <wtf/Forward.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/OSObjectPtr.h>
 #include <wtf/RetainPtr.h>
 
 OBJC_CLASS CALayer;
 OBJC_CLASS CAContext;
+
+#if USE(EXTENSIONKIT)
+OBJC_CLASS BELayerHierarchy;
+OBJC_CLASS BELayerHierarchyHandle;
+OBJC_CLASS BELayerHierarchyHostingTransactionCoordinator;
+#endif
 
 namespace WTF {
 class MachSendRight;
@@ -38,12 +45,21 @@ class MachSendRight;
 
 namespace WebKit {
 
+#if USE(EXTENSIONKIT)
+constexpr auto contextIDKey = "cid";
+constexpr auto processIDKey = "pid";
+constexpr auto machPortKey = "p";
+#endif
+
 using LayerHostingContextID = uint32_t;
 enum class LayerHostingMode : uint8_t;
 
 struct LayerHostingContextOptions {
 #if PLATFORM(IOS_FAMILY)
     bool canShowWhileLocked { false };
+#endif
+#if USE(EXTENSIONKIT)
+    bool useHostable { false };
 #endif
 };
 
@@ -58,6 +74,8 @@ public:
 #if PLATFORM(MAC)
     static std::unique_ptr<LayerHostingContext> createForExternalPluginHostingProcess();
 #endif
+    
+    static std::unique_ptr<LayerHostingContext> createTransportLayerForRemoteHosting(LayerHostingContextID);
 
     static RetainPtr<CALayer> createPlatformLayerForHostingContext(LayerHostingContextID);
 
@@ -89,10 +107,29 @@ public:
     // CAContext; call setFencePort() with the newly created port if synchronization
     // with this context is desired.
     WTF::MachSendRight createFencePort();
+    
+    // Should be only be used inside webprocess
+    void updateCachedContextID(LayerHostingContextID);
+    LayerHostingContextID cachedContextID();
+
+#if USE(EXTENSIONKIT)
+    OSObjectPtr<xpc_object_t> xpcRepresentation() const;
+    RetainPtr<BELayerHierarchy> hostable() const { return m_hostable; }
+
+    static RetainPtr<BELayerHierarchyHandle> createHostingHandle(uint64_t pid, uint64_t contextID);
+    static RetainPtr<BELayerHierarchyHostingTransactionCoordinator> createHostingUpdateCoordinator(mach_port_t sendRight);
+#endif
 
 private:
     LayerHostingMode m_layerHostingMode;
+    // Denotes the contextID obtained from GPU process, should be returned
+    // for all calls to context ID in web process when UI side compositing
+    // is enabled. This is done to avoid making calls to CARenderServer from webprocess
+    LayerHostingContextID m_cachedContextID;
     RetainPtr<CAContext> m_context;
+#if USE(EXTENSIONKIT)
+    RetainPtr<BELayerHierarchy> m_hostable;
+#endif
 };
 
 } // namespace WebKit

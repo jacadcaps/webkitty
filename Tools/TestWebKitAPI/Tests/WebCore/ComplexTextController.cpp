@@ -47,7 +47,7 @@ public:
 TEST_F(ComplexTextControllerTest, InitialAdvanceWithLeftRunInRTL)
 {
     FontCascadeDescription description;
-    description.setOneFamily("Times");
+    description.setOneFamily("Times"_s);
     description.setComputedSize(80);
     FontCascade font(WTFMove(description));
     font.update();
@@ -59,7 +59,7 @@ TEST_F(ComplexTextControllerTest, InitialAdvanceWithLeftRunInRTL)
     FloatSize initialAdvance = FloatSize(-15.15625, 18.046875);
 
     UChar characters[] = { 0x644, 0x637, 0x641, 0x627, 0x64b, 0x20 };
-    size_t charactersLength = WTF_ARRAY_LENGTH(characters);
+    size_t charactersLength = std::size(characters);
     TextRun textRun(StringView(characters, charactersLength));
     auto run1 = ComplexTextController::ComplexTextRun::create({ FloatSize(21.875, 0) }, { FloatPoint() }, { 5 }, { 5 }, FloatSize(), font.primaryFont(), characters, 0, charactersLength, 5, 6, false);
     auto run2 = ComplexTextController::ComplexTextRun::create(advances, origins, { 193, 377, 447, 431, 458 }, { 4, 3, 2, 1, 0 }, initialAdvance, font.primaryFont(), characters, 0, charactersLength, 0, 5, false);
@@ -80,21 +80,21 @@ TEST_F(ComplexTextControllerTest, InitialAdvanceWithLeftRunInRTL)
     EXPECT_NEAR(controller.runWidthSoFar(), advances[4].width(), 0.0001);
     controller.advance(6, &glyphBuffer);
     EXPECT_NEAR(controller.runWidthSoFar(), spaceWidth + totalWidth, 0.0001);
-    EXPECT_NEAR(glyphBuffer.initialAdvance().width(), 0, 0.0001);
-    EXPECT_NEAR(glyphBuffer.initialAdvance().height(), 0, 0.0001);
+    EXPECT_NEAR(width(glyphBuffer.initialAdvance()), 0, 0.0001);
+    EXPECT_NEAR(height(glyphBuffer.initialAdvance()), 0, 0.0001);
     EXPECT_EQ(glyphBuffer.size(), 6U);
-    EXPECT_NEAR(glyphBuffer.advanceAt(0).width(), advances[4].width(), 0.0001);
-    EXPECT_NEAR(glyphBuffer.advanceAt(1).width(), advances[3].width(), 0.0001);
-    EXPECT_NEAR(glyphBuffer.advanceAt(2).width(), advances[2].width(), 0.0001);
-    EXPECT_NEAR(glyphBuffer.advanceAt(3).width(), advances[1].width(), 0.0001);
-    EXPECT_NEAR(glyphBuffer.advanceAt(4).width(), -initialAdvance.width(), 0.0001);
-    EXPECT_NEAR(glyphBuffer.advanceAt(5).width(), spaceWidth + initialAdvance.width(), 0.0001);
+    EXPECT_NEAR(width(glyphBuffer.advanceAt(0)), width(advances[4]), 0.0001);
+    EXPECT_NEAR(width(glyphBuffer.advanceAt(1)), width(advances[3]), 0.0001);
+    EXPECT_NEAR(width(glyphBuffer.advanceAt(2)), width(advances[2]), 0.0001);
+    EXPECT_NEAR(width(glyphBuffer.advanceAt(3)), width(advances[1]), 0.0001);
+    EXPECT_NEAR(width(glyphBuffer.advanceAt(4)), -width(initialAdvance), 0.0001);
+    EXPECT_NEAR(width(glyphBuffer.advanceAt(5)), spaceWidth + width(initialAdvance), 0.0001);
 }
 
 TEST_F(ComplexTextControllerTest, InitialAdvanceInRTL)
 {
     FontCascadeDescription description;
-    description.setOneFamily("Times");
+    description.setOneFamily("Times"_s);
     description.setComputedSize(80);
     FontCascade font(WTFMove(description));
     font.update();
@@ -105,7 +105,7 @@ TEST_F(ComplexTextControllerTest, InitialAdvanceInRTL)
     FloatSize initialAdvance = FloatSize(-15.15625, 18.046875);
 
     UChar characters[] = { 0x644, 0x637, 0x641, 0x627, 0x64b };
-    size_t charactersLength = WTF_ARRAY_LENGTH(characters);
+    size_t charactersLength = std::size(characters);
     TextRun textRun(StringView(characters, charactersLength));
     auto run = ComplexTextController::ComplexTextRun::create(advances, origins, { 193, 377, 447, 431, 458 }, { 4, 3, 2, 1, 0 }, initialAdvance, font.primaryFont(), characters, 0, charactersLength, 0, 5, false);
     Vector<Ref<ComplexTextController::ComplexTextRun>> runs;
@@ -124,21 +124,21 @@ TEST_F(ComplexTextControllerTest, InitialAdvanceInRTL)
     EXPECT_NEAR(controller.runWidthSoFar(), advances[4].width(), 0.0001);
     controller.advance(5, &glyphBuffer);
     EXPECT_NEAR(controller.runWidthSoFar(), totalWidth, 0.0001);
-    EXPECT_NEAR(glyphBuffer.initialAdvance().width(), initialAdvance.width(), 0.0001);
-    EXPECT_NEAR(glyphBuffer.initialAdvance().height(), initialAdvance.height(), 0.0001);
+    EXPECT_NEAR(width(glyphBuffer.initialAdvance()), initialAdvance.width(), 0.0001);
+    EXPECT_NEAR(height(glyphBuffer.initialAdvance()), initialAdvance.height(), 0.0001);
     EXPECT_EQ(glyphBuffer.size(), 5U);
-    EXPECT_NEAR(glyphBuffer.advanceAt(0).width(), advances[4].width(), 0.0001);
-    EXPECT_NEAR(glyphBuffer.advanceAt(1).width(), advances[3].width(), 0.0001);
-    EXPECT_NEAR(glyphBuffer.advanceAt(2).width(), advances[2].width(), 0.0001);
-    EXPECT_NEAR(glyphBuffer.advanceAt(3).width(), advances[1].width(), 0.0001);
-    EXPECT_NEAR(glyphBuffer.advanceAt(4).width(), -initialAdvance.width(), 0.0001);
-    EXPECT_NEAR(glyphBuffer.advanceAt(4).height(), initialAdvance.height(), 0.0001);
+    EXPECT_NEAR(width(glyphBuffer.advanceAt(0)), advances[4].width(), 0.0001);
+    EXPECT_NEAR(width(glyphBuffer.advanceAt(1)), advances[3].width(), 0.0001);
+    EXPECT_NEAR(width(glyphBuffer.advanceAt(2)), advances[2].width(), 0.0001);
+    EXPECT_NEAR(width(glyphBuffer.advanceAt(3)), advances[1].width(), 0.0001);
+    EXPECT_NEAR(width(glyphBuffer.advanceAt(4)), -initialAdvance.width(), 0.0001);
+    EXPECT_NEAR(height(glyphBuffer.advanceAt(4)), initialAdvance.height(), 0.0001);
 }
 
 TEST_F(ComplexTextControllerTest, InitialAdvanceWithLeftRunInLTR)
 {
     FontCascadeDescription description;
-    description.setOneFamily("LucidaGrande");
+    description.setOneFamily("LucidaGrande"_s);
     description.setComputedSize(80);
     FontCascade font(WTFMove(description));
     font.update();
@@ -150,7 +150,7 @@ TEST_F(ComplexTextControllerTest, InitialAdvanceWithLeftRunInLTR)
     FloatSize initialAdvance = FloatSize(28.144531, 0);
 
     UChar characters[] = { 0x20, 0x61, 0x20e3 };
-    size_t charactersLength = WTF_ARRAY_LENGTH(characters);
+    size_t charactersLength = std::size(characters);
     TextRun textRun(StringView(characters, charactersLength));
     auto run1 = ComplexTextController::ComplexTextRun::create({ FloatSize(spaceWidth, 0) }, { FloatPoint() }, { 5 }, { 0 }, FloatSize(), font.primaryFont(), characters, 0, charactersLength, 0, 1, true);
     auto run2 = ComplexTextController::ComplexTextRun::create(advances, origins, { 68, 1471 }, { 1, 2 }, initialAdvance, font.primaryFont(), characters, 0, charactersLength, 1, 3, true);
@@ -170,18 +170,18 @@ TEST_F(ComplexTextControllerTest, InitialAdvanceWithLeftRunInLTR)
     EXPECT_NEAR(controller.runWidthSoFar(), spaceWidth + advances[0].width() + initialAdvance.width(), 0.0001);
     controller.advance(3, &glyphBuffer);
     EXPECT_NEAR(controller.runWidthSoFar(), spaceWidth + 76.347656 + initialAdvance.width(), 0.0001);
-    EXPECT_NEAR(glyphBuffer.initialAdvance().width(), 0, 0.0001);
-    EXPECT_NEAR(glyphBuffer.initialAdvance().height(), 0, 0.0001);
+    EXPECT_NEAR(width(glyphBuffer.initialAdvance()), 0, 0.0001);
+    EXPECT_NEAR(height(glyphBuffer.initialAdvance()), 0, 0.0001);
     EXPECT_EQ(glyphBuffer.size(), 3U);
-    EXPECT_NEAR(glyphBuffer.advanceAt(0).width(), spaceWidth + initialAdvance.width(), 0.0001);
-    EXPECT_NEAR(glyphBuffer.advanceAt(1).width(), 53.066406, 0.0001);
-    EXPECT_NEAR(glyphBuffer.advanceAt(2).width(), 23.281250, 0.0001);
+    EXPECT_NEAR(width(glyphBuffer.advanceAt(0)), spaceWidth + initialAdvance.width(), 0.0001);
+    EXPECT_NEAR(width(glyphBuffer.advanceAt(1)), 53.066406, 0.0001);
+    EXPECT_NEAR(width(glyphBuffer.advanceAt(2)), 23.281250, 0.0001);
 }
 
 TEST_F(ComplexTextControllerTest, InitialAdvanceInLTR)
 {
     FontCascadeDescription description;
-    description.setOneFamily("LucidaGrande");
+    description.setOneFamily("LucidaGrande"_s);
     description.setComputedSize(80);
     FontCascade font(WTFMove(description));
     font.update();
@@ -192,7 +192,7 @@ TEST_F(ComplexTextControllerTest, InitialAdvanceInLTR)
     FloatSize initialAdvance = FloatSize(28.144531, 0);
 
     UChar characters[] = { 0x61, 0x20e3 };
-    size_t charactersLength = WTF_ARRAY_LENGTH(characters);
+    size_t charactersLength = std::size(characters);
     TextRun textRun(StringView(characters, charactersLength));
     auto run = ComplexTextController::ComplexTextRun::create(advances, origins, { 68, 1471 }, { 0, 1 }, initialAdvance, font.primaryFont(), characters, 0, charactersLength, 0, 2, true);
     Vector<Ref<ComplexTextController::ComplexTextRun>> runs;
@@ -208,17 +208,17 @@ TEST_F(ComplexTextControllerTest, InitialAdvanceInLTR)
     EXPECT_NEAR(controller.runWidthSoFar(), advances[0].width() + initialAdvance.width(), 0.0001);
     controller.advance(2, &glyphBuffer);
     EXPECT_NEAR(controller.runWidthSoFar(), 76.347656 + initialAdvance.width(), 0.0001);
-    EXPECT_NEAR(glyphBuffer.initialAdvance().width(), initialAdvance.width(), 0.0001);
-    EXPECT_NEAR(glyphBuffer.initialAdvance().height(), initialAdvance.height(), 0.0001);
+    EXPECT_NEAR(width(glyphBuffer.initialAdvance()), initialAdvance.width(), 0.0001);
+    EXPECT_NEAR(height(glyphBuffer.initialAdvance()), initialAdvance.height(), 0.0001);
     EXPECT_EQ(glyphBuffer.size(), 2U);
-    EXPECT_NEAR(glyphBuffer.advanceAt(0).width(), 53.066406, 0.0001);
-    EXPECT_NEAR(glyphBuffer.advanceAt(1).width(), 23.281250, 0.0001);
+    EXPECT_NEAR(width(glyphBuffer.advanceAt(0)), 53.066406, 0.0001);
+    EXPECT_NEAR(width(glyphBuffer.advanceAt(1)), 23.281250, 0.0001);
 }
 
 TEST_F(ComplexTextControllerTest, InitialAdvanceInRTLNoOrigins)
 {
     FontCascadeDescription description;
-    description.setOneFamily("Times");
+    description.setOneFamily("Times"_s);
     description.setComputedSize(48);
     FontCascade font(WTFMove(description));
     font.update();
@@ -226,7 +226,7 @@ TEST_F(ComplexTextControllerTest, InitialAdvanceInRTLNoOrigins)
     FloatSize initialAdvance = FloatSize(4.33996383363472, 12.368896925859);
 
     UChar characters[] = { 0x633, 0x20, 0x627, 0x650 };
-    size_t charactersLength = WTF_ARRAY_LENGTH(characters);
+    size_t charactersLength = std::size(characters);
     TextRun textRun(StringView(characters, charactersLength));
     auto run1 = ComplexTextController::ComplexTextRun::create({ FloatSize(-4.33996383363472, -12.368896925859), FloatSize(14.0397830018083, 0) }, { }, { 884, 240 }, { 3, 2 }, initialAdvance, font.primaryFont(), characters, 0, charactersLength, 2, 4, false);
     auto run2 = ComplexTextController::ComplexTextRun::create({ FloatSize(12.0, 0) }, { }, { 3 }, { 1 }, FloatSize(), font.primaryFont(), characters, 0, charactersLength, 1, 2, false);
@@ -251,27 +251,27 @@ TEST_F(ComplexTextControllerTest, InitialAdvanceInRTLNoOrigins)
     EXPECT_NEAR(controller.runWidthSoFar(), totalWidth, 0.0001);
     controller.advance(4, &glyphBuffer);
     EXPECT_NEAR(controller.runWidthSoFar(), totalWidth, 0.0001);
-    EXPECT_NEAR(glyphBuffer.initialAdvance().width(), initialAdvance.width(), 0.0001);
-    EXPECT_NEAR(glyphBuffer.initialAdvance().height(), initialAdvance.height(), 0.0001);
+    EXPECT_NEAR(width(glyphBuffer.initialAdvance()), initialAdvance.width(), 0.0001);
+    EXPECT_NEAR(height(glyphBuffer.initialAdvance()), initialAdvance.height(), 0.0001);
     EXPECT_EQ(glyphBuffer.size(), 4U);
-    EXPECT_NEAR(glyphBuffer.advanceAt(0).width(), 43.8119349005425, 0.0001);
-    EXPECT_NEAR(glyphBuffer.advanceAt(1).width(), 12.0, 0.0001);
-    EXPECT_NEAR(glyphBuffer.advanceAt(2).width(), 14.0397830018083, 0.0001);
-    EXPECT_NEAR(glyphBuffer.advanceAt(3).width(), -4.33996383363472, 0.0001);
-    EXPECT_NEAR(glyphBuffer.advanceAt(3).height(), 12.368896925859, 0.0001);
+    EXPECT_NEAR(width(glyphBuffer.advanceAt(0)), 43.8119349005425, 0.0001);
+    EXPECT_NEAR(width(glyphBuffer.advanceAt(1)), 12.0, 0.0001);
+    EXPECT_NEAR(width(glyphBuffer.advanceAt(2)), 14.0397830018083, 0.0001);
+    EXPECT_NEAR(width(glyphBuffer.advanceAt(3)), -4.33996383363472, 0.0001);
+    EXPECT_NEAR(height(glyphBuffer.advanceAt(3)), 12.368896925859, 0.0001);
 }
 
 TEST_F(ComplexTextControllerTest, LeftExpansion)
 {
     FontCascadeDescription description;
-    description.setOneFamily("Times");
+    description.setOneFamily("Times"_s);
     description.setComputedSize(48);
     FontCascade font(WTFMove(description));
     font.update();
 
     UChar characters[] = { 'a' };
-    size_t charactersLength = WTF_ARRAY_LENGTH(characters);
-    TextRun textRun(StringView(characters, charactersLength), 0, 100, ForceLeftExpansion);
+    size_t charactersLength = std::size(characters);
+    TextRun textRun(StringView(characters, charactersLength), 0, 100, ExpansionBehavior::forceLeftOnly());
     auto run = ComplexTextController::ComplexTextRun::create({ FloatSize(24, 0) }, { }, { 16 }, { 0 }, FloatSize(), font.primaryFont(), characters, 0, charactersLength, 0, 1, true);
     Vector<Ref<ComplexTextController::ComplexTextRun>> runs;
     runs.append(WTFMove(run));
@@ -285,22 +285,22 @@ TEST_F(ComplexTextControllerTest, LeftExpansion)
     EXPECT_NEAR(controller.runWidthSoFar(), 0, 0.0001);
     controller.advance(1, &glyphBuffer);
     EXPECT_NEAR(controller.runWidthSoFar(), totalWidth, 0.0001);
-    EXPECT_NEAR(glyphBuffer.initialAdvance().width(), 100, 0.0001);
-    EXPECT_NEAR(glyphBuffer.initialAdvance().height(), 0, 0.0001);
+    EXPECT_NEAR(width(glyphBuffer.initialAdvance()), 100, 0.0001);
+    EXPECT_NEAR(height(glyphBuffer.initialAdvance()), 0, 0.0001);
     EXPECT_EQ(glyphBuffer.size(), 1U);
-    EXPECT_NEAR(glyphBuffer.advanceAt(0).width(), 24, 0.0001);
+    EXPECT_NEAR(width(glyphBuffer.advanceAt(0)), 24, 0.0001);
 }
 
 TEST_F(ComplexTextControllerTest, VerticalAdvances)
 {
     FontCascadeDescription description;
-    description.setOneFamily("Times");
+    description.setOneFamily("Times"_s);
     description.setComputedSize(48);
     FontCascade font(WTFMove(description));
     font.update();
 
     UChar characters[] = { 'a', 'b', 'c', 'd' };
-    size_t charactersLength = WTF_ARRAY_LENGTH(characters);
+    size_t charactersLength = std::size(characters);
     TextRun textRun(StringView(characters, charactersLength));
     auto run1 = ComplexTextController::ComplexTextRun::create({ FloatSize(0, 1), FloatSize(0, 2) }, { FloatPoint(0, 4), FloatPoint(0, 8) }, { 16, 17 }, { 0, 1 }, FloatSize(0, 16), font.primaryFont(), characters, 0, charactersLength, 0, 2, true);
     auto run2 = ComplexTextController::ComplexTextRun::create({ FloatSize(0, 32), FloatSize(0, 64) }, { FloatPoint(0, 128), FloatPoint(0, 256) }, { 18, 19 }, { 2, 3 }, FloatSize(0, 512), font.primaryFont(), characters, 0, charactersLength, 2, 4, true);
@@ -322,23 +322,23 @@ TEST_F(ComplexTextControllerTest, VerticalAdvances)
     EXPECT_NEAR(controller.runWidthSoFar(), 0, 0.0001);
     controller.advance(4, &glyphBuffer);
     EXPECT_NEAR(controller.runWidthSoFar(), 0, 0.0001);
-    EXPECT_NEAR(glyphBuffer.initialAdvance().width(), 0, 0.0001);
-    EXPECT_NEAR(glyphBuffer.initialAdvance().height(), 16, 0.0001);
+    EXPECT_NEAR(width(glyphBuffer.initialAdvance()), 0, 0.0001);
+    EXPECT_NEAR(height(glyphBuffer.initialAdvance()), 16, 0.0001);
     EXPECT_EQ(glyphBuffer.size(), 4U);
-    EXPECT_NEAR(glyphBuffer.advanceAt(0).width(), 0, 0.0001);
-    EXPECT_NEAR(glyphBuffer.advanceAt(0).height(), 4 - 1 -8, 0.0001);
-    EXPECT_NEAR(glyphBuffer.advanceAt(1).width(), 0, 0.0001);
-    EXPECT_NEAR(glyphBuffer.advanceAt(1).height(), 8 - 2 - 512, 0.0001);
-    EXPECT_NEAR(glyphBuffer.advanceAt(2).width(), 0, 0.0001);
-    EXPECT_NEAR(glyphBuffer.advanceAt(2).height(), 128 - 32 - 256, 0.0001);
-    EXPECT_NEAR(glyphBuffer.advanceAt(3).width(), 0, 0.0001);
-    EXPECT_NEAR(glyphBuffer.advanceAt(3).height(), 256 - 64, 0.0001);
+    EXPECT_NEAR(width(glyphBuffer.advanceAt(0)), 0, 0.0001);
+    EXPECT_NEAR(height(glyphBuffer.advanceAt(0)), 4 - 1 -8, 0.0001);
+    EXPECT_NEAR(width(glyphBuffer.advanceAt(1)), 0, 0.0001);
+    EXPECT_NEAR(height(glyphBuffer.advanceAt(1)), 8 - 2 - 512, 0.0001);
+    EXPECT_NEAR(width(glyphBuffer.advanceAt(2)), 0, 0.0001);
+    EXPECT_NEAR(height(glyphBuffer.advanceAt(2)), 128 - 32 - 256, 0.0001);
+    EXPECT_NEAR(width(glyphBuffer.advanceAt(3)), 0, 0.0001);
+    EXPECT_NEAR(height(glyphBuffer.advanceAt(3)), 256 - 64, 0.0001);
 }
 
 TEST_F(ComplexTextControllerTest, TotalWidthWithJustification)
 {
     FontCascadeDescription description;
-    description.setOneFamily("Times");
+    description.setOneFamily("Times"_s);
     description.setComputedSize(80);
     FontCascade font(WTFMove(description));
     font.update();
@@ -349,8 +349,8 @@ TEST_F(ComplexTextControllerTest, TotalWidthWithJustification)
     FloatSize initialAdvance = FloatSize();
 
     UChar characters[] = { 0x644, ' ', 0x644, ' ', 0x644 };
-    size_t charactersLength = WTF_ARRAY_LENGTH(characters);
-    TextRun textRun(StringView(characters, charactersLength), 0, 14, DefaultExpansion, TextDirection::RTL);
+    size_t charactersLength = std::size(characters);
+    TextRun textRun(StringView(characters, charactersLength), 0, 14, ExpansionBehavior::defaultBehavior(), TextDirection::RTL);
     auto run = ComplexTextController::ComplexTextRun::create(advances, origins, { 5, 6, 7, 8, 9 }, { 4, 3, 2, 1, 0 }, initialAdvance, font.primaryFont(), characters, 0, charactersLength, 0, 5, false);
     Vector<Ref<ComplexTextController::ComplexTextRun>> runs;
     runs.append(WTFMove(run));
@@ -361,7 +361,12 @@ TEST_F(ComplexTextControllerTest, TotalWidthWithJustification)
     EXPECT_NEAR(controller.runWidthSoFar(), 0, 0.0001);
     controller.advance(5, &glyphBuffer);
     EXPECT_EQ(glyphBuffer.size(), 5U);
-    EXPECT_NEAR(glyphBuffer.advanceAt(0).width() + glyphBuffer.advanceAt(1).width() + glyphBuffer.advanceAt(2).width() + glyphBuffer.advanceAt(3).width() + glyphBuffer.advanceAt(4).width(), controller.totalAdvance().width(), 0.0001);
+    EXPECT_NEAR(width(glyphBuffer.advanceAt(0))
+        + width(glyphBuffer.advanceAt(1))
+        + width(glyphBuffer.advanceAt(2))
+        + width(glyphBuffer.advanceAt(3))
+        + width(glyphBuffer.advanceAt(4))
+        , controller.totalAdvance().width(), 0.0001);
 }
 
 }

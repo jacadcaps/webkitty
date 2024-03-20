@@ -36,24 +36,27 @@ class AccessibilityListBox final : public AccessibilityRenderObject {
 public:
     static Ref<AccessibilityListBox> create(RenderObject*);
     virtual ~AccessibilityListBox();
-    
-    bool canSetSelectedChildrenAttribute() const override;
-    void setSelectedChildren(const AccessibilityChildrenVector&);
-    AccessibilityRole roleValue() const override { return AccessibilityRole::ListBox; }
-        
-    void selectedChildren(AccessibilityChildrenVector&) override;
-    void visibleChildren(AccessibilityChildrenVector&) override;
+
+    bool canSetSelectedChildren() const override;
+    WEBCORE_EXPORT void setSelectedChildren(const AccessibilityChildrenVector&) override;
+
+    AccessibilityRole determineAccessibilityRole() final { return AccessibilityRole::ListBox; }
+
+    AccessibilityChildrenVector selectedChildren() final;
+    AccessibilityChildrenVector visibleChildren() final;
     
     void addChildren() override;
 
 private:
     explicit AccessibilityListBox(RenderObject*);
 
-    bool isNativeListBox() const override { return true; }
+    bool isAccessibilityListBoxInstance() const override { return true; }
     AccessibilityObject* listBoxOptionAccessibilityObject(HTMLElement*) const;
-    AXCoreObject* elementAccessibilityHitTest(const IntPoint&) const override;
+    AccessibilityObject* elementAccessibilityHitTest(const IntPoint&) const final;
 };
     
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_ACCESSIBILITY(AccessibilityListBox, isNativeListBox())
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::AccessibilityListBox) \
+    static bool isType(const WebCore::AccessibilityObject& object) { return object.isAccessibilityListBoxInstance(); } \
+SPECIALIZE_TYPE_TRAITS_END()

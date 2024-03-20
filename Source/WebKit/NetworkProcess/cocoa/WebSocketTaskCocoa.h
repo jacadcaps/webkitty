@@ -25,27 +25,34 @@
 
 #pragma once
 
-#if HAVE(NSURLSESSION_WEBSOCKET)
-
+#include "DataReference.h"
+#include "NetworkTaskCocoa.h"
+#include "WebPageProxyIdentifier.h"
+#include <WebCore/FrameIdentifier.h>
+#include <WebCore/PageIdentifier.h>
+#include <WebCore/SecurityOriginData.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/WeakPtr.h>
 
 OBJC_CLASS NSURLSessionWebSocketTask;
 
-namespace IPC {
-class DataReference;
+namespace WebCore {
+class ResourceResponse;
+class ResourceRequest;
+struct ClientOrigin;
 }
 
 namespace WebKit {
 class NetworkSession;
 class NetworkSessionCocoa;
 class NetworkSocketChannel;
+struct SessionSet;
 
-class WebSocketTask : public CanMakeWeakPtr<WebSocketTask> {
+class WebSocketTask : public CanMakeWeakPtr<WebSocketTask>, public NetworkTaskCocoa {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    WebSocketTask(NetworkSocketChannel&, RetainPtr<NSURLSessionWebSocketTask>&&);
-    ~WebSocketTask();
+    WebSocketTask(NetworkSocketChannel&, WebPageProxyIdentifier, std::optional<WebCore::FrameIdentifier>, std::optional<WebCore::PageIdentifier>, WeakPtr<SessionSet>&&, const WebCore::ResourceRequest&, const WebCore::ClientOrigin&, RetainPtr<NSURLSessionWebSocketTask>&&, WebCore::ShouldRelaxThirdPartyCookieBlocking, WebCore::StoredCredentialsPolicy);
+    ~WebSocketTask() = default;
 
     void sendString(const IPC::DataReference&, CompletionHandler<void()>&&);
     void sendData(const IPC::DataReference&, CompletionHandler<void()>&&);
@@ -61,16 +68,31 @@ public:
     TaskIdentifier identifier() const;
 
     NetworkSessionCocoa* networkSession();
+    SessionSet* sessionSet() { return m_sessionSet.get(); }
+
+    WebPageProxyIdentifier webProxyPageID() const { return m_webProxyPageID; }
+    std::optional<WebCore::FrameIdentifier> frameID() const final { return m_frameID; }
+    std::optional<WebCore::PageIdentifier> pageID() const final { return m_pageID; }
+    String partition() const { return m_partition; }
+    const WebCore::SecurityOriginData& topOrigin() const { return m_topOrigin; }
 
 private:
     void readNextMessage();
+
+    NSURLSessionTask* task() const final;
+    WebCore::StoredCredentialsPolicy storedCredentialsPolicy() const final { return m_storedCredentialsPolicy; }
 
     NetworkSocketChannel& m_channel;
     RetainPtr<NSURLSessionWebSocketTask> m_task;
     bool m_receivedDidClose { false };
     bool m_receivedDidConnect { false };
+    WebPageProxyIdentifier m_webProxyPageID;
+    std::optional<WebCore::FrameIdentifier> m_frameID;
+    std::optional<WebCore::PageIdentifier> m_pageID;
+    WeakPtr<SessionSet> m_sessionSet;
+    String m_partition;
+    WebCore::StoredCredentialsPolicy m_storedCredentialsPolicy { WebCore::StoredCredentialsPolicy::DoNotUse };
+    WebCore::SecurityOriginData m_topOrigin;
 };
 
 } // namespace WebKit
-
-#endif

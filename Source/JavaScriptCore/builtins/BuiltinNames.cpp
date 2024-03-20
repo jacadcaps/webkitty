@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2017 Yusuke Suzuki <utatane.tea@gmail.com>.
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,6 +28,7 @@
 #include "BuiltinNames.h"
 
 #include "IdentifierInlines.h"
+#include <wtf/TZoneMallocInlines.h>
 
 #if COMPILER(MSVC)
 #pragma warning(push)
@@ -41,6 +42,8 @@ namespace Symbols {
 JSC_COMMON_PRIVATE_IDENTIFIERS_EACH_WELL_KNOWN_SYMBOL(INITIALIZE_BUILTIN_STATIC_SYMBOLS)
 #undef INITIALIZE_BUILTIN_STATIC_SYMBOLS
 
+SymbolImpl::StaticSymbolImpl intlLegacyConstructedSymbol { "IntlLegacyConstructedSymbol" };
+
 #define INITIALIZE_BUILTIN_PRIVATE_NAMES(name) SymbolImpl::StaticSymbolImpl name##PrivateName { #name, SymbolImpl::s_flagIsPrivate };
 JSC_FOREACH_BUILTIN_FUNCTION_NAME(INITIALIZE_BUILTIN_PRIVATE_NAMES)
 JSC_COMMON_PRIVATE_IDENTIFIERS_EACH_PROPERTY_NAME(INITIALIZE_BUILTIN_PRIVATE_NAMES)
@@ -51,10 +54,10 @@ SymbolImpl::StaticSymbolImpl polyProtoPrivateName { "PolyProto", SymbolImpl::s_f
 
 } // namespace Symbols
 
-#define INITIALIZE_BUILTIN_NAMES_IN_JSC(name) , m_##name(JSC::Identifier::fromString(vm, #name))
+#define INITIALIZE_BUILTIN_NAMES_IN_JSC(name) , m_##name(JSC::Identifier::fromString(vm, #name ""_s))
 #define INITIALIZE_BUILTIN_SYMBOLS_IN_JSC(name) \
     , m_##name##Symbol(JSC::Identifier::fromUid(vm, &static_cast<SymbolImpl&>(JSC::Symbols::name##Symbol))) \
-    , m_##name##SymbolPrivateIdentifier(JSC::Identifier::fromString(vm, #name))
+    , m_##name##SymbolPrivateIdentifier(JSC::Identifier::fromString(vm, #name ""_s))
 
 #define INITIALIZE_PUBLIC_TO_PRIVATE_ENTRY(name) \
     do { \
@@ -69,6 +72,8 @@ SymbolImpl::StaticSymbolImpl polyProtoPrivateName { "PolyProto", SymbolImpl::s_f
         m_wellKnownSymbolsMap.add(m_##name##SymbolPrivateIdentifier.impl(), symbol); \
     } while (0);
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(BuiltinNames);
+
 // We treat the dollarVM name as a special case below for $vm (because CommonIdentifiers does not
 // yet support the $ character).
 BuiltinNames::BuiltinNames(VM& vm, CommonIdentifiers* commonIdentifiers)
@@ -76,7 +81,8 @@ BuiltinNames::BuiltinNames(VM& vm, CommonIdentifiers* commonIdentifiers)
     JSC_FOREACH_BUILTIN_FUNCTION_NAME(INITIALIZE_BUILTIN_NAMES_IN_JSC)
     JSC_COMMON_PRIVATE_IDENTIFIERS_EACH_PROPERTY_NAME(INITIALIZE_BUILTIN_NAMES_IN_JSC)
     JSC_COMMON_PRIVATE_IDENTIFIERS_EACH_WELL_KNOWN_SYMBOL(INITIALIZE_BUILTIN_SYMBOLS_IN_JSC)
-    , m_dollarVMName(Identifier::fromString(vm, "$vm"))
+    , m_intlLegacyConstructedSymbol(JSC::Identifier::fromUid(vm, &static_cast<SymbolImpl&>(Symbols::intlLegacyConstructedSymbol)))
+    , m_dollarVMName(Identifier::fromString(vm, "$vm"_s))
     , m_dollarVMPrivateName(Identifier::fromUid(vm, &static_cast<SymbolImpl&>(Symbols::dollarVMPrivateName)))
     , m_polyProtoPrivateName(Identifier::fromUid(vm, &static_cast<SymbolImpl&>(Symbols::polyProtoPrivateName)))
 {
@@ -110,7 +116,7 @@ struct CharBufferSeacher {
 };
 
 template<typename CharacterType>
-static PrivateSymbolImpl* lookUpPrivateNameImpl(const HashSet<String>& set, const WTF::HashTranslatorCharBuffer<CharacterType>& buffer)
+static PrivateSymbolImpl* lookUpPrivateNameImpl(const BuiltinNames::PrivateNameSet& set, const WTF::HashTranslatorCharBuffer<CharacterType>& buffer)
 {
     auto iterator = set.find<CharBufferSeacher<CharacterType>>(buffer);
     if (iterator == set.end())
@@ -123,7 +129,7 @@ static PrivateSymbolImpl* lookUpPrivateNameImpl(const HashSet<String>& set, cons
 }
 
 template<typename CharacterType>
-static SymbolImpl* lookUpWellKnownSymbolImpl(const HashMap<String, SymbolImpl*>& map, const WTF::HashTranslatorCharBuffer<CharacterType>& buffer)
+static SymbolImpl* lookUpWellKnownSymbolImpl(const BuiltinNames::WellKnownSymbolMap& map, const WTF::HashTranslatorCharBuffer<CharacterType>& buffer)
 {
     auto iterator = map.find<CharBufferSeacher<CharacterType>>(buffer);
     if (iterator == map.end())

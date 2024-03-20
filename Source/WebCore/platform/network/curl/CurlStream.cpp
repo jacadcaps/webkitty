@@ -9,7 +9,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRIBUTORS ``AS IS''
  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
  * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
@@ -27,26 +27,26 @@
 #include "CurlStream.h"
 
 #include "CurlStreamScheduler.h"
+#include "SharedBuffer.h"
 #include "SocketStreamError.h"
 
 #if USE(CURL)
 
 namespace WebCore {
 
-CurlStream::CurlStream(CurlStreamScheduler& scheduler, CurlStreamID streamID, URL&& url)
+CurlStream::CurlStream(CurlStreamScheduler& scheduler, CurlStreamID streamID, URL&& url, ServerTrustEvaluation serverTrustEvaluation)
     : m_scheduler(scheduler)
     , m_streamID(streamID)
 {
     ASSERT(!isMainThread());
 
-    m_curlHandle = WTF::makeUnique<CurlHandle>();
+    m_curlHandle = makeUnique<CurlHandle>();
 
-    // Libcurl is not responsible for the protocol handling. It just handles connection.
-    // Only scheme, host and port is required.
-    URL urlForConnection;
-    urlForConnection.setProtocol(url.protocolIs("wss") ? "https" : "http");
-    urlForConnection.setHostAndPort(url.hostAndPort());
-    m_curlHandle->setUrl(urlForConnection);
+    url.setProtocol(url.protocolIs("wss"_s) ? "https"_s : "http"_s);
+    m_curlHandle->setUrl(WTFMove(url));
+
+    if (serverTrustEvaluation == ServerTrustEvaluation::Disable)
+        m_curlHandle->disableServerTrustEvaluation();
 
     m_curlHandle->enableConnectionOnly();
 
@@ -104,7 +104,7 @@ void CurlStream::appendMonitoringFd(fd_set& readfds, fd_set& writefds, fd_set& e
     if (m_sendBuffers.size())
         FD_SET(*socket, &writefds);
 
-    if (maxfd < *socket)
+    if (maxfd < static_cast<int>(*socket))
         maxfd = *socket;
 }
 
@@ -133,10 +133,10 @@ void CurlStream::tryToReceive()
     if (!m_curlHandle)
         return;
 
-    auto receiveBuffer = makeUniqueArray<uint8_t>(kReceiveBufferSize);
+    Vector<uint8_t> receiveBuffer(kReceiveBufferSize);
     size_t bytesReceived = 0;
 
-    auto errorCode = m_curlHandle->receive(receiveBuffer.get(), kReceiveBufferSize, bytesReceived);
+    auto errorCode = m_curlHandle->receive(receiveBuffer.data(), kReceiveBufferSize, bytesReceived);
     if (errorCode != CURLE_OK) {
         if (errorCode != CURLE_AGAIN)
             notifyFailure(errorCode);
@@ -147,8 +147,9 @@ void CurlStream::tryToReceive()
     if (!bytesReceived)
         destroyHandle();
 
-    m_scheduler.callClientOnMainThread(m_streamID, [streamID = m_streamID, buffer = WTFMove(receiveBuffer), length = bytesReceived](Client& client) mutable {
-        client.didReceiveData(streamID, reinterpret_cast<const char*>(buffer.get()), length);
+    receiveBuffer.resize(bytesReceived);
+    m_scheduler.callClientOnMainThread(m_streamID, [streamID = m_streamID, buffer = SharedBuffer::create(WTFMove(receiveBuffer))](Client& client) {
+        client.didReceiveData(streamID, buffer);
     });
 }
 
@@ -181,10 +182,14 @@ void CurlStream::tryToSend()
 
 void CurlStream::notifyFailure(CURLcode errorCode)
 {
+    CertificateInfo certificateInfo;
+    if (auto info = m_curlHandle->certificateInfo())
+        certificateInfo = WTFMove(*info);
+
     destroyHandle();
 
-    m_scheduler.callClientOnMainThread(m_streamID, [streamID = m_streamID, errorCode](Client& client) mutable {
-        client.didFail(streamID, errorCode);
+    m_scheduler.callClientOnMainThread(m_streamID, [streamID = m_streamID, errorCode, certificateInfo = WTFMove(certificateInfo)](Client& client) mutable {
+        client.didFail(streamID, errorCode, WTFMove(certificateInfo));
     });
 }
 

@@ -1,12 +1,23 @@
-#!/usr/bin/env python
-
-import imp
 import inspect
 import logging
 import os
 import shutil
 
 from webkitpy.common.memoized import memoized
+
+
+try:
+    import importlib.util
+    import importlib.machinery
+
+    def load_source(modname, filename):
+        loader = importlib.machinery.SourceFileLoader(modname, filename)
+        spec = importlib.util.spec_from_file_location(modname, filename, loader=loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        return module
+except ImportError:
+    from imp import load_source
 
 
 _log = logging.getLogger(__name__)
@@ -23,7 +34,7 @@ def load_subclasses(dirname, base_class_name, base_class_file, loader):
     filelist += [f for f in os.listdir(dirname) if f.endswith('.py') and f not in ['__init__.py'] + filelist]
     for filename in filelist:
         module_name = os.path.splitext(filename)[0]
-        module = imp.load_source(module_name, os.path.join(dirname, filename))
+        module = load_source(module_name, os.path.join(dirname, filename))
         for item_name in dir(module):
             item = getattr(module, item_name)
             if is_subclass(item, base_class_name):
@@ -52,15 +63,11 @@ def force_remove(path):
 @memoized
 def get_driver_binary_path(browser_name):
     if browser_name.startswith('chrome'):
-        import webkitpy.thirdparty.autoinstalled.chromedriver
-        driver_init_file = webkitpy.thirdparty.autoinstalled.chromedriver.__file__
-        driver_executable = os.path.join(os.path.dirname(os.path.realpath(driver_init_file)), 'chromedriver')
-        return driver_executable
+        from webkitpy.autoinstalled import chromedriver
+        return chromedriver.executable
     elif browser_name.startswith('firefox'):
-        import webkitpy.thirdparty.autoinstalled.geckodriver
-        driver_init_file = webkitpy.thirdparty.autoinstalled.geckodriver.__file__
-        driver_executable = os.path.join(os.path.dirname(os.path.realpath(driver_init_file)), 'geckodriver')
-        return driver_executable
+        from webkitpy.autoinstalled import geckodriver
+        return geckodriver.executable
 
 
 def write_defaults(domain, key, value):

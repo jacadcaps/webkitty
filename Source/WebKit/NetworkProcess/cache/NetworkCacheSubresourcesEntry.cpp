@@ -31,84 +31,10 @@
 #include "Logging.h"
 #include "NetworkCacheCoders.h"
 #include <WebCore/RegistrableDomain.h>
+#include <wtf/persistence/PersistentEncoder.h>
 
 namespace WebKit {
 namespace NetworkCache {
-
-void SubresourceInfo::encode(WTF::Persistence::Encoder& encoder) const
-{
-    encoder << m_key;
-    encoder << m_lastSeen;
-    encoder << m_firstSeen;
-    encoder << m_isTransient;
-
-    // Do not bother serializing other data members of transient resources as they are empty.
-    if (m_isTransient)
-        return;
-
-    encoder << m_isSameSite;
-    encoder << m_firstPartyForCookies;
-    encoder << m_requestHeaders;
-    encoder << m_priority;
-}
-
-Optional<SubresourceInfo> SubresourceInfo::decode(WTF::Persistence::Decoder& decoder)
-{
-    SubresourceInfo info;
-
-    Optional<Key> key;
-    decoder >> key;
-    if (!key)
-        return WTF::nullopt;
-    info.m_key = WTFMove(*key);
-
-    Optional<WallTime> lastSeen;
-    decoder >> lastSeen;
-    if (!lastSeen)
-        return WTF::nullopt;
-    info.m_lastSeen = WTFMove(*lastSeen);
-
-    Optional<WallTime> firstSeen;
-    decoder >> firstSeen;
-    if (!firstSeen)
-        return WTF::nullopt;
-    info.m_firstSeen = WTFMove(*firstSeen);
-
-    Optional<bool> isTransient;
-    decoder >> isTransient;
-    if (!isTransient)
-        return WTF::nullopt;
-    info.m_isTransient = WTFMove(*isTransient);
-
-    if (info.m_isTransient)
-        return { WTFMove(info) };
-
-    Optional<bool> isSameSite;
-    decoder >> isSameSite;
-    if (!isSameSite)
-        return WTF::nullopt;
-    info.m_isSameSite = WTFMove(*isSameSite);
-
-    Optional<URL> firstPartyForCookies;
-    decoder >> firstPartyForCookies;
-    if (!firstPartyForCookies)
-        return WTF::nullopt;
-    info.m_firstPartyForCookies = WTFMove(*firstPartyForCookies);
-
-    Optional<WebCore::HTTPHeaderMap> requestHeaders;
-    decoder >> requestHeaders;
-    if (!requestHeaders)
-        return WTF::nullopt;
-    info.m_requestHeaders = WTFMove(*requestHeaders);
-
-    Optional<WebCore::ResourceLoadPriority> priority;
-    decoder >> priority;
-    if (!priority)
-        return WTF::nullopt;
-    info.m_priority = WTFMove(*priority);
-    
-    return { WTFMove(info) };
-}
 
 bool SubresourceInfo::isFirstParty() const
 {
@@ -130,8 +56,8 @@ std::unique_ptr<SubresourcesEntry> SubresourcesEntry::decodeStorageRecord(const 
 {
     auto entry = makeUnique<SubresourcesEntry>(storageEntry);
 
-    WTF::Persistence::Decoder decoder(storageEntry.header.data(), storageEntry.header.size());
-    Optional<Vector<SubresourceInfo>> subresources;
+    WTF::Persistence::Decoder decoder(storageEntry.header.span());
+    std::optional<Vector<SubresourceInfo>> subresources;
     decoder >> subresources;
     if (!subresources)
         return nullptr;
@@ -149,7 +75,7 @@ SubresourcesEntry::SubresourcesEntry(const Storage::Record& storageEntry)
     : m_key(storageEntry.key)
     , m_timeStamp(storageEntry.timeStamp)
 {
-    ASSERT(m_key.type() == "SubResources");
+    ASSERT(m_key.type() == "SubResources"_s);
 }
 
 SubresourceInfo::SubresourceInfo(const Key& key, const WebCore::ResourceRequest& request, const SubresourceInfo* previousInfo)
@@ -158,6 +84,7 @@ SubresourceInfo::SubresourceInfo(const Key& key, const WebCore::ResourceRequest&
     , m_firstSeen(previousInfo ? previousInfo->firstSeen() : m_lastSeen)
     , m_isTransient(!previousInfo)
     , m_isSameSite(request.isSameSite())
+    , m_isAppInitiated(request.isAppInitiated())
     , m_firstPartyForCookies(request.firstPartyForCookies())
     , m_requestHeaders(request.httpHeaderFields())
     , m_priority(request.priority())
@@ -187,7 +114,7 @@ static Vector<SubresourceInfo> makeSubresourceInfoVector(const Vector<std::uniqu
                 previousInfo = &(*previousSubresources)[it->value];
         }
         
-        result.uncheckedAppend({ load->key, load->request, previousInfo });
+        result.append({ load->key, load->request, previousInfo });
         
         // FIXME: We should really consider all resources seen for the first time transient.
         if (!previousSubresources)
@@ -202,7 +129,7 @@ SubresourcesEntry::SubresourcesEntry(Key&& key, const Vector<std::unique_ptr<Sub
     , m_timeStamp(WallTime::now())
     , m_subresources(makeSubresourceInfoVector(subresourceLoads, nullptr))
 {
-    ASSERT(m_key.type() == "SubResources");
+    ASSERT(m_key.type() == "SubResources"_s);
 }
     
 void SubresourcesEntry::updateSubresourceLoads(const Vector<std::unique_ptr<SubresourceLoad>>& subresourceLoads)

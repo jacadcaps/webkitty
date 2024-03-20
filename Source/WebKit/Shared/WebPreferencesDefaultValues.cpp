@@ -27,41 +27,76 @@
 #include "WebPreferencesDefaultValues.h"
 
 #include <WebCore/RuntimeApplicationChecks.h>
+#include <wtf/text/WTFString.h>
 
 #if PLATFORM(COCOA)
-#include "VersionChecks.h"
-#include <pal/spi/cocoa/FeatureFlagsSPI.h>
+#include <wtf/NumberOfCores.h>
 #include <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
+#if PLATFORM(IOS_FAMILY)
+#import <pal/system/ios/UserInterfaceIdiom.h>
+#endif
+#endif
+
+#if ENABLE(MEDIA_SESSION_COORDINATOR)
+#import "WebProcess.h"
+#import <wtf/cocoa/Entitlements.h>
+#endif
+
+#if USE(LIBWEBRTC)
+#include <WebCore/LibWebRTCProvider.h>
 #endif
 
 namespace WebKit {
 
+#if PLATFORM(IOS_FAMILY)
+
 bool defaultPassiveTouchListenersAsDefaultOnDocument()
 {
-#if PLATFORM(IOS_FAMILY)
-    return linkedOnOrAfter(WebKit::SDKVersion::FirstThatDefaultsToPassiveTouchListenersOnDocument);
-#else
-    return true;
-#endif
+    static bool result = linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::DefaultsToPassiveTouchListenersOnDocument);
+    return result;
 }
 
 bool defaultCSSOMViewScrollingAPIEnabled()
 {
-#if PLATFORM(IOS_FAMILY)
-    if (WebCore::IOSApplication::isIMDb() && applicationSDKVersion() < DYLD_IOS_VERSION_13_0)
-        return false;
-#endif
-    return true;
+    static bool result = WebCore::IOSApplication::isIMDb() && !linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::NoIMDbCSSOMViewScrollingQuirk);
+    return !result;
 }
 
-#if ENABLE(TEXT_AUTOSIZING) && !PLATFORM(IOS_FAMILY)
-
-bool defaultTextAutosizingUsesIdempotentMode()
+bool defaultShouldPrintBackgrounds()
 {
-    return false;
+    static bool result = !linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::DefaultsToExcludingBackgroundsWhenPrinting);
+    return result;
 }
 
-#endif // ENABLE(TEXT_AUTOSIZING) && !PLATFORM(IOS_FAMILY)
+bool defaultAlternateFormControlDesignEnabled()
+{
+    return PAL::currentUserInterfaceIdiomIsVisionOrVisionLegacy();
+}
+
+bool defaultVideoFullscreenRequiresElementFullscreen()
+{
+    return PAL::currentUserInterfaceIdiomIsVisionOrVisionLegacy();
+}
+
+#endif
+
+#if PLATFORM(MAC)
+
+bool defaultPassiveWheelListenersAsDefaultOnDocument()
+{
+    static bool result = linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::DefaultsToPassiveWheelListenersOnDocument);
+    return result;
+}
+
+bool defaultWheelEventGesturesBecomeNonBlocking()
+{
+    static bool result = linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::AllowsWheelEventGesturesToBecomeNonBlocking);
+    return result;
+}
+
+#endif
+
+#if PLATFORM(MAC) || PLATFORM(IOS_FAMILY)
 
 bool defaultDisallowSyncXHRDuringPageDismissalEnabled()
 {
@@ -70,7 +105,7 @@ bool defaultDisallowSyncXHRDuringPageDismissalEnabled()
         WTFLogAlways("Allowing synchronous XHR during page unload due to managed preference");
         return false;
     }
-#elif PLATFORM(IOS_FAMILY) && !PLATFORM(MACCATALYST)
+#elif PLATFORM(IOS_FAMILY) && !PLATFORM(MACCATALYST) && !PLATFORM(WATCHOS)
     if (allowsDeprecatedSynchronousXMLHttpRequestDuringUnload()) {
         WTFLogAlways("Allowing synchronous XHR during page unload due to managed preference");
         return false;
@@ -79,80 +114,36 @@ bool defaultDisallowSyncXHRDuringPageDismissalEnabled()
     return true;
 }
 
-static bool defaultAsyncFrameAndOverflowScrollingEnabled()
-{
-#if PLATFORM(IOS_FAMILY)
-    return true;
-#endif
-
-#if HAVE(SYSTEM_FEATURE_FLAGS)
-    return isFeatureFlagEnabled("async_frame_and_overflow_scrolling");
 #endif
 
 #if PLATFORM(MAC)
-    return true;
-#endif
 
-    return false;
-}
-
-bool defaultAsyncFrameScrollingEnabled()
+bool defaultAppleMailPaginationQuirkEnabled()
 {
-#if USE(NICOSIA)
-    return true;
+    return WebCore::MacApplication::isAppleMail();
+}
+
 #endif
-
-    return defaultAsyncFrameAndOverflowScrollingEnabled();
-}
-
-bool defaultAsyncOverflowScrollingEnabled()
-{
-    return defaultAsyncFrameAndOverflowScrollingEnabled();
-}
-
-#if ENABLE(GPU_PROCESS)
-
-bool defaultUseGPUProcessForMedia()
-{
-#if HAVE(SYSTEM_FEATURE_FLAGS)
-    return isFeatureFlagEnabled("canvas_and_media_in_gpu_process");
-#endif
-
-    return false;
-}
-
-#endif // ENABLE(GPU_PROCESS)
-
-bool defaultRenderCanvasInGPUProcessEnabled()
-{
-#if HAVE(SYSTEM_FEATURE_FLAGS)
-    return isFeatureFlagEnabled("canvas_and_media_in_gpu_process");
-#endif
-
-    return false;
-}
 
 #if ENABLE(MEDIA_STREAM)
 
 bool defaultCaptureAudioInGPUProcessEnabled()
 {
-#if PLATFORM(MAC) && HAVE(SYSTEM_FEATURE_FLAGS)
-    return isFeatureFlagEnabled("webrtc_in_gpu_process");
+#if PLATFORM(MAC)
+    // FIXME: Enable GPU process audio capture when <rdar://problem/29448368> is fixed.
+    if (!WebCore::MacApplication::isSafari())
+        return false;
 #endif
 
-#if PLATFORM(IOS_FAMILY) && HAVE(SYSTEM_FEATURE_FLAGS)
-    return isFeatureFlagEnabled("canvas_and_media_in_gpu_process");
-#endif
-
+#if ENABLE(GPU_PROCESS_BY_DEFAULT)
+    return true;
+#else
     return false;
+#endif
 }
 
 bool defaultCaptureAudioInUIProcessEnabled()
 {
-#if PLATFORM(IOS_FAMILY)
-    return false;
-#endif
-
 #if PLATFORM(MAC)
     return !defaultCaptureAudioInGPUProcessEnabled();
 #endif
@@ -160,131 +151,172 @@ bool defaultCaptureAudioInUIProcessEnabled()
     return false;
 }
 
-bool defaultCaptureVideoInGPUProcessEnabled()
+bool defaultManageCaptureStatusBarInGPUProcessEnabled()
 {
-#if HAVE(SYSTEM_FEATURE_FLAGS)
-    return isFeatureFlagEnabled("webrtc_in_gpu_process");
-#endif
-
+#if PLATFORM(IOS_FAMILY)
+    // FIXME: Enable by default for all applications.
+    return !WebCore::IOSApplication::isMobileSafari() && !WebCore::IOSApplication::isSafariViewService();
+#else
     return false;
+#endif
 }
 
 #endif // ENABLE(MEDIA_STREAM)
 
-#if ENABLE(WEB_RTC)
-
-bool defaultWebRTCCodecsInGPUProcess()
+#if ENABLE(MEDIA_SOURCE)
+bool defaultManagedMediaSourceEnabled()
 {
-#if HAVE(SYSTEM_FEATURE_FLAGS)
-    return isFeatureFlagEnabled("webrtc_in_gpu_process");
-#endif
-
-    return false;
-}
-
-#endif // ENABLE(WEB_RTC)
-
-#if ENABLE(WEBGL2)
-
-bool defaultWebGL2Enabled()
-{
-#if HAVE(SYSTEM_FEATURE_FLAGS)
-    return isFeatureFlagEnabled("WebGL2");
-#endif
-
-    return false;
-}
-
-#endif // ENABLE(WEBGL2)
-
-#if ENABLE(WEBGPU)
-
-bool defaultWebGPUEnabled()
-{
-#if HAVE(SYSTEM_FEATURE_FLAGS)
-    return isFeatureFlagEnabled("WebGPU");
-#endif
-
-    return false;
-}
-
-#endif // ENABLE(WEBGPU)
-
-bool defaultInAppBrowserPrivacy()
-{
-#if HAVE(SYSTEM_FEATURE_FLAGS)
-    return isFeatureFlagEnabled("InAppBrowserPrivacy");
-#endif
-
-    return false;
-}
-
-#if HAVE(INCREMENTAL_PDF_APIS)
-bool defaultIncrementalPDFEnabled()
-{
-#if HAVE(SYSTEM_FEATURE_FLAGS)
-    return isFeatureFlagEnabled("incremental_pdf");
-#endif
-
-    return false;
-}
-#endif
-
-#if ENABLE(WEBXR)
-
-bool defaultWebXREnabled()
-{
-#if HAVE(SYSTEM_FEATURE_FLAGS)
-    return isFeatureFlagEnabled("WebXR");
-#endif
-
-    return false;
-}
-
-#endif // ENABLE(WEBXR)
-
-#if ENABLE(VP9)
-bool defaultVP9DecoderEnabled()
-{
-#if HAVE(SYSTEM_FEATURE_FLAGS)
-    return isFeatureFlagEnabled("vp9_decoder");
-#endif
-
-    return true;
-}
-#endif
-
-#if ENABLE(VP9)
-bool defaultVP9SWDecoderEnabledOnBattery()
-{
-#if HAVE(SYSTEM_FEATURE_FLAGS)
-    return isFeatureFlagEnabled("SW_vp9_decoder_on_battery");
-#endif
-
-    return false;
-}
-#endif
-
-#if ENABLE(MEDIA_SOURCE) && ENABLE(VP9)
-bool defaultWebMParserEnabled()
-{
-#if HAVE(SYSTEM_FEATURE_FLAGS)
-    return isFeatureFlagEnabled("webm_parser");
-#endif
-
-    return true;
-}
-#endif
-
-#if ENABLE(WEB_RTC)
-bool defaultWebRTCH264LowLatencyEncoderEnabled()
-{
-#if PLATFORM(IOS_FAMILY)
+#if PLATFORM(COCOA)
     return true;
 #else
     return false;
 #endif
 }
 #endif
+
+#if ENABLE(MEDIA_SOURCE) && ENABLE(WIRELESS_PLAYBACK_TARGET)
+bool defaultManagedMediaSourceNeedsAirPlay()
+{
+#if PLATFORM(IOS_FAMILY) || PLATFORM(MAC)
+    return true;
+#else
+    return false;
+#endif
+}
+#endif
+
+#if ENABLE(MEDIA_SESSION_COORDINATOR)
+bool defaultMediaSessionCoordinatorEnabled()
+{
+    static dispatch_once_t onceToken;
+    static bool enabled { false };
+    dispatch_once(&onceToken, ^{
+        if (WebCore::isInWebProcess())
+            enabled = WebProcess::singleton().parentProcessHasEntitlement("com.apple.developer.group-session.urlactivity"_s);
+        else
+            enabled = WTF::processHasEntitlement("com.apple.developer.group-session.urlactivity"_s);
+    });
+    return enabled;
+}
+#endif
+
+bool defaultRunningBoardThrottlingEnabled()
+{
+#if PLATFORM(MAC)
+    static bool newSDK = linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::RunningBoardThrottling);
+    return newSDK;
+#else
+    return false;
+#endif
+}
+
+bool defaultShouldDropNearSuspendedAssertionAfterDelay()
+{
+#if PLATFORM(COCOA)
+    static bool newSDK = linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::FullySuspendsBackgroundContent);
+    return newSDK;
+#else
+    return false;
+#endif
+}
+
+bool defaultShouldTakeNearSuspendedAssertion()
+{
+#if PLATFORM(IOS_FAMILY)
+    static bool newSDK = linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::FullySuspendsBackgroundContentImmediately);
+    return !newSDK;
+#else
+    return true;
+#endif
+}
+
+bool defaultLiveRangeSelectionEnabled()
+{
+#if PLATFORM(IOS_FAMILY)
+    static bool enableForAllApps = linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::LiveRangeSelectionEnabledForAllApps);
+    if (!enableForAllApps && WebCore::IOSApplication::isGmail())
+        return false;
+#endif
+    return true;
+}
+
+bool defaultShowModalDialogEnabled()
+{
+#if PLATFORM(COCOA)
+    static bool newSDK = linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::NoShowModalDialog);
+    return !newSDK;
+#else
+    return false;
+#endif
+}
+
+#if ENABLE(GAMEPAD)
+bool defaultGamepadVibrationActuatorEnabled()
+{
+#if HAVE(WIDE_GAMECONTROLLER_SUPPORT)
+    return true;
+#else
+    return false;
+#endif
+}
+#endif
+
+bool defaultShouldEnableScreenOrientationAPI()
+{
+#if PLATFORM(MAC)
+    return true;
+#elif PLATFORM(IOS_FAMILY)
+    static bool shouldEnableScreenOrientationAPI = linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::ScreenOrientationAPIEnabled) || WebCore::IOSApplication::isHoYoLAB();
+    return shouldEnableScreenOrientationAPI;
+#else
+    return false;
+#endif
+}
+
+#if USE(LIBWEBRTC)
+bool defaultPeerConnectionEnabledAvailable()
+{
+    // This helper function avoid an expensive header include in WebPreferences.h
+    return WebCore::WebRTCProvider::webRTCAvailable();
+}
+#endif
+
+bool defaultPopoverAttributeEnabled()
+{
+#if PLATFORM(COCOA)
+    static bool newSDK = linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::PopoverAttributeEnabled);
+    return newSDK;
+#else
+    return true;
+#endif
+}
+
+bool defaultUseGPUProcessForDOMRenderingEnabled()
+{
+#if ENABLE(GPU_PROCESS_BY_DEFAULT) && ENABLE(GPU_PROCESS_DOM_RENDERING_BY_DEFAULT)
+#if PLATFORM(MAC)
+    static bool haveSufficientCores = WTF::numberOfPhysicalProcessorCores() >= 4;
+    return haveSufficientCores;
+#else
+    return true;
+#endif
+#endif
+
+#if USE(GRAPHICS_LAYER_WC)
+    return true;
+#endif
+
+    return false;
+}
+
+bool defaultSearchInputIncrementalAttributeAndSearchEventEnabled()
+{
+#if PLATFORM(COCOA)
+    static bool newSDK = linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::NoSearchInputIncrementalAttributeAndSearchEvent);
+    return !newSDK;
+#else
+    return false;
+#endif
+}
 
 } // namespace WebKit

@@ -50,13 +50,12 @@
 #import <WebCore/HTMLSelectElement.h>
 #import <WebCore/HTMLTextAreaElement.h>
 #import <WebCore/Image.h>
-#import <WebCore/InlineBox.h>
-#import <WebCore/Node.h>
+#import <WebCore/NodeTraversal.h>
 #import <WebCore/Range.h>
 #import <WebCore/RenderBlock.h>
 #import <WebCore/RenderBlockFlow.h>
 #import <WebCore/RenderBox.h>
-#import <WebCore/RenderObject.h>
+#import <WebCore/RenderObjectInlines.h>
 #import <WebCore/RenderStyleConstants.h>
 #import <WebCore/RenderText.h>
 #import <WebCore/RoundedRect.h>
@@ -96,7 +95,7 @@ using WebCore::VisiblePosition;
     }
 
     for (UInt32 i = 0; i < amount; i++)
-        frameSelection.modify(WebCore::FrameSelection::AlterationMove, (WebCore::SelectionDirection)direction, granularity);
+        frameSelection.modify(WebCore::FrameSelection::Alteration::Move, (WebCore::SelectionDirection)direction, granularity);
 
     Position start = frameSelection.selection().start().parentAnchoredEquivalent();
     Position end = frameSelection.selection().end().parentAnchoredEquivalent();
@@ -114,7 +113,7 @@ using WebCore::VisiblePosition;
     frameSelection.setSelection(makeSimpleRange(range));
 
     for (UInt32 i = 0; i < amount; i++)
-        frameSelection.modify(WebCore::FrameSelection::AlterationExtend, (WebCore::SelectionDirection)direction, WebCore::TextGranularity::CharacterGranularity);
+        frameSelection.modify(WebCore::FrameSelection::Alteration::Extend, (WebCore::SelectionDirection)direction, WebCore::TextGranularity::CharacterGranularity);
 
     Position start = frameSelection.selection().start().parentAnchoredEquivalent();
     Position end = frameSelection.selection().end().parentAnchoredEquivalent();
@@ -124,9 +123,21 @@ using WebCore::VisiblePosition;
         range.setEnd(*end.containerNode(), end.offsetInContainerNode());
 }
 
+// FIXME: Refactor to share code with intersectingNodesWithDeprecatedZeroOffsetStartQuirk.
+static WebCore::Node* firstNodeAfter(const WebCore::BoundaryPoint& point)
+{
+    if (point.container->isCharacterDataNode())
+        return point.container.ptr();
+    if (auto child = point.container->traverseToChildAt(point.offset))
+        return child;
+    if (!point.offset)
+        return point.container.ptr();
+    return WebCore::NodeTraversal::nextSkippingChildren(point.container);
+}
+
 - (DOMNode *)firstNode
 {
-    return kit(core(self)->firstNode());
+    return kit(firstNodeAfter(makeSimpleRange(*core(self)).start));
 }
 
 @end
@@ -170,11 +181,8 @@ using WebCore::VisiblePosition;
             quads = [self lineBoxQuads];
     }
 
-    if (![quads count]) {
-        WKQuadObject* quadObject = [[WKQuadObject alloc] initWithQuad:[self absoluteQuad]];
-        quads = @[quadObject];
-        [quadObject release];
-    }
+    if (![quads count])
+        quads = @[adoptNS([[WKQuadObject alloc] initWithQuad:[self absoluteQuad]]).get()];
 
     return quads;
 }
@@ -200,7 +208,7 @@ using WebCore::VisiblePosition;
     return renderer
         && renderer->childrenInline()
         && (is<RenderBlock>(*renderer) && !downcast<RenderBlock>(*renderer).inlineContinuation())
-        && !renderer->isTable();
+        && !renderer->isRenderTable();
 }
 
 - (BOOL)isSelectableBlock
@@ -211,7 +219,7 @@ using WebCore::VisiblePosition;
 
 - (DOMRange *)rangeOfContainingParagraph
 {
-    VisiblePosition position(createLegacyEditingPosition(core(self), 0), WebCore::DOWNSTREAM);
+    VisiblePosition position(makeContainerOffsetPosition(core(self), 0));
     return kit(makeSimpleRange(startOfParagraph(position), endOfParagraph(position)));
 }
 
@@ -253,22 +261,19 @@ using WebCore::VisiblePosition;
     RenderObject * renderer = core(self)->renderer();
     if (renderer) {
         if (renderer->isFloatingOrOutOfFlowPositioned() ||
-            renderer->isWidget()) {
+            renderer->isRenderWidget()) {
             result = INT_MAX;
         } else if (!renderer->firstChildSlow()) {
             result = 0;
         } else if (is<WebCore::RenderBlockFlow>(*renderer) || (is<RenderBlock>(*renderer) && downcast<RenderBlock>(*renderer).inlineContinuation())) {
             BOOL noCost = NO;
-            if (is<RenderBox>(*renderer)) {
-                RenderBox& asBox = renderer->enclosingBox();
-                RenderObject* parent = asBox.parent();
-                RenderBox* parentRenderBox = is<RenderBox>(parent) ? downcast<RenderBox>(parent) : nullptr;
-                if (parentRenderBox && asBox.width() == parentRenderBox->width()) {
+            if (auto renderBox = dynamicDowncast<RenderBox>(*renderer)) {
+                auto* parentRenderBox = dynamicDowncast<RenderBox>(renderBox->parent());
+                if (parentRenderBox && renderBox->width() == parentRenderBox->width())
                     noCost = YES;
-                }
             }
             result = (noCost ? 0 : 1);
-        } else if (renderer->hasTransform()) {
+        } else if (renderer->isTransformed()) {
             result = INT_MAX;
         }
     }
@@ -348,10 +353,7 @@ using WebCore::VisiblePosition;
 
 - (NSArray *)absoluteQuadsWithOwner:(DOMNode *)owner
 {
-    WKQuadObject *quadObject = [[WKQuadObject alloc] initWithQuad:[self absoluteQuadWithOwner:owner]];
-    NSArray *quadArray = @[quadObject];
-    [quadObject release];
-    return quadArray;
+    return @[adoptNS([[WKQuadObject alloc] initWithQuad:[self absoluteQuadWithOwner:owner]]).get()];
 }
 
 @end
@@ -365,7 +367,7 @@ using WebCore::VisiblePosition;
 
 - (DOMNode *)listItemAtIndex:(int)anIndex
 {
-    return kit(core(self)->listItems()[anIndex]);
+    return kit(core(self)->listItems()[anIndex].get());
 }
 
 @end
@@ -383,7 +385,7 @@ using WebCore::VisiblePosition;
     auto* data = rawImageData ? cachedImage->resourceBuffer() : image->data();
     if (!data)
         return nil;
-    return data->createNSData().autorelease();
+    return data->makeContiguous()->createNSData().autorelease();
 }
 
 - (NSString *)mimeType

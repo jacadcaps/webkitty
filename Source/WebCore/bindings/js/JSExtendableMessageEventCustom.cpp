@@ -25,7 +25,6 @@
 
 #include "config.h"
 
-#if ENABLE(SERVICE_WORKER)
 #include "JSExtendableMessageEvent.h"
 
 #include "JSDOMConstructor.h"
@@ -46,7 +45,7 @@ JSC::EncodedJSValue constructJSExtendableMessageEvent(JSC::JSGlobalObject* lexic
     ASSERT(jsConstructor);
     if (UNLIKELY(callFrame.argumentCount() < 1))
         return throwVMError(lexicalGlobalObject, throwScope, createNotEnoughArgumentsError(lexicalGlobalObject));
-    auto type = convert<IDLDOMString>(*lexicalGlobalObject, callFrame.uncheckedArgument(0));
+    auto type = convert<IDLAtomStringAdaptor<IDLDOMString>>(*lexicalGlobalObject, callFrame.uncheckedArgument(0));
     RETURN_IF_EXCEPTION(throwScope, encodedJSValue());
     auto eventInitDict = convert<IDLDictionary<ExtendableMessageEvent::Init>>(*lexicalGlobalObject, callFrame.argument(1));
     RETURN_IF_EXCEPTION(throwScope, encodedJSValue());
@@ -87,5 +86,3 @@ JSValue JSExtendableMessageEvent::data(JSGlobalObject& lexicalGlobalObject) cons
 }
 
 }
-
-#endif // ENABLE(SERVICE_WORKER)

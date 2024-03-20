@@ -26,13 +26,15 @@
 #include "config.h"
 #include "TrackBase.h"
 
+#include "ContextDestructionObserverInlines.h"
+#include "Document.h"
 #include "Logging.h"
+#include "TrackListBase.h"
 #include <wtf/Language.h>
 #include <wtf/text/StringBuilder.h>
+#include <wtf/text/StringToIntegerConversion.h>
 
 #if ENABLE(VIDEO)
-
-#include "HTMLMediaElement.h"
 
 namespace WebCore {
 
@@ -48,9 +50,11 @@ static RefPtr<Logger>& nullLogger()
 }
 #endif
 
-TrackBase::TrackBase(Type type, const AtomString& id, const AtomString& label, const AtomString& language)
-    : m_uniqueId(++s_uniqueId)
-    , m_id(id)
+TrackBase::TrackBase(ScriptExecutionContext* context, Type type, const std::optional<AtomString>& id, TrackID trackId, const AtomString& label, const AtomString& language)
+    : ContextDestructionObserver(context)
+    , m_uniqueId(++s_uniqueId)
+    , m_id(id ? *id : AtomString::number(trackId))
+    , m_trackId(trackId)
     , m_label(label)
     , m_language(language)
 {
@@ -70,14 +74,31 @@ TrackBase::TrackBase(Type type, const AtomString& id, const AtomString& label, c
 #endif
 }
 
-Element* TrackBase::element()
+void TrackBase::didMoveToNewDocument(Document& newDocument)
 {
-    return m_mediaElement.get();
+    observeContext(&newDocument.contextDocument());
 }
 
-void TrackBase::setMediaElement(WeakPtr<HTMLMediaElement> element)
+void TrackBase::setTrackList(TrackListBase& trackList)
 {
-    m_mediaElement = element;
+    m_trackList = trackList;
+}
+
+void TrackBase::clearTrackList()
+{
+    m_trackList = nullptr;
+}
+
+TrackListBase* TrackBase::trackList() const
+{
+    return m_trackList.get();
+}
+
+WebCoreOpaqueRoot TrackBase::opaqueRoot()
+{
+    if (auto trackList = this->trackList())
+        return trackList->opaqueRoot();
+    return WebCoreOpaqueRoot { this };
 }
 
 // See: https://tools.ietf.org/html/bcp47#section-2.1
@@ -141,8 +162,8 @@ void TrackBase::setLanguage(const AtomString& language)
 
     m_validBCP47Language = emptyAtom();
 
-    auto element = this->element();
-    if (!element)
+    auto context = scriptExecutionContext();
+    if (!context)
         return;
 
     String message;
@@ -151,7 +172,7 @@ void TrackBase::setLanguage(const AtomString& language)
     else
         message = makeString("The language '", language, "' is not a valid BCP 47 language tag.");
 
-    element->document().addConsoleMessage(MessageSource::Rendering, MessageLevel::Warning, message);
+    context->addConsoleMessage(MessageSource::Rendering, MessageLevel::Warning, message);
 }
 
 #if !RELEASE_LOG_DISABLED
@@ -167,8 +188,8 @@ WTFLogChannel& TrackBase::logChannel() const
 }
 #endif
 
-MediaTrackBase::MediaTrackBase(Type type, const AtomString& id, const AtomString& label, const AtomString& language)
-    : TrackBase(type, id, label, language)
+MediaTrackBase::MediaTrackBase(ScriptExecutionContext* context, Type type, const std::optional<AtomString>& id, TrackID trackId, const AtomString& label, const AtomString& language)
+    : TrackBase(context, type, id, trackId, label, language)
 {
 }
 

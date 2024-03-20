@@ -26,14 +26,12 @@
 #include "config.h"
 #include "CryptoAlgorithmRSAES_PKCS1_v1_5.h"
 
-#if ENABLE(WEB_CRYPTO)
-
 #include "CryptoKeyRSA.h"
 #include "GCryptUtilities.h"
 
 namespace WebCore {
 
-static Optional<Vector<uint8_t>> gcryptEncrypt(gcry_sexp_t keySexp, const Vector<uint8_t>& plainText, size_t keySizeInBytes)
+static std::optional<Vector<uint8_t>> gcryptEncrypt(gcry_sexp_t keySexp, const Vector<uint8_t>& plainText, size_t keySizeInBytes)
 {
     // Embed the plain-text data in a `data` s-expression using PKCS#1 padding.
     PAL::GCrypt::Handle<gcry_sexp_t> dataSexp;
@@ -41,7 +39,7 @@ static Optional<Vector<uint8_t>> gcryptEncrypt(gcry_sexp_t keySexp, const Vector
         plainText.size(), plainText.data());
     if (error != GPG_ERR_NO_ERROR) {
         PAL::GCrypt::logError(error);
-        return WTF::nullopt;
+        return std::nullopt;
     }
 
     // Encrypt data with the provided key. The returned s-expression is of this form:
@@ -52,18 +50,18 @@ static Optional<Vector<uint8_t>> gcryptEncrypt(gcry_sexp_t keySexp, const Vector
     error = gcry_pk_encrypt(&cipherSexp, dataSexp, keySexp);
     if (error != GPG_ERR_NO_ERROR) {
         PAL::GCrypt::logError(error);
-        return WTF::nullopt;
+        return std::nullopt;
     }
 
     // Return MPI data of the embedded `a` integer.
     PAL::GCrypt::Handle<gcry_sexp_t> aSexp(gcry_sexp_find_token(cipherSexp, "a", 0));
     if (!aSexp)
-        return WTF::nullopt;
+        return std::nullopt;
 
     return mpiZeroPrefixedData(aSexp, keySizeInBytes);
 }
 
-static Optional<Vector<uint8_t>> gcryptDecrypt(gcry_sexp_t keySexp, const Vector<uint8_t>& cipherText)
+static std::optional<Vector<uint8_t>> gcryptDecrypt(gcry_sexp_t keySexp, const Vector<uint8_t>& cipherText)
 {
     // Embed the cipher-text data in an `enc-val` s-expression using PKCS#1 padding.
     PAL::GCrypt::Handle<gcry_sexp_t> encValSexp;
@@ -71,7 +69,7 @@ static Optional<Vector<uint8_t>> gcryptDecrypt(gcry_sexp_t keySexp, const Vector
         cipherText.size(), cipherText.data());
     if (error != GPG_ERR_NO_ERROR) {
         PAL::GCrypt::logError(error);
-        return WTF::nullopt;
+        return std::nullopt;
     }
 
     // Decrypt data with the provided key. The returned s-expression is of this form:
@@ -82,13 +80,13 @@ static Optional<Vector<uint8_t>> gcryptDecrypt(gcry_sexp_t keySexp, const Vector
     error = gcry_pk_decrypt(&plainSexp, encValSexp, keySexp);
     if (error != GPG_ERR_NO_ERROR) {
         PAL::GCrypt::logError(error);
-        return WTF::nullopt;
+        return std::nullopt;
     }
 
     // Return MPI data of the embedded `value` integer.
     PAL::GCrypt::Handle<gcry_sexp_t> valueSexp(gcry_sexp_find_token(plainSexp, "value", 0));
     if (!valueSexp)
-        return WTF::nullopt;
+        return std::nullopt;
 
     return mpiData(valueSexp);
 }
@@ -98,7 +96,7 @@ ExceptionOr<Vector<uint8_t>> CryptoAlgorithmRSAES_PKCS1_v1_5::platformEncrypt(co
     RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(!(key.keySizeInBits() % 8));
     auto output = gcryptEncrypt(key.platformKey(), plainText, key.keySizeInBits() / 8);
     if (!output)
-        return Exception { OperationError };
+        return Exception { ExceptionCode::OperationError };
     return WTFMove(*output);
 }
 
@@ -106,10 +104,8 @@ ExceptionOr<Vector<uint8_t>> CryptoAlgorithmRSAES_PKCS1_v1_5::platformDecrypt(co
 {
     auto output = gcryptDecrypt(key.platformKey(), cipherText);
     if (!output)
-        return Exception { OperationError };
+        return Exception { ExceptionCode::OperationError };
     return WTFMove(*output);
 }
 
 } // namespace WebCore
-
-#endif // ENABLE(WEB_CRYPTO)

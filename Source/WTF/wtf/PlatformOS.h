@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2021 Apple Inc. All rights reserved.
  * Copyright (C) 2007-2009 Torch Mobile, Inc.
  * Copyright (C) 2010, 2011 Research In Motion Limited. All rights reserved.
  *
@@ -38,7 +38,6 @@
 #include <TargetConditionals.h>
 #endif
 
-
 /* OS() - underlying operating system; only to be used for mandated low-level services like
    virtual memory, not to choose a GUI toolkit */
 #define OS(WTF_FEATURE) (defined WTF_OS_##WTF_FEATURE && WTF_OS_##WTF_FEATURE)
@@ -53,18 +52,18 @@
 #define WTF_OS_AIX 1
 #endif
 
-/* OS(DARWIN) - Any Darwin-based OS, including macOS, iOS, macCatalyst, tvOS, and watchOS */
+/* OS(DARWIN) - Any Darwin-based OS, including macOS, iOS, iPadOS, macCatalyst, tvOS, watchOS and visionOS */
 #if defined(__APPLE__)
 #define WTF_OS_DARWIN 1
 #endif
 
-/* OS(IOS_FAMILY) - iOS family, including iOS, iPadOS, macCatalyst, tvOS, watchOS */
+/* OS(IOS_FAMILY) - iOS family, including iOS, iPadOS, macCatalyst, tvOS, watchOS, and visionOS */
 #if OS(DARWIN) && TARGET_OS_IPHONE
 #define WTF_OS_IOS_FAMILY 1
 #endif
 
-/* OS(IOS) - iOS and iPadOS only (iPhone and iPad), not including macCatalyst, not including watchOS, not including tvOS */
-#if OS(DARWIN) && (TARGET_OS_IOS && !(defined(TARGET_OS_MACCATALYST) && TARGET_OS_MACCATALYST))
+/* OS(IOS) - iOS and iPadOS only (iPhone and iPad), not including macCatalyst, not including watchOS, not including tvOS, not including visionOS */
+#if OS(DARWIN) && (TARGET_OS_IOS && !(defined(TARGET_OS_MACCATALYST) && TARGET_OS_MACCATALYST) && !(defined(TARGET_OS_VISION) && TARGET_OS_VISION))
 #define WTF_OS_IOS 1
 #endif
 
@@ -78,10 +77,9 @@
 #define WTF_OS_WATCHOS 1
 #endif
 
-/* FIXME: Rename this to drop the X, as that is no longer the name of the operating system. */
-/* OS(MAC_OS_X) - macOS (not including iOS family) */
+/* OS(MACOS) - macOS (not including iOS family) */
 #if OS(DARWIN) && TARGET_OS_OSX
-#define WTF_OS_MAC_OS_X 1
+#define WTF_OS_MACOS 1
 #endif
 
 /* OS(FREEBSD) - FreeBSD */
@@ -114,6 +112,10 @@
 #define WTF_OS_OPENBSD 1
 #endif
 
+#if defined(__QNX__)
+#define WTF_OS_QNX 1
+#endif
+
 /* OS(WINDOWS) - Any version of Windows */
 #if defined(WIN32) || defined(_WIN32)
 #define WTF_OS_WINDOWS 1
@@ -134,19 +136,6 @@
     || defined(__unix__)
 #define WTF_OS_UNIX 1
 #endif
-
-
-#if CPU(ADDRESS64)
-#if (OS(IOS) || OS(TVOS) || OS(WATCHOS)) && CPU(ARM64)
-#define WTF_OS_CONSTANT_EFFECTIVE_ADDRESS_WIDTH 36
-#else
-/* We strongly assume that effective address width is <= 48 in 64bit architectures (e.g. NaN boxing). */
-#define WTF_OS_CONSTANT_EFFECTIVE_ADDRESS_WIDTH 48
-#endif
-#else
-#define WTF_OS_CONSTANT_EFFECTIVE_ADDRESS_WIDTH 32
-#endif
-
 
 /* Asserts, invariants for macro definitions */
 

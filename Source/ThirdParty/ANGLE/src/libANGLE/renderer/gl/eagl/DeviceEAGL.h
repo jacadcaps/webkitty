@@ -9,10 +9,6 @@
 #ifndef LIBANGLE_RENDERER_GL_EAGL_DEVICEEAGL_H_
 #define LIBANGLE_RENDERER_GL_EAGL_DEVICEEAGL_H_
 
-#import "common/platform.h"
-
-#if defined(ANGLE_PLATFORM_IOS) && !defined(ANGLE_PLATFORM_MACCATALYST)
-
 #include "libANGLE/Device.h"
 #include "libANGLE/renderer/DeviceImpl.h"
 
@@ -33,7 +29,5 @@ class DeviceEAGL : public DeviceImpl
 };
 
 }  // namespace rx
-
-#endif  // defined(ANGLE_PLATFORM_IOS) && !defined(ANGLE_PLATFORM_MACCATALYST)
 
 #endif  // LIBANGLE_RENDERER_GL_EAGL_DEVICEEAGL_H_

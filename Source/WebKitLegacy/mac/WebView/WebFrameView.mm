@@ -35,6 +35,7 @@
 #import "WebDynamicScrollBarsViewInternal.h"
 #import "WebFrame.h"
 #import "WebFrameInternal.h"
+#import "WebFrameLoaderClient.h"
 #import "WebFrameViewInternal.h"
 #import "WebFrameViewPrivate.h"
 #import "WebHistoryItemInternal.h"
@@ -54,9 +55,9 @@
 #import <WebCore/BackForwardController.h>
 #import <WebCore/DragController.h>
 #import <WebCore/EventHandler.h>
-#import <WebCore/Frame.h>
-#import <WebCore/FrameView.h>
 #import <WebCore/HistoryItem.h>
+#import <WebCore/LocalFrame.h>
+#import <WebCore/LocalFrameView.h>
 #import <WebCore/Page.h>
 #import <WebCore/RenderView.h>
 #import <WebCore/RenderWidget.h>
@@ -110,18 +111,12 @@ enum {
 @interface WebFrameViewPrivate : NSObject {
 @public
     WebFrame *webFrame;
-    WebDynamicScrollBarsView *frameScrollView;
+    RetainPtr<WebDynamicScrollBarsView> frameScrollView;
     BOOL includedInWebKitStatistics;
 }
 @end
 
 @implementation WebFrameViewPrivate
-
-- (void)dealloc
-{
-    [frameScrollView release];
-    [super dealloc];
-}
 
 @end
 
@@ -133,7 +128,7 @@ enum {
     return [[self _scrollView] verticalLineScroll];
 }
 
-- (NakedPtr<WebCore::Frame>)_web_frame
+- (NakedPtr<WebCore::LocalFrame>)_web_frame
 {
     return core(_private->webFrame);
 }
@@ -195,23 +190,20 @@ enum {
     if (!MIMEType)
         MIMEType = @"text/html";
     Class viewClass = [self _viewClassForMIMEType:MIMEType];
-    NSView <WebDocumentView> *documentView;
+    RetainPtr<NSView <WebDocumentView>> documentView;
     if (viewClass) {
         // If the dataSource's representation has already been created, and it is also the
         // same class as the desired documentView, then use it as the documentView instead
         // of creating another one (Radar 4340787).
         id <WebDocumentRepresentation> dataSourceRepresentation = [dataSource representation];
         if (dataSourceRepresentation && [dataSourceRepresentation class] == viewClass)
-            documentView = (NSView <WebDocumentView> *)[dataSourceRepresentation retain];
+            documentView = (NSView <WebDocumentView> *)dataSourceRepresentation;
         else
-            documentView = [(NSView <WebDocumentView> *)[viewClass alloc] init];
-    } else
-        documentView = nil;
+            documentView = adoptNS([(NSView <WebDocumentView> *)[viewClass alloc] init]);
+    }
     
-    [self _setDocumentView:documentView];
-    [documentView release];
-    
-    return documentView;
+    [self _setDocumentView:documentView.get()];
+    return documentView.autorelease();
 }
 
 - (void)_setWebFrame:(WebFrame *)webFrame
@@ -237,7 +229,7 @@ enum {
     // after _private has been nilled out.
     if (_private == nil)
         return nil;
-    return _private->frameScrollView;
+    return _private->frameScrollView.get();
 }
 
 - (float)_verticalPageScrollDistance
@@ -248,13 +240,10 @@ enum {
 
 + (NSMutableDictionary *)_viewTypesAllowImageTypeOmission:(BOOL)allowImageTypeOmission
 {
-    static NSMutableDictionary *viewTypes = nil;
-    static BOOL addedImageTypes = NO;
-    
-    if (!viewTypes) {
-        viewTypes = [[NSMutableDictionary alloc] init];
-        addTypesFromClass(viewTypes, [WebHTMLView class], [WebHTMLView supportedNonImageMIMETypes]);
-        addTypesFromClass(viewTypes, [WebHTMLView class], [WebHTMLView supportedMediaMIMETypes]);
+    static NeverDestroyed viewTypes = [] {
+        auto types = adoptNS([[NSMutableDictionary alloc] init]);
+        addTypesFromClass(types.get(), [WebHTMLView class], [WebHTMLView supportedNonImageMIMETypes]);
+        addTypesFromClass(types.get(), [WebHTMLView class], [WebHTMLView supportedMediaMIMETypes]);
 
         // Since this is a "secret default" we don't bother registering it.
         BOOL omitPDFSupport = [[NSUserDefaults standardUserDefaults] boolForKey:@"WebKitOmitPDFSupport"];
@@ -262,19 +251,20 @@ enum {
 #if PLATFORM(IOS_FAMILY)
 #define WebPDFView ([WebView _getPDFViewClass])
 #endif
-            addTypesFromClass(viewTypes, [WebPDFView class], [WebPDFView supportedMIMETypes]);
+            addTypesFromClass(types.get(), [WebPDFView class], [WebPDFView supportedMIMETypes]);
 #if PLATFORM(IOS_FAMILY)
 #undef WebPDFView
 #endif
         }
-    }
-    
+        return types;
+    }();
+    static BOOL addedImageTypes = NO;
     if (!addedImageTypes && !allowImageTypeOmission) {
-        addTypesFromClass(viewTypes, [WebHTMLView class], [WebHTMLView supportedImageMIMETypes]);
+        addTypesFromClass(viewTypes.get().get(), [WebHTMLView class], [WebHTMLView supportedImageMIMETypes]);
         addedImageTypes = YES;
     }
     
-    return viewTypes;
+    return viewTypes.get().get();
 }
 
 + (BOOL)_canShowMIMETypeAsHTML:(NSString *)MIMEType
@@ -294,7 +284,7 @@ enum {
 
 #if PLATFORM(IOS_FAMILY)   
     if ([retVal respondsToSelector:@selector(_representationClassForWebFrame:)])
-        retVal = [retVal performSelector:@selector(_representationClassForWebFrame:) withObject:[self webFrame]];
+        retVal = [retVal _representationClassForWebFrame:[self webFrame]];
 #endif
         
     return retVal;
@@ -316,7 +306,7 @@ enum {
 
     auto* view = frame->view();
 
-    view->setPlatformWidget(_private->frameScrollView);
+    view->setPlatformWidget(_private->frameScrollView.get());
 
     // FIXME: Frame tries to do this too. Is this code needed?
     if (WebCore::RenderWidget* owner = frame->ownerRenderer()) {
@@ -351,11 +341,6 @@ enum {
     static bool didFirstTimeInitialization;
     if (!didFirstTimeInitialization) {
         didFirstTimeInitialization = true;
-        
-        // Need to tell WebCore what function to call for the "History Item has Changed" notification.
-        // Note: We also do this in WebHistoryItem's init method.
-        // FIXME: This means that if we mix legacy WebKit and modern WebKit in the same process, we won't get both notifications.
-        WebCore::notifyHistoryItemChanged = WKNotifyHistoryItemChanged;
 
 #if !PLATFORM(IOS_FAMILY)
         if (!WebKitLinkedOnOrAfter(WEBKIT_FIRST_VERSION_WITH_MAIN_THREAD_EXCEPTIONS))
@@ -373,24 +358,24 @@ enum {
 
     _private = [[WebFrameViewPrivate alloc] init];
 
-    WebDynamicScrollBarsView *scrollView = [[WebDynamicScrollBarsView alloc] initWithFrame:NSMakeRect(0.0f, 0.0f, frame.size.width, frame.size.height)];
+    auto scrollView = adoptNS([[WebDynamicScrollBarsView alloc] initWithFrame:NSMakeRect(0.0f, 0.0f, frame.size.width, frame.size.height)]);
     _private->frameScrollView = scrollView;
 #if PLATFORM(IOS_FAMILY)
     [scrollView setDelegate:self];
 #else
-    [scrollView setContentView:[[[WebClipView alloc] initWithFrame:[scrollView bounds]] autorelease]];
+    [scrollView setContentView:adoptNS([[WebClipView alloc] initWithFrame:[scrollView bounds]]).get()];
 #endif
     [scrollView setDrawsBackground:NO];
     [scrollView setHasVerticalScroller:NO];
     [scrollView setHasHorizontalScroller:NO];
     [scrollView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
     [scrollView setLineScroll:WebCore::Scrollbar::pixelsPerLineStep()];
-    [self addSubview:scrollView];
+    [self addSubview:scrollView.get()];
 
     // Don't call our overridden version of setNextKeyView here; we need to make the standard NSView
     // link between us and our subview so that previousKeyView and previousValidKeyView work as expected.
     // This works together with our becomeFirstResponder and setNextKeyView overrides.
-    [super setNextKeyView:scrollView];
+    [super setNextKeyView:scrollView.get()];
     
     return self;
 }
@@ -422,15 +407,15 @@ enum {
 
 - (void)setAllowsScrolling:(BOOL)flag
 {
-    WebCore::Frame *frame = core([self webFrame]);
-    if (WebCore::FrameView *view = frame? frame->view() : 0)
+    WebCore::LocalFrame *frame = core([self webFrame]);
+    if (auto* view = frame? frame->view() : 0)
         view->setCanHaveScrollbars(flag);
 }
 
 - (BOOL)allowsScrolling
 {
-    WebCore::Frame *frame = core([self webFrame]);
-    if (WebCore::FrameView *view = frame? frame->view() : 0)
+    auto* frame = core([self webFrame]);
+    if (auto* view = frame? frame->view() : 0)
         return view->canHaveScrollbars();
     return YES;
 }
@@ -505,7 +490,7 @@ enum {
             NSRectFill(rect);
 #else
             CGContextRef cgContext = WKGetCurrentGraphicsContext();
-            CGContextSetFillColorWithColor(cgContext, WebCore::cachedCGColor(WebCore::Color::white));
+            CGContextSetFillColorWithColor(cgContext, WebCore::cachedCGColor(WebCore::Color::white).get());
             WKRectFill(cgContext, rect);
 #endif
         }
@@ -517,7 +502,7 @@ enum {
             NSRectFill(rect);
 #else
             CGContextRef cgContext = WKGetCurrentGraphicsContext();
-            CGContextSetFillColorWithColor(cgContext, WebCore::cachedCGColor(WebCore::Color::cyan));
+            CGContextSetFillColorWithColor(cgContext, WebCore::cachedCGColor(WebCore::Color::cyan).get());
             WKRectFill(cgContext, rect);
 #endif
         }
@@ -643,7 +628,7 @@ enum {
 
 - (BOOL)_scrollToBeginningOfDocument
 {
-    if ([self _scrollOverflowInDirection:WebCore::ScrollUp granularity:WebCore::ScrollByDocument])
+    if ([self _scrollOverflowInDirection:WebCore::ScrollDirection::ScrollUp granularity:WebCore::ScrollGranularity::Document])
         return YES;
     if (![self _isScrollable])
         return NO;
@@ -655,7 +640,7 @@ enum {
 
 - (BOOL)_scrollToEndOfDocument
 {
-    if ([self _scrollOverflowInDirection:WebCore::ScrollDown granularity:WebCore::ScrollByDocument])
+    if ([self _scrollOverflowInDirection:WebCore::ScrollDirection::ScrollDown granularity:WebCore::ScrollGranularity::Document])
         return YES;
     if (![self _isScrollable])
         return NO;
@@ -752,7 +737,7 @@ enum {
 
 - (BOOL)_pageVertically:(BOOL)up
 {
-    if ([self _scrollOverflowInDirection:up ? WebCore::ScrollUp : WebCore::ScrollDown granularity:WebCore::ScrollByPage])
+    if ([self _scrollOverflowInDirection:up ? WebCore::ScrollDirection::ScrollUp : WebCore::ScrollDirection::ScrollDown granularity:WebCore::ScrollGranularity::Page])
         return YES;
     
     if (![self _isScrollable])
@@ -764,7 +749,7 @@ enum {
 
 - (BOOL)_pageHorizontally:(BOOL)left
 {
-    if ([self _scrollOverflowInDirection:left ? WebCore::ScrollLeft : WebCore::ScrollRight granularity:WebCore::ScrollByPage])
+    if ([self _scrollOverflowInDirection:left ? WebCore::ScrollDirection::ScrollLeft : WebCore::ScrollDirection::ScrollRight granularity:WebCore::ScrollGranularity::Page])
         return YES;
 
     if (![self _isScrollable])
@@ -786,7 +771,7 @@ enum {
 
 - (BOOL)_scrollLineVertically:(BOOL)up
 {
-    if ([self _scrollOverflowInDirection:up ? WebCore::ScrollUp : WebCore::ScrollDown granularity:WebCore::ScrollByLine])
+    if ([self _scrollOverflowInDirection:up ? WebCore::ScrollDirection::ScrollUp : WebCore::ScrollDirection::ScrollDown granularity:WebCore::ScrollGranularity::Line])
         return YES;
 
     if (![self _isScrollable])
@@ -798,7 +783,7 @@ enum {
 
 - (BOOL)_scrollLineHorizontally:(BOOL)left
 {
-    if ([self _scrollOverflowInDirection:left ? WebCore::ScrollLeft : WebCore::ScrollRight granularity:WebCore::ScrollByLine])
+    if ([self _scrollOverflowInDirection:left ? WebCore::ScrollDirection::ScrollLeft : WebCore::ScrollDirection::ScrollRight granularity:WebCore::ScrollGranularity::Line])
         return YES;
 
     if (![self _isScrollable])
@@ -1234,31 +1219,29 @@ enum {
     if (![customClass isSubclassOfClass:[WebDynamicScrollBarsView class]])
         return;
 
-    WebDynamicScrollBarsView *oldScrollView = _private->frameScrollView; // already retained
-    NSView <WebDocumentView> *documentView = [[self documentView] retain];
+    auto oldScrollView = _private->frameScrollView; // already retained
+    auto documentView = retainPtr([self documentView]);
 
-    WebDynamicScrollBarsView *scrollView  = [[customClass alloc] initWithFrame:[oldScrollView frame]];
-    [scrollView setContentView:[[[WebClipView alloc] initWithFrame:[scrollView bounds]] autorelease]];
+    RetainPtr<WebDynamicScrollBarsView> scrollView  = adoptNS([[customClass alloc] initWithFrame:[oldScrollView frame]]);
+    [scrollView setContentView:adoptNS([[WebClipView alloc] initWithFrame:[scrollView bounds]]).get()];
     [scrollView setDrawsBackground:[oldScrollView drawsBackground]];
     [scrollView setHasVerticalScroller:[oldScrollView hasVerticalScroller]];
     [scrollView setHasHorizontalScroller:[oldScrollView hasHorizontalScroller]];
     [scrollView setAutoresizingMask:[oldScrollView autoresizingMask]];
     [scrollView setLineScroll:[oldScrollView lineScroll]];
-    [self addSubview:scrollView];
+    [self addSubview:scrollView.get()];
 
     // don't call our overridden version here; we need to make the standard NSView link between us
     // and our subview so that previousKeyView and previousValidKeyView work as expected. This works
     // together with our becomeFirstResponder and setNextKeyView overrides.
-    [super setNextKeyView:scrollView];
+    [super setNextKeyView:scrollView.get()];
 
-    _private->frameScrollView = scrollView;
+    _private->frameScrollView = WTFMove(scrollView);
 
-    [self _setDocumentView:documentView];
+    [self _setDocumentView:documentView.get()];
     [self _install];
 
     [oldScrollView removeFromSuperview];
-    [oldScrollView release];
-    [documentView release];
 }
 #endif // !PLATFORM(IOS_FAMILY)
 

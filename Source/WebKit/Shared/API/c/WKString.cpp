@@ -30,6 +30,7 @@
 #include "WKAPICast.h"
 #include <JavaScriptCore/InitializeThreading.h>
 #include <JavaScriptCore/OpaqueJSString.h>
+#include <WebCore/WebCoreJITOperations.h>
 #include <wtf/unicode/UTF8Conversion.h>
 
 WKTypeID WKStringGetTypeID()
@@ -57,9 +58,9 @@ size_t WKStringGetCharacters(WKStringRef stringRef, WKChar* buffer, size_t buffe
     static_assert(sizeof(WKChar) == sizeof(UChar), "Size of WKChar must match size of UChar");
 
     unsigned unsignedBufferLength = std::min<size_t>(bufferLength, std::numeric_limits<unsigned>::max());
-    auto substring = WebKit::toImpl(stringRef)->stringView().substring(0, unsignedBufferLength);
+    auto substring = WebKit::toImpl(stringRef)->stringView().left(unsignedBufferLength);
 
-    substring.getCharactersWithUpconvert(reinterpret_cast<UChar*>(buffer));
+    substring.getCharacters(reinterpret_cast<UChar*>(buffer));
     return substring.length();
 }
 
@@ -87,7 +88,7 @@ size_t WKStringGetUTF8CStringImpl(WKStringRef stringRef, char* buffer, size_t bu
     } else {
         const UChar* characters = stringView.characters16();
         auto result = WTF::Unicode::convertUTF16ToUTF8(&characters, characters + stringView.length(), &p, p + bufferSize - 1, strict);
-        if (result != WTF::Unicode::ConversionOK && result != WTF::Unicode::TargetExhausted)
+        if (result != WTF::Unicode::ConversionResult::Success && result != WTF::Unicode::ConversionResult::TargetExhausted)
             return 0;
     }
 
@@ -134,5 +135,6 @@ WKStringRef WKStringCreateWithJSString(JSStringRef jsStringRef)
 JSStringRef WKStringCopyJSString(WKStringRef stringRef)
 {
     JSC::initialize();
+    WebCore::populateJITOperations();
     return OpaqueJSString::tryCreate(WebKit::toImpl(stringRef)->string()).leakRef();
 }

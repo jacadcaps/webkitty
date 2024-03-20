@@ -24,6 +24,10 @@
  */
 
 #import <WebKit/WebKit.h>
+#import <WebKit/_WKInputDelegate.h>
+
+@class UIEditMenuInteraction;
+@class UITextEffectsWindow;
 
 @interface WKWebView(SpellChecking)
 - (IBAction)toggleContinuousSpellChecking:(id)sender;
@@ -35,48 +39,65 @@
 
 @property (nonatomic, copy) void (^didStartFormControlInteractionCallback)(void);
 @property (nonatomic, copy) void (^didEndFormControlInteractionCallback)(void);
-@property (nonatomic, copy) void (^didShowContextMenuCallback)(void);
-@property (nonatomic, copy) void (^didDismissContextMenuCallback)(void);
 @property (nonatomic, copy) void (^willBeginZoomingCallback)(void);
 @property (nonatomic, copy) void (^didEndZoomingCallback)(void);
 @property (nonatomic, copy) void (^didShowKeyboardCallback)(void);
 @property (nonatomic, copy) void (^didHideKeyboardCallback)(void);
+@property (nonatomic, copy) void (^willStartInputSessionCallback)(void);
 @property (nonatomic, copy) void (^willPresentPopoverCallback)(void);
 @property (nonatomic, copy) void (^didDismissPopoverCallback)(void);
 @property (nonatomic, copy) void (^didEndScrollingCallback)(void);
 @property (nonatomic, copy) void (^rotationDidEndCallback)(void);
 @property (nonatomic, copy) void (^windowTapRecognizedCallback)(void);
 @property (nonatomic, copy) NSString *accessibilitySpeakSelectionContent;
+@property (nonatomic, readonly) UITextEffectsWindow *textEffectsWindow;
 
 - (void)setAllowedMenuActions:(NSArray<NSString *> *)actions;
 
-- (void)resetCustomMenuAction;
 - (void)immediatelyDismissContextMenuIfNeeded;
-- (void)installCustomMenuAction:(NSString *)name dismissesAutomatically:(BOOL)dismissesAutomatically callback:(dispatch_block_t)callback;
 
+- (void)_didPresentViewController:(UIViewController *)viewController;
 - (void)zoomToScale:(double)scale animated:(BOOL)animated completionHandler:(void (^)(void))completionHandler;
 - (void)accessibilityRetrieveSpeakSelectionContentWithCompletionHandler:(void (^)(void))completionHandler;
 - (void)_didEndRotation;
 
 @property (nonatomic, assign) UIEdgeInsets overrideSafeAreaInsets;
 
+@property (nonatomic, readonly) NSUInteger keyboardWillHideCount;
 @property (nonatomic, readonly) UIView *contentView;
 @property (nonatomic, readonly, getter=isShowingKeyboard) BOOL showingKeyboard;
 @property (nonatomic, readonly, getter=isDismissingMenu) BOOL dismissingMenu;
 @property (nonatomic, readonly, getter=isShowingPopover) BOOL showingPopover;
-@property (nonatomic, readonly, getter=isShowingContextMenu) BOOL showingContextMenu;
+@property (nonatomic, readonly, getter=isShowingFormValidationBubble) BOOL showingFormValidationBubble;
 @property (nonatomic, assign) BOOL usesSafariLikeRotation;
 @property (nonatomic, readonly, getter=isInteractingWithFormControl) BOOL interactingWithFormControl;
+@property (nonatomic) _WKFocusStartsInputSessionPolicy focusStartsInputSessionPolicy;
+
+@property (nonatomic, assign) UIInterfaceOrientationMask supportedInterfaceOrientations;
+@property (nonatomic) BOOL suppressInputAccessoryView;
 
 #endif
 
+@property (nonatomic, readonly, getter=isShowingContextMenu) BOOL showingContextMenu;
+@property (nonatomic, copy) void (^didShowContextMenuCallback)(void);
+@property (nonatomic, copy) void (^didDismissContextMenuCallback)(void);
 @property (nonatomic, readonly, getter=isShowingMenu) BOOL showingMenu;
+@property (nonatomic, readonly, getter=isZoomingOrScrolling) BOOL zoomingOrScrolling;
 @property (nonatomic, copy) void (^didShowMenuCallback)(void);
 @property (nonatomic, copy) void (^didHideMenuCallback)(void);
+@property (nonatomic, readonly, getter=isShowingContactPicker) BOOL showingContactPicker;
+@property (nonatomic, copy) void (^didShowContactPickerCallback)(void);
+@property (nonatomic, copy) void (^didHideContactPickerCallback)(void);
 @property (nonatomic, retain, setter=_setStableStateOverride:) NSNumber *_stableStateOverride;
 @property (nonatomic, setter=_setScrollingUpdatesDisabledForTesting:) BOOL _scrollingUpdatesDisabledForTesting;
 
 - (void)dismissActiveMenu;
 - (void)resetInteractionCallbacks;
+- (void)_didLoadAppInitiatedRequest:(void (^)(BOOL result))completionHandler;
+- (void)_didLoadNonAppInitiatedRequest:(void (^)(BOOL result))completionHandler;
+
+#if HAVE(UI_EDIT_MENU_INTERACTION)
+- (void)immediatelyDismissEditMenuInteractionIfNeeded;
+#endif
 
 @end

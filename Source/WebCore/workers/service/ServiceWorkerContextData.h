@@ -27,147 +27,43 @@
 
 #include "CertificateInfo.h"
 #include "ContentSecurityPolicyResponseHeaders.h"
+#include "CrossOriginEmbedderPolicy.h"
+#include "NavigationPreloadState.h"
+#include "ScriptBuffer.h"
+#include "ScriptExecutionContextIdentifier.h"
 #include "ServiceWorkerIdentifier.h"
+#include "ServiceWorkerImportedScript.h"
 #include "ServiceWorkerJobDataIdentifier.h"
 #include "ServiceWorkerRegistrationData.h"
 #include "WorkerType.h"
-#include <wtf/HashMap.h>
-#include <wtf/URL.h>
+#include <wtf/RobinHoodHashMap.h>
 #include <wtf/URLHash.h>
-
-#if ENABLE(SERVICE_WORKER)
 
 namespace WebCore {
 
+enum class LastNavigationWasAppInitiated : bool;
+
 struct ServiceWorkerContextData {
-    struct ImportedScript {
-        String script;
-        URL responseURL;
-        String mimeType;
-
-        ImportedScript isolatedCopy() const { return { script.isolatedCopy(), responseURL.isolatedCopy(), mimeType.isolatedCopy() }; }
-
-        template<class Encoder> void encode(Encoder& encoder) const
-        {
-            encoder << script << responseURL << mimeType;
-        }
-
-        template<class Decoder> static Optional<ImportedScript> decode(Decoder& decoder)
-        {
-            Optional<String> script;
-            decoder >> script;
-            if (!script)
-                return WTF::nullopt;
-            
-            Optional<URL> responseURL;
-            decoder >> responseURL;
-            if (!responseURL)
-                return WTF::nullopt;
-            
-            Optional<String> mimeType;
-            decoder >> mimeType;
-            if (!mimeType)
-                return WTF::nullopt;
-            
-            return {{
-                WTFMove(*script),
-                WTFMove(*responseURL),
-                WTFMove(*mimeType)
-            }};
-        }
-    };
-
-    Optional<ServiceWorkerJobDataIdentifier> jobDataIdentifier;
+    std::optional<ServiceWorkerJobDataIdentifier> jobDataIdentifier;
     ServiceWorkerRegistrationData registration;
     ServiceWorkerIdentifier serviceWorkerIdentifier;
-    String script;
+    ScriptBuffer script;
     CertificateInfo certificateInfo;
     ContentSecurityPolicyResponseHeaders contentSecurityPolicy;
+    CrossOriginEmbedderPolicy crossOriginEmbedderPolicy;
     String referrerPolicy;
     URL scriptURL;
     WorkerType workerType;
     bool loadedFromDisk;
-    HashMap<URL, ImportedScript> scriptResourceMap;
+    std::optional<LastNavigationWasAppInitiated> lastNavigationWasAppInitiated;
+    MemoryCompactRobinHoodHashMap<URL, ServiceWorkerImportedScript> scriptResourceMap;
+    std::optional<ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier;
+    NavigationPreloadState navigationPreloadState;
+    
+    using ImportedScript = ServiceWorkerImportedScript;
 
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static Optional<ServiceWorkerContextData> decode(Decoder&);
-
-    ServiceWorkerContextData isolatedCopy() const;
+    WEBCORE_EXPORT ServiceWorkerContextData isolatedCopy() const &;
+    WEBCORE_EXPORT ServiceWorkerContextData isolatedCopy() &&;
 };
 
-template<class Encoder>
-void ServiceWorkerContextData::encode(Encoder& encoder) const
-{
-    encoder << jobDataIdentifier << registration << serviceWorkerIdentifier << script << contentSecurityPolicy << referrerPolicy << scriptURL << workerType << loadedFromDisk;
-    encoder << scriptResourceMap;
-    encoder << certificateInfo;
-}
-
-template<class Decoder>
-Optional<ServiceWorkerContextData> ServiceWorkerContextData::decode(Decoder& decoder)
-{
-    Optional<Optional<ServiceWorkerJobDataIdentifier>> jobDataIdentifier;
-    decoder >> jobDataIdentifier;
-    if (!jobDataIdentifier)
-        return WTF::nullopt;
-
-    Optional<ServiceWorkerRegistrationData> registration;
-    decoder >> registration;
-    if (!registration)
-        return WTF::nullopt;
-
-    auto serviceWorkerIdentifier = ServiceWorkerIdentifier::decode(decoder);
-    if (!serviceWorkerIdentifier)
-        return WTF::nullopt;
-
-    String script;
-    if (!decoder.decode(script))
-        return WTF::nullopt;
-
-    ContentSecurityPolicyResponseHeaders contentSecurityPolicy;
-    if (!decoder.decode(contentSecurityPolicy))
-        return WTF::nullopt;
-
-    String referrerPolicy;
-    if (!decoder.decode(referrerPolicy))
-        return WTF::nullopt;
-
-    URL scriptURL;
-    if (!decoder.decode(scriptURL))
-        return WTF::nullopt;
-    
-    WorkerType workerType;
-    if (!decoder.decode(workerType))
-        return WTF::nullopt;
-
-    bool loadedFromDisk;
-    if (!decoder.decode(loadedFromDisk))
-        return WTF::nullopt;
-
-    HashMap<URL, ImportedScript> scriptResourceMap;
-    if (!decoder.decode(scriptResourceMap))
-        return WTF::nullopt;
-
-    Optional<CertificateInfo> certificateInfo;
-    decoder >> certificateInfo;
-    if (!certificateInfo)
-        return WTF::nullopt;
-    
-    return {{
-        WTFMove(*jobDataIdentifier),
-        WTFMove(*registration),
-        WTFMove(*serviceWorkerIdentifier),
-        WTFMove(script),
-        WTFMove(*certificateInfo),
-        WTFMove(contentSecurityPolicy),
-        WTFMove(referrerPolicy),
-        WTFMove(scriptURL),
-        workerType,
-        loadedFromDisk,
-        WTFMove(scriptResourceMap)
-    }};
-}
-
 } // namespace WebCore
-
-#endif // ENABLE(SERVICE_WORKER)

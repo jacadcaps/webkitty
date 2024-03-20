@@ -35,7 +35,7 @@ namespace WebCore {
 class InbandTextTrack : public TextTrack, private InbandTextTrackPrivateClient {
     WTF_MAKE_ISO_ALLOCATED(InbandTextTrack);
 public:
-    static Ref<InbandTextTrack> create(Document&, TextTrackClient&, InbandTextTrackPrivate&);
+    static Ref<InbandTextTrack> create(Document&, InbandTextTrackPrivate&);
     virtual ~InbandTextTrack();
 
     bool isClosedCaptions() const override;
@@ -44,27 +44,29 @@ public:
     bool isMainProgramContent() const override;
     bool isEasyToRead() const override;
     void setMode(Mode) override;
+    bool isDefault() const override;
     size_t inbandTrackIndex();
 
     AtomString inBandMetadataTrackDispatchType() const override;
 
     void setPrivate(InbandTextTrackPrivate&);
-    void setMediaElement(WeakPtr<HTMLMediaElement>) override;
 #if !RELEASE_LOG_DISABLED
     void setLogger(const Logger&, const void*) final;
 #endif
 
 protected:
-    InbandTextTrack(Document&, TextTrackClient&, InbandTextTrackPrivate&);
+    InbandTextTrack(Document&, InbandTextTrackPrivate&);
 
     void setModeInternal(Mode);
     void updateKindFromPrivate();
 
     Ref<InbandTextTrackPrivate> m_private;
 
+    MediaTime startTimeVariance() const override;
+
 private:
     bool isInband() const final { return true; }
-    void idChanged(const AtomString&) override;
+    void idChanged(TrackID) override;
     void labelChanged(const AtomString&) override;
     void languageChanged(const AtomString&) override;
     void willRemove() override;
@@ -82,10 +84,8 @@ private:
     void removeGenericCue(InbandGenericCue&) override { ASSERT_NOT_REACHED(); }
 
     void parseWebVTTFileHeader(String&&) override { ASSERT_NOT_REACHED(); }
-    void parseWebVTTCueData(const char*, unsigned) override { ASSERT_NOT_REACHED(); }
+    void parseWebVTTCueData(const uint8_t*, unsigned) override { ASSERT_NOT_REACHED(); }
     void parseWebVTTCueData(ISOWebVTTCue&&) override { ASSERT_NOT_REACHED(); }
-
-    MediaTime startTimeVariance() const override;
 };
 
 } // namespace WebCore

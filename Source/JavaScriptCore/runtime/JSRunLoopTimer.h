@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,6 +31,7 @@
 #include <wtf/RetainPtr.h>
 #include <wtf/RunLoop.h>
 #include <wtf/SharedTask.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/ThreadSafeRefCounted.h>
 
 namespace JSC {
@@ -44,8 +45,8 @@ public:
     using TimerNotificationCallback = RefPtr<WTF::SharedTask<TimerNotificationType>>;
 
     class Manager {
-        WTF_MAKE_FAST_ALLOCATED;
         WTF_MAKE_NONCOPYABLE(Manager);
+        WTF_MAKE_TZONE_ALLOCATED(Manager);
         void timerDidFireCallback();
 
         Manager() = default;
@@ -53,15 +54,13 @@ public:
         void timerDidFire();
 
     public:
-        using EpochTime = Seconds;
-
         static Manager& shared();
         void registerVM(VM&);
         void unregisterVM(VM&);
         void scheduleTimer(JSRunLoopTimer&, Seconds nextFireTime);
         void cancelTimer(JSRunLoopTimer&);
 
-        Optional<Seconds> timeUntilFire(JSRunLoopTimer&);
+        std::optional<Seconds> timeUntilFire(JSRunLoopTimer&);
 
     private:
         Lock m_lock;
@@ -74,8 +73,8 @@ public:
             ~PerVMData();
 
             Ref<WTF::RunLoop> runLoop;
-            std::unique_ptr<RunLoop::Timer<Manager>> timer;
-            Vector<std::pair<Ref<JSRunLoopTimer>, EpochTime>> timers;
+            std::unique_ptr<RunLoop::Timer> timer;
+            Vector<std::pair<Ref<JSRunLoopTimer>, MonotonicTime>> timers;
         };
 
         HashMap<Ref<JSLock>, std::unique_ptr<PerVMData>> m_mapping;
@@ -85,7 +84,7 @@ public:
     JS_EXPORT_PRIVATE virtual ~JSRunLoopTimer();
     virtual void doWork(VM&) = 0;
 
-    void setTimeUntilFire(Seconds intervalInSeconds);
+    JS_EXPORT_PRIVATE void setTimeUntilFire(Seconds intervalInSeconds);
     void cancelTimer();
     bool isScheduled() const { return m_isScheduled; }
 
@@ -96,7 +95,7 @@ public:
     JS_EXPORT_PRIVATE void addTimerSetNotification(TimerNotificationCallback);
     JS_EXPORT_PRIVATE void removeTimerSetNotification(TimerNotificationCallback);
 
-    JS_EXPORT_PRIVATE Optional<Seconds> timeUntilFire();
+    JS_EXPORT_PRIVATE std::optional<Seconds> timeUntilFire();
 
 protected:
     static constexpr Seconds s_decade { 60 * 60 * 24 * 365 * 10 };

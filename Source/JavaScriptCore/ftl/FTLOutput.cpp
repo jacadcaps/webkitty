@@ -38,6 +38,7 @@
 #include "B3StackmapGenerationParams.h"
 #include "B3UpsilonValue.h"
 #include "B3ValueInlines.h"
+#include "ProbeContext.h"
 #include "SuperSampler.h"
 
 namespace JSC { namespace FTL {
@@ -86,12 +87,26 @@ void Output::appendTo(LBasicBlock block)
     m_block = block;
 }
 
+void Output::probeDebugPrint(const String& str, LValue value)
+{
+    PatchpointValue* result = patchpoint(Void);
+    result->append(value, ValueRep::SomeRegister);
+    result->setGenerator(
+        [=] (CCallHelpers& jit, const StackmapGenerationParams& params) {
+            auto reg = params.at(0).gpr();
+            jit.probeDebug([=](Probe::Context& ctx) {
+                dataLogLn(str, " value: ", ctx.gpr<uint64_t>(reg));
+            });
+        });
+    result->effects = Effects::forCall();
+}
+
 LValue Output::framePointer()
 {
     return m_block->appendNew<B3::Value>(m_proc, B3::FramePointer, origin());
 }
 
-SlotBaseValue* Output::lockedStackSlot(size_t bytes)
+SlotBaseValue* Output::lockedStackSlot(uint64_t bytes)
 {
     return m_block->appendNew<SlotBaseValue>(m_proc, origin(), m_proc.addStackSlot(bytes));
 }
@@ -126,6 +141,11 @@ LValue Output::phi(LType type)
 LValue Output::opaque(LValue value)
 {
     return m_block->appendNew<Value>(m_proc, Opaque, origin(), value);
+}
+
+LValue Output::extract(LValue value, unsigned index)
+{
+    return m_block->appendNew<ExtractValue>(m_proc, origin(), m_proc.typeAtOffset(value->type(), index), value, index);
 }
 
 LValue Output::add(LValue left, LValue right)
@@ -286,20 +306,17 @@ LValue Output::doubleTrunc(LValue value)
         result->effects = Effects::none();
         return result;
     }
-    double (*truncDouble)(double) = trunc;
-    return callWithoutSideEffects(Double, truncDouble, value);
+    return callWithoutSideEffects(Double, Math::truncDouble, value);
 }
 
 LValue Output::doubleUnary(DFG::Arith::UnaryType type, LValue value)
 {
-    double (*unaryFunction)(double) = DFG::arithUnaryFunction(type);
-    return callWithoutSideEffects(B3::Double, unaryFunction, value);
+    return callWithoutSideEffects(B3::Double, DFG::arithUnaryFunction(type), value);
 }
 
-LValue Output::doublePow(LValue xOperand, LValue yOperand)
+LValue Output::doubleStdPow(LValue xOperand, LValue yOperand)
 {
-    double (*powDouble)(double, double) = pow;
-    return callWithoutSideEffects(B3::Double, powDouble, xOperand, yOperand);
+    return callWithoutSideEffects(B3::Double, Math::stdPowDouble, xOperand, yOperand);
 }
 
 LValue Output::doublePowi(LValue x, LValue y)

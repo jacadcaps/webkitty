@@ -28,9 +28,12 @@
 
 #if ENABLE(MATHML)
 
+#include "ElementInlines.h"
 #include "FontSelector.h"
 #include "MathMLNames.h"
 #include "MathMLRowElement.h"
+#include "RenderBoxInlines.h"
+#include "RenderBoxModelObjectInlines.h"
 #include "RenderInline.h"
 #include "RenderMathMLFencedOperator.h"
 #include "RenderText.h"
@@ -44,12 +47,13 @@ using namespace MathMLNames;
 
 WTF_MAKE_ISO_ALLOCATED_IMPL(RenderMathMLFenced);
 
-static const char* gOpeningBraceChar = "(";
-static const char* gClosingBraceChar = ")";
+static constexpr auto gOpeningBraceChar = "("_s;
+static constexpr auto gClosingBraceChar = ")"_s;
 
 RenderMathMLFenced::RenderMathMLFenced(MathMLRowElement& element, RenderStyle&& style)
-    : RenderMathMLRow(element, WTFMove(style))
+    : RenderMathMLRow(Type::MathMLFenced, element, WTFMove(style))
 {
+    ASSERT(isRenderMathMLFenced());
 }
 
 void RenderMathMLFenced::updateFromElement()
@@ -68,19 +72,19 @@ void RenderMathMLFenced::updateFromElement()
     if (!separators.isNull()) {
         StringBuilder characters;
         for (unsigned i = 0; i < separators.length(); i++) {
-            if (!isSpaceOrNewline(separators[i]))
+            if (!deprecatedIsSpaceOrNewline(separators[i]))
                 characters.append(separators[i]);
         }
         m_separators = !characters.length() ? 0 : characters.toString().impl();
     } else {
         // The separator defaults to a single comma.
-        m_separators = StringImpl::create(",");
+        m_separators = StringImpl::create(","_s);
     }
 
     if (firstChild()) {
         // FIXME: The mfenced element fails to update dynamically when its open, close and separators attributes are changed (https://bugs.webkit.org/show_bug.cgi?id=57696).
-        if (is<RenderMathMLFencedOperator>(*firstChild()))
-            downcast<RenderMathMLFencedOperator>(*firstChild()).updateOperatorContent(m_open);
+        if (auto* fencedOperator = dynamicDowncast<RenderMathMLFencedOperator>(*firstChild()))
+            fencedOperator->updateOperatorContent(m_open);
         m_closeFenceRenderer->updateOperatorContent(m_close);
     }
 }

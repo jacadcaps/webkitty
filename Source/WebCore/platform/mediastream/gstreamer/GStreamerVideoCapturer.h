@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2018 Metrological Group B.V.
+ * Copyright (C) 2020 Igalia S.L.
  * Author: Thibault Saunier <tsaunier@igalia.com>
  * Author: Alejandro G. Castro  <alex@igalia.com>
  *
@@ -21,26 +22,46 @@
 
 #pragma once
 
-#if ENABLE(MEDIA_STREAM) && USE(LIBWEBRTC) && USE(GSTREAMER)
+#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER)
 
 #include "GStreamerCapturer.h"
 
-#include <gst/video/video.h>
-
 namespace WebCore {
 
-class GStreamerVideoCapturer final : public GStreamerCapturer {
-public:
-    GStreamerVideoCapturer(GStreamerCaptureDevice);
-    GStreamerVideoCapturer(const char* source_factory);
+class VideoFrameGStreamer;
 
+class GStreamerVideoCapturer final : public GStreamerCapturer {
+    friend class GStreamerVideoCaptureSource;
+    friend class MockRealtimeVideoSourceGStreamer;
+public:
+    GStreamerVideoCapturer(GStreamerCaptureDevice&&);
+    GStreamerVideoCapturer(const char* sourceFactory, CaptureDevice::DeviceType);
+    ~GStreamerVideoCapturer() = default;
+
+    GstElement* createSource() final;
     GstElement* createConverter() final;
     const char* name() final { return "Video"; }
 
+    using NodeAndFD = std::pair<uint32_t, int>;
+
+    using SinkVideoFrameCallback = Function<void(Ref<VideoFrameGStreamer>&&)>;
+    void setSinkVideoFrameCallback(SinkVideoFrameCallback&&);
+
+private:
     bool setSize(int width, int height);
     bool setFrameRate(double);
+    void reconfigure();
+
     GstVideoInfo getBestFormat();
+
+    void setPipewireNodeAndFD(const NodeAndFD& nodeAndFd) { m_nodeAndFd = nodeAndFd; }
+    bool isCapturingDisplay() const { return m_nodeAndFd.has_value(); }
+
+    std::optional<NodeAndFD> m_nodeAndFd;
+    GRefPtr<GstElement> m_videoSrcMIMETypeFilter;
+    std::pair<unsigned long, SinkVideoFrameCallback> m_sinkVideoFrameCallback;
 };
 
 } // namespace WebCore
-#endif // ENABLE(MEDIA_STREAM) && USE(LIBWEBRTC) && USE(GSTREAMER)
+
+#endif // ENABLE(MEDIA_STREAM) && USE(GSTREAMER)

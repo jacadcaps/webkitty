@@ -82,18 +82,6 @@ static bool didScroll;
 
 @implementation TestWKWebView (SynchronousTextInputContext)
 
-- (NSArray<_WKTextInputContext *> *)synchronouslyRequestTextInputContextsInRect:(CGRect)rect
-{
-    __block bool finished = false;
-    __block RetainPtr<NSArray<_WKTextInputContext *>> result;
-    [self _requestTextInputContextsInRect:rect completionHandler:^(NSArray<_WKTextInputContext *> *contexts) {
-        result = contexts;
-        finished = true;
-    }];
-    TestWebKitAPI::Util::run(&finished);
-    return result.autorelease();
-}
-
 - (UIResponder<UITextInput> *)synchronouslyFocusTextInputContext:(_WKTextInputContext *)context placeCaretAt:(CGPoint)point
 {
     __block bool finished = false;
@@ -676,7 +664,7 @@ TEST(RequestTextInputContext, TextInteraction_FocusingReadOnlyElementShouldScrol
     }
 
     EXPECT_WK_STREQ("INPUT", [webView stringByEvaluatingJavaScript:@"document.activeElement.tagName"]);
-    EXPECT_TRUE(didScroll);
+    TestWebKitAPI::Util::run(&didScroll);
 }
 
 TEST(RequestTextInputContext, TextInteraction_FocusElementInDetachedDocument)
@@ -846,7 +834,8 @@ TEST(RequestTextInputContext, TextInteraction_FocusDefocusFocusAgainShouldScroll
     EXPECT_TRUE(didScroll);
 }
 
-TEST(RequestTextInputContext, TextInteraction_FocusingAssistedElementShouldNotScrollToReveal)
+// FIXME: Re-enable after webkit.org/b/242085 is resolved
+TEST(RequestTextInputContext, DISABLED_TextInteraction_FocusingAssistedElementShouldNotScrollToReveal)
 {
     IPhoneUserInterfaceSwizzler userInterfaceSwizzler;
 

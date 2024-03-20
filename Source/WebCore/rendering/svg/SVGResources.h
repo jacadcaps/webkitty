@@ -19,23 +19,23 @@
 
 #pragma once
 
-#include "RenderSVGResourceMarker.h"
+#include "LegacyRenderSVGResourceClipper.h"
+#include "LegacyRenderSVGResourceFilter.h"
+#include "LegacyRenderSVGResourceMarker.h"
+#include "LegacyRenderSVGResourceMasker.h"
 #include <memory>
 #include <wtf/HashSet.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/WeakHashSet.h>
 
 namespace WebCore {
 
 class Document;
+class LegacyRenderSVGResourceContainer;
 class RenderElement;
 class RenderObject;
 class RenderStyle;
-class RenderSVGResourceClipper;
-class RenderSVGResourceContainer;
-class RenderSVGResourceFilter;
-class RenderSVGResourceMarker;
-class RenderSVGResourceMasker;
-class RenderSVGRoot;
+class LegacyRenderSVGRoot;
 class SVGRenderStyle;
 
 // Holds a set of resources associated with a RenderObject
@@ -44,31 +44,33 @@ class SVGResources {
 public:
     SVGResources();
 
-    bool buildCachedResources(const RenderElement&, const RenderStyle&);
-    void layoutDifferentRootIfNeeded(const RenderSVGRoot*);
+    static std::unique_ptr<SVGResources> buildCachedResources(const RenderElement&, const RenderStyle&);
+    void layoutDifferentRootIfNeeded(const RenderElement& resourcesClient);
+
+    bool markerReverseStart() const;
 
     // Ordinary resources
-    RenderSVGResourceClipper* clipper() const { return m_clipperFilterMaskerData ? m_clipperFilterMaskerData->clipper : nullptr; }
-    RenderSVGResourceMarker* markerStart() const { return m_markerData ? m_markerData->markerStart : nullptr; }
-    RenderSVGResourceMarker* markerMid() const { return m_markerData ? m_markerData->markerMid : nullptr; }
-    RenderSVGResourceMarker* markerEnd() const { return m_markerData ? m_markerData->markerEnd : nullptr; }
-    bool markerReverseStart() const;
-    RenderSVGResourceMasker* masker() const { return m_clipperFilterMaskerData ? m_clipperFilterMaskerData->masker : nullptr; }
-    RenderSVGResourceFilter* filter() const { return m_clipperFilterMaskerData ? m_clipperFilterMaskerData->filter : nullptr; }
+    LegacyRenderSVGResourceClipper* clipper() const { return m_clipperFilterMaskerData ? m_clipperFilterMaskerData->clipper.get() : nullptr; }
+    LegacyRenderSVGResourceMasker* masker() const { return m_clipperFilterMaskerData ? m_clipperFilterMaskerData->masker.get() : nullptr; }
+    LegacyRenderSVGResourceFilter* filter() const { return m_clipperFilterMaskerData ? m_clipperFilterMaskerData->filter.get() : nullptr; }
+
+    LegacyRenderSVGResourceMarker* markerStart() const { return m_markerData ? m_markerData->markerStart.get() : nullptr; }
+    LegacyRenderSVGResourceMarker* markerMid() const { return m_markerData ? m_markerData->markerMid.get() : nullptr; }
+    LegacyRenderSVGResourceMarker* markerEnd() const { return m_markerData ? m_markerData->markerEnd.get() : nullptr; }
 
     // Paint servers
-    RenderSVGResourceContainer* fill() const { return m_fillStrokeData ? m_fillStrokeData->fill : nullptr; }
-    RenderSVGResourceContainer* stroke() const { return m_fillStrokeData ? m_fillStrokeData->stroke : nullptr; }
+    LegacyRenderSVGResourceContainer* fill() const { return m_fillStrokeData ? m_fillStrokeData->fill.get() : nullptr; }
+    LegacyRenderSVGResourceContainer* stroke() const { return m_fillStrokeData ? m_fillStrokeData->stroke.get() : nullptr; }
 
     // Chainable resources - linked through xlink:href
-    RenderSVGResourceContainer* linkedResource() const { return m_linkedResource; }
+    LegacyRenderSVGResourceContainer* linkedResource() const { return m_linkedResource.get(); }
 
-    void buildSetOfResources(HashSet<RenderSVGResourceContainer*>&);
+    void buildSetOfResources(SingleThreadWeakHashSet<LegacyRenderSVGResourceContainer>&);
 
     // Methods operating on all cached resources
     void removeClientFromCache(RenderElement&, bool markForInvalidation = true) const;
     // Returns true if the resource-to-be-destroyed is one of our resources.
-    bool resourceDestroyed(RenderSVGResourceContainer&);
+    bool resourceDestroyed(LegacyRenderSVGResourceContainer&);
 
 #if ENABLE(TREE_DEBUGGING)
     void dump(const RenderObject*);
@@ -89,15 +91,15 @@ private:
     void resetLinkedResource();
 
 private:
-    bool setClipper(RenderSVGResourceClipper*);
-    bool setFilter(RenderSVGResourceFilter*);
-    bool setMarkerStart(RenderSVGResourceMarker*);
-    bool setMarkerMid(RenderSVGResourceMarker*);
-    bool setMarkerEnd(RenderSVGResourceMarker*);
-    bool setMasker(RenderSVGResourceMasker*);
-    bool setFill(RenderSVGResourceContainer*);
-    bool setStroke(RenderSVGResourceContainer*);
-    bool setLinkedResource(RenderSVGResourceContainer*);
+    bool setClipper(LegacyRenderSVGResourceClipper*);
+    bool setFilter(LegacyRenderSVGResourceFilter*);
+    bool setMarkerStart(LegacyRenderSVGResourceMarker*);
+    bool setMarkerMid(LegacyRenderSVGResourceMarker*);
+    bool setMarkerEnd(LegacyRenderSVGResourceMarker*);
+    bool setMasker(LegacyRenderSVGResourceMasker*);
+    bool setFill(LegacyRenderSVGResourceContainer*);
+    bool setStroke(LegacyRenderSVGResourceContainer*);
+    bool setLinkedResource(LegacyRenderSVGResourceContainer*);
     
     bool isEmpty() const { return !m_clipperFilterMaskerData && !m_markerData && !m_fillStrokeData && !m_linkedResource; }
 
@@ -110,9 +112,9 @@ private:
         WTF_MAKE_FAST_ALLOCATED;
     public:
         ClipperFilterMaskerData() = default;
-        RenderSVGResourceClipper* clipper { nullptr };
-        RenderSVGResourceFilter* filter { nullptr };
-        RenderSVGResourceMasker* masker { nullptr };
+        SingleThreadWeakPtr<LegacyRenderSVGResourceClipper> clipper;
+        SingleThreadWeakPtr<LegacyRenderSVGResourceFilter> filter;
+        SingleThreadWeakPtr<LegacyRenderSVGResourceMasker> masker;
     };
 
     // From SVG 1.1 2nd Edition
@@ -121,9 +123,9 @@ private:
         WTF_MAKE_FAST_ALLOCATED;
     public:
         MarkerData() = default;
-        RenderSVGResourceMarker* markerStart { nullptr };
-        RenderSVGResourceMarker* markerMid { nullptr };
-        RenderSVGResourceMarker* markerEnd { nullptr };
+        SingleThreadWeakPtr<LegacyRenderSVGResourceMarker> markerStart;
+        SingleThreadWeakPtr<LegacyRenderSVGResourceMarker> markerMid;
+        SingleThreadWeakPtr<LegacyRenderSVGResourceMarker> markerEnd;
     };
 
     // From SVG 1.1 2nd Edition
@@ -134,14 +136,14 @@ private:
         WTF_MAKE_FAST_ALLOCATED;
     public:
         FillStrokeData() = default;
-        RenderSVGResourceContainer* fill { nullptr };
-        RenderSVGResourceContainer* stroke { nullptr };
+        SingleThreadWeakPtr<LegacyRenderSVGResourceContainer> fill;
+        SingleThreadWeakPtr<LegacyRenderSVGResourceContainer> stroke;
     };
 
     std::unique_ptr<ClipperFilterMaskerData> m_clipperFilterMaskerData;
     std::unique_ptr<MarkerData> m_markerData;
     std::unique_ptr<FillStrokeData> m_fillStrokeData;
-    RenderSVGResourceContainer* m_linkedResource { nullptr };
+    SingleThreadWeakPtr<LegacyRenderSVGResourceContainer> m_linkedResource;
 };
 
 } // namespace WebCore

@@ -63,6 +63,9 @@ public:
     
     bool run()
     {
+        ASSERT(m_graph.m_planStage <= PlanStage::LICMAndLater);
+        m_graph.m_planStage = PlanStage::LICMAndLater;
+
         DFG_ASSERT(m_graph, nullptr, m_graph.m_form == SSA);
         
         m_graph.ensureSSADominators();
@@ -218,10 +221,8 @@ public:
                     break;
                 for (unsigned stackIndex = loopStack.size(); stackIndex--;) {
                     if (UNLIKELY(Options::useLICMFuzzing())) {
-                        constexpr double range = static_cast<double>(std::numeric_limits<uint32_t>::max());
-                        uint32_t floor = static_cast<unsigned>((1.0 - Options::allowHoistingLICMProbability()) * range);
-                        bool shouldAttemptHoist = random.getUint32() >= floor;
-                        if (!shouldAttemptHoist)
+                        bool shouldAttemptHoist = random.returnTrueWithProbability(Options::allowHoistingLICMProbability());
+                        if (!shouldAttemptHoist && !nodeRef->isCheckNode())
                             continue;
                     }
 

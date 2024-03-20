@@ -49,17 +49,26 @@ ScrollingTreeFrameHostingNode::ScrollingTreeFrameHostingNode(ScrollingTree& scro
 
 ScrollingTreeFrameHostingNode::~ScrollingTreeFrameHostingNode() = default;
 
-void ScrollingTreeFrameHostingNode::commitStateBeforeChildren(const ScrollingStateNode&)
+bool ScrollingTreeFrameHostingNode::commitStateBeforeChildren(const ScrollingStateNode& stateNode)
 {
+    if (!is<ScrollingStateFrameHostingNode>(stateNode))
+        return false;
+
+    const auto& state = downcast<ScrollingStateFrameHostingNode>(stateNode);
+    if (state.hasChangedProperty(ScrollingStateNode::Property::LayerHostingContextIdentifier))
+        setLayerHostingContextIdentifier(state.layerHostingContextIdentifier());
+    return true;
 }
 
 void ScrollingTreeFrameHostingNode::applyLayerPositions()
 {
 }
 
-void ScrollingTreeFrameHostingNode::dumpProperties(TextStream& ts, ScrollingStateTreeAsTextBehavior behavior) const
+void ScrollingTreeFrameHostingNode::dumpProperties(TextStream& ts, OptionSet<ScrollingStateTreeAsTextBehavior> behavior) const
 {
     ts << "frame hosting node";
+    if (auto hostingContextIdentifier = m_hostingContext)
+        ts.dumpProperty("hosting context identifier", *m_hostingContext);
     ScrollingTreeNode::dumpProperties(ts, behavior);
 }
 

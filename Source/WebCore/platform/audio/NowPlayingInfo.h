@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,65 +25,40 @@
 
 #pragma once
 
-#include "MediaSessionIdentifier.h"
+#include "Image.h"
+#include "MediaUniqueIdentifier.h"
+#include <wtf/URL.h>
+#include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
+struct NowPlayingInfoArtwork {
+    String src;
+    String mimeType;
+    RefPtr<Image> image;
+
+    bool operator==(const NowPlayingInfoArtwork& other) const
+    {
+        return src == other.src && mimeType == other.mimeType;
+    }
+};
+
 struct NowPlayingInfo {
     String title;
+    String artist;
+    String album;
     String sourceApplicationIdentifier;
     double duration { 0 };
     double currentTime { 0 };
+    double rate { 1.0 };
     bool supportsSeeking { false };
-    MediaSessionIdentifier uniqueIdentifier;
+    MediaUniqueIdentifier uniqueIdentifier;
     bool isPlaying { false };
     bool allowsNowPlayingControlsVisibility { false };
+    std::optional<NowPlayingInfoArtwork> artwork;
 
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static Optional<NowPlayingInfo> decode(Decoder&);
+    friend bool operator==(const NowPlayingInfo&, const NowPlayingInfo&) = default;
 };
-
-template<class Encoder> inline void NowPlayingInfo::encode(Encoder& encoder) const
-{
-    encoder << title << sourceApplicationIdentifier << duration << currentTime << supportsSeeking << uniqueIdentifier << isPlaying << allowsNowPlayingControlsVisibility;
-}
-
-template<class Decoder> inline Optional<NowPlayingInfo> NowPlayingInfo::decode(Decoder& decoder)
-{
-    String title;
-    if (!decoder.decode(title))
-        return { };
-
-    String sourceApplicationIdentifier;
-    if (!decoder.decode(sourceApplicationIdentifier))
-        return { };
-
-    double duration;
-    if (!decoder.decode(duration))
-        return { };
-
-    double currentTime;
-    if (!decoder.decode(currentTime))
-        return { };
-
-    bool supportsSeeking;
-    if (!decoder.decode(supportsSeeking))
-        return { };
-
-    MediaSessionIdentifier uniqueIdentifier;
-    if (!decoder.decode(uniqueIdentifier))
-        return { };
-
-    bool isPlaying;
-    if (!decoder.decode(isPlaying))
-        return { };
-
-    bool allowsNowPlayingControlsVisibility;
-    if (!decoder.decode(allowsNowPlayingControlsVisibility))
-        return { };
-
-    return NowPlayingInfo { WTFMove(title), WTFMove(sourceApplicationIdentifier), duration, currentTime, supportsSeeking, uniqueIdentifier, isPlaying, allowsNowPlayingControlsVisibility };
-}
 
 } // namespace WebCore

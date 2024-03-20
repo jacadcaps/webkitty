@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,73 +27,81 @@
 #include "Decoder.h"
 
 #include "ArgumentCoders.h"
-#include "DataReference.h"
+#include "Logging.h"
 #include "MessageFlags.h"
 #include <stdio.h>
 #include <wtf/StdLibExtras.h>
 
-#if PLATFORM(MAC)
-#include "ImportanceAssertion.h"
-#endif
-
 namespace IPC {
 
-static const uint8_t* copyBuffer(const uint8_t* buffer, size_t bufferSize)
+static uint8_t* copyBuffer(DataReference buffer)
 {
-    auto bufferCopy = static_cast<uint8_t*>(fastMalloc(bufferSize));
-    memcpy(bufferCopy, buffer, bufferSize);
+    uint8_t* bufferCopy;
+    const size_t bufferSize = buffer.size_bytes();
+    if (!tryFastMalloc(bufferSize).getValue(bufferCopy)) {
+        RELEASE_LOG_FAULT(IPC, "Decoder::copyBuffer: tryFastMalloc(%lu) failed", bufferSize);
+        return nullptr;
+    }
 
+    memcpy(bufferCopy, buffer.data(), bufferSize);
     return bufferCopy;
 }
 
-std::unique_ptr<Decoder> Decoder::create(const uint8_t* buffer, size_t bufferSize, void (*bufferDeallocator)(const uint8_t*, size_t), Vector<Attachment>&& attachments)
+std::unique_ptr<Decoder> Decoder::create(DataReference buffer, Vector<Attachment>&& attachments)
 {
-    auto decoder = makeUnique<Decoder>(buffer, bufferSize, bufferDeallocator, WTFMove(attachments));
-    return decoder->isValid() ? WTFMove(decoder) : nullptr;
+    return Decoder::create({ copyBuffer(buffer), buffer.size() }, [](DataReference buffer) { fastFree(const_cast<uint8_t*>(buffer.data())); }, WTFMove(attachments)); // NOLINT
 }
 
-Decoder::Decoder(const uint8_t* buffer, size_t bufferSize, void (*bufferDeallocator)(const uint8_t*, size_t), Vector<Attachment>&& attachments)
-    : m_buffer { bufferDeallocator ? buffer : copyBuffer(buffer, bufferSize) }
-    , m_bufferPos { m_buffer }
-    , m_bufferEnd { m_buffer + bufferSize }
-    , m_bufferDeallocator { bufferDeallocator }
+std::unique_ptr<Decoder> Decoder::create(DataReference buffer, BufferDeallocator&& bufferDeallocator, Vector<Attachment>&& attachments)
+{
+    ASSERT(bufferDeallocator);
+    ASSERT(!!buffer.data());
+    if (UNLIKELY(!buffer.data())) {
+        RELEASE_LOG_FAULT(IPC, "Decoder::create() called with a null buffer (buffer size: %lu)", buffer.size_bytes());
+        return nullptr;
+    }
+    auto decoder = std::unique_ptr<Decoder>(new Decoder(buffer, WTFMove(bufferDeallocator), WTFMove(attachments)));
+    if (!decoder->isValid())
+        return nullptr;
+    return decoder;
+}
+
+Decoder::Decoder(DataReference buffer, BufferDeallocator&& bufferDeallocator, Vector<Attachment>&& attachments)
+    : m_buffer { buffer }
+    , m_bufferPosition { m_buffer.begin() }
+    , m_bufferDeallocator { WTFMove(bufferDeallocator) }
     , m_attachments { WTFMove(attachments) }
 {
-    if (reinterpret_cast<uintptr_t>(m_buffer) % alignof(uint64_t)) {
+    if (UNLIKELY(reinterpret_cast<uintptr_t>(m_buffer.data()) % alignof(uint64_t))) {
         markInvalid();
         return;
     }
 
-    if (!decode(m_messageFlags))
+    if (UNLIKELY(!decode(m_messageFlags)))
         return;
 
-    if (!decode(m_messageName))
+    if (UNLIKELY(!decode(m_messageName)))
         return;
 
-    if (!decode(m_destinationID))
+    if (UNLIKELY(!decode(m_destinationID)))
+        return;
+}
+
+Decoder::Decoder(DataReference stream, uint64_t destinationID)
+    : m_buffer { stream }
+    , m_bufferPosition { m_buffer.begin() }
+    , m_bufferDeallocator { nullptr }
+    , m_destinationID { destinationID }
+{
+    if (UNLIKELY(!decode(m_messageName)))
         return;
 }
 
 Decoder::~Decoder()
 {
-    ASSERT(m_buffer);
-
-    if (m_bufferDeallocator)
-        m_bufferDeallocator(m_buffer, m_bufferEnd - m_buffer);
-    else
-        fastFree(const_cast<uint8_t*>(m_buffer));
-
+    if (isValid())
+        markInvalid();
     // FIXME: We need to dispose of the mach ports in cases of failure.
-
-#if HAVE(QOS_CLASSES)
-    if (m_qosClassOverride)
-        pthread_override_qos_class_end_np(m_qosClassOverride);
-#endif
-}
-
-bool Decoder::isSyncMessage() const
-{
-    return m_messageFlags.contains(MessageFlags::SyncMessage);
 }
 
 ShouldDispatchWhenWaitingForSyncReply Decoder::shouldDispatchMessageWhenWaitingForSyncReply() const
@@ -110,8 +118,20 @@ bool Decoder::shouldUseFullySynchronousModeForTesting() const
     return m_messageFlags.contains(MessageFlags::UseFullySynchronousModeForTesting);
 }
 
+bool Decoder::shouldMaintainOrderingWithAsyncMessages() const
+{
+    return m_messageFlags.contains(MessageFlags::MaintainOrderingWithAsyncMessages);
+}
+
+#if ENABLE(IPC_TESTING_API)
+bool Decoder::hasSyncMessageDeserializationFailure() const
+{
+    return m_messageFlags.contains(MessageFlags::SyncMessageDeserializationFailure);
+}
+#endif
+
 #if PLATFORM(MAC)
-void Decoder::setImportanceAssertion(std::unique_ptr<ImportanceAssertion> assertion)
+void Decoder::setImportanceAssertion(ImportanceAssertion&& assertion)
 {
     m_importanceAssertion = WTFMove(assertion);
 }
@@ -121,89 +141,24 @@ std::unique_ptr<Decoder> Decoder::unwrapForTesting(Decoder& decoder)
 {
     ASSERT(decoder.isSyncMessage());
 
-    Vector<Attachment> attachments;
-    Attachment attachment;
-    while (decoder.removeAttachment(attachment))
-        attachments.append(WTFMove(attachment));
-    attachments.reverse();
+    auto attachments = std::exchange(decoder.m_attachments, { });
 
     DataReference wrappedMessage;
     if (!decoder.decode(wrappedMessage))
         return nullptr;
 
-    return Decoder::create(wrappedMessage.data(), wrappedMessage.size(), nullptr, WTFMove(attachments));
+    auto wrappedDecoder = Decoder::create(wrappedMessage, WTFMove(attachments));
+    wrappedDecoder->setIsAllowedWhenWaitingForSyncReplyOverride(true);
+    return wrappedDecoder;
 }
 
-static inline const uint8_t* roundUpToAlignment(const uint8_t* ptr, size_t alignment)
+std::optional<Attachment> Decoder::takeLastAttachment()
 {
-    // Assert that the alignment is a power of 2.
-    ASSERT(alignment && !(alignment & (alignment - 1)));
-
-    uintptr_t alignmentMask = alignment - 1;
-    return reinterpret_cast<uint8_t*>((reinterpret_cast<uintptr_t>(ptr) + alignmentMask) & ~alignmentMask);
-}
-
-static inline bool alignedBufferIsLargeEnoughToContain(const uint8_t* alignedPosition, const uint8_t* bufferStart, const uint8_t* bufferEnd, size_t size)
-{
-    // When size == 0 for the last argument and it's a variable length byte array,
-    // bufferStart == alignedPosition == bufferEnd, so checking (bufferEnd >= alignedPosition)
-    // is not an off-by-one error since (static_cast<size_t>(bufferEnd - alignedPosition) >= size)
-    // will catch issues when size != 0.
-    return bufferEnd >= alignedPosition && bufferStart <= alignedPosition && static_cast<size_t>(bufferEnd - alignedPosition) >= size;
-}
-
-bool Decoder::alignBufferPosition(size_t alignment, size_t size)
-{
-    const uint8_t* alignedPosition = roundUpToAlignment(m_bufferPos, alignment);
-    if (!alignedBufferIsLargeEnoughToContain(alignedPosition, m_buffer, m_bufferEnd, size)) {
-        // We've walked off the end of this buffer.
+    if (m_attachments.isEmpty()) {
         markInvalid();
-        return false;
+        return std::nullopt;
     }
-    
-    m_bufferPos = alignedPosition;
-    return true;
-}
-
-bool Decoder::bufferIsLargeEnoughToContain(size_t alignment, size_t size) const
-{
-    return alignedBufferIsLargeEnoughToContain(roundUpToAlignment(m_bufferPos, alignment), m_buffer, m_bufferEnd, size);
-}
-
-bool Decoder::decodeFixedLengthData(uint8_t* data, size_t size, size_t alignment)
-{
-    if (!alignBufferPosition(alignment, size))
-        return false;
-
-    memcpy(data, m_bufferPos, size);
-    m_bufferPos += size;
-
-    return true;
-}
-
-bool Decoder::decodeVariableLengthByteArray(DataReference& dataReference)
-{
-    uint64_t size;
-    if (!decode(size))
-        return false;
-    
-    if (!alignBufferPosition(1, size))
-        return false;
-
-    const uint8_t* data = m_bufferPos;
-    m_bufferPos += size;
-
-    dataReference = DataReference(data, size);
-    return true;
-}
-
-bool Decoder::removeAttachment(Attachment& attachment)
-{
-    if (m_attachments.isEmpty())
-        return false;
-
-    attachment = m_attachments.takeLast();
-    return true;
+    return m_attachments.takeLast();
 }
 
 } // namespace IPC

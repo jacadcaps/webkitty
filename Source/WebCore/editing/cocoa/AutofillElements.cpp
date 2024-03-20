@@ -33,19 +33,16 @@ namespace WebCore {
 
 static inline bool isAutofillableElement(Element& node)
 {
-    if (!is<HTMLInputElement>(node))
-        return false;
-
-    auto inputElement = &downcast<HTMLInputElement>(node);
-    return inputElement->isTextField() || inputElement->isEmailField();
+    auto* inputElement = dynamicDowncast<HTMLInputElement>(node);
+    return inputElement && (inputElement->isTextField() || inputElement->isEmailField());
 }
 
 static inline RefPtr<HTMLInputElement> nextAutofillableElement(Node* startNode, FocusController& focusController)
 {
-    if (!is<Element>(startNode))
+    RefPtr nextElement = dynamicDowncast<Element>(startNode);
+    if (!nextElement)
         return nullptr;
 
-    RefPtr<Element> nextElement = downcast<Element>(startNode);
     do {
         nextElement = focusController.nextFocusableElement(*nextElement.get());
     } while (nextElement && !isAutofillableElement(*nextElement.get()));
@@ -58,10 +55,10 @@ static inline RefPtr<HTMLInputElement> nextAutofillableElement(Node* startNode, 
 
 static inline RefPtr<HTMLInputElement> previousAutofillableElement(Node* startNode, FocusController& focusController)
 {
-    if (!is<Element>(startNode))
+    RefPtr previousElement = dynamicDowncast<Element>(startNode);
+    if (!previousElement)
         return nullptr;
 
-    RefPtr<Element> previousElement = downcast<Element>(startNode);
     do {
         previousElement = focusController.previousFocusableElement(*previousElement.get());
     } while (previousElement && !isAutofillableElement(*previousElement.get()));
@@ -72,49 +69,40 @@ static inline RefPtr<HTMLInputElement> previousAutofillableElement(Node* startNo
     return &downcast<HTMLInputElement>(*previousElement);
 }
 
-AutofillElements::AutofillElements(RefPtr<HTMLInputElement>&& username, RefPtr<HTMLInputElement>&& password)
-    : m_username(username)
-    , m_password(password)
+AutofillElements::AutofillElements(RefPtr<HTMLInputElement>&& username, RefPtr<HTMLInputElement>&& password, RefPtr<HTMLInputElement>&& secondPassword)
+    : m_username(WTFMove(username))
+    , m_password(WTFMove(password))
+    , m_secondPassword(WTFMove(secondPassword))
 {
 }
 
-Optional<AutofillElements> AutofillElements::computeAutofillElements(Ref<HTMLInputElement> start)
+std::optional<AutofillElements> AutofillElements::computeAutofillElements(Ref<HTMLInputElement> start)
 {
     if (!start->document().page())
-        return WTF::nullopt;
-    FocusController& focusController = start->document().page()->focusController();
+        return std::nullopt;
+    CheckedRef focusController = { start->document().page()->focusController() };
     if (start->isPasswordField()) {
-        RefPtr<HTMLInputElement> previousElement = previousAutofillableElement(start.ptr(), focusController);
-        RefPtr<HTMLInputElement> nextElement = nextAutofillableElement(start.ptr(), focusController);
-        bool hasDuplicatePasswordElements = (nextElement && nextElement->isPasswordField()) || (previousElement && previousElement->isPasswordField());
-        if (hasDuplicatePasswordElements)
-            return WTF::nullopt;
+        auto previousElement = previousAutofillableElement(start.ptr(), focusController);
+        auto nextElement = nextAutofillableElement(start.ptr(), focusController);
 
-        if (previousElement && is<HTMLInputElement>(*previousElement)) {
-            if (previousElement->isTextField())
-                return AutofillElements(WTFMove(previousElement), WTFMove(start));
-        }
+        bool previousFieldIsTextField = previousElement && !previousElement->isPasswordField();
+        bool hasSecondPasswordFieldToFill = nextElement && nextElement->isPasswordField() && nextElement->value().isEmpty();
+
+        // Always allow AutoFill in a password field, even if we fill information only into it.
+        return {{ previousFieldIsTextField ? WTFMove(previousElement) : nullptr, WTFMove(start), hasSecondPasswordFieldToFill ? WTFMove(nextElement) : nullptr }};
     } else {
         RefPtr<HTMLInputElement> nextElement = nextAutofillableElement(start.ptr(), focusController);
         if (nextElement && is<HTMLInputElement>(*nextElement)) {
             if (nextElement->isPasswordField()) {
-                RefPtr<HTMLInputElement> elementAfternextElement = nextAutofillableElement(nextElement.get(), focusController);
-                bool hasDuplicatePasswordElements = elementAfternextElement && elementAfternextElement->isPasswordField();
-                if (hasDuplicatePasswordElements)
-                    return WTF::nullopt;
+                auto elementAfterNextElement = nextAutofillableElement(nextElement.get(), focusController);
+                bool hasSecondPasswordFieldToFill = elementAfterNextElement && elementAfterNextElement->isPasswordField() && elementAfterNextElement->value().isEmpty();
 
-                return AutofillElements(WTFMove(start), WTFMove(nextElement));
+                return {{ WTFMove(start), WTFMove(nextElement), hasSecondPasswordFieldToFill ? WTFMove(elementAfterNextElement) : nullptr }};
             }
         }
     }
 
-    if (start->isPasswordField()) {
-        RefPtr<HTMLInputElement> previousElement = previousAutofillableElement(start.ptr(), focusController);
-        RefPtr<HTMLInputElement> nextElement = nextAutofillableElement(start.ptr(), focusController);
-        if (!previousElement && !nextElement)
-            return AutofillElements(nullptr, start.ptr());
-    }
-    return WTF::nullopt;
+    return std::nullopt;
 }
 
 void AutofillElements::autofill(String username, String password)
@@ -123,6 +111,8 @@ void AutofillElements::autofill(String username, String password)
         m_username->setValueForUser(username);
     if (m_password)
         m_password->setValueForUser(password);
+    if (m_secondPassword)
+        m_secondPassword->setValueForUser(password);
 }
 
 } // namespace WebCore

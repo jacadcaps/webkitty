@@ -4,7 +4,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2,1 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -24,7 +24,6 @@
 #include "WebKitFaviconDatabasePrivate.h"
 #include <WebCore/Image.h>
 #include <WebCore/IntSize.h>
-#include <WebCore/RefPtrCairo.h>
 #include <WebCore/SharedBuffer.h>
 #include <glib/gi18n-lib.h>
 #include <wtf/FileSystem.h>
@@ -34,18 +33,20 @@
 #include <wtf/glib/WTFGType.h>
 #include <wtf/text/CString.h>
 
+#if PLATFORM(GTK)
+#include <WebCore/GdkCairoUtilities.h>
+#include <WebCore/RefPtrCairo.h>
+#endif
+
 using namespace WebKit;
 using namespace WebCore;
 
 /**
- * SECTION: WebKitFaviconDatabase
- * @Short_description: A WebKit favicon database
- * @Title: WebKitFaviconDatabase
+ * WebKitFaviconDatabase:
  *
- * #WebKitFaviconDatabase provides access to the icons associated with
- * web sites.
+ * Provides access to the icons associated with web sites.
  *
- * WebKit will automatically look for available icons in &lt;link&gt;
+ * WebKit will automatically look for available icons in <link>
  * elements on opened pages as well as an existing favicon.ico and
  * load the images found into a memory cache if possible. That cache
  * is frozen to an on-disk database for persistence.
@@ -54,7 +55,6 @@ using namespace WebCore;
  * won't be added to the on-disk database and no existing icons will
  * be deleted from it. Nevertheless, WebKit will still store them in
  * the in-memory cache during the current execution.
- *
  */
 
 enum {
@@ -69,7 +69,7 @@ struct _WebKitFaviconDatabasePrivate {
     RefPtr<IconDatabase> iconDatabase;
 };
 
-WEBKIT_DEFINE_TYPE(WebKitFaviconDatabase, webkit_favicon_database, G_TYPE_OBJECT)
+WEBKIT_DEFINE_FINAL_TYPE(WebKitFaviconDatabase, webkit_favicon_database, G_TYPE_OBJECT, GObject)
 
 static void webkit_favicon_database_class_init(WebKitFaviconDatabaseClass* faviconDatabaseClass)
 {
@@ -131,8 +131,10 @@ void webkitFaviconDatabaseGetLoadDecisionForIcon(WebKitFaviconDatabase* database
     database->priv->iconDatabase->checkIconURLAndSetPageURLIfNeeded(icon.url.string(), pageURL,
         isEphemeral ? IconDatabase::AllowDatabaseWrite::No : IconDatabase::AllowDatabaseWrite::Yes,
             [database = GRefPtr<WebKitFaviconDatabase>(database), url = icon.url.string().isolatedCopy(), pageURL = pageURL.isolatedCopy(), completionHandler = WTFMove(completionHandler)](bool found, bool changed) {
-            if (!webkitFaviconDatabaseIsOpen(database.get()))
+            if (!webkitFaviconDatabaseIsOpen(database.get())) {
+                completionHandler(false);
                 return;
+            }
 
             if (found && changed)
                 g_signal_emit(database.get(), signals[FAVICON_CHANGED], 0, pageURL.utf8().data(), url.utf8().data());
@@ -156,6 +158,13 @@ void webkitFaviconDatabaseSetIconForPageURL(WebKitFaviconDatabase* database, con
 }
 #endif
 
+/**
+ * webkit_favicon_database_error_quark:
+ *
+ * Gets the quark for the domain of favicon database errors.
+ *
+ * Returns: favicon database error domain.
+ */
 GQuark webkit_favicon_database_error_quark(void)
 {
     return g_quark_from_static_string("WebKitFaviconDatabaseError");
@@ -194,23 +203,19 @@ void webkitFaviconDatabaseGetFaviconInternal(WebKitFaviconDatabase* database, co
  * @database: a #WebKitFaviconDatabase
  * @page_uri: URI of the page for which we want to retrieve the favicon
  * @cancellable: (allow-none): A #GCancellable or %NULL.
- * @callback: (scope async): A #GAsyncReadyCallback to call when the request is
+ * @callback: (scope async) (nullable): A #GAsyncReadyCallback to call when the request is
  *            satisfied or %NULL if you don't care about the result.
- * @user_data: (closure): The data to pass to @callback.
+ * @user_data: The data to pass to @callback.
  *
- * Asynchronously obtains a #cairo_surface_t of the favicon for the
+ * Asynchronously obtains a favicon image.
+ *
+ * Asynchronously obtains an image of the favicon for the
  * given page URI. It returns the cached icon if it's in the database
  * asynchronously waiting for the icon to be read from the database.
  *
  * This is an asynchronous method. When the operation is finished, callback will
  * be invoked. You can then call webkit_favicon_database_get_favicon_finish()
  * to get the result of the operation.
- *
- * You must call webkit_web_context_set_favicon_database_directory() for
- * the #WebKitWebContext associated with this #WebKitFaviconDatabase
- * before attempting to use this function; otherwise,
- * webkit_favicon_database_get_favicon_finish() will return
- * %WEBKIT_FAVICON_DATABASE_ERROR_NOT_INITIALIZED.
  */
 void webkit_favicon_database_get_favicon(WebKitFaviconDatabase* database, const gchar* pageURI, GCancellable* cancellable, GAsyncReadyCallback callback, gpointer userData)
 {
@@ -228,19 +233,29 @@ void webkit_favicon_database_get_favicon(WebKitFaviconDatabase* database, const 
  *
  * Finishes an operation started with webkit_favicon_database_get_favicon().
  *
- * Returns: (transfer full): a new reference to a #cairo_surface_t, or
- * %NULL in case of error.
+ * Returns: (transfer full): a new favicon image, or %NULL in case of error.
  */
+#if USE(GTK4)
+GdkTexture* webkit_favicon_database_get_favicon_finish(WebKitFaviconDatabase* database, GAsyncResult* result, GError** error)
+#else
 cairo_surface_t* webkit_favicon_database_get_favicon_finish(WebKitFaviconDatabase* database, GAsyncResult* result, GError** error)
+#endif
 {
-    g_return_val_if_fail(WEBKIT_IS_FAVICON_DATABASE(database), 0);
-    g_return_val_if_fail(g_task_is_valid(result, database), 0);
+    g_return_val_if_fail(WEBKIT_IS_FAVICON_DATABASE(database), nullptr);
+    g_return_val_if_fail(g_task_is_valid(result, database), nullptr);
 
-    GTask* task = G_TASK(result);
-    if (auto* icon = g_task_propagate_pointer(task, error))
-        return static_cast<cairo_surface_t*>(icon);
-
+#if USE(GTK4)
+    auto image = adoptRef(static_cast<cairo_surface_t*>(g_task_propagate_pointer(G_TASK(result), error)));
+    auto texture = image ? cairoSurfaceToGdkTexture(image.get()) : nullptr;
+    if (texture)
+        return texture.leakRef();
+    // FIXME: Add a new WEBKIT_FAVICON_DATABASE_ERROR
+    if (error && !*error)
+        g_set_error_literal(error, WEBKIT_FAVICON_DATABASE_ERROR, WEBKIT_FAVICON_DATABASE_ERROR_FAVICON_UNKNOWN, _("Failed to create texture"));
     return nullptr;
+#else
+    return static_cast<cairo_surface_t*>(g_task_propagate_pointer(G_TASK(result), error));
+#endif
 }
 #endif
 

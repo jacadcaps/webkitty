@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,6 +27,7 @@
 
 #if ENABLE(GPU_PROCESS) && PLATFORM(IOS_FAMILY)
 
+#include "GPUProcessConnection.h"
 #include "MessageReceiver.h"
 #include <WebCore/MediaPlaybackTargetContext.h>
 #include <WebCore/MediaSessionHelperIOS.h>
@@ -37,12 +38,13 @@ class WebProcess;
 
 class RemoteMediaSessionHelper final
     : public WebCore::MediaSessionHelper
-    , public IPC::MessageReceiver {
+    , public IPC::MessageReceiver
+    , public GPUProcessConnection::Client {
 public:
-    RemoteMediaSessionHelper(WebProcess&);
+    RemoteMediaSessionHelper();
     virtual ~RemoteMediaSessionHelper() = default;
 
-    IPC::Connection& connection();
+    IPC::Connection& ensureConnection();
 
     using HasAvailableTargets = WebCore::MediaSessionHelperClient::HasAvailableTargets;
     using PlayingToAutomotiveHeadUnit = WebCore::MediaSessionHelperClient::PlayingToAutomotiveHeadUnit;
@@ -50,26 +52,27 @@ public:
     using SupportsAirPlayVideo = WebCore::MediaSessionHelperClient::SupportsAirPlayVideo;
     using SuspendedUnderLock = WebCore::MediaSessionHelperClient::SuspendedUnderLock;
 
+    void ref() const final { return ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<WebCore::MediaSessionHelper>::ref(); }
+    void deref() const final { return ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<WebCore::MediaSessionHelper>::deref(); }
+    ThreadSafeWeakPtrControlBlock& controlBlock() const final { return ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<WebCore::MediaSessionHelper>::controlBlock(); }
+
 private:
     // IPC::MessageReceiver
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
 
+    // GPUProcessConnection::Client
+    void gpuProcessConnectionDidClose(GPUProcessConnection&) final;
+
     // MediaSessionHelper
-    void startMonitoringWirelessRoutes() final;
-    void stopMonitoringWirelessRoutes() final;
-    void providePresentingApplicationPID(int) final;
+    void startMonitoringWirelessRoutesInternal() final;
+    void stopMonitoringWirelessRoutesInternal() final;
+    void providePresentingApplicationPID(int, ShouldOverride) final;
 
     // Messages
-    void applicationWillEnterForeground(SuspendedUnderLock);
-    void applicationDidEnterBackground(SuspendedUnderLock);
-    void applicationWillBecomeInactive();
-    void applicationDidBecomeActive();
-    void externalOutputDeviceAvailableDidChange(HasAvailableTargets);
-    void isPlayingToAutomotiveHeadUnitDidChange(PlayingToAutomotiveHeadUnit);
-    void activeAudioRouteDidChange(ShouldPause);
     void activeVideoRouteDidChange(SupportsAirPlayVideo, WebCore::MediaPlaybackTargetContext&&);
+    void activeAudioRouteSupportsSpatialPlaybackDidChange(SupportsSpatialAudioPlayback);
 
-    WebProcess& m_process;
+    ThreadSafeWeakPtr<GPUProcessConnection> m_gpuProcessConnection;
 };
 
 }

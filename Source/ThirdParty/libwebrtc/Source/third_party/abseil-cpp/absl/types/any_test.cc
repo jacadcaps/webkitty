@@ -14,6 +14,9 @@
 
 #include "absl/types/any.h"
 
+// This test is a no-op when absl::any is an alias for std::any.
+#if !defined(ABSL_USES_STD_ANY)
+
 #include <initializer_list>
 #include <type_traits>
 #include <utility>
@@ -22,8 +25,8 @@
 #include "gtest/gtest.h"
 #include "absl/base/config.h"
 #include "absl/base/internal/exception_testing.h"
-#include "absl/base/internal/raw_logging.h"
 #include "absl/container/internal/test_instance_tracker.h"
+#include "absl/log/log.h"
 
 namespace {
 using absl::test_internal::CopyableOnlyInstance;
@@ -639,7 +642,7 @@ TEST(AnyTest, ConversionConstructionCausesOneCopy) {
 // Tests for Exception Behavior //
 //////////////////////////////////
 
-#if defined(ABSL_HAVE_STD_ANY)
+#if defined(ABSL_USES_STD_ANY)
 
 // If using a std `any` implementation, we can't check for a specific message.
 #define ABSL_ANY_TEST_EXPECT_BAD_ANY_CAST(...)                      \
@@ -653,7 +656,7 @@ TEST(AnyTest, ConversionConstructionCausesOneCopy) {
   ABSL_BASE_INTERNAL_EXPECT_FAIL((__VA_ARGS__), absl::bad_any_cast, \
                                  "Bad any cast")
 
-#endif  // defined(ABSL_HAVE_STD_ANY)
+#endif  // defined(ABSL_USES_STD_ANY)
 
 TEST(AnyTest, ThrowBadAlloc) {
   {
@@ -701,7 +704,7 @@ struct BadCopyable {
 #ifdef ABSL_HAVE_EXCEPTIONS
     throw BadCopy();
 #else
-    ABSL_RAW_LOG(FATAL, "Bad copy");
+    LOG(FATAL) << "Bad copy";
 #endif
   }
 };
@@ -751,26 +754,25 @@ TEST(AnyTest, FailedCopy) {
 
 // Test the guarantees regarding exceptions in emplace.
 TEST(AnyTest, FailedEmplace) {
-  {
-    BadCopyable bad;
-    absl::any target;
-    ABSL_ANY_TEST_EXPECT_BAD_COPY(target.emplace<BadCopyable>(bad));
-  }
+  BadCopyable bad;
+  absl::any target;
+  ABSL_ANY_TEST_EXPECT_BAD_COPY(target.emplace<BadCopyable>(bad));
+}
 
-  {
-    BadCopyable bad;
-    absl::any target(absl::in_place_type<int>);
-    ABSL_ANY_TEST_EXPECT_BAD_COPY(target.emplace<BadCopyable>(bad));
-#if defined(ABSL_HAVE_STD_ANY) && defined(__GLIBCXX__)
-    // libstdc++ std::any::emplace() implementation (as of 7.2) has a bug: if an
-    // exception is thrown, *this contains a value.
-#define ABSL_GLIBCXX_ANY_EMPLACE_EXCEPTION_BUG 1
+// GCC and Clang have a bug here.
+// Ine some cases, the exception seems to be thrown at the wrong time, and
+// target may contain a value.
+#ifdef __GNUC__
+TEST(AnyTest, DISABLED_FailedEmplaceInPlace) {
+#else
+TEST(AnyTest, FailedEmplaceInPlace) {
 #endif
-#if defined(ABSL_HAVE_EXCEPTIONS) && \
-    !defined(ABSL_GLIBCXX_ANY_EMPLACE_EXCEPTION_BUG)
-    EXPECT_FALSE(target.has_value());
-#endif
-  }
+  BadCopyable bad;
+  absl::any target(absl::in_place_type<int>);
+  ABSL_ANY_TEST_EXPECT_BAD_COPY(target.emplace<BadCopyable>(bad));
+  EXPECT_FALSE(target.has_value());
 }
 
 }  // namespace
+
+#endif  // #if !defined(ABSL_USES_STD_ANY)

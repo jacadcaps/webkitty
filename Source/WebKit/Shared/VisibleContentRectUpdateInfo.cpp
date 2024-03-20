@@ -36,69 +36,23 @@
 namespace WebKit {
 using namespace WebCore;
 
-void VisibleContentRectUpdateInfo::encode(IPC::Encoder& encoder) const
-{
-    encoder << m_exposedContentRect;
-    encoder << m_unobscuredContentRect;
-    encoder << m_contentInsets;
-    encoder << m_unobscuredContentRectRespectingInputViewBounds;
-    encoder << m_unobscuredRectInScrollViewCoordinates;
-    encoder << m_layoutViewportRect;
-    encoder << m_obscuredInsets;
-    encoder << m_unobscuredSafeAreaInsets;
-    encoder << m_scrollVelocity;
-    encoder << m_lastLayerTreeTransactionID;
-    encoder << m_scale;
-    encoder << m_inStableState;
-    encoder << m_isFirstUpdateForNewViewSize;
-    encoder << m_isChangingObscuredInsetsInteractively;
-    encoder << m_allowShrinkToFit;
-    encoder << m_enclosedInScrollableAncestorView;
-}
-
-bool VisibleContentRectUpdateInfo::decode(IPC::Decoder& decoder, VisibleContentRectUpdateInfo& result)
-{
-    if (!decoder.decode(result.m_exposedContentRect))
-        return false;
-    if (!decoder.decode(result.m_unobscuredContentRect))
-        return false;
-    if (!decoder.decode(result.m_contentInsets))
-        return false;
-    if (!decoder.decode(result.m_unobscuredContentRectRespectingInputViewBounds))
-        return false;
-    if (!decoder.decode(result.m_unobscuredRectInScrollViewCoordinates))
-        return false;
-    if (!decoder.decode(result.m_layoutViewportRect))
-        return false;
-    if (!decoder.decode(result.m_obscuredInsets))
-        return false;
-    if (!decoder.decode(result.m_unobscuredSafeAreaInsets))
-        return false;
-    if (!decoder.decode(result.m_scrollVelocity))
-        return false;
-    if (!decoder.decode(result.m_lastLayerTreeTransactionID))
-        return false;
-    if (!decoder.decode(result.m_scale))
-        return false;
-    if (!decoder.decode(result.m_inStableState))
-        return false;
-    if (!decoder.decode(result.m_isFirstUpdateForNewViewSize))
-        return false;
-    if (!decoder.decode(result.m_isChangingObscuredInsetsInteractively))
-        return false;
-    if (!decoder.decode(result.m_allowShrinkToFit))
-        return false;
-    if (!decoder.decode(result.m_enclosedInScrollableAncestorView))
-        return false;
-
-    return true;
-}
-
 String VisibleContentRectUpdateInfo::dump() const
 {
     TextStream stream;
     stream << *this;
     return stream.release();
+}
+
+TextStream& operator<<(TextStream& ts, ViewStabilityFlag stabilityFlag)
+{
+    switch (stabilityFlag) {
+    case ViewStabilityFlag::ScrollViewInteracting: ts << "scroll view interacting"; break;
+    case ViewStabilityFlag::ScrollViewAnimatedScrollOrZoom: ts << "scroll view animated scroll or zoom"; break;
+    case ViewStabilityFlag::ScrollViewRubberBanding: ts << "scroll view rubberbanding"; break;
+    case ViewStabilityFlag::ChangingObscuredInsetsInteractively: ts << "changing obscured insets interactively"; break;
+    case ViewStabilityFlag::UnstableForTesting: ts << "unstable for testing"; break;
+    }
+    return ts;
 }
 
 TextStream& operator<<(TextStream& ts, const VisibleContentRectUpdateInfo& info)
@@ -119,10 +73,8 @@ TextStream& operator<<(TextStream& ts, const VisibleContentRectUpdateInfo& info)
     ts.dumpProperty("unobscuredSafeAreaInsets", info.unobscuredSafeAreaInsets());
 
     ts.dumpProperty("scale", info.scale());
-    ts.dumpProperty("inStableState", info.inStableState());
+    ts.dumpProperty("viewStability", info.viewStability());
     ts.dumpProperty("isFirstUpdateForNewViewSize", info.isFirstUpdateForNewViewSize());
-    if (info.isChangingObscuredInsetsInteractively())
-        ts.dumpProperty("isChangingObscuredInsetsInteractively", info.isChangingObscuredInsetsInteractively());
     if (info.enclosedInScrollableAncestorView())
         ts.dumpProperty("enclosedInScrollableAncestorView", info.enclosedInScrollableAncestorView());
 

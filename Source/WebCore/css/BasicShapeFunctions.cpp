@@ -32,256 +32,304 @@
 
 #include "BasicShapes.h"
 #include "CSSBasicShapes.h"
+#include "CSSCalcNegateNode.h"
+#include "CSSCalcOperationNode.h"
+#include "CSSCalcPrimitiveValueNode.h"
 #include "CSSPrimitiveValueMappings.h"
+#include "CSSValuePair.h"
 #include "CSSValuePool.h"
-#include "Pair.h"
+#include "CalculationValue.h"
+#include "LengthFunctions.h"
 #include "RenderStyle.h"
 #include "SVGPathByteStream.h"
 
 namespace WebCore {
 
-static Ref<CSSPrimitiveValue> valueForCenterCoordinate(CSSValuePool& pool, const RenderStyle& style, const BasicShapeCenterCoordinate& center, BoxOrient orientation)
+static Ref<CSSValue> valueForCenterCoordinate(const RenderStyle& style, const BasicShapeCenterCoordinate& center, BoxOrient orientation)
 {
-    if (center.direction() == BasicShapeCenterCoordinate::TopLeft)
-        return pool.createValue(center.length(), style);
+    if (center.direction() == BasicShapeCenterCoordinate::Direction::TopLeft)
+        return CSSPrimitiveValue::create(center.length(), style);
 
     CSSValueID keyword = orientation == BoxOrient::Horizontal ? CSSValueRight : CSSValueBottom;
 
-    return pool.createValue(Pair::create(pool.createIdentifierValue(keyword), pool.createValue(center.length(), style)));
+    return CSSValuePair::create(CSSPrimitiveValue::create(keyword), CSSPrimitiveValue::create(center.length(), style));
 }
 
-static Ref<CSSPrimitiveValue> basicShapeRadiusToCSSValue(const RenderStyle& style, CSSValuePool& pool, const BasicShapeRadius& radius)
+static Ref<CSSPrimitiveValue> basicShapeRadiusToCSSValue(const RenderStyle& style, const BasicShapeRadius& radius)
 {
     switch (radius.type()) {
-    case BasicShapeRadius::Value:
-        return pool.createValue(radius.value(), style);
-    case BasicShapeRadius::ClosestSide:
-        return pool.createIdentifierValue(CSSValueClosestSide);
-    case BasicShapeRadius::FarthestSide:
-        return pool.createIdentifierValue(CSSValueFarthestSide);
+    case BasicShapeRadius::Type::Value:
+        return CSSPrimitiveValue::create(radius.value(), style);
+    case BasicShapeRadius::Type::ClosestSide:
+        return CSSPrimitiveValue::create(CSSValueClosestSide);
+    case BasicShapeRadius::Type::FarthestSide:
+        return CSSPrimitiveValue::create(CSSValueFarthestSide);
     }
 
     ASSERT_NOT_REACHED();
-    return pool.createIdentifierValue(CSSValueClosestSide);
+    return CSSPrimitiveValue::create(CSSValueClosestSide);
 }
 
-Ref<CSSPrimitiveValue> valueForBasicShape(const RenderStyle& style, const BasicShape& basicShape)
+static SVGPathByteStream copySVGPathByteStream(const SVGPathByteStream& source, SVGPathConversion conversion)
 {
-    auto& cssValuePool = CSSValuePool::singleton();
+    if (conversion == SVGPathConversion::ForceAbsolute) {
+        // Only returns the resulting absolute path if the conversion succeeds.
+        if (auto result = convertSVGPathByteStreamToAbsoluteCoordinates(source))
+            return *result;
+    }
+    return source;
+}
 
-    RefPtr<CSSBasicShape> basicShapeValue;
+Ref<CSSValue> valueForBasicShape(const RenderStyle& style, const BasicShape& basicShape, SVGPathConversion conversion)
+{
+    auto createValue = [&](const Length& length) {
+        return CSSPrimitiveValue::create(length.isAuto() ? Length(0, LengthType::Percent) : length, style);
+    };
+    auto createPair = [&](const LengthSize& size) {
+        return CSSValuePair::create(createValue(size.width), createValue(size.height));
+    };
+
+    auto createSumValue = [&](Vector<Ref<CSSCalcExpressionNode>> expressions) -> Ref<CSSValue> {
+        auto node = CSSCalcOperationNode::simplify(CSSCalcOperationNode::createSum(WTFMove(expressions)).releaseNonNull());
+        if (RefPtr operation = dynamicDowncast<CSSCalcOperationNode>(node); operation && operation->isIdentity()) {
+            if (RefPtr child = dynamicDowncast<CSSCalcPrimitiveValueNode>(operation->children()[0]))
+                return const_cast<CSSPrimitiveValue&>(child->value());
+        }
+        return CSSCalcValue::create(WTFMove(node));
+    };
+
+    auto createNode = [&](const Length& length) {
+        return CSSCalcPrimitiveValueNode::create(createValue(length));
+    };
+    auto create100PercentNode = [&]() {
+        return createNode(Length(100, LengthType::Percent));
+    };
+    auto createNegatedNode = [&](const Length& length) {
+        return CSSCalcNegateNode::create(createNode(length));
+    };
+    auto createReflectedSumValue = [&](const Length& a, const Length& b) {
+        return createSumValue({ create100PercentNode(), createNegatedNode(a), createNegatedNode(b) });
+    };
+    auto createReflectedValue = [&](const Length& length) -> Ref<CSSValue> {
+        if (length.isAuto())
+            return createValue(Length(0, LengthType::Percent));
+        return createSumValue({ create100PercentNode(), createNegatedNode(length) });
+    };
+
     switch (basicShape.type()) {
     case BasicShape::Type::Circle: {
-        auto& circle = downcast<BasicShapeCircle>(basicShape);
-        auto circleValue = CSSBasicShapeCircle::create();
+        auto& circle = uncheckedDowncast<BasicShapeCircle>(basicShape);
+        RefPtr radius = basicShapeRadiusToCSSValue(style, circle.radius());
 
-        circleValue->setCenterX(valueForCenterCoordinate(cssValuePool, style, circle.centerX(), BoxOrient::Horizontal));
-        circleValue->setCenterY(valueForCenterCoordinate(cssValuePool, style, circle.centerY(), BoxOrient::Vertical));
-        circleValue->setRadius(basicShapeRadiusToCSSValue(style, cssValuePool, circle.radius()));
+        if (circle.positionWasOmitted())
+            return CSSCircleValue::create(WTFMove(radius), nullptr, nullptr);
 
-        basicShapeValue = WTFMove(circleValue);
-        break;
+        return CSSCircleValue::create(WTFMove(radius),
+            valueForCenterCoordinate(style, circle.centerX(), BoxOrient::Horizontal),
+            valueForCenterCoordinate(style, circle.centerY(), BoxOrient::Vertical));
     }
     case BasicShape::Type::Ellipse: {
-        auto& ellipse = downcast<BasicShapeEllipse>(basicShape);
-        auto ellipseValue = CSSBasicShapeEllipse::create();
+        auto& ellipse = uncheckedDowncast<BasicShapeEllipse>(basicShape);
+        RefPtr radiusX = basicShapeRadiusToCSSValue(style, ellipse.radiusX());
+        RefPtr radiusY = basicShapeRadiusToCSSValue(style, ellipse.radiusY());
 
-        ellipseValue->setCenterX(valueForCenterCoordinate(cssValuePool, style, ellipse.centerX(), BoxOrient::Horizontal));
-        ellipseValue->setCenterY(valueForCenterCoordinate(cssValuePool, style, ellipse.centerY(), BoxOrient::Vertical));
-        ellipseValue->setRadiusX(basicShapeRadiusToCSSValue(style, cssValuePool, ellipse.radiusX()));
-        ellipseValue->setRadiusY(basicShapeRadiusToCSSValue(style, cssValuePool, ellipse.radiusY()));
+        if (ellipse.positionWasOmitted())
+            return CSSEllipseValue::create(WTFMove(radiusX), WTFMove(radiusY), nullptr, nullptr);
 
-        basicShapeValue = WTFMove(ellipseValue);
-        break;
+        return CSSEllipseValue::create(
+            WTFMove(radiusX), WTFMove(radiusY),
+            valueForCenterCoordinate(style, ellipse.centerX(), BoxOrient::Horizontal),
+            valueForCenterCoordinate(style, ellipse.centerY(), BoxOrient::Vertical));
     }
     case BasicShape::Type::Polygon: {
-        auto& polygon = downcast<BasicShapePolygon>(basicShape);
-        auto polygonValue = CSSBasicShapePolygon::create();
-
-        polygonValue->setWindRule(polygon.windRule());
-        const Vector<Length>& values = polygon.values();
-        for (unsigned i = 0; i < values.size(); i += 2)
-            polygonValue->appendPoint(cssValuePool.createValue(values.at(i), style), cssValuePool.createValue(values.at(i + 1), style));
-
-        basicShapeValue = WTFMove(polygonValue);
-        break;
+        auto& polygon = uncheckedDowncast<BasicShapePolygon>(basicShape);
+        CSSValueListBuilder values;
+        for (auto& value : polygon.values())
+            values.append(CSSPrimitiveValue::create(value, style));
+        return CSSPolygonValue::create(WTFMove(values), polygon.windRule());
     }
     case BasicShape::Type::Path: {
-        auto& pathShape = downcast<BasicShapePath>(basicShape);
-        auto pathShapeValue = CSSBasicShapePath::create(pathShape.pathData()->copy());
-        pathShapeValue->setWindRule(pathShape.windRule());
-
-        basicShapeValue = WTFMove(pathShapeValue);
-        break;
+        auto& pathShape = uncheckedDowncast<BasicShapePath>(basicShape);
+        ASSERT(pathShape.pathData());
+        return CSSPathValue::create(copySVGPathByteStream(*pathShape.pathData(), conversion), pathShape.windRule());
     }
     case BasicShape::Type::Inset: {
-        auto& inset = downcast<BasicShapeInset>(basicShape);
-        auto insetValue = CSSBasicShapeInset::create();
-
-        insetValue->setTop(cssValuePool.createValue(inset.top(), style));
-        insetValue->setRight(cssValuePool.createValue(inset.right(), style));
-        insetValue->setBottom(cssValuePool.createValue(inset.bottom(), style));
-        insetValue->setLeft(cssValuePool.createValue(inset.left(), style));
-
-        insetValue->setTopLeftRadius(cssValuePool.createValue(inset.topLeftRadius(), style));
-        insetValue->setTopRightRadius(cssValuePool.createValue(inset.topRightRadius(), style));
-        insetValue->setBottomRightRadius(cssValuePool.createValue(inset.bottomRightRadius(), style));
-        insetValue->setBottomLeftRadius(cssValuePool.createValue(inset.bottomLeftRadius(), style));
-
-        basicShapeValue = WTFMove(insetValue);
-        break;
+        auto& inset = uncheckedDowncast<BasicShapeInset>(basicShape);
+        return CSSInsetShapeValue::create(createValue(inset.top()), createValue(inset.right()),
+            createValue(inset.bottom()), createValue(inset.left()),
+            createPair(inset.topLeftRadius()), createPair(inset.topRightRadius()),
+            createPair(inset.bottomRightRadius()), createPair(inset.bottomLeftRadius()));
+    }
+    case BasicShape::Type::Xywh: {
+        auto& xywh = uncheckedDowncast<BasicShapeXywh>(basicShape);
+        return CSSInsetShapeValue::create(createValue(xywh.insetY()), createReflectedSumValue(xywh.insetX(), xywh.width()),
+            createReflectedSumValue(xywh.insetY(), xywh.height()), createValue(xywh.insetX()),
+            createPair(xywh.topLeftRadius()), createPair(xywh.topRightRadius()),
+            createPair(xywh.bottomRightRadius()), createPair(xywh.bottomLeftRadius()));
+    }
+    case BasicShape::Type::Rect: {
+        auto& rect = uncheckedDowncast<BasicShapeRect>(basicShape);
+        return CSSInsetShapeValue::create(createValue(rect.top()), createReflectedValue(rect.right()),
+            createReflectedValue(rect.bottom()), createValue(rect.left()),
+            createPair(rect.topLeftRadius()), createPair(rect.topRightRadius()),
+            createPair(rect.bottomRightRadius()), createPair(rect.bottomLeftRadius()));
     }
     }
-
-    return cssValuePool.createValue(basicShapeValue.releaseNonNull());
+    RELEASE_ASSERT_NOT_REACHED();
 }
 
-static Length convertToLength(const CSSToLengthConversionData& conversionData, const CSSPrimitiveValue* value)
+static Length convertToLength(const CSSToLengthConversionData& conversionData, const CSSValue& value)
 {
-    return value->convertToLength<FixedIntegerConversion | FixedFloatConversion | PercentConversion | CalculatedConversion>(conversionData);
+    return downcast<CSSPrimitiveValue>(value).convertToLength<FixedIntegerConversion | FixedFloatConversion | PercentConversion | CalculatedConversion>(conversionData);
 }
 
-static LengthSize convertToLengthSize(const CSSToLengthConversionData& conversionData, const CSSPrimitiveValue* value)
+static Length convertToLengthOrAuto(const CSSToLengthConversionData& conversionData, const CSSValue& value)
+{
+    return downcast<CSSPrimitiveValue>(value).convertToLength<FixedIntegerConversion | FixedFloatConversion | PercentConversion | CalculatedConversion | AutoConversion>(conversionData);
+}
+
+static LengthSize convertToLengthSize(const CSSToLengthConversionData& conversionData, const CSSValue* value)
 {
     if (!value)
-        return { { 0, Fixed }, { 0, Fixed } };
+        return { { 0, LengthType::Fixed }, { 0, LengthType::Fixed } };
 
-    auto& pair = *value->pairValue();
-    return { convertToLength(conversionData, pair.first()), convertToLength(conversionData, pair.second()) };
+    return { convertToLength(conversionData, value->protectedFirst()), convertToLength(conversionData, value->protectedSecond()) };
 }
 
-static BasicShapeCenterCoordinate convertToCenterCoordinate(const CSSToLengthConversionData& conversionData, CSSPrimitiveValue* value)
+static BasicShapeCenterCoordinate convertToCenterCoordinate(const CSSToLengthConversionData& conversionData, const CSSValue* value)
 {
     CSSValueID keyword = CSSValueTop;
-    Length offset { 0, Fixed };
+    Length offset { 0, LengthType::Fixed };
     if (!value)
         keyword = CSSValueCenter;
     else if (value->isValueID())
         keyword = value->valueID();
-    else if (Pair* pair = value->pairValue()) {
-        keyword = pair->first()->valueID();
-        offset = convertToLength(conversionData, pair->second());
+    else if (value->isPair()) {
+        keyword = value->first().valueID();
+        offset = convertToLength(conversionData, value->protectedSecond());
     } else
-        offset = convertToLength(conversionData, value);
+        offset = convertToLength(conversionData, *value);
 
     BasicShapeCenterCoordinate::Direction direction;
     switch (keyword) {
     case CSSValueTop:
     case CSSValueLeft:
-        direction = BasicShapeCenterCoordinate::TopLeft;
+        direction = BasicShapeCenterCoordinate::Direction::TopLeft;
         break;
     case CSSValueRight:
     case CSSValueBottom:
-        direction = BasicShapeCenterCoordinate::BottomRight;
+        direction = BasicShapeCenterCoordinate::Direction::BottomRight;
         break;
     case CSSValueCenter:
-        direction = BasicShapeCenterCoordinate::TopLeft;
-        offset = Length(50, Percent);
+        direction = BasicShapeCenterCoordinate::Direction::TopLeft;
+        offset = Length(50, LengthType::Percent);
         break;
     default:
         ASSERT_NOT_REACHED();
-        direction = BasicShapeCenterCoordinate::TopLeft;
+        direction = BasicShapeCenterCoordinate::Direction::TopLeft;
         break;
     }
 
-    return BasicShapeCenterCoordinate(direction, offset);
+    return BasicShapeCenterCoordinate(direction, WTFMove(offset));
 }
 
-static BasicShapeRadius cssValueToBasicShapeRadius(const CSSToLengthConversionData& conversionData, CSSPrimitiveValue* radius)
+static BasicShapeRadius cssValueToBasicShapeRadius(const CSSToLengthConversionData& conversionData, const CSSValue* radius)
 {
     if (!radius)
-        return BasicShapeRadius(BasicShapeRadius::ClosestSide);
+        return BasicShapeRadius(BasicShapeRadius::Type::ClosestSide);
 
     if (radius->isValueID()) {
         switch (radius->valueID()) {
         case CSSValueClosestSide:
-            return BasicShapeRadius(BasicShapeRadius::ClosestSide);
+            return BasicShapeRadius(BasicShapeRadius::Type::ClosestSide);
         case CSSValueFarthestSide:
-            return BasicShapeRadius(BasicShapeRadius::FarthestSide);
+            return BasicShapeRadius(BasicShapeRadius::Type::FarthestSide);
         default:
             ASSERT_NOT_REACHED();
             break;
         }
     }
 
-    return BasicShapeRadius(convertToLength(conversionData, radius));
+    return BasicShapeRadius(convertToLength(conversionData, *radius));
 }
 
-Ref<BasicShape> basicShapeForValue(const CSSToLengthConversionData& conversionData, const CSSBasicShape& basicShapeValue)
+Ref<BasicShape> basicShapeForValue(const CSSToLengthConversionData& conversionData, const CSSValue& value, float zoom)
 {
-    RefPtr<BasicShape> basicShape;
-
-    switch (basicShapeValue.type()) {
-    case CSSBasicShape::CSSBasicShapeCircleType: {
-        auto& circleValue = downcast<CSSBasicShapeCircle>(basicShapeValue);
+    if (auto* circleValue = dynamicDowncast<CSSCircleValue>(value)) {
         auto circle = BasicShapeCircle::create();
-
-        circle->setCenterX(convertToCenterCoordinate(conversionData, circleValue.centerX()));
-        circle->setCenterY(convertToCenterCoordinate(conversionData, circleValue.centerY()));
-        circle->setRadius(cssValueToBasicShapeRadius(conversionData, circleValue.radius()));
-
-        basicShape = WTFMove(circle);
-        break;
+        circle->setRadius(cssValueToBasicShapeRadius(conversionData, circleValue->protectedRadius().get()));
+        circle->setCenterX(convertToCenterCoordinate(conversionData, circleValue->protectedCenterX().get()));
+        circle->setCenterY(convertToCenterCoordinate(conversionData, circleValue->protectedCenterY().get()));
+        circle->setPositionWasOmitted(!circleValue->centerX() && !circleValue->centerY());
+        return circle;
     }
-    case CSSBasicShape::CSSBasicShapeEllipseType: {
-        auto& ellipseValue = downcast<CSSBasicShapeEllipse>(basicShapeValue);
+    if (auto* ellipseValue = dynamicDowncast<CSSEllipseValue>(value)) {
         auto ellipse = BasicShapeEllipse::create();
-
-        ellipse->setCenterX(convertToCenterCoordinate(conversionData, ellipseValue.centerX()));
-        ellipse->setCenterY(convertToCenterCoordinate(conversionData, ellipseValue.centerY()));
-
-        ellipse->setRadiusX(cssValueToBasicShapeRadius(conversionData, ellipseValue.radiusX()));
-        ellipse->setRadiusY(cssValueToBasicShapeRadius(conversionData, ellipseValue.radiusY()));
-
-        basicShape = WTFMove(ellipse);
-        break;
+        ellipse->setRadiusX(cssValueToBasicShapeRadius(conversionData, ellipseValue->protectedRadiusX().get()));
+        ellipse->setRadiusY(cssValueToBasicShapeRadius(conversionData, ellipseValue->protectedRadiusY().get()));
+        ellipse->setCenterX(convertToCenterCoordinate(conversionData, ellipseValue->protectedCenterX().get()));
+        ellipse->setCenterY(convertToCenterCoordinate(conversionData, ellipseValue->protectedCenterY().get()));
+        ellipse->setPositionWasOmitted(!ellipseValue->centerX() && !ellipseValue->centerY());
+        return ellipse;
     }
-    case CSSBasicShape::CSSBasicShapePolygonType: {
-        auto& polygonValue = downcast<CSSBasicShapePolygon>(basicShapeValue);
+    if (auto* polygonValue = dynamicDowncast<CSSPolygonValue>(value)) {
         auto polygon = BasicShapePolygon::create();
-
-        polygon->setWindRule(polygonValue.windRule());
-        auto& values = polygonValue.values();
-        for (unsigned i = 0; i < values.size(); i += 2)
-            polygon->appendPoint(convertToLength(conversionData, values[i].ptr()), convertToLength(conversionData, values[i + 1].ptr()));
-
-        basicShape = WTFMove(polygon);
-        break;
+        polygon->setWindRule(polygonValue->windRule());
+        for (unsigned i = 0; i < polygonValue->size(); i += 2)
+            polygon->appendPoint(convertToLength(conversionData, *polygonValue->protectedItem(i)), convertToLength(conversionData, *polygonValue->protectedItem(i + 1)));
+        return polygon;
     }
-    case CSSBasicShape::CSSBasicShapeInsetType: {
-        auto& rectValue = downcast<CSSBasicShapeInset>(basicShapeValue);
+    if (auto* rectValue = dynamicDowncast<CSSInsetShapeValue>(value)) {
         auto rect = BasicShapeInset::create();
-
-        rect->setTop(convertToLength(conversionData, rectValue.top()));
-        rect->setRight(convertToLength(conversionData, rectValue.right()));
-        rect->setBottom(convertToLength(conversionData, rectValue.bottom()));
-        rect->setLeft(convertToLength(conversionData, rectValue.left()));
-
-        rect->setTopLeftRadius(convertToLengthSize(conversionData, rectValue.topLeftRadius()));
-        rect->setTopRightRadius(convertToLengthSize(conversionData, rectValue.topRightRadius()));
-        rect->setBottomRightRadius(convertToLengthSize(conversionData, rectValue.bottomRightRadius()));
-        rect->setBottomLeftRadius(convertToLengthSize(conversionData, rectValue.bottomLeftRadius()));
-
-        basicShape = WTFMove(rect);
-        break;
+        rect->setTop(convertToLength(conversionData, rectValue->protectedTop()));
+        rect->setRight(convertToLength(conversionData, rectValue->protectedRight()));
+        rect->setBottom(convertToLength(conversionData, rectValue->protectedBottom()));
+        rect->setLeft(convertToLength(conversionData, rectValue->protectedLeft()));
+        rect->setTopLeftRadius(convertToLengthSize(conversionData, rectValue->protectedTopLeftRadius().get()));
+        rect->setTopRightRadius(convertToLengthSize(conversionData, rectValue->protectedTopRightRadius().get()));
+        rect->setBottomRightRadius(convertToLengthSize(conversionData, rectValue->protectedBottomRightRadius().get()));
+        rect->setBottomLeftRadius(convertToLengthSize(conversionData, rectValue->protectedBottomLeftRadius().get()));
+        return rect;
     }
-    case CSSBasicShape::CSSBasicShapePathType: {
-        auto& pathValue = downcast<CSSBasicShapePath>(basicShapeValue);
-        auto path = BasicShapePath::create(pathValue.pathData().copy());
-        path->setWindRule(pathValue.windRule());
+    if (auto* rectValue = dynamicDowncast<CSSXywhValue>(value)) {
+        auto rect = BasicShapeXywh::create();
+        rect->setInsetX(convertToLength(conversionData, rectValue->protectedInsetX().get()));
+        rect->setInsetY(convertToLength(conversionData, rectValue->protectedInsetY().get()));
+        rect->setWidth(convertToLength(conversionData, rectValue->protectedWidth().get()));
+        rect->setHeight(convertToLength(conversionData, rectValue->protectedHeight().get()));
 
-        basicShape = WTFMove(path);
-        break;
+        rect->setTopLeftRadius(convertToLengthSize(conversionData, rectValue->protectedTopLeftRadius().get()));
+        rect->setTopRightRadius(convertToLengthSize(conversionData, rectValue->protectedTopRightRadius().get()));
+        rect->setBottomRightRadius(convertToLengthSize(conversionData, rectValue->protectedBottomRightRadius().get()));
+        rect->setBottomLeftRadius(convertToLengthSize(conversionData, rectValue->protectedBottomLeftRadius().get()));
+        return rect;
     }
-    }
+    if (auto* rectValue = dynamicDowncast<CSSRectShapeValue>(value)) {
+        auto rect = BasicShapeRect::create();
+        rect->setTop(convertToLengthOrAuto(conversionData, rectValue->protectedTop()));
+        rect->setRight(convertToLengthOrAuto(conversionData, rectValue->protectedRight()));
+        rect->setBottom(convertToLengthOrAuto(conversionData, rectValue->protectedBottom()));
+        rect->setLeft(convertToLengthOrAuto(conversionData, rectValue->protectedLeft()));
 
-    return basicShape.releaseNonNull();
+        rect->setTopLeftRadius(convertToLengthSize(conversionData, rectValue->protectedTopLeftRadius().get()));
+        rect->setTopRightRadius(convertToLengthSize(conversionData, rectValue->protectedTopRightRadius().get()));
+        rect->setBottomRightRadius(convertToLengthSize(conversionData, rectValue->protectedBottomRightRadius().get()));
+        rect->setBottomLeftRadius(convertToLengthSize(conversionData, rectValue->protectedBottomLeftRadius().get()));
+        return rect;
+    }
+    if (auto* pathValue = dynamicDowncast<CSSPathValue>(value)) {
+        auto path = BasicShapePath::create(pathValue->pathData().copy());
+        path->setWindRule(pathValue->windRule());
+        path->setZoom(zoom);
+        return path;
+    }
+    RELEASE_ASSERT_NOT_REACHED();
 }
 
 float floatValueForCenterCoordinate(const BasicShapeCenterCoordinate& center, float boxDimension)
 {
     float offset = floatValueForLength(center.length(), boxDimension);
-    if (center.direction() == BasicShapeCenterCoordinate::TopLeft)
+    if (center.direction() == BasicShapeCenterCoordinate::Direction::TopLeft)
         return offset;
     return boxDimension - offset;
 }

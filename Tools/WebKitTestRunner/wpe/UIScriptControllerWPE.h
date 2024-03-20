@@ -27,14 +27,14 @@
 
 #include "PlatformWebView.h"
 #include "TestController.h"
-#include "UIScriptController.h"
+#include "UIScriptControllerCommon.h"
 
 namespace WTR {
 
-class UIScriptControllerWPE final : public UIScriptController {
+class UIScriptControllerWPE final : public UIScriptControllerCommon {
 public:
     explicit UIScriptControllerWPE(UIScriptContext& context)
-        : UIScriptController(context)
+        : UIScriptControllerCommon(context)
     {
     }
 
@@ -47,6 +47,8 @@ public:
     void simulateAccessibilitySettingsChangeNotification(JSValueRef) override;
     void removeViewFromWindow(JSValueRef) override;
     void addViewToWindow(JSValueRef) override;
+    double zoomScale() const override;
+    void zoomToScale(double, JSValueRef) override;
 };
 
 } // namespace WTR

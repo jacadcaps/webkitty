@@ -21,13 +21,14 @@
 #include "config.h"
 #include "ContentfulPaintChecker.h"
 
-#include "FrameView.h"
 #include "GraphicsContext.h"
+#include "LocalFrameView.h"
+#include "NullGraphicsContext.h"
 #include "RenderView.h"
 
 namespace WebCore {
 
-bool ContentfulPaintChecker::qualifiesForContentfulPaint(FrameView& frameView)
+bool ContentfulPaintChecker::qualifiesForContentfulPaint(LocalFrameView& frameView)
 {
     ASSERT(!frameView.needsLayout());
     ASSERT(frameView.renderView());
@@ -38,13 +39,13 @@ bool ContentfulPaintChecker::qualifiesForContentfulPaint(FrameView& frameView)
     frameView.setPaintBehavior(PaintBehavior::FlattenCompositingLayers);
     frameView.setPaintsEntireContents(true);
 
-    GraphicsContext checkerContext(GraphicsContext::PaintInvalidationReasons::DetectingContentfulPaint);
+    NullGraphicsContext checkerContext(NullGraphicsContext::PaintInvalidationReasons::DetectingContentfulPaint);
     frameView.paint(checkerContext, frameView.renderView()->documentRect());
 
     frameView.setPaintsEntireContents(oldEntireContents);
     frameView.setPaintBehavior(oldPaintBehavior);
 
-    return checkerContext.contenfulPaintDetected();
+    return checkerContext.contentfulPaintDetected();
 }
 
 }

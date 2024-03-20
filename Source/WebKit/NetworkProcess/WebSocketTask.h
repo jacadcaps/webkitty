@@ -25,15 +25,21 @@
 
 #pragma once
 
-#if PLATFORM(COCOA) && HAVE(NSURLSESSION_WEBSOCKET)
+#if PLATFORM(COCOA)
 #include "WebSocketTaskCocoa.h"
 #elif USE(SOUP)
 #include "WebSocketTaskSoup.h"
+#elif USE(CURL)
+#include "WebSocketTaskCurl.h"
 #else
+
+#include "DataReference.h"
 
 namespace WebKit {
 
-class WebSocketTask {
+struct SessionSet;
+
+class WebSocketTask : public CanMakeWeakPtr<WebSocketTask> {
     WTF_MAKE_FAST_ALLOCATED;
 public:
     typedef uint64_t TaskIdentifier;
@@ -44,6 +50,8 @@ public:
 
     void cancel() { }
     void resume() { }
+    
+    SessionSet* sessionSet() { return nullptr; }
 };
 
 } // namespace WebKit

@@ -29,24 +29,26 @@
 
 #include "Supplementable.h"
 #include <wtf/Vector.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
 class Gamepad;
 class Navigator;
 class PlatformGamepad;
+template<typename> class ExceptionOr;
 
-class NavigatorGamepad : public Supplement<Navigator> {
+class NavigatorGamepad : public Supplement<Navigator>, public CanMakeWeakPtr<NavigatorGamepad> {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    NavigatorGamepad();
+    explicit NavigatorGamepad(Navigator&);
     virtual ~NavigatorGamepad();
 
-    static NavigatorGamepad* from(Navigator*);
+    static NavigatorGamepad* from(Navigator&);
 
     // The array of Gamepads might be sparse.
     // Null checking each entry is necessary.
-    static const Vector<RefPtr<Gamepad>>& getGamepads(Navigator&);
+    static ExceptionOr<const Vector<RefPtr<Gamepad>>&> getGamepads(Navigator&);
 
     void gamepadConnected(PlatformGamepad&);
     void gamepadDisconnected(PlatformGamepad&);
@@ -54,12 +56,13 @@ public:
     Ref<Gamepad> gamepadFromPlatformGamepad(PlatformGamepad&);
 
 private:
-    static const char* supplementName();
+    static ASCIILiteral supplementName();
 
     void gamepadsBecameVisible();
 
     const Vector<RefPtr<Gamepad>>& gamepads();
 
+    Navigator& m_navigator;
     Vector<RefPtr<Gamepad>> m_gamepads;
 };
 

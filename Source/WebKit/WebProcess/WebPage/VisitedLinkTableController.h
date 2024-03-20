@@ -26,13 +26,13 @@
 #pragma once
 
 #include "MessageReceiver.h"
-#include "SharedMemory.h"
 #include "SharedStringHashTableReadOnly.h"
+#include <WebCore/SharedMemory.h>
 #include <WebCore/VisitedLinkStore.h>
 
 namespace WebKit {
 
-class VisitedLinkTableController final : public WebCore::VisitedLinkStore , private IPC::MessageReceiver {
+class VisitedLinkTableController final : public WebCore::VisitedLinkStore, public IPC::MessageReceiver {
 public:
     static Ref<VisitedLinkTableController> getOrCreate(uint64_t identifier);
     virtual ~VisitedLinkTableController();
@@ -47,7 +47,7 @@ private:
     // IPC::MessageReceiver.
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) override;
 
-    void setVisitedLinkTable(const SharedMemory::Handle&);
+    void setVisitedLinkTable(WebCore::SharedMemory::Handle&&);
     void visitedLinkStateChanged(const Vector<WebCore::SharedStringHash>&);
     void allVisitedLinkStateChanged();
     void removeAllVisitedLinks();

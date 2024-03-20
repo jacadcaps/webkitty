@@ -74,6 +74,7 @@ static const JSC::MacroAssembler::RegisterID calleeSavedRegisters[] = {
 // r6 is also used as addressTempRegister in the macro assembler. It is saved in the prologue and restored in the epilogue.
 static const JSC::MacroAssembler::RegisterID tempRegister = JSC::ARMRegisters::r6;
 #elif CPU(X86_64)
+#if !OS(WINDOWS)
 static const JSC::MacroAssembler::RegisterID callerSavedRegisters[] = {
     JSC::X86Registers::eax,
     JSC::X86Registers::ecx,
@@ -91,11 +92,30 @@ static const JSC::MacroAssembler::RegisterID calleeSavedRegisters[] = {
     JSC::X86Registers::r14,
     JSC::X86Registers::r15
 };
+#else // OS(WINDOWS)
+static const JSC::MacroAssembler::RegisterID callerSavedRegisters[] = {
+    JSC::X86Registers::eax,
+    JSC::X86Registers::ecx,
+    JSC::X86Registers::edx,
+    JSC::X86Registers::r8,
+    JSC::X86Registers::r9,
+    JSC::X86Registers::r10,
+    JSC::X86Registers::r11
+};
+static const JSC::MacroAssembler::RegisterID calleeSavedRegisters[] = {
+    JSC::X86Registers::esi,
+    JSC::X86Registers::edi,
+    JSC::X86Registers::r12,
+    JSC::X86Registers::r13,
+    JSC::X86Registers::r14,
+    JSC::X86Registers::r15
+};
+#endif // !OS(WINDOWS)
 #else
 #error RegisterAllocator has no defined registers for the architecture.
 #endif
-static const unsigned calleeSavedRegisterCount = WTF_ARRAY_LENGTH(calleeSavedRegisters);
-static const unsigned maximumRegisterCount = calleeSavedRegisterCount + WTF_ARRAY_LENGTH(callerSavedRegisters);
+static const unsigned calleeSavedRegisterCount = std::size(calleeSavedRegisters);
+static const unsigned maximumRegisterCount = calleeSavedRegisterCount + std::size(callerSavedRegisters);
 
 typedef Vector<JSC::MacroAssembler::RegisterID, maximumRegisterCount> RegisterVector;
 
@@ -157,9 +177,9 @@ public:
     {
 #ifdef NDEBUG
         UNUSED_PARAM(count);
-        unsigned numberToAllocate = WTF_ARRAY_LENGTH(callerSavedRegisters);
+        unsigned numberToAllocate = std::size(callerSavedRegisters);
 #else
-        unsigned numberToAllocate = std::min<unsigned>(WTF_ARRAY_LENGTH(callerSavedRegisters), count);
+        unsigned numberToAllocate = std::min<unsigned>(std::size(callerSavedRegisters), count);
 #endif
         for (unsigned i = 0; i < numberToAllocate; ++i)
             m_registers.append(callerSavedRegisters[i]);
@@ -168,7 +188,7 @@ public:
 
     const Vector<JSC::MacroAssembler::RegisterID, calleeSavedRegisterCount>& reserveCalleeSavedRegisters(unsigned count)
     {
-        RELEASE_ASSERT(count <= WTF_ARRAY_LENGTH(calleeSavedRegisters));
+        RELEASE_ASSERT(count <= std::size(calleeSavedRegisters));
         RELEASE_ASSERT(!m_reservedCalleeSavedRegisters.size());
         for (unsigned i = 0; i < count; ++i) {
             JSC::MacroAssembler::RegisterID registerId = calleeSavedRegisters[i];

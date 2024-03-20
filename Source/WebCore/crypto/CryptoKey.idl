@@ -32,9 +32,9 @@ enum KeyType {
 typedef (CryptoKeyAlgorithm or CryptoAesKeyAlgorithm or CryptoEcKeyAlgorithm or CryptoHmacKeyAlgorithm or CryptoRsaHashedKeyAlgorithm or CryptoRsaKeyAlgorithm) KeyAlgorithm;
 
 [
-    Conditional=WEB_CRYPTO,
     Exposed=(Window,Worker),
     GenerateIsReachable=Impl,
+    SecureContext,
     SkipVTableValidation
 ] interface CryptoKey {
     readonly attribute KeyType type;

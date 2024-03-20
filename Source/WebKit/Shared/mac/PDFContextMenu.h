@@ -25,82 +25,27 @@
 
 #pragma once
 
-#if ENABLE(PDFKIT_PLUGIN)
+#if ENABLE(PDF_PLUGIN) && PLATFORM(MAC)
+
 namespace WebKit {
+enum class ContextMenuItemEnablement : bool { Disabled, Enabled };
+
+enum class ContextMenuItemIsSeparator : bool { No, Yes };
     
+enum class ContextMenuItemHasAction : bool { No, Yes };
 struct PDFContextMenuItem {
     String title;
-    bool enabled;
-    bool separator;
     int state;
-    bool hasAction;
     int tag;
-
-    template<class Encoder> void encode(Encoder& encoder) const
-    {
-        encoder << title << enabled << separator << state << hasAction << tag;
-    }
-    
-    template<class Decoder> static Optional<PDFContextMenuItem> decode(Decoder& decoder)
-    {
-        Optional<String> title;
-        decoder >> title;
-        if (!title)
-            return WTF::nullopt;
-
-        Optional<bool> enabled;
-        decoder >> enabled;
-        if (!enabled)
-            return WTF::nullopt;
-
-        Optional<bool> separator;
-        decoder >> separator;
-        if (!separator)
-            return WTF::nullopt;
-
-        Optional<int> state;
-        decoder >> state;
-        if (!state)
-            return WTF::nullopt;
-
-        Optional<bool> hasAction;
-        decoder >> hasAction;
-        if (!hasAction)
-            return WTF::nullopt;
-
-        Optional<int> tag;
-        decoder >> tag;
-        if (!tag)
-            return WTF::nullopt;
-
-        return { { WTFMove(*title), WTFMove(*enabled), WTFMove(*separator), WTFMove(*state), WTFMove(*hasAction), WTFMove(*tag) } };
-    }
+    ContextMenuItemEnablement enabled;
+    ContextMenuItemHasAction hasAction;
+    ContextMenuItemIsSeparator separator;
 };
 
 struct PDFContextMenu {
-    WebCore::IntPoint m_point;
-    Vector<PDFContextMenuItem> m_items;
-    
-    template<class Encoder> void encode(Encoder& encoder) const
-    {
-        encoder << m_point << m_items;
-    }
-    
-    template<class Decoder> static Optional<PDFContextMenu> decode(Decoder& decoder)
-    {
-        Optional<WebCore::IntPoint> point;
-        decoder >> point;
-        if (!point)
-            return WTF::nullopt;
-
-        Optional<Vector<PDFContextMenuItem>> items;
-        decoder >> items;
-        if (!items)
-            return WTF::nullopt;
-        
-        return { { WTFMove(*point), WTFMove(*items) } };
-    }
-
+    WebCore::IntPoint point;
+    Vector<PDFContextMenuItem> items;
+    std::optional<int> openInPreviewTag;
 };
     
 };

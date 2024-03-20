@@ -25,15 +25,10 @@
 
 #pragma once
 
+#include <wtf/CheckedRef.h>
 #include <wtf/MonotonicTime.h>
-#include <wtf/Optional.h>
 
 namespace WebCore {
-
-enum TileSizeMode {
-    StandardTileSizeMode,
-    GiantTileSizeMode
-};
 
 class FloatPoint;
 class FloatRect;
@@ -41,7 +36,13 @@ class FloatSize;
 class IntRect;
 class IntSize;
 class PlatformCALayer;
+
 struct VelocityData;
+
+enum TileSizeMode {
+    StandardTileSizeMode,
+    GiantTileSizeMode
+};
 
 enum ScrollingModeIndication {
     SynchronousScrollingBecauseOfLackOfScrollingCoordinatorIndication,
@@ -50,7 +51,13 @@ enum ScrollingModeIndication {
     AsyncScrollingIndication
 };
 
-class TiledBacking {
+enum class TiledBackingScrollability : uint8_t {
+    NotScrollable           = 0,
+    HorizontallyScrollable  = 1 << 0,
+    VerticallyScrollable    = 1 << 1
+};
+
+class TiledBacking : public CanMakeCheckedPtr {
 public:
     virtual ~TiledBacking() = default;
 
@@ -58,7 +65,7 @@ public:
     virtual FloatRect visibleRect() const = 0;
 
     // Only used to update the tile coverage map. 
-    virtual void setLayoutViewportRect(Optional<FloatRect>) = 0;
+    virtual void setLayoutViewportRect(std::optional<FloatRect>) = 0;
 
     virtual void setCoverageRect(const FloatRect&) = 0;
     virtual FloatRect coverageRect() const = 0;
@@ -71,13 +78,8 @@ public:
 
     virtual void setTileSizeUpdateDelayDisabledForTesting(bool) = 0;
     
-    enum {
-        NotScrollable           = 0,
-        HorizontallyScrollable  = 1 << 0,
-        VerticallyScrollable    = 1 << 1
-    };
-    typedef unsigned Scrollability;
-    virtual void setScrollability(Scrollability) = 0;
+    using Scrollability = TiledBackingScrollability;
+    virtual void setScrollability(OptionSet<Scrollability>) = 0;
 
     virtual void prepopulateRect(const FloatRect&) = 0;
 
@@ -104,10 +106,9 @@ public:
     virtual IntSize tileSize() const = 0;
 
     virtual void revalidateTiles() = 0;
-    virtual void forceRepaint() = 0;
 
-    virtual void setScrollingPerformanceLoggingEnabled(bool) = 0;
-    virtual bool scrollingPerformanceLoggingEnabled() const = 0;
+    virtual void setScrollingPerformanceTestingEnabled(bool) = 0;
+    virtual bool scrollingPerformanceTestingEnabled() const = 0;
     
     virtual double retainedTileBackingStoreMemory() const = 0;
 

@@ -26,8 +26,6 @@
 #include "config.h"
 #include "CryptoKeyEC.h"
 
-#if ENABLE(WEB_CRYPTO)
-
 #include "CryptoAlgorithmRegistry.h"
 #include "JsonWebKey.h"
 #include <wtf/text/Base64.h>
@@ -38,7 +36,7 @@ static const ASCIILiteral P256 { "P-256"_s };
 static const ASCIILiteral P384 { "P-384"_s };
 static const ASCIILiteral P521 { "P-521"_s };
 
-static Optional<CryptoKeyEC::NamedCurve> toNamedCurve(const String& curve)
+static std::optional<CryptoKeyEC::NamedCurve> toNamedCurve(const String& curve)
 {
     if (curve == P256)
         return CryptoKeyEC::NamedCurve::P256;
@@ -47,7 +45,7 @@ static Optional<CryptoKeyEC::NamedCurve> toNamedCurve(const String& curve)
     if (curve == P521)
         return CryptoKeyEC::NamedCurve::P521;
 
-    return WTF::nullopt;
+    return std::nullopt;
 }
 
 CryptoKeyEC::CryptoKeyEC(CryptoAlgorithmIdentifier identifier, NamedCurve curve, CryptoKeyType type, PlatformECKeyContainer&& platformKey, bool extractable, CryptoKeyUsageBitmap usages)
@@ -63,11 +61,11 @@ ExceptionOr<CryptoKeyPair> CryptoKeyEC::generatePair(CryptoAlgorithmIdentifier i
 {
     auto namedCurve = toNamedCurve(curve);
     if (!namedCurve || !platformSupportedCurve(*namedCurve))
-        return Exception { NotSupportedError };
+        return Exception { ExceptionCode::NotSupportedError };
 
     auto result = platformGeneratePair(identifier, *namedCurve, extractable, usages);
     if (!result)
-        return Exception { OperationError };
+        return Exception { ExceptionCode::OperationError };
 
     return WTFMove(*result);
 }
@@ -83,7 +81,7 @@ RefPtr<CryptoKeyEC> CryptoKeyEC::importRaw(CryptoAlgorithmIdentifier identifier,
 
 RefPtr<CryptoKeyEC> CryptoKeyEC::importJwk(CryptoAlgorithmIdentifier identifier, const String& curve, JsonWebKey&& keyData, bool extractable, CryptoKeyUsageBitmap usages)
 {
-    if (keyData.kty != "EC")
+    if (keyData.kty != "EC"_s)
         return nullptr;
     if (keyData.key_ops && ((keyData.usages & usages) != usages))
         return nullptr;
@@ -98,22 +96,22 @@ RefPtr<CryptoKeyEC> CryptoKeyEC::importJwk(CryptoAlgorithmIdentifier identifier,
 
     if (keyData.x.isNull() || keyData.y.isNull())
         return nullptr;
-    Vector<uint8_t> x;
-    if (!WTF::base64URLDecode(keyData.x, x))
+    auto x = base64URLDecode(keyData.x);
+    if (!x)
         return nullptr;
-    Vector<uint8_t> y;
-    if (!WTF::base64URLDecode(keyData.y, y))
+    auto y = base64URLDecode(keyData.y);
+    if (!y)
         return nullptr;
     if (keyData.d.isNull()) {
         // import public key
-        return platformImportJWKPublic(identifier, *namedCurve, WTFMove(x), WTFMove(y), extractable, usages);
+        return platformImportJWKPublic(identifier, *namedCurve, WTFMove(*x), WTFMove(*y), extractable, usages);
     }
 
-    Vector<uint8_t> d;
-    if (!WTF::base64URLDecode(keyData.d, d))
+    auto d = base64URLDecode(keyData.d);
+    if (!d)
         return nullptr;
     // import private key
-    return platformImportJWKPrivate(identifier, *namedCurve, WTFMove(x), WTFMove(y), WTFMove(d), extractable, usages);
+    return platformImportJWKPrivate(identifier, *namedCurve, WTFMove(*x), WTFMove(*y), WTFMove(*d), extractable, usages);
 }
 
 RefPtr<CryptoKeyEC> CryptoKeyEC::importSpki(CryptoAlgorithmIdentifier identifier, const String& curve, Vector<uint8_t>&& keyData, bool extractable, CryptoKeyUsageBitmap usages)
@@ -137,18 +135,18 @@ RefPtr<CryptoKeyEC> CryptoKeyEC::importPkcs8(CryptoAlgorithmIdentifier identifie
 ExceptionOr<Vector<uint8_t>> CryptoKeyEC::exportRaw() const
 {
     if (type() != CryptoKey::Type::Public)
-        return Exception { InvalidAccessError };
+        return Exception { ExceptionCode::InvalidAccessError };
 
     auto&& result = platformExportRaw();
     if (result.isEmpty())
-        return Exception { OperationError };
+        return Exception { ExceptionCode::OperationError };
     return WTFMove(result);
 }
 
 ExceptionOr<JsonWebKey> CryptoKeyEC::exportJwk() const
 {
     JsonWebKey result;
-    result.kty = "EC";
+    result.kty = "EC"_s;
     switch (m_curve) {
     case NamedCurve::P256:
         result.crv = P256;
@@ -163,29 +161,29 @@ ExceptionOr<JsonWebKey> CryptoKeyEC::exportJwk() const
     result.key_ops = usages();
     result.ext = extractable();
     if (!platformAddFieldElements(result))
-        return Exception { OperationError };
+        return Exception { ExceptionCode::OperationError };
     return result;
 }
 
 ExceptionOr<Vector<uint8_t>> CryptoKeyEC::exportSpki() const
 {
     if (type() != CryptoKey::Type::Public)
-        return Exception { InvalidAccessError };
+        return Exception { ExceptionCode::InvalidAccessError };
 
     auto&& result = platformExportSpki();
     if (result.isEmpty())
-        return Exception { OperationError };
+        return Exception { ExceptionCode::OperationError };
     return WTFMove(result);
 }
 
 ExceptionOr<Vector<uint8_t>> CryptoKeyEC::exportPkcs8() const
 {
     if (type() != CryptoKey::Type::Private)
-        return Exception { InvalidAccessError };
+        return Exception { ExceptionCode::InvalidAccessError };
 
     auto&& result = platformExportPkcs8();
     if (result.isEmpty())
-        return Exception { OperationError };
+        return Exception { ExceptionCode::OperationError };
     return WTFMove(result);
 }
 
@@ -230,5 +228,3 @@ auto CryptoKeyEC::algorithm() const -> KeyAlgorithm
 }
 
 } // namespace WebCore
-
-#endif // ENABLE(WEB_CRYPTO)

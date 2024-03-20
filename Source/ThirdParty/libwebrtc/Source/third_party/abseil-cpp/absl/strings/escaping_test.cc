@@ -15,17 +15,20 @@
 #include "absl/strings/escaping.h"
 
 #include <array>
+#include <cstddef>
 #include <cstdio>
 #include <cstring>
+#include <initializer_list>
 #include <memory>
+#include <string>
 #include <vector>
 
-#include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "absl/container/fixed_array.h"
+#include "absl/log/check.h"
 #include "absl/strings/str_cat.h"
 
 #include "absl/strings/internal/escaping_test_common.h"
+#include "absl/strings/string_view.h"
 
 namespace {
 
@@ -300,7 +303,7 @@ static struct {
   absl::string_view plaintext;
   absl::string_view cyphertext;
 } const base64_tests[] = {
-    // Empty std::string.
+    // Empty string.
     {{"", 0}, {"", 0}},
     {{nullptr, 0},
      {"", 0}},  // if length is zero, plaintext ptr must be ignored!
@@ -562,6 +565,7 @@ template <typename StringType>
 void TestEscapeAndUnescape() {
   // Check the short strings; this tests the math (and boundaries)
   for (const auto& tc : base64_tests) {
+    // Test plain base64.
     StringType encoded("this junk should be ignored");
     absl::Base64Escape(tc.plaintext, &encoded);
     EXPECT_EQ(encoded, tc.cyphertext);
@@ -571,22 +575,26 @@ void TestEscapeAndUnescape() {
     EXPECT_TRUE(absl::Base64Unescape(encoded, &decoded));
     EXPECT_EQ(decoded, tc.plaintext);
 
-    StringType websafe(tc.cyphertext);
-    for (int c = 0; c < websafe.size(); ++c) {
-      if ('+' == websafe[c]) websafe[c] = '-';
-      if ('/' == websafe[c]) websafe[c] = '_';
+    StringType websafe_with_padding(tc.cyphertext);
+    for (unsigned int c = 0; c < websafe_with_padding.size(); ++c) {
+      if ('+' == websafe_with_padding[c]) websafe_with_padding[c] = '-';
+      if ('/' == websafe_with_padding[c]) websafe_with_padding[c] = '_';
+      // Intentionally keeping padding aka '='.
+    }
+
+    // Test plain websafe (aka without padding).
+    StringType websafe(websafe_with_padding);
+    for (unsigned int c = 0; c < websafe.size(); ++c) {
       if ('=' == websafe[c]) {
         websafe.resize(c);
         break;
       }
     }
-
     encoded = "this junk should be ignored";
     absl::WebSafeBase64Escape(tc.plaintext, &encoded);
     EXPECT_EQ(encoded, websafe);
     EXPECT_EQ(absl::WebSafeBase64Escape(tc.plaintext), websafe);
 
-    // Let's try the std::string version of the decoder
     decoded = "this junk should be ignored";
     EXPECT_TRUE(absl::WebSafeBase64Unescape(websafe, &decoded));
     EXPECT_EQ(decoded, tc.plaintext);
@@ -617,6 +625,48 @@ TEST(Base64, EscapeAndUnescape) {
   TestEscapeAndUnescape<std::string>();
 }
 
+TEST(Base64, Padding) {
+  // Padding is optional.
+  // '.' is an acceptable padding character, just like '='.
+  std::initializer_list<absl::string_view> good_padding = {
+    "YQ",
+    "YQ==",
+    "YQ=.",
+    "YQ.=",
+    "YQ..",
+  };
+  for (absl::string_view b64 : good_padding) {
+    std::string decoded;
+    EXPECT_TRUE(absl::Base64Unescape(b64, &decoded));
+    EXPECT_EQ(decoded, "a");
+    std::string websafe_decoded;
+    EXPECT_TRUE(absl::WebSafeBase64Unescape(b64, &websafe_decoded));
+    EXPECT_EQ(websafe_decoded, "a");
+  }
+  std::initializer_list<absl::string_view> bad_padding = {
+    "YQ=",
+    "YQ.",
+    "YQ===",
+    "YQ==.",
+    "YQ=.=",
+    "YQ=..",
+    "YQ.==",
+    "YQ.=.",
+    "YQ..=",
+    "YQ...",
+    "YQ====",
+    "YQ....",
+    "YQ=====",
+    "YQ.....",
+  };
+  for (absl::string_view b64 : bad_padding) {
+    std::string decoded;
+    EXPECT_FALSE(absl::Base64Unescape(b64, &decoded));
+    std::string websafe_decoded;
+    EXPECT_FALSE(absl::WebSafeBase64Unescape(b64, &websafe_decoded));
+  }
+}
+
 TEST(Base64, DISABLED_HugeData) {
   const size_t kSize = size_t(3) * 1000 * 1000 * 1000;
   static_assert(kSize % 3 == 0, "kSize must be divisible by 3");
@@ -625,7 +675,7 @@ TEST(Base64, DISABLED_HugeData) {
   std::string escaped;
   absl::Base64Escape(huge, &escaped);
 
-  // Generates the std::string that should match a base64 encoded "xxx..." std::string.
+  // Generates the string that should match a base64 encoded "xxx..." string.
   // "xxx" in base64 is "eHh4".
   std::string expected_encoding;
   expected_encoding.reserve(kSize / 3 * 4);

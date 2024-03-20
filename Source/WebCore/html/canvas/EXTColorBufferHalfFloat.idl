@@ -24,9 +24,9 @@
 */
 
 [
-    NoInterfaceObject,
+    LegacyNoInterfaceObject,
     Conditional=WEBGL,
-    GenerateIsReachable=ImplWebGLRenderingContext
+    GenerateIsReachable
 ] interface EXTColorBufferHalfFloat {
     const unsigned long RGBA16F_EXT = 0x881A;
     const unsigned long RGB16F_EXT = 0x881B;

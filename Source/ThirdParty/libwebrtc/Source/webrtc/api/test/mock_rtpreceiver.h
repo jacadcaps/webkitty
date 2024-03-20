@@ -14,6 +14,7 @@
 #include <string>
 #include <vector>
 
+#include "api/crypto/frame_decryptor_interface.h"
 #include "api/rtp_receiver_interface.h"
 #include "test/gmock.h"
 
@@ -21,16 +22,35 @@ namespace webrtc {
 
 class MockRtpReceiver : public rtc::RefCountedObject<RtpReceiverInterface> {
  public:
-  MOCK_METHOD1(SetTrack, void(MediaStreamTrackInterface*));
-  MOCK_CONST_METHOD0(track, rtc::scoped_refptr<MediaStreamTrackInterface>());
-  MOCK_CONST_METHOD0(streams,
-                     std::vector<rtc::scoped_refptr<MediaStreamInterface>>());
-  MOCK_CONST_METHOD0(media_type, cricket::MediaType());
-  MOCK_CONST_METHOD0(id, std::string());
-  MOCK_CONST_METHOD0(GetParameters, RtpParameters());
-  MOCK_METHOD1(SetObserver, void(RtpReceiverObserverInterface*));
-  MOCK_METHOD1(SetJitterBufferMinimumDelay, void(absl::optional<double>));
-  MOCK_CONST_METHOD0(GetSources, std::vector<RtpSource>());
+  MOCK_METHOD(rtc::scoped_refptr<MediaStreamTrackInterface>,
+              track,
+              (),
+              (const, override));
+  MOCK_METHOD(std::vector<rtc::scoped_refptr<MediaStreamInterface>>,
+              streams,
+              (),
+              (const, override));
+  MOCK_METHOD(cricket::MediaType, media_type, (), (const, override));
+  MOCK_METHOD(std::string, id, (), (const, override));
+  MOCK_METHOD(RtpParameters, GetParameters, (), (const, override));
+  MOCK_METHOD(bool,
+              SetParameters,
+              (const webrtc::RtpParameters& parameters),
+              (override));
+  MOCK_METHOD(void, SetObserver, (RtpReceiverObserverInterface*), (override));
+  MOCK_METHOD(void,
+              SetJitterBufferMinimumDelay,
+              (absl::optional<double>),
+              (override));
+  MOCK_METHOD(std::vector<RtpSource>, GetSources, (), (const, override));
+  MOCK_METHOD(void,
+              SetFrameDecryptor,
+              (rtc::scoped_refptr<webrtc::FrameDecryptorInterface>),
+              (override));
+  MOCK_METHOD(rtc::scoped_refptr<webrtc::FrameDecryptorInterface>,
+              GetFrameDecryptor,
+              (),
+              (const, override));
 };
 
 }  // namespace webrtc

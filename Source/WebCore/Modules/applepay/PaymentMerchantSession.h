@@ -48,9 +48,9 @@ public:
     {
     }
 
-    static Optional<PaymentMerchantSession> fromJS(JSC::JSGlobalObject&, JSC::JSValue, String& errorMessage);
+    static std::optional<PaymentMerchantSession> fromJS(JSC::JSGlobalObject&, JSC::JSValue, String& errorMessage);
 
-    PKPaymentMerchantSession *pkPaymentMerchantSession() const { return m_pkPaymentMerchantSession.get(); }
+    RetainPtr<PKPaymentMerchantSession> pkPaymentMerchantSession() const { return m_pkPaymentMerchantSession; }
 
 private:
     RetainPtr<PKPaymentMerchantSession> m_pkPaymentMerchantSession;

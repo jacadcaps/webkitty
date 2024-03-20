@@ -52,7 +52,7 @@ public:
 
     void release() { m_isReleased = true; }
 
-    JS_EXPORT_PRIVATE void printIfNeedCheck(const char* functionName, const char* file, unsigned line);
+    void clearException() { m_vm.clearException(); }
 
 private:
     void simulateThrow();
@@ -62,9 +62,6 @@ private:
 
 #define DECLARE_THROW_SCOPE(vm__) \
     JSC::ThrowScope((vm__), JSC::ExceptionEventLocation(EXCEPTION_SCOPE_POSITION_FOR_ASAN(vm__), __FUNCTION__, __FILE__, __LINE__))
-
-#define throwScopePrintIfNeedCheck(scope__) \
-    scope__.printIfNeedCheck(__FUNCTION__, __FILE__, __LINE__)
 
 #else // not ENABLE(EXCEPTION_SCOPE_VERIFICATION)
 
@@ -80,6 +77,8 @@ public:
     ALWAYS_INLINE Exception* throwException(JSGlobalObject* globalObject, JSValue value) { return m_vm.throwException(globalObject, value); }
 
     ALWAYS_INLINE void release() { }
+
+    ALWAYS_INLINE void clearException() { m_vm.clearException(); }
 };
 
 #define DECLARE_THROW_SCOPE(vm__) \

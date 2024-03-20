@@ -42,18 +42,33 @@
 
 #import <pal/cocoa/AVFoundationSoftLink.h>
 
+@class AVMediaSelectionOption;
+@interface AVMediaSelectionOption (WebKitInternal)
+- (id)optionID;
+@end
+
 namespace WebCore {
 
-InbandTextTrackPrivateAVFObjC::InbandTextTrackPrivateAVFObjC(AVFInbandTrackParent* player, AVMediaSelectionOption *selection, InbandTextTrackPrivate::CueFormat format)
+InbandTextTrackPrivateAVFObjC::InbandTextTrackPrivateAVFObjC(AVFInbandTrackParent* player, AVMediaSelectionGroup *group, AVMediaSelectionOption *selection, InbandTextTrackPrivate::CueFormat format)
     : InbandTextTrackPrivateAVF(player, format)
+    , m_mediaSelectionGroup(group)
     , m_mediaSelectionOption(selection)
 {
 }
 
 void InbandTextTrackPrivateAVFObjC::disconnect()
 {
+    m_mediaSelectionGroup = 0;
     m_mediaSelectionOption = 0;
     InbandTextTrackPrivateAVF::disconnect();
+}
+
+TrackID InbandTextTrackPrivateAVFObjC::id() const
+{
+    if (m_mediaSelectionOption)
+        return [[m_mediaSelectionOption optionID] unsignedLongLongValue];
+    ASSERT_NOT_REACHED();
+    return 0;
 }
 
 InbandTextTrackPrivate::Kind InbandTextTrackPrivateAVFObjC::kind() const
@@ -136,7 +151,7 @@ AtomString InbandTextTrackPrivateAVFObjC::label() const
 
     NSString *title = 0;
 
-    NSArray *titles = [PAL::getAVMetadataItemClass() metadataItemsFromArray:[m_mediaSelectionOption.get() commonMetadata] withKey:AVMetadataCommonKeyTitle keySpace:AVMetadataKeySpaceCommon];
+    NSArray *titles = [PAL::getAVMetadataItemClass() metadataItemsFromArray:[m_mediaSelectionOption commonMetadata] withKey:AVMetadataCommonKeyTitle keySpace:AVMetadataKeySpaceCommon];
     if ([titles count]) {
         // If possible, return a title in one of the user's preferred languages.
         NSArray *titlesForPreferredLanguages = [PAL::getAVMetadataItemClass() metadataItemsFromArray:titles filteredAndSortedAccordingToPreferredLanguages:[NSLocale preferredLanguages]];
@@ -155,12 +170,12 @@ AtomString InbandTextTrackPrivateAVFObjC::language() const
     if (!m_mediaSelectionOption)
         return emptyAtom();
 
-    return [[m_mediaSelectionOption.get() locale] localeIdentifier];
+    return [[m_mediaSelectionOption locale] localeIdentifier];
 }
 
 bool InbandTextTrackPrivateAVFObjC::isDefault() const
 {
-    return false;
+    return [m_mediaSelectionGroup defaultOption] == m_mediaSelectionOption.get();
 }
 
 } // namespace WebCore

@@ -25,8 +25,8 @@
 
 [
     Conditional=WEBGL,
-    GenerateIsReachable=ImplWebGLRenderingContext,
-    NoInterfaceObject,
+    GenerateIsReachable,
+    LegacyNoInterfaceObject,
 ] interface EXTTextureFilterAnisotropic {
     const unsigned long TEXTURE_MAX_ANISOTROPY_EXT = 0x84FE;
     const unsigned long MAX_TEXTURE_MAX_ANISOTROPY_EXT = 0x84FF;

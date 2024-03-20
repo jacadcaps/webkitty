@@ -23,16 +23,19 @@
 #include "config.h"
 #include "Event.h"
 
-#include "DOMWindow.h"
 #include "Document.h"
 #include "EventNames.h"
 #include "EventPath.h"
 #include "EventTarget.h"
 #include "InspectorInstrumentation.h"
+#include "LocalDOMWindow.h"
 #include "Performance.h"
 #include "UserGestureIndicator.h"
 #include "WorkerGlobalScope.h"
+#include <wtf/HexNumber.h>
 #include <wtf/IsoMallocInlines.h>
+#include <wtf/text/StringBuilder.h>
+#include <wtf/text/TextStream.h>
 
 namespace WebCore {
 
@@ -50,6 +53,7 @@ ALWAYS_INLINE Event::Event(MonotonicTime createTime, const AtomString& type, IsT
     , m_isDefaultEventHandlerIgnored { false }
     , m_isTrusted { isTrusted == IsTrusted::Yes }
     , m_isExecutingPassiveEventListener { false }
+    , m_currentTargetIsInShadowTree { false }
     , m_eventPhase { NONE }
     , m_type { type }
     , m_createTime { createTime }
@@ -80,6 +84,7 @@ Event::Event(const AtomString& eventType, const EventInit& initializer, IsTruste
         initializer.composed ? IsComposed::Yes : IsComposed::No }
 {
     ASSERT(!eventType.isNull());
+    m_isConstructedFromInitializer = true;
 }
 
 Event::~Event() = default;
@@ -127,16 +132,32 @@ void Event::setTarget(RefPtr<EventTarget>&& target)
         receivedTarget();
 }
 
-void Event::setCurrentTarget(EventTarget* currentTarget)
+RefPtr<EventTarget> Event::protectedCurrentTarget() const
 {
-    m_currentTarget = currentTarget;
+    return m_currentTarget;
 }
 
-Vector<EventTarget*> Event::composedPath() const
+void Event::setCurrentTarget(RefPtr<EventTarget>&& currentTarget, std::optional<bool> isInShadowTree)
+{
+    m_currentTarget = WTFMove(currentTarget);
+    if (isInShadowTree)
+        m_currentTargetIsInShadowTree = *isInShadowTree;
+    else {
+        auto* targetNode = dynamicDowncast<Node>(m_currentTarget.get());
+        m_currentTargetIsInShadowTree = targetNode && targetNode->isInShadowTree();
+    }
+}
+
+void Event::setEventPath(const EventPath& path)
+{
+    m_eventPath = &path;
+}
+
+Vector<Ref<EventTarget>> Event::composedPath() const
 {
     if (!m_eventPath)
-        return Vector<EventTarget*>();
-    return m_eventPath->computePathUnclosedToTarget(*m_currentTarget);
+        return Vector<Ref<EventTarget>>();
+    return m_eventPath->computePathUnclosedToTarget(*protectedCurrentTarget());
 }
 
 void Event::setUnderlyingEvent(Event* underlyingEvent)
@@ -151,10 +172,10 @@ void Event::setUnderlyingEvent(Event* underlyingEvent)
 
 DOMHighResTimeStamp Event::timeStampForBindings(ScriptExecutionContext& context) const
 {
-    Performance* performance = nullptr;
-    if (is<WorkerGlobalScope>(context))
-        performance = &downcast<WorkerGlobalScope>(context).performance();
-    else if (auto* window = downcast<Document>(context).domWindow())
+    RefPtr<Performance> performance;
+    if (auto* globalScope = dynamicDowncast<WorkerGlobalScope>(context))
+        performance = &globalScope->performance();
+    else if (RefPtr window = downcast<Document>(context).domWindow())
         performance = &window->performance();
 
     if (!performance)
@@ -171,12 +192,23 @@ void Event::resetBeforeDispatch()
 void Event::resetAfterDispatch()
 {
     m_eventPath = nullptr;
-    m_currentTarget = nullptr;
+    setCurrentTarget(nullptr);
     m_eventPhase = NONE;
     m_propagationStopped = false;
     m_immediatePropagationStopped = false;
 
     InspectorInstrumentation::eventDidResetAfterDispatch(*this);
+}
+
+String Event::debugDescription() const
+{
+    return makeString(type(), " phase ", eventPhase(), bubbles() ? " bubbles " : " ", cancelable() ? "cancelable " : " ", "0x"_s, hex(reinterpret_cast<uintptr_t>(this), Lowercase));
+}
+
+TextStream& operator<<(TextStream& ts, const Event& event)
+{
+    ts << event.debugDescription();
+    return ts;
 }
 
 } // namespace WebCore

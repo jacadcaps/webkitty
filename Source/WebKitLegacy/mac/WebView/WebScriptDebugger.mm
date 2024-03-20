@@ -32,13 +32,14 @@
 #import "WebFrameInternal.h"
 #import "WebScriptDebugDelegate.h"
 #import "WebViewInternal.h"
+#import <JavaScriptCore/Breakpoint.h>
 #import <JavaScriptCore/DebuggerCallFrame.h>
 #import <JavaScriptCore/JSGlobalObject.h>
 #import <JavaScriptCore/SourceProvider.h>
 #import <JavaScriptCore/StrongInlines.h>
-#import <WebCore/DOMWindow.h>
-#import <WebCore/Frame.h>
-#import <WebCore/JSDOMWindow.h>
+#import <WebCore/JSLocalDOMWindow.h>
+#import <WebCore/LocalDOMWindow.h>
+#import <WebCore/LocalFrame.h>
 #import <WebCore/ScriptController.h>
 #import <wtf/URL.h>
 
@@ -56,7 +57,7 @@ static NSString *toNSString(JSC::SourceProvider* sourceProvider)
 
 static WebFrame *toWebFrame(JSC::JSGlobalObject* globalObject)
 {
-    WebCore::JSDOMWindow* window = static_cast<WebCore::JSDOMWindow*>(globalObject);
+    auto* window = static_cast<WebCore::JSLocalDOMWindow*>(globalObject);
     return kit(window->wrapped().frame());
 }
 
@@ -65,7 +66,7 @@ WebScriptDebugger::WebScriptDebugger(JSC::JSGlobalObject* globalObject)
     , m_callingDelegate(false)
     , m_globalObject(globalObject->vm(), globalObject)
 {
-    setPauseOnExceptionsState(PauseOnAllExceptions);
+    setPauseOnAllExceptionsBreakpoint(JSC::Breakpoint::create(JSC::noBreakpointID));
     deactivateBreakpoints();
     attach(globalObject);
 }
@@ -95,15 +96,21 @@ void WebScriptDebugger::sourceParsed(JSC::JSGlobalObject* lexicalGlobalObject, J
                 CallScriptDebugDelegate(implementations->didParseSourceFunc, webView, @selector(webView:didParseSource:fromURL:sourceId:forWebFrame:), nsSource, [nsURL absoluteString], sourceProvider->asID(), webFrame);
         }
     } else {
-        NSString* nsErrorMessage = nsStringNilIfEmpty(errorMsg);
-        NSDictionary *info = [[NSDictionary alloc] initWithObjectsAndKeys:nsErrorMessage, WebScriptErrorDescriptionKey, @(errorLine), WebScriptErrorLineNumberKey, nil];
-        NSError *error = [[NSError alloc] initWithDomain:WebScriptErrorDomain code:WebScriptGeneralErrorCode userInfo:info];
+        NSDictionary *info;
+        if (errorMsg.isEmpty()) {
+            info = @{
+                WebScriptErrorLineNumberKey: @(errorLine),
+            };
+        } else {
+            info = @{
+                WebScriptErrorDescriptionKey: (NSString *)errorMsg,
+                WebScriptErrorLineNumberKey: @(errorLine),
+            };
+        }
+        auto error = adoptNS([[NSError alloc] initWithDomain:WebScriptErrorDomain code:WebScriptGeneralErrorCode userInfo:info]);
 
         if (implementations->failedToParseSourceFunc)
-            CallScriptDebugDelegate(implementations->failedToParseSourceFunc, webView, @selector(webView:failedToParseSource:baseLineNumber:fromURL:withError:forWebFrame:), nsSource, firstLine, nsURL, error, webFrame);
-
-        [error release];
-        [info release];
+            CallScriptDebugDelegate(implementations->failedToParseSourceFunc, webView, @selector(webView:failedToParseSource:baseLineNumber:fromURL:withError:forWebFrame:), nsSource, firstLine, nsURL, error.get(), webFrame);
     }
 
     m_callingDelegate = false;
@@ -119,11 +126,12 @@ void WebScriptDebugger::handlePause(JSC::JSGlobalObject* globalObject, Debugger:
 
     m_callingDelegate = true;
 
+    JSC::VM& vm = globalObject->vm();
     WebFrame *webFrame = toWebFrame(globalObject);
     WebView *webView = [webFrame webView];
     JSC::DebuggerCallFrame& debuggerCallFrame = currentDebuggerCallFrame();
     JSC::JSValue exceptionValue = currentException();
-    String functionName = debuggerCallFrame.functionName();
+    String functionName = debuggerCallFrame.functionName(vm);
     RetainPtr<WebScriptCallFrame> webCallFrame = adoptNS([[WebScriptCallFrame alloc] _initWithGlobalObject:core(webFrame)->script().windowScriptObject() functionName:functionName exceptionValue:exceptionValue]);
 
     WebScriptDebugDelegateImplementationCache* cache = WebViewGetScriptDebugDelegateImplementations(webView);

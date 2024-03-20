@@ -46,8 +46,10 @@ private:
     void doUnapply() override;
     
 #ifndef NDEBUG
-    void getNodesInCommand(HashSet<Node*>&) override;
+    void getNodesInCommand(HashSet<Ref<Node>>&) override;
 #endif
+
+    Ref<Text> protectedNode() const;
     
     Ref<Text> m_node;
     unsigned m_offset;

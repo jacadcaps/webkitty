@@ -33,161 +33,53 @@
 #import "WebPageProxy.h"
 #import "WebProcessProxy.h"
 #import <WebCore/AudioSession.h>
-#import <wtf/NeverDestroyed.h>
-
-#import <pal/cocoa/AVFoundationSoftLink.h>
 
 namespace WebKit {
 
 using namespace WebCore;
 
-class SharedArbitrator {
-public:
-    static SharedArbitrator& sharedInstance();
-
-    using RoutingArbitrationError = AudioSessionRoutingArbitrationClient::RoutingArbitrationError;
-    using DefaultRouteChanged = AudioSessionRoutingArbitrationClient::DefaultRouteChanged;
-    using ArbitrationCallback = AudioSessionRoutingArbitratorProxy::ArbitrationCallback;
-
-    bool isInRoutingArbitrationForArbitrator(AudioSessionRoutingArbitratorProxy&);
-    void beginRoutingArbitrationForArbitrator(AudioSessionRoutingArbitratorProxy&, ArbitrationCallback&&);
-    void endRoutingArbitrationForArbitrator(AudioSessionRoutingArbitratorProxy&);
-
-private:
-    Optional<AudioSession::CategoryType> m_currentCategory { AudioSession::None };
-    WeakHashSet<AudioSessionRoutingArbitratorProxy> m_arbitrators;
-    Vector<ArbitrationCallback> m_enqueuedCallbacks;
-    bool m_setupArbitrationOngoing { false };
-};
-
-SharedArbitrator& SharedArbitrator::sharedInstance()
-{
-    static NeverDestroyed<SharedArbitrator> instance;
-    return instance;
-}
-
-bool SharedArbitrator::isInRoutingArbitrationForArbitrator(AudioSessionRoutingArbitratorProxy& proxy)
-{
-    return m_arbitrators.contains(proxy);
-}
-
-void SharedArbitrator::beginRoutingArbitrationForArbitrator(AudioSessionRoutingArbitratorProxy& proxy, ArbitrationCallback&& callback)
-{
-    ASSERT(!isInRoutingArbitrationForArbitrator(proxy));
-
-    if (m_setupArbitrationOngoing) {
-        m_enqueuedCallbacks.append([this, weakProxy = makeWeakPtr(proxy), callback = WTFMove(callback)] (RoutingArbitrationError error, DefaultRouteChanged routeChanged) mutable {
-            if (error == RoutingArbitrationError::None && weakProxy)
-                m_arbitrators.add(*weakProxy);
-
-            callback(error, routeChanged);
-        });
-
-        return;
-    }
-
-    auto requestedCategory = proxy.category();
-
-    if (m_currentCategory) {
-        if (*m_currentCategory >= requestedCategory) {
-            m_arbitrators.add(proxy);
-            callback(RoutingArbitrationError::None, DefaultRouteChanged::No);
-            return;
-        }
-
-        [[PAL::getAVAudioRoutingArbiterClass() sharedRoutingArbiter] leaveArbitration];
-    }
-
-    m_currentCategory = requestedCategory;
-
-    AVAudioRoutingArbitrationCategory arbitrationCategory = AVAudioRoutingArbitrationCategoryPlayback;
-    switch (requestedCategory) {
-    case AudioSession::MediaPlayback:
-        arbitrationCategory = AVAudioRoutingArbitrationCategoryPlayback;
-        break;
-    case AudioSession::RecordAudio:
-        arbitrationCategory = AVAudioRoutingArbitrationCategoryPlayAndRecord;
-        break;
-    case AudioSession::PlayAndRecord:
-        arbitrationCategory = AVAudioRoutingArbitrationCategoryPlayAndRecordVoice;
-        break;
-    default:
-        ASSERT_NOT_REACHED();
-    }
-
-    m_setupArbitrationOngoing = true;
-    m_enqueuedCallbacks.append([this, weakProxy = makeWeakPtr(proxy), callback = WTFMove(callback)] (RoutingArbitrationError error, DefaultRouteChanged routeChanged) mutable {
-        if (error == RoutingArbitrationError::None && weakProxy)
-            m_arbitrators.add(*weakProxy);
-
-        callback(error, routeChanged);
-    });
-
-    [[PAL::getAVAudioRoutingArbiterClass() sharedRoutingArbiter] beginArbitrationWithCategory:arbitrationCategory completionHandler:[this](BOOL defaultDeviceChanged, NSError * _Nullable error) {
-        callOnMainRunLoop([this, defaultDeviceChanged, error = retainPtr(error)] {
-            if (error)
-                RELEASE_LOG_ERROR(Media, "SharedArbitrator::beginRoutingArbitrationForArbitrator: %s failed with error %s:%s", convertEnumerationToString(*m_currentCategory).ascii().data(), [[error domain] UTF8String], [[error localizedDescription] UTF8String]);
-
-            // FIXME: Do we need to reset sample rate and buffer size for the new default device?
-            if (defaultDeviceChanged)
-                LOG(Media, "AudioSession::setCategory() - defaultDeviceChanged!");
-
-            Vector<ArbitrationCallback> callbacks = WTFMove(m_enqueuedCallbacks);
-            for (auto& callback : callbacks)
-                callback(error ? RoutingArbitrationError::Failed : RoutingArbitrationError::None, defaultDeviceChanged ? DefaultRouteChanged::Yes : DefaultRouteChanged::No);
-
-            m_setupArbitrationOngoing = false;
-        });
-    }];
-}
-
-void SharedArbitrator::endRoutingArbitrationForArbitrator(AudioSessionRoutingArbitratorProxy& proxy)
-{
-    ASSERT(isInRoutingArbitrationForArbitrator(proxy));
-    m_arbitrators.remove(proxy);
-
-    if (!m_arbitrators.computesEmpty())
-        return;
-
-    for (auto& callback : m_enqueuedCallbacks)
-        callback(RoutingArbitrationError::Cancelled, DefaultRouteChanged::No);
-
-    m_enqueuedCallbacks.clear();
-    m_currentCategory.reset();
-    [[PAL::getAVAudioRoutingArbiterClass() sharedRoutingArbiter] leaveArbitration];
-}
-
 AudioSessionRoutingArbitratorProxy::AudioSessionRoutingArbitratorProxy(WebProcessProxy& proxy)
     : m_process(proxy)
+    , m_token(SharedRoutingArbitrator::Token::create())
 {
-    m_process.addMessageReceiver(Messages::AudioSessionRoutingArbitratorProxy::messageReceiverName(), destinationId(), *this);
+    m_logIdentifier = m_token->logIdentifier();
+    SharedRoutingArbitrator::sharedInstance().setLogger(logger());
+    proxy.addMessageReceiver(Messages::AudioSessionRoutingArbitratorProxy::messageReceiverName(), destinationId(), *this);
 }
 
 AudioSessionRoutingArbitratorProxy::~AudioSessionRoutingArbitratorProxy()
 {
-    m_process.removeMessageReceiver(Messages::AudioSessionRoutingArbitratorProxy::messageReceiverName(), destinationId());
+    RefAllowingPartiallyDestroyed<WebProcessProxy> process = m_process.get();
+    process->removeMessageReceiver(Messages::AudioSessionRoutingArbitratorProxy::messageReceiverName(), destinationId());
 }
 
 void AudioSessionRoutingArbitratorProxy::processDidTerminate()
 {
-    if (SharedArbitrator::sharedInstance().isInRoutingArbitrationForArbitrator(*this))
+    if (SharedRoutingArbitrator::sharedInstance().isInRoutingArbitrationForToken(m_token))
         endRoutingArbitration();
 }
 
 void AudioSessionRoutingArbitratorProxy::beginRoutingArbitrationWithCategory(WebCore::AudioSession::CategoryType category, ArbitrationCallback&& callback)
 {
+    auto identifier = LOGIDENTIFIER;
+    ALWAYS_LOG(identifier, category);
+
     m_category = category;
     m_arbitrationStatus = ArbitrationStatus::Pending;
-    SharedArbitrator::sharedInstance().beginRoutingArbitrationForArbitrator(*this, [weakThis = makeWeakPtr(*this), callback = WTFMove(callback)] (RoutingArbitrationError error, DefaultRouteChanged routeChanged) mutable {
-        if (weakThis)
+    m_arbitrationUpdateTime = WallTime::now();
+    SharedRoutingArbitrator::sharedInstance().beginRoutingArbitrationForToken(m_token, category, [this, weakThis = WeakPtr { *this }, callback = WTFMove(callback), identifier = WTFMove(identifier)] (RoutingArbitrationError error, DefaultRouteChanged routeChanged) mutable {
+        if (weakThis) {
+            ALWAYS_LOG(identifier, "callback, error = ", error, ", routeChanged = ", routeChanged);
             weakThis->m_arbitrationStatus = error == RoutingArbitrationError::None ? ArbitrationStatus::Active : ArbitrationStatus::None;
+        }
         callback(error, routeChanged);
     });
 }
 
 void AudioSessionRoutingArbitratorProxy::endRoutingArbitration()
 {
-    SharedArbitrator::sharedInstance().endRoutingArbitrationForArbitrator(*this);
+    ALWAYS_LOG(LOGIDENTIFIER);
+    SharedRoutingArbitrator::sharedInstance().endRoutingArbitrationForToken(m_token);
     m_arbitrationStatus = ArbitrationStatus::None;
 }
 

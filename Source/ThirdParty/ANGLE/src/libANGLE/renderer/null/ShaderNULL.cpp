@@ -11,6 +11,7 @@
 
 #include "common/debug.h"
 #include "libANGLE/Context.h"
+#include "libANGLE/renderer/ContextImpl.h"
 
 namespace rx
 {
@@ -19,11 +20,15 @@ ShaderNULL::ShaderNULL(const gl::ShaderState &data) : ShaderImpl(data) {}
 
 ShaderNULL::~ShaderNULL() {}
 
-std::shared_ptr<WaitableCompileEvent> ShaderNULL::compile(const gl::Context *context,
-                                                          gl::ShCompilerInstance *compilerInstance,
-                                                          ShCompileOptions options)
+std::shared_ptr<ShaderTranslateTask> ShaderNULL::compile(const gl::Context *context,
+                                                         ShCompileOptions *options)
 {
-    return compileImpl(context, compilerInstance, mData.getSource(), options);
+    const gl::Extensions &extensions = context->getImplementation()->getExtensions();
+    if (extensions.shaderPixelLocalStorageANGLE)
+    {
+        options->pls = context->getImplementation()->getNativePixelLocalStorageOptions();
+    }
+    return std::shared_ptr<ShaderTranslateTask>(new ShaderTranslateTask);
 }
 
 std::string ShaderNULL::getDebugInfo() const

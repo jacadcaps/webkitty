@@ -25,9 +25,13 @@
 
 #pragma once
 
+#if ENABLE(VIDEO)
+
+#include "HTMLMediaElement.h"
+#include <variant>
+#include <wtf/Ref.h>
 #include <wtf/RefCounted.h>
 #include <wtf/RefPtr.h>
-#include <wtf/Variant.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
@@ -35,12 +39,15 @@ namespace WebCore {
 class AudioTrack;
 class AudioTrackList;
 class Element;
+class WeakPtrImplWithEventTargetData;
+class HTMLElement;
 class HTMLMediaElement;
 class MediaControlTextTrackContainerElement;
 class TextTrack;
 class TextTrackList;
+class VoidCallback;
 
-class MediaControlsHost : public RefCounted<MediaControlsHost> {
+class MediaControlsHost final : public RefCounted<MediaControlsHost>, public CanMakeWeakPtr<MediaControlsHost> {
     WTF_MAKE_FAST_ALLOCATED(MediaControlsHost);
 public:
     static Ref<MediaControlsHost> create(HTMLMediaElement&);
@@ -49,11 +56,17 @@ public:
     static const AtomString& automaticKeyword();
     static const AtomString& forcedOnlyKeyword();
 
+    String layoutTraitsClassName() const;
+    const AtomString& mediaControlsContainerClassName() const;
+
+    double brightness() const { return 1; }
+    void setBrightness(double) { }
+
     Vector<RefPtr<TextTrack>> sortedTrackListForMenu(TextTrackList&);
     Vector<RefPtr<AudioTrack>> sortedTrackListForMenu(AudioTrackList&);
 
-    using TextOrAudioTrack = WTF::Variant<RefPtr<TextTrack>, RefPtr<AudioTrack>>;
-    String displayNameForTrack(const Optional<TextOrAudioTrack>&);
+    using TextOrAudioTrack = std::variant<RefPtr<TextTrack>, RefPtr<AudioTrack>>;
+    String displayNameForTrack(const std::optional<TextOrAudioTrack>&);
 
     static TextTrack& captionMenuOffItem();
     static TextTrack& captionMenuAutomaticItem();
@@ -68,7 +81,7 @@ public:
     bool userGestureRequired() const;
     bool shouldForceControlsDisplay() const;
 
-    enum class ForceUpdate { Yes, No };
+    enum class ForceUpdate : bool { No, Yes };
     void updateCaptionDisplaySizes(ForceUpdate = ForceUpdate::No);
     void updateTextTrackRepresentationImageIfNeeded();
     void enteredFullscreen();
@@ -79,25 +92,35 @@ public:
     enum class DeviceType { None, Airplay, Tvout };
     DeviceType externalDeviceType() const;
 
-    bool compactMode() const;
-    void setSimulateCompactMode(bool value) { m_simulateCompactMode = value; }
-
     bool controlsDependOnPageScaleFactor() const;
     void setControlsDependOnPageScaleFactor(bool v);
 
     static String generateUUID();
 
+#if ENABLE(MODERN_MEDIA_CONTROLS)
     static String shadowRootCSSText();
     static String base64StringForIconNameAndType(const String& iconName, const String& iconType);
     static String formattedStringForDuration(double);
+#if ENABLE(MEDIA_CONTROLS_CONTEXT_MENUS)
+    bool showMediaControlsContextMenu(HTMLElement&, String&& optionsJSONString, Ref<VoidCallback>&&);
+#endif // ENABLE(MEDIA_CONTROLS_CONTEXT_MENUS)
+
+    using SourceType = HTMLMediaElement::SourceType;
+    std::optional<SourceType> sourceType() const;
+#endif // ENABLE(MODERN_MEDIA_CONTROLS)
 
 private:
     explicit MediaControlsHost(HTMLMediaElement&);
 
-    WeakPtr<HTMLMediaElement> m_mediaElement;
+    WeakPtr<HTMLMediaElement, WeakPtrImplWithEventTargetData> m_mediaElement;
     RefPtr<MediaControlTextTrackContainerElement> m_textTrackContainer;
-    bool m_simulateCompactMode { false };
+
+#if ENABLE(MEDIA_CONTROLS_CONTEXT_MENUS)
+    RefPtr<VoidCallback> m_showMediaControlsContextMenuCallback;
+#endif // ENABLE(MEDIA_CONTROLS_CONTEXT_MENUS)
 };
 
-}
+} // namespace WebCore
+
+#endif // ENABLE(VIDEO)
 

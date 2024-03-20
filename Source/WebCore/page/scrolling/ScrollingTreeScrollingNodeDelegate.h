@@ -32,19 +32,42 @@
 namespace WebCore {
 
 class ScrollingTreeScrollingNodeDelegate {
+    WTF_MAKE_FAST_ALLOCATED;
 public:
     WEBCORE_EXPORT explicit ScrollingTreeScrollingNodeDelegate(ScrollingTreeScrollingNode&);
     WEBCORE_EXPORT virtual ~ScrollingTreeScrollingNodeDelegate();
 
     ScrollingTreeScrollingNode& scrollingNode() { return m_scrollingNode; }
     const ScrollingTreeScrollingNode& scrollingNode() const { return m_scrollingNode; }
+    
+    virtual bool startAnimatedScrollToPosition(FloatPoint) = 0;
+    virtual void stopAnimatedScroll() = 0;
+
+    virtual void serviceScrollAnimation(MonotonicTime) = 0;
+
+    virtual void updateFromStateNode(const ScrollingStateScrollingNode&) { }
+    
+    virtual void handleWheelEventPhase(const PlatformWheelEventPhase) { }
+    
+    virtual void viewWillStartLiveResize() { }
+    virtual void viewWillEndLiveResize() { }
+    virtual void viewSizeDidChange() { }
+    
+    virtual void updateScrollbarLayers() { }
+    virtual void initScrollbars() { }
+
+    virtual void handleKeyboardScrollRequest(const RequestedKeyboardScrollData&) { }
+
+    virtual FloatPoint adjustedScrollPosition(const FloatPoint& scrollPosition) const { return scrollPosition; }
+    virtual String scrollbarStateForOrientation(ScrollbarOrientation) const { return ""_s; }
 
 protected:
     WEBCORE_EXPORT ScrollingTree& scrollingTree() const;
+
     WEBCORE_EXPORT FloatPoint lastCommittedScrollPosition() const;
-    WEBCORE_EXPORT const FloatSize& totalContentsSize();
-    WEBCORE_EXPORT const FloatSize& reachableContentsSize();
-    WEBCORE_EXPORT const IntPoint& scrollOrigin() const;
+    WEBCORE_EXPORT FloatSize totalContentsSize();
+    WEBCORE_EXPORT FloatSize reachableContentsSize();
+    WEBCORE_EXPORT IntPoint scrollOrigin() const;
 
     FloatPoint currentScrollPosition() const { return m_scrollingNode.currentScrollPosition(); }
     FloatPoint minimumScrollPosition() const { return m_scrollingNode.minimumScrollPosition(); }
@@ -53,8 +76,8 @@ protected:
     FloatSize scrollableAreaSize() const { return m_scrollingNode.scrollableAreaSize(); }
     FloatSize totalContentsSize() const { return m_scrollingNode.totalContentsSize(); }
 
-    bool hasEnabledHorizontalScrollbar() const { return m_scrollingNode.hasEnabledHorizontalScrollbar(); }
-    bool hasEnabledVerticalScrollbar() const { return m_scrollingNode.hasEnabledVerticalScrollbar(); }
+    bool allowsHorizontalScrolling() const { return m_scrollingNode.allowsHorizontalScrolling(); }
+    bool allowsVerticalScrolling() const { return m_scrollingNode.allowsVerticalScrolling(); }
 
     ScrollElasticity horizontalScrollElasticity() const { return m_scrollingNode.horizontalScrollElasticity(); }
     ScrollElasticity verticalScrollElasticity() const { return m_scrollingNode.verticalScrollElasticity(); }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,10 +28,13 @@
 
 #include "InjectedScript.h"
 #include "InjectedScriptManager.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace Inspector {
 
 using namespace JSC;
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(JSGlobalObjectAuditAgent);
 
 JSGlobalObjectAuditAgent::JSGlobalObjectAuditAgent(JSAgentContext& context)
     : InspectorAuditAgent(context)
@@ -41,7 +44,7 @@ JSGlobalObjectAuditAgent::JSGlobalObjectAuditAgent(JSAgentContext& context)
 
 JSGlobalObjectAuditAgent::~JSGlobalObjectAuditAgent() = default;
 
-InjectedScript JSGlobalObjectAuditAgent::injectedScriptForEval(ErrorString& errorString, const int* executionContextId)
+InjectedScript JSGlobalObjectAuditAgent::injectedScriptForEval(Protocol::ErrorString& errorString, std::optional<Protocol::Runtime::ExecutionContextId>&& executionContextId)
 {
     if (executionContextId) {
         errorString = "executionContextId is not supported for JSContexts as there is only one execution context"_s;

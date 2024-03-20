@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,76 +27,138 @@
 
 #if ENABLE(GPU_PROCESS)
 
+#include "AudioMediaStreamTrackRendererInternalUnitIdentifier.h"
 #include "Connection.h"
+#include "MediaOverridesForTesting.h"
 #include "MessageReceiverMap.h"
-#include "SampleBufferDisplayLayerManager.h"
+#include <WebCore/AudioSession.h>
 #include <WebCore/PlatformMediaSession.h>
+#include <WebCore/SharedMemory.h>
+#include <wtf/Forward.h>
 #include <wtf/RefCounted.h>
+#include <wtf/ThreadSafeWeakHashSet.h>
 #include <wtf/text/WTFString.h>
 
+namespace WebCore {
+class CAAudioStreamDescription;
+struct PageIdentifierType;
+using PageIdentifier = ObjectIdentifier<PageIdentifierType>;
+}
+
 namespace IPC {
-class DataReference;
+class Semaphore;
 }
 
 namespace WebKit {
 
-class RemoteCDMFactory;
+class RemoteAudioSourceProviderManager;
 class RemoteMediaPlayerManager;
-class RemoteLegacyCDMFactory;
+class SampleBufferDisplayLayerManager;
+class WebPage;
+struct GPUProcessConnectionInfo;
+struct OverrideScreenDataForTesting;
+struct WebPageCreationParameters;
 
-class GPUProcessConnection : public RefCounted<GPUProcessConnection>, IPC::Connection::Client {
+#if ENABLE(VIDEO)
+class RemoteVideoFrameObjectHeapProxy;
+#endif
+
+class GPUProcessConnection : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<GPUProcessConnection>, public IPC::Connection::Client {
 public:
-    static Ref<GPUProcessConnection> create(IPC::Connection::Identifier connectionIdentifier)
-    {
-        return adoptRef(*new GPUProcessConnection(connectionIdentifier));
-    }
+    static RefPtr<GPUProcessConnection> create(IPC::Connection& parentConnection);
     ~GPUProcessConnection();
     
     IPC::Connection& connection() { return m_connection.get(); }
+    Ref<IPC::Connection> protectedConnection() { return m_connection; }
     IPC::MessageReceiverMap& messageReceiverMap() { return m_messageReceiverMap; }
 
 #if HAVE(AUDIT_TOKEN)
-    void setAuditToken(Optional<audit_token_t> auditToken) { m_auditToken = auditToken; }
-    Optional<audit_token_t> auditToken() const { return m_auditToken; }
+    std::optional<audit_token_t> auditToken();
 #endif
 #if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
     SampleBufferDisplayLayerManager& sampleBufferDisplayLayerManager();
+    void resetAudioMediaStreamTrackRendererInternalUnit(AudioMediaStreamTrackRendererInternalUnitIdentifier);
 #endif
-
+#if ENABLE(VIDEO)
+    RemoteVideoFrameObjectHeapProxy& videoFrameObjectHeapProxy();
     RemoteMediaPlayerManager& mediaPlayerManager();
-
-#if ENABLE(ENCRYPTED_MEDIA)
-    RemoteCDMFactory& cdmFactory();
 #endif
 
-#if ENABLE(LEGACY_ENCRYPTED_MEDIA)
-    RemoteLegacyCDMFactory& legacyCDMFactory();
+#if PLATFORM(COCOA) && ENABLE(WEB_AUDIO)
+    RemoteAudioSourceProviderManager& audioSourceProviderManager();
 #endif
 
+    void updateMediaConfiguration(bool forceUpdate);
+
+#if HAVE(VISIBILITY_PROPAGATION_VIEW)
+    void createVisibilityPropagationContextForPage(WebPage&);
+    void destroyVisibilityPropagationContextForPage(WebPage&);
+#endif
+
+#if ENABLE(EXTENSION_CAPABILITIES)
+    void setMediaEnvironment(WebCore::PageIdentifier, const String&);
+#endif
+
+    void configureLoggingChannel(const String&, WTFLogChannelState, WTFLogLevel);
+
+    class Client {
+    public:
+        virtual ~Client() = default;
+
+        virtual void ref() const = 0;
+        virtual void deref() const = 0;
+        virtual ThreadSafeWeakPtrControlBlock& controlBlock() const = 0;
+
+        virtual void gpuProcessConnectionDidClose(GPUProcessConnection&) { }
+    };
+    void addClient(const Client& client) { m_clients.add(client); }
+
+    static constexpr Seconds defaultTimeout = 3_s;
 private:
-    GPUProcessConnection(IPC::Connection::Identifier);
+    GPUProcessConnection(IPC::Connection::Identifier&&);
+    bool waitForDidInitialize();
+    void invalidate();
 
     // IPC::Connection::Client
     void didClose(IPC::Connection&) override;
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
-    void didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, std::unique_ptr<IPC::Encoder>&) final;
+    bool didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&) final;
     void didReceiveInvalidMessage(IPC::Connection&, IPC::MessageName) override;
 
     bool dispatchMessage(IPC::Connection&, IPC::Decoder&);
-    bool dispatchSyncMessage(IPC::Connection&, IPC::Decoder&, std::unique_ptr<IPC::Encoder>&);
+    bool dispatchSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&);
 
-    void didReceiveRemoteCommand(WebCore::PlatformMediaSession::RemoteControlCommandType, Optional<double>);
+    // Messages.
+    void didReceiveRemoteCommand(WebCore::PlatformMediaSession::RemoteControlCommandType, const WebCore::PlatformMediaSession::RemoteCommandArgument&);
+    void didInitialize(std::optional<GPUProcessConnectionInfo>&&);
+
+#if ENABLE(ROUTING_ARBITRATION)
+    void beginRoutingArbitrationWithCategory(WebCore::AudioSession::CategoryType, WebCore::AudioSessionRoutingArbitrationClient::ArbitrationCallback&&);
+    void endRoutingArbitration();
+#endif
 
     // The connection from the web process to the GPU process.
     Ref<IPC::Connection> m_connection;
     IPC::MessageReceiverMap m_messageReceiverMap;
-
+    bool m_hasInitialized { false };
 #if HAVE(AUDIT_TOKEN)
-    Optional<audit_token_t> m_auditToken;
+    std::optional<audit_token_t> m_auditToken;
 #endif
 #if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
     std::unique_ptr<SampleBufferDisplayLayerManager> m_sampleBufferDisplayLayerManager;
 #endif
+#if ENABLE(VIDEO)
+    RefPtr<RemoteVideoFrameObjectHeapProxy> m_videoFrameObjectHeapProxy;
+#endif
+#if PLATFORM(COCOA) && ENABLE(WEB_AUDIO)
+    RefPtr<RemoteAudioSourceProviderManager> m_audioSourceProviderManager;
+#endif
+
+#if PLATFORM(COCOA)
+    MediaOverridesForTesting m_mediaOverridesForTesting;
+#endif
+
+    ThreadSafeWeakHashSet<Client> m_clients;
 };
 
 } // namespace WebKit

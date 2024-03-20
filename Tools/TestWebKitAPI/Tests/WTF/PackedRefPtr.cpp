@@ -78,6 +78,7 @@ TEST(WTF_PackedRefPtr, Basic)
     {
         PackedRefPtr<RefLogger> p1 = &a;
         PackedRefPtr<RefLogger> p2 = WTFMove(p1);
+        IGNORE_CLANG_STATIC_ANALYZER_USE_AFTER_MOVE_ATTRIBUTE
         EXPECT_EQ(nullptr, p1.get());
         EXPECT_EQ(&a, p2.get());
     }
@@ -86,6 +87,7 @@ TEST(WTF_PackedRefPtr, Basic)
     {
         PackedRefPtr<RefLogger> p1 = &a;
         PackedRefPtr<RefLogger> p2(WTFMove(p1));
+        IGNORE_CLANG_STATIC_ANALYZER_USE_AFTER_MOVE_ATTRIBUTE
         EXPECT_EQ(nullptr, p1.get());
         EXPECT_EQ(&a, p2.get());
     }
@@ -102,6 +104,7 @@ TEST(WTF_PackedRefPtr, Basic)
     {
         PackedRefPtr<DerivedRefLogger> p1 = &a;
         PackedRefPtr<RefLogger> p2 = WTFMove(p1);
+        IGNORE_CLANG_STATIC_ANALYZER_USE_AFTER_MOVE_ATTRIBUTE
         EXPECT_EQ(nullptr, p1.get());
         EXPECT_EQ(&a, p2.get());
     }
@@ -204,6 +207,7 @@ TEST(WTF_PackedRefPtr, Assignment)
         log() << "| ";
         p1 = WTFMove(p2);
         EXPECT_EQ(&b, p1.get());
+        IGNORE_CLANG_STATIC_ANALYZER_USE_AFTER_MOVE_ATTRIBUTE
         EXPECT_EQ(nullptr, p2.get());
         log() << "| ";
     }
@@ -250,6 +254,7 @@ TEST(WTF_PackedRefPtr, Assignment)
         log() << "| ";
         p1 = WTFMove(p2);
         EXPECT_EQ(&c, p1.get());
+        IGNORE_CLANG_STATIC_ANALYZER_USE_AFTER_MOVE_ATTRIBUTE
         EXPECT_EQ(nullptr, p2.get());
         log() << "| ";
     }
@@ -277,15 +282,10 @@ TEST(WTF_PackedRefPtr, Assignment)
     {
         PackedRefPtr<RefLogger> ptr(&a);
         EXPECT_EQ(&a, ptr.get());
-#if COMPILER(CLANG)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wunknown-pragmas"
-#pragma clang diagnostic ignored "-Wself-move"
-#endif
+        IGNORE_WARNINGS_BEGIN("self-move")
         ptr = WTFMove(ptr);
-#if COMPILER(CLANG)
-#pragma clang diagnostic pop
-#endif
+        IGNORE_WARNINGS_END
+        IGNORE_CLANG_STATIC_ANALYZER_USE_AFTER_MOVE_ATTRIBUTE
         EXPECT_EQ(&a, ptr.get());
     }
     EXPECT_STREQ("ref(a) deref(a) ", takeLogStr().c_str());
@@ -344,6 +344,7 @@ TEST(WTF_PackedRefPtr, Release)
     {
         PackedRefPtr<RefLogger> p1 = &a;
         PackedRefPtr<RefLogger> p2 = WTFMove(p1);
+        IGNORE_CLANG_STATIC_ANALYZER_USE_AFTER_MOVE_ATTRIBUTE
         EXPECT_EQ(nullptr, p1.get());
         EXPECT_EQ(&a, p2.get());
     }
@@ -352,6 +353,7 @@ TEST(WTF_PackedRefPtr, Release)
     {
         PackedRefPtr<RefLogger> p1 = &a;
         PackedRefPtr<RefLogger> p2(WTFMove(p1));
+        IGNORE_CLANG_STATIC_ANALYZER_USE_AFTER_MOVE_ATTRIBUTE
         EXPECT_EQ(nullptr, p1.get());
         EXPECT_EQ(&a, p2.get());
     }
@@ -360,6 +362,7 @@ TEST(WTF_PackedRefPtr, Release)
     {
         PackedRefPtr<DerivedRefLogger> p1 = &a;
         PackedRefPtr<RefLogger> p2 = WTFMove(p1);
+        IGNORE_CLANG_STATIC_ANALYZER_USE_AFTER_MOVE_ATTRIBUTE
         EXPECT_EQ(nullptr, p1.get());
         EXPECT_EQ(&a, p2.get());
     }
@@ -373,6 +376,7 @@ TEST(WTF_PackedRefPtr, Release)
         log() << "| ";
         p1 = WTFMove(p2);
         EXPECT_EQ(&b, p1.get());
+        IGNORE_CLANG_STATIC_ANALYZER_USE_AFTER_MOVE_ATTRIBUTE
         EXPECT_EQ(nullptr, p2.get());
         log() << "| ";
     }
@@ -386,6 +390,7 @@ TEST(WTF_PackedRefPtr, Release)
         log() << "| ";
         p1 = WTFMove(p2);
         EXPECT_EQ(&c, p1.get());
+        IGNORE_CLANG_STATIC_ANALYZER_USE_AFTER_MOVE_ATTRIBUTE
         EXPECT_EQ(nullptr, p2.get());
         log() << "| ";
     }
@@ -413,18 +418,19 @@ TEST(WTF_PackedRefPtr, ReturnValue)
 }
 
 struct ConstRefCounted : RefCounted<ConstRefCounted> {
+    WTF_ALLOW_STRUCT_COMPACT_POINTERS;
     static Ref<ConstRefCounted> create() { return adoptRef(*new ConstRefCounted); }
 };
 
 static const ConstRefCounted& returnConstRefCountedRef()
 {
-    static NeverDestroyed<ConstRefCounted> instance;
-    return instance.get();
+    static NeverDestroyed<Ref<ConstRefCounted>> instance { ConstRefCounted::create() };
+    return instance.get().get();
 }
 static ConstRefCounted& returnRefCountedRef()
 {
-    static NeverDestroyed<ConstRefCounted> instance;
-    return instance.get();
+    static NeverDestroyed<Ref<ConstRefCounted>> instance { ConstRefCounted::create() };
+    return instance.get().get();
 }
 
 TEST(WTF_PackedRefPtr, Const)
@@ -530,6 +536,7 @@ TEST(WTF_PackedRefPtr, AssignBeforeDeref)
         a.slotToCheck = nullptr;
         b.slotToCheck = nullptr;
         EXPECT_EQ(&b, p1.get());
+        IGNORE_CLANG_STATIC_ANALYZER_USE_AFTER_MOVE_ATTRIBUTE
         EXPECT_EQ(nullptr, p2.get());
         log() << "| ";
     }

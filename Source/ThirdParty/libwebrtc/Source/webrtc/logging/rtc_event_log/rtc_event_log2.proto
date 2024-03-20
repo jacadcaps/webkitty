@@ -20,7 +20,8 @@ message EventStream {
   repeated IncomingRtcpPackets incoming_rtcp_packets = 4;
   repeated OutgoingRtcpPackets outgoing_rtcp_packets = 5;
   repeated AudioPlayoutEvents audio_playout_events = 6;
-  // The field tags 7-15 are reserved for the most common events.
+  repeated FrameDecodedEvents frame_decoded_events = 7;
+  // The field tags 8-15 are reserved for the most common events.
   repeated BeginLogEvent begin_log_events = 16;
   repeated EndLogEvent end_log_events = 17;
   repeated LossBasedBweUpdates loss_based_bwe_updates = 18;
@@ -39,6 +40,7 @@ message EventStream {
   repeated GenericAckReceived generic_acks_received = 31;
   repeated RouteChange route_changes = 32;
   repeated RemoteEstimates remote_estimates = 33;
+  repeated NetEqSetMinimumDelay neteq_set_minimum_delay = 34;
 
   repeated AudioRecvStreamConfig audio_recv_stream_configs = 101;
   repeated AudioSendStreamConfig audio_send_stream_configs = 102;
@@ -101,6 +103,27 @@ message GenericAckReceived {
   optional bytes receive_acked_packet_time_ms_deltas = 20;
 }
 
+message DependencyDescriptorsWireInfo {
+  // required
+  // Base and delta encoded B and E bits represented as two bit numbers.
+  optional uint32 start_end_bit = 1;
+  optional bytes start_end_bit_deltas = 2;
+
+  // required
+  // Base and delta encoded template IDs, represented as six bit numbers.
+  optional uint32 template_id = 3;
+  optional bytes template_id_deltas = 4;
+
+  // required
+  // Base and delta compressed frame IDs.
+  optional uint32 frame_id = 5;
+  optional bytes frame_id_deltas = 6;
+
+  // optional - set if any DD contains extended information.
+  // The extended info encoded as optional blobs.
+  optional bytes extended_infos = 7;
+}
+
 message IncomingRtpPackets {
   // required
   optional int64 timestamp_ms = 1;
@@ -143,9 +166,11 @@ message IncomingRtpPackets {
   optional int32 transmission_time_offset = 16;
   optional uint32 absolute_send_time = 17;
   optional uint32 video_rotation = 18;
-  // |audio_level| and |voice_activity| are always used in conjunction.
+  // `audio_level` and `voice_activity` are always used in conjunction.
   optional uint32 audio_level = 19;
   optional bool voice_activity = 20;
+  // Encodes all DD information in the batch, not just the base event.
+  optional DependencyDescriptorsWireInfo dependency_descriptor = 21;
   // TODO(terelius): Add other header extensions like playout delay?
 
   // Delta encodings.
@@ -164,7 +189,7 @@ message IncomingRtpPackets {
   optional bytes transmission_time_offset_deltas = 116;
   optional bytes absolute_send_time_deltas = 117;
   optional bytes video_rotation_deltas = 118;
-  // |audio_level| and |voice_activity| are always used in conjunction.
+  // `audio_level` and `voice_activity` are always used in conjunction.
   optional bytes audio_level_deltas = 119;
   optional bytes voice_activity_deltas = 120;
 }
@@ -211,10 +236,12 @@ message OutgoingRtpPackets {
   optional int32 transmission_time_offset = 16;
   optional uint32 absolute_send_time = 17;
   optional uint32 video_rotation = 18;
-  // |audio_level| and |voice_activity| are always used in conjunction.
+  // `audio_level` and `voice_activity` are always used in conjunction.
   optional uint32 audio_level = 19;
   optional bool voice_activity = 20;
   // TODO(terelius): Add other header extensions like playout delay?
+  // Encodes all DD information in the batch, not just the base event.
+  optional DependencyDescriptorsWireInfo dependency_descriptor = 21;
 
   // Delta encodings.
   optional bytes timestamp_ms_deltas = 101;
@@ -232,7 +259,7 @@ message OutgoingRtpPackets {
   optional bytes transmission_time_offset_deltas = 116;
   optional bytes absolute_send_time_deltas = 117;
   optional bytes video_rotation_deltas = 118;
-  // |audio_level| and |voice_activity| are always used in conjunction.
+  // `audio_level` and `voice_activity` are always used in conjunction.
   optional bytes audio_level_deltas = 119;
   optional bytes voice_activity_deltas = 120;
 }
@@ -282,6 +309,71 @@ message AudioPlayoutEvents {
   // Delta encodings.
   optional bytes timestamp_ms_deltas = 101;
   optional bytes local_ssrc_deltas = 102;
+}
+
+message NetEqSetMinimumDelay {
+  // required
+  optional int64 timestamp_ms = 1;
+
+  // required - The SSRC of the remote stream associated with the MinimumDelay
+  // event.
+  optional fixed32 remote_ssrc = 2;
+
+  // required - minimum delay passed to SetBaseMinimumDelay.
+  optional int32 minimum_delay_ms = 3;
+
+  // optional - required if the batch contains delta encoded events.
+  optional uint32 number_of_deltas = 4;
+
+  // Delta encodings.
+  optional bytes timestamp_ms_deltas = 101;
+  optional bytes remote_ssrc_deltas = 102;
+  optional bytes minimum_delay_ms_deltas = 103;
+}
+
+message FrameDecodedEvents {
+  enum Codec {
+    CODEC_UNKNOWN = 0;
+    CODEC_GENERIC = 1;
+    CODEC_VP8 = 2;
+    CODEC_VP9 = 3;
+    CODEC_AV1 = 4;
+    CODEC_H264 = 5;
+    CODEC_H265 = 6;
+  }
+
+  // required
+  optional int64 timestamp_ms = 1;
+
+  // required - The SSRC of the video stream that the frame belongs to.
+  optional fixed32 ssrc = 2;
+
+  // required - The predicted render time of the frame.
+  optional int64 render_time_ms = 3;
+
+  // required - The width (in pixels) of the frame.
+  optional int32 width = 4;
+
+  // required - The height (in pixels) of the frame.
+  optional int32 height = 5;
+
+  // required - The codec type of the frame.
+  optional Codec codec = 6;
+
+  // required - The QP (quantization parameter) of the frame. Range [0,255].
+  optional uint32 qp = 7;
+
+  // optional - required if the batch contains delta encoded events.
+  optional uint32 number_of_deltas = 15;
+
+  // Delta encodings.
+  optional bytes timestamp_ms_deltas = 101;
+  optional bytes ssrc_deltas = 102;
+  optional bytes render_time_ms_deltas = 103;
+  optional bytes width_deltas = 104;
+  optional bytes height_deltas = 105;
+  optional bytes codec_deltas = 106;
+  optional bytes qp_deltas = 107;
 }
 
 message BeginLogEvent {
@@ -362,6 +454,7 @@ message RtpHeaderExtensionConfig {
   optional int32 transport_sequence_number_id = 3;
   optional int32 video_rotation_id = 4;
   optional int32 audio_level_id = 5;
+  optional int32 dependency_descriptor_id = 6;
   // TODO(terelius): Add other header extensions like playout delay?
 }
 

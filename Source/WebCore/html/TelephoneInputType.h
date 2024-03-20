@@ -36,11 +36,20 @@ namespace WebCore {
 
 class TelephoneInputType final : public BaseTextInputType {
 public:
-    explicit TelephoneInputType(HTMLInputElement& element) : BaseTextInputType(element) { }
+    static Ref<TelephoneInputType> create(HTMLInputElement& element)
+    {
+        return adoptRef(*new TelephoneInputType(element));
+    }
 
 private:
-    const AtomString& formControlType() const override;
-    bool isTelephoneField() const override;
+    explicit TelephoneInputType(HTMLInputElement& element)
+        : BaseTextInputType(Type::Telephone, element)
+    {
+    }
+
+    const AtomString& formControlType() const final;
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_INPUT_TYPE(TelephoneInputType, Type::Telephone)

@@ -25,22 +25,14 @@
 
 #pragma once
 
-#include "UserContentControllerIdentifier.h"
+#include "IdentifierTypes.h"
 #include <wtf/text/WTFString.h>
-
-namespace IPC {
-class Decoder;
-class Encoder;
-}
 
 namespace WebKit {
 
 struct WebPageGroupData {
-    void encode(IPC::Encoder&) const;
-    static Optional<WebPageGroupData> decode(IPC::Decoder&);
-
     String identifier;
-    uint64_t pageGroupID;
+    PageGroupIdentifier pageGroupID;
 };
 
 } // namespace WebKit

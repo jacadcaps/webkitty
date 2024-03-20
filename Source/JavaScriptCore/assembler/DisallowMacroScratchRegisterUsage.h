@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2020 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,10 +27,9 @@
 
 #if ENABLE(ASSEMBLER)
 
-#include "MacroAssembler.h"
-
 namespace JSC {
 
+template<typename MacroAssembler>
 class DisallowMacroScratchRegisterUsage {
 public:
     DisallowMacroScratchRegisterUsage(MacroAssembler& masm)
@@ -42,7 +41,7 @@ public:
 
     ~DisallowMacroScratchRegisterUsage()
     {
-#if CPU(ARM64)
+#if CPU(ARM64) || CPU(ARM_THUMB2)
         if (m_oldValueOfAllowScratchRegister)
             m_masm.invalidateAllTempRegisters();
 #endif

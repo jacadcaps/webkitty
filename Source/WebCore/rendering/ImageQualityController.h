@@ -43,14 +43,14 @@ class ImageQualityController {
 public:
     explicit ImageQualityController(const RenderView&);
 
-    static Optional<InterpolationQuality> interpolationQualityFromStyle(const RenderStyle&);
+    static std::optional<InterpolationQuality> interpolationQualityFromStyle(const RenderStyle&);
     InterpolationQuality chooseInterpolationQuality(GraphicsContext&, RenderBoxModelObject*, Image&, const void* layer, const LayoutSize&);
 
     void rendererWillBeDestroyed(RenderBoxModelObject& renderer) { removeObject(&renderer); }
 
 private:
-    typedef HashMap<const void*, LayoutSize> LayerSizeMap;
-    typedef HashMap<RenderBoxModelObject*, LayerSizeMap> ObjectLayerSizeMap;
+    using LayerSizeMap = HashMap<const void*, LayoutSize>;
+    using ObjectLayerSizeMap = HashMap<SingleThreadWeakRef<RenderBoxModelObject>, LayerSizeMap>;
 
     void removeLayer(RenderBoxModelObject*, LayerSizeMap* innerMap, const void* layer);
     void set(RenderBoxModelObject*, LayerSizeMap* innerMap, const void* layer, const LayoutSize&);

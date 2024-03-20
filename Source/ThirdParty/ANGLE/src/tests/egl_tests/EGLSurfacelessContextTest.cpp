@@ -18,16 +18,17 @@ using namespace angle;
 namespace
 {
 
-class EGLSurfacelessContextTest : public ANGLETest
+class EGLSurfacelessContextTest : public ANGLETest<>
 {
   public:
     EGLSurfacelessContextTest() : mDisplay(0) {}
 
     void testSetUp() override
     {
-        EGLint dispattrs[] = {EGL_PLATFORM_ANGLE_TYPE_ANGLE, GetParam().getRenderer(), EGL_NONE};
-        mDisplay           = eglGetPlatformDisplayEXT(
-            EGL_PLATFORM_ANGLE_ANGLE, reinterpret_cast<void *>(EGL_DEFAULT_DISPLAY), dispattrs);
+        EGLAttrib dispattrs[3] = {EGL_PLATFORM_ANGLE_TYPE_ANGLE, GetParam().getRenderer(),
+                                  EGL_NONE};
+        mDisplay               = eglGetPlatformDisplay(EGL_PLATFORM_ANGLE_ANGLE,
+                                                       reinterpret_cast<void *>(EGL_DEFAULT_DISPLAY), dispattrs);
         ASSERT_TRUE(mDisplay != EGL_NO_DISPLAY);
 
         ASSERT_EGL_TRUE(eglInitialize(mDisplay, nullptr, nullptr));
@@ -111,7 +112,7 @@ class EGLSurfacelessContextTest : public ANGLETest
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 500, 500, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
 
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex->get(), 0);
-        EXPECT_GLENUM_EQ(GL_FRAMEBUFFER_COMPLETE, glCheckFramebufferStatus(GL_FRAMEBUFFER));
+        ASSERT_GL_FRAMEBUFFER_COMPLETE(GL_FRAMEBUFFER);
     }
 
     bool checkExtension(bool verbose = true) const
@@ -197,7 +198,7 @@ TEST_P(EGLSurfacelessContextTest, CheckFramebufferStatus)
     GLTexture tex;
     createFramebuffer(&fbo, &tex);
     glBindFramebuffer(GL_FRAMEBUFFER, fbo.get());
-    ASSERT_GLENUM_EQ(GL_FRAMEBUFFER_COMPLETE, glCheckFramebufferStatus(GL_FRAMEBUFFER));
+    ASSERT_GL_FRAMEBUFFER_COMPLETE(GL_FRAMEBUFFER);
 }
 
 // Test that clearing and readpixels work when done in an FBO.
@@ -229,6 +230,9 @@ TEST_P(EGLSurfacelessContextTest, Switcheroo)
 {
     ANGLE_SKIP_TEST_IF(!checkExtension());
     ANGLE_SKIP_TEST_IF(!mSupportsPbuffers);
+
+    // Fails on NVIDIA Shield TV (http://anglebug.com/4924)
+    ANGLE_SKIP_TEST_IF(IsAndroid() && IsNVIDIA());
 
     EGLContext context = createContext();
     EGLSurface pbuffer = createPbuffer(500, 500);
@@ -271,5 +275,7 @@ TEST_P(EGLSurfacelessContextTest, Switcheroo)
 ANGLE_INSTANTIATE_TEST(EGLSurfacelessContextTest,
                        WithNoFixture(ES2_D3D9()),
                        WithNoFixture(ES2_D3D11()),
+                       WithNoFixture(ES2_METAL()),
                        WithNoFixture(ES2_OPENGL()),
+                       WithNoFixture(ES2_OPENGLES()),
                        WithNoFixture(ES2_VULKAN()));

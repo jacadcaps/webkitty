@@ -27,9 +27,16 @@
 #include "VP9Utilities.h"
 
 #include <wtf/NeverDestroyed.h>
+#include <wtf/text/IntegerToStringConversion.h>
+#include <wtf/text/StringBuilder.h>
 #include <wtf/text/StringToIntegerConversion.h>
 
 namespace WebCore {
+
+static bool isValidVPProfile(uint8_t profile)
+{
+    return profile <= 3;
+}
 
 static bool isValidVPLevel(uint8_t level)
 {
@@ -52,6 +59,25 @@ static bool isValidVPLevel(uint8_t level)
 
     ASSERT(std::is_sorted(std::begin(validLevels), std::end(validLevels)));
     return std::binary_search(std::begin(validLevels), std::end(validLevels), level);
+}
+
+static bool isValidBitDepth(uint8_t bitDepth)
+{
+    return bitDepth == 8
+        || bitDepth == 10
+        || bitDepth == 12;
+}
+
+static bool isValidRange(uint8_t range)
+{
+    return range == VPConfigurationRange::VideoRange
+        || range == VPConfigurationRange::FullRange;
+}
+
+static bool isValidChromaSubsampling(uint8_t subsampling)
+{
+    return subsampling >= VPConfigurationChromaSubsampling::Subsampling_420_Vertical
+        && subsampling <= VPConfigurationChromaSubsampling::Subsampling_444;
 }
 
 static bool isValidVPColorPrimaries(uint8_t colorPrimaries)
@@ -122,51 +148,63 @@ static bool isValidVPMatrixCoefficients(uint8_t matrixCoefficients)
     return std::binary_search(std::begin(validMatrixCoefficients), std::end(validMatrixCoefficients), matrixCoefficients);
 }
 
-Optional<VPCodecConfigurationRecord> parseVPCodecParameters(StringView codecView)
+std::optional<VPCodecConfigurationRecord> parseVPCodecParameters(StringView codecView)
 {
+    auto codecSplit = codecView.split('.');
+    auto nextElement = codecSplit.begin();
+    if (nextElement == codecSplit.end())
+        return std::nullopt;
+
+    VPCodecConfigurationRecord configuration;
+
+    configuration.codecName = (*nextElement).toString();
+    ++nextElement;
+
+    // Support the legacy identifiers (with no parameters) for VP8 and VP9.
+    if (configuration.codecName == "vp8"_s || configuration.codecName == "vp9"_s) {
+        if (nextElement == codecSplit.end())
+            return configuration;
+        
+        auto codecString = codecView.toStringWithoutCopying();
+        if (codecString == "vp8.0"_s || codecString == "vp9.0"_s)
+            return configuration;
+    }
+
     // The format of the 'vp09' codec string is specified in the webm GitHub repo:
     // <https://github.com/webmproject/vp9-dash/blob/master/VPCodecISOMediaFileFormatBinding.md#codecs-parameter-string>
 
     // "sample entry 4CC, profile, level, and bitDepth are all mandatory fields. If any of these fields are empty, or not
     // within their allowed range, the processing device SHALL treat it as an error."
 
-    auto codecSplit = codecView.split('.');
-    auto nextElement = codecSplit.begin();
-    if (nextElement == codecSplit.end())
-        return WTF::nullopt;
-
-    VPCodecConfigurationRecord configuration;
-
     // Codec identifier: legal values are 'vp08' or 'vp09'.
-    configuration.codecName = (*nextElement).toString();
-    if (configuration.codecName != "vp08" && configuration.codecName != "vp09")
-        return WTF::nullopt;
+    if (configuration.codecName != "vp08"_s && configuration.codecName != "vp09"_s)
+        return std::nullopt;
 
-    if (++nextElement == codecSplit.end())
-        return WTF::nullopt;
+    if (nextElement == codecSplit.end())
+        return std::nullopt;
 
     // First element: profile. Legal values are 0-3.
-    auto profile = toIntegralType<uint8_t>(*nextElement);
-    if (!profile || *profile > 3)
-        return WTF::nullopt;
+    auto profile = parseInteger<uint8_t>(*nextElement);
+    if (!profile || !isValidVPProfile(*profile))
+        return std::nullopt;
     configuration.profile = *profile;
 
     if (++nextElement == codecSplit.end())
-        return WTF::nullopt;
+        return std::nullopt;
 
     // Second element: level. Legal values are enumerated in validVPLevels above.
-    auto level = toIntegralType<uint8_t>(*nextElement);
+    auto level = parseInteger<uint8_t>(*nextElement);
     if (!level || !isValidVPLevel(*level))
-        return WTF::nullopt;
+        return std::nullopt;
     configuration.level = *level;
 
     if (++nextElement == codecSplit.end())
-        return WTF::nullopt;
+        return std::nullopt;
 
     // Third element: bitDepth. Legal values are 8, 10, and 12.
-    auto bitDepth = toIntegralType<uint8_t>(*nextElement);
-    if (!bitDepth || (*bitDepth != 8 && *bitDepth != 10 && *bitDepth != 12))
-        return WTF::nullopt;
+    auto bitDepth = parseInteger<uint8_t>(*nextElement);
+    if (!bitDepth || !isValidBitDepth(*bitDepth))
+        return std::nullopt;
     configuration.bitDepth = *bitDepth;
 
     // "colorPrimaries, transferCharacteristics, matrixCoefficients, videoFullRangeFlag, and chromaSubsampling are OPTIONAL,
@@ -177,58 +215,132 @@ Optional<VPCodecConfigurationRecord> parseVPCodecParameters(StringView codecView
         return configuration;
 
     // Fourth element: chromaSubsampling. Legal values are 0-3.
-    auto chromaSubsampling = toIntegralType<uint8_t>(*nextElement);
-    if (!chromaSubsampling || *chromaSubsampling > VPConfigurationChromaSubsampling::Subsampling_444)
-        return WTF::nullopt;
+    auto chromaSubsampling = parseInteger<uint8_t>(*nextElement);
+    if (!chromaSubsampling || !isValidChromaSubsampling(*chromaSubsampling))
+        return std::nullopt;
     configuration.chromaSubsampling = *chromaSubsampling;
 
     if (++nextElement == codecSplit.end())
-        return WTF::nullopt;
+        return std::nullopt;
 
-    // Fifth element: colorPrimaries. Legal values are defined by  ISO/IEC 23001-8:2016, superceded
+    // Fifth element: colorPrimaries. Legal values are defined by ISO/IEC 23001-8:2016, superseded
     // by ISO/IEC 23091-2:2019.
-    auto colorPrimaries = toIntegralType<uint8_t>(*nextElement);
+    auto colorPrimaries = parseInteger<uint8_t>(*nextElement);
     if (!colorPrimaries || !isValidVPColorPrimaries(*colorPrimaries))
-        return WTF::nullopt;
+        return std::nullopt;
     configuration.colorPrimaries = *colorPrimaries;
 
     if (++nextElement == codecSplit.end())
-        return WTF::nullopt;
+        return std::nullopt;
 
-    // Sixth element: transferCharacteristics. Legal values are defined by  ISO/IEC 23001-8:2016, superceded
+    // Sixth element: transferCharacteristics. Legal values are defined by ISO/IEC 23001-8:2016, superseded
     // by ISO/IEC 23091-2:2019.
-    auto transferCharacteristics = toIntegralType<uint8_t>(*nextElement);
+    auto transferCharacteristics = parseInteger<uint8_t>(*nextElement);
     if (!transferCharacteristics || !isValidVPTransferCharacteristics(*transferCharacteristics))
-        return WTF::nullopt;
+        return std::nullopt;
     configuration.transferCharacteristics = *transferCharacteristics;
 
     if (++nextElement == codecSplit.end())
-        return WTF::nullopt;
+        return std::nullopt;
 
-    // Seventh element: matrixCoefficients. Legal values are defined by  ISO/IEC 23001-8:2016, superceded
+    // Seventh element: matrixCoefficients. Legal values are defined by ISO/IEC 23001-8:2016, superseded
     // by ISO/IEC 23091-2:2019.
-    auto matrixCoefficients = toIntegralType<uint8_t>(*nextElement);
+    auto matrixCoefficients = parseInteger<uint8_t>(*nextElement);
     if (!matrixCoefficients || !isValidVPMatrixCoefficients(*matrixCoefficients))
-        return WTF::nullopt;
+        return std::nullopt;
     configuration.matrixCoefficients = *matrixCoefficients;
 
     // "If matrixCoefficients is 0 (RGB), then chroma subsampling MUST be 3 (4:4:4)."
     if (!configuration.matrixCoefficients && configuration.chromaSubsampling != 3)
-        return WTF::nullopt;
+        return std::nullopt;
 
     if (++nextElement == codecSplit.end())
-        return WTF::nullopt;
+        return std::nullopt;
 
     // Eighth element: videoFullRangeFlag. Legal values are 0 and 1.
-    auto videoFullRangeFlag = toIntegralType<uint8_t>(*nextElement);
-    if (!videoFullRangeFlag || *videoFullRangeFlag > 1)
-        return WTF::nullopt;
+    auto videoFullRangeFlag = parseInteger<uint8_t>(*nextElement);
+    if (!videoFullRangeFlag || !isValidRange(*videoFullRangeFlag))
+        return std::nullopt;
     configuration.videoFullRangeFlag = *videoFullRangeFlag;
 
     if (++nextElement != codecSplit.end())
-        return WTF::nullopt;
+        return std::nullopt;
 
     return configuration;
+}
+
+String createVPCodecParametersString(const VPCodecConfigurationRecord& configuration)
+{
+    // The format of the 'vp09' codec string is specified in the webm GitHub repo:
+    // <https://github.com/webmproject/vp9-dash/blob/master/VPCodecISOMediaFileFormatBinding.md#codecs-parameter-string>
+    //
+    // The codecs parameter string for the VP codec family is as follows:
+    //   <sample entry 4CC>.<profile>.<level>.<bitDepth>.<chromaSubsampling>.
+    //   <colourPrimaries>.<transferCharacteristics>.<matrixCoefficients>.
+    //   <videoFullRangeFlag>
+    //  All parameter values are expressed as double-digit decimals.
+    //  sample entry 4CC, profile, level, and bitDepth are all mandatory fields.
+
+    StringBuilder resultBuilder;
+
+    resultBuilder.append(configuration.codecName);
+
+    if (configuration.profile > 10
+        || !isValidVPProfile(configuration.profile)
+        || !isValidVPLevel(configuration.level)
+        || !isValidBitDepth(configuration.bitDepth)
+        || !isValidChromaSubsampling(configuration.chromaSubsampling)
+        || !isValidVPColorPrimaries(configuration.colorPrimaries)
+        || !isValidVPTransferCharacteristics(configuration.transferCharacteristics)
+        || !isValidVPMatrixCoefficients(configuration.matrixCoefficients)
+        || !isValidRange(configuration.videoFullRangeFlag))
+        return resultBuilder.toString();
+
+    resultBuilder.append(".0");
+    resultBuilder.append(numberToStringUnsigned<String>(configuration.profile));
+
+    resultBuilder.append('.');
+    resultBuilder.append(numberToStringUnsigned<String>(configuration.level));
+
+    resultBuilder.append('.');
+    if (configuration.transferCharacteristics < 10)
+        resultBuilder.append('0');
+    resultBuilder.append(numberToStringUnsigned<String>(configuration.bitDepth));
+
+    static NeverDestroyed<VPCodecConfigurationRecord> defaultConfiguration { };
+
+    //  colourPrimaries, transferCharacteristics, matrixCoefficients, videoFullRangeFlag, and chromaSubsampling
+    //  are OPTIONAL, mutually inclusive (all or none) fields.
+
+    if (configuration.chromaSubsampling == defaultConfiguration->chromaSubsampling
+        && configuration.videoFullRangeFlag == defaultConfiguration->videoFullRangeFlag
+        && configuration.colorPrimaries == defaultConfiguration->colorPrimaries
+        && configuration.transferCharacteristics == defaultConfiguration->transferCharacteristics
+        && configuration.matrixCoefficients == defaultConfiguration->matrixCoefficients)
+        return resultBuilder.toString();
+
+    resultBuilder.append(".0");
+    resultBuilder.append(numberToStringUnsigned<String>(configuration.chromaSubsampling));
+
+    resultBuilder.append('.');
+    if (configuration.colorPrimaries < 10)
+        resultBuilder.append('0');
+    resultBuilder.append(numberToStringUnsigned<String>(configuration.colorPrimaries));
+
+    resultBuilder.append('.');
+    if (configuration.transferCharacteristics < 10)
+        resultBuilder.append('0');
+    resultBuilder.append(numberToStringUnsigned<String>(configuration.transferCharacteristics));
+
+    resultBuilder.append('.');
+    if (configuration.matrixCoefficients < 10)
+        resultBuilder.append('0');
+    resultBuilder.append(numberToStringUnsigned<String>(configuration.matrixCoefficients));
+
+    resultBuilder.append(".0");
+    resultBuilder.append(numberToStringUnsigned<String>(configuration.videoFullRangeFlag));
+
+    return resultBuilder.toString();
 }
 
 }

@@ -13,7 +13,7 @@
 // limitations under the License.
 //
 
-// Thie file provides the IsStrictlyBaseOfAndConvertibleToSTLContainer type
+// The file provides the IsStrictlyBaseOfAndConvertibleToSTLContainer type
 // trait metafunction to assist in working with the _GLIBCXX_DEBUG debug
 // wrappers of STL containers.
 //
@@ -40,6 +40,7 @@
 #include "absl/meta/type_traits.h"
 
 namespace absl {
+ABSL_NAMESPACE_BEGIN
 namespace strings_internal {
 
 template <typename C, template <typename...> class T>
@@ -242,5 +243,6 @@ struct IsStrictlyBaseOfAndConvertibleToSTLContainer
                         IsConvertibleToSTLContainer<C>> {};
 
 }  // namespace strings_internal
+ABSL_NAMESPACE_END
 }  // namespace absl
 #endif  // ABSL_STRINGS_INTERNAL_STL_TYPE_TRAITS_H_

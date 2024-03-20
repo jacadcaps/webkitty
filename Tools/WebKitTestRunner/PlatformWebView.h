@@ -27,47 +27,40 @@
 
 #include "TestOptions.h"
 #include <wtf/FastMalloc.h>
+#include <wtf/text/WTFString.h>
 
 #if PLATFORM(COCOA) && !defined(BUILDING_GTK__)
 #include <WebKit/WKFoundation.h>
 #include <wtf/RetainPtr.h>
 OBJC_CLASS NSView;
 OBJC_CLASS UIView;
+OBJC_CLASS UIWindow;
 OBJC_CLASS TestRunnerWKWebView;
 OBJC_CLASS WKWebViewConfiguration;
 OBJC_CLASS WebKitTestRunnerWindow;
 typedef struct CGImage *CGImageRef;
 
-typedef TestRunnerWKWebView *PlatformWKView;
-typedef WebKitTestRunnerWindow *PlatformWindow;
-typedef RetainPtr<CGImageRef> PlatformImage;
+using PlatformWKView = TestRunnerWKWebView*;
+using PlatformWindow = WebKitTestRunnerWindow*;
+using PlatformImage = RetainPtr<CGImageRef>;
 #elif defined(BUILDING_GTK__)
 typedef struct _GtkWidget GtkWidget;
 typedef WKViewRef PlatformWKView;
 typedef GtkWidget* PlatformWindow;
-#elif PLATFORM(WPE)
-namespace WPEToolingBackends {
-class HeadlessViewBackend;
+#elif USE(LIBWPE)
+namespace WTR {
+class PlatformWebViewClient;
 }
-typedef WKViewRef PlatformWKView;
-typedef WPEToolingBackends::HeadlessViewBackend* PlatformWindow;
+using PlatformWKView = WKViewRef;
+using PlatformWindow = WTR::PlatformWebViewClient*;
 #elif PLATFORM(WIN)
-#if USE(DIRECT2D)
-#include <d2d1_1.h>
-#else
-#include <cairo.h>
-#endif
-class TestRunnerWindow;
-typedef HWND PlatformWindow;
-typedef WKViewRef PlatformWKView;
+using PlatformWKView = WKViewRef;
+using PlatformWindow = HWND;
 #endif
 
 #if USE(CAIRO)
-typedef cairo_surface_t* PlatformImage;
-#elif USE(DIRECT2D)
-interface ID2D1Bitmap;
-
-typedef ID2D1Bitmap* PlatformImage;
+#include <cairo.h>
+using PlatformImage = cairo_surface_t*;
 #endif
 
 namespace WTR {
@@ -83,8 +76,8 @@ public:
     ~PlatformWebView();
 
     WKPageRef page();
-    PlatformWKView platformView() { return m_view; }
-    PlatformWindow platformWindow() { return m_window; }
+    PlatformWKView platformView() const { return m_view; }
+    PlatformWindow platformWindow() const { return m_window; }
     static PlatformWindow keyWindow();
 
     enum class WebViewSizingMode {
@@ -106,6 +99,12 @@ public:
     void setWindowIsKey(bool);
     bool windowIsKey() const { return m_windowIsKey; }
 
+    void setTextInChromeInputField(const String&);
+    void selectChromeInputField();
+    String getSelectedTextInChromeInputField();
+
+    bool isSecureEventInputEnabled() const;
+
     bool drawsBackground() const;
     void setDrawsBackground(bool);
 
@@ -114,7 +113,7 @@ public:
     void removeFromWindow();
     void addToWindow();
 
-    bool viewSupportsOptions(const TestOptions& options) const { return !options.runSingly && m_options.hasSameInitializationOptions(options); }
+    bool viewSupportsOptions(const TestOptions& options) const { return !options.runSingly() && m_options.hasSameInitializationOptions(options); }
 
     PlatformImage windowSnapshotImage();
     const TestOptions& options() const { return m_options; }
@@ -133,6 +132,9 @@ private:
     PlatformWindow m_window;
     bool m_windowIsKey;
     const TestOptions m_options;
+#if PLATFORM(IOS_FAMILY)
+    RetainPtr<UIWindow> m_otherWindow;
+#endif
 #if PLATFORM(GTK)
     GtkWidget* m_otherWindow { nullptr };
 #endif

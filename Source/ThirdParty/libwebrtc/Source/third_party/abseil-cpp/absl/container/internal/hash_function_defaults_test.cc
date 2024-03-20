@@ -19,9 +19,17 @@
 #include <utility>
 
 #include "gtest/gtest.h"
+#include "absl/random/random.h"
+#include "absl/strings/cord.h"
+#include "absl/strings/cord_test_helpers.h"
 #include "absl/strings/string_view.h"
 
+#ifdef ABSL_HAVE_STD_STRING_VIEW
+#include <string_view>
+#endif
+
 namespace absl {
+ABSL_NAMESPACE_BEGIN
 namespace container_internal {
 namespace {
 
@@ -103,6 +111,168 @@ TYPED_TEST(HashString, Works) {
   EXPECT_EQ(h, hash(std::string("a")));
   EXPECT_NE(h, hash(absl::string_view("b")));
   EXPECT_NE(h, hash(std::string("b")));
+}
+
+TEST(BasicStringViewTest, WStringEqWorks) {
+#ifndef ABSL_HAVE_STD_STRING_VIEW
+  GTEST_SKIP();
+#else
+  hash_default_eq<std::wstring> eq;
+  EXPECT_TRUE(eq(L"a", L"a"));
+  EXPECT_TRUE(eq(L"a", std::wstring_view(L"a")));
+  EXPECT_TRUE(eq(L"a", std::wstring(L"a")));
+  EXPECT_FALSE(eq(L"a", L"b"));
+  EXPECT_FALSE(eq(L"a", std::wstring_view(L"b")));
+  EXPECT_FALSE(eq(L"a", std::wstring(L"b")));
+#endif
+}
+
+TEST(BasicStringViewTest, WStringViewEqWorks) {
+#ifndef ABSL_HAVE_STD_STRING_VIEW
+  GTEST_SKIP();
+#else
+  hash_default_eq<std::wstring_view> eq;
+  EXPECT_TRUE(eq(L"a", L"a"));
+  EXPECT_TRUE(eq(L"a", std::wstring_view(L"a")));
+  EXPECT_TRUE(eq(L"a", std::wstring(L"a")));
+  EXPECT_FALSE(eq(L"a", L"b"));
+  EXPECT_FALSE(eq(L"a", std::wstring_view(L"b")));
+  EXPECT_FALSE(eq(L"a", std::wstring(L"b")));
+#endif
+}
+
+TEST(BasicStringViewTest, U16StringEqWorks) {
+#ifndef ABSL_HAVE_STD_STRING_VIEW
+  GTEST_SKIP();
+#else
+  hash_default_eq<std::u16string> eq;
+  EXPECT_TRUE(eq(u"a", u"a"));
+  EXPECT_TRUE(eq(u"a", std::u16string_view(u"a")));
+  EXPECT_TRUE(eq(u"a", std::u16string(u"a")));
+  EXPECT_FALSE(eq(u"a", u"b"));
+  EXPECT_FALSE(eq(u"a", std::u16string_view(u"b")));
+  EXPECT_FALSE(eq(u"a", std::u16string(u"b")));
+#endif
+}
+
+TEST(BasicStringViewTest, U16StringViewEqWorks) {
+#ifndef ABSL_HAVE_STD_STRING_VIEW
+  GTEST_SKIP();
+#else
+  hash_default_eq<std::u16string_view> eq;
+  EXPECT_TRUE(eq(u"a", u"a"));
+  EXPECT_TRUE(eq(u"a", std::u16string_view(u"a")));
+  EXPECT_TRUE(eq(u"a", std::u16string(u"a")));
+  EXPECT_FALSE(eq(u"a", u"b"));
+  EXPECT_FALSE(eq(u"a", std::u16string_view(u"b")));
+  EXPECT_FALSE(eq(u"a", std::u16string(u"b")));
+#endif
+}
+
+TEST(BasicStringViewTest, U32StringEqWorks) {
+#ifndef ABSL_HAVE_STD_STRING_VIEW
+  GTEST_SKIP();
+#else
+  hash_default_eq<std::u32string> eq;
+  EXPECT_TRUE(eq(U"a", U"a"));
+  EXPECT_TRUE(eq(U"a", std::u32string_view(U"a")));
+  EXPECT_TRUE(eq(U"a", std::u32string(U"a")));
+  EXPECT_FALSE(eq(U"a", U"b"));
+  EXPECT_FALSE(eq(U"a", std::u32string_view(U"b")));
+  EXPECT_FALSE(eq(U"a", std::u32string(U"b")));
+#endif
+}
+
+TEST(BasicStringViewTest, U32StringViewEqWorks) {
+#ifndef ABSL_HAVE_STD_STRING_VIEW
+  GTEST_SKIP();
+#else
+  hash_default_eq<std::u32string_view> eq;
+  EXPECT_TRUE(eq(U"a", U"a"));
+  EXPECT_TRUE(eq(U"a", std::u32string_view(U"a")));
+  EXPECT_TRUE(eq(U"a", std::u32string(U"a")));
+  EXPECT_FALSE(eq(U"a", U"b"));
+  EXPECT_FALSE(eq(U"a", std::u32string_view(U"b")));
+  EXPECT_FALSE(eq(U"a", std::u32string(U"b")));
+#endif
+}
+
+TEST(BasicStringViewTest, WStringHashWorks) {
+#ifndef ABSL_HAVE_STD_STRING_VIEW
+  GTEST_SKIP();
+#else
+  hash_default_hash<std::wstring> hash;
+  auto h = hash(L"a");
+  EXPECT_EQ(h, hash(std::wstring_view(L"a")));
+  EXPECT_EQ(h, hash(std::wstring(L"a")));
+  EXPECT_NE(h, hash(std::wstring_view(L"b")));
+  EXPECT_NE(h, hash(std::wstring(L"b")));
+#endif
+}
+
+TEST(BasicStringViewTest, WStringViewHashWorks) {
+#ifndef ABSL_HAVE_STD_STRING_VIEW
+  GTEST_SKIP();
+#else
+  hash_default_hash<std::wstring_view> hash;
+  auto h = hash(L"a");
+  EXPECT_EQ(h, hash(std::wstring_view(L"a")));
+  EXPECT_EQ(h, hash(std::wstring(L"a")));
+  EXPECT_NE(h, hash(std::wstring_view(L"b")));
+  EXPECT_NE(h, hash(std::wstring(L"b")));
+#endif
+}
+
+TEST(BasicStringViewTest, U16StringHashWorks) {
+#ifndef ABSL_HAVE_STD_STRING_VIEW
+  GTEST_SKIP();
+#else
+  hash_default_hash<std::u16string> hash;
+  auto h = hash(u"a");
+  EXPECT_EQ(h, hash(std::u16string_view(u"a")));
+  EXPECT_EQ(h, hash(std::u16string(u"a")));
+  EXPECT_NE(h, hash(std::u16string_view(u"b")));
+  EXPECT_NE(h, hash(std::u16string(u"b")));
+#endif
+}
+
+TEST(BasicStringViewTest, U16StringViewHashWorks) {
+#ifndef ABSL_HAVE_STD_STRING_VIEW
+  GTEST_SKIP();
+#else
+  hash_default_hash<std::u16string_view> hash;
+  auto h = hash(u"a");
+  EXPECT_EQ(h, hash(std::u16string_view(u"a")));
+  EXPECT_EQ(h, hash(std::u16string(u"a")));
+  EXPECT_NE(h, hash(std::u16string_view(u"b")));
+  EXPECT_NE(h, hash(std::u16string(u"b")));
+#endif
+}
+
+TEST(BasicStringViewTest, U32StringHashWorks) {
+#ifndef ABSL_HAVE_STD_STRING_VIEW
+  GTEST_SKIP();
+#else
+  hash_default_hash<std::u32string> hash;
+  auto h = hash(U"a");
+  EXPECT_EQ(h, hash(std::u32string_view(U"a")));
+  EXPECT_EQ(h, hash(std::u32string(U"a")));
+  EXPECT_NE(h, hash(std::u32string_view(U"b")));
+  EXPECT_NE(h, hash(std::u32string(U"b")));
+#endif
+}
+
+TEST(BasicStringViewTest, U32StringViewHashWorks) {
+#ifndef ABSL_HAVE_STD_STRING_VIEW
+  GTEST_SKIP();
+#else
+  hash_default_hash<std::u32string_view> hash;
+  auto h = hash(U"a");
+  EXPECT_EQ(h, hash(std::u32string_view(U"a")));
+  EXPECT_EQ(h, hash(std::u32string(U"a")));
+  EXPECT_NE(h, hash(std::u32string_view(U"b")));
+  EXPECT_NE(h, hash(std::u32string(U"b")));
+#endif
 }
 
 struct NoDeleter {
@@ -202,10 +372,91 @@ TYPED_TEST(HashPointer, Works) {
   EXPECT_NE(hash(&dummy), hash(cuptr));
 }
 
+TEST(EqCord, Works) {
+  hash_default_eq<absl::Cord> eq;
+  const absl::string_view a_string_view = "a";
+  const absl::Cord a_cord(a_string_view);
+  const absl::string_view b_string_view = "b";
+  const absl::Cord b_cord(b_string_view);
+
+  EXPECT_TRUE(eq(a_cord, a_cord));
+  EXPECT_TRUE(eq(a_cord, a_string_view));
+  EXPECT_TRUE(eq(a_string_view, a_cord));
+  EXPECT_FALSE(eq(a_cord, b_cord));
+  EXPECT_FALSE(eq(a_cord, b_string_view));
+  EXPECT_FALSE(eq(b_string_view, a_cord));
+}
+
+TEST(HashCord, Works) {
+  hash_default_hash<absl::Cord> hash;
+  const absl::string_view a_string_view = "a";
+  const absl::Cord a_cord(a_string_view);
+  const absl::string_view b_string_view = "b";
+  const absl::Cord b_cord(b_string_view);
+
+  EXPECT_EQ(hash(a_cord), hash(a_cord));
+  EXPECT_EQ(hash(b_cord), hash(b_cord));
+  EXPECT_EQ(hash(a_string_view), hash(a_cord));
+  EXPECT_EQ(hash(b_string_view), hash(b_cord));
+  EXPECT_EQ(hash(absl::Cord("")), hash(""));
+  EXPECT_EQ(hash(absl::Cord()), hash(absl::string_view()));
+
+  EXPECT_NE(hash(a_cord), hash(b_cord));
+  EXPECT_NE(hash(a_cord), hash(b_string_view));
+  EXPECT_NE(hash(a_string_view), hash(b_cord));
+  EXPECT_NE(hash(a_string_view), hash(b_string_view));
+}
+
+void NoOpReleaser(absl::string_view data, void* arg) {}
+
+TEST(HashCord, FragmentedCordWorks) {
+  hash_default_hash<absl::Cord> hash;
+  absl::Cord c = absl::MakeFragmentedCord({"a", "b", "c"});
+  EXPECT_FALSE(c.TryFlat().has_value());
+  EXPECT_EQ(hash(c), hash("abc"));
+}
+
+TEST(HashCord, FragmentedLongCordWorks) {
+  hash_default_hash<absl::Cord> hash;
+  // Crete some large strings which do not fit on the stack.
+  std::string a(65536, 'a');
+  std::string b(65536, 'b');
+  absl::Cord c = absl::MakeFragmentedCord({a, b});
+  EXPECT_FALSE(c.TryFlat().has_value());
+  EXPECT_EQ(hash(c), hash(a + b));
+}
+
+TEST(HashCord, RandomCord) {
+  hash_default_hash<absl::Cord> hash;
+  auto bitgen = absl::BitGen();
+  for (int i = 0; i < 1000; ++i) {
+    const int number_of_segments = absl::Uniform(bitgen, 0, 10);
+    std::vector<std::string> pieces;
+    for (size_t s = 0; s < number_of_segments; ++s) {
+      std::string str;
+      str.resize(absl::Uniform(bitgen, 0, 4096));
+      // MSVC needed the explicit return type in the lambda.
+      std::generate(str.begin(), str.end(), [&]() -> char {
+        return static_cast<char>(absl::Uniform<unsigned char>(bitgen));
+      });
+      pieces.push_back(str);
+    }
+    absl::Cord c = absl::MakeFragmentedCord(pieces);
+    EXPECT_EQ(hash(c), hash(std::string(c)));
+  }
+}
+
 // Cartesian product of (std::string, absl::string_view)
-// with (std::string, absl::string_view, const char*).
+// with (std::string, absl::string_view, const char*, absl::Cord).
 using StringTypesCartesianProduct = Types<
     // clang-format off
+    std::pair<absl::Cord, std::string>,
+    std::pair<absl::Cord, absl::string_view>,
+    std::pair<absl::Cord, absl::Cord>,
+    std::pair<absl::Cord, const char*>,
+
+    std::pair<std::string, absl::Cord>,
+    std::pair<absl::string_view, absl::Cord>,
 
     std::pair<absl::string_view, std::string>,
     std::pair<absl::string_view, absl::string_view>,
@@ -225,7 +476,7 @@ struct StringLikeTest : public ::testing::Test {
   hash_default_hash<typename T::first_type> hash;
 };
 
-TYPED_TEST_CASE_P(StringLikeTest);
+TYPED_TEST_SUITE_P(StringLikeTest);
 
 TYPED_TEST_P(StringLikeTest, Eq) {
   EXPECT_TRUE(this->eq(this->a1, this->b1));
@@ -248,14 +499,15 @@ TYPED_TEST_SUITE(StringLikeTest, StringTypesCartesianProduct);
 
 }  // namespace
 }  // namespace container_internal
+ABSL_NAMESPACE_END
 }  // namespace absl
 
 enum Hash : size_t {
-  kStd = 0x2,       // std::hash
+  kStd = 0x1,       // std::hash
 #ifdef _MSC_VER
   kExtension = kStd,  // In MSVC, std::hash == ::hash
 #else                 // _MSC_VER
-  kExtension = 0x4,  // ::hash (GCC extension)
+  kExtension = 0x2,  // ::hash (GCC extension)
 #endif                // _MSC_VER
 };
 
@@ -278,6 +530,7 @@ struct hash<Hashable<H>> {
 }  // namespace std
 
 namespace absl {
+ABSL_NAMESPACE_BEGIN
 namespace container_internal {
 namespace {
 
@@ -292,4 +545,5 @@ TEST(Delegate, HashDispatch) {
 
 }  // namespace
 }  // namespace container_internal
+ABSL_NAMESPACE_END
 }  // namespace absl

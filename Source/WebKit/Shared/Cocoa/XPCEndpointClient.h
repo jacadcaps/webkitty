@@ -25,7 +25,9 @@
 
 #pragma once
 
-#include "WKDeclarationSpecifiers.h"
+#ifdef __cplusplus
+
+#include <WebKit/WKBase.h>
 #include <wtf/Lock.h>
 #include <wtf/OSObjectPtr.h>
 #include <wtf/spi/darwin/XPCSPI.h>
@@ -45,8 +47,10 @@ private:
     virtual void handleEvent(xpc_object_t) = 0;
     virtual void didConnect() = 0;
 
-    OSObjectPtr<xpc_connection_t> m_connection;
-    Lock m_lock;
+    Lock m_connectionLock;
+    OSObjectPtr<xpc_connection_t> m_connection WTF_GUARDED_BY_LOCK(m_connectionLock);
 };
 
 }
+
+#endif

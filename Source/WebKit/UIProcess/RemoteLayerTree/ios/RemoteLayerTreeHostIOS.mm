@@ -28,106 +28,90 @@
 
 #if PLATFORM(IOS_FAMILY)
 
-#import "EditableImageController.h"
 #import "RemoteLayerTreeDrawingAreaProxy.h"
 #import "RemoteLayerTreeViews.h"
 #import "UIKitSPI.h"
-#import "WKDrawingView.h"
+#import "VideoPresentationManagerProxy.h"
+#import "WKVideoView.h"
 #import "WebPageProxy.h"
 #import <UIKit/UIScrollView.h>
 #import <pal/spi/cocoa/QuartzCoreSPI.h>
+
+#if ENABLE(ARKIT_INLINE_PREVIEW_IOS)
+#import "WKModelView.h"
+#endif
 
 namespace WebKit {
 using namespace WebCore;
 
 std::unique_ptr<RemoteLayerTreeNode> RemoteLayerTreeHost::makeNode(const RemoteLayerTreeTransaction::LayerCreationProperties& properties)
 {
-    auto makeWithView = [&] (RetainPtr<UIView> view) {
-        return makeUnique<RemoteLayerTreeNode>(properties.layerID, WTFMove(view));
-    };
-    auto makeAdoptingView = [&] (UIView* view) {
-        return makeWithView(adoptNS(view));
+    auto makeWithView = [&] (RetainPtr<UIView>&& view) {
+        return makeUnique<RemoteLayerTreeNode>(properties.layerID, properties.hostIdentifier(), WTFMove(view));
     };
 
     switch (properties.type) {
-    case PlatformCALayer::LayerTypeLayer:
-    case PlatformCALayer::LayerTypeWebLayer:
-    case PlatformCALayer::LayerTypeRootLayer:
-    case PlatformCALayer::LayerTypeSimpleLayer:
-    case PlatformCALayer::LayerTypeTiledBackingLayer:
-    case PlatformCALayer::LayerTypePageTiledBackingLayer:
-        return makeAdoptingView([[WKCompositingView alloc] init]);
+    case PlatformCALayer::LayerType::LayerTypeLayer:
+    case PlatformCALayer::LayerType::LayerTypeWebLayer:
+    case PlatformCALayer::LayerType::LayerTypeRootLayer:
+    case PlatformCALayer::LayerType::LayerTypeSimpleLayer:
+    case PlatformCALayer::LayerType::LayerTypeTiledBackingLayer:
+    case PlatformCALayer::LayerType::LayerTypePageTiledBackingLayer:
+    case PlatformCALayer::LayerType::LayerTypeContentsProvidedLayer:
+    case PlatformCALayer::LayerType::LayerTypeHost:
+        return makeWithView(adoptNS([[WKCompositingView alloc] init]));
 
-    case PlatformCALayer::LayerTypeTiledBackingTileLayer:
+    case PlatformCALayer::LayerType::LayerTypeTiledBackingTileLayer:
         return RemoteLayerTreeNode::createWithPlainLayer(properties.layerID);
 
-    case PlatformCALayer::LayerTypeBackdropLayer:
-        return makeAdoptingView([[WKSimpleBackdropView alloc] init]);
+    case PlatformCALayer::LayerType::LayerTypeBackdropLayer:
+        return makeWithView(adoptNS([[WKBackdropView alloc] init]));
 
-    case PlatformCALayer::LayerTypeLightSystemBackdropLayer:
-        return makeAdoptingView([[WKBackdropView alloc] initWithFrame:CGRectZero privateStyle:_UIBackdropViewStyle_Light]);
+    case PlatformCALayer::LayerType::LayerTypeTransformLayer:
+        return makeWithView(adoptNS([[WKTransformView alloc] init]));
 
-    case PlatformCALayer::LayerTypeDarkSystemBackdropLayer:
-        return makeAdoptingView([[WKBackdropView alloc] initWithFrame:CGRectZero privateStyle:_UIBackdropViewStyle_Dark]);
+    case PlatformCALayer::LayerType::LayerTypeCustom:
+    case PlatformCALayer::LayerType::LayerTypeAVPlayerLayer: {
+        if (m_isDebugLayerTreeHost)
+            return makeWithView(adoptNS([[WKCompositingView alloc] init]));
 
-    case PlatformCALayer::LayerTypeTransformLayer:
-        return makeAdoptingView([[WKTransformView alloc] init]);
-
-    case PlatformCALayer::LayerTypeCustom:
-    case PlatformCALayer::LayerTypeAVPlayerLayer:
-    case PlatformCALayer::LayerTypeContentsProvidedLayer:
-        if (!m_isDebugLayerTreeHost) {
-            auto view = adoptNS([[WKUIRemoteView alloc] initWithFrame:CGRectZero
-                pid:m_drawingArea->page().processIdentifier() contextID:properties.hostingContextID]);
-            if (properties.type == PlatformCALayer::LayerTypeAVPlayerLayer) {
-                // Invert the scale transform added in the WebProcess to fix <rdar://problem/18316542>.
-                float inverseScale = 1 / properties.hostingDeviceScaleFactor;
-                [[view layer] setTransform:CATransform3DMakeScale(inverseScale, inverseScale, 1)];
+#if HAVE(AVKIT)
+        if (properties.videoElementData) {
+            if (auto videoManager = m_drawingArea->page().videoPresentationManager()) {
+                m_videoLayers.add(properties.layerID, properties.videoElementData->playerIdentifier);
+                return makeWithView(videoManager->createViewWithID(properties.videoElementData->playerIdentifier, properties.hostingContextID(), properties.videoElementData->initialSize, properties.videoElementData->naturalSize, properties.hostingDeviceScaleFactor()));
             }
-            return makeWithView(WTFMove(view));
-        }
-        return makeAdoptingView([[WKCompositingView alloc] init]);
-
-    case PlatformCALayer::LayerTypeShapeLayer:
-        return makeAdoptingView([[WKShapeView alloc] init]);
-
-    case PlatformCALayer::LayerTypeScrollContainerLayer:
-        if (!m_isDebugLayerTreeHost)
-            return makeAdoptingView([[WKChildScrollView alloc] init]);
-        // The debug indicator parents views under layers, which can cause crashes with UIScrollView.
-        return makeAdoptingView([[UIView alloc] init]);
-
-    case PlatformCALayer::LayerTypeEditableImageLayer:
-        return makeWithView(createEmbeddedView(properties));
-
-    default:
-        ASSERT_NOT_REACHED();
-        return nullptr;
-    }
-}
-
-RetainPtr<WKEmbeddedView> RemoteLayerTreeHost::createEmbeddedView(const RemoteLayerTreeTransaction::LayerCreationProperties& properties)
-{
-    if (m_isDebugLayerTreeHost)
-        return adoptNS([[UIView alloc] init]);
-
-    auto result = m_embeddedViews.ensure(properties.embeddedViewID, [&]() -> RetainPtr<UIView> {
-        switch (properties.type) {
-#if HAVE(PENCILKIT)
-        case PlatformCALayer::LayerTypeEditableImageLayer: {
-            auto editableImage = m_drawingArea->page().editableImageController().editableImage(properties.embeddedViewID);
-            return editableImage ? editableImage->drawingView : nil;
         }
 #endif
-        default:
-            return adoptNS([[UIView alloc] init]);
+
+        auto view = adoptNS([[WKUIRemoteView alloc] initWithFrame:CGRectZero pid:m_drawingArea->page().processID() contextID:properties.hostingContextID()]);
+        return makeWithView(WTFMove(view));
+    }
+    case PlatformCALayer::LayerType::LayerTypeShapeLayer:
+        return makeWithView(adoptNS([[WKShapeView alloc] init]));
+
+    case PlatformCALayer::LayerType::LayerTypeScrollContainerLayer:
+        if (!m_isDebugLayerTreeHost)
+            return makeWithView(adoptNS([[WKChildScrollView alloc] init]));
+        // The debug indicator parents views under layers, which can cause crashes with UIScrollView.
+        return makeWithView(adoptNS([[UIView alloc] init]));
+
+#if ENABLE(MODEL_ELEMENT)
+    case PlatformCALayer::LayerType::LayerTypeModelLayer:
+        if (m_drawingArea->page().preferences().modelElementEnabled()) {
+            if (auto* model = std::get_if<Ref<Model>>(&properties.additionalData)) {
+#if ENABLE(SEPARATED_MODEL)
+                return makeWithView(adoptNS([[WKSeparatedModelView alloc] initWithModel:*model]));
+#elif ENABLE(ARKIT_INLINE_PREVIEW_IOS)
+                return makeWithView(adoptNS([[WKModelView alloc] initWithModel:*model layerID:properties.layerID page:m_drawingArea->page()]));
+#endif
+            }
         }
-    });
-    auto view = result.iterator->value;
-    if (!result.isNewEntry)
-        m_layerToEmbeddedViewMap.remove(RemoteLayerTreeNode::layerID([view layer]));
-    m_layerToEmbeddedViewMap.set(properties.layerID, properties.embeddedViewID);
-    return view;
+        return makeWithView(adoptNS([[WKCompositingView alloc] init]));
+#endif // ENABLE(MODEL_ELEMENT)
+    }
+    ASSERT_NOT_REACHED();
+    return nullptr;
 }
 
 } // namespace WebKit

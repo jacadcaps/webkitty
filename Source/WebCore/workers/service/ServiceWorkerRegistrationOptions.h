@@ -25,53 +25,20 @@
 
 #pragma once
 
-#if ENABLE(SERVICE_WORKER)
-
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
 enum class ServiceWorkerUpdateViaCache : uint8_t;
-enum class WorkerType;
+enum class WorkerType : bool;
 
 struct ServiceWorkerRegistrationOptions {
     String scope;
     WorkerType type;
     ServiceWorkerUpdateViaCache updateViaCache;
 
-    ServiceWorkerRegistrationOptions isolatedCopy() const;
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static Optional<ServiceWorkerRegistrationOptions> decode(Decoder&);
+    ServiceWorkerRegistrationOptions isolatedCopy() const &;
+    ServiceWorkerRegistrationOptions isolatedCopy() &&;
 };
 
-template<class Encoder>
-void ServiceWorkerRegistrationOptions::encode(Encoder& encoder) const
-{
-    encoder << scope << type << updateViaCache;
-}
-
-template<class Decoder>
-Optional<ServiceWorkerRegistrationOptions> ServiceWorkerRegistrationOptions::decode(Decoder& decoder)
-{
-    Optional<String> scope;
-    decoder >> scope;
-    if (!scope)
-        return WTF::nullopt;
-
-    Optional<WorkerType> type;
-    decoder >> type;
-    if (!type)
-        return WTF::nullopt;
-
-    Optional<ServiceWorkerUpdateViaCache> updateViaCache;
-    decoder >> updateViaCache;
-    if (!updateViaCache)
-        return WTF::nullopt;
-
-    return ServiceWorkerRegistrationOptions { WTFMove(*scope), WTFMove(*type), WTFMove(*updateViaCache) };
-}
-
 } // namespace WebCore
-
-#endif // ENABLE(SERVICE_WORKER)

@@ -24,10 +24,9 @@
  */
 
 #include "config.h"
+#include "TextTrackRepresentation.h"
 
 #if ENABLE(VIDEO)
-
-#include "TextTrackRepresentation.h"
 
 #include "IntRect.h"
 
@@ -45,7 +44,7 @@ public:
 
 #if !(PLATFORM(IOS_FAMILY) || (PLATFORM(MAC) && ENABLE(VIDEO_PRESENTATION_MODE)))
 
-std::unique_ptr<TextTrackRepresentation> TextTrackRepresentation::create(TextTrackRepresentationClient&)
+std::unique_ptr<TextTrackRepresentation> TextTrackRepresentation::create(TextTrackRepresentationClient&, HTMLMediaElement&)
 {
     return makeUnique<NullTextTrackRepresentation>();
 }

@@ -27,21 +27,30 @@
 
 #import <UIKit/UIKit.h>
 
+namespace WebKit {
+
+enum class ShouldDeferGestures : bool { No, Yes };
+enum class ShouldPreventGestures : bool { No, Yes };
+
+} // namespace WebKit
+
 @class WKDeferringGestureRecognizer;
 
 @protocol WKDeferringGestureRecognizerDelegate
-- (BOOL)deferringGestureRecognizer:(WKDeferringGestureRecognizer *)deferringGestureRecognizer shouldDeferGesturesAfterEndingTouchesWithEvent:(UIEvent *)event;
-- (BOOL)deferringGestureRecognizer:(WKDeferringGestureRecognizer *)deferringGestureRecognizer shouldDeferGesturesAfterBeginningTouchesWithEvent:(UIEvent *)event;
 - (BOOL)deferringGestureRecognizer:(WKDeferringGestureRecognizer *)deferringGestureRecognizer shouldDeferOtherGestureRecognizer:(UIGestureRecognizer *)gestureRecognizer;
+- (WebKit::ShouldDeferGestures)deferringGestureRecognizer:(WKDeferringGestureRecognizer *)deferringGestureRecognizer willBeginTouchesWithEvent:(UIEvent *)event;
+- (void)deferringGestureRecognizer:(WKDeferringGestureRecognizer *)deferringGestureRecognizer didEndTouchesWithEvent:(UIEvent *)event;
+- (void)deferringGestureRecognizer:(WKDeferringGestureRecognizer *)deferringGestureRecognizer didTransitionToState:(UIGestureRecognizerState)state;
 @end
 
 @interface WKDeferringGestureRecognizer : UIGestureRecognizer
 
 - (instancetype)initWithDeferringGestureDelegate:(id <WKDeferringGestureRecognizerDelegate>)deferringGestureDelegate;
-- (void)setDefaultPrevented:(BOOL)defaultPrevented;
-- (BOOL)shouldDeferGestureRecognizer:(UIGestureRecognizer *)gestureRecognizer;
 
-@property (nonatomic, weak, readonly) id <WKDeferringGestureRecognizerDelegate> deferringGestureDelegate;
+- (BOOL)shouldDeferGestureRecognizer:(UIGestureRecognizer *)gestureRecognizer;
+- (void)endDeferral:(WebKit::ShouldPreventGestures)shouldPreventGestures;
+
+@property (nonatomic) BOOL immediatelyFailsAfterTouchEnd;
 
 @end
 

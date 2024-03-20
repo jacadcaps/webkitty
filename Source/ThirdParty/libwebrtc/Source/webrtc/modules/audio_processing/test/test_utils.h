@@ -20,29 +20,42 @@
 #include <string>
 #include <vector>
 
-#include "api/audio/audio_frame.h"
+#include "absl/strings/string_view.h"
 #include "common_audio/channel_buffer.h"
 #include "common_audio/wav_file.h"
 #include "modules/audio_processing/include/audio_processing.h"
-#include "rtc_base/constructor_magic.h"
 
 namespace webrtc {
 
 static const AudioProcessing::Error kNoErr = AudioProcessing::kNoError;
 #define EXPECT_NOERR(expr) EXPECT_EQ(kNoErr, (expr))
 
-class RawFile final {
- public:
-  explicit RawFile(const std::string& filename);
-  ~RawFile();
+// Encapsulates samples and metadata for an integer frame.
+struct Int16FrameData {
+  // Max data size that matches the data size of the AudioFrame class, providing
+  // storage for 8 channels of 96 kHz data.
+  static const int kMaxDataSizeSamples = 7680;
 
-  void WriteSamples(const int16_t* samples, size_t num_samples);
-  void WriteSamples(const float* samples, size_t num_samples);
+  Int16FrameData() {
+    sample_rate_hz = 0;
+    num_channels = 0;
+    samples_per_channel = 0;
+    data.fill(0);
+  }
 
- private:
-  FILE* file_handle_;
+  void CopyFrom(const Int16FrameData& src) {
+    samples_per_channel = src.samples_per_channel;
+    sample_rate_hz = src.sample_rate_hz;
+    num_channels = src.num_channels;
 
-  RTC_DISALLOW_COPY_AND_ASSIGN(RawFile);
+    const size_t length = samples_per_channel * num_channels;
+    RTC_CHECK_LE(length, kMaxDataSizeSamples);
+    memcpy(data.data(), src.data.data(), sizeof(int16_t) * length);
+  }
+  std::array<int16_t, kMaxDataSizeSamples> data;
+  int32_t sample_rate_hz;
+  size_t num_channels;
+  size_t samples_per_channel;
 };
 
 // Reads ChannelBuffers from a provided WavReader.
@@ -51,15 +64,16 @@ class ChannelBufferWavReader final {
   explicit ChannelBufferWavReader(std::unique_ptr<WavReader> file);
   ~ChannelBufferWavReader();
 
-  // Reads data from the file according to the |buffer| format. Returns false if
+  ChannelBufferWavReader(const ChannelBufferWavReader&) = delete;
+  ChannelBufferWavReader& operator=(const ChannelBufferWavReader&) = delete;
+
+  // Reads data from the file according to the `buffer` format. Returns false if
   // a full buffer can't be read from the file.
   bool Read(ChannelBuffer<float>* buffer);
 
  private:
   std::unique_ptr<WavReader> file_;
   std::vector<float> interleaved_;
-
-  RTC_DISALLOW_COPY_AND_ASSIGN(ChannelBufferWavReader);
 };
 
 // Writes ChannelBuffers to a provided WavWriter.
@@ -68,13 +82,14 @@ class ChannelBufferWavWriter final {
   explicit ChannelBufferWavWriter(std::unique_ptr<WavWriter> file);
   ~ChannelBufferWavWriter();
 
+  ChannelBufferWavWriter(const ChannelBufferWavWriter&) = delete;
+  ChannelBufferWavWriter& operator=(const ChannelBufferWavWriter&) = delete;
+
   void Write(const ChannelBuffer<float>& buffer);
 
  private:
   std::unique_ptr<WavWriter> file_;
   std::vector<float> interleaved_;
-
-  RTC_DISALLOW_COPY_AND_ASSIGN(ChannelBufferWavWriter);
 };
 
 // Takes a pointer to a vector. Allows appending the samples of channel buffers
@@ -88,7 +103,7 @@ class ChannelBufferVectorWriter final {
       delete;
   ~ChannelBufferVectorWriter();
 
-  // Creates an interleaved copy of |buffer|, converts the samples to float S16
+  // Creates an interleaved copy of `buffer`, converts the samples to float S16
   // and appends the result to output_.
   void Write(const ChannelBuffer<float>& buffer);
 
@@ -97,35 +112,20 @@ class ChannelBufferVectorWriter final {
   std::vector<float>* output_;
 };
 
-void WriteIntData(const int16_t* data,
-                  size_t length,
-                  WavWriter* wav_file,
-                  RawFile* raw_file);
-
-void WriteFloatData(const float* const* data,
-                    size_t samples_per_channel,
-                    size_t num_channels,
-                    WavWriter* wav_file,
-                    RawFile* raw_file);
-
 // Exits on failure; do not use in unit tests.
-FILE* OpenFile(const std::string& filename, const char* mode);
+FILE* OpenFile(absl::string_view filename, absl::string_view mode);
 
-size_t SamplesFromRate(int rate);
-
-void SetFrameSampleRate(AudioFrame* frame, int sample_rate_hz);
+void SetFrameSampleRate(Int16FrameData* frame, int sample_rate_hz);
 
 template <typename T>
 void SetContainerFormat(int sample_rate_hz,
                         size_t num_channels,
-                        AudioFrame* frame,
+                        Int16FrameData* frame,
                         std::unique_ptr<ChannelBuffer<T> >* cb) {
   SetFrameSampleRate(frame, sample_rate_hz);
-  frame->num_channels_ = num_channels;
-  cb->reset(new ChannelBuffer<T>(frame->samples_per_channel_, num_channels));
+  frame->num_channels = num_channels;
+  cb->reset(new ChannelBuffer<T>(frame->samples_per_channel, num_channels));
 }
-
-AudioProcessing::ChannelLayout LayoutFromChannels(size_t num_channels);
 
 template <typename T>
 float ComputeSNR(const T* ref, const T* test, size_t length, float* variance) {
@@ -152,10 +152,11 @@ float ComputeSNR(const T* ref, const T* test, size_t length, float* variance) {
 // Returns a vector<T> parsed from whitespace delimited values in to_parse,
 // or an empty vector if the string could not be parsed.
 template <typename T>
-std::vector<T> ParseList(const std::string& to_parse) {
+std::vector<T> ParseList(absl::string_view to_parse) {
   std::vector<T> values;
 
-  std::istringstream str(to_parse);
+  std::istringstream str(  // no-presubmit-check TODO(webrtc:8982)
+      std::string{to_parse});
   std::copy(
       std::istream_iterator<T>(str),  // no-presubmit-check TODO(webrtc:8982)
       std::istream_iterator<T>(),     // no-presubmit-check TODO(webrtc:8982)

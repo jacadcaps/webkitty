@@ -25,16 +25,17 @@
 
 #pragma once
 
+#include <wtf/NeverDestroyed.h>
 #include <wtf/ObjectIdentifier.h>
 
 namespace WebKit {
 
-enum ContentWorldIdentifierType { };
+enum class ContentWorldIdentifierType { };
 using ContentWorldIdentifier = ObjectIdentifier<ContentWorldIdentifierType>;
 
 inline ContentWorldIdentifier pageContentWorldIdentifier()
 {
-    static NeverDestroyed<ContentWorldIdentifier> identifier(makeObjectIdentifier<ContentWorldIdentifierType>(1));
+    static NeverDestroyed<ContentWorldIdentifier> identifier(ObjectIdentifier<ContentWorldIdentifierType>(1));
     return identifier;
 }
 

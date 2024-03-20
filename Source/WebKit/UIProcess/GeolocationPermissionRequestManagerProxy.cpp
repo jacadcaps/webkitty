@@ -26,6 +26,7 @@
 #include "config.h"
 #include "GeolocationPermissionRequestManagerProxy.h"
 
+#include "MessageSenderInlines.h"
 #include "WebPageMessages.h"
 #include "WebPageProxy.h"
 #include "WebProcessProxy.h"
@@ -63,7 +64,7 @@ void GeolocationPermissionRequestManagerProxy::didReceiveGeolocationPermissionDe
         return;
 
 #if ENABLE(GEOLOCATION)
-    String authorizationToken = allowed ? createCanonicalUUIDString() : String();
+    String authorizationToken = allowed ? createVersion4UUIDString() : String();
     if (!authorizationToken.isNull())
         m_validAuthorizationTokens.add(authorizationToken);
     m_page.send(Messages::WebPage::DidReceiveGeolocationPermissionDecision(geolocationID, authorizationToken));

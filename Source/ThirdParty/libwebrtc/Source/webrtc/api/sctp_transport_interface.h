@@ -35,6 +35,8 @@ enum class SctpTransportState {
 // http://w3c.github.io/webrtc-pc/#rtcsctptransport-interface
 class RTC_EXPORT SctpTransportInformation {
  public:
+  SctpTransportInformation() = default;
+  SctpTransportInformation(const SctpTransportInformation&) = default;
   explicit SctpTransportInformation(SctpTransportState state);
   SctpTransportInformation(
       SctpTransportState state,
@@ -51,7 +53,7 @@ class RTC_EXPORT SctpTransportInformation {
   absl::optional<int> MaxChannels() const { return max_channels_; }
 
  private:
-  SctpTransportState state_;
+  SctpTransportState state_ { SctpTransportState::kNew }; // WEBRTC_WEBKIT_BUILD
   rtc::scoped_refptr<DtlsTransportInterface> dtls_transport_;
   absl::optional<double> max_message_size_;
   absl::optional<int> max_channels_;

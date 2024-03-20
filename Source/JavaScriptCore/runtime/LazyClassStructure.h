@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,10 +27,12 @@
 
 #include "LazyProperty.h"
 #include "Structure.h"
+#include "WriteBarrier.h"
 
 namespace JSC {
 
 class JSGlobalObject;
+class Structure;
 class VM;
 
 class LazyClassStructure {
@@ -117,7 +119,7 @@ public:
         return m_constructor.get();
     }
     
-    void visit(SlotVisitor&);
+    template<typename Visitor> void visit(Visitor&);
     
     void dump(PrintStream&) const;
 

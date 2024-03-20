@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -58,11 +58,11 @@ public:
     JSValueRef* data()
     {
         if (m_buffer)
-            return m_buffer.get(m_size);
+            return m_buffer.get();
         return m_inlineBuffer;
     }
 
-    void visitAggregate(SlotVisitor&);
+    template<typename Visitor> void visitAggregate(Visitor&);
 
 private:
     unsigned m_size;

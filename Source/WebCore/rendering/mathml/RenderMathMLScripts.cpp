@@ -32,6 +32,7 @@
 
 #include "MathMLElement.h"
 #include "MathMLScriptsElement.h"
+#include "RenderMathMLBlockInlines.h"
 #include "RenderMathMLOperator.h"
 #include <wtf/IsoMallocInlines.h>
 
@@ -44,8 +45,8 @@ static bool isPrescriptDelimiter(const RenderObject& renderObject)
     return renderObject.node() && renderObject.node()->hasTagName(MathMLNames::mprescriptsTag);
 }
 
-RenderMathMLScripts::RenderMathMLScripts(MathMLScriptsElement& element, RenderStyle&& style)
-    : RenderMathMLBlock(element, WTFMove(style))
+RenderMathMLScripts::RenderMathMLScripts(Type type, MathMLScriptsElement& element, RenderStyle&& style)
+    : RenderMathMLBlock(type, element, WTFMove(style))
 {
 }
 
@@ -61,19 +62,17 @@ MathMLScriptsElement::ScriptType RenderMathMLScripts::scriptType() const
 
 RenderMathMLOperator* RenderMathMLScripts::unembellishedOperator() const
 {
-    auto base = firstChildBox();
-    if (!is<RenderMathMLBlock>(base))
-        return nullptr;
-    return downcast<RenderMathMLBlock>(base)->unembellishedOperator();
+    auto* base = dynamicDowncast<RenderMathMLBlock>(firstChildBox());
+    return base ? base->unembellishedOperator() : nullptr;
 }
 
-Optional<RenderMathMLScripts::ReferenceChildren> RenderMathMLScripts::validateAndGetReferenceChildren()
+std::optional<RenderMathMLScripts::ReferenceChildren> RenderMathMLScripts::validateAndGetReferenceChildren()
 {
     // All scripted elements must have at least one child.
     // The first child is the base.
     auto base = firstChildBox();
     if (!base)
-        return WTF::nullopt;
+        return std::nullopt;
 
     ReferenceChildren reference;
     reference.base = base;
@@ -94,7 +93,7 @@ Optional<RenderMathMLScripts::ReferenceChildren> RenderMathMLScripts::validateAn
         // <mover> base overscript </mover>
         auto script = base->nextSiblingBox();
         if (!script || isPrescriptDelimiter(*script) || script->nextSiblingBox())
-            return WTF::nullopt;
+            return std::nullopt;
         reference.firstPostScript = script;
         return reference;
     }
@@ -106,10 +105,10 @@ Optional<RenderMathMLScripts::ReferenceChildren> RenderMathMLScripts::validateAn
         // <munderover> base subscript superscript </munderover>
         auto subScript = base->nextSiblingBox();
         if (!subScript || isPrescriptDelimiter(*subScript))
-            return WTF::nullopt;
+            return std::nullopt;
         auto superScript = subScript->nextSiblingBox();
         if (!superScript || isPrescriptDelimiter(*superScript) || superScript->nextSiblingBox())
-            return WTF::nullopt;
+            return std::nullopt;
         reference.firstPostScript = subScript;
         return reference;
     }
@@ -139,19 +138,19 @@ Optional<RenderMathMLScripts::ReferenceChildren> RenderMathMLScripts::validateAn
             if (isPrescriptDelimiter(*script)) {
                 // This is a <mprescripts/>. Let's check 2a) and 2c).
                 if (!numberOfScriptIsEven || reference.firstPreScript)
-                    return WTF::nullopt;
+                    return std::nullopt;
                 reference.firstPreScript = script->nextSiblingBox(); // We do 1).
                 reference.prescriptDelimiter = script;
                 continue;
             }
             numberOfScriptIsEven = !numberOfScriptIsEven;
         }
-        return numberOfScriptIsEven ? Optional<ReferenceChildren>(reference) : WTF::nullopt; // We verify 2b).
+        return numberOfScriptIsEven ? std::optional<ReferenceChildren>(reference) : std::nullopt; // We verify 2b).
     }
     }
 
     ASSERT_NOT_REACHED();
-    return WTF::nullopt;
+    return std::nullopt;
 }
 
 LayoutUnit RenderMathMLScripts::spaceAfterScript()
@@ -164,8 +163,8 @@ LayoutUnit RenderMathMLScripts::spaceAfterScript()
 
 LayoutUnit RenderMathMLScripts::italicCorrection(const ReferenceChildren& reference)
 {
-    if (is<RenderMathMLBlock>(*reference.base)) {
-        if (auto* renderOperator = downcast<RenderMathMLBlock>(*reference.base).unembellishedOperator())
+    if (auto* mathMLBlock = dynamicDowncast<RenderMathMLBlock>(*reference.base)) {
+        if (auto* renderOperator = mathMLBlock->unembellishedOperator())
             return renderOperator->italicCorrection();
     }
     return 0;
@@ -242,14 +241,14 @@ auto RenderMathMLScripts::verticalParameters() const -> VerticalParameters
         parameters.superscriptBottomMaxWithSubscript = mathData->getMathConstant(primaryFont, OpenTypeMathData::SuperscriptBottomMaxWithSubscript);
     } else {
         // Default heuristic values when you do not have a font.
-        parameters.subscriptShiftDown = style().fontMetrics().xHeight() / 3;
-        parameters.superscriptShiftUp = style().fontMetrics().xHeight();
-        parameters.subscriptBaselineDropMin = style().fontMetrics().xHeight() / 2;
-        parameters.superScriptBaselineDropMax = style().fontMetrics().xHeight() / 2;
+        parameters.subscriptShiftDown = style().metricsOfPrimaryFont().xHeight() / 3;
+        parameters.superscriptShiftUp = style().metricsOfPrimaryFont().xHeight();
+        parameters.subscriptBaselineDropMin = style().metricsOfPrimaryFont().xHeight() / 2;
+        parameters.superScriptBaselineDropMax = style().metricsOfPrimaryFont().xHeight() / 2;
         parameters.subSuperscriptGapMin = style().fontCascade().size() / 5;
-        parameters.superscriptBottomMin = style().fontMetrics().xHeight() / 4;
-        parameters.subscriptTopMax = 4 * style().fontMetrics().xHeight() / 5;
-        parameters.superscriptBottomMaxWithSubscript = 4 * style().fontMetrics().xHeight() / 5;
+        parameters.superscriptBottomMin = style().metricsOfPrimaryFont().xHeight() / 4;
+        parameters.subscriptTopMax = 4 * style().metricsOfPrimaryFont().xHeight() / 5;
+        parameters.superscriptBottomMaxWithSubscript = 4 * style().metricsOfPrimaryFont().xHeight() / 5;
     }
     return parameters;
 }
@@ -360,8 +359,13 @@ void RenderMathMLScripts::layoutBlock(bool relayoutChildren, LayoutUnit)
     auto& reference = possibleReference.value();
 
     recomputeLogicalWidth();
-    for (auto child = firstChildBox(); child; child = child->nextSiblingBox())
+    for (auto child = firstChildBox(); child; child = child->nextSiblingBox()) {
+        if (child->isOutOfFlowPositioned()) {
+            child->containingBlock()->insertPositionedObject(*child);
+            continue;
+        }
         child->layoutIfNeeded();
+    }
 
     LayoutUnit space = spaceAfterScript();
 
@@ -466,12 +470,12 @@ void RenderMathMLScripts::layoutBlock(bool relayoutChildren, LayoutUnit)
     clearNeedsLayout();
 }
 
-Optional<int> RenderMathMLScripts::firstLineBaseline() const
+std::optional<LayoutUnit> RenderMathMLScripts::firstLineBaseline() const
 {
     auto* base = firstChildBox();
     if (!base)
-        return Optional<int>();
-    return Optional<int>(static_cast<int>(lroundf(ascentForChild(*base) + base->logicalTop())));
+        return std::optional<LayoutUnit>();
+    return LayoutUnit { roundf(ascentForChild(*base) + base->logicalTop()) };
 }
 
 }

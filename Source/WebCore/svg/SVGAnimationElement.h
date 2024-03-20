@@ -2,7 +2,7 @@
  * Copyright (C) 2004, 2005 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2004, 2005, 2006 Rob Buis <buis@kde.org>
  * Copyright (C) 2007 Eric Seidel <eric@webkit.org>
- * Copyright (C) 2008-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2008-2021 Apple Inc. All rights reserved.
  * Copyright (C) 2008 Cameron McCormack <cam@mcc.id.au>
  * Copyright (C) Research In Motion Limited 2011. All rights reserved.
  *
@@ -40,9 +40,9 @@ enum AnimatedPropertyValueType { RegularPropertyValue, CurrentColorValue, Inheri
 class SVGAnimationElement : public SVGSMILElement, public SVGTests {
     WTF_MAKE_ISO_ALLOCATED(SVGAnimationElement);
 public:
-    float getStartTime() const;
+    ExceptionOr<float> getStartTime() const;
     float getCurrentTime() const;
-    float getSimpleDuration() const;
+    ExceptionOr<float> getSimpleDuration() const;
 
     void beginElement();
     void beginElementAt(float offset);
@@ -79,26 +79,21 @@ public:
     enum class AttributeType : uint8_t { CSS, XML, Auto };
     AttributeType attributeType() const { return m_attributeType; }
 
-    void computeCSSPropertyValue(SVGElement*, CSSPropertyID, String& value);
-    virtual void determinePropertyValueTypes(const String& from, const String& to);
-
 protected:
     SVGAnimationElement(const QualifiedName&, Document&);
 
     using PropertyRegistry = SVGPropertyOwnerRegistry<SVGAnimationElement, SVGElement, SVGTests>;
-    const SVGPropertyRegistry& propertyRegistry() const override { return m_propertyRegistry; }
 
     virtual void resetAnimation();
 
     static bool isSupportedAttribute(const QualifiedName&);
-    void parseAttribute(const QualifiedName&, const AtomString&) override;
+    bool attributeContainsJavaScriptURL(const Attribute&) const final;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) override;
     void svgAttributeChanged(const QualifiedName&) override;
 
     String toValue() const;
     String byValue() const;
     String fromValue() const;
-
-    String targetAttributeBaseValue();
 
     // from SVGSMILElement
     void startedActiveInterval() override;
@@ -117,12 +112,13 @@ private:
     void animationAttributeChanged() override;
     void setAttributeType(const AtomString&);
 
-    virtual bool calculateToAtEndOfDurationValue(const String& toAtEndOfDurationString) = 0;
-    virtual bool calculateFromAndToValues(const String& fromString, const String& toString) = 0;
-    virtual bool calculateFromAndByValues(const String& fromString, const String& byString) = 0;
+    virtual bool setFromAndToValues(const String& fromString, const String& toString) = 0;
+    virtual bool setFromAndByValues(const String& fromString, const String& byString) = 0;
+    virtual bool setToAtEndOfDurationValue(const String& toAtEndOfDurationString) = 0;
     virtual void calculateAnimatedValue(float percent, unsigned repeatCount) = 0;
-    virtual Optional<float> calculateDistance(const String& /*fromString*/, const String& /*toString*/) = 0;
+    virtual std::optional<float> calculateDistance(const String& /*fromString*/, const String& /*toString*/) = 0;
 
+    const Vector<float>& keyTimes() const;
     void currentValuesForValuesAnimation(float percent, float& effectivePercent, String& from, String& to);
     void calculateKeyTimesForCalcModePaced();
     float calculatePercentFromKeyPoints(float percent) const;
@@ -137,14 +133,14 @@ private:
 
     AttributeType m_attributeType { AttributeType::Auto };
     Vector<String> m_values;
-    Vector<float> m_keyTimes;
+    Vector<float> m_keyTimesFromAttribute;
+    Vector<float> m_keyTimesForPaced;
     Vector<float> m_keyPoints;
     Vector<UnitBezier> m_keySplines;
     String m_lastValuesAnimationFrom;
     String m_lastValuesAnimationTo;
     CalcMode m_calcMode { CalcMode::Linear };
     AnimationMode m_animationMode { AnimationMode::None };
-    PropertyRegistry m_propertyRegistry { *this };
 };
 
 } // namespace WebCore

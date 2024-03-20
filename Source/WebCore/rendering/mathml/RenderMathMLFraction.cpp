@@ -33,6 +33,7 @@
 #include "GraphicsContext.h"
 #include "MathMLFractionElement.h"
 #include "PaintInfo.h"
+#include "RenderMathMLBlockInlines.h"
 #include <cmath>
 #include <wtf/IsoMallocInlines.h>
 
@@ -41,8 +42,9 @@ namespace WebCore {
 WTF_MAKE_ISO_ALLOCATED_IMPL(RenderMathMLFraction);
 
 RenderMathMLFraction::RenderMathMLFraction(MathMLFractionElement& element, RenderStyle&& style)
-    : RenderMathMLBlock(element, WTFMove(style))
+    : RenderMathMLBlock(Type::MathMLFraction, element, WTFMove(style))
 {
+    ASSERT(isRenderMathMLFraction());
 }
 
 bool RenderMathMLFraction::isValid() const
@@ -99,7 +101,7 @@ RenderMathMLFraction::FractionParameters RenderMathMLFraction::fractionParameter
     // We try and read constants to draw the fraction from the OpenType MATH and use fallback values otherwise.
     const auto& primaryFont = style().fontCascade().primaryFont();
     const auto* mathData = style().fontCascade().primaryFont().mathData();
-    bool display = mathMLStyle().displayStyle();
+    bool display = style().mathStyle() == MathStyle::Normal;
     if (mathData) {
         numeratorGapMin = mathData->getMathConstant(primaryFont, display ? OpenTypeMathData::FractionNumDisplayStyleGapMin : OpenTypeMathData::FractionNumeratorGapMin);
         denominatorGapMin = mathData->getMathConstant(primaryFont, display ? OpenTypeMathData::FractionDenomDisplayStyleGapMin : OpenTypeMathData::FractionDenominatorGapMin);
@@ -138,7 +140,7 @@ RenderMathMLFraction::FractionParameters RenderMathMLFraction::stackParameters()
     // We try and read constants to draw the stack from the OpenType MATH and use fallback values otherwise.
     const auto& primaryFont = style().fontCascade().primaryFont();
     const auto* mathData = style().fontCascade().primaryFont().mathData();
-    bool display = mathMLStyle().displayStyle();
+    bool display = style().mathStyle() == MathStyle::Normal;
     if (mathData) {
         gapMin = mathData->getMathConstant(primaryFont, display ? OpenTypeMathData::StackDisplayStyleGapMin : OpenTypeMathData::StackGapMin);
         parameters.numeratorShiftUp = mathData->getMathConstant(primaryFont, display ? OpenTypeMathData::StackTopDisplayStyleShiftUp : OpenTypeMathData::StackTopShiftUp);
@@ -168,10 +170,11 @@ RenderMathMLFraction::FractionParameters RenderMathMLFraction::stackParameters()
 
 RenderMathMLOperator* RenderMathMLFraction::unembellishedOperator() const
 {
-    if (!isValid() || !is<RenderMathMLBlock>(numerator()))
+    if (!isValid())
         return nullptr;
 
-    return downcast<RenderMathMLBlock>(numerator()).unembellishedOperator();
+    auto* mathMLBlock = dynamicDowncast<RenderMathMLBlock>(numerator());
+    return mathMLBlock ? mathMLBlock->unembellishedOperator() : nullptr;
 }
 
 void RenderMathMLFraction::computePreferredLogicalWidths()
@@ -267,15 +270,15 @@ void RenderMathMLFraction::paint(PaintInfo& info, const LayoutPoint& paintOffset
     GraphicsContextStateSaver stateSaver(info.context());
 
     info.context().setStrokeThickness(thickness);
-    info.context().setStrokeStyle(SolidStroke);
+    info.context().setStrokeStyle(StrokeStyle::SolidStroke);
     info.context().setStrokeColor(style().visitedDependentColorWithColorFilter(CSSPropertyColor));
     info.context().drawLine(adjustedPaintOffset, roundedIntPoint(LayoutPoint(adjustedPaintOffset.x() + logicalWidth(), LayoutUnit(adjustedPaintOffset.y()))));
 }
 
-Optional<int> RenderMathMLFraction::firstLineBaseline() const
+std::optional<LayoutUnit> RenderMathMLFraction::firstLineBaseline() const
 {
     if (isValid())
-        return Optional<int>(std::lround(static_cast<float>(fractionAscent())));
+        return LayoutUnit { roundf(static_cast<float>(fractionAscent())) };
     return RenderMathMLBlock::firstLineBaseline();
 }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,7 +27,7 @@
 #include "JSRemoteDOMWindow.h"
 
 #include "JSDOMExceptionHandling.h"
-#include "JSDOMWindowCustom.h"
+#include "JSLocalDOMWindowCustom.h"
 #include "WebCoreJSClientData.h"
 
 namespace WebCore {
@@ -35,24 +35,41 @@ using namespace JSC;
 
 bool JSRemoteDOMWindow::getOwnPropertySlot(JSObject* object, JSGlobalObject* lexicalGlobalObject, PropertyName propertyName, PropertySlot& slot)
 {
-    if (Optional<unsigned> index = parseIndex(propertyName))
+    if (std::optional<unsigned> index = parseIndex(propertyName))
         return getOwnPropertySlotByIndex(object, lexicalGlobalObject, index.value(), slot);
 
+    // FIXME (rdar://115751655): This should be replaced with a same-origin check between the active and target document.
+    if (propertyName == "$vm"_s)
+        return true;
+
     auto* thisObject = jsCast<JSRemoteDOMWindow*>(object);
-    return jsDOMWindowGetOwnPropertySlotRestrictedAccess<DOMWindowType::Remote>(thisObject, thisObject->wrapped(), *lexicalGlobalObject, propertyName, slot, String());
+    return jsLocalDOMWindowGetOwnPropertySlotRestrictedAccess<DOMWindowType::Remote>(thisObject, thisObject->wrapped(), *lexicalGlobalObject, propertyName, slot, String());
 }
 
 bool JSRemoteDOMWindow::getOwnPropertySlotByIndex(JSObject* object, JSGlobalObject* lexicalGlobalObject, unsigned index, PropertySlot& slot)
 {
     VM& vm = lexicalGlobalObject->vm();
     auto* thisObject = jsCast<JSRemoteDOMWindow*>(object);
+    auto& window = thisObject->wrapped();
+    auto* frame = window.frame();
 
     // Indexed getters take precendence over regular properties, so caching would be invalid.
     slot.disableCaching();
 
-    // FIXME: Add support for indexed properties.
+    // These are also allowed cross-origin, so come before the access check.
+    if (frame && index < frame->tree().childCount()) {
+        // FIXME: <rdar://118263337> This should work also if it's a RemoteFrame, it should just return a RemoteDOMWindow.
+        // JSLocalDOMWindow::getOwnPropertySlotByIndex uses scopedChild. Investigate the difference.
+        if (auto* child = dynamicDowncast<LocalFrame>(frame->tree().child(index))) {
+            slot.setValue(thisObject, enumToUnderlyingType(JSC::PropertyAttribute::ReadOnly), toJS(lexicalGlobalObject, child->document()->domWindow()));
+            return true;
+        }
+    }
 
-    return jsDOMWindowGetOwnPropertySlotRestrictedAccess<DOMWindowType::Remote>(thisObject, thisObject->wrapped(), *lexicalGlobalObject, Identifier::from(vm, index), slot, String());
+    // FIXME: <rdar://118263337> Make this more like JSLocalDOMWindow::getOwnPropertySlotByIndex and share code when possible.
+    // There is some missing functionality here, and it is likely important.
+
+    return jsLocalDOMWindowGetOwnPropertySlotRestrictedAccess<DOMWindowType::Remote>(thisObject, thisObject->wrapped(), *lexicalGlobalObject, Identifier::from(vm, index), slot, String());
 }
 
 bool JSRemoteDOMWindow::put(JSCell* cell, JSGlobalObject* lexicalGlobalObject, PropertyName propertyName, JSValue value, PutPropertySlot& slot)
@@ -67,12 +84,13 @@ bool JSRemoteDOMWindow::put(JSCell* cell, JSGlobalObject* lexicalGlobalObject, P
     String errorMessage;
 
     // We only allow setting "location" attribute cross-origin.
-    if (propertyName == static_cast<JSVMClientData*>(vm.clientData)->builtinNames().locationPublicName()) {
-        bool putResult = false;
-        if (lookupPut(lexicalGlobalObject, propertyName, thisObject, value, *s_info.staticPropHashTable, slot, putResult))
-            return putResult;
-        return false;
+    if (propertyName == builtinNames(vm).locationPublicName()) {
+        auto setter = s_info.staticPropHashTable->entry(propertyName)->propertyPutter();
+        scope.release();
+        setter(lexicalGlobalObject, JSValue::encode(slot.thisValue()), JSValue::encode(value), propertyName);
+        return true;
     }
+
     throwSecurityError(*lexicalGlobalObject, scope, errorMessage);
     return false;
 }
@@ -100,11 +118,11 @@ bool JSRemoteDOMWindow::deletePropertyByIndex(JSCell*, JSGlobalObject* lexicalGl
     return false;
 }
 
-void JSRemoteDOMWindow::getOwnPropertyNames(JSObject*, JSGlobalObject* lexicalGlobalObject, PropertyNameArray& propertyNames, EnumerationMode mode)
+void JSRemoteDOMWindow::getOwnPropertyNames(JSObject*, JSGlobalObject* lexicalGlobalObject, PropertyNameArray& propertyNames, DontEnumPropertiesMode mode)
 {
     // FIXME: Add scoped children indexes.
 
-    if (mode.includeDontEnumProperties())
+    if (mode == DontEnumPropertiesMode::Include)
         addCrossOriginOwnPropertyNames<CrossOriginObject::Window>(*lexicalGlobalObject, propertyNames);
 }
 
@@ -117,21 +135,34 @@ bool JSRemoteDOMWindow::defineOwnProperty(JSC::JSObject*, JSC::JSGlobalObject* l
     return false;
 }
 
+JSValue JSRemoteDOMWindow::self(JSC::JSGlobalObject&) const
+{
+    return globalThis();
+}
+
+JSValue JSRemoteDOMWindow::window(JSC::JSGlobalObject&) const
+{
+    return globalThis();
+}
+
+JSValue JSRemoteDOMWindow::frames(JSC::JSGlobalObject&) const
+{
+    return globalThis();
+}
+
 JSValue JSRemoteDOMWindow::getPrototype(JSObject*, JSGlobalObject*)
 {
     return jsNull();
 }
 
-bool JSRemoteDOMWindow::preventExtensions(JSObject*, JSGlobalObject* lexicalGlobalObject)
+bool JSRemoteDOMWindow::preventExtensions(JSObject*, JSGlobalObject*)
 {
-    auto scope = DECLARE_THROW_SCOPE(lexicalGlobalObject->vm());
-    throwTypeError(lexicalGlobalObject, scope, "Cannot prevent extensions on this object"_s);
     return false;
 }
 
-String JSRemoteDOMWindow::toStringName(const JSObject*, JSGlobalObject*)
+void JSRemoteDOMWindow::setOpener(JSC::JSGlobalObject&, JSC::JSValue)
 {
-    return "Object"_s;
+    // FIXME: <rdar://118263373> Implement, probably like JSLocalDOMWindow::setOpener.
 }
 
 } // namepace WebCore

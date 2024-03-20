@@ -15,6 +15,7 @@
 #include <iterator>
 
 #include "rtc_base/checks.h"
+#include "system_wrappers/include/cpu_features_wrapper.h"
 
 namespace webrtc {
 
@@ -70,7 +71,17 @@ const float kSqrtHanning128[kFftLength] = {
     0.19509032201613f, 0.17096188876030f, 0.14673047445536f, 0.12241067519922f,
     0.09801714032956f, 0.07356456359967f, 0.04906767432742f, 0.02454122852291f};
 
+bool IsSse2Available() {
+#if defined(WEBRTC_ARCH_X86_FAMILY)
+  return GetCPUInfo(kSSE2) != 0;
+#else
+  return false;
+#endif
+}
+
 }  // namespace
+
+Aec3Fft::Aec3Fft() : ooura_fft_(IsSse2Available()) {}
 
 // TODO(peah): Change x to be std::array once the rest of the code allows this.
 void Aec3Fft::ZeroPaddedFft(rtc::ArrayView<const float> x,
@@ -90,10 +101,10 @@ void Aec3Fft::ZeroPaddedFft(rtc::ArrayView<const float> x,
                      [](float a, float b) { return a * b; });
       break;
     case Window::kSqrtHanning:
-      RTC_NOTREACHED();
+      RTC_DCHECK_NOTREACHED();
       break;
     default:
-      RTC_NOTREACHED();
+      RTC_DCHECK_NOTREACHED();
   }
 
   Fft(&fft, X);
@@ -114,7 +125,7 @@ void Aec3Fft::PaddedFft(rtc::ArrayView<const float> x,
       std::copy(x.begin(), x.end(), fft.begin() + x_old.size());
       break;
     case Window::kHanning:
-      RTC_NOTREACHED();
+      RTC_DCHECK_NOTREACHED();
       break;
     case Window::kSqrtHanning:
       std::transform(x_old.begin(), x_old.end(), std::begin(kSqrtHanning128),
@@ -124,7 +135,7 @@ void Aec3Fft::PaddedFft(rtc::ArrayView<const float> x,
                      fft.begin() + x_old.size(), std::multiplies<float>());
       break;
     default:
-      RTC_NOTREACHED();
+      RTC_DCHECK_NOTREACHED();
   }
 
   Fft(&fft, X);

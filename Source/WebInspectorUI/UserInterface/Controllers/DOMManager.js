@@ -40,6 +40,7 @@ WI.DOMManager = class DOMManager extends WI.Object
 
         this._idToDOMNode = {};
         this._document = null;
+        this._documentPromise = null;
         this._attributeLoadNodeIds = {};
         this._restoreSelectedNodeIsAllowed = true;
         this._loadNodeAttributesTimeout = 0;
@@ -50,7 +51,11 @@ WI.DOMManager = class DOMManager extends WI.Object
         this._hasRequestedDocument = false;
         this._pendingDocumentRequestCallbacks = null;
 
-        WI.EventBreakpoint.addEventListener(WI.EventBreakpoint.Event.DisabledStateChanged, this._handleEventBreakpointDisabledStateChanged, this);
+        WI.EventBreakpoint.addEventListener(WI.Breakpoint.Event.DisabledStateDidChange, this._handleEventBreakpointDisabledStateChanged, this);
+        WI.EventBreakpoint.addEventListener(WI.Breakpoint.Event.ConditionDidChange, this._handleEventBreakpointEditablePropertyChanged, this);
+        WI.EventBreakpoint.addEventListener(WI.Breakpoint.Event.IgnoreCountDidChange, this._handleEventBreakpointEditablePropertyChanged, this);
+        WI.EventBreakpoint.addEventListener(WI.Breakpoint.Event.AutoContinueDidChange, this._handleEventBreakpointEditablePropertyChanged, this);
+        WI.EventBreakpoint.addEventListener(WI.Breakpoint.Event.ActionsDidChange, this._handleEventBreakpointActionsChanged, this);
 
         WI.Frame.addEventListener(WI.Frame.Event.MainResourceDidChange, this._mainResourceDidChange, this);
     }
@@ -68,7 +73,7 @@ WI.DOMManager = class DOMManager extends WI.Object
                 this.ensureDocument();
             });
 
-            if (WI.isEngineeringBuild) {
+            if (WI.engineeringSettingsAllowed()) {
                 if (DOMManager.supportsEditingUserAgentShadowTrees({target}))
                     target.DOMAgent.setAllowEditingUserAgentShadowTrees(WI.settings.engineeringAllowEditingUserAgentShadowTrees.value);
             }
@@ -82,25 +87,48 @@ WI.DOMManager = class DOMManager extends WI.Object
 
     // Static
 
-    static buildHighlightConfig(mode)
+    static buildHighlightConfigs(mode)
     {
         mode = mode || "all";
 
-        let highlightConfig = {showInfo: mode === "all"};
+        let commandArguments = {
+            highlightConfig: {showInfo: mode === "all"},
+        };
 
         if (mode === "all" || mode === "content")
-            highlightConfig.contentColor = {r: 111, g: 168, b: 220, a: 0.66};
+            commandArguments.highlightConfig.contentColor = {r: 111, g: 168, b: 220, a: 0.66};
 
         if (mode === "all" || mode === "padding")
-            highlightConfig.paddingColor = {r: 147, g: 196, b: 125, a: 0.66};
+            commandArguments.highlightConfig.paddingColor = {r: 147, g: 196, b: 125, a: 0.66};
 
         if (mode === "all" || mode === "border")
-            highlightConfig.borderColor = {r: 255, g: 229, b: 153, a: 0.66};
+            commandArguments.highlightConfig.borderColor = {r: 255, g: 229, b: 153, a: 0.66};
 
         if (mode === "all" || mode === "margin")
-            highlightConfig.marginColor = {r: 246, g: 178, b: 107, a: 0.66};
+            commandArguments.highlightConfig.marginColor = {r: 246, g: 178, b: 107, a: 0.66};
 
-        return highlightConfig;
+        if (WI.settings.showGridOverlayDuringElementSelection.value) {
+            commandArguments.gridOverlayConfig = {
+                gridColor: WI.DOMNode.defaultLayoutOverlayColor.toProtocol(),
+                showLineNames: WI.settings.gridOverlayShowLineNames.value,
+                showLineNumbers: WI.settings.gridOverlayShowLineNumbers.value,
+                showExtendedGridLines: WI.settings.gridOverlayShowExtendedGridLines.value,
+                showTrackSizes: WI.settings.gridOverlayShowTrackSizes.value,
+                showAreaNames: WI.settings.gridOverlayShowAreaNames.value,
+            };
+        }
+
+        if (WI.settings.showFlexOverlayDuringElementSelection.value) {
+            commandArguments.flexOverlayConfig = {
+                flexColor: WI.DOMNode.defaultLayoutOverlayColor.toProtocol(),
+                showOrderNumbers: WI.settings.flexOverlayShowOrderNumbers.value,
+            };
+        }
+
+        if (WI.settings.showRulersDuringElementSelection.value)
+            commandArguments.showRulers = true;
+
+        return commandArguments;
     }
 
     static wrapClientCallback(callback)
@@ -115,15 +143,16 @@ WI.DOMManager = class DOMManager extends WI.Object
         };
     }
 
-    static supportsDisablingEventListeners()
-    {
-        return InspectorBackend.hasCommand("DOM.setEventListenerDisabled");
-    }
-
     static supportsEventListenerBreakpoints()
     {
         return InspectorBackend.hasCommand("DOM.setBreakpointForEventListener")
             && InspectorBackend.hasCommand("DOM.removeBreakpointForEventListener");
+    }
+
+    static supportsEventListenerBreakpointConfiguration()
+    {
+        // COMPATIBILITY (iOS 14): DOM.setBreakpointForEventListener did not have an "options" parameter yet.
+        return InspectorBackend.hasCommand("DOM.setBreakpointForEventListener", "options");
     }
 
     static supportsEditingUserAgentShadowTrees({frontendOnly, target} = {})
@@ -143,38 +172,55 @@ WI.DOMManager = class DOMManager extends WI.Object
         return Array.from(this._breakpointsForEventListeners.values());
     }
 
+    *attachedNodes({filter} = {})
+    {
+        if (!this._document)
+            return;
+
+        filter ??= (node) => true;
+
+        // Traverse the node tree in the same order items would appear if the entire tree were expanded in order to
+        // provide a predictable order for the results.
+        let currentBranch = [this._document];
+        while (currentBranch.length) {
+            let currentNode = currentBranch.at(-1);
+
+            if (filter(currentNode))
+                yield currentNode;
+
+            // The `::before` pseudo element is the first child of any node.
+            let beforePseudoElement = currentNode.beforePseudoElement();
+            if (beforePseudoElement && filter(beforePseudoElement))
+                yield beforePseudoElement;
+
+            let firstChild = currentNode.children?.[0];
+            if (firstChild) {
+                currentBranch.push(firstChild);
+                continue;
+            }
+
+            while (currentBranch.length) {
+                let parent = currentBranch.pop();
+
+                // The `::after` pseudo element is the last child of any node.
+                let parentAfterPseudoElement = parent.afterPseudoElement();
+                if (parentAfterPseudoElement && filter(parentAfterPseudoElement))
+                    yield parentAfterPseudoElement;
+
+                if (parent.nextSibling) {
+                    currentBranch.push(parent.nextSibling);
+                    break;
+                }
+            }
+        }
+    }
+
     requestDocument(callback)
     {
-        if (this._document) {
-            callback(this._document);
-            return;
-        }
+        if (typeof callback !== "function")
+            return this._requestDocumentWithPromise();
 
-        if (this._pendingDocumentRequestCallbacks)
-            this._pendingDocumentRequestCallbacks.push(callback);
-        else
-            this._pendingDocumentRequestCallbacks = [callback];
-
-        if (this._hasRequestedDocument)
-            return;
-
-        if (!WI.pageTarget)
-            return;
-
-        if (!WI.pageTarget.hasDomain("DOM"))
-            return;
-
-        this._hasRequestedDocument = true;
-
-        WI.pageTarget.DOMAgent.getDocument((error, root) => {
-            if (!error)
-                this._setDocument(root);
-
-            for (let callback of this._pendingDocumentRequestCallbacks)
-                callback(this._document);
-
-            this._pendingDocumentRequestCallbacks = null;
-        });
+        this._requestDocumentWithCallback(callback);
     }
 
     ensureDocument()
@@ -199,6 +245,15 @@ WI.DOMManager = class DOMManager extends WI.Object
     }
 
     // DOMObserver
+
+    willDestroyDOMNode(nodeId)
+    {
+        let node = this._idToDOMNode[nodeId];
+        node.markDestroyed();
+        delete this._idToDOMNode[nodeId];
+
+        this.dispatchEventToListeners(WI.DOMManager.Event.NodeRemoved, {node});
+    }
 
     didAddEventListener(nodeId)
     {
@@ -236,6 +291,18 @@ WI.DOMManager = class DOMManager extends WI.Object
         node.powerEfficientPlaybackStateChanged(timestamp, isPowerEfficient);
     }
 
+    // CSSObserver
+
+    nodeLayoutFlagsChanged(nodeId, layoutFlags)
+    {
+        let domNode = this._idToDOMNode[nodeId];
+        console.assert(domNode instanceof WI.DOMNode, domNode, nodeId);
+        if (!domNode)
+            return;
+
+        domNode.layoutFlags = layoutFlags;
+    }
+
     // Private
 
     _dispatchWhenDocumentAvailable(func, callback)
@@ -252,6 +319,57 @@ WI.DOMManager = class DOMManager extends WI.Object
             }
         }
         this.requestDocument(onDocumentAvailable.bind(this));
+    }
+
+    _requestDocumentWithPromise()
+    {
+        if (this._documentPromise)
+            return this._documentPromise.promise;
+
+        this._documentPromise = new WI.WrappedPromise;
+        if (this._document)
+            this._documentPromise.resolve(this._document);
+        else {
+            this._requestDocumentWithCallback((doc) => {
+                this._documentPromise.resolve(doc);
+            });
+        }
+
+        return this._documentPromise.promise;
+    }
+
+    _requestDocumentWithCallback(callback)
+    {
+        if (this._document) {
+            callback(this._document);
+            return;
+        }
+
+        if (this._pendingDocumentRequestCallbacks)
+            this._pendingDocumentRequestCallbacks.push(callback);
+        else
+            this._pendingDocumentRequestCallbacks = [callback];
+
+        if (this._hasRequestedDocument)
+            return;
+
+        if (!WI.pageTarget)
+            return;
+
+        if (!WI.pageTarget.hasDomain("DOM"))
+            return;
+
+        this._hasRequestedDocument = true;
+
+        WI.pageTarget.DOMAgent.getDocument((error, root) => {
+            if (!error)
+                this._setDocument(root);
+
+            for (let callback of this._pendingDocumentRequestCallbacks)
+                callback(this._document);
+
+            this._pendingDocumentRequestCallbacks = null;
+        });
     }
 
     _attributeModified(nodeId, name, value)
@@ -351,6 +469,9 @@ WI.DOMManager = class DOMManager extends WI.Object
 
         this._document = newDocument;
 
+        // Force the promise to be recreated so that it resolves to the new document.
+        this._documentPromise = null;
+
         if (!this._document)
             this._hasRequestedDocument = false;
 
@@ -370,7 +491,16 @@ WI.DOMManager = class DOMManager extends WI.Object
         }
 
         var parent = this._idToDOMNode[parentId];
+
+        if (parent.children) {
+            for (let node of parent.children)
+                this.dispatchEventToListeners(WI.DOMManager.Event.NodeRemoved, {node, parent});
+        }
+
         parent._setChildrenPayload(payloads);
+
+        for (let node of parent.children)
+            this.dispatchEventToListeners(WI.DOMManager.Event.NodeInserted, {node, parent});
     }
 
     _childNodeCountUpdated(nodeId, newValue)
@@ -492,9 +622,7 @@ WI.DOMManager = class DOMManager extends WI.Object
             // Re-resolve the node in the console's object group when adding to the console.
             let domNode = this.nodeForId(nodeId);
             WI.RemoteObject.resolveNode(domNode, WI.RuntimeManager.ConsoleObjectGroup).then((remoteObject) => {
-                const specialLogStyles = true;
-                const shouldRevealConsole = false;
-                WI.consoleLogViewController.appendImmediateExecutionWithResult(WI.UIString("Selected Element"), remoteObject, specialLogStyles, shouldRevealConsole);
+                WI.consoleLogViewController.appendImmediateExecutionWithResult(WI.UIString("Selected Element"), remoteObject, {addSpecialUserLogClass: true});
             });
         }
 
@@ -503,12 +631,6 @@ WI.DOMManager = class DOMManager extends WI.Object
 
     highlightDOMNodeList(nodes, mode)
     {
-        let target = WI.assumingMainTarget();
-
-        // COMPATIBILITY (iOS 11): DOM.highlightNodeList did not exist.
-        if (!target.hasCommand("DOM.highlightNodeList"))
-            return;
-
         if (this._hideDOMNodeHighlightTimeout) {
             clearTimeout(this._hideDOMNodeHighlightTimeout);
             this._hideDOMNodeHighlightTimeout = undefined;
@@ -523,10 +645,14 @@ WI.DOMManager = class DOMManager extends WI.Object
             nodeIds.push(node.id);
         }
 
-        target.DOMAgent.highlightNodeList(nodeIds, DOMManager.buildHighlightConfig(mode));
+        let target = WI.assumingMainTarget();
+        target.DOMAgent.highlightNodeList.invoke({
+            nodeIds,
+            ...WI.DOMManager.buildHighlightConfigs(mode),
+        });
     }
 
-    highlightSelector(selectorText, frameId, mode)
+    highlightSelector(selectorString, frameId, mode)
     {
         if (this._hideDOMNodeHighlightTimeout) {
             clearTimeout(this._hideDOMNodeHighlightTimeout);
@@ -534,7 +660,11 @@ WI.DOMManager = class DOMManager extends WI.Object
         }
 
         let target = WI.assumingMainTarget();
-        target.DOMAgent.highlightSelector(DOMManager.buildHighlightConfig(mode), selectorText, frameId);
+        target.DOMAgent.highlightSelector.invoke({
+            selectorString,
+            frameId,
+            ...WI.DOMManager.buildHighlightConfigs(mode),
+        });
     }
 
     highlightRect(rect, usePageCoordinates)
@@ -553,8 +683,10 @@ WI.DOMManager = class DOMManager extends WI.Object
 
     hideDOMNodeHighlight()
     {
-        let target = WI.assumingMainTarget();
-        target.DOMAgent.hideHighlight();
+        for (let target of WI.targets) {
+            if (target.hasCommand("DOM.hideHighlight"))
+                target.DOMAgent.hideHighlight();
+        }
     }
 
     highlightDOMNodeForTwoSeconds(nodeId)
@@ -579,12 +711,10 @@ WI.DOMManager = class DOMManager extends WI.Object
             return;
 
         let target = WI.assumingMainTarget();
-        let commandArguments = {
+        target.DOMAgent.setInspectModeEnabled.invoke({
             enabled,
-            highlightConfig: DOMManager.buildHighlightConfig(),
-            showRulers: WI.settings.showRulersDuringElementSelection.value,
-        };
-        target.DOMAgent.setInspectModeEnabled.invoke(commandArguments, (error) => {
+            ...WI.DOMManager.buildHighlightConfigs(),
+        }, (error) => {
             if (error) {
                 WI.reportInternalError(error);
                 return;
@@ -617,14 +747,6 @@ WI.DOMManager = class DOMManager extends WI.Object
         };
 
         let target = WI.assumingMainTarget();
-
-        // COMPATIBILITY (iOS 11): DOM.setInspectedNode did not exist.
-        if (!target.hasCommand("DOM.setInspectedNode")) {
-            if (target.hasCommand("Console.addInspectedNode"))
-                target.ConsoleAgent.addInspectedNode(node.id, callback);
-            return;
-        }
-
         target.DOMAgent.setInspectedNode(node.id, callback);
     }
 
@@ -664,8 +786,10 @@ WI.DOMManager = class DOMManager extends WI.Object
 
         for (let target of WI.targets) {
             if (target.hasDomain("DOM"))
-                this._updateEventBreakpoint(breakpoint, target);
+                this._setEventBreakpoint(breakpoint, target);
         }
+
+        WI.debuggerManager.addProbesForBreakpoint(breakpoint);
 
         WI.domDebuggerManager.dispatchEventToListeners(WI.DOMDebuggerManager.Event.EventBreakpointAdded, {breakpoint});
     }
@@ -673,12 +797,14 @@ WI.DOMManager = class DOMManager extends WI.Object
     removeBreakpointForEventListener(eventListener)
     {
         let breakpoint = this._breakpointsForEventListeners.take(eventListener.eventListenerId);
-        console.assert(breakpoint);
+        if (!breakpoint)
+            return;
 
-        for (let target of WI.targets) {
-            if (target.hasDomain("DOM"))
-                target.DOMAgent.removeBreakpointForEventListener(eventListener.eventListenerId);
-        }
+        // Disable the breakpoint first, so removing actions doesn't re-add the breakpoint.
+        breakpoint.disabled = true;
+        breakpoint.clearActions();
+
+        WI.debuggerManager.removeProbesForBreakpoint(breakpoint);
 
         WI.domDebuggerManager.dispatchEventToListeners(WI.DOMDebuggerManager.Event.EventBreakpointRemoved, {breakpoint});
     }
@@ -699,19 +825,28 @@ WI.DOMManager = class DOMManager extends WI.Object
 
     // Private
 
-    _updateEventBreakpoint(breakpoint, target)
+    _setEventBreakpoint(breakpoint, target)
+    {
+        console.assert(!breakpoint.disabled, breakpoint);
+
+        let eventListener = breakpoint.eventListener;
+        console.assert(eventListener);
+
+            if (!WI.debuggerManager.breakpointsDisabledTemporarily)
+                WI.debuggerManager.breakpointsEnabled = true;
+
+        target.DOMAgent.setBreakpointForEventListener.invoke({
+            eventListenerId: eventListener.eventListenerId,
+            options: breakpoint.optionsToProtocol(),
+        });
+    }
+
+    _removeEventBreakpoint(breakpoint, target)
     {
         let eventListener = breakpoint.eventListener;
         console.assert(eventListener);
 
-        if (breakpoint.disabled)
-            target.DOMAgent.removeBreakpointForEventListener(eventListener.eventListenerId);
-        else {
-            if (!WI.debuggerManager.breakpointsDisabledTemporarily)
-                WI.debuggerManager.breakpointsEnabled = true;
-
-            target.DOMAgent.setBreakpointForEventListener(eventListener.eventListenerId);
-        }
+        target.DOMAgent.removeBreakpointForEventListener(eventListener.eventListenerId);
     }
 
     _handleEventBreakpointDisabledStateChanged(event)
@@ -723,9 +858,45 @@ WI.DOMManager = class DOMManager extends WI.Object
             return;
 
         for (let target of WI.targets) {
-            if (target.hasDomain("DOM"))
-                this._updateEventBreakpoint(breakpoint, target);
+            if (!target.hasDomain("DOM"))
+                continue;
+
+            if (breakpoint.disabled)
+                this._removeEventBreakpoint(breakpoint, target);
+            else
+                this._setEventBreakpoint(breakpoint, target);
         }
+    }
+
+    _handleEventBreakpointEditablePropertyChanged(event)
+    {
+        let breakpoint = event.target;
+
+        // Non-specific event listener breakpoints are handled by `DOMDebuggerManager`.
+        if (!breakpoint.eventListener)
+            return;
+
+        if (breakpoint.disabled)
+            return;
+
+        for (let target of WI.targets) {
+            // Clear the old breakpoint from the backend before setting the new one.
+            this._removeEventBreakpoint(breakpoint, target);
+            this._setEventBreakpoint(breakpoint, target);
+        }
+    }
+
+    _handleEventBreakpointActionsChanged(event)
+    {
+        let breakpoint = event.target;
+
+        // Non-specific event listener breakpoints are handled by `DOMDebuggerManager`.
+        if (!breakpoint.eventListener)
+            return;
+
+        this._handleEventBreakpointEditablePropertyChanged(event);
+
+        WI.debuggerManager.updateProbesForBreakpoint(breakpoint);
     }
 
     _mainResourceDidChange(event)
@@ -736,6 +907,8 @@ WI.DOMManager = class DOMManager extends WI.Object
         this._restoreSelectedNodeIsAllowed = true;
 
         this.ensureDocument();
+
+        WI.DOMNode.resetDefaultLayoutOverlayConfiguration();
     }
 };
 

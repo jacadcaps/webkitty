@@ -28,7 +28,7 @@ function apply(target, thisArgument, argumentsList)
 {
     "use strict";
 
-    if (typeof target !== "function")
+    if (!@isCallable(target))
         @throwTypeError("Reflect.apply requires the first argument be a function");
 
     if (!@isObject(argumentsList))
@@ -47,6 +47,21 @@ function deleteProperty(target, propertyKey)
         @throwTypeError("Reflect.deleteProperty requires the first argument be an object");
 
     return delete target[propertyKey];
+}
+
+// https://tc39.es/ecma262/#sec-reflect.get
+function get(target, propertyKey /*, receiver */)
+{
+    "use strict";
+
+    if (!@isObject(target))
+        @throwTypeError("Reflect.get requires the first argument be an object");
+
+    if (@argumentCount() < 3)
+        return target[propertyKey];
+
+    var receiver = @argument(2);
+    return @getByValWithThis(target, receiver, propertyKey);
 }
 
 // https://tc39.github.io/ecma262/#sec-reflect.has

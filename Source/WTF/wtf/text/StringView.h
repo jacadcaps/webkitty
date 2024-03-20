@@ -28,7 +28,6 @@
 #include <limits.h>
 #include <unicode/utypes.h>
 #include <wtf/Forward.h>
-#include <wtf/Optional.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/Vector.h>
 #include <wtf/text/ASCIILiteral.h>
@@ -45,7 +44,11 @@
 #define CHECK_STRINGVIEW_LIFETIME 1
 #endif
 
+OBJC_CLASS NSString;
+
 namespace WTF {
+
+class AdaptiveStringSearcherTables;
 
 // StringView is a non-owning reference to a string, similar to the proposed std::string_view.
 
@@ -67,11 +70,13 @@ public:
     StringView(const StringImpl*);
     StringView(const LChar*, unsigned length);
     StringView(const UChar*, unsigned length);
-    StringView(const char*);
     StringView(const char*, unsigned length);
-    explicit StringView(ASCIILiteral);
+    StringView(const void*, unsigned length, bool is8bit);
+    StringView(ASCIILiteral);
+    ALWAYS_INLINE StringView(std::span<const LChar> characters) : StringView(characters.data(), characters.size()) { }
+    ALWAYS_INLINE StringView(std::span<const UChar> characters) : StringView(characters.data(), characters.size()) { }
 
-    static StringView empty();
+    ALWAYS_INLINE static StringView fromLatin1(const char* characters) { return StringView { characters }; }
 
     unsigned length() const;
     bool isEmpty() const;
@@ -79,6 +84,7 @@ public:
     explicit operator bool() const;
     bool isNull() const;
 
+    UChar characterAt(unsigned index) const;
     UChar operator[](unsigned index) const;
 
     class CodeUnits;
@@ -93,13 +99,21 @@ public:
     bool is8Bit() const;
     const LChar* characters8() const;
     const UChar* characters16() const;
+    const void* rawCharacters() const { return m_characters; }
+    std::span<const LChar> span8() const { return { characters8(), length() }; }
+    std::span<const UChar> span16() const { return { characters16(), length() }; }
 
-    bool isAllASCII() const;
+    unsigned hash() const;
+
+    // Return characters8() or characters16() depending on CharacterType.
+    template<typename CharacterType> const CharacterType* characters() const;
+
+    bool containsOnlyASCII() const;
 
     String toString() const;
     String toStringWithoutCopying() const;
     AtomString toAtomString() const;
-    RefPtr<AtomStringImpl> toExistingAtomString() const;
+    AtomString toExistingAtomString() const;
 
 #if USE(CF)
     // These functions convert null strings to empty strings.
@@ -113,14 +127,18 @@ public:
     WTF_EXPORT_PRIVATE RetainPtr<NSString> createNSStringWithoutCopying() const;
 #endif
 
-    WTF_EXPORT_PRIVATE Expected<CString, UTF8ConversionError> tryGetUtf8(ConversionMode = LenientConversion) const;
+    WTF_EXPORT_PRIVATE Expected<CString, UTF8ConversionError> tryGetUTF8(ConversionMode = LenientConversion) const;
     WTF_EXPORT_PRIVATE CString utf8(ConversionMode = LenientConversion) const;
+
+    template<typename Func>
+    Expected<std::invoke_result_t<Func, std::span<const char>>, UTF8ConversionError> tryGetUTF8(const Func&, ConversionMode = LenientConversion) const;
 
     class UpconvertedCharacters;
     UpconvertedCharacters upconvertedCharacters() const;
 
-    void getCharactersWithUpconvert(LChar*) const;
-    void getCharactersWithUpconvert(UChar*) const;
+    template<typename CharacterType> void getCharacters(CharacterType*) const;
+    template<typename CharacterType> void getCharacters8(CharacterType*) const;
+    template<typename CharacterType> void getCharacters16(CharacterType*) const;
 
     enum class CaseConvertType { Upper, Lower };
     WTF_EXPORT_PRIVATE void getCharactersWithASCIICase(CaseConvertType, LChar*) const;
@@ -131,66 +149,86 @@ public:
     StringView right(unsigned length) const { return substring(this->length() - length, length); }
 
     template<typename MatchedCharacterPredicate>
-    StringView stripLeadingAndTrailingMatchedCharacters(const MatchedCharacterPredicate&);
+    StringView trim(const MatchedCharacterPredicate&) const;
 
     class SplitResult;
     SplitResult split(UChar) const;
     SplitResult splitAllowingEmptyEntries(UChar) const;
 
     size_t find(UChar, unsigned start = 0) const;
-    size_t find(CodeUnitMatchFunction, unsigned start = 0) const;
+    size_t find(LChar, unsigned start = 0) const;
+    ALWAYS_INLINE size_t find(char c, unsigned start = 0) const { return find(static_cast<LChar>(c), start); }
+    template<typename CodeUnitMatchFunction, std::enable_if_t<std::is_invocable_r_v<bool, CodeUnitMatchFunction, UChar>>* = nullptr>
+    size_t find(CodeUnitMatchFunction&&, unsigned start = 0) const;
+    ALWAYS_INLINE size_t find(ASCIILiteral literal, unsigned start = 0) const { return find(literal.characters8(), literal.length(), start); }
     WTF_EXPORT_PRIVATE size_t find(StringView, unsigned start = 0) const;
+    WTF_EXPORT_PRIVATE size_t find(AdaptiveStringSearcherTables&, StringView, unsigned start = 0) const;
 
     size_t reverseFind(UChar, unsigned index = std::numeric_limits<unsigned>::max()) const;
+    ALWAYS_INLINE size_t reverseFind(ASCIILiteral literal, unsigned start = std::numeric_limits<unsigned>::max()) const { return reverseFind(literal.characters8(), literal.length(), start); }
+    WTF_EXPORT_PRIVATE size_t reverseFind(StringView, unsigned start = std::numeric_limits<unsigned>::max()) const;
 
-    WTF_EXPORT_PRIVATE size_t findIgnoringASCIICase(const StringView&) const;
-    WTF_EXPORT_PRIVATE size_t findIgnoringASCIICase(const StringView&, unsigned startOffset) const;
+    WTF_EXPORT_PRIVATE size_t findIgnoringASCIICase(StringView) const;
+    WTF_EXPORT_PRIVATE size_t findIgnoringASCIICase(StringView, unsigned start) const;
 
     WTF_EXPORT_PRIVATE String convertToASCIILowercase() const;
     WTF_EXPORT_PRIVATE String convertToASCIIUppercase() const;
+    WTF_EXPORT_PRIVATE AtomString convertToASCIILowercaseAtom() const;
 
     bool contains(UChar) const;
-    bool contains(CodeUnitMatchFunction) const;
-    bool contains(StringView string) const { return find(string, 0) != notFound; }
-    WTF_EXPORT_PRIVATE bool contains(const char*) const;
+    template<typename CodeUnitMatchFunction, std::enable_if_t<std::is_invocable_r_v<bool, CodeUnitMatchFunction, UChar>>* = nullptr>
+    bool contains(CodeUnitMatchFunction&&) const;
+    bool contains(ASCIILiteral literal) const { return find(literal) != notFound; }
+    bool contains(StringView string) const { return find(string) != notFound; }
 
-    WTF_EXPORT_PRIVATE bool containsIgnoringASCIICase(const StringView&) const;
-    WTF_EXPORT_PRIVATE bool containsIgnoringASCIICase(const StringView&, unsigned startOffset) const;
+    WTF_EXPORT_PRIVATE bool containsIgnoringASCIICase(StringView) const;
+    WTF_EXPORT_PRIVATE bool containsIgnoringASCIICase(StringView, unsigned start) const;
 
-    template<bool isSpecialCharacter(UChar)> bool isAllSpecialCharacters() const;
+    template<bool isSpecialCharacter(UChar)> bool containsOnly() const;
 
     WTF_EXPORT_PRIVATE bool startsWith(UChar) const;
-    WTF_EXPORT_PRIVATE bool startsWith(const StringView&) const;
-    WTF_EXPORT_PRIVATE bool startsWithIgnoringASCIICase(const StringView&) const;
+    WTF_EXPORT_PRIVATE bool startsWith(StringView) const;
+    WTF_EXPORT_PRIVATE bool startsWithIgnoringASCIICase(StringView) const;
 
     WTF_EXPORT_PRIVATE bool endsWith(UChar) const;
-    WTF_EXPORT_PRIVATE bool endsWith(const StringView&) const;
-    WTF_EXPORT_PRIVATE bool endsWithIgnoringASCIICase(const StringView&) const;
+    WTF_EXPORT_PRIVATE bool endsWith(StringView) const;
+    WTF_EXPORT_PRIVATE bool endsWithIgnoringASCIICase(StringView) const;
 
-    int toInt() const;
-    int toInt(bool& isValid) const;
-    int toIntStrict(bool& isValid) const;
-    Optional<uint64_t> toUInt64Strict() const;
     float toFloat(bool& isValid) const;
+    double toDouble(bool& isValid) const;
 
     static void invalidate(const StringImpl&);
 
     struct UnderlyingString;
 
 private:
+    // Clients should use StringView(ASCIILiteral) or StringView::fromLatin1() instead.
+    explicit StringView(const char*);
+
+    UChar unsafeCharacterAt(unsigned index) const;
+
     friend bool equal(StringView, StringView);
+    friend bool equal(StringView, StringView, unsigned length);
     friend WTF_EXPORT_PRIVATE bool equalRespectingNullity(StringView, StringView);
+    friend size_t findCommon(StringView haystack, StringView needle, unsigned start);
 
     void initialize(const LChar*, unsigned length);
     void initialize(const UChar*, unsigned length);
 
+    WTF_EXPORT_PRIVATE size_t find(const LChar* match, unsigned matchLength, unsigned start) const;
+    WTF_EXPORT_PRIVATE size_t reverseFind(const LChar* match, unsigned matchLength, unsigned start) const;
+
     template<typename CharacterType, typename MatchedCharacterPredicate>
-    StringView stripLeadingAndTrailingMatchedCharacters(const CharacterType*, const MatchedCharacterPredicate&);
+    StringView trim(const CharacterType*, const MatchedCharacterPredicate&) const;
+
+    WTF_EXPORT_PRIVATE bool underlyingStringIsValidImpl() const;
+    WTF_EXPORT_PRIVATE void setUnderlyingStringImpl(const StringImpl*);
+    WTF_EXPORT_PRIVATE void setUnderlyingStringImpl(const StringView&);
 
 #if CHECK_STRINGVIEW_LIFETIME
-    WTF_EXPORT_PRIVATE bool underlyingStringIsValid() const;
-    WTF_EXPORT_PRIVATE void setUnderlyingString(const StringImpl*);
-    WTF_EXPORT_PRIVATE void setUnderlyingString(const StringView&);
+    bool underlyingStringIsValid() const { return underlyingStringIsValidImpl(); }
+    void setUnderlyingString(const StringImpl* stringImpl) { setUnderlyingStringImpl(stringImpl); }
+    void setUnderlyingString(const StringView& stringView) { setUnderlyingStringImpl(stringView); }
     void adoptUnderlyingString(UnderlyingString*);
 #else
     bool underlyingStringIsValid() const { return true; }
@@ -215,24 +253,17 @@ bool equal(StringView, StringView);
 bool equal(StringView, const LChar* b);
 
 bool equalIgnoringASCIICase(StringView, StringView);
-bool equalIgnoringASCIICase(StringView, const char*);
+bool equalIgnoringASCIICase(StringView, ASCIILiteral);
 
 WTF_EXPORT_PRIVATE bool equalRespectingNullity(StringView, StringView);
 bool equalIgnoringNullity(StringView, StringView);
 
-template<unsigned length> bool equalLettersIgnoringASCIICase(StringView, const char (&lowercaseLetters)[length]);
-template<unsigned length> bool startsWithLettersIgnoringASCIICase(StringView, const char (&lowercaseLetters)[length]);
+bool equalLettersIgnoringASCIICase(StringView, ASCIILiteral);
+bool startsWithLettersIgnoringASCIICase(StringView, ASCIILiteral);
 
 inline bool operator==(StringView a, StringView b) { return equal(a, b); }
-inline bool operator==(StringView a, const LChar *b);
-inline bool operator==(StringView a, const char *b) { return equal(a, reinterpret_cast<const LChar*>(b)); }
-inline bool operator==(const char* a, StringView b) { return equal(b, a); }
-
-inline bool operator!=(StringView a, StringView b) { return !equal(a, b); }
-inline bool operator!=(StringView a, const LChar* b) { return !equal(a, b); }
-inline bool operator!=(StringView a, const char* b) { return !equal(a, b); }
-inline bool operator!=(const LChar*a, StringView b) { return !equal(b, a); }
-inline bool operator!=(const char*a, StringView b) { return !equal(b, a); }
+inline bool operator==(StringView a, ASCIILiteral b) { return equal(a, b); }
+inline bool operator==(ASCIILiteral a, StringView b) { return equal(b, a); }
 
 struct StringViewWithUnderlyingString;
 
@@ -244,9 +275,10 @@ WTF_EXPORT_PRIVATE StringViewWithUnderlyingString normalizedNFC(StringView);
 
 WTF_EXPORT_PRIVATE String normalizedNFC(const String&);
 
-WTF_EXPORT_PRIVATE Optional<uint16_t> parseUInt16(StringView);
+inline StringView nullStringView() { return { }; }
+inline StringView emptyStringView() { return StringView("", 0); }
 
-}
+} // namespace WTF
 
 #include <wtf/text/AtomString.h>
 #include <wtf/text/WTFString.h>
@@ -255,12 +287,26 @@ namespace WTF {
 
 struct StringViewWithUnderlyingString {
     WTF_MAKE_STRUCT_FAST_ALLOCATED;
-    StringView view;
+    StringViewWithUnderlyingString(StringView passedView, String passedUnderlyingString)
+        : underlyingString(WTFMove(passedUnderlyingString))
+        , view(WTFMove(passedView))
+    { }
+
     String underlyingString;
+    StringView view;
+
+    String toString() const;
 };
 
 inline StringView::StringView()
 {
+}
+
+inline String StringViewWithUnderlyingString::toString() const
+{
+    if (LIKELY(view.length() == underlyingString.length()))
+        return underlyingString;
+    return view.toString();
 }
 
 #if CHECK_STRINGVIEW_LIFETIME
@@ -350,12 +396,19 @@ inline StringView::StringView(const UChar* characters, unsigned length)
 
 inline StringView::StringView(const char* characters)
 {
-    initialize(reinterpret_cast<const LChar*>(characters), strlen(characters));
+    initialize(reinterpret_cast<const LChar*>(characters), characters ? strlen(characters) : 0);
 }
 
 inline StringView::StringView(const char* characters, unsigned length)
 {
     initialize(reinterpret_cast<const LChar*>(characters), length);
+}
+
+inline StringView::StringView(const void* characters, unsigned length, bool is8bit)
+    : m_characters(characters)
+    , m_length(length)
+    , m_is8Bit(is8bit)
+{
 }
 
 inline StringView::StringView(ASCIILiteral string)
@@ -410,11 +463,6 @@ inline void StringView::clear()
     m_is8Bit = true;
 }
 
-inline StringView StringView::empty()
-{
-    return StringView("", 0);
-}
-
 inline const LChar* StringView::characters8() const
 {
     ASSERT(is8Bit());
@@ -424,12 +472,29 @@ inline const LChar* StringView::characters8() const
 
 inline const UChar* StringView::characters16() const
 {
-    ASSERT(!is8Bit());
+    ASSERT(!is8Bit() || isEmpty());
     ASSERT(underlyingStringIsValid());
     return static_cast<const UChar*>(m_characters);
 }
 
-inline bool StringView::isAllASCII() const
+inline unsigned StringView::hash() const
+{
+    if (is8Bit())
+        return StringHasher::computeHashAndMaskTop8Bits(characters8(), length());
+    return StringHasher::computeHashAndMaskTop8Bits(characters16(), length());
+}
+
+template<> ALWAYS_INLINE const LChar* StringView::characters<LChar>() const
+{
+    return characters8();
+}
+
+template<> ALWAYS_INLINE const UChar* StringView::characters<UChar>() const
+{
+    return characters16();
+}
+
+inline bool StringView::containsOnlyASCII() const
 {
     if (is8Bit())
         return charactersAreAllASCII(characters8(), length());
@@ -439,7 +504,7 @@ inline bool StringView::isAllASCII() const
 class StringView::UpconvertedCharacters {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    explicit UpconvertedCharacters(const StringView&);
+    explicit UpconvertedCharacters(StringView);
     operator const UChar*() const { return m_characters; }
     const UChar* get() const { return m_characters; }
 private:
@@ -480,7 +545,7 @@ inline bool StringView::is8Bit() const
 inline StringView StringView::substring(unsigned start, unsigned length) const
 {
     if (start >= this->length())
-        return empty();
+        return emptyStringView();
     unsigned maxLength = this->length() - start;
 
     if (length >= maxLength) {
@@ -499,7 +564,15 @@ inline StringView StringView::substring(unsigned start, unsigned length) const
     return result;
 }
 
-inline UChar StringView::operator[](unsigned index) const
+inline UChar StringView::characterAt(unsigned index) const
+{
+    RELEASE_ASSERT(index < length());
+    if (is8Bit())
+        return characters8()[index];
+    return characters16()[index];
+}
+
+inline UChar StringView::unsafeCharacterAt(unsigned index) const
 {
     ASSERT(index < length());
     if (is8Bit())
@@ -507,39 +580,48 @@ inline UChar StringView::operator[](unsigned index) const
     return characters16()[index];
 }
 
+inline UChar StringView::operator[](unsigned index) const
+{
+    return characterAt(index);
+}
+
 inline bool StringView::contains(UChar character) const
 {
     return find(character) != notFound;
 }
 
-inline bool StringView::contains(CodeUnitMatchFunction function) const
+template<typename CodeUnitMatchFunction, std::enable_if_t<std::is_invocable_r_v<bool, CodeUnitMatchFunction, UChar>>*>
+inline bool StringView::contains(CodeUnitMatchFunction&& function) const
 {
-    return find(function) != notFound;
+    return find(std::forward<CodeUnitMatchFunction>(function)) != notFound;
 }
 
-template<bool isSpecialCharacter(UChar)> inline bool StringView::isAllSpecialCharacters() const
+template<bool isSpecialCharacter(UChar)> inline bool StringView::containsOnly() const
 {
     if (is8Bit())
-        return WTF::isAllSpecialCharacters<isSpecialCharacter>(characters8(), length());
-    return WTF::isAllSpecialCharacters<isSpecialCharacter>(characters16(), length());
+        return WTF::containsOnly<isSpecialCharacter>(characters8(), length());
+    return WTF::containsOnly<isSpecialCharacter>(characters16(), length());
 }
 
-inline void StringView::getCharactersWithUpconvert(LChar* destination) const
+template<typename CharacterType> inline void StringView::getCharacters8(CharacterType* destination) const
 {
-    ASSERT(is8Bit());
     StringImpl::copyCharacters(destination, characters8(), m_length);
 }
 
-inline void StringView::getCharactersWithUpconvert(UChar* destination) const
+template<typename CharacterType> inline void StringView::getCharacters16(CharacterType* destination) const
 {
-    if (is8Bit()) {
-        StringImpl::copyCharacters(destination, characters8(), m_length);
-        return;
-    }
     StringImpl::copyCharacters(destination, characters16(), m_length);
 }
 
-inline StringView::UpconvertedCharacters::UpconvertedCharacters(const StringView& string)
+template<typename CharacterType> inline void StringView::getCharacters(CharacterType* destination) const
+{
+    if (is8Bit())
+        getCharacters8(destination);
+    else
+        getCharacters16(destination);
+}
+
+inline StringView::UpconvertedCharacters::UpconvertedCharacters(StringView string)
 {
     if (!string.is8Bit()) {
         m_characters = string.characters16();
@@ -547,9 +629,8 @@ inline StringView::UpconvertedCharacters::UpconvertedCharacters(const StringView
     }
     const LChar* characters8 = string.characters8();
     unsigned length = string.m_length;
-    m_upconvertedCharacters.reserveInitialCapacity(length);
-    for (unsigned i = 0; i < length; ++i)
-        m_upconvertedCharacters.uncheckedAppend(characters8[i]);
+    m_upconvertedCharacters.grow(length);
+    StringImpl::copyCharacters(m_upconvertedCharacters.data(), characters8, length);
     m_characters = m_upconvertedCharacters.data();
 }
 
@@ -567,7 +648,7 @@ inline AtomString StringView::toAtomString() const
     return AtomString(characters16(), m_length);
 }
 
-inline RefPtr<AtomStringImpl> StringView::toExistingAtomString() const
+inline AtomString StringView::toExistingAtomString() const
 {
     if (is8Bit())
         return AtomStringImpl::lookUp(characters8(), m_length);
@@ -581,31 +662,11 @@ inline float StringView::toFloat(bool& isValid) const
     return charactersToFloat(characters16(), m_length, &isValid);
 }
 
-inline int StringView::toInt() const
-{
-    bool isValid;
-    return toInt(isValid);
-}
-
-inline int StringView::toInt(bool& isValid) const
+inline double StringView::toDouble(bool& isValid) const
 {
     if (is8Bit())
-        return charactersToInt(characters8(), m_length, &isValid);
-    return charactersToInt(characters16(), m_length, &isValid);
-}
-
-inline int StringView::toIntStrict(bool& isValid) const
-{
-    if (is8Bit())
-        return charactersToIntStrict(characters8(), m_length, &isValid);
-    return charactersToIntStrict(characters16(), m_length, &isValid);
-}
-
-inline Optional<uint64_t> StringView::toUInt64Strict() const
-{
-    bool isValid;
-    uint64_t result = is8Bit() ? charactersToUInt64Strict(characters8(), m_length, &isValid) : charactersToUInt64Strict(characters16(), m_length, &isValid);
-    return isValid ? makeOptional(result) : WTF::nullopt;
+        return charactersToDouble(characters8(), m_length, &isValid);
+    return charactersToDouble(characters16(), m_length, &isValid);
 }
 
 inline String StringView::toStringWithoutCopying() const
@@ -622,18 +683,26 @@ inline size_t StringView::find(UChar character, unsigned start) const
     return WTF::find(characters16(), m_length, character, start);
 }
 
-inline size_t StringView::find(CodeUnitMatchFunction matchFunction, unsigned start) const
+inline size_t StringView::find(LChar character, unsigned start) const
 {
     if (is8Bit())
-        return WTF::find(characters8(), m_length, matchFunction, start);
-    return WTF::find(characters16(), m_length, matchFunction, start);
+        return WTF::find(characters8(), m_length, character, start);
+    return WTF::find(characters16(), m_length, character, start);
 }
 
-inline size_t StringView::reverseFind(UChar character, unsigned index) const
+template<typename CodeUnitMatchFunction, std::enable_if_t<std::is_invocable_r_v<bool, CodeUnitMatchFunction, UChar>>*>
+inline size_t StringView::find(CodeUnitMatchFunction&& matchFunction, unsigned start) const
 {
     if (is8Bit())
-        return WTF::reverseFind(characters8(), m_length, character, index);
-    return WTF::reverseFind(characters16(), m_length, character, index);
+        return WTF::find(characters8(), m_length, std::forward<CodeUnitMatchFunction>(matchFunction), start);
+    return WTF::find(characters16(), m_length, std::forward<CodeUnitMatchFunction>(matchFunction), start);
+}
+
+inline size_t StringView::reverseFind(UChar character, unsigned start) const
+{
+    if (is8Bit())
+        return WTF::reverseFind(characters8(), m_length, character, start);
+    return WTF::reverseFind(characters16(), m_length, character, start);
 }
 
 #if !CHECK_STRINGVIEW_LIFETIME
@@ -653,7 +722,7 @@ public:
 
     unsigned length() { return m_string.length(); }
     bool is8Bit() { return m_string.is8Bit(); }
-    template<typename CharacterType> void writeTo(CharacterType* destination) { m_string.getCharactersWithUpconvert(destination); }
+    template<typename CharacterType> void writeTo(CharacterType* destination) { m_string.getCharacters(destination); }
 
 private:
     StringView m_string;
@@ -663,10 +732,20 @@ template<typename CharacterType, size_t inlineCapacity> void append(Vector<Chara
 {
     unsigned oldSize = buffer.size();
     buffer.grow(oldSize + string.length());
-    string.getCharactersWithUpconvert(buffer.data() + oldSize);
+    string.getCharacters(buffer.data() + oldSize);
 }
 
-inline bool equal(StringView a, StringView b)
+ALWAYS_INLINE bool equal(StringView a, StringView b, unsigned length)
+{
+    if (a.m_characters == b.m_characters) {
+        ASSERT(a.is8Bit() == b.is8Bit());
+        return true;
+    }
+
+    return equalCommon(a, b, length);
+}
+
+ALWAYS_INLINE bool equal(StringView a, StringView b)
 {
     if (a.m_characters == b.m_characters) {
         ASSERT(a.is8Bit() == b.is8Bit());
@@ -692,14 +771,19 @@ inline bool equal(StringView a, const LChar* b)
     return equal(a.characters16(), b, aLength);
 }
 
+ALWAYS_INLINE bool equal(StringView a, ASCIILiteral b)
+{
+    return equal(a, b.characters8());
+}
+
 inline bool equalIgnoringASCIICase(StringView a, StringView b)
 {
     return equalIgnoringASCIICaseCommon(a, b);
 }
 
-inline bool equalIgnoringASCIICase(StringView a, const char* b)
+inline bool equalIgnoringASCIICase(StringView a, ASCIILiteral b)
 {
-    return equalIgnoringASCIICaseCommon(a, b);
+    return equalIgnoringASCIICaseCommon(a, b.characters());
 }
 
 class StringView::SplitResult {
@@ -720,7 +804,7 @@ private:
 class StringView::GraphemeClusters {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    explicit GraphemeClusters(const StringView&);
+    explicit GraphemeClusters(StringView);
 
     class Iterator;
     Iterator begin() const;
@@ -733,7 +817,7 @@ private:
 class StringView::CodePoints {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    explicit CodePoints(const StringView&);
+    explicit CodePoints(StringView);
 
     class Iterator;
     Iterator begin() const;
@@ -746,7 +830,7 @@ private:
 class StringView::CodeUnits {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    explicit CodeUnits(const StringView&);
+    explicit CodeUnits(StringView);
 
     class Iterator;
     Iterator begin() const;
@@ -770,7 +854,6 @@ public:
     WTF_EXPORT_PRIVATE Iterator& operator++();
 
     bool operator==(const Iterator&) const;
-    bool operator!=(const Iterator&) const;
 
 private:
     enum PositionTag { AtEnd };
@@ -791,7 +874,7 @@ class StringView::GraphemeClusters::Iterator {
     WTF_MAKE_FAST_ALLOCATED;
 public:
     Iterator() = delete;
-    WTF_EXPORT_PRIVATE Iterator(const StringView&, unsigned index);
+    WTF_EXPORT_PRIVATE Iterator(StringView, unsigned index);
     WTF_EXPORT_PRIVATE ~Iterator();
 
     Iterator(const Iterator&) = delete;
@@ -803,7 +886,6 @@ public:
     WTF_EXPORT_PRIVATE Iterator& operator++();
 
     WTF_EXPORT_PRIVATE bool operator==(const Iterator&) const;
-    WTF_EXPORT_PRIVATE bool operator!=(const Iterator&) const;
 
 private:
     class Impl;
@@ -814,33 +896,34 @@ private:
 class StringView::CodePoints::Iterator {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    Iterator(const StringView&, unsigned index);
+    Iterator(StringView, unsigned index);
 
-    UChar32 operator*() const;
+    char32_t operator*() const;
     Iterator& operator++();
 
     bool operator==(const Iterator&) const;
-    bool operator!=(const Iterator&) const;
 
 private:
-    std::reference_wrapper<const StringView> m_stringView;
-    Optional<unsigned> m_nextCodePointOffset;
-    UChar32 m_codePoint;
+    const void* m_current;
+    const void* m_end;
+    bool m_is8Bit;
+#if CHECK_STRINGVIEW_LIFETIME
+    StringView m_stringView;
+#endif
 };
 
 class StringView::CodeUnits::Iterator {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    Iterator(const StringView&, unsigned index);
+    Iterator(StringView, unsigned index);
 
     UChar operator*() const;
     Iterator& operator++();
 
     bool operator==(const Iterator&) const;
-    bool operator!=(const Iterator&) const;
 
 private:
-    const StringView& m_stringView;
+    StringView m_stringView;
     unsigned m_index;
 };
 
@@ -859,7 +942,7 @@ inline auto StringView::codeUnits() const -> CodeUnits
     return CodeUnits(*this);
 }
 
-inline StringView::GraphemeClusters::GraphemeClusters(const StringView& stringView)
+inline StringView::GraphemeClusters::GraphemeClusters(StringView stringView)
     : m_stringView(stringView)
 {
 }
@@ -874,48 +957,67 @@ inline auto StringView::GraphemeClusters::end() const -> Iterator
     return Iterator(m_stringView, m_stringView.length());
 }
 
-inline StringView::CodePoints::CodePoints(const StringView& stringView)
+inline StringView::CodePoints::CodePoints(StringView stringView)
     : m_stringView(stringView)
 {
 }
 
-inline StringView::CodePoints::Iterator::Iterator(const StringView& stringView, unsigned index)
-    : m_stringView(stringView)
-    , m_nextCodePointOffset(index)
+inline StringView::CodePoints::Iterator::Iterator(StringView stringView, unsigned index)
+    : m_is8Bit(stringView.is8Bit())
+#if CHECK_STRINGVIEW_LIFETIME
+    , m_stringView(stringView)
+#endif
 {
-    operator++();
+    if (m_is8Bit) {
+        const LChar* begin = stringView.characters8();
+        m_current = begin + index;
+        m_end = begin + stringView.length();
+    } else {
+        const UChar* begin = stringView.characters16();
+        m_current = begin + index;
+        m_end = begin + stringView.length();
+    }
 }
 
 inline auto StringView::CodePoints::Iterator::operator++() -> Iterator&
 {
-    ASSERT(m_nextCodePointOffset);
-    if (m_nextCodePointOffset.value() == m_stringView.get().length()) {
-        m_nextCodePointOffset = WTF::nullopt;
-        return *this;
+#if CHECK_STRINGVIEW_LIFETIME
+    ASSERT(m_stringView.underlyingStringIsValid());
+#endif
+    ASSERT(m_current < m_end);
+    if (m_is8Bit)
+        m_current = static_cast<const LChar*>(m_current) + 1;
+    else {
+        unsigned i = 0;
+        size_t length = static_cast<const UChar*>(m_end) - static_cast<const UChar*>(m_current);
+        U16_FWD_1(static_cast<const UChar*>(m_current), i, length);
+        m_current = static_cast<const UChar*>(m_current) + i;
     }
-    if (m_stringView.get().is8Bit())
-        m_codePoint = m_stringView.get().characters8()[m_nextCodePointOffset.value()++];
-    else
-        U16_NEXT(m_stringView.get().characters16(), m_nextCodePointOffset.value(), m_stringView.get().length(), m_codePoint);
-    ASSERT(m_nextCodePointOffset.value() <= m_stringView.get().length());
     return *this;
 }
 
-inline UChar32 StringView::CodePoints::Iterator::operator*() const
+inline char32_t StringView::CodePoints::Iterator::operator*() const
 {
-    ASSERT(m_nextCodePointOffset);
-    return m_codePoint;
+#if CHECK_STRINGVIEW_LIFETIME
+    ASSERT(m_stringView.underlyingStringIsValid());
+#endif
+    ASSERT(m_current < m_end);
+    if (m_is8Bit)
+        return *static_cast<const LChar*>(m_current);
+    char32_t codePoint;
+    size_t length = static_cast<const UChar*>(m_end) - static_cast<const UChar*>(m_current);
+    U16_GET(static_cast<const UChar*>(m_current), 0, 0, length, codePoint);
+    return codePoint;
 }
 
 inline bool StringView::CodePoints::Iterator::operator==(const Iterator& other) const
 {
-    ASSERT(&m_stringView.get() == &other.m_stringView.get());
-    return m_nextCodePointOffset == other.m_nextCodePointOffset;
-}
-
-inline bool StringView::CodePoints::Iterator::operator!=(const Iterator& other) const
-{
-    return !(*this == other);
+#if CHECK_STRINGVIEW_LIFETIME
+    ASSERT(m_stringView.underlyingStringIsValid());
+#endif
+    ASSERT(m_is8Bit == other.m_is8Bit);
+    ASSERT(m_end == other.m_end);
+    return m_current == other.m_current;
 }
 
 inline auto StringView::CodePoints::begin() const -> Iterator
@@ -928,12 +1030,12 @@ inline auto StringView::CodePoints::end() const -> Iterator
     return Iterator(m_stringView, m_stringView.length());
 }
 
-inline StringView::CodeUnits::CodeUnits(const StringView& stringView)
+inline StringView::CodeUnits::CodeUnits(StringView stringView)
     : m_stringView(stringView)
 {
 }
 
-inline StringView::CodeUnits::Iterator::Iterator(const StringView& stringView, unsigned index)
+inline StringView::CodeUnits::Iterator::Iterator(StringView stringView, unsigned index)
     : m_stringView(stringView)
     , m_index(index)
 {
@@ -947,18 +1049,14 @@ inline auto StringView::CodeUnits::Iterator::operator++() -> Iterator&
 
 inline UChar StringView::CodeUnits::Iterator::operator*() const
 {
-    return m_stringView[m_index];
+    return m_stringView.unsafeCharacterAt(m_index);
 }
 
 inline bool StringView::CodeUnits::Iterator::operator==(const Iterator& other) const
 {
-    ASSERT(&m_stringView == &other.m_stringView);
+    ASSERT(m_stringView.m_characters == other.m_stringView.m_characters);
+    ASSERT(m_stringView.m_length == other.m_stringView.m_length);
     return m_index == other.m_index;
-}
-
-inline bool StringView::CodeUnits::Iterator::operator!=(const Iterator& other) const
-{
-    return !(*this == other);
 }
 
 inline auto StringView::CodeUnits::begin() const -> Iterator
@@ -1014,7 +1112,8 @@ inline StringView::SplitResult::Iterator::Iterator(const SplitResult& result, Po
 
 inline StringView StringView::SplitResult::Iterator::operator*() const
 {
-    ASSERT(m_position <= m_result.m_string.length() && !m_isDone);
+    ASSERT(m_position <= m_result.m_string.length());
+    ASSERT(!m_isDone);
     return m_result.m_string.substring(m_position, m_length);
 }
 
@@ -1024,13 +1123,8 @@ inline bool StringView::SplitResult::Iterator::operator==(const Iterator& other)
     return m_position == other.m_position && m_isDone == other.m_isDone;
 }
 
-inline bool StringView::SplitResult::Iterator::operator!=(const Iterator& other) const
-{
-    return !(*this == other);
-}
-
 template<typename CharacterType, typename MatchedCharacterPredicate>
-inline StringView StringView::stripLeadingAndTrailingMatchedCharacters(const CharacterType* characters, const MatchedCharacterPredicate& predicate)
+inline StringView StringView::trim(const CharacterType* characters, const MatchedCharacterPredicate& predicate) const
 {
     if (!m_length)
         return *this;
@@ -1042,7 +1136,7 @@ inline StringView StringView::stripLeadingAndTrailingMatchedCharacters(const Cha
         ++start;
 
     if (start > end)
-        return StringView::empty();
+        return emptyStringView();
 
     while (end && predicate(characters[end]))
         --end;
@@ -1056,21 +1150,21 @@ inline StringView StringView::stripLeadingAndTrailingMatchedCharacters(const Cha
 }
 
 template<typename MatchedCharacterPredicate>
-StringView StringView::stripLeadingAndTrailingMatchedCharacters(const MatchedCharacterPredicate& predicate)
+StringView StringView::trim(const MatchedCharacterPredicate& predicate) const
 {
     if (is8Bit())
-        return stripLeadingAndTrailingMatchedCharacters<LChar>(characters8(), predicate);
-    return stripLeadingAndTrailingMatchedCharacters<UChar>(characters16(), predicate);
+        return trim<LChar>(characters8(), predicate);
+    return trim<UChar>(characters16(), predicate);
 }
 
-template<unsigned length> inline bool equalLettersIgnoringASCIICase(StringView string, const char (&lowercaseLetters)[length])
+inline bool equalLettersIgnoringASCIICase(StringView string, ASCIILiteral literal)
 {
-    return equalLettersIgnoringASCIICaseCommon(string, lowercaseLetters);
+    return equalLettersIgnoringASCIICaseCommon(string, literal);
 }
 
-template<unsigned length> inline bool startsWithLettersIgnoringASCIICase(StringView string, const char (&lowercaseLetters)[length])
+inline bool startsWithLettersIgnoringASCIICase(StringView string, ASCIILiteral literal)
 {
-    return startsWithLettersIgnoringASCIICaseCommon(string, lowercaseLetters);
+    return startsWithLettersIgnoringASCIICaseCommon(string, literal);
 }
 
 inline bool equalIgnoringNullity(StringView a, StringView b)
@@ -1081,9 +1175,318 @@ inline bool equalIgnoringNullity(StringView a, StringView b)
 
 WTF_EXPORT_PRIVATE int codePointCompare(StringView, StringView);
 
+inline bool hasUnpairedSurrogate(StringView string)
+{
+    // Fast path for 8-bit strings; they can't have any surrogates.
+    if (string.is8Bit())
+        return false;
+    for (auto codePoint : string.codePoints()) {
+        if (U_IS_SURROGATE(codePoint))
+            return true;
+    }
+    return false;
+}
+
+inline size_t findCommon(StringView haystack, StringView needle, unsigned start)
+{
+    unsigned needleLength = needle.length();
+
+    if (needleLength == 1) {
+        UChar firstCharacter = needle.unsafeCharacterAt(0);
+        if (haystack.is8Bit())
+            return WTF::find(haystack.characters8(), haystack.length(), firstCharacter, start);
+        return WTF::find(haystack.characters16(), haystack.length(), firstCharacter, start);
+    }
+
+    if (start > haystack.length())
+        return notFound;
+
+    if (!needleLength)
+        return start;
+
+    unsigned searchLength = haystack.length() - start;
+    if (needleLength > searchLength)
+        return notFound;
+
+    if (haystack.is8Bit()) {
+        if (needle.is8Bit())
+            return findInner(haystack.characters8() + start, needle.characters8(), start, searchLength, needleLength);
+        return findInner(haystack.characters8() + start, needle.characters16(), start, searchLength, needleLength);
+    }
+
+    if (needle.is8Bit())
+        return findInner(haystack.characters16() + start, needle.characters8(), start, searchLength, needleLength);
+
+    return findInner(haystack.characters16() + start, needle.characters16(), start, searchLength, needleLength);
+}
+
+inline size_t findIgnoringASCIICase(StringView source, StringView stringToFind, unsigned start)
+{
+    unsigned sourceStringLength = source.length();
+    unsigned matchLength = stringToFind.length();
+    if (!matchLength)
+        return std::min(start, sourceStringLength);
+
+    // Check start & matchLength are in range.
+    if (start > sourceStringLength)
+        return notFound;
+    unsigned searchLength = sourceStringLength - start;
+    if (matchLength > searchLength)
+        return notFound;
+
+    if (source.is8Bit()) {
+        if (stringToFind.is8Bit())
+            return findIgnoringASCIICase(source.characters8(), stringToFind.characters8(), start, searchLength, matchLength);
+        return findIgnoringASCIICase(source.characters8(), stringToFind.characters16(), start, searchLength, matchLength);
+    }
+
+    if (stringToFind.is8Bit())
+        return findIgnoringASCIICase(source.characters16(), stringToFind.characters8(), start, searchLength, matchLength);
+
+    return findIgnoringASCIICase(source.characters16(), stringToFind.characters16(), start, searchLength, matchLength);
+}
+
+inline bool startsWith(StringView reference, StringView prefix)
+{
+    unsigned prefixLength = prefix.length();
+    if (prefixLength > reference.length())
+        return false;
+
+    if (reference.is8Bit()) {
+        if (prefix.is8Bit())
+            return equal(reference.characters8(), prefix.characters8(), prefixLength);
+        return equal(reference.characters8(), prefix.characters16(), prefixLength);
+    }
+    if (prefix.is8Bit())
+        return equal(reference.characters16(), prefix.characters8(), prefixLength);
+    return equal(reference.characters16(), prefix.characters16(), prefixLength);
+}
+
+inline bool startsWithIgnoringASCIICase(StringView reference, StringView prefix)
+{
+    unsigned prefixLength = prefix.length();
+    if (prefixLength > reference.length())
+        return false;
+
+    if (reference.is8Bit()) {
+        if (prefix.is8Bit())
+            return equalIgnoringASCIICase(reference.characters8(), prefix.characters8(), prefixLength);
+        return equalIgnoringASCIICase(reference.characters8(), prefix.characters16(), prefixLength);
+    }
+    if (prefix.is8Bit())
+        return equalIgnoringASCIICase(reference.characters16(), prefix.characters8(), prefixLength);
+    return equalIgnoringASCIICase(reference.characters16(), prefix.characters16(), prefixLength);
+}
+
+inline bool endsWith(StringView reference, StringView suffix)
+{
+    unsigned suffixLength = suffix.length();
+    unsigned referenceLength = reference.length();
+    if (suffixLength > referenceLength)
+        return false;
+
+    unsigned startOffset = referenceLength - suffixLength;
+
+    if (reference.is8Bit()) {
+        if (suffix.is8Bit())
+            return equal(reference.characters8() + startOffset, suffix.characters8(), suffixLength);
+        return equal(reference.characters8() + startOffset, suffix.characters16(), suffixLength);
+    }
+    if (suffix.is8Bit())
+        return equal(reference.characters16() + startOffset, suffix.characters8(), suffixLength);
+    return equal(reference.characters16() + startOffset, suffix.characters16(), suffixLength);
+}
+
+inline bool endsWithIgnoringASCIICase(StringView reference, StringView suffix)
+{
+    unsigned suffixLength = suffix.length();
+    unsigned referenceLength = reference.length();
+    if (suffixLength > referenceLength)
+        return false;
+
+    unsigned startOffset = referenceLength - suffixLength;
+
+    if (reference.is8Bit()) {
+        if (suffix.is8Bit())
+            return equalIgnoringASCIICase(reference.characters8() + startOffset, suffix.characters8(), suffixLength);
+        return equalIgnoringASCIICase(reference.characters8() + startOffset, suffix.characters16(), suffixLength);
+    }
+    if (suffix.is8Bit())
+        return equalIgnoringASCIICase(reference.characters16() + startOffset, suffix.characters8(), suffixLength);
+    return equalIgnoringASCIICase(reference.characters16() + startOffset, suffix.characters16(), suffixLength);
+}
+
+inline size_t String::find(StringView string) const
+{
+    return m_impl ? m_impl->find(string) : notFound;
+}
+inline size_t String::find(StringView string, unsigned start) const
+{
+    return m_impl ? m_impl->find(string, start) : notFound;
+}
+
+inline size_t String::findIgnoringASCIICase(StringView string) const
+{
+    return m_impl ? m_impl->findIgnoringASCIICase(string) : notFound;
+}
+
+inline size_t String::findIgnoringASCIICase(StringView string, unsigned start) const
+{
+    return m_impl ? m_impl->findIgnoringASCIICase(string, start) : notFound;
+}
+
+inline size_t String::reverseFind(StringView string, unsigned start) const
+{
+    return m_impl ? m_impl->reverseFind(string, start) : notFound;
+}
+
+inline bool String::contains(StringView string) const
+{
+    return find(string) != notFound;
+}
+
+inline bool String::containsIgnoringASCIICase(StringView string) const
+{
+    return findIgnoringASCIICase(string) != notFound;
+}
+
+inline bool String::containsIgnoringASCIICase(StringView string, unsigned start) const
+{
+    return findIgnoringASCIICase(string, start) != notFound;
+}
+
+inline String WARN_UNUSED_RETURN makeStringByReplacingAll(const String& string, StringView target, StringView replacement)
+{
+    if (auto* impl = string.impl())
+        return String { impl->replace(target, replacement) };
+    return string;
+}
+
+inline String WARN_UNUSED_RETURN makeStringByReplacing(const String& string, unsigned start, unsigned length, StringView replacement)
+{
+    if (auto* impl = string.impl())
+        return String { impl->replace(start, length, replacement) };
+    return string;
+}
+
+inline String WARN_UNUSED_RETURN makeStringByReplacingAll(const String& string, UChar target, StringView replacement)
+{
+    if (auto* impl = string.impl())
+        return String { impl->replace(target, replacement) };
+    return string;
+}
+
+WTF_EXPORT_PRIVATE String WARN_UNUSED_RETURN makeStringByReplacingAll(StringView, UChar target, UChar replacement);
+WTF_EXPORT_PRIVATE String WARN_UNUSED_RETURN makeStringBySimplifyingNewLinesSlowCase(const String&, unsigned firstCarriageReturnOffset);
+
+inline String WARN_UNUSED_RETURN makeStringBySimplifyingNewLines(const String& string)
+{
+    auto firstCarriageReturn = string.find('\r');
+    if (firstCarriageReturn == notFound)
+        return string;
+    return makeStringBySimplifyingNewLinesSlowCase(string, firstCarriageReturn);
+}
+
+inline bool String::startsWith(StringView string) const
+{
+    return m_impl ? m_impl->startsWith(string) : string.isEmpty();
+}
+
+inline bool String::startsWithIgnoringASCIICase(StringView string) const
+{
+    return m_impl ? m_impl->startsWithIgnoringASCIICase(string) : string.isEmpty();
+}
+
+inline bool String::endsWith(StringView string) const
+{
+    return m_impl ? m_impl->endsWith(string) : string.isEmpty();
+}
+
+inline bool String::endsWithIgnoringASCIICase(StringView string) const
+{
+    return m_impl ? m_impl->endsWithIgnoringASCIICase(string) : string.isEmpty();
+}
+
+inline bool String::hasInfixStartingAt(StringView prefix, unsigned start) const
+{
+    return m_impl && prefix && m_impl->hasInfixStartingAt(prefix, start);
+}
+
+inline bool String::hasInfixEndingAt(StringView suffix, unsigned end) const
+{
+    return m_impl && suffix && m_impl->hasInfixEndingAt(suffix, end);
+}
+
+inline size_t AtomString::find(StringView string, unsigned start) const
+{
+    return m_string.find(string, start);
+}
+
+inline size_t AtomString::findIgnoringASCIICase(StringView string) const
+{
+    return m_string.findIgnoringASCIICase(string);
+}
+
+inline size_t AtomString::findIgnoringASCIICase(StringView string, unsigned start) const
+{
+    return m_string.findIgnoringASCIICase(string, start);
+}
+
+inline bool AtomString::contains(StringView string) const
+{
+    return m_string.contains(string);
+}
+
+inline bool AtomString::containsIgnoringASCIICase(StringView string) const
+{
+    return m_string.containsIgnoringASCIICase(string);
+}
+
+inline bool AtomString::startsWith(StringView string) const
+{
+    return m_string.startsWith(string);
+}
+
+inline bool AtomString::startsWithIgnoringASCIICase(StringView string) const
+{
+    return m_string.startsWithIgnoringASCIICase(string);
+}
+
+inline bool AtomString::endsWith(StringView string) const
+{
+    return m_string.endsWith(string);
+}
+
+inline bool AtomString::endsWithIgnoringASCIICase(StringView string) const
+{
+    return m_string.endsWithIgnoringASCIICase(string);
+}
+
+template<typename Func>
+inline Expected<std::invoke_result_t<Func, std::span<const char>>, UTF8ConversionError> StringView::tryGetUTF8(const Func& function, ConversionMode mode) const
+{
+    if (is8Bit())
+        return StringImpl::tryGetUTF8ForCharacters(function, characters8(), length());
+    return StringImpl::tryGetUTF8ForCharacters(function, characters16(), length(), mode);
+}
+
+template<> struct VectorTraits<StringView> : VectorTraitsBase<false, void> {
+    static constexpr bool canMoveWithMemcpy = true;
+    static constexpr bool canCopyWithMemcpy = true;
+};
+
+template<> struct VectorTraits<StringViewWithUnderlyingString> : VectorTraitsBase<false, void> {
+    static constexpr bool canMoveWithMemcpy = true;
+};
+
 } // namespace WTF
 
 using WTF::append;
 using WTF::equal;
+using WTF::makeStringByReplacing;
+using WTF::makeStringBySimplifyingNewLines;
 using WTF::StringView;
 using WTF::StringViewWithUnderlyingString;
+using WTF::hasUnpairedSurrogate;
+using WTF::nullStringView;
+using WTF::emptyStringView;

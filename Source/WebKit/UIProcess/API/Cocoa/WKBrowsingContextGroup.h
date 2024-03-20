@@ -28,38 +28,4 @@
 #import <Foundation/Foundation.h>
 #import <WebKit/WKUserScriptInjectionTime.h>
 
-WK_CLASS_DEPRECATED_WITH_REPLACEMENT("WKUserContentController and WKPreferences", macos(10.10, 10.14.4), ios(8.0, 12.2))
-@interface WKBrowsingContextGroup : NSObject
-
-- (id)initWithIdentifier:(NSString *)identifier;
-
-/* User Content */
-
-- (void)addUserStyleSheet:(NSString *)source baseURL:(NSURL *)baseURL whitelistedURLPatterns:(NSArray *)whitelist blacklistedURLPatterns:(NSArray *)blacklist mainFrameOnly:(BOOL)mainFrameOnly WK_API_DEPRECATED_WITH_REPLACEMENT("addUserStyleSheet:baseURL:includeMatchPatternStrings:excludeMatchPatternStrings:mainFrameOnly:", macos(10.10, WK_MAC_TBA), ios(8.0, WK_IOS_TBA));
-- (void)addUserStyleSheet:(NSString *)source baseURL:(NSURL *)baseURL includeMatchPatternStrings:(NSArray<NSString *> *)includeMatchPatternStrings excludeMatchPatternStrings:(NSArray<NSString *> *)excludeMatchPatternStrings mainFrameOnly:(BOOL)mainFrameOnly;
-
-- (void)removeAllUserStyleSheets;
-
-- (void)addUserScript:(NSString *)source baseURL:(NSURL *)baseURL whitelistedURLPatterns:(NSArray *)whitelist blacklistedURLPatterns:(NSArray *)blacklist injectionTime:(_WKUserScriptInjectionTime)injectionTime mainFrameOnly:(BOOL)mainFrameOnly WK_API_DEPRECATED_WITH_REPLACEMENT("addUserScript:baseURL:includeMatchPatternStrings:excludeMatchPatternStrings:injectionTime:mainFrameOnly:", macos(10.10, WK_MAC_TBA), ios(8.0, WK_IOS_TBA));
-- (void)addUserScript:(NSString *)source baseURL:(NSURL *)baseURL includeMatchPatternStrings:(NSArray<NSString *> *)includeMatchPatternStrings excludeMatchPatternStrings:(NSArray<NSString *> *)excludeMatchPatternStrings injectionTime:(_WKUserScriptInjectionTime)injectionTime mainFrameOnly:(BOOL)mainFrameOnly;
-- (void)removeAllUserScripts;
-
-
-/* Settings */
-
-/* Setting to control whether JavaScript is enabled.
-   Default: YES
-*/
-@property BOOL allowsJavaScript;
-
-/* Setting to control whether plug-ins are enabled.
-   Default: YES
-*/
-@property BOOL allowsPlugIns;
-
-/* Setting to control whether private browsing is enabled.
- Default: NO
- */
-@property BOOL privateBrowsingEnabled;
-
-@end
+// FIXME: Remove this header once rdar://112426343 is resolved.

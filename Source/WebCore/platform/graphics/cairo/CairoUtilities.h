@@ -28,15 +28,14 @@
 
 #if USE(CAIRO)
 
+#include "CairoUniquePtr.h"
 #include "GraphicsTypes.h"
 #include "IntSize.h"
 #include <cairo.h>
 
-// This function was added pretty much simultaneous to when 1.13 was branched.
-#define HAVE_CAIRO_SURFACE_SET_DEVICE_SCALE CAIRO_VERSION_MAJOR > 1 || (CAIRO_VERSION_MAJOR == 1 && CAIRO_VERSION_MINOR >= 13)
-
 #if USE(FREETYPE)
 #include <cairo-ft.h>
+#include <wtf/RecursiveLockAdapter.h>
 #endif
 
 namespace WebCore {
@@ -50,18 +49,22 @@ class Path;
 class Region;
 
 #if USE(FREETYPE)
+RecursiveLock& cairoFontLock();
+
 class CairoFtFaceLocker {
 public:
-    CairoFtFaceLocker(cairo_scaled_font_t* scaledFont)
+    explicit CairoFtFaceLocker(cairo_scaled_font_t* scaledFont)
         : m_scaledFont(scaledFont)
-        , m_ftFace(cairo_ft_scaled_font_lock_face(scaledFont))
     {
+        cairoFontLock().lock();
+        m_ftFace = cairo_ft_scaled_font_lock_face(m_scaledFont);
     }
 
     ~CairoFtFaceLocker()
     {
         if (m_ftFace)
             cairo_ft_scaled_font_unlock_face(m_scaledFont);
+        cairoFontLock().unlock();
     }
 
     FT_Face ftFace() const { return m_ftFace; }
@@ -72,9 +75,12 @@ private:
 };
 #endif
 
-#if USE(CAIRO)
 const cairo_font_options_t* getDefaultCairoFontOptions();
-#endif
+
+void setDefaultCairoHintOptions(cairo_hint_metrics_t, cairo_hint_style_t);
+void setDefaultCairoAntialiasOptions(cairo_antialias_t, cairo_subpixel_order_t);
+
+void disableCairoFontHintingForTesting();
 
 void copyContextProperties(cairo_t* srcCr, cairo_t* dstCr);
 void setSourceRGBAFromColor(cairo_t*, const Color&);
@@ -84,20 +90,21 @@ void appendWebCorePathToCairoContext(cairo_t* context, const Path& path);
 void appendRegionToCairoContext(cairo_t*, const cairo_region_t*);
 cairo_operator_t toCairoOperator(CompositeOperator, BlendMode = BlendMode::Normal);
 void drawPatternToCairoContext(cairo_t* cr, cairo_surface_t* image, const IntSize& imageSize, const FloatRect& tileRect,
-    const AffineTransform& patternTransform, const FloatPoint& phase, cairo_operator_t, InterpolationQuality, const FloatRect& destRect);
+    const AffineTransform& patternTransform, const FloatPoint& phase, const FloatSize& spacing, cairo_operator_t, InterpolationQuality, const FloatRect& destRect);
 RefPtr<cairo_surface_t> copyCairoImageSurface(cairo_surface_t*);
 
 void copyRectFromCairoSurfaceToContext(cairo_surface_t* from, cairo_t* to, const IntSize& offset, const IntRect&);
-void copyRectFromOneSurfaceToAnother(cairo_surface_t* from, cairo_surface_t* to, const IntSize& offset, const IntRect&, const IntSize& = IntSize());
+WEBCORE_EXPORT void copyRectFromOneSurfaceToAnother(cairo_surface_t* from, cairo_surface_t* to, const IntSize& offset, const IntRect&, const IntSize& = IntSize());
 
 IntSize cairoSurfaceSize(cairo_surface_t*);
 void flipImageSurfaceVertically(cairo_surface_t*);
-void cairoSurfaceSetDeviceScale(cairo_surface_t*, double xScale, double yScale);
-void cairoSurfaceGetDeviceScale(cairo_surface_t*, double& xScale, double& yScale);
 
 RefPtr<cairo_region_t> toCairoRegion(const Region&);
 
 cairo_matrix_t toCairoMatrix(const AffineTransform&);
+
+void attachSurfaceUniqueID(cairo_surface_t*);
+uintptr_t getSurfaceUniqueID(cairo_surface_t*);
 
 } // namespace WebCore
 

@@ -28,34 +28,29 @@
 #if USE(CG)
 
 #include "ImageBufferBackend.h"
+#include <memory>
+#include <wtf/Forward.h>
 
 namespace WebCore {
 
+class GraphicsContextCG;
+
 class WEBCORE_EXPORT ImageBufferCGBackend : public ImageBufferBackend {
 public:
-    RefPtr<Image> copyImage(BackingStoreCopy = CopyBackingStore, PreserveResolution = PreserveResolution::No) const override;
-    RefPtr<Image> sinkIntoImage(PreserveResolution) override;
-
-    void draw(GraphicsContext&, const FloatRect& destRect, const FloatRect& srcRect, const ImagePaintingOptions&) override;
-    void drawPattern(GraphicsContext&, const FloatRect& destRect, const FloatRect& srcRect, const AffineTransform& patternTransform, const FloatPoint& phase, const FloatSize& spacing, const ImagePaintingOptions&) override;
-
-    AffineTransform baseTransform() const override;
-
-    String toDataURL(const String& mimeType, Optional<double> quality, PreserveResolution) const override;
-    Vector<uint8_t> toData(const String& mimeType, Optional<double> quality) const override;
+    ~ImageBufferCGBackend() override;
+    static unsigned calculateBytesPerRow(const IntSize& backendSize);
+    static constexpr bool isOriginAtBottomLeftCorner = true;
 
 protected:
     using ImageBufferBackend::ImageBufferBackend;
+    void applyBaseTransform(GraphicsContextCG&) const;
 
-    static RetainPtr<CGColorSpaceRef> contextColorSpace(const GraphicsContext&);
-    void setupContext();
-    virtual RetainPtr<CFDataRef> toCFData(const String& mimeType, Optional<double> quality, PreserveResolution) const;
+    std::unique_ptr<ThreadSafeImageBufferFlusher> createFlusher() override;
 
-#if USE(ACCELERATE)
-    void copyImagePixels(
-        AlphaPremultiplication srcAlphaFormat, ColorFormat srcColorFormat, unsigned srcBytesPerRow, uint8_t* srcRows,
-        AlphaPremultiplication destAlphaFormat, ColorFormat destColorFormat, unsigned destBytesPerRow, uint8_t* destRows, const IntSize&) const override;
-#endif
+    String debugDescription() const override;
+
+    bool originAtBottomLeftCorner() const override;
+    mutable std::unique_ptr<GraphicsContextCG> m_context;
 };
 
 } // namespace WebCore

@@ -27,7 +27,7 @@
 
 namespace WebCore {
 
-enum class HdrMetadataType {
+enum class HdrMetadataType : uint8_t {
     SmpteSt2086,
     SmpteSt209410,
     SmpteSt209440

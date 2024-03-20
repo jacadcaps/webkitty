@@ -29,20 +29,19 @@
 
 #include "CompositingRunLoop.h"
 #include "CoordinatedGraphicsScene.h"
-#include "ThreadedDisplayRefreshMonitor.h"
-#include <WebCore/CoordinatedGraphicsState.h>
+#include <WebCore/DisplayUpdate.h>
 #include <WebCore/GLContext.h>
 #include <WebCore/IntSize.h>
-#include <WebCore/TextureMapper.h>
 #include <wtf/Atomics.h>
 #include <wtf/FastMalloc.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/ThreadSafeRefCounted.h>
 
-namespace WebKit {
+#if !HAVE(DISPLAY_LINK)
+#include "ThreadedDisplayRefreshMonitor.h"
+#endif
 
-class CoordinatedGraphicsScene;
-class CoordinatedGraphicsSceneClient;
+namespace WebKit {
 
 class ThreadedCompositor : public CoordinatedGraphicsSceneClient, public ThreadSafeRefCounted<ThreadedCompositor> {
     WTF_MAKE_NONCOPYABLE(ThreadedCompositor);
@@ -51,36 +50,51 @@ public:
     class Client {
     public:
         virtual uint64_t nativeSurfaceHandleForCompositing() = 0;
+        virtual void didCreateGLContext() = 0;
+        virtual void willDestroyGLContext() = 0;
         virtual void didDestroyGLContext() = 0;
 
         virtual void resize(const WebCore::IntSize&) = 0;
         virtual void willRenderFrame() = 0;
         virtual void didRenderFrame() = 0;
+        virtual void displayDidRefresh(WebCore::PlatformDisplayID) = 0;
     };
 
-    static Ref<ThreadedCompositor> create(Client&, ThreadedDisplayRefreshMonitor::Client&, WebCore::PlatformDisplayID, const WebCore::IntSize&, float scaleFactor, WebCore::TextureMapper::PaintFlags);
+#if HAVE(DISPLAY_LINK)
+    static Ref<ThreadedCompositor> create(Client&, WebCore::PlatformDisplayID, const WebCore::IntSize&, float scaleFactor, bool flipY);
+#else
+    static Ref<ThreadedCompositor> create(Client&, ThreadedDisplayRefreshMonitor::Client&, WebCore::PlatformDisplayID, const WebCore::IntSize&, float scaleFactor, bool flipY);
+#endif
     virtual ~ThreadedCompositor();
 
-    void setScaleFactor(float);
     void setScrollPosition(const WebCore::IntPoint&, float scale);
     void setViewportSize(const WebCore::IntSize&, float scale);
 
-    void updateSceneState(const WebCore::CoordinatedGraphicsState&);
+    void updateSceneState(const RefPtr<Nicosia::Scene>&);
     void updateScene();
+    void updateSceneWithoutRendering();
 
     void invalidate();
 
     void forceRepaint();
 
-    RefPtr<WebCore::DisplayRefreshMonitor> displayRefreshMonitor(WebCore::PlatformDisplayID);
+#if !HAVE(DISPLAY_LINK)
+    WebCore::DisplayRefreshMonitor& displayRefreshMonitor() const;
+#endif
 
     void frameComplete();
 
     void suspend();
     void resume();
 
+    RunLoop& compositingRunLoop() const { return m_compositingRunLoop->runLoop(); }
+
 private:
-    ThreadedCompositor(Client&, ThreadedDisplayRefreshMonitor::Client&, WebCore::PlatformDisplayID, const WebCore::IntSize&, float scaleFactor, WebCore::TextureMapper::PaintFlags);
+#if HAVE(DISPLAY_LINK)
+    ThreadedCompositor(Client&, WebCore::PlatformDisplayID, const WebCore::IntSize&, float scaleFactor, bool flipY);
+#else
+    ThreadedCompositor(Client&, ThreadedDisplayRefreshMonitor::Client&, WebCore::PlatformDisplayID, const WebCore::IntSize&, float scaleFactor, bool flipY);
+#endif
 
     // CoordinatedGraphicsSceneClient
     void updateViewport() override;
@@ -90,12 +104,16 @@ private:
 
     void createGLContext();
 
+#if !HAVE(DISPLAY_LINK)
+    void displayUpdateFired();
+#endif
+
     Client& m_client;
     RefPtr<CoordinatedGraphicsScene> m_scene;
     std::unique_ptr<WebCore::GLContext> m_context;
 
-    uint64_t m_nativeSurfaceHandle;
-    WebCore::TextureMapper::PaintFlags m_paintFlags { 0 };
+    uintptr_t m_nativeSurfaceHandle;
+    bool m_flipY { false };
     unsigned m_suspendedCount { 0 };
 
     std::unique_ptr<CompositingRunLoop> m_compositingRunLoop;
@@ -106,12 +124,20 @@ private:
         WebCore::IntPoint scrollPosition;
         float scaleFactor { 1 };
         bool needsResize { false };
-        Vector<WebCore::CoordinatedGraphicsState> states;
+        Vector<RefPtr<Nicosia::Scene>> states;
 
         bool clientRendersNextFrame { false };
     } m_attributes;
 
+#if !HAVE(DISPLAY_LINK)
+    struct {
+        WebCore::PlatformDisplayID displayID;
+        WebCore::DisplayUpdate displayUpdate;
+        std::unique_ptr<RunLoop::Timer> updateTimer;
+    } m_display;
+
     Ref<ThreadedDisplayRefreshMonitor> m_displayRefreshMonitor;
+#endif
 };
 
 } // namespace WebKit

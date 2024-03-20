@@ -28,51 +28,79 @@
 #if ENABLE(GPU_PROCESS) && ENABLE(WEB_AUDIO)
 
 #include "Connection.h"
-#include "RemoteAudioBusData.h"
+#include "GPUProcessConnection.h"
+#include "IPCSemaphore.h"
 #include "RemoteAudioDestinationIdentifier.h"
-#include "WebProcessSupplement.h"
-#include <WebCore/AudioDestination.h>
+#include <WebCore/AudioDestinationResampler.h>
 #include <WebCore/AudioIOCallback.h>
+#include <wtf/CrossThreadQueue.h>
+#include <wtf/MediaTime.h>
+#include <wtf/Threading.h>
 
 #if PLATFORM(COCOA)
-#include <WebCore/CARingBuffer.h>
+#include "SharedCARingBuffer.h"
+#endif
+
+#if PLATFORM(COCOA)
+namespace WebCore {
+class WebAudioBufferList;
+}
 #endif
 
 namespace WebKit {
 
-class RemoteAudioDestinationProxy : public WebCore::AudioDestination, private IPC::MessageReceiver {
-    WTF_MAKE_FAST_ALLOCATED;
+class RemoteAudioDestinationProxy final : public WebCore::AudioDestinationResampler, public GPUProcessConnection::Client, public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<RemoteAudioDestinationProxy> {
     WTF_MAKE_NONCOPYABLE(RemoteAudioDestinationProxy);
 public:
-    using AudioBus = WebCore::AudioBus;
     using AudioIOCallback = WebCore::AudioIOCallback;
 
-    static std::unique_ptr<AudioDestination> create(AudioIOCallback&, const String& inputDeviceId, unsigned numberOfInputChannels, unsigned numberOfOutputChannels, float sampleRate);
+    static Ref<RemoteAudioDestinationProxy> create(AudioIOCallback&, const String& inputDeviceId, unsigned numberOfInputChannels, unsigned numberOfOutputChannels, float sampleRate);
 
     RemoteAudioDestinationProxy(AudioIOCallback&, const String& inputDeviceId, unsigned numberOfInputChannels, unsigned numberOfOutputChannels, float sampleRate);
     ~RemoteAudioDestinationProxy();
 
-    void didReceiveMessageFromGPUProcess(IPC::Connection& connection, IPC::Decoder& decoder) { didReceiveMessage(connection, decoder); }
-
-    void renderBuffer(const WebKit::RemoteAudioBusData&, CompletionHandler<void()>&&);
-    void didChangeIsPlaying(bool isPlaying);
+    void ref() const final { return ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<RemoteAudioDestinationProxy>::ref(); }
+    void deref() const final { return ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<RemoteAudioDestinationProxy>::deref(); }
+    ThreadSafeWeakPtrControlBlock& controlBlock() const final { return ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<RemoteAudioDestinationProxy>::controlBlock(); }
 
 private:
-    // WebCore::AudioDestination
-    void start() override;
-    void stop() override;
-    bool isPlaying() override { return m_isPlaying; }
-    float sampleRate() const override { return m_sampleRate; }
-    unsigned framesPerBuffer() const override { return m_framesPerBuffer; }
+    void startRendering(CompletionHandler<void(bool)>&&) final;
+    void stopRendering(CompletionHandler<void(bool)>&&) final;
 
-    // IPC::MessageReceiver
-    void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
+    void startRenderingThread();
+    void stopRenderingThread();
+    void renderAudio(unsigned frameCount);
 
-    AudioIOCallback& m_callback;
-    float m_sampleRate { 0. };
-    unsigned m_framesPerBuffer { 0 };
-    RemoteAudioDestinationIdentifier m_destinationID;
-    bool m_isPlaying { false };
+    IPC::Connection* connection();
+    IPC::Connection* existingConnection();
+
+    // GPUProcessConnection::Client.
+    void gpuProcessConnectionDidClose(GPUProcessConnection&) final;
+
+    uint32_t totalFrameCount() const;
+
+    RemoteAudioDestinationIdentifier m_destinationID; // Call destinationID() getter to make sure the destinationID is valid.
+
+    static uint8_t s_realtimeThreadCount;
+    static constexpr uint8_t s_maximumConcurrentRealtimeThreads { 3 };
+
+    ThreadSafeWeakPtr<GPUProcessConnection> m_gpuProcessConnection;
+#if PLATFORM(COCOA)
+    std::unique_ptr<ProducerSharedCARingBuffer> m_ringBuffer;
+    std::unique_ptr<WebCore::WebAudioBufferList> m_audioBufferList;
+    uint64_t m_currentFrame { 0 };
+#endif
+    IPC::Semaphore m_renderSemaphore;
+
+    String m_inputDeviceId;
+    unsigned m_numberOfInputChannels;
+    float m_remoteSampleRate;
+
+    RefPtr<Thread> m_renderThread;
+    RefPtr<WebCore::SharedMemory> m_frameCount;
+    uint32_t m_lastFrameCount { 0 };
+    std::atomic<bool> m_shouldStopThread { false };
+    bool m_isRealtimeThread { false };
 };
 
 } // namespace WebKit

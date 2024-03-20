@@ -45,7 +45,7 @@ ScopedEventQueue& ScopedEventQueue::singleton()
 
 void ScopedEventQueue::enqueueEvent(Ref<Event>&& event)
 {
-    ASSERT(is<Node>(event->target()));
+    ASSERT(event->target());
     auto& target = downcast<Node>(*event->target());
     ScopedEvent scopedEvent = { WTFMove(event), target };
     if (m_scopingLevel)
@@ -56,7 +56,9 @@ void ScopedEventQueue::enqueueEvent(Ref<Event>&& event)
 
 void ScopedEventQueue::dispatchEvent(const ScopedEvent& event) const
 {
-    event.target->dispatchEvent(event.event);
+    if (event.event->eventInterface() == MutationEventInterfaceType && event.target->isInShadowTree())
+        return;
+    Ref { event.target.get() }->dispatchEvent(event.event);
 }
 
 void ScopedEventQueue::dispatchAllEvents()
@@ -64,11 +66,6 @@ void ScopedEventQueue::dispatchAllEvents()
     auto queuedEvents = std::exchange(m_queuedEvents, { });
     for (auto& queuedEvent : queuedEvents)
         dispatchEvent(queuedEvent);
-}
-
-void ScopedEventQueue::incrementScopingLevel()
-{
-    ++m_scopingLevel;
 }
 
 void ScopedEventQueue::decrementScopingLevel()

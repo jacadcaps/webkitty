@@ -24,95 +24,97 @@
 
 #pragma once
 
-#if ENABLE(VIDEO) && USE(GSTREAMER) && ENABLE(MEDIA_SOURCE) 
+#if ENABLE(VIDEO) && USE(GSTREAMER) && ENABLE(MEDIA_SOURCE)
 
 #include "GStreamerCommon.h"
 #include "MediaPlayerPrivateGStreamer.h"
 #include "MediaSample.h"
 #include "MediaSourcePrivateGStreamer.h"
-#include "WebKitMediaSourceGStreamer.h"
+
+struct WebKitMediaSrc;
 
 namespace WebCore {
 
 class AppendPipeline;
-class PlaybackPipeline;
+class TrackQueue;
+class MediaSourceTrackGStreamer;
 
 class MediaPlayerPrivateGStreamerMSE : public MediaPlayerPrivateGStreamer {
-    WTF_MAKE_NONCOPYABLE(MediaPlayerPrivateGStreamerMSE); WTF_MAKE_FAST_ALLOCATED;
 
 public:
-    explicit MediaPlayerPrivateGStreamerMSE(MediaPlayer*);
+    Ref<MediaPlayerPrivateGStreamerMSE> create(MediaPlayer* player) { return adoptRef(*new MediaPlayerPrivateGStreamerMSE(player)); }
     virtual ~MediaPlayerPrivateGStreamerMSE();
 
     static void registerMediaEngine(MediaEngineRegistrar);
 
     void load(const String&) override;
-    void load(const String&, MediaSourcePrivateClient*) override;
+    void load(const URL&, const ContentType&, MediaSourcePrivateClient&) override;
 
     void updateDownloadBufferingFlag() override { };
 
-    MediaTime currentMediaTime() const override;
-
+    void play() override;
     void pause() override;
-    bool seeking() const override;
-    void seek(const MediaTime&) override;
-    void configurePlaySink() override;
-    bool changePipelineState(GstState) override;
+    void seekToTarget(const SeekTarget&) override;
+    bool doSeek(const SeekTarget&, float rate) override;
+
+    void updatePipelineState(GstState);
 
     void durationChanged() override;
     MediaTime durationMediaTime() const override;
 
-    std::unique_ptr<PlatformTimeRanges> buffered() const override;
+    const PlatformTimeRanges& buffered() const override;
     MediaTime maxMediaTimeSeekable() const override;
+    bool currentMediaTimeMayProgress() const override;
+    void notifyActiveSourceBuffersChanged() final;
 
     void sourceSetup(GstElement*) override;
 
+    // return false to avoid false-positive "stalled" event - it should be soon addressed in the spec
+    // see: https://github.com/w3c/media-source/issues/88
+    // see: https://w3c.github.io/media-source/#h-note-19
+    bool supportsProgressMonitoring() const override { return false; }
+
+    void setNetworkState(MediaPlayer::NetworkState);
     void setReadyState(MediaPlayer::ReadyState);
-    void waitForSeekCompleted();
-    void seekCompleted();
-    MediaSourcePrivateClient* mediaSourcePrivateClient() { return m_mediaSource.get(); }
 
-    void markEndOfStream(MediaSourcePrivate::EndOfStreamStatus);
+    void setInitialVideoSize(const FloatSize&);
 
-    void trackDetected(AppendPipeline&, RefPtr<WebCore::TrackPrivateBase>, bool firstTrackDetected);
-    void notifySeekNeedsDataForTime(const MediaTime&);
+    void didPreroll() override;
 
-    void blockDurationChanges();
-    void unblockDurationChanges();
-
-    PlaybackPipeline* playbackPipeline() const { return m_playbackPipeline.get(); }
+    void startSource(const Vector<RefPtr<MediaSourceTrackGStreamer>>& tracks);
+    WebKitMediaSrc* webKitMediaSrc() { return reinterpret_cast<WebKitMediaSrc*>(m_source.get()); }
 
 #if !RELEASE_LOG_DISABLED
     WTFLogChannel& logChannel() const final { return WebCore::LogMediaSource; }
 #endif
 
 private:
+    explicit MediaPlayerPrivateGStreamerMSE(MediaPlayer*);
+
     friend class MediaPlayerFactoryGStreamerMSE;
-    static void getSupportedTypes(HashSet<String, ASCIICaseInsensitiveHash>&);
+    static void getSupportedTypes(HashSet<String>&);
     static MediaPlayer::SupportsType supportsType(const MediaEngineSupportParameters&);
 
-    // FIXME: Reduce code duplication.
+    friend class AppendPipeline;
+    friend class SourceBufferPrivateGStreamer;
+    friend class MediaSourcePrivateGStreamer;
+
     void updateStates() override;
-
-    bool doSeek(const MediaTime&, float, GstSeekFlags) override;
-    void maybeFinishSeek();
-
-    void asyncStateChangeDone() override;
 
     // FIXME: Implement videoPlaybackQualityMetrics.
     bool isTimeBuffered(const MediaTime&) const;
 
     bool isMediaSource() const override { return true; }
 
-    bool m_eosMarked = false;
-    mutable bool m_eosPending = false;
-    bool m_gstSeekCompleted = true;
-    RefPtr<MediaSourcePrivateClient> m_mediaSource;
-    MediaTime m_mediaTimeDuration;
-    bool m_mseSeekCompleted = true;
-    bool m_areDurationChangesBlocked = false;
-    bool m_shouldReportDurationWhenUnblocking = false;
-    RefPtr<PlaybackPipeline> m_playbackPipeline;
+    void propagateReadyStateToPlayer();
+
+    RefPtr<MediaSourcePrivateGStreamer> m_mediaSourcePrivate;
+    MediaTime m_mediaTimeDuration { MediaTime::invalidTime() };
+    Vector<RefPtr<MediaSourceTrackGStreamer>> m_tracks;
+
+    bool m_isWaitingForPreroll = true;
+    MediaPlayer::ReadyState m_mediaSourceReadyState = MediaPlayer::ReadyState::HaveNothing;
+    MediaPlayer::NetworkState m_mediaSourceNetworkState = MediaPlayer::NetworkState::Empty;
 };
 
 } // namespace WebCore

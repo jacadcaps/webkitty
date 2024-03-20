@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013, 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,16 +26,6 @@
 InspectorFrontendAPI = {
     _loaded: false,
     _pendingCommands: [],
-
-    savedURL: function(url)
-    {
-        // Not used yet.
-    },
-
-    appendedToURL: function(url)
-    {
-        // Not used yet.
-    },
 
     isTimelineProfilingEnabled: function()
     {
@@ -196,5 +186,69 @@ InspectorFrontendAPI = {
             InspectorFrontendAPI.dispatch(InspectorFrontendAPI._pendingCommands[i]);
 
         delete InspectorFrontendAPI._pendingCommands;
-    }
+    },
+
+    // Returns a WI.WebInspectorExtension.ErrorCode if an error occurred, otherwise nothing.
+    registerExtension(extensionID, extensionBundleIdentifier, displayName)
+    {
+        return WI.sharedApp.extensionController.registerExtension(extensionID, extensionBundleIdentifier, displayName);
+    },
+
+    // Returns a WI.WebInspectorExtension.ErrorCode if an error occurred, otherwise nothing.
+    unregisterExtension(extensionID)
+    {
+        return WI.sharedApp.extensionController.unregisterExtension(extensionID);
+    },
+
+    // Returns a string (WI.WebInspectorExtension.ErrorCode) if an error occurred that prevented creating a tab.
+    // Returns a Promise that is resolved if the evaluation completes and rejected if there was an internal error.
+    // When the promise is fulfilled, it will be either:
+    // - resolved with an object containing a 'result' key and value that is the tab identifier for the new tab.
+    // - rejected with an object containing an 'error' key and value that is the exception that was thrown while evaluating script.
+    createTabForExtension(extensionID, tabName, tabIconURL, sourceURL)
+    {
+        return WI.sharedApp.extensionController.createTabForExtension(extensionID, tabName, tabIconURL, sourceURL);
+    },
+
+    // Returns a string (WI.WebInspectorExtension.ErrorCode) if an error occurred that prevented evaluation.
+    // Returns a Promise that is resolved if the evaluation completes and rejected if there was an internal error.
+    // When the promise is fulfilled, it will be either:
+    // - resolved with an object containing a 'result' key and value that is the result of the script evaluation.
+    // - rejected with an object containing an 'error' key and value that is the exception that was thrown while evaluating script.
+    evaluateScriptForExtension(extensionID, scriptSource, {frameURL, contextSecurityOrigin, useContentScriptContext} = {})
+    {
+        return WI.sharedApp.extensionController.evaluateScriptForExtension(extensionID, scriptSource, {frameURL, contextSecurityOrigin, useContentScriptContext});
+    },
+    
+    // Returns a string (WI.WebInspectorExtension.ErrorCode) if an error occurred that prevented reloading.
+    reloadForExtension(extensionID, {ignoreCache, userAgent, injectedScript} = {})
+    {
+        return WI.sharedApp.extensionController.reloadForExtension(extensionID, {ignoreCache, userAgent, injectedScript});
+    },
+
+    // Returns a string (WI.WebInspectorExtension.ErrorCode) if an error occurred before attempting to switch tabs.
+    // Returns a Promise that is resolved if the tab could be shown and rejected if the tab could not be shown.
+    // When the promise is fulfilled, it will be either:
+    // - resolved with no value.
+    // - rejected with an object containing an 'error' key and value that is the exception that was thrown while showing the tab.
+    showExtensionTab(extensionTabID)
+    {
+        return WI.sharedApp.extensionController.showExtensionTab(extensionTabID);
+    },
+
+    // Returns a string (WI.WebInspectorExtension.ErrorCode) if an error occurred that prevented evaluation.
+    // Returns a Promise that is resolved if the evaluation completes and rejected if there was an internal error.
+    // When the promise is fulfilled, it will be either:
+    // - resolved with an object containing a 'result' key and value that is the result of the script evaluation.
+    // - rejected with an object containing an 'error' key and value that is the exception that was thrown while evaluating script.
+    evaluateScriptInExtensionTab(extensionTabID, scriptSource)
+    {
+        return WI.sharedApp.extensionController.evaluateScriptInExtensionTab(extensionTabID, scriptSource);
+    },
+
+    // Returns a string (WI.WebInspectorExtension.ErrorCode) if an error occurred.
+    navigateTabForExtension(extensionTabID, sourceURL)
+    {
+        return WI.sharedApp.extensionController.navigateTabForExtension(extensionTabID, sourceURL);
+    },
 };

@@ -25,19 +25,19 @@
 
 #import "config.h"
 
-#if HAVE(SSL)
-
 #import "HTTPServer.h"
 #import "PlatformUtilities.h"
-#import "TCPServer.h"
 #import "TestNavigationDelegate.h"
 #import "TestUIDelegate.h"
 #import "TestWKWebView.h"
 #import "Utilities.h"
+#import <WebKit/WKHTTPCookieStorePrivate.h>
 #import <WebKit/WKWebsiteDataStorePrivate.h>
 #import <WebKit/WebKit.h>
 #import <WebKit/_WKWebsiteDataStoreConfiguration.h>
+#import <pal/spi/cf/CFNetworkSPI.h>
 #import <wtf/RetainPtr.h>
+#import <wtf/SoftLinking.h>
 #import <wtf/text/StringConcatenateNumbers.h>
 
 @interface ProxyDelegate : NSObject <WKNavigationDelegate, WKUIDelegate>
@@ -61,7 +61,7 @@
     return _alert.autorelease();
 }
 
-- (void)webView:(WKWebView *)webView didReceiveAuthenticationChallenge:(NSURLAuthenticationChallenge *)challenge completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition disposition, NSURLCredential * _Nullable credential))completionHandler
+- (void)webView:(WKWebView *)webView didReceiveAuthenticationChallenge:(NSURLAuthenticationChallenge *)challenge completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition disposition, NSURLCredential *credential))completionHandler
 {
     if ([challenge.protectionSpace.authenticationMethod isEqualToString:NSURLAuthenticationMethodServerTrust])
         return completionHandler(NSURLSessionAuthChallengeUseCredential, [NSURLCredential credentialForTrust:challenge.protectionSpace.serverTrust]);
@@ -76,13 +76,13 @@ namespace TestWebKitAPI {
 
 TEST(WebKit, HTTPSProxy)
 {
-    TCPServer server(TCPServer::Protocol::HTTPSProxy, TCPServer::respondWithOK);
+    HTTPServer server(HTTPServer::respondWithOK, HTTPServer::Protocol::HttpsProxy);
 
     auto storeConfiguration = adoptNS([_WKWebsiteDataStoreConfiguration new]);
     [storeConfiguration setHTTPSProxy:[NSURL URLWithString:[NSString stringWithFormat:@"https://127.0.0.1:%d/", server.port()]]];
     [storeConfiguration setAllowsServerPreconnect:NO];
     auto viewConfiguration = adoptNS([WKWebViewConfiguration new]);
-    [viewConfiguration setWebsiteDataStore:[[[WKWebsiteDataStore alloc] _initWithConfiguration:storeConfiguration.get()] autorelease]];
+    [viewConfiguration setWebsiteDataStore:adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:storeConfiguration.get()]).get()];
     auto webView = adoptNS([[WKWebView alloc] initWithFrame:CGRectMake(0, 0, 100, 100) configuration:viewConfiguration.get()]);
     auto delegate = adoptNS([ProxyDelegate new]);
     [webView setNavigationDelegate:delegate.get()];
@@ -92,34 +92,230 @@ TEST(WebKit, HTTPSProxy)
     EXPECT_WK_STREQ([delegate waitForAlert], "success!");
 }
 
-TEST(WebKit, HTTPProxyAuthentication)
+TEST(WebKit, SOCKS5)
 {
-    TCPServer server([] (int socket) {
-        auto requestShouldContain = [] (const auto& request, const char* str) {
-            EXPECT_TRUE(strnstr(reinterpret_cast<const char*>(request.data()), str, request.size()));
-        };
+    constexpr uint8_t socks5Version = 0x5; // https://tools.ietf.org/html/rfc1928#section-3
+    constexpr uint8_t noAuthenticationRequired = 0x00; // https://tools.ietf.org/html/rfc1928#section-3
+    constexpr uint8_t connect = 0x01; // https://tools.ietf.org/html/rfc1928#section-4
+    constexpr uint8_t reserved = 0x00; // https://tools.ietf.org/html/rfc1928#section-4
+    constexpr uint8_t domainName = 0x03; // https://tools.ietf.org/html/rfc1928#section-4
+    constexpr uint8_t requestSucceeded = 0x00; // https://tools.ietf.org/html/rfc1928#section-6
 
-        auto connectRequest = TCPServer::read(socket);
-        requestShouldContain(connectRequest, "CONNECT example.com:443");
-        const char* response1 =
-            "HTTP/1.1 407 Proxy Authentication Required\r\n"
-            "Proxy-Authenticate: Basic realm=\"testrealm\"\r\n"
-            "Content-Length: 0\r\n"
-            "\r\n";
-        TCPServer::write(socket, response1, strlen(response1));
+    using namespace TestWebKitAPI;
+    HTTPServer server([](Connection connection) {
+        connection.receiveBytes([=] (Vector<uint8_t>&& bytes) {
+            constexpr uint8_t expectedAuthenticationMethodCount = 1;
+            Vector<uint8_t> expectedClientGreeting { socks5Version, expectedAuthenticationMethodCount, noAuthenticationRequired };
+            EXPECT_EQ(bytes, expectedClientGreeting);
+            connection.send(Vector<uint8_t> { socks5Version, noAuthenticationRequired }, [=] {
+                connection.receiveBytes([=] (Vector<uint8_t>&& bytes) {
+                    constexpr uint8_t httpPortFirstByte = 0;
+                    constexpr uint8_t httpPortSecondByte = 80;
+                    Vector<uint8_t> expectedConnectRequest {
+                        socks5Version,
+                        connect,
+                        reserved,
+                        domainName,
+                        static_cast<uint8_t>(strlen("example.com")),
+                        'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 'c', 'o', 'm',
+                        httpPortFirstByte, httpPortSecondByte
+                    };
+                    EXPECT_EQ(bytes, expectedConnectRequest);
 
-        auto connectRequestWithCredentials = TCPServer::read(socket);
-        requestShouldContain(connectRequestWithCredentials, "CONNECT example.com:443");
-        requestShouldContain(connectRequestWithCredentials, "Proxy-Authorization: Basic dGVzdHVzZXI6dGVzdHBhc3N3b3Jk");
-        const char* response2 =
-            "HTTP/1.1 200 Connection Established\r\n"
-            "Connection: close\r\n"
-            "\r\n";
-        TCPServer::write(socket, response2, strlen(response2));
-
-        TCPServer::startSecureConnection(socket, TCPServer::respondWithOK);
+                    Vector<uint8_t> response { socks5Version, requestSucceeded, reserved,
+                        domainName,
+                        static_cast<uint8_t>(strlen("example.com")),
+                        'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 'c', 'o', 'm',
+                        httpPortFirstByte, httpPortSecondByte
+                    };
+                    connection.send(WTFMove(response), [=] {
+                        connection.receiveHTTPRequest([=] (Vector<char>&&) {
+                            connection.send(
+                                "HTTP/1.1 200 OK\r\n"
+                                "Content-Length: 34\r\n"
+                                "\r\n"
+                                "<script>alert('success!')</script>"_s
+                            );
+                        });
+                    });
+                });
+            });
+        });
     });
-    
+
+    auto storeConfiguration = adoptNS([_WKWebsiteDataStoreConfiguration new]);
+    [storeConfiguration setProxyConfiguration:@{
+        @"SOCKSProxy": @"127.0.0.1",
+        @"SOCKSPort": @(server.port())
+    }];
+    [storeConfiguration setAllowsServerPreconnect:NO];
+    auto viewConfiguration = adoptNS([WKWebViewConfiguration new]);
+    [viewConfiguration setWebsiteDataStore:adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:storeConfiguration.get()]).get()];
+    auto webView = adoptNS([[WKWebView alloc] initWithFrame:CGRectMake(0, 0, 100, 100) configuration:viewConfiguration.get()]);
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"http://example.com/"]]];
+    EXPECT_WK_STREQ([webView _test_waitForAlert], "success!");
+}
+
+#if HAVE(NW_PROXY_CONFIG)
+TEST(WebKit, HTTPSProxyAPI)
+{
+    auto webView = adoptNS([[WKWebView alloc] initWithFrame:CGRectMake(0, 0, 100, 100)]);
+    auto delegate = adoptNS([ProxyDelegate new]);
+    [webView setNavigationDelegate:delegate.get()];
+    [webView setUIDelegate:delegate.get()];
+
+    TestWebKitAPI::HTTPServer nonProxyServer({
+        { "/"_s, { "<script>alert('non proxy success!')</script>"_s } }
+    }, TestWebKitAPI::HTTPServer::Protocol::Https);
+
+    TestWebKitAPI::HTTPServer proxyServer1({
+        { "/"_s, { "<script>alert('proxy success!')</script>"_s } }
+    }, TestWebKitAPI::HTTPServer::Protocol::HttpsProxy);
+
+    TestWebKitAPI::HTTPServer proxyServer2({
+        { "/"_s, { "<script>alert('other proxy success!')</script>"_s } }
+    }, TestWebKitAPI::HTTPServer::Protocol::HttpsProxy);
+
+    // 127.0.0.1:1 will never be reachable and will immediately timeout, causing
+    // us to fallback to 127.0.0.1:<real port>
+    auto endpoint1 = adoptNS(nw_endpoint_create_host("127.0.0.1", "1"));
+    auto proxyConfig1 = adoptNS(nw_proxy_config_create_http_connect(endpoint1.get(), nil));
+
+    auto endpoint2 = adoptNS(nw_endpoint_create_host("127.0.0.1", std::to_string(proxyServer1.port()).c_str()));
+    auto proxyConfig2 = adoptNS(nw_proxy_config_create_http_connect(endpoint2.get(), nil));
+
+    auto endpoint3 = adoptNS(nw_endpoint_create_host("127.0.0.1", std::to_string(proxyServer2.port()).c_str()));
+    auto proxyConfig3 = adoptNS(nw_proxy_config_create_http_connect(endpoint3.get(), nil));
+
+    // Proxy 1 should be ignored as it is unreachable.
+    // Proxy 2 should be used.
+    // Proxy 3 should be ignored, since proxy 2 handled the request
+    webView.get().configuration.websiteDataStore.proxyConfigurations = @[ proxyConfig1.get(), proxyConfig2.get(), proxyConfig3.get() ];
+
+    EXPECT_EQ(webView.get().configuration.websiteDataStore.proxyConfigurations[0], proxyConfig1.get());
+    EXPECT_EQ(webView.get().configuration.websiteDataStore.proxyConfigurations[1], proxyConfig2.get());
+    EXPECT_EQ(webView.get().configuration.websiteDataStore.proxyConfigurations[2], proxyConfig3.get());
+
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://example.com/"]]];
+    EXPECT_WK_STREQ([delegate waitForAlert], "proxy success!");
+
+    // Proxy 3 should be used
+    // Proxy 2 should now be ignored, since proxy 3 handled the request
+    webView.get().configuration.websiteDataStore.proxyConfigurations = @[ proxyConfig3.get(), proxyConfig2.get() ];
+
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://yetanotherexample.net/"]]];
+    EXPECT_WK_STREQ([delegate waitForAlert], "other proxy success!");
+
+    // Clear the proxies. The server should be hit directly.
+    webView.get().configuration.websiteDataStore.proxyConfigurations = nil;
+    EXPECT_EQ(webView.get().configuration.websiteDataStore.proxyConfigurations, nil);
+
+    [webView loadRequest:nonProxyServer.request()];
+    EXPECT_WK_STREQ([delegate waitForAlert], "non proxy success!");
+}
+
+TEST(WebKit, ProxyAfterNetworkProcessCrash)
+{
+    TestWebKitAPI::HTTPServer proxyServer1({
+        { "/"_s, { "<script>alert('proxy success!')</script>"_s } }
+    }, TestWebKitAPI::HTTPServer::Protocol::HttpsProxy);
+
+    auto endpoint = adoptNS(nw_endpoint_create_host("127.0.0.1", std::to_string(proxyServer1.port()).c_str()));
+    auto proxyConfig = adoptNS(nw_proxy_config_create_http_connect(endpoint.get(), nil));
+
+    auto dataStore = WKWebsiteDataStore.nonPersistentDataStore;
+    dataStore.proxyConfigurations = @[ proxyConfig.get() ];
+    auto configuration = adoptNS([WKWebViewConfiguration new]);
+    [configuration setWebsiteDataStore:dataStore];
+
+    auto webView = adoptNS([[WKWebView alloc] initWithFrame:CGRectMake(0, 0, 100, 100) configuration:configuration.get()]);
+    auto delegate = adoptNS([ProxyDelegate new]);
+    [webView setNavigationDelegate:delegate.get()];
+    [webView setUIDelegate:delegate.get()];
+
+    NSURLRequest *exampleRequest = [NSURLRequest requestWithURL:[NSURL URLWithString:@"https://example.com/"]];
+    [webView loadRequest:exampleRequest];
+    EXPECT_WK_STREQ([delegate waitForAlert], "proxy success!");
+
+    pid_t originalNetworkProcessIdentifier = [dataStore _networkProcessIdentifier];
+    EXPECT_NE(originalNetworkProcessIdentifier, 0);
+    kill(originalNetworkProcessIdentifier, 9);
+    while ([dataStore _networkProcessIdentifier])
+        TestWebKitAPI::Util::spinRunLoop();
+    [webView loadRequest:exampleRequest];
+    EXPECT_WK_STREQ([delegate waitForAlert], "proxy success!");
+    EXPECT_NE(originalNetworkProcessIdentifier, [dataStore _networkProcessIdentifier]);
+}
+
+TEST(WebKit, SOCKS5API)
+{
+    constexpr uint8_t socks5Version = 0x5; // https://tools.ietf.org/html/rfc1928#section-3
+    constexpr uint8_t noAuthenticationRequired = 0x00; // https://tools.ietf.org/html/rfc1928#section-3
+    constexpr uint8_t connect = 0x01; // https://tools.ietf.org/html/rfc1928#section-4
+    constexpr uint8_t reserved = 0x00; // https://tools.ietf.org/html/rfc1928#section-4
+    constexpr uint8_t domainName = 0x03; // https://tools.ietf.org/html/rfc1928#section-4
+    constexpr uint8_t requestSucceeded = 0x00; // https://tools.ietf.org/html/rfc1928#section-6
+
+    using namespace TestWebKitAPI;
+    HTTPServer server([](Connection connection) {
+        connection.receiveBytes([=] (Vector<uint8_t>&& bytes) {
+            constexpr uint8_t expectedAuthenticationMethodCount = 1;
+            Vector<uint8_t> expectedClientGreeting { socks5Version, expectedAuthenticationMethodCount, noAuthenticationRequired };
+            EXPECT_EQ(bytes, expectedClientGreeting);
+            connection.send(Vector<uint8_t> { socks5Version, noAuthenticationRequired }, [=] {
+                connection.receiveBytes([=] (Vector<uint8_t>&& bytes) {
+                    constexpr uint8_t httpPortFirstByte = 0;
+                    constexpr uint8_t httpPortSecondByte = 80;
+                    Vector<uint8_t> expectedConnectRequest {
+                        socks5Version,
+                        connect,
+                        reserved,
+                        domainName,
+                        static_cast<uint8_t>(strlen("example.com")),
+                        'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 'c', 'o', 'm',
+                        httpPortFirstByte, httpPortSecondByte
+                    };
+                    EXPECT_EQ(bytes, expectedConnectRequest);
+
+                    Vector<uint8_t> response { socks5Version, requestSucceeded, reserved,
+                        domainName,
+                        static_cast<uint8_t>(strlen("example.com")),
+                        'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 'c', 'o', 'm',
+                        httpPortFirstByte, httpPortSecondByte
+                    };
+                    connection.send(WTFMove(response), [=] {
+                        connection.receiveHTTPRequest([=] (Vector<char>&&) {
+                            connection.send(
+                                "HTTP/1.1 200 OK\r\n"
+                                "Content-Length: 34\r\n"
+                                "\r\n"
+                                "<script>alert('success!')</script>"_s
+                            );
+                        });
+                    });
+                });
+            });
+        });
+    });
+
+    auto endpoint = adoptNS(nw_endpoint_create_host("127.0.0.1", std::to_string(server.port()).c_str()));
+    auto proxyConfig = adoptNS(nw_proxy_config_create_socksv5(endpoint.get()));
+
+    auto webView = adoptNS([[WKWebView alloc] initWithFrame:CGRectMake(0, 0, 100, 100)]);
+    webView.get().configuration.websiteDataStore.proxyConfigurations = @[ proxyConfig.get() ];
+
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"http://example.com/"]]];
+    EXPECT_WK_STREQ([webView _test_waitForAlert], "success!");
+}
+#endif // HAVE(NW_PROXY_CONFIG)
+
+static HTTPServer proxyAuthenticationServer()
+{
+    return HTTPServer(HTTPServer::respondWithOK, HTTPServer::Protocol::HttpsProxyWithAuthentication);
+}
+
+static std::pair<RetainPtr<WKWebView>, RetainPtr<ProxyDelegate>> webViewAndDelegate(const HTTPServer& server)
+{
     auto storeConfiguration = adoptNS([_WKWebsiteDataStoreConfiguration new]);
     [storeConfiguration setProxyConfiguration:@{
         (NSString *)kCFStreamPropertyHTTPSProxyHost: @"127.0.0.1",
@@ -129,38 +325,55 @@ TEST(WebKit, HTTPProxyAuthentication)
     [storeConfiguration setPreventsSystemHTTPProxyAuthentication:YES];
 
     auto viewConfiguration = adoptNS([WKWebViewConfiguration new]);
-    [viewConfiguration setWebsiteDataStore:[[[WKWebsiteDataStore alloc] _initWithConfiguration:storeConfiguration.get()] autorelease]];
+    [viewConfiguration setWebsiteDataStore:adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:storeConfiguration.get()]).get()];
     auto webView = adoptNS([[WKWebView alloc] initWithFrame:CGRectMake(0, 0, 100, 100) configuration:viewConfiguration.get()]);
     auto delegate = adoptNS([ProxyDelegate new]);
     [webView setNavigationDelegate:delegate.get()];
     [webView setUIDelegate:delegate.get()];
+    return { webView, delegate };
+}
+
+TEST(WebKit, HTTPProxyAuthentication)
+{
+    auto server = proxyAuthenticationServer();
+    auto [webView, delegate] = webViewAndDelegate(server);
 
     [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://example.com/"]]];
     EXPECT_WK_STREQ([delegate waitForAlert], "success!");
 }
 
+TEST(WebKit, HTTPProxyAuthenticationCrossOrigin)
+{
+    auto server = proxyAuthenticationServer();
+    auto [webView, delegate] = webViewAndDelegate(server);
+
+    [webView loadHTMLString:@"<script>fetch('https://example.com/',{mode:'no-cors'}).then(()=>{alert('fetched successfully!')}).catch(()=>{alert('failure!')})</script>" baseURL:[NSURL URLWithString:@"https://webkit.org/"]];
+    EXPECT_WK_STREQ([delegate waitForAlert], "fetched successfully!");
+}
+
 TEST(WebKit, SecureProxyConnection)
 {
-    std::atomic<bool> receivedValidClientHello = false;
-    TCPServer server([&] (int socket) {
-        // Check that the client sends what looks like the beginning of a TLS handshake.
-        // We can't test more than this because CFNetwork requires a certificate chain signed by a trusted CA,
-        // and we wouldn't want to include such a certificate's private key in this repository.
-        auto clientHelloBytes = TCPServer::read(socket);
+    bool receivedValidClientHello = false;
+    HTTPServer server([&] (const Connection& connection) {
+        connection.receiveBytes([&](Vector<uint8_t>&& clientHelloBytes) {
+            // Check that the client sends what looks like the beginning of a TLS handshake.
+            // We can't test more than this because CFNetwork requires a certificate chain signed by a trusted CA,
+            // and we wouldn't want to include such a certificate's private key in this repository.
 
-        // https://tools.ietf.org/html/rfc5246#section-6.2.1
-        enum class ContentType : uint8_t { Handshake = 22 };
-        EXPECT_EQ(clientHelloBytes[0], static_cast<uint8_t>(ContentType::Handshake));
-        uint16_t tlsPlaintextLength = clientHelloBytes[3] * 256u + clientHelloBytes[4];
-        uint32_t clientHelloBytesLength = clientHelloBytes[6] * 65536u + clientHelloBytes[7] * 256u + clientHelloBytes[8];
-        EXPECT_EQ(clientHelloBytes.size(), tlsPlaintextLength + sizeof(ContentType) + 2 * sizeof(uint8_t) + sizeof(uint16_t));
-        
-        // https://tools.ietf.org/html/rfc5246#section-7.4
-        enum class HandshakeType : uint8_t { ClientHello = 1 };
-        EXPECT_EQ(clientHelloBytes[5], static_cast<uint8_t>(HandshakeType::ClientHello));
-        EXPECT_EQ(tlsPlaintextLength, clientHelloBytesLength + sizeof(HandshakeType) + 3);
+            // https://tools.ietf.org/html/rfc5246#section-6.2.1
+            enum class ContentType : uint8_t { Handshake = 22 };
+            EXPECT_EQ(clientHelloBytes[0], static_cast<uint8_t>(ContentType::Handshake));
+            uint16_t tlsPlaintextLength = clientHelloBytes[3] * 256u + clientHelloBytes[4];
+            uint32_t clientHelloBytesLength = clientHelloBytes[6] * 65536u + clientHelloBytes[7] * 256u + clientHelloBytes[8];
+            EXPECT_EQ(clientHelloBytes.size(), tlsPlaintextLength + sizeof(ContentType) + 2 * sizeof(uint8_t) + sizeof(uint16_t));
+            
+            // https://tools.ietf.org/html/rfc5246#section-7.4
+            enum class HandshakeType : uint8_t { ClientHello = 1 };
+            EXPECT_EQ(clientHelloBytes[5], static_cast<uint8_t>(HandshakeType::ClientHello));
+            EXPECT_EQ(tlsPlaintextLength, clientHelloBytesLength + sizeof(HandshakeType) + 3);
 
-        receivedValidClientHello = true;
+            receivedValidClientHello = true;
+        });
     });
     
     auto storeConfiguration = adoptNS([_WKWebsiteDataStoreConfiguration new]);
@@ -172,23 +385,20 @@ TEST(WebKit, SecureProxyConnection)
     [storeConfiguration setRequiresSecureHTTPSProxyConnection:YES];
 
     auto viewConfiguration = adoptNS([WKWebViewConfiguration new]);
-    [viewConfiguration setWebsiteDataStore:[[[WKWebsiteDataStore alloc] _initWithConfiguration:storeConfiguration.get()] autorelease]];
+    [viewConfiguration setWebsiteDataStore:adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:storeConfiguration.get()]).get()];
     auto webView = adoptNS([[WKWebView alloc] initWithFrame:CGRectMake(0, 0, 100, 100) configuration:viewConfiguration.get()]);
     [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://example.com/"]]];
-    while (!receivedValidClientHello)
-        TestWebKitAPI::Util::spinRunLoop();
+    TestWebKitAPI::Util::run(&receivedValidClientHello);
 }
-
-} // namespace TestWebKitAPI
-
-#endif // HAVE(SSL)
-
-#if HAVE(NETWORK_FRAMEWORK)
-
-namespace TestWebKitAPI {
 
 TEST(WebKit, RelaxThirdPartyCookieBlocking)
 {
+    __block bool setDefaultCookieAcceptPolicy = false;
+    [[WKWebsiteDataStore defaultDataStore].httpCookieStore _setCookieAcceptPolicy:NSHTTPCookieAcceptPolicyOnlyFromMainDocumentDomain completionHandler:^{
+        setDefaultCookieAcceptPolicy = true;
+    }];
+    Util::run(&setDefaultCookieAcceptPolicy);
+
     auto runTest = [] (bool shouldRelaxThirdPartyCookieBlocking) {
         HTTPServer server([connectionCount = 0, shouldRelaxThirdPartyCookieBlocking] (Connection connection) mutable {
             ++connectionCount;
@@ -197,7 +407,7 @@ TEST(WebKit, RelaxThirdPartyCookieBlocking)
                 const char* body =
                 "<script>"
                     "fetch("
-                        "'http://webkit.org/path3',"
+                        "'http://www.webkit.org/path3',"
                         "{credentials:'include'}"
                     ").then(()=>{"
                         "alert('fetched')"
@@ -207,7 +417,7 @@ TEST(WebKit, RelaxThirdPartyCookieBlocking)
                 "</script>";
                 switch (connectionCount) {
                 case 1: {
-                    EXPECT_TRUE(strstr(request.data(), "GET http://webkit.org/path1 HTTP/1.1\r\n"));
+                    EXPECT_TRUE(strnstr(request.data(), "GET http://www.webkit.org/path1 HTTP/1.1\r\n", request.size()));
                     reply = makeString(
                         "HTTP/1.1 200 OK\r\n"
                         "Content-Length: ", strlen(body), "\r\n"
@@ -218,7 +428,7 @@ TEST(WebKit, RelaxThirdPartyCookieBlocking)
                     break;
                 }
                 case 3: {
-                    EXPECT_TRUE(strstr(request.data(), "GET http://example.com/path2 HTTP/1.1\r\n"));
+                    EXPECT_TRUE(strnstr(request.data(), "GET http://example.com/path2 HTTP/1.1\r\n", request.size()));
                     reply = makeString(
                         "HTTP/1.1 200 OK\r\n"
                         "Content-Type: text/html\r\n"
@@ -231,17 +441,17 @@ TEST(WebKit, RelaxThirdPartyCookieBlocking)
                 case 2:
                 case 4:
                     if (connectionCount == 2 || shouldRelaxThirdPartyCookieBlocking)
-                        EXPECT_TRUE(strstr(request.data(), "Cookie: a=b\r\n"));
+                        EXPECT_TRUE(strnstr(request.data(), "Cookie: a=b\r\n", request.size()));
                     else
-                        EXPECT_FALSE(strstr(request.data(), "Cookie: a=b\r\n"));
-                    EXPECT_TRUE(strstr(request.data(), "GET http://webkit.org/path3 HTTP/1.1\r\n"));
+                        EXPECT_FALSE(strnstr(request.data(), "Cookie: a=b\r\n", request.size()));
+                    EXPECT_TRUE(strnstr(request.data(), "GET http://www.webkit.org/path3 HTTP/1.1\r\n", request.size()));
                     reply =
                         "HTTP/1.1 200 OK\r\n"
                         "Content-Length: 0\r\n"
                         "Access-Control-Allow-Origin: http://example.com\r\n"
                         "Access-Control-Allow-Credentials: true\r\n"
                         "Connection: close\r\n"
-                        "\r\n";
+                        "\r\n"_s;
                     break;
                 default:
                     ASSERT_NOT_REACHED();
@@ -263,7 +473,7 @@ TEST(WebKit, RelaxThirdPartyCookieBlocking)
         [viewConfiguration setWebsiteDataStore:dataStore.get()];
         auto webView = adoptNS([[WKWebView alloc] initWithFrame:CGRectMake(0, 0, 100, 100) configuration:viewConfiguration.get()]);
 
-        [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"http://webkit.org/path1"]]];
+        [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"http://www.webkit.org/path1"]]];
         EXPECT_WK_STREQ([webView _test_waitForAlert], "fetched");
 
         [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"http://example.com/path2"]]];
@@ -274,5 +484,3 @@ TEST(WebKit, RelaxThirdPartyCookieBlocking)
 }
 
 } // namespace TestWebKitAPI
-
-#endif // HAVE(NETWORK_FRAMEWORK)

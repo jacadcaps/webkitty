@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,40 +28,66 @@
 #include "Instruction.h"
 #include "Opcode.h"
 #include "UnlinkedMetadataTable.h"
+#include "ValueProfile.h"
 #include <wtf/RefCounted.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace JSC {
 
 class CodeBlock;
 
 // MetadataTable has a bit strange memory layout for LLInt optimization.
-// [UnlinkedMetadataTable::LinkingData][MetadataTable]
-//                                     ^
+// [ValueProfile][UnlinkedMetadataTable::LinkingData][MetadataTableOffsets][MetadataContent]
+//                                                   ^
 //                 The pointer of MetadataTable points at this address.
 class MetadataTable {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(MetadataTable);
     WTF_MAKE_NONCOPYABLE(MetadataTable);
     friend class LLIntOffsetsExtractor;
     friend class UnlinkedMetadataTable;
 public:
     ~MetadataTable();
 
-    ALWAYS_INLINE Instruction::Metadata* get(OpcodeID opcodeID)
+    template<typename Metadata>
+    ALWAYS_INLINE Metadata* get()
     {
+        auto opcodeID = Metadata::opcodeID;
         ASSERT(opcodeID < NUMBER_OF_BYTECODE_WITH_METADATA);
-        return reinterpret_cast<Instruction::Metadata*>(getImpl(opcodeID));
+        uintptr_t ptr = bitwise_cast<uintptr_t>(getWithoutAligning(opcodeID));
+        ptr = roundUpToMultipleOf(alignof(Metadata), ptr);
+        return bitwise_cast<Metadata*>(ptr);
     }
 
     template<typename Op, typename Functor>
     ALWAYS_INLINE void forEach(const Functor& func)
     {
-        auto* metadata = bitwise_cast<typename Op::Metadata*>(get(Op::opcodeID));
-        auto* end = bitwise_cast<typename Op::Metadata*>(getImpl(Op::opcodeID + 1));
-        for (; metadata + 1 <= end; ++metadata)
+        auto* metadata = get<typename Op::Metadata>();
+        auto* end = bitwise_cast<typename Op::Metadata*>(getWithoutAligning(Op::opcodeID + 1));
+        for (; metadata < end; ++metadata)
             func(*metadata);
     }
 
-    size_t sizeInBytes();
+    template<typename Functor>
+    ALWAYS_INLINE void forEachValueProfile(const Functor& func)
+    {
+        // We could do a checked multiply here but if it overflows we'd just not look at any value profiles so it's probably not worth it.
+        int lastValueProfileOffset = -unlinkedMetadata().m_numValueProfiles;
+        for (int i = -1; i >= lastValueProfileOffset; --i)
+            func(valueProfilesEnd()[i]);
+    }
+
+    ValueProfile* valueProfilesEnd()
+    {
+        return reinterpret_cast_ptr<ValueProfile*>(&linkingData());
+    }
+
+    ValueProfile& valueProfileForOffset(unsigned profileOffset)
+    {
+        ASSERT(profileOffset <= unlinkedMetadata().m_numValueProfiles);
+        return valueProfilesEnd()[-static_cast<ptrdiff_t>(profileOffset)];
+    }
+
+    size_t sizeInBytesForGC();
 
     void ref()
     {
@@ -88,6 +114,18 @@ public:
         return refCount() == 1;
     }
 
+    template <typename Opcode>
+    uintptr_t offsetInMetadataTable(const Opcode& opcode)
+    {
+        uintptr_t baseTypeOffset = is32Bit() ? offsetTable32()[Opcode::opcodeID] : offsetTable16()[Opcode::opcodeID];
+        baseTypeOffset = roundUpToMultipleOf(alignof(typename Opcode::Metadata), baseTypeOffset);
+        return baseTypeOffset + sizeof(typename Opcode::Metadata) * opcode.m_metadataID;
+    }
+
+    void validate() const;
+
+    UnlinkedMetadataTable& unlinkedMetadata() const { return linkingData().unlinkedMetadata.get(); }
+
 private:
     MetadataTable(UnlinkedMetadataTable&);
 
@@ -96,7 +134,7 @@ private:
 
     size_t totalSize() const
     {
-        return getOffset(UnlinkedMetadataTable::s_offsetTableEntries - 1);
+        return unlinkedMetadata().m_numValueProfiles * sizeof(ValueProfile) + sizeof(UnlinkedMetadataTable::LinkingData) + getOffset(UnlinkedMetadataTable::s_offsetTableEntries - 1);
     }
 
     UnlinkedMetadataTable::LinkingData& linkingData() const
@@ -106,6 +144,7 @@ private:
 
     void* buffer() { return this; }
 
+    // Offset of zero means that the 16 bit table is not in use.
     bool is32Bit() const { return !offsetTable16()[0]; }
 
     ALWAYS_INLINE unsigned getOffset(unsigned i) const
@@ -116,7 +155,7 @@ private:
         return offsetTable32()[i];
     }
 
-    ALWAYS_INLINE uint8_t* getImpl(unsigned i)
+    ALWAYS_INLINE uint8_t* getWithoutAligning(unsigned i)
     {
         return bitwise_cast<uint8_t*>(this) + getOffset(i);
     }

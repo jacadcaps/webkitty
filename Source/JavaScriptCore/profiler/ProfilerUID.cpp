@@ -37,7 +37,7 @@ UID UID::create()
     static Lock lock;
     static uint64_t counter;
     
-    LockHolder locker(lock);
+    Locker locker { lock };
     UID result;
     result.m_uid = ++counter;
     return result;
@@ -48,9 +48,9 @@ void UID::dump(PrintStream& out) const
     out.print(m_uid);
 }
 
-JSValue UID::toJS(JSGlobalObject* globalObject) const
+Ref<JSON::Value> UID::toJSON(Dumper&) const
 {
-    return jsString(globalObject->vm(), toString(*this));
+    return JSON::Value::create(toString(*this));
 }
 
 } } // namespace JSC::Profiler

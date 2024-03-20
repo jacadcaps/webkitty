@@ -47,53 +47,41 @@ inline DOMURL::DOMURL(URL&& completeURL, const URL& baseURL)
 
 ExceptionOr<Ref<DOMURL>> DOMURL::create(const String& url, const URL& base)
 {
-    if (!base.isValid())
-        return Exception { TypeError };
+    ASSERT(base.isValid() || base.isNull());
     URL completeURL { base, url };
     if (!completeURL.isValid())
-        return Exception { TypeError };
+        return Exception { ExceptionCode::TypeError, makeString("\"", url, "\" cannot be parsed as a URL.") };
     return adoptRef(*new DOMURL(WTFMove(completeURL), base));
 }
 
 ExceptionOr<Ref<DOMURL>> DOMURL::create(const String& url, const String& base)
 {
-    return create(url, URL { URL { }, base });
+    URL baseURL { base };
+    if (!base.isNull() && !baseURL.isValid())
+        return Exception { ExceptionCode::TypeError, makeString("\"", url, "\" cannot be parsed as a URL against \"", base, "\".") };
+    return create(url, baseURL);
 }
 
-ExceptionOr<Ref<DOMURL>> DOMURL::create(const String& url, const DOMURL& base)
-{
-    return create(url, base.href());
-}
+DOMURL::~DOMURL() = default;
 
-ExceptionOr<Ref<DOMURL>> DOMURL::create(const String& url)
+bool DOMURL::canParse(const String& url, const String& base)
 {
-    URL baseURL { aboutBlankURL() };
+    URL baseURL { base };
+    if (!base.isNull() && !baseURL.isValid())
+        return false;
     URL completeURL { baseURL, url };
-    if (!completeURL.isValid())
-        return Exception { TypeError };
-    return adoptRef(*new DOMURL(WTFMove(completeURL), WTFMove(baseURL)));
-}
-
-DOMURL::~DOMURL()
-{
-    if (m_searchParams)
-        m_searchParams->associatedURLDestroyed();
+    return completeURL.isValid();
 }
 
 ExceptionOr<void> DOMURL::setHref(const String& url)
 {
-    URL completeURL { m_baseURL, url };
+    URL completeURL { url };
     if (!completeURL.isValid())
-        return Exception { TypeError };
+        return Exception { ExceptionCode::TypeError };
     m_url = WTFMove(completeURL);
     if (m_searchParams)
         m_searchParams->updateFromAssociatedURL();
     return { };
-}
-
-void DOMURL::setQuery(const String& query)
-{
-    m_url.setQuery(query);
 }
 
 String DOMURL::createObjectURL(ScriptExecutionContext& scriptExecutionContext, Blob& blob)
@@ -118,10 +106,10 @@ URLSearchParams& DOMURL::searchParams()
         m_searchParams = URLSearchParams::create(search(), this);
     return *m_searchParams;
 }
-    
+
 void DOMURL::revokeObjectURL(ScriptExecutionContext& scriptExecutionContext, const String& urlString)
 {
-    URL url(URL(), urlString);
+    URL url { urlString };
     ResourceRequest request(url);
     request.setDomainForCachePartition(scriptExecutionContext.domainForCachePartition());
 

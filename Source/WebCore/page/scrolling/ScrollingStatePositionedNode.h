@@ -39,16 +39,11 @@ namespace WebCore {
 // layer adjusted on the scrolling thread.
 class ScrollingStatePositionedNode final : public ScrollingStateNode {
 public:
-    static Ref<ScrollingStatePositionedNode> create(ScrollingStateTree&, ScrollingNodeID);
+    template<typename... Args> static Ref<ScrollingStatePositionedNode> create(Args&&... args) { return adoptRef(*new ScrollingStatePositionedNode(std::forward<Args>(args)...)); }
 
     Ref<ScrollingStateNode> clone(ScrollingStateTree&) override;
 
     virtual ~ScrollingStatePositionedNode();
-
-    enum {
-        RelatedOverflowScrollingNodes = NumStateNodeBits,
-        LayoutConstraintData,
-    };
 
     // These are the overflow scrolling nodes whose scroll position affects the layers in this node.
     const Vector<ScrollingNodeID>& relatedOverflowScrollingNodes() const { return m_relatedOverflowScrollingNodes; }
@@ -58,12 +53,12 @@ public:
     const AbsolutePositionConstraints& layoutConstraints() const { return m_constraints; }
 
 private:
+    WEBCORE_EXPORT ScrollingStatePositionedNode(ScrollingNodeID, Vector<Ref<ScrollingStateNode>>&&, OptionSet<ScrollingStateNodeProperty>, std::optional<PlatformLayerIdentifier>, Vector<ScrollingNodeID>&&, AbsolutePositionConstraints&&);
     ScrollingStatePositionedNode(ScrollingStateTree&, ScrollingNodeID);
     ScrollingStatePositionedNode(const ScrollingStatePositionedNode&, ScrollingStateTree&);
 
-    void setPropertyChangedBitsAfterReattach() override;
-
-    void dumpProperties(WTF::TextStream&, ScrollingStateTreeAsTextBehavior) const override;
+    void dumpProperties(WTF::TextStream&, OptionSet<ScrollingStateTreeAsTextBehavior>) const final;
+    OptionSet<ScrollingStateNode::Property> applicableProperties() const final;
 
     Vector<ScrollingNodeID> m_relatedOverflowScrollingNodes;
     AbsolutePositionConstraints m_constraints;

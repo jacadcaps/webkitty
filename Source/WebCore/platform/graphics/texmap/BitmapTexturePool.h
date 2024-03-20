@@ -24,11 +24,11 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef BitmapTexturePool_h
-#define BitmapTexturePool_h
+#pragma once
+
+#if USE(TEXTURE_MAPPER)
 
 #include "BitmapTexture.h"
-#include "TextureMapperContextAttributes.h"
 #include <wtf/RunLoop.h>
 
 namespace WebCore {
@@ -37,13 +37,11 @@ class IntSize;
 
 class BitmapTexturePool {
     WTF_MAKE_NONCOPYABLE(BitmapTexturePool);
-    WTF_MAKE_FAST_ALLOCATED;
 public:
-#if USE(TEXTURE_MAPPER_GL)
-    explicit BitmapTexturePool(const TextureMapperContextAttributes&);
-#endif
+    BitmapTexturePool();
 
-    RefPtr<BitmapTexture> acquireTexture(const IntSize&, const BitmapTexture::Flags);
+    RefPtr<BitmapTexture> acquireTexture(const IntSize&, OptionSet<BitmapTexture::Flags>);
+    void releaseUnusedTexturesTimerFired();
 
 private:
     struct Entry {
@@ -59,17 +57,11 @@ private:
     };
 
     void scheduleReleaseUnusedTextures();
-    void releaseUnusedTexturesTimerFired();
-    RefPtr<BitmapTexture> createTexture(const BitmapTexture::Flags);
-
-#if USE(TEXTURE_MAPPER_GL)
-    TextureMapperContextAttributes m_contextAttributes;
-#endif
 
     Vector<Entry> m_textures;
-    RunLoop::Timer<BitmapTexturePool> m_releaseUnusedTexturesTimer;
+    RunLoop::Timer m_releaseUnusedTexturesTimer;
 };
 
 } // namespace WebCore
 
-#endif // BitmapTexturePool_h
+#endif // USE(TEXTURE_MAPPER)

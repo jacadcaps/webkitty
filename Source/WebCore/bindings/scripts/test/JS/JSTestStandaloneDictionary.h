@@ -33,9 +33,10 @@ template<> WEBCORE_EXPORT DictionaryImplName convertDictionary<DictionaryImplNam
 WEBCORE_EXPORT JSC::JSObject* convertDictionaryToJS(JSC::JSGlobalObject&, JSDOMGlobalObject&, const DictionaryImplName&);
 
 String convertEnumerationToString(TestStandaloneDictionary::EnumInStandaloneDictionaryFile);
-template<> JSC::JSString* convertEnumerationToJS(JSC::JSGlobalObject&, TestStandaloneDictionary::EnumInStandaloneDictionaryFile);
+template<> JSC::JSString* convertEnumerationToJS(JSC::VM&, TestStandaloneDictionary::EnumInStandaloneDictionaryFile);
 
-template<> Optional<TestStandaloneDictionary::EnumInStandaloneDictionaryFile> parseEnumeration<TestStandaloneDictionary::EnumInStandaloneDictionaryFile>(JSC::JSGlobalObject&, JSC::JSValue);
+template<> std::optional<TestStandaloneDictionary::EnumInStandaloneDictionaryFile> parseEnumerationFromString<TestStandaloneDictionary::EnumInStandaloneDictionaryFile>(const String&);
+template<> std::optional<TestStandaloneDictionary::EnumInStandaloneDictionaryFile> parseEnumeration<TestStandaloneDictionary::EnumInStandaloneDictionaryFile>(JSC::JSGlobalObject&, JSC::JSValue);
 template<> const char* expectedEnumerationValues<TestStandaloneDictionary::EnumInStandaloneDictionaryFile>();
 
 } // namespace WebCore

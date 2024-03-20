@@ -29,16 +29,12 @@
 #include "WebPage.h"
 #include <WebCore/PlatformDisplay.h>
 
-#if PLATFORM(WAYLAND)
-#include "AcceleratedSurfaceWayland.h"
-#endif
-
-#if PLATFORM(X11)
-#include "AcceleratedSurfaceX11.h"
-#endif
-
 #if USE(WPE_RENDERER)
 #include "AcceleratedSurfaceLibWPE.h"
+#endif
+
+#if (PLATFORM(GTK) || (PLATFORM(WPE) && ENABLE(WPE_PLATFORM))) && USE(EGL)
+#include "AcceleratedSurfaceDMABuf.h"
 #endif
 
 namespace WebKit {
@@ -46,17 +42,13 @@ using namespace WebCore;
 
 std::unique_ptr<AcceleratedSurface> AcceleratedSurface::create(WebPage& webPage, Client& client)
 {
-#if PLATFORM(WAYLAND)
-    if (PlatformDisplay::sharedDisplay().type() == PlatformDisplay::Type::Wayland)
-#if USE(WPE_RENDERER)
-        return AcceleratedSurfaceLibWPE::create(webPage, client);
-#else
-        return AcceleratedSurfaceWayland::create(webPage, client);
+#if (PLATFORM(GTK) || (PLATFORM(WPE) && ENABLE(WPE_PLATFORM))) && USE(EGL)
+#if USE(GBM)
+    if (PlatformDisplay::sharedDisplayForCompositing().type() == PlatformDisplay::Type::GBM)
+        return AcceleratedSurfaceDMABuf::create(webPage, client);
 #endif
-#endif
-#if PLATFORM(X11)
-    if (PlatformDisplay::sharedDisplay().type() == PlatformDisplay::Type::X11)
-        return AcceleratedSurfaceX11::create(webPage, client);
+    if (PlatformDisplay::sharedDisplayForCompositing().type() == PlatformDisplay::Type::Surfaceless)
+        return AcceleratedSurfaceDMABuf::create(webPage, client);
 #endif
 #if USE(WPE_RENDERER)
     if (PlatformDisplay::sharedDisplay().type() == PlatformDisplay::Type::WPE)

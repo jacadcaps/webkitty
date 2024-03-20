@@ -34,7 +34,10 @@
 #import <JavaScriptCore/JSRetainPtr.h>
 #import <JavaScriptCore/JavaScriptCore.h>
 #import <WebKit/WKSerializedScriptValue.h>
-#import <WebKit/WKViewPrivate.h>
+#import <WebKit/WKUserContentControllerPrivate.h>
+#import <WebKit/WKWebViewPrivate.h>
+#import <WebKit/_WKUserStyleSheet.h>
+#import <wtf/RetainPtr.h>
 
 static bool testFinished = false;
 static NSString *htmlString = @"<body style='background-color: red'>";
@@ -47,25 +50,18 @@ static const char* userScriptTestProperty = "window._userScriptInstalled";
 namespace {
     class WebKit2UserContentTest : public ::testing::Test {
     public:
-        WKProcessGroup *processGroup;
-        WKBrowsingContextGroup *browsingContextGroup;
+        RetainPtr<WKProcessGroup> processGroup;
 
-        WebKit2UserContentTest()
-            : processGroup(nil)
-            , browsingContextGroup(nil)
-        {
-        }
+        WebKit2UserContentTest() = default;
         
         virtual void SetUp()
         {
-            processGroup = [[WKProcessGroup alloc] init];
-            browsingContextGroup = [[WKBrowsingContextGroup alloc] initWithIdentifier:@"UserContentIdentifier"];
+            processGroup = adoptNS([[WKProcessGroup alloc] init]);
         }
         
         virtual void TearDown()
         {
-            [browsingContextGroup release];
-            [processGroup release];
+            processGroup = nullptr;
         }
     };
 } // namespace
@@ -121,19 +117,21 @@ static void runJavaScriptInMainFrame(WKPageRef pageRef, WKStringRef scriptRef, R
 TEST_F(WebKit2UserContentTest, AddUserStyleSheetBeforeCreatingView)
 {
     testFinished = false;
-    [browsingContextGroup addUserStyleSheet:userStyleSheet baseURL:nil includeMatchPatternStrings:nil excludeMatchPatternStrings:nil mainFrameOnly:YES];
     
-    WKView *wkView = [[WKView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) processGroup:processGroup browsingContextGroup:browsingContextGroup];
-    WKStringRef backgroundColorQuery = WKStringCreateWithUTF8CString(backgroundColorScript);
-    wkView.browsingContextController.loadDelegate = [[TestBrowsingContextLoadDelegate alloc] initWithBlockToRunOnLoad:^(WKBrowsingContextController *sender) {
-        runJavaScriptInMainFrame(wkView.pageRef, backgroundColorQuery, ^(WKSerializedScriptValueRef serializedScriptValue, WKErrorRef error) {
+    auto sheet = adoptNS([[_WKUserStyleSheet alloc] initWithSource:userStyleSheet forMainFrameOnly:YES]);
+
+    auto wkView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600)]);
+    [wkView.get().configuration.userContentController _addUserStyleSheet:sheet.get()];
+    auto backgroundColorQuery = adoptWK(WKStringCreateWithUTF8CString(backgroundColorScript));
+    auto loadDelegate = adoptNS([[TestBrowsingContextLoadDelegate alloc] initWithBlockToRunOnLoad:^(WKWebView *sender) {
+        runJavaScriptInMainFrame([wkView _pageRefForTransitionToWKWebView], backgroundColorQuery.get(), ^(WKSerializedScriptValueRef serializedScriptValue, WKErrorRef error) {
             expectScriptValueIsString(serializedScriptValue, greenInRGB);
             testFinished = true;
-            WKRelease(backgroundColorQuery);
         });
-    }];
+    }]);
+    wkView.get().navigationDelegate = loadDelegate.get();
     
-    [wkView.browsingContextController loadHTMLString:htmlString baseURL:nil];
+    [wkView loadHTMLString:htmlString baseURL:nil];
     
     TestWebKitAPI::Util::run(&testFinished);
 }
@@ -142,19 +140,20 @@ TEST_F(WebKit2UserContentTest, AddUserStyleSheetAfterCreatingView)
 {
     testFinished = false;
     
-    WKView *wkView = [[WKView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) processGroup:processGroup browsingContextGroup:browsingContextGroup];
-    WKStringRef backgroundColorQuery = WKStringCreateWithUTF8CString(backgroundColorScript);
-    wkView.browsingContextController.loadDelegate = [[TestBrowsingContextLoadDelegate alloc] initWithBlockToRunOnLoad:^(WKBrowsingContextController *sender) {
-        runJavaScriptInMainFrame(wkView.pageRef, backgroundColorQuery, ^(WKSerializedScriptValueRef serializedScriptValue, WKErrorRef error) {
+    auto wkView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600)]);
+    auto backgroundColorQuery = adoptWK(WKStringCreateWithUTF8CString(backgroundColorScript));
+    auto loadDelegate = adoptNS([[TestBrowsingContextLoadDelegate alloc] initWithBlockToRunOnLoad:^(WKWebView *sender) {
+        runJavaScriptInMainFrame([wkView _pageRefForTransitionToWKWebView], backgroundColorQuery.get(), ^(WKSerializedScriptValueRef serializedScriptValue, WKErrorRef error) {
             expectScriptValueIsString(serializedScriptValue, greenInRGB);
             testFinished = true;
-            WKRelease(backgroundColorQuery);
         });
-    }];
+    }]);
+    wkView.get().navigationDelegate = loadDelegate.get();
 
-    [browsingContextGroup addUserStyleSheet:userStyleSheet baseURL:nil includeMatchPatternStrings:nil excludeMatchPatternStrings:nil mainFrameOnly:YES];
-    
-    [wkView.browsingContextController loadHTMLString:htmlString baseURL:nil];
+    auto sheet = adoptNS([[_WKUserStyleSheet alloc] initWithSource:userStyleSheet forMainFrameOnly:YES]);
+    [wkView.get().configuration.userContentController _addUserStyleSheet:sheet.get()];
+
+    [wkView loadHTMLString:htmlString baseURL:nil];
 
     TestWebKitAPI::Util::run(&testFinished);
 }
@@ -162,21 +161,22 @@ TEST_F(WebKit2UserContentTest, AddUserStyleSheetAfterCreatingView)
 TEST_F(WebKit2UserContentTest, RemoveAllUserStyleSheets)
 {
     testFinished = false;
-    [browsingContextGroup addUserStyleSheet:userStyleSheet baseURL:nil includeMatchPatternStrings:nil excludeMatchPatternStrings:nil mainFrameOnly:YES];
+    auto sheet = adoptNS([[_WKUserStyleSheet alloc] initWithSource:userStyleSheet forMainFrameOnly:YES]);
     
-    WKView *wkView = [[WKView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) processGroup:processGroup browsingContextGroup:browsingContextGroup];
-    WKStringRef backgroundColorQuery = WKStringCreateWithUTF8CString(backgroundColorScript);
-    wkView.browsingContextController.loadDelegate = [[TestBrowsingContextLoadDelegate alloc] initWithBlockToRunOnLoad:^(WKBrowsingContextController *sender) {
-        runJavaScriptInMainFrame(wkView.pageRef, backgroundColorQuery, ^(WKSerializedScriptValueRef serializedScriptValue, WKErrorRef error) {
+    auto wkView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600)]);
+    [wkView.get().configuration.userContentController _addUserStyleSheet:sheet.get()];
+    auto backgroundColorQuery = adoptWK(WKStringCreateWithUTF8CString(backgroundColorScript));
+    auto loadDelegate = adoptNS([[TestBrowsingContextLoadDelegate alloc] initWithBlockToRunOnLoad:^(WKWebView *sender) {
+        runJavaScriptInMainFrame([wkView _pageRefForTransitionToWKWebView], backgroundColorQuery.get(), ^(WKSerializedScriptValueRef serializedScriptValue, WKErrorRef error) {
             expectScriptValueIsString(serializedScriptValue, redInRGB);
             testFinished = true;
-            WKRelease(backgroundColorQuery);
         });
-    }];
+    }]);
+    wkView.get().navigationDelegate = loadDelegate.get();
     
-    [browsingContextGroup removeAllUserStyleSheets];
+    [wkView.get().configuration.userContentController _removeAllUserStyleSheets];
     
-    [wkView.browsingContextController loadHTMLString:htmlString baseURL:nil];
+    [wkView loadHTMLString:htmlString baseURL:nil];
     
     TestWebKitAPI::Util::run(&testFinished);
 }
@@ -184,19 +184,20 @@ TEST_F(WebKit2UserContentTest, RemoveAllUserStyleSheets)
 TEST_F(WebKit2UserContentTest, AddUserScriptBeforeCreatingView)
 {
     testFinished = false;
-    [browsingContextGroup addUserScript:[NSString stringWithFormat:@"%s = true;", userScriptTestProperty] baseURL:nil includeMatchPatternStrings:nil excludeMatchPatternStrings:nil injectionTime:kWKInjectAtDocumentStart mainFrameOnly:YES];
-    
-    WKView *wkView = [[WKView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) processGroup:processGroup browsingContextGroup:browsingContextGroup];
-    WKStringRef userScriptTestPropertyString = WKStringCreateWithUTF8CString(userScriptTestProperty);
-    wkView.browsingContextController.loadDelegate = [[TestBrowsingContextLoadDelegate alloc] initWithBlockToRunOnLoad:^(WKBrowsingContextController *sender) {
-        runJavaScriptInMainFrame(wkView.pageRef, userScriptTestPropertyString, ^(WKSerializedScriptValueRef serializedScriptValue, WKErrorRef error) {
+    auto script = adoptNS([[WKUserScript alloc] initWithSource:[NSString stringWithFormat:@"%s = true;", userScriptTestProperty] injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES]);
+
+    auto wkView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600)]);
+    [wkView.get().configuration.userContentController addUserScript:script.get()];
+    auto userScriptTestPropertyString = adoptWK(WKStringCreateWithUTF8CString(userScriptTestProperty));
+    auto loadDelegate = adoptNS([[TestBrowsingContextLoadDelegate alloc] initWithBlockToRunOnLoad:^(WKWebView *sender) {
+        runJavaScriptInMainFrame([wkView _pageRefForTransitionToWKWebView], userScriptTestPropertyString.get(), ^(WKSerializedScriptValueRef serializedScriptValue, WKErrorRef error) {
             expectScriptValueIsBoolean(serializedScriptValue, true);
             testFinished = true;
-            WKRelease(userScriptTestPropertyString);
         });
-    }];
+    }]);
+    wkView.get().navigationDelegate = loadDelegate.get();
     
-    [wkView.browsingContextController loadHTMLString:@"" baseURL:nil];
+    [wkView loadHTMLString:@"" baseURL:nil];
     
     TestWebKitAPI::Util::run(&testFinished);
 }
@@ -205,19 +206,20 @@ TEST_F(WebKit2UserContentTest, AddUserScriptAfterCreatingView)
 {
     testFinished = false;
     
-    WKView *wkView = [[WKView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) processGroup:processGroup browsingContextGroup:browsingContextGroup];
-    WKStringRef userScriptTestPropertyString = WKStringCreateWithUTF8CString(userScriptTestProperty);
-    wkView.browsingContextController.loadDelegate = [[TestBrowsingContextLoadDelegate alloc] initWithBlockToRunOnLoad:^(WKBrowsingContextController *sender) {
-        runJavaScriptInMainFrame(wkView.pageRef, userScriptTestPropertyString, ^(WKSerializedScriptValueRef serializedScriptValue, WKErrorRef error) {
+    auto wkView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600)]);
+    auto userScriptTestPropertyString = adoptWK(WKStringCreateWithUTF8CString(userScriptTestProperty));
+    auto loadDelegate = adoptNS([[TestBrowsingContextLoadDelegate alloc] initWithBlockToRunOnLoad:^(WKWebView *sender) {
+        runJavaScriptInMainFrame([wkView _pageRefForTransitionToWKWebView], userScriptTestPropertyString.get(), ^(WKSerializedScriptValueRef serializedScriptValue, WKErrorRef error) {
             expectScriptValueIsBoolean(serializedScriptValue, true);
             testFinished = true;
-            WKRelease(userScriptTestPropertyString);
         });
-    }];
+    }]);
+    wkView.get().navigationDelegate = loadDelegate.get();
     
-    [browsingContextGroup addUserScript:[NSString stringWithFormat:@"%s = true;", userScriptTestProperty] baseURL:nil includeMatchPatternStrings:nil excludeMatchPatternStrings:nil injectionTime:kWKInjectAtDocumentStart mainFrameOnly:YES];
+    auto script = adoptNS([[WKUserScript alloc] initWithSource:[NSString stringWithFormat:@"%s = true;", userScriptTestProperty] injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES]);
+    [wkView.get().configuration.userContentController addUserScript:script.get()];
     
-    [wkView.browsingContextController loadHTMLString:@"" baseURL:nil];
+    [wkView loadHTMLString:@"" baseURL:nil];
     
     TestWebKitAPI::Util::run(&testFinished);
 }
@@ -225,21 +227,22 @@ TEST_F(WebKit2UserContentTest, AddUserScriptAfterCreatingView)
 TEST_F(WebKit2UserContentTest, RemoveAllUserScripts)
 {
     testFinished = false;
-    [browsingContextGroup addUserScript:[NSString stringWithFormat:@"%s = true;", userScriptTestProperty] baseURL:nil includeMatchPatternStrings:nil excludeMatchPatternStrings:nil injectionTime:kWKInjectAtDocumentStart mainFrameOnly:YES];
-    
-    WKView *wkView = [[WKView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) processGroup:processGroup browsingContextGroup:browsingContextGroup];
-    WKStringRef userScriptTestPropertyString = WKStringCreateWithUTF8CString(userScriptTestProperty);
-    wkView.browsingContextController.loadDelegate = [[TestBrowsingContextLoadDelegate alloc] initWithBlockToRunOnLoad:^(WKBrowsingContextController *sender) {
-        runJavaScriptInMainFrame(wkView.pageRef, userScriptTestPropertyString, ^(WKSerializedScriptValueRef serializedScriptValue, WKErrorRef error) {
+    auto script = adoptNS([[WKUserScript alloc] initWithSource:[NSString stringWithFormat:@"%s = true;", userScriptTestProperty] injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES]);
+
+    auto wkView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600)]);
+    [wkView.get().configuration.userContentController addUserScript:script.get()];
+    auto userScriptTestPropertyString = adoptWK(WKStringCreateWithUTF8CString(userScriptTestProperty));
+    auto loadDelegate = adoptNS([[TestBrowsingContextLoadDelegate alloc] initWithBlockToRunOnLoad:^(WKWebView *sender) {
+        runJavaScriptInMainFrame([wkView _pageRefForTransitionToWKWebView], userScriptTestPropertyString.get(), ^(WKSerializedScriptValueRef serializedScriptValue, WKErrorRef error) {
             expectScriptValueIsUndefined(serializedScriptValue);
             testFinished = true;
-            WKRelease(userScriptTestPropertyString);
         });
-    }];
+    }]);
+    wkView.get().navigationDelegate = loadDelegate.get();
     
-    [browsingContextGroup removeAllUserScripts];
+    [wkView.get().configuration.userContentController removeAllUserScripts];
     
-    [wkView.browsingContextController loadHTMLString:htmlString baseURL:nil];
+    [wkView loadHTMLString:htmlString baseURL:nil];
     
     TestWebKitAPI::Util::run(&testFinished);
 }

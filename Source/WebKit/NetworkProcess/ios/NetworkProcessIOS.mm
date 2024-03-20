@@ -26,12 +26,13 @@
 #import "config.h"
 #import "NetworkProcess.h"
 
-#if PLATFORM(IOS_FAMILY) && !PLATFORM(MACCATALYST)
+#if PLATFORM(IOS_FAMILY)
 
 #import "NetworkCache.h"
 #import "NetworkProcessCreationParameters.h"
 #import "SandboxInitializationParameters.h"
 #import "SecItemShim.h"
+#import <UIKit/UIKit.h>
 #import <WebCore/CertificateInfo.h>
 #import <WebCore/NotImplemented.h>
 #import <WebCore/WebCoreThreadSystemInterface.h>
@@ -39,7 +40,8 @@
 #import <wtf/cocoa/Entitlements.h>
 
 namespace WebKit {
-using namespace WebCore;
+
+#if !PLATFORM(MACCATALYST)
 
 void NetworkProcess::initializeProcess(const AuxiliaryProcessInitializationParameters&)
 {
@@ -53,11 +55,6 @@ void NetworkProcess::initializeProcessName(const AuxiliaryProcessInitializationP
 
 void NetworkProcess::initializeSandbox(const AuxiliaryProcessInitializationParameters&, SandboxInitializationParameters&)
 {
-}
-
-void NetworkProcess::allowSpecificHTTPSCertificateForHost(const CertificateInfo& certificateInfo, const String& host)
-{
-    [NSURLRequest setAllowsSpecificHTTPSCertificate:(NSArray *)certificateInfo.certificateChain() forHost:host];
 }
 
 void NetworkProcess::platformInitializeNetworkProcess(const NetworkProcessCreationParameters& parameters)
@@ -81,7 +78,7 @@ bool NetworkProcess::parentProcessHasServiceWorkerEntitlement() const
     if (disableServiceWorkerEntitlementTestingOverride)
         return false;
 
-    static bool hasEntitlement = WTF::hasEntitlement(parentProcessConnection()->xpcConnection(), "com.apple.developer.WebKit.ServiceWorkers") || WTF::hasEntitlement(parentProcessConnection()->xpcConnection(), "com.apple.developer.web-browser");
+    static bool hasEntitlement = WTF::hasEntitlement(parentProcessConnection()->xpcConnection(), "com.apple.developer.WebKit.ServiceWorkers"_s) || WTF::hasEntitlement(parentProcessConnection()->xpcConnection(), "com.apple.developer.web-browser"_s);
     return hasEntitlement;
 }
 
@@ -95,6 +92,8 @@ void NetworkProcess::clearServiceWorkerEntitlementOverride(CompletionHandler<voi
     disableServiceWorkerEntitlementTestingOverride = false;
     completionHandler();
 }
+
+#endif // !PLATFORM(MACCATALYST)
 
 } // namespace WebKit
 

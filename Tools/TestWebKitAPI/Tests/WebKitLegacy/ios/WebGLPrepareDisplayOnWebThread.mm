@@ -27,6 +27,7 @@
 
 #if HAVE(UIWEBVIEW)
 
+#import "DeprecatedGlobalValues.h"
 #import "PlatformUtilities.h"
 #import <JavaScriptCore/JSVirtualMachine.h>
 #import <JavaScriptCore/JSVirtualMachineInternal.h>
@@ -35,7 +36,6 @@
 #import <stdlib.h>
 #import <wtf/RetainPtr.h>
 
-static bool didFinishLoad = false;
 static bool didFinishPainting = false;
 static bool isReady = false;
 
@@ -85,6 +85,8 @@ TEST(WebKitLegacy, WebGLPrepareDisplayOnWebThread)
 
     Util::run(&didFinishLoad);
     Util::run(&isReady);
+
+    WebThreadLock();
 
     RetainPtr<JSContext> jsContext = [uiWebView valueForKeyPath:@"documentView.webView.mainFrame.javaScriptContext"];
 

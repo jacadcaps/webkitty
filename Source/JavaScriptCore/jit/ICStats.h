@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,11 +28,11 @@
 #include "ClassInfo.h"
 #include "Identifier.h"
 #include <wtf/Condition.h>
-#include <wtf/FastMalloc.h>
 #include <wtf/Lock.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/PrintStream.h>
 #include <wtf/Spectrum.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace JSC {
 
@@ -43,6 +43,7 @@ namespace JSC {
     macro(GetBySelfPatch) \
     macro(InAddAccessCase) \
     macro(InReplaceWithJump) \
+    macro(InReplaceWithGeneric) \
     macro(InstanceOfAddAccessCase) \
     macro(InstanceOfReplaceWithJump) \
     macro(OperationGetById) \
@@ -51,31 +52,37 @@ namespace JSC {
     macro(OperationGetByIdOptimize) \
     macro(OperationGetByValOptimize) \
     macro(OperationGetByIdWithThisOptimize) \
+    macro(OperationGetByValWithThisOptimize) \
     macro(OperationGenericIn) \
-    macro(OperationInById) \
     macro(OperationInByIdGeneric) \
     macro(OperationInByIdOptimize) \
     macro(OperationPutByIdStrict) \
-    macro(OperationPutByIdNonStrict) \
+    macro(OperationPutByIdSloppy) \
     macro(OperationPutByIdDirectStrict) \
-    macro(OperationPutByIdDirectNonStrict) \
+    macro(OperationPutByIdDirectSloppy) \
     macro(OperationPutByIdStrictOptimize) \
-    macro(OperationPutByIdNonStrictOptimize) \
+    macro(OperationPutByIdSloppyOptimize) \
     macro(OperationPutByIdDirectStrictOptimize) \
-    macro(OperationPutByIdDirectNonStrictOptimize) \
+    macro(OperationPutByIdDirectSloppyOptimize) \
     macro(OperationPutByIdStrictBuildList) \
-    macro(OperationPutByIdNonStrictBuildList) \
-    macro(OperationPutByIdDirectStrictBuildList) \
-    macro(OperationPutByIdDirectNonStrictBuildList) \
-    macro(OperationPutByIdDefinePrivateFieldFieldStrictOptimize) \
-    macro(OperationPutByIdPutPrivateFieldFieldStrictOptimize) \
-    macro(PutByIdAddAccessCase) \
-    macro(PutByIdReplaceWithJump) \
-    macro(PutByIdSelfPatch) \
-    macro(InByIdSelfPatch) \
+    macro(OperationPutByIdSloppyBuildList) \
+    macro(OperationPutByIdDefinePrivateFieldStrictOptimize) \
+    macro(OperationPutByIdPutPrivateFieldStrictOptimize) \
+    macro(PutByAddAccessCase) \
+    macro(PutByReplaceWithJump) \
+    macro(PutBySelfPatch) \
+    macro(InBySelfPatch) \
     macro(DelByReplaceWithJump) \
     macro(DelByReplaceWithGeneric) \
-    macro(OperationGetPrivateNameOptimize)
+    macro(OperationGetPrivateNameOptimize) \
+    macro(OperationGetPrivateNameById) \
+    macro(OperationGetPrivateNameByIdOptimize) \
+    macro(OperationGetPrivateNameByIdGeneric) \
+    macro(CheckPrivateBrandAddAccessCase) \
+    macro(SetPrivateBrandAddAccessCase) \
+    macro(CheckPrivateBrandReplaceWithJump) \
+    macro(SetPrivateBrandReplaceWithJump) \
+    macro(OperationPutByIdSetPrivateFieldStrictOptimize)
 
 class ICEvent {
 public:
@@ -123,11 +130,6 @@ public:
             && m_propertyName == other.m_propertyName;
     }
     
-    bool operator!=(const ICEvent& other) const
-    {
-        return !(*this == other);
-    }
-    
     bool operator<(const ICEvent& other) const;
     bool operator>(const ICEvent& other) const { return other < *this; }
     bool operator<=(const ICEvent& other) const { return !(*this > other); }
@@ -145,8 +147,8 @@ public:
     unsigned hash() const
     {
         if (m_propertyName.isNull())
-            return m_kind + m_propertyLocation + WTF::PtrHash<const ClassInfo*>::hash(m_classInfo);
-        return m_kind + m_propertyLocation + WTF::PtrHash<const ClassInfo*>::hash(m_classInfo) + StringHash::hash(m_propertyName.string());
+            return static_cast<unsigned>(m_kind) + static_cast<unsigned>(m_propertyLocation) + WTF::PtrHash<const ClassInfo*>::hash(m_classInfo);
+        return static_cast<unsigned>(m_kind) + static_cast<unsigned>(m_propertyLocation) + WTF::PtrHash<const ClassInfo*>::hash(m_classInfo) + StringHash::hash(m_propertyName.string());
     }
     
     bool isHashTableDeletedValue() const
@@ -192,7 +194,7 @@ namespace JSC {
 
 class ICStats {
     WTF_MAKE_NONCOPYABLE(ICStats);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(ICStats);
 public:
     ICStats();
     ~ICStats();

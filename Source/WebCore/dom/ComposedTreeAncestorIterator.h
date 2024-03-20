@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include "ElementRareData.h"
 #include "HTMLSlotElement.h"
 #include "PseudoElement.h"
 #include "ShadowRoot.h"
@@ -41,8 +42,7 @@ public:
     Element& operator*() { return get(); }
     Element* operator->() { return &get(); }
 
-    bool operator==(const ComposedTreeAncestorIterator& other) const { return m_current == other.m_current; }
-    bool operator!=(const ComposedTreeAncestorIterator& other) const { return m_current != other.m_current; }
+    friend bool operator==(ComposedTreeAncestorIterator, ComposedTreeAncestorIterator) = default;
 
     ComposedTreeAncestorIterator& operator++() { return traverseParent(); }
 
@@ -52,7 +52,7 @@ public:
 private:
     void traverseParentInShadowTree();
 
-    Node* m_current { 0 };
+    Node* m_current { nullptr };
 };
 
 inline ComposedTreeAncestorIterator::ComposedTreeAncestorIterator()
@@ -72,8 +72,8 @@ inline ComposedTreeAncestorIterator& ComposedTreeAncestorIterator::traverseParen
         m_current = nullptr;
         return *this;
     }
-    if (is<ShadowRoot>(*parent)) {
-        m_current = downcast<ShadowRoot>(*parent).host();
+    if (auto shadowRoot = dynamicDowncast<ShadowRoot>(*parent)) {
+        m_current = shadowRoot->host();
         return *this;
     }
     if (!is<Element>(*parent)) {
@@ -100,10 +100,10 @@ public:
 
     iterator begin()
     {
-        if (is<ShadowRoot>(m_node))
-            return iterator(*downcast<ShadowRoot>(m_node).host());
-        if (is<PseudoElement>(m_node))
-            return iterator(*downcast<PseudoElement>(m_node).hostElement());
+        if (auto shadowRoot = dynamicDowncast<ShadowRoot>(m_node.get()))
+            return iterator(*shadowRoot->host());
+        if (auto pseudoElement = dynamicDowncast<PseudoElement>(m_node.get()))
+            return iterator(*pseudoElement->hostElement());
         return iterator(m_node).traverseParent();
     }
     iterator end()
@@ -119,7 +119,7 @@ public:
     }
 
 private:
-    Node& m_node;
+    Ref<Node> m_node;
 };
 
 // FIXME: We should have const versions too.

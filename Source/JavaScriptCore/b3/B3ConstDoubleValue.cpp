@@ -106,7 +106,7 @@ Value* ConstDoubleValue::doubleToFloatConstant(Procedure& proc) const
 
 Value* ConstDoubleValue::absConstant(Procedure& proc) const
 {
-    return proc.add<ConstDoubleValue>(origin(), fabs(m_value));
+    return proc.add<ConstDoubleValue>(origin(), std::abs(m_value));
 }
 
 Value* ConstDoubleValue::ceilConstant(Procedure& proc) const
@@ -136,6 +136,20 @@ Value* ConstDoubleValue::modConstant(Procedure& proc, const Value* other) const
     if (!other->hasDouble())
         return nullptr;
     return proc.add<ConstDoubleValue>(origin(), fmod(m_value, other->asDouble()));
+}
+
+Value* ConstDoubleValue::fMinConstant(Procedure& proc, const Value* other) const
+{
+    if (!other->hasDouble())
+        return nullptr;
+    return proc.add<ConstDoubleValue>(origin(), fMin(m_value, other->asDouble()));
+}
+
+Value* ConstDoubleValue::fMaxConstant(Procedure& proc, const Value* other) const
+{
+    if (!other->hasDouble())
+        return nullptr;
+    return proc.add<ConstDoubleValue>(origin(), fMax(m_value, other->asDouble()));
 }
 
 TriState ConstDoubleValue::equalConstant(const Value* other) const
@@ -194,7 +208,7 @@ TriState ConstDoubleValue::equalOrUnorderedConstant(const Value* other) const
 void ConstDoubleValue::dumpMeta(CommaPrinter& comma, PrintStream& out) const
 {
     out.print(comma);
-    out.printf("%le", m_value);
+    out.printf("%le(%llu)", m_value, static_cast<unsigned long long>(bitwise_cast<uint64_t>(m_value)));
 }
 
 } } // namespace JSC::B3

@@ -26,14 +26,14 @@
 #include "config.h"
 #include "EditingRange.h"
 
-#include <WebCore/Frame.h>
 #include <WebCore/FrameSelection.h>
+#include <WebCore/LocalFrame.h>
 #include <WebCore/TextIterator.h>
 #include <WebCore/VisibleUnits.h>
 
 namespace WebKit {
 
-Optional<WebCore::SimpleRange> EditingRange::toRange(WebCore::Frame& frame, const EditingRange& editingRange, EditingRangeIsRelativeTo base)
+std::optional<WebCore::SimpleRange> EditingRange::toRange(WebCore::LocalFrame& frame, const EditingRange& editingRange, EditingRangeIsRelativeTo base)
 {
     ASSERT(editingRange.location != notFound);
     WebCore::CharacterRange range { editingRange.location, editingRange.length };
@@ -45,9 +45,9 @@ Optional<WebCore::SimpleRange> EditingRange::toRange(WebCore::Frame& frame, cons
         // directly in the document DOM, so serialization is problematic. Our solution is
         // to use the root editable element of the selection start as the positional base.
         // That fits with AppKit's idea of an input context.
-        auto* element = frame.selection().rootEditableElementOrDocumentElement();
+        RefPtr element = frame.selection().rootEditableElementOrDocumentElement();
         if (!element)
-            return WTF::nullopt;
+            return std::nullopt;
         return resolveCharacterRange(makeRangeSelectingNodeContents(*element), range);
     }
 
@@ -55,20 +55,20 @@ Optional<WebCore::SimpleRange> EditingRange::toRange(WebCore::Frame& frame, cons
 
     auto paragraphStart = makeBoundaryPoint(startOfParagraph(frame.selection().selection().visibleStart()));
     if (!paragraphStart)
-        return WTF::nullopt;
+        return std::nullopt;
 
-    auto scopeEnd = makeBoundaryPointAfterNodeContents(paragraphStart->container->treeScope().rootNode());
+    auto scopeEnd = makeBoundaryPointAfterNodeContents(Ref { paragraphStart->container->treeScope().rootNode() });
     return WebCore::resolveCharacterRange({ WTFMove(*paragraphStart), WTFMove(scopeEnd) }, range);
 }
 
-EditingRange EditingRange::fromRange(WebCore::Frame& frame, const Optional<WebCore::SimpleRange>& range, EditingRangeIsRelativeTo editingRangeIsRelativeTo)
+EditingRange EditingRange::fromRange(WebCore::LocalFrame& frame, const std::optional<WebCore::SimpleRange>& range, EditingRangeIsRelativeTo editingRangeIsRelativeTo)
 {
     ASSERT(editingRangeIsRelativeTo == EditingRangeIsRelativeTo::EditableRoot);
 
     if (!range)
         return { };
 
-    auto* element = frame.selection().rootEditableElementOrDocumentElement();
+    RefPtr element = frame.selection().rootEditableElementOrDocumentElement();
     if (!element)
         return { };
 
@@ -77,25 +77,3 @@ EditingRange EditingRange::fromRange(WebCore::Frame& frame, const Optional<WebCo
 }
 
 } // namespace WebKit
-
-namespace IPC {
-
-void ArgumentCoder<WebKit::EditingRange>::encode(Encoder& encoder, const WebKit::EditingRange& editingRange)
-{
-    encoder << editingRange.location;
-    encoder << editingRange.length;
-}
-
-Optional<WebKit::EditingRange> ArgumentCoder<WebKit::EditingRange>::decode(Decoder& decoder)
-{
-    WebKit::EditingRange editingRange;
-
-    if (!decoder.decode(editingRange.location))
-        return WTF::nullopt;
-    if (!decoder.decode(editingRange.length))
-        return WTF::nullopt;
-
-    return editingRange;
-}
-
-} // namespace IPC

@@ -48,12 +48,26 @@
 
 - (void)beginEditing
 {
+    if (_editing)
+        return;
+
     _editing = YES;
     [_control controlBeginEditing];
 }
 
+- (void)updateEditing
+{
+    if (!_editing)
+        return;
+
+    [_control controlUpdateEditing];
+}
+
 - (void)endEditing
 {
+    if (!_editing)
+        return;
+
     _editing = NO;
     [_control controlEndEditing];
 }

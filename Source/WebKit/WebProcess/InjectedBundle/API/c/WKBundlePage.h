@@ -66,7 +66,6 @@ WK_EXPORT void WKBundlePageSetPolicyClient(WKBundlePageRef page, WKBundlePagePol
 WK_EXPORT void WKBundlePageSetUIClient(WKBundlePageRef page, WKBundlePageUIClientBase* client);
 WK_EXPORT void WKBundlePageSetFullScreenClient(WKBundlePageRef page, WKBundlePageFullScreenClientBase* client);
 
-WK_EXPORT WKBundlePageGroupRef WKBundlePageGetPageGroup(WKBundlePageRef page);
 WK_EXPORT WKBundleFrameRef WKBundlePageGetMainFrame(WKBundlePageRef page);
 WK_EXPORT WKFrameHandleRef WKBundleFrameCreateFrameHandle(WKBundleFrameRef);
 
@@ -92,7 +91,6 @@ WK_EXPORT bool WKBundlePageHasLocalDataForURL(WKBundlePageRef page, WKURLRef url
 WK_EXPORT bool WKBundlePageCanHandleRequest(WKURLRequestRef request);
 
 WK_EXPORT bool WKBundlePageFindString(WKBundlePageRef page, WKStringRef target, WKFindOptions findOptions);
-WK_EXPORT void WKBundlePageFindStringMatches(WKBundlePageRef page, WKStringRef target, WKFindOptions findOptions);
 WK_EXPORT void WKBundlePageReplaceStringMatches(WKBundlePageRef page, WKArrayRef matchIndices, WKStringRef replacementText, bool selectionOnly);
 
 WK_EXPORT WKImageRef WKBundlePageCreateSnapshotWithOptions(WKBundlePageRef page, WKRect rect, WKSnapshotOptions options);
@@ -109,7 +107,9 @@ WK_EXPORT double WKBundlePageGetBackingScaleFactor(WKBundlePageRef page);
 
 WK_EXPORT void WKBundlePageListenForLayoutMilestones(WKBundlePageRef page, WKLayoutMilestones milestones);
 
-WK_EXPORT WKBundleInspectorRef WKBundlePageGetInspector(WKBundlePageRef page);
+WK_EXPORT void WKBundlePageShowInspectorForTest(WKBundlePageRef page);
+WK_EXPORT void WKBundlePageCloseInspectorForTest(WKBundlePageRef page);
+WK_EXPORT void WKBundlePageEvaluateScriptInInspectorForTest(WKBundlePageRef page, WKStringRef script);
 
 WK_EXPORT bool WKBundlePageIsUsingEphemeralSession(WKBundlePageRef page);
 
@@ -119,6 +119,8 @@ WK_EXPORT void WKBundlePageStartMonitoringScrollOperations(WKBundlePageRef page,
 
 WK_EXPORT WKStringRef WKBundlePageCopyGroupIdentifier(WKBundlePageRef page);
 
+WK_EXPORT void WKBundlePageSetSkipDecidePolicyForResponseIfPossible(WKBundlePageRef page, bool skip);
+
 typedef void (*WKBundlePageTestNotificationCallback)(void* context);
 // Returns true  if the callback function will be called, else false.
 WK_EXPORT bool WKBundlePageRegisterScrollOperationCompletionCallback(WKBundlePageRef, WKBundlePageTestNotificationCallback, bool expectWheelEndOrCancel, bool expectMomentumEnd, void* context);
@@ -126,12 +128,16 @@ WK_EXPORT bool WKBundlePageRegisterScrollOperationCompletionCallback(WKBundlePag
 // Call the given callback after both a postTask() on the page's document's ScriptExecutionContext, and a zero-delay timer.
 WK_EXPORT void WKBundlePageCallAfterTasksAndTimers(WKBundlePageRef, WKBundlePageTestNotificationCallback, void* context);
 
+WK_EXPORT void WKBundlePageLayoutIfNeeded(WKBundlePageRef page);
+
 WK_EXPORT void WKBundlePagePostMessage(WKBundlePageRef page, WKStringRef messageName, WKTypeRef messageBody);
 
 // Switches a connection into a fully synchronous mode, so all messages become synchronous until we get a response.
 WK_EXPORT void WKBundlePagePostSynchronousMessageForTesting(WKBundlePageRef page, WKStringRef messageName, WKTypeRef messageBody, WKTypeRef* returnRetainedData);
 // Same as WKBundlePagePostMessage() but the message cannot become synchronous, even if the connection is in fully synchronous mode.
 WK_EXPORT void WKBundlePagePostMessageIgnoringFullySynchronousMode(WKBundlePageRef page, WKStringRef messageName, WKTypeRef messageBody);
+
+WK_EXPORT void WKBundlePageFlushDeferredDidReceiveMouseEventForTesting(WKBundlePageRef page);
 
 #ifdef __cplusplus
 }

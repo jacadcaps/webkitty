@@ -12,12 +12,6 @@
 
 #define ANGLE_GLES_3_2_CONTEXT_API                                                                 \
     void blendBarrier();                                                                           \
-    void blendEquationSeparatei(GLuint buf, GLenum modeRGB, GLenum modeAlpha);                     \
-    void blendEquationi(GLuint buf, GLenum mode);                                                  \
-    void blendFuncSeparatei(GLuint buf, GLenum srcRGB, GLenum dstRGB, GLenum srcAlpha,             \
-                            GLenum dstAlpha);                                                      \
-    void blendFunci(GLuint buf, GLenum src, GLenum dst);                                           \
-    void colorMaski(GLuint index, GLboolean r, GLboolean g, GLboolean b, GLboolean a);             \
     void copyImageSubData(GLuint srcName, GLenum srcTarget, GLint srcLevel, GLint srcX,            \
                           GLint srcY, GLint srcZ, GLuint dstName, GLenum dstTarget,                \
                           GLint dstLevel, GLint dstX, GLint dstY, GLint dstZ, GLsizei srcWidth,    \
@@ -27,7 +21,6 @@
                              const GLuint *ids, GLboolean enabled);                                \
     void debugMessageInsert(GLenum source, GLenum type, GLuint id, GLenum severity,                \
                             GLsizei length, const GLchar *buf);                                    \
-    void disablei(GLenum target, GLuint index);                                                    \
     void drawElementsBaseVertex(PrimitiveMode modePacked, GLsizei count,                           \
                                 DrawElementsType typePacked, const void *indices,                  \
                                 GLint basevertex);                                                 \
@@ -37,7 +30,6 @@
     void drawRangeElementsBaseVertex(PrimitiveMode modePacked, GLuint start, GLuint end,           \
                                      GLsizei count, DrawElementsType typePacked,                   \
                                      const void *indices, GLint basevertex);                       \
-    void enablei(GLenum target, GLuint index);                                                     \
     void framebufferTexture(GLenum target, GLenum attachment, TextureID texturePacked,             \
                             GLint level);                                                          \
     GLuint getDebugMessageLog(GLuint count, GLsizei bufSize, GLenum *sources, GLenum *types,       \
@@ -58,21 +50,16 @@
                        GLsizei bufSize, GLint *params);                                            \
     void getnUniformuiv(ShaderProgramID programPacked, UniformLocation locationPacked,             \
                         GLsizei bufSize, GLuint *params);                                          \
-    GLboolean isEnabledi(GLenum target, GLuint index) const;                                       \
-    void minSampleShading(GLfloat value);                                                          \
     void objectLabel(GLenum identifier, GLuint name, GLsizei length, const GLchar *label);         \
     void objectPtrLabel(const void *ptr, GLsizei length, const GLchar *label);                     \
-    void patchParameteri(GLenum pname, GLint value);                                               \
     void popDebugGroup();                                                                          \
-    void primitiveBoundingBox(GLfloat minX, GLfloat minY, GLfloat minZ, GLfloat minW,              \
-                              GLfloat maxX, GLfloat maxY, GLfloat maxZ, GLfloat maxW);             \
     void pushDebugGroup(GLenum source, GLuint id, GLsizei length, const GLchar *message);          \
     void readnPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type,  \
                      GLsizei bufSize, void *data);                                                 \
     void samplerParameterIiv(SamplerID samplerPacked, GLenum pname, const GLint *param);           \
     void samplerParameterIuiv(SamplerID samplerPacked, GLenum pname, const GLuint *param);         \
-    void texBuffer(GLenum target, GLenum internalformat, BufferID bufferPacked);                   \
-    void texBufferRange(GLenum target, GLenum internalformat, BufferID bufferPacked,               \
+    void texBuffer(TextureType targetPacked, GLenum internalformat, BufferID bufferPacked);        \
+    void texBufferRange(TextureType targetPacked, GLenum internalformat, BufferID bufferPacked,    \
                         GLintptr offset, GLsizeiptr size);                                         \
     void texParameterIiv(TextureType targetPacked, GLenum pname, const GLint *params);             \
     void texParameterIuiv(TextureType targetPacked, GLenum pname, const GLuint *params);           \

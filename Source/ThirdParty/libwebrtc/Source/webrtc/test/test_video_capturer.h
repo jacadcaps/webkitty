@@ -18,7 +18,7 @@
 #include "api/video/video_source_interface.h"
 #include "media/base/video_adapter.h"
 #include "media/base/video_broadcaster.h"
-#include "rtc_base/critical_section.h"
+#include "rtc_base/synchronization/mutex.h"
 
 namespace webrtc {
 namespace test {
@@ -38,9 +38,26 @@ class TestVideoCapturer : public rtc::VideoSourceInterface<VideoFrame> {
                        const rtc::VideoSinkWants& wants) override;
   void RemoveSink(rtc::VideoSinkInterface<VideoFrame>* sink) override;
   void SetFramePreprocessor(std::unique_ptr<FramePreprocessor> preprocessor) {
-    rtc::CritScope crit(&lock_);
+    MutexLock lock(&lock_);
     preprocessor_ = std::move(preprocessor);
   }
+  void SetEnableAdaptation(bool enable_adaptation) {
+    MutexLock lock(&lock_);
+    enable_adaptation_ = enable_adaptation;
+  }
+  void OnOutputFormatRequest(int width,
+                             int height,
+                             const absl::optional<int>& max_fps);
+
+  // Starts or resumes video capturing. Can be called multiple times during
+  // lifetime of this object.
+  virtual void Start() = 0;
+  // Stops or pauses video capturing. Can be called multiple times during
+  // lifetime of this object.
+  virtual void Stop() = 0;
+
+  virtual int GetFrameWidth() const = 0;
+  virtual int GetFrameHeight() const = 0;
 
  protected:
   void OnFrame(const VideoFrame& frame);
@@ -50,8 +67,9 @@ class TestVideoCapturer : public rtc::VideoSourceInterface<VideoFrame> {
   void UpdateVideoAdapter();
   VideoFrame MaybePreprocess(const VideoFrame& frame);
 
-  rtc::CriticalSection lock_;
+  Mutex lock_;
   std::unique_ptr<FramePreprocessor> preprocessor_ RTC_GUARDED_BY(lock_);
+  bool enable_adaptation_ RTC_GUARDED_BY(lock_) = true;
   rtc::VideoBroadcaster broadcaster_;
   cricket::VideoAdapter video_adapter_;
 };

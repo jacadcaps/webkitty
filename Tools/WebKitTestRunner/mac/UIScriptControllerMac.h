@@ -31,17 +31,21 @@ OBJC_CLASS WKWebView;
 
 namespace WTR {
 
-class UIScriptControllerMac : public UIScriptControllerCocoa {
+class UIScriptControllerMac final : public UIScriptControllerCocoa {
 public:
     explicit UIScriptControllerMac(UIScriptContext& context)
         : UIScriptControllerCocoa(context)
     {
     }
 
+private:
     void replaceTextAtRange(JSStringRef, int, int) override;
     void zoomToScale(double, JSValueRef) override;
     double zoomScale() const override;
     void simulateAccessibilitySettingsChangeNotification(JSValueRef) override;
+    bool isShowingDateTimePicker() const override;
+    double dateTimePickerValue() const override;
+    void chooseDateTimePickerValue() override;
     bool isShowingDataListSuggestions() const override;
     void activateDataListSuggestion(unsigned index, JSValueRef callback) override;
     void beginBackSwipe(JSValueRef) override;
@@ -50,18 +54,26 @@ public:
     void firstResponderSuppressionForWebView(bool) override;
     void makeWindowContentViewFirstResponder() override;
     bool isWindowContentViewFirstResponder() const override;
+    void becomeFirstResponder() override;
+    void resignFirstResponder() override;
     void toggleCapsLock(JSValueRef) override;
     NSView *platformContentView() const override;
     void clearAllCallbacks() override;
     void copyText(JSStringRef) override;
-    void setSpellCheckerResults(JSValueRef) override;
+    void setAppAccentColor(unsigned short red, unsigned short green, unsigned short blue) override;
+
+    void setWebViewAllowsMagnification(bool) override;
 
     void chooseMenuAction(JSStringRef, JSValueRef) override;
 
     void activateAtPoint(long x, long y, JSValueRef callback) override;
 
-private:
+    void sendEventStream(JSStringRef, JSValueRef) override;
+
     NSTableView *dataListSuggestionsTableView() const;
+    JSRetainPtr<JSStringRef> scrollbarStateForScrollingNodeID(unsigned long long, bool) const override;
+
+    int64_t pasteboardChangeCount() const final;
 };
 
 } // namespace WTR

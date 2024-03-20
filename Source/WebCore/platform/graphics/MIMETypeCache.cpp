@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,10 +30,10 @@
 
 namespace WebCore {
 
-HashSet<String, ASCIICaseInsensitiveHash>& MIMETypeCache::supportedTypes()
+HashSet<String>& MIMETypeCache::supportedTypes()
 {
     if (!m_supportedTypes) {
-        m_supportedTypes = HashSet<String, ASCIICaseInsensitiveHash> { };
+        m_supportedTypes = HashSet<String> { };
         initializeCache(*m_supportedTypes);
     }
 
@@ -48,10 +48,7 @@ bool MIMETypeCache::supportsContainerType(const String& containerType)
     if (isUnsupportedContainerType(containerType))
         return false;
 
-    if (staticContainerTypeList().contains(containerType))
-        return true;
-
-    return supportedTypes().contains(containerType);
+    return isStaticContainerType(containerType) || supportedTypes().contains(containerType);
 }
 
 MediaPlayerEnums::SupportsType MIMETypeCache::canDecodeType(const String& mimeType)
@@ -80,13 +77,18 @@ MediaPlayerEnums::SupportsType MIMETypeCache::canDecodeType(const String& mimeTy
             break;
         }
 
+        if (shouldOverrideExtendedType(contentType)) {
+            result = MediaPlayerEnums::SupportsType::IsSupported;
+            break;
+        }
+
         if (canDecodeExtendedType(contentType))
             result = MediaPlayerEnums::SupportsType::IsSupported;
 
     } while (0);
 
     if (!m_cachedResults)
-        m_cachedResults = HashMap<String, MediaPlayerEnums::SupportsType, ASCIICaseInsensitiveHash>();
+        m_cachedResults = HashMap<String, MediaPlayerEnums::SupportsType>();
     m_cachedResults->add(mimeType, result);
 
     return result;
@@ -95,16 +97,15 @@ MediaPlayerEnums::SupportsType MIMETypeCache::canDecodeType(const String& mimeTy
 void MIMETypeCache::addSupportedTypes(const Vector<String>& newTypes)
 {
     if (!m_supportedTypes)
-        m_supportedTypes = HashSet<String, ASCIICaseInsensitiveHash> { };
+        m_supportedTypes = HashSet<String> { };
 
     for (auto& type : newTypes)
         m_supportedTypes->add(type);
 }
 
-const HashSet<String, ASCIICaseInsensitiveHash>& MIMETypeCache::staticContainerTypeList()
+bool MIMETypeCache::isStaticContainerType(StringView)
 {
-    static const auto cache = makeNeverDestroyed(HashSet<String, ASCIICaseInsensitiveHash> { });
-    return cache;
+    return false;
 }
 
 bool MIMETypeCache::isUnsupportedContainerType(const String&)
@@ -122,7 +123,7 @@ bool MIMETypeCache::isEmpty() const
     return m_supportedTypes && m_supportedTypes->isEmpty();
 }
 
-void MIMETypeCache::initializeCache(HashSet<String, ASCIICaseInsensitiveHash>&)
+void MIMETypeCache::initializeCache(HashSet<String>&)
 {
 }
 
@@ -131,5 +132,18 @@ bool MIMETypeCache::canDecodeExtendedType(const ContentType&)
     return false;
 }
 
+bool MIMETypeCache::shouldOverrideExtendedType(const ContentType& type)
+{
+    ASSERT(canDecodeType(type.containerType()) != MediaPlayerEnums::SupportsType::IsNotSupported);
+
+    // Some sites (e.g. Modernizr) use 'audio/mpeg; codecs="mp3"' even though
+    // it is not RFC 3003 compliant.
+    if (equalLettersIgnoringASCIICase(type.containerType(), "audio/mpeg"_s)) {
+        auto codecs = type.codecs();
+        return codecs.size() == 1 && codecs[0] == "mp3"_s;
+    }
+
+    return false;
 }
 
+}

@@ -21,15 +21,15 @@
 #include "config.h"
 #include "FontPlatformData.h"
 
-#include <wtf/HashMap.h>
-#include <wtf/RetainPtr.h>
-#include <wtf/text/StringHash.h>
-#include <wtf/text/WTFString.h>
 
-#if OS(DARWIN) && USE(CG)
-#include "SharedBuffer.h"
-#include <CoreGraphics/CGFont.h>
-#endif
+#include "FontCache.h"
+#include "FontCustomPlatformData.h"
+#include "FontDescription.h"
+#include "RenderStyleConstants.h"
+#include "StyleFontSizeFunctions.h"
+
+#include <wtf/SortedArrayMap.h>
+#include <wtf/Vector.h>
 
 namespace WebCore {
 
@@ -42,24 +42,20 @@ FontPlatformData::FontPlatformData()
 {
 }
 
-FontPlatformData::FontPlatformData(float size, bool syntheticBold, bool syntheticOblique, FontOrientation orientation, FontWidthVariant widthVariant, TextRenderingMode textRenderingMode)
+FontPlatformData::FontPlatformData(float size, bool syntheticBold, bool syntheticOblique, FontOrientation orientation, FontWidthVariant widthVariant, TextRenderingMode textRenderingMode, const FontCustomPlatformData* customPlatformData)
     : m_size(size)
     , m_orientation(orientation)
     , m_widthVariant(widthVariant)
     , m_textRenderingMode(textRenderingMode)
+    , m_customPlatformData(customPlatformData)
     , m_syntheticBold(syntheticBold)
     , m_syntheticOblique(syntheticOblique)
 {
 }
 
-#if USE(CG) && PLATFORM(WIN)
-FontPlatformData::FontPlatformData(CGFontRef cgFont, float size, bool syntheticBold, bool syntheticOblique, FontOrientation orientation, FontWidthVariant widthVariant, TextRenderingMode textRenderingMode)
-    : FontPlatformData(size, syntheticBold, syntheticOblique, orientation, widthVariant, textRenderingMode)
-{
-    m_cgFont = cgFont;
-    ASSERT(m_cgFont);
-}
-#endif
+FontPlatformData::~FontPlatformData() = default;
+FontPlatformData::FontPlatformData(const FontPlatformData&) = default;
+FontPlatformData& FontPlatformData::operator=(const FontPlatformData&) = default;
 
 #if !USE(FREETYPE)
 FontPlatformData FontPlatformData::cloneWithOrientation(const FontPlatformData& source, FontOrientation orientation)
@@ -75,23 +71,48 @@ FontPlatformData FontPlatformData::cloneWithSyntheticOblique(const FontPlatformD
     copy.m_syntheticOblique = syntheticOblique;
     return copy;
 }
+#endif
 
+#if !USE(FREETYPE) && !PLATFORM(COCOA)
+// FIXME: Don't other platforms also need to reinstantiate their copy.m_font for scaled size?
 FontPlatformData FontPlatformData::cloneWithSize(const FontPlatformData& source, float size)
 {
     FontPlatformData copy(source);
-    copy.m_size = size;
+    copy.updateSize(size);
     return copy;
+}
+
+void FontPlatformData::updateSize(float size)
+{
+    m_size = size;
 }
 #endif
 
-#if !PLATFORM(COCOA)
-
-String FontPlatformData::familyName() const
+void FontPlatformData::updateSizeWithFontSizeAdjust(const FontSizeAdjust& fontSizeAdjust, float computedSize)
 {
-    // FIXME: Not implemented yet.
-    return { };
+    if (!fontSizeAdjust.value)
+        return;
+
+    auto tmpFont = FontCache::forCurrentThread().fontForPlatformData(*this);
+    auto adjustedFontSize = Style::adjustedFontSize(computedSize, fontSizeAdjust, tmpFont->fontMetrics());
+
+    if (adjustedFontSize == size())
+        return;
+
+    updateSize(std::min(adjustedFontSize, maximumAllowedFontSize));
 }
 
+const FontPlatformData::CreationData* FontPlatformData::creationData() const
+{
+    return m_customPlatformData ? &m_customPlatformData->creationData : nullptr;
+}
+
+#if !PLATFORM(COCOA) && !USE(FREETYPE)
+Vector<FontPlatformData::FontVariationAxis> FontPlatformData::variationAxes(ShouldLocalizeAxisNames) const
+{
+    // FIXME: <webkit.org/b/219614> Not implemented yet.
+    return { };
+}
 #endif
 
 }

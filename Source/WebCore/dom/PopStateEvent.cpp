@@ -39,6 +39,7 @@ WTF_MAKE_ISO_ALLOCATED_IMPL(PopStateEvent);
 PopStateEvent::PopStateEvent(const AtomString& type, const Init& initializer, IsTrusted isTrusted)
     : Event(type, initializer, isTrusted)
     , m_state(initializer.state)
+    , m_hasUAVisualTransition(initializer.hasUAVisualTransition)
 {
 }
 
@@ -71,7 +72,7 @@ RefPtr<SerializedScriptValue> PopStateEvent::trySerializeState(JSC::JSGlobalObje
     ASSERT(m_state);
     
     if (!m_serializedState && !m_triedToSerialize) {
-        m_serializedState = SerializedScriptValue::create(executionState, m_state, SerializationErrorMode::NonThrowing);
+        m_serializedState = SerializedScriptValue::create(executionState, m_state.getValue(), SerializationForStorage::No, SerializationErrorMode::NonThrowing);
         m_triedToSerialize = true;
     }
     

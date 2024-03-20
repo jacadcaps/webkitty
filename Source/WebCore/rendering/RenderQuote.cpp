@@ -24,6 +24,7 @@
 #include "RenderQuote.h"
 
 #include "QuotesData.h"
+#include "RenderBoxModelObjectInlines.h"
 #include "RenderTextFragment.h"
 #include "RenderTreeBuilder.h"
 #include "RenderView.h"
@@ -36,10 +37,11 @@ using namespace WTF::Unicode;
 WTF_MAKE_ISO_ALLOCATED_IMPL(RenderQuote);
 
 RenderQuote::RenderQuote(Document& document, RenderStyle&& style, QuoteType quote)
-    : RenderInline(document, WTFMove(style))
+    : RenderInline(Type::Quote, document, WTFMove(style))
     , m_type(quote)
     , m_text(emptyString())
 {
+    ASSERT(isRenderQuote());
 }
 
 RenderQuote::~RenderQuote()
@@ -47,16 +49,16 @@ RenderQuote::~RenderQuote()
     // Do not add any code here. Add it to willBeDestroyed() instead.
 }
 
-void RenderQuote::insertedIntoTree()
+void RenderQuote::insertedIntoTree(IsInternalMove isInternalMove)
 {
-    RenderInline::insertedIntoTree();
+    RenderInline::insertedIntoTree(isInternalMove);
     view().setHasQuotesNeedingUpdate(true);
 }
 
-void RenderQuote::willBeRemovedFromTree()
+void RenderQuote::willBeRemovedFromTree(IsInternalMove isInternalMove)
 {
     view().setHasQuotesNeedingUpdate(true);
-    RenderInline::willBeRemovedFromTree();
+    RenderInline::willBeRemovedFromTree(isInternalMove);
 }
 
 void RenderQuote::styleDidChange(StyleDifference diff, const RenderStyle* oldStyle)
@@ -367,7 +369,7 @@ static const QuotesForLanguage* quotesForLanguage(const String& language)
         checkNumberOfDistinctQuoteCharacters(quotationMark);
         checkNumberOfDistinctQuoteCharacters(apostrophe);
 
-        for (unsigned i = 0; i < WTF_ARRAY_LENGTH(quoteTable); ++i) {
+        for (unsigned i = 0; i < std::size(quoteTable); ++i) {
             if (i)
                 ASSERT(strcmp(quoteTable[i - 1].language, quoteTable[i].language) < 0);
 
@@ -398,7 +400,7 @@ static const QuotesForLanguage* quotesForLanguage(const String& language)
     QuotesForLanguage languageKey = { languageKeyBuffer.data(), 0, 0, 0, 0, 0 };
 
     return static_cast<const QuotesForLanguage*>(bsearch(&languageKey,
-        quoteTable, WTF_ARRAY_LENGTH(quoteTable), sizeof(quoteTable[0]), quoteTableLanguageComparisonFunction));
+        quoteTable, std::size(quoteTable), sizeof(quoteTable[0]), quoteTableLanguageComparisonFunction));
 }
 
 static StringImpl* stringForQuoteCharacter(UChar character)
@@ -435,17 +437,6 @@ static inline StringImpl* apostropheString()
     return apostropheString;
 }
 
-static RenderTextFragment* quoteTextRenderer(RenderObject* lastChild)
-{
-    if (!lastChild)
-        return nullptr;
-
-    if (!is<RenderTextFragment>(lastChild))
-        return nullptr;
-
-    return downcast<RenderTextFragment>(lastChild);
-}
-
 void RenderQuote::updateTextRenderer(RenderTreeBuilder& builder)
 {
     ASSERT_WITH_SECURITY_IMPLICATION(document().inRenderTreeUpdate());
@@ -453,7 +444,7 @@ void RenderQuote::updateTextRenderer(RenderTreeBuilder& builder)
     if (m_text == text)
         return;
     m_text = text;
-    if (auto* renderText = quoteTextRenderer(lastChild())) {
+    if (auto* renderText = dynamicDowncast<RenderTextFragment>(lastChild())) {
         renderText->setContentString(m_text);
         renderText->dirtyLineBoxes(false);
         return;

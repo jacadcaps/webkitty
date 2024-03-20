@@ -36,18 +36,20 @@ namespace WebCore {
 
 class ContentType;
 
-class AVStreamDataParserMIMETypeCache final : public MIMETypeCache {
+class WEBCORE_EXPORT AVStreamDataParserMIMETypeCache final : public MIMETypeCache {
 public:
-    WEBCORE_EXPORT static AVStreamDataParserMIMETypeCache& singleton();
+    static AVStreamDataParserMIMETypeCache& singleton();
 
     bool isAvailable() const final;
+    MediaPlayerEnums::SupportsType canDecodeType(const String&) final;
+    HashSet<String>& supportedTypes() final;
 
 private:
     friend NeverDestroyed<AVStreamDataParserMIMETypeCache>;
     AVStreamDataParserMIMETypeCache() = default;
 
     bool canDecodeExtendedType(const ContentType&) final;
-    void initializeCache(HashSet<String, ASCIICaseInsensitiveHash>&) final;
+    void initializeCache(HashSet<String>&) final;
 };
 
 }

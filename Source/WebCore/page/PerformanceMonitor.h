@@ -28,7 +28,6 @@
 #include "ActivityState.h"
 #include "Timer.h"
 #include <wtf/CPUTime.h>
-#include <wtf/Optional.h>
 
 namespace WebCore {
 
@@ -41,7 +40,7 @@ public:
 
     void didStartProvisionalLoad();
     void didFinishLoad();
-    void activityStateChanged(OptionSet<ActivityState::Flag> oldState, OptionSet<ActivityState::Flag> newState);
+    void activityStateChanged(OptionSet<ActivityState> oldState, OptionSet<ActivityState> newState);
 
 private:
     void measurePostLoadCPUUsage();
@@ -56,11 +55,11 @@ private:
     Page& m_page;
 
     Timer m_postPageLoadCPUUsageTimer;
-    Optional<CPUTime> m_postLoadCPUTime;
+    std::optional<CPUTime> m_postLoadCPUTime;
     Timer m_postBackgroundingCPUUsageTimer;
-    Optional<CPUTime> m_postBackgroundingCPUTime;
+    std::optional<CPUTime> m_postBackgroundingCPUTime;
     Timer m_perActivityStateCPUUsageTimer;
-    Optional<CPUTime> m_perActivityStateCPUTime;
+    std::optional<CPUTime> m_perActivityStateCPUTime;
 
     Timer m_postPageLoadMemoryUsageTimer;
     Timer m_postBackgroundingMemoryUsageTimer;

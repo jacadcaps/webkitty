@@ -29,24 +29,26 @@
 #if USE(LIBWEBRTC)
 
 #include "DataReference.h"
+#include "LibWebRTCNetworkManager.h"
 #include "LibWebRTCSocketFactory.h"
 #include "NetworkProcessConnection.h"
 #include "NetworkRTCProviderMessages.h"
 #include "RTCPacketOptions.h"
 #include "WebProcess.h"
+#include <WebCore/ScriptExecutionContextIdentifier.h>
 #include <WebCore/SharedBuffer.h>
 #include <wtf/Function.h>
 #include <wtf/MainThread.h>
 
 namespace WebKit {
 
-LibWebRTCSocket::LibWebRTCSocket(LibWebRTCSocketFactory& factory, const void* socketGroup, Type type, const rtc::SocketAddress& localAddress, const rtc::SocketAddress& remoteAddress)
+LibWebRTCSocket::LibWebRTCSocket(LibWebRTCSocketFactory& factory, WebCore::ScriptExecutionContextIdentifier contextIdentifier, Type type, const rtc::SocketAddress& localAddress, const rtc::SocketAddress& remoteAddress)
     : m_factory(factory)
     , m_identifier(WebCore::LibWebRTCSocketIdentifier::generate())
     , m_type(type)
     , m_localAddress(localAddress)
     , m_remoteAddress(remoteAddress)
-    , m_socketGroup(socketGroup)
+    , m_contextIdentifier(contextIdentifier)
 {
     m_factory.addSocket(*this);
 }
@@ -85,15 +87,7 @@ void LibWebRTCSocket::signalReadPacket(const uint8_t* data, size_t size, rtc::So
 
 void LibWebRTCSocket::signalSentPacket(int rtcPacketID, int64_t sendTimeMs)
 {
-    if (m_beingSentPacketSizes.isEmpty())
-        return;
-
-    m_availableSendingBytes += m_beingSentPacketSizes.takeFirst();
     SignalSentPacket(this, rtc::SentPacket(rtcPacketID, sendTimeMs));
-    if (m_shouldSignalReadyToSend) {
-        m_shouldSignalReadyToSend = false;
-        SignalReadyToSend(this);
-    }
 }
 
 void LibWebRTCSocket::signalConnect()
@@ -108,28 +102,15 @@ void LibWebRTCSocket::signalClose(int error)
     SignalClose(this, error);
 }
 
-void LibWebRTCSocket::signalNewConnection(rtc::AsyncPacketSocket* newConnectionSocket)
+void LibWebRTCSocket::signalUsedInterface(String&& name)
 {
-    ASSERT(m_type == Type::ServerTCP);
-    SignalNewConnection(this, newConnectionSocket);
-}
-
-bool LibWebRTCSocket::willSend(size_t size)
-{
-    if (size > m_availableSendingBytes) {
-        m_shouldSignalReadyToSend = true;
-        setError(EWOULDBLOCK);
-        return false;
-    }
-    m_availableSendingBytes -= size;
-    m_beingSentPacketSizes.append(size);
-    return true;
+    LibWebRTCNetworkManager::signalUsedInterface(m_contextIdentifier, WTFMove(name));
 }
 
 int LibWebRTCSocket::SendTo(const void *value, size_t size, const rtc::SocketAddress& address, const rtc::PacketOptions& options)
 {
-    auto* connection = m_factory.connection();
-    if (!connection || !willSend(size))
+    RefPtr connection = m_factory.connection();
+    if (!connection)
         return -1;
 
     if (m_isSuspended)
@@ -143,7 +124,7 @@ int LibWebRTCSocket::SendTo(const void *value, size_t size, const rtc::SocketAdd
 
 int LibWebRTCSocket::Close()
 {
-    auto* connection = m_factory.connection();
+    RefPtr connection = m_factory.connection();
     if (!connection || m_state == STATE_CLOSED)
         return 0;
 
@@ -179,27 +160,16 @@ int LibWebRTCSocket::SetOption(rtc::Socket::Option option, int value)
 void LibWebRTCSocket::resume()
 {
     m_isSuspended = false;
-
-    // On resume, we notify libwebrtc that TCP sockets are errored.
-    // We notify libwebrtc that all pending UDP packets have been sent even though we actually dropped them.
-    if (m_type != Type::UDP) {
-        signalClose(-1);
-        return;
-    }
-
-    auto currentTime = rtc::TimeMillis();
-    while (!m_beingSentPacketSizes.isEmpty())
-        signalSentPacket(-1, currentTime);
 }
 
 void LibWebRTCSocket::suspend()
 {
     m_isSuspended = true;
 
-    // On suspend, we close TCP sockets as we cannot make sure packets are delivered reliably.
-    if (m_type == Type::UDP)
+    if (m_state == STATE_CLOSED)
         return;
 
+    signalClose(-1);
     if (auto* connection = m_factory.connection())
         connection->send(Messages::NetworkRTCProvider::CloseSocket { m_identifier }, 0);
 }

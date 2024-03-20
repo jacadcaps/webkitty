@@ -29,8 +29,9 @@
 #include "Operations.h"
 #include "ParseInt.h"
 #include "Uint16WithFraction.h"
-#include <wtf/dtoa.h>
 #include <wtf/Assertions.h>
+#include <wtf/dragonbox/dragonbox_to_chars.h>
+#include <wtf/dtoa.h>
 #include <wtf/dtoa/double-conversion.h>
 
 using DoubleToStringConverter = WTF::double_conversion::DoubleToStringConverter;
@@ -40,10 +41,10 @@ typedef WTF::double_conversion::StringBuilder DoubleConversionStringBuilder;
 
 namespace JSC {
 
-static EncodedJSValue JSC_HOST_CALL numberProtoFuncToLocaleString(JSGlobalObject*, CallFrame*);
-static EncodedJSValue JSC_HOST_CALL numberProtoFuncToFixed(JSGlobalObject*, CallFrame*);
-static EncodedJSValue JSC_HOST_CALL numberProtoFuncToExponential(JSGlobalObject*, CallFrame*);
-static EncodedJSValue JSC_HOST_CALL numberProtoFuncToPrecision(JSGlobalObject*, CallFrame*);
+static JSC_DECLARE_HOST_FUNCTION(numberProtoFuncToLocaleString);
+static JSC_DECLARE_HOST_FUNCTION(numberProtoFuncToFixed);
+static JSC_DECLARE_HOST_FUNCTION(numberProtoFuncToExponential);
+static JSC_DECLARE_HOST_FUNCTION(numberProtoFuncToPrecision);
 
 }
 
@@ -51,7 +52,7 @@ static EncodedJSValue JSC_HOST_CALL numberProtoFuncToPrecision(JSGlobalObject*, 
 
 namespace JSC {
 
-const ClassInfo NumberPrototype::s_info = { "Number", &NumberObject::s_info, &numberPrototypeTable, nullptr, CREATE_METHOD_TABLE(NumberPrototype) };
+const ClassInfo NumberPrototype::s_info = { "Number"_s, &NumberObject::s_info, &numberPrototypeTable, nullptr, CREATE_METHOD_TABLE(NumberPrototype) };
 
 /* Source for NumberPrototype.lut.h
 @begin numberPrototypeTable
@@ -75,13 +76,13 @@ void NumberPrototype::finishCreation(VM& vm, JSGlobalObject* globalObject)
     Base::finishCreation(vm);
     setInternalValue(vm, jsNumber(0));
     putDirectWithoutTransition(vm, vm.propertyNames->toString, globalObject->numberProtoToStringFunction(), static_cast<unsigned>(PropertyAttribute::DontEnum));
-    ASSERT(inherits(vm, info()));
+    ASSERT(inherits(info()));
     globalObject->installNumberPrototypeWatchpoint(this);
 }
 
 // ------------------------------ Functions ---------------------------
 
-static ALWAYS_INLINE bool toThisNumber(VM& vm, JSValue thisValue, double& x)
+static ALWAYS_INLINE bool toThisNumber(JSValue thisValue, double& x)
 {
     if (thisValue.isInt32()) {
         x = thisValue.asInt32();
@@ -93,8 +94,8 @@ static ALWAYS_INLINE bool toThisNumber(VM& vm, JSValue thisValue, double& x)
         return true;
     }
 
-    if (auto* numberObject = jsDynamicCast<NumberObject*>(vm, thisValue)) {
-        Integrity::auditStructureID(vm, numberObject->structureID());
+    if (auto* numberObject = jsDynamicCast<NumberObject*>(thisValue)) {
+        Integrity::auditStructureID(numberObject->structureID());
         x = numberObject->internalValue().asNumber();
         return true;
     }
@@ -104,9 +105,9 @@ static ALWAYS_INLINE bool toThisNumber(VM& vm, JSValue thisValue, double& x)
 
 static ALWAYS_INLINE EncodedJSValue throwVMToThisNumberError(JSGlobalObject* globalObject, ThrowScope& scope, JSValue thisValue)
 {
-    auto typeString = asString(jsTypeStringForValue(globalObject->vm(), globalObject, thisValue))->value(globalObject);
+    auto typeString = jsTypeStringForValue(globalObject, thisValue)->value(globalObject);
     scope.assertNoException();
-    return throwVMTypeError(globalObject, scope, WTF::makeString("thisNumberValue called on incompatible ", typeString));
+    return throwVMTypeError(globalObject, scope, WTF::makeString("thisNumberValue called on incompatible "_s, typeString));
 }
 
 // The largest finite floating point number is 1.mantissa * 2^(0x7fe-0x3ff).
@@ -375,25 +376,25 @@ String toStringWithRadix(double doubleValue, int32_t radix)
         return String::number(doubleValue);
 
     RadixBuffer buffer;
-    return toStringWithRadixInternal(buffer, doubleValue, radix);
+    return String::fromLatin1(toStringWithRadixInternal(buffer, doubleValue, radix));
 }
 
 // toExponential converts a number to a string, always formatting as an exponential.
 // This method takes an optional argument specifying a number of *decimal places*
 // to round the significand to (or, put another way, this method optionally rounds
 // to argument-plus-one significant figures).
-EncodedJSValue JSC_HOST_CALL numberProtoFuncToExponential(JSGlobalObject* globalObject, CallFrame* callFrame)
+JSC_DEFINE_HOST_FUNCTION(numberProtoFuncToExponential, (JSGlobalObject* globalObject, CallFrame* callFrame))
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     double x;
-    if (!toThisNumber(vm, callFrame->thisValue(), x))
+    if (!toThisNumber(callFrame->thisValue(), x))
         return throwVMToThisNumberError(globalObject, scope, callFrame->thisValue());
 
     JSValue arg = callFrame->argument(0);
     // Perform ToInteger on the argument before remaining steps.
-    int decimalPlaces = static_cast<int>(arg.toInteger(globalObject));
+    int decimalPlaces = static_cast<int>(arg.toIntegerOrInfinity(globalObject));
     RETURN_IF_EXCEPTION(scope, { });
 
     // Handle NaN and Infinity.
@@ -406,29 +407,30 @@ EncodedJSValue JSC_HOST_CALL numberProtoFuncToExponential(JSGlobalObject* global
     // Round if the argument is not undefined, always format as exponential.
     NumberToStringBuffer buffer;
     DoubleConversionStringBuilder builder { &buffer[0], sizeof(buffer) };
-    const DoubleToStringConverter& converter = DoubleToStringConverter::EcmaScriptConverter();
     builder.Reset();
     if (arg.isUndefined())
-        converter.ToExponential(x, -1, &builder);
-    else
+        WTF::dragonbox::ToExponential(x, &builder);
+    else {
+        const DoubleToStringConverter& converter = DoubleToStringConverter::EcmaScriptConverter();
         converter.ToExponential(x, decimalPlaces, &builder);
-    return JSValue::encode(jsString(vm, builder.Finalize()));
+    }
+    return JSValue::encode(jsString(vm, String::fromLatin1(builder.Finalize())));
 }
 
 // toFixed converts a number to a string, always formatting as an a decimal fraction.
 // This method takes an argument specifying a number of decimal places to round the
 // significand to. However when converting large values (1e+21 and above) this
 // method will instead fallback to calling ToString. 
-EncodedJSValue JSC_HOST_CALL numberProtoFuncToFixed(JSGlobalObject* globalObject, CallFrame* callFrame)
+JSC_DEFINE_HOST_FUNCTION(numberProtoFuncToFixed, (JSGlobalObject* globalObject, CallFrame* callFrame))
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     double x;
-    if (!toThisNumber(vm, callFrame->thisValue(), x))
+    if (!toThisNumber(callFrame->thisValue(), x))
         return throwVMToThisNumberError(globalObject, scope, callFrame->thisValue());
 
-    int decimalPlaces = static_cast<int>(callFrame->argument(0).toInteger(globalObject));
+    int decimalPlaces = static_cast<int>(callFrame->argument(0).toIntegerOrInfinity(globalObject));
     RETURN_IF_EXCEPTION(scope, { });
     if (decimalPlaces < 0 || decimalPlaces > 100)
         return throwVMRangeError(globalObject, scope, "toFixed() argument must be between 0 and 100"_s);
@@ -436,7 +438,7 @@ EncodedJSValue JSC_HOST_CALL numberProtoFuncToFixed(JSGlobalObject* globalObject
     // 15.7.4.5.7 states "If x >= 10^21, then let m = ToString(x)"
     // This also covers Ininity, and structure the check so that NaN
     // values are also handled by numberToString
-    if (!(fabs(x) < 1e+21))
+    if (!(std::abs(x) < 1e+21))
         return JSValue::encode(jsString(vm, String::number(x)));
 
     // The check above will return false for NaN or Infinity, these will be
@@ -453,13 +455,13 @@ EncodedJSValue JSC_HOST_CALL numberProtoFuncToFixed(JSGlobalObject* globalObject
 // decimal, whilst 1000 is converted to the exponential representation 1.00e+3.
 // For negative exponents values >= 1e-6 are formated as decimal fractions,
 // with smaller values converted to exponential representation.
-EncodedJSValue JSC_HOST_CALL numberProtoFuncToPrecision(JSGlobalObject* globalObject, CallFrame* callFrame)
+JSC_DEFINE_HOST_FUNCTION(numberProtoFuncToPrecision, (JSGlobalObject* globalObject, CallFrame* callFrame))
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     double x;
-    if (!toThisNumber(vm, callFrame->thisValue(), x))
+    if (!toThisNumber(callFrame->thisValue(), x))
         return throwVMToThisNumberError(globalObject, scope, callFrame->thisValue());
 
     JSValue arg = callFrame->argument(0);
@@ -468,7 +470,7 @@ EncodedJSValue JSC_HOST_CALL numberProtoFuncToPrecision(JSGlobalObject* globalOb
         return JSValue::encode(jsString(vm, String::number(x)));
 
     // Perform ToInteger on the argument before remaining steps.
-    int significantFigures = static_cast<int>(arg.toInteger(globalObject));
+    int significantFigures = static_cast<int>(arg.toIntegerOrInfinity(globalObject));
     RETURN_IF_EXCEPTION(scope, { });
 
     // Handle NaN and Infinity.
@@ -478,21 +480,54 @@ EncodedJSValue JSC_HOST_CALL numberProtoFuncToPrecision(JSGlobalObject* globalOb
     if (significantFigures < 1 || significantFigures > 100)
         return throwVMRangeError(globalObject, scope, "toPrecision() argument must be between 1 and 100"_s);
 
-    return JSValue::encode(jsString(vm, String::numberToStringFixedPrecision(x, significantFigures, KeepTrailingZeros)));
+    return JSValue::encode(jsString(vm, String::numberToStringFixedPrecision(x, significantFigures, TrailingZerosPolicy::Keep)));
+}
+
+JSString* NumericStrings::addJSString(VM& vm, int i)
+{
+    if (static_cast<unsigned>(i) < cacheSize) {
+        auto& entry = lookupSmallString(static_cast<unsigned>(i));
+        if (entry.jsString)
+            return entry.jsString;
+        entry.jsString = jsNontrivialString(vm, entry.value);
+        return entry.jsString;
+    }
+    auto& entry = lookup(i);
+    if (i != entry.key || entry.value.isNull()) {
+        entry.key = i;
+        entry.value = String::number(i);
+    } else {
+        if (entry.jsString)
+            return entry.jsString;
+    }
+    entry.jsString = jsNontrivialString(vm, entry.value);
+    return entry.jsString;
+}
+
+void NumericStrings::initializeSmallIntCache(VM& vm)
+{
+    for (int i = 0; i < 10; ++i) {
+        auto* string = vm.smallStrings.singleCharacterString(i + '0');
+        auto& entry = lookupSmallString(static_cast<unsigned>(i));
+        entry.jsString = string;
+        ASSERT(string->tryGetValueImpl());
+        entry.value = string->tryGetValue();
+    }
 }
 
 static ALWAYS_INLINE JSString* int32ToStringInternal(VM& vm, int32_t value, int32_t radix)
 {
     ASSERT(!(radix < 2 || radix > 36));
+
+    if (radix == 10)
+        return vm.numericStrings.addJSString(vm, value);
+
     // A negative value casted to unsigned would be bigger than 36 (the max radix).
     if (static_cast<unsigned>(value) < static_cast<unsigned>(radix)) {
         ASSERT(value <= 36);
         ASSERT(value >= 0);
         return vm.smallStrings.singleCharacterString(radixDigits[value]);
     }
-
-    if (radix == 10)
-        return jsNontrivialString(vm, vm.numericStrings.add(value));
 
     return jsNontrivialString(vm, toStringWithRadixInternal(value, radix));
 
@@ -513,7 +548,7 @@ static ALWAYS_INLINE JSString* numberToStringInternal(VM& vm, double doubleValue
         return jsNontrivialString(vm, String::number(doubleValue));
 
     RadixBuffer buffer;
-    return jsString(vm, toStringWithRadixInternal(buffer, doubleValue, radix));
+    return jsString(vm, String::fromLatin1(toStringWithRadixInternal(buffer, doubleValue, radix)));
 }
 
 JSString* int32ToString(VM& vm, int32_t value, int32_t radix)
@@ -541,7 +576,7 @@ JSString* int52ToString(VM& vm, int64_t value, int32_t radix)
     char* startOfResultString = decimalPoint;
     *decimalPoint = '\0';
 
-    return jsNontrivialString(vm, int52ToStringWithRadix(startOfResultString, value, radix));
+    return jsNontrivialString(vm, String::fromLatin1(int52ToStringWithRadix(startOfResultString, value, radix)));
 }
 
 JSString* numberToString(VM& vm, double doubleValue, int32_t radix)
@@ -549,13 +584,13 @@ JSString* numberToString(VM& vm, double doubleValue, int32_t radix)
     return numberToStringInternal(vm, doubleValue, radix);
 }
 
-EncodedJSValue JSC_HOST_CALL numberProtoFuncToString(JSGlobalObject* globalObject, CallFrame* callFrame)
+JSC_DEFINE_HOST_FUNCTION(numberProtoFuncToString, (JSGlobalObject* globalObject, CallFrame* callFrame))
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     double doubleValue;
-    if (!toThisNumber(vm, callFrame->thisValue(), doubleValue))
+    if (!toThisNumber(callFrame->thisValue(), doubleValue))
         return throwVMToThisNumberError(globalObject, scope, callFrame->thisValue());
 
     auto radix = extractToStringRadixArgument(globalObject, callFrame->argument(0), scope);
@@ -564,29 +599,37 @@ EncodedJSValue JSC_HOST_CALL numberProtoFuncToString(JSGlobalObject* globalObjec
     return JSValue::encode(numberToStringInternal(vm, doubleValue, radix));
 }
 
-EncodedJSValue JSC_HOST_CALL numberProtoFuncToLocaleString(JSGlobalObject* globalObject, CallFrame* callFrame)
+JSC_DEFINE_HOST_FUNCTION(numberProtoFuncToLocaleString, (JSGlobalObject* globalObject, CallFrame* callFrame))
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     double x;
-    if (!toThisNumber(vm, callFrame->thisValue(), x))
+    if (!toThisNumber(callFrame->thisValue(), x))
         return throwVMToThisNumberError(globalObject, scope, callFrame->thisValue());
 
-    auto* numberFormat = IntlNumberFormat::create(vm, globalObject->numberFormatStructure());
-    numberFormat->initializeNumberFormat(globalObject, callFrame->argument(0), callFrame->argument(1));
-    RETURN_IF_EXCEPTION(scope, encodedJSValue());
+    JSValue locales = callFrame->argument(0);
+    JSValue options = callFrame->argument(1);
+    IntlNumberFormat* numberFormat = nullptr;
+    if (locales.isUndefined() && options.isUndefined())
+        numberFormat = globalObject->defaultNumberFormat();
+    else {
+        numberFormat = IntlNumberFormat::create(vm, globalObject->numberFormatStructure());
+        numberFormat->initializeNumberFormat(globalObject, locales, options);
+    }
+    RETURN_IF_EXCEPTION(scope, { });
+
     RELEASE_AND_RETURN(scope, JSValue::encode(numberFormat->format(globalObject, x)));
 }
 
-EncodedJSValue JSC_HOST_CALL numberProtoFuncValueOf(JSGlobalObject* globalObject, CallFrame* callFrame)
+JSC_DEFINE_HOST_FUNCTION(numberProtoFuncValueOf, (JSGlobalObject* globalObject, CallFrame* callFrame))
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     double x;
     JSValue thisValue = callFrame->thisValue();
-    if (!toThisNumber(vm, thisValue, x))
+    if (!toThisNumber(thisValue, x))
         return throwVMToThisNumberError(globalObject, scope, callFrame->thisValue());
     return JSValue::encode(jsNumber(x));
 }
@@ -601,7 +644,7 @@ int32_t extractToStringRadixArgument(JSGlobalObject* globalObject, JSValue radix
         if (radix >= 2 && radix <= 36)
             return radix;
     } else {
-        double radixDouble = radixValue.toInteger(globalObject);
+        double radixDouble = radixValue.toIntegerOrInfinity(globalObject);
         RETURN_IF_EXCEPTION(throwScope, 0);
         if (radixDouble >= 2 && radixDouble <= 36)
             return static_cast<int32_t>(radixDouble);   

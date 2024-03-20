@@ -47,6 +47,7 @@ std::wstring urlSuitableForTestResult(const std::wstring& url);
 class TestRunner;
 
 extern volatile bool done;
+extern bool gUsingServerMode;
 
 // FIXME: This is a bad abstraction.  We should insted pass this to other controller objects which need access to it.
 extern RefPtr<TestRunner> gTestRunner;
@@ -54,14 +55,3 @@ extern RefPtr<TestRunner> gTestRunner;
 void dump();
 void displayWebView();
 void displayAndTrackRepaintsWebView();
-
-struct TestCommand {
-    std::string pathOrURL;
-    std::string absolutePath;
-    bool shouldDumpPixels { false };
-    std::string expectedPixelHash;
-    int timeout { 30000 }; // in ms
-    bool dumpJSConsoleLogInStdErr { false };
-};
-
-TestCommand parseInputLine(const std::string&);

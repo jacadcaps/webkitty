@@ -25,19 +25,25 @@
 
 #pragma once
 
-#import "UIScriptController.h"
+#import "UIScriptControllerCommon.h"
 
 OBJC_CLASS TestRunnerWKWebView;
 
 namespace WTR {
 
-class UIScriptControllerCocoa : public UIScriptController {
-public:
+class UIScriptControllerCocoa : public UIScriptControllerCommon {
+protected:
+    explicit UIScriptControllerCocoa(UIScriptContext&);
+    TestRunnerWKWebView *webView() const;
+
+    void doAsyncTask(JSValueRef) override;
+
+private:
+    void doAfterPresentationUpdate(JSValueRef) override;
+
     void setViewScale(double) override;
     void setMinimumEffectiveWidth(double) override;
-    void becomeFirstResponder() override;
-    void resignFirstResponder() override;
-    void doAsyncTask(JSValueRef) override;
+    void setWebViewEditable(bool) override;
     void removeViewFromWindow(JSValueRef) override;
     void addViewToWindow(JSValueRef) override;
     void overridePreference(JSStringRef, JSStringRef) override;
@@ -46,7 +52,14 @@ public:
     void setDefaultCalendarType(JSStringRef calendarIdentifier, JSStringRef localeIdentifier) override;
     JSRetainPtr<JSStringRef> lastUndoLabel() const override;
     JSRetainPtr<JSStringRef> firstRedoLabel() const override;
+    JSRetainPtr<JSStringRef> caLayerTreeAsText() const override;
     NSUndoManager *platformUndoManager() const override;
+
+    JSRetainPtr<JSStringRef> scrollingTreeAsText() const override;
+
+    void setDidShowContextMenuCallback(JSValueRef) override;
+    void setDidDismissContextMenuCallback(JSValueRef) override;
+    bool isShowingContextMenu() const override;
 
     void setDidShowMenuCallback(JSValueRef) override;
     void setDidHideMenuCallback(JSValueRef) override;
@@ -57,9 +70,23 @@ public:
 
     void setContinuousSpellCheckingEnabled(bool) override;
 
-protected:
-    explicit UIScriptControllerCocoa(UIScriptContext&);
-    TestRunnerWKWebView *webView() const;
+    void insertAttachmentForFilePath(JSStringRef filePath, JSStringRef contentType, JSValueRef callback) override;
+
+    void setDidShowContactPickerCallback(JSValueRef) override;
+    void setDidHideContactPickerCallback(JSValueRef) override;
+    bool isShowingContactPicker() const override;
+    void dismissContactPickerWithContacts(JSValueRef) override;
+
+    void completeTaskAsynchronouslyAfterActivityStateUpdate(unsigned callbackID);
+
+    unsigned long countOfUpdatesWithLayerChanges() const override;
+
+#if ENABLE(IMAGE_ANALYSIS)
+    uint64_t currentImageAnalysisRequestID() const final;
+    void installFakeMachineReadableCodeResultsForImageAnalysis() final;
+#endif
+
+    void setSpellCheckerResults(JSValueRef) final;
 };
 
 } // namespace WTR

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,24 +27,57 @@
  */
 
 #import "config.h"
-
 #import <wtf/RetainPtr.h>
+
+#if __has_feature(objc_arc)
+#ifndef RETAIN_PTR_TEST_NAME
+#error This tests RetainPtr.h with ARC disabled.
+#endif
+#define autorelease self
+#endif
+
+#ifndef RETAIN_PTR_TEST_NAME
+#define RETAIN_PTR_TEST_NAME RetainPtr
+#endif
+
+#if __has_feature(objc_arc) && !defined(NDEBUG)
+// Debug builds with ARC enabled cause objects to be autoreleased
+// when assigning adoptNS() result to a different RetainPtr<> type,
+// and when calling RetainPtr<>::get().
+#define AUTORELEASEPOOL_FOR_ARC_DEBUG @autoreleasepool
+#else
+#define AUTORELEASEPOOL_FOR_ARC_DEBUG
+#endif
 
 namespace TestWebKitAPI {
 
-TEST(RetainPtr, AdoptNS)
+TEST(RETAIN_PTR_TEST_NAME, AdoptNS)
 {
     RetainPtr<NSObject> object1 = adoptNS([[NSObject alloc] init]);
-    EXPECT_EQ(1, CFGetRetainCount(object1.get()));
+    uintptr_t objectPtr1 = 0;
+    AUTORELEASEPOOL_FOR_ARC_DEBUG {
+        objectPtr1 = reinterpret_cast<uintptr_t>(object1.get());
+    }
+    EXPECT_EQ(1L, CFGetRetainCount((CFTypeRef)objectPtr1));
 
-    RetainPtr<NSObject *> object2 = adoptNS([[NSObject alloc] init]);
-    EXPECT_EQ(1, CFGetRetainCount(object2.get()));
+    RetainPtr<NSObject *> object2;
+    uintptr_t objectPtr2 = 0;
+    AUTORELEASEPOOL_FOR_ARC_DEBUG {
+        object2 = adoptNS([[NSObject alloc] init]);
+        objectPtr2 = reinterpret_cast<uintptr_t>(object2.get());
+    }
+    EXPECT_EQ(1L, CFGetRetainCount((CFTypeRef)objectPtr2));
 
-    RetainPtr<id> object3 = adoptNS([[NSObject alloc] init]);
-    EXPECT_EQ(1, CFGetRetainCount(object3.get()));
+    RetainPtr<id> object3;
+    uintptr_t objectPtr3 = 0;
+    AUTORELEASEPOOL_FOR_ARC_DEBUG {
+        object3 = adoptNS([[NSObject alloc] init]);
+        objectPtr3 = reinterpret_cast<uintptr_t>(object3.get());
+    }
+    EXPECT_EQ(1, CFGetRetainCount((CFTypeRef)objectPtr3));
 }
 
-TEST(RetainPtr, ConstructionFromMutableNSType)
+TEST(RETAIN_PTR_TEST_NAME, ConstructionFromMutableNSType)
 {
     NSMutableString *string = [NSMutableString stringWithUTF8String:"foo"];
 
@@ -61,10 +94,11 @@ TEST(RetainPtr, ConstructionFromMutableNSType)
     RetainPtr<NSString> ptr2(WTFMove(temp));
 
     EXPECT_EQ(string, ptr2);
-    EXPECT_EQ((NSString *)nil, temp);
+    IGNORE_CLANG_STATIC_ANALYZER_USE_AFTER_MOVE_ATTRIBUTE
+    EXPECT_EQ((NSString *)nil, temp.get());
 }
 
-TEST(RetainPtr, ConstructionFromSameNSType)
+TEST(RETAIN_PTR_TEST_NAME, ConstructionFromSameNSType)
 {
     NSString *string = @"foo";
 
@@ -81,10 +115,11 @@ TEST(RetainPtr, ConstructionFromSameNSType)
     RetainPtr<NSString> ptr2(WTFMove(temp));
 
     EXPECT_EQ(string, ptr2);
-    EXPECT_EQ((NSString *)nil, temp);
+    IGNORE_CLANG_STATIC_ANALYZER_USE_AFTER_MOVE_ATTRIBUTE
+    EXPECT_EQ((NSString *)nil, temp.get());
 }
 
-TEST(RetainPtr, ConstructionFromSimilarNSType)
+TEST(RETAIN_PTR_TEST_NAME, ConstructionFromSimilarNSType)
 {
     NSString *string = @"foo";
 
@@ -101,10 +136,11 @@ TEST(RetainPtr, ConstructionFromSimilarNSType)
     RetainPtr<NSString> ptr2(WTFMove(temp));
 
     EXPECT_EQ(string, ptr2);
-    EXPECT_EQ((NSString *)nil, temp);
+    IGNORE_CLANG_STATIC_ANALYZER_USE_AFTER_MOVE_ATTRIBUTE
+    EXPECT_EQ((NSString *)nil, temp.get());
 }
 
-TEST(RetainPtr, ConstructionFromSimilarNSTypeReversed)
+TEST(RETAIN_PTR_TEST_NAME, ConstructionFromSimilarNSTypeReversed)
 {
     NSString *string = @"foo";
 
@@ -121,10 +157,11 @@ TEST(RetainPtr, ConstructionFromSimilarNSTypeReversed)
     RetainPtr<NSString *> ptr2(WTFMove(temp));
 
     EXPECT_EQ(string, ptr2);
-    EXPECT_EQ((NSString *)nil, temp);
+    IGNORE_CLANG_STATIC_ANALYZER_USE_AFTER_MOVE_ATTRIBUTE
+    EXPECT_EQ((NSString *)nil, temp.get());
 }
 
-TEST(RetainPtr, MoveAssignmentFromMutableNSType)
+TEST(RETAIN_PTR_TEST_NAME, MoveAssignmentFromMutableNSType)
 {
     NSMutableString *string = [NSMutableString stringWithUTF8String:"foo"];
     RetainPtr<NSString> ptr;
@@ -143,10 +180,11 @@ TEST(RetainPtr, MoveAssignmentFromMutableNSType)
     ptr = WTFMove(temp);
 
     EXPECT_EQ(string, ptr);
-    EXPECT_EQ((NSString *)nil, temp);
+    IGNORE_CLANG_STATIC_ANALYZER_USE_AFTER_MOVE_ATTRIBUTE
+    EXPECT_EQ((NSString *)nil, temp.get());
 }
 
-TEST(RetainPtr, MoveAssignmentFromSameNSType)
+TEST(RETAIN_PTR_TEST_NAME, MoveAssignmentFromSameNSType)
 {
     NSString *string = @"foo";
     RetainPtr<NSString> ptr;
@@ -165,10 +203,11 @@ TEST(RetainPtr, MoveAssignmentFromSameNSType)
     ptr = WTFMove(temp);
 
     EXPECT_EQ(string, ptr);
-    EXPECT_EQ((NSString *)nil, temp);
+    IGNORE_CLANG_STATIC_ANALYZER_USE_AFTER_MOVE_ATTRIBUTE
+    EXPECT_EQ((NSString *)nil, temp.get());
 }
 
-TEST(RetainPtr, MoveAssignmentFromSimilarNSType)
+TEST(RETAIN_PTR_TEST_NAME, MoveAssignmentFromSimilarNSType)
 {
     NSString *string = @"foo";
     RetainPtr<NSString> ptr;
@@ -187,10 +226,11 @@ TEST(RetainPtr, MoveAssignmentFromSimilarNSType)
     ptr = WTFMove(temp);
 
     EXPECT_EQ(string, ptr);
-    EXPECT_EQ((NSString *)nil, temp);
+    IGNORE_CLANG_STATIC_ANALYZER_USE_AFTER_MOVE_ATTRIBUTE
+    EXPECT_EQ((NSString *)nil, temp.get());
 }
 
-TEST(RetainPtr, MoveAssignmentFromSimilarNSTypeReversed)
+TEST(RETAIN_PTR_TEST_NAME, MoveAssignmentFromSimilarNSTypeReversed)
 {
     NSString *string = @"foo";
     RetainPtr<NSString *> ptr;
@@ -209,29 +249,33 @@ TEST(RetainPtr, MoveAssignmentFromSimilarNSTypeReversed)
     ptr = WTFMove(temp);
 
     EXPECT_EQ(string, ptr);
-    EXPECT_EQ((NSString *)nil, temp);
+    IGNORE_CLANG_STATIC_ANALYZER_USE_AFTER_MOVE_ATTRIBUTE
+    EXPECT_EQ((NSString *)nil, temp.get());
 }
 
-TEST(RetainPtr, OptionalRetainPtrNS)
+TEST(RETAIN_PTR_TEST_NAME, OptionalRetainPtrNS)
 {
     // Test assignment from adoptNS().
-    Optional<RetainPtr<NSObject>> optionalObject1 = adoptNS([NSObject new]);
-    EXPECT_EQ(1, CFGetRetainCount(optionalObject1.value().get()));
+    std::optional<RetainPtr<NSObject>> optionalObject1 = adoptNS([NSObject new]);
+    auto optionalObjectPtr1 = reinterpret_cast<uintptr_t>(optionalObject1.value().get());
+    EXPECT_EQ(1L, CFGetRetainCount((CFTypeRef)optionalObjectPtr1));
     RetainPtr<NSObject> object1 = optionalObject1.value();
     EXPECT_EQ(optionalObject1.value(), object1);
 
     // Test assignment from retainPtr().
-    Optional<RetainPtr<NSObject>> optionalObject2;
+    std::optional<RetainPtr<NSObject>> optionalObject2;
     @autoreleasepool {
         optionalObject2 = retainPtr([[NSObject new] autorelease]);
     }
-    EXPECT_EQ(1, CFGetRetainCount(optionalObject2.value().get()));
+    auto optionalObjectPtr2 = reinterpret_cast<uintptr_t>(optionalObject2.value().get());
+    EXPECT_EQ(1L, CFGetRetainCount((CFTypeRef)optionalObjectPtr2));
     RetainPtr<NSObject> object2 = optionalObject2.value();
+    auto objectPtr2 = reinterpret_cast<uintptr_t>(object2.get());
     EXPECT_EQ(optionalObject2.value(), object2);
 
     EXPECT_NE(object1, object2);
 
-    // Test assignment from Optional<RetainPtr<NSObject>>.
+    // Test assignment from std::optional<RetainPtr<NSObject>>.
     optionalObject1 = optionalObject2;
     EXPECT_TRUE(optionalObject1.value());
     EXPECT_TRUE(optionalObject1.value().get());
@@ -245,33 +289,46 @@ TEST(RetainPtr, OptionalRetainPtrNS)
     EXPECT_EQ(optionalObject1.value(), object1);
     EXPECT_EQ(optionalObject2.value(), object2);
 
-    // Test move from Optional<RetainPtr<NSObject>>.
+    // Test move from std::optional<RetainPtr<NSObject>>.
+    EXPECT_EQ(2L, CFGetRetainCount((CFTypeRef)objectPtr2));
     optionalObject1 = WTFMove(optionalObject2);
+    EXPECT_EQ(2L, CFGetRetainCount((CFTypeRef)objectPtr2));
     EXPECT_TRUE(optionalObject1.value());
     EXPECT_TRUE(optionalObject1.value().get());
     EXPECT_EQ(optionalObject1.value(), object2);
-    EXPECT_FALSE(optionalObject2);
 }
 
-TEST(RetainPtr, RetainPtrNS)
+TEST(RETAIN_PTR_TEST_NAME, RetainPtrNS)
 {
     RetainPtr<NSObject> object1;
     @autoreleasepool {
         object1 = retainPtr([[NSObject new] autorelease]);
     }
-    EXPECT_EQ(1, CFGetRetainCount(object1.get()));
+    uintptr_t objectPtr1 = 0;
+    AUTORELEASEPOOL_FOR_ARC_DEBUG {
+        objectPtr1 = reinterpret_cast<uintptr_t>(object1.get());
+    }
+    EXPECT_EQ(1L, CFGetRetainCount((CFTypeRef)objectPtr1));
 
     RetainPtr<NSObject *> object2;
     @autoreleasepool {
         object2 = retainPtr([[NSObject new] autorelease]);
     }
-    EXPECT_EQ(1, CFGetRetainCount(object2.get()));
+    uintptr_t objectPtr2 = 0;
+    AUTORELEASEPOOL_FOR_ARC_DEBUG {
+        objectPtr2 = reinterpret_cast<uintptr_t>(object2.get());
+    }
+    EXPECT_EQ(1L, CFGetRetainCount((CFTypeRef)objectPtr2));
 
     RetainPtr<id> object3;
     @autoreleasepool {
         object3 = retainPtr([[NSObject new] autorelease]);
     }
-    EXPECT_EQ(1, CFGetRetainCount(object3.get()));
+    uintptr_t objectPtr3 = 0;
+    AUTORELEASEPOOL_FOR_ARC_DEBUG {
+        objectPtr3 = reinterpret_cast<uintptr_t>(object3.get());
+    }
+    EXPECT_EQ(1L, CFGetRetainCount((CFTypeRef)objectPtr3));
 }
 
 } // namespace TestWebKitAPI

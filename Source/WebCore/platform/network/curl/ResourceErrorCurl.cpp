@@ -32,38 +32,59 @@
 
 namespace WebCore {
 
-const char* const ResourceError::curlErrorDomain = "CurlErrorDomain";
-
-ResourceError ResourceError::httpError(int errorCode, const URL& failingURL, Type type)
+static const String& curlErrorDomain()
 {
-    return ResourceError(curlErrorDomain, errorCode, failingURL, CurlHandle::errorDescription(static_cast<CURLcode>(errorCode)), type);
+    static NeverDestroyed<const String> errorDomain(MAKE_STATIC_STRING_IMPL("CurlErrorDomain"));
+    return errorDomain;
 }
 
-ResourceError ResourceError::sslError(int errorCode, unsigned sslErrors, const URL& failingURL)
+ResourceError::ResourceError(int curlCode, const URL& failingURL, Type type)
+    : ResourceErrorBase(curlErrorDomain(), curlCode, failingURL, CurlHandle::errorDescription(static_cast<CURLcode>(curlCode)), type, IsSanitized::No)
 {
-    ResourceError resourceError = ResourceError::httpError(errorCode, failingURL);
-    resourceError.setSslErrors(sslErrors);
-    return resourceError;
 }
 
-bool ResourceError::isSSLConnectError() const
+ResourceError ResourceError::fromIPCData(std::optional<IPCData>&& ipcData)
 {
-    return errorCode() == CURLE_SSL_CONNECT_ERROR;
+    if (!ipcData)
+        return { };
+
+    return {
+        ipcData->domain,
+        ipcData->errorCode,
+        ipcData->failingURL,
+        ipcData->localizedDescription,
+        ipcData->type,
+        ipcData->isSanitized
+    };
 }
 
-bool ResourceError::isSSLCertVerificationError() const
+auto ResourceError::ipcData() const -> std::optional<IPCData>
 {
-    return errorCode() == CURLE_SSL_CACERT || errorCode() == CURLE_PEER_FAILED_VERIFICATION;
+    if (isNull())
+        return std::nullopt;
+
+    return IPCData {
+        type(),
+        domain(),
+        errorCode(),
+        failingURL(),
+        localizedDescription(),
+        m_isSanitized
+    };
 }
 
-void ResourceError::doPlatformIsolatedCopy(const ResourceError& other)
+bool ResourceError::isCertificationVerificationError() const
 {
-    m_sslErrors = other.m_sslErrors;
+    return domain() == curlErrorDomain() && errorCode() == CURLE_PEER_FAILED_VERIFICATION;
 }
 
-bool ResourceError::platformCompare(const ResourceError& a, const ResourceError& b)
+void ResourceError::doPlatformIsolatedCopy(const ResourceError&)
 {
-    return a.sslErrors() == b.sslErrors();
+}
+
+bool ResourceError::platformCompare(const ResourceError&, const ResourceError&)
+{
+    return true;
 }
 
 } // namespace WebCore

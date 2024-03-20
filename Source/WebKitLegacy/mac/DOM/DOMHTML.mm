@@ -34,13 +34,12 @@
 #import "DOMNodeInternal.h"
 #import "DOMPrivate.h"
 #import <WebCore/DocumentFragment.h>
-#import <WebCore/FrameView.h>
-#import <WebCore/HTMLCollection.h>
+#import <WebCore/HTMLCollectionInlines.h>
 #import <WebCore/HTMLDocument.h>
 #import <WebCore/HTMLInputElement.h>
-#import <WebCore/HTMLParserIdioms.h>
 #import <WebCore/HTMLSelectElement.h>
 #import <WebCore/HTMLTextAreaElement.h>
+#import <WebCore/LocalFrameView.h>
 #import <WebCore/Range.h>
 #import <WebCore/RenderTextControl.h>
 #import <WebCore/Settings.h>
@@ -53,6 +52,7 @@
 #import <WebCore/HTMLTextFormControlElement.h>
 #import <WebCore/JSExecState.h>
 #import <WebCore/RenderLayer.h>
+#import <WebCore/RenderLayerScrollableArea.h>
 #import <WebCore/WAKWindow.h>
 #import <WebCore/WebCoreThreadMessage.h>
 #endif
@@ -74,10 +74,17 @@
     if (!is<WebCore::RenderBlockFlow>(*renderer))
         renderer = renderer->containingBlock();
 
-    if (!is<WebCore::RenderBox>(*renderer) || !renderer->hasOverflowClip())
+    if (!is<WebCore::RenderBox>(*renderer) || !renderer->hasNonVisibleOverflow())
         return 0;
 
-    return downcast<WebCore::RenderBox>(*renderer).layer()->scrollOffset().x();
+    auto* layer = downcast<WebCore::RenderBox>(*renderer).layer();
+    if (!layer)
+        return 0;
+    auto* scrollableArea = layer->scrollableArea();
+    if (!scrollableArea)
+        return 0;
+
+    return scrollableArea->scrollOffset().x();
 }
 
 - (int)scrollYOffset
@@ -88,10 +95,17 @@
 
     if (!is<WebCore::RenderBlockFlow>(*renderer))
         renderer = renderer->containingBlock();
-    if (!is<WebCore::RenderBox>(*renderer) || !renderer->hasOverflowClip())
+    if (!is<WebCore::RenderBox>(*renderer) || !renderer->hasNonVisibleOverflow())
         return 0;
 
-    return downcast<WebCore::RenderBox>(*renderer).layer()->scrollOffset().y();
+    auto* layer = downcast<WebCore::RenderBox>(*renderer).layer();
+    if (!layer)
+        return 0;
+    auto* scrollableArea = layer->scrollableArea();
+    if (!scrollableArea)
+        return 0;
+
+    return scrollableArea->scrollOffset().y();
 }
 
 - (void)setScrollXOffset:(int)x scrollYOffset:(int)y
@@ -107,15 +121,17 @@
 
     if (!is<WebCore::RenderBlockFlow>(*renderer))
         renderer = renderer->containingBlock();
-    if (!renderer->hasOverflowClip() || !is<WebCore::RenderBox>(*renderer))
+    if (!renderer->hasNonVisibleOverflow() || !is<WebCore::RenderBox>(*renderer))
         return;
 
     auto* layer = downcast<WebCore::RenderBox>(*renderer).layer();
-    if (adjustForIOSCaret)
-        layer->setAdjustForIOSCaretWhenScrolling(true);
-    layer->scrollToOffset(WebCore::ScrollOffset(x, y), WebCore::ScrollType::Programmatic, WebCore::ScrollClamping::Unclamped);
-    if (adjustForIOSCaret)
-        layer->setAdjustForIOSCaretWhenScrolling(false);
+    if (!layer)
+        return;
+    auto* scrollableArea = layer->ensureLayerScrollableArea();
+
+    auto scrollPositionChangeOptions = WebCore::ScrollPositionChangeOptions::createProgrammatic();
+    scrollPositionChangeOptions.clamping = WebCore::ScrollClamping::Unclamped;
+    scrollableArea->scrollToOffset(WebCore::ScrollOffset(x, y), scrollPositionChangeOptions);
 }
 
 - (void)absolutePosition:(int *)x :(int *)y :(int *)w :(int *)h
@@ -162,7 +178,7 @@
 
 - (DOMDocumentFragment *)_createDocumentFragmentWithMarkupString:(NSString *)markupString baseURLString:(NSString *)baseURLString
 {
-    NSURL *baseURL = core(self)->completeURL(WebCore::stripLeadingAndTrailingHTMLSpaces(baseURLString));
+    NSURL *baseURL = core(self)->completeURL(baseURLString);
     return [self createDocumentFragmentWithMarkupString:markupString baseURL:baseURL];
 }
 
@@ -278,7 +294,7 @@ static WebAutocapitalizeType webAutocapitalizeType(WebCore::AutocapitalizeType t
 
 Class kitClass(WebCore::HTMLCollection* collection)
 {
-    if (collection->type() == WebCore::SelectOptions)
+    if (collection->type() == WebCore::CollectionType::SelectOptions)
         return [DOMHTMLOptionsCollection class];
     return [DOMHTMLCollection class];
 }

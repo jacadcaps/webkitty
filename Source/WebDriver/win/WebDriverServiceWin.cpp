@@ -27,35 +27,40 @@
 #include "WebDriverService.h"
 
 #include "Capabilities.h"
-#include <wtf/JSONValues.h>
+#include "CapabilitiesSocket.h"
 
 namespace WebDriver {
+
+void WebDriverService::platformInit()
+{
+}
 
 Capabilities WebDriverService::platformCapabilities()
 {
     Capabilities capabilities;
-    capabilities.platformName = String("win");
+    capabilities.platformName = String("win"_s);
     capabilities.setWindowRect = true;
     return capabilities;
 }
 
-bool WebDriverService::platformCompareBrowserVersions(const String& requiredVersion, const String& proposedVersion)
+bool WebDriverService::platformCompareBrowserVersions(const String&, const String&)
 {
     return true;
 }
 
-bool WebDriverService::platformValidateCapability(const String& name, const RefPtr<JSON::Value>& value) const
+bool WebDriverService::platformValidateCapability(const String&, const Ref<JSON::Value>&) const
 {
     return true;
 }
 
-bool WebDriverService::platformMatchCapability(const String&, const RefPtr<JSON::Value>&) const
+bool WebDriverService::platformMatchCapability(const String&, const Ref<JSON::Value>&) const
 {
     return true;
 }
 
 void WebDriverService::platformParseCapabilities(const JSON::Object& matchedCapabilities, Capabilities& capabilities) const
 {
+    CapabilitiesSocket::parseCapabilities(matchedCapabilities, capabilities);
 }
 
 bool WebDriverService::platformSupportProxyType(const String&) const

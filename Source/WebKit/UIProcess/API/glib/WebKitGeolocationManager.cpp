@@ -32,10 +32,10 @@ using namespace WebKit;
 using namespace WebCore;
 
 /**
- * SECTION:WebKitGeolocationManager
- * @short_description: WebKitGeolocationManager
- * @title: Geolocation manager
+ * WebKitGeolocationManager:
  * @see_also: #WebKitGeolocationPermissionRequest, #WebKitWebContext
+ *
+ * Geolocation manager.
  *
  * WebKitGeolocationManager provides API to get the geographical position of the user.
  * Once a #WebKitGeolocationPermissionRequest is allowed, when WebKit needs to know the
@@ -49,9 +49,11 @@ using namespace WebCore;
 
 enum {
     PROP_0,
-
-    PROP_ENABLE_HIGH_ACCURACY
+    PROP_ENABLE_HIGH_ACCURACY,
+    N_PROPERTIES,
 };
+
+static GParamSpec* sObjProperties[N_PROPERTIES] = { nullptr, };
 
 enum {
     START,
@@ -86,6 +88,8 @@ struct _WebKitGeolocationPosition {
 /**
  * WebKitGeolocationPosition:
  *
+ * An opaque struct to provide position updates to a #WebKitGeolocationManager.
+ *
  * WebKitGeolocationPosition is an opaque struct used to provide position updates to a
  * #WebKitGeolocationManager using webkit_geolocation_manager_update_position().
  *
@@ -100,7 +104,7 @@ G_DEFINE_BOXED_TYPE(WebKitGeolocationPosition, webkit_geolocation_position, webk
  * @longitude: a valid longitude in degrees
  * @accuracy: accuracy of location in meters
  *
- * Create a new #WebKitGeolocationPosition
+ * Create a new #WebKitGeolocationPosition.
  *
  * Returns: (transfer full): a newly created #WebKitGeolocationPosition
  *
@@ -117,7 +121,7 @@ WebKitGeolocationPosition* webkit_geolocation_position_new(double latitude, doub
  * webkit_geolocation_position_copy:
  * @position: a #WebKitGeolocationPosition
  *
- * Make a copy of the #WebKitGeolocationPosition
+ * Make a copy of the #WebKitGeolocationPosition.
  *
  * Returns: (transfer full): a copy of @position
  *
@@ -153,7 +157,9 @@ void webkit_geolocation_position_free(WebKitGeolocationPosition* position)
  * @position: a #WebKitGeolocationPosition
  * @timestamp: timestamp in seconds since the epoch, or 0 to use current time
  *
- * Set the @position timestamp. By default it's the time when the @position was created.
+ * Set the @position timestamp.
+ *
+ * By default it's the time when the @position was created.
  *
  * Since: 2.26
  */
@@ -169,7 +175,7 @@ void webkit_geolocation_position_set_timestamp(WebKitGeolocationPosition* positi
  * @position: a #WebKitGeolocationPosition
  * @altitude: altitude in meters
  *
- * Set the @position altitude
+ * Set the @position altitude.
  *
  * Since: 2.26
  */
@@ -185,7 +191,7 @@ void webkit_geolocation_position_set_altitude(WebKitGeolocationPosition* positio
  * @position: a #WebKitGeolocationPosition
  * @altitude_accuracy: accuracy of position altitude in meters
  *
- * Set the accuracy of @position altitude
+ * Set the accuracy of @position altitude.
  *
  * Since: 2.26
  */
@@ -200,6 +206,8 @@ void webkit_geolocation_position_set_altitude_accuracy(WebKitGeolocationPosition
  * webkit_geolocation_position_set_heading:
  * @position: a #WebKitGeolocationPosition
  * @heading: heading in degrees
+ *
+ * Set the @position heading.
  *
  * Set the @position heading, as a positive angle between the direction of movement and the North
  * direction, in clockwise direction.
@@ -218,7 +226,7 @@ void webkit_geolocation_position_set_heading(WebKitGeolocationPosition* position
  * @position: a #WebKitGeolocationPosition
  * @speed: speed in meters per second
  *
- * Set the @position speed
+ * Set the @position speed.
  *
  * Since: 2.26
  */
@@ -237,7 +245,7 @@ struct _WebKitGeolocationManagerPrivate {
 
 static guint signals[LAST_SIGNAL] = { 0, };
 
-WEBKIT_DEFINE_TYPE(WebKitGeolocationManager, webkit_geolocation_manager, G_TYPE_OBJECT)
+WEBKIT_DEFINE_FINAL_TYPE(WebKitGeolocationManager, webkit_geolocation_manager, G_TYPE_OBJECT, GObject)
 
 static void webkitGeolocationManagerStart(WebKitGeolocationManager* manager)
 {
@@ -252,7 +260,7 @@ static void webkitGeolocationManagerStart(WebKitGeolocationManager* manager)
         manager->priv->geoclueProvider = makeUnique<GeoclueGeolocationProvider>();
         manager->priv->geoclueProvider->setEnableHighAccuracy(manager->priv->highAccuracyEnabled);
     }
-    manager->priv->geoclueProvider->start([manager](GeolocationPositionData&& corePosition, Optional<CString> error) {
+    manager->priv->geoclueProvider->start([manager](GeolocationPositionData&& corePosition, std::optional<CString> error) {
         if (error) {
             webkit_geolocation_manager_failed(manager, error->data());
             return;
@@ -277,7 +285,7 @@ static void webkitGeolocationManagerSetEnableHighAccuracy(WebKitGeolocationManag
         return;
 
     manager->priv->highAccuracyEnabled = enabled;
-    g_object_notify(G_OBJECT(manager), "enable-high-accuracy");
+    g_object_notify_by_pspec(G_OBJECT(manager), sObjProperties[PROP_ENABLE_HIGH_ACCURACY]);
     if (manager->priv->geoclueProvider)
         manager->priv->geoclueProvider->setEnableHighAccuracy(enabled);
 }
@@ -329,10 +337,18 @@ static void webkitGeolocationManagerGetProperty(GObject* object, guint propId, G
     }
 }
 
+static void webkitGeolocationManagerDispose(GObject *object)
+{
+    WebKitGeolocationManager* manager = WEBKIT_GEOLOCATION_MANAGER(object);
+    manager->priv->manager->setProvider(nullptr);
+    G_OBJECT_CLASS(webkit_geolocation_manager_parent_class)->dispose(object);
+}
+
 static void webkit_geolocation_manager_class_init(WebKitGeolocationManagerClass* geolocationManagerClass)
 {
     GObjectClass* gObjectClass = G_OBJECT_CLASS(geolocationManagerClass);
     gObjectClass->get_property = webkitGeolocationManagerGetProperty;
+    gObjectClass->dispose = webkitGeolocationManagerDispose;
 
     /**
      * WebKitGeolocationManager:enable-high-accuracy:
@@ -343,15 +359,14 @@ static void webkit_geolocation_manager_class_init(WebKitGeolocationManagerClass*
      *
      * Since: 2.26
      */
-    g_object_class_install_property(
-        gObjectClass,
-        PROP_ENABLE_HIGH_ACCURACY,
+    sObjProperties[PROP_ENABLE_HIGH_ACCURACY] =
         g_param_spec_boolean(
             "enable-high-accuracy",
-            _("Enable high accuracy"),
-            _("Whether high accuracy is enabled"),
+            nullptr, nullptr,
             FALSE,
-            WEBKIT_PARAM_READABLE));
+            WEBKIT_PARAM_READABLE);
+
+    g_object_class_install_properties(gObjectClass, N_PROPERTIES, sObjProperties);
 
     /**
      * WebKitGeolocationManager::start:
@@ -439,6 +454,8 @@ void webkit_geolocation_manager_failed(WebKitGeolocationManager* manager, const 
  * @manager: a #WebKitGeolocationManager
  *
  * Get whether high accuracy is enabled.
+ *
+ * Returns: Whether the setting is enabled.
  *
  * Since: 2.26
  */

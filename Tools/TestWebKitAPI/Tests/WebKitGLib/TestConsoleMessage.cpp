@@ -4,7 +4,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2,1 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -29,7 +29,7 @@ public:
     enum class MessageSource { JavaScript, Network, ConsoleAPI, Security, Other };
     enum class MessageLevel { Info, Log, Warning, Error, Debug };
     struct ConsoleMessage {
-        bool operator==(const ConsoleMessage& other)
+        bool operator==(const ConsoleMessage& other) const
         {
             return source == other.source
                 && level == other.level
@@ -45,7 +45,11 @@ public:
         CString sourceID;
     };
 
+#if ENABLE(2022_GLIB_API)
+    static void consoleMessageReceivedCallback(WebKitUserContentManager*, JSCValue* message, ConsoleMessageTest* test)
+#else
     static void consoleMessageReceivedCallback(WebKitUserContentManager*, WebKitJavascriptResult* message, ConsoleMessageTest* test)
+#endif
     {
         g_assert_nonnull(message);
         GUniquePtr<char> messageString(WebViewTest::javascriptResultToCString(message));
@@ -63,7 +67,11 @@ public:
 
     ConsoleMessageTest()
     {
+#if !ENABLE(2022_GLIB_API)
         webkit_user_content_manager_register_script_message_handler(m_userContentManager.get(), "console");
+#else
+        webkit_user_content_manager_register_script_message_handler(m_userContentManager.get(), "console", nullptr);
+#endif
         g_signal_connect(m_userContentManager.get(), "script-message-received::console", G_CALLBACK(consoleMessageReceivedCallback), this);
     }
 
@@ -142,6 +150,8 @@ static void testWebKitConsoleMessageSecurityError(ConsoleMessageTest* test, gcon
 
 void beforeAll()
 {
+    Test::shouldInitializeWebProcessExtensions = true;
+
     ConsoleMessageTest::add("WebKitConsoleMessage", "console-api", testWebKitConsoleMessageConsoleAPI);
     ConsoleMessageTest::add("WebKitConsoleMessage", "js-exception", testWebKitConsoleMessageJavaScriptException);
     ConsoleMessageTest::add("WebKitConsoleMessage", "network-error", testWebKitConsoleMessageNetworkError);

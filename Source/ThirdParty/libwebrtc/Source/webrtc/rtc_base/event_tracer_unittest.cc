@@ -10,7 +10,7 @@
 
 #include "rtc_base/event_tracer.h"
 
-#include "rtc_base/critical_section.h"
+#include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/thread_annotations.h"
 #include "rtc_base/trace_event.h"
 #include "test/gtest.h"
@@ -20,17 +20,17 @@ namespace {
 class TestStatistics {
  public:
   void Reset() {
-    rtc::CritScope cs(&crit_);
+    webrtc::MutexLock lock(&mutex_);
     events_logged_ = 0;
   }
 
   void Increment() {
-    rtc::CritScope cs(&crit_);
+    webrtc::MutexLock lock(&mutex_);
     ++events_logged_;
   }
 
   int Count() const {
-    rtc::CritScope cs(&crit_);
+    webrtc::MutexLock lock(&mutex_);
     return events_logged_;
   }
 
@@ -41,8 +41,8 @@ class TestStatistics {
   }
 
  private:
-  rtc::CriticalSection crit_;
-  int events_logged_ RTC_GUARDED_BY(crit_) = 0;
+  mutable webrtc::Mutex mutex_;
+  int events_logged_ RTC_GUARDED_BY(mutex_) = 0;
 };
 
 }  // namespace
@@ -61,17 +61,11 @@ TEST(EventTracerTest, ScopedTraceEvent) {
       [](const char* /*name*/) {
         return reinterpret_cast<const unsigned char*>("test");
       },
-      [](char /*phase*/,
-         const unsigned char* /*category_enabled*/,
-         const char* /*name*/,
-         unsigned long long /*id*/,
-         int /*num_args*/,
-         const char** /*arg_names*/,
-         const unsigned char* /*arg_types*/,
+      [](char /*phase*/, const unsigned char* /*category_enabled*/,
+         const char* /*name*/, unsigned long long /*id*/, int /*num_args*/,
+         const char** /*arg_names*/, const unsigned char* /*arg_types*/,
          const unsigned long long* /*arg_values*/,
-         unsigned char /*flags*/) {
-        TestStatistics::Get()->Increment();
-      });
+         unsigned char /*flags*/) { TestStatistics::Get()->Increment(); });
   { TRACE_EVENT0("test", "ScopedTraceEvent"); }
   EXPECT_EQ(2, TestStatistics::Get()->Count());
   TestStatistics::Get()->Reset();

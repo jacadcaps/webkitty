@@ -43,14 +43,14 @@ public:
 
     void willSendRequest(ResourceRequest&, const ResourceResponse&) override { }
     void responseReceived(const ResourceResponse&) override;
-    void addData(const char* data, int length) override;
+    void addData(const SharedBuffer&) override;
     void finishedAddingData() override;
-    Ref<SharedBuffer> replacementData() const override;
+    Ref<FragmentedSharedBuffer> replacementData() const override;
 #if ENABLE(CONTENT_FILTERING)
     ContentFilterUnblockHandler unblockHandler() const override;
 #endif
     
-#if PLATFORM(IOS)
+#if PLATFORM(IOS) || PLATFORM(VISION)
     WEBCORE_EXPORT static void setHasConsumedSandboxExtension(bool);
 #endif
 
@@ -63,7 +63,7 @@ private:
     RetainPtr<WebFilterEvaluator> m_webFilterEvaluator;
     RetainPtr<NSData> m_replacementData;
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS) || PLATFORM(VISION)
     enum class SandboxExtensionState : uint8_t {
         Consumed,
         NotConsumed,

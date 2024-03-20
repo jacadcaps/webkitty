@@ -31,6 +31,9 @@ class BlobRegistry;
 class LoaderStrategy;
 class MediaStrategy;
 class PasteboardStrategy;
+#if ENABLE(DECLARATIVE_WEB_PUSH)
+class PushStrategy;
+#endif
 
 class PlatformStrategies {
 public:
@@ -62,6 +65,15 @@ public:
         return m_blobRegistry;
     }
 
+#if ENABLE(DECLARATIVE_WEB_PUSH)
+    PushStrategy* pushStrategy()
+    {
+        if (!m_pushStrategy)
+            m_pushStrategy = createPushStrategy();
+        return m_pushStrategy;
+    }
+#endif
+
 protected:
     PlatformStrategies() = default;
 
@@ -79,8 +91,14 @@ private:
     PasteboardStrategy* m_pasteboardStrategy { };
     MediaStrategy* m_mediaStrategy { };
     BlobRegistry* m_blobRegistry { };
+
+#if ENABLE(DECLARATIVE_WEB_PUSH)
+    virtual PushStrategy* createPushStrategy() = 0;
+    PushStrategy* m_pushStrategy { };
+#endif
 };
 
+bool hasPlatformStrategies();
 WEBCORE_EXPORT PlatformStrategies* platformStrategies();
 WEBCORE_EXPORT void setPlatformStrategies(PlatformStrategies*);
     

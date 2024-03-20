@@ -30,6 +30,7 @@
 #include "AuthenticationManagerMessages.h"
 #include "Download.h"
 #include "DownloadProxyMessages.h"
+#include "MessageSenderInlines.h"
 #include "NetworkProcess.h"
 #include "NetworkProcessProxyMessages.h"
 #include "PendingDownload.h"
@@ -42,67 +43,68 @@
 namespace WebKit {
 using namespace WebCore;
 
-static uint64_t generateAuthenticationChallengeID()
-{
-    ASSERT(RunLoop::isMain());
-
-    static int64_t uniqueAuthenticationChallengeID;
-    return ++uniqueAuthenticationChallengeID;
-}
-
 static bool canCoalesceChallenge(const WebCore::AuthenticationChallenge& challenge)
 {
     // Do not coalesce server trust evaluation requests because ProtectionSpace comparison does not evaluate server trust (e.g. certificate).
-    return challenge.protectionSpace().authenticationScheme() != ProtectionSpaceAuthenticationSchemeServerTrustEvaluationRequested;
+    return challenge.protectionSpace().authenticationScheme() != ProtectionSpace::AuthenticationScheme::ServerTrustEvaluationRequested;
 }
 
-const char* AuthenticationManager::supplementName()
+ASCIILiteral AuthenticationManager::supplementName()
 {
-    return "AuthenticationManager";
+    return "AuthenticationManager"_s;
 }
 
 AuthenticationManager::AuthenticationManager(NetworkProcess& process)
     : m_process(process)
 {
-    m_process.addMessageReceiver(Messages::AuthenticationManager::messageReceiverName(), *this);
+    process.addMessageReceiver(Messages::AuthenticationManager::messageReceiverName(), *this);
 }
 
-uint64_t AuthenticationManager::addChallengeToChallengeMap(Challenge&& challenge)
+AuthenticationManager::~AuthenticationManager() = default;
+
+inline Ref<NetworkProcess> AuthenticationManager::protectedProcess() const
+{
+    ASSERT(RunLoop::isMain());
+    return m_process.get();
+}
+
+AuthenticationChallengeIdentifier AuthenticationManager::addChallengeToChallengeMap(UniqueRef<Challenge>&& challenge)
 {
     ASSERT(RunLoop::isMain());
 
-    uint64_t challengeID = generateAuthenticationChallengeID();
+    auto challengeID = AuthenticationChallengeIdentifier::generate();
     m_challenges.set(challengeID, WTFMove(challenge));
     return challengeID;
 }
 
-bool AuthenticationManager::shouldCoalesceChallenge(WebPageProxyIdentifier pageID, uint64_t challengeID, const AuthenticationChallenge& challenge) const
+bool AuthenticationManager::shouldCoalesceChallenge(WebPageProxyIdentifier pageID, AuthenticationChallengeIdentifier challengeID, const AuthenticationChallenge& challenge) const
 {
     if (!canCoalesceChallenge(challenge))
         return false;
 
     for (auto& item : m_challenges) {
-        if (item.key != challengeID && item.value.pageID == pageID && ProtectionSpace::compare(challenge.protectionSpace(), item.value.challenge.protectionSpace()))
+        if (item.key != challengeID && item.value->pageID == pageID && ProtectionSpace::compare(challenge.protectionSpace(), item.value->challenge.protectionSpace()))
             return true;
     }
     return false;
 }
 
-Vector<uint64_t> AuthenticationManager::coalesceChallengesMatching(uint64_t challengeID) const
+Vector<AuthenticationChallengeIdentifier> AuthenticationManager::coalesceChallengesMatching(AuthenticationChallengeIdentifier challengeID) const
 {
-    auto iterator = m_challenges.find(challengeID);
-    ASSERT(iterator != m_challenges.end());
+    auto* challenge = m_challenges.get(challengeID);
+    if (!challenge) {
+        ASSERT_NOT_REACHED();
+        return { };
+    }
 
-    auto& challenge = iterator->value;
-
-    Vector<uint64_t> challengesToCoalesce;
+    Vector<AuthenticationChallengeIdentifier> challengesToCoalesce;
     challengesToCoalesce.append(challengeID);
 
-    if (!canCoalesceChallenge(challenge.challenge))
+    if (!canCoalesceChallenge(challenge->challenge))
         return challengesToCoalesce;
 
     for (auto& item : m_challenges) {
-        if (item.key != challengeID && item.value.pageID == challenge.pageID && ProtectionSpace::compare(challenge.challenge.protectionSpace(), item.value.challenge.protectionSpace()))
+        if (item.key != challengeID && item.value->pageID == challenge->pageID && ProtectionSpace::compare(challenge->challenge.protectionSpace(), item.value->challenge.protectionSpace()))
             challengesToCoalesce.append(item.key);
     }
 
@@ -114,22 +116,22 @@ void AuthenticationManager::didReceiveAuthenticationChallenge(PAL::SessionID ses
     if (!pageID)
         return completionHandler(AuthenticationChallengeDisposition::PerformDefaultHandling, { });
 
-    uint64_t challengeID = addChallengeToChallengeMap({ pageID, authenticationChallenge, WTFMove(completionHandler) });
+    auto challengeID = addChallengeToChallengeMap(makeUniqueRef<Challenge>(pageID, authenticationChallenge, WTFMove(completionHandler)));
 
     // Coalesce challenges in the same protection space and in the same page.
     if (shouldCoalesceChallenge(pageID, challengeID, authenticationChallenge))
         return;
 
-    Optional<SecurityOriginData> topOriginData;
+    std::optional<SecurityOriginData> topOriginData;
     if (topOrigin)
         topOriginData = *topOrigin;
-    m_process.send(Messages::NetworkProcessProxy::DidReceiveAuthenticationChallenge(sessionID, pageID, topOriginData, authenticationChallenge, negotiatedLegacyTLS == NegotiatedLegacyTLS::Yes, challengeID));
+    protectedProcess()->send(Messages::NetworkProcessProxy::DidReceiveAuthenticationChallenge(sessionID, pageID, topOriginData, authenticationChallenge, negotiatedLegacyTLS == NegotiatedLegacyTLS::Yes, challengeID));
 }
 
 void AuthenticationManager::didReceiveAuthenticationChallenge(IPC::MessageSender& download, const WebCore::AuthenticationChallenge& authenticationChallenge, ChallengeCompletionHandler&& completionHandler)
 {
     WebPageProxyIdentifier dummyPageID;
-    uint64_t challengeID = addChallengeToChallengeMap({ dummyPageID, authenticationChallenge, WTFMove(completionHandler) });
+    auto challengeID = addChallengeToChallengeMap(makeUniqueRef<Challenge>(dummyPageID, authenticationChallenge, WTFMove(completionHandler)));
     
     // Coalesce challenges in the same protection space and in the same page.
     if (shouldCoalesceChallenge(dummyPageID, challengeID, authenticationChallenge))
@@ -138,20 +140,20 @@ void AuthenticationManager::didReceiveAuthenticationChallenge(IPC::MessageSender
     download.send(Messages::DownloadProxy::DidReceiveAuthenticationChallenge(authenticationChallenge, challengeID));
 }
 
-void AuthenticationManager::completeAuthenticationChallenge(uint64_t challengeID, AuthenticationChallengeDisposition disposition, WebCore::Credential&& credential)
+void AuthenticationManager::completeAuthenticationChallenge(AuthenticationChallengeIdentifier challengeID, AuthenticationChallengeDisposition disposition, WebCore::Credential&& credential)
 {
     ASSERT(RunLoop::isMain());
 
     for (auto& coalescedChallengeID : coalesceChallengesMatching(challengeID)) {
         auto challenge = m_challenges.take(coalescedChallengeID);
-        ASSERT(!challenge.challenge.isNull());
-        challenge.completionHandler(disposition, credential);
+        ASSERT(!challenge->challenge.isNull());
+        challenge->completionHandler(disposition, credential);
     }
 }
 
 void AuthenticationManager::negotiatedLegacyTLS(WebPageProxyIdentifier pageID) const
 {
-    m_process.send(Messages::NetworkProcessProxy::NegotiatedLegacyTLS(pageID));
+    protectedProcess()->send(Messages::NetworkProcessProxy::NegotiatedLegacyTLS(pageID));
 }
 
 } // namespace WebKit

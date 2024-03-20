@@ -34,8 +34,9 @@
 
 #pragma once
 
+#include <optional>
 #include <type_traits>
-#include <wtf/Optional.h>
+#include <wtf/Hasher.h>
 #include <wtf/StdLibExtras.h>
 
 namespace WTF {
@@ -47,7 +48,7 @@ template<
     typename EnumType,
     typename std::underlying_type<EnumType>::type constant = std::numeric_limits<typename std::underlying_type<EnumType>::type>::max()>
 struct EnumMarkableTraits {
-    static_assert(std::is_enum<EnumType>::value, "");
+    static_assert(std::is_enum<EnumType>::value);
     using UnderlyingType = typename std::underlying_type<EnumType>::type;
 
     constexpr static bool isEmptyValue(EnumType value)
@@ -63,7 +64,7 @@ struct EnumMarkableTraits {
 
 template<typename IntegralType, IntegralType constant = 0>
 struct IntegralMarkableTraits {
-    static_assert(std::is_integral<IntegralType>::value, "");
+    static_assert(std::is_integral<IntegralType>::value);
     constexpr static bool isEmptyValue(IntegralType value)
     {
         return value == constant;
@@ -72,6 +73,18 @@ struct IntegralMarkableTraits {
     constexpr static IntegralType emptyValue()
     {
         return constant;
+    }
+};
+
+struct FloatMarkableTraits {
+    constexpr static bool isEmptyValue(float value)
+    {
+        return value != value;
+    }
+
+    constexpr static float emptyValue()
+    {
+        return std::numeric_limits<float>::quiet_NaN();
     }
 };
 
@@ -89,7 +102,7 @@ public:
         : m_value(Traits::emptyValue())
     { }
 
-    constexpr Markable(WTF::nullopt_t)
+    constexpr Markable(std::nullopt_t)
         : Markable()
     { }
 
@@ -106,11 +119,11 @@ public:
         : m_value(std::forward<Args>(args)...)
     { }
 
-    constexpr Markable(const Optional<T>& value)
+    constexpr Markable(const std::optional<T>& value)
         : m_value(bool(value) ? *value : Traits::emptyValue())
     { }
 
-    constexpr Markable(Optional<T>&& value)
+    constexpr Markable(std::optional<T>&& value)
         : m_value(bool(value) ? WTFMove(*value) : Traits::emptyValue())
     { }
 
@@ -128,28 +141,43 @@ public:
     constexpr const T& operator*() const& { return m_value; }
     constexpr T& operator*() & { return m_value; }
 
-    operator Optional<T>() &&
-    {
-        if (bool(*this))
-            return WTFMove(m_value);
-        return WTF::nullopt;
-    }
-
-    operator Optional<T>() const&
+    template <class U> constexpr T value_or(U&& fallback) const
     {
         if (bool(*this))
             return m_value;
-        return WTF::nullopt;
+        return static_cast<T>(std::forward<U>(fallback));
     }
 
-    Optional<T> asOptional() const
+    operator std::optional<T>() &&
     {
-        return Optional<T>(*this);
+        if (bool(*this))
+            return WTFMove(m_value);
+        return std::nullopt;
     }
+
+    operator std::optional<T>() const&
+    {
+        if (bool(*this))
+            return m_value;
+        return std::nullopt;
+    }
+
+    std::optional<T> asOptional() const
+    {
+        return std::optional<T>(*this);
+    }
+
+    template<typename Encoder> void encode(Encoder&) const;
+    template<typename Decoder> static std::optional<Markable> decode(Decoder&);
 
 private:
     T m_value;
 };
+
+template <typename T, typename Traits> inline void add(Hasher& hasher, const Markable<T, Traits>& value)
+{
+    add(hasher, value.asOptional());
+}
 
 template <typename T, typename Traits> constexpr bool operator==(const Markable<T, Traits>& x, const Markable<T, Traits>& y)
 {
@@ -162,9 +190,35 @@ template <typename T, typename Traits> constexpr bool operator==(const Markable<
 template <typename T, typename Traits> constexpr bool operator==(const Markable<T, Traits>& x, const T& v) { return bool(x) && x.value() == v; }
 template <typename T, typename Traits> constexpr bool operator==(const T& v, const Markable<T, Traits>& x) { return bool(x) && v == x.value(); }
 
-template <typename T, typename Traits> constexpr bool operator!=(const Markable<T, Traits>& x, const Markable<T, Traits>& y) { return !(x == y); }
-template <typename T, typename Traits> constexpr bool operator!=(const Markable<T, Traits>& x, const T& v) { return !(x == v); }
-template <typename T, typename Traits> constexpr bool operator!=(const T& v, const Markable<T, Traits>& x) { return !(v == x); }
+template <typename T, typename Traits>
+template<typename Encoder>
+void Markable<T, Traits>::encode(Encoder& encoder) const
+{
+    bool isEmpty = Traits::isEmptyValue(m_value);
+    encoder << isEmpty;
+    if (!isEmpty)
+        encoder << m_value;
+}
+
+template <typename T, typename Traits>
+template<typename Decoder>
+std::optional<Markable<T, Traits>> Markable<T, Traits>::decode(Decoder& decoder)
+{
+    std::optional<bool> isEmpty;
+    decoder >> isEmpty;
+    if (!isEmpty)
+        return std::nullopt;
+
+    if (*isEmpty)
+        return Markable { };
+
+    std::optional<T> value;
+    decoder >> value;
+    if (!value)
+        return std::nullopt;
+
+    return Markable { WTFMove(*value) };
+}
 
 } // namespace WTF
 

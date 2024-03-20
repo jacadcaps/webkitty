@@ -53,9 +53,9 @@ template<> struct SVGPropertyTraits<SVGLengthAdjustType> {
 
     static SVGLengthAdjustType fromString(const String& value)
     {
-        if (value == "spacingAndGlyphs")
+        if (value == "spacingAndGlyphs"_s)
             return SVGLengthAdjustSpacingAndGlyphs;
-        if (value == "spacing")
+        if (value == "spacing"_s)
             return SVGLengthAdjustSpacing;
         return SVGLengthAdjustUnknown;
     }
@@ -92,13 +92,13 @@ public:
     SVGAnimatedEnumeration& lengthAdjustAnimated() { return m_lengthAdjust; }
 
 protected:
-    SVGTextContentElement(const QualifiedName&, Document&);
+    SVGTextContentElement(const QualifiedName&, Document&, UniqueRef<SVGPropertyRegistry>&&);
 
     bool isValid() const override { return SVGTests::isValid(); }
 
-    void parseAttribute(const QualifiedName&, const AtomString&) override;
-    bool isPresentationAttribute(const QualifiedName&) const override;
-    void collectStyleForPresentationAttribute(const QualifiedName&, const AtomString&, MutableStyleProperties&) override;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) override;
+    bool hasPresentationalHintsForAttribute(const QualifiedName&) const override;
+    void collectPresentationalHintsForAttribute(const QualifiedName&, const AtomString&, MutableStyleProperties&) override;
     void svgAttributeChanged(const QualifiedName&) override;
 
     bool selfHasRelativeLengths() const override;
@@ -115,5 +115,9 @@ private:
 
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::SVGTextContentElement)
     static bool isType(const WebCore::SVGElement& element) { return element.isTextContent(); }
-    static bool isType(const WebCore::Node& node) { return is<WebCore::SVGElement>(node) && isType(downcast<WebCore::SVGElement>(node)); }
+    static bool isType(const WebCore::Node& node)
+    {
+        auto* svgElement = dynamicDowncast<WebCore::SVGElement>(node);
+        return svgElement && isType(*svgElement);
+    }
 SPECIALIZE_TYPE_TRAITS_END()

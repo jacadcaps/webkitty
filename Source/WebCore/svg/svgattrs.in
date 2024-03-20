@@ -13,6 +13,7 @@ arabic-form
 ascent
 attributeName
 attributeType
+autofocus
 azimuth
 baseFrequency
 baseline-shift
@@ -31,10 +32,6 @@ clipPathUnits
 color
 color-interpolation
 color-interpolation-filters
-color-profile
-color-rendering
-contentScriptType
-contentStyleType
 cursor
 cx
 cy
@@ -50,10 +47,8 @@ dx
 dy
 edgeMode
 elevation
-enable-background
 end
 exponent
-externalResourcesRequired
 fill
 fill-opacity
 fill-rule

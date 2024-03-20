@@ -36,10 +36,20 @@ namespace WebCore {
 
 class TextInputType final : public BaseTextInputType {
 public:
-    explicit TextInputType(HTMLInputElement& element) : BaseTextInputType(element) { }
+    static Ref<TextInputType> create(HTMLInputElement& element)
+    {
+        return adoptRef(*new TextInputType(element));
+    }
 
 private:
-    const AtomString& formControlType() const override;
+    explicit TextInputType(HTMLInputElement& element)
+        : BaseTextInputType(Type::Text, element)
+    {
+    }
+
+    const AtomString& formControlType() const final;
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_INPUT_TYPE(TextInputType, Type::Text)

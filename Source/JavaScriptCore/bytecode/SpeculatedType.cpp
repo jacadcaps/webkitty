@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,12 +31,17 @@
 
 #include "DateInstance.h"
 #include "DirectArguments.h"
+#include "Integrity.h"
 #include "JSArray.h"
 #include "JSBigInt.h"
 #include "JSBoundFunction.h"
+#include "JSCJSValueInlines.h"
+#include "JSCellInlines.h"
 #include "JSDataView.h"
 #include "JSFunction.h"
+#include "JSGenericTypedArrayViewInlines.h"
 #include "JSMap.h"
+#include "JSPromise.h"
 #include "JSSet.h"
 #include "JSWeakMap.h"
 #include "JSWeakSet.h"
@@ -44,6 +49,7 @@
 #include "RegExpObject.h"
 #include "ScopedArguments.h"
 #include "StringObject.h"
+#include "TypedArrayInlines.h"
 #include <wtf/CommaPrinter.h>
 #include <wtf/StringPrintStream.h>
 
@@ -148,7 +154,17 @@ void dumpSpeculation(PrintStream& outStream, SpeculatedType value)
                 strOut.print("Float64Array");
             else
                 isTop = false;
-    
+
+            if (value & SpecBigInt64Array)
+                strOut.print("BigInt64Array");
+            else
+                isTop = false;
+
+            if (value & SpecBigUint64Array)
+                strOut.print("BigUint64Array");
+            else
+                isTop = false;
+
             if (value & SpecFunction)
                 strOut.print("Function");
             else
@@ -238,6 +254,11 @@ void dumpSpeculation(PrintStream& outStream, SpeculatedType value)
             strOut.print("Symbol");
         else
             isTop = false;
+
+        if (value & SpecHeapBigInt)
+            strOut.print("HeapBigInt");
+        else
+            isTop = false;
     }
     
     if (value == SpecInt32Only)
@@ -273,20 +294,11 @@ void dumpSpeculation(PrintStream& outStream, SpeculatedType value)
             isTop = false;
     }
 
-    if ((value & SpecBigInt) == SpecBigInt)
-        strOut.print("BigInt");
 #if USE(BIGINT32)
-    else {
-        if (value & SpecBigInt32)
-            strOut.print("BigInt32");
-        else
-            isTop = false;
-
-        if (value & SpecHeapBigInt)
-            strOut.print("HeapBigInt");
-        else
-            isTop = false;
-    }
+    if (value & SpecBigInt32)
+        strOut.print("BigInt32");
+    else
+        isTop = false;
 #endif
 
     if (value & SpecDoubleImpureNaN)
@@ -359,6 +371,10 @@ static const char* speculationToAbbreviatedString(SpeculatedType prediction)
         return "<Float32array>";
     if (isFloat64ArraySpeculation(prediction))
         return "<Float64array>";
+    if (isBigInt64ArraySpeculation(prediction))
+        return "<BigInt64array>";
+    if (isBigUint64ArraySpeculation(prediction))
+        return "<BigUint64array>";
     if (isDirectArgumentsSpeculation(prediction))
         return "<DirectArguments>";
     if (isScopedArgumentsSpeculation(prediction))
@@ -424,6 +440,10 @@ SpeculatedType speculationFromTypedArrayType(TypedArrayType type)
         return SpecFloat32Array;
     case TypeFloat64:
         return SpecFloat64Array;
+    case TypeBigInt64:
+        return SpecBigInt64Array;
+    case TypeBigUint64:
+        return SpecBigUint64Array;
     case NotTypedArray:
     case TypeDataView:
         break;
@@ -486,8 +506,7 @@ SpeculatedType speculationFromClassInfoInheritance(const ClassInfo* classInfo)
     if (classInfo == ProxyObject::info())
         return SpecProxyObject;
 
-    static_assert(std::is_final_v<JSDataView>);
-    if (classInfo == JSDataView::info())
+    if (classInfo->isSubClassOf(JSDataView::info()))
         return SpecDataViewObject;
 
     if (classInfo->isSubClassOf(StringObject::info()))
@@ -496,69 +515,66 @@ SpeculatedType speculationFromClassInfoInheritance(const ClassInfo* classInfo)
     if (classInfo->isSubClassOf(JSArray::info()))
         return SpecArray | SpecDerivedArray;
 
-    if (classInfo->isSubClassOf(JSFunction::info())) {
-        if (classInfo == JSBoundFunction::info())
-            return SpecFunctionWithNonDefaultHasInstance;
-        return SpecFunctionWithDefaultHasInstance;
-    }
+    if (classInfo->isSubClassOf(JSFunction::info()))
+        return SpecFunction;
 
     if (classInfo->isSubClassOf(JSPromise::info()))
         return SpecPromiseObject;
     
-    if (isTypedView(classInfo->typedArrayStorageType))
-        return speculationFromTypedArrayType(classInfo->typedArrayStorageType);
-    
+#define JSC_TYPED_ARRAY_CHECK(type) do { \
+        if (classInfo->isSubClassOf(JS ## type ## Array::info())) \
+            return Spec ## type ## Array; \
+    } while (0);
+    FOR_EACH_TYPED_ARRAY_TYPE_EXCLUDING_DATA_VIEW(JSC_TYPED_ARRAY_CHECK)
+#undef JSC_TYPED_ARRAY_CHECK
+
     if (classInfo->isSubClassOf(JSObject::info()))
         return SpecObjectOther;
     
     return SpecCellOther;
 }
 
+static constexpr unsigned SpeculationMappingSize { static_cast<unsigned>(UINT8_MAX) + 1 };
+using SpeculationMapping = std::array<SpeculatedType, SpeculationMappingSize>;
+static constexpr SpeculationMapping speculatedTypeMapping = ([]() -> SpeculationMapping {
+    SpeculationMapping result { };
+    for (unsigned i = 0; i < SpeculationMappingSize; ++i)
+        result[i] = SpecObjectOther;
+#define JSC_DEFINE_JS_TYPE(type, speculatedType) result[type] = speculatedType;
+    FOR_EACH_JS_TYPE(JSC_DEFINE_JS_TYPE)
+#undef JSC_DEFINE_JS_TYPE
+    return result;
+})();
+
 SpeculatedType speculationFromStructure(Structure* structure)
 {
-    SpeculatedType filteredResult = SpecNone;
-    switch (structure->typeInfo().type()) {
-    case StringType:
-        filteredResult = SpecString;
-        break;
-    case SymbolType:
-        filteredResult = SpecSymbol;
-        break;
-    case HeapBigIntType:
-        filteredResult = SpecHeapBigInt;
-        break;
-    case DerivedArrayType:
-        filteredResult = SpecDerivedArray;
-        break;
-    case ArrayType:
-        filteredResult = SpecArray;
-        break;
-    case StringObjectType:
-        filteredResult = SpecStringObject;
-        break;
-    // We do not want to accept String.prototype in StringObjectUse, so that we do not include it as SpecStringObject.
-    case DerivedStringObjectType:
-        filteredResult = SpecObjectOther;
-        break;
-    default:
-        return speculationFromClassInfoInheritance(structure->classInfo());
-    }
-    ASSERT(filteredResult);
-    ASSERT(isSubtypeSpeculation(filteredResult, speculationFromClassInfoInheritance(structure->classInfo())));
-    return filteredResult;
+    JSType type = structure->typeInfo().type();
+    return speculatedTypeMapping[type];
 }
 
 SpeculatedType speculationFromCell(JSCell* cell)
 {
+    // FIXME: rdar://69036888: remove isSanePointer checks when no longer needed.
+    if (UNLIKELY(!Integrity::isSanePointer(cell))) {
+        ASSERT_NOT_REACHED();
+        return SpecNone;
+    }
+
     if (cell->isString()) {
         JSString* string = jsCast<JSString*>(cell);
         if (const StringImpl* impl = string->tryGetValueImpl()) {
+            if (UNLIKELY(!Integrity::isSanePointer(impl))) {
+                ASSERT_NOT_REACHED();
+                return SpecNone;
+            }
             if (impl->isAtom())
                 return SpecStringIdent;
         }
         return SpecString;
     }
-    return speculationFromStructure(cell->structure());
+
+    JSType type = cell->type();
+    return speculatedTypeMapping[type];
 }
 
 SpeculatedType speculationFromValue(JSValue value)
@@ -628,11 +644,17 @@ TypedArrayType typedArrayTypeFromSpeculation(SpeculatedType type)
         
     if (isFloat64ArraySpeculation(type))
         return TypeFloat64;
+
+    if (isBigInt64ArraySpeculation(type))
+        return TypeBigInt64;
+
+    if (isBigUint64ArraySpeculation(type))
+        return TypeBigUint64;
     
     return NotTypedArray;
 }
 
-Optional<SpeculatedType> speculationFromJSType(JSType type)
+std::optional<SpeculatedType> speculationFromJSType(JSType type)
 {
     switch (type) {
     case StringType:
@@ -664,7 +686,7 @@ Optional<SpeculatedType> speculationFromJSType(JSType type)
     case DataViewType:
         return SpecDataViewObject;
     default:
-        return WTF::nullopt;
+        return std::nullopt;
     }
 }
 
@@ -874,6 +896,10 @@ SpeculatedType speculationFromString(const char* speculation)
         return SpecFloat32Array;
     if (!strncmp(speculation, "SpecFloat64Array", strlen("SpecFloat64Array")))
         return SpecFloat64Array;
+    if (!strncmp(speculation, "SpecBigInt64Array", strlen("SpecBigInt64Array")))
+        return SpecBigInt64Array;
+    if (!strncmp(speculation, "SpecBigUint64Array", strlen("SpecBigUint64Array")))
+        return SpecBigUint64Array;
     if (!strncmp(speculation, "SpecTypedArrayView", strlen("SpecTypedArrayView")))
         return SpecTypedArrayView;
     if (!strncmp(speculation, "SpecDirectArguments", strlen("SpecDirectArguments")))

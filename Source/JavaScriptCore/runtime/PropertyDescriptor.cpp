@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2009-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,8 +29,57 @@
 
 #include "GetterSetter.h"
 #include "JSCJSValueInlines.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace JSC {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(DOMAttributeAnnotation);
+
+template<typename T>
+struct WeakCustomGetterOrSetterHashTranslator {
+    using BaseHash = JSGlobalObject::WeakCustomGetterOrSetterHash<T>;
+
+    using Key = std::tuple<PropertyName, typename T::CustomFunctionPointer, const ClassInfo*>;
+
+    static unsigned hash(const Key& key)
+    {
+        return BaseHash::hash(std::get<0>(key), std::get<1>(key), std::get<2>(key));
+    }
+
+    static bool equal(const Weak<T>& a, const Key& b)
+    {
+        if (!a)
+            return false;
+        return a->propertyName() == std::get<0>(b) && a->customFunctionPointer() == std::get<1>(b) && a->slotBaseClassInfoIfExists() == std::get<2>(b);
+    }
+};
+
+static JSCustomSetterFunction* createCustomSetterFunction(JSGlobalObject* globalObject, VM& vm, PropertyName propertyName, PutValueFunc putValueFunc)
+{
+    using Translator = WeakCustomGetterOrSetterHashTranslator<JSCustomSetterFunction>;
+
+    // WeakGCSet::ensureValue's functor must not invoke GC since GC can modify WeakGCSet in the middle of HashSet::ensure.
+    // We use DeferGC here (1) not to invoke GC when executing WeakGCSet::ensureValue and (2) to avoid looking up HashSet twice.
+    DeferGC deferGC(vm);
+    return globalObject->customSetterFunctionSet().ensureValue<Translator>(std::tuple { propertyName, putValueFunc, nullptr }, [&] {
+        return JSCustomSetterFunction::create(vm, globalObject, propertyName, putValueFunc);
+    });
+}
+
+static JSCustomGetterFunction* createCustomGetterFunction(JSGlobalObject* globalObject, VM& vm, PropertyName propertyName, GetValueFunc getValueFunc, std::optional<DOMAttributeAnnotation> domAttribute)
+{
+    using Translator = WeakCustomGetterOrSetterHashTranslator<JSCustomGetterFunction>;
+
+    // WeakGCSet::ensureValue's functor must not invoke GC since GC can modify WeakGCSet in the middle of HashSet::ensure.
+    // We use DeferGC here (1) not to invoke GC when executing WeakGCSet::ensureValue and (2) to avoid looking up HashSet twice.
+    DeferGC deferGC(vm);
+    const ClassInfo* classInfo = nullptr;
+    if (domAttribute)
+        classInfo = domAttribute->classInfo;
+    return globalObject->customGetterFunctionSet().ensureValue<Translator>(std::tuple { propertyName, getValueFunc, classInfo }, [&] {
+        return JSCustomGetterFunction::create(vm, globalObject, propertyName, getValueFunc, domAttribute);
+    });
+}
 
 bool PropertyDescriptor::writable() const
 {
@@ -125,15 +174,16 @@ void PropertyDescriptor::setDescriptor(JSValue value, unsigned attributes)
     }
 }
 
-void PropertyDescriptor::setCustomDescriptor(unsigned attributes)
+void PropertyDescriptor::setAccessorDescriptor(unsigned attributes)
 {
-    ASSERT(!(attributes & PropertyAttribute::CustomValue));
-    m_attributes = attributes | PropertyAttribute::Accessor | PropertyAttribute::CustomAccessor;
-    m_attributes &= ~PropertyAttribute::ReadOnly;
+    ASSERT(attributes & PropertyAttribute::Accessor);
+    ASSERT(!(attributes & PropertyAttribute::CustomAccessorOrValue));
+    attributes &= ~PropertyAttribute::ReadOnly; // FIXME: we should be able to ASSERT this!
+
+    m_attributes = attributes;
+    m_getter = jsUndefined();
+    m_setter = jsUndefined();
     m_seenAttributes = EnumerablePresent | ConfigurablePresent;
-    setGetter(jsUndefined());
-    setSetter(jsUndefined());
-    m_value = JSValue();
 }
 
 void PropertyDescriptor::setAccessorDescriptor(GetterSetter* accessor, unsigned attributes)
@@ -236,6 +286,29 @@ unsigned PropertyDescriptor::attributesOverridingCurrent(const PropertyDescripto
     if (isAccessorDescriptor())
         overrideMask |= PropertyAttribute::Accessor;
     return (m_attributes & overrideMask) | (currentAttributes & ~overrideMask & ~PropertyAttribute::CustomAccessor);
+}
+
+bool PropertyDescriptor::setPropertySlot(JSGlobalObject* globalObject, PropertyName propertyName, const PropertySlot& slot)
+{
+    VM& vm = globalObject->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    if (slot.isAccessor())
+        setAccessorDescriptor(slot.getterSetter(), slot.attributes());
+    else if (slot.attributes() & PropertyAttribute::CustomAccessor) {
+        ASSERT_WITH_MESSAGE(slot.isCustom(), "PropertySlot::TypeCustom is required in case of PropertyAttribute::CustomAccessor");
+        setAccessorDescriptor((slot.attributes() | PropertyAttribute::Accessor) & ~PropertyAttribute::CustomAccessor);
+        auto* slotBaseGlobalObject = slot.slotBase()->globalObject();
+        if (slot.customGetter())
+            setGetter(createCustomGetterFunction(slotBaseGlobalObject, vm, propertyName, slot.customGetter(), slot.domAttribute()));
+        if (slot.customSetter())
+            setSetter(createCustomSetterFunction(slotBaseGlobalObject, vm, propertyName, slot.customSetter()));
+    } else {
+        JSValue value = slot.getValue(globalObject, propertyName);
+        RETURN_IF_EXCEPTION(scope, false);
+        setDescriptor(value, slot.attributes());
+    }
+    return true;
 }
 
 }

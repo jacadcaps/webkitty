@@ -26,7 +26,6 @@
 #if ENABLE(FULLSCREEN_API) && PLATFORM(MAC)
 
 #import <AppKit/AppKit.h>
-#import "GenericCallback.h"
 #import <wtf/NakedPtr.h>
 #import <wtf/NakedRef.h>
 #import <wtf/RetainPtr.h>
@@ -34,7 +33,6 @@
 namespace WebKit { 
 class LayerTreeContext;
 class WebPageProxy;
-class WKFullScreenWindowControllerVideoFullscreenModelClient;
 }
 
 namespace WebCore {
@@ -63,8 +61,6 @@ typedef enum FullScreenState : NSInteger FullScreenState;
     FullScreenState _fullScreenState;
 
     double _savedScale;
-    RefPtr<WebKit::VoidCallback> _repaintCallback;
-    std::unique_ptr<WebKit::WKFullScreenWindowControllerVideoFullscreenModelClient> _videoFullscreenClient;
     float _savedTopContentInset;
 }
 
@@ -87,7 +83,6 @@ typedef enum FullScreenState : NSInteger FullScreenState;
 - (void)beganExitFullScreenWithInitialFrame:(NSRect)initialFrame finalFrame:(NSRect)finalFrame;
 
 - (void)videoControlsManagerDidChange;
-- (void)didEnterPictureInPicture;
 
 @end
 

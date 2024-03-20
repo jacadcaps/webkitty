@@ -34,7 +34,7 @@
 namespace WebCore {
 
 CustomUndoStep::CustomUndoStep(UndoItem& item)
-    : m_undoItem(makeWeakPtr(item))
+    : m_undoItem(item)
 {
 }
 
@@ -76,7 +76,7 @@ String CustomUndoStep::label() const
 
 void CustomUndoStep::didRemoveFromUndoManager()
 {
-    if (auto undoItem = std::exchange(m_undoItem, nullptr))
+    if (RefPtr undoItem = std::exchange(m_undoItem, nullptr).get())
         undoItem->invalidate();
 }
 

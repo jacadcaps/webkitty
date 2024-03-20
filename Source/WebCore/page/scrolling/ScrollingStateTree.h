@@ -27,8 +27,8 @@
 
 #if ENABLE(ASYNC_SCROLLING)
 
-#include "ScrollingCoordinator.h"
 #include "ScrollingStateNode.h"
+#include <wtf/CheckedPtr.h>
 #include <wtf/RefPtr.h>
  
 namespace WebCore {
@@ -36,20 +36,22 @@ namespace WebCore {
 class AsyncScrollingCoordinator;
 class ScrollingStateFrameScrollingNode;
 
-// The ScrollingStateTree is a tree that managed ScrollingStateNodes. The nodes keep track of the current
+// The ScrollingStateTree is a tree that manages ScrollingStateNodes. The nodes keep track of the current
 // state of scrolling related properties. Whenever any properties change, the scrolling coordinator
 // will be informed and will schedule a timer that will clone the new state tree and send it over to
 // the scrolling thread, avoiding locking. 
 
-class ScrollingStateTree {
+class ScrollingStateTree : public CanMakeCheckedPtr {
     WTF_MAKE_FAST_ALLOCATED;
     friend class ScrollingStateNode;
 public:
+    WEBCORE_EXPORT static std::optional<ScrollingStateTree> createAfterReconstruction(bool, bool, RefPtr<ScrollingStateFrameScrollingNode>&&);
     WEBCORE_EXPORT ScrollingStateTree(AsyncScrollingCoordinator* = nullptr);
+    WEBCORE_EXPORT ScrollingStateTree(ScrollingStateTree&&);
     WEBCORE_EXPORT ~ScrollingStateTree();
 
-    ScrollingStateFrameScrollingNode* rootStateNode() const { return m_rootStateNode.get(); }
-    WEBCORE_EXPORT ScrollingStateNode* stateNodeForID(ScrollingNodeID) const;
+    WEBCORE_EXPORT RefPtr<ScrollingStateFrameScrollingNode> rootStateNode() const;
+    WEBCORE_EXPORT RefPtr<ScrollingStateNode> stateNodeForID(ScrollingNodeID) const;
 
     ScrollingNodeID createUnparentedNode(ScrollingNodeType, ScrollingNodeID);
     WEBCORE_EXPORT ScrollingNodeID insertNode(ScrollingNodeType, ScrollingNodeID, ScrollingNodeID parentID, size_t childIndex);
@@ -61,6 +63,8 @@ public:
     // Copies the current tree state and clears the changed properties mask in the original.
     WEBCORE_EXPORT std::unique_ptr<ScrollingStateTree> commit(LayerRepresentation::Type preferredLayerRepresentation);
 
+    WEBCORE_EXPORT void attachDeserializedNodes();
+
     WEBCORE_EXPORT void setHasChangedProperties(bool = true);
     bool hasChangedProperties() const { return m_hasChangedProperties; }
 
@@ -68,8 +72,9 @@ public:
     void setHasNewRootStateNode(bool hasNewRoot) { m_hasNewRootStateNode = hasNewRoot; }
 
     unsigned nodeCount() const { return m_stateNodeMap.size(); }
+    unsigned scrollingNodeCount() const { return m_scrollingNodeCount; }
 
-    typedef HashMap<ScrollingNodeID, RefPtr<ScrollingStateNode>> StateNodeMap;
+    using StateNodeMap = HashMap<ScrollingNodeID, Ref<ScrollingStateNode>>;
     const StateNodeMap& nodeMap() const { return m_stateNodeMap; }
 
     LayerRepresentation::Type preferredLayerRepresentation() const { return m_preferredLayerRepresentation; }
@@ -77,40 +82,52 @@ public:
 
     void reconcileViewportConstrainedLayerPositions(ScrollingNodeID, const LayoutRect& viewportRect, ScrollingLayerPositionAction);
 
+    void scrollingNodeAdded()
+    {
+        ++m_scrollingNodeCount;
+    }
+    void scrollingNodeRemoved()
+    {
+        ASSERT(m_scrollingNodeCount);
+        --m_scrollingNodeCount;
+    }
+
+    String scrollingStateTreeAsText(OptionSet<ScrollingStateTreeAsTextBehavior>) const;
+
 private:
+    ScrollingStateTree(bool hasNewRootStateNode, bool hasChangedProperties, RefPtr<ScrollingStateFrameScrollingNode>&&);
+
     void setRootStateNode(Ref<ScrollingStateFrameScrollingNode>&&);
     void addNode(ScrollingStateNode&);
 
-    void nodeWasReattachedRecursive(ScrollingStateNode&);
-
     Ref<ScrollingStateNode> createNode(ScrollingNodeType, ScrollingNodeID);
 
-    bool nodeTypeAndParentMatch(ScrollingStateNode&, ScrollingNodeType, ScrollingStateNode* parentNode) const;
+    void removeNodeAndAllDescendants(ScrollingStateNode&);
 
-    void removeNodeAndAllDescendants(ScrollingStateNode*);
+    void recursiveNodeWillBeRemoved(ScrollingStateNode&);
+    void willRemoveNode(ScrollingStateNode&);
+    
+    bool isValid() const;
+    void traverse(const ScrollingStateNode&, const Function<void(const ScrollingStateNode&)>&) const;
 
-    void recursiveNodeWillBeRemoved(ScrollingStateNode*);
-    void willRemoveNode(ScrollingStateNode*);
-
-    void reconcileLayerPositionsRecursive(ScrollingStateNode&, const LayoutRect& viewportRect, ScrollingLayerPositionAction);
-
-    AsyncScrollingCoordinator* m_scrollingCoordinator;
+    ThreadSafeWeakPtr<AsyncScrollingCoordinator> m_scrollingCoordinator;
     // Contains all the nodes we know about (those in the m_rootStateNode tree, and in m_unparentedNodes subtrees).
     StateNodeMap m_stateNodeMap;
     // Owns roots of unparented subtrees.
     HashMap<ScrollingNodeID, RefPtr<ScrollingStateNode>> m_unparentedNodes;
 
     RefPtr<ScrollingStateFrameScrollingNode> m_rootStateNode;
+    unsigned m_scrollingNodeCount { 0 };
+    LayerRepresentation::Type m_preferredLayerRepresentation { LayerRepresentation::GraphicsLayerRepresentation };
     bool m_hasChangedProperties { false };
     bool m_hasNewRootStateNode { false };
-    LayerRepresentation::Type m_preferredLayerRepresentation { LayerRepresentation::GraphicsLayerRepresentation };
 };
 
 } // namespace WebCore
 
 #ifndef NDEBUG
-void showScrollingStateTree(const WebCore::ScrollingStateTree*);
-void showScrollingStateTree(const WebCore::ScrollingStateNode*);
+void showScrollingStateTree(const WebCore::ScrollingStateTree&);
+void showScrollingStateTree(const WebCore::ScrollingStateNode&);
 #endif
 
 #endif // ENABLE(ASYNC_SCROLLING)

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -45,14 +45,13 @@ Ref<ProcessPoolConfiguration> ProcessPoolConfiguration::copy()
     auto copy = this->create();
 
     copy->m_injectedBundlePath = this->m_injectedBundlePath;
-    copy->m_customClassesForParameterCoder = this->m_customClassesForParameterCoder;
     copy->m_cachePartitionedURLSchemes = this->m_cachePartitionedURLSchemes;
     copy->m_alwaysRevalidatedURLSchemes = this->m_alwaysRevalidatedURLSchemes;
     copy->m_additionalReadAccessAllowedPaths = this->m_additionalReadAccessAllowedPaths;
     copy->m_fullySynchronousModeIsAllowedForTesting = this->m_fullySynchronousModeIsAllowedForTesting;
     copy->m_ignoreSynchronousMessagingTimeoutsForTesting = this->m_ignoreSynchronousMessagingTimeoutsForTesting;
     copy->m_attrStyleEnabled = this->m_attrStyleEnabled;
-    copy->m_overrideLanguages = this->m_overrideLanguages;
+    copy->m_shouldThrowExceptionForGlobalConstantRedeclaration = this->m_shouldThrowExceptionForGlobalConstantRedeclaration;
     copy->m_alwaysRunsAtBackgroundPriority = this->m_alwaysRunsAtBackgroundPriority;
     copy->m_shouldTakeUIBackgroundAssertion = this->m_shouldTakeUIBackgroundAssertion;
     copy->m_shouldCaptureDisplayInUIProcess = this->m_shouldCaptureDisplayInUIProcess;
@@ -62,13 +61,11 @@ Ref<ProcessPoolConfiguration> ProcessPoolConfiguration::copy()
     copy->m_processSwapsOnNavigationFromClient = this->m_processSwapsOnNavigationFromClient;
     copy->m_processSwapsOnNavigationFromExperimentalFeatures = this->m_processSwapsOnNavigationFromExperimentalFeatures;
     copy->m_alwaysKeepAndReuseSwappedProcesses = this->m_alwaysKeepAndReuseSwappedProcesses;
-    copy->m_processSwapsOnWindowOpenWithOpener = this->m_processSwapsOnWindowOpenWithOpener;
+    copy->m_processSwapsOnNavigationWithinSameNonHTTPFamilyProtocol = this->m_processSwapsOnNavigationWithinSameNonHTTPFamilyProtocol;
     copy->m_isAutomaticProcessWarmingEnabledByClient = this->m_isAutomaticProcessWarmingEnabledByClient;
     copy->m_usesWebProcessCache = this->m_usesWebProcessCache;
     copy->m_usesBackForwardCache = this->m_usesBackForwardCache;
-    copy->m_customWebContentServiceBundleIdentifier = this->m_customWebContentServiceBundleIdentifier;
     copy->m_usesSingleWebProcess = m_usesSingleWebProcess;
-    copy->m_hstsStorageDirectory = m_hstsStorageDirectory;
 #if PLATFORM(GTK) && !USE(GTK4)
     copy->m_useSystemAppearanceForScrollbars = m_useSystemAppearanceForScrollbars;
 #endif
@@ -77,6 +74,14 @@ Ref<ProcessPoolConfiguration> ProcessPoolConfiguration::copy()
     copy->m_networkProcessPath = this->m_networkProcessPath;
     copy->m_userId = this->m_userId;
 #endif
+#if PLATFORM(GTK) || PLATFORM(WPE)
+    copy->m_memoryPressureHandlerConfiguration = this->m_memoryPressureHandlerConfiguration;
+    copy->m_disableFontHintingForTesting = this->m_disableFontHintingForTesting;
+#endif
+#if HAVE(AUDIT_TOKEN)
+    copy->m_presentingApplicationProcessToken = this->m_presentingApplicationProcessToken;
+#endif
+    copy->m_timeZoneOverride = this->m_timeZoneOverride;
     return copy;
 }
 

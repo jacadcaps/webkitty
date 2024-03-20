@@ -26,10 +26,10 @@
 #import "config.h"
 #import "WebPreferencesDefaultValues.h"
 
-#if PLATFORM(COCOA) && HAVE(SYSTEM_FEATURE_FLAGS)
+#if PLATFORM(COCOA)
 
+#import "ImageAnalysisUtilities.h"
 #import <Foundation/NSBundle.h>
-
 #import <pal/spi/cocoa/FeatureFlagsSPI.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
@@ -37,22 +37,65 @@
 
 namespace WebKit {
 
-// Because of <rdar://problem/60608008>, WebKit has to parse the feature flags plist file
-bool isFeatureFlagEnabled(const String& featureName)
+#if PLATFORM(MAC)
+bool defaultScrollAnimatorEnabled()
 {
-    BOOL isWebKitBundleFromStagedFramework = [[[NSBundle mainBundle] bundlePath] hasPrefix:@"/Library/Apple/System/Library/StagedFrameworks/WebKit"];
-
-    if (!isWebKitBundleFromStagedFramework)
-        return _os_feature_enabled_impl("WebKit", (const char*)featureName.utf8().data());
-
-    static NSDictionary* dictionary = [[NSDictionary dictionaryWithContentsOfFile:@"/Library/Apple/System/Library/FeatureFlags/Domain/WebKit.plist"] retain];
-
-    if (![[dictionary objectForKey:featureName] objectForKey:@"Enabled"])
-        return _os_feature_enabled_impl("WebKit", (const char*)featureName.characters8());
-
-    return [[[dictionary objectForKey:featureName] objectForKey:@"Enabled"] isKindOfClass:[NSNumber class]] && [[[dictionary objectForKey:featureName] objectForKey:@"Enabled"] boolValue];
+    return [[NSUserDefaults standardUserDefaults] boolForKey:@"NSScrollAnimationEnabled"];
 }
+#endif
+
+#if ENABLE(IMAGE_ANALYSIS)
+
+bool defaultTextRecognitionInVideosEnabled()
+{
+    static bool enabled = false;
+#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+    static std::once_flag flag;
+    std::call_once(flag, [] {
+        enabled = os_feature_enabled(VisualIntelligence, LiveText);
+    });
+#endif
+    return enabled;
+}
+
+bool defaultVisualTranslationEnabled()
+{
+    static bool enabled = false;
+#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+    static std::once_flag flag;
+    std::call_once(flag, [] {
+        enabled = os_feature_enabled(Translate, EnableVisualIntelligenceUI);
+    });
+#endif
+    return enabled;
+}
+
+bool defaultRemoveBackgroundEnabled()
+{
+    static bool enabled = false;
+#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+    static std::once_flag flag;
+    std::call_once(flag, [] {
+        enabled = os_feature_enabled(VisualIntelligence, RemoveBackground);
+    });
+#endif
+    return enabled;
+}
+
+#endif // ENABLE(IMAGE_ANALYSIS)
+
+#if HAVE(SC_CONTENT_SHARING_PICKER)
+bool defaultUseSCContentSharingPicker()
+{
+    static bool enabled = false;
+    static std::once_flag flag;
+    std::call_once(flag, [] {
+        enabled = os_feature_enabled(Bilby, Newsroom);
+    });
+    return enabled;
+}
+#endif
 
 } // namespace WebKit
 
-#endif
+#endif // PLATFORM(COCOA)

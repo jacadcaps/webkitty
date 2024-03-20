@@ -32,9 +32,9 @@
 #include "JSInspectorAuditAccessibilityObject.h"
 #include "JSInspectorAuditDOMObject.h"
 #include "JSInspectorAuditResourcesObject.h"
+#include "JSLocalDOMWindowCustom.h"
 #include "Page.h"
 #include "PageConsoleClient.h"
-#include "ScriptState.h"
 #include <JavaScriptCore/CallFrame.h>
 #include <JavaScriptCore/InjectedScript.h>
 #include <JavaScriptCore/InjectedScriptManager.h>
@@ -56,18 +56,18 @@ PageAuditAgent::PageAuditAgent(PageAgentContext& context)
 
 PageAuditAgent::~PageAuditAgent() = default;
 
-InjectedScript PageAuditAgent::injectedScriptForEval(const int* executionContextId)
+InjectedScript PageAuditAgent::injectedScriptForEval(std::optional<Protocol::Runtime::ExecutionContextId>&& executionContextId)
 {
     if (executionContextId)
         return injectedScriptManager().injectedScriptForId(*executionContextId);
-
-    JSC::JSGlobalObject* scriptState = mainWorldExecState(&m_inspectedPage.mainFrame());
-    return injectedScriptManager().injectedScriptFor(scriptState);
+    if (auto* localMainFrame = dynamicDowncast<LocalFrame>(m_inspectedPage.mainFrame()))
+        return injectedScriptManager().injectedScriptFor(&mainWorldGlobalObject(*localMainFrame));
+    return InjectedScript();
 }
 
-InjectedScript PageAuditAgent::injectedScriptForEval(ErrorString& errorString, const int* executionContextId)
+InjectedScript PageAuditAgent::injectedScriptForEval(Protocol::ErrorString& errorString, std::optional<Protocol::Runtime::ExecutionContextId>&& executionContextId)
 {
-    InjectedScript injectedScript = injectedScriptForEval(executionContextId);
+    InjectedScript injectedScript = injectedScriptForEval(WTFMove(executionContextId));
     if (injectedScript.hasNoValue()) {
         if (executionContextId)
             errorString = "Missing injected script for given executionContextId"_s;
@@ -90,13 +90,13 @@ void PageAuditAgent::populateAuditObject(JSC::JSGlobalObject* lexicalGlobalObjec
         JSC::JSLockHolder lock(vm);
 
         if (JSC::JSValue jsInspectorAuditAccessibilityObject = toJSNewlyCreated(lexicalGlobalObject, globalObject, InspectorAuditAccessibilityObject::create(*this)))
-            auditObject->putDirect(vm, JSC::Identifier::fromString(vm, "Accessibility"), jsInspectorAuditAccessibilityObject);
+            auditObject->putDirect(vm, JSC::Identifier::fromString(vm, "Accessibility"_s), jsInspectorAuditAccessibilityObject);
 
         if (JSC::JSValue jsInspectorAuditDOMObject = toJSNewlyCreated(lexicalGlobalObject, globalObject, InspectorAuditDOMObject::create(*this)))
-            auditObject->putDirect(vm, JSC::Identifier::fromString(vm, "DOM"), jsInspectorAuditDOMObject);
+            auditObject->putDirect(vm, JSC::Identifier::fromString(vm, "DOM"_s), jsInspectorAuditDOMObject);
 
         if (JSC::JSValue jsInspectorAuditResourcesObject = toJSNewlyCreated(lexicalGlobalObject, globalObject, InspectorAuditResourcesObject::create(*this)))
-            auditObject->putDirect(vm, JSC::Identifier::fromString(vm, "Resources"), jsInspectorAuditResourcesObject);
+            auditObject->putDirect(vm, JSC::Identifier::fromString(vm, "Resources"_s), jsInspectorAuditResourcesObject);
     }
 }
 

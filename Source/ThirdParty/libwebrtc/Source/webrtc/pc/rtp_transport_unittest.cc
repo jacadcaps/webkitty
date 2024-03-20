@@ -10,18 +10,16 @@
 
 #include "pc/rtp_transport.h"
 
-#include <cstdint>
-#include <set>
-#include <string>
 #include <utility>
 
-#include "api/rtp_headers.h"
-#include "api/rtp_parameters.h"
 #include "p2p/base/fake_packet_transport.h"
 #include "pc/test/rtp_transport_test_util.h"
 #include "rtc_base/buffer.h"
+#include "rtc_base/containers/flat_set.h"
+#include "rtc_base/gunit.h"
 #include "rtc_base/third_party/sigslot/sigslot.h"
 #include "test/gtest.h"
+#include "test/run_loop.h"
 
 namespace webrtc {
 
@@ -36,9 +34,12 @@ class SignalObserver : public sigslot::has_slots<> {
  public:
   explicit SignalObserver(RtpTransport* transport) {
     transport_ = transport;
-    transport->SignalReadyToSend.connect(this, &SignalObserver::OnReadyToSend);
-    transport->SignalNetworkRouteChanged.connect(
-        this, &SignalObserver::OnNetworkRouteChanged);
+    transport->SubscribeReadyToSend(
+        this, [this](bool ready) { OnReadyToSend(ready); });
+    transport->SubscribeNetworkRouteChanged(
+        this, [this](absl::optional<rtc::NetworkRoute> route) {
+          OnNetworkRouteChanged(route);
+        });
     if (transport->rtp_packet_transport()) {
       transport->rtp_packet_transport()->SignalSentPacket.connect(
           this, &SignalObserver::OnSentPacket);
@@ -155,16 +156,16 @@ TEST(RtpTransportTest, SetRtpTransportWithNetworkRouteChanged) {
   rtc::NetworkRoute network_route;
   // Set a non-null RTP transport with a new network route.
   network_route.connected = true;
-  network_route.local_network_id = kLocalNetId;
-  network_route.remote_network_id = kRemoteNetId;
+  network_route.local = rtc::RouteEndpoint::CreateWithNetworkId(kLocalNetId);
+  network_route.remote = rtc::RouteEndpoint::CreateWithNetworkId(kRemoteNetId);
   network_route.last_sent_packet_id = kLastPacketId;
   network_route.packet_overhead = kTransportOverheadPerPacket;
   fake_rtp.SetNetworkRoute(absl::optional<rtc::NetworkRoute>(network_route));
   transport.SetRtpPacketTransport(&fake_rtp);
   ASSERT_TRUE(observer.network_route());
   EXPECT_TRUE(observer.network_route()->connected);
-  EXPECT_EQ(kLocalNetId, observer.network_route()->local_network_id);
-  EXPECT_EQ(kRemoteNetId, observer.network_route()->remote_network_id);
+  EXPECT_EQ(kLocalNetId, observer.network_route()->local.network_id());
+  EXPECT_EQ(kRemoteNetId, observer.network_route()->remote.network_id());
   EXPECT_EQ(kTransportOverheadPerPacket,
             observer.network_route()->packet_overhead);
   EXPECT_EQ(kLastPacketId, observer.network_route()->last_sent_packet_id);
@@ -184,16 +185,16 @@ TEST(RtpTransportTest, SetRtcpTransportWithNetworkRouteChanged) {
   rtc::NetworkRoute network_route;
   // Set a non-null RTCP transport with a new network route.
   network_route.connected = true;
-  network_route.local_network_id = kLocalNetId;
-  network_route.remote_network_id = kRemoteNetId;
+  network_route.local = rtc::RouteEndpoint::CreateWithNetworkId(kLocalNetId);
+  network_route.remote = rtc::RouteEndpoint::CreateWithNetworkId(kRemoteNetId);
   network_route.last_sent_packet_id = kLastPacketId;
   network_route.packet_overhead = kTransportOverheadPerPacket;
   fake_rtcp.SetNetworkRoute(absl::optional<rtc::NetworkRoute>(network_route));
   transport.SetRtcpPacketTransport(&fake_rtcp);
   ASSERT_TRUE(observer.network_route());
   EXPECT_TRUE(observer.network_route()->connected);
-  EXPECT_EQ(kLocalNetId, observer.network_route()->local_network_id);
-  EXPECT_EQ(kRemoteNetId, observer.network_route()->remote_network_id);
+  EXPECT_EQ(kLocalNetId, observer.network_route()->local.network_id());
+  EXPECT_EQ(kRemoteNetId, observer.network_route()->remote.network_id());
   EXPECT_EQ(kTransportOverheadPerPacket,
             observer.network_route()->packet_overhead);
   EXPECT_EQ(kLastPacketId, observer.network_route()->last_sent_packet_id);
@@ -285,7 +286,7 @@ TEST(RtpTransportTest, SignalHandledRtpPayloadType) {
   TransportObserver observer(&transport);
   RtpDemuxerCriteria demuxer_criteria;
   // Add a handled payload type.
-  demuxer_criteria.payload_types = {0x11};
+  demuxer_criteria.payload_types().insert(0x11);
   transport.RegisterRtpDemuxerSink(demuxer_criteria, &observer);
 
   // An rtp packet.
@@ -294,6 +295,7 @@ TEST(RtpTransportTest, SignalHandledRtpPayloadType) {
   rtc::Buffer rtp_data(kRtpData, kRtpLen);
   fake_rtp.SendPacket(rtp_data.data<char>(), kRtpLen, options, flags);
   EXPECT_EQ(1, observer.rtp_count());
+  EXPECT_EQ(0, observer.un_demuxable_rtp_count());
   EXPECT_EQ(0, observer.rtcp_count());
   // Remove the sink before destroying the transport.
   transport.UnregisterRtpDemuxerSink(&observer);
@@ -309,7 +311,7 @@ TEST(RtpTransportTest, DontSignalUnhandledRtpPayloadType) {
   TransportObserver observer(&transport);
   RtpDemuxerCriteria demuxer_criteria;
   // Add an unhandled payload type.
-  demuxer_criteria.payload_types = {0x12};
+  demuxer_criteria.payload_types().insert(0x12);
   transport.RegisterRtpDemuxerSink(demuxer_criteria, &observer);
 
   const rtc::PacketOptions options;
@@ -317,9 +319,34 @@ TEST(RtpTransportTest, DontSignalUnhandledRtpPayloadType) {
   rtc::Buffer rtp_data(kRtpData, kRtpLen);
   fake_rtp.SendPacket(rtp_data.data<char>(), kRtpLen, options, flags);
   EXPECT_EQ(0, observer.rtp_count());
+  EXPECT_EQ(1, observer.un_demuxable_rtp_count());
   EXPECT_EQ(0, observer.rtcp_count());
   // Remove the sink before destroying the transport.
   transport.UnregisterRtpDemuxerSink(&observer);
+}
+
+TEST(RtpTransportTest, RecursiveSetSendDoesNotCrash) {
+  const int kShortTimeout = 100;
+  test::RunLoop loop;
+  RtpTransport transport(kMuxEnabled);
+  rtc::FakePacketTransport fake_rtp("fake_rtp");
+  transport.SetRtpPacketTransport(&fake_rtp);
+  TransportObserver observer(&transport);
+  observer.SetActionOnReadyToSend([&](bool ready) {
+    const rtc::PacketOptions options;
+    const int flags = 0;
+    rtc::CopyOnWriteBuffer rtp_data(kRtpData, kRtpLen);
+    transport.SendRtpPacket(&rtp_data, options, flags);
+  });
+  // The fake RTP will have no destination, so will return -1.
+  fake_rtp.SetError(ENOTCONN);
+  fake_rtp.SetWritable(true);
+  // At this point, only the initial ready-to-send is observed.
+  EXPECT_TRUE(observer.ready_to_send());
+  EXPECT_EQ(observer.ready_to_send_signal_count(), 1);
+  // After the wait, the ready-to-send false is observed.
+  EXPECT_EQ_WAIT(observer.ready_to_send_signal_count(), 2, kShortTimeout);
+  EXPECT_FALSE(observer.ready_to_send());
 }
 
 }  // namespace webrtc

@@ -28,6 +28,10 @@
 
 #if ENABLE(SPEECH_SYNTHESIS)
 
+#include "ContextDestructionObserverInlines.h"
+#include "EventNames.h"
+#include "SpeechSynthesisErrorEvent.h"
+#include "SpeechSynthesisEvent.h"
 #include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
@@ -36,12 +40,22 @@ WTF_MAKE_ISO_ALLOCATED_IMPL(SpeechSynthesisUtterance);
     
 Ref<SpeechSynthesisUtterance> SpeechSynthesisUtterance::create(ScriptExecutionContext& context, const String& text)
 {
-    return adoptRef(*new SpeechSynthesisUtterance(context, text));
+    auto utterance = adoptRef(*new SpeechSynthesisUtterance(context, text, { }));
+    utterance->suspendIfNeeded();
+    return utterance;
 }
 
-SpeechSynthesisUtterance::SpeechSynthesisUtterance(ScriptExecutionContext& context, const String& text)
-    : ContextDestructionObserver(&context)
+Ref<SpeechSynthesisUtterance> SpeechSynthesisUtterance::create(ScriptExecutionContext& context, const String& text, SpeechSynthesisUtterance::UtteranceCompletionHandler&& completion)
+{
+    auto utterance = adoptRef(*new SpeechSynthesisUtterance(context, text, WTFMove(completion)));
+    utterance->suspendIfNeeded();
+    return utterance;
+}
+
+SpeechSynthesisUtterance::SpeechSynthesisUtterance(ScriptExecutionContext& context, const String& text, UtteranceCompletionHandler&& completion)
+    : ActiveDOMObject(&context)
     , m_platformUtterance(PlatformSpeechSynthesisUtterance::create(*this))
+    , m_completionHandler(WTFMove(completion))
 {
     m_platformUtterance->setText(text);
 }
@@ -68,6 +82,49 @@ void SpeechSynthesisUtterance::setVoice(SpeechSynthesisVoice* voice)
     if (voice)
         m_platformUtterance->setVoice(voice->platformVoice());
 }
+
+void SpeechSynthesisUtterance::eventOccurred(const AtomString& type, unsigned long charIndex, unsigned long charLength, const String& name)
+{
+    if (m_completionHandler) {
+        if (type == eventNames().endEvent)
+            m_completionHandler(*this);
+
+        return;
+    }
+
+    dispatchEvent(SpeechSynthesisEvent::create(type, { this, charIndex, charLength, static_cast<float>((MonotonicTime::now() - startTime()).seconds()), name }));
+}
+
+void SpeechSynthesisUtterance::errorEventOccurred(const AtomString& type, SpeechSynthesisErrorCode errorCode)
+{
+    if (m_completionHandler) {
+        m_completionHandler(*this);
+        return;
+    }
+
+    dispatchEvent(SpeechSynthesisErrorEvent::create(type, { { this, 0, 0, static_cast<float>((MonotonicTime::now() - startTime()).seconds()), { } }, errorCode }));
+}
+
+void SpeechSynthesisUtterance::incrementActivityCountForEventDispatch()
+{
+    ++m_activityCountForEventDispatch;
+}
+
+void SpeechSynthesisUtterance::decrementActivityCountForEventDispatch()
+{
+    --m_activityCountForEventDispatch;
+}
+
+const char* SpeechSynthesisUtterance::activeDOMObjectName() const
+{
+    return "SpeechSynthesisUtterance";
+}
+
+bool SpeechSynthesisUtterance::virtualHasPendingActivity() const
+{
+    return m_activityCountForEventDispatch && hasEventListeners();
+}
+
 
 } // namespace WebCore
 

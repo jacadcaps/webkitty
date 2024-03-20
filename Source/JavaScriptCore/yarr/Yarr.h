@@ -34,7 +34,7 @@ namespace JSC { namespace Yarr {
 
 #define YarrStackSpaceForBackTrackInfoPatternCharacter 2 // Only for !fixed quantifiers.
 #define YarrStackSpaceForBackTrackInfoCharacterClass 2 // Only for !fixed quantifiers.
-#define YarrStackSpaceForBackTrackInfoBackReference 2
+#define YarrStackSpaceForBackTrackInfoBackReference 3
 #define YarrStackSpaceForBackTrackInfoAlternative 1 // One per alternative.
 #define YarrStackSpaceForBackTrackInfoParentheticalAssertion 1
 #define YarrStackSpaceForBackTrackInfoParenthesesOnce 2
@@ -49,19 +49,19 @@ static constexpr unsigned offsetNoMatch = std::numeric_limits<unsigned>::max();
 // avoid spending exponential time on complex regular expressions.
 static constexpr unsigned matchLimit = 1000000;
 
-enum MatchFrom { VMThread, CompilerThread };
+enum class MatchFrom { VMThread, CompilerThread };
 
-enum JSRegExpResult {
-    JSRegExpMatch = 1,
-    JSRegExpNoMatch = 0,
-    JSRegExpErrorNoMatch = -1,
-    JSRegExpJITCodeFailure = -2,
-    JSRegExpErrorHitLimit = -3,
-    JSRegExpErrorNoMemory = -4,
-    JSRegExpErrorInternal = -5,
+enum class JSRegExpResult {
+    Match = 1,
+    NoMatch = 0,
+    ErrorNoMatch = -1,
+    JITCodeFailure = -2,
+    ErrorHitLimit = -3,
+    ErrorNoMemory = -4,
+    ErrorInternal = -5,
 };
 
-enum YarrCharSize {
+enum class CharSize : uint8_t {
     Char8,
     Char16
 };
@@ -71,7 +71,7 @@ enum class BuiltInCharacterClassID : unsigned {
     SpaceClassID,
     WordClassID,
     DotClassID,
-    BaseUnicodePropertyID
+    BaseUnicodePropertyID,
 };
 
 struct BytecodePattern;

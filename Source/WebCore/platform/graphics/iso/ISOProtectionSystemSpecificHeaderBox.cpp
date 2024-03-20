@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2023 Apple Inc. All rights reserved.
  * Copyright (C) 2018 Metrological Group B.V.
  * Copyright (C) 2018 Igalia S.L
  *
@@ -34,11 +34,14 @@ using JSC::DataView;
 
 namespace WebCore {
 
-Optional<Vector<uint8_t>> ISOProtectionSystemSpecificHeaderBox::peekSystemID(JSC::DataView& view, unsigned offset)
+ISOProtectionSystemSpecificHeaderBox::ISOProtectionSystemSpecificHeaderBox() = default;
+ISOProtectionSystemSpecificHeaderBox::~ISOProtectionSystemSpecificHeaderBox() = default;
+
+std::optional<Vector<uint8_t>> ISOProtectionSystemSpecificHeaderBox::peekSystemID(JSC::DataView& view, unsigned offset)
 {
     auto peekResult = ISOBox::peekBox(view, offset);
     if (!peekResult || peekResult.value().first != boxTypeName())
-        return WTF::nullopt;
+        return std::nullopt;
 
     ISOProtectionSystemSpecificHeaderBox psshBox;
     psshBox.parse(view, offset);
@@ -58,6 +61,9 @@ bool ISOProtectionSystemSpecificHeaderBox::parse(DataView& view, unsigned& offse
     offset += 16;
 
     m_systemID.resize(16);
+    if (systemID->byteLength() < 16)
+        return false;
+
     memcpy(m_systemID.data(), systemID->data(), 16);
 
     if (m_version) {
@@ -66,12 +72,16 @@ bool ISOProtectionSystemSpecificHeaderBox::parse(DataView& view, unsigned& offse
             return false;
         if (buffer->byteLength() - offset < keyIDCount * 16)
             return false;
+        if (!m_keyIDs.tryReserveCapacity(keyIDCount))
+            return false;
         m_keyIDs.resize(keyIDCount);
         for (unsigned keyID = 0; keyID < keyIDCount; keyID++) {
             auto& currentKeyID = m_keyIDs[keyID];
             currentKeyID.resize(16);
             auto parsedKeyID = buffer->slice(offset, offset + 16);
             offset += 16;
+            if (parsedKeyID->byteLength() < 16)
+                continue;
             memcpy(currentKeyID.data(), parsedKeyID->data(), 16);
         }
     }
@@ -85,6 +95,9 @@ bool ISOProtectionSystemSpecificHeaderBox::parse(DataView& view, unsigned& offse
     offset += dataSize;
 
     m_data.resize(dataSize);
+    if (parsedData->byteLength() < dataSize)
+        return false;
+
     memcpy(m_data.data(), parsedData->data(), dataSize);
 
     return true;

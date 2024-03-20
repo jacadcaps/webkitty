@@ -53,6 +53,7 @@
                 { "name": "canvas", "type": "boolean", "optional": true, "description": "Composition due to the element being a <canvas> element." },
                 { "name": "plugin", "type": "boolean", "optional": true, "description": "Composition due to association with a plugin." },
                 { "name": "iFrame", "type": "boolean", "optional": true, "description": "Composition due to association with an <iframe> element." },
+                { "name": "model", "type": "boolean", "optional": true, "description": "Composition due to association with a <model> element." },
                 { "name": "backfaceVisibilityHidden", "type": "boolean", "optional": true, "description": "Composition due to association with an element with a \"backface-visibility: hidden\" style." },
                 { "name": "clipsCompositingDescendants", "type": "boolean", "optional": true, "description": "Composition due to association with an element clipping compositing descendants." },
                 { "name": "animation", "type": "boolean", "optional": true, "description": "Composition due to association with an animated element." },
@@ -74,7 +75,8 @@
                 { "name": "preserve3D", "type": "boolean", "optional": true, "description": "Composition due to association with an element with a \"transform-style: preserve-3d\" style." },
                 { "name": "willChange", "type": "boolean", "optional": true, "description": "Composition due to association with an element with a \"will-change\" style." },
                 { "name": "root", "type": "boolean", "optional": true, "description": "Composition due to association with the root element." },
-                { "name": "blending", "type": "boolean", "optional": true, "description": "Composition due to association with an element with a \"blend-mode\" style." }
+                { "name": "blending", "type": "boolean", "optional": true, "description": "Composition due to association with an element with a \"blend-mode\" style." },
+                { "name": "backdropRoot", "type": "boolean", "optional": true, "description": "Composition due to association with an element that is a backdrop root" }
             ]
         }
     ],

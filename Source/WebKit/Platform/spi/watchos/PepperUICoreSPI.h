@@ -23,12 +23,13 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#if PLATFORM(WATCHOS)
+#if HAVE(PEPPER_UI_CORE)
 
 #import "UIKitSPI.h"
 
 #if USE(APPLE_INTERNAL_SDK)
 
+IGNORE_WARNINGS_BEGIN("undef")
 #import <PepperUICore/PUICActionController.h>
 #import <PepperUICore/PUICActionController_Private.h>
 #import <PepperUICore/PUICActionGroup.h>
@@ -39,9 +40,9 @@
 #import <PepperUICore/PUICPickerView_Private.h>
 #import <PepperUICore/PUICQuickboardArouetViewController.h>
 #import <PepperUICore/PUICQuickboardLanguageController.h>
-#import <PepperUICore/PUICQuickboardListViewController.h>
 #import <PepperUICore/PUICQuickboardListViewControllerSubclass.h>
 #import <PepperUICore/PUICQuickboardListViewSpecs.h>
+#import <PepperUICore/PUICQuickboardMessageViewController.h>
 #import <PepperUICore/PUICQuickboardViewController.h>
 #import <PepperUICore/PUICQuickboardViewController_Private.h>
 #import <PepperUICore/PUICResources.h>
@@ -50,9 +51,15 @@
 #import <PepperUICore/PUICTableViewCell.h>
 #import <PepperUICore/UIDevice+PUICAdditions.h>
 #import <PepperUICore/UIScrollView+PUICAdditionsPrivate.h>
+IGNORE_WARNINGS_END
 
 #if HAVE(QUICKBOARD_COLLECTION_VIEWS)
 #import <PepperUICore/PUICQuickboardListCollectionViewItemCell.h>
+#endif
+
+#if HAVE(QUICKBOARD_CONTROLLER)
+#import <PepperUICore/PUICQuickboardController.h>
+#import <PepperUICore/PUICQuickboardRemoteViewController.h>
 #endif
 
 #else // USE(APPLE_INTERNAL_SDK)
@@ -133,8 +140,17 @@ typedef void (^PUICQuickboardCompletionBlock)(NSAttributedString * _Nullable);
 @interface PUICButton : UIButton
 @end
 
+typedef NS_ENUM(NSUInteger, PUICQuickboardAction) {
+    PUICQuickboardActionAddNumber = 7,
+};
+
+#if HAVE(PUIC_BUTTON_TYPE_PILL)
+extern UIButtonType const PUICButtonTypePill;
+#endif
+
 @interface PUICQuickboardListTrayButton : PUICButton
 - (instancetype)initWithFrame:(CGRect)frame tintColor:(nullable UIColor *)tintColor defaultHeight:(CGFloat)defaultHeight;
+@property (nonatomic) PUICQuickboardAction action;
 @end
 
 @interface PUICTableViewCell : UITableViewCell
@@ -159,6 +175,13 @@ typedef void (^PUICQuickboardCompletionBlock)(NSAttributedString * _Nullable);
 @property (nonatomic, assign) UIReturnKeyType returnKeyType;
 @property (nonatomic, strong) NSAttributedString *attributedHeaderText;
 
+#if HAVE(QUICKBOARD_CONTROLLER)
+@property (nonatomic, copy) NSString *placeholder;
+@property (nonatomic, copy, nullable) NSArray<NSString *> *suggestions;
+@property (nonatomic, readwrite) BOOL acceptsEmoji;
+@property (nonatomic, readwrite) BOOL shouldPresentModernTextInputUI;
+#endif
+
 @end
 
 @class PUICQuickboardController;
@@ -170,6 +193,13 @@ typedef void (^PUICQuickboardCompletionBlock)(NSAttributedString * _Nullable);
 @property (nonatomic, weak) id<PUICQuickboardControllerDelegate> delegate;
 @property (nonatomic, strong) PUICTextInputContext *textInputContext;
 @property (nonatomic, weak) UIViewController *quickboardPresentingViewController;
+
+#if HAVE(QUICKBOARD_CONTROLLER)
+- (void)dismissWithCompletion:(void (^ _Nullable)(void))completion;
+- (void)present;
+@property (nonatomic, assign) BOOL excludedFromScreenCapture;
+#endif
+
 @end
 
 @protocol PUICQuickboardController <NSObject>
@@ -201,12 +231,43 @@ typedef void (^PUICQuickboardCompletionBlock)(NSAttributedString * _Nullable);
 - (void)addContentViewAnimations:(BOOL)isPresenting;
 @end
 
+#if HAVE(QUICKBOARD_COLLECTION_VIEWS)
+@interface PUICCollectionView : UICollectionView
+@end
+
+@interface PUICListCollectionView : PUICCollectionView
+@end
+
+@interface PUICPlatterCell : UICollectionViewCell
+@end
+
+@interface PUICListPlatterCell : PUICPlatterCell
+@end
+
+@interface PUICListBodyPlatterCell : PUICListPlatterCell
+@property (nonatomic, readonly, strong) UILabel *bodyLabel;
+@end
+
+@interface PUICQuickboardListCollectionViewItemCell : PUICListBodyPlatterCell
+- (void)setText:(NSString *)text;
+@end
+#endif
+
 @interface PUICQuickboardListViewController : PUICQuickboardViewController
 @property (nonatomic, readonly) PUICTableView *listView;
 @property (strong, nonatomic, readonly) PUICQuickboardListViewSpecs *specs;
 @property (nonatomic, copy) UITextContentType textContentType;
+@property (nonatomic, strong) PUICTextInputContext *textInputContext;
+#if HAVE(QUICKBOARD_COLLECTION_VIEWS)
+@property (nonatomic, readonly) PUICListCollectionView *collectionView;
+#endif
+- (instancetype)initWithDelegate:(id <PUICQuickboardViewControllerDelegate>)delegate dictationMode:(PUICDictationMode)dictationMode NS_DESIGNATED_INITIALIZER;
 - (void)reloadListItems;
 - (void)reloadHeaderContentView;
+@end
+
+@interface PUICQuickboardMessageViewController : PUICQuickboardListViewController
+@property (nonatomic, copy) NSArray *messages;
 @end
 
 @interface PUICQuickboardArouetViewController : PUICQuickboardViewController
@@ -232,12 +293,6 @@ typedef NS_ENUM(NSInteger, PUICPickerViewStyle) {
 - (instancetype)initWithStyle:(PUICPickerViewStyle)style NS_DESIGNATED_INITIALIZER;
 - (UIView *)dequeueReusableItemView;
 - (void)reloadData;
-@end
-
-@protocol PUICDictationViewControllerDelegate <NSObject>
-@end
-@interface PUICDictationViewController : PUICQuickboardViewController
-- (instancetype)initWithDelegate:(id<PUICQuickboardViewControllerDelegate>)delegate dictationMode:(PUICDictationMode)dictationMode NS_DESIGNATED_INITIALIZER;
 @end
 
 @interface PUICQuickboardViewController (ExposeHeader)
@@ -299,8 +354,20 @@ typedef NS_ENUM(NSInteger, PUICActionStyle) {
 - (instancetype)initWithActionGroup:(PUICActionGroup *)actionGroup NS_DESIGNATED_INITIALIZER;
 @end
 
+#if HAVE(QUICKBOARD_CONTROLLER)
+@interface _UIRemoteViewController : UIViewController
+@end
+
+@protocol PUICQuickboardRemoteInterface <NSObject>
+@end
+
+@class PUICQuickboardRemoteViewController;
+@interface PUICQuickboardRemoteViewController : _UIRemoteViewController <PUICQuickboardRemoteInterface>
+@end
+#endif
+
 NS_ASSUME_NONNULL_END
 
 #endif // USE(APPLE_INTERNAL_SDK)
 
-#endif // PLATFORM(WATCHOS)
+#endif // HAVE(PEPPER_UI_CORE)

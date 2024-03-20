@@ -35,50 +35,7 @@ struct WebSpeechSynthesisVoice {
     String lang;
     bool localService { false };
     bool defaultLang { false };
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static Optional<WebSpeechSynthesisVoice> decode(Decoder&);
 };
-
-template<class Encoder>
-void WebSpeechSynthesisVoice::encode(Encoder& encoder) const
-{
-    encoder << voiceURI
-    << name
-    << lang
-    << localService
-    << defaultLang;
-}
-
-template<class Decoder>
-Optional<WebSpeechSynthesisVoice> WebSpeechSynthesisVoice::decode(Decoder& decoder)
-{
-    Optional<String> voiceURI;
-    decoder >> voiceURI;
-    if (!voiceURI)
-        return WTF::nullopt;
-
-    Optional<String> name;
-    decoder >> name;
-    if (!name)
-        return WTF::nullopt;
-
-    Optional<String> lang;
-    decoder >> lang;
-    if (!lang)
-        return WTF::nullopt;
-
-    Optional<bool> localService;
-    decoder >> localService;
-    if (!localService)
-        return WTF::nullopt;
-
-    Optional<bool> defaultLang;
-    decoder >> defaultLang;
-    if (!defaultLang)
-        return WTF::nullopt;
-
-    return {{ WTFMove(*voiceURI), WTFMove(*name), WTFMove(*lang), WTFMove(*localService), WTFMove(*defaultLang) }};}
 
 } // namespace WebKit
 

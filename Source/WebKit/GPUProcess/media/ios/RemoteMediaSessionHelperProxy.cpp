@@ -31,6 +31,7 @@
 #include "Connection.h"
 #include "GPUConnectionToWebProcess.h"
 #include "RemoteMediaSessionHelperMessages.h"
+#include "WebCoreArgumentCoders.h"
 
 namespace WebKit {
 using namespace WebCore;
@@ -67,7 +68,14 @@ void RemoteMediaSessionHelperProxy::stopMonitoringWirelessRoutes()
 
 void RemoteMediaSessionHelperProxy::providePresentingApplicationPID(int pid)
 {
+    m_presentingApplicationPID = pid;
     MediaSessionHelper::sharedHelper().providePresentingApplicationPID(pid);
+}
+
+void RemoteMediaSessionHelperProxy::overridePresentingApplicationPIDIfNeeded()
+{
+    if (m_presentingApplicationPID)
+        MediaSessionHelper::sharedHelper().providePresentingApplicationPID(*m_presentingApplicationPID, MediaSessionHelper::ShouldOverride::Yes);
 }
 
 void RemoteMediaSessionHelperProxy::applicationWillEnterForeground(SuspendedUnderLock suspendedUnderLock)
@@ -107,7 +115,13 @@ void RemoteMediaSessionHelperProxy::activeAudioRouteDidChange(ShouldPause should
 
 void RemoteMediaSessionHelperProxy::activeVideoRouteDidChange(SupportsAirPlayVideo supportsAirPlayVideo, Ref<WebCore::MediaPlaybackTarget>&& target)
 {
-    m_gpuConnection.connection().send(Messages::RemoteMediaSessionHelper::ActiveVideoRouteDidChange(supportsAirPlayVideo, target->targetContext()), { });
+    auto context = target->targetContext();
+    m_gpuConnection.connection().send(Messages::RemoteMediaSessionHelper::ActiveVideoRouteDidChange(supportsAirPlayVideo, context), { });
+}
+
+void RemoteMediaSessionHelperProxy::activeAudioRouteSupportsSpatialPlaybackDidChange(SupportsSpatialAudioPlayback supportsSpatialPlayback)
+{
+    m_gpuConnection.connection().send(Messages::RemoteMediaSessionHelper::ActiveAudioRouteSupportsSpatialPlaybackDidChange(supportsSpatialPlayback), { });
 }
 
 }

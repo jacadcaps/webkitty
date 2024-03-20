@@ -49,27 +49,27 @@
 
 + (instancetype)layoutStrategyWithPage:(NakedRef<WebKit::WebPageProxy>)page view:(NSView *)view viewImpl:(NakedRef<WebKit::WebViewImpl>)webViewImpl mode:(WKLayoutMode)mode
 {
-    WKViewLayoutStrategy *strategy;
+    RetainPtr<WKViewLayoutStrategy> strategy;
 
     switch (mode) {
     case kWKLayoutModeFixedSize:
-        strategy = [[WKViewFixedSizeLayoutStrategy alloc] initWithPage:page.copyRef() view:view viewImpl:webViewImpl.copyRef() mode:mode];
+        strategy = adoptNS([[WKViewFixedSizeLayoutStrategy alloc] initWithPage:page.copyRef() view:view viewImpl:webViewImpl.copyRef() mode:mode]);
         break;
     case kWKLayoutModeDynamicSizeComputedFromViewScale:
-        strategy = [[WKViewDynamicSizeComputedFromViewScaleLayoutStrategy alloc] initWithPage:page.copyRef() view:view viewImpl:webViewImpl.copyRef() mode:mode];
+        strategy = adoptNS([[WKViewDynamicSizeComputedFromViewScaleLayoutStrategy alloc] initWithPage:page.copyRef() view:view viewImpl:webViewImpl.copyRef() mode:mode]);
         break;
     case kWKLayoutModeDynamicSizeComputedFromMinimumDocumentSize:
-        strategy = [[WKViewDynamicSizeComputedFromMinimumDocumentSizeLayoutStrategy alloc] initWithPage:page.copyRef() view:view viewImpl:webViewImpl.copyRef() mode:mode];
+        strategy = adoptNS([[WKViewDynamicSizeComputedFromMinimumDocumentSizeLayoutStrategy alloc] initWithPage:page.copyRef() view:view viewImpl:webViewImpl.copyRef() mode:mode]);
         break;
     case kWKLayoutModeViewSize:
     default:
-        strategy = [[WKViewViewSizeLayoutStrategy alloc] initWithPage:page.copyRef() view:view viewImpl:webViewImpl.copyRef() mode:mode];
+        strategy = adoptNS([[WKViewViewSizeLayoutStrategy alloc] initWithPage:page.copyRef() view:view viewImpl:webViewImpl.copyRef() mode:mode]);
         break;
     }
 
     [strategy updateLayout];
 
-    return [strategy autorelease];
+    return strategy.autorelease();
 }
 
 - (instancetype)initWithPage:(NakedRef<WebKit::WebPageProxy>)page view:(NSView *)view viewImpl:(NakedRef<WebKit::WebViewImpl>)webViewImpl mode:(WKLayoutMode)mode
@@ -105,21 +105,15 @@
 
 - (void)disableFrameSizeUpdates
 {
-    _frameSizeUpdatesDisabledCount++;
 }
 
 - (void)enableFrameSizeUpdates
 {
-    if (!_frameSizeUpdatesDisabledCount)
-        return;
-
-    if (!(--_frameSizeUpdatesDisabledCount))
-        [self didChangeFrameSize];
 }
 
 - (BOOL)frameSizeUpdatesDisabled
 {
-    return _frameSizeUpdatesDisabledCount > 0;
+    return NO;
 }
 
 - (void)didChangeViewScale
@@ -136,9 +130,6 @@
 
 - (void)didChangeFrameSize
 {
-    if ([self frameSizeUpdatesDisabled])
-        return;
-
     if (_webViewImpl->clipsToVisibleRect())
         _webViewImpl->updateViewExposedRect();
     _webViewImpl->setDrawingAreaSize(NSSizeToCGSize(_view.frame.size));

@@ -60,35 +60,71 @@ bool WillChangeData::containsProperty(CSSPropertyID property) const
     return false;
 }
 
+bool WillChangeData::createsContainingBlockForAbsolutelyPositioned(bool isRootElement) const
+{
+    return createsContainingBlockForOutOfFlowPositioned(isRootElement)
+        || containsProperty(CSSPropertyPosition);
+}
+
+bool WillChangeData::createsContainingBlockForOutOfFlowPositioned(bool isRootElement) const
+{
+    return containsProperty(CSSPropertyPerspective)
+        // CSS transforms
+        || containsProperty(CSSPropertyTransform)
+        || containsProperty(CSSPropertyTransformStyle)
+        || containsProperty(CSSPropertyTranslate)
+        || containsProperty(CSSPropertyRotate)
+        || containsProperty(CSSPropertyScale)
+        || containsProperty(CSSPropertyContain)
+        // CSS filter & backdrop-filter
+        // FIXME: exclude root element for those properties (bug 225034)
+        || (containsProperty(CSSPropertyBackdropFilter) && !isRootElement)
+        || (containsProperty(CSSPropertyWebkitBackdropFilter) && !isRootElement)
+        || containsProperty(CSSPropertyFilter);
+}
+
+bool WillChangeData::canBeBackdropRoot() const
+{
+    return containsProperty(CSSPropertyOpacity)
+        || containsProperty(CSSPropertyBackdropFilter)
+        || containsProperty(CSSPropertyWebkitBackdropFilter)
+        || containsProperty(CSSPropertyClipPath)
+        || containsProperty(CSSPropertyFilter)
+        || containsProperty(CSSPropertyMixBlendMode)
+        || containsProperty(CSSPropertyMask);
+}
+
 // "If any non-initial value of a property would create a stacking context on the element,
 // specifying that property in will-change must create a stacking context on the element."
 bool WillChangeData::propertyCreatesStackingContext(CSSPropertyID property)
 {
     switch (property) {
     case CSSPropertyPerspective:
+    case CSSPropertyWebkitPerspective:
+    case CSSPropertyScale:
+    case CSSPropertyRotate:
+    case CSSPropertyTranslate:
     case CSSPropertyTransform:
     case CSSPropertyTransformStyle:
-    case CSSPropertyWebkitTransformStyle:
     case CSSPropertyClipPath:
     case CSSPropertyMask:
+    case CSSPropertyWebkitMask:
     case CSSPropertyOpacity:
     case CSSPropertyPosition:
     case CSSPropertyZIndex:
     case CSSPropertyWebkitBoxReflect:
-#if ENABLE(CSS_COMPOSITING)
     case CSSPropertyMixBlendMode:
     case CSSPropertyIsolation:
-#endif
     case CSSPropertyFilter:
-#if ENABLE(FILTERS_LEVEL_2)
+    case CSSPropertyBackdropFilter:
     case CSSPropertyWebkitBackdropFilter:
-#endif
-    case CSSPropertyWebkitMask:
-    case CSSPropertyWebkitMaskImage:
+    case CSSPropertyMaskImage:
+    case CSSPropertyMaskBorder:
     case CSSPropertyWebkitMaskBoxImage:
 #if ENABLE(OVERFLOW_SCROLLING_TOUCH)
     case CSSPropertyWebkitOverflowScrolling:
 #endif
+    case CSSPropertyContain:
         return true;
     default:
         return false;
@@ -100,9 +136,8 @@ static bool propertyTriggersCompositing(CSSPropertyID property)
     switch (property) {
     case CSSPropertyOpacity:
     case CSSPropertyFilter:
-#if ENABLE(FILTERS_LEVEL_2)
+    case CSSPropertyBackdropFilter:
     case CSSPropertyWebkitBackdropFilter:
-#endif
         return true;
     default:
         return false;
@@ -117,6 +152,9 @@ static bool propertyTriggersCompositingOnBoxesOnly(CSSPropertyID property)
     // Similarly, we don't want -webkit-overflow-scrolling-touch to
     // always composite if there's no scrollable overflow.
     switch (property) {
+    case CSSPropertyScale:
+    case CSSPropertyRotate:
+    case CSSPropertyTranslate:
     case CSSPropertyTransform:
         return true;
     default:

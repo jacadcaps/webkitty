@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,14 +32,15 @@
 #include <WebCore/EventListener.h>
 #include <WebCore/HTMLMediaElementEnums.h>
 #include <WebCore/PlatformCALayer.h>
+#include <WebCore/PlatformMediaSession.h>
 #include <WebCore/PlaybackSessionModelMediaElement.h>
 #include <wtf/HashCountedSet.h>
 #include <wtf/HashMap.h>
 #include <wtf/RefCounted.h>
 #include <wtf/RefPtr.h>
+#include <wtf/WeakHashSet.h>
 
 namespace IPC {
-class Attachment;
 class Connection;
 class Decoder;
 class MessageReceiver;
@@ -67,14 +68,14 @@ public:
     void invalidate() { m_manager = nullptr; }
 
 private:
-    friend class VideoFullscreenInterfaceContext;
+    friend class VideoPresentationInterfaceContext;
 
     // PlaybackSessionModelClient
     void durationChanged(double) final;
     void currentTimeChanged(double currentTime, double anchorTime) final;
     void bufferedTimeChanged(double) final;
     void playbackStartedTimeChanged(double playbackStartedTime) final;
-    void rateChanged(bool isPlaying, float playbackRate) final;
+    void rateChanged(OptionSet<WebCore::PlaybackSessionModel::PlaybackState>, double playbackRate, double defaultPlaybackRate) final;
     void seekableRangesChanged(const WebCore::TimeRanges&, double lastModifiedTime, double liveUpdateInterval) final;
     void canPlayFastReverseChanged(bool value) final;
     void audioMediaSelectionOptionsChanged(const Vector<WebCore::MediaSelectionOption>& options, uint64_t selectedIndex) final;
@@ -97,20 +98,25 @@ class PlaybackSessionManager : public RefCounted<PlaybackSessionManager>, privat
 public:
     static Ref<PlaybackSessionManager> create(WebPage&);
     virtual ~PlaybackSessionManager();
-    
+
     void invalidate();
 
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
 
     void setUpPlaybackControlsManager(WebCore::HTMLMediaElement&);
     void clearPlaybackControlsManager();
+    void mediaEngineChanged();
     PlaybackSessionContextIdentifier contextIdForMediaElement(WebCore::HTMLMediaElement&);
 
     WebCore::HTMLMediaElement* currentPlaybackControlsElement() const;
 
-protected:
+#if !RELEASE_LOG_DISABLED
+    void sendLogIdentifierForMediaElement(WebCore::HTMLMediaElement&);
+#endif
+
+private:
     friend class PlaybackSessionInterfaceContext;
-    friend class VideoFullscreenManager;
+    friend class VideoPresentationManager;
 
     explicit PlaybackSessionManager(WebPage&);
 
@@ -128,7 +134,7 @@ protected:
     void currentTimeChanged(PlaybackSessionContextIdentifier, double currentTime, double anchorTime);
     void bufferedTimeChanged(PlaybackSessionContextIdentifier, double bufferedTime);
     void playbackStartedTimeChanged(PlaybackSessionContextIdentifier, double playbackStartedTime);
-    void rateChanged(PlaybackSessionContextIdentifier, bool isPlaying, float playbackRate);
+    void rateChanged(PlaybackSessionContextIdentifier, OptionSet<WebCore::PlaybackSessionModel::PlaybackState>, double playbackRate, double defaultPlaybackRate);
     void seekableRangesChanged(PlaybackSessionContextIdentifier, const WebCore::TimeRanges&, double lastModifiedTime, double liveUpdateInterval);
     void canPlayFastReverseChanged(PlaybackSessionContextIdentifier, bool value);
     void audioMediaSelectionOptionsChanged(PlaybackSessionContextIdentifier, const Vector<WebCore::MediaSelectionOption>& options, uint64_t selectedIndex);
@@ -152,6 +158,8 @@ protected:
     void beginScanningForward(PlaybackSessionContextIdentifier);
     void beginScanningBackward(PlaybackSessionContextIdentifier);
     void endScanning(PlaybackSessionContextIdentifier);
+    void setDefaultPlaybackRate(PlaybackSessionContextIdentifier, float);
+    void setPlaybackRate(PlaybackSessionContextIdentifier, float);
     void selectAudioMediaOption(PlaybackSessionContextIdentifier, uint64_t index);
     void selectLegibleMediaOption(PlaybackSessionContextIdentifier, uint64_t index);
     void handleControlledElementIDRequest(PlaybackSessionContextIdentifier);
@@ -160,12 +168,25 @@ protected:
     void setMuted(PlaybackSessionContextIdentifier, bool muted);
     void setVolume(PlaybackSessionContextIdentifier, double volume);
     void setPlayingOnSecondScreen(PlaybackSessionContextIdentifier, bool value);
+    void sendRemoteCommand(PlaybackSessionContextIdentifier, WebCore::PlatformMediaSession::RemoteControlCommandType, const WebCore::PlatformMediaSession::RemoteCommandArgument&);
 
-    WebPage* m_page;
-    HashMap<WebCore::HTMLMediaElement*, PlaybackSessionContextIdentifier> m_mediaElements;
+#if !RELEASE_LOG_DISABLED
+    const Logger& logger() const { return m_logger; }
+    const void* logIdentifier() const { return m_logIdentifier; }
+    const char* logClassName() const { return "VideoPresentationManager"; }
+    WTFLogChannel& logChannel() const;
+#endif
+
+    WeakPtr<WebPage> m_page;
+    WeakHashSet<WebCore::HTMLMediaElement, WebCore::WeakPtrImplWithEventTargetData> m_mediaElements;
     HashMap<PlaybackSessionContextIdentifier, ModelInterfaceTuple> m_contextMap;
     PlaybackSessionContextIdentifier m_controlsManagerContextId;
     HashCountedSet<PlaybackSessionContextIdentifier> m_clientCounts;
+
+#if !RELEASE_LOG_DISABLED
+    Ref<const Logger> m_logger;
+    const void* m_logIdentifier;
+#endif
 };
 
 } // namespace WebKit

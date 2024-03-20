@@ -29,6 +29,7 @@
 // Things internal to the WebKit framework; not SPI.
 
 #import "WebHTMLViewPrivate.h"
+#import <wtf/NakedPtr.h>
 
 @class CALayer;
 @class WebFrame;
@@ -100,6 +101,8 @@ namespace WebCore {
 - (WebPluginController *)_pluginController;
 
 - (void)_executeSavedKeypressCommands;
+
+- (WebCore::ScrollbarWidth)_scrollbarWidthStyle;
 
 @end
 

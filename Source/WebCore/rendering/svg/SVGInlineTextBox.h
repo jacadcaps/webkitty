@@ -2,6 +2,7 @@
  * Copyright (C) 2007 Rob Buis <buis@kde.org>
  * Copyright (C) 2007 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) Research In Motion Limited 2010. All rights reserved.
+ * Copyright (C) 2023 Igalia S.L.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -21,30 +22,27 @@
 
 #pragma once
 
-#include "InlineTextBox.h"
-#include "RenderSVGInlineText.h"
-#include "RenderSVGResource.h"
+#include "LegacyInlineTextBox.h"
+#include "LegacyRenderSVGResource.h"
+#include "RenderSVGResourcePaintServer.h"
+#include "SVGTextFragment.h"
 
 namespace WebCore {
 
-class RenderSVGResource;
+class LegacyRenderSVGResource;
+class RenderSVGInlineText;
+class SVGPaintServerHandling;
 class SVGRootInlineBox;
-struct SVGTextFragment;
 
-class SVGInlineTextBox final : public InlineTextBox {
+class SVGInlineTextBox final : public LegacyInlineTextBox {
     WTF_MAKE_ISO_ALLOCATED(SVGInlineTextBox);
 public:
     explicit SVGInlineTextBox(RenderSVGInlineText&);
 
-    RenderSVGInlineText& renderer() const { return downcast<RenderSVGInlineText>(InlineTextBox::renderer()); }
+    inline RenderSVGInlineText& renderer() const;
 
     float virtualLogicalHeight() const override { return m_logicalHeight; }
     void setLogicalHeight(float height) { m_logicalHeight = height; }
-
-    int selectionTop() { return top(); }
-    int selectionHeight() { return static_cast<int>(ceilf(m_logicalHeight)); }
-    int offsetForPosition(float x, bool includePartialGlyphs = true) const override;
-    float positionForOffset(unsigned offset) const override;
 
     void paintSelectionBackground(PaintInfo&);
     void paint(PaintInfo&, const LayoutPoint&, LayoutUnit lineTop, LayoutUnit lineBottom) override;
@@ -52,7 +50,7 @@ public:
 
     bool mapStartEndPositionsIntoFragmentCoordinates(const SVGTextFragment&, unsigned& startPosition, unsigned& endPosition) const;
 
-    FloatRect calculateBoundaries() const override;
+    FloatRect calculateBoundaries() const;
 
     void clearTextFragments() { m_textFragments.clear(); }
     Vector<SVGTextFragment>& textFragments() { return m_textFragments; }
@@ -64,25 +62,29 @@ public:
     bool startsNewTextChunk() const { return m_startsNewTextChunk; }
     void setStartsNewTextChunk(bool newTextChunk) { m_startsNewTextChunk = newTextChunk; }
 
-    int offsetForPositionInFragment(const SVGTextFragment&, float position, bool includePartialGlyphs) const;
+    int offsetForPositionInFragment(const SVGTextFragment&, float position) const;
     FloatRect selectionRectForTextFragment(const SVGTextFragment&, unsigned fragmentStartPosition, unsigned fragmentEndPosition, const RenderStyle&) const;
     
-    OptionSet<RenderSVGResourceMode> paintingResourceMode() const { return OptionSet<RenderSVGResourceMode>::fromRaw(m_paintingResourceMode); }
-    void setPaintingResourceMode(OptionSet<RenderSVGResourceMode> mode) { m_paintingResourceMode = mode.toRaw(); }
+    OptionSet<RenderSVGResourceMode> paintingResourceMode() const { return OptionSet<RenderSVGResourceMode>::fromRaw(m_legacyPaintingResourceMode); }
+    void setPaintingResourceMode(OptionSet<RenderSVGResourceMode> mode) { m_legacyPaintingResourceMode = mode.toRaw(); }
+
+    inline SVGInlineTextBox* nextTextBox() const;
     
 private:
     bool isSVGInlineTextBox() const override { return true; }
 
     TextRun constructTextRun(const RenderStyle&, const SVGTextFragment&) const;
 
-    bool acquirePaintingResource(GraphicsContext*&, float scalingFactor, RenderBoxModelObject&, const RenderStyle&);
-    void releasePaintingResource(GraphicsContext*&, const Path*);
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
+    bool acquirePaintingResource(SVGPaintServerHandling&, float scalingFactor, RenderBoxModelObject&, const RenderStyle&);
+    void releasePaintingResource(SVGPaintServerHandling&);
+#endif
 
-    bool prepareGraphicsContextForTextPainting(GraphicsContext*&, float scalingFactor, const RenderStyle&);
-    void restoreGraphicsContextAfterTextPainting(GraphicsContext*&);
+    bool acquireLegacyPaintingResource(GraphicsContext*&, float scalingFactor, RenderBoxModelObject&, const RenderStyle&);
+    void releaseLegacyPaintingResource(GraphicsContext*&, const Path*);
 
-    void paintDecoration(GraphicsContext&, OptionSet<TextDecoration>, const SVGTextFragment&);
-    void paintDecorationWithStyle(GraphicsContext&, OptionSet<TextDecoration>, const SVGTextFragment&, RenderBoxModelObject& decorationRenderer);
+    void paintDecoration(GraphicsContext&, OptionSet<TextDecorationLine>, const SVGTextFragment&);
+    void paintDecorationWithStyle(GraphicsContext&, OptionSet<TextDecorationLine>, const SVGTextFragment&, RenderBoxModelObject& decorationRenderer);
     void paintTextWithShadows(GraphicsContext&, const RenderStyle&, TextRun&, const SVGTextFragment&, unsigned startPosition, unsigned endPosition);
     void paintText(GraphicsContext&, const RenderStyle&, const RenderStyle& selectionStyle, const SVGTextFragment&, bool hasSelection, bool paintSelectedTextOnly);
 
@@ -90,9 +92,13 @@ private:
 
 private:
     float m_logicalHeight { 0 };
-    unsigned m_paintingResourceMode : 4; // RenderSVGResourceMode
+    unsigned m_legacyPaintingResourceMode : 4; // RenderSVGResourceMode
     unsigned m_startsNewTextChunk : 1;
-    RenderSVGResource* m_paintingResource { nullptr };
+    LegacyRenderSVGResource* m_legacyPaintingResource { nullptr };
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
+    SVGPaintServerOrColor m_paintServerOrColor { };
+#endif
+
     Vector<SVGTextFragment> m_textFragments;
 };
 

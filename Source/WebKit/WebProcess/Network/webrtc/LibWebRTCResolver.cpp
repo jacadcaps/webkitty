@@ -29,6 +29,7 @@
 #if USE(LIBWEBRTC)
 
 #include "LibWebRTCNetwork.h"
+#include "Logging.h"
 #include "NetworkProcessConnection.h"
 #include "NetworkRTCProviderMessages.h"
 #include "WebProcess.h"
@@ -38,21 +39,45 @@ namespace WebKit {
 
 void LibWebRTCResolver::sendOnMainThread(Function<void(IPC::Connection&)>&& callback)
 {
-    callOnMainThread([callback = WTFMove(callback)]() {
-        callback(WebProcess::singleton().ensureNetworkProcessConnection().connection());
+    callOnMainRunLoop([callback = WTFMove(callback)]() {
+        Ref networkProcessConnection = WebProcess::singleton().ensureNetworkProcessConnection().connection();
+        callback(networkProcessConnection);
     });
 }
 
-void LibWebRTCResolver::Start(const rtc::SocketAddress& address)
+LibWebRTCResolver::~LibWebRTCResolver()
 {
-    m_isResolving = true;
+    WebProcess::singleton().libWebRTCNetwork().socketFactory().removeResolver(m_identifier);
+    sendOnMainThread([identifier = m_identifier](IPC::Connection& connection) {
+        connection.send(Messages::NetworkRTCProvider::StopResolver(identifier), 0);
+    });
+}
+
+void LibWebRTCResolver::start(const rtc::SocketAddress& address, Function<void()>&& callback)
+{
+    ASSERT(!m_callback);
+
+    m_callback = WTFMove(callback);
     m_addressToResolve = address;
     m_port = address.port();
 
-    sendOnMainThread([identifier = m_identifier, address](IPC::Connection& connection) {
-        auto addressString = address.HostAsURIString();
-        connection.send(Messages::NetworkRTCProvider::CreateResolver(identifier, String(addressString.data(), addressString.length())), 0);
+    auto addressString = address.HostAsURIString();
+    String name { addressString.data(), static_cast<unsigned>(addressString.length()) };
+
+    if (name.endsWithIgnoringASCIICase(".local"_s) && !WTF::isVersion4UUID(StringView { name }.left(name.length() - 6))) {
+        RELEASE_LOG_ERROR(WebRTC, "mDNS candidate is not a Version 4 UUID");
+        setError(-1);
+        return;
+    }
+
+    sendOnMainThread([identifier = m_identifier, name = WTFMove(name).isolatedCopy()](IPC::Connection& connection) {
+        connection.send(Messages::NetworkRTCProvider::CreateResolver(identifier, name), 0);
     });
+}
+
+const webrtc::AsyncDnsResolverResult& LibWebRTCResolver::result() const
+{
+    return *this;
 }
 
 bool LibWebRTCResolver::GetResolvedAddress(int family, rtc::SocketAddress* address) const
@@ -72,48 +97,16 @@ bool LibWebRTCResolver::GetResolvedAddress(int family, rtc::SocketAddress* addre
     return false;
 }
 
-void LibWebRTCResolver::Destroy(bool)
+void LibWebRTCResolver::setResolvedAddress(Vector<rtc::IPAddress>&& addresses)
 {
-    if (!isResolving())
-        return;
-
-    if (m_isProvidingResults) {
-        m_shouldDestroy = true;
-        return;
-    }
-
-    sendOnMainThread([identifier = m_identifier](IPC::Connection& connection) {
-        connection.send(Messages::NetworkRTCProvider::StopResolver(identifier), 0);
-    });
-
-    doDestroy();
-}
-
-void LibWebRTCResolver::doDestroy()
-{
-    // Let's take the resolver so that it gets destroyed at the end of this function.
-    auto resolver = WebProcess::singleton().libWebRTCNetwork().socketFactory().takeResolver(m_identifier);
-    ASSERT(resolver);
-}
-
-void LibWebRTCResolver::setResolvedAddress(const Vector<rtc::IPAddress>& addresses)
-{
-    m_addresses = addresses;
-    m_isProvidingResults = true;
-    SignalDone(this);
-    m_isProvidingResults = false;
-    if (m_shouldDestroy)
-        doDestroy();
+    m_addresses = WTFMove(addresses);
+    m_callback();
 }
 
 void LibWebRTCResolver::setError(int error)
 {
     m_error = error;
-    m_isProvidingResults = true;
-    SignalDone(this);
-    m_isProvidingResults = false;
-    if (m_shouldDestroy)
-        doDestroy();
+    m_callback();
 }
 
 } // namespace WebKit

@@ -60,8 +60,10 @@ bool clobbersExitState(Graph& graph, Node* node)
     case NewAsyncGenerator:
     case NewInternalFieldObject:
     case NewRegexp:
-    case NewSymbol:
+    case NewMap:
+    case NewSet:
     case NewStringObject:
+    case NewBoundFunction:
     case PhantomNewObject:
     case MaterializeNewObject:
     case PhantomNewFunction:
@@ -82,9 +84,11 @@ bool clobbersExitState(Graph& graph, Node* node)
     case ReallocatePropertyStorage:
     case FilterCallLinkStatus:
     case FilterGetByStatus:
-    case FilterPutByIdStatus:
-    case FilterInByIdStatus:
+    case FilterPutByStatus:
+    case FilterInByStatus:
     case FilterDeleteByStatus:
+    case FilterCheckPrivateBrandStatus:
+    case FilterSetPrivateBrandStatus:
     case TryGetById:
         // These do clobber memory, but nothing that is observable. It may be nice to separate the
         // heaps into those that are observable and those that aren't, but we don't do that right now.
@@ -108,11 +112,11 @@ bool clobbersExitState(Graph& graph, Node* node)
         clobberize(
             graph, node, NoOpClobberize(),
             [&] (const AbstractHeap& heap) {
-                // There shouldn't be such a thing as a strict subtype of SideState. That's what allows
-                // us to use a fast != check, below.
-                ASSERT(!heap.isStrictSubtypeOf(SideState));
+                // There shouldn't be such a thing as a strict subtype of SideState or HeapObjectCount.
+                // That's what allows us to use a fast != check, below.
+                ASSERT(!heap.isStrictSubtypeOf(SideState) && !heap.isStrictSubtypeOf(HeapObjectCount));
 
-                if (heap != SideState)
+                if (heap != SideState && heap != HeapObjectCount)
                     result = true;
             },
             NoOpClobberize());

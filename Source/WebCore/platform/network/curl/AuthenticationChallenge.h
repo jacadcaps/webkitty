@@ -33,7 +33,7 @@ namespace WebCore {
 
 class CurlResponse;
 
-class WEBCORE_EXPORT AuthenticationChallenge final : public AuthenticationChallengeBase {
+class AuthenticationChallenge final : public AuthenticationChallengeBase {
 public:
     AuthenticationChallenge()
     {
@@ -44,21 +44,19 @@ public:
     {
     }
 
-    AuthenticationChallenge(const CurlResponse&, unsigned, const ResourceResponse&, AuthenticationClient* = nullptr);
-    AuthenticationChallenge(const URL&, const CertificateInfo&, const ResourceError&, AuthenticationClient* = nullptr);
+    WEBCORE_EXPORT AuthenticationChallenge(const CurlResponse&, unsigned, const ResourceResponse&);
+    WEBCORE_EXPORT AuthenticationChallenge(const URL&, const CertificateInfo&, const ResourceError&);
 
-    AuthenticationClient* authenticationClient() const { return m_authenticationClient.get(); }
+    AuthenticationClient* authenticationClient() const { return nullptr; }
 
 private:
-    ProtectionSpaceServerType protectionSpaceServerTypeFromURI(const URL&, bool isForProxy);
+    ProtectionSpace::ServerType protectionSpaceServerTypeFromURI(const URL&, bool isForProxy);
     ProtectionSpace protectionSpaceForPasswordBased(const CurlResponse&, const ResourceResponse&);
     ProtectionSpace protectionSpaceForServerTrust(const URL&, const CertificateInfo&);
-    Optional<uint16_t> determineProxyPort(const URL&);
-    ProtectionSpaceAuthenticationScheme authenticationSchemeFromCurlAuth(long);
+    std::optional<uint16_t> determineProxyPort(const URL&);
+    ProtectionSpace::AuthenticationScheme authenticationSchemeFromCurlAuth(long);
     String parseRealm(const ResourceResponse&);
     void removeLeadingAndTrailingQuotes(String&);
-
-    RefPtr<AuthenticationClient> m_authenticationClient;
 };
 
 } // namespace WebCore

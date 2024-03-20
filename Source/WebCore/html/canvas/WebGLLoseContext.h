@@ -25,25 +25,20 @@
 
 #pragma once
 
-#if ENABLE(WEBGL)
-
 #include "WebGLExtension.h"
+#include "WebGLRenderingContextBase.h"
+#include <wtf/IsoMalloc.h>
+#include <wtf/Noncopyable.h>
 
 namespace WebCore {
 
-class WebGLRenderingContextBase;
-
-class WebGLLoseContext final : public WebGLExtension {
+class WebGLLoseContext final : public WebGLExtension<WebGLRenderingContextBase> {
+    WTF_MAKE_ISO_ALLOCATED(WebGLLoseContext);
 public:
     explicit WebGLLoseContext(WebGLRenderingContextBase&);
-    virtual ~WebGLLoseContext();
-
-    ExtensionName getName() const override;
-
+    ~WebGLLoseContext();
     void loseContext();
     void restoreContext();
 };
 
 } // namespace WebCore
-
-#endif

@@ -1,5 +1,5 @@
-/*
- * Copyright (C) 2018 Apple Inc. All rights reserved.
+    /*
+ * Copyright (C) 2018-2020 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,6 +26,7 @@
 #include "config.h"
 #include "WebPageInspectorController.h"
 
+#include "APIUIClient.h"
 #include "InspectorBrowserAgent.h"
 #include "ProvisionalPageProxy.h"
 #include "WebFrameProxy.h"
@@ -48,19 +49,24 @@ static String getTargetID(const ProvisionalPageProxy& provisionalPage)
     return WebPageInspectorTarget::toTargetID(provisionalPage.webPageID());
 }
 
-WebPageInspectorController::WebPageInspectorController(WebPageProxy& page)
+WebPageInspectorController::WebPageInspectorController(WebPageProxy& inspectedPage)
     : m_frontendRouter(FrontendRouter::create())
     , m_backendDispatcher(BackendDispatcher::create(m_frontendRouter.copyRef()))
-    , m_page(page)
+    , m_inspectedPage(inspectedPage)
 {
     auto targetAgent = makeUnique<InspectorTargetAgent>(m_frontendRouter.get(), m_backendDispatcher.get());
     m_targetAgent = targetAgent.get();
     m_agents.append(WTFMove(targetAgent));
 }
 
+Ref<WebPageProxy> WebPageInspectorController::protectedInspectedPage()
+{
+    return m_inspectedPage.get();
+}
+
 void WebPageInspectorController::init()
 {
-    String pageTargetId = WebPageInspectorTarget::toTargetID(m_page.webPageID());
+    String pageTargetId = WebPageInspectorTarget::toTargetID(m_inspectedPage->webPageID());
     createInspectorTarget(pageTargetId, Inspector::InspectorTargetType::Page);
 }
 
@@ -87,11 +93,12 @@ void WebPageInspectorController::connectFrontend(Inspector::FrontendChannel& fro
     if (connectingFirstFrontend)
         m_agents.didCreateFrontendAndBackend(&m_frontendRouter.get(), &m_backendDispatcher.get());
 
-    m_page.didChangeInspectorFrontendCount(m_frontendRouter->frontendCount());
+    auto inspectedPage = protectedInspectedPage();
+    inspectedPage->didChangeInspectorFrontendCount(m_frontendRouter->frontendCount());
 
 #if ENABLE(REMOTE_INSPECTOR)
     if (hasLocalFrontend())
-        m_page.remoteInspectorInformationDidChange();
+        inspectedPage->remoteInspectorInformationDidChange();
 #endif
 }
 
@@ -103,11 +110,12 @@ void WebPageInspectorController::disconnectFrontend(FrontendChannel& frontendCha
     if (disconnectingLastFrontend)
         m_agents.willDestroyFrontendAndBackend(DisconnectReason::InspectorDestroyed);
 
-    m_page.didChangeInspectorFrontendCount(m_frontendRouter->frontendCount());
+    auto inspectedPage = protectedInspectedPage();
+    inspectedPage->didChangeInspectorFrontendCount(m_frontendRouter->frontendCount());
 
 #if ENABLE(REMOTE_INSPECTOR)
     if (disconnectingLastFrontend)
-        m_page.remoteInspectorInformationDidChange();
+        inspectedPage->remoteInspectorInformationDidChange();
 #endif
 }
 
@@ -124,10 +132,11 @@ void WebPageInspectorController::disconnectAllFrontends()
     // Disconnect any remaining remote frontends.
     m_frontendRouter->disconnectAllFrontends();
 
-    m_page.didChangeInspectorFrontendCount(m_frontendRouter->frontendCount());
+    auto inspectedPage = protectedInspectedPage();
+    inspectedPage->didChangeInspectorFrontendCount(m_frontendRouter->frontendCount());
 
 #if ENABLE(REMOTE_INSPECTOR)
-    m_page.remoteInspectorInformationDidChange();
+    inspectedPage->remoteInspectorInformationDidChange();
 #endif
 }
 
@@ -139,20 +148,21 @@ void WebPageInspectorController::dispatchMessageFromFrontend(const String& messa
 #if ENABLE(REMOTE_INSPECTOR)
 void WebPageInspectorController::setIndicating(bool indicating)
 {
+    auto inspectedPage = protectedInspectedPage();
 #if !PLATFORM(IOS_FAMILY)
-    m_page.setIndicating(indicating);
+    inspectedPage->setIndicating(indicating);
 #else
     if (indicating)
-        m_page.showInspectorIndication();
+        inspectedPage->showInspectorIndication();
     else
-        m_page.hideInspectorIndication();
+        inspectedPage->hideInspectorIndication();
 #endif
 }
 #endif
 
 void WebPageInspectorController::createInspectorTarget(const String& targetId, Inspector::InspectorTargetType type)
 {
-    addTarget(InspectorTargetProxy::create(m_page, targetId, type));
+    addTarget(InspectorTargetProxy::create(protectedInspectedPage(), targetId, type));
 }
 
 void WebPageInspectorController::destroyInspectorTarget(const String& targetId)
@@ -219,7 +229,7 @@ WebPageAgentContext WebPageInspectorController::webPageAgentContext()
     return {
         m_frontendRouter.get(),
         m_backendDispatcher.get(),
-        m_page,
+        m_inspectedPage,
     };
 }
 
@@ -239,6 +249,32 @@ void WebPageInspectorController::addTarget(std::unique_ptr<InspectorTargetProxy>
 {
     m_targetAgent->targetCreated(*target);
     m_targets.set(target->identifier(), WTFMove(target));
+}
+
+void WebPageInspectorController::setEnabledBrowserAgent(InspectorBrowserAgent* agent)
+{
+    if (m_enabledBrowserAgent == agent)
+        return;
+
+    m_enabledBrowserAgent = agent;
+
+    auto inspectedPage = protectedInspectedPage();
+    if (m_enabledBrowserAgent)
+        inspectedPage->uiClient().didEnableInspectorBrowserDomain(inspectedPage);
+    else
+        inspectedPage->uiClient().didDisableInspectorBrowserDomain(inspectedPage);
+}
+
+void WebPageInspectorController::browserExtensionsEnabled(HashMap<String, String>&& extensionIDToName)
+{
+    if (m_enabledBrowserAgent)
+        m_enabledBrowserAgent->extensionsEnabled(WTFMove(extensionIDToName));
+}
+
+void WebPageInspectorController::browserExtensionsDisabled(HashSet<String>&& extensionIDs)
+{
+    if (m_enabledBrowserAgent)
+        m_enabledBrowserAgent->extensionsDisabled(WTFMove(extensionIDs));
 }
 
 } // namespace WebKit

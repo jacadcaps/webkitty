@@ -26,7 +26,8 @@
 
 [
     Conditional=WEBGL,
-    ImplementationLacksVTable
+    EnabledBySetting=WebGLEnabled,
+    Exposed=(Window,Worker)
 ] interface WebGLShaderPrecisionFormat {
     readonly attribute long rangeMin;
     readonly attribute long rangeMax;

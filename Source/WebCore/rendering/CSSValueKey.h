@@ -30,47 +30,14 @@
 namespace WebCore {
 
 struct CSSValueKey {
-
     unsigned hash() const;
 
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static Optional<CSSValueKey> decode(Decoder&);
+    friend bool operator==(const CSSValueKey&, const CSSValueKey&) = default;
 
     unsigned cssValueID;
     bool useDarkAppearance;
     bool useElevatedUserInterfaceLevel;
 };
-
-inline bool operator==(const CSSValueKey& a, const CSSValueKey& b)
-{
-    return a.cssValueID == b.cssValueID && a.useDarkAppearance == b.useDarkAppearance && a.useElevatedUserInterfaceLevel == b.useElevatedUserInterfaceLevel;
-}
-
-template<class Encoder>
-void CSSValueKey::encode(Encoder& encoder) const
-{
-    encoder << cssValueID;
-    encoder << useDarkAppearance;
-    encoder << useElevatedUserInterfaceLevel;
-}
-
-template<class Decoder>
-Optional<CSSValueKey> CSSValueKey::decode(Decoder& decoder)
-{
-    Optional<unsigned> cssValueID;
-    decoder >> cssValueID;
-    if (!cssValueID)
-        return WTF::nullopt;
-    Optional<bool> useDarkAppearance;
-    decoder >> useDarkAppearance;
-    if (!useDarkAppearance)
-        return WTF::nullopt;
-    Optional<bool> useElevatedUserInterfaceLevel;
-    decoder >> useElevatedUserInterfaceLevel;
-    if (!useElevatedUserInterfaceLevel)
-        return WTF::nullopt;
-    return { { WTFMove(*cssValueID), WTFMove(*useDarkAppearance), WTFMove(*useElevatedUserInterfaceLevel) } };
-}
 
 inline unsigned CSSValueKey::hash() const
 {
@@ -89,7 +56,7 @@ struct CSSValueKeyHash {
 
 template<> struct HashTraits<WebCore::CSSValueKey> : GenericHashTraits<WebCore::CSSValueKey> {
     static WebCore::CSSValueKey emptyValue() { return WebCore::CSSValueKey { WebCore::CSSValueInvalid, false, false}; }
-    static void constructDeletedValue(WebCore::CSSValueKey& slot) { slot = WebCore::CSSValueKey { WebCore::CSSValueInvalid, true, true};}
+    static void constructDeletedValue(WebCore::CSSValueKey& slot) { new (NotNull, &slot) WebCore::CSSValueKey { WebCore::CSSValueInvalid, true, true}; }
     static bool isDeletedValue(const WebCore::CSSValueKey& slot) { return slot.cssValueID == WebCore::CSSValueInvalid && slot.useDarkAppearance && slot.useElevatedUserInterfaceLevel; }
 };
 

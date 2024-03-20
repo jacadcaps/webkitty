@@ -27,7 +27,7 @@
 
 namespace WebCore {
 
-enum class TransferFunction {
+enum class TransferFunction : uint8_t {
     SRGB,
     PQ,
     HLG

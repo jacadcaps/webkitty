@@ -29,14 +29,17 @@
 #if ENABLE(WEB_AUTHN)
 
 #include "AbortSignal.h"
+#include "MediationRequirement.h"
 #include "PublicKeyCredentialCreationOptions.h"
 #include <wtf/RefCounted.h>
 
 namespace WebCore {
+using CredentialMediationRequirement = MediationRequirement;
 
 struct CredentialCreationOptions {
+    MediationRequirement mediation;
     RefPtr<AbortSignal> signal;
-    Optional<PublicKeyCredentialCreationOptions> publicKey;
+    std::optional<PublicKeyCredentialCreationOptions> publicKey;
 };
 
 } // namespace WebCore

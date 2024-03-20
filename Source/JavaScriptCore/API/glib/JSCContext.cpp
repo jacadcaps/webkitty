@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2018 Igalia S.L.
+ * Copyright (C) 2023 Apple Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -20,7 +21,10 @@
 #include "config.h"
 #include "JSCContext.h"
 
+#include "APICast.h"
+#include "IntegrityInlines.h"
 #include "JSCClassPrivate.h"
+#include "JSCContextInternal.h"
 #include "JSCContextPrivate.h"
 #include "JSCExceptionPrivate.h"
 #include "JSCInlines.h"
@@ -35,7 +39,7 @@
 #include <wtf/glib/WTFGType.h>
 
 /**
- * SECTION: JSCContext
+ * JSCContext:
  * @short_description: JavaScript execution context
  * @title: JSCContext
  *
@@ -90,7 +94,7 @@ struct _JSCContextPrivate {
     Vector<JSCContextExceptionHandler> exceptionHandlers;
 };
 
-WEBKIT_DEFINE_TYPE(JSCContext, jsc_context, G_TYPE_OBJECT)
+WEBKIT_DEFINE_FINAL_TYPE(JSCContext, jsc_context, G_TYPE_OBJECT, GObject)
 
 static void jscContextSetVirtualMachine(JSCContext* context, GRefPtr<JSCVirtualMachine>&& vm)
 {
@@ -182,8 +186,7 @@ static void jsc_context_class_init(JSCContextClass* klass)
         PROP_VIRTUAL_MACHINE,
         g_param_spec_object(
             "virtual-machine",
-            "JSCVirtualMachine",
-            "JSC Virtual Machine",
+            nullptr, nullptr,
             JSC_TYPE_VIRTUAL_MACHINE,
             static_cast<GParamFlags>(WEBKIT_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY)));
 }
@@ -234,12 +237,12 @@ JSC::JSObject* jscContextGetOrCreateJSWrapper(JSCContext* context, JSClassRef js
     if (auto* jsWrapper = jscContextGetJSWrapper(context, wrappedObject))
         return jsWrapper;
 
-    return wrapperMap(context).createJSWrappper(context->priv->jsContext.get(), jsClass, prototype, wrappedObject, destroyFunction);
+    return wrapperMap(context).createJSWrapper(context->priv->jsContext.get(), jsClass, prototype, wrappedObject, destroyFunction);
 }
 
 JSGlobalContextRef jscContextCreateContextWithJSWrapper(JSCContext* context, JSClassRef jsClass, JSValueRef prototype, gpointer wrappedObject, GDestroyNotify destroyFunction)
 {
-    return wrapperMap(context).createContextWithJSWrappper(jscVirtualMachineGetContextGroup(context->priv->vm.get()), jsClass, prototype, wrappedObject, destroyFunction);
+    return wrapperMap(context).createContextWithJSWrapper(jscVirtualMachineGetContextGroup(context->priv->vm.get()), jsClass, prototype, wrappedObject, destroyFunction);
 }
 
 gpointer jscContextWrappedObject(JSCContext* context, JSObjectRef jsObject)
@@ -292,7 +295,7 @@ JSValueRef jscContextGArrayToJSArray(JSCContext* context, GPtrArray* gArray, JSV
         else if (JSC_IS_VALUE(item))
             JSObjectSetPropertyAtIndex(priv->jsContext.get(), jsArrayObject, i, jscValueGetJSValue(JSC_VALUE(item)), exception);
         else
-            *exception = toRef(JSC::createTypeError(globalObject, makeString("invalid item type in GPtrArray")));
+            *exception = toRef(JSC::createTypeError(globalObject, "invalid item type in GPtrArray"_s));
 
         if (*exception)
             return JSValueMakeUndefined(priv->jsContext.get());
@@ -311,7 +314,7 @@ static GRefPtr<GPtrArray> jscContextJSArrayToGArray(JSCContext* context, JSValue
         return nullptr;
 
     if (!JSValueIsArray(priv->jsContext.get(), jsArray)) {
-        *exception = toRef(JSC::createTypeError(globalObject, makeString("invalid js type for GPtrArray")));
+        *exception = toRef(JSC::createTypeError(globalObject, "invalid js type for GPtrArray"_s));
         return nullptr;
     }
 
@@ -350,7 +353,7 @@ GUniquePtr<char*> jscContextJSArrayToGStrv(JSCContext* context, JSValueRef jsArr
         return nullptr;
 
     if (!JSValueIsArray(priv->jsContext.get(), jsArray)) {
-        *exception = toRef(JSC::createTypeError(globalObject, makeString("invalid js type for GStrv")));
+        *exception = toRef(JSC::createTypeError(globalObject, "invalid js type for GStrv"_s));
         return nullptr;
     }
 
@@ -375,7 +378,7 @@ GUniquePtr<char*> jscContextJSArrayToGStrv(JSCContext* context, JSValueRef jsArr
 
         auto jsValueItem = jscContextGetOrCreateValue(context, jsItem);
         if (!jsc_value_is_string(jsValueItem.get())) {
-            *exception = toRef(JSC::createTypeError(globalObject, makeString("invalid js type for GStrv: item ", String::number(i), " is not a string")));
+            *exception = toRef(JSC::createTypeError(globalObject, makeString("invalid js type for GStrv: item "_s, i, " is not a string"_s)));
             return nullptr;
         }
 
@@ -457,8 +460,14 @@ JSValueRef jscContextGValueToJSValue(JSCContext* context, const GValue* value, J
         break;
     }
 
-    *exception = toRef(JSC::createTypeError(globalObject, makeString("unsupported type ", g_type_name(G_VALUE_TYPE(value)))));
+    *exception = toRef(JSC::createTypeError(globalObject, makeString("unsupported type "_s, g_type_name(G_VALUE_TYPE(value)))));
     return JSValueMakeUndefined(priv->jsContext.get());
+}
+
+static inline gpointer jscContextJSValueToWrappedObject(JSCContext* context, JSValueRef jsValue)
+{
+    auto jsObject = JSValueToObject(context->priv->jsContext.get(), jsValue, nullptr);
+    return jsObject ? jscContextWrappedObject(context, jsObject) : nullptr;
 }
 
 void jscContextJSValueToGValue(JSCContext* context, JSValueRef jsValue, GType type, GValue* value, JSValueRef* exception)
@@ -471,7 +480,7 @@ void jscContextJSValueToGValue(JSCContext* context, JSValueRef jsValue, GType ty
     auto fundamentalType = g_type_fundamental(G_VALUE_TYPE(value));
     switch (fundamentalType) {
     case G_TYPE_INT:
-        g_value_set_int(value, JSValueToNumber(priv->jsContext.get(), jsValue, exception));
+        g_value_set_int(value, JSC::toInt32(JSValueToNumber(priv->jsContext.get(), jsValue, exception)));
         break;
     case G_TYPE_FLOAT:
         g_value_set_float(value, JSValueToNumber(priv->jsContext.get(), jsValue, exception));
@@ -495,56 +504,50 @@ void jscContextJSValueToGValue(JSCContext* context, JSValueRef jsValue, GType ty
             g_value_set_string(value, nullptr);
         break;
     case G_TYPE_CHAR:
-        g_value_set_schar(value, JSValueToNumber(priv->jsContext.get(), jsValue, exception));
+        g_value_set_schar(value, JSC::toInt32(JSValueToNumber(priv->jsContext.get(), jsValue, exception)));
         break;
     case G_TYPE_UCHAR:
-        g_value_set_uchar(value, JSValueToNumber(priv->jsContext.get(), jsValue, exception));
+        g_value_set_uchar(value, JSC::toUInt32(JSValueToNumber(priv->jsContext.get(), jsValue, exception)));
         break;
     case G_TYPE_UINT:
-        g_value_set_uint(value, JSValueToNumber(priv->jsContext.get(), jsValue, exception));
+        g_value_set_uint(value, JSC::toUInt32(JSValueToNumber(priv->jsContext.get(), jsValue, exception)));
         break;
     case G_TYPE_POINTER:
     case G_TYPE_OBJECT:
     case G_TYPE_BOXED: {
-        gpointer wrappedObject = nullptr;
+        gpointer wrappedObject = jscContextJSValueToWrappedObject(context, jsValue);
 
-        if (!JSValueIsNull(priv->jsContext.get(), jsValue)) {
-            auto jsObject = JSValueToObject(priv->jsContext.get(), jsValue, exception);
-            if (*exception)
-                return;
-
-            wrappedObject = jscContextWrappedObject(context, jsObject);
-            if (!wrappedObject) {
-                if (g_type_is_a(G_VALUE_TYPE(value), JSC_TYPE_VALUE)) {
-                    auto jscValue = jscContextGetOrCreateValue(context, jsValue);
-                    g_value_set_object(value, jscValue.get());
-                    return;
-                }
-
-                if (g_type_is_a(G_VALUE_TYPE(value), JSC_TYPE_EXCEPTION)) {
-                    auto exception = jscExceptionCreate(context, jsValue);
-                    g_value_set_object(value, exception.get());
-                    return;
-                }
-
-                if (g_type_is_a(G_VALUE_TYPE(value), G_TYPE_PTR_ARRAY)) {
-                    auto gArray = jscContextJSArrayToGArray(context, jsValue, exception);
-                    if (!*exception)
-                        g_value_take_boxed(value, gArray.leakRef());
-                    return;
-                }
-
-                if (g_type_is_a(G_VALUE_TYPE(value), G_TYPE_STRV)) {
-                    auto strv = jscContextJSArrayToGStrv(context, jsValue, exception);
-                    if (!*exception)
-                        g_value_take_boxed(value, strv.release());
-                    return;
-                }
-
-                *exception = toRef(JSC::createTypeError(globalObject, "invalid pointer type"_s));
+        if (!wrappedObject) {
+            if (g_type_is_a(G_VALUE_TYPE(value), JSC_TYPE_VALUE)) {
+                auto jscValue = jscContextGetOrCreateValue(context, jsValue);
+                g_value_set_object(value, jscValue.get());
                 return;
             }
+
+            if (g_type_is_a(G_VALUE_TYPE(value), JSC_TYPE_EXCEPTION)) {
+                auto exception = jscExceptionCreate(context, jsValue);
+                g_value_set_object(value, exception.get());
+                return;
+            }
+
+            if (g_type_is_a(G_VALUE_TYPE(value), G_TYPE_PTR_ARRAY)) {
+                auto gArray = jscContextJSArrayToGArray(context, jsValue, exception);
+                if (!*exception)
+                    g_value_take_boxed(value, gArray.leakRef());
+                return;
+            }
+
+            if (g_type_is_a(G_VALUE_TYPE(value), G_TYPE_STRV)) {
+                auto strv = jscContextJSArrayToGStrv(context, jsValue, exception);
+                if (!*exception)
+                    g_value_take_boxed(value, strv.release());
+                return;
+            }
+
+            *exception = toRef(JSC::createTypeError(globalObject, "invalid pointer type"_s));
+            return;
         }
+
         if (fundamentalType == G_TYPE_POINTER)
             g_value_set_pointer(value, wrappedObject);
         else if (fundamentalType == G_TYPE_BOXED)
@@ -568,18 +571,31 @@ void jscContextJSValueToGValue(JSCContext* context, JSValueRef jsValue, GType ty
         g_value_set_uint64(value, JSValueToNumber(priv->jsContext.get(), jsValue, exception));
         break;
     case G_TYPE_ENUM:
-        g_value_set_enum(value, JSValueToNumber(priv->jsContext.get(), jsValue, exception));
+        g_value_set_enum(value, JSC::toInt32(JSValueToNumber(priv->jsContext.get(), jsValue, exception)));
         break;
     case G_TYPE_FLAGS:
-        g_value_set_flags(value, JSValueToNumber(priv->jsContext.get(), jsValue, exception));
+        g_value_set_flags(value, JSC::toInt32(JSValueToNumber(priv->jsContext.get(), jsValue, exception)));
         break;
     case G_TYPE_PARAM:
     case G_TYPE_INTERFACE:
     case G_TYPE_VARIANT:
     default:
-        *exception = toRef(JSC::createTypeError(globalObject, makeString("unsupported type ", g_type_name(G_VALUE_TYPE(value)))));
+        *exception = toRef(JSC::createTypeError(globalObject, makeString("unsupported type "_s, g_type_name(G_VALUE_TYPE(value)))));
         break;
     }
+}
+
+void jscContextGarbageCollect(JSCContext* context, bool sanitizeStack)
+{
+    auto* jsContext = context->priv->jsContext.get();
+    JSC::JSGlobalObject* globalObject = toJS(jsContext);
+    JSC::VM& vm = globalObject->vm();
+    JSC::JSLockHolder locker(vm);
+
+    if (sanitizeStack)
+        sanitizeStackForVM(vm);
+
+    vm.heap.collectNow(JSC::Sync, JSC::CollectionScope::Full);
 }
 
 /**
@@ -744,7 +760,7 @@ void jsc_context_clear_exception(JSCContext* context)
  * JSCExceptionHandler:
  * @context: a #JSCContext
  * @exception: a #JSCException
- * @user_data: user data
+ * @user_data: (closure): user data
  *
  * Function used to handle JavaScript exceptions in a #JSCContext.
  */
@@ -752,8 +768,8 @@ void jsc_context_clear_exception(JSCContext* context)
 /**
  * jsc_context_push_exception_handler:
  * @context: a #JSCContext
- * @handler: a #JSCExceptionHandler
- * @user_data: (closure): user data to pass to @handler
+ * @handler: (closure user_data): a #JSCExceptionHandler
+ * @user_data: user data to pass to @handler
  * @destroy_notify: (nullable): destroy notifier for @user_data
  *
  * Push an exception handler in @context. Whenever a JavaScript exception happens in
@@ -956,19 +972,19 @@ JSCCheckSyntaxResult jsc_context_check_syntax(JSCContext* context, const char* c
     JSC::VM& vm = globalObject->vm();
     JSC::JSLockHolder locker(vm);
 
-    URL sourceURL = uri ? URL({ }, uri) : URL();
-    JSC::SourceCode source = JSC::makeSource(String::fromUTF8(code, length < 0 ? strlen(code) : length), JSC::SourceOrigin { sourceURL },
+    URL sourceURL = uri ? URL(String::fromLatin1(uri)) : URL();
+    JSC::SourceCode source = JSC::makeSource(String::fromUTF8(code, length < 0 ? strlen(code) : length), JSC::SourceOrigin { sourceURL }, JSC::SourceTaintedOrigin::Untainted,
         sourceURL.string() , TextPosition(OrdinalNumber::fromOneBasedInt(lineNumber), OrdinalNumber()));
     bool success = false;
     JSC::ParserError error;
     switch (mode) {
     case JSC_CHECK_SYNTAX_MODE_SCRIPT:
-        success = !!JSC::parse<JSC::ProgramNode>(vm, source, JSC::Identifier(), JSC::JSParserBuiltinMode::NotBuiltin,
-            JSC::JSParserStrictMode::NotStrict, JSC::JSParserScriptMode::Classic, JSC::SourceParseMode::ProgramMode, JSC::SuperBinding::NotNeeded, error);
+        success = !!JSC::parse<JSC::ProgramNode>(vm, source, JSC::Identifier(), JSC::ImplementationVisibility::Public, JSC::JSParserBuiltinMode::NotBuiltin,
+            JSC::JSParserStrictMode::NotStrict, JSC::JSParserScriptMode::Classic, JSC::SourceParseMode::ProgramMode, JSC::FunctionMode::None, JSC::SuperBinding::NotNeeded, error);
         break;
     case JSC_CHECK_SYNTAX_MODE_MODULE:
-        success = !!JSC::parse<JSC::ModuleProgramNode>(vm, source, JSC::Identifier(), JSC::JSParserBuiltinMode::NotBuiltin,
-            JSC::JSParserStrictMode::Strict, JSC::JSParserScriptMode::Module, JSC::SourceParseMode::ModuleAnalyzeMode, JSC::SuperBinding::NotNeeded, error);
+        success = !!JSC::parse<JSC::ModuleProgramNode>(vm, source, JSC::Identifier(), JSC::ImplementationVisibility::Public, JSC::JSParserBuiltinMode::NotBuiltin,
+            JSC::JSParserStrictMode::Strict, JSC::JSParserScriptMode::Module, JSC::SourceParseMode::ModuleAnalyzeMode, JSC::FunctionMode::None, JSC::SuperBinding::NotNeeded, error);
         break;
     }
 

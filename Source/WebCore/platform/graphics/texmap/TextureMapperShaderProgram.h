@@ -18,15 +18,15 @@
  Boston, MA 02110-1301, USA.
  */
 
-#ifndef TextureMapperShaderProgram_h
-#define TextureMapperShaderProgram_h
+#pragma once
 
-#if USE(TEXTURE_MAPPER_GL)
+#if USE(TEXTURE_MAPPER)
 
 #include "TextureMapperGLHeaders.h"
 #include "TransformationMatrix.h"
 #include <wtf/HashMap.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/OptionSet.h>
 #include <wtf/Ref.h>
 #include <wtf/text/AtomStringHash.h>
 
@@ -42,21 +42,26 @@ namespace WebCore {
     macro(textureColorSpaceMatrix) \
     macro(opacity) \
     macro(color) \
-    macro(expandedQuadEdgesInScreenSpace) \
     macro(yuvToRgb) \
     macro(filterAmount) \
+    macro(texelSize) \
     macro(gaussianKernel) \
-    macro(blurRadius) \
-    macro(shadowOffset) \
+    macro(gaussianKernelOffset) \
+    macro(gaussianKernelHalfSize) \
+    macro(blurDirection) \
+    macro(roundedRectNumber) \
+    macro(roundedRect) \
+    macro(roundedRectInverseTransformMatrix)
 
-#define TEXMAP_SAMPLER_VARIABLES(macro) \
-    macro(sampler) \
-    macro(samplerY) \
-    macro(samplerU) \
-    macro(samplerV) \
-    macro(mask) \
-    macro(contentTexture) \
-    macro(externalOESTexture) \
+#define TEXMAP_SAMPLER_VARIABLES(macro)           \
+    macro(sampler)                                \
+    macro(samplerY)                               \
+    macro(samplerU)                               \
+    macro(samplerV)                               \
+    macro(samplerA)                               \
+    macro(mask)                                   \
+    macro(contentTexture)                         \
+    macro(externalOESTexture)
 
 #define TEXMAP_VARIABLES(macro) \
     TEXMAP_ATTRIBUTE_VARIABLES(macro) \
@@ -78,7 +83,6 @@ class TextureMapperShaderProgram : public RefCounted<TextureMapperShaderProgram>
 public:
     enum Option {
         TextureRGB       = 1L << 0,
-        Rect             = 1L << 1,
         SolidColor       = 1L << 2,
         Opacity          = 1L << 3,
         Antialiasing     = 1L << 5,
@@ -99,13 +103,18 @@ public:
         TextureNV21      = 1L << 20,
         TexturePackedYUV = 1L << 21,
         TextureExternalOES = 1L << 22,
+        RoundedRectClip  = 1L << 23,
+        Premultiply      = 1L << 24,
+        TextureYUVA      = 1L << 25,
+        TextureCopy      = 1L << 26,
+        AlphaToShadow    = 1L << 27,
     };
 
     enum class VariableID {
         TEXMAP_VARIABLES(TEXMAP_DECLARE_VARIABLE_ENUM)
     };
 
-    typedef unsigned Options;
+    using Options = OptionSet<Option>;
 
     static Ref<TextureMapperShaderProgram> create(Options);
     virtual ~TextureMapperShaderProgram();
@@ -129,10 +138,9 @@ private:
     GLuint getLocation(VariableID, ASCIILiteral, VariableType);
 
     GLuint m_id;
-    HashMap<VariableID, GLuint, WTF::IntHash<VariableID>, WTF::StrongEnumHashTraits<VariableID>> m_variables;
+    HashMap<VariableID, GLuint, IntHash<VariableID>, WTF::StrongEnumHashTraits<VariableID>> m_variables;
 };
 
-}
-#endif // USE(TEXTURE_MAPPER_GL)
+} // namespace WebCore
 
-#endif // TextureMapperShaderProgram_h
+#endif // USE(TEXTURE_MAPPER)

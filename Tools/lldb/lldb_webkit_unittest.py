@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 #
 # Copyright (C) 2018 Apple Inc. All rights reserved.
@@ -85,7 +85,7 @@ class LLDBDebugSession(object):
 class TestSummaryProviders(unittest.TestCase):
     @classmethod
     def shouldSkip(cls):
-        return not SystemHost().platform.is_mac()
+        return not SystemHost.get_default().platform.is_mac()
 
     @classmethod
     def setUpClass(cls):
@@ -115,11 +115,11 @@ class TestSummaryProviders(unittest.TestCase):
 
     def serial_test_WTFStringImpl_SummaryProvider_8bit_string(self):
         summary = lldb_webkit.WTFStringImpl_SummaryProvider(self._sbFrame.FindVariable('an8BitStringImpl'), {})
-        self.assertEqual(summary, "{ length = 8, is8bit = 1, contents = 'r\\xe9sum\\xe9' }")
+        self.assertEqual(summary, u"{ length = 8, is8bit = 1, contents = 'r\xe9sum\xe9' }")
 
     def serial_test_WTFStringImpl_SummaryProvider_16bit_string(self):
         summary = lldb_webkit.WTFStringImpl_SummaryProvider(self._sbFrame.FindVariable('a16BitStringImpl'), {})
-        self.assertEqual(summary, u"{ length = 13, is8bit = 0, contents = '\\u1680Cappuccino\\u1680\\x00' }")
+        self.assertEqual(summary, u"{ length = 13, is8bit = 0, contents = '\u1680Cappuccino\u1680\x00' }")
 
     # MARK: WTFString_SummaryProvider test cases
 
@@ -133,11 +133,11 @@ class TestSummaryProviders(unittest.TestCase):
 
     def serial_test_WTFString_SummaryProvider_8bit_string(self):
         summary = lldb_webkit.WTFString_SummaryProvider(self._sbFrame.FindVariable('an8BitString'), {})
-        self.assertEqual(summary, "{ length = 8, contents = 'r\\xe9sum\\xe9' }")
+        self.assertEqual(summary, u"{ length = 8, contents = 'r\xe9sum\xe9' }")
 
     def serial_test_WTFString_SummaryProvider_16bit_string(self):
         summary = lldb_webkit.WTFString_SummaryProvider(self._sbFrame.FindVariable('a16BitString'), {})
-        self.assertEqual(summary, u"{ length = 13, contents = '\\u1680Cappuccino\\u1680\\x00' }")
+        self.assertEqual(summary, u"{ length = 13, contents = '\u1680Cappuccino\u1680\x00' }")
 
     # MARK: WTFVector_SummaryProvider test cases
 
@@ -150,6 +150,23 @@ class TestSummaryProviders(unittest.TestCase):
         variable = self._sbFrame.FindVariable('aVectorWithOneItem');
         summary = lldb_webkit.WTFVector_SummaryProvider(variable, {})
         self.assertEqual(summary, "{ size = 1, capacity = 16 }")
+
+    # MARK: WTFHashMap_SummaryProvider and WTFHashSet_SummaryProvider test cases
+
+    def serial_test_WTFHashMap_tablesize_and_size(self):
+        variable = self._sbFrame.FindVariable('hashMapOfInts')
+        summary = lldb_webkit.WTFHashMap_SummaryProvider(variable, {})
+        self.assertEqual(summary, "{ tableSize = 8, keyCount = 2 }")
+
+    def serial_test_WTFHashMap_of_vectors_tablesize_and_size(self):
+        variable = self._sbFrame.FindVariable('hashMapOfVectors')
+        summary = lldb_webkit.WTFHashMap_SummaryProvider(variable, {})
+        self.assertEqual(summary, "{ tableSize = 8, keyCount = 1 }")
+
+    def serial_test_WTFHashSet_tablesize_and_size(self):
+        variable = self._sbFrame.FindVariable('hashSetOfInts')
+        summary = lldb_webkit.WTFHashSet_SummaryProvider(variable, {})
+        self.assertEqual(summary, "{ tableSize = 8, keyCount = 1 }")
 
     # MARK: WTFOptionSet_SummaryProvider test cases
 
@@ -187,6 +204,12 @@ class TestSummaryProviders(unittest.TestCase):
         self.assertEqual(provider.get_child_at_index(0).GetValue(), '1')
         self.assertEqual(provider.get_child_at_index(1).GetName(), 'D')
         self.assertEqual(provider.get_child_at_index(1).GetValue(), '8')
+
+    # MARK: WTFURL_SummaryProvider test cases
+
+    def serial_test_WTFURL_SummaryProvider(self):
+        variable = lldb_webkit.WTFURL_SummaryProvider(self._sbFrame.FindVariable('aURL'), {})
+        self.assertEqual(variable, '{ https://www.example.com/ }')
 
     # MARK: WTFCompactPointerTuple test cases
 

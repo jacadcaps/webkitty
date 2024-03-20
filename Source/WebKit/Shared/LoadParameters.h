@@ -26,12 +26,17 @@
 #pragma once
 
 #include "DataReference.h"
+#include "NetworkResourceLoadIdentifier.h"
 #include "PolicyDecision.h"
 #include "SandboxExtension.h"
 #include "UserData.h"
 #include "WebsitePoliciesData.h"
+#include <WebCore/AdvancedPrivacyProtections.h>
+#include <WebCore/FrameIdentifier.h>
 #include <WebCore/FrameLoaderTypes.h>
 #include <WebCore/ResourceRequest.h>
+#include <WebCore/ShouldTreatAsContinuingLoad.h>
+#include <WebCore/SubstituteData.h>
 
 OBJC_CLASS NSDictionary;
 
@@ -40,16 +45,20 @@ class Decoder;
 class Encoder;
 }
 
+namespace WebCore {
+using SandboxFlags = int;
+}
+
 namespace WebKit {
 
 struct LoadParameters {
-    void encode(IPC::Encoder&) const;
-    static WARN_UNUSED_RETURN bool decode(IPC::Decoder&, LoadParameters&);
+#if ENABLE(PUBLIC_SUFFIX_LIST)
+    String topPrivatelyControlledDomain;
+    String host;
+#endif
 
-    void platformEncode(IPC::Encoder&) const;
-    static WARN_UNUSED_RETURN bool platformDecode(IPC::Decoder&, LoadParameters&);
-
-    uint64_t navigationID;
+    uint64_t navigationID { 0 };
+    std::optional<WebCore::FrameIdentifier> frameIdentifier;
 
     WebCore::ResourceRequest request;
     SandboxExtension::Handle sandboxExtensionHandle;
@@ -62,25 +71,25 @@ struct LoadParameters {
     String unreachableURLString;
     String provisionalLoadErrorURLString;
 
-    Optional<WebsitePoliciesData> websitePolicies;
+    std::optional<WebsitePoliciesData> websitePolicies;
 
     WebCore::ShouldOpenExternalURLsPolicy shouldOpenExternalURLsPolicy { WebCore::ShouldOpenExternalURLsPolicy::ShouldNotAllow };
-    bool shouldTreatAsContinuingLoad { false };
+    WebCore::ShouldTreatAsContinuingLoad shouldTreatAsContinuingLoad { WebCore::ShouldTreatAsContinuingLoad::No };
     UserData userData;
     WebCore::LockHistory lockHistory { WebCore::LockHistory::No };
     WebCore::LockBackForwardList lockBackForwardList { WebCore::LockBackForwardList::No };
+    WebCore::SubstituteData::SessionHistoryVisibility sessionHistoryVisibility { WebCore::SubstituteData::SessionHistoryVisibility::Visible };
     String clientRedirectSourceForHistory;
-    Optional<NavigatingToAppBoundDomain> isNavigatingToAppBoundDomain;
+    WebCore::SandboxFlags effectiveSandboxFlags { 0 };
+    std::optional<NavigatingToAppBoundDomain> isNavigatingToAppBoundDomain;
+    std::optional<NetworkResourceLoadIdentifier> existingNetworkResourceLoadIdentifierToResume;
+    bool isServiceWorkerLoad { false };
 
 #if PLATFORM(COCOA)
-    RetainPtr<NSDictionary> dataDetectionContext;
-    Optional<SandboxExtension::Handle> neHelperExtensionHandle;
-    Optional<SandboxExtension::Handle> neSessionManagerExtensionHandle;
+    std::optional<double> dataDetectionReferenceDate;
 #endif
-#if PLATFORM(IOS)
-    Optional<SandboxExtension::Handle> contentFilterExtensionHandle;
-    Optional<SandboxExtension::Handle> frontboardServiceExtensionHandle;
-#endif
+
+    OptionSet<WebCore::AdvancedPrivacyProtections> advancedPrivacyProtections;
 };
 
 } // namespace WebKit

@@ -28,7 +28,6 @@
 #include "PageIdentifier.h"
 #include "UserContentTypes.h"
 #include "UserStyleSheetTypes.h"
-#include <wtf/Optional.h>
 #include <wtf/URL.h>
 #include <wtf/Vector.h>
 
@@ -39,11 +38,11 @@ class UserStyleSheet {
 public:
     UserStyleSheet()
         : m_injectedFrames(UserContentInjectedFrames::InjectInAllFrames)
-        , m_level(UserStyleUserLevel)
+        , m_level(UserStyleLevel::User)
     {
     }
 
-    UserStyleSheet(const String& source, const URL& url, Vector<String>&& allowlist, Vector<String>&& blocklist, UserContentInjectedFrames injectedFrames, UserStyleLevel level, Optional<PageIdentifier> pageID = WTF::nullopt)
+    UserStyleSheet(const String& source, const URL& url, Vector<String>&& allowlist, Vector<String>&& blocklist, UserContentInjectedFrames injectedFrames, UserStyleLevel level, std::optional<PageIdentifier> pageID = std::nullopt)
         : m_source(source)
         , m_url(url)
         , m_allowlist(WTFMove(allowlist))
@@ -60,7 +59,7 @@ public:
     const Vector<String>& blocklist() const { return m_blocklist; }
     UserContentInjectedFrames injectedFrames() const { return m_injectedFrames; }
     UserStyleLevel level() const { return m_level; }
-    Optional<PageIdentifier> pageID() const { return m_pageID; }
+    std::optional<PageIdentifier> pageID() const { return m_pageID; }
 
 private:
     String m_source;
@@ -69,7 +68,7 @@ private:
     Vector<String> m_blocklist;
     UserContentInjectedFrames m_injectedFrames;
     UserStyleLevel m_level;
-    Optional<PageIdentifier> m_pageID;
+    std::optional<PageIdentifier> m_pageID;
 };
 
 } // namespace WebCore

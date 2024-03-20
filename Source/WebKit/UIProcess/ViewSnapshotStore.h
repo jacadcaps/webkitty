@@ -27,8 +27,10 @@
 
 #include <WebCore/Color.h>
 #include <WebCore/IntPoint.h>
+#include <WebCore/SecurityOriginData.h>
 #include <wtf/ListHashSet.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
 
 #if HAVE(IOSURFACE)
@@ -36,7 +38,11 @@
 #endif
 
 #if PLATFORM(GTK)
+#if USE(GTK4)
+#include <gtk/gtk.h>
+#else
 #include <WebCore/RefPtrCairo.h>
+#endif
 #endif
 
 namespace WebKit {
@@ -44,13 +50,17 @@ namespace WebKit {
 class WebBackForwardListItem;
 class WebPageProxy;
 
-class ViewSnapshot : public RefCounted<ViewSnapshot> {
+class ViewSnapshot : public RefCounted<ViewSnapshot>, public CanMakeWeakPtr<ViewSnapshot> {
 public:
 #if HAVE(IOSURFACE)
     static Ref<ViewSnapshot> create(std::unique_ptr<WebCore::IOSurface>);
 #endif
 #if PLATFORM(GTK)
+#if USE(GTK4)
+    static Ref<ViewSnapshot> create(GRefPtr<GdkTexture>&&);
+#else
     static Ref<ViewSnapshot> create(RefPtr<cairo_surface_t>&&);
+#endif
 #endif
 
     ~ViewSnapshot();
@@ -75,21 +85,28 @@ public:
     void setDeviceScaleFactor(float deviceScaleFactor) { m_deviceScaleFactor = deviceScaleFactor; }
     float deviceScaleFactor() const { return m_deviceScaleFactor; }
 
+    void setOrigin(WebCore::SecurityOriginData&& origin) { m_origin = WTFMove(origin); }
+    const WebCore::SecurityOriginData& origin() const { return m_origin; }
+
 #if HAVE(IOSURFACE)
     WebCore::IOSurface* surface() const { return m_surface.get(); }
 
-    size_t imageSizeInBytes() const { return m_surface ? m_surface->totalBytes() : 0; }
+    size_t estimatedImageSizeInBytes() const { return m_surface ? m_surface->totalBytes() : 0; }
     WebCore::IntSize size() const { return m_surface ? m_surface->size() : WebCore::IntSize(); }
 
     void setSurface(std::unique_ptr<WebCore::IOSurface>);
 
-    WebCore::IOSurface::SurfaceState setVolatile(bool);
+    WebCore::SetNonVolatileResult setVolatile(bool);
 #endif
 
 #if PLATFORM(GTK)
+#if USE(GTK4)
+    GdkTexture* texture() const { return m_texture.get(); }
+#else
     cairo_surface_t* surface() const { return m_surface.get(); }
+#endif
 
-    size_t imageSizeInBytes() const;
+    size_t estimatedImageSizeInBytes() const;
     WebCore::IntSize size() const;
 #endif
 
@@ -101,15 +118,22 @@ private:
 #endif
 
 #if PLATFORM(GTK)
+#if USE(GTK4)
+    explicit ViewSnapshot(GRefPtr<GdkTexture>&&);
+
+    GRefPtr<GdkTexture> m_texture;
+#else
     explicit ViewSnapshot(RefPtr<cairo_surface_t>&&);
 
     RefPtr<cairo_surface_t> m_surface;
+#endif
 #endif
 
     uint64_t m_renderTreeSize;
     float m_deviceScaleFactor;
     WebCore::Color m_backgroundColor;
     WebCore::IntPoint m_viewScrollPosition; // Scroll position at snapshot time. Integral to make comparison reliable.
+    WebCore::SecurityOriginData m_origin;
 };
 
 class ViewSnapshotStore {
@@ -124,6 +148,7 @@ public:
     void recordSnapshot(WebPageProxy&, WebBackForwardListItem&);
 
     void discardSnapshotImages();
+    void discardSnapshotImagesForOrigin(const WebCore::SecurityOriginData&);
 
     void setDisableSnapshotVolatilityForTesting(bool disable) { m_disableSnapshotVolatility = disable; }
     bool disableSnapshotVolatilityForTesting() const { return m_disableSnapshotVolatility; }
@@ -135,7 +160,7 @@ private:
 
     size_t m_snapshotCacheSize { 0 };
 
-    ListHashSet<ViewSnapshot*> m_snapshotsWithImages;
+    ListHashSet<WeakRef<ViewSnapshot>> m_snapshotsWithImages;
     bool m_disableSnapshotVolatility { false };
 };
 

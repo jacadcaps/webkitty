@@ -46,20 +46,33 @@
 #define BCOMPILER_HAS_CLANG_DECLSPEC(x) 0
 #endif
 
+#if defined(__clang__)
+#define BCOMPILER_CLANG 1
+#endif
+
 /* BCOMPILER(GCC_COMPATIBLE) - GNU Compiler Collection or compatibles */
 
 #if defined(__GNUC__)
 #define BCOMPILER_GCC_COMPATIBLE 1
 #endif
 
-/* BNO_RETURN */
-
-#if !defined(BNO_RETURN) && BCOMPILER(GCC_COMPATIBLE)
-#define BNO_RETURN __attribute((__noreturn__))
+#if defined(_MSC_VER)
+#define BCOMPILER_MSVC 1
+#if _MSC_VER < 1910
+#error "Please use a newer version of Visual Studio. WebKit requires VS2017 or newer to compile."
+#endif
 #endif
 
+/* BNO_RETURN */
+
 #if !defined(BNO_RETURN)
+#if BCOMPILER(GCC_COMPATIBLE)
+#define BNO_RETURN __attribute((__noreturn__))
+#elif BCOMPILER(MSVC)
+#define BNO_RETURN __declspec(noreturn)
+#else
 #define BNO_RETURN
+#endif
 #endif
 
 /* BFALLTHROUGH */
@@ -78,4 +91,46 @@
 
 #if !defined(BFALLTHROUGH)
 #define BFALLTHROUGH
+#endif
+
+/* BLIKELY */
+
+#if !defined(BLIKELY) && BCOMPILER(GCC_COMPATIBLE)
+#define BLIKELY(x) __builtin_expect(!!(x), 1)
+#endif
+
+#if !defined(BLIKELY)
+#define BLIKELY(x) (x)
+#endif
+
+/* BUNLIKELY */
+
+#if !defined(BUNLIKELY) && BCOMPILER(GCC_COMPATIBLE)
+#define BUNLIKELY(x) __builtin_expect(!!(x), 0)
+#endif
+
+#if !defined(BUNLIKELY)
+#define BUNLIKELY(x) (x)
+#endif
+
+/* BUNUSED_TYPE_ALIAS */
+
+#if !defined(BUNUSED_TYPE_ALIAS) && BCOMPILER(GCC_COMPATIBLE)
+#define BUNUSED_TYPE_ALIAS __attribute__((unused))
+#endif
+
+#if !defined(BUNUSED_TYPE_ALIAS)
+#define BUNUSED_TYPE_ALIAS
+#endif
+
+/* BFUNCTION_SIGNATURE */
+
+#if !defined(BFUNCTION_SIGNATURE)
+#if BCOMPILER(GCC_COMPATIBLE)
+#define BFUNCTION_SIGNATURE __PRETTY_FUNCTION__
+#elif BCOMPILER(MSVC)
+#define BFUNCTION_SIGNATURE __FUNCSIG__
+#else
+#error "Unsupported compiler"
+#endif
 #endif

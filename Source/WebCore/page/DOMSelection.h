@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007 Apple Inc. All rights reserved.
+ * Copyright (C) 2007-2020 Apple Inc. All rights reserved.
  * Copyright (C) 2012 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,8 +29,8 @@
 
 #pragma once
 
-#include "DOMWindowProperty.h"
 #include "ExceptionOr.h"
+#include "LocalDOMWindowProperty.h"
 #include <wtf/Forward.h>
 #include <wtf/RefCounted.h>
 #include <wtf/RefPtr.h>
@@ -40,52 +40,66 @@ namespace WebCore {
 class Node;
 class Position;
 class Range;
+class StaticRange;
 class VisibleSelection;
 
-class DOMSelection : public RefCounted<DOMSelection>, public DOMWindowProperty {
-public:
-    static Ref<DOMSelection> create(DOMWindow& window) { return adoptRef(*new DOMSelection(window)); }
+struct SimpleRange;
 
-    Node* baseNode() const;
-    Node* extentNode() const;
+class DOMSelection : public RefCounted<DOMSelection>, public LocalDOMWindowProperty {
+public:
+    static Ref<DOMSelection> create(LocalDOMWindow&);
+
+    RefPtr<Node> baseNode() const;
+    RefPtr<Node> extentNode() const;
     unsigned baseOffset() const;
     unsigned extentOffset() const;
     String type() const;
-    void setBaseAndExtent(Node* baseNode, unsigned baseOffset, Node* extentNode, unsigned extentOffset);
-    void setPosition(Node*, unsigned offset);
+    String direction() const;
+    ExceptionOr<void> setBaseAndExtent(Node* baseNode, unsigned baseOffset, Node* extentNode, unsigned extentOffset);
+    ExceptionOr<void> setPosition(Node*, unsigned offset);
     void modify(const String& alter, const String& direction, const String& granularity);
 
     // The anchor and focus are the start and end of the selection, and
     // reflect the direction in which the selection was made by the user.
     // The base and extent are different, because they don't reflect expansion.
-    Node* anchorNode() const;
+    RefPtr<Node> anchorNode() const;
     unsigned anchorOffset() const;
-    Node* focusNode() const;
+    RefPtr<Node> focusNode() const;
     unsigned focusOffset() const;
     bool isCollapsed() const;
     unsigned rangeCount() const;
-    void collapse(Node*, unsigned offset);
+    ExceptionOr<void> collapse(Node*, unsigned offset);
     ExceptionOr<void> collapseToEnd();
     ExceptionOr<void> collapseToStart();
     ExceptionOr<void> extend(Node&, unsigned offset);
     ExceptionOr<Ref<Range>> getRangeAt(unsigned);
     void removeAllRanges();
     void addRange(Range&);
+    ExceptionOr<void> removeRange(Range&);
+
+    Vector<Ref<StaticRange>> getComposedRanges(FixedVector<std::reference_wrapper<ShadowRoot>>&&);
+
     void deleteFromDocument();
     bool containsNode(Node&, bool partlyContained) const;
-    void selectAllChildren(Node&);
+    ExceptionOr<void> selectAllChildren(Node&);
 
-    String toString();
+    String toString() const;
 
     void empty();
 
 private:
-    explicit DOMSelection(DOMWindow&);
+    explicit DOMSelection(LocalDOMWindow&);
 
-    // Convenience method for accessors, caller must null-check frame().
-    const VisibleSelection& visibleSelection() const;
+    // FIXME: Change LocalDOMWindowProperty::frame to return RefPtr and then delete this.
+    RefPtr<LocalFrame> frame() const;
+    std::optional<SimpleRange> range() const;
 
-    Node* shadowAdjustedNode(const Position&) const;
+    Position anchorPosition() const;
+    Position focusPosition() const;
+    Position basePosition() const;
+    Position extentPosition() const;
+
+    RefPtr<Node> shadowAdjustedNode(const Position&) const;
     unsigned shadowAdjustedOffset(const Position&) const;
 
     bool isValidForPosition(Node*) const;

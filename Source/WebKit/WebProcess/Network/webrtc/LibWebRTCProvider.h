@@ -25,15 +25,30 @@
 
 #pragma once
 
-#if USE(LIBWEBRTC) && PLATFORM(COCOA)
+// FIXME: We should likely rename this header file to WebRTCProvider.h because depending on the
+// build configuration we create either a LibWebRTCProvider, or a GStreamerWebRTCProvider or
+// fallback to WebRTCProvider. This rename would open another can of worms though, leading to the
+// renaming of more LibWebRTC-prefixed files in WebKit.
+// https://bugs.webkit.org/show_bug.cgi?id=243774
+
+#if USE(LIBWEBRTC)
+
+#include <wtf/WeakRef.h>
+
+#if PLATFORM(COCOA)
 #include <WebCore/LibWebRTCProviderCocoa.h>
-#elif USE(LIBWEBRTC) && USE(GSTREAMER)
+#elif USE(GSTREAMER)
 #include <WebCore/LibWebRTCProviderGStreamer.h>
-#else
-#include <WebCore/LibWebRTCProvider.h>
+#endif
+#elif USE(GSTREAMER_WEBRTC)
+#include <WebCore/GStreamerWebRTCProvider.h>
+#else // !USE(LIBWEBRTC) && !USE(GSTREAMER_WEBRTC)
+#include <WebCore/WebRTCProvider.h>
 #endif
 
 namespace WebKit {
+
+class WebPage;
 
 #if USE(LIBWEBRTC)
 
@@ -47,24 +62,44 @@ using LibWebRTCProviderBase = WebCore::LibWebRTCProvider;
 
 class LibWebRTCProvider final : public LibWebRTCProviderBase {
 public:
-    LibWebRTCProvider() { m_useNetworkThreadWithSocketServer = false; }
+    explicit LibWebRTCProvider(WebPage&);
+    ~LibWebRTCProvider();
 
 private:
-    std::unique_ptr<SuspendableSocketFactory> createSocketFactory(String&& /* userAgent */) final;
+    std::unique_ptr<SuspendableSocketFactory> createSocketFactory(String&& /* userAgent */, WebCore::ScriptExecutionContextIdentifier, bool /* isFirstParty */, WebCore::RegistrableDomain&&) final;
 
-    rtc::scoped_refptr<webrtc::PeerConnectionInterface> createPeerConnection(webrtc::PeerConnectionObserver&, rtc::PacketSocketFactory*, webrtc::PeerConnectionInterface::RTCConfiguration&&) final;
+    rtc::scoped_refptr<webrtc::PeerConnectionInterface> createPeerConnection(WebCore::ScriptExecutionContextIdentifier, webrtc::PeerConnectionObserver&, rtc::PacketSocketFactory*, webrtc::PeerConnectionInterface::RTCConfiguration&&) final;
 
-    void unregisterMDNSNames(WebCore::DocumentIdentifier) final;
-    void registerMDNSName(WebCore::DocumentIdentifier, const String& ipAddress, CompletionHandler<void(MDNSNameOrError&&)>&&) final;
     void disableNonLocalhostConnections() final;
     void startedNetworkThread() final;
+    RefPtr<WebCore::RTCDataChannelRemoteHandlerConnection> createRTCDataChannelRemoteHandlerConnection() final;
+    void setLoggingLevel(WTFLogLevel) final;
 
-#if PLATFORM(COCOA)
-    std::unique_ptr<webrtc::VideoDecoderFactory> createDecoderFactory() final;
-#endif
+    void willCreatePeerConnectionFactory() final;
+
+    WeakRef<WebPage> m_webPage;
 };
+
+inline UniqueRef<LibWebRTCProvider> createLibWebRTCProvider(WebPage& page)
+{
+    return makeUniqueRef<LibWebRTCProvider>(page);
+}
+
+#elif USE(GSTREAMER_WEBRTC)
+using LibWebRTCProvider = WebCore::GStreamerWebRTCProvider;
+
+inline UniqueRef<LibWebRTCProvider> createLibWebRTCProvider(WebPage&)
+{
+    return makeUniqueRef<LibWebRTCProvider>();
+}
+
 #else
-using LibWebRTCProvider = WebCore::LibWebRTCProvider;
+using LibWebRTCProvider = WebCore::WebRTCProvider;
+
+inline UniqueRef<LibWebRTCProvider> createLibWebRTCProvider(WebPage&)
+{
+    return makeUniqueRef<LibWebRTCProvider>();
+}
 #endif // USE(LIBWEBRTC)
 
 } // namespace WebKit

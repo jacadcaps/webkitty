@@ -21,17 +21,13 @@
 #include "config.h"
 #include "PathTraversalState.h"
 
+#include "GeometryUtilities.h"
 #include <wtf/MathExtras.h>
 #include <wtf/Vector.h>
 
 namespace WebCore {
 
 static const float kPathSegmentLengthTolerance = 0.00001f;
-
-static inline FloatPoint midPoint(const FloatPoint& first, const FloatPoint& second)
-{
-    return FloatPoint((first.x() + second.x()) / 2.0f, (first.y() + second.y()) / 2.0f);
-}
 
 static inline float distanceLine(const FloatPoint& start, const FloatPoint& end)
 {
@@ -47,12 +43,7 @@ struct QuadraticBezier {
     {
     }
 
-    bool operator==(const QuadraticBezier& rhs) const
-    {
-        return start == rhs.start
-            && control == rhs.control
-            && end == rhs.end;
-    }
+    friend bool operator==(const QuadraticBezier&, const QuadraticBezier&) = default;
     
     float approximateDistance() const
     {
@@ -89,13 +80,7 @@ struct CubicBezier {
     {
     }
 
-    bool operator==(const CubicBezier& rhs) const
-    {
-        return start == rhs.start
-            && control1 == rhs.control1
-            && control2 == rhs.control2
-            && end == rhs.end;
-    }
+    friend bool operator==(const CubicBezier&, const CubicBezier&) = default;
 
     float approximateDistance() const
     {

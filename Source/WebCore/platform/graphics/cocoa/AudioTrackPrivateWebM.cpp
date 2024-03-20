@@ -28,6 +28,8 @@
 
 #if ENABLE(MEDIA_SOURCE)
 
+#include "MediaSample.h"
+
 namespace WebCore {
 
 Ref<AudioTrackPrivateWebM> AudioTrackPrivateWebM::create(webm::TrackEntry&& trackEntry)
@@ -42,11 +44,21 @@ AudioTrackPrivateWebM::AudioTrackPrivateWebM(webm::TrackEntry&& trackEntry)
         setEnabled(m_track.is_enabled.value());
 }
 
-AtomString AudioTrackPrivateWebM::id() const
+TrackID AudioTrackPrivateWebM::id() const
 {
-    if (m_trackID.isNull())
-        m_trackID = m_track.track_uid.is_present() ? AtomString::number(m_track.track_uid.value()) : emptyAtom();
-    return m_trackID;
+    if (m_track.track_uid.is_present())
+        return m_track.track_uid.value();
+    if (m_track.track_number.is_present())
+        return m_track.track_number.value();
+    ASSERT_NOT_REACHED();
+    return 0;
+}
+
+std::optional<bool> AudioTrackPrivateWebM::defaultEnabled() const
+{
+    if (m_track.is_enabled.is_present())
+        return m_track.is_enabled.value();
+    return std::nullopt;
 }
 
 AtomString AudioTrackPrivateWebM::label() const
@@ -68,6 +80,98 @@ int AudioTrackPrivateWebM::trackIndex() const
     if (m_track.track_number.is_present())
         return m_track.track_number.value();
     return 0;
+}
+
+std::optional<MediaTime> AudioTrackPrivateWebM::codecDelay() const
+{
+    if (!m_track.codec_delay.is_present())
+        return { };
+    constexpr uint32_t k_us_in_seconds = 1000000000;
+    return MediaTime(m_track.codec_delay.value(), k_us_in_seconds);
+}
+
+void AudioTrackPrivateWebM::setDiscardPadding(const MediaTime& discardPadding)
+{
+    m_discardPadding = discardPadding;
+}
+
+std::optional<MediaTime> AudioTrackPrivateWebM::discardPadding() const
+{
+    if (m_discardPadding.isInvalid() || m_discardPadding < MediaTime())
+        return { };
+    return m_discardPadding;
+}
+
+String AudioTrackPrivateWebM::codec() const
+{
+    if (m_formatDescription) {
+        if (!m_formatDescription->codecString.isEmpty())
+            return m_formatDescription->codecString;
+        return String::fromLatin1(m_formatDescription->codecName.string().data());
+    }
+
+    if (!m_track.codec_id.is_present())
+        return emptyString();
+
+    StringView codecID { m_track.codec_id.value().data(), (unsigned)m_track.codec_id.value().length() };
+
+    if (codecID == "A_VORBIS"_s)
+        return "vorbis"_s;
+
+    if (codecID == "V_OPUS"_s)
+        return "opus"_s;
+
+    return emptyString();
+}
+
+uint32_t AudioTrackPrivateWebM::sampleRate() const
+{
+    if (m_formatDescription)
+        return m_formatDescription->rate;
+
+    if (!m_track.audio.is_present())
+        return 0;
+
+    auto& audio = m_track.audio.value();
+    if (audio.sampling_frequency.is_present())
+        return audio.sampling_frequency.value();
+
+    return 0;
+}
+
+uint32_t AudioTrackPrivateWebM::numberOfChannels() const
+{
+    if (m_formatDescription)
+        return m_formatDescription->channels;
+
+    if (!m_track.audio.is_present())
+        return 0;
+
+    auto& audio = m_track.audio.value();
+    if (audio.channels.is_present())
+        return audio.channels.value();
+
+    return 0;
+}
+
+void AudioTrackPrivateWebM::setFormatDescription(Ref<AudioInfo>&& formatDescription)
+{
+    if (m_formatDescription && *m_formatDescription == formatDescription)
+        return;
+    m_formatDescription = WTFMove(formatDescription);
+    updateConfiguration();
+}
+
+void AudioTrackPrivateWebM::updateConfiguration()
+{
+IGNORE_WARNINGS_BEGIN("c99-designator")
+    PlatformAudioTrackConfiguration configuration {
+        { .codec = codec() },
+        .sampleRate = sampleRate(),
+        .numberOfChannels = numberOfChannels(),
+    };
+IGNORE_WARNINGS_END
+    setConfiguration(WTFMove(configuration));
 }
 
 }

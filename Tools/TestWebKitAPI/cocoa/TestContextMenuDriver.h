@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#if PLATFORM(IOS) && USE(UICONTEXTMENU)
+#if USE(UICONTEXTMENU)
 
 #import <wtf/WeakObjCPtr.h>
 
@@ -38,12 +38,14 @@
     CGFloat _allowableMovement;
     RetainPtr<UIGestureRecognizer> _primaryGestureRecognizer;
     NSTimeInterval _touchDuration;
+    BOOL _cancelsTouchesInView;
 }
 
 - (void)begin:(void(^)(BOOL))completionHandler;
 - (void)clickDown;
 - (void)clickUp;
 - (void)end;
++ (BOOL)prefersCancelsTouchesInView;
 @end
 
-#endif
+#endif // USE(UICONTEXTMENU)

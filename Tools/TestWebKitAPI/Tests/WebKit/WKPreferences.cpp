@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -44,7 +44,7 @@ TEST(WebKit, WKPreferencesBasic)
 
 TEST(WebKit, WKPreferencesDefaults)
 {
-#if PLATFORM(GTK) || PLATFORM(PLAYSTATION)
+#if PLATFORM(GTK) || PLATFORM(PLAYSTATION) || PLATFORM(WPE) || PLATFORM(WIN)
     static const char* expectedStandardFontFamily = "Times";
     static const char* expectedFixedFontFamily = "Courier New";
     static const char* expectedSerifFontFamily = "Times";
@@ -74,12 +74,9 @@ TEST(WebKit, WKPreferencesDefaults)
 
     EXPECT_TRUE(WKPreferencesGetJavaScriptEnabled(preference));
     EXPECT_TRUE(WKPreferencesGetLoadsImagesAutomatically(preference));
-    EXPECT_TRUE(WKPreferencesGetOfflineWebApplicationCacheEnabled(preference));
     EXPECT_TRUE(WKPreferencesGetLocalStorageEnabled(preference));
-    EXPECT_TRUE(WKPreferencesGetXSSAuditorEnabled(preference));
-    EXPECT_FALSE(WKPreferencesGetFrameFlatteningEnabled(preference));
     EXPECT_TRUE(WKPreferencesGetPluginsEnabled(preference));
-    EXPECT_TRUE(WKPreferencesGetJavaEnabled(preference));
+    EXPECT_FALSE(WKPreferencesGetShouldPrintBackgrounds(preference));
     EXPECT_TRUE(WKPreferencesGetJavaScriptCanOpenWindowsAutomatically(preference));
     EXPECT_TRUE(WKPreferencesGetHyperlinkAuditingEnabled(preference));
     EXPECT_WK_STREQ(expectedStandardFontFamily, adoptWK(WKPreferencesCopyStandardFontFamily(preference)));
@@ -90,9 +87,9 @@ TEST(WebKit, WKPreferencesDefaults)
     EXPECT_WK_STREQ(expectedFantasyFontFamily, adoptWK(WKPreferencesCopyFantasyFontFamily(preference)));
     EXPECT_WK_STREQ(expectedPictographFontFamily, adoptWK(WKPreferencesCopyPictographFontFamily(preference)));
     EXPECT_EQ(0u, WKPreferencesGetMinimumFontSize(preference));
-    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     EXPECT_FALSE(WKPreferencesGetPrivateBrowsingEnabled(preference));
-    ALLOW_DEPRECATED_DECLARATIONS_END
+ALLOW_DEPRECATED_DECLARATIONS_END
     EXPECT_FALSE(WKPreferencesGetDeveloperExtrasEnabled(preference));
     EXPECT_TRUE(WKPreferencesGetTextAreasAreResizable(preference));
 

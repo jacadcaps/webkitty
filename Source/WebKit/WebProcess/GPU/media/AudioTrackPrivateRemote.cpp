@@ -27,35 +27,40 @@
 #include "config.h"
 #include "AudioTrackPrivateRemote.h"
 
-#if ENABLE(GPU_PROCESS)
+#if ENABLE(GPU_PROCESS) && ENABLE(VIDEO)
 
+#include "AudioTrackPrivateRemoteConfiguration.h"
+#include "GPUProcessConnection.h"
 #include "MediaPlayerPrivateRemote.h"
 #include "RemoteMediaPlayerProxyMessages.h"
-#include "TrackPrivateRemoteConfiguration.h"
 
 namespace WebKit {
 
-AudioTrackPrivateRemote::AudioTrackPrivateRemote(MediaPlayerPrivateRemote& player, TrackPrivateRemoteIdentifier idendifier, TrackPrivateRemoteConfiguration&& configuration)
-    : m_player(player)
-    , m_idendifier(idendifier)
+AudioTrackPrivateRemote::AudioTrackPrivateRemote(GPUProcessConnection& gpuProcessConnection, WebCore::MediaPlayerIdentifier playerIdentifier, AudioTrackPrivateRemoteConfiguration&& configuration)
+    : m_gpuProcessConnection(gpuProcessConnection)
+    , m_id(configuration.trackId)
+    , m_playerIdentifier(playerIdentifier)
 {
     updateConfiguration(WTFMove(configuration));
 }
 
 void AudioTrackPrivateRemote::setEnabled(bool enabled)
 {
+    auto gpuProcessConnection = m_gpuProcessConnection.get();
+    if (!gpuProcessConnection)
+        return;
+
     if (enabled != this->enabled())
-        m_player.connection().send(Messages::RemoteMediaPlayerProxy::AudioTrackSetEnabled(m_idendifier, enabled), m_player.itentifier());
+        gpuProcessConnection->connection().send(Messages::RemoteMediaPlayerProxy::AudioTrackSetEnabled(m_id, enabled), m_playerIdentifier);
 
     AudioTrackPrivate::setEnabled(enabled);
 }
 
-void AudioTrackPrivateRemote::updateConfiguration(TrackPrivateRemoteConfiguration&& configuration)
+void AudioTrackPrivateRemote::updateConfiguration(AudioTrackPrivateRemoteConfiguration&& configuration)
 {
-    if (configuration.id != m_id) {
-        auto changed = !m_id.isEmpty();
-        m_id = configuration.id;
-        if (changed && client())
+    if (configuration.trackId != m_id) {
+        m_id = configuration.trackId;
+        if (client())
             client()->idChanged(m_id);
     }
 
@@ -75,10 +80,12 @@ void AudioTrackPrivateRemote::updateConfiguration(TrackPrivateRemoteConfiguratio
 
     m_trackIndex = configuration.trackIndex;
     m_startTimeVariance = configuration.startTimeVariance;
-    m_kind = configuration.audioKind;
-    setEnabled(configuration.enabled);
+    m_kind = configuration.kind;
+    setConfiguration(WTFMove(configuration.trackConfiguration));
+    
+    AudioTrackPrivate::setEnabled(configuration.enabled);
 }
 
 } // namespace WebKit
 
-#endif // ENABLE(GPU_PROCESS)
+#endif // ENABLE(GPU_PROCESS) && ENABLE(VIDEO)

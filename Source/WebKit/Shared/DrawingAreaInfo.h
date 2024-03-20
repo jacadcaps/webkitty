@@ -30,14 +30,17 @@
 
 namespace WebKit {
 
-enum DrawingAreaType {
+enum class DrawingAreaType : uint8_t {
 #if PLATFORM(COCOA)
 #if !PLATFORM(IOS_FAMILY)
-    DrawingAreaTypeTiledCoreAnimation,
+    TiledCoreAnimation,
 #endif
-    DrawingAreaTypeRemoteLayerTree,
+    RemoteLayerTree,
 #elif USE(COORDINATED_GRAPHICS) || USE(TEXTURE_MAPPER)
-    DrawingAreaTypeCoordinatedGraphics
+    CoordinatedGraphics,
+#endif
+#if USE(GRAPHICS_LAYER_WC)
+    WC,
 #endif
 };
     
@@ -46,25 +49,7 @@ enum {
 };
 typedef uint64_t ActivityStateChangeID;
 
-enum DrawingAreaIdentifierType { };
+struct DrawingAreaIdentifierType;
 using DrawingAreaIdentifier = ObjectIdentifier<DrawingAreaIdentifierType>;
 
 } // namespace WebKit
-
-namespace WTF {
-
-template<> struct EnumTraits<WebKit::DrawingAreaType> {
-    using values = EnumValues<
-        WebKit::DrawingAreaType
-#if PLATFORM(COCOA)
-#if !PLATFORM(IOS_FAMILY)
-        , WebKit::DrawingAreaType::DrawingAreaTypeTiledCoreAnimation
-#endif
-        , WebKit::DrawingAreaType::DrawingAreaTypeRemoteLayerTree
-#elif USE(COORDINATED_GRAPHICS) || USE(TEXTURE_MAPPER)
-        , WebKit::DrawingAreaType::DrawingAreaTypeCoordinatedGraphics
-#endif
-    >;
-};
-
-} // namespace WTF

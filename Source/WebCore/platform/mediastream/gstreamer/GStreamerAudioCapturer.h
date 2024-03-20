@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2018 Metrological Group B.V.
+ * Copyright (C) 2020 Igalia S.L.
  * Author: Thibault Saunier <tsaunier@igalia.com>
  * Author: Alejandro G. Castro <alex@igalia.com>
  *
@@ -21,7 +22,7 @@
 
 #pragma once
 
-#if ENABLE(MEDIA_STREAM) && USE(LIBWEBRTC) && USE(GSTREAMER)
+#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER)
 
 #include "GStreamerCapturer.h"
 
@@ -29,15 +30,22 @@ namespace WebCore {
 
 class GStreamerAudioCapturer final : public GStreamerCapturer {
 public:
-    GStreamerAudioCapturer(GStreamerCaptureDevice);
+    GStreamerAudioCapturer(GStreamerCaptureDevice&&);
     GStreamerAudioCapturer();
+    ~GStreamerAudioCapturer() = default;
 
     GstElement* createConverter() final;
     const char* name() final { return "Audio"; }
 
     bool setSampleRate(int);
+
+    using SinkAudioDataCallback = Function<void(GRefPtr<GstSample>&&, MediaTime&&)>;
+    void setSinkAudioCallback(SinkAudioDataCallback&&);
+
+private:
+    std::pair<unsigned long, SinkAudioDataCallback> m_sinkAudioDataCallback;
 };
 
 } // namespace WebCore
 
-#endif // ENABLE(MEDIA_STREAM) && USE(LIBWEBRTC) && USE(GSTREAMER)
+#endif // ENABLE(MEDIA_STREAM) && USE(GSTREAMER)

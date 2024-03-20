@@ -14,7 +14,7 @@
 #include "absl/types/optional.h"
 #include "api/video_codecs/video_codec.h"
 #include "api/video_codecs/video_encoder.h"
-#include "api/video_codecs/video_encoder_config.h"
+#include "video/config/video_encoder_config.h"
 
 namespace webrtc {
 
@@ -24,6 +24,8 @@ class EncoderSettings {
   EncoderSettings(VideoEncoder::EncoderInfo encoder_info,
                   VideoEncoderConfig encoder_config,
                   VideoCodec video_codec);
+  EncoderSettings(const EncoderSettings& other);
+  EncoderSettings& operator=(const EncoderSettings& other);
 
   // Encoder capabilities, implementation info, etc.
   const VideoEncoder::EncoderInfo& encoder_info() const;

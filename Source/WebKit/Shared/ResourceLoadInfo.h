@@ -54,104 +54,13 @@ struct ResourceLoadInfo {
     };
     
     NetworkResourceLoadIdentifier resourceLoadID;
-    Optional<WebCore::FrameIdentifier> frameID;
-    Optional<WebCore::FrameIdentifier> parentFrameID;
+    std::optional<WebCore::FrameIdentifier> frameID;
+    std::optional<WebCore::FrameIdentifier> parentFrameID;
     URL originalURL;
     String originalHTTPMethod;
     WallTime eventTimestamp;
     bool loadedFromCache { false };
     Type type { Type::Other };
-
-    void encode(IPC::Encoder& encoder) const
-    {
-        encoder << resourceLoadID;
-        encoder << frameID;
-        encoder << parentFrameID;
-        encoder << originalURL;
-        encoder << originalHTTPMethod;
-        encoder << eventTimestamp;
-        encoder << loadedFromCache;
-        encoder << type;
-    }
-
-    static Optional<ResourceLoadInfo> decode(IPC::Decoder& decoder)
-    {
-        Optional<NetworkResourceLoadIdentifier> resourceLoadID;
-        decoder >> resourceLoadID;
-        if (!resourceLoadID)
-            return WTF::nullopt;
-
-        Optional<Optional<WebCore::FrameIdentifier>> frameID;
-        decoder >> frameID;
-        if (!frameID)
-            return WTF::nullopt;
-
-        Optional<Optional<WebCore::FrameIdentifier>> parentFrameID;
-        decoder >> parentFrameID;
-        if (!parentFrameID)
-            return WTF::nullopt;
-
-        Optional<URL> originalURL;
-        decoder >> originalURL;
-        if (!originalURL)
-            return WTF::nullopt;
-
-        Optional<String> originalHTTPMethod;
-        decoder >> originalHTTPMethod;
-        if (!originalHTTPMethod)
-            return WTF::nullopt;
-
-        Optional<WallTime> eventTimestamp;
-        decoder >> eventTimestamp;
-        if (!eventTimestamp)
-            return WTF::nullopt;
-
-        Optional<bool> loadedFromCache;
-        decoder >> loadedFromCache;
-        if (!loadedFromCache)
-            return WTF::nullopt;
-
-        Optional<Type> type;
-        decoder >> type;
-        if (!type)
-            return WTF::nullopt;
-
-        return {{
-            WTFMove(*resourceLoadID),
-            WTFMove(*frameID),
-            WTFMove(*parentFrameID),
-            WTFMove(*originalURL),
-            WTFMove(*originalHTTPMethod),
-            WTFMove(*eventTimestamp),
-            WTFMove(*loadedFromCache),
-            WTFMove(*type),
-        }};
-    }
 };
 
 } // namespace WebKit
-
-namespace WTF {
-
-template<> struct EnumTraits<WebKit::ResourceLoadInfo::Type> {
-    using values = EnumValues<
-        WebKit::ResourceLoadInfo::Type,
-        WebKit::ResourceLoadInfo::Type::ApplicationManifest,
-        WebKit::ResourceLoadInfo::Type::Beacon,
-        WebKit::ResourceLoadInfo::Type::CSPReport,
-        WebKit::ResourceLoadInfo::Type::Document,
-        WebKit::ResourceLoadInfo::Type::Fetch,
-        WebKit::ResourceLoadInfo::Type::Font,
-        WebKit::ResourceLoadInfo::Type::Image,
-        WebKit::ResourceLoadInfo::Type::Media,
-        WebKit::ResourceLoadInfo::Type::Object,
-        WebKit::ResourceLoadInfo::Type::Other,
-        WebKit::ResourceLoadInfo::Type::Ping,
-        WebKit::ResourceLoadInfo::Type::Script,
-        WebKit::ResourceLoadInfo::Type::Stylesheet,
-        WebKit::ResourceLoadInfo::Type::XMLHTTPRequest,
-        WebKit::ResourceLoadInfo::Type::XSLT
-    >;
-};
-
-} // namespace WTF

@@ -77,6 +77,7 @@ TEST(WTF_RefPtr, Basic)
     {
         RefPtr<RefLogger> p1 = &a;
         RefPtr<RefLogger> p2 = WTFMove(p1);
+        IGNORE_CLANG_STATIC_ANALYZER_USE_AFTER_MOVE_ATTRIBUTE
         EXPECT_EQ(nullptr, p1.get());
         EXPECT_EQ(&a, p2.get());
     }
@@ -85,6 +86,7 @@ TEST(WTF_RefPtr, Basic)
     {
         RefPtr<RefLogger> p1 = &a;
         RefPtr<RefLogger> p2(WTFMove(p1));
+        IGNORE_CLANG_STATIC_ANALYZER_USE_AFTER_MOVE_ATTRIBUTE
         EXPECT_EQ(nullptr, p1.get());
         EXPECT_EQ(&a, p2.get());
     }
@@ -101,6 +103,7 @@ TEST(WTF_RefPtr, Basic)
     {
         RefPtr<DerivedRefLogger> p1 = &a;
         RefPtr<RefLogger> p2 = WTFMove(p1);
+        IGNORE_CLANG_STATIC_ANALYZER_USE_AFTER_MOVE_ATTRIBUTE
         EXPECT_EQ(nullptr, p1.get());
         EXPECT_EQ(&a, p2.get());
     }
@@ -203,6 +206,7 @@ TEST(WTF_RefPtr, Assignment)
         log() << "| ";
         p1 = WTFMove(p2);
         EXPECT_EQ(&b, p1.get());
+        IGNORE_CLANG_STATIC_ANALYZER_USE_AFTER_MOVE_ATTRIBUTE
         EXPECT_EQ(nullptr, p2.get());
         log() << "| ";
     }
@@ -249,6 +253,7 @@ TEST(WTF_RefPtr, Assignment)
         log() << "| ";
         p1 = WTFMove(p2);
         EXPECT_EQ(&c, p1.get());
+        IGNORE_CLANG_STATIC_ANALYZER_USE_AFTER_MOVE_ATTRIBUTE
         EXPECT_EQ(nullptr, p2.get());
         log() << "| ";
     }
@@ -276,15 +281,9 @@ TEST(WTF_RefPtr, Assignment)
     {
         RefPtr<RefLogger> ptr(&a);
         EXPECT_EQ(&a, ptr.get());
-#if COMPILER(CLANG)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wunknown-pragmas"
-#pragma clang diagnostic ignored "-Wself-move"
-#endif
+        IGNORE_WARNINGS_BEGIN("self-move")
         ptr = WTFMove(ptr);
-#if COMPILER(CLANG)
-#pragma clang diagnostic pop
-#endif
+        IGNORE_WARNINGS_END
         EXPECT_EQ(&a, ptr.get());
     }
     EXPECT_STREQ("ref(a) deref(a) ", takeLogStr().c_str());
@@ -328,7 +327,14 @@ TEST(WTF_RefPtr, ReleaseNonNull)
 
     {
         RefPtr<RefLogger> refPtr = &a;
-        RefPtr<RefLogger> ref = refPtr.releaseNonNull();
+        Ref<RefLogger> ref = refPtr.releaseNonNull();
+    }
+
+    EXPECT_STREQ("ref(a) deref(a) ", takeLogStr().c_str());
+
+    {
+        RefPtr<RefLogger> refPtr = &a;
+        Ref<const RefLogger> ref = refPtr.releaseNonNull();
     }
 
     EXPECT_STREQ("ref(a) deref(a) ", takeLogStr().c_str());
@@ -343,6 +349,7 @@ TEST(WTF_RefPtr, Release)
     {
         RefPtr<RefLogger> p1 = &a;
         RefPtr<RefLogger> p2 = WTFMove(p1);
+        IGNORE_CLANG_STATIC_ANALYZER_USE_AFTER_MOVE_ATTRIBUTE
         EXPECT_EQ(nullptr, p1.get());
         EXPECT_EQ(&a, p2.get());
     }
@@ -351,6 +358,7 @@ TEST(WTF_RefPtr, Release)
     {
         RefPtr<RefLogger> p1 = &a;
         RefPtr<RefLogger> p2(WTFMove(p1));
+        IGNORE_CLANG_STATIC_ANALYZER_USE_AFTER_MOVE_ATTRIBUTE
         EXPECT_EQ(nullptr, p1.get());
         EXPECT_EQ(&a, p2.get());
     }
@@ -359,6 +367,7 @@ TEST(WTF_RefPtr, Release)
     {
         RefPtr<DerivedRefLogger> p1 = &a;
         RefPtr<RefLogger> p2 = WTFMove(p1);
+        IGNORE_CLANG_STATIC_ANALYZER_USE_AFTER_MOVE_ATTRIBUTE
         EXPECT_EQ(nullptr, p1.get());
         EXPECT_EQ(&a, p2.get());
     }
@@ -372,6 +381,7 @@ TEST(WTF_RefPtr, Release)
         log() << "| ";
         p1 = WTFMove(p2);
         EXPECT_EQ(&b, p1.get());
+        IGNORE_CLANG_STATIC_ANALYZER_USE_AFTER_MOVE_ATTRIBUTE
         EXPECT_EQ(nullptr, p2.get());
         log() << "| ";
     }
@@ -385,6 +395,7 @@ TEST(WTF_RefPtr, Release)
         log() << "| ";
         p1 = WTFMove(p2);
         EXPECT_EQ(&c, p1.get());
+        IGNORE_CLANG_STATIC_ANALYZER_USE_AFTER_MOVE_ATTRIBUTE
         EXPECT_EQ(nullptr, p2.get());
         log() << "| ";
     }
@@ -417,13 +428,13 @@ struct ConstRefCounted : RefCounted<ConstRefCounted> {
 
 static const ConstRefCounted& returnConstRefCountedRef()
 {
-    static NeverDestroyed<ConstRefCounted> instance;
-    return instance.get();
+    static NeverDestroyed<Ref<ConstRefCounted>> instance { ConstRefCounted::create() };
+    return instance.get().get();
 }
 static ConstRefCounted& returnRefCountedRef()
 {
-    static NeverDestroyed<ConstRefCounted> instance;
-    return instance.get();
+    static NeverDestroyed<Ref<ConstRefCounted>> instance { ConstRefCounted::create() };
+    return instance.get().get();
 }
 
 TEST(WTF_RefPtr, Const)
@@ -529,6 +540,7 @@ TEST(WTF_RefPtr, AssignBeforeDeref)
         a.slotToCheck = nullptr;
         b.slotToCheck = nullptr;
         EXPECT_EQ(&b, p1.get());
+        IGNORE_CLANG_STATIC_ANALYZER_USE_AFTER_MOVE_ATTRIBUTE
         EXPECT_EQ(nullptr, p2.get());
         log() << "| ";
     }
@@ -547,6 +559,64 @@ TEST(WTF_RefPtr, ReleaseNonNullBeforeDeref)
     }
 
     EXPECT_STREQ("ref(a) slot=null deref(a) ", takeLogStr().c_str());
+}
+
+class PartiallyDestroyedRefPtrTest : public RefCounted<PartiallyDestroyedRefPtrTest> {
+public:
+    static Ref<PartiallyDestroyedRefPtrTest> create()
+    {
+        return adoptRef(*new PartiallyDestroyedRefPtrTest);
+    }
+
+    ~PartiallyDestroyedRefPtrTest()
+    {
+        RefPtrAllowingPartiallyDestroyed<PartiallyDestroyedRefPtrTest> protectedThis { this };
+        protectedThis->m_int = 0;
+    }
+
+private:
+    PartiallyDestroyedRefPtrTest()
+        : m_int(std::make_unique<int>())
+    {
+        *m_int = 32;
+    }
+
+    std::unique_ptr<int> m_int;
+};
+
+TEST(WTF_RefPtr, RefPtrAllowingPartiallyDestroyed)
+{
+    RefPtr partiallyDestroyedRefPtrTest = PartiallyDestroyedRefPtrTest::create();
+    partiallyDestroyedRefPtrTest = nullptr;
+}
+
+class PartiallyDestroyedRefPtrTestThreadSafe : public ThreadSafeRefCounted<PartiallyDestroyedRefPtrTestThreadSafe> {
+public:
+    static Ref<PartiallyDestroyedRefPtrTestThreadSafe> create()
+    {
+        return adoptRef(*new PartiallyDestroyedRefPtrTestThreadSafe);
+    }
+
+    ~PartiallyDestroyedRefPtrTestThreadSafe()
+    {
+        RefPtrAllowingPartiallyDestroyed<PartiallyDestroyedRefPtrTestThreadSafe> protectedThis { this };
+        protectedThis->m_int = 0;
+    }
+
+private:
+    PartiallyDestroyedRefPtrTestThreadSafe()
+        : m_int(std::make_unique<int>())
+    {
+        *m_int = 32;
+    }
+
+    std::unique_ptr<int> m_int;
+};
+
+TEST(WTF_RefPtr, RefPtrAllowingPartiallyDestroyedThreadSafe)
+{
+    RefPtr partiallyDestroyedRefPtrTest = PartiallyDestroyedRefPtrTestThreadSafe::create();
+    partiallyDestroyedRefPtrTest = nullptr;
 }
 
 // FIXME: Enable these tests once Win platform supports TestWebKitAPI::Util::run

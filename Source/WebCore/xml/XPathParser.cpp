@@ -1,6 +1,7 @@
 /*
  * Copyright 2005 Maksim Orlovich <maksim@kde.org>
  * Copyright (C) 2006, 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2019 Google Inc. All rights reserved.
  * Copyright (C) 2007 Alexey Proskuryakov <ap@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
@@ -33,10 +34,9 @@
 #include "XPathPath.h"
 #include "XPathStep.h"
 #include <wtf/NeverDestroyed.h>
+#include <wtf/RobinHoodHashMap.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/text/StringHash.h>
-
-using namespace WebCore::XPath;
 
 extern int xpathyyparse(WebCore::XPath::Parser&);
 
@@ -76,28 +76,28 @@ static XMLCat charCat(UChar character)
     return NotPartOfName;
 }
 
-static HashMap<String, Step::Axis> createAxisNamesMap()
+static MemoryCompactLookupOnlyRobinHoodHashMap<String, Step::Axis> createAxisNamesMap()
 {
     struct AxisName {
-        const char* name;
+        ASCIILiteral name;
         Step::Axis axis;
     };
     const AxisName axisNameList[] = {
-        { "ancestor", Step::AncestorAxis },
-        { "ancestor-or-self", Step::AncestorOrSelfAxis },
-        { "attribute", Step::AttributeAxis },
-        { "child", Step::ChildAxis },
-        { "descendant", Step::DescendantAxis },
-        { "descendant-or-self", Step::DescendantOrSelfAxis },
-        { "following", Step::FollowingAxis },
-        { "following-sibling", Step::FollowingSiblingAxis },
-        { "namespace", Step::NamespaceAxis },
-        { "parent", Step::ParentAxis },
-        { "preceding", Step::PrecedingAxis },
-        { "preceding-sibling", Step::PrecedingSiblingAxis },
-        { "self", Step::SelfAxis }
+        { "ancestor"_s, Step::AncestorAxis },
+        { "ancestor-or-self"_s, Step::AncestorOrSelfAxis },
+        { "attribute"_s, Step::AttributeAxis },
+        { "child"_s, Step::ChildAxis },
+        { "descendant"_s, Step::DescendantAxis },
+        { "descendant-or-self"_s, Step::DescendantOrSelfAxis },
+        { "following"_s, Step::FollowingAxis },
+        { "following-sibling"_s, Step::FollowingSiblingAxis },
+        { "namespace"_s, Step::NamespaceAxis },
+        { "parent"_s, Step::ParentAxis },
+        { "preceding"_s, Step::PrecedingAxis },
+        { "preceding-sibling"_s, Step::PrecedingSiblingAxis },
+        { "self"_s, Step::SelfAxis }
     };
-    HashMap<String, Step::Axis> map;
+    MemoryCompactLookupOnlyRobinHoodHashMap<String, Step::Axis> map;
     for (auto& axisName : axisNameList)
         map.add(axisName.name, axisName.axis);
     return map;
@@ -105,7 +105,7 @@ static HashMap<String, Step::Axis> createAxisNamesMap()
 
 static bool parseAxisName(const String& name, Step::Axis& type)
 {
-    static const auto axisNames = makeNeverDestroyed(createAxisNamesMap());
+    static NeverDestroyed axisNames = createAxisNamesMap();
     auto it = axisNames.get().find(name);
     if (it == axisNames.get().end())
         return false;
@@ -131,9 +131,10 @@ bool Parser::isBinaryOperatorContext() const
     }
 }
 
+// See https://www.w3.org/TR/1999/REC-xpath-19991116/#NT-ExprWhitespace .
 void Parser::skipWS()
 {
-    while (m_nextPos < m_data.length() && isSpaceOrNewline(m_data[m_nextPos]))
+    while (m_nextPos < m_data.length() && isASCIIWhitespaceWithoutFF(m_data[m_nextPos]))
         ++m_nextPos;
 }
 
@@ -309,7 +310,7 @@ inline Parser::Token Parser::nextTokenInternal()
         if (isBinaryOperatorContext())
             return makeTokenAndAdvance(MULOP, NumericOp::OP_Mul);
         ++m_nextPos;
-        return Token(NAMETEST, "*");
+        return Token(NAMETEST, "*"_s);
     case '$': { // $ QName
         m_nextPos++;
         String name;
@@ -326,13 +327,13 @@ inline Parser::Token Parser::nextTokenInternal()
     skipWS();
     // If we're in an operator context, check for any operator names
     if (isBinaryOperatorContext()) {
-        if (name == "and") //### hash?
+        if (name == "and"_s) // ### hash?
             return Token(AND);
-        if (name == "or")
+        if (name == "or"_s)
             return Token(OR);
-        if (name == "mod")
+        if (name == "mod"_s)
             return Token(MULOP, NumericOp::OP_Mod);
-        if (name == "div")
+        if (name == "div"_s)
             return Token(MULOP, NumericOp::OP_Div);
     }
 
@@ -373,13 +374,13 @@ inline Parser::Token Parser::nextTokenInternal()
 
         // Either node type oor function name.
 
-        if (name == "processing-instruction")
+        if (name == "processing-instruction"_s)
             return Token(PI);
-        if (name == "node")
+        if (name == "node"_s)
             return Token(NODE);
-        if (name == "text")
+        if (name == "text"_s)
             return Token(TEXT_);
-        if (name == "comment")
+        if (name == "comment"_s)
             return Token(COMMENT);
 
         return Token(FUNCTIONNAME, name);
@@ -430,7 +431,7 @@ int Parser::lex(YYSTYPE& yylval)
     return token.type;
 }
 
-bool Parser::expandQualifiedName(const String& qualifiedName, String& localName, String& namespaceURI)
+bool Parser::expandQualifiedName(const String& qualifiedName, AtomString& localName, AtomString& namespaceURI)
 {
     size_t colon = qualifiedName.find(':');
     if (colon != notFound) {
@@ -438,14 +439,14 @@ bool Parser::expandQualifiedName(const String& qualifiedName, String& localName,
             m_sawNamespaceError = true;
             return false;
         }
-        namespaceURI = m_resolver->lookupNamespaceURI(qualifiedName.left(colon));
+        namespaceURI = m_resolver->lookupNamespaceURI(StringView(qualifiedName).left(colon).toAtomString());
         if (namespaceURI.isNull()) {
             m_sawNamespaceError = true;
             return false;
         }
-        localName = qualifiedName.substring(colon + 1);
+        localName = StringView(qualifiedName).substring(colon + 1).toAtomString();
     } else
-        localName = qualifiedName;
+        localName = AtomString { qualifiedName };
     return true;
 }
 
@@ -456,10 +457,10 @@ ExceptionOr<std::unique_ptr<Expression>> Parser::parseStatement(const String& st
     int parseError = xpathyyparse(parser);
 
     if (parser.m_sawNamespaceError)
-        return Exception { NamespaceError };
+        return Exception { ExceptionCode::NamespaceError };
 
     if (parseError)
-        return Exception { SyntaxError };
+        return Exception { ExceptionCode::SyntaxError };
 
     return WTFMove(parser.m_result);
 }

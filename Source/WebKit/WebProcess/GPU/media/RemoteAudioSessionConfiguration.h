@@ -32,91 +32,14 @@
 namespace WebKit {
 
 struct RemoteAudioSessionConfiguration {
-
-    WebCore::AudioSession::CategoryType category { WebCore::AudioSession::CategoryType::None };
-    WebCore::RouteSharingPolicy routeSharingPolicy { WebCore::RouteSharingPolicy::Default };
     String routingContextUID;
     float sampleRate { 0 };
-    uint64_t bufferSize { 0 };
-    uint64_t numberOfOutputChannels { 0 };
-    uint64_t preferredBufferSize { 0 };
+    size_t bufferSize { 0 };
+    size_t numberOfOutputChannels { 0 };
+    size_t maximumNumberOfOutputChannels { 0 };
+    size_t preferredBufferSize { 0 };
     bool isMuted { false };
     bool isActive { false };
-
-    template<class Encoder>
-    void encode(Encoder& encoder) const
-    {
-        encoder << category;
-        encoder << routeSharingPolicy;
-        encoder << routingContextUID;
-        encoder << sampleRate;
-        encoder << bufferSize;
-        encoder << numberOfOutputChannels;
-        encoder << preferredBufferSize;
-        encoder << isMuted;
-        encoder << isActive;
-    }
-
-    template <class Decoder>
-    static Optional<RemoteAudioSessionConfiguration> decode(Decoder& decoder)
-    {
-        Optional<WebCore::AudioSession::CategoryType> category;
-        decoder >> category;
-        if (!category)
-            return WTF::nullopt;
-
-        Optional<WebCore::RouteSharingPolicy> routeSharingPolicy;
-        decoder >> routeSharingPolicy;
-        if (!routeSharingPolicy)
-            return WTF::nullopt;
-
-        Optional<String> routingContextUID;
-        decoder >> routingContextUID;
-        if (!routingContextUID)
-            return WTF::nullopt;
-
-        Optional<float> sampleRate;
-        decoder >> sampleRate;
-        if (!sampleRate)
-            return WTF::nullopt;
-
-        Optional<uint64_t> bufferSize;
-        decoder >> bufferSize;
-        if (!bufferSize)
-            return WTF::nullopt;
-
-        Optional<uint64_t> numberOfOutputChannels;
-        decoder >> numberOfOutputChannels;
-        if (!numberOfOutputChannels)
-            return WTF::nullopt;
-
-        Optional<uint64_t> preferredBufferSize;
-        decoder >> preferredBufferSize;
-        if (!preferredBufferSize)
-            return WTF::nullopt;
-
-        Optional<bool> isMuted;
-        decoder >> isMuted;
-        if (!isMuted)
-            return WTF::nullopt;
-
-        Optional<bool> isActive;
-        decoder >> isActive;
-        if (!isActive)
-            return WTF::nullopt;
-
-        return {{
-            WTFMove(*category),
-            WTFMove(*routeSharingPolicy),
-            WTFMove(*routingContextUID),
-            *sampleRate,
-            *bufferSize,
-            *numberOfOutputChannels,
-            *preferredBufferSize,
-            *isMuted,
-            *isActive,
-        }};
-    }
 };
 
 } // namespace WebKit

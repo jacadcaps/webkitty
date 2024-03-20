@@ -27,6 +27,7 @@
 #import "_WKProcessPoolConfigurationInternal.h"
 
 #import "LegacyGlobalSettings.h"
+#import <WebCore/WebCoreObjCExtras.h>
 #import <objc/runtime.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/cocoa/VectorCocoa.h>
@@ -45,6 +46,9 @@
 
 - (void)dealloc
 {
+    if (WebCoreObjCScheduleDeallocateOnMainRunLoop(_WKProcessPoolConfiguration.class, self))
+        return;
+
     _processPoolConfiguration->~ProcessPoolConfiguration();
 
     [super dealloc];
@@ -65,27 +69,11 @@
 
 - (NSSet<Class> *)customClassesForParameterCoder
 {
-    auto classes = _processPoolConfiguration->customClassesForParameterCoder();
-    if (classes.isEmpty())
-        return [NSSet set];
-
-    NSMutableSet *result = [[NSMutableSet alloc] initWithCapacity:classes.size()];
-    for (const auto& value : classes)
-        [result addObject: objc_lookUpClass(value.utf8().data())];
-
-    return [result autorelease];
+    return [NSSet set];
 }
 
 - (void)setCustomClassesForParameterCoder:(NSSet<Class> *)classesForCoder
 {
-    Vector<WTF::String> classes;
-    classes.reserveInitialCapacity(classesForCoder.count);
-    for (id classObj : classesForCoder) {
-        if (auto* string = NSStringFromClass(classObj))
-            classes.uncheckedAppend(string);
-    }
-
-    _processPoolConfiguration->setCustomClassesForParameterCoder(WTFMove(classes));
 }
 
 - (NSUInteger)maximumProcessCount
@@ -137,6 +125,16 @@
     return _processPoolConfiguration->setAttrStyleEnabled(enabled);
 }
 
+- (BOOL)shouldThrowExceptionForGlobalConstantRedeclaration
+{
+    return _processPoolConfiguration->shouldThrowExceptionForGlobalConstantRedeclaration();
+}
+
+- (void)setShouldThrowExceptionForGlobalConstantRedeclaration:(BOOL)shouldThrow
+{
+    return _processPoolConfiguration->setShouldThrowExceptionForGlobalConstantRedeclaration(shouldThrow);
+}
+
 - (NSArray<NSURL *> *)additionalReadAccessAllowedURLs
 {
     auto paths = _processPoolConfiguration->additionalReadAccessAllowedPaths();
@@ -144,19 +142,19 @@
         return @[ ];
 
     return createNSArray(paths, [] (auto& path) {
-        return [NSURL fileURLWithFileSystemRepresentation:path.data() isDirectory:NO relativeToURL:nil];
+        return [NSURL fileURLWithFileSystemRepresentation:path.utf8().data() isDirectory:NO relativeToURL:nil];
     }).autorelease();
 }
 
 - (void)setAdditionalReadAccessAllowedURLs:(NSArray<NSURL *> *)additionalReadAccessAllowedURLs
 {
-    Vector<CString> paths;
+    Vector<String> paths;
     paths.reserveInitialCapacity(additionalReadAccessAllowedURLs.count);
     for (NSURL *url in additionalReadAccessAllowedURLs) {
         if (!url.isFileURL)
             [NSException raise:NSInvalidArgumentException format:@"%@ is not a file URL", url];
 
-        paths.uncheckedAppend(url.fileSystemRepresentation);
+        paths.append(String::fromUTF8(url.fileSystemRepresentation));
     }
 
     _processPoolConfiguration->setAdditionalReadAccessAllowedPaths(WTFMove(paths));
@@ -221,6 +219,18 @@
     return _processPoolConfiguration->presentingApplicationPID();
 }
 
+- (void)setPresentingApplicationProcessToken:(audit_token_t)token
+{
+    _processPoolConfiguration->setPresentingApplicationProcessToken(token);
+}
+
+- (audit_token_t)presentingApplicationProcessToken
+{
+    if (_processPoolConfiguration->presentingApplicationProcessToken())
+        return *_processPoolConfiguration->presentingApplicationProcessToken();
+    return { };
+}
+
 - (void)setProcessSwapsOnNavigation:(BOOL)swaps
 {
     _processPoolConfiguration->setProcessSwapsOnNavigation(swaps);
@@ -261,14 +271,14 @@
     return _processPoolConfiguration->alwaysKeepAndReuseSwappedProcesses();
 }
 
-- (void)setProcessSwapsOnWindowOpenWithOpener:(BOOL)swaps
+- (void)setProcessSwapsOnNavigationWithinSameNonHTTPFamilyProtocol:(BOOL)swaps
 {
-    _processPoolConfiguration->setProcessSwapsOnWindowOpenWithOpener(swaps);
+    _processPoolConfiguration->setProcessSwapsOnNavigationWithinSameNonHTTPFamilyProtocol(swaps);
 }
 
-- (BOOL)processSwapsOnWindowOpenWithOpener
+- (BOOL)processSwapsOnNavigationWithinSameNonHTTPFamilyProtocol
 {
-    return _processPoolConfiguration->processSwapsOnWindowOpenWithOpener();
+    return _processPoolConfiguration->processSwapsOnNavigationWithinSameNonHTTPFamilyProtocol();
 }
 
 - (BOOL)pageCacheEnabled
@@ -299,20 +309,6 @@
 - (void)setJITEnabled:(BOOL)enabled
 {
     _processPoolConfiguration->setJITEnabled(enabled);
-}
-
-- (void)setHSTSStorageDirectory:(NSURL *)directory
-{
-    if (directory && ![directory isFileURL])
-        [NSException raise:NSInvalidArgumentException format:@"%@ is not a file URL", directory];
-
-    // FIXME: Move this to _WKWebsiteDataStoreConfiguration once rdar://problem/50109631 is fixed.
-    _processPoolConfiguration->setHSTSStorageDirectory(directory.path);
-}
-
-- (NSURL *)hstsStorageDirectory
-{
-    return [NSURL fileURLWithPath:_processPoolConfiguration->hstsStorageDirectory() isDirectory:YES];
 }
 
 #if PLATFORM(IOS_FAMILY)
@@ -354,12 +350,11 @@
 
 - (NSString *)customWebContentServiceBundleIdentifier
 {
-    return _processPoolConfiguration->customWebContentServiceBundleIdentifier();
+    return nil;
 }
 
 - (void)setCustomWebContentServiceBundleIdentifier:(NSString *)customWebContentServiceBundleIdentifier
 {
-    _processPoolConfiguration->setCustomWebContentServiceBundleIdentifier(customWebContentServiceBundleIdentifier);
 }
 
 - (BOOL)configureJSCForTesting
@@ -370,6 +365,16 @@
 - (void)setConfigureJSCForTesting:(BOOL)value
 {
     _processPoolConfiguration->setShouldConfigureJSCForTesting(value);
+}
+
+- (NSString *)timeZoneOverride
+{
+    return _processPoolConfiguration->timeZoneOverride();
+}
+
+- (void)setTimeZoneOverride:(NSString *)timeZone
+{
+    _processPoolConfiguration->setTimeZoneOverride(timeZone);
 }
 
 #pragma mark WKObject protocol implementation

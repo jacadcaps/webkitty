@@ -14,15 +14,10 @@
 #include "test/gtest.h"
 #include "test/testsupport/rtc_expect_death.h"
 
-// Quality testing of PushResampler is handled through output_mixer_unittest.cc.
+// Quality testing of PushResampler is done in audio/remix_resample_unittest.cc.
 
 namespace webrtc {
 
-// The below tests are temporarily disabled on WEBRTC_WIN due to problems
-// with clang debug builds.
-// TODO(tommi): Re-enable when we've figured out what the problem is.
-// http://crbug.com/615050
-#if !defined(WEBRTC_WIN) && defined(__clang__) && !defined(NDEBUG)
 TEST(PushResamplerTest, VerifiesInputParameters) {
   PushResampler<int16_t> resampler;
   EXPECT_EQ(0, resampler.InitializeIfNeeded(16000, 16000, 1));
@@ -31,25 +26,23 @@ TEST(PushResamplerTest, VerifiesInputParameters) {
 }
 
 #if RTC_DCHECK_IS_ON && GTEST_HAS_DEATH_TEST && !defined(WEBRTC_ANDROID)
-TEST(PushResamplerTest, VerifiesBadInputParameters1) {
+TEST(PushResamplerDeathTest, VerifiesBadInputParameters1) {
   PushResampler<int16_t> resampler;
   RTC_EXPECT_DEATH(resampler.InitializeIfNeeded(-1, 16000, 1),
                    "src_sample_rate_hz");
 }
 
-TEST(PushResamplerTest, VerifiesBadInputParameters2) {
+TEST(PushResamplerDeathTest, VerifiesBadInputParameters2) {
   PushResampler<int16_t> resampler;
   RTC_EXPECT_DEATH(resampler.InitializeIfNeeded(16000, -1, 1),
                    "dst_sample_rate_hz");
 }
 
-TEST(PushResamplerTest, VerifiesBadInputParameters3) {
+TEST(PushResamplerDeathTest, VerifiesBadInputParameters3) {
   PushResampler<int16_t> resampler;
   RTC_EXPECT_DEATH(resampler.InitializeIfNeeded(16000, 16000, 0),
                    "num_channels");
 }
-
-#endif
 #endif
 
 }  // namespace webrtc

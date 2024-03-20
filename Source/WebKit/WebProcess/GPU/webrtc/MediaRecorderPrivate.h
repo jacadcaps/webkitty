@@ -25,11 +25,12 @@
 
 #pragma once
 
-#if PLATFORM(COCOA) && ENABLE(GPU_PROCESS) && ENABLE(MEDIA_STREAM) && HAVE(AVASSETWRITERDELEGATE)
+#if PLATFORM(COCOA) && ENABLE(GPU_PROCESS) && ENABLE(MEDIA_STREAM)
 
 #include "MediaRecorderIdentifier.h"
-#include "SharedRingBufferStorage.h"
-
+#include "SharedCARingBuffer.h"
+#include "SharedVideoFrame.h"
+#include <WebCore/CAAudioStreamDescription.h>
 #include <WebCore/MediaRecorderPrivate.h>
 #include <wtf/MediaTime.h>
 #include <wtf/WeakPtr.h>
@@ -40,40 +41,52 @@ class Connection;
 
 namespace WebCore {
 class MediaStreamPrivate;
+class WebAudioBufferList;
 }
 
 namespace WebKit {
 
+class MediaRecorderPrivateGPUProcessDidCloseObserver;
+
 class MediaRecorderPrivate final
     : public WebCore::MediaRecorderPrivate
-    , public SharedRingBufferStorage::Client
     , public CanMakeWeakPtr<MediaRecorderPrivate> {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    explicit MediaRecorderPrivate(WebCore::MediaStreamPrivate&);
+    MediaRecorderPrivate(WebCore::MediaStreamPrivate&, const WebCore::MediaRecorderPrivateOptions&);
     ~MediaRecorderPrivate();
 
 private:
     // WebCore::MediaRecorderPrivate
-    void videoSampleAvailable(WebCore::MediaSample&) final;
-    void fetchData(CompletionHandler<void(RefPtr<WebCore::SharedBuffer>&&, const String& mimeType)>&&) final;
-    void stopRecording() final;
-    void startRecording(ErrorCallback&&) final;
+    void videoFrameAvailable(WebCore::VideoFrame&, WebCore::VideoFrameTimeMetadata) final;
+    void fetchData(CompletionHandler<void(RefPtr<WebCore::FragmentedSharedBuffer>&&, const String& mimeType, double)>&&) final;
+    void stopRecording(CompletionHandler<void()>&&) final;
+    void startRecording(StartRecordingCallback&&) final;
     void audioSamplesAvailable(const WTF::MediaTime&, const WebCore::PlatformAudioData&, const WebCore::AudioStreamDescription&, size_t) final;
+    const String& mimeType() const final;
+    void pauseRecording(CompletionHandler<void()>&&) final;
+    void resumeRecording(CompletionHandler<void()>&&) final;
 
-    // SharedRingBufferStorage::Client
-    void storageChanged(SharedMemory*);
+    friend class MediaRecorderPrivateGPUProcessDidCloseObserver;
+    void gpuProcessConnectionDidClose();
 
     MediaRecorderIdentifier m_identifier;
-    Ref<MediaStreamPrivate> m_stream;
+    Ref<WebCore::MediaStreamPrivate> m_stream;
     Ref<IPC::Connection> m_connection;
 
-    std::unique_ptr<WebCore::CARingBuffer> m_ringBuffer;
-    WebCore::CAAudioStreamDescription m_description { };
-    int64_t m_numberOfFrames { 0 };
+    std::unique_ptr<ProducerSharedCARingBuffer> m_ringBuffer;
+    std::optional<WebCore::CAAudioStreamDescription> m_description;
+    std::unique_ptr<WebCore::WebAudioBufferList> m_silenceAudioBuffer;
+    uint64_t m_numberOfFrames { 0 };
+    WebCore::MediaRecorderPrivateOptions m_options;
+    bool m_hasVideo { false };
+    bool m_isStopped { false };
+    std::optional<WebCore::IntSize> m_blackFrameSize;
+
+    Ref<MediaRecorderPrivateGPUProcessDidCloseObserver> m_gpuProcessDidCloseObserver;
+    SharedVideoFrameWriter m_sharedVideoFrameWriter;
 };
 
 }
 
-#endif // PLATFORM(COCOA) && ENABLE(GPU_PROCESS) && ENABLE(MEDIA_STREAM) && HAVE(AVASSETWRITERDELEGATE)
-
+#endif // PLATFORM(COCOA) && ENABLE(GPU_PROCESS) && ENABLE(MEDIA_STREAM)

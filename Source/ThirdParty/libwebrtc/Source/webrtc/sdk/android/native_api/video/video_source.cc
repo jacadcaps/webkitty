@@ -28,7 +28,7 @@ class JavaVideoTrackSourceImpl : public JavaVideoTrackSourceInterface {
                            bool is_screencast,
                            bool align_timestamps)
       : android_video_track_source_(
-            new rtc::RefCountedObject<jni::AndroidVideoTrackSource>(
+            rtc::make_ref_counted<jni::AndroidVideoTrackSource>(
                 signaling_thread,
                 env,
                 is_screencast,
@@ -89,6 +89,14 @@ class JavaVideoTrackSourceImpl : public JavaVideoTrackSourceInterface {
   }
 
  private:
+  // Encoded sinks not implemented for JavaVideoTrackSourceImpl.
+  bool SupportsEncodedOutput() const override { return false; }
+  void GenerateKeyFrame() override {}
+  void AddEncodedSink(
+      rtc::VideoSinkInterface<webrtc::RecordableEncodedFrame>* sink) override {}
+  void RemoveEncodedSink(
+      rtc::VideoSinkInterface<webrtc::RecordableEncodedFrame>* sink) override {}
+
   rtc::scoped_refptr<jni::AndroidVideoTrackSource> android_video_track_source_;
   ScopedJavaGlobalRef<jobject> native_capturer_observer_;
 };
@@ -100,7 +108,7 @@ rtc::scoped_refptr<JavaVideoTrackSourceInterface> CreateJavaVideoSource(
     rtc::Thread* signaling_thread,
     bool is_screencast,
     bool align_timestamps) {
-  return new rtc::RefCountedObject<JavaVideoTrackSourceImpl>(
+  return rtc::make_ref_counted<JavaVideoTrackSourceImpl>(
       jni, signaling_thread, is_screencast, align_timestamps);
 }
 

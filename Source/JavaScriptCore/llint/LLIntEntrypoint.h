@@ -25,16 +25,25 @@
 
 #pragma once
 
+#include "JSCPtrTag.h"
+#include "OpcodeSize.h"
 
 namespace JSC {
 
 class CodeBlock;
 class VM;
 
+template<PtrTag> class MacroAssemblerCodeRef;
+
 namespace LLInt {
 
 void setEntrypoint(CodeBlock*);
 
 unsigned frameRegisterCountFor(CodeBlock*);
+
+MacroAssemblerCodeRef<JSEntryPtrTag> defaultCall();
+MacroAssemblerCodeRef<JSEntryPtrTag> getHostCallReturnValueEntrypoint();
+MacroAssemblerCodeRef<JSEntryPtrTag> fuzzerReturnEarlyFromLoopHintEntrypoint();
+MacroAssemblerCodeRef<JSEntryPtrTag> genericReturnPointEntrypoint(OpcodeSize);
 
 } } // namespace JSC::LLInt

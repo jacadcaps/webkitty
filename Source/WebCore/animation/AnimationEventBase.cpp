@@ -26,6 +26,7 @@
 #include "config.h"
 #include "AnimationEventBase.h"
 
+#include "ScriptExecutionContext.h"
 #include "WebAnimation.h"
 #include "WebAnimationUtilities.h"
 #include <wtf/IsoMallocInlines.h>
@@ -34,10 +35,10 @@ namespace WebCore {
 
 WTF_MAKE_ISO_ALLOCATED_IMPL(AnimationEventBase);
 
-AnimationEventBase::AnimationEventBase(const AtomString& type, WebAnimation* animation, Optional<Seconds> timelineTime)
+AnimationEventBase::AnimationEventBase(const AtomString& type, WebAnimation* animation, std::optional<Seconds> scheduledTime)
     : Event(type, CanBubble::Yes, IsCancelable::No)
     , m_animation(animation)
-    , m_timelineTime(timelineTime)
+    , m_scheduledTime(scheduledTime)
 {
 }
 

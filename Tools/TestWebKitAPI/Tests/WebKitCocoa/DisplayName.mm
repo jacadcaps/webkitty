@@ -26,7 +26,6 @@
 #import "config.h"
 
 #import "PlatformUtilities.h"
-#import "TCPServer.h"
 #import "Test.h"
 #import "TestWKWebView.h"
 #import <WebKit/_WKWebsiteDataStoreConfiguration.h>
@@ -54,12 +53,14 @@ static void checkUntilDisplayNameIs(WKWebView *webView, NSString *expectedName, 
     }];
 }
 
+// The network process requires a private entitlement to get and set the process name for the web process.
+#if !ENABLE(SET_WEBCONTENT_PROCESS_INFORMATION_IN_NETWORK_PROCESS) || USE(APPLE_INTERNAL_SDK)
 TEST(WebKit, CustomDisplayName)
 {
-    WKWebViewConfiguration *configuration = [[WKWebViewConfiguration new] autorelease];
+    auto configuration = adoptNS([WKWebViewConfiguration new]);
     NSString *displayNameToSet = @"test display name";
-    configuration._processDisplayName = displayNameToSet;
-    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 320, 500) configuration:configuration]);
+    configuration.get()._processDisplayName = displayNameToSet;
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 320, 500) configuration:configuration.get()]);
     [webView synchronouslyLoadHTMLString:@"start web process"];
 
     bool done = false;
@@ -76,6 +77,7 @@ TEST(WebKit, DefaultDisplayName)
     checkUntilDisplayNameIs(webView.get(), @"TestWebKitAPI Web Content", &done);
     Util::run(&done);
 }
+#endif // !ENABLE(SET_WEBCONTENT_PROCESS_INFORMATION_IN_NETWORK_PROCESS) || USE(APPLE_INTERNAL_SDK)
 #endif // PLATFORM(MAC)
 
 }

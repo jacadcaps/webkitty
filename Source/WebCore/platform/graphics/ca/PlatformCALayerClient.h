@@ -43,7 +43,7 @@ public:
     virtual void platformCALayerAnimationStarted(const String& /*animationKey*/, MonotonicTime) { }
     virtual void platformCALayerAnimationEnded(const String& /*animationKey*/) { }
     virtual GraphicsLayer::CompositingCoordinatesOrientation platformCALayerContentsOrientation() const { return GraphicsLayer::CompositingCoordinatesOrientation::TopDown; }
-    virtual void platformCALayerPaintContents(PlatformCALayer*, GraphicsContext&, const FloatRect& inClip, GraphicsLayerPaintBehavior) = 0;
+    virtual void platformCALayerPaintContents(PlatformCALayer*, GraphicsContext&, const FloatRect& inClip, OptionSet<GraphicsLayerPaintBehavior>) = 0;
     virtual bool platformCALayerShowDebugBorders() const { return false; }
     virtual bool platformCALayerShowRepaintCounter(PlatformCALayer*) const { return false; }
     virtual int platformCALayerRepaintCount(PlatformCALayer*) const { return 0; }
@@ -51,6 +51,8 @@ public:
     
     virtual bool platformCALayerContentsOpaque() const = 0;
     virtual bool platformCALayerDrawsContent() const = 0;
+    virtual bool platformCALayerDelegatesDisplay(PlatformCALayer*) const { return false; };
+    virtual void platformCALayerLayerDisplay(PlatformCALayer*) { }
     virtual void platformCALayerLayerDidDisplay(PlatformCALayer*) { }
 
     virtual void platformCALayerSetNeedsToRevalidateTiles() { }
@@ -61,12 +63,19 @@ public:
     virtual bool platformCALayerShouldTemporarilyRetainTileCohorts(PlatformCALayer*) const { return true; }
 
     virtual bool platformCALayerUseGiantTiles() const { return false; }
+    virtual bool platformCALayerUseCSS3DTransformInteroperability() const { return false; }
 
     virtual bool isCommittingChanges() const { return false; }
 
     virtual bool isUsingDisplayListDrawing(PlatformCALayer*) const { return false; }
 
     virtual void platformCALayerLogFilledVisibleFreshTile(unsigned /* blankPixelCount */) { }
+
+    virtual bool platformCALayerContainsBitmapOnly(const PlatformCALayer*) const { return false; }
+
+    virtual bool platformCALayerShouldPaintUsingCompositeCopy() const { return false; }
+
+    virtual bool platformCALayerNeedsPlatformContext(const PlatformCALayer*) const { return false; }
 
 protected:
     virtual ~PlatformCALayerClient() = default;

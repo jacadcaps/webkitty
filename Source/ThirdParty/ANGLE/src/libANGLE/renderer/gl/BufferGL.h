@@ -12,6 +12,8 @@
 #include "common/MemoryBuffer.h"
 #include "libANGLE/renderer/BufferImpl.h"
 
+#include <optional>
+
 namespace rx
 {
 
@@ -21,10 +23,10 @@ class StateManagerGL;
 class BufferGL : public BufferImpl
 {
   public:
-    BufferGL(const gl::BufferState &state,
-             const FunctionsGL *functions,
-             StateManagerGL *stateManager);
+    BufferGL(const gl::BufferState &state, GLuint buffer);
     ~BufferGL() override;
+
+    void destroy(const gl::Context *context) override;
 
     angle::Result setData(const gl::Context *context,
                           gl::BufferBinding target,
@@ -56,6 +58,7 @@ class BufferGL : public BufferImpl
                                 bool primitiveRestartEnabled,
                                 gl::IndexRange *outRange) override;
 
+    size_t getBufferSize() const;
     GLuint getBufferID() const;
 
   private:
@@ -63,13 +66,9 @@ class BufferGL : public BufferImpl
     size_t mMapOffset;
     size_t mMapSize;
 
-    bool mShadowBufferData;
-    angle::MemoryBuffer mShadowCopy;
+    std::optional<angle::MemoryBuffer> mShadowCopy;
 
     size_t mBufferSize;
-
-    const FunctionsGL *mFunctions;
-    StateManagerGL *mStateManager;
 
     GLuint mBufferID;
 };

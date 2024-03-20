@@ -29,22 +29,30 @@
 
 namespace WebCore {
 
-static inline bool isEmojiGroupCandidate(UChar32 character)
+static inline bool isEmojiGroupCandidate(char32_t character)
 {
-    switch (ublock_getCode(character)) {
+#define SYMBOLS_AND_PICTOGRAPHS_EXTENDED_A 298
+#if U_ICU_VERSION_MAJOR_NUM < 64
+#define UBLOCK_SYMBOLS_AND_PICTOGRAPHS_EXTENDED_A SYMBOLS_AND_PICTOGRAPHS_EXTENDED_A
+#else
+static_assert(UBLOCK_SYMBOLS_AND_PICTOGRAPHS_EXTENDED_A == SYMBOLS_AND_PICTOGRAPHS_EXTENDED_A);
+#endif
+
+    switch (static_cast<int>(ublock_getCode(character))) {
     case UBLOCK_MISCELLANEOUS_SYMBOLS:
     case UBLOCK_DINGBATS:
     case UBLOCK_MISCELLANEOUS_SYMBOLS_AND_PICTOGRAPHS:
     case UBLOCK_EMOTICONS:
     case UBLOCK_TRANSPORT_AND_MAP_SYMBOLS:
     case UBLOCK_SUPPLEMENTAL_SYMBOLS_AND_PICTOGRAPHS:
+    case UBLOCK_SYMBOLS_AND_PICTOGRAPHS_EXTENDED_A:
         return true;
     default:
         return false;
     }
 }
 
-static inline bool isEmojiFitzpatrickModifier(UChar32 character)
+static inline bool isEmojiFitzpatrickModifier(char32_t character)
 {
     // U+1F3FB - EMOJI MODIFIER FITZPATRICK TYPE-1-2
     // U+1F3FC - EMOJI MODIFIER FITZPATRICK TYPE-3
@@ -55,39 +63,45 @@ static inline bool isEmojiFitzpatrickModifier(UChar32 character)
     return character >= 0x1F3FB && character <= 0x1F3FF;
 }
 
-inline bool isVariationSelector(UChar32 character)
+inline bool isVariationSelector(char32_t character)
 {
     return character >= 0xFE00 && character <= 0xFE0F;
 }
 
-inline bool isEmojiKeycapBase(UChar32 character)
+inline bool isEmojiKeycapBase(char32_t character)
 {
     return (character >= '0' && character <= '9') || character == '#' || character == '*';
 }
 
-inline bool isEmojiRegionalIndicator(UChar32 character)
+inline bool isEmojiRegionalIndicator(char32_t character)
 {
     return character >= 0x1F1E6 && character <= 0x1F1FF;
 }
 
-inline bool isEmojiWithPresentationByDefault(UChar32 character)
+inline bool isEmojiWithPresentationByDefault(char32_t character)
 {
     return u_hasBinaryProperty(character, UCHAR_EMOJI_PRESENTATION);
 }
 
-inline bool isEmojiModifierBase(UChar32 character)
+inline bool isEmojiModifierBase(char32_t character)
 {
     return u_hasBinaryProperty(character, UCHAR_EMOJI_MODIFIER_BASE);
 }
 
-inline bool isDefaultIgnorableCodePoint(UChar32 character)
+inline bool isDefaultIgnorableCodePoint(char32_t character)
 {
     return u_hasBinaryProperty(character, UCHAR_DEFAULT_IGNORABLE_CODE_POINT);
 }
 
-inline bool isControlCharacter(UChar32 character)
+inline bool isControlCharacter(char32_t character)
 {
-    return u_getIntPropertyValue(character, UCHAR_GENERAL_CATEGORY) == U_CONTROL_CHAR;
+    return u_charType(character) == U_CONTROL_CHAR;
+}
+
+inline bool isPrivateUseAreaCharacter(char32_t character)
+{
+    auto block = ublock_getCode(character);
+    return block == UBLOCK_PRIVATE_USE_AREA || block == UBLOCK_SUPPLEMENTARY_PRIVATE_USE_AREA_A || block == UBLOCK_SUPPLEMENTARY_PRIVATE_USE_AREA_B;
 }
 
 }

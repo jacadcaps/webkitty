@@ -50,17 +50,13 @@ static constexpr size_t maxFrameExtentForSlowPathCall = 0;
 // 7 args on stack (28 bytes).
 static constexpr size_t maxFrameExtentForSlowPathCall = 40;
 
-#elif CPU(ARM64) || CPU(ARM64E)
+#elif CPU(ARM64) || CPU(ARM64E) || CPU(RISCV64)
 // All args in registers.
 static constexpr size_t maxFrameExtentForSlowPathCall = 0;
 
 #elif CPU(ARM)
 // First four args in registers, remaining 4 args on stack.
 static constexpr size_t maxFrameExtentForSlowPathCall = 24;
-
-#elif CPU(MIPS)
-// Though args are in registers, there need to be space on the stack for all args.
-static constexpr size_t maxFrameExtentForSlowPathCall = 40;
 
 #else
 #error "Unsupported CPU: need value for maxFrameExtentForSlowPathCall"

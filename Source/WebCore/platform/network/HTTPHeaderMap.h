@@ -28,9 +28,7 @@
 
 #include "HTTPHeaderNames.h"
 #include <utility>
-#include <wtf/HashMap.h>
-#include <wtf/Optional.h>
-#include <wtf/text/StringHash.h>
+#include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
@@ -42,22 +40,20 @@ public:
         HTTPHeaderName key;
         String value;
 
-        CommonHeader isolatedCopy() const { return { key , value.isolatedCopy() }; }
-        template <class Encoder> void encode(Encoder&) const;
-        template <class Decoder> static Optional<CommonHeader> decode(Decoder&);
+        CommonHeader isolatedCopy() const & { return { key , value.isolatedCopy() }; }
+        CommonHeader isolatedCopy() && { return { key , WTFMove(value).isolatedCopy() }; }
 
-        bool operator==(const CommonHeader& other) const { return key == other.key && value == other.value; }
+        friend bool operator==(const CommonHeader&, const CommonHeader&) = default;
     };
 
     struct UncommonHeader {
         String key;
         String value;
 
-        UncommonHeader isolatedCopy() const { return { key.isolatedCopy() , value.isolatedCopy() }; }
-        template <class Encoder> void encode(Encoder&) const;
-        template <class Decoder> static Optional<UncommonHeader> decode(Decoder&);
+        UncommonHeader isolatedCopy() const & { return { key.isolatedCopy() , value.isolatedCopy() }; }
+        UncommonHeader isolatedCopy() && { return { WTFMove(key).isolatedCopy() , WTFMove(value).isolatedCopy() }; }
 
-        bool operator==(const UncommonHeader& other) const { return key == other.key && value == other.value; }
+        friend bool operator==(const UncommonHeader&, const UncommonHeader&) = default;
     };
 
     typedef Vector<CommonHeader, 0, CrashOnOverflow, 6> CommonHeadersVector;
@@ -76,9 +72,14 @@ public:
 
         struct KeyValue {
             String key;
-            Optional<HTTPHeaderName> keyAsHTTPHeaderName;
+            std::optional<HTTPHeaderName> keyAsHTTPHeaderName;
             String value;
         };
+        using difference_type = ptrdiff_t;
+        using value_type = KeyValue;
+        using pointer = const KeyValue*;
+        using reference = const KeyValue&;
+        using iterator_category = std::forward_iterator_tag;
 
         const KeyValue* get() const
         {
@@ -100,7 +101,6 @@ public:
             return *this;
         }
 
-        bool operator!=(const HTTPHeaderMapConstIterator& other) const { return !(*this == other); }
         bool operator==(const HTTPHeaderMapConstIterator& other) const
         {
             return m_commonHeadersIt == other.m_commonHeadersIt && m_uncommonHeadersIt == other.m_uncommonHeadersIt;
@@ -111,7 +111,7 @@ public:
         {
             if (it == m_table.commonHeaders().end())
                 return false;
-            m_keyValue.key = httpHeaderNameString(it->key).toStringWithoutCopying();
+            m_keyValue.key = httpHeaderNameString(it->key);
             m_keyValue.keyAsHTTPHeaderName = it->key;
             m_keyValue.value = it->value;
             return true;
@@ -121,7 +121,7 @@ public:
             if (it == m_table.uncommonHeaders().end())
                 return false;
             m_keyValue.key = it->key;
-            m_keyValue.keyAsHTTPHeaderName = WTF::nullopt;
+            m_keyValue.keyAsHTTPHeaderName = std::nullopt;
             m_keyValue.value = it->value;
             return true;
         }
@@ -134,9 +134,11 @@ public:
     typedef HTTPHeaderMapConstIterator const_iterator;
 
     WEBCORE_EXPORT HTTPHeaderMap();
+    WEBCORE_EXPORT HTTPHeaderMap(CommonHeadersVector&&, UncommonHeadersVector&&);
 
     // Gets a copy of the data suitable for passing to another thread.
-    WEBCORE_EXPORT HTTPHeaderMap isolatedCopy() const;
+    WEBCORE_EXPORT HTTPHeaderMap isolatedCopy() const &;
+    WEBCORE_EXPORT HTTPHeaderMap isolatedCopy() &&;
 
     bool isEmpty() const { return m_commonHeaders.isEmpty() && m_uncommonHeaders.isEmpty(); }
     int size() const { return m_commonHeaders.size() + m_uncommonHeaders.size(); }
@@ -153,9 +155,11 @@ public:
         m_uncommonHeaders.shrinkToFit();
     }
 
-    WEBCORE_EXPORT String get(const String& name) const;
+    WEBCORE_EXPORT String get(StringView name) const;
     WEBCORE_EXPORT void set(const String& name, const String& value);
     WEBCORE_EXPORT void add(const String& name, const String& value);
+    void setUncommonHeader(const String& name, const String& value);
+    void addUncommonHeader(const String& name, const String& value);
     WEBCORE_EXPORT void append(const String& name, const String& value);
     WEBCORE_EXPORT bool contains(const String&) const;
     WEBCORE_EXPORT bool remove(const String&);
@@ -175,10 +179,10 @@ public:
     WEBCORE_EXPORT bool remove(HTTPHeaderName);
 
     // Instead of passing a string literal to any of these functions, just use a HTTPHeaderName instead.
-    template<size_t length> String get(const char (&)[length]) const = delete;
-    template<size_t length> void set(const char (&)[length], const String&) = delete;
-    template<size_t length> bool contains(const char (&)[length]) = delete;
-    template<size_t length> bool remove(const char (&)[length]) = delete;
+    template<size_t length> String get(ASCIILiteral) const = delete;
+    template<size_t length> void set(ASCIILiteral, const String&) = delete;
+    template<size_t length> bool contains(ASCIILiteral) = delete;
+    template<size_t length> bool remove(ASCIILiteral) = delete;
 
     const CommonHeadersVector& commonHeaders() const { return m_commonHeaders; }
     const UncommonHeadersVector& uncommonHeaders() const { return m_uncommonHeaders; }
@@ -203,79 +207,11 @@ public:
         return true;
     }
 
-    friend bool operator!=(const HTTPHeaderMap& a, const HTTPHeaderMap& b)
-    {
-        return !(a == b);
-    }
-
-    template <class Encoder> void encode(Encoder&) const;
-    template <class Decoder> static WARN_UNUSED_RETURN bool decode(Decoder&, HTTPHeaderMap&);
-
 private:
-    void setUncommonHeader(const String& name, const String& value);
-    WEBCORE_EXPORT String getUncommonHeader(const String& name) const;
+    WEBCORE_EXPORT String getUncommonHeader(StringView name) const;
 
     CommonHeadersVector m_commonHeaders;
     UncommonHeadersVector m_uncommonHeaders;
 };
-
-template <class Encoder>
-void HTTPHeaderMap::CommonHeader::encode(Encoder& encoder) const
-{
-    encoder << key;
-    encoder << value;
-}
-
-template <class Decoder>
-auto HTTPHeaderMap::CommonHeader::decode(Decoder& decoder) -> Optional<CommonHeader>
-{
-    HTTPHeaderName name;
-    if (!decoder.decode(name))
-        return WTF::nullopt;
-    String value;
-    if (!decoder.decode(value))
-        return WTF::nullopt;
-
-    return CommonHeader { name, WTFMove(value) };
-}
-
-template <class Encoder>
-void HTTPHeaderMap::UncommonHeader::encode(Encoder& encoder) const
-{
-    encoder << key;
-    encoder << value;
-}
-
-template <class Decoder>
-auto HTTPHeaderMap::UncommonHeader::decode(Decoder& decoder) -> Optional<UncommonHeader>
-{
-    String name;
-    if (!decoder.decode(name))
-        return WTF::nullopt;
-    String value;
-    if (!decoder.decode(value))
-        return WTF::nullopt;
-
-    return UncommonHeader { WTFMove(name), WTFMove(value) };
-}
-
-template <class Encoder>
-void HTTPHeaderMap::encode(Encoder& encoder) const
-{
-    encoder << m_commonHeaders;
-    encoder << m_uncommonHeaders;
-}
-
-template <class Decoder>
-bool HTTPHeaderMap::decode(Decoder& decoder, HTTPHeaderMap& headerMap)
-{
-    if (!decoder.decode(headerMap.m_commonHeaders))
-        return false;
-
-    if (!decoder.decode(headerMap.m_uncommonHeaders))
-        return false;
-
-    return true;
-}
 
 } // namespace WebCore

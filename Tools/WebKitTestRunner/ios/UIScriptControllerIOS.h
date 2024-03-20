@@ -25,14 +25,17 @@
 
 #pragma once
 
-#import "UIScriptControllerCocoa.h"
-#import <wtf/BlockPtr.h>
-
 #if PLATFORM(IOS_FAMILY)
 
-#if HAVE(PENCILKIT)
-@class PKCanvasView;
-#endif
+#import "UIScriptControllerCocoa.h"
+#import "WKBrowserEngineDefinitions.h"
+#import <wtf/BlockPtr.h>
+
+typedef struct CGRect CGRect;
+OBJC_CLASS UITextSelectionDisplayInteraction;
+
+@protocol UICoordinateSpace;
+@protocol BETextInput;
 
 namespace WebCore {
 class FloatPoint;
@@ -41,15 +44,15 @@ class FloatRect;
 
 namespace WTR {
 
-class UIScriptControllerIOS : public UIScriptControllerCocoa {
+class UIScriptControllerIOS final : public UIScriptControllerCocoa {
 public:
     explicit UIScriptControllerIOS(UIScriptContext& context)
         : UIScriptControllerCocoa(context)
     {
     }
 
+private:
     void waitForOutstandingCallbacks() override;
-    void doAfterPresentationUpdate(JSValueRef) override;
     void doAfterNextStablePresentationUpdate(JSValueRef) override;
     void ensurePositionInformationIsUpToDateAt(long x, long y, JSValueRef) override;
     void doAfterVisibleContentRectUpdate(JSValueRef) override;
@@ -83,6 +86,7 @@ public:
     void rawKeyUp(JSStringRef) override;
 
     void dismissFormAccessoryView() override;
+    JSObjectRef filePickerAcceptedTypeIdentifiers() override;
     void dismissFilePicker(JSValueRef) override;
     JSRetainPtr<JSStringRef> selectFormPopoverTitle() const override;
     JSRetainPtr<JSStringRef> textContentType() const override;
@@ -95,10 +99,11 @@ public:
     bool isPresentingModally() const override;
     double contentOffsetX() const override;
     double contentOffsetY() const override;
+    JSObjectRef adjustedContentInset() const override;
     bool scrollUpdatesDisabled() const override;
     void setScrollUpdatesDisabled(bool) override;
-    void scrollToOffset(long x, long y) override;
-    void immediateScrollToOffset(long x, long y) override;
+    void scrollToOffset(long x, long y, ScrollToOptions*) override;
+    void immediateScrollToOffset(long x, long y, ScrollToOptions*) override;
     void immediateScrollElementAtContentPointToOffset(long x, long y, long xScrollOffset, long yScrollOffset) override;
     void immediateZoomToScale(double scale) override;
     void keyboardAccessoryBarNext() override;
@@ -108,22 +113,27 @@ public:
     void applyAutocorrection(JSStringRef newString, JSStringRef oldString, JSValueRef) override;
     double minimumZoomScale() const override;
     double maximumZoomScale() const override;
-    Optional<bool> stableStateOverride() const override;
-    void setStableStateOverride(Optional<bool> overrideValue) override;
+    std::optional<bool> stableStateOverride() const override;
+    void setStableStateOverride(std::optional<bool> overrideValue) override;
     JSObjectRef contentVisibleRect() const override;
-    JSObjectRef textSelectionRangeRects() const override;
-    JSObjectRef textSelectionCaretRect() const override;
     JSObjectRef selectionStartGrabberViewRect() const override;
     JSObjectRef selectionEndGrabberViewRect() const override;
+    JSObjectRef selectionEndGrabberViewShapePathDescription() const override;
     JSObjectRef selectionCaretViewRect() const override;
+    JSObjectRef selectionCaretViewRectInGlobalCoordinates() const override;
+    JSObjectRef selectionCaretViewRect(id<UICoordinateSpace>) const;
     JSObjectRef selectionRangeViewRects() const override;
     JSObjectRef inputViewBounds() const override;
     JSRetainPtr<JSStringRef> scrollingTreeAsText() const override;
+    JSRetainPtr<JSStringRef> uiViewTreeAsText() const override;
     JSObjectRef propertiesOfLayerWithID(uint64_t layerID) const override;
     void simulateRotation(DeviceOrientation*, JSValueRef) override;
     void simulateRotationLikeSafari(DeviceOrientation*, JSValueRef) override;
     bool isShowingPopover() const override;
+    bool isShowingFormValidationBubble() const override;
     JSObjectRef rectForMenuAction(JSStringRef) const override;
+    JSObjectRef contextMenuRect() const override;
+    JSObjectRef contextMenuPreviewRect() const final;
     JSObjectRef menuRect() const override;
     bool isDismissingMenu() const override;
     void chooseMenuAction(JSStringRef, JSValueRef) override;
@@ -132,11 +142,14 @@ public:
     void completeBackSwipe(JSValueRef) override;
     bool isShowingDataListSuggestions() const override;
     void activateDataListSuggestion(unsigned, JSValueRef) override;
-    void drawSquareInEditableImage() override;
-    long numberOfStrokesInEditableImage() override;
+    void setSelectedColorForColorPicker(double, double, double) override;
     void setKeyboardInputModeIdentifier(JSStringRef) override;
     void toggleCapsLock(JSValueRef) override;
+    unsigned keyboardWillHideCount() const override;
     bool keyboardIsAutomaticallyShifted() const override;
+    bool isAnimatingDragCancel() const override;
+    JSRetainPtr<JSStringRef> selectionCaretBackgroundColor() const override;
+    JSObjectRef tapHighlightViewRect() const override;
     JSObjectRef attachmentInfo(JSStringRef) override;
     UIView *platformContentView() const override;
     JSObjectRef calendarType() const override;
@@ -144,31 +157,60 @@ public:
     void setAllowsViewportShrinkToFit(bool) override;
     void copyText(JSStringRef) override;
     void installTapGestureOnWindow(JSValueRef) override;
-    bool isShowingContextMenu() const override;
-    void setSpellCheckerResults(JSValueRef) override { }
+    void setScrollViewKeyboardAvoidanceEnabled(bool) override;
+
+    bool isZoomingOrScrolling() const final;
 
     bool mayContainEditableElementsInRect(unsigned x, unsigned y, unsigned width, unsigned height) override;
 
     void setDidStartFormControlInteractionCallback(JSValueRef) override;
     void setDidEndFormControlInteractionCallback(JSValueRef) override;
-    void setDidShowContextMenuCallback(JSValueRef) override;
-    void setDidDismissContextMenuCallback(JSValueRef) override;
     void setWillBeginZoomingCallback(JSValueRef) override;
     void setDidEndZoomingCallback(JSValueRef) override;
     void setDidShowKeyboardCallback(JSValueRef) override;
     void setDidHideKeyboardCallback(JSValueRef) override;
+    void setWillStartInputSessionCallback(JSValueRef) override;
     void setWillPresentPopoverCallback(JSValueRef) override;
     void setDidDismissPopoverCallback(JSValueRef) override;
     void setDidEndScrollingCallback(JSValueRef) override;
     void clearAllCallbacks() override;
 
-private:
+    void beginInteractiveObscuredInsetsChange() final;
+    void endInteractiveObscuredInsetsChange() final;
+    void setObscuredInsets(double top, double right, double bottom, double left) final;
+
+    bool suppressSoftwareKeyboard() const final;
+    void setSuppressSoftwareKeyboard(bool) final;
+
+    void presentFindNavigator() override;
+    void dismissFindNavigator() override;
+
     void waitForModalTransitionToFinish() const;
     void waitForSingleTapToReset() const;
     WebCore::FloatRect rectForMenuAction(CFStringRef) const;
     void singleTapAtPointWithModifiers(WebCore::FloatPoint location, Vector<String>&& modifierFlags, BlockPtr<void()>&&);
-#if HAVE(PENCILKIT)
-    PKCanvasView *findEditableImageCanvas() const;
+
+    JSObjectRef toObject(CGRect) const;
+
+    bool isWebContentFirstResponder() const override;
+    void becomeFirstResponder() override;
+    void resignFirstResponder() override;
+
+    void setInlinePrediction(JSStringRef) final;
+    void acceptInlinePrediction() final;
+
+    void simulateRotation(DeviceOrientation, JSValueRef callback);
+
+    int64_t pasteboardChangeCount() const final;
+
+    void clipSelectionViewRectToContentView(CGRect&) const;
+
+#if USE(BROWSERENGINEKIT)
+    id<BETextInput> asyncTextInput() const;
+#endif
+
+#if HAVE(UI_TEXT_SELECTION_DISPLAY_INTERACTION)
+    UITextSelectionDisplayInteraction *textSelectionDisplayInteraction() const;
 #endif
 };
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,8 +27,11 @@
 #include "InspectorTargetAgent.h"
 
 #include "InspectorTarget.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace Inspector {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(InspectorTargetAgent);
 
 InspectorTargetAgent::InspectorTargetAgent(FrontendRouter& frontendRouter, BackendDispatcher& backendDispatcher)
     : InspectorAgentBase("Target"_s)
@@ -55,36 +58,36 @@ void InspectorTargetAgent::willDestroyFrontendAndBackend(DisconnectReason)
     m_shouldPauseOnStart = false;
 }
 
-void InspectorTargetAgent::setPauseOnStart(ErrorString&, bool pauseOnStart)
+Protocol::ErrorStringOr<void> InspectorTargetAgent::setPauseOnStart(bool pauseOnStart)
 {
     m_shouldPauseOnStart = pauseOnStart;
+
+    return { };
 }
 
-void InspectorTargetAgent::resume(ErrorString& errorString, const String& targetId)
+Protocol::ErrorStringOr<void> InspectorTargetAgent::resume(const String& targetId)
 {
     auto* target = m_targets.get(targetId);
-    if (!target) {
-        errorString = "Missing target for given targetId"_s;
-        return;
-    }
+    if (!target)
+        return makeUnexpected("Missing target for given targetId"_s);
 
-    if (!target->isPaused()) {
-        errorString = "Target for given targetId is not paused"_s;
-        return;
-    }
+    if (!target->isPaused())
+        return makeUnexpected("Target for given targetId is not paused"_s);
 
     target->resume();
+
+    return { };
 }
 
-void InspectorTargetAgent::sendMessageToTarget(ErrorString& errorString, const String& targetId, const String& message)
+Protocol::ErrorStringOr<void> InspectorTargetAgent::sendMessageToTarget(const String& targetId, const String& message)
 {
     InspectorTarget* target = m_targets.get(targetId);
-    if (!target) {
-        errorString = "Missing target for given targetId"_s;
-        return;
-    }
+    if (!target)
+        return makeUnexpected("Missing target for given targetId"_s);
 
     target->sendMessageToTargetBackend(message);
+
+    return { };
 }
 
 void InspectorTargetAgent::sendMessageFromTargetToFrontend(const String& targetId, const String& message)

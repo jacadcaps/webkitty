@@ -28,49 +28,76 @@
 #if USE(LIBWEBRTC)
 
 #include <WebCore/LibWebRTCMacros.h>
-#include <webrtc/rtc_base/network.h>
+#include <optional>
 #include <wtf/Forward.h>
+#include <wtf/Vector.h>
 
-namespace IPC {
-class Decoder;
-class Encoder;
-}
+ALLOW_COMMA_BEGIN
+
+#include <webrtc/rtc_base/socket_address.h>
+#include <webrtc/rtc_base/network.h>
+
+ALLOW_COMMA_END
 
 namespace WebKit {
 
+namespace RTC::Network {
+
+struct IPAddress {
+    struct UnspecifiedFamily { };
+
+    explicit IPAddress() = default;
+    explicit IPAddress(const rtc::IPAddress&);
+    explicit IPAddress(std::variant<UnspecifiedFamily, uint32_t, std::array<uint32_t, 4>> value)
+        : value(value) { }
+
+    rtc::IPAddress rtcAddress() const;
+
+    std::variant<UnspecifiedFamily, uint32_t, std::array<uint32_t, 4>> value;
+};
+
+struct InterfaceAddress {
+    explicit InterfaceAddress(const rtc::InterfaceAddress&);
+    explicit InterfaceAddress(IPAddress address, int ipv6Flags)
+        : address(address), ipv6Flags(ipv6Flags) { }
+
+    rtc::InterfaceAddress rtcAddress() const;
+
+    IPAddress address;
+    int ipv6Flags;
+};
+
+struct SocketAddress {
+    explicit SocketAddress(const rtc::SocketAddress&);
+    explicit SocketAddress(uint16_t port, int scopeID, Vector<char>&& hostname, std::optional<IPAddress> ipAddress)
+        : port(port)
+        , scopeID(scopeID)
+        , hostname(WTFMove(hostname))
+        , ipAddress(ipAddress) { }
+
+    rtc::SocketAddress rtcAddress() const;
+    static rtc::SocketAddress isolatedCopy(const rtc::SocketAddress&);
+
+    uint16_t port;
+    int scopeID;
+    Vector<char> hostname;
+    std::optional<IPAddress> ipAddress;
+};
+
+}
+
 struct RTCNetwork {
-    RTCNetwork() = default;
+    using SocketAddress = RTC::Network::SocketAddress;
+    using IPAddress = RTC::Network::IPAddress;
+    using InterfaceAddress = RTC::Network::InterfaceAddress;
+
     explicit RTCNetwork(const rtc::Network&);
+    explicit RTCNetwork(Vector<char>&& name, Vector<char>&& description, IPAddress prefix, int prefixLength, int type, uint16_t id, int preference, bool active, bool ignored, int scopeID, Vector<InterfaceAddress>&& ips);
 
     rtc::Network value() const;
 
-    void encode(IPC::Encoder&) const;
-    static Optional<RTCNetwork> decode(IPC::Decoder&);
-
-    struct IPAddress {
-        IPAddress() = default;
-        explicit IPAddress(const rtc::IPAddress& address): value(address) { }
-
-        void encode(IPC::Encoder&) const;
-        static Optional<IPAddress> decode(IPC::Decoder&);
-
-        rtc::IPAddress value;
-    };
-
-    static rtc::SocketAddress isolatedCopy(const rtc::SocketAddress&);
-
-    struct SocketAddress {
-        SocketAddress() = default;
-        explicit SocketAddress(const rtc::SocketAddress& address): value(address) { }
-
-        void encode(IPC::Encoder&) const;
-        static Optional<SocketAddress> decode(IPC::Decoder&);
-
-        rtc::SocketAddress value;
-    };
-
-    std::string name;
-    std::string description;
+    Vector<char> name;
+    Vector<char> description;
     IPAddress prefix;
     int prefixLength;
     int type;
@@ -79,9 +106,7 @@ struct RTCNetwork {
     bool active;
     bool ignored;
     int scopeID;
-    std::string key;
-    size_t length;
-    std::vector<rtc::InterfaceAddress> ips;
+    Vector<InterfaceAddress> ips;
 };
 
 }

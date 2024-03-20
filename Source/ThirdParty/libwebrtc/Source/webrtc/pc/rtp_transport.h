@@ -11,12 +11,24 @@
 #ifndef PC_RTP_TRANSPORT_H_
 #define PC_RTP_TRANSPORT_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <string>
 
+#include "absl/types/optional.h"
+#include "api/task_queue/pending_task_safety_flag.h"
 #include "call/rtp_demuxer.h"
+#include "call/video_receive_stream.h"
 #include "modules/rtp_rtcp/include/rtp_header_extension_map.h"
+#include "p2p/base/packet_transport_internal.h"
 #include "pc/rtp_transport_internal.h"
-#include "rtc_base/third_party/sigslot/sigslot.h"
+#include "pc/session_description.h"
+#include "rtc_base/async_packet_socket.h"
+#include "rtc_base/copy_on_write_buffer.h"
+#include "rtc_base/network/sent_packet.h"
+#include "rtc_base/network_route.h"
+#include "rtc_base/socket.h"
 
 namespace rtc {
 
@@ -126,6 +138,9 @@ class RtpTransport : public RtpTransportInternal {
 
   // Used for identifying the MID for RtpDemuxer.
   RtpHeaderExtensionMap header_extension_map_;
+  // Guard against recursive "ready to send" signals
+  bool processing_ready_to_send_ = false;
+  ScopedTaskSafety safety_;
 };
 
 }  // namespace webrtc

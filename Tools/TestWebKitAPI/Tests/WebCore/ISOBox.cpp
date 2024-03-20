@@ -38,15 +38,15 @@ using namespace WebCore;
 
 namespace TestWebKitAPI {
 
-static const char* base64EncodedSinfWithKeyID3 = "AAAAYXNpbmYAAAAMZnJtYW1wNGEAAAAUc2NobQAAAABjYmNzAAEAAAAAADlzY2hpAAAAMXRlbmMBAAAAAAABAAAAAAAAAAAAAAAAAAAAAAMQ1fvWuC7ZPk75iuQJMe4ztw==";
+static constexpr auto base64EncodedSinfWithKeyID3 = "AAAAYXNpbmYAAAAMZnJtYW1wNGEAAAAUc2NobQAAAABjYmNzAAEAAAAAADlzY2hpAAAAMXRlbmMBAAAAAAABAAAAAAAAAAAAAAAAAAAAAAMQ1fvWuC7ZPk75iuQJMe4ztw=="_s;
 
 TEST(ISOBox, ISOProtectionSchemeInfoBox)
 {
-    Vector<uint8_t> sinfArray;
-    ASSERT_TRUE(base64Decode(StringView(base64EncodedSinfWithKeyID3), sinfArray));
-    ASSERT_EQ(97UL, sinfArray.size());
+    auto sinfArray = base64Decode(StringView { base64EncodedSinfWithKeyID3 });
+    ASSERT_TRUE(sinfArray);
+    ASSERT_EQ(97UL, sinfArray->size());
 
-    auto view = JSC::DataView::create(ArrayBuffer::create(sinfArray.data(), sinfArray.size()), 0, sinfArray.size());
+    auto view = JSC::DataView::create(ArrayBuffer::create(sinfArray->data(), sinfArray->size()), 0, sinfArray->size());
 
     ISOProtectionSchemeInfoBox sinfBox;
     ASSERT_TRUE(sinfBox.read(view));
@@ -74,15 +74,15 @@ TEST(ISOBox, ISOProtectionSchemeInfoBox)
     ASSERT_EQ(defaultIV, trackEncryptionBox->defaultConstantIV());
 }
 
-static const char* base64EncodedPsshWithAssetId = "AAAAsHBzc2gAAAAAlM6G+wf/T0OtuJPS+paMogAAAJAAAACQZnBzZAAAABBmcHNpAAAAAGNlbmMAAAA8ZnBzawAAABxma3JpAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAYZmthaQAAAAAAAAAAAAAAAAAAAPEAAAA8ZnBzawAAABxma3JpAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAYZmthaQAAAAAAAAAAAAAAAAAAAPI=";
+static constexpr auto base64EncodedPsshWithAssetId = "AAAAsHBzc2gAAAAAlM6G+wf/T0OtuJPS+paMogAAAJAAAACQZnBzZAAAABBmcHNpAAAAAGNlbmMAAAA8ZnBzawAAABxma3JpAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAYZmthaQAAAAAAAAAAAAAAAAAAAPEAAAA8ZnBzawAAABxma3JpAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAYZmthaQAAAAAAAAAAAAAAAAAAAPI="_s;
 
 TEST(ISOBox, ISOFairPlayStreamingPsshBox)
 {
-    Vector<uint8_t> psshArray;
-    ASSERT_TRUE(base64Decode(StringView(base64EncodedPsshWithAssetId), psshArray));
-    ASSERT_EQ(176UL, psshArray.size());
+    auto psshArray = base64Decode(StringView(base64EncodedPsshWithAssetId));
+    ASSERT_TRUE(psshArray);
+    ASSERT_EQ(176UL, psshArray->size());
 
-    auto view = JSC::DataView::create(ArrayBuffer::create(psshArray.data(), psshArray.size()), 0, psshArray.size());
+    auto view = JSC::DataView::create(ArrayBuffer::create(psshArray->data(), psshArray->size()), 0, psshArray->size());
 
     ISOFairPlayStreamingPsshBox psshBox;
 

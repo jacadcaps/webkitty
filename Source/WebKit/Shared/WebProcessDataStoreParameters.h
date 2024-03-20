@@ -28,155 +28,41 @@
 #include "SandboxExtension.h"
 #include <WebCore/NetworkStorageSession.h>
 #include <pal/SessionID.h>
+#include <wtf/FileSystem.h>
 #include <wtf/HashMap.h>
 
 namespace WebKit {
 
 struct WebProcessDataStoreParameters {
+    using TopFrameDomain = WebCore::RegistrableDomain;
+    using SubResourceDomain = WebCore::RegistrableDomain;
+
     PAL::SessionID sessionID;
     String applicationCacheDirectory;
     SandboxExtension::Handle applicationCacheDirectoryExtensionHandle;
     String applicationCacheFlatFileSubdirectoryName;
-    String webSQLDatabaseDirectory;
-    SandboxExtension::Handle webSQLDatabaseDirectoryExtensionHandle;
     String mediaCacheDirectory;
+#if !ENABLE(GPU_PROCESS)
     SandboxExtension::Handle mediaCacheDirectoryExtensionHandle;
+#endif
     String mediaKeyStorageDirectory;
     SandboxExtension::Handle mediaKeyStorageDirectoryExtensionHandle;
+    FileSystem::Salt mediaKeysStorageSalt;
     String javaScriptConfigurationDirectory;
     SandboxExtension::Handle javaScriptConfigurationDirectoryExtensionHandle;
-    HashMap<unsigned, WallTime> plugInAutoStartOriginHashes;
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
     WebCore::ThirdPartyCookieBlockingMode thirdPartyCookieBlockingMode { WebCore::ThirdPartyCookieBlockingMode::All };
     HashSet<WebCore::RegistrableDomain> domainsWithUserInteraction;
+    HashMap<TopFrameDomain, SubResourceDomain> domainsWithStorageAccessQuirk;
+#if ENABLE(ARKIT_INLINE_PREVIEW)
+    String modelElementCacheDirectory;
+    SandboxExtension::Handle modelElementCacheDirectoryExtensionHandle;
 #endif
-    bool resourceLoadStatisticsEnabled { false };
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static Optional<WebProcessDataStoreParameters> decode(Decoder&);
+#if PLATFORM(IOS_FAMILY)
+    std::optional<SandboxExtension::Handle> cookieStorageDirectoryExtensionHandle;
+    std::optional<SandboxExtension::Handle> containerCachesDirectoryExtensionHandle;
+    std::optional<SandboxExtension::Handle> containerTemporaryDirectoryExtensionHandle;
+#endif
+    bool trackingPreventionEnabled { false };
 };
-
-template<class Encoder>
-void WebProcessDataStoreParameters::encode(Encoder& encoder) const
-{
-    encoder << sessionID;
-    encoder << applicationCacheDirectory;
-    encoder << applicationCacheDirectoryExtensionHandle;
-    encoder << applicationCacheFlatFileSubdirectoryName;
-    encoder << webSQLDatabaseDirectory;
-    encoder << webSQLDatabaseDirectoryExtensionHandle;
-    encoder << mediaCacheDirectory;
-    encoder << mediaCacheDirectoryExtensionHandle;
-    encoder << mediaKeyStorageDirectory;
-    encoder << mediaKeyStorageDirectoryExtensionHandle;
-    encoder << javaScriptConfigurationDirectory;
-    encoder << javaScriptConfigurationDirectoryExtensionHandle;
-    encoder << plugInAutoStartOriginHashes;
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
-    encoder << thirdPartyCookieBlockingMode;
-    encoder << domainsWithUserInteraction;
-#endif
-    encoder << resourceLoadStatisticsEnabled;
-}
-
-template<class Decoder>
-Optional<WebProcessDataStoreParameters> WebProcessDataStoreParameters::decode(Decoder& decoder)
-{
-    Optional<PAL::SessionID> sessionID;
-    decoder >> sessionID;
-    if (!sessionID)
-        return WTF::nullopt;
-
-    String applicationCacheDirectory;
-    if (!decoder.decode(applicationCacheDirectory))
-        return WTF::nullopt;
-
-    Optional<SandboxExtension::Handle> applicationCacheDirectoryExtensionHandle;
-    decoder >> applicationCacheDirectoryExtensionHandle;
-    if (!applicationCacheDirectoryExtensionHandle)
-        return WTF::nullopt;
-
-    String applicationCacheFlatFileSubdirectoryName;
-    if (!decoder.decode(applicationCacheFlatFileSubdirectoryName))
-        return WTF::nullopt;
-
-    String webSQLDatabaseDirectory;
-    if (!decoder.decode(webSQLDatabaseDirectory))
-        return WTF::nullopt;
-
-    Optional<SandboxExtension::Handle> webSQLDatabaseDirectoryExtensionHandle;
-    decoder >> webSQLDatabaseDirectoryExtensionHandle;
-    if (!webSQLDatabaseDirectoryExtensionHandle)
-        return WTF::nullopt;
-
-    String mediaCacheDirectory;
-    if (!decoder.decode(mediaCacheDirectory))
-        return WTF::nullopt;
-
-    Optional<SandboxExtension::Handle> mediaCacheDirectoryExtensionHandle;
-    decoder >> mediaCacheDirectoryExtensionHandle;
-    if (!mediaCacheDirectoryExtensionHandle)
-        return WTF::nullopt;
-
-    String mediaKeyStorageDirectory;
-    if (!decoder.decode(mediaKeyStorageDirectory))
-        return WTF::nullopt;
-
-    Optional<SandboxExtension::Handle> mediaKeyStorageDirectoryExtensionHandle;
-    decoder >> mediaKeyStorageDirectoryExtensionHandle;
-    if (!mediaKeyStorageDirectoryExtensionHandle)
-        return WTF::nullopt;
-
-    String javaScriptConfigurationDirectory;
-    if (!decoder.decode(javaScriptConfigurationDirectory))
-        return WTF::nullopt;
-
-    Optional<SandboxExtension::Handle> javaScriptConfigurationDirectoryExtensionHandle;
-    decoder >> javaScriptConfigurationDirectoryExtensionHandle;
-    if (!javaScriptConfigurationDirectoryExtensionHandle)
-        return WTF::nullopt;
-        
-    Optional<HashMap<unsigned, WallTime>> plugInAutoStartOriginHashes;
-    decoder >> plugInAutoStartOriginHashes;
-    if (!plugInAutoStartOriginHashes)
-        return WTF::nullopt;
-
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
-    Optional<WebCore::ThirdPartyCookieBlockingMode> thirdPartyCookieBlockingMode;
-    decoder >> thirdPartyCookieBlockingMode;
-    if (!thirdPartyCookieBlockingMode)
-        return WTF::nullopt;
-
-    Optional<HashSet<WebCore::RegistrableDomain>> domainsWithUserInteraction;
-    decoder >> domainsWithUserInteraction;
-    if (!domainsWithUserInteraction)
-        return WTF::nullopt;
-#endif
-
-    bool resourceLoadStatisticsEnabled = false;
-    if (!decoder.decode(resourceLoadStatisticsEnabled))
-        return WTF::nullopt;
-
-    return WebProcessDataStoreParameters {
-        WTFMove(*sessionID),
-        WTFMove(applicationCacheDirectory),
-        WTFMove(*applicationCacheDirectoryExtensionHandle),
-        WTFMove(applicationCacheFlatFileSubdirectoryName),
-        WTFMove(webSQLDatabaseDirectory),
-        WTFMove(*webSQLDatabaseDirectoryExtensionHandle),
-        WTFMove(mediaCacheDirectory),
-        WTFMove(*mediaCacheDirectoryExtensionHandle),
-        WTFMove(mediaKeyStorageDirectory),
-        WTFMove(*mediaKeyStorageDirectoryExtensionHandle),
-        WTFMove(javaScriptConfigurationDirectory),
-        WTFMove(*javaScriptConfigurationDirectoryExtensionHandle),
-        WTFMove(*plugInAutoStartOriginHashes),
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
-        *thirdPartyCookieBlockingMode,
-        WTFMove(*domainsWithUserInteraction),
-#endif
-        resourceLoadStatisticsEnabled
-    };
-}
 
 } // namespace WebKit

@@ -25,13 +25,15 @@
 
 #include "cmakeconfig.h"
 
-#include "HeadlessViewBackend.h"
-#include "WindowViewBackend.h"
+#include "BuildRevision.h"
+#include <WPEToolingBackends/HeadlessViewBackend.h>
+#include <WPEToolingBackends/WindowViewBackend.h>
+#include <atk/atk.h>
 #include <memory>
 #include <wpe/webkit.h>
 
-#if defined(HAVE_ACCESSIBILITY) && HAVE_ACCESSIBILITY
-#include <atk/atk.h>
+#if !USE_GSTREAMER_FULL && (ENABLE_WEB_AUDIO || ENABLE_VIDEO)
+#include <gst/gst.h>
 #endif
 
 static const char** uriArguments;
@@ -45,9 +47,14 @@ static const char* cookiesFile;
 static const char* cookiesPolicy;
 static const char* proxy;
 const char* bgColor;
+static char* timeZone;
+static const char* featureList = nullptr;
 static gboolean enableITP;
 static gboolean printVersion;
 static GHashTable* openViews;
+#if ENABLE_WPE_PLATFORM
+static gboolean useWPEPlatformAPI;
+#endif
 
 static const GOptionEntry commandLineOptions[] =
 {
@@ -62,6 +69,11 @@ static const GOptionEntry commandLineOptions[] =
     { "content-filter", 0, 0, G_OPTION_ARG_FILENAME, &contentFilter, "JSON with content filtering rules", "FILE" },
     { "bg-color", 0, 0, G_OPTION_ARG_STRING, &bgColor, "Window background color. Default: white", "COLOR" },
     { "enable-itp", 0, 0, G_OPTION_ARG_NONE, &enableITP, "Enable Intelligent Tracking Prevention (ITP)", nullptr },
+    { "time-zone", 't', 0, G_OPTION_ARG_STRING, &timeZone, "Set time zone", "TIMEZONE" },
+    { "features", 'F', 0, G_OPTION_ARG_STRING, &featureList, "Enable or disable WebKit features (hint: pass 'help' for a list)", "FEATURE-LIST" },
+#if ENABLE_WPE_PLATFORM
+    { "use-wpe-platform-api", 0, 0, G_OPTION_ARG_NONE, &useWPEPlatformAPI, "Use the WPE platform API", nullptr },
+#endif
     { "version", 'v', 0, G_OPTION_ARG_NONE, &printVersion, "Print the WPE version", nullptr },
     { G_OPTION_REMAINING, 0, 0, G_OPTION_ARG_FILENAME_ARRAY, &uriArguments, nullptr, "[URL]" },
     { nullptr, 0, 0, G_OPTION_ARG_NONE, nullptr, nullptr, nullptr }
@@ -69,8 +81,8 @@ static const GOptionEntry commandLineOptions[] =
 
 class InputClient final : public WPEToolingBackends::ViewBackend::InputClient {
 public:
-    InputClient(GMainLoop* loop, WebKitWebView* webView)
-        : m_loop(loop)
+    InputClient(GApplication* application, WebKitWebView* webView)
+        : m_application(application)
         , m_webView(webView)
     {
     }
@@ -81,7 +93,7 @@ public:
             return false;
 
         if (event->modifiers & wpe_input_keyboard_modifier_control && event->key_code == WPE_KEY_q) {
-            g_main_loop_quit(m_loop);
+            g_application_quit(m_application);
             return true;
         }
 
@@ -101,9 +113,47 @@ public:
     }
 
 private:
-    GMainLoop* m_loop { nullptr };
+    GApplication* m_application { nullptr };
     WebKitWebView* m_webView { nullptr };
 };
+
+#if ENABLE_WPE_PLATFORM
+static gboolean wpeViewEventCallback(WPEView* view, WPEEvent* event, WebKitWebView* webView)
+{
+    if (wpe_event_get_event_type(event) != WPE_EVENT_KEYBOARD_KEY_DOWN)
+        return FALSE;
+
+    auto modifiers = wpe_event_get_modifiers(event);
+    auto keyval = wpe_event_keyboard_get_keyval(event);
+
+    if (modifiers & WPE_MODIFIER_KEYBOARD_CONTROL && keyval == WPE_KEY_q) {
+        g_application_quit(g_application_get_default());
+        return TRUE;
+    }
+
+    if (modifiers & WPE_MODIFIER_KEYBOARD_ALT) {
+        if ((keyval == WPE_KEY_Left || keyval == WPE_KEY_KP_Left) && webkit_web_view_can_go_back(webView)) {
+            webkit_web_view_go_back(webView);
+            return TRUE;
+        }
+
+        if ((keyval == WPE_KEY_Right || keyval == WPE_KEY_KP_Right) && webkit_web_view_can_go_forward(webView)) {
+            webkit_web_view_go_forward(webView);
+            return TRUE;
+        }
+    }
+
+    if (keyval == WPE_KEY_F11) {
+        if (wpe_view_get_state(view) & WPE_VIEW_STATE_FULLSCREEN)
+            wpe_view_unfullscreen(view);
+        else
+            wpe_view_fullscreen(view);
+        return TRUE;
+    }
+
+    return FALSE;
+}
+#endif
 
 static WebKitWebView* createWebViewForAutomationCallback(WebKitAutomationSession*, WebKitWebView* view)
 {
@@ -130,16 +180,21 @@ static gboolean decidePermissionRequest(WebKitWebView *, WebKitPermissionRequest
 
 static std::unique_ptr<WPEToolingBackends::ViewBackend> createViewBackend(uint32_t width, uint32_t height)
 {
+#if ENABLE_WPE_PLATFORM
+    if (useWPEPlatformAPI)
+        return nullptr;
+#endif
+
     if (headlessMode)
         return std::make_unique<WPEToolingBackends::HeadlessViewBackend>(width, height);
     return std::make_unique<WPEToolingBackends::WindowViewBackend>(width, height);
 }
 
-typedef struct {
+struct FilterSaveData {
     GMainLoop* mainLoop { nullptr };
     WebKitUserContentFilter* filter { nullptr };
     GError* error { nullptr };
-} FilterSaveData;
+};
 
 static void filterSavedCallback(WebKitUserContentFilterStore *store, GAsyncResult *result, FilterSaveData *data)
 {
@@ -147,78 +202,104 @@ static void filterSavedCallback(WebKitUserContentFilterStore *store, GAsyncResul
     g_main_loop_quit(data->mainLoop);
 }
 
-static void webViewClose(WebKitWebView* webView, gpointer)
+static void webViewClose(WebKitWebView* webView, gpointer user_data)
 {
     // Hash table key delete func takes care of unref'ing the view
     g_hash_table_remove(openViews, webView);
+    if (!g_hash_table_size(openViews))
+        g_application_quit(G_APPLICATION(user_data));
 }
 
-static WebKitWebView* createWebView(WebKitWebView* webView, WebKitNavigationAction*, gpointer)
+static WebKitWebView* createWebView(WebKitWebView* webView, WebKitNavigationAction*, gpointer user_data)
 {
+
     auto backend = createViewBackend(1280, 720);
-    struct wpe_view_backend* wpeBackend = backend->backend();
-    if (!wpeBackend)
-        return nullptr;
+    WebKitWebViewBackend* viewBackend = nullptr;
+    if (backend) {
+        struct wpe_view_backend* wpeBackend = backend->backend();
+        if (!wpeBackend)
+            return nullptr;
 
-    auto* viewBackend = webkit_web_view_backend_new(wpeBackend,
-        [](gpointer data) {
-            delete static_cast<WPEToolingBackends::ViewBackend*>(data);
-        }, backend.release());
+        viewBackend = webkit_web_view_backend_new(wpeBackend,
+            [](gpointer data) {
+                delete static_cast<WPEToolingBackends::ViewBackend*>(data);
+            }, backend.release());
+    }
 
-    auto* newWebView = webkit_web_view_new_with_related_view(viewBackend, webView);
-    webkit_web_view_set_settings(newWebView, webkit_web_view_get_settings(webView));
+    auto* newWebView = WEBKIT_WEB_VIEW(g_object_new(WEBKIT_TYPE_WEB_VIEW,
+        "backend", viewBackend,
+        "related-view", webView,
+        "settings", webkit_web_view_get_settings(webView),
+        "user-content-manager", webkit_web_view_get_user_content_manager(webView),
+        nullptr));
 
-    g_signal_connect(newWebView, "create", G_CALLBACK(createWebView), nullptr);
-    g_signal_connect(newWebView, "close", G_CALLBACK(webViewClose), nullptr);
+    g_signal_connect(newWebView, "create", G_CALLBACK(createWebView), user_data);
+    g_signal_connect(newWebView, "close", G_CALLBACK(webViewClose), user_data);
 
     g_hash_table_add(openViews, newWebView);
 
     return newWebView;
 }
 
-int main(int argc, char *argv[])
+static WebKitFeature* findFeature(WebKitFeatureList* featureList, const char* identifier)
 {
-#if ENABLE_DEVELOPER_MODE
-    g_setenv("WEBKIT_INJECTED_BUNDLE_PATH", WEBKIT_INJECTED_BUNDLE_PATH, FALSE);
-#endif
-
-    GOptionContext* context = g_option_context_new(nullptr);
-    g_option_context_add_main_entries(context, commandLineOptions, nullptr);
-
-    GError* error = nullptr;
-    if (!g_option_context_parse(context, &argc, &argv, &error)) {
-        g_printerr("Cannot parse arguments: %s\n", error->message);
-        g_error_free(error);
-        g_option_context_free(context);
-
-        return 1;
+    for (gsize i = 0; i < webkit_feature_list_get_length(featureList); i++) {
+        WebKitFeature* feature = webkit_feature_list_get(featureList, i);
+        if (!g_ascii_strcasecmp(identifier, webkit_feature_get_identifier(feature)))
+            return feature;
     }
-    g_option_context_free(context);
+    return nullptr;
+}
 
-    if (printVersion) {
-        g_print("WPE WebKit %u.%u.%u",
-            webkit_get_major_version(),
-            webkit_get_minor_version(),
-            webkit_get_micro_version());
-        if (g_strcmp0(SVN_REVISION, "tarball"))
-            g_print(" (%s)", SVN_REVISION);
-        g_print("\n");
-        return 0;
+static void activate(GApplication* application, WPEToolingBackends::ViewBackend* backend)
+{
+    g_application_hold(application);
+#if ENABLE_2022_GLIB_API
+    WebKitNetworkSession* networkSession = nullptr;
+    if (!automationMode) {
+        networkSession = privateMode ? webkit_network_session_new_ephemeral() : webkit_network_session_new(nullptr, nullptr);
+        webkit_network_session_set_itp_enabled(networkSession, enableITP);
+
+        if (proxy) {
+            auto* webkitProxySettings = webkit_network_proxy_settings_new(proxy, ignoreHosts);
+            webkit_network_session_set_proxy_settings(networkSession, WEBKIT_NETWORK_PROXY_MODE_CUSTOM, webkitProxySettings);
+            webkit_network_proxy_settings_free(webkitProxySettings);
+        }
+
+        if (ignoreTLSErrors)
+            webkit_network_session_set_tls_errors_policy(networkSession, WEBKIT_TLS_ERRORS_POLICY_IGNORE);
+
+        if (cookiesPolicy) {
+            auto* cookieManager = webkit_network_session_get_cookie_manager(networkSession);
+            auto* enumClass = static_cast<GEnumClass*>(g_type_class_ref(WEBKIT_TYPE_COOKIE_ACCEPT_POLICY));
+            GEnumValue* enumValue = g_enum_get_value_by_nick(enumClass, cookiesPolicy);
+            if (enumValue)
+                webkit_cookie_manager_set_accept_policy(cookieManager, static_cast<WebKitCookieAcceptPolicy>(enumValue->value));
+            g_type_class_unref(enumClass);
+        }
+
+        if (cookiesFile && !webkit_network_session_is_ephemeral(networkSession)) {
+            auto* cookieManager = webkit_network_session_get_cookie_manager(networkSession);
+            auto storageType = g_str_has_suffix(cookiesFile, ".txt") ? WEBKIT_COOKIE_PERSISTENT_STORAGE_TEXT : WEBKIT_COOKIE_PERSISTENT_STORAGE_SQLITE;
+            webkit_cookie_manager_set_persistent_storage(cookieManager, cookiesFile, storageType);
+        }
     }
 
-    auto* loop = g_main_loop_new(nullptr, FALSE);
-
-    auto backend = createViewBackend(1280, 720);
-    struct wpe_view_backend* wpeBackend = backend->backend();
-    if (!wpeBackend) {
-        g_warning("Failed to create WPE view backend");
-        g_main_loop_unref(loop);
-        return 1;
-    }
-
+    auto* webContext = WEBKIT_WEB_CONTEXT(g_object_new(WEBKIT_TYPE_WEB_CONTEXT, "time-zone-override", timeZone, nullptr));
+#else
     auto* manager = (privateMode || automationMode) ? webkit_website_data_manager_new_ephemeral() : webkit_website_data_manager_new(nullptr);
     webkit_website_data_manager_set_itp_enabled(manager, enableITP);
-    auto* webContext = webkit_web_context_new_with_website_data_manager(manager);
+
+    if (proxy) {
+        auto* webkitProxySettings = webkit_network_proxy_settings_new(proxy, ignoreHosts);
+        webkit_website_data_manager_set_network_proxy_settings(manager, WEBKIT_NETWORK_PROXY_MODE_CUSTOM, webkitProxySettings);
+        webkit_network_proxy_settings_free(webkitProxySettings);
+    }
+
+    if (ignoreTLSErrors)
+        webkit_website_data_manager_set_tls_errors_policy(manager, WEBKIT_TLS_ERRORS_POLICY_IGNORE);
+
+    auto* webContext = WEBKIT_WEB_CONTEXT(g_object_new(WEBKIT_TYPE_WEB_CONTEXT, "website-data-manager", manager, "time-zone-override", timeZone, nullptr));
     g_object_unref(manager);
 
     if (cookiesPolicy) {
@@ -235,16 +316,7 @@ int main(int argc, char *argv[])
         auto storageType = g_str_has_suffix(cookiesFile, ".txt") ? WEBKIT_COOKIE_PERSISTENT_STORAGE_TEXT : WEBKIT_COOKIE_PERSISTENT_STORAGE_SQLITE;
         webkit_cookie_manager_set_persistent_storage(cookieManager, cookiesFile, storageType);
     }
-
-    if (proxy) {
-        auto* webkitProxySettings = webkit_network_proxy_settings_new(proxy, ignoreHosts);
-        webkit_web_context_set_network_proxy_settings(webContext, WEBKIT_NETWORK_PROXY_MODE_CUSTOM, webkitProxySettings);
-        webkit_network_proxy_settings_free(webkitProxySettings);
-    }
-
-    const char* singleprocess = g_getenv("MINIBROWSER_SINGLEPROCESS");
-    webkit_web_context_set_process_model(webContext, (singleprocess && *singleprocess) ?
-        WEBKIT_PROCESS_MODEL_SHARED_SECONDARY_PROCESS : WEBKIT_PROCESS_MODEL_MULTIPLE_SECONDARY_PROCESSES);
+#endif
 
     WebKitUserContentManager* userContentManager = nullptr;
     if (contentFilter) {
@@ -279,25 +351,62 @@ int main(int argc, char *argv[])
         "enable-encrypted-media", TRUE,
         nullptr);
 
-    auto* backendPtr = backend.get();
-    auto* viewBackend = webkit_web_view_backend_new(wpeBackend, [](gpointer data) {
+    if (featureList) {
+        g_autoptr(WebKitFeatureList) features = webkit_settings_get_all_features();
+        g_auto(GStrv) items = g_strsplit(featureList, ",", -1);
+        for (gsize i = 0; items[i]; i++) {
+            char* item = g_strchomp(items[i]);
+            gboolean enabled = TRUE;
+            switch (item[0]) {
+            case '!':
+            case '-':
+                enabled = FALSE;
+                [[fallthrough]];
+            case '+':
+                item++;
+                [[fallthrough]];
+            default:
+                break;
+            }
+
+            if (item[0] == '\0') {
+                g_printerr("Empty feature name specified, skipped.");
+                continue;
+            }
+
+            if (auto* feature = findFeature(features, item))
+                webkit_settings_set_feature_enabled(settings, feature, enabled);
+            else
+                g_printerr("Feature '%s' is not available.", item);
+        }
+    }
+
+    auto* viewBackend = backend ? webkit_web_view_backend_new(backend->backend(), [](gpointer data) {
         delete static_cast<WPEToolingBackends::ViewBackend*>(data);
-    }, backend.release());
+    }, backend) : nullptr;
 
     auto* webView = WEBKIT_WEB_VIEW(g_object_new(WEBKIT_TYPE_WEB_VIEW,
         "backend", viewBackend,
         "web-context", webContext,
+#if ENABLE_2022_GLIB_API
+        "network-session", networkSession,
+#endif
         "settings", settings,
         "user-content-manager", userContentManager,
         "is-controlled-by-automation", automationMode,
         nullptr));
     g_object_unref(settings);
 
-    backendPtr->setInputClient(std::make_unique<InputClient>(loop, webView));
-#if defined(HAVE_ACCESSIBILITY) && HAVE_ACCESSIBILITY
-    auto* accessible = wpe_view_backend_dispatch_get_accessible(wpeBackend);
-    if (ATK_IS_OBJECT(accessible))
-        backendPtr->setAccessibleChild(ATK_OBJECT(accessible));
+    if (backend) {
+        backend->setInputClient(std::make_unique<InputClient>(application, webView));
+        auto* accessible = wpe_view_backend_dispatch_get_accessible(backend->backend());
+        if (ATK_IS_OBJECT(accessible))
+            backend->setAccessibleChild(ATK_OBJECT(accessible));
+    }
+
+#if ENABLE_WPE_PLATFORM
+    if (auto* wpeView = webkit_web_view_get_wpe_view(webView))
+        g_signal_connect(wpeView, "event", G_CALLBACK(wpeViewEventCallback), webView);
 #endif
 
     openViews = g_hash_table_new_full(nullptr, nullptr, g_object_unref, nullptr);
@@ -305,12 +414,9 @@ int main(int argc, char *argv[])
     webkit_web_context_set_automation_allowed(webContext, automationMode);
     g_signal_connect(webContext, "automation-started", G_CALLBACK(automationStartedCallback), webView);
     g_signal_connect(webView, "permission-request", G_CALLBACK(decidePermissionRequest), nullptr);
-    g_signal_connect(webView, "create", G_CALLBACK(createWebView), nullptr);
-    g_signal_connect(webView, "close", G_CALLBACK(webViewClose), nullptr);
+    g_signal_connect(webView, "create", G_CALLBACK(createWebView), application);
+    g_signal_connect(webView, "close", G_CALLBACK(webViewClose), application);
     g_hash_table_add(openViews, webView);
-
-    if (ignoreTLSErrors)
-        webkit_web_context_set_tls_errors_policy(webContext, WEBKIT_TLS_ERRORS_POLICY_IGNORE);
 
     WebKitColor color;
     if (bgColor && webkit_color_parse(&color, bgColor))
@@ -331,14 +437,81 @@ int main(int argc, char *argv[])
     else
         webkit_web_view_load_uri(webView, "https://wpewebkit.org");
 
-    g_main_loop_run(loop);
+    g_object_unref(webContext);
+#if ENABLE_2022_GLIB_API
+    g_clear_object(&networkSession);
+#endif
+}
+
+int main(int argc, char *argv[])
+{
+#if ENABLE_DEVELOPER_MODE
+    g_setenv("WEBKIT_INJECTED_BUNDLE_PATH", WEBKIT_INJECTED_BUNDLE_PATH, FALSE);
+#endif
+
+    GOptionContext* context = g_option_context_new(nullptr);
+    g_option_context_add_main_entries(context, commandLineOptions, nullptr);
+
+#if !USE_GSTREAMER_FULL && (ENABLE_WEB_AUDIO || ENABLE_VIDEO)
+    g_option_context_add_group(context, gst_init_get_option_group());
+#endif
+
+    GError* error = nullptr;
+    if (!g_option_context_parse(context, &argc, &argv, &error)) {
+        g_printerr("Cannot parse arguments: %s\n", error->message);
+        g_error_free(error);
+        g_option_context_free(context);
+
+        return 1;
+    }
+    g_option_context_free(context);
+
+    if (printVersion) {
+        g_print("WPE WebKit %u.%u.%u",
+            webkit_get_major_version(),
+            webkit_get_minor_version(),
+            webkit_get_micro_version());
+        if (g_strcmp0(BUILD_REVISION, "tarball"))
+            g_print(" (%s)", BUILD_REVISION);
+        g_print("\n");
+        return 0;
+    }
+
+    if (!g_strcmp0(featureList, "help")) {
+        g_print("Multiple feature names may be specified separated by commas. No prefix or '+' enable\n"
+                "features, prefixes '-' and '!' disable features. Names are case-insensitive. Example:\n"
+                "\n    %s --features='!DirPseudo,+WebAnimationsCustomEffects,webgl'\n\n"
+                "Available features (+/- = enabled/disabled by default):\n\n", g_get_prgname());
+        g_autoptr(GEnumClass) statusEnum = static_cast<GEnumClass*>(g_type_class_ref(WEBKIT_TYPE_FEATURE_STATUS));
+        g_autoptr(WebKitFeatureList) features = webkit_settings_get_all_features();
+        for (gsize i = 0; i < webkit_feature_list_get_length(features); i++) {
+            WebKitFeature* feature = webkit_feature_list_get(features, i);
+            g_print("  %c %s (%s)",
+                    webkit_feature_get_default_value(feature) ? '+' : '-',
+                    webkit_feature_get_identifier(feature),
+                    g_enum_get_value(statusEnum, webkit_feature_get_status(feature))->value_nick);
+            if (webkit_feature_get_name(feature))
+                g_print(": %s", webkit_feature_get_name(feature));
+            g_print("\n");
+        }
+        return 0;
+    }
+
+    auto backend = createViewBackend(1280, 720);
+    if (backend) {
+        struct wpe_view_backend* wpeBackend = backend->backend();
+        if (!wpeBackend) {
+            g_warning("Failed to create WPE view backend");
+            return 1;
+        }
+    }
+
+    GApplication* application = g_application_new("org.wpewebkit.MiniBrowser", G_APPLICATION_NON_UNIQUE);
+    g_signal_connect(application, "activate", G_CALLBACK(activate), backend.release());
+    g_application_run(application, 0, nullptr);
+    g_object_unref(application);
 
     g_hash_table_destroy(openViews);
-
-
-    if (privateMode || automationMode)
-        g_object_unref(webContext);
-    g_main_loop_unref(loop);
 
     return 0;
 }

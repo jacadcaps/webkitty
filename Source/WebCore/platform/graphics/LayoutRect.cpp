@@ -100,11 +100,17 @@ void LayoutRect::unite(const LayoutRect& other)
         return;
     }
 
-    LayoutPoint newLocation(std::min(x(), other.x()), std::min(y(), other.y()));
-    LayoutPoint newMaxPoint(std::max(maxX(), other.maxX()), std::max(maxY(), other.maxY()));
+    uniteEvenIfEmpty(other);
+}
 
-    m_location = newLocation;
-    m_size = newMaxPoint - newLocation;
+void LayoutRect::uniteEvenIfEmpty(const LayoutRect& other)
+{
+    auto minX = std::min(x(), other.x());
+    auto minY = std::min(y(), other.y());
+    auto maxX = std::max(this->maxX(), other.maxX());
+    auto maxY = std::max(this->maxY(), other.maxY());
+
+    setLocationAndSizeFromEdges(minX, minY, maxX, maxY);
 }
 
 bool LayoutRect::checkedUnite(const LayoutRect& other)
@@ -158,12 +164,28 @@ void LayoutRect::scale(float xScale, float yScale)
     m_size.scale(xScale, yScale);
 }
 
+void LayoutRect::expandToInfiniteY()
+{
+    LayoutRect infRect = LayoutRect::infiniteRect();
+    setY(infRect.y());
+    setHeight(infRect.height());
+}
+
+void LayoutRect::expandToInfiniteX()
+{
+    LayoutRect infRect = LayoutRect::infiniteRect();
+    setX(infRect.x());
+    setWidth(infRect.width());
+}
+
 LayoutRect unionRect(const Vector<LayoutRect>& rects)
 {
-    LayoutRect result;
+    if (rects.isEmpty())
+        return { };
 
+    LayoutRect result = rects[0];
     size_t count = rects.size();
-    for (size_t i = 0; i < count; ++i)
+    for (size_t i = 1; i < count; ++i)
         result.unite(rects[i]);
 
     return result;

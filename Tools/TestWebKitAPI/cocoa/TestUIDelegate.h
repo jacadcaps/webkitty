@@ -27,15 +27,29 @@
 
 @interface TestUIDelegate : NSObject <WKUIDelegate>
 
+@property (nonatomic, copy) WKWebView* (^createWebViewWithConfiguration)(WKWebViewConfiguration *, WKNavigationAction *, WKWindowFeatures *);
 @property (nonatomic, copy) void (^runJavaScriptAlertPanelWithMessage)(WKWebView *, NSString *, WKFrameInfo *, void (^)(void));
+@property (nonatomic, copy) void (^runJavaScriptConfirmPanelWithMessage)(WKWebView *, NSString *, WKFrameInfo *, void (^)(BOOL));
+@property (nonatomic, copy) void (^runJavaScriptPromptPanelWithMessage)(WKWebView *, NSString *, NSString *, WKFrameInfo *, void (^)(NSString *));
 #if PLATFORM(MAC)
 @property (nonatomic, copy) void (^getContextMenuFromProposedMenu)(NSMenu *, _WKContextMenuElementInfo *, id <NSSecureCoding>, void (^)(NSMenu *));
+@property (nonatomic, copy) void (^getWindowFrameWithCompletionHandler)(WKWebView *, void(^)(CGRect));
 #endif
+@property (nonatomic, copy) void (^saveDataToFile)(WKWebView *, NSData *, NSString *, NSString *, NSURL *);
+@property (nonatomic, copy) void (^focusWebView)(WKWebView *);
+@property (nonatomic, copy) void (^unfocusWebView)(WKWebView *);
+@property (nonatomic, copy) void (^webViewDidClose)(WKWebView *);
 
 - (NSString *)waitForAlert;
+- (NSString *)waitForConfirm;
+- (NSString *)waitForPromptWithReply:(NSString *)reply;
+- (void)waitForDidClose;
 
 @end
 
 @interface WKWebView (TestUIDelegateExtras)
 - (NSString *)_test_waitForAlert;
+- (NSString *)_test_waitForConfirm;
+- (NSString *)_test_waitForPromptWithReply:(NSString *)reply;
+- (void)_test_waitForInspectorToShow;
 @end

@@ -14,7 +14,7 @@ using namespace angle;
 
 constexpr int kPixelColorThreshhold = 8;
 
-class ShaderInterpTest : public ANGLETest
+class ShaderInterpTest : public ANGLETest<>
 {
   protected:
     ShaderInterpTest() : ANGLETest()
@@ -75,6 +75,10 @@ void main()
     fragColor = interp_color;
 }
 )";
+
+    // iOS chokes on the "smooth" qualifier.
+    // TODO(anglebug.com/5491): Add shader compiler workaround that omits "smooth".
+    ANGLE_SKIP_TEST_IF(IsIOS() && IsOpenGLES());
 
     ANGLE_GL_PROGRAM(program, vertSrc, fragSrc);
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
@@ -209,4 +213,5 @@ void main()
     EXPECT_PIXEL_COLOR_EQ(64, 64, smooth_reference);
 }
 
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ShaderInterpTest);
 ANGLE_INSTANTIATE_TEST_ES3(ShaderInterpTest);

@@ -49,7 +49,7 @@ Error &Error::operator=(const Error &other)
     }
     else
     {
-        mMessage.release();
+        mMessage.reset();
     }
 
     return *this;
@@ -80,6 +80,11 @@ EGLint Error::getID() const
 bool Error::isError() const
 {
     return (mCode != EGL_SUCCESS);
+}
+
+void Error::setCode(EGLint code)
+{
+    mCode = code;
 }
 
 // Static

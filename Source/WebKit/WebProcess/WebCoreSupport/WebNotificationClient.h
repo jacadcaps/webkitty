@@ -23,45 +23,37 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef WebNotificationClient_h
-#define WebNotificationClient_h
+#pragma once
 
 #if ENABLE(NOTIFICATIONS)
 
 #include <WebCore/NotificationClient.h>
-
-namespace WebCore {
-class NotificationPermissionCallback;
-class ScriptExecutionContext;
-class VoidCallback;
-} // namespace WebCore
+#include <WebCore/SecurityOriginData.h>
+#include <wtf/HashSet.h>
 
 namespace WebKit {
 
 class WebPage;
 
-class WebNotificationClient : public WebCore::NotificationClient {
+class WebNotificationClient final : public WebCore::NotificationClient {
     WTF_MAKE_FAST_ALLOCATED;
 public:
     WebNotificationClient(WebPage*);
     virtual ~WebNotificationClient();
+    void clearNotificationPermissionState();
 
 private:
-    bool show(WebCore::Notification*) override;
-    void cancel(WebCore::Notification*) override;
-    void clearNotifications(WebCore::ScriptExecutionContext*) override;
-    void notificationObjectDestroyed(WebCore::Notification*) override;
-    void notificationControllerDestroyed() override;
-    void requestPermission(WebCore::ScriptExecutionContext*, RefPtr<WebCore::NotificationPermissionCallback>&&) override;
-    void cancelRequestsForPermission(WebCore::ScriptExecutionContext*) override;
-    bool hasPendingPermissionRequests(WebCore::ScriptExecutionContext*) const override;
-    WebCore::NotificationClient::Permission checkPermission(WebCore::ScriptExecutionContext*) override;
-    
-    WebPage* m_page;
+    bool show(WebCore::ScriptExecutionContext&, WebCore::NotificationData&&, RefPtr<WebCore::NotificationResources>&&, CompletionHandler<void()>&&) final;
+    void cancel(WebCore::NotificationData&&) final;
+    void notificationObjectDestroyed(WebCore::NotificationData&&) final;
+    void notificationControllerDestroyed() final;
+    void requestPermission(WebCore::ScriptExecutionContext&, PermissionHandler&&) final;
+    WebCore::NotificationClient::Permission checkPermission(WebCore::ScriptExecutionContext*) final;
+
+    HashSet<WebCore::SecurityOriginData> m_notificationPermissionRequesters;
+    WeakPtr<WebPage> m_page;
 };
 
 } // namespace WebKit
 
 #endif // ENABLE(NOTIFICATIONS)
-
-#endif // WebNotificationClient_h

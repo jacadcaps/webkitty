@@ -29,6 +29,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "Exception.h"
 #include <wtf/CrossThreadCopier.h>
 #include <wtf/Expected.h>
+#include <wtf/StdLibExtras.h>
 
 namespace WebCore {
 
@@ -88,8 +89,6 @@ private:
     bool m_wasReleased { false };
 #endif
 };
-
-ExceptionOr<void> isolatedCopy(ExceptionOr<void>&&);
 
 template<typename ReturnType> inline ExceptionOr<ReturnType>::ExceptionOr(Exception&& exception)
     : m_value(makeUnexpected(WTFMove(exception)))
@@ -192,23 +191,48 @@ inline Exception ExceptionOr<void>::releaseException()
     return WTFMove(m_value.error());
 }
 
-inline ExceptionOr<void> isolatedCopy(ExceptionOr<void>&& value)
-{
-    if (value.hasException())
-        return isolatedCopy(value.releaseException());
-    return { };
-}
+template <typename T> inline constexpr bool IsExceptionOr = WTF::IsTemplate<std::decay_t<T>, ExceptionOr>::value;
+
+template <typename T, bool isExceptionOr = IsExceptionOr<T>> struct TypeOrExceptionOrUnderlyingTypeImpl;
+template <typename T> struct TypeOrExceptionOrUnderlyingTypeImpl<T, true> { using Type = typename T::ReturnType; };
+template <typename T> struct TypeOrExceptionOrUnderlyingTypeImpl<T, false> { using Type = T; };
+template <typename T> using TypeOrExceptionOrUnderlyingType = typename TypeOrExceptionOrUnderlyingTypeImpl<T>::Type;
 
 }
 
 namespace WTF {
 template<typename T> struct CrossThreadCopierBase<false, false, WebCore::ExceptionOr<T> > {
-    typedef WebCore::ExceptionOr<T> Type;
+    using Type = WebCore::ExceptionOr<T>;
+    static constexpr bool IsNeeded = true;
     static Type copy(const Type& source)
     {
         if (source.hasException())
             return crossThreadCopy(source.exception());
         return crossThreadCopy(source.returnValue());
     }
+    static Type copy(Type&& source)
+    {
+        if (source.hasException())
+            return crossThreadCopy(source.releaseException());
+        return crossThreadCopy(source.releaseReturnValue());
+    }
 };
+
+template<> struct CrossThreadCopierBase<false, false, WebCore::ExceptionOr<void> > {
+    using Type = WebCore::ExceptionOr<void>;
+    static constexpr bool IsNeeded = true;
+    static Type copy(const Type& source)
+    {
+        if (source.hasException())
+            return crossThreadCopy(source.exception());
+        return { };
+    }
+    static Type copy(Type&& source)
+    {
+        if (source.hasException())
+            return crossThreadCopy(source.releaseException());
+        return { };
+    }
+};
+
 }

@@ -27,13 +27,25 @@
 
 #if USE(APPLE_INTERNAL_SDK)
 
+#import <TextInput/TIPreferencesController.h>
 #import <TextInput/TI_NSStringExtras.h>
 
 #else
 
+@protocol TIPreferencesControllerActions <NSObject>
+@property (nonatomic) BOOL automaticMinimizationEnabled;
+- (BOOL)oneTimeActionCompleted:(NSString *)actionKey;
+- (void)didTriggerOneTimeAction:(NSString *)actionKey;
+@end
+
+@interface TIPreferencesController : NSObject <TIPreferencesControllerActions>
++ (instancetype)sharedPreferencesController;
+@end
+
 @interface NSString (TextInputDetails)
 - (BOOL)_containsCJScripts;
 - (BOOL)_containsCJScriptsOnly;
+- (BOOL)_containsEmojiOnly;
 @end
 
 #endif

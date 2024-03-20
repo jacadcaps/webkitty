@@ -27,7 +27,6 @@
 
 #include "FrameIdentifier.h"
 #include "PageIdentifier.h"
-#include <wtf/Optional.h>
 
 namespace WebCore {
 
@@ -35,31 +34,6 @@ namespace WebCore {
 struct GlobalFrameIdentifier {
     PageIdentifier pageID;
     FrameIdentifier frameID;
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static Optional<GlobalFrameIdentifier> decode(Decoder&);
 };
-
-template<class Encoder>
-void GlobalFrameIdentifier::encode(Encoder& encoder) const
-{
-    encoder << pageID << frameID;
-}
-
-template<class Decoder>
-Optional<GlobalFrameIdentifier> GlobalFrameIdentifier::decode(Decoder& decoder)
-{
-    Optional<PageIdentifier> pageID;
-    decoder >> pageID;
-    if (!pageID)
-        return WTF::nullopt;
-
-    Optional<FrameIdentifier> frameID;
-    decoder >> frameID;
-    if (!frameID)
-        return WTF::nullopt;
-
-    return { { WTFMove(*pageID), WTFMove(*frameID) } };
-}
 
 } // namespace WebCore

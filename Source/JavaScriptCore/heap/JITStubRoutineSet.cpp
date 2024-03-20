@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,8 +29,12 @@
 #if ENABLE(JIT)
 
 #include "GCAwareJITStubRoutine.h"
+#include "HeapInlines.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace JSC {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(JITStubRoutineSet);
 
 JITStubRoutineSet::JITStubRoutineSet() { }
 JITStubRoutineSet::~JITStubRoutineSet()
@@ -40,8 +44,7 @@ JITStubRoutineSet::~JITStubRoutineSet()
         routine->m_mayBeExecuting = false;
         
         if (!routine->m_isJettisoned) {
-            // Inform the deref() routine that it should delete this guy as soon
-            // as the ref count reaches zero.
+            // Inform the deref() routine that it should delete this stub as soon as the ref count reaches zero.
             routine->m_isJettisoned = true;
             continue;
         }
@@ -52,6 +55,7 @@ JITStubRoutineSet::~JITStubRoutineSet()
 
 void JITStubRoutineSet::add(GCAwareJITStubRoutine* routine)
 {
+    RELEASE_ASSERT(!isCompilationThread());
     ASSERT(!routine->m_isJettisoned);
     
     m_routines.append(Routine {
@@ -94,7 +98,8 @@ void JITStubRoutineSet::markSlow(uintptr_t address)
     if (result) {
         auto markIfContained = [&] (const Routine& routine, uintptr_t address) {
             if (routine.startAddress <= address && address < routine.routine->endAddress()) {
-                routine.routine->m_mayBeExecuting = true;
+                if (!routine.routine->m_isCodeImmutable)
+                    routine.routine->m_mayBeExecuting = true;
                 return true;
             }
             return false;
@@ -113,22 +118,47 @@ void JITStubRoutineSet::markSlow(uintptr_t address)
     }
 }
 
-void JITStubRoutineSet::deleteUnmarkedJettisonedStubRoutines()
+void JITStubRoutineSet::deleteUnmarkedJettisonedStubRoutines(VM& vm)
 {
+    ASSERT(vm.heap.isInPhase(CollectorPhase::End));
     unsigned srcIndex = 0;
     unsigned dstIndex = srcIndex;
     while (srcIndex < m_routines.size()) {
         Routine routine = m_routines[srcIndex++];
-        if (!routine.routine->m_isJettisoned || routine.routine->m_mayBeExecuting) {
+        auto* stub = routine.routine;
+        if (!stub->m_ownerIsDead && stub->owner())
+            stub->m_ownerIsDead = !vm.heap.isMarked(stub->owner());
+
+        // If the stub is running right now, we should keep it alive regardless of whether owner CodeBlock gets dead.
+        // It is OK since we already marked all the related cells.
+        if (stub->m_mayBeExecuting) {
             m_routines[dstIndex++] = routine;
             continue;
         }
-        routine.routine->deleteFromGC();
+
+        // If the stub is already jettisoned, and if it is not executed right now, then we can safely destroy this right now
+        // since this is not reachable from dead CodeBlock (in CodeBlock's destructor), plus, this will not be executed later.
+        if (stub->m_isJettisoned) {
+            stub->deleteFromGC();
+            continue;
+        }
+
+        // If the owner is already dead, then this stub will not be executed. We should remove this from this set.
+        // But we should not call deleteFromGC here since unswept CodeBlock may still hold the reference to this stub.
+        if (stub->m_ownerIsDead) {
+            // Inform the deref() routine that it should delete this stub as soon as the ref count reaches zero.
+            stub->m_isJettisoned = true;
+            continue;
+        }
+
+        m_routines[dstIndex++] = routine;
+        continue;
     }
-    m_routines.shrink(dstIndex);
+    m_routines.shrinkCapacity(dstIndex);
 }
 
-void JITStubRoutineSet::traceMarkedStubRoutines(SlotVisitor& visitor)
+template<typename Visitor>
+void JITStubRoutineSet::traceMarkedStubRoutines(Visitor& visitor)
 {
     for (auto& entry : m_routines) {
         GCAwareJITStubRoutine* routine = entry.routine;
@@ -138,6 +168,9 @@ void JITStubRoutineSet::traceMarkedStubRoutines(SlotVisitor& visitor)
         routine->markRequiredObjects(visitor);
     }
 }
+
+template void JITStubRoutineSet::traceMarkedStubRoutines(AbstractSlotVisitor&);
+template void JITStubRoutineSet::traceMarkedStubRoutines(SlotVisitor&);
 
 } // namespace JSC
 

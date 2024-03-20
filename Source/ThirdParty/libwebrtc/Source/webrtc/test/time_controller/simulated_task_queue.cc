@@ -27,35 +27,37 @@ SimulatedTaskQueue::~SimulatedTaskQueue() {
 }
 
 void SimulatedTaskQueue::Delete() {
+  // Need to destroy the tasks outside of the lock because task destruction
+  // can lead to re-entry in SimulatedTaskQueue via custom destructors.
+  std::deque<absl::AnyInvocable<void() &&>> ready_tasks;
+  std::map<Timestamp, std::vector<absl::AnyInvocable<void() &&>>> delayed_tasks;
   {
-    rtc::CritScope lock(&lock_);
-    ready_tasks_.clear();
-    delayed_tasks_.clear();
+    MutexLock lock(&lock_);
+    ready_tasks_.swap(ready_tasks);
+    delayed_tasks_.swap(delayed_tasks);
   }
+  ready_tasks.clear();
+  delayed_tasks.clear();
   delete this;
 }
 
 void SimulatedTaskQueue::RunReady(Timestamp at_time) {
-  rtc::CritScope lock(&lock_);
+  MutexLock lock(&lock_);
   for (auto it = delayed_tasks_.begin();
        it != delayed_tasks_.end() && it->first <= at_time;
        it = delayed_tasks_.erase(it)) {
     for (auto& task : it->second) {
-      ready_tasks_.emplace_back(std::move(task));
+      ready_tasks_.push_back(std::move(task));
     }
   }
   CurrentTaskQueueSetter set_current(this);
   while (!ready_tasks_.empty()) {
-    std::unique_ptr<QueuedTask> ready = std::move(ready_tasks_.front());
+    absl::AnyInvocable<void()&&> ready = std::move(ready_tasks_.front());
     ready_tasks_.pop_front();
-    lock_.Leave();
-    bool delete_task = ready->Run();
-    if (delete_task) {
-      ready.reset();
-    } else {
-      ready.release();
-    }
-    lock_.Enter();
+    lock_.Unlock();
+    std::move(ready)();
+    ready = nullptr;
+    lock_.Lock();
   }
   if (!delayed_tasks_.empty()) {
     next_run_time_ = delayed_tasks_.begin()->first;
@@ -64,17 +66,21 @@ void SimulatedTaskQueue::RunReady(Timestamp at_time) {
   }
 }
 
-void SimulatedTaskQueue::PostTask(std::unique_ptr<QueuedTask> task) {
-  rtc::CritScope lock(&lock_);
-  ready_tasks_.emplace_back(std::move(task));
+void SimulatedTaskQueue::PostTaskImpl(absl::AnyInvocable<void() &&> task,
+                                      const PostTaskTraits& /*traits*/,
+                                      const Location& /*location*/) {
+  MutexLock lock(&lock_);
+  ready_tasks_.push_back(std::move(task));
   next_run_time_ = Timestamp::MinusInfinity();
 }
 
-void SimulatedTaskQueue::PostDelayedTask(std::unique_ptr<QueuedTask> task,
-                                         uint32_t milliseconds) {
-  rtc::CritScope lock(&lock_);
-  Timestamp target_time =
-      handler_->CurrentTime() + TimeDelta::Millis(milliseconds);
+void SimulatedTaskQueue::PostDelayedTaskImpl(
+    absl::AnyInvocable<void() &&> task,
+    TimeDelta delay,
+    const PostDelayedTaskTraits& /*traits*/,
+    const Location& /*location*/) {
+  MutexLock lock(&lock_);
+  Timestamp target_time = handler_->CurrentTime() + delay;
   delayed_tasks_[target_time].push_back(std::move(task));
   next_run_time_ = std::min(next_run_time_, target_time);
 }

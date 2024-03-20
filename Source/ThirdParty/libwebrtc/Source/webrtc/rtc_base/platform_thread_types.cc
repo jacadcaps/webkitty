@@ -15,6 +15,23 @@
 #include <sys/syscall.h>
 #endif
 
+#if defined(WEBRTC_WIN)
+#include "rtc_base/arraysize.h"
+
+// The SetThreadDescription API was brought in version 1607 of Windows 10.
+// For compatibility with various versions of winuser and avoid clashing with
+// a potentially defined type, we use the RTC_ prefix.
+typedef HRESULT(WINAPI* RTC_SetThreadDescription)(HANDLE hThread,
+                                                  PCWSTR lpThreadDescription);
+#endif
+
+#if defined(WEBRTC_FUCHSIA)
+#include <string.h>
+#include <zircon/syscalls.h>
+
+#include "rtc_base/checks.h"
+#endif
+
 namespace rtc {
 
 PlatformThreadId CurrentThreadId() {
@@ -58,6 +75,24 @@ bool IsThreadRefEqual(const PlatformThreadRef& a, const PlatformThreadRef& b) {
 
 void SetCurrentThreadName(const char* name) {
 #if defined(WEBRTC_WIN)
+  // The SetThreadDescription API works even if no debugger is attached.
+  // The names set with this API also show up in ETW traces. Very handy.
+  static auto set_thread_description_func =
+      reinterpret_cast<RTC_SetThreadDescription>(::GetProcAddress(
+          ::GetModuleHandleA("Kernel32.dll"), "SetThreadDescription"));
+  if (set_thread_description_func) {
+    // Convert from ASCII to UTF-16.
+    wchar_t wide_thread_name[64];
+    for (size_t i = 0; i < arraysize(wide_thread_name) - 1; ++i) {
+      wide_thread_name[i] = name[i];
+      if (wide_thread_name[i] == L'\0')
+        break;
+    }
+    // Guarantee null-termination.
+    wide_thread_name[arraysize(wide_thread_name) - 1] = L'\0';
+    set_thread_description_func(::GetCurrentThread(), wide_thread_name);
+  }
+
   // For details see:
   // https://docs.microsoft.com/en-us/visualstudio/debugger/how-to-set-a-thread-name-in-native-code
 #pragma pack(push, 8)
@@ -81,6 +116,10 @@ void SetCurrentThreadName(const char* name) {
   prctl(PR_SET_NAME, reinterpret_cast<unsigned long>(name));  // NOLINT
 #elif defined(WEBRTC_MAC) || defined(WEBRTC_IOS)
   pthread_setname_np(name);
+#elif defined(WEBRTC_FUCHSIA)
+  zx_status_t status = zx_object_set_property(zx_thread_self(), ZX_PROP_NAME,
+                                              name, strlen(name));
+  RTC_DCHECK_EQ(status, ZX_OK);
 #endif
 }
 

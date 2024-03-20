@@ -34,55 +34,51 @@ private:
     bool moveToNextToken() final { return true; }
     SVGPathSegType nextCommand(SVGPathSegType) final;
 
-    Optional<SVGPathSegType> parseSVGSegmentType() final;
-    Optional<MoveToSegment> parseMoveToSegment() final;
-    Optional<LineToSegment> parseLineToSegment() final;
-    Optional<LineToHorizontalSegment> parseLineToHorizontalSegment() final;
-    Optional<LineToVerticalSegment> parseLineToVerticalSegment() final;
-    Optional<CurveToCubicSegment> parseCurveToCubicSegment() final;
-    Optional<CurveToCubicSmoothSegment> parseCurveToCubicSmoothSegment() final;
-    Optional<CurveToQuadraticSegment> parseCurveToQuadraticSegment() final;
-    Optional<CurveToQuadraticSmoothSegment> parseCurveToQuadraticSmoothSegment() final;
-    Optional<ArcToSegment> parseArcToSegment() final;
+    std::optional<SVGPathSegType> parseSVGSegmentType() final;
+    std::optional<MoveToSegment> parseMoveToSegment() final;
+    std::optional<LineToSegment> parseLineToSegment() final;
+    std::optional<LineToHorizontalSegment> parseLineToHorizontalSegment() final;
+    std::optional<LineToVerticalSegment> parseLineToVerticalSegment() final;
+    std::optional<CurveToCubicSegment> parseCurveToCubicSegment() final;
+    std::optional<CurveToCubicSmoothSegment> parseCurveToCubicSmoothSegment() final;
+    std::optional<CurveToQuadraticSegment> parseCurveToQuadraticSegment() final;
+    std::optional<CurveToQuadraticSmoothSegment> parseCurveToQuadraticSmoothSegment() final;
+    std::optional<ArcToSegment> parseArcToSegment() final;
 
 #if COMPILER(MSVC)
 #pragma warning(disable: 4701)
 #endif
-    template<typename DataType, typename ByteType>
+    template<typename DataType>
     DataType readType()
     {
-        ByteType data;
-        size_t typeSize = sizeof(ByteType);
+        DataType data;
+        size_t dataSize = sizeof(DataType);
 
-        for (size_t i = 0; i < typeSize; ++i) {
-            ASSERT_WITH_SECURITY_IMPLICATION(m_streamCurrent < m_streamEnd);
-            data.bytes[i] = *m_streamCurrent;
-            ++m_streamCurrent;
-        }
-
-        return data.value;
+        ASSERT_WITH_SECURITY_IMPLICATION(m_streamCurrent + dataSize <= m_streamEnd);
+        memcpy(&data, m_streamCurrent, dataSize);
+        m_streamCurrent += dataSize;
+        return data;
     }
 
     bool readFlag()
     {
-        return readType<bool, BoolByte>();
+        return readType<bool>();
     }
 
     float readFloat()
     {
-        return readType<float, FloatByte>();
+        return readType<float>();
     }
 
-    unsigned short readSVGSegmentType()
+    SVGPathSegType readSVGSegmentType()
     {
-        return readType<unsigned short, UnsignedShortByte>();
+        static_assert(std::is_same_v<std::underlying_type_t<SVGPathSegType>, uint8_t>);
+        return static_cast<SVGPathSegType>(readType<uint8_t>());
     }
 
     FloatPoint readFloatPoint()
     {
-        float x = readType<float, FloatByte>();
-        float y = readType<float, FloatByte>();
-        return FloatPoint(x, y);
+        return readType<FloatPoint>();
     }
 
     SVGPathByteStream::DataIterator m_streamCurrent;

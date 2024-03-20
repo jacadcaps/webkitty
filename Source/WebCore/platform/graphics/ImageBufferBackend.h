@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc.  All rights reserved.
+ * Copyright (C) 2020-2022 Apple Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,113 +25,156 @@
 
 #pragma once
 
-#include "AlphaPremultiplication.h"
-#include "ColorSpace.h"
+#include "CopyImageOptions.h"
+#include "DestinationColorSpace.h"
 #include "FloatRect.h"
 #include "GraphicsTypesGL.h"
+#include "ImageBufferAllocator.h"
+#include "ImageBufferBackendParameters.h"
 #include "ImagePaintingOptions.h"
 #include "IntRect.h"
-#include "NativeImage.h"
+#include "PixelBufferFormat.h"
 #include "PlatformLayer.h"
+#include "RenderingMode.h"
 #include <wtf/RefPtr.h>
 #include <wtf/Vector.h>
 
+#if USE(CAIRO)
+#include "RefPtrCairo.h"
+#include <cairo.h>
+#endif
+
+namespace WTF {
+class TextStream;
+}
+
 namespace WebCore {
 
-class GraphicsContextGLOpenGL;
-class HostWindow;
+struct ImageBufferCreationContext;
+class GraphicsContext;
+class GraphicsContextGL;
+#if HAVE(IOSURFACE)
+class IOSurface;
+class IOSurfacePool;
+#endif
 class Image;
-class ImageData;
+class NativeImage;
+class PixelBuffer;
+class ProcessIdentity;
 
-enum BackingStoreCopy {
-    CopyBackingStore, // Guarantee subsequent draws don't affect the copy.
-    DontCopyBackingStore // Subsequent draws may affect the copy.
-};
-
-enum class PreserveResolution : uint8_t {
+enum class PreserveResolution : bool {
     No,
     Yes,
 };
 
-enum class ColorFormat : uint8_t {
-    RGBA,
-    BGRA
+enum class SetNonVolatileResult : uint8_t {
+    Valid,
+    Empty
+};
+
+enum class VolatilityState : uint8_t {
+    NonVolatile,
+    Volatile
+};
+
+class ThreadSafeImageBufferFlusher {
+    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_NONCOPYABLE(ThreadSafeImageBufferFlusher);
+public:
+    ThreadSafeImageBufferFlusher() = default;
+    virtual ~ThreadSafeImageBufferFlusher() = default;
+    virtual void flush() = 0;
+};
+
+class ImageBufferBackendSharing {
+public:
+    virtual ~ImageBufferBackendSharing() = default;
+    virtual bool isImageBufferBackendHandleSharing() const { return false; }
 };
 
 class ImageBufferBackend {
 public:
-    WEBCORE_EXPORT virtual ~ImageBufferBackend() = default;
+    using Parameters = ImageBufferBackendParameters;
 
-    WEBCORE_EXPORT static IntSize calculateBackendSize(const FloatSize&, float resolutionScale);
+    struct Info {
+        RenderingMode renderingMode;
+        bool canMapBackingStore;
+        AffineTransform baseTransform;
+        size_t memoryCost;
+        size_t externalMemoryCost;
+    };
 
-    virtual GraphicsContext& context() const = 0;
+    WEBCORE_EXPORT virtual ~ImageBufferBackend();
+
+    WEBCORE_EXPORT static size_t calculateMemoryCost(const IntSize& backendSize, unsigned bytesPerRow);
+    static size_t calculateExternalMemoryCost(const Parameters&) { return 0; }
+    WEBCORE_EXPORT static AffineTransform calculateBaseTransform(const Parameters&, bool originAtBottomLeftCorner);
+
+    virtual GraphicsContext& context() = 0;
     virtual void flushContext() { }
 
-    IntSize logicalSize() const { return m_logicalSize; }
-    IntSize backendSize() const { return m_backendSize; }
-    float resolutionScale() const { return m_resolutionScale; }
-    ColorSpace colorSpace() const { return m_colorSpace; }
-
-    virtual AffineTransform baseTransform() const { return AffineTransform(); }
-    virtual size_t memoryCost() const { return 4 * m_backendSize.area().unsafeGet(); }
-    virtual size_t externalMemoryCost() const { return 0; }
-
-    virtual NativeImagePtr copyNativeImage(BackingStoreCopy) const = 0;
-    virtual RefPtr<Image> copyImage(BackingStoreCopy, PreserveResolution) const = 0;
-
-    WEBCORE_EXPORT virtual void draw(GraphicsContext&, const FloatRect& destRect, const FloatRect& srcRect, const ImagePaintingOptions&) = 0;
-    WEBCORE_EXPORT virtual void drawPattern(GraphicsContext&, const FloatRect& destRect, const FloatRect& srcRect, const AffineTransform& patternTransform, const FloatPoint& phase, const FloatSize& spacing, const ImagePaintingOptions&) = 0;
-
-    WEBCORE_EXPORT virtual NativeImagePtr sinkIntoNativeImage();
-    WEBCORE_EXPORT virtual RefPtr<Image> sinkIntoImage(PreserveResolution);
-    WEBCORE_EXPORT virtual void drawConsuming(GraphicsContext& destContext, const FloatRect& destRect, const FloatRect& srcRect, const ImagePaintingOptions&);
+    virtual RefPtr<NativeImage> copyNativeImage() = 0;
+    virtual RefPtr<NativeImage> createNativeImageReference() = 0;
+    WEBCORE_EXPORT virtual RefPtr<NativeImage> sinkIntoNativeImage();
 
     WEBCORE_EXPORT void convertToLuminanceMask();
-    virtual void transformColorSpace(ColorSpace, ColorSpace) { }
+    virtual void transformToColorSpace(const DestinationColorSpace&) { }
 
-    virtual String toDataURL(const String& mimeType, Optional<double> quality, PreserveResolution) const = 0;
-    virtual Vector<uint8_t> toData(const String& mimeType, Optional<double> quality) const = 0;
-    virtual Vector<uint8_t> toBGRAData() const = 0;
+    virtual void getPixelBuffer(const IntRect& srcRect, PixelBuffer& destination) = 0;
+    virtual void putPixelBuffer(const PixelBuffer&, const IntRect& srcRect, const IntPoint& destPoint, AlphaPremultiplication destFormat) = 0;
 
-    virtual RefPtr<ImageData> getImageData(AlphaPremultiplication outputFormat, const IntRect&) const = 0;
-    virtual void putImageData(AlphaPremultiplication inputFormat, const ImageData&, const IntRect& srcRect, const IntPoint& destPoint, AlphaPremultiplication destFormat) = 0;
+#if HAVE(IOSURFACE)
+    virtual IOSurface* surface() { return nullptr; }
+#endif
 
-    virtual PlatformLayer* platformLayer() const { return nullptr; }
-    virtual bool copyToPlatformTexture(GraphicsContextGLOpenGL&, GCGLenum, PlatformGLObject, GCGLenum, bool, bool) const { return false; }
-    
-    virtual bool isAccelerated() const { return false; }
+#if USE(CAIRO)
+    virtual RefPtr<cairo_surface_t> createCairoSurface() { return nullptr; }
+#endif
+
+    virtual bool isInUse() const { return false; }
+    virtual void releaseGraphicsContext() { ASSERT_NOT_REACHED(); }
+
+    virtual void transferToNewContext(const ImageBufferCreationContext&) { }
+
+    // Returns true on success.
+    virtual bool setVolatile() { return true; }
+    virtual SetNonVolatileResult setNonVolatile() { return SetNonVolatileResult::Valid; }
+    virtual VolatilityState volatilityState() const { return VolatilityState::NonVolatile; }
+    virtual void setVolatilityState(VolatilityState) { }
+
+    virtual std::unique_ptr<ThreadSafeImageBufferFlusher> createFlusher() { return nullptr; }
+
+    static constexpr bool isOriginAtBottomLeftCorner = false;
+    virtual bool originAtBottomLeftCorner() const { return isOriginAtBottomLeftCorner; }
+
+    static constexpr bool canMapBackingStore = true;
+    static constexpr RenderingMode renderingMode = RenderingMode::Unaccelerated;
+
+    virtual void ensureNativeImagesHaveCopiedBackingStore() { }
+
+    virtual ImageBufferBackendSharing* toBackendSharing() { return nullptr; }
+
+    const Parameters& parameters() { return m_parameters; }
+
+    WEBCORE_EXPORT virtual String debugDescription() const = 0;
 
 protected:
-    WEBCORE_EXPORT ImageBufferBackend(const FloatSize& logicalSize, const IntSize& backendSize, float resolutionScale, ColorSpace);
+    WEBCORE_EXPORT ImageBufferBackend(const Parameters&);
 
-    virtual unsigned bytesPerRow() const { return 4 * m_backendSize.width(); }
-    virtual ColorFormat backendColorFormat() const { return ColorFormat::RGBA; }
+    virtual unsigned bytesPerRow() const = 0;
 
-    template<typename T>
-    T toBackendCoordinates(T t) const
-    {
-        static_assert(std::is_same<T, IntPoint>::value || std::is_same<T, IntSize>::value || std::is_same<T, IntRect>::value);
-        if (m_resolutionScale != 1)
-            t.scale(m_resolutionScale);
-        return t;
-    }
+    IntSize size() const { return m_parameters.backendSize; };
+    float resolutionScale() const { return m_parameters.resolutionScale; }
+    const DestinationColorSpace& colorSpace() const { return m_parameters.colorSpace; }
+    PixelFormat pixelFormat() const { return m_parameters.pixelFormat; }
 
-    IntRect logicalRect() const { return IntRect(IntPoint::zero(), m_logicalSize); };
-    IntRect backendRect() const { return IntRect(IntPoint::zero(), m_backendSize); };
+    WEBCORE_EXPORT void getPixelBuffer(const IntRect& srcRect, void* data, PixelBuffer& destination);
+    WEBCORE_EXPORT void putPixelBuffer(const PixelBuffer&, const IntRect& srcRect, const IntPoint& destPoint, AlphaPremultiplication destFormat, void* destination);
 
-    WEBCORE_EXPORT virtual void copyImagePixels(
-        AlphaPremultiplication srcAlphaFormat, ColorFormat srcColorFormat, unsigned srcBytesPerRow, uint8_t* srcRows,
-        AlphaPremultiplication destAlphaFormat, ColorFormat destColorFormat, unsigned destBytesPerRow, uint8_t* destRows, const IntSize&) const;
-
-    WEBCORE_EXPORT Vector<uint8_t> toBGRAData(void* data) const;
-
-    WEBCORE_EXPORT RefPtr<ImageData> getImageData(AlphaPremultiplication outputFormat, const IntRect& srcRect, void* data) const;
-    WEBCORE_EXPORT void putImageData(AlphaPremultiplication inputFormat, const ImageData&, const IntRect& srcRect, const IntPoint& destPoint, AlphaPremultiplication destFormat, void* data);
-
-    IntSize m_logicalSize;
-    IntSize m_backendSize;
-    float m_resolutionScale;
-    ColorSpace m_colorSpace;
+    Parameters m_parameters;
 };
+
+WEBCORE_EXPORT TextStream& operator<<(TextStream&, VolatilityState);
+WEBCORE_EXPORT TextStream& operator<<(TextStream&, const ImageBufferBackend&);
 
 } // namespace WebCore

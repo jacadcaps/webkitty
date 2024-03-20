@@ -34,19 +34,36 @@
 namespace WebCore {
 
 class SVGAttributeAnimator;
+class SVGConditionalProcessingAttributes;
+
+struct SVGAttributeHashTranslator {
+    static unsigned hash(const QualifiedName& key)
+    {
+        if (key.hasPrefix()) {
+            QualifiedNameComponents components = { nullAtom().impl(), key.localName().impl(), key.namespaceURI().impl() };
+            return computeHash(components);
+        }
+        return DefaultHash<QualifiedName>::hash(key);
+    }
+    static bool equal(const QualifiedName& a, const QualifiedName& b) { return a.matches(b); }
+
+    static constexpr bool safeToCompareToEmptyOrDeleted = false;
+    static constexpr bool hasHashInValue = true;
+};
 
 template<typename OwnerType, typename... BaseTypes>
 class SVGPropertyOwnerRegistry : public SVGPropertyRegistry {
+    WTF_MAKE_FAST_ALLOCATED;
 public:
     SVGPropertyOwnerRegistry(OwnerType& owner)
         : m_owner(owner)
     {
     }
 
-    template<const LazyNeverDestroyed<const QualifiedName>& attributeName, Ref<SVGStringList> OwnerType::*property>
-    static void registerProperty()
+    template<const LazyNeverDestroyed<const QualifiedName>& attributeName, Ref<SVGStringList> SVGConditionalProcessingAttributes::*property>
+    static void registerConditionalProcessingAttributeProperty()
     {
-        registerProperty(attributeName, SVGStringListAccessor<OwnerType>::template singleton<property>());
+        registerProperty(attributeName, SVGConditionalProcessingAttributeAccessor<OwnerType>::template singleton<property>());
     }
 
     template<const LazyNeverDestroyed<const QualifiedName>& attributeName, Ref<SVGTransformList> OwnerType::*property>
@@ -163,6 +180,16 @@ public:
         return enumerateRecursivelyBaseTypes(functor);
     }
 
+    template<typename Functor>
+    static bool lookupRecursivelyAndApply(const QualifiedName& attributeName, const Functor& functor)
+    {
+        if (auto* accessor = findAccessor(attributeName)) {
+            functor(*accessor);
+            return true;
+        }
+        return lookupRecursivelyAndApplyBaseTypes(attributeName, functor);
+    }
+
     // Returns true if OwnerType owns a property whose name is attributeName.
     static bool isKnownAttribute(const QualifiedName& attributeName)
     {
@@ -202,13 +229,10 @@ public:
         return attributeName;
     }
 
-    void setAnimatedPropertDirty(const QualifiedName& attributeName, SVGAnimatedProperty& animatedProperty) const override
+    void setAnimatedPropertyDirty(const QualifiedName& attributeName, SVGAnimatedProperty& animatedProperty) const override
     {
-        enumerateRecursively([&](const auto& entry) -> bool {
-            if (!entry.key.matches(attributeName))
-                return true;
-            entry.value->setDirty(m_owner, animatedProperty);
-            return false;
+        lookupRecursivelyAndApply(attributeName, [&](auto& accessor) {
+            accessor.setDirty(m_owner, animatedProperty);
         });
     }
 
@@ -223,14 +247,11 @@ public:
 
     // Finds the property whose name is attributeName and returns the synchronize
     // string through the associated SVGMemberAccessor.
-    Optional<String> synchronize(const QualifiedName& attributeName) const override
+    std::optional<String> synchronize(const QualifiedName& attributeName) const override
     {
-        Optional<String> value;
-        enumerateRecursively([&](const auto& entry) -> bool {
-            if (!entry.key.matches(attributeName))
-                return true;
-            value = entry.value->synchronize(m_owner);
-            return false;
+        std::optional<String> value;
+        lookupRecursivelyAndApply(attributeName, [&](auto& accessor) {
+            value = accessor.synchronize(m_owner);
         });
         return value;
     }
@@ -251,11 +272,8 @@ public:
     bool isAnimatedPropertyAttribute(const QualifiedName& attributeName) const override
     {
         bool isAnimatedPropertyAttribute = false;
-        enumerateRecursively([&attributeName, &isAnimatedPropertyAttribute](const auto& entry) -> bool {
-            if (!entry.key.matches(attributeName))
-                return true;
-            isAnimatedPropertyAttribute = entry.value->isAnimatedProperty();
-            return false;
+        lookupRecursivelyAndApply(attributeName, [&](auto& accessor) {
+            isAnimatedPropertyAttribute = accessor.isAnimatedProperty();
         });
         return isAnimatedPropertyAttribute;
     }
@@ -279,30 +297,26 @@ public:
     RefPtr<SVGAttributeAnimator> createAnimator(const QualifiedName& attributeName, AnimationMode animationMode, CalcMode calcMode, bool isAccumulated, bool isAdditive) const override
     {
         RefPtr<SVGAttributeAnimator> animator;
-        enumerateRecursively([&](const auto& entry) -> bool {
-            if (!entry.key.matches(attributeName))
-                return true;
-            animator = entry.value->createAnimator(m_owner, attributeName, animationMode, calcMode, isAccumulated, isAdditive);
-            return false;
+        lookupRecursivelyAndApply(attributeName, [&](auto& accessor) {
+            animator = accessor.createAnimator(m_owner, attributeName, animationMode, calcMode, isAccumulated, isAdditive);
         });
         return animator;
     }
 
     void appendAnimatedInstance(const QualifiedName& attributeName, SVGAttributeAnimator& animator) const override
     {
-        enumerateRecursively([&](const auto& entry) -> bool {
-            if (!entry.key.matches(attributeName))
-                return true;
-            entry.value->appendAnimatedInstance(m_owner, animator);
-            return false;
+        lookupRecursivelyAndApply(attributeName, [&](auto& accessor) {
+            accessor.appendAnimatedInstance(m_owner, animator);
         });
     }
 
 private:
     // Singleton map for every OwnerType.
-    static HashMap<QualifiedName, const SVGMemberAccessor<OwnerType>*>& attributeNameToAccessorMap()
+    using QualifiedNameAccessorHashMap = HashMap<QualifiedName, const SVGMemberAccessor<OwnerType>*, SVGAttributeHashTranslator>;
+
+    static QualifiedNameAccessorHashMap& attributeNameToAccessorMap()
     {
-        static NeverDestroyed<HashMap<QualifiedName, const SVGMemberAccessor<OwnerType>*>> attributeNameToAccessorMap;
+        static NeverDestroyed<QualifiedNameAccessorHashMap> attributeNameToAccessorMap;
         return attributeNameToAccessorMap;
     }
 
@@ -331,13 +345,22 @@ private:
 
     static const SVGMemberAccessor<OwnerType>* findAccessor(const QualifiedName& attributeName)
     {
-        // Here we need to loop through the entries in the map and use matches() to compare them with attributeName.
-        // m_map.contains() uses QualifiedName::operator==() which compares the impl pointers only while matches()
-        // compares the contents if the impl pointers differ.
-        auto it = std::find_if(attributeNameToAccessorMap().begin(), attributeNameToAccessorMap().end(), [&attributeName](const auto& entry) -> bool {
-            return entry.key.matches(attributeName);
-        });
+        auto it = attributeNameToAccessorMap().find(attributeName);
         return it != attributeNameToAccessorMap().end() ? it->value : nullptr;
+    }
+
+    template<typename Functor, size_t I = 0>
+    static typename std::enable_if<I == sizeof...(BaseTypes), bool>::type lookupRecursivelyAndApplyBaseTypes(const QualifiedName&, const Functor&) { return false; }
+
+    template<typename Functor, size_t I = 0>
+    static typename std::enable_if<I < sizeof...(BaseTypes), bool>::type lookupRecursivelyAndApplyBaseTypes(const QualifiedName& attributeName, const Functor& functor)
+    {
+        // Get the base type at index 'I' using std::tuple and std::tuple_element.
+        using BaseType = typename std::tuple_element<I, typename std::tuple<BaseTypes...>>::type;
+        if (BaseType::PropertyRegistry::lookupRecursivelyAndApply(attributeName, functor))
+            return true;
+        // BaseType does not want to break the recursion. So recurse to the next BaseType.
+        return lookupRecursivelyAndApplyBaseTypes<Functor, I + 1>(attributeName, functor);
     }
 
     OwnerType& m_owner;

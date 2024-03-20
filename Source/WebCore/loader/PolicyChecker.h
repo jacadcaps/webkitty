@@ -30,6 +30,7 @@
 #pragma once
 
 #include "FrameLoader.h"
+#include "LocalFrameLoaderClient.h"
 #include "ResourceRequest.h"
 #include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
@@ -47,31 +48,33 @@ namespace WebCore {
 
 class DocumentLoader;
 class FormState;
-class Frame;
+class HitTestResult;
+class LocalFrame;
 class NavigationAction;
 class ResourceError;
 class ResourceResponse;
+class URLKeepingBlobAlive;
 
 enum class NavigationPolicyDecision : uint8_t {
     ContinueLoad,
     IgnoreLoad,
-    StopAllLoads,
+    LoadWillContinueInAnotherProcess,
 };
 
 enum class PolicyDecisionMode { Synchronous, Asynchronous };
 
-class FrameLoader::PolicyChecker {
+class FrameLoader::PolicyChecker : public CanMakeWeakPtr<FrameLoader::PolicyChecker> {
     WTF_MAKE_NONCOPYABLE(PolicyChecker);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(Loader);
 public:
-    explicit PolicyChecker(Frame&);
+    explicit PolicyChecker(LocalFrame&);
 
     using NavigationPolicyDecisionFunction = CompletionHandler<void(ResourceRequest&&, WeakPtr<FormState>&&, NavigationPolicyDecision)>;
-    using NewWindowPolicyDecisionFunction = CompletionHandler<void(const ResourceRequest&, WeakPtr<FormState>&&, const String& frameName, const NavigationAction&, ShouldContinuePolicyCheck)>;
+    using NewWindowPolicyDecisionFunction = CompletionHandler<void(const ResourceRequest&, WeakPtr<FormState>&&, const AtomString& frameName, const NavigationAction&, ShouldContinuePolicyCheck)>;
 
     void checkNavigationPolicy(ResourceRequest&&, const ResourceResponse& redirectResponse, DocumentLoader*, RefPtr<FormState>&&, NavigationPolicyDecisionFunction&&, PolicyDecisionMode = PolicyDecisionMode::Asynchronous);
     void checkNavigationPolicy(ResourceRequest&&, const ResourceResponse& redirectResponse, NavigationPolicyDecisionFunction&&);
-    void checkNewWindowPolicy(NavigationAction&&, ResourceRequest&&, RefPtr<FormState>&&, const String& frameName, NewWindowPolicyDecisionFunction&&);
+    void checkNewWindowPolicy(NavigationAction&&, ResourceRequest&&, RefPtr<FormState>&&, const AtomString& frameName, NewWindowPolicyDecisionFunction&&);
 
     void stopCheck();
 
@@ -89,10 +92,14 @@ public:
 
 private:
     void handleUnimplementablePolicy(const ResourceError&);
-    WTF::CompletionHandlerCallingScope extendBlobURLLifetimeIfNecessary(ResourceRequest&, DocumentLoader*) const;
+    URLKeepingBlobAlive extendBlobURLLifetimeIfNecessary(const ResourceRequest&, const Document&, PolicyDecisionMode = PolicyDecisionMode::Asynchronous) const;
+    std::optional<HitTestResult> hitTestResult(const NavigationAction&);
 
-    Frame& m_frame;
+    Ref<LocalFrame> protectedFrame() const;
 
+    WeakRef<LocalFrame> m_frame;
+
+    uint64_t m_javaScriptURLPolicyCheckIdentifier { 0 };
     bool m_delegateIsDecidingNavigationPolicy;
     bool m_delegateIsHandlingUnimplementablePolicy;
 

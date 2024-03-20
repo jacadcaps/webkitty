@@ -33,10 +33,10 @@
 #include <cstdlib>
 #include <wtf/Assertions.h>
 #include <wtf/CheckedArithmetic.h>
+#include <wtf/Int128.h>
 #include <wtf/JSONValues.h>
 #include <wtf/MathExtras.h>
 #include <wtf/PrintStream.h>
-#include <wtf/text/StringBuilder.h>
 #include <wtf/text/TextStream.h>
 
 namespace WTF {
@@ -49,12 +49,8 @@ static uint32_t greatestCommonDivisor(uint32_t a, uint32_t b)
     ASSERT(b);
 
     // Euclid's Algorithm
-    uint32_t temp = 0;
-    while (b) {
-        temp = b;
-        b = a % b;
-        a = temp;
-    }
+    while (b)
+        b = std::exchange(a, b) % b;
 
     ASSERT(a);
     return a;
@@ -71,11 +67,6 @@ static int64_t signum(int64_t val)
 }
 
 const uint32_t MediaTime::MaximumTimeScale = 1000000000;
-
-MediaTime::MediaTime(const MediaTime& rhs)
-{
-    *this = rhs;
-}
 
 MediaTime MediaTime::createWithFloat(float floatTime)
 {
@@ -161,14 +152,6 @@ double MediaTime::toDouble() const
     if (hasDoubleValue())
         return m_timeValueAsDouble;
     return static_cast<double>(m_timeValue) / m_timeScale;
-}
-
-MediaTime& MediaTime::operator=(const MediaTime& rhs)
-{
-    m_timeValue = rhs.m_timeValue;
-    m_timeScale = rhs.m_timeScale;
-    m_timeFlags = rhs.m_timeFlags;
-    return *this;
 }
 
 MediaTime MediaTime::operator+(const MediaTime& rhs) const
@@ -304,13 +287,10 @@ MediaTime MediaTime::operator*(int32_t rhs) const
         return positiveInfiniteTime();
     }
 
+    if (hasDoubleValue())
+        return MediaTime::createWithDouble(m_timeValueAsDouble * rhs);
+
     MediaTime a = *this;
-
-    if (a.hasDoubleValue()) {
-        a.m_timeValueAsDouble *= rhs;
-        return a;
-    }
-
     while (!safeMultiply(a.m_timeValue, rhs, a.m_timeValue)) {
         if (a.m_timeScale == 1)
             return signum(a.m_timeValue) == signum(rhs) ? positiveInfiniteTime() : negativeInfiniteTime();
@@ -489,9 +469,8 @@ void MediaTime::setTimeScale(uint32_t timeScale, RoundingFlags flags)
 
     timeScale = std::min(MaximumTimeScale, timeScale);
 
-#if HAVE(INT128_T)
-    __int128_t newValue = static_cast<__int128_t>(m_timeValue) * timeScale;
-    int64_t remainder = newValue % m_timeScale;
+    Int128 newValue = static_cast<Int128>(m_timeValue) * timeScale;
+    int64_t remainder = static_cast<int64_t>(newValue % m_timeScale);
     newValue = newValue / m_timeScale;
 
     if (newValue < std::numeric_limits<int64_t>::min()) {
@@ -503,19 +482,8 @@ void MediaTime::setTimeScale(uint32_t timeScale, RoundingFlags flags)
         *this = positiveInfiniteTime();
         return;
     }
-#else
-    int64_t newValue = m_timeValue / m_timeScale;
-    int64_t partialRemainder = (m_timeValue % m_timeScale) * timeScale;
-    int64_t remainder = partialRemainder % m_timeScale;
 
-    if (!safeMultiply<int64_t>(newValue, static_cast<int64_t>(timeScale), newValue)
-        || !safeAdd(newValue, partialRemainder / m_timeScale, newValue)) {
-        *this = newValue < 0 ? negativeInfiniteTime() : positiveInfiniteTime();
-        return;
-    }
-#endif
-
-    m_timeValue = newValue;
+    m_timeValue = static_cast<int64_t>(newValue);
     std::swap(m_timeScale, timeScale);
 
     if (!remainder)
@@ -565,15 +533,10 @@ void MediaTime::dump(PrintStream& out) const
 
 String MediaTime::toString() const
 {
-    StringBuilder builder;
-    builder.append('{');
-    if (!hasDoubleValue())
-        builder.append(m_timeValue, '/', m_timeScale, " = ");
-    builder.append(toDouble());
-    if (isInvalid())
-        builder.appendLiteral(", invalid");
-    builder.append('}');
-    return builder.toString();
+    auto invalid = isInvalid() ? ", invalid"_s : ""_s;
+    if (hasDoubleValue())
+        return makeString('{', toDouble(), invalid, '}');
+    return makeString('{', m_timeValue, '/', m_timeScale, " = "_s, toDouble(), invalid, '}');
 }
 
 Ref<JSON::Object> MediaTime::toJSONObject() const
@@ -615,7 +578,7 @@ MediaTime abs(const MediaTime& rhs)
     if (rhs.isNegativeInfinite() || rhs.isPositiveInfinite())
         return MediaTime::positiveInfiniteTime();
     if (rhs.hasDoubleValue())
-        return MediaTime::createWithDouble(fabs(rhs.m_timeValueAsDouble));
+        return MediaTime::createWithDouble(std::abs(rhs.m_timeValueAsDouble));
 
     MediaTime val = rhs;
     val.m_timeValue = std::abs(rhs.m_timeValue);
@@ -632,13 +595,9 @@ String MediaTimeRange::toJSONString() const
     return object->toJSONString();
 }
 
-#ifndef NDEBUG
-
 TextStream& operator<<(TextStream& stream, const MediaTime& time)
 {
     return stream << time.toJSONString();
 }
-
-#endif
 
 }

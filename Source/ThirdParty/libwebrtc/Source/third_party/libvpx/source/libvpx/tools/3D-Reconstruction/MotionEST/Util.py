@@ -1,4 +1,12 @@
-#!/usr/bin/env python
+##  Copyright (c) 2020 The WebM project authors. All Rights Reserved.
+##
+##  Use of this source code is governed by a BSD-style license
+##  that can be found in the LICENSE file in the root of the source
+##  tree. An additional intellectual property rights grant can be found
+##  in the file PATENTS.  All contributing project authors may
+##  be found in the AUTHORS file in the root of the source tree.
+##
+
 # coding: utf-8
 import numpy as np
 import numpy.linalg as LA
@@ -10,7 +18,7 @@ from PIL import Image, ImageDraw
 def MSE(blk1, blk2):
   return np.mean(
       LA.norm(
-          np.array(blk1, dtype=np.int) - np.array(blk2, dtype=np.int), axis=2))
+          np.array(blk1, dtype=int) - np.array(blk2, dtype=int), axis=2))
 
 
 def drawMF(img, blk_sz, mf):

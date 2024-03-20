@@ -27,9 +27,11 @@
 #include "libANGLE/formatutils.h"
 #include "libANGLE/renderer/d3d/CompilerD3D.h"
 #include "libANGLE/renderer/d3d/DeviceD3D.h"
+#include "libANGLE/renderer/d3d/DisplayD3D.h"
 #include "libANGLE/renderer/d3d/FramebufferD3D.h"
 #include "libANGLE/renderer/d3d/IndexDataManager.h"
 #include "libANGLE/renderer/d3d/ProgramD3D.h"
+#include "libANGLE/renderer/d3d/ProgramExecutableD3D.h"
 #include "libANGLE/renderer/d3d/RenderbufferD3D.h"
 #include "libANGLE/renderer/d3d/ShaderD3D.h"
 #include "libANGLE/renderer/d3d/SurfaceD3D.h"
@@ -51,6 +53,8 @@
 #include "libANGLE/renderer/d3d/d3d9/VertexBuffer9.h"
 #include "libANGLE/renderer/d3d/d3d9/formatutils9.h"
 #include "libANGLE/renderer/d3d/d3d9/renderer9_utils.h"
+#include "libANGLE/renderer/d3d/driver_utils_d3d.h"
+#include "libANGLE/renderer/driver_utils.h"
 #include "libANGLE/trace.h"
 
 #if !defined(ANGLE_COMPILE_OPTIMIZATION_LEVEL)
@@ -153,6 +157,11 @@ Renderer9::Renderer9(egl::Display *display) : RendererD3D(display), mStateManage
     gl::InitializeDebugAnnotations(&mAnnotator);
 }
 
+void Renderer9::setGlobalDebugAnnotator()
+{
+    gl::InitializeDebugAnnotations(&mAnnotator);
+}
+
 Renderer9::~Renderer9()
 {
     if (mDevice)
@@ -209,7 +218,7 @@ egl::Error Renderer9::initialize()
     // inclined to report a lost context, for example when the user switches
     // desktop. Direct3D9Ex is available in Windows Vista and later if suitable drivers are
     // available.
-    if (ANGLE_D3D9EX == ANGLE_ENABLED && Direct3DCreate9ExPtr &&
+    if (static_cast<bool>(ANGLE_D3D9EX) && Direct3DCreate9ExPtr &&
         SUCCEEDED(Direct3DCreate9ExPtr(D3D_SDK_VERSION, &mD3d9Ex)))
     {
         ANGLE_TRACE_EVENT0("gpu.angle", "D3d9Ex_QueryInterface");
@@ -515,7 +524,7 @@ egl::ConfigSet Renderer9::generateConfigs()
                     egl::Config config;
                     config.renderTargetFormat = colorBufferInternalFormat;
                     config.depthStencilFormat = depthStencilBufferInternalFormat;
-                    config.bufferSize         = colorBufferFormatInfo.pixelBytes * 8;
+                    config.bufferSize         = colorBufferFormatInfo.getEGLConfigBufferSize();
                     config.redSize            = colorBufferFormatInfo.redBits;
                     config.greenSize          = colorBufferFormatInfo.greenBits;
                     config.blueSize           = colorBufferFormatInfo.blueBits;
@@ -582,22 +591,22 @@ void Renderer9::generateDisplayExtensions(egl::DisplayExtensions *outExtensions)
     outExtensions->querySurfacePointer = true;
     outExtensions->windowFixedSize     = true;
     outExtensions->postSubBuffer       = true;
-    outExtensions->deviceQuery         = true;
 
     outExtensions->image               = true;
     outExtensions->imageBase           = true;
     outExtensions->glTexture2DImage    = true;
     outExtensions->glRenderbufferImage = true;
 
-    outExtensions->flexibleSurfaceCompatibility = true;
+    outExtensions->noConfigContext = true;
 
-    // Contexts are virtualized so textures can be shared globally
-    outExtensions->displayTextureShareGroup = true;
+    // Contexts are virtualized so textures and semaphores can be shared globally
+    outExtensions->displayTextureShareGroup   = true;
+    outExtensions->displaySemaphoreShareGroup = true;
 
     // D3D9 can be used without an output surface
     outExtensions->surfacelessContext = true;
 
-    outExtensions->robustResourceInitialization = true;
+    outExtensions->robustResourceInitializationANGLE = true;
 }
 
 void Renderer9::startScene()
@@ -666,7 +675,7 @@ angle::Result Renderer9::finish(const gl::Context *context)
     while (result == S_FALSE)
     {
         // Keep polling, but allow other threads to do something useful first
-        ScheduleYield();
+        std::this_thread::yield();
 
         result = query->GetData(nullptr, 0, D3DGETDATA_FLUSH);
         attempt++;
@@ -726,7 +735,8 @@ egl::Error Renderer9::getD3DTextureInfo(const egl::Config *configuration,
                                         EGLint *height,
                                         GLsizei *samples,
                                         gl::Format *glFormat,
-                                        const angle::Format **angleFormat) const
+                                        const angle::Format **angleFormat,
+                                        UINT *arraySlice) const
 {
     IDirect3DTexture9 *texture = nullptr;
     if (FAILED(d3dTexture->QueryInterface(&texture)))
@@ -795,6 +805,11 @@ egl::Error Renderer9::getD3DTextureInfo(const egl::Config *configuration,
         *angleFormat = &d3dFormatInfo.info();
     }
 
+    if (arraySlice)
+    {
+        *arraySlice = 0;
+    }
+
     return egl::NoError();
 }
 
@@ -816,8 +831,8 @@ egl::Error Renderer9::validateShareHandle(const egl::Config *config,
 
     IDirect3DTexture9 *texture = nullptr;
     HRESULT result             = mDevice->CreateTexture(width, height, 1, D3DUSAGE_RENDERTARGET,
-                                            backBufferd3dFormatInfo.texFormat, D3DPOOL_DEFAULT,
-                                            &texture, &shareHandle);
+                                                        backBufferd3dFormatInfo.texFormat, D3DPOOL_DEFAULT,
+                                                        &texture, &shareHandle);
     if (FAILED(result))
     {
         return egl::EglBadParameter() << "Failed to open share handle, " << gl::FmtHR(result);
@@ -1005,16 +1020,59 @@ angle::Result Renderer9::setSamplerState(const gl::Context *context,
         mDevice->SetSamplerState(d3dSampler, D3DSAMP_MIPFILTER, d3dMipFilter);
         mDevice->SetSamplerState(d3dSampler, D3DSAMP_MAXMIPLEVEL, baseLevel);
         mDevice->SetSamplerState(d3dSampler, D3DSAMP_MIPMAPLODBIAS, static_cast<DWORD>(lodBias));
-        if (getNativeExtensions().textureFilterAnisotropic)
+        if (getNativeExtensions().textureFilterAnisotropicEXT)
         {
             DWORD maxAnisotropy = std::min(mDeviceCaps.MaxAnisotropy,
                                            static_cast<DWORD>(samplerState.getMaxAnisotropy()));
             mDevice->SetSamplerState(d3dSampler, D3DSAMP_MAXANISOTROPY, maxAnisotropy);
         }
 
-        ASSERT(texture->getBorderColor().type == angle::ColorGeneric::Type::Float);
-        mDevice->SetSamplerState(d3dSampler, D3DSAMP_BORDERCOLOR,
-                                 gl_d3d9::ConvertColor(texture->getBorderColor().colorF));
+        const gl::InternalFormat &info =
+            gl::GetSizedInternalFormatInfo(textureD3D->getBaseLevelInternalFormat());
+
+        mDevice->SetSamplerState(d3dSampler, D3DSAMP_SRGBTEXTURE, info.colorEncoding == GL_SRGB);
+
+        if (samplerState.usesBorderColor())
+        {
+            angle::ColorGeneric borderColor = texture->getBorderColor();
+            ASSERT(borderColor.type == angle::ColorGeneric::Type::Float);
+
+            // Enforce opaque alpha for opaque formats, excluding DXT1 RGBA as it has no bits info.
+            if (info.alphaBits == 0 && info.componentCount < 4)
+            {
+                borderColor.colorF.alpha = 1.0f;
+            }
+
+            if (info.isLUMA())
+            {
+                if (info.luminanceBits == 0)
+                {
+                    borderColor.colorF.red = 0.0f;
+                }
+                // Older Intel drivers use RGBA border color when sampling from D3DFMT_A8L8.
+                // However, some recent Intel drivers sample alpha from green border channel
+                // when using this format. Assume the old behavior because newer GPUs should
+                // use D3D11 anyway.
+                borderColor.colorF.green = borderColor.colorF.red;
+                borderColor.colorF.blue  = borderColor.colorF.red;
+            }
+
+            D3DCOLOR d3dBorderColor;
+            if (info.colorEncoding == GL_SRGB && getFeatures().borderColorSrgb.enabled)
+            {
+                d3dBorderColor =
+                    D3DCOLOR_RGBA(gl::linearToSRGB(gl::clamp01(borderColor.colorF.red)),
+                                  gl::linearToSRGB(gl::clamp01(borderColor.colorF.green)),
+                                  gl::linearToSRGB(gl::clamp01(borderColor.colorF.blue)),
+                                  gl::unorm<8>(borderColor.colorF.alpha));
+            }
+            else
+            {
+                d3dBorderColor = gl_d3d9::ConvertColor(borderColor.colorF);
+            }
+
+            mDevice->SetSamplerState(d3dSampler, D3DSAMP_BORDERCOLOR, d3dBorderColor);
+        }
     }
 
     appliedSampler.forceSet     = false;
@@ -1102,6 +1160,9 @@ angle::Result Renderer9::updateState(const gl::Context *context, gl::PrimitiveMo
         ANGLE_TRY(firstColorAttachment->getRenderTarget(context, firstColorAttachment->getSamples(),
                                                         &renderTarget));
         samples = renderTarget->getSamples();
+
+        mDevice->SetRenderState(D3DRS_SRGBWRITEENABLE,
+                                renderTarget->getInternalFormat() == GL_SRGB8_ALPHA8);
     }
     gl::RasterizerState rasterizer = glState.getRasterizerState();
     rasterizer.pointDrawMode       = (drawMode == gl::PrimitiveMode::Points);
@@ -1256,9 +1317,8 @@ angle::Result Renderer9::applyRenderTarget(const gl::Context *context,
     }
     ASSERT(colorRenderTarget != nullptr);
 
-    size_t renderTargetWidth     = 0;
-    size_t renderTargetHeight    = 0;
-    D3DFORMAT renderTargetFormat = D3DFMT_UNKNOWN;
+    size_t renderTargetWidth  = 0;
+    size_t renderTargetHeight = 0;
 
     bool renderTargetChanged        = false;
     unsigned int renderTargetSerial = colorRenderTarget->getSerial();
@@ -1273,7 +1333,6 @@ angle::Result Renderer9::applyRenderTarget(const gl::Context *context,
 
         renderTargetWidth  = colorRenderTarget->getWidth();
         renderTargetHeight = colorRenderTarget->getHeight();
-        renderTargetFormat = colorRenderTarget->getD3DFormat();
 
         mAppliedRenderTargetSerial = renderTargetSerial;
         renderTargetChanged        = true;
@@ -1340,7 +1399,7 @@ angle::Result Renderer9::applyVertexBuffer(const gl::Context *context,
                                                     instances));
 
     return mVertexDeclarationCache.applyDeclaration(context, mDevice, mTranslatedAttribCache,
-                                                    state.getProgram(), first, instances,
+                                                    state.getProgramExecutable(), first, instances,
                                                     &mRepeatDraw);
 }
 
@@ -1728,24 +1787,28 @@ angle::Result Renderer9::getCountingIB(const gl::Context *context,
 
 angle::Result Renderer9::applyShaders(const gl::Context *context, gl::PrimitiveMode drawMode)
 {
-    const gl::State &state   = context->getState();
-    d3d::Context *contextD3D = GetImplAs<ContextD3D>(context);
+    const gl::State &state = context->getState();
+    Context9 *context9     = GetImplAs<Context9>(context);
+    RendererD3D *renderer  = context9->getRenderer();
 
     // This method is called single-threaded.
-    ANGLE_TRY(ensureHLSLCompilerInitialized(contextD3D));
+    ANGLE_TRY(ensureHLSLCompilerInitialized(context9));
 
-    ProgramD3D *programD3D = GetImplAs<ProgramD3D>(state.getProgram());
-    VertexArray9 *vao      = GetImplAs<VertexArray9>(state.getVertexArray());
-    programD3D->updateCachedInputLayout(vao->getCurrentStateSerial(), state);
+    ProgramExecutableD3D *executableD3D =
+        GetImplAs<ProgramExecutableD3D>(state.getProgramExecutable());
+    VertexArray9 *vao = GetImplAs<VertexArray9>(state.getVertexArray());
+    executableD3D->updateCachedInputLayout(renderer, vao->getCurrentStateSerial(), state);
 
     ShaderExecutableD3D *vertexExe = nullptr;
-    ANGLE_TRY(programD3D->getVertexExecutableForCachedInputLayout(contextD3D, &vertexExe, nullptr));
+    ANGLE_TRY(executableD3D->getVertexExecutableForCachedInputLayout(context9, renderer, &vertexExe,
+                                                                     nullptr));
 
     const gl::Framebuffer *drawFramebuffer = state.getDrawFramebuffer();
-    programD3D->updateCachedOutputLayout(context, drawFramebuffer);
+    executableD3D->updateCachedOutputLayout(context, drawFramebuffer);
 
     ShaderExecutableD3D *pixelExe = nullptr;
-    ANGLE_TRY(programD3D->getPixelExecutableForCachedOutputLayout(contextD3D, &pixelExe, nullptr));
+    ANGLE_TRY(executableD3D->getPixelExecutableForCachedOutputLayout(context9, renderer, &pixelExe,
+                                                                     nullptr));
 
     IDirect3DVertexShader9 *vertexShader =
         (vertexExe ? GetAs<ShaderExecutable9>(vertexExe)->getVertexShader() : nullptr);
@@ -1769,15 +1832,15 @@ angle::Result Renderer9::applyShaders(const gl::Context *context, gl::PrimitiveM
     // per-program, checking the program serial guarantees we upload fresh
     // uniform data even if our shader pointers are the same.
     // https://code.google.com/p/angleproject/issues/detail?id=661
-    unsigned int programSerial = programD3D->getSerial();
+    unsigned int programSerial = executableD3D->getSerial();
     if (programSerial != mAppliedProgramSerial)
     {
-        programD3D->dirtyAllUniforms();
+        executableD3D->dirtyAllUniforms();
         mStateManager.forceSetDXUniformsState();
         mAppliedProgramSerial = programSerial;
     }
 
-    applyUniforms(programD3D);
+    applyUniforms(executableD3D);
 
     // Driver uniforms
     mStateManager.setShaderConstants();
@@ -1785,15 +1848,15 @@ angle::Result Renderer9::applyShaders(const gl::Context *context, gl::PrimitiveM
     return angle::Result::Continue;
 }
 
-void Renderer9::applyUniforms(ProgramD3D *programD3D)
+void Renderer9::applyUniforms(ProgramExecutableD3D *executableD3D)
 {
     // Skip updates if we're not dirty. Note that D3D9 cannot have compute or geometry.
-    if (!programD3D->anyShaderUniformsDirty())
+    if (!executableD3D->anyShaderUniformsDirty())
     {
         return;
     }
 
-    const auto &uniformArray = programD3D->getD3DUniforms();
+    const auto &uniformArray = executableD3D->getD3DUniforms();
 
     for (const D3DUniform *targetUniform : uniformArray)
     {
@@ -1838,7 +1901,7 @@ void Renderer9::applyUniforms(ProgramD3D *programD3D)
         }
     }
 
-    programD3D->markUniformsClean();
+    executableD3D->markUniformsClean();
 }
 
 void Renderer9::applyUniformnfv(const D3DUniform *targetUniform, const GLfloat *v)
@@ -2301,7 +2364,7 @@ bool Renderer9::isRemovedDeviceResettable() const
 {
     bool success = false;
 
-#if ANGLE_D3D9EX == ANGLE_ENABLED
+#if ANGLE_D3D9EX
     IDirect3D9Ex *d3d9Ex = nullptr;
     typedef HRESULT(WINAPI * Direct3DCreate9ExFunc)(UINT, IDirect3D9Ex **);
     Direct3DCreate9ExFunc Direct3DCreate9ExPtr =
@@ -2384,7 +2447,7 @@ unsigned int Renderer9::getReservedFragmentUniformVectors() const
 bool Renderer9::getShareHandleSupport() const
 {
     // PIX doesn't seem to support using share handles, so disable them.
-    return (mD3d9Ex != nullptr) && !gl::DebugAnnotationsActive();
+    return (mD3d9Ex != nullptr) && !gl::DebugAnnotationsActive(/*context=*/nullptr);
 }
 
 int Renderer9::getMajorShaderModel() const
@@ -2650,7 +2713,7 @@ angle::Result Renderer9::compileToExecutable(d3d::Context *context,
                                              gl::ShaderType type,
                                              const std::vector<D3DVarying> &streamOutVaryings,
                                              bool separatedOutputBuffers,
-                                             const angle::CompilerWorkaroundsD3D &workarounds,
+                                             const CompilerWorkaroundsD3D &workarounds,
                                              ShaderExecutableD3D **outExectuable)
 {
     // Transform feedback is not supported in ES2 or D3D9
@@ -2687,7 +2750,7 @@ angle::Result Renderer9::compileToExecutable(d3d::Context *context,
         flags = D3DCOMPILE_OPTIMIZATION_LEVEL3;
     }
 
-    if (gl::DebugAnnotationsActive())
+    if (gl::DebugAnnotationsActive(/*context=*/nullptr))
     {
 #ifndef NDEBUG
         flags = D3DCOMPILE_SKIP_OPTIMIZATION;
@@ -2854,52 +2917,68 @@ angle::Result Renderer9::copyImage(const gl::Context *context,
                              unpackPremultiplyAlpha, unpackUnmultiplyAlpha);
 }
 
-TextureStorage *Renderer9::createTextureStorage2D(SwapChainD3D *swapChain)
+TextureStorage *Renderer9::createTextureStorage2D(SwapChainD3D *swapChain, const std::string &label)
 {
     SwapChain9 *swapChain9 = GetAs<SwapChain9>(swapChain);
-    return new TextureStorage9_2D(this, swapChain9);
+    return new TextureStorage9_2D(this, swapChain9, label);
 }
 
 TextureStorage *Renderer9::createTextureStorageEGLImage(EGLImageD3D *eglImage,
-                                                        RenderTargetD3D *renderTargetD3D)
+                                                        RenderTargetD3D *renderTargetD3D,
+                                                        const std::string &label)
 {
-    return new TextureStorage9_EGLImage(this, eglImage, GetAs<RenderTarget9>(renderTargetD3D));
+    return new TextureStorage9_EGLImage(this, eglImage, GetAs<RenderTarget9>(renderTargetD3D),
+                                        label);
+}
+
+TextureStorage *Renderer9::createTextureStorageBuffer(
+    const gl::OffsetBindingPointer<gl::Buffer> &buffer,
+    GLenum internalFormat,
+    const std::string &label)
+{
+    UNREACHABLE();
+    return nullptr;
 }
 
 TextureStorage *Renderer9::createTextureStorageExternal(
     egl::Stream *stream,
-    const egl::Stream::GLTextureDescription &desc)
+    const egl::Stream::GLTextureDescription &desc,
+    const std::string &label)
 {
     UNIMPLEMENTED();
     return nullptr;
 }
 
 TextureStorage *Renderer9::createTextureStorage2D(GLenum internalformat,
-                                                  bool renderTarget,
+                                                  BindFlags bindFlags,
                                                   GLsizei width,
                                                   GLsizei height,
                                                   int levels,
+                                                  const std::string &label,
                                                   bool hintLevelZeroOnly)
 {
-    return new TextureStorage9_2D(this, internalformat, renderTarget, width, height, levels);
+    return new TextureStorage9_2D(this, internalformat, bindFlags.renderTarget, width, height,
+                                  levels, label);
 }
 
 TextureStorage *Renderer9::createTextureStorageCube(GLenum internalformat,
-                                                    bool renderTarget,
+                                                    BindFlags bindFlags,
                                                     int size,
                                                     int levels,
-                                                    bool hintLevelZeroOnly)
+                                                    bool hintLevelZeroOnly,
+                                                    const std::string &label)
 {
-    return new TextureStorage9_Cube(this, internalformat, renderTarget, size, levels,
-                                    hintLevelZeroOnly);
+    return new TextureStorage9_Cube(this, internalformat, bindFlags.renderTarget, size, levels,
+                                    hintLevelZeroOnly, label);
 }
 
 TextureStorage *Renderer9::createTextureStorage3D(GLenum internalformat,
-                                                  bool renderTarget,
+                                                  BindFlags bindFlags,
                                                   GLsizei width,
                                                   GLsizei height,
                                                   GLsizei depth,
-                                                  int levels)
+                                                  int levels,
+                                                  const std::string &label)
 {
     // 3D textures are not supported by the D3D9 backend.
     UNREACHABLE();
@@ -2908,11 +2987,12 @@ TextureStorage *Renderer9::createTextureStorage3D(GLenum internalformat,
 }
 
 TextureStorage *Renderer9::createTextureStorage2DArray(GLenum internalformat,
-                                                       bool renderTarget,
+                                                       BindFlags bindFlags,
                                                        GLsizei width,
                                                        GLsizei height,
                                                        GLsizei depth,
-                                                       int levels)
+                                                       int levels,
+                                                       const std::string &label)
 {
     // 2D array textures are not supported by the D3D9 backend.
     UNREACHABLE();
@@ -2925,7 +3005,8 @@ TextureStorage *Renderer9::createTextureStorage2DMultisample(GLenum internalform
                                                              GLsizei height,
                                                              int levels,
                                                              int samples,
-                                                             bool fixedSampleLocations)
+                                                             bool fixedSampleLocations,
+                                                             const std::string &label)
 {
     // 2D multisampled textures are not supported by the D3D9 backend.
     UNREACHABLE();
@@ -2939,7 +3020,8 @@ TextureStorage *Renderer9::createTextureStorage2DMultisampleArray(GLenum interna
                                                                   GLsizei depth,
                                                                   int levels,
                                                                   int samples,
-                                                                  bool fixedSampleLocations)
+                                                                  bool fixedSampleLocations,
+                                                                  const std::string &label)
 {
     // 2D multisampled textures are not supported by the D3D9 backend.
     UNREACHABLE();
@@ -3013,7 +3095,8 @@ angle::Result Renderer9::getVertexSpaceRequired(const gl::Context *context,
 void Renderer9::generateCaps(gl::Caps *outCaps,
                              gl::TextureCapsMap *outTextureCaps,
                              gl::Extensions *outExtensions,
-                             gl::Limitations *outLimitations) const
+                             gl::Limitations *outLimitations,
+                             ShPixelLocalStorageOptions *outPLSOptions) const
 {
     d3d9_gl::GenerateCaps(mD3d9, mDevice, mDeviceType, mAdapter, outCaps, outTextureCaps,
                           outExtensions, outLimitations);
@@ -3021,11 +3104,20 @@ void Renderer9::generateCaps(gl::Caps *outCaps,
 
 void Renderer9::initializeFeatures(angle::FeaturesD3D *features) const
 {
+    ApplyFeatureOverrides(features, mDisplay->getState());
     if (!mDisplay->getState().featuresAllDisabled)
     {
-        d3d9::InitializeFeatures(features);
+        d3d9::InitializeFeatures(features, mAdapterIdentifier.VendorId);
     }
+}
+
+void Renderer9::initializeFrontendFeatures(angle::FrontendFeatures *features) const
+{
     ApplyFeatureOverrides(features, mDisplay->getState());
+    if (!mDisplay->getState().featuresAllDisabled)
+    {
+        d3d9::InitializeFrontendFeatures(features, mAdapterIdentifier.VendorId);
+    }
 }
 
 DeviceImpl *Renderer9::createEGLDevice()
@@ -3045,12 +3137,15 @@ angle::Result Renderer9::genericDrawElements(const gl::Context *context,
                                              GLsizei instances)
 {
     const gl::State &state = context->getState();
-    gl::Program *program   = context->getState().getProgram();
-    ASSERT(program != nullptr);
-    ProgramD3D *programD3D = GetImplAs<ProgramD3D>(program);
-    bool usesPointSize     = programD3D->usesPointSize();
+    ProgramExecutableD3D *executableD3D =
+        GetImplAs<ProgramExecutableD3D>(state.getProgramExecutable());
+    ASSERT(executableD3D != nullptr);
+    bool usesPointSize = executableD3D->usesPointSize();
 
-    programD3D->updateSamplerMapping();
+    if (executableD3D->isSamplerMappingDirty())
+    {
+        executableD3D->updateSamplerMapping();
+    }
 
     if (!applyPrimitiveType(mode, count, usesPointSize))
     {
@@ -3075,12 +3170,16 @@ angle::Result Renderer9::genericDrawArrays(const gl::Context *context,
                                            GLsizei count,
                                            GLsizei instances)
 {
-    gl::Program *program = context->getState().getProgram();
-    ASSERT(program != nullptr);
-    ProgramD3D *programD3D = GetImplAs<ProgramD3D>(program);
-    bool usesPointSize     = programD3D->usesPointSize();
+    const gl::State &state = context->getState();
+    ProgramExecutableD3D *executableD3D =
+        GetImplAs<ProgramExecutableD3D>(state.getProgramExecutable());
+    ASSERT(executableD3D != nullptr);
+    bool usesPointSize = executableD3D->usesPointSize();
 
-    programD3D->updateSamplerMapping();
+    if (executableD3D->isSamplerMappingDirty())
+    {
+        executableD3D->updateSamplerMapping();
+    }
 
     if (!applyPrimitiveType(mode, count, usesPointSize))
     {
@@ -3181,20 +3280,21 @@ bool Renderer9::canSelectViewInVertexShader() const
 // Sampler mapping needs to be up-to-date on the program object before this is called.
 angle::Result Renderer9::applyTextures(const gl::Context *context, gl::ShaderType shaderType)
 {
-    const auto &glState    = context->getState();
-    const auto &caps       = context->getCaps();
-    ProgramD3D *programD3D = GetImplAs<ProgramD3D>(glState.getProgram());
+    const auto &glState = context->getState();
+    const auto &caps    = context->getCaps();
+    ProgramExecutableD3D *executableD3D =
+        GetImplAs<ProgramExecutableD3D>(glState.getProgramExecutable());
 
-    ASSERT(!programD3D->isSamplerMappingDirty());
+    ASSERT(!executableD3D->isSamplerMappingDirty());
 
     // TODO(jmadill): Use the Program's sampler bindings.
     const gl::ActiveTexturesCache &activeTextures = glState.getActiveTexturesCache();
 
-    const gl::RangeUI samplerRange = programD3D->getUsedSamplerRange(shaderType);
+    const gl::RangeUI samplerRange = executableD3D->getUsedSamplerRange(shaderType);
     for (unsigned int samplerIndex = samplerRange.low(); samplerIndex < samplerRange.high();
          samplerIndex++)
     {
-        GLint textureUnit = programD3D->getSamplerMapping(shaderType, samplerIndex, caps);
+        GLint textureUnit = executableD3D->getSamplerMapping(shaderType, samplerIndex, caps);
         ASSERT(textureUnit != -1);
         gl::Texture *texture = activeTextures[textureUnit];
 
@@ -3212,7 +3312,7 @@ angle::Result Renderer9::applyTextures(const gl::Context *context, gl::ShaderTyp
         else
         {
             gl::TextureType textureType =
-                programD3D->getSamplerTextureType(shaderType, samplerIndex);
+                executableD3D->getSamplerTextureType(shaderType, samplerIndex);
 
             // Texture is not sampler complete or it is in use by the framebuffer.  Bind the
             // incomplete texture.
@@ -3262,4 +3362,37 @@ angle::Result Renderer9::ensureVertexDataManagerInitialized(const gl::Context *c
 
     return angle::Result::Continue;
 }
+
+std::string Renderer9::getVendorString() const
+{
+    return GetVendorString(getVendorId());
+}
+
+std::string Renderer9::getVersionString(bool includeFullVersion) const
+{
+    std::ostringstream versionString;
+    std::string driverName(mAdapterIdentifier.Driver);
+    if (!driverName.empty())
+    {
+        versionString << mAdapterIdentifier.Driver;
+    }
+    else
+    {
+        versionString << "D3D9";
+    }
+
+    if (includeFullVersion)
+    {
+        versionString << " -";
+        versionString << GetDriverVersionString(mAdapterIdentifier.DriverVersion);
+    }
+
+    return versionString.str();
+}
+
+RendererD3D *CreateRenderer9(egl::Display *display)
+{
+    return new Renderer9(display);
+}
+
 }  // namespace rx

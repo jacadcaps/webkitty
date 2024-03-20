@@ -15,14 +15,22 @@
 #include "absl/strings/substitute.h"
 
 #include <algorithm>
+#include <cassert>
+#include <cstddef>
+#include <cstdint>
+#include <string>
 
+#include "absl/base/config.h"
 #include "absl/base/internal/raw_logging.h"
 #include "absl/strings/ascii.h"
 #include "absl/strings/escaping.h"
 #include "absl/strings/internal/resize_uninitialized.h"
+#include "absl/strings/numbers.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 
 namespace absl {
+ABSL_NAMESPACE_BEGIN
 namespace substitute_internal {
 
 void SubstituteAndAppendArray(std::string* output, absl::string_view format,
@@ -35,18 +43,19 @@ void SubstituteAndAppendArray(std::string* output, absl::string_view format,
       if (i + 1 >= format.size()) {
 #ifndef NDEBUG
         ABSL_RAW_LOG(FATAL,
-                     "Invalid strings::Substitute() format std::string: \"%s\".",
+                     "Invalid absl::Substitute() format string: \"%s\".",
                      absl::CEscape(format).c_str());
 #endif
         return;
-      } else if (absl::ascii_isdigit(format[i + 1])) {
+      } else if (absl::ascii_isdigit(
+                     static_cast<unsigned char>(format[i + 1]))) {
         int index = format[i + 1] - '0';
         if (static_cast<size_t>(index) >= num_args) {
 #ifndef NDEBUG
           ABSL_RAW_LOG(
               FATAL,
-              "Invalid strings::Substitute() format std::string: asked for \"$"
-              "%d\", but only %d args were given.  Full format std::string was: "
+              "Invalid absl::Substitute() format string: asked for \"$"
+              "%d\", but only %d args were given.  Full format string was: "
               "\"%s\".",
               index, static_cast<int>(num_args), absl::CEscape(format).c_str());
 #endif
@@ -60,7 +69,7 @@ void SubstituteAndAppendArray(std::string* output, absl::string_view format,
       } else {
 #ifndef NDEBUG
         ABSL_RAW_LOG(FATAL,
-                     "Invalid strings::Substitute() format std::string: \"%s\".",
+                     "Invalid absl::Substitute() format string: \"%s\".",
                      absl::CEscape(format).c_str());
 #endif
         return;
@@ -72,13 +81,14 @@ void SubstituteAndAppendArray(std::string* output, absl::string_view format,
 
   if (size == 0) return;
 
-  // Build the std::string.
+  // Build the string.
   size_t original_size = output->size();
-  strings_internal::STLStringResizeUninitialized(output, original_size + size);
+  strings_internal::STLStringResizeUninitializedAmortized(output,
+                                                          original_size + size);
   char* target = &(*output)[original_size];
   for (size_t i = 0; i < format.size(); i++) {
     if (format[i] == '$') {
-      if (absl::ascii_isdigit(format[i + 1])) {
+      if (absl::ascii_isdigit(static_cast<unsigned char>(format[i + 1]))) {
         const absl::string_view src = args_array[format[i + 1] - '0'];
         target = std::copy(src.begin(), src.end(), target);
         ++i;  // Skip next char.
@@ -94,7 +104,6 @@ void SubstituteAndAppendArray(std::string* output, absl::string_view format,
   assert(target == output->data() + output->size());
 }
 
-static const char kHexDigits[] = "0123456789abcdef";
 Arg::Arg(const void* value) {
   static_assert(sizeof(scratch_) >= sizeof(value) * 2 + 2,
                 "fix sizeof(scratch_)");
@@ -104,12 +113,13 @@ Arg::Arg(const void* value) {
     char* ptr = scratch_ + sizeof(scratch_);
     uintptr_t num = reinterpret_cast<uintptr_t>(value);
     do {
-      *--ptr = kHexDigits[num & 0xf];
+      *--ptr = absl::numbers_internal::kHexChar[num & 0xf];
       num >>= 4;
     } while (num != 0);
     *--ptr = 'x';
     *--ptr = '0';
-    piece_ = absl::string_view(ptr, scratch_ + sizeof(scratch_) - ptr);
+    piece_ = absl::string_view(
+        ptr, static_cast<size_t>(scratch_ + sizeof(scratch_) - ptr));
   }
 }
 
@@ -119,7 +129,7 @@ Arg::Arg(Hex hex) {
   char* writer = end;
   uint64_t value = hex.value;
   do {
-    *--writer = kHexDigits[value & 0xF];
+    *--writer = absl::numbers_internal::kHexChar[value & 0xF];
     value >>= 4;
   } while (value != 0);
 
@@ -131,7 +141,7 @@ Arg::Arg(Hex hex) {
     beg = writer;
   }
 
-  piece_ = absl::string_view(beg, end - beg);
+  piece_ = absl::string_view(beg, static_cast<size_t>(end - beg));
 }
 
 // TODO(jorg): Don't duplicate so much code between here and str_cat.cc
@@ -146,7 +156,7 @@ Arg::Arg(Dec dec) {
     *--writer = '0' + (value % 10);
     value /= 10;
   }
-  *--writer = '0' + value;
+  *--writer = '0' + static_cast<char>(value);
   if (neg) *--writer = '-';
 
   ptrdiff_t fillers = writer - minfill;
@@ -163,8 +173,9 @@ Arg::Arg(Dec dec) {
     if (add_sign_again) *--writer = '-';
   }
 
-  piece_ = absl::string_view(writer, end - writer);
+  piece_ = absl::string_view(writer, static_cast<size_t>(end - writer));
 }
 
 }  // namespace substitute_internal
+ABSL_NAMESPACE_END
 }  // namespace absl

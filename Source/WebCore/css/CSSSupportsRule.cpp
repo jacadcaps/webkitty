@@ -1,4 +1,6 @@
-/* Copyright (C) 2012 Motorola Mobility Inc. All rights reserved.
+/*
+ * Copyright (C) 2012 Motorola Mobility Inc. All rights reserved.
+ * Copyright (C) 2020 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -30,32 +32,41 @@
 #include "CSSSupportsRule.h"
 
 #include "CSSStyleSheet.h"
+#include "StyleProperties.h"
 #include "StyleRule.h"
 #include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
 
-CSSSupportsRule::CSSSupportsRule(StyleRuleSupports& supportsRule, CSSStyleSheet* parent)
-    : CSSGroupingRule(supportsRule, parent)
+CSSSupportsRule::CSSSupportsRule(StyleRuleSupports& rule, CSSStyleSheet* parent)
+    : CSSConditionRule(rule, parent)
 {
+}
+
+Ref<CSSSupportsRule> CSSSupportsRule::create(StyleRuleSupports& rule, CSSStyleSheet* parent)
+{
+    return adoptRef(*new CSSSupportsRule(rule, parent));
 }
 
 String CSSSupportsRule::cssText() const
 {
-    StringBuilder result;
+    StringBuilder builder;
+    builder.append("@supports ", conditionText());
+    appendCSSTextForItems(builder);
+    return builder.toString();
+}
 
-    result.appendLiteral("@supports ");
-    result.append(conditionText());
-    result.appendLiteral(" {\n");
-    appendCssTextForItems(result);
-    result.append('}');
-
-    return result.toString();
+String CSSSupportsRule::cssTextWithReplacementURLs(const HashMap<String, String>& replacementURLStrings, const HashMap<RefPtr<CSSStyleSheet>, String>& replacementURLStringsForCSSStyleSheet) const
+{
+    StringBuilder builder;
+    builder.append("@supports ", conditionText());
+    appendCSSTextWithReplacementURLsForItems(builder, replacementURLStrings, replacementURLStringsForCSSStyleSheet);
+    return builder.toString();
 }
 
 String CSSSupportsRule::conditionText() const
 {
-    return downcast<StyleRuleSupports>(m_groupRule.get()).conditionText();
+    return downcast<StyleRuleSupports>(groupRule()).conditionText();
 }
 
 } // namespace WebCore

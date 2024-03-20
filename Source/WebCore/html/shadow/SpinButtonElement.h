@@ -29,6 +29,7 @@
 #include "HTMLDivElement.h"
 #include "PopupOpeningObserver.h"
 #include "Timer.h"
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
@@ -41,12 +42,12 @@ public:
         Up,
     };
 
-    class SpinButtonOwner {
+    class SpinButtonOwner : public CanMakeWeakPtr<SpinButtonOwner> {
     public:
         virtual ~SpinButtonOwner() = default;
         virtual void focusAndSelectSpinButtonOwner() = 0;
-        virtual bool shouldSpinButtonRespondToMouseEvents() = 0;
-        virtual bool shouldSpinButtonRespondToWheelEvents() = 0;
+        virtual bool shouldSpinButtonRespondToMouseEvents() const = 0;
+        virtual bool shouldSpinButtonRespondToWheelEvents() const = 0;
         virtual void spinButtonStepDown() = 0;
         virtual void spinButtonStepUp() = 0;
     };
@@ -57,12 +58,12 @@ public:
     static Ref<SpinButtonElement> create(Document&, SpinButtonOwner&);
     UpDownState upDownState() const { return m_upDownState; }
     void releaseCapture();
-    void removeSpinButtonOwner() { m_spinButtonOwner = 0; }
+    void removeSpinButtonOwner() { m_spinButtonOwner = nullptr; }
 
     void step(int amount);
     
-    bool willRespondToMouseMoveEvents() override;
-    bool willRespondToMouseClickEvents() override;
+    bool willRespondToMouseMoveEvents() const override;
+    bool willRespondToMouseClickEventsWithEditability(Editability) const override;
 
     void forwardEvent(Event&);
 
@@ -79,11 +80,11 @@ private:
     void startRepeatingTimer();
     void stopRepeatingTimer();
     void repeatingTimerFired();
-    void setHovered(bool = true) override;
-    bool shouldRespondToMouseEvents();
+    void setHovered(bool, Style::InvalidationScope, HitTestRequest) override;
+    bool shouldRespondToMouseEvents() const;
     bool isMouseFocusable() const override { return false; }
 
-    SpinButtonOwner* m_spinButtonOwner;
+    WeakPtr<SpinButtonOwner> m_spinButtonOwner;
     bool m_capturing;
     UpDownState m_upDownState;
     UpDownState m_pressStartingState;
@@ -94,5 +95,9 @@ private:
 
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::SpinButtonElement)
     static bool isType(const WebCore::Element& element) { return element.isSpinButtonElement(); }
-    static bool isType(const WebCore::Node& node) { return is<WebCore::Element>(node) && isType(downcast<WebCore::Element>(node)); }
+    static bool isType(const WebCore::Node& node)
+    {
+        auto* element = dynamicDowncast<WebCore::Element>(node);
+        return element && isType(*element);
+    }
 SPECIALIZE_TYPE_TRAITS_END()

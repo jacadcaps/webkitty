@@ -86,7 +86,7 @@ DragImageRef dissolveDragImageToFraction(DragImageRef image, float fraction)
 
 DragImageRef createDragImageFromImage(Image* image, ImageOrientation)
 {
-    return image->nativeImageForCurrentFrame();
+    return image->nativeImageForCurrentFrame()->platformImage();
 }
 
 DragImageRef createDragImageIconForCachedImageFilename(const String&)
@@ -94,7 +94,7 @@ DragImageRef createDragImageIconForCachedImageFilename(const String&)
     return nullptr;
 }
 
-DragImageRef createDragImageForLink(Element&, URL&, const String&, TextIndicatorData&, FontRenderingMode, float)
+DragImageRef createDragImageForLink(Element&, URL&, const String&, TextIndicatorData&, float)
 {
     return nullptr;
 }

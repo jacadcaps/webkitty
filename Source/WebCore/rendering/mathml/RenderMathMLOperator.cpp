@@ -35,6 +35,9 @@
 #include "MathMLOperatorElement.h"
 #include "PaintInfo.h"
 #include "RenderBlockFlow.h"
+#include "RenderBoxInlines.h"
+#include "RenderBoxModelObjectInlines.h"
+#include "RenderStyleInlines.h"
 #include "RenderText.h"
 #include "ScaleTransformOperation.h"
 #include "TransformOperations.h"
@@ -49,14 +52,14 @@ using namespace MathMLNames;
 
 WTF_MAKE_ISO_ALLOCATED_IMPL(RenderMathMLOperator);
 
-RenderMathMLOperator::RenderMathMLOperator(MathMLOperatorElement& element, RenderStyle&& style)
-    : RenderMathMLToken(element, WTFMove(style))
+RenderMathMLOperator::RenderMathMLOperator(Type type, MathMLOperatorElement& element, RenderStyle&& style)
+    : RenderMathMLToken(type, element, WTFMove(style))
 {
     updateTokenContent();
 }
 
-RenderMathMLOperator::RenderMathMLOperator(Document& document, RenderStyle&& style)
-    : RenderMathMLToken(document, WTFMove(style))
+RenderMathMLOperator::RenderMathMLOperator(Type type, Document& document, RenderStyle&& style)
+    : RenderMathMLToken(type, document, WTFMove(style))
 {
 }
 
@@ -65,7 +68,7 @@ MathMLOperatorElement& RenderMathMLOperator::element() const
     return static_cast<MathMLOperatorElement&>(nodeForNonAnonymous());
 }
 
-UChar32 RenderMathMLOperator::textContent() const
+char32_t RenderMathMLOperator::textContent() const
 {
     return element().operatorChar().character;
 }
@@ -73,7 +76,7 @@ UChar32 RenderMathMLOperator::textContent() const
 bool RenderMathMLOperator::isInvisibleOperator() const
 {
     // The following operators are invisible: U+2061 FUNCTION APPLICATION, U+2062 INVISIBLE TIMES, U+2063 INVISIBLE SEPARATOR, U+2064 INVISIBLE PLUS.
-    UChar32 character = textContent();
+    char32_t character = textContent();
     return 0x2061 <= character && character <= 0x2064;
 }
 
@@ -199,8 +202,7 @@ void RenderMathMLOperator::computePreferredLogicalWidths()
             // In some fonts, glyphs for invisible operators have nonzero width. Consequently, we subtract that width here to avoid wide gaps.
             GlyphData data = style().fontCascade().glyphDataForCharacter(textContent(), false);
             float glyphWidth = data.font ? data.font->widthForGlyph(data.glyph) : 0;
-            ASSERT(glyphWidth <= preferredWidth);
-            preferredWidth -= glyphWidth;
+            preferredWidth -= std::min(LayoutUnit(glyphWidth), preferredWidth);
         }
     } else
         preferredWidth = m_mathOperator.maxPreferredWidth();
@@ -229,6 +231,8 @@ void RenderMathMLOperator::layoutBlock(bool relayoutChildren, LayoutUnit pageLog
             child->layoutIfNeeded();
         setLogicalWidth(leadingSpaceValue + m_mathOperator.width() + trailingSpaceValue);
         setLogicalHeight(m_mathOperator.ascent() + m_mathOperator.descent());
+
+        layoutPositionedObjects(relayoutChildren);
     } else {
         // We first do the normal layout without spacing.
         recomputeLogicalWidth();
@@ -287,6 +291,10 @@ void RenderMathMLOperator::styleDidChange(StyleDifference diff, const RenderStyl
 {
     RenderMathMLBlock::styleDidChange(diff, oldStyle);
     m_mathOperator.reset(style());
+
+    // MathML displaystyle can affect isLargeOperatorInDisplayStyle()
+    if (oldStyle && style().mathStyle() != oldStyle->mathStyle() && !isAnonymous())
+        updateTokenContent();
 }
 
 LayoutUnit RenderMathMLOperator::verticalStretchedOperatorShift() const
@@ -297,10 +305,10 @@ LayoutUnit RenderMathMLOperator::verticalStretchedOperatorShift() const
     return (m_stretchDepthBelowBaseline - m_stretchHeightAboveBaseline - m_mathOperator.descent() + m_mathOperator.ascent()) / 2;
 }
 
-Optional<int> RenderMathMLOperator::firstLineBaseline() const
+std::optional<LayoutUnit> RenderMathMLOperator::firstLineBaseline() const
 {
     if (useMathOperator())
-        return Optional<int>(std::lround(static_cast<float>(m_mathOperator.ascent() - verticalStretchedOperatorShift())));
+        return LayoutUnit { static_cast<int>(lround(static_cast<float>(m_mathOperator.ascent() - verticalStretchedOperatorShift()))) };
     return RenderMathMLToken::firstLineBaseline();
 }
 

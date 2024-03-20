@@ -28,14 +28,19 @@
 #include "NetworkActivityTracker.h"
 #include "NetworkDataTask.h"
 #include "NetworkLoadParameters.h"
+#include "NetworkTaskCocoa.h"
 #include <WebCore/NetworkLoadMetrics.h>
+#include <WebCore/PrivateClickMeasurement.h>
 #include <wtf/RetainPtr.h>
 
 OBJC_CLASS NSHTTPCookieStorage;
 OBJC_CLASS NSURLSessionDataTask;
+OBJC_CLASS NSMutableURLRequest;
 
 namespace WebCore {
 class RegistrableDomain;
+class SharedBuffer;
+enum class AdvancedPrivacyProtections : uint16_t;
 }
 
 namespace WebKit {
@@ -44,11 +49,11 @@ class Download;
 class NetworkSessionCocoa;
 struct SessionWrapper;
 
-class NetworkDataTaskCocoa final : public NetworkDataTask {
+class NetworkDataTaskCocoa final : public NetworkDataTask, public NetworkTaskCocoa {
 public:
-    static Ref<NetworkDataTask> create(NetworkSession& session, NetworkDataTaskClient& client, const WebCore::ResourceRequest& request, WebCore::FrameIdentifier frameID, WebCore::PageIdentifier pageID, WebCore::StoredCredentialsPolicy storedCredentialsPolicy, WebCore::ContentSniffingPolicy shouldContentSniff, WebCore::ContentEncodingSniffingPolicy shouldContentEncodingSniff, bool shouldClearReferrerOnHTTPSToHTTPRedirect, PreconnectOnly shouldPreconnectOnly, bool dataTaskIsForMainFrameNavigation, bool dataTaskIsForMainResourceNavigationForAnyFrame, Optional<NetworkActivityTracker> networkActivityTracker, Optional<NavigatingToAppBoundDomain> isNavigatingToAppBoundDomain, WebCore::ShouldRelaxThirdPartyCookieBlocking shouldRelaxThirdPartyCookieBlocking)
+    static Ref<NetworkDataTask> create(NetworkSession& session, NetworkDataTaskClient& client, const NetworkLoadParameters& parameters)
     {
-        return adoptRef(*new NetworkDataTaskCocoa(session, client, request, frameID, pageID, storedCredentialsPolicy, shouldContentSniff, shouldContentEncodingSniff, shouldClearReferrerOnHTTPSToHTTPRedirect, shouldPreconnectOnly, dataTaskIsForMainFrameNavigation, dataTaskIsForMainResourceNavigationForAnyFrame, networkActivityTracker, isNavigatingToAppBoundDomain, shouldRelaxThirdPartyCookieBlocking));
+        return adoptRef(*new NetworkDataTaskCocoa(session, client, parameters));
     }
 
     ~NetworkDataTaskCocoa();
@@ -57,10 +62,10 @@ public:
 
     void didSendData(uint64_t totalBytesSent, uint64_t totalBytesExpectedToSend);
     void didReceiveChallenge(WebCore::AuthenticationChallenge&&, NegotiatedLegacyTLS, ChallengeCompletionHandler&&);
-    void didNegotiateModernTLS(const WebCore::AuthenticationChallenge&);
+    void didNegotiateModernTLS(const URL&);
     void didCompleteWithError(const WebCore::ResourceError&, const WebCore::NetworkLoadMetrics&);
-    void didReceiveResponse(WebCore::ResourceResponse&&, NegotiatedLegacyTLS, ResponseCompletionHandler&&);
-    void didReceiveData(Ref<WebCore::SharedBuffer>&&);
+    void didReceiveResponse(WebCore::ResourceResponse&&, NegotiatedLegacyTLS, PrivateRelayed, ResponseCompletionHandler&&);
+    void didReceiveData(const WebCore::SharedBuffer&);
 
     void willPerformHTTPRedirection(WebCore::ResourceResponse&&, WebCore::ResourceRequest&&, RedirectCompletionHandler&&);
     void transferSandboxExtensionToDownload(Download&);
@@ -75,31 +80,29 @@ public:
 
     WebCore::NetworkLoadMetrics& networkLoadMetrics() { return m_networkLoadMetrics; }
 
-    WebCore::FrameIdentifier frameID() const { return m_frameID; };
-    WebCore::PageIdentifier pageID() const { return m_pageID; };
-    WebCore::ShouldRelaxThirdPartyCookieBlocking shouldRelaxThirdPartyCookieBlocking() const { return m_shouldRelaxThirdPartyCookieBlocking; }
+    std::optional<WebCore::FrameIdentifier> frameID() const final { return m_frameID; };
+    std::optional<WebCore::PageIdentifier> pageID() const final { return m_pageID; };
 
     String description() const override;
 
     void setH2PingCallback(const URL&, CompletionHandler<void(Expected<WTF::Seconds, WebCore::ResourceError>&&)>&&) override;
+    void setPriority(WebCore::ResourceLoadPriority) override;
+#if ENABLE(INSPECTOR_NETWORK_THROTTLING)
+    void setEmulatedConditions(const std::optional<int64_t>& bytesPerSecondLimit) override;
+#endif
+
+    void checkTAO(const WebCore::ResourceResponse&);
 
 private:
-    NetworkDataTaskCocoa(NetworkSession&, NetworkDataTaskClient&, const WebCore::ResourceRequest&, WebCore::FrameIdentifier, WebCore::PageIdentifier, WebCore::StoredCredentialsPolicy, WebCore::ContentSniffingPolicy, WebCore::ContentEncodingSniffingPolicy, bool shouldClearReferrerOnHTTPSToHTTPRedirect, PreconnectOnly, bool dataTaskIsForMainFrameNavigation, bool dataTaskIsForMainResourceNavigationForAnyFrame, Optional<NetworkActivityTracker>, Optional<NavigatingToAppBoundDomain> isNavigatingToAppBoundDomain, WebCore::ShouldRelaxThirdPartyCookieBlocking);
+    NetworkDataTaskCocoa(NetworkSession&, NetworkDataTaskClient&, const NetworkLoadParameters&);
 
     bool tryPasswordBasedAuthentication(const WebCore::AuthenticationChallenge&, ChallengeCompletionHandler&);
-    void applySniffingPoliciesAndBindRequestToInferfaceIfNeeded(__strong NSURLRequest*&, bool shouldContentSniff, bool shouldContentEncodingSniff);
+    void applySniffingPoliciesAndBindRequestToInferfaceIfNeeded(RetainPtr<NSURLRequest>&, bool shouldContentSniff, WebCore::ContentEncodingSniffingPolicy);
 
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
-    static NSHTTPCookieStorage *statelessCookieStorage();
-#if HAVE(CFNETWORK_CNAME_AND_COOKIE_TRANSFORM_SPI)
     void updateFirstPartyInfoForSession(const URL&);
-    void applyCookiePolicyForThirdPartyCNAMECloaking(const WebCore::ResourceRequest&);
-#endif
-    void blockCookies();
-    void unblockCookies();
-    bool needsFirstPartyCookieBlockingLatchModeQuirk(const URL& firstPartyURL, const URL& requestURL, const URL& redirectingURL) const;
-#endif
-    bool isAlwaysOnLoggingAllowed() const;
+
+    NSURLSessionTask* task() const final;
+    WebCore::StoredCredentialsPolicy storedCredentialsPolicy() const final { return m_storedCredentialsPolicy; }
 
     WeakPtr<SessionWrapper> m_sessionWrapper;
     RefPtr<SandboxExtension> m_sandboxExtension;
@@ -107,19 +110,15 @@ private:
     WebCore::NetworkLoadMetrics m_networkLoadMetrics;
     WebCore::FrameIdentifier m_frameID;
     WebCore::PageIdentifier m_pageID;
-
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
-    bool m_hasBeenSetToUseStatelessCookieStorage { false };
-#if HAVE(CFNETWORK_CNAME_AND_COOKIE_TRANSFORM_SPI)
-    Seconds m_ageCapForCNAMECloakedCookies { 24_h * 7 };
-#endif
-#endif
+    WebPageProxyIdentifier m_webPageProxyID;
 
     bool m_isForMainResourceNavigationForAnyFrame { false };
-    bool m_isAlwaysOnLoggingAllowed { false };
-    WebCore::ShouldRelaxThirdPartyCookieBlocking m_shouldRelaxThirdPartyCookieBlocking { WebCore::ShouldRelaxThirdPartyCookieBlocking::No };
+    RefPtr<WebCore::SecurityOrigin> m_sourceOrigin;
 };
 
 WebCore::Credential serverTrustCredential(const WebCore::AuthenticationChallenge&);
+void setPCMDataCarriedOnRequest(WebCore::PrivateClickMeasurement::PcmDataCarried, NSMutableURLRequest *);
+
+void enableAdvancedPrivacyProtections(NSMutableURLRequest *, OptionSet<WebCore::AdvancedPrivacyProtections>);
 
 } // namespace WebKit

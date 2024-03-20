@@ -55,7 +55,9 @@ class TileController final : public TiledBacking {
     friend class TileCoverageMap;
     friend class TileGrid;
 public:
-    WEBCORE_EXPORT explicit TileController(PlatformCALayer*);
+    enum class AllowScrollPerformanceLogging { Yes, No };
+    
+    WEBCORE_EXPORT explicit TileController(PlatformCALayer*, AllowScrollPerformanceLogging = AllowScrollPerformanceLogging::Yes);
     WEBCORE_EXPORT ~TileController();
     
     WEBCORE_EXPORT static String tileGridContainerLayerName();
@@ -75,9 +77,6 @@ public:
     bool wantsDeepColorBackingStore() const { return m_wantsDeepColorBackingStore; }
     WEBCORE_EXPORT void setWantsDeepColorBackingStore(bool);
 
-    bool supportsSubpixelAntialiasedText() const { return m_supportsSubpixelAntialiasedText; }
-    WEBCORE_EXPORT void setSupportsSubpixelAntialiasedText(bool);
-
     WEBCORE_EXPORT void setTilesOpaque(bool);
     bool tilesAreOpaque() const { return m_tilesAreOpaque; }
 
@@ -89,12 +88,12 @@ public:
 
     FloatRect visibleRect() const final { return m_visibleRect; }
     FloatRect coverageRect() const final { return m_coverageRect; }
-    Optional<FloatRect> layoutViewportRect() const { return m_layoutViewportRect; }
+    std::optional<FloatRect> layoutViewportRect() const { return m_layoutViewportRect; }
 
     void setTileSizeUpdateDelayDisabledForTesting(bool) final;
 
     unsigned blankPixelCount() const;
-    static unsigned blankPixelCountForTiles(const PlatformLayerList&, const FloatRect&, const IntPoint&);
+    WEBCORE_EXPORT static unsigned blankPixelCountForTiles(const PlatformLayerList&, const FloatRect&, const IntPoint&);
 
 #if PLATFORM(IOS_FAMILY)
     unsigned numberOfUnparentedTiles() const;
@@ -125,7 +124,7 @@ public:
     FloatRect adjustTileCoverageRect(const FloatRect& coverageRect, const FloatRect& previousVisibleRect, const FloatRect& currentVisibleRect, bool sizeChanged) final;
     FloatRect adjustTileCoverageRectForScrolling(const FloatRect& coverageRect, const FloatSize& newSize, const FloatRect& previousVisibleRect, const FloatRect& currentVisibleRect, float contentsScale) final;
 
-    bool scrollingPerformanceLoggingEnabled() const final { return m_scrollingPerformanceLoggingEnabled; }
+    bool scrollingPerformanceTestingEnabled() const final { return m_scrollingPerformanceTestingEnabled; }
 
     IntSize computeTileSize();
 
@@ -155,21 +154,20 @@ private:
 
     // TiledBacking member functions.
     void setVisibleRect(const FloatRect&) final;
-    void setLayoutViewportRect(Optional<FloatRect>) final;
+    void setLayoutViewportRect(std::optional<FloatRect>) final;
     void setCoverageRect(const FloatRect&) final;
     bool tilesWouldChangeForCoverageRect(const FloatRect&) const final;
     void setTiledScrollingIndicatorPosition(const FloatPoint&) final;
     void setTopContentInset(float) final;
     void setVelocity(const VelocityData&) final;
-    void setScrollability(Scrollability) final;
+    void setScrollability(OptionSet<Scrollability>) final;
     void prepopulateRect(const FloatRect&) final;
     void setIsInWindow(bool) final;
     bool isInWindow() const final { return m_isInWindow; }
     void setTileCoverage(TileCoverage) final;
     void revalidateTiles() final;
-    void forceRepaint() final;
     IntRect tileGridExtent() const final;
-    void setScrollingPerformanceLoggingEnabled(bool flag) final { m_scrollingPerformanceLoggingEnabled = flag; }
+    void setScrollingPerformanceTestingEnabled(bool flag) final { m_scrollingPerformanceTestingEnabled = flag; }
     double retainedTileBackingStoreMemory() const final;
     IntRect tileCoverageRect() const final;
 #if USE(CA)
@@ -214,7 +212,7 @@ private:
     std::unique_ptr<HistoricalVelocityData> m_historicalVelocityData; // Used when we track velocity internally.
 
     FloatRect m_visibleRect; // Only used for scroll performance logging.
-    Optional<FloatRect> m_layoutViewportRect; // Only used by the tiled scrolling indicator.
+    std::optional<FloatRect> m_layoutViewportRect; // Only used by the tiled scrolling indicator.
     FloatRect m_coverageRect;
     IntRect m_boundsAtLastRevalidate;
 
@@ -227,7 +225,7 @@ private:
 
     int m_marginSize { kDefaultTileSize };
 
-    Scrollability m_scrollability { HorizontallyScrollable | VerticallyScrollable };
+    OptionSet<Scrollability> m_scrollability { Scrollability::HorizontallyScrollable, Scrollability::VerticallyScrollable };
 
     // m_marginTop and m_marginBottom are the height in pixels of the top and bottom margin tiles. The width
     // of those tiles will be equivalent to the width of the other tiles in the grid. m_marginRight and
@@ -236,16 +234,17 @@ private:
     RectEdges<bool> m_marginEdges;
     
     bool m_isInWindow { false };
-    bool m_scrollingPerformanceLoggingEnabled { false };
+    bool m_scrollingPerformanceTestingEnabled { false };
     bool m_acceleratesDrawing { false };
     bool m_wantsDeepColorBackingStore { false };
-    bool m_supportsSubpixelAntialiasedText { false };
     bool m_tilesAreOpaque { false };
     bool m_hasTilesWithTemporaryScaleFactor { false }; // Used to make low-res tiles when zooming.
     bool m_inLiveResize { false };
     bool m_tileSizeLocked { false };
     bool m_haveExternalVelocityData { false };
     bool m_isTileSizeUpdateDelayDisabledForTesting { false };
+    
+    AllowScrollPerformanceLogging m_shouldAllowScrollPerformanceLogging { AllowScrollPerformanceLogging::Yes };
 
     Color m_tileDebugBorderColor;
     float m_tileDebugBorderWidth { 0 };

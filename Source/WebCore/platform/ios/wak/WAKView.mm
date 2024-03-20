@@ -28,6 +28,7 @@
 
 #if PLATFORM(IOS_FAMILY)
 
+#import "CGUtilities.h"
 #import "GraphicsContext.h"
 #import "WAKClipView.h"
 #import "WAKScrollView.h"
@@ -38,21 +39,22 @@
 #import "WebCoreThreadMessage.h"
 #import "WebEvent.h"
 #import <wtf/Assertions.h>
+#import <wtf/NeverDestroyed.h>
 
 WEBCORE_EXPORT NSString *WAKViewFrameSizeDidChangeNotification =   @"WAKViewFrameSizeDidChangeNotification";
 WEBCORE_EXPORT NSString *WAKViewDidScrollNotification =            @"WAKViewDidScrollNotification";
 
-static WAKView *globalFocusView = nil;
+static RetainPtr<WAKView>& globalFocusView()
+{
+    static NeverDestroyed<RetainPtr<WAKView>> _globalFocusView;
+    return _globalFocusView;
+}
+
 static CGInterpolationQuality sInterpolationQuality;
 
 static void setGlobalFocusView(WAKView *view)
 {
-    if (view == globalFocusView)
-        return;
-
-    [view retain];
-    [globalFocusView release];
-    globalFocusView = view;
+    globalFocusView() = view;
 }
 
 static WAKScrollView *enclosingScrollView(WAKView *view)
@@ -197,7 +199,7 @@ static void invalidateGStateCallback(WKViewRef view)
 {
     ASSERT(_viewRef);
     if (_viewRef->isa.classInfo == &WKViewClassInfo)
-        return [[[WAKView alloc] _initWithViewRef:_viewRef] autorelease];
+        return adoptNS([[WAKView alloc] _initWithViewRef:_viewRef]).autorelease();
     WKError ("unable to create wrapper for %s\n", _viewRef->isa.classInfo->name);
     return nil;
 }
@@ -208,7 +210,7 @@ static void invalidateGStateCallback(WKViewRef view)
     if (!self)
         return nil;
 
-    viewRef = static_cast<WKViewRef>(const_cast<void*>(WKRetain(viewR)));
+    viewRef = static_cast<WKViewRef>(const_cast<void*>(WAKRetain(viewR)));
     viewRef->wrapper = (void *)self;
 
     return self;
@@ -231,22 +233,22 @@ static void invalidateGStateCallback(WKViewRef view)
         viewContext.willRemoveSubviewCallback = willRemoveSubviewCallback;
         viewContext.invalidateGStateCallback = invalidateGStateCallback;
     }
-    WKRelease(view);
+    WAKRelease(view);
     return self;
 }
 
 - (void)dealloc
 {
-    [[[subviewReferences copy] autorelease] makeObjectsPerformSelector:@selector(removeFromSuperview)];
+    [adoptNS([subviewReferences copy]) makeObjectsPerformSelector:@selector(removeFromSuperview)];
 
     if (viewRef) {
         _WKViewSetViewContext (viewRef, 0);
         viewRef->wrapper = NULL;
-        WKRelease (viewRef);
+        WAKRelease (viewRef);
     }
     
     [subviewReferences release];
-    
+
     [super dealloc];
 }
 
@@ -328,13 +330,12 @@ static void _WAKCopyWrapper(const void *value, void *context)
 
 - (void)addSubview:(WAKView *)subview
 {
-    [subview retain];
+    auto protectedSubView = retainPtr(subview);
     [subview removeFromSuperview];
     WKViewAddSubview (viewRef, [subview _viewRef]);
     
     // Keep a reference to subview so it sticks around.
     [[self _subviewReferences] addObject:subview];
-    [subview release];
 }
 
 - (void)willRemoveSubview:(WAKView *)subview
@@ -344,10 +345,9 @@ static void _WAKCopyWrapper(const void *value, void *context)
 
 - (void)removeFromSuperview
 {
-    WAKView *oldSuperview = [[self superview] retain];
+    RetainPtr<WAKView> oldSuperview = [self superview];
     WKViewRemoveFromSuperview (viewRef);
     [[oldSuperview _subviewReferences] removeObject:self];
-    [oldSuperview release];
 }
 
 - (void)viewDidMoveToWindow
@@ -409,7 +409,7 @@ static void _WAKCopyWrapper(const void *value, void *context)
 
 + (WAKView *)focusView
 {
-    return globalFocusView;
+    return globalFocusView().get();
 }
 
 - (NSRect)bounds
@@ -466,25 +466,6 @@ static void _WAKCopyWrapper(const void *value, void *context)
     ASSERT(context);
     CGContextRestoreGState(context);
     setGlobalFocusView(nil);
-}
-
-static CGInterpolationQuality toCGInterpolationQuality(WebCore::InterpolationQuality quality)
-{
-    switch (quality) {
-    case WebCore::InterpolationQuality::Default:
-        return kCGInterpolationDefault;
-    case WebCore::InterpolationQuality::DoNotInterpolate:
-        return kCGInterpolationNone;
-    case WebCore::InterpolationQuality::Low:
-        return kCGInterpolationLow;
-    case WebCore::InterpolationQuality::Medium:
-        return kCGInterpolationMedium;
-    case WebCore::InterpolationQuality::High:
-        return kCGInterpolationHigh;
-    default:
-        ASSERT_NOT_REACHED();
-        return kCGInterpolationLow;
-    }
 }
 
 + (void)_setInterpolationQuality:(int)quality

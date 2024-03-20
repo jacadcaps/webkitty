@@ -25,7 +25,7 @@
  */
 
 #include "config.h"
-#include "WebEvent.h"
+#include "WebTouchEvent.h"
 
 #if ENABLE(TOUCH_EVENTS) && !PLATFORM(IOS_FAMILY)
 
@@ -33,7 +33,7 @@
 
 namespace WebKit {
 
-WebPlatformTouchPoint::WebPlatformTouchPoint(unsigned id, TouchPointState state, const WebCore::IntPoint& screenPosition, const WebCore::IntPoint& position)
+WebPlatformTouchPoint::WebPlatformTouchPoint(unsigned id, State state, const WebCore::IntPoint& screenPosition, const WebCore::IntPoint& position)
     : m_id(id)
     , m_state(state)
     , m_screenPosition(screenPosition)
@@ -43,7 +43,7 @@ WebPlatformTouchPoint::WebPlatformTouchPoint(unsigned id, TouchPointState state,
 {
 }
 
-WebPlatformTouchPoint::WebPlatformTouchPoint(unsigned id, TouchPointState state, const WebCore::IntPoint& screenPosition, const WebCore::IntPoint& position, const WebCore::IntSize& radius, float rotationAngle, float force)
+WebPlatformTouchPoint::WebPlatformTouchPoint(unsigned id, State state, const WebCore::IntPoint& screenPosition, const WebCore::IntPoint& position, const WebCore::IntSize& radius, float rotationAngle, float force)
     : m_id(id)
     , m_state(state)
     , m_screenPosition(screenPosition)
@@ -52,38 +52,6 @@ WebPlatformTouchPoint::WebPlatformTouchPoint(unsigned id, TouchPointState state,
     , m_rotationAngle(rotationAngle)
     , m_force(force)
 {
-}
-
-void WebPlatformTouchPoint::encode(IPC::Encoder& encoder) const
-{
-    encoder << m_id;
-    encoder << m_state;
-    encoder << m_screenPosition;
-    encoder << m_position;
-    encoder << m_radius;
-    encoder << m_rotationAngle;
-    encoder << m_force;
-}
-
-Optional<WebPlatformTouchPoint> WebPlatformTouchPoint::decode(IPC::Decoder& decoder)
-{
-    WebPlatformTouchPoint result;
-    if (!decoder.decode(result.m_id))
-        return WTF::nullopt;
-    if (!decoder.decode(result.m_state))
-        return WTF::nullopt;
-    if (!decoder.decode(result.m_screenPosition))
-        return WTF::nullopt;
-    if (!decoder.decode(result.m_position))
-        return WTF::nullopt;
-    if (!decoder.decode(result.m_radius))
-        return WTF::nullopt;
-    if (!decoder.decode(result.m_rotationAngle))
-        return WTF::nullopt;
-    if (!decoder.decode(result.m_force))
-        return WTF::nullopt;
-
-    return result;
 }
 
 } // namespace WebKit

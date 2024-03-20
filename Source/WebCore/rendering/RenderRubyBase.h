@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2009 Google Inc. All rights reserved.
+ * Copyright (C) 2023 Apple Inc. All right reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -42,7 +43,7 @@ public:
     RenderRubyBase(Document&, RenderStyle&&);
     virtual ~RenderRubyBase();
     
-    const char* renderName() const override { return "RenderRubyBase (anonymous)"; }
+    ASCIILiteral renderName() const override { return "RenderRubyBase (anonymous)"_s; }
     
     RenderRubyRun* rubyRun() const;
 
@@ -57,12 +58,13 @@ public:
         m_isAfterExpansion = true;
     }
     
-    void cachePriorCharactersIfNeeded(const LazyLineBreakIterator&) override;
+    void cachePriorCharactersIfNeeded(const CachedLineBreakIteratorFactory&) override;
+
+    bool isEmptyOrHasInFlowContent() const;
 
 private:
-    bool isRubyBase() const override { return true; }
     bool isChildAllowed(const RenderObject&, const RenderStyle&) const override;
-    Optional<TextAlignMode> overrideTextAlignmentForLine(bool endsWithSoftBreak) const override;
+    std::optional<TextAlignMode> overrideTextAlignmentForLine(bool endsWithSoftBreak) const override;
     void adjustInlineDirectionLineBounds(int expansionOpportunityCount, float& logicalLeft, float& logicalWidth) const override;
 
     float m_initialOffset;
@@ -71,4 +73,4 @@ private:
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderRubyBase, isRubyBase())
+SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderRubyBase, isRenderRubyBase())

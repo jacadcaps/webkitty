@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2003-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,7 +29,9 @@
 
 #include <string.h>
 #include <wtf/CheckedArithmetic.h>
-#include <wtf/text/StringHasher.h>
+#include <wtf/NeverDestroyed.h>
+#include <wtf/text/StringCommon.h>
+#include <wtf/text/SuperFastHash.h>
 
 namespace WTF {
 
@@ -38,7 +40,7 @@ DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(CStringBuffer);
 Ref<CStringBuffer> CStringBuffer::createUninitialized(size_t length)
 {
     // The +1 is for the terminating null character.
-    auto size = (Checked<size_t>(sizeof(CStringBuffer)) + length + 1U).unsafeGet();
+    size_t size = Checked<size_t>(sizeof(CStringBuffer)) + length + 1U;
     auto* stringBuffer = static_cast<CStringBuffer*>(CStringBufferMalloc::malloc(size));
     return adoptRef(*new (NotNull, stringBuffer) CStringBuffer(length));
 }
@@ -119,7 +121,7 @@ bool operator==(const CString& a, const CString& b)
         return false;
     if (a.length() != b.length())
         return false;
-    return !memcmp(a.data(), b.data(), a.length());
+    return equal(reinterpret_cast<const LChar*>(a.data()), reinterpret_cast<const LChar*>(b.data()), a.length());
 }
 
 bool operator==(const CString& a, const char* b)
@@ -135,7 +137,7 @@ unsigned CString::hash() const
 {
     if (isNull())
         return 0;
-    StringHasher hasher;
+    SuperFastHash hasher;
     for (const char* ptr = data(); *ptr; ++ptr)
         hasher.addCharacter(*ptr);
     return hasher.hash();

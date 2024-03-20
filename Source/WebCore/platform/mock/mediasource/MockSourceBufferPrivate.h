@@ -20,7 +20,7 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #pragma once
@@ -41,57 +41,55 @@ class VideoTrackPrivate;
 
 class MockSourceBufferPrivate final : public SourceBufferPrivate {
 public:
-    static Ref<MockSourceBufferPrivate> create(MockMediaSourcePrivate*);
+    static Ref<MockSourceBufferPrivate> create(MockMediaSourcePrivate&);
     virtual ~MockSourceBufferPrivate();
 
-    void clearMediaSource() { m_mediaSource = nullptr; }
-
-    bool hasVideo() const;
-    bool hasAudio() const;
-
-    MediaTime fastSeekTimeForMediaTime(const MediaTime&, const MediaTime& negativeThreshold, const MediaTime& positiveThreshold);
-
+    constexpr MediaPlatformType platformType() const final { return MediaPlatformType::Mock; }
 private:
-    explicit MockSourceBufferPrivate(MockMediaSourcePrivate*);
+    explicit MockSourceBufferPrivate(MockMediaSourcePrivate&);
+    RefPtr<MockMediaSourcePrivate> mediaSourcePrivate() const;
 
     // SourceBufferPrivate overrides
-    void setClient(SourceBufferPrivateClient*) final;
-    void append(Vector<unsigned char>&&) final;
-    void abort() final;
-    void resetParserState() final;
-    void removedFromMediaSource() final;
-    MediaPlayer::ReadyState readyState() const final;
-    void setReadyState(MediaPlayer::ReadyState) final;
-    bool canSetMinimumUpcomingPresentationTime(const AtomString&) const final;
-    void setMinimumUpcomingPresentationTime(const AtomString&, const MediaTime&) final;
-    void clearMinimumUpcomingPresentationTime(const AtomString&) final;
+    Ref<MediaPromise> appendInternal(Ref<SharedBuffer>&&) final;
+    void resetParserStateInternal() final;
+    bool canSetMinimumUpcomingPresentationTime(TrackID) const final;
+    void setMinimumUpcomingPresentationTime(TrackID, const MediaTime&) final;
+    void clearMinimumUpcomingPresentationTime(TrackID) final;
     bool canSwitchToType(const ContentType&) final;
 
-    void flush(const AtomString&) final { m_enqueuedSamples.clear(); m_minimumUpcomingPresentationTime = MediaTime::invalidTime(); }
-    void enqueueSample(Ref<MediaSample>&&, const AtomString&) final;
-    bool isReadyForMoreSamples(const AtomString&) final { return !m_maxQueueDepth || m_enqueuedSamples.size() < m_maxQueueDepth.value(); }
-    void setActive(bool) final;
+    void flush(TrackID) final { m_enqueuedSamples.clear(); m_minimumUpcomingPresentationTime = MediaTime::invalidTime(); }
+    void enqueueSample(Ref<MediaSample>&&, TrackID) final;
+    bool isReadyForMoreSamples(TrackID) final { return !m_maxQueueDepth || m_enqueuedSamples.size() < m_maxQueueDepth.value(); }
 
-    Vector<String> enqueuedSamplesForTrackID(const AtomString&) final;
-    MediaTime minimumUpcomingPresentationTimeForTrackID(const AtomString&) final;
-    void setMaximumQueueDepthForTrackID(const AtomString&, size_t) final;
+    Ref<SamplesPromise> enqueuedSamplesForTrackID(TrackID) final;
+    MediaTime minimumUpcomingPresentationTimeForTrackID(TrackID) final;
+    void setMaximumQueueDepthForTrackID(TrackID, uint64_t) final;
 
     void didReceiveInitializationSegment(const MockInitializationBox&);
     void didReceiveSample(const MockSampleBox&);
 
 #if !RELEASE_LOG_DISABLED
-    const Logger& sourceBufferLogger() const final;
-    const void* sourceBufferLogIdentifier() final;
+    const Logger& logger() const final { return m_logger.get(); }
+    const char* logClassName() const override { return "MockSourceBufferPrivate"; }
+    const void* logIdentifier() const final { return m_logIdentifier; }
+    WTFLogChannel& logChannel() const final;
+
+    const Logger& sourceBufferLogger() const final { return m_logger.get(); }
+    const void* sourceBufferLogIdentifier() final { return logIdentifier(); }
 #endif
 
-    MockMediaSourcePrivate* m_mediaSource;
-    SourceBufferPrivateClient* m_client;
+    bool m_isActive { false };
     MediaTime m_minimumUpcomingPresentationTime;
     Vector<String> m_enqueuedSamples;
-    Optional<size_t> m_maxQueueDepth;
-    Vector<char> m_inputBuffer;
+    std::optional<uint64_t> m_maxQueueDepth;
+    Vector<uint8_t> m_inputBuffer;
+
+#if !RELEASE_LOG_DISABLED
+    Ref<const Logger> m_logger;
+    const void* m_logIdentifier;
+#endif
 };
 
-}
+} // namespace WebCore
 
 #endif // ENABLE(MEDIA_SOURCE) && USE(AVFOUNDATION)

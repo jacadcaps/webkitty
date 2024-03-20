@@ -30,7 +30,6 @@
 #if USE(CAIRO)
 
 #include "AffineTransform.h"
-#include "CairoUniquePtr.h"
 #include "Color.h"
 #include "FloatPoint.h"
 #include "FloatRect.h"
@@ -39,16 +38,10 @@
 #include "RefPtrCairo.h"
 #include "Region.h"
 #include <wtf/Assertions.h>
+#include <wtf/Atomics.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/UniqueArray.h>
 #include <wtf/Vector.h>
-
-#if ENABLE(ACCELERATED_2D_CANVAS)
-#if USE(EGL) && USE(LIBEPOXY)
-#include "EpoxyEGL.h"
-#endif
-#include <cairo-gl.h>
-#endif
 
 #if OS(WINDOWS)
 #include <cairo-win32.h>
@@ -56,13 +49,52 @@
 
 namespace WebCore {
 
-#if USE(CAIRO) && !PLATFORM(GTK)
-const cairo_font_options_t* getDefaultCairoFontOptions()
+static cairo_user_data_key_t s_surfaceUniqueIDKey;
+static Atomic<uintptr_t> s_surfaceUniqueID = 1;
+
+#if USE(FREETYPE)
+RecursiveLock& cairoFontLock()
 {
-    static NeverDestroyed<cairo_font_options_t*> options = cairo_font_options_create();
-    return options;
+    static RecursiveLock s_lock;
+    return s_lock;
 }
 #endif
+
+static cairo_font_options_t* defaultCairoFontOptions()
+{
+    static cairo_font_options_t* s_defaultCairoFontOptions = cairo_font_options_create();
+    return s_defaultCairoFontOptions;
+}
+
+const cairo_font_options_t* getDefaultCairoFontOptions()
+{
+    return defaultCairoFontOptions();
+}
+
+static bool s_disableCairoFontHintingForTesting = false;
+
+void disableCairoFontHintingForTesting()
+{
+    cairo_font_options_set_hint_metrics(defaultCairoFontOptions(), CAIRO_HINT_METRICS_ON);
+    cairo_font_options_set_hint_style(defaultCairoFontOptions(), CAIRO_HINT_STYLE_NONE);
+
+    s_disableCairoFontHintingForTesting = true;
+}
+
+void setDefaultCairoHintOptions(cairo_hint_metrics_t hintMetrics, cairo_hint_style_t hintStyle)
+{
+    if (s_disableCairoFontHintingForTesting)
+        return;
+
+    cairo_font_options_set_hint_metrics(defaultCairoFontOptions(), hintMetrics);
+    cairo_font_options_set_hint_style(defaultCairoFontOptions(), hintStyle);
+}
+
+void setDefaultCairoAntialiasOptions(cairo_antialias_t antialias, cairo_subpixel_order_t subpixelOrder)
+{
+    cairo_font_options_set_antialias(defaultCairoFontOptions(), antialias);
+    cairo_font_options_set_subpixel_order(defaultCairoFontOptions(), subpixelOrder);
+}
 
 void copyContextProperties(cairo_t* srcCr, cairo_t* dstCr)
 {
@@ -83,7 +115,7 @@ void copyContextProperties(cairo_t* srcCr, cairo_t* dstCr)
 
 void setSourceRGBAFromColor(cairo_t* context, const Color& color)
 {
-    auto [r, g, b, a] = color.toSRGBALossy<float>();
+    auto [r, g, b, a] = color.toColorTypeLossy<SRGBA<float>>().resolved();
     cairo_set_source_rgba(context, r, g, b, a);
 }
 
@@ -103,7 +135,7 @@ void appendWebCorePathToCairoContext(cairo_t* context, const Path& path)
 {
     if (path.isEmpty())
         return;
-    appendPathToCairoContext(context, path.cairoPath());
+    appendPathToCairoContext(context, path.platformPath());
 }
 
 void appendRegionToCairoContext(cairo_t* to, const cairo_region_t* region)
@@ -196,7 +228,7 @@ cairo_operator_t toCairoOperator(CompositeOperator op, BlendMode blendOp)
 }
 
 void drawPatternToCairoContext(cairo_t* cr, cairo_surface_t* image, const IntSize& imageSize, const FloatRect& tileRect,
-    const AffineTransform& patternTransform, const FloatPoint& phase, cairo_operator_t op, InterpolationQuality imageInterpolationQuality, const FloatRect& destRect)
+    const AffineTransform& patternTransform, const FloatPoint& phase, const FloatSize& spacing, cairo_operator_t op, InterpolationQuality imageInterpolationQuality, const FloatRect& destRect)
 {
     // Avoid NaN
     if (!std::isfinite(phase.x()) || !std::isfinite(phase.y()))
@@ -204,7 +236,7 @@ void drawPatternToCairoContext(cairo_t* cr, cairo_surface_t* image, const IntSiz
 
     cairo_save(cr);
 
-    RefPtr<cairo_surface_t> clippedImageSurface = 0;
+    RefPtr<cairo_surface_t> clippedImageSurface;
     if (tileRect.size() != imageSize) {
         IntRect imageRect = enclosingIntRect(tileRect);
         clippedImageSurface = adoptRef(cairo_image_surface_create(CAIRO_FORMAT_ARGB32, imageRect.width(), imageRect.height()));
@@ -212,6 +244,19 @@ void drawPatternToCairoContext(cairo_t* cr, cairo_surface_t* image, const IntSiz
         cairo_set_source_surface(clippedImageContext.get(), image, -tileRect.x(), -tileRect.y());
         cairo_paint(clippedImageContext.get());
         image = clippedImageSurface.get();
+    }
+
+    RefPtr<cairo_surface_t> imageWithSpacingSurface;
+    if (spacing.width() || spacing.height()) {
+        IntSize imageWithSpacingSize = IntSize(
+            tileRect.width() + spacing.width() / patternTransform.a(),
+            tileRect.height() + spacing.height() / patternTransform.d()
+        );
+        imageWithSpacingSurface = adoptRef(cairo_image_surface_create(CAIRO_FORMAT_ARGB32, imageWithSpacingSize.width(), imageWithSpacingSize.height()));
+        RefPtr<cairo_t> imageWithSpacingContext = adoptRef(cairo_create(imageWithSpacingSurface.get()));
+        cairo_set_source_surface(imageWithSpacingContext.get(), image, 0, 0);
+        cairo_paint(imageWithSpacingContext.get());
+        image = imageWithSpacingSurface.get();
     }
 
     cairo_pattern_t* pattern = cairo_pattern_create_for_surface(image);
@@ -268,8 +313,8 @@ void drawPatternToCairoContext(cairo_t* cr, cairo_surface_t* image, const IntSiz
     double phaseOffsetX = phase.x() + tileRect.x() * patternTransform.a() + dx;
     double phaseOffsetY = phase.y() + tileRect.y() * patternTransform.d() + dy;
     // this is where we perform the (x mod w, y mod h) metioned above, but with floats instead of integers.
-    phaseOffsetX -= std::trunc(phaseOffsetX / (tileRect.width() * patternTransform.a())) * tileRect.width() * patternTransform.a();
-    phaseOffsetY -= std::trunc(phaseOffsetY / (tileRect.height() * patternTransform.d())) * tileRect.height() * patternTransform.d();
+    phaseOffsetX -= std::trunc(phaseOffsetX / (tileRect.width() * patternTransform.a() + spacing.width())) * (tileRect.width() * patternTransform.a() + spacing.width());
+    phaseOffsetY -= std::trunc(phaseOffsetY / (tileRect.height() * patternTransform.d() + spacing.height())) * (tileRect.height() * patternTransform.d() + spacing.height());
     cairo_matrix_t phaseMatrix = {1, 0, 0, 1, phaseOffsetX, phaseOffsetY};
     cairo_matrix_t combined;
     cairo_matrix_multiply(&combined, &patternMatrix, &phaseMatrix);
@@ -321,10 +366,6 @@ IntSize cairoSurfaceSize(cairo_surface_t* surface)
     switch (cairo_surface_get_type(surface)) {
     case CAIRO_SURFACE_TYPE_IMAGE:
         return IntSize(cairo_image_surface_get_width(surface), cairo_image_surface_get_height(surface));
-#if ENABLE(ACCELERATED_2D_CANVAS)
-    case CAIRO_SURFACE_TYPE_GL:
-        return IntSize(cairo_gl_surface_get_width(surface), cairo_gl_surface_get_height(surface));
-#endif
 #if OS(WINDOWS)
     case CAIRO_SURFACE_TYPE_WIN32:
         surface = cairo_win32_surface_get_image(surface);
@@ -361,29 +402,6 @@ void flipImageSurfaceVertically(cairo_surface_t* surface)
     }
 }
 
-void cairoSurfaceSetDeviceScale(cairo_surface_t* surface, double xScale, double yScale)
-{
-    // This function was added pretty much simultaneous to when 1.13 was branched.
-#if HAVE(CAIRO_SURFACE_SET_DEVICE_SCALE)
-    cairo_surface_set_device_scale(surface, xScale, yScale);
-#else
-    UNUSED_PARAM(surface);
-    ASSERT_UNUSED(xScale, 1 == xScale);
-    ASSERT_UNUSED(yScale, 1 == yScale);
-#endif
-}
-
-void cairoSurfaceGetDeviceScale(cairo_surface_t* surface, double& xScale, double& yScale)
-{
-#if HAVE(CAIRO_SURFACE_SET_DEVICE_SCALE)
-    cairo_surface_get_device_scale(surface, &xScale, &yScale);
-#else
-    UNUSED_PARAM(surface);
-    xScale = 1;
-    yScale = 1;
-#endif
-}
-
 RefPtr<cairo_region_t> toCairoRegion(const Region& region)
 {
     RefPtr<cairo_region_t> cairoRegion = adoptRef(cairo_region_create());
@@ -397,6 +415,16 @@ RefPtr<cairo_region_t> toCairoRegion(const Region& region)
 cairo_matrix_t toCairoMatrix(const AffineTransform& transform)
 {
     return cairo_matrix_t { transform.a(), transform.b(), transform.c(), transform.d(), transform.e(), transform.f() };
+}
+
+void attachSurfaceUniqueID(cairo_surface_t* surface)
+{
+    cairo_surface_set_user_data(surface, &s_surfaceUniqueIDKey, reinterpret_cast<void*>(s_surfaceUniqueID.exchangeAdd(1)), nullptr);
+}
+
+uintptr_t getSurfaceUniqueID(cairo_surface_t* surface)
+{
+    return reinterpret_cast<uintptr_t>(cairo_surface_get_user_data(surface, &s_surfaceUniqueIDKey));
 }
 
 } // namespace WebCore

@@ -1,5 +1,6 @@
 /*
- * Copyright (C) 2005, 2006, 2008 Apple Inc. All rights reserved.
+ * Copyright (C) 2005-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2013 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,6 +31,7 @@
 #include "CSSPropertyNames.h"
 #include "UndoStep.h"
 #include <wtf/Vector.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
@@ -83,7 +85,7 @@ public:
     void setRangeDeletedByUnapply(const VisiblePositionIndexRange&);
 
 #ifndef NDEBUG
-    virtual void getNodesInCommand(HashSet<Node*>&);
+    virtual void getNodesInCommand(HashSet<Ref<Node>>&);
 #endif
 
 private:
@@ -91,6 +93,8 @@ private:
 
     String label() const final;
     void didRemoveFromUndoManager() final { }
+    bool areRootEditabledElementsConnected();
+    RefPtr<Document> protectedDocument() const { return m_document; }
 
     RefPtr<Document> m_document;
     VisibleSelection m_startingSelection;
@@ -102,13 +106,14 @@ private:
     EditAction m_editAction;
 };
 
-class CompositeEditCommand : public EditCommand {
+class CompositeEditCommand : public EditCommand, public CanMakeWeakPtr<CompositeEditCommand> {
 public:
     virtual ~CompositeEditCommand();
 
     void apply();
     bool isFirstCommand(EditCommand* command) { return !m_commands.isEmpty() && m_commands.first() == command; }
     EditCommandComposition* composition() const;
+    RefPtr<EditCommandComposition> protectedComposition() const { return composition(); }
     EditCommandComposition& ensureComposition();
 
     virtual bool isCreateLinkCommand() const;
@@ -118,7 +123,8 @@ public:
     virtual bool shouldRetainAutocorrectionIndicator() const;
     virtual void setShouldRetainAutocorrectionIndicator(bool);
     virtual bool shouldStopCaretBlinking() const { return false; }
-    virtual String inputEventTypeName() const;
+    virtual AtomString inputEventTypeName() const;
+    virtual bool isInputMethodComposing() const;
     virtual String inputEventData() const { return { }; }
     virtual bool isBeforeInputEventCancelable() const { return true; }
     virtual bool shouldDispatchInputEvents() const { return true; }
@@ -126,7 +132,7 @@ public:
     virtual RefPtr<DataTransfer> inputEventDataTransfer() const;
 
 protected:
-    explicit CompositeEditCommand(Document&, EditAction = EditAction::Unspecified);
+    explicit CompositeEditCommand(Ref<Document>&&, EditAction = EditAction::Unspecified);
 
     // If willApplyCommand returns false, we won't proceed with applying the command.
     virtual bool willApplyCommand();
@@ -152,7 +158,7 @@ protected:
     void insertNodeAfter(Ref<Node>&&, Node& refChild);
     void insertNodeAt(Ref<Node>&&, const Position&);
     void insertNodeAtTabSpanPosition(Ref<Node>&&, const Position&);
-    void insertNodeBefore(Ref<Node>&&, Node& refChild, ShouldAssumeContentIsAlwaysEditable = DoNotAssumeContentIsAlwaysEditable);
+    bool insertNodeBefore(Ref<Node>&&, Node& refChild, ShouldAssumeContentIsAlwaysEditable = DoNotAssumeContentIsAlwaysEditable);
     void insertParagraphSeparatorAtPosition(const Position&, bool useDefaultParagraphElement = false, bool pasteBlockqutoeIntoUnquotedArea = false);
     void insertParagraphSeparator(bool useDefaultParagraphElement = false, bool pasteBlockqutoeIntoUnquotedArea = false);
     void insertLineBreak();
@@ -162,12 +168,13 @@ protected:
     void rebalanceWhitespaceAt(const Position&);
     void rebalanceWhitespaceOnTextSubstring(Text&, int startOffset, int endOffset);
     void prepareWhitespaceAtPositionForSplit(Position&);
-    bool canRebalance(const Position&) const;
+    void replaceCollapsibleWhitespaceWithNonBreakingSpaceIfNeeded(const VisiblePosition&);
+    RefPtr<Text> textNodeForRebalance(const Position&) const;
     bool shouldRebalanceLeadingWhitespaceFor(const String&) const;
     void removeNodeAttribute(Element&, const QualifiedName& attribute);
     void removeChildrenInRange(Node&, unsigned from, unsigned to);
     virtual void removeNode(Node&, ShouldAssumeContentIsAlwaysEditable = DoNotAssumeContentIsAlwaysEditable);
-    HTMLElement* replaceElementWithSpanPreservingChildrenAndAttributes(HTMLElement&);
+    RefPtr<HTMLElement> replaceElementWithSpanPreservingChildrenAndAttributes(HTMLElement&);
     void removeNodePreservingChildren(Node&, ShouldAssumeContentIsAlwaysEditable = DoNotAssumeContentIsAlwaysEditable);
     void removeNodeAndPruneAncestors(Node&);
     void moveRemainingSiblingsToNewParent(Node*, Node* pastLastNodeToMove, Element& newParent);
@@ -187,7 +194,7 @@ protected:
     void deleteInsignificantText(const Position& start, const Position& end);
     void deleteInsignificantTextDownstream(const Position&);
 
-    Ref<Element> appendBlockPlaceholder(Ref<Element>&&);
+    RefPtr<Element> appendBlockPlaceholder(Ref<Element>&&);
     RefPtr<Node> insertBlockPlaceholder(const Position&);
     RefPtr<Node> addBlockPlaceholderIfNeeded(Element*);
     void removePlaceholderAt(const Position&);
@@ -204,7 +211,7 @@ protected:
     void cloneParagraphUnderNewElement(const Position& start, const Position& end, Node* outerNode, Element* blockElement);
     void cleanupAfterDeletion(VisiblePosition destination = VisiblePosition());
     
-    Optional<VisibleSelection> shouldBreakOutOfEmptyListItem() const;
+    VisibleSelection shouldBreakOutOfEmptyListItem() const;
     bool breakOutOfEmptyListItem();
     bool breakOutOfEmptyMailBlockquotedParagraph();
     
@@ -219,12 +226,5 @@ private:
 
     RefPtr<EditCommandComposition> m_composition;
 };
-
-inline CompositeEditCommand* toCompositeEditCommand(EditCommand* command)
-{
-    ASSERT(command);
-    ASSERT_WITH_SECURITY_IMPLICATION(command->isCompositeEditCommand());
-    return static_cast<CompositeEditCommand*>(command);
-}
 
 } // namespace WebCore

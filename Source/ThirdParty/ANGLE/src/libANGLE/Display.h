@@ -12,33 +12,41 @@
 #define LIBANGLE_DISPLAY_H_
 
 #include <mutex>
-#include <set>
 #include <vector>
 
+#include "common/WorkerThread.h"
 #include "libANGLE/AttributeMap.h"
 #include "libANGLE/BlobCache.h"
 #include "libANGLE/Caps.h"
 #include "libANGLE/Config.h"
+#include "libANGLE/Context.h"
 #include "libANGLE/Debug.h"
 #include "libANGLE/Error.h"
 #include "libANGLE/LoggingAnnotator.h"
 #include "libANGLE/MemoryProgramCache.h"
+#include "libANGLE/MemoryShaderCache.h"
 #include "libANGLE/Observer.h"
+#include "libANGLE/ShareGroup.h"
 #include "libANGLE/Version.h"
 #include "platform/Feature.h"
-#include "platform/FrontendFeatures.h"
+#include "platform/autogen/FrontendFeatures_autogen.h"
+
+namespace angle
+{
+class FrameCaptureShared;
+}  // namespace angle
 
 namespace gl
 {
 class Context;
 class TextureManager;
+class SemaphoreManager;
 }  // namespace gl
 
 namespace rx
 {
 class DisplayImpl;
 class EGLImplFactory;
-class ShareGroupImpl;
 }  // namespace rx
 
 namespace egl
@@ -50,7 +58,8 @@ class Surface;
 class Sync;
 class Thread;
 
-using SurfaceSet = std::set<Surface *>;
+using SurfaceMap = angle::HashMap<GLuint, Surface *>;
+using ThreadSet  = angle::HashSet<Thread *>;
 
 struct DisplayState final : private angle::NonCopyable
 {
@@ -58,34 +67,20 @@ struct DisplayState final : private angle::NonCopyable
     ~DisplayState();
 
     EGLLabelKHR label;
-    SurfaceSet surfaceSet;
+    ContextMap contextMap;
+    SurfaceMap surfaceMap;
     std::vector<std::string> featureOverridesEnabled;
     std::vector<std::string> featureOverridesDisabled;
     bool featuresAllDisabled;
     EGLNativeDisplayType displayId;
 };
 
-class ShareGroup final : angle::NonCopyable
-{
-  public:
-    ShareGroup(rx::EGLImplFactory *factory);
-
-    void addRef();
-
-    void release(const gl::Context *context);
-
-    rx::ShareGroupImpl *getImplementation() const { return mImplementation; }
-
-  protected:
-    ~ShareGroup();
-
-  private:
-    size_t mRefCount;
-    rx::ShareGroupImpl *mImplementation;
-};
-
-// Constant coded here as a sanity limit.
+// Constant coded here as a reasonable limit.
 constexpr EGLAttrib kProgramCacheSizeAbsoluteMax = 0x4000000;
+
+using ImageMap  = angle::HashMap<GLuint, Image *>;
+using StreamSet = angle::HashSet<Stream *>;
+using SyncMap   = angle::HashMap<GLuint, std::unique_ptr<Sync>>;
 
 class Display final : public LabeledObject,
                       public angle::ObserverInterface,
@@ -101,12 +96,32 @@ class Display final : public LabeledObject,
     void onSubjectStateChange(angle::SubjectIndex index, angle::SubjectMessage message) override;
 
     Error initialize();
-    Error terminate(const Thread *thread);
+
+    enum class TerminateReason
+    {
+        Api,
+        InternalCleanup,
+
+        InvalidEnum,
+        EnumCount = InvalidEnum,
+    };
+    Error terminate(Thread *thread, TerminateReason terminateReason);
+    // Called before all display state dependent EGL functions. Backends can set up, for example,
+    // thread-specific backend state through this function. Not called for functions that do not
+    // need the state.
+    Error prepareForCall();
+    // Called on eglReleaseThread. Backends can tear down thread-specific backend state through
+    // this function.
+    Error releaseThread();
 
     static Display *GetDisplayFromDevice(Device *device, const AttributeMap &attribMap);
-    static Display *GetDisplayFromNativeDisplay(EGLNativeDisplayType nativeDisplay,
+    static Display *GetDisplayFromNativeDisplay(EGLenum platform,
+                                                EGLNativeDisplayType nativeDisplay,
                                                 const AttributeMap &attribMap);
     static Display *GetExistingDisplayFromNativeDisplay(EGLNativeDisplayType nativeDisplay);
+
+    using EglDisplaySet = angle::HashSet<Display *>;
+    static EglDisplaySet GetEglDisplaySet();
 
     static const ClientExtensions &GetClientExtensions();
     static const std::string &GetClientExtensionString();
@@ -150,7 +165,8 @@ class Display final : public LabeledObject,
                      const AttributeMap &attribs,
                      Sync **outSync);
 
-    Error makeCurrent(const Thread *thread,
+    Error makeCurrent(Thread *thread,
+                      gl::Context *previousContext,
                       Surface *drawSurface,
                       Surface *readSurface,
                       gl::Context *context);
@@ -158,16 +174,17 @@ class Display final : public LabeledObject,
     Error destroySurface(Surface *surface);
     void destroyImage(Image *image);
     void destroyStream(Stream *stream);
-    Error destroyContext(const Thread *thread, gl::Context *context);
+    Error destroyContext(Thread *thread, gl::Context *context);
+
     void destroySync(Sync *sync);
 
     bool isInitialized() const;
     bool isValidConfig(const Config *config) const;
-    bool isValidContext(const gl::Context *context) const;
-    bool isValidSurface(const Surface *surface) const;
-    bool isValidImage(const Image *image) const;
+    bool isValidContext(gl::ContextID contextID) const;
+    bool isValidSurface(SurfaceID surfaceID) const;
+    bool isValidImage(ImageID imageID) const;
     bool isValidStream(const Stream *stream) const;
-    bool isValidSync(const Sync *sync) const;
+    bool isValidSync(SyncID sync) const;
     bool isValidNativeWindow(EGLNativeWindowType window) const;
 
     Error validateClientBuffer(const Config *configuration,
@@ -178,7 +195,7 @@ class Display final : public LabeledObject,
                                     EGLenum target,
                                     EGLClientBuffer clientBuffer,
                                     const egl::AttributeMap &attribs) const;
-    Error valdiatePixmap(Config *config,
+    Error valdiatePixmap(const Config *config,
                          EGLNativePixmapType pixmap,
                          const AttributeMap &attributes) const;
 
@@ -195,6 +212,8 @@ class Display final : public LabeledObject,
     BlobCache &getBlobCache() { return mBlobCache; }
 
     static EGLClientBuffer GetNativeClientBuffer(const struct AHardwareBuffer *buffer);
+    static Error CreateNativeClientBuffer(const egl::AttributeMap &attribMap,
+                                          EGLClientBuffer *eglClientBuffer);
 
     Error waitClient(const gl::Context *context);
     Error waitNative(const gl::Context *context, EGLint engine);
@@ -204,6 +223,12 @@ class Display final : public LabeledObject,
     const DisplayExtensions &getExtensions() const;
     const std::string &getExtensionString() const;
     const std::string &getVendorString() const;
+    const std::string &getVersionString() const;
+    const std::string &getClientAPIString() const;
+
+    std::string getBackendRendererDescription() const;
+    std::string getBackendVendorString() const;
+    std::string getBackendVersionString(bool includeFullVersion) const;
 
     EGLint programCacheGetAttrib(EGLenum attrib) const;
     Error programCacheQuery(EGLint index,
@@ -229,10 +254,8 @@ class Display final : public LabeledObject,
 
     const DisplayState &getState() const { return mState; }
 
-    typedef std::set<gl::Context *> ContextSet;
-    const ContextSet &getContextSet() { return mContextSet; }
-
     const angle::FrontendFeatures &getFrontendFeatures() { return mFrontendFeatures; }
+    void overrideFrontendFeatures(const std::vector<std::string> &featureNames, bool enabled);
 
     const angle::FeatureList &getFeatures() const { return mFeatures; }
 
@@ -247,25 +270,78 @@ class Display final : public LabeledObject,
     void returnZeroFilledBuffer(angle::ScratchBuffer zeroFilledBuffer);
 
     egl::Error handleGPUSwitch();
+    egl::Error forceGPUSwitch(EGLint gpuIDHigh, EGLint gpuIDLow);
+
+    egl::Error waitUntilWorkScheduled();
+
+    std::mutex &getDisplayGlobalMutex() { return mDisplayGlobalMutex; }
+    std::mutex &getProgramCacheMutex() { return mProgramCacheMutex; }
+
+    gl::MemoryShaderCache *getMemoryShaderCache() { return &mMemoryShaderCache; }
+
+    // Installs LoggingAnnotator as the global DebugAnnotator, for back-ends that do not implement
+    // their own DebugAnnotator.
+    void setGlobalDebugAnnotator() { gl::InitializeDebugAnnotations(&mAnnotator); }
+
+    bool supportsDmaBufFormat(EGLint format) const;
+    Error queryDmaBufFormats(EGLint max_formats, EGLint *formats, EGLint *num_formats);
+    Error queryDmaBufModifiers(EGLint format,
+                               EGLint max_modifiers,
+                               EGLuint64KHR *modifiers,
+                               EGLBoolean *external_only,
+                               EGLint *num_modifiers);
+
+    std::shared_ptr<angle::WorkerThreadPool> getSingleThreadPool() const
+    {
+        return mSingleThreadPool;
+    }
+    std::shared_ptr<angle::WorkerThreadPool> getMultiThreadPool() const { return mMultiThreadPool; }
+
+    angle::ImageLoadContext getImageLoadContext() const;
+
+    const gl::Context *getContext(gl::ContextID contextID) const;
+    const egl::Surface *getSurface(egl::SurfaceID surfaceID) const;
+    const egl::Image *getImage(egl::ImageID imageID) const;
+    const egl::Sync *getSync(egl::SyncID syncID) const;
+    gl::Context *getContext(gl::ContextID contextID);
+    egl::Surface *getSurface(egl::SurfaceID surfaceID);
+    egl::Image *getImage(egl::ImageID imageID);
+    egl::Sync *getSync(egl::SyncID syncID);
+
+    const SyncMap &getSyncsForCapture() const { return mSyncMap; }
+
+    // Initialize thread-local variables used by the Display and its backing implementations.  This
+    // includes:
+    //
+    // - The unlocked tail call to be run at the end of the entry point.
+    // - Scratch space for an egl::Error used by the backends (this is not used by all backends, and
+    //   access *must* be restricted to backends that use it).
+    //
+    static void InitTLS();
+    static angle::UnlockedTailCall *GetCurrentThreadUnlockedTailCall();
+    static Error *GetCurrentThreadErrorScratchSpace();
 
   private:
     Display(EGLenum platform, EGLNativeDisplayType displayId, Device *eglDevice);
 
     void setAttributes(const AttributeMap &attribMap) { mAttributeMap = attribMap; }
-
     void setupDisplayPlatform(rx::DisplayImpl *impl);
 
-    void updateAttribsFromEnvironment(const AttributeMap &attribMap);
-
     Error restoreLostDevice();
+    Error releaseContext(gl::Context *context, Thread *thread);
+    Error releaseContextImpl(gl::Context *context, ContextMap *contexts);
 
     void initDisplayExtensions();
     void initVendorString();
+    void initVersionString();
+    void initClientAPIString();
     void initializeFrontendFeatures();
 
     angle::ScratchBuffer requestScratchBufferImpl(std::vector<angle::ScratchBuffer> *bufferVector);
     void returnScratchBufferImpl(angle::ScratchBuffer scratchBuffer,
                                  std::vector<angle::ScratchBuffer> *bufferVector);
+
+    Error destroyInvalidEglObjects();
 
     DisplayState mState;
     rx::DisplayImpl *mImplementation;
@@ -275,16 +351,25 @@ class Display final : public LabeledObject,
 
     ConfigSet mConfigSet;
 
-    ContextSet mContextSet;
-
-    typedef std::set<Image *> ImageSet;
-    ImageSet mImageSet;
-
-    typedef std::set<Stream *> StreamSet;
+    ImageMap mImageMap;
     StreamSet mStreamSet;
 
-    typedef std::set<Sync *> SyncSet;
-    SyncSet mSyncSet;
+    SyncMap mSyncMap;
+
+    static constexpr size_t kMaxSyncPoolSizePerType = 32;
+    using SyncPool = angle::FixedVector<std::unique_ptr<Sync>, kMaxSyncPoolSizePerType>;
+    std::map<EGLenum, SyncPool> mSyncPools;
+
+    void destroyImageImpl(Image *image, ImageMap *images);
+    void destroyStreamImpl(Stream *stream, StreamSet *streams);
+    Error destroySurfaceImpl(Surface *surface, SurfaceMap *surfaces);
+    void destroySyncImpl(SyncID syncId, SyncMap *syncs);
+
+    ContextMap mInvalidContextMap;
+    ImageMap mInvalidImageMap;
+    StreamSet mInvalidStreamSet;
+    SurfaceMap mInvalidSurfaceMap;
+    SyncMap mInvalidSyncMap;
 
     bool mInitialized;
     bool mDeviceLost;
@@ -295,16 +380,28 @@ class Display final : public LabeledObject,
     std::string mDisplayExtensionString;
 
     std::string mVendorString;
+    std::string mVersionString;
+    std::string mClientAPIString;
 
     Device *mDevice;
     Surface *mSurface;
     EGLenum mPlatform;
     angle::LoggingAnnotator mAnnotator;
 
+    // mManagersMutex protects mTextureManager and mSemaphoreManager
+    ContextMutex *mManagersMutex;
     gl::TextureManager *mTextureManager;
+    gl::SemaphoreManager *mSemaphoreManager;
+
     BlobCache mBlobCache;
     gl::MemoryProgramCache mMemoryProgramCache;
+    gl::MemoryShaderCache mMemoryShaderCache;
     size_t mGlobalTextureShareGroupUsers;
+    size_t mGlobalSemaphoreShareGroupUsers;
+
+    gl::HandleAllocator mImageHandleAllocator;
+    gl::HandleAllocator mSurfaceHandleAllocator;
+    gl::HandleAllocator mSyncHandleAllocator;
 
     angle::FrontendFeatures mFrontendFeatures;
 
@@ -313,6 +410,16 @@ class Display final : public LabeledObject,
     std::mutex mScratchBufferMutex;
     std::vector<angle::ScratchBuffer> mScratchBuffers;
     std::vector<angle::ScratchBuffer> mZeroFilledBuffers;
+
+    std::mutex mDisplayGlobalMutex;
+    std::mutex mProgramCacheMutex;
+
+    bool mTerminatedByApi;
+
+    // Single-threaded and multithread pools for use by various parts of ANGLE, such as shader
+    // compilation.  These pools are internally synchronized.
+    std::shared_ptr<angle::WorkerThreadPool> mSingleThreadPool;
+    std::shared_ptr<angle::WorkerThreadPool> mMultiThreadPool;
 };
 
 }  // namespace egl

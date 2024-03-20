@@ -29,8 +29,8 @@
 
 #import "Utilities.h"
 #import <JavaScriptCore/InitializeThreading.h>
-#import <WebCore/Frame.h>
 #import <WebCore/FrameLoadRequest.h>
+#import <WebCore/LocalFrame.h>
 #import <WebCore/Page.h>
 #import <WebCore/PageConfiguration.h>
 #import <WebCore/Document.h>
@@ -42,6 +42,7 @@
 #import <WebCore/WebCoreNSURLSession.h>
 #import <WebCore/ResourceLoader.h>
 #import <WebKit/WebView.h>
+#import <wtf/RetainPtr.h>
 #import <wtf/SchedulePair.h>
 
 static bool didLoadMainResource;
@@ -98,16 +99,16 @@ static NSURL *resourceURL = [[NSBundle mainBundle] URLForResource:@"test" withEx
 using namespace WebCore;
 
 @interface WebView (WebViewInternalForTesting)
-- (WebCore::Frame*)_mainCoreFrame;
+- (WebCore::LocalFrame*)_mainCoreFrame;
 @end
 
 namespace TestWebKitAPI {
 
 class WebCoreNSURLSessionTest : public testing::Test {
 public:
-    WebView *view { nil };
-    Frame* frame { nullptr };
-    TestNSURLSessionDataDelegate *delegate { nil };
+    RetainPtr<WebView> view;
+    LocalFrame* frame { nullptr };
+    RetainPtr<TestNSURLSessionDataDelegate> delegate;
     RefPtr<MediaResourceLoader> loader;
     RefPtr<HTMLMediaElement> mediaElement;
 
@@ -116,30 +117,28 @@ public:
 #if PLATFORM(IOS_FAMILY)
         JSC::initialize();
 #endif
-        view = [[WebView alloc] initWithFrame:NSZeroRect];
-        view.frameLoadDelegate = [[[TestNSURLSessionLoaderDelegate alloc] init] autorelease];
+        view = adoptNS([[WebView alloc] initWithFrame:NSZeroRect]);
+        [view setFrameLoadDelegate:adoptNS([[TestNSURLSessionLoaderDelegate alloc] init]).get()];
 
         didLoadMainResource = false;
-        view.mainFrameURL = documentURL.absoluteString;
+        [view setMainFrameURL:documentURL.absoluteString];
         TestWebKitAPI::Util::run(&didLoadMainResource);
 
-        delegate = [[TestNSURLSessionDataDelegate alloc] init];
+        delegate = adoptNS([[TestNSURLSessionDataDelegate alloc] init]);
         frame = [view _mainCoreFrame];
         mediaElement = HTMLVideoElement::create(*frame->document());
-        loader = adoptRef(new MediaResourceLoader(*frame->document(), *mediaElement.get(), emptyString()));
+        loader = adoptRef(new MediaResourceLoader(*frame->document(), *mediaElement.get(), emptyString(), FetchOptions::Destination::Video));
     }
 
     virtual void TearDown()
     {
-        [view release];
-        [delegate release];
         loader = nullptr;
     }
 };
 
 TEST_F(WebCoreNSURLSessionTest, BasicOperation)
 {
-    WebCoreNSURLSession* session = [[WebCoreNSURLSession alloc] initWithResourceLoader:*loader delegate:delegate delegateQueue:[NSOperationQueue mainQueue]];
+    auto session = adoptNS([[WebCoreNSURLSession alloc] initWithResourceLoader:*loader delegate:delegate.get() delegateQueue:[NSOperationQueue mainQueue]]);
     didRecieveResponse = false;
     didRecieveData = false;
     didComplete = false;
@@ -158,17 +157,14 @@ TEST_F(WebCoreNSURLSessionTest, BasicOperation)
     [session finishTasksAndInvalidate];
 
     TestWebKitAPI::Util::run(&didInvalidate);
-
-    [session release];
 }
 
 TEST_F(WebCoreNSURLSessionTest, InvalidateEmpty)
 {
-    WebCoreNSURLSession* session = [[WebCoreNSURLSession alloc] initWithResourceLoader:*loader delegate:delegate delegateQueue:[NSOperationQueue mainQueue]];
+    auto session = adoptNS([[WebCoreNSURLSession alloc] initWithResourceLoader:*loader delegate:delegate.get() delegateQueue:[NSOperationQueue mainQueue]]);
     didInvalidate = false;
     [session finishTasksAndInvalidate];
     TestWebKitAPI::Util::run(&didInvalidate);
-    [session release];
 }
 
 }

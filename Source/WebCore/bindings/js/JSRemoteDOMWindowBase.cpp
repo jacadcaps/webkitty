@@ -26,35 +26,43 @@
 #include "config.h"
 #include "JSRemoteDOMWindowBase.h"
 
-#include "JSRemoteDOMWindow.h"
 #include "JSWindowProxy.h"
+#include <JavaScriptCore/GlobalObjectMethodTable.h>
 
 using namespace JSC;
 
 namespace WebCore {
 
-const ClassInfo JSRemoteDOMWindowBase::s_info = { "Window", &JSDOMGlobalObject::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSRemoteDOMWindowBase) };
+const ClassInfo JSRemoteDOMWindowBase::s_info = { "Window"_s, &JSDOMGlobalObject::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSRemoteDOMWindowBase) };
 
-const GlobalObjectMethodTable JSRemoteDOMWindowBase::s_globalObjectMethodTable = {
-    nullptr, // shellSupportsRichSourceInfo
-    nullptr, // shouldInterruptScript
-    &javaScriptRuntimeFlags,
-    nullptr, // queueMicrotaskToEventLoop
-    nullptr, // shouldInterruptScriptBeforeTimeout
-    nullptr, // moduleLoaderImportModule
-    nullptr, // moduleLoaderResolve
-    nullptr, // moduleLoaderFetch
-    nullptr, // moduleLoaderCreateImportMetaProperties
-    nullptr, // moduleLoaderEvaluate
-    nullptr, // promiseRejectionTracker
-    nullptr, // reportUncaughtExceptionAtEventLoop
-    nullptr, // defaultLanguage
-    nullptr, // compileStreaming
-    nullptr, // instantiateStreaming
+const GlobalObjectMethodTable* JSRemoteDOMWindowBase::globalObjectMethodTable()
+{
+    static constexpr GlobalObjectMethodTable table = {
+        nullptr, // shellSupportsRichSourceInfo
+        nullptr, // shouldInterruptScript
+        &javaScriptRuntimeFlags,
+        nullptr, // queueMicrotaskToEventLoop
+        nullptr, // shouldInterruptScriptBeforeTimeout
+        nullptr, // moduleLoaderImportModule
+        nullptr, // moduleLoaderResolve
+        nullptr, // moduleLoaderFetch
+        nullptr, // moduleLoaderCreateImportMetaProperties
+        nullptr, // moduleLoaderEvaluate
+        nullptr, // promiseRejectionTracker
+        nullptr, // reportUncaughtExceptionAtEventLoop
+        &currentScriptExecutionOwner,
+        &scriptExecutionStatus,
+        &reportViolationForUnsafeEval,
+        nullptr, // defaultLanguage
+        nullptr, // compileStreaming
+        nullptr, // instantiateStreaming
+        nullptr, // deriveShadowRealmGlobalObject
+    };
+    return &table;
 };
 
 JSRemoteDOMWindowBase::JSRemoteDOMWindowBase(VM& vm, Structure* structure, RefPtr<RemoteDOMWindow>&& window, JSWindowProxy* proxy)
-    : JSDOMGlobalObject(vm, structure, proxy->world(), &s_globalObjectMethodTable)
+    : JSDOMGlobalObject(vm, structure, proxy->world(), globalObjectMethodTable())
     , m_wrapped(WTFMove(window))
 {
 }
@@ -67,23 +75,6 @@ void JSRemoteDOMWindowBase::destroy(JSCell* cell)
 RuntimeFlags JSRemoteDOMWindowBase::javaScriptRuntimeFlags(const JSGlobalObject*)
 {
     return RuntimeFlags { };
-}
-
-JSRemoteDOMWindow* toJSRemoteDOMWindow(JSC::VM& vm, JSValue value)
-{
-    if (!value.isObject())
-        return nullptr;
-
-    while (!value.isNull()) {
-        JSObject* object = asObject(value);
-        const ClassInfo* classInfo = object->classInfo(vm);
-        if (classInfo == JSRemoteDOMWindow::info())
-            return jsCast<JSRemoteDOMWindow*>(object);
-        if (classInfo == JSWindowProxy::info())
-            return jsDynamicCast<JSRemoteDOMWindow*>(vm, jsCast<JSWindowProxy*>(object)->window());
-        value = object->getPrototypeDirect(vm);
-    }
-    return nullptr;
 }
 
 } // namespace WebCore

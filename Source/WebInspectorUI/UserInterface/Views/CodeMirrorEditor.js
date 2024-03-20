@@ -40,6 +40,9 @@ WI.CodeMirrorEditor = class CodeMirrorEditor
             tabSize: WI.settings.tabSize.value,
             lineWrapping: WI.settings.enableLineWrapping.value,
             showWhitespaceCharacters: WI.settings.showWhitespaceCharacters.value,
+            maxHighlightLength: WI.settings.experimentalLimitSourceCodeHighlighting.value ? 120 : 10000,
+            maxScanLineLength: WI.settings.experimentalLimitSourceCodeHighlighting.value ? 120 : 10000,
+            maxHighlightLineLength: WI.settings.experimentalLimitSourceCodeHighlighting.value ? 120 : 1000,
             ...options,
         });
 
@@ -47,9 +50,9 @@ WI.CodeMirrorEditor = class CodeMirrorEditor
             if (options[codeMirrorOption] !== undefined)
                 return;
 
-            setting.addEventListener(WI.Setting.Event.Changed, (event) => {
-                codeMirror.setOption(codeMirrorOption, setting.value);
-            });
+            setting.addEventListener(WI.Setting.Event.Changed, function(event) {
+                this.setOption(codeMirrorOption, setting.value);
+            }, codeMirror);
         }
         listenForChange(WI.settings.indentWithTabs, "indentWithTabs");
         listenForChange(WI.settings.indentUnit, "indentUnit");

@@ -40,78 +40,12 @@ struct RemoteMediaPlayerConfiguration {
     bool supportsFullscreen { false };
     bool supportsPictureInPicture { false };
     bool supportsAcceleratedRendering { false };
+    bool supportsPlayAtHostTime { false };
+    bool supportsPauseAtHostTime { false };
     bool canPlayToWirelessPlaybackTarget { false };
     bool shouldIgnoreIntrinsicSize { false };
-
-    template<class Encoder>
-    void encode(Encoder& encoder) const
-    {
-        encoder << engineDescription;
-        encoder << maximumDurationToCacheMediaTime;
-        encoder << supportsScanning;
-        encoder << supportsFullscreen;
-        encoder << supportsPictureInPicture;
-        encoder << supportsAcceleratedRendering;
-        encoder << canPlayToWirelessPlaybackTarget;
-        encoder << shouldIgnoreIntrinsicSize;
-    }
-
-    template <class Decoder>
-    static Optional<RemoteMediaPlayerConfiguration> decode(Decoder& decoder)
-    {
-        Optional<String> engineDescription;
-        decoder >> engineDescription;
-        if (!engineDescription)
-            return WTF::nullopt;
-
-        Optional<double> maximumDurationToCacheMediaTime;
-        decoder >> maximumDurationToCacheMediaTime;
-        if (!maximumDurationToCacheMediaTime)
-            return WTF::nullopt;
-
-        Optional<bool> supportsScanning;
-        decoder >> supportsScanning;
-        if (!supportsScanning)
-            return WTF::nullopt;
-
-        Optional<bool> supportsFullscreen;
-        decoder >> supportsFullscreen;
-        if (!supportsFullscreen)
-            return WTF::nullopt;
-
-        Optional<bool> supportsPictureInPicture;
-        decoder >> supportsPictureInPicture;
-        if (!supportsPictureInPicture)
-            return WTF::nullopt;
-
-        Optional<bool> supportsAcceleratedRendering;
-        decoder >> supportsAcceleratedRendering;
-        if (!supportsAcceleratedRendering)
-            return WTF::nullopt;
-
-        Optional<bool> canPlayToWirelessPlaybackTarget;
-        decoder >> canPlayToWirelessPlaybackTarget;
-        if (!canPlayToWirelessPlaybackTarget)
-            return WTF::nullopt;
-
-        Optional<bool> shouldIgnoreIntrinsicSize;
-        decoder >> shouldIgnoreIntrinsicSize;
-        if (!shouldIgnoreIntrinsicSize)
-            return WTF::nullopt;
-
-        return {{
-            WTFMove(*engineDescription),
-            *maximumDurationToCacheMediaTime,
-            *supportsScanning,
-            *supportsFullscreen,
-            *supportsPictureInPicture,
-            *supportsAcceleratedRendering,
-            *canPlayToWirelessPlaybackTarget,
-            *shouldIgnoreIntrinsicSize,
-        }};
-    }
 };
 
 } // namespace WebKit
 
-#endif
+#endif // ENABLE(GPU_PROCESS)

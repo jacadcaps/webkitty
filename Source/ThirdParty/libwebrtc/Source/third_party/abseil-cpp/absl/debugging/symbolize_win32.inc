@@ -17,10 +17,10 @@
 
 #include <windows.h>
 
-// MSVC header DbgHelp.h has a warning for an ignored typedef.
+// MSVC header dbghelp.h has a warning for an ignored typedef.
 #pragma warning(push)
 #pragma warning(disable:4091)
-#include <DbgHelp.h>
+#include <dbghelp.h>
 #pragma warning(pop)
 
 #pragma comment(lib, "dbghelp.lib")
@@ -31,10 +31,11 @@
 #include "absl/base/internal/raw_logging.h"
 
 namespace absl {
+ABSL_NAMESPACE_BEGIN
 
 static HANDLE process = NULL;
 
-void InitializeSymbolizer(const char *argv0) {
+void InitializeSymbolizer(const char*) {
   if (process != nullptr) {
     return;
   }
@@ -53,28 +54,29 @@ void InitializeSymbolizer(const char *argv0) {
   }
 }
 
-bool Symbolize(const void *pc, char *out, int out_size) {
+bool Symbolize(const void* pc, char* out, int out_size) {
   if (out_size <= 0) {
     return false;
   }
-  std::aligned_storage<sizeof(SYMBOL_INFO) + MAX_SYM_NAME,
-                       alignof(SYMBOL_INFO)>::type buf;
-  SYMBOL_INFO *symbol = reinterpret_cast<SYMBOL_INFO *>(&buf);
+  alignas(SYMBOL_INFO) char buf[sizeof(SYMBOL_INFO) + MAX_SYM_NAME];
+  SYMBOL_INFO* symbol = reinterpret_cast<SYMBOL_INFO*>(buf);
   symbol->SizeOfStruct = sizeof(SYMBOL_INFO);
   symbol->MaxNameLen = MAX_SYM_NAME;
   if (!SymFromAddr(process, reinterpret_cast<DWORD64>(pc), nullptr, symbol)) {
     return false;
   }
-  strncpy(out, symbol->Name, out_size);
-  if (out[out_size - 1] != '\0') {
+  const size_t out_size_t = static_cast<size_t>(out_size);
+  strncpy(out, symbol->Name, out_size_t);
+  if (out[out_size_t - 1] != '\0') {
     // strncpy() does not '\0' terminate when it truncates.
     static constexpr char kEllipsis[] = "...";
-    int ellipsis_size =
-        std::min<int>(sizeof(kEllipsis) - 1, out_size - 1);
-    memcpy(out + out_size - ellipsis_size - 1, kEllipsis, ellipsis_size);
-    out[out_size - 1] = '\0';
+    size_t ellipsis_size =
+        std::min(sizeof(kEllipsis) - 1, out_size_t - 1);
+    memcpy(out + out_size_t - ellipsis_size - 1, kEllipsis, ellipsis_size);
+    out[out_size_t - 1] = '\0';
   }
   return true;
 }
 
+ABSL_NAMESPACE_END
 }  // namespace absl

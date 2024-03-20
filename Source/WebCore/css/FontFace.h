@@ -28,9 +28,10 @@
 #include "ActiveDOMObject.h"
 #include "CSSFontFace.h"
 #include "CSSPropertyNames.h"
+#include "ExceptionOr.h"
 #include "IDLTypes.h"
+#include <variant>
 #include <wtf/UniqueRef.h>
-#include <wtf/Variant.h>
 #include <wtf/WeakPtr.h>
 
 namespace JSC {
@@ -42,7 +43,7 @@ namespace WebCore {
 
 template<typename IDLType> class DOMPromiseProxyWithResolveCallback;
 
-class FontFace final : public RefCounted<FontFace>, public CanMakeWeakPtr<FontFace>, public ActiveDOMObject, private CSSFontFace::Client {
+class FontFace final : public RefCounted<FontFace>, public ActiveDOMObject, public CSSFontFace::Client {
 public:
     struct Descriptors {
         String style;
@@ -51,20 +52,22 @@ public:
         String unicodeRange;
         String featureSettings;
         String display;
+        String sizeAdjust;
     };
     
-    using Source = Variant<String, RefPtr<JSC::ArrayBuffer>, RefPtr<JSC::ArrayBufferView>>;
-    static Ref<FontFace> create(Document&, const String& family, Source&&, const Descriptors&);
-    static Ref<FontFace> create(CSSFontFace&);
+    using Source = std::variant<String, RefPtr<JSC::ArrayBuffer>, RefPtr<JSC::ArrayBufferView>>;
+    static Ref<FontFace> create(ScriptExecutionContext&, const String& family, Source&&, const Descriptors&);
+    static Ref<FontFace> create(ScriptExecutionContext*, CSSFontFace&);
     virtual ~FontFace();
 
-    ExceptionOr<void> setFamily(Document&, const String&);
-    ExceptionOr<void> setStyle(const String&);
-    ExceptionOr<void> setWeight(const String&);
-    ExceptionOr<void> setStretch(const String&);
-    ExceptionOr<void> setUnicodeRange(const String&);
-    ExceptionOr<void> setFeatureSettings(const String&);
-    ExceptionOr<void> setDisplay(const String&);
+    ExceptionOr<void> setFamily(ScriptExecutionContext&, const String&);
+    ExceptionOr<void> setStyle(ScriptExecutionContext&, const String&);
+    ExceptionOr<void> setWeight(ScriptExecutionContext&, const String&);
+    ExceptionOr<void> setStretch(ScriptExecutionContext&, const String&);
+    ExceptionOr<void> setUnicodeRange(ScriptExecutionContext&, const String&);
+    ExceptionOr<void> setFeatureSettings(ScriptExecutionContext&, const String&);
+    ExceptionOr<void> setDisplay(ScriptExecutionContext&, const String&);
+    ExceptionOr<void> setSizeAdjust(ScriptExecutionContext&, const String&);
 
     String family() const;
     String style() const;
@@ -73,6 +76,7 @@ public:
     String unicodeRange() const;
     String featureSettings() const;
     String display() const;
+    String sizeAdjust() const;
 
     enum class LoadStatus { Unloaded, Loading, Loaded, Error };
     LoadStatus status() const;
@@ -85,8 +89,6 @@ public:
 
     CSSFontFace& backing() { return m_backing; }
 
-    static RefPtr<CSSValue> parseString(const String&, CSSPropertyID);
-
     void fontStateChanged(CSSFontFace&, CSSFontFace::Status oldState, CSSFontFace::Status newState) final;
 
     void ref() final { RefCounted::ref(); }
@@ -94,7 +96,7 @@ public:
 
 private:
     explicit FontFace(CSSFontSelector&);
-    explicit FontFace(CSSFontFace&);
+    explicit FontFace(ScriptExecutionContext*, CSSFontFace&);
 
     // ActiveDOMObject.
     const char* activeDOMObjectName() const final;
@@ -103,6 +105,7 @@ private:
     // Callback for LoadedPromise.
     FontFace& loadedPromiseResolve();
     void setErrorState();
+
     Ref<CSSFontFace> m_backing;
     UniqueRef<LoadedPromise> m_loadedPromise;
     bool m_mayLoadedPromiseBeScriptObservable { false };

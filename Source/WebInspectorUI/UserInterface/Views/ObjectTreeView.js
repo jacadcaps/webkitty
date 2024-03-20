@@ -137,11 +137,11 @@ WI.ObjectTreeView = class ObjectTreeView extends WI.Object
             button.addEventListener("click", (event) => {
                 event.stop();
 
-                representation.singleFireEventListener(ObjectTreeView.Event.Updated, () => {
+                representation.singleFireEventListener(ObjectTreeView.Event.Updated, function(event) {
                     // The `treeElement` may have already been removed by some other means (e.g. `removeChildren`).
                     if (treeElement.parent === parentTreeElement)
                         parentTreeElement.removeChild(treeElement);
-                });
+                }, button);
 
                 for (let other of buttons)
                     other.disabled = true;
@@ -185,6 +185,12 @@ WI.ObjectTreeView = class ObjectTreeView extends WI.Object
         if (propertyA.isInternalProperty && !propertyB.isInternalProperty)
             return -1;
         if (propertyB.isInternalProperty && !propertyA.isInternalProperty)
+            return 1;
+
+        // Put private properties at the top.
+        if (propertyA.isPrivateProperty && !propertyB.isPrivateProperty)
+            return -1;
+        if (propertyB.isPrivateProperty && !propertyA.isPrivateProperty)
             return 1;
 
         // Put Symbol properties at the bottom.
@@ -295,6 +301,9 @@ WI.ObjectTreeView = class ObjectTreeView extends WI.Object
 
     showOnlyJSON()
     {
+        console.assert(this._mode === WI.ObjectTreeView.Mode.Properties, this._mode);
+        console.assert(!this._hasLosslessPreview);
+
         this.showOnlyProperties();
 
         this._element.classList.add("json-only");

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,33 +23,40 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef APIFrameHandle_h
-#define APIFrameHandle_h
+#pragma once
 
 #include "APIObject.h"
 #include <WebCore/FrameIdentifier.h>
 #include <wtf/Ref.h>
 
-namespace IPC {
-class Decoder;
-class Encoder;
-}
-
 namespace API {
 
-class FrameHandle : public ObjectImpl<Object::Type::FrameHandle> {
+class FrameHandle final : public ObjectImpl<Object::Type::FrameHandle> {
 public:
-    static Ref<FrameHandle> create(WebCore::FrameIdentifier);
-    static Ref<FrameHandle> createAutoconverting(WebCore::FrameIdentifier);
+    static Ref<FrameHandle> create(WebCore::FrameIdentifier frameID)
+    {
+        return adoptRef(*new FrameHandle(frameID, false));
+    }
 
-    explicit FrameHandle(WebCore::FrameIdentifier, bool isAutoconverting);
-    virtual ~FrameHandle();
+    static Ref<FrameHandle> createAutoconverting(WebCore::FrameIdentifier frameID)
+    {
+        return adoptRef(*new FrameHandle(frameID, true));
+    }
+
+    static Ref<FrameHandle> create(WebCore::FrameIdentifier frameID, bool autoconverting)
+    {
+        return adoptRef(*new FrameHandle(frameID, autoconverting));
+    }
+
+    explicit FrameHandle(WebCore::FrameIdentifier frameID, bool isAutoconverting)
+        : m_frameID(frameID)
+        , m_isAutoconverting(isAutoconverting)
+    {
+        ASSERT(m_frameID.object().isValid());
+    }
 
     WebCore::FrameIdentifier frameID() const { return m_frameID; }
     bool isAutoconverting() const { return m_isAutoconverting; }
-
-    void encode(IPC::Encoder&) const;
-    static WARN_UNUSED_RETURN bool decode(IPC::Decoder&, RefPtr<Object>&);
 
 private:
     const WebCore::FrameIdentifier m_frameID;
@@ -58,4 +65,4 @@ private:
 
 } // namespace API
 
-#endif // APIFrameHandle_h
+SPECIALIZE_TYPE_TRAITS_API_OBJECT(FrameHandle);

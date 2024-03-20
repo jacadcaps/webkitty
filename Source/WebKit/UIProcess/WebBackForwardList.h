@@ -27,12 +27,17 @@
 
 #include "APIObject.h"
 #include "WebBackForwardListItem.h"
-#include "WebPageProxy.h"
 #include <WebCore/BackForwardItemIdentifier.h>
 #include <wtf/Ref.h>
 #include <wtf/Vector.h>
 
+namespace API {
+class Array;
+}
+
 namespace WebKit {
+
+class WebPageProxy;
 
 struct BackForwardListState;
 struct WebBackForwardListCounts;
@@ -55,9 +60,13 @@ public:
     void clear();
 
     WebBackForwardListItem* currentItem() const;
+    RefPtr<WebBackForwardListItem> protectedCurrentItem() const;
     WebBackForwardListItem* backItem() const;
     WebBackForwardListItem* forwardItem() const;
     WebBackForwardListItem* itemAtIndex(int) const;
+
+    WebBackForwardListItem* goBackItemSkippingItemsWithoutUserGesture() const;
+    WebBackForwardListItem* goForwardItemSkippingItemsWithoutUserGesture() const;
 
     const BackForwardListItemVector& entries() const { return m_entries; }
 
@@ -88,7 +97,7 @@ private:
 
     WebPageProxy* m_page;
     BackForwardListItemVector m_entries;
-    Optional<size_t> m_currentIndex;
+    std::optional<size_t> m_currentIndex;
 };
 
 } // namespace WebKit

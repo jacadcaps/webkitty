@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -35,25 +35,16 @@
 
 namespace JSC {
 
-inline CacheableIdentifier CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(CodeBlock* codeBlock, const Identifier& i)
+template <typename CodeBlockType>
+inline CacheableIdentifier CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(CodeBlockType* codeBlock, const Identifier& i)
 {
     return createFromIdentifierOwnedByCodeBlock(codeBlock, i.impl());
 }
 
-inline CacheableIdentifier CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(CodeBlock* codeBlock, UniquedStringImpl* uid)
+template <typename CodeBlockType>
+inline CacheableIdentifier CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(CodeBlockType* codeBlock, UniquedStringImpl* uid)
 {
-    UNUSED_PARAM(codeBlock);
-#if ASSERT_ENABLED
-    bool found = false;
-    for (unsigned index = 0; index < codeBlock->numberOfIdentifiers(); ++index) {
-        const Identifier& identifier = codeBlock->identifier(index);
-        if (identifier.impl() == uid) {
-            found = true;
-            break;
-        }
-    }
-    ASSERT(found);
-#endif
+    ASSERT_UNUSED(codeBlock, codeBlock->hasIdentifier(uid));
     return CacheableIdentifier(uid);
 }
 
@@ -126,6 +117,17 @@ inline bool CacheableIdentifier::isStringCell() const
     return isCell() && cell()->isString();
 }
 
+inline void CacheableIdentifier::ensureIsCell(VM& vm)
+{
+    if (!isCell()) {
+        if (uid()->isSymbol())
+            setCellBits(Symbol::create(vm, static_cast<SymbolImpl&>(*uid())));
+        else
+            setCellBits(jsString(vm, String(static_cast<AtomStringImpl*>(uid()))));
+    }
+    ASSERT(isCell());
+}
+
 inline void CacheableIdentifier::setCellBits(JSCell* cell)
 {
     RELEASE_ASSERT(isCacheableIdentifierCell(cell));
@@ -137,21 +139,16 @@ inline void CacheableIdentifier::setUidBits(UniquedStringImpl* uid)
     m_bits = bitwise_cast<uintptr_t>(uid) | s_uidTag;
 }
 
-inline void CacheableIdentifier::visitAggregate(SlotVisitor& visitor) const
+template<typename Visitor>
+inline void CacheableIdentifier::visitAggregate(Visitor& visitor) const
 {
     if (m_bits && isCell())
         visitor.appendUnbarriered(cell());
 }
 
-
 inline bool CacheableIdentifier::operator==(const CacheableIdentifier& other) const
 {
     return uid() == other.uid();
-}
-
-inline bool CacheableIdentifier::operator!=(const CacheableIdentifier& other) const
-{
-    return uid() != other.uid();
 }
 
 inline bool CacheableIdentifier::operator==(const Identifier& other) const

@@ -20,6 +20,8 @@
 #include "config.h"
 #include "RenderTableCaption.h"
 
+#include "RenderBoxInlines.h"
+#include "RenderBoxModelObjectInlines.h"
 #include "RenderTable.h"
 #include <wtf/IsoMallocInlines.h>
 
@@ -28,27 +30,35 @@ namespace WebCore {
 WTF_MAKE_ISO_ALLOCATED_IMPL(RenderTableCaption);
 
 RenderTableCaption::RenderTableCaption(Element& element, RenderStyle&& style)
-    : RenderBlockFlow(element, WTFMove(style))
+    : RenderBlockFlow(Type::TableCaption, element, WTFMove(style))
 {
+    ASSERT(isRenderTableCaption());
 }
 
 RenderTableCaption::~RenderTableCaption() = default;
 
-void RenderTableCaption::insertedIntoTree()
+void RenderTableCaption::insertedIntoTree(IsInternalMove isInternalMove)
 {
-    RenderBlockFlow::insertedIntoTree();
+    RenderBlockFlow::insertedIntoTree(isInternalMove);
     table()->addCaption(*this);
 }
 
-void RenderTableCaption::willBeRemovedFromTree()
+void RenderTableCaption::willBeRemovedFromTree(IsInternalMove isInternalMove)
 {
-    RenderBlockFlow::willBeRemovedFromTree();
+    RenderBlockFlow::willBeRemovedFromTree(isInternalMove);
     table()->removeCaption(*this);
 }
 
 RenderTable* RenderTableCaption::table() const
 {
     return downcast<RenderTable>(parent());
+}
+
+LayoutUnit RenderTableCaption::containingBlockLogicalWidthForContent() const
+{
+    if (auto* containingBlock = this->containingBlock())
+        return containingBlock->logicalWidth();
+    return { };
 }
 
 }

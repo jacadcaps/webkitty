@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2007 Eric Seidel <eric@webkit.org>
+ * Copyright (c) 2022 Igalia S.L.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -19,6 +20,7 @@
 
 #pragma once
 
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
 #include "RenderSVGContainer.h"
 
 namespace WebCore {
@@ -30,21 +32,34 @@ class SVGElement;
 class RenderSVGHiddenContainer : public RenderSVGContainer {
     WTF_MAKE_ISO_ALLOCATED(RenderSVGHiddenContainer);
 public:
-    RenderSVGHiddenContainer(SVGElement&, RenderStyle&&);
+    RenderSVGHiddenContainer(Type, SVGElement&, RenderStyle&&, OptionSet<SVGModelObjectFlag> = { });
 
 protected:
     void layout() override;
 
+    void styleDidChange(StyleDifference, const RenderStyle* oldStyle) override;
+
 private:
-    bool isSVGHiddenContainer() const final { return true; }
-    const char* renderName() const override { return "RenderSVGHiddenContainer"; }
+    ASCIILiteral renderName() const override { return "RenderSVGHiddenContainer"_s; }
 
-    void paint(PaintInfo&, const LayoutPoint&) final;
-    
-    LayoutRect clippedOverflowRectForRepaint(const RenderLayerModelObject*) const final { return LayoutRect(); }
-    void absoluteQuads(Vector<FloatQuad>&, bool* wasFixed) const final;
+    void paint(PaintInfo&, const LayoutPoint&) final { }
 
-    bool nodeAtFloatPoint(const HitTestRequest&, HitTestResult&, const FloatPoint& pointInParent, HitTestAction) final;
+    LayoutRect clippedOverflowRect(const RenderLayerModelObject*, VisibleRectContext) const final { return { }; }
+    std::optional<RepaintRects> computeVisibleRectsInContainer(const RepaintRects& rects, const RenderLayerModelObject*, VisibleRectContext) const final { return rects; }
+
+    void boundingRects(Vector<LayoutRect>&, const LayoutPoint&) const final { }
+    void absoluteQuads(Vector<FloatQuad>&, bool*) const final { }
+    void addFocusRingRects(Vector<LayoutRect>&, const LayoutPoint&, const RenderLayerModelObject* = nullptr) const final { }
+
+protected:
+    bool nodeAtPoint(const HitTestRequest&, HitTestResult&, const HitTestLocation&, const LayoutPoint&, HitTestAction) final { return false; }
+    void applyTransform(TransformationMatrix&, const RenderStyle&, const FloatRect&, OptionSet<RenderStyle::TransformOperationOption>) const override { }
+    void updateFromStyle() override { }
+    bool needsHasSVGTransformFlags() const override { return false; }
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderSVGHiddenContainer, isRenderSVGHiddenContainer())
+
+#endif // ENABLE(LAYER_BASED_SVG_ENGINE)

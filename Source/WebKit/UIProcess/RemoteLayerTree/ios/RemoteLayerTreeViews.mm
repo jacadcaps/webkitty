@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,11 +30,13 @@
 
 #import "Logging.h"
 #import "RemoteLayerTreeHost.h"
+#import "RemoteLayerTreeLayers.h"
 #import "RemoteLayerTreeNode.h"
 #import "UIKitSPI.h"
 #import "WKDeferringGestureRecognizer.h"
-#import "WKDrawingView.h"
 #import <WebCore/Region.h>
+#import <WebCore/RenderStyleConstants.h>
+#import <WebCore/TouchAction.h>
 #import <WebCore/TransformationMatrix.h>
 #import <WebCore/WebCoreCALayerExtras.h>
 #import <pal/spi/cocoa/QuartzCoreSPI.h>
@@ -69,10 +71,14 @@ static void collectDescendantViewsAtPoint(Vector<UIView *, 16>& viewsAtPoint, UI
             if (![view pointInside:subviewPoint withEvent:event])
                 return false;
 
+            if ([view conformsToProtocol:@protocol(WKNativelyInteractible)])
+                return true;
+
             if (![view isKindOfClass:[WKCompositingView class]])
                 return true;
-            auto* node = RemoteLayerTreeNode::forCALayer(view.layer);
-            return node->eventRegion().contains(WebCore::IntPoint(subviewPoint));
+            if (auto* node = RemoteLayerTreeNode::forCALayer(view.layer))
+                return node->eventRegion().contains(WebCore::IntPoint(subviewPoint));
+            return false;
         }();
 
         if (handlesEvent)
@@ -112,8 +118,9 @@ static void collectDescendantViewsInRect(Vector<UIView *, 16>& viewsInRect, UIVi
 
             if (![view isKindOfClass:WKCompositingView.class])
                 return true;
-            auto* node = RemoteLayerTreeNode::forCALayer(view.layer);
-            return node->eventRegion().intersects(WebCore::IntRect { subviewRect });
+            if (auto* node = RemoteLayerTreeNode::forCALayer(view.layer))
+                return node->eventRegion().intersects(WebCore::IntRect { subviewRect });
+            return false;
         }();
 
         if (intersectsRect)
@@ -206,9 +213,39 @@ OptionSet<WebCore::TouchAction> touchActionsForPoint(UIView *rootView, const Web
     return node->eventRegion().touchActionsForPoint(WebCore::IntPoint(hitViewPoint));
 }
 
+#if ENABLE(WHEEL_EVENT_REGIONS)
+OptionSet<WebCore::EventListenerRegionType> eventListenerTypesAtPoint(UIView *rootView, const WebCore::IntPoint& point)
+{
+    Vector<UIView *, 16> viewsAtPoint;
+    collectDescendantViewsAtPoint(viewsAtPoint, rootView, point, nil);
+
+    if (viewsAtPoint.isEmpty())
+        return { };
+
+    UIView *hitView = nil;
+    for (auto *view : WTF::makeReversedRange(viewsAtPoint)) {
+        if ([view isKindOfClass:[WKCompositingView class]]) {
+            hitView = view;
+            break;
+        }
+    }
+
+    if (!hitView)
+        return { };
+
+    CGPoint hitViewPoint = [hitView convertPoint:point fromView:rootView];
+
+    auto* node = RemoteLayerTreeNode::forCALayer(hitView.layer);
+    if (!node)
+        return { };
+
+    return node->eventRegion().eventListenerRegionTypesForPoint(WebCore::IntPoint(hitViewPoint));
+}
+#endif
+
 UIScrollView *findActingScrollParent(UIScrollView *scrollView, const RemoteLayerTreeHost& host)
 {
-    HashSet<WebCore::GraphicsLayer::PlatformLayerID> scrollersToSkip;
+    HashSet<WebCore::PlatformLayerIdentifier> scrollersToSkip;
 
     for (UIView *view = [scrollView superview]; view; view = [view superview]) {
         if ([view isKindOfClass:[WKChildScrollView class]] && !scrollersToSkip.contains(RemoteLayerTreeNode::layerID(view.layer))) {
@@ -217,8 +254,8 @@ UIScrollView *findActingScrollParent(UIScrollView *scrollView, const RemoteLayer
         }
         if (auto* node = RemoteLayerTreeNode::forCALayer(view.layer)) {
             if (auto* actingParent = host.nodeForID(node->actingScrollContainerID())) {
-                if ([actingParent->uiView() isKindOfClass:[UIScrollView class]])
-                    return (UIScrollView *)actingParent->uiView();
+                if (auto scrollView = dynamic_objc_cast<UIScrollView>(actingParent->uiView()))
+                    return scrollView;
             }
 
             scrollersToSkip.add(node->stationaryScrollContainerIDs().begin(), node->stationaryScrollContainerIDs().end());
@@ -284,6 +321,11 @@ static Class scrollViewScrollIndicatorClass()
 
 @implementation WKCompositingView
 
++ (Class)layerClass
+{
+    return [WKCompositingLayer class];
+}
+
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event
 {
     return [self _web_findDescendantViewAtPoint:point withEvent:event];
@@ -305,7 +347,7 @@ static Class scrollViewScrollIndicatorClass()
 
 @end
 
-@implementation WKSimpleBackdropView
+@implementation WKBackdropView
 
 + (Class)layerClass
 {
@@ -378,20 +420,6 @@ static Class scrollViewScrollIndicatorClass()
 
 @end
 
-@implementation WKBackdropView
-
-- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event
-{
-    return [self _web_findDescendantViewAtPoint:point withEvent:event];
-}
-
-- (NSString *)description
-{
-    return WebKit::RemoteLayerTreeNode::appendLayerDescription(super.description, self.layer);
-}
-
-@end
-
 @implementation WKChildScrollView
 
 - (instancetype)initWithFrame:(CGRect)frame
@@ -422,21 +450,6 @@ static Class scrollViewScrollIndicatorClass()
         return [(WKDeferringGestureRecognizer *)gestureRecognizer shouldDeferGestureRecognizer:otherGestureRecognizer];
 
     return NO;
-}
-
-@end
-
-@implementation WKEmbeddedView
-
-- (instancetype)initWithEmbeddedViewID:(WebCore::GraphicsLayer::EmbeddedViewID)embeddedViewID
-{
-    self = [super init];
-    if (!self)
-        return nil;
-
-    _embeddedViewID = embeddedViewID;
-
-    return self;
 }
 
 @end

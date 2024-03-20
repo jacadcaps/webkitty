@@ -51,7 +51,7 @@ void WebProgressTrackerClient::didChangeEstimatedProgress()
 }
 #endif
 
-void WebProgressTrackerClient::progressStarted(WebCore::Frame& originatingProgressFrame)
+void WebProgressTrackerClient::progressStarted(WebCore::LocalFrame& originatingProgressFrame)
 {
 #if !PLATFORM(IOS_FAMILY)
     [[NSNotificationCenter defaultCenter] postNotificationName:WebViewProgressStartedNotification object:m_webView];
@@ -60,7 +60,7 @@ void WebProgressTrackerClient::progressStarted(WebCore::Frame& originatingProgre
 #endif
 }
 
-void WebProgressTrackerClient::progressEstimateChanged(WebCore::Frame&)
+void WebProgressTrackerClient::progressEstimateChanged(WebCore::LocalFrame&)
 {
 #if !PLATFORM(IOS_FAMILY)
     [[NSNotificationCenter defaultCenter] postNotificationName:WebViewProgressEstimateChangedNotification object:m_webView];
@@ -70,17 +70,16 @@ void WebProgressTrackerClient::progressEstimateChanged(WebCore::Frame&)
     
     // Use a CFDictionary so we can add the CGColorRef without compile errors. And then thanks to
     // toll-free bridging we can pass the CFDictionary as an NSDictionary to postNotification.
-    CFMutableDictionaryRef userInfo = CFDictionaryCreateMutable(kCFAllocatorDefault, 2, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-    CFDictionaryAddValue(userInfo, WebViewProgressEstimatedProgressKey, progress);
+    auto userInfo = adoptCF(CFDictionaryCreateMutable(kCFAllocatorDefault, 2, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
+    CFDictionaryAddValue(userInfo.get(), WebViewProgressEstimatedProgressKey, progress);
     if (bodyBackgroundColor)
-        CFDictionaryAddValue(userInfo, WebViewProgressBackgroundColorKey, bodyBackgroundColor);
+        CFDictionaryAddValue(userInfo.get(), WebViewProgressBackgroundColorKey, bodyBackgroundColor);
     
-    WebThreadPostNotification(WebViewProgressEstimateChangedNotification, m_webView, (NSDictionary *) userInfo);
-    CFRelease(userInfo);
+    WebThreadPostNotification(WebViewProgressEstimateChangedNotification, m_webView, (NSDictionary *)userInfo.get());
 #endif
 }
 
-void WebProgressTrackerClient::progressFinished(Frame&)
+void WebProgressTrackerClient::progressFinished(LocalFrame&)
 {
 #if !PLATFORM(IOS_FAMILY)
     [[NSNotificationCenter defaultCenter] postNotificationName:WebViewProgressFinishedNotification object:m_webView];

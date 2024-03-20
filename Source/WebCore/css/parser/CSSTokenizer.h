@@ -41,9 +41,10 @@ class CSSTokenizerInputStream;
 class CSSParserObserverWrapper;
 class CSSParserTokenRange;
 
+DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(CSSTokenizer);
 class CSSTokenizer {
     WTF_MAKE_NONCOPYABLE(CSSTokenizer);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(CSSTokenizer);
 public:
     static std::unique_ptr<CSSTokenizer> tryCreate(const String&);
     static std::unique_ptr<CSSTokenizer> tryCreate(const String&, CSSParserObserverWrapper&); // For the inspector
@@ -57,19 +58,20 @@ public:
     Vector<String>&& escapedStringsForAdoption() { return WTFMove(m_stringPool); }
 
 private:
-    CSSTokenizer(String&&, CSSParserObserverWrapper*, bool* constructionSuccess);
+    CSSTokenizer(const String&, CSSParserObserverWrapper*, bool* constructionSuccess);
 
     CSSParserToken nextToken();
 
     UChar consume();
     void reconsume(UChar);
 
+    String preprocessString(const String&);
+
     CSSParserToken consumeNumericToken();
     CSSParserToken consumeIdentLikeToken();
     CSSParserToken consumeNumber();
     CSSParserToken consumeStringTokenUntil(UChar);
-    CSSParserToken consumeUnicodeRange();
-    CSSParserToken consumeUrlToken();
+    CSSParserToken consumeURLToken();
 
     void consumeBadUrlRemnants();
     void consumeSingleWhitespaceIfNext();
@@ -77,7 +79,7 @@ private:
 
     bool consumeIfNext(UChar);
     StringView consumeName();
-    UChar32 consumeEscape();
+    char32_t consumeEscape();
 
     bool nextTwoCharsAreValidEscape();
     bool nextCharsAreNumber(UChar);
@@ -123,11 +125,10 @@ private:
     static const CodePoint codePoints[];
 
     Vector<CSSParserTokenType, 8> m_blockStack;
-    CSSTokenizerInputStream m_input;
-    
     Vector<CSSParserToken, 32> m_tokens;
     // We only allocate strings when escapes are used.
     Vector<String> m_stringPool;
+    CSSTokenizerInputStream m_input;
 };
 
 } // namespace WebCore

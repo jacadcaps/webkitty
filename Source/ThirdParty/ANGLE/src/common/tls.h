@@ -12,13 +12,23 @@
 #include "common/angleutils.h"
 #include "common/platform.h"
 
+#if defined(ANGLE_PLATFORM_POSIX)
+#    include <errno.h>
+#    include <pthread.h>
+#    include <semaphore.h>
+#elif defined(ANGLE_PLATFORM_WINDOWS)
+#    include <windows.h>
+#endif
+
 namespace gl
 {
 class Context;
 }
 
-#ifdef ANGLE_PLATFORM_WINDOWS
+namespace angle
+{
 
+#ifdef ANGLE_PLATFORM_WINDOWS
 // TLS does not exist for Windows Store and needs to be emulated
 #    ifdef ANGLE_ENABLE_WINDOWS_UWP
 #        ifndef TLS_OUT_OF_INDEXES
@@ -31,16 +41,28 @@ class Context;
 typedef DWORD TLSIndex;
 #    define TLS_INVALID_INDEX (TLS_OUT_OF_INDEXES)
 #elif defined(ANGLE_PLATFORM_POSIX)
-#    include <errno.h>
-#    include <pthread.h>
-#    include <semaphore.h>
 typedef pthread_key_t TLSIndex;
-#    define TLS_INVALID_INDEX (static_cast<TLSIndex>(-1))
+#    define TLS_INVALID_INDEX (static_cast<angle::TLSIndex>(-1))
 #else
 #    error Unsupported platform.
 #endif
 
 #if defined(ANGLE_PLATFORM_ANDROID)
+
+// TLS_SLOT_OPENGL and TLS_SLOT_OPENGL_API aren't used by bionic itself, but allow the graphics code
+// to access TLS directly rather than using the pthread API.
+//
+// Choose the TLS_SLOT_OPENGL TLS slot with the value that matches value in the header file in
+// bionic(tls_defines.h).  Note that this slot cannot be used when the GLES backend of is in use.
+#    if defined(__arm__) || defined(__aarch64__)
+constexpr size_t kAndroidOpenGLTlsSlot = 3;
+#    elif defined(__i386__) || defined(__x86_64__)
+constexpr size_t kAndroidOpenGLTlsSlot = 3;
+#    elif defined(__riscv)
+constexpr int kAndroidOpenGLTlsSlot = -5;
+#    else
+#        error Unsupported platform.
+#    endif
 
 // The following ASM variant provides a much more performant store/retrieve interface
 // compared to those provided by the pthread library. These have been derived from code
@@ -89,42 +111,26 @@ typedef pthread_key_t TLSIndex;
                 __asm__("mov %%fs:0, %0" : "=r"(__val)); \
                 __val;                                   \
             })
+#    elif defined(__riscv)
+#        define ANGLE_ANDROID_GET_GL_TLS()          \
+            ({                                      \
+                void **__val;                       \
+                __asm__("mv %0, tp" : "=r"(__val)); \
+                __val;                              \
+            })
 #    else
 #        error unsupported architecture
 #    endif
 
 #endif  // ANGLE_PLATFORM_ANDROID
 
-//  - TLS_SLOT_OPENGL and TLS_SLOT_OPENGL_API: These two aren't used by bionic
-//    itself, but allow the graphics code to access TLS directly rather than
-//    using the pthread API.
-//
-// Choose the TLS_SLOT_OPENGL TLS slot with the value that matches value in the header file in
-// bionic(tls_defines.h)
-constexpr TLSIndex kAndroidOpenGLTlsSlot = 3;
-
-extern bool gUseAndroidOpenGLTlsSlot;
-ANGLE_INLINE bool SetContextToAndroidOpenGLTLSSlot(gl::Context *value)
-{
-#if defined(ANGLE_PLATFORM_ANDROID)
-    if (gUseAndroidOpenGLTlsSlot)
-    {
-        ANGLE_ANDROID_GET_GL_TLS()[kAndroidOpenGLTlsSlot] = static_cast<void *>(value);
-        return true;
-    }
-#endif
-    return false;
-}
-
-void SetUseAndroidOpenGLTlsSlot(bool platformTypeVulkan);
-
-// TODO(kbr): for POSIX platforms this will have to be changed to take
-// in a destructor function pointer, to allow the thread-local storage
-// to be properly deallocated upon thread exit.
-TLSIndex CreateTLSIndex();
+using PthreadKeyDestructor = void (*)(void *);
+TLSIndex CreateTLSIndex(PthreadKeyDestructor destructor);
 bool DestroyTLSIndex(TLSIndex index);
 
 bool SetTLSValue(TLSIndex index, void *value);
 void *GetTLSValue(TLSIndex index);
+
+}  // namespace angle
 
 #endif  // COMMON_TLS_H_

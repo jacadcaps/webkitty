@@ -35,8 +35,7 @@ public:
     Orientation orientation() const;
 
 private:
-    const char* renderName() const override { return "RenderDetailsMarker"; }
-    bool isDetailsMarker() const override { return true; }
+    ASCIILiteral renderName() const override { return "RenderDetailsMarker"_s; }
     void paint(PaintInfo&, const LayoutPoint&) override;
 
     bool isOpen() const;
@@ -46,4 +45,4 @@ private:
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderDetailsMarker, isDetailsMarker())
+SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderDetailsMarker, isRenderDetailsMarker())

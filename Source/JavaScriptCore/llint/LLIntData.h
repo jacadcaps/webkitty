@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -43,9 +43,9 @@ typedef void (*LLIntCode)();
 
 namespace LLInt {
 
-extern "C" JS_EXPORT_PRIVATE Opcode g_opcodeMap[numOpcodeIDs + numWasmOpcodeIDs];
-extern "C" JS_EXPORT_PRIVATE Opcode g_opcodeMapWide16[numOpcodeIDs + numWasmOpcodeIDs];
-extern "C" JS_EXPORT_PRIVATE Opcode g_opcodeMapWide32[numOpcodeIDs + numWasmOpcodeIDs];
+extern "C" JS_EXPORT_PRIVATE JSC::Opcode g_opcodeMap[numOpcodeIDs + numWasmOpcodeIDs];
+extern "C" JS_EXPORT_PRIVATE JSC::Opcode g_opcodeMapWide16[numOpcodeIDs + numWasmOpcodeIDs];
+extern "C" JS_EXPORT_PRIVATE JSC::Opcode g_opcodeMapWide32[numOpcodeIDs + numWasmOpcodeIDs];
 
 class Data {
 
@@ -53,53 +53,53 @@ public:
     static void performAssertions(VM&);
 
 private:
-    static uint8_t s_exceptionInstructions[maxOpcodeLength + 1];
-    static uint8_t s_wasmExceptionInstructions[maxOpcodeLength + 1];
-
     friend void initialize();
 
-    friend Instruction* exceptionInstructions();
-    friend Instruction* wasmExceptionInstructions();
-    friend Opcode* opcodeMap();
-    friend Opcode* opcodeMapWide16();
-    friend Opcode* opcodeMapWide32();
-    friend Opcode getOpcode(OpcodeID);
-    friend Opcode getOpcodeWide16(OpcodeID);
-    friend Opcode getOpcodeWide32(OpcodeID);
-    template<PtrTag tag> friend MacroAssemblerCodePtr<tag> getCodePtr(OpcodeID);
-    template<PtrTag tag> friend MacroAssemblerCodePtr<tag> getWide16CodePtr(OpcodeID);
-    template<PtrTag tag> friend MacroAssemblerCodePtr<tag> getWide32CodePtr(OpcodeID);
+    friend JSInstruction* exceptionInstructions();
+    friend WasmInstruction* wasmExceptionInstructions();
+    friend JSC::Opcode* opcodeMap();
+    friend JSC::Opcode* opcodeMapWide16();
+    friend JSC::Opcode* opcodeMapWide32();
+    friend JSC::Opcode getOpcode(OpcodeID);
+    friend JSC::Opcode getOpcodeWide16(OpcodeID);
+    friend JSC::Opcode getOpcodeWide32(OpcodeID);
+    friend const JSC::Opcode* getOpcodeAddress(OpcodeID);
+    friend const JSC::Opcode* getOpcodeWide16Address(OpcodeID);
+    friend const JSC::Opcode* getOpcodeWide32Address(OpcodeID);
+    template<PtrTag tag> friend CodePtr<tag> getCodePtr(OpcodeID);
+    template<PtrTag tag> friend CodePtr<tag> getWide16CodePtr(OpcodeID);
+    template<PtrTag tag> friend CodePtr<tag> getWide32CodePtr(OpcodeID);
     template<PtrTag tag> friend MacroAssemblerCodeRef<tag> getCodeRef(OpcodeID);
 };
 
 void initialize();
 
-inline Instruction* exceptionInstructions()
+inline JSInstruction* exceptionInstructions()
 {
-    return reinterpret_cast<Instruction*>(Data::s_exceptionInstructions);
-}
-    
-inline Instruction* wasmExceptionInstructions()
-{
-    return bitwise_cast<Instruction*>(Data::s_wasmExceptionInstructions);
+    return reinterpret_cast<JSInstruction*>(g_jscConfig.llint.exceptionInstructions);
 }
 
-inline Opcode* opcodeMap()
+inline WasmInstruction* wasmExceptionInstructions()
+{
+    return bitwise_cast<WasmInstruction*>(g_jscConfig.llint.wasmExceptionInstructions);
+}
+
+inline JSC::Opcode* opcodeMap()
 {
     return g_opcodeMap;
 }
 
-inline Opcode* opcodeMapWide16()
+inline JSC::Opcode* opcodeMapWide16()
 {
     return g_opcodeMapWide16;
 }
 
-inline Opcode* opcodeMapWide32()
+inline JSC::Opcode* opcodeMapWide32()
 {
     return g_opcodeMapWide32;
 }
 
-inline Opcode getOpcode(OpcodeID id)
+inline JSC::Opcode getOpcode(OpcodeID id)
 {
 #if ENABLE(COMPUTED_GOTO_OPCODES)
     return g_opcodeMap[id];
@@ -108,7 +108,7 @@ inline Opcode getOpcode(OpcodeID id)
 #endif
 }
 
-inline Opcode getOpcodeWide16(OpcodeID id)
+inline JSC::Opcode getOpcodeWide16(OpcodeID id)
 {
 #if ENABLE(COMPUTED_GOTO_OPCODES)
     return g_opcodeMapWide16[id];
@@ -118,7 +118,7 @@ inline Opcode getOpcodeWide16(OpcodeID id)
 #endif
 }
 
-inline Opcode getOpcodeWide32(OpcodeID id)
+inline JSC::Opcode getOpcodeWide32(OpcodeID id)
 {
 #if ENABLE(COMPUTED_GOTO_OPCODES)
     return g_opcodeMapWide32[id];
@@ -128,38 +128,68 @@ inline Opcode getOpcodeWide32(OpcodeID id)
 #endif
 }
 
-template<PtrTag tag>
-ALWAYS_INLINE MacroAssemblerCodePtr<tag> getCodePtr(OpcodeID opcodeID)
+
+#if ENABLE(COMPUTED_GOTO_OPCODES)
+inline const JSC::Opcode* getOpcodeAddress(OpcodeID id)
 {
-    void* address = reinterpret_cast<void*>(getOpcode(opcodeID));
-    address = retagCodePtr<BytecodePtrTag, tag>(address);
-    return MacroAssemblerCodePtr<tag>::createFromExecutableAddress(address);
+    return &g_opcodeMap[id];
+}
+
+inline const JSC::Opcode* getOpcodeWide16Address(OpcodeID id)
+{
+    return &g_opcodeMapWide16[id];
+}
+
+inline const JSC::Opcode* getOpcodeWide32Address(OpcodeID id)
+{
+    return &g_opcodeMapWide32[id];
+}
+#endif
+
+template<PtrTag tag>
+ALWAYS_INLINE CodePtr<tag> getCodePtrImpl(const JSC::Opcode opcode, const void* opcodeAddress)
+{
+    void* opcodeValue = reinterpret_cast<void*>(opcode);
+    void* untaggedOpcode = untagAddressDiversifiedCodePtr<BytecodePtrTag>(opcodeValue, opcodeAddress);
+    void* retaggedOpcode = tagCodePtr<tag>(untaggedOpcode);
+    return CodePtr<tag>::fromTaggedPtr(retaggedOpcode);
+}
+
+#if ENABLE(ARM64E) && !ENABLE(COMPUTED_GOTO_OPCODES)
+#error ENABLE(ARM64E) requires ENABLE(COMPUTED_GOTO_OPCODES) for getCodePtr (and its variants).
+#endif
+
+template<PtrTag tag>
+ALWAYS_INLINE CodePtr<tag> getCodePtr(OpcodeID opcodeID)
+{
+#if ENABLE(COMPUTED_GOTO_OPCODES)
+    const JSC::Opcode* opcode = getOpcodeAddress(opcodeID);
+    return getCodePtrImpl<tag>(*opcode, opcode);
+#else
+    return getCodePtrImpl<tag>(getOpcode(opcodeID), nullptr);
+#endif
 }
 
 template<PtrTag tag>
-ALWAYS_INLINE MacroAssemblerCodePtr<tag> getWide16CodePtr(OpcodeID opcodeID)
+ALWAYS_INLINE CodePtr<tag> getWide16CodePtr(OpcodeID opcodeID)
 {
-    void* address = reinterpret_cast<void*>(getOpcodeWide16(opcodeID));
-    address = retagCodePtr<BytecodePtrTag, tag>(address);
-    return MacroAssemblerCodePtr<tag>::createFromExecutableAddress(address);
+#if ENABLE(COMPUTED_GOTO_OPCODES)
+    const JSC::Opcode* opcode = getOpcodeWide16Address(opcodeID);
+    return getCodePtrImpl<tag>(*opcode, opcode);
+#else
+    return getCodePtrImpl<tag>(getOpcodeWide16(opcodeID), nullptr);
+#endif
 }
 
 template<PtrTag tag>
-ALWAYS_INLINE MacroAssemblerCodePtr<tag> getWide32CodePtr(OpcodeID opcodeID)
+ALWAYS_INLINE CodePtr<tag> getWide32CodePtr(OpcodeID opcodeID)
 {
-    void* address = reinterpret_cast<void*>(getOpcodeWide32(opcodeID));
-    address = retagCodePtr<BytecodePtrTag, tag>(address);
-    return MacroAssemblerCodePtr<tag>::createFromExecutableAddress(address);
-}
-
-template<PtrTag tag>
-ALWAYS_INLINE MacroAssemblerCodePtr<tag> getCodePtr(const Instruction& instruction)
-{
-    if (instruction.isWide16())
-        return getWide16CodePtr<tag>(instruction.opcodeID());
-    if (instruction.isWide32())
-        return getWide32CodePtr<tag>(instruction.opcodeID());
-    return getCodePtr<tag>(instruction.opcodeID());
+#if ENABLE(COMPUTED_GOTO_OPCODES)
+    const JSC::Opcode* opcode = getOpcodeWide32Address(opcodeID);
+    return getCodePtrImpl<tag>(*opcode, opcode);
+#else
+    return getCodePtrImpl<tag>(getOpcodeWide32(opcodeID), nullptr);
+#endif
 }
 
 template<PtrTag tag>
@@ -168,19 +198,49 @@ ALWAYS_INLINE MacroAssemblerCodeRef<tag> getCodeRef(OpcodeID opcodeID)
     return MacroAssemblerCodeRef<tag>::createSelfManagedCodeRef(getCodePtr<tag>(opcodeID));
 }
 
+template<PtrTag tag>
+ALWAYS_INLINE MacroAssemblerCodeRef<tag> getWide16CodeRef(OpcodeID opcodeID)
+{
+    return MacroAssemblerCodeRef<tag>::createSelfManagedCodeRef(getWide16CodePtr<tag>(opcodeID));
+}
+
+template<PtrTag tag>
+ALWAYS_INLINE MacroAssemblerCodeRef<tag> getWide32CodeRef(OpcodeID opcodeID)
+{
+    return MacroAssemblerCodeRef<tag>::createSelfManagedCodeRef(getWide32CodePtr<tag>(opcodeID));
+}
+
 #if ENABLE(JIT)
 template<PtrTag tag>
 ALWAYS_INLINE LLIntCode getCodeFunctionPtr(OpcodeID opcodeID)
 {
-    ASSERT(opcodeID >= NUMBER_OF_BYTECODE_IDS);
 #if COMPILER(MSVC)
-    return reinterpret_cast<LLIntCode>(getCodePtr<tag>(opcodeID).executableAddress());
+    return reinterpret_cast<LLIntCode>(getCodePtr<tag>(opcodeID).taggedPtr());
 #else
-    return reinterpret_cast<LLIntCode>(getCodePtr<tag>(opcodeID).template executableAddress());
+    return reinterpret_cast<LLIntCode>(getCodePtr<tag>(opcodeID).template taggedPtr());
 #endif
 }
 
+template<PtrTag tag>
+ALWAYS_INLINE LLIntCode getWide16CodeFunctionPtr(OpcodeID opcodeID)
+{
+#if COMPILER(MSVC)
+    return reinterpret_cast<LLIntCode>(getWide16CodePtr<tag>(opcodeID).taggedPtr());
 #else
+    return reinterpret_cast<LLIntCode>(getWide16CodePtr<tag>(opcodeID).template taggedPtr());
+#endif
+}
+
+template<PtrTag tag>
+ALWAYS_INLINE LLIntCode getWide32CodeFunctionPtr(OpcodeID opcodeID)
+{
+#if COMPILER(MSVC)
+    return reinterpret_cast<LLIntCode>(getWide32CodePtr<tag>(opcodeID).taggedPtr());
+#else
+    return reinterpret_cast<LLIntCode>(getWide32CodePtr<tag>(opcodeID).template taggedPtr());
+#endif
+}
+#else // not ENABLE(JIT)
 ALWAYS_INLINE void* getCodePtr(OpcodeID id)
 {
     return reinterpret_cast<void*>(getOpcode(id));
@@ -195,30 +255,157 @@ ALWAYS_INLINE void* getWide32CodePtr(OpcodeID id)
 {
     return reinterpret_cast<void*>(getOpcodeWide32(id));
 }
+#endif // ENABLE(JIT)
+
+inline JSC::Opcode getOpcode(WasmOpcodeID id)
+{
+#if ENABLE(COMPUTED_GOTO_OPCODES)
+    return g_opcodeMap[numOpcodeIDs + id];
+#else
+    return static_cast<Opcode>(id);
+#endif
+}
+
+inline JSC::Opcode getOpcodeWide16(WasmOpcodeID id)
+{
+#if ENABLE(COMPUTED_GOTO_OPCODES)
+    return g_opcodeMapWide16[numOpcodeIDs + id];
+#else
+    UNUSED_PARAM(id);
+    RELEASE_ASSERT_NOT_REACHED();
+#endif
+}
+
+inline JSC::Opcode getOpcodeWide32(WasmOpcodeID id)
+{
+#if ENABLE(COMPUTED_GOTO_OPCODES)
+    return g_opcodeMapWide32[numOpcodeIDs + id];
+#else
+    UNUSED_PARAM(id);
+    RELEASE_ASSERT_NOT_REACHED();
+#endif
+}
+
+#if ENABLE(COMPUTED_GOTO_OPCODES)
+inline const JSC::Opcode* getOpcodeAddress(WasmOpcodeID id)
+{
+    return &g_opcodeMap[numOpcodeIDs + id];
+}
+
+inline const JSC::Opcode* getOpcodeWide16Address(WasmOpcodeID id)
+{
+    return &g_opcodeMapWide16[numOpcodeIDs + id];
+}
+
+inline const JSC::Opcode* getOpcodeWide32Address(WasmOpcodeID id)
+{
+    return &g_opcodeMapWide32[numOpcodeIDs + id];
+}
 #endif
 
-ALWAYS_INLINE void* getCodePtr(JSC::EncodedJSValue glueHelper())
+template<PtrTag tag>
+ALWAYS_INLINE CodePtr<tag> getCodePtr(WasmOpcodeID opcodeID)
 {
-    return bitwise_cast<void*>(glueHelper);
+#if ENABLE(COMPUTED_GOTO_OPCODES)
+    const JSC::Opcode* opcode = getOpcodeAddress(opcodeID);
+    return getCodePtrImpl<tag>(*opcode, opcode);
+#else
+    return getCodePtrImpl<tag>(getOpcode(opcodeID), nullptr);
+#endif
 }
+
+template<PtrTag tag>
+ALWAYS_INLINE CodePtr<tag> getWide16CodePtr(WasmOpcodeID opcodeID)
+{
+#if ENABLE(COMPUTED_GOTO_OPCODES)
+    const JSC::Opcode* opcode = getOpcodeWide16Address(opcodeID);
+    return getCodePtrImpl<tag>(*opcode, opcode);
+#else
+    return getCodePtrImpl<tag>(getOpcodeWide16(opcodeID), nullptr);
+#endif
+}
+
+template<PtrTag tag>
+ALWAYS_INLINE CodePtr<tag> getWide32CodePtr(WasmOpcodeID opcodeID)
+{
+#if ENABLE(COMPUTED_GOTO_OPCODES)
+    const JSC::Opcode* opcode = getOpcodeWide32Address(opcodeID);
+    return getCodePtrImpl<tag>(*opcode, opcode);
+#else
+    return getCodePtrImpl<tag>(getOpcodeWide32(opcodeID), nullptr);
+#endif
+}
+
+template<PtrTag tag>
+ALWAYS_INLINE MacroAssemblerCodeRef<tag> getCodeRef(WasmOpcodeID opcodeID)
+{
+    return MacroAssemblerCodeRef<tag>::createSelfManagedCodeRef(getCodePtr<tag>(opcodeID));
+}
+
+template<PtrTag tag>
+ALWAYS_INLINE MacroAssemblerCodeRef<tag> getWide16CodeRef(WasmOpcodeID opcodeID)
+{
+    return MacroAssemblerCodeRef<tag>::createSelfManagedCodeRef(getWide16CodePtr<tag>(opcodeID));
+}
+
+template<PtrTag tag>
+ALWAYS_INLINE MacroAssemblerCodeRef<tag> getWide32CodeRef(WasmOpcodeID opcodeID)
+{
+    return MacroAssemblerCodeRef<tag>::createSelfManagedCodeRef(getWide32CodePtr<tag>(opcodeID));
+}
+
+#if ENABLE(JIT)
+template<PtrTag tag>
+ALWAYS_INLINE LLIntCode getCodeFunctionPtr(WasmOpcodeID opcodeID)
+{
+#if COMPILER(MSVC)
+    return reinterpret_cast<LLIntCode>(getCodePtr<tag>(opcodeID).taggedPtr());
+#else
+    return reinterpret_cast<LLIntCode>(getCodePtr<tag>(opcodeID).template taggedPtr());
+#endif
+}
+
+template<PtrTag tag>
+ALWAYS_INLINE LLIntCode getWide16CodeFunctionPtr(WasmOpcodeID opcodeID)
+{
+#if COMPILER(MSVC)
+    return reinterpret_cast<LLIntCode>(getWide16CodePtr<tag>(opcodeID).taggedPtr());
+#else
+    return reinterpret_cast<LLIntCode>(getWide16CodePtr<tag>(opcodeID).template taggedPtr());
+#endif
+}
+
+template<PtrTag tag>
+ALWAYS_INLINE LLIntCode getWide32CodeFunctionPtr(WasmOpcodeID opcodeID)
+{
+#if COMPILER(MSVC)
+    return reinterpret_cast<LLIntCode>(getWide32CodePtr<tag>(opcodeID).taggedPtr());
+#else
+    return reinterpret_cast<LLIntCode>(getWide32CodePtr<tag>(opcodeID).template taggedPtr());
+#endif
+}
+#else // not ENABLE(JIT)
+ALWAYS_INLINE void* getCodePtr(WasmOpcodeID id)
+{
+    return reinterpret_cast<void*>(getOpcode(id));
+}
+
+ALWAYS_INLINE void* getWide16CodePtr(WasmOpcodeID id)
+{
+    return reinterpret_cast<void*>(getOpcodeWide16(id));
+}
+
+ALWAYS_INLINE void* getWide32CodePtr(WasmOpcodeID id)
+{
+    return reinterpret_cast<void*>(getOpcodeWide32(id));
+}
+#endif // ENABLE(JIT)
 
 #if ENABLE(JIT)
 struct Registers {
     static constexpr GPRReg pcGPR = GPRInfo::regT4;
-
-#if CPU(X86_64) && !OS(WINDOWS)
-    static constexpr GPRReg metadataTableGPR = GPRInfo::regCS1;
-    static constexpr GPRReg pbGPR = GPRInfo::regCS2;
-#elif CPU(X86_64) && OS(WINDOWS)
-    static constexpr GPRReg metadataTableGPR = GPRInfo::regCS3;
-    static constexpr GPRReg pbGPR = GPRInfo::regCS4;
-#elif CPU(ARM64)
-    static constexpr GPRReg metadataTableGPR = GPRInfo::regCS6;
-    static constexpr GPRReg pbGPR = GPRInfo::regCS7;
-#elif CPU(MIPS) || CPU(ARM_THUMB2)
-    static constexpr GPRReg metadataTableGPR = GPRInfo::regCS0;
-    static constexpr GPRReg pbGPR = GPRInfo::regCS1;
-#endif
+    static constexpr GPRReg pbGPR = GPRInfo::jitDataRegister;
+    static constexpr GPRReg metadataTableGPR = GPRInfo::metadataTableRegister;
 };
 #endif
 

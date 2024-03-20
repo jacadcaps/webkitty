@@ -49,10 +49,15 @@ class BlobURL {
 public:
     static URL createPublicURL(SecurityOrigin*);
     static URL createInternalURL();
-    static String getOrigin(const URL&);
+
+    static URL getOriginURL(const URL&);
+    static bool isSecureBlobURL(const URL&);
+#if ASSERT_ENABLED
+    static bool isInternalURL(const URL&);
+#endif
 
 private:
-    static URL createBlobURL(const String& originString);
+    static URL createBlobURL(StringView originString);
     BlobURL() { }
 };
 

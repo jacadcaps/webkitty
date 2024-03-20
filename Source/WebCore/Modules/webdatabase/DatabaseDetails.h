@@ -66,7 +66,7 @@ public:
         return *this;
     }
 
-    DatabaseDetails(const String& databaseName, const String& displayName, unsigned long long expectedUsage, unsigned long long currentUsage, Optional<WallTime> creationTime, Optional<WallTime> modificationTime)
+    DatabaseDetails(const String& databaseName, const String& displayName, uint64_t expectedUsage, uint64_t currentUsage, std::optional<WallTime> creationTime, std::optional<WallTime> modificationTime)
         : m_name(databaseName)
         , m_displayName(displayName)
         , m_expectedUsage(expectedUsage)
@@ -80,8 +80,8 @@ public:
     const String& displayName() const { return m_displayName; }
     uint64_t expectedUsage() const { return m_expectedUsage; }
     uint64_t currentUsage() const { return m_currentUsage; }
-    Optional<WallTime> creationTime() const { return m_creationTime; }
-    Optional<WallTime> modificationTime() const { return m_modificationTime; }
+    std::optional<WallTime> creationTime() const { return m_creationTime; }
+    std::optional<WallTime> modificationTime() const { return m_modificationTime; }
 #if ASSERT_ENABLED
     Thread& thread() const { return m_thread.get(); }
 #endif
@@ -91,8 +91,8 @@ private:
     String m_displayName;
     uint64_t m_expectedUsage { 0 };
     uint64_t m_currentUsage { 0 };
-    Markable<WallTime, WallTime::MarkableTraits> m_creationTime;
-    Markable<WallTime, WallTime::MarkableTraits> m_modificationTime;
+    Markable<WallTime> m_creationTime;
+    Markable<WallTime> m_modificationTime;
 #if ASSERT_ENABLED
     Ref<Thread> m_thread { Thread::current() };
 #endif

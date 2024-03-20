@@ -20,7 +20,7 @@
 namespace webrtc {
 namespace test {
 
-// An decoder factory with a single underlying VideoDecoder object, intended for
+// A decoder factory with a single underlying VideoDecoder object, intended for
 // test purposes. Each call to CreateVideoDecoder returns a proxy for the same
 // decoder, typically an instance of FakeDecoder or MockEncoder.
 class VideoDecoderProxyFactory final : public VideoDecoderFactory {
@@ -30,7 +30,7 @@ class VideoDecoderProxyFactory final : public VideoDecoderFactory {
 
   // Unused by tests.
   std::vector<SdpVideoFormat> GetSupportedFormats() const override {
-    RTC_NOTREACHED();
+    RTC_DCHECK_NOTREACHED();
     return {};
   }
 
@@ -48,20 +48,20 @@ class VideoDecoderProxyFactory final : public VideoDecoderFactory {
 
    private:
     int32_t Decode(const EncodedImage& input_image,
-                   bool missing_frames,
                    int64_t render_time_ms) override {
-      return decoder_->Decode(input_image, missing_frames, render_time_ms);
+      return decoder_->Decode(input_image, render_time_ms);
     }
-    int32_t InitDecode(const VideoCodec* config,
-                       int32_t number_of_cores) override {
-      return decoder_->InitDecode(config, number_of_cores);
+    bool Configure(const Settings& settings) override {
+      return decoder_->Configure(settings);
     }
     int32_t RegisterDecodeCompleteCallback(
         DecodedImageCallback* callback) override {
       return decoder_->RegisterDecodeCompleteCallback(callback);
     }
     int32_t Release() override { return decoder_->Release(); }
-    bool PrefersLateDecoding() const { return decoder_->PrefersLateDecoding(); }
+    DecoderInfo GetDecoderInfo() const override {
+      return decoder_->GetDecoderInfo();
+    }
     const char* ImplementationName() const override {
       return decoder_->ImplementationName();
     }

@@ -21,8 +21,9 @@
 
 namespace cricket {
 
-TransportDescriptionFactory::TransportDescriptionFactory()
-    : secure_(SEC_DISABLED) {}
+TransportDescriptionFactory::TransportDescriptionFactory(
+    const webrtc::FieldTrialsView& field_trials)
+    : secure_(SEC_DISABLED), field_trials_(field_trials) {}
 
 TransportDescriptionFactory::~TransportDescriptionFactory() = default;
 
@@ -54,8 +55,6 @@ std::unique_ptr<TransportDescription> TransportDescriptionFactory::CreateOffer(
       return NULL;
     }
   }
-
-  desc->opaque_parameters = options.opaque_parameters;
 
   return desc;
 }
@@ -93,11 +92,26 @@ std::unique_ptr<TransportDescription> TransportDescriptionFactory::CreateAnswer(
   if (offer && offer->identity_fingerprint.get()) {
     // The offer supports DTLS, so answer with DTLS, as long as we support it.
     if (secure_ == SEC_ENABLED || secure_ == SEC_REQUIRED) {
-      // Fail if we can't create the fingerprint.
-      // Setting DTLS role to active.
-      ConnectionRole role = (options.prefer_passive_role)
-                                ? CONNECTIONROLE_PASSIVE
-                                : CONNECTIONROLE_ACTIVE;
+      ConnectionRole role = CONNECTIONROLE_NONE;
+      // If the offer does not constrain the role, go with preference.
+      if (offer->connection_role == CONNECTIONROLE_ACTPASS) {
+        role = (options.prefer_passive_role) ? CONNECTIONROLE_PASSIVE
+                                             : CONNECTIONROLE_ACTIVE;
+      } else if (offer->connection_role == CONNECTIONROLE_ACTIVE) {
+        role = CONNECTIONROLE_PASSIVE;
+      } else if (offer->connection_role == CONNECTIONROLE_PASSIVE) {
+        role = CONNECTIONROLE_ACTIVE;
+      } else if (offer->connection_role == CONNECTIONROLE_NONE) {
+        // This case may be reached if a=setup is not present in the SDP.
+        RTC_LOG(LS_WARNING) << "Remote offer connection role is NONE, which is "
+                               "a protocol violation";
+        role = (options.prefer_passive_role) ? CONNECTIONROLE_PASSIVE
+                                             : CONNECTIONROLE_ACTIVE;
+      } else {
+        RTC_LOG(LS_ERROR) << "Remote offer connection role is " << role
+                          << " which is a protocol violation";
+        RTC_DCHECK_NOTREACHED();
+      }
 
       if (!SetSecurityInfo(desc.get(), role)) {
         return NULL;
@@ -108,13 +122,6 @@ std::unique_ptr<TransportDescription> TransportDescriptionFactory::CreateAnswer(
     RTC_LOG(LS_WARNING) << "Failed to create TransportDescription answer "
                            "because of incompatible security settings";
     return NULL;
-  }
-
-  // Answers may only attach opaque parameters if the offer contained them as
-  // well.  The answer's parameters may differ, and it's up to the opaque
-  // transport implementation to decide if the difference is acceptable.
-  if (offer->opaque_parameters && options.opaque_parameters) {
-    desc->opaque_parameters = options.opaque_parameters;
   }
 
   return desc;

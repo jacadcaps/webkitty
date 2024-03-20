@@ -29,15 +29,20 @@
 #if ENABLE(LEGACY_ENCRYPTED_MEDIA) && ENABLE(MEDIA_SOURCE)
 
 #import "CDMPrivateMediaSourceAVFObjC.h"
+#import "Logging.h"
 #import "WebCoreNSErrorExtras.h"
 #import <AVFoundation/AVError.h>
 #import <wtf/FileSystem.h>
 
 namespace WebCore {
 
-CDMSessionMediaSourceAVFObjC::CDMSessionMediaSourceAVFObjC(CDMPrivateMediaSourceAVFObjC& cdm, LegacyCDMSessionClient* client)
+CDMSessionMediaSourceAVFObjC::CDMSessionMediaSourceAVFObjC(CDMPrivateMediaSourceAVFObjC& cdm, LegacyCDMSessionClient& client)
     : m_cdm(&cdm)
     , m_client(client)
+#if !RELEASE_LOG_DISABLED
+    , m_logger(client.logger())
+    , m_logIdentifier(client.logIdentifier())
+#endif
 {
 }
 
@@ -83,7 +88,7 @@ void CDMSessionMediaSourceAVFObjC::addSourceBuffer(SourceBufferPrivateAVFObjC* s
     ASSERT(!m_sourceBuffers.contains(sourceBuffer));
     ASSERT(sourceBuffer);
 
-    addParser(sourceBuffer->parser());
+    addParser(sourceBuffer->streamDataParser());
 
     m_sourceBuffers.append(sourceBuffer);
     sourceBuffer->registerForErrorNotifications(this);
@@ -94,7 +99,7 @@ void CDMSessionMediaSourceAVFObjC::removeSourceBuffer(SourceBufferPrivateAVFObjC
     ASSERT(m_sourceBuffers.contains(sourceBuffer));
     ASSERT(sourceBuffer);
 
-    removeParser(sourceBuffer->parser());
+    removeParser(sourceBuffer->streamDataParser());
 
     sourceBuffer->unregisterForErrorNotifications(this);
     m_sourceBuffers.remove(m_sourceBuffers.find(sourceBuffer));
@@ -109,8 +114,15 @@ String CDMSessionMediaSourceAVFObjC::storagePath() const
     if (storageDirectory.isEmpty())
         return emptyString();
 
-    return FileSystem::pathByAppendingComponent(storageDirectory, "SecureStop.plist");
+    return FileSystem::pathByAppendingComponent(storageDirectory, "SecureStop.plist"_s);
 }
+
+#if !RELEASE_LOG_DISABLED
+WTFLogChannel& CDMSessionMediaSourceAVFObjC::logChannel() const
+{
+    return LogEME;
+}
+#endif
 
 }
 

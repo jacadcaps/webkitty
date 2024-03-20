@@ -26,12 +26,12 @@
 #include "config.h"
 #include "HTMLPictureElement.h"
 
-#include "ElementChildIterator.h"
+#include "ElementChildIteratorInlines.h"
 #include "HTMLAnchorElement.h"
 #include "HTMLImageElement.h"
 #include "ImageLoader.h"
 #include "Logging.h"
-#include "RuntimeEnabledFeatures.h"
+#include "Settings.h"
 #include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
@@ -47,12 +47,6 @@ HTMLPictureElement::~HTMLPictureElement()
 {
 }
 
-void HTMLPictureElement::didMoveToNewDocument(Document& oldDocument, Document& newDocument)
-{
-    HTMLElement::didMoveToNewDocument(oldDocument, newDocument);
-    sourcesChanged();
-}
-
 Ref<HTMLPictureElement> HTMLPictureElement::create(const QualifiedName& tagName, Document& document)
 {
     return adoptRef(*new HTMLPictureElement(tagName, document));
@@ -64,16 +58,22 @@ void HTMLPictureElement::sourcesChanged()
         element.selectImageSource(RelevantMutation::Yes);
 }
 
+void HTMLPictureElement::sourceDimensionAttributesChanged(const HTMLSourceElement& sourceElement)
+{
+    for (auto& element : childrenOfType<HTMLImageElement>(*this)) {
+        if (&sourceElement == element.sourceElement())
+            element.invalidateAttributeMapping();
+    }
+}
+
 #if USE(SYSTEM_PREVIEW)
 bool HTMLPictureElement::isSystemPreviewImage()
 {
-    if (!RuntimeEnabledFeatures::sharedFeatures().systemPreviewEnabled())
+    if (!document().settings().systemPreviewEnabled())
         return false;
 
-    auto* parent = parentElement();
-    if (!is<HTMLAnchorElement>(parent))
-        return false;
-    return downcast<HTMLAnchorElement>(parent)->isSystemPreviewLink();
+    auto* parent = dynamicDowncast<HTMLAnchorElement>(parentElement());
+    return parent && parent->isSystemPreviewLink();
 }
 #endif
 

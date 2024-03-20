@@ -26,8 +26,6 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import os
-import sys
 import unittest
 
 from webkitpy.common.host_mock import MockHost
@@ -74,8 +72,8 @@ class TestExpectationsTestCase(unittest.TestCase):
 
     def test_determine_port_from_expectations_path(self):
         self._expect_port_for_expectations_path(None, '/')
-        self._expect_port_for_expectations_path(None, '/mock-checkout/LayoutTests/platform/win/TestExpectations')
-        self._expect_port_for_expectations_path('win', 'LayoutTests/platform/win/TestExpectations')
+        self._expect_port_for_expectations_path(None, '/mock-checkout/LayoutTests/platform/gtk/TestExpectations')
+        self._expect_port_for_expectations_path('gtk', 'LayoutTests/platform/gtk/TestExpectations')
 
     def assert_lines_lint(self, lines, should_pass, expected_output=None):
         self._error_collector.reset_errors()
@@ -97,7 +95,7 @@ class TestExpectationsTestCase(unittest.TestCase):
         elif expected_output:
             self.assertEqual(expected_output, self._error_collector.get_errors())
         else:
-            self.assertNotEquals('', self._error_collector.get_errors())
+            self.assertNotEqual('', self._error_collector.get_errors())
 
         # Note that a patch might change a line that introduces errors elsewhere, but we
         # don't want to lint the whole file (it can unfairly punish patches for pre-existing errors).

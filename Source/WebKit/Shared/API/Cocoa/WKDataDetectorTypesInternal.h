@@ -27,26 +27,27 @@
 
 #if PLATFORM(IOS_FAMILY)
 
-#import <WebCore/DataDetection.h>
+#import <WebCore/DataDetectorType.h>
 
-static inline WebCore::DataDetectorTypes fromWKDataDetectorTypes(uint64_t types)
+static inline OptionSet<WebCore::DataDetectorType> fromWKDataDetectorTypes(WKDataDetectorTypes types)
 {
-    uint32_t value = 0;
+    OptionSet<WebCore::DataDetectorType> result;
     if (types & WKDataDetectorTypePhoneNumber)
-        value |= static_cast<uint32_t>(WebCore::DataDetectorTypes::PhoneNumber);
+        result.add(WebCore::DataDetectorType::PhoneNumber);
     if (types & WKDataDetectorTypeLink)
-        value |= static_cast<uint32_t>(WebCore::DataDetectorTypes::Link);
+        result.add(WebCore::DataDetectorType::Link);
     if (types & WKDataDetectorTypeAddress)
-        value |= static_cast<uint32_t>(WebCore::DataDetectorTypes::Address);
+        result.add(WebCore::DataDetectorType::Address);
     if (types & WKDataDetectorTypeCalendarEvent)
-        value |= static_cast<uint32_t>(WebCore::DataDetectorTypes::CalendarEvent);
+        result.add(WebCore::DataDetectorType::CalendarEvent);
     if (types & WKDataDetectorTypeTrackingNumber)
-        value |= static_cast<uint32_t>(WebCore::DataDetectorTypes::TrackingNumber);
+        result.add(WebCore::DataDetectorType::TrackingNumber);
     if (types & WKDataDetectorTypeFlightNumber)
-        value |= static_cast<uint32_t>(WebCore::DataDetectorTypes::FlightNumber);
+        result.add(WebCore::DataDetectorType::FlightNumber);
     if (types & WKDataDetectorTypeLookupSuggestion)
-        value |= static_cast<uint32_t>(WebCore::DataDetectorTypes::LookupSuggestion);
-    return static_cast<WebCore::DataDetectorTypes>(value);
+        result.add(WebCore::DataDetectorType::LookupSuggestion);
+
+    return result;
 }
 
 #endif

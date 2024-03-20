@@ -27,6 +27,8 @@
 
 #include <atomic>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/ThreadAssertions.h>
+#include <wtf/UUID.h>
 
 namespace WTF {
 
@@ -39,15 +41,14 @@ public:
     }
 
 protected:
-    IdentifiedBase(const IdentifiedBase& other)
-        : m_identifier(other.m_identifier)
-    {
-    }
+    IdentifiedBase(const IdentifiedBase&) = default;
 
     explicit IdentifiedBase(IdentifierType identifier)
         : m_identifier(identifier)
     {
     }
+
+    IdentifiedBase& operator=(const IdentifiedBase&) = default;
 
 private:
     IdentifierType m_identifier;
@@ -62,6 +63,7 @@ protected:
     }
 
     Identified(const Identified&) = default;
+    Identified& operator=(const Identified&) = default;
 
     explicit Identified(uint64_t identifier)
         : IdentifiedBase<uint64_t, T>(identifier)
@@ -71,6 +73,9 @@ protected:
 private:
     static uint64_t generateIdentifier()
     {
+        static NeverDestroyed<ThreadLikeAssertion> initializationThread;
+        assertIsCurrent(initializationThread); // You should be using ThreadSafeIdentified if you hit this assertion.
+
         static uint64_t currentIdentifier;
         return ++currentIdentifier;
     }
@@ -85,6 +90,7 @@ protected:
     }
 
     ThreadSafeIdentified(const ThreadSafeIdentified&) = default;
+    ThreadSafeIdentified& operator=(const ThreadSafeIdentified&) = default;
 
     explicit ThreadSafeIdentified(uint64_t identifier)
         : IdentifiedBase<uint64_t, T>(identifier)
@@ -103,7 +109,19 @@ private:
     }
 };
 
+template <typename T>
+class UUIDIdentified : public IdentifiedBase<UUID, T> {
+protected:
+    UUIDIdentified()
+        : IdentifiedBase<UUID, T>(UUID::createVersion4())
+    {
+    }
+
+    UUIDIdentified(const UUIDIdentified&) = default;
+};
+
 } // namespace WTF
 
 using WTF::Identified;
 using WTF::ThreadSafeIdentified;
+using WTF::UUIDIdentified;

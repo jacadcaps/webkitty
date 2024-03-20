@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005, 2007, 2008 Apple Inc. All rights reserved.
+ * Copyright (C) 2005-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,6 +29,7 @@
 #import "WebHistoryItemInternal.h"
 #import "WebHistoryItemPrivate.h"
 
+#import "LegacyHistoryItemClient.h"
 #import "WebFrameInternal.h"
 #import "WebFrameView.h"
 #import "WebHTMLViewInternal.h"
@@ -41,12 +42,12 @@
 #import "WebNSURLRequestExtras.h"
 #import "WebNSViewExtras.h"
 #import "WebPluginController.h"
-#import "WebTypesInternal.h"
 #import <JavaScriptCore/InitializeThreading.h>
 #import <WebCore/BackForwardCache.h>
 #import <WebCore/HistoryItem.h>
 #import <WebCore/Image.h>
 #import <WebCore/ThreadCheck.h>
+#import <WebCore/WebCoreJITOperations.h>
 #import <WebCore/WebCoreObjCExtras.h>
 #import <wtf/Assertions.h>
 #import <wtf/MainThread.h>
@@ -97,7 +98,7 @@ using namespace WebCore;
 
 @end
 
-typedef HashMap<HistoryItem*, WebHistoryItem*> HistoryItemMap;
+using HistoryItemMap = HashMap<WeakRef<HistoryItem>, WebHistoryItem*>;
 
 static inline WebCoreHistoryItem* core(WebHistoryItemPrivate* itemPrivate)
 {
@@ -110,7 +111,7 @@ static HistoryItemMap& historyItemWrappers()
     return historyItemWrappers;
 }
 
-void WKNotifyHistoryItemChanged(HistoryItem&)
+void WKNotifyHistoryItemChanged()
 {
 #if !PLATFORM(IOS_FAMILY)
     [[NSNotificationCenter defaultCenter]
@@ -127,19 +128,20 @@ void WKNotifyHistoryItemChanged(HistoryItem&)
 #if !PLATFORM(IOS_FAMILY)
     JSC::initialize();
     WTF::initializeMainThread();
+    WebCore::populateJITOperations();
 #endif
 }
 
 - (instancetype)init
 {
-    return [self initWithWebCoreHistoryItem:HistoryItem::create()];
+    return [self initWithWebCoreHistoryItem:HistoryItem::create(LegacyHistoryItemClient::singleton())];
 }
 
 - (instancetype)initWithURLString:(NSString *)URLString title:(NSString *)title lastVisitedTimeInterval:(NSTimeInterval)time
 {
     WebCoreThreadViolationCheckRoundOne();
 
-    WebHistoryItem *item = [self initWithWebCoreHistoryItem:HistoryItem::create(URLString, title)];
+    WebHistoryItem *item = [self initWithWebCoreHistoryItem:HistoryItem::create(LegacyHistoryItemClient::singleton(), URLString)];
     item->_private->_lastVisitedTime = time;
 
     return item;
@@ -150,7 +152,7 @@ void WKNotifyHistoryItemChanged(HistoryItem&)
     if (WebCoreObjCScheduleDeallocateOnMainThread([WebHistoryItem class], self))
         return;
 
-    historyItemWrappers().remove(_private->_historyItem.get());
+    historyItemWrappers().remove(*_private->_historyItem);
     [_private release];
 
     [super dealloc];
@@ -159,13 +161,13 @@ void WKNotifyHistoryItemChanged(HistoryItem&)
 - (id)copyWithZone:(NSZone *)zone
 {
     WebCoreThreadViolationCheckRoundOne();
-    WebHistoryItem *copy = [[[self class] alloc] initWithWebCoreHistoryItem:core(_private)->copy()];
+    RetainPtr<WebHistoryItem> copy = adoptNS([[[self class] alloc] initWithWebCoreHistoryItem:core(_private)->copy()]);
 
     copy->_private->_lastVisitedTime = _private->_lastVisitedTime;
 
-    historyItemWrappers().set(core(copy->_private), copy);
+    historyItemWrappers().set(*core(copy->_private), copy.get());
 
-    return copy;
+    return copy.leakRef();
 }
 
 // FIXME: Need to decide if this class ever returns URLs and decide on the name of this method
@@ -181,27 +183,12 @@ void WKNotifyHistoryItemChanged(HistoryItem&)
     return nsStringNilIfEmpty(core(_private)->originalURLString());
 }
 
-- (NSString *)title
-{
-    return nsStringNilIfEmpty(core(_private)->title());
-}
-
-- (void)setAlternateTitle:(NSString *)alternateTitle
-{
-    core(_private)->setAlternateTitle(alternateTitle);
-}
-
-- (NSString *)alternateTitle
-{
-    return nsStringNilIfEmpty(core(_private)->alternateTitle());
-}
-
 #if !PLATFORM(IOS_FAMILY)
 - (NSImage *)icon
 {
-    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     return [[WebIconDatabase sharedIconDatabase] iconForURL:[self URLString] withSize:WebIconSmallSize];
-    ALLOW_DEPRECATED_DECLARATIONS_END
+ALLOW_DEPRECATED_DECLARATIONS_END
 }
 #endif
 
@@ -259,7 +246,7 @@ HistoryItem* core(WebHistoryItem *item)
 {
     if (!item)
         return nullptr;
-    ASSERT(historyItemWrappers().get(core(item->_private)) == item);
+    ASSERT(historyItemWrappers().get(*core(item->_private)) == item);
     return core(item->_private);
 }
 
@@ -267,19 +254,19 @@ WebHistoryItem *kit(HistoryItem* item)
 {
     if (!item)
         return nil;
-    if (auto wrapper = historyItemWrappers().get(item))
-        return [[wrapper retain] autorelease];
-    return [[[WebHistoryItem alloc] initWithWebCoreHistoryItem:*item] autorelease];
+    if (auto wrapper = historyItemWrappers().get(*item))
+        return retainPtr(wrapper).autorelease();
+    return adoptNS([[WebHistoryItem alloc] initWithWebCoreHistoryItem:*item]).autorelease();
 }
 
 + (WebHistoryItem *)entryWithURL:(NSURL *)URL
 {
-    return [[[self alloc] initWithURL:URL title:nil] autorelease];
+    return adoptNS([[self alloc] initWithURL:URL title:nil]).autorelease();
 }
 
 - (id)initWithURLString:(NSString *)URLString title:(NSString *)title displayTitle:(NSString *)displayTitle lastVisitedTimeInterval:(NSTimeInterval)time
 {
-    auto item = [self initWithWebCoreHistoryItem:HistoryItem::create(URLString, title, displayTitle)];
+    auto item = [self initWithWebCoreHistoryItem:HistoryItem::create(LegacyHistoryItemClient::singleton(), URLString)];
     if (!item)
         return nil;
     item->_private->_lastVisitedTime = time;
@@ -290,28 +277,15 @@ WebHistoryItem *kit(HistoryItem* item)
 {   
     WebCoreThreadViolationCheckRoundOne();
 
-    // Need to tell WebCore what function to call for the 
-    // "History Item has Changed" notification - no harm in doing this
-    // everytime a WebHistoryItem is created
-    // Note: We also do this in [WebFrameView initWithFrame:] where we do
-    // other "init before WebKit is used" type things
-    // FIXME: This means that if we mix legacy WebKit and modern WebKit in the same process, we won't get both notifications.
-    WebCore::notifyHistoryItemChanged = WKNotifyHistoryItemChanged;
-
     if (!(self = [super init]))
         return nil;
 
     _private = [[WebHistoryItemPrivate alloc] init];
     _private->_historyItem = WTFMove(item);
 
-    ASSERT(!historyItemWrappers().get(core(_private)));
-    historyItemWrappers().set(core(_private), self);
+    ASSERT(!historyItemWrappers().get(*core(_private)));
+    historyItemWrappers().set(*core(_private), self);
     return self;
-}
-
-- (void)setTitle:(NSString *)title
-{
-    core(_private)->setTitle(title);
 }
 
 - (void)setViewState:(id)statePList
@@ -347,13 +321,9 @@ WebHistoryItem *kit(HistoryItem* item)
     if (NSArray *redirectURLs = [dict _webkit_arrayForKey:redirectURLsKey])
         _private->_redirectURLs = makeUnique<Vector<String>>(makeVector<String>(redirectURLs));
 
-    NSArray *childDicts = [dict objectForKey:childrenKey];
-    if (childDicts) {
-        for (int i = [childDicts count] - 1; i >= 0; i--) {
-            WebHistoryItem *child = [[WebHistoryItem alloc] initFromDictionaryRepresentation:[childDicts objectAtIndex:i]];
-            core(_private)->addChildItem(*core(child->_private));
-            [child release];
-        }
+    for (id childDict in [[dict objectForKey:childrenKey] reverseObjectEnumerator]) {
+        auto child = adoptNS([[WebHistoryItem alloc] initFromDictionaryRepresentation:childDict]);
+        core(_private)->addChildItem(*core(child->_private));
     }
 
 #if PLATFORM(IOS_FAMILY)
@@ -379,9 +349,8 @@ WebHistoryItem *kit(HistoryItem* item)
     return core(_private)->scrollPosition();
 }
 
-- (void)_visitedWithTitle:(NSString *)title
+- (void)_visited
 {
-    core(_private)->setTitle(title);
     _private->_lastVisitedTime = [NSDate timeIntervalSinceReferenceDate];
 }
 
@@ -412,10 +381,6 @@ WebHistoryItem *kit(HistoryItem* item)
     
     if (!coreItem->urlString().isEmpty())
         [dict setObject:(NSString*)coreItem->urlString() forKey:@""];
-    if (!coreItem->title().isEmpty())
-        [dict setObject:(NSString*)coreItem->title() forKey:titleKey];
-    if (!coreItem->alternateTitle().isEmpty())
-        [dict setObject:(NSString*)coreItem->alternateTitle() forKey:displayTitleKey];
     if (_private->_lastVisitedTime) {
         // Store as a string to maintain backward compatibility. (See 3245793)
         [dict setObject:[NSString stringWithFormat:@"%.1lf", _private->_lastVisitedTime]

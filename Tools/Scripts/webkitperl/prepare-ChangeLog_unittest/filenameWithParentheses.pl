@@ -1,5 +1,6 @@
 #!/usr/bin/env perl
 #
+# Copyright (C) 2020 Apple Inc. All rights reserved.
 # Copyright (C) 2020 Google Inc. All rights reserved.
 #   
 #   Redistribution and use in source and binary forms, with or without
@@ -45,14 +46,15 @@ sub writeFileWithContent($$)
 }
 
 my $temporaryDirectory = File::Temp->newdir();
-system("git", "init", $temporaryDirectory);
+system("git", "init", "-q", $temporaryDirectory);
 my $filename = File::Spec->catfile($temporaryDirectory, "FileWith(Parentheses).txt");
 writeFileWithContent($filename, "");
 writeFileWithContent(File::Spec->catfile($temporaryDirectory, ".gitattributes"), "* foo=1\nb");
 
+my $attributeCache = {};
 my $result = 0;
 chdir $temporaryDirectory;
-$result = PrepareChangeLog::attributeCommand($filename, "foo");
+$result = PrepareChangeLog::attributeCommand($attributeCache, $filename, "foo");
 chdir '..';
 
 is($result, 1, "Should successfully get foo attribute from file with parentheses in name.");

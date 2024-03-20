@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -42,7 +42,7 @@ PageLoadState::PageLoadState(WebPageProxy& webPageProxy)
 
 PageLoadState::~PageLoadState()
 {
-    ASSERT(m_observers.isEmpty());
+    ASSERT(m_observers.isEmptyIgnoringNullReferences());
 }
 
 PageLoadState::Transaction::Transaction(PageLoadState& pageLoadState)
@@ -67,14 +67,14 @@ PageLoadState::Transaction::~Transaction()
 
 void PageLoadState::addObserver(Observer& observer)
 {
-    ASSERT(!m_observers.contains(&observer));
+    ASSERT(!m_observers.contains(observer));
 
-    m_observers.append(&observer);
+    m_observers.add(observer);
 }
 
 void PageLoadState::removeObserver(Observer& observer)
 {
-    bool removed = m_observers.removeFirst(&observer);
+    bool removed = m_observers.remove(observer);
     ASSERT_UNUSED(removed, removed);
 }
 
@@ -101,6 +101,7 @@ void PageLoadState::commitChanges()
     bool activeURLChanged = activeURL(m_committedState) != activeURL(m_uncommittedState);
     bool hasOnlySecureContentChanged = hasOnlySecureContent(m_committedState) != hasOnlySecureContent(m_uncommittedState);
     bool negotiatedLegacyTLSChanged = m_committedState.negotiatedLegacyTLS != m_uncommittedState.negotiatedLegacyTLS;
+    bool wasPrivateRelayedChanged = m_committedState.wasPrivateRelayed != m_uncommittedState.wasPrivateRelayed;
     bool estimatedProgressChanged = estimatedProgress(m_committedState) != estimatedProgress(m_uncommittedState);
     bool networkRequestsInProgressChanged = m_committedState.networkRequestsInProgress != m_uncommittedState.networkRequestsInProgress;
     bool certificateInfoChanged = m_committedState.certificateInfo != m_uncommittedState.certificateInfo;
@@ -119,6 +120,8 @@ void PageLoadState::commitChanges()
         callObserverCallback(&Observer::willChangeHasOnlySecureContent);
     if (negotiatedLegacyTLSChanged)
         callObserverCallback(&Observer::willChangeNegotiatedLegacyTLS);
+    if (wasPrivateRelayedChanged)
+        callObserverCallback(&Observer::willChangeWasPrivateRelayed);
     if (estimatedProgressChanged)
         callObserverCallback(&Observer::willChangeEstimatedProgress);
     if (networkRequestsInProgressChanged)
@@ -141,6 +144,8 @@ void PageLoadState::commitChanges()
         callObserverCallback(&Observer::didChangeHasOnlySecureContent);
     if (negotiatedLegacyTLSChanged)
         callObserverCallback(&Observer::didChangeNegotiatedLegacyTLS);
+    if (wasPrivateRelayedChanged)
+        callObserverCallback(&Observer::didChangeWasPrivateRelayed);
     if (activeURLChanged)
         callObserverCallback(&Observer::didChangeActiveURL);
     if (isLoadingChanged)
@@ -163,6 +168,7 @@ void PageLoadState::reset(const Transaction::Token& token)
     m_uncommittedState.pendingAPIRequest = { };
     m_uncommittedState.provisionalURL = String();
     m_uncommittedState.url = String();
+    m_uncommittedState.origin = { };
 
     m_uncommittedState.unreachableURL = String();
     m_lastUnreachableURL = String();
@@ -218,9 +224,9 @@ bool PageLoadState::hasOnlySecureContent(const Data& data)
         return false;
 
     if (data.state == State::Provisional)
-        return WTF::protocolIs(data.provisionalURL, "https");
+        return WTF::protocolIs(data.provisionalURL, "https"_s);
 
-    return WTF::protocolIs(data.url, "https");
+    return WTF::protocolIs(data.url, "https"_s);
 }
 
 bool PageLoadState::hasOnlySecureContent() const
@@ -237,6 +243,11 @@ void PageLoadState::negotiatedLegacyTLS(const Transaction::Token& token)
 {
     ASSERT_UNUSED(token, &token.m_pageLoadState == this);
     m_uncommittedState.negotiatedLegacyTLS = true;
+}
+
+bool PageLoadState::wasPrivateRelayed() const
+{
+    return m_committedState.wasPrivateRelayed;
 }
 
 double PageLoadState::estimatedProgress(const Data& data)
@@ -319,18 +330,21 @@ void PageLoadState::didFailProvisionalLoad(const Transaction::Token& token)
     m_uncommittedState.unreachableURL = m_lastUnreachableURL;
 }
 
-void PageLoadState::didCommitLoad(const Transaction::Token& token, WebCertificateInfo& certificateInfo, bool hasInsecureContent, bool usedLegacyTLS)
+void PageLoadState::didCommitLoad(const Transaction::Token& token, const WebCore::CertificateInfo& certificateInfo, bool hasInsecureContent, bool usedLegacyTLS, bool wasPrivateRelayed, const WebCore::SecurityOriginData& origin)
 {
     ASSERT_UNUSED(token, &token.m_pageLoadState == this);
     ASSERT(m_uncommittedState.state == State::Provisional);
 
     m_uncommittedState.state = State::Committed;
     m_uncommittedState.hasInsecureContent = hasInsecureContent;
-    m_uncommittedState.certificateInfo = &certificateInfo;
+    m_uncommittedState.certificateInfo = certificateInfo;
 
-    m_uncommittedState.url = m_uncommittedState.provisionalURL;
+    ASSERT(!m_uncommittedState.provisionalURL.isNull());
+    m_uncommittedState.url = m_uncommittedState.provisionalURL.isNull() ? aboutBlankURL().string() : m_uncommittedState.provisionalURL;
     m_uncommittedState.provisionalURL = String();
     m_uncommittedState.negotiatedLegacyTLS = usedLegacyTLS;
+    m_uncommittedState.wasPrivateRelayed = wasPrivateRelayed;
+    m_uncommittedState.origin = origin;
 
     m_uncommittedState.title = String();
     m_uncommittedState.titleFromSafeBrowsingWarning = { };
@@ -477,16 +491,15 @@ void PageLoadState::didChangeProcessIsResponsive()
 
 void PageLoadState::callObserverCallback(void (Observer::*callback)())
 {
-    auto protectedPage = makeRef(m_webPageProxy);
+    Ref protectedPage { m_webPageProxy };
 
-    auto observerCopy = m_observers;
-    for (auto* observer : observerCopy) {
+    for (auto& observer : copyToVector(m_observers)) {
         // This appears potentially inefficient on the surface (searching in a Vector)
         // but in practice - using only API - there will only ever be (1) observer.
-        if (!m_observers.contains(observer))
+        if (!observer || !m_observers.contains(*observer))
             continue;
 
-        (observer->*callback)();
+        ((*observer).*callback)();
     }
 }
 

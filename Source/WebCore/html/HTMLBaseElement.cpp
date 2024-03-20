@@ -24,8 +24,8 @@
 #include "HTMLBaseElement.h"
 
 #include "Document.h"
+#include "ElementInlines.h"
 #include "HTMLNames.h"
-#include "HTMLParserIdioms.h"
 #include "TextResourceDecoder.h"
 #include <wtf/IsoMallocInlines.h>
 
@@ -46,12 +46,13 @@ Ref<HTMLBaseElement> HTMLBaseElement::create(const QualifiedName& tagName, Docum
     return adoptRef(*new HTMLBaseElement(tagName, document));
 }
 
-void HTMLBaseElement::parseAttribute(const QualifiedName& name, const AtomString& value)
+void HTMLBaseElement::attributeChanged(const QualifiedName& name, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason attributeModificationReason)
 {
-    if (name == hrefAttr || name == targetAttr)
-        document().processBaseElement();
-    else
-        HTMLElement::parseAttribute(name, value);
+    if (name == hrefAttr || name == targetAttr) {
+        if (isConnected())
+            document().processBaseElement();
+    } else
+        HTMLElement::attributeChanged(name, oldValue, newValue, attributeModificationReason);
 }
 
 Node::InsertedIntoAncestorResult HTMLBaseElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
@@ -74,29 +75,23 @@ bool HTMLBaseElement::isURLAttribute(const Attribute& attribute) const
     return attribute.name().localName() == hrefAttr || HTMLElement::isURLAttribute(attribute);
 }
 
-String HTMLBaseElement::target() const
+AtomString HTMLBaseElement::target() const
 {
     return attributeWithoutSynchronization(targetAttr);
 }
 
-URL HTMLBaseElement::href() const
+// https://html.spec.whatwg.org/#dom-base-href
+String HTMLBaseElement::href() const
 {
-    // This does not use the getURLAttribute function because that will resolve relative to the document's base URL;
-    // base elements like this one can be used to set that base URL. Thus we need to resolve relative to the document's
-    // URL and ignore the base URL.
+    AtomString url = attributeWithoutSynchronization(hrefAttr);
+    if (url.isNull())
+        url = emptyAtom();
 
-    const AtomString& attributeValue = attributeWithoutSynchronization(hrefAttr);
-    if (attributeValue.isNull())
-        return document().url();
+    auto urlRecord = document().completeURL(url, document().fallbackBaseURL());
+    if (!urlRecord.isValid())
+        return url;
 
-    // Same logic as openFunc() in XMLDocumentParserLibxml2.cpp. Keep them in sync.
-    auto* encoding = document().decoder() ? document().decoder()->encodingForURLParsing() : nullptr;
-    URL url(document().url(), stripLeadingAndTrailingHTMLSpaces(attributeValue), encoding);
-
-    if (!url.isValid())
-        return URL();
-
-    return url;
+    return urlRecord.string();
 }
 
 void HTMLBaseElement::setHref(const AtomString& value)

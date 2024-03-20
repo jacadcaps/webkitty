@@ -1,6 +1,6 @@
 /*
  * (C) 1999 Lars Knoll (knoll@kde.org)
- * Copyright (C) 2004-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2004-2023 Apple Inc. All rights reserved.
  * Copyright (C) 2007-2009 Torch Mobile, Inc.
  *
  * This library is free software; you can redistribute it and/or
@@ -41,121 +41,25 @@ using namespace Unicode;
 
 // Construct a string with UTF-16 data.
 String::String(const UChar* characters, unsigned length)
+    : m_impl(characters ? RefPtr { StringImpl::create(characters, length) } : nullptr)
 {
-    if (characters)
-        m_impl = StringImpl::create(characters, length);
-}
-
-// Construct a string with UTF-16 data, from a null-terminated source.
-String::String(const UChar* nullTerminatedString)
-{
-    if (nullTerminatedString)
-        m_impl = StringImpl::create(nullTerminatedString, lengthOfNullTerminatedString(nullTerminatedString));
 }
 
 // Construct a string with latin1 data.
 String::String(const LChar* characters, unsigned length)
+    : m_impl(characters ? RefPtr { StringImpl::create(characters, length) } : nullptr)
 {
-    if (characters)
-        m_impl = StringImpl::create(characters, length);
 }
 
 String::String(const char* characters, unsigned length)
+    : m_impl(characters ? RefPtr { StringImpl::create(reinterpret_cast<const LChar*>(characters), length) } : nullptr)
 {
-    if (characters)
-        m_impl = StringImpl::create(reinterpret_cast<const LChar*>(characters), length);
 }
 
 // Construct a string with Latin-1 data, from a null-terminated source.
-String::String(const LChar* nullTerminatedString)
-{
-    if (nullTerminatedString)
-        m_impl = StringImpl::create(nullTerminatedString);
-}
-
 String::String(const char* nullTerminatedString)
+    : m_impl(nullTerminatedString ? RefPtr { StringImpl::createFromCString(nullTerminatedString) } : nullptr)
 {
-    if (nullTerminatedString)
-        m_impl = StringImpl::create(reinterpret_cast<const LChar*>(nullTerminatedString));
-}
-
-String::String(ASCIILiteral characters)
-    : m_impl(StringImpl::createFromLiteral(characters))
-{
-}
-
-void String::append(const String& otherString)
-{
-    // FIXME: This is extremely inefficient. So much so that we might want to take this out of String's API.
-
-    if (!m_impl) {
-        m_impl = otherString.m_impl;
-        return;
-    }
-
-    if (otherString.isEmpty())
-        return;
-
-    auto length = m_impl->length();
-    auto otherLength = otherString.m_impl->length();
-    if (otherLength > MaxLength - length)
-        CRASH();
-
-    if (m_impl->is8Bit() && otherString.m_impl->is8Bit()) {
-        LChar* data;
-        auto newImpl = StringImpl::createUninitialized(length + otherLength, data);
-        StringImpl::copyCharacters(data, m_impl->characters8(), length);
-        StringImpl::copyCharacters(data + length, otherString.m_impl->characters8(), otherLength);
-        m_impl = WTFMove(newImpl);
-        return;
-    }
-    UChar* data;
-    auto newImpl = StringImpl::createUninitialized(length + otherLength, data);
-    StringView(*m_impl).getCharactersWithUpconvert(data);
-    StringView(*otherString.m_impl).getCharactersWithUpconvert(data + length);
-    m_impl = WTFMove(newImpl);
-}
-
-void String::append(LChar character)
-{
-    // FIXME: This is extremely inefficient. So much so that we might want to take this out of String's API.
-
-    if (!m_impl) {
-        m_impl = StringImpl::create(&character, 1);
-        return;
-    }
-    if (!is8Bit()) {
-        append(static_cast<UChar>(character));
-        return;
-    }
-    if (m_impl->length() >= MaxLength)
-        CRASH();
-    LChar* data;
-    auto newImpl = StringImpl::createUninitialized(m_impl->length() + 1, data);
-    StringImpl::copyCharacters(data, m_impl->characters8(), m_impl->length());
-    data[m_impl->length()] = character;
-    m_impl = WTFMove(newImpl);
-}
-
-void String::append(UChar character)
-{
-    // FIXME: This is extremely inefficient. So much so that we might want to take this out of String's API.
-
-    if (!m_impl) {
-        m_impl = StringImpl::create(&character, 1);
-        return;
-    }
-    if (isLatin1(character) && is8Bit()) {
-        append(static_cast<LChar>(character));
-        return;
-    }
-    if (m_impl->length() >= MaxLength)
-        CRASH();
-    UChar* data;
-    auto newImpl = StringImpl::createUninitialized(m_impl->length() + 1, data);
-    StringView(*m_impl).getCharactersWithUpconvert(data);
-    data[m_impl->length()] = character;
-    m_impl = WTFMove(newImpl);
 }
 
 int codePointCompare(const String& a, const String& b)
@@ -163,153 +67,35 @@ int codePointCompare(const String& a, const String& b)
     return codePointCompare(a.impl(), b.impl());
 }
 
-void String::insert(const String& string, unsigned position)
-{
-    // FIXME: This is extremely inefficient. So much so that we might want to take this out of String's API.
-
-    unsigned lengthToInsert = string.length();
-
-    if (!lengthToInsert) {
-        if (string.isNull())
-            return;
-        if (isNull())
-            m_impl = string.impl();
-        return;
-    }
-
-    if (position >= length()) {
-        append(string);
-        return;
-    }
-
-    if (lengthToInsert > MaxLength - length())
-        CRASH();
-
-    if (is8Bit() && string.is8Bit()) {
-        LChar* data;
-        auto newString = StringImpl::createUninitialized(length() + lengthToInsert, data);
-        StringView(*m_impl).substring(0, position).getCharactersWithUpconvert(data);
-        StringView(string).getCharactersWithUpconvert(data + position);
-        StringView(*m_impl).substring(position).getCharactersWithUpconvert(data + position + lengthToInsert);
-        m_impl = WTFMove(newString);
-    } else {
-        UChar* data;
-        auto newString = StringImpl::createUninitialized(length() + lengthToInsert, data);
-        StringView(*m_impl).substring(0, position).getCharactersWithUpconvert(data);
-        StringView(string).getCharactersWithUpconvert(data + position);
-        StringView(*m_impl).substring(position).getCharactersWithUpconvert(data + position + lengthToInsert);
-        m_impl = WTFMove(newString);
-    }
-}
-
-void String::append(const LChar* charactersToAppend, unsigned lengthToAppend)
-{
-    // FIXME: This is extremely inefficient. So much so that we might want to take this out of String's API.
-
-    if (!m_impl) {
-        if (!charactersToAppend)
-            return;
-        m_impl = StringImpl::create(charactersToAppend, lengthToAppend);
-        return;
-    }
-
-    if (!lengthToAppend)
-        return;
-
-    ASSERT(charactersToAppend);
-
-    unsigned strLength = m_impl->length();
-
-    if (m_impl->is8Bit()) {
-        if (lengthToAppend > MaxLength - strLength)
-            CRASH();
-        LChar* data;
-        auto newImpl = StringImpl::createUninitialized(strLength + lengthToAppend, data);
-        StringImpl::copyCharacters(data, m_impl->characters8(), strLength);
-        StringImpl::copyCharacters(data + strLength, charactersToAppend, lengthToAppend);
-        m_impl = WTFMove(newImpl);
-        return;
-    }
-
-    if (lengthToAppend > MaxLength - strLength)
-        CRASH();
-    UChar* data;
-    auto newImpl = StringImpl::createUninitialized(length() + lengthToAppend, data);
-    StringImpl::copyCharacters(data, m_impl->characters16(), strLength);
-    StringImpl::copyCharacters(data + strLength, charactersToAppend, lengthToAppend);
-    m_impl = WTFMove(newImpl);
-}
-
-void String::append(const UChar* charactersToAppend, unsigned lengthToAppend)
-{
-    // FIXME: This is extremely inefficient. So much so that we might want to take this out of String's API.
-
-    if (!m_impl) {
-        if (!charactersToAppend)
-            return;
-        m_impl = StringImpl::create(charactersToAppend, lengthToAppend);
-        return;
-    }
-
-    if (!lengthToAppend)
-        return;
-
-    unsigned strLength = m_impl->length();
-    
-    ASSERT(charactersToAppend);
-    if (lengthToAppend > MaxLength - strLength)
-        CRASH();
-    UChar* data;
-    auto newImpl = StringImpl::createUninitialized(strLength + lengthToAppend, data);
-    if (m_impl->is8Bit())
-        StringImpl::copyCharacters(data, characters8(), strLength);
-    else
-        StringImpl::copyCharacters(data, characters16(), strLength);
-    StringImpl::copyCharacters(data + strLength, charactersToAppend, lengthToAppend);
-    m_impl = WTFMove(newImpl);
-}
-
-
-UChar32 String::characterStartingAt(unsigned i) const
+char32_t String::characterStartingAt(unsigned i) const
 {
     if (!m_impl || i >= m_impl->length())
         return 0;
     return m_impl->characterStartingAt(i);
 }
 
-void String::truncate(unsigned position)
+String makeStringByJoining(std::span<const String> strings, const String& separator)
 {
-    if (m_impl)
-        m_impl = m_impl->substring(0, position);
+    StringBuilder builder;
+    for (const auto& string : strings) {
+        if (builder.isEmpty())
+            builder.append(string);
+        else
+            builder.append(separator, string);
+    }
+    return builder.toString();
 }
 
-template<typename CharacterType> inline void String::removeInternal(const CharacterType* characters, unsigned position, unsigned lengthToRemove)
-{
-    CharacterType* data;
-    auto newImpl = StringImpl::createUninitialized(length() - lengthToRemove, data);
-    StringImpl::copyCharacters(data, characters, position);
-    StringImpl::copyCharacters(data + position, characters + position + lengthToRemove, length() - lengthToRemove - position);
-    m_impl = WTFMove(newImpl);
-}
-
-void String::remove(unsigned position, unsigned lengthToRemove)
+String makeStringByRemoving(const String& string, unsigned position, unsigned lengthToRemove)
 {
     if (!lengthToRemove)
-        return;
-    auto length = this->length();
+        return string;
+    auto length = string.length();
     if (position >= length)
-        return;
+        return string;
     lengthToRemove = std::min(lengthToRemove, length - position);
-    if (is8Bit())
-        removeInternal(characters8(), position, lengthToRemove);
-    else
-        removeInternal(characters16(), position, lengthToRemove);
-}
-
-String String::substring(unsigned position, unsigned length) const
-{
-    // FIXME: Should this function, and the many others like it, be inlined?
-    return m_impl ? m_impl->substring(position, length) : String { };
+    StringView view { string };
+    return makeString(view.left(position), view.substring(position + lengthToRemove));
 }
 
 String String::substringSharingImpl(unsigned offset, unsigned length) const
@@ -367,30 +153,10 @@ String String::convertToUppercaseWithLocale(const AtomString& localeIdentifier) 
     return m_impl ? m_impl->convertToUppercaseWithLocale(localeIdentifier) : String { };
 }
 
-String String::stripWhiteSpace() const
+String String::trim(CodeUnitMatchFunction predicate) const
 {
     // FIXME: Should this function, and the many others like it, be inlined?
-    // FIXME: This function needs a new name. For one thing, "whitespace" is a single
-    // word so the "s" should be lowercase. For another, it's not clear from this name
-    // that the function uses the Unicode definition of whitespace. Most WebKit callers
-    // don't want that and eventually we should consider deleting this.
-    return m_impl ? m_impl->stripWhiteSpace() : String { };
-}
-
-String String::stripLeadingAndTrailingCharacters(CodeUnitMatchFunction predicate) const
-{
-    // FIXME: Should this function, and the many others like it, be inlined?
-    return m_impl ? m_impl->stripLeadingAndTrailingCharacters(predicate) : String { };
-}
-
-String String::simplifyWhiteSpace() const
-{
-    // FIXME: Should this function, and the many others like it, be inlined?
-    // FIXME: This function needs a new name. For one thing, "whitespace" is a single
-    // word so the "s" should be lowercase. For another, it's not clear from this name
-    // that the function uses the Unicode definition of whitespace. Most WebKit callers
-    // don't want that and eventually we should consider deleting this.
-    return m_impl ? m_impl->simplifyWhiteSpace() : String { };
+    return m_impl ? m_impl->trim(predicate) : String { };
 }
 
 String String::simplifyWhiteSpace(CodeUnitMatchFunction isWhiteSpace) const
@@ -399,52 +165,37 @@ String String::simplifyWhiteSpace(CodeUnitMatchFunction isWhiteSpace) const
     return m_impl ? m_impl->simplifyWhiteSpace(isWhiteSpace) : String { };
 }
 
-String String::removeCharacters(CodeUnitMatchFunction findMatch) const
-{
-    // FIXME: Should this function, and the many others like it, be inlined?
-    return m_impl ? m_impl->removeCharacters(findMatch) : String { };
-}
-
 String String::foldCase() const
 {
     // FIXME: Should this function, and the many others like it, be inlined?
     return m_impl ? m_impl->foldCase() : String { };
 }
 
-bool String::percentage(int& result) const
-{
-    if (!m_impl || !m_impl->length())
-        return false;
-
-    if ((*m_impl)[m_impl->length() - 1] != '%')
-       return false;
-
-    if (m_impl->is8Bit())
-        result = charactersToIntStrict(m_impl->characters8(), m_impl->length() - 1);
-    else
-        result = charactersToIntStrict(m_impl->characters16(), m_impl->length() - 1);
-    return true;
-}
-
-Vector<UChar> String::charactersWithNullTermination() const
+Expected<Vector<UChar>, UTF8ConversionError> String::charactersWithoutNullTermination() const
 {
     Vector<UChar> result;
 
     if (m_impl) {
-        result.reserveInitialCapacity(length() + 1);
+        if (!result.tryReserveInitialCapacity(length() + 1))
+            return makeUnexpected(UTF8ConversionError::OutOfMemory);
 
         if (is8Bit()) {
             const LChar* characters8 = m_impl->characters8();
-            for (size_t i = 0; i < length(); ++i)
-                result.uncheckedAppend(characters8[i]);
+            result.append(characters8, m_impl->length());
         } else {
             const UChar* characters16 = m_impl->characters16();
             result.append(characters16, m_impl->length());
         }
-
-        result.append(0);
     }
 
+    return result;
+}
+
+Expected<Vector<UChar>, UTF8ConversionError> String::charactersWithNullTermination() const
+{
+    auto result = charactersWithoutNullTermination();
+    if (result)
+        result.value().append(0);
     return result;
 }
 
@@ -478,134 +229,34 @@ String String::number(unsigned long long number)
     return numberToStringUnsigned<String>(number);
 }
 
-String String::numberToStringFixedPrecision(float number, unsigned precision, TrailingZerosTruncatingPolicy trailingZerosTruncatingPolicy)
+String String::numberToStringFixedPrecision(float number, unsigned precision, TrailingZerosPolicy trailingZerosTruncatingPolicy)
 {
     NumberToStringBuffer buffer;
-    return numberToFixedPrecisionString(number, precision, buffer, trailingZerosTruncatingPolicy == TruncateTrailingZeros);
+    return String { numberToFixedPrecisionString(number, precision, buffer, trailingZerosTruncatingPolicy == TrailingZerosPolicy::Truncate) };
 }
 
-String String::numberToStringFixedPrecision(double number, unsigned precision, TrailingZerosTruncatingPolicy trailingZerosTruncatingPolicy)
+String String::numberToStringFixedPrecision(double number, unsigned precision, TrailingZerosPolicy trailingZerosTruncatingPolicy)
 {
     NumberToStringBuffer buffer;
-    return numberToFixedPrecisionString(number, precision, buffer, trailingZerosTruncatingPolicy == TruncateTrailingZeros);
+    return String { numberToFixedPrecisionString(number, precision, buffer, trailingZerosTruncatingPolicy == TrailingZerosPolicy::Truncate) };
 }
 
 String String::number(float number)
 {
     NumberToStringBuffer buffer;
-    return numberToString(number, buffer);
+    return String { numberToString(number, buffer) };
 }
 
 String String::number(double number)
 {
     NumberToStringBuffer buffer;
-    return numberToString(number, buffer);
+    return String { numberToString(number, buffer) };
 }
 
 String String::numberToStringFixedWidth(double number, unsigned decimalPlaces)
 {
     NumberToStringBuffer buffer;
-    return numberToFixedWidthString(number, decimalPlaces, buffer);
-}
-
-int String::toIntStrict(bool* ok, int base) const
-{
-    if (!m_impl) {
-        if (ok)
-            *ok = false;
-        return 0;
-    }
-    return m_impl->toIntStrict(ok, base);
-}
-
-unsigned String::toUIntStrict(bool* ok, int base) const
-{
-    if (!m_impl) {
-        if (ok)
-            *ok = false;
-        return 0;
-    }
-    return m_impl->toUIntStrict(ok, base);
-}
-
-int64_t String::toInt64Strict(bool* ok, int base) const
-{
-    if (!m_impl) {
-        if (ok)
-            *ok = false;
-        return 0;
-    }
-    return m_impl->toInt64Strict(ok, base);
-}
-
-uint64_t String::toUInt64Strict(bool* ok, int base) const
-{
-    if (!m_impl) {
-        if (ok)
-            *ok = false;
-        return 0;
-    }
-    return m_impl->toUInt64Strict(ok, base);
-}
-
-intptr_t String::toIntPtrStrict(bool* ok, int base) const
-{
-    if (!m_impl) {
-        if (ok)
-            *ok = false;
-        return 0;
-    }
-    return m_impl->toIntPtrStrict(ok, base);
-}
-
-int String::toInt(bool* ok) const
-{
-    if (!m_impl) {
-        if (ok)
-            *ok = false;
-        return 0;
-    }
-    return m_impl->toInt(ok);
-}
-
-unsigned String::toUInt(bool* ok) const
-{
-    if (!m_impl) {
-        if (ok)
-            *ok = false;
-        return 0;
-    }
-    return m_impl->toUInt(ok);
-}
-
-int64_t String::toInt64(bool* ok) const
-{
-    if (!m_impl) {
-        if (ok)
-            *ok = false;
-        return 0;
-    }
-    return m_impl->toInt64(ok);
-}
-
-uint64_t String::toUInt64(bool* ok) const
-{
-    if (!m_impl) {
-        if (ok)
-            *ok = false;
-        return 0;
-    }
-    return m_impl->toUInt64(ok);
-}
-
-intptr_t String::toIntPtr(bool* ok) const
-{
-    if (!m_impl) {
-        if (ok)
-            *ok = false;
-        return 0;
-    }
-    return m_impl->toIntPtr(ok);
+    return String { numberToFixedWidthString(number, decimalPlaces, buffer) };
 }
 
 double String::toDouble(bool* ok) const
@@ -653,7 +304,7 @@ bool String::isSafeToSendToAnotherThread() const
 }
 
 template<bool allowEmptyEntries>
-inline Vector<String> String::splitInternal(const String& separator) const
+inline Vector<String> String::splitInternal(StringView separator) const
 {
     Vector<String> result;
 
@@ -707,7 +358,7 @@ Vector<String> String::split(UChar separator) const
     return splitInternal<false>(separator);
 }
 
-Vector<String> String::split(const String& separator) const
+Vector<String> String::split(StringView separator) const
 {
     return splitInternal<false>(separator);
 }
@@ -722,7 +373,7 @@ Vector<String> String::splitAllowingEmptyEntries(UChar separator) const
     return splitInternal<true>(separator);
 }
 
-Vector<String> String::splitAllowingEmptyEntries(const String& separator) const
+Vector<String> String::splitAllowingEmptyEntries(StringView separator) const
 {
     return splitInternal<true>(separator);
 }
@@ -776,7 +427,7 @@ CString String::latin1() const
         return CString("", 0);
 
     if (is8Bit())
-        return CString(reinterpret_cast<const char*>(this->characters8()), length);
+        return CString(this->characters8(), length);
 
     const UChar* characters = this->characters16();
 
@@ -791,58 +442,47 @@ CString String::latin1() const
     return result;
 }
 
-Expected<CString, UTF8ConversionError> String::tryGetUtf8(ConversionMode mode) const
+Expected<CString, UTF8ConversionError> String::tryGetUTF8(ConversionMode mode) const
 {
-    return m_impl ? m_impl->tryGetUtf8(mode) : CString { "", 0 };
+    return m_impl ? m_impl->tryGetUTF8(mode) : CString { "", 0 };
 }
 
-Expected<CString, UTF8ConversionError> String::tryGetUtf8() const
+Expected<CString, UTF8ConversionError> String::tryGetUTF8() const
 {
-    return tryGetUtf8(LenientConversion);
+    return tryGetUTF8(LenientConversion);
 }
 
 CString String::utf8(ConversionMode mode) const
 {
-    Expected<CString, UTF8ConversionError> expectedString = tryGetUtf8(mode);
+    Expected<CString, UTF8ConversionError> expectedString = tryGetUTF8(mode);
     RELEASE_ASSERT(expectedString);
     return expectedString.value();
 }
 
-CString String::utf8() const
+String String::make8Bit(const UChar* source, unsigned length)
 {
-    return utf8(LenientConversion);
-}
-
-String String::make8BitFrom16BitSource(const UChar* source, size_t length)
-{
-    if (!length)
-        return String();
-
     LChar* destination;
     String result = String::createUninitialized(length, destination);
-
-    copyLCharsFromUCharSource(destination, source, length);
-
-    return result;
-}
-
-String String::make16BitFrom8BitSource(const LChar* source, size_t length)
-{
-    if (!length)
-        return String();
-    
-    UChar* destination;
-    String result = String::createUninitialized(length, destination);
-    
     StringImpl::copyCharacters(destination, source, length);
-    
     return result;
 }
 
-String String::fromUTF8(const LChar* stringStart, size_t length)
+void String::convertTo16Bit()
 {
-    if (length > MaxLength)
-        CRASH();
+    if (isNull() || !is8Bit())
+        return;
+    auto length = this->length();
+    UChar* destination;
+    auto convertedString = String::createUninitialized(length, destination);
+    StringImpl::copyCharacters(destination, characters8(), length);
+    *this = WTFMove(convertedString);
+}
+
+template<bool replaceInvalidSequences>
+String fromUTF8Impl(const LChar* stringStart, size_t length)
+{
+    // Do this assertion before chopping the size_t down to unsigned.
+    RELEASE_ASSERT(length <= String::MaxLength);
 
     if (!stringStart)
         return String();
@@ -858,12 +498,23 @@ String String::fromUTF8(const LChar* stringStart, size_t length)
  
     UChar* bufferCurrent = bufferStart;
     const char* stringCurrent = reinterpret_cast<const char*>(stringStart);
-    if (!convertUTF8ToUTF16(stringCurrent, reinterpret_cast<const char *>(stringStart + length), &bufferCurrent, bufferCurrent + buffer.size()))
+    constexpr auto function = replaceInvalidSequences ? convertUTF8ToUTF16ReplacingInvalidSequences : convertUTF8ToUTF16;
+    if (!function(stringCurrent, reinterpret_cast<const char*>(stringStart + length), &bufferCurrent, bufferCurrent + buffer.size(), nullptr))
         return String();
 
     unsigned utf16Length = bufferCurrent - bufferStart;
-    ASSERT_WITH_SECURITY_IMPLICATION(utf16Length < length);
+    RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(utf16Length <= length);
     return StringImpl::create(bufferStart, utf16Length);
+}
+
+String String::fromUTF8(const LChar* stringStart, size_t length)
+{
+    return fromUTF8Impl<false>(stringStart, length);
+}
+
+String String::fromUTF8ReplacingInvalidSequences(const LChar* characters, size_t length)
+{
+    return fromUTF8Impl<true>(characters, length);
 }
 
 String String::fromUTF8(const LChar* string)
@@ -881,12 +532,15 @@ String String::fromUTF8(const CString& s)
 String String::fromUTF8WithLatin1Fallback(const LChar* string, size_t size)
 {
     String utf8 = fromUTF8(string, size);
-    if (!utf8)
+    if (!utf8) {
+        // Do this assertion before chopping the size_t down to unsigned.
+        RELEASE_ASSERT(size <= String::MaxLength);
         return String(string, size);
+    }
     return utf8;
 }
 
-String String::fromCodePoint(UChar32 codePoint)
+String String::fromCodePoint(char32_t codePoint)
 {
     UChar buffer[2];
     uint8_t length = 0;
@@ -896,137 +550,12 @@ String String::fromCodePoint(UChar32 codePoint)
 }
 
 // String Operations
-template<typename CharacterType>
-static unsigned lengthOfCharactersAsInteger(const CharacterType* data, size_t length)
-{
-    size_t i = 0;
-
-    // Allow leading spaces.
-    for (; i != length; ++i) {
-        if (!isSpaceOrNewline(data[i]))
-            break;
-    }
-    
-    // Allow sign.
-    if (i != length && (data[i] == '+' || data[i] == '-'))
-        ++i;
-    
-    // Allow digits.
-    for (; i != length; ++i) {
-        if (!isASCIIDigit(data[i]))
-            break;
-    }
-
-    return i;
-}
-
-int charactersToIntStrict(const LChar* data, size_t length, bool* ok, int base)
-{
-    return toIntegralType<int>(data, length, ok, base);
-}
-
-int charactersToIntStrict(const UChar* data, size_t length, bool* ok, int base)
-{
-    return toIntegralType<int>(data, length, ok, base);
-}
-
-unsigned charactersToUIntStrict(const LChar* data, size_t length, bool* ok, int base)
-{
-    return toIntegralType<unsigned>(data, length, ok, base);
-}
-
-unsigned charactersToUIntStrict(const UChar* data, size_t length, bool* ok, int base)
-{
-    return toIntegralType<unsigned>(data, length, ok, base);
-}
-
-int64_t charactersToInt64Strict(const LChar* data, size_t length, bool* ok, int base)
-{
-    return toIntegralType<int64_t>(data, length, ok, base);
-}
-
-int64_t charactersToInt64Strict(const UChar* data, size_t length, bool* ok, int base)
-{
-    return toIntegralType<int64_t>(data, length, ok, base);
-}
-
-uint64_t charactersToUInt64Strict(const LChar* data, size_t length, bool* ok, int base)
-{
-    return toIntegralType<uint64_t>(data, length, ok, base);
-}
-
-uint64_t charactersToUInt64Strict(const UChar* data, size_t length, bool* ok, int base)
-{
-    return toIntegralType<uint64_t>(data, length, ok, base);
-}
-
-intptr_t charactersToIntPtrStrict(const LChar* data, size_t length, bool* ok, int base)
-{
-    return toIntegralType<intptr_t>(data, length, ok, base);
-}
-
-intptr_t charactersToIntPtrStrict(const UChar* data, size_t length, bool* ok, int base)
-{
-    return toIntegralType<intptr_t>(data, length, ok, base);
-}
-
-int charactersToInt(const LChar* data, size_t length, bool* ok)
-{
-    return toIntegralType<int>(data, lengthOfCharactersAsInteger<LChar>(data, length), ok, 10);
-}
-
-int charactersToInt(const UChar* data, size_t length, bool* ok)
-{
-    return toIntegralType<int>(data, lengthOfCharactersAsInteger(data, length), ok, 10);
-}
-
-unsigned charactersToUInt(const LChar* data, size_t length, bool* ok)
-{
-    return toIntegralType<unsigned>(data, lengthOfCharactersAsInteger<LChar>(data, length), ok, 10);
-}
-
-unsigned charactersToUInt(const UChar* data, size_t length, bool* ok)
-{
-    return toIntegralType<unsigned>(data, lengthOfCharactersAsInteger<UChar>(data, length), ok, 10);
-}
-
-int64_t charactersToInt64(const LChar* data, size_t length, bool* ok)
-{
-    return toIntegralType<int64_t>(data, lengthOfCharactersAsInteger<LChar>(data, length), ok, 10);
-}
-
-int64_t charactersToInt64(const UChar* data, size_t length, bool* ok)
-{
-    return toIntegralType<int64_t>(data, lengthOfCharactersAsInteger<UChar>(data, length), ok, 10);
-}
-
-uint64_t charactersToUInt64(const LChar* data, size_t length, bool* ok)
-{
-    return toIntegralType<uint64_t>(data, lengthOfCharactersAsInteger<LChar>(data, length), ok, 10);
-}
-
-uint64_t charactersToUInt64(const UChar* data, size_t length, bool* ok)
-{
-    return toIntegralType<uint64_t>(data, lengthOfCharactersAsInteger<UChar>(data, length), ok, 10);
-}
-
-intptr_t charactersToIntPtr(const LChar* data, size_t length, bool* ok)
-{
-    return toIntegralType<intptr_t>(data, lengthOfCharactersAsInteger<LChar>(data, length), ok, 10);
-}
-
-intptr_t charactersToIntPtr(const UChar* data, size_t length, bool* ok)
-{
-    return toIntegralType<intptr_t>(data, lengthOfCharactersAsInteger<UChar>(data, length), ok, 10);
-}
-
-enum TrailingJunkPolicy { DisallowTrailingJunk, AllowTrailingJunk };
 
 template<typename CharacterType, TrailingJunkPolicy policy>
 static inline double toDoubleType(const CharacterType* data, size_t length, bool* ok, size_t& parsedLength)
 {
     size_t leadingSpacesLength = 0;
-    while (leadingSpacesLength < length && isASCIISpace(data[leadingSpacesLength]))
+    while (leadingSpacesLength < length && isUnicodeCompatibleASCIIWhitespace(data[leadingSpacesLength]))
         ++leadingSpacesLength;
 
     double number = parseDouble(data + leadingSpacesLength, length - leadingSpacesLength, parsedLength);
@@ -1038,59 +567,50 @@ static inline double toDoubleType(const CharacterType* data, size_t length, bool
 
     parsedLength += leadingSpacesLength;
     if (ok)
-        *ok = policy == AllowTrailingJunk || parsedLength == length;
+        *ok = policy == TrailingJunkPolicy::Allow || parsedLength == length;
     return number;
 }
 
 double charactersToDouble(const LChar* data, size_t length, bool* ok)
 {
     size_t parsedLength;
-    return toDoubleType<LChar, DisallowTrailingJunk>(data, length, ok, parsedLength);
+    return toDoubleType<LChar, TrailingJunkPolicy::Disallow>(data, length, ok, parsedLength);
 }
 
 double charactersToDouble(const UChar* data, size_t length, bool* ok)
 {
     size_t parsedLength;
-    return toDoubleType<UChar, DisallowTrailingJunk>(data, length, ok, parsedLength);
+    return toDoubleType<UChar, TrailingJunkPolicy::Disallow>(data, length, ok, parsedLength);
 }
 
 float charactersToFloat(const LChar* data, size_t length, bool* ok)
 {
     // FIXME: This will return ok even when the string fits into a double but not a float.
     size_t parsedLength;
-    return static_cast<float>(toDoubleType<LChar, DisallowTrailingJunk>(data, length, ok, parsedLength));
+    return static_cast<float>(toDoubleType<LChar, TrailingJunkPolicy::Disallow>(data, length, ok, parsedLength));
 }
 
 float charactersToFloat(const UChar* data, size_t length, bool* ok)
 {
     // FIXME: This will return ok even when the string fits into a double but not a float.
     size_t parsedLength;
-    return static_cast<float>(toDoubleType<UChar, DisallowTrailingJunk>(data, length, ok, parsedLength));
+    return static_cast<float>(toDoubleType<UChar, TrailingJunkPolicy::Disallow>(data, length, ok, parsedLength));
 }
 
 float charactersToFloat(const LChar* data, size_t length, size_t& parsedLength)
 {
     // FIXME: This will return ok even when the string fits into a double but not a float.
-    return static_cast<float>(toDoubleType<LChar, AllowTrailingJunk>(data, length, nullptr, parsedLength));
+    return static_cast<float>(toDoubleType<LChar, TrailingJunkPolicy::Allow>(data, length, nullptr, parsedLength));
 }
 
 float charactersToFloat(const UChar* data, size_t length, size_t& parsedLength)
 {
     // FIXME: This will return ok even when the string fits into a double but not a float.
-    return static_cast<float>(toDoubleType<UChar, AllowTrailingJunk>(data, length, nullptr, parsedLength));
+    return static_cast<float>(toDoubleType<UChar, TrailingJunkPolicy::Allow>(data, length, nullptr, parsedLength));
 }
 
-const String& emptyString()
-{
-    static NeverDestroyed<String> emptyString(StringImpl::empty());
-    return emptyString;
-}
-
-const String& nullString()
-{
-    static NeverDestroyed<String> nullString;
-    return nullString;
-}
+const StaticString nullStringData { nullptr };
+const StaticString emptyStringData { &StringImpl::s_emptyAtomString };
 
 } // namespace WTF
 
@@ -1109,7 +629,7 @@ void String::show() const
 String* string(const char* s)
 {
     // Intentionally leaks memory!
-    return new String(s);
+    return new String(String::fromLatin1(s));
 }
 
 Vector<char> asciiDebug(StringImpl* impl)
@@ -1131,9 +651,7 @@ Vector<char> asciiDebug(StringImpl* impl)
         }
     }
     CString narrowString = buffer.toString().ascii();
-    Vector<char> result;
-    result.append(reinterpret_cast<const char*>(narrowString.data()), narrowString.length() + 1);
-    return result;
+    return { reinterpret_cast<const char*>(narrowString.data()), narrowString.length() + 1 };
 }
 
 Vector<char> asciiDebug(String& string)

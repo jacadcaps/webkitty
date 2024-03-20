@@ -28,6 +28,8 @@
 
 #import <WebCore/Cookie.h>
 #import <WebCore/HTTPCookieAcceptPolicy.h>
+#import <WebCore/HTTPCookieAcceptPolicyCocoa.h>
+#import <WebCore/WebCoreObjCExtras.h>
 #import <pal/spi/cf/CFNetworkSPI.h>
 #import <wtf/BlockPtr.h>
 #import <wtf/HashMap.h>
@@ -66,6 +68,9 @@ private:
 
 - (void)dealloc
 {
+    if (WebCoreObjCScheduleDeallocateOnMainRunLoop(WKHTTPCookieStore.class, self))
+        return;
+
     for (auto& observer : _observers.values())
         _cookieStore->unregisterObserver(*observer);
 
@@ -120,6 +125,45 @@ private:
     _cookieStore->unregisterObserver(*result);
 }
 
+static WebCore::HTTPCookieAcceptPolicy toHTTPCookieAcceptPolicy(WKCookiePolicy wkCookiePolicy)
+{
+    switch (wkCookiePolicy) {
+    case WKCookiePolicyAllow:
+        return WebCore::HTTPCookieAcceptPolicy::OnlyFromMainDocumentDomain;
+    case WKCookiePolicyDisallow:
+        return WebCore::HTTPCookieAcceptPolicy::Never;
+    }
+    ASSERT_NOT_REACHED();
+}
+
+static WKCookiePolicy toWKCookiePolicy(WebCore::HTTPCookieAcceptPolicy policy)
+{
+    switch (policy) {
+    case WebCore::HTTPCookieAcceptPolicy::OnlyFromMainDocumentDomain:
+        return WKCookiePolicyAllow;
+    case WebCore::HTTPCookieAcceptPolicy::Never:
+        return WKCookiePolicyDisallow;
+    case WebCore::HTTPCookieAcceptPolicy::AlwaysAccept:
+    case WebCore::HTTPCookieAcceptPolicy::ExclusivelyFromMainDocumentDomain:
+        return WKCookiePolicyAllow;
+    }
+}
+
+- (void)setCookiePolicy:(WKCookiePolicy)policy completionHandler:(void (^)(void))completionHandler
+{
+    _cookieStore->setHTTPCookieAcceptPolicy(toHTTPCookieAcceptPolicy(policy), [completionHandler = makeBlockPtr(completionHandler)] {
+        if (completionHandler)
+            completionHandler.get()();
+    });
+}
+
+- (void)getCookiePolicy:(void (^)(WKCookiePolicy))completionHandler
+{
+    _cookieStore->getHTTPCookieAcceptPolicy([completionHandler = makeBlockPtr(completionHandler)] (WebCore::HTTPCookieAcceptPolicy policy) {
+        completionHandler(toWKCookiePolicy(policy));
+    });
+}
+
 #pragma mark WKObject protocol implementation
 
 - (API::Object&)_apiObject
@@ -135,6 +179,20 @@ private:
 {
     _cookieStore->cookiesForURL(url, [handler = makeBlockPtr(completionHandler)] (const Vector<WebCore::Cookie>& cookies) {
         handler.get()(coreCookiesToNSCookies(cookies));
+    });
+}
+
+- (void)_setCookieAcceptPolicy:(NSHTTPCookieAcceptPolicy)policy completionHandler:(void (^)())completionHandler
+{
+    _cookieStore->setHTTPCookieAcceptPolicy(WebCore::toHTTPCookieAcceptPolicy(policy), [completionHandler = makeBlockPtr(completionHandler)] {
+        completionHandler.get()();
+    });
+}
+
+- (void)_flushCookiesToDiskWithCompletionHandler:(void(^)(void))completionHandler
+{
+    _cookieStore->flushCookies([completionHandler = makeBlockPtr(completionHandler)]() {
+        completionHandler();
     });
 }
 

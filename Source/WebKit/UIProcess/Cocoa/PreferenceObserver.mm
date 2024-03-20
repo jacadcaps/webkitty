@@ -28,13 +28,15 @@
 
 #import "WebProcessPool.h"
 #import <pal/spi/cocoa/NSUserDefaultsSPI.h>
+#import <wtf/WeakObjCPtr.h>
 
 @interface WKUserDefaults : NSUserDefaults {
 @private
-    NSString *m_suiteName;
+    RetainPtr<NSString> m_suiteName;
 @public
-    WKPreferenceObserver *m_observer;
+    WeakObjCPtr<WKPreferenceObserver> m_observer;
 }
+- (void)findPreferenceChangesAndNotifyForKeys:(NSDictionary<NSString *, id> *)oldValues toValuesForKeys:(NSDictionary<NSString *, id> *)newValues;
 @end
 
 @interface WKPreferenceObserver () {
@@ -45,10 +47,8 @@
 
 @implementation WKUserDefaults
 
-- (void)_notifyObserversOfChangeFromValuesForKeys:(NSDictionary<NSString *, id> *)oldValues toValuesForKeys:(NSDictionary<NSString *, id> *)newValues
+- (void)findPreferenceChangesAndNotifyForKeys:(NSDictionary<NSString *, id> *)oldValues toValuesForKeys:(NSDictionary<NSString *, id> *)newValues
 {
-    [super _notifyObserversOfChangeFromValuesForKeys:oldValues toValuesForKeys:newValues];
-
     if (!m_observer)
         return;
 
@@ -71,15 +71,34 @@
             encodedString = [data base64EncodedStringWithOptions:0];
         }
 
+        auto systemValue = adoptCF(CFPreferencesCopyValue((__bridge CFStringRef)key, kCFPreferencesAnyApplication, kCFPreferencesAnyUser, kCFPreferencesAnyHost));
         auto globalValue = adoptCF(CFPreferencesCopyValue((__bridge CFStringRef)key, kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesAnyHost));
-        auto domainValue = adoptCF(CFPreferencesCopyValue((__bridge CFStringRef)key, (__bridge CFStringRef)m_suiteName, kCFPreferencesCurrentUser, kCFPreferencesAnyHost));
-        
-        if (globalValue && [newValue isEqual:(__bridge id)globalValue.get()])
+        auto domainValue = adoptCF(CFPreferencesCopyValue((__bridge CFStringRef)key, (__bridge CFStringRef)m_suiteName.get(), kCFPreferencesCurrentUser, kCFPreferencesAnyHost));
+
+        auto preferenceValuesAreEqual = [] (id a, id b) {
+            return a == b || [a isEqual:b];
+        };
+
+        if (preferenceValuesAreEqual((__bridge id)systemValue.get(), newValue) || preferenceValuesAreEqual((__bridge id)globalValue.get(), newValue))
             [m_observer preferenceDidChange:nil key:key encodedValue:encodedString];
 
-        if (domainValue && [newValue isEqual:(__bridge id)domainValue.get()])
-            [m_observer preferenceDidChange:m_suiteName key:key encodedValue:encodedString];
+        if (preferenceValuesAreEqual((__bridge id)domainValue.get(), newValue))
+            [m_observer preferenceDidChange:m_suiteName.get() key:key encodedValue:encodedString];
     }
+}
+
+- (void)_notifyObserversOfChangeFromValuesForKeys:(NSDictionary<NSString *, id> *)oldValues toValuesForKeys:(NSDictionary<NSString *, id> *)newValues
+{
+    [super _notifyObserversOfChangeFromValuesForKeys:oldValues toValuesForKeys:newValues];
+
+    if (!isMainRunLoop()) {
+        [self findPreferenceChangesAndNotifyForKeys:oldValues toValuesForKeys:newValues];
+        return;
+    }
+
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), [self, protectedSelf = retainPtr(self), oldValues = retainPtr(oldValues), newValues = retainPtr(newValues)] {
+        [self findPreferenceChangesAndNotifyForKeys:oldValues.get() toValuesForKeys:newValues.get()];
+    });
 }
 
 - (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary<NSKeyValueChangeKey, id> *)change context:(void *)context
@@ -101,12 +120,8 @@
 
 + (id)sharedInstance
 {
-    static WKPreferenceObserver *instance = nil;
-
-    if (!instance)
-        instance = [[[self class] alloc] init];
-
-    return instance;
+    static NeverDestroyed<RetainPtr<WKPreferenceObserver>> instance = adoptNS([[[self class] alloc] init]);
+    return instance.get().get();
 }
 
 - (instancetype)init
@@ -115,10 +130,10 @@
         return nil;
 
     std::initializer_list<NSString*> domains = {
-#if PLATFORM(IOS_FAMILY)
         @"com.apple.Accessibility",
+        @"com.apple.mediaaccessibility",
+#if PLATFORM(IOS_FAMILY)
         @"com.apple.AdLib",
-        @"com.apple.Preferences",
         @"com.apple.SpeakSelection",
         @"com.apple.UIKit",
         @"com.apple.WebUI",
@@ -128,6 +143,7 @@
         @"com.apple.preferences.sounds",
         @"com.apple.voiceservices",
 #else
+        @"com.apple.CFNetwork",
         @"com.apple.CoreGraphics",
         @"com.apple.HIToolbox",
         @"com.apple.ServicesMenu.Services",
@@ -136,7 +152,6 @@
         @"com.apple.avfoundation.videoperformancehud",
         @"com.apple.driver.AppleBluetoothMultitouch.mouse",
         @"com.apple.driver.AppleBluetoothMultitouch.trackpad",
-        @"com.apple.mediaaccessibility",
         @"com.apple.speech.voice.prefs",
         @"com.apple.universalaccess",
 #endif
@@ -148,7 +163,7 @@
             WTFLogAlways("Could not init user defaults instance for domain %s", String(domain).utf8().data());
             continue;
         }
-        userDefaults.get()->m_observer = self;
+        userDefaults->m_observer = self;
         // Start observing a dummy key in order to make the preference daemon become aware of our NSUserDefaults instance.
         // This is to make sure we receive KVO notifications. We cannot use normal KVO techniques here, since we are looking
         // for _any_ changes in a preference domain. For normal KVO techniques to work, we need to provide the specific
@@ -162,13 +177,13 @@
 - (void)preferenceDidChange:(NSString *)domain key:(NSString *)key encodedValue:(NSString *)encodedValue
 {
 #if ENABLE(CFPREFS_DIRECT_MODE)
-    dispatch_async(dispatch_get_main_queue(), ^{
-        Optional<String> encodedString;
+    RunLoop::main().dispatch([domain = retainPtr(domain), key = retainPtr(key), encodedValue = retainPtr(encodedValue)] {
+        std::optional<String> encodedString;
         if (encodedValue)
-            encodedString = String(encodedValue);
+            encodedString = String(encodedValue.get());
 
-        for (auto* processPool : WebKit::WebProcessPool::allProcessPools())
-            processPool->notifyPreferencesChanged(domain, key, encodedString);
+        for (auto& processPool : WebKit::WebProcessPool::allProcessPools())
+            processPool->notifyPreferencesChanged(domain.get(), key.get(), encodedString);
     });
 #endif
 }

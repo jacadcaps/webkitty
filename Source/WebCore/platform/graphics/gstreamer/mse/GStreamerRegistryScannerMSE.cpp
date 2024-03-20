@@ -18,19 +18,40 @@
  */
 
 #include "config.h"
-
-#if USE(GSTREAMER) && ENABLE(MEDIA_SOURCE)
 #include "GStreamerRegistryScannerMSE.h"
 
+#if USE(GSTREAMER) && ENABLE(MEDIA_SOURCE)
+#include "RuntimeApplicationChecks.h"
 #include <wtf/NeverDestroyed.h>
 
 namespace WebCore {
 
+static bool singletonInitialized = false;
+
 GStreamerRegistryScannerMSE& GStreamerRegistryScannerMSE::singleton()
 {
     static NeverDestroyed<GStreamerRegistryScannerMSE> sharedInstance;
+    singletonInitialized = true;
     return sharedInstance;
 }
+
+void teardownGStreamerRegistryScannerMSE()
+{
+    if (!singletonInitialized)
+        return;
+
+    auto& scanner = GStreamerRegistryScannerMSE::singleton();
+    scanner.teardown();
+}
+
+void GStreamerRegistryScannerMSE::getSupportedDecodingTypes(HashSet<String>& types)
+{
+    if (isInWebProcess())
+        types = singleton().mimeTypeSet(GStreamerRegistryScanner::Configuration::Decoding);
+    else
+        types = GStreamerRegistryScannerMSE().mimeTypeSet(GStreamerRegistryScanner::Configuration::Decoding);
+}
+
 
 GStreamerRegistryScannerMSE::GStreamerRegistryScannerMSE()
     : GStreamerRegistryScanner::GStreamerRegistryScanner(true)

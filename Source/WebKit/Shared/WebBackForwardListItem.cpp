@@ -39,29 +39,31 @@ using namespace WebCore;
 
 Ref<WebBackForwardListItem> WebBackForwardListItem::create(BackForwardListItemState&& backForwardListItemState, WebPageProxyIdentifier pageID)
 {
+    RELEASE_ASSERT(RunLoop::isMain());
     return adoptRef(*new WebBackForwardListItem(WTFMove(backForwardListItemState), pageID));
 }
 
 WebBackForwardListItem::WebBackForwardListItem(BackForwardListItemState&& backForwardListItemState, WebPageProxyIdentifier pageID)
     : m_itemState(WTFMove(backForwardListItemState))
     , m_pageID(pageID)
-    , m_lastProcessIdentifier(m_itemState.identifier.processIdentifier)
+    , m_lastProcessIdentifier(m_itemState.identifier.processIdentifier())
 {
-    auto result = allItems().add(m_itemState.identifier, this);
+    auto result = allItems().add(m_itemState.identifier, *this);
     ASSERT_UNUSED(result, result.isNewEntry);
 }
 
 WebBackForwardListItem::~WebBackForwardListItem()
 {
+    RELEASE_ASSERT(RunLoop::isMain());
     ASSERT(allItems().get(m_itemState.identifier) == this);
     allItems().remove(m_itemState.identifier);
     removeFromBackForwardCache();
 }
 
-HashMap<BackForwardItemIdentifier, WebBackForwardListItem*>& WebBackForwardListItem::allItems()
+HashMap<BackForwardItemIdentifier, WeakRef<WebBackForwardListItem>>& WebBackForwardListItem::allItems()
 {
     RELEASE_ASSERT(RunLoop::isMain());
-    static NeverDestroyed<HashMap<BackForwardItemIdentifier, WebBackForwardListItem*>> items;
+    static NeverDestroyed<HashMap<BackForwardItemIdentifier, WeakRef<WebBackForwardListItem>>> items;
     return items;
 }
 
@@ -186,7 +188,7 @@ SuspendedPageProxy* WebBackForwardListItem::suspendedPage() const
 #if !LOG_DISABLED
 const char* WebBackForwardListItem::loggingString()
 {
-    return debugString("Back/forward item ID ", itemID().logString(), ", original URL ", originalURL(), ", current URL ", url(), m_backForwardCacheEntry ? "(has a back/forward cache entry)" : "");
+    return debugString("Back/forward item ID ", itemID().toString(), ", original URL ", originalURL(), ", current URL ", url(), m_backForwardCacheEntry ? "(has a back/forward cache entry)" : "");
 }
 #endif // !LOG_DISABLED
 

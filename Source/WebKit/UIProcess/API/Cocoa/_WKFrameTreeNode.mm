@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,40 +25,29 @@
 
 #import "config.h"
 
+#import "WKFrameInfoInternal.h"
 #import "WKSecurityOriginInternal.h"
 #import "WKWebViewInternal.h"
+#import "WebFrameProxy.h"
+#import "WebPageProxy.h"
 #import "_WKFrameHandleInternal.h"
 #import "_WKFrameTreeNodeInternal.h"
+#import <WebCore/WebCoreObjCExtras.h>
 #import <wtf/cocoa/VectorCocoa.h>
 
 @implementation _WKFrameTreeNode
 
 - (void)dealloc
 {
+    if (WebCoreObjCScheduleDeallocateOnMainRunLoop(_WKFrameTreeNode.class, self))
+        return;
     _node->API::FrameTreeNode::~FrameTreeNode();
     [super dealloc];
 }
 
-- (BOOL)isMainFrame
+- (WKFrameInfo *)info
 {
-    return _node->isMainFrame();
-}
-
-- (NSURLRequest *)request
-{
-    return _node->request().nsURLRequest(WebCore::HTTPBodyUpdatePolicy::DoNotUpdateHTTPBody);
-}
-
-- (WKSecurityOrigin *)securityOrigin
-{
-    auto& data = _node->securityOrigin();
-    auto apiOrigin = API::SecurityOrigin::create(data.protocol, data.host, data.port);
-    return [[wrapper(apiOrigin.get()) retain] autorelease];
-}
-
-- (WKWebView *)webView
-{
-    return [[fromWebPageProxy(_node->page()) retain] autorelease];
+    return wrapper(API::FrameInfo::create(WebKit::FrameInfoData(_node->info()), &_node->page())).autorelease();
 }
 
 - (NSArray<_WKFrameTreeNode *> *)childFrames
@@ -66,21 +55,6 @@
     return createNSArray(_node->childFrames(), [&] (auto& child) {
         return wrapper(API::FrameTreeNode::create(WebKit::FrameTreeNodeData(child), _node->page()));
     }).autorelease();
-}
-
-- (id)copyWithZone:(NSZone *)zone
-{
-    return [self retain];
-}
-
-- (_WKFrameHandle *)_handle
-{
-    return [[wrapper(_node->handle()) retain] autorelease];
-}
-
-- (_WKFrameHandle *)_parentFrameHandle
-{
-    return [[wrapper(_node->parentFrameHandle()) retain] autorelease];
 }
 
 - (API::Object&)_apiObject

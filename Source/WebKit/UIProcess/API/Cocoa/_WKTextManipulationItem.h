@@ -30,21 +30,24 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-WK_CLASS_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA))
+WK_CLASS_AVAILABLE(macos(10.15.4), ios(13.4))
 @interface _WKTextManipulationItem : NSObject
 
 - (instancetype)init NS_UNAVAILABLE;
 - (instancetype)initWithIdentifier:(nullable NSString *)identifier tokens:(NSArray<_WKTextManipulationToken *> *)tokens;
+- (instancetype)initWithIdentifier:(nullable NSString *)identifier tokens:(NSArray<_WKTextManipulationToken *> *)tokens isSubframe:(BOOL)isSubframe isCrossSiteSubframe:(BOOL)isCrossSiteSubframe WK_API_AVAILABLE(macos(14.0), ios(17.0));
 
 @property (nonatomic, readonly, nullable, copy) NSString *identifier;
 @property (nonatomic, readonly, copy) NSArray<_WKTextManipulationToken *> *tokens;
+@property (nonatomic, readonly) BOOL isSubframe WK_API_AVAILABLE(macos(14.0), ios(17.0));
+@property (nonatomic, readonly) BOOL isCrossSiteSubframe WK_API_AVAILABLE(macos(14.0), ios(17.0));
 
 - (BOOL)isEqualToTextManipulationItem:(nullable _WKTextManipulationItem *)otherItem includingContentEquality:(BOOL)includingContentEquality;
 @property (nonatomic, readonly, copy) NSString *debugDescription;
 
 @end
 
-WK_EXTERN NSString * const _WKTextManipulationItemErrorDomain WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
+WK_EXTERN NSString * const _WKTextManipulationItemErrorDomain WK_API_AVAILABLE(macos(11.0), ios(14.0));
 
 typedef NS_ENUM(NSInteger, _WKTextManipulationItemErrorCode) {
     _WKTextManipulationItemErrorNotAvailable,
@@ -52,8 +55,8 @@ typedef NS_ENUM(NSInteger, _WKTextManipulationItemErrorCode) {
     _WKTextManipulationItemErrorInvalidItem,
     _WKTextManipulationItemErrorInvalidToken,
     _WKTextManipulationItemErrorExclusionViolation,
-} WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
+} WK_API_AVAILABLE(macos(11.0), ios(14.0));
 
-WK_EXTERN NSErrorUserInfoKey const _WKTextManipulationItemErrorItemKey WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
+WK_EXTERN NSErrorUserInfoKey const _WKTextManipulationItemErrorItemKey WK_API_AVAILABLE(macos(11.0), ios(14.0));
 
 NS_ASSUME_NONNULL_END

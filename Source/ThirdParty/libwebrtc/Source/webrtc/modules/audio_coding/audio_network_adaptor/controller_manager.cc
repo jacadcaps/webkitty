@@ -11,15 +11,18 @@
 #include "modules/audio_coding/audio_network_adaptor/controller_manager.h"
 
 #include <cmath>
+#include <memory>
 #include <string>
 #include <utility>
 
+#include "absl/strings/string_view.h"
 #include "modules/audio_coding/audio_network_adaptor/bitrate_controller.h"
 #include "modules/audio_coding/audio_network_adaptor/channel_controller.h"
 #include "modules/audio_coding/audio_network_adaptor/debug_dump_writer.h"
 #include "modules/audio_coding/audio_network_adaptor/dtx_controller.h"
 #include "modules/audio_coding/audio_network_adaptor/fec_controller_plr_based.h"
 #include "modules/audio_coding/audio_network_adaptor/frame_length_controller.h"
+#include "modules/audio_coding/audio_network_adaptor/frame_length_controller_v2.h"
 #include "modules/audio_coding/audio_network_adaptor/util/threshold_curve.h"
 #include "rtc_base/ignore_wundef.h"
 #include "rtc_base/logging.h"
@@ -197,6 +200,14 @@ std::unique_ptr<BitrateController> CreateBitrateController(
           initial_bitrate_bps, initial_frame_length_ms,
           fl_increase_overhead_offset, fl_decrease_overhead_offset)));
 }
+
+std::unique_ptr<FrameLengthControllerV2> CreateFrameLengthControllerV2(
+    const audio_network_adaptor::config::FrameLengthControllerV2& config,
+    rtc::ArrayView<const int> encoder_frame_lengths_ms) {
+  return std::make_unique<FrameLengthControllerV2>(
+      encoder_frame_lengths_ms, config.min_payload_bitrate_bps(),
+      config.use_slow_adaptation());
+}
 #endif  // WEBRTC_ENABLE_PROTOBUF
 
 }  // namespace
@@ -209,7 +220,7 @@ ControllerManagerImpl::Config::Config(int min_reordering_time_ms,
 ControllerManagerImpl::Config::~Config() = default;
 
 std::unique_ptr<ControllerManager> ControllerManagerImpl::Create(
-    const std::string& config_string,
+    absl::string_view config_string,
     size_t num_encoder_channels,
     rtc::ArrayView<const int> encoder_frame_lengths_ms,
     int min_encoder_bitrate_bps,
@@ -225,7 +236,7 @@ std::unique_ptr<ControllerManager> ControllerManagerImpl::Create(
 }
 
 std::unique_ptr<ControllerManager> ControllerManagerImpl::Create(
-    const std::string& config_string,
+    absl::string_view config_string,
     size_t num_encoder_channels,
     rtc::ArrayView<const int> encoder_frame_lengths_ms,
     int min_encoder_bitrate_bps,
@@ -237,7 +248,8 @@ std::unique_ptr<ControllerManager> ControllerManagerImpl::Create(
     DebugDumpWriter* debug_dump_writer) {
 #if WEBRTC_ENABLE_PROTOBUF
   audio_network_adaptor::config::ControllerManager controller_manager_config;
-  RTC_CHECK(controller_manager_config.ParseFromString(config_string));
+  RTC_CHECK(
+      controller_manager_config.ParseFromString(std::string(config_string)));
   if (debug_dump_writer)
     debug_dump_writer->DumpControllerManagerConfig(controller_manager_config,
                                                    rtc::TimeMillis());
@@ -255,7 +267,7 @@ std::unique_ptr<ControllerManager> ControllerManagerImpl::Create(
         break;
       case audio_network_adaptor::config::Controller::kFecControllerRplrBased:
         // FecControllerRplrBased has been removed and can't be used anymore.
-        RTC_NOTREACHED();
+        RTC_DCHECK_NOTREACHED();
         continue;
       case audio_network_adaptor::config::Controller::kFrameLengthController:
         controller = CreateFrameLengthController(
@@ -277,8 +289,13 @@ std::unique_ptr<ControllerManager> ControllerManagerImpl::Create(
             controller_config.bitrate_controller(), initial_bitrate_bps,
             initial_frame_length_ms);
         break;
+      case audio_network_adaptor::config::Controller::kFrameLengthControllerV2:
+        controller = CreateFrameLengthControllerV2(
+            controller_config.frame_length_controller_v2(),
+            encoder_frame_lengths_ms);
+        break;
       default:
-        RTC_NOTREACHED();
+        RTC_DCHECK_NOTREACHED();
     }
     if (controller_config.has_scoring_point()) {
       auto& scoring_point = controller_config.scoring_point();
@@ -306,7 +323,7 @@ std::unique_ptr<ControllerManager> ControllerManagerImpl::Create(
   }
 
 #else
-  RTC_NOTREACHED();
+  RTC_DCHECK_NOTREACHED();
   return nullptr;
 #endif  // WEBRTC_ENABLE_PROTOBUF
 }
@@ -358,14 +375,14 @@ std::vector<Controller*> ControllerManagerImpl::GetSortedControllers(
           config_.min_reordering_squared_distance)
     return sorted_controllers_;
 
-  // Sort controllers according to the distances of |scoring_point| to the
+  // Sort controllers according to the distances of `scoring_point` to the
   // scoring points of controllers.
   //
   // A controller that does not associate with any scoring point
   // are treated as if
   // 1) they are less important than any controller that has a scoring point,
   // 2) they are equally important to any controller that has no scoring point,
-  //    and their relative order will follow |default_sorted_controllers_|.
+  //    and their relative order will follow `default_sorted_controllers_`.
   std::vector<Controller*> sorted_controllers(default_sorted_controllers_);
   std::stable_sort(
       sorted_controllers.begin(), sorted_controllers.end(),
@@ -415,7 +432,7 @@ float NormalizeUplinkBandwidth(int uplink_bandwidth_bps) {
 }
 
 float NormalizePacketLossFraction(float uplink_packet_loss_fraction) {
-  // |uplink_packet_loss_fraction| is seldom larger than 0.3, so we scale it up
+  // `uplink_packet_loss_fraction` is seldom larger than 0.3, so we scale it up
   // by 3.3333f.
   return std::min(uplink_packet_loss_fraction * 3.3333f, 1.0f);
 }

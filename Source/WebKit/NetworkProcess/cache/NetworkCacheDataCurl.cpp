@@ -26,19 +26,21 @@
 #include "config.h"
 #include "NetworkCacheData.h"
 
+#include <WebCore/SharedMemory.h>
+
 namespace WebKit {
 namespace NetworkCache {
 
 Data::Data(const uint8_t* data, size_t size)
-    : m_buffer(Box<Variant<Vector<uint8_t>, FileSystem::MappedFileData>>::create(Vector<uint8_t>(size)))
+    : m_buffer(Box<std::variant<Vector<uint8_t>, FileSystem::MappedFileData>>::create(Vector<uint8_t>(size)))
     , m_size(size)
 {
-    memcpy(WTF::get<Vector<uint8_t>>(*m_buffer).data(), data, size);
+    memcpy(std::get<Vector<uint8_t>>(*m_buffer).data(), data, size);
 }
 
-Data::Data(Variant<Vector<uint8_t>, FileSystem::MappedFileData>&& data)
-    : m_buffer(Box<Variant<Vector<uint8_t>, FileSystem::MappedFileData>>::create(WTFMove(data)))
-    , m_isMap(WTF::holds_alternative<FileSystem::MappedFileData>(*m_buffer))
+Data::Data(std::variant<Vector<uint8_t>, FileSystem::MappedFileData>&& data)
+    : m_buffer(Box<std::variant<Vector<uint8_t>, FileSystem::MappedFileData>>::create(WTFMove(data)))
+    , m_isMap(std::holds_alternative<FileSystem::MappedFileData>(*m_buffer))
 {
     m_size = WTF::switchOn(*m_buffer,
         [](const Vector<uint8_t>& buffer) -> size_t { return buffer.size(); },
@@ -68,12 +70,12 @@ bool Data::isNull() const
     return !m_buffer;
 }
 
-bool Data::apply(const Function<bool(const uint8_t*, size_t)>& applier) const
+bool Data::apply(const Function<bool(std::span<const uint8_t>)>& applier) const
 {
     if (isEmpty())
         return false;
 
-    return applier(reinterpret_cast<const uint8_t*>(data()), size());
+    return applier({ data(), size() });
 }
 
 Data Data::subrange(size_t offset, size_t size) const
@@ -104,6 +106,20 @@ Data Data::adoptMap(FileSystem::MappedFileData&& mappedFile, FileSystem::Platfor
 
     return { WTFMove(mappedFile) };
 }
+
+#if ENABLE(SHAREABLE_RESOURCE) && OS(WINDOWS)
+RefPtr<WebCore::SharedMemory> Data::tryCreateSharedMemory() const
+{
+    if (isNull() || !isMap())
+        return nullptr;
+
+    auto newHandle = Win32Handle { std::get<FileSystem::MappedFileData>(*m_buffer).fileMapping() };
+    if (!newHandle)
+        return nullptr;
+
+    return WebCore::SharedMemory::map({ WTFMove(newHandle), m_size }, WebCore::SharedMemory::Protection::ReadOnly);
+}
+#endif
 
 } // namespace NetworkCache
 } // namespace WebKit

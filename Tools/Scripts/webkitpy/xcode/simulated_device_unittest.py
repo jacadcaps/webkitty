@@ -106,8 +106,8 @@ simctl_json_output = """{
      "identifier" : "com.apple.CoreSimulator.SimDeviceType.iPad-Air-2"
    },
    {
-     "name" : "iPad (5th generation)",
-     "identifier" : "com.apple.CoreSimulator.SimDeviceType.iPad--5th-generation-"
+     "name" : "iPad (9th generation)",
+     "identifier" : "com.apple.CoreSimulator.SimDeviceType.iPad--9th-generation-"
    },
    {
      "name" : "iPad Pro (9.7-inch)",
@@ -408,7 +408,7 @@ simctl_json_output = """{
      {
        "state" : "Shutdown",
        "availability" : "(available)",
-       "name" : "iPad (5th generation)",
+       "name" : "iPad (9th generation)",
        "udid" : "1805162F-861B-40CA-8468-8B7DC0922D62"
      },
      {
@@ -513,7 +513,7 @@ class SimulatedDeviceTest(unittest.TestCase):
         SimulatedDeviceManager.AVAILABLE_RUNTIMES = []
         SimulatedDeviceManager.AVAILABLE_DEVICES = []
         SimulatedDeviceManager.INITIALIZED_DEVICES = None
-        SimulatedDeviceManager._device_identifier_to_name = False
+        SimulatedDeviceManager._device_identifier_to_name = {}
         SimulatedDeviceManager._managing_simulator_app = False
 
     def tearDown(self):
@@ -568,33 +568,33 @@ class SimulatedDeviceTest(unittest.TestCase):
         SimulatedDeviceManager.available_devices(host)
 
         # There should only be 1 iPhone X, iPhone 8 and iPhone SE
-        self.assertEquals(1, len(SimulatedDeviceManager.device_by_filter(lambda device: device.device_type == DeviceType.from_string('iPhone X'), host)))
-        self.assertEquals(1, len(SimulatedDeviceManager.device_by_filter(lambda device: device.device_type == DeviceType.from_string('iPhone 8'), host)))
+        self.assertEqual(1, len(SimulatedDeviceManager.device_by_filter(lambda device: device.device_type == DeviceType.from_string('iPhone X'), host)))
+        self.assertEqual(1, len(SimulatedDeviceManager.device_by_filter(lambda device: device.device_type == DeviceType.from_string('iPhone 8'), host)))
 
         # There should be 2 5s and 6s
-        self.assertEquals(2, len(SimulatedDeviceManager.device_by_filter(lambda device: device.device_type == DeviceType.from_string('iPhone 5s'), host)))
-        self.assertEquals(2, len(SimulatedDeviceManager.device_by_filter(lambda device: device.device_type == DeviceType.from_string('iPhone 6s'), host)))
+        self.assertEqual(2, len(SimulatedDeviceManager.device_by_filter(lambda device: device.device_type == DeviceType.from_string('iPhone 5s'), host)))
+        self.assertEqual(2, len(SimulatedDeviceManager.device_by_filter(lambda device: device.device_type == DeviceType.from_string('iPhone 6s'), host)))
 
         # 19 iPhones
-        self.assertEquals(19, len(SimulatedDeviceManager.device_by_filter(lambda device: device.device_type == DeviceType.from_string('iPhone'), host)))
+        self.assertEqual(19, len(SimulatedDeviceManager.device_by_filter(lambda device: device.device_type == DeviceType.from_string('iPhone'), host)))
 
         # 11 iPads
-        self.assertEquals(11, len(SimulatedDeviceManager.device_by_filter(lambda device: device.device_type == DeviceType.from_string('iPad'), host)))
+        self.assertEqual(11, len(SimulatedDeviceManager.device_by_filter(lambda device: device.device_type == DeviceType.from_string('iPad'), host)))
 
         # 18 Apple watches
-        self.assertEquals(6, len(SimulatedDeviceManager.device_by_filter(lambda device: device.device_type == DeviceType.from_string('Apple Watch'), host)))
+        self.assertEqual(6, len(SimulatedDeviceManager.device_by_filter(lambda device: device.device_type == DeviceType.from_string('Apple Watch'), host)))
 
         # 3 Apple TVs
-        self.assertEquals(3, len(SimulatedDeviceManager.device_by_filter(lambda device: device.device_type == DeviceType.from_string('Apple TV'), host)))
+        self.assertEqual(3, len(SimulatedDeviceManager.device_by_filter(lambda device: device.device_type == DeviceType.from_string('Apple TV'), host)))
 
         # 18 devices running iOS 11.0
-        self.assertEquals(18, len(SimulatedDeviceManager.device_by_filter(lambda device: device.device_type == DeviceType(software_variant='iOS', software_version=Version(11, 0, 1)), host)))
+        self.assertEqual(18, len(SimulatedDeviceManager.device_by_filter(lambda device: device.device_type == DeviceType(software_variant='iOS', software_version=Version(11, 0, 1)), host)))
 
         # 11 iPhones running iOS 11.0
-        self.assertEquals(11, len(SimulatedDeviceManager.device_by_filter(lambda device: device.device_type == DeviceType(hardware_family='iPhone', software_version=Version(11, 0, 1)), host)))
+        self.assertEqual(11, len(SimulatedDeviceManager.device_by_filter(lambda device: device.device_type == DeviceType(hardware_family='iPhone', software_version=Version(11, 0, 1)), host)))
 
         # 1 device running iOS 12
-        self.assertEquals(1, len(SimulatedDeviceManager.device_by_filter(lambda device: device.device_type == DeviceType(software_variant='iOS', software_version=Version(12, 0, 0)), host)))
+        self.assertEqual(1, len(SimulatedDeviceManager.device_by_filter(lambda device: device.device_type == DeviceType(software_variant='iOS', software_version=Version(12, 0, 0)), host)))
 
     def test_existing_simulator(self):
         SimulatedDeviceTest.reset_simulated_device_manager()
@@ -603,10 +603,10 @@ class SimulatedDeviceTest(unittest.TestCase):
 
         SimulatedDeviceManager.initialize_devices(DeviceRequest(DeviceType.from_string('iPhone', Version(11))), host=host)
 
-        self.assertEquals(1, len(SimulatedDeviceManager.INITIALIZED_DEVICES))
-        self.assertEquals('34FB476C-6FA0-43C8-8945-1BD7A4EBF0DE', SimulatedDeviceManager.INITIALIZED_DEVICES[0].udid)
-        self.assertEquals('15A8401', SimulatedDeviceManager.INITIALIZED_DEVICES[0].build_version)
-        self.assertEquals(SimulatedDevice.DeviceState.BOOTED, SimulatedDeviceManager.INITIALIZED_DEVICES[0].platform_device.state())
+        self.assertEqual(1, len(SimulatedDeviceManager.INITIALIZED_DEVICES))
+        self.assertEqual('34FB476C-6FA0-43C8-8945-1BD7A4EBF0DE', SimulatedDeviceManager.INITIALIZED_DEVICES[0].udid)
+        self.assertEqual('15A8401', SimulatedDeviceManager.INITIALIZED_DEVICES[0].build_version)
+        self.assertEqual(SimulatedDevice.DeviceState.BOOTED, SimulatedDeviceManager.INITIALIZED_DEVICES[0].platform_device.state())
 
         SimulatedDeviceManager.tear_down(host)
         self.assertIsNone(SimulatedDeviceManager.INITIALIZED_DEVICES)
@@ -618,9 +618,9 @@ class SimulatedDeviceTest(unittest.TestCase):
 
         SimulatedDeviceManager.initialize_devices(DeviceRequest(DeviceType.from_string('iphone 5s', Version(11))), host=host)
 
-        self.assertEquals(1, len(SimulatedDeviceManager.INITIALIZED_DEVICES))
-        self.assertEquals('34FB476C-6FA0-43C8-8945-1BD7A4EBF0DE', SimulatedDeviceManager.INITIALIZED_DEVICES[0].udid)
-        self.assertEquals(SimulatedDevice.DeviceState.BOOTED, SimulatedDeviceManager.INITIALIZED_DEVICES[0].platform_device.state())
+        self.assertEqual(1, len(SimulatedDeviceManager.INITIALIZED_DEVICES))
+        self.assertEqual('34FB476C-6FA0-43C8-8945-1BD7A4EBF0DE', SimulatedDeviceManager.INITIALIZED_DEVICES[0].udid)
+        self.assertEqual(SimulatedDevice.DeviceState.BOOTED, SimulatedDeviceManager.INITIALIZED_DEVICES[0].platform_device.state())
 
         SimulatedDeviceManager.tear_down(host)
         self.assertIsNone(SimulatedDeviceManager.INITIALIZED_DEVICES)
@@ -631,8 +631,8 @@ class SimulatedDeviceTest(unittest.TestCase):
         SimulatedDeviceManager.available_devices(host)
 
         runtime = SimulatedDeviceManager.get_runtime_for_device_type(DeviceType.from_string('iphone 5s', Version(9, 2)))
-        self.assertEquals(runtime.os_variant, 'iOS')
-        self.assertEquals(runtime.version, Version(9, 3))
+        self.assertEqual(runtime.os_variant, 'iOS')
+        self.assertEqual(runtime.version, Version(9, 3))
 
     def test_matching_up_failure(self):
         SimulatedDeviceTest.reset_simulated_device_manager()
@@ -640,41 +640,13 @@ class SimulatedDeviceTest(unittest.TestCase):
         SimulatedDeviceManager.available_devices(host)
 
         runtime = SimulatedDeviceManager.get_runtime_for_device_type(DeviceType.from_string('iphone 5s', Version(9, 4)))
-        self.assertEquals(runtime, None)
+        self.assertEqual(runtime, None)
 
-    @staticmethod
-    def change_state_to(device, state):
-        assert isinstance(state, int)
-
-        # Reaching into device.plist to change device state. Note that this will not change the initial state of the device
-        # as determined from the .json output.
-        device_plist = device.filesystem.expanduser(device.filesystem.join(SimulatedDeviceManager.simulator_device_path, device.udid, 'device.plist'))
-        index_position = device.filesystem.files[device_plist].index(b'</integer>') - 1
-        device.filesystem.files[device_plist] = device.filesystem.files[device_plist][:index_position] + string_utils.encode(str(state)) + device.filesystem.files[device_plist][index_position + 1:]
-
-    def test_swapping_devices(self):
+    def test_no_state_files(self):
         SimulatedDeviceTest.reset_simulated_device_manager()
         host = SimulatedDeviceTest.mock_host_for_simctl()
-        SimulatedDeviceManager.available_devices(host)
+        host.filesystem = MockFileSystem()
+        devices = SimulatedDeviceManager.available_devices(host)
 
-        # We won't test the creation and deletion of simulators, only managing existing sims
-        SimulatedDeviceTest.change_state_to(SimulatedDeviceManager.device_by_filter(lambda device: device.device_type == DeviceType.from_string('iPhone 8'), host)[0], SimulatedDevice.DeviceState.BOOTED)
-        SimulatedDeviceTest.change_state_to(SimulatedDeviceManager.device_by_filter(lambda device: device.device_type == DeviceType.from_string('iPhone X'), host)[0], SimulatedDevice.DeviceState.BOOTED)
-
-        SimulatedDeviceManager.initialize_devices(DeviceRequest(DeviceType.from_string('iPhone 8')), host=host)
-
-        self.assertEquals(1, len(SimulatedDeviceManager.INITIALIZED_DEVICES))
-        self.assertEquals('17104B4F-E77D-4019-98E6-621FE3CC3653', SimulatedDeviceManager.INITIALIZED_DEVICES[0].udid)
-        self.assertEquals(SimulatedDevice.DeviceState.BOOTED, SimulatedDeviceManager.INITIALIZED_DEVICES[0].platform_device.state())
-
-        # Now swap for the X
-        SimulatedDeviceTest.change_state_to(SimulatedDeviceManager.INITIALIZED_DEVICES[0], SimulatedDevice.DeviceState.SHUT_DOWN)
-        SimulatedDeviceManager.swap(SimulatedDeviceManager.INITIALIZED_DEVICES[0], DeviceRequest(DeviceType.from_string('iPhone X')), host)
-
-        self.assertEquals(1, len(SimulatedDeviceManager.INITIALIZED_DEVICES))
-        self.assertEquals('4E6E7393-C4E3-4323-AA8B-4A42A45AE7B8', SimulatedDeviceManager.INITIALIZED_DEVICES[0].udid)
-        self.assertEquals(SimulatedDevice.DeviceState.BOOTED,  SimulatedDeviceManager.INITIALIZED_DEVICES[0].platform_device.state())
-
-        SimulatedDeviceTest.change_state_to(SimulatedDeviceManager.INITIALIZED_DEVICES[0], SimulatedDevice.DeviceState.SHUT_DOWN)
-        SimulatedDeviceManager.tear_down(host)
-        self.assertIsNone(SimulatedDeviceManager.INITIALIZED_DEVICES)
+        for device in devices:
+            self.assertEqual(SimulatedDevice.DeviceState.SHUT_DOWN, device.state(force_update=True))

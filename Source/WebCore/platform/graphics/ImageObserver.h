@@ -26,6 +26,9 @@
 #pragma once
 
 #include "ImageTypes.h"
+#include <wtf/RefCounted.h>
+#include <wtf/URL.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
@@ -34,10 +37,10 @@ class IntRect;
 
 // Interface for notification about changes to an image, including decoding,
 // drawing, and animating.
-class ImageObserver {
-protected:
-    virtual ~ImageObserver() = default;
+class ImageObserver : public RefCounted<ImageObserver>, public CanMakeWeakPtr<ImageObserver> {
 public:
+    virtual ~ImageObserver() = default;
+
     virtual URL sourceUrl() const = 0;
     virtual String mimeType() const = 0;
     virtual long long expectedContentLength() const = 0;
@@ -50,7 +53,13 @@ public:
     virtual bool canDestroyDecodedData(const Image&) = 0;
     virtual void imageFrameAvailable(const Image&, ImageAnimatingState, const IntRect* changeRect = nullptr, DecodingStatus = DecodingStatus::Invalid) = 0;
     virtual void changedInRect(const Image&, const IntRect* changeRect = nullptr) = 0;
-    virtual void scheduleTimedRenderingUpdate(const Image&) = 0;
+    virtual void scheduleRenderingUpdate(const Image&) = 0;
+
+    virtual bool allowsAnimation(const Image&) const { return true; }
+    virtual bool layerBasedSVGEngineEnabled() const { return false; }
+
+protected:
+    ImageObserver() = default;
 };
 
 }

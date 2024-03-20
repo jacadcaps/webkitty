@@ -34,7 +34,6 @@ import fnmatch
 import optparse
 import re
 
-from webkitpy.port import builders
 from webkitpy.port import config
 from webkitpy.common.system import executive
 from webkitpy.common.system import filesystem
@@ -65,9 +64,6 @@ def platform_options(use_globs=False):
         optparse.make_option('--wincairo', action='store_const', dest='platform',
             const=('wincairo'),
             help=('Alias for --platform=wincairo')),
-        optparse.make_option('--ftw', action='store_const', dest='platform',
-            const=('ftw'),
-            help=('Alias for --platform=ftw')),
         optparse.make_option('--maccatalyst', action='store_const', dest='platform',
             const=('maccatalyst'),
             help=('Alias for --platform=maccatalyst')),
@@ -95,12 +91,6 @@ def configuration_options():
     ]
 
 
-def _builder_options(builder_name):
-    configuration = "Debug" if re.search(r"[d|D](ebu|b)g", builder_name) else "Release"
-    is_webkit2 = builder_name.find("WK2") != -1
-    return optparse.Values({'builder_name': builder_name, 'configuration': configuration, 'webkit_test_runner': is_webkit2})
-
-
 class PortFactory(object):
     # Order matters.  For port classes that have a port_name with a
     # common prefix, the more specific port class should be listed
@@ -116,32 +106,29 @@ class PortFactory(object):
         'jsc_only.JscOnlyPort',
         'mac.MacCatalystPort',
         'mac.MacPort',
-        'mock_drt.MockDRTPort',
         'test.TestPort',
-        'win.FTWPort',
         'win.WinCairoPort',
-        'win.WinPort',
         'wpe.WPEPort',
     )
 
     def __init__(self, host):
         self._host = host
 
-    def _default_port(self, options):
+    def _default_port(self):
         platform = self._host.platform
         if platform.is_linux() or platform.is_freebsd():
             return 'gtk'
         elif platform.is_mac():
             return 'mac'
         elif platform.is_win():
-            return 'win'
+            return 'wincairo'
         raise NotImplementedError('unknown platform: %s' % platform)
 
     def get(self, port_name=None, options=None, **kwargs):
         """Returns an object implementing the Port interface. If
         port_name is None, this routine attempts to guess at the most
         appropriate port on this platform."""
-        port_name = port_name or self._default_port(options)
+        port_name = port_name or self._default_port()
 
         classes = []
         for port_class in self.PORT_CLASSES:
@@ -168,9 +155,15 @@ class PortFactory(object):
 
         If platform is not specified, we will glob-match all ports"""
         platform = platform or '*'
-        return fnmatch.filter(builders.all_port_names(), platform)
-
-    def get_from_builder_name(self, builder_name):
-        port_name = builders.port_name_for_builder_name(builder_name)
-        assert port_name, "unrecognized builder name '%s'" % builder_name
-        return self.get(port_name, _builder_options(builder_name))
+        all_port_names = [
+            'gtk',
+            'ios-simulator-16',
+            'ios-simulator-16-wk2',
+            'mac-monterey-wk1',
+            'mac-monterey-wk2',
+            'mac-ventura-wk1',
+            'mac-ventura-wk2',
+            'wincairo-win10',
+            'wpe'
+        ]
+        return fnmatch.filter(all_port_names, platform)

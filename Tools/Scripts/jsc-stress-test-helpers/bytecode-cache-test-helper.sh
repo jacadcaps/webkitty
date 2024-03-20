@@ -25,28 +25,26 @@ set -e
 
 mysys() {
     set +e
-    eval "$*"
+    "$@"
     exitCode=$?
     if [ $exitCode != 0 ]; then
-        echo "Command '$*' failed"
+        echo "Command '$@' failed"
         exit $exitCode
     fi
 }
 
-pathToVM=$1
+fileTemplate=$1
 shift
-inputFile=$1
-shift
-extraOptions=( "$@" )
-diskCachePath=$(mktemp -d -t "bytecode-cache")
+
+diskCachePath=$(mktemp -d -t "$fileTemplate")
 
 _trap_exit() { rm -rf "$diskCachePath"; }
 trap _trap_exit EXIT
 
 export JSC_diskCachePath=$diskCachePath
-mysys "$pathToVM" "$inputFile" "${extraOptions[@]}"
+mysys "$@"
 
 if [ -z "$JSC_forceDiskCache" ]; then
     export JSC_forceDiskCache=true
 fi
-mysys "$pathToVM" "$inputFile" "${extraOptions[@]}"
+mysys "$@"

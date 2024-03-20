@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -20,15 +20,15 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #pragma once
 
-#include "FloatRect.h"
-#include "GraphicsContext.h"
-#include <wtf/FastMalloc.h>
+#include "DisplayListItems.h"
+#include "DisplayListResourceHeap.h"
 #include <wtf/Noncopyable.h>
+#include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
 
 namespace WTF {
@@ -36,218 +36,39 @@ class TextStream;
 }
 
 namespace WebCore {
-
 namespace DisplayList {
-
-enum class ItemType : uint8_t {
-    Save,
-    Restore,
-    Translate,
-    Rotate,
-    Scale,
-    ConcatenateCTM,
-    SetCTM,
-    SetState,
-    SetLineCap,
-    SetLineDash,
-    SetLineJoin,
-    SetMiterLimit,
-    ClearShadow,
-    Clip,
-    ClipOut,
-    ClipOutToPath,
-    ClipPath,
-    DrawGlyphs,
-    DrawImage,
-    DrawTiledImage,
-    DrawTiledScaledImage,
-#if USE(CG) || USE(CAIRO) || USE(DIRECT2D)
-    DrawNativeImage,
-#endif
-    DrawPattern,
-    DrawRect,
-    DrawLine,
-    DrawLinesForText,
-    DrawDotsForDocumentMarker,
-    DrawEllipse,
-    DrawPath,
-    DrawFocusRingPath,
-    DrawFocusRingRects,
-    FillRect,
-    FillRectWithColor,
-    FillRectWithGradient,
-    FillCompositedRect,
-    FillRoundedRect,
-    FillRectWithRoundedHole,
-    FillPath,
-    FillEllipse,
-    PutImageData,
-    StrokeRect,
-    StrokePath,
-    StrokeEllipse,
-    ClearRect,
-    BeginTransparencyLayer,
-    EndTransparencyLayer,
-#if USE(CG)
-    ApplyStrokePattern, // FIXME: should not be a recorded item.
-    ApplyFillPattern, // FIXME: should not be a recorded item.
-#endif
-    ApplyDeviceScaleFactor,
-};
-
-class Item : public RefCounted<Item> {
-public:
-    Item() = delete;
-
-    WEBCORE_EXPORT Item(ItemType);
-    WEBCORE_EXPORT virtual ~Item();
-
-    ItemType type() const
-    {
-        return m_type;
-    }
-
-    virtual void apply(GraphicsContext&) const = 0;
-
-    static constexpr bool isDisplayListItem = true;
-
-    virtual bool isDrawingItem() const { return false; }
-
-    // A state item is one preserved by Save/Restore.
-    bool isStateItem() const
-    {
-        return isStateItemType(m_type);
-    }
-
-    static bool isStateItemType(ItemType itemType)
-    {
-        switch (itemType) {
-        case ItemType::Translate:
-        case ItemType::Rotate:
-        case ItemType::Scale:
-        case ItemType::ConcatenateCTM:
-        case ItemType::SetCTM:
-        case ItemType::SetState:
-        case ItemType::SetLineCap:
-        case ItemType::SetLineDash:
-        case ItemType::SetLineJoin:
-        case ItemType::SetMiterLimit:
-        case ItemType::ClearShadow:
-            return true;
-        default:
-            return false;
-        }
-        return false;
-    }
-
-#if !defined(NDEBUG) || !LOG_DISABLED
-    WTF::CString description() const;
-#endif
-    static size_t sizeInBytes(const Item&);
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static Optional<Ref<Item>> decode(Decoder&);
-
-private:
-    ItemType m_type;
-};
-
-enum AsTextFlag {
-    None                            = 0,
-    IncludesPlatformOperations      = 1 << 0,
-};
-
-typedef unsigned AsTextFlags;
 
 class DisplayList {
     WTF_MAKE_NONCOPYABLE(DisplayList); WTF_MAKE_FAST_ALLOCATED;
-    friend class Recorder;
-    friend class Replayer;
 public:
     DisplayList() = default;
-    DisplayList(DisplayList&&) = default;
 
-    DisplayList& operator=(DisplayList&&) = default;
-
-    void dump(WTF::TextStream&) const;
-
-    const Vector<Ref<Item>>& list() const { return m_list; }
-    Item& itemAt(size_t index)
-    {
-        ASSERT(index < m_list.size());
-        return m_list[index].get();
-    }
+    WEBCORE_EXPORT void append(Item&&);
+    void shrinkToFit();
 
     WEBCORE_EXPORT void clear();
+    WEBCORE_EXPORT bool isEmpty() const;
 
-    size_t itemCount() const { return m_list.size(); }
-    size_t sizeInBytes() const;
-    
-    String asText(AsTextFlags) const;
+    const Vector<Item>& items() const { return m_items; }
+    Vector<Item>& items() { return m_items; }
+    const ResourceHeap& resourceHeap() const { return m_resourceHeap; }
 
-#if !defined(NDEBUG) || !LOG_DISABLED
-    WTF::CString description() const;
-    WEBCORE_EXPORT void dump() const;
-#endif
+    void cacheImageBuffer(ImageBuffer&);
+    void cacheNativeImage(NativeImage&);
+    void cacheFont(Font&);
+    void cacheDecomposedGlyphs(DecomposedGlyphs&);
+    void cacheGradient(Gradient&);
+    void cacheFilter(Filter&);
 
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static Optional<DisplayList> decode(Decoder&);
-
+    WEBCORE_EXPORT String asText(OptionSet<AsTextFlag>) const;
+    void dump(WTF::TextStream&) const;
 
 private:
-    Item& append(Ref<Item>&& item)
-    {
-        m_list.append(WTFMove(item));
-        return m_list.last().get();
-    }
-
-    // Less efficient append, only used for tracking replay.
-    void appendItem(Item& item)
-    {
-        m_list.append(item);
-    }
-
-    static bool shouldDumpForFlags(AsTextFlags, const Item&);
-
-    Vector<Ref<Item>>& list() { return m_list; }
-
-    Vector<Ref<Item>> m_list;
+    Vector<Item> m_items;
+    ResourceHeap m_resourceHeap;
 };
 
-
-template<class Encoder>
-void DisplayList::encode(Encoder& encoder) const
-{
-    encoder << static_cast<uint64_t>(m_list.size());
-
-    for (auto& item : m_list)
-        encoder << item.get();
-}
-
-template<class Decoder>
-Optional<DisplayList> DisplayList::decode(Decoder& decoder)
-{
-    Optional<uint64_t> itemCount;
-    decoder >> itemCount;
-    if (!itemCount)
-        return WTF::nullopt;
-
-    DisplayList displayList;
-
-    for (uint64_t i = 0; i < *itemCount; i++) {
-        auto item = Item::decode(decoder);
-        // FIXME: Once we can decode all types, failing to decode an item should turn into a decode failure.
-        // For now, we just have to ignore it.
-        if (!item)
-            continue;
-        displayList.append(WTFMove(*item));
-    }
-
-    return displayList;
-}
+WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, const DisplayList&);
 
 } // DisplayList
-
-WTF::TextStream& operator<<(WTF::TextStream&, const DisplayList::DisplayList&);
-
 } // WebCore

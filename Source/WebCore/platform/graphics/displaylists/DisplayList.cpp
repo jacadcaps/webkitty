@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -20,73 +20,85 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #include "config.h"
 #include "DisplayList.h"
 
-#include "DisplayListItems.h"
+#include "DecomposedGlyphs.h"
+#include "DisplayListResourceHeap.h"
+#include "Filter.h"
+#include "Font.h"
+#include "ImageBuffer.h"
 #include "Logging.h"
+#include <wtf/FastMalloc.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/text/TextStream.h>
 
 namespace WebCore {
 namespace DisplayList {
 
-#if !defined(NDEBUG) || !LOG_DISABLED
-WTF::CString DisplayList::description() const
+void DisplayList::append(Item&& item)
 {
-    TextStream ts;
-    ts << this;
-    return ts.release().utf8();
+    m_items.append(WTFMove(item));
 }
 
-void DisplayList::dump() const
+void DisplayList::shrinkToFit()
 {
-    fprintf(stderr, "%s", description().data());
+    m_items.shrinkToFit();
 }
-#endif
 
 void DisplayList::clear()
 {
-    m_list.clear();
+    m_items.clear();
+    m_resourceHeap.clearAllResources();
 }
 
-bool DisplayList::shouldDumpForFlags(AsTextFlags flags, const Item& item)
+bool DisplayList::isEmpty() const
 {
-    switch (item.type()) {
-    case ItemType::SetState:
-        if (!(flags & AsTextFlag::IncludesPlatformOperations)) {
-            const auto& stateItem = downcast<SetState>(item);
-            // FIXME: for now, only drop the item if the only state-change flags are platform-specific.
-            if (stateItem.state().m_changeFlags == GraphicsContextState::ShouldSubpixelQuantizeFontsChange)
-                return false;
-
-            if (stateItem.state().m_changeFlags == GraphicsContextState::ShouldSubpixelQuantizeFontsChange)
-                return false;
-        }
-        break;
-#if USE(CG)
-    case ItemType::ApplyFillPattern:
-    case ItemType::ApplyStrokePattern:
-        if (!(flags & AsTextFlag::IncludesPlatformOperations))
-            return false;
-        break;
-#endif
-    default:
-        break;
-    }
-    return true;
+    return m_items.isEmpty();
 }
 
-String DisplayList::asText(AsTextFlags flags) const
+void DisplayList::cacheImageBuffer(ImageBuffer& imageBuffer)
+{
+    m_resourceHeap.add(Ref { imageBuffer });
+}
+
+void DisplayList::cacheNativeImage(NativeImage& image)
+{
+    m_resourceHeap.add(Ref { image });
+}
+
+void DisplayList::cacheFont(Font& font)
+{
+    m_resourceHeap.add(Ref { font });
+}
+
+void DisplayList::cacheDecomposedGlyphs(DecomposedGlyphs& decomposedGlyphs)
+{
+    m_resourceHeap.add(Ref { decomposedGlyphs });
+}
+
+void DisplayList::cacheGradient(Gradient& gradient)
+{
+    m_resourceHeap.add(Ref { gradient });
+}
+
+void DisplayList::cacheFilter(Filter& filter)
+{
+    m_resourceHeap.add(Ref { filter });
+}
+
+String DisplayList::asText(OptionSet<AsTextFlag> flags) const
 {
     TextStream stream(TextStream::LineMode::MultipleLine, TextStream::Formatting::SVGStyleRect);
-    for (auto& item : m_list) {
-        if (!shouldDumpForFlags(flags, item))
+    for (const auto& item : m_items) {
+        if (!shouldDumpItem(item, flags))
             continue;
-        stream << item;
+
+        TextStream::GroupScope group(stream);
+        dumpItem(stream, item, flags);
     }
     return stream.release();
 }
@@ -96,31 +108,17 @@ void DisplayList::dump(TextStream& ts) const
     TextStream::GroupScope group(ts);
     ts << "display list";
 
-    size_t numItems = m_list.size();
-    for (size_t i = 0; i < numItems; ++i) {
-        TextStream::GroupScope scope(ts);
-        ts << i << " " << m_list[i].get();
+    for (const auto& item : m_items) {
+        TextStream::GroupScope group(ts);
+        dumpItem(ts, item, { AsTextFlag::IncludePlatformOperations, AsTextFlag::IncludeResourceIdentifiers });
     }
-    ts.startGroup();
-    ts << "size in bytes: " << sizeInBytes();
-    ts.endGroup();
 }
 
-size_t DisplayList::sizeInBytes() const
-{
-    size_t result = 0;
-    for (auto& ref : m_list)
-        result += Item::sizeInBytes(ref);
-
-    return result;
-}
-
-} // namespace DisplayList
-
-TextStream& operator<<(TextStream& ts, const DisplayList::DisplayList& displayList)
+TextStream& operator<<(TextStream& ts, const DisplayList& displayList)
 {
     displayList.dump(ts);
     return ts;
 }
 
+} // namespace DisplayList
 } // namespace WebCore

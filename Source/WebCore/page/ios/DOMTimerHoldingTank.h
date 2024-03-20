@@ -25,10 +25,11 @@
 
 #pragma once
 
-#if PLATFORM(IOS_FAMILY)
+#if ENABLE(CONTENT_CHANGE_OBSERVER)
 
 #include "Timer.h"
 #include <wtf/Forward.h>
+#include <wtf/WeakHashSet.h>
 
 namespace WebCore {
 
@@ -48,7 +49,7 @@ public:
 private:
     void stopExceededMaximumHoldTimer();
 
-    HashSet<const DOMTimer*> m_timers;
+    WeakHashSet<DOMTimer> m_timers;
     Timer m_exceededMaximumHoldTimer;
 };
 
@@ -72,4 +73,4 @@ private:
 
 } // namespace WebCore
 
-#endif // PLATFORM(IOS_FAMILY)
+#endif // ENABLE(CONTENT_CHANGE_OBSERVER)

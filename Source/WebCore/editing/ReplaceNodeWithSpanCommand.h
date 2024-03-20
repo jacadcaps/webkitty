@@ -51,9 +51,12 @@ private:
 
     void doApply() override;
     void doUnapply() override;
+
+    RefPtr<HTMLElement> protectedSpanElement() const { return m_spanElement; }
+    Ref<HTMLElement> protectedElementToReplace() const { return m_elementToReplace; }
     
 #ifndef NDEBUG
-    void getNodesInCommand(HashSet<Node*>&) override;
+    void getNodesInCommand(HashSet<Ref<Node>>&) override;
 #endif
 
     Ref<HTMLElement> m_elementToReplace;

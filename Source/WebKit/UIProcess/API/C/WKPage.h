@@ -58,7 +58,7 @@ extern "C" {
 WK_EXPORT WKTypeID WKPageGetTypeID(void);
 
 WK_EXPORT WKContextRef WKPageGetContext(WKPageRef page);
-WK_EXPORT WKPageGroupRef WKPageGetPageGroup(WKPageRef page);
+WK_EXPORT WKPageGroupRef WKPageGetPageGroup(WKPageRef page) WK_C_API_DEPRECATED;
 
 WK_EXPORT WKPageConfigurationRef WKPageCopyPageConfiguration(WKPageRef page);
 
@@ -79,8 +79,8 @@ WK_EXPORT void WKPageLoadAlternateHTMLString(WKPageRef page, WKStringRef htmlStr
 WK_EXPORT void WKPageLoadAlternateHTMLStringWithUserData(WKPageRef page, WKStringRef htmlString, WKURLRef baseURL, WKURLRef unreachableURL, WKTypeRef userData);
 WK_EXPORT void WKPageLoadPlainTextString(WKPageRef page, WKStringRef plainTextString);
 WK_EXPORT void WKPageLoadPlainTextStringWithUserData(WKPageRef page, WKStringRef plainTextString, WKTypeRef userData);
-WK_EXPORT void WKPageLoadWebArchiveData(WKPageRef page, WKDataRef webArchiveData);
-WK_EXPORT void WKPageLoadWebArchiveDataWithUserData(WKPageRef page, WKDataRef webArchiveData, WKTypeRef userData);
+WK_EXPORT void WKPageLoadWebArchiveData(WKPageRef page, WKDataRef webArchiveData) WK_C_API_DEPRECATED;
+WK_EXPORT void WKPageLoadWebArchiveDataWithUserData(WKPageRef page, WKDataRef webArchiveData, WKTypeRef userData) WK_C_API_DEPRECATED;
 
 WK_EXPORT void WKPageStopLoading(WKPageRef page);
 WK_EXPORT void WKPageReload(WKPageRef page);
@@ -118,6 +118,8 @@ WK_EXPORT double WKPageGetEstimatedProgress(WKPageRef page);
 
 WK_EXPORT uint64_t WKPageGetRenderTreeSize(WKPageRef page);
 
+WK_EXPORT WKWebsiteDataStoreRef WKPageGetWebsiteDataStore(WKPageRef page);
+
 WK_EXPORT WKInspectorRef WKPageGetInspector(WKPageRef page);
 
 WK_EXPORT WKStringRef WKPageCopyUserAgent(WKPageRef page);
@@ -127,14 +129,14 @@ WK_EXPORT void WKPageSetApplicationNameForUserAgent(WKPageRef page, WKStringRef 
 
 WK_EXPORT WKStringRef WKPageCopyCustomUserAgent(WKPageRef page);
 WK_EXPORT void WKPageSetCustomUserAgent(WKPageRef page, WKStringRef userAgent);
-
-WK_EXPORT void WKPageSetUserContentExtensionsEnabled(WKPageRef, bool);
     
 WK_EXPORT bool WKPageSupportsTextEncoding(WKPageRef page);
 WK_EXPORT WKStringRef WKPageCopyCustomTextEncodingName(WKPageRef page);
 WK_EXPORT void WKPageSetCustomTextEncodingName(WKPageRef page, WKStringRef encodingName);
 
 WK_EXPORT void WKPageTerminate(WKPageRef page);
+
+WK_EXPORT void WKPageResetProcessState(WKPageRef pageRef);
 
 WK_EXPORT WKStringRef WKPageGetSessionHistoryURLValueType(void);
 WK_EXPORT WKStringRef WKPageGetSessionBackForwardListItemValueType(void);
@@ -273,6 +275,8 @@ WK_EXPORT void WKPageExecuteCommand(WKPageRef page, WKStringRef command);
 WK_EXPORT void WKPagePostMessageToInjectedBundle(WKPageRef page, WKStringRef messageName, WKTypeRef messageBody);
 
 WK_EXPORT void WKPageSelectContextMenuItem(WKPageRef page, WKContextMenuItemRef item);
+
+WK_EXPORT void WKPageClearNotificationPermissionState(WKPageRef page);
 
 #ifdef __cplusplus
 }

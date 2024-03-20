@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,8 +30,11 @@
 
 #include "DFGBasicBlock.h"
 #include "JSCJSValueInlines.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace JSC { namespace DFG {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(InPlaceAbstractState);
 
 namespace DFGInPlaceAbstractStateInternal {
 static constexpr bool verbose = false;
@@ -41,6 +44,7 @@ InPlaceAbstractState::InPlaceAbstractState(Graph& graph)
     : m_graph(graph)
     , m_abstractValues(*graph.m_abstractValuesCache)
     , m_variables(OperandsLike, graph.block(0)->variablesAtHead)
+    , m_tupleAbstractValues(graph.m_tupleData.size())
     , m_block(nullptr)
 {
 }
@@ -89,10 +93,9 @@ void InPlaceAbstractState::beginBasicBlock(BasicBlock* basicBlock)
 
 static void setLiveValues(Vector<NodeAbstractValuePair>& values, const Vector<NodeFlowProjection>& live)
 {
-    values.shrink(0);
-    values.reserveCapacity(live.size());
-    for (NodeFlowProjection node : live)
-        values.uncheckedAppend(NodeAbstractValuePair { node, AbstractValue() });
+    values = live.map([](auto node) {
+        return NodeAbstractValuePair { node, AbstractValue() };
+    });
 }
 
 Operands<AbstractValue>& InPlaceAbstractState::variablesForDebugging()
@@ -305,8 +308,15 @@ bool InPlaceAbstractState::endBasicBlock()
             block->valuesAtTail[i] = atIndex(i);
         }
 
-        for (NodeAbstractValuePair& valueAtTail : block->ssa->valuesAtTail)
-            valueAtTail.value = forNode(valueAtTail.node);
+        for (NodeAbstractValuePair& valueAtTail : block->ssa->valuesAtTail) {
+            NodeFlowProjection& node = valueAtTail.node;
+            if (node->isTuple()) {
+                ASSERT(hasClearedAbstractState(node));
+                valueAtTail.value = AbstractValue();
+                continue;
+            }
+            valueAtTail.value = forNode(node);
+        }
         break;
     }
 
@@ -370,14 +380,18 @@ bool InPlaceAbstractState::merge(BasicBlock* from, BasicBlock* to)
             unsigned valueCountInFromBlock = 0;
             for (NodeAbstractValuePair& fromBlockValueAtTail : from->ssa->valuesAtTail) {
                 if (fromBlockValueAtTail.node == node) {
-                    ASSERT(fromBlockValueAtTail.value == forNode(node));
+                    if (node->isTuple())
+                        ASSERT(hasClearedAbstractState(node) && !fromBlockValueAtTail.value);
+                    else
+                        ASSERT(fromBlockValueAtTail.value == forNode(node));
                     ++valueCountInFromBlock;
                 }
             }
             ASSERT(valueCountInFromBlock == 1);
 #endif
 
-            changed |= entry.value.merge(forNode(node));
+            if (!node->isTuple())
+                changed |= entry.value.merge(forNode(node));
 
             if (DFGInPlaceAbstractStateInternal::verbose)
                 dataLog("         Result: ", entry.value, "\n");

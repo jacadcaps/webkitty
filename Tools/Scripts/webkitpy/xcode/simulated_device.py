@@ -23,18 +23,21 @@
 import atexit
 import json
 import logging
-import plistlib
 import re
 import time
 
-from webkitcorepy import Version
+from webkitcorepy import Version, Timeout
 
 from webkitpy.common.memoized import memoized
 from webkitpy.common.system.executive import ScriptError
 from webkitpy.common.system.systemhost import SystemHost
-from webkitpy.common.timeout_context import Timeout
 from webkitpy.port.device import Device
 from webkitpy.xcode.device_type import DeviceType
+
+try:
+    from plistlib import load as readPlist
+except ImportError:
+    from plistlib import readPlist
 
 _log = logging.getLogger(__name__)
 
@@ -64,8 +67,8 @@ class SimulatedDeviceManager(object):
 
     SIMULATOR_BOOT_TIMEOUT = 600
 
-    # FIXME: Simulators should only take up 2GB, but because of <rdar://problem/39393590> something in the OS thinks they're taking closer to 6GB
-    MEMORY_ESTIMATE_PER_SIMULATOR_INSTANCE = 6 * (1024 ** 3)  # 6GB a simulator.
+    # FIXME: Switch this back to 6GB (or maybe lower?) once webkit.org/b/217392 is resolved.
+    MEMORY_ESTIMATE_PER_SIMULATOR_INSTANCE = 8 * (1024 ** 3)  # 8GB a simulator.
     PROCESS_COUNT_ESTIMATE_PER_SIMULATOR_INSTANCE = 125
 
     # Testing on iMac Pros has indicated that more than 12 simulators, even if we seem to have enough resources for them,
@@ -77,6 +80,7 @@ class SimulatedDeviceManager(object):
     simulator_bundle_id = 'com.apple.iphonesimulator'
     _device_identifier_to_name = {}
     _managing_simulator_app = False
+    _last_updated_state = 0
 
     @staticmethod
     def _create_runtimes(runtimes):
@@ -107,9 +111,9 @@ class SimulatedDeviceManager(object):
 
         # Find device type. If we can't parse the device type, ignore this device.
         try:
-            device_type_string = SimulatedDeviceManager._device_identifier_to_name[plistlib.readPlist(host.filesystem.open_binary_file_for_reading(device_plist))['deviceType']]
+            device_type_string = SimulatedDeviceManager._device_identifier_to_name[readPlist(host.filesystem.open_binary_file_for_reading(device_plist))['deviceType']]
             device_type = DeviceType.from_string(device_type_string, runtime.version)
-            assert device_type.software_variant == runtime.os_variant
+            device_type.software_variant = runtime.os_variant
         except (ValueError, AssertionError):
             return None
 
@@ -125,7 +129,7 @@ class SimulatedDeviceManager(object):
 
     @staticmethod
     def populate_available_devices(host=None):
-        host = host or SystemHost()
+        host = host or SystemHost.get_default()
         if not host.platform.is_mac():
             return
 
@@ -138,6 +142,7 @@ class SimulatedDeviceManager(object):
         SimulatedDeviceManager._device_identifier_to_name = {device['identifier']: device['name'] for device in simctl_json['devicetypes']}
         SimulatedDeviceManager.AVAILABLE_RUNTIMES = SimulatedDeviceManager._create_runtimes(simctl_json['runtimes'])
 
+        SimulatedDeviceManager._last_updated_state = time.time()
         for runtime in SimulatedDeviceManager.AVAILABLE_RUNTIMES:
             # Needed for <rdar://problem/47122965>
             devices = []
@@ -156,19 +161,18 @@ class SimulatedDeviceManager(object):
 
                 # Update device state from simctl output.
                 device.platform_device._state = SimulatedDevice.NAME_FOR_STATE.index(device_json['state'].upper())
-                device.platform_device._last_updated_state = time.time()
         return
 
     @staticmethod
     def available_devices(host=None):
-        host = host or SystemHost()
+        host = host or SystemHost.get_default()
         if SimulatedDeviceManager.AVAILABLE_DEVICES == []:
             SimulatedDeviceManager.populate_available_devices(host)
         return SimulatedDeviceManager.AVAILABLE_DEVICES
 
     @staticmethod
     def device_by_filter(filter, host=None):
-        host = host or SystemHost()
+        host = host or SystemHost.get_default()
         result = []
         for device in SimulatedDeviceManager.available_devices(host):
             if filter(device):
@@ -240,10 +244,18 @@ class SimulatedDeviceManager(object):
 
         if full_device_type.hardware_type is None:
             # Again, we use the existing devices to determine a legal hardware type
-            for name in SimulatedDeviceManager._device_identifier_to_name.values():
-                type_from_name = DeviceType.from_string(name)
-                if type_from_name == full_device_type:
-                    full_device_type.hardware_type = type_from_name.hardware_type
+            for device in SimulatedDeviceManager.AVAILABLE_DEVICES:
+                if device.device_type == full_device_type:
+                    full_device_type.hardware_type = device.device_type.hardware_type
+                    break
+
+        if not full_device_type.hardware_family or not full_device_type.hardware_type:
+            # If we couldn't define a device with existing devices, pick the newest matching device type
+            for _, type_name in reversed(SimulatedDeviceManager._device_identifier_to_name.items()):
+                candidate = DeviceType.from_string(type_name)
+                if candidate == full_device_type:
+                    full_device_type.hardware_family = candidate.hardware_family
+                    full_device_type.hardware_type = candidate.hardware_type
                     break
 
         full_device_type.check_consistency()
@@ -251,32 +263,33 @@ class SimulatedDeviceManager(object):
 
     @staticmethod
     def _get_device_identifier_for_type(device_type):
-        type_name_for_request = u'{} {}'.format(device_type.hardware_family.lower(), device_type.standardized_hardware_type.lower())
+        type_name_for_request = u'{}{}'.format(
+            device_type.hardware_family.lower(),
+            ' {}'.format(device_type.standardized_hardware_type.lower()) if device_type.standardized_hardware_type else '',
+        )
         for type_id, type_name in SimulatedDeviceManager._device_identifier_to_name.items():
-            if type_name.lower() == type_name_for_request:
-                return type_id
-            if type_name.lower().endswith(DeviceType.FIRST_GENERATION) and type_name.lower()[:-len(DeviceType.FIRST_GENERATION)] == type_name_for_request:
+            if DeviceType.standardize_hardware_type(type_name).lower() == type_name_for_request:
                 return type_id
         return None
 
-    @staticmethod
-    def _create_or_find_device_for_request(request, host=None, name_base='Managed'):
+    @classmethod
+    def _create_or_find_device_for_request(cls, request, host=None, name_base='Managed'):
         assert isinstance(request, DeviceRequest)
-        host = host or SystemHost()
+        host = host or SystemHost.get_default()
 
-        device = SimulatedDeviceManager._find_exisiting_device_for_request(request)
+        device = cls._find_exisiting_device_for_request(request)
         if device:
             return device
 
-        name = SimulatedDeviceManager._find_available_name(name_base)
-        device_type = SimulatedDeviceManager._disambiguate_device_type(request.device_type)
-        runtime = SimulatedDeviceManager.get_runtime_for_device_type(device_type)
-        device_identifier = SimulatedDeviceManager._get_device_identifier_for_type(device_type)
+        name = cls._find_available_name(name_base)
+        device_type = cls._disambiguate_device_type(request.device_type)
+        runtime = cls.get_runtime_for_device_type(device_type)
+        device_identifier = cls._get_device_identifier_for_type(device_type)
 
         assert runtime is not None
         assert device_identifier is not None
 
-        for device in SimulatedDeviceManager.available_devices(host):
+        for device in cls.available_devices(host):
             if device.platform_device.name == name:
                 device.platform_device._delete()
                 break
@@ -285,8 +298,8 @@ class SimulatedDeviceManager(object):
         host.executive.run_command([SimulatedDeviceManager.xcrun, 'simctl', 'create', name, device_identifier, runtime.identifier])
 
         # We just added a device, so our list of _available_devices needs to be re-synced.
-        SimulatedDeviceManager.populate_available_devices(host)
-        for device in SimulatedDeviceManager.available_devices(host):
+        cls.populate_available_devices(host)
+        for device in cls.available_devices(host):
             if device.platform_device.name == name:
                 device.platform_device.managed_by_script = True
                 return device
@@ -346,15 +359,17 @@ class SimulatedDeviceManager(object):
 
     @staticmethod
     def _boot_device(device, host=None):
-        host = host or SystemHost()
+        host = host or SystemHost.get_default()
         _log.debug(u"Booting device '{}'".format(device.udid))
         device.platform_device.booted_by_script = True
         host.executive.run_command([SimulatedDeviceManager.xcrun, 'simctl', 'boot', device.udid])
         SimulatedDeviceManager.INITIALIZED_DEVICES.append(device)
+        # FIXME: Remove this delay once rdar://77234240 is resolved.
+        time.sleep(15)
 
     @staticmethod
     def device_count_for_type(device_type, host=None, use_booted_simulator=True, **kwargs):
-        host = host or SystemHost()
+        host = host or SystemHost.get_default()
         if not host.platform.is_mac():
             return 0
 
@@ -367,9 +382,9 @@ class SimulatedDeviceManager(object):
                 return SimulatedDeviceManager.max_supported_simulators(host)
         return 0
 
-    @staticmethod
-    def initialize_devices(requests, host=None, name_base='Managed', simulator_ui=True, timeout=SIMULATOR_BOOT_TIMEOUT, **kwargs):
-        host = host or SystemHost()
+    @classmethod
+    def initialize_devices(cls, requests, host=None, name_base='Managed', simulator_ui=True, timeout=SIMULATOR_BOOT_TIMEOUT, **kwargs):
+        host = host or SystemHost.get_default()
         if SimulatedDeviceManager.INITIALIZED_DEVICES is not None:
             return SimulatedDeviceManager.INITIALIZED_DEVICES
 
@@ -384,8 +399,8 @@ class SimulatedDeviceManager(object):
             requests = [requests]
 
         # Check running sims
-        for device in SimulatedDeviceManager.available_devices(host):
-            matched_request = SimulatedDeviceManager._does_fulfill_request(device, requests)
+        for device in cls.available_devices(host):
+            matched_request = cls._does_fulfill_request(device, requests)
             if matched_request is None:
                 continue
             requests.remove(matched_request)
@@ -409,24 +424,24 @@ class SimulatedDeviceManager(object):
                 requests.remove(request)
 
         for request in requests:
-            device = SimulatedDeviceManager._create_or_find_device_for_request(request, host, name_base)
+            device = cls._create_or_find_device_for_request(request, host, name_base)
             assert device is not None
 
-            SimulatedDeviceManager._boot_device(device, host)
+            cls._boot_device(device, host)
 
-        if simulator_ui and host.executive.run_command(['killall', '-0', 'Simulator'], return_exit_code=True) != 0:
+        if simulator_ui and host.executive.run_command(['killall', '-0', 'Simulator.app'], return_exit_code=True) != 0:
             SimulatedDeviceManager._managing_simulator_app = not host.executive.run_command(['open', '-g', '-b', SimulatedDeviceManager.simulator_bundle_id, '--args', '-PasteboardAutomaticSync', '0'], return_exit_code=True)
 
         deadline = time.time() + timeout
         for device in SimulatedDeviceManager.INITIALIZED_DEVICES:
-            SimulatedDeviceManager._wait_until_device_is_usable(device, deadline)
+            cls._wait_until_device_is_usable(device, deadline)
 
         return SimulatedDeviceManager.INITIALIZED_DEVICES
 
     @staticmethod
     @memoized
     def max_supported_simulators(host=None):
-        host = host or SystemHost()
+        host = host or SystemHost.get_default()
         if not host.platform.is_mac():
             return 0
 
@@ -455,7 +470,7 @@ class SimulatedDeviceManager(object):
 
     @staticmethod
     def swap(device, request, host=None, name_base='Managed', timeout=SIMULATOR_BOOT_TIMEOUT):
-        host = host or SystemHost()
+        host = host or SystemHost.get_default()
         if SimulatedDeviceManager.INITIALIZED_DEVICES is None:
             raise RuntimeError('Cannot swap when there are no initialized devices')
         if device not in SimulatedDeviceManager.INITIALIZED_DEVICES:
@@ -479,9 +494,9 @@ class SimulatedDeviceManager(object):
 
     @staticmethod
     def tear_down(host=None, timeout=SIMULATOR_BOOT_TIMEOUT):
-        host = host or SystemHost()
+        host = host or SystemHost.get_default()
         if SimulatedDeviceManager._managing_simulator_app:
-            host.executive.run_command(['killall', '-9', 'Simulator'], return_exit_code=True)
+            host.executive.run_command(['killall', '-9', 'Simulator.app'], return_exit_code=True)
             SimulatedDeviceManager._managing_simulator_app = False
 
         if SimulatedDeviceManager.INITIALIZED_DEVICES is None:
@@ -496,10 +511,6 @@ class SimulatedDeviceManager(object):
             device.platform_device._tear_down(deadline - time.time())
 
         SimulatedDeviceManager.INITIALIZED_DEVICES = None
-
-        if SimulatedDeviceManager._managing_simulator_app:
-            for pid in host.executive.running_pids(lambda name: 'CoreSimulator.framework' in name):
-                host.executive.kill_process(pid)
 
         # If we were managing the simulator, there are some cache files we need to remove
         for directory in host.filesystem.glob('/tmp/com.apple.CoreSimulator.SimDevice.*'):
@@ -526,6 +537,11 @@ class SimulatedDevice(object):
         'SHUTTING DOWN',
     ]
 
+    UI_MANAGER_SERVICE = {
+        'iOS': 'com.apple.Preferences',
+        'watchOS': 'com.apple.NanoSettings',
+    }
+
     def __init__(self, name, udid, host, device_type, build_version):
         assert device_type.software_version
 
@@ -534,7 +550,6 @@ class SimulatedDevice(object):
         self.device_type = device_type
         self.build_version = build_version
         self._state = SimulatedDevice.DeviceState.SHUTTING_DOWN
-        self._last_updated_state = time.time()
 
         self.executive = host.executive
         self.filesystem = host.filesystem
@@ -546,12 +561,23 @@ class SimulatedDevice(object):
 
     def state(self, force_update=False):
         # Don't allow state to get stale
-        if not force_update and time.time() < self._last_updated_state + 1:
+        if not force_update and time.time() < SimulatedDeviceManager._last_updated_state + 10:
             return self._state
 
-        device_plist = self.filesystem.expanduser(self.filesystem.join(SimulatedDeviceManager.simulator_device_path, self.udid, 'device.plist'))
-        self._state = int(plistlib.readPlist(self.filesystem.open_binary_file_for_reading(device_plist))['state'])
-        self._last_updated_state = time.time()
+        try:
+            SimulatedDeviceManager._last_updated_state = time.time()
+            simctl_json = json.loads(self.executive.run_command([SimulatedDeviceManager.xcrun, 'simctl', 'list', '--json'], decode_output=False, return_stderr=False))
+            state_map = {}
+            for devices in simctl_json['devices'].values():
+                for device in devices:
+                    if device.get('udid') and device.get('state'):
+                        state_map[device.get('udid')] = device.get('state')
+            for device in SimulatedDeviceManager.AVAILABLE_DEVICES:
+                device.platform_device._state = SimulatedDevice.NAME_FOR_STATE.index(state_map.get(device.platform_device.udid, 'SHUTDOWN').upper())
+        except (ValueError, ScriptError):
+            _log.error("Failed to decode 'simctl list' json output")
+            self._state = SimulatedDevice.DeviceState.SHUTTING_DOWN
+
         return self._state
 
     def is_booted_or_booting(self, force_update=False):
@@ -563,16 +589,14 @@ class SimulatedDevice(object):
         if self.state(force_update=force_update) != SimulatedDevice.DeviceState.BOOTED:
             return False
 
-        if self.device_type.software_variant == 'iOS':
-            home_screen_service = 'com.apple.springboard.services'
-        elif self.device_type.software_variant == 'watchOS':
-            home_screen_service = 'com.apple.carousel.sessionservice'
-        else:
+        service = self.UI_MANAGER_SERVICE.get(self.device_type.software_variant)
+        if not service:
             _log.debug(u'{} has no service to check if the device is usable'.format(self.device_type.software_variant))
             return True
-
-        system_processes = self.executive.run_command([SimulatedDeviceManager.xcrun, 'simctl', 'spawn', self.udid, 'launchctl', 'print', 'system'], decode_output=True, return_stderr=False)
-        if re.search(r'"{}"'.format(home_screen_service), system_processes) or re.search(r'A\s+{}'.format(home_screen_service), system_processes):
+        exit_code = self.executive.run_command([SimulatedDeviceManager.xcrun, 'simctl', 'launch', self.udid, service], return_exit_code=True)
+        time.sleep(.7)
+        exit_code |= self.executive.run_command([SimulatedDeviceManager.xcrun, 'simctl', 'terminate', self.udid, service], return_exit_code=True)
+        if exit_code == 0:
             return True
         return False
 
@@ -593,7 +617,8 @@ class SimulatedDevice(object):
         deadline = time.time() + timeout
         self._shut_down(deadline - time.time())
         _log.debug(u"Removing device '{}'".format(self.name))
-        self.executive.run_command([SimulatedDeviceManager.xcrun, 'simctl', 'delete', self.udid])
+        if self.executive.run_command([SimulatedDeviceManager.xcrun, 'simctl', 'delete', self.udid], return_exit_code=True):
+            _log.error(u"Failed to remove '{},' error is not fatal, continuing".format(self.name))
 
         # This will (by design) fail if run more than once on the same SimulatedDevice
         SimulatedDeviceManager.AVAILABLE_DEVICES.remove(self)
@@ -638,9 +663,7 @@ class SimulatedDevice(object):
         def _log_debug_error(error):
             _log.debug(error.message_with_output())
 
-        output = None
-
-        with Timeout(timeout, RuntimeError(u'Timed out waiting for process to open {} on {}'.format(bundle_id, self.udid))):
+        with Timeout(timeout, handler=RuntimeError(u'Timed out waiting for process to open {} on {}'.format(bundle_id, self.udid)), patch=False):
             while True:
                 output = self.executive.run_command(
                     ['xcrun', 'simctl', 'launch', self.udid, bundle_id] + args,

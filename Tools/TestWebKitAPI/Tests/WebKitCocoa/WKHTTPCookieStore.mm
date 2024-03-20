@@ -25,6 +25,7 @@
 
 #import "config.h"
 
+#import "HTTPServer.h"
 #import "PlatformUtilities.h"
 #import "TestNavigationDelegate.h"
 #import "TestWKWebView.h"
@@ -34,6 +35,7 @@
 #import <WebKit/WKWebsiteDataStorePrivate.h>
 #import <WebKit/_WKProcessPoolConfiguration.h>
 #import <WebKit/_WKWebsiteDataStoreConfiguration.h>
+#import <wtf/BlockPtr.h>
 #import <wtf/ProcessPrivilege.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/Seconds.h>
@@ -85,16 +87,15 @@ static void runTestWithWebsiteDataStore(WKWebsiteDataStore* dataStore)
     [globalCookieStore addObserver:observer1.get()];
     [globalCookieStore addObserver:observer2.get()];
 
-    NSArray<NSHTTPCookie *> *cookies = nil;
-    [globalCookieStore getAllCookies:[cookiesPtr = &cookies](NSArray<NSHTTPCookie *> *nsCookies) {
-        *cookiesPtr = [nsCookies retain];
+    RetainPtr<NSArray<NSHTTPCookie *>> cookies;
+    [globalCookieStore getAllCookies:[&](NSArray<NSHTTPCookie *> *nsCookies) {
+        cookies = nsCookies;
         gotFlag = true;
     }];
 
     TestWebKitAPI::Util::run(&gotFlag);
 
-    ASSERT_EQ(cookies.count, 0u);
-    [cookies release];
+    ASSERT_EQ([cookies count], 0u);
 
     gotFlag = false;
 
@@ -130,19 +131,19 @@ static void runTestWithWebsiteDataStore(WKWebsiteDataStore* dataStore)
     TestWebKitAPI::Util::run(&gotFlag);
     gotFlag = false;
 
-    [globalCookieStore getAllCookies:[cookiesPtr = &cookies](NSArray<NSHTTPCookie *> *nsCookies) {
-        *cookiesPtr = [nsCookies retain];
+    [globalCookieStore getAllCookies:[&](NSArray<NSHTTPCookie *> *nsCookies) {
+        cookies = nsCookies;
         gotFlag = true;
     }];
 
     TestWebKitAPI::Util::run(&gotFlag);
     gotFlag = false;
 
-    ASSERT_EQ(cookies.count, 2u);
+    ASSERT_EQ([cookies count], 2u);
     while (observerCallbacks != 4u)
         TestWebKitAPI::Util::spinRunLoop();
 
-    for (NSHTTPCookie *cookie : cookies) {
+    for (NSHTTPCookie *cookie : cookies.get()) {
         if ([cookie.name isEqual:@"CookieName"]) {
             ASSERT_TRUE([cookie1.get().path isEqualToString:cookie.path]);
             ASSERT_TRUE([cookie1.get().value isEqualToString:cookie.value]);
@@ -158,7 +159,6 @@ static void runTestWithWebsiteDataStore(WKWebsiteDataStore* dataStore)
             ASSERT_FALSE(cookie.sessionOnly);
         }
     }
-    [cookies release];
 
     [globalCookieStore deleteCookie:cookie2.get() completionHandler:[](){
         gotFlag = true;
@@ -167,26 +167,25 @@ static void runTestWithWebsiteDataStore(WKWebsiteDataStore* dataStore)
     TestWebKitAPI::Util::run(&gotFlag);
     gotFlag = false;
 
-    [globalCookieStore getAllCookies:[cookiesPtr = &cookies](NSArray<NSHTTPCookie *> *nsCookies) {
-        *cookiesPtr = [nsCookies retain];
+    [globalCookieStore getAllCookies:[&](NSArray<NSHTTPCookie *> *nsCookies) {
+        cookies = nsCookies;
         gotFlag = true;
     }];
 
     TestWebKitAPI::Util::run(&gotFlag);
     gotFlag = false;
 
-    ASSERT_EQ(cookies.count, 1u);
+    ASSERT_EQ([cookies count], 1u);
     while (observerCallbacks != 6u)
         TestWebKitAPI::Util::spinRunLoop();
 
-    for (NSHTTPCookie *cookie : cookies) {
+    for (NSHTTPCookie *cookie : cookies.get()) {
         ASSERT_TRUE([cookie1.get().path isEqualToString:cookie.path]);
         ASSERT_TRUE([cookie1.get().value isEqualToString:cookie.value]);
         ASSERT_TRUE([cookie1.get().domain isEqualToString:cookie.domain]);
         ASSERT_TRUE(cookie.secure);
         ASSERT_TRUE(cookie.sessionOnly);
     }
-    [cookies release];
 
     [globalCookieStore removeObserver:observer1.get()];
     [globalCookieStore removeObserver:observer2.get()];
@@ -251,27 +250,26 @@ TEST(WKHTTPCookieStore, HttpOnly)
 
     globalCookieStore = dataStore.httpCookieStore;
 
-    NSArray<NSHTTPCookie *> *cookies = nil;
-    [globalCookieStore getAllCookies:[cookiesPtr = &cookies](NSArray<NSHTTPCookie *> *nsCookies) {
-        *cookiesPtr = [nsCookies retain];
+    RetainPtr<NSArray<NSHTTPCookie *>> cookies;
+    [globalCookieStore getAllCookies:[&](NSArray<NSHTTPCookie *> *nsCookies) {
+        cookies = nsCookies;
         gotFlag = true;
     }];
     TestWebKitAPI::Util::run(&gotFlag);
     gotFlag = false;
-    ASSERT_EQ(cookies.count, 0u);
-    [cookies release];
+    ASSERT_EQ([cookies count], 0u);
 
-    NSMutableDictionary *cookieProperties = [[NSMutableDictionary alloc] init];
+    auto cookieProperties = adoptNS([[NSMutableDictionary alloc] init]);
     [cookieProperties setObject:@"cookieName" forKey:NSHTTPCookieName];
     [cookieProperties setObject:@"cookieValue" forKey:NSHTTPCookieValue];
     [cookieProperties setObject:@".www.webkit.org" forKey:NSHTTPCookieDomain];
     [cookieProperties setObject:@"/path" forKey:NSHTTPCookiePath];
     [cookieProperties setObject:@YES forKey:@"HttpOnly"];
-    RetainPtr<NSHTTPCookie> httpOnlyCookie = [NSHTTPCookie cookieWithProperties:cookieProperties];
+    RetainPtr<NSHTTPCookie> httpOnlyCookie = [NSHTTPCookie cookieWithProperties:cookieProperties.get()];
     [cookieProperties setObject:@"cookieValue2" forKey:NSHTTPCookieValue];
-    RetainPtr<NSHTTPCookie> httpOnlyCookie2 = [NSHTTPCookie cookieWithProperties:cookieProperties];
+    RetainPtr<NSHTTPCookie> httpOnlyCookie2 = [NSHTTPCookie cookieWithProperties:cookieProperties.get()];
     [cookieProperties removeObjectForKey:@"HttpOnly"];
-    RetainPtr<NSHTTPCookie> notHttpOnlyCookie = [NSHTTPCookie cookieWithProperties:cookieProperties];
+    RetainPtr<NSHTTPCookie> notHttpOnlyCookie = [NSHTTPCookie cookieWithProperties:cookieProperties.get()];
 
     EXPECT_TRUE(httpOnlyCookie.get().HTTPOnly);
     EXPECT_FALSE(notHttpOnlyCookie.get().HTTPOnly);
@@ -290,15 +288,14 @@ TEST(WKHTTPCookieStore, HttpOnly)
     TestWebKitAPI::Util::run(&gotFlag);
     gotFlag = false;
 
-    [globalCookieStore getAllCookies:[cookiesPtr = &cookies](NSArray<NSHTTPCookie *> *nsCookies) {
-        *cookiesPtr = [nsCookies retain];
+    [globalCookieStore getAllCookies:[&](NSArray<NSHTTPCookie *> *nsCookies) {
+        cookies = nsCookies;
         gotFlag = true;
     }];
     TestWebKitAPI::Util::run(&gotFlag);
     gotFlag = false;
-    ASSERT_EQ(cookies.count, 1u);
+    ASSERT_EQ([cookies count], 1u);
     EXPECT_TRUE([[[cookies objectAtIndex:0] value] isEqual:@"cookieValue2"]);
-    [cookies release];
 
     // Setting notHttpOnlyCookie should fail because we cannot overwrite HTTPOnly property using public API.
     [globalCookieStore setCookie:notHttpOnlyCookie.get() completionHandler:[]() {
@@ -307,15 +304,14 @@ TEST(WKHTTPCookieStore, HttpOnly)
     TestWebKitAPI::Util::run(&gotFlag);
     gotFlag = false;
 
-    [globalCookieStore getAllCookies:[cookiesPtr = &cookies](NSArray<NSHTTPCookie *> *nsCookies) {
-        *cookiesPtr = [nsCookies retain];
+    [globalCookieStore getAllCookies:[&](NSArray<NSHTTPCookie *> *nsCookies) {
+        cookies = nsCookies;
         gotFlag = true;
     }];
     TestWebKitAPI::Util::run(&gotFlag);
     gotFlag = false;
-    ASSERT_EQ(cookies.count, 1u);
+    ASSERT_EQ([cookies count], 1u);
     EXPECT_TRUE([[cookies objectAtIndex:0] isHTTPOnly]);
-    [cookies release];
 
     // Deleting notHttpOnlyCookie should fail because the cookie stored is HTTPOnly.
     [globalCookieStore deleteCookie:notHttpOnlyCookie.get() completionHandler:[]() {
@@ -324,14 +320,13 @@ TEST(WKHTTPCookieStore, HttpOnly)
     TestWebKitAPI::Util::run(&gotFlag);
     gotFlag = false;
 
-    [globalCookieStore getAllCookies:[cookiesPtr = &cookies](NSArray<NSHTTPCookie *> *nsCookies) {
-        *cookiesPtr = [nsCookies retain];
+    [globalCookieStore getAllCookies:[&](NSArray<NSHTTPCookie *> *nsCookies) {
+        cookies = nsCookies;
         gotFlag = true;
     }];
     TestWebKitAPI::Util::run(&gotFlag);
     gotFlag = false;
-    ASSERT_EQ(cookies.count, 1u);
-    [cookies release];
+    ASSERT_EQ([cookies count], 1u);
 
     // Deleting httpOnlyCookie should succeed. 
     [globalCookieStore deleteCookie:httpOnlyCookie.get() completionHandler:[]() {
@@ -340,14 +335,13 @@ TEST(WKHTTPCookieStore, HttpOnly)
     TestWebKitAPI::Util::run(&gotFlag);
     gotFlag = false;
 
-    [globalCookieStore getAllCookies:[cookiesPtr = &cookies](NSArray<NSHTTPCookie *> *nsCookies) {
-        *cookiesPtr = [nsCookies retain];
+    [globalCookieStore getAllCookies:[&](NSArray<NSHTTPCookie *> *nsCookies) {
+        cookies = nsCookies;
         gotFlag = true;
     }];
     TestWebKitAPI::Util::run(&gotFlag);
     gotFlag = false;
-    ASSERT_EQ(cookies.count, 0u);
-    [cookies release];
+    ASSERT_EQ([cookies count], 0u);
 }
 
 // FIXME: Would be good to enable this test for watchOS and tvOS.
@@ -370,14 +364,14 @@ TEST(WKHTTPCookieStore, CreationTime)
 
     globalCookieStore = dataStore.httpCookieStore;
 
-    NSMutableDictionary *cookieProperties = [[NSMutableDictionary alloc] init];
+    auto cookieProperties = adoptNS([[NSMutableDictionary alloc] init]);
     [cookieProperties setObject:@"cookieName" forKey:NSHTTPCookieName];
     [cookieProperties setObject:@"cookieValue" forKey:NSHTTPCookieValue];
     [cookieProperties setObject:@".www.webkit.org" forKey:NSHTTPCookieDomain];
     [cookieProperties setObject:@"/path" forKey:NSHTTPCookiePath];
     RetainPtr<NSNumber> creationTime = @(100000);
     [cookieProperties setObject:creationTime.get() forKey:@"Created"];
-    RetainPtr<NSHTTPCookie> cookie = [NSHTTPCookie cookieWithProperties:cookieProperties];
+    RetainPtr<NSHTTPCookie> cookie = [NSHTTPCookie cookieWithProperties:cookieProperties.get()];
 
     [globalCookieStore setCookie:cookie.get() completionHandler:[]() {
         gotFlag = true;
@@ -465,6 +459,47 @@ TEST(WebKit, CookieObserverCrash)
     TestWebKitAPI::Util::run(&gotFlag);
 }
 
+static void clearCookies(WKWebsiteDataStore *dataStore)
+{
+    __block bool deleted = false;
+    [dataStore removeDataOfTypes:[NSSet setWithObject:WKWebsiteDataTypeCookies] modifiedSince:[NSDate distantPast] completionHandler:^{
+        deleted = true;
+    }];
+    TestWebKitAPI::Util::run(&deleted);
+}
+
+TEST(WKHTTPCookieStore, ObserveCookiesReceivedFromHTTP)
+{
+    TestWebKitAPI::HTTPServer server({{ "/"_s, {{{ "Set-Cookie"_s, "testkey=testvalue"_s }}, "hello"_s }}});
+
+    auto runTest = [&] (WKWebsiteDataStore *dataStore) {
+        auto configuration = adoptNS([WKWebViewConfiguration new]);
+        configuration.get().websiteDataStore = dataStore;
+        auto webView = adoptNS([[WKWebView alloc] initWithFrame:CGRectZero configuration:configuration.get()]);
+        auto observer = adoptNS([CookieObserver new]);
+        globalCookieStore = webView.get().configuration.websiteDataStore.httpCookieStore;
+        clearCookies(dataStore);
+        [globalCookieStore addObserver:observer.get()];
+        observerCallbacks = 0;
+        [webView loadRequest:server.request()];
+        [webView _test_waitForDidFinishNavigation];
+        while (!observerCallbacks)
+            TestWebKitAPI::Util::spinRunLoop();
+        __block bool gotCookie = false;
+        [globalCookieStore getAllCookies:^(NSArray<NSHTTPCookie *> *cookies) {
+            RELEASE_ASSERT(cookies.count == 1u);
+            EXPECT_WK_STREQ(cookies[0].name, "testkey");
+            EXPECT_WK_STREQ(cookies[0].value, "testvalue");
+            gotCookie = true;
+        }];
+        TestWebKitAPI::Util::run(&gotCookie);
+        EXPECT_EQ(observerCallbacks, 1u);
+    };
+
+    runTest([WKWebsiteDataStore defaultDataStore]);
+    runTest([WKWebsiteDataStore nonPersistentDataStore]);
+}
+
 static bool finished;
 
 @interface CookieUIDelegate : NSObject <WKUIDelegate>
@@ -479,9 +514,7 @@ static bool finished;
 }
 @end
 
-// FIXME: on iOS, UI process should be using the same cookie file as the network process for default session.
-#if PLATFORM(MAC)
-enum class ShouldEnableProcessPrewarming { No, Yes };
+enum class ShouldEnableProcessPrewarming : bool { No, Yes };
 void runWKHTTPCookieStoreWithoutProcessPool(ShouldEnableProcessPrewarming shouldEnableProcessPrewarming)
 {
     RetainPtr<NSHTTPCookie> sessionCookie = [NSHTTPCookie cookieWithProperties:@{
@@ -589,19 +622,65 @@ TEST(WKHTTPCookieStore, WithoutProcessPoolWithPrewarming)
     runWKHTTPCookieStoreWithoutProcessPool(ShouldEnableProcessPrewarming::Yes);
 }
 
-#endif // PLATFORM(MAC)
-
 @interface CheckSessionCookieUIDelegate : NSObject <WKUIDelegate>
+- (NSString *)alertCookieHTML;
+- (NSString *)waitForMessage;
 @end
 
-@implementation CheckSessionCookieUIDelegate
+@implementation CheckSessionCookieUIDelegate {
+    RetainPtr<NSString> _message;
+}
+
 - (void)webView:(WKWebView *)webView runJavaScriptAlertPanelWithMessage:(NSString *)message initiatedByFrame:(WKFrameInfo *)frame completionHandler:(void (^)(void))completionHandler
 {
-    EXPECT_STREQ("SessionCookieName=CookieValue", message.UTF8String);
+    _message = message;
     finished = true;
     completionHandler();
 }
+
+- (NSString *)waitForMessage
+{
+    while (!_message)
+        TestWebKitAPI::Util::spinRunLoop();
+    return _message.autorelease();
+}
+
+- (NSString *)alertCookieHTML
+{
+    return @"<script>var cookies = document.cookie.split(';'); for (let i = 0; i < cookies.length; i ++) { cookies[i] = cookies[i].trim(); } cookies.sort(); alert(cookies.join('; '));</script>";
+}
+
 @end
+
+TEST(WebKit, WKHTTPCookieStoreMultipleViews)
+{
+    auto webView1 = adoptNS([TestWKWebView new]);
+    [webView1 synchronouslyLoadHTMLString:@"start network process"];
+
+    NSHTTPCookie *sessionCookie = [NSHTTPCookie cookieWithProperties:@{
+        NSHTTPCookiePath: @"/",
+        NSHTTPCookieName: @"SessionCookieName",
+        NSHTTPCookieValue: @"CookieValue",
+        NSHTTPCookieDomain: @"127.0.0.1",
+    }];
+
+    __block bool setCookieDone = false;
+    [[webView1 configuration].websiteDataStore.httpCookieStore setCookie:sessionCookie completionHandler:^{
+        setCookieDone = true;
+    }];
+    TestWebKitAPI::Util::run(&setCookieDone);
+
+    auto delegate = adoptNS([CheckSessionCookieUIDelegate new]);
+    [webView1 setUIDelegate:delegate.get()];
+
+    [webView1 loadHTMLString:[delegate alertCookieHTML] baseURL:[NSURL URLWithString:@"http://127.0.0.1"]];
+    EXPECT_WK_STREQ([delegate waitForMessage], "SessionCookieName=CookieValue");
+
+    auto webView2 = adoptNS([TestWKWebView new]);
+    [webView2 setUIDelegate:delegate.get()];
+    [webView2 loadHTMLString:[delegate alertCookieHTML] baseURL:[NSURL URLWithString:@"http://127.0.0.1"]];
+    EXPECT_WK_STREQ([delegate waitForMessage], "SessionCookieName=CookieValue");
+}
 
 TEST(WKHTTPCookieStore, WithoutProcessPoolEphemeralSession)
 {
@@ -627,35 +706,13 @@ TEST(WKHTTPCookieStore, WithoutProcessPoolEphemeralSession)
     TestWebKitAPI::Util::run(&finished);
     finished = false;
     
-    NSString *alertCookieHTML = @"<script>var cookies = document.cookie.split(';'); for (let i = 0; i < cookies.length; i ++) { cookies[i] = cookies[i].trim(); } cookies.sort(); alert(cookies.join('; '));</script>";
-    [webView loadHTMLString:alertCookieHTML baseURL:[NSURL URLWithString:@"http://127.0.0.1"]];
-    TestWebKitAPI::Util::run(&finished);
+    [webView loadHTMLString:[delegate alertCookieHTML] baseURL:[NSURL URLWithString:@"http://127.0.0.1"]];
+    EXPECT_WK_STREQ([delegate waitForMessage], "SessionCookieName=CookieValue");
 }
 
 static bool areCookiesEqual(NSHTTPCookie *first, NSHTTPCookie *second)
 {
     return [first.name isEqual:second.name] && [first.domain isEqual:second.domain] && [first.path isEqual:second.path] && [first.value isEqual:second.value];
-}
-
-static void clearCookies(WKHTTPCookieStore* cookieStore)
-{
-    finished = false;
-    [cookieStore getAllCookies:^(NSArray<NSHTTPCookie *> *cookies) {
-        if (!cookies || !cookies.count) {
-            finished = true;
-            return;
-        }
-
-        unsigned cookiesCount = cookies.count;
-        __block unsigned deletedCount = 0;
-        for (NSHTTPCookie* cookie in cookies) {
-            [cookieStore deleteCookie:cookie completionHandler:^{
-                if (++deletedCount == cookiesCount)
-                    finished = true;
-            }];
-        }
-    }];
-    TestWebKitAPI::Util::run(&finished);
 }
 
 TEST(WKHTTPCookieStore, WithoutProcessPoolDuplicates)
@@ -675,7 +732,7 @@ TEST(WKHTTPCookieStore, WithoutProcessPoolDuplicates)
     RetainPtr<NSHTTPCookie> sessionCookieDifferentValue = [NSHTTPCookie cookieWithProperties:properties.get()];
     finished = false;
 
-    clearCookies(httpCookieStore.get());
+    clearCookies([WKWebsiteDataStore defaultDataStore]);
 
     [httpCookieStore.get() setCookie:sessionCookie.get() completionHandler:^{
         finished = true;
@@ -743,4 +800,249 @@ TEST(WKHTTPCookieStore, CookiesForURL)
         }];
     }];
     TestWebKitAPI::Util::run(&done);
+}
+
+TEST(WKHTTPCookieStore, CookieAccessAfterNetworkProcessTermination)
+{
+    auto webView = adoptNS([TestWKWebView new]);
+    [webView synchronouslyLoadHTMLString:@"start network process" baseURL:[NSURL URLWithString:@"http://example.com/"]];
+    kill([WKWebsiteDataStore.defaultDataStore _networkProcessIdentifier], SIGKILL);
+    TestWebKitAPI::Util::runFor(Seconds(0.1));
+    [webView stringByEvaluatingJavaScript:@"document.cookie = 'key=value'"];
+    EXPECT_WK_STREQ([webView stringByEvaluatingJavaScript:@"document.cookie"], "key=value");
+}
+
+TEST(WKHTTPCookieStore, WebSocketCookies)
+{
+    using namespace TestWebKitAPI;
+    bool receivedThirdRequest { false };
+    uint16_t serverPort { 0 };
+    HTTPServer server(TestWebKitAPI::HTTPServer::UseCoroutines::Yes, [&] (Connection connection) -> Task { while (true) {
+        auto request = co_await connection.awaitableReceiveHTTPRequest();
+        auto path = HTTPServer::parsePath(request);
+        request.append(0);
+        if (path == "/com"_s) {
+            co_await connection.awaitableSend(
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Length: 0\r\n"
+                "Set-Cookie: Default=1\r\n"
+                "Set-Cookie: SameSite_None=1; SameSite=None\r\n"
+                "Set-Cookie: SameSite_None_Secure=1; secure; SameSite=None\r\n"
+                "Set-Cookie: SameSite_Lax=1; SameSite=Lax\r\n"
+                "Set-Cookie: SameSite_Strict=1; SameSite=Strict\r\n"
+                "\r\n"_s);
+        } else if (path == "/websocket"_s) {
+            EXPECT_TRUE(strnstr(request.data(), "Host: 127.0.0.1:", request.size()));
+            EXPECT_FALSE(strnstr(request.data(), "Cookie:", request.size()));
+            receivedThirdRequest = true;
+        } else if (path == "/ninja"_s) {
+            auto html = [NSString stringWithFormat:@"<script>new WebSocket('ws://127.0.0.1:%d/websocket')</script>", serverPort];
+            co_await connection.awaitableSend(HTTPResponse(html).serialize());
+        } else
+            EXPECT_WK_STREQ(@"SHOULD NOT BE REACH", path);
+    } });
+    serverPort = server.port();
+
+    auto webView = adoptNS([WKWebView new]);
+    [[[webView configuration] websiteDataStore] _setResourceLoadStatisticsEnabled:YES];
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:[NSString stringWithFormat:@"http://127.0.0.1:%d/com", serverPort]]]];
+    [webView _test_waitForDidFinishNavigation];
+
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:[NSString stringWithFormat:@"http://localhost:%d/ninja", serverPort]]]];
+    Util::run(&receivedThirdRequest);
+}
+
+TEST(WKHTTPCookieStore, WebSocketCookiesFromRedirect)
+{
+    using namespace TestWebKitAPI;
+    bool receivedWebSocket { false };
+    uint16_t serverPort { 0 };
+    HTTPServer server(TestWebKitAPI::HTTPServer::UseCoroutines::Yes, [&] (Connection connection) -> Task { while (true) {
+        auto request = co_await connection.awaitableReceiveHTTPRequest();
+        auto path = HTTPServer::parsePath(request);
+        request.append(0);
+        if (path == "/redirect"_s) {
+            co_await connection.awaitableSend(
+                "HTTP/1.1 302 Found\r\n"
+                "Location: http://localhost:"_s + serverPort + "/com\r\n"
+                "Content-Length: 0\r\n"
+                "\r\n"_s);
+        } else if (path == "/com"_s) {
+            co_await connection.awaitableSend(
+                "HTTP/1.1 302 Found\r\n"
+                "Location: http://127.0.0.1:"_s + serverPort + "/destination\r\n"_s
+                "Set-Cookie: Default=1\r\n"
+                "Set-Cookie: SameSite_None=1; SameSite=None\r\n"
+                "Set-Cookie: SameSite_None_Secure=1; secure; SameSite=None\r\n"
+                "Set-Cookie: SameSite_Lax=1; SameSite=Lax\r\n"
+                "Set-Cookie: SameSite_Strict=1; SameSite=Strict\r\n"
+                "Content-Length: 0\r\n"
+                "\r\n"_s);
+        } else if (path == "/destination"_s) {
+            EXPECT_TRUE(strnstr(request.data(), "Host: 127.0.0.1:", request.size()));
+            EXPECT_FALSE(strnstr(request.data(), "Cookie:", request.size()));
+            co_await connection.awaitableSend(
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Length: 0\r\n"
+                "\r\n"_s);
+        } else if (path == "/websocket"_s) {
+            EXPECT_TRUE(strnstr(request.data(), "Host: localhost:", request.size()));
+            EXPECT_FALSE(strnstr(request.data(), "Cookie:", request.size()));
+            EXPECT_TRUE(strnstr(request.data(), "Origin: http://127.0.0.1:", request.size()));
+            receivedWebSocket = true;
+        } else if (path == "/ninja"_s) {
+            auto html = [NSString stringWithFormat:@"<script>new WebSocket('ws://localhost:%d/websocket')</script>", serverPort];
+            co_await connection.awaitableSend(HTTPResponse(html).serialize());
+        } else
+            EXPECT_WK_STREQ(@"SHOULD NOT BE REACH", path);
+    } });
+    serverPort = server.port();
+
+    auto webView = adoptNS([WKWebView new]);
+    [[[webView configuration] websiteDataStore] _setResourceLoadStatisticsEnabled:YES];
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:[NSString stringWithFormat:@"http://127.0.0.1:%d/redirect", serverPort]]]];
+    [webView _test_waitForDidFinishNavigation];
+
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:[NSString stringWithFormat:@"http://127.0.0.1:%d/ninja", serverPort]]]];
+    Util::run(&receivedWebSocket);
+}
+
+TEST(WKHTTPCookieStore, WebSocketCookiesThroughRedirect)
+{
+    using namespace TestWebKitAPI;
+    bool receivedWebSocket { false };
+    uint16_t serverPort { 0 };
+    HTTPServer server(TestWebKitAPI::HTTPServer::UseCoroutines::Yes, [&] (Connection connection) -> Task { while (true) {
+        auto request = co_await connection.awaitableReceiveHTTPRequest();
+        auto path = HTTPServer::parsePath(request);
+        request.append(0);
+        if (path == "/redirect"_s) {
+            co_await connection.awaitableSend(
+                "HTTP/1.1 302 Found\r\n"
+                "Location: http://localhost:"_s + serverPort + "/com\r\n"
+                "Content-Length: 0\r\n"
+                "\r\n"_s);
+        } else if (path == "/com"_s) {
+            co_await connection.awaitableSend(
+                "HTTP/1.1 302 Found\r\n"
+                "Location: http://127.0.0.1:"_s + serverPort + "/ninja\r\n"_s
+                "Set-Cookie: Default=1\r\n"
+                "Set-Cookie: SameSite_None=1; SameSite=None\r\n"
+                "Set-Cookie: SameSite_None_Secure=1; secure; SameSite=None\r\n"
+                "Set-Cookie: SameSite_Lax=1; SameSite=Lax\r\n"
+                "Set-Cookie: SameSite_Strict=1; SameSite=Strict\r\n"
+                "Content-Length: 0\r\n"
+                "\r\n"_s);
+        } else if (path == "/websocket"_s) {
+            EXPECT_TRUE(strnstr(request.data(), "Host: localhost:", request.size()));
+            EXPECT_FALSE(strnstr(request.data(), "Cookie:", request.size()));
+            EXPECT_TRUE(strnstr(request.data(), "Origin: http://127.0.0.1:", request.size()));
+            receivedWebSocket = true;
+        } else if (path == "/ninja"_s) {
+            EXPECT_TRUE(strnstr(request.data(), "Host: 127.0.0.1:", request.size()));
+            EXPECT_FALSE(strnstr(request.data(), "Cookie:", request.size()));
+            auto html = [NSString stringWithFormat:@"<script>new WebSocket('ws://localhost:%d/websocket')</script>", serverPort];
+            co_await connection.awaitableSend(HTTPResponse(html).serialize());
+        } else
+            EXPECT_WK_STREQ(@"SHOULD NOT BE REACH", path);
+    } });
+    serverPort = server.port();
+
+    auto webView = adoptNS([WKWebView new]);
+    [[[webView configuration] websiteDataStore] _setResourceLoadStatisticsEnabled:YES];
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:[NSString stringWithFormat:@"http://127.0.0.1:%d/redirect", serverPort]]]];
+    Util::run(&receivedWebSocket);
+}
+
+TEST(WKHTTPCookieStore, WebSocketSetCookiesThroughFirstPartyRedirect)
+{
+    using namespace TestWebKitAPI;
+    bool receivedWebSocket { false };
+    uint16_t serverPort { 0 };
+    HTTPServer server(TestWebKitAPI::HTTPServer::UseCoroutines::Yes, [&] (Connection connection) -> Task { while (true) {
+        auto request = co_await connection.awaitableReceiveHTTPRequest();
+        auto path = HTTPServer::parsePath(request);
+        request.append(0);
+        if (path == "/redirect"_s) {
+            co_await connection.awaitableSend(
+                "HTTP/1.1 302 Found\r\n"
+                "Location: ws://localhost:"_s + serverPort + "/websocket\r\n"
+                "Set-Cookie: Default=1\r\n"
+                "Set-Cookie: SameSite_None=1; SameSite=None\r\n"
+                "Set-Cookie: SameSite_None_Secure=1; secure; SameSite=None\r\n"
+                "Set-Cookie: SameSite_Lax=1; SameSite=Lax\r\n"
+                "Set-Cookie: SameSite_Strict=1; SameSite=Strict\r\n"
+                "Content-Length: 0\r\n"
+                "\r\n"_s);
+        } else if (path == "/websocket"_s) {
+            EXPECT_TRUE(strnstr(request.data(), "Host: localhost:", request.size()));
+            EXPECT_FALSE(strnstr(request.data(), "Cookie:", request.size()));
+            EXPECT_FALSE(strnstr(request.data(), "Origin: http://127.0.0.1:", request.size()));
+            receivedWebSocket = true;
+        } else if (path == "/ninja"_s) {
+            EXPECT_TRUE(strnstr(request.data(), "Host: 127.0.0.1:", request.size()));
+            EXPECT_FALSE(strnstr(request.data(), "Cookie:", request.size()));
+            auto html = [NSString stringWithFormat:@"<script>new WebSocket('ws://127.0.0.1:%d/redirect')</script>", serverPort];
+            co_await connection.awaitableSend(HTTPResponse(html).serialize());
+        } else
+            EXPECT_WK_STREQ(@"SHOULD NOT BE REACH", path);
+    } });
+    serverPort = server.port();
+
+    auto webView = adoptNS([WKWebView new]);
+    [[[webView configuration] websiteDataStore] _setResourceLoadStatisticsEnabled:YES];
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:[NSString stringWithFormat:@"http://127.0.0.1:%d/ninja", serverPort]]]];
+    Util::run(&receivedWebSocket);
+}
+
+TEST(WKHTTPCookieStore, WebSocketSetCookiesThroughRedirectToThirdParty)
+{
+    using namespace TestWebKitAPI;
+    bool receivedWebSocket { false };
+    uint16_t serverPort { 0 };
+    HTTPServer server(TestWebKitAPI::HTTPServer::UseCoroutines::Yes, [&] (Connection connection) -> Task { while (true) {
+        auto request = co_await connection.awaitableReceiveHTTPRequest();
+        auto path = HTTPServer::parsePath(request);
+        request.append(0);
+        if (path == "/redirect"_s) {
+            co_await connection.awaitableSend(
+                "HTTP/1.1 302 Found\r\n"
+                "Location: ws://localhost:"_s + serverPort + "/com\r\n"
+                "Content-Length: 0\r\n"
+                "\r\n"_s);
+        } else if (path == "/com"_s) {
+            co_await connection.awaitableSend(
+                "HTTP/1.1 302 Found\r\n"
+                "Location: ws://127.0.0.1:"_s + serverPort + "/redirect2\r\n"_s
+                "Set-Cookie: Default=1\r\n"
+                "Set-Cookie: SameSite_None=1; SameSite=None\r\n"
+                "Set-Cookie: SameSite_None_Secure=1; secure; SameSite=None\r\n"
+                "Set-Cookie: SameSite_Lax=1; SameSite=Lax\r\n"
+                "Set-Cookie: SameSite_Strict=1; SameSite=Strict\r\n"
+                "Content-Length: 0\r\n"
+                "\r\n"_s);
+        } else if (path == "/redirect2"_s) {
+            co_await connection.awaitableSend(
+                "HTTP/1.1 302 Found\r\n"
+                "Location: ws://localhost:"_s + serverPort + "/websocket\r\n"
+                "Content-Length: 0\r\n"
+                "\r\n"_s);
+        } else if (path == "/websocket"_s) {
+            EXPECT_TRUE(strnstr(request.data(), "Host: localhost:", request.size()));
+            EXPECT_FALSE(strnstr(request.data(), "Cookie:", request.size()));
+            receivedWebSocket = true;
+        } else if (path == "/ninja"_s) {
+            EXPECT_TRUE(strnstr(request.data(), "Host: 127.0.0.1:", request.size()));
+            EXPECT_FALSE(strnstr(request.data(), "Cookie:", request.size()));
+            auto html = [NSString stringWithFormat:@"<script>new WebSocket('ws://127.0.0.1:%d/redirect')</script>", serverPort];
+            co_await connection.awaitableSend(HTTPResponse(html).serialize());
+        } else
+            EXPECT_WK_STREQ(@"SHOULD NOT BE REACH", path);
+    } });
+    serverPort = server.port();
+
+    auto webView = adoptNS([WKWebView new]);
+    [[[webView configuration] websiteDataStore] _setResourceLoadStatisticsEnabled:YES];
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:[NSString stringWithFormat:@"http://127.0.0.1:%d/ninja", serverPort]]]];
+    Util::run(&receivedWebSocket);
 }

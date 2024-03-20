@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,10 +27,11 @@
 
 #include "AlternativeTextClient.h"
 #include "DocumentMarker.h"
+#include "EventLoop.h"
 #include "Position.h"
-#include "Timer.h"
+#include <variant>
 #include <wtf/Noncopyable.h>
-#include <wtf/Variant.h>
+#include <wtf/WeakRef.h>
 
 namespace WebCore {
 
@@ -56,7 +57,7 @@ struct TextCheckingResult;
 #define UNLESS_ENABLED(functionBody) functionBody
 #endif
 
-class AlternativeTextController {
+class AlternativeTextController : public CanMakeWeakPtr<AlternativeTextController> {
     WTF_MAKE_NONCOPYABLE(AlternativeTextController);
     WTF_MAKE_FAST_ALLOCATED;
 public:
@@ -73,7 +74,7 @@ public:
     bool applyAutocorrectionBeforeTypingIfAppropriate() UNLESS_ENABLED({ return false; })
 
     void respondToUnappliedSpellCorrection(const VisibleSelection&, const String& corrected, const String& correction) UNLESS_ENABLED({ UNUSED_PARAM(corrected); UNUSED_PARAM(correction); })
-    void respondToAppliedEditing(CompositeEditCommand*) UNLESS_ENABLED({ })
+    void respondToAppliedEditing(CompositeEditCommand*);
     void respondToUnappliedEditing(EditCommandComposition*) UNLESS_ENABLED({ })
     void respondToChangedSelection(const VisibleSelection& oldSelection) UNLESS_ENABLED({ UNUSED_PARAM(oldSelection); })
 
@@ -86,6 +87,7 @@ public:
     bool hasPendingCorrection() const UNLESS_ENABLED({ return false; })
     bool isSpellingMarkerAllowed(const SimpleRange& misspellingRange) const UNLESS_ENABLED({ UNUSED_PARAM(misspellingRange); return true; })
     bool isAutomaticSpellingCorrectionEnabled() UNLESS_ENABLED({ return false; })
+    bool canEnableAutomaticSpellingCorrection() const UNLESS_ENABLED({ return false; })
     bool shouldRemoveMarkersUponEditing();
 
     void recordAutocorrectionResponse(AutocorrectionResponse, const String& replacedString, const SimpleRange& replacementRange) UNLESS_ENABLED({ UNUSED_PARAM(replacedString); UNUSED_PARAM(replacementRange); })
@@ -105,14 +107,6 @@ private:
 #if USE(AUTOCORRECTION_PANEL)
     using AutocorrectionReplacement = String;
 
-    struct AlternativeTextInfo {
-        SimpleRange rangeWithAlternative;
-        bool isActive;
-        AlternativeTextType type;
-        String originalText;
-        Variant<AutocorrectionReplacement, DictationContext> details;
-    };
-
     String dismissSoon(ReasonForDismissingAlternativeText);
     void timerFired();
     void recordSpellcheckerResponseForModifiedCorrection(const SimpleRange& rangeOfCorrection, const String& corrected, const String& correction);
@@ -126,24 +120,27 @@ private:
     FloatRect rootViewRectForRange(const SimpleRange&) const;
     void markPrecedingWhitespaceForDeletedAutocorrectionAfterCommand(EditCommand*);
 
-    Timer m_timer;
-    Optional<SimpleRange> m_rangeWithAlternative;
-    bool m_isActive;
-    bool m_isDismissedByEditing;
+    EventLoopTimerHandle m_timer;
+    std::optional<SimpleRange> m_rangeWithAlternative;
+    bool m_isActive { };
+    bool m_isDismissedByEditing { };
     AlternativeTextType m_type;
     String m_originalText;
-    Variant<AutocorrectionReplacement, DictationContext> m_details;
+    std::variant<AutocorrectionReplacement, DictationContext> m_details;
 
     String m_originalStringForLastDeletedAutocorrection;
     Position m_positionForLastDeletedAutocorrection;
 #endif
 #if USE(DICTATION_ALTERNATIVES) || USE(AUTOCORRECTION_PANEL)
-    String markerDescriptionForAppliedAlternativeText(AlternativeTextType, DocumentMarker::MarkerType);
-    void applyAlternativeTextToRange(const SimpleRange&, const String&, AlternativeTextType, OptionSet<DocumentMarker::MarkerType>);
+    String markerDescriptionForAppliedAlternativeText(AlternativeTextType, DocumentMarker::Type);
+    void applyAlternativeTextToRange(const SimpleRange&, const String&, AlternativeTextType, OptionSet<DocumentMarker::Type>);
     AlternativeTextClient* alternativeTextClient();
 #endif
+    Ref<Document> protectedDocument() const { return m_document.get(); }
 
-    Document& m_document;
+    void removeCorrectionIndicatorMarkers();
+
+    WeakRef<Document, WeakPtrImplWithEventTargetData> m_document;
 };
 
 #undef UNLESS_ENABLED

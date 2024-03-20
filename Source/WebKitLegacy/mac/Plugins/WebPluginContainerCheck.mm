@@ -38,9 +38,10 @@
 #import <Foundation/NSURL.h>
 #import <Foundation/NSURLRequest.h>
 #import <WebCore/Document.h>
-#import <WebCore/Frame.h>
 #import <WebCore/FrameLoader.h>
 #import <WebCore/FrameLoaderTypes.h>
+#import <WebCore/LocalFrame.h>
+#import <WebCore/OriginAccessPatterns.h>
 #import <WebCore/SecurityOrigin.h>
 #import <wtf/Assertions.h>
 #import <wtf/ObjCRuntimeExtras.h>
@@ -72,7 +73,7 @@
 
 + (id)checkWithRequest:(NSURLRequest *)request target:(NSString *)target resultObject:(id)obj selector:(SEL)selector controller:(id <WebPluginContainerCheckController>)controller contextInfo:(id)contextInfo /*optional*/
 {
-    return [[[self alloc] initWithRequest:request target:target resultObject:obj selector:selector controller:controller contextInfo:contextInfo] autorelease];
+    return adoptNS([[self alloc] initWithRequest:request target:target resultObject:obj selector:selector controller:controller contextInfo:contextInfo]).autorelease();
 }
 
 - (void)dealloc
@@ -97,7 +98,7 @@
 {
     auto* coreFrame = core([_controller webFrame]);
     ASSERT(coreFrame);
-    if (!coreFrame->document()->securityOrigin().canDisplay([_request URL])) {
+    if (!coreFrame->document()->securityOrigin().canDisplay([_request URL], WebCore::OriginAccessPatternsForWebProcess::singleton())) {
         [self _continueWithPolicy:WebCore::PolicyAction::Ignore];
         return YES;
     }

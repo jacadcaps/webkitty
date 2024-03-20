@@ -83,6 +83,15 @@ public:
     void updateMinimumColumnHeight(LayoutUnit height) { m_minimumColumnHeight = std::max(height, m_minimumColumnHeight); }
     LayoutUnit minimumColumnHeight() const { return m_minimumColumnHeight; }
 
+    void updateSpaceShortageForSizeContainment(LayoutUnit shortage)
+    {
+        if (m_spaceShortageForSizeContainment <= 0) {
+            m_spaceShortageForSizeContainment = shortage;
+            return;
+        }
+        m_spaceShortageForSizeContainment = std::min(shortage, m_spaceShortageForSizeContainment);
+    }
+
     unsigned forcedBreaksCount() const { return m_contentRuns.size(); }
     void clearForcedBreaks();
     void addForcedBreak(LayoutUnit offsetFromFirstPage);
@@ -129,10 +138,11 @@ public:
     LayoutRect columnRectAt(unsigned index) const;
     unsigned columnCount() const;
 
+    LayoutUnit columnGap() const;
+
 private:
     void addOverflowFromChildren() override;
-    
-    bool isRenderMultiColumnSet() const override { return true; }
+
     void layout() override;
 
     Node* nodeForHitTest() const override;
@@ -148,24 +158,23 @@ private:
 
     LayoutUnit logicalHeightOfAllFragmentedFlowContent() const override { return logicalHeightInFragmentedFlow(); }
 
-    void repaintFragmentedFlowContent(const LayoutRect& repaintRect) override;
+    void repaintFragmentedFlowContent(const LayoutRect& repaintRect) const override;
 
     void collectLayerFragments(LayerFragments&, const LayoutRect& layerBoundingBox, const LayoutRect& dirtyRect) override;
 
-    void adjustFragmentBoundsFromFragmentedFlowPortionRect(LayoutRect& fragmentBounds) const override;
+    Vector<LayoutRect> fragmentRectsForFlowContentRect(const LayoutRect&) const final;
 
     VisiblePosition positionForPoint(const LayoutPoint&, const RenderFragmentContainer*) override;
 
-    const char* renderName() const override;
+    ASCIILiteral renderName() const override;
 
     LayoutUnit calculateMaxColumnHeight() const;
-    LayoutUnit columnGap() const;
 
     LayoutUnit columnLogicalLeft(unsigned) const;
     LayoutUnit columnLogicalTop(unsigned) const;
 
     LayoutRect fragmentedFlowPortionRectAt(unsigned index) const;
-    LayoutRect fragmentedFlowPortionOverflowRect(const LayoutRect& fragmentedFlowPortion, unsigned index, unsigned colCount, LayoutUnit colGap);
+    LayoutRect fragmentedFlowPortionOverflowRect(const LayoutRect& fragmentedFlowPortion, unsigned index, unsigned colCount, LayoutUnit colGap) const;
 
     LayoutUnit initialBlockOffsetForPainting() const;
 
@@ -174,6 +183,8 @@ private:
         AssumeNewColumns // Allow column indices outside the range of already existing columns.
     };
     unsigned columnIndexAtOffset(LayoutUnit, ColumnIndexCalculationMode = ClampToExistingColumns) const;
+
+    std::pair<unsigned, unsigned> firstAndLastColumnsFromOffsets(LayoutUnit topOffset, LayoutUnit bottomOffset) const;
 
     void setAndConstrainColumnHeight(LayoutUnit);
 
@@ -188,16 +199,17 @@ private:
 
     LayoutUnit calculateBalancedHeight(bool initial) const;
 
-    unsigned m_computedColumnCount; // Used column count (the resulting 'N' from the pseudo-algorithm in the multicol spec)
+    unsigned m_computedColumnCount { 1 }; // Used column count (the resulting 'N' from the pseudo-algorithm in the multicol spec)
     LayoutUnit m_computedColumnWidth; // Used column width (the resulting 'W' from the pseudo-algorithm in the multicol spec)
     LayoutUnit m_computedColumnHeight;
     LayoutUnit m_availableColumnHeight;
-    bool m_columnHeightComputed;
+    bool m_columnHeightComputed { false };
 
     // The following variables are used when balancing the column set.
     LayoutUnit m_maxColumnHeight; // Maximum column height allowed.
     LayoutUnit m_minSpaceShortage; // The smallest amout of space shortage that caused a column break.
     LayoutUnit m_minimumColumnHeight;
+    LayoutUnit m_spaceShortageForSizeContainment; // The shortage space that keeps size containment monolithic.
 
     // A run of content without explicit (forced) breaks; i.e. a flow thread portion between two
     // explicit breaks, between flow thread start and an explicit break, between an explicit break
@@ -210,7 +222,7 @@ private:
     public:
         ContentRun(LayoutUnit breakOffset)
             : m_breakOffset(breakOffset)
-            , m_assumedImplicitBreaks(0) { }
+        { }
 
         unsigned assumedImplicitBreaks() const { return m_assumedImplicitBreaks; }
         void assumeAnotherImplicitBreak() { m_assumedImplicitBreaks++; }
@@ -222,7 +234,7 @@ private:
 
     private:
         LayoutUnit m_breakOffset; // Flow thread offset where this run ends.
-        unsigned m_assumedImplicitBreaks; // Number of implicit breaks in this run assumed so far.
+        unsigned m_assumedImplicitBreaks { 0 }; // Number of implicit breaks in this run assumed so far.
     };
     Vector<ContentRun, 1> m_contentRuns;
 };

@@ -25,13 +25,22 @@
 
 #import "config.h"
 
+#import "HTTPServer.h"
 #import "PlatformUtilities.h"
-#import <WebKit/WKContentRuleListStore.h>
+#import "Test.h"
+#import "TestNavigationDelegate.h"
+#import "TestUIDelegate.h"
+#import "TestURLSchemeHandler.h"
+#import "TestWKWebView.h"
+#import <WebKit/WKContentRuleListPrivate.h>
+#import <WebKit/WKContentRuleListStorePrivate.h>
 #import <WebKit/WKNavigationDelegatePrivate.h>
 #import <WebKit/WKURLSchemeHandler.h>
 #import <WebKit/WKUserContentController.h>
 #import <WebKit/WKWebView.h>
+#import <WebKit/WKWebsiteDataStorePrivate.h>
 #import <WebKit/_WKContentRuleListAction.h>
+#import <WebKit/_WKWebsiteDataStoreConfiguration.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/URL.h>
 #import <wtf/cocoa/VectorCocoa.h>
@@ -85,7 +94,7 @@ static RetainPtr<NSString> notificationIdentifier;
 
 - (void)webView:(WKWebView *)webView startURLSchemeTask:(id <WKURLSchemeTask>)urlSchemeTask
 {
-    [urlSchemeTask didReceiveResponse:[[[NSURLResponse alloc] initWithURL:urlSchemeTask.request.URL MIMEType:@"text/html" expectedContentLength:0 textEncodingName:nil] autorelease]];
+    [urlSchemeTask didReceiveResponse:adoptNS([[NSURLResponse alloc] initWithURL:urlSchemeTask.request.URL MIMEType:@"text/html" expectedContentLength:0 textEncodingName:nil]).get()];
     [urlSchemeTask didFinish];
 }
 
@@ -116,7 +125,7 @@ static RetainPtr<WKContentRuleList> makeContentRuleList(NSString *source, NSStri
     return contentRuleList;
 }
 
-TEST(WebKit, ContentRuleListNotificationMainResource)
+TEST(ContentRuleList, NotificationMainResource)
 {
     auto delegate = adoptNS([[ContentRuleListNotificationDelegate alloc] init]);
     auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
@@ -130,7 +139,7 @@ TEST(WebKit, ContentRuleListNotificationMainResource)
     EXPECT_STREQ([notificationIdentifier UTF8String], "testidentifier");
 }
 
-TEST(WebKit, ContentRuleListNotificationSubresource)
+TEST(ContentRuleList, NotificationSubresource)
 {
     auto delegate = adoptNS([[ContentRuleListNotificationDelegate alloc] init]);
     auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
@@ -146,7 +155,46 @@ TEST(WebKit, ContentRuleListNotificationSubresource)
     EXPECT_STREQ([notificationIdentifier UTF8String], "testidentifier");
 }
 
-TEST(WebKit, PerformedActionForURL)
+TEST(ContentRuleList, LoadHTMLStringDisplayNone)
+{
+    NSString *html = @"<a href='https://www.apple.com/'>link to Apple</a>";
+
+    NSString *getLinkDisplay = @"window.getComputedStyle(document.querySelector('a')).getPropertyValue('display')";
+
+    auto list = makeContentRuleList(@"["
+        "{ \"action\": { \"type\" : \"css-display-none\", \"selector\": \"a[href*='apple.com']\" }, \"trigger\": { \"url-filter\": \".*\" }},"
+        "{ \"action\": { \"type\" : \"block\" }, \"trigger\": { \"url-filter\": \"webkit.org\" }},"
+        "{ \"action\": { \"type\" : \"ignore-previous-rules\" }, \"trigger\": { \"url-filter\": \"example.com\" }}"
+    "]");
+
+    auto configuration = adoptNS([WKWebViewConfiguration new]);
+    [[configuration userContentController] addContentRuleList:list.get()];
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+
+    [webView synchronouslyLoadHTMLString:html];
+    EXPECT_WK_STREQ([webView objectByEvaluatingJavaScript:getLinkDisplay], "none");
+
+    [webView synchronouslyLoadHTMLString:html baseURL:[NSURL URLWithString:@"https://webkit.org/"]];
+    EXPECT_WK_STREQ([webView objectByEvaluatingJavaScript:getLinkDisplay], "none");
+
+    [webView synchronouslyLoadHTMLString:html baseURL:[NSURL URLWithString:@"https://example.com/"]];
+    EXPECT_WK_STREQ([webView objectByEvaluatingJavaScript:getLinkDisplay], "inline");
+
+    auto list2 = makeContentRuleList(@"["
+        "{ \"action\": { \"type\" : \"css-display-none\", \"selector\": \"a[href*='apple.com']\" }, \"trigger\": { \"url-filter\": \"webkit.org\" }}"
+    "]", @"other extension");
+    auto configuration2 = adoptNS([WKWebViewConfiguration new]);
+    [[configuration2 userContentController] addContentRuleList:list2.get()];
+    auto webView2 = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration2.get()]);
+
+    [webView2 synchronouslyLoadHTMLString:html baseURL:[NSURL URLWithString:@"https://webkit.org/"]];
+    EXPECT_WK_STREQ([webView2 objectByEvaluatingJavaScript:getLinkDisplay], "none");
+
+    [webView2 synchronouslyLoadHTMLString:html baseURL:[NSURL URLWithString:@"https://example.com/"]];
+    EXPECT_WK_STREQ([webView2 objectByEvaluatingJavaScript:getLinkDisplay], "inline");
+}
+
+TEST(ContentRuleList, PerformedActionForURL)
 {
     NSString *firstList = @"[{\"action\":{\"type\":\"notify\",\"notification\":\"testnotification\"},\"trigger\":{\"url-filter\":\"notify\"}}]";
     NSString *secondList = @"[{\"action\":{\"type\":\"block\"},\"trigger\":{\"url-filter\":\"block\"}}]";
@@ -164,8 +212,286 @@ TEST(WebKit, PerformedActionForURL)
         TestWebKitAPI::Util::spinRunLoop();
 
     Vector<Notification> expectedNotifications {
-        { "firstList", "apitest:///notify", false, false, false, { "testnotification" } },
-        { "secondList", "apitest:///block", true, false, false, { } }
+        { "firstList"_s, "apitest:///notify"_s, false, false, false, { "testnotification"_s } },
+        { "secondList"_s, "apitest:///block"_s, true, false, false, { } }
     };
     EXPECT_TRUE(expectedNotifications == notificationList);
+}
+
+TEST(ContentRuleList, ResourceTypes)
+{
+    using namespace TestWebKitAPI;
+    HTTPServer webSocketServer([](Connection connection) {
+        connection.webSocketHandshake();
+    });
+    auto serverPort = webSocketServer.port();
+
+    auto handler = [[TestURLSchemeHandler new] autorelease];
+    handler.startURLSchemeTaskHandler = ^(WKWebView *, id<WKURLSchemeTask> task) {
+        NSString *path = task.request.URL.path;
+        if ([path isEqualToString:@"/checkWebSocket.html"])
+            return respond(task, [NSString stringWithFormat:@"<script>var ws = new WebSocket('ws://localhost:%d/test');ws.onopen=()=>{alert('onopen')};ws.onerror=()=>{alert('onerror')}</script>", serverPort].UTF8String);
+        if ([path isEqualToString:@"/checkFetch.html"])
+            return respond(task, "<script>fetch('test:///fetchContent').then(()=>{alert('fetched')}).catch(()=>{alert('did not fetch')})</script>");
+        if ([path isEqualToString:@"/fetchContent"])
+            return respond(task, "hello");
+        if ([path isEqualToString:@"/checkXHR.html"])
+            return respond(task, "<script>var xhr = new XMLHttpRequest();xhr.open('GET', 'test:///fetchContent');xhr.onreadystatechange=()=>{if(xhr.readyState==4){setTimeout(()=>{alert('xhr finished')}, 0)}};xhr.onerror=()=>{alert('xhr error')};xhr.send()</script>");
+
+        ASSERT_NOT_REACHED();
+    };
+    auto configuration = [[WKWebViewConfiguration new] autorelease];
+    [configuration setURLSchemeHandler:handler forURLScheme:@"test"];
+    configuration.websiteDataStore = [WKWebsiteDataStore nonPersistentDataStore];
+    auto webView = [[[WKWebView alloc] initWithFrame:CGRectZero configuration:configuration] autorelease];
+
+    auto listWithResourceType = [] (const char* type) {
+        return makeContentRuleList([NSString stringWithFormat:@"[{\"action\":{\"type\":\"block\"},\"trigger\":{\"url-filter\":\".*test\",\"resource-type\":[\"%s\"]}}]", type]);
+    };
+
+    WKUserContentController *userContentController = webView.configuration.userContentController;
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"test:///checkWebSocket.html"]]];
+    EXPECT_WK_STREQ([webView _test_waitForAlert], "onopen");
+    [userContentController addContentRuleList:listWithResourceType("websocket").get()];
+    [webView reload];
+    EXPECT_WK_STREQ([webView _test_waitForAlert], "onerror");
+
+    [userContentController removeAllContentRuleLists];
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"test:///checkFetch.html"]]];
+    EXPECT_WK_STREQ([webView _test_waitForAlert], "fetched");
+    [userContentController addContentRuleList:listWithResourceType("fetch").get()];
+    [webView reload];
+    EXPECT_WK_STREQ([webView _test_waitForAlert], "did not fetch");
+    
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"test:///checkXHR.html"]]];
+    EXPECT_WK_STREQ([webView _test_waitForAlert], "xhr error");
+    EXPECT_WK_STREQ([webView _test_waitForAlert], "xhr finished");
+    [userContentController removeAllContentRuleLists];
+    [webView reload];
+    EXPECT_WK_STREQ([webView _test_waitForAlert], "xhr finished");
+    
+    HTTPServer beaconServer({
+        { "/"_s, { "<script>navigator.sendBeacon('/testBeaconTarget', 'hello');fetch('/testFetchTarget').then(()=>{alert('fetch done')})</script>"_s } },
+        { "/testBeaconTarget"_s, { "hi"_s } },
+        { "/testFetchTarget"_s, { "hi"_s } },
+    });
+    [webView loadRequest:beaconServer.request()];
+    EXPECT_WK_STREQ([webView _test_waitForAlert], "fetch done");
+    while (beaconServer.totalRequests() != 3)
+        Util::spinRunLoop();
+    [userContentController addContentRuleList:listWithResourceType("other").get()];
+    [webView reload];
+    EXPECT_WK_STREQ([webView _test_waitForAlert], "fetch done");
+    while (beaconServer.totalRequests() != 5)
+        Util::spinRunLoop();
+}
+
+TEST(ContentRuleList, ThirdParty)
+{
+    auto handler = [[TestURLSchemeHandler new] autorelease];
+    handler.startURLSchemeTaskHandler = ^(WKWebView *, id<WKURLSchemeTask> task) {
+        NSString *path = task.request.URL.path;
+        if ([path isEqualToString:@"/main.html"]) {
+            return respond(task, "<script>"
+                "function testWebKit() { fetch('test://webkit.org/resource.txt', {mode:'no-cors'}).then(()=>{alert('webkit.org loaded');}).catch(()=>{alert('webkit.org blocked');}) };"
+                "fetch('test://sub.example.com/resource.txt', {mode:'no-cors'}).then(()=>{alert('sub.example.com loaded');testWebKit();}).catch(()=>{alert('sub.example.com blocked');testWebKit();})"
+            "</script>");
+        }
+        if ([path isEqualToString:@"/resource.txt"])
+            return respond(task, "hi");
+
+        ASSERT_NOT_REACHED();
+    };
+    auto configuration = [[WKWebViewConfiguration new] autorelease];
+    [configuration setURLSchemeHandler:handler forURLScheme:@"test"];
+    configuration.websiteDataStore = [WKWebsiteDataStore nonPersistentDataStore];
+    auto webView = [[[WKWebView alloc] initWithFrame:CGRectZero configuration:configuration] autorelease];
+
+    auto listWithLoadType = [] (const char* type) {
+        return makeContentRuleList([NSString stringWithFormat:@"[{\"action\":{\"type\":\"block\"},\"trigger\":{\"url-filter\":\"resource.txt\",\"load-type\":[\"%s\"]}}]", type]);
+    };
+
+    WKUserContentController *userContentController = webView.configuration.userContentController;
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"test://example.com/main.html"]]];
+    EXPECT_WK_STREQ([webView _test_waitForAlert], "sub.example.com loaded");
+    EXPECT_WK_STREQ([webView _test_waitForAlert], "webkit.org loaded");
+    
+    [userContentController addContentRuleList:listWithLoadType("third-party").get()];
+    [webView reload];
+    EXPECT_WK_STREQ([webView _test_waitForAlert], "sub.example.com loaded");
+    EXPECT_WK_STREQ([webView _test_waitForAlert], "webkit.org blocked");
+    [userContentController removeAllContentRuleLists];
+    [userContentController addContentRuleList:listWithLoadType("first-party").get()];
+    [webView reload];
+    EXPECT_WK_STREQ([webView _test_waitForAlert], "sub.example.com blocked");
+    EXPECT_WK_STREQ([webView _test_waitForAlert], "webkit.org loaded");
+}
+
+TEST(ContentRuleList, SupportsRegex)
+{
+    NSArray<NSString *> *allowed = @[
+        @".*",
+        @"a.*b"
+    ];
+    for (NSString *regex in allowed)
+        EXPECT_TRUE([WKContentRuleList _supportsRegularExpression:regex]);
+    
+    NSArray<NSString *> *disallowed = @[
+        @"Ä",
+        @"\\d\\D\\w\\s\\v\\h\\i\\c",
+        @"",
+        @"(?<A>a)\\k<A>",
+        @"a^",
+        @"\\b",
+        @"[\\d]",
+        @"(?!)",
+        @"this|that",
+        @"$$",
+        @"a{0,2}b"
+    ];
+    for (NSString *regex in disallowed)
+        EXPECT_FALSE([WKContentRuleList _supportsRegularExpression:regex]);
+}
+
+TEST(ContentRuleList, ParseRuleList)
+{
+    NSArray<NSString *> *passingRuleLists = @[
+        @"[ { \"action\": { \"type\" : \"css-display-none\", \"selector\": \"a[href*='apple.com']\" }, \"trigger\": { \"url-filter\": \".*\" }} ]",
+        @"[ { \"action\": { \"type\" : \"block\" }, \"trigger\": { \"url-filter\": \"webkit.org\" }} ]",
+        @"[ { \"action\": { \"type\" : \"ignore-previous-rules\" }, \"trigger\": { \"url-filter\": \"example.com\" }} ]",
+    ];
+
+    for (NSString *passingRuleList in passingRuleLists) {
+        NSError *parsingError = [WKContentRuleList _parseRuleList:passingRuleList];
+        EXPECT_NULL(parsingError);
+    }
+
+    NSArray<NSString *> *failingRuleLists = @[
+        // Invalid JSON.
+        @"{{ \"action\": { \"type\" : \"css-display-none\", \"selector\": \"a[href*='apple.com']\" }, \"trigger\": { \"url-filter\": \".*\" }}",
+
+        // Top level object not an array.
+        @"{ \"action\": { \"type\" : \"css-display-none\", \"selector\": \"a[href*='apple.com']\" }, \"trigger\": { \"url-filter\": \".*\" }}",
+
+        // No trigger.
+        @"[ { \"action\": { \"type\" : \"block\" }} ]",
+
+        // No action.
+        @"[ { \"trigger\": { \"url-filter\": \"webkit.org\" }} ]",
+
+        // Fake action type.
+        @"[ { \"action\": { \"type\" : \"dance\" }, \"trigger\": { \"url-filter\": \"webkit.org\" }} ]",
+    ];
+
+    for (NSString *failingRuleList in failingRuleLists) {
+        NSError *parsingError = [WKContentRuleList _parseRuleList:failingRuleList];
+        EXPECT_NOT_NULL(parsingError);
+    }
+}
+
+TEST(ContentRuleList, TopFrameChildFrame)
+{
+    auto handler = [[TestURLSchemeHandler new] autorelease];
+    __block bool loadedIFrame = false;
+    handler.startURLSchemeTaskHandler = ^(WKWebView *, id<WKURLSchemeTask> task) {
+        NSString *path = task.request.URL.path;
+        if ([path isEqualToString:@"/main.html"])
+            return respond(task, "<iframe src='frame.html'></iframe>");
+        if ([path isEqualToString:@"/frame.html"]) {
+            EXPECT_FALSE(loadedIFrame);
+            loadedIFrame = true;
+            return respond(task, "hi");
+        }
+        if ([path isEqualToString:@"/fetch_main.html"]) {
+            return respond(task, "<script>"
+                "function addiframe() { var iframe = document.createElement('iframe'); iframe.src = 'fetch_iframe.html'; document.body.appendChild(iframe); };"
+                "function testfetch() { fetch('/fetched.txt').then(()=>{alert('main frame fetched successfully');addiframe()}).catch(()=>{alert('main frame fetch failed');addiframe();}) }"
+                "</script><body onload='testfetch()'/>");
+        }
+        if ([path isEqualToString:@"/fetched.txt"])
+            return respond(task, "hi");
+        if ([path isEqualToString:@"/fetch_iframe.html"]) {
+            return respond(task, "<script>"
+                "function testfetch() { fetch('/fetched.txt').then(()=>{alert('iframe fetched successfully')}).catch(()=>{alert('iframe fetch failed');}) }"
+                "</script><body onload='testfetch()'/>");
+        }
+        ASSERT_NOT_REACHED();
+    };
+    auto configuration = [[WKWebViewConfiguration new] autorelease];
+    [configuration setURLSchemeHandler:handler forURLScheme:@"test"];
+    configuration.websiteDataStore = [WKWebsiteDataStore nonPersistentDataStore];
+    auto webView = [[[WKWebView alloc] initWithFrame:CGRectZero configuration:configuration] autorelease];
+    WKUserContentController *userContentController = webView.configuration.userContentController;
+
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"test:///main.html"]]];
+    [webView _test_waitForDidFinishNavigation];
+    EXPECT_TRUE(loadedIFrame);
+
+    [userContentController addContentRuleList:makeContentRuleList(@"[{\"action\":{\"type\":\"block\"},\"trigger\":{\"url-filter\":\"test\",\"load-context\":[\"child-frame\"]}}]").get()];
+    loadedIFrame = false;
+    [webView reload];
+    [webView _test_waitForDidFinishNavigation];
+    EXPECT_FALSE(loadedIFrame);
+    
+    [userContentController removeAllContentRuleLists];
+    
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"test:///fetch_main.html"]]];
+    EXPECT_WK_STREQ([webView _test_waitForAlert], "main frame fetched successfully");
+    EXPECT_WK_STREQ([webView _test_waitForAlert], "iframe fetched successfully");
+
+    auto listWithLoadContext = [] (const char* type) {
+        return makeContentRuleList([NSString stringWithFormat:@"[{\"action\":{\"type\":\"block\"},\"trigger\":{\"url-filter\":\"test\",\"load-context\":[\"%s\"],\"resource-type\":[\"fetch\"]}}]", type]);
+    };
+    [userContentController addContentRuleList:listWithLoadContext("child-frame").get()];
+    [webView reload];
+    EXPECT_WK_STREQ([webView _test_waitForAlert], "main frame fetched successfully");
+    EXPECT_WK_STREQ([webView _test_waitForAlert], "iframe fetch failed");
+
+    [userContentController removeAllContentRuleLists];
+    [userContentController addContentRuleList:listWithLoadContext("top-frame").get()];
+    [webView reload];
+    EXPECT_WK_STREQ([webView _test_waitForAlert], "main frame fetch failed");
+    EXPECT_WK_STREQ([webView _test_waitForAlert], "iframe fetched successfully");
+}
+
+TEST(ContentRuleList, CSPReport)
+{
+    TestWebKitAPI::HTTPServer server({ { "/"_s, { {
+        { "Content-Security-Policy"_s, "frame-src 'none'; report-uri resources/save-report.py"_s }
+    }, "<iframe src=\"https://webkit.org/\"></iframe>"_s } } });
+
+    auto configuration = adoptNS([WKWebViewConfiguration new]);
+    [[configuration userContentController] addContentRuleList:makeContentRuleList(@"[{\"action\":{\"type\":\"block\"},\"trigger\":{\"url-filter\":\".*\",\"resource-type\":[\"csp-report\"]}}]").get()];
+    auto webView = adoptNS([[WKWebView alloc] initWithFrame:NSZeroRect configuration:configuration.get()]);
+    auto delegate = adoptNS([ContentRuleListNotificationDelegate new]);
+    [webView setNavigationDelegate:delegate.get()];
+    [webView loadRequest:server.request()];
+    while (notificationList.isEmpty())
+        TestWebKitAPI::Util::spinRunLoop();
+
+    URL expectedURL = server.request().URL;
+    expectedURL.setPath("/resources/save-report.py"_s);
+    EXPECT_STREQ(expectedURL.string().utf8().data(), notificationList.first().url.utf8().data());
+}
+
+TEST(WebKit, RedirectToPlaintextHTTPSUpgrade)
+{
+    using namespace TestWebKitAPI;
+    HTTPServer plaintextServer({ { "http://download/redirectTarget"_s, { "<script>alert('success!')</script>"_s } } });
+    HTTPServer secureServer({ { "/originalRequest"_s, { 302, { { "Location"_s, "http://download/redirectTarget"_s } }, emptyString() } } }, HTTPServer::Protocol::HttpsProxy);
+
+    auto storeConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] initNonPersistentConfiguration]);
+    [storeConfiguration setHTTPProxy:[NSURL URLWithString:[NSString stringWithFormat:@"http://127.0.0.1:%d/", plaintextServer.port()]]];
+    [storeConfiguration setHTTPSProxy:[NSURL URLWithString:[NSString stringWithFormat:@"https://127.0.0.1:%d/", secureServer.port()]]];
+    [storeConfiguration setAllowsServerPreconnect:NO];
+    auto viewConfiguration = adoptNS([WKWebViewConfiguration new]);
+    [viewConfiguration setWebsiteDataStore:adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:storeConfiguration.get()]).get()];
+    auto webView = adoptNS([[WKWebView alloc] initWithFrame:CGRectMake(0, 0, 100, 100) configuration:viewConfiguration.get()]);
+    auto delegate = adoptNS([TestNavigationDelegate new]);
+    delegate.get().didReceiveAuthenticationChallenge = ^(WKWebView *, NSURLAuthenticationChallenge *challenge, void (^completionHandler)(NSURLSessionAuthChallengeDisposition, NSURLCredential *)) {
+        completionHandler(NSURLSessionAuthChallengeUseCredential, [NSURLCredential credentialForTrust:challenge.protectionSpace.serverTrust]);
+    };
+    webView.get().navigationDelegate = delegate.get();
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://download/originalRequest"]]];
+    EXPECT_WK_STREQ([webView _test_waitForAlert], "success!");
 }

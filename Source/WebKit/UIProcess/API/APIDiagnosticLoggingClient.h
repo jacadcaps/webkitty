@@ -25,8 +25,12 @@
 
 #pragma once
 
-#include <WebCore/DiagnosticLoggingResultType.h>
-#include <wtf/text/WTFString.h>
+#include <wtf/Forward.h>
+
+namespace WebCore {
+enum DiagnosticLoggingResultType : uint8_t;
+enum class DiagnosticLoggingDomain : uint8_t;
+}
 
 namespace WebKit {
 class WebPageProxy;
@@ -47,6 +51,8 @@ public:
     virtual void logDiagnosticMessageWithEnhancedPrivacy(WebKit::WebPageProxy*, const WTF::String& message, const WTF::String& description) = 0;
 
     virtual void logDiagnosticMessageWithValueDictionary(WebKit::WebPageProxy*, const WTF::String& message, const WTF::String& description, Ref<API::Dictionary>&&) = 0;
+
+    virtual void logDiagnosticMessageWithDomain(WebKit::WebPageProxy*, const WTF::String&, WebCore::DiagnosticLoggingDomain) { }
 };
 
 } // namespace API

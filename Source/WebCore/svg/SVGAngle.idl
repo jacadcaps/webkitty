@@ -20,9 +20,12 @@
  * Boston, MA 02110-1301, USA.
  */
 
+// https://svgwg.org/svg2-draft/types.html#InterfaceSVGAngle
+
 [
-    ConstantsScope=SVGAngleValue
-] interface SVGAngle { 
+    ConstantsScope=SVGAngleValue,
+    Exposed=Window
+] interface SVGAngle {
     // Angle Unit Types
     const unsigned short SVG_ANGLETYPE_UNKNOWN = 0;
     const unsigned short SVG_ANGLETYPE_UNSPECIFIED = 1;
@@ -31,11 +34,10 @@
     const unsigned short SVG_ANGLETYPE_GRAD = 4;
 
     readonly attribute unsigned short unitType;
-    [ImplementedAs=valueForBindings] attribute unrestricted float value;
-    attribute unrestricted float valueInSpecifiedUnits;
-
+    [ImplementedAs=valueForBindings] attribute float value;
+    attribute float valueInSpecifiedUnits;
     attribute DOMString valueAsString;
 
-    [MayThrowException] void newValueSpecifiedUnits(unsigned short unitType, unrestricted float valueInSpecifiedUnits);
-    [MayThrowException] void convertToSpecifiedUnits(unsigned short unitType);
+    undefined newValueSpecifiedUnits(unsigned short unitType, float valueInSpecifiedUnits);
+    undefined convertToSpecifiedUnits(unsigned short unitType);
 };

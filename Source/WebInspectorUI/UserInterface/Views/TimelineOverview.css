@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013, 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2020 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,22 +27,13 @@
     --timeline-sidebar-width: 197px;
 }
 
-body[dir=ltr] .timeline-overview > :matches(.navigation-bar.timelines, .tree-outline.timelines) {
-    left: 0;
-    border-right: 1px solid var(--border-color);
+.timeline-overview > :is(.navigation-bar.timelines, .tree-outline.timelines) {
+    border-inline-end: 1px solid var(--border-color);
+    inset-inline-start: 0;
 }
 
-body[dir=rtl] .timeline-overview > :matches(.navigation-bar.timelines, .tree-outline.timelines) {
-    right: 0;
-    border-left: 1px solid var(--border-color);
-}
-
-body[dir=ltr] .timeline-overview:not(.frames) > :matches(.scroll-container, .timeline-ruler, .graphs-container) {
-    left: var(--timeline-sidebar-width);
-}
-
-body[dir=rtl] .timeline-overview:not(.frames) > :matches(.scroll-container, .timeline-ruler, .graphs-container) {
-    right: var(--timeline-sidebar-width);
+.timeline-overview:not(.frames) > :is(.scroll-container, .timeline-ruler, .graphs-container) {
+    inset-inline-start: var(--timeline-sidebar-width);
 }
 
 .timeline-overview > .navigation-bar.timelines {
@@ -57,11 +48,16 @@ body[dir=rtl] .timeline-overview:not(.frames) > :matches(.scroll-container, .tim
     border-bottom: 1px solid var(--border-color);
 }
 
-.navigation-bar.timelines .item.button.toggle-edit-instruments:not(.disabled):matches(:focus, .activate.activated, .radio.selected) {
+.navigation-bar.timelines .item.text.enabled-timelines {
+    font-style: italic;
+    color: hsl(0, 0%, 50%);
+}
+
+.navigation-bar.timelines .item.button.toggle-edit-instruments:not(.disabled):is(:focus, .activate.activated, .radio.selected) {
     color: var(--glyph-color-active);
 }
 
-.navigation-bar.timelines .item.button.toggle-edit-instruments:not(.disabled):active:matches(:focus, .activate.activated, .radio.selected) {
+.navigation-bar.timelines .item.button.toggle-edit-instruments:not(.disabled):active:is(:focus, .activate.activated, .radio.selected) {
     color: var(--glyph-color-active-pressed);
 }
 
@@ -116,7 +112,7 @@ body[dir=rtl] .timeline-overview:not(.frames) > :matches(.scroll-container, .tim
     border-top-color: hsla(0, 0%, var(--foreground-lightness), 0.09);
 }
 
-body:matches(.window-inactive, .window-docked-inactive) .timeline-overview:not(.edit-instruments) > .tree-outline.timelines .item.selected + .item {
+body:is(.window-inactive, .window-docked-inactive) .timeline-overview:not(.edit-instruments) > .tree-outline.timelines .item.selected + .item {
     border-top-color: var(--selected-background-color-unfocused);
 }
 
@@ -138,7 +134,7 @@ body:not(.window-inactive, .window-docked-inactive) .timeline-overview:not(.edit
     z-index: calc(var(--z-index-resizer) + 1);
 }
 
-.timeline-overview.frames > :matches(.tree-outline.timelines, .navigation-bar.timelines) {
+.timeline-overview.frames > :is(.tree-outline.timelines, .navigation-bar.timelines) {
     display: none;
 }
 
@@ -221,17 +217,10 @@ body.mac-platform.legacy .timeline-overview > .graphs-container {
 .timeline-overview > .scroll-container > .scroll-width-sizer {
     position: absolute;
     top: 0;
+    inset-inline-start: 0;
     height: 1px;
     visibility: hidden;
     pointer-events: none;
-}
-
-body[dir=ltr] .timeline-overview > .scroll-container > .scroll-width-sizer {
-    left: 0;
-}
-
-body[dir=rtl] .timeline-overview > .scroll-container > .scroll-width-sizer {
-    right: 0;
 }
 
 @media (prefers-color-scheme: dark) {

@@ -1,5 +1,6 @@
 /*
  * Copyright (C) Research In Motion Limited 2009-2010. All rights reserved.
+ * Copyright (C) 2021, 2022, 2023 Igalia S.L.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -19,16 +20,16 @@
 
 #pragma once
 
-#include "RenderSVGResourceContainer.h"
-#include "SVGClipPathElement.h"
-#include "SVGUnitTypes.h"
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
 
-#include <wtf/HashMap.h>
+#include "RenderSVGResourceContainer.h"
+#include "SVGUnitTypes.h"
 
 namespace WebCore {
 
 class GraphicsContext;
-class ImageBuffer;
+class SVGClipPathElement;
+class SVGGraphicsElement;
 
 class RenderSVGResourceClipper final : public RenderSVGResourceContainer {
     WTF_MAKE_ISO_ALLOCATED(RenderSVGResourceClipper);
@@ -36,63 +37,32 @@ public:
     RenderSVGResourceClipper(SVGClipPathElement&, RenderStyle&&);
     virtual ~RenderSVGResourceClipper();
 
-    SVGClipPathElement& clipPathElement() const { return downcast<SVGClipPathElement>(nodeForNonAnonymous()); }
+    inline SVGClipPathElement& clipPathElement() const;
 
-    void removeAllClientsFromCache(bool markForInvalidation = true) override;
-    void removeClientFromCache(RenderElement&, bool markForInvalidation = true) override;
+    SVGGraphicsElement* shouldApplyPathClipping() const;
+    void applyPathClipping(GraphicsContext&, const RenderLayerModelObject& targetRenderer, const FloatRect& objectBoundingBox, SVGGraphicsElement&);
+    void applyMaskClipping(PaintInfo&, const RenderLayerModelObject& targetRenderer, const FloatRect& objectBoundingBox);
 
-    bool applyResource(RenderElement&, const RenderStyle&, GraphicsContext*&, OptionSet<RenderSVGResourceMode>) override;
-    // clipPath can be clipped too, but don't have a boundingBox or repaintRect. So we can't call
-    // applyResource directly and use the rects from the object, since they are empty for RenderSVGResources
-    // FIXME: We made applyClippingToContext public because we cannot call applyResource on HTML elements (it asserts on RenderObject::objectBoundingBox)
-    bool applyClippingToContext(RenderElement&, const FloatRect&, GraphicsContext&);
-    FloatRect resourceBoundingBox(const RenderObject&) override;
+    FloatRect resourceBoundingBox(const RenderObject&, RepaintRectCalculation);
 
-    RenderSVGResourceType resourceType() const override { return ClipperResourceType; }
-    
-    bool hitTestClipContent(const FloatRect&, const FloatPoint&);
+    bool hitTestClipContent(const FloatRect&, const LayoutPoint&);
 
-    SVGUnitTypes::SVGUnitType clipPathUnits() const { return clipPathElement().clipPathUnits(); }
+    inline SVGUnitTypes::SVGUnitType clipPathUnits() const;
+
+    void applyTransform(TransformationMatrix&, const RenderStyle&, const FloatRect& boundingBox, OptionSet<RenderStyle::TransformOperationOption>) const final;
 
 private:
-    bool selfNeedsClientInvalidation() const override { return (everHadLayout() || m_clipper.size()) && selfNeedsLayout(); }
-
-    struct ClipperData {
-        FloatRect objectBoundingBox;
-        AffineTransform absoluteTransform;
-        std::unique_ptr<ImageBuffer> imageBuffer;
-        
-        ClipperData() = default;
-        ClipperData(std::unique_ptr<ImageBuffer>&& buffer, const FloatRect& boundingBox, const AffineTransform& transform)
-            : objectBoundingBox(boundingBox)
-            , absoluteTransform(transform)
-            , imageBuffer(WTFMove(buffer))
-        {
-        }
-
-        bool isValidForGeometry(const FloatRect& boundingBox, const AffineTransform& transform) const
-        {
-            return imageBuffer && objectBoundingBox == boundingBox && absoluteTransform == transform;
-        }
-    };
-
     void element() const = delete;
 
-    const char* renderName() const override { return "RenderSVGResourceClipper"; }
-    bool isSVGResourceClipper() const override { return true; }
+    bool needsHasSVGTransformFlags() const final;
 
-    bool pathOnlyClipping(GraphicsContext&, const AffineTransform&, const FloatRect&);
-    bool drawContentIntoMaskImage(ImageBuffer&, const FloatRect& objectBoundingBox);
-    void calculateClipContentRepaintRect();
-    ClipperData& addRendererToClipper(const RenderObject&);
+    void updateFromStyle() final;
 
-    FloatRect m_clipBoundaries;
-    HashMap<const RenderObject*, ClipperData> m_clipper;
+    ASCIILiteral renderName() const final { return "RenderSVGResourceClipper"_s; }
 };
 
 }
 
-SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::RenderSVGResourceClipper)
-static bool isType(const WebCore::RenderObject& renderer) { return renderer.isSVGResourceClipper(); }
-static bool isType(const WebCore::RenderSVGResource& resource) { return resource.resourceType() == WebCore::ClipperResourceType; }
-SPECIALIZE_TYPE_TRAITS_END()
+SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderSVGResourceClipper, isRenderSVGResourceClipper())
+
+#endif // ENABLE(LAYER_BASED_SVG_ENGINE)

@@ -26,6 +26,7 @@
 #include "config.h"
 #include "SVGLengthList.h"
 
+#include "EventTarget.h"
 #include <wtf/text/StringBuilder.h>
 #include <wtf/text/StringParsingBuffer.h>
 
@@ -36,6 +37,8 @@ bool SVGLengthList::parse(StringView value)
     clearItems();
 
     return readCharactersForParsing(value, [&](auto buffer) {
+        skipOptionalSVGSpaces(buffer);
+
         while (buffer.hasCharactersRemaining()) {
             auto start = buffer.position();
 

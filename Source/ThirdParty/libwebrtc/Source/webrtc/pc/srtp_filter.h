@@ -11,6 +11,9 @@
 #ifndef PC_SRTP_FILTER_H_
 #define PC_SRTP_FILTER_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <list>
 #include <map>
 #include <memory>
@@ -21,12 +24,10 @@
 #include "api/array_view.h"
 #include "api/crypto_params.h"
 #include "api/jsep.h"
+#include "api/sequence_checker.h"
 #include "pc/session_description.h"
 #include "rtc_base/buffer.h"
-#include "rtc_base/constructor_magic.h"
-#include "rtc_base/critical_section.h"
 #include "rtc_base/ssl_stream_adapter.h"
-#include "rtc_base/thread_checker.h"
 
 // Forward declaration to avoid pulling in libsrtp headers here
 struct srtp_event_data_t;
@@ -82,8 +83,8 @@ class SrtpFilter {
                              uint8_t* key,
                              size_t len);
 
-  absl::optional<int> send_cipher_suite() { return send_cipher_suite_; }
-  absl::optional<int> recv_cipher_suite() { return recv_cipher_suite_; }
+  absl::optional<int> send_crypto_suite() { return send_crypto_suite_; }
+  absl::optional<int> recv_crypto_suite() { return recv_crypto_suite_; }
 
   rtc::ArrayView<const uint8_t> send_key() { return send_key_; }
   rtc::ArrayView<const uint8_t> recv_key() { return recv_key_; }
@@ -135,8 +136,8 @@ class SrtpFilter {
   std::vector<CryptoParams> offer_params_;
   CryptoParams applied_send_params_;
   CryptoParams applied_recv_params_;
-  absl::optional<int> send_cipher_suite_;
-  absl::optional<int> recv_cipher_suite_;
+  absl::optional<int> send_crypto_suite_;
+  absl::optional<int> recv_crypto_suite_;
   rtc::ZeroOnFreeBuffer<uint8_t> send_key_;
   rtc::ZeroOnFreeBuffer<uint8_t> recv_key_;
 };

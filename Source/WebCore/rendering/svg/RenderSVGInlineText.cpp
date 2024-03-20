@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2006 Oliver Hunt <ojh16@student.canterbury.ac.nz>
- * Copyright (C) 2006 Apple Inc.
+ * Copyright (C) 2006-2023 Apple Inc. All rights reserved.
  * Copyright (C) 2007 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2008 Rob Buis <buis@kde.org>
  * Copyright (C) Research In Motion Limited 2010. All rights reserved.
@@ -25,12 +25,18 @@
 #include "RenderSVGInlineText.h"
 
 #include "CSSFontSelector.h"
+#include "DocumentInlines.h"
 #include "FloatConversion.h"
 #include "FloatQuad.h"
+#include "InlineRunAndOffset.h"
+#include "LegacyRenderSVGRoot.h"
+#include "RenderAncestorIterator.h"
 #include "RenderBlock.h"
-#include "RenderSVGRoot.h"
+#include "RenderObjectInlines.h"
 #include "RenderSVGText.h"
-#include "SVGInlineTextBox.h"
+#include "SVGElementTypeHelpers.h"
+#include "SVGInlineTextBoxInlines.h"
+#include "SVGLayerTransformComputation.h"
 #include "SVGRenderingContext.h"
 #include "SVGRootInlineBox.h"
 #include "StyleFontSizeFunctions.h"
@@ -50,9 +56,9 @@ static String applySVGWhitespaceRules(const String& string, bool preserveWhiteSp
         // copy of the original character data content. It will convert all newline and tab
         // characters into space characters. Then, it will draw all space characters, including
         // leading, trailing and multiple contiguous space characters.
-        newString.replace('\t', ' ');
-        newString.replace('\n', ' ');
-        newString.replace('\r', ' ');
+        newString = makeStringByReplacingAll(newString, '\t', ' ');
+        newString = makeStringByReplacingAll(newString, '\n', ' ');
+        newString = makeStringByReplacingAll(newString, '\r', ' ');
         return newString;
     }
 
@@ -61,17 +67,18 @@ static String applySVGWhitespaceRules(const String& string, bool preserveWhiteSp
     // characters. Then it will convert all tab characters into space characters.
     // Then, it will strip off all leading and trailing space characters.
     // Then, all contiguous space characters will be consolidated.
-    newString.replace('\n', emptyString());
-    newString.replace('\r', emptyString());
-    newString.replace('\t', ' ');
+    newString = makeStringByReplacingAll(newString, '\n', ""_s);
+    newString = makeStringByReplacingAll(newString, '\r', ""_s);
+    newString = makeStringByReplacingAll(newString, '\t', ' ');
     return newString;
 }
 
 RenderSVGInlineText::RenderSVGInlineText(Text& textNode, const String& string)
-    : RenderText(textNode, applySVGWhitespaceRules(string, false))
+    : RenderText(Type::SVGInlineText, textNode, applySVGWhitespaceRules(string, false))
     , m_scalingFactor(1)
     , m_layoutAttributes(*this)
 {
+    ASSERT(isRenderSVGInlineText());
 }
 
 String RenderSVGInlineText::originalText() const
@@ -91,8 +98,8 @@ void RenderSVGInlineText::styleDidChange(StyleDifference diff, const RenderStyle
     RenderText::styleDidChange(diff, oldStyle);
     updateScaledFont();
 
-    bool newPreserves = style().whiteSpace() == WhiteSpace::Pre;
-    bool oldPreserves = oldStyle ? oldStyle->whiteSpace() == WhiteSpace::Pre : false;
+    bool newPreserves = style().whiteSpaceCollapse() == WhiteSpaceCollapse::Preserve;
+    bool oldPreserves = oldStyle ? oldStyle->whiteSpaceCollapse() == WhiteSpaceCollapse::Preserve : false;
     if (oldPreserves && !newPreserves) {
         setText(applySVGWhitespaceRules(originalText(), false), true);
         return;
@@ -108,42 +115,22 @@ void RenderSVGInlineText::styleDidChange(StyleDifference diff, const RenderStyle
 
     // The text metrics may be influenced by style changes.
     if (auto* textAncestor = RenderSVGText::locateRenderSVGTextAncestor(*this))
-        textAncestor->subtreeStyleDidChange(this);
+        textAncestor->setNeedsLayout();
 }
 
-std::unique_ptr<InlineTextBox> RenderSVGInlineText::createTextBox()
+std::unique_ptr<LegacyInlineTextBox> RenderSVGInlineText::createTextBox()
 {
     auto box = makeUnique<SVGInlineTextBox>(*this);
     box->setHasVirtualLogicalHeight();
-    return box;
-}
-
-LayoutRect RenderSVGInlineText::localCaretRect(InlineBox* box, unsigned caretOffset, LayoutUnit*)
-{
-    if (!is<InlineTextBox>(box))
-        return LayoutRect();
-
-    auto& textBox = downcast<InlineTextBox>(*box);
-    if (caretOffset < textBox.start() || caretOffset > textBox.start() + textBox.len())
-        return LayoutRect();
-
-    // Use the edge of the selection rect to determine the caret rect.
-    if (caretOffset < textBox.start() + textBox.len()) {
-        LayoutRect rect = textBox.localSelectionRect(caretOffset, caretOffset + 1);
-        LayoutUnit x = textBox.isLeftToRightDirection() ? rect.x() : rect.maxX();
-        return LayoutRect(x, rect.y(), caretWidth, rect.height());
-    }
-
-    LayoutRect rect = textBox.localSelectionRect(caretOffset - 1, caretOffset);
-    LayoutUnit x = textBox.isLeftToRightDirection() ? rect.maxX() : rect.x();
-    return LayoutRect(x, rect.y(), caretWidth, rect.height());
+    return box; 
 }
 
 FloatRect RenderSVGInlineText::floatLinesBoundingBox() const
 {
     FloatRect boundingBox;
-    for (InlineTextBox* box = firstTextBox(); box; box = box->nextTextBox())
+    for (auto* box = firstTextBox(); box; box = box->nextTextBox())
         boundingBox.unite(box->calculateBoundaries());
+
     return boundingBox;
 }
 
@@ -158,7 +145,7 @@ bool RenderSVGInlineText::characterStartsNewTextChunk(int position) const
     ASSERT(position < static_cast<int>(text().length()));
 
     // Each <textPath> element starts a new text chunk, regardless of any x/y values.
-    if (!position && parent()->isSVGTextPath() && !previousSibling())
+    if (!position && parent()->isRenderSVGTextPath() && !previousSibling())
         return true;
 
     const SVGCharacterDataMap::const_iterator it = m_layoutAttributes.characterDataMap().find(static_cast<unsigned>(position + 1));
@@ -171,9 +158,9 @@ bool RenderSVGInlineText::characterStartsNewTextChunk(int position) const
 VisiblePosition RenderSVGInlineText::positionForPoint(const LayoutPoint& point, const RenderFragmentContainer*)
 {
     if (!firstTextBox() || text().isEmpty())
-        return createVisiblePosition(0, DOWNSTREAM);
+        return createVisiblePosition(0, Affinity::Downstream);
 
-    float baseline = m_scaledFont.fontMetrics().floatAscent();
+    float baseline = m_scaledFont.metricsOfPrimaryFont().floatAscent();
 
     RenderBlock* containingBlock = this->containingBlock();
     ASSERT(containingBlock);
@@ -188,12 +175,8 @@ VisiblePosition RenderSVGInlineText::positionForPoint(const LayoutPoint& point, 
     SVGInlineTextBox* closestDistanceBox = nullptr;
 
     AffineTransform fragmentTransform;
-    for (InlineTextBox* box = firstTextBox(); box; box = box->nextTextBox()) {
-        if (!is<SVGInlineTextBox>(*box))
-            continue;
-
-        auto& textBox = downcast<SVGInlineTextBox>(*box);
-        Vector<SVGTextFragment>& fragments = textBox.textFragments();
+    for (auto* box = firstTextBox(); box; box = box->nextTextBox()) {
+        Vector<SVGTextFragment>& fragments = box->textFragments();
 
         unsigned textFragmentsSize = fragments.size();
         for (unsigned i = 0; i < textFragmentsSize; ++i) {
@@ -208,7 +191,7 @@ VisiblePosition RenderSVGInlineText::positionForPoint(const LayoutPoint& point, 
 
             if (distance < closestDistance) {
                 closestDistance = distance;
-                closestDistanceBox = &textBox;
+                closestDistanceBox = box;
                 closestDistanceFragment = &fragment;
                 closestDistancePosition = fragmentRect.x();
             }
@@ -216,10 +199,10 @@ VisiblePosition RenderSVGInlineText::positionForPoint(const LayoutPoint& point, 
     }
 
     if (!closestDistanceFragment)
-        return createVisiblePosition(0, DOWNSTREAM);
+        return createVisiblePosition(0, Affinity::Downstream);
 
-    int offset = closestDistanceBox->offsetForPositionInFragment(*closestDistanceFragment, absolutePoint.x() - closestDistancePosition, true);
-    return createVisiblePosition(offset + closestDistanceBox->start(), offset > 0 ? VP_UPSTREAM_IF_POSSIBLE : DOWNSTREAM);
+    int offset = closestDistanceBox->offsetForPositionInFragment(*closestDistanceFragment, absolutePoint.x() - closestDistancePosition);
+    return createVisiblePosition(offset + closestDistanceBox->start(), offset > 0 ? Affinity::Upstream : Affinity::Downstream);
 }
 
 void RenderSVGInlineText::updateScaledFont()
@@ -227,10 +210,21 @@ void RenderSVGInlineText::updateScaledFont()
     computeNewScaledFontForStyle(*this, style(), m_scalingFactor, m_scaledFont);
 }
 
+float RenderSVGInlineText::computeScalingFactorForRenderer(const RenderObject& renderer)
+{
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
+    if (renderer.document().settings().layerBasedSVGEngineEnabled()) {
+        if (const auto* layerRenderer = lineageOfType<RenderLayerModelObject>(renderer).first())
+            return SVGLayerTransformComputation(*layerRenderer).calculateScreenFontSizeScalingFactor();
+    }
+#endif
+    return SVGRenderingContext::calculateScreenFontSizeScalingFactor(renderer);
+}
+
 void RenderSVGInlineText::computeNewScaledFontForStyle(const RenderObject& renderer, const RenderStyle& style, float& scalingFactor, FontCascade& scaledFont)
 {
     // Alter font-size to the right on-screen value to avoid scaling the glyphs themselves, except when GeometricPrecision is specified
-    scalingFactor = SVGRenderingContext::calculateScreenFontSizeScalingFactor(renderer);
+    scalingFactor = computeScalingFactorForRenderer(renderer);
     if (!scalingFactor || style.fontDescription().textRenderingMode() == TextRenderingMode::GeometricPrecision) {
         scalingFactor = 1;
         scaledFont = style.fontCascade();
@@ -247,8 +241,13 @@ void RenderSVGInlineText::computeNewScaledFontForStyle(const RenderObject& rende
     if (fontDescription.orientation() != FontOrientation::Horizontal)
         fontDescription.setOrientation(FontOrientation::Horizontal);
 
-    scaledFont = FontCascade(WTFMove(fontDescription), 0, 0);
+    scaledFont = FontCascade(WTFMove(fontDescription));
     scaledFont.update(&renderer.document().fontSelector());
+}
+
+SVGInlineTextBox* RenderSVGInlineText::firstTextBox() const
+{
+    return downcast<SVGInlineTextBox>(RenderText::firstTextBox());
 }
 
 }

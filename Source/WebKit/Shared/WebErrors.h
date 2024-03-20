@@ -41,12 +41,15 @@ WebCore::ResourceError blockedByContentBlockerError(const WebCore::ResourceReque
 WebCore::ResourceError cannotShowURLError(const WebCore::ResourceRequest&);
 WebCore::ResourceError wasBlockedByRestrictionsError(const WebCore::ResourceRequest&);
 WebCore::ResourceError interruptedForPolicyChangeError(const WebCore::ResourceRequest&);
+WebCore::ResourceError ftpDisabledError(const WebCore::ResourceRequest&);
 WebCore::ResourceError failedCustomProtocolSyncLoad(const WebCore::ResourceRequest&);
 #if ENABLE(CONTENT_FILTERING)
 WebCore::ResourceError blockedByContentFilterError(const WebCore::ResourceRequest&);
 #endif
 WebCore::ResourceError cannotShowMIMETypeError(const WebCore::ResourceResponse&);
 WebCore::ResourceError fileDoesNotExistError(const WebCore::ResourceResponse&);
+WebCore::ResourceError httpsUpgradeRedirectLoopError(const WebCore::ResourceRequest&);
+WebCore::ResourceError httpNavigationWithHTTPSOnlyError(const WebCore::ResourceRequest&);
 WebCore::ResourceError pluginWillHandleLoadError(const WebCore::ResourceResponse&);
 
 #if USE(SOUP)
@@ -56,8 +59,6 @@ WebCore::ResourceError downloadDestinationError(const WebCore::ResourceResponse&
 #endif
 
 #if PLATFORM(GTK)
-WebCore::ResourceError printError(const URL&, const WTF::String&);
-WebCore::ResourceError printerNotFoundError(const URL&);
 WebCore::ResourceError invalidPageRangeToPrint(const URL&);
 #endif
 

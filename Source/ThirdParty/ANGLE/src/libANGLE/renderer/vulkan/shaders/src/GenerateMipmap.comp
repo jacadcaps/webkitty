@@ -52,10 +52,10 @@ layout(set = 0, binding = 0, DST_FORMAT) uniform coherent image2D dst[DST_COUNT]
 layout(set = 0, binding = 1) uniform sampler2D src;
 
 layout(push_constant) uniform PushConstants {
-    // Number of levels to generate mipmaps for.
-    uint levelCount;
     // Inverse extents of src image for uv calculation.
     vec2 invSrcExtent;
+    // Number of levels to generate mipmaps for.
+    uint levelCount;
 } params;
 
 #define A_GPU
@@ -75,8 +75,6 @@ shared AH4 spd_intermediate[16][16];
 shared AF4 spd_intermediate[16][16];
 #endif
 shared AU1 spd_counter;
-
-#define SPD_NO_WAVE_OPERATIONS
 
 // Use a linear sampler to sample from mip 0 instead of multiple loads and manual averaging.
 #define SPD_LINEAR_SAMPLER

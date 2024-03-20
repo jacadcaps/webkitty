@@ -25,11 +25,14 @@
 #include "config.h"
 #include "ContentChangeObserver.h"
 
-#if PLATFORM(IOS_FAMILY)
+#if ENABLE(CONTENT_CHANGE_OBSERVER)
+
+#include "Animation.h"
 #include "Chrome.h"
 #include "ChromeClient.h"
 #include "DOMTimer.h"
 #include "Document.h"
+#include "DocumentInlines.h"
 #include "FullscreenManager.h"
 #include "HTMLIFrameElement.h"
 #include "HTMLImageElement.h"
@@ -38,6 +41,7 @@
 #include "Page.h"
 #include "Quirks.h"
 #include "RenderDescendantIterator.h"
+#include "RenderStyleInlines.h"
 #include "Settings.h"
 
 namespace WebCore {
@@ -50,17 +54,28 @@ static bool isHiddenBehindFullscreenElement(const Node& descendantCandidate)
 {
     // Fullscreen status is propagated on the ancestor document chain all the way to the top document.
     auto& document = descendantCandidate.document();
-    auto* topMostFullScreenElement = document.topDocument().fullscreenManager().fullscreenElement();
+    CheckedPtr fullscreenManager = document.topDocument().fullscreenManagerIfExists();
+    if (!fullscreenManager)
+        return false;
+    auto* topMostFullScreenElement = fullscreenManager->fullscreenElement();
     if (!topMostFullScreenElement)
         return false;
 
     // If the document where the node lives does not have an active fullscreen element, it is a sibling/nephew document -> not a descendant.
-    auto* fullscreenElement = document.fullscreenManager().fullscreenElement();
+    fullscreenManager = document.fullscreenManagerIfExists();
+    if (!fullscreenManager)
+        return false;
+    auto* fullscreenElement = fullscreenManager->fullscreenElement();
     if (!fullscreenElement)
         return true;
     return !descendantCandidate.isDescendantOf(*fullscreenElement);
 }
 #endif
+
+bool ContentChangeObserver::isContentChangeObserverEnabled()
+{
+    return m_document.settings().contentChangeObserverEnabled();
+}
 
 bool ContentChangeObserver::isVisuallyHidden(const Node& node)
 {
@@ -133,34 +148,38 @@ bool ContentChangeObserver::isConsideredVisible(const Node& node)
     return true;
 }
 
-enum class ElementHadRenderer { No, Yes };
-static bool isConsideredClickable(const Element& candidateElement, ElementHadRenderer hadRenderer)
+bool ContentChangeObserver::isConsideredActionableContent(const Element& candidateElement, ElementHadRenderer hadRenderer) const
 {
-    auto& element = const_cast<Element&>(candidateElement);
-    if (element.isInUserAgentShadowTree())
-        return false;
-
-    if (is<HTMLIFrameElement>(element))
+    if (m_document.quirks().shouldTooltipPreventFromProceedingWithClick(candidateElement))
         return true;
 
-    if (is<HTMLImageElement>(element)) {
-        // This is required to avoid HTMLImageElement's touch callout override logic. See rdar://problem/48937767.
-        return element.Element::willRespondToMouseClickEvents();
-    }
+    auto isConsideredClickable = [&] {
+        auto& element = const_cast<Element&>(candidateElement);
+        if (element.isInUserAgentShadowTree())
+            return false;
 
-    bool hasRenderer = element.renderer();
-    auto willRespondToMouseClickEvents = element.willRespondToMouseClickEvents();
-    if (willRespondToMouseClickEvents || !hasRenderer || hadRenderer == ElementHadRenderer::No)
-        return willRespondToMouseClickEvents;
-
-    // In case when the content already had renderers it's not sufficient to check the candidate element only since it might just be the container for the clickable content.  
-    for (auto& descendant : descendantsOfType<RenderElement>(*element.renderer())) {
-        if (!descendant.element())
-            continue;
-        if (descendant.element()->willRespondToMouseClickEvents())
+        if (is<HTMLIFrameElement>(element))
             return true;
-    }
-    return false;
+
+        if (auto imageElement = dynamicDowncast<HTMLImageElement>(element)) {
+            // This is required to avoid HTMLImageElement's touch callout override logic. See rdar://problem/48937767.
+            return imageElement->willRespondToMouseClickEventsWithEditability(imageElement->computeEditabilityForMouseClickEvents(), HTMLImageElement::IgnoreTouchCallout::Yes);
+        }
+        bool hasRenderer = element.renderer();
+        auto willRespondToMouseClickEvents = element.willRespondToMouseClickEvents();
+        if (willRespondToMouseClickEvents || !hasRenderer || hadRenderer == ElementHadRenderer::No)
+            return willRespondToMouseClickEvents;
+
+        // In case when the content already had renderers it's not sufficient to check the candidate element only since it might just be the container for the clickable content.  
+        for (auto& descendant : descendantsOfType<RenderElement>(*element.renderer())) {
+            if (!descendant.element())
+                continue;
+            if (descendant.element()->willRespondToMouseClickEvents())
+                return true;
+        }
+        return false;
+    };
+    return isConsideredClickable();
 }
 
 ContentChangeObserver::ContentChangeObserver(Document& document)
@@ -169,27 +188,30 @@ ContentChangeObserver::ContentChangeObserver(Document& document)
 {
 }
 
-static void willNotProceedWithClick(Frame& mainFrame)
+static void willNotProceedWithClick(LocalFrame& mainFrame)
 {
-    for (auto* frame = &mainFrame; frame; frame = frame->tree().traverseNext()) {
-        if (auto* document = frame->document())
+    for (Frame* frame = &mainFrame; frame; frame = frame->tree().traverseNext()) {
+        auto* localFrame = dynamicDowncast<LocalFrame>(frame);
+        if (!localFrame)
+            continue;
+        if (auto* document = localFrame->document())
             document->contentChangeObserver().willNotProceedWithClick();
     }
 }
 
-void ContentChangeObserver::didCancelPotentialTap(Frame& mainFrame)
+void ContentChangeObserver::didCancelPotentialTap(LocalFrame& mainFrame)
 {
     LOG(ContentObservation, "didCancelPotentialTap: cancel ongoing content change observing.");
     WebCore::willNotProceedWithClick(mainFrame);
 }
 
-void ContentChangeObserver::didRecognizeLongPress(Frame& mainFrame)
+void ContentChangeObserver::didRecognizeLongPress(LocalFrame& mainFrame)
 {
     LOG(ContentObservation, "didRecognizeLongPress: cancel ongoing content change observing.");
     WebCore::willNotProceedWithClick(mainFrame);
 }
 
-void ContentChangeObserver::didPreventDefaultForEvent(Frame& mainFrame)
+void ContentChangeObserver::didPreventDefaultForEvent(LocalFrame& mainFrame)
 {
     LOG(ContentObservation, "didPreventDefaultForEvent: cancel ongoing content change observing.");
     WebCore::willNotProceedWithClick(mainFrame);
@@ -197,7 +219,7 @@ void ContentChangeObserver::didPreventDefaultForEvent(Frame& mainFrame)
 
 void ContentChangeObserver::startContentObservationForDuration(Seconds duration)
 {
-    if (!m_document.settings().contentChangeObserverEnabled())
+    if (!isContentChangeObserverEnabled())
         return;
     ASSERT(!hasVisibleChangeState());
     LOG_WITH_STREAM(ContentObservation, stream << "startContentObservationForDuration: start observing the content for " << duration.milliseconds() << "ms");
@@ -211,9 +233,21 @@ void ContentChangeObserver::completeDurationBasedContentObservation()
     adjustObservedState(Event::EndedFixedObservationTimeWindow);
 }
 
+static bool isObservedPropertyForTransition(AnimatableCSSProperty property)
+{
+    return WTF::switchOn(property,
+        [] (CSSPropertyID propertyId) {
+            return propertyId == CSSPropertyLeft || propertyId == CSSPropertyOpacity;
+        },
+        [] (const AtomString&) {
+            return false;
+        }
+    );
+}
+
 void ContentChangeObserver::didAddTransition(const Element& element, const Animation& transition)
 {
-    if (!m_document.settings().contentChangeObserverEnabled())
+    if (!isContentChangeObserverEnabled())
         return;
     if (hasVisibleChangeState())
         return;
@@ -223,7 +257,7 @@ void ContentChangeObserver::didAddTransition(const Element& element, const Anima
         return;
     if (!transition.isDurationSet() || !transition.isPropertySet())
         return;
-    if (!isObservedPropertyForTransition(transition.property().id))
+    if (!isObservedPropertyForTransition(transition.property().animatableProperty))
         return;
     auto transitionEnd = Seconds { transition.duration() + std::max<double>(0, transition.isDelaySet() ? transition.delay() : 0) };
     if (transitionEnd > maximumDelayForTransitions)
@@ -231,11 +265,11 @@ void ContentChangeObserver::didAddTransition(const Element& element, const Anima
     if (!isVisuallyHidden(element))
         return;
     // In case of multiple transitions, the first tranistion wins (and it has to produce a visible content change in order to show up as hover).
-    if (m_elementsWithTransition.contains(&element))
+    if (m_elementsWithTransition.contains(element))
         return;
     LOG_WITH_STREAM(ContentObservation, stream << "didAddTransition: transition created on " << &element << " (" << transitionEnd.milliseconds() << "ms).");
 
-    m_elementsWithTransition.add(&element);
+    m_elementsWithTransition.add(element);
     adjustObservedState(Event::AddedTransition);
 }
 
@@ -243,19 +277,19 @@ void ContentChangeObserver::didFinishTransition(const Element& element, CSSPrope
 {
     if (!isObservedPropertyForTransition(propertyID))
         return;
-    if (!m_elementsWithTransition.take(&element))
+    if (!m_elementsWithTransition.remove(element))
         return;
     LOG_WITH_STREAM(ContentObservation, stream << "didFinishTransition: transition finished (" << &element << ").");
 
-    // isConsideredClickable may trigger style update through Node::computeEditability. Let's adjust the state in the next runloop.
-    callOnMainThread([weakThis = makeWeakPtr(*this), targetElement = makeWeakPtr(element)] {
+    // isConsideredActionableContent may trigger style update through Node::computeEditability. Let's adjust the state in the next runloop.
+    callOnMainThread([weakThis = WeakPtr { *this }, targetElement = WeakPtr { element }] {
         if (!weakThis || !targetElement)
             return;
         if (isVisuallyHidden(*targetElement)) {
             weakThis->adjustObservedState(Event::EndedTransitionButFinalStyleIsNotDefiniteYet);
             return;
         }
-        if (isConsideredClickable(*targetElement, ElementHadRenderer::Yes))
+        if (weakThis->isConsideredActionableContent(*targetElement, ElementHadRenderer::Yes))
             weakThis->elementDidBecomeVisible(*targetElement);
         weakThis->adjustObservedState(Event::CompletedTransition);
     });
@@ -265,7 +299,7 @@ void ContentChangeObserver::didRemoveTransition(const Element& element, CSSPrope
 {
     if (!isObservedPropertyForTransition(propertyID))
         return;
-    if (!m_elementsWithTransition.take(&element))
+    if (!m_elementsWithTransition.remove(element))
         return;
     LOG_WITH_STREAM(ContentObservation, stream << "didRemoveTransition: transition got interrupted (" << &element << ").");
 
@@ -274,7 +308,7 @@ void ContentChangeObserver::didRemoveTransition(const Element& element, CSSPrope
 
 void ContentChangeObserver::didInstallDOMTimer(const DOMTimer& timer, Seconds timeout, bool singleShot)
 {
-    if (!m_document.settings().contentChangeObserverEnabled())
+    if (!isContentChangeObserverEnabled())
         return;
     if (!isObservingContentChanges())
         return;
@@ -327,6 +361,31 @@ void ContentChangeObserver::domTimerExecuteDidFinish(const DOMTimer& timer)
     m_observedDomTimerIsBeingExecuted = false;
     unregisterDOMTimer(timer);
     adjustObservedState(Event::EndedDOMTimerExecution);
+}
+
+void ContentChangeObserver::registerDOMTimer(const DOMTimer& timer)
+{
+    m_DOMTimerList.add(timer);
+}
+
+void ContentChangeObserver::unregisterDOMTimer(const DOMTimer& timer)
+{
+    m_DOMTimerList.remove(timer);
+}
+
+void ContentChangeObserver::clearObservedDOMTimers()
+{
+    m_DOMTimerList.clear();
+}
+
+bool ContentChangeObserver::containsObservedDOMTimer(const DOMTimer& timer) const
+{
+    return m_DOMTimerList.contains(timer);
+}
+
+bool ContentChangeObserver::hasObservedDOMTimer() const
+{
+    return !m_DOMTimerList.isEmptyIgnoringNullReferences();
 }
 
 void ContentChangeObserver::styleRecalcDidStart()
@@ -395,14 +454,14 @@ void ContentChangeObserver::willDetachPage()
 
 void ContentChangeObserver::rendererWillBeDestroyed(const Element& element)
 { 
-    if (!m_document.settings().contentChangeObserverEnabled())
+    if (!isContentChangeObserverEnabled())
         return;
     if (!isObservingContentChanges())
         return;
     LOG_WITH_STREAM(ContentObservation, stream << "rendererWillBeDestroyed element: " << &element);
 
     if (!isVisuallyHidden(element))
-        m_elementsWithDestroyedVisibleRenderer.add(&element);
+        m_elementsWithDestroyedVisibleRenderer.add(element);
     elementDidBecomeHidden(element);
 }
 
@@ -419,15 +478,15 @@ void ContentChangeObserver::elementDidBecomeHidden(const Element& element)
     // Candidate element is no longer visible.
     if (!m_visibilityCandidateList.remove(element))
         return;
-    ASSERT(hasVisibleChangeState());
-    if (m_visibilityCandidateList.computesEmpty())
+//    ASSERT(hasVisibleChangeState());
+    if (m_visibilityCandidateList.isEmptyIgnoringNullReferences())
         setHasIndeterminateState();
 }
 
 void ContentChangeObserver::touchEventDidStart(PlatformEvent::Type eventType)
 {
 #if ENABLE(TOUCH_EVENTS)
-    if (!m_document.settings().contentChangeObserverEnabled() || m_document.quirks().shouldDisableContentChangeObserverTouchEventAdjustment())
+    if (!isContentChangeObserverEnabled() || m_document.quirks().shouldDisableContentChangeObserverTouchEventAdjustment())
         return;
     if (eventType != PlatformEvent::Type::TouchStart)
         return;
@@ -444,7 +503,7 @@ void ContentChangeObserver::touchEventDidFinish()
 #if ENABLE(TOUCH_EVENTS)
     if (!isTouchEventBeingDispatched())
         return;
-    ASSERT(m_document.settings().contentChangeObserverEnabled());
+    ASSERT(isContentChangeObserverEnabled());
     LOG(ContentObservation, "touchEventDidFinish: touch start event finished.");
     setTouchEventIsBeingDispatched(false);
     adjustObservedState(Event::EndedTouchStartEventDispatching);
@@ -453,7 +512,7 @@ void ContentChangeObserver::touchEventDidFinish()
 
 void ContentChangeObserver::mouseMovedDidStart()
 {
-    if (!m_document.settings().contentChangeObserverEnabled())
+    if (!isContentChangeObserverEnabled())
         return;
     LOG(ContentObservation, "mouseMovedDidStart: mouseMoved started.");
     setMouseMovedEventIsBeingDispatched(true);
@@ -464,7 +523,7 @@ void ContentChangeObserver::mouseMovedDidFinish()
 {
     if (!isMouseMovedEventBeingDispatched())
         return;
-    ASSERT(m_document.settings().contentChangeObserverEnabled());
+    ASSERT(isContentChangeObserverEnabled());
     LOG(ContentObservation, "mouseMovedDidFinish: mouseMoved finished.");
     adjustObservedState(Event::EndedMouseMovedEventDispatching);
     setMouseMovedEventIsBeingDispatched(false);
@@ -655,10 +714,10 @@ ContentChangeObserver::StyleChangeScope::StyleChangeScope(Document& document, co
 ContentChangeObserver::StyleChangeScope::~StyleChangeScope()
 {
     // Do we track this element?
-    if (!m_wasHidden.hasValue())
+    if (!m_wasHidden.has_value())
         return;
 
-    if (!isConsideredClickable(m_element, m_hadRenderer ? ElementHadRenderer::Yes : ElementHadRenderer::No))
+    if (!m_contentChangeObserver.isConsideredActionableContent(m_element, m_hadRenderer ? ElementHadRenderer::Yes : ElementHadRenderer::No))
         return;
 
     auto wasVisible = !m_wasHidden.value();
@@ -721,4 +780,4 @@ ContentChangeObserver::DOMTimerScope::~DOMTimerScope()
 
 }
 
-#endif // PLATFORM(IOS_FAMILY)
+#endif // ENABLE(CONTENT_CHANGE_OBSERVER)

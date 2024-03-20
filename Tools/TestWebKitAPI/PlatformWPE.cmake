@@ -1,5 +1,8 @@
 set(TESTWEBKITAPI_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/TestWebKitAPI")
 
+file(REMOVE_RECURSE ${TESTWEBKITAPI_RUNTIME_OUTPUT_DIRECTORY})
+file(MAKE_DIRECTORY ${TESTWEBKITAPI_RUNTIME_OUTPUT_DIRECTORY})
+
 add_custom_target(TestWebKitAPI-forwarding-headers
     COMMAND ${PERL_EXECUTABLE} ${WEBKIT_DIR}/Scripts/generate-forwarding-headers.pl --include-path ${TESTWEBKITAPI_DIR} --output ${FORWARDING_HEADERS_DIR} --platform wpe --platform soup
     DEPENDS webkitwpe-forwarding-headers
@@ -14,13 +17,18 @@ set(test_main_SOURCES generic/main.cpp)
 list(APPEND TestWTF_SOURCES
     ${test_main_SOURCES}
 
+    Tests/WTF/glib/GRefPtr.cpp
     Tests/WTF/glib/GUniquePtr.cpp
+    Tests/WTF/glib/GWeakPtr.cpp
     Tests/WTF/glib/WorkQueueGLib.cpp
-
-    glib/UtilitiesGLib.cpp
 )
 
 list(APPEND TestWTF_SYSTEM_INCLUDE_DIRECTORIES
+    ${GLIB_INCLUDE_DIRS}
+)
+
+# TestJavaScriptCore
+list(APPEND TestJavaScriptCore_SYSTEM_INCLUDE_DIRECTORIES
     ${GLIB_INCLUDE_DIRS}
 )
 
@@ -30,9 +38,8 @@ list(APPEND TestWebCore_SOURCES
 
     Tests/WebCore/UserAgentQuirks.cpp
     Tests/WebCore/gstreamer/GStreamerTest.cpp
+    Tests/WebCore/gstreamer/GstElementHarness.cpp
     Tests/WebCore/gstreamer/GstMappedBuffer.cpp
-
-    glib/UtilitiesGLib.cpp
 )
 
 list(APPEND TestWebCore_SYSTEM_INCLUDE_DIRECTORIES
@@ -48,8 +55,6 @@ list(APPEND TestWebCore_SYSTEM_INCLUDE_DIRECTORIES
 list(APPEND TestWebKit_SOURCES
     ${test_main_SOURCES}
 
-    glib/UtilitiesGLib.cpp
-
     wpe/PlatformUtilitiesWPE.cpp
     wpe/PlatformWebViewWPE.cpp
 )
@@ -58,7 +63,6 @@ list(APPEND TestWebKit_PRIVATE_INCLUDE_DIRECTORIES
     ${CMAKE_SOURCE_DIR}/Source
     ${FORWARDING_HEADERS_DIR}
     ${WPEBACKEND_FDO_INCLUDE_DIRS}
-    ${TOOLS_DIR}/wpe/backends
 )
 
 list(APPEND TestWebKit_SYSTEM_INCLUDE_DIRECTORIES
@@ -68,7 +72,7 @@ list(APPEND TestWebKit_SYSTEM_INCLUDE_DIRECTORIES
 
 list(APPEND TestWebKit_LIBRARIES
     ${WPEBACKEND_FDO_LIBRARIES}
-    WPEToolingBackends
+    WebKit::WPEToolingBackends
 )
 
 # TestWebKitAPIBase
@@ -79,8 +83,6 @@ target_include_directories(TestWebKitAPIBase PRIVATE
 
 # TestWebKitAPIInjectedBundle
 target_sources(TestWebKitAPIInjectedBundle PRIVATE
-    glib/UtilitiesGLib.cpp
-
     wpe/PlatformUtilitiesWPE.cpp
 )
 target_include_directories(TestWebKitAPIInjectedBundle PRIVATE
@@ -101,18 +103,22 @@ set(TestJSC_SYSTEM_INCLUDE_DIRECTORIES
 set(TestJSC_PRIVATE_INCLUDE_DIRECTORIES
     ${CMAKE_BINARY_DIR}
     ${TESTWEBKITAPI_DIR}
-    ${THIRDPARTY_DIR}/gtest/include
-    ${FORWARDING_HEADERS_DIR}
-    ${FORWARDING_HEADERS_DIR}/JavaScriptCore
-    ${FORWARDING_HEADERS_DIR}/JavaScriptCore/glib
-    ${DERIVED_SOURCES_JAVASCRIPCOREWPE_DIR}
+    "${JavaScriptCoreGLib_DERIVED_SOURCES_DIR}/jsc"
 )
 
 set(TestJSC_LIBRARIES
     ${GLIB_LIBRARIES}
     ${GLIB_GMODULE_LIBRARIES}
-    WebKit::JavaScriptCore
 )
+
+set(TestJSC_FRAMEWORKS
+    JavaScriptCore
+    WTF
+)
+
+if (NOT USE_SYSTEM_MALLOC)
+    list(APPEND TestJSC_FRAMEWORKS bmalloc)
+endif ()
 
 set(TestJSC_DEFINITIONS
     WEBKIT_SRC_DIR="${CMAKE_SOURCE_DIR}"
