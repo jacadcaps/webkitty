@@ -45,6 +45,10 @@
 #include <wtf/StdFilesystem.h>
 #endif
 
+#if OS(MORPHOS)
+#include <unistd.h>
+#endif
+
 namespace WTF::FileSystemImpl {
 
 #if HAVE(STD_FILESYSTEM) || HAVE(STD_EXPERIMENTAL_FILESYSTEM)
@@ -234,13 +238,26 @@ String lastComponentOfPathIgnoringTrailingSlash(const String& path)
 #endif
 
     auto position = path.reverseFind(pathSeparator);
+#if OS(MORPHOS)
+    if (position == notFound)
+        position = path.reverseFind(':');
+#endif
     if (position == notFound)
         return path;
 
     size_t endOfSubstring = path.length() - 1;
+#if OS(MORPHOS)
+    // If ending to a ':' just return an empty string.
+    if (position == endOfSubstring && path[position] != ':') {
+#else
     if (position == endOfSubstring) {
+#endif
         --endOfSubstring;
         position = path.reverseFind(pathSeparator, endOfSubstring);
+#if OS(MORPHOS)
+        if (position == notFound)
+            position = path.reverseFind(':');
+#endif
     }
 
     return path.substring(position + 1, endOfSubstring - position);
@@ -366,6 +383,53 @@ bool MappedFileData::mapFileHandle(PlatformFileHandle handle, FileOpenMode openM
     m_fileSize = size;
     return true;
 }
+#elif OS(MORPHOS)
+
+bool MappedFileData::mapFileHandle(PlatformFileHandle handle, FileOpenMode openMode, MappedFileMode mapMode)
+{
+    if (!isHandleValid(handle))
+        return false;
+
+    int fd;
+    fd = handle;
+
+    struct stat fileStat;
+    if (fstat(fd, &fileStat)) {
+        return false;
+    }
+
+    unsigned size;
+    if (!WTF::convertSafely(fileStat.st_size, size)) {
+        return false;
+    }
+
+    if (!size) {
+        return true;
+    }
+
+    void* data = malloc(size);
+
+	if (nullptr == data) {
+			return false;
+	}
+
+	if (size != read(fd, data, size)) {
+			free(data);
+			return false;
+	}
+
+    m_fileData = data;
+    m_fileSize = size;
+    return true;
+}
+
+MappedFileData::~MappedFileData()
+{
+    if (!m_fileData)
+        return;
+    free(m_fileData);
+}
+
 #endif
 
 PlatformFileHandle openAndLockFile(const String& path, FileOpenMode openMode, OptionSet<FileLockMode> lockMode)
@@ -464,6 +528,7 @@ void finalizeMappedFileData(MappedFileData& mappedFileData, size_t bytesSize)
     DWORD oldProtection;
     VirtualProtect(map, bytesSize, FILE_MAP_READ, &oldProtection);
     FlushViewOfFile(map, bytesSize);
+#elif OS(MORPHOS)
 #else
     // Drop the write permission.
     mprotect(map, bytesSize, PROT_READ);
@@ -891,7 +956,7 @@ String pathByAppendingComponents(StringView path, const Vector<StringView>& comp
 
 #endif
 
-#if !OS(WINDOWS) && !PLATFORM(COCOA) && !PLATFORM(PLAYSTATION)
+#if !OS(WINDOWS) && !PLATFORM(COCOA) && !PLATFORM(PLAYSTATION) && !OS(MORPHOS)
 
 String createTemporaryDirectory()
 {

@@ -185,7 +185,7 @@
 #define HAVE_RESOURCE_H 1
 #endif
 
-#if OS(UNIX) && !OS(FUCHSIA)
+#if (OS(UNIX) || OS(MORPHOS)) && !OS(FUCHSIA)
 #define HAVE_PTHREAD_SETSCHEDPARAM 1
 #endif
 

@@ -107,11 +107,11 @@ interface mixin GlobalEventHandlers {
 
     attribute EventHandler onmousewheel;
     [NotEnumerable, EnabledBySetting=SearchInputIncrementalAttributeAndSearchEventEnabled] attribute EventHandler onsearch;
-    [NotEnumerable, Conditional=TOUCH_EVENTS, EnabledBySetting=TouchEventsEnabled] attribute EventHandler ontouchcancel;
-    [NotEnumerable, Conditional=TOUCH_EVENTS, EnabledBySetting=TouchEventsEnabled] attribute EventHandler ontouchend;
-    [NotEnumerable, Conditional=TOUCH_EVENTS, EnabledBySetting=TouchEventsEnabled] attribute EventHandler ontouchmove;
-    [NotEnumerable, Conditional=TOUCH_EVENTS, EnabledBySetting=TouchEventsEnabled] attribute EventHandler ontouchstart;
-    [NotEnumerable, Conditional=TOUCH_EVENTS, EnabledBySetting=TouchEventsEnabled] attribute EventHandler ontouchforcechange;
+    [NotEnumerable, Conditional=TOUCH_EVENTS, EnabledBySetting=TouchEventEmulationEnabled] attribute EventHandler ontouchcancel;
+    [NotEnumerable, Conditional=TOUCH_EVENTS, EnabledBySetting=TouchEventEmulationEnabled] attribute EventHandler ontouchend;
+    [NotEnumerable, Conditional=TOUCH_EVENTS, EnabledBySetting=TouchEventEmulationEnabled] attribute EventHandler ontouchmove;
+    [NotEnumerable, Conditional=TOUCH_EVENTS, EnabledBySetting=TouchEventEmulationEnabled] attribute EventHandler ontouchstart;
+    [NotEnumerable, Conditional=TOUCH_EVENTS, EnabledBySetting=TouchEventEmulationEnabled] attribute EventHandler ontouchforcechange;
     [NotEnumerable] attribute EventHandler onwebkitmouseforcechanged;
     [NotEnumerable] attribute EventHandler onwebkitmouseforcedown;
     [NotEnumerable] attribute EventHandler onwebkitmouseforcewillbegin;

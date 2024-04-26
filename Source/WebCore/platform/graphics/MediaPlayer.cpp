@@ -71,6 +71,11 @@
 #endif
 #endif // USE(GSTREAMER)
 
+#if OS(MORPHOS)
+#include "morphos/MediaPlayerPrivateMorphOS.h"
+#define PlatformMediaEngineClassName MediaPlayerPrivateMorphOS
+#endif
+
 #if USE(MEDIA_FOUNDATION)
 #include "MediaPlayerPrivateMediaFoundation.h"
 #endif
@@ -325,6 +330,10 @@ static void buildMediaEnginesVector() WTF_REQUIRES_LOCK(mediaEngineVectorLock)
     MediaPlayerPrivateHolePunch::registerMediaEngine(addMediaEngine);
 #endif
 
+#if ENABLE(VIDEO) && OS(MORPHOS)
+    MediaPlayerPrivateMorphOS::registerMediaEngine(addMediaEngine);
+#endif
+
     haveMediaEnginesVector() = true;
 }
 
@@ -563,6 +572,7 @@ const MediaPlayerFactory* MediaPlayer::nextBestMediaEngine(const MediaPlayerFact
     MediaEngineSupportParameters parameters;
     parameters.type = m_contentType;
     parameters.url = m_url;
+    parameters.page = client().mediaPlayerPage();
 #if ENABLE(MEDIA_SOURCE)
     parameters.isMediaSource = !!m_mediaSource.get();
 #endif
@@ -1660,6 +1670,14 @@ void MediaPlayer::simulateAudioInterruption()
         return;
 
     m_private->simulateAudioInterruption();
+}
+#endif
+
+#if OS(MORPHOS)
+void MediaPlayer::selectHLSStream(const String& url)
+{
+	if (m_private)
+		m_private->selectHLSStream(url);
 }
 #endif
 

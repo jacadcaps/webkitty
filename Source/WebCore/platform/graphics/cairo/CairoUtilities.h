@@ -77,6 +77,10 @@ private:
 
 const cairo_font_options_t* getDefaultCairoFontOptions();
 
+#if OS(MORPHOS)
+void setDefaultCairoFontAntialias(cairo_antialias_t aa);
+#endif
+
 void setDefaultCairoHintOptions(cairo_hint_metrics_t, cairo_hint_style_t);
 void setDefaultCairoAntialiasOptions(cairo_antialias_t, cairo_subpixel_order_t);
 

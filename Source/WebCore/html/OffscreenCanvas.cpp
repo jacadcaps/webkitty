@@ -93,6 +93,8 @@ bool OffscreenCanvas::enabledForContext(ScriptExecutionContext& context)
 #if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
     if (context.isWorkerGlobalScope())
         return context.settingsValues().offscreenCanvasInWorkersEnabled;
+#else
+    UNUSED_PARAM(context);
 #endif
 
     ASSERT(context.isDocument());
@@ -184,8 +186,10 @@ void OffscreenCanvas::setSize(const IntSize& newSize)
     CanvasBase::setSize(newSize);
     reset();
 
+#if !OS(MORPHOS)
     if (RefPtr context = dynamicDowncast<GPUBasedCanvasRenderingContext>(m_context.get()))
         context->reshape(width(), height());
+#endif
 }
 
 #if ENABLE(WEBGL)
@@ -475,7 +479,7 @@ void OffscreenCanvas::setPlaceholderCanvas(HTMLCanvasElement& canvas)
 
 void OffscreenCanvas::pushBufferToPlaceholder()
 {
-    callOnMainThread([placeholderData = Ref { *m_placeholderData }] () mutable {
+    callOnMainThread([placeholderData = Ref { *m_placeholderData }, canvas = RefPtr { m_placeholderData->canvas.get() }] () mutable {
         Locker locker { placeholderData->bufferLock };
         if (RefPtr canvas = placeholderData->canvas.get()) {
             if (placeholderData->pendingCommitBuffer) {

@@ -49,6 +49,10 @@
 #include <zircon/syscalls.h>
 #endif
 
+#if OS(MORPHOS)
+#include <proto/random.h>
+#endif
+
 namespace WTF {
 
 #if !OS(DARWIN) && !OS(FUCHSIA) && OS(UNIX)
@@ -63,7 +67,7 @@ NEVER_INLINE NO_RETURN_DUE_TO_CRASH static void crashUnableToReadFromURandom()
 }
 #endif
 
-#if !OS(DARWIN) && !OS(FUCHSIA) && !OS(WINDOWS)
+#if !OS(DARWIN) && !OS(FUCHSIA) && !OS(WINDOWS) && !OS(MORPHOS)
 RandomDevice::RandomDevice()
 {
     int ret = 0;
@@ -76,7 +80,7 @@ RandomDevice::RandomDevice()
 }
 #endif
 
-#if !OS(DARWIN) && !OS(FUCHSIA) && !OS(WINDOWS)
+#if !OS(DARWIN) && !OS(FUCHSIA) && !OS(WINDOWS) && !OS(MORPHOS)
 RandomDevice::~RandomDevice()
 {
     close(m_fd);
@@ -91,6 +95,8 @@ void RandomDevice::cryptographicallyRandomValues(unsigned char* buffer, size_t l
     RELEASE_ASSERT(!CCRandomGenerateBytes(buffer, length));
 #elif OS(FUCHSIA)
     zx_cprng_draw(buffer, length);
+#elif OS(MORPHOS)
+	RandomBytes((APTR)buffer, length);
 #elif OS(UNIX)
     ssize_t amountRead = 0;
     while (static_cast<size_t>(amountRead) < length) {

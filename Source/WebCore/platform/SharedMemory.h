@@ -59,6 +59,8 @@ public:
         MachSendRight;
 #elif OS(WINDOWS)
         Win32Handle;
+#elif OS(MORPHOS)
+        APTR;
 #endif
 
     SharedMemoryHandle(SharedMemoryHandle&&) = default;

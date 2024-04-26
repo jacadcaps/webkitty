@@ -646,6 +646,10 @@ public:
     void setVideoLayerSizeFenced(const FloatSize&, WTF::MachSendRight&&);
     void updateMediaState();
 
+#if OS(MORPHOS)
+    Page* mediaPlayerPage() final;
+#endif
+
     enum class SourceType : uint8_t {
         File,
         HLS,
