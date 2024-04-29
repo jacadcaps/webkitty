@@ -29,6 +29,7 @@
 #include <WebCore/GraphicsContext.h>
 #include <WebCore/FocusDirection.h>
 #include <WebCore/ScrollTypes.h>
+#include <WebCore/AXObjectCache.h>
 #include <wtf/Forward.h>
 #include <wtf/RefPtr.h>
 
@@ -159,6 +160,10 @@ protected:
     bool selectItemAlignmentFollowsMenuWritingDirection() final;
     RefPtr<WebCore::PopupMenu> createPopupMenu(WebCore::PopupMenuClient&) const final;
     RefPtr<WebCore::SearchPopupMenu> createSearchPopupMenu(WebCore::PopupMenuClient&) const final;
+
+    void postAccessibilityNotification(WebCore::AccessibilityObject&, WebCore::AXObjectCache::AXNotification) final { };
+    void postAccessibilityNodeTextChangeNotification(WebCore::AccessibilityObject*, WebCore::AXTextChange, unsigned, const String&) final { };
+    void postAccessibilityFrameLoadingEventNotification(WebCore::AccessibilityObject*, WebCore::AXObjectCache::AXLoadingEvent) final { };
 
 #if ENABLE(FULLSCREEN_API)
     bool supportsFullScreenForElement(const WebCore::Element&, bool withKeyboard) final;

@@ -111,23 +111,20 @@ void MediaSourcePrivateMorphOS::unmarkEndOfStream()
 	m_ended = false;
 }
 
-#if 0
-MediaPlayer::ReadyState MediaSourcePrivateMorphOS::readyState() const
+MediaPlayer::ReadyState MediaSourcePrivateMorphOS::mediaPlayerReadyState() const
 {
-//	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
 	if (m_player)
 		return m_player->readyState();
     return m_readyState;
 }
 
-void MediaSourcePrivateMorphOS::setReadyState(MediaPlayer::ReadyState rs)
+void MediaSourcePrivateMorphOS::setMediaPlayerReadyState(MediaPlayer::ReadyState rs)
 {
 	DRS(dprintf("%s: %d\n", __PRETTY_FUNCTION__, int(rs)));
 	m_readyState = rs;
 	if (m_player)
 		m_player->accSetReadyState(rs);
 }
-#endif
 
 void MediaSourcePrivateMorphOS::onSourceBufferLoadingProgressed()
 {

@@ -537,13 +537,11 @@ bool MediaPlayerPrivateMorphOS::hasAudio() const
 	return false;
 }
 
-/*
-void MediaPlayerPrivateMorphOS::setPageIsVisible(bool visible)
+void MediaPlayerPrivateMorphOS::setPageIsVisible(bool visible, String&& sceneIdentifier)
 {
 	m_visible = visible;
 //	D(dprintf("%s: visible %d\n", __PRETTY_FUNCTION__, visible));
 }
-*/
 
 bool MediaPlayerPrivateMorphOS::seeking() const
 {

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006, 2007, 2008 Apple Inc.  All rights reserved.
+ * Copyright (C) 2023 Sony Interactive Entertainment Inc.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -10,10 +10,10 @@
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
  *
- * THIS SOFTWARE IS PROVIDED BY APPLE INC. ``AS IS'' AND ANY
+ * THIS SOFTWARE IS PROVIDED BY APPLE COMPUTER, INC. ``AS IS'' AND ANY
  * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
- * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL APPLE INC. OR
+ * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL APPLE COMPUTER, INC. OR
  * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
  * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
  * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
@@ -24,26 +24,22 @@
  */
 
 #include "config.h"
-#include "Image.h"
-#include "BitmapImage.h"
-
-#include "SharedBuffer.h"
-
-// This function loads resources from WebKit - implemented in WebKit part
-RefPtr<WebCore::SharedBuffer> loadResourceIntoBuffer(const char*);
+#include "AccessibilityObject.h"
 
 namespace WebCore {
 
-Ref<Image> ImageAdapter::loadPlatformResource(const char *name)
+void AccessibilityObject::detachPlatformWrapper(AccessibilityDetachmentType)
 {
-    auto buffer = loadResourceIntoBuffer(name);
-    auto img = BitmapImage::create();
-    img->setData(WTFMove(buffer), true);
-    return img;
 }
 
-void ImageAdapter::invalidate()
+bool AccessibilityObject::accessibilityIgnoreAttachment() const
 {
+    return false;
+}
+
+AccessibilityObjectInclusion AccessibilityObject::accessibilityPlatformIncludesObject() const
+{
+    return AccessibilityObjectInclusion::DefaultBehavior;
 }
 
 } // namespace WebCore

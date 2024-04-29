@@ -41,12 +41,15 @@ list(APPEND WebCore_LIBRARIES
 )
 
 list(APPEND WebCore_SOURCES
+    accessibility/morphos/AXObjectCacheMorphOS.cpp
+    accessibility/morphos/AccessibilityObjectMorphOS.cpp
     inspector/LegacyWebSocketInspectorInstrumentation.cpp
     editing/morphos/EditorMorphOS.cpp
     editing/morphos/AutofillElements.cpp
     platform/morphos/Altivec.cpp
     platform/morphos/PasteboardMorphOS.cpp
     platform/morphos/CursorMorphOS.cpp
+    platform/morphos/SharedMemoryMorphOS.cpp
     platform/morphos/PlatformKeyboardEvent.cpp
     platform/morphos/PlatformScreenMorphOS.cpp
     platform/morphos/MIMETypeRegistryMorphOS.cpp

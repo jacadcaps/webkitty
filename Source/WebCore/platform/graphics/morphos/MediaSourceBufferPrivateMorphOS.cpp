@@ -676,7 +676,7 @@ void MediaSourceBufferPrivateMorphOS::appendComplete(bool success)
 
 				if (isReady)
 				{
-					appendCompleted(success);
+					//appendCompleted(success);
 				}
 				else
 				{
@@ -686,7 +686,7 @@ void MediaSourceBufferPrivateMorphOS::appendComplete(bool success)
 			}
 			else
 			{
-				appendCompleted(success);
+				//appendCompleted(success);
 			}
 		}
 	});
@@ -932,10 +932,12 @@ void MediaSourceBufferPrivateMorphOS::becomeReadyForMoreSamples(int index)
 	{
 		DRMS(dprintf("[MS]%s: issuing appendComplete...\n", __func__));
 		m_appendCompleteDelayed = false;
+  #if 0
 		WTF::callOnMainThread([this, protect = Ref{*this}]() {
 			if (m_mediaSource && !m_terminating)
 				appendCompleted(true);
 		});
+#endif
 	}
 
 #if 1

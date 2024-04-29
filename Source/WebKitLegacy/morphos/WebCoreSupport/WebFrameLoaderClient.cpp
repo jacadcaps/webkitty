@@ -968,6 +968,11 @@ ResourceError WebFrameLoaderClient::cancelledError(const ResourceRequest& reques
     return ResourceError();//WebKit::cancelledError(request);
 }
 
+ResourceError WebFrameLoaderClient::httpNavigationWithHTTPSOnlyError(const ResourceRequest&) const
+{
+    return { };
+}
+
 ResourceError WebFrameLoaderClient::blockedError(const ResourceRequest& request) const
 {
 	notImplemented();
