@@ -13,8 +13,8 @@
 
 #define D(x)
 #define DLIFETIME(x)
-#define DDUMP(x) 
-#define DSEEK(x)
+#define DDUMP(x)
+#define DSEEK(x) 
 #define DEOS(x)
 #define DPLAY(x) 
 #define DBUFFER(x)
@@ -35,8 +35,6 @@ MediaSourcePrivateMorphOS::MediaSourcePrivateMorphOS(MediaPlayerPrivateMorphOS& 
     : MediaSourcePrivate(client)
     , m_player(WeakPtr{parent})
     , m_watchdogTimer(RunLoop::current(), this, &MediaSourcePrivateMorphOS::watchdogTimerFired)
-    , m_seekTimer(RunLoop::current(), this, &MediaSourcePrivateMorphOS::seekInternal)
-    , m_seekControlTimer(RunLoop::current(), this, &MediaSourcePrivateMorphOS::seekControl)
 {
 	DLIFETIME(dprintf("%s: \n", __PRETTY_FUNCTION__));
 	m_url = url.substring(5);
@@ -45,8 +43,6 @@ MediaSourcePrivateMorphOS::MediaSourcePrivateMorphOS(MediaPlayerPrivateMorphOS& 
 MediaSourcePrivateMorphOS::~MediaSourcePrivateMorphOS()
 {
 	DLIFETIME(dprintf("%s: bye!\n", __PRETTY_FUNCTION__));
-	m_seekTimer.stop();
-	m_seekControlTimer.stop();
 	m_watchdogTimer.stop();
 
     for (auto& sourceBufferPrivate : m_sourceBuffers)
@@ -93,6 +89,7 @@ void MediaSourcePrivateMorphOS::onSourceBufferRemoved(RefPtr<MediaSourceBufferPr
 
 void MediaSourcePrivateMorphOS::durationChanged(const MediaTime& duration)
 {
+    MediaSourcePrivate::durationChanged(duration);
     if (m_player)
 		m_player->accSetDuration(duration.toDouble());
 }
@@ -103,12 +100,14 @@ void MediaSourcePrivateMorphOS::markEndOfStream(EndOfStreamStatus status)
     if (status == EndOfStreamStatus::NoError && m_player)
         m_player->accSetNetworkState(MediaPlayer::NetworkState::Loaded, { });
     m_ended = true;
+    MediaSourcePrivate::markEndOfStream(status);
 }
 
 void MediaSourcePrivateMorphOS::unmarkEndOfStream()
 {
 	DEOS(dprintf("%s: \n", __PRETTY_FUNCTION__));
 	m_ended = false;
+    MediaSourcePrivate::unmarkEndOfStream();
 }
 
 MediaPlayer::ReadyState MediaSourcePrivateMorphOS::mediaPlayerReadyState() const
@@ -306,47 +305,41 @@ bool MediaSourcePrivateMorphOS::isSeeking() const
 	return m_seeking || m_seekCompleted != SeekCompleted;
 }
 
-void MediaSourcePrivateMorphOS::seek(double time)
+void MediaSourcePrivateMorphOS::seekToTarget(const SeekTarget& target)
 {
-	DSEEK(dprintf("%s: %f ini %d seeking %d asb %d\n", __PRETTY_FUNCTION__, float(time), areDecodersInitialized(), m_seeking, m_activeSourceBuffers.size()));
-	
-	m_seeking = true;
-	m_seekingPos = time;
-	m_seekCompleted = Pending;
+	DSEEK(dprintf("%s: %f ini %d seeking %d asb %d\n", __PRETTY_FUNCTION__, target.time.toFloat(), areDecodersInitialized(), m_seeking, m_activeSourceBuffers.size()));
 
-    if (m_seekTimer.isActive())
-        m_seekTimer.stop();
-    if (m_seekControlTimer.isActive())
-        m_seekControlTimer.stop();
-
-	m_seekTimer.startOneShot(Seconds(0.0));
-}
-
-void MediaSourcePrivateMorphOS::seekInternal()
-{
-	DSEEK(dprintf("%s: %f ini %d seeking %d asb %d\n", __PRETTY_FUNCTION__, float(m_seekingPos), areDecodersInitialized(), m_seeking, m_activeSourceBuffers.size()));
-
-	if (m_seekCompleted != Pending)
+    // MediaSourcePrivate will abort() if we're in 'waitForTarget' state
+	if (m_seekCompleted != SeekCompleted)
 		return;
 
-	for (auto& sourceBufferPrivate : m_activeSourceBuffers) {
-		sourceBufferPrivate->willSeek(m_seekingPos);
-	}
+	m_seeking = true;
+	m_seekTarget = target;
+	m_seekCompleted = Pending;
 
-//	m_client->seekToTime(MediaTime::createWithDouble(m_seekingPos));
+	DSEEK(dprintf("%s: %f ini %d seeking %d asb %d\n", __PRETTY_FUNCTION__, m_seekTarget.time.toFloat(), areDecodersInitialized(), m_seeking, m_activeSourceBuffers.size()));
+
+    SeekTarget pendingSeek = m_seekTarget;
+
+    waitForTarget(pendingSeek)->whenSettled(RunLoop::current(), [this, protect = Ref{*this}] (auto&& result) mutable {
+        DSEEK(dprintf(">> MediaSourcePrivateMorphOS::seekToTarget: seek state %d\n", int(m_seekCompleted)));
+        if (m_seekCompleted != Pending || m_orphaned || m_sourceBuffers.size() == 0)
+            return;
+
+        auto seekedTime = *result;
+        m_lastSeekTime = seekedTime;
+
+        for (auto& sourceBufferPrivate : m_activeSourceBuffers) {
+            sourceBufferPrivate->willSeek(m_lastSeekTime.toDouble());
+        }
+
+        seekToTime(seekedTime)->whenSettled(RunLoop::current(), [this, protect = Ref{*this}]() mutable {
+            maybeCompleteSeek();
+        });
+    });
 }
 
-#if 0
-void MediaSourcePrivateMorphOS::waitForSeekCompleted()
-{
-	DSEEK(dprintf("%s: \n", __PRETTY_FUNCTION__));
-    if (!m_seeking)
-        return;
-    m_seekCompleted = Seeking;
-    m_seekControlTimer.startOneShot(Seconds(2.0));
-}
-
-void MediaSourcePrivateMorphOS::seekCompleted()
+void MediaSourcePrivateMorphOS::maybeCompleteSeek()
 {
 	DSEEK(dprintf("%s: paused %d\n", __PRETTY_FUNCTION__, m_paused));
 
@@ -356,32 +349,11 @@ void MediaSourcePrivateMorphOS::seekCompleted()
 		sourceBufferPrivate->prePlay();
 
 	if (m_player)
-		m_player->accSetPosition(m_seekingPos);
+		m_player->accSeeked(m_lastSeekTime.toFloat());
 
 	m_seeking = false;
 	if (!m_paused)
 		play();
-}
-#endif
-
-void MediaSourcePrivateMorphOS::seekControl()
-{
-	DSEEK(dprintf("%s: seeking %d\n", __PRETTY_FUNCTION__, isSeeking()));
-	
-	if (isSeeking())
-	{
-		for (auto& sourceBufferPrivate : m_activeSourceBuffers)
-		{
-			if (sourceBufferPrivate->didFailDecodingFrames())
-			{
-				DSEEK(dprintf("%s: decoder failure detected!\n", __PRETTY_FUNCTION__));
-				seek(m_seekingPos + 10.0);
-				return;
-			}
-		}
-
-		m_seekControlTimer.startOneShot(Seconds(2.0));
-	}
 }
 
 void MediaSourcePrivateMorphOS::paint(GraphicsContext& gc, const FloatRect& rect)

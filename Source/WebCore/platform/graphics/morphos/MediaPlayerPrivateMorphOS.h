@@ -94,6 +94,7 @@ public:
 	void accSetReadyState(WebCore::MediaPlayerEnums::ReadyState state) override;
 	void accSetBufferLength(double buffer) override;
 	void accSetPosition(double buffer) override;
+    void accSeeked(double position) override;
 	void accSetDuration(double buffer) override;
 	void accEnded() override;
 	void accFailed() override;

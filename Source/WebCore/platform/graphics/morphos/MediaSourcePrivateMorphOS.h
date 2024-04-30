@@ -70,7 +70,8 @@ public:
 	bool isSeeking() const;
 //    void waitForSeekCompleted() override;
 //    void seekCompleted() override;
-	void seek(double time);
+//	void seek(double time);
+    void seekToTarget(const SeekTarget&);
 
     void orphan();
     WeakPtr<MediaPlayerPrivateMorphOS> &player() { return m_player; }
@@ -99,8 +100,7 @@ protected:
 	bool areDecodersInitialized();
 	
 	void watchdogTimerFired();
-	void seekInternal();
-	void seekControl();
+    void maybeCompleteSeek();
 
 private:
 	WeakPtr<MediaPlayerPrivateMorphOS>               m_player;
@@ -110,8 +110,6 @@ private:
 	RefPtr<MediaSourceBufferPrivateMorphOS>          m_paintingBuffer;
 	MediaPlayer::ReadyState                          m_readyState = MediaPlayer::ReadyState::HaveNothing;
 	RunLoop::Timer                                   m_watchdogTimer;
-	RunLoop::Timer                                   m_seekTimer;
-	RunLoop::Timer                                   m_seekControlTimer;
     bool                                             m_orphaned = false;
 	bool                                             m_paused = true;
 	bool                                             m_ended = false;
@@ -123,7 +121,8 @@ private:
 	bool                                             m_muted = false;
 
 	double                                           m_position = 0;
-	double                                           m_seekingPos;
+	SeekTarget                                       m_seekTarget;
+	MediaTime                                        m_lastSeekTime;
 	bool                                             m_seeking = false;
 	SeekState                                        m_seekCompleted { SeekCompleted };
 };

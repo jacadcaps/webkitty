@@ -22,6 +22,7 @@
 #define D(x) 
 #define DM(x)
 #define DMHOST(x) 
+#define DSEEK(x) 
 
 namespace WebCore {
 
@@ -280,6 +281,11 @@ MediaPlayerPrivateMorphOS::MediaPlayerPrivateMorphOS(MediaPlayer* player)
 
 MediaPlayerPrivateMorphOS::~MediaPlayerPrivateMorphOS()
 {
+#if ENABLE(MEDIA_SOURCE)
+	if (m_mediaSourcePrivate)
+		m_mediaSourcePrivate->orphan();
+#endif
+
 	if (m_acinerella)
 		m_acinerella->terminate();
 
@@ -559,14 +565,13 @@ void MediaPlayerPrivateMorphOS::seekToTarget(const SeekTarget& target)
 {
     float time = target.time.toFloat();
 
-// TODO!
+	DSEEK(dprintf("%s: %f\n", __PRETTY_FUNCTION__, time));
 
-	D(dprintf("%s: %f\n", __PRETTY_FUNCTION__, time));
 	if (m_acinerella)
 		return m_acinerella->seek(time);
 #if ENABLE(MEDIA_SOURCE)
 	else if (m_mediaSourcePrivate)
-		return m_mediaSourcePrivate->seek(time);
+		return m_mediaSourcePrivate->seekToTarget(target);
 #endif
 }
 
@@ -838,6 +843,12 @@ void MediaPlayerPrivateMorphOS::accSetPosition(double pos)
     m_buffered = PlatformTimeRanges(MediaTime::createWithDouble(std::max(0.0, m_currentTime.toDouble() - 1.0 )),
 		MediaTime::createWithDouble(m_currentTime.toDouble() + 10.0));
 	m_player->timeChanged();
+}
+
+void MediaPlayerPrivateMorphOS::accSeeked(double position)
+{
+    m_player->seeked(MediaTime::createWithDouble(position));
+    accSetPosition(position);
 }
 
 void MediaPlayerPrivateMorphOS::accSetDuration(double dur)
