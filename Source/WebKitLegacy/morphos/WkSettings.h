@@ -58,9 +58,6 @@ typedef enum {
 - (BOOL)localStorageEnabled;
 - (void)setLocalStorageEnabled:(BOOL)enabled;
 
-- (BOOL)offlineWebApplicationCacheEnabled;
-- (void)setOfflineWebApplicationCacheEnabled:(BOOL)enabled;
-
 - (WkSettings_Throttling)throttling;
 - (void)setThrottling:(WkSettings_Throttling)throttling;
 
