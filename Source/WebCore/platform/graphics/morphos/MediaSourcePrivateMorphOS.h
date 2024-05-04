@@ -100,6 +100,7 @@ protected:
 	bool areDecodersInitialized();
 	
 	void watchdogTimerFired();
+    void seekingWatchdogTimerFired();
     void maybeCompleteSeek();
 
 private:
@@ -110,6 +111,7 @@ private:
 	RefPtr<MediaSourceBufferPrivateMorphOS>          m_paintingBuffer;
 	MediaPlayer::ReadyState                          m_readyState = MediaPlayer::ReadyState::HaveNothing;
 	RunLoop::Timer                                   m_watchdogTimer;
+	RunLoop::Timer                                   m_seekingWatchdogTimer;
     bool                                             m_orphaned = false;
 	bool                                             m_paused = true;
 	bool                                             m_ended = false;

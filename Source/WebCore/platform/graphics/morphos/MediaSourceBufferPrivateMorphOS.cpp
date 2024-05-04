@@ -20,7 +20,7 @@
 #include <proto/dos.h>
 #include <proto/exec.h>
 
-#define D(x)
+#define D(x) 
 #define DR(x) //do { if (m_videoDecoderMask == 1) x; } while (0);
 #define DIO(x) //do { if (m_videoDecoderMask == 1) x; } while (0);
 #define DM(x)
@@ -1172,9 +1172,11 @@ void MediaSourceBufferPrivateMorphOS::reinitialize(bool success,
 	DM(dprintf("[MS]ac initialized, stream count %d\n", acinerella->instance()->stream_count));
 	uint32_t decoderIndexMask = 0;
 
+#if 0 // yt does this all the time
     if (m_reader->numDecoders() != m_numDecoders) {
         dprintf("[MS] Warning: stream changed # of decoders from %d to %d. Please report this error on morph.zone forums along with the URL.\n", m_numDecoders, m_reader->numDecoders());
     }
+#endif
 
     m_numDecoders = m_reader->numDecoders();
 

@@ -1032,7 +1032,12 @@ void Acinerella::onDecoderUpdatedPosition(RefPtr<AcinerellaDecoder> decoder, dou
 		{
 			D(dprintf("--endseeking\n"));
 			m_isSeeking = false;
-	
+
+            WTF::callOnMainThread([this, protectedThis = Ref{*this}, pos]() {
+                if (m_client)
+                    m_client->accSeeked(pos);
+            });
+
 			if (!m_paused)
 			{
 				WTF::callOnMainThread([this, protectedThis = Ref{*this}]() {
