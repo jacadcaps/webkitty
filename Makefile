@@ -264,7 +264,10 @@ LINKFILES := \
 	$(ROOTPATH)/lib/libicu67/instdir/lib/libicudata.a \
 	$(ROOTPATH)/lib/libwebp/objects/host-libnix/tmpinstalldir/lib/libwebp.a \
 	$(ROOTPATH)/lib/libwebp/objects/host-libnix/tmpinstalldir/lib/libwebpdemux.a \
-	$(ROOTPATH)/gen/host/libnix/lib/libopenjp2.a
+	$(ROOTPATH)/gen/host/libnix/lib/libopenjp2.a \
+	$(ROOTPATH)/gen/host/libnix/lib/libtasn1.a \
+	$(ROOTPATH)/gen/host/libnix/lib/libgcrypt.a \
+	$(ROOTPATH)/gen/host/libnix/lib/libgpg-error.a
 
 .PHONY: linkpackage
 linkpackage:
