@@ -3104,6 +3104,7 @@ Protocol::ErrorStringOr<Ref<Protocol::DOM::MediaStats>> InspectorDOMAgent::getMe
     if (!element)
         return makeUnexpected(errorString);
 
+#if ENABLE(VIDEO)
     auto* mediaElement = dynamicDowncast<HTMLMediaElement>(element);
     if (!mediaElement)
         return makeUnexpected("Node for given nodeId is not a media element"_s);
@@ -3174,6 +3175,9 @@ Protocol::ErrorStringOr<Ref<Protocol::DOM::MediaStats>> InspectorDOMAgent::getMe
     }
 
     return stats;
+#else
+    return makeUnexpected(errorString);
+#endif
 }
 
 } // namespace WebCore

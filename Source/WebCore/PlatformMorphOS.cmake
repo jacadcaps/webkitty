@@ -3,9 +3,7 @@ include(platform/Curl.cmake)
 include(platform/FreeType.cmake)
 include(platform/ImageDecoders.cmake)
 
-if (NOT MORPHOS_MINIMAL)
-	include(platform/GCrypt.cmake)
-endif()
+include(platform/GCrypt.cmake)
 
 list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBKIT_LIBRARIES_DIR}/include"

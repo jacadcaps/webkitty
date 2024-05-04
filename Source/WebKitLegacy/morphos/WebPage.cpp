@@ -1789,6 +1789,7 @@ void WebPage::setFocusedElement(WebCore::Element *element)
 
 void WebPage::setFullscreenElement(WebCore::Element *element)
 {
+#if ENABLE(FULLSCREEN_API)
 	if (element)
 	{
 		m_fullscreenElement = Ref{*element};
@@ -1827,13 +1828,16 @@ void WebPage::setFullscreenElement(WebCore::Element *element)
 		
 		m_fullscreenElement = nullptr;
 	}
+#endif
 }
 
 WebCore::FullscreenManager* WebPage::fullscreenManager()
 {
+#if ENABLE(FULLSCREEN_API)
 	auto* coreFrame = m_mainFrame->coreFrame();
 	if (coreFrame)
 		return &coreFrame->document()->fullscreenManager();
+#endif
 	return nullptr;
 }
 

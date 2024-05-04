@@ -436,9 +436,12 @@ ALWAYS_INLINE bool matchesInWindowFullScreenPseudoClass(const Element& element)
 {
     if (&element != element.document().fullscreenManager().currentFullscreenElement())
         return false;
-
+#if ENABLE(VIDEO)
     auto* mediaElement = dynamicDowncast<HTMLMediaElement>(element);
     return mediaElement && mediaElement->fullscreenMode() == HTMLMediaElementEnums::VideoFullscreenModeInWindow;
+#else
+    return false;
+#endif
 }
 
 #endif
