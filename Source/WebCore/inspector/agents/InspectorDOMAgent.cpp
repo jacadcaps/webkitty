@@ -3098,7 +3098,6 @@ Protocol::ErrorStringOr<void> InspectorDOMAgent::setAllowEditingUserAgentShadowT
 
 Protocol::ErrorStringOr<Ref<Protocol::DOM::MediaStats>> InspectorDOMAgent::getMediaStats(Protocol::DOM::NodeId nodeId)
 {
-#if ENABLE(VIDEO)
     Protocol::ErrorString errorString;
 
     auto* element = assertElement(errorString, nodeId);
