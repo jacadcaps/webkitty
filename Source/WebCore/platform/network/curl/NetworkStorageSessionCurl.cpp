@@ -28,22 +28,31 @@
 
 #if USE(CURL)
 
-#include "Cookie.h"
 #include "CookieJarDB.h"
 #include "CookieRequestHeaderFieldProxy.h"
-#include "CookieStoreGetOptions.h"
 #include "CurlContext.h"
 #include "HTTPCookieAcceptPolicy.h"
-#include <optional>
 #include <wtf/FileSystem.h>
 #include <wtf/URL.h>
-#include <wtf/Vector.h>
 #include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
 
+#if OS(MORPHOS)
+static String _cookieJarPath = "PROGDIR:Cache/cookie.jar.db"_s;
+
+void setCookieJarPath(const String& path)
+{
+    _cookieJarPath = path;
+}
+
+#endif
+
 static String defaultCookieJarPath()
 {
+#if OS(MORPHOS)
+	return _cookieJarPath;
+#else
     static constexpr auto defaultFileName = "cookie.jar.db"_s;
     char* cookieJarPath = getenv("CURL_COOKIE_JAR_PATH");
     if (cookieJarPath)
@@ -55,13 +64,7 @@ static String defaultCookieJarPath()
     // FIXME: https://bugs.webkit.org/show_bug.cgi?id=192417
     return defaultFileName;
 #endif
-}
-
-static String alternativeServicesStorageFile(const String& alternativeServicesDirectory)
-{
-    static constexpr auto defaultFileName = "altsvc-cache.txt"_s;
-
-    return FileSystem::pathByAppendingComponent(alternativeServicesDirectory, defaultFileName);
+#endif
 }
 
 static std::pair<String, bool> cookiesForSession(const NetworkStorageSession& session, const URL& firstParty, const URL& url, bool forHTTPHeader, IncludeSecureCookies includeSecureCookies)
@@ -88,15 +91,11 @@ static std::pair<String, bool> cookiesForSession(const NetworkStorageSession& se
     return { cookies.toString(), didAccessSecureCookies };
 }
 
-NetworkStorageSession::NetworkStorageSession(PAL::SessionID sessionID, const String& alternativeServicesDirectory)
+NetworkStorageSession::NetworkStorageSession(PAL::SessionID sessionID, const String&)
     : m_sessionID(sessionID)
     // :memory: creates in-memory database, see https://www.sqlite.org/inmemorydb.html
     , m_cookieDatabase(makeUniqueRef<CookieJarDB>(sessionID.isEphemeral() ? ":memory:"_s : defaultCookieJarPath()))
 {
-    if (!alternativeServicesDirectory.isEmpty()) {
-        FileSystem::makeAllDirectories(alternativeServicesDirectory);
-        CurlContext::singleton().setAlternativeServicesStorageFile(alternativeServicesStorageFile(alternativeServicesDirectory));
-    }
 }
 
 NetworkStorageSession::~NetworkStorageSession()
@@ -116,14 +115,13 @@ CookieJarDB& NetworkStorageSession::cookieDatabase() const
 
 void NetworkStorageSession::setCookiesFromDOM(const URL& firstParty, const SameSiteInfo&, const URL& url, std::optional<FrameIdentifier>, std::optional<PageIdentifier> pageID, ApplyTrackingPrevention, const String& value, ShouldRelaxThirdPartyCookieBlocking) const
 {
+#if ENABLE(TRACKING_PREVENTION)
     std::optional<Seconds> cappedLifetime = clientSideCookieCap(RegistrableDomain { firstParty }, pageID);
+#else
+    UNUSED_PARAM(pageID);
+    std::optional<Seconds> cappedLifetime = std::nullopt;
+#endif
     cookieDatabase().setCookie(firstParty, url, value, CookieJarDB::Source::Script, cappedLifetime);
-}
-
-bool NetworkStorageSession::setCookieFromDOM(const URL&, const SameSiteInfo&, const URL&, std::optional<FrameIdentifier>, std::optional<PageIdentifier>, ApplyTrackingPrevention, const Cookie&, ShouldRelaxThirdPartyCookieBlocking) const
-{
-    // FIXME: Implement for the Cookie Store API.
-    return false;
 }
 
 void NetworkStorageSession::setCookiesFromHTTPResponse(const URL& firstParty, const URL& url, const String& value) const
@@ -134,6 +132,12 @@ void NetworkStorageSession::setCookiesFromHTTPResponse(const URL& firstParty, co
 void NetworkStorageSession::setCookieAcceptPolicy(CookieAcceptPolicy policy) const
 {
     cookieDatabase().setAcceptPolicy(policy);
+}
+
+void NetworkStorageSession::setHTTP2Mode(NetworkStorageSession::CurlHTTP2Mode mode)
+{
+    CurlContext::singleton().setIsHttp2Enabled(mode != NetworkStorageSession::CurlHTTP2Mode::Disabled,
+        mode != NetworkStorageSession::CurlHTTP2Mode::EnabledExceptPost && mode != NetworkStorageSession::CurlHTTP2Mode::Disabled);
 }
 
 HTTPCookieAcceptPolicy NetworkStorageSession::cookieAcceptPolicy() const
@@ -156,12 +160,6 @@ HTTPCookieAcceptPolicy NetworkStorageSession::cookieAcceptPolicy() const
 std::pair<String, bool> NetworkStorageSession::cookiesForDOM(const URL& firstParty, const SameSiteInfo&, const URL& url, std::optional<FrameIdentifier>, std::optional<PageIdentifier>, IncludeSecureCookies includeSecureCookies, ApplyTrackingPrevention, ShouldRelaxThirdPartyCookieBlocking) const
 {
     return cookiesForSession(*this, firstParty, url, false, includeSecureCookies);
-}
-
-std::optional<Vector<Cookie>> NetworkStorageSession::cookiesForDOMAsVector(const URL&, const SameSiteInfo&, const URL&, std::optional<FrameIdentifier>, std::optional<PageIdentifier>, IncludeSecureCookies, ApplyTrackingPrevention, ShouldRelaxThirdPartyCookieBlocking, CookieStoreGetOptions&&) const
-{
-    // FIXME: Implement for the Cookie Store API.
-    return std::nullopt;
 }
 
 void NetworkStorageSession::setCookies(const Vector<Cookie>& cookies, const URL&, const URL& /* mainDocumentURL */)
@@ -252,11 +250,6 @@ std::pair<String, bool> NetworkStorageSession::cookieRequestHeaderFieldValue(con
 void NetworkStorageSession::setProxySettings(const CurlProxySettings& proxySettings)
 {
     CurlContext::singleton().setProxySettings(proxySettings);
-}
-
-void NetworkStorageSession::clearAlternativeServices()
-{
-    CurlContext::singleton().clearAlternativeServicesStorageFile();
 }
 
 } // namespace WebCore

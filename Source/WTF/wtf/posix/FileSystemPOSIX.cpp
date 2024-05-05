@@ -37,7 +37,9 @@
 #include <stdio.h>
 #include <sys/file.h>
 #include <sys/stat.h>
+#if !OS(MORPHOS)
 #include <sys/statvfs.h>
+#endif
 #include <sys/types.h>
 #include <unistd.h>
 #include <wtf/EnumTraits.h>
@@ -45,6 +47,14 @@
 #include <wtf/text/CString.h>
 #include <wtf/text/StringBuilder.h>
 #include <wtf/text/WTFString.h>
+#include <wtf/text/StringHash.h>
+#include <wtf/HashMap.h>
+
+#if OS(MORPHOS)
+#include <libraries/charsets.h>
+#include <proto/dos.h>
+#include <proto/asyncio.h>
+#endif
 
 #if USE(GLIB)
 #include <glib.h>
@@ -131,7 +141,11 @@ bool truncateFile(PlatformFileHandle handle, long long offset)
 
 bool flushFile(PlatformFileHandle handle)
 {
+#if OS(MORPHOS)
+    return true;
+#else
     return !fsync(handle);
+#endif
 }
 
 int writeToFile(PlatformFileHandle handle, const void* data, int length)
@@ -224,10 +238,11 @@ bool fileIDsAreEqual(std::optional<PlatformFileID> a, std::optional<PlatformFile
 
 std::optional<uint32_t> volumeFileBlockSize(const String& path)
 {
+#if !OS(MORPHOS)
     struct statvfs fileStat;
     if (!statvfs(fileSystemRepresentation(path).data(), &fileStat))
         return fileStat.f_frsize;
-
+#endif
     return std::nullopt;
 }
 
@@ -237,12 +252,27 @@ String stringFromFileSystemRepresentation(const char* path)
     if (!path)
         return String();
 
+#if OS(MORPHOS)
+	return String(path, strlen(path), MIBENUM_SYSTEM);
+#else
     return String::fromUTF8(path);
+#endif
 }
 
 CString fileSystemRepresentation(const String& path)
 {
+#if OS(MORPHOS)
+	// some fixes for unix style path fuckups here...
+	// file:///progdir:foo will give us /progdir:foo, so let's account for that
+	if (path.contains(':') && path.startsWith('/'))
+	{
+		String sub = path.substring(1);
+		return sub.native();
+	}
+	return path.native();
+#else
     return path.utf8();
+#endif
 }
 #endif
 
@@ -259,25 +289,74 @@ static const char* temporaryFileDirectory()
 #endif
 }
 
-String openTemporaryFile(StringView prefix, PlatformFileHandle& handle, StringView suffix)
+String openTemporaryFile(StringView tmpPath, StringView prefix, PlatformFileHandle& handle, StringView suffix)
 {
     // Suffix is not supported because that's incompatible with mkstemp.
     // This is OK for now since the code using it is built on macOS only.
     ASSERT_UNUSED(suffix, suffix.isEmpty());
 
     char buffer[PATH_MAX];
+#if OS(MORPHOS)
+	stccpy(buffer, fileSystemRepresentation(tmpPath.toString()).data(), sizeof(buffer));
+	auto prefixadd = fileSystemRepresentation(prefix.toString());
+	if (0 == AddPart(buffer, prefixadd.data(), sizeof(buffer)))
+		goto end;
+    if (strlen(buffer) >= PATH_MAX - 7)
+    	goto end;
+	strcat(buffer, "XXXXXX");
+#else
     if (snprintf(buffer, PATH_MAX, "%s/%sXXXXXX", temporaryFileDirectory(), prefix.utf8().data()) >= PATH_MAX)
         goto end;
+#endif
 
     handle = mkstemp(buffer);
     if (handle < 0)
         goto end;
 
+#if OS(MORPHOS)
+    return String(buffer, strlen(buffer), MIBENUM_SYSTEM);
+#else
     return String::fromUTF8(buffer);
-
+#endif
 end:
     handle = invalidPlatformFileHandle;
     return String();
+}
+
+HashMap<String, String> tmpPathPrefixes;
+
+String temporaryFilePathForPrefix(const String& prefix)
+{
+	if (tmpPathPrefixes.contains(prefix))
+		return tmpPathPrefixes.get(prefix);
+	return { };
+}
+
+void setTemporaryFilePathForPrefix(const char * tmpPath, const String& prefix)
+{
+#if OS(MORPHOS)
+	tmpPathPrefixes.set(prefix, String(tmpPath, strlen(tmpPath), MIBENUM_SYSTEM));
+#endif
+}
+
+String openTemporaryFile(StringView prefix, PlatformFileHandle& handle, StringView suffix)
+{
+#if OS(MORPHOS)
+	const char* tmpDir = "PROGDIR:Tmp";
+    auto prefixStr = prefix.toString();
+	if (tmpPathPrefixes.contains(prefixStr))
+	{
+		return openTemporaryFile(tmpPathPrefixes.get(prefixStr), prefix, handle, suffix);
+	}
+	return openTemporaryFile(String(tmpDir, strlen(tmpDir), MIBENUM_SYSTEM), prefix, handle, suffix);
+#else
+    const char* tmpDir = getenv("TMPDIR");
+
+    if (!tmpDir)
+        tmpDir = "/tmp";
+
+	return openTemporaryFile(String::fromUTF8(tmpDir), prefix, handle);
+#endif
 }
 #endif // !PLATFORM(COCOA)
 
@@ -293,6 +372,150 @@ std::optional<int32_t> getFileDeviceId(const String& path)
 
     return fileStat.st_dev;
 }
+
+#if OS(MORPHOS)
+static unsigned long tmpnum = 0;
+
+int mkstempasync(char *path)
+{
+    char *str, *end = path;
+    unsigned long num;
+    int fd = -1;
+
+    while (*end) end++;
+    str = end;
+
+    // this would need a lock in theory, but for the time being this is only being
+    // called by curl on its own thread...
+    num = tmpnum++;
+    while (*--str == 'X')
+    {
+        *str = '0' + (num%10);
+        num /= 10;
+    }
+
+    if (end > path && ++str < end)
+    {
+        while (fd == -1)
+        {
+            BPTR lock = Lock(path, SHARED_LOCK);
+            if (lock == 0)
+            {
+                auto asyncfd = OpenAsync(path, MODE_WRITE, 512 * 1024);
+                fd = int(asyncfd);
+                if (0 == fd)
+                    fd = -1;
+            }
+            else
+            {
+                UnLock(lock);
+                char *s;
+
+                // see above
+                num = tmpnum++;
+
+                s = end;
+                while (s-- > str)
+                {
+                    *s = '0' + (num%10);
+                    num /= 10;
+                }
+            }
+        }
+    }
+
+    return fd;
+}
+
+String openTemporaryFileAsync(StringView prefix, PlatformFileHandle& handle)
+{
+    char buffer[PATH_MAX];
+
+	const char* tmpDirIn = "PROGDIR:Tmp";
+    String tmpDir = String(tmpDirIn, strlen(tmpDirIn), MIBENUM_SYSTEM);
+    auto prefixStr = prefix.toString();
+	if (tmpPathPrefixes.contains(prefixStr))
+        tmpDir = tmpPathPrefixes.get(prefixStr);
+
+	stccpy(buffer, fileSystemRepresentation(tmpDir).data(), sizeof(buffer));
+	auto prefixadd = fileSystemRepresentation(prefix.toString());
+	if (0 == AddPart(buffer, prefixadd.data(), sizeof(buffer)))
+		goto end;
+    if (strlen(buffer) >= PATH_MAX - 7)
+    	goto end;
+	strcat(buffer, "XXXXXX");
+
+    handle = mkstempasync(buffer);
+    if (handle == -1)
+        goto end;
+
+	return String(buffer, strlen(buffer), MIBENUM_SYSTEM);
+end:
+    handle = invalidPlatformFileHandle;
+    return String();
+}
+
+PlatformFileHandle openFileAsync(const String& path, FileOpenMode mode, FileAccessPermission, bool failIfFileExists)
+{
+    CString fsRep = fileSystemRepresentation(path);
+
+    if (fsRep.isNull())
+        return invalidPlatformFileHandle;
+
+    OpenModes dosMode = MODE_READ;
+    switch (mode) {
+    case FileOpenMode::Read:
+        break;
+    case FileOpenMode::Truncate:
+        dosMode = MODE_WRITE;
+        break;
+    case FileOpenMode::ReadWrite:
+        dosMode = MODE_APPEND;
+        break;
+    }
+
+    // not handled but we currently do not need this to work!
+    (void)failIfFileExists;
+
+    PlatformFileHandle fh = PlatformFileHandle(OpenAsync(STRPTR(fsRep.data()), dosMode, 512 * 1024));
+
+    if (0 == fh)
+        return -1;
+    return fh;
+}
+
+void closeFileAsync(PlatformFileHandle& fh)
+{
+    if (fh != -1)
+        CloseAsync((AsyncFile *)fh);
+    fh = -1;
+}
+
+long long seekFileAsync(PlatformFileHandle fh, long long offset, FileSeekOrigin origin)
+{
+    SeekModes whence = MODE_CURRENT;
+    switch (origin) {
+    case FileSeekOrigin::Current:
+        break;
+    case FileSeekOrigin::End:
+        whence = MODE_END;
+        break;
+    default:
+        ASSERT_NOT_REACHED();
+    }
+
+    if (fh != -1)
+        return SeekAsync64((AsyncFile *)fh, offset, whence);
+    return -1;
+}
+
+int writeToFileAsync(PlatformFileHandle fh, const void* data, int length)
+{
+    if (fh != -1)
+        return WriteAsync((AsyncFile *)fh, APTR(data), length);
+    return -1;
+}
+#endif
 
 // On macOS, stat() used by std::filesystem is much slower than access() when sandboxed.
 // This fast path exists to avoid calls to stat(). It's not needed on other platforms.
@@ -346,7 +569,11 @@ bool makeAllDirectories(const String& path)
 
 String pathByAppendingComponent(StringView path, StringView component)
 {
+#if OS(MORPHOS)
+    if (path.endsWith('/') || path.endsWith(':'))
+#else
     if (path.endsWith('/'))
+#endif
         return makeString(path, component);
     return makeString(path, '/', component);
 }

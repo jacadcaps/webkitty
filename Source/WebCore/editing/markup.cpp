@@ -1470,8 +1470,19 @@ static inline bool canUseSetDataOptimization(const Text& containerChild, const C
     return !authorScriptMayHaveReference && !mutationScope.canObserve() && !hasMutationEventListeners(containerChild.protectedDocument());
 }
 
+#if OS(MORPHOS)
+#pragma GCC diagnostic push
+#pragma GCC optimize ("O2")
+#endif
+
 ExceptionOr<void> replaceChildrenWithFragment(ContainerNode& container, Ref<DocumentFragment>&& fragment)
 {
+#if OS(MORPHOS)
+    volatile auto *xContainer = &container;
+    if (!xContainer)
+        return { };
+#endif
+
     Ref containerNode(container);
     ChildListMutationScope mutation(containerNode);
 
@@ -1497,5 +1508,9 @@ ExceptionOr<void> replaceChildrenWithFragment(ContainerNode& container, Ref<Docu
     ASSERT(!fragment->wrapper());
     return result;
 }
+
+#if OS(MORPHOS)
+#pragma GCC diagnostic pop
+#endif
 
 }

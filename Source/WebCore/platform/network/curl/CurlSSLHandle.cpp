@@ -61,6 +61,45 @@ void CurlSSLHandle::clearCACertInfo()
     m_caCertInfo = std::monostate { };
 }
 
+void CurlSSLHandle::allowAnyHTTPSCertificatesForHost(const String& host)
+{
+    Locker locker { m_allowedHostsLock };
+
+    m_allowedHosts.addVoid(host);
+}
+
+bool CurlSSLHandle::canIgnoreAnyHTTPSCertificatesForHost(const String& host) const
+{
+    Locker locker { m_allowedHostsLock };
+
+    return m_allowedHosts.contains(host);
+}
+
+void CurlSSLHandle::setClientCertificateInfo(const String& hostName, const String& certificate, const String& key)
+{
+    Locker locker { m_allowedClientHostsLock };
+
+    m_allowedClientHosts.set(hostName, ClientCertificate { certificate, key });
+}
+
+void CurlSSLHandle::clearClientCertificateInfo(const String& hostName)
+{
+    LockHolder mutex(m_allowedClientHostsLock);
+
+	m_allowedClientHosts.remove(hostName);
+}
+
+std::optional<CurlSSLHandle::ClientCertificate> CurlSSLHandle::getSSLClientCertificate(const String& hostName) const
+{
+    Locker locker { m_allowedClientHostsLock };
+
+    auto it = m_allowedClientHosts.find(hostName);
+    if (it == m_allowedClientHosts.end())
+        return std::nullopt;
+
+    return it->value;
+}
+
 #if NEED_OPENSSL_THREAD_SUPPORT
 
 void CurlSSLHandle::ThreadSupport::setup()

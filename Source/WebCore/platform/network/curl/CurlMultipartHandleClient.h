@@ -25,15 +25,15 @@
 
 #pragma once
 
-#include <wtf/CheckedRef.h>
-
 namespace WebCore {
 
-class CurlMultipartHandleClient : public CanMakeThreadSafeCheckedPtr {
+class CurlResponse;
+class FragmentedSharedBuffer;
+
+class CurlMultipartHandleClient {
 public:
-    virtual void didReceiveHeaderFromMultipart(Vector<String>&&) = 0;
-    virtual void didReceiveDataFromMultipart(std::span<const uint8_t>) = 0;
-    virtual void didCompleteFromMultipart() = 0;
+    virtual void didReceiveHeaderFromMultipart(const Vector<String>&) = 0;
+    virtual void didReceiveDataFromMultipart(const SharedBuffer&) = 0;
 
 protected:
     ~CurlMultipartHandleClient() { }

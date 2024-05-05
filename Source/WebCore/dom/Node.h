@@ -836,6 +836,13 @@ ALWAYS_INLINE void Node::deref() const
 // Doesn't check deletionHasBegun().
 ALWAYS_INLINE void Node::derefAllowingPartiallyDestroyed() const
 {
+#ifdef __MORPHOS__
+// why does this happen?
+    volatile void* vAddr = (volatile void *)&m_refCountAndParentBit;
+    if (vAddr < (void *)0x1000) {
+        return;
+    }
+#endif
     ASSERT(isMainThread());
     ASSERT(!deletionHasEnded());
     ASSERT(!m_adoptionIsRequired);
