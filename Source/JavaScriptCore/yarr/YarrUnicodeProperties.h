@@ -26,15 +26,19 @@
 #pragma once
 
 #include "Yarr.h"
+#include <optional>
 #include <wtf/Forward.h>
 
 namespace JSC { namespace Yarr {
 
 struct CharacterClass;
+struct ClassSet;
+enum class CompileMode : uint8_t;
 
-JS_EXPORT_PRIVATE Optional<BuiltInCharacterClassID> unicodeMatchPropertyValue(WTF::String, WTF::String);
-JS_EXPORT_PRIVATE Optional<BuiltInCharacterClassID> unicodeMatchProperty(WTF::String);
+JS_EXPORT_PRIVATE std::optional<BuiltInCharacterClassID> unicodeMatchPropertyValue(WTF::String, WTF::String);
+JS_EXPORT_PRIVATE std::optional<BuiltInCharacterClassID> unicodeMatchProperty(WTF::String, CompileMode);
 
 std::unique_ptr<CharacterClass> createUnicodeCharacterClassFor(BuiltInCharacterClassID);
+JS_EXPORT_PRIVATE bool characterClassMayContainStrings(BuiltInCharacterClassID unicodeClassID);
 
 } } // namespace JSC::Yarr

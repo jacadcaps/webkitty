@@ -21,7 +21,7 @@
 #pragma once
 
 #include "CSSParserContext.h"
-#include "CachePolicy.h"
+#include <wtf/CheckedRef.h>
 #include <wtf/Function.h>
 #include <wtf/HashMap.h>
 #include <wtf/RefCounted.h>
@@ -41,17 +41,20 @@ class Node;
 class SecurityOrigin;
 class StyleRuleBase;
 class StyleRuleImport;
+class StyleRuleLayer;
 class StyleRuleNamespace;
+
+enum class CachePolicy : uint8_t;
 
 class StyleSheetContents final : public RefCounted<StyleSheetContents>, public CanMakeWeakPtr<StyleSheetContents> {
 public:
     static Ref<StyleSheetContents> create(const CSSParserContext& context = CSSParserContext(HTMLStandardMode))
     {
-        return adoptRef(*new StyleSheetContents(0, String(), context));
+        return adoptRef(*new StyleSheetContents(nullptr, String(), context));
     }
     static Ref<StyleSheetContents> create(const String& originalURL, const CSSParserContext& context)
     {
-        return adoptRef(*new StyleSheetContents(0, originalURL, context));
+        return adoptRef(*new StyleSheetContents(nullptr, originalURL, context));
     }
     static Ref<StyleSheetContents> create(StyleRuleImport* ownerRule, const String& originalURL, const CSSParserContext& context)
     {
@@ -85,9 +88,8 @@ public:
 
     bool loadCompleted() const { return m_loadCompleted; }
 
-    URL completeURL(const String& url) const;
-    bool traverseRules(const WTF::Function<bool (const StyleRuleBase&)>& handler) const;
-    bool traverseSubresources(const WTF::Function<bool (const CachedResource&)>& handler) const;
+    bool traverseRules(const Function<bool(const StyleRuleBase&)>& handler) const;
+    bool traverseSubresources(const Function<bool(const CachedResource&)>& handler) const;
 
     void setIsUserStyleSheet(bool b) { m_isUserStyleSheet = b; }
     bool isUserStyleSheet() const { return m_isUserStyleSheet; }
@@ -102,16 +104,16 @@ public:
     void clearRules();
 
     String encodingFromCharsetRule() const { return m_encodingFromCharsetRule; }
-    // Rules other than @charset and @import.
-    const Vector<RefPtr<StyleRuleBase>>& childRules() const { return m_childRules; }
-    const Vector<RefPtr<StyleRuleImport>>& importRules() const { return m_importRules; }
-    const Vector<RefPtr<StyleRuleNamespace>>& namespaceRules() const { return m_namespaceRules; }
+    const Vector<Ref<StyleRuleLayer>>& layerRulesBeforeImportRules() const { return m_layerRulesBeforeImportRules; }
+    const Vector<Ref<StyleRuleImport>>& importRules() const { return m_importRules; }
+    const Vector<Ref<StyleRuleNamespace>>& namespaceRules() const { return m_namespaceRules; }
+    const Vector<Ref<StyleRuleBase>>& childRules() const { return m_childRules; }
 
     void notifyLoadedSheet(const CachedCSSStyleSheet*);
     
     StyleSheetContents* parentStyleSheet() const;
     StyleRuleImport* ownerRule() const { return m_ownerRule; }
-    void clearOwnerRule() { m_ownerRule = 0; }
+    void clearOwnerRule() { m_ownerRule = nullptr; }
     
     // Note that href is the URL that started the redirect chain that led to
     // this style sheet. This property probably isn't useful for much except
@@ -119,6 +121,7 @@ public:
     String originalURL() const { return m_originalURL; }
     const URL& baseURL() const { return m_parserContext.baseURL; }
 
+    bool isEmpty() const { return !ruleCount(); }
     unsigned ruleCount() const;
     StyleRuleBase* ruleAt(unsigned index) const;
 
@@ -127,16 +130,20 @@ public:
     unsigned estimatedSizeInBytes() const;
     
     bool wrapperInsertRule(Ref<StyleRuleBase>&&, unsigned index);
-    void wrapperDeleteRule(unsigned index);
+    bool wrapperDeleteRule(unsigned index);
 
     Ref<StyleSheetContents> copy() const { return adoptRef(*new StyleSheetContents(*this)); }
 
     void registerClient(CSSStyleSheet*);
     void unregisterClient(CSSStyleSheet*);
     bool hasOneClient() { return m_clients.size() == 1; }
+    Vector<CSSStyleSheet*> clients() const { return m_clients; }
 
     bool isMutable() const { return m_isMutable; }
     void setMutable() { m_isMutable = true; }
+
+    bool hasNestingRules() const { return m_hasNestingRules; }
+    void setHasNestingRules() { m_hasNestingRules = true; }
 
     bool isInMemoryCache() const { return m_inMemoryCacheCount; }
     void addedToMemoryCache();
@@ -149,20 +156,23 @@ public:
 
     void setLoadErrorOccured() { m_didLoadErrorOccur = true; }
 
+    friend class CSSStyleSheet;
+
 private:
     WEBCORE_EXPORT StyleSheetContents(StyleRuleImport* ownerRule, const String& originalURL, const CSSParserContext&);
     StyleSheetContents(const StyleSheetContents&);
 
     void clearCharsetRule();
 
-    StyleRuleImport* m_ownerRule;
+    StyleRuleImport* m_ownerRule { nullptr };
 
     String m_originalURL;
 
     String m_encodingFromCharsetRule;
-    Vector<RefPtr<StyleRuleImport>> m_importRules;
-    Vector<RefPtr<StyleRuleNamespace>> m_namespaceRules;
-    Vector<RefPtr<StyleRuleBase>> m_childRules;
+    Vector<Ref<StyleRuleLayer>> m_layerRulesBeforeImportRules;
+    Vector<Ref<StyleRuleImport>> m_importRules;
+    Vector<Ref<StyleRuleNamespace>> m_namespaceRules;
+    Vector<Ref<StyleRuleBase>> m_childRules;
     typedef HashMap<AtomString, AtomString> PrefixNamespaceURIMap;
     PrefixNamespaceURIMap m_namespaces;
     AtomString m_defaultNamespace;
@@ -173,6 +183,7 @@ private:
     bool m_didLoadErrorOccur { false };
     bool m_usesStyleBasedEditability { false };
     bool m_isMutable { false };
+    bool m_hasNestingRules { false };
     unsigned m_inMemoryCacheCount { 0 };
 
     CSSParserContext m_parserContext;

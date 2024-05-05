@@ -32,16 +32,16 @@
 #pragma mark - RTCVideoDecoder
 
 - (void)setCallback:(RTCVideoDecoderCallback)callback {
-  RTC_NOTREACHED();
+  RTC_DCHECK_NOTREACHED();
 }
 
 - (NSInteger)startDecodeWithNumberOfCores:(int)numberOfCores {
-  RTC_NOTREACHED();
+  RTC_DCHECK_NOTREACHED();
   return 0;
 }
 
 - (NSInteger)releaseDecoder {
-  RTC_NOTREACHED();
+  RTC_DCHECK_NOTREACHED();
   return 0;
 }
 
@@ -49,12 +49,14 @@
         missingFrames:(BOOL)missingFrames
     codecSpecificInfo:(nullable id<RTCCodecSpecificInfo>)info
          renderTimeMs:(int64_t)renderTimeMs {
-  RTC_NOTREACHED();
+  RTC_DCHECK_NOTREACHED();
   return 0;
 }
 
 - (NSString *)implementationName {
-  RTC_NOTREACHED();
+#if !defined(WEBRTC_WEBKIT_BUILD)
+  RTC_DCHECK_NOTREACHED();
+#endif
   return nil;
 }
 

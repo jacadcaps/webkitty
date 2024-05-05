@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,27 +27,33 @@
 
 #if USE(APPKIT)
 
+#import "ColorMac.h"
+
 #import <AppKit/NSAppearance.h>
+#import <pal/spi/mac/NSAppearanceSPI.h>
 
 namespace WebCore {
 
-LocalDefaultSystemAppearance::LocalDefaultSystemAppearance(bool useDarkAppearance)
+LocalDefaultSystemAppearance::LocalDefaultSystemAppearance(bool useDarkAppearance, const Color& tintColor)
 {
-#if HAVE(OS_DARK_MODE_SUPPORT)
-    m_savedSystemAppearance = [NSAppearance currentAppearance];
+    m_savedSystemAppearance = [NSAppearance currentDrawingAppearance];
     m_usingDarkAppearance = useDarkAppearance;
 
-    [NSAppearance setCurrentAppearance:[NSAppearance appearanceNamed:m_usingDarkAppearance ? NSAppearanceNameDarkAqua : NSAppearanceNameAqua]];
-#else
-    UNUSED_PARAM(useDarkAppearance);
-#endif
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    NSAppearance *appearance = [NSAppearance appearanceNamed:m_usingDarkAppearance ? NSAppearanceNameDarkAqua : NSAppearanceNameAqua];
+
+    if (tintColor.isValid())
+        appearance = [appearance appearanceByApplyingTintColor:cocoaColor(tintColor).get()];
+
+    [NSAppearance setCurrentAppearance:appearance];
+ALLOW_DEPRECATED_DECLARATIONS_END
 }
 
 LocalDefaultSystemAppearance::~LocalDefaultSystemAppearance()
 {
-#if HAVE(OS_DARK_MODE_SUPPORT)
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     [NSAppearance setCurrentAppearance:m_savedSystemAppearance.get()];
-#endif
+ALLOW_DEPRECATED_DECLARATIONS_END
 }
 
 }

@@ -48,8 +48,7 @@ private:
     bool isValid() const;
     RenderBox& getBase() const;
     RenderBox& getIndex() const;
-    bool isRenderMathMLRoot() const final { return true; }
-    const char* renderName() const final { return "RenderMathMLRoot"; }
+    ASCIILiteral renderName() const final { return "RenderMathMLRoot"_s; }
     MathMLRootElement& element() const;
     RootType rootType() const;
 

@@ -34,9 +34,10 @@
 
 namespace WebCore {
 
-Ref<ScrollingStateOverflowScrollProxyNode> ScrollingStateOverflowScrollProxyNode::create(ScrollingStateTree& stateTree, ScrollingNodeID nodeID)
+ScrollingStateOverflowScrollProxyNode::ScrollingStateOverflowScrollProxyNode(ScrollingNodeID nodeID, Vector<Ref<ScrollingStateNode>>&& children, OptionSet<ScrollingStateNodeProperty> changedProperties, std::optional<PlatformLayerIdentifier> layerID, ScrollingNodeID overflowScrollingNode)
+    : ScrollingStateNode(ScrollingNodeType::OverflowProxy, nodeID, WTFMove(children), changedProperties, layerID)
+    , m_overflowScrollingNodeID(overflowScrollingNode)
 {
-    return adoptRef(*new ScrollingStateOverflowScrollProxyNode(stateTree, nodeID));
 }
 
 ScrollingStateOverflowScrollProxyNode::ScrollingStateOverflowScrollProxyNode(ScrollingStateTree& stateTree, ScrollingNodeID nodeID)
@@ -57,12 +58,15 @@ Ref<ScrollingStateNode> ScrollingStateOverflowScrollProxyNode::clone(ScrollingSt
     return adoptRef(*new ScrollingStateOverflowScrollProxyNode(*this, adoptiveTree));
 }
 
-void ScrollingStateOverflowScrollProxyNode::setPropertyChangedBitsAfterReattach()
+OptionSet<ScrollingStateNode::Property> ScrollingStateOverflowScrollProxyNode::applicableProperties() const
 {
-    setPropertyChangedBit(OverflowScrollingNode);
+    constexpr OptionSet<Property> nodeProperties = { Property::OverflowScrollingNode };
 
-    ScrollingStateNode::setPropertyChangedBitsAfterReattach();
+    auto properties = ScrollingStateNode::applicableProperties();
+    properties.add(nodeProperties);
+    return properties;
 }
+
 
 void ScrollingStateOverflowScrollProxyNode::setOverflowScrollingNode(ScrollingNodeID nodeID)
 {
@@ -70,21 +74,21 @@ void ScrollingStateOverflowScrollProxyNode::setOverflowScrollingNode(ScrollingNo
         return;
     
     m_overflowScrollingNodeID = nodeID;
-    setPropertyChanged(OverflowScrollingNode);
+    setPropertyChanged(Property::OverflowScrollingNode);
 }
 
-void ScrollingStateOverflowScrollProxyNode::dumpProperties(TextStream& ts, ScrollingStateTreeAsTextBehavior behavior) const
+void ScrollingStateOverflowScrollProxyNode::dumpProperties(TextStream& ts, OptionSet<ScrollingStateTreeAsTextBehavior> behavior) const
 {
     ts << "Overflow scroll proxy node";
     
     ScrollingStateNode::dumpProperties(ts, behavior);
 
-    if (auto* relatedOverflowNode = scrollingStateTree().stateNodeForID(m_overflowScrollingNodeID)) {
+    if (auto relatedOverflowNode = scrollingStateTree().stateNodeForID(m_overflowScrollingNodeID)) {
         auto scrollPosition = downcast<ScrollingStateOverflowScrollingNode>(*relatedOverflowNode).scrollPosition();
         ts.dumpProperty("related overflow scrolling node scroll position", scrollPosition);
     }
 
-    if (behavior & ScrollingStateTreeAsTextBehaviorIncludeNodeIDs)
+    if (behavior & ScrollingStateTreeAsTextBehavior::IncludeNodeIDs)
         ts.dumpProperty("overflow scrolling node", overflowScrollingNode());
 }
 

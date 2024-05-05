@@ -24,6 +24,7 @@ class MemoryObjectVk : public MemoryObjectImpl
     void onDestroy(const gl::Context *context) override;
 
     angle::Result setDedicatedMemory(const gl::Context *context, bool dedicatedMemory) override;
+    angle::Result setProtectedMemory(const gl::Context *context, bool protectedMemory) override;
 
     angle::Result importFd(gl::Context *context,
                            GLuint64 size,
@@ -41,7 +42,10 @@ class MemoryObjectVk : public MemoryObjectImpl
                               GLenum internalFormat,
                               const gl::Extents &size,
                               GLuint64 offset,
-                              vk::ImageHelper *image);
+                              vk::ImageHelper *image,
+                              GLbitfield createFlags,
+                              GLbitfield usageFlags,
+                              const void *imageCreateInfoPNext);
 
   private:
     static constexpr int kInvalidFd = -1;
@@ -50,6 +54,7 @@ class MemoryObjectVk : public MemoryObjectImpl
 
     // Imported memory object was a dedicated allocation.
     bool mDedicatedMemory = false;
+    bool mProtectedMemory = false;
 
     GLuint64 mSize             = 0;
     gl::HandleType mHandleType = gl::HandleType::InvalidEnum;

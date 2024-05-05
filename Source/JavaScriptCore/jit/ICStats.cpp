@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,7 +26,11 @@
 #include "config.h"
 #include "ICStats.h"
 
+#include <wtf/TZoneMallocInlines.h>
+
 namespace JSC {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ICStats);
 
 bool ICEvent::operator<(const ICEvent& other) const
 {
@@ -66,7 +70,7 @@ ICStats::ICStats()
     m_thread = Thread::create(
         "JSC ICStats",
         [this] () {
-            LockHolder locker(m_lock);
+            Locker locker { m_lock };
             for (;;) {
                 m_condition.waitFor(
                     m_lock, Seconds(1), [this] () -> bool { return m_shouldStop; });
@@ -74,9 +78,12 @@ ICStats::ICStats()
                     break;
                 
                 dataLog("ICStats:\n");
-                auto list = m_spectrum.buildList();
-                for (unsigned i = list.size(); i--;)
-                    dataLog("    ", list[i].key, ": ", list[i].count, "\n");
+                {
+                    Locker spectrumLocker { m_spectrum.getLock() };
+                    auto list = m_spectrum.buildList(spectrumLocker);
+                    for (unsigned i = list.size(); i--;)
+                        dataLog("    ", *list[i].key, ": ", list[i].count, "\n");
+                }
             }
         });
 }
@@ -84,7 +91,7 @@ ICStats::ICStats()
 ICStats::~ICStats()
 {
     {
-        LockHolder locker(m_lock);
+        Locker locker { m_lock };
         m_shouldStop = true;
         m_condition.notifyAll();
     }

@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2020 Igalia S.L. All rights reserved.
+ * Copyright (C) 2021-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,17 +31,17 @@
 #include "ActiveDOMObject.h"
 #include "EventTarget.h"
 #include "HTMLCanvasElement.h"
-#include "JSDOMPromiseDeferred.h"
+#include "JSDOMPromiseDeferredForward.h"
+#include "PlatformXR.h"
 #include "WebGLContextAttributes.h"
 #include "WebGLRenderingContextBase.h"
 #include "XRReferenceSpaceType.h"
 #include "XRSessionMode.h"
 #include <wtf/HashSet.h>
 #include <wtf/IsoMalloc.h>
-#include <wtf/Optional.h>
 #include <wtf/RefCounted.h>
-#include <wtf/WeakHashSet.h>
-#include <wtf/WeakPtr.h>
+#include <wtf/ThreadSafeWeakHashSet.h>
+#include <wtf/ThreadSafeWeakPtr.h>
 
 namespace JSC {
 class JSGlobalObject;
@@ -48,18 +49,20 @@ class JSGlobalObject;
 
 namespace WebCore {
 
-class DOMWindow;
+class LocalDOMWindow;
+class Navigator;
 class ScriptExecutionContext;
 class WebXRSession;
+class SecurityOriginData;
 struct XRSessionInit;
 
-class WebXRSystem final : public RefCounted<WebXRSystem>, public EventTargetWithInlineData, public ActiveDOMObject, public CanMakeWeakPtr<WebXRSystem> {
+class WebXRSystem final : public RefCounted<WebXRSystem>, public EventTarget, public ActiveDOMObject {
     WTF_MAKE_ISO_ALLOCATED(WebXRSystem);
 public:
     using IsSessionSupportedPromise = DOMPromiseDeferred<IDLBoolean>;
     using RequestSessionPromise = DOMPromiseDeferred<IDLInterface<WebXRSession>>;
 
-    static Ref<WebXRSystem> create(ScriptExecutionContext&);
+    static Ref<WebXRSystem> create(Navigator&);
     ~WebXRSystem();
 
     using RefCounted<WebXRSystem>::ref;
@@ -69,14 +72,16 @@ public:
     void requestSession(Document&, XRSessionMode, const XRSessionInit&, RequestSessionPromise&&);
 
     // This is also needed by WebGLRenderingContextBase::makeXRCompatible() and HTMLCanvasElement::createContextWebGL().
-    void ensureImmersiveXRDeviceIsSelected();
-    bool hasActiveImmersiveXRDevice() { return !!m_activeImmersiveDevice; }
+    void ensureImmersiveXRDeviceIsSelected(CompletionHandler<void()>&&);
+    bool hasActiveImmersiveXRDevice() { return !!m_activeImmersiveDevice.get(); }
 
     void sessionEnded(WebXRSession&);
 
     // For testing purpouses only.
-    void registerSimulatedXRDeviceForTesting(PlatformXR::Device&);
-    void unregisterSimulatedXRDeviceForTesting(PlatformXR::Device&);
+    WEBCORE_EXPORT void registerSimulatedXRDeviceForTesting(PlatformXR::Device&);
+    WEBCORE_EXPORT void unregisterSimulatedXRDeviceForTesting(PlatformXR::Device&);
+
+    Navigator* navigator();
 
 protected:
     // EventTarget
@@ -90,25 +95,41 @@ protected:
     void stop() override;
 
 private:
-    WebXRSystem(ScriptExecutionContext&);
+    WebXRSystem(Navigator&);
 
-    using FeaturesArray = PlatformXR::Device::ListOfEnabledFeatures;
-    using JSFeaturesArray = Vector<JSC::JSValue>;
-    PlatformXR::Device* obtainCurrentDevice(XRSessionMode, const JSFeaturesArray& requiredFeatures, const JSFeaturesArray& optionalFeatures);
+    using FeatureList = PlatformXR::Device::FeatureList;
+    using JSFeatureList = Vector<JSC::JSValue>;
+    void obtainCurrentDevice(XRSessionMode, const JSFeatureList& requiredFeatures, const JSFeatureList& optionalFeatures, CompletionHandler<void(ThreadSafeWeakPtr<PlatformXR::Device>)>&&);
 
-    bool immersiveSessionRequestIsAllowedForGlobalObject(DOMWindow&, Document&) const;
-    bool inlineSessionRequestIsAllowedForGlobalObject(DOMWindow&, Document&, const XRSessionInit&) const;
+    bool immersiveSessionRequestIsAllowedForGlobalObject(LocalDOMWindow&, Document&) const;
+    bool inlineSessionRequestIsAllowedForGlobalObject(LocalDOMWindow&, Document&, const XRSessionInit&) const;
 
+    bool isFeatureSupported(PlatformXR::SessionFeature, XRSessionMode, const PlatformXR::Device&) const;
     struct ResolvedRequestedFeatures;
-    Optional<ResolvedRequestedFeatures> resolveRequestedFeatures(XRSessionMode, const XRSessionInit&, PlatformXR::Device*, JSC::JSGlobalObject&) const;
-    bool isXRPermissionGranted(XRSessionMode, const XRSessionInit&, PlatformXR::Device*, JSC::JSGlobalObject&) const;
+    std::optional<ResolvedRequestedFeatures> resolveRequestedFeatures(XRSessionMode, const XRSessionInit&, RefPtr<PlatformXR::Device>, JSC::JSGlobalObject&) const;
+    void resolveFeaturePermissions(XRSessionMode, const XRSessionInit&, RefPtr<PlatformXR::Device>, JSC::JSGlobalObject&, CompletionHandler<void(std::optional<FeatureList>&&)>&&) const;
 
     // https://immersive-web.github.io/webxr/#default-inline-xr-device
-    class DummyInlineDevice final : public PlatformXR::Device {
+    class DummyInlineDevice final : public PlatformXR::Device, public ContextDestructionObserver {
     public:
-        DummyInlineDevice();
+        static Ref<DummyInlineDevice> create(ScriptExecutionContext&);
+        virtual ~DummyInlineDevice() = default;
+
+    private:
+        DummyInlineDevice(ScriptExecutionContext&);
+
+        void initializeTrackingAndRendering(const WebCore::SecurityOriginData&, PlatformXR::SessionMode, const PlatformXR::Device::FeatureList&) final { }
+        void shutDownTrackingAndRendering() final { }
+        void initializeReferenceSpace(PlatformXR::ReferenceSpaceType) final { }
+
+        void requestFrame(PlatformXR::Device::RequestFrameCallback&&) final;
+        Vector<Device::ViewData> views(XRSessionMode) const final;
+        std::optional<PlatformXR::LayerHandle> createLayerProjection(uint32_t, uint32_t, bool) final { return std::nullopt; }
+        void deleteLayer(PlatformXR::LayerHandle) final { }
     };
-    DummyInlineDevice m_defaultInlineDevice;
+
+    WeakPtr<Navigator> m_navigator;
+    Ref<PlatformXR::Device> m_defaultInlineDevice;
 
     bool m_immersiveXRDevicesHaveBeenEnumerated { false };
     uint m_testingDevices { 0 };
@@ -120,9 +141,9 @@ private:
     // https://immersive-web.github.io/webxr/#list-of-inline-sessions.
     HashSet<Ref<WebXRSession>> m_inlineSessions;
 
-    WeakPtr<PlatformXR::Device> m_activeImmersiveDevice;
-    WeakHashSet<PlatformXR::Device> m_immersiveDevices;
-    WeakPtr<PlatformXR::Device> m_inlineXRDevice;
+    ThreadSafeWeakPtr<PlatformXR::Device> m_activeImmersiveDevice;
+    ThreadSafeWeakHashSet<PlatformXR::Device> m_immersiveDevices;
+    ThreadSafeWeakPtr<PlatformXR::Device> m_inlineXRDevice;
 };
 
 } // namespace WebCore

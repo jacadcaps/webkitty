@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,13 +26,18 @@
 #pragma once
 
 #include "ResourceLoadStatisticsParameters.h"
+#include "UnifiedOriginStorageLevel.h"
+#include "WebPushDaemonConnectionConfiguration.h"
 #include <WebCore/NetworkStorageSession.h>
 #include <pal/SessionID.h>
 #include <wtf/Seconds.h>
 #include <wtf/URL.h>
+#include <wtf/UUID.h>
 
 #if USE(SOUP)
 #include "SoupCookiePersistentStorageType.h"
+#include <WebCore/HTTPCookieAcceptPolicy.h>
+#include <WebCore/SoupNetworkProxySettings.h>
 #endif
 
 #if USE(CURL)
@@ -49,10 +54,8 @@ namespace WebKit {
 enum class AllowsCellularAccess : bool { No, Yes };
 
 struct NetworkSessionCreationParameters {
-    void encode(IPC::Encoder&) const;
-    static Optional<NetworkSessionCreationParameters> decode(IPC::Decoder&);
-    
     PAL::SessionID sessionID { PAL::SessionID::defaultSessionID() };
+    Markable<WTF::UUID> dataStoreIdentifier;
     String boundInterfaceIdentifier;
     AllowsCellularAccess allowsCellularAccess { AllowsCellularAccess::Yes };
 #if PLATFORM(COCOA)
@@ -60,19 +63,22 @@ struct NetworkSessionCreationParameters {
     String sourceApplicationBundleIdentifier;
     String sourceApplicationSecondaryIdentifier;
     bool shouldLogCookieInformation { false };
-    Seconds loadThrottleLatency;
     URL httpProxy;
     URL httpsProxy;
 #endif
-#if HAVE(CFNETWORK_ALTERNATIVE_SERVICE)
+#if HAVE(ALTERNATIVE_SERVICE)
     String alternativeServiceDirectory;
     SandboxExtension::Handle alternativeServiceDirectoryExtensionHandle;
-    bool http3Enabled { false };
 #endif
+    String hstsStorageDirectory;
+    SandboxExtension::Handle hstsStorageDirectoryExtensionHandle;
 #if USE(SOUP)
     String cookiePersistentStoragePath;
     SoupCookiePersistentStorageType cookiePersistentStorageType { SoupCookiePersistentStorageType::Text };
     bool persistentCredentialStorageEnabled { true };
+    bool ignoreTLSErrors { false };
+    WebCore::SoupNetworkProxySettings proxySettings;
+    WebCore::HTTPCookieAcceptPolicy cookieAcceptPolicy { WebCore::HTTPCookieAcceptPolicy::ExclusivelyFromMainDocumentDomain };
 #endif
 #if USE(CURL)
     String cookiePersistentStorageFile;
@@ -80,6 +86,7 @@ struct NetworkSessionCreationParameters {
 #endif
     bool deviceManagementRestrictionsEnabled { false };
     bool allLoadsBlockedByDeviceManagementRestrictionsForTesting { false };
+    WebPushD::WebPushDaemonConnectionConfiguration webPushDaemonConnectionConfiguration;
 
     String networkCacheDirectory;
     SandboxExtension::Handle networkCacheDirectoryExtensionHandle;
@@ -92,9 +99,43 @@ struct NetworkSessionCreationParameters {
     bool suppressesConnectionTerminationOnSystemChange { false };
     bool allowsServerPreconnect { true };
     bool requiresSecureHTTPSProxyConnection { false };
+    bool shouldRunServiceWorkersOnMainThreadForTesting { false };
+    std::optional<unsigned> overrideServiceWorkerRegistrationCountTestingValue;
     bool preventsSystemHTTPProxyAuthentication { false };
     bool appHasRequestedCrossWebsiteTrackingPermission { false };
+    std::optional<bool> useNetworkLoader { std::nullopt };
+    bool allowsHSTSWithUntrustedRootCertificate { false };
+    String pcmMachServiceName;
+    String webPushMachServiceName;
+    String webPushPartitionString;
+    bool enablePrivateClickMeasurementDebugMode { false };
+    bool isBlobRegistryTopOriginPartitioningEnabled { false };
+    bool shouldSendPrivateTokenIPCForTesting { false };
 
+    UnifiedOriginStorageLevel unifiedOriginStorageLevel { UnifiedOriginStorageLevel::Standard };
+    uint64_t perOriginStorageQuota;
+    std::optional<double> originQuotaRatio;
+    std::optional<double> totalQuotaRatio;
+    std::optional<uint64_t> standardVolumeCapacity;
+    std::optional<uint64_t> volumeCapacityOverride;
+    String localStorageDirectory;
+    SandboxExtension::Handle localStorageDirectoryExtensionHandle;
+    String indexedDBDirectory;
+    SandboxExtension::Handle indexedDBDirectoryExtensionHandle;
+    String cacheStorageDirectory;
+    SandboxExtension::Handle cacheStorageDirectoryExtensionHandle;
+    String generalStorageDirectory;
+    SandboxExtension::Handle generalStorageDirectoryHandle;
+    String serviceWorkerRegistrationDirectory;
+    SandboxExtension::Handle serviceWorkerRegistrationDirectoryExtensionHandle;
+    bool serviceWorkerProcessTerminationDelayEnabled { true };
+    bool inspectionForServiceWorkersAllowed { true };
+#if ENABLE(DECLARATIVE_WEB_PUSH)
+    bool isDeclarativeWebPushEnabled { false };
+#endif
+#if HAVE(NW_PROXY_CONFIG)
+    std::optional<Vector<std::pair<Vector<uint8_t>, WTF::UUID>>> proxyConfigData;
+#endif
     ResourceLoadStatisticsParameters resourceLoadStatisticsParameters;
 };
 

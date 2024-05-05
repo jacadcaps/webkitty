@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,11 +30,15 @@
 
 #import "APIFindClient.h"
 #import "APIFindMatchesClient.h"
+#import "WKPageFindMatchesClient.h"
+#import "WebFindOptions.h"
 #import "WebImage.h"
 #import "WebPageProxy.h"
+#import <WebCore/NativeImage.h>
 #import <algorithm>
 #import <pal/spi/mac/NSTextFinderSPI.h>
 #import <wtf/BlockPtr.h>
+#import <wtf/CheckedPtr.h>
 #import <wtf/Deque.h>
 #import <wtf/NakedPtr.h>
 #import <wtf/cocoa/VectorCocoa.h>
@@ -83,7 +87,7 @@ private:
             // filling in the actual rects for the one that we received.
             // The rest will remain empty, but it's important to NSTextFinder
             // that they at least exist.
-            allMatches.resize(matchCount);
+            allMatches.grow(matchCount);
             // FIXME: Clean this up and figure out why we are getting a -1 index
             if (matchIndex >= 0 && static_cast<uint32_t>(matchIndex) < matchCount)
                 allMatches[matchIndex].appendVector(matchRects);
@@ -153,7 +157,7 @@ private:
 @end
 
 @implementation WKTextFinderClient {
-    NakedPtr<WebKit::WebPageProxy> _page;
+    WeakPtr<WebKit::WebPageProxy> _page;
     NSView *_view;
     Deque<WTF::Function<void(NSArray *, bool didWrap)>> _findReplyCallbacks;
     Deque<WTF::Function<void(NSImage *)>> _imageReplyCallbacks;
@@ -191,13 +195,13 @@ private:
 - (void)replaceMatches:(NSArray *)matches withString:(NSString *)replacementText inSelectionOnly:(BOOL)selectionOnly resultCollector:(void (^)(NSUInteger replacementCount))resultCollector
 {
     Vector<uint32_t> matchIndices;
-    matchIndices.reserveCapacity(matches.count);
+    matchIndices.reserveInitialCapacity(matches.count);
     for (id match in matches) {
         if ([match isKindOfClass:WKTextFinderMatch.class])
-            matchIndices.uncheckedAppend([(WKTextFinderMatch *)match index]);
+            matchIndices.append([(WKTextFinderMatch *)match index]);
     }
-    _page->replaceMatches(WTFMove(matchIndices), replacementText, selectionOnly, [collector = makeBlockPtr(resultCollector)] (uint64_t numberOfReplacements, auto error) {
-        collector(error == WebKit::CallbackBase::Error::None ? numberOfReplacements : 0);
+    _page->replaceMatches(WTFMove(matchIndices), replacementText, selectionOnly, [collector = makeBlockPtr(resultCollector)] (uint64_t numberOfReplacements) {
+        collector(numberOfReplacements);
     });
 }
 
@@ -225,7 +229,7 @@ private:
         kitFindOptions.add(WebKit::FindOptions::DetermineMatchIndex);
     }
 
-    RetainPtr<NSProgress> progress = [NSProgress progressWithTotalUnitCount:1];
+    RetainPtr progress = [NSProgress progressWithTotalUnitCount:1];
     auto copiedResultCollector = Block_copy(resultCollector);
     _findReplyCallbacks.append([progress, copiedResultCollector] (NSArray *matches, bool didWrap) {
         [progress setCompletedUnitCount:1];
@@ -243,7 +247,7 @@ private:
 {
     void (^copiedCompletionHandler)(NSString *) = Block_copy(completionHandler);
 
-    _page->getSelectionOrContentsAsString([copiedCompletionHandler] (const String& string, WebKit::CallbackBase::Error) {
+    _page->getSelectionOrContentsAsString([copiedCompletionHandler] (const String& string) {
         copiedCompletionHandler(string);
         Block_release(copiedCompletionHandler);
     });
@@ -294,11 +298,15 @@ private:
     if (_imageReplyCallbacks.isEmpty())
         return;
 
-    WebCore::IntSize size = image->bitmap().size();
+    auto size = image->size();
     size.scale(1 / _page->deviceScaleFactor());
+    
+    auto nativeImage = image->copyNativeImage(WebCore::DontCopyBackingStore);
+    if (!nativeImage)
+        return;
 
     auto imageCallback = _imageReplyCallbacks.takeFirst();
-    imageCallback(adoptNS([[NSImage alloc] initWithCGImage:image->bitmap().makeCGImage().get() size:size]).get());
+    imageCallback(adoptNS([[NSImage alloc] initWithCGImage:nativeImage->platformImage().get() size:size]).get());
 }
 
 #pragma mark - WKTextFinderMatch callbacks

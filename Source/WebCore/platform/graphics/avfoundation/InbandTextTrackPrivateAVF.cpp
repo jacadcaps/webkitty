@@ -36,13 +36,15 @@
 #include <JavaScriptCore/DataView.h>
 #include <JavaScriptCore/Int8Array.h>
 #include <pal/avfoundation/MediaTimeAVFoundation.h>
-#include <pal/cf/CoreMediaSoftLink.h>
 #include <wtf/MediaTime.h>
 #include <wtf/StringPrintStream.h>
+#include <wtf/cf/TypeCastsCF.h>
 #include <wtf/text/CString.h>
 #include <wtf/text/StringBuilder.h>
 #include <wtf/text/WTFString.h>
 #include <wtf/unicode/CharacterNames.h>
+
+#include <pal/cf/CoreMediaSoftLink.h>
 
 namespace WebCore {
 
@@ -64,23 +66,23 @@ InbandTextTrackPrivateAVF::~InbandTextTrackPrivateAVF()
     disconnect();
 }
 
-static Optional<SRGBA<uint8_t>> makeSimpleColorFromARGBCFArray(CFArrayRef colorArray)
+static std::optional<SRGBA<uint8_t>> makeSimpleColorFromARGBCFArray(CFArrayRef colorArray)
 {
     if (CFArrayGetCount(colorArray) < 4)
-        return WTF::nullopt;
+        return std::nullopt;
 
     float componentArray[4];
     for (int i = 0; i < 4; i++) {
-        CFNumberRef value = static_cast<CFNumberRef>(CFArrayGetValueAtIndex(colorArray, i));
-        if (CFGetTypeID(value) != CFNumberGetTypeID())
-            return WTF::nullopt;
+        auto value = dynamic_cf_cast<CFNumberRef>(CFArrayGetValueAtIndex(colorArray, i));
+        if (!value)
+            return std::nullopt;
 
         float component;
         CFNumberGetValue(value, kCFNumberFloatType, &component);
         componentArray[i] = component;
     }
 
-    return convertToComponentBytes(SRGBA { componentArray[1], componentArray[2], componentArray[3], componentArray[0] });
+    return convertColor<SRGBA<uint8_t>>(SRGBA<float> { componentArray[1], componentArray[2], componentArray[3], componentArray[0] });
 }
 
 Ref<InbandGenericCue> InbandTextTrackPrivateAVF::processCueAttributes(CFAttributedStringRef attributedString)
@@ -105,7 +107,6 @@ Ref<InbandGenericCue> InbandTextTrackPrivateAVF::processCueAttributes(CFAttribut
     if (!length)
         return cueData;
 
-
     CFRange effectiveRange = CFRangeMake(0, 0);
     while ((effectiveRange.location + effectiveRange.length) < length) {
 
@@ -114,7 +115,6 @@ Ref<InbandGenericCue> InbandTextTrackPrivateAVF::processCueAttributes(CFAttribut
             continue;
 
         StringBuilder tagStart;
-        CFStringRef valueString;
         String tagEnd;
         CFIndex attributeCount = CFDictionaryGetCount(attributes);
         Vector<const void*> keys(attributeCount);
@@ -122,14 +122,14 @@ Ref<InbandGenericCue> InbandTextTrackPrivateAVF::processCueAttributes(CFAttribut
         CFDictionaryGetKeysAndValues(attributes, keys.data(), values.data());
 
         for (CFIndex i = 0; i < attributeCount; ++i) {
-            CFStringRef key = static_cast<CFStringRef>(keys[i]);
+            auto key = dynamic_cf_cast<CFStringRef>(keys[i]);
             CFTypeRef value = values[i];
-            if (CFGetTypeID(key) != CFStringGetTypeID() || !CFStringGetLength(key))
+            if (!key || !CFStringGetLength(key))
                 continue;
 
             if (CFStringCompare(key, kCMTextMarkupAttribute_Alignment, 0) == kCFCompareEqualTo) {
-                valueString = static_cast<CFStringRef>(value);
-                if (CFGetTypeID(valueString) != CFStringGetTypeID() || !CFStringGetLength(valueString))
+                auto valueString = dynamic_cf_cast<CFStringRef>(value);
+                if (!valueString || !CFStringGetLength(valueString))
                     continue;
                 if (processed & Align)
                     continue;
@@ -148,40 +148,40 @@ Ref<InbandGenericCue> InbandTextTrackPrivateAVF::processCueAttributes(CFAttribut
             }
 
             if (CFStringCompare(key, kCMTextMarkupAttribute_BoldStyle, 0) == kCFCompareEqualTo) {
-                if (static_cast<CFBooleanRef>(value) != kCFBooleanTrue)
+                if (value != kCFBooleanTrue)
                     continue;
 
-                tagStart.appendLiteral("<b>");
+                tagStart.append("<b>");
                 tagEnd = "</b>" + tagEnd;
                 continue;
             }
 
             if (CFStringCompare(key, kCMTextMarkupAttribute_ItalicStyle, 0) == kCFCompareEqualTo) {
-                if (static_cast<CFBooleanRef>(value) != kCFBooleanTrue)
+                if (value != kCFBooleanTrue)
                     continue;
 
-                tagStart.appendLiteral("<i>");
+                tagStart.append("<i>");
                 tagEnd = "</i>" + tagEnd;
                 continue;
             }
 
             if (CFStringCompare(key, kCMTextMarkupAttribute_UnderlineStyle, 0) == kCFCompareEqualTo) {
-                if (static_cast<CFBooleanRef>(value) != kCFBooleanTrue)
+                if (value != kCFBooleanTrue)
                     continue;
 
-                tagStart.appendLiteral("<u>");
+                tagStart.append("<u>");
                 tagEnd = "</u>" + tagEnd;
                 continue;
             }
 
             if (CFStringCompare(key, kCMTextMarkupAttribute_OrthogonalLinePositionPercentageRelativeToWritingDirection, 0) == kCFCompareEqualTo) {
-                if (CFGetTypeID(value) != CFNumberGetTypeID())
+                auto valueNumber = dynamic_cf_cast<CFNumberRef>(value);
+                if (!valueNumber)
                     continue;
                 if (processed & Line)
                     continue;
                 processed |= Line;
 
-                CFNumberRef valueNumber = static_cast<CFNumberRef>(value);
                 double line;
                 CFNumberGetValue(valueNumber, kCFNumberFloat64Type, &line);
                 cueData->setLine(line);
@@ -189,13 +189,13 @@ Ref<InbandGenericCue> InbandTextTrackPrivateAVF::processCueAttributes(CFAttribut
             }
 
             if (CFStringCompare(key, kCMTextMarkupAttribute_TextPositionPercentageRelativeToWritingDirection, 0) == kCFCompareEqualTo) {
-                if (CFGetTypeID(value) != CFNumberGetTypeID())
+                auto valueNumber = dynamic_cf_cast<CFNumberRef>(value);
+                if (!valueNumber)
                     continue;
                 if (processed & Position)
                     continue;
                 processed |= Position;
 
-                CFNumberRef valueNumber = static_cast<CFNumberRef>(value);
                 double position;
                 CFNumberGetValue(valueNumber, kCFNumberFloat64Type, &position);
                 cueData->setPosition(position);
@@ -203,13 +203,13 @@ Ref<InbandGenericCue> InbandTextTrackPrivateAVF::processCueAttributes(CFAttribut
             }
 
             if (CFStringCompare(key, kCMTextMarkupAttribute_WritingDirectionSizePercentage, 0) == kCFCompareEqualTo) {
-                if (CFGetTypeID(value) != CFNumberGetTypeID())
+                auto valueNumber = dynamic_cf_cast<CFNumberRef>(value);
+                if (!valueNumber)
                     continue;
                 if (processed & Size)
                     continue;
                 processed |= Size;
 
-                CFNumberRef valueNumber = static_cast<CFNumberRef>(value);
                 double size;
                 CFNumberGetValue(valueNumber, kCFNumberFloat64Type, &size);
                 cueData->setSize(size);
@@ -217,8 +217,8 @@ Ref<InbandGenericCue> InbandTextTrackPrivateAVF::processCueAttributes(CFAttribut
             }
 
             if (CFStringCompare(key, kCMTextMarkupAttribute_VerticalLayout, 0) == kCFCompareEqualTo) {
-                valueString = static_cast<CFStringRef>(value);
-                if (CFGetTypeID(valueString) != CFStringGetTypeID() || !CFStringGetLength(valueString))
+                auto valueString = dynamic_cf_cast<CFStringRef>(value);
+                if (!valueString || !CFStringGetLength(valueString))
                     continue;
                 
                 if (CFStringCompare(valueString, kCMTextVerticalLayout_LeftToRight, 0) == kCFCompareEqualTo)
@@ -229,10 +229,10 @@ Ref<InbandGenericCue> InbandTextTrackPrivateAVF::processCueAttributes(CFAttribut
             }
 
             if (CFStringCompare(key, kCMTextMarkupAttribute_BaseFontSizePercentageRelativeToVideoHeight, 0) == kCFCompareEqualTo) {
-                if (CFGetTypeID(value) != CFNumberGetTypeID())
+                auto valueNumber = dynamic_cf_cast<CFNumberRef>(value);
+                if (!valueNumber)
                     continue;
-                
-                CFNumberRef valueNumber = static_cast<CFNumberRef>(value);
+
                 double baseFontSize;
                 CFNumberGetValue(valueNumber, kCFNumberFloat64Type, &baseFontSize);
                 cueData->setBaseFontSize(baseFontSize);
@@ -240,10 +240,10 @@ Ref<InbandGenericCue> InbandTextTrackPrivateAVF::processCueAttributes(CFAttribut
             }
 
             if (CFStringCompare(key, kCMTextMarkupAttribute_RelativeFontSize, 0) == kCFCompareEqualTo) {
-                if (CFGetTypeID(value) != CFNumberGetTypeID())
+                auto valueNumber = dynamic_cf_cast<CFNumberRef>(value);
+                if (!valueNumber)
                     continue;
-                
-                CFNumberRef valueNumber = static_cast<CFNumberRef>(value);
+
                 double relativeFontSize;
                 CFNumberGetValue(valueNumber, kCFNumberFloat64Type, &relativeFontSize);
                 cueData->setRelativeFontSize(relativeFontSize);
@@ -251,8 +251,8 @@ Ref<InbandGenericCue> InbandTextTrackPrivateAVF::processCueAttributes(CFAttribut
             }
 
             if (CFStringCompare(key, kCMTextMarkupAttribute_FontFamilyName, 0) == kCFCompareEqualTo) {
-                valueString = static_cast<CFStringRef>(value);
-                if (CFGetTypeID(valueString) != CFStringGetTypeID() || !CFStringGetLength(valueString))
+                auto valueString = dynamic_cf_cast<CFStringRef>(value);
+                if (!valueString || !CFStringGetLength(valueString))
                     continue;
                 if (processed & FontName)
                     continue;
@@ -263,22 +263,22 @@ Ref<InbandGenericCue> InbandTextTrackPrivateAVF::processCueAttributes(CFAttribut
             }
 
             if (CFStringCompare(key, kCMTextMarkupAttribute_ForegroundColorARGB, 0) == kCFCompareEqualTo) {
-                CFArrayRef arrayValue = static_cast<CFArrayRef>(value);
-                if (CFGetTypeID(arrayValue) != CFArrayGetTypeID())
+                auto arrayValue = dynamic_cf_cast<CFArrayRef>(value);
+                if (!arrayValue)
                     continue;
-                
+
                 auto color = makeSimpleColorFromARGBCFArray(arrayValue);
                 if (!color)
                     continue;
                 cueData->setForegroundColor(*color);
                 continue;
             }
-            
+
             if (CFStringCompare(key, kCMTextMarkupAttribute_BackgroundColorARGB, 0) == kCFCompareEqualTo) {
-                CFArrayRef arrayValue = static_cast<CFArrayRef>(value);
-                if (CFGetTypeID(arrayValue) != CFArrayGetTypeID())
+                auto arrayValue = dynamic_cf_cast<CFArrayRef>(value);
+                if (!arrayValue)
                     continue;
-                
+
                 auto color = makeSimpleColorFromARGBCFArray(arrayValue);
                 if (!color)
                     continue;
@@ -287,10 +287,10 @@ Ref<InbandGenericCue> InbandTextTrackPrivateAVF::processCueAttributes(CFAttribut
             }
 
             if (CFStringCompare(key, kCMTextMarkupAttribute_CharacterBackgroundColorARGB, 0) == kCFCompareEqualTo) {
-                CFArrayRef arrayValue = static_cast<CFArrayRef>(value);
-                if (CFGetTypeID(arrayValue) != CFArrayGetTypeID())
+                auto arrayValue = dynamic_cf_cast<CFArrayRef>(value);
+                if (!arrayValue)
                     continue;
-                
+
                 auto color = makeSimpleColorFromARGBCFArray(arrayValue);
                 if (!color)
                     continue;
@@ -300,8 +300,30 @@ Ref<InbandGenericCue> InbandTextTrackPrivateAVF::processCueAttributes(CFAttribut
         }
 
         content.append(tagStart);
-        content.append(attributedStringValue.substring(effectiveRange.location, effectiveRange.length));
+        content.append(StringView(attributedStringValue).substring(effectiveRange.location, effectiveRange.length));
         content.append(tagEnd);
+    }
+
+    // AVFoundation cue "position" is to the center of the text so calculate the correct position and positionAlign
+    // relative to the cue's indicated alignment, size, and initial position.
+    if (cueData->position() >= 0 && cueData->size() >= 0) {
+        switch (cueData->align()) {
+        case GenericCueData::Alignment::None:
+            // By default, VTT cues alignment align as "start"
+            FALLTHROUGH;
+        case GenericCueData::Alignment::Middle:
+            // AVFoundation generates "middle" alignment cues for single line cues
+            // and cues multi-line cues with lines of equal length, so just treat
+            // "middle" alignment the same as "start"
+            FALLTHROUGH;
+        case GenericCueData::Alignment::Start:
+            cueData->setPositionAlign(GenericCueData::Alignment::Start);
+            cueData->setPosition(cueData->position() - cueData->size() / 2);
+            break;
+        case GenericCueData::Alignment::End:
+            cueData->setPositionAlign(GenericCueData::Alignment::End);
+            cueData->setPosition(cueData->position() + cueData->size() / 2);
+        }
     }
 
     if (content.length())
@@ -340,12 +362,6 @@ void InbandTextTrackPrivateAVF::processAttributedStrings(CFArrayRef attributedSt
 
             cueData->setStartTime(time);
             cueData->setEndTime(MediaTime::positiveInfiniteTime());
-
-            // AVFoundation cue "position" is to the center of the text so adjust relative to the edge because we will use it to
-            // set CSS "left".
-            if (cueData->position() >= 0 && cueData->size() > 0)
-                cueData->setPosition(cueData->position() - cueData->size() / 2);
-
             cueData->setStatus(GenericCueData::Status::Partial);
 
             arrivingCues.append(WTFMove(cueData));
@@ -485,7 +501,7 @@ void InbandTextTrackPrivateAVF::processNativeSamples(CFArrayRef nativeSamples, c
     if (!count)
         return;
 
-    INFO_LOG(LOGIDENTIFIER, count, " sample buffers at time ", presentationTime);
+    ALWAYS_LOG(LOGIDENTIFIER, count, " sample buffers at time ", presentationTime);
 
     for (CFIndex i = 0; i < count; i++) {
         RefPtr<ArrayBuffer> buffer;
@@ -494,59 +510,60 @@ void InbandTextTrackPrivateAVF::processNativeSamples(CFArrayRef nativeSamples, c
         if (!readNativeSampleBuffer(nativeSamples, i, buffer, duration, formatDescription))
             continue;
 
-        auto view = JSC::DataView::create(WTFMove(buffer), 0, buffer->byteLength());
-        auto peekResult = ISOBox::peekBox(view, 0);
-        if (!peekResult)
-            continue;
+        while (true) {
+            buffer = ArrayBuffer::create(m_sampleInputBuffer.data(), m_sampleInputBuffer.size());
+            auto view = JSC::DataView::create(WTFMove(buffer), 0, buffer->byteLength());
 
-        auto type = peekResult.value().first;
-        auto boxLength = peekResult.value().second;
-        if (boxLength > view->byteLength()) {
-            ERROR_LOG(LOGIDENTIFIER, "chunk  type = '", type.toString(), "', size = ", (size_t)boxLength, " larger than buffer length!");
-            continue;
+            auto peekResult = ISOBox::peekBox(view, 0);
+            if (!peekResult)
+                break;
+
+            auto type = peekResult.value().first;
+            auto boxLength = peekResult.value().second;
+            if (boxLength > view->byteLength()) {
+                ERROR_LOG(LOGIDENTIFIER, "chunk  type = '", type, "', size = ", boxLength, " larger than buffer length!");
+                break;
+            }
+
+            INFO_LOG(LOGIDENTIFIER, "chunk  type = '", type, "', size = ", boxLength);
+
+            do {
+                if (m_haveReportedVTTHeader || !formatDescription)
+                    break;
+
+                CFDictionaryRef extensions = CMFormatDescriptionGetExtensions(formatDescription);
+                if (!extensions)
+                    break;
+
+                CFDictionaryRef sampleDescriptionExtensions = static_cast<CFDictionaryRef>(CFDictionaryGetValue(extensions, kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms));
+                if (!sampleDescriptionExtensions)
+                    break;
+
+                CFDataRef webvttHeaderData = static_cast<CFDataRef>(CFDictionaryGetValue(sampleDescriptionExtensions, CFSTR("vttC")));
+                if (!webvttHeaderData)
+                    break;
+
+                unsigned length = CFDataGetLength(webvttHeaderData);
+                if (!length)
+                    break;
+
+                // A WebVTT header is terminated by "One or more WebVTT line terminators" so append two line feeds to make sure the parser
+                // reccognized this string as a full header.
+                auto header = makeString(StringView { CFDataGetBytePtr(webvttHeaderData), length }, "\n\n");
+
+                INFO_LOG(LOGIDENTIFIER, "VTT header ", header);
+                client()->parseWebVTTFileHeader(WTFMove(header));
+                m_haveReportedVTTHeader = true;
+            } while (0);
+
+            if (type == ISOWebVTTCue::boxTypeName()) {
+                ISOWebVTTCue cueData = ISOWebVTTCue(presentationTime, duration);
+                cueData.read(view);
+                client()->parseWebVTTCueData(WTFMove(cueData));
+            }
+
+            m_sampleInputBuffer.remove(0, (size_t)boxLength);
         }
-
-        INFO_LOG(LOGIDENTIFIER, "chunk  type = '", type.toString(), "', size = ", (size_t)boxLength);
-
-        do {
-            if (m_haveReportedVTTHeader || !formatDescription)
-                break;
-
-            CFDictionaryRef extensions = CMFormatDescriptionGetExtensions(formatDescription);
-            if (!extensions)
-                break;
-
-            CFDictionaryRef sampleDescriptionExtensions = static_cast<CFDictionaryRef>(CFDictionaryGetValue(extensions, kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms));
-            if (!sampleDescriptionExtensions)
-                break;
-            
-            CFDataRef webvttHeaderData = static_cast<CFDataRef>(CFDictionaryGetValue(sampleDescriptionExtensions, CFSTR("vttC")));
-            if (!webvttHeaderData)
-                break;
-
-            unsigned length = CFDataGetLength(webvttHeaderData);
-            if (!length)
-                break;
-
-            // A WebVTT header is terminated by "One or more WebVTT line terminators" so append two line feeds to make sure the parser
-            // reccognized this string as a full header.
-            StringBuilder header;
-            header.appendCharacters(reinterpret_cast<const unsigned char*>(CFDataGetBytePtr(webvttHeaderData)), length);
-            header.append("\n\n");
-
-            INFO_LOG(LOGIDENTIFIER, "VTT header ", &header);
-            client()->parseWebVTTFileHeader(header.toString());
-            m_haveReportedVTTHeader = true;
-        } while (0);
-
-        if (type == ISOWebVTTCue::boxTypeName()) {
-            ISOWebVTTCue cueData = ISOWebVTTCue(presentationTime, duration);
-            cueData.read(view);
-            INFO_LOG(LOGIDENTIFIER, "VTT cue data ", cueData);
-            client()->parseWebVTTCueData(WTFMove(cueData));
-        }
-
-        m_sampleInputBuffer.remove(0, (size_t)boxLength);
     }
 }
 

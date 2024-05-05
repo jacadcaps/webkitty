@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006, 2014 Apple Inc.  All rights reserved.
+ * Copyright (C) 2006-2021 Apple Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,33 +29,33 @@
 #if PLATFORM(IOS_FAMILY)
 
 #import "DeprecatedGlobalSettings.h"
-#import "Device.h"
 #import "FloatRect.h"
 #import "FloatSize.h"
-#import "FrameView.h"
 #import "GraphicsContextCG.h"
 #import "HostWindow.h"
 #import "IntRect.h"
+#import "LocalFrameView.h"
 #import "ScreenProperties.h"
 #import "WAKWindow.h"
 #import "Widget.h"
-#import <pal/cocoa/MediaToolboxSoftLink.h>
-#import <pal/ios/UIKitSoftLink.h>
 #import <pal/spi/ios/MobileGestaltSPI.h>
 #import <pal/spi/ios/UIKitSPI.h>
+#import <pal/system/ios/Device.h>
+
+#import <pal/cocoa/MediaToolboxSoftLink.h>
+#import <pal/ios/UIKitSoftLink.h>
 
 namespace WebCore {
 
 int screenDepth(Widget*)
 {
-    // Assume 32 bits per pixel. See <rdar://problem/9378829>.
-    return 32;
+    // See <rdar://problem/9378829> for why this is a constant.
+    return 24;
 }
 
 int screenDepthPerComponent(Widget*)
 {
-    // Assume the screen depth is evenly divided into four color components. See <rdar://problem/9378829>.
-    return screenDepth(nullptr) / 4;
+    return screenDepth(nullptr) / 3;
 }
 
 bool screenIsMonochrome(Widget*)
@@ -67,7 +67,7 @@ bool screenHasInvertedColors()
 {
     if (auto data = screenData(primaryScreenDisplayID()))
         return data->screenHasInvertedColors;
-    
+
     return PAL::softLinkUIKitUIAccessibilityIsInvertColorsEnabled();
 }
 
@@ -81,6 +81,9 @@ bool screenSupportsExtendedColor(Widget*)
 
 bool screenSupportsHighDynamicRange(Widget*)
 {
+    if (auto data = screenData(primaryScreenDisplayID()))
+        return data->screenSupportsHighDynamicRange;
+
 #if USE(MEDIATOOLBOX)
     if (PAL::isMediaToolboxFrameworkAvailable() && PAL::canLoad_MediaToolbox_MTShouldPlayHDRVideo())
         return PAL::softLink_MediaToolbox_MTShouldPlayHDRVideo(nullptr);
@@ -88,9 +91,9 @@ bool screenSupportsHighDynamicRange(Widget*)
     return false;
 }
 
-CGColorSpaceRef screenColorSpace(Widget* widget)
+DestinationColorSpace screenColorSpace(Widget* widget)
 {
-    return screenSupportsExtendedColor(widget) ? extendedSRGBColorSpaceRef() : sRGBColorSpaceRef();
+    return screenSupportsExtendedColor(widget) ? DestinationColorSpace { extendedSRGBColorSpaceRef() } : DestinationColorSpace::SRGB();
 }
 
 // These functions scale between screen and page coordinates because JavaScript/DOM operations
@@ -129,6 +132,9 @@ FloatRect screenAvailableRect(Widget* widget)
 
 float screenPPIFactor()
 {
+    if (auto data = screenData(primaryScreenDisplayID()))
+        return data->scaleFactor;
+
     static float ppiFactor;
 
     static dispatch_once_t onceToken;
@@ -140,13 +146,13 @@ float screenPPIFactor()
         float mainScreenPPI = (pitch && scale) ? pitch / scale : originalIPhonePPI;
         ppiFactor = mainScreenPPI / originalIPhonePPI;
     });
-    
+
     return ppiFactor;
 }
 
 FloatSize screenSize()
 {
-    if (deviceHasIPadCapability() && [[PAL::getUIApplicationClass() sharedApplication] _isClassic])
+    if (PAL::deviceHasIPadCapability() && [[PAL::getUIApplicationClass() sharedApplication] _isClassic])
         return { 320, 480 };
 
     if (auto data = screenData(primaryScreenDisplayID()))
@@ -157,7 +163,7 @@ FloatSize screenSize()
 
 FloatSize availableScreenSize()
 {
-    if (deviceHasIPadCapability() && [[PAL::getUIApplicationClass() sharedApplication] _isClassic])
+    if (PAL::deviceHasIPadCapability() && [[PAL::getUIApplicationClass() sharedApplication] _isClassic])
         return { 320, 480 };
 
     if (auto data = screenData(primaryScreenDisplayID()))
@@ -187,27 +193,31 @@ ScreenProperties collectScreenProperties()
 {
     ScreenProperties screenProperties;
 
+    // FIXME: This displayID doesn't match the synthetic displayIDs we use in iOS WebKit (see WebPageProxy::generateDisplayIDFromPageID()).
     PlatformDisplayID displayID = 0;
 
     for (UIScreen *screen in [PAL::getUIScreenClass() screens]) {
-        FloatRect screenAvailableRect = screen.bounds;
-        screenAvailableRect.setY(NSMaxY(screen.bounds) - (screenAvailableRect.y() + screenAvailableRect.height())); // flip
-        FloatRect screenRect = screen._referenceBounds;
-        
-        RetainPtr<CGColorSpaceRef> colorSpace = screenColorSpace(nullptr);
-        
-        int screenDepth = WebCore::screenDepth(nullptr);
-        int screenDepthPerComponent = WebCore::screenDepthPerComponent(nullptr);
-        bool screenSupportsExtendedColor = WebCore::screenSupportsExtendedColor(nullptr);
-        bool screenHasInvertedColors = WebCore::screenHasInvertedColors();
-        float scaleFactor = WebCore::screenPPIFactor();
+        ScreenData screenData;
 
-        screenProperties.screenDataMap.set(++displayID, ScreenData { screenAvailableRect, screenRect, colorSpace, screenDepth, screenDepthPerComponent, screenSupportsExtendedColor, screenHasInvertedColors, false, scaleFactor });
-        
+        auto screenAvailableRect = FloatRect { screen.bounds };
+        screenAvailableRect.setY(NSMaxY(screen.bounds) - (screenAvailableRect.y() + screenAvailableRect.height())); // flip
+        screenData.screenAvailableRect = screenAvailableRect;
+
+        screenData.screenRect = screen._referenceBounds;
+        screenData.colorSpace = { screenColorSpace(nullptr) };
+        screenData.screenDepth = WebCore::screenDepth(nullptr);
+        screenData.screenDepthPerComponent = WebCore::screenDepthPerComponent(nullptr);
+        screenData.screenSupportsExtendedColor = WebCore::screenSupportsExtendedColor(nullptr);
+        screenData.screenHasInvertedColors = WebCore::screenHasInvertedColors();
+        screenData.screenSupportsHighDynamicRange = WebCore::screenSupportsHighDynamicRange(nullptr);
+        screenData.scaleFactor = WebCore::screenPPIFactor();
+
+        screenProperties.screenDataMap.set(++displayID, WTFMove(screenData));
+
         if (screen == [PAL::getUIScreenClass() mainScreen])
             screenProperties.primaryDisplayID = displayID;
     }
-    
+
     return screenProperties;
 }
 

@@ -36,26 +36,47 @@
 #include <wtf/NumberOfCores.h>
 #include <wtf/Ref.h>
 #include <wtf/Threading.h>
+#include <wtf/threads/BinarySemaphore.h>
 
 namespace WTF {
 
-Ref<WorkQueue> WorkQueue::create(const char* name, Type type, QOS qos)
-{
-    return adoptRef(*new WorkQueue(name, type, qos));
-}
-
-WorkQueue::WorkQueue(const char* name, Type type, QOS qos)
+WorkQueueBase::WorkQueueBase(const char* name, Type type, QOS qos)
 {
     platformInitialize(name, type, qos);
 }
 
-WorkQueue::~WorkQueue()
+WorkQueueBase::~WorkQueueBase()
 {
     platformInvalidate();
 }
 
+Ref<ConcurrentWorkQueue> ConcurrentWorkQueue::create(const char* name, QOS qos)
+{
+    return adoptRef(*new ConcurrentWorkQueue(name, qos));
+}
+
+void ConcurrentWorkQueue::dispatch(Function<void()>&& function)
+{
+    WorkQueueBase::dispatch(WTFMove(function));
+}
+
 #if !PLATFORM(COCOA)
-void WorkQueue::concurrentApply(size_t iterations, WTF::Function<void (size_t index)>&& function)
+void WorkQueueBase::dispatchSync(Function<void()>&& function)
+{
+    BinarySemaphore semaphore;
+    dispatch([&semaphore, function = WTFMove(function)]() mutable {
+        function();
+        semaphore.signal();
+    });
+    semaphore.wait();
+}
+
+void WorkQueueBase::dispatchWithQOS(Function<void()>&& function, QOS)
+{
+    dispatch(WTFMove(function));
+}
+
+void ConcurrentWorkQueue::apply(size_t iterations, WTF::Function<void(size_t index)>&& function)
 {
     if (!iterations)
         return;
@@ -68,24 +89,20 @@ void WorkQueue::concurrentApply(size_t iterations, WTF::Function<void (size_t in
     class ThreadPool {
     public:
         ThreadPool()
-        {
             // We don't need a thread for the current core.
-            unsigned threadCount = numberOfProcessorCores() - 1;
-
-            m_workers.reserveInitialCapacity(threadCount);
-            for (unsigned i = 0; i < threadCount; ++i) {
-                m_workers.append(Thread::create("ThreadPool Worker", [this] {
+            : m_workers(numberOfProcessorCores() - 1, [this](size_t) {
+                return Thread::create("ThreadPool Worker", [this] {
                     threadBody();
-                }));
-            }
+                });
+            })
+        {
         }
 
         size_t workerCount() const { return m_workers.size(); }
 
         void dispatch(const WTF::Function<void ()>* function)
         {
-            LockHolder holder(m_lock);
-
+            Locker locker { m_lock };
             m_queue.append(function);
             m_condition.notifyOne();
         }
@@ -97,9 +114,9 @@ void WorkQueue::concurrentApply(size_t iterations, WTF::Function<void (size_t in
                 const WTF::Function<void ()>* function;
 
                 {
-                    LockHolder holder(m_lock);
-
+                    Locker locker { m_lock };
                     m_condition.wait(m_lock, [this] {
+                        assertIsHeld(m_lock);
                         return !m_queue.isEmpty();
                     });
 
@@ -112,7 +129,7 @@ void WorkQueue::concurrentApply(size_t iterations, WTF::Function<void (size_t in
 
         Lock m_lock;
         Condition m_condition;
-        Deque<const WTF::Function<void ()>*> m_queue;
+        Deque<const Function<void()>*> m_queue WTF_GUARDED_BY_LOCK(m_lock);
 
         Vector<Ref<Thread>> m_workers;
     };
@@ -132,7 +149,7 @@ void WorkQueue::concurrentApply(size_t iterations, WTF::Function<void (size_t in
     Condition condition;
     Lock lock;
 
-    WTF::Function<void ()> applier = [&, function = WTFMove(function)] {
+    Function<void ()> applier = [&, function = WTFMove(function)] {
         size_t index;
 
         // Call the function for as long as there are iterations left.
@@ -141,7 +158,7 @@ void WorkQueue::concurrentApply(size_t iterations, WTF::Function<void (size_t in
 
         // If there are no active threads left, signal the caller.
         if (!--activeThreads) {
-            LockHolder holder(lock);
+            Locker locker { lock };
             condition.notifyOne();
         }
     };
@@ -150,9 +167,54 @@ void WorkQueue::concurrentApply(size_t iterations, WTF::Function<void (size_t in
         threadPool->dispatch(&applier);
     applier();
 
-    LockHolder holder(lock);
+    Locker locker { lock };
     condition.wait(lock, [&] { return !activeThreads; });
 }
 #endif
+
+WorkQueue& WorkQueue::main()
+{
+    static NeverDestroyed<RefPtr<WorkQueue>> mainWorkQueue;
+    static std::once_flag onceKey;
+    std::call_once(onceKey, [&] {
+        mainWorkQueue.get() = adoptRef(*new WorkQueue(CreateMain));
+    });
+    return *mainWorkQueue.get();
+}
+
+Ref<WorkQueue> WorkQueue::create(const char* name, QOS qos)
+{
+    return adoptRef(*new WorkQueue(name, qos));
+}
+
+WorkQueue::WorkQueue(const char* name, QOS qos)
+    : WorkQueueBase(name, Type::Serial, qos)
+{
+}
+
+void WorkQueue::dispatch(Function<void()>&& function)
+{
+    WorkQueueBase::dispatch(WTFMove(function));
+}
+
+bool WorkQueue::isCurrent() const
+{
+    return currentSequence() == m_threadID;
+}
+
+void WorkQueue::ref() const
+{
+    ThreadSafeRefCounted::ref();
+}
+
+void WorkQueue::deref() const
+{
+    ThreadSafeRefCounted::deref();
+}
+
+ConcurrentWorkQueue::ConcurrentWorkQueue(const char* name, QOS qos)
+    : WorkQueueBase(name, Type::Concurrent, qos)
+{
+}
 
 }

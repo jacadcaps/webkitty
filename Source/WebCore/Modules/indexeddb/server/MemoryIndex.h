@@ -25,8 +25,6 @@
 
 #pragma once
 
-#if ENABLE(INDEXED_DATABASE)
-
 #include "IDBIndexInfo.h"
 #include "IDBResourceIdentifier.h"
 #include <wtf/HashMap.h>
@@ -45,7 +43,7 @@ class ThreadSafeDataBuffer;
 struct IDBKeyRangeData;
 
 namespace IndexedDB {
-enum class GetAllType;
+enum class GetAllType : bool;
 enum class IndexRecordType : bool;
 }
 
@@ -68,7 +66,7 @@ public:
 
     IDBGetResult getResultForKeyRange(IndexedDB::IndexRecordType, const IDBKeyRangeData&) const;
     uint64_t countForKeyRange(const IDBKeyRangeData&);
-    void getAllRecords(const IDBKeyRangeData&, Optional<uint32_t> count, IndexedDB::GetAllType, IDBGetAllResult&) const;
+    void getAllRecords(const IDBKeyRangeData&, std::optional<uint32_t> count, IndexedDB::GetAllType, IDBGetAllResult&) const;
 
     IDBError putIndexKey(const IDBKeyData&, const IndexKey&);
 
@@ -83,7 +81,7 @@ public:
 
     IndexValueStore* valueStore() { return m_records.get(); }
 
-    MemoryObjectStore& objectStore() { return m_objectStore; }
+    WeakPtr<MemoryObjectStore> objectStore() { return m_objectStore; }
 
     void cursorDidBecomeClean(MemoryIndexCursor&);
     void cursorDidBecomeDirty(MemoryIndexCursor&);
@@ -98,7 +96,7 @@ private:
     void notifyCursorsOfAllRecordsChanged();
 
     IDBIndexInfo m_info;
-    MemoryObjectStore& m_objectStore;
+    WeakPtr<MemoryObjectStore> m_objectStore;
 
     std::unique_ptr<IndexValueStore> m_records;
 
@@ -108,5 +106,3 @@ private:
 
 } // namespace IDBServer
 } // namespace WebCore
-
-#endif // ENABLE(INDEXED_DATABASE)

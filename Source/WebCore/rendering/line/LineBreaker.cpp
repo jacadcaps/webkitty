@@ -34,7 +34,7 @@ void LineBreaker::reset()
 {
     m_positionedObjects.clear();
     m_hyphenated = false;
-    m_clear = Clear::None;
+    m_clear = UsedClear::None;
 }
 
 // FIXME: The entire concept of the skipTrailingWhitespace function is flawed, since we really need to be building
@@ -43,7 +43,7 @@ void LineBreaker::reset()
 // object iteration process.
 // NB. this function will insert any floating elements that would otherwise
 // be skipped but it will not position them.
-void LineBreaker::skipTrailingWhitespace(InlineIterator& iterator, const LineInfo& lineInfo)
+void LineBreaker::skipTrailingWhitespace(LegacyInlineIterator& iterator, const LineInfo& lineInfo)
 {
     while (!iterator.atEnd() && !requiresLineBox(iterator, lineInfo, TrailingWhitespace)) {
         RenderObject& object = *iterator.renderer();
@@ -66,18 +66,20 @@ void LineBreaker::skipLeadingWhitespace(InlineBidiResolver& resolver, LineInfo& 
                 lineInfo.incrementRunsFromLeadingWhitespace();
             }
         } else if (object.isFloating())
-            m_block.complexLineLayout()->positionNewFloatOnLine(*m_block.insertFloatingObject(downcast<RenderBox>(object)), lastFloatFromPreviousLine, lineInfo, width);
-        else if (object.style().hasTextCombine() && is<RenderCombineText>(object)) {
-            downcast<RenderCombineText>(object).combineTextIfNeeded();
-            if (downcast<RenderCombineText>(object).isCombined())
-                continue;
+            m_block.legacyLineLayout()->positionNewFloatOnLine(*m_block.insertFloatingObject(downcast<RenderBox>(object)), lastFloatFromPreviousLine, lineInfo, width);
+        else if (object.style().hasTextCombine()) {
+            if (CheckedPtr combineText = dynamicDowncast<RenderCombineText>(object)) {
+                combineText->combineTextIfNeeded();
+                if (combineText->isCombined())
+                    continue;
+            }
         }
         resolver.increment();
     }
     resolver.commitExplicitEmbedding();
 }
 
-InlineIterator LineBreaker::nextLineBreak(InlineBidiResolver& resolver, LineInfo& lineInfo, RenderTextInfo& renderTextInfo, FloatingObject* lastFloatFromPreviousLine, unsigned consecutiveHyphenatedLines, WordMeasurements& wordMeasurements)
+LegacyInlineIterator LineBreaker::nextLineBreak(InlineBidiResolver& resolver, LineInfo& lineInfo, RenderTextInfo& renderTextInfo, FloatingObject* lastFloatFromPreviousLine, unsigned consecutiveHyphenatedLines, WordMeasurements& wordMeasurements)
 {
     reset();
 
@@ -104,9 +106,9 @@ InlineIterator LineBreaker::nextLineBreak(InlineBidiResolver& resolver, LineInfo
             context.handleFloat();
         } else if (context.currentObject()->isRenderInline()) {
             context.handleEmptyInline();
-        } else if (context.currentObject()->isReplaced()) {
+        } else if (context.currentObject()->isReplacedOrInlineBlock()) {
             context.handleReplaced();
-        } else if (context.currentObject()->isText()) {
+        } else if (context.currentObject()->isRenderText()) {
             if (context.handleText(wordMeasurements, m_hyphenated, consecutiveHyphenatedLines)) {
                 // We've hit a hard text line break. Our line break iterator is updated, so early return.
                 return context.lineBreak();

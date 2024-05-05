@@ -32,10 +32,12 @@
 #import "WKNSURLExtras.h"
 #import "WKNavigationInternal.h"
 #import "WKViewInternal.h"
+#import "WKWebViewInternal.h"
 #import "WebPageGroup.h"
 #import "WebPageProxy.h"
 #import "WebPreferences.h"
 #import "WebProcessPool.h"
+#import <wtf/MainThread.h>
 
 @interface WKObservablePageState : NSObject <_WKObservablePageState> {
     RefPtr<WebKit::WebPageProxy> _page;
@@ -60,7 +62,11 @@
 
 - (void)dealloc
 {
-    _page->pageLoadState().removeObserver(*_observer);
+    _observer->clearObject();
+
+    ensureOnMainRunLoop([page = WTFMove(_page), observer = WTFMove(_observer)] {
+        page->pageLoadState().removeObserver(*observer);
+    });
 
     [super dealloc];
 }
@@ -102,15 +108,7 @@
 
 - (SecTrustRef)serverTrust
 {
-#if HAVE(SEC_TRUST_SERIALIZATION)
-    auto certificateInfo = _page->pageLoadState().certificateInfo();
-    if (!certificateInfo)
-        return nil;
-
-    return certificateInfo->certificateInfo().trust();
-#else
-    return nil;
-#endif
+    return _page->pageLoadState().certificateInfo().trust().get();
 }
 
 @end
@@ -139,12 +137,17 @@ bool WKPageIsURLKnownHSTSHost(WKPageRef page, WKURLRef url)
 WKNavigation *WKPageLoadURLRequestReturningNavigation(WKPageRef pageRef, WKURLRequestRef urlRequestRef)
 {
     auto resourceRequest = WebKit::toImpl(urlRequestRef)->resourceRequest();
-    return WebKit::wrapper(WebKit::toImpl(pageRef)->loadRequest(WTFMove(resourceRequest)));
+    return WebKit::wrapper(WebKit::toImpl(pageRef)->loadRequest(WTFMove(resourceRequest))).autorelease();
 }
 
 WKNavigation *WKPageLoadFileReturningNavigation(WKPageRef pageRef, WKURLRef fileURL, WKURLRef resourceDirectoryURL)
 {
-    return WebKit::wrapper(WebKit::toImpl(pageRef)->loadFile(WebKit::toWTFString(fileURL), WebKit::toWTFString(resourceDirectoryURL)));
+    return WebKit::wrapper(WebKit::toImpl(pageRef)->loadFile(WebKit::toWTFString(fileURL), WebKit::toWTFString(resourceDirectoryURL))).autorelease();
+}
+
+WKWebView *WKPageGetWebView(WKPageRef page)
+{
+    return page ? WebKit::toImpl(page)->cocoaView().autorelease() : nil;
 }
 
 #if PLATFORM(MAC)

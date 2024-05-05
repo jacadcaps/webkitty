@@ -23,10 +23,14 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+// https://w3c.github.io/touch-events/#touchevent-interface
+
 [
     Conditional=TOUCH_EVENTS,
-    Constructor(DOMString type, optional TouchEventInit eventInitDict),
+    Exposed=Window
 ] interface TouchEvent : UIEvent {
+    constructor([AtomString] DOMString type, optional TouchEventInit eventInitDict);
+
     readonly attribute TouchList touches;
     readonly attribute TouchList targetTouches;
     readonly attribute TouchList changedTouches;
@@ -34,21 +38,6 @@
     readonly attribute boolean shiftKey;
     readonly attribute boolean altKey;
     readonly attribute boolean metaKey;
-
-    // FIXME: Using "undefined" as default parameter value is wrong.
-    void initTouchEvent(optional TouchList? touches = null,
-                        optional TouchList? targetTouches = null,
-                        optional TouchList? changedTouches = null,
-                        optional DOMString type = "undefined",
-                        optional WindowProxy? view = null,
-                        optional long screenX = 0,
-                        optional long screenY = 0,
-                        optional long clientX = 0,
-                        optional long clientY = 0,
-                        optional boolean ctrlKey = false,
-                        optional boolean altKey = false,
-                        optional boolean shiftKey = false,
-                        optional boolean metaKey = false);
 };
 
 dictionary TouchEventInit : UIEventInit {

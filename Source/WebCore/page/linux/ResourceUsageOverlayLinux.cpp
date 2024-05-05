@@ -33,8 +33,8 @@
 #include "CommonVM.h"
 #include "GraphicsContext.h"
 #include "Page.h"
-#include "RenderTheme.h"
 #include "ResourceUsageThread.h"
+#include "SystemFontDatabase.h"
 #include <JavaScriptCore/VM.h>
 #include <wtf/text/StringConcatenateNumbers.h>
 
@@ -62,7 +62,7 @@ static String formatByteNumber(size_t number)
 
 static String gcTimerString(MonotonicTime timerFireDate, MonotonicTime now)
 {
-    if (std::isnan(timerFireDate))
+    if (timerFireDate.isNaN())
         return "[not scheduled]"_s;
     return String::numberToStringFixedPrecision((timerFireDate - now).seconds());
 }
@@ -75,17 +75,20 @@ public:
     ResourceUsageOverlayPainter(ResourceUsageOverlay& overlay)
         : m_overlay(overlay)
     {
+        auto& systemFontDatabase = SystemFontDatabase::singleton();
+        auto messageBox = SystemFontDatabase::FontShorthand::MessageBox;
         FontCascadeDescription fontDescription;
-        RenderTheme::singleton().systemFont(CSSValueMessageBox, fontDescription);
+        fontDescription.setOneFamily(systemFontDatabase.systemFontShorthandFamily(messageBox));
+        fontDescription.setWeight(systemFontDatabase.systemFontShorthandWeight(messageBox));
         fontDescription.setComputedSize(gFontSize);
-        m_textFont = FontCascade(WTFMove(fontDescription), 0, 0);
+        m_textFont = FontCascade(WTFMove(fontDescription));
         m_textFont.update(nullptr);
     }
 
     ~ResourceUsageOverlayPainter() = default;
 
 private:
-    void paintContents(const GraphicsLayer*, GraphicsContext& context, const FloatRect& clip, GraphicsLayerPaintBehavior) override
+    void paintContents(const GraphicsLayer*, GraphicsContext& context, const FloatRect& clip, OptionSet<GraphicsLayerPaintBehavior>) override
     {
         GraphicsContextStateSaver stateSaver(context);
         context.fillRect(clip, Color::black.colorWithAlphaByte(204));
@@ -124,7 +127,7 @@ private:
 
     void notifyFlushRequired(const GraphicsLayer*) override
     {
-        m_overlay.overlay().page()->chrome().client().scheduleRenderingUpdate();
+        m_overlay.overlay().page()->scheduleRenderingUpdate(RenderingUpdateStep::LayerFlush);
     }
 
     ResourceUsageOverlay& m_overlay;

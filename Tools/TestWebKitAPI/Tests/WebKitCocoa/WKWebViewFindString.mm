@@ -25,6 +25,7 @@
 
 #import "config.h"
 
+#import "DeprecatedGlobalValues.h"
 #import "PlatformUtilities.h"
 #import "TestWKWebView.h"
 #import <WebKit/WKWebViewPrivate.h>
@@ -33,10 +34,9 @@
 
 #if PLATFORM(IOS_FAMILY)
 #import "ClassMethodSwizzler.h"
-#import "UIKitSPI.h"
+#import "UIKitSPIForTesting.h"
 #endif
 
-static bool isDone;
 static bool focusDidStartInputSession;
 static const NSUInteger maxCount = 100;
 

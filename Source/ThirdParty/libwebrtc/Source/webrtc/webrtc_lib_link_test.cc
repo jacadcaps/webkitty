@@ -18,8 +18,16 @@
 #include "api/rtc_event_log/rtc_event_log_factory.h"
 #include "api/stats/rtcstats_objects.h"
 #include "api/task_queue/default_task_queue_factory.h"
-#include "api/video_codecs/builtin_video_decoder_factory.h"
-#include "api/video_codecs/builtin_video_encoder_factory.h"
+#include "api/video_codecs/video_decoder_factory_template.h"
+#include "api/video_codecs/video_decoder_factory_template_dav1d_adapter.h"
+#include "api/video_codecs/video_decoder_factory_template_libvpx_vp8_adapter.h"
+#include "api/video_codecs/video_decoder_factory_template_libvpx_vp9_adapter.h"
+#include "api/video_codecs/video_decoder_factory_template_open_h264_adapter.h"
+#include "api/video_codecs/video_encoder_factory_template.h"
+#include "api/video_codecs/video_encoder_factory_template_libaom_av1_adapter.h"
+#include "api/video_codecs/video_encoder_factory_template_libvpx_vp8_adapter.h"
+#include "api/video_codecs/video_encoder_factory_template_libvpx_vp9_adapter.h"
+#include "api/video_codecs/video_encoder_factory_template_open_h264_adapter.h"
 #include "media/engine/webrtc_media_engine.h"
 #include "modules/audio_device/include/audio_device.h"
 #include "modules/audio_processing/include/audio_processing.h"
@@ -36,8 +44,14 @@ cricket::MediaEngineDependencies CreateSomeMediaDeps(
       webrtc::CreateAudioEncoderFactory<webrtc::AudioEncoderOpus>();
   media_deps.audio_decoder_factory =
       webrtc::CreateAudioDecoderFactory<webrtc::AudioDecoderOpus>();
-  media_deps.video_encoder_factory = CreateBuiltinVideoEncoderFactory();
-  media_deps.video_decoder_factory = webrtc::CreateBuiltinVideoDecoderFactory();
+  media_deps.video_encoder_factory =
+      std::make_unique<VideoEncoderFactoryTemplate<
+          LibvpxVp8EncoderTemplateAdapter, LibvpxVp9EncoderTemplateAdapter,
+          OpenH264EncoderTemplateAdapter, LibaomAv1EncoderTemplateAdapter>>();
+  media_deps.video_decoder_factory =
+      std::make_unique<VideoDecoderFactoryTemplate<
+          LibvpxVp8DecoderTemplateAdapter, LibvpxVp9DecoderTemplateAdapter,
+          OpenH264DecoderTemplateAdapter, Dav1dDecoderTemplateAdapter>>();
   media_deps.audio_processing = webrtc::AudioProcessingBuilder().Create();
   return media_deps;
 }
@@ -65,9 +79,10 @@ void TestCase1ModularFactory() {
   auto peer_connection_factory =
       webrtc::CreateModularPeerConnectionFactory(std::move(pcf_deps));
   webrtc::PeerConnectionInterface::RTCConfiguration rtc_config;
-  auto peer_connection = peer_connection_factory->CreatePeerConnection(
-      rtc_config, nullptr, nullptr, nullptr);
-  printf("peer_connection=%s\n", peer_connection == nullptr ? "nullptr" : "ok");
+  auto result = peer_connection_factory->CreatePeerConnectionOrError(
+      rtc_config, PeerConnectionDependencies(nullptr));
+  // Creation will fail because of null observer, but that's OK.
+  printf("peer_connection creation=%s\n", result.ok() ? "succeeded" : "failed");
 }
 
 void TestCase2RegularFactory() {
@@ -81,9 +96,10 @@ void TestCase2RegularFactory() {
       std::move(media_deps.video_encoder_factory),
       std::move(media_deps.video_decoder_factory), nullptr, nullptr);
   webrtc::PeerConnectionInterface::RTCConfiguration rtc_config;
-  auto peer_connection = peer_connection_factory->CreatePeerConnection(
-      rtc_config, nullptr, nullptr, nullptr);
-  printf("peer_connection=%s\n", peer_connection == nullptr ? "nullptr" : "ok");
+  auto result = peer_connection_factory->CreatePeerConnectionOrError(
+      rtc_config, PeerConnectionDependencies(nullptr));
+  // Creation will fail because of null observer, but that's OK.
+  printf("peer_connection creation=%s\n", result.ok() ? "succeeded" : "failed");
 }
 
 }  // namespace webrtc

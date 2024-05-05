@@ -28,7 +28,6 @@
 #include "Decoder.h"
 #include "EditingRange.h"
 #include "Encoder.h"
-#include <wtf/Optional.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebKit {
@@ -38,35 +37,7 @@ struct WebAutocorrectionContext {
     String markedText;
     String selectedText;
     String contextAfter;
-    EditingRange markedTextRange;
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static Optional<WebAutocorrectionContext> decode(Decoder&);
+    EditingRange selectedRangeInMarkedText;
 };
-
-template<class Encoder> void WebAutocorrectionContext::encode(Encoder& encoder) const
-{
-    encoder << contextBefore;
-    encoder << markedText;
-    encoder << selectedText;
-    encoder << contextAfter;
-    encoder << markedTextRange;
-}
-
-template<class Decoder> Optional<WebAutocorrectionContext> WebAutocorrectionContext::decode(Decoder& decoder)
-{
-    WebAutocorrectionContext correction;
-    if (!decoder.decode(correction.contextBefore))
-        return WTF::nullopt;
-    if (!decoder.decode(correction.markedText))
-        return WTF::nullopt;
-    if (!decoder.decode(correction.selectedText))
-        return WTF::nullopt;
-    if (!decoder.decode(correction.contextAfter))
-        return WTF::nullopt;
-    if (!decoder.decode(correction.markedTextRange))
-        return WTF::nullopt;
-    return correction;
-}
 
 } // namespace WebKit

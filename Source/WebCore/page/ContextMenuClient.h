@@ -31,26 +31,43 @@
 
 namespace WebCore {
 
-class Frame;
+class IntPoint;
+class IntRect;
+class LocalFrame;
+
+#if HAVE(TRANSLATION_UI_SERVICES)
+struct TranslationContextMenuInfo;
+#endif
 
 class ContextMenuClient {
 public:
     virtual ~ContextMenuClient() = default;
-    virtual void contextMenuDestroyed() = 0;
     
     virtual void downloadURL(const URL&) = 0;
-    virtual void searchWithGoogle(const Frame*) = 0;
-    virtual void lookUpInDictionary(Frame*) = 0;
-    virtual bool isSpeaking() = 0;
+    virtual void searchWithGoogle(const LocalFrame*) = 0;
+    virtual void lookUpInDictionary(LocalFrame*) = 0;
+    virtual bool isSpeaking() const = 0;
     virtual void speak(const String&) = 0;
     virtual void stopSpeaking() = 0;
+
+#if ENABLE(IMAGE_ANALYSIS)
+    virtual bool supportsLookUpInImages() = 0;
+#endif
+
+#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+    virtual bool supportsCopySubject() = 0;
+#endif
+
+#if HAVE(TRANSLATION_UI_SERVICES)
+    virtual void handleTranslation(const TranslationContextMenuInfo&) = 0;
+#endif
 
 #if PLATFORM(COCOA)
     virtual void searchWithSpotlight() = 0;
 #endif
 
 #if PLATFORM(GTK)
-    virtual void insertEmoji(Frame&) = 0;
+    virtual void insertEmoji(LocalFrame&) = 0;
 #endif
 
 #if USE(ACCESSIBILITY_CONTEXT_MENUS)

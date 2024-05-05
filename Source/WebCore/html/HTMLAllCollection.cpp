@@ -26,12 +26,12 @@
 #include "config.h"
 #include "HTMLAllCollection.h"
 
+#include "CachedHTMLCollectionInlines.h"
 #include "Element.h"
-#include "NodeRareData.h"
+#include "NodeRareDataInlines.h"
 #include <JavaScriptCore/Identifier.h>
+#include <variant>
 #include <wtf/IsoMallocInlines.h>
-#include <wtf/Optional.h>
-#include <wtf/Variant.h>
 
 namespace WebCore {
 
@@ -48,28 +48,35 @@ inline HTMLAllCollection::HTMLAllCollection(Document& document, CollectionType t
 }
 
 // https://html.spec.whatwg.org/multipage/infrastructure.html#dom-htmlallcollection-item
-Optional<Variant<RefPtr<HTMLCollection>, RefPtr<Element>>> HTMLAllCollection::namedOrIndexedItemOrItems(const AtomString& nameOrIndex) const
+std::optional<std::variant<RefPtr<HTMLCollection>, RefPtr<Element>>> HTMLAllCollection::namedOrIndexedItemOrItems(const AtomString& nameOrIndex) const
 {
     if (nameOrIndex.isNull())
-        return WTF::nullopt;
+        return std::nullopt;
 
     if (auto index = JSC::parseIndex(*nameOrIndex.impl()))
-        return Variant<RefPtr<HTMLCollection>, RefPtr<Element>> { RefPtr<Element> { item(index.value()) } };
+        return std::variant<RefPtr<HTMLCollection>, RefPtr<Element>> { RefPtr<Element> { item(index.value()) } };
 
     return namedItemOrItems(nameOrIndex);
 }
 
 // https://html.spec.whatwg.org/multipage/infrastructure.html#concept-get-all-named
-Optional<Variant<RefPtr<HTMLCollection>, RefPtr<Element>>> HTMLAllCollection::namedItemOrItems(const AtomString& name) const
+std::optional<std::variant<RefPtr<HTMLCollection>, RefPtr<Element>>> HTMLAllCollection::namedItemOrItems(const AtomString& name) const
 {
     auto namedItems = this->namedItems(name);
 
     if (namedItems.isEmpty())
-        return WTF::nullopt;
+        return std::nullopt;
     if (namedItems.size() == 1)
-        return Variant<RefPtr<HTMLCollection>, RefPtr<Element>> { RefPtr<Element> { WTFMove(namedItems[0]) } };
+        return std::variant<RefPtr<HTMLCollection>, RefPtr<Element>> { RefPtr<Element> { WTFMove(namedItems[0]) } };
 
-    return Variant<RefPtr<HTMLCollection>, RefPtr<Element>> { RefPtr<HTMLCollection> { downcast<Document>(ownerNode()).allFilteredByName(name) } };
+    return std::variant<RefPtr<HTMLCollection>, RefPtr<Element>> { RefPtr<HTMLCollection> { downcast<Document>(ownerNode()).allFilteredByName(name) } };
+}
+
+HTMLAllNamedSubCollection::HTMLAllNamedSubCollection(Document& document, CollectionType type, const AtomString& name)
+    : CachedHTMLCollection(document, type)
+    , m_name(name)
+{
+    ASSERT(type == CollectionType::DocumentAllNamedItems);
 }
 
 HTMLAllNamedSubCollection::~HTMLAllNamedSubCollection()

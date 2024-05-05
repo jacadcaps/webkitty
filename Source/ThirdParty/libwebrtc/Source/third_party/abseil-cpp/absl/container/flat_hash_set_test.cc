@@ -14,25 +14,46 @@
 
 #include "absl/container/flat_hash_set.h"
 
+#include <cstdint>
+#include <memory>
+#include <utility>
 #include <vector>
 
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
+#include "absl/base/config.h"
+#include "absl/container/internal/container_memory.h"
 #include "absl/container/internal/hash_generator_testing.h"
 #include "absl/container/internal/unordered_set_constructor_test.h"
 #include "absl/container/internal/unordered_set_lookup_test.h"
 #include "absl/container/internal/unordered_set_members_test.h"
 #include "absl/container/internal/unordered_set_modifiers_test.h"
+#include "absl/log/check.h"
 #include "absl/memory/memory.h"
 #include "absl/strings/string_view.h"
 
 namespace absl {
+ABSL_NAMESPACE_BEGIN
 namespace container_internal {
 namespace {
 
 using ::absl::container_internal::hash_internal::Enum;
 using ::absl::container_internal::hash_internal::EnumClass;
+using ::testing::IsEmpty;
 using ::testing::Pointee;
 using ::testing::UnorderedElementsAre;
 using ::testing::UnorderedElementsAreArray;
+
+// Check that absl::flat_hash_set works in a global constructor.
+struct BeforeMain {
+  BeforeMain() {
+    absl::flat_hash_set<int> x;
+    x.insert(1);
+    CHECK(!x.contains(0)) << "x should not contain 0";
+    CHECK(x.contains(1)) << "x should contain 1";
+  }
+};
+const BeforeMain before_main;
 
 template <class T>
 using Set =
@@ -123,6 +144,100 @@ TEST(FlatHashSet, MergeExtractInsert) {
   EXPECT_THAT(set2, UnorderedElementsAre(Pointee(7), Pointee(23)));
 }
 
+bool IsEven(int k) { return k % 2 == 0; }
+
+TEST(FlatHashSet, EraseIf) {
+  // Erase all elements.
+  {
+    flat_hash_set<int> s = {1, 2, 3, 4, 5};
+    EXPECT_EQ(erase_if(s, [](int) { return true; }), 5);
+    EXPECT_THAT(s, IsEmpty());
+  }
+  // Erase no elements.
+  {
+    flat_hash_set<int> s = {1, 2, 3, 4, 5};
+    EXPECT_EQ(erase_if(s, [](int) { return false; }), 0);
+    EXPECT_THAT(s, UnorderedElementsAre(1, 2, 3, 4, 5));
+  }
+  // Erase specific elements.
+  {
+    flat_hash_set<int> s = {1, 2, 3, 4, 5};
+    EXPECT_EQ(erase_if(s, [](int k) { return k % 2 == 1; }), 3);
+    EXPECT_THAT(s, UnorderedElementsAre(2, 4));
+  }
+  // Predicate is function reference.
+  {
+    flat_hash_set<int> s = {1, 2, 3, 4, 5};
+    EXPECT_EQ(erase_if(s, IsEven), 2);
+    EXPECT_THAT(s, UnorderedElementsAre(1, 3, 5));
+  }
+  // Predicate is function pointer.
+  {
+    flat_hash_set<int> s = {1, 2, 3, 4, 5};
+    EXPECT_EQ(erase_if(s, &IsEven), 2);
+    EXPECT_THAT(s, UnorderedElementsAre(1, 3, 5));
+  }
+}
+
+class PoisonInline {
+  int64_t data_;
+
+ public:
+  explicit PoisonInline(int64_t d) : data_(d) {
+    SanitizerPoisonObject(&data_);
+  }
+  PoisonInline(const PoisonInline& that) : PoisonInline(*that) {}
+  ~PoisonInline() { SanitizerUnpoisonObject(&data_); }
+
+  int64_t operator*() const {
+    SanitizerUnpoisonObject(&data_);
+    const int64_t ret = data_;
+    SanitizerPoisonObject(&data_);
+    return ret;
+  }
+  template <typename H>
+  friend H AbslHashValue(H h, const PoisonInline& pi) {
+    return H::combine(std::move(h), *pi);
+  }
+  bool operator==(const PoisonInline& rhs) const { return **this == *rhs; }
+};
+
+// Tests that we don't touch the poison_ member of PoisonInline.
+TEST(FlatHashSet, PoisonInline) {
+  PoisonInline a(0), b(1);
+  {  // basic usage
+    flat_hash_set<PoisonInline> set;
+    set.insert(a);
+    EXPECT_THAT(set, UnorderedElementsAre(a));
+    set.insert(b);
+    EXPECT_THAT(set, UnorderedElementsAre(a, b));
+    set.erase(a);
+    EXPECT_THAT(set, UnorderedElementsAre(b));
+    set.rehash(0);  // shrink to inline
+    EXPECT_THAT(set, UnorderedElementsAre(b));
+  }
+  {  // test move constructor from inline to inline
+    flat_hash_set<PoisonInline> set;
+    set.insert(a);
+    flat_hash_set<PoisonInline> set2(std::move(set));
+    EXPECT_THAT(set2, UnorderedElementsAre(a));
+  }
+  {  // test move assignment from inline to inline
+    flat_hash_set<PoisonInline> set, set2;
+    set.insert(a);
+    set2 = std::move(set);
+    EXPECT_THAT(set2, UnorderedElementsAre(a));
+  }
+  {  // test alloc move constructor from inline to inline
+    flat_hash_set<PoisonInline> set;
+    set.insert(a);
+    flat_hash_set<PoisonInline> set2(std::move(set),
+                                     std::allocator<PoisonInline>());
+    EXPECT_THAT(set2, UnorderedElementsAre(a));
+  }
+}
+
 }  // namespace
 }  // namespace container_internal
+ABSL_NAMESPACE_END
 }  // namespace absl

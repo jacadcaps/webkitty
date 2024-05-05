@@ -23,7 +23,6 @@
 #include "config.h"
 #include "HTMLParamElement.h"
 
-#include "Document.h"
 #include "HTMLNames.h"
 #include <wtf/IsoMallocInlines.h>
 
@@ -42,40 +41,6 @@ inline HTMLParamElement::HTMLParamElement(const QualifiedName& tagName, Document
 Ref<HTMLParamElement> HTMLParamElement::create(const QualifiedName& tagName, Document& document)
 {
     return adoptRef(*new HTMLParamElement(tagName, document));
-}
-
-String HTMLParamElement::name() const
-{
-    if (hasName())
-        return getNameAttribute();
-    return document().isHTMLDocument() ? emptyAtom() : getIdAttribute();
-}
-
-String HTMLParamElement::value() const
-{
-    return attributeWithoutSynchronization(valueAttr);
-}
-
-bool HTMLParamElement::isURLParameter(const String& name)
-{
-    return equalLettersIgnoringASCIICase(name, "data") || equalLettersIgnoringASCIICase(name, "movie") || equalLettersIgnoringASCIICase(name, "src");
-}
-
-bool HTMLParamElement::isURLAttribute(const Attribute& attribute) const
-{
-    if (attribute.name() == valueAttr && isURLParameter(name()))
-        return true;
-    return HTMLElement::isURLAttribute(attribute);
-}
-
-void HTMLParamElement::addSubresourceAttributeURLs(ListHashSet<URL>& urls) const
-{
-    HTMLElement::addSubresourceAttributeURLs(urls);
-
-    if (!isURLParameter(name()))
-        return;
-
-    addSubresourceURL(urls, document().completeURL(value()));
 }
 
 }

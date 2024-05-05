@@ -23,150 +23,183 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef ProcessThrottler_h
-#define ProcessThrottler_h
+#pragma once
 
 #include "Logging.h"
 #include "ProcessAssertion.h"
+#include <variant>
 #include <wtf/ProcessID.h>
 #include <wtf/RefCounter.h>
 #include <wtf/RunLoop.h>
 #include <wtf/UniqueRef.h>
-#include <wtf/Variant.h>
 #include <wtf/WeakPtr.h>
 
-#define PROCESSTHROTTLER_RELEASE_LOG(msg, ...) RELEASE_LOG(ProcessSuspension, "%p - [PID=%d] ProcessThrottler::" msg, this, m_processIdentifier, ##__VA_ARGS__)
-#define PROCESSTHROTTLER_RELEASE_LOG_WITH_PID(msg, ...) RELEASE_LOG(ProcessSuspension, "%p - [PID=%d] ProcessThrottler::" msg, this, ##__VA_ARGS__)
-#define PROCESSTHROTTLER_ACTIVITY_RELEASE_LOG(msg, ...) RELEASE_LOG(ProcessSuspension, "%p - [PID=%d, throttler=%p] ProcessThrottler::Activity::" msg, this, m_throttler->m_processIdentifier, m_throttler, ##__VA_ARGS__)
+namespace WTF {
+class TextStream;
+}
 
 namespace WebKit {
-    
+
+class AuxiliaryProcessProxy;
+class ProcessThrottler;
+class ProcessThrottlerClient;
+
 enum UserObservablePageCounterType { };
-typedef RefCounter<UserObservablePageCounterType> UserObservablePageCounter;
+using UserObservablePageCounter = RefCounter<UserObservablePageCounterType>;
+
 enum ProcessSuppressionDisabledCounterType { };
-typedef RefCounter<ProcessSuppressionDisabledCounterType> ProcessSuppressionDisabledCounter;
-typedef ProcessSuppressionDisabledCounter::Token ProcessSuppressionDisabledToken;
+using ProcessSuppressionDisabledCounter = RefCounter<ProcessSuppressionDisabledCounterType>;
+using ProcessSuppressionDisabledToken = ProcessSuppressionDisabledCounter::Token;
+
+enum PageAllowedToRunInTheBackgroundCounterType { };
+using PageAllowedToRunInTheBackgroundCounter = RefCounter<PageAllowedToRunInTheBackgroundCounterType>;
 
 enum class IsSuspensionImminent : bool { No, Yes };
+enum class ProcessThrottleState : uint8_t { Suspended, Background, Foreground };
+enum class ProcessThrottlerActivityType : bool { Background, Foreground };
 
-class ProcessThrottlerClient;
+class ProcessThrottlerActivity : public CanMakeWeakPtr<ProcessThrottlerActivity> {
+    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_NONCOPYABLE(ProcessThrottlerActivity);
+public:
+    ProcessThrottlerActivity(ProcessThrottler&, ASCIILiteral name, ProcessThrottlerActivityType);
+
+    ~ProcessThrottlerActivity()
+    {
+        ASSERT(isMainRunLoop());
+        if (isValid())
+            invalidate();
+    }
+
+    bool isValid() const { return !!m_throttler; }
+    ASCIILiteral name() const { return m_name; }
+    bool isQuietActivity() const { return m_name.isNull(); }
+    bool isForeground() const { return m_type != ProcessThrottlerActivityType::Background; }
+
+private:
+    friend class ProcessThrottler;
+
+    void invalidate();
+
+    WeakPtr<ProcessThrottler> m_throttler;
+    ASCIILiteral m_name;
+    ProcessThrottlerActivityType m_type;
+};
+
+class ProcessThrottlerTimedActivity {
+    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_NONCOPYABLE(ProcessThrottlerTimedActivity);
+    using Activity = ProcessThrottlerActivity;
+    using ActivityVariant = std::variant<std::nullptr_t, UniqueRef<Activity>>;
+public:
+    explicit ProcessThrottlerTimedActivity(Seconds timeout, ActivityVariant&& = nullptr);
+    ProcessThrottlerTimedActivity& operator=(ActivityVariant&&);
+    const ActivityVariant& activity() const { return m_activity; }
+
+private:
+    void activityTimedOut();
+    void updateTimer();
+
+    RunLoop::Timer m_timer;
+    Seconds m_timeout;
+    ActivityVariant m_activity;
+};
 
 class ProcessThrottler : public CanMakeWeakPtr<ProcessThrottler> {
 public:
     ProcessThrottler(ProcessThrottlerClient&, bool shouldTakeUIBackgroundAssertion);
     ~ProcessThrottler();
 
-    enum class ActivityType { Background, Foreground };
-    template<ActivityType type> class Activity {
-        WTF_MAKE_FAST_ALLOCATED;
-    public:
-        Activity(ProcessThrottler& throttler, ASCIILiteral name)
-            : m_throttler(&throttler)
-            , m_name(name)
-        {
-            throttler.addActivity(*this);
-            if (!isQuietActivity()) {
-                PROCESSTHROTTLER_ACTIVITY_RELEASE_LOG("Activity: Starting %" PUBLIC_LOG_STRING " activity / '%" PUBLIC_LOG_STRING "'",
-                    type == ActivityType::Foreground ? "foreground" : "background", m_name.characters());
-            }
-        }
+    using Activity = ProcessThrottlerActivity;
+    using ActivityVariant = std::variant<std::nullptr_t, UniqueRef<Activity>>;
 
-        ~Activity()
-        {
-            if (isValid())
-                invalidate();
-        }
+    using ForegroundActivity = Activity;
+    UniqueRef<Activity> foregroundActivity(ASCIILiteral name);
 
-        bool isValid() const { return !!m_throttler; }
+    using BackgroundActivity = Activity;
+    UniqueRef<Activity> backgroundActivity(ASCIILiteral name);
 
-    private:
-        friend class ProcessThrottler;
-
-        bool isQuietActivity() const { return !m_name.characters(); }
-
-        void invalidate()
-        {
-            ASSERT(isValid());
-            if (!isQuietActivity()) {
-                PROCESSTHROTTLER_ACTIVITY_RELEASE_LOG("invalidate: Ending %" PUBLIC_LOG_STRING " activity / '%" PUBLIC_LOG_STRING "'",
-                    type == ActivityType::Foreground ? "foreground" : "background", m_name.characters());
-            }
-            m_throttler->removeActivity(*this);
-            m_throttler = nullptr;
-        }
-
-        ProcessThrottler* m_throttler { nullptr };
-        ASCIILiteral m_name;
-    };
-
-    using ForegroundActivity = Activity<ActivityType::Foreground>;
-    UniqueRef<ForegroundActivity> foregroundActivity(ASCIILiteral name);
-
-    using BackgroundActivity = Activity<ActivityType::Background>;
-    UniqueRef<BackgroundActivity> backgroundActivity(ASCIILiteral name);
-
-    using ActivityVariant = Variant<std::nullptr_t, UniqueRef<BackgroundActivity>, UniqueRef<ForegroundActivity>>;
     static bool isValidBackgroundActivity(const ActivityVariant&);
     static bool isValidForegroundActivity(const ActivityVariant&);
 
-    class TimedActivity {
-    public:
-        TimedActivity(Seconds timeout, ActivityVariant&& = nullptr);
-        TimedActivity& operator=(ActivityVariant&&);
+    // If any page holds one of these tokens, we will never release the "suspended" assertion which
+    // means that the page will not be suspended when in the background, except if the application
+    // also gets backgrounded.
+    PageAllowedToRunInTheBackgroundCounter::Token pageAllowedToRunInTheBackgroundToken();
 
-    private:
-        void activityTimedOut();
-        void updateTimer();
+    using TimedActivity = ProcessThrottlerTimedActivity;
 
-        RunLoop::Timer<TimedActivity> m_timer;
-        Seconds m_timeout;
-        ActivityVariant m_activity;
-    };
-    
-    void didConnectToProcess(ProcessID);
-    bool shouldBeRunnable() const { return m_foregroundActivities.size() || m_backgroundActivities.size(); }
+    void didConnectToProcess(AuxiliaryProcessProxy&);
+    void didDisconnectFromProcess();
+    bool shouldBeRunnable() const { return !m_foregroundActivities.isEmptyIgnoringNullReferences() || !m_backgroundActivities.isEmptyIgnoringNullReferences(); }
+    void setAllowsActivities(bool);
+    void setShouldDropNearSuspendedAssertionAfterDelay(bool);
+    void setShouldTakeNearSuspendedAssertion(bool);
+    bool isSuspended() const;
+    ProcessThrottleState currentState() const { return m_state; }
+    bool isHoldingNearSuspendedAssertion() const { return m_assertion && m_assertion->type() == ProcessAssertionType::NearSuspended; }
+
+    void invalidateAllActivitiesAndDropAssertion();
 
 private:
-    ProcessAssertionType expectedAssertionType();
-    void updateAssertionIfNeeded();
-    void updateAssertionTypeNow();
+    friend class ProcessThrottlerActivity;
+    friend WTF::TextStream& operator<<(WTF::TextStream&, const ProcessThrottler&);
+
+    ProcessThrottleState expectedThrottleState();
+    void updateThrottleStateIfNeeded();
+    void updateThrottleStateNow();
     void setAssertionType(ProcessAssertionType);
+    void setThrottleState(ProcessThrottleState);
     void prepareToSuspendTimeoutTimerFired();
+    void dropNearSuspendedAssertionTimerFired();
+    void prepareToDropLastAssertionTimeoutTimerFired();
     void sendPrepareToSuspendIPC(IsSuspensionImminent);
     void processReadyToSuspend();
 
-    void addActivity(ForegroundActivity&);
-    void addActivity(BackgroundActivity&);
-    void removeActivity(ForegroundActivity&);
-    void removeActivity(BackgroundActivity&);
+    bool addActivity(Activity&);
+    void removeActivity(Activity&);
     void invalidateAllActivities();
     String assertionName(ProcessAssertionType) const;
+    ProcessAssertionType assertionTypeForState(ProcessThrottleState);
 
     void uiAssertionWillExpireImminently();
     void assertionWasInvalidated();
 
     void clearPendingRequestToSuspend();
+    void numberOfPagesAllowedToRunInTheBackgroundChanged();
+    void clearAssertion();
 
+    class ProcessAssertionCache;
+
+    UniqueRef<ProcessAssertionCache> m_assertionCache;
     ProcessThrottlerClient& m_process;
-    ProcessID m_processIdentifier { 0 };
-    std::unique_ptr<ProcessAssertion> m_assertion;
-    RunLoop::Timer<ProcessThrottler> m_prepareToSuspendTimeoutTimer;
-    HashSet<ForegroundActivity*> m_foregroundActivities;
-    HashSet<BackgroundActivity*> m_backgroundActivities;
-    Optional<uint64_t> m_pendingRequestToSuspendID;
-    bool m_shouldTakeUIBackgroundAssertion;
+    WeakPtr<AuxiliaryProcessProxy> m_processProxy;
+    RefPtr<ProcessAssertion> m_assertion;
+    RefPtr<ProcessAssertion> m_assertionToClearAfterPrepareToDropLastAssertion;
+    RunLoop::Timer m_prepareToSuspendTimeoutTimer;
+    RunLoop::Timer m_dropNearSuspendedAssertionTimer;
+    RunLoop::Timer m_prepareToDropLastAssertionTimeoutTimer;
+    WeakHashSet<Activity> m_foregroundActivities;
+    WeakHashSet<Activity> m_backgroundActivities;
+    std::optional<uint64_t> m_pendingRequestToSuspendID;
+    ProcessThrottleState m_state { ProcessThrottleState::Suspended };
+    PageAllowedToRunInTheBackgroundCounter m_pageAllowedToRunInTheBackgroundCounter;
+    bool m_shouldDropNearSuspendedAssertionAfterDelay { false };
+    const bool m_shouldTakeUIBackgroundAssertion { false };
+    bool m_shouldTakeNearSuspendedAssertion { true };
+    bool m_allowsActivities { true };
 };
 
-inline auto ProcessThrottler::foregroundActivity(ASCIILiteral name) -> UniqueRef<ForegroundActivity>
+inline auto ProcessThrottler::foregroundActivity(ASCIILiteral name) -> UniqueRef<Activity>
 {
-    return makeUniqueRef<ForegroundActivity>(*this, name);
+    return makeUniqueRef<Activity>(*this, name, ProcessThrottlerActivityType::Foreground);
 }
 
-inline auto ProcessThrottler::backgroundActivity(ASCIILiteral name) -> UniqueRef<BackgroundActivity>
+inline auto ProcessThrottler::backgroundActivity(ASCIILiteral name) -> UniqueRef<Activity>
 {
-    return makeUniqueRef<BackgroundActivity>(*this, name);
+    return makeUniqueRef<Activity>(*this, name, ProcessThrottlerActivityType::Background);
 }
+
+WTF::TextStream& operator<<(WTF::TextStream&, const ProcessThrottler&);
 
 } // namespace WebKit
-
-#endif // ProcessThrottler_h

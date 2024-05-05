@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,6 +27,7 @@
 #include "FileBasedFuzzerAgentBase.h"
 
 #include "CodeBlock.h"
+#include "JSCellInlines.h"
 #include <wtf/text/StringBuilder.h>
 
 namespace JSC {
@@ -50,9 +51,9 @@ String FileBasedFuzzerAgentBase::createLookupKey(const String& sourceFilename, O
 
 OpcodeID FileBasedFuzzerAgentBase::opcodeAliasForLookupKey(const OpcodeID& opcodeId)
 {
-    if (opcodeId == op_call_varargs || opcodeId == op_call_eval || opcodeId == op_tail_call || opcodeId == op_tail_call_varargs)
+    if (opcodeId == op_call_varargs || opcodeId == op_call_direct_eval || opcodeId == op_tail_call || opcodeId == op_tail_call_varargs)
         return op_call;
-    if (opcodeId == op_get_direct_pname || opcodeId == op_get_by_val_with_this)
+    if (opcodeId == op_enumerator_get_by_val || opcodeId == op_get_by_val_with_this)
         return op_get_by_val;
     if (opcodeId == op_construct_varargs)
         return op_construct;
@@ -61,7 +62,7 @@ OpcodeID FileBasedFuzzerAgentBase::opcodeAliasForLookupKey(const OpcodeID& opcod
 
 SpeculatedType FileBasedFuzzerAgentBase::getPrediction(CodeBlock* codeBlock, const CodeOrigin& codeOrigin, SpeculatedType original)
 {
-    auto locker = holdLock(m_lock);
+    Locker locker { m_lock };
 
     ScriptExecutable* ownerExecutable = codeBlock->ownerExecutable();
     const auto& sourceURL = ownerExecutable->sourceURL();
@@ -70,17 +71,17 @@ SpeculatedType FileBasedFuzzerAgentBase::getPrediction(CodeBlock* codeBlock, con
 
     PredictionTarget predictionTarget;
     BytecodeIndex bytecodeIndex = codeOrigin.bytecodeIndex();
-    codeBlock->expressionRangeForBytecodeIndex(bytecodeIndex, predictionTarget.divot, predictionTarget.startOffset, predictionTarget.endOffset, predictionTarget.line, predictionTarget.column);
+    predictionTarget.info = codeBlock->expressionInfoForBytecodeIndex(bytecodeIndex);
 
     Vector<String> urlParts = sourceURL.split('/');
     predictionTarget.sourceFilename = urlParts.isEmpty() ? sourceURL : urlParts.last();
 
-    const InstructionStream& instructions = codeBlock->instructions();
-    const Instruction* anInstruction = instructions.at(bytecodeIndex).ptr();
+    const auto& instructions = codeBlock->instructions();
+    const auto* anInstruction = instructions.at(bytecodeIndex).ptr();
     predictionTarget.opcodeId = anInstruction->opcodeID();
 
-    int startLocation = predictionTarget.divot - predictionTarget.startOffset;
-    int endLocation = predictionTarget.divot + predictionTarget.endOffset;
+    int startLocation = predictionTarget.info.divot - predictionTarget.info.startOffset;
+    int endLocation = predictionTarget.info.divot + predictionTarget.info.endOffset;
     predictionTarget.lookupKey = createLookupKey(predictionTarget.sourceFilename, predictionTarget.opcodeId, startLocation, endLocation);
     return getPredictionInternal(codeBlock, predictionTarget, original);
 }

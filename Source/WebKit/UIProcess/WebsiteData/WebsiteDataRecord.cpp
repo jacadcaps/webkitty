@@ -29,6 +29,7 @@
 #include <WebCore/LocalizedStrings.h>
 #include <WebCore/PublicSuffix.h>
 #include <WebCore/SecurityOrigin.h>
+#include <wtf/CrossThreadCopier.h>
 
 #if PLATFORM(COCOA)
 #import <pal/spi/cf/CFNetworkSPI.h>
@@ -47,7 +48,7 @@ String WebsiteDataRecord::displayNameForCookieHostName(const String& hostName)
     if (hostName == String(kCFHTTPCookieLocalFileDomain))
         return displayNameForLocalFiles();
 #else
-    if (hostName == "localhost")
+    if (hostName == "localhost"_s)
         return hostName;
 #endif
     return displayNameForHostName(hostName);
@@ -64,14 +65,14 @@ String WebsiteDataRecord::displayNameForHostName(const String& hostName)
 
 String WebsiteDataRecord::displayNameForOrigin(const WebCore::SecurityOriginData& securityOrigin)
 {
-    const auto& protocol = securityOrigin.protocol;
+    const auto& protocol = securityOrigin.protocol();
 
-    if (protocol == "file")
+    if (protocol == "file"_s)
         return displayNameForLocalFiles();
 
 #if ENABLE(PUBLIC_SUFFIX_LIST)
-    if (protocol == "http" || protocol == "https")
-        return WebCore::topPrivatelyControlledDomain(securityOrigin.host);
+    if (protocol == "http"_s || protocol == "https"_s)
+        return WebCore::topPrivatelyControlledDomain(securityOrigin.host());
 #endif
 
     return String();
@@ -89,14 +90,6 @@ void WebsiteDataRecord::addCookieHostName(const String& hostName)
     cookieHostNames.add(hostName);
 }
 
-#if ENABLE(NETSCAPE_PLUGIN_API)
-void WebsiteDataRecord::addPluginDataHostName(const String& hostName)
-{
-    types.add(WebsiteDataType::PlugInData);
-    pluginDataHostNames.add(hostName);
-}
-#endif
-
 void WebsiteDataRecord::addHSTSCacheHostname(const String& hostName)
 {
     types.add(WebsiteDataType::HSTSCache);
@@ -105,7 +98,7 @@ void WebsiteDataRecord::addHSTSCacheHostname(const String& hostName)
 
 void WebsiteDataRecord::addAlternativeServicesHostname(const String& hostName)
 {
-#if HAVE(CFNETWORK_ALTERNATIVE_SERVICE)
+#if HAVE(ALTERNATIVE_SERVICE)
     types.add(WebsiteDataType::AlternativeServices);
     alternativeServicesHostNames.add(hostName);
 #else
@@ -113,13 +106,11 @@ void WebsiteDataRecord::addAlternativeServicesHostname(const String& hostName)
 #endif
 }
 
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
 void WebsiteDataRecord::addResourceLoadStatisticsRegistrableDomain(const WebCore::RegistrableDomain& domain)
 {
     types.add(WebsiteDataType::ResourceLoadStatistics);
     resourceLoadStatisticsRegistrableDomains.add(domain);
 }
-#endif
 
 static inline bool hostIsInDomain(StringView host, StringView domain)
 {
@@ -144,7 +135,7 @@ bool WebsiteDataRecord::matches(const WebCore::RegistrableDomain& domain) const
     }
 
     for (const auto& dataRecordOriginData : origins) {
-        if (hostIsInDomain(dataRecordOriginData.host, domain.string()))
+        if (hostIsInDomain(dataRecordOriginData.host(), domain.string()))
             return true;
     }
 
@@ -159,15 +150,37 @@ String WebsiteDataRecord::topPrivatelyControlledDomain()
     
     if (!origins.isEmpty())
         return WebCore::topPrivatelyControlledDomain(origins.takeAny().securityOrigin().get().host());
-    
-#if ENABLE(NETSCAPE_PLUGIN_API)
-    if (!pluginDataHostNames.isEmpty())
-        return WebCore::topPrivatelyControlledDomain(pluginDataHostNames.takeAny());
-#endif
-    
 #endif // ENABLE(PUBLIC_SUFFIX_LIST)
     
     return emptyString();
+}
+
+WebsiteDataRecord WebsiteDataRecord::isolatedCopy() const &
+{
+    return WebsiteDataRecord {
+        crossThreadCopy(displayName),
+        types,
+        size,
+        crossThreadCopy(origins),
+        crossThreadCopy(cookieHostNames),
+        crossThreadCopy(HSTSCacheHostNames),
+        crossThreadCopy(alternativeServicesHostNames),
+        crossThreadCopy(resourceLoadStatisticsRegistrableDomains),
+    };
+}
+
+WebsiteDataRecord WebsiteDataRecord::isolatedCopy() &&
+{
+    return WebsiteDataRecord {
+        crossThreadCopy(WTFMove(displayName)),
+        types,
+        size,
+        crossThreadCopy(WTFMove(origins)),
+        crossThreadCopy(WTFMove(cookieHostNames)),
+        crossThreadCopy(WTFMove(HSTSCacheHostNames)),
+        crossThreadCopy(WTFMove(alternativeServicesHostNames)),
+        crossThreadCopy(WTFMove(resourceLoadStatisticsRegistrableDomains)),
+    };
 }
 
 }

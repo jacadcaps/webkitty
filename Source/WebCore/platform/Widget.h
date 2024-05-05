@@ -34,6 +34,7 @@
 
 #include "IntRect.h"
 #include "PlatformScreen.h"
+#include <wtf/CheckedRef.h>
 #include <wtf/Forward.h>
 #include <wtf/RefCounted.h>
 #include <wtf/TypeCasts.h>
@@ -60,11 +61,11 @@ namespace WebCore {
 
 class Cursor;
 class Event;
-class EventRegionContext;
 class FontCascade;
 class FrameView;
 class GraphicsContext;
 class PlatformMouseEvent;
+class RegionContext;
 class ScrollView;
 
 enum WidgetNotification { WillPaintFlattened, DidPaintFlattened };
@@ -84,7 +85,7 @@ enum WidgetNotification { WillPaintFlattened, DidPaintFlattened };
 // Scrollbar - Mac, Gtk
 // Plugin - Mac, Windows (windowed only), Qt (windowed only, widget is an HWND on windows), Gtk (windowed only)
 //
-class Widget : public RefCounted<Widget>, public CanMakeWeakPtr<Widget> {
+class Widget : public RefCounted<Widget>, public CanMakeSingleThreadWeakPtr<Widget> {
 public:
     WEBCORE_EXPORT explicit Widget(PlatformWidget = nullptr);
     WEBCORE_EXPORT virtual ~Widget();
@@ -110,13 +111,13 @@ public:
 
     enum class SecurityOriginPaintPolicy { AnyOrigin, AccessibleOriginOnly };
 
-    WEBCORE_EXPORT virtual void paint(GraphicsContext&, const IntRect&, SecurityOriginPaintPolicy = SecurityOriginPaintPolicy::AnyOrigin, EventRegionContext* = nullptr);
+    WEBCORE_EXPORT virtual void paint(GraphicsContext&, const IntRect&, SecurityOriginPaintPolicy = SecurityOriginPaintPolicy::AnyOrigin, RegionContext* = nullptr);
     void invalidate() { invalidateRect(boundsRect()); }
     virtual void invalidateRect(const IntRect&) = 0;
 
     WEBCORE_EXPORT virtual void setFocus(bool);
 
-    void setCursor(const Cursor&);
+    WEBCORE_EXPORT void setCursor(const Cursor&);
 
     WEBCORE_EXPORT virtual void show();
     WEBCORE_EXPORT virtual void hide();
@@ -128,9 +129,8 @@ public:
 
     void setIsSelected(bool);
 
-    virtual bool isFrameView() const { return false; }
-    virtual bool isPluginView() const { return false; }
-    // FIXME: The Mac plug-in code should inherit from PluginView. When this happens PluginViewBase and PluginView can become one class.
+    virtual bool isLocalFrameView() const { return false; }
+    virtual bool isRemoteFrameView() const { return false; }
     virtual bool isPluginViewBase() const { return false; }
     virtual bool isScrollbar() const { return false; }
     virtual bool isScrollView() const { return false; }
@@ -175,7 +175,11 @@ public:
     // the frame rects be the same no matter what transforms are applied.
     virtual bool transformsAffectFrameRect() { return true; }
 
+    virtual void willBeDestroyed() { }
+
 #if PLATFORM(COCOA)
+    virtual id accessibilityHitTest(const IntPoint&) const { return nil; }
+    virtual id accessibilityObject() const { return nil; }
     NSView* getOuterView() const;
 
     void removeFromSuperview();
@@ -209,7 +213,7 @@ private:
     bool m_selfVisible { false };
     bool m_parentVisible { false };
 
-    WeakPtr<ScrollView> m_parent;
+    SingleThreadWeakPtr<ScrollView> m_parent;
 #if !PLATFORM(COCOA)
     PlatformWidget m_widget;
 #else

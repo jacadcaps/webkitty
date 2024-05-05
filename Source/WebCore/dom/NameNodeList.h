@@ -34,17 +34,12 @@ public:
     virtual ~NameNodeList();
 
     bool elementMatches(Element&) const final;
-    bool isRootedAtDocument() const final { return false; }
+    bool isRootedAtTreeScope() const final { return false; }
 
 private:
     NameNodeList(ContainerNode& rootNode, const AtomString& name);
 
     AtomString m_name;
 };
-
-inline bool NameNodeList::elementMatches(Element& element) const
-{
-    return element.getNameAttribute() == m_name;
-}
 
 } // namespace WebCore

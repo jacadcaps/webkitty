@@ -32,32 +32,44 @@
 #include "AbortSignal.h"
 #include "CredentialCreationOptions.h"
 #include "CredentialRequestOptions.h"
+#include "DigitalCredentialRequestOptions.h"
+#include "DigitalIdentity.h"
 #include "Document.h"
 #include "ExceptionOr.h"
 #include "JSDOMPromiseDeferred.h"
+#include "JSDigitalIdentity.h"
 #include "Page.h"
 #include "SecurityOrigin.h"
+#include "WebAuthenticationConstants.h"
 
 namespace WebCore {
 
-CredentialsContainer::CredentialsContainer(WeakPtr<Document>&& document)
+CredentialsContainer::CredentialsContainer(WeakPtr<Document, WeakPtrImplWithEventTargetData>&& document)
     : m_document(WTFMove(document))
 {
 }
 
-bool CredentialsContainer::doesHaveSameOriginAsItsAncestors()
+ScopeAndCrossOriginParent CredentialsContainer::scopeAndCrossOriginParent() const
 {
-    // The following implements https://w3c.github.io/webappsec-credential-management/#same-origin-with-its-ancestors
-    // as of 14 November 2017.
     if (!m_document)
-        return false;
+        return std::pair { WebAuthn::Scope::CrossOrigin, std::nullopt };
 
+    bool isSameSite = true;
     auto& origin = m_document->securityOrigin();
-    for (auto* document = m_document->parentDocument(); document; document = document->parentDocument()) {
-        if (!origin.isSameOriginAs(document->securityOrigin()))
-            return false;
+    auto& url = m_document->url();
+    std::optional<SecurityOriginData> crossOriginParent;
+    for (RefPtr document = m_document->parentDocument(); document; document = document->parentDocument()) {
+        if (!origin.isSameOriginDomain(document->securityOrigin()) && !areRegistrableDomainsEqual(url, document->url()))
+            isSameSite = false;
+        if (!crossOriginParent && !origin.isSameOriginAs(document->securityOrigin()))
+            crossOriginParent = document->securityOrigin().data();
     }
-    return true;
+
+    if (!crossOriginParent)
+        return std::pair { WebAuthn::Scope::SameOrigin, std::nullopt };
+    if (isSameSite)
+        return std::pair { WebAuthn::Scope::SameSite, crossOriginParent };
+    return std::pair { WebAuthn::Scope::CrossOrigin, crossOriginParent };
 }
 
 void CredentialsContainer::get(CredentialRequestOptions&& options, CredentialPromise&& promise)
@@ -65,11 +77,11 @@ void CredentialsContainer::get(CredentialRequestOptions&& options, CredentialPro
     // The following implements https://www.w3.org/TR/credential-management-1/#algorithm-request as of 4 August 2017
     // with enhancement from 14 November 2017 Editor's Draft.
     if (!m_document || !m_document->page()) {
-        promise.reject(Exception { NotSupportedError });
+        promise.reject(Exception { ExceptionCode::NotSupportedError });
         return;
     }
     if (options.signal && options.signal->aborted()) {
-        promise.reject(Exception { AbortError, "Aborted by AbortSignal."_s });
+        promise.reject(Exception { ExceptionCode::AbortError, "Aborted by AbortSignal."_s });
         return;
     }
     // Step 1-2.
@@ -79,22 +91,22 @@ void CredentialsContainer::get(CredentialRequestOptions&& options, CredentialPro
     // Step 4-6. Shortcut as we only support PublicKeyCredential which can only
     // be requested from [[discoverFromExternalSource]].
     if (!options.publicKey) {
-        promise.reject(Exception { NotSupportedError, "Only PublicKeyCredential is supported."_s });
+        promise.reject(Exception { ExceptionCode::NotSupportedError, "Only PublicKeyCredential is supported."_s });
         return;
     }
 
-    // Extra.
-    if (!m_document->hasFocus()) {
-        promise.reject(Exception { NotAllowedError, "The document is not focused."_s });
+    // The request will be aborted in WebAuthenticatorCoordinatorProxy if conditional mediation is not available.
+    if (options.mediation != MediationRequirement::Conditional && !m_document->hasFocus()) {
+        promise.reject(Exception { ExceptionCode::NotAllowedError, "The document is not focused."_s });
         return;
     }
 
-    m_document->page()->authenticatorCoordinator().discoverFromExternalSource(*m_document, options.publicKey.value(), doesHaveSameOriginAsItsAncestors(), WTFMove(options.signal), WTFMove(promise));
+    m_document->page()->authenticatorCoordinator().discoverFromExternalSource(*m_document, WTFMove(options), scopeAndCrossOriginParent(), WTFMove(promise));
 }
 
 void CredentialsContainer::store(const BasicCredential&, CredentialPromise&& promise)
 {
-    promise.reject(Exception { NotSupportedError, "Not implemented."_s });
+    promise.reject(Exception { ExceptionCode::NotSupportedError, "Not implemented."_s });
 }
 
 void CredentialsContainer::isCreate(CredentialCreationOptions&& options, CredentialPromise&& promise)
@@ -102,11 +114,11 @@ void CredentialsContainer::isCreate(CredentialCreationOptions&& options, Credent
     // The following implements https://www.w3.org/TR/credential-management-1/#algorithm-create as of 4 August 2017
     // with enhancement from 14 November 2017 Editor's Draft.
     if (!m_document || !m_document->page()) {
-        promise.reject(Exception { NotSupportedError });
+        promise.reject(Exception { ExceptionCode::NotSupportedError });
         return;
     }
     if (options.signal && options.signal->aborted()) {
-        promise.reject(Exception { AbortError, "Aborted by AbortSignal."_s });
+        promise.reject(Exception { ExceptionCode::AbortError, "Aborted by AbortSignal."_s });
         return;
     }
     // Step 1-2.
@@ -114,22 +126,33 @@ void CredentialsContainer::isCreate(CredentialCreationOptions&& options, Credent
 
     // Step 3-7. Shortcut as we only support one kind of credentials.
     if (!options.publicKey) {
-        promise.reject(Exception { NotSupportedError, "Only PublicKeyCredential is supported."_s });
+        promise.reject(Exception { ExceptionCode::NotSupportedError, "Only PublicKeyCredential is supported."_s });
         return;
     }
 
     // Extra.
     if (!m_document->hasFocus()) {
-        promise.reject(Exception { NotAllowedError, "The document is not focused."_s });
+        promise.reject(Exception { ExceptionCode::NotAllowedError, "The document is not focused."_s });
         return;
     }
 
-    m_document->page()->authenticatorCoordinator().create(*m_document, options.publicKey.value(), doesHaveSameOriginAsItsAncestors(), WTFMove(options.signal), WTFMove(promise));
+    m_document->page()->authenticatorCoordinator().create(*m_document, WTFMove(options), scopeAndCrossOriginParent().first, WTFMove(options.signal), WTFMove(promise));
 }
 
 void CredentialsContainer::preventSilentAccess(DOMPromiseDeferred<void>&& promise) const
 {
-    promise.reject(Exception { NotSupportedError, "Not implemented."_s });
+    promise.resolve();
+}
+
+void CredentialsContainer::requestIdentity(DigitalCredentialRequestOptions&& options, DigitalIdentityPromise&& promise)
+{
+    if (options.signal && options.signal->aborted()) {
+        promise.reject(Exception { ExceptionCode::AbortError, "Aborted by AbortSignal."_s });
+        return;
+    }
+    std::span<uint8_t> emptySpan;
+    Ref<ArrayBuffer> emptyArrayBuffer = ArrayBuffer::create(emptySpan);
+    promise.resolve(DigitalIdentity::create(WTFMove(emptyArrayBuffer)));
 }
 
 } // namespace WebCore

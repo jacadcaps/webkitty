@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,10 +29,10 @@
 
 #if PLATFORM(MAC)
 
+#import "CodeSigning.h"
 #import "WKFullKeyboardAccessWatcher.h"
-#import <Kernel/kern/cs_blobs.h>
+#import <signal.h>
 #import <wtf/ProcessPrivilege.h>
-#import <wtf/spi/cocoa/SecuritySPI.h>
 
 namespace WebKit {
 
@@ -51,28 +51,27 @@ bool WebProcessProxy::shouldAllowNonValidInjectedCode() const
     if (!isSystemWebKit)
         return false;
 
-    static bool isPlatformBinary = SecTaskGetCodeSignStatus(adoptCF(SecTaskCreateFromSelf(kCFAllocatorDefault)).get()) & CS_PLATFORM_BINARY;
+    static bool isPlatformBinary = currentProcessIsPlatformBinary();
     if (isPlatformBinary)
         return false;
 
     const String& path = m_processPool->configuration().injectedBundlePath();
-    return !path.isEmpty() && !path.startsWith("/System/");
+    return !path.isEmpty() && !path.startsWith("/System/"_s);
 }
 
-#if ENABLE(WEBPROCESS_WINDOWSERVER_BLOCKING)
-void WebProcessProxy::startDisplayLink(DisplayLinkObserverID observerID, WebCore::PlatformDisplayID displayID)
+void WebProcessProxy::platformSuspendProcess()
 {
-    ASSERT(hasProcessPrivilege(ProcessPrivilege::CanCommunicateWithWindowServer));
-    ASSERT(connection());
-    processPool().startDisplayLink(*connection(), observerID, displayID);
+    m_platformSuspendDidReleaseNearSuspendedAssertion = throttler().isHoldingNearSuspendedAssertion();
+    throttler().setShouldTakeNearSuspendedAssertion(false);
 }
 
-void WebProcessProxy::stopDisplayLink(DisplayLinkObserverID observerID, WebCore::PlatformDisplayID displayID)
+void WebProcessProxy::platformResumeProcess()
 {
-    ASSERT(connection());
-    processPool().stopDisplayLink(*connection(), observerID, displayID);
+    if (m_platformSuspendDidReleaseNearSuspendedAssertion) {
+        m_platformSuspendDidReleaseNearSuspendedAssertion = false;
+        throttler().setShouldTakeNearSuspendedAssertion(true);
+    }
 }
-#endif
 
 } // namespace WebKit
 

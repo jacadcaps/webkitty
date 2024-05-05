@@ -11,10 +11,8 @@
 #include <memory>
 
 #include "api/rtp_packet_infos.h"
-#include "modules/video_coding/frame_object.h"
-#include "modules/video_coding/packet_buffer.h"
+#include "modules/rtp_rtcp/source/frame_object.h"
 #include "modules/video_coding/rtp_frame_reference_finder.h"
-#include "system_wrappers/include/clock.h"
 
 namespace webrtc {
 
@@ -58,11 +56,6 @@ class DataReader {
   size_t offset_ = 0;
 };
 
-class NullCallback : public video_coding::OnCompleteFrameCallback {
-  void OnCompleteFrame(
-      std::unique_ptr<video_coding::EncodedFrame> frame) override {}
-};
-
 absl::optional<RTPVideoHeader::GenericDescriptorInfo>
 GenerateGenericFrameDependencies(DataReader* reader) {
   absl::optional<RTPVideoHeader::GenericDescriptorInfo> result;
@@ -78,7 +71,6 @@ GenerateGenericFrameDependencies(DataReader* reader) {
   result->frame_id = reader->GetNum<int32_t>();
   result->spatial_index = (flags & 0b0111'0000) >> 4;
   result->temporal_index = (flags & 0b0000'1110) >> 1;
-  result->discardable = (flags & 0b0000'0001);
 
   // Larger than supported by the RtpFrameReferenceFinder.
   int num_diffs = (reader->GetNum<uint8_t>() % 16);
@@ -93,8 +85,7 @@ GenerateGenericFrameDependencies(DataReader* reader) {
 
 void FuzzOneInput(const uint8_t* data, size_t size) {
   DataReader reader(data, size);
-  NullCallback cb;
-  video_coding::RtpFrameReferenceFinder reference_finder(&cb);
+  RtpFrameReferenceFinder reference_finder;
 
   auto codec = static_cast<VideoCodecType>(reader.GetNum<uint8_t>() % 5);
 
@@ -129,15 +120,17 @@ void FuzzOneInput(const uint8_t* data, size_t size) {
         reader.CopyTo(
             &video_header.video_type_header.emplace<RTPVideoHeaderH264>());
         break;
+      case kVideoCodecH265:
+        // TODO(bugs.webrtc.org/13485)
+        break;
       default:
         break;
     }
 
-    reader.CopyTo(&video_header.frame_marking);
     video_header.generic = GenerateGenericFrameDependencies(&reader);
 
     // clang-format off
-    auto frame = std::make_unique<video_coding::RtpFrameObject>(
+    auto frame = std::make_unique<RtpFrameObject>(
         first_seq_num,
         last_seq_num,
         marker_bit,

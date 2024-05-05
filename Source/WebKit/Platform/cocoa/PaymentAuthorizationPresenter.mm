@@ -28,16 +28,28 @@
 
 #if USE(PASSKIT) && ENABLE(APPLE_PAY)
 
+#import "AutomaticReloadPaymentRequest.h"
+#import "DeferredPaymentRequest.h"
+#import "PaymentTokenContext.h"
+#import "RecurringPaymentRequest.h"
 #import "WKPaymentAuthorizationDelegate.h"
 #import "WebPaymentCoordinatorProxyCocoa.h"
-#import <WebCore/PaymentAuthorizationStatus.h>
+#import <WebCore/ApplePayCouponCodeUpdate.h>
+#import <WebCore/ApplePayError.h>
+#import <WebCore/ApplePayErrorCode.h>
+#import <WebCore/ApplePayErrorContactField.h>
+#import <WebCore/ApplePayPaymentAuthorizationResult.h>
+#import <WebCore/ApplePayPaymentMethodUpdate.h>
+#import <WebCore/ApplePayShippingContactUpdate.h>
+#import <WebCore/ApplePayShippingMethodUpdate.h>
 #import <WebCore/PaymentMerchantSession.h>
-#import <WebCore/PaymentMethodUpdate.h>
 #import <WebCore/PaymentSummaryItems.h>
 #import <wtf/cocoa/VectorCocoa.h>
 
 #import <pal/cocoa/PassKitSoftLink.h>
 
+// FIXME: Stop soft linking Contacts once the dependency cycle is removed on macOS (<rdar://problem/70887934>),
+// or when Contacts can be upward linked (<rdar://problem/36135137>).
 SOFT_LINK_FRAMEWORK(Contacts);
 SOFT_LINK_CONSTANT(Contacts, CNPostalAddressCityKey, NSString *);
 SOFT_LINK_CONSTANT(Contacts, CNPostalAddressCountryKey, NSString *);
@@ -53,136 +65,150 @@ namespace WebKit {
 // FIXME: Rather than having these free functions scattered about, Apple Pay data types should know
 // how to convert themselves to and from their platform representations.
 
-static PKPaymentAuthorizationStatus toPKPaymentAuthorizationStatus(WebCore::PaymentAuthorizationStatus status)
+static PKPaymentAuthorizationStatus toPKPaymentAuthorizationStatus(WebCore::ApplePayPaymentAuthorizationResult::Status status)
 {
     switch (status) {
-    case WebCore::PaymentAuthorizationStatus::Success:
+    case WebCore::ApplePayPaymentAuthorizationResult::Success:
         return PKPaymentAuthorizationStatusSuccess;
-    case WebCore::PaymentAuthorizationStatus::Failure:
+
+    case WebCore::ApplePayPaymentAuthorizationResult::Failure:
         return PKPaymentAuthorizationStatusFailure;
-    case WebCore::PaymentAuthorizationStatus::PINRequired:
+
+    case WebCore::ApplePayPaymentAuthorizationResult::PINRequired:
         return PKPaymentAuthorizationStatusPINRequired;
-    case WebCore::PaymentAuthorizationStatus::PINIncorrect:
+
+    case WebCore::ApplePayPaymentAuthorizationResult::PINIncorrect:
         return PKPaymentAuthorizationStatusPINIncorrect;
-    case WebCore::PaymentAuthorizationStatus::PINLockout:
+
+    case WebCore::ApplePayPaymentAuthorizationResult::PINLockout:
         return PKPaymentAuthorizationStatusPINLockout;
+
+    default:
+        ASSERT_NOT_REACHED();
+        return PKPaymentAuthorizationStatusFailure;
     }
 }
 
-static PKPaymentErrorCode toPKPaymentErrorCode(WebCore::PaymentError::Code code)
+static PKPaymentErrorCode toPKPaymentErrorCode(WebCore::ApplePayErrorCode code)
 {
     switch (code) {
-    case WebCore::PaymentError::Code::Unknown:
-        return PKPaymentUnknownError;
-    case WebCore::PaymentError::Code::ShippingContactInvalid:
+    case WebCore::ApplePayErrorCode::Unknown:
+        break;
+
+    case WebCore::ApplePayErrorCode::ShippingContactInvalid:
         return PKPaymentShippingContactInvalidError;
-    case WebCore::PaymentError::Code::BillingContactInvalid:
+
+    case WebCore::ApplePayErrorCode::BillingContactInvalid:
         return PKPaymentBillingContactInvalidError;
-    case WebCore::PaymentError::Code::AddressUnserviceable:
+
+    case WebCore::ApplePayErrorCode::AddressUnserviceable:
         return PKPaymentShippingAddressUnserviceableError;
+
+#if ENABLE(APPLE_PAY_COUPON_CODE)
+    case WebCore::ApplePayErrorCode::CouponCodeInvalid:
+        return PKPaymentCouponCodeInvalidError;
+
+    case WebCore::ApplePayErrorCode::CouponCodeExpired:
+        return PKPaymentCouponCodeExpiredError;
+#endif
     }
+
+    return PKPaymentUnknownError;
 }
 
-static NSError *toNSError(const WebCore::PaymentError& error)
+static NSError *toNSError(const WebCore::ApplePayError& error)
 {
     auto userInfo = adoptNS([[NSMutableDictionary alloc] init]);
-    [userInfo setObject:error.message forKey:NSLocalizedDescriptionKey];
+    [userInfo setObject:error.message() forKey:NSLocalizedDescriptionKey];
 
-    if (error.contactField) {
+    if (auto contactField = error.contactField()) {
         NSString *pkContactField = nil;
         NSString *postalAddressKey = nil;
 
-        switch (*error.contactField) {
-        case WebCore::PaymentError::ContactField::PhoneNumber:
-            pkContactField = PAL::get_PassKit_PKContactFieldPhoneNumber();
+        switch (*contactField) {
+        case WebCore::ApplePayErrorContactField::PhoneNumber:
+            pkContactField = PKContactFieldPhoneNumber;
             break;
             
-        case WebCore::PaymentError::ContactField::EmailAddress:
-            pkContactField = PAL::get_PassKit_PKContactFieldEmailAddress();
+        case WebCore::ApplePayErrorContactField::EmailAddress:
+            pkContactField = PKContactFieldEmailAddress;
             break;
             
-        case WebCore::PaymentError::ContactField::Name:
-            pkContactField = PAL::get_PassKit_PKContactFieldName();
+        case WebCore::ApplePayErrorContactField::Name:
+            pkContactField = PKContactFieldName;
             break;
             
-        case WebCore::PaymentError::ContactField::PhoneticName:
-            pkContactField = PAL::get_PassKit_PKContactFieldPhoneticName();
+        case WebCore::ApplePayErrorContactField::PhoneticName:
+            pkContactField = PKContactFieldPhoneticName;
             break;
             
-        case WebCore::PaymentError::ContactField::PostalAddress:
-            pkContactField = PAL::get_PassKit_PKContactFieldPostalAddress();
+        case WebCore::ApplePayErrorContactField::PostalAddress:
+            pkContactField = PKContactFieldPostalAddress;
             break;
             
-        case WebCore::PaymentError::ContactField::AddressLines:
-            pkContactField = PAL::get_PassKit_PKContactFieldPostalAddress();
+        case WebCore::ApplePayErrorContactField::AddressLines:
+            pkContactField = PKContactFieldPostalAddress;
             postalAddressKey = getCNPostalAddressStreetKey();
             break;
             
-        case WebCore::PaymentError::ContactField::SubLocality:
-            pkContactField = PAL::get_PassKit_PKContactFieldPostalAddress();
+        case WebCore::ApplePayErrorContactField::SubLocality:
+            pkContactField = PKContactFieldPostalAddress;
             postalAddressKey = getCNPostalAddressSubLocalityKey();
             break;
             
-        case WebCore::PaymentError::ContactField::Locality:
-            pkContactField = PAL::get_PassKit_PKContactFieldPostalAddress();
+        case WebCore::ApplePayErrorContactField::Locality:
+            pkContactField = PKContactFieldPostalAddress;
             postalAddressKey = getCNPostalAddressCityKey();
             break;
             
-        case WebCore::PaymentError::ContactField::PostalCode:
-            pkContactField = PAL::get_PassKit_PKContactFieldPostalAddress();
+        case WebCore::ApplePayErrorContactField::PostalCode:
+            pkContactField = PKContactFieldPostalAddress;
             postalAddressKey = getCNPostalAddressPostalCodeKey();
             break;
             
-        case WebCore::PaymentError::ContactField::SubAdministrativeArea:
-            pkContactField = PAL::get_PassKit_PKContactFieldPostalAddress();
+        case WebCore::ApplePayErrorContactField::SubAdministrativeArea:
+            pkContactField = PKContactFieldPostalAddress;
             postalAddressKey = getCNPostalAddressSubAdministrativeAreaKey();
             break;
             
-        case WebCore::PaymentError::ContactField::AdministrativeArea:
-            pkContactField = PAL::get_PassKit_PKContactFieldPostalAddress();
+        case WebCore::ApplePayErrorContactField::AdministrativeArea:
+            pkContactField = PKContactFieldPostalAddress;
             postalAddressKey = getCNPostalAddressStateKey();
             break;
             
-        case WebCore::PaymentError::ContactField::Country:
-            pkContactField = PAL::get_PassKit_PKContactFieldPostalAddress();
+        case WebCore::ApplePayErrorContactField::Country:
+            pkContactField = PKContactFieldPostalAddress;
             postalAddressKey = getCNPostalAddressCountryKey();
             break;
             
-        case WebCore::PaymentError::ContactField::CountryCode:
-            pkContactField = PAL::get_PassKit_PKContactFieldPostalAddress();
+        case WebCore::ApplePayErrorContactField::CountryCode:
+            pkContactField = PKContactFieldPostalAddress;
             postalAddressKey = getCNPostalAddressISOCountryCodeKey();
             break;
         }
 
-        [userInfo setObject:pkContactField forKey:PAL::get_PassKit_PKPaymentErrorContactFieldUserInfoKey()];
+        [userInfo setObject:pkContactField forKey:PKPaymentErrorContactFieldUserInfoKey];
         if (postalAddressKey)
-            [userInfo setObject:postalAddressKey forKey:PAL::get_PassKit_PKPaymentErrorPostalAddressUserInfoKey()];
+            [userInfo setObject:postalAddressKey forKey:PKPaymentErrorPostalAddressUserInfoKey];
     }
 
-    return [NSError errorWithDomain:PAL::get_PassKit_PKPaymentErrorDomain() code:toPKPaymentErrorCode(error.code) userInfo:userInfo.get()];
+    return [NSError errorWithDomain:PKPaymentErrorDomain code:toPKPaymentErrorCode(error.code()) userInfo:userInfo.get()];
 }
 
-static RetainPtr<NSArray> toNSErrors(const Vector<WebCore::PaymentError>& errors)
+static RetainPtr<NSArray> toNSErrors(const Vector<RefPtr<WebCore::ApplePayError>>& errors)
 {
-    return createNSArray(errors, [] (auto& error) {
-        return toNSError(error);
-    });
-}
-
-static RetainPtr<NSArray> toPKShippingMethods(const Vector<WebCore::ApplePaySessionPaymentRequest::ShippingMethod>& shippingMethods)
-{
-    return createNSArray(shippingMethods, [] (auto& method) {
-        return toPKShippingMethod(method);
+    return createNSArray(errors, [] (auto& error) -> NSError * {
+        return error ? toNSError(*error) : nil;
     });
 }
 
 void PaymentAuthorizationPresenter::completeMerchantValidation(const WebCore::PaymentMerchantSession& merchantSession)
 {
     ASSERT(platformDelegate());
-    [platformDelegate() completeMerchantValidation:merchantSession.pkPaymentMerchantSession() error:nil];
+    [platformDelegate() completeMerchantValidation:merchantSession.pkPaymentMerchantSession().get() error:nil];
 }
 
-void PaymentAuthorizationPresenter::completePaymentMethodSelection(const Optional<WebCore::PaymentMethodUpdate>& update)
+void PaymentAuthorizationPresenter::completePaymentMethodSelection(std::optional<WebCore::ApplePayPaymentMethodUpdate>&& update)
 {
     ASSERT(platformDelegate());
     if (!update) {
@@ -190,18 +216,59 @@ void PaymentAuthorizationPresenter::completePaymentMethodSelection(const Optiona
         return;
     }
 
-    [platformDelegate() completePaymentMethodSelection:update->platformUpdate()];
+    auto paymentMethodUpdate = adoptNS([PAL::allocPKPaymentRequestPaymentMethodUpdateInstance() initWithPaymentSummaryItems:WebCore::platformSummaryItems(WTFMove(update->newTotal), WTFMove(update->newLineItems))]);
+#if HAVE(PASSKIT_UPDATE_SHIPPING_METHODS_WHEN_CHANGING_SUMMARY_ITEMS)
+    [paymentMethodUpdate setErrors:toNSErrors(WTFMove(update->errors)).get()];
+#if HAVE(PASSKIT_DEFAULT_SHIPPING_METHOD)
+    [paymentMethodUpdate setAvailableShippingMethods:toPKShippingMethods(WTFMove(update->newShippingMethods))];
+#else
+    [paymentMethodUpdate setShippingMethods:createNSArray(WTFMove(update->newShippingMethods), [] (auto& method) {
+        return toPKShippingMethod(method);
+    }).get()];
+#endif
+#endif
+#if HAVE(PASSKIT_RECURRING_PAYMENTS)
+    if (auto& recurringPaymentRequest = update->newRecurringPaymentRequest)
+        [paymentMethodUpdate setRecurringPaymentRequest:platformRecurringPaymentRequest(WTFMove(*recurringPaymentRequest)).get()];
+#endif
+#if HAVE(PASSKIT_AUTOMATIC_RELOAD_PAYMENTS)
+    if (auto& automaticReloadPaymentRequest = update->newAutomaticReloadPaymentRequest)
+        [paymentMethodUpdate setAutomaticReloadPaymentRequest:platformAutomaticReloadPaymentRequest(WTFMove(*automaticReloadPaymentRequest)).get()];
+#endif
+#if HAVE(PASSKIT_MULTI_MERCHANT_PAYMENTS)
+    if (auto& multiTokenContexts = update->newMultiTokenContexts)
+        [paymentMethodUpdate setMultiTokenContexts:platformPaymentTokenContexts(WTFMove(*multiTokenContexts)).get()];
+#endif
+#if HAVE(PASSKIT_INSTALLMENTS) && ENABLE(APPLE_PAY_INSTALLMENTS)
+    [paymentMethodUpdate setInstallmentGroupIdentifier:WTFMove(update->installmentGroupIdentifier)];
+#endif // HAVE(PASSKIT_INSTALLMENTS) && ENABLE(APPLE_PAY_INSTALLMENTS)
+    [platformDelegate() completePaymentMethodSelection:paymentMethodUpdate.get()];
+#if HAVE(PASSKIT_DEFERRED_PAYMENTS)
+    if (auto& deferredPaymentRequest = update->newDeferredPaymentRequest)
+        [paymentMethodUpdate setDeferredPaymentRequest:platformDeferredPaymentRequest(WTFMove(*deferredPaymentRequest)).get()];
+#endif
 }
 
-void PaymentAuthorizationPresenter::completePaymentSession(const Optional<WebCore::PaymentAuthorizationResult>& result)
+void PaymentAuthorizationPresenter::completePaymentSession(WebCore::ApplePayPaymentAuthorizationResult&& result)
 {
     ASSERT(platformDelegate());
-    auto status = result ? toPKPaymentAuthorizationStatus(result->status) : PKPaymentAuthorizationStatusSuccess;
-    RetainPtr<NSArray> errors = result ? toNSErrors(result->errors) : @[ ];
+    ASSERT(result.isFinalState());
+
+    auto status = toPKPaymentAuthorizationStatus(result.status);
+    auto errors = toNSErrors(result.errors);
+
+#if HAVE(PASSKIT_PAYMENT_ORDER_DETAILS)
+    if (auto orderDetails = WTFMove(result.orderDetails)) {
+        auto platformOrderDetails = adoptNS([PAL::allocPKPaymentOrderDetailsInstance() initWithOrderTypeIdentifier:WTFMove(orderDetails->orderTypeIdentifier) orderIdentifier:WTFMove(orderDetails->orderIdentifier) webServiceURL:[NSURL URLWithString:WTFMove(orderDetails->webServiceURL)] authenticationToken:WTFMove(orderDetails->authenticationToken)]);
+        [platformDelegate() completePaymentSession:status errors:errors.get() orderDetails:platformOrderDetails.get()];
+        return;
+    }
+#endif
+
     [platformDelegate() completePaymentSession:status errors:errors.get()];
 }
 
-void PaymentAuthorizationPresenter::completeShippingContactSelection(const Optional<WebCore::ShippingContactUpdate>& update)
+void PaymentAuthorizationPresenter::completeShippingContactSelection(std::optional<WebCore::ApplePayShippingContactUpdate>&& update)
 {
     ASSERT(platformDelegate());
     if (!update) {
@@ -209,14 +276,35 @@ void PaymentAuthorizationPresenter::completeShippingContactSelection(const Optio
         return;
     }
 
-    // FIXME: WebCore::ShippingContactUpdate should know how to convert itself to a PKPaymentRequestShippingContactUpdate.
-    auto shippingContactUpdate = adoptNS([PAL::allocPKPaymentRequestShippingContactUpdateInstance() initWithErrors:toNSErrors(update->errors).get()
-        paymentSummaryItems:WebCore::platformSummaryItems(update->newTotalAndLineItems)
-        shippingMethods:toPKShippingMethods(update->newShippingMethods).get()]);
+    auto shippingContactUpdate = adoptNS([PAL::allocPKPaymentRequestShippingContactUpdateInstance() initWithPaymentSummaryItems:WebCore::platformSummaryItems(WTFMove(update->newTotal), WTFMove(update->newLineItems))]);
+    [shippingContactUpdate setErrors:toNSErrors(WTFMove(update->errors)).get()];
+#if HAVE(PASSKIT_DEFAULT_SHIPPING_METHOD)
+    [shippingContactUpdate setAvailableShippingMethods:toPKShippingMethods(WTFMove(update->newShippingMethods))];
+#else
+    [shippingContactUpdate setShippingMethods:createNSArray(WTFMove(update->newShippingMethods), [] (auto& method) {
+        return toPKShippingMethod(method);
+    }).get()];
+#endif
+#if HAVE(PASSKIT_RECURRING_PAYMENTS)
+    if (auto& recurringPaymentRequest = update->newRecurringPaymentRequest)
+        [shippingContactUpdate setRecurringPaymentRequest:platformRecurringPaymentRequest(WTFMove(*recurringPaymentRequest)).get()];
+#endif
+#if HAVE(PASSKIT_AUTOMATIC_RELOAD_PAYMENTS)
+    if (auto& automaticReloadPaymentRequest = update->newAutomaticReloadPaymentRequest)
+        [shippingContactUpdate setAutomaticReloadPaymentRequest:platformAutomaticReloadPaymentRequest(WTFMove(*automaticReloadPaymentRequest)).get()];
+#endif
+#if HAVE(PASSKIT_MULTI_MERCHANT_PAYMENTS)
+    if (auto& multiTokenContexts = update->newMultiTokenContexts)
+        [shippingContactUpdate setMultiTokenContexts:platformPaymentTokenContexts(WTFMove(*multiTokenContexts)).get()];
+#endif
+#if HAVE(PASSKIT_DEFERRED_PAYMENTS)
+    if (auto& deferredPaymentRequest = update->newDeferredPaymentRequest)
+        [shippingContactUpdate setDeferredPaymentRequest:platformDeferredPaymentRequest(WTFMove(*deferredPaymentRequest)).get()];
+#endif
     [platformDelegate() completeShippingContactSelection:shippingContactUpdate.get()];
 }
 
-void PaymentAuthorizationPresenter::completeShippingMethodSelection(const Optional<WebCore::ShippingMethodUpdate>& update)
+void PaymentAuthorizationPresenter::completeShippingMethodSelection(std::optional<WebCore::ApplePayShippingMethodUpdate>&& update)
 {
     ASSERT(platformDelegate());
     if (!update) {
@@ -224,10 +312,72 @@ void PaymentAuthorizationPresenter::completeShippingMethodSelection(const Option
         return;
     }
 
-    // FIXME: WebCore::ShippingMethodUpdate should know how to convert itself to a PKPaymentRequestShippingMethodUpdate.
-    auto shippingMethodUpdate = adoptNS([PAL::allocPKPaymentRequestShippingMethodUpdateInstance() initWithPaymentSummaryItems:WebCore::platformSummaryItems(update->newTotalAndLineItems)]);
+    auto shippingMethodUpdate = adoptNS([PAL::allocPKPaymentRequestShippingMethodUpdateInstance() initWithPaymentSummaryItems:WebCore::platformSummaryItems(WTFMove(update->newTotal), WTFMove(update->newLineItems))]);
+#if HAVE(PASSKIT_DEFAULT_SHIPPING_METHOD)
+    [shippingMethodUpdate setAvailableShippingMethods:toPKShippingMethods(WTFMove(update->newShippingMethods))];
+#elif HAVE(PASSKIT_UPDATE_SHIPPING_METHODS_WHEN_CHANGING_SUMMARY_ITEMS)
+    [shippingMethodUpdate setShippingMethods:createNSArray(WTFMove(update->newShippingMethods), [] (auto& method) {
+        return toPKShippingMethod(method);
+    }).get()];
+#endif
+#if HAVE(PASSKIT_RECURRING_PAYMENTS)
+    if (auto& recurringPaymentRequest = update->newRecurringPaymentRequest)
+        [shippingMethodUpdate setRecurringPaymentRequest:platformRecurringPaymentRequest(WTFMove(*recurringPaymentRequest)).get()];
+#endif
+#if HAVE(PASSKIT_AUTOMATIC_RELOAD_PAYMENTS)
+    if (auto& automaticReloadPaymentRequest = update->newAutomaticReloadPaymentRequest)
+        [shippingMethodUpdate setAutomaticReloadPaymentRequest:platformAutomaticReloadPaymentRequest(WTFMove(*automaticReloadPaymentRequest)).get()];
+#endif
+#if HAVE(PASSKIT_MULTI_MERCHANT_PAYMENTS)
+    if (auto& multiTokenContexts = update->newMultiTokenContexts)
+        [shippingMethodUpdate setMultiTokenContexts:platformPaymentTokenContexts(WTFMove(*multiTokenContexts)).get()];
+#endif
+#if HAVE(PASSKIT_DEFERRED_PAYMENTS)
+    if (auto& deferredPaymentRequest = update->newDeferredPaymentRequest)
+        [shippingMethodUpdate setDeferredPaymentRequest:platformDeferredPaymentRequest(WTFMove(*deferredPaymentRequest)).get()];
+#endif
     [platformDelegate() completeShippingMethodSelection:shippingMethodUpdate.get()];
 }
+
+#if HAVE(PASSKIT_COUPON_CODE)
+
+void PaymentAuthorizationPresenter::completeCouponCodeChange(std::optional<WebCore::ApplePayCouponCodeUpdate>&& update)
+{
+    ASSERT(platformDelegate());
+    if (!update) {
+        [platformDelegate() completeCouponCodeChange:nil];
+        return;
+    }
+
+    auto couponCodeUpdate = adoptNS([PAL::allocPKPaymentRequestCouponCodeUpdateInstance() initWithPaymentSummaryItems:WebCore::platformSummaryItems(WTFMove(update->newTotal), WTFMove(update->newLineItems))]);
+    [couponCodeUpdate setErrors:toNSErrors(WTFMove(update->errors)).get()];
+#if HAVE(PASSKIT_DEFAULT_SHIPPING_METHOD)
+    [couponCodeUpdate setAvailableShippingMethods:toPKShippingMethods(WTFMove(update->newShippingMethods))];
+#else
+    [couponCodeUpdate setShippingMethods:createNSArray(WTFMove(update->newShippingMethods), [] (auto& method) {
+        return toPKShippingMethod(method);
+    }).get()];
+#endif
+#if HAVE(PASSKIT_RECURRING_PAYMENTS)
+    if (auto& recurringPaymentRequest = update->newRecurringPaymentRequest)
+        [couponCodeUpdate setRecurringPaymentRequest:platformRecurringPaymentRequest(WTFMove(*recurringPaymentRequest)).get()];
+#endif
+#if HAVE(PASSKIT_AUTOMATIC_RELOAD_PAYMENTS)
+    if (auto& automaticReloadPaymentRequest = update->newAutomaticReloadPaymentRequest)
+        [couponCodeUpdate setAutomaticReloadPaymentRequest:platformAutomaticReloadPaymentRequest(WTFMove(*automaticReloadPaymentRequest)).get()];
+#endif
+#if HAVE(PASSKIT_MULTI_MERCHANT_PAYMENTS)
+    if (auto& multiTokenContexts = update->newMultiTokenContexts)
+        [couponCodeUpdate setMultiTokenContexts:platformPaymentTokenContexts(WTFMove(*multiTokenContexts)).get()];
+#endif
+#if HAVE(PASSKIT_DEFERRED_PAYMENTS)
+    if (auto& deferredPaymentRequest = update->newDeferredPaymentRequest)
+        [couponCodeUpdate setDeferredPaymentRequest:platformDeferredPaymentRequest(WTFMove(*deferredPaymentRequest)).get()];
+#endif
+    [platformDelegate() completeCouponCodeChange:couponCodeUpdate.get()];
+}
+
+#endif // HAVE(PASSKIT_COUPON_CODE)
 
 } // namespace WebKit
 

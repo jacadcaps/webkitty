@@ -14,14 +14,19 @@
 
 #include "absl/strings/charconv.h"
 
+#include <cfloat>
+#include <cmath>
 #include <cstdlib>
+#include <functional>
+#include <limits>
 #include <string>
+#include <system_error>  // NOLINT(build/c++11)
 
-#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/strings/internal/pow10_helper.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
+#include "absl/strings/string_view.h"
 
 #ifdef _MSC_FULL_VER
 #define ABSL_COMPILER_DOES_EXACT_ROUNDING 0
@@ -511,6 +516,13 @@ TEST(FromChars, Overflow) {
   EXPECT_EQ(f, std::numeric_limits<float>::max());
 }
 
+TEST(FromChars, RegressionTestsFromFuzzer) {
+  absl::string_view src = "0x21900000p00000000099";
+  float f;
+  auto result = absl::from_chars(src.data(), src.data() + src.size(), f);
+  EXPECT_EQ(result.ec, std::errc::result_out_of_range);
+}
+
 TEST(FromChars, ReturnValuePtr) {
   // Check that `ptr` points one past the number scanned, even if that number
   // is not representable.
@@ -646,7 +658,9 @@ TEST(FromChars, NaNFloats) {
                      negative_from_chars_float);
     EXPECT_TRUE(std::signbit(negative_from_chars_float));
     EXPECT_FALSE(Identical(negative_from_chars_float, from_chars_float));
-    from_chars_float = std::copysign(from_chars_float, -1.0);
+    // Use the (float, float) overload of std::copysign to prevent narrowing;
+    // see https://gcc.gnu.org/bugzilla/show_bug.cgi?id=98251.
+    from_chars_float = std::copysign(from_chars_float, -1.0f);
     EXPECT_TRUE(Identical(negative_from_chars_float, from_chars_float));
   }
 }

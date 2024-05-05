@@ -59,11 +59,11 @@ struct SVGPropertyTraits<SVGSpreadMethodType> {
 
     static SVGSpreadMethodType fromString(const String& value)
     {
-        if (value == "pad")
+        if (value == "pad"_s)
             return SVGSpreadMethodPad;
-        if (value == "reflect")
+        if (value == "reflect"_s)
             return SVGSpreadMethodReflect;
-        if (value == "repeat")
+        if (value == "repeat"_s)
             return SVGSpreadMethodRepeat;
         return SVGSpreadMethodUnknown;
     }
@@ -79,7 +79,7 @@ public:
         SVG_SPREADMETHOD_REPEAT = SVGSpreadMethodUnknown
     };
 
-    Gradient::ColorStopVector buildStops();
+    GradientColorStops buildStops();
 
     using PropertyRegistry = SVGPropertyOwnerRegistry<SVGGradientElement, SVGElement, SVGURIReference>;
 
@@ -92,10 +92,12 @@ public:
     SVGAnimatedTransformList& gradientTransformAnimated() { return m_gradientTransform; }
 
 protected:
-    SVGGradientElement(const QualifiedName&, Document&);
+    SVGGradientElement(const QualifiedName&, Document&, UniqueRef<SVGPropertyRegistry>&&);
 
-    void parseAttribute(const QualifiedName&, const AtomString&) override;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) override;
     void svgAttributeChanged(const QualifiedName&) override;
+
+    void invalidateGradientResource();
 
 private:
     bool needsPendingResourceHandling() const override { return false; }
@@ -115,6 +117,7 @@ static bool isType(const WebCore::SVGElement& element)
 }
 static bool isType(const WebCore::Node& node)
 {
-    return is<WebCore::SVGElement>(node) && isType(downcast<WebCore::SVGElement>(node));
+    auto* svgElement = dynamicDowncast<WebCore::SVGElement>(node);
+    return svgElement && isType(*svgElement);
 }
 SPECIALIZE_TYPE_TRAITS_END()

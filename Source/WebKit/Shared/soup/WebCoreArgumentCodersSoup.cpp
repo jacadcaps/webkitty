@@ -26,13 +26,15 @@
  */
 
 #include "config.h"
-#include "DataReference.h"
 #include "WebCoreArgumentCoders.h"
 
+#include "ArgumentCodersGLib.h"
+#include "DataReference.h"
 #include <WebCore/CertificateInfo.h>
+#include <WebCore/Credential.h>
 #include <WebCore/DictionaryPopupInfo.h>
 #include <WebCore/Font.h>
-#include <WebCore/FontAttributes.h>
+#include <WebCore/FontCustomPlatformData.h>
 #include <WebCore/ResourceError.h>
 #include <WebCore/ResourceRequest.h>
 #include <WebCore/ResourceResponse.h>
@@ -42,131 +44,17 @@
 namespace IPC {
 using namespace WebCore;
 
-void ArgumentCoder<ResourceRequest>::encodePlatformData(Encoder& encoder, const ResourceRequest& resourceRequest)
-{
-    resourceRequest.encodeWithPlatformData(encoder);
-}
-
-bool ArgumentCoder<ResourceRequest>::decodePlatformData(Decoder& decoder, ResourceRequest& resourceRequest)
-{
-    return resourceRequest.decodeWithPlatformData(decoder);
-}
-
-void ArgumentCoder<CertificateInfo>::encode(Encoder& encoder, const CertificateInfo& certificateInfo)
-{
-    auto* certificate = certificateInfo.certificate();
-    if (!certificate) {
-        encoder << 0;
-        return;
-    }
-
-    Vector<GRefPtr<GByteArray>> certificatesDataList;
-    for (; certificate; certificate = g_tls_certificate_get_issuer(certificate)) {
-        GByteArray* certificateData = nullptr;
-        g_object_get(G_OBJECT(certificate), "certificate", &certificateData, nullptr);
-
-        if (!certificateData) {
-            certificatesDataList.clear();
-            break;
-        }
-
-        certificatesDataList.append(adoptGRef(certificateData));
-    }
-
-    encoder << static_cast<uint32_t>(certificatesDataList.size());
-
-    if (certificatesDataList.isEmpty())
-        return;
-
-    // Encode starting from the root certificate.
-    for (size_t i = certificatesDataList.size(); i > 0; --i) {
-        GByteArray* certificate = certificatesDataList[i - 1].get();
-        encoder.encodeVariableLengthByteArray(IPC::DataReference(certificate->data, certificate->len));
-    }
-
-    encoder << static_cast<uint32_t>(certificateInfo.tlsErrors());
-}
-
-bool ArgumentCoder<CertificateInfo>::decode(Decoder& decoder, CertificateInfo& certificateInfo)
-{
-    uint32_t chainLength;
-    if (!decoder.decode(chainLength))
-        return false;
-
-    if (!chainLength)
-        return true;
-
-    GType certificateType = g_tls_backend_get_certificate_type(g_tls_backend_get_default());
-    GRefPtr<GTlsCertificate> certificate;
-    for (uint32_t i = 0; i < chainLength; i++) {
-        IPC::DataReference certificateDataReference;
-        if (!decoder.decodeVariableLengthByteArray(certificateDataReference))
-            return false;
-
-        GByteArray* certificateData = g_byte_array_sized_new(certificateDataReference.size());
-        GRefPtr<GByteArray> certificateBytes = adoptGRef(g_byte_array_append(certificateData, certificateDataReference.data(), certificateDataReference.size()));
-
-        certificate = adoptGRef(G_TLS_CERTIFICATE(g_initable_new(
-            certificateType, nullptr, nullptr, "certificate", certificateBytes.get(), "issuer", certificate.get(), nullptr)));
-    }
-
-    uint32_t tlsErrors;
-    if (!decoder.decode(tlsErrors))
-        return false;
-
-    certificateInfo.setCertificate(certificate.get());
-    certificateInfo.setTLSErrors(static_cast<GTlsCertificateFlags>(tlsErrors));
-
-    return true;
-}
-
-void ArgumentCoder<ResourceError>::encodePlatformData(Encoder& encoder, const ResourceError& resourceError)
-{
-    encoder << resourceError.domain();
-    encoder << resourceError.errorCode();
-    encoder << resourceError.failingURL().string();
-    encoder << resourceError.localizedDescription();
-
-    encoder << CertificateInfo(resourceError);
-}
-
-bool ArgumentCoder<ResourceError>::decodePlatformData(Decoder& decoder, ResourceError& resourceError)
-{
-    String domain;
-    if (!decoder.decode(domain))
-        return false;
-
-    int errorCode;
-    if (!decoder.decode(errorCode))
-        return false;
-
-    String failingURL;
-    if (!decoder.decode(failingURL))
-        return false;
-
-    String localizedDescription;
-    if (!decoder.decode(localizedDescription))
-        return false;
-
-    resourceError = ResourceError(domain, errorCode, URL(URL(), failingURL), localizedDescription);
-
-    CertificateInfo certificateInfo;
-    if (!decoder.decode(certificateInfo))
-        return false;
-
-    resourceError.setCertificate(certificateInfo.certificate());
-    resourceError.setTLSErrors(certificateInfo.tlsErrors());
-    return true;
-}
-
 void ArgumentCoder<SoupNetworkProxySettings>::encode(Encoder& encoder, const SoupNetworkProxySettings& settings)
 {
     ASSERT(!settings.isEmpty());
     encoder << settings.mode;
-    if (settings.mode != SoupNetworkProxySettings::Mode::Custom)
+    if (settings.mode != SoupNetworkProxySettings::Mode::Custom && settings.mode != SoupNetworkProxySettings::Mode::Auto)
         return;
 
     encoder << settings.defaultProxyURL;
+    if (settings.mode == SoupNetworkProxySettings::Mode::Auto)
+        return;
+
     uint32_t ignoreHostsCount = settings.ignoreHosts ? g_strv_length(settings.ignoreHosts.get()) : 0;
     encoder << ignoreHostsCount;
     if (ignoreHostsCount) {
@@ -181,11 +69,14 @@ bool ArgumentCoder<SoupNetworkProxySettings>::decode(Decoder& decoder, SoupNetwo
     if (!decoder.decode(settings.mode))
         return false;
 
-    if (settings.mode != SoupNetworkProxySettings::Mode::Custom)
+    if (settings.mode != SoupNetworkProxySettings::Mode::Custom && settings.mode != SoupNetworkProxySettings::Mode::Auto)
         return true;
 
     if (!decoder.decode(settings.defaultProxyURL))
         return false;
+
+    if (settings.mode == SoupNetworkProxySettings::Mode::Auto)
+        return !settings.isEmpty();
 
     uint32_t ignoreHostsCount;
     if (!decoder.decode(ignoreHostsCount))
@@ -208,73 +99,4 @@ bool ArgumentCoder<SoupNetworkProxySettings>::decode(Decoder& decoder, SoupNetwo
     return !settings.isEmpty();
 }
 
-void ArgumentCoder<ProtectionSpace>::encodePlatformData(Encoder&, const ProtectionSpace&)
-{
-    ASSERT_NOT_REACHED();
 }
-
-bool ArgumentCoder<ProtectionSpace>::decodePlatformData(Decoder&, ProtectionSpace&)
-{
-    ASSERT_NOT_REACHED();
-    return false;
-}
-
-void ArgumentCoder<Credential>::encodePlatformData(Encoder&, const Credential&)
-{
-    ASSERT_NOT_REACHED();
-}
-
-bool ArgumentCoder<Credential>::decodePlatformData(Decoder&, Credential&)
-{
-    ASSERT_NOT_REACHED();
-    return false;
-}
-
-void ArgumentCoder<FontAttributes>::encodePlatformData(Encoder&, const FontAttributes&)
-{
-    ASSERT_NOT_REACHED();
-}
-
-Optional<FontAttributes> ArgumentCoder<FontAttributes>::decodePlatformData(Decoder&, FontAttributes&)
-{
-    ASSERT_NOT_REACHED();
-    return WTF::nullopt;
-}
-
-void ArgumentCoder<DictionaryPopupInfo>::encodePlatformData(Encoder&, const DictionaryPopupInfo&)
-{
-    ASSERT_NOT_REACHED();
-}
-
-bool ArgumentCoder<DictionaryPopupInfo>::decodePlatformData(Decoder&, DictionaryPopupInfo&)
-{
-    ASSERT_NOT_REACHED();
-    return false;
-}
-
-void ArgumentCoder<FontHandle>::encodePlatformData(Encoder&, const FontHandle&)
-{
-    ASSERT_NOT_REACHED();
-}
-
-bool ArgumentCoder<FontHandle>::decodePlatformData(Decoder&, FontHandle&)
-{
-    ASSERT_NOT_REACHED();
-    return false;
-}
-
-#if ENABLE(VIDEO)
-void ArgumentCoder<SerializedPlatformDataCueValue>::encodePlatformData(Encoder& encoder, const SerializedPlatformDataCueValue& value)
-{
-    ASSERT_NOT_REACHED();
-}
-
-Optional<SerializedPlatformDataCueValue>  ArgumentCoder<SerializedPlatformDataCueValue>::decodePlatformData(Decoder& decoder, WebCore::SerializedPlatformDataCueValue::PlatformType platformType)
-{
-    ASSERT_NOT_REACHED();
-    return WTF::nullopt;
-}
-#endif
-
-}
-

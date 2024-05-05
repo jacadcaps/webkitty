@@ -28,27 +28,92 @@
 #include "AuthenticationChallengeDisposition.h"
 #include "AuthenticationChallengeProxy.h"
 #include "AuthenticationDecisionListener.h"
+#include "BackgroundFetchChange.h"
+#include <WebCore/NotificationData.h>
 #include <wtf/CompletionHandler.h>
 
 namespace WebCore {
-struct SecurityOriginData;
+enum class WindowProxyProperty : uint8_t;
+struct NotificationData;
+class RegistrableDomain;
+class SecurityOriginData;
 }
 
 namespace WebKit {
+
+class WebPageProxy;
+class WebsiteDataStore;
 
 class WebsiteDataStoreClient {
     WTF_MAKE_FAST_ALLOCATED;
 public:
     virtual ~WebsiteDataStoreClient() { }
 
-    virtual void requestStorageSpace(const WebCore::SecurityOriginData& topOrigin, const WebCore::SecurityOriginData& frameOrigin, uint64_t quota, uint64_t currentSize, uint64_t spaceRequired, CompletionHandler<void(Optional<uint64_t>)>&& completionHandler)
+    virtual void requestStorageSpace(const WebCore::SecurityOriginData& topOrigin, const WebCore::SecurityOriginData& frameOrigin, uint64_t quota, uint64_t currentSize, uint64_t spaceRequired, CompletionHandler<void(std::optional<uint64_t>)>&& completionHandler)
     {
+        UNUSED_PARAM(topOrigin);
+        UNUSED_PARAM(frameOrigin);
+        UNUSED_PARAM(quota);
+        UNUSED_PARAM(currentSize);
+        UNUSED_PARAM(spaceRequired);
         completionHandler({ });
     }
 
     virtual void didReceiveAuthenticationChallenge(Ref<AuthenticationChallengeProxy>&& challenge)
     {
         challenge->listener().completeChallenge(AuthenticationChallengeDisposition::PerformDefaultHandling);
+    }
+
+    virtual void openWindowFromServiceWorker(const String&, const WebCore::SecurityOriginData&, CompletionHandler<void(WebPageProxy*)>&& completionHandler)
+    {
+        completionHandler(nullptr);
+    }
+    virtual void reportServiceWorkerConsoleMessage(const URL&, const WebCore::SecurityOriginData&, MessageSource, MessageLevel, const String&, unsigned long)
+    {
+    }
+
+    virtual bool showNotification(const WebCore::NotificationData&)
+    {
+        return false;
+    }
+
+    virtual HashMap<WTF::String, bool> notificationPermissions()
+    {
+        return { };
+    }
+
+    virtual bool hasGetDisplayedNotifications() const { return false; }
+
+    virtual void getDisplayedNotifications(const WebCore::SecurityOriginData&, CompletionHandler<void(Vector<WebCore::NotificationData>&&)>&& completionHandler)
+    {
+        completionHandler({ });
+    }
+
+    virtual void workerUpdatedAppBadge(const WebCore::SecurityOriginData&, std::optional<uint64_t>)
+    {
+    }
+
+    virtual void navigationToNotificationActionURL(const URL&)
+    {
+    }
+
+    virtual void requestBackgroundFetchPermission(const WebCore::SecurityOriginData& topOrigin, const WebCore::SecurityOriginData& frameOrigin, CompletionHandler<void(bool)>&& completionHandler)
+    {
+        UNUSED_PARAM(topOrigin);
+        UNUSED_PARAM(frameOrigin);
+        completionHandler(false);
+    }
+
+    virtual void notifyBackgroundFetchChange(const String&, BackgroundFetchChange)
+    {
+    }
+
+    virtual void didAccessWindowProxyProperty(const WebCore::RegistrableDomain&, const WebCore::RegistrableDomain&, WebCore::WindowProxyProperty, bool)
+    {
+    }
+
+    virtual void didAllowPrivateTokenUsageByThirdPartyForTesting(bool, URL&&)
+    {
     }
 };
 

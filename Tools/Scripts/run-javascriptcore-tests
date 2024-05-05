@@ -1,6 +1,6 @@
 #!/usr/bin/env perl
 
-# Copyright (C) 2005-2017 Apple Inc.  All rights reserved.
+# Copyright (C) 2005-2023 Apple Inc.  All rights reserved.
 # Copyright (C) 2007 Eric Seidel <eric@webkit.org>
 #
 # Redistribution and use in source and binary forms, with or without
@@ -32,14 +32,18 @@
 
 use strict;
 use warnings;
+use File::Basename;
 use File::Spec;
+use File::Temp qw(tempdir);
 use FindBin;
 use Getopt::Long qw(:config pass_through);
 use JSON::PP;
 use lib $FindBin::Bin;
 use List::Util qw(min max);
 use POSIX;
+use VCSUtils;
 use webkitdirs;
+use Scalar::Util qw(looks_like_number);
 use Text::ParseWords;
 
 # determine configuration
@@ -61,9 +65,11 @@ my $shellRunner;
 my $makeRunner;
 my $rubyRunner;
 my $gnuParallelRunner;
+my $gnuParallelChunkSize;
 my $testWriter;
 my $memoryLimited;
 my $reportExecutionTime;
+my $treatFailingAsFlaky;
 
 my $report;
 my $buildbotMaster;
@@ -73,6 +79,8 @@ my $buildbotWorker;
 
 my $buildJSC = 1;
 my $copyJSC = 1;
+
+my $noRetry;
 
 use constant {
     ENV_VAR_SAYS_DO_RUN => 4,
@@ -95,6 +103,7 @@ my $runMozillaTests = RUN_IF_NO_TESTS_SPECIFIED;
 # on the JSC stress test or mozilla tests.
 my $runJITStressTests = 1;
 
+my $runCLoopMode = 0;
 my $runQuickMode = 0;
 
 my $forceCollectContinuously = 0;
@@ -106,9 +115,12 @@ my $createTarball = 0;
 my $remoteHost = 0;
 my $model = 0;
 my $archs = undef;
+my $ldd = undef;
+my $artifact_exec_wrapper = undef;
 my $version;
 my $versionName;
 my $sdk;
+my $deviceOS;
 my $failFast = 1;
 my $coverage = 0;
 my $coverageDir;
@@ -234,6 +246,8 @@ my $usage = <<EOF;
 Usage: $programName [options] [options to pass to build system]
   --help                        Show this help message
   --architecture                Attempt to override the native architecture of a machine.
+  --ldd                         Use alternate ldd
+  --artifact-exec-wrapper       Wrapper for executing a build artifact
   --root=                       Path to pre-built root containing jsc
   --[no-]ftl-jit                Turn the FTL JIT on or off
   --[no-]build                  Check (or don't check) to see if the jsc build is up-to-date (default: $buildJSCDefault)
@@ -262,6 +276,7 @@ Usage: $programName [options] [options to pass to build system]
   --version                     Specify the version number of the device running tests.
   --version-name                Specify the version name of the hardware running tests.
   --sdk                         Specific SDK or OS version of the form ##*###
+  --device-os                   Speicifc OS version for the remote device
   --extra-tests=                Path to a file containing extra tests
   --child-processes=            Specify the number of child processes.
   --shell-runner                Uses the shell-based test runner instead of the default make-based runner.
@@ -277,6 +292,11 @@ Usage: $programName [options] [options to pass to build system]
                                 Skip tests tagged with //\@skip if \$memoryLimited
 
   --report-execution-time       Print execution time for each stress test.
+  --treat-failing-as-flaky      Treat failing stress tests as flaky.
+                                Expects 3 comma-separated values: passPercentage,maxTries,maxFailing
+                                If less than maxFailing tests failed, run them again (up to maxTries)
+                                until we can tell whether they pass more than passPercentage of the
+                                time (in which case the test is counted as a pass).
 
   --filter                      Only run tests whose name matches the given regular expression.
   --env-vars                    Pass a list of environment variables to set before running tests.
@@ -290,6 +310,7 @@ Usage: $programName [options] [options to pass to build system]
   --builder-name:               The name of the buildbot builder tests were run on.
   --build-number:               The buildbot build number tests are associated with.
   --buildbot-worker:            The buildbot worker tests were run on.
+  --no-retry:                   Disable retry
 
 Environment Variables:
   - set RUN_JAVASCRIPTCORE_TESTS_TESTMASM to "true" or "false" (no quotes) to determine if we run testmasm by default.
@@ -320,6 +341,7 @@ GetOptions(
     'jsc-stress!' => \$runJSCStress,
     'mozilla-tests!' => \$runMozillaTests,
     'jit-stress-tests!' => \$runJITStressTests,
+    'cloop' => \$runCLoopMode,
     'quick!' => \$runQuickMode,
     'fail-fast!' => \$failFast,
     'force-collectContinuously!' => \$forceCollectContinuously,
@@ -331,18 +353,23 @@ GetOptions(
     'remote=s' => \$remoteHost,
     'model=s' => \$model,
     'architecture=s' => \$archs,
+    'ldd=s' => \$ldd,
+    'artifact-exec-wrapper=s' => \$artifact_exec_wrapper,
     'version=s' => \$version,
     'version-name=s' => \$versionName,
     'sdk=s' => \$sdk,
+    'device-os=s' => \$deviceOS,
     'remote-config-file=s' => \$remoteConfigFile,
     'child-processes=s' => \$childProcesses,
     'shell-runner' => \$shellRunner,
     'make-runner' => \$makeRunner,
     'ruby-runner' => \$rubyRunner,
     'gnu-parallel-runner' => \$gnuParallelRunner,
+    'gnu-parallel-chunk-size=s' => \$gnuParallelChunkSize,
     'test-writer=s' => \$testWriter,
     'memory-limited' => \$memoryLimited,
     'report-execution-time' => \$reportExecutionTime,
+    'treat-failing-as-flaky=s' => \$treatFailingAsFlaky,
     'filter=s' => \$filter,
     'help' => \$showHelp,
     'env-vars=s' => \$envVars,
@@ -353,6 +380,7 @@ GetOptions(
     'builder-name=s' => \$builderName,
     'build-number=s' => \$buildNumber,
     'buildbot-worker=s' => \$buildbotWorker,
+    'no-retry' => \$noRetry,
 );
 
 my $specificTestsSpecified = 0;
@@ -467,6 +495,9 @@ sub configurationForUpload()
     if ($sdk) {
         $result->{sdk} = $sdk;
     }
+    if ($deviceOS) {
+        $result->{sdk} = $deviceOS;
+    }
     return $result;
 }
 
@@ -478,8 +509,22 @@ $runTestAPI = enableTestOrNot($runTestAPI);
 $runJSCStress = enableTestOrNot($runJSCStress);
 $runMozillaTests = enableTestOrNot($runMozillaTests);
 
-# Assume any arguments left over from GetOptions are assumed to be build arguments
-my @buildArgs = @ARGV;
+my @buildArgs;
+
+if ($buildJSC) {
+    # Assume any arguments left over from GetOptions are to be passed as build arguments.
+    @buildArgs = @ARGV;
+} elsif (scalar(@ARGV) > 0) {
+    foreach (@ARGV) {
+        my $arg = $_;
+        if ($arg =~ /^-.*/) {
+            print STDERR "Unrecognized option `$arg'\n";
+        } else {
+            print STDERR "Stray anonymous argument `$arg'\n";
+        }
+    }
+    exit 2;
+}
 
 if ($showHelp) {
    print STDERR $usage;
@@ -489,37 +534,37 @@ if ($showHelp) {
 setConfigurationProductDir(Cwd::abs_path($root)) if (defined($root));
 my $archsInBuild = architecturesForProducts();
 
-my $nativeTarget = "";
-my $nativePort = 0;
-$nativeTarget = $remoteHost if ($remoteHost);
+my $remotes = [];
 if (defined $remoteConfigFile) {
     open my $handle, '<', $remoteConfigFile or die "Failed to open $remoteConfigFile: $!";
     my $configJson = do { local $/; <$handle> };
     my $remoteConfig = decode_json($configJson);
     if (defined $remoteConfig->{"remotes"}) {
-        my $remotes = $remoteConfig->{"remotes"};
-        my @split = split(':', @$remotes[0]->{"address"});
-        $nativeTarget = $split[0];
-        $nativePort = $split[1] if scalar(@split) > 1;
+        $remotes = $remoteConfig->{"remotes"};
     } elsif (defined $remoteConfig->{"remote"}) {
         my @split = split(':', $remoteConfig->{"remote"});
-        $nativeTarget = $split[0];
-        $nativePort = $split[1] if scalar(@split) > 1;
+        my $remote = {
+            "name" => "synthesized",
+            "address" => $remoteConfig->{"remote"}
+        };
+        if (exists $remoteConfig->{"idFilePath"}) {
+            $remote->{'idFilePath'} = $remoteConfig->{'idFilePath'};
+        }
+        $remotes = [$remote];
     }
 }
-$nativePort = 22 if $nativeTarget && !$nativePort;
 
 if (defined $archs) {
     die "$archs not supported by the provided binary, which supports '$archsInBuild'" if index($archsInBuild, $archs) == -1;
 } else {
-    # Fallback is x86_64, which we replace with the native architecture if the native architecture is in the provided build
-    $archs = "x86_64";
-    $archs = nativeArchitecture($nativeTarget, $nativePort) if (!isAppleMacWebKit() || index($archsInBuild, nativeArchitecture($nativeTarget, $nativePort)) != -1);
+    # Fallback is the architecture of the host machine. Avoid calling lipo which allows this script to work without Xcode being installed.
+    chomp($archs = `/usr/bin/arch`);
+    $archs = nativeArchitecture($remotes) if (!isAppleMacWebKit() || index($archsInBuild, nativeArchitecture($remotes)) != -1);
 }
 
 # For running tests, arm64e should map to arm64
 $archs = "arm64" if $archs eq "arm64e";
-if ($archs ne nativeArchitecture($nativeTarget, $nativePort) && (nativeArchitecture($nativeTarget, $nativePort) ne "arm64" || !isAppleMacWebKit())) {
+if ($archs ne nativeArchitecture($remotes) && (nativeArchitecture($remotes) ne "arm64" || !isAppleMacWebKit())) {
     die "Cannot run tests with $archs on this machine";
 }
 
@@ -570,7 +615,11 @@ if ($coverage) {
 }
 
 my $productDir = jscProductDir();
-$ENV{DYLD_FRAMEWORK_PATH} = $productDir;
+if (isWindows()) {
+    setupWindowsWebKitEnvironment();
+} else {
+    $ENV{DYLD_FRAMEWORK_PATH} = $productDir;
+}
 $ENV{JSCTEST_timeout} = 120 unless $ENV{JSCTEST_timeout}; # Set a 120 second timeout on all jsc tests (if environment variable not defined already).
 $ENV{JSCTEST_hardTimeout} = 300 unless $ENV{JSCTEST_hardTimeout}; # Set a 300 second hard timeout on all jsc tests (if environment variable not defined already). If the test does not finish after 300 seconds from soft-timeout, we terminate the shell.
 $ENV{TZ}="US/Pacific"; # Some tests fail if the time zone is not set to US/Pacific (<https://webkit.org/b/136363>)
@@ -591,8 +640,13 @@ sub runTest {
     chdirWebKit();
     chdir($productDir) or die "Failed to switch directory to '$productDir'\n";
     my @command = (testPath($productDir, $testName));
+    if (defined($artifact_exec_wrapper)) {
+        # This needs to go first, as one use case is to override the
+        # ELF interpreter.
+        unshift @command, $artifact_exec_wrapper;
+    }
     unshift @command, ("xcrun", "-sdk", xcodeSDK(), "sim") if willUseIOSSimulatorSDK();
-    unshift @command, ("/usr/bin/arch", "-$archs") if $archs ne nativeArchitecture($nativeTarget, $nativePort);
+    unshift @command, ("/usr/bin/arch", "-$archs") if $archs ne nativeArchitecture($remotes);
     unshift @command, wrapperPrefixIfNeeded() if isGtk() or isWPE();
 
     if ($envVars ne "") {
@@ -607,13 +661,16 @@ sub runTest {
     my $lastOptimizeLevel;
 
     open(TEST, "-|", "@command 2>&1") or die "Failed to run @command";
+    my $testOutput = "";
     while ( my $line = <TEST> ) {
-        print $line if ($verbose);
+        $testOutput .= $line;
     }
     $testResult = close(TEST) ? 0 : $?;
     $reportData{$testName} = $testResult ? {actual => "FAIL"} : {actual => "PASS"};
 
     my $exitStatus = exitStatus($testResult);
+
+    print "$testOutput" if ($verbose or $testResult);
     print "$testName completed with rc=$testResult ($exitStatus)\n\n";
 
     if ($testResult) {
@@ -722,6 +779,7 @@ sub runJSCStressTests
             "JSTests/exceptionFuzz.yaml",
             "PerformanceTests/SunSpider/no-architecture-specific-optimizations.yaml",
             "PerformanceTests/SunSpider/shadow-chicken.yaml",
+            "PerformanceTests/SunSpider/with-baseline-code-sharing.yaml",
             "PerformanceTests/SunSpider/tests/v8-v6",
             "JSTests/stress",
             "JSTests/microbenchmarks",
@@ -756,11 +814,23 @@ sub runJSCStressTests
         "/usr/bin/env", "ruby", "Tools/Scripts/run-jsc-stress-tests",
         "-j", jscPath($productDir), "-o", $jscStressResultsDir, "--arch", $archs);
 
-    if (nativeArchitecture($nativeTarget, $nativePort) ne $archs) {
+    if (nativeArchitecture($remotes) ne $archs) {
         push(@jscStressDriverCmd, "--force-architecture");
         push(@jscStressDriverCmd, $archs);
     }
 
+    if (defined($ldd)) {
+        push(@jscStressDriverCmd, "--ldd");
+        push(@jscStressDriverCmd, $ldd);
+    }
+    if (defined($artifact_exec_wrapper)) {
+        push(@jscStressDriverCmd, "--artifact-exec-wrapper");
+        push(@jscStressDriverCmd, $artifact_exec_wrapper);
+    }
+    if (defined($treatFailingAsFlaky)) {
+        push(@jscStressDriverCmd, "--treat-failing-as-flaky");
+        push(@jscStressDriverCmd, $treatFailingAsFlaky);
+    }
     push(@jscStressDriverCmd, @testList);
 
     if (isWindows() && !isCygwin()) {
@@ -782,6 +852,10 @@ sub runJSCStressTests
     if ($envVars ne "") {
             push(@jscStressDriverCmd, "--env-vars");
             push(@jscStressDriverCmd, $envVars);
+    }
+
+    if ($runCLoopMode) {
+        push(@jscStressDriverCmd, "--cloop");
     }
 
     if ($runQuickMode) {
@@ -833,6 +907,11 @@ sub runJSCStressTests
         push(@jscStressDriverCmd, "--gnu-parallel-runner");
     }
 
+    if ($gnuParallelChunkSize) {
+        push(@jscStressDriverCmd, "--gnu-parallel-chunk-size");
+        push(@jscStressDriverCmd, $gnuParallelChunkSize);
+    }
+
     if ($testWriter) {
         push(@jscStressDriverCmd, "--test-writer");
         push(@jscStressDriverCmd, $testWriter);
@@ -849,6 +928,10 @@ sub runJSCStressTests
     if ($filter) {
         push(@jscStressDriverCmd, "--filter");
         push(@jscStressDriverCmd, $filter);
+    }
+
+    if ($noRetry) {
+        push(@jscStressDriverCmd, "--no-retry");
     }
 
     push(@jscStressDriverCmd, ("--verbose") x $verbose) if ($verbose > 0);
@@ -899,13 +982,56 @@ sub runJSCStressTests
     }
     print "\n";
 
+    my @jscStressFlaky = readAllLines($jscStressResultsDir . "/flaky");
+    @jscStressFlaky = sort @jscStressFlaky;
+    my $numJSCStressFlaky = @jscStressFlaky;
+
+    my %jscStressFlakyInfo = ();
+
+    my $numJSCStressFlakyButPassed = 0;
+    if ($numJSCStressFlaky) {
+        print "\n** The following JSC stress tests were flaky:\n";
+        foreach my $testFlaky (@jscStressFlaky) {
+            my @fields = split / /, $testFlaky;
+            my $testName = $fields[0];
+            my $numPasses = $fields[1];
+            my $numTotal = $fields[2];
+            looks_like_number($fields[3]) || die "Malformed line: $testFlaky";
+            my $successful = int($fields[3]);
+            if ($successful) {
+                $numJSCStressFlakyButPassed += 1;
+            }
+            my $passFail = $successful ? "passed" : "failed";
+            print "\t$testName $fields[1]/$fields[2] passes, $passFail\n";
+            $jscStressFlakyInfo{$testName} = { 'P' => $numPasses, 'T' => $numTotal, 'S' => $successful };
+            # NB: the dict has been created above, we're only adding the flakiness field.
+            $reportData{$testName}{"flakiness_num_passes"} = int($numPasses);
+            $reportData{$testName}{"flakiness_num_tries"} =  int($numTotal);
+        }
+        print "\n";
+    }
+
+    my @jscStressNoResultList = readAllLines($jscStressResultsDir . "/noresult");
+    my $numJSCStressNoResultTests = @jscStressNoResultList;
+
+    if ($numJSCStressNoResultTests) {
+        $isTestFailed = 1;
+    }
+    foreach my $testNoResult (@jscStressNoResultList) {
+            $reportData{$testNoResult} = {actual => "ERROR"};
+    }
+
     print "Results for JSC stress tests:\n";
     printThingsFound($numJSCStressFailures, "failure", "failures", "found");
-    print "    OK.\n" if $numJSCStressFailures == 0;
+    printThingsFound($numJSCStressFlakyButPassed, "test", "tests", "flaky but passed");
+    printThingsFound($numJSCStressFlaky - $numJSCStressFlakyButPassed, "test", "tests", "flaky and failed");
+    printThingsFound($numJSCStressNoResultTests, "test", "tests", "failed to complete");
+    print "    OK.\n" if $numJSCStressFailures == 0 and $numJSCStressNoResultTests == 0;
 
     print "\n";
 
     if (defined($jsonFileName)) {
+        $jsonData{'flaky'} =  \%jscStressFlakyInfo;
         $jsonData{'stressTestFailures'} = \@jscStressFailList;
     }
 

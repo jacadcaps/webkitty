@@ -28,36 +28,121 @@
 
 #if PLATFORM(IOS_FAMILY)
 
-#import <WebCore/SelectionRect.h>
+#import "UIKitSPI.h"
+#import <WebCore/SelectionGeometry.h>
+
+#if HAVE(UI_TEXT_SELECTION_RECT_CUSTOM_HANDLE_INFO)
+
+@interface WKTextSelectionRectCustomHandleInfo : UITextSelectionRectCustomHandleInfo
+- (instancetype)initWithFloatQuad:(const WebCore::FloatQuad&)quad isHorizontal:(BOOL)isHorizontal;
+@end
+
+@implementation WKTextSelectionRectCustomHandleInfo {
+    WebCore::FloatQuad _quad;
+    BOOL _isHorizontal;
+}
+
+- (instancetype)initWithFloatQuad:(const WebCore::FloatQuad&)quad isHorizontal:(BOOL)isHorizontal
+{
+    if (!(self = [super init]))
+        return nil;
+
+    _quad = quad;
+    _isHorizontal = isHorizontal;
+    return self;
+}
+
+- (CGPoint)bottomLeft
+{
+    return _isHorizontal ? _quad.p4() : _quad.p2();
+}
+
+- (CGPoint)topLeft
+{
+    return _isHorizontal ? _quad.p1() : _quad.p3();
+}
+
+- (CGPoint)bottomRight
+{
+    return _isHorizontal ? _quad.p3() : _quad.p1();
+}
+
+- (CGPoint)topRight
+{
+    return _isHorizontal ? _quad.p2() : _quad.p4();
+}
+
+@end
+
+#endif // HAVE(UI_TEXT_SELECTION_RECT_CUSTOM_HANDLE_INFO)
 
 @implementation WKTextSelectionRect {
-    WebCore::SelectionRect _selectionRect;
+    WebCore::SelectionGeometry _selectionGeometry;
+    CGFloat _scaleFactor;
 }
 
 - (instancetype)initWithCGRect:(CGRect)rect
 {
-    WebCore::SelectionRect selectionRect;
-    selectionRect.setRect(WebCore::enclosingIntRect(rect));
-    return [self initWithSelectionRect:WTFMove(selectionRect)];
+    WebCore::SelectionGeometry selectionGeometry;
+    selectionGeometry.setRect(WebCore::enclosingIntRect(rect));
+    return [self initWithSelectionGeometry:WTFMove(selectionGeometry) scaleFactor:1];
 }
 
-- (instancetype)initWithSelectionRect:(const WebCore::SelectionRect&)selectionRect
+- (instancetype)initWithSelectionGeometry:(const WebCore::SelectionGeometry&)selectionGeometry scaleFactor:(CGFloat)scaleFactor
 {
     if (!(self = [super init]))
         return nil;
-    _selectionRect = selectionRect;
+
+    _selectionGeometry = selectionGeometry;
+    _scaleFactor = scaleFactor;
     return self;
 }
 
+- (UIBezierPath *)_path
+{
+    if (_selectionGeometry.behavior() == WebCore::SelectionRenderingBehavior::CoalesceBoundingRects)
+        return nil;
+
+    auto selectionBounds = _selectionGeometry.rect();
+    auto quad = _selectionGeometry.quad();
+    quad.scale(_scaleFactor);
+    quad.move(-selectionBounds.x() * _scaleFactor, -selectionBounds.y() * _scaleFactor);
+
+    auto result = [UIBezierPath bezierPath];
+    [result moveToPoint:quad.p1()];
+    [result addLineToPoint:quad.p2()];
+    [result addLineToPoint:quad.p3()];
+    [result addLineToPoint:quad.p4()];
+    [result addLineToPoint:quad.p1()];
+    [result closePath];
+    return result;
+}
+
+#if HAVE(UI_TEXT_SELECTION_RECT_CUSTOM_HANDLE_INFO)
+
+- (WKTextSelectionRectCustomHandleInfo *)_customHandleInfo
+{
+    if (_selectionGeometry.behavior() == WebCore::SelectionRenderingBehavior::CoalesceBoundingRects)
+        return nil;
+
+    auto scaledQuad = _selectionGeometry.quad();
+#if !HAVE(REDESIGNED_TEXT_CURSOR)
+    scaledQuad.scale(_scaleFactor);
+#endif
+    return adoptNS([[WKTextSelectionRectCustomHandleInfo alloc] initWithFloatQuad:scaledQuad isHorizontal:_selectionGeometry.isHorizontal()]).autorelease();
+}
+
+#endif // HAVE(UI_TEXT_SELECTION_RECT_CUSTOM_HANDLE_INFO)
+
 - (CGRect)rect
 {
-    return _selectionRect.rect();
+    return _selectionGeometry.rect();
 }
 
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
 - (UITextWritingDirection)writingDirection
 {
-    return _selectionRect.direction() == WebCore::TextDirection::LTR ? UITextWritingDirectionLeftToRight : UITextWritingDirectionRightToLeft;
+    return _selectionGeometry.direction() == WebCore::TextDirection::LTR ? UITextWritingDirectionLeftToRight : UITextWritingDirectionRightToLeft;
 }
 ALLOW_DEPRECATED_DECLARATIONS_END
 
@@ -68,17 +153,22 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (BOOL)containsStart
 {
-    return _selectionRect.containsStart();
+    return _selectionGeometry.containsStart();
 }
 
 - (BOOL)containsEnd
 {
-    return _selectionRect.containsEnd();
+    return _selectionGeometry.containsEnd();
 }
 
 - (BOOL)isVertical
 {
-    return !_selectionRect.isHorizontal();
+    if (_selectionGeometry.behavior() == WebCore::SelectionRenderingBehavior::UseIndividualQuads) {
+        // FIXME: Use `!_selectionGeometry.isHorizontal()` for this once rdar://106847585 is fixed.
+        return NO;
+    }
+
+    return !_selectionGeometry.isHorizontal();
 }
 
 @end

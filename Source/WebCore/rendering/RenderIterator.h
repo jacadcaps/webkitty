@@ -40,11 +40,13 @@ public:
     T& operator*();
     T* operator->();
 
-    bool operator==(const RenderIterator& other) const;
-    bool operator!=(const RenderIterator& other) const;
+    operator bool() const { return m_current; }
+
+    bool operator==(const RenderIterator&) const;
 
     RenderIterator& traverseNext();
     RenderIterator& traverseNextSibling();
+    RenderIterator& traverseNextSkippingChildren();
     RenderIterator& traversePreviousSibling();
     RenderIterator& traverseAncestor();
 
@@ -62,11 +64,13 @@ public:
     const T& operator*() const;
     const T* operator->() const;
 
+    operator bool() const { return m_current; }
+
     bool operator==(const RenderConstIterator& other) const;
-    bool operator!=(const RenderConstIterator& other) const;
 
     RenderConstIterator& traverseNext();
     RenderConstIterator& traverseNextSibling();
+    RenderConstIterator& traverseNextSkippingChildren();
     RenderConstIterator& traversePreviousSibling();
     RenderConstIterator& traverseAncestor();
 
@@ -75,7 +79,7 @@ private:
     const T* m_current;
 };
 
-// Similar to WTF::is<>() but without the static_assert() making sure the check is necessary.
+// Similar to is<>() but without the static_assert() making sure the check is necessary.
 template <typename T, typename U>
 inline bool isRendererOfType(const U& renderer) { return TypeCastTraits<const T, const U>::isOfType(renderer); }
 
@@ -239,6 +243,14 @@ inline RenderIterator<T>& RenderIterator<T>::traverseNext()
 }
 
 template <typename T>
+inline RenderIterator<T>& RenderIterator<T>::traverseNextSkippingChildren()
+{
+    ASSERT(m_current);
+    m_current = RenderObjectTraversal::nextSkippingChildren(*m_current, m_root);
+    return *this;
+}
+
+template <typename T>
 inline RenderIterator<T>& RenderIterator<T>::traversePreviousSibling()
 {
     ASSERT(m_current);
@@ -276,12 +288,6 @@ inline bool RenderIterator<T>::operator==(const RenderIterator& other) const
     return m_current == other.m_current;
 }
 
-template <typename T>
-inline bool RenderIterator<T>::operator!=(const RenderIterator& other) const
-{
-    return !(*this == other);
-}
-
 // RenderConstIterator
 
 template <typename T>
@@ -311,6 +317,14 @@ inline RenderConstIterator<T>& RenderConstIterator<T>::traverseNext()
 {
     ASSERT(m_current);
     m_current = RenderTraversal::next<T>(*m_current, m_root);
+    return *this;
+}
+
+template <typename T>
+inline RenderConstIterator<T>& RenderConstIterator<T>::traverseNextSkippingChildren()
+{
+    ASSERT(m_current);
+    m_current = RenderObjectTraversal::nextSkippingChildren(*m_current, m_root);
     return *this;
 }
 
@@ -351,12 +365,6 @@ inline bool RenderConstIterator<T>::operator==(const RenderConstIterator& other)
 {
     ASSERT(m_root == other.m_root);
     return m_current == other.m_current;
-}
-
-template <typename T>
-inline bool RenderConstIterator<T>::operator!=(const RenderConstIterator& other) const
-{
-    return !(*this == other);
 }
 
 } // namespace WebCore

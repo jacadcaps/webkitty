@@ -13,10 +13,11 @@
 
 #include <stddef.h>
 #include <stdint.h>
+
 #include <memory>
 
 #include "absl/types/optional.h"
-#include "api/transport/webrtc_key_value_config.h"
+#include "api/field_trials_view.h"
 #include "modules/pacing/interval_budget.h"
 #include "rtc_base/experiments/alr_experiment.h"
 #include "rtc_base/experiments/struct_parameters_parser.h"
@@ -46,9 +47,8 @@ struct AlrDetectorConfig {
 class AlrDetector {
  public:
   AlrDetector(AlrDetectorConfig config, RtcEventLog* event_log);
-  explicit AlrDetector(const WebRtcKeyValueConfig* key_value_config);
-  AlrDetector(const WebRtcKeyValueConfig* key_value_config,
-              RtcEventLog* event_log);
+  explicit AlrDetector(const FieldTrialsView* key_value_config);
+  AlrDetector(const FieldTrialsView* key_value_config, RtcEventLog* event_log);
   ~AlrDetector();
 
   void OnBytesSent(size_t bytes_sent, int64_t send_time_ms);
@@ -59,9 +59,6 @@ class AlrDetector {
   // Returns time in milliseconds when the current application-limited region
   // started or empty result if the sender is currently not application-limited.
   absl::optional<int64_t> GetApplicationLimitedRegionStartTime() const;
-
-  void UpdateBudgetWithElapsedTime(int64_t delta_time_ms);
-  void UpdateBudgetWithBytesSent(size_t bytes_sent);
 
  private:
   friend class GoogCcStatePrinter;

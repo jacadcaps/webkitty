@@ -18,7 +18,6 @@
 
 #include "absl/types/optional.h"
 #include "api/array_view.h"
-#include "modules/include/module_common_types.h"
 #include "modules/rtp_rtcp/source/rtp_video_header.h"
 
 namespace webrtc {
@@ -41,8 +40,7 @@ class RtpPacketizer {
       rtc::ArrayView<const uint8_t> payload,
       PayloadSizeLimits limits,
       // Codec-specific details.
-      const RTPVideoHeader& rtp_video_header,
-      const RTPFragmentationHeader* fragmentation);
+      const RTPVideoHeader& rtp_video_header);
 
   virtual ~RtpPacketizer() = default;
 
@@ -50,11 +48,11 @@ class RtpPacketizer {
   virtual size_t NumPackets() const = 0;
 
   // Get the next payload with payload header.
-  // Write payload and set marker bit of the |packet|.
+  // Write payload and set marker bit of the `packet`.
   // Returns true on success, false otherwise.
   virtual bool NextPacket(RtpPacketToSend* packet) = 0;
 
-  // Split payload_len into sum of integers with respect to |limits|.
+  // Split payload_len into sum of integers with respect to `limits`.
   // Returns empty vector on failure.
   static std::vector<int> SplitAboutEqually(int payload_len,
                                             const PayloadSizeLimits& limits);

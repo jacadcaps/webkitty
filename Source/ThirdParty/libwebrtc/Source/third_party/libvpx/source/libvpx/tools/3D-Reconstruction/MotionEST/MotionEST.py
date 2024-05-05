@@ -1,4 +1,12 @@
-#!/ usr / bin / env python
+##  Copyright (c) 2020 The WebM project authors. All Rights Reserved.
+##
+##  Use of this source code is governed by a BSD-style license
+##  that can be found in the LICENSE file in the root of the source
+##  tree. An additional intellectual property rights grant can be found
+##  in the file PATENTS.  All contributing project authors may
+##  be found in the AUTHORS file in the root of the source tree.
+##
+
 #coding : utf - 8
 import numpy as np
 import numpy.linalg as LA
@@ -20,8 +28,8 @@ class MotionEST(object):
     self.ref_f = ref_f
     self.blk_sz = blk_sz
     #convert RGB to YUV
-    self.cur_yuv = np.array(self.cur_f.convert('YCbCr'), dtype=np.int)
-    self.ref_yuv = np.array(self.ref_f.convert('YCbCr'), dtype=np.int)
+    self.cur_yuv = np.array(self.cur_f.convert('YCbCr'), dtype=int)
+    self.ref_yuv = np.array(self.ref_f.convert('YCbCr'), dtype=int)
     #frame size
     self.width = self.cur_f.size[0]
     self.height = self.cur_f.size[1]

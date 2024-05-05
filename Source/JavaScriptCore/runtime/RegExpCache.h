@@ -2,7 +2,7 @@
  * Copyright (C) 2010 University of Szeged
  * Copyright (C) 2010 Renata Hodovan (hodovan@inf.u-szeged.hu)
  * All rights reserved.
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,19 +33,20 @@
 #include "Strong.h"
 #include "Weak.h"
 #include <array>
-#include <wtf/HashMap.h>
+#include <wtf/RobinHoodHashMap.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace JSC {
 
 namespace Yarr {
-enum class Flags : uint8_t;
+enum class Flags : uint16_t;
 }
 
 class RegExpCache final : private WeakHandleOwner {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(RegExpCache);
 
     friend class RegExp;
-    typedef HashMap<RegExpKey, Weak<RegExp>> RegExpCacheMap;
+    typedef MemoryCompactRobinHoodHashMap<RegExpKey, Weak<RegExp>> RegExpCacheMap;
 
 public:
     RegExpCache(VM* vm);
@@ -73,7 +74,7 @@ private:
     int m_nextEntryInStrongCache;
     std::array<Strong<RegExp>, maxStrongCacheableEntries> m_strongCache; // Holds a select few regular expressions that have compiled and executed
     Strong<RegExp> m_emptyRegExp;
-    VM* m_vm;
+    VM* const m_vm;
 };
 
 } // namespace JSC

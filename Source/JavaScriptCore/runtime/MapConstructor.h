@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -38,17 +38,14 @@ public:
 
     static MapConstructor* create(VM& vm, Structure* structure, MapPrototype* mapPrototype, GetterSetter* speciesSymbol)
     {
-        MapConstructor* constructor = new (NotNull, allocateCell<MapConstructor>(vm.heap)) MapConstructor(vm, structure);
+        MapConstructor* constructor = new (NotNull, allocateCell<MapConstructor>(vm)) MapConstructor(vm, structure);
         constructor->finishCreation(vm, mapPrototype, speciesSymbol);
         return constructor;
     }
 
     DECLARE_INFO;
 
-    static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
-    {
-        return Structure::create(vm, globalObject, prototype, TypeInfo(InternalFunctionType, StructureFlags), info());
-    }
+    inline static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
 private:
     MapConstructor(VM&, Structure*);
@@ -57,9 +54,9 @@ private:
 };
 STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(MapConstructor, InternalFunction);
 
-EncodedJSValue JSC_HOST_CALL mapPrivateFuncMapBucketHead(JSGlobalObject*, CallFrame*);
-EncodedJSValue JSC_HOST_CALL mapPrivateFuncMapBucketNext(JSGlobalObject*, CallFrame*);
-EncodedJSValue JSC_HOST_CALL mapPrivateFuncMapBucketKey(JSGlobalObject*, CallFrame*);
-EncodedJSValue JSC_HOST_CALL mapPrivateFuncMapBucketValue(JSGlobalObject*, CallFrame*);
+JSC_DECLARE_HOST_FUNCTION(mapPrivateFuncMapBucketHead);
+JSC_DECLARE_HOST_FUNCTION(mapPrivateFuncMapBucketNext);
+JSC_DECLARE_HOST_FUNCTION(mapPrivateFuncMapBucketKey);
+JSC_DECLARE_HOST_FUNCTION(mapPrivateFuncMapBucketValue);
 
 } // namespace JSC

@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include "FrameView.h"
+#include "LocalFrameView.h"
 #include "RenderWidget.h"
 
 namespace WebCore {
@@ -37,16 +37,12 @@ class RenderView;
 class RenderFrameBase : public RenderWidget {
     WTF_MAKE_ISO_ALLOCATED(RenderFrameBase);
 protected:
-    RenderFrameBase(HTMLFrameElementBase&, RenderStyle&&);
+    RenderFrameBase(Type, HTMLFrameElementBase&, RenderStyle&&);
 
 public:
-    FrameView* childView() const { return downcast<FrameView>(RenderWidget::widget()); }
-
-    void layoutWithFlattening(bool fixedWidth, bool fixedHeight);
+    LocalFrameView* childView() const { return downcast<LocalFrameView>(RenderWidget::widget()); }
 
 private:
-    void performLayoutWithFlattening(bool hasFixedWidth, bool hasFixedHeight);
-    RenderView* childRenderView() const;
     void widget() const = delete;
 };
 

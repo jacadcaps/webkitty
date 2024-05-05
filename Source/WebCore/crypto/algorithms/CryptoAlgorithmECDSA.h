@@ -27,8 +27,6 @@
 
 #include "CryptoAlgorithm.h"
 
-#if ENABLE(WEB_CRYPTO)
-
 namespace WebCore {
 
 class CryptoAlgorithmEcdsaParams;
@@ -36,7 +34,7 @@ class CryptoKeyEC;
 
 class CryptoAlgorithmECDSA final : public CryptoAlgorithm {
 public:
-    static constexpr const char* s_name = "ECDSA";
+    static constexpr ASCIILiteral s_name = "ECDSA"_s;
     static constexpr CryptoAlgorithmIdentifier s_identifier = CryptoAlgorithmIdentifier::ECDSA;
     static Ref<CryptoAlgorithm> create();
 
@@ -55,5 +53,3 @@ private:
 };
 
 } // namespace WebCore
-
-#endif // ENABLE(WEB_CRYPTO)

@@ -11,9 +11,11 @@
 #include "absl/types/optional.h"
 #include "api/test/video/function_video_encoder_factory.h"
 #include "modules/video_coding/codecs/vp8/include/vp8.h"
+#include "rtc_base/synchronization/mutex.h"
 #include "system_wrappers/include/metrics.h"
 #include "test/call_test.h"
 #include "test/gtest.h"
+#include "test/video_test_constants.h"
 
 namespace webrtc {
 namespace {
@@ -43,7 +45,7 @@ void HistogramTest::VerifyHistogramStats(bool use_rtx,
                         public rtc::VideoSinkInterface<VideoFrame> {
    public:
     FrameObserver(bool use_rtx, bool use_fec, bool screenshare)
-        : EndToEndTest(kLongTimeoutMs),
+        : EndToEndTest(test::VideoTestConstants::kLongTimeout),
           use_rtx_(use_rtx),
           use_fec_(use_fec),
           screenshare_(screenshare),
@@ -53,18 +55,18 @@ void HistogramTest::VerifyHistogramStats(bool use_rtx,
 
    private:
     void OnFrame(const VideoFrame& video_frame) override {
-      // The RTT is needed to estimate |ntp_time_ms| which is used by
+      // The RTT is needed to estimate `ntp_time_ms` which is used by
       // end-to-end delay stats. Therefore, start counting received frames once
-      // |ntp_time_ms| is valid.
+      // `ntp_time_ms` is valid.
       if (video_frame.ntp_time_ms() > 0 &&
           Clock::GetRealTimeClock()->CurrentNtpInMilliseconds() >=
               video_frame.ntp_time_ms()) {
-        rtc::CritScope lock(&crit_);
+        MutexLock lock(&mutex_);
         ++num_frames_received_;
       }
     }
 
-    Action OnSendRtp(const uint8_t* packet, size_t length) override {
+    Action OnSendRtp(rtc::ArrayView<const uint8_t> packet) override {
       if (MinMetricRunTimePassed() && MinNumberOfFramesReceived())
         observation_complete_.Set();
 
@@ -82,42 +84,52 @@ void HistogramTest::VerifyHistogramStats(bool use_rtx,
 
     bool MinNumberOfFramesReceived() const {
       const int kMinRequiredHistogramSamples = 200;
-      rtc::CritScope lock(&crit_);
+      MutexLock lock(&mutex_);
       return num_frames_received_ > kMinRequiredHistogramSamples;
     }
 
     void ModifyVideoConfigs(
         VideoSendStream::Config* send_config,
-        std::vector<VideoReceiveStream::Config>* receive_configs,
+        std::vector<VideoReceiveStreamInterface::Config>* receive_configs,
         VideoEncoderConfig* encoder_config) override {
       // NACK
-      send_config->rtp.nack.rtp_history_ms = kNackRtpHistoryMs;
-      (*receive_configs)[0].rtp.nack.rtp_history_ms = kNackRtpHistoryMs;
+      send_config->rtp.nack.rtp_history_ms =
+          test::VideoTestConstants::kNackRtpHistoryMs;
+      (*receive_configs)[0].rtp.nack.rtp_history_ms =
+          test::VideoTestConstants::kNackRtpHistoryMs;
       (*receive_configs)[0].renderer = this;
       // FEC
       if (use_fec_) {
-        send_config->rtp.ulpfec.ulpfec_payload_type = kUlpfecPayloadType;
-        send_config->rtp.ulpfec.red_payload_type = kRedPayloadType;
+        send_config->rtp.ulpfec.ulpfec_payload_type =
+            test::VideoTestConstants::kUlpfecPayloadType;
+        send_config->rtp.ulpfec.red_payload_type =
+            test::VideoTestConstants::kRedPayloadType;
         send_config->encoder_settings.encoder_factory = &encoder_factory_;
         send_config->rtp.payload_name = "VP8";
         encoder_config->codec_type = kVideoCodecVP8;
         (*receive_configs)[0].decoders[0].video_format = SdpVideoFormat("VP8");
-        (*receive_configs)[0].rtp.red_payload_type = kRedPayloadType;
-        (*receive_configs)[0].rtp.ulpfec_payload_type = kUlpfecPayloadType;
+        (*receive_configs)[0].rtp.red_payload_type =
+            test::VideoTestConstants::kRedPayloadType;
+        (*receive_configs)[0].rtp.ulpfec_payload_type =
+            test::VideoTestConstants::kUlpfecPayloadType;
       }
       // RTX
       if (use_rtx_) {
-        send_config->rtp.rtx.ssrcs.push_back(kSendRtxSsrcs[0]);
-        send_config->rtp.rtx.payload_type = kSendRtxPayloadType;
-        (*receive_configs)[0].rtp.rtx_ssrc = kSendRtxSsrcs[0];
-        (*receive_configs)[0]
-            .rtp.rtx_associated_payload_types[kSendRtxPayloadType] =
-            kFakeVideoSendPayloadType;
+        send_config->rtp.rtx.ssrcs.push_back(
+            test::VideoTestConstants::kSendRtxSsrcs[0]);
+        send_config->rtp.rtx.payload_type =
+            test::VideoTestConstants::kSendRtxPayloadType;
+        (*receive_configs)[0].rtp.rtx_ssrc =
+            test::VideoTestConstants::kSendRtxSsrcs[0];
+        (*receive_configs)[0].rtp.rtx_associated_payload_types
+            [test::VideoTestConstants::kSendRtxPayloadType] =
+            test::VideoTestConstants::kFakeVideoSendPayloadType;
         if (use_fec_) {
-          send_config->rtp.ulpfec.red_rtx_payload_type = kRtxRedPayloadType;
-          (*receive_configs)[0]
-              .rtp.rtx_associated_payload_types[kRtxRedPayloadType] =
-              kSendRtxPayloadType;
+          send_config->rtp.ulpfec.red_rtx_payload_type =
+              test::VideoTestConstants::kRtxRedPayloadType;
+          (*receive_configs)[0].rtp.rtx_associated_payload_types
+              [test::VideoTestConstants::kRtxRedPayloadType] =
+              test::VideoTestConstants::kSendRtxPayloadType;
         }
       }
       // RTT needed for RemoteNtpTimeEstimator for the receive stream.
@@ -131,13 +143,13 @@ void HistogramTest::VerifyHistogramStats(bool use_rtx,
       EXPECT_TRUE(Wait()) << "Timed out waiting for min frames to be received.";
     }
 
-    rtc::CriticalSection crit_;
+    mutable Mutex mutex_;
     const bool use_rtx_;
     const bool use_fec_;
     const bool screenshare_;
     test::FunctionVideoEncoderFactory encoder_factory_;
     absl::optional<int64_t> start_runtime_ms_;
-    int num_frames_received_ RTC_GUARDED_BY(&crit_);
+    int num_frames_received_ RTC_GUARDED_BY(&mutex_);
   } test(use_rtx, use_fec, screenshare);
 
   metrics::Reset();
@@ -145,9 +157,6 @@ void HistogramTest::VerifyHistogramStats(bool use_rtx,
 
   const std::string video_prefix =
       screenshare ? "WebRTC.Video.Screenshare." : "WebRTC.Video.";
-  // The content type extension is disabled in non screenshare test,
-  // therefore no slicing on simulcast id should be present.
-  const std::string video_suffix = screenshare ? ".S0" : "";
 
   // Verify that stats have been updated once.
   EXPECT_METRIC_EQ(2, metrics::NumSamples("WebRTC.Call.LifetimeInSeconds"));
@@ -200,19 +209,24 @@ void HistogramTest::VerifyHistogramStats(bool use_rtx,
   EXPECT_METRIC_EQ(
       1, metrics::NumSamples(video_prefix + "ReceivedHeightInPixels"));
 
-  EXPECT_METRIC_EQ(1, metrics::NumEvents(video_prefix + "InputWidthInPixels",
-                                         kDefaultWidth));
-  EXPECT_METRIC_EQ(1, metrics::NumEvents(video_prefix + "InputHeightInPixels",
-                                         kDefaultHeight));
-  EXPECT_METRIC_EQ(
-      1, metrics::NumEvents(video_prefix + "SentWidthInPixels", kDefaultWidth));
-  EXPECT_METRIC_EQ(1, metrics::NumEvents(video_prefix + "SentHeightInPixels",
-                                         kDefaultHeight));
-  EXPECT_METRIC_EQ(1, metrics::NumEvents(video_prefix + "ReceivedWidthInPixels",
-                                         kDefaultWidth));
   EXPECT_METRIC_EQ(1,
-                   metrics::NumEvents(video_prefix + "ReceivedHeightInPixels",
-                                      kDefaultHeight));
+                   metrics::NumEvents(video_prefix + "InputWidthInPixels",
+                                      test::VideoTestConstants::kDefaultWidth));
+  EXPECT_METRIC_EQ(
+      1, metrics::NumEvents(video_prefix + "InputHeightInPixels",
+                            test::VideoTestConstants::kDefaultHeight));
+  EXPECT_METRIC_EQ(1,
+                   metrics::NumEvents(video_prefix + "SentWidthInPixels",
+                                      test::VideoTestConstants::kDefaultWidth));
+  EXPECT_METRIC_EQ(
+      1, metrics::NumEvents(video_prefix + "SentHeightInPixels",
+                            test::VideoTestConstants::kDefaultHeight));
+  EXPECT_METRIC_EQ(1,
+                   metrics::NumEvents(video_prefix + "ReceivedWidthInPixels",
+                                      test::VideoTestConstants::kDefaultWidth));
+  EXPECT_METRIC_EQ(
+      1, metrics::NumEvents(video_prefix + "ReceivedHeightInPixels",
+                            test::VideoTestConstants::kDefaultHeight));
 
   EXPECT_METRIC_EQ(1,
                    metrics::NumSamples(video_prefix + "InputFramesPerSecond"));
@@ -231,17 +245,13 @@ void HistogramTest::VerifyHistogramStats(bool use_rtx,
   EXPECT_METRIC_EQ(1, metrics::NumSamples("WebRTC.Video.CurrentDelayInMs"));
   EXPECT_METRIC_EQ(1, metrics::NumSamples("WebRTC.Video.OnewayDelayInMs"));
 
-  EXPECT_METRIC_EQ(1, metrics::NumSamples(video_prefix + "EndToEndDelayInMs" +
-                                          video_suffix));
+  EXPECT_METRIC_EQ(1, metrics::NumSamples(video_prefix + "EndToEndDelayInMs"));
   EXPECT_METRIC_EQ(1,
-                   metrics::NumSamples(video_prefix + "EndToEndDelayMaxInMs" +
-                                       video_suffix));
-  EXPECT_METRIC_EQ(1, metrics::NumSamples(video_prefix + "InterframeDelayInMs" +
-                                          video_suffix));
+                   metrics::NumSamples(video_prefix + "EndToEndDelayMaxInMs"));
   EXPECT_METRIC_EQ(1,
-                   metrics::NumSamples(video_prefix + "InterframeDelayMaxInMs" +
-                                       video_suffix));
-
+                   metrics::NumSamples(video_prefix + "InterframeDelayInMs"));
+  EXPECT_METRIC_EQ(
+      1, metrics::NumSamples(video_prefix + "InterframeDelayMaxInMs"));
   EXPECT_METRIC_EQ(
       1, metrics::NumSamples("WebRTC.Video.RenderSqrtPixelsPerSecond"));
 

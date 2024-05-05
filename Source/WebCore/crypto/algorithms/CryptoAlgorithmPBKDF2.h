@@ -27,8 +27,6 @@
 
 #include "CryptoAlgorithm.h"
 
-#if ENABLE(WEB_CRYPTO)
-
 namespace WebCore {
 
 class CryptoAlgorithmPbkdf2Params;
@@ -36,7 +34,7 @@ class CryptoKeyRaw;
 
 class CryptoAlgorithmPBKDF2 final : public CryptoAlgorithm {
 public:
-    static constexpr const char* s_name = "PBKDF2";
+    static constexpr ASCIILiteral s_name = "PBKDF2"_s;
     static constexpr CryptoAlgorithmIdentifier s_identifier = CryptoAlgorithmIdentifier::PBKDF2;
     static Ref<CryptoAlgorithm> create();
 
@@ -52,5 +50,3 @@ private:
 };
 
 } // namespace WebCore
-
-#endif // ENABLE(WEB_CRYPTO)

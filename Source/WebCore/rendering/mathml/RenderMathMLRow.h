@@ -37,12 +37,12 @@ class MathMLRowElement;
 class RenderMathMLRow : public RenderMathMLBlock {
     WTF_MAKE_ISO_ALLOCATED(RenderMathMLRow);
 public:
-    RenderMathMLRow(MathMLRowElement&, RenderStyle&&);
+    RenderMathMLRow(Type, MathMLRowElement&, RenderStyle&&);
     MathMLRowElement& element() const;
 
 protected:
     void layoutBlock(bool relayoutChildren, LayoutUnit pageLogicalHeight = 0_lu) override;
-    Optional<int> firstLineBaseline() const override;
+    std::optional<LayoutUnit> firstLineBaseline() const override;
 
     void stretchVerticalOperatorsAndLayoutChildren();
     void getContentBoundingBox(LayoutUnit& width, LayoutUnit& ascent, LayoutUnit& descent) const;
@@ -50,8 +50,7 @@ protected:
     void computePreferredLogicalWidths() override;
 
 private:
-    bool isRenderMathMLRow() const final { return true; }
-    const char* renderName() const override { return "RenderMathMLRow"; }
+    ASCIILiteral renderName() const override { return "RenderMathMLRow"_s; }
 };
 
 } // namespace WebCore

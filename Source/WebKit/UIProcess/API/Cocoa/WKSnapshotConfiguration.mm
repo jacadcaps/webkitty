@@ -24,9 +24,14 @@
  */
 
 #import "config.h"
-#import "WKSnapshotConfiguration.h"
+#import "WKSnapshotConfigurationPrivate.h"
 
-@implementation WKSnapshotConfiguration
+@implementation WKSnapshotConfiguration {
+#if PLATFORM(MAC)
+    BOOL _includesSelectionHighlighting;
+#endif
+    BOOL _usesTransparentBackground;
+}
 
 - (instancetype)init
 {
@@ -35,6 +40,11 @@
 
     self.rect = CGRectNull;
     self.afterScreenUpdates = YES;
+
+#if PLATFORM(MAC)
+    self._includesSelectionHighlighting = YES;
+#endif
+
     return self;
 }
 
@@ -53,7 +63,34 @@
     snapshotConfiguration.snapshotWidth = self.snapshotWidth;
     snapshotConfiguration.afterScreenUpdates = self.afterScreenUpdates;
 
+#if PLATFORM(MAC)
+    snapshotConfiguration._includesSelectionHighlighting = self._includesSelectionHighlighting;
+#endif
+    snapshotConfiguration._usesTransparentBackground = self._usesTransparentBackground;
+
     return snapshotConfiguration;
+}
+
+#if PLATFORM(MAC)
+- (BOOL)_includesSelectionHighlighting
+{
+    return _includesSelectionHighlighting;
+}
+
+- (void)_setIncludesSelectionHighlighting:(BOOL)includesSelectionHighlighting
+{
+    _includesSelectionHighlighting = includesSelectionHighlighting;
+}
+#endif // PLATFORM(MAC)
+
+- (BOOL)_usesTransparentBackground
+{
+    return _usesTransparentBackground;
+}
+
+- (void)_setUsesTransparentBackground:(BOOL)usesTransparentBackground
+{
+    _usesTransparentBackground = usesTransparentBackground;
 }
 
 @end

@@ -27,6 +27,7 @@
 #include "CredentialBase.h"
 
 #include "Credential.h"
+#include <wtf/text/Base64.h>
 
 namespace WebCore {
 
@@ -35,7 +36,7 @@ namespace WebCore {
 CredentialBase::CredentialBase()
     : m_user(emptyString())
     , m_password(emptyString())
-    , m_persistence(CredentialPersistenceNone)
+    , m_persistence(CredentialPersistence::None)
 {
 }
    
@@ -94,4 +95,19 @@ bool CredentialBase::compare(const Credential& a, const Credential& b)
     return Credential::platformCompare(a, b);
 }
 
+String CredentialBase::serializationForBasicAuthorizationHeader() const
+{
+    auto credentialStringData = makeString(m_user, ':', m_password).utf8();
+    return makeString("Basic ", base64Encoded(credentialStringData));
 }
+
+auto CredentialBase::nonPlatformData() const -> NonPlatformData
+{
+    return {
+        user(),
+        password(),
+        persistence()
+    };
+}
+
+} // namespace WebCore

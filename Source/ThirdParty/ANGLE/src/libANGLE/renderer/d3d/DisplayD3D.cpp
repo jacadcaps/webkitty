@@ -22,14 +22,6 @@
 #include "libANGLE/renderer/d3d/SurfaceD3D.h"
 #include "libANGLE/renderer/d3d/SwapChainD3D.h"
 
-#if defined(ANGLE_ENABLE_D3D9)
-#    include "libANGLE/renderer/d3d/d3d9/Renderer9.h"
-#endif  // ANGLE_ENABLE_D3D9
-
-#if defined(ANGLE_ENABLE_D3D11)
-#    include "libANGLE/renderer/d3d/d3d11/Renderer11.h"
-#endif  // ANGLE_ENABLE_D3D11
-
 #if !defined(ANGLE_DEFAULT_D3D11)
 // Enables use of the Direct3D 11 API for a default display, when available
 #    define ANGLE_DEFAULT_D3D11 1
@@ -38,13 +30,7 @@
 namespace rx
 {
 
-typedef RendererD3D *(*CreateRendererD3DFunction)(egl::Display *);
-
-template <typename RendererType>
-static RendererD3D *CreateTypedRendererD3D(egl::Display *display)
-{
-    return new RendererType(display);
-}
+using CreateRendererD3DFunction = RendererD3D *(*)(egl::Display *);
 
 egl::Error CreateRendererD3D(egl::Display *display, RendererD3D **outRenderer)
 {
@@ -75,28 +61,28 @@ egl::Error CreateRendererD3D(egl::Display *display, RendererD3D **outRenderer)
 #    if defined(ANGLE_ENABLE_D3D11)
         if (addD3D11)
         {
-            rendererCreationFunctions.push_back(CreateTypedRendererD3D<Renderer11>);
+            rendererCreationFunctions.push_back(CreateRenderer11);
         }
 #    endif
 
 #    if defined(ANGLE_ENABLE_D3D9)
         if (addD3D9)
         {
-            rendererCreationFunctions.push_back(CreateTypedRendererD3D<Renderer9>);
+            rendererCreationFunctions.push_back(CreateRenderer9);
         }
 #    endif
 #else
 #    if defined(ANGLE_ENABLE_D3D9)
         if (addD3D9)
         {
-            rendererCreationFunctions.push_back(CreateTypedRendererD3D<Renderer9>);
+            rendererCreationFunctions.push_back(CreateRenderer9);
         }
 #    endif
 
 #    if defined(ANGLE_ENABLE_D3D11)
         if (addD3D11)
         {
-            rendererCreationFunctions.push_back(CreateTypedRendererD3D<Renderer11>);
+            rendererCreationFunctions.push_back(CreateRenderer11);
         }
 #    endif
 #endif
@@ -109,17 +95,17 @@ egl::Error CreateRendererD3D(egl::Display *display, RendererD3D **outRenderer)
             // the definition of ANGLE_DEFAULT_D3D11
 #if ANGLE_DEFAULT_D3D11
 #    if defined(ANGLE_ENABLE_D3D11)
-            rendererCreationFunctions.push_back(CreateTypedRendererD3D<Renderer11>);
+            rendererCreationFunctions.push_back(CreateRenderer11);
 #    endif
 #    if defined(ANGLE_ENABLE_D3D9)
-            rendererCreationFunctions.push_back(CreateTypedRendererD3D<Renderer9>);
+            rendererCreationFunctions.push_back(CreateRenderer9);
 #    endif
 #else
 #    if defined(ANGLE_ENABLE_D3D9)
-            rendererCreationFunctions.push_back(CreateTypedRendererD3D<Renderer9>);
+            rendererCreationFunctions.push_back(CreateRenderer9);
 #    endif
 #    if defined(ANGLE_ENABLE_D3D11)
-            rendererCreationFunctions.push_back(CreateTypedRendererD3D<Renderer11>);
+            rendererCreationFunctions.push_back(CreateRenderer11);
 #    endif
 #endif
         }
@@ -129,7 +115,7 @@ egl::Error CreateRendererD3D(egl::Display *display, RendererD3D **outRenderer)
 #if defined(ANGLE_ENABLE_D3D11)
         if (display->getDevice()->getType() == EGL_D3D11_DEVICE_ANGLE)
         {
-            rendererCreationFunctions.push_back(CreateTypedRendererD3D<Renderer11>);
+            rendererCreationFunctions.push_back(CreateRenderer11);
         }
 #endif
     }
@@ -249,15 +235,20 @@ ExternalImageSiblingImpl *DisplayD3D::createExternalImageSibling(const gl::Conte
     return mRenderer->createExternalImageSibling(context, target, buffer, attribs);
 }
 
-ShareGroupImpl *DisplayD3D::createShareGroup()
+ShareGroupImpl *DisplayD3D::createShareGroup(const egl::ShareGroupState &state)
 {
-    return new ShareGroupD3D();
+    return new ShareGroupD3D(state);
 }
 
-egl::Error DisplayD3D::makeCurrent(egl::Surface *drawSurface,
+egl::Error DisplayD3D::makeCurrent(egl::Display *display,
+                                   egl::Surface *drawSurface,
                                    egl::Surface *readSurface,
                                    gl::Context *context)
 {
+    // Ensure the appropriate global DebugAnnotator is used
+    ASSERT(mRenderer != nullptr);
+    mRenderer->setGlobalDebugAnnotator();
+
     return egl::NoError();
 }
 
@@ -289,10 +280,10 @@ bool DisplayD3D::testDeviceLost()
 egl::Error DisplayD3D::restoreLostDevice(const egl::Display *display)
 {
     // Release surface resources to make the Reset() succeed
-    for (egl::Surface *surface : mState.surfaceSet)
+    for (auto surface : mState.surfaceMap)
     {
-        ASSERT(!surface->getBoundTexture());
-        SurfaceD3D *surfaceD3D = GetImplAs<SurfaceD3D>(surface);
+        ASSERT(!surface.second->getBoundTexture());
+        SurfaceD3D *surfaceD3D = GetImplAs<SurfaceD3D>(surface.second);
         surfaceD3D->releaseSwapChain();
     }
 
@@ -302,9 +293,9 @@ egl::Error DisplayD3D::restoreLostDevice(const egl::Display *display)
     }
 
     // Restore any surfaces that may have been lost
-    for (const egl::Surface *surface : mState.surfaceSet)
+    for (auto surface : mState.surfaceMap)
     {
-        SurfaceD3D *surfaceD3D = GetImplAs<SurfaceD3D>(surface);
+        SurfaceD3D *surfaceD3D = GetImplAs<SurfaceD3D>(surface.second);
 
         ANGLE_TRY(surfaceD3D->resetSwapChain(display));
     }
@@ -331,7 +322,7 @@ egl::Error DisplayD3D::validateClientBuffer(const egl::Config *config,
         case EGL_D3D_TEXTURE_ANGLE:
             return mRenderer->getD3DTextureInfo(config, static_cast<IUnknown *>(clientBuffer),
                                                 attribs, nullptr, nullptr, nullptr, nullptr,
-                                                nullptr);
+                                                nullptr, nullptr);
 
         default:
             return DisplayImpl::validateClientBuffer(config, buftype, clientBuffer, attribs);
@@ -349,7 +340,7 @@ egl::Error DisplayD3D::validateImageClientBuffer(const gl::Context *context,
         {
             return mRenderer->getD3DTextureInfo(nullptr, static_cast<IUnknown *>(clientBuffer),
                                                 attribs, nullptr, nullptr, nullptr, nullptr,
-                                                nullptr);
+                                                nullptr, nullptr);
         }
 
         default:
@@ -362,15 +353,31 @@ void DisplayD3D::generateExtensions(egl::DisplayExtensions *outExtensions) const
     mRenderer->generateDisplayExtensions(outExtensions);
 }
 
-std::string DisplayD3D::getVendorString() const
+std::string DisplayD3D::getRendererDescription()
 {
-    std::string vendorString = "Google Inc.";
     if (mRenderer)
     {
-        vendorString += " " + mRenderer->getVendorString();
+        return mRenderer->getRendererDescription();
     }
+    return std::string();
+}
 
-    return vendorString;
+std::string DisplayD3D::getVendorString()
+{
+    if (mRenderer)
+    {
+        return mRenderer->getVendorString();
+    }
+    return std::string();
+}
+
+std::string DisplayD3D::getVersionString(bool includeFullVersion)
+{
+    if (mRenderer)
+    {
+        return mRenderer->getVersionString(includeFullVersion);
+    }
+    return std::string();
 }
 
 void DisplayD3D::generateCaps(egl::Caps *outCaps) const
@@ -378,14 +385,14 @@ void DisplayD3D::generateCaps(egl::Caps *outCaps) const
     // Display must be initialized to generate caps
     ASSERT(mRenderer != nullptr);
 
-    outCaps->textureNPOT = mRenderer->getNativeExtensions().textureNPOTOES;
+    outCaps->textureNPOT = mRenderer->getNativeExtensions().textureNpotOES;
 }
 
 egl::Error DisplayD3D::waitClient(const gl::Context *context)
 {
-    for (egl::Surface *surface : mState.surfaceSet)
+    for (auto surface : mState.surfaceMap)
     {
-        SurfaceD3D *surfaceD3D = GetImplAs<SurfaceD3D>(surface);
+        SurfaceD3D *surfaceD3D = GetImplAs<SurfaceD3D>(surface.second);
         ANGLE_TRY(surfaceD3D->checkForOutOfDateSwapChain(this));
     }
 
@@ -422,6 +429,11 @@ gl::Version DisplayD3D::getMaxConformantESVersion() const
     return mRenderer->getMaxConformantESVersion();
 }
 
+Optional<gl::Version> DisplayD3D::getMaxSupportedDesktopVersion() const
+{
+    return Optional<gl::Version>::Invalid();
+}
+
 void DisplayD3D::handleResult(HRESULT hr,
                               const char *message,
                               const char *file,
@@ -435,6 +447,11 @@ void DisplayD3D::handleResult(HRESULT hr,
                 << ":" << line << ". " << message;
 
     mStoredErrorString = errorStream.str();
+}
+
+void DisplayD3D::initializeFrontendFeatures(angle::FrontendFeatures *features) const
+{
+    mRenderer->initializeFrontendFeatures(features);
 }
 
 void DisplayD3D::populateFeatureList(angle::FeatureList *features)

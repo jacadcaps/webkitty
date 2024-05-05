@@ -28,7 +28,6 @@
 
 #include "APIPageConfiguration.h"
 #include "EditingRange.h"
-#include "InstallMissingMediaPluginsPermissionRequest.h"
 #include "UserMessage.h"
 #include "WebContextMenuItemData.h"
 #include "WebEvent.h"
@@ -39,8 +38,14 @@
 #include <WebCore/CompositionUnderline.h>
 #include <WebCore/IntRect.h>
 #include <WebCore/LinkIcon.h>
+#include <WebCore/MediaProducer.h>
+#include <WebCore/ResourceRequest.h>
 #include <wtf/CompletionHandler.h>
 #include <wtf/text/CString.h>
+
+namespace WebKit {
+class WebKitWebResourceLoadManager;
+}
 
 void webkitWebViewCreatePage(WebKitWebView*, Ref<API::PageConfiguration>&&);
 WebKit::WebPageProxy& webkitWebViewGetPage(WebKitWebView*);
@@ -66,24 +71,24 @@ String webkitWebViewGetCurrentScriptDialogMessage(WebKitWebView*);
 void webkitWebViewSetCurrentScriptDialogUserInput(WebKitWebView*, const String&);
 void webkitWebViewAcceptCurrentScriptDialog(WebKitWebView*);
 void webkitWebViewDismissCurrentScriptDialog(WebKitWebView*);
-Optional<WebKitScriptDialogType> webkitWebViewGetCurrentScriptDialogType(WebKitWebView*);
+std::optional<WebKitScriptDialogType> webkitWebViewGetCurrentScriptDialogType(WebKitWebView*);
 void webkitWebViewMakePermissionRequest(WebKitWebView*, WebKitPermissionRequest*);
 void webkitWebViewMakePolicyDecision(WebKitWebView*, WebKitPolicyDecisionType, WebKitPolicyDecision*);
-void webkitWebViewMouseTargetChanged(WebKitWebView*, const WebKit::WebHitTestResultData&, OptionSet<WebKit::WebEvent::Modifier>);
-void webkitWebViewHandleDownloadRequest(WebKitWebView*, WebKit::DownloadProxy*);
+void webkitWebViewMouseTargetChanged(WebKitWebView*, const WebKit::WebHitTestResultData&, OptionSet<WebKit::WebEventModifier>);
 void webkitWebViewPrintFrame(WebKitWebView*, WebKit::WebFrameProxy*);
-void webkitWebViewResourceLoadStarted(WebKitWebView*, WebKit::WebFrameProxy&, uint64_t resourceIdentifier, WebKitURIRequest*);
+WebKit::WebKitWebResourceLoadManager* webkitWebViewGetWebResourceLoadManager(WebKitWebView*);
+void webkitWebViewResourceLoadStarted(WebKitWebView*, WebKitWebResource*, WebCore::ResourceRequest&&);
 void webkitWebViewRunFileChooserRequest(WebKitWebView*, WebKitFileChooserRequest*);
-WebKitWebResource* webkitWebViewGetLoadingWebResource(WebKitWebView*, uint64_t resourceIdentifier);
 #if PLATFORM(GTK)
 void webKitWebViewDidReceiveSnapshot(WebKitWebView*, uint64_t callbackID, WebKit::WebImage*);
 #endif
-void webkitWebViewRemoveLoadingWebResource(WebKitWebView*, uint64_t resourceIdentifier);
 void webkitWebViewMaximizeWindow(WebKitWebView*, CompletionHandler<void()>&&);
 void webkitWebViewMinimizeWindow(WebKitWebView*, CompletionHandler<void()>&&);
 void webkitWebViewRestoreWindow(WebKitWebView*, CompletionHandler<void()>&&);
-void webkitWebViewEnterFullScreen(WebKitWebView*);
-void webkitWebViewExitFullScreen(WebKitWebView*);
+#if ENABLE(FULLSCREEN_API)
+bool webkitWebViewEnterFullScreen(WebKitWebView*);
+bool webkitWebViewExitFullScreen(WebKitWebView*);
+#endif
 void webkitWebViewPopulateContextMenu(WebKitWebView*, const Vector<WebKit::WebContextMenuItemData>& proposedMenu, const WebKit::WebHitTestResultData&, GVariant*);
 void webkitWebViewSubmitFormRequest(WebKitWebView*, WebKitFormSubmissionRequest*);
 void webkitWebViewHandleAuthenticationChallenge(WebKitWebView*, WebKit::AuthenticationChallengeProxy*);
@@ -91,18 +96,16 @@ void webkitWebViewInsecureContentDetected(WebKitWebView*, WebKitInsecureContentE
 bool webkitWebViewEmitShowNotification(WebKitWebView*, WebKitNotification*);
 void webkitWebViewWebProcessTerminated(WebKitWebView*, WebKitWebProcessTerminationReason);
 void webkitWebViewIsPlayingAudioChanged(WebKitWebView*);
+void webkitWebViewMediaCaptureStateDidChange(WebKitWebView*, WebCore::MediaProducer::MediaStateFlags);
 void webkitWebViewSelectionDidChange(WebKitWebView*);
-void webkitWebViewRequestInstallMissingMediaPlugins(WebKitWebView*, WebKit::InstallMissingMediaPluginsPermissionRequest&);
 WebKitWebsiteDataManager* webkitWebViewGetWebsiteDataManager(WebKitWebView*);
+void webkitWebViewPermissionStateQuery(WebKitWebView*, WebKitPermissionStateQuery*);
 
 #if PLATFORM(GTK)
 bool webkitWebViewEmitRunColorChooser(WebKitWebView*, WebKitColorChooserRequest*);
-bool webkitWebViewShowOptionMenu(WebKitWebView*, const WebCore::IntRect&, WebKitOptionMenu*, const GdkEvent*);
 #endif
 
-#if PLATFORM(WPE)
 bool webkitWebViewShowOptionMenu(WebKitWebView*, const WebCore::IntRect&, WebKitOptionMenu*);
-#endif
 
 gboolean webkitWebViewAuthenticate(WebKitWebView*, WebKitAuthenticationRequest*);
 gboolean webkitWebViewScriptDialog(WebKitWebView*, WebKitScriptDialog*);
@@ -120,3 +123,7 @@ void webkitWebViewSetComposition(WebKitWebView*, const String&, const Vector<Web
 void webkitWebViewConfirmComposition(WebKitWebView*, const String&);
 void webkitWebViewCancelComposition(WebKitWebView*, const String&);
 void webkitWebViewDeleteSurrounding(WebKitWebView*, int offset, unsigned characterCount);
+void webkitWebViewSetIsWebProcessResponsive(WebKitWebView*, bool);
+
+guint createShowOptionMenuSignal(WebKitWebViewClass*);
+guint createContextMenuSignal(WebKitWebViewClass*);

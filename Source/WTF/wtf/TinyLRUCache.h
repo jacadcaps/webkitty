@@ -25,8 +25,10 @@
 
 #pragma once
 
+#include <algorithm>
+#include <span>
+#include <type_traits>
 #include <wtf/NeverDestroyed.h>
-#include <wtf/Vector.h>
 
 namespace WTF {
 
@@ -35,6 +37,7 @@ struct TinyLRUCachePolicy {
     static bool isKeyNull(const KeyType&) { return false; }
     static ValueType createValueForNullKey() { return { }; }
     static ValueType createValueForKey(const KeyType&) { return { }; }
+    static KeyType createKeyForStorage(const KeyType& key) { return key; }
 };
 
 template<typename KeyType, typename ValueType, size_t capacity = 4, typename Policy = TinyLRUCachePolicy<KeyType, ValueType>>
@@ -48,35 +51,41 @@ public:
             return valueForNull;
         }
 
-        for (size_t i = 0; i < m_cache.size(); ++i) {
-            if (m_cache[i].first != key)
-                continue;
-
-            if (i == m_cache.size() - 1)
-                return m_cache[i].second;
-
-            // If the entry is not the last one, move it to the end of the cache.
-            Entry entry = WTFMove(m_cache[i]);
-            m_cache.remove(i);
-            m_cache.append(WTFMove(entry));
-            return m_cache[m_cache.size() - 1].second;
+        auto* cacheBuffer = this->cacheBuffer();
+        for (size_t i = m_size; i-- > 0;) {
+            if (cacheBuffer[i].first == key) {
+                if (i < m_size - 1) {
+                    // Move entry to the end of the cache if necessary.
+                    auto entry = WTFMove(cacheBuffer[i]);
+                    do {
+                        cacheBuffer[i] = WTFMove(cacheBuffer[i + 1]);
+                    } while (++i < m_size - 1);
+                    cacheBuffer[m_size - 1] = WTFMove(entry);
+                }
+                return cacheBuffer[m_size - 1].second;
+            }
         }
 
-        // m_cache[0] is the LRU entry, so remove it.
-        if (m_cache.size() == capacity)
-            m_cache.remove(0);
+        // cacheBuffer[0] is the LRU entry, so remove it.
+        if (m_size == capacity) {
+            for (size_t i = 0; i < m_size - 1; ++i)
+                cacheBuffer[i] = WTFMove(cacheBuffer[i + 1]);
+        } else
+            ++m_size;
 
-        m_cache.append(std::make_pair(key, Policy::createValueForKey(key)));
-        return m_cache.last().second;
+        cacheBuffer[m_size - 1] = std::pair { Policy::createKeyForStorage(key), Policy::createValueForKey(key) };
+        return cacheBuffer[m_size - 1].second;
     }
 
 private:
-    typedef std::pair<KeyType, ValueType> Entry;
-    typedef Vector<Entry, capacity> Cache;
-    Cache m_cache;
+    using Entry = std::pair<KeyType, ValueType>;
+    Entry* cacheBuffer() { return reinterpret_cast_ptr<Entry*>(m_cacheBuffer); }
+
+    std::aligned_storage_t<sizeof(Entry), std::alignment_of_v<Entry>> m_cacheBuffer[capacity];
+    size_t m_size { 0 };
 };
 
-}
+} // namespace WTF
 
 using WTF::TinyLRUCache;
 using WTF::TinyLRUCachePolicy;

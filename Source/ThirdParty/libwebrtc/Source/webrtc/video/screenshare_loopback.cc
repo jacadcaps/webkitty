@@ -28,6 +28,7 @@
 #include "test/field_trial.h"
 #include "test/gtest.h"
 #include "test/run_test.h"
+#include "test/test_flags.h"
 #include "video/video_quality_test.h"
 
 using ::webrtc::BitrateConstraints;
@@ -256,15 +257,6 @@ ABSL_FLAG(bool, generic_descriptor, false, "Use the generic frame descriptor.");
 
 ABSL_FLAG(bool, allow_reordering, false, "Allow packet reordering to occur");
 
-ABSL_FLAG(
-    std::string,
-    force_fieldtrials,
-    "",
-    "Field trials control experimental feature code which can be forced. "
-    "E.g. running with --force_fieldtrials=WebRTC-FooFeature/Enable/"
-    " will assign the group Enable to field trial WebRTC-FooFeature. Multiple "
-    "trials are separated by \"/\"");
-
 // Screenshare-specific flags.
 ABSL_FLAG(int,
           min_transmit_bitrate,
@@ -325,32 +317,29 @@ void Loopback() {
   call_bitrate_config.max_bitrate_bps = -1;  // Don't cap bandwidth estimate.
 
   VideoQualityTest::Params params;
-  params.call = {absl::GetFlag(FLAGS_send_side_bwe),
-                 absl::GetFlag(FLAGS_generic_descriptor), call_bitrate_config};
-  params.video[0] = {true,
-                     Width(),
-                     Height(),
-                     Fps(),
-                     MinBitrateKbps() * 1000,
-                     TargetBitrateKbps() * 1000,
-                     MaxBitrateKbps() * 1000,
-                     false,
-                     Codec(),
-                     NumTemporalLayers(),
-                     SelectedTL(),
-                     MinTransmitBitrateKbps() * 1000,
-                     false,  // ULPFEC disabled.
-                     false,  // FlexFEC disabled.
-                     false,  // Automatic scaling disabled.
-                     "",
-                     0,  // capture_device_index.
-                     SdpVideoFormat::Parameters()};
-  params.screenshare[0] = {true, GenerateSlides(), SlideChangeInterval(),
-                           ScrollDuration(), Slides()};
-  params.analyzer = {"screenshare",    0.0,         0.0, DurationSecs(),
-                     OutputFilename(), GraphTitle()};
+  params.call.send_side_bwe = absl::GetFlag(FLAGS_send_side_bwe);
+  params.call.generic_descriptor = absl::GetFlag(FLAGS_generic_descriptor);
+  params.call.call_bitrate_config = call_bitrate_config;
+  params.video[0].enabled = true;
+  params.video[0].width = Width();
+  params.video[0].height = Height();
+  params.video[0].fps = Fps();
+  params.video[0].min_bitrate_bps = MinBitrateKbps() * 1000;
+  params.video[0].target_bitrate_bps = TargetBitrateKbps() * 1000;
+  params.video[0].max_bitrate_bps = MaxBitrateKbps() * 1000;
+  params.video[0].codec = Codec();
+  params.video[0].num_temporal_layers = NumTemporalLayers();
+  params.video[0].selected_tl = SelectedTL();
+  params.video[0].min_transmit_bps = MinTransmitBitrateKbps() * 1000;
+  params.screenshare[0].enabled = true;
+  params.screenshare[0].generate_slides = GenerateSlides();
+  params.screenshare[0].slide_change_interval = SlideChangeInterval();
+  params.screenshare[0].scroll_duration = ScrollDuration();
+  params.screenshare[0].slides = Slides();
   params.config = pipe_config;
-  params.logging = {RtcEventLogName(), RtpDumpName(), EncodedFramePath()};
+  params.logging.rtc_event_log_name = RtcEventLogName();
+  params.logging.rtp_dump_name = RtpDumpName();
+  params.logging.encoded_frame_base_path = EncodedFramePath();
 
   if (NumStreams() > 1 && Stream0().empty() && Stream1().empty()) {
     params.ss[0].infer_streams = true;

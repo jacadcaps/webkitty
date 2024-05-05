@@ -33,12 +33,12 @@ using namespace WebCore;
 static const int currentFileVersion = 1;
 
 HistoryPropertyListWriter::HistoryPropertyListWriter()
-    : m_displayTitleKey("displayTitle")
-    , m_lastVisitWasFailureKey("lastVisitWasFailure")
-    , m_lastVisitedDateKey("lastVisitedDate")
-    , m_redirectURLsKey("redirectURLs")
-    , m_titleKey("title")
-    , m_urlKey("")
+    : m_displayTitleKey("displayTitle"_s)
+    , m_lastVisitWasFailureKey("lastVisitWasFailure"_s)
+    , m_lastVisitedDateKey("lastVisitedDate"_s)
+    , m_redirectURLsKey("redirectURLs"_s)
+    , m_titleKey("title"_s)
+    , m_urlKey(emptyString())
     , m_buffer(0)
 {
 }
@@ -69,8 +69,8 @@ void HistoryPropertyListWriter::writeObjects(BinaryPropertyListObjectStream& str
 {
     size_t outerDictionaryStart = stream.writeDictionaryStart();
 
-    stream.writeString("WebHistoryFileVersion");
-    stream.writeString("WebHistoryDates");
+    stream.writeString("WebHistoryFileVersion"_s);
+    stream.writeString("WebHistoryDates"_s);
 
     stream.writeInteger(currentFileVersion);
     size_t outerDateArrayStart = stream.writeArrayStart();
@@ -86,17 +86,11 @@ void HistoryPropertyListWriter::writeHistoryItem(BinaryPropertyListObjectStream&
 
     size_t itemDictionaryStart = stream.writeDictionaryStart();
 
-    const String& title = item->title();
-    const String& displayTitle = item->alternateTitle();
     double lastVisitedDate = webHistoryItem->_private->_lastVisitedTime;
     Vector<String>* redirectURLs = webHistoryItem->_private->_redirectURLs.get();
 
     // keys
     stream.writeString(m_urlKey);
-    if (!title.isEmpty())
-        stream.writeString(m_titleKey);
-    if (!displayTitle.isEmpty())
-        stream.writeString(m_displayTitleKey);
     if (lastVisitedDate)
         stream.writeString(m_lastVisitedDateKey);
     if (item->lastVisitWasFailure())
@@ -106,10 +100,6 @@ void HistoryPropertyListWriter::writeHistoryItem(BinaryPropertyListObjectStream&
 
     // values
     stream.writeUniqueString(item->urlString());
-    if (!title.isEmpty())
-        stream.writeString(title);
-    if (!displayTitle.isEmpty())
-        stream.writeString(displayTitle);
     if (lastVisitedDate) {
         char buffer[32];
         snprintf(buffer, sizeof(buffer), "%.1lf", lastVisitedDate);

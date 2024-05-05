@@ -33,6 +33,7 @@
 #import "WKRetainPtr.h"
 #import "WKStringCF.h"
 #import "WKWebProcessPlugInBrowserContextControllerInternal.h"
+#import <WebCore/WebCoreObjCExtras.h>
 #import <wtf/RetainPtr.h>
 
 @interface WKWebProcessPlugInController () {
@@ -45,6 +46,9 @@
 
 - (void)dealloc
 {
+    if (WebCoreObjCScheduleDeallocateOnMainRunLoop(WKWebProcessPlugInController.class, self))
+        return;
+
     _bundle->~InjectedBundle();
 
     [super dealloc];
@@ -109,7 +113,7 @@ static Ref<API::Array> createWKArray(NSArray *array)
     
     for (id entry in array) {
         if ([entry isKindOfClass:[NSString class]])
-            strings.uncheckedAppend(adoptRef(WebKit::toImpl(WKStringCreateWithCFString((__bridge CFStringRef)entry))));
+            strings.append(adoptRef(WebKit::toImpl(WKStringCreateWithCFString((__bridge CFStringRef)entry))));
     }
     
     return API::Array::create(WTFMove(strings));

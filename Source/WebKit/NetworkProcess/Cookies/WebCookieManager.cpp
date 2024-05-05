@@ -26,12 +26,15 @@
 #include "config.h"
 #include "WebCookieManager.h"
 
+#include "Logging.h"
+#include "MessageSenderInlines.h"
 #include "NetworkProcess.h"
+#include "NetworkProcessProxyMessages.h"
 #include "WebCookieManagerMessages.h"
-#include "WebCookieManagerProxyMessages.h"
 #include "WebCoreArgumentCoders.h"
 #include <WebCore/Cookie.h>
 #include <WebCore/CookieStorage.h>
+#include <WebCore/HTTPCookieAcceptPolicy.h>
 #include <WebCore/NetworkStorageSession.h>
 #include <wtf/MainThread.h>
 #include <wtf/URL.h>
@@ -41,57 +44,69 @@
 namespace WebKit {
 using namespace WebCore;
 
-const char* WebCookieManager::supplementName()
+ASCIILiteral WebCookieManager::supplementName()
 {
-    return "WebCookieManager";
+    return "WebCookieManager"_s;
 }
 
 WebCookieManager::WebCookieManager(NetworkProcess& process)
     : m_process(process)
 {
-    m_process.addMessageReceiver(Messages::WebCookieManager::messageReceiverName(), *this);
+    process.addMessageReceiver(Messages::WebCookieManager::messageReceiverName(), *this);
 }
 
 WebCookieManager::~WebCookieManager() = default;
 
+Ref<NetworkProcess> WebCookieManager::protectedProcess()
+{
+    ASSERT(RunLoop::isMain());
+    return m_process.get();
+}
+
 void WebCookieManager::getHostnamesWithCookies(PAL::SessionID sessionID, CompletionHandler<void(Vector<String>&&)>&& completionHandler)
 {
     HashSet<String> hostnames;
-    if (auto* storageSession = m_process.storageSession(sessionID))
+    if (auto* storageSession = protectedProcess()->storageSession(sessionID))
         storageSession->getHostnamesWithCookies(hostnames);
     completionHandler(copyToVector(hostnames));
 }
 
-void WebCookieManager::deleteCookiesForHostnames(PAL::SessionID sessionID, const Vector<String>& hostnames)
+void WebCookieManager::deleteCookiesForHostnames(PAL::SessionID sessionID, const Vector<String>& hostnames, CompletionHandler<void()>&& completionHandler)
 {
-    if (auto* storageSession = m_process.storageSession(sessionID))
-        storageSession->deleteCookiesForHostnames(hostnames);
+    if (auto* storageSession = protectedProcess()->storageSession(sessionID))
+        storageSession->deleteCookiesForHostnames(hostnames, WTFMove(completionHandler));
+    else
+        completionHandler();
 }
 
-void WebCookieManager::deleteAllCookies(PAL::SessionID sessionID)
+void WebCookieManager::deleteAllCookies(PAL::SessionID sessionID, CompletionHandler<void()>&& completionHandler)
 {
-    if (auto* storageSession = m_process.storageSession(sessionID))
-        storageSession->deleteAllCookies();
+    if (auto* storageSession = protectedProcess()->storageSession(sessionID))
+        storageSession->deleteAllCookies(WTFMove(completionHandler));
+    else
+        completionHandler();
 }
 
 void WebCookieManager::deleteCookie(PAL::SessionID sessionID, const Cookie& cookie, CompletionHandler<void()>&& completionHandler)
 {
-    if (auto* storageSession = m_process.storageSession(sessionID))
-        storageSession->deleteCookie(cookie);
-    completionHandler();
+    if (auto* storageSession = protectedProcess()->storageSession(sessionID))
+        storageSession->deleteCookie(cookie, WTFMove(completionHandler));
+    else
+        completionHandler();
 }
 
 void WebCookieManager::deleteAllCookiesModifiedSince(PAL::SessionID sessionID, WallTime time, CompletionHandler<void()>&& completionHandler)
 {
-    if (auto* storageSession = m_process.storageSession(sessionID))
-        storageSession->deleteAllCookiesModifiedSince(time);
-    completionHandler();
+    if (auto* storageSession = protectedProcess()->storageSession(sessionID))
+        storageSession->deleteAllCookiesModifiedSince(time, WTFMove(completionHandler));
+    else
+        completionHandler();
 }
 
 void WebCookieManager::getAllCookies(PAL::SessionID sessionID, CompletionHandler<void(Vector<WebCore::Cookie>&&)>&& completionHandler)
 {
     Vector<Cookie> cookies;
-    if (auto* storageSession = m_process.storageSession(sessionID))
+    if (auto* storageSession = protectedProcess()->storageSession(sessionID))
         cookies = storageSession->getAllCookies();
     completionHandler(WTFMove(cookies));
 }
@@ -99,14 +114,14 @@ void WebCookieManager::getAllCookies(PAL::SessionID sessionID, CompletionHandler
 void WebCookieManager::getCookies(PAL::SessionID sessionID, const URL& url, CompletionHandler<void(Vector<WebCore::Cookie>&&)>&& completionHandler)
 {
     Vector<Cookie> cookies;
-    if (auto* storageSession = m_process.storageSession(sessionID))
+    if (auto* storageSession = protectedProcess()->storageSession(sessionID))
         cookies = storageSession->getCookies(url);
     completionHandler(WTFMove(cookies));
 }
 
 void WebCookieManager::setCookie(PAL::SessionID sessionID, const Vector<Cookie>& cookies, CompletionHandler<void()>&& completionHandler)
 {
-    if (auto* storageSession = m_process.storageSession(sessionID)) {
+    if (auto* storageSession = protectedProcess()->storageSession(sessionID)) {
         for (auto& cookie : cookies)
             storageSession->setCookie(cookie);
     }
@@ -115,7 +130,7 @@ void WebCookieManager::setCookie(PAL::SessionID sessionID, const Vector<Cookie>&
 
 void WebCookieManager::setCookies(PAL::SessionID sessionID, const Vector<Cookie>& cookies, const URL& url, const URL& mainDocumentURL, CompletionHandler<void()>&& completionHandler)
 {
-    if (auto* storageSession = m_process.storageSession(sessionID))
+    if (auto* storageSession = protectedProcess()->storageSession(sessionID))
         storageSession->setCookies(cookies, url, mainDocumentURL);
     completionHandler();
 }
@@ -123,12 +138,12 @@ void WebCookieManager::setCookies(PAL::SessionID sessionID, const Vector<Cookie>
 void WebCookieManager::notifyCookiesDidChange(PAL::SessionID sessionID)
 {
     ASSERT(RunLoop::isMain());
-    m_process.send(Messages::WebCookieManagerProxy::CookiesDidChange(sessionID), 0);
+    protectedProcess()->send(Messages::NetworkProcessProxy::CookiesDidChange(sessionID), 0);
 }
 
 void WebCookieManager::startObservingCookieChanges(PAL::SessionID sessionID)
 {
-    if (auto* storageSession = m_process.storageSession(sessionID)) {
+    if (auto* storageSession = protectedProcess()->storageSession(sessionID)) {
         WebCore::startObservingCookieChanges(*storageSession, [this, sessionID] {
             notifyCookiesDidChange(sessionID);
         });
@@ -137,21 +152,24 @@ void WebCookieManager::startObservingCookieChanges(PAL::SessionID sessionID)
 
 void WebCookieManager::stopObservingCookieChanges(PAL::SessionID sessionID)
 {
-    if (auto* storageSession = m_process.storageSession(sessionID))
+    if (auto* storageSession = protectedProcess()->storageSession(sessionID))
         WebCore::stopObservingCookieChanges(*storageSession);
 }
 
-void WebCookieManager::setHTTPCookieAcceptPolicy(HTTPCookieAcceptPolicy policy, CompletionHandler<void()>&& completionHandler)
+void WebCookieManager::setHTTPCookieAcceptPolicy(PAL::SessionID sessionID, HTTPCookieAcceptPolicy policy, CompletionHandler<void()>&& completionHandler)
 {
-    platformSetHTTPCookieAcceptPolicy(policy);
-    m_process.cookieAcceptPolicyChanged(policy);
-
-    completionHandler();
+    platformSetHTTPCookieAcceptPolicy(sessionID, policy, [policy, process = protectedProcess(), completionHandler = WTFMove(completionHandler)] () mutable {
+        process->cookieAcceptPolicyChanged(policy);
+        completionHandler();
+    });
 }
 
-void WebCookieManager::getHTTPCookieAcceptPolicy(CompletionHandler<void(HTTPCookieAcceptPolicy)>&& completionHandler)
+void WebCookieManager::getHTTPCookieAcceptPolicy(PAL::SessionID sessionID, CompletionHandler<void(HTTPCookieAcceptPolicy)>&& completionHandler)
 {
-    completionHandler(m_process.defaultStorageSession().cookieAcceptPolicy());
+    if (auto* storageSession = protectedProcess()->storageSession(sessionID))
+        completionHandler(storageSession->cookieAcceptPolicy());
+    else
+        completionHandler(HTTPCookieAcceptPolicy::Never);
 }
 
 } // namespace WebKit

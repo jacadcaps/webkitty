@@ -25,23 +25,28 @@
 
 #pragma once
 
+#include "CompositeOperation.h"
 #include "FilterOperation.h"
-#include "IntRectExtent.h"
 #include <wtf/RefPtr.h>
 #include <wtf/Vector.h>
 
 namespace WebCore {
 
+struct BlendingContext;
+
 class FilterOperations {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    bool operator==(const FilterOperations&) const;
-    bool operator!=(const FilterOperations& other) const { return !(*this == other); }
+    FilterOperations() = default;
+    WEBCORE_EXPORT explicit FilterOperations(Vector<RefPtr<FilterOperation>>&&);
+
+    WEBCORE_EXPORT bool operator==(const FilterOperations&) const;
 
     void clear() { m_operations.clear(); }
 
     Vector<RefPtr<FilterOperation>>& operations() { return m_operations; }
     const Vector<RefPtr<FilterOperation>>& operations() const { return m_operations; }
+    void setOperations(Vector<RefPtr<FilterOperation>>&& operations) { m_operations = WTFMove(operations); }
 
     bool isEmpty() const { return m_operations.isEmpty(); }
     size_t size() const { return m_operations.size(); }
@@ -60,6 +65,9 @@ public:
 
     bool transformColor(Color&) const;
     bool inverseTransformColor(Color&) const;
+
+    WEBCORE_EXPORT bool canInterpolate(const FilterOperations&, CompositeOperation) const;
+    WEBCORE_EXPORT FilterOperations blend(const FilterOperations&, const BlendingContext&) const;
 
 private:
     Vector<RefPtr<FilterOperation>> m_operations;

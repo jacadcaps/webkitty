@@ -6,25 +6,22 @@
 
 // SystemInfo_ios.cpp: implementation of the iOS-specific parts of SystemInfo.h
 
-#include "common/platform.h"
-
-#if defined(ANGLE_PLATFORM_IOS) && !defined(ANGLE_PLATFORM_MACCATALYST)
-
-#    include "gpu_info_util/SystemInfo_internal.h"
+#include "gpu_info_util/SystemInfo_internal.h"
 
 namespace angle
 {
 
-bool GetSystemInfo(SystemInfo *info)
+bool GetSystemInfo_ios(SystemInfo *info)
 {
     {
-        // TODO(anglebug.com/4275): Get the actual system version.
+        // TODO(anglebug.com/4275): Get the actual system version and GPU info.
         info->machineModelVersion = "0.0";
+        GPUDeviceInfo deviceInfo;
+        deviceInfo.vendorId = kVendorID_Apple;
+        info->gpus.push_back(deviceInfo);
     }
 
     return true;
 }
 
 }  // namespace angle
-
-#endif  // defined(ANGLE_PLATFORM_IOS) && !defined(ANGLE_PLATFORM_MACCATALYST)

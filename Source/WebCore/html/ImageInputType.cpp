@@ -25,6 +25,7 @@
 
 #include "CachedImage.h"
 #include "DOMFormData.h"
+#include "ElementInlines.h"
 #include "HTMLFormElement.h"
 #include "HTMLImageLoader.h"
 #include "HTMLInputElement.h"
@@ -32,6 +33,8 @@
 #include "HTMLParserIdioms.h"
 #include "InputTypeNames.h"
 #include "MouseEvent.h"
+#include "RenderBoxInlines.h"
+#include "RenderElementInlines.h"
 #include "RenderImage.h"
 #include <wtf/NeverDestroyed.h>
 
@@ -40,7 +43,7 @@ namespace WebCore {
 using namespace HTMLNames;
 
 ImageInputType::ImageInputType(HTMLInputElement& element)
-    : BaseButtonInputType(element)
+    : BaseButtonInputType(Type::Image, element)
 {
 }
 
@@ -54,7 +57,7 @@ bool ImageInputType::isFormDataAppendable() const
     return true;
 }
 
-bool ImageInputType::appendFormData(DOMFormData& formData, bool) const
+bool ImageInputType::appendFormData(DOMFormData& formData) const
 {
     ASSERT(element());
     if (!element()->isActivatedSubmit())
@@ -70,16 +73,7 @@ bool ImageInputType::appendFormData(DOMFormData& formData, bool) const
     formData.append(makeString(name, ".x"), String::number(m_clickLocation.x()));
     formData.append(makeString(name, ".y"), String::number(m_clickLocation.y()));
 
-    auto value = element()->value();
-    if (!value.isEmpty())
-        formData.append(name, value);
-
     return true;
-}
-
-bool ImageInputType::supportsValidation() const
-{
-    return false;
 }
 
 void ImageInputType::handleDOMActivateEvent(Event& event)
@@ -96,10 +90,9 @@ void ImageInputType::handleDOMActivateEvent(Event& event)
     m_clickLocation = IntPoint();
     if (event.underlyingEvent()) {
         Event& underlyingEvent = *event.underlyingEvent();
-        if (is<MouseEvent>(underlyingEvent)) {
-            MouseEvent& mouseEvent = downcast<MouseEvent>(underlyingEvent);
-            if (!mouseEvent.isSimulated())
-                m_clickLocation = IntPoint(mouseEvent.offsetX(), mouseEvent.offsetY());
+        if (auto* mouseEvent = dynamicDowncast<MouseEvent>(underlyingEvent)) {
+            if (!mouseEvent->isSimulated())
+                m_clickLocation = IntPoint(mouseEvent->offsetX(), mouseEvent->offsetY());
         }
     }
 
@@ -108,7 +101,7 @@ void ImageInputType::handleDOMActivateEvent(Event& event)
     protectedElement->document().updateLayoutIgnorePendingStylesheets();
 
     if (auto currentForm = protectedElement->form())
-        currentForm->prepareForSubmission(event); // Event handlers can run.
+        currentForm->submitIfPossible(&event, element()); // Event handlers can run.
 
     protectedElement->setActivatedSubmit(false);
     event.setDefaultHandled();
@@ -117,7 +110,7 @@ void ImageInputType::handleDOMActivateEvent(Event& event)
 RenderPtr<RenderElement> ImageInputType::createInputRenderer(RenderStyle&& style)
 {
     ASSERT(element());
-    return createRenderer<RenderImage>(*element(), WTFMove(style));
+    return createRenderer<RenderImage>(RenderObject::Type::Image, *element(), WTFMove(style));
 }
 
 void ImageInputType::attributeChanged(const QualifiedName& name)
@@ -125,8 +118,8 @@ void ImageInputType::attributeChanged(const QualifiedName& name)
     if (name == altAttr) {
         if (auto* element = this->element()) {
             auto* renderer = element->renderer();
-            if (is<RenderImage>(renderer))
-                downcast<RenderImage>(*renderer).updateAltText();
+            if (auto* renderImage = dynamicDowncast<RenderImage>(renderer))
+                renderImage->updateAltText();
         }
     } else if (name == srcAttr) {
         if (auto* element = this->element()) {
@@ -171,16 +164,6 @@ bool ImageInputType::canBeSuccessfulSubmitButton()
     return true;
 }
 
-bool ImageInputType::isImageButton() const
-{
-    return true;
-}
-
-bool ImageInputType::isEnumeratable()
-{
-    return false;
-}
-
 bool ImageInputType::shouldRespectHeightAndWidthAttributes()
 {
     return true;
@@ -191,7 +174,7 @@ unsigned ImageInputType::height() const
     ASSERT(element());
     Ref<HTMLInputElement> element(*this->element());
 
-    element->document().updateLayout();
+    element->document().updateLayout({ LayoutOptions::ContentVisibilityForceLayout }, element.ptr());
 
     if (auto* renderer = element->renderer())
         return adjustForAbsoluteZoom(downcast<RenderBox>(*renderer).contentHeight(), *renderer);
@@ -213,7 +196,7 @@ unsigned ImageInputType::width() const
     ASSERT(element());
     Ref<HTMLInputElement> element(*this->element());
 
-    element->document().updateLayout();
+    element->document().updateLayout({ LayoutOptions::ContentVisibilityForceLayout }, element.ptr());
 
     if (auto* renderer = element->renderer())
         return adjustForAbsoluteZoom(downcast<RenderBox>(*renderer).contentWidth(), *renderer);
@@ -228,6 +211,16 @@ unsigned ImageInputType::width() const
         return imageLoader->image()->imageSizeForRenderer(element->renderer(), 1).width().toUnsigned();
 
     return 0;
+}
+
+String ImageInputType::resultForDialogSubmit() const
+{
+    return makeString(m_clickLocation.x(), ',', m_clickLocation.y());
+}
+
+bool ImageInputType::dirAutoUsesValue() const
+{
+    return false;
 }
 
 } // namespace WebCore

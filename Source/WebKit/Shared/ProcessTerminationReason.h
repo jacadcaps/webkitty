@@ -27,13 +27,20 @@
 
 namespace WebKit {
 
-enum class ProcessTerminationReason {
+enum class ProcessTerminationReason : uint8_t {
     ExceededMemoryLimit,
     ExceededCPULimit,
     RequestedByClient,
+    IdleExit,
+    Unresponsive,
     Crash,
+    // Those below only relevant for the WebContent process.
+    ExceededProcessCountLimit,
     NavigationSwap,
     RequestedByNetworkProcess,
+    RequestedByGPUProcess
 };
+
+const char* processTerminationReasonToString(ProcessTerminationReason);
 
 }

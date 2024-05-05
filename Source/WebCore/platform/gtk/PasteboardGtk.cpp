@@ -21,6 +21,7 @@
 #include "Pasteboard.h"
 
 #include "Color.h"
+#include "CommonAtomStrings.h"
 #include "DragData.h"
 #include "Image.h"
 #include "MIMETypeRegistry.h"
@@ -29,7 +30,6 @@
 #include "PlatformStrategies.h"
 #include "SharedBuffer.h"
 #include <wtf/NeverDestroyed.h>
-#include <wtf/Optional.h>
 #include <wtf/URL.h>
 
 namespace WebCore {
@@ -43,45 +43,53 @@ enum ClipboardDataType {
     ClipboardDataTypeUnknown
 };
 
-std::unique_ptr<Pasteboard> Pasteboard::createForCopyAndPaste()
+std::unique_ptr<Pasteboard> Pasteboard::createForCopyAndPaste(std::unique_ptr<PasteboardContext>&& context)
 {
-    return makeUnique<Pasteboard>("CLIPBOARD");
+    return makeUnique<Pasteboard>(WTFMove(context), "CLIPBOARD"_s);
 }
 
-std::unique_ptr<Pasteboard> Pasteboard::createForGlobalSelection()
+std::unique_ptr<Pasteboard> Pasteboard::createForGlobalSelection(std::unique_ptr<PasteboardContext>&& context)
 {
-    return makeUnique<Pasteboard>("PRIMARY");
+    return makeUnique<Pasteboard>(WTFMove(context), "PRIMARY"_s);
 }
 
 #if ENABLE(DRAG_SUPPORT)
-std::unique_ptr<Pasteboard> Pasteboard::createForDragAndDrop()
+std::unique_ptr<Pasteboard> Pasteboard::createForDragAndDrop(std::unique_ptr<PasteboardContext>&& context)
 {
-    return makeUnique<Pasteboard>(SelectionData());
+    return makeUnique<Pasteboard>(WTFMove(context), SelectionData());
 }
 
-std::unique_ptr<Pasteboard> Pasteboard::createForDragAndDrop(const DragData& dragData)
+std::unique_ptr<Pasteboard> Pasteboard::create(const DragData& dragData)
 {
     ASSERT(dragData.platformData());
-    return makeUnique<Pasteboard>(*dragData.platformData());
+    return makeUnique<Pasteboard>(dragData.createPasteboardContext(), *dragData.platformData());
 }
 
-Pasteboard::Pasteboard(SelectionData&& selectionData)
-    : m_selectionData(WTFMove(selectionData))
+Pasteboard::Pasteboard(std::unique_ptr<PasteboardContext>&& context, SelectionData&& selectionData)
+    : m_context(WTFMove(context))
+    , m_selectionData(WTFMove(selectionData))
 {
 }
 #endif
 
-Pasteboard::Pasteboard(SelectionData& selectionData)
-    : m_selectionData(selectionData)
+Pasteboard::Pasteboard(std::unique_ptr<PasteboardContext>&& context, SelectionData& selectionData)
+    : m_context(WTFMove(context))
+    , m_selectionData(selectionData)
 {
 }
 
-Pasteboard::Pasteboard(const String& name)
-    : m_name(name)
+Pasteboard::Pasteboard(std::unique_ptr<PasteboardContext>&& context, const String& name)
+    : m_context(WTFMove(context))
+    , m_name(name)
+    , m_changeCount(platformStrategies()->pasteboardStrategy()->changeCount(m_name))
 {
 }
 
-Pasteboard::Pasteboard() = default;
+Pasteboard::Pasteboard(std::unique_ptr<PasteboardContext>&& context)
+    : m_context(WTFMove(context))
+{
+}
+
 Pasteboard::~Pasteboard() = default;
 
 const SelectionData& Pasteboard::selectionData() const
@@ -94,11 +102,11 @@ static ClipboardDataType selectionDataTypeFromHTMLClipboardType(const String& ty
 {
     // From the Mac port: Ignore any trailing charset - JS strings are
     // Unicode, which encapsulates the charset issue.
-    if (type == "text/plain")
+    if (type == textPlainContentTypeAtom())
         return ClipboardDataTypeText;
-    if (type == "text/html")
+    if (type == textHTMLContentTypeAtom())
         return ClipboardDataTypeMarkup;
-    if (type == "Files" || type == "text/uri-list")
+    if (type == "Files"_s || type == "text/uri-list"_s)
         return ClipboardDataTypeURIList;
 
     // Not a known type, so just default to using the text portion.
@@ -177,6 +185,10 @@ void Pasteboard::write(const PasteboardImage& pasteboardImage)
     }
 }
 
+void Pasteboard::write(const PasteboardBuffer&)
+{
+}
+
 void Pasteboard::write(const PasteboardWebContent& pasteboardContent)
 {
     if (m_selectionData) {
@@ -249,14 +261,14 @@ void Pasteboard::setDragImage(DragImage, const IntPoint&)
 }
 #endif
 
-void Pasteboard::read(PasteboardPlainText& text, PlainTextURLReadingPolicy, Optional<size_t>)
+void Pasteboard::read(PasteboardPlainText& text, PlainTextURLReadingPolicy, std::optional<size_t>)
 {
     text.text = platformStrategies()->pasteboardStrategy()->readTextFromClipboard(m_name);
 }
 
-void Pasteboard::read(PasteboardWebContentReader& reader, WebContentReadingPolicy policy, Optional<size_t>)
+void Pasteboard::read(PasteboardWebContentReader& reader, WebContentReadingPolicy policy, std::optional<size_t>)
 {
-    reader.contentOrigin = readOrigin();
+    reader.setContentOrigin(readOrigin());
 
     if (m_selectionData) {
         if (m_selectionData->hasMarkup() && reader.readHTML(m_selectionData->markup()))
@@ -299,14 +311,14 @@ void Pasteboard::read(PasteboardWebContentReader& reader, WebContentReadingPolic
             return;
     }
 
-    if (types.contains("text/plain"_s) || types.contains("text/plain;charset=utf-8"_s)) {
+    if (types.contains(textPlainContentTypeAtom()) || types.contains("text/plain;charset=utf-8"_s)) {
         auto text = platformStrategies()->pasteboardStrategy()->readTextFromClipboard(m_name);
         if (!text.isNull() && reader.readPlainText(text))
             return;
     }
 }
 
-void Pasteboard::read(PasteboardFileReader& reader, Optional<size_t>)
+void Pasteboard::read(PasteboardFileReader& reader, std::optional<size_t> index)
 {
     if (m_selectionData) {
         for (const auto& filePath : m_selectionData->filenames())
@@ -314,9 +326,17 @@ void Pasteboard::read(PasteboardFileReader& reader, Optional<size_t>)
         return;
     }
 
-    auto filePaths = platformStrategies()->pasteboardStrategy()->readFilePathsFromClipboard(m_name);
-    for (const auto& filePath : filePaths)
-        reader.readFilename(filePath);
+    if (!index) {
+        auto filePaths = platformStrategies()->pasteboardStrategy()->readFilePathsFromClipboard(m_name);
+        for (const auto& filePath : filePaths)
+            reader.readFilename(filePath);
+        return;
+    }
+
+    if (reader.shouldReadBuffer("image/png"_s)) {
+        if (auto buffer = readBuffer(index, "image/png"_s))
+            reader.readBuffer({ }, { }, buffer.releaseNonNull());
+    }
 }
 
 bool Pasteboard::hasData()
@@ -339,16 +359,16 @@ Vector<String> Pasteboard::typesSafeForBindings(const String& origin)
         }
 
         if (m_selectionData->hasText())
-            types.add("text/plain"_s);
+            types.add(textPlainContentTypeAtom());
         if (m_selectionData->hasMarkup())
-            types.add("text/html"_s);
+            types.add(textHTMLContentTypeAtom());
         if (m_selectionData->hasURIList())
             types.add("text/uri-list"_s);
 
         return copyToVector(types);
     }
 
-    return platformStrategies()->pasteboardStrategy()->typesSafeForDOMToReadAndWrite(m_name, origin);
+    return platformStrategies()->pasteboardStrategy()->typesSafeForDOMToReadAndWrite(m_name, origin, context());
 }
 
 Vector<String> Pasteboard::typesForLegacyUnsafeBindings()
@@ -358,13 +378,13 @@ Vector<String> Pasteboard::typesForLegacyUnsafeBindings()
 
     Vector<String> types;
     if (m_selectionData->hasText()) {
-        types.append("text/plain"_s);
+        types.append(textPlainContentTypeAtom());
         types.append("Text"_s);
         types.append("text"_s);
     }
 
     if (m_selectionData->hasMarkup())
-        types.append("text/html"_s);
+        types.append(textHTMLContentTypeAtom());
 
     if (m_selectionData->hasURIList()) {
         types.append("text/uri-list"_s);
@@ -393,7 +413,7 @@ String Pasteboard::readOrigin()
 String Pasteboard::readString(const String& type)
 {
     if (!m_selectionData) {
-        if (type.startsWith("text/plain"))
+        if (type.startsWith("text/plain"_s))
             return platformStrategies()->pasteboardStrategy()->readTextFromClipboard(m_name);
 
         auto buffer = platformStrategies()->pasteboardStrategy()->readBufferFromClipboard(m_name, type);
@@ -445,7 +465,7 @@ Pasteboard::FileContentState Pasteboard::fileContentState()
             return FileContentState::MayContainFilePaths;
     }
 
-    auto result = types.findMatching([](const String& type) {
+    auto result = types.findIf([](const String& type) {
         return MIMETypeRegistry::isSupportedImageMIMEType(type);
     });
     return result == notFound ? FileContentState::NoFileOrImageData : FileContentState::MayContainFilePaths;
@@ -469,11 +489,18 @@ void Pasteboard::writeCustomData(const Vector<PasteboardCustomData>& data)
         return;
     }
 
-    platformStrategies()->pasteboardStrategy()->writeCustomData(data, m_name);
+    m_changeCount = platformStrategies()->pasteboardStrategy()->writeCustomData(data, m_name, context());
 }
 
 void Pasteboard::write(const Color&)
 {
 }
 
+int64_t Pasteboard::changeCount() const
+{
+    if (m_selectionData)
+        return 0;
+    return platformStrategies()->pasteboardStrategy()->changeCount(m_name);
 }
+
+} // namespace WebCore

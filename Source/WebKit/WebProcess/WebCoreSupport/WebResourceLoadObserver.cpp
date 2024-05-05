@@ -26,19 +26,17 @@
 #include "config.h"
 #include "WebResourceLoadObserver.h"
 
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
-
 #include "Logging.h"
 #include "NetworkConnectionToWebProcessMessages.h"
 #include "NetworkProcessConnection.h"
 #include "WebCoreArgumentCoders.h"
 #include "WebPage.h"
 #include "WebProcess.h"
-#include <WebCore/DeprecatedGlobalSettings.h>
-#include <WebCore/Frame.h>
+#include <WebCore/FrameDestructionObserverInlines.h>
 #include <WebCore/FrameLoader.h>
-#include <WebCore/FrameLoaderClient.h>
 #include <WebCore/HTMLFrameOwnerElement.h>
+#include <WebCore/LocalFrame.h>
+#include <WebCore/LocalFrameLoaderClient.h>
 #include <WebCore/Page.h>
 
 namespace WebKit {
@@ -63,14 +61,14 @@ static bool is3xxRedirect(const ResourceResponse& response)
 
 WebResourceLoadObserver::WebResourceLoadObserver(ResourceLoadStatistics::IsEphemeral isEphemeral)
     : m_isEphemeral(isEphemeral)
-    , m_notificationTimer(*this, &WebResourceLoadObserver::updateCentralStatisticsStore)
+    , m_notificationTimer([this] { updateCentralStatisticsStore([] { }); })
 {
 }
 
 WebResourceLoadObserver::~WebResourceLoadObserver()
 {
     if (hasStatistics())
-        updateCentralStatisticsStore();
+        updateCentralStatisticsStore([] { });
 }
 
 void WebResourceLoadObserver::requestStorageAccessUnderOpener(const RegistrableDomain& domainInNeedOfStorageAccess, WebPage& openerPage, Document& openerDocument)
@@ -80,7 +78,7 @@ void WebResourceLoadObserver::requestStorageAccessUnderOpener(const RegistrableD
     if (domainInNeedOfStorageAccess != openerDomain
         && !openerDocument.hasRequestedPageSpecificStorageAccessWithUserInteraction(domainInNeedOfStorageAccess)
         && !openerUrl.isAboutBlank()) {
-        WebProcess::singleton().ensureNetworkProcessConnection().connection().send(Messages::NetworkConnectionToWebProcess::RequestStorageAccessUnderOpener(domainInNeedOfStorageAccess, openerPage.identifier(), openerDomain), 0);
+        Ref { WebProcess::singleton().ensureNetworkProcessConnection().connection() }->send(Messages::NetworkConnectionToWebProcess::RequestStorageAccessUnderOpener(domainInNeedOfStorageAccess, openerPage.identifier(), openerDomain), 0);
         
         openerPage.addDomainWithPageLevelStorageAccess(openerDomain, domainInNeedOfStorageAccess);
 
@@ -93,8 +91,8 @@ ResourceLoadStatistics& WebResourceLoadObserver::ensureResourceStatisticsForRegi
 {
     RELEASE_ASSERT(!isEphemeral());
 
-    return m_resourceStatisticsMap.ensure(domain, [&domain] {
-        return ResourceLoadStatistics(domain);
+    return *m_resourceStatisticsMap.ensure(domain, [&domain] {
+        return makeUnique<ResourceLoadStatistics>(domain);
     }).iterator->value;
 }
 
@@ -109,29 +107,27 @@ void WebResourceLoadObserver::scheduleNotificationIfNeeded()
         m_notificationTimer.startOneShot(minimumNotificationInterval);
 }
 
-void WebResourceLoadObserver::updateCentralStatisticsStore()
+void WebResourceLoadObserver::updateCentralStatisticsStore(CompletionHandler<void()>&& completionHandler)
 {
     m_notificationTimer.stop();
-    WebProcess::singleton().ensureNetworkProcessConnection().connection().send(Messages::NetworkConnectionToWebProcess::ResourceLoadStatisticsUpdated(takeStatistics()), 0);
+    Ref { WebProcess::singleton().ensureNetworkProcessConnection().connection() }->sendWithAsyncReply(Messages::NetworkConnectionToWebProcess::ResourceLoadStatisticsUpdated(takeStatistics()), WTFMove(completionHandler));
 }
+
 
 String WebResourceLoadObserver::statisticsForURL(const URL& url)
 {
-    auto iter = m_resourceStatisticsMap.find(RegistrableDomain { url });
-    if (iter == m_resourceStatisticsMap.end())
+    auto* statistics = m_resourceStatisticsMap.get(RegistrableDomain { url });
+    if (!statistics)
         return emptyString();
 
-    return makeString("Statistics for ", url.host().toString(), ":\n", iter->value.toString());
+    return makeString("Statistics for ", url.host().toString(), ":\n", statistics->toString());
 }
 
 Vector<ResourceLoadStatistics> WebResourceLoadObserver::takeStatistics()
 {
-    Vector<ResourceLoadStatistics> statistics;
-    statistics.reserveInitialCapacity(m_resourceStatisticsMap.size());
-    for (auto& statistic : m_resourceStatisticsMap.values())
-        statistics.uncheckedAppend(WTFMove(statistic));
-    m_resourceStatisticsMap.clear();
-    return statistics;
+    return WTF::map(std::exchange(m_resourceStatisticsMap, { }), [](auto&& entry) {
+        return ResourceLoadStatistics { WTFMove(*entry.value) };
+    });
 }
 
 void WebResourceLoadObserver::clearState()
@@ -151,6 +147,10 @@ void WebResourceLoadObserver::logFontLoad(const Document& document, const String
     if (isEphemeral())
         return;
 
+    RefPtr page = document.page();
+    if (!page)
+        return;
+
 #if ENABLE(WEB_API_STATISTICS)
     RegistrableDomain registrableDomain { document.url() };
     auto& statistics = ensureResourceStatisticsForRegistrableDomain(registrableDomain);
@@ -162,7 +162,7 @@ void WebResourceLoadObserver::logFontLoad(const Document& document, const String
         if (statistics.fontsSuccessfullyLoaded.add(familyName).isNewEntry)
             shouldCallNotificationCallback = true;
     }
-    RegistrableDomain mainFrameRegistrableDomain { document.topDocument().url() };
+    RegistrableDomain mainFrameRegistrableDomain { page->mainFrameURL() };
     if (statistics.topFrameRegistrableDomainsWhichAccessedWebAPIs.add(mainFrameRegistrableDomain).isNewEntry)
         shouldCallNotificationCallback = true;
     if (shouldCallNotificationCallback)
@@ -179,10 +179,14 @@ void WebResourceLoadObserver::logCanvasRead(const Document& document)
     if (isEphemeral())
         return;
 
+    RefPtr page = document.page();
+    if (!page)
+        return;
+
 #if ENABLE(WEB_API_STATISTICS)
     RegistrableDomain registrableDomain { document.url() };
     auto& statistics = ensureResourceStatisticsForRegistrableDomain(registrableDomain);
-    RegistrableDomain mainFrameRegistrableDomain { document.topDocument().url() };
+    RegistrableDomain mainFrameRegistrableDomain { page->mainFrameURL() };
     statistics.canvasActivityRecord.wasDataRead = true;
     if (statistics.topFrameRegistrableDomainsWhichAccessedWebAPIs.add(mainFrameRegistrableDomain).isNewEntry)
         scheduleNotificationIfNeeded();
@@ -196,11 +200,15 @@ void WebResourceLoadObserver::logCanvasWriteOrMeasure(const Document& document, 
     if (isEphemeral())
         return;
 
+    RefPtr page = document.page();
+    if (!page)
+        return;
+
 #if ENABLE(WEB_API_STATISTICS)
     RegistrableDomain registrableDomain { document.url() };
     auto& statistics = ensureResourceStatisticsForRegistrableDomain(registrableDomain);
     bool shouldCallNotificationCallback = false;
-    RegistrableDomain mainFrameRegistrableDomain { document.topDocument().url() };
+    RegistrableDomain mainFrameRegistrableDomain { page->mainFrameURL() };
     if (statistics.canvasActivityRecord.recordWrittenOrMeasuredText(textWritten))
         shouldCallNotificationCallback = true;
     if (statistics.topFrameRegistrableDomainsWhichAccessedWebAPIs.add(mainFrameRegistrableDomain).isNewEntry)
@@ -213,9 +221,13 @@ void WebResourceLoadObserver::logCanvasWriteOrMeasure(const Document& document, 
 #endif
 }
     
-void WebResourceLoadObserver::logNavigatorAPIAccessed(const Document& document, const ResourceLoadStatistics::NavigatorAPI functionName)
+void WebResourceLoadObserver::logNavigatorAPIAccessed(const Document& document, const NavigatorAPIsAccessed functionName)
 {
     if (isEphemeral())
+        return;
+
+    RefPtr page = document.page();
+    if (!page)
         return;
 
 #if ENABLE(WEB_API_STATISTICS)
@@ -226,7 +238,7 @@ void WebResourceLoadObserver::logNavigatorAPIAccessed(const Document& document, 
         statistics.navigatorFunctionsAccessed.add(functionName);
         shouldCallNotificationCallback = true;
     }
-    RegistrableDomain mainFrameRegistrableDomain { document.topDocument().url() };
+    RegistrableDomain mainFrameRegistrableDomain { page->mainFrameURL() };
     if (statistics.topFrameRegistrableDomainsWhichAccessedWebAPIs.add(mainFrameRegistrableDomain).isNewEntry)
         shouldCallNotificationCallback = true;
     if (shouldCallNotificationCallback)
@@ -237,9 +249,13 @@ void WebResourceLoadObserver::logNavigatorAPIAccessed(const Document& document, 
 #endif
 }
     
-void WebResourceLoadObserver::logScreenAPIAccessed(const Document& document, const ResourceLoadStatistics::ScreenAPI functionName)
+void WebResourceLoadObserver::logScreenAPIAccessed(const Document& document, const ScreenAPIsAccessed functionName)
 {
     if (isEphemeral())
+        return;
+
+    RefPtr page = document.page();
+    if (!page)
         return;
 
 #if ENABLE(WEB_API_STATISTICS)
@@ -250,7 +266,7 @@ void WebResourceLoadObserver::logScreenAPIAccessed(const Document& document, con
         statistics.screenFunctionsAccessed.add(functionName);
         shouldCallNotificationCallback = true;
     }
-    RegistrableDomain mainFrameRegistrableDomain { document.topDocument().url() };
+    RegistrableDomain mainFrameRegistrableDomain { page->mainFrameURL() };
     if (statistics.topFrameRegistrableDomainsWhichAccessedWebAPIs.add(mainFrameRegistrableDomain).isNewEntry)
         shouldCallNotificationCallback = true;
     if (shouldCallNotificationCallback)
@@ -261,7 +277,7 @@ void WebResourceLoadObserver::logScreenAPIAccessed(const Document& document, con
 #endif
 }
 
-void WebResourceLoadObserver::logSubresourceLoading(const Frame* frame, const ResourceRequest& newRequest, const ResourceResponse& redirectResponse, FetchDestinationIsScriptLike isScriptLike)
+void WebResourceLoadObserver::logSubresourceLoading(const LocalFrame* frame, const ResourceRequest& newRequest, const ResourceResponse& redirectResponse, FetchDestinationIsScriptLike isScriptLike)
 {
     if (isEphemeral())
         return;
@@ -278,7 +294,10 @@ void WebResourceLoadObserver::logSubresourceLoading(const Frame* frame, const Re
     bool isRedirect = is3xxRedirect(redirectResponse);
     const URL& redirectedFromURL = redirectResponse.url();
     const URL& targetURL = newRequest.url();
-    const URL& topFrameURL = frame ? frame->mainFrame().document()->url() : URL();
+    RefPtr localMainFrame = dynamicDowncast<LocalFrame>(frame->mainFrame());
+    if (!localMainFrame)
+        return;
+    const URL& topFrameURL = frame ? localMainFrame->document()->url() : URL();
     
     auto targetHost = targetURL.host();
     auto topFrameHost = topFrameURL.host();
@@ -348,7 +367,7 @@ void WebResourceLoadObserver::logWebSocketLoading(const URL& targetURL, const UR
 void WebResourceLoadObserver::logUserInteractionWithReducedTimeResolution(const Document& document)
 {
     auto& url = document.url();
-    if (url.protocolIsAbout() || url.isLocalFile() || url.isEmpty())
+    if (url.protocolIsAbout() || url.protocolIsFile() || url.isEmpty())
         return;
 
     RegistrableDomain topFrameDomain { url };
@@ -366,35 +385,36 @@ void WebResourceLoadObserver::logUserInteractionWithReducedTimeResolution(const 
         statistics.mostRecentUserInteractionTime = newTime;
     }
 
-    if (auto* frame = document.frame()) {
-        if (auto* opener = frame->loader().opener()) {
-            if (auto* openerDocument = opener->document()) {
+    if (RefPtr frame = document.frame()) {
+        if (RefPtr opener = dynamicDowncast<LocalFrame>(frame->loader().opener())) {
+            if (RefPtr openerDocument = opener->document()) {
                 if (auto* openerPage = openerDocument->page())
-                    requestStorageAccessUnderOpener(topFrameDomain, WebPage::fromCorePage(*openerPage), *openerDocument);
+                    requestStorageAccessUnderOpener(topFrameDomain, Ref { *WebPage::fromCorePage(*openerPage) }, *openerDocument);
             }
         }
     }
 
     // We notify right away in case of a user interaction instead of waiting the usual 5 seconds because we want
     // to update cookie blocking state as quickly as possible.
-    WebProcess::singleton().ensureNetworkProcessConnection().connection().send(Messages::NetworkConnectionToWebProcess::LogUserInteraction(topFrameDomain), 0);
+    Ref { WebProcess::singleton().ensureNetworkProcessConnection().connection() }->send(Messages::NetworkConnectionToWebProcess::LogUserInteraction(topFrameDomain), 0);
 
 #if !RELEASE_LOG_DISABLED
     if (shouldLogUserInteraction) {
         auto counter = ++m_loggingCounter;
 #define LOCAL_LOG(str, ...) \
-        RELEASE_LOG(ResourceLoadStatistics, "ResourceLoadObserver::logUserInteraction: counter = %" PRIu64 ": " str, counter, ##__VA_ARGS__)
+        RELEASE_LOG(ResourceLoadStatistics, "ResourceLoadObserver::logUserInteraction: counter=%" PRIu64 ": " str, counter, ##__VA_ARGS__)
 
-        auto escapeForJSON = [](String s) {
-            s.replace('\\', "\\\\").replace('"', "\\\"");
-            return s;
+        auto escapeForJSON = [](const String& s) {
+            auto result = makeStringByReplacingAll(s, '\\', "\\\\"_s);
+            result = makeStringByReplacingAll(result, '"', "\\\""_s);
+            return result;
         };
         auto escapedURL = escapeForJSON(url.string());
         auto escapedDomain = escapeForJSON(topFrameDomain.string());
 
-        LOCAL_LOG(R"({ "url": "%{public}s",)", escapedURL.utf8().data());
-        LOCAL_LOG(R"(  "domain" : "%{public}s",)", escapedDomain.utf8().data());
-        LOCAL_LOG(R"(  "until" : %f })", newTime.secondsSinceEpoch().seconds());
+        LOCAL_LOG("{ \"url\": \"%" PUBLIC_LOG_STRING "\",", escapedURL.utf8().data());
+        LOCAL_LOG("  \"domain\" : \"%" PUBLIC_LOG_STRING "\",", escapedDomain.utf8().data());
+        LOCAL_LOG("  \"until\" : %f }", newTime.secondsSinceEpoch().seconds());
 
 #undef LOCAL_LOG
     }
@@ -417,6 +437,31 @@ void WebResourceLoadObserver::logSubresourceLoadingForTesting(const RegistrableD
         m_notificationTimer.stop();
 }
 
-} // namespace WebKit
+bool WebResourceLoadObserver::hasCrossPageStorageAccess(const SubFrameDomain& subDomain, const TopFrameDomain& topDomain) const
+{
+    auto it = m_domainsWithCrossPageStorageAccess.find(topDomain);
 
-#endif // ENABLE(RESOURCE_LOAD_STATISTICS)
+    if (it != m_domainsWithCrossPageStorageAccess.end())
+        return it->value.contains(subDomain);
+
+    return false;
+}
+
+void WebResourceLoadObserver::setDomainsWithCrossPageStorageAccess(HashMap<TopFrameDomain, SubFrameDomain>&& domains, CompletionHandler<void()>&& completionHandler)
+{
+    for (auto& topDomain : domains.keys()) {
+        m_domainsWithCrossPageStorageAccess.ensure(topDomain, [] {
+            return HashSet<RegistrableDomain> { };
+        }).iterator->value.add(domains.get(topDomain));
+
+        // Some sites have quirks where multiple login domains require storage access.
+        if (auto additionalLoginDomain = WebCore::NetworkStorageSession::findAdditionalLoginDomain(topDomain, domains.get(topDomain))) {
+            m_domainsWithCrossPageStorageAccess.ensure(topDomain, [] {
+                return HashSet<RegistrableDomain> { };
+            }).iterator->value.add(*additionalLoginDomain);
+        }
+    }
+    completionHandler();
+}
+
+} // namespace WebKit

@@ -38,46 +38,39 @@ public:
     static RuleSet* defaultPrintStyle;
     static unsigned defaultStyleVersion;
 
-    static StyleSheetContents* simpleDefaultStyleSheet;
     static StyleSheetContents* defaultStyleSheet;
     static StyleSheetContents* quirksStyleSheet;
-    static StyleSheetContents* dialogStyleSheet;
     static StyleSheetContents* svgStyleSheet;
     static StyleSheetContents* mathMLStyleSheet;
     static StyleSheetContents* mediaControlsStyleSheet;
-    static StyleSheetContents* fullscreenStyleSheet;
+    static StyleSheetContents* mediaQueryStyleSheet;
+    static StyleSheetContents* horizontalFormControlsStyleSheet;
+    static StyleSheetContents* htmlSwitchControlStyleSheet;
     static StyleSheetContents* plugInsStyleSheet;
+    static StyleSheetContents* popoverStyleSheet;
+    static StyleSheetContents* counterStylesStyleSheet;
+    static StyleSheetContents* rubyStyleSheet;
+    static StyleSheetContents* viewTransitionsStyleSheet;
+#if ENABLE(FULLSCREEN_API)
+    static StyleSheetContents* fullscreenStyleSheet;
+#endif
+#if ENABLE(SERVICE_CONTROLS)
     static StyleSheetContents* imageControlsStyleSheet;
+#endif
+#if ENABLE(ATTACHMENT_ELEMENT)
+    static StyleSheetContents* attachmentStyleSheet;
+#endif
 #if ENABLE(DATALIST_ELEMENT)
     static StyleSheetContents* dataListStyleSheet;
 #endif
 #if ENABLE(INPUT_TYPE_COLOR)
     static StyleSheetContents* colorInputStyleSheet;
 #endif
-#if ENABLE(INPUT_TYPE_DATE)
-    static StyleSheetContents* dateInputStyleSheet;
-#endif
-#if ENABLE(INPUT_TYPE_DATETIMELOCAL)
-    static StyleSheetContents* dateTimeLocalInputStyleSheet;
-#endif
-#if ENABLE(INPUT_TYPE_MONTH)
-    static StyleSheetContents* monthInputStyleSheet;
-#endif
-#if ENABLE(INPUT_TYPE_TIME)
-    static StyleSheetContents* timeInputStyleSheet;
-#endif
-#if ENABLE(INPUT_TYPE_WEEK)
-    static StyleSheetContents* weekInputStyleSheet;
-#endif
 
-    static StyleSheetContents* mediaQueryStyleSheet;
-
-    static void initDefaultStyle(const Element*);
+    static void initDefaultStyleSheet();
     static void ensureDefaultStyleSheetsForElement(const Element&);
-    static void loadFullDefaultStyle();
 
 private:
-    static void loadSimpleDefaultStyle();
     static void addToDefaultStyle(StyleSheetContents&);
 };
 

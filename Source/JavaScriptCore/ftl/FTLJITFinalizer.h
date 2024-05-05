@@ -32,6 +32,7 @@
 #include "FTLJITCode.h"
 #include "LinkBuffer.h"
 #include "MacroAssembler.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace JSC { namespace FTL {
 
@@ -48,16 +49,15 @@ public:
 };
 
 class JITFinalizer final : public DFG::Finalizer {
+    WTF_MAKE_TZONE_ALLOCATED(JITFinalizer);
 public:
     JITFinalizer(DFG::Plan&);
     ~JITFinalizer() final;
 
     size_t codeSize() final;
     bool finalize() final;
-    bool finalizeFunction() final;
+    bool isFailed() final { return false; };
     
-    bool finalizeCommon();
-
     std::unique_ptr<LinkBuffer> b3CodeLinkBuffer;
 
     // Eventually, we can get rid of this with B3.
@@ -65,7 +65,7 @@ public:
     
     Vector<CCallHelpers::Jump> lazySlowPathGeneratorJumps;
     GeneratedFunction function;
-    RefPtr<JITCode> jitCode;
+    RefPtr<FTL::JITCode> jitCode;
 };
 
 } } // namespace JSC::FTL

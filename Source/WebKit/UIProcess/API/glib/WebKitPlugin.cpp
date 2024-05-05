@@ -20,17 +20,12 @@
 #include "config.h"
 #include "WebKitPlugin.h"
 
-#include "WebKitMimeInfoPrivate.h"
-#include "WebKitPluginPrivate.h"
 #include <wtf/glib/WTFGType.h>
-#include <wtf/text/CString.h>
-
-using namespace WebKit;
 
 /**
- * SECTION: WebKitPlugin
- * @Short_description: Represents a plugin, enabling fine-grained control
- * @Title: WebKitPlugin
+ * WebKitPlugin:
+ *
+ * Represents a plugin, enabling fine-grained control.
  *
  * This object represents a single plugin, found while scanning the
  * various platform plugin directories. This object can be used to get
@@ -39,114 +34,79 @@ using namespace WebKit;
  * be obtained from the #WebKitWebContext, with
  * webkit_web_context_get_plugins().
  *
+ * Deprecated: 2.32
  */
 
 struct _WebKitPluginPrivate {
-    ~_WebKitPluginPrivate()
-    {
-        g_list_free_full(mimeInfoList, reinterpret_cast<GDestroyNotify>(webkit_mime_info_unref));
-    }
-
-    PluginModuleInfo pluginInfo;
-    CString name;
-    CString description;
-    CString path;
-    GList* mimeInfoList;
 };
 
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
 WEBKIT_DEFINE_TYPE(WebKitPlugin, webkit_plugin, G_TYPE_OBJECT)
+ALLOW_DEPRECATED_DECLARATIONS_END
 
 static void webkit_plugin_class_init(WebKitPluginClass*)
 {
-}
-
-WebKitPlugin* webkitPluginCreate(const PluginModuleInfo& pluginInfo)
-{
-    WebKitPlugin* plugin = WEBKIT_PLUGIN(g_object_new(WEBKIT_TYPE_PLUGIN, NULL));
-    plugin->priv->pluginInfo = pluginInfo;
-    return plugin;
 }
 
 /**
  * webkit_plugin_get_name:
  * @plugin: a #WebKitPlugin
  *
- * Returns: the name of the plugin.
+ * Obtain the plugin name.
+ *
+ * Returns: (nullable): name, as a string.
+ *
+ * Deprecated: 2.32
  */
-const char* webkit_plugin_get_name(WebKitPlugin* plugin)
+const char* webkit_plugin_get_name(WebKitPlugin*)
 {
-    g_return_val_if_fail(WEBKIT_IS_PLUGIN(plugin), 0);
-
-    if (!plugin->priv->name.isNull())
-        return plugin->priv->name.data();
-
-    if (plugin->priv->pluginInfo.info.name.isEmpty())
-        return 0;
-
-    plugin->priv->name = plugin->priv->pluginInfo.info.name.utf8();
-    return plugin->priv->name.data();
+    return nullptr;
 }
 
 /**
  * webkit_plugin_get_description:
  * @plugin: a #WebKitPlugin
  *
- * Returns: the description of the plugin.
+ * Obtain the plugin description.
+ *
+ * Returns: (nullable): description, as a string.
+ *
+ * Deprecated: 2.32
  */
-const char* webkit_plugin_get_description(WebKitPlugin* plugin)
+const char* webkit_plugin_get_description(WebKitPlugin*)
 {
-    g_return_val_if_fail(WEBKIT_IS_PLUGIN(plugin), 0);
-
-    if (!plugin->priv->description.isNull())
-        return plugin->priv->description.data();
-
-    if (plugin->priv->pluginInfo.info.desc.isEmpty())
-        return 0;
-
-    plugin->priv->description = plugin->priv->pluginInfo.info.desc.utf8();
-    return plugin->priv->description.data();
+    return nullptr;
 }
 
 /**
  * webkit_plugin_get_path:
  * @plugin: a #WebKitPlugin
  *
- * Returns: the absolute path where the plugin is installed.
+ * Obtain the absolute path where the plugin is installed.
+ *
+ * Returns: (nullable): path, as a string.
+ *
+ * Deprecated: 2.32
  */
-const char* webkit_plugin_get_path(WebKitPlugin* plugin)
+const char* webkit_plugin_get_path(WebKitPlugin*)
 {
-    g_return_val_if_fail(WEBKIT_IS_PLUGIN(plugin), 0);
-
-    if (!plugin->priv->path.isNull())
-        return plugin->priv->path.data();
-
-    if (plugin->priv->pluginInfo.path.isEmpty())
-        return 0;
-
-    plugin->priv->path = plugin->priv->pluginInfo.path.utf8();
-    return plugin->priv->path.data();
+    return nullptr;
 }
 
 /**
  * webkit_plugin_get_mime_info_list:
  * @plugin: a #WebKitPlugin
  *
+ * Get information about MIME types handled by the plugin.
+ *
  * Get information about MIME types handled by the plugin,
  * as a list of #WebKitMimeInfo.
  *
  * Returns: (element-type WebKitMimeInfo) (transfer none): a #GList of #WebKitMimeInfo.
+ *
+ * Deprecated: 2.32
  */
-GList* webkit_plugin_get_mime_info_list(WebKitPlugin* plugin)
+GList* webkit_plugin_get_mime_info_list(WebKitPlugin*)
 {
-    g_return_val_if_fail(WEBKIT_IS_PLUGIN(plugin), 0);
-
-    if (plugin->priv->mimeInfoList)
-        return plugin->priv->mimeInfoList;
-
-    if (plugin->priv->pluginInfo.info.mimes.isEmpty())
-        return 0;
-
-    for (size_t i = 0; i < plugin->priv->pluginInfo.info.mimes.size(); ++i)
-        plugin->priv->mimeInfoList = g_list_prepend(plugin->priv->mimeInfoList, webkitMimeInfoCreate(plugin->priv->pluginInfo.info.mimes[i]));
-    return plugin->priv->mimeInfoList;
+    return nullptr;
 }

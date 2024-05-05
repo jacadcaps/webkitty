@@ -13,6 +13,8 @@
 #include "common/angleutils.h"
 #include "libANGLE/Error.h"
 #include "libANGLE/Framebuffer.h"
+#include "libANGLE/State.h"
+#include "libANGLE/angletypes.h"
 
 namespace gl
 {
@@ -20,8 +22,6 @@ class Buffer;
 class Framebuffer;
 class FramebufferAttachment;
 struct PixelPackState;
-struct Rectangle;
-class State;
 }  // namespace gl
 
 namespace rx
@@ -81,11 +81,12 @@ class FramebufferImpl : angle::NonCopyable
                                GLbitfield mask,
                                GLenum filter) = 0;
 
-    virtual bool checkStatus(const gl::Context *context) const = 0;
+    virtual gl::FramebufferStatus checkStatus(const gl::Context *context) const = 0;
 
     virtual angle::Result syncState(const gl::Context *context,
                                     GLenum binding,
-                                    const gl::Framebuffer::DirtyBits &dirtyBits) = 0;
+                                    const gl::Framebuffer::DirtyBits &dirtyBits,
+                                    gl::Command command) = 0;
 
     virtual angle::Result getSamplePosition(const gl::Context *context,
                                             size_t index,
@@ -96,6 +97,8 @@ class FramebufferImpl : angle::NonCopyable
     // syncState because it depends on the behaviour of the driver. Allowing the Vulkan and
     // D3D back-ends to skip syncState lets us do more work in the syncState call.
     virtual bool shouldSyncStateBeforeCheckStatus() const;
+
+    virtual angle::Result onLabelUpdate(const gl::Context *context);
 
     const gl::FramebufferState &getState() const { return mState; }
 

@@ -26,12 +26,12 @@
 #import "config.h"
 #import "PDFPluginPasswordField.h"
 
-#if ENABLE(PDFKIT_PLUGIN)
+#if ENABLE(LEGACY_PDFKIT_PLUGIN)
 
-#import "PDFKitImports.h"
 #import "PDFLayerControllerSPI.h"
 #import "PDFPlugin.h"
 #import <Quartz/Quartz.h>
+#import <WebCore/AddEventListenerOptions.h>
 #import <WebCore/Event.h>
 #import <WebCore/EventNames.h>
 #import <WebCore/HTMLElement.h>
@@ -41,9 +41,9 @@ namespace WebKit {
 using namespace WebCore;
 using namespace HTMLNames;
 
-Ref<PDFPluginPasswordField> PDFPluginPasswordField::create(PDFLayerController *pdfLayerController, PDFPlugin* plugin)
+Ref<PDFPluginPasswordField> PDFPluginPasswordField::create(PDFPluginBase* plugin)
 {
-    return adoptRef(*new PDFPluginPasswordField(pdfLayerController, plugin));
+    return adoptRef(*new PDFPluginPasswordField(plugin));
 }
 
 PDFPluginPasswordField::~PDFPluginPasswordField()
@@ -54,7 +54,7 @@ PDFPluginPasswordField::~PDFPluginPasswordField()
 Ref<Element> PDFPluginPasswordField::createAnnotationElement()
 {
     auto element = PDFPluginTextAnnotation::createAnnotationElement();
-    element->setAttribute(typeAttr, "password");
+    element->setAttribute(typeAttr, "password"_s);
     element->addEventListener(eventNames().keyupEvent, *eventListener(), false);
     return element;
 }
@@ -68,7 +68,7 @@ bool PDFPluginPasswordField::handleEvent(WebCore::Event& event)
     if (event.isKeyboardEvent() && event.type() == eventNames().keyupEvent) {
         auto& keyboardEvent = downcast<KeyboardEvent>(event);
 
-        if (keyboardEvent.keyIdentifier() == "Enter") {
+        if (keyboardEvent.keyIdentifier() == "Enter"_s) {
             plugin()->attemptToUnlockPDF(value());
             event.preventDefault();
             return true;
@@ -80,4 +80,4 @@ bool PDFPluginPasswordField::handleEvent(WebCore::Event& event)
     
 } // namespace WebKit
 
-#endif // ENABLE(PDFKIT_PLUGIN)
+#endif // ENABLE(LEGACY_PDFKIT_PLUGIN)

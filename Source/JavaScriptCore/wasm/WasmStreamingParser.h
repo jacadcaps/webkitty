@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2018 Yusuke Suzuki <yusukesuzuki@slowstart.org>.
+ * Copyright (C) 2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,15 +28,19 @@
 
 #if ENABLE(WEBASSEMBLY)
 
-#include "WasmModuleInformation.h"
-#include "WasmParser.h"
 #include "WasmSections.h"
 #include <wtf/CrossThreadCopier.h>
 #include <wtf/SHA1.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
 
 namespace JSC { namespace Wasm {
+
+struct FunctionData;
+struct ModuleInformation;
+
+enum class CompilerMode : uint8_t { FullCompile, Validation };
 
 class StreamingParserClient {
 public:
@@ -46,7 +51,7 @@ public:
 };
 
 class StreamingParser {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(StreamingParser);
 public:
     // The layout of the Wasm module is the following.
     //
@@ -71,7 +76,7 @@ public:
         FatalError,
     };
 
-    enum class IsEndOfStream { Yes, No };
+    enum class IsEndOfStream : bool { No, Yes };
 
     StreamingParser(ModuleInformation&, StreamingParserClient&);
 
@@ -86,7 +91,7 @@ private:
     static constexpr unsigned moduleHeaderSize = 8;
     static constexpr unsigned sectionIDSize = 1;
 
-    State addBytes(const uint8_t* bytes, size_t length, IsEndOfStream);
+    JS_EXPORT_PRIVATE State addBytes(const uint8_t* bytes, size_t length, IsEndOfStream);
 
     State parseModuleHeader(Vector<uint8_t>&&);
     State parseSectionID(Vector<uint8_t>&&);
@@ -97,7 +102,7 @@ private:
     State parseFunctionSize(uint32_t);
     State parseFunctionPayload(Vector<uint8_t>&&);
 
-    Optional<Vector<uint8_t>> consume(const uint8_t* bytes, size_t, size_t&, size_t);
+    std::optional<Vector<uint8_t>> consume(const uint8_t* bytes, size_t, size_t&, size_t);
     Expected<uint32_t, State> consumeVarUInt32(const uint8_t* bytes, size_t, size_t&, IsEndOfStream);
 
     void moveToStateIfNotFailed(State);
@@ -128,6 +133,10 @@ private:
     State m_state { State::ModuleHeader };
     Section m_section { Section::Begin };
     Section m_previousKnownSection { Section::Begin };
+
+#if ASSERT_ENABLED
+    Vector<uint8_t> m_buffer;
+#endif
 };
 
 

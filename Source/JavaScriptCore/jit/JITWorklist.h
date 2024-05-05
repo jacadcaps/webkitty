@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -20,20 +20,20 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #pragma once
 
 #if ENABLE(JIT)
 
-#include "BytecodeIndex.h"
-#include <wtf/AutomaticThread.h>
-#include <wtf/FastMalloc.h>
-#include <wtf/HashSet.h>
+#include "JITPlan.h"
+#include "JITWorklistThread.h"
+#include <wtf/Deque.h>
 #include <wtf/Lock.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/RefPtr.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 
 namespace JSC {
@@ -43,40 +43,86 @@ class VM;
 
 class JITWorklist {
     WTF_MAKE_NONCOPYABLE(JITWorklist);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(JITWorklist);
 
-    class Plan;
-    typedef Vector<RefPtr<Plan>, 32> Plans;
-    
+    friend class JITWorklistThread;
+
 public:
     ~JITWorklist();
-    
-    bool completeAllForVM(VM&); // Return true if any JIT work happened.
-    void poll(VM&);
-    
-    void compileLater(CodeBlock*, BytecodeIndex loopOSREntryBytecodeIndex = BytecodeIndex(0));
-    void compileNow(CodeBlock*, BytecodeIndex loopOSREntryBytecodeIndex = BytecodeIndex(0));
-    
+
     static JITWorklist& ensureGlobalWorklist();
     static JITWorklist* existingGlobalWorklistOrNull();
-    
+
+    CompilationResult enqueue(Ref<JITPlan>);
+    size_t queueLength() const;
+
+    void suspendAllThreads();
+    void resumeAllThreads();
+
+    enum State { NotKnown, Compiling, Compiled };
+    State compilationState(JITCompilationKey);
+
+    State completeAllReadyPlansForVM(VM&, JITCompilationKey = JITCompilationKey());
+
+    void waitUntilAllPlansForVMAreReady(VM&);
+
+    // This is equivalent to:
+    // worklist->waitUntilAllPlansForVMAreReady(vm);
+    // worklist->completeAllReadyPlansForVM(vm);
+    void completeAllPlansForVM(VM&);
+
+    void cancelAllPlansForVM(VM&);
+
+    void removeDeadPlans(VM&);
+
+    unsigned setMaximumNumberOfConcurrentDFGCompilations(unsigned);
+    unsigned setMaximumNumberOfConcurrentFTLCompilations(unsigned);
+
+    // Only called on the main thread after suspending all threads.
+    template<typename Visitor>
+    void visitWeakReferences(Visitor&);
+
+    template<typename Visitor>
+    void iterateCodeBlocksForGC(Visitor&, VM&, const Function<void(CodeBlock*)>&);
+
+    void dump(PrintStream&) const;
+
 private:
     JITWorklist();
-    
-    class Thread;
-    friend class Thread;
-    
-    void finalizePlans(Plans&);
-    
-    Plans m_queue;
-    Plans m_plans;
-    HashSet<CodeBlock*> m_planned;
-    
+
+    size_t queueLength(const AbstractLocker&) const;
+
+    template<typename MatchFunction>
+    void removeMatchingPlansForVM(VM&, const MatchFunction&);
+
+    void removeAllReadyPlansForVM(VM&, Vector<RefPtr<JITPlan>, 8>&);
+
+    void dump(const AbstractLocker&, PrintStream&) const;
+
+    unsigned m_numberOfActiveThreads { 0 };
+    std::array<unsigned, static_cast<size_t>(JITPlan::Tier::Count)> m_ongoingCompilationsPerTier { 0, 0, 0 };
+    std::array<unsigned, static_cast<size_t>(JITPlan::Tier::Count)> m_maximumNumberOfConcurrentCompilationsPerTier;
+
+    Vector<RefPtr<JITWorklistThread>> m_threads;
+
+    // Used to inform the thread about what work there is left to do.
+    std::array<Deque<RefPtr<JITPlan>>, static_cast<size_t>(JITPlan::Tier::Count)> m_queues;
+
+    // Used to answer questions about the current state of a code block. This
+    // is particularly great for the cti_optimize OSR slow path, which wants
+    // to know: did I get here because a better version of me just got
+    // compiled?
+    HashMap<JITCompilationKey, RefPtr<JITPlan>> m_plans;
+
+    // Used to quickly find which plans have been compiled and are ready to
+    // be completed.
+    Vector<RefPtr<JITPlan>, 16> m_readyPlans;
+
+    Lock m_suspensionLock;
     Box<Lock> m_lock;
-    Ref<AutomaticThreadCondition> m_condition; // We use One True Condition for everything because that's easier.
-    RefPtr<AutomaticThread> m_thread;
-    
-    unsigned m_numAvailableThreads { 0 };
+
+    Ref<AutomaticThreadCondition> m_planEnqueued;
+    Condition m_planCompiledOrCancelled;
 };
 
 } // namespace JSC

@@ -39,14 +39,14 @@ typedef struct _GtkWidget GtkWidget;
 
 #if USE(GTK4)
 typedef struct _GdkDrop GdkDrop;
+using PlatformDropContext = GdkDrop;
 #else
 typedef struct _GdkDragContext GdkDragContext;
 typedef struct _GtkSelectionData GtkSelectionData;
+using PlatformDropContext = GdkDragContext;
 #endif
 
 namespace WebKit {
-
-class ShareableBitmap;
 
 class DropTarget {
     WTF_MAKE_NONCOPYABLE(DropTarget); WTF_MAKE_FAST_ALLOCATED;
@@ -57,7 +57,7 @@ public:
     void didPerformAction();
 
 private:
-    void accept(unsigned = 0);
+    void accept(PlatformDropContext*, std::optional<WebCore::IntPoint> = std::nullopt, unsigned = 0);
     void enter(WebCore::IntPoint&&, unsigned = 0);
     void update(WebCore::IntPoint&&, unsigned = 0);
     void leave();
@@ -77,14 +77,14 @@ private:
 #else
     GRefPtr<GdkDragContext> m_drop;
 #endif
-    Optional<WebCore::IntPoint> m_position;
+    std::optional<WebCore::IntPoint> m_position;
     unsigned m_dataRequestCount { 0 };
-    Optional<WebCore::SelectionData> m_selectionData;
-    Optional<WebCore::DragOperation> m_operation;
+    std::optional<WebCore::SelectionData> m_selectionData;
+    std::optional<WebCore::DragOperation> m_operation;
 #if USE(GTK4)
     GRefPtr<GCancellable> m_cancellable;
 #else
-    RunLoop::Timer<DropTarget> m_leaveTimer;
+    RunLoop::Timer m_leaveTimer;
 #endif
 };
 

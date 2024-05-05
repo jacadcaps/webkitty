@@ -64,7 +64,6 @@ void MessageParser::pushReceivedData(const uint8_t* data, size_t size)
     if (!data || !size || !m_listener)
         return;
 
-    m_buffer.reserveCapacity(m_buffer.size() + size);
     m_buffer.append(data, size);
 
     if (!parse())
@@ -78,13 +77,8 @@ void MessageParser::clearReceivedData()
 
 bool MessageParser::parse()
 {
-    while (!m_buffer.isEmpty()) {
-        if (m_buffer.size() < sizeof(uint32_t)) {
-            // Wait for more data.
-            return true;
-        }
-
-        uint32_t dataSize = 0;
+    while (m_buffer.size() >= sizeof(uint32_t)) {
+        uint32_t dataSize;
         memcpy(&dataSize, &m_buffer[0], sizeof(uint32_t));
         dataSize = ntohl(dataSize);
         if (!dataSize) {

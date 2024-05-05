@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2016 Igalia S.L.
+ * Copyright (C) 2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -122,9 +123,9 @@ Color RenderThemeGadget::backgroundColor() const
 {
     GdkRGBA returnValue;
 
-    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     gtk_style_context_get_background_color(m_context.get(), gtk_style_context_get_state(m_context.get()), &returnValue);
-    ALLOW_DEPRECATED_DECLARATIONS_END
+ALLOW_DEPRECATED_DECLARATIONS_END
 
     return returnValue;
 }
@@ -194,10 +195,10 @@ RenderThemeBoxGadget::RenderThemeBoxGadget(const RenderThemeGadget::Info& info, 
     : RenderThemeGadget(info, parent, Vector<RenderThemeGadget::Info>(), 0)
     , m_orientation(orientation)
 {
-    m_children.reserveCapacity(children.size());
     unsigned index = 0;
-    for (const auto& childInfo : children)
-        m_children.uncheckedAppend(RenderThemeGadget::create(childInfo, this, children, index++));
+    m_children = WTF::map(children, [&](auto& childInfo) {
+        return RenderThemeGadget::create(childInfo, this, children, index++);
+    });
 }
 
 IntSize RenderThemeBoxGadget::preferredSize() const

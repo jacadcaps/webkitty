@@ -12,47 +12,48 @@
 #define VIDEO_SEND_STATISTICS_PROXY_H_
 
 #include <array>
+#include <deque>
 #include <map>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "api/field_trials_view.h"
 #include "api/video/video_codec_constants.h"
-#include "api/video/video_stream_encoder_observer.h"
-#include "api/video_codecs/video_encoder_config.h"
 #include "call/video_send_stream.h"
 #include "modules/include/module_common_types_public.h"
 #include "modules/rtp_rtcp/include/report_block_data.h"
 #include "modules/video_coding/include/video_codec_interface.h"
 #include "modules/video_coding/include/video_coding_defines.h"
-#include "rtc_base/critical_section.h"
 #include "rtc_base/numerics/exp_filter.h"
 #include "rtc_base/rate_tracker.h"
+#include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/thread_annotations.h"
 #include "system_wrappers/include/clock.h"
+#include "video/config/video_encoder_config.h"
 #include "video/quality_limitation_reason_tracker.h"
 #include "video/report_block_stats.h"
 #include "video/stats_counter.h"
+#include "video/video_stream_encoder_observer.h"
 
 namespace webrtc {
 
 class SendStatisticsProxy : public VideoStreamEncoderObserver,
-                            public RtcpStatisticsCallback,
                             public ReportBlockDataObserver,
                             public RtcpPacketTypeCounterObserver,
                             public StreamDataCountersCallback,
                             public BitrateStatisticsObserver,
-                            public FrameCountObserver,
-                            public SendSideDelayObserver {
+                            public FrameCountObserver {
  public:
-  static const int kStatsTimeoutMs;
+  static constexpr TimeDelta kStatsTimeout = TimeDelta::Seconds(5);
   // Number of required samples to be collected before a metric is added
   // to a rtc histogram.
   static const int kMinRequiredMetricsSamples = 200;
 
   SendStatisticsProxy(Clock* clock,
                       const VideoSendStream::Config& config,
-                      VideoEncoderConfig::ContentType content_type);
+                      VideoEncoderConfig::ContentType content_type,
+                      const FieldTrialsView& field_trials);
   ~SendStatisticsProxy() override;
 
   virtual VideoSendStream::Stats GetStats();
@@ -61,7 +62,7 @@ class SendStatisticsProxy : public VideoStreamEncoderObserver,
                           const CodecSpecificInfo* codec_info) override;
 
   void OnEncoderImplementationChanged(
-      const std::string& implementation_name) override;
+      EncoderImplementation implementation) override;
 
   // Used to update incoming frame rate.
   void OnIncomingFrame(int width, int height) override;
@@ -70,9 +71,13 @@ class SendStatisticsProxy : public VideoStreamEncoderObserver,
   void OnFrameDropped(DropReason) override;
 
   // Adaptation stats.
-  void OnAdaptationChanged(AdaptationReason reason,
-                           const AdaptationSteps& cpu_counts,
-                           const AdaptationSteps& quality_counts) override;
+  void OnAdaptationChanged(
+      VideoAdaptationReason reason,
+      const VideoAdaptationCounters& cpu_counters,
+      const VideoAdaptationCounters& quality_counters) override;
+  void ClearAdaptationStats() override;
+  void UpdateAdaptationSettings(AdaptationSettings cpu_settings,
+                                AdaptationSettings quality_settings) override;
 
   void OnBitrateAllocationUpdated(
       const VideoCodec& codec,
@@ -98,13 +103,12 @@ class SendStatisticsProxy : public VideoStreamEncoderObserver,
   void OnEncodedFrameTimeMeasured(int encode_time_ms,
                                   int encode_usage_percent) override;
 
+  void OnSendPacket(uint32_t ssrc, Timestamp capture_time);
+
   int GetInputFrameRate() const override;
   int GetSendFrameRate() const;
 
  protected:
-  // From RtcpStatisticsCallback.
-  void StatisticsUpdated(const RtcpStatistics& statistics,
-                         uint32_t ssrc) override;
   // From ReportBlockDataObserver.
   void OnReportBlockDataUpdated(ReportBlockData report_block_data) override;
   // From RtcpPacketTypeCounterObserver.
@@ -123,11 +127,6 @@ class SendStatisticsProxy : public VideoStreamEncoderObserver,
   // From FrameCountObserver.
   void FrameCountUpdated(const FrameCounts& frame_counts,
                          uint32_t ssrc) override;
-
-  void SendSideDelayUpdated(int avg_delay_ms,
-                            int max_delay_ms,
-                            uint64_t total_delay_ms,
-                            uint32_t ssrc) override;
 
  private:
   class SampleCounter {
@@ -154,11 +153,6 @@ class SendStatisticsProxy : public VideoStreamEncoderObserver,
     int Fraction(int64_t min_required_samples, float multiplier) const;
     int64_t sum;
     int64_t num_samples;
-  };
-  struct StatsUpdateTimes {
-    StatsUpdateTimes() : resolution_update_ms(0), bitrate_update_ms(0) {}
-    int64_t resolution_update_ms;
-    int64_t bitrate_update_ms;
   };
   struct TargetRateUpdates {
     TargetRateUpdates()
@@ -219,57 +213,110 @@ class SendStatisticsProxy : public VideoStreamEncoderObserver,
   };
   typedef std::map<uint32_t, Frame, TimestampOlderThan> EncodedFrameMap;
 
-  void PurgeOldStats() RTC_EXCLUSIVE_LOCKS_REQUIRED(crit_);
+  void PurgeOldStats() RTC_EXCLUSIVE_LOCKS_REQUIRED(mutex_);
   VideoSendStream::StreamStats* GetStatsEntry(uint32_t ssrc)
-      RTC_EXCLUSIVE_LOCKS_REQUIRED(crit_);
+      RTC_EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 
-  void SetAdaptTimer(const AdaptationSteps& counts, StatsTimer* timer)
-      RTC_EXCLUSIVE_LOCKS_REQUIRED(crit_);
-  void UpdateAdaptationStats() RTC_EXCLUSIVE_LOCKS_REQUIRED(crit_);
+  struct MaskedAdaptationCounts {
+    absl::optional<int> resolution_adaptations = absl::nullopt;
+    absl::optional<int> num_framerate_reductions = absl::nullopt;
+  };
+
+  struct Adaptations {
+   public:
+    MaskedAdaptationCounts MaskedCpuCounts() const;
+    MaskedAdaptationCounts MaskedQualityCounts() const;
+
+    void set_cpu_counts(const VideoAdaptationCounters& cpu_counts);
+    void set_quality_counts(const VideoAdaptationCounters& quality_counts);
+
+    VideoAdaptationCounters cpu_counts() const;
+    VideoAdaptationCounters quality_counts() const;
+
+    void UpdateMaskingSettings(AdaptationSettings cpu_settings,
+                               AdaptationSettings quality_settings);
+
+   private:
+    VideoAdaptationCounters cpu_counts_;
+    AdaptationSettings cpu_settings_;
+    VideoAdaptationCounters quality_counts_;
+    AdaptationSettings quality_settings_;
+
+    MaskedAdaptationCounts Mask(const VideoAdaptationCounters& counters,
+                                const AdaptationSettings& settings) const;
+  };
+  // Collection of various stats that are tracked per ssrc.
+  struct Trackers {
+    struct SendDelayEntry {
+      Timestamp when;
+      TimeDelta send_delay;
+    };
+
+    Trackers();
+    Trackers(const Trackers&) = delete;
+    Trackers& operator=(const Trackers&) = delete;
+
+    void AddSendDelay(Timestamp now, TimeDelta send_delay);
+
+    Timestamp resolution_update = Timestamp::MinusInfinity();
+    rtc::RateTracker encoded_frame_rate;
+
+    std::deque<SendDelayEntry> send_delays;
+
+    // The sum of `send_delay` in `send_delays`.
+    TimeDelta send_delay_sum = TimeDelta::Zero();
+
+    // Pointer to the maximum `send_delay` in `send_delays` or nullptr if
+    // `send_delays.empty()`
+    const TimeDelta* send_delay_max = nullptr;
+  };
+
+  void SetAdaptTimer(const MaskedAdaptationCounts& counts, StatsTimer* timer)
+      RTC_EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+  void UpdateAdaptationStats() RTC_EXCLUSIVE_LOCKS_REQUIRED(mutex_);
   void TryUpdateInitialQualityResolutionAdaptUp(
-      const AdaptationSteps& quality_counts)
-      RTC_EXCLUSIVE_LOCKS_REQUIRED(crit_);
+      absl::optional<int> old_quality_downscales,
+      absl::optional<int> updated_quality_downscales)
+      RTC_EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 
   void UpdateEncoderFallbackStats(const CodecSpecificInfo* codec_info,
                                   int pixels,
                                   int simulcast_index)
-      RTC_EXCLUSIVE_LOCKS_REQUIRED(crit_);
+      RTC_EXCLUSIVE_LOCKS_REQUIRED(mutex_);
   void UpdateFallbackDisabledStats(const CodecSpecificInfo* codec_info,
                                    int pixels,
                                    int simulcast_index)
-      RTC_EXCLUSIVE_LOCKS_REQUIRED(crit_);
+      RTC_EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 
   Clock* const clock_;
   const std::string payload_name_;
   const RtpConfig rtp_config_;
   const absl::optional<int> fallback_max_pixels_;
   const absl::optional<int> fallback_max_pixels_disabled_;
-  rtc::CriticalSection crit_;
-  VideoEncoderConfig::ContentType content_type_ RTC_GUARDED_BY(crit_);
+  mutable Mutex mutex_;
+  VideoEncoderConfig::ContentType content_type_ RTC_GUARDED_BY(mutex_);
   const int64_t start_ms_;
-  VideoSendStream::Stats stats_ RTC_GUARDED_BY(crit_);
-  std::map<uint32_t, StatsUpdateTimes> update_times_ RTC_GUARDED_BY(crit_);
-  rtc::ExpFilter encode_time_ RTC_GUARDED_BY(crit_);
-  int quality_downscales_ RTC_GUARDED_BY(crit_);
-  int cpu_downscales_ RTC_GUARDED_BY(crit_);
+  VideoSendStream::Stats stats_ RTC_GUARDED_BY(mutex_);
+  rtc::ExpFilter encode_time_ RTC_GUARDED_BY(mutex_);
   QualityLimitationReasonTracker quality_limitation_reason_tracker_
-      RTC_GUARDED_BY(crit_);
-  rtc::RateTracker media_byte_rate_tracker_ RTC_GUARDED_BY(crit_);
-  rtc::RateTracker encoded_frame_rate_tracker_ RTC_GUARDED_BY(crit_);
+      RTC_GUARDED_BY(mutex_);
+  rtc::RateTracker media_byte_rate_tracker_ RTC_GUARDED_BY(mutex_);
+  rtc::RateTracker encoded_frame_rate_tracker_ RTC_GUARDED_BY(mutex_);
+  // Trackers mapped by ssrc.
+  std::map<uint32_t, Trackers> trackers_ RTC_GUARDED_BY(mutex_);
 
-  absl::optional<int64_t> last_outlier_timestamp_ RTC_GUARDED_BY(crit_);
+  absl::optional<int64_t> last_outlier_timestamp_ RTC_GUARDED_BY(mutex_);
 
-  int last_num_spatial_layers_ RTC_GUARDED_BY(crit_);
-  int last_num_simulcast_streams_ RTC_GUARDED_BY(crit_);
+  int last_num_spatial_layers_ RTC_GUARDED_BY(mutex_);
+  int last_num_simulcast_streams_ RTC_GUARDED_BY(mutex_);
   std::array<bool, kMaxSpatialLayers> last_spatial_layer_use_
-      RTC_GUARDED_BY(crit_);
+      RTC_GUARDED_BY(mutex_);
   // Indicates if the latest bitrate allocation had layers disabled by low
   // available bandwidth.
-  bool bw_limited_layers_ RTC_GUARDED_BY(crit_);
+  bool bw_limited_layers_ RTC_GUARDED_BY(mutex_);
   // Indicastes if the encoder internally downscales input image.
-  bool internal_encoder_scaler_ RTC_GUARDED_BY(crit_);
-  AdaptationSteps cpu_counts_ RTC_GUARDED_BY(crit_);
-  AdaptationSteps quality_counts_ RTC_GUARDED_BY(crit_);
+  bool internal_encoder_scaler_ RTC_GUARDED_BY(mutex_);
+  Adaptations adaptation_limitations_ RTC_GUARDED_BY(mutex_);
 
   struct EncoderChangeEvent {
     std::string previous_encoder_implementation;
@@ -341,7 +388,7 @@ class SendStatisticsProxy : public VideoStreamEncoderObserver,
         qp_counters_;  // QP counters mapped by spatial idx.
   };
 
-  std::unique_ptr<UmaSamplesContainer> uma_container_ RTC_GUARDED_BY(crit_);
+  std::unique_ptr<UmaSamplesContainer> uma_container_ RTC_GUARDED_BY(mutex_);
 };
 
 }  // namespace webrtc

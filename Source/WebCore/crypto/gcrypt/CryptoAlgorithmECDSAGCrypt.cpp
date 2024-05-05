@@ -28,8 +28,6 @@
 #include "config.h"
 #include "CryptoAlgorithmECDSA.h"
 
-#if ENABLE(WEB_CRYPTO)
-
 #include "CryptoAlgorithmEcdsaParams.h"
 #include "CryptoKeyEC.h"
 #include "GCryptUtilities.h"
@@ -55,25 +53,25 @@ static bool extractECDSASignatureInteger(Vector<uint8_t>& signature, gcry_sexp_t
     } else {
         // If not, prefix the binary data with zero bytes.
         for (size_t paddingSize = keySizeInBytes - dataSize; paddingSize > 0; --paddingSize)
-            signature.uncheckedAppend(0x00);
+            signature.append(0x00);
         signature.appendVector(*integerData);
     }
 
     return true;
 }
 
-static Optional<Vector<uint8_t>> gcryptSign(gcry_sexp_t keySexp, const Vector<uint8_t>& data, CryptoAlgorithmIdentifier hashAlgorithmIdentifier, size_t keySizeInBytes)
+static std::optional<Vector<uint8_t>> gcryptSign(gcry_sexp_t keySexp, const Vector<uint8_t>& data, CryptoAlgorithmIdentifier hashAlgorithmIdentifier, size_t keySizeInBytes)
 {
     // Perform digest operation with the specified algorithm on the given data.
     Vector<uint8_t> dataHash;
     {
         auto digestAlgorithm = hashCryptoDigestAlgorithm(hashAlgorithmIdentifier);
         if (!digestAlgorithm)
-            return WTF::nullopt;
+            return std::nullopt;
 
         auto digest = PAL::CryptoDigest::create(*digestAlgorithm);
         if (!digest)
-            return WTF::nullopt;
+            return std::nullopt;
 
         digest->addBytes(data.data(), data.size());
         dataHash = digest->computeHash();
@@ -84,13 +82,13 @@ static Optional<Vector<uint8_t>> gcryptSign(gcry_sexp_t keySexp, const Vector<ui
     {
         auto shaAlgorithm = hashAlgorithmName(hashAlgorithmIdentifier);
         if (!shaAlgorithm)
-            return WTF::nullopt;
+            return std::nullopt;
 
         gcry_error_t error = gcry_sexp_build(&dataSexp, nullptr, "(data(flags raw)(hash %s %b))",
             *shaAlgorithm, dataHash.size(), dataHash.data());
         if (error != GPG_ERR_NO_ERROR) {
             PAL::GCrypt::logError(error);
-            return WTF::nullopt;
+            return std::nullopt;
         }
     }
 
@@ -103,7 +101,7 @@ static Optional<Vector<uint8_t>> gcryptSign(gcry_sexp_t keySexp, const Vector<ui
     gcry_error_t error = gcry_pk_sign(&signatureSexp, dataSexp, keySexp);
     if (error != GPG_ERR_NO_ERROR) {
         PAL::GCrypt::logError(error);
-        return WTF::nullopt;
+        return std::nullopt;
     }
 
     // Retrieve MPI data of the resulting r and s integers. They are concatenated into
@@ -113,12 +111,12 @@ static Optional<Vector<uint8_t>> gcryptSign(gcry_sexp_t keySexp, const Vector<ui
 
     if (!extractECDSASignatureInteger(signature, signatureSexp, "r", keySizeInBytes)
         || !extractECDSASignatureInteger(signature, signatureSexp, "s", keySizeInBytes))
-        return WTF::nullopt;
+        return std::nullopt;
 
     return signature;
 }
 
-static Optional<bool> gcryptVerify(gcry_sexp_t keySexp, const Vector<uint8_t>& signature, const Vector<uint8_t>& data, CryptoAlgorithmIdentifier hashAlgorithmIdentifier, size_t keySizeInBytes)
+static std::optional<bool> gcryptVerify(gcry_sexp_t keySexp, const Vector<uint8_t>& signature, const Vector<uint8_t>& data, CryptoAlgorithmIdentifier hashAlgorithmIdentifier, size_t keySizeInBytes)
 {
     // Bail if the signature size isn't double the key size (i.e. concatenated r and s components).
     if (signature.size() != keySizeInBytes * 2)
@@ -129,11 +127,11 @@ static Optional<bool> gcryptVerify(gcry_sexp_t keySexp, const Vector<uint8_t>& s
     {
         auto digestAlgorithm = hashCryptoDigestAlgorithm(hashAlgorithmIdentifier);
         if (!digestAlgorithm)
-            return WTF::nullopt;
+            return std::nullopt;
 
         auto digest = PAL::CryptoDigest::create(*digestAlgorithm);
         if (!digest)
-            return WTF::nullopt;
+            return std::nullopt;
 
         digest->addBytes(data.data(), data.size());
         dataHash = digest->computeHash();
@@ -145,7 +143,7 @@ static Optional<bool> gcryptVerify(gcry_sexp_t keySexp, const Vector<uint8_t>& s
         keySizeInBytes, signature.data(), keySizeInBytes, signature.data() + keySizeInBytes);
     if (error != GPG_ERR_NO_ERROR) {
         PAL::GCrypt::logError(error);
-        return WTF::nullopt;
+        return std::nullopt;
     }
 
     // Construct the data s-expression that contains raw hashed data.
@@ -153,13 +151,13 @@ static Optional<bool> gcryptVerify(gcry_sexp_t keySexp, const Vector<uint8_t>& s
     {
         auto shaAlgorithm = hashAlgorithmName(hashAlgorithmIdentifier);
         if (!shaAlgorithm)
-            return WTF::nullopt;
+            return std::nullopt;
 
         error = gcry_sexp_build(&dataSexp, nullptr, "(data(flags raw)(hash %s %b))",
             *shaAlgorithm, dataHash.size(), dataHash.data());
         if (error != GPG_ERR_NO_ERROR) {
             PAL::GCrypt::logError(error);
-            return WTF::nullopt;
+            return std::nullopt;
         }
     }
 
@@ -174,7 +172,7 @@ ExceptionOr<Vector<uint8_t>> CryptoAlgorithmECDSA::platformSign(const CryptoAlgo
 {
     auto output = gcryptSign(key.platformKey(), data, parameters.hashIdentifier, (key.keySizeInBits() + 7) / 8);
     if (!output)
-        return Exception { OperationError };
+        return Exception { ExceptionCode::OperationError };
     return WTFMove(*output);
 }
 
@@ -182,10 +180,8 @@ ExceptionOr<bool> CryptoAlgorithmECDSA::platformVerify(const CryptoAlgorithmEcds
 {
     auto output = gcryptVerify(key.platformKey(), signature, data, parameters.hashIdentifier, (key.keySizeInBits() + 7)/ 8);
     if (!output)
-        return Exception { OperationError };
+        return Exception { ExceptionCode::OperationError };
     return WTFMove(*output);
 }
 
 } // namespace WebCore
-
-#endif // ENABLE(WEB_CRYPTO)

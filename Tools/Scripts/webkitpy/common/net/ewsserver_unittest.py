@@ -1,4 +1,4 @@
-# Copyright (C) 2019 Apple Inc. All rights reserved.
+# Copyright (C) 2019-2022 Apple Inc. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -23,14 +23,16 @@
 import unittest
 
 from webkitpy.common.net.ewsserver import EWSServer
-from webkitpy.common.system.outputcapture import OutputCaptureTestCaseBase
 from webkitpy.common.net.web_mock import MockBrowser
 
+from webkitcorepy import OutputCapture
 
-class EWSServerTest(OutputCaptureTestCaseBase):
+
+class EWSServerTest(unittest.TestCase):
     def test_submit_to_ews(self):
-        mock_browser = MockBrowser()
-        ews_server = EWSServer(browser=mock_browser)
-        self.assertTrue(ews_server.use_https)
-        ews_server.submit_to_ews(10008)
-        self.assertEqual(mock_browser['patch_id'], u'10008')
+        with OutputCapture():
+            mock_browser = MockBrowser()
+            ews_server = EWSServer(browser=mock_browser)
+            self.assertTrue(ews_server.use_https)
+            ews_server.submit_to_ews(10008)
+            self.assertEqual(mock_browser['change_id'], u'10008')

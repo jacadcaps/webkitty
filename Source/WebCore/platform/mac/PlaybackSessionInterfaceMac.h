@@ -52,7 +52,7 @@ public:
     // PlaybackSessionModelClient
     void durationChanged(double) final;
     void currentTimeChanged(double /*currentTime*/, double /*anchorTime*/) final;
-    void rateChanged(bool /*isPlaying*/, float /*playbackRate*/) final;
+    void rateChanged(OptionSet<PlaybackSessionModel::PlaybackState>, double /* playbackRate */, double /* defaultPlaybackRate */) final;
     void seekableRangesChanged(const TimeRanges&, double /*lastModifiedTime*/, double /*liveUpdateInterval*/) final;
     void audioMediaSelectionOptionsChanged(const Vector<MediaSelectionOption>& /*options*/, uint64_t /*selectedIndex*/) final;
     void legibleMediaSelectionOptionsChanged(const Vector<MediaSelectionOption>& /*options*/, uint64_t /*selectedIndex*/) final;
@@ -68,10 +68,18 @@ public:
 
     void updatePlaybackControlsManagerCanTogglePictureInPicture();
 #endif
+    void willBeginScrubbing();
     void beginScrubbing();
     void endScrubbing();
 
     void invalidate();
+
+#if !RELEASE_LOG_DISABLED
+    const void* logIdentifier() const;
+    const Logger* loggerPtr() const;
+    const char* logClassName() const { return "PlaybackSessionInterfaceMac"; };
+    WTFLogChannel& logChannel() const;
+#endif
 
 private:
     PlaybackSessionInterfaceMac(PlaybackSessionModel&);

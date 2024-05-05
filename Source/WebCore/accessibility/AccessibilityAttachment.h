@@ -42,7 +42,8 @@ public:
     bool hasProgress(float* progress = nullptr) const;
     
 private:
-    AccessibilityRole roleValue() const override { return AccessibilityRole::Button; }
+    AccessibilityRole determineAccessibilityRole() final { return AccessibilityRole::Button; }
+
     bool isAttachmentElement() const override { return true; }
 
     String roleDescription() const override;
@@ -54,6 +55,8 @@ private:
     
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_ACCESSIBILITY(AccessibilityAttachment, isAttachmentElement())
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::AccessibilityAttachment) \
+    static bool isType(const WebCore::AccessibilityObject& object) { return object.isAttachmentElement(); } \
+SPECIALIZE_TYPE_TRAITS_END()
 
 #endif // ENABLE(ATTACHMENT_ELEMENT)

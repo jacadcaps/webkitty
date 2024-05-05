@@ -27,16 +27,20 @@
 
 #include "APIObject.h"
 #include "ContentWorldShared.h"
+#include "DataReference.h"
 #include "MessageReceiver.h"
 #include "UserContentControllerIdentifier.h"
 #include "WebPageProxyIdentifier.h"
 #include "WebUserContentControllerProxyMessages.h"
 #include <WebCore/PageIdentifier.h>
+#include <wtf/CheckedRef.h>
 #include <wtf/Forward.h>
 #include <wtf/HashCountedSet.h>
 #include <wtf/HashMap.h>
 #include <wtf/Ref.h>
 #include <wtf/RefCounted.h>
+#include <wtf/URL.h>
+#include <wtf/URLHash.h>
 #include <wtf/WeakHashSet.h>
 #include <wtf/text/StringHash.h>
 
@@ -48,12 +52,8 @@ class UserScript;
 class UserStyleSheet;
 }
 
-namespace IPC {
-class DataReference;
-}
-
 namespace WebCore {
-struct SecurityOriginData;
+class SecurityOriginData;
 }
 
 namespace WebKit {
@@ -67,7 +67,7 @@ struct WebPageCreationParameters;
 struct UserContentControllerParameters;
 enum class InjectUserScriptImmediately : bool;
 
-class WebUserContentControllerProxy : public API::ObjectImpl<API::Object::Type::UserContentController>, private IPC::MessageReceiver {
+class WebUserContentControllerProxy : public API::ObjectImpl<API::Object::Type::UserContentController>, public IPC::MessageReceiver {
 public:
     static Ref<WebUserContentControllerProxy> create()
     { 
@@ -105,22 +105,24 @@ public:
     void addNetworkProcess(NetworkProcessProxy&);
     void removeNetworkProcess(NetworkProcessProxy&);
 
-    void addContentRuleList(API::ContentRuleList&);
+    void addContentRuleList(API::ContentRuleList&, const WTF::URL& extensionBaseURL = { });
     void removeContentRuleList(const String&);
     void removeAllContentRuleLists();
-    const HashMap<String, RefPtr<API::ContentRuleList>>& contentExtensionRules() { return m_contentRuleLists; }
-    Vector<std::pair<String, WebCompiledContentRuleListData>> contentRuleListData() const;
+    const HashMap<String, std::pair<Ref<API::ContentRuleList>, URL>>& contentExtensionRules() { return m_contentRuleLists; }
+    Vector<std::pair<WebCompiledContentRuleListData, URL>> contentRuleListData() const;
 #endif
 
     UserContentControllerIdentifier identifier() const { return m_identifier; }
 
     void contentWorldDestroyed(API::ContentWorld&);
 
+    bool operator==(const WebUserContentControllerProxy& other) const { return (this == &other); }
+
 private:
     // IPC::MessageReceiver.
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) override;
 
-    void didPostMessage(WebPageProxyIdentifier, FrameInfoData&&, uint64_t messageHandlerID, const IPC::DataReference&, Messages::WebUserContentControllerProxy::DidPostMessage::AsyncReply&&);
+    void didPostMessage(WebPageProxyIdentifier, FrameInfoData&&, uint64_t messageHandlerID, const IPC::DataReference&, CompletionHandler<void(IPC::DataReference&&, const String&)>&&);
 
     void addContentWorld(API::ContentWorld&);
 
@@ -133,7 +135,7 @@ private:
 
 #if ENABLE(CONTENT_EXTENSIONS)
     WeakHashSet<NetworkProcessProxy> m_networkProcesses;
-    HashMap<String, RefPtr<API::ContentRuleList>> m_contentRuleLists;
+    HashMap<String, std::pair<Ref<API::ContentRuleList>, URL>> m_contentRuleLists;
 #endif
 };
 

@@ -93,6 +93,7 @@ WTF_EXPORT_PRIVATE void* fastZeroedMalloc(size_t) RETURNS_NONNULL;
 WTF_EXPORT_PRIVATE void* fastCalloc(size_t numElements, size_t elementSize) RETURNS_NONNULL;
 WTF_EXPORT_PRIVATE void* fastRealloc(void*, size_t) RETURNS_NONNULL;
 WTF_EXPORT_PRIVATE char* fastStrDup(const char*) RETURNS_NONNULL;
+WTF_EXPORT_PRIVATE void* fastMemDup(const void*, size_t);
 
 WTF_EXPORT_PRIVATE TryMallocReturnValue tryFastMalloc(size_t);
 WTF_EXPORT_PRIVATE TryMallocReturnValue tryFastZeroedMalloc(size_t);
@@ -105,6 +106,22 @@ WTF_EXPORT_PRIVATE void fastFree(void*);
 WTF_EXPORT_PRIVATE void* fastAlignedMalloc(size_t alignment, size_t) RETURNS_NONNULL;
 WTF_EXPORT_PRIVATE void* tryFastAlignedMalloc(size_t alignment, size_t);
 WTF_EXPORT_PRIVATE void fastAlignedFree(void*);
+
+// These functions behave like their non-compact counterparts, but guarantee
+// that the pointer returned can be stored as a CompactPtr or PackedPtr.
+
+WTF_EXPORT_PRIVATE void* fastCompactMalloc(size_t) RETURNS_NONNULL;
+WTF_EXPORT_PRIVATE void* fastCompactZeroedMalloc(size_t) RETURNS_NONNULL;
+WTF_EXPORT_PRIVATE void* fastCompactCalloc(size_t numElements, size_t elementSize) RETURNS_NONNULL;
+WTF_EXPORT_PRIVATE void* fastCompactRealloc(void*, size_t) RETURNS_NONNULL;
+WTF_EXPORT_PRIVATE TryMallocReturnValue tryFastCompactMalloc(size_t);
+WTF_EXPORT_PRIVATE TryMallocReturnValue tryFastCompactZeroedMalloc(size_t);
+WTF_EXPORT_PRIVATE TryMallocReturnValue tryFastCompactCalloc(size_t numElements, size_t elementSize);
+WTF_EXPORT_PRIVATE TryMallocReturnValue tryFastCompactRealloc(void*, size_t);
+WTF_EXPORT_PRIVATE char* fastCompactStrDup(const char*) RETURNS_NONNULL;
+WTF_EXPORT_PRIVATE void* fastCompactMemDup(const void*, size_t);
+WTF_EXPORT_PRIVATE void* fastCompactAlignedMalloc(size_t alignment, size_t) RETURNS_NONNULL;
+WTF_EXPORT_PRIVATE void* tryFastCompactAlignedMalloc(size_t alignment, size_t);
 
 WTF_EXPORT_PRIVATE size_t fastMallocSize(const void*);
 
@@ -120,6 +137,38 @@ WTF_EXPORT_PRIVATE void fastDecommitAlignedMemory(void*, size_t);
 WTF_EXPORT_PRIVATE void fastEnableMiniMode();
 
 WTF_EXPORT_PRIVATE void fastDisableScavenger();
+
+class ForbidMallocUseForCurrentThreadScope {
+public:
+#if ASSERT_ENABLED
+    WTF_EXPORT_PRIVATE ForbidMallocUseForCurrentThreadScope();
+    WTF_EXPORT_PRIVATE ~ForbidMallocUseForCurrentThreadScope();
+#else
+    ForbidMallocUseForCurrentThreadScope() = default;
+    ~ForbidMallocUseForCurrentThreadScope() { }
+#endif
+
+    ForbidMallocUseForCurrentThreadScope(const ForbidMallocUseForCurrentThreadScope&) = delete;
+    ForbidMallocUseForCurrentThreadScope(ForbidMallocUseForCurrentThreadScope&&) = delete;
+    ForbidMallocUseForCurrentThreadScope& operator=(const ForbidMallocUseForCurrentThreadScope&) = delete;
+    ForbidMallocUseForCurrentThreadScope& operator=(ForbidMallocUseForCurrentThreadScope&&) = delete;
+};
+
+class DisableMallocRestrictionsForCurrentThreadScope {
+public:
+#if ASSERT_ENABLED
+    WTF_EXPORT_PRIVATE DisableMallocRestrictionsForCurrentThreadScope();
+    WTF_EXPORT_PRIVATE ~DisableMallocRestrictionsForCurrentThreadScope();
+#else
+    DisableMallocRestrictionsForCurrentThreadScope() = default;
+    ~DisableMallocRestrictionsForCurrentThreadScope() { }
+#endif
+
+    DisableMallocRestrictionsForCurrentThreadScope(const DisableMallocRestrictionsForCurrentThreadScope&) = delete;
+    DisableMallocRestrictionsForCurrentThreadScope(DisableMallocRestrictionsForCurrentThreadScope&&) = delete;
+    DisableMallocRestrictionsForCurrentThreadScope& operator=(const DisableMallocRestrictionsForCurrentThreadScope&) = delete;
+    DisableMallocRestrictionsForCurrentThreadScope& operator=(DisableMallocRestrictionsForCurrentThreadScope&&) = delete;
+};
 
 struct FastMallocStatistics {
     size_t reservedVMBytes;
@@ -170,7 +219,7 @@ public:
 
     T* allocate(size_t count)
     {
-        return reinterpret_cast<T*>(fastMalloc(sizeof(T) * count));
+        return static_cast<T*>(fastMalloc(sizeof(T) * count));
     }
 
     void deallocate(T* pointer, size_t)
@@ -178,63 +227,13 @@ public:
         fastFree(pointer);
     }
 
-#if defined(__GLIBCXX__) && (!defined(_GLIBCXX_RELEASE) || _GLIBCXX_RELEASE < 6)
-    // This allocator also supports pre-C++11 STL allocator interface. This is a workaround for GCC < 6, which std::list
-    // does not support C++11 allocator. Note that _GLIBCXX_RELEASE is only defined after GCC 7 release. So currently
-    // this workaround is enabled in GCC 6 too.
-    // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=55409
-
-    using pointer = value_type*;
-    using const_pointer = typename std::pointer_traits<pointer>::template rebind<value_type const>;
-    using void_pointer = typename std::pointer_traits<pointer>::template rebind<void>;
-    using const_void_pointer = typename std::pointer_traits<pointer>::template rebind<const void>;
-
-    using reference = T&;
-    using const_reference = const T&;
-
-    using difference_type = typename std::pointer_traits<pointer>::difference_type;
-    using size_type = std::make_unsigned_t<difference_type>;
-
-    template <class U> struct rebind {
+    template <typename U>
+    struct rebind {
         using other = FastAllocator<U>;
     };
-
-    value_type* allocate(std::size_t count, const_void_pointer)
-    {
-        return allocate(count);
-    }
-
-    template <class U, class ...Args>
-    void construct(U* p, Args&& ...args)
-    {
-        new (const_cast<void*>(static_cast<const void*>(p))) U(std::forward<Args>(args)...);
-    }
-
-    template <class U>
-    void destroy(U* p)
-    {
-        p->~U();
-    }
-
-    std::size_t max_size() const
-    {
-        return std::numeric_limits<size_type>::max();
-    }
-
-    FastAllocator<T> select_on_container_copy_construction() const
-    {
-        return *this;
-    }
-
-    using propagate_on_container_copy_assignment = std::false_type;
-    using propagate_on_container_move_assignment = std::false_type;
-    using propagate_on_container_swap = std::false_type;
-    using is_always_equal = std::is_empty<FastAllocator>;
-#endif // defined(__GLIBCXX__) && (!defined(_GLIBCXX_RELEASE) || _GLIBCXX_RELEASE < 6)
 };
 
 template<typename T, typename U> inline bool operator==(const FastAllocator<T>&, const FastAllocator<U>&) { return true; }
-template<typename T, typename U> inline bool operator!=(const FastAllocator<T>&, const FastAllocator<U>&) { return false; }
 
 struct FastMalloc {
     static void* malloc(size_t size) { return fastMalloc(size); }
@@ -273,9 +272,46 @@ struct FastMalloc {
     static void free(void* p) { fastFree(p); }
 };
 
+struct FastCompactMalloc {
+    static void* malloc(size_t size) { return fastCompactMalloc(size); }
+
+    static void* tryMalloc(size_t size)
+    {
+        auto result = tryFastCompactMalloc(size);
+        void* realResult;
+        if (result.getValue(realResult))
+            return realResult;
+        return nullptr;
+    }
+
+    static void* zeroedMalloc(size_t size) { return fastCompactZeroedMalloc(size); }
+
+    static void* tryZeroedMalloc(size_t size)
+    {
+        auto result = tryFastCompactZeroedMalloc(size);
+        void* realResult;
+        if (result.getValue(realResult))
+            return realResult;
+        return nullptr;
+    }
+
+    static void* realloc(void* p, size_t size) { return fastCompactRealloc(p, size); }
+
+    static void* tryRealloc(void* p, size_t size)
+    {
+        auto result = tryFastCompactRealloc(p, size);
+        void* realResult;
+        if (result.getValue(realResult))
+            return realResult;
+        return nullptr;
+    }
+
+    static void free(void* p) { fastFree(p); }
+};
+
 template<typename T>
 struct FastFree {
-    static_assert(std::is_trivially_destructible<T>::value, "");
+    static_assert(std::is_trivially_destructible<T>::value);
 
     void operator()(T* pointer) const
     {
@@ -285,7 +321,7 @@ struct FastFree {
 
 template<typename T>
 struct FastFree<T[]> {
-    static_assert(std::is_trivially_destructible<T>::value, "");
+    static_assert(std::is_trivially_destructible<T>::value);
 
     void operator()(T* pointer) const
     {
@@ -299,15 +335,56 @@ struct FastFree<T[]> {
 using WTF::fastSetMaxSingleAllocationSize;
 #endif
 
+template<typename T>
+struct AllowCompactPointers : std::false_type { };
+
+#define WTF_ALLOW_COMPACT_POINTERS_TO_INCOMPLETE_TYPE(className) \
+template<> \
+struct AllowCompactPointers<className*> : std::true_type { }
+
+#define WTF_ALLOW_COMPACT_POINTERS_IMPL \
+    constexpr static bool allowCompactPointers = true
+
+#define WTF_ALLOW_COMPACT_POINTERS \
+public: \
+    WTF_ALLOW_COMPACT_POINTERS_IMPL; \
+private: \
+using __thisIsAlsoHereToForceASemicolonAfterThisMacro UNUSED_TYPE_ALIAS = int
+
+#define WTF_ALLOW_STRUCT_COMPACT_POINTERS \
+public: \
+    WTF_ALLOW_COMPACT_POINTERS_IMPL; \
+using __thisIsAlsoHereToForceASemicolonAfterThisMacro UNUSED_TYPE_ALIAS = int
+
+template<typename T>
+inline constexpr std::enable_if_t<WTF::IsTypeComplete<std::remove_pointer_t<T>>, bool> allowCompactPointers()
+{
+    return std::remove_pointer_t<T>::allowCompactPointers;
+}
+
+template<typename T>
+inline constexpr std::enable_if_t<!WTF::IsTypeComplete<std::remove_pointer_t<T>>, bool> allowCompactPointers()
+{
+    // We want to support compact pointers to incomplete types too, so we have this fallback:
+    // if a type is incomplete, AllowCompactPointers can be specialized on its pointer type,
+    // in which case we'll return its value. This is mostly accomplished using the below
+    // WTF_ALLOW_COMPACT_POINTERS_TO_INCOMPLETE_TYPE macro.
+    return AllowCompactPointers<std::remove_const_t<std::remove_pointer_t<T>>*>::value;
+}
+
+using WTF::DisableMallocRestrictionsForCurrentThreadScope;
 using WTF::FastAllocator;
 using WTF::FastMalloc;
+using WTF::FastCompactMalloc;
 using WTF::FastFree;
+using WTF::ForbidMallocUseForCurrentThreadScope;
 using WTF::isFastMallocEnabled;
 using WTF::fastCalloc;
 using WTF::fastFree;
 using WTF::fastMalloc;
 using WTF::fastMallocGoodSize;
 using WTF::fastMallocSize;
+using WTF::fastMemDup;
 using WTF::fastRealloc;
 using WTF::fastStrDup;
 using WTF::fastZeroedMalloc;
@@ -317,6 +394,17 @@ using WTF::tryFastMalloc;
 using WTF::tryFastZeroedMalloc;
 using WTF::fastAlignedMalloc;
 using WTF::fastAlignedFree;
+using WTF::fastCompactCalloc;
+using WTF::fastCompactMalloc;
+using WTF::fastCompactMemDup;
+using WTF::fastCompactRealloc;
+using WTF::fastCompactStrDup;
+using WTF::fastCompactZeroedMalloc;
+using WTF::tryFastCompactAlignedMalloc;
+using WTF::tryFastCompactCalloc;
+using WTF::tryFastCompactMalloc;
+using WTF::tryFastCompactZeroedMalloc;
+using WTF::fastCompactAlignedMalloc;
 
 #if COMPILER(GCC_COMPATIBLE) && OS(DARWIN)
 #define WTF_PRIVATE_INLINE __private_extern__ inline __attribute__((always_inline))
@@ -356,6 +444,45 @@ using WTF::fastAlignedFree;
         ASSERT(location); \
         return location; \
     } \
+    static void freeAfterDestruction(void* p) \
+    { \
+        ::WTF::fastFree(p); \
+    } \
+    using webkitFastMalloced = int; \
+
+#define WTF_MAKE_FAST_COMPACT_ALLOCATED_IMPL \
+    WTF_ALLOW_COMPACT_POINTERS_IMPL; \
+    void* operator new(size_t, void* p) { return p; } \
+    void* operator new[](size_t, void* p) { return p; } \
+    \
+    void* operator new(size_t size) \
+    { \
+        return ::WTF::fastCompactMalloc(size); \
+    } \
+    \
+    void operator delete(void* p) \
+    { \
+        ::WTF::fastFree(p); \
+    } \
+    \
+    void* operator new[](size_t size) \
+    { \
+        return ::WTF::fastCompactMalloc(size); \
+    } \
+    \
+    void operator delete[](void* p) \
+    { \
+        ::WTF::fastFree(p); \
+    } \
+    void* operator new(size_t, NotNullTag, void* location) \
+    { \
+        ASSERT(location); \
+        return location; \
+    } \
+    static void freeAfterDestruction(void* p) \
+    { \
+        ::WTF::fastFree(p); \
+    } \
     using webkitFastMalloced = int; \
 
 // FIXME: WTF_MAKE_FAST_ALLOCATED should take class name so that we can create malloc_zone per this macro.
@@ -364,11 +491,21 @@ using WTF::fastAlignedFree;
 public: \
     WTF_MAKE_FAST_ALLOCATED_IMPL \
 private: \
-using __thisIsHereToForceASemicolonAfterThisMacro = int
+using __thisIsHereToForceASemicolonAfterThisMacro UNUSED_TYPE_ALIAS = int
 
 #define WTF_MAKE_STRUCT_FAST_ALLOCATED \
     WTF_MAKE_FAST_ALLOCATED_IMPL \
-using __thisIsHereToForceASemicolonAfterThisMacro = int
+using __thisIsHereToForceASemicolonAfterThisMacro UNUSED_TYPE_ALIAS = int
+
+#define WTF_MAKE_FAST_COMPACT_ALLOCATED \
+public: \
+    WTF_MAKE_FAST_COMPACT_ALLOCATED_IMPL \
+private: \
+using __thisIsHereToForceASemicolonAfterThisMacro UNUSED_TYPE_ALIAS = int
+
+#define WTF_MAKE_STRUCT_FAST_COMPACT_ALLOCATED \
+    WTF_MAKE_FAST_COMPACT_ALLOCATED_IMPL \
+using __thisIsHereToForceASemicolonAfterThisMacro UNUSED_TYPE_ALIAS = int
 
 #if ENABLE(MALLOC_HEAP_BREAKDOWN)
 
@@ -400,36 +537,60 @@ using __thisIsHereToForceASemicolonAfterThisMacro = int
         ASSERT(location); \
         return location; \
     } \
+    static void freeAfterDestruction(void* p) \
+    { \
+        classname##Malloc::free(p); \
+    } \
     using webkitFastMalloced = int; \
 
 #define WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(classname) \
 public: \
     WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER_IMPL(classname) \
 private: \
-    WTF_EXPORT_PRIVATE static WTF::DebugHeap& debugHeap(const char*); \
-using __thisIsHereToForceASemicolonAfterThisMacro = int
+using __thisIsHereToForceASemicolonAfterThisMacro UNUSED_TYPE_ALIAS = int
 
 #define WTF_MAKE_STRUCT_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(className) \
 private: \
-    WTF_EXPORT_PRIVATE static WTF::DebugHeap& debugHeap(const char*); \
 public: \
     WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER_IMPL(className) \
-using __thisIsHereToForceASemicolonAfterThisMacro = int
+using __thisIsHereToForceASemicolonAfterThisMacro UNUSED_TYPE_ALIAS = int
+
+#define WTF_MAKE_FAST_COMPACT_ALLOCATED_WITH_HEAP_IDENTIFIER(className) \
+    WTF_ALLOW_COMPACT_POINTERS; \
+    WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(className)
+
+#define WTF_MAKE_STRUCT_FAST_COMPACT_ALLOCATED_WITH_HEAP_IDENTIFIER(className) \
+    WTF_ALLOW_STRUCT_COMPACT_POINTERS; \
+    WTF_MAKE_STRUCT_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(className)
 
 #else
 
-#define WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER_IMPL(classname) \
+#define WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER_IMPL(className) \
     WTF_MAKE_FAST_ALLOCATED_IMPL
 
-#define WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(classname) \
+#define WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(className) \
 public: \
-    WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER_IMPL(classname) \
+    WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER_IMPL(className) \
 private: \
-using __thisIsHereToForceASemicolonAfterThisMacro = int
+using __thisIsHereToForceASemicolonAfterThisMacro UNUSED_TYPE_ALIAS = int
 
 #define WTF_MAKE_STRUCT_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(className) \
 public: \
     WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER_IMPL(className) \
-using __thisIsHereToForceASemicolonAfterThisMacro = int
+using __thisIsHereToForceASemicolonAfterThisMacro UNUSED_TYPE_ALIAS = int
+
+#define WTF_MAKE_FAST_COMPACT_ALLOCATED_WITH_HEAP_IDENTIFIER_IMPL(className) \
+    WTF_MAKE_FAST_COMPACT_ALLOCATED_IMPL
+
+#define WTF_MAKE_FAST_COMPACT_ALLOCATED_WITH_HEAP_IDENTIFIER(className) \
+public: \
+    WTF_MAKE_FAST_COMPACT_ALLOCATED_WITH_HEAP_IDENTIFIER_IMPL(className) \
+private: \
+using __thisIsHereToForceASemicolonAfterThisMacro UNUSED_TYPE_ALIAS = int
+
+#define WTF_MAKE_STRUCT_FAST_COMPACT_ALLOCATED_WITH_HEAP_IDENTIFIER(className) \
+public: \
+    WTF_MAKE_FAST_COMPACT_ALLOCATED_WITH_HEAP_IDENTIFIER_IMPL(className) \
+using __thisIsHereToForceASemicolonAfterThisMacro UNUSED_TYPE_ALIAS = int
 
 #endif

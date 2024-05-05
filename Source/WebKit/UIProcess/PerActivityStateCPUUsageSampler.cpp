@@ -30,6 +30,7 @@
 #include "WebPageProxy.h"
 #include "WebProcessPool.h"
 #include "WebProcessProxy.h"
+#include <WebCore/DiagnosticLoggingClient.h>
 #include <WebCore/DiagnosticLoggingKeys.h>
 
 namespace WebKit {
@@ -70,7 +71,7 @@ static inline String loggingKeyForActivityState(ActivityStateForCPUSampling stat
 
 void PerActivityStateCPUUsageSampler::loggingTimerFired()
 {
-    auto* page = pageForLogging();
+    auto page = pageForLogging();
     if (!page) {
         m_cpuTimeInActivityState.clear();
         return;
@@ -90,12 +91,12 @@ void PerActivityStateCPUUsageSampler::loggingTimerFired()
     m_lastCPUTime = currentCPUTime;
 }
 
-WebPageProxy* PerActivityStateCPUUsageSampler::pageForLogging() const
+RefPtr<WebPageProxy> PerActivityStateCPUUsageSampler::pageForLogging() const
 {
-    for (auto& webProcess : m_processPool.processes()) {
+    for (Ref webProcess : m_processPool.processes()) {
         if (!webProcess->pageCount())
             continue;
-        return *webProcess->pages().begin();
+        return webProcess->pages()[0].ptr();
     }
     return nullptr;
 }

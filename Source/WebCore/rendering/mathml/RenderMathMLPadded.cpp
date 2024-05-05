@@ -28,6 +28,7 @@
 
 #if ENABLE(MATHML)
 
+#include "RenderMathMLBlockInlines.h"
 #include <cmath>
 #include <wtf/IsoMallocInlines.h>
 
@@ -36,8 +37,9 @@ namespace WebCore {
 WTF_MAKE_ISO_ALLOCATED_IMPL(RenderMathMLPadded);
 
 RenderMathMLPadded::RenderMathMLPadded(MathMLPaddedElement& element, RenderStyle&& style)
-    : RenderMathMLRow(element, WTFMove(style))
+    : RenderMathMLRow(Type::MathMLPadded, element, WTFMove(style))
 {
+    ASSERT(isRenderMathMLPadded());
 }
 
 LayoutUnit RenderMathMLPadded::voffset() const
@@ -116,7 +118,7 @@ void RenderMathMLPadded::layoutBlock(bool relayoutChildren, LayoutUnit)
     clearNeedsLayout();
 }
 
-Optional<int> RenderMathMLPadded::firstLineBaseline() const
+std::optional<LayoutUnit> RenderMathMLPadded::firstLineBaseline() const
 {
     // We try and calculate the baseline from the position of the first child.
     LayoutUnit ascent;
@@ -124,7 +126,7 @@ Optional<int> RenderMathMLPadded::firstLineBaseline() const
         ascent = ascentForChild(*baselineChild) + baselineChild->logicalTop() + voffset();
     else
         ascent = mpaddedHeight(0);
-    return Optional<int>(std::lround(static_cast<float>(ascent)));
+    return ascent;
 }
 
 }

@@ -43,7 +43,7 @@ enum ContextMenuAction {
     ContextMenuItemTagDownloadImageToDisk,
     ContextMenuItemTagCopyImageToClipboard,
 #if PLATFORM(GTK)
-    ContextMenuItemTagCopyImageUrlToClipboard,
+    ContextMenuItemTagCopyImageURLToClipboard,
 #endif
     ContextMenuItemTagOpenFrameInNewWindow,
     ContextMenuItemTagCopy,
@@ -142,26 +142,40 @@ enum ContextMenuAction {
     ContextMenuItemTagMediaPlayPause,
     ContextMenuItemTagMediaMute,
     ContextMenuItemTagDictationAlternative,
+    ContextMenuItemTagPlayAllAnimations,
+    ContextMenuItemTagPauseAllAnimations,
+    ContextMenuItemTagPlayAnimation,
+    ContextMenuItemTagPauseAnimation,
     ContextMenuItemTagToggleVideoFullscreen,
     ContextMenuItemTagShareMenu,
     ContextMenuItemTagToggleVideoEnhancedFullscreen,
+    ContextMenuItemTagAddHighlightToCurrentQuickNote,
+    ContextMenuItemTagAddHighlightToNewQuickNote,
+    ContextMenuItemTagLookUpImage,
+    ContextMenuItemTagTranslate,
+    ContextMenuItemTagCopySubject,
+    ContextMenuItemPDFSinglePageContinuous,
+    ContextMenuItemPDFTwoPages,
+    ContextMenuItemPDFTwoPagesContinuous,
+    ContextMenuItemTagShowMediaStats,
+    ContextMenuItemLastNonCustomTag = ContextMenuItemTagShowMediaStats,
     ContextMenuItemBaseCustomTag = 5000,
     ContextMenuItemLastCustomTag = 5999,
     ContextMenuItemBaseApplicationTag = 10000
 };
 
-enum ContextMenuItemType {
-    ActionType,
-    CheckableActionType,
-    SeparatorType,
-    SubmenuType
+enum class ContextMenuItemType : uint8_t {
+    Action,
+    CheckableAction,
+    Separator,
+    Submenu,
 };
 
 class ContextMenuItem {
     WTF_MAKE_FAST_ALLOCATED;
 public:
     WEBCORE_EXPORT ContextMenuItem(ContextMenuItemType, ContextMenuAction, const String&, ContextMenu* subMenu = 0);
-    WEBCORE_EXPORT ContextMenuItem(ContextMenuItemType, ContextMenuAction, const String&, bool enabled, bool checked);
+    WEBCORE_EXPORT ContextMenuItem(ContextMenuItemType, ContextMenuAction, const String&, bool enabled, bool checked, unsigned indentationLevel = 0);
 
     WEBCORE_EXPORT ~ContextMenuItem();
 
@@ -177,9 +191,12 @@ public:
     void setEnabled(bool = true);
     WEBCORE_EXPORT bool enabled() const;
 
+    void setIndentationLevel(unsigned);
+    WEBCORE_EXPORT unsigned indentationLevel() const;
+
     void setSubMenu(ContextMenu*);
 
-    WEBCORE_EXPORT ContextMenuItem(ContextMenuAction, const String&, bool enabled, bool checked, const Vector<ContextMenuItem>& subMenuItems);
+    WEBCORE_EXPORT ContextMenuItem(ContextMenuAction, const String&, bool enabled, bool checked, const Vector<ContextMenuItem>& subMenuItems, unsigned indentationLevel = 0);
     ContextMenuItem();
 
     bool isNull() const;
@@ -194,33 +211,14 @@ private:
     String m_title;
     bool m_enabled;
     bool m_checked;
+    unsigned m_indentationLevel;
     Vector<ContextMenuItem> m_subMenuItems;
 };
-
-WEBCORE_EXPORT bool isValidContextMenuAction(ContextMenuAction);
 
 } // namespace WebCore
 
 namespace WTF {
 
-template<>
-class HasCustomIsValidEnum<WebCore::ContextMenuAction> : public std::true_type { };
-
-template<typename E, typename T, std::enable_if_t<std::is_same_v<E, WebCore::ContextMenuAction>>* = nullptr>
-bool isValidEnum(T action)
-{
-    static_assert(sizeof(T) == sizeof(E), "isValidEnum<WebCore::ContextMenuAction> should only be called with 32-bit types");
-    return WebCore::isValidContextMenuAction(static_cast<E>(action));
-};
-
-template<> struct EnumTraits<WebCore::ContextMenuItemType> {
-    using values = EnumValues<
-        WebCore::ContextMenuItemType,
-        WebCore::ContextMenuItemType::ActionType,
-        WebCore::ContextMenuItemType::CheckableActionType,
-        WebCore::ContextMenuItemType::SeparatorType,
-        WebCore::ContextMenuItemType::SubmenuType
-    >;
-};
+template<> WEBCORE_EXPORT bool isValidEnum<WebCore::ContextMenuAction, void>(std::underlying_type_t<WebCore::ContextMenuAction>);
 
 } // namespace WTF

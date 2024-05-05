@@ -14,11 +14,10 @@
 #include <array>
 
 #include "api/array_view.h"
+#include "common_audio/third_party/ooura/fft_size_128/ooura_fft.h"
 #include "modules/audio_processing/aec3/aec3_common.h"
 #include "modules/audio_processing/aec3/fft_data.h"
-#include "modules/audio_processing/utility/ooura_fft.h"
 #include "rtc_base/checks.h"
-#include "rtc_base/constructor_magic.h"
 
 namespace webrtc {
 
@@ -28,7 +27,11 @@ class Aec3Fft {
  public:
   enum class Window { kRectangular, kHanning, kSqrtHanning };
 
-  Aec3Fft() = default;
+  Aec3Fft();
+
+  Aec3Fft(const Aec3Fft&) = delete;
+  Aec3Fft& operator=(const Aec3Fft&) = delete;
+
   // Computes the FFT. Note that both the input and output are modified.
   void Fft(std::array<float, kFftLength>* x, FftData* X) const {
     RTC_DCHECK(x);
@@ -65,8 +68,6 @@ class Aec3Fft {
 
  private:
   const OouraFft ooura_fft_;
-
-  RTC_DISALLOW_COPY_AND_ASSIGN(Aec3Fft);
 };
 
 }  // namespace webrtc

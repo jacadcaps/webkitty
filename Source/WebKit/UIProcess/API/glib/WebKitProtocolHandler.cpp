@@ -4,7 +4,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2,1 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -20,17 +20,22 @@
 #include "config.h"
 #include "WebKitProtocolHandler.h"
 
+#include "BuildRevision.h"
+#include "DisplayVBlankMonitor.h"
 #include "WebKitError.h"
+#include "WebKitURISchemeRequestPrivate.h"
 #include "WebKitVersion.h"
 #include "WebKitWebView.h"
+#include "WebProcessPool.h"
 #include <WebCore/FloatRect.h>
 #include <WebCore/GLContext.h>
 #include <WebCore/IntRect.h>
 #include <WebCore/PlatformDisplay.h>
 #include <WebCore/PlatformScreen.h>
-#include <cairo.h>
+#include <epoxy/gl.h>
 #include <gio/gio.h>
 #include <wtf/URL.h>
+#include <wtf/WorkQueue.h>
 #include <wtf/glib/GRefPtr.h>
 #include <wtf/glib/GUniquePtr.h>
 
@@ -38,33 +43,29 @@
 #include <sys/utsname.h>
 #endif
 
-#if PLATFORM(GTK)
-#include <gtk/gtk.h>
+#if USE(CAIRO)
+#include <cairo.h>
+#endif
 
-#if PLATFORM(WAYLAND) && USE(WPE_RENDERER)
-#include <wpe/fdo.h>
+#if PLATFORM(GTK)
+#if USE(EGL)
+#include "AcceleratedBackingStoreDMABuf.h"
+#include "DMABufRendererBufferMode.h"
+#include <WebCore/PlatformDisplaySurfaceless.h>
 #endif
-#endif
+#include <gtk/gtk.h>
 
 #if PLATFORM(X11)
 #include <WebCore/PlatformDisplayX11.h>
 #endif
 
-#if USE(LIBEPOXY)
-#include <epoxy/gl.h>
+#if USE(GBM)
+#include <WebCore/PlatformDisplayGBM.h>
+#endif
 #endif
 
 #if USE(EGL)
-#if USE(LIBEPOXY)
 #include <epoxy/egl.h>
-#else
-#include <EGL/egl.h>
-#endif
-#endif
-
-#if USE(GLX)
-#include <GL/glx.h>
-#include <WebCore/OpenGLShims.h>
 #endif
 
 #if USE(GSTREAMER)
@@ -87,8 +88,8 @@ WebKitProtocolHandler::WebKitProtocolHandler(WebKitWebContext* context)
 
 void WebKitProtocolHandler::handleRequest(WebKitURISchemeRequest* request)
 {
-    URL requestURL = URL({ }, webkit_uri_scheme_request_get_uri(request));
-    if (requestURL.host() == "gpu") {
+    URL requestURL = URL(String::fromLatin1(webkit_uri_scheme_request_get_uri(request)));
+    if (requestURL.host() == "gpu"_s) {
         handleGPU(request);
         return;
     }
@@ -120,56 +121,63 @@ static const char* hardwareAccelerationPolicy(WebKitURISchemeRequest* request)
         return "never";
     case WEBKIT_HARDWARE_ACCELERATION_POLICY_ALWAYS:
         return "always";
+#if !USE(GTK4)
     case WEBKIT_HARDWARE_ACCELERATION_POLICY_ON_DEMAND:
         return "on demand";
+#endif
     }
 #endif
     RELEASE_ASSERT_NOT_REACHED();
 }
 
+#if ENABLE(WEBGL)
 static bool webGLEnabled(WebKitURISchemeRequest* request)
 {
     auto* webView = webkit_uri_scheme_request_get_web_view(request);
     ASSERT(webView);
     return webkit_settings_get_enable_webgl(webkit_web_view_get_settings(webView));
 }
+#endif
+
+static bool uiProcessContextIsEGL()
+{
+#if USE(EGL)
+#if PLATFORM(GTK)
+    return !!PlatformDisplay::sharedDisplay().gtkEGLDisplay();
+#else
+    return true;
+#endif
+#else
+    return false;
+#endif
+}
 
 static const char* openGLAPI()
 {
-#if USE(LIBEPOXY)
     if (epoxy_is_desktop_gl())
         return "OpenGL (libepoxy)";
     return "OpenGL ES 2 (libepoxy)";
-#else
-#if USE(GLX)
-    if (PlatformDisplay::sharedDisplay().type() == PlatformDisplay::Type::X11)
-        return "OpenGL";
-#endif
-#if USE(EGL)
-#if USE(OPENGL_ES)
-    return "OpenGL ES 2";
-#else
-    return "OpenGL";
-#endif
-#endif
-#endif
-    RELEASE_ASSERT_NOT_REACHED();
 }
 
-static const char* nativeInterface()
-{
 #if PLATFORM(GTK)
-#if USE(GLX)
-    if (PlatformDisplay::sharedDisplay().type() == PlatformDisplay::Type::X11)
-        return "GLX";
-#endif
-#endif
-
+static String dmabufRendererWithSupportedBuffers()
+{
+    StringBuilder buffers;
+    buffers.append("DMABuf (Supported buffers: "_s);
 #if USE(EGL)
-    return "EGL";
+    auto mode = AcceleratedBackingStoreDMABuf::rendererBufferMode();
+    if (mode.contains(DMABufRendererBufferMode::Hardware))
+        buffers.append("Hardware"_s);
+    if (mode.contains(DMABufRendererBufferMode::SharedMemory)) {
+        if (mode.contains(DMABufRendererBufferMode::Hardware))
+            buffers.append(", ");
+        buffers.append("Shared Memory"_s);
+    }
 #endif
-    RELEASE_ASSERT_NOT_REACHED();
+    buffers.append(')');
+    return buffers.toString();
 }
+#endif
 
 void WebKitProtocolHandler::handleGPU(WebKitURISchemeRequest* request)
 {
@@ -187,304 +195,245 @@ void WebKitProtocolHandler::handleGPU(WebKitURISchemeRequest* request)
         "  td { padding: 15px; }"
         "  td.data { width: 200px; }"
         "  .titlename { font-weight: bold; }"
-        "</style></head><body>");
+        "</style>");
 
-    g_string_append(html,
-        "<h1>Version Information</h1>"
-        "<table>");
+    StringBuilder tablesBuilder;
 
-    g_string_append_printf(html,
-        " <tbody><tr>"
-        "  <td><div class=\"titlename\">WebKit version</div></td>"
-        "  <td>%s %d.%d.%d (%s)</td>"
-        " </tbody></tr>",
-        webkitPortName(), WEBKIT_MAJOR_VERSION, WEBKIT_MINOR_VERSION, WEBKIT_MICRO_VERSION, SVN_REVISION);
+    auto startTable = [&](auto header) {
+        tablesBuilder.append("<h1>"_s, header, "</h1><table>"_s);
+    };
+
+    auto addTableRow = [&](auto& jsonObject, auto key, auto&& value) {
+        tablesBuilder.append("<tbody><tr><td><div class=\"titlename\">"_s, key, "</div></td><td>"_s, value, "</td></tr></tbody>"_s);
+        jsonObject->setString(key, value);
+    };
+
+    auto stopTable = [&] {
+        tablesBuilder.append("</table>"_s);
+    };
+
+#if USE(EGL)
+    auto addEGLInfo = [&](auto& jsonObject) {
+        addTableRow(jsonObject, "GL_RENDERER"_s, String::fromUTF8(reinterpret_cast<const char*>(glGetString(GL_RENDERER))));
+        addTableRow(jsonObject, "GL_VENDOR"_s, String::fromUTF8(reinterpret_cast<const char*>(glGetString(GL_VENDOR))));
+        addTableRow(jsonObject, "GL_VERSION"_s, String::fromUTF8(reinterpret_cast<const char*>(glGetString(GL_VERSION))));
+        addTableRow(jsonObject, "GL_SHADING_LANGUAGE_VERSION"_s, String::fromUTF8(reinterpret_cast<const char*>(glGetString(GL_SHADING_LANGUAGE_VERSION))));
+
+        switch (eglQueryAPI()) {
+        case EGL_OPENGL_ES_API:
+            addTableRow(jsonObject, "GL_EXTENSIONS"_s, String::fromUTF8(reinterpret_cast<const char*>(glGetString(GL_EXTENSIONS))));
+            break;
+        case EGL_OPENGL_API: {
+            StringBuilder extensionsBuilder;
+            GLint numExtensions = 0;
+            glGetIntegerv(GL_NUM_EXTENSIONS, &numExtensions);
+            for (GLint i = 0; i < numExtensions; ++i) {
+                if (i)
+                    extensionsBuilder.append(' ');
+                extensionsBuilder.append(reinterpret_cast<const char*>(glGetStringi(GL_EXTENSIONS, i)));
+            }
+            addTableRow(jsonObject, "GL_EXTENSIONS"_s, extensionsBuilder.toString());
+            break;
+        }
+        }
+
+        auto eglDisplay = eglGetCurrentDisplay();
+        addTableRow(jsonObject, "EGL_VERSION"_s, String::fromUTF8(eglQueryString(eglDisplay, EGL_VERSION)));
+        addTableRow(jsonObject, "EGL_VENDOR"_s, String::fromUTF8(eglQueryString(eglDisplay, EGL_VENDOR)));
+        addTableRow(jsonObject, "EGL_EXTENSIONS"_s, makeString(eglQueryString(nullptr, EGL_EXTENSIONS), ' ', eglQueryString(eglDisplay, EGL_EXTENSIONS)));
+    };
+#endif
+
+    auto jsonObject = JSON::Object::create();
+
+    startTable("Version Information"_s);
+    auto versionObject = JSON::Object::create();
+    addTableRow(versionObject, "WebKit version"_s, makeString(webkitPortName(), ' ', WEBKIT_MAJOR_VERSION, '.', WEBKIT_MINOR_VERSION, '.', WEBKIT_MICRO_VERSION, " ("_s, BUILD_REVISION, ')'));
 
 #if OS(UNIX)
     struct utsname osName;
     uname(&osName);
-    g_string_append_printf(
-        html,
-        " <tbody><tr>"
-        "  <td><div class=\"titlename\">Operating system</div></td>"
-        "  <td>%s %s %s %s</td>"
-        " </tbody></tr>",
-        osName.sysname, osName.release, osName.version, osName.machine);
+    addTableRow(versionObject, "Operating system"_s, makeString(osName.sysname, ' ', osName.release, ' ', osName.version, ' ', osName.machine));
 #endif
 
-    g_string_append_printf(html,
-        " <tbody><tr>"
-        "  <td><div class=\"titlename\">Desktop</div></td>"
-        "  <td>%s</td>"
-        " </tbody></tr>",
-        g_getenv("XDG_CURRENT_DESKTOP"));
+    const char* desktopName = g_getenv("XDG_CURRENT_DESKTOP");
+    addTableRow(versionObject, "Desktop"_s, (desktopName && *desktopName) ? String::fromUTF8(desktopName) : "Unknown"_s);
 
-    g_string_append_printf(html,
-        " <tbody><tr>"
-        "  <td><div class=\"titlename\">Cairo version</div></td>"
-        "  <td>%s (build) %s (runtime)</td>"
-        " </tbody></tr>",
-        CAIRO_VERSION_STRING, cairo_version_string());
+#if USE(CAIRO)
+    addTableRow(versionObject, "Cairo version"_s, makeString(CAIRO_VERSION_STRING, " (build) "_s, cairo_version_string(), " (runtime)"_s));
+#endif
 
 #if USE(GSTREAMER)
     GUniquePtr<char> gstVersion(gst_version_string());
-    g_string_append_printf(html,
-        " <tbody><tr>"
-        "  <td><div class=\"titlename\">GStreamer version</div></td>"
-        "  <td>%d.%d.%d (build) %s (runtime)</td>"
-        " </tbody></tr>",
-        GST_VERSION_MAJOR, GST_VERSION_MINOR, GST_VERSION_MICRO, gstVersion.get());
+    addTableRow(versionObject, "GStreamer version"_s, makeString(GST_VERSION_MAJOR, '.', GST_VERSION_MINOR, '.', GST_VERSION_MICRO, " (build) "_s, gstVersion.get(), " (runtime)"_s));
 #endif
 
 #if PLATFORM(GTK)
-    g_string_append_printf(html,
-        " <tbody><tr>"
-        "  <td><div class=\"titlename\">GTK version</div></td>"
-        "  <td>%d.%d.%d (build) %d.%d.%d (runtime)</td>"
-        " </tbody></tr>",
-        GTK_MAJOR_VERSION, GTK_MINOR_VERSION, GTK_MICRO_VERSION,
-        gtk_get_major_version(), gtk_get_minor_version(), gtk_get_micro_version());
+    addTableRow(versionObject, "GTK version"_s, makeString(GTK_MAJOR_VERSION, '.', GTK_MINOR_VERSION, '.', GTK_MICRO_VERSION, " (build) "_s, gtk_get_major_version(), '.', gtk_get_minor_version(), '.', gtk_get_micro_version(), " (runtime)"_s));
 
-#if PLATFORM(WAYLAND) && USE(WPE_RENDERER)
-    if (PlatformDisplay::sharedDisplay().type() == PlatformDisplay::Type::Wayland) {
-        g_string_append_printf(html,
-            " <tbody><tr>"
-            "  <td><div class=\"titlename\">WPE version</div></td>"
-            "  <td>%d.%d.%d (using fdo backend %d.%d.%d)</td>"
-            " </tbody></tr>",
-            WPE_FDO_MAJOR_VERSION, WPE_FDO_MINOR_VERSION, WPE_FDO_MICRO_VERSION,
-            WPE_MAJOR_VERSION, WPE_MINOR_VERSION, WPE_MICRO_VERSION);
-    }
+#if USE(EGL)
+    bool usingDMABufRenderer = AcceleratedBackingStoreDMABuf::checkRequirements();
+#else
+    bool usingDMABufRenderer = false;
 #endif
 #endif
 
 #if PLATFORM(WPE)
-    g_string_append_printf(html,
-        " <tbody><tr>"
-        "  <td><div class=\"titlename\">WPE version</div></td>"
-        "  <td>%d.%d.%d (build) %d.%d.%d (runtime)</td>"
-        " </tbody></tr>",
-        WPE_MAJOR_VERSION, WPE_MINOR_VERSION, WPE_MICRO_VERSION,
-        wpe_get_major_version(), wpe_get_minor_version(), wpe_get_micro_version());
-
-    g_string_append_printf(html,
-        " <tbody><tr>"
-        "  <td><div class=\"titlename\">WPE backend</div></td>"
-        "  <td>%s</td>"
-        " </tbody></tr>",
-        wpe_loader_get_loaded_implementation_library_name());
+    addTableRow(versionObject, "WPE version"_s, makeString(WPE_MAJOR_VERSION, '.', WPE_MINOR_VERSION, '.', WPE_MICRO_VERSION, " (build) "_s, wpe_get_major_version(), '.', wpe_get_minor_version(), '.', wpe_get_micro_version(), " (runtime)"_s));
+    addTableRow(versionObject, "WPE backend"_s, String::fromUTF8(wpe_loader_get_loaded_implementation_library_name()));
 #endif
-    g_string_append(html, "<table>");
 
-    g_string_append(html,
-        "<h1>Display Information</h1>"
-        "<table>");
+    stopTable();
+    jsonObject->setObject("Version Information"_s, WTFMove(versionObject));
+
+    auto displayObject = JSON::Object::create();
+    startTable("Display Information"_s);
+
+    auto& page = webkitURISchemeRequestGetWebPage(request);
+    auto displayID = page.displayID();
+    addTableRow(displayObject, "Identifier"_s, String::number(displayID.value_or(0)));
 
 #if PLATFORM(GTK)
-    g_string_append_printf(html,
-        " <tbody><tr>"
-        "  <td><div class=\"titlename\">Type</div></td>"
-        "  <td>%s</td>"
-        " </tbody></tr>",
+    StringBuilder typeStringBuilder;
 #if PLATFORM(WAYLAND)
-        PlatformDisplay::sharedDisplay().type() == PlatformDisplay::Type::Wayland ? "Wayland" :
+    if (PlatformDisplay::sharedDisplay().type() == PlatformDisplay::Type::Wayland)
+        typeStringBuilder.append("Wayland"_s);
 #endif
 #if PLATFORM(X11)
-        PlatformDisplay::sharedDisplay().type() == PlatformDisplay::Type::X11 ? "X11" :
+    if (PlatformDisplay::sharedDisplay().type() == PlatformDisplay::Type::X11)
+        typeStringBuilder.append("X11"_s);
 #endif
-        "Unknown"
-    );
-#endif
+    addTableRow(displayObject, "Type"_s, !typeStringBuilder.isEmpty() ? typeStringBuilder.toString() : "Unknown"_s);
+#endif // PLATFORM(GTK)
+
+    const char* policy = hardwareAccelerationPolicy(request);
 
     auto rect = IntRect(screenRect(nullptr));
-    g_string_append_printf(html,
-        " <tbody><tr>"
-        "  <td><div class=\"titlename\">Screen geometry</div></td>"
-        "  <td>%d,%d %dx%d</td>"
-        " </tbody></tr>",
-        rect.x(), rect.y(), rect.width(), rect.height());
+    addTableRow(displayObject, "Screen geometry"_s, makeString(rect.x(), ',', rect.y(), ' ', rect.width(), 'x', rect.height()));
 
     rect = IntRect(screenAvailableRect(nullptr));
-    g_string_append_printf(html,
-        " <tbody><tr>"
-        "  <td><div class=\"titlename\">Screen work area</div></td>"
-        "  <td>%d,%d %dx%d</td>"
-        " </tbody></tr>",
-        rect.x(), rect.y(), rect.width(), rect.height());
+    addTableRow(displayObject, "Screen work area"_s, makeString(rect.x(), ',', rect.y(), ' ', rect.width(), 'x', rect.height()));
+    addTableRow(displayObject, "Depth"_s, String::number(screenDepth(nullptr)));
+    addTableRow(displayObject, "Bits per color component"_s, String::number(screenDepthPerComponent(nullptr)));
+    addTableRow(displayObject, "DPI"_s, String::number(screenDPI()));
 
-    g_string_append_printf(html,
-        " <tbody><tr>"
-        "  <td><div class=\"titlename\">Depth</div></td>"
-        "  <td>%d</td>"
-        " </tbody></tr>",
-        screenDepth(nullptr));
-
-    g_string_append_printf(html,
-        " <tbody><tr>"
-        "  <td><div class=\"titlename\">Bits per color component</div></td>"
-        "  <td>%d</td>"
-        " </tbody></tr>",
-        screenDepthPerComponent(nullptr));
-
-    g_string_append_printf(html,
-        " <tbody><tr>"
-        "  <td><div class=\"titlename\">DPI</div></td>"
-        "  <td>%.2f</td>"
-        " </tbody></tr>",
-        screenDPI());
-
-    g_string_append(html, "<table>");
-
-    g_string_append(html,
-        "<h1>Hardware Acceleration Information</h1>"
-        "<table>");
-
-    g_string_append_printf(html,
-        " <tbody><tr>"
-        "  <td><div class=\"titlename\">Policy</div></td>"
-        "  <td>%s</td>"
-        " </tbody></tr>",
-        hardwareAccelerationPolicy(request));
-
-#if ENABLE(GRAPHICS_CONTEXT_GL)
-    g_string_append_printf(html,
-        " <tbody><tr>"
-        "  <td><div class=\"titlename\">WebGL enabled</div></td>"
-        "  <td>%s</td>"
-        " </tbody></tr>",
-        webGLEnabled(request) ? "Yes" : "No");
-
-    auto glContext = GLContext::createOffscreenContext();
-    glContext->makeContextCurrent();
-
-    g_string_append_printf(html,
-        " <tbody><tr>"
-        "  <td><div class=\"titlename\">API</div></td>"
-        "  <td>%s</td>"
-        " </tbody></tr>",
-        openGLAPI());
-
-    g_string_append_printf(html,
-        " <tbody><tr>"
-        "  <td><div class=\"titlename\">Native interface</div></td>"
-        "  <td>%s</td>"
-        " </tbody></tr>",
-        nativeInterface());
-
-    g_string_append_printf(html,
-        " <tbody><tr>"
-        "  <td><div class=\"titlename\">GL_RENDERER</div></td>"
-        "  <td>%s</td>"
-        " </tbody></tr>",
-        reinterpret_cast<const char*>(glGetString(GL_RENDERER)));
-
-    g_string_append_printf(html,
-        " <tbody><tr>"
-        "  <td><div class=\"titlename\">GL_VENDOR</div></td>"
-        "  <td>%s</td>"
-        " </tbody></tr>",
-        reinterpret_cast<const char*>(glGetString(GL_VENDOR)));
-
-    g_string_append_printf(html,
-        " <tbody><tr>"
-        "  <td><div class=\"titlename\">GL_VERSION</div></td>"
-        "  <td>%s</td>"
-        " </tbody></tr>",
-        reinterpret_cast<const char*>(glGetString(GL_VERSION)));
-
-    g_string_append_printf(html,
-        " <tbody><tr>"
-        "  <td><div class=\"titlename\">GL_SHADING_LANGUAGE_VERSION</div></td>"
-        "  <td>%s</td>"
-        " </tbody></tr>",
-        reinterpret_cast<const char*>(glGetString(GL_SHADING_LANGUAGE_VERSION)));
-
-#if USE(OPENGL_ES)
-    g_string_append_printf(html,
-        " <tbody><tr>"
-        "  <td><div class=\"titlename\">GL_EXTENSIONS</div></td>"
-        "  <td>%s</td>"
-        " </tbody></tr>",
-        reinterpret_cast<const char*>(glGetString(GL_EXTENSIONS)));
-#else
-    GString* extensions = g_string_new(nullptr);
-    GLint numExtensions = 0;
-    glGetIntegerv(GL_NUM_EXTENSIONS, &numExtensions);
-    for (GLint i = 0; i < numExtensions; ++i) {
-        if (i)
-            g_string_append_c(extensions, ' ');
-        g_string_append(extensions, reinterpret_cast<const char*>(glGetStringi(GL_EXTENSIONS, i)));
+    if (displayID) {
+        if (auto* displayLink = page.process().processPool().displayLinks().existingDisplayLinkForDisplay(*displayID)) {
+            auto& vblankMonitor = displayLink->vblankMonitor();
+            addTableRow(displayObject, "VBlank type"_s, vblankMonitor.type() == DisplayVBlankMonitor::Type::Timer ? "Timer"_s : "DRM"_s);
+            addTableRow(displayObject, "VBlank refresh rate"_s, makeString(vblankMonitor.refreshRate(), "Hz"));
+        }
     }
-    g_string_append_printf(html,
-        " <tbody><tr>"
-        "  <td><div class=\"titlename\">GL_EXTENSIONS</div></td>"
-        "  <td>%s</td>"
-        " </tbody></tr>",
-        extensions->str);
-    g_string_free(extensions, TRUE);
-#endif
 
-    bool isGLX = false;
-#if USE(GLX)
-    if (PlatformDisplay::sharedDisplay().type() == PlatformDisplay::Type::X11) {
-        isGLX = true;
-        auto* x11Display = downcast<PlatformDisplayX11>(PlatformDisplay::sharedDisplay()).native();
-
-        g_string_append_printf(html,
-            " <tbody><tr>"
-            "  <td><div class=\"titlename\">GLX_VERSION</div></td>"
-            "  <td>%s</td>"
-            " </tbody></tr>",
-            glXGetClientString(x11Display, GLX_VERSION));
-
-        g_string_append_printf(html,
-            " <tbody><tr>"
-            "  <td><div class=\"titlename\">GLX_VENDOR</div></td>"
-            "  <td>%s</td>"
-            " </tbody></tr>",
-            glXGetClientString(x11Display, GLX_VENDOR));
-
-        g_string_append_printf(html,
-            " <tbody><tr>"
-            "  <td><div class=\"titlename\">GLX_EXTENSIONS</div></td>"
-            "  <td>%s</td>"
-            " </tbody></tr>",
-            glXGetClientString(x11Display, GLX_EXTENSIONS));
+#if USE(LIBDRM)
+    if (strcmp(policy, "never")) {
+        auto deviceFile = PlatformDisplay::sharedDisplay().drmDeviceFile();
+        if (!deviceFile.isEmpty())
+            addTableRow(displayObject, "DRM Device"_s, deviceFile);
+        auto renderNode = PlatformDisplay::sharedDisplay().drmRenderNodeFile();
+        if (!renderNode.isEmpty())
+            addTableRow(displayObject, "DRM Render Node"_s, renderNode);
     }
 #endif
+
+    stopTable();
+    jsonObject->setObject("Display Information"_s, WTFMove(displayObject));
+
+    auto hardwareAccelerationObject = JSON::Object::create();
+    startTable("Hardware Acceleration Information"_s);
+    addTableRow(hardwareAccelerationObject, "Policy"_s, String::fromUTF8(policy));
+
+#if ENABLE(WEBGL)
+    addTableRow(hardwareAccelerationObject, "WebGL enabled"_s, webGLEnabled(request) ? "Yes"_s : "No"_s);
+#endif
+
+    std::unique_ptr<PlatformDisplay> renderDisplay;
+    if (strcmp(policy, "never")) {
+        addTableRow(jsonObject, "API"_s, String::fromUTF8(openGLAPI()));
+#if PLATFORM(GTK)
+        if (usingDMABufRenderer)
+            addTableRow(hardwareAccelerationObject, "Renderer"_s, dmabufRendererWithSupportedBuffers());
+#endif
+        addTableRow(hardwareAccelerationObject, "Native interface"_s, uiProcessContextIsEGL() ? "EGL"_s : "None"_s);
 
 #if USE(EGL)
-    if (!isGLX) {
-        auto eglDisplay = PlatformDisplay::sharedDisplay().eglDisplay();
+        if (uiProcessContextIsEGL() && eglGetCurrentContext() != EGL_NO_CONTEXT)
+            addEGLInfo(hardwareAccelerationObject);
+#endif // USE(EGL)
+    }
 
-        g_string_append_printf(html,
-            " <tbody><tr>"
-            "  <td><div class=\"titlename\">EGL_VERSION</div></td>"
-            "  <td>%s</td>"
-            " </tbody></tr>",
-            eglQueryString(eglDisplay, EGL_VERSION));
+    stopTable();
+    jsonObject->setObject("Hardware Acceleration Information"_s, WTFMove(hardwareAccelerationObject));
 
-        g_string_append_printf(html,
-            " <tbody><tr>"
-            "  <td><div class=\"titlename\">EGL_VENDOR</div></td>"
-            "  <td>%s</td>"
-            " </tbody></tr>",
-            eglQueryString(eglDisplay, EGL_VENDOR));
+#if USE(EGL) && PLATFORM(GTK)
+    if (strcmp(policy, "never")) {
+        std::unique_ptr<PlatformDisplay> platformDisplay;
+        if (usingDMABufRenderer) {
+#if USE(GBM)
+            const char* disableGBM = getenv("WEBKIT_DMABUF_RENDERER_DISABLE_GBM");
+            if (!disableGBM || !strcmp(disableGBM, "0")) {
+                if (auto* device = PlatformDisplay::sharedDisplay().gbmDevice())
+                    platformDisplay = PlatformDisplayGBM::create(device);
+            }
+#endif
+            if (!platformDisplay)
+                platformDisplay = PlatformDisplaySurfaceless::create();
+        }
 
-        g_string_append_printf(html,
-            " <tbody><tr>"
-            "  <td><div class=\"titlename\">EGL_EXTENSIONS</div></td>"
-            "  <td>%s %s</td>"
-            " </tbody></tr>",
-            eglQueryString(nullptr, EGL_EXTENSIONS),
-            eglQueryString(eglDisplay, EGL_EXTENSIONS));
+        if (platformDisplay || !uiProcessContextIsEGL()) {
+            auto hardwareAccelerationObject = JSON::Object::create();
+            startTable("Hardware Acceleration Information (Render Process)"_s);
+
+            if (platformDisplay)
+                addTableRow(hardwareAccelerationObject, "Platform"_s, String::fromUTF8(platformDisplay->type() == PlatformDisplay::Type::Surfaceless ? "Surfaceless"_s : "GBM"_s));
+
+            if (uiProcessContextIsEGL()) {
+                GLContext::ScopedGLContext glContext(GLContext::createOffscreen(platformDisplay ? *platformDisplay : PlatformDisplay::sharedDisplay()));
+                addEGLInfo(hardwareAccelerationObject);
+            } else {
+                // Create the context in a different thread to ensure it doesn't affect any current context in the main thread.
+                WorkQueue::create("GPU handler EGL context")->dispatchSync([&] {
+                    auto glContext = GLContext::createOffscreen(platformDisplay ? *platformDisplay : PlatformDisplay::sharedDisplay());
+                    glContext->makeContextCurrent();
+                    addEGLInfo(hardwareAccelerationObject);
+                });
+            }
+
+            stopTable();
+            jsonObject->setObject("Hardware Acceleration Information (Render process)"_s, WTFMove(hardwareAccelerationObject));
+
+            if (platformDisplay) {
+                // Clear the contexts used by the display before it's destroyed.
+                platformDisplay->clearSharingGLContext();
+            }
+        }
     }
 #endif
-#endif // ENABLE(GRAPHICS_CONTEXT_GL)
 
-    g_string_append(html, "<table>");
+    auto infoAsString = jsonObject->toJSONString();
+    g_string_append_printf(html, "<script>function copyAsJSON() { "
+        "var textArea = document.createElement('textarea');"
+        "textArea.value = JSON.stringify(%s, null, 4);"
+        "document.body.appendChild(textArea);"
+        "textArea.focus();"
+        "textArea.select();"
+        "document.execCommand('copy');"
+        "document.body.removeChild(textArea);"
+        "}</script>", infoAsString.utf8().data());
 
-    g_string_append(html, "</body></html>");
+    g_string_append_printf(html, "<script>function sendToConsole() { "
+        "console.log(JSON.stringify(%s, null, 4));"
+        "}</script>", infoAsString.utf8().data());
+
+    g_string_append(html, "</head><body>");
+#if PLATFORM(GTK)
+    g_string_append(html, "<button onclick=\"copyAsJSON()\">Copy to clipboard</button>");
+#else
+    // WPE doesn't seem to pass clipboard data yet.
+    g_string_append(html, "<button onclick=\"sendToConsole()\">Send to JS console</button>");
+#endif
+
+    g_string_append_printf(html, "%s</body></html>", tablesBuilder.toString().utf8().data());
     gsize streamLength = html->len;
     GRefPtr<GInputStream> stream = adoptGRef(g_memory_input_stream_new_from_data(g_string_free(html, FALSE), streamLength, g_free));
     webkit_uri_scheme_request_finish(request, stream.get(), streamLength, "text/html");

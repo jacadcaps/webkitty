@@ -25,8 +25,6 @@
 #include "config.h"
 #include "SQLiteIDBTransaction.h"
 
-#if ENABLE(INDEXED_DATABASE)
-
 #include "IDBCursorInfo.h"
 #include "IndexedDB.h"
 #include "Logging.h"
@@ -64,19 +62,19 @@ IDBError SQLiteIDBTransaction::begin(SQLiteDatabase& database)
     if (m_sqliteTransaction->inProgress())
         return IDBError { };
 
-    return IDBError { UnknownError, "Could not start SQLite transaction in database backend"_s };
+    return IDBError { ExceptionCode::UnknownError, "Could not start SQLite transaction in database backend"_s };
 }
 
 IDBError SQLiteIDBTransaction::commit()
 {
     LOG(IndexedDB, "SQLiteIDBTransaction::commit");
     if (!m_sqliteTransaction || !m_sqliteTransaction->inProgress())
-        return IDBError { UnknownError, "No SQLite transaction in progress to commit"_s };
+        return IDBError { ExceptionCode::UnknownError, "No SQLite transaction in progress to commit"_s };
 
     m_sqliteTransaction->commit();
 
     if (m_sqliteTransaction->inProgress())
-        return IDBError { UnknownError, "Unable to commit SQLite transaction in database backend"_s };
+        return IDBError { ExceptionCode::UnknownError, "Unable to commit SQLite transaction in database backend"_s };
 
     deleteBlobFilesIfNecessary();
     moveBlobFilesIfNecessary();
@@ -121,12 +119,12 @@ IDBError SQLiteIDBTransaction::abort()
     m_blobTemporaryAndStoredFilenames.clear();
 
     if (!m_sqliteTransaction || !m_sqliteTransaction->inProgress())
-        return IDBError { UnknownError, "No SQLite transaction in progress to abort"_s };
+        return IDBError { ExceptionCode::UnknownError, "No SQLite transaction in progress to abort"_s };
 
     m_sqliteTransaction->rollback();
 
     if (m_sqliteTransaction->inProgress())
-        return IDBError { UnknownError, "Unable to abort SQLite transaction in database backend"_s };
+        return IDBError { ExceptionCode::UnknownError, "Unable to abort SQLite transaction in database backend"_s };
 
     reset();
     return IDBError { };
@@ -225,5 +223,3 @@ void SQLiteIDBTransaction::addRemovedBlobFile(const String& removedFilename)
 
 } // namespace IDBServer
 } // namespace WebCore
-
-#endif // ENABLE(INDEXED_DATABASE)

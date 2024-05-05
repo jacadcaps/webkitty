@@ -35,61 +35,26 @@ using WebCore::SharedGamepadValue;
 
 namespace WebKit {
 
-GamepadData::GamepadData(unsigned index, const Vector<SharedGamepadValue>& axisValues, const Vector<SharedGamepadValue>& buttonValues, MonotonicTime lastUpdateTime)
-    : m_index(index)
-    , m_axisValues(WTF::map(axisValues, [](const auto& value) { return value.value(); }))
-    , m_buttonValues(WTF::map(buttonValues, [](const auto& value) { return value.value(); }))
-    , m_lastUpdateTime(lastUpdateTime)
-{
-}
-
-GamepadData::GamepadData(unsigned index, const String& id, const String& mapping, const Vector<SharedGamepadValue>& axisValues, const Vector<SharedGamepadValue>& buttonValues, MonotonicTime lastUpdateTime)
+GamepadData::GamepadData(unsigned index, const String& id, const String& mapping, const Vector<SharedGamepadValue>& axisValues, const Vector<SharedGamepadValue>& buttonValues, MonotonicTime lastUpdateTime, const WebCore::GamepadHapticEffectTypeSet& supportedEffectTypes)
     : m_index(index)
     , m_id(id)
     , m_mapping(mapping)
     , m_axisValues(WTF::map(axisValues, [](const auto& value) { return value.value(); }))
     , m_buttonValues(WTF::map(buttonValues, [](const auto& value) { return value.value(); }))
     , m_lastUpdateTime(lastUpdateTime)
+    , m_supportedEffectTypes(supportedEffectTypes)
 {
 }
 
-void GamepadData::encode(IPC::Encoder& encoder) const
+GamepadData::GamepadData(unsigned index, String&& id, String&& mapping, Vector<double>&& axisValues, Vector<double>&& buttonValues, MonotonicTime lastUpdateTime, WebCore::GamepadHapticEffectTypeSet&& supportedEffectTypes)
+    : m_index(index)
+    , m_id(WTFMove(id))
+    , m_mapping(WTFMove(mapping))
+    , m_axisValues(WTFMove(axisValues))
+    , m_buttonValues(WTFMove(buttonValues))
+    , m_lastUpdateTime(lastUpdateTime)
+    , m_supportedEffectTypes(WTFMove(supportedEffectTypes))
 {
-    encoder << m_isNull;
-    if (m_isNull)
-        return;
-
-    encoder << m_index << m_id << m_mapping << m_axisValues << m_buttonValues << m_lastUpdateTime;
-}
-
-Optional<GamepadData> GamepadData::decode(IPC::Decoder& decoder)
-{
-    GamepadData data;
-    if (!decoder.decode(data.m_isNull))
-        return WTF::nullopt;
-
-    if (data.m_isNull)
-        return data;
-
-    if (!decoder.decode(data.m_index))
-        return WTF::nullopt;
-
-    if (!decoder.decode(data.m_id))
-        return WTF::nullopt;
-
-    if (!decoder.decode(data.m_mapping))
-        return WTF::nullopt;
-
-    if (!decoder.decode(data.m_axisValues))
-        return WTF::nullopt;
-
-    if (!decoder.decode(data.m_buttonValues))
-        return WTF::nullopt;
-
-    if (!decoder.decode(data.m_lastUpdateTime))
-        return WTF::nullopt;
-
-    return WTFMove(data);
 }
 
 #if !LOG_DISABLED

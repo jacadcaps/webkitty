@@ -47,28 +47,14 @@ WI.CSSObserver = class CSSObserver extends InspectorBackend.Dispatcher
         WI.cssManager.styleSheetRemoved(id);
     }
 
-    namedFlowCreated(namedFlow)
+    nodeLayoutFlagsChanged(nodeId, layoutFlags)
     {
-        // COMPATIBILITY (iOS 11.3): Removed.
+        WI.domManager.nodeLayoutFlagsChanged(nodeId, layoutFlags);
     }
 
-    namedFlowRemoved(documentNodeId, flowName)
+    nodeLayoutContextTypeChanged(nodeId, layoutContextType)
     {
-        // COMPATIBILITY (iOS 11.3): Removed.
-    }
-
-    regionOversetChanged(namedFlow)
-    {
-        // COMPATIBILITY (iOS 11.3): Removed.
-    }
-
-    registeredNamedFlowContentElement(documentNodeId, flowName, contentNodeId, nextContentElementNodeId)
-    {
-        // COMPATIBILITY (iOS 11.3): Removed.
-    }
-
-    unregisteredNamedFlowContentElement(documentNodeId, flowName, contentNodeId)
-    {
-        // COMPATIBILITY (iOS 11.3): Removed.
+        // COMPATIBILITY (macOS 13.0, iOS 16.0): CSS.nodeLayoutContextTypeChanged was renamed/expanded to CSS.nodeLayoutFlagsChanged.
+        WI.domManager.nodeLayoutFlagsChanged(nodeId, [WI.DOMNode.LayoutFlag.Rendered, layoutContextType]);
     }
 };

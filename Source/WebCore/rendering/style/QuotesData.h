@@ -42,6 +42,8 @@ public:
     const String& openQuote(unsigned index) const;
     const String& closeQuote(unsigned index) const;
 
+    unsigned size() const { return m_quoteCount; }
+
 private:
     explicit QuotesData(const Vector<std::pair<String, String>>& quotes);
 
@@ -52,10 +54,5 @@ private:
 #if COMPILER(MSVC)
 #pragma warning(pop)
 #endif
-
-inline bool operator!=(const QuotesData& a, const QuotesData& b)
-{
-    return !(a == b);
-}
 
 } // namespace WebCore

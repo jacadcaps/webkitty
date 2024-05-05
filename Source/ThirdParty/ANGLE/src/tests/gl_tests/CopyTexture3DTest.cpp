@@ -13,7 +13,7 @@
 namespace angle
 {
 
-class CopyTexture3DTest : public ANGLETest
+class CopyTexture3DTest : public ANGLETest<>
 {
   protected:
     CopyTexture3DTest()
@@ -109,6 +109,7 @@ class CopyTexture3DTest : public ANGLETest
             case GL_RG8:
             case GL_RGB8:
             case GL_RGBA8:
+            case GL_RGBX8_ANGLE:
             case GL_SRGB8:
             case GL_RGB565:
             case GL_SRGB8_ALPHA8:
@@ -719,6 +720,16 @@ void CopyTexture3DTest::testUnsignedByteFormats(const GLenum testTarget)
                  GLColor(99, 82, 57, 0));
         testCopy(testTarget, kColorUnAlpha, GL_RGB5_A1, GL_UNSIGNED_BYTE, false, false, true,
                  GLColor(221, 167, 110, 255));
+
+        if (IsGLExtensionEnabled("GL_ANGLE_rgbx_internal_format"))
+        {
+            testCopy(testTarget, kColorNoAlpha, GL_RGBX8_ANGLE, GL_UNSIGNED_BYTE, false, false,
+                     false, GLColor(250, 200, 150, 255));
+            testCopy(testTarget, kColorPreAlpha, GL_RGBX8_ANGLE, GL_UNSIGNED_BYTE, false, true,
+                     false, GLColor(98, 78, 59, 255));
+            testCopy(testTarget, kColorUnAlpha, GL_RGBX8_ANGLE, GL_UNSIGNED_BYTE, false, false,
+                     true, GLColor(221, 167, 110, 255));
+        }
     }
 
     {
@@ -856,9 +867,6 @@ void CopyTexture3DTest::testFloatFormats(const GLenum testTarget)
 TEST_P(Texture3DCopy, FloatFormats)
 {
     ANGLE_SKIP_TEST_IF(!checkExtensions());
-
-    // http://anglebug.com/4756
-    ANGLE_SKIP_TEST_IF(IsVulkan() && IsAndroid());
 
     testFloatFormats(GL_TEXTURE_3D);
 }
@@ -1388,7 +1396,10 @@ TEST_P(Texture2DArrayCopy, UintFormats)
     testUintFormats(GL_TEXTURE_2D_ARRAY);
 }
 
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(Texture3DCopy);
 ANGLE_INSTANTIATE_TEST_ES3(Texture3DCopy);
+
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(Texture2DArrayCopy);
 ANGLE_INSTANTIATE_TEST_ES3(Texture2DArrayCopy);
 
 }  // namespace angle

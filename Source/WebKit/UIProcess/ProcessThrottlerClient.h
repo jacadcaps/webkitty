@@ -23,26 +23,27 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef ProcessThrottlerClient_h
-#define ProcessThrottlerClient_h
+#pragma once
 
-#include "ProcessAssertion.h"
+#include <wtf/CompletionHandler.h>
 
 namespace WebKit {
 
 enum class IsSuspensionImminent : bool;
+enum class ProcessThrottleState : uint8_t;
 
 class ProcessThrottlerClient {
 public:
     virtual ~ProcessThrottlerClient() { }
 
-    virtual void sendPrepareToSuspend(IsSuspensionImminent, CompletionHandler<void()>&&) = 0;
-    virtual void sendProcessDidResume() = 0;
-    virtual void didSetAssertionType(ProcessAssertionType) { };
+    virtual void sendPrepareToSuspend(IsSuspensionImminent, double remainingRunTime, CompletionHandler<void()>&&) = 0;
+    enum ResumeReason : bool { ForegroundActivity, BackgroundActivity };
+    virtual void sendProcessDidResume(ResumeReason) = 0;
+    virtual void didChangeThrottleState(ProcessThrottleState) { };
     virtual ASCIILiteral clientName() const = 0;
+    virtual String environmentIdentifier() const { return emptyString(); }
+    virtual void prepareToDropLastAssertion(CompletionHandler<void()>&& completionHandler) { completionHandler(); }
+    virtual void didDropLastAssertion() { }
 };
 
 } // namespace WebKit
-
-#endif // ProcessThrottlerClient_h
-

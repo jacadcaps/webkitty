@@ -25,9 +25,11 @@
 
 #pragma once
 
-#include "GenericTaskQueue.h"
+#include "FrameRateAligner.h"
 #include "ReducedResolutionSeconds.h"
 #include "Timer.h"
+#include <wtf/CancellableTask.h>
+#include <wtf/CheckedRef.h>
 #include <wtf/Markable.h>
 #include <wtf/Seconds.h>
 #include <wtf/WeakHashSet.h>
@@ -39,8 +41,9 @@ class Document;
 class DocumentTimeline;
 class WebAnimation;
 
-class DocumentTimelinesController {
-    WTF_MAKE_FAST_ALLOCATED;
+DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(DocumentTimelinesController);
+class DocumentTimelinesController : public CanMakeCheckedPtr {
+    WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(DocumentTimelinesController);
 public:
     explicit DocumentTimelinesController(Document&);
     ~DocumentTimelinesController();
@@ -50,25 +53,24 @@ public:
     void detachFromDocument();
     void updateAnimationsAndSendEvents(ReducedResolutionSeconds);
 
-    Optional<Seconds> currentTime();
+    std::optional<Seconds> currentTime();
+    std::optional<FramesPerSecond> maximumAnimationFrameRate() const { return m_frameRateAligner.maximumFrameRate(); }
+    std::optional<Seconds> timeUntilNextTickForAnimationsWithFrameRate(FramesPerSecond) const;
 
     WEBCORE_EXPORT void suspendAnimations();
     WEBCORE_EXPORT void resumeAnimations();
-    WEBCORE_EXPORT bool animationsAreSuspended() const;
+    bool animationsAreSuspended() const { return m_isSuspended; }
 
 private:
-    struct AnimationsToProcess {
-        Vector<RefPtr<WebAnimation>> animationsToRemove;
-        Vector<RefPtr<CSSTransition>> completedTransitions;
-    };
-
     ReducedResolutionSeconds liveCurrentTime() const;
     void cacheCurrentTime(ReducedResolutionSeconds);
     void maybeClearCachedCurrentTime();
 
+    HashMap<FramesPerSecond, ReducedResolutionSeconds> m_animationFrameRateToLastTickTimeMap;
     WeakHashSet<DocumentTimeline> m_timelines;
-    GenericTaskQueue<Timer> m_currentTimeClearingTaskQueue;
+    TaskCancellationGroup m_currentTimeClearingTaskCancellationGroup;
     Document& m_document;
+    FrameRateAligner m_frameRateAligner;
     Markable<Seconds, Seconds::MarkableTraits> m_cachedCurrentTime;
     bool m_isSuspended { false };
     bool m_waitingOnVMIdle { false };

@@ -20,6 +20,8 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import re
+
 from webkitpy.common.version_name_map import VersionNameMap, INTERNAL_TABLE
 from webkitpy.port.config import apple_additions
 
@@ -27,6 +29,7 @@ from webkitpy.port.config import apple_additions
 # This class is designed to match device types. Because it is used for matching, 'None' is treated as a wild-card.
 class DeviceType(object):
     FIRST_GENERATION = ' (1st generation)'
+    SIZE_RE = re.compile(r'(?P<series>.+ )\((?P<size>\d\d)mm\)')
 
     @classmethod
     def from_string(cls, device_string, version=None):
@@ -64,28 +67,27 @@ class DeviceType(object):
         if self.software_variant:
             return
 
-        self.software_variant = 'iOS'
+        self.software_variant = None
         if self.hardware_family.lower().split(' ')[-1].startswith('watch'):
             self.hardware_family = 'Apple Watch'
             self.software_variant = 'watchOS'
         elif self.hardware_family.lower().split(' ')[-1].startswith('tv'):
             self.hardware_family = 'Apple TV'
             self.software_variant = 'tvOS'
+        elif self.hardware_family.lower().startswith('ipad') or self.hardware_family.lower().startswith('iphone'):
+            self.software_variant = 'iOS'
 
     def check_consistency(self):
         if self.hardware_family is not None:
-            assert self.software_variant is not None
             if self.hardware_family == 'Apple Watch':
                 assert self.software_variant == 'watchOS'
             elif self.hardware_family == 'Apple TV':
                 assert self.software_variant == 'tvOS'
-            else:
+            elif self.hardware_family in ('iPhone', 'iPad'):
                 assert self.software_variant == 'iOS'
 
         if self.hardware_type is not None:
             assert self.hardware_family is not None
-        if self.software_version:
-            assert self.software_variant is not None
 
     def __init__(self, hardware_family=None, hardware_type=None, software_version=None, software_variant=None):
         """
@@ -109,14 +111,22 @@ class DeviceType(object):
         self._define_software_variant_from_hardware_family()
         self.check_consistency()
 
-    @property
-    def standardized_hardware_type(self):
-        if not self.hardware_type:
+    @classmethod
+    def standardize_hardware_type(cls, hardware_type):
+        if not hardware_type:
             return None
 
-        if self.hardware_type.lower().endswith(self.FIRST_GENERATION):
-            return self.hardware_type[:-len(self.FIRST_GENERATION)]
-        return self.hardware_type
+        if hardware_type.lower().endswith(cls.FIRST_GENERATION):
+            return hardware_type[:-len(cls.FIRST_GENERATION)]
+        size_match = cls.SIZE_RE.match(hardware_type)
+        if size_match:
+            return '{}- {}mm'.format(size_match.group('series'), size_match.group('size'))
+
+        return hardware_type
+
+    @property
+    def standardized_hardware_type(self):
+        return self.standardize_hardware_type(self.hardware_type)
 
     def __str__(self):
         version = None
@@ -146,11 +156,11 @@ class DeviceType(object):
 
     def __contains__(self, other):
         assert isinstance(other, DeviceType)
-        if self.hardware_family is not None and (not other.hardware_family or self.hardware_family.lower() != other.hardware_family.lower()):
+        if self.hardware_family is not None and other.hardware_family is not None and self.hardware_family.lower() != other.hardware_family.lower():
             return False
-        if self.standardized_hardware_type is not None and (not other.standardized_hardware_type or self.standardized_hardware_type.lower() != other.standardized_hardware_type.lower()):
+        if self.standardized_hardware_type is not None and other.standardized_hardware_type is not None and self.standardized_hardware_type.lower() != other.standardized_hardware_type.lower():
             return False
-        if self.software_variant is not None and (not other.software_variant or self.software_variant.lower() != other.software_variant.lower()):
+        if self.software_variant is not None and other.software_variant is not None and self.software_variant.lower() != other.software_variant.lower():
             return False
         if self.software_version is not None and other.software_version is not None and not other.software_version in self.software_version:
             return False

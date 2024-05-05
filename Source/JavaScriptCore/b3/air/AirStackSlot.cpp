@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,15 +28,15 @@
 
 #if ENABLE(B3_JIT)
 
-#include "B3StackSlot.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace JSC { namespace B3 { namespace Air {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(StackSlot);
 
 void StackSlot::setOffsetFromFP(intptr_t value)
 {
     m_offsetFromFP = value;
-    if (m_b3Slot)
-        m_b3Slot->m_offsetFromFP = value;
 }
 
 unsigned StackSlot::jsHash() const
@@ -56,17 +56,15 @@ void StackSlot::dump(PrintStream& out) const
 void StackSlot::deepDump(PrintStream& out) const
 {
     out.print("byteSize = ", m_byteSize, ", offsetFromFP = ", m_offsetFromFP, ", kind = ", m_kind);
-    if (m_b3Slot)
-        out.print(", b3Slot = ", *m_b3Slot, ": (", B3::deepDump(m_b3Slot), ")");
 }
 
-StackSlot::StackSlot(unsigned byteSize, StackSlotKind kind, B3::StackSlot* b3Slot)
-    : m_byteSize(byteSize)
-    , m_offsetFromFP(b3Slot ? b3Slot->offsetFromFP() : 0)
+StackSlot::StackSlot(uint64_t byteSize, StackSlotKind kind, intptr_t offsetFromFP)
+    : m_byteSize(static_cast<uint32_t>(byteSize))
     , m_kind(kind)
-    , m_b3Slot(b3Slot)
+    , m_offsetFromFP(offsetFromFP)
 {
     ASSERT(byteSize);
+    RELEASE_ASSERT(byteSize <= std::numeric_limits<uint32_t>::max());
 }
 
 } } } // namespace JSC::B3::Air

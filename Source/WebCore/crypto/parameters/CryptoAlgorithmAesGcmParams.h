@@ -29,16 +29,14 @@
 #include "CryptoAlgorithmParameters.h"
 #include <wtf/Vector.h>
 
-#if ENABLE(WEB_CRYPTO)
-
 namespace WebCore {
 
 class CryptoAlgorithmAesGcmParams final : public CryptoAlgorithmParameters {
 public:
     BufferSource iv;
     // Use additionalDataVector() instead of additionalData. The label will be gone once additionalDataVector() is called.
-    mutable Optional<BufferSource::VariantType> additionalData;
-    mutable Optional<uint8_t> tagLength;
+    mutable std::optional<BufferSource::VariantType> additionalData;
+    mutable std::optional<uint8_t> tagLength;
 
     Class parametersClass() const final { return Class::AesGcmParams; }
 
@@ -57,7 +55,7 @@ public:
             return m_additionalDataVector;
 
         BufferSource additionalDataBuffer = WTFMove(*additionalData);
-        additionalData = WTF::nullopt;
+        additionalData = std::nullopt;
         if (!additionalDataBuffer.length())
             return m_additionalDataVector;
 
@@ -84,5 +82,3 @@ private:
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_CRYPTO_ALGORITHM_PARAMETERS(AesGcmParams)
-
-#endif // ENABLE(WEB_CRYPTO)

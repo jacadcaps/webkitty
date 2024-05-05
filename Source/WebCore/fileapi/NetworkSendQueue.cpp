@@ -27,11 +27,12 @@
 #include "NetworkSendQueue.h"
 
 #include "BlobLoader.h"
+#include "ScriptExecutionContext.h"
 
 namespace WebCore {
 
-NetworkSendQueue::NetworkSendQueue(Document& document, WriteString&& writeString, WriteRawData&& writeRawData, ProcessError&& processError)
-    : m_document(makeWeakPtr(document))
+NetworkSendQueue::NetworkSendQueue(ScriptExecutionContext& context, WriteString&& writeString, WriteRawData&& writeRawData, ProcessError&& processError)
+    : ContextDestructionObserver(&context)
     , m_writeString(WTFMove(writeString))
     , m_writeRawData(WTFMove(writeRawData))
     , m_processError(WTFMove(processError))
@@ -52,8 +53,8 @@ void NetworkSendQueue::enqueue(CString&& utf8)
 void NetworkSendQueue::enqueue(const JSC::ArrayBuffer& binaryData, unsigned byteOffset, unsigned byteLength)
 {
     if (m_queue.isEmpty()) {
-        auto* data = static_cast<const char*>(binaryData.data());
-        m_writeRawData(data + byteOffset, byteLength);
+        auto* data = static_cast<const uint8_t*>(binaryData.data());
+        m_writeRawData(std::span(data + byteOffset, byteLength));
         return;
     }
     m_queue.append(SharedBuffer::create(static_cast<const uint8_t*>(binaryData.data()) + byteOffset, byteLength));
@@ -61,19 +62,30 @@ void NetworkSendQueue::enqueue(const JSC::ArrayBuffer& binaryData, unsigned byte
 
 void NetworkSendQueue::enqueue(WebCore::Blob& blob)
 {
+    auto* context = scriptExecutionContext();
+    if (!context)
+        return;
+
     auto byteLength = blob.size();
     if (!byteLength) {
-        enqueue(JSC::ArrayBuffer::create(0U, 1), 0, 0);
+        // The cast looks weird, but is required for the overloading resolution to succeed.
+        // Without it, there is an ambiguity where ArrayBuffer::create(const void* source, size_t byteLength) could be called instead.
+        enqueue(JSC::ArrayBuffer::create(static_cast<size_t>(0U), 1), 0, 0);
         return;
     }
-    m_queue.append(makeUniqueRef<BlobLoader>(m_document.get(), blob, [this] {
+    auto blobLoader = makeUniqueRef<BlobLoader>([this](BlobLoader&) {
         processMessages();
-    }));
+    });
+    auto* blobLoaderPtr = &blobLoader.get();
+    m_queue.append(WTFMove(blobLoader));
+    blobLoaderPtr->start(blob, context, FileReaderLoader::ReadAsArrayBuffer);
 }
 
 void NetworkSendQueue::clear()
 {
-    m_queue.clear();
+    // Do not call m_queue.clear() here since destroying a BlobLoader will cause its completion
+    // handler to get called, which will call processMessages() to iterate over m_queue.
+    std::exchange(m_queue, { });
 }
 
 void NetworkSendQueue::processMessages()
@@ -82,17 +94,17 @@ void NetworkSendQueue::processMessages()
         bool shouldStopProcessing = false;
         switchOn(m_queue.first(), [this](const CString& utf8) {
             m_writeString(utf8);
-        }, [this](Ref<SharedBuffer>& data) {
-            m_writeRawData(data->data(), data->size());
+        }, [this](Ref<FragmentedSharedBuffer>& data) {
+            data->forEachSegment(m_writeRawData);
         }, [this, &shouldStopProcessing](UniqueRef<BlobLoader>& loader) {
             auto errorCode = loader->errorCode();
-            if (loader->isLoading() || (errorCode && errorCode.value() == AbortError)) {
+            if (loader->isLoading() || (errorCode && errorCode.value() == ExceptionCode::AbortError)) {
                 shouldStopProcessing = true;
                 return;
             }
 
-            if (const auto& result = loader->result()) {
-                m_writeRawData(static_cast<const char*>(result->data()), result->byteLength());
+            if (const auto& result = loader->arrayBufferResult()) {
+                m_writeRawData(std::span(static_cast<const uint8_t*>(result->data()), result->byteLength()));
                 return;
             }
             ASSERT(errorCode);

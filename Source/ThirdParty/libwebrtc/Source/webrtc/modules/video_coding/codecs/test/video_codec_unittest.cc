@@ -18,8 +18,10 @@
 #include "modules/video_coding/include/video_error_codes.h"
 #include "test/video_codec_settings.h"
 
-static const int kEncodeTimeoutMs = 100;
-static const int kDecodeTimeoutMs = 25;
+static constexpr webrtc::TimeDelta kEncodeTimeout =
+    webrtc::TimeDelta::Millis(100);
+static constexpr webrtc::TimeDelta kDecodeTimeout =
+    webrtc::TimeDelta::Millis(25);
 // Set bitrate to get higher quality.
 static const int kStartBitrate = 300;
 static const int kMaxBitrate = 4000;
@@ -35,9 +37,8 @@ const VideoEncoder::Capabilities kCapabilities(false);
 EncodedImageCallback::Result
 VideoCodecUnitTest::FakeEncodeCompleteCallback::OnEncodedImage(
     const EncodedImage& frame,
-    const CodecSpecificInfo* codec_specific_info,
-    const RTPFragmentationHeader* fragmentation) {
-  rtc::CritScope lock(&test_->encoded_frame_section_);
+    const CodecSpecificInfo* codec_specific_info) {
+  MutexLock lock(&test_->encoded_frame_section_);
   test_->encoded_frames_.push_back(frame);
   RTC_DCHECK(codec_specific_info);
   test_->codec_specific_infos_.push_back(*codec_specific_info);
@@ -58,7 +59,7 @@ void VideoCodecUnitTest::FakeDecodeCompleteCallback::Decoded(
     VideoFrame& frame,
     absl::optional<int32_t> decode_time_ms,
     absl::optional<uint8_t> qp) {
-  rtc::CritScope lock(&test_->decoded_frame_section_);
+  MutexLock lock(&test_->decoded_frame_section_);
   test_->decoded_frame_.emplace(frame);
   test_->decoded_qp_ = qp;
   test_->decoded_frame_event_.Set();
@@ -88,8 +89,12 @@ void VideoCodecUnitTest::SetUp() {
                 &codec_settings_,
                 VideoEncoder::Settings(kCapabilities, 1 /* number of cores */,
                                        0 /* max payload size (unused) */)));
-  EXPECT_EQ(WEBRTC_VIDEO_CODEC_OK,
-            decoder_->InitDecode(&codec_settings_, 1 /* number of cores */));
+
+  VideoDecoder::Settings decoder_settings;
+  decoder_settings.set_codec_type(codec_settings_.codecType);
+  decoder_settings.set_max_render_resolution(
+      {codec_settings_.width, codec_settings_.height});
+  EXPECT_TRUE(decoder_->Configure(decoder_settings));
 }
 
 void VideoCodecUnitTest::ModifyCodecSettings(VideoCodec* codec_settings) {}
@@ -106,6 +111,7 @@ VideoFrame VideoCodecUnitTest::NextInputFrame() {
       last_input_frame_timestamp_ +
       kVideoPayloadTypeFrequency / codec_settings_.maxFramerate;
   input_frame.set_timestamp(timestamp);
+  input_frame.set_timestamp_us(timestamp * (1000 / 90));
 
   last_input_frame_timestamp_ = timestamp;
   return input_frame;
@@ -126,17 +132,17 @@ bool VideoCodecUnitTest::WaitForEncodedFrame(
 }
 
 void VideoCodecUnitTest::SetWaitForEncodedFramesThreshold(size_t num_frames) {
-  rtc::CritScope lock(&encoded_frame_section_);
+  MutexLock lock(&encoded_frame_section_);
   wait_for_encoded_frames_threshold_ = num_frames;
 }
 
 bool VideoCodecUnitTest::WaitForEncodedFrames(
     std::vector<EncodedImage>* frames,
     std::vector<CodecSpecificInfo>* codec_specific_info) {
-  EXPECT_TRUE(encoded_frame_event_.Wait(kEncodeTimeoutMs))
+  EXPECT_TRUE(encoded_frame_event_.Wait(kEncodeTimeout))
       << "Timed out while waiting for encoded frame.";
   // This becomes unsafe if there are multiple threads waiting for frames.
-  rtc::CritScope lock(&encoded_frame_section_);
+  MutexLock lock(&encoded_frame_section_);
   EXPECT_FALSE(encoded_frames_.empty());
   EXPECT_FALSE(codec_specific_infos_.empty());
   EXPECT_EQ(encoded_frames_.size(), codec_specific_infos_.size());
@@ -154,10 +160,10 @@ bool VideoCodecUnitTest::WaitForEncodedFrames(
 
 bool VideoCodecUnitTest::WaitForDecodedFrame(std::unique_ptr<VideoFrame>* frame,
                                              absl::optional<uint8_t>* qp) {
-  bool ret = decoded_frame_event_.Wait(kDecodeTimeoutMs);
+  bool ret = decoded_frame_event_.Wait(kDecodeTimeout);
   EXPECT_TRUE(ret) << "Timed out while waiting for a decoded frame.";
   // This becomes unsafe if there are multiple threads waiting for frames.
-  rtc::CritScope lock(&decoded_frame_section_);
+  MutexLock lock(&decoded_frame_section_);
   EXPECT_TRUE(decoded_frame_);
   if (decoded_frame_) {
     frame->reset(new VideoFrame(std::move(*decoded_frame_)));
@@ -170,7 +176,7 @@ bool VideoCodecUnitTest::WaitForDecodedFrame(std::unique_ptr<VideoFrame>* frame,
 }
 
 size_t VideoCodecUnitTest::GetNumEncodedFrames() {
-  rtc::CritScope lock(&encoded_frame_section_);
+  MutexLock lock(&encoded_frame_section_);
   return encoded_frames_.size();
 }
 

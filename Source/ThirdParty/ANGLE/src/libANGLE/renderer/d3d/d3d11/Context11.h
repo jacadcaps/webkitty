@@ -13,6 +13,7 @@
 #include <stack>
 #include "libANGLE/renderer/ContextImpl.h"
 #include "libANGLE/renderer/d3d/ContextD3D.h"
+#include "libANGLE/renderer/d3d/d3d11/ResourceManager11.h"
 
 namespace rx
 {
@@ -31,6 +32,8 @@ class Context11 : public ContextD3D, public MultisampleTextureInitializer
     CompilerImpl *createCompiler() override;
     ShaderImpl *createShader(const gl::ShaderState &data) override;
     ProgramImpl *createProgram(const gl::ProgramState &data) override;
+    ProgramExecutableImpl *createProgramExecutable(
+        const gl::ProgramExecutable *executable) override;
 
     // Framebuffer creation
     FramebufferImpl *createFramebuffer(const gl::FramebufferState &data) override;
@@ -158,6 +161,11 @@ class Context11 : public ContextD3D, public MultisampleTextureInitializer
                                            const GLsizei *counts,
                                            const GLsizei *instanceCounts,
                                            GLsizei drawcount) override;
+    angle::Result multiDrawArraysIndirect(const gl::Context *context,
+                                          gl::PrimitiveMode mode,
+                                          const void *indirect,
+                                          GLsizei drawcount,
+                                          GLsizei stride) override;
     angle::Result multiDrawElements(const gl::Context *context,
                                     gl::PrimitiveMode mode,
                                     const GLsizei *counts,
@@ -171,6 +179,12 @@ class Context11 : public ContextD3D, public MultisampleTextureInitializer
                                              const GLvoid *const *indices,
                                              const GLsizei *instanceCounts,
                                              GLsizei drawcount) override;
+    angle::Result multiDrawElementsIndirect(const gl::Context *context,
+                                            gl::PrimitiveMode mode,
+                                            gl::DrawElementsType type,
+                                            const void *indirect,
+                                            GLsizei drawcount,
+                                            GLsizei stride) override;
     angle::Result multiDrawArraysInstancedBaseInstance(const gl::Context *context,
                                                        gl::PrimitiveMode mode,
                                                        const GLint *firsts,
@@ -191,10 +205,6 @@ class Context11 : public ContextD3D, public MultisampleTextureInitializer
     // Device loss
     gl::GraphicsResetStatus getResetStatus() override;
 
-    // Vendor and description strings.
-    std::string getVendorString() const override;
-    std::string getRendererDescription() const override;
-
     // EXT_debug_marker
     angle::Result insertEventMarker(GLsizei length, const char *marker) override;
     angle::Result pushGroupMarker(GLsizei length, const char *marker) override;
@@ -209,8 +219,11 @@ class Context11 : public ContextD3D, public MultisampleTextureInitializer
 
     // State sync with dirty bits.
     angle::Result syncState(const gl::Context *context,
-                            const gl::State::DirtyBits &dirtyBits,
-                            const gl::State::DirtyBits &bitMask) override;
+                            const gl::state::DirtyBits dirtyBits,
+                            const gl::state::DirtyBits bitMask,
+                            const gl::state::ExtendedDirtyBits extendedDirtyBits,
+                            const gl::state::ExtendedDirtyBits extendedBitMask,
+                            gl::Command command) override;
 
     // Disjoint timer queries
     GLint getGPUDisjoint() override;
@@ -224,8 +237,10 @@ class Context11 : public ContextD3D, public MultisampleTextureInitializer
     const gl::TextureCapsMap &getNativeTextureCaps() const override;
     const gl::Extensions &getNativeExtensions() const override;
     const gl::Limitations &getNativeLimitations() const override;
+    const ShPixelLocalStorageOptions &getNativePixelLocalStorageOptions() const override;
 
     Renderer11 *getRenderer() const { return mRenderer; }
+    angle::ImageLoadContext getImageLoadContext() const;
 
     angle::Result dispatchCompute(const gl::Context *context,
                                   GLuint numGroupsX,
@@ -252,6 +267,12 @@ class Context11 : public ContextD3D, public MultisampleTextureInitializer
                       const char *function,
                       unsigned int line) override;
 
+    void setGPUDisjoint();
+    angle::Result checkDisjointQuery();
+    HRESULT checkDisjointQueryStatus();
+    UINT64 getDisjointFrequency();
+    void setDisjointFrequency(UINT64 frequency);
+
   private:
     angle::Result drawElementsImpl(const gl::Context *context,
                                    gl::PrimitiveMode mode,
@@ -261,11 +282,16 @@ class Context11 : public ContextD3D, public MultisampleTextureInitializer
                                    GLsizei instanceCount,
                                    GLint baseVertex,
                                    GLuint baseInstance,
-                                   bool promoteDynamic);
+                                   bool promoteDynamic,
+                                   bool isInstancedDraw);
 
     Renderer11 *mRenderer;
     IncompleteTextureSet mIncompleteTextures;
     std::stack<std::string> mMarkerStack;
+    d3d11::Query mDisjointQuery;
+    bool mDisjointQueryStarted;
+    bool mDisjoint;
+    UINT64 mFrequency;
 };
 }  // namespace rx
 

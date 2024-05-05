@@ -38,26 +38,26 @@ namespace WebCore {
 class RenderMathMLScripts : public RenderMathMLBlock {
     WTF_MAKE_ISO_ALLOCATED(RenderMathMLScripts);
 public:
-    RenderMathMLScripts(MathMLScriptsElement&, RenderStyle&&);
+    RenderMathMLScripts(Type, MathMLScriptsElement&, RenderStyle&&);
     RenderMathMLOperator* unembellishedOperator() const final;
 
 protected:
     bool isRenderMathMLScripts() const override { return true; }
-    const char* renderName() const override { return "RenderMathMLScripts"; }
+    ASCIILiteral renderName() const override { return "RenderMathMLScripts"_s; }
     MathMLScriptsElement::ScriptType scriptType() const;
     void computePreferredLogicalWidths() override;
     void layoutBlock(bool relayoutChildren, LayoutUnit pageLogicalHeight = 0_lu) override;
 
 private:
     MathMLScriptsElement& element() const;
-    Optional<int> firstLineBaseline() const final;
+    std::optional<LayoutUnit> firstLineBaseline() const final;
     struct ReferenceChildren {
         RenderBox* base;
         RenderBox* prescriptDelimiter;
         RenderBox* firstPostScript;
         RenderBox* firstPreScript;
     };
-    Optional<ReferenceChildren> validateAndGetReferenceChildren();
+    std::optional<ReferenceChildren> validateAndGetReferenceChildren();
     LayoutUnit spaceAfterScript();
     LayoutUnit italicCorrection(const ReferenceChildren&);
     struct VerticalParameters {

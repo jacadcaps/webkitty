@@ -60,9 +60,6 @@ public:
     UserContentInjectedFrames injectedFrames() const { return m_injectedFrames; }
     WaitForNotificationBeforeInjecting waitForNotificationBeforeInjecting() const { return m_waitForNotificationBeforeInjecting; }
 
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static Optional<UserScript> decode(Decoder&);
-
 private:
     String m_source;
     URL m_url;
@@ -72,66 +69,5 @@ private:
     UserContentInjectedFrames m_injectedFrames { UserContentInjectedFrames::InjectInAllFrames };
     WaitForNotificationBeforeInjecting m_waitForNotificationBeforeInjecting { WaitForNotificationBeforeInjecting::No };
 };
-
-template<class Encoder>
-void UserScript::encode(Encoder& encoder) const
-{
-    encoder << m_source;
-    encoder << m_url;
-    encoder << m_allowlist;
-    encoder << m_blocklist;
-    encoder << m_injectionTime;
-    encoder << m_injectedFrames;
-    encoder << m_waitForNotificationBeforeInjecting;
-}
-
-template<class Decoder>
-Optional<UserScript> UserScript::decode(Decoder& decoder)
-{
-    Optional<String> source;
-    decoder >> source;
-    if (!source)
-        return WTF::nullopt;
-    
-    Optional<URL> url;
-    decoder >> url;
-    if (!url)
-        return WTF::nullopt;
-    
-    Optional<Vector<String>> allowlist;
-    decoder >> allowlist;
-    if (!allowlist)
-        return WTF::nullopt;
-    
-    Optional<Vector<String>> blocklist;
-    decoder >> blocklist;
-    if (!blocklist)
-        return WTF::nullopt;
-    
-    Optional<UserScriptInjectionTime> injectionTime;
-    decoder >> injectionTime;
-    if (!injectionTime)
-        return WTF::nullopt;
-    
-    Optional<UserContentInjectedFrames> injectedFrames;
-    decoder >> injectedFrames;
-    if (!injectedFrames)
-        return WTF::nullopt;
-    
-    Optional<WaitForNotificationBeforeInjecting> waitForNotification;
-    decoder >> waitForNotification;
-    if (!waitForNotification)
-        return WTF::nullopt;
-    
-    return {{
-        WTFMove(*source),
-        WTFMove(*url),
-        WTFMove(*allowlist),
-        WTFMove(*blocklist),
-        WTFMove(*injectionTime),
-        WTFMove(*injectedFrames),
-        WTFMove(*waitForNotification)
-    }};
-}
 
 } // namespace WebCore

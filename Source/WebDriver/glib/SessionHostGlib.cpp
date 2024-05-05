@@ -75,7 +75,7 @@ const SocketConnection::MessageHandlers& SessionHost::messageHandlers()
             gboolean isPaired;
             while (g_variant_iter_loop(iter.get(), "(t&s&s&sb)", &targetID, &type, &name, &dummy, &isPaired)) {
                 if (!g_strcmp0(type, "Automation"))
-                    targetList.uncheckedAppend({ targetID, name, static_cast<bool>(isPaired) });
+                    targetList.append({ targetID, name, static_cast<bool>(isPaired) });
             }
             sessionHost.setTargetList(connectionID, WTFMove(targetList));
         }}
@@ -93,7 +93,7 @@ const SocketConnection::MessageHandlers& SessionHost::messageHandlers()
     return messageHandlers;
 }
 
-void SessionHost::connectToBrowser(Function<void (Optional<String> error)>&& completionHandler)
+void SessionHost::connectToBrowser(Function<void (std::optional<String> error)>&& completionHandler)
 {
     launchBrowser(WTFMove(completionHandler));
 }
@@ -106,7 +106,7 @@ bool SessionHost::isConnected() const
 
 struct ConnectToBrowserAsyncData {
     WTF_MAKE_STRUCT_FAST_ALLOCATED;
-    ConnectToBrowserAsyncData(SessionHost* sessionHost, GUniquePtr<char>&& inspectorAddress, GCancellable* cancellable, Function<void(Optional<String>)>&& completionHandler)
+    ConnectToBrowserAsyncData(SessionHost* sessionHost, GUniquePtr<char>&& inspectorAddress, GCancellable* cancellable, Function<void(std::optional<String>)>&& completionHandler)
         : sessionHost(sessionHost)
         , inspectorAddress(WTFMove(inspectorAddress))
         , cancellable(cancellable)
@@ -117,7 +117,7 @@ struct ConnectToBrowserAsyncData {
     SessionHost* sessionHost;
     GUniquePtr<char> inspectorAddress;
     GRefPtr<GCancellable> cancellable;
-    Function<void (Optional<String> error)> completionHandler;
+    Function<void (std::optional<String> error)> completionHandler;
 };
 
 static guint16 freePort()
@@ -132,7 +132,7 @@ static guint16 freePort()
     return g_inet_socket_address_get_port(G_INET_SOCKET_ADDRESS(address.get()));
 }
 
-void SessionHost::launchBrowser(Function<void (Optional<String> error)>&& completionHandler)
+void SessionHost::launchBrowser(Function<void (std::optional<String> error)>&& completionHandler)
 {
     m_cancellable = adoptGRef(g_cancellable_new());
     GRefPtr<GSubprocessLauncher> launcher = adoptGRef(g_subprocess_launcher_new(G_SUBPROCESS_FLAGS_NONE));
@@ -197,7 +197,7 @@ void SessionHost::connectToBrowser(std::unique_ptr<ConnectToBrowserAsyncData>&& 
                     return;
                 }
                 data->sessionHost->setupConnection(SocketConnection::create(WTFMove(connection), messageHandlers(), data->sessionHost));
-                data->completionHandler(WTF::nullopt);
+                data->completionHandler(std::nullopt);
         }, data);
     });
 }
@@ -264,6 +264,8 @@ bool SessionHost::buildSessionCapabilities(GVariantBuilder* builder) const
         GVariantBuilder dictBuilder;
         g_variant_builder_init(&dictBuilder, G_VARIANT_TYPE("a{sv}"));
         g_variant_builder_add(&dictBuilder, "{sv}", "type", g_variant_new_string(m_capabilities.proxy->type.utf8().data()));
+        if (m_capabilities.proxy->autoconfigURL)
+            g_variant_builder_add(&dictBuilder, "{sv}", "autoconfigURL", g_variant_new_string(m_capabilities.proxy->autoconfigURL->string().utf8().data()));
         if (m_capabilities.proxy->ftpURL)
             g_variant_builder_add(&dictBuilder, "{sv}", "ftpURL", g_variant_new_string(m_capabilities.proxy->ftpURL->string().utf8().data()));
         if (m_capabilities.proxy->httpURL)
@@ -276,12 +278,12 @@ bool SessionHost::buildSessionCapabilities(GVariantBuilder* builder) const
             switch (m_capabilities.proxy->socksVersion.value()) {
             case 4:
                 if (URL::hostIsIPAddress(socksURL.host()))
-                    socksURL.setProtocol("socks4");
+                    socksURL.setProtocol("socks4"_s);
                 else
-                    socksURL.setProtocol("socks4a");
+                    socksURL.setProtocol("socks4a"_s);
                 break;
             case 5:
-                socksURL.setProtocol("socks5");
+                socksURL.setProtocol("socks5"_s);
                 break;
             default:
                 break;
@@ -301,12 +303,12 @@ bool SessionHost::buildSessionCapabilities(GVariantBuilder* builder) const
     return true;
 }
 
-void SessionHost::startAutomationSession(Function<void (bool, Optional<String>)>&& completionHandler)
+void SessionHost::startAutomationSession(Function<void (bool, std::optional<String>)>&& completionHandler)
 {
     ASSERT(m_socketConnection);
     ASSERT(!m_startSessionCompletionHandler);
     m_startSessionCompletionHandler = WTFMove(completionHandler);
-    m_sessionID = createCanonicalUUIDString();
+    m_sessionID = createVersion4UUIDString();
     GVariantBuilder builder;
     m_socketConnection->sendMessage("StartAutomationSession", g_variant_new("(sa{sv})", m_sessionID.utf8().data(), buildSessionCapabilities(&builder) ? &builder : nullptr));
 }
@@ -317,7 +319,7 @@ void SessionHost::didStartAutomationSession(GVariant* parameters)
         return;
 
     auto completionHandler = std::exchange(m_startSessionCompletionHandler, nullptr);
-    completionHandler(false, WTF::nullopt);
+    completionHandler(false, std::nullopt);
 }
 
 void SessionHost::setTargetList(uint64_t connectionID, Vector<Target>&& targetList)
@@ -353,7 +355,7 @@ void SessionHost::setTargetList(uint64_t connectionID, Vector<Target>&& targetLi
     m_socketConnection->sendMessage("Setup", g_variant_new("(tt)", m_connectionID, m_target.id));
 
     auto startSessionCompletionHandler = std::exchange(m_startSessionCompletionHandler, nullptr);
-    startSessionCompletionHandler(true, WTF::nullopt);
+    startSessionCompletionHandler(true, std::nullopt);
 }
 
 void SessionHost::sendMessageToFrontend(uint64_t connectionID, uint64_t targetID, const char* message)

@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2009 Google Inc. All rights reserved.
+ * Copyright (C) 2023 Apple Inc. All right reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -46,18 +47,17 @@ public:
     
     RenderRubyRun* rubyRun() const;
     
-    bool canBreakBefore(const LazyLineBreakIterator&) const;
+    bool canBreakBefore(const CachedLineBreakIteratorFactory&) const;
    
 private:
-    const char* renderName() const override { return "RenderRubyText"; }
-    bool isRubyText() const override { return true; }
+    ASCIILiteral renderName() const override { return "RenderRubyText"_s; }
 
     bool avoidsFloats() const override;
 
-    Optional<TextAlignMode> overrideTextAlignmentForLine(bool endsWithSoftBreak) const override;
+    std::optional<TextAlignMode> overrideTextAlignmentForLine(bool endsWithSoftBreak) const override;
     void adjustInlineDirectionLineBounds(int expansionOpportunityCount, float& logicalLeft, float& logicalWidth) const override;
 };
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderRubyText, isRubyText())
+SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderRubyText, isRenderRubyText())

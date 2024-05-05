@@ -26,10 +26,14 @@
 #include "Attribute.h"
 #include "CSSPropertyNames.h"
 #include "CSSValueKeywords.h"
+#include "ElementInlines.h"
 #include "HTMLNames.h"
 #include "HTMLParserIdioms.h"
+#include "NodeName.h"
 #include "RenderLayer.h"
+#include "RenderLayerScrollableArea.h"
 #include "RenderMarquee.h"
+#include "RenderStyleInlines.h"
 #include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
@@ -39,7 +43,7 @@ WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLMarqueeElement);
 using namespace HTMLNames;
 
 inline HTMLMarqueeElement::HTMLMarqueeElement(const QualifiedName& tagName, Document& document)
-    : HTMLElement(tagName, document)
+    : HTMLElement(tagName, document, TypeFlag::HasDidMoveToNewDocument)
     , ActiveDOMObject(document)
 {
     ASSERT(hasTagName(marqueeTag));
@@ -61,55 +65,81 @@ int HTMLMarqueeElement::minimumDelay() const
     return 16; // Don't allow timers at < 16ms intervals to avoid CPU hogging: webkit.org/b/160609
 }
 
-bool HTMLMarqueeElement::isPresentationAttribute(const QualifiedName& name) const
+bool HTMLMarqueeElement::hasPresentationalHintsForAttribute(const QualifiedName& name) const
 {
-    if (name == widthAttr || name == heightAttr || name == bgcolorAttr || name == vspaceAttr || name == hspaceAttr || name == scrollamountAttr || name == scrolldelayAttr || name == loopAttr || name == behaviorAttr || name == directionAttr)
+    switch (name.nodeName()) {
+    case AttributeNames::widthAttr:
+    case AttributeNames::heightAttr:
+    case AttributeNames::bgcolorAttr:
+    case AttributeNames::vspaceAttr:
+    case AttributeNames::hspaceAttr:
+    case AttributeNames::scrollamountAttr:
+    case AttributeNames::scrolldelayAttr:
+    case AttributeNames::loopAttr:
+    case AttributeNames::behaviorAttr:
+    case AttributeNames::directionAttr:
         return true;
-    return HTMLElement::isPresentationAttribute(name);
+    default:
+        break;
+    }
+    return HTMLElement::hasPresentationalHintsForAttribute(name);
 }
 
-void HTMLMarqueeElement::collectStyleForPresentationAttribute(const QualifiedName& name, const AtomString& value, MutableStyleProperties& style)
+void HTMLMarqueeElement::collectPresentationalHintsForAttribute(const QualifiedName& name, const AtomString& value, MutableStyleProperties& style)
 {
-    if (name == widthAttr) {
+    switch (name.nodeName()) {
+    case AttributeNames::widthAttr:
         if (!value.isEmpty())
             addHTMLLengthToStyle(style, CSSPropertyWidth, value);
-    } else if (name == heightAttr) {
+        break;
+    case AttributeNames::heightAttr:
         if (!value.isEmpty())
             addHTMLLengthToStyle(style, CSSPropertyHeight, value);
-    } else if (name == bgcolorAttr) {
+        break;
+    case AttributeNames::bgcolorAttr:
         if (!value.isEmpty())
             addHTMLColorToStyle(style, CSSPropertyBackgroundColor, value);
-    } else if (name == vspaceAttr) {
+        break;
+    case AttributeNames::vspaceAttr:
         if (!value.isEmpty()) {
             addHTMLLengthToStyle(style, CSSPropertyMarginTop, value);
             addHTMLLengthToStyle(style, CSSPropertyMarginBottom, value);
         }
-    } else if (name == hspaceAttr) {
+        break;
+    case AttributeNames::hspaceAttr:
         if (!value.isEmpty()) {
             addHTMLLengthToStyle(style, CSSPropertyMarginLeft, value);
             addHTMLLengthToStyle(style, CSSPropertyMarginRight, value);
         }
-    } else if (name == scrollamountAttr) {
+        break;
+    case AttributeNames::scrollamountAttr:
         if (!value.isEmpty())
             addHTMLLengthToStyle(style, CSSPropertyWebkitMarqueeIncrement, value);
-    } else if (name == scrolldelayAttr) {
+        break;
+    case AttributeNames::scrolldelayAttr:
         if (!value.isEmpty())
-            addHTMLLengthToStyle(style, CSSPropertyWebkitMarqueeSpeed, value);
-    } else if (name == loopAttr) {
+            addHTMLNumberToStyle(style, CSSPropertyWebkitMarqueeSpeed, value);
+        break;
+    case AttributeNames::loopAttr:
         if (!value.isEmpty()) {
-            if (value == "-1" || equalLettersIgnoringASCIICase(value, "infinite"))
-                addPropertyToPresentationAttributeStyle(style, CSSPropertyWebkitMarqueeRepetition, CSSValueInfinite);
+            if (value == "-1"_s || equalLettersIgnoringASCIICase(value, "infinite"_s))
+                addPropertyToPresentationalHintStyle(style, CSSPropertyWebkitMarqueeRepetition, CSSValueInfinite);
             else
-                addHTMLLengthToStyle(style, CSSPropertyWebkitMarqueeRepetition, value);
+                addHTMLNumberToStyle(style, CSSPropertyWebkitMarqueeRepetition, value);
         }
-    } else if (name == behaviorAttr) {
+        break;
+    case AttributeNames::behaviorAttr:
         if (!value.isEmpty())
-            addPropertyToPresentationAttributeStyle(style, CSSPropertyWebkitMarqueeStyle, value);
-    } else if (name == directionAttr) {
+            addPropertyToPresentationalHintStyle(style, CSSPropertyWebkitMarqueeStyle, value);
+        break;
+    case AttributeNames::directionAttr:
         if (!value.isEmpty())
-            addPropertyToPresentationAttributeStyle(style, CSSPropertyWebkitMarqueeDirection, value);
-    } else
-        HTMLElement::collectStyleForPresentationAttribute(name, value, style);
+            addPropertyToPresentationalHintStyle(style, CSSPropertyWebkitMarqueeDirection, value);
+        break;
+    default:
+        HTMLElement::collectPresentationalHintsForAttribute(name, value, style);
+        break;
+    }
 }
 
 void HTMLMarqueeElement::start()
@@ -146,17 +176,22 @@ void HTMLMarqueeElement::setScrollDelay(unsigned scrollDelay)
     
 int HTMLMarqueeElement::loop() const
 {
-    bool ok;
-    int loopValue = attributeWithoutSynchronization(loopAttr).toInt(&ok);
-    return ok && loopValue > 0 ? loopValue : -1;
+    int loopValue = getIntegralAttribute(loopAttr);
+    return loopValue > 0 ? loopValue : -1;
 }
     
 ExceptionOr<void> HTMLMarqueeElement::setLoop(int loop)
 {
     if (loop <= 0 && loop != -1)
-        return Exception { IndexSizeError };
+        return Exception { ExceptionCode::IndexSizeError };
     setIntegralAttribute(loopAttr, loop);
     return { };
+}
+
+void HTMLMarqueeElement::didMoveToNewDocument(Document& oldDocument, Document& newDocument)
+{
+    HTMLElement::didMoveToNewDocument(oldDocument, newDocument);
+    ActiveDOMObject::didMoveToNewDocument(newDocument);
 }
 
 void HTMLMarqueeElement::suspend(ReasonForSuspension)
@@ -175,7 +210,10 @@ RenderMarquee* HTMLMarqueeElement::renderMarquee() const
 {
     if (!renderer() || !renderer()->hasLayer())
         return nullptr;
-    return renderBoxModelObject()->layer()->marquee();
+    auto* scrollableArea = renderBoxModelObject()->layer()->scrollableArea();
+    if (!scrollableArea)
+        return nullptr;
+    return scrollableArea->marquee();
 }
 
 } // namespace WebCore

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,6 +28,8 @@
 #pragma once
 
 #include <CFNetwork/CFNetwork.h>
+#include <dispatch/dispatch.h>
+#include <os/object.h>
 #include <pal/spi/cf/CFNetworkConnectionCacheSPI.h>
 
 #if USE(APPLE_INTERNAL_SDK)
@@ -50,7 +52,19 @@
 #import <CFNetwork/CFNSURLConnection.h>
 #endif
 
+#if HAVE(NSURLPROTOCOL_WITH_SKIPAPPSSO)
+#if defined(__OBJC__)
+@interface NSURLProtocol (NSURLConnectionAppSSOPrivate)
++ (Class)_protocolClassForRequest:(NSURLRequest *)request skipAppSSO:(BOOL)skipAppSSO;
+@end
+#endif
+#endif
+
 #else // !USE(APPLE_INTERNAL_SDK)
+
+#if HAVE(CFNETWORK_HOSTOVERRIDE)
+#include <Network/Network.h>
+#endif
 
 #if HAVE(PRECONNECT_PING) && defined(__OBJC__)
 
@@ -77,6 +91,33 @@ typedef enum {
 #define NW_CONTEXT_HAS_PRIVACY_LEVEL_SILENT    1
 #endif
 #endif // HAVE(LOGGING_PRIVACY_LEVEL)
+
+#if HAVE(NW_PROXY_CONFIG) || HAVE(SYSTEM_SUPPORT_FOR_ADVANCED_PRIVACY_PROTECTIONS)
+
+#if OS_OBJECT_USE_OBJC
+OS_OBJECT_DECL(nw_context);
+OS_OBJECT_DECL(nw_endpoint);
+OS_OBJECT_DECL(nw_proxy_config);
+#else
+struct nw_context;
+typedef struct nw_context *nw_context_t;
+struct nw_endpoint;
+typedef struct nw_endpoint *nw_endpoint_t;
+struct nw_proxy_config;
+typedef struct nw_proxy_config *nw_proxy_config_t;
+#endif // OS_OBJECT_USE_OBJC
+
+typedef void (^nw_context_tracker_lookup_callback_t)(nw_endpoint_t endpoint, const char **tracker_name, const char **tracker_owner, bool *can_block);
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+DISPATCH_RETURNS_RETAINED dispatch_data_t nw_proxy_config_copy_agent_data(nw_proxy_config_t);
+void nw_proxy_config_get_identifier(nw_proxy_config_t, uuid_t out_identifier);
+#ifdef __cplusplus
+}
+#endif
+#endif // HAVE(NW_PROXY_CONFIG) || HAVE(SYSTEM_SUPPORT_FOR_ADVANCED_PRIVACY_PROTECTIONS)
 
 typedef CF_ENUM(int64_t, _TimingDataOptions)
 {
@@ -114,10 +155,23 @@ CF_ENUM(CFHTTPCookieStorageAcceptPolicy)
     CFHTTPCookieStorageAcceptPolicyExclusivelyFromMainDocumentDomain = 3,
 };
 
+#if HAVE(NETWORK_CONNECTION_PRIVACY_STANCE)
+typedef enum {
+    nw_connection_privacy_stance_unknown = 0,
+    nw_connection_privacy_stance_not_eligible = 1,
+    nw_connection_privacy_stance_proxied = 2,
+    nw_connection_privacy_stance_failed = 3,
+    nw_connection_privacy_stance_direct = 4,
+} nw_connection_privacy_stance_t;
+#endif
+
 #if defined(__OBJC__)
 
 @interface NSURLSessionTask ()
 @property (readonly, retain) NSURLSessionTaskMetrics* _incompleteTaskMetrics;
+#if HAVE(CFNETWORK_HOSTOVERRIDE)
+@property (nullable, nonatomic, retain) nw_endpoint_t _hostOverride;
+#endif
 @end
 
 @interface NSURLCache ()
@@ -144,13 +198,14 @@ CF_ENUM(CFHTTPCookieStorageAcceptPolicy)
 - (void)removeCookiesSinceDate:(NSDate *)date;
 - (id)_initWithCFHTTPCookieStorage:(CFHTTPCookieStorageRef)cfStorage;
 - (CFHTTPCookieStorageRef)_cookieStorage;
-- (void)_saveCookies;
-#if HAVE(FOUNDATION_WITH_SAVE_COOKIES_WITH_COMPLETION_HANDLER)
 - (void)_saveCookies:(dispatch_block_t) completionHandler;
-#endif
 #if HAVE(CFNETWORK_OVERRIDE_SESSION_COOKIE_ACCEPT_POLICY)
 @property (nonatomic, readwrite) BOOL _overrideSessionCookieAcceptPolicy;
 #endif
+@end
+
+@interface NSURLCredentialStorage ()
+- (id)_initWithIdentifier:(NSString *)identifier private:(bool)isPrivate;
 @end
 
 @interface NSURLConnection ()
@@ -162,15 +217,35 @@ CF_ENUM(CFHTTPCookieStorageAcceptPolicy)
 - (void)setBoundInterfaceIdentifier:(NSString *)identifier;
 - (void)_setPreventHSTSStorage:(BOOL)preventHSTSStorage;
 - (void)_setIgnoreHSTS:(BOOL)ignoreHSTS;
+#if HAVE(PROHIBIT_PRIVACY_PROXY)
+@property (setter=_setProhibitPrivacyProxy:) BOOL _prohibitPrivacyProxy;
+#endif
+#if HAVE(PRIVACY_PROXY_FAIL_CLOSED_FOR_UNREACHABLE_HOSTS)
+@property (setter=_setPrivacyProxyFailClosedForUnreachableHosts:) BOOL _privacyProxyFailClosedForUnreachableHosts;
+#endif
+#if ENABLE(TRACKER_DISPOSITION)
+@property (setter=_setNeedsNetworkTrackingPrevention:) BOOL _needsNetworkTrackingPrevention;
+#endif
+#if HAVE(SYSTEM_SUPPORT_FOR_ADVANCED_PRIVACY_PROTECTIONS)
+@property (setter=_setUseEnhancedPrivacyMode:) BOOL _useEnhancedPrivacyMode;
+@property (setter=_setBlockTrackers:) BOOL _blockTrackers;
+#endif
+#if HAVE(ALLOW_PRIVATE_ACCESS_TOKENS_FOR_THIRD_PARTY)
+@property (setter=_setAllowPrivateAccessTokensForThirdParty:) BOOL _allowPrivateAccessTokensForThirdParty;
+#endif
 @end
 
 @interface NSURLProtocol ()
 + (Class)_protocolClassForRequest:(NSURLRequest *)request;
 @end
 
+#if HAVE(NSURLPROTOCOL_WITH_SKIPAPPSSO)
+@interface NSURLProtocol (NSURLConnectionAppSSOPrivate)
++ (Class)_protocolClassForRequest:(NSURLRequest *)request skipAppSSO:(BOOL)skipAppSSO;
+@end
+#endif
+
 @interface NSURLRequest ()
-+ (NSArray *)allowsSpecificHTTPSCertificateForHost:(NSString *)host;
-+ (void)setAllowsSpecificHTTPSCertificate:(NSArray *)allow forHost:(NSString *)host;
 + (void)setDefaultTimeoutInterval:(NSTimeInterval)seconds;
 - (NSArray *)contentDispositionEncodingFallbackArray;
 - (CFMutableURLRequestRef)_CFURLRequest;
@@ -180,6 +255,13 @@ CF_ENUM(CFHTTPCookieStorageAcceptPolicy)
 - (BOOL)_schemeWasUpgradedDueToDynamicHSTS;
 - (BOOL)_preventHSTSStorage;
 - (BOOL)_ignoreHSTS;
+#if HAVE(NETWORK_CONNECTION_PRIVACY_STANCE)
+@property (setter=_setPrivacyProxyFailClosed:) BOOL _privacyProxyFailClosed;
+@property (readonly) BOOL _useEnhancedPrivacyMode;
+#endif
+#if HAVE(PRIVACY_PROXY_FAIL_CLOSED_FOR_UNREACHABLE_HOSTS)
+@property (readonly) BOOL _privacyProxyFailClosedForUnreachableNonMainHosts;
+#endif
 @end
 
 @interface NSURLResponse ()
@@ -196,9 +278,17 @@ typedef NS_ENUM(NSInteger, NSURLSessionCompanionProxyPreference) {
 };
 #endif
 
-#if HAVE(CFNETWORK_ALTERNATIVE_SERVICE)
+#if HAVE(ALTERNATIVE_SERVICE)
 @class _NSHTTPAlternativeServicesStorage;
 #endif
+
+@interface _NSHSTSStorage : NSObject
+- (instancetype)initPersistentStoreWithURL:(nullable NSURL*)path;
+- (BOOL)shouldPromoteHostToHTTPS:(NSString *)host;
+- (NSArray<NSString *> *)nonPreloadedHosts;
+- (void)resetHSTSForHost:(NSString *)host;
+- (void)resetHSTSHostsSinceDate:(NSDate *)date;
+@end
 
 @interface NSURLSessionConfiguration ()
 @property (assign) _TimingDataOptions _timingDataOptions;
@@ -224,13 +314,26 @@ typedef NS_ENUM(NSInteger, NSURLSessionCompanionProxyPreference) {
 #if HAVE(LOGGING_PRIVACY_LEVEL)
 @property nw_context_privacy_level_t _loggingPrivacyLevel;
 #endif
-#if HAVE(CFNETWORK_ALTERNATIVE_SERVICE)
+#if HAVE(ALTERNATIVE_SERVICE)
 @property (nullable, retain) _NSHTTPAlternativeServicesStorage *_alternativeServicesStorage;
 @property (readwrite, assign) BOOL _allowsHTTP3;
+#endif
+@property (nullable, retain) _NSHSTSStorage *_hstsStorage;
+#if HAVE(NETWORK_LOADER)
+@property BOOL _usesNWLoader;
+#endif
+#if HAVE(CFNETWORK_NSURLSESSION_CONNECTION_CACHE_LIMITS)
+@property (readwrite, assign) NSInteger _connectionCacheNumPriorityLevels;
+@property (readwrite, assign) NSInteger _connectionCacheNumFastLanes;
+@property (readwrite, assign) NSInteger _connectionCacheMinimumFastLanePriority;
+#endif
+#if HAVE(CFNETWORK_NSURLSESSION_ATTRIBUTED_BUNDLE_IDENTIFIER)
+@property (nullable, copy) NSString *_attributedBundleIdentifier;
 #endif
 @end
 
 @interface NSURLSessionTask ()
+- (void)_adoptEffectiveConfiguration:(NSURLSessionConfiguration *) newConfiguration;
 - (NSDictionary *)_timingData;
 @property (readwrite, copy) NSString *_pathToDownloadTaskFile;
 @property (copy) NSString *_storagePartitionIdentifier;
@@ -241,6 +344,9 @@ typedef NS_ENUM(NSInteger, NSURLSessionCompanionProxyPreference) {
 #if ENABLE(SERVER_PRECONNECT)
 @property (nonatomic, assign) BOOL _preconnect;
 #endif
+#if ENABLE(INSPECTOR_NETWORK_THROTTLING)
+@property (readwrite, assign) int64_t _bytesPerSecondLimit;
+#endif
 @end
 
 @interface NSURLSessionTaskTransactionMetrics ()
@@ -250,25 +356,27 @@ typedef NS_ENUM(NSInteger, NSURLSessionCompanionProxyPreference) {
 @property (assign, readonly) NSInteger _responseHeaderBytesReceived;
 @property (assign, readonly) int64_t _responseBodyBytesReceived;
 @property (assign, readonly) int64_t _responseBodyBytesDecoded;
-@end
-
-#if HAVE(CFNETWORK_NEGOTIATED_SSL_PROTOCOL_CIPHER)
-@interface NSURLSessionTaskTransactionMetrics ()
+#if HAVE(NETWORK_CONNECTION_PRIVACY_STANCE)
+@property (assign, readonly) nw_connection_privacy_stance_t _privacyStance;
+#endif
 @property (assign) SSLProtocol _negotiatedTLSProtocol;
 @property (assign) SSLCipherSuite _negotiatedTLSCipher;
-@end
+#if ENABLE(NETWORK_ISSUE_REPORTING)
+@property (nonatomic, readonly) BOOL _isUnlistedTracker;
 #endif
+@end
 
 @interface NSURLSession (SPI)
-#if HAVE(CFNETWORK_NSURLSESSION_STRICTRUSTEVALUATE)
 + (void)_strictTrustEvaluate:(NSURLAuthenticationChallenge *)challenge queue:(dispatch_queue_t)queue completionHandler:(void (^)(NSURLAuthenticationChallenge *challenge, OSStatus trustResult))cb;
-#endif
 #if HAVE(APP_SSO)
 + (void)_disableAppSSO;
 #endif
+#if HAVE(SYSTEM_SUPPORT_FOR_ADVANCED_PRIVACY_PROTECTIONS)
+@property (readonly) nw_context_t _networkContext;
+#endif
 @end
 
-#if HAVE(CFNETWORK_ALTERNATIVE_SERVICE)
+#if HAVE(ALTERNATIVE_SERVICE)
 
 @interface _NSHTTPAlternativeServiceEntry : NSObject <NSCopying>
 @property (readwrite, nonatomic, retain) NSString *host;
@@ -288,7 +396,7 @@ typedef NS_ENUM(NSInteger, NSURLSessionCompanionProxyPreference) {
 - (void)removeHTTPAlternativeServiceEntriesCreatedAfterDate:(NSDate *)date;
 @end
 
-#endif // HAVE(CFNETWORK_ALTERNATIVE_SERVICE)
+#endif // HAVE(ALTERNATIVE_SERVICE)
 
 extern NSString * const NSURLAuthenticationMethodOAuth;
 
@@ -296,12 +404,10 @@ enum : NSUInteger {
     NSHTTPCookieAcceptPolicyExclusivelyFromMainDocumentDomain = 3,
 };
 
-#if HAVE(CFNETWORK_CNAME_AND_COOKIE_TRANSFORM_SPI)
 @interface NSURLSessionTask ()
 @property (nonatomic, copy, nullable) NSArray<NSHTTPCookie*>* (^_cookieTransformCallback)(NSArray<NSHTTPCookie*>* cookies);
 @property (nonatomic, readonly, nullable) NSArray<NSString*>* _resolvedCNAMEChain;
 @end
-#endif
 
 #endif // defined(__OBJC__)
 
@@ -314,6 +420,7 @@ typedef void (^CFCachedURLResponseCallBackBlock)(CFCachedURLResponseRef);
 void _CFCachedURLResponseSetBecameFileBackedCallBackBlock(CFCachedURLResponseRef, CFCachedURLResponseCallBackBlock, dispatch_queue_t);
 #endif
 
+void _CFURLStorageSessionDisableCache(CFURLStorageSessionRef);
 CFURLStorageSessionRef _CFURLStorageSessionCreate(CFAllocatorRef, CFStringRef, CFDictionaryRef);
 CFURLCacheRef _CFURLStorageSessionCopyCache(CFAllocatorRef, CFURLStorageSessionRef);
 void CFURLRequestSetShouldStartSynchronously(CFURLRequestRef, Boolean);
@@ -323,7 +430,6 @@ CFIndex CFURLCacheMemoryCapacity(CFURLCacheRef);
 void CFURLCacheSetDiskCapacity(CFURLCacheRef, CFIndex);
 CFCachedURLResponseRef CFURLCacheCopyResponseForRequest(CFURLCacheRef, CFURLRequestRef);
 void CFHTTPCookieStorageDeleteAllCookies(CFHTTPCookieStorageRef);
-void _CFHTTPCookieStorageFlushCookieStores();
 CFDataRef _CFCachedURLResponseGetMemMappedData(CFCachedURLResponseRef);
 
 extern CFStringRef const kCFHTTPCookieLocalFileDomain;
@@ -379,10 +485,6 @@ void _CFURLRequestCreateArchiveList(CFAllocatorRef, CFURLRequestRef, CFIndex* ve
 CFMutableURLRequestRef _CFURLRequestCreateFromArchiveList(CFAllocatorRef, CFIndex version, CFTypeRef* objects, CFIndex objectCount, CFDictionaryRef protocolProperties);
 void CFURLRequestSetProxySettings(CFMutableURLRequestRef, CFDictionaryRef);
 
-#if HAVE(HSTS_STORAGE_PATH)
-void _CFNetworkSetHSTSStoragePath(CFStringRef);
-#endif
-
 CFN_EXPORT const CFStringRef kCFStreamPropertyCONNECTProxy;
 CFN_EXPORT const CFStringRef kCFStreamPropertyCONNECTProxyHost;
 CFN_EXPORT const CFStringRef kCFStreamPropertyCONNECTProxyPort;
@@ -395,13 +497,7 @@ CFN_EXPORT void _CFHTTPMessageSetResponseProxyURL(CFHTTPMessageRef, CFURLRef);
 CFDataRef _CFNetworkCopyATSContext(void);
 Boolean _CFNetworkSetATSContext(CFDataRef);
 
-extern const CFStringRef _kCFNetworkHSTSPreloaded;
-CFDictionaryRef _CFNetworkCopyHSTSPolicies(CFURLStorageSessionRef);
-void _CFNetworkResetHSTS(CFURLRef, CFURLStorageSessionRef);
-void _CFNetworkResetHSTSHostsSinceDate(CFURLStorageSessionRef, CFDateRef);
 Boolean _CFNetworkIsKnownHSTSHostWithSession(CFURLRef, CFURLStorageSessionRef);
-void _CFNetworkResetHSTSHostsWithSession(CFURLStorageSessionRef);
-
 CFDataRef CFHTTPCookieStorageCreateIdentifyingData(CFAllocatorRef inAllocator, CFHTTPCookieStorageRef inStorage);
 CFHTTPCookieStorageRef CFHTTPCookieStorageCreateFromIdentifyingData(CFAllocatorRef inAllocator, CFDataRef inData);
 CFArrayRef _CFHTTPParsedCookiesWithResponseHeaderFields(CFAllocatorRef inAllocator, CFDictionaryRef headerFields, CFURLRef inURL);
@@ -426,30 +522,42 @@ WTF_EXTERN_C_END
 - (void)_setCookiesRemovedHandler:(void(^__nullable)(NSArray<NSHTTPCookie*>* __nullable removedCookies, NSString* __nullable domainForRemovedCookies, bool removeAllCookies))cookiesRemovedHandler onQueue:(dispatch_queue_t __nullable)queue;
 @end
 
-#if HAVE(BROKEN_DOWNLOAD_RESUME_UNLINK)
-@interface __NSCFLocalDownloadFile : NSObject
-@end
-@interface __NSCFLocalDownloadFile ()
-@property (readwrite, assign) BOOL skipUnlink;
-@end
-
-@interface NSURLSessionDownloadTask ()
-- (__NSCFLocalDownloadFile *)downloadFile;
-@end
-#endif
-
 @interface NSURLResponse ()
 - (void)_setMIMEType:(NSString *)type;
 @end
 
-@interface NSURLSessionConfiguration ()
+@interface NSURLSessionConfiguration (SPI)
 // FIXME: Remove this once rdar://problem/40650244 is in a build.
 @property (copy) NSDictionary *_socketStreamProperties;
+// FIXME: Remove this once rdar://80550123 is in a build.
+@property (nonatomic) BOOL _allowsHSTSWithUntrustedRootCertificate;
 @end
 
 @interface NSURLSessionTask ()
 - (void)_setExplicitCookieStorage:(CFHTTPCookieStorageRef)storage;
 @property (readonly) SSLProtocol _TLSNegotiatedProtocolVersion;
 @end
+
+@interface NSURLSessionWebSocketTask (SPI)
+- (void)_sendCloseCode:(NSURLSessionWebSocketCloseCode)closeCode reason:(NSData *)reason;
+@end
+
+@interface NSMutableURLRequest (Staging_88972294)
+@property (setter=_setPrivacyProxyFailClosedForUnreachableNonMainHosts:) BOOL _privacyProxyFailClosedForUnreachableNonMainHosts;
+@end
+
+@interface NSURLSessionConfiguration (Staging_102778152)
+@property (nonatomic) BOOL _skipsStackTraceCapture;
+@end
+
+@interface NSMutableURLRequest (Staging_103362732)
+@property (setter=_setWebSearchContent:) BOOL _isWebSearchContent;
+@end
+
+#if HAVE(ALTERNATIVE_SERVICE)
+@interface _NSHTTPAlternativeServicesStorage (Staging_116927813)
+@property BOOL canSuspendLocked;
+@end
+#endif
 
 #endif // defined(__OBJC__)

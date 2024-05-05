@@ -25,8 +25,6 @@
 
 #pragma once
 
-#if ENABLE(SERVICE_WORKER)
-
 #include "ServiceWorkerIdentifier.h"
 #include "ServiceWorkerTypes.h"
 #include <wtf/URL.h>
@@ -36,54 +34,13 @@ namespace WebCore {
 
 struct ServiceWorkerData {
     ServiceWorkerIdentifier identifier;
+    ServiceWorkerRegistrationIdentifier registrationIdentifier;
     URL scriptURL;
     ServiceWorkerState state;
     WorkerType type;
-    ServiceWorkerRegistrationIdentifier registrationIdentifier;
 
-    ServiceWorkerData isolatedCopy() const;
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static Optional<ServiceWorkerData> decode(Decoder&);
+    WEBCORE_EXPORT ServiceWorkerData isolatedCopy() const &;
+    WEBCORE_EXPORT ServiceWorkerData isolatedCopy() &&;
 };
 
-template<class Encoder>
-void ServiceWorkerData::encode(Encoder& encoder) const
-{
-    encoder << identifier << scriptURL << state << type << registrationIdentifier;
-}
-
-template<class Decoder>
-Optional<ServiceWorkerData> ServiceWorkerData::decode(Decoder& decoder)
-{
-    Optional<ServiceWorkerIdentifier> identifier;
-    decoder >> identifier;
-    if (!identifier)
-        return WTF::nullopt;
-
-    Optional<URL> scriptURL;
-    decoder >> scriptURL;
-    if (!scriptURL)
-        return WTF::nullopt;
-
-    Optional<ServiceWorkerState> state;
-    decoder >> state;
-    if (!state)
-        return WTF::nullopt;
-
-    Optional<WorkerType> type;
-    decoder >> type;
-    if (!type)
-        return WTF::nullopt;
-
-    Optional<ServiceWorkerRegistrationIdentifier> registrationIdentifier;
-    decoder >> registrationIdentifier;
-    if (!registrationIdentifier)
-        return WTF::nullopt;
-
-    return { { WTFMove(*identifier), WTFMove(*scriptURL), WTFMove(*state), WTFMove(*type), WTFMove(*registrationIdentifier) } };
-}
-
 } // namespace WebCore
-
-#endif // ENABLE(SERVICE_WORKER)

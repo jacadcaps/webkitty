@@ -28,27 +28,25 @@
 
 #if PLATFORM(WAYLAND)
 
-#include "GLContextEGL.h"
+#include "GLContext.h"
 #include <cstring>
+#include <wtf/Assertions.h>
+
 // These includes need to be in this order because wayland-egl.h defines WL_EGL_PLATFORM
 // and egl.h checks that to decide whether it's Wayland platform.
 #include <wayland-egl.h>
-#include <EGL/egl.h>
-#include <EGL/eglext.h>
-#include <wtf/Assertions.h>
+#include <epoxy/egl.h>
+
+#if PLATFORM(GTK)
+#include <gtk/gtk.h>
+#if USE(GTK4)
+#include <gdk/wayland/gdkwayland.h>
+#else
+#include <gdk/gdkwayland.h>
+#endif
+#endif
 
 namespace WebCore {
-
-const struct wl_registry_listener PlatformDisplayWayland::s_registryListener = {
-    // globalCallback
-    [](void* data, struct wl_registry*, uint32_t name, const char* interface, uint32_t) {
-        static_cast<PlatformDisplayWayland*>(data)->registryGlobal(interface, name);
-    },
-    // globalRemoveCallback
-    [](void*, struct wl_registry*, uint32_t)
-    {
-    }
-};
 
 std::unique_ptr<PlatformDisplay> PlatformDisplayWayland::create()
 {
@@ -56,77 +54,95 @@ std::unique_ptr<PlatformDisplay> PlatformDisplayWayland::create()
     if (!display)
         return nullptr;
 
-    auto platformDisplay = std::unique_ptr<PlatformDisplayWayland>(new PlatformDisplayWayland(display, NativeDisplayOwned::Yes));
-    platformDisplay->initialize();
-    return platformDisplay;
+    return makeUnique<PlatformDisplayWayland>(display);
 }
 
-std::unique_ptr<PlatformDisplay> PlatformDisplayWayland::create(struct wl_display* display)
+#if PLATFORM(GTK)
+std::unique_ptr<PlatformDisplay> PlatformDisplayWayland::create(GdkDisplay* display)
 {
-    auto platformDisplay = std::unique_ptr<PlatformDisplayWayland>(new PlatformDisplayWayland(display, NativeDisplayOwned::No));
-    platformDisplay->initialize();
-    return platformDisplay;
+    return makeUnique<PlatformDisplayWayland>(display);
+}
+#endif
+
+PlatformDisplayWayland::PlatformDisplayWayland(struct wl_display* display)
+    : m_display(display)
+{
 }
 
-PlatformDisplayWayland::PlatformDisplayWayland(struct wl_display* display, NativeDisplayOwned displayOwned)
-    : PlatformDisplay(displayOwned)
-    , m_display(display)
+#if PLATFORM(GTK)
+PlatformDisplayWayland::PlatformDisplayWayland(GdkDisplay* display)
+    : PlatformDisplay(display)
+    , m_display(display ? gdk_wayland_display_get_wl_display(display) : nullptr)
 {
 }
+#endif
 
 PlatformDisplayWayland::~PlatformDisplayWayland()
 {
-    if (m_nativeDisplayOwned == NativeDisplayOwned::Yes) {
-        m_compositor = nullptr;
-        m_registry = nullptr;
+#if PLATFORM(GTK)
+    bool nativeDisplayOwned = !m_sharedDisplay;
+#else
+    bool nativeDisplayOwned = true;
+#endif
+
+    if (nativeDisplayOwned && m_display)
         wl_display_disconnect(m_display);
-    }
 }
 
-void PlatformDisplayWayland::initialize()
+#if PLATFORM(GTK)
+void PlatformDisplayWayland::sharedDisplayDidClose()
 {
-    if (!m_display)
+    PlatformDisplay::sharedDisplayDidClose();
+    m_display = nullptr;
+}
+
+EGLDisplay PlatformDisplayWayland::gtkEGLDisplay()
+{
+    if (m_eglDisplay != EGL_NO_DISPLAY)
+        return m_eglDisplayOwned ? EGL_NO_DISPLAY : m_eglDisplay;
+
+    if (!m_sharedDisplay)
+        return EGL_NO_DISPLAY;
+
+#if USE(GTK4)
+    m_eglDisplay = gdk_wayland_display_get_egl_display(m_sharedDisplay.get());
+#else
+    auto* window = gtk_window_new(GTK_WINDOW_POPUP);
+    gtk_widget_realize(window);
+    if (auto context = adoptGRef(gdk_window_create_gl_context(gtk_widget_get_window(window), nullptr))) {
+        gdk_gl_context_make_current(context.get());
+        m_eglDisplay = eglGetCurrentDisplay();
+    }
+    gtk_widget_destroy(window);
+#endif
+
+    if (m_eglDisplay == EGL_NO_DISPLAY)
+        return EGL_NO_DISPLAY;
+
+    m_eglDisplayOwned = false;
+    PlatformDisplay::initializeEGLDisplay();
+    return m_eglDisplay;
+}
+#endif
+
+void PlatformDisplayWayland::initializeEGLDisplay()
+{
+#if PLATFORM(GTK)
+    if (gtkEGLDisplay() != EGL_NO_DISPLAY)
         return;
+#endif
 
-    m_registry.reset(wl_display_get_registry(m_display));
-    wl_registry_add_listener(m_registry.get(), &s_registryListener, this);
-    wl_display_roundtrip(m_display);
-
-#if USE(EGL)
-#if defined(EGL_KHR_platform_wayland) || defined(EGL_EXT_platform_wayland)
     const char* extensions = eglQueryString(nullptr, EGL_EXTENSIONS);
-#if defined(EGL_KHR_platform_wayland)
-    if (GLContext::isExtensionSupported(extensions, "EGL_KHR_platform_base")) {
-        if (auto* getPlatformDisplay = reinterpret_cast<PFNEGLGETPLATFORMDISPLAYEXTPROC>(eglGetProcAddress("eglGetPlatformDisplay")))
-            m_eglDisplay = getPlatformDisplay(EGL_PLATFORM_WAYLAND_KHR, m_display, nullptr);
-    }
-#endif
-#if defined(EGL_EXT_platform_wayland)
-    if (m_eglDisplay == EGL_NO_DISPLAY && GLContext::isExtensionSupported(extensions, "EGL_EXT_platform_base")) {
-        if (auto* getPlatformDisplay = reinterpret_cast<PFNEGLGETPLATFORMDISPLAYEXTPROC>(eglGetProcAddress("eglGetPlatformDisplayEXT")))
-            m_eglDisplay = getPlatformDisplay(EGL_PLATFORM_WAYLAND_EXT, m_display, nullptr);
-    }
-#endif
-#endif
+    if (GLContext::isExtensionSupported(extensions, "EGL_KHR_platform_base"))
+        m_eglDisplay = eglGetPlatformDisplay(EGL_PLATFORM_WAYLAND_KHR, m_display, nullptr);
+
+    if (m_eglDisplay == EGL_NO_DISPLAY && GLContext::isExtensionSupported(extensions, "EGL_EXT_platform_base"))
+        m_eglDisplay = eglGetPlatformDisplayEXT(EGL_PLATFORM_WAYLAND_EXT, m_display, nullptr);
+
     if (m_eglDisplay == EGL_NO_DISPLAY)
         m_eglDisplay = eglGetDisplay(m_display);
 
     PlatformDisplay::initializeEGLDisplay();
-#endif
-}
-
-void PlatformDisplayWayland::registryGlobal(const char* interface, uint32_t name)
-{
-    if (!std::strcmp(interface, "wl_compositor"))
-        m_compositor.reset(static_cast<struct wl_compositor*>(wl_registry_bind(m_registry.get(), name, &wl_compositor_interface, 1)));
-}
-
-WlUniquePtr<struct wl_surface> PlatformDisplayWayland::createSurface() const
-{
-    if (!m_compositor)
-        return nullptr;
-
-    return WlUniquePtr<struct wl_surface>(wl_compositor_create_surface(m_compositor.get()));
 }
 
 } // namespace WebCore

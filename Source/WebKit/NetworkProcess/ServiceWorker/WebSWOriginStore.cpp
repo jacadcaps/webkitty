@@ -24,10 +24,9 @@
  */
 
 #include "config.h"
-
-#if ENABLE(SERVICE_WORKER)
 #include "WebSWOriginStore.h"
 
+#include "MessageSenderInlines.h"
 #include "WebSWClientConnectionMessages.h"
 #include "WebSWServerConnection.h"
 #include <WebCore/SecurityOrigin.h>
@@ -83,19 +82,16 @@ void WebSWOriginStore::unregisterSWServerConnection(WebSWServerConnection& conne
 
 void WebSWOriginStore::sendStoreHandle(WebSWServerConnection& connection)
 {
-    SharedMemory::Handle handle;
-    if (!m_store.createSharedMemoryHandle(handle))
+    auto handle = m_store.createSharedMemoryHandle();
+    if (!handle)
         return;
-
-    connection.send(Messages::WebSWClientConnection::SetSWOriginTableSharedMemory(handle));
+    connection.send(Messages::WebSWClientConnection::SetSWOriginTableSharedMemory(WTFMove(*handle)));
 }
 
 void WebSWOriginStore::didInvalidateSharedMemory()
 {
     for (auto& connection : m_webSWServerConnections)
-        sendStoreHandle(connection);
+        sendStoreHandle(CheckedRef { connection }.get());
 }
 
 } // namespace WebKit
-
-#endif // ENABLE(SERVICE_WORKER)

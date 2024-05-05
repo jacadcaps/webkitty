@@ -1,4 +1,4 @@
-# Copyright (C) 2010 Apple Inc. All rights reserved.
+# Copyright (C) 2010-2020 Apple Inc. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -26,6 +26,36 @@ VPATH = \
     $(WebKitTestRunner)/../TestRunnerShared/UIScriptContext/Bindings \
 #
 
+PERL = perl
+RUBY = ruby
+
+ifneq ($(SDKROOT),)
+    SDK_FLAGS = -isysroot $(SDKROOT)
+endif
+
+WK_CURRENT_ARCH = $(word 1, $(ARCHS))
+TARGET_TRIPLE_FLAGS = -target $(WK_CURRENT_ARCH)-$(LLVM_TARGET_TRIPLE_VENDOR)-$(LLVM_TARGET_TRIPLE_OS_VERSION)$(LLVM_TARGET_TRIPLE_SUFFIX)
+
+FRAMEWORK_FLAGS := $(addprefix -F, $(BUILT_PRODUCTS_DIR) $(FRAMEWORK_SEARCH_PATHS) $(SYSTEM_FRAMEWORK_SEARCH_PATHS))
+HEADER_FLAGS := $(addprefix -I, $(BUILT_PRODUCTS_DIR) $(HEADER_SEARCH_PATHS) $(SYSTEM_HEADER_SEARCH_PATHS))
+EXTERNAL_FLAGS := -DRELEASE_WITHOUT_OPTIMIZATIONS $(addprefix -D, $(GCC_PREPROCESSOR_DEFINITIONS))
+FEATURE_AND_PLATFORM_DEFINES := $(shell $(CC) -std=c++2a -x c++ -E -P -dM $(SDK_FLAGS) $(TARGET_TRIPLE_FLAGS) $(FRAMEWORK_FLAGS) $(HEADER_FLAGS) $(EXTERNAL_FLAGS) -include "wtf/Platform.h" /dev/null | $(PERL) -ne "print if s/\#define ((HAVE_|USE_|ENABLE_|WTF_PLATFORM_)\w+) 1/\1/")
+
+# FIXME: This should list Platform.h and all the things it includes. Could do that by using the -MD flag in the CC line above.
+FEATURE_AND_PLATFORM_DEFINE_DEPENDENCIES = $(WebKitTestRunner)/DerivedSources.make
+
+WEB_PREFERENCES_TEMPLATES = \
+    $(WebKitTestRunner)/Scripts/PreferencesTemplates/TestOptionsGeneratedKeys.h.erb \
+#
+WEB_PREFERENCES_FILES = $(basename $(notdir $(WEB_PREFERENCES_TEMPLATES)))
+WEB_PREFERENCES_PATTERNS = $(subst .erb,,$(WEB_PREFERENCES_FILES))
+
+all : $(WEB_PREFERENCES_FILES)
+
+$(WEB_PREFERENCES_PATTERNS) : $(WTF_BUILD_SCRIPTS_DIR)/GeneratePreferences.rb $(WEB_PREFERENCES_TEMPLATES) $(WTF_BUILD_SCRIPTS_DIR)/Preferences/UnifiedWebPreferences.yaml
+	$(RUBY) $< --frontend WebKit $(addprefix --template , $(WEB_PREFERENCES_TEMPLATES)) $(WTF_BUILD_SCRIPTS_DIR)/Preferences/UnifiedWebPreferences.yaml
+
+
 INJECTED_BUNDLE_INTERFACES = \
     AccessibilityController \
     AccessibilityTextMarker \
@@ -46,15 +76,20 @@ SCRIPTS = \
     $(WebKitTestRunner)/InjectedBundle/Bindings/CodeGeneratorTestRunner.pm \
     $(WebCoreScripts)/IDLParser.pm \
     $(WebCoreScripts)/generate-bindings.pl \
+    $(WebCoreScripts)/preprocessor.pm \
 #
 
 IDL_ATTRIBUTES_FILE = $(WebCoreScripts)/IDLAttributes.json
 
+IDL_FILE_NAMES_LIST = IDLFileNamesList.txt
+$(IDL_FILE_NAMES_LIST) : $(INJECTED_BUNDLE_INTERFACES:%=%.idl) $(UICONTEXT_INTERFACES:%=%.idl)
+	echo $^ | tr " " "\n" > $@
+
 .PHONY : all
 
-JS%.h JS%.cpp : %.idl $(SCRIPTS) $(IDL_ATTRIBUTES_FILE)
+JS%.h JS%.cpp : %.idl $(SCRIPTS) $(IDL_ATTRIBUTES_FILE) $(IDL_FILE_NAMES_LIST) $(FEATURE_AND_PLATFORM_DEFINE_DEPENDENCIES)
 	@echo Generating bindings for $*...
-	@perl -I $(WebCoreScripts) -I $(WebKitTestRunner)/InjectedBundle/Bindings -I $(WebKitTestRunner)/UIScriptContext/Bindings $(WebCoreScripts)/generate-bindings.pl --defines "" --include InjectedBundle/Bindings --include UIScriptContext/Bindings --outputDir . --generator TestRunner --idlAttributesFile $(IDL_ATTRIBUTES_FILE) $<
+	$(PERL) -I $(WebCoreScripts) -I $(WebKitTestRunner)/InjectedBundle/Bindings -I $(WebKitTestRunner)/UIScriptContext/Bindings $(WebCoreScripts)/generate-bindings.pl --defines "$(FEATURE_AND_PLATFORM_DEFINES)" --idlFileNamesList $(IDL_FILE_NAMES_LIST) --outputDir . --generator TestRunner --idlAttributesFile $(IDL_ATTRIBUTES_FILE) $<
 
 all : \
     $(INJECTED_BUNDLE_INTERFACES:%=JS%.h) \

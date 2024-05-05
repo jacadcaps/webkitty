@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2000 Peter Kelly <pmk@post.com>
- * Copyright (C) 2005-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2005-2021 Apple Inc. All rights reserved.
  * Copyright (C) 2006 Alexey Proskuryakov <ap@webkit.org>
  * Copyright (C) 2007 Samuel Weinig <sam@webkit.org>
  * Copyright (C) 2008 Nokia Corporation and/or its subsidiary(-ies)
@@ -31,18 +31,25 @@
 #include "CDATASection.h"
 #include "Comment.h"
 #include "CachedResourceLoader.h"
+#include "CommonAtomStrings.h"
+#include "CustomElementReactionQueue.h"
+#include "CustomElementRegistry.h"
 #include "Document.h"
 #include "DocumentFragment.h"
+#include "DocumentInlines.h"
 #include "DocumentType.h"
-#include "Frame.h"
+#include "EventLoop.h"
+#include "FrameDestructionObserverInlines.h"
 #include "FrameLoader.h"
 #include "HTMLEntityParser.h"
 #include "HTMLHtmlElement.h"
-#include "HTMLParserIdioms.h"
 #include "HTMLTemplateElement.h"
 #include "HTTPParsers.h"
 #include "InlineClassicScript.h"
+#include "LocalDOMWindow.h"
+#include "LocalFrame.h"
 #include "MIMETypeRegistry.h"
+#include "OriginAccessPatterns.h"
 #include "Page.h"
 #include "PageConsoleClient.h"
 #include "PendingScript.h"
@@ -55,10 +62,14 @@
 #include "Settings.h"
 #include "SharedBuffer.h"
 #include "StyleScope.h"
+#include "TextResourceDecoder.h"
+#include "ThrowOnDynamicMarkupInsertionCountIncrementer.h"
 #include "TransformSource.h"
 #include "XMLNSNames.h"
 #include "XMLDocumentParserScope.h"
+#include <libxml/parser.h>
 #include <libxml/parserInternals.h>
+#include <wtf/unicode/CharacterNames.h>
 #include <wtf/unicode/UTF8Conversion.h>
 
 #if ENABLE(XSLT)
@@ -358,9 +369,8 @@ static int matchFunc(const char*)
 class OffsetBuffer {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    OffsetBuffer(Vector<char> buffer)
+    OffsetBuffer(Vector<uint8_t>&& buffer)
         : m_buffer(WTFMove(buffer))
-        , m_currentOffset(0)
     {
     }
 
@@ -376,8 +386,8 @@ public:
     }
 
 private:
-    Vector<char> m_buffer;
-    unsigned m_currentOffset;
+    Vector<uint8_t> m_buffer;
+    unsigned m_currentOffset { 0 };
 };
 
 static bool externalEntityMimeTypeAllowed(const ResourceResponse& response)
@@ -394,11 +404,11 @@ static bool externalEntityMimeTypeAllowed(const ResourceResponse& response)
     return MIMETypeRegistry::isXMLMIMEType(mimeType) || MIMETypeRegistry::isXMLEntityMIMEType(mimeType);
 }
 
-static inline void setAttributes(Element* element, Vector<Attribute>& attributeVector, ParserContentPolicy parserContentPolicy)
+static inline void setAttributes(Element* element, Vector<Attribute>& attributeVector, OptionSet<ParserContentPolicy> parserContentPolicy)
 {
     if (!scriptingContentIsAllowed(parserContentPolicy))
         element->stripScriptingAttributes(attributeVector);
-    element->parserSetAttributes(attributeVector);
+    element->parserSetAttributes(attributeVector.span());
 }
 
 static void switchToUTF16(xmlParserCtxtPtr ctxt)
@@ -410,8 +420,7 @@ static void switchToUTF16(xmlParserCtxtPtr ctxt)
 
     // FIXME: Can we just use XML_PARSE_IGNORE_ENC now?
 
-    const UChar BOM = 0xFEFF;
-    const unsigned char BOMHighByte = *reinterpret_cast<const unsigned char*>(&BOM);
+    const unsigned char BOMHighByte = *reinterpret_cast<const unsigned char*>(&byteOrderMark);
     xmlSwitchEncoding(ctxt, BOMHighByte == 0xFF ? XML_CHAR_ENCODING_UTF16LE : XML_CHAR_ENCODING_UTF16BE);
 }
 
@@ -420,19 +429,19 @@ static bool shouldAllowExternalLoad(const URL& url)
     String urlString = url.string();
 
     // On non-Windows platforms libxml asks for this URL, the "XML_XML_DEFAULT_CATALOG", on initialization.
-    if (urlString == "file:///etc/xml/catalog")
+    if (urlString == "file:///etc/xml/catalog"_s)
         return false;
 
     // On Windows, libxml computes a URL relative to where its DLL resides.
-    if (startsWithLettersIgnoringASCIICase(urlString, "file:///") && urlString.endsWithIgnoringASCIICase("/etc/catalog"))
+    if (startsWithLettersIgnoringASCIICase(urlString, "file:///"_s) && urlString.endsWithIgnoringASCIICase("/etc/catalog"_s))
         return false;
 
     // The most common DTD. There isn't much point in hammering www.w3c.org by requesting this for every XHTML document.
-    if (startsWithLettersIgnoringASCIICase(urlString, "http://www.w3.org/tr/xhtml"))
+    if (startsWithLettersIgnoringASCIICase(urlString, "http://www.w3.org/tr/xhtml"_s))
         return false;
 
     // Similarly, there isn't much point in requesting the SVG DTD.
-    if (startsWithLettersIgnoringASCIICase(urlString, "http://www.w3.org/graphics/svg"))
+    if (startsWithLettersIgnoringASCIICase(urlString, "http://www.w3.org/graphics/svg"_s))
         return false;
 
     // The libxml doesn't give us a lot of context for deciding whether to
@@ -441,7 +450,9 @@ static bool shouldAllowExternalLoad(const URL& url)
     // retrieved content.  If we had more context, we could potentially allow
     // the parser to load a DTD.  As things stand, we take the conservative
     // route and allow same-origin requests only.
-    if (!XMLDocumentParserScope::currentCachedResourceLoader->document()->securityOrigin().canRequest(url)) {
+    if (!XMLDocumentParserScope::currentCachedResourceLoader || !XMLDocumentParserScope::currentCachedResourceLoader->document())
+        return false;
+    if (!XMLDocumentParserScope::currentCachedResourceLoader->document()->securityOrigin().canRequest(url, OriginAccessPatternsForWebProcess::singleton())) {
         XMLDocumentParserScope::currentCachedResourceLoader->printAccessDeniedMessage(url);
         return false;
     }
@@ -456,9 +467,9 @@ static void* openFunc(const char* uri)
 
     CachedResourceLoader& cachedResourceLoader = *XMLDocumentParserScope::currentCachedResourceLoader;
     Document* document = cachedResourceLoader.document();
-    // Same logic as HTMLBaseElement::href(). Keep them in sync.
+    // Same logic as Document::completeURL(). Keep them in sync.
     auto* encoding = (document && document->decoder()) ? document->decoder()->encodingForURLParsing() : nullptr;
-    URL url(document ? document->url() : URL(), stripLeadingAndTrailingHTMLSpaces(uri), encoding);
+    URL url(document ? document->fallbackBaseURL() : URL(), String::fromLatin1(uri), encoding);
 
     if (!shouldAllowExternalLoad(url))
         return &globalDescriptor;
@@ -490,10 +501,10 @@ static void* openFunc(const char* uri)
         }
     }
 
-    Vector<char> buffer;
-    if (data)
-        buffer.append(data->data(), data->size());
-    return new OffsetBuffer(WTFMove(buffer));
+    if (!data)
+        return &globalDescriptor;
+
+    return new OffsetBuffer({ data->data(), data->size() });
 }
 
 static int readFunc(void* context, char* buffer, int len)
@@ -528,6 +539,15 @@ static void errorFunc(void*, const char*, ...)
 }
 #endif
 
+static xmlExternalEntityLoader defaultEntityLoader { nullptr };
+
+static xmlParserInputPtr entityLoader(const char* url, const char* id, xmlParserCtxtPtr context)
+{
+    if (!shouldAllowExternalLoad(URL(String::fromUTF8(url))))
+        return nullptr;
+    return defaultEntityLoader(url, id, context);
+}
+
 static void initializeXMLParser()
 {
     static std::once_flag flag;
@@ -535,6 +555,8 @@ static void initializeXMLParser()
         xmlInitParser();
         xmlRegisterInputCallbacks(matchFunc, openFunc, readFunc, closeFunc);
         xmlRegisterOutputCallbacks(matchFunc, openFunc, writeFunc, closeFunc);
+        defaultEntityLoader = xmlGetExternalEntityLoader();
+        xmlSetExternalEntityLoader(entityLoader);
         libxmlLoaderThread = &Thread::current();
     });
 }
@@ -564,7 +586,7 @@ RefPtr<XMLParserContext> XMLParserContext::createMemoryParser(xmlSAXHandlerPtr h
     xmlParserCtxtPtr parser = xmlCreateMemoryParserCtxt(chunk.data(), chunk.length());
 
     if (!parser)
-        return 0;
+        return nullptr;
 
     memcpy(parser->sax, handlers, sizeof(xmlSAXHandler));
 
@@ -588,11 +610,11 @@ RefPtr<XMLParserContext> XMLParserContext::createMemoryParser(xmlSAXHandlerPtr h
 
 bool XMLDocumentParser::supportsXMLVersion(const String& version)
 {
-    return version == "1.0";
+    return version == "1.0"_s;
 }
 
-XMLDocumentParser::XMLDocumentParser(Document& document, FrameView* frameView)
-    : ScriptableDocumentParser(document)
+XMLDocumentParser::XMLDocumentParser(Document& document, LocalFrameView* frameView, OptionSet<ParserContentPolicy> policy)
+    : ScriptableDocumentParser(document, policy)
     , m_view(frameView)
     , m_pendingCallbacks(makeUnique<PendingCallbacks>())
     , m_currentNode(&document)
@@ -600,7 +622,7 @@ XMLDocumentParser::XMLDocumentParser(Document& document, FrameView* frameView)
 {
 }
 
-XMLDocumentParser::XMLDocumentParser(DocumentFragment& fragment, HashMap<AtomString, AtomString>&& prefixToNamespaceMap, const AtomString& defaultNamespaceURI, ParserContentPolicy parserContentPolicy)
+XMLDocumentParser::XMLDocumentParser(DocumentFragment& fragment, HashMap<AtomString, AtomString>&& prefixToNamespaceMap, const AtomString& defaultNamespaceURI, OptionSet<ParserContentPolicy> parserContentPolicy)
     : ScriptableDocumentParser(fragment.document(), parserContentPolicy)
     , m_pendingCallbacks(makeUnique<PendingCallbacks>())
     , m_currentNode(&fragment)
@@ -698,7 +720,7 @@ static inline bool handleNamespaceAttributes(Vector<Attribute>& prefixedAttribut
         AtomString namespaceQName = xmlnsAtom();
         AtomString namespaceURI = toAtomString(namespaces[i].uri);
         if (namespaces[i].prefix)
-            namespaceQName = "xmlns:" + toString(namespaces[i].prefix);
+            namespaceQName = makeAtomString("xmlns:", toString(namespaces[i].prefix));
 
         auto result = Element::parseAttributeName(XMLNSNames::xmlnsNamespaceURI, namespaceQName);
         if (result.hasException())
@@ -726,7 +748,7 @@ static inline bool handleElementAttributes(Vector<Attribute>& prefixedAttributes
         AtomString attrValue = toAtomString(attributes[i].value, valueLength);
         String attrPrefix = toString(attributes[i].prefix);
         AtomString attrURI = attrPrefix.isEmpty() ? nullAtom() : toAtomString(attributes[i].uri);
-        AtomString attrQName = attrPrefix.isEmpty() ? toAtomString(attributes[i].localname) : attrPrefix + ":" + toString(attributes[i].localname);
+        AtomString attrQName = attrPrefix.isEmpty() ? toAtomString(attributes[i].localname) : makeAtomString(attrPrefix, ':', toString(attributes[i].localname));
 
         auto result = Element::parseAttributeName(attrURI, attrQName);
         if (result.hasException())
@@ -735,19 +757,6 @@ static inline bool handleElementAttributes(Vector<Attribute>& prefixedAttributes
         prefixedAttributes.append(Attribute(result.releaseReturnValue(), attrValue));
     }
     return true;
-}
-
-// This is a hack around https://bugzilla.gnome.org/show_bug.cgi?id=502960
-// Otherwise libxml doesn't include namespace for parsed entities, breaking entity
-// expansion for all entities containing elements.
-static inline bool hackAroundLibXMLEntityParsingBug()
-{
-#if LIBXML_VERSION >= 20704
-    // This bug has been fixed in libxml 2.7.4.
-    return false;
-#else
-    return true;
-#endif
 }
 
 void XMLDocumentParser::startElementNs(const xmlChar* xmlLocalName, const xmlChar* xmlPrefix, const xmlChar* xmlURI, int numNamespaces, const xmlChar** libxmlNamespaces, int numAttributes, int numDefaulted, const xmlChar** libxmlAttributes)
@@ -776,15 +785,28 @@ void XMLDocumentParser::startElementNs(const xmlChar* xmlLocalName, const xmlCha
             uri = m_defaultNamespaceURI;
     }
 
-    // If libxml entity parsing is broken, transfer the currentNodes' namespaceURI to the new node,
-    // if we're currently expanding elements which originate from an entity declaration.
-    if (hackAroundLibXMLEntityParsingBug() && depthTriggeringEntityExpansion() != -1 && context()->depth > depthTriggeringEntityExpansion() && uri.isNull() && prefix.isNull())
-        uri = m_currentNode->namespaceURI();
-
     bool isFirstElement = !m_sawFirstElement;
     m_sawFirstElement = true;
 
     QualifiedName qName(prefix, localName, uri);
+
+    bool willConstructCustomElement = false;
+    if (!m_parsingFragment) {
+        if (auto* window = m_currentNode->document().domWindow()) {
+            auto* registry = window->customElementRegistry();
+            if (UNLIKELY(registry))
+                willConstructCustomElement = registry->findInterface(qName);
+        }
+    }
+
+    std::optional<ThrowOnDynamicMarkupInsertionCountIncrementer> markupInsertionCountIncrementer;
+    std::optional<CustomElementReactionStack> customElementReactionStack;
+    if (UNLIKELY(willConstructCustomElement)) {
+        markupInsertionCountIncrementer.emplace(m_currentNode->document());
+        m_currentNode->document().eventLoop().performMicrotaskCheckpoint();
+        customElementReactionStack.emplace(m_currentNode->document().globalObject());
+    }
+
     auto newElement = m_currentNode->document().createElement(qName, true);
 
     Vector<Attribute> prefixedAttributes;
@@ -801,6 +823,11 @@ void XMLDocumentParser::startElementNs(const xmlChar* xmlLocalName, const xmlCha
         return;
     }
 
+    if (UNLIKELY(willConstructCustomElement)) {
+        customElementReactionStack.reset();
+        markupInsertionCountIncrementer.reset();
+    }
+
     newElement->beginParsingChildren();
 
     if (isScriptElement(newElement.get()))
@@ -810,8 +837,8 @@ void XMLDocumentParser::startElementNs(const xmlChar* xmlLocalName, const xmlCha
     if (!m_currentNode) // Synchronous DOM events may have removed the current node.
         return;
 
-    if (is<HTMLTemplateElement>(newElement))
-        pushCurrentNode(&downcast<HTMLTemplateElement>(newElement.get()).content());
+    if (RefPtr templateElement = dynamicDowncast<HTMLTemplateElement>(newElement))
+        pushCurrentNode(&templateElement->content());
     else
         pushCurrentNode(newElement.ptr());
 
@@ -840,33 +867,31 @@ void XMLDocumentParser::endElementNs()
         return;
 
     RefPtr<ContainerNode> node = m_currentNode;
-    node->finishParsingChildren();
+    auto* element = dynamicDowncast<Element>(*node);
 
-    // Once we reach the depth again where entity expansion started, stop executing the work-around.
-    if (hackAroundLibXMLEntityParsingBug() && context()->depth <= depthTriggeringEntityExpansion())
-        setDepthTriggeringEntityExpansion(-1);
+    if (element)
+        element->finishParsingChildren();
 
-    if (!scriptingContentIsAllowed(parserContentPolicy()) && is<Element>(*node) && isScriptElement(downcast<Element>(*node))) {
+    if (!scriptingContentIsAllowed(parserContentPolicy()) && element && isScriptElement(*element)) {
         popCurrentNode();
         node->remove();
         return;
     }
 
-    if (!node->isElementNode() || !m_view) {
+    if (!element || !m_view) {
         popCurrentNode();
         return;
     }
-
-    auto& element = downcast<Element>(*node);
 
     // The element's parent may have already been removed from document.
     // Parsing continues in this case, but scripts aren't executed.
-    if (!element.isConnected()) {
+    if (!element->isConnected()) {
         popCurrentNode();
         return;
     }
 
-    if (!isScriptElement(element)) {
+    RefPtr scriptElement = dynamicDowncastScriptElement(*element);
+    if (!scriptElement) {
         popCurrentNode();
         return;
     }
@@ -875,15 +900,14 @@ void XMLDocumentParser::endElementNs()
     ASSERT(!m_pendingScript);
     m_requestingScript = true;
 
-    auto& scriptElement = downcastScriptElement(element);
-    if (scriptElement.prepareScript(m_scriptStartPosition, ScriptElement::AllowLegacyTypeInTypeAttribute)) {
-        // FIXME: Script execution should be shared between
-        // the libxml2 and Qt XMLDocumentParser implementations.
-
-        if (scriptElement.readyToBeParserExecuted())
-            scriptElement.executeClassicScript(ScriptSourceCode(scriptElement.scriptContent(), URL(document()->url()), m_scriptStartPosition, JSC::SourceProviderSourceType::Program, InlineClassicScript::create(scriptElement)));
-        else if (scriptElement.willBeParserExecuted() && scriptElement.loadableScript()) {
-            m_pendingScript = PendingScript::create(scriptElement, *scriptElement.loadableScript());
+    if (scriptElement->prepareScript(m_scriptStartPosition)) {
+        if (scriptElement->readyToBeParserExecuted()) {
+            if (scriptElement->scriptType() == ScriptType::Classic)
+                scriptElement->executeClassicScript(ScriptSourceCode(scriptElement->scriptContent(), scriptElement->sourceTaintedOrigin(), URL(document()->url()), m_scriptStartPosition, JSC::SourceProviderSourceType::Program, InlineClassicScript::create(*scriptElement)));
+            else
+                scriptElement->registerImportMap(ScriptSourceCode(scriptElement->scriptContent(), scriptElement->sourceTaintedOrigin(), URL(document()->url()), m_scriptStartPosition, JSC::SourceProviderSourceType::ImportMap));
+        } else if (scriptElement->willBeParserExecuted() && scriptElement->loadableScript()) {
+            m_pendingScript = PendingScript::create(*scriptElement, *scriptElement->loadableScript());
             m_pendingScript->setClient(*this);
 
             // m_pendingScript will be nullptr if script was already loaded and setClient() executed it.
@@ -956,7 +980,7 @@ void XMLDocumentParser::processingInstruction(const xmlChar* target, const xmlCh
 
     m_currentNode->parserAppendChild(pi);
 
-    pi->finishParsingChildren();
+    pi->setCreatedByParser(false);
 
     if (pi->isCSS())
         m_sawCSS = true;
@@ -1049,64 +1073,33 @@ static inline XMLDocumentParser* getParser(void* closure)
     return static_cast<XMLDocumentParser*>(ctxt->_private);
 }
 
-// This is a hack around http://bugzilla.gnome.org/show_bug.cgi?id=159219
-// Otherwise libxml seems to call all the SAX callbacks twice for any replaced entity.
-static inline bool hackAroundLibXMLEntityBug(void* closure)
-{
-#if LIBXML_VERSION >= 20627
-    // This bug has been fixed in libxml 2.6.27.
-    UNUSED_PARAM(closure);
-    return false;
-#else
-    return static_cast<xmlParserCtxtPtr>(closure)->node;
-#endif
-}
-
 static void startElementNsHandler(void* closure, const xmlChar* localname, const xmlChar* prefix, const xmlChar* uri, int numNamespaces, const xmlChar** namespaces, int numAttributes, int numDefaulted, const xmlChar** libxmlAttributes)
 {
-    if (hackAroundLibXMLEntityBug(closure))
-        return;
-
     getParser(closure)->startElementNs(localname, prefix, uri, numNamespaces, namespaces, numAttributes, numDefaulted, libxmlAttributes);
 }
 
 static void endElementNsHandler(void* closure, const xmlChar*, const xmlChar*, const xmlChar*)
 {
-    if (hackAroundLibXMLEntityBug(closure))
-        return;
-
     getParser(closure)->endElementNs();
 }
 
 static void charactersHandler(void* closure, const xmlChar* s, int len)
 {
-    if (hackAroundLibXMLEntityBug(closure))
-        return;
-
     getParser(closure)->characters(s, len);
 }
 
 static void processingInstructionHandler(void* closure, const xmlChar* target, const xmlChar* data)
 {
-    if (hackAroundLibXMLEntityBug(closure))
-        return;
-
     getParser(closure)->processingInstruction(target, data);
 }
 
 static void cdataBlockHandler(void* closure, const xmlChar* s, int len)
 {
-    if (hackAroundLibXMLEntityBug(closure))
-        return;
-
     getParser(closure)->cdataBlock(s, len);
 }
 
 static void commentHandler(void* closure, const xmlChar* comment)
 {
-    if (hackAroundLibXMLEntityBug(closure))
-        return;
-
     getParser(closure)->comment(comment);
 }
 
@@ -1154,11 +1147,13 @@ static xmlEntityPtr sharedXHTMLEntity()
     return &entity;
 }
 
-static size_t convertUTF16EntityToUTF8(const UChar* utf16Entity, size_t numberOfCodeUnits, char* target, size_t targetSize)
+static size_t convertUTF16EntityToUTF8(std::span<const UChar> utf16Entity, char* target, size_t targetSize)
 {
     const char* originalTarget = target;
-    auto conversionResult = WTF::Unicode::convertUTF16ToUTF8(&utf16Entity, utf16Entity + numberOfCodeUnits, &target, target + targetSize);
-    if (conversionResult != WTF::Unicode::ConversionOK)
+    auto start = utf16Entity.data();
+    auto end = start + utf16Entity.size();
+    auto conversionResult = WTF::Unicode::convertUTF16ToUTF8(&start, end, &target, target + targetSize);
+    if (conversionResult != WTF::Unicode::ConversionResult::Success)
         return 0;
 
     // Even though we must pass the length, libxml expects the entity string to be null terminated.
@@ -1169,16 +1164,49 @@ static size_t convertUTF16EntityToUTF8(const UChar* utf16Entity, size_t numberOf
 
 static xmlEntityPtr getXHTMLEntity(const xmlChar* name)
 {
-    UChar utf16DecodedEntity[4];
-    size_t numberOfCodeUnits = decodeNamedEntityToUCharArray(reinterpret_cast<const char*>(name), utf16DecodedEntity);
-    if (!numberOfCodeUnits)
-        return 0;
+    auto decodedEntity = decodeNamedHTMLEntityForXMLParser(reinterpret_cast<const char*>(name));
+    if (decodedEntity.failed())
+        return nullptr;
 
-    ASSERT(numberOfCodeUnits <= 4);
-    size_t entityLengthInUTF8 = convertUTF16EntityToUTF8(utf16DecodedEntity, numberOfCodeUnits,
-        reinterpret_cast<char*>(sharedXHTMLEntityResult), WTF_ARRAY_LENGTH(sharedXHTMLEntityResult));
-    if (!entityLengthInUTF8)
-        return 0;
+    auto utf16DecodedEntity = decodedEntity.span();
+
+    constexpr size_t kSharedXhtmlEntityResultLength = std::size(sharedXHTMLEntityResult);
+    size_t entityLengthInUTF8;
+    // Unlike HTML parser, XML parser parses the content of named
+    // entities. So we need to escape '&' and '<'.
+    if (utf16DecodedEntity.size() == 1 && utf16DecodedEntity[0] == '&') {
+        sharedXHTMLEntityResult[0] = '&';
+        sharedXHTMLEntityResult[1] = '#';
+        sharedXHTMLEntityResult[2] = '3';
+        sharedXHTMLEntityResult[3] = '8';
+        sharedXHTMLEntityResult[4] = ';';
+        entityLengthInUTF8 = 5;
+    } else if (utf16DecodedEntity.size() == 1 && utf16DecodedEntity[0] == '<') {
+        sharedXHTMLEntityResult[0] = '&';
+        sharedXHTMLEntityResult[1] = '#';
+        sharedXHTMLEntityResult[2] = 'x';
+        sharedXHTMLEntityResult[3] = '3';
+        sharedXHTMLEntityResult[4] = 'C';
+        sharedXHTMLEntityResult[5] = ';';
+        entityLengthInUTF8 = 6;
+    } else if (utf16DecodedEntity.size() == 2 && utf16DecodedEntity[0] == '<' && utf16DecodedEntity[1] == 0x20D2) {
+        sharedXHTMLEntityResult[0] = '&';
+        sharedXHTMLEntityResult[1] = '#';
+        sharedXHTMLEntityResult[2] = '6';
+        sharedXHTMLEntityResult[3] = '0';
+        sharedXHTMLEntityResult[4] = ';';
+        sharedXHTMLEntityResult[5] = 0xE2;
+        sharedXHTMLEntityResult[6] = 0x83;
+        sharedXHTMLEntityResult[7] = 0x92;
+        entityLengthInUTF8 = 8;
+    } else {
+        ASSERT(utf16DecodedEntity.size() <= 4);
+        entityLengthInUTF8 = convertUTF16EntityToUTF8(utf16DecodedEntity,
+            reinterpret_cast<char*>(sharedXHTMLEntityResult), kSharedXhtmlEntityResultLength);
+        if (!entityLengthInUTF8)
+            return 0;
+    }
+    ASSERT(entityLengthInUTF8 <= kSharedXhtmlEntityResultLength);
 
     xmlEntityPtr entity = sharedXHTMLEntity();
     entity->length = entityLengthInUTF8;
@@ -1186,33 +1214,9 @@ static xmlEntityPtr getXHTMLEntity(const xmlChar* name)
     return entity;
 }
 
-static void entityDeclarationHandler(void* closure, const xmlChar* name, int type, const xmlChar* publicId, const xmlChar* systemId, xmlChar* content)
-{
-    // Prevent the next call to getEntityHandler() to record the entity expansion depth.
-    // We're parsing the entity declaration, so there's no need to record anything.
-    // We only need to record the depth, if we're actually expanding the entity, when it's referenced.
-    if (hackAroundLibXMLEntityParsingBug())
-        getParser(closure)->setIsParsingEntityDeclaration(true);
-    xmlSAX2EntityDecl(closure, name, type, publicId, systemId, content);
-}
-
 static xmlEntityPtr getEntityHandler(void* closure, const xmlChar* name)
 {
     xmlParserCtxtPtr ctxt = static_cast<xmlParserCtxtPtr>(closure);
-
-    XMLDocumentParser* parser = getParser(closure);
-    if (hackAroundLibXMLEntityParsingBug()) {
-        if (parser->isParsingEntityDeclaration()) {
-            // We're parsing the entity declarations (not an entity reference), no need to do anything special.
-            parser->setIsParsingEntityDeclaration(false);
-            ASSERT(parser->depthTriggeringEntityExpansion() == -1);
-        } else {
-            // The entity will be used and eventually expanded. Record the current parser depth
-            // so the next call to startElementNs() knows that the new element originates from
-            // an entity declaration.
-            parser->setDepthTriggeringEntityExpansion(ctxt->depth);
-        }
-    }
 
     xmlEntityPtr ent = xmlGetPredefinedEntity(name);
     if (ent) {
@@ -1221,7 +1225,7 @@ static xmlEntityPtr getEntityHandler(void* closure, const xmlChar* name)
     }
 
     ent = xmlGetDocEntity(ctxt->myDoc, name);
-    if (!ent && parser->isXHTMLDocument()) {
+    if (!ent && getParser(closure)->isXHTMLDocument()) {
         ent = getXHTMLEntity(name);
         if (ent)
             ent->etype = XML_INTERNAL_GENERAL_ENTITY;
@@ -1253,17 +1257,17 @@ static void internalSubsetHandler(void* closure, const xmlChar* name, const xmlC
 static void externalSubsetHandler(void* closure, const xmlChar*, const xmlChar* externalId, const xmlChar*)
 {
     String extId = toString(externalId);
-    if ((extId == "-//W3C//DTD XHTML 1.0 Transitional//EN")
-        || (extId == "-//W3C//DTD XHTML 1.1//EN")
-        || (extId == "-//W3C//DTD XHTML 1.0 Strict//EN")
-        || (extId == "-//W3C//DTD XHTML 1.0 Frameset//EN")
-        || (extId == "-//W3C//DTD XHTML Basic 1.0//EN")
-        || (extId == "-//W3C//DTD XHTML 1.1 plus MathML 2.0//EN")
-        || (extId == "-//W3C//DTD XHTML 1.1 plus MathML 2.0 plus SVG 1.1//EN")
-        || (extId == "-//W3C//DTD MathML 2.0//EN")
-        || (extId == "-//WAPFORUM//DTD XHTML Mobile 1.0//EN")
-        || (extId == "-//WAPFORUM//DTD XHTML Mobile 1.1//EN")
-        || (extId == "-//WAPFORUM//DTD XHTML Mobile 1.2//EN"))
+    if ((extId == "-//W3C//DTD XHTML 1.0 Transitional//EN"_s)
+        || (extId == "-//W3C//DTD XHTML 1.1//EN"_s)
+        || (extId == "-//W3C//DTD XHTML 1.0 Strict//EN"_s)
+        || (extId == "-//W3C//DTD XHTML 1.0 Frameset//EN"_s)
+        || (extId == "-//W3C//DTD XHTML Basic 1.0//EN"_s)
+        || (extId == "-//W3C//DTD XHTML 1.1 plus MathML 2.0//EN"_s)
+        || (extId == "-//W3C//DTD XHTML 1.1 plus MathML 2.0 plus SVG 1.1//EN"_s)
+        || (extId == "-//W3C//DTD MathML 2.0//EN"_s)
+        || (extId == "-//WAPFORUM//DTD XHTML Mobile 1.0//EN"_s)
+        || (extId == "-//WAPFORUM//DTD XHTML Mobile 1.1//EN"_s)
+        || (extId == "-//WAPFORUM//DTD XHTML Mobile 1.2//EN"_s))
         getParser(closure)->setIsXHTMLDocument(true); // controls if we replace entities or not.
 }
 
@@ -1294,7 +1298,7 @@ void XMLDocumentParser::initializeParserContext(const CString& chunk)
     sax.internalSubset = internalSubsetHandler;
     sax.externalSubset = externalSubsetHandler;
     sax.ignorableWhitespace = ignorableWhitespaceHandler;
-    sax.entityDecl = entityDeclarationHandler;
+    sax.entityDecl = xmlSAX2EntityDecl;
     sax.initialized = XML_SAX2_MAGIC;
     DocumentParser::startParsing();
     m_sawError = false;
@@ -1326,6 +1330,9 @@ void XMLDocumentParser::doEnd()
     }
 
 #if ENABLE(XSLT)
+    if (isDetached())
+        return;
+
     bool xmlViewerMode = !m_sawError && !m_sawCSS && !m_sawXSLTransform && shouldRenderInXMLTreeViewerMode(*document());
     if (xmlViewerMode) {
         XMLTreeViewer xmlTreeViewer(*document());
@@ -1351,8 +1358,7 @@ void XMLDocumentParser::doEnd()
 #if ENABLE(XSLT)
 static inline const char* nativeEndianUTF16Encoding()
 {
-    const UChar BOM = 0xFEFF;
-    const unsigned char BOMHighByte = *reinterpret_cast<const unsigned char*>(&BOM);
+    const unsigned char BOMHighByte = *reinterpret_cast<const unsigned char*>(&byteOrderMark);
     return BOMHighByte == 0xFF ? "UTF-16LE" : "UTF-16BE";
 }
 
@@ -1433,13 +1439,13 @@ bool XMLDocumentParser::appendFragmentSource(const String& chunk)
     ASSERT(!m_context);
     ASSERT(m_parsingFragment);
 
-    CString chunkAsUtf8 = chunk.utf8();
+    CString chunkAsUTF8 = chunk.utf8();
     
     // libxml2 takes an int for a length, and therefore can't handle XML chunks larger than 2 GiB.
-    if (chunkAsUtf8.length() > INT_MAX)
+    if (chunkAsUTF8.length() > INT_MAX)
         return false;
 
-    initializeParserContext(chunkAsUtf8);
+    initializeParserContext(chunkAsUTF8);
     xmlParseContent(context());
     endDocument(); // Close any open text nodes.
 
@@ -1447,10 +1453,10 @@ bool XMLDocumentParser::appendFragmentSource(const String& chunk)
     // XMLDocumentParserQt has a similar check (m_stream.error() == QXmlStreamReader::PrematureEndOfDocumentError) in doEnd().
     // Check if all the chunk has been processed.
     long bytesProcessed = xmlByteConsumed(context());
-    if (bytesProcessed == -1 || ((unsigned long)bytesProcessed) != chunkAsUtf8.length()) {
+    if (bytesProcessed == -1 || ((unsigned long)bytesProcessed) != chunkAsUTF8.length()) {
         // FIXME: I don't believe we can hit this case without also having seen an error or a null byte.
         // If we hit this ASSERT, we've found a test case which demonstrates the need for this code.
-        ASSERT(m_sawError || (bytesProcessed >= 0 && !chunkAsUtf8.data()[bytesProcessed]));
+        ASSERT(m_sawError || (bytesProcessed >= 0 && !chunkAsUTF8.data()[bytesProcessed]));
         return false;
     }
 
@@ -1460,7 +1466,7 @@ bool XMLDocumentParser::appendFragmentSource(const String& chunk)
 
 // --------------------------------
 
-using AttributeParseState = Optional<HashMap<String, String>>;
+using AttributeParseState = std::optional<HashMap<String, String>>;
 
 static void attributesStartElementNsHandler(void* closure, const xmlChar* xmlLocalName, const xmlChar* /*xmlPrefix*/, const xmlChar* /*xmlURI*/, int /*numNamespaces*/, const xmlChar** /*namespaces*/, int numAttributes, int /*numDefaulted*/, const xmlChar** libxmlAttributes)
 {
@@ -1483,7 +1489,7 @@ static void attributesStartElementNsHandler(void* closure, const xmlChar* xmlLoc
     }
 }
 
-Optional<HashMap<String, String>> parseAttributes(const String& string)
+std::optional<HashMap<String, String>> parseAttributes(const String& string)
 {
     String parseString = "<?xml version=\"1.0\"?><attrs " + string + " />";
 

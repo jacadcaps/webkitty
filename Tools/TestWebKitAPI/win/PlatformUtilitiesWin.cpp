@@ -39,12 +39,12 @@ static String moduleDirectory()
     wchar_t filename[bufferLength];
     auto len = GetModuleFileName(nullptr, filename, bufferLength);
     ASSERT(len > 0);
-    return FileSystem::directoryName(String(filename, len));
+    return FileSystem::parentPath(String(filename, len));
 }
 
 WKStringRef createInjectedBundlePath()
 {
-    auto path = FileSystem::pathByAppendingComponent(moduleDirectory(), "TestWebKitAPIInjectedBundle.dll");
+    auto path = FileSystem::pathByAppendingComponent(moduleDirectory(), "TestWebKitAPIInjectedBundle.dll"_s);
     return WKStringCreateWithUTF8CString(path.utf8().data());
 }
 
@@ -62,8 +62,7 @@ WKURLRef URLForNonExistentResource()
 
 bool isKeyDown(WKNativeEventPtr event)
 {
-    // FIXME
-    return false;
+    return event->message == WM_KEYDOWN;
 }
 
 } // namespace Util

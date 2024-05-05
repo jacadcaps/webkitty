@@ -28,10 +28,10 @@
 
 #include "Chrome.h"
 #include "ChromeClient.h"
-#include "Frame.h"
-#include "FrameView.h"
 #include "GraphicsContext.h"
 #include "GraphicsLayer.h"
+#include "LocalFrame.h"
+#include "LocalFrameView.h"
 #include "Page.h"
 #include "PageOverlay.h"
 #include "ScrollingCoordinator.h"
@@ -61,8 +61,8 @@ void PageOverlayController::createRootLayersIfNeeded()
 
     m_documentOverlayRootLayer = GraphicsLayer::create(m_page.chrome().client().graphicsLayerFactory(), *this);
     m_viewOverlayRootLayer = GraphicsLayer::create(m_page.chrome().client().graphicsLayerFactory(), *this);
-    m_documentOverlayRootLayer->setName("Document overlay Container");
-    m_viewOverlayRootLayer->setName("View overlay container");
+    m_documentOverlayRootLayer->setName(MAKE_STATIC_STRING_IMPL("Document overlay Container"));
+    m_viewOverlayRootLayer->setName(MAKE_STATIC_STRING_IMPL("View overlay container"));
 }
 
 void PageOverlayController::installedPageOverlaysChanged()
@@ -72,8 +72,10 @@ void PageOverlayController::installedPageOverlaysChanged()
     else
         detachViewOverlayLayers();
 
-    if (auto* frameView = m_page.mainFrame().view())
-        frameView->setNeedsCompositingConfigurationUpdate();
+    if (auto* localMainFrame = dynamicDowncast<LocalFrame>(m_page.mainFrame())) {
+        if (auto* frameView = localMainFrame->view())
+            frameView->setNeedsCompositingConfigurationUpdate();
+    }
 
     updateForceSynchronousScrollLayerPositionUpdates();
 }
@@ -185,10 +187,11 @@ void PageOverlayController::installPageOverlay(PageOverlay& overlay, PageOverlay
 
     m_pageOverlays.append(&overlay);
 
-    auto layer = GraphicsLayer::create(m_page.chrome().client().graphicsLayerFactory(), *this);
+    auto layerType = (overlay.alwaysTileOverlayLayer() == PageOverlay::AlwaysTileOverlayLayer::Yes) ? GraphicsLayer::Type::TiledBacking : GraphicsLayer::Type::Normal;
+    auto layer = GraphicsLayer::create(m_page.chrome().client().graphicsLayerFactory(), *this, layerType);
     layer->setAnchorPoint({ });
     layer->setBackgroundColor(overlay.backgroundColor());
-    layer->setName("Overlay content");
+    layer->setName(MAKE_STATIC_STRING_IMPL("Overlay content"));
 
     updateSettingsForLayer(layer.get());
 
@@ -206,8 +209,10 @@ void PageOverlayController::installPageOverlay(PageOverlay& overlay, PageOverlay
 
     overlay.setPage(&m_page);
 
-    if (FrameView* frameView = m_page.mainFrame().view())
-        frameView->enterCompositingMode();
+    if (auto* localMainFrame = dynamicDowncast<LocalFrame>(m_page.mainFrame())) {
+        if (auto* frameView = localMainFrame->view())
+            frameView->enterCompositingMode();
+    }
 
     updateOverlayGeometry(overlay, rawLayer);
 
@@ -227,7 +232,7 @@ void PageOverlayController::uninstallPageOverlay(PageOverlay& overlay, PageOverl
     overlay.setPage(nullptr);
 
     if (auto optionalLayer = m_overlayGraphicsLayers.take(&overlay))
-        optionalLayer.value()->removeFromParent();
+        optionalLayer->removeFromParent();
 
     bool removed = m_pageOverlays.removeFirst(&overlay);
     ASSERT_UNUSED(removed, removed);
@@ -318,10 +323,10 @@ void PageOverlayController::didChangeDeviceScaleFactor()
 
 void PageOverlayController::didChangeViewExposedRect()
 {
-    m_page.renderingUpdateScheduler().scheduleTimedRenderingUpdate();
+    m_page.scheduleRenderingUpdate(RenderingUpdateStep::LayerFlush);
 }
 
-void PageOverlayController::didScrollFrame(Frame& frame)
+void PageOverlayController::didScrollFrame(LocalFrame& frame)
 {
     for (auto& overlayAndLayer : m_overlayGraphicsLayers) {
         if (overlayAndLayer.key->overlayType() == PageOverlay::OverlayType::View || !frame.isMainFrame())
@@ -391,7 +396,7 @@ Vector<String> PageOverlayController::copyAccessibilityAttributesNames(bool para
     return { };
 }
 
-void PageOverlayController::paintContents(const GraphicsLayer* graphicsLayer, GraphicsContext& graphicsContext, const FloatRect& clipRect, GraphicsLayerPaintBehavior)
+void PageOverlayController::paintContents(const GraphicsLayer* graphicsLayer, GraphicsContext& graphicsContext, const FloatRect& clipRect, OptionSet<GraphicsLayerPaintBehavior>)
 {
     for (auto& overlayAndGraphicsLayer : m_overlayGraphicsLayers) {
         if (overlayAndGraphicsLayer.value.ptr() != graphicsLayer)
@@ -412,7 +417,7 @@ float PageOverlayController::deviceScaleFactor() const
 
 void PageOverlayController::notifyFlushRequired(const GraphicsLayer*)
 {
-    m_page.renderingUpdateScheduler().scheduleTimedRenderingUpdate();
+    m_page.scheduleRenderingUpdate(RenderingUpdateStep::LayerFlush);
 }
 
 void PageOverlayController::didChangeOverlayFrame(PageOverlay& overlay)
@@ -429,9 +434,17 @@ void PageOverlayController::didChangeOverlayBackgroundColor(PageOverlay& overlay
         layer->setBackgroundColor(overlay.backgroundColor());
 }
 
-bool PageOverlayController::shouldSkipLayerInDump(const GraphicsLayer*, LayerTreeAsTextBehavior behavior) const
+bool PageOverlayController::shouldSkipLayerInDump(const GraphicsLayer*, OptionSet<LayerTreeAsTextOptions> options) const
 {
-    return !(behavior & LayerTreeAsTextIncludePageOverlayLayers);
+    return !options.contains(LayerTreeAsTextOptions::IncludePageOverlayLayers);
+}
+
+bool PageOverlayController::shouldDumpPropertyForLayer(const GraphicsLayer* layer, const char* propertyName, OptionSet<LayerTreeAsTextOptions>) const
+{
+    if (!strcmp(propertyName, "anchorPoint"))
+        return layer->anchorPoint() != FloatPoint3D(0.5f, 0.5f, 0);
+
+    return true;
 }
 
 void PageOverlayController::tiledBackingUsageChanged(const GraphicsLayer* graphicsLayer, bool usingTiledBacking)

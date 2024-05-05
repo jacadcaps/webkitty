@@ -13,14 +13,15 @@
 namespace cricket {
 
 const int kVideoCodecClockrate = 90000;
-const int kDataCodecClockrate = 90000;
-const int kDataMaxBandwidth = 30720;  // bps
+
+const int kVideoMtu = 1200;
+const int kVideoRtpSendBufferSize = 262144;
+const int kVideoRtpRecvBufferSize = 262144;
 
 const float kHighSystemCpuThreshold = 0.85f;
 const float kLowSystemCpuThreshold = 0.65f;
 const float kProcessCpuThreshold = 0.10f;
 
-const char kRtxCodecName[] = "rtx";
 const char kRedCodecName[] = "red";
 const char kUlpfecCodecName[] = "ulpfec";
 const char kMultiplexCodecName[] = "multiplex";
@@ -32,11 +33,17 @@ const char kFlexfecCodecName[] = "flexfec-03";
 // draft-ietf-payload-flexible-fec-scheme-02.txt
 const char kFlexfecFmtpRepairWindow[] = "repair-window";
 
+// RFC 4588 RTP Retransmission Payload Format
+const char kRtxCodecName[] = "rtx";
+const char kCodecParamRtxTime[] = "rtx-time";
 const char kCodecParamAssociatedPayloadType[] = "apt";
+
 const char kCodecParamAssociatedCodecName[] = "acn";
+// Parameters that do not follow the key-value convention
+// are treated as having the empty string as key.
+const char kCodecParamNotInNameValueFormat[] = "";
 
 const char kOpusCodecName[] = "opus";
-const char kIsacCodecName[] = "ISAC";
 const char kL16CodecName[] = "L16";
 const char kG722CodecName[] = "G722";
 const char kIlbcCodecName[] = "ILBC";
@@ -55,9 +62,6 @@ const char kCodecParamUseInbandFec[] = "useinbandfec";
 const char kCodecParamUseDtx[] = "usedtx";
 const char kCodecParamMaxAverageBitrate[] = "maxaveragebitrate";
 const char kCodecParamMaxPlaybackRate[] = "maxplaybackrate";
-
-const char kCodecParamSctpProtocol[] = "protocol";
-const char kCodecParamSctpStreams[] = "streams";
 
 const char kParamValueTrue[] = "1";
 const char kParamValueEmpty[] = "";
@@ -92,42 +96,48 @@ const char kCodecParamMaxBitrate[] = "x-google-max-bitrate";
 const char kCodecParamMinBitrate[] = "x-google-min-bitrate";
 const char kCodecParamStartBitrate[] = "x-google-start-bitrate";
 const char kCodecParamMaxQuantization[] = "x-google-max-quantization";
-const char kCodecParamPort[] = "x-google-port";
-const char kCodecParamMaxMessageSize[] = "x-google-max-message-size";
-
-const int kGoogleRtpDataCodecPlType = 109;
-const char kGoogleRtpDataCodecName[] = "google-data";
-
-const int kGoogleSctpDataCodecPlType = 108;
-const char kGoogleSctpDataCodecName[] = "google-sctp-data";
 
 const char kComfortNoiseCodecName[] = "CN";
 
 const char kVp8CodecName[] = "VP8";
 const char kVp9CodecName[] = "VP9";
-const char kAv1CodecName[] = "AV1X";
+const char kAv1CodecName[] = "AV1";
 const char kH264CodecName[] = "H264";
-#ifndef DISABLE_H265
 const char kH265CodecName[] = "H265";
-#endif
 
 // RFC 6184 RTP Payload Format for H.264 video
 const char kH264FmtpProfileLevelId[] = "profile-level-id";
 const char kH264FmtpLevelAsymmetryAllowed[] = "level-asymmetry-allowed";
 const char kH264FmtpPacketizationMode[] = "packetization-mode";
 const char kH264FmtpSpropParameterSets[] = "sprop-parameter-sets";
+const char kH264FmtpSpsPpsIdrInKeyframe[] = "sps-pps-idr-in-keyframe";
 const char kH264ProfileLevelConstrainedBaseline[] = "42e01f";
-#ifndef DISABLE_H265
+const char kH264ProfileLevelConstrainedHigh[] = "640c1f";
+
 // RFC 7798 RTP Payload Format for H.265 video
 const char kH265FmtpProfileSpace[] = "profile-space";
-const char kH265FmtpProfileId[] = "profile-id";
 const char kH265FmtpTierFlag[] = "tier-flag";
+const char kH265FmtpProfileId[] = "profile-id";
 const char kH265FmtpLevelId[] = "level-id";
-#endif
+const char kH265FmtpProfileCompatibilityIndicator[] =
+    "profile-compatibility-indicator";
+const char kH265FmtpInteropConstraints[] = "interop-constraints";
+const char kH265FmtpTxMode[] = "tx-mode";
+
+const char kVP9ProfileId[] = "profile-id";
 
 const int kDefaultVideoMaxFramerate = 60;
+// Max encode quantizer for VP8/9 and AV1 encoders assuming libvpx/libaom API
+// range [0, 63]
+const int kDefaultVideoMaxQpVpx = 56;
+// Max encode quantizer for H264/5 assuming the bitstream range [0, 51].
+const int kDefaultVideoMaxQpH26x = 51;
 
 const size_t kConferenceMaxNumSpatialLayers = 3;
 const size_t kConferenceMaxNumTemporalLayers = 3;
 const size_t kConferenceDefaultNumTemporalLayers = 3;
+
+// RFC 3556 and RFC 3890
+const char kApplicationSpecificBandwidth[] = "AS";
+const char kTransportSpecificBandwidth[] = "TIAS";
 }  // namespace cricket

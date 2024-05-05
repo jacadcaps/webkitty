@@ -22,7 +22,6 @@
 #include "modules/rtp_rtcp/source/rtcp_packet/transport_feedback.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
-#include "system_wrappers/include/field_trial.h"
 
 namespace webrtc {
 
@@ -31,12 +30,11 @@ constexpr TimeDelta kSendTimeHistoryWindow = TimeDelta::Seconds(60);
 void InFlightBytesTracker::AddInFlightPacketBytes(
     const PacketFeedback& packet) {
   RTC_DCHECK(packet.sent.send_time.IsFinite());
-  auto it = in_flight_data_.find({packet.local_net_id, packet.remote_net_id});
+  auto it = in_flight_data_.find(packet.network_route);
   if (it != in_flight_data_.end()) {
     it->second += packet.sent.size;
   } else {
-    in_flight_data_.insert(
-        {{packet.local_net_id, packet.remote_net_id}, packet.sent.size});
+    in_flight_data_.insert({packet.network_route, packet.sent.size});
   }
 }
 
@@ -44,7 +42,7 @@ void InFlightBytesTracker::RemoveInFlightPacketBytes(
     const PacketFeedback& packet) {
   if (packet.sent.send_time.IsInfinite())
     return;
-  auto it = in_flight_data_.find({packet.local_net_id, packet.remote_net_id});
+  auto it = in_flight_data_.find(packet.network_route);
   if (it != in_flight_data_.end()) {
     RTC_DCHECK_GE(it->second, packet.sent.size);
     it->second -= packet.sent.size;
@@ -54,9 +52,8 @@ void InFlightBytesTracker::RemoveInFlightPacketBytes(
 }
 
 DataSize InFlightBytesTracker::GetOutstandingData(
-    uint16_t local_net_id,
-    uint16_t remote_net_id) const {
-  auto it = in_flight_data_.find({local_net_id, remote_net_id});
+    const rtc::NetworkRoute& network_route) const {
+  auto it = in_flight_data_.find(network_route);
   if (it != in_flight_data_.end()) {
     return it->second;
   } else {
@@ -64,8 +61,29 @@ DataSize InFlightBytesTracker::GetOutstandingData(
   }
 }
 
-TransportFeedbackAdapter::TransportFeedbackAdapter() = default;
+// Comparator for consistent map with NetworkRoute as key.
+bool InFlightBytesTracker::NetworkRouteComparator::operator()(
+    const rtc::NetworkRoute& a,
+    const rtc::NetworkRoute& b) const {
+  if (a.local.network_id() != b.local.network_id())
+    return a.local.network_id() < b.local.network_id();
+  if (a.remote.network_id() != b.remote.network_id())
+    return a.remote.network_id() < b.remote.network_id();
 
+  if (a.local.adapter_id() != b.local.adapter_id())
+    return a.local.adapter_id() < b.local.adapter_id();
+  if (a.remote.adapter_id() != b.remote.adapter_id())
+    return a.remote.adapter_id() < b.remote.adapter_id();
+
+  if (a.local.uses_turn() != b.local.uses_turn())
+    return a.local.uses_turn() < b.local.uses_turn();
+  if (a.remote.uses_turn() != b.remote.uses_turn())
+    return a.remote.uses_turn() < b.remote.uses_turn();
+
+  return a.connected < b.connected;
+}
+
+TransportFeedbackAdapter::TransportFeedbackAdapter() = default;
 
 void TransportFeedbackAdapter::AddPacket(const RtpPacketSendInfo& packet_info,
                                          size_t overhead_bytes,
@@ -76,8 +94,7 @@ void TransportFeedbackAdapter::AddPacket(const RtpPacketSendInfo& packet_info,
       seq_num_unwrapper_.Unwrap(packet_info.transport_sequence_number);
   packet.sent.size = DataSize::Bytes(packet_info.length + overhead_bytes);
   packet.sent.audio = packet_info.packet_type == RtpPacketMediaType::kAudio;
-  packet.local_net_id = local_net_id_;
-  packet.remote_net_id = remote_net_id_;
+  packet.network_route = network_route_;
   packet.sent.pacing_info = packet_info.pacing_info;
 
   while (!history_.empty() &&
@@ -142,8 +159,7 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
   TransportPacketsFeedback msg;
   msg.feedback_time = feedback_receive_time;
 
-  msg.prior_in_flight =
-      in_flight_.GetOutstandingData(local_net_id_, remote_net_id_);
+  msg.prior_in_flight = in_flight_.GetOutstandingData(network_route_);
   msg.packet_feedbacks =
       ProcessTransportFeedbackInner(feedback, feedback_receive_time);
   if (msg.packet_feedbacks.empty())
@@ -153,31 +169,29 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
   if (it != history_.end()) {
     msg.first_unacked_send_time = it->second.sent.send_time;
   }
-  msg.data_in_flight =
-      in_flight_.GetOutstandingData(local_net_id_, remote_net_id_);
+  msg.data_in_flight = in_flight_.GetOutstandingData(network_route_);
 
   return msg;
 }
 
-void TransportFeedbackAdapter::SetNetworkIds(uint16_t local_id,
-                                             uint16_t remote_id) {
-  local_net_id_ = local_id;
-  remote_net_id_ = remote_id;
+void TransportFeedbackAdapter::SetNetworkRoute(
+    const rtc::NetworkRoute& network_route) {
+  network_route_ = network_route;
 }
 
 DataSize TransportFeedbackAdapter::GetOutstandingData() const {
-  return in_flight_.GetOutstandingData(local_net_id_, remote_net_id_);
+  return in_flight_.GetOutstandingData(network_route_);
 }
 
 std::vector<PacketResult>
 TransportFeedbackAdapter::ProcessTransportFeedbackInner(
     const rtcp::TransportFeedback& feedback,
-    Timestamp feedback_time) {
+    Timestamp feedback_receive_time) {
   // Add timestamp deltas to a local time base selected on first packet arrival.
   // This won't be the true time base, but makes it easier to manually inspect
   // time stamps.
   if (last_timestamp_.IsInfinite()) {
-    current_offset_ = feedback_time;
+    current_offset_ = feedback_receive_time;
   } else {
     // TODO(srte): We shouldn't need to do rounding here.
     const TimeDelta delta = feedback.GetBaseDelta(last_timestamp_)
@@ -185,65 +199,65 @@ TransportFeedbackAdapter::ProcessTransportFeedbackInner(
     // Protect against assigning current_offset_ negative value.
     if (delta < Timestamp::Zero() - current_offset_) {
       RTC_LOG(LS_WARNING) << "Unexpected feedback timestamp received.";
-      current_offset_ = feedback_time;
+      current_offset_ = feedback_receive_time;
     } else {
       current_offset_ += delta;
     }
   }
-  last_timestamp_ = feedback.GetBaseTime();
+  last_timestamp_ = feedback.BaseTime();
 
   std::vector<PacketResult> packet_result_vector;
   packet_result_vector.reserve(feedback.GetPacketStatusCount());
 
   size_t failed_lookups = 0;
   size_t ignored = 0;
-  TimeDelta packet_offset = TimeDelta::Zero();
-  for (const auto& packet : feedback.GetAllPackets()) {
-    int64_t seq_num = seq_num_unwrapper_.Unwrap(packet.sequence_number());
 
-    if (seq_num > last_ack_seq_num_) {
-      // Starts at history_.begin() if last_ack_seq_num_ < 0, since any valid
-      // sequence number is >= 0.
-      for (auto it = history_.upper_bound(last_ack_seq_num_);
-           it != history_.upper_bound(seq_num); ++it) {
-        in_flight_.RemoveInFlightPacketBytes(it->second);
-      }
-      last_ack_seq_num_ = seq_num;
-    }
+  feedback.ForAllPackets(
+      [&](uint16_t sequence_number, TimeDelta delta_since_base) {
+        int64_t seq_num = seq_num_unwrapper_.Unwrap(sequence_number);
 
-    auto it = history_.find(seq_num);
-    if (it == history_.end()) {
-      ++failed_lookups;
-      continue;
-    }
+        if (seq_num > last_ack_seq_num_) {
+          // Starts at history_.begin() if last_ack_seq_num_ < 0, since any
+          // valid sequence number is >= 0.
+          for (auto it = history_.upper_bound(last_ack_seq_num_);
+               it != history_.upper_bound(seq_num); ++it) {
+            in_flight_.RemoveInFlightPacketBytes(it->second);
+          }
+          last_ack_seq_num_ = seq_num;
+        }
 
-    if (it->second.sent.send_time.IsInfinite()) {
-      // TODO(srte): Fix the tests that makes this happen and make this a
-      // DCHECK.
-      RTC_DLOG(LS_ERROR)
-          << "Received feedback before packet was indicated as sent";
-      continue;
-    }
+        auto it = history_.find(seq_num);
+        if (it == history_.end()) {
+          ++failed_lookups;
+          return;
+        }
 
-    PacketFeedback packet_feedback = it->second;
-    if (packet.received()) {
-      packet_offset += packet.delta();
-      packet_feedback.receive_time =
-          current_offset_ + packet_offset.RoundDownTo(TimeDelta::Millis(1));
-      // Note: Lost packets are not removed from history because they might be
-      // reported as received by a later feedback.
-      history_.erase(it);
-    }
-    if (packet_feedback.local_net_id == local_net_id_ &&
-        packet_feedback.remote_net_id == remote_net_id_) {
-      PacketResult result;
-      result.sent_packet = packet_feedback.sent;
-      result.receive_time = packet_feedback.receive_time;
-      packet_result_vector.push_back(result);
-    } else {
-      ++ignored;
-    }
-  }
+        if (it->second.sent.send_time.IsInfinite()) {
+          // TODO(srte): Fix the tests that makes this happen and make this a
+          // DCHECK.
+          RTC_DLOG(LS_ERROR)
+              << "Received feedback before packet was indicated as sent";
+          return;
+        }
+
+        PacketFeedback packet_feedback = it->second;
+        if (delta_since_base.IsFinite()) {
+          packet_feedback.receive_time =
+              current_offset_ +
+              delta_since_base.RoundDownTo(TimeDelta::Millis(1));
+          // Note: Lost packets are not removed from history because they might
+          // be reported as received by a later feedback.
+          history_.erase(it);
+        }
+        if (packet_feedback.network_route == network_route_) {
+          PacketResult result;
+          result.sent_packet = packet_feedback.sent;
+          result.receive_time = packet_feedback.receive_time;
+          packet_result_vector.push_back(result);
+        } else {
+          ++ignored;
+        }
+      });
 
   if (failed_lookups > 0) {
     RTC_LOG(LS_WARNING) << "Failed to lookup send time for " << failed_lookups

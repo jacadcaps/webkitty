@@ -23,8 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef AudioHardwareListener_h
-#define AudioHardwareListener_h
+#pragma once
 
 #include <wtf/Ref.h>
 #include <wtf/RefCounted.h>
@@ -37,7 +36,7 @@ enum class AudioHardwareActivityType {
     IsInactive
 };
 
-class AudioHardwareListener : public RefCounted<AudioHardwareListener> {
+class AudioHardwareListener {
 public:
     class Client {
     public:
@@ -47,23 +46,35 @@ public:
         virtual void audioOutputDeviceChanged() = 0;
     };
 
+    virtual void ref() const = 0;
+    virtual void deref() const = 0;
+
+    using CreationFunction = Function<Ref<AudioHardwareListener>(AudioHardwareListener::Client&)>;
+    WEBCORE_EXPORT static void setCreationFunction(CreationFunction&&);
+    WEBCORE_EXPORT static void resetCreationFunction();
+
     WEBCORE_EXPORT static Ref<AudioHardwareListener> create(Client&);
     virtual ~AudioHardwareListener() = default;
     
     AudioHardwareActivityType hardwareActivity() const { return m_activity; }
-    bool outputDeviceSupportsLowPowerMode() const { return m_outputDeviceSupportsLowPowerMode; }
+
+    struct BufferSizeRange {
+        size_t minimum { 0 };
+        size_t maximum { 0 };
+        operator bool() const { return minimum && maximum; }
+        size_t nearest(size_t value) const { return std::min(std::max(value, minimum), maximum); }
+    };
+    BufferSizeRange supportedBufferSizes() const { return m_supportedBufferSizes; }
 
 protected:
-    AudioHardwareListener(Client&);
+    WEBCORE_EXPORT AudioHardwareListener(Client&);
 
     void setHardwareActivity(AudioHardwareActivityType activity) { m_activity = activity; }
-    void setOutputDeviceSupportsLowPowerMode(bool support) { m_outputDeviceSupportsLowPowerMode = support; }
+    void setSupportedBufferSizes(BufferSizeRange sizes) { m_supportedBufferSizes = sizes; }
 
     Client& m_client;
-    AudioHardwareActivityType m_activity;
-    bool m_outputDeviceSupportsLowPowerMode;
+    AudioHardwareActivityType m_activity { AudioHardwareActivityType::Unknown };
+    BufferSizeRange m_supportedBufferSizes;
 };
 
 }
-
-#endif // AudioHardwareListener_h

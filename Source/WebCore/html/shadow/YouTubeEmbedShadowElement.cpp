@@ -33,21 +33,21 @@ namespace WebCore {
 
 WTF_MAKE_ISO_ALLOCATED_IMPL(YouTubeEmbedShadowElement);
 
-Ref<YouTubeEmbedShadowElement> YouTubeEmbedShadowElement::create(Document& doc)
+Ref<YouTubeEmbedShadowElement> YouTubeEmbedShadowElement::create(Document& document)
 {
-    return adoptRef(*new YouTubeEmbedShadowElement(doc));
+    auto element = adoptRef(*new YouTubeEmbedShadowElement(document));
+    element->setInlineStyleProperty(CSSPropertyAll, CSSValueInitial);
+    return element;
 }
 
 YouTubeEmbedShadowElement::YouTubeEmbedShadowElement(Document& document)
     : HTMLDivElement(HTMLNames::divTag, document)
 {
-    static MainThreadNeverDestroyed<const AtomString> webkitPluginReplacementName("-webkit-plugin-replacement", AtomString::ConstructFromLiteral);
-    setPseudo(webkitPluginReplacementName);
 }
 
 RenderPtr<RenderElement> YouTubeEmbedShadowElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
 {
-    return createRenderer<RenderBlockFlow>(*this, WTFMove(style));
+    return createRenderer<RenderBlockFlow>(RenderObject::Type::BlockFlow, *this, WTFMove(style));
 }
 
 }

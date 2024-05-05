@@ -26,32 +26,52 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#import "AccessibilityObjectInterface.h"
+#import "AXCoreObject.h"
+#import "FontPlatformData.h"
 #import <CoreGraphics/CoreGraphics.h>
+#import <variant>
 #import <wtf/RefPtr.h>
-#import <wtf/Variant.h>
 #import <wtf/WeakPtr.h>
 
 namespace WebCore {
 struct AccessibilitySearchCriteria;
+class AccessibilityObject;
+class AXIsolatedObject;
+class Document;
 class IntRect;
 class FloatPoint;
 class HTMLTextFormControlElement;
 class Path;
 class VisiblePosition;
+
+// NSAttributedString support.
+// FIXME: move to a new AXAttributedStringBuilder class. For now, these
+// functions are implemented in AccessibilityObjectCocoa.mm. Additional helper
+// functions are implemented in AccessibilityObjectMac or IOS .mm respectively.
+bool attributedStringContainsRange(NSAttributedString *, const NSRange&);
+void attributedStringSetNumber(NSMutableAttributedString *, NSString *, NSNumber *, const NSRange&);
+void attributedStringSetFont(NSMutableAttributedString *, CTFontRef, const NSRange&);
+void attributedStringSetSpelling(NSMutableAttributedString *, Node&, StringView, const NSRange&);
+void attributedStringSetNeedsSpellCheck(NSMutableAttributedString *, Node&);
+RetainPtr<NSAttributedString> attributedStringCreate(Node*, StringView, const SimpleRange&, AXCoreObject::SpellCheck);
 }
 
 @interface WebAccessibilityObjectWrapperBase : NSObject {
-    WebCore::AXCoreObject* m_axObject;
+    WeakPtr<WebCore::AccessibilityObject> m_axObject;
+
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
-    WebCore::AXCoreObject* m_isolatedObject;
+    ThreadSafeWeakPtr<WebCore::AXIsolatedObject> m_isolatedObject;
+    // To be accessed only on the main thread.
+    bool m_isolatedObjectInitialized;
 #endif
+
     WebCore::AXID _identifier;
 }
 
-- (id)initWithAccessibilityObject:(WebCore::AXCoreObject*)axObject;
+- (id)initWithAccessibilityObject:(WebCore::AccessibilityObject*)axObject;
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
-- (void)attachIsolatedObject:(WebCore::AXCoreObject*)isolatedObject;
+- (void)attachIsolatedObject:(WebCore::AXIsolatedObject*)isolatedObject;
+- (BOOL)hasIsolatedObject;
 #endif
 
 - (void)detach;
@@ -61,20 +81,24 @@ class VisiblePosition;
 
 @property (nonatomic, assign) WebCore::AXID identifier;
 
+// FIXME: unified these two methods into one.
+#if PLATFORM(MAC)
 // Updates the underlying object and accessibility hierarchy , and returns the
 // corresponding AXCoreObject.
 - (WebCore::AXCoreObject*)updateObjectBackingStore;
+#else
+- (BOOL)_prepareAccessibilityCall;
+#endif
 
 // This can be either an AccessibilityObject or an AXIsolatedObject
 - (WebCore::AXCoreObject*)axBackingObject;
 
+- (NSArray<NSDictionary *> *)lineRectsAndText;
+
 // These are pre-fixed with base so that AppKit does not end up calling into these directly (bypassing safety checks).
-- (NSString *)baseAccessibilityTitle;
-- (NSString *)baseAccessibilityDescription;
 - (NSString *)baseAccessibilityHelpText;
 - (NSArray<NSString *> *)baseAccessibilitySpeechHint;
 
-- (void)baseAccessibilitySetFocus:(BOOL)focus;
 - (NSString *)ariaLandmarkRoleDescription;
 
 - (id)attachmentView;
@@ -90,11 +114,15 @@ class VisiblePosition;
 - (NSArray *)accessibilityMathPostscriptPairs;
 - (NSArray *)accessibilityMathPrescriptPairs;
 
+- (NSRange)accessibilityVisibleCharacterRange;
+
 - (NSDictionary<NSString *, id> *)baseAccessibilityResolvedEditingStyles;
 
 extern WebCore::AccessibilitySearchCriteria accessibilitySearchCriteriaForSearchPredicateParameterizedAttribute(const NSDictionary *);
 
-extern NSArray *convertToNSArray(const WebCore::AXCoreObject::AccessibilityChildrenVector&);
+extern NSArray *makeNSArray(const WebCore::AXCoreObject::AccessibilityChildrenVector&);
+extern NSRange makeNSRange(std::optional<WebCore::SimpleRange>);
+extern std::optional<WebCore::SimpleRange> makeDOMRange(WebCore::Document*, NSRange);
 
 #if PLATFORM(IOS_FAMILY)
 - (id)_accessibilityWebDocumentView;

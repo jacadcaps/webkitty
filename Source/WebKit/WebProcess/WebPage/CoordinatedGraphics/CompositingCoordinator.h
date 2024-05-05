@@ -30,16 +30,17 @@
 
 #include "WebPage.h"
 #include <WebCore/CoordinatedGraphicsLayer.h>
-#include <WebCore/CoordinatedGraphicsState.h>
 #include <WebCore/FloatPoint.h>
 #include <WebCore/GraphicsLayerClient.h>
 #include <WebCore/GraphicsLayerFactory.h>
 #include <WebCore/IntRect.h>
 #include <WebCore/NicosiaBuffer.h>
 #include <WebCore/NicosiaPlatformLayer.h>
+#include <WebCore/NicosiaScene.h>
 #include <WebCore/NicosiaSceneIntegration.h>
 
 namespace Nicosia {
+class ImageBackingStore;
 class PaintingEngine;
 class SceneIntegration;
 }
@@ -47,6 +48,7 @@ class SceneIntegration;
 namespace WebCore {
 class GraphicsContext;
 class GraphicsLayer;
+class Image;
 }
 
 namespace WebKit {
@@ -60,8 +62,7 @@ public:
     class Client {
     public:
         virtual void didFlushRootLayer(const WebCore::FloatRect& visibleContentRect) = 0;
-        virtual void notifyFlushRequired() = 0;
-        virtual void commitSceneState(const WebCore::CoordinatedGraphicsState&) = 0;
+        virtual void commitSceneState(const RefPtr<Nicosia::Scene>&) = 0;
         virtual void updateScene() = 0;
     };
 
@@ -73,36 +74,29 @@ public:
     void setRootCompositingLayer(WebCore::GraphicsLayer*);
     void setViewOverlayRootLayer(WebCore::GraphicsLayer*);
     void sizeDidChange(const WebCore::IntSize&);
-    void deviceOrPageScaleFactorChanged();
 
     void setVisibleContentsRect(const WebCore::FloatRect&);
-    void renderNextFrame();
 
     WebCore::GraphicsLayer* rootLayer() const { return m_rootLayer.get(); }
     WebCore::GraphicsLayer* rootCompositingLayer() const { return m_rootCompositingLayer; }
 
-    void forceFrameSync() { m_shouldSyncFrame = true; }
+#if !HAVE(DISPLAY_LINK)
+    void forceFrameSync() { m_forceFrameSync = true; }
+#endif
 
-    bool flushPendingLayerChanges();
-    WebCore::CoordinatedGraphicsState& state() { return m_state; }
-
+    bool flushPendingLayerChanges(OptionSet<WebCore::FinalizeRenderingUpdateFlags>);
     void syncDisplayState();
 
     double nextAnimationServiceTime() const;
 
 private:
-    // GraphicsLayerClient
-    void notifyFlushRequired(const WebCore::GraphicsLayer*) override;
-    float deviceScaleFactor() const override;
-    float pageScaleFactor() const override;
-
     // CoordinatedGraphicsLayerClient
     bool isFlushingLayerChanges() const override { return m_isFlushingLayerChanges; }
     WebCore::FloatRect visibleContentsRect() const override;
     void detachLayer(WebCore::CoordinatedGraphicsLayer*) override;
     void attachLayer(WebCore::CoordinatedGraphicsLayer*) override;
     Nicosia::PaintingEngine& paintingEngine() override;
-    void syncLayerState() override;
+    RefPtr<Nicosia::ImageBackingStore> imageBackingStore(uint64_t, Function<RefPtr<Nicosia::Buffer>()>) override;
 
     // GraphicsLayerFactory
     Ref<WebCore::GraphicsLayer> createGraphicsLayer(WebCore::GraphicsLayer::Type, WebCore::GraphicsLayerClient&) override;
@@ -110,7 +104,7 @@ private:
     // Nicosia::SceneIntegration::Client
     void requestUpdate() override;
 
-    void initializeRootCompositingLayerIfNeeded();
+    bool initializeRootCompositingLayerIfNeeded();
 
     void purgeBackingStores();
 
@@ -128,21 +122,23 @@ private:
         RefPtr<Nicosia::SceneIntegration> sceneIntegration;
         Nicosia::Scene::State state;
     } m_nicosia;
-    WebCore::CoordinatedGraphicsState m_state;
 
     HashMap<Nicosia::PlatformLayer::LayerID, WebCore::CoordinatedGraphicsLayer*> m_registeredLayers;
 
     std::unique_ptr<Nicosia::PaintingEngine> m_paintingEngine;
+    HashMap<uint64_t, Ref<Nicosia::ImageBackingStore>> m_imageBackingStores;
 
     // We don't send the messages related to releasing resources to renderer during purging, because renderer already had removed all resources.
     bool m_isPurging { false };
     bool m_isFlushingLayerChanges { false };
-    bool m_shouldSyncFrame { false };
     bool m_didInitializeRootCompositingLayer { false };
 
     WebCore::FloatRect m_visibleContentsRect;
 
     double m_lastAnimationServiceTime { 0 };
+#if !HAVE(DISPLAY_LINK)
+    bool m_forceFrameSync { false };
+#endif
 };
 
 }

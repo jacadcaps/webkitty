@@ -33,7 +33,7 @@
 
 namespace JSC { namespace DFG {
 
-enum UseKind {
+enum UseKind : uint8_t {
     // The DFG has 3 representations of values used:
 
     // 1. The JSValue representation for a JSValue that must be stored in a GP
@@ -81,6 +81,9 @@ enum UseKind {
     NotSymbolUse,
     NotCellUse,
     NotCellNorBigIntUse,
+    NotDoubleUse,
+    NeitherDoubleNorHeapBigIntUse,
+    NeitherDoubleNorHeapBigIntNorStringUse,
     KnownOtherUse,
     OtherUse,
     MiscUse,
@@ -187,6 +190,12 @@ inline SpeculatedType typeFilterFor(UseKind useKind)
         return ~SpecCellCheck;
     case NotCellNorBigIntUse:
         return ~SpecCellCheck & ~SpecBigInt;
+    case NotDoubleUse:
+        return ~SpecFullDouble;
+    case NeitherDoubleNorHeapBigIntUse:
+        return ~SpecFullDouble & ~SpecHeapBigInt;
+    case NeitherDoubleNorHeapBigIntNorStringUse:
+        return ~(SpecFullDouble | SpecHeapBigInt | SpecString);
     case KnownOtherUse:
     case OtherUse:
         return SpecOther;
@@ -305,6 +314,9 @@ inline bool checkMayCrashIfInputIsEmpty(UseKind kind)
     case MiscUse:
     case NotCellUse:
     case NotCellNorBigIntUse:
+    case NotDoubleUse:
+    case NeitherDoubleNorHeapBigIntUse:
+    case NeitherDoubleNorHeapBigIntNorStringUse:
         return false;
     default:
         return true;

@@ -1,5 +1,5 @@
 # Copyright (C) 2010 Google Inc. All rights reserved.
-# Copyright (C) 2014-2019 Apple Inc. All rights reserved.
+# Copyright (C) 2014-2020 Apple Inc. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are
@@ -27,14 +27,17 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from webkitcorepy import Version
+import logging
+
+from webkitcorepy import Version, OutputCapture
 
 from webkitpy.port.mac import MacPort
 from webkitpy.port import darwin_testcase
 from webkitpy.port import port_testcase
-from webkitpy.common.system.outputcapture import OutputCapture
 from webkitpy.tool.mocktool import MockOptions
 from webkitpy.common.system.executive_mock import MockExecutive, MockExecutive2, ScriptError
+from webkitpy.common.system.platforminfo_mock import MockPlatformInfo
+from webkitpy.common.system.systemhost_mock import MockSystemHost
 from webkitpy.common.version_name_map import VersionNameMap
 
 
@@ -46,7 +49,7 @@ class MacTest(darwin_testcase.DarwinTest):
 
     # 2 minor versions from the current version should always be a future version.
     FUTURE_VERSION = Version.from_iterable(MacPort.CURRENT_VERSION)
-    FUTURE_VERSION.minor += 2
+    FUTURE_VERSION.major += 2
 
 
     def test_version(self):
@@ -85,14 +88,18 @@ class MacTest(darwin_testcase.DarwinTest):
         env = port.setup_environ_for_server(port.driver_name())
         self.assertEqual(env['MallocStackLogging'], '1')
         self.assertEqual(env['MallocScribble'], '1')
-        self.assertEqual(env['DYLD_INSERT_LIBRARIES'], '/usr/lib/libgmalloc.dylib:/mock-build/libWebCoreTestShim.dylib')
+        self.assertEqual(env['DYLD_INSERT_LIBRARIES'], '/usr/lib/libgmalloc.dylib')
 
     def test_show_results_html_file(self):
         port = self.make_port()
         # Delay setting a should_log executive to avoid logging from MacPort.__init__.
         port._executive = MockExecutive(should_log=True)
-        expected_logs = "MOCK popen: ['Tools/Scripts/run-safari', '--release', '--no-saved-state', '-NSOpen', 'test.html'], cwd=/mock-checkout\n"
-        OutputCapture().assert_outputs(self, port.show_results_html_file, ["test.html"], expected_logs=expected_logs)
+        with OutputCapture(level=logging.INFO) as captured:
+            port.show_results_html_file('test.html')
+        self.assertEqual(
+            captured.root.log.getvalue(),
+            "MOCK popen: ['Tools/Scripts/run-safari', '--release', '--no-saved-state', '-NSOpen', 'test.html'], cwd=/mock-checkout\n"
+        )
 
     def test_operating_system(self):
         self.assertEqual('mac', self.make_port().operating_system())
@@ -104,14 +111,22 @@ class MacTest(darwin_testcase.DarwinTest):
 
         bytes_for_drt = 200 * 1024 * 1024
         port.host.platform.total_bytes_memory = lambda: bytes_for_drt
-        expected_logs = "This machine could support 2 child processes, but only has enough memory for 1.\n"
-        child_processes = OutputCapture().assert_outputs(self, port.default_child_processes, (), expected_logs=expected_logs)
+        with OutputCapture(level=logging.INFO) as captured:
+            child_processes = port.default_child_processes()
+        self.assertEqual(
+            captured.root.log.getvalue(),
+            "This machine could support 2 child processes, but only has enough memory for 1.\n"
+        )
         self.assertEqual(child_processes, 1)
 
         # Make sure that we always use one process, even if we don't have the memory for it.
         port.host.platform.total_bytes_memory = lambda: bytes_for_drt - 1
-        expected_logs = "This machine could support 2 child processes, but only has enough memory for 1.\n"
-        child_processes = OutputCapture().assert_outputs(self, port.default_child_processes, (), expected_logs=expected_logs)
+        with OutputCapture(level=logging.INFO) as captured:
+            child_processes = port.default_child_processes()
+        self.assertEqual(
+            captured.root.log.getvalue(),
+            "This machine could support 2 child processes, but only has enough memory for 1.\n"
+        )
         self.assertEqual(child_processes, 1)
 
     def test_32bit(self):
@@ -162,16 +177,6 @@ class MacTest(darwin_testcase.DarwinTest):
         port = self.make_port()
         self.assertEqual(port.SDK, 'macosx')
 
-    def test_xcrun(self):
-        def throwing_run_command(args):
-            print(args)
-            raise ScriptError("MOCK script error")
-
-        port = self.make_port()
-        port._executive = MockExecutive2(run_command_fn=throwing_run_command)
-        expected_stdout = "['xcrun', '--sdk', 'macosx', '-find', 'test']\n"
-        OutputCapture().assert_outputs(self, port.xcrun_find, args=['test', 'falling'], expected_stdout=expected_stdout)
-
     def test_layout_test_searchpath_with_apple_additions(self):
         with port_testcase.bind_mock_apple_additions():
             search_path = self.make_port().default_baseline_search_path()
@@ -182,10 +187,10 @@ class MacTest(darwin_testcase.DarwinTest):
         self.assertEqual(search_path[4], '/additional_testing_path/mac-add-mountainlion-wk1')
         self.assertEqual(search_path[5], '/mock-checkout/LayoutTests/platform/mac-mountainlion-wk1')
 
-    def test_big_sur_baseline_search_path(self):
-        search_path = self.make_port(port_name='macos-big-sur').default_baseline_search_path()
-        self.assertEqual(search_path[0], '/mock-checkout/LayoutTests/platform/mac-catalina-wk1')
-        self.assertEqual(search_path[1], '/mock-checkout/LayoutTests/platform/mac-catalina')
+    def test_sonoma_baseline_search_path(self):
+        search_path = self.make_port(port_name='macos-sonoma').default_baseline_search_path()
+        self.assertEqual(search_path[0], '/mock-checkout/LayoutTests/platform/mac-sonoma-wk1')
+        self.assertEqual(search_path[1], '/mock-checkout/LayoutTests/platform/mac-sonoma')
         self.assertEqual(search_path[2], '/mock-checkout/LayoutTests/platform/mac-wk1')
         self.assertEqual(search_path[3], '/mock-checkout/LayoutTests/platform/mac')
 
@@ -267,4 +272,20 @@ class MacTest(darwin_testcase.DarwinTest):
                 style='release',
             ),
             port.configuration_for_upload(),
+        )
+
+    def test_rosetta_expectations(self):
+        mock_host = MockSystemHost()
+        mock_host.platform = MockPlatformInfo(architecture='arm64')
+        mock_host.filesystem.write_text_file(
+            '/mock-checkout/LayoutTests/platform/mac/TestExpectationsRosetta',
+            '# FIXME <https://bugs.webkit.org/show_bug.cgi?id=213761>\n',
+        )
+        port = self.make_port(
+            host=mock_host,
+            options=MockOptions(architecture='x86_64', configuration='Release'),
+        )
+        self.assertEqual(
+            list(port.expectations_dict().keys())[-1],
+            '/mock-checkout/LayoutTests/platform/mac/TestExpectationsRosetta',
         )

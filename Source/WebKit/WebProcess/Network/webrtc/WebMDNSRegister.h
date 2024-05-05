@@ -27,12 +27,14 @@
 
 #if ENABLE(WEB_RTC)
 
-#include "MDNSRegisterIdentifier.h"
-#include <WebCore/DocumentIdentifier.h>
-#include <WebCore/LibWebRTCProvider.h>
+#include <WebCore/MDNSRegisterError.h>
+#include <WebCore/ProcessQualified.h>
+#include <WebCore/ScriptExecutionContextIdentifier.h>
+#include <wtf/CompletionHandler.h>
 #include <wtf/Expected.h>
 #include <wtf/Forward.h>
 #include <wtf/HashMap.h>
+#include <wtf/WeakPtr.h>
 
 namespace IPC {
 class Connection;
@@ -41,26 +43,19 @@ class Decoder;
 
 namespace WebKit {
 
-class WebMDNSRegister {
+class WebMDNSRegister : public CanMakeWeakPtr<WebMDNSRegister> {
 public:
     WebMDNSRegister() = default;
 
-    void unregisterMDNSNames(WebCore::DocumentIdentifier);
-    void registerMDNSName(WebCore::DocumentIdentifier, const String& ipAddress, CompletionHandler<void(WebCore::LibWebRTCProvider::MDNSNameOrError&&)>&&);
+    void unregisterMDNSNames(WebCore::ScriptExecutionContextIdentifier);
+    void registerMDNSName(WebCore::ScriptExecutionContextIdentifier, const String& ipAddress, CompletionHandler<void(const String&, std::optional<WebCore::MDNSRegisterError>)>&&);
 
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&);
 
 private:
-    void finishedRegisteringMDNSName(MDNSRegisterIdentifier, WebCore::LibWebRTCProvider::MDNSNameOrError&&);
+    void finishedRegisteringMDNSName(WebCore::ScriptExecutionContextIdentifier, const String& ipAddress, String&& mdnsName, std::optional<WebCore::MDNSRegisterError>, CompletionHandler<void(const String&, std::optional<WebCore::MDNSRegisterError>)>&&);
 
-    struct PendingRegistration {
-        CompletionHandler<void(WebCore::LibWebRTCProvider::MDNSNameOrError&&)> callback;
-        WebCore::DocumentIdentifier documentIdentifier;
-        String ipAddress;
-    };
-    HashMap<MDNSRegisterIdentifier, PendingRegistration> m_pendingRegistrations;
-
-    HashMap<WebCore::DocumentIdentifier, HashMap<String, String>> m_registeringDocuments;
+    HashMap<WebCore::ScriptExecutionContextIdentifier, HashMap<String, String>> m_registeringDocuments;
 };
 
 } // namespace WebKit

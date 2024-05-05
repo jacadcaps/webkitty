@@ -36,8 +36,8 @@
 #import "WKStringCF.h"
 #import <WebCore/AXObjectCache.h>
 #import <WebCore/Document.h>
-#import <WebCore/Frame.h>
-#import <WebCore/FrameView.h>
+#import <WebCore/LocalFrame.h>
+#import <WebCore/LocalFrameView.h>
 #import <WebCore/Page.h>
 #import <WebCore/ScrollView.h>
 #import <WebCore/Scrollbar.h>
@@ -48,7 +48,7 @@ namespace ax = WebCore::Accessibility;
 
 - (NakedPtr<WebCore::AXObjectCache>)axObjectCache
 {
-    ASSERT(isMainThread());
+    ASSERT(isMainRunLoop());
 
     if (!m_page)
         return nullptr;
@@ -57,30 +57,22 @@ namespace ax = WebCore::Accessibility;
     if (!page)
         return nullptr;
 
-    auto& core = page->mainFrame();
-    if (!core.document())
+    auto* localMainFrame = dynamicDowncast<WebCore::LocalFrame>(page->mainFrame());
+    if (!localMainFrame || !localMainFrame->document())
         return nullptr;
 
-    return core.document()->axObjectCache();
+    return localMainFrame->document()->axObjectCache();
 }
 
 - (id)accessibilityPluginObject
 {
-    ASSERT(isMainThread());
+    ASSERT(isMainRunLoop());
     auto retrieveBlock = [&self]() -> id {
         id axPlugin = nil;
-        auto dispatchBlock = [&axPlugin, &self] {
+        callOnMainRunLoopAndWait([&axPlugin, &self] {
             if (self->m_page)
                 axPlugin = self->m_page->accessibilityObjectForMainFramePlugin();
-        };
-
-        if (isMainThread())
-            dispatchBlock();
-        else {
-            callOnMainThreadAndWait([&dispatchBlock] {
-                dispatchBlock();
-            });
-        }
+        });
         return axPlugin;
     };
     
@@ -89,6 +81,13 @@ namespace ax = WebCore::Accessibility;
 
 - (id)accessibilityRootObjectWrapper
 {
+#if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
+    if (!isMainRunLoop()) {
+        if (RefPtr root = m_isolatedTreeRoot.get())
+            return root->wrapper();
+    }
+#endif
+
     return ax::retrieveAutoreleasedValueFromMainThread<id>([protectedSelf = retainPtr(self)] () -> RetainPtr<id> {
         if (!WebCore::AXObjectCache::accessibilityEnabled())
             WebCore::AXObjectCache::enableAccessibility();
@@ -107,14 +106,17 @@ namespace ax = WebCore::Accessibility;
 
 - (void)setWebPage:(NakedPtr<WebKit::WebPage>)page
 {
-    ASSERT(isMainThread());
+    ASSERT(isMainRunLoop());
 
     m_page = page;
 
     if (page) {
         m_pageID = page->identifier();
-
-        auto* frame = page->mainFrame();
+#if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
+        [self setPosition:page->accessibilityPosition()];
+        [self setSize:page->size()];
+#endif
+        auto* frame = dynamicDowncast<WebCore::LocalFrame>(page->mainFrame());
         m_hasMainFramePlugin = frame && frame->document() ? frame->document()->isPluginDocument() : false;
     } else {
         m_pageID = { };
@@ -122,19 +124,38 @@ namespace ax = WebCore::Accessibility;
     }
 }
 
+#if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
+- (void)setPosition:(const WebCore::FloatPoint&)point
+{
+    ASSERT(isMainRunLoop());
+    Locker locker { m_cacheLock };
+    m_position = point;
+}
+
+- (void)setSize:(const WebCore::IntSize&)size
+{
+    ASSERT(isMainRunLoop());
+    Locker locker { m_cacheLock };
+    m_size = size;
+}
+
+- (void)setIsolatedTreeRoot:(NakedPtr<WebCore::AXCoreObject>)root
+{
+    ASSERT(isMainRunLoop());
+    m_isolatedTreeRoot = root.get();
+}
+#endif
+
 - (void)setHasMainFramePlugin:(bool)hasPlugin
 {
-    ASSERT(isMainThread());
+    ASSERT(isMainRunLoop());
     m_hasMainFramePlugin = hasPlugin;
 }
 
 - (void)setRemoteParent:(id)parent
 {
-    ASSERT(isMainThread());
-    if (parent != m_parent) {
-        [m_parent release];
-        m_parent = [parent retain];
-    }
+    ASSERT(isMainRunLoop());
+    m_parent = parent;
 }
 
 - (id)accessibilityFocusedUIElement

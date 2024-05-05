@@ -29,6 +29,7 @@
 
 #if ENABLE(MATHML)
 
+#include "NodeName.h"
 #include "RenderMathMLPadded.h"
 #include <wtf/IsoMallocInlines.h>
 
@@ -73,20 +74,28 @@ const MathMLElement::Length& MathMLPaddedElement::voffset()
     return cachedMathMLLength(MathMLNames::voffsetAttr, m_voffset);
 }
 
-void MathMLPaddedElement::parseAttribute(const QualifiedName& name, const AtomString& value)
+void MathMLPaddedElement::attributeChanged(const QualifiedName& name, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason attributeModificationReason)
 {
-    if (name == widthAttr)
-        m_width = WTF::nullopt;
-    else if (name == heightAttr)
-        m_height = WTF::nullopt;
-    else if (name == depthAttr)
-        m_depth = WTF::nullopt;
-    else if (name == lspaceAttr)
-        m_lspace = WTF::nullopt;
-    else if (name == voffsetAttr)
-        m_voffset = WTF::nullopt;
-
-    MathMLElement::parseAttribute(name, value);
+    switch (name.nodeName()) {
+    case AttributeNames::widthAttr:
+        m_width = std::nullopt;
+        break;
+    case AttributeNames::heightAttr:
+        m_height = std::nullopt;
+        break;
+    case AttributeNames::depthAttr:
+        m_depth = std::nullopt;
+        break;
+    case AttributeNames::lspaceAttr:
+        m_lspace = std::nullopt;
+        break;
+    case AttributeNames::voffsetAttr:
+        m_voffset = std::nullopt;
+        break;
+    default:
+        break;
+    }
+    MathMLElement::attributeChanged(name, oldValue, newValue, attributeModificationReason);
 }
 
 RenderPtr<RenderElement> MathMLPaddedElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)

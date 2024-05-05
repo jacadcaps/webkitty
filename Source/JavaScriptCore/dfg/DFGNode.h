@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,6 +29,7 @@
 
 #include "B3SparseCollection.h"
 #include "BasicBlockLocation.h"
+#include "CheckPrivateBrandVariant.h"
 #include "CodeBlock.h"
 #include "DFGAdjacencyList.h"
 #include "DFGArithMode.h"
@@ -48,11 +49,14 @@
 #include "DFGUseKind.h"
 #include "DFGVariableAccessData.h"
 #include "DOMJITSignature.h"
-#include "DeleteByIdVariant.h"
-#include "GetByIdVariant.h"
+#include "DeleteByVariant.h"
+#include "GetByVariant.h"
 #include "JSCJSValue.h"
+#include "JSPropertyNameEnumerator.h"
 #include "Operands.h"
-#include "PutByIdVariant.h"
+#include "PrivateFieldPutKind.h"
+#include "PutByVariant.h"
+#include "SetPrivateBrandVariant.h"
 #include "SpeculatedType.h"
 #include "TypeLocation.h"
 #include "ValueProfile.h"
@@ -88,7 +92,7 @@ struct StorageAccessData {
 
 struct MultiPutByOffsetData {
     unsigned identifierNumber;
-    Vector<PutByIdVariant, 2> variants;
+    Vector<PutByVariant, 2> variants;
     
     bool writesStructures() const;
     bool reallocatesStorage() const;
@@ -96,7 +100,7 @@ struct MultiPutByOffsetData {
 
 struct MultiDeleteByOffsetData {
     unsigned identifierNumber;
-    Vector<DeleteByIdVariant, 2> variants;
+    Vector<DeleteByVariant, 2> variants;
 
     bool writesStructures() const;
     bool allVariantsStoreEmpty() const;
@@ -120,21 +124,31 @@ struct NewArrayBufferData {
         uint64_t asQuadWord;
     };
 };
-static_assert(sizeof(IndexingType) <= sizeof(unsigned), "");
-static_assert(sizeof(NewArrayBufferData) == sizeof(uint64_t), "");
+static_assert(sizeof(IndexingType) <= sizeof(unsigned));
+static_assert(sizeof(NewArrayBufferData) == sizeof(uint64_t));
+
+struct NewArrayWithSpeciesData {
+    unsigned arrayMode { 0 };
+    unsigned indexingMode { 0 };
+
+    uint64_t asQuadWord() const { return bitwise_cast<uint64_t>(*this); }
+};
+static_assert(sizeof(IndexingType) <= sizeof(unsigned));
+static_assert(sizeof(ArrayMode) <= sizeof(unsigned));
 
 struct DataViewData {
     union {
         struct {
             uint8_t byteSize;
             bool isSigned;
+            bool isResizable;
             bool isFloatingPoint; // Used for the DataViewSet node.
             TriState isLittleEndian;
         };
         uint64_t asQuadWord;
     };
 };
-static_assert(sizeof(DataViewData) == sizeof(uint64_t), "");
+static_assert(sizeof(DataViewData) == sizeof(uint64_t));
 
 struct BranchTarget {
     BranchTarget()
@@ -275,11 +289,16 @@ struct StackAccessData {
 };
 
 struct CallDOMGetterData {
-    FunctionPtr<OperationPtrTag> customAccessorGetter;
+    CodePtr<CustomAccessorPtrTag> customAccessorGetter;
     const DOMJIT::GetterSetter* domJIT { nullptr };
     DOMJIT::CallDOMGetterSnippet* snippet { nullptr };
     unsigned identifierNumber { 0 };
     const ClassInfo* requiredClassInfo { nullptr };
+};
+
+struct CallCustomAccessorData {
+    CodePtr<CustomAccessorPtrTag> m_customAccessor;
+    CacheableIdentifier m_identifier;
 };
 
 enum class BucketOwnerType : uint32_t {
@@ -503,9 +522,17 @@ public:
     void convertToIdentity();
     void convertToIdentityOn(Node*);
 
-    bool mustGenerate()
+    void convertToGetByIdMaybeMegamorphic(Graph&, CacheableIdentifier);
+    void convertToPutByIdMaybeMegamorphic(Graph&, CacheableIdentifier);
+
+    bool mustGenerate() const
     {
         return m_flags & NodeMustGenerate;
+    }
+
+    bool hasVarArgs() const
+    {
+        return m_flags & NodeHasVarArgs;
     }
     
     bool isConstant()
@@ -535,6 +562,37 @@ public:
             // otherwise wouldn't take kindly to a node that doesn't compute a value.
             return true;
             
+        default:
+            return false;
+        }
+    }
+
+    bool isCheckNode()
+    {
+        switch (op()) {
+        case Check:
+        case CheckVarargs:
+        case CheckTierUpInLoop:
+        case CheckTierUpAndOSREnter:
+        case CheckTierUpAtReturn:
+        case CheckPrivateBrand:
+        case CheckStructure:
+        case CheckStructureOrEmpty:
+        case CheckArray:
+        case CheckArrayOrEmpty:
+        case CheckDetached:
+        case CheckIsConstant:
+        case CheckNotEmpty:
+        case CheckBadValue:
+        case CheckInBounds:
+        case CheckInBoundsInt52:
+        case CheckIdent:
+        case CheckTypeInfoFlags:
+        case CheckJSCast:
+        case CheckNotJSCast:
+        case CheckStructureImmediate:
+        case CheckTraps:
+            return true;
         default:
             return false;
         }
@@ -596,7 +654,7 @@ public:
     
     void convertToGetByOffset(StorageAccessData& data, Edge storage, Edge base)
     {
-        ASSERT(m_op == GetById || m_op == GetByIdFlush || m_op == GetByIdDirect || m_op == GetByIdDirectFlush || m_op == MultiGetByOffset);
+        ASSERT(m_op == GetById || m_op == GetByIdFlush || m_op == GetByIdDirect || m_op == GetByIdDirectFlush || m_op == GetPrivateNameById || m_op == MultiGetByOffset || m_op == GetByIdMegamorphic);
         m_opInfo = &data;
         children.setChild1(storage);
         children.setChild2(base);
@@ -606,7 +664,7 @@ public:
     
     void convertToMultiGetByOffset(MultiGetByOffsetData* data)
     {
-        RELEASE_ASSERT(m_op == GetById || m_op == GetByIdFlush || m_op == GetByIdDirect || m_op == GetByIdDirectFlush);
+        RELEASE_ASSERT(m_op == GetById || m_op == GetByIdFlush || m_op == GetByIdDirect || m_op == GetByIdDirectFlush || m_op == GetPrivateNameById || m_op == GetByIdMegamorphic);
         m_opInfo = data;
         child1().setUseKind(CellUse);
         m_op = MultiGetByOffset;
@@ -615,7 +673,7 @@ public:
     
     void convertToPutByOffset(StorageAccessData& data, Edge storage, Edge base)
     {
-        ASSERT(m_op == PutById || m_op == PutByIdDirect || m_op == PutByIdFlush || m_op == MultiPutByOffset);
+        ASSERT(m_op == PutById || m_op == PutByIdDirect || m_op == PutByIdFlush || m_op == MultiPutByOffset || m_op == PutPrivateNameById || m_op == PutByIdMegamorphic);
         m_opInfo = &data;
         children.setChild3(children.child2());
         children.setChild2(base);
@@ -625,7 +683,7 @@ public:
     
     void convertToMultiPutByOffset(MultiPutByOffsetData* data)
     {
-        ASSERT(m_op == PutById || m_op == PutByIdDirect || m_op == PutByIdFlush);
+        ASSERT(m_op == PutById || m_op == PutByIdDirect || m_op == PutByIdFlush || m_op == PutPrivateNameById || m_op == PutByIdMegamorphic);
         m_opInfo = data;
         m_op = MultiPutByOffset;
     }
@@ -807,13 +865,20 @@ public:
     }
 
     void convertToNewArrayBuffer(FrozenValue* immutableButterfly);
-    
+    void convertToNewArrayWithSize();
+    void convertToNewArrayWithConstantSize(Graph&, uint32_t);
+
+    void convertToNewBoundFunction(FrozenValue*);
+
     void convertToDirectCall(FrozenValue*);
+
+    void convertToCallWasm(FrozenValue*);
 
     void convertToCallDOM(Graph&);
 
     void convertToRegExpExecNonGlobalOrStickyWithoutChecks(FrozenValue* regExp);
     void convertToRegExpMatchFastGlobalWithoutChecks(FrozenValue* regExp);
+    void convertToRegExpTestInline(FrozenValue* globalObject, FrozenValue* regExp);
 
     void convertToSetRegExpObjectLastIndex()
     {
@@ -901,11 +966,11 @@ public:
     }
      
     template<typename T>
-    T dynamicCastConstant(VM& vm)
+    T dynamicCastConstant()
     {
         if (!isCellConstant())
             return nullptr;
-        return jsDynamicCast<T>(vm, asCell());
+        return jsDynamicCast<T>(asCell());
     }
     
     bool hasLazyJSValue()
@@ -1080,15 +1145,22 @@ public:
         case TryGetById:
         case GetById:
         case GetByIdFlush:
+        case GetByIdMegamorphic:
         case GetByIdWithThis:
+        case GetByIdWithThisMegamorphic:
         case GetByIdDirect:
         case GetByIdDirectFlush:
+        case GetPrivateNameById:
         case DeleteById:
         case InById:
         case PutById:
         case PutByIdFlush:
         case PutByIdDirect:
+        case PutByIdMegamorphic:
         case PutByIdWithThis:
+        case PutPrivateNameById:
+        case CallCustomAccessorGetter:
+        case CallCustomAccessorSetter:
             return true;
         default:
             return false;
@@ -1098,7 +1170,32 @@ public:
     CacheableIdentifier cacheableIdentifier()
     {
         ASSERT(hasCacheableIdentifier());
-        return CacheableIdentifier::createFromRawBits(m_opInfo.as<uintptr_t>());
+        switch (op()) {
+        case TryGetById:
+        case GetById:
+        case GetByIdFlush:
+        case GetByIdMegamorphic:
+        case GetByIdWithThis:
+        case GetByIdWithThisMegamorphic:
+        case GetByIdDirect:
+        case GetByIdDirectFlush:
+        case GetPrivateNameById:
+        case DeleteById:
+        case InById:
+        case PutById:
+        case PutByIdFlush:
+        case PutByIdDirect:
+        case PutByIdMegamorphic:
+        case PutByIdWithThis:
+        case PutPrivateNameById:
+            return CacheableIdentifier::createFromRawBits(m_opInfo.as<uintptr_t>());
+        case CallCustomAccessorGetter:
+        case CallCustomAccessorSetter:
+            return callCustomAccessorData()->m_identifier;
+        default:
+            RELEASE_ASSERT_NOT_REACHED();
+            return { };
+        }
     }
 
     bool hasIdentifier()
@@ -1250,18 +1347,47 @@ public:
             return m_opInfo2.as<unsigned>();
         return newArrayBufferData().vectorLengthHint;
     }
-    
+
+    unsigned hasNewArraySize()
+    {
+        switch (op()) {
+        case NewArrayWithConstantSize:
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    unsigned newArraySize()
+    {
+        ASSERT(hasNewArraySize());
+        return m_opInfo2.as<unsigned>();
+    }
+
     bool hasIndexingType()
     {
         switch (op()) {
         case NewArray:
         case NewArrayWithSize:
+        case NewArrayWithConstantSize:
         case NewArrayBuffer:
         case PhantomNewArrayBuffer:
+        case NewArrayWithSpecies:
             return true;
         default:
             return false;
         }
+    }
+
+    bool hasNewArrayWithSpeciesData()
+    {
+        return op() == NewArrayWithSpecies;
+    }
+
+    NewArrayWithSpeciesData newArrayWithSpeciesData()
+    {
+        ASSERT(hasNewArrayWithSpeciesData());
+        return m_opInfo.asNewArrayWithSpeciesData();
     }
 
     BitVector* bitVector()
@@ -1283,6 +1409,8 @@ public:
         ASSERT(hasIndexingType());
         if (op() == NewArrayBuffer || op() == PhantomNewArrayBuffer)
             return static_cast<IndexingType>(newArrayBufferData().indexingMode) & IndexingTypeMask;
+        if (op() == NewArrayWithSpecies)
+            return static_cast<IndexingType>(newArrayWithSpeciesData().indexingMode) & IndexingTypeMask;
         return static_cast<IndexingType>(m_opInfo.as<uint32_t>());
     }
 
@@ -1291,6 +1419,8 @@ public:
         ASSERT(hasIndexingType());
         if (op() == NewArrayBuffer || op() == PhantomNewArrayBuffer)
             return static_cast<IndexingType>(newArrayBufferData().indexingMode);
+        if (op() == NewArrayWithSpecies)
+            return static_cast<IndexingType>(newArrayWithSpeciesData().indexingMode);
         return static_cast<IndexingType>(m_opInfo.as<uint32_t>());
     }
     
@@ -1439,9 +1569,20 @@ public:
         return op() == IsCellWithType;
     }
 
-    Optional<SpeculatedType> speculatedTypeForQuery()
+    std::optional<SpeculatedType> speculatedTypeForQuery()
     {
         return speculationFromJSType(queriedType());
+    }
+
+    bool hasStructureFlags()
+    {
+        return op() == HasStructureWithFlags;
+    }
+
+    uint32_t structureFlags()
+    {
+        ASSERT(hasStructureFlags());
+        return m_opInfo.as<uint32_t>();
     }
     
     bool hasResult()
@@ -1515,6 +1656,52 @@ public:
     Edge defaultEdge()
     {
         return Edge(this, defaultUseKind());
+    }
+
+    bool isTuple() const
+    {
+        return op() == EnumeratorNextUpdateIndexAndMode;
+    }
+
+    void setTupleOffset(unsigned tupleOffset)
+    {
+        m_virtualRegister = virtualRegisterForLocal(tupleOffset);
+    }
+
+    // This is the start of the tuple in the graph's/phases' various tuple buffers.
+    unsigned tupleOffset() const
+    {
+        ASSERT(isTuple());
+        return m_virtualRegister.toLocal();
+    }
+
+    bool hasExtractOffset() const
+    {
+        return op() == ExtractFromTuple;
+    }
+
+    unsigned extractOffset() const
+    {
+        ASSERT(hasExtractOffset());
+        ASSERT(m_opInfo.as<unsigned>() < const_cast<Node*>(this)->child1()->tupleSize());
+        return m_opInfo.as<unsigned>();
+    }
+
+    unsigned tupleIndex() const
+    {
+        return const_cast<Node*>(this)->child1()->tupleOffset() + extractOffset();
+    }
+
+    unsigned tupleSize() const
+    {
+        ASSERT(isTuple());
+        switch (op()) {
+        case EnumeratorNextUpdateIndexAndMode:
+            return 2;
+        default:
+            break;
+        }
+        RELEASE_ASSERT_NOT_REACHED();
     }
 
     bool isJump()
@@ -1711,10 +1898,6 @@ public:
                 return m_index == other.m_index;
             }
             
-            bool operator!=(const iterator& other) const
-            {
-                return !(*this == other);
-            }
         private:
             Node* m_terminal;
             unsigned m_index;
@@ -1751,21 +1934,26 @@ public:
     bool hasHeapPrediction()
     {
         switch (op()) {
-        case ArithAbs:
         case ArithRound:
         case ArithFloor:
         case ArithCeil:
         case ArithTrunc:
-        case GetDirectPname:
         case GetById:
         case GetByIdFlush:
+        case GetByIdMegamorphic:
         case GetByIdWithThis:
+        case GetByIdWithThisMegamorphic:
         case GetByIdDirect:
         case GetByIdDirectFlush:
         case GetPrototypeOf:
         case TryGetById:
+        case EnumeratorGetByVal:
         case GetByVal:
+        case GetByValMegamorphic:
         case GetByValWithThis:
+        case GetByValWithThisMegamorphic:
+        case GetPrivateName:
+        case GetPrivateNameById:
         case Call:
         case DirectCall:
         case TailCallInlinedCaller:
@@ -1773,11 +1961,13 @@ public:
         case Construct:
         case DirectConstruct:
         case CallVarargs:
-        case CallEval:
+        case CallDirectEval:
         case TailCallVarargsInlinedCaller:
         case ConstructVarargs:
         case CallForwardVarargs:
         case TailCallForwardVarargsInlinedCaller:
+        case CallWasm:
+        case CallCustomAccessorGetter:
         case GetByOffset:
         case MultiGetByOffset:
         case GetClosureVar:
@@ -1786,31 +1976,28 @@ public:
         case GetArgument:
         case ArrayPop:
         case ArrayPush:
+        case ArraySpliceExtract:
         case RegExpExec:
         case RegExpExecNonGlobalOrSticky:
         case RegExpTest:
+        case RegExpTestInline:
         case RegExpMatchFast:
         case RegExpMatchFastGlobal:
         case GetGlobalVar:
         case GetGlobalLexicalVariable:
         case StringReplace:
         case StringReplaceRegExp:
-        case ToNumber:
-        case ToNumeric:
+        case StringReplaceString:
         case ToObject:
         case CallNumberConstructor:
-        case ValueBitAnd:
-        case ValueBitOr:
-        case ValueBitXor:
-        case ValueBitNot:
-        case ValueBitLShift:
-        case ValueBitRShift:
         case CallObjectConstructor:
         case LoadKeyFromMapBucket:
         case LoadValueFromMapBucket:
         case CallDOMGetter:
         case CallDOM:
         case ParseInt:
+        case ToIntegerOrInfinity:
+        case ToLength:
         case AtomicsAdd:
         case AtomicsAnd:
         case AtomicsCompareExchange:
@@ -1826,6 +2013,7 @@ public:
         case DataViewGetInt:
         case DataViewGetFloat:
         case DateGetInt32OrNaN:
+        case NewArrayWithSpecies:
             return true;
         default:
             return false;
@@ -1872,6 +2060,7 @@ public:
         case NewGeneratorFunction:
         case NewAsyncFunction:
         case NewAsyncGeneratorFunction:
+        case NewBoundFunction:
         case CreateActivation:
         case MaterializeCreateActivation:
         case NewRegexp:
@@ -1883,8 +2072,21 @@ public:
         case DirectTailCall:
         case DirectConstruct:
         case DirectTailCallInlinedCaller:
+        case CallWasm:
         case RegExpExecNonGlobalOrSticky:
         case RegExpMatchFastGlobal:
+        case RegExpTestInline:
+            return true;
+
+        default:
+            return false;
+        }
+    }
+
+    bool hasCellOperand2()
+    {
+        switch (op()) {
+        case RegExpTestInline:
             return true;
         default:
             return false;
@@ -1896,7 +2098,13 @@ public:
         ASSERT(hasCellOperand());
         return m_opInfo.as<FrozenValue*>();
     }
-    
+
+    FrozenValue* cellOperand2()
+    {
+        ASSERT(hasCellOperand2());
+        return m_opInfo2.as<FrozenValue*>();
+    }
+
     template<typename T>
     T castOperand()
     {
@@ -1929,6 +2137,84 @@ public:
     {
         ASSERT(hasStoragePointer());
         return m_opInfo.as<void*>();
+    }
+
+    bool hasStorageChild() const
+    {
+        switch (op()) {
+        case EnumeratorGetByVal:
+        case EnumeratorPutByVal:
+        case GetByVal:
+        case GetByValMegamorphic:
+        case PutByValDirect:
+        case PutByVal:
+        case PutByValAlias:
+        case PutByValMegamorphic:
+        case AtomicsAdd:
+        case AtomicsAnd:
+        case AtomicsCompareExchange:
+        case AtomicsExchange:
+        case AtomicsLoad:
+        case AtomicsOr:
+        case AtomicsStore:
+        case AtomicsSub:
+        case AtomicsXor:
+        case ArrayPush:
+        case ArrayPop:
+        case GetArrayLength:
+        case GetTypedArrayLengthAsInt52:
+        case HasIndexedProperty:
+        case EnumeratorNextUpdateIndexAndMode:
+        case ArrayIndexOf:
+            return true;
+        default:
+            break;
+        }
+        return false;
+    }
+
+    unsigned storageChildIndex()
+    {
+        ASSERT(hasStorageChild());
+        switch (op()) {
+        case EnumeratorGetByVal:
+        case GetByVal:
+        case GetByValMegamorphic:
+            return 2;
+        case EnumeratorPutByVal:
+        case PutByValDirect:
+        case PutByVal:
+        case PutByValAlias:
+        case PutByValMegamorphic:
+            return 3;
+        case AtomicsAdd:
+        case AtomicsAnd:
+        case AtomicsCompareExchange:
+        case AtomicsExchange:
+        case AtomicsLoad:
+        case AtomicsOr:
+        case AtomicsStore:
+        case AtomicsSub:
+        case AtomicsXor:
+            return 2 + numExtraAtomicsArgs(op());
+        case ArrayPush:
+            return 0;
+
+        case ArrayPop:
+        case GetArrayLength:
+        case GetTypedArrayLengthAsInt52:
+            return 2;
+
+        case HasIndexedProperty:
+            return 2;
+
+        case EnumeratorNextUpdateIndexAndMode:
+            return 4;
+
+        default:
+            // FIXME: Add ArrayIndexOf but it does non-trivial things to determine storage edge.
+            RELEASE_ASSERT_NOT_REACHED();
+        }
     }
 
     bool hasUidOperand()
@@ -2000,6 +2286,8 @@ public:
         case NewAsyncGenerator:
         case NewInternalFieldObject:
         case NewStringObject:
+        case NewMap:
+        case NewSet:
             return true;
         default:
             return false;
@@ -2137,6 +2425,7 @@ public:
 
     bool isFunctionAllocation()
     {
+        // Do not include NewBoundFunction right now since it is allocating with NativeExecutable.
         switch (op()) {
         case NewFunction:
         case NewGeneratorFunction:
@@ -2189,12 +2478,22 @@ public:
         switch (op()) {
         case GetIndexedPropertyStorage:
         case GetArrayLength:
+        case GetTypedArrayLengthAsInt52:
+        case GetTypedArrayByteOffset:
+        case GetTypedArrayByteOffsetAsInt52:
         case GetVectorLength:
         case InByVal:
         case PutByValDirect:
         case PutByVal:
         case PutByValAlias:
+        case PutByValMegamorphic:
+        case EnumeratorPutByVal:
         case GetByVal:
+        case GetByValMegamorphic:
+        case EnumeratorNextUpdateIndexAndMode:
+        case EnumeratorGetByVal:
+        case EnumeratorInByVal:
+        case EnumeratorHasOwnProperty:
         case StringCharAt:
         case StringCharCodeAt:
         case StringCodePointAt:
@@ -2215,6 +2514,7 @@ public:
         case AtomicsStore:
         case AtomicsSub:
         case AtomicsXor:
+        case NewArrayWithSpecies:
             return true;
         default:
             return false;
@@ -2226,6 +2526,8 @@ public:
         ASSERT(hasArrayMode());
         if (op() == ArrayifyToStructure)
             return ArrayMode::fromWord(m_opInfo2.as<uint32_t>());
+        if (op() == NewArrayWithSpecies)
+            return ArrayMode::fromWord(newArrayWithSpeciesData().arrayMode);
         return ArrayMode::fromWord(m_opInfo.as<uint32_t>());
     }
     
@@ -2234,6 +2536,12 @@ public:
         ASSERT(hasArrayMode());
         if (this->arrayMode() == arrayMode)
             return false;
+        if (op() == NewArrayWithSpecies) {
+            auto data = newArrayWithSpeciesData();
+            data.arrayMode = arrayMode.asWord();
+            m_opInfo = data.asQuadWord();
+            return true;
+        }
         m_opInfo = arrayMode.asWord();
         return true;
     }
@@ -2241,17 +2549,20 @@ public:
     bool hasECMAMode()
     {
         switch (op()) {
-        case CallEval:
+        case CallDirectEval:
         case DeleteById:
         case DeleteByVal:
         case PutById:
         case PutByIdDirect:
         case PutByIdFlush:
+        case PutByIdMegamorphic:
         case PutByIdWithThis:
         case PutByVal:
         case PutByValAlias:
+        case PutByValMegamorphic:
         case PutByValDirect:
         case PutByValWithThis:
+        case EnumeratorPutByVal:
         case PutDynamicVar:
         case ToThis:
             return true;
@@ -2264,7 +2575,7 @@ public:
     {
         ASSERT(hasECMAMode());
         switch (op()) {
-        case CallEval:
+        case CallDirectEval:
         case DeleteByVal:
         case PutByValWithThis:
         case ToThis:
@@ -2273,10 +2584,13 @@ public:
         case PutById:
         case PutByIdDirect:
         case PutByIdFlush:
+        case PutByIdMegamorphic:
         case PutByIdWithThis:
         case PutByVal:
         case PutByValAlias:
+        case PutByValMegamorphic:
         case PutByValDirect:
+        case EnumeratorPutByVal:
         case PutDynamicVar:
             return ECMAMode::fromByte(m_opInfo2.as<uint8_t>());
         default:
@@ -2285,6 +2599,19 @@ public:
         }
     }
     
+    bool hasPrivateFieldPutKind()
+    {
+        if (op() == PutPrivateName || op() == PutPrivateNameById)
+            return true;
+        return false;
+    }
+
+    PrivateFieldPutKind privateFieldPutKind()
+    {
+        ASSERT(hasPrivateFieldPutKind());
+        return PrivateFieldPutKind::fromByte(m_opInfo2.as<uint8_t>());
+    }
+
     bool hasArithMode()
     {
         switch (op()) {
@@ -2344,20 +2671,20 @@ public:
     
     bool hasVirtualRegister()
     {
-        return m_virtualRegister.isValid();
+        return m_virtualRegister.isValid() && !isTuple();
     }
 
     VirtualRegister virtualRegister()
     {
         ASSERT(hasResult());
-        ASSERT(m_virtualRegister.isValid());
+        ASSERT(hasVirtualRegister());
         return m_virtualRegister;
     }
     
     void setVirtualRegister(VirtualRegister virtualRegister)
     {
         ASSERT(hasResult());
-        ASSERT(!m_virtualRegister.isValid());
+        ASSERT(!m_virtualRegister.isValid() && !isTuple());
         m_virtualRegister = virtualRegister;
     }
     
@@ -2515,14 +2842,26 @@ public:
         return isInt32SpeculationForArithmetic(prediction());
     }
     
-    bool shouldSpeculateInt32OrBooleanForArithmetic()
+    bool shouldSpeculateInt32OrBooleanForArithmetic(bool mayHaveDoubleResult = true)
     {
-        return isInt32OrBooleanSpeculationForArithmetic(prediction());
+        if (isInt32OrBooleanSpeculationForArithmetic(prediction()))
+            return true;
+        if (!mayHaveDoubleResult && isInt32OrBooleanSpeculationForArithmetic(prediction() & ~SpecDoubleNaN))
+            return true;
+        return false;
     }
     
-    bool shouldSpeculateInt32OrBooleanExpectingDefined()
+    bool shouldSpeculateInt32OrBooleanExpectingDefined(bool mayHaveDoubleResult)
     {
-        return isInt32OrBooleanSpeculationExpectingDefined(prediction());
+        if (isInt32OrBooleanSpeculationExpectingDefined(prediction()))
+            return true;
+
+        // We found that NaN can be used as an error value (as the same to Other), and it can pollute the graph with Double.
+        // But NaN compuation always produces NaN. So if we do not observe DoubleResult, then likely this site never sees
+        // NaN. We relax Int32 speculation condition based on this behavior.
+        if (!mayHaveDoubleResult && isInt32OrBooleanSpeculationExpectingDefined(prediction() & ~SpecDoubleNaN))
+            return true;
+        return false;
     }
     
     bool shouldSpeculateInt52()
@@ -2773,6 +3112,21 @@ public:
     {
         return isNotCellNorBigIntSpeculation(prediction());
     }
+
+    bool shouldSpeculateNotDouble()
+    {
+        return isNotDoubleSpeculation(prediction());
+    }
+
+    bool shouldSpeculateNeitherDoubleNorHeapBigIntNorString()
+    {
+        return isNeitherDoubleNorHeapBigIntNorStringSpeculation(prediction());
+    }
+
+    bool shouldSpeculateNeitherDoubleNorHeapBigInt()
+    {
+        return isNeitherDoubleNorHeapBigIntSpeculation(prediction());
+    }
     
     bool shouldSpeculateUntypedForArithmetic()
     {
@@ -2814,12 +3168,6 @@ public:
     {
         return op1->shouldSpeculateInt32OrBooleanForArithmetic()
             && op2->shouldSpeculateInt32OrBooleanForArithmetic();
-    }
-    
-    static bool shouldSpeculateInt32OrBooleanExpectingDefined(Node* op1, Node* op2)
-    {
-        return op1->shouldSpeculateInt32OrBooleanExpectingDefined()
-            && op2->shouldSpeculateInt32OrBooleanExpectingDefined();
     }
     
     static bool shouldSpeculateInt52(Node* op1, Node* op2)
@@ -2982,21 +3330,27 @@ public:
         return nullptr;
     }
 
-    bool hasInternalMethodType() const
+    bool hasCallCustomAccessorData() const
     {
-        return op() == HasIndexedProperty;
+        switch (op()) {
+        case CallCustomAccessorGetter:
+        case CallCustomAccessorSetter:
+            return true;
+        default:
+            return false;
+        }
     }
 
-    PropertySlot::InternalMethodType internalMethodType() const
+    CallCustomAccessorData* callCustomAccessorData()
     {
-        ASSERT(hasInternalMethodType());
-        return static_cast<PropertySlot::InternalMethodType>(m_opInfo2.as<uint32_t>());
+        ASSERT(hasCallCustomAccessorData());
+        return m_opInfo.as<CallCustomAccessorData*>();
     }
 
-    void setInternalMethodType(PropertySlot::InternalMethodType type)
+    CodePtr<CustomAccessorPtrTag> customAccessor()
     {
-        ASSERT(hasInternalMethodType());
-        m_opInfo2 = static_cast<uint32_t>(type);
+        ASSERT(hasCallCustomAccessorData());
+        return callCustomAccessorData()->m_customAccessor;
     }
 
     Node* replacement() const
@@ -3044,6 +3398,17 @@ public:
     bool hasBucketOwnerType()
     {
         return op() == GetMapBucketNext || op() == LoadKeyFromMapBucket || op() == LoadValueFromMapBucket;
+    }
+
+    unsigned numberOfBoundArguments()
+    {
+        ASSERT(hasNumberOfBoundArguments());
+        return m_opInfo2.as<unsigned>();
+    }
+
+    bool hasNumberOfBoundArguments()
+    {
+        return op() == FunctionBind || op() == NewBoundFunction;
     }
 
     BucketOwnerType bucketOwnerType()
@@ -3102,26 +3467,26 @@ public:
         return m_opInfo.as<GetByStatus*>();
     }
     
-    bool hasInByIdStatus()
+    bool hasInByStatus()
     {
-        return op() == FilterInByIdStatus;
+        return op() == FilterInByStatus;
     }
     
-    InByIdStatus* inByIdStatus()
+    InByStatus* inByStatus()
     {
-        ASSERT(hasInByIdStatus());
-        return m_opInfo.as<InByIdStatus*>();
+        ASSERT(hasInByStatus());
+        return m_opInfo.as<InByStatus*>();
     }
     
-    bool hasPutByIdStatus()
+    bool hasPutByStatus()
     {
-        return op() == FilterPutByIdStatus;
+        return op() == FilterPutByStatus;
     }
     
-    PutByIdStatus* putByIdStatus()
+    PutByStatus* putByStatus()
     {
-        ASSERT(hasPutByIdStatus());
-        return m_opInfo.as<PutByIdStatus*>();
+        ASSERT(hasPutByStatus());
+        return m_opInfo.as<PutByStatus*>();
     }
 
     bool hasDeleteByStatus()
@@ -3133,6 +3498,70 @@ public:
     {
         ASSERT(hasDeleteByStatus());
         return m_opInfo.as<DeleteByStatus*>();
+    }
+
+    bool hasCheckPrivateBrandStatus()
+    {
+        return op() == FilterCheckPrivateBrandStatus;
+    }
+
+    CheckPrivateBrandStatus* checkPrivateBrandStatus()
+    {
+        ASSERT(hasCheckPrivateBrandStatus());
+        return m_opInfo.as<CheckPrivateBrandStatus*>();
+    }
+
+    bool hasSetPrivateBrandStatus()
+    {
+        return op() == FilterSetPrivateBrandStatus;
+    }
+
+    SetPrivateBrandStatus* setPrivateBrandStatus()
+    {
+        ASSERT(hasSetPrivateBrandStatus());
+        return m_opInfo.as<SetPrivateBrandStatus*>();
+    }
+
+    bool hasEnumeratorMetadata() const
+    {
+        switch (op()) {
+        case EnumeratorNextUpdateIndexAndMode:
+        case EnumeratorNextUpdatePropertyName:
+        case EnumeratorHasOwnProperty:
+        case EnumeratorInByVal:
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    OptionSet<JSPropertyNameEnumerator::Flag> enumeratorMetadata()
+    {
+        ASSERT(hasEnumeratorMetadata());
+        return OptionSet<JSPropertyNameEnumerator::Flag>::fromRaw(m_opInfo2.as<unsigned>());
+    }
+
+    CachedPropertyNamesKind cachedPropertyNamesKind() const
+    {
+        switch (op()) {
+        case ObjectKeys:
+            return CachedPropertyNamesKind::EnumerableStrings;
+        case ObjectGetOwnPropertyNames:
+            return CachedPropertyNamesKind::Strings;
+        case ObjectGetOwnPropertySymbols:
+            return CachedPropertyNamesKind::Symbols;
+        case ReflectOwnKeys:
+            return CachedPropertyNamesKind::StringsAndSymbols;
+        default:
+            RELEASE_ASSERT_NOT_REACHED();
+            break;
+        }
+    }
+
+    void resetOpInfo()
+    {
+        m_opInfo = OpInfoWrapper();
+        m_opInfo2 = OpInfoWrapper();
     }
 
     void dumpChildren(PrintStream& out)
@@ -3148,21 +3577,25 @@ public:
         out.printf(", @%u", child3()->index());
     }
 
-    NodeOrigin origin;
+    NO_UNIQUE_ADDRESS NodeOrigin origin;
 
+private:
+    NO_UNIQUE_ADDRESS NodeType m_op;
+
+    NO_UNIQUE_ADDRESS unsigned m_index { std::numeric_limits<unsigned>::max() };
+
+public:
     // References to up to 3 children, or links to a variable length set of children.
     AdjacencyList children;
 
 private:
     friend class B3::SparseCollection<Node>;
 
-    unsigned m_index { std::numeric_limits<unsigned>::max() };
-    unsigned m_op : 10; // real type is NodeType
-    unsigned m_flags : 21;
-    // The virtual register number (spill location) associated with this .
+    // The virtual register number (spill location) associated with this node. For tuples this is the offset into the graph's out of line tuple buffers.
     VirtualRegister m_virtualRegister;
     // The number of uses of the result of this operation (+1 for 'must generate' nodes, which have side-effects).
     unsigned m_refCount;
+    NodeFlags m_flags { 0 };
     // The prediction ascribed to this node after propagation.
     SpeculatedType m_prediction { SpecNone };
     // Immediate values, accesses type-checked via accessors above.
@@ -3273,6 +3706,11 @@ private:
         ALWAYS_INLINE NewArrayBufferData asNewArrayBufferData() const
         {
             return bitwise_cast<NewArrayBufferData>(u.int64);
+        }
+
+        ALWAYS_INLINE NewArrayWithSpeciesData asNewArrayWithSpeciesData() const
+        {
+            return bitwise_cast<NewArrayWithSpeciesData>(u.int64);
         }
 
         union {

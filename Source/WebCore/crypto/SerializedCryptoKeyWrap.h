@@ -28,8 +28,6 @@
 #include <wtf/Forward.h>
 #include <wtf/text/WTFString.h>
 
-#if ENABLE(WEB_CRYPTO)
-
 namespace WebCore {
 
 // The purpose of the following APIs is to protect serialized CryptoKey data in IndexedDB or
@@ -39,12 +37,10 @@ namespace WebCore {
 // of protection is not required by the spec as of 11 December 2014:
 // https://www.w3.org/TR/WebCryptoAPI/#security-developers
 
-WEBCORE_EXPORT bool getDefaultWebCryptoMasterKey(Vector<uint8_t>&);
+WEBCORE_EXPORT std::optional<Vector<uint8_t>> defaultWebCryptoMasterKey();
 WEBCORE_EXPORT bool deleteDefaultWebCryptoMasterKey();
 
 WEBCORE_EXPORT bool wrapSerializedCryptoKey(const Vector<uint8_t>& masterKey, const Vector<uint8_t>& key, Vector<uint8_t>& result);
 WEBCORE_EXPORT bool unwrapSerializedCryptoKey(const Vector<uint8_t>& masterKey, const Vector<uint8_t>& wrappedKey, Vector<uint8_t>& key);
 
 } // namespace WebCore
-
-#endif // ENABLE(WEB_CRYPTO)

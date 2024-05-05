@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,31 +27,37 @@
 #import "WKWebViewConfigurationInternal.h"
 
 #import "APIPageConfiguration.h"
-#import "UserInterfaceIdiom.h"
-#import "VersionChecks.h"
-#import "WKPreferences.h"
-#import "WKProcessPool.h"
-#import "WKRetainPtr.h"
-#import "WKUserContentController.h"
+#import "CSPExtensionUtilities.h"
 #import "WKWebpagePreferencesInternal.h"
-#import "WKWebView.h"
 #import "WKWebViewContentProviderRegistry.h"
 #import "WebKit2Initialize.h"
 #import "WebPreferencesDefaultValues.h"
+#import "WebPreferencesDefinitions.h"
 #import "WebURLSchemeHandlerCocoa.h"
 #import "_WKApplicationManifestInternal.h"
 #import "_WKVisitedLinkStore.h"
-#import "_WKWebsiteDataStoreInternal.h"
 #import <WebCore/RuntimeApplicationChecks.h>
 #import <WebCore/Settings.h>
+#import <WebKit/WKPreferences.h>
+#import <WebKit/WKProcessPool.h>
+#import <WebKit/WKRetainPtr.h>
+#import <WebKit/WKUserContentController.h>
+#import <WebKit/WKWebView.h>
+#import <WebKit/WKWebsiteDataStore.h>
+#import <pal/system/ios/UserInterfaceIdiom.h>
 #import <wtf/RetainPtr.h>
+#import <wtf/RobinHoodHashSet.h>
 #import <wtf/URLParser.h>
 #import <wtf/WeakObjCPtr.h>
+#import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 #import <wtf/cocoa/VectorCocoa.h>
 
 #if PLATFORM(IOS_FAMILY)
 #import "UIKitSPI.h"
-#import <WebCore/Device.h>
+#endif
+
+#if ENABLE(WK_WEB_EXTENSIONS)
+#import "_WKWebExtensionControllerInternal.h"
 #endif
 
 template<typename T> class LazyInitialized {
@@ -105,7 +111,7 @@ static _WKDragLiftDelay toDragLiftDelay(NSUInteger value)
 static bool defaultShouldDecidePolicyBeforeLoadingQuickLookPreview()
 {
 #if USE(QUICK_LOOK)
-    static bool shouldDecide = linkedOnOrAfter(WebKit::SDKVersion::FirstThatDecidesPolicyBeforeLoadingQuickLookPreview);
+    static bool shouldDecide = linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::DecidesPolicyBeforeLoadingQuickLookPreview);
     return shouldDecide;
 #else
     return false;
@@ -123,12 +129,12 @@ static bool defaultShouldDecidePolicyBeforeLoadingQuickLookPreview()
     LazyInitialized<RetainPtr<WKWebsiteDataStore>> _websiteDataStore;
     LazyInitialized<RetainPtr<WKWebpagePreferences>> _defaultWebpagePreferences;
     WeakObjCPtr<WKWebView> _relatedWebView;
+    WeakObjCPtr<WKWebView> _webViewToCloneSessionStorageFrom;
     WeakObjCPtr<WKWebView> _alternateWebViewForNavigationGestures;
     RetainPtr<NSString> _groupIdentifier;
-    Optional<RetainPtr<NSString>> _applicationNameForUserAgent;
+    std::optional<RetainPtr<NSString>> _applicationNameForUserAgent;
     NSTimeInterval _incrementalRenderingSuppressionTimeout;
     BOOL _respectsImageOrientation;
-    BOOL _printsBackgrounds;
     BOOL _allowsJavaScriptMarkup;
     BOOL _convertsPositionStyleOnCopy;
     BOOL _allowsMetaRefresh;
@@ -150,15 +156,15 @@ static bool defaultShouldDecidePolicyBeforeLoadingQuickLookPreview()
     BOOL _invisibleAutoplayNotPermitted;
     BOOL _mediaDataLoadsAutomatically;
     BOOL _attachmentElementEnabled;
+    BOOL _attachmentWideLayoutEnabled;
     Class _attachmentFileWrapperClass;
     BOOL _mainContentUserGestureOverrideEnabled;
 
 #if PLATFORM(MAC)
-    WKRetainPtr<WKPageGroupRef> _pageGroup;
     BOOL _showsURLsInToolTips;
     BOOL _serviceControlsEnabled;
     BOOL _imageControlsEnabled;
-    BOOL _requiresUserActionForEditingControlsManager;
+    BOOL _contextMenuQRCodeDetectionEnabled;
 #endif
     BOOL _waitsForPaintAfterViewDidMoveToWindow;
     BOOL _controlledByAutomation;
@@ -173,8 +179,13 @@ static bool defaultShouldDecidePolicyBeforeLoadingQuickLookPreview()
     BOOL _incompleteImageBorderEnabled;
     BOOL _shouldDeferAsynchronousScriptsUntilAfterDocumentLoad;
     BOOL _drawsBackground;
-    BOOL _editableImagesEnabled;
     BOOL _undoManagerAPIEnabled;
+#if ENABLE(APP_HIGHLIGHTS)
+    BOOL _appHighlightsEnabled;
+#endif
+    double _sampledPageTopColorMaxDifference;
+    double _sampledPageTopColorMinHeight;
+    BOOL _allowsInlinePredictions;
 
     RetainPtr<NSString> _mediaContentTypesRequiringHardwareSupport;
     RetainPtr<NSArray<NSString *>> _additionalSupportedImageTypes;
@@ -193,12 +204,13 @@ static bool defaultShouldDecidePolicyBeforeLoadingQuickLookPreview()
 #if !PLATFORM(WATCHOS)
     _allowsPictureInPictureMediaPlayback = YES;
 #endif
-    _allowsInlineMediaPlayback = WebKit::currentUserInterfaceIdiomIsPad();
+
+    _allowsInlineMediaPlayback = !PAL::currentUserInterfaceIdiomIsSmallScreen();
     _inlineMediaPlaybackRequiresPlaysInlineAttribute = !_allowsInlineMediaPlayback;
     _allowsInlineMediaPlaybackAfterFullscreen = !_allowsInlineMediaPlayback;
-    _mediaDataLoadsAutomatically = NO;
+    _mediaDataLoadsAutomatically = _allowsInlineMediaPlayback;
 #if !PLATFORM(WATCHOS)
-    if (WebKit::linkedOnOrAfter(WebKit::SDKVersion::FirstWithMediaTypesRequiringUserActionForPlayback))
+    if (linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::MediaTypesRequiringUserActionForPlayback))
         _mediaTypesRequiringUserActionForPlayback = WKAudiovisualMediaTypeAudio;
     else
 #endif
@@ -213,19 +225,18 @@ static bool defaultShouldDecidePolicyBeforeLoadingQuickLookPreview()
     _mainContentUserGestureOverrideEnabled = NO;
     _invisibleAutoplayNotPermitted = NO;
     _attachmentElementEnabled = NO;
+    _attachmentWideLayoutEnabled = NO;
 
 #if PLATFORM(IOS_FAMILY)
     _respectsImageOrientation = YES;
-    _printsBackgrounds = YES;
 #endif
 
 #if PLATFORM(MAC)
-    _printsBackgrounds = NO;
     _respectsImageOrientation = NO;
     _showsURLsInToolTips = NO;
     _serviceControlsEnabled = NO;
     _imageControlsEnabled = NO;
-    _requiresUserActionForEditingControlsManager = NO;
+    _contextMenuQRCodeDetectionEnabled = NO;
 #endif
     _waitsForPaintAfterViewDidMoveToWindow = YES;
 
@@ -255,7 +266,7 @@ static bool defaultShouldDecidePolicyBeforeLoadingQuickLookPreview()
     _shouldDecidePolicyBeforeLoadingQuickLookPreview = defaultShouldDecidePolicyBeforeLoadingQuickLookPreview();
 #endif // PLATFORM(IOS_FAMILY)
 
-    _mediaContentTypesRequiringHardwareSupport = WebCore::Settings::defaultMediaContentTypesRequiringHardwareSupport();
+    _mediaContentTypesRequiringHardwareSupport = @"";
     _allowMediaContentTypesRequiringHardwareSupportAsFallback = YES;
 
     _colorFilterEnabled = NO;
@@ -263,14 +274,32 @@ static bool defaultShouldDecidePolicyBeforeLoadingQuickLookPreview()
     _shouldDeferAsynchronousScriptsUntilAfterDocumentLoad = YES;
     _drawsBackground = YES;
 
-    _editableImagesEnabled = NO;
     _undoManagerAPIEnabled = NO;
 
 #if ENABLE(APPLE_PAY)
-    _applePayEnabled = DEFAULT_APPLE_PAY_ENABLED;
+    _applePayEnabled = DEFAULT_VALUE_FOR_ApplePayEnabled;
 #endif
 
+#if ENABLE(APP_HIGHLIGHTS)
+    _appHighlightsEnabled = DEFAULT_VALUE_FOR_AppHighlightsEnabled;
+#endif
+
+    _sampledPageTopColorMaxDifference = DEFAULT_VALUE_FOR_SampledPageTopColorMaxDifference;
+    _sampledPageTopColorMinHeight = DEFAULT_VALUE_FOR_SampledPageTopColorMinHeight;
+
+    _allowsInlinePredictions = NO;
+
     return self;
+}
+
+- (void)setAllowsInlinePredictions:(BOOL)enabled
+{
+    _allowsInlinePredictions = enabled;
+}
+
+- (BOOL)allowsInlinePredictions
+{
+    return _allowsInlinePredictions;
 }
 
 - (NSString *)description
@@ -292,7 +321,7 @@ static bool defaultShouldDecidePolicyBeforeLoadingQuickLookPreview()
 
     [coder encodeBool:self.suppressesIncrementalRendering forKey:@"suppressesIncrementalRendering"];
 
-    if (_applicationNameForUserAgent.hasValue())
+    if (_applicationNameForUserAgent)
         [coder encodeObject:self.applicationNameForUserAgent forKey:@"applicationNameForUserAgent"];
 
     [coder encodeBool:self.allowsAirPlayForMediaPlayback forKey:@"allowsAirPlayForMediaPlayback"];
@@ -308,7 +337,9 @@ static bool defaultShouldDecidePolicyBeforeLoadingQuickLookPreview()
     [coder encodeBool:self.allowsPictureInPictureMediaPlayback forKey:@"allowsPictureInPictureMediaPlayback"];
     [coder encodeBool:self.ignoresViewportScaleLimits forKey:@"ignoresViewportScaleLimits"];
     [coder encodeInteger:self._dragLiftDelay forKey:@"dragLiftDelay"];
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     [coder encodeBool:self._textInteractionGesturesEnabled forKey:@"textInteractionGesturesEnabled"];
+ALLOW_DEPRECATED_DECLARATIONS_END
     [coder encodeBool:self._longPressActionsEnabled forKey:@"longPressActionsEnabled"];
     [coder encodeBool:self._systemPreviewEnabled forKey:@"systemPreviewEnabled"];
     [coder encodeBool:self._shouldDecidePolicyBeforeLoadingQuickLookPreview forKey:@"shouldDecidePolicyBeforeLoadingQuickLookPreview"];
@@ -346,7 +377,9 @@ static bool defaultShouldDecidePolicyBeforeLoadingQuickLookPreview()
     self.allowsPictureInPictureMediaPlayback = [coder decodeBoolForKey:@"allowsPictureInPictureMediaPlayback"];
     self.ignoresViewportScaleLimits = [coder decodeBoolForKey:@"ignoresViewportScaleLimits"];
     self._dragLiftDelay = toDragLiftDelay([coder decodeIntegerForKey:@"dragLiftDelay"]);
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     self._textInteractionGesturesEnabled = [coder decodeBoolForKey:@"textInteractionGesturesEnabled"];
+ALLOW_DEPRECATED_DECLARATIONS_END
     self._longPressActionsEnabled = [coder decodeBoolForKey:@"longPressActionsEnabled"];
     self._systemPreviewEnabled = [coder decodeBoolForKey:@"systemPreviewEnabled"];
     self._shouldDecidePolicyBeforeLoadingQuickLookPreview = [coder decodeBoolForKey:@"shouldDecidePolicyBeforeLoadingQuickLookPreview"];
@@ -367,10 +400,12 @@ static bool defaultShouldDecidePolicyBeforeLoadingQuickLookPreview()
     configuration.processPool = self.processPool;
     configuration.preferences = self.preferences;
     configuration.userContentController = self.userContentController;
-    configuration.websiteDataStore = self.websiteDataStore;
+    if (self._websiteDataStoreIfExists)
+        [configuration setWebsiteDataStore:self._websiteDataStoreIfExists];
     configuration.defaultWebpagePreferences = self.defaultWebpagePreferences;
     configuration._visitedLinkStore = self._visitedLinkStore;
     configuration._relatedWebView = _relatedWebView.get().get();
+    configuration._webViewToCloneSessionStorageFrom = _webViewToCloneSessionStorageFrom.get().get();
     configuration._alternateWebViewForNavigationGestures = _alternateWebViewForNavigationGestures.get().get();
 #if PLATFORM(IOS_FAMILY)
     configuration._contentProviderRegistry = self._contentProviderRegistry;
@@ -380,7 +415,6 @@ static bool defaultShouldDecidePolicyBeforeLoadingQuickLookPreview()
     configuration->_applicationNameForUserAgent = self->_applicationNameForUserAgent;
 
     configuration->_respectsImageOrientation = self->_respectsImageOrientation;
-    configuration->_printsBackgrounds = self->_printsBackgrounds;
     configuration->_incrementalRenderingSuppressionTimeout = self->_incrementalRenderingSuppressionTimeout;
     configuration->_allowsJavaScriptMarkup = self->_allowsJavaScriptMarkup;
     configuration->_convertsPositionStyleOnCopy = self->_convertsPositionStyleOnCopy;
@@ -391,6 +425,7 @@ static bool defaultShouldDecidePolicyBeforeLoadingQuickLookPreview()
     configuration->_invisibleAutoplayNotPermitted = self->_invisibleAutoplayNotPermitted;
     configuration->_mediaDataLoadsAutomatically = self->_mediaDataLoadsAutomatically;
     configuration->_attachmentElementEnabled = self->_attachmentElementEnabled;
+    configuration->_attachmentWideLayoutEnabled = self->_attachmentWideLayoutEnabled;
     configuration->_attachmentFileWrapperClass = self->_attachmentFileWrapperClass;
     configuration->_mediaTypesRequiringUserActionForPlayback = self->_mediaTypesRequiringUserActionForPlayback;
     configuration->_mainContentUserGestureOverrideEnabled = self->_mainContentUserGestureOverrideEnabled;
@@ -415,8 +450,7 @@ static bool defaultShouldDecidePolicyBeforeLoadingQuickLookPreview()
     configuration->_showsURLsInToolTips = self->_showsURLsInToolTips;
     configuration->_serviceControlsEnabled = self->_serviceControlsEnabled;
     configuration->_imageControlsEnabled = self->_imageControlsEnabled;
-    configuration->_requiresUserActionForEditingControlsManager = self->_requiresUserActionForEditingControlsManager;
-    configuration->_pageGroup = self._pageGroup;
+    configuration->_contextMenuQRCodeDetectionEnabled = self->_contextMenuQRCodeDetectionEnabled;
 #endif
 #if ENABLE(DATA_DETECTION) && PLATFORM(IOS_FAMILY)
     configuration->_dataDetectorTypes = self->_dataDetectorTypes;
@@ -440,8 +474,15 @@ static bool defaultShouldDecidePolicyBeforeLoadingQuickLookPreview()
     configuration->_shouldDeferAsynchronousScriptsUntilAfterDocumentLoad = self->_shouldDeferAsynchronousScriptsUntilAfterDocumentLoad;
     configuration->_drawsBackground = self->_drawsBackground;
 
-    configuration->_editableImagesEnabled = self->_editableImagesEnabled;
     configuration->_undoManagerAPIEnabled = self->_undoManagerAPIEnabled;
+#if ENABLE(APP_HIGHLIGHTS)
+    configuration->_appHighlightsEnabled = self->_appHighlightsEnabled;
+#endif
+
+    configuration->_sampledPageTopColorMaxDifference = self->_sampledPageTopColorMaxDifference;
+    configuration->_sampledPageTopColorMinHeight = self->_sampledPageTopColorMinHeight;
+
+    configuration->_allowsInlinePredictions = self->_allowsInlinePredictions;
 
     return configuration;
 }
@@ -474,6 +515,73 @@ static bool defaultShouldDecidePolicyBeforeLoadingQuickLookPreview()
 - (void)setUserContentController:(WKUserContentController *)userContentController
 {
     _userContentController.set(userContentController);
+}
+
+- (NSURL *)_requiredWebExtensionBaseURL
+{
+#if ENABLE(WK_WEB_EXTENSIONS)
+    return _pageConfiguration->requiredWebExtensionBaseURL();
+#else
+    return nil;
+#endif
+}
+
+- (void)_setRequiredWebExtensionBaseURL:(NSURL *)baseURL
+{
+#if ENABLE(WK_WEB_EXTENSIONS)
+    _pageConfiguration->setRequiredWebExtensionBaseURL(baseURL);
+#endif
+}
+
+- (_WKWebExtensionController *)_strongWebExtensionController
+{
+#if ENABLE(WK_WEB_EXTENSIONS)
+    return wrapper(_pageConfiguration->webExtensionController());
+#else
+    return nil;
+#endif
+}
+
+- (_WKWebExtensionController *)_webExtensionController
+{
+#if ENABLE(WK_WEB_EXTENSIONS)
+    return self._weakWebExtensionController ?: self._strongWebExtensionController;
+#else
+    return nil;
+#endif
+}
+
+- (void)_setWebExtensionController:(_WKWebExtensionController *)webExtensionController
+{
+#if ENABLE(WK_WEB_EXTENSIONS)
+    _pageConfiguration->setWebExtensionController(webExtensionController ? &webExtensionController._webExtensionController : nullptr);
+#endif
+}
+
+- (_WKWebExtensionController *)_weakWebExtensionController
+{
+#if ENABLE(WK_WEB_EXTENSIONS)
+    return wrapper(_pageConfiguration->weakWebExtensionController());
+#else
+    return nil;
+#endif
+}
+
+- (void)_setWeakWebExtensionController:(_WKWebExtensionController *)webExtensionController
+{
+#if ENABLE(WK_WEB_EXTENSIONS)
+    _pageConfiguration->setWeakWebExtensionController(webExtensionController ? &webExtensionController._webExtensionController : nullptr);
+#endif
+}
+
+- (BOOL)upgradeKnownHostsToHTTPS
+{
+    return _pageConfiguration->httpsUpgradeEnabled();
+}
+
+- (void)setUpgradeKnownHostsToHTTPS:(BOOL)upgrade
+{
+    _pageConfiguration->setHTTPSUpgradeEnabled(upgrade);
 }
 
 - (WKWebsiteDataStore *)websiteDataStore
@@ -509,12 +617,12 @@ static NSString *defaultApplicationNameForUserAgent()
 
 - (NSString *)_applicationNameForDesktopUserAgent
 {
-    return _applicationNameForUserAgent.valueOr(nil).get();
+    return _applicationNameForUserAgent.value_or(nil).get();
 }
 
 - (NSString *)applicationNameForUserAgent
 {
-    return _applicationNameForUserAgent.valueOr(defaultApplicationNameForUserAgent()).get();
+    return _applicationNameForUserAgent.value_or(defaultApplicationNameForUserAgent()).get();
 }
 
 - (void)setApplicationNameForUserAgent:(NSString *)applicationNameForUserAgent
@@ -537,7 +645,7 @@ static NSString *defaultApplicationNameForUserAgent()
     if ([WKWebView handlesURLScheme:urlScheme])
         [NSException raise:NSInvalidArgumentException format:@"'%@' is a URL scheme that WKWebView handles natively", urlScheme];
 
-    auto canonicalScheme = WTF::URLParser::maybeCanonicalizeScheme(urlScheme);
+    auto canonicalScheme = WTF::URLParser::maybeCanonicalizeScheme(String(urlScheme));
     if (!canonicalScheme)
         [NSException raise:NSInvalidArgumentException format:@"'%@' is not a valid URL scheme", urlScheme];
 
@@ -549,33 +657,28 @@ static NSString *defaultApplicationNameForUserAgent()
 
 - (id <WKURLSchemeHandler>)urlSchemeHandlerForURLScheme:(NSString *)urlScheme
 {
-    auto canonicalScheme = WTF::URLParser::maybeCanonicalizeScheme(urlScheme);
+    auto canonicalScheme = WTF::URLParser::maybeCanonicalizeScheme(String(urlScheme));
     if (!canonicalScheme)
         return nil;
 
     auto handler = _pageConfiguration->urlSchemeHandlerForURLScheme(*canonicalScheme);
-    return handler ? static_cast<WebKit::WebURLSchemeHandlerCocoa*>(handler.get())->apiHandler() : nil;
+    if (!handler || !handler->isAPIHandler())
+        return nil;
+
+    return static_cast<WebKit::WebURLSchemeHandlerCocoa*>(handler.get())->apiHandler();
 }
-
-ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-
-ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
-- (_WKWebsiteDataStore *)_websiteDataStore
-ALLOW_DEPRECATED_IMPLEMENTATIONS_END
-{
-    return self.websiteDataStore ? adoptNS([[_WKWebsiteDataStore alloc] initWithDataStore:self.websiteDataStore]).autorelease() : nullptr;
-}
-
-ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
-- (void)_setWebsiteDataStore:(_WKWebsiteDataStore *)websiteDataStore
-ALLOW_DEPRECATED_IMPLEMENTATIONS_END
-{
-    self.websiteDataStore = websiteDataStore ? websiteDataStore->_dataStore.get() : nullptr;
-}
-
-ALLOW_DEPRECATED_DECLARATIONS_END
 
 #if PLATFORM(IOS_FAMILY)
+- (BOOL)limitsNavigationsToAppBoundDomains
+{
+    return _pageConfiguration->limitsNavigationsToAppBoundDomains();
+}
+
+- (void)setLimitsNavigationsToAppBoundDomains:(BOOL)limitsToAppBoundDomains
+{
+    _pageConfiguration->setLimitsNavigationsToAppBoundDomains(limitsToAppBoundDomains);
+}
+
 - (WKWebViewContentProviderRegistry *)_contentProviderRegistry
 {
     return _contentProviderRegistry.get([self] { return adoptNS([[WKWebViewContentProviderRegistry alloc] initWithConfiguration:self]); });
@@ -592,16 +695,6 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     return _pageConfiguration->copy();
 }
 
-- (BOOL)limitsNavigationsToAppBoundDomains
-{
-    return _pageConfiguration->limitsNavigationsToAppBoundDomains();
-}
-
-- (void)setLimitsNavigationsToAppBoundDomains:(BOOL)limitsToAppBoundDomains
-{
-    _pageConfiguration->setLimitsNavigationsToAppBoundDomains(limitsToAppBoundDomains);
-}
-
 @end
 
 @implementation WKWebViewConfiguration (WKPrivate)
@@ -614,6 +707,16 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 - (void)_setRelatedWebView:(WKWebView *)relatedWebView
 {
     _relatedWebView = relatedWebView;
+}
+
+- (WKWebView *)_webViewToCloneSessionStorageFrom
+{
+    return _webViewToCloneSessionStorageFrom.getAutoreleased();
+}
+
+- (void)_setWebViewToCloneSessionStorageFrom:(WKWebView *)webViewToCloneSessionStorageFrom
+{
+    _webViewToCloneSessionStorageFrom = webViewToCloneSessionStorageFrom;
 }
 
 - (WKWebView *)_alternateWebViewForNavigationGestures
@@ -648,12 +751,12 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (BOOL)_printsBackgrounds
 {
-    return _printsBackgrounds;
+    return self.preferences.shouldPrintBackgrounds;
 }
 
 - (void)_setPrintsBackgrounds:(BOOL)printsBackgrounds
 {
-    _printsBackgrounds = printsBackgrounds;
+    self.preferences.shouldPrintBackgrounds = printsBackgrounds;
 }
 
 - (NSTimeInterval)_incrementalRenderingSuppressionTimeout
@@ -716,7 +819,6 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     _allowsMetaRefresh = allowsMetaRefresh;
 }
 
-#if PLATFORM(IOS_FAMILY)
 - (BOOL)_clientNavigationsRunAtForegroundPriority
 {
     return _pageConfiguration->clientNavigationsRunAtForegroundPriority();
@@ -727,6 +829,22 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     _pageConfiguration->setClientNavigationsRunAtForegroundPriority(clientNavigationsRunAtForegroundPriority);
 }
 
+- (NSArray<NSNumber *> *)_portsForUpgradingInsecureSchemeForTesting
+{
+    auto ports = _pageConfiguration->portsForUpgradingInsecureSchemeForTesting();
+    if (ports)
+        return @[@(ports->first), @(ports->second)];
+    return nil;
+}
+
+- (void)_setPortsForUpgradingInsecureSchemeForTesting:(NSArray<NSNumber *> *)ports
+{
+    if (ports.count != 2 || ports[0].unsignedIntegerValue > std::numeric_limits<uint16_t>::max() || ports[1].unsignedIntegerValue > std::numeric_limits<uint16_t>::max())
+        return;
+    _pageConfiguration->setPortsForUpgradingInsecureSchemeForTesting((uint16_t)ports[0].unsignedIntegerValue, (uint16_t)ports[1].unsignedIntegerValue);
+}
+
+#if PLATFORM(IOS_FAMILY)
 - (BOOL)_alwaysRunsAtForegroundPriority
 {
     return _pageConfiguration->clientNavigationsRunAtForegroundPriority();
@@ -742,9 +860,9 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     return _inlineMediaPlaybackRequiresPlaysInlineAttribute;
 }
 
-- (void)_setInlineMediaPlaybackRequiresPlaysInlineAttribute:(BOOL)requires
+- (void)_setInlineMediaPlaybackRequiresPlaysInlineAttribute:(BOOL)requiresPlaysInlineAttribute
 {
-    _inlineMediaPlaybackRequiresPlaysInlineAttribute = requires;
+    _inlineMediaPlaybackRequiresPlaysInlineAttribute = requiresPlaysInlineAttribute;
 }
 
 - (BOOL)_allowsInlineMediaPlaybackAfterFullscreen
@@ -765,16 +883,6 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 - (void)_setDragLiftDelay:(_WKDragLiftDelay)dragLiftDelay
 {
     _dragLiftDelay = dragLiftDelay;
-}
-
-- (BOOL)_textInteractionGesturesEnabled
-{
-    return _textInteractionGesturesEnabled;
-}
-
-- (void)_setTextInteractionGesturesEnabled:(BOOL)enabled
-{
-    _textInteractionGesturesEnabled = enabled;
 }
 
 - (BOOL)_longPressActionsEnabled
@@ -827,7 +935,51 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     return _pageConfiguration->clickInteractionDriverForTesting().get();
 }
 
+static _WKAttributionOverrideTesting toWKAttributionOverrideTesting(WebKit::AttributionOverrideTesting value)
+{
+    if (value == WebKit::AttributionOverrideTesting::AppInitiated)
+        return _WKAttributionOverrideTestingAppInitiated;
+    if (value == WebKit::AttributionOverrideTesting::UserInitiated)
+        return _WKAttributionOverrideTestingUserInitiated;
+    return _WKAttributionOverrideTestingNoOverride;
+}
+
+static WebKit::AttributionOverrideTesting toAttributionOverrideTesting(_WKAttributionOverrideTesting value)
+{
+    if (value == _WKAttributionOverrideTestingAppInitiated)
+        return WebKit::AttributionOverrideTesting::AppInitiated;
+    if (value == _WKAttributionOverrideTestingUserInitiated)
+        return WebKit::AttributionOverrideTesting::UserInitiated;
+    return WebKit::AttributionOverrideTesting::NoOverride;
+}
+
+- (void)_setAppInitiatedOverrideValueForTesting:(_WKAttributionOverrideTesting)value
+{
+    _pageConfiguration->setAppInitiatedOverrideValueForTesting(toAttributionOverrideTesting(value));
+}
+
+- (_WKAttributionOverrideTesting)_appInitiatedOverrideValueForTesting
+{
+    return toWKAttributionOverrideTesting(_pageConfiguration->appInitiatedOverrideValueForTesting());
+}
+
 #endif // PLATFORM(IOS_FAMILY)
+
+- (BOOL)_ignoresAppBoundDomains
+{
+#if PLATFORM(IOS_FAMILY)
+    return _pageConfiguration->ignoresAppBoundDomains();
+#else
+    return NO;
+#endif
+}
+
+- (void)_setIgnoresAppBoundDomains:(BOOL)ignoresAppBoundDomains
+{
+#if PLATFORM(IOS_FAMILY)
+    _pageConfiguration->setIgnoresAppBoundDomains(ignoresAppBoundDomains);
+#endif
+}
 
 - (BOOL)_invisibleAutoplayNotPermitted
 {
@@ -857,6 +1009,16 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 - (void)_setAttachmentElementEnabled:(BOOL)attachmentElementEnabled
 {
     _attachmentElementEnabled = attachmentElementEnabled;
+}
+
+- (BOOL)_attachmentWideLayoutEnabled
+{
+    return _attachmentWideLayoutEnabled;
+}
+
+- (void)_setAttachmentWideLayoutEnabled:(BOOL)attachmentWideLayoutEnabled
+{
+    _attachmentWideLayoutEnabled = attachmentWideLayoutEnabled;
 }
 
 - (Class)_attachmentFileWrapperClass
@@ -917,14 +1079,52 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     _pageConfiguration->setCORSDisablingPatterns(makeVector<String>(patterns));
 }
 
+- (NSSet<NSString *> *)_maskedURLSchemes
+{
+    const auto& schemes = _pageConfiguration->maskedURLSchemes();
+    NSMutableSet<NSString *> *set = [NSMutableSet setWithCapacity:schemes.size()];
+    for (const auto& scheme : schemes)
+        [set addObject:scheme];
+    return set;
+}
+
+- (void)_setMaskedURLSchemes:(NSSet<NSString *> *)schemes
+{
+    HashSet<String> set;
+    for (NSString *scheme in schemes)
+        set.add(scheme);
+    _pageConfiguration->setMaskedURLSchemes(WTFMove(set));
+}
+
 - (void)_setLoadsFromNetwork:(BOOL)loads
 {
-    _pageConfiguration->setLoadsFromNetwork(loads);
+    _pageConfiguration->setAllowedNetworkHosts(loads ? std::nullopt : std::optional { MemoryCompactLookupOnlyRobinHoodHashSet<String> { } });
 }
 
 - (BOOL)_loadsFromNetwork
 {
-    return _pageConfiguration->loadsFromNetwork();
+    return _pageConfiguration->allowedNetworkHosts() == std::nullopt;
+}
+
+- (void)_setAllowedNetworkHosts:(NSSet<NSString *> *)hosts
+{
+    if (!hosts)
+        return _pageConfiguration->setAllowedNetworkHosts(std::nullopt);
+    MemoryCompactLookupOnlyRobinHoodHashSet<String> set;
+    for (NSString *host in hosts)
+        set.add(host);
+    _pageConfiguration->setAllowedNetworkHosts(WTFMove(set));
+}
+
+- (NSSet<NSString *> *)_allowedNetworkHosts
+{
+    const auto& hosts = _pageConfiguration->allowedNetworkHosts();
+    if (!hosts)
+        return nil;
+    NSMutableSet<NSString *> *set = [NSMutableSet setWithCapacity:hosts->size()];
+    for (const auto& host : *hosts)
+        [set addObject:host];
+    return set;
 }
 
 - (void)_setLoadsSubresources:(BOOL)loads
@@ -1074,24 +1274,33 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     _imageControlsEnabled = imageControlsEnabled;
 }
 
+- (BOOL)_contextMenuQRCodeDetectionEnabled
+{
+    return _contextMenuQRCodeDetectionEnabled;
+}
+
+- (void)_setContextMenuQRCodeDetectionEnabled:(BOOL)contextMenuQRCodeDetectionEnabled
+{
+    _contextMenuQRCodeDetectionEnabled = contextMenuQRCodeDetectionEnabled;
+}
+
 - (BOOL)_requiresUserActionForEditingControlsManager
 {
-    return _requiresUserActionForEditingControlsManager;
+    return _pageConfiguration->requiresUserActionForEditingControlsManager();
 }
 
 - (void)_setRequiresUserActionForEditingControlsManager:(BOOL)requiresUserAction
 {
-    _requiresUserActionForEditingControlsManager = requiresUserAction;
+    _pageConfiguration->setRequiresUserActionForEditingControlsManager(requiresUserAction);
 }
 
 - (WKPageGroupRef)_pageGroup
 {
-    return _pageGroup.get();
+    return nullptr;
 }
 
 - (void)_setPageGroup:(WKPageGroupRef)pageGroup
 {
-    _pageGroup = pageGroup;
 }
 
 - (void)_setCPULimit:(double)cpuLimit
@@ -1101,7 +1310,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (double)_cpuLimit
 {
-    return _pageConfiguration->cpuLimit().valueOr(0);
+    return _pageConfiguration->cpuLimit().value_or(0);
 }
 
 #endif // PLATFORM(MAC)
@@ -1182,14 +1391,14 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     return _allowMediaContentTypesRequiringHardwareSupportAsFallback;
 }
 
-- (void)_setEditableImagesEnabled:(BOOL)enabled
+- (BOOL)_mediaCaptureEnabled
 {
-    _editableImagesEnabled = enabled;
+    return _pageConfiguration->mediaCaptureEnabled();
 }
 
-- (BOOL)_editableImagesEnabled
+- (void)_setMediaCaptureEnabled:(BOOL)enabled
 {
-    return _editableImagesEnabled;
+    _pageConfiguration->setMediaCaptureEnabled(enabled);
 }
 
 - (void)_setUndoManagerAPIEnabled:(BOOL)enabled
@@ -1202,56 +1411,40 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     return _undoManagerAPIEnabled;
 }
 
-static WebKit::WebViewCategory toWebKitWebViewCategory(_WKWebViewCategory category)
+- (void)_setAppHighlightsEnabled:(BOOL)enabled
 {
-    switch (category) {
-    case _WKWebViewCategoryAppBoundDomain:
-        return WebKit::WebViewCategory::AppBoundDomain;
-    case _WKWebViewCategoryHybridApp:
-        return WebKit::WebViewCategory::HybridApp;
-    case _WKWebViewCategoryInAppBrowser:
-        return WebKit::WebViewCategory::InAppBrowser;
-    case _WKWebViewCategoryWebBrowser:
-        return WebKit::WebViewCategory::WebBrowser;
-    }
-    ASSERT_NOT_REACHED();
-    return WebKit::WebViewCategory::AppBoundDomain;
+#if ENABLE(APP_HIGHLIGHTS)
+    _appHighlightsEnabled = enabled;
+#endif
 }
 
-static _WKWebViewCategory toWKWebViewCategory(WebKit::WebViewCategory category)
+- (BOOL)_appHighlightsEnabled
 {
-    switch (category) {
-    case WebKit::WebViewCategory::AppBoundDomain:
-        return _WKWebViewCategoryAppBoundDomain;
-    case WebKit::WebViewCategory::HybridApp:
-        return _WKWebViewCategoryHybridApp;
-    case WebKit::WebViewCategory::InAppBrowser:
-        return _WKWebViewCategoryInAppBrowser;
-    case WebKit::WebViewCategory::WebBrowser:
-        return _WKWebViewCategoryWebBrowser;
-    }
-    ASSERT_NOT_REACHED();
-    return _WKWebViewCategoryAppBoundDomain;
+#if ENABLE(APP_HIGHLIGHTS)
+    return _appHighlightsEnabled;
+#else
+    return NO;
+#endif
 }
 
-- (_WKWebViewCategory)_webViewCategory
+- (BOOL)_allowTestOnlyIPC
 {
-    return toWKWebViewCategory(_pageConfiguration->webViewCategory());
+    return _pageConfiguration->allowTestOnlyIPC();
 }
 
-- (void)_setWebViewCategory:(_WKWebViewCategory)category
+- (void)_setAllowTestOnlyIPC:(BOOL)allowTestOnlyIPC
 {
-    _pageConfiguration->setWebViewCategory(toWebKitWebViewCategory(category));
+    _pageConfiguration->setAllowTestOnlyIPC(allowTestOnlyIPC);
 }
 
-- (BOOL)_ignoresAppBoundDomains
+- (BOOL)_delaysWebProcessLaunchUntilFirstLoad
 {
-    return _pageConfiguration->ignoresAppBoundDomains();
+    return _pageConfiguration->delaysWebProcessLaunchUntilFirstLoad();
 }
 
-- (void)_setIgnoresAppBoundDomains:(BOOL)ignoresAppBoundDomains
+- (void)_setDelaysWebProcessLaunchUntilFirstLoad:(BOOL)delaysWebProcessLaunchUntilFirstLoad
 {
-    _pageConfiguration->setIgnoresAppBoundDomains(ignoresAppBoundDomains);
+    _pageConfiguration->setDelaysWebProcessLaunchUntilFirstLoad(delaysWebProcessLaunchUntilFirstLoad);
 }
 
 - (BOOL)_shouldRelaxThirdPartyCookieBlocking
@@ -1263,10 +1456,16 @@ static _WKWebViewCategory toWKWebViewCategory(WebKit::WebViewCategory category)
 {
     bool allowed = WebCore::applicationBundleIdentifier() == "com.apple.WebKit.TestWebKitAPI"_s;
 #if PLATFORM(MAC)
-    allowed = allowed || WebCore::MacApplication::isSafari();
+    allowed |= WebCore::MacApplication::isSafari();
+#elif PLATFORM(IOS_FAMILY)
+    allowed |= WebCore::IOSApplication::isMobileSafari() || WebCore::IOSApplication::isSafariViewService();
 #endif
+#if ENABLE(WK_WEB_EXTENSIONS)
+    allowed |= _pageConfiguration->requiredWebExtensionBaseURL().isValid();
+#endif
+
     if (!allowed)
-        [NSException raise:NSObjectNotAvailableException format:@"_shouldRelaxThirdPartyCookieBlocking may only be used by Mac Safari."];
+        [NSException raise:NSObjectNotAvailableException format:@"_shouldRelaxThirdPartyCookieBlocking may only be used by Safari."];
 
     _pageConfiguration->setShouldRelaxThirdPartyCookieBlocking(relax ? WebCore::ShouldRelaxThirdPartyCookieBlocking::Yes : WebCore::ShouldRelaxThirdPartyCookieBlocking::No);
 }
@@ -1279,6 +1478,60 @@ static _WKWebViewCategory toWKWebViewCategory(WebKit::WebViewCategory category)
 - (void)_setProcessDisplayName:(NSString *)lsDisplayName
 {
     _pageConfiguration->setProcessDisplayName(lsDisplayName);
+}
+
+- (void)_setSampledPageTopColorMaxDifference:(double)value
+{
+    _sampledPageTopColorMaxDifference = value;
+}
+
+- (double)_sampledPageTopColorMaxDifference
+{
+    return _sampledPageTopColorMaxDifference;
+}
+
+- (void)_setSampledPageTopColorMinHeight:(double)value
+{
+    _sampledPageTopColorMinHeight = value;
+}
+
+- (double)_sampledPageTopColorMinHeight
+{
+    return _sampledPageTopColorMinHeight;
+}
+
+- (void)_setAttributedBundleIdentifier:(NSString *)identifier
+{
+    _pageConfiguration->setAttributedBundleIdentifier(identifier);
+}
+
+- (NSString *)_attributedBundleIdentifier
+{
+    auto& identifier = _pageConfiguration->attributedBundleIdentifier();
+    if (!identifier)
+        return nil;
+    return identifier;
+}
+
+- (void)_setContentSecurityPolicyModeForExtension:(_WKContentSecurityPolicyModeForExtension)mode
+{
+    _pageConfiguration->setContentSecurityPolicyModeForExtension(WebKit::toContentSecurityPolicyModeForExtension(mode));
+}
+
+- (_WKContentSecurityPolicyModeForExtension)_contentSecurityPolicyModeForExtension
+{
+    return WebKit::toWKContentSecurityPolicyModeForExtension(_pageConfiguration->contentSecurityPolicyModeForExtension());
+}
+
+// FIXME: Remove this SPI once rdar://110277838 is resolved and all clients adopt the API.
+- (void)_setMarkedTextInputEnabled:(BOOL)enabled
+{
+    _allowsInlinePredictions = enabled;
+}
+
+- (BOOL)_markedTextInputEnabled
+{
+    return _allowsInlinePredictions;
 }
 
 @end
@@ -1315,7 +1568,22 @@ static _WKWebViewCategory toWKWebViewCategory(WebKit::WebViewCategory category)
 {
     self.mediaTypesRequiringUserActionForPlayback = requiresUserActionForMediaPlayback ? WKAudiovisualMediaTypeAll : WKAudiovisualMediaTypeNone;
 }
+#endif // PLATFORM(IOS_FAMILY)
 
+@end
+
+@implementation WKWebViewConfiguration (WKPrivateDeprecated)
+
+#if PLATFORM(IOS_FAMILY)
+- (BOOL)_textInteractionGesturesEnabled
+{
+    return _textInteractionGesturesEnabled;
+}
+
+- (void)_setTextInteractionGesturesEnabled:(BOOL)enabled
+{
+    _textInteractionGesturesEnabled = enabled;
+}
 #endif // PLATFORM(IOS_FAMILY)
 
 @end

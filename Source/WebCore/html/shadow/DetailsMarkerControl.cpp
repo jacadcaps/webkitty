@@ -35,6 +35,7 @@
 #include "HTMLNames.h"
 #include "HTMLSummaryElement.h"
 #include "RenderDetailsMarker.h"
+#include "UserAgentParts.h"
 #include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
@@ -43,14 +44,14 @@ WTF_MAKE_ISO_ALLOCATED_IMPL(DetailsMarkerControl);
 
 Ref<DetailsMarkerControl> DetailsMarkerControl::create(Document& document)
 {
-    return adoptRef(*new DetailsMarkerControl(document));
+    auto control = adoptRef(*new DetailsMarkerControl(document));
+    control->setUserAgentPart(UserAgentParts::webkitDetailsMarker());
+    return control;
 }
 
 DetailsMarkerControl::DetailsMarkerControl(Document& document)
     : HTMLDivElement(HTMLNames::divTag, document)
 {
-    static MainThreadNeverDestroyed<const AtomString> webkitDetailsMarkerName("-webkit-details-marker", AtomString::ConstructFromLiteral);
-    setPseudo(webkitDetailsMarkerName);
 }
 
 RenderPtr<RenderElement> DetailsMarkerControl::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
@@ -60,7 +61,7 @@ RenderPtr<RenderElement> DetailsMarkerControl::createElementRenderer(RenderStyle
 
 bool DetailsMarkerControl::rendererIsNeeded(const RenderStyle& style)
 {
-    return downcast<HTMLSummaryElement>(shadowHost())->isActiveSummary() && HTMLDivElement::rendererIsNeeded(style);
+    return checkedDowncast<HTMLSummaryElement>(shadowHost())->isActiveSummary() && HTMLDivElement::rendererIsNeeded(style);
 }
 
 }

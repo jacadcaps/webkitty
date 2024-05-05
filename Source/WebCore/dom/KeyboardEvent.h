@@ -2,7 +2,8 @@
  * Copyright (C) 2001 Peter Kelly (pmk@post.com)
  * Copyright (C) 2001 Tobias Anton (anton@stud.fbi.fh-darmstadt.de)
  * Copyright (C) 2006 Samuel Weinig (sam.weinig@gmail.com)
- * Copyright (C) 2003-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2024 Apple Inc. All rights reserved.
+ * Copyright (C) 2017 Google Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -55,24 +56,23 @@ public:
         bool isComposing;
 
         // Legacy.
-        String keyIdentifier;
-        Optional<unsigned> keyLocation;
+        AtomString keyIdentifier;
         unsigned charCode;
         unsigned keyCode;
         unsigned which;
     };
 
-    static Ref<KeyboardEvent> create(const AtomString& type, const Init&);
+    static Ref<KeyboardEvent> create(const AtomString& type, const Init&, IsTrusted = IsTrusted::No);
 
     virtual ~KeyboardEvent();
     
     WEBCORE_EXPORT void initKeyboardEvent(const AtomString& type, bool canBubble, bool cancelable, RefPtr<WindowProxy>&&,
-        const String& keyIdentifier, unsigned location,
-        bool ctrlKey, bool altKey, bool shiftKey, bool metaKey, bool altGraphKey = false);
+        const AtomString& keyIdentifier, unsigned location,
+        bool ctrlKey, bool altKey, bool shiftKey, bool metaKey);
     
     const String& key() const { return m_key; }
     const String& code() const { return m_code; }
-    const String& keyIdentifier() const { return m_keyIdentifier; }
+    const AtomString& keyIdentifier() const { return m_keyIdentifier; }
     unsigned location() const { return m_location; }
     bool repeat() const { return m_repeat; }
 
@@ -84,7 +84,7 @@ public:
 
     EventInterface eventInterface() const final;
     bool isKeyboardEvent() const final;
-    int which() const final;
+    unsigned which() const final;
 
     bool isComposing() const { return m_isComposing; }
 
@@ -97,18 +97,18 @@ public:
 private:
     KeyboardEvent();
     KeyboardEvent(const PlatformKeyboardEvent&, RefPtr<WindowProxy>&&);
-    KeyboardEvent(const AtomString&, const Init&);
+    KeyboardEvent(const AtomString&, const Init&, IsTrusted = IsTrusted::No);
 
     std::unique_ptr<PlatformKeyboardEvent> m_underlyingPlatformEvent;
     String m_key;
     String m_code;
-    String m_keyIdentifier;
+    AtomString m_keyIdentifier;
     unsigned m_location { DOM_KEY_LOCATION_STANDARD };
     bool m_repeat { false };
     bool m_isComposing { false };
-    Optional<unsigned> m_charCode;
-    Optional<unsigned> m_keyCode;
-    Optional<unsigned> m_which;
+    std::optional<unsigned> m_charCode;
+    std::optional<unsigned> m_keyCode;
+    std::optional<unsigned> m_which;
 
 #if PLATFORM(COCOA)
     // Commands that were sent by AppKit when interpreting the event. Doesn't include input method commands.

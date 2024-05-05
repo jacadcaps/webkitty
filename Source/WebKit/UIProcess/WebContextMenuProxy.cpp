@@ -29,6 +29,7 @@
 #if ENABLE(CONTEXT_MENUS)
 
 #include "APIContextMenuClient.h"
+#include "MessageSenderInlines.h"
 #include "WebPageMessages.h"
 #include "WebPageProxy.h"
 #include "WebProcessProxy.h"
@@ -38,7 +39,7 @@ namespace WebKit {
 WebContextMenuProxy::WebContextMenuProxy(WebPageProxy& page, ContextMenuContextData&& context, const UserData& userData)
     : m_context(WTFMove(context))
     , m_userData(userData)
-    , m_page(makeWeakPtr(page))
+    , m_page(page)
 {
 }
 
@@ -53,15 +54,22 @@ Vector<Ref<WebContextMenuItem>> WebContextMenuProxy::proposedItems() const
 
 void WebContextMenuProxy::show()
 {
+    ASSERT(m_context.webHitTestResultData());
+
+    RefPtr page = this->page();
+    if (!page)
+        return;
+
     m_contextMenuListener = WebContextMenuListenerProxy::create(*this);
-    page()->contextMenuClient().getContextMenuFromProposedMenu(*page(), proposedItems(), *m_contextMenuListener, m_context.webHitTestResultData(), page()->process().transformHandlesToObjects(m_userData.object()).get());
+    page->contextMenuClient().getContextMenuFromProposedMenu(*page, proposedItems(), *m_contextMenuListener, m_context.webHitTestResultData().value(),
+        page->process().transformHandlesToObjects(m_userData.protectedObject().get()).get());
 }
 
 void WebContextMenuProxy::useContextMenuItems(Vector<Ref<WebContextMenuItem>>&& items)
 {
     m_contextMenuListener = nullptr;
 
-    auto page = makeRefPtr(this->page());
+    RefPtr page = this->page();
     if (!page)
         return;
 
@@ -69,11 +77,11 @@ void WebContextMenuProxy::useContextMenuItems(Vector<Ref<WebContextMenuItem>>&& 
     page->process().stopResponsivenessTimer();
 
     // Protect |this| from being deallocated if WebPageProxy code is re-entered from the menu runloop or delegates.
-    auto protectedThis = makeRef(*this);
+    Ref protectedThis { *this };
     showContextMenuWithItems(WTFMove(items));
 
     // No matter the result of showContextMenuWithItems, always notify the WebProcess that the menu is hidden so it starts handling mouse events again.
-    page->send(Messages::WebPage::ContextMenuHidden());
+    page->send(Messages::WebPage::DidShowContextMenu());
 }
 
 } // namespace WebKit

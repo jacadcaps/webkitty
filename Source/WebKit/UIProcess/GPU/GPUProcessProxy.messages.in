@@ -22,12 +22,24 @@
 
 #if ENABLE(GPU_PROCESS)
 
-messages -> GPUProcessProxy NotRefCounted {
+messages -> GPUProcessProxy {
 
 #if HAVE(VISIBILITY_PROPAGATION_VIEW)
-    DidCreateContextForVisibilityPropagation(WebKit::LayerHostingContextID contextID);
+    DidCreateContextForVisibilityPropagation(WebKit::WebPageProxyIdentifier pageProxyID, WebCore::PageIdentifier pageID, WebKit::LayerHostingContextID contextID)
 #endif
 
+#if ENABLE(VP9)
+    SetHasVP9HardwareDecoder(bool hasVP9HardwareDecoder)
+#endif
+#if ENABLE(AV1)
+    SetHasAV1HardwareDecoder(bool hasAV1HardwareDecoder)
+#endif
+#if ENABLE(MEDIA_STREAM) && PLATFORM(IOS_FAMILY)
+    StatusBarWasTapped() -> () Async
+#endif
+
+    ProcessIsReadyToExit()
+    TerminateWebProcess(WebCore::ProcessIdentifier webProcessIdentifier)
 }
 
 #endif // ENABLE(GPU_PROCESS)

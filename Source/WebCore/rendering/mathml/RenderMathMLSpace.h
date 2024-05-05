@@ -39,12 +39,11 @@ public:
     MathMLSpaceElement& element() const { return static_cast<MathMLSpaceElement&>(nodeForNonAnonymous()); }
 
 private:
-    const char* renderName() const final { return "RenderMathMLSpace"; }
-    bool isRenderMathMLSpace() const final { return true; }
+    ASCIILiteral renderName() const final { return "RenderMathMLSpace"_s; }
     bool isChildAllowed(const RenderObject&, const RenderStyle&) const final { return false; }
     void computePreferredLogicalWidths() final;
     void layoutBlock(bool relayoutChildren, LayoutUnit pageLogicalHeight = 0_lu) final;
-    Optional<int> firstLineBaseline() const final;
+    std::optional<LayoutUnit> firstLineBaseline() const final;
 
     LayoutUnit spaceWidth() const;
     void getSpaceHeightAndDepth(LayoutUnit& height, LayoutUnit& depth) const;

@@ -15,10 +15,10 @@
 #include "common_video/h264/h264_common.h"
 #include "modules/video_coding/include/video_codec_interface.h"
 #include "modules/video_coding/include/video_error_codes.h"
+#include "modules/video_coding/svc/scalable_video_controller_no_layering.h"
 #include "modules/video_coding/utility/vp8_header_parser.h"
 #include "modules/video_coding/utility/vp9_uncompressed_header_parser.h"
 #include "rtc_base/logging.h"
-#include "rtc_base/task_utils/to_queued_task.h"
 #include "rtc_base/time_utils.h"
 #include "sdk/android/generated_video_jni/VideoEncoderWrapper_jni.h"
 #include "sdk/android/generated_video_jni/VideoEncoder_jni.h"
@@ -26,6 +26,7 @@
 #include "sdk/android/native_api/jni/java_types.h"
 #include "sdk/android/src/jni/encoded_image.h"
 #include "sdk/android/src/jni/video_codec_status.h"
+#include "sdk/android/src/jni/video_frame.h"
 
 namespace webrtc {
 namespace jni {
@@ -36,9 +37,8 @@ VideoEncoderWrapper::VideoEncoderWrapper(JNIEnv* jni,
   initialized_ = false;
   num_resets_ = 0;
 
-  // Get bitrate limits in the constructor. This is a static property of the
-  // encoder and is expected to be available before it is initialized.
-  encoder_info_.resolution_bitrate_limits = GetResolutionBitrateLimits(jni);
+  // Fetch and update encoder info.
+  UpdateEncoderInfo(jni);
 }
 VideoEncoderWrapper::~VideoEncoderWrapper() = default;
 
@@ -88,16 +88,35 @@ int32_t VideoEncoderWrapper::InitEncodeInternal(JNIEnv* jni) {
       jni, Java_VideoEncoder_initEncode(jni, encoder_, settings, callback));
   RTC_LOG(LS_INFO) << "initEncode: " << status;
 
-  encoder_info_.supports_native_handle = true;
-  encoder_info_.implementation_name = GetImplementationName(jni);
-  encoder_info_.scaling_settings = GetScalingSettingsInternal(jni);
-  encoder_info_.is_hardware_accelerated = IsHardwareVideoEncoder(jni, encoder_);
-  encoder_info_.has_internal_source = false;
+  // Some encoder's properties depend on settings and may change after
+  // initialization.
+  UpdateEncoderInfo(jni);
 
   if (status == WEBRTC_VIDEO_CODEC_OK) {
     initialized_ = true;
   }
   return status;
+}
+
+void VideoEncoderWrapper::UpdateEncoderInfo(JNIEnv* jni) {
+  encoder_info_.supports_native_handle = true;
+
+  encoder_info_.implementation_name = JavaToStdString(
+      jni, Java_VideoEncoder_getImplementationName(jni, encoder_));
+
+  encoder_info_.is_hardware_accelerated =
+      Java_VideoEncoder_isHardwareEncoder(jni, encoder_);
+
+  encoder_info_.scaling_settings = GetScalingSettingsInternal(jni);
+
+  encoder_info_.resolution_bitrate_limits = JavaToNativeResolutionBitrateLimits(
+      jni, Java_VideoEncoder_getResolutionBitrateLimits(jni, encoder_));
+
+  EncoderInfo info = GetEncoderInfoInternal(jni);
+  encoder_info_.requested_resolution_alignment =
+      info.requested_resolution_alignment;
+  encoder_info_.apply_alignment_to_all_simulcast_layers =
+      info.apply_alignment_to_all_simulcast_layers;
 }
 
 int32_t VideoEncoderWrapper::RegisterEncodeCompleteCallback(
@@ -112,7 +131,10 @@ int32_t VideoEncoderWrapper::Release() {
   int32_t status = JavaToNativeVideoCodecStatus(
       jni, Java_VideoEncoder_release(jni, encoder_));
   RTC_LOG(LS_INFO) << "release: " << status;
-  frame_extra_infos_.clear();
+  {
+    MutexLock lock(&frame_extra_infos_lock_);
+    frame_extra_infos_.clear();
+  }
   initialized_ = false;
 
   return status;
@@ -129,15 +151,23 @@ int32_t VideoEncoderWrapper::Encode(
   JNIEnv* jni = AttachCurrentThreadIfNeeded();
 
   // Construct encode info.
-  ScopedJavaLocalRef<jobjectArray> j_frame_types =
-      NativeToJavaFrameTypeArray(jni, *frame_types);
+  ScopedJavaLocalRef<jobjectArray> j_frame_types;
+  if (frame_types != nullptr) {
+    j_frame_types = NativeToJavaFrameTypeArray(jni, *frame_types);
+  } else {
+    j_frame_types =
+        NativeToJavaFrameTypeArray(jni, {VideoFrameType::kVideoFrameDelta});
+  }
   ScopedJavaLocalRef<jobject> encode_info =
       Java_EncodeInfo_Constructor(jni, j_frame_types);
 
   FrameExtraInfo info;
   info.capture_time_ns = frame.timestamp_us() * rtc::kNumNanosecsPerMicrosec;
   info.timestamp_rtp = frame.timestamp();
-  frame_extra_infos_.push_back(info);
+  {
+    MutexLock lock(&frame_extra_infos_lock_);
+    frame_extra_infos_.push_back(info);
+  }
 
   ScopedJavaLocalRef<jobject> j_frame = NativeToJavaVideoFrame(jni, frame);
   ScopedJavaLocalRef<jobject> ret =
@@ -146,15 +176,14 @@ int32_t VideoEncoderWrapper::Encode(
   return HandleReturnCode(jni, ret, "encode");
 }
 
-void VideoEncoderWrapper::SetRates(const RateControlParameters& parameters) {
+void VideoEncoderWrapper::SetRates(const RateControlParameters& rc_parameters) {
   JNIEnv* jni = AttachCurrentThreadIfNeeded();
 
-  ScopedJavaLocalRef<jobject> j_bitrate_allocation =
-      ToJavaBitrateAllocation(jni, parameters.bitrate);
-  ScopedJavaLocalRef<jobject> ret = Java_VideoEncoder_setRateAllocation(
-      jni, encoder_, j_bitrate_allocation,
-      (jint)(parameters.framerate_fps + 0.5));
-  HandleReturnCode(jni, ret, "setRateAllocation");
+  ScopedJavaLocalRef<jobject> j_rc_parameters =
+      ToJavaRateControlParameters(jni, rc_parameters);
+  ScopedJavaLocalRef<jobject> ret =
+      Java_VideoEncoder_setRates(jni, encoder_, j_rc_parameters);
+  HandleReturnCode(jni, ret, "setRates");
 }
 
 VideoEncoder::EncoderInfo VideoEncoderWrapper::GetEncoderInfo() const {
@@ -198,6 +227,8 @@ VideoEncoderWrapper::GetScalingSettingsInternal(JNIEnv* jni) const {
       return VideoEncoder::ScalingSettings(kLowVp9QpThreshold,
                                            kHighVp9QpThreshold);
     }
+    case kVideoCodecH265:
+    // TODO(bugs.webrtc.org/13485): Use H264 QP thresholds for now.
     case kVideoCodecH264: {
       // Same as in h264_encoder_impl.cc.
       static const int kLowH264QpThreshold = 24;
@@ -210,35 +241,24 @@ VideoEncoderWrapper::GetScalingSettingsInternal(JNIEnv* jni) const {
   }
 }
 
-std::vector<VideoEncoder::ResolutionBitrateLimits>
-VideoEncoderWrapper::GetResolutionBitrateLimits(JNIEnv* jni) const {
-  std::vector<VideoEncoder::ResolutionBitrateLimits> resolution_bitrate_limits;
+VideoEncoder::EncoderInfo VideoEncoderWrapper::GetEncoderInfoInternal(
+    JNIEnv* jni) const {
+  ScopedJavaLocalRef<jobject> j_encoder_info =
+      Java_VideoEncoder_getEncoderInfo(jni, encoder_);
 
-  ScopedJavaLocalRef<jobjectArray> j_bitrate_limits_array =
-      Java_VideoEncoder_getResolutionBitrateLimits(jni, encoder_);
+  jint requested_resolution_alignment =
+      Java_EncoderInfo_getRequestedResolutionAlignment(jni, j_encoder_info);
 
-  const jsize num_thresholds =
-      jni->GetArrayLength(j_bitrate_limits_array.obj());
-  for (int i = 0; i < num_thresholds; ++i) {
-    ScopedJavaLocalRef<jobject> j_bitrate_limits = ScopedJavaLocalRef<jobject>(
-        jni, jni->GetObjectArrayElement(j_bitrate_limits_array.obj(), i));
+  jboolean apply_alignment_to_all_simulcast_layers =
+      Java_EncoderInfo_getApplyAlignmentToAllSimulcastLayers(jni,
+                                                             j_encoder_info);
 
-    jint frame_size_pixels =
-        Java_ResolutionBitrateLimits_getFrameSizePixels(jni, j_bitrate_limits);
-    jint min_start_bitrate_bps =
-        Java_ResolutionBitrateLimits_getMinStartBitrateBps(jni,
-                                                           j_bitrate_limits);
-    jint min_bitrate_bps =
-        Java_ResolutionBitrateLimits_getMinBitrateBps(jni, j_bitrate_limits);
-    jint max_bitrate_bps =
-        Java_ResolutionBitrateLimits_getMaxBitrateBps(jni, j_bitrate_limits);
+  VideoEncoder::EncoderInfo info;
+  info.requested_resolution_alignment = requested_resolution_alignment;
+  info.apply_alignment_to_all_simulcast_layers =
+      apply_alignment_to_all_simulcast_layers;
 
-    resolution_bitrate_limits.push_back(VideoEncoder::ResolutionBitrateLimits(
-        frame_size_pixels, min_start_bitrate_bps, min_bitrate_bps,
-        max_bitrate_bps));
-  }
-
-  return resolution_bitrate_limits;
+  return info;
 }
 
 void VideoEncoderWrapper::OnEncodedFrame(
@@ -259,21 +279,25 @@ void VideoEncoderWrapper::OnEncodedFrame(
   // entries that don't belong to us, and we need to be careful not to
   // remove them. Removing only those entries older than the current frame
   // provides this guarantee.
-  while (!frame_extra_infos_.empty() &&
-         frame_extra_infos_.front().capture_time_ns < capture_time_ns) {
+  FrameExtraInfo frame_extra_info;
+  {
+    MutexLock lock(&frame_extra_infos_lock_);
+    while (!frame_extra_infos_.empty() &&
+           frame_extra_infos_.front().capture_time_ns < capture_time_ns) {
+      frame_extra_infos_.pop_front();
+    }
+    if (frame_extra_infos_.empty() ||
+        frame_extra_infos_.front().capture_time_ns != capture_time_ns) {
+      RTC_LOG(LS_WARNING)
+          << "Java encoder produced an unexpected frame with timestamp: "
+          << capture_time_ns;
+      return;
+    }
+    frame_extra_info = frame_extra_infos_.front();
     frame_extra_infos_.pop_front();
   }
-  if (frame_extra_infos_.empty() ||
-      frame_extra_infos_.front().capture_time_ns != capture_time_ns) {
-    RTC_LOG(LS_WARNING)
-        << "Java encoder produced an unexpected frame with timestamp: "
-        << capture_time_ns;
-    return;
-  }
-  FrameExtraInfo frame_extra_info = std::move(frame_extra_infos_.front());
-  frame_extra_infos_.pop_front();
 
-  // This is a bit subtle. The |frame| variable from the lambda capture is
+  // This is a bit subtle. The `frame` variable from the lambda capture is
   // const. Which implies that (i) we need to make a copy to be able to
   // write to the metadata, and (ii) we should avoid using the .data()
   // method (including implicit conversion to ArrayView) on the non-const
@@ -281,16 +305,15 @@ void VideoEncoderWrapper::OnEncodedFrame(
   // CopyOnWriteBuffer.
   EncodedImage frame_copy = frame;
 
-  frame_copy.SetTimestamp(frame_extra_info.timestamp_rtp);
+  frame_copy.SetRtpTimestamp(frame_extra_info.timestamp_rtp);
   frame_copy.capture_time_ms_ = capture_time_ns / rtc::kNumNanosecsPerMillisec;
 
-  RTPFragmentationHeader header = ParseFragmentationHeader(frame);
   if (frame_copy.qp_ < 0)
     frame_copy.qp_ = ParseQp(frame);
 
   CodecSpecificInfo info(ParseCodecSpecificInfo(frame));
 
-  callback_->OnEncodedImage(frame_copy, &info, &header);
+  callback_->OnEncodedImage(frame_copy, &info);
 }
 
 int32_t VideoEncoderWrapper::HandleReturnCode(JNIEnv* jni,
@@ -319,35 +342,6 @@ int32_t VideoEncoderWrapper::HandleReturnCode(JNIEnv* jni,
   return WEBRTC_VIDEO_CODEC_FALLBACK_SOFTWARE;
 }
 
-RTPFragmentationHeader VideoEncoderWrapper::ParseFragmentationHeader(
-    rtc::ArrayView<const uint8_t> buffer) {
-  RTPFragmentationHeader header;
-  if (codec_settings_.codecType == kVideoCodecH264) {
-    h264_bitstream_parser_.ParseBitstream(buffer.data(), buffer.size());
-
-    // For H.264 search for start codes.
-    const std::vector<H264::NaluIndex> nalu_idxs =
-        H264::FindNaluIndices(buffer.data(), buffer.size());
-    if (nalu_idxs.empty()) {
-      RTC_LOG(LS_ERROR) << "Start code is not found!";
-      RTC_LOG(LS_ERROR) << "Data:" << buffer[0] << " " << buffer[1] << " "
-                        << buffer[2] << " " << buffer[3] << " " << buffer[4]
-                        << " " << buffer[5];
-    }
-    header.VerifyAndAllocateFragmentationHeader(nalu_idxs.size());
-    for (size_t i = 0; i < nalu_idxs.size(); i++) {
-      header.fragmentationOffset[i] = nalu_idxs[i].payload_start_offset;
-      header.fragmentationLength[i] = nalu_idxs[i].payload_size;
-    }
-  } else {
-    // Generate a header describing a single fragment.
-    header.VerifyAndAllocateFragmentationHeader(1);
-    header.fragmentationOffset[0] = 0;
-    header.fragmentationLength[0] = buffer.size();
-  }
-  return header;
-}
-
 int VideoEncoderWrapper::ParseQp(rtc::ArrayView<const uint8_t> buffer) {
   int qp;
   bool success;
@@ -359,8 +353,17 @@ int VideoEncoderWrapper::ParseQp(rtc::ArrayView<const uint8_t> buffer) {
       success = vp9::GetQp(buffer.data(), buffer.size(), &qp);
       break;
     case kVideoCodecH264:
-      success = h264_bitstream_parser_.GetLastSliceQp(&qp);
+      h264_bitstream_parser_.ParseBitstream(buffer);
+      qp = h264_bitstream_parser_.GetLastSliceQp().value_or(-1);
+      success = (qp >= 0);
       break;
+#ifdef RTC_ENABLE_H265
+    case kVideoCodecH265:
+      h265_bitstream_parser_.ParseBitstream(buffer);
+      qp = h265_bitstream_parser_.GetLastSliceQp().value_or(-1);
+      success = (qp >= 0);
+      break;
+#endif
     default:  // Default is to not provide QP.
       success = false;
       break;
@@ -373,6 +376,19 @@ CodecSpecificInfo VideoEncoderWrapper::ParseCodecSpecificInfo(
   const bool key_frame = frame._frameType == VideoFrameType::kVideoFrameKey;
 
   CodecSpecificInfo info;
+  // For stream with scalability, NextFrameConfig should be called before
+  // encoding and used to configure encoder, then passed here e.g. via
+  // FrameExtraInfo structure. But while this encoder wrapper uses only trivial
+  // scalability, NextFrameConfig can be called here.
+  auto layer_frames = svc_controller_.NextFrameConfig(/*reset=*/key_frame);
+  RTC_DCHECK_EQ(layer_frames.size(), 1);
+  info.generic_frame_info = svc_controller_.OnEncodeDone(layer_frames[0]);
+  if (key_frame) {
+    info.template_structure = svc_controller_.DependencyStructure();
+    info.template_structure->resolutions = {
+        RenderResolution(frame._encodedWidth, frame._encodedHeight)};
+  }
+
   info.codecType = codec_settings_.codecType;
 
   switch (codec_settings_.codecType) {
@@ -396,7 +412,6 @@ CodecSpecificInfo VideoEncoderWrapper::ParseCodecSpecificInfo(
           static_cast<uint8_t>(gof_idx_++ % gof_.num_frames_in_gof);
       info.codecSpecific.VP9.num_spatial_layers = 1;
       info.codecSpecific.VP9.first_frame_in_picture = true;
-      info.codecSpecific.VP9.end_of_picture = true;
       info.codecSpecific.VP9.spatial_layer_resolution_present = false;
       if (info.codecSpecific.VP9.ss_data_available) {
         info.codecSpecific.VP9.spatial_layer_resolution_present = true;
@@ -432,9 +447,14 @@ ScopedJavaLocalRef<jobject> VideoEncoderWrapper::ToJavaBitrateAllocation(
   return Java_BitrateAllocation_Constructor(jni, j_allocation_array);
 }
 
-std::string VideoEncoderWrapper::GetImplementationName(JNIEnv* jni) const {
-  return JavaToStdString(
-      jni, Java_VideoEncoder_getImplementationName(jni, encoder_));
+ScopedJavaLocalRef<jobject> VideoEncoderWrapper::ToJavaRateControlParameters(
+    JNIEnv* jni,
+    const VideoEncoder::RateControlParameters& rc_parameters) {
+  ScopedJavaLocalRef<jobject> j_bitrate_allocation =
+      ToJavaBitrateAllocation(jni, rc_parameters.bitrate);
+
+  return Java_RateControlParameters_Constructor(jni, j_bitrate_allocation,
+                                                rc_parameters.framerate_fps);
 }
 
 std::unique_ptr<VideoEncoder> JavaToNativeVideoEncoder(
@@ -451,8 +471,33 @@ std::unique_ptr<VideoEncoder> JavaToNativeVideoEncoder(
   return std::unique_ptr<VideoEncoder>(encoder);
 }
 
-bool IsHardwareVideoEncoder(JNIEnv* jni, const JavaRef<jobject>& j_encoder) {
-  return Java_VideoEncoder_isHardwareEncoder(jni, j_encoder);
+std::vector<VideoEncoder::ResolutionBitrateLimits>
+JavaToNativeResolutionBitrateLimits(
+    JNIEnv* jni,
+    const JavaRef<jobjectArray>& j_bitrate_limits_array) {
+  std::vector<VideoEncoder::ResolutionBitrateLimits> resolution_bitrate_limits;
+
+  const jsize array_length = jni->GetArrayLength(j_bitrate_limits_array.obj());
+  for (int i = 0; i < array_length; ++i) {
+    ScopedJavaLocalRef<jobject> j_bitrate_limits = ScopedJavaLocalRef<jobject>(
+        jni, jni->GetObjectArrayElement(j_bitrate_limits_array.obj(), i));
+
+    jint frame_size_pixels =
+        Java_ResolutionBitrateLimits_getFrameSizePixels(jni, j_bitrate_limits);
+    jint min_start_bitrate_bps =
+        Java_ResolutionBitrateLimits_getMinStartBitrateBps(jni,
+                                                           j_bitrate_limits);
+    jint min_bitrate_bps =
+        Java_ResolutionBitrateLimits_getMinBitrateBps(jni, j_bitrate_limits);
+    jint max_bitrate_bps =
+        Java_ResolutionBitrateLimits_getMaxBitrateBps(jni, j_bitrate_limits);
+
+    resolution_bitrate_limits.push_back(VideoEncoder::ResolutionBitrateLimits(
+        frame_size_pixels, min_start_bitrate_bps, min_bitrate_bps,
+        max_bitrate_bps));
+  }
+
+  return resolution_bitrate_limits;
 }
 
 }  // namespace jni

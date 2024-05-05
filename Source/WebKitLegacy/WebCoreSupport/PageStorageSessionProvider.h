@@ -44,9 +44,9 @@ public:
 
     void setPage(WebCore::Page& page)
     {
-        m_page = makeWeakPtr(page);
+        m_page = page;
     }
 
 private:
-    WeakPtr<WebCore::Page> m_page;
+    SingleThreadWeakPtr<WebCore::Page> m_page;
 };

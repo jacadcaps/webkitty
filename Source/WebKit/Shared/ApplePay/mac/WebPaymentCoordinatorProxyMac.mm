@@ -37,7 +37,13 @@ namespace WebKit {
 
 void WebPaymentCoordinatorProxy::platformCanMakePayments(CompletionHandler<void(bool)>&& completionHandler)
 {
-    if (!PAL::isPassKitFrameworkAvailable())
+#if HAVE(PASSKIT_MODULARIZATION) && HAVE(PASSKIT_MAC_HELPER_TEMP)
+    if (!PAL::isPassKitMacHelperTempFrameworkAvailable())
+#elif HAVE(PASSKIT_MODULARIZATION)
+    if (!PAL::isPassKitMacHelperFrameworkAvailable())
+#else
+    if (!PAL::isPassKitCoreFrameworkAvailable())
+#endif
         return completionHandler(false);
 
     m_canMakePaymentsQueue->dispatch([theClass = retainPtr(PAL::getPKPaymentAuthorizationViewControllerClass()), completionHandler = WTFMove(completionHandler)]() mutable {
@@ -47,15 +53,21 @@ void WebPaymentCoordinatorProxy::platformCanMakePayments(CompletionHandler<void(
     });
 }
 
-void WebPaymentCoordinatorProxy::platformShowPaymentUI(const URL& originatingURL, const Vector<URL>& linkIconURLStrings, const WebCore::ApplePaySessionPaymentRequest& request, CompletionHandler<void(bool)>&& completionHandler)
+void WebPaymentCoordinatorProxy::platformShowPaymentUI(WebPageProxyIdentifier webPageProxyID, const URL& originatingURL, const Vector<URL>& linkIconURLStrings, const WebCore::ApplePaySessionPaymentRequest& request, CompletionHandler<void(bool)>&& completionHandler)
 {
-    if (!PAL::isPassKitFrameworkAvailable())
+#if HAVE(PASSKIT_MODULARIZATION) && HAVE(PASSKIT_MAC_HELPER_TEMP)
+    if (!PAL::isPassKitMacHelperTempFrameworkAvailable())
+#elif HAVE(PASSKIT_MODULARIZATION)
+    if (!PAL::isPassKitMacHelperFrameworkAvailable())
+#else
+    if (!PAL::isPassKitCoreFrameworkAvailable())
+#endif
         return completionHandler(false);
 
-    auto paymentRequest = platformPaymentRequest(originatingURL, linkIconURLStrings, request);
+    auto paymentRequest = platformPaymentRequest(webPageProxyID, originatingURL, linkIconURLStrings, request);
 
     auto showPaymentUIRequestSeed = m_showPaymentUIRequestSeed;
-    auto weakThis = makeWeakPtr(*this);
+    WeakPtr weakThis { *this };
     [PAL::getPKPaymentAuthorizationViewControllerClass() requestViewControllerWithPaymentRequest:paymentRequest.get() completion:makeBlockPtr([paymentRequest, showPaymentUIRequestSeed, weakThis, completionHandler = WTFMove(completionHandler)](PKPaymentAuthorizationViewController *viewController, NSError *error) mutable {
         auto paymentCoordinatorProxy = weakThis.get();
         if (!paymentCoordinatorProxy)

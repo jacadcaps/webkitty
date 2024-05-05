@@ -51,10 +51,10 @@ private:
     void didConcludeEditDrag() override;
 
 #if PLATFORM(COCOA)
-    void declareAndWriteDragImage(const String& pasteboardName, WebCore::Element&, const URL&, const String&, WebCore::Frame*) override;
+    void declareAndWriteDragImage(const String& pasteboardName, WebCore::Element&, const URL&, const String&, WebCore::LocalFrame*) override;
 #endif
 
-    WebPage* m_page;
+    WeakPtr<WebPage> m_page;
 };
 
 } // namespace WebKit

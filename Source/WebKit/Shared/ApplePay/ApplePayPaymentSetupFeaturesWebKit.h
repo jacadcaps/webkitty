@@ -27,9 +27,11 @@
 
 #if ENABLE(APPLE_PAY)
 
+OBJC_CLASS NSArray;
 OBJC_CLASS PKPaymentSetupFeature;
 
 #include <WebCore/ApplePaySetupFeatureWebCore.h>
+#include <wtf/ArgumentCoder.h>
 #include <wtf/Forward.h>
 #include <wtf/RetainPtr.h>
 
@@ -45,13 +47,11 @@ public:
     PaymentSetupFeatures(Vector<RefPtr<WebCore::ApplePaySetupFeature>>&&);
     PaymentSetupFeatures(RetainPtr<NSArray>&& = nullptr);
 
-    void encode(IPC::Encoder&) const;
-    static Optional<PaymentSetupFeatures> decode(IPC::Decoder&);
-
     NSArray *platformFeatures() const { return m_platformFeatures.get(); }
     operator Vector<Ref<WebCore::ApplePaySetupFeature>>() const;
 
 private:
+    friend struct IPC::ArgumentCoder<PaymentSetupFeatures, void>;
     RetainPtr<NSArray> m_platformFeatures;
 };
 

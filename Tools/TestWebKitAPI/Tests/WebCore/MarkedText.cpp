@@ -36,28 +36,34 @@ namespace WebCore {
 std::ostream& operator<<(std::ostream& os, MarkedText::Type type)
 {
     switch (type) {
-    case MarkedText::Correction:
+    case MarkedText::Type::Correction:
         return os << "Correction";
-    case MarkedText::DictationAlternatives:
+    case MarkedText::Type::DictationAlternatives:
         return os << "DictationAlternatives";
 #if PLATFORM(IOS_FAMILY)
     // FIXME: See <rdar://problem/8933352>. Also, remove the PLATFORM(IOS_FAMILY)-guard.
-    case MarkedText::DictationPhraseWithAlternatives:
+    case MarkedText::Type::DictationPhraseWithAlternatives:
         return os << "DictationPhraseWithAlternatives";
 #endif
-    case MarkedText::DraggedContent:
+    case MarkedText::Type::DraggedContent:
         return os << "DraggedContent";
-    case MarkedText::GrammarError:
+    case MarkedText::Type::GrammarError:
         return os << "GrammarError";
-    case MarkedText::Selection:
+    case MarkedText::Type::Selection:
         return os << "Selection";
-    case MarkedText::SpellingError:
+    case MarkedText::Type::SpellingError:
         return os << "SpellingError";
-    case MarkedText::TextMatch:
+    case MarkedText::Type::TextMatch:
         return os << "TextMatch";
-    case MarkedText::Highlight:
+    case MarkedText::Type::Highlight:
         return os << "Highlight";
-    case MarkedText::Unmarked:
+    case MarkedText::Type::FragmentHighlight:
+        return os << "FragmentHighlight";
+#if ENABLE(APP_HIGHLIGHTS)
+    case MarkedText::Type::AppHighlight:
+        return os << "AppHighlight";
+#endif
+    case MarkedText::Type::Unmarked:
         return os << "Unmarked";
     }
 }
@@ -76,26 +82,26 @@ namespace TestWebKitAPI {
 
 TEST(MarkedText, SubdivideEmpty)
 {
-    EXPECT_EQ(0U, subdivide({ }).size());
-    EXPECT_EQ(0U, subdivide({ }, OverlapStrategy::Frontmost).size());
+    EXPECT_EQ(0U, MarkedText::subdivide({ }).size());
+    EXPECT_EQ(0U, MarkedText::subdivide({ }, MarkedText::OverlapStrategy::Frontmost).size());
 }
 
 TEST(MarkedText, SubdivideSimple)
 {
-    MarkedText markedText { 0, 9, MarkedText::SpellingError };
-    auto results = subdivide({ markedText });
+    MarkedText markedText { 0, 9, MarkedText::Type::SpellingError };
+    auto results = MarkedText::subdivide({ markedText });
     ASSERT_EQ(1U, results.size());
     EXPECT_EQ(markedText, results[0]);
 }
 
 TEST(MarkedText, SubdivideSpellingAndGrammarSimple)
 {
-    RenderedDocumentMarker grammarErrorMarker { DocumentMarker { DocumentMarker::Grammar, { 7, 8 } } };
+    RenderedDocumentMarker grammarErrorMarker { DocumentMarker { DocumentMarker::Type::Grammar, { 7, 8 } } };
     Vector<MarkedText> expectedMarkedTexts {
-        MarkedText { grammarErrorMarker.startOffset(), grammarErrorMarker.endOffset(), MarkedText::GrammarError, &grammarErrorMarker },
-        MarkedText { 22, 32, MarkedText::SpellingError },
+        MarkedText { grammarErrorMarker.startOffset(), grammarErrorMarker.endOffset(), MarkedText::Type::GrammarError, &grammarErrorMarker },
+        MarkedText { 22, 32, MarkedText::Type::SpellingError },
     };
-    auto results = subdivide(expectedMarkedTexts);
+    auto results = MarkedText::subdivide(expectedMarkedTexts);
     ASSERT_EQ(expectedMarkedTexts.size(), results.size());
     for (size_t i = 0; i < expectedMarkedTexts.size(); ++i)
         EXPECT_EQ(expectedMarkedTexts[i], results[i]);
@@ -104,21 +110,21 @@ TEST(MarkedText, SubdivideSpellingAndGrammarSimple)
 TEST(MarkedText, SubdivideSpellingAndGrammarOverlap)
 {
     Vector<MarkedText> markedTexts {
-        MarkedText { 0, 40, MarkedText::GrammarError },
-        MarkedText { 2, 17, MarkedText::SpellingError },
-        MarkedText { 20, 40, MarkedText::SpellingError },
-        MarkedText { 41, 45, MarkedText::SpellingError },
+        MarkedText { 0, 40, MarkedText::Type::GrammarError },
+        MarkedText { 2, 17, MarkedText::Type::SpellingError },
+        MarkedText { 20, 40, MarkedText::Type::SpellingError },
+        MarkedText { 41, 45, MarkedText::Type::SpellingError },
     };
     Vector<MarkedText> expectedMarkedTexts {
-        MarkedText { 0, 2, MarkedText::GrammarError },
-        MarkedText { 2, 17, MarkedText::GrammarError },
-        MarkedText { 2, 17, MarkedText::SpellingError },
-        MarkedText { 17, 20, MarkedText::GrammarError },
-        MarkedText { 20, 40, MarkedText::GrammarError },
-        MarkedText { 20, 40, MarkedText::SpellingError },
-        MarkedText { 41, 45, MarkedText::SpellingError },
+        MarkedText { 0, 2, MarkedText::Type::GrammarError },
+        MarkedText { 2, 17, MarkedText::Type::GrammarError },
+        MarkedText { 2, 17, MarkedText::Type::SpellingError },
+        MarkedText { 17, 20, MarkedText::Type::GrammarError },
+        MarkedText { 20, 40, MarkedText::Type::GrammarError },
+        MarkedText { 20, 40, MarkedText::Type::SpellingError },
+        MarkedText { 41, 45, MarkedText::Type::SpellingError },
     };
-    auto results = subdivide(markedTexts);
+    auto results = MarkedText::subdivide(markedTexts);
     ASSERT_EQ(expectedMarkedTexts.size(), results.size());
     for (size_t i = 0; i < expectedMarkedTexts.size(); ++i)
         EXPECT_EQ(expectedMarkedTexts[i], results[i]);
@@ -127,19 +133,19 @@ TEST(MarkedText, SubdivideSpellingAndGrammarOverlap)
 TEST(MarkedText, SubdivideSpellingAndGrammarOverlapFrontmost)
 {
     Vector<MarkedText> markedTexts {
-        MarkedText { 0, 40, MarkedText::GrammarError },
-        MarkedText { 2, 17, MarkedText::SpellingError },
-        MarkedText { 20, 40, MarkedText::SpellingError },
-        MarkedText { 41, 45, MarkedText::SpellingError },
+        MarkedText { 0, 40, MarkedText::Type::GrammarError },
+        MarkedText { 2, 17, MarkedText::Type::SpellingError },
+        MarkedText { 20, 40, MarkedText::Type::SpellingError },
+        MarkedText { 41, 45, MarkedText::Type::SpellingError },
     };
     Vector<MarkedText> expectedMarkedTexts {
-        MarkedText { 0, 2, MarkedText::GrammarError },
-        MarkedText { 2, 17, MarkedText::SpellingError },
-        MarkedText { 17, 20, MarkedText::GrammarError },
-        MarkedText { 20, 40, MarkedText::SpellingError },
-        MarkedText { 41, 45, MarkedText::SpellingError },
+        MarkedText { 0, 2, MarkedText::Type::GrammarError },
+        MarkedText { 2, 17, MarkedText::Type::SpellingError },
+        MarkedText { 17, 20, MarkedText::Type::GrammarError },
+        MarkedText { 20, 40, MarkedText::Type::SpellingError },
+        MarkedText { 41, 45, MarkedText::Type::SpellingError },
     };
-    auto results = subdivide(markedTexts, OverlapStrategy::Frontmost);
+    auto results = MarkedText::subdivide(markedTexts, MarkedText::OverlapStrategy::Frontmost);
     ASSERT_EQ(expectedMarkedTexts.size(), results.size());
     for (size_t i = 0; i < expectedMarkedTexts.size(); ++i)
         EXPECT_EQ(expectedMarkedTexts[i], results[i]);
@@ -148,29 +154,29 @@ TEST(MarkedText, SubdivideSpellingAndGrammarOverlapFrontmost)
 TEST(MarkedText, SubdivideSpellingAndGrammarComplicatedFrontmost)
 {
     Vector<MarkedText> markedTexts {
-        MarkedText { 0, 6, MarkedText::SpellingError },
-        MarkedText { 0, 46, MarkedText::GrammarError },
-        MarkedText { 7, 16, MarkedText::SpellingError },
-        MarkedText { 22, 27, MarkedText::SpellingError },
-        MarkedText { 34, 44, MarkedText::SpellingError },
-        MarkedText { 46, 50, MarkedText::SpellingError },
-        MarkedText { 51, 58, MarkedText::SpellingError },
-        MarkedText { 59, 63, MarkedText::GrammarError },
+        MarkedText { 0, 6, MarkedText::Type::SpellingError },
+        MarkedText { 0, 46, MarkedText::Type::GrammarError },
+        MarkedText { 7, 16, MarkedText::Type::SpellingError },
+        MarkedText { 22, 27, MarkedText::Type::SpellingError },
+        MarkedText { 34, 44, MarkedText::Type::SpellingError },
+        MarkedText { 46, 50, MarkedText::Type::SpellingError },
+        MarkedText { 51, 58, MarkedText::Type::SpellingError },
+        MarkedText { 59, 63, MarkedText::Type::GrammarError },
     };
     Vector<MarkedText> expectedMarkedTexts {
-        MarkedText { 0, 6, MarkedText::SpellingError },
-        MarkedText { 6, 7, MarkedText::GrammarError },
-        MarkedText { 7, 16, MarkedText::SpellingError },
-        MarkedText { 16, 22, MarkedText::GrammarError },
-        MarkedText { 22, 27, MarkedText::SpellingError },
-        MarkedText { 27, 34, MarkedText::GrammarError },
-        MarkedText { 34, 44, MarkedText::SpellingError },
-        MarkedText { 44, 46, MarkedText::GrammarError },
-        MarkedText { 46, 50, MarkedText::SpellingError },
-        MarkedText { 51, 58, MarkedText::SpellingError },
-        MarkedText { 59, 63, MarkedText::GrammarError },
+        MarkedText { 0, 6, MarkedText::Type::SpellingError },
+        MarkedText { 6, 7, MarkedText::Type::GrammarError },
+        MarkedText { 7, 16, MarkedText::Type::SpellingError },
+        MarkedText { 16, 22, MarkedText::Type::GrammarError },
+        MarkedText { 22, 27, MarkedText::Type::SpellingError },
+        MarkedText { 27, 34, MarkedText::Type::GrammarError },
+        MarkedText { 34, 44, MarkedText::Type::SpellingError },
+        MarkedText { 44, 46, MarkedText::Type::GrammarError },
+        MarkedText { 46, 50, MarkedText::Type::SpellingError },
+        MarkedText { 51, 58, MarkedText::Type::SpellingError },
+        MarkedText { 59, 63, MarkedText::Type::GrammarError },
     };
-    auto results = subdivide(markedTexts, OverlapStrategy::Frontmost);
+    auto results = MarkedText::subdivide(markedTexts, MarkedText::OverlapStrategy::Frontmost);
     ASSERT_EQ(expectedMarkedTexts.size(), results.size());
     for (size_t i = 0; i < expectedMarkedTexts.size(); ++i)
         EXPECT_EQ(expectedMarkedTexts[i], results[i]);
@@ -179,19 +185,19 @@ TEST(MarkedText, SubdivideSpellingAndGrammarComplicatedFrontmost)
 TEST(MarkedText, SubdivideGrammarAndSelectionOverlap)
 {
     Vector<MarkedText> markedTexts {
-        MarkedText { 0, 40, MarkedText::GrammarError },
-        MarkedText { 2, 60, MarkedText::Selection },
-        MarkedText { 50, 60, MarkedText::GrammarError },
+        MarkedText { 0, 40, MarkedText::Type::GrammarError },
+        MarkedText { 2, 60, MarkedText::Type::Selection },
+        MarkedText { 50, 60, MarkedText::Type::GrammarError },
     };
     Vector<MarkedText> expectedMarkedTexts {
-        MarkedText { 0, 2, MarkedText::GrammarError },
-        MarkedText { 2, 40, MarkedText::GrammarError },
-        MarkedText { 2, 40, MarkedText::Selection },
-        MarkedText { 40, 50, MarkedText::Selection },
-        MarkedText { 50, 60, MarkedText::GrammarError },
-        MarkedText { 50, 60, MarkedText::Selection },
+        MarkedText { 0, 2, MarkedText::Type::GrammarError },
+        MarkedText { 2, 40, MarkedText::Type::GrammarError },
+        MarkedText { 2, 40, MarkedText::Type::Selection },
+        MarkedText { 40, 50, MarkedText::Type::Selection },
+        MarkedText { 50, 60, MarkedText::Type::GrammarError },
+        MarkedText { 50, 60, MarkedText::Type::Selection },
     };
-    auto results = subdivide(markedTexts);
+    auto results = MarkedText::subdivide(markedTexts);
     ASSERT_EQ(expectedMarkedTexts.size(), results.size());
     for (size_t i = 0; i < expectedMarkedTexts.size(); ++i)
         EXPECT_EQ(expectedMarkedTexts[i], results[i]);
@@ -200,17 +206,17 @@ TEST(MarkedText, SubdivideGrammarAndSelectionOverlap)
 TEST(MarkedText, SubdivideGrammarAndSelectionOverlapFrontmost)
 {
     Vector<MarkedText> markedTexts {
-        MarkedText { 0, 40, MarkedText::GrammarError },
-        MarkedText { 2, 60, MarkedText::Selection },
-        MarkedText { 50, 60, MarkedText::GrammarError },
+        MarkedText { 0, 40, MarkedText::Type::GrammarError },
+        MarkedText { 2, 60, MarkedText::Type::Selection },
+        MarkedText { 50, 60, MarkedText::Type::GrammarError },
     };
     Vector<MarkedText> expectedMarkedTexts {
-        MarkedText { 0, 2, MarkedText::GrammarError },
-        MarkedText { 2, 40, MarkedText::Selection },
-        MarkedText { 40, 50, MarkedText::Selection },
-        MarkedText { 50, 60, MarkedText::Selection },
+        MarkedText { 0, 2, MarkedText::Type::GrammarError },
+        MarkedText { 2, 40, MarkedText::Type::Selection },
+        MarkedText { 40, 50, MarkedText::Type::Selection },
+        MarkedText { 50, 60, MarkedText::Type::Selection },
     };
-    auto results = subdivide(markedTexts, OverlapStrategy::Frontmost);
+    auto results = MarkedText::subdivide(markedTexts, MarkedText::OverlapStrategy::Frontmost);
     ASSERT_EQ(expectedMarkedTexts.size(), results.size());
     for (size_t i = 0; i < expectedMarkedTexts.size(); ++i)
         EXPECT_EQ(expectedMarkedTexts[i], results[i]);

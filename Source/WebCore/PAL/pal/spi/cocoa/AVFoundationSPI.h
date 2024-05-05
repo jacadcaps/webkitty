@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,31 +31,50 @@
 #import <AVFoundation/AVContentKeySession.h>
 #endif
 
+#import <pal/spi/cocoa/TCCSPI.h>
+
 #if USE(APPLE_INTERNAL_SDK)
 
 #import <AVFoundation/AVAssetCache_Private.h>
+#import <AVFoundation/AVAsset_Private.h>
+#import <AVFoundation/AVCaptureSession_Private.h>
+#import <AVFoundation/AVContentKeySession_Private.h>
+#import <AVFoundation/AVMediaSelectionGroup_Private.h>
 #import <AVFoundation/AVOutputContext_Private.h>
 #import <AVFoundation/AVOutputDevice.h>
-#import <AVFoundation/AVPlayer_Private.h>
+#import <AVFoundation/AVPlayerItemOutput_Private.h>
 #import <AVFoundation/AVPlayerItem_Private.h>
 #import <AVFoundation/AVPlayerLayer_Private.h>
-
-#if PLATFORM(IOS_FAMILY) && HAVE(AVKIT)
-#import <AVKit/AVPlayerViewController_WebKitOnly.h>
-#endif
+#import <AVFoundation/AVPlayer_Private.h>
 
 #if ENABLE(MEDIA_SOURCE)
+#if PLATFORM(IOS_FAMILY_SIMULATOR)
+#import "AVStreamDataParserSPI.h"
+#else
 #import <AVFoundation/AVStreamDataParser.h>
 #endif
+#endif
+
+#import <AVFoundation/AVAudioSession_Private.h>
 
 #if PLATFORM(IOS_FAMILY)
-#import <AVFoundation/AVAudioSession_Private.h>
+NS_ASSUME_NONNULL_BEGIN
+@interface AVAudioSession (AVAudioSessionWebKitPrivate)
+- (BOOL)setAuditTokensForProcessAssertion:(NSArray<NSData *>*)inAuditTokens error:(NSError **)outError;
+@end
+NS_ASSUME_NONNULL_END
 #endif
 
 #else
 
+#import <AVFoundation/AVCaptureSession.h>
 #import <AVFoundation/AVPlayer.h>
 #import <AVFoundation/AVPlayerItem.h>
+#import <AVFoundation/AVPlayerItemOutput.h>
+
+#if HAVE(AVFOUNDATION_INTERSTITIAL_EVENTS)
+#import <AVFoundation/AVPlayerInterstitialEventController.h>
+#endif
 
 NS_ASSUME_NONNULL_BEGIN
 @interface AVPlayerItem ()
@@ -72,6 +91,17 @@ typedef NSString * AVVideoRange NS_TYPED_ENUM;
 @end
 #endif
 
+#if HAVE(AVPLAYER_SUPRESSES_AUDIO_RENDERING)
+@interface AVPlayer (AVPlayerSupressesAudioRendering)
+@property (nonatomic, getter=_suppressesAudioRendering, setter=_setSuppressesAudioRendering:) BOOL suppressesAudioRendering;
+@end
+#endif
+
+@interface AVPlayerItemVideoOutput (AVPlayerItemVideoOutputEarliestTime)
+@property (nonatomic, readonly) CMTime earliestAvailablePixelBufferItemTime;
+- (void)requestNotificationOfMediaDataChangeAsSoonAsPossible;
+@end
+
 #if ENABLE(WIRELESS_PLAYBACK_TARGET) || PLATFORM(IOS_FAMILY)
 
 NS_ASSUME_NONNULL_BEGIN
@@ -84,6 +114,7 @@ NS_ASSUME_NONNULL_BEGIN
 + (instancetype)outputContext;
 + (instancetype)iTunesAudioContext;
 + (nullable AVOutputContext *)sharedAudioPresentationOutputContext;
++ (nullable AVOutputContext *)sharedSystemAudioContext;
 + (nullable AVOutputContext *)outputContextForID:(NSString *)ID;
 @property (readonly) BOOL supportsMultipleOutputDevices;
 @property (readonly) NSArray<AVOutputDevice *> *outputDevices;
@@ -98,7 +129,10 @@ typedef NS_OPTIONS(NSUInteger, AVOutputDeviceFeatures) {
 
 @interface AVOutputDevice : NSObject
 @property (nonatomic, readonly) NSString *name;
+@property (nonatomic, readonly) NSString *deviceName;
 @property (nonatomic, readonly) AVOutputDeviceFeatures deviceFeatures;
+@property (nonatomic, readonly) BOOL supportsHeadTrackedSpatialAudio;
+- (BOOL)allowsHeadTrackedSpatialAudio;
 @end
 
 #if !PLATFORM(IOS_FAMILY)
@@ -181,11 +215,16 @@ NS_ASSUME_NONNULL_END
 
 #endif // ENABLE(MEDIA_SOURCE)
 
-#endif // USE(APPLE_INTERNAL_SDK)
-
-#import <AVFoundation/AVPlayerLayer.h>
+#import <AVFoundation/AVMediaSelectionGroup.h>
+NS_ASSUME_NONNULL_BEGIN
+@interface AVMediaSelectionOption (AVMediaSelectionOption_Private)
+@property (nonatomic, readonly) AVAssetTrack *track;
+@end
+NS_ASSUME_NONNULL_END
 
 #if HAVE(AVCONTENTKEYSESSION)
+
+#if HAVE(AVCONTENTKEYREPORTGROUP)
 @interface AVContentKeyReportGroup : NSObject
 @property (readonly, nullable) NSData *contentProtectionSessionIdentifier;
 - (void)expire;
@@ -194,15 +233,45 @@ NS_ASSUME_NONNULL_END
 @end
 
 @interface AVContentKeySession (AVContentKeyGroup_Support)
+@property (readonly, nullable) AVContentKeyReportGroup *defaultContentKeyGroup;
 - (nonnull AVContentKeyReportGroup *)makeContentKeyGroup;
 @end
+#endif
 
+#if HAVE(AVCONTENTKEYSESSIONWILLOUTPUTBEOBSCURED)
 @interface AVContentKeyRequest (OutputObscured)
 NS_ASSUME_NONNULL_BEGIN
 - (BOOL)willOutputBeObscuredDueToInsufficientExternalProtectionForDisplays:(NSArray<NSNumber *> *)displays;
 NS_ASSUME_NONNULL_END
 @end
+#endif
+
+#if HAVE(AVCONTENTKEYREQUEST_PENDING_PROTECTION_STATUS)
+#if !HAVE(BROWSER_ENGINE_SUPPORTING_API)
+typedef NS_ENUM(NSInteger, AVExternalContentProtectionStatus) {
+    AVExternalContentProtectionStatusPending      = 0,
+    AVExternalContentProtectionStatusSufficient   = 1,
+    AVExternalContentProtectionStatusInsufficient = 2,
+};
+#endif
+@interface AVContentKeyRequest (AVContentKeyRequest_PendingProtectionStatus)
+- (AVExternalContentProtectionStatus)externalContentProtectionStatus;
+@end
+#endif // HAVE(AVCONTENTKEYREQUEST_PENDING_PROTECTION_STATUS)
+
+#if HAVE(AVCONTENTKEYREQUEST_COMPATABILITIY_MODE)
+NS_ASSUME_NONNULL_BEGIN
+@interface AVContentKeyRequest (AVContentKeyRequest_WebKitCompatibilityMode)
++ (instancetype)contentKeySessionWithLegacyWebKitCompatibilityModeAndKeySystem:(AVContentKeySystem)keySystem storageDirectoryAtURL:(NSURL *)storageURL;
+@end
+NS_ASSUME_NONNULL_END
+#endif
+
 #endif // HAVE(AVCONTENTKEYSESSION)
+
+#endif // USE(APPLE_INTERNAL_SDK)
+
+#import <AVFoundation/AVPlayerLayer.h>
 
 #if ENABLE(MEDIA_SOURCE) && !USE(APPLE_INTERNAL_SDK)
 NS_ASSUME_NONNULL_BEGIN
@@ -218,7 +287,7 @@ NS_ASSUME_NONNULL_END
 @end
 #endif // !HAVE(AVKIT)
 
-#if !USE(APPLE_INTERNAL_SDK) || HAVE(VIDEO_PERFORMANCE_METRICS)
+#if !USE(APPLE_INTERNAL_SDK)
 @class AVVideoPerformanceMetrics;
 NS_ASSUME_NONNULL_BEGIN
 @interface AVPlayerLayer (AVPlayerLayerVideoPerformanceMetrics)
@@ -248,36 +317,6 @@ NS_ASSUME_NONNULL_END
 #import <CoreMedia/CMSampleBuffer.h>
 #import <CoreMedia/CMSync.h>
 
-#if __has_include(<AVFoundation/AVSampleBufferRenderSynchronizer.h>)
-#import <AVFoundation/AVSampleBufferRenderSynchronizer.h>
-
-NS_ASSUME_NONNULL_BEGIN
-@interface AVSampleBufferRenderSynchronizer (AVSampleBufferRenderSynchronizerPrivate)
-- (void)removeRenderer:(id)renderer atTime:(CMTime)time withCompletionHandler:(void (^)(BOOL didRemoveRenderer))completionHandler;
-@end
-NS_ASSUME_NONNULL_END
-
-#else
-
-NS_ASSUME_NONNULL_BEGIN
-
-@interface AVSampleBufferRenderSynchronizer : NSObject
-- (CMTimebaseRef)timebase;
-- (float)rate;
-- (void)setRate:(float)rate;
-- (void)setRate:(float)rate time:(CMTime)time;
-- (NSArray *)renderers;
-- (void)addRenderer:(id)renderer;
-- (void)removeRenderer:(id)renderer atTime:(CMTime)time withCompletionHandler:(void (^)(BOOL didRemoveRenderer))completionHandler;
-- (id)addPeriodicTimeObserverForInterval:(CMTime)interval queue:(dispatch_queue_t)queue usingBlock:(void (^)(CMTime time))block;
-- (id)addBoundaryTimeObserverForTimes:(NSArray *)times queue:(dispatch_queue_t)queue usingBlock:(void (^)(void))block;
-- (void)removeTimeObserver:(id)observer;
-@end
-
-NS_ASSUME_NONNULL_END
-
-#endif // __has_include(<AVFoundation/AVSampleBufferRenderSynchronizer.h>)
-
 #if __has_include(<AVFoundation/AVSampleBufferDisplayLayer_Private.h>)
 #import <AVFoundation/AVSampleBufferDisplayLayer_Private.h>
 #elif __has_include(<AVFoundation/AVSampleBufferDisplayLayer.h>)
@@ -285,6 +324,7 @@ NS_ASSUME_NONNULL_END
 NS_ASSUME_NONNULL_BEGIN
 @interface AVSampleBufferDisplayLayer (VideoPerformanceMetrics)
 - (AVVideoPerformanceMetrics *)videoPerformanceMetrics;
+- (void)prerollDecodeWithCompletionHandler:(void (^)(BOOL success))block;
 @end
 NS_ASSUME_NONNULL_END
 #else
@@ -304,12 +344,24 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)requestMediaDataWhenReadyOnQueue:(dispatch_queue_t)queue usingBlock:(void (^)(void))block;
 - (void)stopRequestingMediaData;
 - (AVVideoPerformanceMetrics *)videoPerformanceMetrics;
+- (void)prerollDecodeWithCompletionHandler:(void (^)(BOOL success))block;
 @end
 NS_ASSUME_NONNULL_END
 #endif // __has_include(<AVFoundation/AVSampleBufferDisplayLayer.h>)
 
+#if HAVE(AVSAMPLEBUFFERDISPLAYLAYER_COPYDISPLAYEDPIXELBUFFER)
+@interface AVSampleBufferDisplayLayer (Staging_94324932)
+- (nullable CVPixelBufferRef)copyDisplayedPixelBuffer;
+@end
+#endif
+
 #if __has_include(<AVFoundation/AVSampleBufferAudioRenderer.h>)
 #import <AVFoundation/AVSampleBufferAudioRenderer.h>
+NS_ASSUME_NONNULL_BEGIN
+@interface AVSampleBufferAudioRenderer (AVSampleBufferAudioRendererWebKitOnly)
+- (void)setIsUnaccompaniedByVisuals:(BOOL)audioOnly SPI_AVAILABLE(macos(12.0)) API_UNAVAILABLE(ios, tvos, watchos);
+@end
+NS_ASSUME_NONNULL_END
 #else
 
 NS_ASSUME_NONNULL_BEGIN
@@ -324,6 +376,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)stopRequestingMediaData;
 - (void)setVolume:(float)volume;
 - (void)setMuted:(BOOL)muted;
+- (void)setIsUnaccompaniedByVisuals:(BOOL)audioOnly SPI_AVAILABLE(macos(12.0)) API_UNAVAILABLE(ios, tvos, watchos);
 @property (nonatomic, copy) NSString *audioTimePitchAlgorithm;
 @end
 
@@ -331,33 +384,36 @@ NS_ASSUME_NONNULL_END
 
 #endif // __has_include(<AVFoundation/AVSampleBufferAudioRenderer.h>)
 
-#if !USE(APPLE_INTERNAL_SDK)
+#if USE(APPLE_INTERNAL_SDK) || HAVE(BROWSER_ENGINE_SUPPORTING_API)
+#import <AVFoundation/AVVideoPerformanceMetrics.h>
+@interface AVVideoPerformanceMetrics (AVVideoPerformanceMetricsDisplayCompositedVideoFrames)
+@property (nonatomic, readonly) unsigned long numberOfDisplayCompositedVideoFrames;
+@property (nonatomic, readonly) unsigned long numberOfNonDisplayCompositedVideoFrames;
+@property (nonatomic, readonly) double totalFrameDelay;
+@end
+#else
 @interface AVVideoPerformanceMetrics : NSObject
 @property (nonatomic, readonly) unsigned long totalNumberOfVideoFrames;
 @property (nonatomic, readonly) unsigned long numberOfDroppedVideoFrames;
 @property (nonatomic, readonly) unsigned long numberOfCorruptedVideoFrames;
 @property (nonatomic, readonly) unsigned long numberOfDisplayCompositedVideoFrames;
+@property (nonatomic, readonly) unsigned long numberOfNonDisplayCompositedVideoFrames;
 @property (nonatomic, readonly) double totalFrameDelay;
 @end
-#else
-@interface AVVideoPerformanceMetrics (AVVideoPerformanceMetricsDisplayCompositedVideoFrames)
-@property (nonatomic, readonly) unsigned long numberOfDisplayCompositedVideoFrames;
-@end
-#endif
+#endif // HAVE(BROWSER_ENGINE_SUPPORTING_API)
 
-#if !USE(APPLE_INTERNAL_SDK) || USE(AV_SAMPLE_BUFFER_DISPLAY_LAYER)
-@interface AVSampleBufferDisplayLayer (WebCorePrivate)
-@property (assign, nonatomic) BOOL preventsDisplaySleepDuringVideoPlayback;
-@end
-#endif
-
-#if !USE(APPLE_INTERNAL_SDK) && PLATFORM(IOS_FAMILY) && !PLATFORM(IOS_FAMILY_SIMULATOR) && !PLATFORM(MACCATALYST)
+#if !USE(APPLE_INTERNAL_SDK) && HAVE(AVAUDIOSESSION) && !PLATFORM(MACCATALYST)
 #import <AVFoundation/AVAudioSession.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
 @interface AVAudioSession (AVAudioSessionPrivate)
+- (instancetype)initAuxiliarySession;
 @property (readonly) NSString* routingContextUID;
+@property (readonly) BOOL eligibleForBTSmartRoutingConsideration;
+- (BOOL)setEligibleForBTSmartRoutingConsideration:(BOOL)inValue error:(NSError **)outError;
+- (BOOL)setHostProcessAttribution:(NSArray<NSString *>*)inHostProcessInfo error:(NSError **)outError SPI_AVAILABLE(ios(15.0), watchos(8.0), tvos(15.0)) API_UNAVAILABLE(macCatalyst, macos);
+- (BOOL)setAuditTokensForProcessAssertion:(NSArray<NSData *>*)inAuditTokens error:(NSError **)outError;
 @end
 
 NS_ASSUME_NONNULL_END
@@ -379,18 +435,41 @@ typedef NS_ENUM(NSInteger, AVPlayerResourceConservationLevel) {
 #endif
 
 #if HAVE(AVSAMPLEBUFFERVIDEOOUTPUT)
-#if USE(APPLE_INTERNAL_SDK)
-#import <AVFoundation/AVSampleBufferVideoOutput.h>
-#else
 
 NS_ASSUME_NONNULL_BEGIN
-@interface AVSampleBufferVideoOutput : NSObject
-- (CVPixelBufferRef)copyPixelBufferForSourceTime:(CMTime)sourceTime sourceTimeForDisplay:(nullable CMTime *)outSourceTimeForDisplay;
+
+// FIXME: Move this inside the #if USE(APPLE_INTERNAL_SDK) once rdar://81297776 has been in the build for awhile.
+@interface AVCaptureSession (AVCaptureSessionPrivate)
+- (instancetype)initWithAssumedIdentity:(tcc_identity_t)tccIdentity SPI_AVAILABLE(ios(15.0)) API_UNAVAILABLE(macos, macCatalyst, watchos, tvos);
 @end
+
+@interface AVCaptureDevice (AVCaptureServerConnection)
++ (void)ensureServerConnection;
+@end
+
 NS_ASSUME_NONNULL_END
 
-@interface AVSampleBufferDisplayLayer (VideoOutput)
-@property (nonatomic, nullable) AVSampleBufferVideoOutput *output;
-@end
-#endif // USE(APPLE_INTERNAL_SDK)
 #endif // HAVE(AVSAMPLEBUFFERVIDEOOUTPUT)
+
+#if USE(MEDIAPARSERD)
+@interface AVStreamDataParser (SandboxedParsing)
+@property (nonatomic) BOOL preferSandboxedParsing;
+@end
+#endif
+
+// FIXME: Move into !USE(APPLE_INTERNAL_SDK) section once rdar://111695863 has been in the build a while
+#if HAVE(AVURLASSET_ISPLAYABLEEXTENDEDMIMETYPEWITHOPTIONS)
+NS_ASSUME_NONNULL_BEGIN
+@interface AVURLAsset (IsPlayableExtendedMIMETypeWithOptions)
++ (BOOL)isPlayableExtendedMIMEType:(NSString *)extendedMIMEType options:(nullable NSDictionary<NSString *, id> *)options;
+@end
+NS_ASSUME_NONNULL_END
+#endif
+
+#if __has_include(<AVFoundation/AVSampleBufferVideoRenderer_Private.h>)
+#import <AVFoundation/AVSampleBufferVideoRenderer_Private.h>
+#elif PLATFORM(VISION)
+@interface AVSampleBufferVideoRenderer (AVSampleBufferVideoRendererWebKitPrivate)
+@property (nonatomic, copy, nullable, getter=_STSLabel) NSString *STSLabel SPI_AVAILABLE(ios(15.0)) API_UNAVAILABLE(macos, tvos, watchos);
+@end
+#endif

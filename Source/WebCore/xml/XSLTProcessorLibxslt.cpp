@@ -1,7 +1,7 @@
 /*
  * This file is part of the XSL implementation.
  *
- * Copyright (C) 2004, 2005, 2006, 2007, 2008 Apple, Inc. All rights reserved.
+ * Copyright (C) 2004-2020 Apple, Inc. All rights reserved.
  * Copyright (C) 2005, 2006 Alexey Proskuryakov <ap@webkit.org>
  *
  * This library is free software; you can redistribute it and/or
@@ -27,9 +27,11 @@
 #include "XSLTProcessor.h"
 
 #include "CachedResourceLoader.h"
-#include "Document.h"
-#include "Frame.h"
+#include "DocumentInlines.h"
+#include "FrameDestructionObserverInlines.h"
 #include "FrameLoader.h"
+#include "LocalFrame.h"
+#include "OriginAccessPatterns.h"
 #include "Page.h"
 #include "PageConsoleClient.h"
 #include "ResourceError.h"
@@ -48,10 +50,7 @@
 #include <libxslt/xslt.h>
 #include <libxslt/xsltutils.h>
 #include <wtf/Assertions.h>
-
-#if OS(DARWIN) && !PLATFORM(GTK)
-#include "SoftLinkLibxslt.h"
-#endif
+#include <wtf/CheckedArithmetic.h>
 
 namespace WebCore {
 
@@ -60,7 +59,11 @@ void XSLTProcessor::genericErrorFunc(void*, const char*, ...)
     // It would be nice to do something with this error message.
 }
 
+#if LIBXML_VERSION >= 21200
+void XSLTProcessor::parseErrorFunc(void* userData, const xmlError* error)
+#else
 void XSLTProcessor::parseErrorFunc(void* userData, xmlError* error)
+#endif
 {
     PageConsoleClient* console = static_cast<PageConsoleClient*>(userData);
     if (!console)
@@ -82,7 +85,7 @@ void XSLTProcessor::parseErrorFunc(void* userData, xmlError* error)
     }
 
     // xmlError->int2 is the column number of the error or 0 if N/A.
-    console->addMessage(MessageSource::XML, level, error->message, error->file, error->line, error->int2);
+    console->addMessage(MessageSource::XML, level, String::fromLatin1(error->message), String::fromLatin1(error->file), error->line, error->int2);
 }
 
 // FIXME: There seems to be no way to control the ctxt pointer for loading here, thus we have globals.
@@ -101,21 +104,21 @@ static xmlDocPtr docLoaderFunc(const xmlChar* uri,
     case XSLT_LOAD_DOCUMENT: {
         xsltTransformContextPtr context = (xsltTransformContextPtr)ctxt;
         xmlChar* base = xmlNodeGetBase(context->document->doc, context->node);
-        URL url(URL({ }, reinterpret_cast<const char*>(base)), reinterpret_cast<const char*>(uri));
+        URL url(URL({ }, String::fromLatin1(reinterpret_cast<const char*>(base))), String::fromLatin1(reinterpret_cast<const char*>(uri)));
         xmlFree(base);
         ResourceError error;
         ResourceResponse response;
 
         RefPtr<SharedBuffer> data;
 
-        bool requestAllowed = globalCachedResourceLoader->frame() && globalCachedResourceLoader->document()->securityOrigin().canRequest(url);
+        bool requestAllowed = globalCachedResourceLoader->frame() && globalCachedResourceLoader->document()->securityOrigin().canRequest(url, OriginAccessPatternsForWebProcess::singleton());
         if (requestAllowed) {
             FetchOptions options;
             options.mode = FetchOptions::Mode::SameOrigin;
             options.credentials = FetchOptions::Credentials::Include;
             globalCachedResourceLoader->frame()->loader().loadResourceSynchronously(url, ClientCredentialPolicy::MayAskClientForCredentials, options, { }, error, response, data);
             if (error.isNull())
-                requestAllowed = globalCachedResourceLoader->document()->securityOrigin().canRequest(response.url());
+                requestAllowed = globalCachedResourceLoader->document()->securityOrigin().canRequest(response.url(), OriginAccessPatternsForWebProcess::singleton());
             else if (data)
                 data = nullptr;
         }
@@ -126,7 +129,7 @@ static xmlDocPtr docLoaderFunc(const xmlChar* uri,
         }
 
         PageConsoleClient* console = nullptr;
-        Frame* frame = globalProcessor->xslStylesheet()->ownerDocument()->frame();
+        auto* frame = globalProcessor->xslStylesheet()->ownerDocument()->frame();
         if (frame && frame->page())
             console = &frame->page()->console();
         xmlSetStructuredErrorFunc(console, XSLTProcessor::parseErrorFunc);
@@ -134,7 +137,7 @@ static xmlDocPtr docLoaderFunc(const xmlChar* uri,
 
         // We don't specify an encoding here. Neither Gecko nor WinIE respects
         // the encoding specified in the HTTP headers.
-        xmlDocPtr doc = xmlReadMemory(data ? data->data() : nullptr, data ? data->size() : 0, (const char*)uri, 0, options);
+        xmlDocPtr doc = xmlReadMemory(data ? data->dataAsCharPtr() : nullptr, data ? data->size() : 0, (const char*)uri, 0, options);
 
         xmlSetStructuredErrorFunc(0, 0);
         xmlSetGenericErrorFunc(0, 0);
@@ -159,39 +162,13 @@ static inline void setXSLTLoadCallBack(xsltDocLoaderFunc func, XSLTProcessor* pr
 
 static int writeToStringBuilder(void* context, const char* buffer, int length)
 {
-    StringBuilder& resultOutput = *static_cast<StringBuilder*>(context);
-
-    // FIXME: Consider ways to make this more efficient by moving it into a
-    // StringBuilder::appendUTF8 function, and then optimizing to not need a
-    // Vector<UChar> and possibly optimize cases that can produce 8-bit Latin-1
-    // strings, but that would need to be sophisticated about not processing
-    // trailing incomplete sequences and communicating that to the caller.
-
-    Vector<UChar> outputBuffer(length);
-
-    UBool error = false;
-    int inputOffset = 0;
-    int outputOffset = 0;
-    while (inputOffset < length) {
-        UChar32 character;
-        int nextInputOffset = inputOffset;
-        U8_NEXT(reinterpret_cast<const uint8_t*>(buffer), nextInputOffset, length, character);
-        if (character < 0) {
-            if (nextInputOffset == length)
-                break;
-            ASSERT_NOT_REACHED();
-            return -1;
-        }
-        inputOffset = nextInputOffset;
-        U16_APPEND(outputBuffer.data(), outputOffset, length, character, error);
-        if (error) {
-            ASSERT_NOT_REACHED();
-            return -1;
-        }
-    }
-
-    resultOutput.appendCharacters(outputBuffer.data(), outputOffset);
-    return inputOffset;
+    auto& builder = *static_cast<StringBuilder*>(context);
+    FromUTF8 adapter(buffer, length);
+    ASSERT(!adapter.conversionFailed);
+    if (adapter.conversionFailed)
+        return -1;
+    builder.append(adapter);
+    return adapter.lengthUTF8;
 }
 
 static bool saveResultToString(xmlDocPtr resultDoc, xsltStylesheetPtr sheet, String& resultString)
@@ -211,7 +188,7 @@ static bool saveResultToString(xmlDocPtr resultDoc, xsltStylesheetPtr sheet, Str
 
     // Workaround for <http://bugzilla.gnome.org/show_bug.cgi?id=495668>: libxslt appends an extra line feed to the result.
     if (resultBuilder.length() > 0 && resultBuilder[resultBuilder.length() - 1] == '\n')
-        resultBuilder.resize(resultBuilder.length() - 1);
+        resultBuilder.shrink(resultBuilder.length() - 1);
 
     resultString = resultBuilder.toString();
 
@@ -223,14 +200,19 @@ static const char** xsltParamArrayFromParameterMap(XSLTProcessor::ParameterMap& 
     if (parameters.isEmpty())
         return 0;
 
-    const char** parameterArray = (const char**)fastMalloc(((parameters.size() * 2) + 1) * sizeof(char*));
+    auto size = (((Checked<size_t>(parameters.size()) * 2U) + 1U) * sizeof(char*)).value();
+    auto** parameterArray = static_cast<const char**>(fastMalloc(size));
 
-    unsigned index = 0;
+    size_t index = 0;
     for (auto& parameter : parameters) {
         parameterArray[index++] = fastStrDup(parameter.key.utf8().data());
         parameterArray[index++] = fastStrDup(parameter.value.utf8().data());
     }
     parameterArray[index] = nullptr;
+
+#if !PLATFORM(WIN) && !PLATFORM(COCOA)
+    RELEASE_ASSERT(index <= std::numeric_limits<int>::max());
+#endif
 
     return parameterArray;
 }
@@ -294,11 +276,11 @@ static inline String resultMIMEType(xmlDocPtr resultDoc, xsltStylesheetPtr sheet
         resultType = (const xmlChar*)"html";
 
     if (xmlStrEqual(resultType, (const xmlChar*)"html"))
-        return "text/html";
+        return textHTMLContentTypeAtom();
     if (xmlStrEqual(resultType, (const xmlChar*)"text"))
-        return "text/plain";
+        return textPlainContentTypeAtom();
 
-    return "application/xml";
+    return applicationXMLContentTypeAtom();
 }
 
 bool XSLTProcessor::transformToString(Node& sourceNode, String& mimeType, String& resultString, String& resultEncoding)
@@ -314,16 +296,11 @@ bool XSLTProcessor::transformToString(Node& sourceNode, String& mimeType, String
     }
     m_stylesheet->clearDocuments();
 
-#if OS(DARWIN) && !PLATFORM(GTK)
-    int origXsltMaxDepth = *xsltMaxDepth;
-    *xsltMaxDepth = 1000;
-#else
     int origXsltMaxDepth = xsltMaxDepth;
     xsltMaxDepth = 1000;
-#endif
 
     xmlChar* origMethod = sheet->method;
-    if (!origMethod && mimeType == "text/html")
+    if (!origMethod && mimeType == textHTMLContentTypeAtom())
         sheet->method = reinterpret_cast<xmlChar*>(const_cast<char*>("html"));
 
     bool success = false;
@@ -368,17 +345,13 @@ bool XSLTProcessor::transformToString(Node& sourceNode, String& mimeType, String
 
         if ((success = saveResultToString(resultDoc, sheet, resultString))) {
             mimeType = resultMIMEType(resultDoc, sheet);
-            resultEncoding = reinterpret_cast<const char*>(resultDoc->encoding);
+            resultEncoding = String::fromLatin1(reinterpret_cast<const char*>(resultDoc->encoding));
         }
         xmlFreeDoc(resultDoc);
     }
 
     sheet->method = origMethod;
-#if OS(DARWIN) && !PLATFORM(GTK)
-    *xsltMaxDepth = origXsltMaxDepth;
-#else
     xsltMaxDepth = origXsltMaxDepth;
-#endif
     setXSLTLoadCallBack(0, 0, 0);
     xsltFreeStylesheet(sheet);
     m_stylesheet = nullptr;

@@ -28,14 +28,13 @@
 #include "config.h"
 #include "PseudoElement.h"
 
-#include "CSSAnimationController.h"
 #include "ContentData.h"
-#include "DocumentTimeline.h"
 #include "InspectorInstrumentation.h"
 #include "KeyframeEffectStack.h"
 #include "RenderElement.h"
 #include "RenderImage.h"
 #include "RenderQuote.h"
+#include "RenderStyleInlines.h"
 #include "StyleResolver.h"
 #include <wtf/IsoMallocInlines.h>
 
@@ -45,31 +44,17 @@ WTF_MAKE_ISO_ALLOCATED_IMPL(PseudoElement);
 
 const QualifiedName& pseudoElementTagName()
 {
-    static NeverDestroyed<QualifiedName> name(nullAtom(), "<pseudo>", nullAtom());
+    static NeverDestroyed<QualifiedName> name(nullAtom(), "<pseudo>"_s, nullAtom());
     return name;
 }
 
-String PseudoElement::pseudoElementNameForEvents(PseudoId pseudoId)
-{
-    static NeverDestroyed<const String> after(MAKE_STATIC_STRING_IMPL("::after"));
-    static NeverDestroyed<const String> before(MAKE_STATIC_STRING_IMPL("::before"));
-    switch (pseudoId) {
-    case PseudoId::After:
-        return after;
-    case PseudoId::Before:
-        return before;
-    default:
-        return emptyString();
-    }
-}
-
 PseudoElement::PseudoElement(Element& host, PseudoId pseudoId)
-    : Element(pseudoElementTagName(), host.document(), CreatePseudoElement)
-    , m_hostElement(&host)
+    : Element(pseudoElementTagName(), host.document(), TypeFlag::HasCustomStyleResolveCallbacks)
+    , m_hostElement(host)
     , m_pseudoId(pseudoId)
 {
+    setEventTargetFlag(EventTargetFlag::IsConnected);
     ASSERT(pseudoId == PseudoId::Before || pseudoId == PseudoId::After);
-    setHasCustomStyleResolveCallbacks();
 }
 
 PseudoElement::~PseudoElement()
@@ -79,35 +64,31 @@ PseudoElement::~PseudoElement()
 
 Ref<PseudoElement> PseudoElement::create(Element& host, PseudoId pseudoId)
 {
-    auto pseudoElement = adoptRef(*new PseudoElement(host, pseudoId));
+    Ref pseudoElement = adoptRef(*new PseudoElement(host, pseudoId));
 
-    InspectorInstrumentation::pseudoElementCreated(host.document().page(), pseudoElement.get());
+    InspectorInstrumentation::pseudoElementCreated(host.document().protectedPage().get(), pseudoElement.get());
 
     return pseudoElement;
 }
 
 void PseudoElement::clearHostElement()
 {
-    InspectorInstrumentation::pseudoElementDestroyed(document().page(), *this);
+    InspectorInstrumentation::pseudoElementDestroyed(document().protectedPage().get(), *this);
 
-    if (auto* timeline = document().existingTimeline())
-        timeline->elementWasRemoved(*this);
-    
-    if (auto* frame = document().frame())
-        frame->legacyAnimation().cancelAnimations(*this);
+    Styleable::fromElement(*this).elementWasRemoved();
 
     m_hostElement = nullptr;
 }
 
 bool PseudoElement::rendererIsNeeded(const RenderStyle& style)
 {
-    return pseudoElementRendererIsNeeded(&style) || isTargetedByKeyframeEffectRequiringPseudoElement();
-}
+    if (pseudoElementRendererIsNeeded(&style))
+        return true;
 
-bool PseudoElement::isTargetedByKeyframeEffectRequiringPseudoElement()
-{
-    if (auto* stack = keyframeEffectStack())
-        return stack->requiresPseudoElement();
+    if (RefPtr element = m_hostElement.get()) {
+        if (auto* stack = element->keyframeEffectStack(pseudoId()))
+            return stack->requiresPseudoElement();
+    }
     return false;
 }
 

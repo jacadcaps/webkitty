@@ -29,6 +29,7 @@
 #include "EditorState.h"
 #include "WebsiteDataStore.h"
 #include <WebCore/NotImplemented.h>
+#include <WebCore/SearchPopupMenu.h>
 #include <WebCore/UserAgent.h>
 
 namespace WebKit {
@@ -64,9 +65,8 @@ void WebPageProxy::loadRecentSearches(const String&, CompletionHandler<void(Vect
     completionHandler({ });
 }
 
-void WebPageProxy::updateEditorState(const EditorState& editorState)
+void WebPageProxy::didUpdateEditorState(const EditorState&, const EditorState&)
 {
-    m_editorState = editorState;
 }
 
 } // namespace WebKit

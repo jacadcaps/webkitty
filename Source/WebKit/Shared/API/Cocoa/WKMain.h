@@ -33,6 +33,9 @@ extern "C" {
 #endif
 
 WK_EXPORT int WKXPCServiceMain(int argc, const char** argv) WK_API_AVAILABLE(macos(10.15), ios(13.0));
+WK_EXPORT int WKAdAttributionDaemonMain(int argc, const char** argv) WK_API_AVAILABLE(macos(13.0), ios(16.0));
+WK_EXPORT int WKWebPushDaemonMain(int argc, char** argv) WK_API_AVAILABLE(macos(13.0), ios(16.0));
+WK_EXPORT int WKWebPushToolMain(int argc, char** argv) WK_API_AVAILABLE(macos(14.2), ios(17.2));
 
 #ifdef __cplusplus
 }

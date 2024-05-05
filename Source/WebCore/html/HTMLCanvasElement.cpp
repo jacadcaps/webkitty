@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2004-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2004-2023 Apple Inc. All rights reserved.
  * Copyright (C) 2007 Alp Toker <alp@atoker.com>
  * Copyright (C) 2010 Torch Mobile (Beijing) Co. Ltd. All rights reserved.
  *
@@ -28,34 +28,49 @@
 #include "config.h"
 #include "HTMLCanvasElement.h"
 
+#include "BitmapImage.h"
 #include "Blob.h"
 #include "BlobCallback.h"
 #include "CanvasGradient.h"
 #include "CanvasPattern.h"
 #include "CanvasRenderingContext2D.h"
+#include "CanvasRenderingContext2DSettings.h"
 #include "DisplayListDrawingContext.h"
 #include "Document.h"
+#include "DocumentInlines.h"
+#include "ElementInlines.h"
 #include "EventNames.h"
-#include "Frame.h"
-#include "FrameLoaderClient.h"
+#include "GPU.h"
 #include "GPUBasedCanvasRenderingContext.h"
+#include "GPUCanvasContext.h"
 #include "GeometryUtilities.h"
 #include "GraphicsContext.h"
 #include "HTMLNames.h"
 #include "HTMLParserIdioms.h"
+#include "HostWindow.h"
 #include "ImageBitmapRenderingContext.h"
+#include "ImageBitmapRenderingContextSettings.h"
 #include "ImageBuffer.h"
 #include "ImageData.h"
 #include "InspectorInstrumentation.h"
 #include "JSDOMConvertDictionary.h"
+#include "JSNodeCustomInlines.h"
+#include "LocalFrame.h"
+#include "LocalFrameLoaderClient.h"
+#include "Logging.h"
 #include "MIMETypeRegistry.h"
+#include "Navigator.h"
+#include "OffscreenCanvas.h"
+#include "PlaceholderRenderingContext.h"
+#include "Quirks.h"
+#include "RenderBoxInlines.h"
 #include "RenderElement.h"
 #include "RenderHTMLCanvas.h"
 #include "ResourceLoadObserver.h"
-#include "RuntimeEnabledFeatures.h"
 #include "ScriptController.h"
 #include "Settings.h"
 #include "StringAdaptors.h"
+#include "WebCoreOpaqueRoot.h"
 #include <JavaScriptCore/JSCInlines.h>
 #include <math.h>
 #include <wtf/IsoMallocInlines.h>
@@ -70,18 +85,11 @@
 #if ENABLE(WEBGL)
 #include "WebGLContextAttributes.h"
 #include "WebGLRenderingContext.h"
-#endif
-
-#if ENABLE(WEBGL2)
 #include "WebGL2RenderingContext.h"
 #endif
 
-#if ENABLE(WEBGPU)
-#include "GPUCanvasContext.h"
-#endif
-
 #if ENABLE(WEBXR)
-#include "DOMWindow.h"
+#include "LocalDOMWindow.h"
 #include "Navigator.h"
 #include "NavigatorWebXR.h"
 #include "WebXRSystem.h"
@@ -92,11 +100,12 @@
 #endif
 
 #if USE(GSTREAMER)
-#include "MediaSampleGStreamer.h"
+#include "VideoFrameGStreamer.h"
 #endif
 
 #if PLATFORM(COCOA)
-#include "MediaSampleAVFObjC.h"
+#include "GPUAvailability.h"
+#include "VideoFrameCV.h"
 #include <pal/cf/CoreMediaSoftLink.h>
 #endif
 
@@ -104,31 +113,18 @@ namespace WebCore {
 
 WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLCanvasElement);
 
-using namespace PAL;
 using namespace HTMLNames;
 
 // These values come from the WhatWG/W3C HTML spec.
 const int defaultWidth = 300;
 const int defaultHeight = 150;
 
-// Firefox limits width/height to 32767 pixels, but slows down dramatically before it
-// reaches that limit. We limit by area instead, giving us larger maximum dimensions,
-// in exchange for a smaller maximum canvas size. The maximum canvas size is in device pixels.
-#if PLATFORM(IOS_FAMILY)
-const unsigned maxCanvasArea = 4096 * 4096;
-#else
-const unsigned maxCanvasArea = 16384 * 16384;
-#endif
-
-static size_t maxActivePixelMemoryForTesting = 0;
-
 HTMLCanvasElement::HTMLCanvasElement(const QualifiedName& tagName, Document& document)
-    : HTMLElement(tagName, document)
-    , CanvasBase(IntSize(defaultWidth, defaultHeight))
+    : HTMLElement(tagName, document, TypeFlag::HasDidMoveToNewDocument)
+    , CanvasBase(IntSize(defaultWidth, defaultHeight), document.noiseInjectionHashSalt())
     , ActiveDOMObject(document)
 {
     ASSERT(hasTagName(canvasTag));
-    addObserver(document);
 }
 
 Ref<HTMLCanvasElement> HTMLCanvasElement::create(Document& document)
@@ -147,27 +143,44 @@ Ref<HTMLCanvasElement> HTMLCanvasElement::create(const QualifiedName& tagName, D
 
 HTMLCanvasElement::~HTMLCanvasElement()
 {
-    // FIXME: This has to be called here because CSSCanvasValue::CanvasObserverProxy::canvasDestroyed()
+    // FIXME: This has to be called here because StyleCanvasImage::canvasDestroyed()
     // downcasts the CanvasBase object to HTMLCanvasElement. That invokes virtual methods, which should be
     // avoided in destructors, but works as long as it's done before HTMLCanvasElement destructs completely.
     notifyObserversCanvasDestroyed();
-    document().clearCanvasPreparation(this);
+    removeCanvasNeedingPreparationForDisplayOrFlush();
 
     m_context = nullptr; // Ensure this goes away before the ImageBuffer.
     setImageBuffer(nullptr);
 }
 
-void HTMLCanvasElement::parseAttribute(const QualifiedName& name, const AtomString& value)
+bool HTMLCanvasElement::hasPresentationalHintsForAttribute(const QualifiedName& name) const
+{
+    if (name == widthAttr || name == heightAttr)
+        return true;
+    return HTMLElement::hasPresentationalHintsForAttribute(name);
+}
+
+void HTMLCanvasElement::collectPresentationalHintsForAttribute(const QualifiedName& name, const AtomString& value, MutableStyleProperties& style)
+{
+    if (name == widthAttr)
+        applyAspectRatioWithoutDimensionalRulesFromWidthAndHeightAttributesToStyle(value, attributeWithoutSynchronization(heightAttr), style);
+    else if (name == heightAttr)
+        applyAspectRatioWithoutDimensionalRulesFromWidthAndHeightAttributesToStyle(attributeWithoutSynchronization(widthAttr), value, style);
+    else
+        HTMLElement::collectPresentationalHintsForAttribute(name, value, style);
+}
+
+void HTMLCanvasElement::attributeChanged(const QualifiedName& name, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason attributeModificationReason)
 {
     if (name == widthAttr || name == heightAttr)
         reset();
-    HTMLElement::parseAttribute(name, value);
+    HTMLElement::attributeChanged(name, oldValue, newValue, attributeModificationReason);
 }
 
 RenderPtr<RenderElement> HTMLCanvasElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition& insertionPosition)
 {
-    RefPtr<Frame> frame = document().frame();
-    if (frame && frame->script().canExecuteScripts(NotAboutToExecuteScript))
+    RefPtr frame { document().frame() };
+    if (frame && frame->script().canExecuteScripts(ReasonForCallingCanExecuteScripts::NotAboutToExecuteScript))
         return createRenderer<RenderHTMLCanvas>(*this, WTFMove(style));
     return HTMLElement::createElementRenderer(WTFMove(style), insertionPosition);
 }
@@ -184,16 +197,16 @@ bool HTMLCanvasElement::canStartSelection() const
 
 ExceptionOr<void> HTMLCanvasElement::setHeight(unsigned value)
 {
-    if (m_context && m_context->isPlaceholder())
-        return Exception { InvalidStateError };
+    if (isControlledByOffscreen())
+        return Exception { ExceptionCode::InvalidStateError };
     setAttributeWithoutSynchronization(heightAttr, AtomString::number(limitToOnlyHTMLNonNegative(value, defaultHeight)));
     return { };
 }
 
 ExceptionOr<void> HTMLCanvasElement::setWidth(unsigned value)
 {
-    if (m_context && m_context->isPlaceholder())
-        return Exception { InvalidStateError };
+    if (isControlledByOffscreen())
+        return Exception { ExceptionCode::InvalidStateError };
     setAttributeWithoutSynchronization(widthAttr, AtomString::number(limitToOnlyHTMLNonNegative(value, defaultWidth)));
     return { };
 }
@@ -210,166 +223,133 @@ void HTMLCanvasElement::setSize(const IntSize& newSize)
     reset();
 }
 
-static inline size_t maxActivePixelMemory()
-{
-    if (maxActivePixelMemoryForTesting)
-        return maxActivePixelMemoryForTesting;
-
-    static size_t maxPixelMemory;
-    static std::once_flag onceFlag;
-    std::call_once(onceFlag, [] {
-#if PLATFORM(IOS_FAMILY)
-        maxPixelMemory = ramSize() / 4;
-#else
-        maxPixelMemory = std::max(ramSize() / 4, 2151 * MB);
-#endif
-    });
-
-    return maxPixelMemory;
-}
-
-void HTMLCanvasElement::setMaxPixelMemoryForTesting(size_t size)
-{
-    maxActivePixelMemoryForTesting = size;
-}
-
-ExceptionOr<Optional<RenderingContext>> HTMLCanvasElement::getContext(JSC::JSGlobalObject& state, const String& contextId, Vector<JSC::Strong<JSC::Unknown>>&& arguments)
+ExceptionOr<std::optional<RenderingContext>> HTMLCanvasElement::getContext(JSC::JSGlobalObject& state, const String& contextId, FixedVector<JSC::Strong<JSC::Unknown>>&& arguments)
 {
     if (m_context) {
         if (m_context->isPlaceholder())
-            return Exception { InvalidStateError };
+            return Exception { ExceptionCode::InvalidStateError };
 
-        if (m_context->is2d()) {
+        if (auto* context = dynamicDowncast<CanvasRenderingContext2D>(*m_context)) {
             if (!is2dType(contextId))
-                return Optional<RenderingContext> { WTF::nullopt };
-            return Optional<RenderingContext> { RefPtr<CanvasRenderingContext2D> { &downcast<CanvasRenderingContext2D>(*m_context) } };
+                return std::optional<RenderingContext> { std::nullopt };
+            return std::optional<RenderingContext> { RefPtr { context } };
         }
 
-        if (m_context->isBitmapRenderer()) {
+        if (auto* context = dynamicDowncast<ImageBitmapRenderingContext>(*m_context)) {
             if (!isBitmapRendererType(contextId))
-                return Optional<RenderingContext> { WTF::nullopt };
-            return Optional<RenderingContext> { RefPtr<ImageBitmapRenderingContext> { &downcast<ImageBitmapRenderingContext>(*m_context) } };
+                return std::optional<RenderingContext> { std::nullopt };
+            return std::optional<RenderingContext> { RefPtr { context } };
         }
 
 #if ENABLE(WEBGL)
         if (m_context->isWebGL()) {
             if (!isWebGLType(contextId))
-                return Optional<RenderingContext> { WTF::nullopt };
-            if (is<WebGLRenderingContext>(*m_context))
-                return Optional<RenderingContext> { RefPtr<WebGLRenderingContext> { &downcast<WebGLRenderingContext>(*m_context) } };
-#if ENABLE(WEBGL2)
-            ASSERT(is<WebGL2RenderingContext>(*m_context));
-            return Optional<RenderingContext> { RefPtr<WebGL2RenderingContext> { &downcast<WebGL2RenderingContext>(*m_context) } };
-#endif
+                return std::optional<RenderingContext> { std::nullopt };
+            auto version = toWebGLVersion(contextId);
+            if ((version == WebGLVersion::WebGL1) != m_context->isWebGL1())
+                return std::optional<RenderingContext> { std::nullopt };
+            if (auto* context = dynamicDowncast<WebGLRenderingContext>(*m_context))
+                return std::optional<RenderingContext> { RefPtr { context } };
+            return std::optional<RenderingContext> { RefPtr { &checkedDowncast<WebGL2RenderingContext>(*m_context) } };
         }
 #endif
 
-#if ENABLE(WEBGPU)
-        if (m_context->isWebGPU()) {
+        if (auto* context = dynamicDowncast<GPUCanvasContext>(m_context.get())) {
             if (!isWebGPUType(contextId))
-                return Optional<RenderingContext> { WTF::nullopt };
-            return Optional<RenderingContext> { RefPtr<GPUCanvasContext> { &downcast<GPUCanvasContext>(*m_context) } };
+                return { std::nullopt };
+            return { context };
         }
-#endif
 
         ASSERT_NOT_REACHED();
-        return Optional<RenderingContext> { WTF::nullopt };
+        return std::optional<RenderingContext> { std::nullopt };
     }
 
     if (is2dType(contextId)) {
-        auto context = createContext2d(contextId);
+        auto scope = DECLARE_THROW_SCOPE(state.vm());
+        auto settings = convert<IDLDictionary<CanvasRenderingContext2DSettings>>(state, arguments.isEmpty() ? JSC::jsUndefined() : (arguments[0].isObject() ? arguments[0].get() : JSC::jsNull()));
+        RETURN_IF_EXCEPTION(scope, Exception { ExceptionCode::ExistingExceptionError });
+
+        auto context = createContext2d(contextId, WTFMove(settings));
         if (!context)
-            return Optional<RenderingContext> { WTF::nullopt };
-        return Optional<RenderingContext> { RefPtr<CanvasRenderingContext2D> { context } };
+            return std::optional<RenderingContext> { std::nullopt };
+        return std::optional<RenderingContext> { RefPtr<CanvasRenderingContext2D> { context } };
     }
 
     if (isBitmapRendererType(contextId)) {
         auto scope = DECLARE_THROW_SCOPE(state.vm());
-        auto attributes = convert<IDLDictionary<ImageBitmapRenderingContextSettings>>(state, !arguments.isEmpty() ? arguments[0].get() : JSC::jsUndefined());
-        RETURN_IF_EXCEPTION(scope, Exception { ExistingExceptionError });
+        auto settings = convert<IDLDictionary<ImageBitmapRenderingContextSettings>>(state, arguments.isEmpty() ? JSC::jsUndefined() : (arguments[0].isObject() ? arguments[0].get() : JSC::jsNull()));
+        RETURN_IF_EXCEPTION(scope, Exception { ExceptionCode::ExistingExceptionError });
 
-        auto context = createContextBitmapRenderer(contextId, WTFMove(attributes));
+        auto context = createContextBitmapRenderer(contextId, WTFMove(settings));
         if (!context)
-            return Optional<RenderingContext> { WTF::nullopt };
-        return Optional<RenderingContext> { RefPtr<ImageBitmapRenderingContext> { context } };
+            return std::optional<RenderingContext> { std::nullopt };
+        return std::optional<RenderingContext> { RefPtr<ImageBitmapRenderingContext> { context } };
     }
 
 #if ENABLE(WEBGL)
     if (isWebGLType(contextId)) {
         auto scope = DECLARE_THROW_SCOPE(state.vm());
-        auto attributes = convert<IDLDictionary<WebGLContextAttributes>>(state, !arguments.isEmpty() ? arguments[0].get() : JSC::jsUndefined());
-        RETURN_IF_EXCEPTION(scope, Exception { ExistingExceptionError });
+        auto attributes = convert<IDLDictionary<WebGLContextAttributes>>(state, arguments.isEmpty() ? JSC::jsUndefined() : (arguments[0].isObject() ? arguments[0].get() : JSC::jsNull()));
+        RETURN_IF_EXCEPTION(scope, Exception { ExceptionCode::ExistingExceptionError });
 
-        auto context = createContextWebGL(contextId, WTFMove(attributes));
+        auto context = createContextWebGL(toWebGLVersion(contextId), WTFMove(attributes));
         if (!context)
-            return Optional<RenderingContext> { WTF::nullopt };
+            return std::optional<RenderingContext> { std::nullopt };
 
-        if (is<WebGLRenderingContext>(*context))
-            return Optional<RenderingContext> { RefPtr<WebGLRenderingContext> { &downcast<WebGLRenderingContext>(*context) } };
-#if ENABLE(WEBGL2)
-        ASSERT(is<WebGL2RenderingContext>(*context));
-        return Optional<RenderingContext> { RefPtr<WebGL2RenderingContext> { &downcast<WebGL2RenderingContext>(*context) } };
-#endif
+        if (auto* webGLContext = dynamicDowncast<WebGLRenderingContext>(*context))
+            return std::optional<RenderingContext> { RefPtr { webGLContext } };
+
+        return std::optional<RenderingContext> { RefPtr { &downcast<WebGL2RenderingContext>(*context) } };
     }
 #endif
 
-#if ENABLE(WEBGPU)
     if (isWebGPUType(contextId)) {
-        auto context = createContextWebGPU(contextId);
+        GPU* gpu = nullptr;
+        if (auto* window = document().domWindow()) {
+            // FIXME: Should we be instead getting this through jsDynamicCast<JSLocalDOMWindow*>(state)->wrapped().navigator().gpu()?
+            gpu = window->navigator().gpu();
+        }
+        auto context = createContextWebGPU(contextId, gpu);
         if (!context)
-            return Optional<RenderingContext> { WTF::nullopt };
-        return Optional<RenderingContext> { RefPtr<GPUCanvasContext> { context } };
+            return { std::nullopt };
+        return { context };
     }
-#endif
 
-    return Optional<RenderingContext> { WTF::nullopt };
+    return std::optional<RenderingContext> { std::nullopt };
 }
 
 CanvasRenderingContext* HTMLCanvasElement::getContext(const String& type)
 {
     if (HTMLCanvasElement::is2dType(type))
-        return getContext2d(type);
+        return getContext2d(type, { });
 
     if (HTMLCanvasElement::isBitmapRendererType(type))
-        return getContextBitmapRenderer(type);
+        return getContextBitmapRenderer(type, { });
 
 #if ENABLE(WEBGL)
     if (HTMLCanvasElement::isWebGLType(type))
-        return getContextWebGL(type);
+        return getContextWebGL(HTMLCanvasElement::toWebGLVersion(type));
 #endif
 
-#if ENABLE(WEBGPU)
     if (HTMLCanvasElement::isWebGPUType(type))
-        return getContextWebGPU(type);
-#endif
+        return getContextWebGPU(type, nullptr);
 
     return nullptr;
 }
 
 bool HTMLCanvasElement::is2dType(const String& type)
 {
-    return type == "2d";
+    return type == "2d"_s;
 }
 
-CanvasRenderingContext2D* HTMLCanvasElement::createContext2d(const String& type)
+CanvasRenderingContext2D* HTMLCanvasElement::createContext2d(const String& type, CanvasRenderingContext2DSettings&& settings)
 {
     ASSERT_UNUSED(HTMLCanvasElement::is2dType(type), type);
     ASSERT(!m_context);
 
-    // Make sure we don't use more pixel memory than the system can support.
-    size_t requestedPixelMemory = 4 * width() * height();
-    if (activePixelMemory() + requestedPixelMemory > maxActivePixelMemory()) {
-        StringBuilder stringBuilder;
-        stringBuilder.appendLiteral("Total canvas memory use exceeds the maximum limit (");
-        stringBuilder.appendNumber(maxActivePixelMemory() / 1024 / 1024);
-        stringBuilder.appendLiteral(" MB).");
-        document().addConsoleMessage(MessageSource::JS, MessageLevel::Warning, stringBuilder.toString());
-        return nullptr;
-    }
+    m_context = CanvasRenderingContext2D::create(*this, WTFMove(settings), document().inQuirksMode());
 
-    m_context = CanvasRenderingContext2D::create(*this, document().inQuirksMode());
-
-#if USE(IOSURFACE_CANVAS_BACKING_STORE) || ENABLE(ACCELERATED_2D_CANVAS)
+#if USE(IOSURFACE_CANVAS_BACKING_STORE)
     // Need to make sure a RenderLayer and compositing layer get created for the Canvas.
     invalidateStyleAndLayerComposition();
 #endif
@@ -377,7 +357,7 @@ CanvasRenderingContext2D* HTMLCanvasElement::createContext2d(const String& type)
     return static_cast<CanvasRenderingContext2D*>(m_context.get());
 }
 
-CanvasRenderingContext2D* HTMLCanvasElement::getContext2d(const String& type)
+CanvasRenderingContext2D* HTMLCanvasElement::getContext2d(const String& type, CanvasRenderingContext2DSettings&& settings)
 {
     ASSERT_UNUSED(HTMLCanvasElement::is2dType(type), type);
 
@@ -385,7 +365,7 @@ CanvasRenderingContext2D* HTMLCanvasElement::getContext2d(const String& type)
         return nullptr;
 
     if (!m_context)
-        return createContext2d(type);
+        return createContext2d(type, WTFMove(settings));
     return static_cast<CanvasRenderingContext2D*>(m_context.get());
 }
 
@@ -393,7 +373,7 @@ CanvasRenderingContext2D* HTMLCanvasElement::getContext2d(const String& type)
 
 static bool requiresAcceleratedCompositingForWebGL()
 {
-#if PLATFORM(GTK) || PLATFORM(WIN_CAIRO)
+#if PLATFORM(GTK) || PLATFORM(WIN)
     return false;
 #else
     return true;
@@ -414,26 +394,40 @@ static bool shouldEnableWebGL(const Settings& settings)
 bool HTMLCanvasElement::isWebGLType(const String& type)
 {
     // Retain support for the legacy "webkit-3d" name.
-    return type == "webgl" || type == "experimental-webgl"
-#if ENABLE(WEBGL2)
-        || type == "webgl2"
-#endif
-        || type == "webkit-3d";
+    return type == "webgl"_s || type == "experimental-webgl"_s
+        || type == "webgl2"_s
+        || type == "webkit-3d"_s;
 }
 
-WebGLRenderingContextBase* HTMLCanvasElement::createContextWebGL(const String& type, WebGLContextAttributes&& attrs)
+WebGLVersion HTMLCanvasElement::toWebGLVersion(const String& type)
 {
-    ASSERT(HTMLCanvasElement::isWebGLType(type));
+    ASSERT(isWebGLType(type));
+    if (type == "webgl2"_s)
+        return WebGLVersion::WebGL2;
+    return WebGLVersion::WebGL1;
+}
+
+WebGLRenderingContextBase* HTMLCanvasElement::createContextWebGL(WebGLVersion type, WebGLContextAttributes&& attrs)
+{
     ASSERT(!m_context);
 
     if (!shouldEnableWebGL(document().settings()))
         return nullptr;
 
+#if HAVE(GPU_AVAILABILITY_CHECK)
+    if (!document().settings().useGPUProcessForWebGLEnabled() && !isGPUAvailable()) {
+        RELEASE_LOG_FAULT(WebGL, "GPU is not available.");
+        return nullptr;
+    }
+#endif
+
 #if ENABLE(WEBXR)
     // https://immersive-web.github.io/webxr/#xr-compatible
     if (attrs.xrCompatible) {
         if (auto* window = document().domWindow())
-            NavigatorWebXR::xr(window->navigator()).ensureImmersiveXRDeviceIsSelected();
+            // FIXME: how to make this sync without blocking the main thread?
+            // For reference: https://immersive-web.github.io/webxr/#ref-for-dom-webglcontextattributes-xrcompatible
+            NavigatorWebXR::xr(window->navigator()).ensureImmersiveXRDeviceIsSelected([]() { });
     }
 #endif
 
@@ -443,6 +437,8 @@ WebGLRenderingContextBase* HTMLCanvasElement::createContextWebGL(const String& t
     if (m_context) {
         // Need to make sure a RenderLayer and compositing layer get created for the Canvas.
         invalidateStyleAndLayerComposition();
+        if (renderBox())
+            renderBox()->contentChanged(CanvasChanged);
 #if ENABLE(WEBXR)
         ASSERT(!attrs.xrCompatible || downcast<WebGLRenderingContextBase>(m_context.get())->isXRCompatible());
 #endif
@@ -451,15 +447,18 @@ WebGLRenderingContextBase* HTMLCanvasElement::createContextWebGL(const String& t
     return downcast<WebGLRenderingContextBase>(m_context.get());
 }
 
-WebGLRenderingContextBase* HTMLCanvasElement::getContextWebGL(const String& type, WebGLContextAttributes&& attrs)
+WebGLRenderingContextBase* HTMLCanvasElement::getContextWebGL(WebGLVersion type, WebGLContextAttributes&& attrs)
 {
-    ASSERT(HTMLCanvasElement::isWebGLType(type));
-
     if (!shouldEnableWebGL(document().settings()))
         return nullptr;
 
-    if (m_context && !m_context->isWebGL())
-        return nullptr;
+    if (m_context) {
+        if (!m_context->isWebGL())
+            return nullptr;
+
+        if ((type == WebGLVersion::WebGL1) != m_context->isWebGL1())
+            return nullptr;
+    }
 
     if (!m_context)
         return createContextWebGL(type, WTFMove(attrs));
@@ -468,50 +467,9 @@ WebGLRenderingContextBase* HTMLCanvasElement::getContextWebGL(const String& type
 
 #endif // ENABLE(WEBGL)
 
-#if ENABLE(WEBGPU)
-
-bool HTMLCanvasElement::isWebGPUType(const String& type)
-{
-    return type == "gpu";
-}
-
-GPUCanvasContext* HTMLCanvasElement::createContextWebGPU(const String& type)
-{
-    ASSERT_UNUSED(type, HTMLCanvasElement::isWebGPUType(type));
-    ASSERT(!m_context);
-
-    if (!RuntimeEnabledFeatures::sharedFeatures().webGPUEnabled())
-        return nullptr;
-
-    m_context = GPUCanvasContext::create(*this);
-    if (m_context) {
-        // Need to make sure a RenderLayer and compositing layer get created for the Canvas.
-        invalidateStyleAndLayerComposition();
-    }
-
-    return static_cast<GPUCanvasContext*>(m_context.get());
-}
-
-GPUCanvasContext* HTMLCanvasElement::getContextWebGPU(const String& type)
-{
-    ASSERT_UNUSED(type, HTMLCanvasElement::isWebGPUType(type));
-
-    if (!RuntimeEnabledFeatures::sharedFeatures().webGPUEnabled())
-        return nullptr;
-
-    if (m_context && !m_context->isWebGPU())
-        return nullptr;
-
-    if (!m_context)
-        return createContextWebGPU(type);
-    return static_cast<GPUCanvasContext*>(m_context.get());
-}
-
-#endif // ENABLE(WEBGPU)
-
 bool HTMLCanvasElement::isBitmapRendererType(const String& type)
 {
-    return type == "bitmaprenderer";
+    return type == "bitmaprenderer"_s;
 }
 
 ImageBitmapRenderingContext* HTMLCanvasElement::createContextBitmapRenderer(const String& type, ImageBitmapRenderingContextSettings&& settings)
@@ -520,8 +478,9 @@ ImageBitmapRenderingContext* HTMLCanvasElement::createContextBitmapRenderer(cons
     ASSERT(!m_context);
 
     m_context = ImageBitmapRenderingContext::create(*this, WTFMove(settings));
+    downcast<ImageBitmapRenderingContext>(m_context.get())->transferFromImageBitmap(nullptr);
 
-#if USE(IOSURFACE_CANVAS_BACKING_STORE) || ENABLE(ACCELERATED_2D_CANVAS)
+#if USE(IOSURFACE_CANVAS_BACKING_STORE)
     // Need to make sure a RenderLayer and compositing layer get created for the Canvas.
     invalidateStyleAndLayerComposition();
 #endif
@@ -537,36 +496,76 @@ ImageBitmapRenderingContext* HTMLCanvasElement::getContextBitmapRenderer(const S
     return static_cast<ImageBitmapRenderingContext*>(m_context.get());
 }
 
-void HTMLCanvasElement::didDraw(const FloatRect& rect)
+bool HTMLCanvasElement::isWebGPUType(const String& type)
+{
+    return type == "webgpu"_s;
+}
+
+GPUCanvasContext* HTMLCanvasElement::createContextWebGPU(const String& type, GPU* gpu)
+{
+    ASSERT_UNUSED(type, HTMLCanvasElement::isWebGPUType(type));
+    ASSERT(!m_context);
+
+    if (!document().settings().webGPUEnabled() || !gpu)
+        return nullptr;
+
+    m_context = GPUCanvasContext::create(*this, *gpu);
+
+    if (m_context) {
+        // Need to make sure a RenderLayer and compositing layer get created for the Canvas.
+        invalidateStyleAndLayerComposition();
+    }
+
+    return static_cast<GPUCanvasContext*>(m_context.get());
+}
+
+GPUCanvasContext* HTMLCanvasElement::getContextWebGPU(const String& type, GPU* gpu)
+{
+    ASSERT_UNUSED(type, HTMLCanvasElement::isWebGPUType(type));
+
+    if (!document().settings().webGPUEnabled())
+        return nullptr;
+
+    if (m_context && !m_context->isWebGPU())
+        return nullptr;
+
+    if (!m_context)
+        return createContextWebGPU(type, gpu);
+
+    return static_cast<GPUCanvasContext*>(m_context.get());
+}
+
+void HTMLCanvasElement::didDraw(const std::optional<FloatRect>& rect, ShouldApplyPostProcessingToDirtyRect shouldApplyPostProcessingToDirtyRect)
 {
     clearCopiedImage();
+    auto adjustedRect = rect;
+    if (CheckedPtr renderer = renderBox()) {
+        if (isGPUBased() && renderer->hasAcceleratedCompositing())
+            renderer->contentChanged(CanvasPixelsChanged);
+        else if (adjustedRect) {
+            FloatRect destRect;
+            if (CheckedPtr renderReplaced = dynamicDowncast<RenderReplaced>(*renderer))
+                destRect = renderReplaced->replacedContentRect();
+            else
+                destRect = renderer->contentBoxRect();
 
-    FloatRect dirtyRect = rect;
-    if (auto* renderer = renderBox()) {
-        FloatRect destRect;
-        if (is<RenderReplaced>(renderer))
-            destRect = downcast<RenderReplaced>(renderer)->replacedContentRect();
-        else
-            destRect = renderer->contentBoxRect();
+            // Inflate dirty rect to cover antialiasing on image buffers.
+            if (drawingContext() && drawingContext()->shouldAntialias())
+                adjustedRect->inflate(1);
 
-        // Inflate dirty rect to cover antialiasing on image buffers.
-        if (drawingContext() && drawingContext()->shouldAntialias())
-            dirtyRect.inflate(1);
+            FloatRect r = mapRect(*adjustedRect, FloatRect { { }, size() }, destRect);
+            r.intersect(destRect);
 
-        FloatRect r = mapRect(dirtyRect, FloatRect(0, 0, size().width(), size().height()), destRect);
-        r.intersect(destRect);
-
-        if (!r.isEmpty() && !m_dirtyRect.contains(r)) {
-            m_dirtyRect.unite(r);
-            renderer->repaintRectangle(enclosingIntRect(m_dirtyRect));
+            if (!r.isEmpty())
+                renderer->repaintRectangle(enclosingIntRect(r));
         }
     }
-    notifyObserversCanvasChanged(dirtyRect);
+    CanvasBase::didDraw(adjustedRect, shouldApplyPostProcessingToDirtyRect);
 }
 
 void HTMLCanvasElement::reset()
 {
-    if (m_ignoreReset)
+    if (m_ignoreReset || isControlledByOffscreen())
         return;
 
     bool hadImageBuffer = hasCreatedImageBuffer();
@@ -574,15 +573,16 @@ void HTMLCanvasElement::reset()
     int w = limitToOnlyHTMLNonNegative(attributeWithoutSynchronization(widthAttr), defaultWidth);
     int h = limitToOnlyHTMLNonNegative(attributeWithoutSynchronization(heightAttr), defaultHeight);
 
-    resetGraphicsContextState();
-    if (is<CanvasRenderingContext2D>(m_context.get()))
-        downcast<CanvasRenderingContext2D>(*m_context).reset();
+    if (RefPtr context = dynamicDowncast<CanvasRenderingContext2D>(m_context.get()))
+        context->reset();
+    else
+        resetGraphicsContextState();
 
     IntSize oldSize = size();
     IntSize newSize(w, h);
     // If the size of an existing buffer matches, we can just clear it instead of reallocating.
     // This optimization is only done for 2D canvases for now.
-    if (m_hasCreatedImageBuffer && oldSize == newSize && m_context && m_context->is2d()) {
+    if (m_hasCreatedImageBuffer && oldSize == newSize && m_context && m_context->is2d() && buffer() && m_context->colorSpace() == buffer()->colorSpace() && m_context->pixelFormat() == buffer()->pixelFormat()) {
         if (!m_didClearImageBuffer)
             clearImageBuffer();
         return;
@@ -593,16 +593,14 @@ void HTMLCanvasElement::reset()
     if (isGPUBased() && oldSize != size())
         downcast<GPUBasedCanvasRenderingContext>(*m_context).reshape(width(), height());
 
-    auto renderer = this->renderer();
-    if (is<RenderHTMLCanvas>(renderer)) {
-        auto& canvasRenderer = downcast<RenderHTMLCanvas>(*renderer);
+    if (CheckedPtr canvasRenderer = dynamicDowncast<RenderHTMLCanvas>(renderer())) {
         if (oldSize != size()) {
-            canvasRenderer.canvasSizeChanged();
-            if (canvasRenderer.hasAcceleratedCompositing())
-                canvasRenderer.contentChanged(CanvasChanged);
+            canvasRenderer->canvasSizeChanged();
+            if (canvasRenderer->hasAcceleratedCompositing())
+                canvasRenderer->contentChanged(CanvasChanged);
         }
         if (hadImageBuffer)
-            canvasRenderer.repaint();
+            canvasRenderer->repaint();
     }
 
     notifyObserversCanvasResized();
@@ -626,53 +624,39 @@ bool HTMLCanvasElement::paintsIntoCanvasBuffer() const
 }
 
 
+
 void HTMLCanvasElement::paint(GraphicsContext& context, const LayoutRect& r)
 {
-    // Clear the dirty rect
-    m_dirtyRect = FloatRect();
+    if (m_context)
+        m_context->clearAccumulatedDirtyRect();
 
     if (!context.paintingDisabled()) {
         bool shouldPaint = true;
 
         if (m_context) {
             shouldPaint = paintsIntoCanvasBuffer() || document().printing() || m_isSnapshotting;
-            if (shouldPaint)
-                m_context->paintRenderingResultsToCanvas();
+            if (shouldPaint) {
+                if (m_context->compositingResultsNeedUpdating())
+                    m_context->prepareForDisplay();
+                m_context->drawBufferToCanvas(CanvasRenderingContext::SurfaceBuffer::DisplayBuffer);
+            }
         }
 
         if (shouldPaint) {
             if (hasCreatedImageBuffer()) {
-                if (m_presentedImage)
-                    context.drawImage(*m_presentedImage, snappedIntRect(r), renderer()->imageOrientation());
-                else if (ImageBuffer* imageBuffer = buffer())
-                    context.drawImageBuffer(*imageBuffer, snappedIntRect(r));
+                if (ImageBuffer* imageBuffer = buffer())
+                    context.drawImageBuffer(*imageBuffer, snappedIntRect(r), { context.compositeOperation() });
             }
-
-            if (isGPUBased())
-                downcast<GPUBasedCanvasRenderingContext>(*m_context).markLayerComposited();
         }
     }
 
-    if (UNLIKELY(m_context && m_context->callTracingActive()))
+    if (UNLIKELY(m_context && m_context->hasActiveInspectorCanvasCallTracer()))
         InspectorInstrumentation::didFinishRecordingCanvasFrame(*m_context);
 }
 
 bool HTMLCanvasElement::isGPUBased() const
 {
     return m_context && m_context->isGPUBased();
-}
-
-void HTMLCanvasElement::makePresentationCopy()
-{
-    if (!m_presentedImage) {
-        // The buffer contains the last presented data, so save a copy of it.
-        m_presentedImage = buffer()->copyImage(CopyBackingStore, PreserveResolution::Yes);
-    }
-}
-
-void HTMLCanvasElement::clearPresentationCopy()
-{
-    m_presentedImage = nullptr;
 }
 
 void HTMLCanvasElement::setSurfaceSize(const IntSize& size)
@@ -691,14 +675,14 @@ static String toEncodingMimeType(const String& mimeType)
 }
 
 // https://html.spec.whatwg.org/multipage/canvas.html#a-serialisation-of-the-bitmap-as-a-file
-static Optional<double> qualityFromJSValue(JSC::JSValue qualityValue)
+static std::optional<double> qualityFromJSValue(JSC::JSValue qualityValue)
 {
     if (!qualityValue.isNumber())
-        return WTF::nullopt;
+        return std::nullopt;
 
     double qualityNumber = qualityValue.asNumber();
     if (qualityNumber < 0 || qualityNumber > 1)
-        return WTF::nullopt;
+        return std::nullopt;
 
     return qualityNumber;
 }
@@ -706,11 +690,11 @@ static Optional<double> qualityFromJSValue(JSC::JSValue qualityValue)
 ExceptionOr<UncachedString> HTMLCanvasElement::toDataURL(const String& mimeType, JSC::JSValue qualityValue)
 {
     if (!originClean())
-        return Exception { SecurityError };
+        return Exception { ExceptionCode::SecurityError };
 
     if (size().isEmpty() || !buffer())
         return UncachedString { "data:,"_s };
-    if (RuntimeEnabledFeatures::sharedFeatures().webAPIStatisticsEnabled())
+    if (document().settings().webAPIStatisticsEnabled())
         ResourceLoadObserver::shared().logCanvasRead(document());
 
     auto encodingMIMEType = toEncodingMimeType(mimeType);
@@ -719,8 +703,15 @@ ExceptionOr<UncachedString> HTMLCanvasElement::toDataURL(const String& mimeType,
 #if USE(CG)
     // Try to get ImageData first, as that may avoid lossy conversions.
     if (auto imageData = getImageData())
-        return UncachedString { dataURL(*imageData, encodingMIMEType, quality) };
+        return UncachedString { dataURL(imageData->pixelBuffer(), encodingMIMEType, quality) };
 #endif
+
+    if (auto url = document().quirks().advancedPrivacyProtectionSubstituteDataURLForScriptWithFeatures(lastFillText(), width(), height()); !url.isNull()) {
+        RELEASE_LOG(FingerprintingMitigation, "HTMLCanvasElement::toDataURL: Quirking returned URL for identified fingerprinting script");
+        auto consoleMessage = "Detected fingerprinting script. Quirking value returned from HTMLCanvasElement.toDataURL()"_s;
+        canvasBaseScriptExecutionContext()->addConsoleMessage(MessageSource::Rendering, MessageLevel::Info, consoleMessage);
+        return UncachedString { url };
+    }
 
     makeRenderingResultsAvailable();
 
@@ -732,16 +723,16 @@ ExceptionOr<UncachedString> HTMLCanvasElement::toDataURL(const String& mimeType)
     return toDataURL(mimeType, { });
 }
 
-ExceptionOr<void> HTMLCanvasElement::toBlob(ScriptExecutionContext& context, Ref<BlobCallback>&& callback, const String& mimeType, JSC::JSValue qualityValue)
+ExceptionOr<void> HTMLCanvasElement::toBlob(Ref<BlobCallback>&& callback, const String& mimeType, JSC::JSValue qualityValue)
 {
     if (!originClean())
-        return Exception { SecurityError };
+        return Exception { ExceptionCode::SecurityError };
 
     if (size().isEmpty() || !buffer()) {
-        callback->scheduleCallback(context, nullptr);
+        callback->scheduleCallback(document(), nullptr);
         return { };
     }
-    if (RuntimeEnabledFeatures::sharedFeatures().webAPIStatisticsEnabled())
+    if (document().settings().webAPIStatisticsEnabled())
         ResourceLoadObserver::shared().logCanvasRead(document());
 
     auto encodingMIMEType = toEncodingMimeType(mimeType);
@@ -750,10 +741,10 @@ ExceptionOr<void> HTMLCanvasElement::toBlob(ScriptExecutionContext& context, Ref
 #if USE(CG)
     if (auto imageData = getImageData()) {
         RefPtr<Blob> blob;
-        Vector<uint8_t> blobData = data(*imageData, encodingMIMEType, quality);
+        Vector<uint8_t> blobData = encodeData(imageData->pixelBuffer(), encodingMIMEType, quality);
         if (!blobData.isEmpty())
-            blob = Blob::create(WTFMove(blobData), encodingMIMEType);
-        callback->scheduleCallback(context, WTFMove(blob));
+            blob = Blob::create(&document(), WTFMove(blobData), encodingMIMEType);
+        callback->scheduleCallback(document(), WTFMove(blob));
         return { };
     }
 #endif
@@ -763,56 +754,102 @@ ExceptionOr<void> HTMLCanvasElement::toBlob(ScriptExecutionContext& context, Ref
     RefPtr<Blob> blob;
     Vector<uint8_t> blobData = buffer()->toData(encodingMIMEType, quality);
     if (!blobData.isEmpty())
-        blob = Blob::create(WTFMove(blobData), encodingMIMEType);
-    callback->scheduleCallback(context, WTFMove(blob));
+        blob = Blob::create(&document(), WTFMove(blobData), encodingMIMEType);
+    callback->scheduleCallback(document(), WTFMove(blob));
     return { };
 }
+
+#if ENABLE(OFFSCREEN_CANVAS)
+ExceptionOr<Ref<OffscreenCanvas>> HTMLCanvasElement::transferControlToOffscreen()
+{
+    if (m_context)
+        return Exception { ExceptionCode::InvalidStateError };
+
+    m_context = makeUniqueWithoutRefCountedCheck<PlaceholderRenderingContext>(*this);
+    if (m_context->isAccelerated())
+        invalidateStyleAndLayerComposition();
+
+    return OffscreenCanvas::create(document(), *this);
+}
+#endif
 
 RefPtr<ImageData> HTMLCanvasElement::getImageData()
 {
 #if ENABLE(WEBGL)
-    if (is<WebGLRenderingContextBase>(m_context.get())) {
-        if (RuntimeEnabledFeatures::sharedFeatures().webAPIStatisticsEnabled())
-            ResourceLoadObserver::shared().logCanvasRead(document());
-        return downcast<WebGLRenderingContextBase>(*m_context).paintRenderingResultsToImageData();
-    }
-#endif
-    return nullptr;
-}
-
-#if ENABLE(MEDIA_STREAM)
-
-RefPtr<MediaSample> HTMLCanvasElement::toMediaSample()
-{
-    auto* imageBuffer = buffer();
-    if (!imageBuffer)
+    RefPtr context = dynamicDowncast<WebGLRenderingContextBase>(m_context.get());
+    if (!context)
         return nullptr;
-    if (RuntimeEnabledFeatures::sharedFeatures().webAPIStatisticsEnabled())
+
+    if (document().settings().webAPIStatisticsEnabled())
         ResourceLoadObserver::shared().logCanvasRead(document());
 
-#if PLATFORM(COCOA)
-    makeRenderingResultsAvailable();
-    return MediaSampleAVFObjC::createImageSample(imageBuffer->toBGRAData(), width(), height());
-#elif USE(GSTREAMER)
-    makeRenderingResultsAvailable();
-    return MediaSampleGStreamer::createImageSample(imageBuffer->toBGRAData(), width(), height());
+    RefPtr pixelBuffer = dynamicDowncast<ByteArrayPixelBuffer>(context->drawingBufferToPixelBuffer(GraphicsContextGL::FlipY::Yes));
+    if (!pixelBuffer)
+        return nullptr;
+
+    postProcessPixelBufferResults(*pixelBuffer);
+    return ImageData::create(pixelBuffer.releaseNonNull());
 #else
     return nullptr;
 #endif
 }
 
-ExceptionOr<Ref<MediaStream>> HTMLCanvasElement::captureStream(Document& document, Optional<double>&& frameRequestRate)
+#if ENABLE(MEDIA_STREAM) || ENABLE(WEB_CODECS)
+
+RefPtr<VideoFrame> HTMLCanvasElement::toVideoFrame()
+{
+#if PLATFORM(COCOA) || USE(GSTREAMER)
+#if ENABLE(WEBGL)
+    if (RefPtr context = dynamicDowncast<WebGLRenderingContextBase>(m_context.get())) {
+        if (document().settings().webAPIStatisticsEnabled())
+            ResourceLoadObserver::shared().logCanvasRead(document());
+        return context->surfaceBufferToVideoFrame(CanvasRenderingContext::SurfaceBuffer::DrawingBuffer);
+    }
+#endif
+
+    RefPtr imageBuffer = buffer();
+    if (!imageBuffer)
+        return nullptr;
+    if (document().settings().webAPIStatisticsEnabled())
+        ResourceLoadObserver::shared().logCanvasRead(document());
+
+    makeRenderingResultsAvailable();
+
+    // FIXME: This can likely be optimized quite a bit, especially in the cases where
+    // the ImageBuffer is backed by GPU memory already and/or is in the GPU process by
+    // specializing toVideoFrame() in ImageBufferBackend to not use getPixelBuffer().
+    auto pixelBuffer = imageBuffer->getPixelBuffer({ AlphaPremultiplication::Unpremultiplied, PixelFormat::BGRA8, DestinationColorSpace::SRGB() }, { { }, imageBuffer->truncatedLogicalSize() });
+    if (!pixelBuffer)
+        return nullptr;
+
+    // FIXME: Set color space.
+#if PLATFORM(COCOA)
+    return VideoFrame::createFromPixelBuffer(pixelBuffer.releaseNonNull());
+#elif USE(GSTREAMER)
+    // FIXME: Hardcoding 30fps here is not great. Ideally we should get this from the compositor refresh rate, somehow.
+    return VideoFrameGStreamer::createFromPixelBuffer(pixelBuffer.releaseNonNull(), VideoFrameGStreamer::CanvasContentType::Canvas2D, VideoFrameGStreamer::Rotation::None, MediaTime::invalidTime(), { }, 30, false, { });
+#endif
+#else
+    return nullptr;
+#endif
+}
+
+#endif // ENABLE(MEDIA_STREAM) || ENABLE(WEB_CODECS)
+
+#if ENABLE(MEDIA_STREAM)
+
+ExceptionOr<Ref<MediaStream>> HTMLCanvasElement::captureStream(std::optional<double>&& frameRequestRate)
 {
     if (!originClean())
-        return Exception(SecurityError, "Canvas is tainted"_s);
-    if (RuntimeEnabledFeatures::sharedFeatures().webAPIStatisticsEnabled())
+        return Exception(ExceptionCode::SecurityError, "Canvas is tainted"_s);
+    if (document().settings().webAPIStatisticsEnabled())
         ResourceLoadObserver::shared().logCanvasRead(this->document());
 
     if (frameRequestRate && frameRequestRate.value() < 0)
-        return Exception(NotSupportedError, "frameRequestRate is negative"_s);
+        return Exception(ExceptionCode::NotSupportedError, "frameRequestRate is negative"_s);
 
-    auto track = CanvasCaptureMediaStreamTrack::create(document, *this, WTFMove(frameRequestRate));
-    auto stream =  MediaStream::create(document);
+    auto track = CanvasCaptureMediaStreamTrack::create(document(), *this, WTFMove(frameRequestRate));
+    auto stream = MediaStream::create(document());
     stream->addTrack(track);
     return stream;
 }
@@ -823,119 +860,15 @@ SecurityOrigin* HTMLCanvasElement::securityOrigin() const
     return &document().securityOrigin();
 }
 
-bool HTMLCanvasElement::shouldAccelerate(const IntSize& size) const
-{
-    auto& settings = document().settings();
-
-    auto area = size.area<RecordOverflow>();
-    if (area.hasOverflowed())
-        return false;
-
-    if (area > settings.maximumAccelerated2dCanvasSize())
-        return false;
-
-#if USE(IOSURFACE_CANVAS_BACKING_STORE)
-    return settings.canvasUsesAcceleratedDrawing();
-#elif ENABLE(ACCELERATED_2D_CANVAS)
-    if (m_context && !m_context->is2d())
-        return false;
-
-    if (!settings.accelerated2dCanvasEnabled())
-        return false;
-
-    if (area < settings.minimumAccelerated2dCanvasSize())
-        return false;
-
-    return true;
-#else
-    UNUSED_PARAM(size);
-    return false;
-#endif
-}
-
-void HTMLCanvasElement::setUsesDisplayListDrawing(bool usesDisplayListDrawing)
-{
-    m_usesDisplayListDrawing = usesDisplayListDrawing;
-}
-
-void HTMLCanvasElement::setTracksDisplayListReplay(bool tracksDisplayListReplay)
-{
-    m_tracksDisplayListReplay = tracksDisplayListReplay;
-
-    if (!buffer())
-        return;
-
-    auto& buffer = *this->buffer();
-    if (buffer.drawingContext())
-        buffer.drawingContext()->setTracksDisplayListReplay(m_tracksDisplayListReplay);
-}
-
-String HTMLCanvasElement::displayListAsText(DisplayList::AsTextFlags flags) const
-{
-    if (!buffer())
-        return String();
-
-    auto& buffer = *this->buffer();
-    if (buffer.drawingContext())
-        return buffer.drawingContext()->displayList().asText(flags);
-
-    return String();
-}
-
-String HTMLCanvasElement::replayDisplayListAsText(DisplayList::AsTextFlags flags) const
-{
-    if (!buffer())
-        return String();
-
-    auto& buffer = *this->buffer();
-    if (buffer.drawingContext() && buffer.drawingContext()->replayedDisplayList())
-        return buffer.drawingContext()->replayedDisplayList()->asText(flags);
-
-    return String();
-}
-
 void HTMLCanvasElement::createImageBuffer() const
 {
     ASSERT(!hasCreatedImageBuffer());
 
     m_hasCreatedImageBuffer = true;
     m_didClearImageBuffer = true;
+    setImageBuffer(allocateImageBuffer());
 
-    // Perform multiplication as floating point to avoid overflow
-    if (float(width()) * height() > maxCanvasArea) {
-        StringBuilder stringBuilder;
-        stringBuilder.appendLiteral("Canvas area exceeds the maximum limit (width * height > ");
-        stringBuilder.appendNumber(maxCanvasArea);
-        stringBuilder.appendLiteral(").");
-        document().addConsoleMessage(MessageSource::JS, MessageLevel::Warning, stringBuilder.toString());
-        return;
-    }
-    
-    // Make sure we don't use more pixel memory than the system can support.
-    size_t requestedPixelMemory = 4 * width() * height();
-    if (activePixelMemory() + requestedPixelMemory > maxActivePixelMemory()) {
-        StringBuilder stringBuilder;
-        stringBuilder.appendLiteral("Total canvas memory use exceeds the maximum limit (");
-        stringBuilder.appendNumber(maxActivePixelMemory() / 1024 / 1024);
-        stringBuilder.appendLiteral(" MB).");
-        document().addConsoleMessage(MessageSource::JS, MessageLevel::Warning, stringBuilder.toString());
-        return;
-    }
-
-    if (!width() || !height())
-        return;
-
-    auto hostWindow = (document().view() && document().view()->root()) ? document().view()->root()->hostWindow() : nullptr;
-
-    auto accelerate = shouldAccelerate(size()) ? ShouldAccelerate::Yes : ShouldAccelerate::No;
-    // FIXME: Add a new setting for DisplayList drawing on canvas.
-    auto useDisplayList = m_usesDisplayListDrawing.valueOr(document().settings().displayListDrawingEnabled()) ? ShouldUseDisplayList::Yes : ShouldUseDisplayList::No;
-    setImageBuffer(ImageBuffer::create(size(), accelerate, useDisplayList, RenderingPurpose::Canvas, 1, ColorSpace::SRGB, hostWindow));
-
-    if (buffer() && buffer()->drawingContext())
-        buffer()->drawingContext()->setTracksDisplayListReplay(m_tracksDisplayListReplay);
-
-#if USE(IOSURFACE_CANVAS_BACKING_STORE) || ENABLE(ACCELERATED_2D_CANVAS)
+#if USE(IOSURFACE_CANVAS_BACKING_STORE)
     if (m_context && m_context->is2d()) {
         // Recalculate compositing requirements if acceleration state changed.
         const_cast<HTMLCanvasElement*>(this)->invalidateStyleAndLayerComposition();
@@ -943,19 +876,33 @@ void HTMLCanvasElement::createImageBuffer() const
 #endif
 }
 
-void HTMLCanvasElement::setImageBufferAndMarkDirty(std::unique_ptr<ImageBuffer>&& buffer)
+void HTMLCanvasElement::setImageBufferAndMarkDirty(RefPtr<ImageBuffer>&& buffer)
 {
+    IntSize oldSize = size();
     m_hasCreatedImageBuffer = true;
     setImageBuffer(WTFMove(buffer));
-    didDraw(FloatRect(FloatPoint(), size()));
+
+    if (isControlledByOffscreen() && oldSize != size()) {
+        setAttributeWithoutSynchronization(widthAttr, AtomString::number(width()));
+        setAttributeWithoutSynchronization(heightAttr, AtomString::number(height()));
+
+        if (CheckedPtr canvasRenderer = dynamicDowncast<RenderHTMLCanvas>(renderer())) {
+            canvasRenderer->canvasSizeChanged();
+            canvasRenderer->contentChanged(CanvasChanged);
+        }
+
+        notifyObserversCanvasResized();
+    }
+
+    CanvasBase::didDraw(FloatRect(FloatPoint(), size()));
 }
 
 Image* HTMLCanvasElement::copiedImage() const
 {
     if (!m_copiedImage && buffer()) {
         if (m_context)
-            m_context->paintRenderingResultsToCanvas();
-        m_copiedImage = buffer()->copyImage(CopyBackingStore, PreserveResolution::Yes);
+            m_context->drawBufferToCanvas(CanvasRenderingContext::SurfaceBuffer::DrawingBuffer);
+        m_copiedImage = BitmapImage::create(buffer()->copyNativeImage());
     }
     return m_copiedImage.get();
 }
@@ -968,13 +915,13 @@ void HTMLCanvasElement::clearImageBuffer() const
 
     m_didClearImageBuffer = true;
 
-    if (is<CanvasRenderingContext2D>(*m_context)) {
+    if (RefPtr canvas = dynamicDowncast<CanvasRenderingContext2D>(*m_context)) {
         // No need to undo transforms/clip/etc. because we are called right after the context is reset.
-        downcast<CanvasRenderingContext2D>(*m_context).clearRect(0, 0, width(), height());
+        canvas->clearRect(0, 0, width(), height());
     }
 }
 
-void HTMLCanvasElement::clearCopiedImage()
+void HTMLCanvasElement::clearCopiedImage() const
 {
     m_copiedImage = nullptr;
     m_didClearImageBuffer = false;
@@ -988,9 +935,10 @@ const char* HTMLCanvasElement::activeDOMObjectName() const
 bool HTMLCanvasElement::virtualHasPendingActivity() const
 {
 #if ENABLE(WEBGL)
-    if (is<WebGLRenderingContextBase>(m_context.get())) {
-        // WebGL rendering context may fire contextlost / contextchange / contextrestored events at any point.
-        return m_hasRelevantWebGLEventListener && !downcast<WebGLRenderingContextBase>(*m_context).isContextUnrecoverablyLost();
+    if (m_hasRelevantWebGLEventListener) {
+        auto* context = dynamicDowncast<WebGLRenderingContextBase>(m_context.get());
+        // WebGL rendering context may fire contextlost / contextrestored events at any point.
+        return context && !context->isContextUnrecoverablyLost();
     }
 #endif
 
@@ -1000,56 +948,70 @@ bool HTMLCanvasElement::virtualHasPendingActivity() const
 void HTMLCanvasElement::eventListenersDidChange()
 {
 #if ENABLE(WEBGL)
-    m_hasRelevantWebGLEventListener = hasEventListeners(eventNames().webglcontextchangedEvent)
-        || hasEventListeners(eventNames().webglcontextlostEvent)
-        || hasEventListeners(eventNames().webglcontextrestoredEvent);
+    auto& eventNames = WebCore::eventNames();
+    m_hasRelevantWebGLEventListener = hasEventListeners(eventNames.webglcontextlostEvent)
+        || hasEventListeners(eventNames.webglcontextrestoredEvent);
 #endif
 }
 
 void HTMLCanvasElement::didMoveToNewDocument(Document& oldDocument, Document& newDocument)
 {
-    oldDocument.clearCanvasPreparation(this);
-    removeObserver(oldDocument);
-    addObserver(newDocument);
+    ActiveDOMObject::didMoveToNewDocument(newDocument);
 
-    HTMLElement::didMoveToNewDocument(oldDocument, newDocument);
-}
-
-Node::InsertedIntoAncestorResult HTMLCanvasElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
-{
-    if (insertionType.connectedToDocument)
-        addObserver(parentOfInsertedTree.document());
-
-    return HTMLElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
-}
-
-void HTMLCanvasElement::removedFromAncestor(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
-{
-    if (removalType.disconnectedFromDocument) {
-        oldParentOfRemovedTree.document().clearCanvasPreparation(this);
-        removeObserver(oldParentOfRemovedTree.document());
+    auto* context = renderingContext();
+    if (context) {
+        oldDocument.removeCanvasNeedingPreparationForDisplayOrFlush(*context);
+        newDocument.addCanvasNeedingPreparationForDisplayOrFlush(*context);
     }
-
-    HTMLElement::removedFromAncestor(removalType, oldParentOfRemovedTree);
+    HTMLElement::didMoveToNewDocument(oldDocument, newDocument);
 }
 
 bool HTMLCanvasElement::needsPreparationForDisplay()
 {
-#if ENABLE(WEBGL)
-    return is<WebGLRenderingContextBase>(m_context.get());
-#else
-    return false;
-#endif
+    return m_context && m_context->needsPreparationForDisplay();
 }
 
 void HTMLCanvasElement::prepareForDisplay()
 {
-#if ENABLE(WEBGL)
     ASSERT(needsPreparationForDisplay());
 
-    if (is<WebGLRenderingContextBase>(m_context.get()))
-        downcast<WebGLRenderingContextBase>(m_context.get())->prepareForDisplay();
+    bool shouldPrepare = true;
+#if ENABLE(WEBGL)
+    // FIXME: Currently the below prepare skip logic is conservative and applies only to
+    // WebGL elements.
+    if (is<WebGLRenderingContextBase>(m_context)) {
+        // If the canvas is not in the document body, then it won't be
+        // composited and thus doesn't need preparation. Unfortunately
+        // it can't tell at the time it was added to the list, since it
+        // could be inserted or removed from the document body afterwards.
+        shouldPrepare = isInTreeScope() || hasDisplayBufferObservers();
+    }
 #endif
+    if (!shouldPrepare)
+        return;
+    if (m_context)
+        m_context->prepareForDisplay();
+    notifyObserversCanvasDisplayBufferPrepared();
+}
+
+bool HTMLCanvasElement::isControlledByOffscreen() const
+{
+    return m_context && m_context->isPlaceholder();
+}
+
+void HTMLCanvasElement::queueTaskKeepingObjectAlive(TaskSource source, Function<void()>&& task)
+{
+    ActiveDOMObject::queueTaskKeepingObjectAlive(*this, source, WTFMove(task));
+}
+
+void HTMLCanvasElement::dispatchEvent(Event& event)
+{
+    Node::dispatchEvent(event);
+}
+
+WebCoreOpaqueRoot root(HTMLCanvasElement* canvas)
+{
+    return root(static_cast<Node*>(canvas));
 }
 
 }

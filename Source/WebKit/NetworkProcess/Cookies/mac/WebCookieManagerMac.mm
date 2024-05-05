@@ -31,6 +31,7 @@
 #import <WebCore/HTTPCookieAcceptPolicy.h>
 #import <WebCore/NetworkStorageSession.h>
 #import <pal/spi/cf/CFNetworkSPI.h>
+#import <wtf/CallbackAggregator.h>
 #import <wtf/ProcessPrivilege.h>
 
 namespace WebKit {
@@ -53,16 +54,20 @@ static CFHTTPCookieStorageAcceptPolicy toCFHTTPCookieStorageAcceptPolicy(HTTPCoo
     return CFHTTPCookieStorageAcceptPolicyAlways;
 }
 
-void WebCookieManager::platformSetHTTPCookieAcceptPolicy(HTTPCookieAcceptPolicy policy)
+void WebCookieManager::platformSetHTTPCookieAcceptPolicy(PAL::SessionID sessionID, HTTPCookieAcceptPolicy policy, CompletionHandler<void()>&& completionHandler)
 {
     ASSERT(hasProcessPrivilege(ProcessPrivilege::CanAccessRawCookies));
 
-    [[NSHTTPCookieStorage sharedHTTPCookieStorage] setCookieAcceptPolicy:static_cast<NSHTTPCookieAcceptPolicy>(policy)];
+    auto* storageSession = protectedProcess()->storageSession(sessionID);
+    if (!storageSession)
+        return completionHandler();
 
-    m_process.forEachNetworkStorageSession([&] (const auto& networkStorageSession) {
-        if (auto cookieStorage = networkStorageSession.cookieStorage())
-            CFHTTPCookieStorageSetCookieAcceptPolicy(cookieStorage.get(), toCFHTTPCookieStorageAcceptPolicy(policy));
-    });
+    auto* nsCookieStorage = storageSession->nsCookieStorage();
+    if (!nsCookieStorage)
+        return completionHandler();
+
+    CFHTTPCookieStorageSetCookieAcceptPolicy([nsCookieStorage _cookieStorage], toCFHTTPCookieStorageAcceptPolicy(policy));
+    saveCookies(nsCookieStorage, WTFMove(completionHandler));
 }
 
 } // namespace WebKit

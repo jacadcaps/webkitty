@@ -26,7 +26,8 @@
 #include "config.h"
 #include "InspectorBrowserAgent.h"
 
-#include "APIInspectorClient.h"
+#include "APIUIClient.h"
+#include "WebInspectorUIProxy.h"
 #include "WebPageInspectorController.h"
 #include "WebPageProxy.h"
 #include <JavaScriptCore/InspectorProtocolObjects.h>
@@ -51,7 +52,7 @@ InspectorBrowserAgent::~InspectorBrowserAgent() = default;
 
 bool InspectorBrowserAgent::enabled() const
 {
-    return m_inspectedPage.inspectorController().enabledBrowserAgent() == this;
+    return m_inspectedPage->inspectorController().enabledBrowserAgent() == this;
 }
 
 void InspectorBrowserAgent::didCreateFrontendAndBackend(Inspector::FrontendRouter*, Inspector::BackendDispatcher*)
@@ -60,35 +61,27 @@ void InspectorBrowserAgent::didCreateFrontendAndBackend(Inspector::FrontendRoute
 
 void InspectorBrowserAgent::willDestroyFrontendAndBackend(Inspector::DisconnectReason)
 {
-    ErrorString ignored;
-    disable(ignored);
+    disable();
 }
 
-void InspectorBrowserAgent::enable(ErrorString& errorString)
+Inspector::Protocol::ErrorStringOr<void> InspectorBrowserAgent::enable()
 {
-    if (enabled()) {
-        errorString = "Browser domain already enabled"_s;
-        return;
-    }
+    if (enabled())
+        return makeUnexpected("Browser domain already enabled"_s);
 
-    m_inspectedPage.inspectorController().setEnabledBrowserAgent(this);
+    m_inspectedPage->inspectorController().setEnabledBrowserAgent(this);
 
-    auto* inspector = m_inspectedPage.inspector();
-    ASSERT(inspector);
-    m_inspectedPage.inspectorClient().browserDomainEnabled(m_inspectedPage, *inspector);
+    return { };
 }
 
-void InspectorBrowserAgent::disable(ErrorString& errorString)
+Inspector::Protocol::ErrorStringOr<void> InspectorBrowserAgent::disable()
 {
-    if (!enabled()) {
-        errorString = "Browser domain already disabled"_s;
-        return;
-    }
+    if (!enabled())
+        return makeUnexpected("Browser domain already disabled"_s);
 
-    m_inspectedPage.inspectorController().setEnabledBrowserAgent(nullptr);
+    m_inspectedPage->inspectorController().setEnabledBrowserAgent(nullptr);
 
-    if (auto* inspector = m_inspectedPage.inspector())
-        m_inspectedPage.inspectorClient().browserDomainDisabled(m_inspectedPage, *inspector);
+    return { };
 }
 
 void InspectorBrowserAgent::extensionsEnabled(HashMap<String, String>&& extensionIDToName)

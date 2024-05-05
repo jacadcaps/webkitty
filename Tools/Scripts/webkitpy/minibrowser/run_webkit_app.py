@@ -18,16 +18,18 @@
 
 from __future__ import print_function
 import argparse
-import os
 import sys
 import traceback
 
 from webkitpy.common.host import Host
 from webkitpy.port import configuration_options, platform_options, factory
-
+from webkitcorepy.string_utils import decode
 
 def main(argv):
-    option_parser = argparse.ArgumentParser(usage="%(prog)s [options] [url]", add_help=False)
+    option_parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter,
+                                            usage="%(prog)s [options] [url] [-- [minibrowser_options]]",
+                                            epilog="MiniBrowser options:    Pass them after two dashes.\n  Example:"
+                                                   "{spaces}run-minibrowser --wpe -- --platform=drm http://url.com".format(spaces=" " * 14))
     groups = [("Platform options", platform_options()), ("Configuration options", configuration_options())]
 
     # Convert options to argparse, so that we can use parse_known_args() which is not supported in optparse.
@@ -44,7 +46,7 @@ def main(argv):
                 option_group.add_argument(option.get_opt_string(), action=option.action, dest=option.dest,
                                           help=option.help, const=option.const, default=default)
 
-    option_parser.add_argument('url', metavar='url', type=lambda s: unicode(s, 'utf8'), nargs='?',
+    option_parser.add_argument('url', metavar='url', type=lambda s: decode(s, 'utf8'), nargs='?',
                                help='Website URL to load')
     options, args = option_parser.parse_known_args(argv)
 
@@ -54,7 +56,7 @@ def main(argv):
     # Convert unregistered command-line arguments to utf-8 and append parsed
     # URL. convert_arg_line_to_args() returns a list containing a single
     # string, so it needs to be split again.
-    browser_args = [unicode(s, "utf-8") for s in option_parser.convert_arg_line_to_args(' '.join(args))[0].split()]
+    browser_args = [decode(s, "utf-8") for s in option_parser.convert_arg_line_to_args(' '.join(args))[0].split()]
     if options.url:
         browser_args.append(options.url)
 

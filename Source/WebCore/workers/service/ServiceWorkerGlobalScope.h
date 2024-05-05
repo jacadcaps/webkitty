@@ -25,26 +25,37 @@
 
 #pragma once
 
-#if ENABLE(SERVICE_WORKER)
-
-#include "ServiceWorkerClientIdentifier.h"
+#include "CookieStore.h"
+#include "NotificationClient.h"
+#include "ScriptExecutionContextIdentifier.h"
 #include "ServiceWorkerContextData.h"
 #include "ServiceWorkerRegistration.h"
 #include "WorkerGlobalScope.h"
+#include <wtf/MonotonicTime.h>
+#include <wtf/URLHash.h>
 
 namespace WebCore {
 
 class DeferredPromise;
 class ExtendableEvent;
-struct ServiceWorkerClientData;
+class Page;
+class PushEvent;
 class ServiceWorkerClient;
 class ServiceWorkerClients;
 class ServiceWorkerThread;
 
+#if ENABLE(DECLARATIVE_WEB_PUSH)
+class PushNotificationEvent;
+#endif
+
+enum class NotificationEventType : bool;
+
+struct ServiceWorkerClientData;
+
 class ServiceWorkerGlobalScope final : public WorkerGlobalScope {
     WTF_MAKE_ISO_ALLOCATED(ServiceWorkerGlobalScope);
 public:
-    static Ref<ServiceWorkerGlobalScope> create(const ServiceWorkerContextData&, const WorkerParameters&, Ref<SecurityOrigin>&&, ServiceWorkerThread&, Ref<SecurityOrigin>&& topOrigin, IDBClient::IDBConnectionProxy*, SocketProvider*);
+    static Ref<ServiceWorkerGlobalScope> create(ServiceWorkerContextData&&, ServiceWorkerData&&, const WorkerParameters&, Ref<SecurityOrigin>&&, ServiceWorkerThread&, Ref<SecurityOrigin>&& topOrigin, IDBClient::IDBConnectionProxy*, SocketProvider*, std::unique_ptr<NotificationClient>&&);
 
     ~ServiceWorkerGlobalScope();
 
@@ -52,6 +63,7 @@ public:
 
     ServiceWorkerClients& clients() { return m_clients.get(); }
     ServiceWorkerRegistration& registration() { return m_registration.get(); }
+    ServiceWorker& serviceWorker() { return m_serviceWorker.get(); }
     
     void skipWaiting(Ref<DeferredPromise>&&);
 
@@ -59,37 +71,81 @@ public:
 
     ServiceWorkerThread& thread();
 
-    ServiceWorkerClient* serviceWorkerClient(ServiceWorkerClientIdentifier);
-    void addServiceWorkerClient(ServiceWorkerClient&);
-    void removeServiceWorkerClient(ServiceWorkerClient&);
-
     void updateExtendedEventsSet(ExtendableEvent* newEvent = nullptr);
 
     const ServiceWorkerContextData::ImportedScript* scriptResource(const URL&) const;
     void setScriptResource(const URL&, ServiceWorkerContextData::ImportedScript&&);
 
-    const CertificateInfo& certificateInfo() const { return m_contextData.certificateInfo; }
-    
-private:
-    ServiceWorkerGlobalScope(const ServiceWorkerContextData&, const WorkerParameters&, Ref<SecurityOrigin>&&, ServiceWorkerThread&, Ref<SecurityOrigin>&& topOrigin, IDBClient::IDBConnectionProxy*, SocketProvider*);
+    void didSaveScriptsToDisk(ScriptBuffer&&, HashMap<URL, ScriptBuffer>&& importedScripts);
 
+    const ServiceWorkerContextData& contextData() const { return m_contextData; }
+    const CertificateInfo& certificateInfo() const { return m_contextData.certificateInfo; }
+
+    FetchOptions::Destination destination() const final { return FetchOptions::Destination::Serviceworker; }
+
+    WEBCORE_EXPORT Page* serviceWorkerPage();
+
+    void dispatchPushEvent(PushEvent&);
+    PushEvent* pushEvent() { return m_pushEvent.get(); }
+
+#if ENABLE(DECLARATIVE_WEB_PUSH)
+    void dispatchPushNotificationEvent(PushNotificationEvent&);
+    PushNotificationEvent* pushNotificationEvent() { return m_pushNotificationEvent.get(); }
+    void clearPushNotificationEvent();
+#endif
+
+    bool hasPendingSilentPushEvent() const { return m_hasPendingSilentPushEvent; }
+    void setHasPendingSilentPushEvent(bool value) { m_hasPendingSilentPushEvent = value; }
+
+    constexpr static Seconds userGestureLifetime  { 2_s };
+    bool isProcessingUserGesture() const { return m_isProcessingUserGesture; }
+    void recordUserGesture();
+    void setIsProcessingUserGestureForTesting(bool value) { m_isProcessingUserGesture = value; }
+
+    bool didFirePushEventRecently() const;
+
+    WEBCORE_EXPORT void addConsoleMessage(MessageSource, MessageLevel, const String& message, unsigned long requestIdentifier) final;
+    void enableConsoleMessageReporting() { m_consoleMessageReportingEnabled = true; }
+
+    CookieStore& cookieStore();
+
+private:
+    ServiceWorkerGlobalScope(ServiceWorkerContextData&&, ServiceWorkerData&&, const WorkerParameters&, Ref<SecurityOrigin>&&, ServiceWorkerThread&, Ref<SecurityOrigin>&& topOrigin, IDBClient::IDBConnectionProxy*, SocketProvider*, std::unique_ptr<NotificationClient>&&);
+    void notifyServiceWorkerPageOfCreationIfNecessary();
+
+    void prepareForDestruction() final;
+
+    Type type() const final { return Type::ServiceWorker; }
     bool hasPendingEvents() const { return !m_extendedEvents.isEmpty(); }
+
+    NotificationClient* notificationClient() final { return m_notificationClient.get(); }
+
+    void resetUserGesture() { m_isProcessingUserGesture = false; }
 
     ServiceWorkerContextData m_contextData;
     Ref<ServiceWorkerRegistration> m_registration;
+    Ref<ServiceWorker> m_serviceWorker;
     Ref<ServiceWorkerClients> m_clients;
-    HashMap<ServiceWorkerClientIdentifier, ServiceWorkerClient*> m_clientMap;
     Vector<Ref<ExtendableEvent>> m_extendedEvents;
 
     uint64_t m_lastRequestIdentifier { 0 };
     HashMap<uint64_t, RefPtr<DeferredPromise>> m_pendingSkipWaitingPromises;
+    std::unique_ptr<NotificationClient> m_notificationClient;
+    bool m_hasPendingSilentPushEvent { false };
+    bool m_isProcessingUserGesture { false };
+    Timer m_userGestureTimer;
+    RefPtr<PushEvent> m_pushEvent;
+#if ENABLE(DECLARATIVE_WEB_PUSH)
+    RefPtr<PushNotificationEvent> m_pushNotificationEvent;
+#endif
+    MonotonicTime m_lastPushEventTime;
+    bool m_consoleMessageReportingEnabled { false };
+    RefPtr<CookieStore> m_cookieStore;
 };
 
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::ServiceWorkerGlobalScope)
-    static bool isType(const WebCore::ScriptExecutionContext& context) { return is<WebCore::WorkerGlobalScope>(context) && downcast<WebCore::WorkerGlobalScope>(context).isServiceWorkerGlobalScope(); }
-    static bool isType(const WebCore::WorkerGlobalScope& context) { return context.isServiceWorkerGlobalScope(); }
+    static bool isType(const WebCore::ScriptExecutionContext& context) { return is<WebCore::WorkerGlobalScope>(context) && downcast<WebCore::WorkerGlobalScope>(context).type() == WebCore::WorkerGlobalScope::Type::ServiceWorker; }
+    static bool isType(const WebCore::WorkerGlobalScope& context) { return context.type() == WebCore::WorkerGlobalScope::Type::ServiceWorker; }
 SPECIALIZE_TYPE_TRAITS_END()
-
-#endif // ENABLE(SERVICE_WORKER)

@@ -14,9 +14,18 @@
 
 #include "absl/strings/str_replace.h"
 
+#include <cstddef>
+#include <initializer_list>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "absl/base/config.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 
 namespace absl {
+ABSL_NAMESPACE_BEGIN
 namespace strings_internal {
 
 using FixedMapping =
@@ -77,4 +86,5 @@ int StrReplaceAll(strings_internal::FixedMapping replacements,
   return StrReplaceAll<strings_internal::FixedMapping>(replacements, target);
 }
 
+ABSL_NAMESPACE_END
 }  // namespace absl

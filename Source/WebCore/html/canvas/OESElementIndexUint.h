@@ -26,15 +26,19 @@
 #pragma once
 
 #include "WebGLExtension.h"
+#include "WebGLRenderingContextBase.h"
+#include <wtf/IsoMalloc.h>
+#include <wtf/Noncopyable.h>
 
 namespace WebCore {
 
-class OESElementIndexUint final : public WebGLExtension {
+class OESElementIndexUint final : public WebGLExtension<WebGLRenderingContextBase> {
+    WTF_MAKE_ISO_ALLOCATED(OESElementIndexUint);
 public:
     explicit OESElementIndexUint(WebGLRenderingContextBase&);
-    virtual ~OESElementIndexUint();
+    ~OESElementIndexUint();
 
-    ExtensionName getName() const override;
+    static bool supported(GraphicsContextGL&);
 };
 
 } // namespace WebCore

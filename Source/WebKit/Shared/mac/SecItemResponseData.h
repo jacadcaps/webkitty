@@ -27,26 +27,22 @@
 
 #include <wtf/RetainPtr.h>
 
-namespace IPC {
-class Decoder;
-class Encoder;
-}
-
 namespace WebKit {
-    
+
 class SecItemResponseData {
 public:
-    SecItemResponseData(OSStatus, RetainPtr<CFTypeRef>&& result);
-
-    void encode(IPC::Encoder&) const;
-    static Optional<SecItemResponseData> decode(IPC::Decoder&);
+    SecItemResponseData(OSStatus code, RetainPtr<CFTypeRef>&& result)
+        : m_resultCode(code)
+        , m_resultObject(WTFMove(result)) { }
 
     RetainPtr<CFTypeRef>& resultObject() { return m_resultObject; }
     OSStatus resultCode() const { return m_resultCode; }
 
 private:
-    RetainPtr<CFTypeRef> m_resultObject;
+    friend struct IPC::ArgumentCoder<WebKit::SecItemResponseData, void>;
+
     OSStatus m_resultCode;
+    RetainPtr<CFTypeRef> m_resultObject;
 };
     
 } // namespace WebKit

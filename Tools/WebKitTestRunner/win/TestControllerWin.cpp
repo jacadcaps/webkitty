@@ -27,6 +27,7 @@
 #include "config.h"
 #include "TestController.h"
 
+#include "EventSenderProxy.h"
 #include <WebCore/NotImplemented.h>
 #include <WinBase.h>
 #include <fcntl.h>
@@ -35,6 +36,7 @@
 #include <string>
 #include <windows.h>
 #include <wtf/RunLoop.h>
+#include <wtf/WTFProcess.h>
 
 
 #define INJECTED_BUNDLE_DLL_NAME "TestRunnerInjectedBundle.dll"
@@ -104,7 +106,7 @@ void TestController::setHidden(bool)
 {
 }
 
-void TestController::platformInitialize()
+void TestController::platformInitialize(const Options&)
 {
     // Cygwin calls ::SetErrorMode(SEM_FAILCRITICALERRORS), which we will inherit. This is bad for
     // testing/debugging, as it causes the post-mortem debugger not to be invoked. We reset the
@@ -117,11 +119,6 @@ void TestController::platformInitialize()
     _setmode(2, _O_BINARY);
 
     webProcessCrashingEvent = ::CreateEventA(0, FALSE, FALSE, webProcessCrashingEventName);
-}
-
-WKPreferencesRef TestController::platformPreferences()
-{
-    return WKPageGroupGetPreferences(m_pageGroup.get());
 }
 
 void TestController::platformDestroy()
@@ -154,16 +151,16 @@ void TestController::platformRunUntil(bool& condition, WTF::Seconds timeout)
 
     // First, let the test harness know this happened so it won't think we've hung. But
     // make sure we don't exit just yet!
-    m_shouldExitWhenWebProcessCrashes = false;
-    processDidCrash();
-    m_shouldExitWhenWebProcessCrashes = true;
+    m_shouldExitWhenAuxiliaryProcessCrashes = false;
+    webProcessDidTerminate(kWKProcessTerminationReasonCrash);
+    m_shouldExitWhenAuxiliaryProcessCrashes = true;
 
     // Then spin a run loop until it finishes crashing to give time for a crash log to be saved. If
     // it takes too long for a crash log to be saved, we'll just give up.
     bool neverSetCondition = false;
     result = runRunLoopUntil(neverSetCondition, 0, maximumWaitForWebProcessToCrash);
     ASSERT_UNUSED(result, result == TimedOut);
-    exit(1);
+    exitProcess(1);
 }
 
 void TestController::platformDidCommitLoadForFrame(WKPageRef, WKFrameRef)
@@ -222,14 +219,16 @@ void TestController::platformConfigureViewForTest(const TestInvocation&)
     notImplemented();
 }
 
-void TestController::platformResetPreferencesToConsistentValues()
+bool TestController::platformResetStateToConsistentValues(const TestOptions&)
 {
-    notImplemented();
+    // Reset the mouse position not to dispatch a fake double-click event for a click in the next page.
+    m_eventSenderProxy->mouseMoveTo(0, 0, nullptr);
+    return true;
 }
 
-void TestController::updatePlatformSpecificTestOptionsForTest(TestOptions&, const std::string&) const
+TestFeatures TestController::platformSpecificFeatureDefaultsForTest(const TestCommand&) const
 {
-    notImplemented();
+    return { };
 }
 
 } // namespace WTR

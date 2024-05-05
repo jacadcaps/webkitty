@@ -29,49 +29,52 @@
 
 #include "WebGLVertexArrayObjectOES.h"
 
-#include "ExtensionsGL.h"
 #include "WebGLRenderingContextBase.h"
 
 namespace WebCore {
 
-Ref<WebGLVertexArrayObjectOES> WebGLVertexArrayObjectOES::create(WebGLRenderingContextBase& context, Type type)
+Ref<WebGLVertexArrayObjectOES> WebGLVertexArrayObjectOES::createDefault(WebGLRenderingContextBase& context)
 {
-    return adoptRef(*new WebGLVertexArrayObjectOES(context, type));
+    return adoptRef(*new WebGLVertexArrayObjectOES(context, 0, Type::Default));
 }
 
-WebGLVertexArrayObjectOES::WebGLVertexArrayObjectOES(WebGLRenderingContextBase& context, Type type)
-    : WebGLVertexArrayObjectBase(context, type)
+RefPtr<WebGLVertexArrayObjectOES> WebGLVertexArrayObjectOES::createUser(WebGLRenderingContextBase& context)
 {
-    switch (type) {
-    case Type::Default:
-        break;
-    case Type::User:
-        setObject(this->context()->graphicsContextGL()->getExtensions().createVertexArrayOES());
-        break;
-    }
+    auto object = context.protectedGraphicsContextGL()->createVertexArray();
+    if (!object)
+        return nullptr;
+    return adoptRef(*new WebGLVertexArrayObjectOES { context, object, Type::User });
+}
+
+WebGLVertexArrayObjectOES::WebGLVertexArrayObjectOES(WebGLRenderingContextBase& context, PlatformGLObject object, Type type)
+    : WebGLVertexArrayObjectBase(context, object, type)
+{
 }
 
 WebGLVertexArrayObjectOES::~WebGLVertexArrayObjectOES()
 {
-    deleteObject(nullptr);
+    if (!context())
+        return;
+
+    runDestructor();
 }
 
-void WebGLVertexArrayObjectOES::deleteObjectImpl(GraphicsContextGLOpenGL* context3d, PlatformGLObject object)
+void WebGLVertexArrayObjectOES::deleteObjectImpl(const AbstractLocker& locker, GraphicsContextGL* context3d, PlatformGLObject object)
 {
     switch (m_type) {
     case Type::Default:
         break;
     case Type::User:
-        context3d->getExtensions().deleteVertexArrayOES(object);
+        context3d->deleteVertexArray(object);
         break;
     }
 
     if (m_boundElementArrayBuffer)
-        m_boundElementArrayBuffer->onDetached(context3d);
+        m_boundElementArrayBuffer->onDetached(locker, context3d);
 
     for (auto& state : m_vertexAttribState) {
         if (state.bufferBinding)
-            state.bufferBinding->onDetached(context3d);
+            state.bufferBinding->onDetached(locker, context3d);
     }
 }
 }

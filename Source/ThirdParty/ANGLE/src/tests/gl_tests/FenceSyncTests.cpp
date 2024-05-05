@@ -5,10 +5,11 @@
 //
 
 #include "test_utils/ANGLETest.h"
+#include "test_utils/gl_raii.h"
 
 using namespace angle;
 
-class FenceNVTest : public ANGLETest
+class FenceNVTest : public ANGLETest<>
 {
   protected:
     FenceNVTest()
@@ -23,13 +24,16 @@ class FenceNVTest : public ANGLETest
     }
 };
 
-class FenceSyncTest : public ANGLETest
+class FenceSyncTest : public ANGLETest<>
 {
+  public:
+    static constexpr uint32_t kSize = 256;
+
   protected:
     FenceSyncTest()
     {
-        setWindowWidth(128);
-        setWindowHeight(128);
+        setWindowWidth(kSize);
+        setWindowHeight(kSize);
         setConfigRedBits(8);
         setConfigGreenBits(8);
         setConfigBlueBits(8);
@@ -223,6 +227,16 @@ TEST_P(FenceSyncTest, BasicQueries)
     EXPECT_EQ(0, value);
 }
 
+// Test usage of glGetSynciv with nullptr as length
+TEST_P(FenceSyncTest, NullLength)
+{
+    GLint value = 0;
+    GLsync sync = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+    glGetSynciv(sync, GL_SYNC_STATUS, 1, nullptr, &value);
+    glDeleteSync(sync);
+    EXPECT_GL_NO_ERROR();
+}
+
 // Test that basic usage works and doesn't generate errors or crash
 TEST_P(FenceSyncTest, BasicOperations)
 {
@@ -251,15 +265,100 @@ TEST_P(FenceSyncTest, BasicOperations)
 
     ASSERT_GLENUM_EQ(GL_SIGNALED, value);
 
+    ANGLE_GL_PROGRAM(greenProgram, essl1_shaders::vs::Simple(), essl1_shaders::fs::Green());
     for (size_t i = 0; i < 20; i++)
     {
         glClear(GL_COLOR_BUFFER_BIT);
-        glClientWaitSync(sync, GL_SYNC_FLUSH_COMMANDS_BIT, GL_TIMEOUT_IGNORED);
+        drawQuad(greenProgram, std::string(essl1_shaders::PositionAttrib()), 0.0f);
+        ASSERT_GL_NO_ERROR();
+
+        GLsync clientWaitSync = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+        ASSERT_GL_NO_ERROR();
+
+        // Don't wait forever to make sure the test terminates
+        constexpr GLuint64 kTimeout = 1'000'000'000;  // 1 second
+        GLenum clientWaitResult =
+            glClientWaitSync(clientWaitSync, GL_SYNC_FLUSH_COMMANDS_BIT, kTimeout);
         EXPECT_GL_NO_ERROR();
+        EXPECT_TRUE(clientWaitResult == GL_CONDITION_SATISFIED ||
+                    clientWaitResult == GL_ALREADY_SIGNALED);
+
+        glDeleteSync(clientWaitSync);
+        ASSERT_GL_NO_ERROR();
     }
 }
 
-// Use this to select which configurations (e.g. which renderer, which GLES major version) these
-// tests should be run against.
+// Test that multiple fences and draws can be issued
+TEST_P(FenceSyncTest, MultipleFenceDraw)
+{
+    constexpr int kNumIterations = 10;
+    constexpr int kNumDraws      = 5;
+
+    // Create a texture/FBO to draw to
+    GLTexture texture;
+    glBindTexture(GL_TEXTURE_2D, texture.get());
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, kSize, kSize);
+    ASSERT_GL_NO_ERROR();
+    GLFramebuffer fbo;
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
+    ASSERT_GL_FRAMEBUFFER_COMPLETE(GL_FRAMEBUFFER);
+
+    ANGLE_GL_PROGRAM(greenProgram, essl1_shaders::vs::Simple(), essl1_shaders::fs::Green());
+    ANGLE_GL_PROGRAM(redProgram, essl1_shaders::vs::Simple(), essl1_shaders::fs::Red());
+
+    bool drawGreen = true;
+    for (int numIterations = 0; numIterations < kNumIterations; ++numIterations)
+    {
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+        ASSERT_GL_NO_ERROR();
+
+        for (int i = 0; i < kNumDraws; ++i)
+        {
+            GLsync sync = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+            ASSERT_GL_NO_ERROR();
+
+            drawGreen      = !drawGreen;
+            GLuint program = 0;
+            if (drawGreen)
+            {
+                program = greenProgram.get();
+            }
+            else
+            {
+                program = redProgram.get();
+            }
+            drawQuad(program, std::string(essl1_shaders::PositionAttrib()), 0.0f);
+            ASSERT_GL_NO_ERROR();
+
+            glWaitSync(sync, 0, GL_TIMEOUT_IGNORED);
+            EXPECT_GL_NO_ERROR();
+            glDeleteSync(sync);
+            ASSERT_GL_NO_ERROR();
+        }
+
+        // Blit to the default FBO
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+        glBlitFramebuffer(0, 0, kSize, kSize, 0, 0, kSize, kSize, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        ASSERT_GL_NO_ERROR();
+        swapBuffers();
+
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+        GLColor color;
+        if (drawGreen)
+        {
+            color = GLColor::green;
+        }
+        else
+        {
+            color = GLColor::red;
+        }
+        EXPECT_PIXEL_RECT_EQ(0, 0, kSize, kSize, color);
+    }
+}
+
 ANGLE_INSTANTIATE_TEST_ES2_AND_ES3(FenceNVTest);
+
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(FenceSyncTest);
 ANGLE_INSTANTIATE_TEST_ES3(FenceSyncTest);

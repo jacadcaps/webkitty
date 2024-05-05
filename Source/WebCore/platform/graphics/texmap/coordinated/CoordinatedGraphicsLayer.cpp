@@ -1,6 +1,6 @@
 /*
  Copyright (C) 2010 Nokia Corporation and/or its subsidiary(-ies)
- Copyright (C) 2010 Apple Inc. All rights reserved.
+ Copyright (C) 2010-2022 Apple Inc. All rights reserved.
  Copyright (C) 2012 Company 100, Inc.
  Copyright (C) 2012 Intel Corporation. All rights reserved.
  Copyright (C) 2017 Sony Interactive Entertainment Inc.
@@ -26,19 +26,21 @@
 
 #if USE(COORDINATED_GRAPHICS)
 
+#include "CairoUtilities.h"
 #include "FloatQuad.h"
 #include "GraphicsContext.h"
 #include "GraphicsLayer.h"
+#include "GraphicsLayerContentsDisplayDelegate.h"
 #include "GraphicsLayerFactory.h"
-#include "NicosiaBackingStoreTextureMapperImpl.h"
-#include "NicosiaCompositionLayerTextureMapperImpl.h"
-#include "NicosiaContentLayerTextureMapperImpl.h"
-#include "NicosiaImageBackingTextureMapperImpl.h"
+#include "NicosiaBackingStore.h"
+#include "NicosiaContentLayer.h"
+#include "NicosiaImageBacking.h"
 #include "NicosiaPaintingContext.h"
 #include "NicosiaPaintingEngine.h"
 #include "ScrollableArea.h"
 #include "TextureMapperPlatformLayerProxyProvider.h"
 #include "TiledBackingStore.h"
+#include "TransformOperation.h"
 #ifndef NDEBUG
 #include <wtf/SetForScope.h>
 #endif
@@ -71,6 +73,11 @@ void CoordinatedGraphicsLayer::notifyFlushRequired()
 
 void CoordinatedGraphicsLayer::didChangeAnimations()
 {
+    m_animations.setTranslate(client().transformMatrixForProperty(AnimatedProperty::Translate));
+    m_animations.setRotate(client().transformMatrixForProperty(AnimatedProperty::Rotate));
+    m_animations.setScale(client().transformMatrixForProperty(AnimatedProperty::Scale));
+    m_animations.setTransform(client().transformMatrixForProperty(AnimatedProperty::Transform));
+
     m_nicosia.delta.animationsChanged = true;
     notifyFlushRequired();
 }
@@ -138,15 +145,13 @@ CoordinatedGraphicsLayer::CoordinatedGraphicsLayer(Type layerType, GraphicsLayer
     , m_pendingVisibleRectAdjustment(false)
     , m_shouldUpdatePlatformLayer(false)
     , m_coordinator(0)
-    , m_compositedNativeImagePtr(0)
     , m_animationStartedTimer(*this, &CoordinatedGraphicsLayer::animationStartedTimerFired)
     , m_requestPendingTileCreationTimer(RunLoop::main(), this, &CoordinatedGraphicsLayer::requestPendingTileCreationTimerFired)
 {
     static Nicosia::PlatformLayer::LayerID nextLayerID = 1;
     m_id = nextLayerID++;
 
-    m_nicosia.layer = Nicosia::CompositionLayer::create(m_id,
-        Nicosia::CompositionLayerTextureMapperImpl::createFactory());
+    m_nicosia.layer = Nicosia::CompositionLayer::create(m_id);
 
     // Enforce a complete flush on the first occasion.
     m_nicosia.delta.value = UINT_MAX;
@@ -168,6 +173,8 @@ CoordinatedGraphicsLayer::~CoordinatedGraphicsLayer()
     ASSERT(!m_nicosia.backingStore);
     if (m_animatedBackingStoreHost)
         m_animatedBackingStoreHost->layerWillBeDestroyed();
+    if (CoordinatedGraphicsLayer* parentLayer = downcast<CoordinatedGraphicsLayer>(parent()))
+        parentLayer->didChangeChildren();
     willBeDestroyed();
 }
 
@@ -181,9 +188,9 @@ Nicosia::PlatformLayer::LayerID CoordinatedGraphicsLayer::id() const
     return m_id;
 }
 
-auto CoordinatedGraphicsLayer::primaryLayerID() const -> PlatformLayerID
+auto CoordinatedGraphicsLayer::primaryLayerID() const -> PlatformLayerIdentifier
 {
-    return id();
+    return { ObjectIdentifier<PlatformLayerIdentifierType>(id()), Process::identifier() };
 }
 
 bool CoordinatedGraphicsLayer::setChildren(Vector<Ref<GraphicsLayer>>&& children)
@@ -238,12 +245,32 @@ bool CoordinatedGraphicsLayer::replaceChild(GraphicsLayer* oldChild, Ref<Graphic
     return true;
 }
 
-void CoordinatedGraphicsLayer::removeFromParent()
+void CoordinatedGraphicsLayer::willModifyChildren()
 {
-    if (CoordinatedGraphicsLayer* parentLayer = downcast<CoordinatedGraphicsLayer>(parent()))
-        parentLayer->didChangeChildren();
-    GraphicsLayer::removeFromParent();
+    didChangeChildren();
 }
+
+void CoordinatedGraphicsLayer::setEventRegion(EventRegion&& eventRegion)
+{
+    if (eventRegion == m_eventRegion)
+        return;
+
+    GraphicsLayer::setEventRegion(WTFMove(eventRegion));
+    m_nicosia.delta.eventRegionChanged = true;
+
+    notifyFlushRequired();
+}
+
+#if ENABLE(SCROLLING_THREAD)
+void CoordinatedGraphicsLayer::setScrollingNodeID(ScrollingNodeID nodeID)
+{
+    if (scrollingNodeID() == nodeID)
+        return;
+
+    GraphicsLayer::setScrollingNodeID(nodeID);
+    m_nicosia.delta.scrollingNodeChanged = true;
+}
+#endif // ENABLE(SCROLLING_THREAD)
 
 void CoordinatedGraphicsLayer::setPosition(const FloatPoint& p)
 {
@@ -457,6 +484,16 @@ void CoordinatedGraphicsLayer::setContentsClippingRect(const FloatRoundedRect& r
     notifyFlushRequired();
 }
 
+void CoordinatedGraphicsLayer::setContentsRectClipsDescendants(bool clips)
+{
+    if (contentsRectClipsDescendants() == clips)
+        return;
+
+    GraphicsLayer::setContentsRectClipsDescendants(clips);
+    m_nicosia.delta.flagsChanged = true;
+    notifyFlushRequired();
+}
+
 bool GraphicsLayer::supportsContentsTiling()
 {
     return true;
@@ -489,13 +526,19 @@ void CoordinatedGraphicsLayer::setContentsToPlatformLayer(PlatformLayer* platfor
 #endif
 }
 
+void CoordinatedGraphicsLayer::setContentsDisplayDelegate(RefPtr<GraphicsLayerContentsDisplayDelegate>&& displayDelegate, ContentsLayerPurpose purpose)
+{
+    PlatformLayer* platformLayer = displayDelegate ? displayDelegate->platformLayer() : nullptr;
+    setContentsToPlatformLayer(platformLayer, purpose);
+}
+
 bool CoordinatedGraphicsLayer::filtersCanBeComposited(const FilterOperations& filters) const
 {
     if (!filters.size())
         return false;
 
     for (const auto& filterOperation : filters.operations()) {
-        if (filterOperation->type() == FilterOperation::REFERENCE)
+        if (filterOperation->type() == FilterOperation::Type::Reference)
             return false;
     }
 
@@ -531,6 +574,7 @@ bool CoordinatedGraphicsLayer::setBackdropFilters(const FilterOperations& filter
             return false;
     } else
         clearBackdropFilters();
+
     didChangeBackdropFilters();
 
     return canCompositeFilters;
@@ -585,12 +629,12 @@ void CoordinatedGraphicsLayer::setShowRepaintCounter(bool show)
 
 void CoordinatedGraphicsLayer::setContentsToImage(Image* image)
 {
-    NativeImagePtr nativeImagePtr = image ? image->nativeImageForCurrentFrame() : nullptr;
-    if (m_compositedImage == image && m_compositedNativeImagePtr == nativeImagePtr)
+    auto nativeImage = image ? image->nativeImageForCurrentFrame() : nullptr;
+    if (m_compositedImage == image && m_compositedNativeImage == nativeImage)
         return;
 
     m_compositedImage = image;
-    m_compositedNativeImagePtr = nativeImagePtr;
+    m_compositedNativeImage = nativeImage;
 
     GraphicsLayer::setContentsToImage(image);
     notifyFlushRequired();
@@ -620,7 +664,7 @@ bool CoordinatedGraphicsLayer::shouldDirectlyCompositeImage(Image* image) const
     if (!image || !image->isBitmapImage())
         return false;
 
-    enum { MaxDimenstionForDirectCompositing = 2000 };
+    static constexpr float MaxDimenstionForDirectCompositing = 2000;
     if (image->width() > MaxDimenstionForDirectCompositing || image->height() > MaxDimenstionForDirectCompositing)
         return false;
 
@@ -667,10 +711,7 @@ void CoordinatedGraphicsLayer::setNeedsDisplayInRect(const FloatRect& initialRec
     if (alreadyRecorded)
         return;
 
-    if (rects.size() < 32)
-        rects.append(rect);
-    else
-        rects[0].unite(rect);
+    rects.append(rect);
 
     notifyFlushRequired();
     addRepaintRect(rect);
@@ -715,7 +756,7 @@ void CoordinatedGraphicsLayer::updatePlatformLayer()
     m_shouldUpdatePlatformLayer = false;
 #if USE(COORDINATED_GRAPHICS) && USE(NICOSIA)
     if (m_nicosia.contentLayer)
-        downcast<Nicosia::ContentLayerTextureMapperImpl>(m_nicosia.contentLayer->impl()).swapBuffersIfNeeded();
+        m_nicosia.contentLayer->swapBuffersIfNeeded();
 #endif
 }
 
@@ -761,7 +802,7 @@ public:
 
         // Calculate the inverse of the layer transformation. The inverse transform will have the inverse of the
         // scaleFactor applied, so we need to scale it back.
-        TransformationMatrix inverse = transform.inverse().valueOr(TransformationMatrix()).scale(m_contentsScale);
+        TransformationMatrix inverse = transform.inverse().value_or(TransformationMatrix()).scale(m_contentsScale);
 
         // Apply the inverse transform to the visible rectangle, so we have the visible rectangle in layer coordinates.
         FloatRect rect = inverse.clampedBoundsOfProjectedQuad(FloatQuad(m_visibleRect));
@@ -823,11 +864,11 @@ void CoordinatedGraphicsLayer::flushCompositingStateForThisLayerOnly()
     // Determine the backing store presence. Content is painted later, in the updateContentBuffers() traversal.
     if (shouldHaveBackingStore()) {
         if (!m_nicosia.backingStore) {
-            m_nicosia.backingStore = Nicosia::BackingStore::create(Nicosia::BackingStoreTextureMapperImpl::createFactory());
+            m_nicosia.backingStore = Nicosia::BackingStore::create();
             m_nicosia.delta.backingStoreChanged = true;
         }
     } else if (m_nicosia.backingStore) {
-        auto& layerState = downcast<Nicosia::BackingStoreTextureMapperImpl>(m_nicosia.backingStore->impl()).layerState();
+        auto& layerState = m_nicosia.backingStore->layerState();
         layerState.isPurging = true;
         layerState.mainBackingStore = nullptr;
 
@@ -844,57 +885,60 @@ void CoordinatedGraphicsLayer::flushCompositingStateForThisLayerOnly()
         if (!m_animatedBackingStoreHost)
             m_animatedBackingStoreHost = AnimatedBackingStoreHost::create(*this);
         m_nicosia.animatedBackingStoreClient = CoordinatedAnimatedBackingStoreClient::create(m_animatedBackingStoreHost.copyRef(), m_coordinator->visibleContentsRect(), { }, m_size, effectiveContentsScale());
+        m_nicosia.delta.animatedBackingStoreClientChanged = true;
+    } else  {
+        if (m_nicosia.animatedBackingStoreClient) {
+            m_nicosia.animatedBackingStoreClient = nullptr;
+            m_nicosia.delta.animatedBackingStoreClientChanged = true;
+        }
     }
-    // Each layer flush changes the AnimatedBackingStoreClient, being it null or a real one.
-    m_nicosia.delta.animatedBackingStoreClientChanged = true;
 
     // Determine image backing presence according to the composited image source.
-    if (m_compositedNativeImagePtr) {
+    if (m_compositedNativeImage) {
         ASSERT(m_compositedImage);
         auto& image = *m_compositedImage;
         uintptr_t imageID = reinterpret_cast<uintptr_t>(&image);
-        uintptr_t nativeImageID = reinterpret_cast<uintptr_t>(m_compositedNativeImagePtr.get());
+        uintptr_t nativeImageID = getSurfaceUniqueID(m_compositedNativeImage->platformImage().get());
 
         // Respawn the ImageBacking object if the underlying image changed.
         if (m_nicosia.imageBacking) {
-            auto& impl = downcast<Nicosia::ImageBackingTextureMapperImpl>(m_nicosia.imageBacking->impl());
-            if (impl.layerState().imageID != imageID) {
-                impl.layerState().update = Nicosia::ImageBackingTextureMapperImpl::Update { };
+            if (m_nicosia.imageBacking->layerState().imageID != imageID) {
+                m_nicosia.imageBacking->layerState().update = { };
                 m_nicosia.imageBacking = nullptr;
             }
         }
         if (!m_nicosia.imageBacking) {
-            m_nicosia.imageBacking = Nicosia::ImageBacking::create(Nicosia::ImageBackingTextureMapperImpl::createFactory());
+            m_nicosia.imageBacking = Nicosia::ImageBacking::create();
             m_nicosia.delta.imageBackingChanged = true;
         }
 
         // Update the image contents only when the image layer is visible and the native image changed.
-        auto& impl = downcast<Nicosia::ImageBackingTextureMapperImpl>(m_nicosia.imageBacking->impl());
-        auto& layerState = impl.layerState();
+        auto& layerState = m_nicosia.imageBacking->layerState();
         layerState.imageID = imageID;
         layerState.update.isVisible = transformedVisibleRect().intersects(IntRect(contentsRect()));
-        if (layerState.update.isVisible && layerState.nativeImageID != nativeImageID) {
-            auto buffer = Nicosia::Buffer::create(IntSize(image.size()),
-                !image.currentFrameKnownToBeOpaque() ? Nicosia::Buffer::SupportsAlpha : Nicosia::Buffer::NoFlags);
-            Nicosia::PaintingContext::paint(buffer,
-                [&image](GraphicsContext& context)
-                {
-                    IntRect rect { { }, IntSize { image.size() } };
-                    context.drawImage(image, rect, rect, ImagePaintingOptions(CompositeOperator::Copy));
+        if (layerState.update.isVisible && (!nativeImageID || layerState.update.nativeImageID != nativeImageID)) {
+            layerState.update.nativeImageID = nativeImageID;
+            layerState.update.imageBackingStore = m_coordinator->imageBackingStore(nativeImageID,
+                [&] {
+                    auto buffer = Nicosia::Buffer::create(IntSize(image.size()),
+                        !image.currentFrameKnownToBeOpaque() ? Nicosia::Buffer::SupportsAlpha : Nicosia::Buffer::NoFlags);
+                    Nicosia::PaintingContext::paint(buffer,
+                        [&image](GraphicsContext& context)
+                        {
+                            IntRect rect { { }, IntSize { image.size() } };
+                            context.drawImage(image, rect, rect, ImagePaintingOptions(CompositeOperator::Copy));
+                        });
+                    return buffer;
                 });
-            layerState.nativeImageID = nativeImageID;
-            layerState.update.buffer = WTFMove(buffer);
             m_nicosia.delta.imageBackingChanged = true;
         }
     } else if (m_nicosia.imageBacking) {
-        auto& layerState = downcast<Nicosia::ImageBackingTextureMapperImpl>(m_nicosia.imageBacking->impl()).layerState();
-        layerState.update = Nicosia::ImageBackingTextureMapperImpl::Update { };
+        m_nicosia.imageBacking->layerState().update = { };
         m_nicosia.imageBacking = nullptr;
-        m_nicosia.delta.imageBackingChanged = true;
     }
 
     {
-        m_nicosia.layer->updateState(
+        m_nicosia.layer->accessPending(
             [this](Nicosia::CompositionLayer::LayerState& state)
             {
                 // OR the local delta value into the layer's pending state delta. After that,
@@ -908,6 +952,8 @@ void CoordinatedGraphicsLayer::flushCompositingStateForThisLayerOnly()
                     state.anchorPoint = m_adjustedAnchorPoint;
                 if (localDelta.sizeChanged)
                     state.size = m_adjustedSize;
+                if (localDelta.boundsOriginChanged)
+                    state.boundsOrigin = boundsOrigin();
 
                 if (localDelta.transformChanged)
                     state.transform = transform();
@@ -942,7 +988,7 @@ void CoordinatedGraphicsLayer::flushCompositingStateForThisLayerOnly()
                             m_backdropLayer = adoptRef(*new CoordinatedGraphicsLayer(Type::Normal, client()));
                             m_backdropLayer->setAnchorPoint(FloatPoint3D());
                             m_backdropLayer->setMasksToBounds(true);
-                            m_backdropLayer->setName("backdrop");
+                            m_backdropLayer->setName(MAKE_STATIC_STRING_IMPL("backdrop"));
                             if (m_coordinator)
                                 m_coordinator->attachLayer(m_backdropLayer.get());
                         }
@@ -955,6 +1001,9 @@ void CoordinatedGraphicsLayer::flushCompositingStateForThisLayerOnly()
                     m_backdropLayer->setSize(m_backdropFiltersRect.rect().size());
                     m_backdropLayer->setPosition(m_backdropFiltersRect.rect().location());
                 }
+
+                if (localDelta.backdropFiltersRectChanged)
+                    state.backdropFiltersRect = m_backdropFiltersRect;
 
                 if (localDelta.animationsChanged)
                     state.animations = m_animations;
@@ -983,6 +1032,7 @@ void CoordinatedGraphicsLayer::flushCompositingStateForThisLayerOnly()
                     state.flags.contentsVisible = contentsAreVisible();
                     state.flags.backfaceVisible = backfaceVisibility();
                     state.flags.masksToBounds = masksToBounds();
+                    state.flags.contentsRectClipsDescendants = contentsRectClipsDescendants();
                     state.flags.preserves3D = preserves3D();
                 }
 
@@ -999,23 +1049,27 @@ void CoordinatedGraphicsLayer::flushCompositingStateForThisLayerOnly()
                     state.imageBacking = m_nicosia.imageBacking;
                 if (localDelta.animatedBackingStoreClientChanged)
                     state.animatedBackingStoreClient = m_nicosia.animatedBackingStoreClient;
+#if ENABLE(SCROLLING_THREAD)
+                if (localDelta.scrollingNodeChanged)
+                    state.scrollingNodeID = scrollingNodeID();
+#endif
+                if (localDelta.eventRegionChanged)
+                    state.eventRegion = eventRegion();
             });
         m_nicosia.performLayerSync = !!m_nicosia.delta.value;
         m_nicosia.delta = { };
     }
 }
 
-void CoordinatedGraphicsLayer::syncPendingStateChangesIncludingSubLayers()
+bool CoordinatedGraphicsLayer::checkPendingStateChangesIncludingSubLayers()
 {
-    if (m_nicosia.performLayerSync)
-        m_coordinator->syncLayerState();
-    m_nicosia.performLayerSync = false;
-
+    bool performLayerSync = std::exchange(m_nicosia.performLayerSync, false);
     if (maskLayer())
-        downcast<CoordinatedGraphicsLayer>(*maskLayer()).syncPendingStateChangesIncludingSubLayers();
+        performLayerSync |= downcast<CoordinatedGraphicsLayer>(*maskLayer()).checkPendingStateChangesIncludingSubLayers();
 
     for (auto& child : children())
-        downcast<CoordinatedGraphicsLayer>(child.get()).syncPendingStateChangesIncludingSubLayers();
+        performLayerSync |= downcast<CoordinatedGraphicsLayer>(child.get()).checkPendingStateChangesIncludingSubLayers();
+    return performLayerSync;
 }
 
 void CoordinatedGraphicsLayer::deviceOrPageScaleFactorChanged()
@@ -1038,7 +1092,7 @@ IntRect CoordinatedGraphicsLayer::transformedVisibleRect()
     // Return a projection of the visible rect (surface coordinates) onto the layer's plane (layer coordinates).
     // The resulting quad might be squewed and the visible rect is the bounding box of this quad,
     // so it might spread further than the real visible area (and then even more amplified by the cover rect multiplier).
-    ASSERT(m_cachedInverseTransform == m_layerTransform.combined().inverse().valueOr(TransformationMatrix()));
+    ASSERT(m_cachedInverseTransform == m_layerTransform.combined().inverse().value_or(TransformationMatrix()));
     FloatRect rect = m_cachedInverseTransform.clampedBoundsOfProjectedQuad(FloatQuad(m_coordinator->visibleContentsRect()));
     clampToContentsRectIfRectIsInfinite(rect, size());
     return enclosingIntRect(rect);
@@ -1071,8 +1125,7 @@ void CoordinatedGraphicsLayer::updateContentBuffers()
 
     // Prepare for painting on the impl-contained backing store. isFlushing is used there
     // for internal sanity checks.
-    auto& impl = downcast<Nicosia::BackingStoreTextureMapperImpl>(m_nicosia.backingStore->impl());
-    auto& layerState = impl.layerState();
+    auto& layerState = m_nicosia.backingStore->layerState();
     layerState.isFlushing = true;
 
     // Helper lambda that finished the flush update and determines layer sync necessity.
@@ -1095,7 +1148,7 @@ void CoordinatedGraphicsLayer::updateContentBuffers()
 
     // Ensure the TiledBackingStore object, and enforce a complete repaint if it's not been present yet.
     if (!layerState.mainBackingStore) {
-        layerState.mainBackingStore = makeUnique<TiledBackingStore>(impl, effectiveContentsScale());
+        layerState.mainBackingStore = makeUnique<TiledBackingStore>(*m_nicosia.backingStore, effectiveContentsScale());
         m_pendingVisibleRectAdjustment = true;
     }
 
@@ -1138,18 +1191,13 @@ void CoordinatedGraphicsLayer::updateContentBuffers()
             auto& tileRect = tile.rect();
             auto& dirtyRect = tile.dirtyRect();
 
-            auto coordinatedBuffer = Nicosia::Buffer::create(dirtyRect.size(), contentsOpaque() ? Nicosia::Buffer::NoFlags : Nicosia::Buffer::SupportsAlpha);
-            SurfaceUpdateInfo updateInfo;
-            updateInfo.updateRect = dirtyRect;
-            updateInfo.updateRect.move(-tileRect.x(), -tileRect.y());
-            updateInfo.buffer = coordinatedBuffer.copyRef();
+            auto buffer = Nicosia::Buffer::create(dirtyRect.size(), contentsOpaque() ? Nicosia::Buffer::NoFlags : Nicosia::Buffer::SupportsAlpha);
+            m_coordinator->paintingEngine().paint(*this, buffer.get(), dirtyRect, layerState.mainBackingStore->mapToContents(dirtyRect),
+                IntRect { { 0, 0 }, dirtyRect.size() }, layerState.mainBackingStore->contentsScale());
 
-            if (!m_coordinator->paintingEngine().paint(*this, WTFMove(coordinatedBuffer),
-                dirtyRect, layerState.mainBackingStore->mapToContents(dirtyRect),
-                IntRect { { 0, 0 }, dirtyRect.size() }, layerState.mainBackingStore->contentsScale()))
-                continue;
-
-            impl.updateTile(tile.tileID(), updateInfo, tileRect);
+            IntRect updateRect(dirtyRect);
+            updateRect.move(-tileRect.x(), -tileRect.y());
+            m_nicosia.backingStore->updateTile(tile.tileID(), updateRect, tileRect, WTFMove(buffer));
 
             tile.markClean();
             didUpdateTiles |= true;
@@ -1172,10 +1220,10 @@ void CoordinatedGraphicsLayer::updateContentBuffers()
 void CoordinatedGraphicsLayer::purgeBackingStores()
 {
 #ifndef NDEBUG
-    SetForScope<bool> updateModeProtector(m_isPurging, true);
+    SetForScope updateModeProtector(m_isPurging, true);
 #endif
     if (m_nicosia.backingStore) {
-        auto& layerState = downcast<Nicosia::BackingStoreTextureMapperImpl>(m_nicosia.backingStore->impl()).layerState();
+        auto& layerState = m_nicosia.backingStore->layerState();
         layerState.isPurging = true;
         layerState.mainBackingStore = nullptr;
 
@@ -1183,9 +1231,8 @@ void CoordinatedGraphicsLayer::purgeBackingStores()
     }
 
     if (m_nicosia.imageBacking) {
-        auto& layerState = downcast<Nicosia::ImageBackingTextureMapperImpl>(m_nicosia.imageBacking->impl()).layerState();
+        auto& layerState = m_nicosia.imageBacking->layerState();
         layerState.imageID = 0;
-        layerState.nativeImageID = 0;
         layerState.update = { };
 
         m_nicosia.imageBacking = nullptr;
@@ -1312,14 +1359,14 @@ void CoordinatedGraphicsLayer::computeTransformedVisibleRect()
     m_layerTransform.setLocalTransform(currentTransform);
 
     m_layerTransform.setAnchorPoint(m_adjustedAnchorPoint);
-    m_layerTransform.setPosition(m_adjustedPosition);
+    m_layerTransform.setPosition(FloatPoint(m_adjustedPosition.x() - boundsOrigin().x(), m_adjustedPosition.y() - boundsOrigin().y()));
     m_layerTransform.setSize(m_adjustedSize);
 
     m_layerTransform.setFlattening(!preserves3D());
     m_layerTransform.setChildrenTransform(childrenTransform());
     m_layerTransform.combineTransforms(parent() ? downcast<CoordinatedGraphicsLayer>(*parent()).m_layerTransform.combinedForChildren() : TransformationMatrix());
 
-    m_cachedInverseTransform = m_layerTransform.combined().inverse().valueOr(TransformationMatrix());
+    m_cachedInverseTransform = m_layerTransform.combined().inverse().value_or(TransformationMatrix());
 
     // The combined transform will be used in tiledBackingStoreVisibleRect.
     setNeedsVisibleRectAdjustment();
@@ -1327,13 +1374,23 @@ void CoordinatedGraphicsLayer::computeTransformedVisibleRect()
 
 bool CoordinatedGraphicsLayer::shouldHaveBackingStore() const
 {
-    return drawsContent() && contentsAreVisible() && !m_size.isEmpty()
-        && (!!opacity() || m_animations.hasActiveAnimationsOfType(AnimatedPropertyOpacity));
+    // If the CSS opacity value is 0 and there's no animation over the opacity property, the layer is invisible.
+    bool isInvisibleBecauseOpacityZero = !opacity() && !m_animations.hasActiveAnimationsOfType(AnimatedProperty::Opacity);
+
+    // Check if there's a filter that sets the opacity to zero.
+    bool hasOpacityZeroFilter = notFound != filters().operations().findIf([&](const auto& operation) {
+        return operation->type() == FilterOperation::Type::Opacity && !downcast<BasicComponentTransferFilterOperation>(*operation).amount();
+    });
+
+    // If there's a filter that sets opacity to 0 and the filters are not being animated, the layer is invisible.
+    isInvisibleBecauseOpacityZero |= hasOpacityZeroFilter && !m_animations.hasActiveAnimationsOfType(AnimatedProperty::Filter);
+
+    return drawsContent() && contentsAreVisible() && !m_size.isEmpty() && !isInvisibleBecauseOpacityZero;
 }
 
 bool CoordinatedGraphicsLayer::selfOrAncestorHasActiveTransformAnimation() const
 {
-    if (m_animations.hasActiveAnimationsOfType(AnimatedPropertyTransform))
+    if (m_animations.hasActiveAnimationsOfType(AnimatedProperty::Transform))
         return true;
 
     if (!parent())
@@ -1360,12 +1417,9 @@ bool CoordinatedGraphicsLayer::addAnimation(const KeyframeValueList& valueList, 
     if (!anim || anim->isEmptyOrZeroDuration() || valueList.size() < 2)
         return false;
 
-    bool listsMatch = false;
     switch (valueList.property()) {
-#if ENABLE(FILTERS_LEVEL_2)
-    case AnimatedPropertyWebkitBackdropFilter:
-#endif
-    case AnimatedPropertyFilter: {
+    case AnimatedProperty::WebkitBackdropFilter:
+    case AnimatedProperty::Filter: {
         int listIndex = validateFilterOperations(valueList);
         if (listIndex < 0)
             return false;
@@ -1375,19 +1429,18 @@ bool CoordinatedGraphicsLayer::addAnimation(const KeyframeValueList& valueList, 
             return false;
         break;
     }
-    case AnimatedPropertyTransform: {
-        bool ignoredHasBigRotation;
-        listsMatch = validateTransformOperations(valueList, ignoredHasBigRotation) >= 0;
-        break;
-    }
-    case AnimatedPropertyOpacity:
+    case AnimatedProperty::Opacity:
+    case AnimatedProperty::Translate:
+    case AnimatedProperty::Rotate:
+    case AnimatedProperty::Scale:
+    case AnimatedProperty::Transform:
         break;
     default:
         return false;
     }
 
     m_lastAnimationStartTime = MonotonicTime::now() - Seconds(delayAsNegativeTimeOffset);
-    m_animations.add(Nicosia::Animation(keyframesName, valueList, boxSize, *anim, listsMatch, m_lastAnimationStartTime, 0_s, Nicosia::Animation::AnimationState::Playing));
+    m_animations.add(Nicosia::Animation(keyframesName, valueList, boxSize, *anim, m_lastAnimationStartTime, 0_s, Nicosia::Animation::AnimationState::Playing));
     m_animationStartedTimer.startOneShot(0_s);
     didChangeAnimations();
     return true;
@@ -1399,7 +1452,7 @@ void CoordinatedGraphicsLayer::pauseAnimation(const String& animationName, doubl
     didChangeAnimations();
 }
 
-void CoordinatedGraphicsLayer::removeAnimation(const String& animationName)
+void CoordinatedGraphicsLayer::removeAnimation(const String& animationName, std::optional<AnimatedProperty>)
 {
     m_animations.remove(animationName);
     didChangeAnimations();
@@ -1417,9 +1470,15 @@ void CoordinatedGraphicsLayer::resumeAnimations()
     didChangeAnimations();
 }
 
+void CoordinatedGraphicsLayer::transformRelatedPropertyDidChange()
+{
+    if (m_animations.hasRunningTransformAnimations())
+        didChangeAnimations();
+}
+
 void CoordinatedGraphicsLayer::animationStartedTimerFired()
 {
-    client().notifyAnimationStarted(this, "", m_lastAnimationStartTime);
+    client().notifyAnimationStarted(this, emptyString(), m_lastAnimationStartTime);
 }
 
 void CoordinatedGraphicsLayer::requestPendingTileCreationTimerFired()
@@ -1439,13 +1498,13 @@ PlatformLayer* CoordinatedGraphicsLayer::platformLayer() const
 }
 #endif
 
-static void dumpInnerLayer(TextStream& textStream, const String& label, CoordinatedGraphicsLayer* layer, LayerTreeAsTextBehavior behavior)
+static void dumpInnerLayer(TextStream& textStream, const String& label, CoordinatedGraphicsLayer* layer, OptionSet<LayerTreeAsTextOptions> options)
 {
     if (!layer)
         return;
 
     textStream << indent << "(" << label << " ";
-    if (behavior & LayerTreeAsTextDebug)
+    if (options & LayerTreeAsTextOptions::Debug)
         textStream << " " << static_cast<void*>(layer);
     textStream << layer->boundsOrigin().x() << ", " << layer->boundsOrigin().y() << " " << layer->size().width() << " x " << layer->size().height();
     if (!layer->contentsAreVisible())
@@ -1453,10 +1512,15 @@ static void dumpInnerLayer(TextStream& textStream, const String& label, Coordina
     textStream << ")\n";
 }
 
-void CoordinatedGraphicsLayer::dumpAdditionalProperties(TextStream& textStream, LayerTreeAsTextBehavior behavior) const
+void CoordinatedGraphicsLayer::dumpAdditionalProperties(TextStream& textStream, OptionSet<LayerTreeAsTextOptions> options) const
 {
-    if (behavior & LayerTreeAsTextIncludeContentLayers)
-        dumpInnerLayer(textStream, "backdrop layer", m_backdropLayer.get(), behavior);
+    if (options & LayerTreeAsTextOptions::IncludeContentLayers)
+        dumpInnerLayer(textStream, "backdrop layer"_s, m_backdropLayer.get(), options);
+}
+
+double CoordinatedGraphicsLayer::backingStoreMemoryEstimate() const
+{
+    return 0.0;
 }
 
 } // namespace WebCore

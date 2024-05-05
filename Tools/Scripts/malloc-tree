@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # Copyright (C) 2011 Apple Inc. All rights reserved.
 #
@@ -198,11 +198,11 @@ def main():
 
     sortedRootNodes = sorted(rootNodes.values(), key=sortKeyByBytes, reverse=True)
 
-    print 'Call graph:'
+    print('Call graph:')
     try:
         for node in sortedRootNodes:
             node.printNode()
-            print 
+            print() 
     except:
         pass
 

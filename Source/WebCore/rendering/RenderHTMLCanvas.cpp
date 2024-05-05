@@ -28,14 +28,18 @@
 
 #include "CanvasRenderingContext.h"
 #include "Document.h"
-#include "Frame.h"
-#include "FrameView.h"
 #include "GraphicsContext.h"
 #include "HTMLCanvasElement.h"
 #include "HTMLNames.h"
 #include "ImageQualityController.h"
+#include "LocalFrame.h"
+#include "LocalFrameView.h"
 #include "Page.h"
 #include "PaintInfo.h"
+#include "RenderBoxInlines.h"
+#include "RenderBoxModelObjectInlines.h"
+#include "RenderLayer.h"
+#include "RenderStyleInlines.h"
 #include "RenderView.h"
 #include <wtf/IsoMallocInlines.h>
 
@@ -46,8 +50,9 @@ using namespace HTMLNames;
 WTF_MAKE_ISO_ALLOCATED_IMPL(RenderHTMLCanvas);
 
 RenderHTMLCanvas::RenderHTMLCanvas(HTMLCanvasElement& element, RenderStyle&& style)
-    : RenderReplaced(element, WTFMove(style), element.size())
+    : RenderReplaced(Type::HTMLCanvas, element, WTFMove(style), element.size())
 {
+    ASSERT(isRenderHTMLCanvas());
 }
 
 HTMLCanvasElement& RenderHTMLCanvas::canvasElement() const
@@ -73,7 +78,7 @@ void RenderHTMLCanvas::paintReplaced(PaintInfo& paintInfo, const LayoutPoint& pa
     LayoutRect contentBoxRect = this->contentBoxRect();
 
     if (context.detectingContentfulPaint()) {
-        if (!context.contenfulPaintDetected() && canvasElement().renderingContext())
+        if (!context.contentfulPaintDetected() && canvasElement().renderingContext())
             context.setContentfulPaintDetected();
         return;
     }
@@ -89,7 +94,7 @@ void RenderHTMLCanvas::paintReplaced(PaintInfo& paintInfo, const LayoutPoint& pa
         paintInfo.context().clip(snappedIntRect(contentBoxRect));
 
     if (paintInfo.phase == PaintPhase::Foreground)
-        page().addRelevantRepaintedObject(this, intersection(replacedContentRect, contentBoxRect));
+        page().addRelevantRepaintedObject(*this, intersection(replacedContentRect, contentBoxRect));
 
     InterpolationQualityMaintainer interpolationMaintainer(context, ImageQualityController::interpolationQualityFromStyle(style()));
 

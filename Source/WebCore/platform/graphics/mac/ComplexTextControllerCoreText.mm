@@ -27,8 +27,9 @@
 
 #import "FontCache.h"
 #import "FontCascade.h"
+#import "Logging.h"
 #import <CoreText/CoreText.h>
-#import <pal/spi/cocoa/CoreTextSPI.h>
+#import <pal/spi/cf/CoreTextSPI.h>
 #import <wtf/SoftLinking.h>
 #import <wtf/WeakPtr.h>
 
@@ -52,9 +53,9 @@ ComplexTextController::ComplexTextRun::ComplexTextRun(CTRunRef ctRun, const Font
         CTRunGetStringIndices(ctRun, CFRangeMake(0, 0), coreTextIndices.data());
         coreTextIndicesPtr = coreTextIndices.data();
     }
-    m_coreTextIndices.reserveInitialCapacity(m_glyphCount);
-    for (unsigned i = 0; i < m_glyphCount; ++i)
-        m_coreTextIndices.uncheckedAppend(coreTextIndicesPtr[i]);
+    m_coreTextIndices = CoreTextIndicesVector(m_glyphCount, [&](size_t i) {
+        return coreTextIndicesPtr[i];
+    });
 
     const CGGlyph* glyphsPtr = CTRunGetGlyphsPtr(ctRun);
     Vector<CGGlyph> glyphs;
@@ -63,9 +64,9 @@ ComplexTextController::ComplexTextRun::ComplexTextRun(CTRunRef ctRun, const Font
         CTRunGetGlyphs(ctRun, CFRangeMake(0, 0), glyphs.data());
         glyphsPtr = glyphs.data();
     }
-    m_glyphs.reserveInitialCapacity(m_glyphCount);
-    for (unsigned i = 0; i < m_glyphCount; ++i)
-        m_glyphs.uncheckedAppend(glyphsPtr[i]);
+    m_glyphs = GlyphVector(m_glyphCount, [&](size_t i) {
+        return glyphsPtr[i];
+    });
 
     if (CTRunGetStatus(ctRun) & kCTRunStatusHasOrigins) {
         Vector<CGSize> baseAdvances(m_glyphCount);
@@ -74,8 +75,8 @@ ComplexTextController::ComplexTextRun::ComplexTextRun(CTRunRef ctRun, const Font
         m_baseAdvances.reserveInitialCapacity(m_glyphCount);
         m_glyphOrigins.reserveInitialCapacity(m_glyphCount);
         for (unsigned i = 0; i < m_glyphCount; ++i) {
-            m_baseAdvances.uncheckedAppend(baseAdvances[i]);
-            m_glyphOrigins.uncheckedAppend(glyphOrigins[i]);
+            m_baseAdvances.append(baseAdvances[i]);
+            m_glyphOrigins.append(glyphOrigins[i]);
         }
     } else {
         const CGSize* baseAdvances = CTRunGetAdvancesPtr(ctRun);
@@ -85,10 +86,35 @@ ComplexTextController::ComplexTextRun::ComplexTextRun(CTRunRef ctRun, const Font
             CTRunGetAdvances(ctRun, CFRangeMake(0, 0), baseAdvancesVector.data());
             baseAdvances = baseAdvancesVector.data();
         }
-        m_baseAdvances.reserveInitialCapacity(m_glyphCount);
-        for (unsigned i = 0; i < m_glyphCount; ++i)
-            m_baseAdvances.uncheckedAppend(baseAdvances[i]);
+        m_baseAdvances = BaseAdvancesVector(m_glyphCount, [&](size_t i) {
+            return baseAdvances[i];
+        });
     }
+
+    LOG_WITH_STREAM(TextShaping,
+        stream << "Shaping result: " << m_glyphCount << " glyphs.\n";
+        stream << "Glyphs:";
+        for (unsigned i = 0; i < m_glyphCount; ++i)
+            stream << " " << m_glyphs[i];
+        stream << "\n";
+        stream << "Advances:";
+        for (unsigned i = 0; i < m_glyphCount; ++i)
+            stream << " " << m_baseAdvances[i];
+        stream << "\n";
+        stream << "Origins:";
+        if (m_glyphOrigins.isEmpty())
+            stream << " empty";
+        else {
+            for (unsigned i = 0; i < m_glyphCount; ++i)
+                stream << " " << m_glyphOrigins[i];
+        }
+        stream << "\n";
+        stream << "Offsets:";
+        for (unsigned i = 0; i < m_glyphCount; ++i)
+            stream << " " << m_coreTextIndices[i];
+        stream << "\n";
+        stream << "Initial advance: " << FloatSize(m_initialAdvance);
+    );
 }
 
 struct ProviderInfo {
@@ -108,6 +134,20 @@ static const UniChar* provideStringAndAttributes(CFIndex stringIndex, CFIndex* c
     return reinterpret_cast<const UniChar*>(info->cp + stringIndex);
 }
 
+template<bool isLTR>
+static CFDictionaryRef typesetterOptions()
+{
+    static LazyNeverDestroyed<RetainPtr<CFDictionaryRef>> options;
+    static std::once_flag onceFlag;
+    std::call_once(onceFlag, [&] {
+        short embeddingLevelValue = isLTR ? 0 : 1;
+        const void* optionKeys[] = { kCTTypesetterOptionForcedEmbeddingLevel };
+        const void* optionValues[] = { CFNumberCreate(kCFAllocatorDefault, kCFNumberShortType, &embeddingLevelValue) };
+        options.construct(adoptCF(CFDictionaryCreate(kCFAllocatorDefault, optionKeys, optionValues, std::size(optionKeys), &kCFCopyStringDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks)));
+    });
+    return options.get().get();
+}
+
 void ComplexTextController::collectComplexTextRunsForCharacters(const UChar* cp, unsigned length, unsigned stringLocation, const Font* font)
 {
     if (!font) {
@@ -118,7 +158,7 @@ void ComplexTextController::collectComplexTextRunsForCharacters(const UChar* cp,
 
     bool isSystemFallback = false;
 
-    UChar32 baseCharacter = 0;
+    char32_t baseCharacter = 0;
     RetainPtr<CFDictionaryRef> stringAttributes;
     if (font == Font::systemFallback()) {
         // FIXME: This code path does not support small caps.
@@ -136,26 +176,31 @@ void ComplexTextController::collectComplexTextRunsForCharacters(const UChar* cp,
 
     RetainPtr<CTLineRef> line;
 
-    if (!m_mayUseNaturalWritingDirection || m_run.directionalOverride()) {
-        const short ltrForcedEmbeddingLevelValue = 0;
-        const short rtlForcedEmbeddingLevelValue = 1;
-        static const void* optionKeys[] = { kCTTypesetterOptionForcedEmbeddingLevel };
-        static const void* ltrOptionValues[] = { CFNumberCreate(kCFAllocatorDefault, kCFNumberShortType, &ltrForcedEmbeddingLevelValue) };
-        static const void* rtlOptionValues[] = { CFNumberCreate(kCFAllocatorDefault, kCFNumberShortType, &rtlForcedEmbeddingLevelValue) };
-        static CFDictionaryRef ltrTypesetterOptions = CFDictionaryCreate(kCFAllocatorDefault, optionKeys, ltrOptionValues, WTF_ARRAY_LENGTH(optionKeys), &kCFCopyStringDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-        static CFDictionaryRef rtlTypesetterOptions = CFDictionaryCreate(kCFAllocatorDefault, optionKeys, rtlOptionValues, WTF_ARRAY_LENGTH(optionKeys), &kCFCopyStringDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    LOG_WITH_STREAM(TextShaping,
+        stream << "Complex shaping " << length << " code units with info " << String(adoptCF(CFCopyDescription(stringAttributes.get())).get()) << ".\n";
+        stream << "Font attributes: " << String(adoptCF(CFCopyDescription(adoptCF(CTFontDescriptorCopyAttributes(adoptCF(CTFontCopyFontDescriptor(font->platformData().ctFont())).get())).get())).get()) << "\n";
+        stream << "Code Units:";
+        for (unsigned i = 0; i < length; ++i)
+            stream << " " << cp[i];
+        stream << "\n";
+    );
 
+    if (!m_mayUseNaturalWritingDirection || m_run.directionalOverride()) {
         ProviderInfo info = { cp, length, stringAttributes.get() };
         // FIXME: Some SDKs complain that the second parameter below cannot be null.
         IGNORE_NULL_CHECK_WARNINGS_BEGIN
-        RetainPtr<CTTypesetterRef> typesetter = adoptCF(CTTypesetterCreateWithUniCharProviderAndOptions(&provideStringAndAttributes, 0, &info, m_run.ltr() ? ltrTypesetterOptions : rtlTypesetterOptions));
+        auto typesetter = adoptCF(CTTypesetterCreateWithUniCharProviderAndOptions(&provideStringAndAttributes, 0, &info, m_run.ltr() ? typesetterOptions<true>() : typesetterOptions<false>()));
         IGNORE_NULL_CHECK_WARNINGS_END
 
         if (!typesetter)
             return;
 
+        LOG_WITH_STREAM(TextShaping, stream << "Forcing " << (m_run.ltr() ? "ltr" : "rtl"));
+
         line = adoptCF(CTTypesetterCreateLine(typesetter.get(), CFRangeMake(0, 0)));
     } else {
+        LOG_WITH_STREAM(TextShaping, stream << "Not forcing direction");
+
         ProviderInfo info = { cp, length, stringAttributes.get() };
 
         line = adoptCF(CTLineCreateWithUniCharProvider(&provideStringAndAttributes, nullptr, &info));
@@ -173,6 +218,8 @@ void ComplexTextController::collectComplexTextRunsForCharacters(const UChar* cp,
 
     CFIndex runCount = CFArrayGetCount(runArray);
 
+    LOG_WITH_STREAM(TextShaping, stream << "Result: " << runCount << " runs.");
+
     for (CFIndex r = 0; r < runCount; r++) {
         CTRunRef ctRun = static_cast<CTRunRef>(CFArrayGetValueAtIndex(runArray, m_run.ltr() ? r : runCount - 1 - r));
         ASSERT(CFGetTypeID(ctRun) == CTRunGetTypeID());
@@ -185,13 +232,13 @@ void ComplexTextController::collectComplexTextRunsForCharacters(const UChar* cp,
             CTFontRef runCTFont = static_cast<CTFontRef>(CFDictionaryGetValue(runAttributes, kCTFontAttributeName));
             ASSERT(runCTFont && CFGetTypeID(runCTFont) == CTFontGetTypeID());
             RetainPtr<CFTypeRef> runFontEqualityObject = FontPlatformData::objectForEqualityCheck(runCTFont);
-            if (!WTF::safeCFEqual(runFontEqualityObject.get(), font->platformData().objectForEqualityCheck().get())) {
+            if (!safeCFEqual(runFontEqualityObject.get(), font->platformData().objectForEqualityCheck().get())) {
                 // Begin trying to see if runFont matches any of the fonts in the fallback list.
                 for (unsigned i = 0; !m_font.fallbackRangesAt(i).isNull(); ++i) {
                     runFont = m_font.fallbackRangesAt(i).fontForCharacter(baseCharacter);
                     if (!runFont)
                         continue;
-                    if (WTF::safeCFEqual(runFont->platformData().objectForEqualityCheck().get(), runFontEqualityObject.get()))
+                    if (safeCFEqual(runFont->platformData().objectForEqualityCheck().get(), runFontEqualityObject.get()))
                         break;
                     runFont = nullptr;
                 }
@@ -202,14 +249,16 @@ void ComplexTextController::collectComplexTextRunsForCharacters(const UChar* cp,
                         continue;
                     }
                     FontPlatformData runFontPlatformData(runCTFont, CTFontGetSize(runCTFont));
-                    runFont = FontCache::singleton().fontForPlatformData(runFontPlatformData).ptr();
+                    runFont = FontCache::forCurrentThread().fontForPlatformData(runFontPlatformData).ptr();
                 }
                 if (m_fallbackFonts && runFont != &m_font.primaryFont())
-                    m_fallbackFonts->add(runFont);
+                    m_fallbackFonts->add(*runFont);
             }
         }
         if (m_fallbackFonts && runFont != &m_font.primaryFont())
-            m_fallbackFonts->add(font);
+            m_fallbackFonts->add(*font);
+
+        LOG_WITH_STREAM(TextShaping, stream << "Run " << r << ":");
 
         m_complexTextRuns.append(ComplexTextRun::create(ctRun, *runFont, cp, stringLocation, length, runRange.location, runRange.location + runRange.length));
     }

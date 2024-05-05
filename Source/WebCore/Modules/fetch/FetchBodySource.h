@@ -37,7 +37,7 @@ namespace WebCore {
 
 class FetchBodyOwner;
 
-class FetchBodySource final : public ReadableStreamSource {
+class FetchBodySource final : public RefCountedReadableStreamSource {
 public:
     FetchBodySource(FetchBodyOwner&);
 
@@ -57,7 +57,8 @@ private:
     void setActive() final;
     void setInactive() final;
 
-    FetchBodyOwner* m_bodyOwner;
+    WeakPtr<FetchBodyOwner> m_bodyOwner;
+
     bool m_isCancelling { false };
 #if ASSERT_ENABLED
     bool m_isClosed { false };

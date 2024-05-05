@@ -26,6 +26,7 @@
 #include "config.h"
 #include "DecodedDataDocumentParser.h"
 
+#include "Document.h"
 #include "DocumentWriter.h"
 #include "SegmentedString.h"
 #include "TextResourceDecoder.h"
@@ -37,7 +38,7 @@ DecodedDataDocumentParser::DecodedDataDocumentParser(Document& document)
 {
 }
 
-void DecodedDataDocumentParser::appendBytes(DocumentWriter& writer, const char* data, size_t length)
+void DecodedDataDocumentParser::appendBytes(DocumentWriter& writer, const uint8_t* data, size_t length)
 {
     if (!length)
         return;

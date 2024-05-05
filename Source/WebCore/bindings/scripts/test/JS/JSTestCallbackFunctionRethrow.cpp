@@ -21,6 +21,7 @@
 #include "config.h"
 #include "JSTestCallbackFunctionRethrow.h"
 
+#include "ContextDestructionObserverInlines.h"
 #include "JSDOMConvertNumbers.h"
 #include "JSDOMConvertSequences.h"
 #include "JSDOMConvertStrings.h"
@@ -81,7 +82,7 @@ CallbackResult<typename IDLDOMString::ImplementationType> JSTestCallbackFunction
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto returnValue = convert<IDLDOMString>(lexicalGlobalObject, jsResult);
     RETURN_IF_EXCEPTION(throwScope, CallbackResultType::ExceptionThrown);
-    return returnValue;
+    return { WTFMove(returnValue) };
 }
 
 JSC::JSValue toJS(TestCallbackFunctionRethrow& impl)

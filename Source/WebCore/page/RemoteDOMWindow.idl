@@ -30,31 +30,17 @@
     CustomGetOwnPropertySlot,
     CustomGetPrototype,
     CustomPreventExtensions,
-    CustomProxyToJSObject,
     CustomPut,
-    CustomToStringName,
-    ImplicitThis,
     InterfaceName=Window,
     IsImmutablePrototypeExoticObject,
     IsImmutablePrototypeExoticObjectOnPrototype,
     JSCustomToNativeObject,
     JSLegacyParent=JSRemoteDOMWindowBase,
     LegacyUnenumerableNamedProperties,
-    NoInterfaceObject,
+    LegacyNoInterfaceObject,
     Global=Window,
-    Exposed=Window,
+    Exposed=Window
 ] interface RemoteDOMWindow {
-    [Unforgeable, ImplementedAs=self] readonly attribute WindowProxy window;
-    [Replaceable] readonly attribute WindowProxy self;
-    [PutForwards=href, Unforgeable] readonly attribute Location? location; // FIXME: Should not be nullable.
-    [CallWith=IncumbentDocument, ForwardDeclareInHeader] void close();
-    [ForwardDeclareInHeader] readonly attribute boolean closed;
-    [CallWith=IncumbentWindow, ForwardDeclareInHeader] void focus();
-    [ForwardDeclareInHeader] void blur();
-    [Replaceable, ImplementedAs=self] readonly attribute WindowProxy frames;
-    [Replaceable] readonly attribute unsigned long length;
-    [Unforgeable] readonly attribute WindowProxy? top;
-    readonly attribute WindowProxy? opener;
-    [Replaceable] readonly attribute WindowProxy? parent;
-    [CallWith=GlobalObject&IncumbentWindow, ForwardDeclareInHeader] void postMessage(any message, USVString targetOrigin, optional sequence<object> transfer = []);
 };
+
+RemoteDOMWindow includes DOMWindow;

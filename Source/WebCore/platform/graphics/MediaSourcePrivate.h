@@ -27,40 +27,94 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-#ifndef MediaSourcePrivate_h
-#define MediaSourcePrivate_h
+
+#pragma once
 
 #if ENABLE(MEDIA_SOURCE)
 
 #include "MediaPlayer.h"
+#include "PlatformTimeRanges.h"
 #include <wtf/Forward.h>
-#include <wtf/RefCounted.h>
+#include <wtf/ThreadSafeWeakPtr.h>
 #include <wtf/Vector.h>
 
 namespace WebCore {
 
 class ContentType;
 class SourceBufferPrivate;
+#if ENABLE(LEGACY_ENCRYPTED_MEDIA)
+class LegacyCDMSession;
+#endif
 
-class MediaSourcePrivate : public RefCounted<MediaSourcePrivate> {
+enum class MediaSourcePrivateAddStatus : uint8_t {
+    Ok,
+    NotSupported,
+    ReachedIdLimit
+};
+
+enum class MediaSourcePrivateEndOfStreamStatus : uint8_t {
+    NoError,
+    NetworkError,
+    DecodeError
+};
+
+class WEBCORE_EXPORT MediaSourcePrivate
+    : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<MediaSourcePrivate> {
 public:
     typedef Vector<String> CodecsArray;
 
-    MediaSourcePrivate() = default;
-    virtual ~MediaSourcePrivate() = default;
+    using AddStatus = MediaSourcePrivateAddStatus;
+    using EndOfStreamStatus = MediaSourcePrivateEndOfStreamStatus;
 
-    enum AddStatus { Ok, NotSupported, ReachedIdLimit };
-    virtual AddStatus addSourceBuffer(const ContentType&, RefPtr<SourceBufferPrivate>&) = 0;
-    virtual void durationChanged() = 0;
-    enum EndOfStreamStatus { EosNoError, EosNetworkError, EosDecodeError };
-    virtual void markEndOfStream(EndOfStreamStatus) = 0;
-    virtual void unmarkEndOfStream() = 0;
+    MediaSourcePrivate(MediaSourcePrivateClient&);
+    virtual ~MediaSourcePrivate();
 
-    virtual MediaPlayer::ReadyState readyState() const = 0;
-    virtual void setReadyState(MediaPlayer::ReadyState) = 0;
+    RefPtr<MediaSourcePrivateClient> client() const;
 
-    virtual void waitForSeekCompleted() = 0;
-    virtual void seekCompleted() = 0;
+    virtual constexpr MediaPlatformType platformType() const = 0;
+    virtual AddStatus addSourceBuffer(const ContentType&, bool webMParserEnabled, RefPtr<SourceBufferPrivate>&) = 0;
+    virtual void removeSourceBuffer(SourceBufferPrivate&);
+    void sourceBufferPrivateDidChangeActiveState(SourceBufferPrivate&, bool active);
+    virtual void notifyActiveSourceBuffersChanged() = 0;
+    virtual void durationChanged(const MediaTime&); // Base class method must be called in overrides.
+    virtual void bufferedChanged(const PlatformTimeRanges&); // Base class method must be called in overrides.
+
+    virtual void markEndOfStream(EndOfStreamStatus) { m_isEnded = true; }
+    virtual void unmarkEndOfStream() { m_isEnded = false; }
+    bool isEnded() const { return m_isEnded; }
+
+    virtual MediaPlayer::ReadyState mediaPlayerReadyState() const = 0;
+    virtual void setMediaPlayerReadyState(MediaPlayer::ReadyState) = 0;
+
+    virtual MediaTime currentMediaTime() const = 0;
+
+    Ref<MediaTimePromise> waitForTarget(const SeekTarget&);
+    Ref<MediaPromise> seekToTime(const MediaTime&);
+
+    virtual void setTimeFudgeFactor(const MediaTime& fudgeFactor) { m_timeFudgeFactor = fudgeFactor; }
+    MediaTime timeFudgeFactor() const { return m_timeFudgeFactor; }
+
+    const MediaTime& duration() const;
+    const PlatformTimeRanges& buffered() const;
+
+    bool hasFutureTime(const MediaTime& currentTime) const;
+    bool hasAudio() const;
+    bool hasVideo() const;
+
+#if ENABLE(LEGACY_ENCRYPTED_MEDIA)
+    void setCDMSession(LegacyCDMSession*);
+#endif
+
+protected:
+    Vector<RefPtr<SourceBufferPrivate>> m_sourceBuffers;
+    Vector<SourceBufferPrivate*> m_activeSourceBuffers;
+    bool m_isEnded { false };
+
+private:
+    MediaTime m_duration { MediaTime::invalidTime() };
+    PlatformTimeRanges m_buffered;
+    MediaTime m_timeFudgeFactor;
+    ThreadSafeWeakPtr<MediaSourcePrivateClient> m_client;
 };
 
 String convertEnumerationToString(MediaSourcePrivate::AddStatus);
@@ -90,5 +144,4 @@ struct LogArgument<WebCore::MediaSourcePrivate::EndOfStreamStatus> {
 
 } // namespace WTF
 
-#endif
 #endif

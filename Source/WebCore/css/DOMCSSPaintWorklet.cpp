@@ -30,13 +30,15 @@
 
 #include "DOMCSSNamespace.h"
 #include "Document.h"
-#include "Worklet.h"
-
+#include "JSDOMPromiseDeferred.h"
+#include "PaintWorkletGlobalScope.h"
+#include "WorkletGlobalScopeProxy.h"
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
+DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(DOMCSSPaintWorklet);
 
-Worklet& DOMCSSPaintWorklet::ensurePaintWorklet(Document& document)
+PaintWorklet& DOMCSSPaintWorklet::ensurePaintWorklet(Document& document)
 {
     return document.ensurePaintWorklet();
 }
@@ -52,9 +54,41 @@ DOMCSSPaintWorklet* DOMCSSPaintWorklet::from(DOMCSSNamespace& css)
     return supplement;
 }
 
-const char* DOMCSSPaintWorklet::supplementName()
+ASCIILiteral DOMCSSPaintWorklet::supplementName()
 {
-    return "DOMCSSPaintWorklet";
+    return "DOMCSSPaintWorklet"_s;
+}
+
+// FIXME: Get rid of this override and rely on the standard-compliant Worklet::addModule() instead.
+void PaintWorklet::addModule(const String& moduleURL, WorkletOptions&&, DOMPromiseDeferred<void>&& promise)
+{
+    auto* document = this->document();
+    if (!document) {
+        promise.reject(Exception { ExceptionCode::InvalidStateError, "This frame is detached"_s });
+        return;
+    }
+
+    // FIXME: We should download the source from the URL
+    // https://bugs.webkit.org/show_bug.cgi?id=191136
+    // PaintWorklets don't have access to any sensitive APIs so we don't bother tracking taintedness there.
+    auto maybeContext = PaintWorkletGlobalScope::tryCreate(*document, ScriptSourceCode(moduleURL, JSC::SourceTaintedOrigin::Untainted));
+    if (UNLIKELY(!maybeContext)) {
+        promise.reject(Exception { ExceptionCode::OutOfMemoryError });
+        return;
+    }
+    auto context = maybeContext.releaseNonNull();
+    context->evaluate();
+
+    Locker locker { context->paintDefinitionLock() };
+    for (auto& name : context->paintDefinitionMap().keys())
+        document->setPaintWorkletGlobalScopeForName(name, context.copyRef());
+    promise.resolve();
+}
+
+Vector<Ref<WorkletGlobalScopeProxy>> PaintWorklet::createGlobalScopes()
+{
+    // FIXME: Add implementation.
+    return { };
 }
 
 }

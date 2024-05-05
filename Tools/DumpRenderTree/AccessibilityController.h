@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008, 2009, 2010 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008-2020 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -36,18 +36,13 @@
 #include <windows.h>
 #endif
 
-#if HAVE(ACCESSIBILITY) && PLATFORM(GTK)
-#include "AccessibilityNotificationHandlerAtk.h"
-#include <atk/atk.h>
-#endif
-
 class AccessibilityController {
     WTF_MAKE_FAST_ALLOCATED;
 public:
     AccessibilityController();
     ~AccessibilityController();
 
-    void makeWindowObject(JSContextRef context, JSObjectRef windowObject, JSValueRef* exception);
+    void makeWindowObject(JSContextRef);
 
     // Controller Methods - platform-independent implementations
     AccessibilityUIElement rootElement();
@@ -78,12 +73,8 @@ public:
     void winNotificationReceived(PlatformUIElement, const std::string& eventName);
 #endif
 
-#if HAVE(ACCESSIBILITY) && PLATFORM(GTK)
-    AtkObject* childElementById(AtkObject* parent, const char* id);
-#endif
-
 private:
-    static JSClassRef getJSClass();
+    static JSRetainPtr<JSClassRef> createJSClass();
 
 #if PLATFORM(WIN)
     HWINEVENTHOOK m_focusEventHook { nullptr };
@@ -99,9 +90,5 @@ private:
     RetainPtr<id> m_globalNotificationHandler;
 #endif
 
-#if HAVE(ACCESSIBILITY) && PLATFORM(GTK)
-    RefPtr<AccessibilityNotificationHandler> m_globalNotificationHandler;
-#endif
-    
     void platformResetToConsistentState();
 };

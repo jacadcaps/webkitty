@@ -29,14 +29,13 @@
 #include "APIInjectedBundlePageUIClient.h"
 #include "WKBundlePage.h"
 #include "WebEvent.h"
-#include <WebCore/RenderSnapshottedPlugIn.h>
 #include <wtf/Forward.h>
 
 namespace API {
 class Object;
 
 template<> struct ClientTraits<WKBundlePageUIClientBase> {
-    typedef std::tuple<WKBundlePageUIClientV0, WKBundlePageUIClientV1, WKBundlePageUIClientV2, WKBundlePageUIClientV3, WKBundlePageUIClientV4> Versions;
+    typedef std::tuple<WKBundlePageUIClientV0, WKBundlePageUIClientV1, WKBundlePageUIClientV2, WKBundlePageUIClientV3, WKBundlePageUIClientV4, WKBundlePageUIClientV5> Versions;
 };
 }
 
@@ -47,11 +46,12 @@ public:
     explicit InjectedBundlePageUIClient(const WKBundlePageUIClientBase*);
 
     void willAddMessageToConsole(WebPage*, MessageSource, MessageLevel, const String& message, unsigned lineNumber, unsigned columnNumber, const String& sourceID) override;
+    void willAddMessageWithArgumentsToConsole(WebPage*, MessageSource, MessageLevel, const String& message, std::span<const String> messageArguments, unsigned lineNumber, unsigned columnNumber, const String& sourceID) override;
     void willSetStatusbarText(WebPage*, const String&) override;
     void willRunJavaScriptAlert(WebPage*, const String&, WebFrame*) override;
     void willRunJavaScriptConfirm(WebPage*, const String&, WebFrame*) override;
     void willRunJavaScriptPrompt(WebPage*, const String&, const String&, WebFrame*) override;
-    void mouseDidMoveOverElement(WebPage*, const WebCore::HitTestResult&, OptionSet<WebEvent::Modifier>, RefPtr<API::Object>& userData) override;
+    void mouseDidMoveOverElement(WebPage*, const WebCore::HitTestResult&, OptionSet<WebEventModifier>, RefPtr<API::Object>& userData) override;
     void pageDidScroll(WebPage*) override;
 
     UIElementVisibility statusBarIsVisible(WebPage*) override;

@@ -21,12 +21,14 @@
 #include "config.h"
 #include "RenderDetailsMarker.h"
 
-#include "Element.h"
+#include "ElementInlines.h"
 #include "GraphicsContext.h"
 #include "HTMLDetailsElement.h"
 #include "HTMLInputElement.h"
 #include "HTMLNames.h"
 #include "PaintInfo.h"
+#include "RenderBoxInlines.h"
+#include "RenderBoxModelObjectInlines.h"
 #include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
@@ -36,8 +38,9 @@ using namespace HTMLNames;
 WTF_MAKE_ISO_ALLOCATED_IMPL(RenderDetailsMarker);
 
 RenderDetailsMarker::RenderDetailsMarker(DetailsMarkerControl& element, RenderStyle&& style)
-    : RenderBlockFlow(element, WTFMove(style))
+    : RenderBlockFlow(Type::DetailsMarker, element, WTFMove(style))
 {
+    ASSERT(isRenderDetailsMarker());
 }
 
 static Path createPath(const FloatPoint* path)
@@ -75,20 +78,20 @@ static Path createRightArrowPath()
 
 RenderDetailsMarker::Orientation RenderDetailsMarker::orientation() const
 {
-    switch (style().writingMode()) {
-    case TopToBottomWritingMode:
+    switch (style().blockFlowDirection()) {
+    case BlockFlowDirection::TopToBottom:
         if (style().isLeftToRightDirection())
             return isOpen() ? Down : Right;
         return isOpen() ? Down : Left;
-    case RightToLeftWritingMode:
+    case BlockFlowDirection::RightToLeft:
         if (style().isLeftToRightDirection())
             return isOpen() ? Left : Down;
         return isOpen() ? Left : Up;
-    case LeftToRightWritingMode:
+    case BlockFlowDirection::LeftToRight:
         if (style().isLeftToRightDirection())
             return isOpen() ? Right : Down;
         return isOpen() ? Right : Up;
-    case BottomToTopWritingMode:
+    case BlockFlowDirection::BottomToTop:
         if (style().isLeftToRightDirection())
             return isOpen() ? Up : Right;
         return isOpen() ? Up : Left;
@@ -132,7 +135,7 @@ void RenderDetailsMarker::paint(PaintInfo& paintInfo, const LayoutPoint& paintOf
 
     const Color color(style().visitedDependentColorWithColorFilter(CSSPropertyColor));
     paintInfo.context().setStrokeColor(color);
-    paintInfo.context().setStrokeStyle(SolidStroke);
+    paintInfo.context().setStrokeStyle(StrokeStyle::SolidStroke);
     paintInfo.context().setStrokeThickness(1.0f);
     paintInfo.context().setFillColor(color);
 
@@ -145,8 +148,8 @@ bool RenderDetailsMarker::isOpen() const
     for (RenderObject* renderer = parent(); renderer; renderer = renderer->parent()) {
         if (!renderer->node())
             continue;
-        if (is<HTMLDetailsElement>(*renderer->node()))
-            return !downcast<HTMLDetailsElement>(*renderer->node()).attributeWithoutSynchronization(openAttr).isNull();
+        if (auto* details = dynamicDowncast<HTMLDetailsElement>(*renderer->node()))
+            return !details->attributeWithoutSynchronization(openAttr).isNull();
         if (is<HTMLInputElement>(*renderer->node()))
             return true;
     }

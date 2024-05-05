@@ -27,43 +27,25 @@
 
 #if ENABLE(WEB_AUTHN)
 
+#include "BufferSource.h"
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
 struct AuthenticationExtensionsClientInputs {
+    struct LargeBlobInputs {
+        String support;
+        std::optional<bool> read;
+        std::optional<BufferSource> write;
+    };
+
     String appid;
-    bool googleLegacyAppidSupport;
+    bool credProps; // Not serialized but probably should be. Don't re-introduce rdar://101057340 though.
+    std::optional<AuthenticationExtensionsClientInputs::LargeBlobInputs> largeBlob;
 
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static Optional<AuthenticationExtensionsClientInputs> decode(Decoder&);
+    WEBCORE_EXPORT Vector<uint8_t> toCBOR() const;
+    WEBCORE_EXPORT static std::optional<AuthenticationExtensionsClientInputs> fromCBOR(std::span<const uint8_t>);
 };
-
-template<class Encoder>
-void AuthenticationExtensionsClientInputs::encode(Encoder& encoder) const
-{
-    encoder << appid << googleLegacyAppidSupport;
-}
-
-template<class Decoder>
-Optional<AuthenticationExtensionsClientInputs> AuthenticationExtensionsClientInputs::decode(Decoder& decoder)
-{
-    AuthenticationExtensionsClientInputs result;
-
-    Optional<String> appid;
-    decoder >> appid;
-    if (!appid)
-        return WTF::nullopt;
-    result.appid = WTFMove(*appid);
-
-    Optional<bool> googleLegacyAppidSupport;
-    decoder >> googleLegacyAppidSupport;
-    if (!googleLegacyAppidSupport)
-        return WTF::nullopt;
-    result.googleLegacyAppidSupport = WTFMove(*googleLegacyAppidSupport);
-
-    return result;
-}
 
 } // namespace WebCore
 

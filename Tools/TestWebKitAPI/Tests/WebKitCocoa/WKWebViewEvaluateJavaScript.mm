@@ -26,9 +26,9 @@
 #import "config.h"
 #import <WebKit/WKFoundation.h>
 
+#import "DeprecatedGlobalValues.h"
 #import "HTTPServer.h"
 #import "PlatformUtilities.h"
-#import "TCPServer.h"
 #import "Test.h"
 #import "TestNavigationDelegate.h"
 #import "TestURLSchemeHandler.h"
@@ -38,13 +38,13 @@
 #import <WebKit/WKErrorPrivate.h>
 #import <WebKit/WKPreferencesPrivate.h>
 #import <WebKit/WKPreferencesRef.h>
+#import <WebKit/WKProcessPoolPrivate.h>
 #import <WebKit/WKUserContentControllerPrivate.h>
 #import <WebKit/WKWebViewConfigurationPrivate.h>
 #import <WebKit/WKWebViewPrivate.h>
 #import <WebKit/_WKFrameTreeNode.h>
+#import <WebKit/_WKProcessPoolConfiguration.h>
 #import <wtf/RetainPtr.h>
-
-static bool isDone;
 
 TEST(WKWebView, EvaluateJavaScriptBlockCrash)
 {
@@ -197,8 +197,8 @@ TEST(WKWebView, EvaluateJavaScriptInWorlds)
 
     // Add a scriptMessageHandler in a named world.
     RetainPtr<WKContentWorld> namedWorld = [WKContentWorld worldWithName:@"NamedWorld"];
-    id handler = [[[DummyMessageHandler alloc] init] autorelease];
-    [webView.get().configuration.userContentController _addScriptMessageHandler:handler name:@"testHandlerName" userContentWorld:namedWorld.get()._userContentWorld];
+    auto handler = adoptNS([[DummyMessageHandler alloc] init]);
+    [webView.get().configuration.userContentController _addScriptMessageHandler:handler.get() name:@"testHandlerName" userContentWorld:namedWorld.get()._userContentWorld];
 
     // Set a variable value in that named world.
     [webView evaluateJavaScript:@"var bar = 'baz'" inFrame:nil inContentWorld:namedWorld.get() completionHandler:^(id result, NSError *error) {
@@ -322,12 +322,40 @@ TEST(WKWebView, EvaluateJavaScriptInWorldsWithGlobalObjectAvailableInCrossOrigin
     
     __block bool done = false;
     [webView _frames:^(_WKFrameTreeNode *mainFrame) {
-        [webView _evaluateJavaScript:@"window.worldName" inFrame:mainFrame.childFrames[0] inContentWorld:[WKContentWorld worldWithName:@"testName"] completionHandler:^(id result, NSError *error) {
+        [webView _evaluateJavaScript:@"window.worldName" inFrame:mainFrame.childFrames[0].info inContentWorld:[WKContentWorld worldWithName:@"testName"] completionHandler:^(id result, NSError *error) {
             EXPECT_WK_STREQ(result, "testName");
             done = true;
         }];
     }];
     TestWebKitAPI::Util::run(&done);
+}
+
+TEST(WebKit, GetFrameInfo_detachedFrame)
+{
+    auto webView = adoptNS([TestWKWebView new]);
+    [webView synchronouslyLoadHTMLString:@"<iframe id='testFrame' src='about:blank'></iframe>"];
+
+    __block bool done = false;
+    [webView _frames:^(_WKFrameTreeNode *mainFrame) {
+        EXPECT_EQ(mainFrame.childFrames.count, 1U);
+        done = true;
+    }];
+    TestWebKitAPI::Util::run(&done);
+    auto pid = [webView _webProcessIdentifier];
+
+    [webView evaluateJavaScript:@"document.getElementById('testFrame').remove();" completionHandler:nil];
+
+    __block bool hasChildFrame = true;
+    do {
+        done = false;
+        [webView _frames:^(_WKFrameTreeNode *mainFrame) {
+            hasChildFrame = mainFrame.childFrames.count > 0;
+            done = true;
+        }];
+        TestWebKitAPI::Util::run(&done);
+    } while (hasChildFrame);
+
+    EXPECT_EQ(pid, [webView _webProcessIdentifier]);
 }
 
 TEST(WebKit, EvaluateJavaScriptInAttachments)
@@ -336,14 +364,12 @@ TEST(WebKit, EvaluateJavaScriptInAttachments)
     // Evaluating JavaScript in such a document should fail and result in an error.
 
     using namespace TestWebKitAPI;
-    TCPServer server([](int socket) {
-        NSString *response = @"HTTP/1.1 200 OK\r\n"
+    HTTPServer server(HTTPServer::UseCoroutines::Yes, [](Connection connection) -> Task {
+        co_await connection.awaitableReceiveHTTPRequest();
+        co_await connection.awaitableSend("HTTP/1.1 200 OK\r\n"
             "Content-Length: 12\r\n"
             "Content-Disposition: attachment; filename=fromHeader.txt;\r\n\r\n"
-            "Hello world!";
-
-        TCPServer::read(socket);
-        TCPServer::write(socket, response.UTF8String, response.length);
+            "Hello world!"_s);
     });
     auto webView = adoptNS([TestWKWebView new]);
     [webView synchronouslyLoadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:[NSString stringWithFormat:@"http://127.0.0.1:%d/", server.port()]]]];
@@ -359,7 +385,7 @@ TEST(WebKit, EvaluateJavaScriptInAttachments)
 }
 
 // FIXME: Re-enable this test for iOS once webkit.org/b/207874 is resolved
-#if HAVE(NETWORK_FRAMEWORK) && !PLATFORM(IOS)
+#if !(PLATFORM(IOS) || PLATFORM(VISION))
 TEST(WebKit, AllowsContentJavaScript)
 {
     RetainPtr<TestWKWebView> webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600)]);
@@ -388,7 +414,7 @@ TEST(WebKit, AllowsContentJavaScript)
     TestWebKitAPI::Util::run(&done);
 
     TestWebKitAPI::HTTPServer server({
-        { "/script", { "var foo = 'bar'" } }
+        { "/script"_s, { "var foo = 'bar'"_s } }
     });
     preferences.get().allowsContentJavaScript = YES;
     [webView synchronouslyLoadHTMLString:[NSString stringWithFormat:@"<script src='http://127.0.0.1:%d/script'></script>", server.port()] preferences:preferences.get()];
@@ -438,13 +464,34 @@ TEST(WebKit, AllowsContentJavaScript)
 }
 #endif
 
+TEST(WebKit, AllowsContentJavaScriptFromDefaultPreferences)
+{
+    RetainPtr<WKWebpagePreferences> preferences = adoptNS([[WKWebpagePreferences alloc] init]);
+    [preferences setAllowsContentJavaScript:NO];
+
+    RetainPtr<WKWebViewConfiguration> configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    [configuration setDefaultWebpagePreferences:preferences.get()];
+
+    RetainPtr<TestWKWebView> webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+
+    [webView synchronouslyLoadHTMLString:@"<script>var foo = 'bar'</script>"];
+
+    __block bool done = false;
+    [webView evaluateJavaScript:@"foo" completionHandler:^(id result, NSError *error) {
+        EXPECT_NULL(result);
+        EXPECT_TRUE([[error description] containsString:@"Can't find variable: foo"]);
+        done = true;
+    }];
+    TestWebKitAPI::Util::run(&done);
+}
+
 TEST(WebKit, SPIJavascriptMarkupVsAPIContentJavaScript)
 {
     // There's not a dynamically configuration setting for javascript markup,
     // but it can be configured at WKWebView creation time.
-    WKWebViewConfiguration *configuration = [[[WKWebViewConfiguration alloc] init] autorelease];
-    configuration._allowsJavaScriptMarkup = NO;
-    RetainPtr<TestWKWebView> webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration]);
+    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    [configuration _setAllowsJavaScriptMarkup:NO];
+    RetainPtr<TestWKWebView> webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
 
     // Verify that the following JS does not execute.
     [webView synchronouslyLoadHTMLString:@"<script>var foo = 'bar'</script>"];
@@ -473,7 +520,8 @@ TEST(WebKit, SPIJavascriptMarkupVsAPIContentJavaScript)
 
 }
 
-static NSMutableSet<WKFrameInfo *> *allFrames;
+static RetainPtr<NSMutableSet<WKFrameInfo *>> allFrames;
+
 @interface FramesMessageHandler : NSObject <WKScriptMessageHandler>
 @end
 
@@ -499,23 +547,23 @@ static NSString *userScriptSource = @"window.webkit.messageHandlers.framesTester
 // and callAsyncJavaScript to confirm that it can execute JS directly in each of those frames.
 TEST(EvaluateJavaScript, JavaScriptInFramesFromPostMessage)
 {
-    allFrames = [[NSMutableSet<WKFrameInfo *> alloc] init];
+    allFrames = adoptNS([[NSMutableSet<WKFrameInfo *> alloc] init]);
     auto messageHandler = adoptNS([[FramesMessageHandler alloc] init]);
     auto userScript = adoptNS([[WKUserScript alloc] initWithSource:userScriptSource injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:NO inContentWorld:WKContentWorld.defaultClientWorld]);
 
-    WKWebViewConfiguration *configuration = [[[WKWebViewConfiguration alloc] init] autorelease];
-    [configuration.userContentController addUserScript:userScript.get()];
-    [configuration.userContentController addScriptMessageHandler:messageHandler.get() contentWorld:WKContentWorld.defaultClientWorld name:@"framesTester"];
+    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    [[configuration userContentController] addUserScript:userScript.get()];
+    [[configuration userContentController] addScriptMessageHandler:messageHandler.get() contentWorld:WKContentWorld.defaultClientWorld name:@"framesTester"];
 
     auto handler = adoptNS([[TestURLSchemeHandler alloc] init]);
     [handler setStartURLSchemeTaskHandler:[&](WKWebView *, id<WKURLSchemeTask> task) {
         if ([task.request.URL.absoluteString isEqualToString:@"framestest://test/index.html"]) {
             NSData *data = [[NSString stringWithFormat:@"%s", framesMainResource] dataUsingEncoding:NSUTF8StringEncoding];
-            [task didReceiveResponse:[[[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:@"text/html" expectedContentLength:data.length textEncodingName:nil] autorelease]];
+            [task didReceiveResponse:adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:@"text/html" expectedContentLength:data.length textEncodingName:nil]).get()];
             [task didReceiveData:data];
             [task didFinish];
         } else if ([task.request.URL.absoluteString isEqualToString:@"otherprotocol://test/index.html"]) {
-            [task didReceiveResponse:[[[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:@"text/html" expectedContentLength:0 textEncodingName:nil] autorelease]];
+            [task didReceiveResponse:adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:@"text/html" expectedContentLength:0 textEncodingName:nil]).get()];
             [task didFinish];
         } else
             ASSERT_NOT_REACHED();
@@ -524,15 +572,15 @@ TEST(EvaluateJavaScript, JavaScriptInFramesFromPostMessage)
     [configuration setURLSchemeHandler:handler.get() forURLScheme:@"framestest"];
     [configuration setURLSchemeHandler:handler.get() forURLScheme:@"otherprotocol"];
 
-    RetainPtr<TestWKWebView> webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration]);
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
     [webView synchronouslyLoadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"framestest://test/index.html"]]];
 
-    EXPECT_EQ(allFrames.count, 2u);
+    EXPECT_EQ([allFrames count], 2u);
 
     static size_t finishedFrames = 0;
     static bool isDone = false;
 
-    for (WKFrameInfo *frame in allFrames) {
+    for (WKFrameInfo *frame in allFrames.get()) {
         bool isMainFrame = frame.isMainFrame;
         [webView callAsyncJavaScript:@"return location.href;" arguments:nil inFrame:frame inContentWorld:WKContentWorld.defaultClientWorld completionHandler:[isMainFrame] (id result, NSError *error) {
             EXPECT_NULL(error);
@@ -543,7 +591,7 @@ TEST(EvaluateJavaScript, JavaScriptInFramesFromPostMessage)
             else
                 EXPECT_TRUE([result isEqualToString:@"otherprotocol://test/index.html"]);
 
-            if (++finishedFrames == allFrames.count * 2)
+            if (++finishedFrames == [allFrames count] * 2)
                 isDone = true;
         }];
 
@@ -557,7 +605,7 @@ TEST(EvaluateJavaScript, JavaScriptInFramesFromPostMessage)
             else
                 EXPECT_TRUE([result isEqualToString:@"otherprotocol://test/index.html"]);
 
-            if (++finishedFrames == allFrames.count * 2)
+            if (++finishedFrames == [allFrames count] * 2)
                 isDone = true;
         }];
     }
@@ -572,29 +620,29 @@ TEST(EvaluateJavaScript, JavaScriptInFramesFromPostMessage)
 // and callAsyncJavaScript to confirm that it can execute JS directly in each of those frames.
 TEST(EvaluateJavaScript, JavaScriptInFramesFromNavigationDelegate)
 {
-    allFrames = [[NSMutableSet<WKFrameInfo *> alloc] init];
+    allFrames = adoptNS([[NSMutableSet<WKFrameInfo *> alloc] init]);
 
     auto handler = adoptNS([[TestURLSchemeHandler alloc] init]);
     [handler setStartURLSchemeTaskHandler:[&](WKWebView *, id<WKURLSchemeTask> task) {
         if ([task.request.URL.absoluteString isEqualToString:@"framestest://test/index.html"]) {
             NSData *data = [[NSString stringWithFormat:@"%s", framesMainResource] dataUsingEncoding:NSUTF8StringEncoding];
-            [task didReceiveResponse:[[[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:@"text/html" expectedContentLength:data.length textEncodingName:nil] autorelease]];
+            [task didReceiveResponse:adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:@"text/html" expectedContentLength:data.length textEncodingName:nil]).get()];
             [task didReceiveData:data];
             [task didFinish];
         } else if ([task.request.URL.absoluteString isEqualToString:@"otherprotocol://test/index.html"]) {
             NSData *data = [@"FooBarBaz" dataUsingEncoding:NSUTF8StringEncoding];
-            [task didReceiveResponse:[[[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:@"text/html" expectedContentLength:0 textEncodingName:nil] autorelease]];
+            [task didReceiveResponse:adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:@"text/html" expectedContentLength:0 textEncodingName:nil]).get()];
             [task didReceiveData:data];
             [task didFinish];
         } else
             ASSERT_NOT_REACHED();
     }];
 
-    WKWebViewConfiguration *configuration = [[[WKWebViewConfiguration alloc] init] autorelease];
+    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
     [configuration setURLSchemeHandler:handler.get() forURLScheme:@"framestest"];
     [configuration setURLSchemeHandler:handler.get() forURLScheme:@"otherprotocol"];
 
-    RetainPtr<WKWebView> webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration]);
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
 
     auto navigationDelegate = adoptNS([[TestNavigationDelegate alloc] init]);
 
@@ -615,12 +663,12 @@ TEST(EvaluateJavaScript, JavaScriptInFramesFromNavigationDelegate)
 
     TestWebKitAPI::Util::run(&didFinishNavigation);
 
-    EXPECT_EQ(allFrames.count, 2u);
+    EXPECT_EQ([allFrames count], 2u);
 
     static size_t finishedFrames = 0;
     static bool isDone = false;
 
-    for (WKFrameInfo *frame in allFrames) {
+    for (WKFrameInfo *frame in allFrames.get()) {
         bool isMainFrame = frame.isMainFrame;
         [webView callAsyncJavaScript:@"return location.href;" arguments:nil inFrame:frame inContentWorld:WKContentWorld.defaultClientWorld completionHandler:[isMainFrame] (id result, NSError *error) {
             EXPECT_NULL(error);
@@ -631,7 +679,7 @@ TEST(EvaluateJavaScript, JavaScriptInFramesFromNavigationDelegate)
             else
                 EXPECT_TRUE([result isEqualToString:@"otherprotocol://test/index.html"]);
 
-            if (++finishedFrames == allFrames.count * 2)
+            if (++finishedFrames == [allFrames count] * 2)
                 isDone = true;
         }];
 
@@ -645,7 +693,7 @@ TEST(EvaluateJavaScript, JavaScriptInFramesFromNavigationDelegate)
             else
                 EXPECT_TRUE([result isEqualToString:@"otherprotocol://test/index.html"]);
 
-            if (++finishedFrames == allFrames.count * 2)
+            if (++finishedFrames == [allFrames count] * 2)
                 isDone = true;
         }];
     }
@@ -657,29 +705,29 @@ TEST(EvaluateJavaScript, JavaScriptInFramesFromNavigationDelegate)
 // due to removal from the DOM results in an appropriate error
 TEST(EvaluateJavaScript, JavaScriptInMissingFrameError)
 {
-    allFrames = [[NSMutableSet<WKFrameInfo *> alloc] init];
+    allFrames = adoptNS([[NSMutableSet<WKFrameInfo *> alloc] init]);
 
     auto handler = adoptNS([[TestURLSchemeHandler alloc] init]);
     [handler setStartURLSchemeTaskHandler:[&](WKWebView *, id<WKURLSchemeTask> task) {
         if ([task.request.URL.absoluteString isEqualToString:@"framestest://test/index.html"]) {
             NSData *data = [[NSString stringWithFormat:@"%s", framesMainResource] dataUsingEncoding:NSUTF8StringEncoding];
-            [task didReceiveResponse:[[[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:@"text/html" expectedContentLength:data.length textEncodingName:nil] autorelease]];
+            [task didReceiveResponse:adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:@"text/html" expectedContentLength:data.length textEncodingName:nil]).get()];
             [task didReceiveData:data];
             [task didFinish];
         } else if ([task.request.URL.absoluteString isEqualToString:@"otherprotocol://test/index.html"]) {
             NSData *data = [@"FooBarBaz" dataUsingEncoding:NSUTF8StringEncoding];
-            [task didReceiveResponse:[[[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:@"text/html" expectedContentLength:0 textEncodingName:nil] autorelease]];
+            [task didReceiveResponse:adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:@"text/html" expectedContentLength:0 textEncodingName:nil]).get()];
             [task didReceiveData:data];
             [task didFinish];
         } else
             ASSERT_NOT_REACHED();
     }];
 
-    WKWebViewConfiguration *configuration = [[[WKWebViewConfiguration alloc] init] autorelease];
+    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
     [configuration setURLSchemeHandler:handler.get() forURLScheme:@"framestest"];
     [configuration setURLSchemeHandler:handler.get() forURLScheme:@"otherprotocol"];
 
-    RetainPtr<WKWebView> webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration]);
+    RetainPtr<WKWebView> webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
 
     auto navigationDelegate = adoptNS([[TestNavigationDelegate alloc] init]);
 
@@ -700,7 +748,7 @@ TEST(EvaluateJavaScript, JavaScriptInMissingFrameError)
 
     TestWebKitAPI::Util::run(&didFinishNavigation);
 
-    EXPECT_EQ(allFrames.count, 2u);
+    EXPECT_EQ([allFrames count], 2u);
 
     static bool isDone = false;
     [webView evaluateJavaScript:@"var frame = document.getElementById('theFrame'); frame.parentNode.removeChild(frame);" inFrame:nil inContentWorld:WKContentWorld.defaultClientWorld completionHandler:[] (id result, NSError *error) {
@@ -710,7 +758,7 @@ TEST(EvaluateJavaScript, JavaScriptInMissingFrameError)
     TestWebKitAPI::Util::run(&isDone);
     isDone = false;
 
-    for (WKFrameInfo *frame in allFrames) {
+    for (WKFrameInfo *frame in allFrames.get()) {
         if (frame.isMainFrame)
             continue;
 
@@ -728,34 +776,39 @@ TEST(EvaluateJavaScript, JavaScriptInMissingFrameError)
 // This test verifies that evaluating JavaScript in a frame from the previous main navigation results in an error
 TEST(EvaluateJavaScript, JavaScriptInMissingFrameAfterNavigationError)
 {
-    allFrames = [[NSMutableSet<WKFrameInfo *> alloc] init];
+    auto processPoolConfiguration = adoptNS([[_WKProcessPoolConfiguration alloc] init]);
+    processPoolConfiguration.get().processSwapsOnNavigationWithinSameNonHTTPFamilyProtocol = YES;
+    auto processPool = adoptNS([[WKProcessPool alloc] _initWithConfiguration:processPoolConfiguration.get()]);
+
+    allFrames = adoptNS([[NSMutableSet<WKFrameInfo *> alloc] init]);
 
     auto handler = adoptNS([[TestURLSchemeHandler alloc] init]);
     [handler setStartURLSchemeTaskHandler:[&](WKWebView *, id<WKURLSchemeTask> task) {
         if ([task.request.URL.absoluteString isEqualToString:@"framestest://test/index.html"]) {
             NSData *data = [[NSString stringWithFormat:@"%s", framesMainResource] dataUsingEncoding:NSUTF8StringEncoding];
-            [task didReceiveResponse:[[[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:@"text/html" expectedContentLength:data.length textEncodingName:nil] autorelease]];
+            [task didReceiveResponse:adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:@"text/html" expectedContentLength:data.length textEncodingName:nil]).get()];
             [task didReceiveData:data];
             [task didFinish];
         } else if ([task.request.URL.absoluteString isEqualToString:@"otherprotocol://test/index.html"]) {
             NSData *data = [@"FooBarBaz" dataUsingEncoding:NSUTF8StringEncoding];
-            [task didReceiveResponse:[[[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:@"text/html" expectedContentLength:0 textEncodingName:nil] autorelease]];
+            [task didReceiveResponse:adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:@"text/html" expectedContentLength:0 textEncodingName:nil]).get()];
             [task didReceiveData:data];
             [task didFinish];
         } else if ([task.request.URL.absoluteString isEqualToString:@"framestest://index2.html"]) {
             NSData *data = [@"Hi" dataUsingEncoding:NSUTF8StringEncoding];
-            [task didReceiveResponse:[[[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:@"text/html" expectedContentLength:0 textEncodingName:nil] autorelease]];
+            [task didReceiveResponse:adoptNS([[NSURLResponse alloc] initWithURL:task.request.URL MIMEType:@"text/html" expectedContentLength:0 textEncodingName:nil]).get()];
             [task didReceiveData:data];
             [task didFinish];
         } else
             ASSERT_NOT_REACHED();
     }];
 
-    WKWebViewConfiguration *configuration = [[[WKWebViewConfiguration alloc] init] autorelease];
+    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    [configuration setProcessPool:processPool.get()];
     [configuration setURLSchemeHandler:handler.get() forURLScheme:@"framestest"];
     [configuration setURLSchemeHandler:handler.get() forURLScheme:@"otherprotocol"];
 
-    RetainPtr<WKWebView> webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration]);
+    RetainPtr<WKWebView> webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
 
     auto navigationDelegate = adoptNS([[TestNavigationDelegate alloc] init]);
 
@@ -777,10 +830,10 @@ TEST(EvaluateJavaScript, JavaScriptInMissingFrameAfterNavigationError)
     TestWebKitAPI::Util::run(&didFinishNavigation);
     didFinishNavigation = false;
 
-    EXPECT_EQ(allFrames.count, 2u);
+    EXPECT_EQ([allFrames count], 2u);
 
     RetainPtr<WKFrameInfo> iframe;
-    for (WKFrameInfo *frame in allFrames) {
+    for (WKFrameInfo *frame in allFrames.get()) {
         if (frame.isMainFrame)
             continue;
         iframe = frame;
@@ -805,4 +858,30 @@ TEST(EvaluateJavaScript, JavaScriptInMissingFrameAfterNavigationError)
 
     TestWebKitAPI::Util::run(&isDone);
     isDone = false;
+}
+
+TEST(EvaluateJavaScript, WindowPersistency)
+{
+    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
+
+    auto navigationDelegate = adoptNS([[TestNavigationDelegate alloc] init]);
+    __block bool didFinishNavigation = false;
+    [navigationDelegate setDidFinishNavigation:^(WKWebView *, WKNavigation *) {
+        didFinishNavigation = true;
+    }];
+    [webView setNavigationDelegate:navigationDelegate.get()];
+    [webView loadTestPageNamed:@"simple"];
+    [webView stringByEvaluatingJavaScript:@""];
+
+    TestWebKitAPI::Util::run(&didFinishNavigation);
+
+    __block bool done = false;
+    [webView evaluateJavaScript:@"window.caches ? 'PASS': 'FAIL'" completionHandler:^(id result, NSError *error) {
+        EXPECT_TRUE(error == nil);
+        EXPECT_WK_STREQ(@"PASS", (NSString *)result);
+        done = true;
+    }];
+    TestWebKitAPI::Util::run(&done);
+    done = false;
 }

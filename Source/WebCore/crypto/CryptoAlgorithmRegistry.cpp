@@ -26,19 +26,18 @@
 #include "config.h"
 #include "CryptoAlgorithmRegistry.h"
 
-#if ENABLE(WEB_CRYPTO)
-
 #include "CryptoAlgorithm.h"
-#include <wtf/Lock.h>
 #include <wtf/NeverDestroyed.h>
 
 namespace WebCore {
 
-static Lock registryMutex;
-
 CryptoAlgorithmRegistry& CryptoAlgorithmRegistry::singleton()
 {
-    static NeverDestroyed<CryptoAlgorithmRegistry> registry;
+    static LazyNeverDestroyed<CryptoAlgorithmRegistry> registry;
+    static std::once_flag onceKey;
+    std::call_once(onceKey, [&] {
+        registry.construct();
+    });
     return registry;
 }
 
@@ -47,26 +46,26 @@ CryptoAlgorithmRegistry::CryptoAlgorithmRegistry()
     platformRegisterAlgorithms();
 }
 
-Optional<CryptoAlgorithmIdentifier> CryptoAlgorithmRegistry::identifier(const String& name)
+std::optional<CryptoAlgorithmIdentifier> CryptoAlgorithmRegistry::identifier(const String& name)
 {
     if (name.isEmpty())
-        return WTF::nullopt;
+        return std::nullopt;
 
-    auto locker = holdLock(registryMutex);
+    Locker locker { m_lock };
 
     // FIXME: How is it helpful to call isolatedCopy on the argument to find?
     auto identifier = m_identifiers.find(name.isolatedCopy());
     if (identifier == m_identifiers.end())
-        return WTF::nullopt;
+        return std::nullopt;
 
     return identifier->value;
 }
 
 String CryptoAlgorithmRegistry::name(CryptoAlgorithmIdentifier identifier)
 {
-    auto locker = holdLock(registryMutex);
+    Locker locker { m_lock };
 
-    auto contructor = m_constructors.find(static_cast<unsigned>(identifier));
+    auto contructor = m_constructors.find(enumToUnderlyingType(identifier));
     if (contructor == m_constructors.end())
         return { };
 
@@ -75,9 +74,9 @@ String CryptoAlgorithmRegistry::name(CryptoAlgorithmIdentifier identifier)
 
 RefPtr<CryptoAlgorithm> CryptoAlgorithmRegistry::create(CryptoAlgorithmIdentifier identifier)
 {
-    auto locker = holdLock(registryMutex);
+    Locker locker { m_lock };
 
-    auto contructor = m_constructors.find(static_cast<unsigned>(identifier));
+    auto contructor = m_constructors.find(enumToUnderlyingType(identifier));
     if (contructor == m_constructors.end())
         return nullptr;
 
@@ -86,16 +85,14 @@ RefPtr<CryptoAlgorithm> CryptoAlgorithmRegistry::create(CryptoAlgorithmIdentifie
 
 void CryptoAlgorithmRegistry::registerAlgorithm(const String& name, CryptoAlgorithmIdentifier identifier, CryptoAlgorithmConstructor constructor)
 {
-    auto locker = holdLock(registryMutex);
+    Locker locker { m_lock };
 
     ASSERT(!m_identifiers.contains(name));
-    ASSERT(!m_constructors.contains(static_cast<unsigned>(identifier)));
+    ASSERT(!m_constructors.contains(enumToUnderlyingType(identifier)));
 
     m_identifiers.add(name, identifier);
-    m_constructors.add(static_cast<unsigned>(identifier), std::make_pair(name, constructor));
+    m_constructors.add(enumToUnderlyingType(identifier), std::make_pair(name, constructor));
 }
 
 
 } // namespace WebCore
-
-#endif // ENABLE(WEB_CRYPTO)

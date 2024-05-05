@@ -23,11 +23,15 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#import <CoreGraphics/CoreGraphics.h>
+
+#if TARGET_OS_IPHONE
 #import <WebCore/AbstractPasteboard.h>
+#endif
 
 #if TARGET_OS_IOS
 
-struct CGSize;
+@protocol UIDropSession;
 
 typedef NS_ENUM(NSInteger, WebPreferredPresentationStyle) {
     WebPreferredPresentationStyleUnspecified,
@@ -101,6 +105,8 @@ WEBCORE_EXPORT @interface WebItemProviderPasteboard : NSObject<AbstractPasteboar
 @property (readonly, nonatomic) BOOL hasPendingOperation;
 - (void)incrementPendingOperationCount;
 - (void)decrementPendingOperationCount;
+
+- (void)setItemProviders:(NSArray<__kindof NSItemProvider *> *)itemProviders dropSession:(nullable id<UIDropSession>)dropSession;
 
 - (void)enumerateItemProvidersWithBlock:(void (^)(__kindof NSItemProvider *itemProvider, NSUInteger index, BOOL *stop))block;
 

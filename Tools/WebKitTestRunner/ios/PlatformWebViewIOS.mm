@@ -28,7 +28,7 @@
 
 #import "TestController.h"
 #import "TestRunnerWKWebView.h"
-#import "UIKitSPI.h"
+#import "UIKitSPIForTesting.h"
 #import <WebKit/WKImageCG.h>
 #import <WebKit/WKPreferencesPrivate.h>
 #import <WebKit/WKSnapshotConfiguration.h>
@@ -36,6 +36,7 @@
 #import <WebKit/WKWebViewPrivate.h>
 #import <pal/spi/cocoa/QuartzCoreSPI.h>
 #import <wtf/BlockObjCExceptions.h>
+#import <wtf/BlockPtr.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/Vector.h>
 #import <wtf/WeakObjCPtr.h>
@@ -90,12 +91,10 @@ static Vector<WebKitTestRunnerWindow *> allWindows;
     [super dealloc];
 }
 
-- (BOOL)isKeyWindow
-{
-    return [super isKeyWindow] && (_platformWebView ? _platformWebView->windowIsKey() : YES);
-}
-
+// FIXME: <https://webkit.org/b/255832> Is this override really necessary?
+ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
 - (void)setFrameOrigin:(CGPoint)point
+ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 {
     _fakeOrigin = point;
 }
@@ -139,9 +138,25 @@ static CGRect viewRectForWindowRect(CGRect, PlatformWebView::WebViewSizingMode);
 } // namespace WTR
 
 @interface PlatformWebViewController : UIViewController
+@property (nonatomic) CGFloat horizontalSystemMinimumLayoutMargin;
 @end
 
 @implementation PlatformWebViewController
+
+- (NSDirectionalEdgeInsets)systemMinimumLayoutMargins
+{
+    auto layoutMargins = [super systemMinimumLayoutMargins];
+    layoutMargins.leading = self.horizontalSystemMinimumLayoutMargin;
+    layoutMargins.trailing = self.horizontalSystemMinimumLayoutMargin;
+    return layoutMargins;
+}
+
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations
+{
+    if (TestRunnerWKWebView *view = WTR::TestController::singleton().mainWebView() ? WTR::TestController::singleton().mainWebView()->platformView() : nullptr)
+        return view.supportedInterfaceOrientations;
+    return UIInterfaceOrientationMaskAll;
+}
 
 - (void)viewWillTransitionToSize:(CGSize)toSize withTransitionCoordinator:(id <UIViewControllerTransitionCoordinator>)coordinator
 {
@@ -161,7 +176,7 @@ static CGRect viewRectForWindowRect(CGRect, PlatformWebView::WebViewSizingMode);
         if (webView.usesSafariLikeRotation) {
             [webView _beginAnimatedResizeWithUpdates:^{
                 webView.frame = viewRectForWindowRect(self.view.bounds, WTR::PlatformWebView::WebViewSizingMode::HeightRespectsStatusBar);
-                [webView _overrideLayoutParametersWithMinimumLayoutSize:webView.frame.size maximumUnobscuredSizeOverride:webView.frame.size];
+                [webView _overrideLayoutParametersWithMinimumLayoutSize:webView.frame.size minimumUnobscuredSizeOverride:webView.frame.size maximumUnobscuredSizeOverride:webView.frame.size];
                 [webView _setInterfaceOrientationOverride:[[UIApplication sharedApplication] statusBarOrientation]];
             }];
         } else
@@ -172,6 +187,19 @@ static CGRect viewRectForWindowRect(CGRect, PlatformWebView::WebViewSizingMode);
             [webView _endAnimatedResize];
 
         [webView _didEndRotation];
+    }];
+}
+
+- (void)presentViewController:(UIViewController *)viewController animated:(BOOL)animated completion:(void(^)(void))completion
+{
+    auto weakWebView = WeakObjCPtr<TestRunnerWKWebView>(WTR::TestController::singleton().mainWebView()->platformView());
+    [super presentViewController:viewController animated:animated completion:[weakWebView, completion = makeBlockPtr(completion), viewController = retainPtr(viewController)] {
+        if (completion)
+            completion();
+
+        auto strongWebView = weakWebView.get();
+        if (WTR::TestController::singleton().mainWebView()->platformView() == strongWebView)
+            [strongWebView _didPresentViewController:viewController.get()];
     }];
 }
 
@@ -189,15 +217,15 @@ PlatformWebView::PlatformWebView(WKWebViewConfiguration* configuration, const Te
     : m_windowIsKey(true)
     , m_options(options)
 {
-    CGRect rect = CGRectMake(0, 0, TestController::viewWidth, TestController::viewHeight);
+    CGRect rect = CGRectMake(0, 0, options.viewWidth(), options.viewHeight());
 
     m_window = [[WebKitTestRunnerWindow alloc] initWithFrame:rect];
     m_window.backgroundColor = [UIColor lightGrayColor];
     m_window.platformWebView = this;
 
-    UIViewController *viewController = [[PlatformWebViewController alloc] init];
-    [m_window setRootViewController:viewController];
-    [viewController release];
+    auto webViewController = adoptNS([[PlatformWebViewController alloc] init]);
+    [webViewController setHorizontalSystemMinimumLayoutMargin:options.horizontalSystemMinimumLayoutMargin()];
+    [m_window setRootViewController:webViewController.get()];
 
     m_view = [[TestRunnerWKWebView alloc] initWithFrame:viewRectForWindowRect(rect, WebViewSizingMode::Default) configuration:configuration];
 
@@ -210,6 +238,7 @@ PlatformWebView::~PlatformWebView()
 {
     m_window.platformWebView = nil;
     [m_view release];
+    [m_window setHidden:YES];
     [m_window release];
 }
 
@@ -228,8 +257,24 @@ PlatformWindow PlatformWebView::keyWindow()
 void PlatformWebView::setWindowIsKey(bool isKey)
 {
     m_windowIsKey = isKey;
-    if (isKey && !m_window.keyWindow)
+
+    if (isKey && !m_window.keyWindow) {
+        [m_otherWindow setHidden:YES];
         [m_window makeKeyWindow];
+        return;
+    }
+
+    if (!isKey && m_window.keyWindow) {
+        if (!m_otherWindow) {
+            m_otherWindow = adoptNS([[UIWindow alloc] initWithWindowScene:m_window.windowScene]);
+            [m_otherWindow setFrame:CGRectMake(-1, -1, 1, 1)];
+        }
+        // On iOS, there's no API to force a UIWindow to resign key window. However, we can instead
+        // cause the test runner window to resign key window by making a different window (in this
+        // case, m_otherWindow) the key window.
+        [m_otherWindow setHidden:NO];
+        [m_otherWindow makeKeyWindow];
+    }
 }
 
 void PlatformWebView::addToWindow()
@@ -287,18 +332,39 @@ void PlatformWebView::didInitializeClients()
     setWindowFrame(wkFrame);
 }
 
+static UITextField *chromeInputField(UIWindow *window)
+{
+    return (UITextField *)[window viewWithTag:1];
+}
+
 void PlatformWebView::addChromeInputField()
 {
-    UITextField* textField = [[UITextField alloc] initWithFrame:CGRectMake(0, 0, 100, 20)];
-    textField.tag = 1;
-    [m_window addSubview:textField];
-    [textField release];
+    auto textField = adoptNS([[UITextField alloc] initWithFrame:CGRectMake(0, 0, 320, 64)]);
+    [textField setTag:1];
+    [m_window addSubview:textField.get()];
+}
+
+void PlatformWebView::setTextInChromeInputField(const String& text)
+{
+    chromeInputField(m_window).text = text;
+}
+
+void PlatformWebView::selectChromeInputField()
+{
+    auto textField = chromeInputField(m_window);
+    [textField becomeFirstResponder];
+    [textField selectAll:nil];
+}
+
+String PlatformWebView::getSelectedTextInChromeInputField()
+{
+    auto textField = chromeInputField(m_window);
+    return [textField textInRange:textField.selectedTextRange];
 }
 
 void PlatformWebView::removeChromeInputField()
 {
-    UITextField* textField = (UITextField*)[m_window viewWithTag:1];
-    if (textField) {
+    if (auto textField = chromeInputField(m_window)) {
         [textField removeFromSuperview];
         makeWebViewFirstResponder();
     }
@@ -334,24 +400,29 @@ RetainPtr<CGImageRef> PlatformWebView::windowSnapshotImage()
     RELEASE_ASSERT(viewSize.width);
     RELEASE_ASSERT(viewSize.height);
 
+#if !HAVE(UI_TEXT_SELECTION_DISPLAY_INTERACTION)
     UIView *selectionView = [platformView().contentView valueForKeyPath:@"interactionAssistant.selectionView"];
     UIView *startGrabberView = [selectionView valueForKeyPath:@"rangeView.startGrabber"];
     UIView *endGrabberView = [selectionView valueForKeyPath:@"rangeView.endGrabber"];
     Vector<WeakObjCPtr<UIView>, 3> viewsToUnhide;
     if (![selectionView isHidden]) {
         [selectionView setHidden:YES];
-        viewsToUnhide.uncheckedAppend(selectionView);
+        viewsToUnhide.append(selectionView);
     }
 
     if (![startGrabberView isHidden]) {
         [startGrabberView setHidden:YES];
-        viewsToUnhide.uncheckedAppend(startGrabberView);
+        viewsToUnhide.append(startGrabberView);
     }
 
     if (![endGrabberView isHidden]) {
         [endGrabberView setHidden:YES];
-        viewsToUnhide.uncheckedAppend(endGrabberView);
+        viewsToUnhide.append(endGrabberView);
     }
+#else
+    UITextSelectionDisplayInteraction *interaction = [platformView().contentView valueForKeyPath:@"interactionAssistant._selectionViewManager"];
+    interaction.activated = NO;
+#endif
 
     __block bool isDone = false;
     __block RetainPtr<CGImageRef> result;
@@ -372,8 +443,12 @@ RetainPtr<CGImageRef> PlatformWebView::windowSnapshotImage()
     while (!isDone)
         [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate distantPast]];
 
+#if !HAVE(UI_TEXT_SELECTION_DISPLAY_INTERACTION)
     for (auto view : viewsToUnhide)
         [view setHidden:NO];
+#else
+    interaction.activated = YES;
+#endif
 
     return result;
 }
@@ -381,6 +456,11 @@ RetainPtr<CGImageRef> PlatformWebView::windowSnapshotImage()
 void PlatformWebView::setNavigationGesturesEnabled(bool enabled)
 {
     [platformView() setAllowsBackForwardNavigationGestures:enabled];
+}
+
+bool PlatformWebView::isSecureEventInputEnabled() const
+{
+    return false;
 }
 
 } // namespace WTR

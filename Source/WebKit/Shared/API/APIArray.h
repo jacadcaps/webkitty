@@ -23,8 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef APIArray_h
-#define APIArray_h
+#pragma once
 
 #include "APIObject.h"
 #include <wtf/Forward.h>
@@ -53,10 +52,9 @@ public:
     static Ref<Array> create();
     static Ref<Array> create(Vector<RefPtr<Object>>&&);
     static Ref<Array> createStringArray(const Vector<WTF::String>&);
+    static Ref<Array> createStringArray(const std::span<const WTF::String>);
     Vector<WTF::String> toStringVector();
     Ref<Array> copy();
-
-    virtual ~Array();
 
     template<typename T>
     T* at(size_t i) const
@@ -109,4 +107,4 @@ private:
 
 } // namespace API
 
-#endif // APIArray_h
+SPECIALIZE_TYPE_TRAITS_API_OBJECT(Array);

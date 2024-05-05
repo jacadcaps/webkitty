@@ -28,6 +28,9 @@
 #if !USE(SYSTEM_MALLOC)
 
 #include <bmalloc/bmalloc.h>
+
+#if !BUSE(LIBPAS)
+
 #include <bmalloc/AllIsoHeapsInlines.h>
 #include <bmalloc/Environment.h>
 #include <bmalloc/IsoHeapInlines.h>
@@ -234,7 +237,7 @@ TEST(bmalloc, IsoMallocAndFreeFast)
 }
 
 class BisoMalloced {
-    MAKE_BISO_MALLOCED(BisoMalloced, BNOEXPORT);
+    MAKE_BISO_MALLOCED(BisoMalloced, IsoHeap, BNOEXPORT);
 public:
     BisoMalloced(int x, float y)
         : x(x)
@@ -246,7 +249,7 @@ public:
     float y;
 };
 
-MAKE_BISO_MALLOCED_IMPL(BisoMalloced);
+MAKE_BISO_MALLOCED_IMPL(BisoMalloced, IsoHeap);
 
 TEST(bmalloc, BisoMalloced)
 {
@@ -257,7 +260,7 @@ TEST(bmalloc, BisoMalloced)
 }
 
 class BisoMallocedInline {
-    MAKE_BISO_MALLOCED_INLINE(BisoMalloced);
+    MAKE_BISO_MALLOCED_INLINE(BisoMalloced, IsoHeap);
 public:
     BisoMallocedInline(int x, float y)
         : x(x)
@@ -299,7 +302,7 @@ TEST(bmalloc, ScavengedMemoryShouldBeReused)
         }
 
         // After that, allocating pointers in the upper tier.
-        for (unsigned i = 0; ;i++) {
+        for (;;) {
             void* ptr = heap.allocate();
             EXPECT_TRUE(ptr);
             ptrs.push_back(ptr);
@@ -4640,5 +4643,7 @@ TEST(bmalloc, IsoHeapMultipleThreadsWhileIterating)
     for (auto& thread : threads)
         thread->waitForCompletion();
 }
+
+#endif
 
 #endif

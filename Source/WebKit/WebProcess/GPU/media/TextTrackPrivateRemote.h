@@ -26,16 +26,12 @@
 
 #pragma once
 
-#if ENABLE(GPU_PROCESS)
+#if ENABLE(GPU_PROCESS) && ENABLE(VIDEO)
 
 #include "DataReference.h"
 #include "TextTrackPrivateRemoteConfiguration.h"
-#include "TrackPrivateRemoteIdentifier.h"
 #include <WebCore/InbandTextTrackPrivate.h>
-
-namespace IPC {
-class DataReference;
-}
+#include <WebCore/MediaPlayerIdentifier.h>
 
 namespace WebCore {
 class InbandGenericCue;
@@ -44,15 +40,16 @@ class ISOWebVTTCue;
 
 namespace WebKit {
 
+class GPUProcessConnection;
 class MediaPlayerPrivateRemote;
 
 class TextTrackPrivateRemote final : public WebCore::InbandTextTrackPrivate {
     WTF_MAKE_NONCOPYABLE(TextTrackPrivateRemote)
 public:
 
-    static Ref<TextTrackPrivateRemote> create(MediaPlayerPrivateRemote& player, TrackPrivateRemoteIdentifier idendifier, TextTrackPrivateRemoteConfiguration&& configuration)
+    static Ref<TextTrackPrivateRemote> create(GPUProcessConnection& gpuProcessConnection, WebCore::MediaPlayerIdentifier playerIdentifier, TextTrackPrivateRemoteConfiguration&& configuration)
     {
-        return adoptRef(*new TextTrackPrivateRemote(player, idendifier, WTFMove(configuration)));
+        return adoptRef(*new TextTrackPrivateRemote(gpuProcessConnection, playerIdentifier, WTFMove(configuration)));
     }
 
     void addDataCue(MediaTime&& start, MediaTime&& end, IPC::DataReference&&);
@@ -76,20 +73,17 @@ public:
 
     void updateConfiguration(TextTrackPrivateRemoteConfiguration&&);
 
-    AtomString id() const final { return m_id; }
+    WebCore::TrackID id() const final { return m_id; }
     AtomString label() const final { return m_label; }
     AtomString language() const final { return m_language; }
     int trackIndex() const final { return m_trackIndex; }
-
-    using TextTrackCueFormat = WebCore::InbandTextTrackPrivate::CueFormat;
-    TextTrackCueFormat cueFormat() const final { return m_format; }
+    AtomString inBandMetadataTrackDispatchType() const final { return m_inBandMetadataTrackDispatchType; }
 
     using TextTrackKind = WebCore::InbandTextTrackPrivate::Kind;
     TextTrackKind kind() const final { return m_kind; }
 
     using TextTrackMode = WebCore::InbandTextTrackPrivate::Mode;
     void setMode(TextTrackMode) final;
-    TextTrackMode mode() const final { return m_mode; }
 
     bool isClosedCaptions() const final { return m_isClosedCaptions; }
     bool isSDH() const final { return m_isSDH; }
@@ -97,21 +91,21 @@ public:
     bool isMainProgramContent() const final { return m_isMainProgramContent; }
     bool isEasyToRead() const final { return m_isEasyToRead; }
     bool isDefault() const final { return m_isDefault; }
+    MediaTime startTimeVariance() const final { return m_startTimeVariance; }
 
 private:
-    TextTrackPrivateRemote(MediaPlayerPrivateRemote&, TrackPrivateRemoteIdentifier, TextTrackPrivateRemoteConfiguration&&);
+    TextTrackPrivateRemote(GPUProcessConnection&, WebCore::MediaPlayerIdentifier, TextTrackPrivateRemoteConfiguration&&);
 
-    MediaPlayerPrivateRemote& m_player;
-    AtomString m_id;
+    ThreadSafeWeakPtr<GPUProcessConnection> m_gpuProcessConnection;
     AtomString m_label;
     AtomString m_language;
     int m_trackIndex { -1 };
+    AtomString m_inBandMetadataTrackDispatchType;
     MediaTime m_startTimeVariance { MediaTime::zeroTime() };
-    TrackPrivateRemoteIdentifier m_idendifier;
+    WebCore::TrackID m_id;
+    WebCore::MediaPlayerIdentifier m_playerIdentifier;
 
-    TextTrackCueFormat m_format { TextTrackCueFormat::Generic };
     TextTrackKind m_kind { TextTrackKind::None };
-    TextTrackMode m_mode { TextTrackMode::Disabled };
     bool m_isClosedCaptions { false };
     bool m_isSDH { false };
     bool m_containsOnlyForcedSubtitles { false };
@@ -122,4 +116,4 @@ private:
 
 } // namespace WebKit
 
-#endif
+#endif // ENABLE(GPU_PROCESS) && ENABLE(VIDEO)

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,8 +31,11 @@
 #include "AirCode.h"
 #include "AirGenerationContext.h"
 #include "B3ValueInlines.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace JSC { namespace B3 {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(StackmapSpecial);
 
 using Arg = Air::Arg;
 using Inst = Air::Inst;
@@ -46,7 +49,7 @@ StackmapSpecial::~StackmapSpecial()
 {
 }
 
-void StackmapSpecial::reportUsedRegisters(Inst& inst, const RegisterSet& usedRegisters)
+void StackmapSpecial::reportUsedRegisters(Inst& inst, const RegisterSetBuilder& usedRegisters)
 {
     StackmapValue* value = inst.origin->as<StackmapValue>();
     ASSERT(value);
@@ -57,7 +60,7 @@ void StackmapSpecial::reportUsedRegisters(Inst& inst, const RegisterSet& usedReg
     value->m_usedRegisters.merge(usedRegisters);
 }
 
-RegisterSet StackmapSpecial::extraClobberedRegs(Inst& inst)
+RegisterSetBuilder StackmapSpecial::extraClobberedRegs(Inst& inst)
 {
     StackmapValue* value = inst.origin->as<StackmapValue>();
     ASSERT(value);
@@ -65,7 +68,7 @@ RegisterSet StackmapSpecial::extraClobberedRegs(Inst& inst)
     return value->lateClobbered();
 }
 
-RegisterSet StackmapSpecial::extraEarlyClobberedRegs(Inst& inst)
+RegisterSetBuilder StackmapSpecial::extraEarlyClobberedRegs(Inst& inst)
 {
     StackmapValue* value = inst.origin->as<StackmapValue>();
     ASSERT(value);
@@ -75,8 +78,8 @@ RegisterSet StackmapSpecial::extraEarlyClobberedRegs(Inst& inst)
 
 void StackmapSpecial::forEachArgImpl(
     unsigned numIgnoredB3Args, unsigned numIgnoredAirArgs,
-    Inst& inst, RoleMode roleMode, Optional<unsigned> firstRecoverableIndex,
-    const ScopedLambda<Inst::EachArgCallback>& callback, Optional<Width> optionalDefArgWidth)
+    Inst& inst, RoleMode roleMode, std::optional<unsigned> firstRecoverableIndex,
+    const ScopedLambda<Inst::EachArgCallback>& callback, std::optional<Width> optionalDefArgWidth)
 {
     StackmapValue* value = inst.origin->as<StackmapValue>();
     ASSERT(value);

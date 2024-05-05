@@ -48,12 +48,12 @@ public:
     void expandToEncompassFragmentedFlowContentsIfNeeded();
 
 protected:
-    RenderFragmentContainerSet(Document&, RenderStyle&&, RenderFragmentedFlow&);
+    RenderFragmentContainerSet(Type, Document&, RenderStyle&&, RenderFragmentedFlow&);
 
 private:
     void installFragmentedFlow() final;
 
-    const char* renderName() const override = 0;
+    ASCIILiteral renderName() const override = 0;
     
     bool isRenderFragmentContainerSet() const final { return true; }
 };

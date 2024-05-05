@@ -24,75 +24,72 @@ namespace webrtc {
 class RtcEventLog;
 
 struct BitrateProberConfig {
-  explicit BitrateProberConfig(const WebRtcKeyValueConfig* key_value_config);
+  explicit BitrateProberConfig(const FieldTrialsView* key_value_config);
   BitrateProberConfig(const BitrateProberConfig&) = default;
   BitrateProberConfig& operator=(const BitrateProberConfig&) = default;
   ~BitrateProberConfig() = default;
 
-  // The minimum number probing packets used.
-  FieldTrialParameter<int> min_probe_packets_sent;
   // A minimum interval between probes to allow scheduling to be feasible.
   FieldTrialParameter<TimeDelta> min_probe_delta;
-  // The minimum probing duration.
-  FieldTrialParameter<TimeDelta> min_probe_duration;
-  // Maximum amount of time each probe can be delayed. Probe cluster is reset
-  // and retried from the start when this limit is reached.
+  // Maximum amount of time each probe can be delayed.
   FieldTrialParameter<TimeDelta> max_probe_delay;
+  // This is used to start sending a probe after a large enough packet.
+  // The min packet size is scaled with the bitrate we're probing at.
+  // This defines the max min packet size, meaning that on high bitrates
+  // a packet of at least this size is needed to trigger sending a probe.
+  FieldTrialParameter<DataSize> min_packet_size;
 };
 
 // Note that this class isn't thread-safe by itself and therefore relies
 // on being protected by the caller.
 class BitrateProber {
  public:
-  explicit BitrateProber(const WebRtcKeyValueConfig& field_trials);
-  ~BitrateProber();
+  explicit BitrateProber(const FieldTrialsView& field_trials);
+  ~BitrateProber() = default;
 
   void SetEnabled(bool enable);
 
   // Returns true if the prober is in a probing session, i.e., it currently
   // wants packets to be sent out according to the time returned by
   // TimeUntilNextProbe().
-  bool IsProbing() const;
+  bool is_probing() const { return probing_state_ == ProbingState::kActive; }
 
   // Initializes a new probing session if the prober is allowed to probe. Does
   // not initialize the prober unless the packet size is large enough to probe
   // with.
-  void OnIncomingPacket(size_t packet_size);
+  void OnIncomingPacket(DataSize packet_size);
 
-  // Create a cluster used to probe for |bitrate_bps| with |num_probes| number
-  // of probes.
-  void CreateProbeCluster(DataRate bitrate, Timestamp now, int cluster_id);
-
-  // Returns the at which the next probe should be sent to get accurate probing.
-  // If probing is not desired at this time, Timestamp::PlusInfinity() will be
-  // returned.
+  // Create a cluster used to probe.
+  void CreateProbeCluster(const ProbeClusterConfig& cluster_config);
+  // Returns the time at which the next probe should be sent to get accurate
+  // probing. If probing is not desired at this time, Timestamp::PlusInfinity()
+  // will be returned.
+  // TODO(bugs.webrtc.org/11780): Remove `now` argument when old mode is gone.
   Timestamp NextProbeTime(Timestamp now) const;
 
   // Information about the current probing cluster.
-  PacedPacketInfo CurrentCluster() const;
+  absl::optional<PacedPacketInfo> CurrentCluster(Timestamp now);
 
   // Returns the minimum number of bytes that the prober recommends for
-  // the next probe.
-  size_t RecommendedMinProbeSize() const;
+  // the next probe, or zero if not probing. A probe can consist of multiple
+  // packets that are sent back to back.
+  DataSize RecommendedMinProbeSize() const;
 
   // Called to report to the prober that a probe has been sent. In case of
   // multiple packets per probe, this call would be made at the end of sending
-  // the last packet in probe. |probe_size| is the total size of all packets
-  // in probe.
-  void ProbeSent(Timestamp now, size_t probe_size);
+  // the last packet in probe. `size` is the total size of all packets in probe.
+  void ProbeSent(Timestamp now, DataSize size);
 
  private:
   enum class ProbingState {
     // Probing will not be triggered in this state at all times.
     kDisabled,
-    // Probing is enabled and ready to trigger on the first packet arrival.
+    // Probing is enabled and ready to trigger on the first packet arrival if
+    // there is a probe cluster.
     kInactive,
     // Probe cluster is filled with the set of data rates to be probed and
     // probes are being sent.
     kActive,
-    // Probing is enabled, but currently suspended until an explicit trigger
-    // to start probing again.
-    kSuspended,
   };
 
   // A probe cluster consists of a set of probes. Each probe in turn can be
@@ -102,12 +99,13 @@ class BitrateProber {
 
     int sent_probes = 0;
     int sent_bytes = 0;
-    Timestamp created_at = Timestamp::MinusInfinity();
+    Timestamp requested_at = Timestamp::MinusInfinity();
     Timestamp started_at = Timestamp::MinusInfinity();
     int retries = 0;
   };
 
   Timestamp CalculateNextProbeTime(const ProbeCluster& cluster) const;
+  bool ReadyToSetActiveState(DataSize packet_size) const;
 
   ProbingState probing_state_;
 
@@ -118,9 +116,6 @@ class BitrateProber {
 
   // Time the next probe should be sent when in kActive state.
   Timestamp next_probe_time_;
-
-  int total_probe_count_;
-  int total_failed_probe_count_;
 
   BitrateProberConfig config_;
 };

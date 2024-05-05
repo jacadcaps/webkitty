@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,22 +32,16 @@ namespace JSC {
 
 STATIC_ASSERT_IS_TRIVIALLY_DESTRUCTIBLE(ScopedArguments);
 
-const ClassInfo ScopedArguments::s_info = { "Arguments", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(ScopedArguments) };
+const ClassInfo ScopedArguments::s_info = { "Arguments"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(ScopedArguments) };
 
-ScopedArguments::ScopedArguments(VM& vm, Structure* structure, WriteBarrier<Unknown>* storage, unsigned totalLength)
+ScopedArguments::ScopedArguments(VM& vm, Structure* structure, WriteBarrier<Unknown>* storage, unsigned totalLength, JSFunction* callee, ScopedArgumentsTable* table, JSLexicalEnvironment* scope)
     : GenericArguments(vm, structure)
     , m_totalLength(totalLength)
+    , m_callee(callee, WriteBarrierEarlyInit)
+    , m_table(table, WriteBarrierEarlyInit)
+    , m_scope(scope, WriteBarrierEarlyInit)
+    , m_storage(storage, WriteBarrierEarlyInit)
 {
-    if (storage)
-        m_storage.set(vm, this, storage);
-}
-
-void ScopedArguments::finishCreation(VM& vm, JSFunction* callee, ScopedArgumentsTable* table, JSLexicalEnvironment* scope)
-{
-    Base::finishCreation(vm);
-    m_callee.set(vm, this, callee);
-    m_table.set(vm, this, table);
-    m_scope.set(vm, this, scope);
 }
 
 ScopedArguments* ScopedArguments::createUninitialized(VM& vm, Structure* structure, JSFunction* callee, ScopedArgumentsTable* table, JSLexicalEnvironment* scope, unsigned totalLength)
@@ -55,14 +49,14 @@ ScopedArguments* ScopedArguments::createUninitialized(VM& vm, Structure* structu
     WriteBarrier<Unknown>* storage = nullptr;
     if (totalLength > table->length()) {
         Checked<unsigned> overflowLength = totalLength - table->length();
-        storage = static_cast<WriteBarrier<Unknown>*>(vm.jsValueGigacageAuxiliarySpace.allocateNonVirtual(vm, (overflowLength * sizeof(WriteBarrier<Unknown>)).unsafeGet(), nullptr, AllocationFailureMode::Assert));
+        storage = static_cast<WriteBarrier<Unknown>*>(vm.jsValueGigacageAuxiliarySpace().allocate(vm, overflowLength * sizeof(WriteBarrier<Unknown>), nullptr, AllocationFailureMode::Assert));
     }
 
     ScopedArguments* result = new (
         NotNull,
-        allocateCell<ScopedArguments>(vm.heap))
-        ScopedArguments(vm, structure, storage, totalLength);
-    result->finishCreation(vm, callee, table, scope);
+        allocateCell<ScopedArguments>(vm))
+        ScopedArguments(vm, structure, storage, totalLength, callee, table, scope);
+    result->finishCreation(vm);
     return result;
 }
 
@@ -98,7 +92,8 @@ ScopedArguments* ScopedArguments::createByCopyingFrom(VM& vm, Structure* structu
     return result;
 }
 
-void ScopedArguments::visitChildren(JSCell* cell, SlotVisitor& visitor)
+template<typename Visitor>
+void ScopedArguments::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
     ScopedArguments* thisObject = static_cast<ScopedArguments*>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
@@ -114,6 +109,8 @@ void ScopedArguments::visitChildren(JSCell* cell, SlotVisitor& visitor)
             visitor.appendValues(storage, thisObject->m_totalLength - thisObject->m_table->length());
     }
 }
+
+DEFINE_VISIT_CHILDREN(ScopedArguments);
 
 Structure* ScopedArguments::createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
 {
@@ -144,6 +141,7 @@ void ScopedArguments::unmapArgument(JSGlobalObject* globalObject, uint32_t i)
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
     ASSERT_WITH_SECURITY_IMPLICATION(i < m_totalLength);
+    m_hasUnmappedArgument = true;
     unsigned namedLength = m_table->length();
     if (i < namedLength) {
         auto* maybeCloned = m_table->trySet(vm, i, ScopeOffset());
@@ -152,6 +150,7 @@ void ScopedArguments::unmapArgument(JSGlobalObject* globalObject, uint32_t i)
             return;
         }
         m_table.set(vm, this, maybeCloned);
+        m_table->clearWatchpointSet(i);
     } else
         storage()[i - namedLength].clear();
 }
@@ -159,6 +158,25 @@ void ScopedArguments::unmapArgument(JSGlobalObject* globalObject, uint32_t i)
 void ScopedArguments::copyToArguments(JSGlobalObject* globalObject, JSValue* firstElementDest, unsigned offset, unsigned length)
 {
     GenericArguments::copyToArguments(globalObject, firstElementDest, offset, length);
+}
+
+bool ScopedArguments::isIteratorProtocolFastAndNonObservable()
+{
+    Structure* structure = this->structure();
+    JSGlobalObject* globalObject = structure->globalObject();
+    if (!globalObject->isArgumentsPrototypeIteratorProtocolFastAndNonObservable())
+        return false;
+
+    if (UNLIKELY(m_overrodeThings))
+        return false;
+
+    if (UNLIKELY(m_hasUnmappedArgument))
+        return false;
+
+    if (structure->didTransition())
+        return false;
+
+    return true;
 }
 
 } // namespace JSC

@@ -28,6 +28,7 @@
 
 #if ENABLE(WEB_AUTHN)
 
+#import <JavaScriptCore/ArrayBuffer.h>
 #import <Security/SecItem.h>
 #import <WebCore/AuthenticatorAssertionResponse.h>
 #import <WebCore/ExceptionData.h>
@@ -46,7 +47,7 @@ MockLocalConnection::MockLocalConnection(const MockWebAuthenticationConfiguratio
 {
 }
 
-void MockLocalConnection::verifyUser(const String&, ClientDataType, SecAccessControlRef, UserVerificationCallback&& callback)
+void MockLocalConnection::verifyUser(const String&, ClientDataType, SecAccessControlRef, WebCore::UserVerificationRequirement, UserVerificationCallback&& callback)
 {
     // Mock async operations.
     RunLoop::main().dispatch([configuration = m_configuration, callback = WTFMove(callback)]() mutable {
@@ -61,9 +62,38 @@ void MockLocalConnection::verifyUser(const String&, ClientDataType, SecAccessCon
             break;
         case MockWebAuthenticationConfiguration::UserVerification::Cancel:
             userVerification = UserVerification::Cancel;
+            break;
+        case MockWebAuthenticationConfiguration::UserVerification::Presence:
+            userVerification = UserVerification::Presence;
+            break;
         }
 
         callback(userVerification, adoptNS([allocLAContextInstance() init]).get());
+    });
+}
+
+void MockLocalConnection::verifyUser(SecAccessControlRef, LAContext *, CompletionHandler<void(UserVerification)>&& callback)
+{
+    // Mock async operations.
+    RunLoop::main().dispatch([configuration = m_configuration, callback = WTFMove(callback)]() mutable {
+        ASSERT(configuration.local);
+
+        UserVerification userVerification = UserVerification::No;
+        switch (configuration.local->userVerification) {
+        case MockWebAuthenticationConfiguration::UserVerification::No:
+            break;
+        case MockWebAuthenticationConfiguration::UserVerification::Yes:
+            userVerification = UserVerification::Yes;
+            break;
+        case MockWebAuthenticationConfiguration::UserVerification::Cancel:
+            userVerification = UserVerification::Cancel;
+            break;
+        case MockWebAuthenticationConfiguration::UserVerification::Presence:
+            userVerification = UserVerification::Presence;
+            break;
+        }
+
+        callback(userVerification);
     });
 }
 
@@ -92,11 +122,7 @@ RetainPtr<SecKeyRef> MockLocalConnection::createCredentialPrivateKey(LAContext *
         (id)kSecAttrLabel: secAttrLabel,
         (id)kSecAttrApplicationTag: secAttrApplicationTag,
         (id)kSecAttrAccessible: (id)kSecAttrAccessibleAfterFirstUnlock,
-#if HAVE(DATA_PROTECTION_KEYCHAIN)
         (id)kSecUseDataProtectionKeychain: @YES
-#else
-        (id)kSecAttrNoLegacy: @YES
-#endif
     };
     OSStatus status = SecItemAdd((__bridge CFDictionaryRef)addQuery, NULL);
     if (status) {
@@ -105,22 +131,6 @@ RetainPtr<SecKeyRef> MockLocalConnection::createCredentialPrivateKey(LAContext *
     }
 
     return key;
-}
-
-void MockLocalConnection::getAttestation(SecKeyRef, NSData *, NSData *, AttestationCallback&& callback) const
-{
-    // Mock async operations.
-    RunLoop::main().dispatch([configuration = m_configuration, callback = WTFMove(callback)]() mutable {
-        ASSERT(configuration.local);
-        if (!configuration.local->acceptAttestation) {
-            callback(NULL, [NSError errorWithDomain:@"WebAuthentication" code:-1 userInfo:@{ NSLocalizedDescriptionKey: @"The operation couldn't complete." }]);
-            return;
-        }
-
-        auto attestationCertificate = adoptCF(SecCertificateCreateWithData(NULL, (__bridge CFDataRef)adoptNS([[NSData alloc] initWithBase64EncodedString:configuration.local->userCertificateBase64 options:NSDataBase64DecodingIgnoreUnknownCharacters]).get()));
-        auto attestationIssuingCACertificate = adoptCF(SecCertificateCreateWithData(NULL, (__bridge CFDataRef)adoptNS([[NSData alloc] initWithBase64EncodedString:configuration.local->intermediateCACertificateBase64 options:NSDataBase64DecodingIgnoreUnknownCharacters]).get()));
-        callback(@[ (__bridge id)attestationCertificate.get(), (__bridge id)attestationIssuingCACertificate.get()], NULL);
-    });
 }
 
 void MockLocalConnection::filterResponses(Vector<Ref<AuthenticatorAssertionResponse>>& responses) const
@@ -133,7 +143,7 @@ void MockLocalConnection::filterResponses(Vector<Ref<AuthenticatorAssertionRespo
     for (; itr != responses.end(); ++itr) {
         auto* rawId = itr->get().rawId();
         ASSERT(rawId);
-        auto rawIdBase64 = base64Encode(rawId->data(), rawId->byteLength());
+        auto rawIdBase64 = base64EncodeToString(rawId->data(), rawId->byteLength());
         if (rawIdBase64 == preferredCredentialIdBase64)
             break;
     }

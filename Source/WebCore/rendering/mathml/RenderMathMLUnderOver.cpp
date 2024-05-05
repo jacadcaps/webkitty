@@ -33,6 +33,7 @@
 #include "MathMLOperatorDictionary.h"
 #include "MathMLUnderOverElement.h"
 #include "RenderIterator.h"
+#include "RenderMathMLBlockInlines.h"
 #include "RenderMathMLOperator.h"
 #include <wtf/IsoMallocInlines.h>
 
@@ -41,8 +42,9 @@ namespace WebCore {
 WTF_MAKE_ISO_ALLOCATED_IMPL(RenderMathMLUnderOver);
 
 RenderMathMLUnderOver::RenderMathMLUnderOver(MathMLUnderOverElement& element, RenderStyle&& style)
-    : RenderMathMLScripts(element, WTFMove(style))
+    : RenderMathMLScripts(Type::MathMLUnderOver, element, WTFMove(style))
 {
+    ASSERT(isRenderMathMLUnderOver());
 }
 
 MathMLUnderOverElement& RenderMathMLUnderOver::element() const
@@ -52,10 +54,11 @@ MathMLUnderOverElement& RenderMathMLUnderOver::element() const
 
 static RenderMathMLOperator* horizontalStretchyOperator(const RenderBox& box)
 {
-    if (!is<RenderMathMLBlock>(box))
+    auto* mathMLBlock = dynamicDowncast<RenderMathMLBlock>(box);
+    if (!mathMLBlock)
         return nullptr;
 
-    auto* renderOperator = downcast<RenderMathMLBlock>(box).unembellishedOperator();
+    auto* renderOperator = mathMLBlock->unembellishedOperator();
     if (!renderOperator)
         return nullptr;
 
@@ -146,8 +149,10 @@ bool RenderMathMLUnderOver::isValid() const
     }
 }
 
-bool RenderMathMLUnderOver::shouldMoveLimits()
+bool RenderMathMLUnderOver::shouldMoveLimits() const
 {
+    if (style().mathStyle() == MathStyle::Normal)
+        return false;
     if (auto* renderOperator = unembellishedOperator())
         return renderOperator->shouldMoveLimits();
     return false;
@@ -217,10 +222,10 @@ bool RenderMathMLUnderOver::hasAccent(bool accentUnder) const
         return true;
     if (attributeValue == MathMLElement::BooleanValue::False)
         return false;
-    RenderBox& script = accentUnder ? under() : over();
-    if (!is<RenderMathMLBlock>(script))
+    auto* script = dynamicDowncast<RenderMathMLBlock>(accentUnder ? under() : over());
+    if (!script)
         return false;
-    auto* scriptOperator = downcast<RenderMathMLBlock>(script).unembellishedOperator();
+    auto* scriptOperator = script->unembellishedOperator();
     return scriptOperator && scriptOperator->hasOperatorFlag(MathMLOperatorDictionary::Accent);
 }
 
@@ -246,13 +251,13 @@ RenderMathMLUnderOver::VerticalParameters RenderMathMLUnderOver::verticalParamet
         parameters.overGapMin = 3 * defaultLineThickness;
         parameters.underExtraDescender = defaultLineThickness;
         parameters.overExtraAscender = defaultLineThickness;
-        parameters.accentBaseHeight = style().fontMetrics().xHeight();
+        parameters.accentBaseHeight = style().metricsOfPrimaryFont().xHeight();
         parameters.useUnderOverBarFallBack = true;
         return parameters;
     }
 
-    if (is<RenderMathMLBlock>(base())) {
-        if (auto* baseOperator = downcast<RenderMathMLBlock>(base()).unembellishedOperator()) {
+    if (auto* mathMLBlock = dynamicDowncast<RenderMathMLBlock>(base())) {
+        if (auto* baseOperator = mathMLBlock->unembellishedOperator()) {
             if (baseOperator->hasOperatorFlag(MathMLOperatorDictionary::LargeOp)) {
                 // The base is a large operator so we read UpperLimit/LowerLimit constants from the MATH table.
                 parameters.underGapMin = mathData->getMathConstant(primaryFont, OpenTypeMathData::LowerLimitGapMin);
@@ -287,6 +292,11 @@ RenderMathMLUnderOver::VerticalParameters RenderMathMLUnderOver::verticalParamet
 void RenderMathMLUnderOver::layoutBlock(bool relayoutChildren, LayoutUnit pageLogicalHeight)
 {
     ASSERT(needsLayout());
+
+    for (auto& box : childrenOfType<RenderBox>(*this)) {
+        if (box.isOutOfFlowPositioned())
+            box.containingBlock()->insertPositionedObject(box);
+    }
 
     if (!relayoutChildren && simplifiedLayout())
         return;

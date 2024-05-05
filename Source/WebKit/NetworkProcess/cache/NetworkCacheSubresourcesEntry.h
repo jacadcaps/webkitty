@@ -29,19 +29,28 @@
 
 #include "NetworkCacheStorage.h"
 #include <WebCore/ResourceRequest.h>
-#include <wtf/HashMap.h>
 #include <wtf/URL.h>
 
-namespace WebKit {
-namespace NetworkCache {
+namespace WebKit::NetworkCache {
 
 class SubresourceInfo {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    void encode(WTF::Persistence::Encoder&) const;
-    static Optional<SubresourceInfo> decode(WTF::Persistence::Decoder&);
-
-    SubresourceInfo() = default;
+    SubresourceInfo(Key&& key, WallTime lastSeen, WallTime firstSeen)
+        : m_key(WTFMove(key))
+        , m_lastSeen(lastSeen)
+        , m_firstSeen(firstSeen)
+        , m_isTransient(true) { }
+    SubresourceInfo(Key&& key, WallTime lastSeen, WallTime firstSeen, bool isSameSite, bool isAppInitiated, URL&& firstPartyForCookies, WebCore::HTTPHeaderMap&& requestHeaders, WebCore::ResourceLoadPriority priority)
+        : m_key(WTFMove(key))
+        , m_lastSeen(lastSeen)
+        , m_firstSeen(firstSeen)
+        , m_isTransient(false)
+        , m_isSameSite(isSameSite)
+        , m_isAppInitiated(isAppInitiated)
+        , m_firstPartyForCookies(WTFMove(firstPartyForCookies))
+        , m_requestHeaders(WTFMove(requestHeaders))
+        , m_priority(priority) { }
     SubresourceInfo(const Key&, const WebCore::ResourceRequest&, const SubresourceInfo* previousInfo);
 
     const Key& key() const { return m_key; }
@@ -60,12 +69,16 @@ public:
 
     bool isFirstParty() const;
 
+    bool isAppInitiated() const { return m_isAppInitiated; }
+    void setIsAppInitiated(bool isAppInitiated) { m_isAppInitiated = isAppInitiated; }
+
 private:
     Key m_key;
     WallTime m_lastSeen;
     WallTime m_firstSeen;
     bool m_isTransient { false };
     bool m_isSameSite { false };
+    bool m_isAppInitiated { true };
     URL m_firstPartyForCookies;
     WebCore::HTTPHeaderMap m_requestHeaders;
     WebCore::ResourceLoadPriority m_priority;
@@ -94,7 +107,7 @@ public:
 
     const Key& key() const { return m_key; }
     WallTime timeStamp() const { return m_timeStamp; }
-    const Vector<SubresourceInfo>& subresources() const { return m_subresources; }
+    Vector<SubresourceInfo>& subresources() { return m_subresources; }
 
     void updateSubresourceLoads(const Vector<std::unique_ptr<SubresourceLoad>>&);
 
@@ -104,7 +117,6 @@ private:
     Vector<SubresourceInfo> m_subresources;
 };
 
-} // namespace WebKit
-} // namespace NetworkCache
+} // namespace WebKit::NetworkCache
 
 #endif // ENABLE(NETWORK_CACHE_SPECULATIVE_REVALIDATION)

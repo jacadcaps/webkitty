@@ -31,8 +31,6 @@
 #include <JavaScriptCore/Strong.h>
 #include <wtf/Vector.h>
 
-#if ENABLE(WEB_CRYPTO)
-
 namespace WebCore {
 
 class CryptoAlgorithmPbkdf2Params final : public CryptoAlgorithmParameters {
@@ -40,7 +38,7 @@ public:
     BufferSource salt;
     unsigned long iterations;
     // FIXME: Consider merging hash and hashIdentifier.
-    Variant<JSC::Strong<JSC::JSObject>, String> hash;
+    std::variant<JSC::Strong<JSC::JSObject>, String> hash;
     CryptoAlgorithmIdentifier hashIdentifier;
 
     const Vector<uint8_t>& saltVector() const
@@ -72,5 +70,3 @@ private:
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_CRYPTO_ALGORITHM_PARAMETERS(Pbkdf2Params)
-
-#endif // ENABLE(WEB_CRYPTO)

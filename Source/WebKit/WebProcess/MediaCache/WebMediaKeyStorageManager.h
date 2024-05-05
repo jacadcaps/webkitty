@@ -31,7 +31,7 @@
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
-struct SecurityOriginData;
+class SecurityOriginData;
 }
 
 namespace WebKit {
@@ -45,7 +45,7 @@ public:
     explicit WebMediaKeyStorageManager(WebProcess&) { }
     virtual ~WebMediaKeyStorageManager() { }
 
-    static const char* supplementName();
+    static ASCIILiteral supplementName();
 
     const String& mediaKeyStorageDirectory() const { return m_mediaKeyStorageDirectory; }
     String mediaKeyStorageDirectoryForOrigin(const WebCore::SecurityOriginData&);

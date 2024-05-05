@@ -26,8 +26,6 @@
 #include "config.h"
 #include "CryptoAlgorithmSHA512.h"
 
-#if ENABLE(WEB_CRYPTO)
-
 #include "ScriptExecutionContext.h"
 #include <pal/crypto/CryptoDigest.h>
 
@@ -47,11 +45,11 @@ void CryptoAlgorithmSHA512::digest(Vector<uint8_t>&& message, VectorCallback&& c
 {
     auto digest = PAL::CryptoDigest::create(PAL::CryptoDigest::Algorithm::SHA_512);
     if (!digest) {
-        exceptionCallback(OperationError);
+        exceptionCallback(ExceptionCode::OperationError);
         return;
     }
 
-    workQueue.dispatch([digest = WTFMove(digest), message = WTFMove(message), callback = WTFMove(callback), contextIdentifier = context.contextIdentifier()]() mutable {
+    workQueue.dispatch([digest = WTFMove(digest), message = WTFMove(message), callback = WTFMove(callback), contextIdentifier = context.identifier()]() mutable {
         digest->addBytes(message.data(), message.size());
         auto result = digest->computeHash();
         ScriptExecutionContext::postTaskTo(contextIdentifier, [callback = WTFMove(callback), result = WTFMove(result)](auto&) {
@@ -60,6 +58,4 @@ void CryptoAlgorithmSHA512::digest(Vector<uint8_t>&& message, VectorCallback&& c
     });
 }
 
-}
-
-#endif // ENABLE(WEB_CRYPTO)
+} // namespace WebCore

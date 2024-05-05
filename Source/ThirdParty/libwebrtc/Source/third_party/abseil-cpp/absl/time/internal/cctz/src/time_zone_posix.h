@@ -55,7 +55,10 @@
 #include <cstdint>
 #include <string>
 
+#include "absl/base/config.h"
+
 namespace absl {
+ABSL_NAMESPACE_BEGIN
 namespace time_internal {
 namespace cctz {
 
@@ -101,7 +104,7 @@ struct PosixTransition {
 
 // The entirety of a POSIX-string specified time-zone rule. The standard
 // abbreviation and offset are always given. If the time zone includes
-// daylight saving, then the daylight abbrevation is non-empty and the
+// daylight saving, then the daylight abbreviation is non-empty and the
 // remaining fields are also valid. Note that the start/end transitions
 // are not ordered---in the southern hemisphere the transition to end
 // daylight time occurs first in any particular year.
@@ -123,6 +126,7 @@ bool ParsePosixSpec(const std::string& spec, PosixTimeZone* res);
 
 }  // namespace cctz
 }  // namespace time_internal
+ABSL_NAMESPACE_END
 }  // namespace absl
 
 #endif  // ABSL_TIME_INTERNAL_CCTZ_TIME_ZONE_POSIX_H_

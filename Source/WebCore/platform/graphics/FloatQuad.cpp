@@ -1,5 +1,6 @@
 /*
- * Copyright (C) 2008 Apple Inc. All rights reserved.
+ * Copyright (C) 2008-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2021 Google Inc. All rights reserved.
  * Copyright (C) 2012 Nokia Corporation and/or its subsidiary(-ies)
  * Copyright (C) 2013 Xidorn Quan (quanxunzhen@gmail.com)
  *
@@ -32,6 +33,7 @@
 #include "FloatQuad.h"
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <wtf/MathExtras.h>
 #include <wtf/text/TextStream.h>
@@ -81,13 +83,21 @@ inline bool isPointInTriangle(const FloatPoint& p, const FloatPoint& t1, const F
     return (u >= 0) && (v >= 0) && (u + v <= 1);
 }
 
+static inline float clampToIntRange(float value)
+{
+    if (UNLIKELY(std::isinf(value) || std::abs(value) > (static_cast<float>(std::numeric_limits<int>::max()))))
+        return std::signbit(value) ? std::numeric_limits<int>::min() : (static_cast<float>(std::numeric_limits<int>::max()));
+
+    return value;
+}
+
 FloatRect FloatQuad::boundingBox() const
 {
-    float left   = min4(m_p1.x(), m_p2.x(), m_p3.x(), m_p4.x());
-    float top    = min4(m_p1.y(), m_p2.y(), m_p3.y(), m_p4.y());
+    float left   = clampToIntRange(min4(m_p1.x(), m_p2.x(), m_p3.x(), m_p4.x()));
+    float top    = clampToIntRange(min4(m_p1.y(), m_p2.y(), m_p3.y(), m_p4.y()));
 
-    float right  = max4(m_p1.x(), m_p2.x(), m_p3.x(), m_p4.x());
-    float bottom = max4(m_p1.y(), m_p2.y(), m_p3.y(), m_p4.y());
+    float right  = clampToIntRange(max4(m_p1.x(), m_p2.x(), m_p3.x(), m_p4.x()));
+    float bottom = clampToIntRange(max4(m_p1.y(), m_p2.y(), m_p3.y(), m_p4.y()));
     
     return FloatRect(left, top, right - left, bottom - top);
 }
@@ -228,13 +238,54 @@ bool FloatQuad::isCounterclockwise() const
     return determinant(m_p2 - m_p1, m_p3 - m_p2) < 0;
 }
 
+bool FloatQuad::isEmpty() const
+{
+    if (areEssentiallyEqual(m_p1, m_p3) || areEssentiallyEqual(m_p2, m_p4)) {
+        // If either diagonal is zero length, then the "quad" either consists of 1 or 2 line segments, or it's just a point.
+        return true;
+    }
+
+    if (areEssentiallyEqual(m_p1, m_p2) && areEssentiallyEqual(m_p3, m_p4)) {
+        // If both top points and both bottom points are equal, then the "quad" is just a single line segment.
+        return true;
+    }
+
+    if (areEssentiallyEqual(m_p1, m_p4) && areEssentiallyEqual(m_p2, m_p3)) {
+        // If both left points and both right points are equal, then the "quad" is just a single line segment.
+        return true;
+    }
+
+    // Fall back to checking whether the 4 points of the quad are colinear (in other words, check whether the three
+    // vectors from one point to each of the other points are capable of forming a 2D basis).
+    auto b1 = m_p1 - m_p2;
+    auto b2 = m_p1 - m_p3;
+    auto b3 = m_p1 - m_p4;
+
+    if (!b1.isZero())
+        b1 = b1 / b1.diagonalLength();
+
+    if (!b2.isZero())
+        b2 = b2 / b2.diagonalLength();
+
+    if (!b3.isZero())
+        b3 = b3 / b3.diagonalLength();
+
+    auto areNormalizedVectorsLinearlyIndependent = [](const FloatSize& u, const FloatSize& v) {
+        if (u.isZero() || v.isZero())
+            return false;
+
+        auto dotProduct = u.width() * v.width() + u.height() * v.height();
+        return !WTF::areEssentiallyEqual<float>(dotProduct, 1) && !WTF::areEssentiallyEqual<float>(dotProduct, -1);
+    };
+
+    return !areNormalizedVectorsLinearlyIndependent(b1, b2) && !areNormalizedVectorsLinearlyIndependent(b2, b3) && !areNormalizedVectorsLinearlyIndependent(b1, b3);
+}
+
 Vector<FloatRect> boundingBoxes(const Vector<FloatQuad>& quads)
 {
-    Vector<FloatRect> boxes;
-    boxes.reserveInitialCapacity(quads.size());
-    for (const auto& quad : quads)
-        boxes.uncheckedAppend(quad.boundingBox());
-    return boxes;
+    return quads.map([](auto& quad) {
+        return quad.boundingBox();
+    });
 }
 
 FloatRect unitedBoundingBoxes(const Vector<FloatQuad>& quads)

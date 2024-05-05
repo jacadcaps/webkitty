@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,14 +30,15 @@
 #include "AirSpecial.h"
 #include "AllowMacroScratchRegisterUsage.h"
 #include "B3BasicBlockInlines.h"
-#include "B3Compilation.h"
-#include "B3Procedure.h"
 #include "B3PatchpointSpecial.h"
 #include "B3PatchpointValue.h"
+#include "B3Procedure.h"
 #include "B3StackmapGenerationParams.h"
 #include "CCallHelpers.h"
 #include "InitializeThreading.h"
+#include "JITCompilation.h"
 #include "LinkBuffer.h"
+#include "Options.h"
 #include "ProbeContext.h"
 #include "PureNaN.h"
 #include <regex>
@@ -47,6 +48,7 @@
 #include <wtf/NumberOfCores.h>
 #include <wtf/StdMap.h>
 #include <wtf/Threading.h>
+#include <wtf/WTFProcess.h>
 #include <wtf/text/StringCommon.h>
 
 // We don't have a NO_RETURN_DUE_TO_EXIT, nor should we. That's ridiculous.
@@ -56,7 +58,7 @@ static void usage()
 {
     dataLog("Usage: testair [<filter>]\n");
     if (hiddenTruthBecauseNoReturnIsStupid())
-        exit(1);
+        exitProcess(1);
 }
 
 #if ENABLE(B3_JIT)
@@ -66,11 +68,11 @@ using namespace JSC::B3::Air;
 
 using JSC::B3::FP;
 using JSC::B3::GP;
-using JSC::B3::Width;
-using JSC::B3::Width8;
-using JSC::B3::Width16;
-using JSC::B3::Width32;
-using JSC::B3::Width64;
+using JSC::Width;
+using JSC::Width8;
+using JSC::Width16;
+using JSC::Width32;
+using JSC::Width64;
 
 namespace {
 
@@ -85,23 +87,29 @@ Lock crashLock;
         CRASH();                                                        \
     } while (false)
 
-std::unique_ptr<B3::Compilation> compile(B3::Procedure& proc)
+std::unique_ptr<Compilation> compile(B3::Procedure& proc)
 {
     prepareForGeneration(proc.code());
     CCallHelpers jit;
     generate(proc.code(), jit);
     LinkBuffer linkBuffer(jit, nullptr);
 
-    return makeUnique<B3::Compilation>(
-        FINALIZE_CODE(linkBuffer, B3CompilationPtrTag, "testair compilation"), proc.releaseByproducts());
+    return makeUnique<Compilation>(
+        FINALIZE_CODE(linkBuffer, JITCompilationPtrTag, "testair compilation"), proc.releaseByproducts());
 }
 
 template<typename T, typename... Arguments>
-T invoke(const B3::Compilation& code, Arguments... arguments)
+T invoke(const Compilation& code, Arguments... arguments)
 {
-    void* executableAddress = untagCFunctionPtr(code.code().executableAddress(), B3CompilationPtrTag);
-    T (*function)(Arguments...) = bitwise_cast<T(*)(Arguments...)>(executableAddress);
-    return function(arguments...);
+    void* executableAddress;
+    T (*function)(Arguments...);
+    T result;
+
+    executableAddress = untagCFunctionPtr<JITCompilationPtrTag>(code.code().taggedPtr());
+    function = bitwise_cast<T(*)(Arguments...)>(executableAddress);
+    result = function(arguments...);
+
+    return result;
 }
 
 template<typename T, typename... Arguments>
@@ -129,7 +137,7 @@ void loadConstantImpl(BasicBlock* block, T value, B3::Air::Opcode move, Tmp tmp,
     static Lock lock;
     static StdMap<T, T*>* map; // I'm not messing with HashMap's problems with integers.
 
-    LockHolder locker(lock);
+    Locker locker { lock };
     if (!map)
         map = new StdMap<T, T*>();
 
@@ -940,6 +948,8 @@ void testShuffleRotateAllRegs()
         CHECK(things[i] == 35 + static_cast<int32_t>(i) - 1);
 }
 
+#if USE(JSVALUE64)
+
 void testShuffleSimpleSwap64()
 {
     B3::Procedure proc;
@@ -1086,6 +1096,8 @@ void testShuffleShiftMixedWidth()
     CHECK(things[4] == static_cast<uint32_t>(40000000000000000ll));
 }
 
+#endif
+
 void testShuffleShiftMemory()
 {
     B3::Procedure proc;
@@ -1221,6 +1233,8 @@ void testShuffleShiftMemoryAllRegs()
     CHECK(memory[1] == 35);
 }
 
+#if USE(JSVALUE64)
+
 void testShuffleShiftMemoryAllRegs64()
 {
     B3::Procedure proc;
@@ -1337,6 +1351,8 @@ void testShuffleShiftMemoryAllRegsMixedWidth()
     CHECK(memory[1] == 35000000000000ll);
 }
 
+#endif
+
 void testShuffleRotateMemory()
 {
     B3::Procedure proc;
@@ -1381,6 +1397,8 @@ void testShuffleRotateMemory()
     CHECK(memory[0] == 2);
     CHECK(memory[1] == 35);
 }
+
+#if USE(JSVALUE64)
 
 void testShuffleRotateMemory64()
 {
@@ -1575,6 +1593,8 @@ void testShuffleRotateMemoryAllRegsMixedWidth()
     CHECK(memory[0] == combineHiLo(35000000000000ll, 1000000000000ll));
     CHECK(memory[1] == 35000000000000ll);
 }
+
+#endif
 
 void testShuffleSwapDouble()
 {
@@ -1861,7 +1881,7 @@ void testInvalidateCachedTempRegisters()
 
     // In Patchpoint, Load things[0] -> tmp. This will materialize the address in x17 (dataMemoryRegister).
     B3::PatchpointValue* patchpoint1 = patchPoint1Root->appendNew<B3::PatchpointValue>(proc, B3::Void, B3::Origin());
-    patchpoint1->clobber(RegisterSet::macroScratchRegisters());
+    patchpoint1->clobber(RegisterSetBuilder::macroClobberedGPRs());
     patchpoint1->setGenerator(
         [=] (CCallHelpers& jit, const B3::StackmapGenerationParams&) {
             AllowMacroScratchRegisterUsage allowScratch(jit);
@@ -1876,7 +1896,7 @@ void testInvalidateCachedTempRegisters()
     // In Patchpoint, Load things[2] -> tmp. This should not reuse the prior contents of x17.
     B3::BasicBlock* patchPoint2Root = proc.addBlock();
     B3::PatchpointValue* patchpoint2 = patchPoint2Root->appendNew<B3::PatchpointValue>(proc, B3::Void, B3::Origin());
-    patchpoint2->clobber(RegisterSet::macroScratchRegisters());
+    patchpoint2->clobber(RegisterSetBuilder::macroClobberedGPRs());
     patchpoint2->setGenerator(
         [=] (CCallHelpers& jit, const B3::StackmapGenerationParams&) {
             AllowMacroScratchRegisterUsage allowScratch(jit);
@@ -1890,7 +1910,7 @@ void testInvalidateCachedTempRegisters()
     // This will use and cache both x16 (dataMemoryRegister) and x17 (dataTempRegister).
     B3::BasicBlock* patchPoint3Root = proc.addBlock();
     B3::PatchpointValue* patchpoint3 = patchPoint3Root->appendNew<B3::PatchpointValue>(proc, B3::Void, B3::Origin());
-    patchpoint3->clobber(RegisterSet::macroScratchRegisters());
+    patchpoint3->clobber(RegisterSetBuilder::macroClobberedGPRs());
     patchpoint3->setGenerator(
         [=] (CCallHelpers& jit, const B3::StackmapGenerationParams&) {
             AllowMacroScratchRegisterUsage allowScratch(jit);
@@ -1906,7 +1926,7 @@ void testInvalidateCachedTempRegisters()
     // This should rematerialize both x16 (dataMemoryRegister) and x17 (dataTempRegister).
     B3::BasicBlock* patchPoint4Root = proc.addBlock();
     B3::PatchpointValue* patchpoint4 = patchPoint4Root->appendNew<B3::PatchpointValue>(proc, B3::Void, B3::Origin());
-    patchpoint4->clobber(RegisterSet::macroScratchRegisters());
+    patchpoint4->clobber(RegisterSetBuilder::macroClobberedGPRs());
     patchpoint4->setGenerator(
         [=] (CCallHelpers& jit, const B3::StackmapGenerationParams&) {
             AllowMacroScratchRegisterUsage allowScratch(jit);
@@ -1936,7 +1956,7 @@ void testArgumentRegPinned()
 
     B3::BasicBlock* b3Root = proc.addBlock();
     B3::PatchpointValue* patchpoint = b3Root->appendNew<B3::PatchpointValue>(proc, B3::Void, B3::Origin());
-    patchpoint->clobber(RegisterSet(pinned));
+    patchpoint->clobber(RegisterSetBuilder(pinned));
     patchpoint->setGenerator(
         [=] (CCallHelpers& jit, const B3::StackmapGenerationParams&) {
             jit.move(CCallHelpers::TrustedImm32(42), pinned);
@@ -2006,7 +2026,7 @@ void testArgumentRegPinned3()
 
     B3::BasicBlock* b3Root = proc.addBlock();
     B3::PatchpointValue* patchpoint = b3Root->appendNew<B3::PatchpointValue>(proc, B3::Void, B3::Origin());
-    patchpoint->clobber(RegisterSet(pinned));
+    patchpoint->clobber(RegisterSetBuilder(pinned));
     patchpoint->setGenerator(
         [=] (CCallHelpers& jit, const B3::StackmapGenerationParams&) {
             jit.move(CCallHelpers::TrustedImm32(42), pinned);
@@ -2031,6 +2051,7 @@ void testArgumentRegPinned3()
     CHECK(r == 10 + 42 + 42);
 }
 
+#if USE(JSVALUE64)
 void testLea64()
 {
     B3::Procedure proc;
@@ -2047,6 +2068,7 @@ void testLea64()
     int64_t r = compileAndRun<int64_t>(proc, a);
     CHECK(r == a + b);
 }
+#endif
 
 void testLea32()
 {
@@ -2056,7 +2078,7 @@ void testLea32()
     BasicBlock* root = code.addBlock();
 
     int32_t a = 0x11223344;
-    int32_t b = 1 << 13;
+    int32_t b = 1 << (isARM_THUMB2() ? 11 : 13);
 
     root->append(Lea32, nullptr, Arg::addr(Tmp(GPRInfo::argumentGPR0), b), Tmp(GPRInfo::returnValueGPR));
     root->append(Ret32, nullptr, Tmp(GPRInfo::returnValueGPR));
@@ -2071,7 +2093,7 @@ inline Vector<String> matchAll(const CString& source, std::regex regex)
     std::smatch match;
     for (std::string str = source.data(); std::regex_search(str, match, regex); str = match.suffix()) {
         ASSERT(match.size() == 1);
-        matches.append(match[0].str().c_str());
+        matches.append(String::fromLatin1(match[0].str().c_str()));
     }
     return matches;
 }
@@ -2096,13 +2118,18 @@ void testElideSimpleMove()
 
         auto compilation = compile(proc);
         CString disassembly = compilation->disassembly();
-        std::regex findRRMove(isARM64() ? "mov\\s+x\\d+, x\\d+\\n" : "mov %\\w+, %\\w+\\n");
+        std::regex findRRMove(isARM64() ? "mov\\s+x\\d+, x\\d+\\n" : isARM_THUMB2() ? "mov\\s+\\w+, \\w+\\n" : "mov %\\w+, %\\w+\\n");
         auto result = matchAll(disassembly, findRRMove);
         if (isARM64()) {
             if (!Options::defaultB3OptLevel())
                 CHECK(result.size() == 2);
             else
                 CHECK(result.size() == 0);
+        } else if (isARM_THUMB2()) {
+            if (!Options::defaultB3OptLevel())
+                CHECK(result.size() == 4);
+            else
+                CHECK(result.size() == 2);
         } else if (isX86()) {
             // sp -> fp; arg0 -> ret0; fp -> sp
             // fp -> sp only happens in O0 because we don't actually need to move the stack in general.
@@ -2119,34 +2146,34 @@ void testElideHandlesEarlyClobber()
 
     BasicBlock* root = code.addBlock();
 
-    const unsigned tmpCount = RegisterSet::allGPRs().numberOfSetRegisters() * 2;
+    const unsigned tmpCount = RegisterSetBuilder::allGPRs().numberOfSetRegisters() * 2;
     Vector<Tmp> tmps(tmpCount);
     for (unsigned i = 0; i < tmpCount; ++i) {
         tmps[i] = code.newTmp(B3::GP);
         root->append(Move, nullptr, Arg::imm(i), tmps[i]);
     }
 
-    RegisterSet registers = RegisterSet::allGPRs();
-    registers.exclude(RegisterSet::reservedHardwareRegisters());
-    registers.exclude(RegisterSet::stackRegisters());
+    RegisterSetBuilder registers = RegisterSetBuilder::allGPRs();
+    registers.exclude(RegisterSetBuilder::reservedHardwareRegisters());
+    registers.exclude(RegisterSetBuilder::stackRegisters());
     Reg firstCalleeSave;
     Reg lastCalleeSave;
     auto* patch = proc.add<B3::PatchpointValue>(B3::Int32, B3::Origin());
     patch->clobberEarly(registers);
-    for (Reg reg : registers) {
+    for (Reg reg : registers.buildAndValidate()) {
         if (!firstCalleeSave)
             firstCalleeSave = reg;
         lastCalleeSave = reg;
     }
     ASSERT(firstCalleeSave != lastCalleeSave);
-    patch->earlyClobbered().clear(firstCalleeSave);
+    patch->earlyClobbered().remove(firstCalleeSave);
     patch->resultConstraints.append({ B3::ValueRep::reg(firstCalleeSave) });
-    patch->earlyClobbered().clear(lastCalleeSave);
-    patch->clobber(RegisterSet(lastCalleeSave));
+    patch->earlyClobbered().remove(lastCalleeSave);
+    patch->clobber(RegisterSetBuilder(lastCalleeSave));
 
     patch->setGenerator([=] (CCallHelpers& jit, const JSC::B3::StackmapGenerationParams&) {
-        jit.probe([=] (Probe::Context& context) {
-            for (Reg reg : registers)
+        jit.probeDebug([=] (Probe::Context& context) {
+            for (Reg reg : registers.buildAndValidate())
                 context.gpr(reg.gpr()) = 0;
         });
     });
@@ -2169,11 +2196,11 @@ void testElideHandlesEarlyClobber()
 
 void testElideMoveThenRealloc()
 {
-    RegisterSet registers = RegisterSet::allGPRs();
-    registers.exclude(RegisterSet::stackRegisters());
-    registers.exclude(RegisterSet::reservedHardwareRegisters());
+    RegisterSetBuilder registers = RegisterSetBuilder::allGPRs();
+    registers.exclude(RegisterSetBuilder::stackRegisters());
+    registers.exclude(RegisterSetBuilder::reservedHardwareRegisters());
 
-    for (Reg reg : registers) {
+    for (Reg reg : registers.buildAndValidate()) {
         B3::Procedure proc;
         Code& code = proc.code();
 
@@ -2186,7 +2213,7 @@ void testElideMoveThenRealloc()
 
         Tmp tmp = code.newTmp(B3::GP);
         Arg negOne;
-        if (isARM64()) {
+        if (isARM64() || isARM_THUMB2()) {
             negOne = code.newTmp(B3::GP);
             root->append(Move, nullptr, Arg::bigImm(-1), negOne);
         } else if (isX86())
@@ -2360,6 +2387,236 @@ void testLinearScanSpillRangesEarlyDef()
     CHECK(runResult == 99);
 }
 
+#if USE(JSVALUE64)
+void testZDefOfSpillSlotWithOffsetNeedingToBeMaterializedInARegister()
+{
+    if (Options::defaultB3OptLevel() == 2)
+        return;
+
+    B3::Procedure proc;
+    Code& code = proc.code();
+
+    BasicBlock* root = code.addBlock();
+
+    Vector<Tmp> tmps;
+    unsigned numberOfLiveTmps = 10000;
+    for (unsigned i = 0; i < numberOfLiveTmps; ++i)
+        tmps.append(code.newTmp(GP));
+
+    Tmp val = code.newTmp(GP);
+    root->append(Move, nullptr, Arg::imm(0), val);
+    for (auto tmp : tmps) {
+        root->append(Move32, nullptr, val, tmp);
+        root->append(Add64, nullptr, Arg::imm(1), val);
+    }
+
+    Tmp loadResult = code.newTmp(GP);
+    Tmp sum = code.newTmp(GP);
+    root->append(Move, nullptr, Arg::imm(0), sum);
+    for (auto tmp : tmps) {
+        root->append(Move, nullptr, tmp, loadResult);
+        root->append(Add64, nullptr, loadResult, sum);
+    }
+    root->append(Move, nullptr, sum, Tmp(GPRInfo::returnValueGPR));
+    root->append(Ret64, nullptr, Tmp(GPRInfo::returnValueGPR));
+
+    const auto result = compileAndRun<uint64_t>(proc);
+    CHECK(result == (numberOfLiveTmps * (numberOfLiveTmps - 1)) / 2);
+}
+
+void testEarlyAndLateUseOfSameTmp()
+{
+    WeakRandom weakRandom;
+    size_t numTmps = RegisterSetBuilder::allGPRs().numberOfSetRegisters();
+    int64_t expectedResult = 0;
+    for (size_t i = 0; i < numTmps; ++i)
+        expectedResult += i;
+
+    for (unsigned j = 0; j < 60; ++j) {
+        B3::Procedure proc;
+        Code& code = proc.code();
+
+        B3::Air::Special* patchpointSpecial = code.addSpecial(makeUnique<B3::PatchpointSpecial>());
+
+        BasicBlock* root = code.addBlock();
+        Vector<Tmp> tmps;
+        Tmp result = code.newTmp(B3::GP);
+        root->append(Move, nullptr, Arg::imm(0), result);
+        for (size_t i = 0; i < numTmps; ++i) {
+            Tmp tmp = code.newTmp(B3::GP);
+            tmps.append(tmp);
+            root->append(Move, nullptr, Arg::imm(i), tmp);
+        }
+
+        {
+            unsigned rand = weakRandom.getUint32(tmps.size());
+            B3::Value* dummyValue = proc.addConstant(B3::Origin(), B3::Int64, 0);
+
+            B3::PatchpointValue* patchpoint = proc.add<B3::PatchpointValue>(B3::Void, B3::Origin());
+            patchpoint->append(dummyValue, B3::ValueRep::SomeRegister);
+            patchpoint->append(dummyValue, B3::ValueRep::SomeLateRegister);
+            patchpoint->clobberLate(RegisterSetBuilder::registersToSaveForJSCall(RegisterSetBuilder::allScalarRegisters()));
+            patchpoint->setGenerator([=] (CCallHelpers& jit, const B3::StackmapGenerationParams& params) {
+                RELEASE_ASSERT(!RegisterSetBuilder::registersToSaveForJSCall(RegisterSetBuilder::allScalarRegisters()).buildWithLowerBits().contains(params[1].gpr(), IgnoreVectors));
+
+                auto good = jit.branch64(CCallHelpers::Equal, params[1].gpr(), CCallHelpers::TrustedImm32(rand));
+                jit.breakpoint();
+                good.link(&jit);
+
+                auto good2 = jit.branch64(CCallHelpers::Equal, params[0].gpr(), CCallHelpers::TrustedImm32(rand));
+                jit.breakpoint();
+                good2.link(&jit);
+            });
+
+            Inst inst(Patch, patchpoint, Arg::special(patchpointSpecial));
+
+            Tmp tmp = tmps[rand];
+            inst.args.append(tmp);
+            inst.args.append(tmp);
+            root->append(inst);
+        }
+
+        for (Tmp tmp : tmps)
+            root->append(Add64, nullptr, tmp, result);
+        root->append(Move, nullptr, result, Tmp(GPRInfo::returnValueGPR));
+        root->append(Ret64, nullptr, Tmp(GPRInfo::returnValueGPR));
+
+        int64_t actualResult = compileAndRun<int64_t>(proc);
+        CHECK(actualResult == expectedResult);
+    }
+}
+
+void testEarlyClobberInterference()
+{
+    WeakRandom weakRandom;
+    size_t numTmps = RegisterSetBuilder::allGPRs().numberOfSetRegisters();
+    int64_t expectedResult = 0;
+    for (size_t i = 0; i < numTmps; ++i)
+        expectedResult += i;
+
+    for (unsigned j = 0; j < 100; ++j) {
+        B3::Procedure proc;
+        Code& code = proc.code();
+
+        B3::Air::Special* patchpointSpecial = code.addSpecial(makeUnique<B3::PatchpointSpecial>());
+
+        BasicBlock* root = code.addBlock();
+        Vector<Tmp> tmps;
+        Tmp result = code.newTmp(B3::GP);
+        root->append(Move, nullptr, Arg::imm(0), result);
+        for (size_t i = 0; i < numTmps; ++i) {
+            Tmp tmp = code.newTmp(B3::GP);
+            tmps.append(tmp);
+            root->append(Move, nullptr, Arg::imm(i), tmp);
+        }
+
+        {
+            unsigned rand = weakRandom.getUint32(tmps.size());
+            B3::Value* dummyValue = proc.addConstant(B3::Origin(), B3::Int64, 0);
+
+            B3::PatchpointValue* patchpoint = proc.add<B3::PatchpointValue>(B3::Void, B3::Origin());
+            patchpoint->append(dummyValue, B3::ValueRep::SomeRegister);
+            patchpoint->clobberEarly(RegisterSetBuilder::registersToSaveForJSCall(RegisterSetBuilder::allScalarRegisters()));
+            patchpoint->setGenerator([=] (CCallHelpers& jit, const B3::StackmapGenerationParams& params) {
+                RELEASE_ASSERT(!RegisterSetBuilder::registersToSaveForJSCall(RegisterSetBuilder::allScalarRegisters()).buildWithLowerBits().contains(params[0].gpr(), IgnoreVectors));
+
+                auto good = jit.branch64(CCallHelpers::Equal, params[0].gpr(), CCallHelpers::TrustedImm32(rand));
+                jit.breakpoint();
+                good.link(&jit);
+            });
+
+            Inst inst(Patch, patchpoint, Arg::special(patchpointSpecial));
+
+            Tmp tmp = tmps[rand];
+            inst.args.append(tmp);
+            root->append(inst);
+        }
+
+        for (Tmp tmp : tmps)
+            root->append(Add64, nullptr, tmp, result);
+        root->append(Move, nullptr, result, Tmp(GPRInfo::returnValueGPR));
+        root->append(Ret64, nullptr, Tmp(GPRInfo::returnValueGPR));
+
+        int64_t actualResult = compileAndRun<int64_t>(proc);
+        CHECK(actualResult == expectedResult);
+    }
+}
+
+#if CPU(ARM64)
+void testStorePair()
+{
+    B3::Procedure proc;
+    Code& code = proc.code();
+
+    BasicBlock* root = code.addBlock();
+    root->append(Move, nullptr, Tmp(GPRInfo::argumentGPR1), Arg::addr(Tmp(GPRInfo::argumentGPR0), 0));
+    root->append(Move, nullptr, Tmp(GPRInfo::argumentGPR2), Arg::addr(Tmp(GPRInfo::argumentGPR0), 8));
+    root->append(Ret64, nullptr, Tmp(GPRInfo::returnValueGPR));
+
+    uint64_t values[2] = { 0, 0 };
+    compileAndRun<uint64_t>(proc, values, 42, 43);
+    CHECK(values[0] == 42);
+    CHECK(values[1] == 43);
+}
+
+void testStorePairClobber()
+{
+    B3::Procedure proc;
+    Code& code = proc.code();
+
+    BasicBlock* root = code.addBlock();
+    root->append(Move, nullptr, Tmp(GPRInfo::argumentGPR1), Arg::addr(Tmp(GPRInfo::argumentGPR0), 0));
+    root->append(Move, nullptr, Tmp(GPRInfo::argumentGPR3), Tmp(GPRInfo::argumentGPR0));
+    root->append(Move, nullptr, Tmp(GPRInfo::argumentGPR2), Arg::addr(Tmp(GPRInfo::argumentGPR0), 8));
+    root->append(Ret64, nullptr, Tmp(GPRInfo::returnValueGPR));
+
+    uint64_t values1[2] = { 0, 0 };
+    uint64_t values2[2] = { 0, 0 };
+    compileAndRun<uint64_t>(proc, values1, 42, 43, values2);
+    CHECK(values1[0] == 42);
+    CHECK(values1[1] == 0);
+    CHECK(values2[0] == 0);
+    CHECK(values2[1] == 43);
+}
+
+void testStorePairClobberMemoryStore()
+{
+    B3::Procedure proc;
+    Code& code = proc.code();
+
+    BasicBlock* root = code.addBlock();
+    root->append(Move, nullptr, Tmp(GPRInfo::argumentGPR1), Arg::addr(Tmp(GPRInfo::argumentGPR0), 0));
+    root->append(Move, nullptr, Tmp(GPRInfo::argumentGPR1), Arg::addr(Tmp(GPRInfo::argumentGPR3), 8));
+    root->append(Move, nullptr, Tmp(GPRInfo::argumentGPR2), Arg::addr(Tmp(GPRInfo::argumentGPR0), 8));
+    root->append(Move, nullptr, Tmp(GPRInfo::argumentGPR0), Tmp(GPRInfo::returnValueGPR));
+    root->append(Ret64, nullptr, Tmp(GPRInfo::returnValueGPR));
+
+    uint64_t values1[2] = { 0, 0 };
+    compileAndRun<uint64_t>(proc, values1, 42, 43, values1);
+    CHECK(values1[0] == 42);
+    CHECK(values1[1] == 43);
+}
+
+void testStorePairClobberMemoryLoad()
+{
+    B3::Procedure proc;
+    Code& code = proc.code();
+
+    BasicBlock* root = code.addBlock();
+    root->append(Move, nullptr, Tmp(GPRInfo::argumentGPR1), Arg::addr(Tmp(GPRInfo::argumentGPR0), 0));
+    root->append(Move, nullptr, Arg::addr(Tmp(GPRInfo::argumentGPR3), 8), Tmp(GPRInfo::argumentGPR1));
+    root->append(Move, nullptr, Tmp(GPRInfo::argumentGPR2), Arg::addr(Tmp(GPRInfo::argumentGPR0), 8));
+    root->append(Move, nullptr, Tmp(GPRInfo::argumentGPR1), Tmp(GPRInfo::returnValueGPR));
+    root->append(Ret64, nullptr, Tmp(GPRInfo::returnValueGPR));
+
+    uint64_t values1[2] = { 0, 24 };
+    CHECK(compileAndRun<uint64_t>(proc, values1, 42, 43, values1) == 24);
+    CHECK(values1[0] == 42);
+    CHECK(values1[1] == 43);
+}
+#endif
+#endif
+
 #define PREFIX "O", Options::defaultB3OptLevel(), ": "
 
 #define RUN(test) do {                                 \
@@ -2383,7 +2640,7 @@ void run(const char* filter)
     };
 
     RUN(testSimple());
-    
+
     RUN(testShuffleSimpleSwap());
     RUN(testShuffleSimpleShift());
     RUN(testShuffleLongShift());
@@ -2402,20 +2659,26 @@ void run(const char* filter)
     RUN(testShuffleShiftAndRotate());
     RUN(testShuffleShiftAllRegs());
     RUN(testShuffleRotateAllRegs());
+#if USE(JSVALUE64)
     RUN(testShuffleSimpleSwap64());
     RUN(testShuffleSimpleShift64());
     RUN(testShuffleSwapMixedWidth());
     RUN(testShuffleShiftMixedWidth());
+#endif
     RUN(testShuffleShiftMemory());
     RUN(testShuffleShiftMemoryLong());
     RUN(testShuffleShiftMemoryAllRegs());
+#if USE(JSVALUE64)
     RUN(testShuffleShiftMemoryAllRegs64());
     RUN(testShuffleShiftMemoryAllRegsMixedWidth());
+#endif
     RUN(testShuffleRotateMemory());
+#if USE(JSVALUE64)
     RUN(testShuffleRotateMemory64());
     RUN(testShuffleRotateMemoryMixedWidth());
     RUN(testShuffleRotateMemoryAllRegs64());
     RUN(testShuffleRotateMemoryAllRegsMixedWidth());
+#endif
     RUN(testShuffleSwapDouble());
     RUN(testShuffleShiftDouble());
 
@@ -2446,7 +2709,9 @@ void run(const char* filter)
     RUN(testArgumentRegPinned3());
 
     RUN(testLea32());
+#if USE(JSVALUE64)
     RUN(testLea64());
+#endif
 
     RUN(testElideSimpleMove());
     RUN(testElideHandlesEarlyClobber());
@@ -2454,6 +2719,20 @@ void run(const char* filter)
 
     RUN(testLinearScanSpillRangesLateUse());
     RUN(testLinearScanSpillRangesEarlyDef());
+
+#if USE(JSVALUE64)
+    RUN(testZDefOfSpillSlotWithOffsetNeedingToBeMaterializedInARegister());
+
+    RUN(testEarlyAndLateUseOfSameTmp());
+    RUN(testEarlyClobberInterference());
+
+#if CPU(ARM64)
+    RUN(testStorePair());
+    RUN(testStorePairClobber());
+    RUN(testStorePairClobberMemoryStore());
+    RUN(testStorePairClobberMemoryLoad());
+#endif
+#endif
 
     if (tasks.isEmpty())
         usage();
@@ -2469,7 +2748,7 @@ void run(const char* filter)
                     for (;;) {
                         RefPtr<SharedTask<void()>> task;
                         {
-                            LockHolder locker(lock);
+                            Locker locker { lock };
                             if (tasks.isEmpty())
                                 return;
                             task = tasks.takeFirst();

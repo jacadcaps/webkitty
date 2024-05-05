@@ -26,24 +26,13 @@
 #include "config.h"
 #include "APIData.h"
 
-#include "Decoder.h"
-#include "Encoder.h"
+#include "DataReference.h"
 
 namespace API {
 
-void Data::encode(IPC::Encoder& encoder) const
+Ref<Data> Data::create(const IPC::DataReference& data)
 {
-    encoder << dataReference();
-}
-
-bool Data::decode(IPC::Decoder& decoder, RefPtr<API::Object>& result)
-{
-    IPC::DataReference dataReference;
-    if (!decoder.decode(dataReference))
-        return false;
-    
-    result = create(dataReference.data(), dataReference.size());
-    return true;
+    return create(data.data(), data.size());
 }
 
 } // namespace API

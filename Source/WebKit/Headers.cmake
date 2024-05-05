@@ -19,7 +19,6 @@ set(WebKit_PUBLIC_FRAMEWORK_HEADERS
     Shared/API/c/WKMutableDictionary.h
     Shared/API/c/WKNumber.h
     Shared/API/c/WKPageLoadTypes.h
-    Shared/API/c/WKPageLoadTypesPrivate.h
     Shared/API/c/WKPageVisibilityTypes.h
     Shared/API/c/WKPluginInformation.h
     Shared/API/c/WKSecurityOriginRef.h
@@ -47,7 +46,9 @@ set(WebKit_PUBLIC_FRAMEWORK_HEADERS
     UIProcess/API/C/WKCookieManager.h
     UIProcess/API/C/WKCredential.h
     UIProcess/API/C/WKCredentialTypes.h
-    UIProcess/API/C/WKDownload.h
+    UIProcess/API/C/WKDownloadClient.h
+    UIProcess/API/C/WKDownloadRef.h
+    UIProcess/API/C/WKFeature.h
     UIProcess/API/C/WKFormSubmissionListener.h
     UIProcess/API/C/WKFrame.h
     UIProcess/API/C/WKFrameHandleRef.h
@@ -61,8 +62,8 @@ set(WebKit_PUBLIC_FRAMEWORK_HEADERS
     UIProcess/API/C/WKIconDatabase.h
     UIProcess/API/C/WKInspector.h
     UIProcess/API/C/WKLayoutMode.h
+    UIProcess/API/C/WKMediaKeySystemPermissionCallback.h
     UIProcess/API/C/WKMessageListener.h
-    UIProcess/API/C/WKMockDisplay.h
     UIProcess/API/C/WKMockMediaDevice.h
     UIProcess/API/C/WKNativeEvent.h
     UIProcess/API/C/WKNavigationActionRef.h
@@ -97,8 +98,10 @@ set(WebKit_PUBLIC_FRAMEWORK_HEADERS
     UIProcess/API/C/WKProcessTerminationReason.h
     UIProcess/API/C/WKProtectionSpace.h
     UIProcess/API/C/WKProtectionSpaceTypes.h
+    UIProcess/API/C/WKQueryPermissionResultCallback.h
     UIProcess/API/C/WKResourceCacheManager.h
     UIProcess/API/C/WKSessionStateRef.h
+    UIProcess/API/C/WKSpeechRecognitionPermissionCallback.h
     UIProcess/API/C/WKTestingSupport.h
     UIProcess/API/C/WKTextChecker.h
     UIProcess/API/C/WKUserContentControllerRef.h
@@ -125,7 +128,6 @@ set(WebKit_PUBLIC_FRAMEWORK_HEADERS
     WebProcess/InjectedBundle/API/c/WKBundleFramePrivate.h
     WebProcess/InjectedBundle/API/c/WKBundleHitTestResult.h
     WebProcess/InjectedBundle/API/c/WKBundleInitialize.h
-    WebProcess/InjectedBundle/API/c/WKBundleInspector.h
     WebProcess/InjectedBundle/API/c/WKBundleNavigationAction.h
     WebProcess/InjectedBundle/API/c/WKBundleNavigationActionPrivate.h
     WebProcess/InjectedBundle/API/c/WKBundleNodeHandle.h
@@ -136,7 +138,6 @@ set(WebKit_PUBLIC_FRAMEWORK_HEADERS
     WebProcess/InjectedBundle/API/c/WKBundlePageEditorClient.h
     WebProcess/InjectedBundle/API/c/WKBundlePageFormClient.h
     WebProcess/InjectedBundle/API/c/WKBundlePageFullScreenClient.h
-    WebProcess/InjectedBundle/API/c/WKBundlePageGroup.h
     WebProcess/InjectedBundle/API/c/WKBundlePageLoaderClient.h
     WebProcess/InjectedBundle/API/c/WKBundlePageOverlay.h
     WebProcess/InjectedBundle/API/c/WKBundlePagePolicyClient.h

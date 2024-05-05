@@ -36,14 +36,21 @@ struct BoundaryPoint {
     BoundaryPoint(Ref<Node>&&, unsigned);
 
     Document& document() const;
+    Ref<Document> protectedDocument() const;
 };
 
 bool operator==(const BoundaryPoint&, const BoundaryPoint&);
 
-WEBCORE_EXPORT Optional<BoundaryPoint> makeBoundaryPointBeforeNode(Node&);
-WEBCORE_EXPORT Optional<BoundaryPoint> makeBoundaryPointAfterNode(Node&);
+WTF::TextStream& operator<<(WTF::TextStream&, const BoundaryPoint&);
+
+template<TreeType = Tree> std::partial_ordering treeOrder(const BoundaryPoint&, const BoundaryPoint&);
+
+WEBCORE_EXPORT std::optional<BoundaryPoint> makeBoundaryPointBeforeNode(Node&);
+WEBCORE_EXPORT std::optional<BoundaryPoint> makeBoundaryPointAfterNode(Node&);
 BoundaryPoint makeBoundaryPointBeforeNodeContents(Node&);
 BoundaryPoint makeBoundaryPointAfterNodeContents(Node&);
+
+WEBCORE_EXPORT std::partial_ordering treeOrderForTesting(TreeType, const BoundaryPoint&, const BoundaryPoint&);
 
 inline BoundaryPoint::BoundaryPoint(Ref<Node>&& container, unsigned offset)
     : container(WTFMove(container))

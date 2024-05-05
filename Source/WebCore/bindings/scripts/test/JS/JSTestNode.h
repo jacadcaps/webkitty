@@ -32,7 +32,7 @@ public:
     using DOMWrapped = TestNode;
     static JSTestNode* create(JSC::Structure* structure, JSDOMGlobalObject* globalObject, Ref<TestNode>&& impl)
     {
-        JSTestNode* ptr = new (NotNull, JSC::allocateCell<JSTestNode>(globalObject->vm().heap)) JSTestNode(structure, *globalObject, WTFMove(impl));
+        JSTestNode* ptr = new (NotNull, JSC::allocateCell<JSTestNode>(globalObject->vm())) JSTestNode(structure, *globalObject, WTFMove(impl));
         ptr->finishCreation(globalObject->vm());
         return ptr;
     }
@@ -48,23 +48,25 @@ public:
     }
 
     static JSC::JSValue getConstructor(JSC::VM&, const JSC::JSGlobalObject*);
-    static JSC::JSObject* serialize(JSC::JSGlobalObject&, JSTestNode& thisObject, JSDOMGlobalObject&);
-    template<typename, JSC::SubspaceAccess mode> static JSC::IsoSubspace* subspaceFor(JSC::VM& vm)
+    template<typename, JSC::SubspaceAccess mode> static JSC::GCClient::IsoSubspace* subspaceFor(JSC::VM& vm)
     {
         if constexpr (mode == JSC::SubspaceAccess::Concurrently)
             return nullptr;
         return subspaceForImpl(vm);
     }
-    static JSC::IsoSubspace* subspaceForImpl(JSC::VM& vm);
+    static JSC::GCClient::IsoSubspace* subspaceForImpl(JSC::VM& vm);
     static void analyzeHeap(JSCell*, JSC::HeapAnalyzer&);
     TestNode& wrapped() const
     {
         return static_cast<TestNode&>(Base::wrapped());
     }
+
+    Ref<TestNode> protectedWrapped() const;
+
 protected:
     JSTestNode(JSC::Structure*, JSDOMGlobalObject&, Ref<TestNode>&&);
 
-    void finishCreation(JSC::VM&);
+    DECLARE_DEFAULT_FINISH_CREATION;
 };
 
 WEBCORE_EXPORT JSC::JSValue toJS(JSC::JSGlobalObject*, JSDOMGlobalObject*, TestNode&);

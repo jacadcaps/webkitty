@@ -27,7 +27,8 @@
 #include "config.h"
 #include "CSSSelectorList.h"
 
-#include "CSSParserSelector.h"
+#include "CommonAtomStrings.h"
+#include "MutableCSSSelector.h"
 #include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
@@ -35,27 +36,29 @@ namespace WebCore {
 CSSSelectorList::CSSSelectorList(const CSSSelectorList& other)
 {
     unsigned otherComponentCount = other.componentCount();
-    ASSERT_WITH_SECURITY_IMPLICATION(otherComponentCount);
+    if (!otherComponentCount)
+        return;
 
     m_selectorArray = makeUniqueArray<CSSSelector>(otherComponentCount);
     for (unsigned i = 0; i < otherComponentCount; ++i)
         new (NotNull, &m_selectorArray[i]) CSSSelector(other.m_selectorArray[i]);
 }
 
-CSSSelectorList::CSSSelectorList(Vector<std::unique_ptr<CSSParserSelector>>&& selectorVector)
+CSSSelectorList::CSSSelectorList(MutableCSSSelectorList&& selectorVector)
 {
     ASSERT_WITH_SECURITY_IMPLICATION(!selectorVector.isEmpty());
 
     size_t flattenedSize = 0;
     for (size_t i = 0; i < selectorVector.size(); ++i) {
-        for (CSSParserSelector* selector = selectorVector[i].get(); selector; selector = selector->tagHistory())
+        for (auto* selector = selectorVector[i].get(); selector; selector = selector->tagHistory())
             ++flattenedSize;
     }
     ASSERT(flattenedSize);
     m_selectorArray = makeUniqueArray<CSSSelector>(flattenedSize);
     size_t arrayIndex = 0;
     for (size_t i = 0; i < selectorVector.size(); ++i) {
-        CSSParserSelector* current = selectorVector[i].get();
+        auto* first = selectorVector[i].get();
+        auto* current = first;
         while (current) {
             {
                 // Move item from the parser selector vector into m_selectorArray without invoking destructor (Ugh.)
@@ -65,8 +68,10 @@ CSSSelectorList::CSSSelectorList(Vector<std::unique_ptr<CSSParserSelector>>&& se
                 // Free the underlying memory without invoking the destructor.
                 operator delete (currentSelector);
             }
+            if (current != first)
+                m_selectorArray[arrayIndex].setNotFirstInTagHistory();
             current = current->tagHistory();
-            ASSERT(!m_selectorArray[arrayIndex].isLastInSelectorList());
+            ASSERT(!m_selectorArray[arrayIndex].isLastInSelectorList() || (flattenedSize == arrayIndex + 1));
             if (current)
                 m_selectorArray[arrayIndex].setNotLastInTagHistory();
             ++arrayIndex;
@@ -113,7 +118,7 @@ void CSSSelectorList::buildSelectorsText(StringBuilder& stringBuilder) const
     const CSSSelector* firstSubselector = first();
     for (const CSSSelector* subSelector = firstSubselector; subSelector; subSelector = CSSSelectorList::next(subSelector)) {
         if (subSelector != firstSubselector)
-            stringBuilder.appendLiteral(", ");
+            stringBuilder.append(", ");
         stringBuilder.append(subSelector->selectorText());
     }
 }
@@ -148,36 +153,30 @@ static bool forEachSelector(Functor& functor, const CSSSelectorList* selectorLis
     return false;
 }
 
-class SelectorNeedsNamespaceResolutionFunctor {
-public:
-    bool operator()(const CSSSelector* selector)
-    {
-        if (selector->match() == CSSSelector::Tag && !selector->tagQName().prefix().isEmpty() && selector->tagQName().prefix() != starAtom())
-            return true;
-        if (selector->isAttributeSelector() && !selector->attribute().prefix().isEmpty() && selector->attribute().prefix() != starAtom())
-            return true;
-        return false;
-    }
-};
-
-bool CSSSelectorList::selectorsNeedNamespaceResolution()
+bool CSSSelectorList::hasExplicitNestingParent() const
 {
-    SelectorNeedsNamespaceResolutionFunctor functor;
+    auto functor = [](auto* selector) {
+        return selector->hasExplicitNestingParent();
+    };
+
     return forEachSelector(functor, this);
 }
 
-class SelectorHasInvalidSelectorFunctor {
-public:
-    bool operator()(const CSSSelector* selector)
-    {
-        return selector->isUnknownPseudoElement() || selector->isCustomPseudoElement();
-    }
-};
-
-bool CSSSelectorList::hasInvalidSelector() const
+bool CSSSelectorList::hasOnlyNestingSelector() const
 {
-    SelectorHasInvalidSelectorFunctor functor;
-    return forEachSelector(functor, this);
+    if (componentCount() != 1)
+        return false;
+
+    auto singleSelector = first();
+
+    if (!singleSelector)
+        return false;
+    
+    // Selector should be a single selector
+    if (singleSelector->tagHistory())
+        return false;
+
+    return singleSelector->match() == CSSSelector::Match::NestingParent;
 }
 
 } // namespace WebCore

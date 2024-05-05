@@ -39,18 +39,18 @@ public:
 
     bool inDragMode() const;
 
-private:
-    const char* renderName() const override { return "RenderSlider"; }
-    bool isSlider() const override { return true; }
+    double valueRatio() const;
 
-    int baselinePosition(FontBaseline, bool firstLine, LineDirectionMode, LinePositionMode = PositionOnContainingLine) const override;
+private:
+    ASCIILiteral renderName() const override { return "RenderSlider"_s; }
+
+    LayoutUnit baselinePosition(FontBaseline, bool firstLine, LineDirectionMode, LinePositionMode = PositionOnContainingLine) const override;
     void computeIntrinsicLogicalWidths(LayoutUnit& minLogicalWidth, LayoutUnit& maxLogicalWidth) const override;
     void computePreferredLogicalWidths() override;
-    void layout() override;
 
     bool isFlexibleBoxImpl() const override { return true; }
 };
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderSlider, isSlider())
+SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderSlider, isRenderSlider())

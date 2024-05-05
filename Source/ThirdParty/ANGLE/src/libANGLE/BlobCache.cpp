@@ -9,26 +9,92 @@
 
 #include "libANGLE/BlobCache.h"
 #include "common/utilities.h"
-#include "common/version.h"
 #include "libANGLE/Context.h"
 #include "libANGLE/Display.h"
 #include "libANGLE/histogram_macros.h"
 #include "platform/PlatformMethods.h"
 
+#define USE_SYSTEM_ZLIB
+#include "compression_utils_portable.h"
+
 namespace egl
 {
 
-namespace
+// In oder to store more cache in blob cache, compress cacheData to compressedData
+// before being stored.
+bool CompressBlobCacheData(const size_t cacheSize,
+                           const uint8_t *cacheData,
+                           angle::MemoryBuffer *compressedData)
 {
-enum CacheResult
-{
-    kCacheMiss,
-    kCacheHitMemory,
-    kCacheHitDisk,
-    kCacheResultMax,
-};
+    uLong uncompressedSize       = static_cast<uLong>(cacheSize);
+    uLong expectedCompressedSize = zlib_internal::GzipExpectedCompressedSize(uncompressedSize);
 
-}  // anonymous namespace
+    // Allocate memory.
+    if (!compressedData->resize(expectedCompressedSize))
+    {
+        ERR() << "Failed to allocate memory for compression";
+        return false;
+    }
+
+    int zResult = zlib_internal::GzipCompressHelper(compressedData->data(), &expectedCompressedSize,
+                                                    cacheData, uncompressedSize, nullptr, nullptr);
+
+    if (zResult != Z_OK)
+    {
+        ERR() << "Failed to compress cache data: " << zResult;
+        return false;
+    }
+
+    // Resize it to expected size.
+    if (!compressedData->resize(expectedCompressedSize))
+    {
+        return false;
+    }
+
+    return true;
+}
+
+bool DecompressBlobCacheData(const uint8_t *compressedData,
+                             const size_t compressedSize,
+                             size_t maxUncompressedDataSize,
+                             angle::MemoryBuffer *uncompressedData)
+{
+    // Call zlib function to decompress.
+    uint32_t uncompressedSize =
+        zlib_internal::GetGzipUncompressedSize(compressedData, compressedSize);
+
+    if (uncompressedSize > maxUncompressedDataSize)
+    {
+        ERR() << "Decompressed data size is larger than the maximum supported (" << uncompressedSize
+              << " vs " << maxUncompressedDataSize << ")";
+        return false;
+    }
+
+    // Allocate enough memory.
+    if (!uncompressedData->resize(uncompressedSize))
+    {
+        ERR() << "Failed to allocate memory for decompression";
+        return false;
+    }
+
+    uLong destLen = uncompressedSize;
+    int zResult   = zlib_internal::GzipUncompressHelper(
+        uncompressedData->data(), &destLen, compressedData, static_cast<uLong>(compressedSize));
+
+    if (zResult != Z_OK)
+    {
+        WARN() << "Failed to decompress data: " << zResult << "\n";
+        return false;
+    }
+
+    // Resize it to expected size.
+    if (!uncompressedData->resize(destLen))
+    {
+        return false;
+    }
+
+    return true;
+}
 
 BlobCache::BlobCache(size_t maxCacheSizeBytes)
     : mBlobCache(maxCacheSizeBytes), mSetBlobFunc(nullptr), mGetBlobFunc(nullptr)
@@ -40,6 +106,7 @@ void BlobCache::put(const BlobCache::Key &key, angle::MemoryBuffer &&value)
 {
     if (areBlobCacheFuncsSet())
     {
+        std::scoped_lock<std::mutex> lock(mBlobCacheMutex);
         // Store the result in the application's cache
         mSetBlobFunc(key.data(), key.size(), value.data(), value.size());
     }
@@ -49,16 +116,34 @@ void BlobCache::put(const BlobCache::Key &key, angle::MemoryBuffer &&value)
     }
 }
 
+bool BlobCache::compressAndPut(const BlobCache::Key &key,
+                               angle::MemoryBuffer &&uncompressedValue,
+                               size_t *compressedSize)
+{
+    angle::MemoryBuffer compressedValue;
+    if (!CompressBlobCacheData(uncompressedValue.size(), uncompressedValue.data(),
+                               &compressedValue))
+    {
+        return false;
+    }
+    if (compressedSize != nullptr)
+        *compressedSize = compressedValue.size();
+    put(key, std::move(compressedValue));
+    return true;
+}
+
 void BlobCache::putApplication(const BlobCache::Key &key, const angle::MemoryBuffer &value)
 {
     if (areBlobCacheFuncsSet())
     {
+        std::scoped_lock<std::mutex> lock(mBlobCacheMutex);
         mSetBlobFunc(key.data(), key.size(), value.data(), value.size());
     }
 }
 
 void BlobCache::populate(const BlobCache::Key &key, angle::MemoryBuffer &&value, CacheSource source)
 {
+    std::scoped_lock<std::mutex> lock(mBlobCacheMutex);
     CacheEntry newEntry;
     newEntry.first  = std::move(value);
     newEntry.second = source;
@@ -75,6 +160,7 @@ bool BlobCache::get(angle::ScratchBuffer *scratchBuffer,
     // Look into the application's cache, if there is such a cache
     if (areBlobCacheFuncsSet())
     {
+        std::scoped_lock<std::mutex> lock(mBlobCacheMutex);
         EGLsizeiANDROID valueSize = mGetBlobFunc(key.data(), key.size(), nullptr, 0);
         if (valueSize <= 0)
         {
@@ -108,30 +194,16 @@ bool BlobCache::get(angle::ScratchBuffer *scratchBuffer,
         return true;
     }
 
+    std::scoped_lock<std::mutex> lock(mBlobCacheMutex);
     // Otherwise we are doing caching internally, so try to find it there
     const CacheEntry *entry;
     bool result = mBlobCache.get(key, &entry);
 
     if (result)
     {
-        if (entry->second == CacheSource::Memory)
-        {
-            ANGLE_HISTOGRAM_ENUMERATION("GPU.ANGLE.ProgramCache.CacheResult", kCacheHitMemory,
-                                        kCacheResultMax);
-        }
-        else
-        {
-            ANGLE_HISTOGRAM_ENUMERATION("GPU.ANGLE.ProgramCache.CacheResult", kCacheHitDisk,
-                                        kCacheResultMax);
-        }
 
         *valueOut      = BlobCache::Value(entry->first.data(), entry->first.size());
         *bufferSizeOut = entry->first.size();
-    }
-    else
-    {
-        ANGLE_HISTOGRAM_ENUMERATION("GPU.ANGLE.ProgramCache.CacheResult", kCacheMiss,
-                                    kCacheResultMax);
     }
 
     return result;
@@ -139,6 +211,7 @@ bool BlobCache::get(angle::ScratchBuffer *scratchBuffer,
 
 bool BlobCache::getAt(size_t index, const BlobCache::Key **keyOut, BlobCache::Value *valueOut)
 {
+    std::scoped_lock<std::mutex> lock(mBlobCacheMutex);
     const CacheEntry *valueBuf;
     bool result = mBlobCache.getAt(index, keyOut, &valueBuf);
     if (result)
@@ -148,19 +221,51 @@ bool BlobCache::getAt(size_t index, const BlobCache::Key **keyOut, BlobCache::Va
     return result;
 }
 
+BlobCache::GetAndDecompressResult BlobCache::getAndDecompress(
+    angle::ScratchBuffer *scratchBuffer,
+    const BlobCache::Key &key,
+    size_t maxUncompressedDataSize,
+    angle::MemoryBuffer *uncompressedValueOut)
+{
+    ASSERT(uncompressedValueOut);
+
+    Value compressedValue;
+    size_t compressedSize;
+    if (!get(scratchBuffer, key, &compressedValue, &compressedSize))
+    {
+        return GetAndDecompressResult::NotFound;
+    }
+
+    {
+        // This needs to be locked because `DecompressBlobCacheData` is reading shared memory from
+        // `compressedValue.data()`.
+        std::scoped_lock<std::mutex> lock(mBlobCacheMutex);
+        if (!DecompressBlobCacheData(compressedValue.data(), compressedSize,
+                                     maxUncompressedDataSize, uncompressedValueOut))
+        {
+            return GetAndDecompressResult::DecompressFailure;
+        }
+    }
+
+    return GetAndDecompressResult::GetSuccess;
+}
+
 void BlobCache::remove(const BlobCache::Key &key)
 {
+    std::scoped_lock<std::mutex> lock(mBlobCacheMutex);
     mBlobCache.eraseByKey(key);
 }
 
 void BlobCache::setBlobCacheFuncs(EGLSetBlobFuncANDROID set, EGLGetBlobFuncANDROID get)
 {
+    std::scoped_lock<std::mutex> lock(mBlobCacheMutex);
     mSetBlobFunc = set;
     mGetBlobFunc = get;
 }
 
 bool BlobCache::areBlobCacheFuncsSet() const
 {
+    std::scoped_lock<std::mutex> lock(mBlobCacheMutex);
     // Either none or both of the callbacks should be set.
     ASSERT((mSetBlobFunc != nullptr) == (mGetBlobFunc != nullptr));
 

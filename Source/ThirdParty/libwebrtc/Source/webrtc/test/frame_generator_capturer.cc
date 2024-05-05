@@ -12,36 +12,30 @@
 
 #include <algorithm>
 #include <cmath>
-#include <limits>
+#include <cstddef>
 #include <memory>
 #include <utility>
-#include <vector>
 
-#include "api/test/create_frame_generator.h"
+#include "absl/types/optional.h"
+#include "api/task_queue/task_queue_base.h"
+#include "api/task_queue/task_queue_factory.h"
+#include "api/test/frame_generator_interface.h"
+#include "api/units/time_delta.h"
+#include "api/video/color_space.h"
+#include "api/video/video_frame.h"
+#include "api/video/video_rotation.h"
+#include "api/video/video_sink_interface.h"
+#include "api/video/video_source_interface.h"
 #include "rtc_base/checks.h"
-#include "rtc_base/critical_section.h"
 #include "rtc_base/logging.h"
+#include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/task_queue.h"
-#include "rtc_base/time_utils.h"
+#include "rtc_base/task_utils/repeating_task.h"
 #include "system_wrappers/include/clock.h"
-#include "test/testsupport/file_utils.h"
+#include "test/test_video_capturer.h"
 
 namespace webrtc {
 namespace test {
-namespace {
-std::string TransformFilePath(std::string path) {
-  static const std::string resource_prefix = "res://";
-  int ext_pos = path.rfind(".");
-  if (ext_pos < 0) {
-    return test::ResourcePath(path, "yuv");
-  } else if (path.find(resource_prefix) == 0) {
-    std::string name = path.substr(resource_prefix.length(), ext_pos);
-    std::string ext = path.substr(ext_pos, path.size());
-    return test::ResourcePath(name, ext);
-  }
-  return path;
-}
-}  // namespace
 
 FrameGeneratorCapturer::FrameGeneratorCapturer(
     Clock* clock,
@@ -66,96 +60,14 @@ FrameGeneratorCapturer::~FrameGeneratorCapturer() {
   Stop();
 }
 
-std::unique_ptr<FrameGeneratorCapturer> FrameGeneratorCapturer::Create(
-    Clock* clock,
-    TaskQueueFactory& task_queue_factory,
-    FrameGeneratorCapturerConfig::SquaresVideo config) {
-  return std::make_unique<FrameGeneratorCapturer>(
-      clock,
-      CreateSquareFrameGenerator(config.width, config.height,
-                                 config.pixel_format, config.num_squares),
-      config.framerate, task_queue_factory);
-}
-std::unique_ptr<FrameGeneratorCapturer> FrameGeneratorCapturer::Create(
-    Clock* clock,
-    TaskQueueFactory& task_queue_factory,
-    FrameGeneratorCapturerConfig::SquareSlides config) {
-  return std::make_unique<FrameGeneratorCapturer>(
-      clock,
-      CreateSlideFrameGenerator(
-          config.width, config.height,
-          /*frame_repeat_count*/ config.change_interval.seconds<double>() *
-              config.framerate),
-      config.framerate, task_queue_factory);
-}
-std::unique_ptr<FrameGeneratorCapturer> FrameGeneratorCapturer::Create(
-    Clock* clock,
-    TaskQueueFactory& task_queue_factory,
-    FrameGeneratorCapturerConfig::VideoFile config) {
-  RTC_CHECK(config.width && config.height);
-  return std::make_unique<FrameGeneratorCapturer>(
-      clock,
-      CreateFromYuvFileFrameGenerator({TransformFilePath(config.name)},
-                                      config.width, config.height,
-                                      /*frame_repeat_count*/ 1),
-      config.framerate, task_queue_factory);
-}
-
-std::unique_ptr<FrameGeneratorCapturer> FrameGeneratorCapturer::Create(
-    Clock* clock,
-    TaskQueueFactory& task_queue_factory,
-    FrameGeneratorCapturerConfig::ImageSlides config) {
-  std::unique_ptr<FrameGeneratorInterface> slides_generator;
-  std::vector<std::string> paths = config.paths;
-  for (std::string& path : paths)
-    path = TransformFilePath(path);
-
-  if (config.crop.width || config.crop.height) {
-    TimeDelta pause_duration =
-        config.change_interval - config.crop.scroll_duration;
-    RTC_CHECK_GE(pause_duration, TimeDelta::Zero());
-    int crop_width = config.crop.width.value_or(config.width);
-    int crop_height = config.crop.height.value_or(config.height);
-    RTC_CHECK_LE(crop_width, config.width);
-    RTC_CHECK_LE(crop_height, config.height);
-    slides_generator = CreateScrollingInputFromYuvFilesFrameGenerator(
-        clock, paths, config.width, config.height, crop_width, crop_height,
-        config.crop.scroll_duration.ms(), pause_duration.ms());
-  } else {
-    slides_generator = CreateFromYuvFileFrameGenerator(
-        paths, config.width, config.height,
-        /*frame_repeat_count*/ config.change_interval.seconds<double>() *
-            config.framerate);
-  }
-  return std::make_unique<FrameGeneratorCapturer>(
-      clock, std::move(slides_generator), config.framerate, task_queue_factory);
-}
-
-std::unique_ptr<FrameGeneratorCapturer> FrameGeneratorCapturer::Create(
-    Clock* clock,
-    TaskQueueFactory& task_queue_factory,
-    const FrameGeneratorCapturerConfig& config) {
-  if (config.video_file) {
-    return Create(clock, task_queue_factory, *config.video_file);
-  } else if (config.image_slides) {
-    return Create(clock, task_queue_factory, *config.image_slides);
-  } else if (config.squares_slides) {
-    return Create(clock, task_queue_factory, *config.squares_slides);
-  } else {
-    return Create(clock, task_queue_factory,
-                  config.squares_video.value_or(
-                      FrameGeneratorCapturerConfig::SquaresVideo()));
-  }
-}
-
 void FrameGeneratorCapturer::SetFakeRotation(VideoRotation rotation) {
-  rtc::CritScope cs(&lock_);
+  MutexLock lock(&lock_);
   fake_rotation_ = rotation;
 }
 
 void FrameGeneratorCapturer::SetFakeColorSpace(
     absl::optional<ColorSpace> color_space) {
-  rtc::CritScope cs(&lock_);
+  MutexLock lock(&lock_);
   fake_color_space_ = color_space;
 }
 
@@ -167,15 +79,17 @@ bool FrameGeneratorCapturer::Init() {
 
   frame_task_ = RepeatingTaskHandle::DelayedStart(
       task_queue_.Get(),
-      TimeDelta::Seconds(1) / GetCurrentConfiguredFramerate(), [this] {
+      TimeDelta::Seconds(1) / GetCurrentConfiguredFramerate(),
+      [this] {
         InsertFrame();
         return TimeDelta::Seconds(1) / GetCurrentConfiguredFramerate();
-      });
+      },
+      TaskQueueBase::DelayPrecision::kHigh);
   return true;
 }
 
 void FrameGeneratorCapturer::InsertFrame() {
-  rtc::CritScope cs(&lock_);
+  MutexLock lock(&lock_);
   if (sending_) {
     FrameGeneratorInterface::VideoFrameData frame_data =
         frame_generator_->NextFrame();
@@ -202,31 +116,42 @@ void FrameGeneratorCapturer::InsertFrame() {
   }
 }
 
+absl::optional<FrameGeneratorCapturer::Resolution>
+FrameGeneratorCapturer::GetResolution() const {
+  FrameGeneratorInterface::Resolution resolution =
+      frame_generator_->GetResolution();
+  return Resolution{.width = static_cast<int>(resolution.width),
+                    .height = static_cast<int>(resolution.height)};
+}
+
 void FrameGeneratorCapturer::Start() {
   {
-    rtc::CritScope cs(&lock_);
+    MutexLock lock(&lock_);
     sending_ = true;
   }
   if (!frame_task_.Running()) {
-    frame_task_ = RepeatingTaskHandle::Start(task_queue_.Get(), [this] {
-      InsertFrame();
-      return TimeDelta::Seconds(1) / GetCurrentConfiguredFramerate();
-    });
+    frame_task_ = RepeatingTaskHandle::Start(
+        task_queue_.Get(),
+        [this] {
+          InsertFrame();
+          return TimeDelta::Seconds(1) / GetCurrentConfiguredFramerate();
+        },
+        TaskQueueBase::DelayPrecision::kHigh);
   }
 }
 
 void FrameGeneratorCapturer::Stop() {
-  rtc::CritScope cs(&lock_);
+  MutexLock lock(&lock_);
   sending_ = false;
 }
 
 void FrameGeneratorCapturer::ChangeResolution(size_t width, size_t height) {
-  rtc::CritScope cs(&lock_);
+  MutexLock lock(&lock_);
   frame_generator_->ChangeResolution(width, height);
 }
 
 void FrameGeneratorCapturer::ChangeFramerate(int target_framerate) {
-  rtc::CritScope cs(&lock_);
+  MutexLock lock(&lock_);
   RTC_CHECK(target_capture_fps_ > 0);
   if (target_framerate > source_fps_)
     RTC_LOG(LS_WARNING) << "Target framerate clamped from " << target_framerate
@@ -243,8 +168,23 @@ void FrameGeneratorCapturer::ChangeFramerate(int target_framerate) {
   target_capture_fps_ = std::min(source_fps_, target_framerate);
 }
 
+int FrameGeneratorCapturer::GetFrameWidth() const {
+  return static_cast<int>(frame_generator_->GetResolution().width);
+}
+
+int FrameGeneratorCapturer::GetFrameHeight() const {
+  return static_cast<int>(frame_generator_->GetResolution().height);
+}
+
+void FrameGeneratorCapturer::OnOutputFormatRequest(
+    int width,
+    int height,
+    const absl::optional<int>& max_fps) {
+  TestVideoCapturer::OnOutputFormatRequest(width, height, max_fps);
+}
+
 void FrameGeneratorCapturer::SetSinkWantsObserver(SinkWantsObserver* observer) {
-  rtc::CritScope cs(&lock_);
+  MutexLock lock(&lock_);
   RTC_DCHECK(!sink_wants_observer_);
   sink_wants_observer_ = observer;
 }
@@ -253,7 +193,7 @@ void FrameGeneratorCapturer::AddOrUpdateSink(
     rtc::VideoSinkInterface<VideoFrame>* sink,
     const rtc::VideoSinkWants& wants) {
   TestVideoCapturer::AddOrUpdateSink(sink, wants);
-  rtc::CritScope cs(&lock_);
+  MutexLock lock(&lock_);
   if (sink_wants_observer_) {
     // Tests need to observe unmodified sink wants.
     sink_wants_observer_->OnSinkWantsChanged(sink, wants);
@@ -265,7 +205,7 @@ void FrameGeneratorCapturer::RemoveSink(
     rtc::VideoSinkInterface<VideoFrame>* sink) {
   TestVideoCapturer::RemoveSink(sink);
 
-  rtc::CritScope cs(&lock_);
+  MutexLock lock(&lock_);
   UpdateFps(GetSinkWants().max_framerate_fps);
 }
 
@@ -283,7 +223,7 @@ void FrameGeneratorCapturer::ForceFrame() {
 }
 
 int FrameGeneratorCapturer::GetCurrentConfiguredFramerate() {
-  rtc::CritScope cs(&lock_);
+  MutexLock lock(&lock_);
   if (wanted_fps_ && *wanted_fps_ < target_capture_fps_)
     return *wanted_fps_;
   return target_capture_fps_;

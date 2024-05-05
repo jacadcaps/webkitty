@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -43,7 +43,32 @@ NS_ASSUME_NONNULL_BEGIN
 @class WKContextMenuElementInfo;
 @class UIContextMenuConfiguration;
 @protocol UIContextMenuInteractionCommitAnimating;
+@protocol UIEditMenuInteractionAnimating;
 #endif
+
+typedef NS_ENUM(NSInteger, WKPermissionDecision) {
+    WKPermissionDecisionPrompt,
+    WKPermissionDecisionGrant,
+    WKPermissionDecisionDeny,
+} WK_API_AVAILABLE(macos(12.0), ios(15.0));
+
+typedef NS_ENUM(NSInteger, WKMediaCaptureType) {
+    WKMediaCaptureTypeCamera,
+    WKMediaCaptureTypeMicrophone,
+    WKMediaCaptureTypeCameraAndMicrophone,
+} WK_API_AVAILABLE(macos(12.0), ios(15.0));
+
+/*! @enum WKDialogResult
+@abstract Constants returned by showLockdownModeFirstUseMessage to indicate how WebKit should treat first use.
+@constant WKDialogResultShowDefault Indicates that the client did not display a first use message. WebKit should show the default.
+@constant WKDialogResultAskAgain Indicates the client handled the message, but wants to be checked if other WKWebViews are used.
+@constant WKDialogResultHandled Indicates the client handled the message and no further checks are needed.
+*/
+typedef NS_ENUM(NSInteger, WKDialogResult) {
+    WKDialogResultShowDefault = 1,
+    WKDialogResultAskAgain,
+    WKDialogResultHandled
+} WK_API_AVAILABLE(ios(16.0));
 
 /*! A class conforming to the WKUIDelegate protocol provides methods for
  presenting native UI on behalf of a webpage.
@@ -123,6 +148,24 @@ NS_ASSUME_NONNULL_BEGIN
  */
 - (void)webView:(WKWebView *)webView runJavaScriptTextInputPanelWithPrompt:(NSString *)prompt defaultText:(nullable NSString *)defaultText initiatedByFrame:(WKFrameInfo *)frame completionHandler:(void (^)(NSString * _Nullable result))completionHandler;
 
+
+/*! @abstract A delegate to request permission for microphone audio and camera video access.
+ @param webView The web view invoking the delegate method.
+ @param origin The origin of the page.
+ @param frame Information about the frame whose JavaScript initiated this call.
+ @param type The type of capture (camera, microphone).
+ @param decisionHandler The completion handler to call once the decision is made
+ @discussion If not implemented, the result is the same as calling the decisionHandler with WKPermissionDecisionPrompt.
+ */
+- (void)webView:(WKWebView *)webView requestMediaCapturePermissionForOrigin:(WKSecurityOrigin *)origin initiatedByFrame:(WKFrameInfo *)frame type:(WKMediaCaptureType)type decisionHandler:(void (^)(WKPermissionDecision decision))decisionHandler WK_SWIFT_ASYNC_NAME(webView(_:decideMediaCapturePermissionsFor:initiatedBy:type:)) WK_SWIFT_ASYNC(5) WK_API_AVAILABLE(macos(12.0), ios(15.0));
+
+/*! @abstract Allows your app to determine whether or not the given security origin should have access to the device's orientation and motion.
+ @param securityOrigin The security origin which requested access to the device's orientation and motion.
+ @param frame The frame that initiated the request.
+ @param decisionHandler The decision handler to call once the app has made its decision.
+ */
+- (void)webView:(WKWebView *)webView requestDeviceOrientationAndMotionPermissionForOrigin:(WKSecurityOrigin *)origin initiatedByFrame:(WKFrameInfo *)frame decisionHandler:(void (^)(WKPermissionDecision decision))decisionHandler WK_API_AVAILABLE(ios(15.0)) WK_API_UNAVAILABLE(macos);
+
 #if TARGET_OS_IPHONE
 
 /*! @abstract Allows your app to determine whether or not the given element should show a preview.
@@ -157,7 +200,6 @@ NS_ASSUME_NONNULL_BEGIN
  @param previewingViewController The view controller that is being popped.
  */
 - (void)webView:(WKWebView *)webView commitPreviewingViewController:(UIViewController *)previewingViewController WK_API_DEPRECATED_WITH_REPLACEMENT("webView:contextMenuForElement:willCommitWithAnimator:", ios(10.0, 13.0));
-
 #endif // TARGET_OS_IPHONE
 
 #if TARGET_OS_IOS
@@ -171,7 +213,7 @@ NS_ASSUME_NONNULL_BEGIN
  * Pass a valid UIContextMenuConfiguration to show a context menu, or pass nil to not show a context menu.
  */
 
-- (void)webView:(WKWebView *)webView contextMenuConfigurationForElement:(WKContextMenuElementInfo *)elementInfo completionHandler:(void (^)(UIContextMenuConfiguration * _Nullable configuration))completionHandler WK_API_AVAILABLE(ios(13.0));
+- (void)webView:(WKWebView *)webView contextMenuConfigurationForElement:(WKContextMenuElementInfo *)elementInfo completionHandler:(void (^)(UIContextMenuConfiguration * _Nullable configuration))completionHandler WK_SWIFT_ASYNC_NAME(webView(_:contextMenuConfigurationFor:)) WK_API_AVAILABLE(ios(13.0));
 
 /**
  * @abstract Called when the context menu will be presented.
@@ -202,6 +244,32 @@ NS_ASSUME_NONNULL_BEGIN
  */
 
 - (void)webView:(WKWebView *)webView contextMenuDidEndForElement:(WKContextMenuElementInfo *)elementInfo WK_API_AVAILABLE(ios(13.0));
+
+/*! @abstract Displays a Lockdown Mode warning panel.
+ @param webView The web view invoking the delegate method.
+ @param message The message WebKit would display if this delegate were not invoked.
+ @param completionHandler The completion handler you must invoke to resume after the first use message is displayed.
+ @discussion The panel should have a single OK button.
+
+ If you do not implement this method, the web view will display the default Lockdown Mode message.
+ */
+- (void)webView:(WKWebView *)webView showLockdownModeFirstUseMessage:(NSString *)message completionHandler:(void (^)(WKDialogResult))completionHandler WK_API_AVAILABLE(ios(13.0));
+
+/**
+ * @abstract Called when the web view is about to present its edit menu.
+ *
+ * @param webView The web view displaying the menu.
+ * @param animator Appearance animator. Add animations to this object to run them alongside the appearance transition.
+ */
+- (void)webView:(WKWebView *)webView willPresentEditMenuWithAnimator:(id<UIEditMenuInteractionAnimating>)animator WK_API_AVAILABLE(ios(16.4));
+
+/**
+ * @abstract Called when the web view is about to dismiss its edit menu.
+ *
+ * @param webView The web view displaying the menu.
+ * @param animator Dismissal animator. Add animations to this object to run them alongside the dismissal transition.
+ */
+- (void)webView:(WKWebView *)webView willDismissEditMenuWithAnimator:(id<UIEditMenuInteractionAnimating>)animator WK_API_AVAILABLE(ios(16.4));
 
 #endif // TARGET_OS_IOS
 

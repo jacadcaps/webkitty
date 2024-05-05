@@ -25,8 +25,6 @@
 
 #pragma once
 
-#if ENABLE(INDEXED_DATABASE)
-
 #include "IDBKeyPath.h"
 #include <wtf/text/WTFString.h>
 
@@ -35,9 +33,10 @@ namespace WebCore {
 class IDBIndexInfo {
 public:
     WEBCORE_EXPORT IDBIndexInfo();
-    IDBIndexInfo(uint64_t identifier, uint64_t objectStoreIdentifier, const String& name, IDBKeyPath&&, bool unique, bool multiEntry);
+    WEBCORE_EXPORT IDBIndexInfo(uint64_t identifier, uint64_t objectStoreIdentifier, const String& name, IDBKeyPath&&, bool unique, bool multiEntry);
 
-    WEBCORE_EXPORT IDBIndexInfo isolatedCopy() const;
+    WEBCORE_EXPORT IDBIndexInfo isolatedCopy() const &;
+    WEBCORE_EXPORT IDBIndexInfo isolatedCopy() &&;
 
     uint64_t identifier() const { return m_identifier; }
     uint64_t objectStoreIdentifier() const { return m_objectStoreIdentifier; }
@@ -48,9 +47,6 @@ public:
 
     void rename(const String& newName) { m_name = newName; }
 
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static WARN_UNUSED_RETURN bool decode(Decoder&, IDBIndexInfo&);
-
 #if !LOG_DISABLED
     String loggingString(int indent = 0) const;
     String condensedLoggingString() const;
@@ -59,6 +55,7 @@ public:
     // FIXME: Remove the need for this.
     static const int64_t InvalidId = -1;
 
+    void setIdentifier(uint64_t identifier) { m_identifier = identifier; }
 private:
     uint64_t m_identifier { 0 };
     uint64_t m_objectStoreIdentifier { 0 };
@@ -68,36 +65,4 @@ private:
     bool m_multiEntry { false };
 };
 
-template<class Encoder>
-void IDBIndexInfo::encode(Encoder& encoder) const
-{
-    encoder << m_identifier << m_objectStoreIdentifier << m_name << m_keyPath << m_unique << m_multiEntry;
-}
-
-template<class Decoder>
-bool IDBIndexInfo::decode(Decoder& decoder, IDBIndexInfo& info)
-{
-    if (!decoder.decode(info.m_identifier))
-        return false;
-
-    if (!decoder.decode(info.m_objectStoreIdentifier))
-        return false;
-
-    if (!decoder.decode(info.m_name))
-        return false;
-
-    if (!decoder.decode(info.m_keyPath))
-        return false;
-
-    if (!decoder.decode(info.m_unique))
-        return false;
-
-    if (!decoder.decode(info.m_multiEntry))
-        return false;
-
-    return true;
-}
-
 } // namespace WebCore
-
-#endif // ENABLE(INDEXED_DATABASE)

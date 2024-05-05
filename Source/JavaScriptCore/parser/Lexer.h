@@ -1,6 +1,6 @@
 /*
  *  Copyright (C) 1999-2000 Harri Porten (porten@kde.org)
- *  Copyright (C) 2002-2019 Apple Inc. All rights reserved.
+ *  Copyright (C) 2002-2023 Apple Inc. All rights reserved.
  *  Copyright (C) 2010 Zoltan Herczeg (zherczeg@inf.u-szeged.hu)
  *
  *  This library is free software; you can redistribute it and/or
@@ -28,9 +28,13 @@
 #include "ParserTokens.h"
 #include "SourceCode.h"
 #include <wtf/ASCIICType.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
+#include <wtf/unicode/CharacterNames.h>
 
 namespace JSC {
+
+struct ParsedUnicodeEscapeValue;
 
 enum class LexerFlags : uint8_t {
     IgnoreReservedWords = 1 << 0, 
@@ -38,14 +42,12 @@ enum class LexerFlags : uint8_t {
     DontBuildKeywords = 1 << 2
 };
 
-struct ParsedUnicodeEscapeValue;
-
 bool isLexerKeyword(const Identifier&);
 
 template <typename T>
 class Lexer {
     WTF_MAKE_NONCOPYABLE(Lexer);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(Lexer);
 
 public:
     Lexer(VM&, JSParserBuiltinMode, JSParserScriptMode);
@@ -124,16 +126,19 @@ public:
         return sourceProvider->getRange(token.m_location.startOffset, token.m_location.endOffset);
     }
 
+    size_t codeLength() { return m_codeEnd - m_codeStart; }
+
 private:
     void record8(int);
     void append8(const T*, size_t);
     void record16(int);
     void record16(T);
-    void recordUnicodeCodePoint(UChar32);
+    void recordUnicodeCodePoint(char32_t);
     void append16(const LChar*, size_t);
     void append16(const UChar* characters, size_t length) { m_buffer16.append(characters, length); }
 
-    UChar32 currentCodePoint() const;
+    static constexpr char32_t errorCodePoint = 0xFFFFFFFFu;
+    char32_t currentCodePoint() const;
     ALWAYS_INLINE void shift();
     ALWAYS_INLINE bool atEnd() const;
     ALWAYS_INLINE T peek(int offset) const;
@@ -147,7 +152,7 @@ private:
     String invalidCharacterMessage() const;
     ALWAYS_INLINE const T* currentSourcePtr() const;
 
-    ALWAYS_INLINE void setCodeStart(const StringView&);
+    ALWAYS_INLINE void setCodeStart(StringView);
 
     ALWAYS_INLINE const Identifier* makeIdentifier(const LChar* characters, size_t length);
     ALWAYS_INLINE const Identifier* makeIdentifier(const UChar* characters, size_t length);
@@ -177,11 +182,11 @@ private:
     template <bool shouldBuildStrings> ALWAYS_INLINE StringParseResult parseComplexEscape(bool strictMode);
     ALWAYS_INLINE StringParseResult parseTemplateLiteral(JSTokenData*, RawStringsBuildMode);
     
-    using NumberParseResult = Variant<double, const Identifier*>;
-    ALWAYS_INLINE Optional<NumberParseResult> parseHex();
-    ALWAYS_INLINE Optional<NumberParseResult> parseBinary();
-    ALWAYS_INLINE Optional<NumberParseResult> parseOctal();
-    ALWAYS_INLINE Optional<NumberParseResult> parseDecimal();
+    using NumberParseResult = std::variant<double, const Identifier*>;
+    ALWAYS_INLINE std::optional<NumberParseResult> parseHex();
+    ALWAYS_INLINE std::optional<NumberParseResult> parseBinary();
+    ALWAYS_INLINE std::optional<NumberParseResult> parseOctal();
+    ALWAYS_INLINE std::optional<NumberParseResult> parseDecimal();
     ALWAYS_INLINE bool parseNumberAfterDecimalPoint();
     ALWAYS_INLINE bool parseNumberAfterExponentIndicator();
     ALWAYS_INLINE bool parseMultilineComment();
@@ -240,7 +245,7 @@ ALWAYS_INLINE bool Lexer<LChar>::isWhiteSpace(LChar ch)
 template <>
 ALWAYS_INLINE bool Lexer<UChar>::isWhiteSpace(UChar ch)
 {
-    return isLatin1(ch) ? Lexer<LChar>::isWhiteSpace(static_cast<LChar>(ch)) : (u_charType(ch) == U_SPACE_SEPARATOR || ch == 0xFEFF);
+    return isLatin1(ch) ? Lexer<LChar>::isWhiteSpace(static_cast<LChar>(ch)) : (u_charType(ch) == U_SPACE_SEPARATOR || ch == byteOrderMark);
 }
 
 template <>
@@ -301,14 +306,14 @@ ALWAYS_INLINE const Identifier* Lexer<T>::makeEmptyIdentifier()
 }
 
 template <>
-ALWAYS_INLINE void Lexer<LChar>::setCodeStart(const StringView& sourceString)
+ALWAYS_INLINE void Lexer<LChar>::setCodeStart(StringView sourceString)
 {
     ASSERT(sourceString.is8Bit());
     m_codeStart = sourceString.characters8();
 }
 
 template <>
-ALWAYS_INLINE void Lexer<UChar>::setCodeStart(const StringView& sourceString)
+ALWAYS_INLINE void Lexer<UChar>::setCodeStart(StringView sourceString)
 {
     ASSERT(!sourceString.is8Bit());
     m_codeStart = sourceString.characters16();

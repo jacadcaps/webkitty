@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,38 +29,46 @@
 #if PLATFORM(MAC)
 
 #import "APINavigation.h"
-#import "VersionChecks.h"
-#import "WKFrameInfo.h"
+#import "WKContextMenuItemTypes.h"
+#import "WKInspectorResourceURLSchemeHandler.h"
 #import "WKInspectorWKWebView.h"
-#import "WKNavigationAction.h"
-#import "WKNavigationDelegate.h"
 #import "WKOpenPanelParameters.h"
-#import "WKPreferencesPrivate.h"
 #import "WKProcessPoolInternal.h"
-#import "WKUIDelegatePrivate.h"
-#import "WKWebViewConfigurationPrivate.h"
-#import "WKWebViewPrivate.h"
-#import "WebInspectorProxy.h"
+#import "WebInspectorUIProxy.h"
 #import "WebInspectorUtilities.h"
 #import "WebPageProxy.h"
+#import "_WKInspectorConfigurationInternal.h"
+#import <WebKit/WKFrameInfo.h>
+#import <WebKit/WKNavigationAction.h>
+#import <WebKit/WKNavigationDelegate.h>
+#import <WebKit/WKPreferencesPrivate.h>
+#import <WebKit/WKUIDelegatePrivate.h>
+#import <WebKit/WKWebViewConfigurationPrivate.h>
+#import <WebKit/WKWebViewPrivate.h>
 #import <wtf/WeakObjCPtr.h>
+#import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
+
+static NSString * const WKInspectorResourceScheme = @"inspector-resource";
 
 @interface WKInspectorViewController () <WKUIDelegate, WKNavigationDelegate, WKInspectorWKWebViewDelegate>
 @end
 
 @implementation WKInspectorViewController {
-    NakedPtr<WebKit::WebPageProxy> _inspectedPage;
+    WeakPtr<WebKit::WebPageProxy> _inspectedPage;
     RetainPtr<WKInspectorWKWebView> _webView;
     WeakObjCPtr<id <WKInspectorViewControllerDelegate>> _delegate;
+    RetainPtr<_WKInspectorConfiguration> _configuration;
 }
 
-- (instancetype)initWithInspectedPage:(NakedPtr<WebKit::WebPageProxy>)inspectedPage
+- (instancetype)initWithConfiguration:(_WKInspectorConfiguration *)configuration inspectedPage:(NakedPtr<WebKit::WebPageProxy>)inspectedPage
 {
     if (!(self = [super init]))
         return nil;
 
+    _configuration = adoptNS([configuration copy]);
+
     // The (local) inspected page is nil if the controller is hosting a Remote Web Inspector view.
-    _inspectedPage = inspectedPage;
+    _inspectedPage = inspectedPage.get();
 
     return self;
 }
@@ -86,8 +94,9 @@
 {
     // Construct lazily so the client can set the delegate before the WebView is created.
     if (!_webView) {
-        NSRect initialFrame = NSMakeRect(0, 0, WebKit::WebInspectorProxy::initialWindowWidth, WebKit::WebInspectorProxy::initialWindowHeight);
-        _webView = adoptNS([[WKInspectorWKWebView alloc] initWithFrame:initialFrame configuration:[self configuration]]);
+        NSRect initialFrame = NSMakeRect(0, 0, WebKit::WebInspectorUIProxy::initialWindowWidth, WebKit::WebInspectorUIProxy::initialWindowHeight);
+        _webView = adoptNS([[WKInspectorWKWebView alloc] initWithFrame:initialFrame configuration:self.webViewConfiguration]);
+        [_webView setInspectable:YES];
         [_webView setUIDelegate:self];
         [_webView setNavigationDelegate:self];
         [_webView setInspectorWKWebViewDelegate:self];
@@ -104,9 +113,16 @@
     _delegate = delegate;
 }
 
-- (WKWebViewConfiguration *)configuration
+- (WKWebViewConfiguration *)webViewConfiguration
 {
-    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    RetainPtr<WKWebViewConfiguration> configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    RetainPtr<WKInspectorResourceURLSchemeHandler> inspectorSchemeHandler = adoptNS([WKInspectorResourceURLSchemeHandler new]);
+    RetainPtr<NSMutableSet<NSString *>> allowedURLSchemes = adoptNS([[NSMutableSet alloc] initWithObjects:WKInspectorResourceScheme, nil]);
+    for (auto& pair : _configuration->_configuration->urlSchemeHandlers())
+        [allowedURLSchemes addObject:pair.second];
+
+    [inspectorSchemeHandler setAllowedURLSchemesForCSP:allowedURLSchemes.get()];
+    [configuration setURLSchemeHandler:inspectorSchemeHandler.get() forURLScheme:WKInspectorResourceScheme];
 
     WKPreferences *preferences = configuration.get().preferences;
     preferences._allowFileAccessFromFileURLs = YES;
@@ -123,22 +139,43 @@
 
     preferences._diagnosticLoggingEnabled = YES;
 
+    [_configuration applyToWebViewConfiguration:configuration.get()];
+    
     if (!!_delegate && [_delegate respondsToSelector:@selector(inspectorViewControllerInspectorIsUnderTest:)]) {
         if ([_delegate inspectorViewControllerInspectorIsUnderTest:self]) {
             preferences._hiddenPageDOMTimerThrottlingEnabled = NO;
             preferences._pageVisibilityBasedProcessSuppressionEnabled = NO;
+            preferences.inactiveSchedulingPolicy = WKInactiveSchedulingPolicyNone;
         }
     }
 
-    [configuration setProcessPool:wrapper(WebKit::inspectorProcessPool(WebKit::inspectorLevelForPage(_inspectedPage)))];
-    [configuration _setGroupIdentifier:WebKit::inspectorPageGroupIdentifierForPage(_inspectedPage)];
+    // WKInspectorConfiguration allows the client to specify a process pool to use.
+    // If not specified or the inspection level is >1, use the default strategy.
+    // This ensures that Inspector^2 cannot be affected by client (mis)configuration.
+    auto* customProcessPool = configuration.get().processPool;
+    auto inspectorLevel = WebKit::inspectorLevelForPage(_inspectedPage.get());
+    auto useDefaultProcessPool = inspectorLevel > 1 || !customProcessPool;
+    if (customProcessPool && !useDefaultProcessPool)
+        WebKit::prepareProcessPoolForInspector(*customProcessPool->_processPool.get());
 
+    if (useDefaultProcessPool)
+        [configuration setProcessPool:wrapper(WebKit::defaultInspectorProcessPool(inspectorLevel))];
+
+    // Ensure that a page group identifier is set. This is for computing inspection levels.
+    if (!configuration.get()._groupIdentifier)
+        [configuration _setGroupIdentifier:WebKit::defaultInspectorPageGroupIdentifierForPage(_inspectedPage.get())];
+    
     return configuration.autorelease();
 }
 
 + (BOOL)viewIsInspectorWebView:(NSView *)view
 {
     return [view isKindOfClass:[WKInspectorWKWebView class]];
+}
+
++ (NSURL *)URLForInspectorResource:(NSString *)resource
+{
+    return [NSURL URLWithString:[NSString stringWithFormat:@"%@:///%@", WKInspectorResourceScheme, resource]].URLByStandardizingPath;
 }
 
 // MARK: WKUIDelegate methods
@@ -163,6 +200,7 @@
 {
     NSOpenPanel *openPanel = [NSOpenPanel openPanel];
     openPanel.allowsMultipleSelection = parameters.allowsMultipleSelection;
+    openPanel.canChooseDirectories = parameters.allowsDirectories;
 
     auto reportSelectedFiles = ^(NSInteger result) {
         if (result == NSModalResponseOK)
@@ -191,7 +229,7 @@
         case kWKContextMenuItemTagOpenImageInNewWindow:
         case kWKContextMenuItemTagOpenFrameInNewWindow:
         case kWKContextMenuItemTagOpenMediaInNewWindow:
-        case kWKContextMenuItemTagCopyImageUrlToClipboard:
+        case kWKContextMenuItemTagCopyImageURLToClipboard:
         case kWKContextMenuItemTagCopyImageToClipboard:
         case kWKContextMenuItemTagDownloadLinkToDisk:
         case kWKContextMenuItemTagDownloadImageToDisk:
@@ -220,17 +258,22 @@
     }
 
     // Allow loading of the main inspector file.
-    if (WebKit::WebInspectorProxy::isMainOrTestInspectorPage(navigationAction.request.URL)) {
+    if ([navigationAction.request.URL.scheme isEqualToString:WKInspectorResourceScheme]) {
         decisionHandler(WKNavigationActionPolicyAllow);
         return;
     }
 
     // Prevent everything else.
     decisionHandler(WKNavigationActionPolicyCancel);
-    
-    // And instead load it in the inspected page.
-    if (_inspectedPage)
-        _inspectedPage->loadRequest(navigationAction.request);
+
+    if (!!_delegate && [_delegate respondsToSelector:@selector(inspectorViewController:openURLExternally:)]) {
+        [_delegate inspectorViewController:self openURLExternally:navigationAction.request.URL];
+        return;
+    }
+
+    // Try to load the request in the inspected page if the delegate can't handle it.
+    if (RefPtr page = _inspectedPage.get())
+        page->loadRequest(navigationAction.request);
 }
 
 // MARK: WKInspectorWKWebViewDelegate methods
@@ -243,22 +286,24 @@
 
 - (void)inspectorWKWebViewReload:(WKInspectorWKWebView *)webView
 {
-    if (!_inspectedPage)
+    RefPtr page = _inspectedPage.get();
+    if (!page)
         return;
 
     OptionSet<WebCore::ReloadOption> reloadOptions;
-    if (WebKit::linkedOnOrAfter(WebKit::SDKVersion::FirstWithExpiredOnlyReloadBehavior))
+    if (linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::ExpiredOnlyReloadBehavior))
         reloadOptions.add(WebCore::ReloadOption::ExpiredOnly);
 
-    _inspectedPage->reload(reloadOptions);
+    page->reload(reloadOptions);
 }
 
 - (void)inspectorWKWebViewReloadFromOrigin:(WKInspectorWKWebView *)webView
 {
-    if (!_inspectedPage)
+    RefPtr page = _inspectedPage.get();
+    if (!page)
         return;
 
-    _inspectedPage->reload(WebCore::ReloadOption::FromOrigin);
+    page->reload(WebCore::ReloadOption::FromOrigin);
 }
 
 - (void)inspectorWKWebView:(WKInspectorWKWebView *)webView willMoveToWindow:(NSWindow *)newWindow

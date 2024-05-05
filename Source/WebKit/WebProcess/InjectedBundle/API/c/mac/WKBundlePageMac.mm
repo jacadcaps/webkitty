@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,21 +29,15 @@
 #import "PluginView.h"
 #import "WKBundleAPICast.h"
 #import "WKBundleFrame.h"
-#import "WKBundlePage.h"
-#import "WKRetainPtr.h"
 #import "WebFrame.h"
 #import "WebPage.h"
-#import <WebCore/Frame.h>
 
-WK_EXPORT PDFDocument *WKBundlePageGetPDFDocumentInFrame(WKBundlePageRef page, WKBundleFrameRef frame)
+WK_EXPORT PDFDocument *WKBundlePageGetPDFDocumentInFrame(WKBundlePageRef, WKBundleFrameRef frame)
 {
-    WebCore::Frame* coreFrame = WebKit::toImpl(frame)->coreFrame();
-    if (!coreFrame)
-        return nil;
-
-    WebKit::PluginView* pluginView = WebKit::toImpl(page)->pluginViewForFrame(coreFrame);
-    if (!pluginView)
-        return nil;
-
-    return pluginView->pdfDocumentForPrinting().autorelease();
+#if ENABLE(PDF_PLUGIN)
+    if (auto* pluginView = WebKit::WebPage::pluginViewForFrame(WebKit::toImpl(frame)->coreLocalFrame()))
+        return pluginView->pdfDocumentForPrinting().autorelease();
+#endif
+    UNUSED_PARAM(frame);
+    return nil;
 }

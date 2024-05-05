@@ -28,6 +28,7 @@
 
 #if PLATFORM(IOS_FAMILY) || (PLATFORM(MAC) && ENABLE(VIDEO_PRESENTATION_MODE))
 
+#import "AddEventListenerOptions.h"
 #import "AudioTrackList.h"
 #import "Event.h"
 #import "EventListener.h"
@@ -46,13 +47,6 @@
 
 namespace WebCore {
 
-// This is the rate which we report to our clients, namely AVKit, when playback has stalled.
-// The value must be non-zero, so as to differentiate "playing-but-stalled" from "paused". But
-// the value also must be very small, so there is no visible movement in the system provided
-// timeline slider when stalled. The value below will cause the slider to move 1 second every
-// 3 years, so meets both goals.
-static const float StalledPlaybackRate = 0.00000001f;
-
 PlaybackSessionModelMediaElement::PlaybackSessionModelMediaElement()
     : EventListener(EventListener::CPPEventListenerType)
 {
@@ -64,8 +58,13 @@ PlaybackSessionModelMediaElement::~PlaybackSessionModelMediaElement()
 
 void PlaybackSessionModelMediaElement::setMediaElement(HTMLMediaElement* mediaElement)
 {
-    if (m_mediaElement == mediaElement)
+    if (m_mediaElement == mediaElement) {
+        if (m_mediaElement) {
+            for (auto& client : m_clients)
+                client->isPictureInPictureSupportedChanged(isPictureInPictureSupported());
+        }
         return;
+    }
 
     auto& events = eventNames();
 
@@ -104,12 +103,20 @@ void PlaybackSessionModelMediaElement::setMediaElement(HTMLMediaElement* mediaEl
         textTracks.addEventListener(events.addtrackEvent, *this, false);
         textTracks.addEventListener(events.changeEvent, *this, false);
         textTracks.addEventListener(events.removetrackEvent, *this, false);
+        m_isListening = true;
     }
 
     updateForEventName(eventNameAll());
 
-    for (auto client : m_clients)
+    for (auto& client : m_clients)
         client->isPictureInPictureSupportedChanged(isPictureInPictureSupported());
+}
+
+void PlaybackSessionModelMediaElement::mediaEngineChanged()
+{
+    bool wirelessVideoPlaybackDisabled = this->wirelessVideoPlaybackDisabled();
+    for (auto& client : m_clients)
+        client->wirelessVideoPlaybackDisabledChanged(wirelessVideoPlaybackDisabled);
 }
 
 void PlaybackSessionModelMediaElement::handleEvent(WebCore::ScriptExecutionContext&, WebCore::Event& event)
@@ -127,19 +134,19 @@ void PlaybackSessionModelMediaElement::updateForEventName(const WTF::AtomString&
     if (all
         || eventName == eventNames().durationchangeEvent) {
         double duration = this->duration();
-        for (auto client : m_clients)
+        for (auto& client : m_clients)
             client->durationChanged(duration);
         // These is no standard event for minFastReverseRateChange; duration change is a reasonable proxy for it.
         // It happens every time a new item becomes ready to play.
         bool canPlayFastReverse = this->canPlayFastReverse();
-        for (auto client : m_clients)
+        for (auto& client : m_clients)
             client->canPlayFastReverseChanged(canPlayFastReverse);
     }
 
     if (all
         || eventName == eventNames().playEvent
         || eventName == eventNames().playingEvent) {
-        for (auto client : m_clients)
+        for (auto& client : m_clients)
             client->playbackStartedTimeChanged(playbackStartedTime());
     }
 
@@ -149,17 +156,23 @@ void PlaybackSessionModelMediaElement::updateForEventName(const WTF::AtomString&
         || eventName == eventNames().ratechangeEvent
         || eventName == eventNames().waitingEvent
         || eventName == eventNames().canplayEvent) {
-        bool isPlaying = this->isPlaying();
-        float playbackRate = isStalled() ? StalledPlaybackRate : this->playbackRate();
-        for (auto client : m_clients)
-            client->rateChanged(isPlaying, playbackRate);
+        OptionSet<PlaybackSessionModel::PlaybackState> playbackState;
+        if (isPlaying())
+            playbackState.add(PlaybackSessionModel::PlaybackState::Playing);
+        if (isStalled())
+            playbackState.add(PlaybackSessionModel::PlaybackState::Stalled);
+
+        double playbackRate =  this->playbackRate();
+        double defaultPlaybackRate = this->defaultPlaybackRate();
+        for (auto& client : m_clients)
+            client->rateChanged(playbackState, playbackRate, defaultPlaybackRate);
     }
 
     if (all
         || eventName == eventNames().timeupdateEvent) {
         auto currentTime = this->currentTime();
         auto anchorTime = [[NSProcessInfo processInfo] systemUptime];
-        for (auto client : m_clients)
+        for (auto& client : m_clients)
             client->currentTimeChanged(currentTime, anchorTime);
     }
 
@@ -169,7 +182,7 @@ void PlaybackSessionModelMediaElement::updateForEventName(const WTF::AtomString&
         auto seekableRanges = this->seekableRanges();
         auto seekableTimeRangesLastModifiedTime = this->seekableTimeRangesLastModifiedTime();
         auto liveUpdateInterval = this->liveUpdateInterval();
-        for (auto client : m_clients) {
+        for (auto& client : m_clients) {
             client->bufferedTimeChanged(bufferedTime);
             client->seekableRangesChanged(seekableRanges, seekableTimeRangesLastModifiedTime, liveUpdateInterval);
         }
@@ -188,7 +201,7 @@ void PlaybackSessionModelMediaElement::updateForEventName(const WTF::AtomString&
 
         bool wirelessVideoPlaybackDisabled = this->wirelessVideoPlaybackDisabled();
 
-        for (auto client : m_clients) {
+        for (auto& client : m_clients) {
             client->externalPlaybackChanged(enabled, targetType, localizedDeviceName);
             client->wirelessVideoPlaybackDisabledChanged(wirelessVideoPlaybackDisabled);
         }
@@ -198,7 +211,7 @@ void PlaybackSessionModelMediaElement::updateForEventName(const WTF::AtomString&
         || eventName == eventNames().webkitpresentationmodechangedEvent) {
         bool isPictureInPictureActive = this->isPictureInPictureActive();
 
-        for (auto client : m_clients)
+        for (auto& client : m_clients)
             client->pictureInPictureActiveChanged(isPictureInPictureActive);
     }
 
@@ -210,7 +223,7 @@ void PlaybackSessionModelMediaElement::updateForEventName(const WTF::AtomString&
 
     if (all
         || eventName == eventNames().volumechangeEvent) {
-        for (auto client : m_clients) {
+        for (auto& client : m_clients) {
             client->mutedChanged(isMuted());
             client->volumeChanged(volume());
         }
@@ -288,6 +301,18 @@ void PlaybackSessionModelMediaElement::endScanning()
         m_mediaElement->endScanning();
 }
 
+void PlaybackSessionModelMediaElement::setDefaultPlaybackRate(double defaultPlaybackRate)
+{
+    if (m_mediaElement)
+        m_mediaElement->setDefaultPlaybackRate(defaultPlaybackRate);
+}
+
+void PlaybackSessionModelMediaElement::setPlaybackRate(double playbackRate)
+{
+    if (m_mediaElement)
+        m_mediaElement->setPlaybackRate(playbackRate);
+}
+
 void PlaybackSessionModelMediaElement::selectAudioMediaOption(uint64_t selectedAudioIndex)
 {
     if (!m_mediaElement)
@@ -320,9 +345,9 @@ void PlaybackSessionModelMediaElement::togglePictureInPicture()
 
     auto& element = downcast<HTMLVideoElement>(*m_mediaElement);
     if (element.fullscreenMode() == MediaPlayerEnums::VideoFullscreenModePictureInPicture)
-        element.setFullscreenMode(MediaPlayerEnums::VideoFullscreenModeNone);
+        element.setPresentationMode(HTMLVideoElement::VideoPresentationMode::Inline);
     else
-        element.setFullscreenMode(MediaPlayerEnums::VideoFullscreenModePictureInPicture);
+        element.setPresentationMode(HTMLVideoElement::VideoPresentationMode::PictureInPicture);
 #endif
 }
 
@@ -349,6 +374,12 @@ void PlaybackSessionModelMediaElement::setPlayingOnSecondScreen(bool value)
         m_mediaElement->setPlayingOnSecondScreen(value);
 }
 
+void PlaybackSessionModelMediaElement::sendRemoteCommand(PlatformMediaSession::RemoteControlCommandType command, const PlatformMediaSession::RemoteCommandArgument& argument)
+{
+    if (m_mediaElement)
+        m_mediaElement->mediaSession().didReceiveRemoteControlCommand(command, argument);
+}
+
 void PlaybackSessionModelMediaElement::updateMediaSelectionOptions()
 {
     if (!m_mediaElement)
@@ -357,10 +388,10 @@ void PlaybackSessionModelMediaElement::updateMediaSelectionOptions()
     if (!m_mediaElement->document().page())
         return;
 
-    auto& captionPreferences = m_mediaElement->document().page()->group().captionPreferences();
+    auto& captionPreferences = m_mediaElement->document().page()->group().ensureCaptionPreferences();
     auto* textTracks = m_mediaElement->textTracks();
     if (textTracks && textTracks->length())
-        m_legibleTracksForMenu = captionPreferences.sortedTrackListForMenu(textTracks);
+        m_legibleTracksForMenu = captionPreferences.sortedTrackListForMenu(textTracks, { TextTrack::Kind::Subtitles, TextTrack::Kind::Captions, TextTrack::Kind::Descriptions });
     else
         m_legibleTracksForMenu.clear();
 
@@ -375,7 +406,7 @@ void PlaybackSessionModelMediaElement::updateMediaSelectionOptions()
     auto legibleOptions = legibleMediaSelectionOptions();
     auto legibleIndex = legibleMediaSelectedIndex();
 
-    for (auto client : m_clients) {
+    for (auto& client : m_clients) {
         client->audioMediaSelectionOptionsChanged(audioOptions, audioIndex);
         client->legibleMediaSelectionOptionsChanged(legibleOptions, legibleIndex);
     }
@@ -386,7 +417,7 @@ void PlaybackSessionModelMediaElement::updateMediaSelectionIndices()
     auto audioIndex = audioMediaSelectedIndex();
     auto legibleIndex = legibleMediaSelectedIndex();
 
-    for (auto client : m_clients) {
+    for (auto& client : m_clients) {
         client->audioMediaSelectionIndexChanged(audioIndex);
         client->legibleMediaSelectionIndexChanged(legibleIndex);
     }
@@ -420,7 +451,7 @@ const Vector<AtomString>& PlaybackSessionModelMediaElement::observedEventNames()
 
 const AtomString&  PlaybackSessionModelMediaElement::eventNameAll()
 {
-    static MainThreadNeverDestroyed<const AtomString> eventNameAll("allEvents", AtomString::ConstructFromLiteral);
+    static MainThreadNeverDestroyed<const AtomString> eventNameAll("allEvents"_s);
     return eventNameAll;
 }
 
@@ -449,7 +480,12 @@ bool PlaybackSessionModelMediaElement::isStalled() const
     return m_mediaElement && m_mediaElement->readyState() <= HTMLMediaElement::HAVE_CURRENT_DATA;
 }
 
-float PlaybackSessionModelMediaElement::playbackRate() const
+double PlaybackSessionModelMediaElement::defaultPlaybackRate() const
+{
+    return m_mediaElement ? m_mediaElement->defaultPlaybackRate() : 0;
+}
+
+double PlaybackSessionModelMediaElement::playbackRate() const
 {
     return m_mediaElement ? m_mediaElement->playbackRate() : 0;
 }
@@ -476,18 +512,13 @@ bool PlaybackSessionModelMediaElement::canPlayFastReverse() const
 
 Vector<MediaSelectionOption> PlaybackSessionModelMediaElement::audioMediaSelectionOptions() const
 {
-    Vector<MediaSelectionOption> audioOptions;
-
     if (!m_mediaElement || !m_mediaElement->document().page())
-        return audioOptions;
+        return { };
 
-    auto& captionPreferences = m_mediaElement->document().page()->group().captionPreferences();
-
-    audioOptions.reserveInitialCapacity(m_audioTracksForMenu.size());
-    for (auto& audioTrack : m_audioTracksForMenu)
-        audioOptions.uncheckedAppend(captionPreferences.mediaSelectionOptionForTrack(audioTrack.get()));
-
-    return audioOptions;
+    auto& captionPreferences = m_mediaElement->document().page()->group().ensureCaptionPreferences();
+    return m_audioTracksForMenu.map([&](auto& audioTrack) {
+        return captionPreferences.mediaSelectionOptionForTrack(audioTrack.get());
+    });
 }
 
 uint64_t PlaybackSessionModelMediaElement::audioMediaSelectedIndex() const
@@ -504,14 +535,12 @@ Vector<MediaSelectionOption> PlaybackSessionModelMediaElement::legibleMediaSelec
     Vector<MediaSelectionOption> legibleOptions;
 
     if (!m_mediaElement || !m_mediaElement->document().page())
-        return legibleOptions;
+        return { };
 
-    auto& captionPreferences = m_mediaElement->document().page()->group().captionPreferences();
-
-    for (auto& track : m_legibleTracksForMenu)
-        legibleOptions.append(captionPreferences.mediaSelectionOptionForTrack(track.get()));
-
-    return legibleOptions;
+    auto& captionPreferences = m_mediaElement->document().page()->group().ensureCaptionPreferences();
+    return m_legibleTracksForMenu.map([&](auto& track) {
+        return captionPreferences.mediaSelectionOptionForTrack(track.get());
+    });
 }
 
 uint64_t PlaybackSessionModelMediaElement::legibleMediaSelectedIndex() const
@@ -524,8 +553,8 @@ uint64_t PlaybackSessionModelMediaElement::legibleMediaSelectedIndex() const
     TextTrack& offItem = TextTrack::captionMenuOffItem();
     TextTrack& automaticItem = TextTrack::captionMenuAutomaticItem();
 
-    Optional<uint64_t> selectedIndex;
-    Optional<uint64_t> offIndex;
+    std::optional<uint64_t> selectedIndex;
+    std::optional<uint64_t> offIndex;
 
     for (size_t index = 0; index < m_legibleTracksForMenu.size(); index++) {
         auto& track = m_legibleTracksForMenu[index];
@@ -545,7 +574,7 @@ uint64_t PlaybackSessionModelMediaElement::legibleMediaSelectedIndex() const
     if (!selectedIndex && displayMode == MediaControlsHost::forcedOnlyKeyword())
         selectedIndex = offIndex;
 
-    return selectedIndex.valueOr(std::numeric_limits<uint64_t>::max());
+    return selectedIndex.value_or(std::numeric_limits<uint64_t>::max());
 }
 
 bool PlaybackSessionModelMediaElement::externalPlaybackEnabled() const
@@ -556,18 +585,18 @@ bool PlaybackSessionModelMediaElement::externalPlaybackEnabled() const
 PlaybackSessionModel::ExternalPlaybackTargetType PlaybackSessionModelMediaElement::externalPlaybackTargetType() const
 {
     if (!m_mediaElement || !m_mediaElement->mediaControlsHost())
-        return TargetTypeNone;
+        return ExternalPlaybackTargetType::TargetTypeNone;
 
     switch (m_mediaElement->mediaControlsHost()->externalDeviceType()) {
     default:
         ASSERT_NOT_REACHED();
-        return TargetTypeNone;
+        return ExternalPlaybackTargetType::TargetTypeNone;
     case MediaControlsHost::DeviceType::None:
-        return TargetTypeNone;
+        return ExternalPlaybackTargetType::TargetTypeNone;
     case MediaControlsHost::DeviceType::Airplay:
-        return TargetTypeAirPlay;
+        return ExternalPlaybackTargetType::TargetTypeAirPlay;
     case MediaControlsHost::DeviceType::Tvout:
-        return TargetTypeTVOut;
+        return ExternalPlaybackTargetType::TargetTypeTVOut;
     }
 }
 
@@ -605,6 +634,19 @@ bool PlaybackSessionModelMediaElement::isPictureInPictureActive() const
 
     return (m_mediaElement->fullscreenMode() & HTMLMediaElementEnums::VideoFullscreenModePictureInPicture) == HTMLMediaElementEnums::VideoFullscreenModePictureInPicture;
 }
+
+#if !RELEASE_LOG_DISABLED
+const void* PlaybackSessionModelMediaElement::logIdentifier() const
+{
+    return m_mediaElement ? m_mediaElement->logIdentifier() : nullptr;
+}
+
+const Logger* PlaybackSessionModelMediaElement::loggerPtr() const
+{
+    return m_mediaElement ? &m_mediaElement->logger() : nullptr;
+}
+#endif
+
 
 }
 

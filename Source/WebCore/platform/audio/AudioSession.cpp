@@ -28,92 +28,171 @@
 
 #if USE(AUDIO_SESSION)
 
+#include "Logging.h"
 #include "NotImplemented.h"
+#include <wtf/LoggerHelper.h>
 #include <wtf/NeverDestroyed.h>
+
+#if PLATFORM(MAC)
+#include "AudioSessionMac.h"
+#endif
+
+#if PLATFORM(IOS_FAMILY)
+#include "AudioSessionIOS.h"
+#endif
 
 namespace WebCore {
 
-static UniqueRef<AudioSession>& sharedAudioSession()
+bool AudioSession::s_shouldManageAudioSessionCategory { false };
+
+static std::optional<UniqueRef<AudioSession>>& sharedAudioSession()
 {
-    static NeverDestroyed<UniqueRef<AudioSession>> session = AudioSession::create();
+    static NeverDestroyed<std::optional<UniqueRef<AudioSession>>> session;
     return session.get();
+}
+
+static WeakHashSet<AudioSession::ChangedObserver>& audioSessionChangedObservers()
+{
+    static NeverDestroyed<WeakHashSet<AudioSession::ChangedObserver>> observers;
+    return observers;
 }
 
 UniqueRef<AudioSession> AudioSession::create()
 {
+#if PLATFORM(MAC)
+    return makeUniqueRef<AudioSessionMac>();
+#elif PLATFORM(IOS_FAMILY)
+    return makeUniqueRef<AudioSessionIOS>();
+#else
     return makeUniqueRef<AudioSession>();
+#endif
 }
+
+AudioSession::AudioSession() = default;
+AudioSession::~AudioSession() = default;
 
 AudioSession& AudioSession::sharedSession()
 {
-    return sharedAudioSession();
+    if (!sharedAudioSession())
+        setSharedSession(AudioSession::create());
+    return *sharedAudioSession();
 }
 
 void AudioSession::setSharedSession(UniqueRef<AudioSession>&& session)
 {
     sharedAudioSession() = WTFMove(session);
+
+    audioSessionChangedObservers().forEach([] (auto& observer) {
+        observer(*sharedAudioSession());
+    });
+}
+
+void AudioSession::addAudioSessionChangedObserver(const ChangedObserver& observer)
+{
+    ASSERT(!audioSessionChangedObservers().contains(observer));
+    audioSessionChangedObservers().add(observer);
+
+    if (sharedAudioSession())
+        observer(*sharedAudioSession());
 }
 
 bool AudioSession::tryToSetActive(bool active)
 {
+    bool previousIsActive = isActive();
     if (!tryToSetActiveInternal(active))
         return false;
 
+    ALWAYS_LOG(LOGIDENTIFIER, "is active = ", m_active, ", previousIsActive = ", previousIsActive);
+
+    bool hasActiveChanged = previousIsActive != isActive();
     m_active = active;
+    if (m_isInterrupted && m_active) {
+        callOnMainThread([hasActiveChanged] {
+            auto& session = sharedSession();
+            if (session.m_isInterrupted && session.m_active)
+                session.endInterruption(MayResume::Yes);
+            if (hasActiveChanged)
+                session.activeStateChanged();
+        });
+    } else if (hasActiveChanged)
+        activeStateChanged();
+
     return true;
 }
 
-#if !PLATFORM(IOS_FAMILY)
-void AudioSession::addInterruptionObserver(InterruptionObserver&)
+void AudioSession::addInterruptionObserver(InterruptionObserver& observer)
 {
+    m_interruptionObservers.add(observer);
 }
 
-void AudioSession::removeInterruptionObserver(InterruptionObserver&)
+void AudioSession::removeInterruptionObserver(InterruptionObserver& observer)
 {
+    m_interruptionObservers.remove(observer);
 }
 
 void AudioSession::beginInterruption()
 {
+    ALWAYS_LOG(LOGIDENTIFIER);
+    if (m_isInterrupted) {
+        RELEASE_LOG_ERROR(WebRTC, "AudioSession::beginInterruption but session is already interrupted!");
+        return;
+    }
+    m_isInterrupted = true;
+    for (auto& observer : m_interruptionObservers)
+        observer.beginAudioSessionInterruption();
 }
 
-void AudioSession::endInterruption(MayResume)
+void AudioSession::endInterruption(MayResume mayResume)
 {
+    ALWAYS_LOG(LOGIDENTIFIER);
+    if (!m_isInterrupted) {
+        RELEASE_LOG_ERROR(WebRTC, "AudioSession::endInterruption but session is already uninterrupted!");
+        return;
+    }
+    m_isInterrupted = false;
+
+    for (auto& observer : m_interruptionObservers)
+        observer.endAudioSessionInterruption(mayResume);
 }
-#endif
 
-#if !PLATFORM(COCOA)
-class AudioSessionPrivate {
-    WTF_MAKE_FAST_ALLOCATED;
-};
+void AudioSession::activeStateChanged()
+{
+    for (auto& observer : m_interruptionObservers)
+        observer.audioSessionActiveStateChanged();
+}
 
-AudioSession::AudioSession()
-    : m_private(nullptr)
+void AudioSession::setCategory(CategoryType, Mode, RouteSharingPolicy)
 {
     notImplemented();
 }
 
-AudioSession::~AudioSession() = default;
-
-void AudioSession::setCategory(CategoryType, RouteSharingPolicy)
+void AudioSession::setCategoryOverride(CategoryType category)
 {
-    notImplemented();
+    if (m_categoryOverride == category)
+        return;
+
+    ALWAYS_LOG(LOGIDENTIFIER);
+
+    m_categoryOverride = category;
+    if (category != CategoryType::None)
+        setCategory(category, Mode::Default, RouteSharingPolicy::Default);
 }
 
 AudioSession::CategoryType AudioSession::categoryOverride() const
 {
-    notImplemented();
-    return None;
-}
-
-void AudioSession::setCategoryOverride(CategoryType)
-{
-    notImplemented();
+    return m_categoryOverride;
 }
 
 AudioSession::CategoryType AudioSession::category() const
 {
     notImplemented();
-    return None;
+    return AudioSession::CategoryType::None;
+}
+
+AudioSession::Mode AudioSession::mode() const
+{
+    notImplemented();
+    return AudioSession::Mode::Default;
 }
 
 float AudioSession::sampleRate() const
@@ -129,6 +208,12 @@ size_t AudioSession::bufferSize() const
 }
 
 size_t AudioSession::numberOfOutputChannels() const
+{
+    notImplemented();
+    return 0;
+}
+
+size_t AudioSession::maximumNumberOfOutputChannels() const
 {
     notImplemented();
     return 0;
@@ -161,7 +246,38 @@ String AudioSession::routingContextUID() const
     return emptyString();
 }
 
-#endif // !PLATFORM(COCOA)
+void AudioSession::audioOutputDeviceChanged()
+{
+    notImplemented();
+}
+
+void AudioSession::addConfigurationChangeObserver(ConfigurationChangeObserver&)
+{
+    notImplemented();
+}
+
+void AudioSession::removeConfigurationChangeObserver(ConfigurationChangeObserver&)
+{
+    notImplemented();
+}
+
+void AudioSession::setIsPlayingToBluetoothOverride(std::optional<bool>)
+{
+    notImplemented();
+}
+
+Logger& AudioSession::logger()
+{
+    if (!m_logger)
+        m_logger = Logger::create(this);
+
+    return *m_logger;
+}
+
+WTFLogChannel& AudioSession::logChannel() const
+{
+    return LogMedia;
+}
 
 String convertEnumerationToString(RouteSharingPolicy enumerationValue)
 {
@@ -175,7 +291,7 @@ String convertEnumerationToString(RouteSharingPolicy enumerationValue)
     static_assert(static_cast<size_t>(RouteSharingPolicy::LongFormAudio) == 1, "RouteSharingPolicy::LongFormAudio is not 1 as expected");
     static_assert(static_cast<size_t>(RouteSharingPolicy::Independent) == 2, "RouteSharingPolicy::Independent is not 2 as expected");
     static_assert(static_cast<size_t>(RouteSharingPolicy::LongFormVideo) == 3, "RouteSharingPolicy::LongFormVideo is not 3 as expected");
-    ASSERT(static_cast<size_t>(enumerationValue) < WTF_ARRAY_LENGTH(values));
+    ASSERT(static_cast<size_t>(enumerationValue) < std::size(values));
     return values[static_cast<size_t>(enumerationValue)];
 }
 
@@ -197,7 +313,21 @@ String convertEnumerationToString(AudioSession::CategoryType enumerationValue)
     static_assert(static_cast<size_t>(AudioSession::CategoryType::RecordAudio) == 4, "AudioSession::CategoryType::RecordAudio is not 4 as expected");
     static_assert(static_cast<size_t>(AudioSession::CategoryType::PlayAndRecord) == 5, "AudioSession::CategoryType::PlayAndRecord is not 5 as expected");
     static_assert(static_cast<size_t>(AudioSession::CategoryType::AudioProcessing) == 6, "AudioSession::CategoryType::AudioProcessing is not 6 as expected");
-    ASSERT(static_cast<size_t>(enumerationValue) < WTF_ARRAY_LENGTH(values));
+    ASSERT(static_cast<size_t>(enumerationValue) < std::size(values));
+    return values[static_cast<size_t>(enumerationValue)];
+}
+
+String convertEnumerationToString(AudioSession::Mode enumerationValue)
+{
+    static const NeverDestroyed<String> values[] = {
+        MAKE_STATIC_STRING_IMPL("Default"),
+        MAKE_STATIC_STRING_IMPL("VideoChat"),
+        MAKE_STATIC_STRING_IMPL("MoviePlayback"),
+    };
+    static_assert(!static_cast<size_t>(AudioSession::Mode::Default), "AudioSession::Mode::Default is not 0 as expected");
+    static_assert(static_cast<size_t>(AudioSession::Mode::VideoChat) == 1, "AudioSession::Mode::VideoChat is not 1 as expected");
+    static_assert(static_cast<size_t>(AudioSession::Mode::MoviePlayback) == 2, "AudioSession::Mode::MoviePlayback is not 2 as expected");
+    ASSERT(static_cast<size_t>(enumerationValue) < std::size(values));
     return values[static_cast<size_t>(enumerationValue)];
 }
 
@@ -211,7 +341,7 @@ String convertEnumerationToString(AudioSessionRoutingArbitrationClient::RoutingA
     static_assert(!static_cast<size_t>(AudioSessionRoutingArbitrationClient::RoutingArbitrationError::None), "AudioSessionRoutingArbitrationClient::RoutingArbitrationError::None is not 0 as expected");
     static_assert(static_cast<size_t>(AudioSessionRoutingArbitrationClient::RoutingArbitrationError::Failed), "AudioSessionRoutingArbitrationClient::RoutingArbitrationError::Failed is not 1 as expected");
     static_assert(static_cast<size_t>(AudioSessionRoutingArbitrationClient::RoutingArbitrationError::Cancelled), "AudioSessionRoutingArbitrationClient::RoutingArbitrationError::Cancelled is not 2 as expected");
-    ASSERT(static_cast<size_t>(enumerationValue) < WTF_ARRAY_LENGTH(values));
+    ASSERT(static_cast<size_t>(enumerationValue) < std::size(values));
     return values[static_cast<size_t>(enumerationValue)];
 }
 
@@ -223,7 +353,7 @@ String convertEnumerationToString(AudioSessionRoutingArbitrationClient::DefaultR
     };
     static_assert(!static_cast<bool>(AudioSessionRoutingArbitrationClient::DefaultRouteChanged::No), "AudioSessionRoutingArbitrationClient::DefaultRouteChanged::No is not false as expected");
     static_assert(static_cast<bool>(AudioSessionRoutingArbitrationClient::DefaultRouteChanged::Yes), "AudioSessionRoutingArbitrationClient::DefaultRouteChanged::Yes is not true as expected");
-    ASSERT(static_cast<size_t>(enumerationValue) < WTF_ARRAY_LENGTH(values));
+    ASSERT(static_cast<size_t>(enumerationValue) < std::size(values));
     return values[static_cast<size_t>(enumerationValue)];
 }
 

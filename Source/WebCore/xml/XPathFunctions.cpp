@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2005 Frerich Raabe <raabe@kde.org>
  * Copyright (C) 2006, 2009, 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2019 Google Inc. All rights reserved.
  * Copyright (C) 2007 Alexey Proskuryakov <ap@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
@@ -28,13 +29,16 @@
 #include "config.h"
 #include "XPathFunctions.h"
 
-#include "Element.h"
+#include "Attribute.h"
+#include "ElementInlines.h"
 #include "ProcessingInstruction.h"
 #include "TreeScope.h"
 #include "XMLNames.h"
 #include "XPathUtil.h"
 #include <wtf/MathExtras.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/RobinHoodHashMap.h>
+#include <wtf/SetForScope.h>
 #include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
@@ -288,7 +292,7 @@ void Function::setArguments(const String& name, Vector<std::unique_ptr<Expressio
     // Functions that use the context node as an implicit argument are context node sensitive when they
     // have no arguments, but when explicit arguments are added, they are no longer context node sensitive.
     // As of this writing, the only exception to this is the "lang" function.
-    if (name != "lang" && !arguments.isEmpty())
+    if (name != "lang"_s && !arguments.isEmpty())
         setIsContextNodeSensitive(false);
 
     setSubexpressions(WTFMove(arguments));
@@ -302,14 +306,6 @@ Value FunLast::evaluate() const
 Value FunPosition::evaluate() const
 {
     return Expression::evaluationContext().position;
-}
-
-// FIXME: Should StringBuilder offer this as a member function?
-static StringView toStringView(StringBuilder& builder)
-{
-    if (builder.is8Bit())
-        return { builder.characters8(), builder.length() };
-    return { builder.characters16(), builder.length() };
 }
 
 Value FunId::evaluate() const
@@ -328,7 +324,7 @@ Value FunId::evaluate() const
     
     TreeScope& contextScope = evaluationContext().node->treeScope();
     NodeSet result;
-    HashSet<Node*> resultSet;
+    HashSet<Ref<Node>> resultSet;
 
     unsigned startPos = 0;
     unsigned length = idList.length();
@@ -345,9 +341,9 @@ Value FunId::evaluate() const
 
         // If there are several nodes with the same id, id() should return the first one.
         // In WebKit, getElementById behaves so, too, although its behavior in this case is formally undefined.
-        Node* node = contextScope.getElementById(toStringView(idList).substring(startPos, endPos - startPos));
-        if (node && resultSet.add(node).isNewEntry)
-            result.append(node);
+        RefPtr node = contextScope.getElementById(StringView(idList).substring(startPos, endPos - startPos));
+        if (node && resultSet.add(*node).isNewEntry)
+            result.append(WTFMove(node));
         
         startPos = endPos;
     }
@@ -357,16 +353,16 @@ Value FunId::evaluate() const
     return Value(WTFMove(result));
 }
 
-static inline String expandedNameLocalPart(Node* node)
+static inline String expandedNameLocalPart(Node& node)
 {
-    if (is<ProcessingInstruction>(*node))
-        return downcast<ProcessingInstruction>(*node).target();
-    return node->localName().string();
+    if (auto* pi = dynamicDowncast<ProcessingInstruction>(node))
+        return pi->target();
+    return node.localName().string();
 }
 
-static inline String expandedName(Node* node)
+static inline String expandedName(Node& node)
 {
-    const AtomString& prefix = node->prefix();
+    auto& prefix = node.prefix();
     return prefix.isEmpty() ? expandedNameLocalPart(node) : prefix + ":" + expandedNameLocalPart(node);
 }
 
@@ -377,11 +373,11 @@ Value FunLocalName::evaluate() const
         if (!a.isNodeSet())
             return emptyString();
 
-        Node* node = a.toNodeSet().firstNode();
-        return node ? expandedNameLocalPart(node) : emptyString();
+        auto* node = a.toNodeSet().firstNode();
+        return node ? expandedNameLocalPart(*node) : emptyString();
     }
 
-    return expandedNameLocalPart(evaluationContext().node.get());
+    return expandedNameLocalPart(*evaluationContext().node);
 }
 
 Value FunNamespaceURI::evaluate() const
@@ -405,11 +401,11 @@ Value FunName::evaluate() const
         if (!a.isNodeSet())
             return emptyString();
 
-        Node* node = a.toNodeSet().firstNode();
-        return node ? expandedName(node) : emptyString();
+        auto* node = a.toNodeSet().firstNode();
+        return node ? expandedName(*node) : emptyString();
     }
 
-    return expandedName(evaluationContext().node.get());
+    return expandedName(*evaluationContext().node);
 }
 
 Value FunCount::evaluate() const
@@ -432,8 +428,9 @@ Value FunConcat::evaluate() const
     result.reserveCapacity(1024);
 
     for (unsigned i = 0, count = argumentCount(); i < count; ++i) {
-        String str(argument(i).evaluate().toString());
-        result.append(str);
+        EvaluationContext clonedContext(Expression::evaluationContext());
+        SetForScope<EvaluationContext> contextForScope(Expression::evaluationContext(), clonedContext);
+        result.append(argument(i).evaluate().toString());
     }
 
     return result.toString();
@@ -441,8 +438,14 @@ Value FunConcat::evaluate() const
 
 Value FunStartsWith::evaluate() const
 {
+    auto clonedContext = Expression::evaluationContext();
+
     String s1 = argument(0).evaluate().toString();
-    String s2 = argument(1).evaluate().toString();
+    String s2;
+    {
+        SetForScope<EvaluationContext> contextForScope(Expression::evaluationContext(), clonedContext);
+        s2 = argument(1).evaluate().toString();
+    }
 
     if (s2.isEmpty())
         return true;
@@ -452,8 +455,14 @@ Value FunStartsWith::evaluate() const
 
 Value FunContains::evaluate() const
 {
+    auto clonedContext = Expression::evaluationContext();
+
     String s1 = argument(0).evaluate().toString();
-    String s2 = argument(1).evaluate().toString();
+    String s2;
+    {
+        SetForScope<EvaluationContext> contextForScope(Expression::evaluationContext(), clonedContext);
+        s2 = argument(1).evaluate().toString();
+    }
 
     if (s2.isEmpty()) 
         return true;
@@ -463,8 +472,15 @@ Value FunContains::evaluate() const
 
 Value FunSubstringBefore::evaluate() const
 {
+    auto clonedContext = Expression::evaluationContext();
+
     String s1 = argument(0).evaluate().toString();
-    String s2 = argument(1).evaluate().toString();
+    String s2;
+
+    {
+        SetForScope<EvaluationContext> contextForScope(Expression::evaluationContext(), clonedContext);
+        s2 = argument(1).evaluate().toString();
+    }
 
     if (s2.isEmpty())
         return emptyString();
@@ -479,8 +495,15 @@ Value FunSubstringBefore::evaluate() const
 
 Value FunSubstringAfter::evaluate() const
 {
+    auto clonedContext = Expression::evaluationContext();
+
     String s1 = argument(0).evaluate().toString();
-    String s2 = argument(1).evaluate().toString();
+    String s2;
+
+    {
+        SetForScope<EvaluationContext> contextForScope(Expression::evaluationContext(), clonedContext);
+        s2 = argument(1).evaluate().toString();
+    }
 
     size_t i = s1.find(s2);
     if (i == notFound)
@@ -491,8 +514,21 @@ Value FunSubstringAfter::evaluate() const
 
 Value FunSubstring::evaluate() const
 {
-    String s = argument(0).evaluate().toString();
-    double doublePos = argument(1).evaluate().toNumber();
+    EvaluationContext clonedContext1(Expression::evaluationContext());
+    EvaluationContext clonedContext2(Expression::evaluationContext());
+
+    String s;
+    double doublePos;
+
+    {
+        SetForScope<EvaluationContext> contextForScope(Expression::evaluationContext(), clonedContext1);
+        s = argument(0).evaluate().toString();
+    }
+    {
+        SetForScope<EvaluationContext> contextForScope(Expression::evaluationContext(), clonedContext2);
+        doublePos = argument(1).evaluate().toNumber();
+    }
+
     if (std::isnan(doublePos))
         return emptyString();
     long pos = static_cast<long>(FunRound::round(doublePos));
@@ -529,20 +565,31 @@ Value FunStringLength::evaluate() const
 
 Value FunNormalizeSpace::evaluate() const
 {
+    // https://www.w3.org/TR/1999/REC-xpath-19991116/#function-normalize-space
     if (!argumentCount()) {
         String s = Value(Expression::evaluationContext().node.get()).toString();
-        return s.simplifyWhiteSpace();
+        return s.simplifyWhiteSpace(isASCIIWhitespaceWithoutFF<UChar>);
     }
-
     String s = argument(0).evaluate().toString();
-    return s.simplifyWhiteSpace();
+    return s.simplifyWhiteSpace(isASCIIWhitespaceWithoutFF<UChar>);
 }
 
 Value FunTranslate::evaluate() const
 {
+    EvaluationContext clonedContext1(Expression::evaluationContext());
+    EvaluationContext clonedContext2(Expression::evaluationContext());
+
     String s1 = argument(0).evaluate().toString();
-    String s2 = argument(1).evaluate().toString();
-    String s3 = argument(2).evaluate().toString();
+    String s2, s3;
+    {
+        SetForScope<EvaluationContext> contextForScope(Expression::evaluationContext(), clonedContext1);
+        s2 = argument(1).evaluate().toString();
+    }
+    {
+        SetForScope<EvaluationContext> contextForScope(Expression::evaluationContext(), clonedContext2);
+        s3 = argument(2).evaluate().toString();
+    }
+
     StringBuilder result;
 
     for (unsigned i1 = 0; i1 < s1.length(); ++i1) {
@@ -580,10 +627,9 @@ Value FunLang::evaluate() const
     const Attribute* languageAttribute = nullptr;
     Node* node = evaluationContext().node.get();
     while (node) {
-        if (is<Element>(*node)) {
-            Element& element = downcast<Element>(*node);
-            if (element.hasAttributes())
-                languageAttribute = element.findAttributeByName(XMLNames::langAttr);
+        if (RefPtr element = dynamicDowncast<Element>(*node)) {
+            if (element->hasAttributes())
+                languageAttribute = element->findAttributeByName(XMLNames::langAttr);
         }
         if (languageAttribute)
             break;
@@ -668,44 +714,44 @@ struct FunctionMapValue {
     Interval argumentCountInterval;
 };
 
-static HashMap<String, FunctionMapValue> createFunctionMap()
+static MemoryCompactLookupOnlyRobinHoodHashMap<String, FunctionMapValue> createFunctionMap()
 {
     struct FunctionMapping {
-        const char* name;
+        ASCIILiteral name;
         FunctionMapValue function;
     };
 
     static const FunctionMapping functions[] = {
-        { "boolean", { createFunctionBoolean, 1 } },
-        { "ceiling", { createFunctionCeiling, 1 } },
-        { "concat", { createFunctionConcat, Interval(2, Interval::Inf) } },
-        { "contains", { createFunctionContains, 2 } },
-        { "count", { createFunctionCount, 1 } },
-        { "false", { createFunctionFalse, 0 } },
-        { "floor", { createFunctionFloor, 1 } },
-        { "id", { createFunctionId, 1 } },
-        { "lang", { createFunctionLang, 1 } },
-        { "last", { createFunctionLast, 0 } },
-        { "local-name", { createFunctionLocalName, Interval(0, 1) } },
-        { "name", { createFunctionName, Interval(0, 1) } },
-        { "namespace-uri", { createFunctionNamespaceURI, Interval(0, 1) } },
-        { "normalize-space", { createFunctionNormalizeSpace, Interval(0, 1) } },
-        { "not", { createFunctionNot, 1 } },
-        { "number", { createFunctionNumber, Interval(0, 1) } },
-        { "position", { createFunctionPosition, 0 } },
-        { "round", { createFunctionRound, 1 } },
-        { "starts-with", { createFunctionStartsWith, 2 } },
-        { "string", { createFunctionString, Interval(0, 1) } },
-        { "string-length", { createFunctionStringLength, Interval(0, 1) } },
-        { "substring", { createFunctionSubstring, Interval(2, 3) } },
-        { "substring-after", { createFunctionSubstringAfter, 2 } },
-        { "substring-before", { createFunctionSubstringBefore, 2 } },
-        { "sum", { createFunctionSum, 1 } },
-        { "translate", { createFunctionTranslate, 3 } },
-        { "true", { createFunctionTrue, 0 } },
+        { "boolean"_s, { createFunctionBoolean, 1 } },
+        { "ceiling"_s, { createFunctionCeiling, 1 } },
+        { "concat"_s, { createFunctionConcat, Interval(2, Interval::Inf) } },
+        { "contains"_s, { createFunctionContains, 2 } },
+        { "count"_s, { createFunctionCount, 1 } },
+        { "false"_s, { createFunctionFalse, 0 } },
+        { "floor"_s, { createFunctionFloor, 1 } },
+        { "id"_s, { createFunctionId, 1 } },
+        { "lang"_s, { createFunctionLang, 1 } },
+        { "last"_s, { createFunctionLast, 0 } },
+        { "local-name"_s, { createFunctionLocalName, Interval(0, 1) } },
+        { "name"_s, { createFunctionName, Interval(0, 1) } },
+        { "namespace-uri"_s, { createFunctionNamespaceURI, Interval(0, 1) } },
+        { "normalize-space"_s, { createFunctionNormalizeSpace, Interval(0, 1) } },
+        { "not"_s, { createFunctionNot, 1 } },
+        { "number"_s, { createFunctionNumber, Interval(0, 1) } },
+        { "position"_s, { createFunctionPosition, 0 } },
+        { "round"_s, { createFunctionRound, 1 } },
+        { "starts-with"_s, { createFunctionStartsWith, 2 } },
+        { "string"_s, { createFunctionString, Interval(0, 1) } },
+        { "string-length"_s, { createFunctionStringLength, Interval(0, 1) } },
+        { "substring"_s, { createFunctionSubstring, Interval(2, 3) } },
+        { "substring-after"_s, { createFunctionSubstringAfter, 2 } },
+        { "substring-before"_s, { createFunctionSubstringBefore, 2 } },
+        { "sum"_s, { createFunctionSum, 1 } },
+        { "translate"_s, { createFunctionTranslate, 3 } },
+        { "true"_s, { createFunctionTrue, 0 } },
     };
 
-    HashMap<String, FunctionMapValue> map;
+    MemoryCompactLookupOnlyRobinHoodHashMap<String, FunctionMapValue> map;
     for (auto& function : functions)
         map.add(function.name, function.function);
     return map;
@@ -713,7 +759,7 @@ static HashMap<String, FunctionMapValue> createFunctionMap()
 
 std::unique_ptr<Function> Function::create(const String& name, unsigned numArguments)
 {
-    static const auto functionMap = makeNeverDestroyed(createFunctionMap());
+    static NeverDestroyed functionMap = createFunctionMap();
 
     auto it = functionMap.get().find(name);
     if (it == functionMap.get().end())

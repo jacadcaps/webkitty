@@ -26,8 +26,6 @@
 #include "config.h"
 #include "SQLiteIDBCursor.h"
 
-#if ENABLE(INDEXED_DATABASE)
-
 #include "IDBCursorInfo.h"
 #include "IDBGetResult.h"
 #include "IDBSerialization.h"
@@ -37,7 +35,6 @@
 #include "SQLiteStatement.h"
 #include "SQLiteTransaction.h"
 #include <sqlite3.h>
-#include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
 namespace IDBServer {
@@ -102,7 +99,7 @@ SQLiteIDBCursor::~SQLiteIDBCursor()
         m_transaction->closeCursor(*this);
 }
 
-void SQLiteIDBCursor::currentData(IDBGetResult& result, const Optional<IDBKeyPath>& keyPath, ShouldIncludePrefetchedRecords shouldIncludePrefetchedRecords)
+void SQLiteIDBCursor::currentData(IDBGetResult& result, const std::optional<IDBKeyPath>& keyPath, ShouldIncludePrefetchedRecords shouldIncludePrefetchedRecords)
 {
     ASSERT(!m_fetchedRecords.isEmpty());
 
@@ -119,95 +116,50 @@ void SQLiteIDBCursor::currentData(IDBGetResult& result, const Optional<IDBKeyPat
     }
 
     Vector<IDBCursorRecord> prefetchedRecords;
-    prefetchedRecords.reserveCapacity(m_fetchedRecords.size());
+    prefetchedRecords.reserveInitialCapacity(m_fetchedRecords.size() - 1);
+    bool isFirst = true;
     for (auto& record : m_fetchedRecords) {
         if (record.isTerminalRecord())
             break;
-
+        if (isFirst) {
+            isFirst = false;
+            continue;
+        }
         prefetchedRecords.append(record.record);
     }
-
-    // First record will be returned as current record.
-    if (!prefetchedRecords.isEmpty())
-        prefetchedRecords.remove(0);
+    prefetchedRecords.shrinkToFit();
 
     result = { currentRecord.record.key, currentRecord.record.primaryKey, IDBValue(currentRecord.record.value), keyPath, WTFMove(prefetchedRecords) };
 }
 
 static String buildPreIndexStatement(bool isDirectionNext)
 {
-    StringBuilder builder;
-
-    builder.appendLiteral("SELECT rowid, key, value FROM IndexRecords WHERE indexID = ? AND key = CAST(? AS TEXT) AND value ");
-    if (isDirectionNext)
-        builder.append('>');
-    else
-        builder.append('<');
-
-    builder.appendLiteral(" CAST(? AS TEXT) ORDER BY value");
-    if (!isDirectionNext)
-        builder.appendLiteral(" DESC");
-
-    builder.append(';');
-
-    return builder.toString();
+    return makeString("SELECT rowid, key, value FROM IndexRecords WHERE indexID = ? AND key = CAST(? AS TEXT) AND value ",
+        isDirectionNext ? '>' : '<', " CAST(? AS TEXT) ORDER BY value", isDirectionNext ? "" : " DESC", ';');
 }
 
 static String buildIndexStatement(const IDBKeyRangeData& keyRange, IndexedDB::CursorDirection cursorDirection)
 {
-    StringBuilder builder;
-
-    builder.appendLiteral("SELECT rowid, key, value FROM IndexRecords WHERE indexID = ? AND key ");
-    if (!keyRange.lowerKey.isNull() && !keyRange.lowerOpen)
-        builder.appendLiteral(">=");
-    else
-        builder.append('>');
-
-    builder.appendLiteral(" CAST(? AS TEXT) AND key ");
-    if (!keyRange.upperKey.isNull() && !keyRange.upperOpen)
-        builder.appendLiteral("<=");
-    else
-        builder.append('<');
-
-    builder.appendLiteral(" CAST(? AS TEXT) ORDER BY key");
-    if (cursorDirection == IndexedDB::CursorDirection::Prev || cursorDirection == IndexedDB::CursorDirection::Prevunique)
-        builder.appendLiteral(" DESC");
-
-    builder.appendLiteral(", value");
-    if (cursorDirection == IndexedDB::CursorDirection::Prev)
-        builder.appendLiteral(" DESC");
-
-    builder.append(';');
-
-    return builder.toString();
+    return makeString("SELECT rowid, key, value FROM IndexRecords WHERE indexID = ? AND key ",
+        !keyRange.lowerKey.isNull() && !keyRange.lowerOpen ? ">=" : ">",
+        " CAST(? AS TEXT) AND key ",
+        !keyRange.upperKey.isNull() && !keyRange.upperOpen ? "<=" : "<",
+        " CAST(? AS TEXT) ORDER BY key",
+        cursorDirection == IndexedDB::CursorDirection::Prev || cursorDirection == IndexedDB::CursorDirection::Prevunique ? " DESC" : "",
+        ", value",
+        cursorDirection == IndexedDB::CursorDirection::Prev ? " DESC" : "",
+        ';');
 }
 
 static String buildObjectStoreStatement(const IDBKeyRangeData& keyRange, IndexedDB::CursorDirection cursorDirection)
 {
-    StringBuilder builder;
-
-    builder.appendLiteral("SELECT rowid, key, value FROM Records WHERE objectStoreID = ? AND key ");
-
-    if (!keyRange.lowerKey.isNull() && !keyRange.lowerOpen)
-        builder.appendLiteral(">=");
-    else
-        builder.append('>');
-
-    builder.appendLiteral(" CAST(? AS TEXT) AND key ");
-
-    if (!keyRange.upperKey.isNull() && !keyRange.upperOpen)
-        builder.appendLiteral("<=");
-    else
-        builder.append('<');
-
-    builder.appendLiteral(" CAST(? AS TEXT) ORDER BY key");
-
-    if (cursorDirection == IndexedDB::CursorDirection::Prev || cursorDirection == IndexedDB::CursorDirection::Prevunique)
-        builder.appendLiteral(" DESC");
-
-    builder.append(';');
-
-    return builder.toString();
+    return makeString("SELECT rowid, key, value FROM Records WHERE objectStoreID = ? AND key ",
+        !keyRange.lowerKey.isNull() && !keyRange.lowerOpen ? ">=" : ">",
+        " CAST(? AS TEXT) AND key ",
+        !keyRange.upperKey.isNull() && !keyRange.upperOpen ? "<=" : "<",
+        " CAST(? AS TEXT) ORDER BY key",
+        cursorDirection == IndexedDB::CursorDirection::Prev || cursorDirection == IndexedDB::CursorDirection::Prevunique ? " DESC" : "",
+        ';');
 }
 
 bool SQLiteIDBCursor::establishStatement()
@@ -229,7 +181,7 @@ bool SQLiteIDBCursor::establishStatement()
     return createSQLiteStatement(sql);
 }
 
-bool SQLiteIDBCursor::createSQLiteStatement(const String& sql)
+bool SQLiteIDBCursor::createSQLiteStatement(StringView sql)
 {
     LOG(IndexedDB, "Creating cursor with SQL query: \"%s\"", sql.utf8().data());
 
@@ -237,12 +189,13 @@ bool SQLiteIDBCursor::createSQLiteStatement(const String& sql)
     ASSERT(!m_currentUpperKey.isNull());
     ASSERT(m_transaction->sqliteTransaction());
 
-    m_statement = makeUnique<SQLiteStatement>(m_transaction->sqliteTransaction()->database(), sql);
-
-    if (m_statement->prepare() != SQLITE_OK) {
-        LOG_ERROR("Could not create cursor statement (prepare/id) - '%s'", m_transaction->sqliteTransaction()->database().lastErrorMsg());
+    CheckedRef database = m_transaction->sqliteTransaction()->database();
+    auto statement = database->prepareHeapStatementSlow(sql);
+    if (!statement) {
+        LOG_ERROR("Could not create cursor statement (prepare/id) - '%s'", database->lastErrorMsg());
         return false;
     }
+    m_statement = statement.value().moveToUniquePtr();
 
     return bindArguments();
 }
@@ -318,14 +271,14 @@ bool SQLiteIDBCursor::bindArguments()
         return false;
     }
 
-    RefPtr<SharedBuffer> buffer = serializeIDBKeyData(m_currentLowerKey);
-    if (m_statement->bindBlob(currentBindArgument++, buffer->data(), buffer->size()) != SQLITE_OK) {
+    auto buffer = serializeIDBKeyData(m_currentLowerKey);
+    if (m_statement->bindBlob(currentBindArgument++, buffer->dataAsSpanForContiguousData()) != SQLITE_OK) {
         LOG_ERROR("Could not create cursor statement (lower key)");
         return false;
     }
 
     buffer = serializeIDBKeyData(m_currentUpperKey);
-    if (m_statement->bindBlob(currentBindArgument++, buffer->data(), buffer->size()) != SQLITE_OK) {
+    if (m_statement->bindBlob(currentBindArgument++, buffer->dataAsSpanForContiguousData()) != SQLITE_OK) {
         LOG_ERROR("Could not create cursor statement (upper key)");
         return false;
     }
@@ -341,18 +294,18 @@ bool SQLiteIDBCursor::resetAndRebindPreIndexStatementIfNecessary()
     if (m_currentIndexRecordValue.isNull())
         return true;
 
-    auto& database = m_transaction->sqliteTransaction()->database();
+    CheckedRef database = m_transaction->sqliteTransaction()->database();
     if (!m_preIndexStatement) {
-        m_preIndexStatement = makeUnique<SQLiteStatement>(database, buildPreIndexStatement(isDirectionNext()));
-
-        if (m_preIndexStatement->prepare() != SQLITE_OK) {
-            LOG_ERROR("Could not prepare pre statement - '%s'", database.lastErrorMsg());
+        auto preIndexStatement = database->prepareHeapStatementSlow(buildPreIndexStatement(isDirectionNext()));
+        if (!preIndexStatement) {
+            LOG_ERROR("Could not prepare pre statement - '%s'", database->lastErrorMsg());
             return false;
         }
+        m_preIndexStatement = preIndexStatement.value().moveToUniquePtr();
     }
 
     if (m_preIndexStatement->reset() != SQLITE_OK) {
-        LOG_ERROR("Could not reset pre statement - '%s'", database.lastErrorMsg());
+        LOG_ERROR("Could not reset pre statement - '%s'", database->lastErrorMsg());
         return false;
     }
 
@@ -364,14 +317,14 @@ bool SQLiteIDBCursor::resetAndRebindPreIndexStatementIfNecessary()
         return false;
     }
 
-    RefPtr<SharedBuffer> buffer = serializeIDBKeyData(key);
-    if (m_preIndexStatement->bindBlob(currentBindArgument++, buffer->data(), buffer->size()) != SQLITE_OK) {
+    auto buffer = serializeIDBKeyData(key);
+    if (m_preIndexStatement->bindBlob(currentBindArgument++, buffer->dataAsSpanForContiguousData()) != SQLITE_OK) {
         LOG_ERROR("Could not bind id argument to pre statement (key)");
         return false;
     }
 
     buffer = serializeIDBKeyData(m_currentIndexRecordValue);
-    if (m_preIndexStatement->bindBlob(currentBindArgument++, buffer->data(), buffer->size()) != SQLITE_OK) {
+    if (m_preIndexStatement->bindBlob(currentBindArgument++, buffer->dataAsSpanForContiguousData()) != SQLITE_OK) {
         LOG_ERROR("Could not bind id argument to pre statement (value)");
         return false;
     }
@@ -525,7 +478,7 @@ SQLiteIDBCursor::FetchResult SQLiteIDBCursor::internalFetchNextRecord(SQLiteCurs
 
     record.record.value = { };
 
-    auto& database = m_transaction->sqliteTransaction()->database();
+    CheckedRef database = m_transaction->sqliteTransaction()->database();
     SQLiteStatement* statement = nullptr;
 
     int result;
@@ -536,7 +489,7 @@ SQLiteIDBCursor::FetchResult SQLiteIDBCursor::internalFetchNextRecord(SQLiteCurs
         if (result == SQLITE_ROW)
             statement = m_preIndexStatement.get();
         else if (result != SQLITE_DONE)
-            LOG_ERROR("Error advancing with pre statement - (%i) %s", result, database.lastErrorMsg());
+            LOG_ERROR("Error advancing with pre statement - (%i) %s", result, database->lastErrorMsg());
     }
     
     if (!statement) {
@@ -547,26 +500,24 @@ SQLiteIDBCursor::FetchResult SQLiteIDBCursor::internalFetchNextRecord(SQLiteCurs
             return FetchResult::Success;
         }
         if (result != SQLITE_ROW) {
-            LOG_ERROR("Error advancing cursor - (%i) %s", result, database.lastErrorMsg());
+            LOG_ERROR("Error advancing cursor - (%i) %s", result, database->lastErrorMsg());
             markAsErrored(record);
             return FetchResult::Failure;
         }
         statement = m_statement.get();
     }
 
-    record.rowID = statement->getColumnInt64(0);
+    record.rowID = statement->columnInt64(0);
     ASSERT(record.rowID);
+    auto keyDataSpan = statement->columnBlobAsSpan(1);
 
-    Vector<uint8_t> keyData;
-    statement->getColumnBlobAsVector(1, keyData);
-
-    if (!deserializeIDBKeyData(keyData.data(), keyData.size(), record.record.key)) {
+    if (!deserializeIDBKeyData(keyDataSpan.data(), keyDataSpan.size(), record.record.key)) {
         LOG_ERROR("Unable to deserialize key data from database while advancing cursor");
         markAsErrored(record);
         return FetchResult::Failure;
     }
 
-    statement->getColumnBlobAsVector(2, keyData);
+    auto keyData = statement->columnBlob(2);
 
     // The primaryKey of an ObjectStore cursor is the same as its key.
     if (m_indexID == IDBIndexInfo::InvalidId) {
@@ -590,30 +541,28 @@ SQLiteIDBCursor::FetchResult SQLiteIDBCursor::internalFetchNextRecord(SQLiteCurs
         }
 
         if (!m_cachedObjectStoreStatement || m_cachedObjectStoreStatement->reset() != SQLITE_OK) {
-            m_cachedObjectStoreStatement = makeUnique<SQLiteStatement>(database, "SELECT value FROM Records WHERE key = CAST(? AS TEXT) and objectStoreID = ?;");
-            if (m_cachedObjectStoreStatement->prepare() != SQLITE_OK)
-                m_cachedObjectStoreStatement = nullptr;
+            if (auto cachedObjectStoreStatement = database->prepareHeapStatement("SELECT value FROM Records WHERE key = CAST(? AS TEXT) and objectStoreID = ?;"_s))
+                m_cachedObjectStoreStatement = cachedObjectStoreStatement.value().moveToUniquePtr();
         }
 
         if (!m_cachedObjectStoreStatement
-            || m_cachedObjectStoreStatement->bindBlob(1, keyData.data(), keyData.size()) != SQLITE_OK
+            || m_cachedObjectStoreStatement->bindBlob(1, keyData) != SQLITE_OK
             || m_cachedObjectStoreStatement->bindInt64(2, m_objectStoreID) != SQLITE_OK) {
-            LOG_ERROR("Could not create index cursor statement into object store records (%i) '%s'", database.lastError(), database.lastErrorMsg());
+            LOG_ERROR("Could not create index cursor statement into object store records (%i) '%s'", database->lastError(), database->lastErrorMsg());
             markAsErrored(record);
             return FetchResult::Failure;
         }
 
         int result = m_cachedObjectStoreStatement->step();
 
-        if (result == SQLITE_ROW) {
-            m_cachedObjectStoreStatement->getColumnBlobAsVector(0, keyData);
-            record.record.value = { ThreadSafeDataBuffer::create(WTFMove(keyData)) };
-        } else if (result == SQLITE_DONE) {
+        if (result == SQLITE_ROW)
+            record.record.value = { ThreadSafeDataBuffer::create(m_cachedObjectStoreStatement->columnBlob(0)) };
+        else if (result == SQLITE_DONE) {
             // This indicates that the record we're trying to retrieve has been removed from the object store.
             // Skip over it.
             return FetchResult::ShouldFetchAgain;
         } else {
-            LOG_ERROR("Could not step index cursor statement into object store records (%i) '%s'", database.lastError(), database.lastErrorMsg());
+            LOG_ERROR("Could not step index cursor statement into object store records (%i) '%s'", database->lastError(), database->lastErrorMsg());
             markAsErrored(record);
             return FetchResult::Failure;
 
@@ -707,5 +656,3 @@ int64_t SQLiteIDBCursor::currentRecordRowID() const
 
 } // namespace IDBServer
 } // namespace WebCore
-
-#endif // ENABLE(INDEXED_DATABASE)

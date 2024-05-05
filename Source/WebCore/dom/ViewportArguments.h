@@ -41,7 +41,7 @@ enum ViewportErrorCode {
     MaximumScaleTooLargeError
 };
 
-enum class ViewportFit {
+enum class ViewportFit : uint8_t {
     Auto,
     Contain,
     Cover
@@ -63,7 +63,7 @@ struct ViewportAttributes {
 
 struct ViewportArguments {
 
-    enum Type {
+    enum class Type : uint8_t {
         // These are ordered in increasing importance.
         Implicit,
 #if PLATFORM(IOS_FAMILY)
@@ -74,16 +74,33 @@ struct ViewportArguments {
         CSSDeviceAdaptation
     } type;
 
-    enum {
-        ValueAuto = -1,
-        ValueDeviceWidth = -2,
-        ValueDeviceHeight = -3,
-        ValuePortrait = -4,
-        ValueLandscape = -5
-    };
+    static constexpr int ValueAuto = -1;
+    static constexpr int ValueDeviceWidth = -2;
+    static constexpr int ValueDeviceHeight = -3;
+    static constexpr int ValuePortrait = -4;
+    static constexpr int ValueLandscape = -5;
 
-    explicit ViewportArguments(Type type = Implicit)
+    explicit ViewportArguments(Type type = Type::Implicit)
         : type(type)
+    {
+    }
+
+    ViewportArguments(Type type, float width, float minWidth, float maxWidth, float height, float minHeight, float maxHeight, float zoom, float minZoom, float maxZoom, float userZoom, float orientation, float shrinkToFit, ViewportFit viewportFit, bool widthWasExplicit)
+        : type(type)
+        , width(width)
+        , minWidth(minWidth)
+        , maxWidth(maxWidth)
+        , height(height)
+        , minHeight(minHeight)
+        , maxHeight(maxHeight)
+        , zoom(zoom)
+        , minZoom(minZoom)
+        , maxZoom(maxZoom)
+        , userZoom(userZoom)
+        , orientation(orientation)
+        , shrinkToFit(shrinkToFit)
+        , viewportFit(viewportFit)
+        , widthWasExplicit(widthWasExplicit)
     {
     }
 
@@ -125,11 +142,6 @@ struct ViewportArguments {
             && widthWasExplicit == other.widthWasExplicit;
     }
 
-    bool operator!=(const ViewportArguments& other) const
-    {
-        return !(*this == other);
-    }
-
 #if PLATFORM(GTK)
     // FIXME: We're going to keep this constant around until all embedders
     // refactor their code to no longer need it.
@@ -143,10 +155,10 @@ WEBCORE_EXPORT void restrictMinimumScaleFactorToViewportSize(ViewportAttributes&
 WEBCORE_EXPORT void restrictScaleFactorToInitialScaleIfNotUserScalable(ViewportAttributes& result);
 WEBCORE_EXPORT float computeMinimumScaleFactorForContentContained(const ViewportAttributes& result, const IntSize& viewportSize, const IntSize& contentSize);
 
-typedef WTF::Function<void(ViewportErrorCode, const String&)> ViewportErrorHandler;
+typedef Function<void(ViewportErrorCode, const String&)> ViewportErrorHandler;
 void setViewportFeature(ViewportArguments&, Document&, StringView key, StringView value);
-WEBCORE_EXPORT void setViewportFeature(ViewportArguments&, StringView key, StringView value, bool viewportFitEnabled, const ViewportErrorHandler&);
+WEBCORE_EXPORT void setViewportFeature(ViewportArguments&, StringView key, StringView value, const ViewportErrorHandler&);
 
-WTF::TextStream& operator<<(WTF::TextStream&, const ViewportArguments&);
+WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, const ViewportArguments&);
 
 } // namespace WebCore

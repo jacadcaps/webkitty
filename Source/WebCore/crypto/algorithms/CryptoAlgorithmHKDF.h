@@ -27,8 +27,6 @@
 
 #include "CryptoAlgorithm.h"
 
-#if ENABLE(WEB_CRYPTO)
-
 namespace WebCore {
 
 class CryptoAlgorithmHkdfParams;
@@ -36,7 +34,7 @@ class CryptoKeyRaw;
 
 class CryptoAlgorithmHKDF final : public CryptoAlgorithm {
 public:
-    static constexpr const char* s_name = "HKDF";
+    static constexpr ASCIILiteral s_name = "HKDF"_s;
     static constexpr CryptoAlgorithmIdentifier s_identifier = CryptoAlgorithmIdentifier::HKDF;
     static Ref<CryptoAlgorithm> create();
 
@@ -52,5 +50,3 @@ private:
 };
 
 } // namespace WebCore
-
-#endif // ENABLE(WEB_CRYPTO)

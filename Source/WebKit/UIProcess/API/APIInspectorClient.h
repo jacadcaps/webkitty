@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,9 +25,10 @@
 
 #pragma once
 
+#include <wtf/Forward.h>
+
 namespace WebKit {
-class WebInspectorProxy;
-class WebPageProxy;
+class WebInspectorUIProxy;
 }
 
 namespace API {
@@ -37,9 +38,8 @@ class InspectorClient {
 public:
     virtual ~InspectorClient() = default;
 
-    virtual void didAttachLocalInspector(WebKit::WebPageProxy&, WebKit::WebInspectorProxy&) { }
-    virtual void browserDomainEnabled(WebKit::WebPageProxy&, WebKit::WebInspectorProxy&) { }
-    virtual void browserDomainDisabled(WebKit::WebPageProxy&, WebKit::WebInspectorProxy&) { }
+    virtual void openURLExternally(WebKit::WebInspectorUIProxy&, const WTF::String& url) { }
+    virtual void frontendLoaded(WebKit::WebInspectorUIProxy&) { }
 };
 
 } // namespace API

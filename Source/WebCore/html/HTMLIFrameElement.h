@@ -29,6 +29,7 @@
 namespace WebCore {
 
 class DOMTokenList;
+class LazyLoadFrameObserver;
 class RenderIFrame;
 
 class HTMLIFrameElement final : public HTMLFrameElementBase {
@@ -38,29 +39,46 @@ public:
 
     DOMTokenList& sandbox();
 
-    RenderIFrame* renderer() const;
-
     void setReferrerPolicyForBindings(const AtomString&);
     String referrerPolicyForBindings() const;
     ReferrerPolicy referrerPolicy() const final;
 
     const FeaturePolicy& featurePolicy() const;
 
+    const AtomString& loadingForBindings() const;
+    void setLoadingForBindings(const AtomString&);
+
+    LazyLoadFrameObserver& lazyLoadFrameObserver();
+
+    void loadDeferredFrame();
+
+#if ENABLE(FULLSCREEN_API)
+    bool hasIFrameFullscreenFlag() const { return m_IFrameFullscreenFlag; }
+    void setIFrameFullscreenFlag(bool value) { m_IFrameFullscreenFlag = value; }
+#endif
+
 private:
     HTMLIFrameElement(const QualifiedName&, Document&);
 
     int defaultTabIndex() const final;
-    void parseAttribute(const QualifiedName&, const AtomString&) final;
-    bool isPresentationAttribute(const QualifiedName&) const final;
-    void collectStyleForPresentationAttribute(const QualifiedName&, const AtomString&, MutableStyleProperties&) final;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
+    bool hasPresentationalHintsForAttribute(const QualifiedName&) const final;
+    void collectPresentationalHintsForAttribute(const QualifiedName&, const AtomString&, MutableStyleProperties&) final;
 
     bool isInteractiveContent() const final { return true; }
 
     bool rendererIsNeeded(const RenderStyle&) final;
     RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
 
+    bool shouldLoadFrameLazily() final;
+    bool isLazyLoadObserverActive() const final;
+
     std::unique_ptr<DOMTokenList> m_sandbox;
-    mutable Optional<FeaturePolicy> m_featurePolicy;
+    mutable std::optional<FeaturePolicy> m_featurePolicy;
+#if ENABLE(FULLSCREEN_API)
+    bool m_IFrameFullscreenFlag { false };
+#endif
+    std::unique_ptr<LazyLoadFrameObserver> m_lazyLoadFrameObserver;
 };
 
 } // namespace WebCore

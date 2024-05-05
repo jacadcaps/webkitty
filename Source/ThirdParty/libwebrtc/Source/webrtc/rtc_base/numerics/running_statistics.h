@@ -8,8 +8,8 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef RTC_BASE_NUMERICS_RUNNING_STATISTICS_H_
-#define RTC_BASE_NUMERICS_RUNNING_STATISTICS_H_
+#ifndef API_NUMERICS_RUNNING_STATISTICS_H_
+#define API_NUMERICS_RUNNING_STATISTICS_H_
 
 #include <algorithm>
 #include <cmath>
@@ -20,6 +20,7 @@
 #include "rtc_base/numerics/math_utils.h"
 
 namespace webrtc {
+namespace webrtc_impl {
 
 // tl;dr: Robust and efficient online computation of statistics,
 //        using Welford's method for variance. [1]
@@ -50,6 +51,7 @@ class RunningStatistics {
   void AddSample(T sample) {
     max_ = std::max(max_, sample);
     min_ = std::min(min_, sample);
+    sum_ += sample;
     ++size_;
     // Welford's incremental update.
     const double delta = sample - mean_;
@@ -122,6 +124,14 @@ class RunningStatistics {
     return max_;
   }
 
+  // Returns sum in O(1) time.
+  absl::optional<double> GetSum() const {
+    if (size_ == 0) {
+      return absl::nullopt;
+    }
+    return sum_;
+  }
+
   // Returns mean in O(1) time.
   absl::optional<double> GetMean() const {
     if (size_ == 0) {
@@ -152,8 +162,10 @@ class RunningStatistics {
   T max_ = minus_infinity_or_min<T>();
   double mean_ = 0;
   double cumul_ = 0;  // Variance * size_, sometimes noted m2.
+  double sum_ = 0;
 };
 
+}  // namespace webrtc_impl
 }  // namespace webrtc
 
-#endif  // RTC_BASE_NUMERICS_RUNNING_STATISTICS_H_
+#endif  // API_NUMERICS_RUNNING_STATISTICS_H_

@@ -26,21 +26,35 @@
 #include "config.h"
 #include "Logger.h"
 
+#include <mutex>
 #include <wtf/HexNumber.h>
+#include <wtf/NeverDestroyed.h>
 #include <wtf/text/WTFString.h>
 
 namespace WTF {
 
+Lock loggerObserverLock;
+
 String Logger::LogSiteIdentifier::toString() const
 {
     if (className)
-        return makeString(className, "::", methodName, '(', hex(objectPtr), ") ");
-    return makeString(methodName, '(', hex(objectPtr), ") ");
+        return makeString(className, "::"_s, methodName, '(', hex(objectPtr), ") "_s);
+    return makeString(methodName, '(', hex(objectPtr), ") "_s);
 }
 
 String LogArgument<const void*>::toString(const void* argument)
 {
     return makeString('(', hex(reinterpret_cast<uintptr_t>(argument)), ')');
+}
+
+Vector<std::reference_wrapper<Logger::Observer>>& Logger::observers()
+{
+    static LazyNeverDestroyed<Vector<std::reference_wrapper<Observer>>> observers;
+    static std::once_flag onceKey;
+    std::call_once(onceKey, [&] {
+        observers.construct();
+    });
+    return observers;
 }
 
 } // namespace WTF

@@ -32,7 +32,6 @@
 #import "PaymentAuthorizationPresenter.h"
 #import "WebPageProxy.h"
 #import <UIKit/UIViewController.h>
-#import <WebCore/PaymentAuthorizationStatus.h>
 #import <pal/cocoa/PassKitSoftLink.h>
 
 namespace WebKit {
@@ -46,16 +45,33 @@ void WebPaymentCoordinatorProxy::platformCanMakePayments(CompletionHandler<void(
     });
 }
 
-void WebPaymentCoordinatorProxy::platformShowPaymentUI(const URL& originatingURL, const Vector<URL>& linkIconURLStrings, const WebCore::ApplePaySessionPaymentRequest& request, CompletionHandler<void(bool)>&& completionHandler)
+void WebPaymentCoordinatorProxy::platformShowPaymentUI(WebPageProxyIdentifier webPageProxyID, const URL& originatingURL, const Vector<URL>& linkIconURLStrings, const WebCore::ApplePaySessionPaymentRequest& request, CompletionHandler<void(bool)>&& completionHandler)
 {
-    auto paymentRequest = platformPaymentRequest(originatingURL, linkIconURLStrings, request);
+    auto paymentRequest = platformPaymentRequest(webPageProxyID, originatingURL, linkIconURLStrings, request);
 
     ASSERT(!m_authorizationPresenter);
     m_authorizationPresenter = m_client.paymentCoordinatorAuthorizationPresenter(*this, paymentRequest.get());
     if (!m_authorizationPresenter)
         return completionHandler(false);
 
+#if ENABLE(APPLE_PAY_REMOTE_UI_USES_SCENE)
+    m_client.getWindowSceneAndBundleIdentifierForPaymentPresentation(webPageProxyID, [weakThis = WeakPtr { *this }, completionHandler = WTFMove(completionHandler)](const String& sceneIdentifier, const String& bundleIdentifier) mutable {
+        if (!weakThis) {
+            completionHandler(false);
+            return;
+        }
+
+        if (!weakThis->m_authorizationPresenter) {
+            completionHandler(false);
+            return;
+        }
+
+        weakThis->m_authorizationPresenter->presentInScene(sceneIdentifier, bundleIdentifier, WTFMove(completionHandler));
+    });
+#else
+    UNUSED_PARAM(webPageProxyID);
     m_authorizationPresenter->present(m_client.paymentCoordinatorPresentingViewController(*this), WTFMove(completionHandler));
+#endif
 }
 
 void WebPaymentCoordinatorProxy::platformHidePaymentUI()

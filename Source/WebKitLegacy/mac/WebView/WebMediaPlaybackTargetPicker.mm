@@ -38,7 +38,7 @@ std::unique_ptr<WebMediaPlaybackTargetPicker> WebMediaPlaybackTargetPicker::crea
 }
 
 WebMediaPlaybackTargetPicker::WebMediaPlaybackTargetPicker(WebView *webView, WebCore::Page& page)
-    : m_page(&page)
+    : m_page(page)
     , m_webView(webView)
 {
 }
@@ -58,7 +58,7 @@ void WebMediaPlaybackTargetPicker::showPlaybackTargetPicker(WebCore::PlaybackTar
     WebCore::WebMediaSessionManager::shared().showPlaybackTargetPicker(*this, contextId, WebCore::IntRect(rect), hasVideo, m_page ? m_page->useDarkAppearance() : false);
 }
 
-void WebMediaPlaybackTargetPicker::playbackTargetPickerClientStateDidChange(WebCore::PlaybackTargetClientContextIdentifier contextId, WebCore::MediaProducer::MediaStateFlags state)
+void WebMediaPlaybackTargetPicker::playbackTargetPickerClientStateDidChange(WebCore::PlaybackTargetClientContextIdentifier contextId, WebCore::MediaProducerMediaStateFlags state)
 {
     WebCore::WebMediaSessionManager::shared().clientStateDidChange(*this, contextId, state);
 }
@@ -68,7 +68,7 @@ void WebMediaPlaybackTargetPicker::setMockMediaPlaybackTargetPickerEnabled(bool 
     WebCore::WebMediaSessionManager::shared().setMockMediaPlaybackTargetPickerEnabled(enabled);
 }
 
-void WebMediaPlaybackTargetPicker::setMockMediaPlaybackTargetPickerState(const String& name, WebCore::MediaPlaybackTargetContext::State state)
+void WebMediaPlaybackTargetPicker::setMockMediaPlaybackTargetPickerState(const String& name, WebCore::MediaPlaybackTargetContext::MockState state)
 {
     WebCore::WebMediaSessionManager::shared().setMockMediaPlaybackTargetPickerState(name, state);
 }
@@ -115,10 +115,10 @@ void WebMediaPlaybackTargetPicker::invalidate()
     WebCore::WebMediaSessionManager::shared().removeAllPlaybackTargetPickerClients(*this);
 }
 
-PlatformView* WebMediaPlaybackTargetPicker::platformView() const
+RetainPtr<PlatformView> WebMediaPlaybackTargetPicker::platformView() const
 {
     ASSERT(m_webView);
-    return m_webView;
+    return m_webView.get();
 }
 
 #endif

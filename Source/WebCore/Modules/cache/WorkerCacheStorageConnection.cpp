@@ -31,6 +31,7 @@
 #include "CacheStorageProvider.h"
 #include "ClientOrigin.h"
 #include "Document.h"
+#include "Logging.h"
 #include "Page.h"
 #include "WorkerGlobalScope.h"
 #include "WorkerLoaderProxy.h"
@@ -40,133 +41,82 @@
 namespace WebCore {
 using namespace WebCore::DOMCacheEngine;
 
-struct CrossThreadRecordData {
-    uint64_t identifier;
-    uint64_t updateResponseCounter;
+static inline CrossThreadRecordsOrError isolatedCopyCrossThreadRecordsOrError(CrossThreadRecordsOrError&& records)
+{
+    if (!records.has_value())
+        return makeUnexpected(records.error());
 
-    FetchHeaders::Guard requestHeadersGuard;
-    ResourceRequest request;
+    return crossThreadCopy(WTFMove(records.value()));
+}
 
-    FetchOptions options;
-    String referrer;
+class StoppedCacheStorageConnection final : public CacheStorageConnection {
+public:
+    static Ref<CacheStorageConnection> create() { return adoptRef(*new StoppedCacheStorageConnection); }
 
-    FetchHeaders::Guard responseHeadersGuard;
-    ResourceResponse::CrossThreadData response;
-    ResponseBody responseBody;
-    uint64_t responseBodySize;
+private:
+    Ref<OpenPromise> open(const ClientOrigin&, const String&) final { return OpenPromise::createAndReject(DOMCacheEngine::Error::Stopped); }
+    void remove(DOMCacheIdentifier, DOMCacheEngine::RemoveCacheIdentifierCallback&& callback)  final { callback(makeUnexpected(DOMCacheEngine::Error::Stopped)); }
+    void retrieveCaches(const ClientOrigin&, uint64_t, DOMCacheEngine::CacheInfosCallback&& callback)  final { callback(makeUnexpected(DOMCacheEngine::Error::Stopped)); }
+    void retrieveRecords(DOMCacheIdentifier, RetrieveRecordsOptions&&, DOMCacheEngine::CrossThreadRecordsCallback&& callback)  final { callback(makeUnexpected(DOMCacheEngine::Error::Stopped)); }
+    void batchDeleteOperation(DOMCacheIdentifier, const ResourceRequest&, CacheQueryOptions&&, DOMCacheEngine::RecordIdentifiersCallback&& callback)  final { callback(makeUnexpected(DOMCacheEngine::Error::Stopped)); }
+    void batchPutOperation(DOMCacheIdentifier, Vector<DOMCacheEngine::CrossThreadRecord>&&, DOMCacheEngine::RecordIdentifiersCallback&& callback)  final { callback(makeUnexpected(DOMCacheEngine::Error::Stopped)); }
+    void reference(DOMCacheIdentifier)  final { }
+    void dereference(DOMCacheIdentifier)  final { }
+    void lockStorage(const ClientOrigin&) final { }
+    void unlockStorage(const ClientOrigin&) final { }
 };
 
-static CrossThreadRecordData toCrossThreadRecordData(const Record& record)
+static Ref<CacheStorageConnection> createMainThreadConnection(WorkerGlobalScope& scope)
 {
-    return CrossThreadRecordData {
-        record.identifier,
-        record.updateResponseCounter,
-        record.requestHeadersGuard,
-        record.request.isolatedCopy(),
-        record.options.isolatedCopy(),
-        record.referrer.isolatedCopy(),
-        record.responseHeadersGuard,
-        record.response.crossThreadData(),
-        isolatedResponseBody(record.responseBody),
-        record.responseBodySize
-    };
-}
-
-static Record fromCrossThreadRecordData(CrossThreadRecordData&& data)
-{
-    return Record {
-        data.identifier,
-        data.updateResponseCounter,
-        data.requestHeadersGuard,
-        WTFMove(data.request),
-        WTFMove(data.options),
-        WTFMove(data.referrer),
-        data.responseHeadersGuard,
-        ResourceResponse::fromCrossThreadData(WTFMove(data.response)),
-        WTFMove(data.responseBody),
-        data.responseBodySize
-    };
-}
-
-static inline Vector<CrossThreadRecordData> recordsDataFromRecords(const Vector<Record>& records)
-{
-    return WTF::map(records, toCrossThreadRecordData);
-}
-
-static inline Expected<Vector<CrossThreadRecordData>, Error> recordsDataOrErrorFromRecords(const RecordsOrError& result)
-{
-    if (!result.has_value())
-        return makeUnexpected(result.error());
-
-    return recordsDataFromRecords(result.value());
-}
-
-static inline Vector<Record> recordsFromRecordsData(Vector<CrossThreadRecordData>&& recordsData)
-{
-    return WTF::map(WTFMove(recordsData), fromCrossThreadRecordData);
-}
-
-static inline RecordsOrError recordsOrErrorFromRecordsData(Expected<Vector<CrossThreadRecordData>, Error>&& recordsData)
-{
-    if (!recordsData.has_value())
-        return makeUnexpected(recordsData.error());
-    return recordsFromRecordsData(WTFMove(recordsData.value()));
-}
-
-Ref<WorkerCacheStorageConnection> WorkerCacheStorageConnection::create(WorkerGlobalScope& scope)
-{
-    auto connection = adoptRef(*new WorkerCacheStorageConnection(scope));
-    callOnMainThreadAndWait([workerThread = makeRef(scope.thread()), connection = connection.ptr()]() mutable {
-        connection->m_mainThreadConnection = workerThread->workerLoaderProxy().createCacheStorageConnection();
+    RefPtr<CacheStorageConnection> mainThreadConnection;
+    callOnMainThreadAndWait([workerThread = Ref { scope.thread() }, &mainThreadConnection]() mutable {
+        auto* workerLoaderProxy = workerThread->workerLoaderProxy();
+        if (!workerThread->runLoop().terminated() && workerLoaderProxy)
+            mainThreadConnection = workerLoaderProxy->createCacheStorageConnection();
+        if (!mainThreadConnection) {
+            RELEASE_LOG_INFO(ServiceWorker, "Creating stopped WorkerCacheStorageConnection");
+            mainThreadConnection = StoppedCacheStorageConnection::create();
+        }
     });
-    ASSERT(connection->m_mainThreadConnection);
-    return connection;
+    return mainThreadConnection.releaseNonNull();
 }
 
 WorkerCacheStorageConnection::WorkerCacheStorageConnection(WorkerGlobalScope& scope)
     : m_scope(scope)
+    , m_mainThreadConnection(createMainThreadConnection(scope))
 {
 }
 
 WorkerCacheStorageConnection::~WorkerCacheStorageConnection()
 {
-    if (m_mainThreadConnection)
-        callOnMainThread([mainThreadConnection = WTFMove(m_mainThreadConnection)]() mutable { });
+    callOnMainThread([mainThreadConnection = WTFMove(m_mainThreadConnection)]() mutable { });
 }
 
-void WorkerCacheStorageConnection::open(const ClientOrigin& origin, const String& cacheName, CacheIdentifierCallback&& callback)
+auto WorkerCacheStorageConnection::open(const ClientOrigin& origin, const String& cacheName) -> Ref<OpenPromise>
+{
+    return invokeAsync(RunLoop::main(), [mainThreadConnection = m_mainThreadConnection, origin = origin.isolatedCopy(), cacheName = cacheName.isolatedCopy()] () mutable {
+        return mainThreadConnection->open(origin, cacheName);
+    });
+}
+
+void WorkerCacheStorageConnection::remove(DOMCacheIdentifier cacheIdentifier, RemoveCacheIdentifierCallback&& callback)
 {
     uint64_t requestIdentifier = ++m_lastRequestIdentifier;
-    m_openAndRemoveCachePendingRequests.add(requestIdentifier, WTFMove(callback));
+    m_removeCachePendingRequests.add(requestIdentifier, WTFMove(callback));
 
-    callOnMainThread([workerThread = makeRef(m_scope.thread()), mainThreadConnection = m_mainThreadConnection, requestIdentifier, origin = origin.isolatedCopy(), cacheName = cacheName.isolatedCopy()] () mutable {
-        mainThreadConnection->open(origin, cacheName, [workerThread = WTFMove(workerThread), requestIdentifier] (const CacheIdentifierOrError& result) mutable {
+    callOnMainThread([workerThread = Ref { m_scope.thread() }, mainThreadConnection = m_mainThreadConnection, requestIdentifier, cacheIdentifier] () mutable {
+        mainThreadConnection->remove(cacheIdentifier, [workerThread = WTFMove(workerThread), requestIdentifier] (const auto& result) mutable {
             workerThread->runLoop().postTaskForMode([requestIdentifier, result] (auto& scope) mutable {
-                downcast<WorkerGlobalScope>(scope).cacheStorageConnection().openOrRemoveCompleted(requestIdentifier, result);
+                downcast<WorkerGlobalScope>(scope).cacheStorageConnection().removeCompleted(requestIdentifier, result);
             }, WorkerRunLoop::defaultMode());
         });
     });
 }
 
-void WorkerCacheStorageConnection::openOrRemoveCompleted(uint64_t requestIdentifier, const CacheIdentifierOrError& result)
+void WorkerCacheStorageConnection::removeCompleted(uint64_t requestIdentifier, const RemoveCacheIdentifierOrError& result)
 {
-    if (auto callback = m_openAndRemoveCachePendingRequests.take(requestIdentifier))
+    if (auto callback = m_removeCachePendingRequests.take(requestIdentifier))
         callback(result);
-}
-
-void WorkerCacheStorageConnection::remove(uint64_t cacheIdentifier, CacheIdentifierCallback&& callback)
-{
-    uint64_t requestIdentifier = ++m_lastRequestIdentifier;
-    m_openAndRemoveCachePendingRequests.add(requestIdentifier, WTFMove(callback));
-
-    callOnMainThread([workerThread = makeRef(m_scope.thread()), mainThreadConnection = m_mainThreadConnection, requestIdentifier, cacheIdentifier] () mutable {
-        mainThreadConnection->remove(cacheIdentifier, [workerThread = WTFMove(workerThread), requestIdentifier, cacheIdentifier] (const CacheIdentifierOrError& result) mutable {
-            ASSERT_UNUSED(cacheIdentifier, !result.has_value() || !result.value().identifier || result.value().identifier == cacheIdentifier);
-            workerThread->runLoop().postTaskForMode([requestIdentifier, result] (auto& scope) mutable {
-                downcast<WorkerGlobalScope>(scope).cacheStorageConnection().openOrRemoveCompleted(requestIdentifier, result);
-            }, WorkerRunLoop::defaultMode());
-        });
-    });
 }
 
 void WorkerCacheStorageConnection::retrieveCaches(const ClientOrigin& origin, uint64_t updateCounter, CacheInfosCallback&& callback)
@@ -174,13 +124,13 @@ void WorkerCacheStorageConnection::retrieveCaches(const ClientOrigin& origin, ui
     uint64_t requestIdentifier = ++m_lastRequestIdentifier;
     m_retrieveCachesPendingRequests.add(requestIdentifier, WTFMove(callback));
 
-    callOnMainThread([workerThread = makeRef(m_scope.thread()), mainThreadConnection = m_mainThreadConnection, requestIdentifier, origin = origin.isolatedCopy(), updateCounter] () mutable {
+    callOnMainThread([workerThread = Ref { m_scope.thread() }, mainThreadConnection = m_mainThreadConnection, requestIdentifier, origin = origin.isolatedCopy(), updateCounter] () mutable {
         mainThreadConnection->retrieveCaches(origin, updateCounter, [workerThread = WTFMove(workerThread), requestIdentifier] (CacheInfosOrError&& result) mutable {
             CacheInfosOrError isolatedResult;
             if (!result.has_value())
                 isolatedResult = WTFMove(result);
             else
-                isolatedResult = result.value().isolatedCopy();
+                isolatedResult = WTFMove(result).value().isolatedCopy();
 
             workerThread->runLoop().postTaskForMode([requestIdentifier, result = WTFMove(isolatedResult)] (auto& scope) mutable {
                 downcast<WorkerGlobalScope>(scope).cacheStorageConnection().retrieveCachesCompleted(requestIdentifier, WTFMove(result));
@@ -195,32 +145,32 @@ void WorkerCacheStorageConnection::retrieveCachesCompleted(uint64_t requestIdent
         callback(WTFMove(result));
 }
 
-void WorkerCacheStorageConnection::retrieveRecords(uint64_t cacheIdentifier, const RetrieveRecordsOptions& options, RecordsCallback&& callback)
+void WorkerCacheStorageConnection::retrieveRecords(DOMCacheIdentifier cacheIdentifier, RetrieveRecordsOptions&& options, CrossThreadRecordsCallback&& callback)
 {
     uint64_t requestIdentifier = ++m_lastRequestIdentifier;
     m_retrieveRecordsPendingRequests.add(requestIdentifier, WTFMove(callback));
 
-    callOnMainThread([workerThread = makeRef(m_scope.thread()), mainThreadConnection = m_mainThreadConnection, requestIdentifier, cacheIdentifier, options = options.isolatedCopy()]() mutable {
-        mainThreadConnection->retrieveRecords(cacheIdentifier, options, [workerThread = WTFMove(workerThread), requestIdentifier](RecordsOrError&& result) mutable {
-            workerThread->runLoop().postTaskForMode([result = recordsDataOrErrorFromRecords(result), requestIdentifier] (auto& scope) mutable {
-                downcast<WorkerGlobalScope>(scope).cacheStorageConnection().retrieveRecordsCompleted(requestIdentifier, recordsOrErrorFromRecordsData(WTFMove(result)));
+    callOnMainThread([workerThread = Ref { m_scope.thread() }, mainThreadConnection = m_mainThreadConnection, requestIdentifier, cacheIdentifier, options = WTFMove(options).isolatedCopy()]() mutable {
+        mainThreadConnection->retrieveRecords(cacheIdentifier, WTFMove(options), [workerThread = WTFMove(workerThread), requestIdentifier](auto&& result) mutable {
+            workerThread->runLoop().postTaskForMode([result = isolatedCopyCrossThreadRecordsOrError(std::forward<decltype(result)>(result)), requestIdentifier] (auto& scope) mutable {
+                downcast<WorkerGlobalScope>(scope).cacheStorageConnection().retrieveRecordsCompleted(requestIdentifier, WTFMove(result));
             }, WorkerRunLoop::defaultMode());
         });
     });
 }
 
-void WorkerCacheStorageConnection::retrieveRecordsCompleted(uint64_t requestIdentifier, RecordsOrError&& result)
+void WorkerCacheStorageConnection::retrieveRecordsCompleted(uint64_t requestIdentifier, CrossThreadRecordsOrError&& result)
 {
     if (auto callback = m_retrieveRecordsPendingRequests.take(requestIdentifier))
         callback(WTFMove(result));
 }
 
-void WorkerCacheStorageConnection::batchDeleteOperation(uint64_t cacheIdentifier, const ResourceRequest& request, CacheQueryOptions&& options, RecordIdentifiersCallback&& callback)
+void WorkerCacheStorageConnection::batchDeleteOperation(DOMCacheIdentifier cacheIdentifier, const ResourceRequest& request, CacheQueryOptions&& options, RecordIdentifiersCallback&& callback)
 {
     uint64_t requestIdentifier = ++m_lastRequestIdentifier;
     m_batchDeleteAndPutPendingRequests.add(requestIdentifier, WTFMove(callback));
 
-    callOnMainThread([workerThread = makeRef(m_scope.thread()), mainThreadConnection = m_mainThreadConnection, requestIdentifier, cacheIdentifier, request = request.isolatedCopy(), options = options.isolatedCopy()]() mutable {
+    callOnMainThread([workerThread = Ref { m_scope.thread() }, mainThreadConnection = m_mainThreadConnection, requestIdentifier, cacheIdentifier, request = request.isolatedCopy(), options]() mutable {
         mainThreadConnection->batchDeleteOperation(cacheIdentifier, request, WTFMove(options), [workerThread = WTFMove(workerThread), requestIdentifier](RecordIdentifiersOrError&& result) mutable {
             workerThread->runLoop().postTaskForMode([requestIdentifier, result = WTFMove(result)] (auto& scope) mutable {
                 downcast<WorkerGlobalScope>(scope).cacheStorageConnection().deleteRecordsCompleted(requestIdentifier, WTFMove(result));
@@ -235,13 +185,13 @@ void WorkerCacheStorageConnection::deleteRecordsCompleted(uint64_t requestIdenti
         callback(WTFMove(result));
 }
 
-void WorkerCacheStorageConnection::batchPutOperation(uint64_t cacheIdentifier, Vector<DOMCacheEngine::Record>&& records, DOMCacheEngine::RecordIdentifiersCallback&& callback)
+void WorkerCacheStorageConnection::batchPutOperation(DOMCacheIdentifier cacheIdentifier, Vector<DOMCacheEngine::CrossThreadRecord>&& records, DOMCacheEngine::RecordIdentifiersCallback&& callback)
 {
     uint64_t requestIdentifier = ++m_lastRequestIdentifier;
     m_batchDeleteAndPutPendingRequests.add(requestIdentifier, WTFMove(callback));
 
-    callOnMainThread([workerThread = makeRef(m_scope.thread()), mainThreadConnection = m_mainThreadConnection, requestIdentifier, cacheIdentifier, recordsData = recordsDataFromRecords(records)]() mutable {
-        mainThreadConnection->batchPutOperation(cacheIdentifier, recordsFromRecordsData(WTFMove(recordsData)), [workerThread = WTFMove(workerThread), requestIdentifier] (RecordIdentifiersOrError&& result) mutable {
+    callOnMainThread([workerThread = Ref { m_scope.thread() }, mainThreadConnection = m_mainThreadConnection, requestIdentifier, cacheIdentifier, records = crossThreadCopy(WTFMove(records))]() mutable {
+        mainThreadConnection->batchPutOperation(cacheIdentifier, WTFMove(records), [workerThread = WTFMove(workerThread), requestIdentifier] (RecordIdentifiersOrError&& result) mutable {
             workerThread->runLoop().postTaskForMode([requestIdentifier, result = WTFMove(result)] (auto& scope) mutable {
                 downcast<WorkerGlobalScope>(scope).cacheStorageConnection().putRecordsCompleted(requestIdentifier, WTFMove(result));
             }, WorkerRunLoop::defaultMode());
@@ -255,24 +205,38 @@ void WorkerCacheStorageConnection::putRecordsCompleted(uint64_t requestIdentifie
         callback(WTFMove(result));
 }
 
-void WorkerCacheStorageConnection::reference(uint64_t cacheIdentifier)
+void WorkerCacheStorageConnection::reference(DOMCacheIdentifier cacheIdentifier)
 {
     callOnMainThread([mainThreadConnection = m_mainThreadConnection, cacheIdentifier]() {
         mainThreadConnection->reference(cacheIdentifier);
     });
 }
 
-void WorkerCacheStorageConnection::dereference(uint64_t cacheIdentifier)
+void WorkerCacheStorageConnection::dereference(DOMCacheIdentifier cacheIdentifier)
 {
     callOnMainThread([mainThreadConnection = m_mainThreadConnection, cacheIdentifier]() {
         mainThreadConnection->dereference(cacheIdentifier);
     });
 }
 
+void WorkerCacheStorageConnection::lockStorage(const ClientOrigin& origin)
+{
+    callOnMainThread([mainThreadConnection = m_mainThreadConnection, origin = origin.isolatedCopy()]() {
+        mainThreadConnection->lockStorage(origin);
+    });
+}
+
+void WorkerCacheStorageConnection::unlockStorage(const ClientOrigin& origin)
+{
+    callOnMainThread([mainThreadConnection = m_mainThreadConnection, origin = origin.isolatedCopy()]() {
+        mainThreadConnection->unlockStorage(origin);
+    });
+}
+
 void WorkerCacheStorageConnection::clearPendingRequests()
 {
-    auto openAndRemoveCachePendingRequests = WTFMove(m_openAndRemoveCachePendingRequests);
-    for (auto& callback : openAndRemoveCachePendingRequests.values())
+    auto removeCachePendingRequests = WTFMove(m_removeCachePendingRequests);
+    for (auto& callback : removeCachePendingRequests.values())
         callback(makeUnexpected(DOMCacheEngine::Error::Stopped));
 
     auto retrieveCachesPendingRequests = WTFMove(m_retrieveCachesPendingRequests);

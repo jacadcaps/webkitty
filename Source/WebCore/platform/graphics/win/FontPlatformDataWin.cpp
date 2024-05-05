@@ -25,6 +25,7 @@
 #include "config.h"
 #include "FontPlatformData.h"
 
+#include "FontCustomPlatformData.h"
 #include "HWndDC.h"
 #include "SharedBuffer.h"
 #include <wtf/HashMap.h>
@@ -33,21 +34,13 @@
 #include <wtf/text/StringHash.h>
 #include <wtf/text/WTFString.h>
 
-#if USE(DIRECT2D)
-#include <dwrite_3.h>
-#endif
-
-using std::min;
-
 namespace WebCore {
 
-FontPlatformData::FontPlatformData(GDIObject<HFONT> font, float size, bool bold, bool oblique, bool useGDI)
-    : m_font(SharedGDIObject<HFONT>::create(WTFMove(font)))
-    , m_size(size)
-    , m_syntheticBold(bold)
-    , m_syntheticOblique(oblique)
-    , m_useGDI(useGDI)
+FontPlatformData::FontPlatformData(GDIObject<HFONT> font, float size, bool bold, bool oblique, const FontCustomPlatformData* customPlatformData)
+    : FontPlatformData(size, bold, oblique, FontOrientation::Horizontal, FontWidthVariant::RegularWidth, TextRenderingMode::AutoTextRendering, customPlatformData)
 {
+    m_font = SharedGDIObject<HFONT>::create(WTFMove(font));
+
     HWndDC hdc(0);
     SaveDC(hdc);
     
@@ -55,12 +48,12 @@ FontPlatformData::FontPlatformData(GDIObject<HFONT> font, float size, bool bold,
 
     wchar_t faceName[LF_FACESIZE];
     GetTextFace(hdc, LF_FACESIZE, faceName);
-    platformDataInit(m_font->get(), size, hdc, faceName);
+    platformDataInit(m_font->get(), size, faceName);
 
     RestoreDC(hdc, -1);
 }
 
-RefPtr<SharedBuffer> FontPlatformData::openTypeTable(uint32_t table) const
+RefPtr<SharedBuffer> FontPlatformData::platformOpenTypeTable(uint32_t table) const
 {
     HWndDC hdc(0);
     HGDIOBJ oldFont = SelectObject(hdc, hfont());
@@ -68,7 +61,7 @@ RefPtr<SharedBuffer> FontPlatformData::openTypeTable(uint32_t table) const
     DWORD size = GetFontData(hdc, table, 0, 0, 0);
     RefPtr<SharedBuffer> buffer;
     if (size != GDI_ERROR) {
-        Vector<char> data(size);
+        Vector<uint8_t> data(size);
         DWORD result = GetFontData(hdc, table, 0, (PVOID)data.data(), size);
         ASSERT_UNUSED(result, result == size);
         buffer = SharedBuffer::create(WTFMove(data));
@@ -78,11 +71,22 @@ RefPtr<SharedBuffer> FontPlatformData::openTypeTable(uint32_t table) const
     return buffer;
 }
 
-#if !LOG_DISABLED
-String FontPlatformData::description() const
+FontPlatformData FontPlatformData::create(const Attributes& data, const FontCustomPlatformData* custom)
 {
-    return String();
+    LOGFONT logFont = data.m_font;
+    if (custom)
+        wcscpy_s(logFont.lfFaceName, LF_FACESIZE, custom->name.wideCharacters().data());
+
+    auto gdiFont = adoptGDIObject(CreateFontIndirect(&logFont));
+    return FontPlatformData(WTFMove(gdiFont), data.m_size, data.m_syntheticBold, data.m_syntheticOblique, custom);
 }
-#endif
+
+FontPlatformData::Attributes FontPlatformData::attributes() const
+{
+    Attributes result(m_size, m_orientation, m_widthVariant, m_textRenderingMode, m_syntheticBold, m_syntheticOblique);
+
+    GetObject(hfont(), sizeof(LOGFONT), &result.m_font);
+    return result;
+}
 
 }

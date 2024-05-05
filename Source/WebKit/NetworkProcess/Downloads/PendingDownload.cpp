@@ -29,6 +29,7 @@
 #include "DataReference.h"
 #include "Download.h"
 #include "DownloadProxyMessages.h"
+#include "MessageSenderInlines.h"
 #include "NetworkLoad.h"
 #include "NetworkProcess.h"
 #include "WebCoreArgumentCoders.h"
@@ -36,8 +37,8 @@
 namespace WebKit {
 using namespace WebCore;
 
-PendingDownload::PendingDownload(IPC::Connection* parentProcessConnection, NetworkLoadParameters&& parameters, DownloadID downloadID, NetworkSession& networkSession, WebCore::BlobRegistryImpl* blobRegistry, const String& suggestedName)
-    : m_networkLoad(makeUnique<NetworkLoad>(*this, blobRegistry, WTFMove(parameters), networkSession))
+PendingDownload::PendingDownload(IPC::Connection* parentProcessConnection, NetworkLoadParameters&& parameters, DownloadID downloadID, NetworkSession& networkSession, const String& suggestedName)
+    : m_networkLoad(makeUnique<NetworkLoad>(*this, WTFMove(parameters), networkSession))
     , m_parentProcessConnection(parentProcessConnection)
 {
     m_networkLoad->start();
@@ -62,21 +63,16 @@ PendingDownload::PendingDownload(IPC::Connection* parentProcessConnection, std::
     m_networkLoad->convertTaskToDownload(*this, request, response, WTFMove(completionHandler));
 }
 
-void PendingDownload::willSendRedirectedRequest(WebCore::ResourceRequest&&, WebCore::ResourceRequest&& redirectRequest, WebCore::ResourceResponse&& redirectResponse)
+void PendingDownload::willSendRedirectedRequest(WebCore::ResourceRequest&&, WebCore::ResourceRequest&& redirectRequest, WebCore::ResourceResponse&& redirectResponse, CompletionHandler<void(WebCore::ResourceRequest&&)>&& completionHandler)
 {
-    send(Messages::DownloadProxy::WillSendRequest(WTFMove(redirectRequest), WTFMove(redirectResponse)));
+    sendWithAsyncReply(Messages::DownloadProxy::WillSendRequest(WTFMove(redirectRequest), WTFMove(redirectResponse)), WTFMove(completionHandler));
 };
-    
-void PendingDownload::continueWillSendRequest(WebCore::ResourceRequest&& newRequest)
-{
-    m_networkLoad->continueWillSendRequest(WTFMove(newRequest));
-}
 
-void PendingDownload::cancel()
+void PendingDownload::cancel(CompletionHandler<void(const IPC::DataReference&)>&& completionHandler)
 {
     ASSERT(m_networkLoad);
     m_networkLoad->cancel();
-    send(Messages::DownloadProxy::DidCancel({ }));
+    completionHandler({ });
 }
 
 #if PLATFORM(COCOA)
@@ -104,14 +100,14 @@ IPC::Connection* PendingDownload::messageSenderConnection() const
     return m_parentProcessConnection.get();
 }
 
-void PendingDownload::didReceiveResponse(WebCore::ResourceResponse&& response, ResponseCompletionHandler&& completionHandler)
+void PendingDownload::didReceiveResponse(WebCore::ResourceResponse&& response, PrivateRelayed, ResponseCompletionHandler&& completionHandler)
 {
     completionHandler(WebCore::PolicyAction::Download);
 }
 
 uint64_t PendingDownload::messageSenderDestinationID() const
 {
-    return m_networkLoad->pendingDownloadID().downloadID();
+    return m_networkLoad->pendingDownloadID().toUInt64();
 }
     
 }

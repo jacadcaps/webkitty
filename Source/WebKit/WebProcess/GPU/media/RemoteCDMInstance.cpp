@@ -29,10 +29,10 @@
 #if ENABLE(GPU_PROCESS) && ENABLE(ENCRYPTED_MEDIA)
 
 #include "GPUProcessConnection.h"
+#include "RemoteCDMInstanceMessages.h"
 #include "RemoteCDMInstanceProxyMessages.h"
 #include "RemoteCDMInstanceSession.h"
 #include "RemoteCDMInstanceSessionIdentifier.h"
-#include "SharedBufferDataReference.h"
 #include "WebCoreArgumentCoders.h"
 #include "WebProcess.h"
 #include <WebCore/CDMKeySystemConfiguration.h>
@@ -41,16 +41,33 @@ namespace WebKit {
 
 using namespace WebCore;
 
-Ref<RemoteCDMInstance> RemoteCDMInstance::create(WeakPtr<RemoteCDMFactory>&& factory, RemoteCDMInstanceIdentifier&& id, RemoteCDMInstanceConfiguration&& configuration)
+Ref<RemoteCDMInstance> RemoteCDMInstance::create(WeakPtr<RemoteCDMFactory>&& factory, RemoteCDMInstanceIdentifier&& identifier, RemoteCDMInstanceConfiguration&& configuration)
 {
-    return adoptRef(*new RemoteCDMInstance(WTFMove(factory), WTFMove(id), WTFMove(configuration)));
+    return adoptRef(*new RemoteCDMInstance(WTFMove(factory), WTFMove(identifier), WTFMove(configuration)));
 }
 
-RemoteCDMInstance::RemoteCDMInstance(WeakPtr<RemoteCDMFactory>&& factory, RemoteCDMInstanceIdentifier&& id, RemoteCDMInstanceConfiguration&& configuration)
+RemoteCDMInstance::RemoteCDMInstance(WeakPtr<RemoteCDMFactory>&& factory, RemoteCDMInstanceIdentifier&& identifier, RemoteCDMInstanceConfiguration&& configuration)
     : m_factory(WTFMove(factory))
-    , m_identifier(WTFMove(id))
+    , m_identifier(WTFMove(identifier))
     , m_configuration(WTFMove(configuration))
 {
+    if (m_factory)
+        m_factory->gpuProcessConnection().messageReceiverMap().addMessageReceiver(Messages::RemoteCDMInstance::messageReceiverName(), m_identifier.toUInt64(), *this);
+}
+
+RemoteCDMInstance::~RemoteCDMInstance()
+{
+    if (!m_factory)
+        return;
+
+    m_factory->removeInstance(m_identifier);
+    m_factory->gpuProcessConnection().messageReceiverMap().removeMessageReceiver(Messages::RemoteCDMInstance::messageReceiverName(), m_identifier.toUInt64());
+}
+
+void RemoteCDMInstance::unrequestedInitializationDataReceived(const String& type, Ref<SharedBuffer>&& initData)
+{
+    if (m_client)
+        m_client->unrequestedInitializationDataReceived(type, WTFMove(initData));
 }
 
 void RemoteCDMInstance::initializeWithConfiguration(const WebCore::CDMKeySystemConfiguration& configuration, AllowDistinctiveIdentifiers distinctiveIdentifiers, AllowPersistentState persistentState, SuccessCallback&& callback)
@@ -70,7 +87,7 @@ void RemoteCDMInstance::setServerCertificate(Ref<WebCore::SharedBuffer>&& certif
         return;
     }
 
-    m_factory->gpuProcessConnection().connection().sendWithAsyncReply(Messages::RemoteCDMInstanceProxy::SetServerCertificate(certificate.get()), WTFMove(callback), m_identifier);
+    m_factory->gpuProcessConnection().connection().sendWithAsyncReply(Messages::RemoteCDMInstanceProxy::SetServerCertificate(WTFMove(certificate)), WTFMove(callback), m_identifier);
 }
 
 void RemoteCDMInstance::setStorageDirectory(const String& directory)
@@ -86,11 +103,17 @@ RefPtr<WebCore::CDMInstanceSession> RemoteCDMInstance::createSession()
     if (!m_factory)
         return nullptr;
 
-    RemoteCDMInstanceSessionIdentifier id;
-    m_factory->gpuProcessConnection().connection().sendSync(Messages::RemoteCDMInstanceProxy::CreateSession(), Messages::RemoteCDMInstanceProxy::CreateSession::Reply(id), m_identifier);
-    if (!id)
+    uint64_t logIdentifier { 0 };
+#if !RELEASE_LOG_DISABLED
+    if (m_client)
+        logIdentifier = reinterpret_cast<uint64_t>(m_client->logIdentifier());
+#endif
+
+    auto sendResult = m_factory->gpuProcessConnection().connection().sendSync(Messages::RemoteCDMInstanceProxy::CreateSession(logIdentifier), m_identifier);
+    auto [identifier] = sendResult.takeReplyOr(RemoteCDMInstanceSessionIdentifier { });
+    if (!identifier)
         return nullptr;
-    auto session = RemoteCDMInstanceSession::create(makeWeakPtr(m_factory.get()), WTFMove(id));
+    auto session = RemoteCDMInstanceSession::create(m_factory.get(), WTFMove(identifier));
     m_factory->addSession(session.copyRef());
     return session;
 }

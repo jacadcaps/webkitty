@@ -22,10 +22,12 @@
 #ifndef ABSL_TIME_CLOCK_H_
 #define ABSL_TIME_CLOCK_H_
 
+#include "absl/base/config.h"
 #include "absl/base/macros.h"
 #include "absl/time/time.h"
 
 namespace absl {
+ABSL_NAMESPACE_BEGIN
 
 // Now()
 //
@@ -49,6 +51,7 @@ int64_t GetCurrentTimeNanos();
 // * Returns immediately when passed a nonpositive duration.
 void SleepFor(absl::Duration duration);
 
+ABSL_NAMESPACE_END
 }  // namespace absl
 
 // -----------------------------------------------------------------------------
@@ -62,11 +65,12 @@ void SleepFor(absl::Duration duration);
 // By changing our extension points to be extern "C", we dodge this
 // check.
 extern "C" {
-void AbslInternalSleepFor(absl::Duration duration);
+ABSL_DLL void ABSL_INTERNAL_C_SYMBOL(AbslInternalSleepFor)(
+    absl::Duration duration);
 }  // extern "C"
 
 inline void absl::SleepFor(absl::Duration duration) {
-  AbslInternalSleepFor(duration);
+  ABSL_INTERNAL_C_SYMBOL(AbslInternalSleepFor)(duration);
 }
 
 #endif  // ABSL_TIME_CLOCK_H_

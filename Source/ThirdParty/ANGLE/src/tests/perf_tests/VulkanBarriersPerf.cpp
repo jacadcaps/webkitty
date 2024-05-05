@@ -140,10 +140,11 @@ VulkanBarriersPerfBenchmark::VulkanBarriersPerfBenchmark()
       mTexCoordLoc(-1),
       mSamplerLoc(-1)
 {
-    // Fails on Windows7 NVIDIA Vulkan, presumably due to old drivers. http://crbug.com/1096510
     if (IsNVIDIA() && IsWindows7())
     {
-        mSkipTest = true;
+        skipTest(
+            "http://crbug.com/1096510 Fails on Windows7 NVIDIA Vulkan, presumably due to old "
+            "drivers");
     }
 }
 
@@ -402,6 +403,7 @@ TEST_P(VulkanBarriersPerfBenchmark, Run)
     run();
 }
 
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(VulkanBarriersPerfBenchmark);
 ANGLE_INSTANTIATE_TEST(VulkanBarriersPerfBenchmark,
                        VulkanBarriersPerfParams(false, false, false),
                        VulkanBarriersPerfParams(true, false, false),

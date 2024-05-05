@@ -28,10 +28,12 @@
 #include <WebCore/ResourceLoaderOptions.h>
 #include <WebCore/Timer.h>
 #include <array>
+#include <wtf/CheckedPtr.h>
 #include <wtf/Deque.h>
 #include <wtf/HashMap.h>
 #include <wtf/HashSet.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/WeakPtr.h>
 #include <wtf/text/StringHash.h>
 #include <wtf/text/WTFString.h>
 
@@ -44,10 +46,10 @@ class WebResourceLoadScheduler final : public WebCore::LoaderStrategy {
 public:
     WebResourceLoadScheduler();
 
-    void loadResource(WebCore::Frame&, WebCore::CachedResource&, WebCore::ResourceRequest&&, const WebCore::ResourceLoaderOptions&, CompletionHandler<void(RefPtr<WebCore::SubresourceLoader>&&)>&&) final;
-    void loadResourceSynchronously(WebCore::FrameLoader&, unsigned long, const WebCore::ResourceRequest&, WebCore::ClientCredentialPolicy, const WebCore::FetchOptions&, const WebCore::HTTPHeaderMap&, WebCore::ResourceError&, WebCore::ResourceResponse&, Vector<char>&) final;
+    void loadResource(WebCore::LocalFrame&, WebCore::CachedResource&, WebCore::ResourceRequest&&, const WebCore::ResourceLoaderOptions&, CompletionHandler<void(RefPtr<WebCore::SubresourceLoader>&&)>&&) final;
+    void loadResourceSynchronously(WebCore::FrameLoader&, WebCore::ResourceLoaderIdentifier, const WebCore::ResourceRequest&, WebCore::ClientCredentialPolicy, const WebCore::FetchOptions&, const WebCore::HTTPHeaderMap&, WebCore::ResourceError&, WebCore::ResourceResponse&, Vector<uint8_t>&) final;
     void pageLoadCompleted(WebCore::Page&) final;
-    void browsingContextRemoved(WebCore::Frame&) final;
+    void browsingContextRemoved(WebCore::LocalFrame&) final;
 
     void remove(WebCore::ResourceLoader*) final;
     void setDefersLoading(WebCore::ResourceLoader&, bool) final;
@@ -57,16 +59,16 @@ public:
     void suspendPendingRequests() final;
     void resumePendingRequests() final;
 
-    void startPingLoad(WebCore::Frame&, WebCore::ResourceRequest&, const WebCore::HTTPHeaderMap&, const WebCore::FetchOptions&, WebCore::ContentSecurityPolicyImposition, PingLoadCompletionHandler&&) final;
+    void startPingLoad(WebCore::LocalFrame&, WebCore::ResourceRequest&, const WebCore::HTTPHeaderMap&, const WebCore::FetchOptions&, WebCore::ContentSecurityPolicyImposition, PingLoadCompletionHandler&&) final;
 
-    void preconnectTo(WebCore::FrameLoader&, const URL&, WebCore::StoredCredentialsPolicy, PreconnectCompletionHandler&&) final;
+    void preconnectTo(WebCore::FrameLoader&, const URL&, WebCore::StoredCredentialsPolicy, ShouldPreconnectAsFirstParty, PreconnectCompletionHandler&&) final;
 
     void setCaptureExtraNetworkLoadMetricsEnabled(bool) final { }
 
     bool isSerialLoadingEnabled() const { return m_isSerialLoadingEnabled; }
     void setSerialLoadingEnabled(bool b) { m_isSerialLoadingEnabled = b; }
 
-    void schedulePluginStreamLoad(WebCore::Frame&, WebCore::NetscapePlugInStreamLoaderClient&, WebCore::ResourceRequest&&, CompletionHandler<void(RefPtr<WebCore::NetscapePlugInStreamLoader>&&)>&&);
+    void schedulePluginStreamLoad(WebCore::LocalFrame&, WebCore::NetscapePlugInStreamLoaderClient&, WebCore::ResourceRequest&&, CompletionHandler<void(RefPtr<WebCore::NetscapePlugInStreamLoader>&&)>&&);
 
     bool isOnLine() const final;
     void addOnlineStateChangeListener(WTF::Function<void(bool)>&&) final;
@@ -79,8 +81,9 @@ private:
     void requestTimerFired();
 
     bool isSuspendingPendingRequests() const { return !!m_suspendPendingRequestsCount; }
+    void isResourceLoadFinished(WebCore::CachedResource&, CompletionHandler<void(bool)>&&) final;
 
-    class HostInformation {
+    class HostInformation : public CanMakeWeakPtr<HostInformation>, public CanMakeCheckedPtr {
         WTF_MAKE_NONCOPYABLE(HostInformation); WTF_MAKE_FAST_ALLOCATED;
     public:
         HostInformation(const String&, unsigned);
@@ -111,12 +114,12 @@ private:
         FindOnly
     };
     
-    HostInformation* hostForURL(const URL&, CreateHostPolicy = FindOnly);
-    void servePendingRequests(HostInformation*, WebCore::ResourceLoadPriority);
+    CheckedPtr<HostInformation> hostForURL(const URL&, CreateHostPolicy = FindOnly);
+    void servePendingRequests(CheckedRef<HostInformation>&&, WebCore::ResourceLoadPriority);
 
-    typedef HashMap<String, HostInformation*, StringHash> HostMap;
+    typedef HashMap<String, std::unique_ptr<HostInformation>, StringHash> HostMap;
     HostMap m_hosts;
-    HostInformation* m_nonHTTPProtocolHost;
+    UniqueRef<HostInformation> m_nonHTTPProtocolHost;
         
     WebCore::Timer m_requestTimer;
 

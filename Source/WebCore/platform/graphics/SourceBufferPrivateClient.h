@@ -20,15 +20,19 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #pragma once
 
 #if ENABLE(MEDIA_SOURCE)
 
+#include "MediaDescription.h"
+#include "PlatformMediaError.h"
 #include <wtf/MediaTime.h>
+#include <wtf/Ref.h>
 #include <wtf/Vector.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
@@ -36,9 +40,10 @@ class AudioTrackPrivate;
 class InbandTextTrackPrivate;
 class MediaSample;
 class MediaDescription;
+class PlatformTimeRanges;
 class VideoTrackPrivate;
 
-class SourceBufferPrivateClient {
+class SourceBufferPrivateClient : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<SourceBufferPrivateClient> {
 public:
     virtual ~SourceBufferPrivateClient() = default;
 
@@ -63,21 +68,15 @@ public:
         };
         Vector<TextTrackInformation> textTracks;
     };
-    virtual void sourceBufferPrivateDidReceiveInitializationSegment(const InitializationSegment&) = 0;
-    virtual void sourceBufferPrivateDidReceiveSample(MediaSample&) = 0;
-    virtual bool sourceBufferPrivateHasAudio() const = 0;
-    virtual bool sourceBufferPrivateHasVideo() const = 0;
 
-    virtual void sourceBufferPrivateReenqueSamples(const AtomString& trackID) = 0;
-    virtual void sourceBufferPrivateDidBecomeReadyForMoreSamples(const AtomString& trackID) = 0;
-
-    virtual MediaTime sourceBufferPrivateFastSeekTimeForMediaTime(const MediaTime&, const MediaTime&, const MediaTime&) = 0;
-
-    enum AppendResult { AppendSucceeded, ReadStreamFailed, ParsingFailed };
-    virtual void sourceBufferPrivateAppendComplete(AppendResult) = 0;
-    virtual void sourceBufferPrivateDidReceiveRenderingError(int errorCode) = 0;
+    virtual Ref<MediaPromise> sourceBufferPrivateDidReceiveInitializationSegment(InitializationSegment&&) = 0;
+    virtual Ref<MediaPromise> sourceBufferPrivateBufferedChanged(const Vector<PlatformTimeRanges>&, uint64_t) = 0;
+    virtual Ref<MediaPromise> sourceBufferPrivateDurationChanged(const MediaTime&) = 0;
+    virtual void sourceBufferPrivateHighestPresentationTimestampChanged(const MediaTime&) = 0;
+    virtual void sourceBufferPrivateDidDropSample() = 0;
+    virtual void sourceBufferPrivateDidReceiveRenderingError(int64_t errorCode) = 0;
 };
 
-}
+} // namespace WebCore
 
 #endif // ENABLE(MEDIA_SOURCE)

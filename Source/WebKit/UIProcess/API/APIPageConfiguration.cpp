@@ -28,6 +28,9 @@
 
 #include "APIProcessPoolConfiguration.h"
 #include "APIWebsitePolicies.h"
+#include "BrowsingContextGroup.h"
+#include "Logging.h"
+#include "WebInspectorUtilities.h"
 #include "WebPageGroup.h"
 #include "WebPageProxy.h"
 #include "WebPreferences.h"
@@ -39,6 +42,10 @@
 #include "APIApplicationManifest.h"
 #endif
 
+#if ENABLE(WK_WEB_EXTENSIONS)
+#include "WebExtensionController.h"
+#endif
+
 namespace API {
 using namespace WebKit;
 
@@ -48,6 +55,7 @@ Ref<PageConfiguration> PageConfiguration::create()
 }
 
 PageConfiguration::PageConfiguration()
+    : m_data { BrowsingContextGroup::create() }
 {
 }
 
@@ -56,145 +64,217 @@ PageConfiguration::~PageConfiguration() = default;
 Ref<PageConfiguration> PageConfiguration::copy() const
 {
     auto copy = create();
-
-    copy->m_processPool = this->m_processPool;
-    copy->m_userContentController = this->m_userContentController;
-    copy->m_pageGroup = this->m_pageGroup;
-    copy->m_preferences = this->m_preferences;
-    copy->m_relatedPage = this->m_relatedPage;
-    copy->m_visitedLinkStore = this->m_visitedLinkStore;
-    copy->m_websiteDataStore = this->m_websiteDataStore;
-#if PLATFORM(IOS_FAMILY)
-    copy->m_clientNavigationsRunAtForegroundPriority = this->m_clientNavigationsRunAtForegroundPriority;
-    copy->m_canShowWhileLocked = this->m_canShowWhileLocked;
-    copy->m_clickInteractionDriverForTesting = this->m_clickInteractionDriverForTesting;
-#endif
-    copy->m_initialCapitalizationEnabled = this->m_initialCapitalizationEnabled;
-    copy->m_waitsForPaintAfterViewDidMoveToWindow = this->m_waitsForPaintAfterViewDidMoveToWindow;
-    copy->m_drawsBackground = this->m_drawsBackground;
-    copy->m_controlledByAutomation = this->m_controlledByAutomation;
-    copy->m_cpuLimit = this->m_cpuLimit;
-    copy->m_overrideContentSecurityPolicy = this->m_overrideContentSecurityPolicy;
-#if ENABLE(APPLICATION_MANIFEST)
-    copy->m_applicationManifest = this->m_applicationManifest;
-#endif
-    copy->m_shouldRelaxThirdPartyCookieBlocking = this->m_shouldRelaxThirdPartyCookieBlocking;
-    for (auto& pair : this->m_urlSchemeHandlers)
-        copy->m_urlSchemeHandlers.set(pair.key, pair.value.copyRef());
-    copy->m_corsDisablingPatterns = this->m_corsDisablingPatterns;
-    copy->m_crossOriginAccessControlCheckEnabled = this->m_crossOriginAccessControlCheckEnabled;
-    copy->m_userScriptsShouldWaitUntilNotification = this->m_userScriptsShouldWaitUntilNotification;
-    copy->m_webViewCategory = this->m_webViewCategory;
-
-    copy->m_processDisplayName = this->m_processDisplayName;
-    copy->m_ignoresAppBoundDomains = this->m_ignoresAppBoundDomains;
-    copy->m_loadsSubresources = this->m_loadsSubresources;
-    copy->m_loadsFromNetwork = this->m_loadsFromNetwork;
-    copy->m_limitsNavigationsToAppBoundDomains = this->m_limitsNavigationsToAppBoundDomains;
-
+    copy->m_data = m_data;
     return copy;
 }
 
+BrowsingContextGroup& PageConfiguration::browsingContextGroup()
+{
+    return m_data.browsingContextGroup.get();
+}
 
 WebProcessPool* PageConfiguration::processPool()
 {
-    return m_processPool.get();
+    return m_data.processPool.get();
 }
 
-void PageConfiguration::setProcessPool(WebProcessPool* processPool)
+void PageConfiguration::setProcessPool(RefPtr<WebProcessPool>&& processPool)
 {
-    m_processPool = processPool;
+    m_data.processPool = WTFMove(processPool);
 }
 
 WebUserContentControllerProxy* PageConfiguration::userContentController()
 {
-    return m_userContentController.get();
+    return m_data.userContentController.get();
 }
 
-void PageConfiguration::setUserContentController(WebUserContentControllerProxy* userContentController)
+void PageConfiguration::setUserContentController(RefPtr<WebUserContentControllerProxy>&& userContentController)
 {
-    m_userContentController = userContentController;
+    m_data.userContentController = WTFMove(userContentController);
 }
+
+#if ENABLE(WK_WEB_EXTENSIONS)
+const WTF::URL& PageConfiguration::requiredWebExtensionBaseURL() const
+{
+    return m_data.requiredWebExtensionBaseURL;
+}
+
+void PageConfiguration::setRequiredWebExtensionBaseURL(WTF::URL&& baseURL)
+{
+    m_data.requiredWebExtensionBaseURL = WTFMove(baseURL);
+}
+
+WebExtensionController* PageConfiguration::webExtensionController() const
+{
+    return m_data.webExtensionController.get();
+}
+
+void PageConfiguration::setWebExtensionController(RefPtr<WebExtensionController>&& webExtensionController)
+{
+    m_data.webExtensionController = WTFMove(webExtensionController);
+}
+
+WebExtensionController* PageConfiguration::weakWebExtensionController() const
+{
+    return m_data.weakWebExtensionController.get();
+}
+
+void PageConfiguration::setWeakWebExtensionController(WebExtensionController* webExtensionController)
+{
+    m_data.weakWebExtensionController = webExtensionController;
+}
+#endif // ENABLE(WK_WEB_EXTENSIONS)
 
 WebPageGroup* PageConfiguration::pageGroup()
 {
-    return m_pageGroup.get();
+    return m_data.pageGroup.get();
 }
 
-void PageConfiguration::setPageGroup(WebPageGroup* pageGroup)
+void PageConfiguration::setPageGroup(RefPtr<WebPageGroup>&& pageGroup)
 {
-    m_pageGroup = pageGroup;
+    m_data.pageGroup = WTFMove(pageGroup);
 }
 
 WebPreferences* PageConfiguration::preferences()
 {
-    return m_preferences.get();
+    return m_data.preferences.get();
 }
 
-void PageConfiguration::setPreferences(WebPreferences* preferences)
+void PageConfiguration::setPreferences(RefPtr<WebPreferences>&& preferences)
 {
-    m_preferences = preferences;
+    m_data.preferences = WTFMove(preferences);
 }
 
 WebPageProxy* PageConfiguration::relatedPage() const
 {
-    return m_relatedPage.get();
+    return m_data.relatedPage.get();
 }
 
-void PageConfiguration::setRelatedPage(WebPageProxy* relatedPage)
+void PageConfiguration::setRelatedPage(RefPtr<WebPageProxy>&& relatedPage)
 {
-    m_relatedPage = relatedPage;
+    m_data.relatedPage = WTFMove(relatedPage);
+}
+
+WebKit::WebPageProxy* PageConfiguration::pageToCloneSessionStorageFrom() const
+{
+    return m_data.pageToCloneSessionStorageFrom.get();
+}
+
+void PageConfiguration::setPageToCloneSessionStorageFrom(WebKit::WebPageProxy* pageToCloneSessionStorageFrom)
+{
+    m_data.pageToCloneSessionStorageFrom = pageToCloneSessionStorageFrom;
 }
 
 WebKit::VisitedLinkStore* PageConfiguration::visitedLinkStore()
 {
-    return m_visitedLinkStore.get();
+    return m_data.visitedLinkStore.get();
 }
 
-void PageConfiguration::setVisitedLinkStore(WebKit::VisitedLinkStore* visitedLinkStore)
+void PageConfiguration::setVisitedLinkStore(RefPtr<WebKit::VisitedLinkStore>&& visitedLinkStore)
 {
-    m_visitedLinkStore = visitedLinkStore;
+    m_data.visitedLinkStore = WTFMove(visitedLinkStore);
 }
 
 WebKit::WebsiteDataStore* PageConfiguration::websiteDataStore()
 {
-    return m_websiteDataStore.get();
+    return m_data.websiteDataStore.get();
 }
 
-void PageConfiguration::setWebsiteDataStore(WebKit::WebsiteDataStore* websiteDataStore)
+RefPtr<WebKit::WebsiteDataStore> PageConfiguration::protectedWebsiteDataStore()
 {
-    m_websiteDataStore = websiteDataStore;
+    return m_data.websiteDataStore;
+}
+
+void PageConfiguration::setWebsiteDataStore(RefPtr<WebKit::WebsiteDataStore>&& websiteDataStore)
+{
+    m_data.websiteDataStore = WTFMove(websiteDataStore);
 }
 
 WebsitePolicies* PageConfiguration::defaultWebsitePolicies() const
 {
-    return m_defaultWebsitePolicies.get();
+    return m_data.defaultWebsitePolicies.get();
 }
 
-void PageConfiguration::setDefaultWebsitePolicies(WebsitePolicies* policies)
+void PageConfiguration::setDefaultWebsitePolicies(RefPtr<WebsitePolicies>&& policies)
 {
-    m_defaultWebsitePolicies = policies;
+    m_data.defaultWebsitePolicies = WTFMove(policies);
 }
 
 RefPtr<WebKit::WebURLSchemeHandler> PageConfiguration::urlSchemeHandlerForURLScheme(const WTF::String& scheme)
 {
-    return m_urlSchemeHandlers.get(scheme);
+    return m_data.urlSchemeHandlers.get(scheme);
 }
 
 void PageConfiguration::setURLSchemeHandlerForURLScheme(Ref<WebKit::WebURLSchemeHandler>&& handler, const WTF::String& scheme)
 {
-    m_urlSchemeHandlers.set(scheme, WTFMove(handler));
+    m_data.urlSchemeHandlers.set(scheme, WTFMove(handler));
+}
+
+bool PageConfiguration::lockdownModeEnabled() const
+{
+    if (m_data.defaultWebsitePolicies)
+        return m_data.defaultWebsitePolicies->lockdownModeEnabled();
+    return lockdownModeEnabledBySystem();
+}
+
+void PageConfiguration::setDelaysWebProcessLaunchUntilFirstLoad(bool delaysWebProcessLaunchUntilFirstLoad)
+{
+    RELEASE_LOG(Process, "%p - PageConfiguration::setDelaysWebProcessLaunchUntilFirstLoad(%d)", this, delaysWebProcessLaunchUntilFirstLoad);
+    m_data.delaysWebProcessLaunchUntilFirstLoad = delaysWebProcessLaunchUntilFirstLoad;
+}
+
+bool PageConfiguration::delaysWebProcessLaunchUntilFirstLoad() const
+{
+    if (RefPtr processPool = m_data.processPool; processPool && isInspectorProcessPool(*processPool)) {
+        // Never delay process launch for inspector pages as inspector pages do not know how to transition from a terminated process.
+        RELEASE_LOG(Process, "%p - PageConfiguration::delaysWebProcessLaunchUntilFirstLoad() -> false because of WebInspector pool", this);
+        return false;
+    }
+    if (m_data.delaysWebProcessLaunchUntilFirstLoad) {
+        RELEASE_LOG(Process, "%p - PageConfiguration::delaysWebProcessLaunchUntilFirstLoad() -> %{public}s because of explicit client value", this, *m_data.delaysWebProcessLaunchUntilFirstLoad ? "true" : "false");
+        // If the client explicitly enabled / disabled the feature, then obey their directives.
+        return *m_data.delaysWebProcessLaunchUntilFirstLoad;
+    }
+    if (m_data.processPool) {
+        RELEASE_LOG(Process, "%p - PageConfiguration::delaysWebProcessLaunchUntilFirstLoad() -> %{public}s because of associated processPool value", this, m_data.processPool->delaysWebProcessLaunchDefaultValue() ? "true" : "false");
+        return m_data.processPool->delaysWebProcessLaunchDefaultValue();
+    }
+    RELEASE_LOG(Process, "%p - PageConfiguration::delaysWebProcessLaunchUntilFirstLoad() -> %{public}s because of global default value", this, WebProcessPool::globalDelaysWebProcessLaunchDefaultValue() ? "true" : "false");
+    return WebProcessPool::globalDelaysWebProcessLaunchDefaultValue();
+}
+
+bool PageConfiguration::isLockdownModeExplicitlySet() const
+{
+    return m_data.defaultWebsitePolicies && m_data.defaultWebsitePolicies->isLockdownModeExplicitlySet();
 }
 
 #if ENABLE(APPLICATION_MANIFEST)
 ApplicationManifest* PageConfiguration::applicationManifest() const
 {
-    return m_applicationManifest.get();
+    return m_data.applicationManifest.get();
 }
 
-void PageConfiguration::setApplicationManifest(ApplicationManifest* applicationManifest)
+void PageConfiguration::setApplicationManifest(RefPtr<ApplicationManifest>&& applicationManifest)
 {
-    m_applicationManifest = applicationManifest;
+    m_data.applicationManifest = WTFMove(applicationManifest);
+}
+#endif
+
+#if ENABLE(GPU_PROCESS)
+WebKit::GPUProcessPreferencesForWebProcess PageConfiguration::preferencesForGPUProcess() const
+{
+    RefPtr preferences = m_data.preferences;
+    RELEASE_ASSERT(preferences);
+
+    return {
+        preferences->webGLEnabled(),
+        preferences->webGPUEnabled(),
+        preferences->useGPUProcessForDOMRenderingEnabled(),
+#if ENABLE(RE_DYNAMIC_CONTENT_SCALING)
+        preferences->useCGDisplayListsForDOMRendering(),
+#endif
+        allowTestOnlyIPC()
+    };
 }
 #endif
 

@@ -15,15 +15,19 @@
 #include "absl/strings/str_cat.h"
 
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <string>
 
 #include "benchmark/benchmark.h"
+#include "absl/strings/string_view.h"
 #include "absl/strings/substitute.h"
 
 namespace {
 
 const char kStringOne[] = "Once Upon A Time, ";
-const char kStringTwo[] = "There was a std::string benchmark";
+const char kStringTwo[] = "There was a string benchmark";
 
 // We want to include negative numbers in the benchmark, so this function
 // is used to count 0, 1, -1, 2, -2, 3, -3, ...
@@ -136,5 +140,92 @@ void BM_DoubleToString_By_SixDigits(benchmark::State& state) {
   }
 }
 BENCHMARK(BM_DoubleToString_By_SixDigits);
+
+template <typename... Chunks>
+void BM_StrAppendImpl(benchmark::State& state, size_t total_bytes,
+                      Chunks... chunks) {
+  for (auto s : state) {
+    std::string result;
+    while (result.size() < total_bytes) {
+      absl::StrAppend(&result, chunks...);
+      benchmark::DoNotOptimize(result);
+    }
+  }
+}
+
+void BM_StrAppend(benchmark::State& state) {
+  const int total_bytes = state.range(0);
+  const int chunks_at_a_time = state.range(1);
+  const absl::string_view kChunk = "0123456789";
+
+  switch (chunks_at_a_time) {
+    case 1:
+      return BM_StrAppendImpl(state, total_bytes, kChunk);
+    case 2:
+      return BM_StrAppendImpl(state, total_bytes, kChunk, kChunk);
+    case 4:
+      return BM_StrAppendImpl(state, total_bytes, kChunk, kChunk, kChunk,
+                              kChunk);
+    case 8:
+      return BM_StrAppendImpl(state, total_bytes, kChunk, kChunk, kChunk,
+                              kChunk, kChunk, kChunk, kChunk, kChunk);
+    default:
+      std::abort();
+  }
+}
+
+template <typename B>
+void StrAppendConfig(B* benchmark) {
+  for (int bytes : {10, 100, 1000, 10000}) {
+    for (int chunks : {1, 2, 4, 8}) {
+      // Only add the ones that divide properly. Otherwise we are over counting.
+      if (bytes % (10 * chunks) == 0) {
+        benchmark->Args({bytes, chunks});
+      }
+    }
+  }
+}
+
+BENCHMARK(BM_StrAppend)->Apply(StrAppendConfig);
+
+template <typename... Chunks>
+void BM_StrCatImpl(benchmark::State& state,
+                      Chunks... chunks) {
+  for (auto s : state) {
+    std::string result = absl::StrCat(chunks...);
+    benchmark::DoNotOptimize(result);
+  }
+}
+
+void BM_StrCat(benchmark::State& state) {
+  const int chunks_at_a_time = state.range(0);
+  const absl::string_view kChunk = "0123456789";
+
+  switch (chunks_at_a_time) {
+    case 1:
+      return BM_StrCatImpl(state, kChunk);
+    case 2:
+      return BM_StrCatImpl(state, kChunk, kChunk);
+    case 3:
+      return BM_StrCatImpl(state, kChunk, kChunk, kChunk);
+    case 4:
+      return BM_StrCatImpl(state, kChunk, kChunk, kChunk, kChunk);
+    default:
+      std::abort();
+  }
+}
+
+BENCHMARK(BM_StrCat)->Arg(1)->Arg(2)->Arg(3)->Arg(4);
+
+void BM_StrCat_int(benchmark::State& state) {
+  int i = 0;
+  for (auto s : state) {
+    std::string result = absl::StrCat(i);
+    benchmark::DoNotOptimize(result);
+    i = IncrementAlternatingSign(i);
+  }
+}
+
+BENCHMARK(BM_StrCat_int);
 
 }  // namespace

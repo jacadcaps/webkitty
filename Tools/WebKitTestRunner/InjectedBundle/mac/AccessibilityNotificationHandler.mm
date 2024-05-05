@@ -31,7 +31,7 @@
 #import "config.h"
 #import "AccessibilityNotificationHandler.h"
 
-#import "AccessibilityCommonMac.h"
+#import "AccessibilityCommonCocoa.h"
 #import "AccessibilityUIElement.h"
 #import "InjectedBundle.h"
 #import "InjectedBundlePage.h"
@@ -40,6 +40,7 @@
 #import <JavaScriptCore/JSStringRef.h>
 #import <JavaScriptCore/JSStringRefCF.h>
 #import <WebKit/WKBundleFrame.h>
+#import <WebKit/WKBundlePagePrivate.h>
 #import <wtf/RetainPtr.h>
 
 @interface NSObject (WebAccessibilityObjectWrapperAdditions)
@@ -79,6 +80,7 @@
     if (!callback)
         return;
 
+    WKAccessibilityEnable();
     WKBundleFrameRef mainFrame = WKBundlePageGetMainFrame(WTR::InjectedBundle::singleton().page()->page());
     JSContextRef context = WKBundleFrameGetJavaScriptContext(mainFrame);
 
@@ -127,7 +129,8 @@
     } else {
         // A global listener gets the element, notification name and userInfo.
         JSValueRef arguments[3];
-        arguments[0] = toJS(context, WTR::AccessibilityUIElement::create([notification object]).ptr());
+        id notificationObject = [notification object];
+        arguments[0] = toJS(context, notificationObject ? WTR::AccessibilityUIElement::create(notificationObject).ptr() : nullptr);
         arguments[1] = notificationNameArgument;
         arguments[2] = userInfoArgument;
         JSObjectCallAsFunction(context, const_cast<JSObjectRef>(m_notificationFunctionCallback), 0, 3, arguments, 0);

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009 Apple Inc. All rights reserved.
+ * Copyright (C) 2009-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -20,124 +20,113 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #pragma once
 
 #if ENABLE(WEBGL)
 
-#include "WebGLContextObject.h"
-#include "WebGLSharedObject.h"
+#include "WebGLObject.h"
+#include <variant>
 #include <wtf/HashMap.h>
 #include <wtf/RefCounted.h>
 #include <wtf/Vector.h>
+
+namespace JSC {
+class AbstractSlotVisitor;
+}
+
+namespace WTF {
+class AbstractLocker;
+}
 
 namespace WebCore {
 
 class WebGLRenderbuffer;
 class WebGLTexture;
 
-class WebGLFramebuffer final : public WebGLContextObject {
+class WebGLFramebuffer final : public WebGLObject {
 public:
-    class WebGLAttachment : public RefCounted<WebGLAttachment> {
-    public:
-        virtual ~WebGLAttachment();
-
-#if !USE(ANGLE)
-        virtual GCGLsizei getWidth() const = 0;
-        virtual GCGLsizei getHeight() const = 0;
-        virtual GCGLenum getFormat() const = 0;
-#endif
-        virtual WebGLSharedObject* getObject() const = 0;
-        virtual bool isSharedObject(WebGLSharedObject*) const = 0;
-        virtual bool isValid() const = 0;
-        virtual bool isInitialized() const = 0;
-        virtual void setInitialized() = 0;
-        virtual void onDetached(GraphicsContextGLOpenGL*) = 0;
-        virtual void attach(GraphicsContextGLOpenGL*, GCGLenum target, GCGLenum attachment) = 0;
-        virtual void unattach(GraphicsContextGLOpenGL*, GCGLenum target, GCGLenum attachment) = 0;
-
-    protected:
-        WebGLAttachment();
-    };
-
     virtual ~WebGLFramebuffer();
 
-    static Ref<WebGLFramebuffer> create(WebGLRenderingContextBase&);
-
-    void setAttachmentForBoundFramebuffer(GCGLenum target, GCGLenum attachment, GCGLenum texTarget, WebGLTexture*, GCGLint level, GCGLint layer);
-    void setAttachmentForBoundFramebuffer(GCGLenum target, GCGLenum attachment, WebGLRenderbuffer*);
-    // If an object is attached to the currently bound framebuffer, remove it.
-    void removeAttachmentFromBoundFramebuffer(GCGLenum target, WebGLSharedObject*);
-    // If a given attachment point for the currently bound framebuffer is not null, remove the attached object.
-    void removeAttachmentFromBoundFramebuffer(GCGLenum target, GCGLenum attachment);
-    WebGLSharedObject* getAttachmentObject(GCGLenum) const;
-
-#if !USE(ANGLE)
-    GCGLenum getColorBufferFormat() const;
-    GCGLsizei getColorBufferWidth() const;
-    GCGLsizei getColorBufferHeight() const;
-
-    // This should always be called before drawArray, drawElements, clear,
-    // readPixels, copyTexImage2D, copyTexSubImage2D if this framebuffer is
-    // currently bound.
-    // Return false if the framebuffer is incomplete; otherwise initialize
-    // the buffers if they haven't been initialized and
-    // needToInitializeAttachments is true.
-    bool onAccess(GraphicsContextGLOpenGL*, const char** reason);
-
-    // Software version of glCheckFramebufferStatus(), except that when
-    // FRAMEBUFFER_COMPLETE is returned, it is still possible for
-    // glCheckFramebufferStatus() to return FRAMEBUFFER_UNSUPPORTED,
-    // depending on hardware implementation.
-    GCGLenum checkStatus(const char** reason) const;
+    static RefPtr<WebGLFramebuffer> create(WebGLRenderingContextBase&);
+#if ENABLE(WEBXR)
+    static RefPtr<WebGLFramebuffer> createOpaque(WebGLRenderingContextBase&);
 #endif
 
-    bool hasEverBeenBound() const { return object() && m_hasEverBeenBound; }
+    struct TextureAttachment {
+        RefPtr<WebGLTexture> texture;
+        GCGLenum texTarget;
+        GCGLint level;
+        friend bool operator==(const TextureAttachment&, const TextureAttachment&) = default;
+    };
+    struct TextureLayerAttachment {
+        RefPtr<WebGLTexture> texture;
+        GCGLint level;
+        GCGLint layer;
+        friend bool operator==(const TextureLayerAttachment&, const TextureLayerAttachment&) = default;
+    };
+    using AttachmentEntry = std::variant<RefPtr<WebGLRenderbuffer>, TextureAttachment, TextureLayerAttachment>;
 
-    void setHasEverBeenBound() { m_hasEverBeenBound = true; }
+    void setAttachmentForBoundFramebuffer(GCGLenum target, GCGLenum attachment, AttachmentEntry);
 
-    bool hasStencilBuffer() const;
+    // Below are nonnull. RefPtr instead of Ref due to call site object identity
+    // purposes, call site uses i.e pointer operator==.
+    using AttachmentObject = std::variant<RefPtr<WebGLRenderbuffer>, RefPtr<WebGLTexture>>;
+
+    // If an object is attached to the currently bound framebuffer, remove it.
+    void removeAttachmentFromBoundFramebuffer(const AbstractLocker&, GCGLenum target, AttachmentObject);
+    std::optional<AttachmentObject> getAttachmentObject(GCGLenum) const;
+
+    void didBind() { m_hasEverBeenBound = true; }
 
     // Wrapper for drawBuffersEXT/drawBuffersARB to work around a driver bug.
     void drawBuffers(const Vector<GCGLenum>& bufs);
 
     GCGLenum getDrawBuffer(GCGLenum);
 
+    void addMembersToOpaqueRoots(const AbstractLocker&, JSC::AbstractSlotVisitor&);
+
+#if ENABLE(WEBXR)
+    bool isOpaque() const { return m_isOpaque; }
+#endif
+
+    bool isUsable() const { return object() && !isDeleted(); }
+    bool isInitialized() const { return m_hasEverBeenBound; }
+
 private:
-    WebGLFramebuffer(WebGLRenderingContextBase&);
+    enum class Type : bool {
+        Plain,
+#if ENABLE(WEBXR)
+        Opaque
+#endif
+    };
+    WebGLFramebuffer(WebGLRenderingContextBase&, PlatformGLObject, Type);
 
-    void deleteObjectImpl(GraphicsContextGLOpenGL*, PlatformGLObject) override;
+    void deleteObjectImpl(const AbstractLocker&, GraphicsContextGL*, PlatformGLObject) override;
 
-    WebGLAttachment* getAttachment(GCGLenum) const;
-
-    // Return false if framebuffer is incomplete.
-    bool initializeAttachments(GraphicsContextGLOpenGL*, const char** reason);
+    // If a given attachment point for the currently bound framebuffer is not null, remove the attached object.
+    void removeAttachmentFromBoundFramebuffer(const AbstractLocker&, GCGLenum target, GCGLenum attachment);
 
     // Check if the framebuffer is currently bound to the given target.
     bool isBound(GCGLenum target) const;
 
-    // attach 'attachment' at 'attachmentPoint'.
-    void attach(GCGLenum target, GCGLenum attachment, GCGLenum attachmentPoint);
-
     // Check if a new drawBuffers call should be issued. This is called when we add or remove an attachment.
     void drawBuffersIfNecessary(bool force);
 
-    void setAttachmentInternal(GCGLenum attachment, GCGLenum texTarget, WebGLTexture*, GCGLint level, GCGLint layer);
-    void setAttachmentInternal(GCGLenum attachment, WebGLRenderbuffer*);
+    void setAttachmentInternal(GCGLenum attachment, AttachmentEntry);
     // If a given attachment point for the currently bound framebuffer is not
     // null, remove the attached object.
-    void removeAttachmentInternal(GCGLenum attachment);
+    void removeAttachmentInternal(const AbstractLocker&, GCGLenum attachment);
 
-    typedef WTF::HashMap<GCGLenum, RefPtr<WebGLAttachment>> AttachmentMap;
-
-    AttachmentMap m_attachments;
-
-    bool m_hasEverBeenBound;
-
+    HashMap<GCGLenum, AttachmentEntry> m_attachments;
+    bool m_hasEverBeenBound { false };
     Vector<GCGLenum> m_drawBuffers;
     Vector<GCGLenum> m_filteredDrawBuffers;
+#if ENABLE(WEBXR)
+    const bool m_isOpaque;
+#endif
 };
 
 } // namespace WebCore

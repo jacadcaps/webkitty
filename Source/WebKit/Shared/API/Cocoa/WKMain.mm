@@ -26,9 +26,35 @@
 #import "config.h"
 #import "WKMain.h"
 
+#import "PCMDaemonEntryPoint.h"
+#import "WebPushDaemonMain.h"
+#import "WebPushToolMain.h"
 #import "XPCServiceEntryPoint.h"
 
 int WKXPCServiceMain(int argc, const char** argv)
 {
     return WebKit::XPCServiceMain(argc, argv);
+}
+
+int WKAdAttributionDaemonMain(int argc, const char** argv)
+{
+    return WebKit::PCMDaemonMain(argc, argv);
+}
+
+int WKWebPushDaemonMain(int argc, char** argv)
+{
+#if ENABLE(BUILT_IN_NOTIFICATIONS)
+    return WebKit::WebPushDaemonMain(argc, argv);
+#else
+    return -1;
+#endif
+}
+
+int WKWebPushToolMain(int argc, char** argv)
+{
+#if ENABLE(BUILT_IN_NOTIFICATIONS)
+    return WebKit::WebPushToolMain(argc, argv);
+#else
+    return -1;
+#endif
 }

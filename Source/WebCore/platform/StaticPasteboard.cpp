@@ -26,11 +26,16 @@
 #include "config.h"
 #include "StaticPasteboard.h"
 
+#include "CommonAtomStrings.h"
 #include "SharedBuffer.h"
 
 namespace WebCore {
 
-StaticPasteboard::StaticPasteboard() = default;
+StaticPasteboard::StaticPasteboard()
+    : Pasteboard({ })
+{
+}
+
 StaticPasteboard::~StaticPasteboard() = default;
 
 bool StaticPasteboard::hasData()
@@ -101,12 +106,12 @@ PasteboardCustomData StaticPasteboard::takeCustomData()
 
 void StaticPasteboard::writeMarkup(const String& markup)
 {
-    m_customData.writeString("text/html"_s, markup);
+    m_customData.writeString(textHTMLContentTypeAtom(), markup);
 }
 
 void StaticPasteboard::writePlainText(const String& text, SmartReplaceOption)
 {
-    m_customData.writeString("text/plain"_s, text);
+    m_customData.writeString(textPlainContentTypeAtom(), text);
 }
 
 void StaticPasteboard::write(const PasteboardURL& url)
@@ -146,6 +151,8 @@ void StaticPasteboard::write(const PasteboardWebContent& content)
 #elif PLATFORM(GTK) || USE(LIBWPE)
     markup = content.markup;
     text = content.text;
+#else
+    UNUSED_PARAM(content);
 #endif
 
     if (!markup.isEmpty())

@@ -45,6 +45,7 @@ public:
 
     int run(int argc, char** argv);
 
+    static void platformInit();
     static bool platformCompareBrowserVersions(const String&, const String&);
 
 private:
@@ -57,7 +58,7 @@ private:
     };
     static const Command s_commands[];
 
-    static Optional<HTTPMethod> toCommandHTTPMethod(const String& method);
+    static std::optional<HTTPMethod> toCommandHTTPMethod(const String& method);
     static bool findCommand(HTTPMethod, const String& path, CommandHandler*, HashMap<String, String>& parameters);
 
     void newSession(RefPtr<JSON::Object>&&, Function<void (CommandResult&&)>&&);
@@ -87,7 +88,10 @@ private:
     void findElements(RefPtr<JSON::Object>&&, Function<void (CommandResult&&)>&&);
     void findElementFromElement(RefPtr<JSON::Object>&&, Function<void (CommandResult&&)>&&);
     void findElementsFromElement(RefPtr<JSON::Object>&&, Function<void (CommandResult&&)>&&);
+    void findElementFromShadowRoot(RefPtr<JSON::Object>&&, Function<void(CommandResult&&)>&&);
+    void findElementsFromShadowRoot(RefPtr<JSON::Object>&&, Function<void(CommandResult&&)>&&);
     void getActiveElement(RefPtr<JSON::Object>&&, Function<void (CommandResult&&)>&&);
+    void getElementShadowRoot(RefPtr<JSON::Object>&&, Function<void(CommandResult&&)>&&);
     void isElementSelected(RefPtr<JSON::Object>&&, Function<void (CommandResult&&)>&&);
     void getElementAttribute(RefPtr<JSON::Object>&&, Function<void (CommandResult&&)>&&);
     void getElementProperty(RefPtr<JSON::Object>&&, Function<void (CommandResult&&)>&&);
@@ -96,6 +100,8 @@ private:
     void getElementTagName(RefPtr<JSON::Object>&&, Function<void (CommandResult&&)>&&);
     void getElementRect(RefPtr<JSON::Object>&&, Function<void (CommandResult&&)>&&);
     void isElementEnabled(RefPtr<JSON::Object>&&, Function<void (CommandResult&&)>&&);
+    void getComputedRole(RefPtr<JSON::Object>&&, Function<void (CommandResult&&)>&&);
+    void getComputedLabel(RefPtr<JSON::Object>&&, Function<void (CommandResult&&)>&&);
     void isElementDisplayed(RefPtr<JSON::Object>&&, Function<void (CommandResult&&)>&&);
     void elementClick(RefPtr<JSON::Object>&&, Function<void (CommandResult&&)>&&);
     void elementClear(RefPtr<JSON::Object>&&, Function<void (CommandResult&&)>&&);
@@ -122,8 +128,8 @@ private:
     RefPtr<JSON::Object> validatedCapabilities(const JSON::Object&) const;
     RefPtr<JSON::Object> mergeCapabilities(const JSON::Object&, const JSON::Object&) const;
     RefPtr<JSON::Object> matchCapabilities(const JSON::Object&) const;
-    bool platformValidateCapability(const String&, const RefPtr<JSON::Value>&) const;
-    bool platformMatchCapability(const String&, const RefPtr<JSON::Value>&) const;
+    bool platformValidateCapability(const String&, const Ref<JSON::Value>&) const;
+    bool platformMatchCapability(const String&, const Ref<JSON::Value>&) const;
     bool platformSupportProxyType(const String&) const;
     void parseCapabilities(const JSON::Object& desiredCapabilities, Capabilities&) const;
     void platformParseCapabilities(const JSON::Object& desiredCapabilities, Capabilities&) const;
@@ -136,6 +142,11 @@ private:
 
     HTTPServer m_server;
     RefPtr<Session> m_session;
+
+#if USE(INSPECTOR_SOCKET_SERVER)
+    String m_targetAddress;
+    uint16_t m_targetPort { 0 };
+#endif
 };
 
 } // namespace WebDriver

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -38,7 +38,6 @@
 #import "WKNavigationDataInternal.h"
 #import "WKRetainPtr.h"
 #import "WKStringCF.h"
-#import "WebCertificateInfo.h"
 #import "WebFrameProxy.h"
 #import "WebProcessPool.h"
 #import <wtf/RetainPtr.h>
@@ -64,16 +63,18 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 static void didCreateConnection(WKContextRef, WKConnectionRef connectionRef, const void* clientInfo)
 {
-    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     auto processGroup = (__bridge WKProcessGroup *)clientInfo;
-    ALLOW_DEPRECATED_DECLARATIONS_END
+ALLOW_DEPRECATED_DECLARATIONS_END
     auto delegate = processGroup->_delegate.get();
 
     if ([delegate respondsToSelector:@selector(processGroup:didCreateConnectionToWebProcessPlugIn:)])
         [delegate processGroup:processGroup didCreateConnectionToWebProcessPlugIn:wrapper(*WebKit::toImpl(connectionRef))];
 }
 
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
 static void setUpConnectionClient(WKProcessGroup *processGroup, WKContextRef contextRef)
+ALLOW_DEPRECATED_DECLARATIONS_END
 {
     WKContextConnectionClientV0 connectionClient;
     memset(&connectionClient, 0, sizeof(connectionClient));
@@ -87,9 +88,9 @@ static void setUpConnectionClient(WKProcessGroup *processGroup, WKContextRef con
 
 static WKTypeRef getInjectedBundleInitializationUserData(WKContextRef, const void* clientInfo)
 {
-    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     auto processGroup = (__bridge WKProcessGroup *)clientInfo;
-    ALLOW_DEPRECATED_DECLARATIONS_END
+ALLOW_DEPRECATED_DECLARATIONS_END
     auto delegate = processGroup->_delegate.get();
 
     if ([delegate respondsToSelector:@selector(processGroupWillCreateConnectionToWebProcessPlugIn:)]) {
@@ -101,7 +102,9 @@ static WKTypeRef getInjectedBundleInitializationUserData(WKContextRef, const voi
     return 0;
 }
 
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
 static void setUpInjectedBundleClient(WKProcessGroup *processGroup, WKContextRef contextRef)
+ALLOW_DEPRECATED_DECLARATIONS_END
 {
     WKContextInjectedBundleClientV1 injectedBundleClient;
     memset(&injectedBundleClient, 0, sizeof(injectedBundleClient));
@@ -118,9 +121,9 @@ static void didNavigateWithNavigationData(WKContextRef, WKPageRef pageRef, WKNav
     if (!WebKit::toImpl(frameRef)->isMainFrame())
         return;
 
-    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     WKBrowsingContextController *controller = [WKBrowsingContextController _browsingContextControllerForPageRef:pageRef];
-    ALLOW_DEPRECATED_DECLARATIONS_END
+ALLOW_DEPRECATED_DECLARATIONS_END
     auto historyDelegate = controller->_historyDelegate.get();
 
     if ([historyDelegate respondsToSelector:@selector(browsingContextController:didNavigateWithNavigationData:)])
@@ -132,9 +135,9 @@ static void didPerformClientRedirect(WKContextRef, WKPageRef pageRef, WKURLRef s
     if (!WebKit::toImpl(frameRef)->isMainFrame())
         return;
 
-    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     WKBrowsingContextController *controller = [WKBrowsingContextController _browsingContextControllerForPageRef:pageRef];
-    ALLOW_DEPRECATED_DECLARATIONS_END
+ALLOW_DEPRECATED_DECLARATIONS_END
     auto historyDelegate = controller->_historyDelegate.get();
 
     if ([historyDelegate respondsToSelector:@selector(browsingContextController:didPerformClientRedirectFromURL:toURL:)])
@@ -146,9 +149,9 @@ static void didPerformServerRedirect(WKContextRef, WKPageRef pageRef, WKURLRef s
     if (!WebKit::toImpl(frameRef)->isMainFrame())
         return;
 
-    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     WKBrowsingContextController *controller = [WKBrowsingContextController _browsingContextControllerForPageRef:pageRef];
-    ALLOW_DEPRECATED_DECLARATIONS_END
+ALLOW_DEPRECATED_DECLARATIONS_END
     auto historyDelegate = controller->_historyDelegate.get();
 
     if ([historyDelegate respondsToSelector:@selector(browsingContextController:didPerformServerRedirectFromURL:toURL:)])
@@ -160,16 +163,18 @@ static void didUpdateHistoryTitle(WKContextRef, WKPageRef pageRef, WKStringRef t
     if (!WebKit::toImpl(frameRef)->isMainFrame())
         return;
 
-    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     WKBrowsingContextController *controller = [WKBrowsingContextController _browsingContextControllerForPageRef:pageRef];
-    ALLOW_DEPRECATED_DECLARATIONS_END
+ALLOW_DEPRECATED_DECLARATIONS_END
     auto historyDelegate = controller->_historyDelegate.get();
 
     if ([historyDelegate respondsToSelector:@selector(browsingContextController:didUpdateHistoryTitle:forURL:)])
         [historyDelegate browsingContextController:controller didUpdateHistoryTitle:wrapper(*WebKit::toImpl(titleRef)) forURL:wrapper(*WebKit::toImpl(urlRef))];
 }
 
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
 static void setUpHistoryClient(WKProcessGroup *processGroup, WKContextRef contextRef)
+ALLOW_DEPRECATED_DECLARATIONS_END
 {
     WKContextHistoryClientV0 historyClient;
     memset(&historyClient, 0, sizeof(historyClient));
@@ -207,22 +212,6 @@ static void setUpHistoryClient(WKProcessGroup *processGroup, WKContextRef contex
     return self;
 }
 
-static Vector<WTF::String> toStringVector(NSSet *input)
-{
-    Vector<WTF::String> vector;
-
-    NSUInteger size = input.count;
-    if (!size)
-        return vector;
-
-    vector.reserveInitialCapacity(size);
-    for (id classObj : input) {
-        if (auto* string = NSStringFromClass(classObj))
-            vector.uncheckedAppend(string);
-    }
-    return vector;
-}
-
 - (id)initWithInjectedBundleURL:(NSURL *)bundleURL andCustomClassesForParameterCoder:(NSSet *)classesForCoder
 {
     self = [super init];
@@ -231,7 +220,6 @@ static Vector<WTF::String> toStringVector(NSSet *input)
 
     auto configuration = API::ProcessPoolConfiguration::create();
     configuration->setInjectedBundlePath(bundleURL ? String(bundleURL.path) : String());
-    configuration->setCustomClassesForParameterCoder(toStringVector(classesForCoder));
 
     _processPool = WebKit::WebProcessPool::create(configuration);
 
@@ -251,10 +239,11 @@ static Vector<WTF::String> toStringVector(NSSet *input)
 {
     _delegate = delegate;
 
-    // If the client can observe when the connection to the WebProcess injected bundle is established, then we cannot
-    // safely delay the launch of the WebProcess until something is loaded in the web view.
+    // If the client can observe when the connection to the WebProcess injected bundle is established, then
+    // delaying the launch of the WebProcess until something is loaded in the web view may not be safe.
+    // As a result, we disable the feature by default and let the client opt-in via WKWebViewConfiguration.
     if ([delegate respondsToSelector:@selector(processGroup:didCreateConnectionToWebProcessPlugIn:)])
-        _processPool->disableDelayedWebProcessLaunch();
+        _processPool->setDelaysWebProcessLaunchDefaultValue(false);
 }
 
 @end
@@ -267,11 +256,6 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 - (WKContextRef)_contextRef
 {
     return toAPI(_processPool.get());
-}
-
-- (void)_setAllowsSpecificHTTPSCertificate:(NSArray *)certificateChain forHost:(NSString *)host
-{
-    _processPool->allowSpecificHTTPSCertificateForHost(WebKit::WebCertificateInfo::create(WebCore::CertificateInfo((__bridge CFArrayRef)certificateChain)).ptr(), host);
 }
 
 #if PLATFORM(IOS_FAMILY)

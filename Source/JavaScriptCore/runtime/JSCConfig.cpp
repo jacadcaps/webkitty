@@ -25,8 +25,22 @@
 
 #include "config.h"
 #include "JSCConfig.h"
+#include <wtf/WTFConfig.h>
 
 namespace JSC {
+
+#if !ENABLE(UNIFIED_AND_FREEZABLE_CONFIG_RECORD)
+Config g_jscConfig;
+#endif
+
+#if OS(WINDOWS) && ENABLE(WEBASSEMBLY)
+WTF::Config g_wtfConfigForLLInt = g_wtfConfig;
+#endif
+
+Config& Config::singleton()
+{
+    return g_jscConfig;
+}
 
 void Config::disableFreezingForTesting()
 {

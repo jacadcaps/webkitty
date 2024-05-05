@@ -44,100 +44,83 @@ namespace WebCore {
 void Font::platformInit()
 {
     m_syntheticBoldOffset = m_platformData.syntheticBold() ? 1.0f : 0.f;
-    m_scriptCache = 0;
-    m_scriptFontProperties = 0;
-
-    if (m_platformData.useGDI())
-       return initGDIFont();
 
     if (!m_platformData.size()) {
         m_fontMetrics.reset();
         m_avgCharWidth = 0;
         m_maxCharWidth = 0;
-        m_scriptCache = 0;
-        m_scriptFontProperties = 0;
         return;
     }
 
     HWndDC dc(0);
     SaveDC(dc);
 
-    cairo_scaled_font_t* scaledFont = m_platformData.scaledFont();
-    const double metricsMultiplier = cairo_win32_scaled_font_get_metrics_factor(scaledFont) * m_platformData.size();
+    const double metricsMultiplier = 1. / cWindowsFontScaleFactor;
+    HGDIOBJ oldFont = SelectObject(dc, m_platformData.hfont());
 
-    cairo_win32_scaled_font_select_font(scaledFont, dc);
+    wchar_t faceName[LF_FACESIZE];
+    GetTextFace(dc, LF_FACESIZE, faceName);
+
+    OUTLINETEXTMETRIC metrics;
+    if (!GetOutlineTextMetrics(dc, sizeof(metrics), &metrics))
+        return;
+
+    float xHeight = metrics.otmTextMetrics.tmAscent * 0.56f; // Best guess for xHeight if no x glyph is present.
+    GLYPHMETRICS gm;
+    static const MAT2 identity = { { 0, 1 }, { 0, 0 }, { 0, 0 }, { 0, 1 } };
+    DWORD len = GetGlyphOutline(dc, 'x', GGO_METRICS, &gm, 0, 0, &identity);
+    if (len != GDI_ERROR && gm.gmptGlyphOrigin.y > 0)
+        xHeight = gm.gmptGlyphOrigin.y;
+
+    SelectObject(dc, oldFont);
+    RestoreDC(dc, -1);
+
+    // Disable antialiasing when rendering with Ahem because many tests require this.
+    if (!_wcsicmp(faceName, L"Ahem"))
+        m_allowsAntialiasing = false;
 
     // FIXME: Needs to take OS/2 USE_TYPO_METRICS flag into account
     // https://bugs.webkit.org/show_bug.cgi?id=199186
-    TEXTMETRIC textMetrics;
-    GetTextMetrics(dc, &textMetrics);
-    float ascent = textMetrics.tmAscent * metricsMultiplier;
-    float descent = textMetrics.tmDescent * metricsMultiplier;
-    float lineGap = textMetrics.tmExternalLeading * metricsMultiplier;
+    float ascent = metrics.otmTextMetrics.tmAscent * metricsMultiplier;
+    float descent = metrics.otmTextMetrics.tmDescent * metricsMultiplier;
+    float capHeight = (metrics.otmTextMetrics.tmAscent - metrics.otmTextMetrics.tmInternalLeading) * metricsMultiplier;
+    float lineGap = metrics.otmTextMetrics.tmExternalLeading * metricsMultiplier;
 
     m_fontMetrics.setAscent(ascent);
     m_fontMetrics.setDescent(descent);
+    m_fontMetrics.setCapHeight(capHeight);
     m_fontMetrics.setLineGap(lineGap);
     m_fontMetrics.setLineSpacing(lroundf(ascent) + lroundf(descent) + lroundf(lineGap));
-    m_avgCharWidth = textMetrics.tmAveCharWidth * metricsMultiplier;
-    m_maxCharWidth = textMetrics.tmMaxCharWidth * metricsMultiplier;
+    m_fontMetrics.setUnitsPerEm(metrics.otmEMSquare);
+    m_fontMetrics.setXHeight(xHeight * metricsMultiplier);
+    m_avgCharWidth = metrics.otmTextMetrics.tmAveCharWidth * metricsMultiplier;
+    m_maxCharWidth = metrics.otmTextMetrics.tmMaxCharWidth * metricsMultiplier;
+}
 
-    cairo_text_extents_t extents;
-    cairo_scaled_font_text_extents(scaledFont, "x", &extents);
-    float xHeight = -extents.y_bearing;
+void Font::determinePitch()
+{
+    if (origin() == Origin::Remote) {
+        m_treatAsFixedPitch = false;
+        return;
+    }
 
-    m_fontMetrics.setXHeight(xHeight);
-    cairo_win32_scaled_font_done_font(scaledFont);
+    // TEXTMETRICS have this. Set m_treatAsFixedPitch based off that.
+    HWndDC dc(0);
+    SaveDC(dc);
+    SelectObject(dc, m_platformData.hfont());
 
-    m_scriptCache = 0;
-    m_scriptFontProperties = 0;
+    // Yes, this looks backwards, but the fixed pitch bit is actually set if the font
+    // is *not* fixed pitch. Unbelievable but true!
+    TEXTMETRIC tm;
+    GetTextMetrics(dc, &tm);
+    m_treatAsFixedPitch = !(tm.tmPitchAndFamily & TMPF_FIXED_PITCH);
 
     RestoreDC(dc, -1);
 }
 
-FloatRect Font::platformBoundsForGlyph(Glyph glyph) const
+bool Font::platformSupportsCodePoint(char32_t character, std::optional<char32_t> variation) const
 {
-    if (m_platformData.useGDI())
-        return boundsForGDIGlyph(glyph);
-
-    HWndDC dc(0);
-    SaveDC(dc);
-    auto scaledFont = m_platformData.scaledFont();
-    cairo_win32_scaled_font_select_font(scaledFont, dc);
-
-    GLYPHMETRICS gdiMetrics;
-    static const MAT2 identity = { { 0, 1 }, { 0, 0 }, { 0, 0 }, { 0, 1 } };
-    GetGlyphOutline(dc, glyph, GGO_METRICS | GGO_GLYPH_INDEX, &gdiMetrics, 0, 0, &identity);
-
-    cairo_win32_scaled_font_done_font(scaledFont);
-    RestoreDC(dc, -1);
-    return FloatRect(gdiMetrics.gmptGlyphOrigin.x, -gdiMetrics.gmptGlyphOrigin.y,
-        gdiMetrics.gmBlackBoxX + m_syntheticBoldOffset, gdiMetrics.gmBlackBoxY);
-}
-    
-float Font::platformWidthForGlyph(Glyph glyph) const
-{
-    if (m_platformData.useGDI())
-       return widthForGDIGlyph(glyph);
-
-    if (!m_platformData.size())
-        return 0;
-
-    HWndDC dc(0);
-    SaveDC(dc);
-
-    cairo_scaled_font_t* scaledFont = m_platformData.scaledFont();
-    cairo_win32_scaled_font_select_font(scaledFont, dc);
-
-    int width;
-    GetCharWidthI(dc, glyph, 1, 0, &width);
-
-    cairo_win32_scaled_font_done_font(scaledFont);
-
-    RestoreDC(dc, -1);
-
-    const double metricsMultiplier = cairo_win32_scaled_font_get_metrics_factor(scaledFont) * m_platformData.size();
-    return width * metricsMultiplier;
+    return variation ? false : glyphForCharacter(character);
 }
 
 }

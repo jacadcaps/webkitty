@@ -2,7 +2,8 @@
  * Copyright (C) 2001 Peter Kelly (pmk@post.com)
  * Copyright (C) 2001 Tobias Anton (anton@stud.fbi.fh-darmstadt.de)
  * Copyright (C) 2006 Samuel Weinig (sam.weinig@gmail.com)
- * Copyright (C) 2003, 2004, 2005, 2006, 2008, 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2024 Apple Inc. All rights reserved.
+ * Copyright (C) 2017 Google Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -43,7 +44,7 @@ public:
     {
         return adoptRef(*new UIEvent);
     }
-    static Ref<UIEvent> create(const AtomString& type, const UIEventInit& initializer)
+    static Ref<UIEvent> create(const AtomString& type, const UIEventInit& initializer, IsTrusted = IsTrusted::No)
     {
         return adoptRef(*new UIEvent(type, initializer));
     }
@@ -62,14 +63,14 @@ public:
     virtual int pageX() const;
     virtual int pageY() const;
 
-    virtual int which() const;
+    virtual unsigned which() const;
 
 protected:
     UIEvent();
 
     UIEvent(const AtomString& type, CanBubble, IsCancelable, IsComposed, RefPtr<WindowProxy>&&, int detail);
     UIEvent(const AtomString& type, CanBubble, IsCancelable, IsComposed, MonotonicTime timestamp, RefPtr<WindowProxy>&&, int detail, IsTrusted = IsTrusted::Yes);
-    UIEvent(const AtomString&, const UIEventInit&);
+    UIEvent(const AtomString&, const UIEventInit&, IsTrusted = IsTrusted::No);
 
 private:
     bool isUIEvent() const final;

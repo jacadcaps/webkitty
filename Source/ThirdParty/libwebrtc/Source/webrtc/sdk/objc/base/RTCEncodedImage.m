@@ -16,6 +16,7 @@
 @synthesize encodedWidth = _encodedWidth;
 @synthesize encodedHeight = _encodedHeight;
 @synthesize timeStamp = _timeStamp;
+@synthesize duration = _duration;
 @synthesize captureTimeMs = _captureTimeMs;
 @synthesize ntpTimeMs = _ntpTimeMs;
 @synthesize flags = _flags;
@@ -23,7 +24,6 @@
 @synthesize encodeFinishMs = _encodeFinishMs;
 @synthesize frameType = _frameType;
 @synthesize rotation = _rotation;
-@synthesize completeFrame = _completeFrame;
 @synthesize qp = _qp;
 @synthesize contentType = _contentType;
 

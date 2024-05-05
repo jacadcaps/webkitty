@@ -24,44 +24,40 @@
  */
 
 #include "config.h"
-#include "WebEvent.h"
+#include "WebTouchEvent.h"
 
-#if ENABLE(TOUCH_EVENTS) && !PLATFORM(IOS_FAMILY)
+#if ENABLE(TOUCH_EVENTS)
 
 #include "ArgumentCoders.h"
 
 namespace WebKit {
 
-WebTouchEvent::WebTouchEvent(WebEvent::Type type, Vector<WebPlatformTouchPoint>&& touchPoints, OptionSet<Modifier> modifiers, WallTime timestamp)
-    : WebEvent(type, modifiers, timestamp)
+#if !PLATFORM(IOS_FAMILY)
+
+WebTouchEvent::WebTouchEvent(WebEvent&& event, Vector<WebPlatformTouchPoint>&& touchPoints)
+    : WebEvent(WTFMove(event))
     , m_touchPoints(WTFMove(touchPoints))
 {
-    ASSERT(isTouchEventType(type));
+    ASSERT(isTouchEventType(type()));
 }
 
-void WebTouchEvent::encode(IPC::Encoder& encoder) const
+bool WebTouchEvent::isTouchEventType(WebEventType type)
 {
-    WebEvent::encode(encoder);
-
-    encoder << m_touchPoints;
+    return type == WebEventType::TouchStart || type == WebEventType::TouchMove || type == WebEventType::TouchEnd || type == WebEventType::TouchCancel;
 }
 
-bool WebTouchEvent::decode(IPC::Decoder& decoder, WebTouchEvent& result)
-{
-    if (!WebEvent::decode(decoder, result))
-        return false;
+#endif // !PLATFORM(IOS_FAMILY)
 
-    if (!decoder.decode(result.m_touchPoints))
-        return false;
+bool WebTouchEvent::allTouchPointsAreReleased() const
+{
+    for (const auto& touchPoint : touchPoints()) {
+        if (touchPoint.state() != WebPlatformTouchPoint::State::Released && touchPoint.state() != WebPlatformTouchPoint::State::Cancelled)
+            return false;
+    }
 
     return true;
 }
 
-bool WebTouchEvent::isTouchEventType(Type type)
-{
-    return type == TouchStart || type == TouchMove || type == TouchEnd || type == TouchCancel;
-}
-    
 } // namespace WebKit
 
-#endif // ENABLE(TOUCH_EVENTS) && !PLATFORM(IOS_FAMILY)
+#endif // ENABLE(TOUCH_EVENTS)

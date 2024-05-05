@@ -28,6 +28,7 @@
 #if ENABLE(GPU_PROCESS) && ENABLE(ENCRYPTED_MEDIA)
 
 #include "RemoteCDMIdentifier.h"
+#include "RemoteCDMInstanceIdentifier.h"
 #include "RemoteCDMInstanceSessionIdentifier.h"
 #include "WebProcessSupplement.h"
 #include <WebCore/CDMFactory.h>
@@ -59,8 +60,7 @@ public:
     explicit RemoteCDMFactory(WebProcess&);
     virtual ~RemoteCDMFactory();
 
-    static const char* supplementName();
-    WebProcess& process() const { return m_process; }
+    static ASCIILiteral supplementName();
 
     GPUProcessConnection& gpuProcessConnection();
 
@@ -68,16 +68,17 @@ public:
 
     void didReceiveSessionMessage(IPC::Connection&, IPC::Decoder&);
 
-    void addSession(Ref<RemoteCDMInstanceSession>&&);
+    void addSession(RemoteCDMInstanceSession&);
     void removeSession(RemoteCDMInstanceSessionIdentifier);
 
+    void removeInstance(RemoteCDMInstanceIdentifier);
+
 private:
-    std::unique_ptr<WebCore::CDMPrivate> createCDM(const String&) final;
+    std::unique_ptr<WebCore::CDMPrivate> createCDM(const String&, const WebCore::CDMPrivateClient&) final;
     bool supportsKeySystem(const String&) final;
 
-    HashMap<RemoteCDMInstanceSessionIdentifier, Ref<RemoteCDMInstanceSession>> m_sessions;
+    HashMap<RemoteCDMInstanceSessionIdentifier, WeakPtr<RemoteCDMInstanceSession>> m_sessions;
     HashMap<RemoteCDMIdentifier, std::unique_ptr<RemoteCDM>> m_cdms;
-    WebProcess& m_process;
 };
 
 }

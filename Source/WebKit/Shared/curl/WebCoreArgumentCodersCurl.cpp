@@ -30,8 +30,6 @@
 #include <WebCore/CertificateInfo.h>
 #include <WebCore/CurlProxySettings.h>
 #include <WebCore/DictionaryPopupInfo.h>
-#include <WebCore/Font.h>
-#include <WebCore/FontAttributes.h>
 #include <WebCore/ProtectionSpace.h>
 #include <WebCore/ResourceError.h>
 #include <WebCore/ResourceRequest.h>
@@ -41,147 +39,6 @@
 namespace IPC {
 
 using namespace WebCore;
-
-void ArgumentCoder<ResourceRequest>::encodePlatformData(Encoder& encoder, const ResourceRequest& resourceRequest)
-{
-    resourceRequest.encodeWithPlatformData(encoder);
-}
-
-bool ArgumentCoder<ResourceRequest>::decodePlatformData(Decoder& decoder, ResourceRequest& resourceRequest)
-{
-    return resourceRequest.decodeWithPlatformData(decoder);
-}
-
-void ArgumentCoder<CertificateInfo>::encode(Encoder& encoder, const CertificateInfo& certificateInfo)
-{
-    encoder << certificateInfo.verificationError();
-    encoder << certificateInfo.certificateChain().size();
-
-    for (auto certificate : certificateInfo.certificateChain())
-        encoder << certificate;
-}
-
-bool ArgumentCoder<CertificateInfo>::decode(Decoder& decoder, CertificateInfo& certificateInfo)
-{
-    int verificationError;
-    if (!decoder.decode(verificationError))
-        return false;
-
-    size_t certificateChainSize;
-    if (!decoder.decode(certificateChainSize))
-        return false;
-
-    CertificateInfo::CertificateChain certificateChain;
-    for (size_t i = 0; i < certificateChainSize; i++) {
-        CertificateInfo::Certificate certificate;
-        if (!decoder.decode(certificate))
-            return false;
-
-        certificateChain.append(certificate);
-    }
-
-    certificateInfo = CertificateInfo { verificationError, WTFMove(certificateChain) };
-
-    return true;
-}
-
-void ArgumentCoder<ResourceError>::encodePlatformData(Encoder& encoder, const ResourceError& resourceError)
-{
-    encoder << resourceError.type();
-    if (resourceError.isNull())
-        return;
-
-    encoder << resourceError.domain();
-    encoder << resourceError.errorCode();
-    encoder << resourceError.failingURL().string();
-    encoder << resourceError.localizedDescription();
-    encoder << resourceError.sslErrors();
-}
-
-bool ArgumentCoder<ResourceError>::decodePlatformData(Decoder& decoder, ResourceError& resourceError)
-{
-    ResourceErrorBase::Type errorType;
-    if (!decoder.decode(errorType))
-        return false;
-    if (errorType == ResourceErrorBase::Type::Null) {
-        resourceError = { };
-        return true;
-    }
-
-    String domain;
-    if (!decoder.decode(domain))
-        return false;
-
-    int errorCode;
-    if (!decoder.decode(errorCode))
-        return false;
-
-    String failingURL;
-    if (!decoder.decode(failingURL))
-        return false;
-
-    String localizedDescription;
-    if (!decoder.decode(localizedDescription))
-        return false;
-
-    unsigned sslErrors;
-    if (!decoder.decode(sslErrors))
-        return false;
-
-    resourceError = ResourceError(domain, errorCode, URL(URL(), failingURL), localizedDescription, errorType);
-    resourceError.setSslErrors(sslErrors);
-
-    return true;
-}
-
-void ArgumentCoder<ProtectionSpace>::encodePlatformData(Encoder& encoder, const ProtectionSpace& space)
-{
-    encoder << space.host() << space.port() << space.realm();
-    encoder << space.authenticationScheme();
-    encoder << space.serverType();
-    encoder << space.certificateInfo();
-}
-
-bool ArgumentCoder<ProtectionSpace>::decodePlatformData(Decoder& decoder, ProtectionSpace& space)
-{
-    String host;
-    if (!decoder.decode(host))
-        return false;
-
-    int port;
-    if (!decoder.decode(port))
-        return false;
-
-    String realm;
-    if (!decoder.decode(realm))
-        return false;
-
-    ProtectionSpaceAuthenticationScheme authenticationScheme;
-    if (!decoder.decode(authenticationScheme))
-        return false;
-
-    ProtectionSpaceServerType serverType;
-    if (!decoder.decode(serverType))
-        return false;
-
-    CertificateInfo certificateInfo;
-    if (!decoder.decode(certificateInfo))
-        return false;
-
-    space = ProtectionSpace(host, port, serverType, realm, authenticationScheme, certificateInfo);
-    return true;
-}
-
-void ArgumentCoder<Credential>::encodePlatformData(Encoder&, const Credential&)
-{
-    ASSERT_NOT_REACHED();
-}
-
-bool ArgumentCoder<Credential>::decodePlatformData(Decoder&, Credential&)
-{
-    ASSERT_NOT_REACHED();
-    return false;
-}
 
 void ArgumentCoder<CurlProxySettings>::encode(Encoder& encoder, const CurlProxySettings& settings)
 {
@@ -193,70 +50,24 @@ void ArgumentCoder<CurlProxySettings>::encode(Encoder& encoder, const CurlProxyS
     encoder << settings.ignoreHosts();
 }
 
-Optional<CurlProxySettings> ArgumentCoder<CurlProxySettings>::decode(Decoder& decoder)
+std::optional<CurlProxySettings> ArgumentCoder<CurlProxySettings>::decode(Decoder& decoder)
 {
     CurlProxySettings::Mode mode;
     if (!decoder.decode(mode))
-        return WTF::nullopt;
+        return std::nullopt;
 
     if (mode != CurlProxySettings::Mode::Custom)
         return CurlProxySettings { mode };
 
     URL url;
     if (!decoder.decode(url))
-        return WTF::nullopt;
+        return std::nullopt;
 
     String ignoreHosts;
     if (!decoder.decode(ignoreHosts))
-        return WTF::nullopt;
+        return std::nullopt;
 
     return CurlProxySettings { WTFMove(url), WTFMove(ignoreHosts) };
 }
-
-void ArgumentCoder<FontAttributes>::encodePlatformData(Encoder&, const FontAttributes&)
-{
-    ASSERT_NOT_REACHED();
-}
-
-Optional<FontAttributes> ArgumentCoder<FontAttributes>::decodePlatformData(Decoder&, FontAttributes&)
-{
-    ASSERT_NOT_REACHED();
-    return WTF::nullopt;
-}
-
-void ArgumentCoder<DictionaryPopupInfo>::encodePlatformData(Encoder&, const DictionaryPopupInfo&)
-{
-    ASSERT_NOT_REACHED();
-}
-
-bool ArgumentCoder<DictionaryPopupInfo>::decodePlatformData(Decoder&, DictionaryPopupInfo&)
-{
-    ASSERT_NOT_REACHED();
-    return false;
-}
-
-void ArgumentCoder<FontHandle>::encodePlatformData(Encoder&, const FontHandle&)
-{
-    ASSERT_NOT_REACHED();
-}
-
-bool ArgumentCoder<FontHandle>::decodePlatformData(Decoder&, FontHandle&)
-{
-    ASSERT_NOT_REACHED();
-    return false;
-}
-
-#if ENABLE(VIDEO)
-void ArgumentCoder<SerializedPlatformDataCueValue>::encodePlatformData(Encoder& encoder, const SerializedPlatformDataCueValue& value)
-{
-    ASSERT_NOT_REACHED();
-}
-
-Optional<SerializedPlatformDataCueValue>  ArgumentCoder<SerializedPlatformDataCueValue>::decodePlatformData(Decoder& decoder, WebCore::SerializedPlatformDataCueValue::PlatformType platformType)
-{
-    ASSERT_NOT_REACHED();
-    return WTF::nullopt;
-}
-#endif
 
 }

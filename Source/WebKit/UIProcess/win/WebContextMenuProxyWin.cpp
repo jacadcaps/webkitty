@@ -60,14 +60,14 @@ static void createMenuItem(const ContextMenuContextData &context, HMENU menu, co
     flags |= data.checked() ? MF_CHECKED : MF_UNCHECKED;
 
     switch (data.type()) {
-    case ActionType:
-    case CheckableActionType:
+    case ContextMenuItemType::Action:
+    case ContextMenuItemType::CheckableAction:
         ::AppendMenu(menu, flags | MF_STRING, data.action(), data.title().wideCharacters().data());
         break;
-    case SeparatorType:
+    case ContextMenuItemType::Separator:
         ::AppendMenu(menu, flags | MF_SEPARATOR, data.action(), nullptr);
         break;
-    case SubmenuType:
+    case ContextMenuItemType::Submenu:
         HMENU submenu = createMenu(context);
         populate(context, submenu, data.submenu());
         ::AppendMenu(menu, flags | MF_POPUP, (UINT_PTR)submenu, data.title().wideCharacters().data());
@@ -95,9 +95,9 @@ void WebContextMenuProxyWin::showContextMenuWithItems(Vector<Ref<WebContextMenuI
 
     UINT flags = TPM_RIGHTBUTTON | TPM_TOPALIGN | TPM_VERPOSANIMATION | TPM_HORIZONTAL | TPM_LEFTALIGN | TPM_HORPOSANIMATION;
     POINT pt { m_context.menuLocation().x(), m_context.menuLocation().y() };
-    HWND wnd = page()->viewWidget();
+    HWND wnd = reinterpret_cast<HWND>(page()->viewWidget());
     ::ClientToScreen(wnd, &pt);
-    ::TrackPopupMenuEx(m_menu, flags, pt.x, pt.y, page()->viewWidget(), nullptr);
+    ::TrackPopupMenuEx(m_menu, flags, pt.x, pt.y, wnd, nullptr);
 }
 
 WebContextMenuProxyWin::WebContextMenuProxyWin(WebPageProxy& page, ContextMenuContextData&& context, const UserData& userData)

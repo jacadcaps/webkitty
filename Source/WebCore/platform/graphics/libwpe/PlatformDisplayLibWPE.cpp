@@ -28,13 +28,13 @@
 
 #if USE(WPE_RENDERER)
 
-#include "GLContextEGL.h"
+#include "GLContext.h"
 
 #if USE(LIBEPOXY)
 // FIXME: For now default to the GBM EGL platform, but this should really be
 // somehow deducible from the build configuration.
 #define __GBM__ 1
-#include "EpoxyEGL.h"
+#include <epoxy/egl.h>
 #else
 #if PLATFORM(WAYLAND)
 // These includes need to be in this order because wayland-egl.h defines WL_EGL_PLATFORM
@@ -46,6 +46,11 @@
 
 #include <wpe/wpe-egl.h>
 
+#ifndef EGL_EXT_platform_base
+#define EGL_EXT_platform_base 1
+typedef EGLDisplay (EGLAPIENTRYP PFNEGLGETPLATFORMDISPLAYEXTPROC) (EGLenum platform, void *native_display, const EGLint *attrib_list);
+#endif
+
 namespace WebCore {
 
 std::unique_ptr<PlatformDisplayLibWPE> PlatformDisplayLibWPE::create()
@@ -54,7 +59,6 @@ std::unique_ptr<PlatformDisplayLibWPE> PlatformDisplayLibWPE::create()
 }
 
 PlatformDisplayLibWPE::PlatformDisplayLibWPE()
-    : PlatformDisplay(NativeDisplayOwned::No)
 {
 #if PLATFORM(GTK)
     PlatformDisplay::setSharedDisplayForCompositing(*this);
@@ -63,20 +67,54 @@ PlatformDisplayLibWPE::PlatformDisplayLibWPE()
 
 PlatformDisplayLibWPE::~PlatformDisplayLibWPE()
 {
-    wpe_renderer_backend_egl_destroy(m_backend);
+    if (m_backend)
+        wpe_renderer_backend_egl_destroy(m_backend);
 }
 
 bool PlatformDisplayLibWPE::initialize(int hostFd)
 {
     m_backend = wpe_renderer_backend_egl_create(hostFd);
 
-    m_eglDisplay = eglGetDisplay(wpe_renderer_backend_egl_get_native_display(m_backend));
+    EGLNativeDisplayType eglNativeDisplay = wpe_renderer_backend_egl_get_native_display(m_backend);
+
+#if WPE_CHECK_VERSION(1, 1, 0)
+    uint32_t eglPlatform = wpe_renderer_backend_egl_get_platform(m_backend);
+    if (eglPlatform) {
+        using GetPlatformDisplayType = PFNEGLGETPLATFORMDISPLAYEXTPROC;
+        GetPlatformDisplayType getPlatformDisplay =
+            [] {
+                const char* extensions = eglQueryString(nullptr, EGL_EXTENSIONS);
+                if (GLContext::isExtensionSupported(extensions, "EGL_EXT_platform_base")) {
+                    if (auto extension = reinterpret_cast<GetPlatformDisplayType>(eglGetProcAddress("eglGetPlatformDisplayEXT")))
+                        return extension;
+                }
+                if (GLContext::isExtensionSupported(extensions, "EGL_KHR_platform_base")) {
+                    if (auto extension = reinterpret_cast<GetPlatformDisplayType>(eglGetProcAddress("eglGetPlatformDisplay")))
+                        return extension;
+                }
+                return GetPlatformDisplayType(nullptr);
+            }();
+
+        if (getPlatformDisplay)
+            m_eglDisplay = getPlatformDisplay(eglPlatform, eglNativeDisplay, nullptr);
+    }
+#endif
+
+    if (m_eglDisplay == EGL_NO_DISPLAY)
+        m_eglDisplay = eglGetDisplay(eglNativeDisplay);
     if (m_eglDisplay == EGL_NO_DISPLAY) {
-        WTFLogAlways("PlatformDisplayLibWPE: could not create the EGL display: %s.", GLContextEGL::lastErrorString());
+        WTFLogAlways("PlatformDisplayLibWPE: could not create the EGL display: %s.", GLContext::lastErrorString());
         return false;
     }
 
     PlatformDisplay::initializeEGLDisplay();
+
+#if ENABLE(WEBGL)
+    if (m_eglDisplay != EGL_NO_DISPLAY) {
+        m_anglePlatform = eglPlatform;
+        m_angleNativeDisplay = eglNativeDisplay;
+    }
+#endif
     return m_eglDisplay != EGL_NO_DISPLAY;
 }
 

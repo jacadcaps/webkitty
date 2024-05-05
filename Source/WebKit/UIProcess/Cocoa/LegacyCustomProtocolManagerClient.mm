@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,6 +26,7 @@
 #import "config.h"
 #import "LegacyCustomProtocolManagerClient.h"
 
+#import "CacheStoragePolicy.h"
 #import "DataReference.h"
 #import "LegacyCustomProtocolManagerProxy.h"
 #import <WebCore/ResourceError.h>
@@ -37,7 +38,7 @@
     WeakPtr<WebKit::LegacyCustomProtocolManagerProxy> _customProtocolManagerProxy;
     WebKit::LegacyCustomProtocolID _customProtocolID;
     NSURLCacheStoragePolicy _storagePolicy;
-    NSURLConnection *_urlConnection;
+    RetainPtr<NSURLConnection> _urlConnection;
 }
 - (id)initWithLegacyCustomProtocolManagerProxy:(WebKit::LegacyCustomProtocolManagerProxy&)customProtocolManagerProxy customProtocolID:(WebKit::LegacyCustomProtocolID)customProtocolID request:(NSURLRequest *)request;
 - (void)cancel;
@@ -52,14 +53,14 @@
         return nil;
 
     ASSERT(request);
-    _customProtocolManagerProxy = makeWeakPtr(customProtocolManagerProxy);
+    _customProtocolManagerProxy = customProtocolManagerProxy;
     _customProtocolID = customProtocolID;
     _storagePolicy = NSURLCacheStorageNotAllowed;
-    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    _urlConnection = [[NSURLConnection alloc] initWithRequest:request delegate:self startImmediately:NO];
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    _urlConnection = adoptNS([[NSURLConnection alloc] initWithRequest:request delegate:self startImmediately:NO]);
     [_urlConnection scheduleInRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
     [_urlConnection start];
-    ALLOW_DEPRECATED_DECLARATIONS_END
+ALLOW_DEPRECATED_DECLARATIONS_END
 
     return self;
 }
@@ -67,7 +68,6 @@
 - (void)dealloc
 {
     [_urlConnection cancel];
-    [_urlConnection release];
     [super dealloc];
 }
 
@@ -101,7 +101,7 @@
         return;
 
     WebCore::ResourceResponse coreResponse(response);
-    _customProtocolManagerProxy->didReceiveResponse(_customProtocolID, coreResponse, _storagePolicy);
+    _customProtocolManagerProxy->didReceiveResponse(_customProtocolID, coreResponse, WebKit::toCacheStoragePolicy(_storagePolicy));
 }
 
 - (void)connection:(NSURLConnection *)connection didReceiveData:(NSData *)data
@@ -145,11 +145,10 @@ void LegacyCustomProtocolManagerClient::startLoading(LegacyCustomProtocolManager
     if (!request)
         return;
 
-    WKCustomProtocolLoader *loader = [[WKCustomProtocolLoader alloc] initWithLegacyCustomProtocolManagerProxy:manager customProtocolID:customProtocolID request:request];
+    auto loader = adoptNS([[WKCustomProtocolLoader alloc] initWithLegacyCustomProtocolManagerProxy:manager customProtocolID:customProtocolID request:request]);
     ASSERT(loader);
     ASSERT(!m_loaderMap.contains(customProtocolID));
-    m_loaderMap.add(customProtocolID, loader);
-    [loader release];
+    m_loaderMap.add(customProtocolID, WTFMove(loader));
 }
 
 void LegacyCustomProtocolManagerClient::stopLoading(LegacyCustomProtocolManagerProxy&, WebKit::LegacyCustomProtocolID customProtocolID)

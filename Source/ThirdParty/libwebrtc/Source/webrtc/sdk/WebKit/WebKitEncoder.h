@@ -25,10 +25,12 @@
 
 #pragma once
 
+#include "WebKitUtilities.h"
 #include "api/video_codecs/video_encoder.h"
 #include "api/video_codecs/video_encoder_factory.h"
 #include "api/video/encoded_image.h"
 #include "modules/include/module_common_types.h"
+#include "modules/video_coding/include/video_error_codes.h"
 
 using CVPixelBufferRef = struct __CVBuffer*;
 
@@ -40,22 +42,7 @@ class VideoFrame;
 struct SdpVideoFormat;
 class Settings;
 
-class VideoEncoderFactoryWithSimulcast final : public VideoEncoderFactory {
-public:
-    explicit VideoEncoderFactoryWithSimulcast(std::unique_ptr<VideoEncoderFactory>&& factory)
-        : m_internalEncoderFactory(std::move(factory))
-    {
-    }
-
-    VideoEncoderFactory::CodecInfo QueryVideoEncoder(const SdpVideoFormat& format) const final { return m_internalEncoderFactory->QueryVideoEncoder(format); }
-
-    std::unique_ptr<VideoEncoder> CreateVideoEncoder(const SdpVideoFormat& format) final;
- 
-    std::vector<SdpVideoFormat> GetSupportedFormats() const final { return m_internalEncoderFactory->GetSupportedFormats(); }
-
-private:
-    const std::unique_ptr<VideoEncoderFactory> m_internalEncoderFactory;
-};
+std::unique_ptr<webrtc::VideoEncoderFactory> createWebKitEncoderFactory(WebKitH265, WebKitVP9, WebKitH264LowLatency, WebKitAv1);
 
 using WebKitVideoEncoder = void*;
 using VideoEncoderCreateCallback = WebKitVideoEncoder(*)(const SdpVideoFormat& format);
@@ -68,189 +55,43 @@ using VideoEncoderSetRatesCallback = void(*)(WebKitVideoEncoder, const VideoEnco
 void setVideoEncoderCallbacks(VideoEncoderCreateCallback, VideoEncoderReleaseCallback, VideoEncoderInitializeCallback, VideoEncoderEncodeCallback, VideoEncoderRegisterEncodeCompleteCallback, VideoEncoderSetRatesCallback);
 
 using WebKitEncodedFrameTiming = EncodedImage::Timing;
+
+enum class WebKitEncodedVideoRotation : uint8_t {
+    kVideoRotation_0,
+    kVideoRotation_90,
+    kVideoRotation_180,
+    kVideoRotation_270
+};
+
 struct WebKitEncodedFrameInfo {
     uint32_t width { 0 };
     uint32_t height { 0 };
     int64_t timeStamp { 0 };
+    std::optional<uint64_t> duration;
     int64_t ntpTimeMS { 0 };
     int64_t captureTimeMS { 0 };
     VideoFrameType frameType { VideoFrameType::kVideoFrameDelta };
-    VideoRotation rotation { kVideoRotation_0 };
+    WebKitEncodedVideoRotation rotation { WebKitEncodedVideoRotation::kVideoRotation_0 };
     VideoContentType contentType { VideoContentType::UNSPECIFIED };
     bool completeFrame = false;
     int qp { -1 };
+    int temporalIndex { -1 };
     WebKitEncodedFrameTiming timing;
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static bool decode(Decoder&, WebKitEncodedFrameInfo&);
 };
 
-class WebKitRTPFragmentationHeader {
-public:
-    explicit WebKitRTPFragmentationHeader(webrtc::RTPFragmentationHeader* = nullptr);
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static bool decode(Decoder&, WebKitRTPFragmentationHeader&);
-
-    webrtc::RTPFragmentationHeader* value() { return m_value; };
-
-private:
-    webrtc::RTPFragmentationHeader* m_value { nullptr };
-    std::unique_ptr<webrtc::RTPFragmentationHeader> m_ownedHeader;
-};
-
-class RemoteVideoEncoder final : public webrtc::VideoEncoder {
-public:
-    explicit RemoteVideoEncoder(WebKitVideoEncoder);
-    ~RemoteVideoEncoder() = default;
-
-    static void encodeComplete(void* callback, uint8_t* buffer, size_t length, const WebKitEncodedFrameInfo&, const webrtc::RTPFragmentationHeader*);
-
-private:
-    int32_t InitEncode(const VideoCodec*, const Settings&) final;
-    int32_t RegisterEncodeCompleteCallback(EncodedImageCallback*) final;
-    int32_t Release() final;
-    int32_t Encode(const VideoFrame&, const std::vector<VideoFrameType>*) final;
-    void SetRates(const RateControlParameters&) final;
-    EncoderInfo GetEncoderInfo() const final;
-
-    WebKitVideoEncoder m_internalEncoder;
-};
+enum class LocalEncoderScalabilityMode : uint8_t { L1T1, L1T2 };
 
 using LocalEncoder = void*;
-using LocalEncoderCallback = void (^)(const uint8_t* buffer, size_t size, const webrtc::WebKitEncodedFrameInfo&, webrtc::RTPFragmentationHeader*);
-void* createLocalEncoder(const webrtc::SdpVideoFormat&, LocalEncoderCallback);
+using LocalEncoderCallback = void (^)(const uint8_t* buffer, size_t size, const webrtc::WebKitEncodedFrameInfo&);
+using LocalEncoderDescriptionCallback = void (^)(const uint8_t* buffer, size_t size);
+using LocalEncoderErrorCallback = void (^)(bool isFrameDropped);
+void* createLocalEncoder(const webrtc::SdpVideoFormat&, bool useAnnexB, LocalEncoderScalabilityMode, LocalEncoderCallback, LocalEncoderDescriptionCallback, LocalEncoderErrorCallback);
 void releaseLocalEncoder(LocalEncoder);
 void initializeLocalEncoder(LocalEncoder, uint16_t width, uint16_t height, unsigned int startBitrate, unsigned int maxBitrate, unsigned int minBitrate, uint32_t maxFramerate);
-void encodeLocalEncoderFrame(LocalEncoder, CVPixelBufferRef, int64_t timeStamp, webrtc::VideoRotation, bool isKeyframeRequired);
+void encodeLocalEncoderFrame(LocalEncoder, CVPixelBufferRef, int64_t timeStampNs, int64_t timeStamp, std::optional<uint64_t> duration, webrtc::VideoRotation, bool isKeyframeRequired);
 void setLocalEncoderRates(LocalEncoder, uint32_t bitRate, uint32_t frameRate);
-
-template<class Decoder>
-bool WebKitEncodedFrameInfo::decode(Decoder& decoder, WebKitEncodedFrameInfo& info)
-{
-    if (!decoder.decode(info.width))
-        return false;
-    if (!decoder.decode(info.height))
-        return false;
-    if (!decoder.decode(info.timeStamp))
-        return false;
-    if (!decoder.decode(info.ntpTimeMS))
-        return false;
-    if (!decoder.decode(info.captureTimeMS))
-        return false;
-    if (!decoder.decode(info.frameType))
-        return false;
-    if (!decoder.decode(info.rotation))
-        return false;
-    if (!decoder.decode(info.contentType))
-        return false;
-    if (!decoder.decode(info.completeFrame))
-        return false;
-    if (!decoder.decode(info.qp))
-        return false;
-
-    if (!decoder.decode(info.timing.flags))
-        return false;
-
-    if (!decoder.decode(info.timing.encode_start_ms))
-        return false;
-
-    if (!decoder.decode(info.timing.encode_finish_ms))
-        return false;
-
-    if (!decoder.decode(info.timing.packetization_finish_ms))
-        return false;
-
-    if (!decoder.decode(info.timing.pacer_exit_ms))
-        return false;
-
-    if (!decoder.decode(info.timing.network_timestamp_ms))
-        return false;
-
-    if (!decoder.decode(info.timing.network2_timestamp_ms))
-        return false;
-
-    if (!decoder.decode(info.timing.receive_start_ms))
-        return false;
-
-    return true;
-}
-
-template<class Encoder>
-void WebKitEncodedFrameInfo::encode(Encoder& encoder) const
-{
-    encoder << width;
-    encoder << height;
-    encoder << timeStamp;
-    encoder << ntpTimeMS;
-    encoder << captureTimeMS;
-    encoder << frameType;
-    encoder << rotation;
-    encoder << contentType;
-    encoder << completeFrame;
-    encoder << qp;
-
-    encoder << timing.flags;
-    encoder << timing.encode_start_ms;
-    encoder << timing.encode_finish_ms;
-    encoder << timing.packetization_finish_ms;
-    encoder << timing.pacer_exit_ms;
-    encoder << timing.network_timestamp_ms;
-    encoder << timing.network2_timestamp_ms;
-    encoder << timing.receive_start_ms;
-    encoder << timing.receive_finish_ms;
-}
-
-inline WebKitRTPFragmentationHeader::WebKitRTPFragmentationHeader(webrtc::RTPFragmentationHeader* header)
-    : m_value(header)
-{
-}
-
-template<class Encoder>
-void WebKitRTPFragmentationHeader::encode(Encoder& encoder) const
-{
-    encoder << !!m_value;
-    if (!m_value)
-        return;
-    encoder << static_cast<unsigned>(m_value->Size());
-    for (unsigned i = 0; i < m_value->Size(); ++i) {
-        encoder << static_cast<unsigned>(m_value->Offset(i));
-        encoder << static_cast<unsigned>(m_value->Length(i));
-    }
-}
-
-template<class Decoder>
-bool WebKitRTPFragmentationHeader::decode(Decoder& decoder, WebKitRTPFragmentationHeader& header)
-{
-    bool isNull;
-    if (!decoder.decode(isNull))
-        return false;
-    
-    if (isNull) {
-        header.m_value = nullptr;
-        return true;
-    }
-
-    unsigned size;
-    if (!decoder.decode(size))
-        return false;
-
-    header.m_ownedHeader = std::make_unique<webrtc::RTPFragmentationHeader>();
-    header.m_value = header.m_ownedHeader.get();
-
-    header.m_value->VerifyAndAllocateFragmentationHeader(size);
-    for (size_t i = 0; i < header.m_value->Size(); ++i) {
-        unsigned offset, length;
-        if (!decoder.decode(offset))
-            return false;
-        if (!decoder.decode(length))
-            return false;
-
-        header.m_value->fragmentationOffset[i] = offset;
-        header.m_value->fragmentationLength[i] = length;
-    }
-
-    return true;
-}
+void setLocalEncoderLowLatency(LocalEncoder, bool isLowLatencyEnabled);
+void encoderVideoTaskComplete(void*, webrtc::VideoCodecType, const uint8_t* buffer, size_t length, const WebKitEncodedFrameInfo&);
+void flushLocalEncoder(LocalEncoder);
 
 }

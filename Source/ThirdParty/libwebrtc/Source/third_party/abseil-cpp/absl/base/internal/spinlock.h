@@ -15,37 +15,42 @@
 //
 
 //  Most users requiring mutual exclusion should use Mutex.
-//  SpinLock is provided for use in three situations:
-//   - for use in code that Mutex itself depends on
-//   - to get a faster fast-path release under low contention (without an
-//     atomic read-modify-write) In return, SpinLock has worse behaviour under
-//     contention, which is why Mutex is preferred in most situations.
+//  SpinLock is provided for use in two situations:
+//   - for use by Abseil internal code that Mutex itself depends on
 //   - for async signal safety (see below)
 
 // SpinLock is async signal safe.  If a spinlock is used within a signal
 // handler, all code that acquires the lock must ensure that the signal cannot
 // arrive while they are holding the lock.  Typically, this is done by blocking
 // the signal.
+//
+// Threads waiting on a SpinLock may be woken in an arbitrary order.
 
 #ifndef ABSL_BASE_INTERNAL_SPINLOCK_H_
 #define ABSL_BASE_INTERNAL_SPINLOCK_H_
 
-#include <stdint.h>
-#include <sys/types.h>
-
 #include <atomic>
+#include <cstdint>
 
 #include "absl/base/attributes.h"
+#include "absl/base/const_init.h"
 #include "absl/base/dynamic_annotations.h"
 #include "absl/base/internal/low_level_scheduling.h"
 #include "absl/base/internal/raw_logging.h"
 #include "absl/base/internal/scheduling_mode.h"
 #include "absl/base/internal/tsan_mutex_interface.h"
-#include "absl/base/macros.h"
-#include "absl/base/port.h"
 #include "absl/base/thread_annotations.h"
 
+namespace tcmalloc {
+namespace tcmalloc_internal {
+
+class AllocationGuardSpinLockHolder;
+
+}  // namespace tcmalloc_internal
+}  // namespace tcmalloc
+
 namespace absl {
+ABSL_NAMESPACE_BEGIN
 namespace base_internal {
 
 class ABSL_LOCKABLE SpinLock {
@@ -54,29 +59,22 @@ class ABSL_LOCKABLE SpinLock {
     ABSL_TSAN_MUTEX_CREATE(this, __tsan_mutex_not_static);
   }
 
-  // Special constructor for use with static SpinLock objects.  E.g.,
-  //
-  //    static SpinLock lock(base_internal::kLinkerInitialized);
-  //
-  // When initialized using this constructor, we depend on the fact
-  // that the linker has already initialized the memory appropriately. The lock
-  // is initialized in non-cooperative mode.
-  //
-  // A SpinLock constructed like this can be freely used from global
-  // initializers without worrying about the order in which global
-  // initializers run.
-  explicit SpinLock(base_internal::LinkerInitialized) {
-    // Does nothing; lockword_ is already initialized
-    ABSL_TSAN_MUTEX_CREATE(this, 0);
-  }
-
   // Constructors that allow non-cooperative spinlocks to be created for use
   // inside thread schedulers.  Normal clients should not use these.
   explicit SpinLock(base_internal::SchedulingMode mode);
-  SpinLock(base_internal::LinkerInitialized,
-           base_internal::SchedulingMode mode);
 
+  // Constructor for global SpinLock instances.  See absl/base/const_init.h.
+  constexpr SpinLock(absl::ConstInitType, base_internal::SchedulingMode mode)
+      : lockword_(IsCooperative(mode) ? kSpinLockCooperative : 0) {}
+
+  // For global SpinLock instances prefer trivial destructor when possible.
+  // Default but non-trivial destructor in some build configurations causes an
+  // extra static initializer.
+#ifdef ABSL_INTERNAL_HAVE_TSAN_INTERFACE
   ~SpinLock() { ABSL_TSAN_MUTEX_DESTROY(this, __tsan_mutex_not_static); }
+#else
+  ~SpinLock() = default;
+#endif
 
   // Acquire this SpinLock.
   inline void Lock() ABSL_EXCLUSIVE_LOCK_FUNCTION() {
@@ -126,6 +124,14 @@ class ABSL_LOCKABLE SpinLock {
     return (lockword_.load(std::memory_order_relaxed) & kSpinLockHeld) != 0;
   }
 
+  // Return immediately if this thread holds the SpinLock exclusively.
+  // Otherwise, report an error by crashing with a diagnostic.
+  inline void AssertHeld() const ABSL_ASSERT_EXCLUSIVE_LOCK() {
+    if (!IsHeld()) {
+      ABSL_RAW_LOG(FATAL, "thread should hold the lock on SpinLock");
+    }
+  }
+
  protected:
   // These should not be exported except for testing.
 
@@ -135,24 +141,38 @@ class ABSL_LOCKABLE SpinLock {
                                    int64_t wait_end_time);
 
   // Extract number of wait cycles in a lock value.
-  static uint64_t DecodeWaitCycles(uint32_t lock_value);
+  static int64_t DecodeWaitCycles(uint32_t lock_value);
 
   // Provide access to protected method above.  Use for testing only.
   friend struct SpinLockTest;
+  friend class tcmalloc::tcmalloc_internal::AllocationGuardSpinLockHolder;
 
  private:
   // lockword_ is used to store the following:
   //
   // bit[0] encodes whether a lock is being held.
   // bit[1] encodes whether a lock uses cooperative scheduling.
-  // bit[2] encodes whether a lock disables scheduling.
+  // bit[2] encodes whether the current lock holder disabled scheduling when
+  //        acquiring the lock. Only set when kSpinLockHeld is also set.
   // bit[3:31] encodes time a lock spent on waiting as a 29-bit unsigned int.
-  enum { kSpinLockHeld = 1 };
-  enum { kSpinLockCooperative = 2 };
-  enum { kSpinLockDisabledScheduling = 4 };
-  enum { kSpinLockSleeper = 8 };
-  enum { kWaitTimeMask =                      // Includes kSpinLockSleeper.
-    ~(kSpinLockHeld | kSpinLockCooperative | kSpinLockDisabledScheduling) };
+  //        This is set by the lock holder to indicate how long it waited on
+  //        the lock before eventually acquiring it. The number of cycles is
+  //        encoded as a 29-bit unsigned int, or in the case that the current
+  //        holder did not wait but another waiter is queued, the LSB
+  //        (kSpinLockSleeper) is set. The implementation does not explicitly
+  //        track the number of queued waiters beyond this. It must always be
+  //        assumed that waiters may exist if the current holder was required to
+  //        queue.
+  //
+  // Invariant: if the lock is not held, the value is either 0 or
+  // kSpinLockCooperative.
+  static constexpr uint32_t kSpinLockHeld = 1;
+  static constexpr uint32_t kSpinLockCooperative = 2;
+  static constexpr uint32_t kSpinLockDisabledScheduling = 4;
+  static constexpr uint32_t kSpinLockSleeper = 8;
+  // Includes kSpinLockSleeper.
+  static constexpr uint32_t kWaitTimeMask =
+      ~(kSpinLockHeld | kSpinLockCooperative | kSpinLockDisabledScheduling);
 
   // Returns true if the provided scheduling mode is cooperative.
   static constexpr bool IsCooperative(
@@ -160,8 +180,11 @@ class ABSL_LOCKABLE SpinLock {
     return scheduling_mode == base_internal::SCHEDULE_COOPERATIVE_AND_KERNEL;
   }
 
+  bool IsCooperative() const {
+    return lockword_.load(std::memory_order_relaxed) & kSpinLockCooperative;
+  }
+
   uint32_t TryLockInternal(uint32_t lock_value, uint32_t wait_cycles);
-  void InitLinkerInitializedAndCooperative();
   void SlowLock() ABSL_ATTRIBUTE_COLD;
   void SlowUnlock(uint32_t lock_value) ABSL_ATTRIBUTE_COLD;
   uint32_t SpinLoop();
@@ -225,11 +248,10 @@ inline uint32_t SpinLock::TryLockInternal(uint32_t lock_value,
     }
   }
 
-  if (lockword_.compare_exchange_strong(
+  if (!lockword_.compare_exchange_strong(
           lock_value,
           kSpinLockHeld | lock_value | wait_cycles | sched_disabled_bit,
           std::memory_order_acquire, std::memory_order_relaxed)) {
-  } else {
     base_internal::SchedulingGuard::EnableRescheduling(sched_disabled_bit != 0);
   }
 
@@ -237,6 +259,7 @@ inline uint32_t SpinLock::TryLockInternal(uint32_t lock_value,
 }
 
 }  // namespace base_internal
+ABSL_NAMESPACE_END
 }  // namespace absl
 
 #endif  // ABSL_BASE_INTERNAL_SPINLOCK_H_

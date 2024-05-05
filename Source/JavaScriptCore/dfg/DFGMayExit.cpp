@@ -52,6 +52,7 @@ ExitMode mayExitImpl(Graph& graph, Node* node, StateType& state)
     case DoubleConstant:
     case LazyJSConstant:
     case Int52Constant:
+    case ConstantStoragePointer:
     case MovHint:
     case InitializeEntrypointArguments:
     case SetLocal:
@@ -94,6 +95,7 @@ ExitMode mayExitImpl(Graph& graph, Node* node, StateType& state)
     case ExtractOSREntryLocal:
     case ExtractCatchLocal:
     case ClearCatchLocals:
+    case ToBoolean:
     case LogicalNot:
     case NotifyWrite:
     case PutStructure:
@@ -102,20 +104,35 @@ ExitMode mayExitImpl(Graph& graph, Node* node, StateType& state)
     case PutByOffset:
     case PutClosureVar:
     case PutInternalField:
+    case PutGlobalVariable:
+    case GetByOffset:
+    case GetClosureVar:
+    case GetInternalField:
+    case GetGlobalLexicalVariable:
+    case GetGlobalVar:
     case RecordRegExpCachedResult:
     case NukeStructureAndSetButterfly:
+    case GetButterfly:
+    case GetIndexedPropertyStorage:
     case FilterCallLinkStatus:
     case FilterGetByStatus:
-    case FilterPutByIdStatus:
-    case FilterInByIdStatus:
+    case FilterPutByStatus:
+    case FilterInByStatus:
     case FilterDeleteByStatus:
+    case FilterCheckPrivateBrandStatus:
+    case FilterSetPrivateBrandStatus:
+    case ExtractFromTuple:
+    case CompareBelow:
+    case CompareBelowEq:
+    case CompareEqPtr:
         break;
 
+    case EnumeratorNextUpdatePropertyName:
     case StrCat:
     case Call:
     case Construct:
     case CallVarargs:
-    case CallEval:
+    case CallDirectEval:
     case ConstructVarargs:
     case CallForwardVarargs:
     case ConstructForwardVarargs:
@@ -127,14 +144,23 @@ ExitMode mayExitImpl(Graph& graph, Node* node, StateType& state)
     case NewGeneratorFunction:
     case NewAsyncFunction:
     case NewAsyncGeneratorFunction:
+    case NewBoundFunction:
     case NewStringObject:
-    case NewSymbol:
     case NewInternalFieldObject:
     case NewRegexp:
+    case NewMap:
+    case NewSet:
+    case NewArrayWithConstantSize:
     case ToNumber:
     case ToNumeric:
+    case ToObject:
     case RegExpExecNonGlobalOrSticky:
     case RegExpMatchFastGlobal:
+    case CallWasm:
+    case CallCustomAccessorGetter:
+    case CallCustomAccessorSetter:
+    case AllocatePropertyStorage:
+    case ReallocatePropertyStorage:
         result = ExitsForExceptions;
         break;
 
@@ -142,6 +168,132 @@ ExitMode mayExitImpl(Graph& graph, Node* node, StateType& state)
         if (node->ignoreLastIndexIsWritable())
             break;
         return Exits;
+
+    case ArithBitNot:
+        if (node->child1().useKind() == Int32Use)
+            break;
+        return Exits;
+
+    case ArithAbs:
+        if (node->arithMode() == Arith::Mode::Unchecked && node->child1().useKind() == Int32Use)
+            break;
+        return Exits;
+
+    case ArithMin:
+    case ArithMax:
+        if (graph.child(node, 0).useKind() == Int32Use)
+            break;
+        if (graph.child(node, 0).useKind() == DoubleRepUse)
+            break;
+        return Exits;
+
+    case ArithBitRShift:
+    case ArithBitLShift:
+    case BitURShift:
+    case ArithBitAnd:
+    case ArithBitOr:
+    case ArithBitXor:
+        if (node->isBinaryUseKind(Int32Use))
+            break;
+        return Exits;
+
+    case ArithClz32:
+        if (node->child1().useKind() == Int32Use || node->child1().useKind() == KnownInt32Use)
+            break;
+        return Exits;
+
+    case ArithAdd:
+    case ArithSub:
+    case ArithMul:
+        if (node->arithMode() == Arith::Mode::Unchecked && node->isBinaryUseKind(Int32Use))
+            break;
+        if (node->isBinaryUseKind(DoubleRepUse))
+            break;
+        return Exits;
+
+    case ArithNegate:
+        if (node->arithMode() == Arith::Mode::Unchecked && node->child1().useKind() == Int32Use)
+            break;
+        if (node->child1().useKind() == DoubleRepUse)
+            break;
+        return Exits;
+
+    case ArithDiv:
+    case ArithMod:
+        if (node->isBinaryUseKind(DoubleRepUse))
+            break;
+        return Exits;
+
+    case CompareStrictEq:
+        if (node->isBinaryUseKind(MiscUse, UntypedUse) || node->isBinaryUseKind(UntypedUse, MiscUse))
+            break;
+        FALLTHROUGH;
+    case CompareEq:
+    case CompareLess:
+    case CompareLessEq:
+    case CompareGreater:
+    case CompareGreaterEq:
+        if (node->isBinaryUseKind(Int32Use))
+            break;
+        if (node->isBinaryUseKind(DoubleRepUse))
+            break;
+        if (node->isBinaryUseKind(Int52RepUse))
+            break;
+        return Exits;
+
+    case ArithPow:
+        if (node->isBinaryUseKind(Int32Use))
+            break;
+        if (node->isBinaryUseKind(DoubleRepUse))
+            break;
+        return Exits;
+
+    case ArithRound:
+    case ArithFloor:
+    case ArithCeil:
+    case ArithTrunc:
+        if (node->child1().useKind() == DoubleRepUse && !producesInteger(node->arithRoundingMode()))
+            break;
+        return Exits;
+
+    case ArithSqrt:
+    case ArithUnary:
+    case ArithFRound:
+        if (node->child1().useKind() == DoubleRepUse)
+            break;
+        return Exits;
+
+    case ArrayIndexOf: {
+        Edge& searchElementEdge = graph.child(node, 1);
+        switch (searchElementEdge.useKind()) {
+        case Int32Use:
+        case DoubleRepUse:
+        case ObjectUse:
+        case SymbolUse:
+        case OtherUse:
+            break;
+        default:
+            return Exits;
+        }
+        break;
+    }
+
+    case ToString:
+    case CallStringConstructor:
+        switch (node->child1().useKind()) {
+        case KnownPrimitiveUse:
+        case Int32Use:
+        case Int52RepUse:
+        case DoubleRepUse:
+        case NotCellUse:
+        case StringObjectUse:
+        case StringOrStringObjectUse:
+            result = ExitsForExceptions;
+            break;
+        default:
+            return Exits;
+        }
+        break;
 
     default:
         // If in doubt, return true.
@@ -172,17 +324,24 @@ ExitMode mayExitImpl(Graph& graph, Node* node, StateType& state)
                 }
             }
             
-            switch (edge.useKind()) {
-            // These are shady because nodes that have these use kinds will typically exit for
-            // unrelated reasons. For example CompareEq doesn't usually exit, but if it uses
-            // ObjectUse then it will.
-            case ObjectUse:
-            case ObjectOrOtherUse:
-                result = Exits;
+            switch (node->op()) {
+            case ArrayIndexOf:
                 break;
-                
-            default:
+            default: {
+                switch (edge.useKind()) {
+                // These are shady because nodes that have these use kinds will typically exit for
+                // unrelated reasons. For example CompareEq doesn't usually exit, but if it uses
+                // ObjectUse then it will.
+                case ObjectUse:
+                case ObjectOrOtherUse:
+                    result = Exits;
+                    break;
+
+                default:
+                    break;
+                }
                 break;
+            }
             }
         });
 

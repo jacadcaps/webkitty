@@ -27,6 +27,7 @@
 #import "WKNSDictionary.h"
 
 #import "WKNSArray.h"
+#import <WebCore/WebCoreObjCExtras.h>
 
 using namespace WebKit;
 
@@ -36,6 +37,9 @@ using namespace WebKit;
 
 - (void)dealloc
 {
+    if (WebCoreObjCScheduleDeallocateOnMainRunLoop(WKNSDictionary.class, self))
+        return;
+
     _dictionary->~Dictionary();
 
     [super dealloc];
@@ -46,7 +50,8 @@ using namespace WebKit;
 - (instancetype)initWithObjects:(const id [])objects forKeys:(const id <NSCopying> [])keys count:(NSUInteger)count
 {
     ASSERT_NOT_REACHED();
-    return [super initWithObjects:objects forKeys:keys count:count];
+    self = [super initWithObjects:objects forKeys:keys count:count];
+    return self;
 }
 
 - (NSUInteger)count
@@ -60,11 +65,11 @@ using namespace WebKit;
         return nil;
 
     bool exists;
-    API::Object* value = _dictionary->get((NSString *)key, exists);
+    RefPtr value = _dictionary->get((NSString *)key, exists);
     if (!exists)
         return nil;
 
-    return value ? value->wrapper() : [NSNull null];
+    return value ? (id)value->wrapper() : [NSNull null];
 }
 
 - (NSEnumerator *)keyEnumerator

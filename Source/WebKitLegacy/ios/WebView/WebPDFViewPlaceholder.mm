@@ -35,11 +35,12 @@
 #import <WebCore/EventHandler.h>
 #import <WebCore/EventNames.h>
 #import <WebCore/FormState.h>
-#import <WebCore/Frame.h>
 #import <WebCore/FrameLoadRequest.h>
 #import <WebCore/FrameLoader.h>
 #import <WebCore/HTMLFormElement.h>
+#import <WebCore/LocalFrame.h>
 #import <WebCore/MouseEvent.h>
+#import <WebCore/PlatformMouseEvent.h>
 #import <WebKitLegacy/WebDataSourcePrivate.h>
 #import <WebKitLegacy/WebFramePrivate.h>
 #import <WebKitLegacy/WebJSPDFDoc.h>
@@ -102,9 +103,9 @@ static const float PAGE_HEIGHT_INSET = 4.0f * 2.0f;
     NSArray *_pageRects;
     NSArray *_pageYOrigins;
     CGPDFDocumentRef _document;
-    WebDataSource *_dataSource; // weak to prevent cycles.
+    __weak WebDataSource *_dataSource; // Weak to prevent cycles.
     
-    NSObject<WebPDFViewPlaceholderDelegate> *_delegate;
+    __weak NSObject<WebPDFViewPlaceholderDelegate> *_delegate;
     
     BOOL _didFinishLoad;
     
@@ -274,13 +275,11 @@ static const float PAGE_HEIGHT_INSET = 4.0f * 2.0f;
     [self dataSourceUpdated:dataSource];
 
     _didFinishLoad = YES;
-    CGDataProviderRef provider = CGDataProviderCreateWithCFData((CFDataRef)[dataSource data]);
+    auto provider = adoptCF(CGDataProviderCreateWithCFData((CFDataRef)[dataSource data]));
     if (!provider)
         return;
 
-    _document = CGPDFDocumentCreateWithProvider(provider);
-
-    CGDataProviderRelease(provider);
+    _document = CGPDFDocumentCreateWithProvider(provider.get());
 
     [self _doPostLoadOrUnlockTasks];
 }
@@ -328,19 +327,17 @@ static const float PAGE_HEIGHT_INSET = 4.0f * 2.0f;
     if (!_document || !CGPDFDocumentIsUnlocked(_document))
         return;
 
-    NSString *title = nil;
+    RetainPtr<CFStringRef> title;
 
     CGPDFDictionaryRef info = CGPDFDocumentGetInfo(_document);
     CGPDFStringRef value;
     if (CGPDFDictionaryGetString(info, "Title", &value))
-        title = (NSString *)CGPDFStringCopyTextString(value);
+        title = adoptCF(CGPDFStringCopyTextString(value));
 
-    if ([title length]) {
-        [self setTitle:title];
-        [[self _frame] _dispatchDidReceiveTitle:title];
+    if (title && CFStringGetLength(title.get())) {
+        [self setTitle:(NSString *)title.get()];
+        [[self _frame] _dispatchDidReceiveTitle:(NSString *)title.get()];
     }
-
-    [title release];
 }
 
 - (CGRect)_getPDFPageBounds:(CGPDFPageRef)page
@@ -467,10 +464,10 @@ static const float PAGE_HEIGHT_INSET = 4.0f * 2.0f;
         return;
 
     auto event = MouseEvent::create(eventNames().clickEvent, Event::CanBubble::Yes, Event::IsCancelable::Yes, Event::IsComposed::Yes,
-        MonotonicTime::now(), nullptr, 1, { }, { }, { }, { }, 0, 0, nullptr, 0, 0, MouseEvent::IsSimulated::Yes);
+        MonotonicTime::now(), nullptr, 1, { }, { }, 0, 0, { }, MouseButton::Left, 0, nullptr, 0, SyntheticClickType::NoTap, MouseEvent::IsSimulated::Yes);
 
     // Call to the frame loader because this is where our security checks are made.
-    Frame* frame = core([_dataSource webFrame]);
+    auto* frame = core([_dataSource webFrame]);
     FrameLoadRequest frameLoadRequest { *frame->document(), frame->document()->securityOrigin(), { URL }, { }, InitiatedByMainFrame::Unknown };
 frameLoadRequest.setReferrerPolicy(ReferrerPolicy::NoReferrer);
     frame->loader().loadFrameRequest(WTFMove(frameLoadRequest), event.ptr(), nullptr);

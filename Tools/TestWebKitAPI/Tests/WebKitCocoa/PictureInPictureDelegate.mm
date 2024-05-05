@@ -27,6 +27,7 @@
 
 #if PLATFORM(MAC)
 
+#import "DeprecatedGlobalValues.h"
 #import "PlatformUtilities.h"
 #import "PlatformWebView.h"
 #import "Test.h"
@@ -37,14 +38,11 @@
 #import <WebKit/WKSerializedScriptValue.h>
 #import <WebKit/WKUIDelegatePrivate.h>
 #import <WebKit/WKURLCF.h>
-#import <WebKit/WKView.h>
 #import <WebKit/WKWebViewConfigurationPrivate.h>
 #import <WebKit/WKWebViewPrivate.h>
 #import <WebKit/WKWebViewPrivateForTesting.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/Seconds.h>
-
-static bool receivedLoadedMessage;
 
 static bool hasVideoInPictureInPictureValue;
 static bool hasVideoInPictureInPictureCalled;
@@ -201,13 +199,14 @@ TEST(PictureInPicture, AudioCannotTogglePictureInPicture)
 TEST(PictureInPicture, WKPageUIClient)
 {
     WKRetainPtr<WKContextRef> context = adoptWK(WKContextCreateWithConfiguration(nullptr));
-    WKRetainPtr<WKPageGroupRef> pageGroup = adoptWK(WKPageGroupCreateWithIdentifier(Util::toWK("PictureInPicture").get()));
-    WKPreferencesRef preferences = WKPageGroupGetPreferences(pageGroup.get());
+    
+    PlatformWebView webView(context.get());
+
+    auto configuration = adoptWK(WKPageCopyPageConfiguration(webView.page()));
+    auto* preferences = WKPageConfigurationGetPreferences(configuration.get());
     WKPreferencesSetFullScreenEnabled(preferences, true);
     WKPreferencesSetAllowsPictureInPictureMediaPlayback(preferences, true);
-    
-    PlatformWebView webView(context.get(), pageGroup.get());
-    
+
     WKPageUIClientV10 uiClient;
     memset(&uiClient, 0, sizeof(uiClient));
     uiClient.base.version = 10;

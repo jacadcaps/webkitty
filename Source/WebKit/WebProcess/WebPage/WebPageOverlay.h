@@ -28,9 +28,17 @@
 #include "APIObject.h"
 #include <WebCore/FloatPoint.h>
 #include <WebCore/PageOverlay.h>
+#include <WebCore/SimpleRange.h>
 #include <wtf/RetainPtr.h>
+#include <wtf/WeakPtr.h>
 
+#if HAVE(SECURE_ACTION_CONTEXT)
+OBJC_CLASS DDSecureActionContext;
+using WKDDActionContext = DDSecureActionContext;
+#else
 OBJC_CLASS DDActionContext;
+using WKDDActionContext = DDActionContext;
+#endif
 
 namespace WebCore {
 class IntRect;
@@ -41,7 +49,7 @@ namespace WebKit {
 class WebFrame;
 class WebPage;
 
-class WebPageOverlay : public API::ObjectImpl<API::Object::Type::BundlePageOverlay>, private WebCore::PageOverlay::Client {
+class WebPageOverlay : public API::ObjectImpl<API::Object::Type::BundlePageOverlay>, public CanMakeWeakPtr<WebPageOverlay>, private WebCore::PageOverlay::Client {
 public:
     struct ActionContext;
 
@@ -56,7 +64,7 @@ public:
         virtual void didScrollFrame(WebPageOverlay&, WebFrame*) { }
 
 #if PLATFORM(MAC)
-        virtual Optional<ActionContext> actionContextForResultAtPoint(WebPageOverlay&, WebCore::FloatPoint) { return WTF::nullopt; }
+        virtual std::optional<ActionContext> actionContextForResultAtPoint(WebPageOverlay&, WebCore::FloatPoint) { return std::nullopt; }
         virtual void dataDetectorsDidPresentUI(WebPageOverlay&) { }
         virtual void dataDetectorsDidChangeUI(WebPageOverlay&) { }
         virtual void dataDetectorsDidHideUI(WebPageOverlay&) { }
@@ -81,10 +89,10 @@ public:
 
 #if PLATFORM(MAC)
     struct ActionContext {
-        RetainPtr<DDActionContext> context;
+        RetainPtr<WKDDActionContext> context;
         WebCore::SimpleRange range;
     };
-    Optional<ActionContext> actionContextForResultAtPoint(WebCore::FloatPoint);
+    std::optional<ActionContext> actionContextForResultAtPoint(WebCore::FloatPoint);
     void dataDetectorsDidPresentUI();
     void dataDetectorsDidChangeUI();
     void dataDetectorsDidHideUI();
@@ -98,7 +106,7 @@ private:
     void didMoveToPage(WebCore::PageOverlay&, WebCore::Page*) override;
     void drawRect(WebCore::PageOverlay&, WebCore::GraphicsContext&, const WebCore::IntRect& dirtyRect) override;
     bool mouseEvent(WebCore::PageOverlay&, const WebCore::PlatformMouseEvent&) override;
-    void didScrollFrame(WebCore::PageOverlay&, WebCore::Frame&) override;
+    void didScrollFrame(WebCore::PageOverlay&, WebCore::LocalFrame&) override;
 
     bool copyAccessibilityAttributeStringValueForPoint(WebCore::PageOverlay&, String /* attribute */, WebCore::FloatPoint /* parameter */, String& value) override;
     bool copyAccessibilityAttributeBoolValueForPoint(WebCore::PageOverlay&, String /* attribute */, WebCore::FloatPoint /* parameter */, bool& value) override;

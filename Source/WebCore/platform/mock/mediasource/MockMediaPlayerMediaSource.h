@@ -20,7 +20,7 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #ifndef MockMediaPlayerMediaSource_h
@@ -31,41 +31,50 @@
 #include "MediaPlayerPrivate.h"
 #include <wtf/Logger.h>
 #include <wtf/MediaTime.h>
+#include <wtf/RefCounted.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
 class MediaSource;
 class MockMediaSourcePrivate;
 
-class MockMediaPlayerMediaSource : public MediaPlayerPrivateInterface {
+class MockMediaPlayerMediaSource final
+    : public MediaPlayerPrivateInterface
+    , public RefCounted<MockMediaPlayerMediaSource>
+    , public CanMakeWeakPtr<MockMediaPlayerMediaSource> {
 public:
     explicit MockMediaPlayerMediaSource(MediaPlayer*);
 
     // MediaPlayer Engine Support
     WEBCORE_EXPORT static void registerMediaEngine(MediaEngineRegistrar);
-    static void getSupportedTypes(HashSet<String, ASCIICaseInsensitiveHash>& types);
+    static void getSupportedTypes(HashSet<String>& types);
     static MediaPlayer::SupportsType supportsType(const MediaEngineSupportParameters&);
 
     virtual ~MockMediaPlayerMediaSource();
 
+    void ref() final { RefCounted::ref(); }
+    void deref() final { RefCounted::deref(); }
+
     void advanceCurrentTime();
+    MediaTime currentMediaTime() const override;
+    bool currentMediaTimeMayProgress() const override;
+    void notifyActiveSourceBuffersChanged() final;
     void updateDuration(const MediaTime&);
 
     MediaPlayer::ReadyState readyState() const override;
     void setReadyState(MediaPlayer::ReadyState);
     void setNetworkState(MediaPlayer::NetworkState);
-    void waitForSeekCompleted();
-    void seekCompleted();
 
 #if !RELEASE_LOG_DISABLED
-    const void* mediaPlayerLogIdentifier() { return m_player->mediaPlayerLogIdentifier(); }
-    const Logger& mediaPlayerLogger() { return m_player->mediaPlayerLogger(); }
+    const void* mediaPlayerLogIdentifier() { return m_player.get()->mediaPlayerLogIdentifier(); }
+    const Logger& mediaPlayerLogger() { return m_player.get()->mediaPlayerLogger(); }
 #endif
 
 private:
     // MediaPlayerPrivate Overrides
     void load(const String& url) override;
-    void load(const String& url, MediaSourcePrivateClient*) override;
+    void load(const URL&, const ContentType&, MediaSourcePrivateClient&) override;
 #if ENABLE(MEDIA_STREAM)
     void load(MediaStreamPrivate&) override { }
 #endif
@@ -75,29 +84,29 @@ private:
     FloatSize naturalSize() const override;
     bool hasVideo() const override;
     bool hasAudio() const override;
-    void setVisible(bool) override;
-    bool seeking() const override;
+    void setPageIsVisible(bool, String&& sceneIdentifier) final;
+    void seekToTarget(const SeekTarget&) final;
+    bool seeking() const final;
     bool paused() const override;
     MediaPlayer::NetworkState networkState() const override;
     MediaTime maxMediaTimeSeekable() const override;
-    std::unique_ptr<PlatformTimeRanges> buffered() const override;
+    const PlatformTimeRanges& buffered() const override;
     bool didLoadingProgress() const override;
-    void setSize(const IntSize&) override;
+    void setPresentationSize(const IntSize&) override;
     void paint(GraphicsContext&, const FloatRect&) override;
-    MediaTime currentMediaTime() const override;
     MediaTime durationMediaTime() const override;
-    void seekWithTolerance(const MediaTime&, const MediaTime&, const MediaTime&) override;
-    Optional<VideoPlaybackQualityMetrics> videoPlaybackQualityMetrics() override;
+    std::optional<VideoPlaybackQualityMetrics> videoPlaybackQualityMetrics() override;
+    DestinationColorSpace colorSpace() override;
 
-    MediaPlayer* m_player;
+    ThreadSafeWeakPtr<MediaPlayer> m_player;
     RefPtr<MockMediaSourcePrivate> m_mediaSourcePrivate;
 
     MediaTime m_currentTime;
     MediaTime m_duration;
-    MediaPlayer::ReadyState m_readyState;
-    MediaPlayer::NetworkState m_networkState;
-    bool m_playing;
-    bool m_seekCompleted;
+    MediaPlayer::ReadyState m_readyState { MediaPlayer::ReadyState::HaveNothing };
+    MediaPlayer::NetworkState m_networkState { MediaPlayer::NetworkState::Empty };
+    bool m_playing { false };
+    bool m_seekCompleted { false };
 };
 
 }

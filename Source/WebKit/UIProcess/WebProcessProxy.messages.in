@@ -22,24 +22,23 @@
 
 messages -> WebProcessProxy LegacyReceiver {
     UpdateBackForwardItem(struct WebKit::BackForwardListItemState backForwardListItemState)
-    DidDestroyFrame(WebCore::FrameIdentifier frameID) 
+    DidDestroyFrame(WebCore::FrameIdentifier frameID, WebKit::WebPageProxyIdentifier pageID) 
 
-    DidDestroyUserGestureToken(uint64_t userGestureTokenID) 
+    DidDestroyUserGestureToken(WebCore::PageIdentifier pageID, uint64_t userGestureTokenID) 
 
     ShouldTerminate() -> (bool shouldTerminate) Synchronous
 
     EnableSuddenTermination()
     DisableSuddenTermination()
 
-    # Plugin messages.
-#if ENABLE(NETSCAPE_PLUGIN_API)
-    GetPlugins(bool refresh) -> (Vector<WebCore::PluginInfo> plugins, Vector<WebCore::PluginInfo> applicationPlugins, struct Optional<Vector<WebCore::SupportedPluginIdentifier>> supportedPluginIdentifiers) Synchronous
-    GetPluginProcessConnection(uint64_t pluginProcessToken) -> (IPC::Attachment connectionHandle, bool supportsAsynchronousInitialization) Synchronous
-#endif
     GetNetworkProcessConnection() -> (struct WebKit::NetworkProcessConnectionInfo connectionInfo) Synchronous
 
 #if ENABLE(GPU_PROCESS)
-    GetGPUProcessConnection() -> (struct WebKit::GPUProcessConnectionInfo connectionInfo) Synchronous
+    CreateGPUProcessConnection(IPC::Connection::Handle connectionHandle, struct WebKit::GPUProcessConnectionParameters parameters) AllowedWhenWaitingForSyncReply
+#endif
+
+#if ENABLE(MODEL_PROCESS)
+    CreateModelProcessConnection(IPC::Connection::Handle connectionIdentifier, struct WebKit::ModelProcessConnectionParameters parameters) AllowedWhenWaitingForSyncReply
 #endif
 
     SetIsHoldingLockedFiles(bool isHoldingLockedFiles)
@@ -49,12 +48,9 @@ messages -> WebProcessProxy LegacyReceiver {
     DidExceedCPULimit()
 
     StopResponsivenessTimer()
-
-    DidReceiveMainThreadPing()
     DidReceiveBackgroundResponsivenessPing()
 
     MemoryPressureStatusChanged(bool isUnderMemoryPressure)
-    DidExceedInactiveMemoryLimitWhileActive()
 
     DidCollectPrewarmInformation(WebCore::RegistrableDomain domain, struct WebCore::PrewarmInformation prewarmInformation)
 
@@ -67,20 +63,32 @@ messages -> WebProcessProxy LegacyReceiver {
     ReleaseHighPerformanceGPU()
 #endif
 
-#if PLATFORM(MAC) && ENABLE(WEBPROCESS_WINDOWSERVER_BLOCKING)
-    StartDisplayLink(WebKit::DisplayLinkObserverID observerID, uint32_t displayID)
+#if HAVE(DISPLAY_LINK)
+    StartDisplayLink(WebKit::DisplayLinkObserverID observerID, uint32_t displayID, unsigned preferredFramesPerSecond)
     StopDisplayLink(WebKit::DisplayLinkObserverID observerID, uint32_t displayID)
+    SetDisplayLinkPreferredFramesPerSecond(WebKit::DisplayLinkObserverID observerID, uint32_t displayID, unsigned preferredFramesPerSecond);
 #endif
-
-    # Plug-in messages.
-    void AddPlugInAutoStartOriginHash(String pageOrigin, uint32_t hash)
-    void PlugInDidReceiveUserInteraction(uint32_t hash)
 
 #if PLATFORM(GTK) || PLATFORM(WPE)
     SendMessageToWebContext(struct WebKit::UserMessage userMessage)
-    SendMessageToWebContextWithReply(struct WebKit::UserMessage userMessage) -> (struct WebKit::UserMessage replyMessage) Async
+    SendMessageToWebContextWithReply(struct WebKit::UserMessage userMessage) -> (struct WebKit::UserMessage replyMessage)
 #endif
 
-    DidCreateSleepDisabler(WebCore::SleepDisablerIdentifier identifier, String reason, bool display)
-    DidDestroySleepDisabler(WebCore::SleepDisablerIdentifier identifier)
+    CreateSpeechRecognitionServer(WebCore::PageIdentifier identifier)
+    DestroySpeechRecognitionServer(WebCore::PageIdentifier identifier)
+
+    SystemBeep()
+    
+#if PLATFORM(MAC)
+    IsAXAuthenticated(struct WebKit::CoreIPCAuditToken auditToken) -> (bool authenticated) Synchronous
+#endif
+
+#if HAVE(MEDIA_ACCESSIBILITY_FRAMEWORK)
+    SetCaptionDisplayMode(WebCore::CaptionUserPreferences::CaptionDisplayMode mode)
+    SetCaptionLanguage(String language)
+#endif
+
+    GetNotifications(URL registrationURL, String tag) -> (Vector<WebCore::NotificationData> result)
+    SetAppBadge(std::optional<WebKit::WebPageProxyIdentifier> pageIdentifier, WebCore::SecurityOriginData origin, std::optional<uint64_t> badge)
+    SetClientBadge(WebKit::WebPageProxyIdentifier pageIdentifier, WebCore::SecurityOriginData origin, std::optional<uint64_t> badge)
 }

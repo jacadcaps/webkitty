@@ -30,67 +30,10 @@
 #include "WebsiteDataType.h"
 #include <WebCore/RegistrableDomain.h>
 #include <WebCore/SecurityOriginData.h>
+#include <wtf/CrossThreadCopier.h>
 #include <wtf/text/StringHash.h>
 
 namespace WebKit {
-
-void WebsiteData::Entry::encode(IPC::Encoder& encoder) const
-{
-    encoder << origin;
-    encoder << type;
-    encoder << size;
-}
-
-auto WebsiteData::Entry::decode(IPC::Decoder& decoder) -> Optional<Entry>
-{
-    Entry result;
-
-    Optional<WebCore::SecurityOriginData> securityOriginData;
-    decoder >> securityOriginData;
-    if (!securityOriginData)
-        return WTF::nullopt;
-    result.origin = WTFMove(*securityOriginData);
-
-    if (!decoder.decode(result.type))
-        return WTF::nullopt;
-
-    if (!decoder.decode(result.size))
-        return WTF::nullopt;
-
-    return result;
-}
-
-void WebsiteData::encode(IPC::Encoder& encoder) const
-{
-    encoder << entries;
-    encoder << hostNamesWithCookies;
-#if ENABLE(NETSCAPE_PLUGIN_API)
-    encoder << hostNamesWithPluginData;
-#endif
-    encoder << hostNamesWithHSTSCache;
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
-    encoder << registrableDomainsWithResourceLoadStatistics;
-#endif
-}
-
-bool WebsiteData::decode(IPC::Decoder& decoder, WebsiteData& result)
-{
-    if (!decoder.decode(result.entries))
-        return false;
-    if (!decoder.decode(result.hostNamesWithCookies))
-        return false;
-#if ENABLE(NETSCAPE_PLUGIN_API)
-    if (!decoder.decode(result.hostNamesWithPluginData))
-        return false;
-#endif
-    if (!decoder.decode(result.hostNamesWithHSTSCache))
-        return false;
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
-    if (!decoder.decode(result.registrableDomainsWithResourceLoadStatistics))
-        return false;
-#endif
-    return true;
-}
 
 WebsiteDataProcessType WebsiteData::ownerProcess(WebsiteDataType dataType)
 {
@@ -117,28 +60,25 @@ WebsiteDataProcessType WebsiteData::ownerProcess(WebsiteDataType dataType)
         return WebsiteDataProcessType::Network;
     case WebsiteDataType::SearchFieldRecentSearches:
         return WebsiteDataProcessType::UI;
-#if ENABLE(NETSCAPE_PLUGIN_API)
-    case WebsiteDataType::PlugInData:
-        return WebsiteDataProcessType::UI;
-#endif
     case WebsiteDataType::ResourceLoadStatistics:
         return WebsiteDataProcessType::Network;
     case WebsiteDataType::Credentials:
         return WebsiteDataProcessType::Network;
-#if ENABLE(SERVICE_WORKER)
     case WebsiteDataType::ServiceWorkerRegistrations:
+    case WebsiteDataType::BackgroundFetchStorage:
         return WebsiteDataProcessType::Network;
-#endif
     case WebsiteDataType::DOMCache:
         return WebsiteDataProcessType::Network;
     case WebsiteDataType::DeviceIdHashSalt:
         return WebsiteDataProcessType::UI;
-    case WebsiteDataType::AdClickAttributions:
+    case WebsiteDataType::PrivateClickMeasurements:
         return WebsiteDataProcessType::Network;
-#if HAVE(CFNETWORK_ALTERNATIVE_SERVICE)
+#if HAVE(ALTERNATIVE_SERVICE)
     case WebsiteDataType::AlternativeServices:
         return WebsiteDataProcessType::Network;
 #endif
+    case WebsiteDataType::FileSystem:
+        return WebsiteDataProcessType::Network;
     }
 
     RELEASE_ASSERT_NOT_REACHED();
@@ -153,6 +93,51 @@ OptionSet<WebsiteDataType> WebsiteData::filter(OptionSet<WebsiteDataType> unfilt
     }
     
     return filtered;
+}
+
+WebsiteData WebsiteData::isolatedCopy() const &
+{
+    return WebsiteData {
+        crossThreadCopy(entries),
+        crossThreadCopy(hostNamesWithCookies),
+        crossThreadCopy(hostNamesWithHSTSCache),
+        crossThreadCopy(registrableDomainsWithResourceLoadStatistics),
+    };
+}
+
+WebsiteData WebsiteData::isolatedCopy() &&
+{
+    return WebsiteData {
+        crossThreadCopy(WTFMove(entries)),
+        crossThreadCopy(WTFMove(hostNamesWithCookies)),
+        crossThreadCopy(WTFMove(hostNamesWithHSTSCache)),
+        crossThreadCopy(WTFMove(registrableDomainsWithResourceLoadStatistics)),
+    };
+}
+
+WebsiteData::Entry::Entry(WebCore::SecurityOriginData inOrigin, WebsiteDataType inType, uint64_t inSize)
+    : origin(inOrigin)
+    , type(inType)
+    , size(inSize)
+{
+}
+
+WebsiteData::Entry::Entry(WebCore::SecurityOriginData&& inOrigin, OptionSet<WebsiteDataType>&& inType, uint64_t inSize)
+    : origin(WTFMove(inOrigin))
+    , size(inSize)
+{
+    RELEASE_ASSERT(inType.hasExactlyOneBitSet());
+    type = *inType.toSingleValue();
+}
+
+auto WebsiteData::Entry::isolatedCopy() const & -> Entry
+{
+    return { crossThreadCopy(origin), crossThreadCopy(type), size };
+}
+
+auto WebsiteData::Entry::isolatedCopy() && -> Entry
+{
+    return { crossThreadCopy(WTFMove(origin)), crossThreadCopy(WTFMove(type)), size };
 }
 
 }

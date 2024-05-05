@@ -38,11 +38,14 @@ class AudioBus;
 class PlatformAudioData;
 class RealtimeMediaSourceCapabilities;
 
-class MediaStreamAudioSource final : public RealtimeMediaSource {
+class MediaStreamAudioSource final : public RealtimeMediaSource, public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<MediaStreamAudioSource, WTF::DestructionThread::MainRunLoop> {
 public:
     static Ref<MediaStreamAudioSource> create(float sampleRate) { return adoptRef(*new MediaStreamAudioSource { sampleRate }); }
 
     ~MediaStreamAudioSource();
+    void ref() const final { ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<MediaStreamAudioSource, WTF::DestructionThread::MainRunLoop>::ref(); }
+    void deref() const final { ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<MediaStreamAudioSource, WTF::DestructionThread::MainRunLoop>::deref(); }
+    ThreadSafeWeakPtrControlBlock& controlBlock() const final { return ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<MediaStreamAudioSource, WTF::DestructionThread::MainRunLoop>::controlBlock(); }
 
     const RealtimeMediaSourceCapabilities& capabilities() final;
     const RealtimeMediaSourceSettings& settings() final;
@@ -60,7 +63,7 @@ private:
     String m_deviceId;
     RealtimeMediaSourceSettings m_currentSettings;
     std::unique_ptr<PlatformAudioData> m_audioBuffer;
-#if USE(AVFOUNDATION)
+#if USE(AVFOUNDATION) || USE(GSTREAMER)
     size_t m_numberOfFrames { 0 };
 #endif
 };

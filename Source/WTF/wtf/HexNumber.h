@@ -73,7 +73,7 @@ template<typename NumberType> HexNumberBuffer hex(NumberType number, HexConversi
 
 template<> class StringTypeAdapter<HexNumberBuffer> {
 public:
-    StringTypeAdapter(const HexNumberBuffer& buffer)
+    explicit StringTypeAdapter(const HexNumberBuffer& buffer)
         : m_buffer { buffer }
     {
     }
@@ -87,6 +87,9 @@ private:
 
     const HexNumberBuffer& m_buffer;
 };
+
+class PrintStream;
+WTF_EXPORT_PRIVATE void printInternal(PrintStream&, HexNumberBuffer);
 
 } // namespace WTF
 

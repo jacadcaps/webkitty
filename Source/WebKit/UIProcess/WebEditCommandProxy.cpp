@@ -26,6 +26,7 @@
 #include "config.h"
 #include "WebEditCommandProxy.h"
 
+#include "MessageSenderInlines.h"
 #include "UndoOrRedo.h"
 #include "WebPageMessages.h"
 #include "WebPageProxy.h"
@@ -39,7 +40,7 @@ using namespace WebCore;
 WebEditCommandProxy::WebEditCommandProxy(WebUndoStepID commandID, const String& label, WebPageProxy& page)
     : m_commandID(commandID)
     , m_label(label)
-    , m_page(makeWeakPtr(page))
+    , m_page(page)
 {
     m_page->addEditCommand(*this);
 }

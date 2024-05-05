@@ -45,6 +45,9 @@
 @end
 
 #if PLATFORM(MAC)
+@interface WKWebView () <NSServicesMenuRequestor>
+@end
+
 void writeHTMLToPasteboard(NSString *html)
 {
     [[NSPasteboard generalPasteboard] declareTypes:@[WebCore::legacyHTMLPasteboardType()] owner:nil];
@@ -117,18 +120,24 @@ TEST(PasteHTML, DoesNotSanitizeHTMLWhenCustomPasteboardDataIsDisabled)
     EXPECT_TRUE([webView stringByEvaluatingJavaScript:@"clipboardData.values[0].includes('dangerousCode')"].boolValue);
 }
 
-TEST(PasteHTML, StripsFileURLs)
+TEST(PasteHTML, StripsFileAndJavaScriptURLs)
 {
     auto webView = createWebViewWithCustomPasteboardDataSetting(true);
     [webView synchronouslyLoadTestPageNamed:@"paste-rtfd"];
 
-    writeHTMLToPasteboard(@"<!DOCTYPE html><html><body><a alt='hello' href='file:///private/var/folders/secret/files/'>world</a>");
+    writeHTMLToPasteboard(@"<!DOCTYPE html><html><body>"
+        "<a alt='hello' href='file:///private/var/folders/secret/files/'>world</a>"
+        "<a href='rdar://101878956'>Radar Link</a>"
+        "<a href='javascript:runCode()'>JavaScript Link</a>");
     [webView paste:nil];
 
     EXPECT_TRUE([webView stringByEvaluatingJavaScript:@"clipboardData.types.includes('text/html')"].boolValue);
     EXPECT_TRUE([webView stringByEvaluatingJavaScript:@"clipboardData.values[0].includes('hello')"].boolValue);
     EXPECT_TRUE([webView stringByEvaluatingJavaScript:@"clipboardData.values[0].includes('world')"].boolValue);
     EXPECT_FALSE([webView stringByEvaluatingJavaScript:@"clipboardData.values[0].includes('secret')"].boolValue);
+    EXPECT_TRUE([webView stringByEvaluatingJavaScript:@"clipboardData.values[0].includes('rdar://101878956')"].boolValue);
+    EXPECT_TRUE([webView stringByEvaluatingJavaScript:@"clipboardData.values[0].includes('Radar Link')"].boolValue);
+    EXPECT_FALSE([webView stringByEvaluatingJavaScript:@"clipboardData.values[0].includes('runCode()')"].boolValue);
 }
 
 TEST(PasteHTML, DoesNotStripFileURLsWhenCustomPasteboardDataIsDisabled)
@@ -386,6 +395,25 @@ TEST(PasteHTML, DoesNotAddStandardFontFamily)
     EXPECT_WK_STREQ([webView stringByEvaluatingJavaScript:@"getComputedStyle(document.querySelector('.s4')).fontFamily"],
         [webView stringByEvaluatingJavaScript:@"getComputedStyle(document.body).fontFamily"]);
 }
+
+#if PLATFORM(MAC)
+
+TEST(PasteHTML, ReadSelectionFromPasteboard)
+{
+    auto generalPasteboard = NSPasteboard.generalPasteboard;
+    [generalPasteboard clearContents];
+    [generalPasteboard setString:@"Hello world" forType:NSPasteboardTypeString];
+
+    auto webView = createWebViewWithCustomPasteboardDataSetting(true);
+    [webView synchronouslyLoadHTMLString:@"<input>"];
+    [webView stringByEvaluatingJavaScript:@"document.querySelector('input').focus()"];
+    [webView readSelectionFromPasteboard:generalPasteboard];
+
+    NSString *inputValue = [webView stringByEvaluatingJavaScript:@"document.querySelector('input').value"];
+    EXPECT_WK_STREQ(inputValue, "Hello world");
+}
+
+#endif // PLATFORM(MAC)
 
 #if ENABLE(DARK_MODE_CSS) && HAVE(OS_DARK_MODE_SUPPORT)
 

@@ -25,7 +25,8 @@ import os
 import sys
 import time
 
-from webkitpy.common.timeout_context import Timeout
+from webkitcorepy import Timeout
+
 from webkitpy.port.server_process import ServerProcess
 
 
@@ -67,15 +68,17 @@ class SimulatorProcess(ServerProcess):
             return getattr(self._file, name)
 
         def close(self):
+            result = -1
             try:
                 result = self._file.close()
-                # Closing the file implicitly closes the socket in Python 3
-                if sys.version_info < (3, 0):
-                    self.socket.close()
-                return result
             except IOError:
                 # If the file descriptor is bad, we don't have to worry about closing it
                 pass
+            try:
+                self.socket.close()
+            except OSError:
+                pass
+            return result
 
     def __init__(self, port_obj, name, cmd, env=None, universal_newlines=False, treat_no_data_as_crash=False, target_host=None, crash_message=None):
         env['PORT'] = str(target_host.listening_port())  # The target_host should be a device.
@@ -104,7 +107,7 @@ class SimulatorProcess(ServerProcess):
         self._system_pid = self._pid
 
         # FIXME <rdar://problem/57032042>: This timeout should be 15 seconds
-        with Timeout(30, RuntimeError('Timed out waiting for pid {} to connect at port {}'.format(self._pid, self._target_host.listening_port()))):
+        with Timeout(30, handler=RuntimeError('Timed out waiting for pid {} to connect at port {}'.format(self._pid, self._target_host.listening_port())), patch=False):
             stdin = None
             stdout = None
             stderr = None

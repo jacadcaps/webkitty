@@ -40,6 +40,9 @@ struct _BrowserWindow {
     GtkApplicationWindow parent;
 
     WebKitWebContext *webContext;
+#if GTK_CHECK_VERSION(3, 98, 0)
+    WebKitNetworkSession *networkSession;
+#endif
 
     GtkWidget *mainBox;
     GtkWidget *toolbar;
@@ -159,7 +162,11 @@ static void webViewTitleChanged(WebKitWebView *webView, GParamSpec *pspec, Brows
     char *privateTitle = NULL;
     if (webkit_web_view_is_controlled_by_automation(webView))
         privateTitle = g_strdup_printf("[Automation] %s", title);
+#if GTK_CHECK_VERSION(3, 98, 0)
+    else if (webkit_network_session_is_ephemeral(webkit_web_view_get_network_session(webView)))
+#else
     else if (webkit_web_view_is_ephemeral(webView))
+#endif
         privateTitle = g_strdup_printf("[Private] %s", title);
     gtk_window_set_title(GTK_WINDOW(window), privateTitle ? privateTitle : title);
     g_free(privateTitle);
@@ -185,9 +192,9 @@ static void webViewLoadProgressChanged(WebKitWebView *webView, GParamSpec *pspec
     }
 }
 
+#if !GTK_CHECK_VERSION(3, 98, 0)
 static void downloadStarted(WebKitWebContext *webContext, WebKitDownload *download, BrowserWindow *window)
 {
-#if !GTK_CHECK_VERSION(3, 98, 0)
     if (!window->downloadsBar) {
         window->downloadsBar = browser_downloads_bar_new();
         gtk_box_pack_start(GTK_BOX(window->mainBox), window->downloadsBar, FALSE, FALSE, 0);
@@ -196,8 +203,8 @@ static void downloadStarted(WebKitWebContext *webContext, WebKitDownload *downlo
         gtk_widget_show(window->downloadsBar);
     }
     browser_downloads_bar_add_download(BROWSER_DOWNLOADS_BAR(window->downloadsBar), download);
-#endif
 }
+#endif
 
 static void browserWindowHistoryItemActivated(BrowserWindow *window, GVariant *parameter, GAction *action)
 {
@@ -221,9 +228,7 @@ static void browserWindowCreateBackForwardMenu(BrowserWindow *window, GList *lis
     GList *listItem;
     for (listItem = list; listItem; listItem = g_list_next(listItem)) {
         WebKitBackForwardListItem *item = (WebKitBackForwardListItem *)listItem->data;
-        const char *title = webkit_back_forward_list_item_get_title(item);
-        if (!title || !*title)
-            title = webkit_back_forward_list_item_get_uri(item);
+        const char *title = webkit_back_forward_list_item_get_uri(item);
 
         char *displayTitle;
 #define MAX_TITLE 100
@@ -331,6 +336,37 @@ static gboolean navigationButtonPressCallback(GtkButton *button, GdkEvent *event
 }
 #endif
 
+static void browserWindowSaveSession(BrowserWindow *window)
+{
+    if (!window->sessionFile)
+        return;
+
+    GKeyFile *session = g_key_file_new();
+    int tabsCount = gtk_notebook_get_n_pages(GTK_NOTEBOOK(window->notebook));
+    int i;
+    for (i = 0; i < tabsCount; ++i) {
+        BrowserTab *tab = (BrowserTab *)gtk_notebook_get_nth_page(GTK_NOTEBOOK(window->notebook), i);
+        WebKitWebView *webView = browser_tab_get_web_view(tab);
+        WebKitWebViewSessionState *state = webkit_web_view_get_session_state(webView);
+        GBytes *bytes = webkit_web_view_session_state_serialize(state);
+        if (bytes) {
+            gsize dataLength;
+            gconstpointer data;
+            data = g_bytes_get_data(bytes, &dataLength);
+
+            gchar *groupName = g_strdup_printf("Tab-%d", i);
+            gchar *base64 = g_base64_encode(data, dataLength);
+            g_key_file_set_string(session, groupName, "state", base64);
+            g_free(base64);
+            g_free(groupName);
+            g_bytes_unref(bytes);
+        }
+        webkit_web_view_session_state_unref(state);
+    }
+    g_key_file_save_to_file(session, window->sessionFile, NULL);
+    g_key_file_free(session);
+}
+
 static void browserWindowTryCloseCurrentWebView(GSimpleAction *action, GVariant *parameter, gpointer userData)
 {
     BrowserWindow *window = BROWSER_WINDOW(userData);
@@ -342,6 +378,8 @@ static void browserWindowTryCloseCurrentWebView(GSimpleAction *action, GVariant 
 static void browserWindowTryClose(GSimpleAction *action, GVariant *parameter, gpointer userData)
 {
     BrowserWindow *window = BROWSER_WINDOW(userData);
+    browserWindowSaveSession(window);
+
     GSList *webViews = NULL;
     int n = gtk_notebook_get_n_pages(GTK_NOTEBOOK(window->notebook));
     int i;
@@ -399,12 +437,15 @@ static void webViewReadyToShow(WebKitWebView *webView, BrowserWindow *window)
 
     GdkRectangle geometry;
     webkit_window_properties_get_geometry(windowProperties, &geometry);
-#if !GTK_CHECK_VERSION(3, 98, 0)
+#if GTK_CHECK_VERSION(3, 99, 5)
+    if (geometry.width > 0 && geometry.height > 0)
+        gtk_window_set_default_size(GTK_WINDOW(window), geometry.width, geometry.height);
+#else
     if (geometry.x >= 0 && geometry.y >= 0)
         gtk_window_move(GTK_WINDOW(window), geometry.x, geometry.y);
-#endif
     if (geometry.width > 0 && geometry.height > 0)
         gtk_window_resize(GTK_WINDOW(window), geometry.width, geometry.height);
+#endif
 
     if (!webkit_window_properties_get_toolbar_visible(windowProperties))
         gtk_widget_hide(window->toolbar);
@@ -419,16 +460,38 @@ static void webViewReadyToShow(WebKitWebView *webView, BrowserWindow *window)
 
 static GtkWidget *webViewCreate(WebKitWebView *webView, WebKitNavigationAction *navigation, BrowserWindow *window)
 {
-    WebKitWebView *newWebView = WEBKIT_WEB_VIEW(webkit_web_view_new_with_related_view(webView));
-    webkit_web_view_set_settings(newWebView, webkit_web_view_get_settings(webView));
+    WebKitWebView *newWebView = WEBKIT_WEB_VIEW(g_object_new(WEBKIT_TYPE_WEB_VIEW,
+        "related-view", webView,
+        "settings", webkit_web_view_get_settings(webView),
+        "user-content-manager", webkit_web_view_get_user_content_manager(webView),
+        "website-policies", webkit_web_view_get_website_policies(webView),
+        NULL));
 
+#if GTK_CHECK_VERSION(3, 98, 0)
+    GtkWidget *newWindow = browser_window_new(GTK_WINDOW(window), window->webContext, window->networkSession);
+#else
     GtkWidget *newWindow = browser_window_new(GTK_WINDOW(window), window->webContext);
+#endif
     gtk_window_set_application(GTK_WINDOW(newWindow), gtk_window_get_application(GTK_WINDOW(window)));
     browser_window_append_view(BROWSER_WINDOW(newWindow), newWebView);
     gtk_widget_grab_focus(GTK_WIDGET(newWebView));
     g_signal_connect(newWebView, "ready-to-show", G_CALLBACK(webViewReadyToShow), newWindow);
     g_signal_connect(newWebView, "run-as-modal", G_CALLBACK(webViewRunAsModal), newWindow);
     return GTK_WIDGET(newWebView);
+}
+
+void browser_window_fullscreen(BrowserWindow *window)
+{
+    gtk_window_fullscreen(GTK_WINDOW(window));
+    gtk_widget_hide(window->toolbar);
+    window->fullScreenIsEnabled = TRUE;
+}
+
+static void browserWindowUnfullscreen(BrowserWindow *window)
+{
+    gtk_window_unfullscreen(GTK_WINDOW(window));
+    gtk_widget_show(window->toolbar);
+    window->fullScreenIsEnabled = FALSE;
 }
 
 static gboolean webViewEnterFullScreen(WebKitWebView *webView, BrowserWindow *window)
@@ -468,6 +531,9 @@ static gboolean webViewDecidePolicy(WebKitWebView *webView, WebKitPolicyDecision
     /* Opening a new tab if link clicked with the middle button. */
     WebKitWebView *newWebView = WEBKIT_WEB_VIEW(g_object_new(WEBKIT_TYPE_WEB_VIEW,
         "web-context", webkit_web_view_get_context(webView),
+#if GTK_CHECK_VERSION(3, 98, 0)
+        "network-session", webkit_web_view_get_network_session(webView),
+#endif
         "settings", webkit_web_view_get_settings(webView),
         "user-content-manager", webkit_web_view_get_user_content_manager(webView),
         "is-controlled-by-automation", webkit_web_view_is_controlled_by_automation(webView),
@@ -587,30 +653,92 @@ static void updateUriEntryIcon(BrowserWindow *window)
 static void faviconChanged(WebKitWebView *webView, GParamSpec *paramSpec, BrowserWindow *window)
 {
 #if GTK_CHECK_VERSION(3, 98, 0)
-    GdkTexture *favicon = NULL;
+    GdkTexture *favicon = webkit_web_view_get_favicon(webView);
+    if (favicon)
+        favicon = g_object_ref(favicon);
 #else
-    GdkPixbuf *favicon = NULL;
-#endif
     cairo_surface_t *surface = webkit_web_view_get_favicon(webView);
+    GdkPixbuf *favicon = NULL;
 
     if (surface) {
         int width = cairo_image_surface_get_width(surface);
         int height = cairo_image_surface_get_height(surface);
-#if GTK_CHECK_VERSION(3, 98, 0)
-        int stride = cairo_image_surface_get_stride(surface);
-        GBytes *bytes = g_bytes_new(cairo_image_surface_get_data(surface), stride * height);
-        favicon = gdk_memory_texture_new(width, height, GDK_MEMORY_DEFAULT, bytes, stride);
-        g_bytes_unref(bytes);
-#else
+
         favicon = gdk_pixbuf_get_from_surface(surface, 0, 0, width, height);
-#endif
     }
+#endif
 
     if (window->favicon)
         g_object_unref(window->favicon);
     window->favicon = favicon;
 
     updateUriEntryIcon(window);
+}
+
+static void webViewMediaCaptureStateChanged(WebKitWebView* webView, GParamSpec* paramSpec, BrowserWindow* window)
+{
+    const gchar* name = g_param_spec_get_name(paramSpec);
+    // FIXME: the URI entry is not great storage in case more than one capture device is in use,
+    // because it can store only one secondary icon.
+    GtkEntry *entry = GTK_ENTRY(window->uriEntry);
+
+    if (g_str_has_prefix(name, "microphone")) {
+        switch (webkit_web_view_get_microphone_capture_state(webView)) {
+        case WEBKIT_MEDIA_CAPTURE_STATE_NONE:
+            gtk_entry_set_icon_from_icon_name(entry, GTK_ENTRY_ICON_SECONDARY, NULL);
+            break;
+        case WEBKIT_MEDIA_CAPTURE_STATE_MUTED:
+            gtk_entry_set_icon_from_icon_name(entry, GTK_ENTRY_ICON_SECONDARY, "microphone-sensivity-mutes-symbolic");
+            break;
+        case WEBKIT_MEDIA_CAPTURE_STATE_ACTIVE:
+            gtk_entry_set_icon_from_icon_name(entry, GTK_ENTRY_ICON_SECONDARY, "audio-input-microphone-symbolic");
+            break;
+        }
+    } else if (g_str_has_prefix(name, "camera")) {
+        switch (webkit_web_view_get_camera_capture_state(webView)) {
+        case WEBKIT_MEDIA_CAPTURE_STATE_NONE:
+            gtk_entry_set_icon_from_icon_name(entry, GTK_ENTRY_ICON_SECONDARY, NULL);
+            break;
+        case WEBKIT_MEDIA_CAPTURE_STATE_MUTED:
+            gtk_entry_set_icon_from_icon_name(entry, GTK_ENTRY_ICON_SECONDARY, "camera-disabled-symbolic");
+            break;
+        case WEBKIT_MEDIA_CAPTURE_STATE_ACTIVE:
+            gtk_entry_set_icon_from_icon_name(entry, GTK_ENTRY_ICON_SECONDARY, "camera-web-symbolic");
+            break;
+        }
+    } else if (g_str_has_prefix(name, "display")) {
+        switch (webkit_web_view_get_display_capture_state(webView)) {
+        case WEBKIT_MEDIA_CAPTURE_STATE_NONE:
+            gtk_entry_set_icon_from_icon_name(entry, GTK_ENTRY_ICON_SECONDARY, NULL);
+            break;
+        case WEBKIT_MEDIA_CAPTURE_STATE_MUTED:
+            // FIXME: I found no suitable icon for this.
+            gtk_entry_set_icon_from_icon_name(entry, GTK_ENTRY_ICON_SECONDARY, "media-playback-stop-symbolic");
+            break;
+        case WEBKIT_MEDIA_CAPTURE_STATE_ACTIVE:
+            gtk_entry_set_icon_from_icon_name(entry, GTK_ENTRY_ICON_SECONDARY, "video-display-symbolic");
+            break;
+        }
+    }
+}
+
+static void webViewUriEntryIconPressed(GtkEntry* entry, GtkEntryIconPosition position, GdkEvent* event, BrowserWindow* window)
+{
+    if (position != GTK_ENTRY_ICON_SECONDARY)
+        return;
+
+    // FIXME: What about audio/video?
+    WebKitWebView *webView = browser_tab_get_web_view(window->activeTab);
+    switch (webkit_web_view_get_display_capture_state(webView)) {
+    case WEBKIT_MEDIA_CAPTURE_STATE_NONE:
+        break;
+    case WEBKIT_MEDIA_CAPTURE_STATE_MUTED:
+        webkit_web_view_set_display_capture_state(webView, WEBKIT_MEDIA_CAPTURE_STATE_ACTIVE);
+        break;
+    case WEBKIT_MEDIA_CAPTURE_STATE_ACTIVE:
+        webkit_web_view_set_display_capture_state(webView, WEBKIT_MEDIA_CAPTURE_STATE_MUTED);
+        break;
+    }
 }
 
 static void webViewIsLoadingChanged(WebKitWebView *webView, GParamSpec *paramSpec, BrowserWindow *window)
@@ -622,6 +750,8 @@ static void webViewIsLoadingChanged(WebKitWebView *webView, GParamSpec *paramSpe
     GtkWidget *image = gtk_button_get_image(GTK_BUTTON(window->reloadOrStopButton));
     g_object_set(image, "icon-name", isLoading ? "process-stop-symbolic" : "view-refresh-symbolic", NULL);
 #endif
+    GAction *action = g_action_map_lookup_action(G_ACTION_MAP(window), "stop-load");
+    g_simple_action_set_enabled(G_SIMPLE_ACTION(action), isLoading);
 }
 
 static void zoomInCallback(GSimpleAction *action, GVariant *parameter, gpointer userData)
@@ -654,6 +784,9 @@ static void newTabCallback(GSimpleAction *action, GVariant *parameter, gpointer 
 
     browser_window_append_view(window, WEBKIT_WEB_VIEW(g_object_new(WEBKIT_TYPE_WEB_VIEW,
         "web-context", webkit_web_view_get_context(webView),
+#if GTK_CHECK_VERSION(3, 98, 0)
+        "network-session", window->networkSession,
+#endif
         "settings", webkit_web_view_get_settings(webView),
         "user-content-manager", webkit_web_view_get_user_content_manager(webView),
         "is-controlled-by-automation", webkit_web_view_is_controlled_by_automation(webView),
@@ -672,15 +805,39 @@ static void openPrivateWindow(GSimpleAction *action, GVariant *parameter, gpoint
 {
     BrowserWindow *window = BROWSER_WINDOW(userData);
     WebKitWebView *webView = browser_tab_get_web_view(window->activeTab);
+
+#if GTK_CHECK_VERSION(3, 98, 0)
+    WebKitNetworkSession *networkSession = NULL;
+    if (!webkit_web_view_is_controlled_by_automation(webView)) {
+        WebKitWebsiteDataManager *manager;
+
+        networkSession = webkit_network_session_new_ephemeral();
+
+        manager = webkit_network_session_get_website_data_manager(networkSession);
+        webkit_website_data_manager_set_favicons_enabled(manager, TRUE);
+
+        webkit_network_session_set_tls_errors_policy(networkSession, webkit_network_session_get_tls_errors_policy(window->networkSession));
+        // FIXME: we need public api to get proxy settings.
+    }
+#endif
     WebKitWebView *newWebView = WEBKIT_WEB_VIEW(g_object_new(WEBKIT_TYPE_WEB_VIEW,
         "web-context", webkit_web_view_get_context(webView),
         "settings", webkit_web_view_get_settings(webView),
         "user-content-manager", webkit_web_view_get_user_content_manager(webView),
+#if GTK_CHECK_VERSION(3, 98, 0)
+        "network-session", networkSession,
+#else
         "is-ephemeral", TRUE,
+#endif
         "is-controlled-by-automation", webkit_web_view_is_controlled_by_automation(webView),
         "website-policies", webkit_web_view_get_website_policies(webView),
         NULL));
+#if GTK_CHECK_VERSION(3, 98, 0)
+    GtkWidget *newWindow = browser_window_new(GTK_WINDOW(window), window->webContext, networkSession);
+    g_clear_object(&networkSession);
+#else
     GtkWidget *newWindow = browser_window_new(GTK_WINDOW(window), window->webContext);
+#endif
     gtk_window_set_application(GTK_WINDOW(newWindow), gtk_window_get_application(GTK_WINDOW(window)));
     browser_window_append_view(BROWSER_WINDOW(newWindow), newWebView);
     gtk_widget_grab_focus(GTK_WIDGET(newWebView));
@@ -707,7 +864,6 @@ static void reloadPageIgnoringCache(GSimpleAction *action, GVariant *parameter, 
 static void stopPageLoad(GSimpleAction *action, GVariant *parameter, gpointer userData)
 {
     BrowserWindow *window = BROWSER_WINDOW(userData);
-    browser_tab_stop_search(window->activeTab);
     WebKitWebView *webView = browser_tab_get_web_view(window->activeTab);
     if (webkit_web_view_is_loading(webView))
         webkit_web_view_stop_loading(webView);
@@ -723,15 +879,10 @@ static void loadHomePage(GSimpleAction *action, GVariant *parameter, gpointer us
 static void toggleFullScreen(GSimpleAction *action, GVariant *parameter, gpointer userData)
 {
     BrowserWindow *window = BROWSER_WINDOW(userData);
-    if (!window->fullScreenIsEnabled) {
-        gtk_window_fullscreen(GTK_WINDOW(window));
-        gtk_widget_hide(window->toolbar);
-        window->fullScreenIsEnabled = TRUE;
-    } else {
-        gtk_window_unfullscreen(GTK_WINDOW(window));
-        gtk_widget_show(window->toolbar);
-        window->fullScreenIsEnabled = FALSE;
-    }
+    if (window->fullScreenIsEnabled)
+        browserWindowUnfullscreen(window);
+    else
+        browser_window_fullscreen(window);
 }
 
 static void webKitPrintOperationFailedCallback(WebKitPrintOperation *printOperation, GError *error)
@@ -853,26 +1004,16 @@ static void typingAttributesChanged(WebKitEditorState *editorState, GParamSpec *
     g_simple_action_set_state(G_SIMPLE_ACTION(action), g_variant_new_boolean(typingAttributes & WEBKIT_EDITOR_TYPING_ATTRIBUTE_STRIKETHROUGH));
 }
 
-static void browserWindowSaveSession(BrowserWindow *window)
-{
-    if (!window->sessionFile)
-        return;
-
-    WebKitWebView *webView = browser_tab_get_web_view(window->activeTab);
-    WebKitWebViewSessionState *state = webkit_web_view_get_session_state(webView);
-    GBytes *bytes = webkit_web_view_session_state_serialize(state);
-    webkit_web_view_session_state_unref(state);
-    g_file_set_contents(window->sessionFile, g_bytes_get_data(bytes, NULL), g_bytes_get_size(bytes), NULL);
-    g_bytes_unref(bytes);
-    g_clear_pointer(&window->sessionFile, g_free);
-}
-
 static void browserWindowFinalize(GObject *gObject)
 {
     BrowserWindow *window = BROWSER_WINDOW(gObject);
 
     g_signal_handlers_disconnect_matched(window->webContext, G_SIGNAL_MATCH_DATA, 0, 0, NULL, NULL, window);
     g_object_unref(window->webContext);
+
+#if GTK_CHECK_VERSION(3, 98, 5)
+    g_clear_object(&window->networkSession);
+#endif
 
     if (window->favicon) {
         g_object_unref(window->favicon);
@@ -883,6 +1024,7 @@ static void browserWindowFinalize(GObject *gObject)
         g_source_remove(window->resetEntryProgressTimeoutId);
 
     g_clear_object(&window->editActionGroup);
+    g_clear_pointer(&window->sessionFile, g_free);
 
     G_OBJECT_CLASS(browser_window_parent_class)->finalize(gObject);
 }
@@ -890,8 +1032,6 @@ static void browserWindowFinalize(GObject *gObject)
 static void browserWindowDispose(GObject *gObject)
 {
     BrowserWindow *window = BROWSER_WINDOW(gObject);
-
-    browserWindowSaveSession(window);
 
     if (window->parentWindow) {
         g_object_remove_weak_pointer(G_OBJECT(window->parentWindow), (gpointer *)&window->parentWindow);
@@ -971,6 +1111,8 @@ static const GActionEntry editActions[] = {
     { "JustifyRight", NULL, NULL, "false", editingActionCallback, { 0 } },
     { "Indent", editingActionCallback, NULL, NULL, NULL, { 0 } },
     { "Outdent", editingActionCallback, NULL, NULL, NULL, { 0 } },
+    { "InsertUnorderedList", editingActionCallback, NULL, NULL, NULL, { 0 } },
+    { "InsertOrderedList", editingActionCallback, NULL, NULL, NULL, { 0 } },
 };
 
 static void browserWindowSetupEditorToolbar(BrowserWindow *window)
@@ -989,7 +1131,7 @@ static void browserWindowSetupEditorToolbar(BrowserWindow *window)
 
     GtkWidget *groupBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
 #if GTK_CHECK_VERSION(3, 98, 5)
-    gtk_widget_add_css_class(groupBox, GTK_STYLE_CLASS_LINKED);
+    gtk_widget_add_css_class(groupBox, "linked");
 #else
     gtk_style_context_add_class(gtk_widget_get_style_context(groupBox), GTK_STYLE_CLASS_LINKED);
 #endif
@@ -1006,7 +1148,7 @@ static void browserWindowSetupEditorToolbar(BrowserWindow *window)
 
     groupBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
 #if GTK_CHECK_VERSION(3, 98, 5)
-    gtk_widget_add_css_class(groupBox, GTK_STYLE_CLASS_LINKED);
+    gtk_widget_add_css_class(groupBox, "linked");
 #else
     gtk_style_context_add_class(gtk_widget_get_style_context(groupBox), GTK_STYLE_CLASS_LINKED);
 #endif
@@ -1022,7 +1164,7 @@ static void browserWindowSetupEditorToolbar(BrowserWindow *window)
 
     groupBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
 #if GTK_CHECK_VERSION(3, 98, 5)
-    gtk_widget_add_css_class(groupBox, GTK_STYLE_CLASS_LINKED);
+    gtk_widget_add_css_class(groupBox, "linked");
 #else
     gtk_style_context_add_class(gtk_widget_get_style_context(groupBox), GTK_STYLE_CLASS_LINKED);
 #endif
@@ -1037,7 +1179,7 @@ static void browserWindowSetupEditorToolbar(BrowserWindow *window)
 
     groupBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
 #if GTK_CHECK_VERSION(3, 98, 5)
-    gtk_widget_add_css_class(groupBox, GTK_STYLE_CLASS_LINKED);
+    gtk_widget_add_css_class(groupBox, "linked");
 #else
     gtk_style_context_add_class(gtk_widget_get_style_context(groupBox), GTK_STYLE_CLASS_LINKED);
 #endif
@@ -1053,7 +1195,7 @@ static void browserWindowSetupEditorToolbar(BrowserWindow *window)
 
     groupBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
 #if GTK_CHECK_VERSION(3, 98, 5)
-    gtk_widget_add_css_class(groupBox, GTK_STYLE_CLASS_LINKED);
+    gtk_widget_add_css_class(groupBox, "linked");
 #else
     gtk_style_context_add_class(gtk_widget_get_style_context(groupBox), GTK_STYLE_CLASS_LINKED);
 #endif
@@ -1068,7 +1210,23 @@ static void browserWindowSetupEditorToolbar(BrowserWindow *window)
 
     groupBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
 #if GTK_CHECK_VERSION(3, 98, 5)
-    gtk_widget_add_css_class(groupBox, GTK_STYLE_CLASS_LINKED);
+    gtk_widget_add_css_class(groupBox, "linked");
+#else
+    gtk_style_context_add_class(gtk_widget_get_style_context(groupBox), GTK_STYLE_CLASS_LINKED);
+#endif
+    /* Not the best icons for these, but we don't have insert list icons in GTK. */
+    addToolbarButton(groupBox, TOOLBAR_BUTTON_NORMAL, "media-record-symbolic", "edit.InsertUnorderedList");
+    addToolbarButton(groupBox, TOOLBAR_BUTTON_NORMAL, "zoom-original-symbolic", "edit.InsertOrderedList");
+#if GTK_CHECK_VERSION(3, 98, 5)
+    gtk_box_append(GTK_BOX(toolbar), groupBox);
+#else
+    gtk_box_pack_start(GTK_BOX(toolbar), groupBox, FALSE, FALSE, 0);
+    gtk_widget_show(groupBox);
+#endif
+
+    groupBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+#if GTK_CHECK_VERSION(3, 98, 5)
+    gtk_widget_add_css_class(groupBox, "linked");
 #else
     gtk_style_context_add_class(gtk_widget_get_style_context(groupBox), GTK_STYLE_CLASS_LINKED);
 #endif
@@ -1131,7 +1289,6 @@ static void browserWindowSwitchTab(GtkNotebook *notebook, BrowserTab *tab, guint
     g_signal_connect(webView, "notify::title", G_CALLBACK(webViewTitleChanged), window);
     g_signal_connect(webView, "notify::is-loading", G_CALLBACK(webViewIsLoadingChanged), window);
     g_signal_connect(webView, "create", G_CALLBACK(webViewCreate), window);
-    g_signal_connect(webView, "close", G_CALLBACK(webViewClose), window);
     g_signal_connect(webView, "load-failed", G_CALLBACK(webViewLoadFailed), window);
     g_signal_connect(webView, "decide-policy", G_CALLBACK(webViewDecidePolicy), window);
     g_signal_connect(webView, "mouse-target-changed", G_CALLBACK(webViewMouseTargetChanged), window);
@@ -1142,6 +1299,12 @@ static void browserWindowSwitchTab(GtkNotebook *notebook, BrowserTab *tab, guint
 #if !GTK_CHECK_VERSION(3, 98, 0)
     g_signal_connect(webView, "scroll-event", G_CALLBACK(scrollEventCallback), window);
 #endif
+    g_signal_connect_object(webView, "notify::camera-capture-state", G_CALLBACK(webViewMediaCaptureStateChanged), window, 0);
+    g_signal_connect_object(webView, "notify::microphone-capture-state", G_CALLBACK(webViewMediaCaptureStateChanged), window, 0);
+    g_signal_connect_object(webView, "notify::display-capture-state", G_CALLBACK(webViewMediaCaptureStateChanged), window, 0);
+
+    g_object_set(window->uriEntry, "secondary-icon-activatable", TRUE, NULL);
+    g_signal_connect(window->uriEntry, "icon-press", G_CALLBACK(webViewUriEntryIconPressed), window);
 
     WebKitBackForwardList *backForwardlist = webkit_web_view_get_back_forward_list(webView);
     browserWindowUpdateNavigationMenu(window, backForwardlist);
@@ -1222,11 +1385,11 @@ static const GActionEntry actions[] = {
 
 static void browser_window_init(BrowserWindow *window)
 {
-    window->backgroundColor.red = window->backgroundColor.green = window->backgroundColor.blue = 255;
-    window->backgroundColor.alpha = 1;
+    window->backgroundColor.red = window->backgroundColor.green = window->backgroundColor.blue = 1.0;
+    window->backgroundColor.alpha = 1.0;
 
     gtk_window_set_title(GTK_WINDOW(window), defaultWindowTitle);
-    gtk_window_set_default_size(GTK_WINDOW(window), 800, 600);
+    gtk_window_set_default_size(GTK_WINDOW(window), 1024, 768);
 
     g_action_map_add_action_entries(G_ACTION_MAP(window), actions, G_N_ELEMENTS(actions), window);
 
@@ -1239,7 +1402,7 @@ static void browser_window_init(BrowserWindow *window)
 
     GtkWidget *navigationBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
 #if GTK_CHECK_VERSION(3, 98, 5)
-    gtk_widget_add_css_class(navigationBox, GTK_STYLE_CLASS_LINKED);
+    gtk_widget_add_css_class(navigationBox, "linked");
 #else
     gtk_style_context_add_class(gtk_widget_get_style_context(navigationBox), GTK_STYLE_CLASS_LINKED);
 #endif
@@ -1351,7 +1514,11 @@ static void browser_window_class_init(BrowserWindowClass *klass)
 }
 
 /* Public API. */
+#if GTK_CHECK_VERSION(3, 98, 0)
+GtkWidget *browser_window_new(GtkWindow *parent, WebKitWebContext *webContext, WebKitNetworkSession *networkSession)
+#else
 GtkWidget *browser_window_new(GtkWindow *parent, WebKitWebContext *webContext)
+#endif
 {
     g_return_val_if_fail(WEBKIT_IS_WEB_CONTEXT(webContext), NULL);
 
@@ -1362,7 +1529,12 @@ GtkWidget *browser_window_new(GtkWindow *parent, WebKitWebContext *webContext)
         NULL));
 
     window->webContext = g_object_ref(webContext);
+#if GTK_CHECK_VERSION(3, 98, 0)
+    window->networkSession = g_object_ref(networkSession);
+#else
     g_signal_connect(window->webContext, "download-started", G_CALLBACK(downloadStarted), window);
+#endif
+
     if (parent) {
         window->parentWindow = parent;
         g_object_add_weak_pointer(G_OBJECT(parent), (gpointer *)&window->parentWindow);
@@ -1370,6 +1542,15 @@ GtkWidget *browser_window_new(GtkWindow *parent, WebKitWebContext *webContext)
 
     return GTK_WIDGET(window);
 }
+
+#if GTK_CHECK_VERSION(3, 98, 0)
+WebKitNetworkSession *browser_window_get_network_session(BrowserWindow *window)
+{
+    g_return_val_if_fail(BROWSER_IS_WINDOW(window), NULL);
+
+    return window->networkSession;
+}
+#endif
 
 WebKitWebContext *browser_window_get_web_context(BrowserWindow *window)
 {
@@ -1387,6 +1568,9 @@ void browser_window_append_view(BrowserWindow *window, WebKitWebView *webView)
         g_warning("Only one tab is allowed in editable mode");
         return;
     }
+
+    /* We always want close to be connected even for not active tabs */
+    g_signal_connect(webView, "close", G_CALLBACK(webViewClose), window);
 
     GtkWidget *tab = browser_tab_new(webView);
 #if !GTK_CHECK_VERSION(3, 98, 0)
@@ -1416,27 +1600,73 @@ void browser_window_load_session(BrowserWindow *window, const char *sessionFile)
     g_return_if_fail(sessionFile);
 
     WebKitWebView *webView = browser_tab_get_web_view(window->activeTab);
+
     window->sessionFile = g_strdup(sessionFile);
-    gchar *data = NULL;
-    gsize dataLength;
-    if (g_file_get_contents(sessionFile, &data, &dataLength, NULL)) {
-        GBytes *bytes = g_bytes_new_take(data, dataLength);
-        WebKitWebViewSessionState *state = webkit_web_view_session_state_new(bytes);
-        g_bytes_unref(bytes);
+    GKeyFile *session = g_key_file_new();
+    GError *error = NULL;
+    if (!g_key_file_load_from_file(session, sessionFile, G_KEY_FILE_NONE, &error)) {
+        if (!g_error_matches(error, G_FILE_ERROR, G_FILE_ERROR_NOENT))
+            g_warning("Failed to open session file: %s", error->message);
+        g_error_free(error);
+        webkit_web_view_load_uri(webView, BROWSER_DEFAULT_URL);
+        g_key_file_free(session);
+        return;
+    }
+
+    gsize groupCount;
+    gchar **groups = g_key_file_get_groups(session, &groupCount);
+    if (!groupCount) {
+        webkit_web_view_load_uri(webView, BROWSER_DEFAULT_URL);
+        g_strfreev(groups);
+        g_key_file_free(session);
+        return;
+    }
+
+    WebKitWebView *previousWebView = NULL;
+    gsize i;
+    for (i = 0; i < groupCount; ++i) {
+        WebKitWebViewSessionState *state = NULL;
+        gchar *base64 = g_key_file_get_string(session, groups[i], "state", NULL);
+        if (base64) {
+            gsize stateDataLength;
+            guchar *stateData = g_base64_decode(base64, &stateDataLength);
+            GBytes *bytes = g_bytes_new_take(stateData, stateDataLength);
+            state = webkit_web_view_session_state_new(bytes);
+            g_bytes_unref(bytes);
+            g_free(base64);
+        }
+
+        if (!webView) {
+            webView = WEBKIT_WEB_VIEW(g_object_new(WEBKIT_TYPE_WEB_VIEW,
+                "web-context", webkit_web_view_get_context(previousWebView),
+#if GTK_CHECK_VERSION(3, 98, 0)
+                "network-session", webkit_web_view_get_network_session(previousWebView),
+#endif
+                "settings", webkit_web_view_get_settings(previousWebView),
+                "user-content-manager", webkit_web_view_get_user_content_manager(previousWebView),
+                "website-policies", webkit_web_view_get_website_policies(previousWebView),
+                NULL));
+            browser_window_append_view(window, webView);
+        }
 
         if (state) {
             webkit_web_view_restore_session_state(webView, state);
             webkit_web_view_session_state_unref(state);
         }
+
+        WebKitBackForwardList *bfList = webkit_web_view_get_back_forward_list(webView);
+        WebKitBackForwardListItem *item = webkit_back_forward_list_get_current_item(bfList);
+        if (item)
+            webkit_web_view_go_to_back_forward_list_item(webView, item);
+        else
+            webkit_web_view_load_uri(webView, "about:blank");
+
+        previousWebView = webView;
+        webView = NULL;
     }
 
-    WebKitBackForwardList *bfList = webkit_web_view_get_back_forward_list(webView);
-    WebKitBackForwardListItem *item = webkit_back_forward_list_get_current_item(bfList);
-    if (item)
-        webkit_web_view_go_to_back_forward_list_item(webView, item);
-    else
-        webkit_web_view_load_uri(webView, BROWSER_DEFAULT_URL);
-
+    g_strfreev(groups);
+    g_key_file_free(session);
 }
 
 void browser_window_set_background_color(BrowserWindow *window, GdkRGBA *rgba)
@@ -1481,7 +1711,11 @@ WebKitWebView *browser_window_get_or_create_web_view_for_automation(BrowserWindo
         "is-controlled-by-automation", TRUE,
         "website-policies", webkit_web_view_get_website_policies(webView),
         NULL));
+#if GTK_CHECK_VERSION(3, 98, 0)
+    GtkWidget *newWindow = browser_window_new(GTK_WINDOW(window), window->webContext, window->networkSession);
+#else
     GtkWidget *newWindow = browser_window_new(GTK_WINDOW(window), window->webContext);
+#endif
     gtk_window_set_application(GTK_WINDOW(newWindow), gtk_window_get_application(GTK_WINDOW(window)));
 #if !GTK_CHECK_VERSION(3, 98, 0)
     gtk_window_set_focus_on_map(GTK_WINDOW(newWindow), FALSE);

@@ -39,7 +39,7 @@ class HistoryItem;
 WebCore::HistoryItem* core(WebHistoryItem *item);
 WebHistoryItem *kit(WebCore::HistoryItem* item);
 
-extern void WKNotifyHistoryItemChanged(WebCore::HistoryItem&);
+extern void WKNotifyHistoryItemChanged();
 
 @interface WebHistoryItem ()
 
@@ -48,9 +48,7 @@ extern void WKNotifyHistoryItemChanged(WebCore::HistoryItem&);
 - (id)initWithURLString:(NSString *)URLString title:(NSString *)title displayTitle:(NSString *)displayTitle lastVisitedTimeInterval:(NSTimeInterval)time;
 - (id)initFromDictionaryRepresentation:(NSDictionary *)dict;
 - (id)initWithWebCoreHistoryItem:(Ref<WebCore::HistoryItem>&&)item;
-
-- (void)setTitle:(NSString *)title;
-- (void)_visitedWithTitle:(NSString *)title;
+- (void)_visited;
 
 @end
 

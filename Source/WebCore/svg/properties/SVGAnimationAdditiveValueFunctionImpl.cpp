@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc.  All rights reserved.
+ * Copyright (C) 2019-2021 Apple Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,20 +28,38 @@
 
 #include "RenderElement.h"
 #include "SVGElement.h"
+#include <wtf/text/StringToIntegerConversion.h>
 
 namespace WebCore {
 
-Color SVGAnimationColorFunction::colorFromString(SVGElement* targetElement, const String& string)
+Color SVGAnimationColorFunction::colorFromString(SVGElement& targetElement, const String& string)
 {
-    static MainThreadNeverDestroyed<const AtomString> currentColor("currentColor", AtomString::ConstructFromLiteral);
+    static MainThreadNeverDestroyed<const AtomString> currentColor("currentColor"_s);
 
     if (string != currentColor.get())
         return SVGPropertyTraits<Color>::fromString(string);
 
-    if (auto* renderer = targetElement->renderer())
+    if (auto* renderer = targetElement.renderer())
         return renderer->style().visitedDependentColor(CSSPropertyColor);
 
     return { };
 }
 
+std::optional<float> SVGAnimationColorFunction::calculateDistance(SVGElement&, const String& from, const String& to) const
+{
+    auto simpleFrom = CSSParser::parseColorWithoutContext(from.trim(deprecatedIsSpaceOrNewline)).toColorTypeLossy<SRGBA<uint8_t>>().resolved();
+    auto simpleTo = CSSParser::parseColorWithoutContext(to.trim(deprecatedIsSpaceOrNewline)).toColorTypeLossy<SRGBA<uint8_t>>().resolved();
+
+    float red = simpleFrom.red - simpleTo.red;
+    float green = simpleFrom.green - simpleTo.green;
+    float blue = simpleFrom.blue - simpleTo.blue;
+
+    return std::hypot(red, green, blue);
 }
+
+std::optional<float> SVGAnimationIntegerFunction::calculateDistance(SVGElement&, const String& from, const String& to) const
+{
+    return std::abs(parseInteger<int>(to).value_or(0) - parseInteger<int>(from).value_or(0));
+}
+
+} // namespace WebCore

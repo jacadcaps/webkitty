@@ -69,7 +69,7 @@ static void textUTF16ContextAwareMoveInPrimaryContext(UText* text, int64_t nativ
 {
     ASSERT(text->chunkContents == text->p);
     ASSERT_UNUSED(forward, forward ? nativeIndex >= text->b : nativeIndex > text->b);
-    ASSERT_UNUSED(forward, forward ? nativeIndex < nativeLength : nativeIndex <= nativeLength);
+    ASSERT(nativeIndex <= nativeLength);
     text->chunkNativeStart = text->b;
     text->chunkNativeLimit = nativeLength;
     int64_t length = text->chunkNativeLimit - text->chunkNativeStart;
@@ -93,9 +93,8 @@ static void textUTF16ContextAwareSwitchToPrimaryContext(UText* text, int64_t nat
 static void textUTF16ContextAwareMoveInPriorContext(UText* text, int64_t nativeIndex, int64_t nativeLength, UBool forward)
 {
     ASSERT(text->chunkContents == text->q);
-    ASSERT(forward ? nativeIndex < text->b : nativeIndex <= text->b);
-    ASSERT_UNUSED(nativeLength, forward ? nativeIndex < nativeLength : nativeIndex <= nativeLength);
-    ASSERT_UNUSED(forward, forward ? nativeIndex < nativeLength : nativeIndex <= nativeLength);
+    ASSERT_UNUSED(forward, forward ? nativeIndex < text->b : nativeIndex <= text->b);
+    ASSERT_UNUSED(nativeLength, nativeIndex <= nativeLength);
     text->chunkNativeStart = 0;
     text->chunkNativeLimit = text->b;
     text->chunkLength = text->b;
@@ -126,7 +125,7 @@ static inline int64_t uTextUTF16ContextAwareNativeLength(UText* text)
 static UBool uTextUTF16ContextAwareAccess(UText* text, int64_t nativeIndex, UBool forward)
 {
     if (!text->context)
-        return FALSE;
+        return false;
     int64_t nativeLength = uTextUTF16ContextAwareNativeLength(text);
     UBool isAccessible;
     if (uTextAccessInChunkOrOutOfRange(text, nativeIndex, nativeLength, forward, isAccessible))
@@ -146,7 +145,7 @@ static UBool uTextUTF16ContextAwareAccess(UText* text, int64_t nativeIndex, UBoo
         ASSERT(newContext == UTextProviderContext::PriorContext);
         textUTF16ContextAwareSwitchToPriorContext(text, nativeIndex, nativeLength, forward);
     }
-    return TRUE;
+    return true;
 }
 
 static int32_t uTextUTF16ContextAwareExtract(UText*, int64_t, int64_t, UChar*, int32_t, UErrorCode* errorCode)

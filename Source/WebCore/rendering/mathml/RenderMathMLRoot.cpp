@@ -36,6 +36,7 @@
 #include "MathMLRootElement.h"
 #include "PaintInfo.h"
 #include "RenderIterator.h"
+#include "RenderMathMLBlockInlines.h"
 #include "RenderMathMLMenclose.h"
 #include "RenderMathMLOperator.h"
 #include <wtf/IsoMallocInlines.h>
@@ -47,9 +48,10 @@ namespace WebCore {
 WTF_MAKE_ISO_ALLOCATED_IMPL(RenderMathMLRoot);
 
 RenderMathMLRoot::RenderMathMLRoot(MathMLRootElement& element, RenderStyle&& style)
-    : RenderMathMLRow(element, WTFMove(style))
+    : RenderMathMLRow(Type::MathMLRoot, element, WTFMove(style))
 {
     m_radicalOperator.setOperator(RenderMathMLRoot::style(), gRadicalCharacter, MathOperator::Type::VerticalOperator);
+    ASSERT(isRenderMathMLRoot());
 }
 
 MathMLRootElement& RenderMathMLRoot::element() const
@@ -127,7 +129,7 @@ RenderMathMLRoot::VerticalParameters RenderMathMLRoot::verticalParameters()
     const auto& primaryFont = style().fontCascade().primaryFont();
     if (auto* mathData = style().fontCascade().primaryFont().mathData()) {
         parameters.ruleThickness = mathData->getMathConstant(primaryFont, OpenTypeMathData::RadicalRuleThickness);
-        parameters.verticalGap = mathData->getMathConstant(primaryFont, mathMLStyle().displayStyle() ? OpenTypeMathData::RadicalDisplayStyleVerticalGap : OpenTypeMathData::RadicalVerticalGap);
+        parameters.verticalGap = mathData->getMathConstant(primaryFont, style().mathStyle() == MathStyle::Normal ? OpenTypeMathData::RadicalDisplayStyleVerticalGap : OpenTypeMathData::RadicalVerticalGap);
         parameters.extraAscender = mathData->getMathConstant(primaryFont, OpenTypeMathData::RadicalExtraAscender);
         if (rootType() == RootType::RootWithIndex)
             parameters.degreeBottomRaisePercent = mathData->getMathConstant(primaryFont, OpenTypeMathData::RadicalDegreeBottomRaisePercent);
@@ -138,8 +140,8 @@ RenderMathMLRoot::VerticalParameters RenderMathMLRoot::verticalParameters()
         // RadicalExtraAscender: Suggested value is RadicalRuleThickness.
         // RadicalDegreeBottomRaisePercent: Suggested value is 60%.
         parameters.ruleThickness = ruleThicknessFallback();
-        if (mathMLStyle().displayStyle())
-            parameters.verticalGap = parameters.ruleThickness + style().fontMetrics().xHeight() / 4;
+        if (style().mathStyle() == MathStyle::Normal)
+            parameters.verticalGap = parameters.ruleThickness + style().metricsOfPrimaryFont().xHeight() / 4;
         else
             parameters.verticalGap = 5 * parameters.ruleThickness / 4;
 
@@ -290,7 +292,7 @@ void RenderMathMLRoot::paint(PaintInfo& info, const LayoutPoint& paintOffset)
     GraphicsContextStateSaver stateSaver(info.context());
 
     info.context().setStrokeThickness(ruleThickness);
-    info.context().setStrokeStyle(SolidStroke);
+    info.context().setStrokeStyle(StrokeStyle::SolidStroke);
     info.context().setStrokeColor(style().visitedDependentColorWithColorFilter(CSSPropertyColor));
     LayoutPoint ruleOffsetFrom = paintOffset + location() + LayoutPoint(0_lu, m_radicalOperatorTop + ruleThickness / 2);
     LayoutPoint ruleOffsetTo = ruleOffsetFrom;

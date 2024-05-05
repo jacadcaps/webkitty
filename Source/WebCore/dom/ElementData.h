@@ -27,12 +27,12 @@
 
 #include "Attribute.h"
 #include "SpaceSplitString.h"
-#include <wtf/RefCounted.h>
 #include <wtf/TypeCasts.h>
 
 namespace WebCore {
 
 class Attr;
+class ImmutableStyleProperties;
 class ShareableElementData;
 class StyleProperties;
 class UniqueElementData;
@@ -48,9 +48,15 @@ public:
     const Attribute& operator*() const { return m_array[m_offset]; }
     const Attribute* operator->() const { return &m_array[m_offset]; }
     AttributeConstIterator& operator++() { ++m_offset; return *this; }
+    AttributeConstIterator& operator--() { ++m_offset; return *this; }
+
+    using difference_type = ptrdiff_t;
+    using value_type = Attribute;
+    using pointer = const Attribute*;
+    using reference = const Attribute&;
+    using iterator_category = std::random_access_iterator_tag;
 
     bool operator==(const AttributeConstIterator& other) const { return m_offset == other.m_offset; }
-    bool operator!=(const AttributeConstIterator& other) const { return !(*this == other); }
 
 private:
     const Attribute* m_array;
@@ -68,6 +74,7 @@ public:
     AttributeConstIterator begin() const { return AttributeConstIterator(m_array, 0); }
     AttributeConstIterator end() const { return AttributeConstIterator(m_array, m_size); }
 
+    unsigned size() const { return m_size; }
     unsigned attributeCount() const { return m_size; }
 
 private:
@@ -85,7 +92,7 @@ public:
 
     static const unsigned attributeNotFound = static_cast<unsigned>(-1);
 
-    void setClassNames(const SpaceSplitString& classNames) const { m_classNames = classNames; }
+    void setClassNames(SpaceSplitString&& classNames) const { m_classNames = WTFMove(classNames); }
     const SpaceSplitString& classNames() const { return m_classNames; }
     static ptrdiff_t classNamesMemoryOffset() { return OBJECT_OFFSETOF(ElementData, m_classNames); }
 
@@ -94,7 +101,7 @@ public:
     void setIdForStyleResolution(const AtomString& newId) const { m_idForStyleResolution = newId; }
 
     const StyleProperties* inlineStyle() const { return m_inlineStyle.get(); }
-    const StyleProperties* presentationAttributeStyle() const;
+    const ImmutableStyleProperties* presentationalHintStyle() const;
 
     unsigned length() const;
     bool isEmpty() const { return !length(); }
@@ -104,7 +111,6 @@ public:
     const Attribute* findAttributeByName(const QualifiedName&) const;
     unsigned findAttributeIndexByName(const QualifiedName&) const;
     unsigned findAttributeIndexByName(const AtomString& name, bool shouldIgnoreAttributeCase) const;
-    const Attribute* findLanguageAttribute() const;
 
     bool hasID() const { return !m_idForStyleResolution.isNull(); }
     bool hasClass() const { return !m_classNames.isEmpty(); }
@@ -128,10 +134,11 @@ private:
     static const uint32_t s_flagCount = 5;
     static const uint32_t s_flagIsUnique = 1;
     static const uint32_t s_flagHasNameAttribute = 1 << 1;
-    static const uint32_t s_flagPresentationAttributeStyleIsDirty = 1 << 2;
+    static const uint32_t s_flagPresentationalHintStyleIsDirty = 1 << 2;
     static const uint32_t s_flagStyleAttributeIsDirty = 1 << 3;
     static const uint32_t s_flagAnimatedSVGAttributesAreDirty = 1 << 4;
     static const uint32_t s_flagsMask = (1 << s_flagCount) - 1;
+    // FIXME: could the SVG specific flags go to some SVG class?
 
     inline void updateFlag(uint32_t flag, bool set) const
     {
@@ -154,8 +161,8 @@ protected:
     bool styleAttributeIsDirty() const { return m_arraySizeAndFlags & s_flagStyleAttributeIsDirty; }
     void setStyleAttributeIsDirty(bool isDirty) const { updateFlag(s_flagStyleAttributeIsDirty, isDirty); }
 
-    bool presentationAttributeStyleIsDirty() const { return m_arraySizeAndFlags & s_flagPresentationAttributeStyleIsDirty; }
-    void setPresentationAttributeStyleIsDirty(bool isDirty) const { updateFlag(s_flagPresentationAttributeStyleIsDirty, isDirty); }
+    bool presentationalHintStyleIsDirty() const { return m_arraySizeAndFlags & s_flagPresentationalHintStyleIsDirty; }
+    void setPresentationalHintStyleIsDirty(bool isDirty) const { updateFlag(s_flagPresentationalHintStyleIsDirty, isDirty); }
 
     bool animatedSVGAttributesAreDirty() const { return m_arraySizeAndFlags & s_flagAnimatedSVGAttributesAreDirty; }
     void setAnimatedSVGAttributesAreDirty(bool dirty) const { updateFlag(s_flagAnimatedSVGAttributesAreDirty, dirty); }
@@ -170,6 +177,7 @@ private:
     friend class ShareableElementData;
     friend class UniqueElementData;
     friend class SVGElement;
+    friend class HTMLImageElement;
 
     void destroy();
 
@@ -188,9 +196,9 @@ DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(ShareableElementData);
 class ShareableElementData : public ElementData {
     WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(ShareableElementData);
 public:
-    static Ref<ShareableElementData> createWithAttributes(const Vector<Attribute>&);
+    static Ref<ShareableElementData> createWithAttributes(std::span<const Attribute>);
 
-    explicit ShareableElementData(const Vector<Attribute>&);
+    explicit ShareableElementData(std::span<const Attribute>);
     explicit ShareableElementData(const UniqueElementData&);
     ~ShareableElementData();
 
@@ -221,7 +229,7 @@ public:
 
     static ptrdiff_t attributeVectorMemoryOffset() { return OBJECT_OFFSETOF(UniqueElementData, m_attributeVector); }
 
-    mutable RefPtr<StyleProperties> m_presentationAttributeStyle;
+    mutable RefPtr<ImmutableStyleProperties> m_presentationalHintStyle;
     typedef Vector<Attribute, 4> AttributeVector;
     AttributeVector m_attributeVector;
 };
@@ -235,29 +243,29 @@ inline void ElementData::deref()
 
 inline unsigned ElementData::length() const
 {
-    if (is<UniqueElementData>(*this))
-        return downcast<UniqueElementData>(*this).m_attributeVector.size();
+    if (auto* uniqueData = dynamicDowncast<UniqueElementData>(*this))
+        return uniqueData->m_attributeVector.size();
     return arraySize();
 }
 
 inline const Attribute* ElementData::attributeBase() const
 {
-    if (is<UniqueElementData>(*this))
-        return downcast<UniqueElementData>(*this).m_attributeVector.data();
-    return downcast<ShareableElementData>(*this).m_attributeArray;
+    if (auto* uniqueData = dynamicDowncast<UniqueElementData>(*this))
+        return uniqueData->m_attributeVector.data();
+    return uncheckedDowncast<ShareableElementData>(*this).m_attributeArray;
 }
 
-inline const StyleProperties* ElementData::presentationAttributeStyle() const
+inline const ImmutableStyleProperties* ElementData::presentationalHintStyle() const
 {
-    if (!is<UniqueElementData>(*this))
-        return nullptr;
-    return downcast<UniqueElementData>(*this).m_presentationAttributeStyle.get();
+    if (auto* uniqueData = dynamicDowncast<UniqueElementData>(*this))
+        return uniqueData->m_presentationalHintStyle.get();
+    return nullptr;
 }
 
 inline AttributeIteratorAccessor ElementData::attributesIterator() const
 {
-    if (is<UniqueElementData>(*this)) {
-        const Vector<Attribute, 4>& attributeVector = downcast<UniqueElementData>(*this).m_attributeVector;
+    if (auto* uniqueData = dynamicDowncast<UniqueElementData>(*this)) {
+        auto& attributeVector = uniqueData->m_attributeVector;
         return AttributeIteratorAccessor(attributeVector.data(), attributeVector.size());
     }
     return AttributeIteratorAccessor(downcast<ShareableElementData>(*this).m_attributeArray, arraySize());

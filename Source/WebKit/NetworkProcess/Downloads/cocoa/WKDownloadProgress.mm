@@ -28,6 +28,7 @@
 
 #import "Download.h"
 #import <pal/spi/cocoa/NSProgressSPI.h>
+#import <sys/xattr.h>
 #import <wtf/BlockPtr.h>
 #import <wtf/WeakObjCPtr.h>
 
@@ -46,7 +47,7 @@ static NSString * const countOfBytesReceivedKeyPath = @"countOfBytesReceived";
 - (void)performCancel
 {
     if (m_download)
-        m_download->cancel();
+        m_download->cancel([](auto&) { }, WebKit::Download::IgnoreDidFailCallback::No);
     m_download = nullptr;
 }
 
@@ -56,7 +57,7 @@ static NSString * const countOfBytesReceivedKeyPath = @"countOfBytesReceived";
         return nil;
 
     m_task = task;
-    m_download = makeWeakPtr(download);
+    m_download = download;
 
     [task addObserver:self forKeyPath:countOfBytesExpectedToReceiveKeyPath options:NSKeyValueObservingOptionNew | NSKeyValueObservingOptionInitial context:WKDownloadProgressBytesExpectedToReceiveCountContext];
     [task addObserver:self forKeyPath:countOfBytesReceivedKeyPath options:NSKeyValueObservingOptionNew | NSKeyValueObservingOptionInitial context:WKDownloadProgressBytesReceivedContext];
@@ -68,13 +69,9 @@ static NSString * const countOfBytesReceivedKeyPath = @"countOfBytesReceived";
 
     self.cancellable = YES;
     self.cancellationHandler = makeBlockPtr([weakSelf = WeakObjCPtr<WKDownloadProgress> { self }] () mutable {
-        if (!RunLoop::isMain()) {
-            RunLoop::main().dispatch([weakSelf = WTFMove(weakSelf)] {
-                [weakSelf performCancel];
-            });
-            return;
-        }
-        [weakSelf performCancel];
+        ensureOnMainRunLoop([weakSelf = WTFMove(weakSelf)] {
+            [weakSelf performCancel];
+        });
     }).get();
 
     return self;
@@ -102,6 +99,8 @@ static NSString * const countOfBytesReceivedKeyPath = @"countOfBytesReceived";
 - (void)unpublish
 #endif
 {
+    [self _updateProgressExtendedAttributeOnProgressFile];
+
 #if HAVE(NSPROGRESS_PUBLISHING_SPI)
     [super _unpublish];
 #else
@@ -110,6 +109,17 @@ static NSString * const countOfBytesReceivedKeyPath = @"countOfBytesReceived";
 
     m_sandboxExtension->revoke();
     m_sandboxExtension = nullptr;
+}
+
+- (void)_updateProgressExtendedAttributeOnProgressFile
+{
+    int64_t total = self.totalUnitCount;
+    int64_t completed = self.completedUnitCount;
+
+    float fraction = (total > 0) ? (float)completed / (float)total : -1;
+    auto xattrContents = adoptNS([[NSString alloc] initWithFormat:@"%.3f", fraction]);
+
+    setxattr(self.fileURL.fileSystemRepresentation, "com.apple.progress.fractionCompleted", xattrContents.get().UTF8String, [xattrContents.get() lengthOfBytesUsingEncoding:NSUTF8StringEncoding], 0, 0);
 }
 
 - (void)dealloc

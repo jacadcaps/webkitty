@@ -31,6 +31,8 @@
 #include <WebCore/MediaPlaybackTargetContext.h>
 #include <WebCore/WebMediaSessionManagerClient.h>
 #include <wtf/Ref.h>
+#include <wtf/WeakObjCPtr.h>
+#include <wtf/WeakPtr.h>
 
 OBJC_CLASS WebView;
 
@@ -51,9 +53,9 @@ public:
     void addPlaybackTargetPickerClient(WebCore::PlaybackTargetClientContextIdentifier);
     void removePlaybackTargetPickerClient(WebCore::PlaybackTargetClientContextIdentifier);
     void showPlaybackTargetPicker(WebCore::PlaybackTargetClientContextIdentifier, const WebCore::FloatRect&, bool hasVideo);
-    void playbackTargetPickerClientStateDidChange(WebCore::PlaybackTargetClientContextIdentifier, WebCore::MediaProducer::MediaStateFlags);
+    void playbackTargetPickerClientStateDidChange(WebCore::PlaybackTargetClientContextIdentifier, WebCore::MediaProducerMediaStateFlags);
     void setMockMediaPlaybackTargetPickerEnabled(bool);
-    void setMockMediaPlaybackTargetPickerState(const String&, WebCore::MediaPlaybackTargetContext::State);
+    void setMockMediaPlaybackTargetPickerState(const String&, WebCore::MediaPlaybackTargetContext::MockState);
     void mockMediaPlaybackTargetPickerDismissPopup();
 
     void invalidate();
@@ -64,10 +66,10 @@ private:
     void externalOutputDeviceAvailableDidChange(WebCore::PlaybackTargetClientContextIdentifier, bool) final;
     void setShouldPlayToPlaybackTarget(WebCore::PlaybackTargetClientContextIdentifier, bool) final;
     void playbackTargetPickerWasDismissed(WebCore::PlaybackTargetClientContextIdentifier) final;
-    PlatformView* platformView() const final;
+    RetainPtr<PlatformView> platformView() const final;
 
-    WebCore::Page* m_page;
-    WebView *m_webView;
+    SingleThreadWeakPtr<WebCore::Page> m_page;
+    WeakObjCPtr<WebView> m_webView;
 };
 
 #endif

@@ -40,7 +40,7 @@ public:
 
     SVGZoomAndPanType zoomAndPan() const { return m_zoomAndPan; }
     void setZoomAndPan(SVGZoomAndPanType zoomAndPan) { m_zoomAndPan = zoomAndPan; }
-    ExceptionOr<void> setZoomAndPan(unsigned) { return Exception { NoModificationAllowedError }; }
+    ExceptionOr<void> setZoomAndPan(unsigned) { return Exception { ExceptionCode::NoModificationAllowedError }; }
     void reset() { m_zoomAndPan = SVGPropertyTraits<SVGZoomAndPanType>::initialValue(); }
 
     void parseAttribute(const QualifiedName&, const AtomString&);
@@ -48,8 +48,8 @@ public:
 protected:
     SVGZoomAndPan() = default;
 
-    static Optional<SVGZoomAndPanType> parseZoomAndPan(StringParsingBuffer<LChar>&);
-    static Optional<SVGZoomAndPanType> parseZoomAndPan(StringParsingBuffer<UChar>&);
+    static std::optional<SVGZoomAndPanType> parseZoomAndPan(StringParsingBuffer<LChar>&);
+    static std::optional<SVGZoomAndPanType> parseZoomAndPan(StringParsingBuffer<UChar>&);
 
 private:
     SVGZoomAndPanType m_zoomAndPan { SVGPropertyTraits<SVGZoomAndPanType>::initialValue() };

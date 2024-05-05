@@ -25,29 +25,27 @@
 
 #pragma once
 
-#if ENABLE(WEBGL)
-
-#include "GraphicsTypesGL.h"
 #include "WebGLExtension.h"
+#include "WebGLRenderingContext.h"
+#include <wtf/IsoMalloc.h>
+#include <wtf/Noncopyable.h>
 
 namespace WebCore {
 
-class WebGLRenderingContextBase;
 class WebGLVertexArrayObjectOES;
 
-class OESVertexArrayObject final : public WebGLExtension {
+class OESVertexArrayObject final : public WebGLExtension<WebGLRenderingContext> {
+    WTF_MAKE_ISO_ALLOCATED(OESVertexArrayObject);
 public:
-    explicit OESVertexArrayObject(WebGLRenderingContextBase&);
+    explicit OESVertexArrayObject(WebGLRenderingContext&);
+    ~OESVertexArrayObject();
+
+    static bool supported(GraphicsContextGL&);
 
     RefPtr<WebGLVertexArrayObjectOES> createVertexArrayOES();
     void deleteVertexArrayOES(WebGLVertexArrayObjectOES*);
     GCGLboolean isVertexArrayOES(WebGLVertexArrayObjectOES*);
     void bindVertexArrayOES(WebGLVertexArrayObjectOES*);
-
-private:
-    ExtensionName getName() const final;
 };
 
 } // namespace WebCore
-
-#endif

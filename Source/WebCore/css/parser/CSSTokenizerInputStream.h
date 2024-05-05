@@ -35,14 +35,14 @@ namespace WebCore {
 
 constexpr LChar kEndOfFileMarker = 0;
 
+DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(CSSTokenizerInputStream);
 class CSSTokenizerInputStream {
     WTF_MAKE_NONCOPYABLE(CSSTokenizerInputStream);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(CSSTokenizerInputStream);
 public:
     explicit CSSTokenizerInputStream(const String& input);
 
-    // Gets the char in the stream replacing NUL characters with a unicode
-    // replacement character. Will return (NUL) kEndOfFileMarker when at the
+    // Gets the char in the stream. Will return (NUL) kEndOfFileMarker when at the
     // end of the stream.
     UChar nextInputChar() const
     {

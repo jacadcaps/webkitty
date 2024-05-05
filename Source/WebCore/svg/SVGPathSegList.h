@@ -123,6 +123,14 @@ public:
         return { };
     }
 
+    void updateByteStreamData(const SVGPathByteStream::Data& byteStreamData)
+    {
+        pathByteStreamWillChange();
+        m_pathByteStream.setData(byteStreamData);
+    }
+
+    const SVGPathByteStream& existingPathByteStream() const { return m_pathByteStream; }
+
     const SVGPathByteStream& pathByteStream() const { return const_cast<SVGPathSegList*>(this)->pathByteStream(); }
     SVGPathByteStream& pathByteStream()
     {
@@ -130,7 +138,7 @@ public:
         return m_pathByteStream;
     }
 
-    bool parse(const String& value)
+    bool parse(StringView value)
     {
         pathByteStreamWillChange();
         return buildSVGPathByteStreamFromString(value, m_pathByteStream, UnalteredParsing);
@@ -210,7 +218,7 @@ private:
     }
 
     void clearPathByteStream() { m_pathByteStream.clear(); }
-    void clearPath() { m_path = WTF::nullopt; }
+    void clearPath() { m_path = std::nullopt; }
 
     void pathByteStreamWillChange()
     {
@@ -225,7 +233,7 @@ private:
     }
 
     SVGPathByteStream m_pathByteStream;
-    mutable Optional<Path> m_path;
+    mutable std::optional<Path> m_path;
 };
 
 }

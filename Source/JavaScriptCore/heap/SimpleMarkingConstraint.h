@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,7 +26,8 @@
 #pragma once
 
 #include "MarkingConstraint.h"
-#include <wtf/Function.h>
+#include "MarkingConstraintExecutorPair.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace JSC {
 
@@ -34,29 +35,32 @@ namespace JSC {
 // downside is that this makes it hard for constraints to override any functions in MarkingConstraint
 // other than executeImpl. In those cases, just subclass MarkingConstraint.
 class SimpleMarkingConstraint final : public MarkingConstraint {
+    WTF_MAKE_TZONE_ALLOCATED(SimpleMarkingConstraint);
 public:
     JS_EXPORT_PRIVATE SimpleMarkingConstraint(
         CString abbreviatedName, CString name,
-        ::Function<void(SlotVisitor&)>,
+        MarkingConstraintExecutorPair&&,
         ConstraintVolatility,
         ConstraintConcurrency = ConstraintConcurrency::Concurrent,
         ConstraintParallelism = ConstraintParallelism::Sequential);
     
     SimpleMarkingConstraint(
         CString abbreviatedName, CString name,
-        ::Function<void(SlotVisitor&)> func,
+        MarkingConstraintExecutorPair&& executors,
         ConstraintVolatility volatility,
         ConstraintParallelism parallelism)
-        : SimpleMarkingConstraint(abbreviatedName, name, WTFMove(func), volatility, ConstraintConcurrency::Concurrent, parallelism)
+        : SimpleMarkingConstraint(abbreviatedName, name, WTFMove(executors), volatility, ConstraintConcurrency::Concurrent, parallelism)
     {
     }
     
     JS_EXPORT_PRIVATE ~SimpleMarkingConstraint() final;
     
 private:
+    template<typename Visitor> ALWAYS_INLINE void executeImplImpl(Visitor&);
+    void executeImpl(AbstractSlotVisitor&) final;
     void executeImpl(SlotVisitor&) final;
 
-    ::Function<void(SlotVisitor&)> m_executeFunction;
+    MarkingConstraintExecutorPair m_executors;
 };
 
 } // namespace JSC

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,6 +28,7 @@
 
 #if ENABLE(MEDIA_STREAM) && PLATFORM(IOS_FAMILY)
 
+#import "AVAudioSessionCaptureDeviceManager.h"
 #import "Logging.h"
 #import <AVFoundation/AVAudioSession.h>
 #import <wtf/MainThread.h>
@@ -100,6 +101,11 @@ CoreAudioCaptureSourceFactory& CoreAudioCaptureSourceFactory::singleton()
 {
     static NeverDestroyed<CoreAudioCaptureSourceFactoryIOS> factory;
     return factory.get();
+}
+
+CaptureSourceOrError CoreAudioCaptureSourceFactoryIOS::createAudioCaptureSource(const CaptureDevice& device, MediaDeviceHashSalts&& hashSalts, const MediaConstraints* constraints, PageIdentifier pageIdentifier)
+{
+    return CoreAudioCaptureSource::create(String { device.persistentId() }, WTFMove(hashSalts), constraints, pageIdentifier);
 }
 
 }

@@ -27,6 +27,8 @@
 
 #if ENABLE(ASYNC_SCROLLING) && PLATFORM(IOS_FAMILY)
 
+OBJC_CLASS WKBaseScrollView;
+
 #include <WebCore/ScrollingTreeFrameScrollingNode.h>
 
 namespace WebKit {
@@ -38,19 +40,21 @@ public:
     static Ref<ScrollingTreeFrameScrollingNodeRemoteIOS> create(WebCore::ScrollingTree&, WebCore::ScrollingNodeType, WebCore::ScrollingNodeID);
     virtual ~ScrollingTreeFrameScrollingNodeRemoteIOS();
 
+    WKBaseScrollView *scrollView() const;
+
 private:
     ScrollingTreeFrameScrollingNodeRemoteIOS(WebCore::ScrollingTree&, WebCore::ScrollingNodeType, WebCore::ScrollingNodeID);
 
-    void commitStateBeforeChildren(const WebCore::ScrollingStateNode&) override;
-    void commitStateAfterChildren(const WebCore::ScrollingStateNode&) override;
+    ScrollingTreeScrollingNodeDelegateIOS* delegate() const;
+
+    bool commitStateBeforeChildren(const WebCore::ScrollingStateNode&) override;
+    bool commitStateAfterChildren(const WebCore::ScrollingStateNode&) override;
 
     WebCore::FloatPoint minimumScrollPosition() const override;
     WebCore::FloatPoint maximumScrollPosition() const override;
 
     void repositionScrollingLayers() override;
     void repositionRelatedLayers() override;
-
-    std::unique_ptr<ScrollingTreeScrollingNodeDelegateIOS> m_scrollingNodeDelegate;
 
     RetainPtr<CALayer> m_counterScrollingLayer;
     RetainPtr<CALayer> m_headerLayer;

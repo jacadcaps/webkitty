@@ -44,13 +44,13 @@ public:
 private:
     MathMLPaddedElement(const QualifiedName& tagName, Document&);
     RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
-    void parseAttribute(const QualifiedName&, const AtomString&) final;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
 
-    Optional<Length> m_width;
-    Optional<Length> m_height;
-    Optional<Length> m_depth;
-    Optional<Length> m_lspace;
-    Optional<Length> m_voffset;
+    std::optional<Length> m_width;
+    std::optional<Length> m_height;
+    std::optional<Length> m_depth;
+    std::optional<Length> m_lspace;
+    std::optional<Length> m_voffset;
 };
 
 }

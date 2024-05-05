@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,37 +26,57 @@
 #pragma once
 
 #include "api/video/video_frame_buffer.h"
+#include "api/video/video_rotation.h"
 #include "api/scoped_refptr.h"
-#include "api/video_codecs/video_decoder_factory.h"
-#include "api/video_codecs/video_encoder_factory.h"
-#include "media/engine/encoder_simulcast_proxy.h"
+#include <CoreFoundation/CFBase.h>
+#include <functional>
 
 using CVPixelBufferRef = struct __CVBuffer*;
-using CVPixelBufferPoolRef = struct __CVPixelBufferPool*;
 
 namespace webrtc {
 
-class VideoDecoderFactory;
-class VideoEncoderFactory;
 class VideoFrame;
 
 enum class WebKitH265 { Off, On };
-enum class WebKitVP9 { Off, On };
-
-std::unique_ptr<webrtc::VideoEncoderFactory> createWebKitEncoderFactory(WebKitH265, WebKitVP9);
-std::unique_ptr<webrtc::VideoDecoderFactory> createWebKitDecoderFactory(WebKitH265, WebKitVP9);
+enum class WebKitVP9 { Off, Profile0, Profile0And2 };
+enum class WebKitVP9VTB { Off, On };
+enum class WebKitH264LowLatency { Off, On };
+enum class WebKitAv1 { Off, On };
 
 void setApplicationStatus(bool isActive);
 
 void setH264HardwareEncoderAllowed(bool);
 bool isH264HardwareEncoderAllowed();
 
-void setH264LowLatencyEncoderEnabled(bool);
-bool isH264LowLatencyEncoderEnabled();
-
-CVPixelBufferRef pixelBufferFromFrame(const VideoFrame&, const std::function<CVPixelBufferRef(size_t, size_t)>&);
+enum class BufferType { I420, I010 };
+CVPixelBufferRef copyPixelBufferForFrame(const VideoFrame&) CF_RETURNS_RETAINED;
+CVPixelBufferRef createPixelBufferFromFrame(const VideoFrame&, const std::function<CVPixelBufferRef(size_t, size_t, BufferType)>& createPixelBuffer) CF_RETURNS_RETAINED;
+CVPixelBufferRef createPixelBufferFromFrameBuffer(VideoFrameBuffer&, const std::function<CVPixelBufferRef(size_t, size_t, BufferType)>& createPixelBuffer) CF_RETURNS_RETAINED;
 rtc::scoped_refptr<webrtc::VideoFrameBuffer> pixelBufferToFrame(CVPixelBufferRef);
+bool copyVideoFrameBuffer(VideoFrameBuffer&, uint8_t*);
 
-CVPixelBufferPoolRef createPixelBufferPool(size_t width, size_t height);
+typedef CVPixelBufferRef (*GetBufferCallback)(void*);
+typedef void (*ReleaseBufferCallback)(void*);
+rtc::scoped_refptr<VideoFrameBuffer> toWebRTCVideoFrameBuffer(void*, GetBufferCallback, ReleaseBufferCallback, int width, int height);
+void* videoFrameBufferProvider(const VideoFrame&);
+
+bool convertBGRAToYUV(CVPixelBufferRef sourceBuffer, CVPixelBufferRef destinationBuffer);
+
+struct I420BufferLayout {
+    size_t offsetY { 0 };
+    size_t strideY { 0 };
+    size_t offsetU { 0 };
+    size_t strideU { 0 };
+    size_t offsetV { 0 };
+    size_t strideV { 0 };
+};
+
+struct I420ABufferLayout : I420BufferLayout {
+    size_t offsetA { 0 };
+    size_t strideA { 0 };
+};
+
+CVPixelBufferRef createPixelBufferFromI420Buffer(const uint8_t* buffer, size_t length, size_t width, size_t height, I420BufferLayout) CF_RETURNS_RETAINED;
+CVPixelBufferRef createPixelBufferFromI420ABuffer(const uint8_t* buffer, size_t length, size_t width, size_t height, I420ABufferLayout) CF_RETURNS_RETAINED;
 
 }

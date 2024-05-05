@@ -26,9 +26,8 @@
 #include "config.h"
 #include "CryptoKey.h"
 
-#if ENABLE(WEB_CRYPTO)
-
 #include "CryptoAlgorithmRegistry.h"
+#include "WebCoreOpaqueRoot.h"
 #include <wtf/CryptographicallyRandomNumber.h>
 
 namespace WebCore {
@@ -66,6 +65,11 @@ auto CryptoKey::usages() const -> Vector<CryptoKeyUsage>
     return result;
 }
 
+WebCoreOpaqueRoot root(CryptoKey* key)
+{
+    return WebCoreOpaqueRoot { key };
+}
+
 #if !OS(DARWIN) || PLATFORM(GTK)
 Vector<uint8_t> CryptoKey::randomData(size_t size)
 {
@@ -76,5 +80,3 @@ Vector<uint8_t> CryptoKey::randomData(size_t size)
 #endif
 
 } // namespace WebCore
-
-#endif // ENABLE(WEB_CRYPTO)

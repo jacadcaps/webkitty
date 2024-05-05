@@ -25,21 +25,26 @@
 
 #pragma once
 
+#include "LoaderMalloc.h"
 #include "ResourceLoadStatistics.h"
+#include <wtf/CompletionHandler.h>
 #include <wtf/Forward.h>
 
 namespace WebCore {
 
 class Document;
-class Frame;
+class LocalFrame;
 class ResourceRequest;
 class ResourceResponse;
 
 class ResourceLoadObserver {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(Loader);
 public:
+    using TopFrameDomain = WebCore::RegistrableDomain;
+    using SubResourceDomain = WebCore::RegistrableDomain;
+
     // https://fetch.spec.whatwg.org/#request-destination-script-like
-    enum class FetchDestinationIsScriptLike : bool { Yes, No };
+    enum class FetchDestinationIsScriptLike : bool { No, Yes };
 
     WEBCORE_EXPORT static ResourceLoadObserver& shared();
     WEBCORE_EXPORT static ResourceLoadObserver* sharedIfExists();
@@ -47,23 +52,25 @@ public:
     
     virtual ~ResourceLoadObserver() { }
 
-    virtual void logSubresourceLoading(const Frame*, const ResourceRequest& /* newRequest */, const ResourceResponse& /* redirectResponse */, FetchDestinationIsScriptLike) { }
+    virtual void logSubresourceLoading(const LocalFrame*, const ResourceRequest& /* newRequest */, const ResourceResponse& /* redirectResponse */, FetchDestinationIsScriptLike) { }
     virtual void logWebSocketLoading(const URL& /* targetURL */, const URL& /* mainFrameURL */) { }
     virtual void logUserInteractionWithReducedTimeResolution(const Document&) { }
     virtual void logFontLoad(const Document&, const String& /* familyName */, bool /* loadStatus */) { }
     virtual void logCanvasRead(const Document&) { }
     virtual void logCanvasWriteOrMeasure(const Document&, const String& /* textWritten */) { }
-    virtual void logNavigatorAPIAccessed(const Document&, const ResourceLoadStatistics::NavigatorAPI) { }
-    virtual void logScreenAPIAccessed(const Document&, const ResourceLoadStatistics::ScreenAPI) { }
+    virtual void logNavigatorAPIAccessed(const Document&, const NavigatorAPIsAccessed) { }
+    virtual void logScreenAPIAccessed(const Document&, const ScreenAPIsAccessed) { }
     virtual void logSubresourceLoadingForTesting(const RegistrableDomain& /* firstPartyDomain */, const RegistrableDomain& /* thirdPartyDomain */, bool /* shouldScheduleNotification */) { }
 
     virtual String statisticsForURL(const URL&) { return { }; }
-    virtual void updateCentralStatisticsStore() { }
+    virtual void updateCentralStatisticsStore(CompletionHandler<void()>&& completionHandler) { completionHandler(); }
     virtual void clearState() { }
     
     virtual bool hasStatistics() const { return false; }
 
     virtual void setDomainsWithUserInteraction(HashSet<RegistrableDomain>&&) { }
+    virtual void setDomainsWithCrossPageStorageAccess(HashMap<TopFrameDomain, SubResourceDomain>&&, CompletionHandler<void()>&& completionHandler) { completionHandler(); }
+    virtual bool hasCrossPageStorageAccess(const SubResourceDomain&, const TopFrameDomain&) const { return false; }
     virtual bool hasHadUserInteraction(const RegistrableDomain&) const { return false; }
 };
     

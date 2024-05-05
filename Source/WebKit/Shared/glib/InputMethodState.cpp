@@ -27,6 +27,7 @@
 #include "InputMethodState.h"
 
 #include "ArgumentCoders.h"
+#include <WebCore/ElementInlines.h>
 #include <WebCore/HTMLInputElement.h>
 
 namespace WebKit {
@@ -64,7 +65,7 @@ void InputMethodState::setPurposeOrHintForInputMode(WebCore::InputMode inputMode
 static bool inputElementHasDigitsPattern(WebCore::HTMLInputElement& element)
 {
     const auto& pattern = element.attributeWithoutSynchronization(WebCore::HTMLNames::patternAttr);
-    return pattern == "\\d*" || pattern == "[0-9]*";
+    return pattern == "\\d*"_s || pattern == "[0-9]*"_s;
 }
 
 void InputMethodState::setPurposeForInputElement(WebCore::HTMLInputElement& element)
@@ -109,13 +110,13 @@ void InputMethodState::encode(IPC::Encoder& encoder) const
     encoder << hints;
 }
 
-Optional<InputMethodState> InputMethodState::decode(IPC::Decoder& decoder)
+std::optional<InputMethodState> InputMethodState::decode(IPC::Decoder& decoder)
 {
     InputMethodState state;
     if (!decoder.decode(state.purpose))
-        return WTF::nullopt;
+        return std::nullopt;
     if (!decoder.decode(state.hints))
-        return WTF::nullopt;
+        return std::nullopt;
     return state;
 }
 

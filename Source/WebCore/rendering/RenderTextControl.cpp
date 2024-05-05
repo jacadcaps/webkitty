@@ -24,6 +24,9 @@
 
 #include "HTMLTextFormControlElement.h"
 #include "HitTestResult.h"
+#include "RenderBoxInlines.h"
+#include "RenderBoxModelObjectInlines.h"
+#include "RenderElementInlines.h"
 #include "RenderText.h"
 #include "RenderTextControlSingleLine.h"
 #include "RenderTheme.h"
@@ -40,9 +43,10 @@ namespace WebCore {
 WTF_MAKE_ISO_ALLOCATED_IMPL(RenderTextControl);
 WTF_MAKE_ISO_ALLOCATED_IMPL(RenderTextControlInnerContainer);
 
-RenderTextControl::RenderTextControl(HTMLTextFormControlElement& element, RenderStyle&& style)
-    : RenderBlockFlow(element, WTFMove(style))
+RenderTextControl::RenderTextControl(Type type, HTMLTextFormControlElement& element, RenderStyle&& style)
+    : RenderBlockFlow(type, element, WTFMove(style), BlockFlowFlag::IsTextControl)
 {
+    ASSERT(isRenderTextControl());
 }
 
 RenderTextControl::~RenderTextControl() = default;
@@ -64,57 +68,52 @@ void RenderTextControl::styleDidChange(StyleDifference diff, const RenderStyle* 
     if (!innerText)
         return;
     RenderTextControlInnerBlock* innerTextRenderer = innerText->renderer();
-    if (innerTextRenderer) {
-        // We may have set the width and the height in the old style in layout().
-        // Reset them now to avoid getting a spurious layout hint.
-        innerTextRenderer->mutableStyle().setHeight(Length());
-        innerTextRenderer->mutableStyle().setWidth(Length());
-        innerTextRenderer->setStyle(textFormControlElement().createInnerTextStyle(style()));
+    if (innerTextRenderer && oldStyle) {
+        // FIXME: The height property of the inner text block style may be mutated by RenderTextControlSingleLine::layout.
+        // See if the original has changed before setting it and triggering a layout.
+        auto newInnerTextStyle = textFormControlElement().createInnerTextStyle(style());
+        auto oldInnerTextStyle = textFormControlElement().createInnerTextStyle(*oldStyle);
+        if (newInnerTextStyle != oldInnerTextStyle)
+            innerTextRenderer->setStyle(WTFMove(newInnerTextStyle));
+        else if (diff == StyleDifference::RepaintIfText || diff == StyleDifference::Repaint) {
+            // Repaint is expected to be propagated down to the shadow tree when non-inherited style property changes
+            // (e.g. text-decoration-color) since that's where the value actually takes effect.
+            innerTextRenderer->repaint();
+        }
     }
     textFormControlElement().updatePlaceholderVisibility();
-}
-
-int RenderTextControl::textBlockLogicalHeight() const
-{
-    return logicalHeight() - borderAndPaddingLogicalHeight();
-}
-
-int RenderTextControl::textBlockLogicalWidth() const
-{
-    auto innerText = innerTextElement();
-    ASSERT(innerText);
-
-    LayoutUnit unitWidth = logicalWidth() - borderAndPaddingLogicalWidth();
-    if (innerText->renderer())
-        unitWidth -= innerText->renderBox()->paddingStart() + innerText->renderBox()->paddingEnd();
-
-    return unitWidth;
 }
 
 int RenderTextControl::scrollbarThickness() const
 {
     // FIXME: We should get the size of the scrollbar from the RenderTheme instead.
-    return ScrollbarTheme::theme().scrollbarThickness();
+    return ScrollbarTheme::theme().scrollbarThickness(this->style().scrollbarWidth());
 }
 
 RenderBox::LogicalExtentComputedValues RenderTextControl::computeLogicalHeight(LayoutUnit logicalHeight, LayoutUnit logicalTop) const
 {
     auto innerText = innerTextElement();
-    ASSERT(innerText);
+    if (!innerText)
+        return RenderBox::computeLogicalHeight(LayoutUnit(), LayoutUnit());
+
     if (RenderBox* innerTextBox = innerText->renderBox()) {
-        LayoutUnit nonContentHeight = innerTextBox->verticalBorderAndPaddingExtent() + innerTextBox->verticalMarginExtent();
+        LayoutUnit nonContentHeight = innerTextBox->borderAndPaddingLogicalHeight() + innerTextBox->marginLogicalHeight();
         logicalHeight = computeControlLogicalHeight(innerTextBox->lineHeight(true, HorizontalLine, PositionOfInteriorLineBoxes), nonContentHeight);
 
         // We are able to have a horizontal scrollbar if the overflow style is scroll, or if its auto and there's no word wrap.
-        if ((isHorizontalWritingMode() && (style().overflowX() == Overflow::Scroll ||  (style().overflowX() == Overflow::Auto && innerText->renderer()->style().overflowWrap() == OverflowWrap::Normal)))
-            || (!isHorizontalWritingMode() && (style().overflowY() == Overflow::Scroll ||  (style().overflowY() == Overflow::Auto && innerText->renderer()->style().overflowWrap() == OverflowWrap::Normal))))
+        auto shouldIncludeScrollbarHeight = [&] {
+            auto& style = this->style();
+            auto isHorizontalWritingMode = this->isHorizontalWritingMode();
+            return (isHorizontalWritingMode && style.overflowX() == Overflow::Scroll) || (!isHorizontalWritingMode && style.overflowY() == Overflow::Scroll);
+        };
+        if (shouldIncludeScrollbarHeight())
             logicalHeight += scrollbarThickness();
         
         // FIXME: The logical height of the inner text box should have been added
         // before calling computeLogicalHeight to avoid this hack.
         cacheIntrinsicContentLogicalHeightForFlexItem(logicalHeight);
         
-        logicalHeight += verticalBorderAndPaddingExtent();
+        logicalHeight += borderAndPaddingLogicalHeight();
     }
 
     return RenderBox::computeLogicalHeight(logicalHeight, logicalTop);
@@ -142,7 +141,7 @@ float RenderTextControl::getAverageCharWidth()
     const UChar ch = '0';
     const String str = String(&ch, 1);
     const FontCascade& font = style().fontCascade();
-    TextRun textRun = constructTextRun(str, style(), AllowRightExpansion);
+    TextRun textRun = constructTextRun(str, style(), ExpansionBehavior::allowRightOnly());
     return font.width(textRun);
 }
 
@@ -155,9 +154,16 @@ float RenderTextControl::scaleEmToUnits(int x) const
 
 void RenderTextControl::computeIntrinsicLogicalWidths(LayoutUnit& minLogicalWidth, LayoutUnit& maxLogicalWidth) const
 {
+    if (shouldApplySizeOrInlineSizeContainment()) {
+        if (auto width = explicitIntrinsicInnerLogicalWidth()) {
+            minLogicalWidth = width.value();
+            maxLogicalWidth = width.value();
+        }
+        return;
+    }
     // Use average character width. Matches IE.
     maxLogicalWidth = preferredContentLogicalWidth(const_cast<RenderTextControl*>(this)->getAverageCharWidth());
-    if (RenderBox* innerTextRenderBox = innerTextElement()->renderBox())
+    if (RenderBox* innerTextRenderBox = innerTextElement() ? innerTextElement()->renderBox() : nullptr)
         maxLogicalWidth += innerTextRenderBox->paddingStart() + innerTextRenderBox->paddingEnd();
     if (!style().logicalWidth().isPercentOrCalculated())
         minLogicalWidth = maxLogicalWidth;
@@ -171,29 +177,16 @@ void RenderTextControl::computePreferredLogicalWidths()
     m_maxPreferredLogicalWidth = 0;
 
     if (style().logicalWidth().isFixed() && style().logicalWidth().value() >= 0)
-        m_minPreferredLogicalWidth = m_maxPreferredLogicalWidth = adjustContentBoxLogicalWidthForBoxSizing(style().logicalWidth().value());
+        m_minPreferredLogicalWidth = m_maxPreferredLogicalWidth = adjustContentBoxLogicalWidthForBoxSizing(style().logicalWidth());
     else
         computeIntrinsicLogicalWidths(m_minPreferredLogicalWidth, m_maxPreferredLogicalWidth);
 
-    if (style().logicalMinWidth().isFixed() && style().logicalMinWidth().value() > 0) {
-        m_maxPreferredLogicalWidth = std::max(m_maxPreferredLogicalWidth, adjustContentBoxLogicalWidthForBoxSizing(style().logicalMinWidth().value()));
-        m_minPreferredLogicalWidth = std::max(m_minPreferredLogicalWidth, adjustContentBoxLogicalWidthForBoxSizing(style().logicalMinWidth().value()));
-    }
-
-    if (style().logicalMaxWidth().isFixed()) {
-        m_maxPreferredLogicalWidth = std::min(m_maxPreferredLogicalWidth, adjustContentBoxLogicalWidthForBoxSizing(style().logicalMaxWidth().value()));
-        m_minPreferredLogicalWidth = std::min(m_minPreferredLogicalWidth, adjustContentBoxLogicalWidthForBoxSizing(style().logicalMaxWidth().value()));
-    }
-
-    LayoutUnit toAdd = borderAndPaddingLogicalWidth();
-
-    m_minPreferredLogicalWidth += toAdd;
-    m_maxPreferredLogicalWidth += toAdd;
+    RenderBox::computePreferredLogicalWidths(style().logicalMinWidth(), style().logicalMaxWidth(), borderAndPaddingLogicalWidth());
 
     setPreferredLogicalWidthsDirty(false);
 }
 
-void RenderTextControl::addFocusRingRects(Vector<LayoutRect>& rects, const LayoutPoint& additionalOffset, const RenderLayerModelObject*)
+void RenderTextControl::addFocusRingRects(Vector<LayoutRect>& rects, const LayoutPoint& additionalOffset, const RenderLayerModelObject*) const
 {
     if (!size().isEmpty())
         rects.append(LayoutRect(additionalOffset, size()));
@@ -221,7 +214,7 @@ void RenderTextControl::layoutExcludedChildren(bool relayoutChildren)
 bool RenderTextControl::canScroll() const
 {
     auto innerText = innerTextElement();
-    return innerText && innerText->renderer() && innerText->renderer()->hasOverflowClip();
+    return innerText && innerText->renderer() && innerText->renderer()->hasNonVisibleOverflow();
 }
 
 int RenderTextControl::innerLineHeight() const
@@ -232,5 +225,11 @@ int RenderTextControl::innerLineHeight() const
     return style().computedLineHeight();
 }
 #endif
+
+RenderTextControlInnerContainer::RenderTextControlInnerContainer(Element& element, RenderStyle&& style)
+    : RenderFlexibleBox(Type::TextControlInnerContainer, element, WTFMove(style))
+{
+
+}
 
 } // namespace WebCore

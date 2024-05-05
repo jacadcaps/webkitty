@@ -37,27 +37,18 @@ class Encoder;
 namespace WebKit {
 
 struct WebUserScriptData {
-    void encode(IPC::Encoder&) const;
-    static Optional<WebUserScriptData> decode(IPC::Decoder&);
-
     uint64_t identifier;
     ContentWorldIdentifier worldIdentifier;
     WebCore::UserScript userScript;
 };
 
 struct WebUserStyleSheetData {
-    void encode(IPC::Encoder&) const;
-    static Optional<WebUserStyleSheetData> decode(IPC::Decoder&);
-
     uint64_t identifier;
     ContentWorldIdentifier worldIdentifier;
     WebCore::UserStyleSheet userStyleSheet;
 };
 
 struct WebScriptMessageHandlerData {
-    void encode(IPC::Encoder&) const;
-    static Optional<WebScriptMessageHandlerData> decode(IPC::Decoder&);
-
     uint64_t identifier;
     ContentWorldIdentifier worldIdentifier;
     String name;

@@ -32,22 +32,20 @@
 
 namespace WebCore {
 
-using namespace XPath;
-
-XPathResult::XPathResult(Document& document, const Value& value)
+XPathResult::XPathResult(Document& document, const XPath::Value& value)
     : m_value(value)
 {
     switch (m_value.type()) {
-        case Value::BooleanValue:
+        case XPath::Value::BooleanValue:
             m_resultType = BOOLEAN_TYPE;
             return;
-        case Value::NumberValue:
+        case XPath::Value::NumberValue:
             m_resultType = NUMBER_TYPE;
             return;
-        case Value::StringValue:
+        case XPath::Value::StringValue:
             m_resultType = STRING_TYPE;
             return;
-        case Value::NodeSetValue:
+        case XPath::Value::NodeSetValue:
             m_resultType = UNORDERED_NODE_ITERATOR_TYPE;
             m_nodeSetPosition = 0;
             m_nodeSet = m_value.toNodeSet();
@@ -82,18 +80,18 @@ ExceptionOr<void> XPathResult::convertTo(unsigned short type)
     case ANY_UNORDERED_NODE_TYPE:
     case FIRST_ORDERED_NODE_TYPE: // This is correct - singleNodeValue() will take care of ordering.
         if (!m_value.isNodeSet())
-            return Exception { TypeError };
+            return Exception { ExceptionCode::TypeError };
         m_resultType = type;
         break;
     case ORDERED_NODE_ITERATOR_TYPE:
         if (!m_value.isNodeSet())
-            return Exception { TypeError };
+            return Exception { ExceptionCode::TypeError };
         m_nodeSet.sort();
         m_resultType = type;
         break;
     case ORDERED_NODE_SNAPSHOT_TYPE:
         if (!m_value.isNodeSet())
-            return Exception { TypeError };
+            return Exception { ExceptionCode::TypeError };
         m_value.toNodeSet().sort();
         m_resultType = type;
         break;
@@ -109,28 +107,28 @@ unsigned short XPathResult::resultType() const
 ExceptionOr<double> XPathResult::numberValue() const
 {
     if (resultType() != NUMBER_TYPE)
-        return Exception { TypeError };
+        return Exception { ExceptionCode::TypeError };
     return m_value.toNumber();
 }
 
 ExceptionOr<String> XPathResult::stringValue() const
 {
     if (resultType() != STRING_TYPE)
-        return Exception { TypeError };
+        return Exception { ExceptionCode::TypeError };
     return m_value.toString();
 }
 
 ExceptionOr<bool> XPathResult::booleanValue() const
 {
     if (resultType() != BOOLEAN_TYPE)
-        return Exception { TypeError };
+        return Exception { ExceptionCode::TypeError };
     return m_value.toBoolean();
 }
 
 ExceptionOr<Node*> XPathResult::singleNodeValue() const
 {
     if (resultType() != ANY_UNORDERED_NODE_TYPE && resultType() != FIRST_ORDERED_NODE_TYPE)
-        return Exception { TypeError };
+        return Exception { ExceptionCode::TypeError };
 
     auto& nodes = m_value.toNodeSet();
     if (resultType() == FIRST_ORDERED_NODE_TYPE)
@@ -151,7 +149,7 @@ bool XPathResult::invalidIteratorState() const
 ExceptionOr<unsigned> XPathResult::snapshotLength() const
 {
     if (resultType() != UNORDERED_NODE_SNAPSHOT_TYPE && resultType() != ORDERED_NODE_SNAPSHOT_TYPE)
-        return Exception { TypeError };
+        return Exception { ExceptionCode::TypeError };
 
     return m_value.toNodeSet().size();
 }
@@ -159,10 +157,10 @@ ExceptionOr<unsigned> XPathResult::snapshotLength() const
 ExceptionOr<Node*> XPathResult::iterateNext()
 {
     if (resultType() != UNORDERED_NODE_ITERATOR_TYPE && resultType() != ORDERED_NODE_ITERATOR_TYPE)
-        return Exception { TypeError };
+        return Exception { ExceptionCode::TypeError };
 
     if (invalidIteratorState())
-        return Exception { InvalidStateError };
+        return Exception { ExceptionCode::InvalidStateError };
 
     if (m_nodeSetPosition >= m_nodeSet.size())
         return nullptr;
@@ -173,7 +171,7 @@ ExceptionOr<Node*> XPathResult::iterateNext()
 ExceptionOr<Node*> XPathResult::snapshotItem(unsigned index)
 {
     if (resultType() != UNORDERED_NODE_SNAPSHOT_TYPE && resultType() != ORDERED_NODE_SNAPSHOT_TYPE)
-        return Exception { TypeError };
+        return Exception { ExceptionCode::TypeError };
 
     auto& nodes = m_value.toNodeSet();
     if (index >= nodes.size())

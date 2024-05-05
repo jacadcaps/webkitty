@@ -27,21 +27,22 @@
 
 #include "UserContentControllerIdentifier.h"
 #include "WebPageProxyIdentifier.h"
-#include <WebCore/ContentExtensionActions.h>
 #include <WebCore/ContentSecurityPolicyResponseHeaders.h>
+#include <WebCore/CrossOriginEmbedderPolicy.h>
 #include <WebCore/FetchOptions.h>
 #include <WebCore/NetworkLoadInformation.h>
-#include <WebCore/ResourceError.h>
 #include <pal/SessionID.h>
-#include <wtf/CompletionHandler.h>
-#include <wtf/Expected.h>
-#include <wtf/Variant.h>
+#include <variant>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
 class ContentSecurityPolicy;
+class OriginAccessPatterns;
+struct ContentRuleListResults;
 struct ContentSecurityPolicyClient;
+class ResourceError;
 class SecurityOrigin;
+enum class AdvancedPrivacyProtections : uint16_t;
 enum class PreflightPolicy : uint8_t;
 enum class StoredCredentialsPolicy : uint8_t;
 }
@@ -53,12 +54,14 @@ class NetworkProcess;
 class NetworkResourceLoader;
 class NetworkSchemeRegistry;
 
+using DocumentURL = URL;
+
 class NetworkLoadChecker : public CanMakeWeakPtr<NetworkLoadChecker> {
     WTF_MAKE_FAST_ALLOCATED;
 public:
     enum class LoadType : bool { MainFrame, Other };
 
-    NetworkLoadChecker(NetworkProcess&, NetworkResourceLoader*, NetworkSchemeRegistry*, WebCore::FetchOptions&&, PAL::SessionID, WebPageProxyIdentifier, WebCore::HTTPHeaderMap&&, URL&&, RefPtr<WebCore::SecurityOrigin>&&, RefPtr<WebCore::SecurityOrigin>&& topOrigin, WebCore::PreflightPolicy, String&& referrer, bool isHTTPSUpgradeEnabled = false, bool shouldCaptureExtraNetworkLoadMetrics = false, LoadType requestLoadType = LoadType::Other);
+    NetworkLoadChecker(NetworkProcess&, NetworkResourceLoader*, NetworkSchemeRegistry*, WebCore::FetchOptions&&, PAL::SessionID, WebPageProxyIdentifier, WebCore::HTTPHeaderMap&&, URL&&, DocumentURL&&,  RefPtr<WebCore::SecurityOrigin>&&, RefPtr<WebCore::SecurityOrigin>&& topOrigin, RefPtr<WebCore::SecurityOrigin>&& parentOrigin, WebCore::PreflightPolicy, String&& referrer, bool allowPrivacyProxy, OptionSet<WebCore::AdvancedPrivacyProtections>, bool shouldCaptureExtraNetworkLoadMetrics = false, LoadType requestLoadType = LoadType::Other);
     ~NetworkLoadChecker();
 
     struct RedirectionTriplet {
@@ -67,7 +70,7 @@ public:
         WebCore::ResourceResponse redirectResponse;
     };
 
-    using RequestOrRedirectionTripletOrError = Variant<WebCore::ResourceRequest, RedirectionTriplet, WebCore::ResourceError>;
+    using RequestOrRedirectionTripletOrError = std::variant<WebCore::ResourceRequest, RedirectionTriplet, WebCore::ResourceError>;
     using ValidationHandler = CompletionHandler<void(RequestOrRedirectionTripletOrError&&)>;
     void check(WebCore::ResourceRequest&&, WebCore::ContentSecurityPolicyClient*, ValidationHandler&&);
 
@@ -78,10 +81,13 @@ public:
     WebCore::ResourceError validateResponse(const WebCore::ResourceRequest&, WebCore::ResourceResponse&);
 
     void setCSPResponseHeaders(WebCore::ContentSecurityPolicyResponseHeaders&& headers) { m_cspResponseHeaders = WTFMove(headers); }
+    void setParentCrossOriginEmbedderPolicy(const WebCore::CrossOriginEmbedderPolicy& parentCrossOriginEmbedderPolicy) { m_parentCrossOriginEmbedderPolicy = parentCrossOriginEmbedderPolicy; }
+    void setCrossOriginEmbedderPolicy(const WebCore::CrossOriginEmbedderPolicy& crossOriginEmbedderPolicy) { m_crossOriginEmbedderPolicy = crossOriginEmbedderPolicy; }
 #if ENABLE(CONTENT_EXTENSIONS)
-    void setContentExtensionController(URL&& mainDocumentURL, Optional<UserContentControllerIdentifier> identifier)
+    void setContentExtensionController(URL&& mainDocumentURL, URL&& frameURL, std::optional<UserContentControllerIdentifier> identifier)
     {
         m_mainDocumentURL = WTFMove(mainDocumentURL);
+        m_frameURL = WTFMove(frameURL);
         m_userContentControllerIdentifier = identifier;
     }
 #endif
@@ -96,8 +102,15 @@ public:
 
     void enableContentExtensionsCheck() { m_checkContentExtensions = true; }
 
+    RefPtr<WebCore::SecurityOrigin> origin() const { return m_origin; }
+    RefPtr<WebCore::SecurityOrigin> topOrigin() const { return m_topOrigin; }
+
+    const WebCore::FetchOptions& options() const { return m_options; }
+
 private:
     WebCore::ContentSecurityPolicy* contentSecurityPolicy();
+    const WebCore::OriginAccessPatterns& originAccessPatterns() const;
+    bool isSameOrigin(const URL&, const WebCore::SecurityOrigin*) const;
     bool isChecking() const { return !!m_corsPreflightChecker; }
     bool isRedirected() const { return m_redirectCount; }
 
@@ -125,22 +138,29 @@ private:
     void processContentRuleListsForLoad(WebCore::ResourceRequest&&, ContentExtensionCallback&&);
 #endif
 
-    void applyHTTPSUpgradeIfNeeded(WebCore::ResourceRequest&&, CompletionHandler<void(WebCore::ResourceRequest&&)>&&) const;
+    RefPtr<WebCore::SecurityOrigin> parentOrigin() const { return m_parentOrigin; }
 
     WebCore::FetchOptions m_options;
     WebCore::StoredCredentialsPolicy m_storedCredentialsPolicy;
+    bool m_allowPrivacyProxy;
+    OptionSet<WebCore::AdvancedPrivacyProtections> m_advancedPrivacyProtections;
     PAL::SessionID m_sessionID;
     Ref<NetworkProcess> m_networkProcess;
     WebPageProxyIdentifier m_webPageProxyID;
     WebCore::HTTPHeaderMap m_originalRequestHeaders; // Needed for CORS checks.
     WebCore::HTTPHeaderMap m_firstRequestHeaders; // Needed for CORS checks.
     URL m_url;
+    DocumentURL m_documentURL;
     RefPtr<WebCore::SecurityOrigin> m_origin;
     RefPtr<WebCore::SecurityOrigin> m_topOrigin;
-    Optional<WebCore::ContentSecurityPolicyResponseHeaders> m_cspResponseHeaders;
+    RefPtr<WebCore::SecurityOrigin> m_parentOrigin;
+    std::optional<WebCore::ContentSecurityPolicyResponseHeaders> m_cspResponseHeaders;
+    WebCore::CrossOriginEmbedderPolicy m_parentCrossOriginEmbedderPolicy;
+    WebCore::CrossOriginEmbedderPolicy m_crossOriginEmbedderPolicy;
 #if ENABLE(CONTENT_EXTENSIONS)
     URL m_mainDocumentURL;
-    Optional<UserContentControllerIdentifier> m_userContentControllerIdentifier;
+    URL m_frameURL;
+    std::optional<UserContentControllerIdentifier> m_userContentControllerIdentifier;
 #endif
 
     std::unique_ptr<NetworkCORSPreflightChecker> m_corsPreflightChecker;
@@ -153,10 +173,6 @@ private:
     String m_referrer;
     bool m_checkContentExtensions { false };
     bool m_shouldCaptureExtraNetworkLoadMetrics { false };
-
-#if PLATFORM(COCOA)
-    bool m_isHTTPSUpgradeEnabled { false };
-#endif
 
     WebCore::NetworkLoadInformation m_loadInformation;
 

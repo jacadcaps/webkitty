@@ -39,7 +39,7 @@ public:
     
     virtual ~RenderScrollbarPart();
 
-    const char* renderName() const override { return "RenderScrollbarPart"; }
+    ASCIILiteral renderName() const override { return "RenderScrollbarPart"_s; }
     
     bool requiresLayer() const override { return false; }
 
@@ -58,9 +58,6 @@ public:
 private:
     void styleDidChange(StyleDifference, const RenderStyle* oldStyle) override;
     void imageChanged(WrappedImagePtr, const IntRect* = nullptr) override;
-
-    bool isRenderScrollbarPart() const override { return true; }
-    void computePreferredLogicalWidths() override;
 
     void layoutHorizontalPart();
     void layoutVerticalPart();

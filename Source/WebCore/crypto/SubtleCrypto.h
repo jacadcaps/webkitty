@@ -25,14 +25,12 @@
 
 #pragma once
 
-#if ENABLE(WEB_CRYPTO)
-
 #include "ContextDestructionObserver.h"
 #include "CryptoKeyFormat.h"
 #include <JavaScriptCore/Strong.h>
+#include <variant>
 #include <wtf/Ref.h>
 #include <wtf/RefCounted.h>
-#include <wtf/Variant.h>
 #include <wtf/WeakPtr.h>
 #include <wtf/WorkQueue.h>
 
@@ -50,6 +48,7 @@ class BufferSource;
 class CryptoKey;
 class DeferredPromise;
 
+enum class CryptoAlgorithmIdentifier : uint8_t;
 enum class CryptoKeyUsage;
 
 class SubtleCrypto : public ContextDestructionObserver, public RefCounted<SubtleCrypto>, public CanMakeWeakPtr<SubtleCrypto> {
@@ -59,8 +58,8 @@ public:
 
     using KeyFormat = CryptoKeyFormat;
 
-    using AlgorithmIdentifier = Variant<JSC::Strong<JSC::JSObject>, String>;
-    using KeyDataVariant = Variant<RefPtr<JSC::ArrayBufferView>, RefPtr<JSC::ArrayBuffer>, JsonWebKey>;
+    using AlgorithmIdentifier = std::variant<JSC::Strong<JSC::JSObject>, String>;
+    using KeyDataVariant = std::variant<RefPtr<JSC::ArrayBufferView>, RefPtr<JSC::ArrayBuffer>, JsonWebKey>;
 
     void encrypt(JSC::JSGlobalObject&, AlgorithmIdentifier&&, CryptoKey&, BufferSource&& data, Ref<DeferredPromise>&&);
     void decrypt(JSC::JSGlobalObject&, AlgorithmIdentifier&&, CryptoKey&, BufferSource&& data, Ref<DeferredPromise>&&);
@@ -78,12 +77,11 @@ public:
 private:
     explicit SubtleCrypto(ScriptExecutionContext*);
 
+    void addAuthenticatedEncryptionWarningIfNecessary(CryptoAlgorithmIdentifier);
     inline friend RefPtr<DeferredPromise> getPromise(DeferredPromise*, WeakPtr<SubtleCrypto>);
 
     Ref<WorkQueue> m_workQueue;
     HashMap<DeferredPromise*, Ref<DeferredPromise>> m_pendingPromises;
 };
 
-}
-
-#endif
+} // namespace WebCore

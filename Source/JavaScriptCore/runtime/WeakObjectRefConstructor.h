@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple, Inc. All rights reserved.
+ * Copyright (C) 2019-2021 Apple, Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -37,17 +37,14 @@ public:
 
     static WeakObjectRefConstructor* create(VM& vm, Structure* structure, WeakObjectRefPrototype* prototype, GetterSetter*)
     {
-        WeakObjectRefConstructor* constructor = new (NotNull, allocateCell<WeakObjectRefConstructor>(vm.heap)) WeakObjectRefConstructor(vm, structure);
+        WeakObjectRefConstructor* constructor = new (NotNull, allocateCell<WeakObjectRefConstructor>(vm)) WeakObjectRefConstructor(vm, structure);
         constructor->finishCreation(vm, prototype);
         return constructor;
     }
 
     DECLARE_INFO;
 
-    static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
-    {
-        return Structure::create(vm, globalObject, prototype, TypeInfo(InternalFunctionType, StructureFlags), info());
-    }
+    inline static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
 private:
     WeakObjectRefConstructor(VM&, Structure*);

@@ -28,7 +28,6 @@
 #if ENABLE(GPU_PROCESS)
 
 #include "SandboxExtension.h"
-#include <WebCore/ContentType.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebKit {
@@ -41,50 +40,6 @@ struct GPUProcessSessionParameters {
     String mediaKeysStorageDirectory;
     SandboxExtension::Handle mediaKeysStorageDirectorySandboxExtensionHandle;
 #endif
-
-    template<class Encoder>
-    void encode(Encoder& encoder) const
-    {
-        encoder << mediaCacheDirectory << mediaCacheDirectorySandboxExtensionHandle;
-#if ENABLE(LEGACY_ENCRYPTED_MEDIA)
-        encoder << mediaKeysStorageDirectory << mediaKeysStorageDirectorySandboxExtensionHandle;
-#endif
-    }
-
-    template <class Decoder>
-    static Optional<GPUProcessSessionParameters> decode(Decoder& decoder)
-    {
-        Optional<String> mediaCacheDirectory;
-        decoder >> mediaCacheDirectory;
-        if (!mediaCacheDirectory)
-            return WTF::nullopt;
-
-        Optional<SandboxExtension::Handle> mediaCacheDirectorySandboxExtensionHandle;
-        decoder >> mediaCacheDirectorySandboxExtensionHandle;
-        if (!mediaCacheDirectorySandboxExtensionHandle)
-            return WTF::nullopt;
-
-#if ENABLE(LEGACY_ENCRYPTED_MEDIA)
-        Optional<String> mediaKeysStorageDirectory;
-        decoder >> mediaKeysStorageDirectory;
-        if (!mediaKeysStorageDirectory)
-            return WTF::nullopt;
-
-        Optional<SandboxExtension::Handle> mediaKeysStorageDirectorySandboxExtensionHandle;
-        decoder >> mediaKeysStorageDirectorySandboxExtensionHandle;
-        if (!mediaKeysStorageDirectorySandboxExtensionHandle)
-            return WTF::nullopt;
-#endif
-
-        return GPUProcessSessionParameters {
-            WTFMove(*mediaCacheDirectory),
-            WTFMove(*mediaCacheDirectorySandboxExtensionHandle),
-#if ENABLE(LEGACY_ENCRYPTED_MEDIA)
-            WTFMove(*mediaKeysStorageDirectory),
-            WTFMove(*mediaKeysStorageDirectorySandboxExtensionHandle),
-#endif
-        };
-    }
 };
 
 } // namespace WebKit

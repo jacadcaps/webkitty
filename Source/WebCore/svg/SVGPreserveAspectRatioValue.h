@@ -23,6 +23,10 @@
 #include "ExceptionOr.h"
 #include "SVGPropertyTraits.h"
 
+namespace IPC {
+template<typename T, typename> struct ArgumentCoder;
+}
+
 namespace WebCore {
 
 class AffineTransform;
@@ -51,8 +55,11 @@ public:
         SVG_MEETORSLICE_SLICE = 2
     };
 
-    SVGPreserveAspectRatioValue();
+    SVGPreserveAspectRatioValue() = default;
     SVGPreserveAspectRatioValue(StringView);
+    WEBCORE_EXPORT SVGPreserveAspectRatioValue(SVGPreserveAspectRatioType, SVGMeetOrSliceType);
+
+    bool operator==(const SVGPreserveAspectRatioValue&) const = default;
 
     ExceptionOr<void> setAlign(unsigned short);
     unsigned short align() const { return m_align; }
@@ -71,8 +78,9 @@ public:
     String valueAsString() const;
 
 private:
-    SVGPreserveAspectRatioType m_align;
-    SVGMeetOrSliceType m_meetOrSlice;
+    friend struct IPC::ArgumentCoder<SVGPreserveAspectRatioValue, void>;
+    SVGPreserveAspectRatioType m_align { SVGPreserveAspectRatioValue::SVG_PRESERVEASPECTRATIO_XMIDYMID };
+    SVGMeetOrSliceType m_meetOrSlice { SVGPreserveAspectRatioValue::SVG_MEETORSLICE_MEET };
 
     template<typename CharacterType> bool parseInternal(StringParsingBuffer<CharacterType>&, bool validate);
 };
@@ -80,8 +88,40 @@ private:
 template<> struct SVGPropertyTraits<SVGPreserveAspectRatioValue> {
     static SVGPreserveAspectRatioValue initialValue() { return SVGPreserveAspectRatioValue(); }
     static SVGPreserveAspectRatioValue fromString(const String& string) { return SVGPreserveAspectRatioValue(string); }
-    static Optional<SVGPreserveAspectRatioValue> parse(const QualifiedName&, const String&) { ASSERT_NOT_REACHED(); return initialValue(); }
+    static std::optional<SVGPreserveAspectRatioValue> parse(const QualifiedName&, const String&) { ASSERT_NOT_REACHED(); return initialValue(); }
     static String toString(const SVGPreserveAspectRatioValue& type) { return type.valueAsString(); }
 };
 
 } // namespace WebCore
+
+namespace WTF {
+
+template<> struct EnumTraits<WebCore::SVGPreserveAspectRatioValue::SVGPreserveAspectRatioType> {
+    using values = EnumValues<
+        WebCore::SVGPreserveAspectRatioValue::SVGPreserveAspectRatioType,
+
+        WebCore::SVGPreserveAspectRatioValue::SVG_PRESERVEASPECTRATIO_UNKNOWN,
+        WebCore::SVGPreserveAspectRatioValue::SVG_PRESERVEASPECTRATIO_NONE,
+        WebCore::SVGPreserveAspectRatioValue::SVG_PRESERVEASPECTRATIO_XMINYMIN,
+        WebCore::SVGPreserveAspectRatioValue::SVG_PRESERVEASPECTRATIO_XMIDYMIN,
+        WebCore::SVGPreserveAspectRatioValue::SVG_PRESERVEASPECTRATIO_XMAXYMIN,
+        WebCore::SVGPreserveAspectRatioValue::SVG_PRESERVEASPECTRATIO_XMINYMID,
+        WebCore::SVGPreserveAspectRatioValue::SVG_PRESERVEASPECTRATIO_XMIDYMID,
+        WebCore::SVGPreserveAspectRatioValue::SVG_PRESERVEASPECTRATIO_XMAXYMID,
+        WebCore::SVGPreserveAspectRatioValue::SVG_PRESERVEASPECTRATIO_XMINYMAX,
+        WebCore::SVGPreserveAspectRatioValue::SVG_PRESERVEASPECTRATIO_XMIDYMAX,
+        WebCore::SVGPreserveAspectRatioValue::SVG_PRESERVEASPECTRATIO_XMAXYMAX
+    >;
+};
+
+template<> struct EnumTraits<WebCore::SVGPreserveAspectRatioValue::SVGMeetOrSliceType> {
+    using values = EnumValues<
+        WebCore::SVGPreserveAspectRatioValue::SVGMeetOrSliceType,
+
+        WebCore::SVGPreserveAspectRatioValue::SVG_MEETORSLICE_UNKNOWN,
+        WebCore::SVGPreserveAspectRatioValue::SVG_MEETORSLICE_MEET,
+        WebCore::SVGPreserveAspectRatioValue::SVG_MEETORSLICE_SLICE
+    >;
+};
+
+} // namespace WTF

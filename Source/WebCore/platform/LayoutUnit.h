@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2012, Google Inc. All rights reserved.
+ * Copyright (c) 2012-2017, Google Inc. All rights reserved.
+ * Copyright (c) 2012-2023, Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -34,6 +35,7 @@
 #include <limits>
 #include <math.h>
 #include <stdlib.h>
+#include <wtf/HashTraits.h>
 #include <wtf/MathExtras.h>
 #include <wtf/SaturatedArithmetic.h>
 
@@ -57,13 +59,15 @@ while (0)
 
 #endif
 
-static const int kFixedPointDenominator = 64;
+static const int kLayoutUnitFractionalBits = 6;
+static constexpr int kFixedPointDenominator = 1 << kLayoutUnitFractionalBits;
 const int intMaxForLayoutUnit = INT_MAX / kFixedPointDenominator;
 const int intMinForLayoutUnit = INT_MIN / kFixedPointDenominator;
 
 class LayoutUnit {
 public:
     LayoutUnit() : m_value(0) { }
+    LayoutUnit(const LayoutUnit&) = default;
     LayoutUnit(int value) { setValue(value); }
     LayoutUnit(unsigned short value) { setValue(value); }
     LayoutUnit(unsigned value) { setValue(value); }
@@ -75,17 +79,15 @@ public:
     {
         m_value = clampTo<int>(value * kFixedPointDenominator);
     }
-    explicit LayoutUnit(float value)
-    {
-        m_value = clampToInteger(value * kFixedPointDenominator);
-    }
     explicit LayoutUnit(double value)
     {
         m_value = clampToInteger(value * kFixedPointDenominator);
     }
 
-    LayoutUnit& operator=(const LayoutUnit& other) = default;
+    LayoutUnit& operator=(const LayoutUnit&) = default;
     LayoutUnit& operator=(const float& other) { return *this = LayoutUnit(other); }
+
+    friend bool operator==(LayoutUnit, LayoutUnit) = default;
 
     static LayoutUnit fromFloatCeil(float value)
     {
@@ -106,6 +108,13 @@ public:
         if (value >= 0)
             return clamp(value + epsilon() / 2.0f);
         return clamp(value - epsilon() / 2.0f);
+    }
+
+    static LayoutUnit fromRawValue(int value)
+    {
+        LayoutUnit v;
+        v.m_value = value;
+        return v;
     }
 
     int toInt() const { return m_value / kFixedPointDenominator; }
@@ -149,18 +158,14 @@ public:
 
     int round() const
     {
-        if (m_value > 0)
-            return saturatedAddition(rawValue(), kFixedPointDenominator / 2) / kFixedPointDenominator;
-        return saturatedSubtraction(rawValue(), (kFixedPointDenominator / 2) - 1) / kFixedPointDenominator;
+        return toInt() + ((fraction().rawValue() + (kFixedPointDenominator / 2)) >> kLayoutUnitFractionalBits);
     }
 
     int floor() const
     {
         if (UNLIKELY(m_value <= INT_MIN + kFixedPointDenominator - 1))
             return intMinForLayoutUnit;
-        if (m_value >= 0)
-            return toInt();
-        return (m_value - kFixedPointDenominator + 1) / kFixedPointDenominator;
+        return m_value >> kLayoutUnitFractionalBits;
     }
 
     float ceilToFloat() const
@@ -233,7 +238,7 @@ private:
     }
     static bool isInBounds(double value)
     {
-        return ::fabs(value) <= std::numeric_limits<int>::max() / kFixedPointDenominator;
+        return ::abs(value) <= std::numeric_limits<int>::max() / kFixedPointDenominator;
     }
 
     inline void setValue(int value)
@@ -369,31 +374,6 @@ inline bool operator>(const float a, const LayoutUnit& b)
 inline bool operator>(const double a, const LayoutUnit& b)
 {
     return a > b.toDouble();
-}
-
-inline bool operator!=(const LayoutUnit& a, const LayoutUnit& b)
-{
-    return a.rawValue() != b.rawValue();
-}
-
-inline bool operator!=(const LayoutUnit& a, float b)
-{
-    return a != LayoutUnit(b);
-}
-
-inline bool operator!=(const int a, const LayoutUnit& b)
-{
-    return LayoutUnit(a) != b;
-}
-
-inline bool operator!=(const LayoutUnit& a, int b)
-{
-    return a != LayoutUnit(b);
-}
-
-inline bool operator==(const LayoutUnit& a, const LayoutUnit& b)
-{
-    return a.rawValue() == b.rawValue();
 }
 
 inline bool operator==(const LayoutUnit& a, int b)
@@ -588,7 +568,7 @@ inline LayoutUnit operator/(unsigned long long a, const LayoutUnit& b)
 inline LayoutUnit operator+(const LayoutUnit& a, const LayoutUnit& b)
 {
     LayoutUnit returnVal;
-    returnVal.setRawValue(saturatedAddition(a.rawValue(), b.rawValue()));
+    returnVal.setRawValue(saturatedSum<int>(a.rawValue(), b.rawValue()));
     return returnVal;
 }
 
@@ -625,7 +605,7 @@ inline double operator+(const double a, const LayoutUnit& b)
 inline LayoutUnit operator-(const LayoutUnit& a, const LayoutUnit& b)
 {
     LayoutUnit returnVal;
-    returnVal.setRawValue(saturatedSubtraction(a.rawValue(), b.rawValue()));
+    returnVal.setRawValue(saturatedDifference<int>(a.rawValue(), b.rawValue()));
     return returnVal;
 }
 
@@ -656,6 +636,10 @@ inline float operator-(const float a, const LayoutUnit& b)
 
 inline LayoutUnit operator-(const LayoutUnit& a)
 {
+    // -min() is saturated to max().
+    if (a == LayoutUnit::min())
+        return LayoutUnit::max();
+
     LayoutUnit returnVal;
     returnVal.setRawValue(-a.rawValue());
     return returnVal;
@@ -691,7 +675,7 @@ inline LayoutUnit operator%(int a, const LayoutUnit& b)
 
 inline LayoutUnit& operator+=(LayoutUnit& a, const LayoutUnit& b)
 {
-    a.setRawValue(saturatedAddition(a.rawValue(), b.rawValue()));
+    a.setRawValue(saturatedSum<int>(a.rawValue(), b.rawValue()));
     return a;
 }
 
@@ -721,7 +705,7 @@ inline LayoutUnit& operator-=(LayoutUnit& a, int b)
 
 inline LayoutUnit& operator-=(LayoutUnit& a, const LayoutUnit& b)
 {
-    a.setRawValue(saturatedSubtraction(a.rawValue(), b.rawValue()));
+    a.setRawValue(saturatedDifference<int>(a.rawValue(), b.rawValue()));
     return a;
 }
 
@@ -838,3 +822,28 @@ inline LayoutUnit operator"" _lu(unsigned long long value)
 }
 
 } // namespace WebCore
+
+namespace WTF {
+
+template<> struct DefaultHash<WebCore::LayoutUnit> {
+    static unsigned hash(const WebCore::LayoutUnit& p) { return DefaultHash<int>::hash(p.rawValue()); }
+    static bool equal(const WebCore::LayoutUnit& a, const WebCore::LayoutUnit& b) { return a == b; }
+    static const bool safeToCompareToEmptyOrDeleted = true;
+};
+
+// The empty value is INT_MIN, the deleted value is INT_MAX. During the course of layout
+// these values are typically only used to represent uninitialized values, so they are
+// good candidates to represent the deleted and empty values in HashMaps as well.
+template<> struct HashTraits<WebCore::LayoutUnit> : GenericHashTraits<WebCore::LayoutUnit> {
+    static constexpr bool emptyValueIsZero = false;
+    static WebCore::LayoutUnit emptyValue()
+    {
+        WebCore::LayoutUnit value;
+        value.setRawValue(std::numeric_limits<int>::min());
+        return value;
+    }
+    static void constructDeletedValue(WebCore::LayoutUnit& slot) { slot.setRawValue(std::numeric_limits<int>::max()); }
+    static bool isDeletedValue(WebCore::LayoutUnit value) { return value.rawValue() == std::numeric_limits<int>::max(); }
+};
+
+} // namespace WTF

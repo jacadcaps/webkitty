@@ -25,67 +25,102 @@
 
 #pragma once
 
+#include <stdint.h>
+#include <wtf/Platform.h>
+
 #if OS(DARWIN) && CPU(ARM64)
+
+#include "JSCConfig.h"
 
 #include <wtf/Platform.h>
 
-#if HAVE(PTHREAD_JIT_PERMISSIONS_API)
-#include <pthread.h>
-#elif USE(APPLE_INTERNAL_SDK)
-#include <os/thread_self_restrict.h> 
-#endif
+#if USE(INLINE_JIT_PERMISSIONS_API)
+#include <BrowserEngineCore/BEMemory.h>
 
-static ALWAYS_INLINE bool useFastJITPermissions()
+static ALWAYS_INLINE bool threadSelfRestrictSupported()
 {
-#if CPU(ARM64E)
-    return true;
-#elif HAVE(PTHREAD_JIT_PERMISSIONS_API) 
-    return !!pthread_jit_write_protect_supported_np();
-#elif USE(APPLE_INTERNAL_SDK)
-    return !!os_thread_self_restrict_rwx_is_supported();
-#else
-    return false;
-#endif
+    return (&be_memory_inline_jit_restrict_with_witness_supported != nullptr
+            && !!be_memory_inline_jit_restrict_with_witness_supported());
 }
 
 static ALWAYS_INLINE void threadSelfRestrictRWXToRW()
 {
-    ASSERT(useFastJITPermissions());
-
-#if HAVE(PTHREAD_JIT_PERMISSIONS_API) 
-    pthread_jit_write_protect_np(false);
-#elif USE(APPLE_INTERNAL_SDK)
-    os_thread_self_restrict_rwx_to_rw();
-#else
-    bool tautologyToIgnoreWarning = true;
-    if (tautologyToIgnoreWarning)
-        RELEASE_ASSERT_NOT_REACHED();
-#endif
+    ASSERT(g_jscConfig.useFastJITPermissions);
+    be_memory_inline_jit_restrict_rwx_to_rw_with_witness();
 }
 
 static ALWAYS_INLINE void threadSelfRestrictRWXToRX()
 {
-    ASSERT(useFastJITPermissions());
-
-#if HAVE(PTHREAD_JIT_PERMISSIONS_API) 
-    pthread_jit_write_protect_np(true);
-#elif USE(APPLE_INTERNAL_SDK)
-    os_thread_self_restrict_rwx_to_rx();
-#else
-    bool tautologyToIgnoreWarning = true;
-    if (tautologyToIgnoreWarning)
-        RELEASE_ASSERT_NOT_REACHED();
-#endif
+    ASSERT(g_jscConfig.useFastJITPermissions);
+    be_memory_inline_jit_restrict_rwx_to_rx_with_witness();
 }
 
-#else // Not OS(DARWIN) && CPU(ARM64)
+#elif USE(PTHREAD_JIT_PERMISSIONS_API)
+#include <pthread.h>
 
-constexpr bool fastJITPermissionsIsSupported()
+static ALWAYS_INLINE bool threadSelfRestrictSupported()
+{
+    return !!pthread_jit_write_protect_supported_np();;
+}
+
+static ALWAYS_INLINE void threadSelfRestrictRWXToRW()
+{
+    ASSERT(g_jscConfig.useFastJITPermissions);
+    pthread_jit_write_protect_np(false);
+}
+
+static ALWAYS_INLINE void threadSelfRestrictRWXToRX()
+{
+    ASSERT(g_jscConfig.useFastJITPermissions);
+    pthread_jit_write_protect_np(true);
+}
+
+#elif USE(APPLE_INTERNAL_SDK)
+#include <os/thread_self_restrict.h>
+
+static ALWAYS_INLINE bool threadSelfRestrictSupported()
+{
+    return !!os_thread_self_restrict_rwx_is_supported();
+}
+
+static ALWAYS_INLINE void threadSelfRestrictRWXToRW()
+{
+    ASSERT(g_jscConfig.useFastJITPermissions);
+    os_thread_self_restrict_rwx_to_rw();
+}
+
+static ALWAYS_INLINE void threadSelfRestrictRWXToRX()
+{
+    ASSERT(g_jscConfig.useFastJITPermissions);
+    os_thread_self_restrict_rwx_to_rx();
+}
+
+#else
+
+static ALWAYS_INLINE bool threadSelfRestrictSupported()
 {
     return false;
 }
 
-constexpr bool useFastJITPermissions()
+static ALWAYS_INLINE void threadSelfRestrictRWXToRW()
+{
+    bool tautologyToIgnoreWarning = true;
+    if (tautologyToIgnoreWarning)
+        RELEASE_ASSERT_NOT_REACHED();
+}
+
+static ALWAYS_INLINE void threadSelfRestrictRWXToRX()
+{
+    bool tautologyToIgnoreWarning = true;
+    if (tautologyToIgnoreWarning)
+        RELEASE_ASSERT_NOT_REACHED();
+}
+
+#endif
+
+#else // Not OS(DARWIN) && CPU(ARM64)
+
+static ALWAYS_INLINE bool threadSelfRestrictSupported()
 {
     return false;
 }

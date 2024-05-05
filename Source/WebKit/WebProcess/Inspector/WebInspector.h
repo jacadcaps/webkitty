@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010, 2014, 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2020 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,23 +25,24 @@
 
 #pragma once
 
-#include "APIObject.h"
 #include "Connection.h"
 #include "MessageReceiver.h"
 #include <WebCore/FrameIdentifier.h>
 #include <WebCore/InspectorClient.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebKit {
 
 class WebPage;
 
-class WebInspector : public API::ObjectImpl<API::Object::Type::BundleInspector>, private IPC::Connection::Client {
+class WebInspector : public ThreadSafeRefCounted<WebInspector>, private IPC::Connection::Client {
 public:
-    static Ref<WebInspector> create(WebPage*);
+    static Ref<WebInspector> create(WebPage&);
+    ~WebInspector();
 
-    WebPage* page() const { return m_page; }
+    WebPage* page() const;
 
     void updateDockingAvailability();
 
@@ -54,8 +55,6 @@ public:
 
     void show();
     void close();
-
-    void openInNewTab(const String& urlString);
 
     void canAttachWindow(bool& result);
 
@@ -75,17 +74,20 @@ public:
     void stopElementSelection();
     void elementSelectionChanged(bool);
     void timelineRecordingChanged(bool);
-    void setDeveloperPreferenceOverride(WebCore::InspectorClient::DeveloperPreference, Optional<bool>);
 
-    void setFrontendConnection(IPC::Attachment);
+    void setDeveloperPreferenceOverride(WebCore::InspectorClient::DeveloperPreference, std::optional<bool>);
+#if ENABLE(INSPECTOR_NETWORK_THROTTLING)
+    void setEmulatedConditions(std::optional<int64_t>&& bytesPerSecondLimit);
+#endif
+
+    void setFrontendConnection(IPC::Connection::Handle&&);
 
     void disconnectFromPage() { close(); }
 
 private:
     friend class WebInspectorClient;
 
-    explicit WebInspector(WebPage*);
-    virtual ~WebInspector();
+    explicit WebInspector(WebPage&);
 
     bool canAttachWindow();
 
@@ -97,7 +99,7 @@ private:
 
     void whenFrontendConnectionEstablished(Function<void()>&&);
 
-    WebPage* m_page;
+    WeakPtr<WebPage> m_page;
 
     RefPtr<IPC::Connection> m_frontendConnection;
     Vector<Function<void()>> m_frontendConnectionActions;

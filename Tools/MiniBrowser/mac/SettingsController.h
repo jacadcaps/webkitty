@@ -27,6 +27,12 @@
 
 extern NSString * const kUserAgentChangedNotificationName;
 
+typedef NS_ENUM(NSInteger, AttachmentElementEnabledState) {
+    AttachmentElementEnabledStateDisabled = 0,
+    AttachmentElementEnabledStateEnabled,
+    AttachmentElementEnabledStateWideLayoutEnabled,
+};
+
 @interface SettingsController : NSObject
 
 - (instancetype)initWithMenu:(NSMenu *)menu;
@@ -36,30 +42,29 @@ extern NSString * const kUserAgentChangedNotificationName;
 @property (nonatomic, readonly) BOOL useTransparentWindows;
 @property (nonatomic, readonly) BOOL usePaginatedMode;
 @property (nonatomic, readonly) BOOL layerBordersVisible;
-@property (nonatomic, readonly) BOOL simpleLineLayoutEnabled;
-@property (nonatomic, readonly) BOOL simpleLineLayoutDebugBordersEnabled;
+@property (nonatomic, readonly) BOOL legacyLineLayoutVisualCoverageEnabled;
 @property (nonatomic, readonly) BOOL incrementalRenderingSuppressed;
 @property (nonatomic, readonly) BOOL tiledScrollingIndicatorVisible;
 @property (nonatomic, readonly, getter=isSpaceReservedForBanners) BOOL spaceReservedForBanners;
 @property (nonatomic, readonly) BOOL resourceUsageOverlayVisible;
 @property (nonatomic, readonly) BOOL nonFastScrollableRegionOverlayVisible;
 @property (nonatomic, readonly) BOOL wheelEventHandlerRegionOverlayVisible;
+@property (nonatomic, readonly) BOOL interactionRegionOverlayVisible;
 @property (nonatomic, readonly) BOOL useUISideCompositing;
 @property (nonatomic, readonly) BOOL perWindowWebProcessesDisabled;
-@property (nonatomic, readonly) BOOL subPixelCSSOMMetricsEnabled;
 @property (nonatomic, readonly) BOOL acceleratedDrawingEnabled;
-@property (nonatomic, readonly) BOOL displayListDrawingEnabled;
-@property (nonatomic, readonly) BOOL subpixelAntialiasedLayerTextEnabled;
 @property (nonatomic, readonly) BOOL resourceLoadStatisticsEnabled;
 @property (nonatomic, readonly) BOOL largeImageAsyncDecodingEnabled;
 @property (nonatomic, readonly) BOOL animatedImageAsyncDecodingEnabled;
 @property (nonatomic, readonly) BOOL appleColorFilterEnabled;
 @property (nonatomic, readonly) BOOL punchOutWhiteBackgroundsInDarkMode;
 @property (nonatomic, readonly) BOOL useSystemAppearance;
+@property (nonatomic, readonly) BOOL dataDetectorsEnabled;
+@property (nonatomic, readonly) BOOL useMockCaptureDevices;
+@property (nonatomic, readonly) AttachmentElementEnabledState attachmentElementEnabled;
 @property (nonatomic, readonly) BOOL loadsAllSiteIcons;
 @property (nonatomic, readonly) BOOL usesGameControllerFramework;
 @property (nonatomic, readonly) BOOL networkCacheSpeculativeRevalidationDisabled;
-@property (nonatomic, readonly) BOOL processSwapOnWindowOpenWithOpenerEnabled;
 
 @property (nonatomic, readonly) NSString *defaultURL;
 @property (nonatomic, readonly) NSString *customUserAgent;

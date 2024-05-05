@@ -38,6 +38,7 @@
 #include "WebPage.h"
 #include "WebPageOverlay.h"
 #include <WebCore/GraphicsContext.h>
+#include <WebCore/ImageBuffer.h>
 #include <WebCore/PageOverlay.h>
 #include <WebCore/PlatformMouseEvent.h>
 #include <WebCore/Range.h>
@@ -90,7 +91,15 @@ private:
         if (!m_client.drawRect)
             return;
 
-        m_client.drawRect(toAPI(&pageOverlay), graphicsContext.platformContext(), WebKit::toAPI(dirtyRect), m_client.base.clientInfo);
+        auto imageBuffer = graphicsContext.createAlignedImageBuffer(dirtyRect.size(), WebCore::DestinationColorSpace::SRGB(), WebCore::RenderingMethod::Local);
+        if (!imageBuffer)
+            return;
+
+        auto& imageBufferContext = imageBuffer->context();
+        imageBufferContext.translate(-dirtyRect.location());
+        m_client.drawRect(toAPI(&pageOverlay), imageBufferContext.platformContext(), WebKit::toAPI(dirtyRect), m_client.base.clientInfo);
+
+        graphicsContext.drawConsumingImageBuffer(WTFMove(imageBuffer), dirtyRect);
     }
     
     bool mouseEvent(WebKit::WebPageOverlay& pageOverlay, const WebCore::PlatformMouseEvent& event) override
@@ -109,7 +118,7 @@ private:
             return m_client.mouseUp(toAPI(&pageOverlay), WebKit::toAPI(event.position()), WebKit::toAPI(event.button()), m_client.base.clientInfo);
         }
         case WebCore::PlatformMouseEvent::Type::MouseMoved: {
-            if (event.button() == WebCore::MouseButton::NoButton) {
+            if (event.button() == WebCore::MouseButton::None) {
                 if (!m_client.mouseMoved)
                     return false;
 
@@ -129,15 +138,15 @@ private:
     }
 
 #if PLATFORM(MAC)
-    Optional<WebKit::WebPageOverlay::ActionContext> actionContextForResultAtPoint(WebKit::WebPageOverlay& pageOverlay, WebCore::FloatPoint location) final
+    std::optional<WebKit::WebPageOverlay::ActionContext> actionContextForResultAtPoint(WebKit::WebPageOverlay& pageOverlay, WebCore::FloatPoint location) final
     {
         if (!m_client.actionContextForResultAtPoint)
-            return WTF::nullopt;
+            return std::nullopt;
 
         WKBundleRangeHandleRef apiRange = nullptr;
-        auto actionContext = (DDActionContext *)m_client.actionContextForResultAtPoint(toAPI(&pageOverlay), WKPointMake(location.x(), location.y()), &apiRange, m_client.base.clientInfo);
+        auto actionContext = (WKDDActionContext *)m_client.actionContextForResultAtPoint(toAPI(&pageOverlay), WKPointMake(location.x(), location.y()), &apiRange, m_client.base.clientInfo);
         if (!actionContext || !apiRange)
-            return WTF::nullopt;
+            return std::nullopt;
 
         return { { actionContext, makeSimpleRange(WebKit::toImpl(apiRange)->coreRange()) } };
     }
@@ -197,11 +206,13 @@ private:
         auto wkNames = m_accessibilityClient.client().copyAccessibilityAttributeNames(toAPI(&pageOverlay), paramerizedNames, m_accessibilityClient.client().base.clientInfo);
 
         size_t count = WKArrayGetSize(wkNames);
+        names.reserveInitialCapacity(count);
         for (size_t k = 0; k < count; k++) {
             WKTypeRef item = WKArrayGetItemAtIndex(wkNames, k);
             if (WebKit::toImpl(item)->type() == API::String::APIType)
                 names.append(WebKit::toWTFString(static_cast<WKStringRef>(item)));
         }
+        names.shrinkToFit();
 
         return names;
     }

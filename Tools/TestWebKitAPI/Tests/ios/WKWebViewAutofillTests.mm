@@ -31,9 +31,17 @@
 #import "PlatformUtilities.h"
 #import "TestInputDelegate.h"
 #import "TestWKWebView.h"
-#import "UIKitSPI.h"
+#import "UIKitSPIForTesting.h"
+#import "WKBrowserEngineDefinitions.h"
 #import <WebKit/WKWebViewPrivate.h>
+#import <pal/spi/ios/BrowserEngineKitSPI.h>
 #import <wtf/BlockPtr.h>
+
+@interface CustomTextSuggestion : UITextSuggestion
+@end
+
+@implementation CustomTextSuggestion
+@end
 
 @protocol WKTextInputSuggestionDelegate <UITextInputSuggestionDelegate>
 - (NSArray<UITextSuggestion *> *)suggestions;
@@ -66,14 +74,16 @@ typedef UIView <UITextInputPrivate> AutoFillInputView;
     return (AutoFillInputView *)self.textInputContentView;
 }
 
-- (BOOL)textInputHasAutoFillContext
+- (BOOL)acceptsAutoFillLoginCredentials
 {
-    NSURL *url = [self._autofillInputView._autofillContext objectForKey:@"_WebViewURL"];
-    if (![url isKindOfClass:[NSURL class]])
+    auto context = self._autofillInputView._autofillContext;
+    if (!context)
         return NO;
 
+    NSURL *url = context[@"_WebViewURL"];
+    EXPECT_TRUE([url isKindOfClass:NSURL.class]);
     EXPECT_WK_STREQ([self stringByEvaluatingJavaScript:@"document.URL"], url.absoluteString);
-    return YES;
+    return [context[@"_acceptsLoginCredentials"] boolValue];
 }
 
 @end
@@ -85,10 +95,10 @@ TEST(WKWebViewAutoFillTests, UsernameAndPasswordField)
     auto webView = adoptNS([[AutoFillTestView alloc] initWithFrame:CGRectMake(0, 0, 320, 500)]);
     [webView synchronouslyLoadHTMLString:@"<input id='user' type='email'><input id='password' type='password'>"];
     [webView evaluateJavaScriptAndWaitForInputSessionToChange:@"user.focus()"];
-    EXPECT_TRUE([webView textInputHasAutoFillContext]);
+    EXPECT_TRUE([webView acceptsAutoFillLoginCredentials]);
 
     [webView evaluateJavaScriptAndWaitForInputSessionToChange:@"password.focus()"];
-    EXPECT_TRUE([webView textInputHasAutoFillContext]);
+    EXPECT_TRUE([webView acceptsAutoFillLoginCredentials]);
 
     auto credentialSuggestion = [UITextAutofillSuggestion autofillSuggestionWithUsername:@"frederik" password:@"famos"];
     [[webView _autofillInputView] insertTextSuggestion:credentialSuggestion];
@@ -96,7 +106,29 @@ TEST(WKWebViewAutoFillTests, UsernameAndPasswordField)
     EXPECT_WK_STREQ("famos", [webView stringByEvaluatingJavaScript:@"password.value"]);
 
     [webView evaluateJavaScriptAndWaitForInputSessionToChange:@"document.activeElement.blur()"];
-    EXPECT_FALSE([webView textInputHasAutoFillContext]);
+    EXPECT_FALSE([webView acceptsAutoFillLoginCredentials]);
+}
+
+TEST(WKWebViewAutoFillTests, UsernameAndPasswordFieldAcrossShadowBoundaries)
+{
+    auto webView = adoptNS([[AutoFillTestView alloc] initWithFrame:CGRectMake(0, 0, 320, 500)]);
+    [webView synchronouslyLoadHTMLString:@"<div id=emailHost></div><div id=passwordHost></div><script>"
+        "emailRoot = emailHost.attachShadow({mode: 'closed'}); emailRoot.innerHTML = '<input id=user type=email>';"
+        "passwordRoot = passwordHost.attachShadow({mode: 'closed'}); passwordRoot.innerHTML = '<input id=password type=password>';"
+        "</script>"];
+    [webView evaluateJavaScriptAndWaitForInputSessionToChange:@"emailRoot.querySelector('input').focus()"];
+    EXPECT_TRUE([webView acceptsAutoFillLoginCredentials]);
+
+    [webView evaluateJavaScriptAndWaitForInputSessionToChange:@"passwordRoot.querySelector('input').focus()"];
+    EXPECT_TRUE([webView acceptsAutoFillLoginCredentials]);
+
+    auto credentialSuggestion = [UITextAutofillSuggestion autofillSuggestionWithUsername:@"frederik" password:@"famos"];
+    [[webView _autofillInputView] insertTextSuggestion:credentialSuggestion];
+
+    EXPECT_WK_STREQ("famos", [webView stringByEvaluatingJavaScript:@"passwordRoot.querySelector('input').value"]);
+
+    [webView evaluateJavaScriptAndWaitForInputSessionToChange:@"document.activeElement.blur()"];
+    EXPECT_FALSE([webView acceptsAutoFillLoginCredentials]);
 }
 
 TEST(WKWebViewAutoFillTests, UsernameAndPasswordFieldSeparatedByRadioButton)
@@ -104,10 +136,10 @@ TEST(WKWebViewAutoFillTests, UsernameAndPasswordFieldSeparatedByRadioButton)
     auto webView = adoptNS([[AutoFillTestView alloc] initWithFrame:CGRectMake(0, 0, 320, 500)]);
     [webView synchronouslyLoadHTMLString:@"<input id='user' type='email'><input type='radio' name='radio_button' value='radio'><input id='password' type='password'>"];
     [webView evaluateJavaScriptAndWaitForInputSessionToChange:@"user.focus()"];
-    EXPECT_TRUE([webView textInputHasAutoFillContext]);
+    EXPECT_TRUE([webView acceptsAutoFillLoginCredentials]);
 
     [webView evaluateJavaScriptAndWaitForInputSessionToChange:@"password.focus()"];
-    EXPECT_TRUE([webView textInputHasAutoFillContext]);
+    EXPECT_TRUE([webView acceptsAutoFillLoginCredentials]);
 
     auto credentialSuggestion = [UITextAutofillSuggestion autofillSuggestionWithUsername:@"frederik" password:@"famos"];
     [[webView _autofillInputView] insertTextSuggestion:credentialSuggestion];
@@ -116,7 +148,7 @@ TEST(WKWebViewAutoFillTests, UsernameAndPasswordFieldSeparatedByRadioButton)
     EXPECT_WK_STREQ("famos", [webView stringByEvaluatingJavaScript:@"password.value"]);
 
     [webView evaluateJavaScriptAndWaitForInputSessionToChange:@"document.activeElement.blur()"];
-    EXPECT_FALSE([webView textInputHasAutoFillContext]);
+    EXPECT_FALSE([webView acceptsAutoFillLoginCredentials]);
 }
 
 TEST(WKWebViewAutoFillTests, TwoTextFields)
@@ -124,10 +156,10 @@ TEST(WKWebViewAutoFillTests, TwoTextFields)
     auto webView = adoptNS([[AutoFillTestView alloc] initWithFrame:CGRectMake(0, 0, 320, 500)]);
     [webView synchronouslyLoadHTMLString:@"<input id='text1' type='email'><input id='text2' type='text'>"];
     [webView evaluateJavaScriptAndWaitForInputSessionToChange:@"text1.focus()"];
-    EXPECT_FALSE([webView textInputHasAutoFillContext]);
+    EXPECT_FALSE([webView acceptsAutoFillLoginCredentials]);
 
     [webView evaluateJavaScriptAndWaitForInputSessionToChange:@"text2.focus()"];
-    EXPECT_FALSE([webView textInputHasAutoFillContext]);
+    EXPECT_FALSE([webView acceptsAutoFillLoginCredentials]);
 }
 
 TEST(WKWebViewAutoFillTests, StandalonePasswordField)
@@ -135,7 +167,7 @@ TEST(WKWebViewAutoFillTests, StandalonePasswordField)
     auto webView = adoptNS([[AutoFillTestView alloc] initWithFrame:CGRectMake(0, 0, 320, 500)]);
     [webView synchronouslyLoadHTMLString:@"<input id='password' type='password'>"];
     [webView evaluateJavaScriptAndWaitForInputSessionToChange:@"password.focus()"];
-    EXPECT_TRUE([webView textInputHasAutoFillContext]);
+    EXPECT_TRUE([webView acceptsAutoFillLoginCredentials]);
 
     auto credentialSuggestion = [UITextAutofillSuggestion autofillSuggestionWithUsername:@"frederik" password:@"famos"];
     [[webView _autofillInputView] insertTextSuggestion:credentialSuggestion];
@@ -143,7 +175,7 @@ TEST(WKWebViewAutoFillTests, StandalonePasswordField)
     EXPECT_WK_STREQ("famos", [webView stringByEvaluatingJavaScript:@"password.value"]);
 
     [webView evaluateJavaScriptAndWaitForInputSessionToChange:@"document.activeElement.blur()"];
-    EXPECT_FALSE([webView textInputHasAutoFillContext]);
+    EXPECT_FALSE([webView acceptsAutoFillLoginCredentials]);
 }
 
 TEST(WKWebViewAutoFillTests, StandaloneTextField)
@@ -151,7 +183,7 @@ TEST(WKWebViewAutoFillTests, StandaloneTextField)
     auto webView = adoptNS([[AutoFillTestView alloc] initWithFrame:CGRectMake(0, 0, 320, 500)]);
     [webView synchronouslyLoadHTMLString:@"<input id='textfield' type='text'>"];
     [webView evaluateJavaScriptAndWaitForInputSessionToChange:@"textfield.focus()"];
-    EXPECT_FALSE([webView textInputHasAutoFillContext]);
+    EXPECT_FALSE([webView acceptsAutoFillLoginCredentials]);
 }
 
 TEST(WKWebViewAutoFillTests, AccountCreationPage)
@@ -159,13 +191,31 @@ TEST(WKWebViewAutoFillTests, AccountCreationPage)
     auto webView = adoptNS([[AutoFillTestView alloc] initWithFrame:CGRectMake(0, 0, 320, 500)]);
     [webView synchronouslyLoadHTMLString:@"<input id='user' type='email'><input id='password' type='password'><input id='confirm_password' type='password'>"];
     [webView evaluateJavaScriptAndWaitForInputSessionToChange:@"user.focus()"];
-    EXPECT_FALSE([webView textInputHasAutoFillContext]);
+    EXPECT_TRUE([webView acceptsAutoFillLoginCredentials]);
 
     [webView evaluateJavaScriptAndWaitForInputSessionToChange:@"password.focus()"];
-    EXPECT_FALSE([webView textInputHasAutoFillContext]);
+    EXPECT_TRUE([webView acceptsAutoFillLoginCredentials]);
 
     [webView evaluateJavaScriptAndWaitForInputSessionToChange:@"confirm_password.focus()"];
-    EXPECT_FALSE([webView textInputHasAutoFillContext]);
+    EXPECT_TRUE([webView acceptsAutoFillLoginCredentials]);
+}
+
+TEST(WKWebViewAutoFillTests, AccountCreationPageAcrossShadowBoundaries)
+{
+    auto webView = adoptNS([[AutoFillTestView alloc] initWithFrame:CGRectMake(0, 0, 320, 500)]);
+    [webView synchronouslyLoadHTMLString:@"<div id=emailHost></div><div id=passwordHost></div><div id=confirmHost></div><script>"
+        "emailRoot = emailHost.attachShadow({mode: 'closed'}); emailRoot.innerHTML = '<input id=user type=email>';"
+        "passwordRoot = passwordHost.attachShadow({mode: 'closed'}); passwordRoot.innerHTML = '<input id=password type=password>';"
+        "confirmRoot = confirmHost.attachShadow({mode: 'closed'}); confirmRoot.innerHTML = '<input id=confirm_password type=password>';"
+        "</script>"];
+    [webView evaluateJavaScriptAndWaitForInputSessionToChange:@"emailRoot.querySelector('input').focus()"];
+    EXPECT_TRUE([webView acceptsAutoFillLoginCredentials]);
+
+    [webView evaluateJavaScriptAndWaitForInputSessionToChange:@"passwordRoot.querySelector('input').focus()"];
+    EXPECT_TRUE([webView acceptsAutoFillLoginCredentials]);
+
+    [webView evaluateJavaScriptAndWaitForInputSessionToChange:@"confirmRoot.querySelector('input').focus()"];
+    EXPECT_TRUE([webView acceptsAutoFillLoginCredentials]);
 }
 
 static BOOL overrideIsInHardwareKeyboardMode()
@@ -187,8 +237,37 @@ TEST(WKWebViewAutoFillTests, AutoFillRequiresInputSession)
     [webView stringByEvaluatingJavaScript:@"user.focus()"];
     Util::run(&done);
 
-    EXPECT_FALSE([webView textInputHasAutoFillContext]);
+    EXPECT_FALSE([webView acceptsAutoFillLoginCredentials]);
 }
+
+#if USE(BROWSERENGINEKIT)
+
+TEST(WKWebViewAutoFillTests, AutoFillPreservesTextSuggestion)
+{
+    __block bool doneFocusing = false;
+    auto webView = adoptNS([[AutoFillTestView alloc] initWithFrame:CGRectMake(0, 0, 320, 500)]);
+    auto inputDelegate = static_cast<TestInputDelegate *>([webView _inputDelegate]);
+    [inputDelegate setFocusStartsInputSessionPolicyHandler:^(WKWebView *, id<_WKFocusedElementInfo>) {
+        doneFocusing = true;
+        return _WKFocusStartsInputSessionPolicyAllow;
+    }];
+
+    __block bool insertedSuggestion = false;
+    RetainPtr customSuggestion = [CustomTextSuggestion textSuggestionWithInputText:@"foo"];
+    [inputDelegate setInsertTextSuggestionHandler:^(WKWebView *, UITextSuggestion *suggestion, id<_WKFormInputSession>) {
+        EXPECT_EQ(customSuggestion.get(), suggestion);
+        insertedSuggestion = true;
+    }];
+    [webView synchronouslyLoadHTMLString:@"<input id='user' type='email'>"];
+    [webView stringByEvaluatingJavaScript:@"user.focus()"];
+    Util::run(&doneFocusing);
+
+    auto suggestion = adoptNS([[BETextSuggestion alloc] _initWithUIKitTextSuggestion:customSuggestion.get()]);
+    [[webView asyncTextInput] insertTextSuggestion:suggestion.get()];
+    EXPECT_TRUE(insertedSuggestion);
+}
+
+#endif // USE(BROWSERENGINEKIT)
 
 #if PLATFORM(WATCHOS)
 

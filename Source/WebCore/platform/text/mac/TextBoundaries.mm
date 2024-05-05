@@ -42,28 +42,28 @@ namespace WebCore {
 
 #if !USE(APPKIT)
 
-static bool isSkipCharacter(UChar32 c)
+static bool isSkipCharacter(char32_t c)
 {
     return c == 0xA0 || c == '\n' || c == '.' || c == ',' || c == '!'  || c == '?' || c == ';' || c == ':' || u_isspace(c);
 }
 
-static bool isWhitespaceCharacter(UChar32 c)
+static bool isWhitespaceCharacter(char32_t c)
 {
     return c == 0xA0 || c == '\n' || u_isspace(c);
 }
 
-static bool isWordDelimitingCharacter(UChar32 c)
+static bool isWordDelimitingCharacter(char32_t c)
 {
     // Ampersand is an exception added to treat AT&T as a single word (see <rdar://problem/5022264>).
     return !CFCharacterSetIsLongCharacterMember(CFCharacterSetGetPredefined(kCFCharacterSetAlphaNumeric), c) && c != '&';
 }
 
-static bool isSymbolCharacter(UChar32 c)
+static bool isSymbolCharacter(char32_t c)
 {
     return CFCharacterSetIsLongCharacterMember(CFCharacterSetGetPredefined(kCFCharacterSetSymbol), c);
 }
 
-static bool isAmbiguousBoundaryCharacter(UChar32 character)
+static bool isAmbiguousBoundaryCharacter(char32_t character)
 {
     // These are characters that can behave as word boundaries, but can appear within words.
     return character == '\'' || character == rightSingleQuotationMark || character == hebrewPunctuationGershayim;
@@ -71,23 +71,23 @@ static bool isAmbiguousBoundaryCharacter(UChar32 character)
 
 static CFStringTokenizerRef tokenizerForString(CFStringRef str)
 {
-    static CFLocaleRef locale = nullptr;
-    if (!locale) {
-        const char* temp = currentTextBreakLocaleID();
-        RetainPtr<CFStringRef> currentLocaleID = adoptCF(CFStringCreateWithBytesNoCopy(kCFAllocatorDefault, reinterpret_cast<const UInt8*>(temp), strlen(temp), kCFStringEncodingASCII, false, kCFAllocatorNull));
-        locale = CFLocaleCreate(kCFAllocatorDefault, currentLocaleID.get());
-        if (!locale)
-            return nullptr;
-    }
+    static const NeverDestroyed locale = [] {
+        const char* localID = currentTextBreakLocaleID();
+        auto currentLocaleID = adoptCF(CFStringCreateWithBytesNoCopy(kCFAllocatorDefault, reinterpret_cast<const UInt8*>(localID), strlen(localID), kCFStringEncodingASCII, false, kCFAllocatorNull));
+        return adoptCF(CFLocaleCreate(kCFAllocatorDefault, currentLocaleID.get()));
+    }();
+
+    if (!locale.get())
+        return nullptr;
 
     CFRange entireRange = CFRangeMake(0, CFStringGetLength(str));    
 
-    static CFStringTokenizerRef tokenizer = nullptr;
-    if (!tokenizer)
-        tokenizer = CFStringTokenizerCreate(kCFAllocatorDefault, str, entireRange, kCFStringTokenizerUnitWordBoundary, locale);
+    static NeverDestroyed<RetainPtr<CFStringTokenizerRef>> tokenizer;
+    if (!tokenizer.get())
+        tokenizer.get() = adoptCF(CFStringTokenizerCreate(kCFAllocatorDefault, str, entireRange, kCFStringTokenizerUnitWordBoundary, locale.get().get()));
     else
-        CFStringTokenizerSetString(tokenizer, str, entireRange);
-    return tokenizer;
+        CFStringTokenizerSetString(tokenizer.get().get(), str, entireRange);
+    return tokenizer.get().get();
 }
 
 // Simple case: A word is a stream of characters delimited by a special set of word-delimiting characters.
@@ -99,7 +99,7 @@ static void findSimpleWordBoundary(StringView text, int position, int* start, in
     unsigned startPos = position;
     while (startPos > 0) {
         int i = startPos;
-        UChar32 characterBeforeStartPos;
+        char32_t characterBeforeStartPos;
         U16_PREV(text, 0, i, characterBeforeStartPos);
         if (isWordDelimitingCharacter(characterBeforeStartPos)) {
             ASSERT(i >= 0);
@@ -109,7 +109,7 @@ static void findSimpleWordBoundary(StringView text, int position, int* start, in
             if (!isAmbiguousBoundaryCharacter(characterBeforeStartPos))
                 break;
 
-            UChar32 characterBeforeBeforeStartPos;
+            char32_t characterBeforeBeforeStartPos;
             U16_PREV(text, 0, i, characterBeforeBeforeStartPos);
             if (isWordDelimitingCharacter(characterBeforeBeforeStartPos))
                 break;
@@ -119,7 +119,7 @@ static void findSimpleWordBoundary(StringView text, int position, int* start, in
     
     unsigned endPos = position;
     while (endPos < text.length()) {
-        UChar32 character;
+        char32_t character;
         U16_GET(text, 0, endPos, text.length(), character);
         if (isWordDelimitingCharacter(character)) {
             unsigned i = endPos;
@@ -127,7 +127,7 @@ static void findSimpleWordBoundary(StringView text, int position, int* start, in
             ASSERT(i <= text.length());
             if (i == text.length())
                 break;
-            UChar32 characterAfterEndPos;
+            char32_t characterAfterEndPos;
             U16_NEXT(text, i, text.length(), characterAfterEndPos);
             if (!isAmbiguousBoundaryCharacter(character))
                 break;
@@ -140,7 +140,7 @@ static void findSimpleWordBoundary(StringView text, int position, int* start, in
     // The text may consist of all delimiter characters (e.g. "++++++++" or a series of emoji), and returning an empty range
     // makes no sense (and doesn't match findComplexWordBoundary() behavior).
     if (startPos == endPos && endPos < text.length()) {
-        UChar32 character;
+        char32_t character;
         U16_GET(text, 0, endPos, text.length(), character);
         if (isSymbolCharacter(character))
             U16_FWD_1(text, endPos, text.length());
@@ -181,9 +181,8 @@ static void findComplexWordBoundary(StringView text, int position, int* start, i
 void findWordBoundary(StringView text, int position, int* start, int* end)
 {
 #if USE(APPKIT)
-    NSAttributedString *attributedString = [[NSAttributedString alloc] initWithString:text.createNSStringWithoutCopying().get()];
+    auto attributedString = adoptNS([[NSAttributedString alloc] initWithString:text.createNSStringWithoutCopying().get()]);
     NSRange range = [attributedString doubleClickAtIndex:std::min<unsigned>(position, text.length() - 1)];
-    [attributedString release];
     *start = range.location;
     *end = range.location + range.length;
 #else
@@ -194,7 +193,7 @@ void findWordBoundary(StringView text, int position, int* start, int* end)
     // For complex text (Thai, Japanese, Chinese), visible_units will pass the text in as a 
     // single contiguous run of characters, providing as much context as is possible.
     // We only need one character to determine if the text is complex.
-    UChar32 ch;
+    char32_t ch;
     unsigned i = pos;
     U16_NEXT(text, i, text.length(), ch);
     bool isComplex = requiresContextForWordBoundary(ch);
@@ -232,10 +231,13 @@ void findEndWordBoundary(StringView text, int position, int* end)
 int findNextWordFromIndex(StringView text, int position, bool forward)
 {   
 #if USE(APPKIT)
-    NSAttributedString *attributedString = [[NSAttributedString alloc] initWithString:text.createNSStringWithoutCopying().get()];
-    int result = [attributedString nextWordFromIndex:position forward:forward];
-    [attributedString release];
-    return result;
+    String textWithoutUnpairedSurrogates;
+    if (hasUnpairedSurrogate(text)) {
+        textWithoutUnpairedSurrogates = replaceUnpairedSurrogatesWithReplacementCharacter(text.toStringWithoutCopying());
+        text = textWithoutUnpairedSurrogates;
+    }
+    auto attributedString = adoptNS([[NSAttributedString alloc] initWithString:text.createNSStringWithoutCopying().get()]);
+    return [attributedString nextWordFromIndex:position forward:forward];
 #else
     // This very likely won't behave exactly like the non-iPhone version, but it works
     // for the contexts in which it is used on iPhone, and in the future will be

@@ -24,18 +24,22 @@
 #include "config.h"
 #include "HTMLStyleElement.h"
 
+#include "CSSRule.h"
 #include "CachedResource.h"
 #include "Document.h"
 #include "Event.h"
 #include "EventNames.h"
 #include "EventSender.h"
 #include "HTMLNames.h"
-#include "MediaList.h"
 #include "MediaQueryParser.h"
+#include "MediaQueryParserContext.h"
+#include "NodeName.h"
+#include "Page.h"
 #include "ScriptableDocumentParser.h"
 #include "ShadowRoot.h"
 #include "StyleScope.h"
 #include "StyleSheetContents.h"
+#include "TextNodeTraversal.h"
 #include <wtf/IsoMallocInlines.h>
 #include <wtf/NeverDestroyed.h>
 
@@ -47,7 +51,7 @@ using namespace HTMLNames;
 
 static StyleEventSender& styleLoadEventSender()
 {
-    static NeverDestroyed<StyleEventSender> sharedLoadEventSender(eventNames().loadEvent);
+    static NeverDestroyed<StyleEventSender> sharedLoadEventSender;
     return sharedLoadEventSender;
 }
 
@@ -75,22 +79,32 @@ Ref<HTMLStyleElement> HTMLStyleElement::create(Document& document)
     return adoptRef(*new HTMLStyleElement(styleTag, document, false));
 }
 
-void HTMLStyleElement::parseAttribute(const QualifiedName& name, const AtomString& value)
+void HTMLStyleElement::attributeChanged(const QualifiedName& name, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason attributeModificationReason)
 {
-    if (name == titleAttr && sheet() && !isInShadowTree())
-        sheet()->setTitle(value);
-    else if (name == mediaAttr) {
-        m_styleSheetOwner.setMedia(value);
+    switch (name.nodeName()) {
+    case AttributeNames::titleAttr:
+        if (sheet() && !isInShadowTree())
+            sheet()->setTitle(newValue);
+        break;
+    case AttributeNames::mediaAttr:
+        m_styleSheetOwner.setMedia(newValue);
         if (sheet()) {
-            sheet()->setMediaQueries(MediaQuerySet::create(value, MediaQueryParserContext(document())));
+            sheet()->setMediaQueries(MQ::MediaQueryParser::parse(newValue, MediaQueryParserContext(document())));
             if (auto* scope = m_styleSheetOwner.styleScope())
                 scope->didChangeStyleSheetContents();
         } else
             m_styleSheetOwner.childrenChanged(*this);
-    } else if (name == typeAttr)
-        m_styleSheetOwner.setContentType(value);
-    else
-        HTMLElement::parseAttribute(name, value);
+        break;
+    case AttributeNames::typeAttr:
+        m_styleSheetOwner.setContentType(newValue);
+        m_styleSheetOwner.childrenChanged(*this);
+        if (auto* scope = m_styleSheetOwner.styleScope())
+            scope->didChangeStyleSheetContents();
+        break;
+    default:
+        HTMLElement::attributeChanged(name, oldValue, newValue, attributeModificationReason);
+        break;
+    }
 }
 
 void HTMLStyleElement::finishParsingChildren()
@@ -125,29 +139,23 @@ void HTMLStyleElement::dispatchPendingLoadEvents(Page* page)
     styleLoadEventSender().dispatchPendingEvents(page);
 }
 
-void HTMLStyleElement::dispatchPendingEvent(StyleEventSender* eventSender)
+void HTMLStyleElement::dispatchPendingEvent(StyleEventSender* eventSender, const AtomString& eventType)
 {
     ASSERT_UNUSED(eventSender, eventSender == &styleLoadEventSender());
-    if (m_loadedSheet)
-        dispatchEvent(Event::create(eventNames().loadEvent, Event::CanBubble::No, Event::IsCancelable::No));
-    else
-        dispatchEvent(Event::create(eventNames().errorEvent, Event::CanBubble::No, Event::IsCancelable::No));
+    dispatchEvent(Event::create(eventType, Event::CanBubble::No, Event::IsCancelable::No));
 }
 
 void HTMLStyleElement::notifyLoadedSheetAndAllCriticalSubresources(bool errorOccurred)
 {
-    if (m_firedLoad)
-        return;
     m_loadedSheet = !errorOccurred;
-    styleLoadEventSender().dispatchEventSoon(*this);
-    m_firedLoad = true;
+    styleLoadEventSender().dispatchEventSoon(*this, m_loadedSheet ? eventNames().loadEvent : eventNames().errorEvent);
 }
 
 void HTMLStyleElement::addSubresourceAttributeURLs(ListHashSet<URL>& urls) const
-{    
+{
     HTMLElement::addSubresourceAttributeURLs(urls);
 
-    if (auto styleSheet = makeRefPtr(this->sheet())) {
+    if (RefPtr styleSheet = this->sheet()) {
         styleSheet->contents().traverseSubresources([&] (auto& resource) {
             urls.add(resource.url());
             return false;

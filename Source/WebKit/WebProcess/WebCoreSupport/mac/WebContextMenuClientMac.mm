@@ -28,26 +28,28 @@
 
 #if ENABLE(CONTEXT_MENUS)
 
+#import "MessageSenderInlines.h"
 #import "WebCoreArgumentCoders.h"
 #import "WebPage.h"
 #import "WebPageProxyMessages.h"
 #import <WebCore/DictionaryLookup.h>
 #import <WebCore/Editor.h>
-#import <WebCore/Frame.h>
-#import <WebCore/FrameView.h>
+#import <WebCore/LocalFrame.h>
+#import <WebCore/LocalFrameView.h>
 #import <WebCore/Page.h>
 #import <WebCore/TextIndicator.h>
+#import <WebCore/TranslationContextMenuInfo.h>
 #import <wtf/text/WTFString.h>
 
 namespace WebKit {
 using namespace WebCore;
 
-void WebContextMenuClient::lookUpInDictionary(Frame* frame)
+void WebContextMenuClient::lookUpInDictionary(LocalFrame* frame)
 {
     m_page->performDictionaryLookupForSelection(*frame, frame->selection().selection(), TextIndicatorPresentationTransition::BounceAndCrossfade);
 }
 
-bool WebContextMenuClient::isSpeaking()
+bool WebContextMenuClient::isSpeaking() const
 {
     return m_page->isSpeaking();
 }
@@ -62,11 +64,9 @@ void WebContextMenuClient::stopSpeaking()
     m_page->stopSpeaking();
 }
 
-void WebContextMenuClient::searchWithGoogle(const Frame* frame)
+void WebContextMenuClient::searchWithGoogle(const LocalFrame* frame)
 {
-    String searchString = frame->editor().selectedText();
-    searchString.stripWhiteSpace();
-
+    auto searchString = frame->editor().selectedText().trim(deprecatedIsSpaceOrNewline);
     m_page->send(Messages::WebPageProxy::SearchTheWeb(searchString));
 }
 
@@ -75,16 +75,22 @@ void WebContextMenuClient::searchWithSpotlight()
     // FIXME: Why do we need to search all the frames like this?
     // Isn't there any function in WebCore that can do this?
     // If not, can we find a place in WebCore to put this?
+    auto* localMainFrame = dynamicDowncast<LocalFrame>(m_page->corePage()->mainFrame());
+    if (!localMainFrame)
+        return;
 
-    Frame& mainFrame = m_page->corePage()->mainFrame();
-
-    Frame* selectionFrame = &mainFrame;
-    for (; selectionFrame; selectionFrame = selectionFrame->tree().traverseNext()) {
-        if (selectionFrame->selection().isRange())
-            break;
-    }
+    auto* selectionFrame = [&] () -> LocalFrame* {
+        for (Frame* selectionFrame = localMainFrame; selectionFrame; selectionFrame = selectionFrame->tree().traverseNext()) {
+            auto* localFrame = dynamicDowncast<LocalFrame>(selectionFrame);
+            if (!localFrame)
+                continue;
+            if (localFrame->selection().isRange())
+                return localFrame;
+        }
+        return nullptr;
+    }();
     if (!selectionFrame)
-        selectionFrame = &mainFrame;
+        selectionFrame = localMainFrame;
 
     String selectedString = selectionFrame->displayStringModifiedByEncoding(selectionFrame->editor().selectedText());
 
@@ -93,6 +99,15 @@ void WebContextMenuClient::searchWithSpotlight()
 
     m_page->send(Messages::WebPageProxy::SearchWithSpotlight(selectedString));
 }
+
+#if HAVE(TRANSLATION_UI_SERVICES)
+
+void WebContextMenuClient::handleTranslation(const WebCore::TranslationContextMenuInfo& info)
+{
+    m_page->send(Messages::WebPageProxy::HandleContextMenuTranslation(info));
+}
+
+#endif // HAVE(TRANSLATION_UI_SERVICES)
 
 } // namespace WebKit
 

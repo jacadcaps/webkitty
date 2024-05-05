@@ -1,5 +1,3 @@
-
-
 /*
  * Copyright (C) 2020 Apple Inc. All rights reserved.
  *
@@ -27,7 +25,7 @@
 
 #pragma once
 
-#if PLATFORM(COCOA) && ENABLE(GPU_PROCESS) && ENABLE(MEDIA_STREAM) && HAVE(AVASSETWRITERDELEGATE)
+#if PLATFORM(COCOA) && ENABLE(GPU_PROCESS) && ENABLE(MEDIA_STREAM)
 
 #include "MediaRecorderIdentifier.h"
 #include "MessageReceiver.h"
@@ -41,6 +39,7 @@ class Decoder;
 
 namespace WebCore {
 struct ExceptionData;
+struct MediaRecorderPrivateOptions;
 }
 
 namespace WebKit {
@@ -57,10 +56,12 @@ public:
     void didReceiveRemoteMediaRecorderMessage(IPC::Connection&, IPC::Decoder&);
     void didReceiveMessageFromWebProcess(IPC::Connection& connection, IPC::Decoder& decoder) { didReceiveMessage(connection, decoder); }
 
+    bool allowsExitUnderMemoryPressure() const;
+
 private:
     // IPC::MessageReceiver
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
-    void createRecorder(MediaRecorderIdentifier, bool recordAudio, bool recordVideo, CompletionHandler<void(Optional<WebCore::ExceptionData>&&)>&&);
+    void createRecorder(MediaRecorderIdentifier, bool recordAudio, bool recordVideo, const WebCore::MediaRecorderPrivateOptions&, CompletionHandler<void(std::optional<WebCore::ExceptionData>&&, String&&, unsigned, unsigned)>&&);
     void releaseRecorder(MediaRecorderIdentifier);
 
     GPUConnectionToWebProcess& m_gpuConnectionToWebProcess;

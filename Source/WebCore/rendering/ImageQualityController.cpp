@@ -26,12 +26,12 @@
 #include "config.h"
 #include "ImageQualityController.h"
 
-#include "Frame.h"
 #include "GraphicsContext.h"
+#include "LocalFrame.h"
 #include "Page.h"
 #include "RenderBoxModelObject.h"
+#include "RenderStyleInlines.h"
 #include "RenderView.h"
-#include <wtf/Optional.h>
 
 namespace WebCore {
 
@@ -60,7 +60,7 @@ void ImageQualityController::set(RenderBoxModelObject* object, LayerSizeMap* inn
     else {
         LayerSizeMap newInnerMap;
         newInnerMap.set(layer, size);
-        m_objectLayerSizeMap.set(object, newInnerMap);
+        m_objectLayerSizeMap.set(*object, newInnerMap);
     }
 }
 
@@ -98,7 +98,7 @@ void ImageQualityController::restartTimer()
     m_timer.startOneShot(lowQualityTimeThreshold);
 }
 
-Optional<InterpolationQuality> ImageQualityController::interpolationQualityFromStyle(const RenderStyle& style)
+std::optional<InterpolationQuality> ImageQualityController::interpolationQualityFromStyle(const RenderStyle& style)
 {
     switch (style.imageRendering()) {
     case ImageRendering::OptimizeSpeed:
@@ -111,7 +111,7 @@ Optional<InterpolationQuality> ImageQualityController::interpolationQualityFromS
     case ImageRendering::Auto:
         break;
     }
-    return WTF::nullopt;
+    return std::nullopt;
 }
 
 InterpolationQuality ImageQualityController::chooseInterpolationQuality(GraphicsContext& context, RenderBoxModelObject* object, Image& image, const void* layer, const LayoutSize& size)
@@ -120,7 +120,7 @@ InterpolationQuality ImageQualityController::chooseInterpolationQuality(Graphics
     if (!(image.isBitmapImage() || image.isPDFDocumentImage()) || context.paintingDisabled())
         return InterpolationQuality::Default;
 
-    if (Optional<InterpolationQuality> styleInterpolation = interpolationQualityFromStyle(object->style()))
+    if (std::optional<InterpolationQuality> styleInterpolation = interpolationQualityFromStyle(object->style()))
         return styleInterpolation.value();
 
     // Make sure to use the unzoomed image size, since if a full page zoom is in effect, the image
@@ -141,7 +141,7 @@ InterpolationQuality ImageQualityController::chooseInterpolationQuality(Graphics
     }
 
     // If the containing FrameView is being resized, paint at low quality until resizing is finished.
-    if (Frame* frame = object->document().frame()) {
+    if (auto* frame = object->document().frame()) {
         bool frameViewIsCurrentlyInLiveResize = frame->view() && frame->view()->inLiveResize();
         if (frameViewIsCurrentlyInLiveResize) {
             set(object, innerMap, layer, size);

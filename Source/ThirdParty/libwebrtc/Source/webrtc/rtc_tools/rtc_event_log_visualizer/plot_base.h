@@ -10,10 +10,20 @@
 #ifndef RTC_TOOLS_RTC_EVENT_LOG_VISUALIZER_PLOT_BASE_H_
 #define RTC_TOOLS_RTC_EVENT_LOG_VISUALIZER_PLOT_BASE_H_
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
+
+#include "absl/base/attributes.h"
+#include "absl/strings/string_view.h"
+#include "absl/types/optional.h"
+#include "rtc_base/ignore_wundef.h"
+
+RTC_PUSH_IGNORING_WUNDEF()
+#include "rtc_tools/rtc_event_log_visualizer/proto/chart.pb.h"
+RTC_POP_IGNORING_WUNDEF()
 
 namespace webrtc {
 
@@ -94,8 +104,8 @@ class Plot {
  public:
   virtual ~Plot() {}
 
-  // Overloaded to draw the plot.
-  virtual void Draw() = 0;
+  ABSL_DEPRECATED("Use PrintPythonCode() or ExportProtobuf() instead.")
+  virtual void Draw() {}
 
   // Sets the lower x-axis limit to min_value (if left_margin == 0).
   // Sets the upper x-axis limit to max_value (if right_margin == 0).
@@ -147,6 +157,7 @@ class Plot {
   // the title might change in future releases whereas the ID should be stable
   // over time.
   void SetId(const std::string& id);
+  void SetId(absl::string_view id);
 
   // Add a new TimeSeries to the plot.
   void AppendTimeSeries(TimeSeries&& time_series);
@@ -157,6 +168,13 @@ class Plot {
   // Add a new TimeSeries to the plot if the series contains contains data.
   // Otherwise, the call has no effect and the timeseries is destroyed.
   void AppendTimeSeriesIfNotEmpty(TimeSeries&& time_series);
+
+  // Replaces PythonPlot::Draw()
+  void PrintPythonCode(
+      absl::string_view figure_output_path = absl::string_view()) const;
+
+  // Replaces ProtobufPlot::Draw()
+  void ExportProtobuf(webrtc::analytics::Chart* chart) const;
 
  protected:
   float xaxis_min_;
@@ -175,11 +193,29 @@ class Plot {
 class PlotCollection {
  public:
   virtual ~PlotCollection() {}
-  virtual void Draw() = 0;
-  virtual Plot* AppendNewPlot() = 0;
+
+  ABSL_DEPRECATED("Use PrintPythonCode() or ExportProtobuf() instead.")
+  virtual void Draw() {}
+
+  virtual Plot* AppendNewPlot();
+
+  virtual Plot* AppendNewPlot(absl::string_view);
+
+  void SetCallTimeToUtcOffsetMs(int64_t calltime_to_utc_ms) {
+    calltime_to_utc_ms_ = calltime_to_utc_ms;
+  }
+
+  // Replaces PythonPlotCollection::Draw()
+  void PrintPythonCode(
+      bool shared_xaxis,
+      absl::string_view figure_output_path = absl::string_view()) const;
+
+  // Replaces ProtobufPlotCollections::Draw()
+  void ExportProtobuf(webrtc::analytics::ChartCollection* collection) const;
 
  protected:
   std::vector<std::unique_ptr<Plot>> plots_;
+  absl::optional<int64_t> calltime_to_utc_ms_;
 };
 
 }  // namespace webrtc

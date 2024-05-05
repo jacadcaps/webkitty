@@ -22,16 +22,18 @@
 #include "config.h"
 #include "RadioInputType.h"
 
-#include "Frame.h"
+#include "FrameDestructionObserverInlines.h"
 #include "HTMLFormElement.h"
 #include "HTMLInputElement.h"
 #include "HTMLNames.h"
 #include "InputTypeNames.h"
 #include "KeyboardEvent.h"
+#include "LocalFrame.h"
 #include "LocalizedStrings.h"
 #include "MouseEvent.h"
 #include "NodeTraversal.h"
 #include "SpatialNavigation.h"
+#include "TypedElementDescendantIteratorInlines.h"
 
 namespace WebCore {
 
@@ -45,7 +47,61 @@ const AtomString& RadioInputType::formControlType() const
 bool RadioInputType::valueMissing(const String&) const
 {
     ASSERT(element());
-    return element()->isInRequiredRadioButtonGroup() && !element()->checkedRadioButtonForGroup();
+    auto& name = element()->name();
+    if (auto* buttons = element()->radioButtonGroups())
+        return !buttons->checkedButtonForGroup(name) && buttons->isInRequiredGroup(*element());
+
+    if (name.isEmpty())
+        return false;
+
+    ASSERT(!element()->isConnected());
+    ASSERT(!element()->form());
+
+    bool isRequired = false;
+    bool foundCheckedRadio = false;
+    forEachButtonInDetachedGroup(element()->rootNode(), name, [&](auto& input) {
+        if (input.checked()) {
+            foundCheckedRadio = true;
+            return false;
+        }
+        if (input.isRequired())
+            isRequired = true;
+        return true;
+    });
+    return isRequired && !foundCheckedRadio;
+}
+
+void RadioInputType::forEachButtonInDetachedGroup(ContainerNode& rootNode, const String& groupName, const Function<bool(HTMLInputElement&)>& apply)
+{
+    ASSERT(!groupName.isEmpty());
+
+    for (auto* descendant = Traversal<HTMLElement>::inclusiveFirstWithin(rootNode); descendant;) {
+        if (is<HTMLFormElement>(*descendant)) {
+            // No need to consider the descendants of a <form> since they will have a form owner and we're only
+            // interested in <input> elements without a form owner.
+            descendant = Traversal<HTMLElement>::nextSkippingChildren(*descendant, &rootNode);
+            continue;
+        }
+        auto* input = dynamicDowncast<HTMLInputElement>(*descendant);
+        if (input && input->isRadioButton() && !input->form() && input->name() == groupName) {
+            bool shouldContinue = apply(*input);
+            if (!shouldContinue)
+                return;
+        }
+        descendant = Traversal<HTMLElement>::next(*descendant, &rootNode);
+    }
+}
+
+void RadioInputType::willUpdateCheckedness(bool nowChecked, WasSetByJavaScript)
+{
+    if (!nowChecked)
+        return;
+    if (element()->radioButtonGroups()) {
+        // Buttons in RadioButtonGroups are handled in HTMLInputElement::setChecked().
+        return;
+    }
+    if (auto input = element()->checkedRadioButtonForGroup())
+        input->setChecked(false);
 }
 
 String RadioInputType::valueMissingText() const
@@ -65,7 +121,7 @@ auto RadioInputType::handleKeydownEvent(KeyboardEvent& event) -> ShouldCallBaseE
     if (event.defaultHandled())
         return ShouldCallBaseEventHandler::Yes;
     const String& key = event.keyIdentifier();
-    if (key != "Up" && key != "Down" && key != "Left" && key != "Right")
+    if (key != "Up"_s && key != "Down"_s && key != "Left"_s && key != "Right"_s)
         return ShouldCallBaseEventHandler::Yes;
 
     ASSERT(element());
@@ -76,7 +132,7 @@ auto RadioInputType::handleKeydownEvent(KeyboardEvent& event) -> ShouldCallBaseE
     // However, when using Spatial Navigation, we need to be able to navigate without changing the selection.
     if (isSpatialNavigationEnabled(element()->document().frame()))
         return ShouldCallBaseEventHandler::Yes;
-    bool forward = (key == "Down" || key == "Right");
+    bool forward = (key == "Down"_s || key == "Right"_s);
 
     // We can only stay within the form's children if the form hasn't been demoted to a leaf because
     // of malformed HTML.
@@ -86,9 +142,9 @@ auto RadioInputType::handleKeydownEvent(KeyboardEvent& event) -> ShouldCallBaseE
         if (is<HTMLFormElement>(*node))
             break;
         // Look for more radio buttons.
-        if (!is<HTMLInputElement>(*node))
+        RefPtr inputElement = dynamicDowncast<HTMLInputElement>(*node);
+        if (!inputElement)
             continue;
-        RefPtr<HTMLInputElement> inputElement = downcast<HTMLInputElement>(node.get());
         if (inputElement->form() != element()->form())
             break;
         if (inputElement->isRadioButton() && inputElement->name() == element()->name() && inputElement->isFocusable()) {
@@ -104,14 +160,18 @@ auto RadioInputType::handleKeydownEvent(KeyboardEvent& event) -> ShouldCallBaseE
 void RadioInputType::handleKeyupEvent(KeyboardEvent& event)
 {
     const String& key = event.keyIdentifier();
-    if (key != "U+0020")
+    if (key != "U+0020"_s)
         return;
 
     ASSERT(element());
     // If an unselected radio is tabbed into (because the entire group has nothing
     // checked, or because of some explicit .focus() call), then allow space to check it.
-    if (element()->checked())
+    if (element()->checked()) {
+        // If we are going to skip DispatchSimulatedClick, then at least call setActive(false)
+        // to prevent the radio from being stuck in the active state.
+        element()->setActive(false);
         return;
+    }
     dispatchSimulatedClickIfActive(event);
 }
 
@@ -127,10 +187,9 @@ bool RadioInputType::isKeyboardFocusable(KeyboardEvent* event) const
 
     // Never allow keyboard tabbing to leave you in the same radio group.  Always
     // skip any other elements in the group.
-    RefPtr<Element> currentFocusedNode = element()->document().focusedElement();
-    if (is<HTMLInputElement>(currentFocusedNode)) {
-        HTMLInputElement& focusedInput = downcast<HTMLInputElement>(*currentFocusedNode);
-        if (focusedInput.isRadioButton() && focusedInput.form() == element()->form() && focusedInput.name() == element()->name())
+    RefPtr currentFocusedNode = element()->document().focusedElement();
+    if (auto* focusedInput = dynamicDowncast<HTMLInputElement>(currentFocusedNode.get())) {
+        if (focusedInput->isRadioButton() && focusedInput->form() == element()->form() && focusedInput->name() == element()->name())
             return false;
     }
 
@@ -171,16 +230,13 @@ void RadioInputType::didDispatchClick(Event& event, const InputElementClickState
         ASSERT(element());
         if (button && button->isRadioButton() && button->form() == element()->form() && button->name() == element()->name())
             button->setChecked(true);
+        else
+            element()->setChecked(false);
     } else if (state.checked != element()->checked())
         fireInputAndChangeEvents();
 
     // The work we did in willDispatchClick was default handling.
     event.setDefaultHandled();
-}
-
-bool RadioInputType::isRadioButton() const
-{
-    return true;
 }
 
 bool RadioInputType::matchesIndeterminatePseudoClass() const

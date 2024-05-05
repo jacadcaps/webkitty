@@ -21,28 +21,24 @@
 
 #include <wtf/HashSet.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/WeakHashSet.h>
 
 namespace WebCore {
 
+class LegacyRenderSVGResourceContainer;
 class RenderElement;
-class RenderSVGResourceContainer;
 class SVGResources;
 
 class SVGResourcesCycleSolver {
     WTF_MAKE_NONCOPYABLE(SVGResourcesCycleSolver);
 public:
-    SVGResourcesCycleSolver(RenderElement&, SVGResources&);
-    ~SVGResourcesCycleSolver();
-
-    void resolveCycles();
+    static void resolveCycles(RenderElement&, SVGResources&);
 
 private:
-    bool resourceContainsCycles(RenderElement&) const;
-    void breakCycle(RenderSVGResourceContainer&);
+    SVGResourcesCycleSolver() { }
 
-    RenderElement& m_renderer;
-    SVGResources& m_resources;
-    HashSet<RenderSVGResourceContainer*> m_allResources; 
+    static bool resourceContainsCycles(LegacyRenderSVGResourceContainer&, SingleThreadWeakHashSet<LegacyRenderSVGResourceContainer>& activeResources, SingleThreadWeakHashSet<LegacyRenderSVGResourceContainer>& acyclicResources);
+    static void breakCycle(LegacyRenderSVGResourceContainer&, SVGResources&);
 };
 
 } // namespace WebCore

@@ -26,15 +26,20 @@
 #pragma once
 
 #include "WebGLExtension.h"
+#include "WebGLRenderingContextBase.h"
+#include <wtf/IsoMalloc.h>
+#include <wtf/Noncopyable.h>
 
 namespace WebCore {
 
-class EXTTextureFilterAnisotropic final : public WebGLExtension {
+class EXTTextureFilterAnisotropic final : public WebGLExtension<WebGLRenderingContextBase> {
+    WTF_MAKE_ISO_ALLOCATED(EXTTextureFilterAnisotropic);
+    WTF_MAKE_NONCOPYABLE(EXTTextureFilterAnisotropic);
 public:
     explicit EXTTextureFilterAnisotropic(WebGLRenderingContextBase&);
-    virtual ~EXTTextureFilterAnisotropic();
+    ~EXTTextureFilterAnisotropic();
 
-    ExtensionName getName() const override;
+    static bool supported(GraphicsContextGL&);
 };
 
 } // namespace WebCore

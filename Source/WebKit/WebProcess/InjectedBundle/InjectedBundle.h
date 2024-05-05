@@ -27,12 +27,14 @@
 
 #include "APIInjectedBundleBundleClient.h"
 #include "APIObject.h"
+#include "DataReference.h"
 #include "SandboxExtension.h"
 #include <JavaScriptCore/JavaScript.h>
 #include <WebCore/UserContentTypes.h>
 #include <WebCore/UserScriptTypes.h>
 #include <wtf/RefPtr.h>
 #include <wtf/RetainPtr.h>
+#include <wtf/UUID.h>
 #include <wtf/text/WTFString.h>
 
 #if USE(GLIB)
@@ -54,7 +56,6 @@ class Data;
 namespace IPC {
 class Decoder;
 class Connection;
-class DataReference;
 }
 
 namespace WebKit {
@@ -68,7 +69,6 @@ typedef void* PlatformBundle;
 #endif
 
 class InjectedBundleScriptWorld;
-class WebCertificateInfo;
 class WebConnection;
 class WebFrame;
 class WebPage;
@@ -77,11 +77,11 @@ struct WebProcessCreationParameters;
 
 class InjectedBundle : public API::ObjectImpl<API::Object::Type::Bundle> {
 public:
-    static RefPtr<InjectedBundle> create(WebProcessCreationParameters&, API::Object* initializationUserData);
+    static RefPtr<InjectedBundle> create(WebProcessCreationParameters&, RefPtr<API::Object>&& initializationUserData);
 
     ~InjectedBundle();
 
-    bool initialize(const WebProcessCreationParameters&, API::Object* initializationUserData);
+    bool initialize(const WebProcessCreationParameters&, RefPtr<API::Object>&& initializationUserData);
 
     void setBundleParameter(const String&, const IPC::DataReference&);
     void setBundleParameters(const IPC::DataReference&);
@@ -95,34 +95,22 @@ public:
     WebConnection* webConnectionToUIProcess() const;
 
     // TestRunner only SPI
-    void overrideBoolPreferenceForTestRunner(WebPageGroupProxy*, const String& preference, bool enabled);
-    void setAllowUniversalAccessFromFileURLs(WebPageGroupProxy*, bool);
-    void setAllowFileAccessFromFileURLs(WebPageGroupProxy*, bool);
-    void setNeedsStorageAccessFromFileURLsQuirk(WebPageGroupProxy*, bool);
-    void setMinimumLogicalFontSize(WebPageGroupProxy*, int size);
-    void setFrameFlatteningEnabled(WebPageGroupProxy*, bool);
-    void setAsyncFrameScrollingEnabled(WebPageGroupProxy*, bool);
-    void setPluginsEnabled(WebPageGroupProxy*, bool);
-    void setJavaScriptCanAccessClipboard(WebPageGroupProxy*, bool);
-    void setPopupBlockingEnabled(WebPageGroupProxy*, bool);
-    void setAuthorAndUserStylesEnabled(WebPageGroupProxy*, bool);
-    void setSpatialNavigationEnabled(WebPageGroupProxy*, bool);
     void addOriginAccessAllowListEntry(const String&, const String&, const String&, bool);
     void removeOriginAccessAllowListEntry(const String&, const String&, const String&, bool);
     void resetOriginAccessAllowLists();
-    void setAsynchronousSpellCheckingEnabled(WebPageGroupProxy*, bool);
+    void setAsynchronousSpellCheckingEnabled(bool);
     int numberOfPages(WebFrame*, double, double);
     int pageNumberForElementById(WebFrame*, const String&, double, double);
     String pageSizeAndMarginsInPixels(WebFrame*, int, int, int, int, int, int, int);
     bool isPageBoxVisible(WebFrame*, int);
-    void setUserStyleSheetLocation(WebPageGroupProxy*, const String&);
+    void setUserStyleSheetLocation(const String&);
     void setWebNotificationPermission(WebPage*, const String& originString, bool allowed);
     void removeAllWebNotificationPermissions(WebPage*);
-    uint64_t webNotificationID(JSContextRef, JSValueRef);
+    std::optional<WTF::UUID> webNotificationID(JSContextRef, JSValueRef);
     Ref<API::Data> createWebDataFromUint8Array(JSContextRef, JSValueRef);
     
-    typedef HashMap<uint64_t, String> DocumentIDToURLMap;
-    DocumentIDToURLMap liveDocumentURLs(WebPageGroupProxy*, bool excludeDocumentsInPageGroupPages);
+    typedef HashMap<WTF::UUID, String> DocumentIDToURLMap;
+    DocumentIDToURLMap liveDocumentURLs(bool excludeDocumentsInPageGroupPages);
 
     // Garbage collection API
     void garbageCollectJavaScriptObjects();
@@ -130,11 +118,10 @@ public:
     size_t javaScriptObjectsCount();
 
     // Callback hooks
-    void didCreatePage(WebPage*);
-    void willDestroyPage(WebPage*);
-    void didInitializePageGroup(WebPageGroupProxy*);
-    void didReceiveMessage(const String&, API::Object*);
-    void didReceiveMessageToPage(WebPage*, const String&, API::Object*);
+    void didCreatePage(WebPage&);
+    void willDestroyPage(WebPage&);
+    void didReceiveMessage(const String&, RefPtr<API::Object>&&);
+    void didReceiveMessageToPage(WebPage&, const String&, RefPtr<API::Object>&&);
 
     static void reportException(JSContextRef, JSValueRef exception);
 
@@ -142,8 +129,6 @@ public:
 
     void setTabKeyCyclesThroughElements(WebPage*, bool enabled);
     void setSerialLoadingEnabled(bool);
-    void setWebAnimationsEnabled(bool);
-    void setWebAnimationsCSSIntegrationEnabled(bool);
     void setAccessibilityIsolatedTreeEnabled(bool);
     void dispatchPendingLoadRequests();
 
@@ -175,4 +160,3 @@ private:
 };
 
 } // namespace WebKit
-

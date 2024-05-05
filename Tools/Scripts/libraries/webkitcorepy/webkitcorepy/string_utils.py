@@ -23,6 +23,8 @@
 import io
 import sys
 
+
+basestring = str if sys.version_info > (3, 0) else basestring
 BytesIO = io.BytesIO
 if sys.version_info > (3, 0):
     StringIO = io.StringIO
@@ -72,6 +74,19 @@ def join(list, conjunction='and'):
     if len(list) == 1:
         return list[0]
     return '{} {} {}'.format(', '.join(list[:-1]), conjunction, list[-1])
+
+
+def split(string, conjunctions=None):
+    conjunctions = ['and', 'or']
+    if not string:
+        return []
+
+    result = [string]
+    for conjunction in conjunctions:
+        conjunction = ' {} '.format(conjunction)
+        result = [clause.strip() for phrase in result for clause in phrase.split(conjunction) if clause.strip()]
+
+    return [word.strip() for clause in result for word in clause.split(',') if word.strip()]
 
 
 def out_of(number, base):

@@ -39,23 +39,9 @@
 
 namespace WebKit {
 
-static RunLoop* createRunLoop()
-{
-    RunLoop* runLoop = nullptr;
-    BinarySemaphore semaphore;
-    Thread::create("org.webkit.ThreadedCompositor", [&] {
-        runLoop = &RunLoop::current();
-        semaphore.signal();
-        runLoop->run();
-    }, ThreadType::Graphics)->detach();
-    semaphore.wait();
-
-    return runLoop;
-}
-
 CompositingRunLoop::CompositingRunLoop(Function<void ()>&& updateFunction)
-    : m_runLoop(createRunLoop())
-    , m_updateTimer(*m_runLoop, this, &CompositingRunLoop::updateTimerFired)
+    : m_runLoop(RunLoop::create("org.webkit.ThreadedCompositor"_s, ThreadType::Graphics))
+    , m_updateTimer(m_runLoop, this, &CompositingRunLoop::updateTimerFired)
     , m_updateFunction(WTFMove(updateFunction))
 {
 #if USE(GLIB_EVENT_LOOP)
@@ -68,12 +54,17 @@ CompositingRunLoop::~CompositingRunLoop()
 {
     ASSERT(RunLoop::isMain());
     // Make sure the RunLoop is stopped after the CompositingRunLoop, because m_updateTimer has a reference.
-    RunLoop::main().dispatch([runLoop = makeRef(*m_runLoop)] {
+    RunLoop::main().dispatch([runLoop = m_runLoop] {
         runLoop->stop();
         runLoop->dispatch([] {
             RunLoop::current().stop();
         });
     });
+}
+
+bool CompositingRunLoop::isCurrent() const
+{
+    return m_runLoop->isCurrent();
 }
 
 void CompositingRunLoop::performTask(Function<void ()>&& function)
@@ -85,25 +76,25 @@ void CompositingRunLoop::performTask(Function<void ()>&& function)
 void CompositingRunLoop::performTaskSync(Function<void ()>&& function)
 {
     ASSERT(RunLoop::isMain());
-    LockHolder locker(m_dispatchSyncConditionMutex);
+    Locker locker { m_dispatchSyncConditionLock };
     m_runLoop->dispatch([this, function = WTFMove(function)] {
         function();
-        LockHolder locker(m_dispatchSyncConditionMutex);
+        Locker locker { m_dispatchSyncConditionLock };
         m_dispatchSyncCondition.notifyOne();
     });
-    m_dispatchSyncCondition.wait(m_dispatchSyncConditionMutex);
+    m_dispatchSyncCondition.wait(m_dispatchSyncConditionLock);
 }
 
 void CompositingRunLoop::suspend()
 {
-    LockHolder stateLocker(m_state.lock);
+    Locker stateLocker { m_state.lock };
     m_state.isSuspended = true;
     m_updateTimer.stop();
 }
 
 void CompositingRunLoop::resume()
 {
-    LockHolder stateLocker(m_state.lock);
+    Locker stateLocker { m_state.lock };
     m_state.isSuspended = false;
     if (m_state.update == UpdateState::Scheduled)
         m_updateTimer.startOneShot(0_s);
@@ -111,7 +102,7 @@ void CompositingRunLoop::resume()
 
 void CompositingRunLoop::scheduleUpdate()
 {
-    LockHolder stateLocker(m_state.lock);
+    Locker stateLocker { m_state.lock };
     scheduleUpdate(stateLocker);
 }
 
@@ -143,7 +134,7 @@ void CompositingRunLoop::stopUpdates()
 {
     // Stop everything.
 
-    LockHolder locker(m_state.lock);
+    Locker locker { m_state.lock };
     m_updateTimer.stop();
     m_state.update = UpdateState::Idle;
     m_state.pendingUpdate = false;
@@ -180,7 +171,7 @@ void CompositingRunLoop::updateTimerFired()
 {
     {
         // Scene update is now in progress.
-        LockHolder locker(m_state.lock);
+        Locker locker { m_state.lock };
         if (m_state.isSuspended)
             return;
         m_state.update = UpdateState::InProgress;

@@ -99,7 +99,7 @@ public:
 
     void addTextNode(Text&, float size);
 
-    enum class StillHasNodes { No, Yes };
+    enum class StillHasNodes : bool { No, Yes };
     StillHasNodes adjustTextNodeSizes();
 
 private:
@@ -108,7 +108,7 @@ private:
     HashSet<RefPtr<Text>> m_autoSizedNodes;
 };
 
-struct TextAutoSizingTraits : WTF::GenericHashTraits<TextAutoSizingKey> {
+struct TextAutoSizingTraits : HashTraits<TextAutoSizingKey> {
     static const bool emptyValueIsZero = true;
     static void constructDeletedValue(TextAutoSizingKey& slot) { new (NotNull, &slot) TextAutoSizingKey(TextAutoSizingKey::Deleted); }
     static bool isDeletedValue(const TextAutoSizingKey& value) { return value.isDeleted(); }

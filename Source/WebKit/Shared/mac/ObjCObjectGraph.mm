@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,9 +32,8 @@
 #import "UserData.h"
 #import "WKAPICast.h"
 #import "WKBrowsingContextHandleInternal.h"
-#import "WKTypeRefWrapper.h"
 #import <wtf/EnumTraits.h>
-#import <wtf/Optional.h>
+#import <wtf/cocoa/TypeCastsCocoa.h>
 
 namespace WebKit {
 
@@ -106,10 +105,9 @@ enum class ObjCType : uint8_t {
     NSString,
 
     WKBrowsingContextHandle,
-    WKTypeRefWrapper,
 };
 
-static Optional<ObjCType> typeFromObject(id object)
+static std::optional<ObjCType> typeFromObject(id object)
 {
     ASSERT(object);
 
@@ -128,12 +126,8 @@ static Optional<ObjCType> typeFromObject(id object)
 
     if (dynamic_objc_cast<WKBrowsingContextHandle>(object))
         return ObjCType::WKBrowsingContextHandle;
-    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    if (dynamic_objc_cast<WKTypeRefWrapper>(object))
-        return ObjCType::WKTypeRefWrapper;
-    ALLOW_DEPRECATED_DECLARATIONS_END
 
-    return WTF::nullopt;
+    return std::nullopt;
 }
 
 void ObjCObjectGraph::encode(IPC::Encoder& encoder, id object)
@@ -198,21 +192,9 @@ void ObjCObjectGraph::encode(IPC::Encoder& encoder, id object)
         encoder << static_cast<WKBrowsingContextHandle *>(object).webPageID;
         return;
     }
-
-    case ObjCType::WKTypeRefWrapper: {
-        ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-        UserData::encode(encoder, toImpl(static_cast<WKTypeRefWrapper *>(object).object));
-        ALLOW_DEPRECATED_DECLARATIONS_END
-        return;
-    }
     }
 
     ASSERT_NOT_REACHED();
-}
-
-void ObjCObjectGraph::encode(IPC::Encoder& encoder) const
-{
-    encode(encoder, m_rootObject.get());
 }
 
 bool ObjCObjectGraph::decode(IPC::Decoder& decoder, RetainPtr<id>& result)
@@ -245,20 +227,20 @@ bool ObjCObjectGraph::decode(IPC::Decoder& decoder, RetainPtr<id>& result)
     }
 
     case ObjCType::NSData: {
-        RetainPtr<NSData> data;
-        if (!IPC::decode(decoder, data))
+        std::optional<RetainPtr<NSData>> data = decoder.decode<RetainPtr<NSData>>();
+        if (!data)
             return false;
 
-        result = WTFMove(data);
+        result = WTFMove(*data);
         return true;
     }
 
     case ObjCType::NSDate: {
-        RetainPtr<NSDate> date;
-        if (!IPC::decode(decoder, date))
+        std::optional<RetainPtr<NSDate>> date = decoder.decode<RetainPtr<NSDate>>();
+        if (!date)
             return false;
 
-        result = WTFMove(date);
+        result = WTFMove(*date);
         return true;
     }
 
@@ -289,45 +271,34 @@ bool ObjCObjectGraph::decode(IPC::Decoder& decoder, RetainPtr<id>& result)
     }
 
     case ObjCType::NSNumber: {
-        RetainPtr<NSNumber> number;
-        if (!IPC::decode(decoder, number))
+        std::optional<RetainPtr<NSNumber>> number = decoder.decode<RetainPtr<NSNumber>>();
+        if (!number)
             return false;
 
-        result = WTFMove(number);
+        result = WTFMove(*number);
         return true;
     }
 
     case ObjCType::NSString: {
-        RetainPtr<NSString> string;
-        if (!IPC::decode(decoder, string))
+        std::optional<RetainPtr<NSString>> string = decoder.decode<RetainPtr<NSString>>();
+        if (!string)
             return false;
 
-        result = WTFMove(string);
+        result = WTFMove(*string);
         return true;
     }
 
     case ObjCType::WKBrowsingContextHandle: {
-        Optional<WebPageProxyIdentifier> pageProxyID;
+        std::optional<WebPageProxyIdentifier> pageProxyID;
         decoder >> pageProxyID;
         if (!pageProxyID)
             return false;
-        Optional<WebCore::PageIdentifier> webPageID;
+        std::optional<WebCore::PageIdentifier> webPageID;
         decoder >> webPageID;
         if (!webPageID)
             return false;
 
         result = adoptNS([[WKBrowsingContextHandle alloc] _initWithPageProxyID:*pageProxyID andWebPageID:*webPageID]);
-        return true;
-    }
-
-    case ObjCType::WKTypeRefWrapper: {
-        RefPtr<API::Object> object;
-        if (!UserData::decode(decoder, object))
-            return false;
-
-        ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-        result = adoptNS([[WKTypeRefWrapper alloc] initWithObject:toAPI(object.get())]);
-        ALLOW_DEPRECATED_DECLARATIONS_END
         return true;
     }
     }
@@ -336,17 +307,25 @@ bool ObjCObjectGraph::decode(IPC::Decoder& decoder, RetainPtr<id>& result)
     return false;
 }
 
-bool ObjCObjectGraph::decode(IPC::Decoder& decoder, RefPtr<API::Object>& result)
+} // namespace WebKit
+
+namespace IPC {
+
+std::optional<Ref<WebKit::ObjCObjectGraph>> ArgumentCoder<WebKit::ObjCObjectGraph>::decode(IPC::Decoder& decoder)
 {
     RetainPtr<id> rootObject;
-    if (!decode(decoder, rootObject))
-        return false;
+    if (!WebKit::ObjCObjectGraph::decode(decoder, rootObject))
+        return std::nullopt;
 
-    result = ObjCObjectGraph::create(rootObject.get());
-    return true;
+    return WebKit::ObjCObjectGraph::create(rootObject.get());
 }
 
-} // namespace WebKit
+void ArgumentCoder<WebKit::ObjCObjectGraph>::encode(IPC::Encoder& encoder, const WebKit::ObjCObjectGraph& object)
+{
+    WebKit::ObjCObjectGraph::encode(encoder, object.rootObject());
+}
+
+} // namespace IPC
 
 namespace WTF {
 
@@ -360,8 +339,7 @@ template<> struct EnumTraits<WebKit::ObjCType> {
         WebKit::ObjCType::NSDictionary,
         WebKit::ObjCType::NSNumber,
         WebKit::ObjCType::NSString,
-        WebKit::ObjCType::WKBrowsingContextHandle,
-        WebKit::ObjCType::WKTypeRefWrapper
+        WebKit::ObjCType::WKBrowsingContextHandle
     >;
 };
 

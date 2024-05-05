@@ -16,11 +16,14 @@
 #include <limits>
 #include <string>
 
+#include "api/units/time_delta.h"
+#include "rtc_base/system/rtc_export.h"
+
 namespace webrtc {
 
 // Video timing timestamps in ms counted from capture_time_ms of a frame.
 // This structure represents data sent in video-timing RTP header extension.
-struct VideoSendTiming {
+struct RTC_EXPORT VideoSendTiming {
   enum TimingFrameFlags : uint8_t {
     kNotTriggered = 0,  // Timing info valid, but not to be transmitted.
                         // Used on send-side only.
@@ -34,6 +37,7 @@ struct VideoSendTiming {
   // https://webrtc.org/experiments/rtp-hdrext/video-timing/ extension stores
   // 16-bit deltas of timestamps from packet capture time.
   static uint16_t GetDeltaCappedMs(int64_t base_ms, int64_t time_ms);
+  static uint16_t GetDeltaCappedMs(TimeDelta delta);
 
   uint16_t encode_start_delta_ms;
   uint16_t encode_finish_delta_ms;
@@ -41,21 +45,21 @@ struct VideoSendTiming {
   uint16_t pacer_exit_delta_ms;
   uint16_t network_timestamp_delta_ms;
   uint16_t network2_timestamp_delta_ms;
-  uint8_t flags;
+  uint8_t flags = TimingFrameFlags::kInvalid;
 };
 
 // Used to report precise timings of a 'timing frames'. Contains all important
 // timestamps for a lifetime of that specific frame. Reported as a string via
 // GetStats(). Only frame which took the longest between two GetStats calls is
 // reported.
-struct TimingFrameInfo {
+struct RTC_EXPORT TimingFrameInfo {
   TimingFrameInfo();
 
   // Returns end-to-end delay of a frame, if sender and receiver timestamps are
   // synchronized, -1 otherwise.
   int64_t EndToEndDelay() const;
 
-  // Returns true if current frame took longer to process than |other| frame.
+  // Returns true if current frame took longer to process than `other` frame.
   // If other frame's clocks are not synchronized, current frame is always
   // preferred.
   bool IsLongerThan(const TimingFrameInfo& other) const;
@@ -98,6 +102,47 @@ struct TimingFrameInfo {
   int64_t render_time_ms;     // Proposed render time to insure smooth playback.
 
   uint8_t flags;  // Flags indicating validity and/or why tracing was triggered.
+};
+
+// Minimum and maximum playout delay values from capture to render.
+// These are best effort values.
+//
+// min = max = 0 indicates that the receiver should try and render
+// frame as soon as possible.
+//
+// min = x, max = y indicates that the receiver is free to adapt
+// in the range (x, y) based on network jitter.
+// This class ensures invariant 0 <= min <= max <= kMax.
+class RTC_EXPORT VideoPlayoutDelay {
+ public:
+  // Maximum supported value for the delay limit.
+  static constexpr TimeDelta kMax = TimeDelta::Millis(10) * 0xFFF;
+
+  // Creates delay limits that indicates receiver should try to render frame
+  // as soon as possible.
+  static VideoPlayoutDelay Minimal() {
+    return VideoPlayoutDelay(TimeDelta::Zero(), TimeDelta::Zero());
+  }
+
+  // Creates valid, but unspecified limits.
+  VideoPlayoutDelay() = default;
+  VideoPlayoutDelay(const VideoPlayoutDelay&) = default;
+  VideoPlayoutDelay& operator=(const VideoPlayoutDelay&) = default;
+  VideoPlayoutDelay(TimeDelta min, TimeDelta max);
+
+  bool Set(TimeDelta min, TimeDelta max);
+
+  TimeDelta min() const { return min_; }
+  TimeDelta max() const { return max_; }
+
+  friend bool operator==(const VideoPlayoutDelay& lhs,
+                         const VideoPlayoutDelay& rhs) {
+    return lhs.min_ == rhs.min_ && lhs.max_ == rhs.max_;
+  }
+
+ private:
+  TimeDelta min_ = TimeDelta::Zero();
+  TimeDelta max_ = kMax;
 };
 
 }  // namespace webrtc

@@ -25,6 +25,7 @@
 #include "rtc_base/logging.h"
 #include "rtc_base/numerics/exp_filter.h"
 #include "rtc_base/time_utils.h"
+#include "rtc_base/trace_event.h"
 #include "system_wrappers/include/field_trial.h"
 
 #if defined(WEBRTC_MAC) && !defined(WEBRTC_IOS)
@@ -63,8 +64,6 @@ const float kMaxSampleDiffMarginFactor = 1.35f;
 // encode times from being accepted if the frame rate happens to be low.
 const int kMinFramerate = 7;
 const int kMaxFramerate = 30;
-
-const auto kScaleReasonCpu = AdaptationObserverInterface::AdaptReason::kCpu;
 
 // Class for calculating the processing usage on the send-side (the average
 // processing time of a frame divided by the average time difference between
@@ -431,58 +430,6 @@ class OverdoseInjector : public OveruseFrameDetector::ProcessingUsage {
 
 }  // namespace
 
-CpuOveruseOptions::CpuOveruseOptions()
-    : high_encode_usage_threshold_percent(85),
-      frame_timeout_interval_ms(1500),
-      min_frame_samples(120),
-      min_process_count(3),
-      high_threshold_consecutive_count(2),
-      // Disabled by default.
-      filter_time_ms(0) {
-#if defined(WEBRTC_MAC) && !defined(WEBRTC_IOS)
-  // This is proof-of-concept code for letting the physical core count affect
-  // the interval into which we attempt to scale. For now, the code is Mac OS
-  // specific, since that's the platform were we saw most problems.
-  // TODO(torbjorng): Enhance SystemInfo to return this metric.
-
-  mach_port_t mach_host = mach_host_self();
-  host_basic_info hbi = {};
-  mach_msg_type_number_t info_count = HOST_BASIC_INFO_COUNT;
-  kern_return_t kr =
-      host_info(mach_host, HOST_BASIC_INFO, reinterpret_cast<host_info_t>(&hbi),
-                &info_count);
-  mach_port_deallocate(mach_task_self(), mach_host);
-
-  int n_physical_cores;
-  if (kr != KERN_SUCCESS) {
-    // If we couldn't get # of physical CPUs, don't panic. Assume we have 1.
-    n_physical_cores = 1;
-    RTC_LOG(LS_ERROR)
-        << "Failed to determine number of physical cores, assuming 1";
-  } else {
-    n_physical_cores = hbi.physical_cpu;
-    RTC_LOG(LS_INFO) << "Number of physical cores:" << n_physical_cores;
-  }
-
-  // Change init list default for few core systems. The assumption here is that
-  // encoding, which we measure here, takes about 1/4 of the processing of a
-  // two-way call. This is roughly true for x86 using both vp8 and vp9 without
-  // hardware encoding. Since we don't affect the incoming stream here, we only
-  // control about 1/2 of the total processing needs, but this is not taken into
-  // account.
-  if (n_physical_cores == 1)
-    high_encode_usage_threshold_percent = 20;  // Roughly 1/4 of 100%.
-  else if (n_physical_cores == 2)
-    high_encode_usage_threshold_percent = 40;  // Roughly 1/4 of 200%.
-#endif  // defined(WEBRTC_MAC) && !defined(WEBRTC_IOS)
-
-  // Note that we make the interval 2x+epsilon wide, since libyuv scaling steps
-  // are close to that (when squared). This wide interval makes sure that
-  // scaling up or down does not jump all the way across the interval.
-  low_encode_usage_threshold_percent =
-      (high_encode_usage_threshold_percent - 1) / 2;
-}
-
 std::unique_ptr<OveruseFrameDetector::ProcessingUsage>
 OveruseFrameDetector::CreateProcessingUsage(const CpuOveruseOptions& options) {
   std::unique_ptr<ProcessingUsage> instance;
@@ -522,7 +469,7 @@ OveruseFrameDetector::OveruseFrameDetector(
     CpuOveruseMetricsObserver* metrics_observer)
     : metrics_observer_(metrics_observer),
       num_process_times_(0),
-      // TODO(nisse): Use absl::optional
+      // TODO(bugs.webrtc.org/9078): Use absl::optional
       last_capture_time_us_(-1),
       num_pixels_(0),
       max_framerate_(kDefaultFrameRate),
@@ -542,7 +489,7 @@ OveruseFrameDetector::~OveruseFrameDetector() {}
 void OveruseFrameDetector::StartCheckForOveruse(
     TaskQueueBase* task_queue_base,
     const CpuOveruseOptions& options,
-    AdaptationObserverInterface* overuse_observer) {
+    OveruseFrameDetectorObserverInterface* overuse_observer) {
   RTC_DCHECK_RUN_ON(&task_checker_);
   RTC_DCHECK(!check_overuse_task_.Running());
   RTC_DCHECK(overuse_observer != nullptr);
@@ -632,7 +579,7 @@ void OveruseFrameDetector::FrameSent(uint32_t timestamp,
 }
 
 void OveruseFrameDetector::CheckForOveruse(
-    AdaptationObserverInterface* observer) {
+    OveruseFrameDetectorObserverInterface* observer) {
   RTC_DCHECK_RUN_ON(&task_checker_);
   RTC_DCHECK(observer);
   ++num_process_times_;
@@ -641,6 +588,7 @@ void OveruseFrameDetector::CheckForOveruse(
     return;
 
   int64_t now_ms = rtc::TimeMillis();
+  const char* action = "NoAction";
 
   if (IsOverusing(*encode_usage_percent_)) {
     // If the last thing we did was going up, and now have to back down, we need
@@ -665,22 +613,25 @@ void OveruseFrameDetector::CheckForOveruse(
     checks_above_threshold_ = 0;
     ++num_overuse_detections_;
 
-    observer->AdaptDown(kScaleReasonCpu);
+    observer->AdaptDown();
+    action = "AdaptDown";
   } else if (IsUnderusing(*encode_usage_percent_, now_ms)) {
     last_rampup_time_ms_ = now_ms;
     in_quick_rampup_ = true;
 
-    observer->AdaptUp(kScaleReasonCpu);
+    observer->AdaptUp();
+    action = "AdaptUp";
   }
+  TRACE_EVENT2("webrtc", "OveruseFrameDetector::CheckForOveruse",
+               "encode_usage_percent", *encode_usage_percent_, "action",
+               TRACE_STR_COPY(action));
 
   int rampup_delay =
       in_quick_rampup_ ? kQuickRampUpDelayMs : current_rampup_delay_ms_;
 
-  RTC_LOG(LS_VERBOSE) << " Frame stats: "
-                         " encode usage "
-                      << *encode_usage_percent_ << " overuse detections "
-                      << num_overuse_detections_ << " rampup delay "
-                      << rampup_delay;
+  RTC_LOG(LS_INFO) << "CheckForOveruse: encode usage " << *encode_usage_percent_
+                   << " overuse detections " << num_overuse_detections_
+                   << " rampup delay " << rampup_delay << " action " << action;
 }
 
 void OveruseFrameDetector::SetOptions(const CpuOveruseOptions& options) {

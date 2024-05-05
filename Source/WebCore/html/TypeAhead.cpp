@@ -29,11 +29,10 @@
 #include "TypeAhead.h"
 
 #include "KeyboardEvent.h"
+#include <wtf/text/StringToIntegerConversion.h>
 #include <wtf/unicode/CharacterNames.h>
 
-
 namespace WebCore {
-using namespace WTF::Unicode;
 
 TypeAhead::TypeAhead(TypeAheadDataSource* dataSource)
     : m_dataSource(dataSource)
@@ -48,7 +47,7 @@ static String stripLeadingWhiteSpace(const String& string)
     unsigned length = string.length();
     unsigned i;
     for (i = 0; i < length; ++i) {
-        if (string[i] != noBreakSpace && !isSpaceOrNewline(string[i]))
+        if (string[i] != noBreakSpace && !deprecatedIsSpaceOrNewline(string[i]))
             break;
     }
     return string.substring(i, length - i);
@@ -103,8 +102,7 @@ int TypeAhead::handleEvent(KeyboardEvent* event, MatchModeFlags matchMode)
     }
 
     if (matchMode & MatchIndex) {
-        bool ok = false;
-        int index = m_buffer.toString().toInt(&ok);
+        int index = parseIntegerAllowingTrailingJunk<int>(m_buffer).value_or(0);
         if (index > 0 && index <= optionCount)
             return index - 1;
     }

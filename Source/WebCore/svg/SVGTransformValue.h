@@ -1,7 +1,8 @@
 /*
  * Copyright (C) 2004, 2005, 2008 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2004, 2005 Rob Buis <buis@kde.org>
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2024 Apple Inc. All rights reserved.
+ * Copyright (C) 2014 Google Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -25,7 +26,6 @@
 #include "FloatPoint.h"
 #include "FloatSize.h"
 #include "SVGMatrix.h"
-#include <wtf/HashMap.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/text/StringBuilder.h>
 
@@ -49,6 +49,24 @@ public:
         ConstructIdentityTransform,
         ConstructZeroTransform
     };
+    
+    static SVGTransformValue translateTransformValue(FloatSize delta)
+    {
+        return SVGTransformValue(SVG_TRANSFORM_TRANSLATE, AffineTransform::makeTranslation(delta));
+    }
+
+    static SVGTransformValue rotateTransformValue(float angleInDegrees, FloatPoint center)
+    {
+        auto result = SVGTransformValue(SVG_TRANSFORM_ROTATE, AffineTransform::makeRotation(angleInDegrees, center));
+        result.m_angle = angleInDegrees;
+        result.m_rotationCenter = center;
+        return result;
+    }
+
+    static SVGTransformValue scaleTransformValue(FloatSize scale)
+    {
+        return SVGTransformValue(SVG_TRANSFORM_SCALE, AffineTransform::makeScale(scale));
+    }
 
     SVGTransformValue(SVGTransformType type = SVG_TRANSFORM_MATRIX, const AffineTransform& transform = { })
         : m_type(type)
@@ -100,7 +118,7 @@ public:
     {
         m_type = SVG_TRANSFORM_MATRIX;
         m_angle = 0;
-        m_rotationCenter = FloatPoint();
+        m_rotationCenter = { };
         m_matrix->setValue(matrix);
     }
 
@@ -111,7 +129,7 @@ public:
         // then the type of the SVGTransform changes to SVG_TRANSFORM_MATRIX.
         m_type = SVG_TRANSFORM_MATRIX;
         m_angle = 0;
-        m_rotationCenter = FloatPoint();
+        m_rotationCenter = { };
     }
 
     FloatPoint translate() const
@@ -123,10 +141,8 @@ public:
     {
         m_type = SVG_TRANSFORM_TRANSLATE;
         m_angle = 0;
-        m_rotationCenter = FloatPoint();
-        
-        m_matrix->value().makeIdentity();
-        m_matrix->value().translate(tx, ty);
+        m_rotationCenter = { };
+        m_matrix->value() = AffineTransform::makeTranslation({ tx, ty });
     }
 
     FloatSize scale() const
@@ -138,23 +154,16 @@ public:
     {
         m_type = SVG_TRANSFORM_SCALE;
         m_angle = 0;
-        m_rotationCenter = FloatPoint();
-        
-        m_matrix->value().makeIdentity();
-        m_matrix->value().scaleNonUniform(sx, sy);
+        m_rotationCenter = { };
+        m_matrix->value() = AffineTransform::makeScale({ sx, sy });
     }
 
-    void setRotate(float angle, float cx, float cy)
+    void setRotate(float angleInDegrees, float cx, float cy)
     {
         m_type = SVG_TRANSFORM_ROTATE;
-        m_angle = angle;
-        m_rotationCenter = FloatPoint(cx, cy);
-
-        // TODO: toString() implementation, which can show cx, cy (need to be stored?)
-        m_matrix->value().makeIdentity();
-        m_matrix->value().translate(cx, cy);
-        m_matrix->value().rotate(angle);
-        m_matrix->value().translate(-cx, -cy);
+        m_angle = angleInDegrees;
+        m_rotationCenter = { cx, cy };
+        m_matrix->value() = AffineTransform::makeRotation(angleInDegrees, { cx, cy });
     }
 
     void setSkewX(float angle)
@@ -180,7 +189,7 @@ public:
     String valueAsString() const
     {
         StringBuilder builder;
-        builder.append(prefixForTransfromType(m_type));
+        builder.append(prefixForTransformType(m_type));
         switch (m_type) {
         case SVG_TRANSFORM_UNKNOWN:
             break;
@@ -206,7 +215,7 @@ public:
         return builder.toString();
     }
 
-    static const char* prefixForTransfromType(SVGTransformType type)
+    static const char* prefixForTransformType(SVGTransformType type)
     {
         switch (type) {
         case SVG_TRANSFORM_UNKNOWN:
@@ -256,7 +265,7 @@ private:
 
     void appendScale(StringBuilder& builder) const
     {
-        appendFixedPrecisionNumbers(builder, m_matrix->value().xScale(), m_matrix->value().yScale());
+        appendFixedPrecisionNumbers(builder, m_matrix->a(), m_matrix->d());
     }
 
     void appendRotate(StringBuilder& builder) const

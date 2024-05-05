@@ -29,7 +29,7 @@
 
 namespace WebKit {
 
-class WebMediaStrategy : public WebCore::MediaStrategy {
+class WebMediaStrategy final : public WebCore::MediaStrategy {
 public:
     virtual ~WebMediaStrategy();
 
@@ -39,20 +39,17 @@ public:
 
 private:
 #if ENABLE(WEB_AUDIO)
-    std::unique_ptr<WebCore::AudioDestination> createAudioDestination(WebCore::AudioIOCallback&,
+    Ref<WebCore::AudioDestination> createAudioDestination(WebCore::AudioIOCallback&,
         const String& inputDeviceId, unsigned numberOfInputChannels, unsigned numberOfOutputChannels, float sampleRate) override;
 #endif
-#if PLATFORM(COCOA)
-    void clearNowPlayingInfo() final;
-    void setNowPlayingInfo(bool setAsNowPlayingApplication, const WebCore::NowPlayingInfo&) final;
+    std::unique_ptr<WebCore::NowPlayingManager> createNowPlayingManager() const final;
+#if ENABLE(MEDIA_SOURCE)
+    void enableMockMediaSource() final;
 #endif
 
 #if ENABLE(GPU_PROCESS)
     bool m_useGPUProcess { false };
 #endif
-
 };
 
 } // namespace WebKit
-
-

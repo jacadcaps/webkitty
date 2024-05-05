@@ -33,7 +33,7 @@ WI.QuickConsole = class QuickConsole extends WI.View
         this._toggleOrFocusKeyboardShortcut.implicitlyPreventsDefault = false;
         this._keyboardShortcutDisabled = false;
 
-        this._useExecutionContextOfInspectedNode = InspectorBackend.hasDomain("DOM");
+        this._useExecutionContextOfInspectedNode = this._canUseExecutionContextOfInspectedNode();
         this._restoreSelectedExecutionContextForFrame = null;
 
         this.element.classList.add("quick-console");
@@ -69,6 +69,7 @@ WI.QuickConsole = class QuickConsole extends WI.View
 
         WI.Frame.addEventListener(WI.Frame.Event.PageExecutionContextChanged, this._handleFramePageExecutionContextChanged, this);
         WI.Frame.addEventListener(WI.Frame.Event.ExecutionContextsCleared, this._handleFrameExecutionContextsCleared, this);
+        WI.Frame.addEventListener(WI.Frame.Event.ExecutionContextAdded, this._handleFrameExecutionContextAdded, this);
 
         WI.debuggerManager.addEventListener(WI.DebuggerManager.Event.ActiveCallFrameDidChange, this._handleDebuggerActiveCallFrameDidChange, this);
 
@@ -98,13 +99,24 @@ WI.QuickConsole = class QuickConsole extends WI.View
 
     closed()
     {
-        WI.settings.consoleSavedResultAlias.removeEventListener(null, null, this);
-        WI.Frame.removeEventListener(null, null, this);
-        WI.debuggerManager.removeEventListener(null, null, this);
-        WI.runtimeManager.removeEventListener(null, null, this);
-        WI.targetManager.removeEventListener(null, null, this);
-        WI.consoleDrawer.removeEventListener(null, null, this);
-        WI.TabBrowser.removeEventListener(null, null, this);
+        WI.settings.consoleSavedResultAlias.removeEventListener(WI.Setting.Event.Changed, this._handleConsoleSavedResultAliasSettingChanged, this);
+        WI.settings.engineeringShowInternalExecutionContexts.removeEventListener(WI.Setting.Event.Changed, this._handleEngineeringShowInternalExecutionContextsSettingChanged, this);
+
+        WI.Frame.removeEventListener(WI.Frame.Event.PageExecutionContextChanged, this._handleFramePageExecutionContextChanged, this);
+        WI.Frame.removeEventListener(WI.Frame.Event.ExecutionContextsCleared, this._handleFrameExecutionContextsCleared, this);
+
+        WI.debuggerManager.removeEventListener(WI.DebuggerManager.Event.ActiveCallFrameDidChange, this._handleDebuggerActiveCallFrameDidChange, this);
+
+        WI.runtimeManager.removeEventListener(WI.RuntimeManager.Event.ActiveExecutionContextChanged, this._handleActiveExecutionContextChanged, this);
+
+        WI.notifications.removeEventListener(WI.Notification.TransitionPageTarget, this._handleTransitionPageTarget, this);
+
+        WI.targetManager.removeEventListener(WI.TargetManager.Event.TargetRemoved, this._handleTargetRemoved, this);
+
+        WI.domManager.removeEventListener(WI.DOMManager.Event.InspectedNodeChanged, this._handleInspectedNodeChanged, this);
+
+        WI.consoleDrawer.removeEventListener(WI.ConsoleDrawer.Event.CollapsedStateChanged, this._updateStyles, this);
+        WI.TabBrowser.removeEventListener(WI.TabBrowser.Event.SelectedTabContentViewDidChange, this._updateStyles, this);
 
         super.closed();
     }
@@ -231,7 +243,7 @@ WI.QuickConsole = class QuickConsole extends WI.View
 
         let activeExecutionContext = WI.runtimeManager.activeExecutionContext;
 
-        if (InspectorBackend.hasDomain("DOM")) {
+        if (this._canUseExecutionContextOfInspectedNode()) {
             let executionContextForInspectedNode = this._resolveDesiredActiveExecutionContext(true);
             contextMenu.appendCheckboxItem(WI.UIString("Auto \u2014 %s").format(this._displayNameForExecutionContext(executionContextForInspectedNode, maxLength)), () => {
                 this._useExecutionContextOfInspectedNode = true;
@@ -324,8 +336,7 @@ WI.QuickConsole = class QuickConsole extends WI.View
             WI.RemoteObject.resolveNode(domNode, WI.RuntimeManager.ConsoleObjectGroup)
             .then((remoteObject) => {
                 let text = domNode.nodeType() === Node.ELEMENT_NODE ? WI.UIString("Dropped Element") : WI.UIString("Dropped Node");
-                const addSpecialUserLogClass = true;
-                WI.consoleLogViewController.appendImmediateExecutionWithResult(text, remoteObject, addSpecialUserLogClass);
+                WI.consoleLogViewController.appendImmediateExecutionWithResult(text, remoteObject, {addSpecialUserLogClass: true, shouldRevealConsole: true});
 
                 this.prompt.focus();
             });
@@ -344,7 +355,7 @@ WI.QuickConsole = class QuickConsole extends WI.View
         if (WI.runtimeManager.activeExecutionContext.type !== WI.ExecutionContext.Type.Internal)
             return;
 
-        this._useExecutionContextOfInspectedNode = InspectorBackend.hasDomain("DOM");
+        this._useExecutionContextOfInspectedNode = this._canUseExecutionContextOfInspectedNode();
         this._setActiveExecutionContext(this._resolveDesiredActiveExecutionContext());
     }
 
@@ -361,6 +372,11 @@ WI.QuickConsole = class QuickConsole extends WI.View
         this._setActiveExecutionContext(frame.pageExecutionContext);
     }
 
+    _handleFrameExecutionContextAdded(event)
+    {
+        this._updateActiveExecutionContextDisplay();
+    }
+
     _handleFrameExecutionContextsCleared(event)
     {
         let {committingProvisionalLoad, contexts} = event.data;
@@ -371,20 +387,24 @@ WI.QuickConsole = class QuickConsole extends WI.View
             return;
         }
 
-        // If this frame is navigating and it is selected in the UI we want to reselect its new item after navigation.
-        if (committingProvisionalLoad && !this._restoreSelectedExecutionContextForFrame) {
+        // If this frame is navigating and it is selected in the UI we want to reselect its new item after navigation,
+        // however when `_useExecutionContextOfInspectedNode` is true, we should keep the execution context set to `Auto`.
+        if (committingProvisionalLoad && !this._restoreSelectedExecutionContextForFrame && !this._useExecutionContextOfInspectedNode) {
             this._restoreSelectedExecutionContextForFrame = event.target;
 
             // As a fail safe, if the frame never gets an execution context, clear the restore value.
             setTimeout(() => {
-                if (this._restoreSelectedExecutionContextForFrame)
-                    this._updateActiveExecutionContextDisplay();
+                if (!this._restoreSelectedExecutionContextForFrame)
+                    return;
                 this._restoreSelectedExecutionContextForFrame = null;
-            }, 10);
+
+                this._useExecutionContextOfInspectedNode = this._canUseExecutionContextOfInspectedNode();
+                this._setActiveExecutionContext(this._resolveDesiredActiveExecutionContext());
+            }, 100);
             return;
         }
 
-        this._useExecutionContextOfInspectedNode = InspectorBackend.hasDomain("DOM");
+        this._useExecutionContextOfInspectedNode = this._canUseExecutionContextOfInspectedNode();
         this._setActiveExecutionContext(this._resolveDesiredActiveExecutionContext());
     }
 
@@ -411,7 +431,7 @@ WI.QuickConsole = class QuickConsole extends WI.View
             return;
         }
 
-        this._useExecutionContextOfInspectedNode = InspectorBackend.hasDomain("DOM");
+        this._useExecutionContextOfInspectedNode = this._canUseExecutionContextOfInspectedNode();
         this._setActiveExecutionContext(this._resolveDesiredActiveExecutionContext());
     }
 
@@ -421,6 +441,11 @@ WI.QuickConsole = class QuickConsole extends WI.View
             return;
 
         this._setActiveExecutionContext(this._resolveDesiredActiveExecutionContext());
+    }
+
+    _canUseExecutionContextOfInspectedNode()
+    {
+        return InspectorBackend.hasDomain("DOM");
     }
 
     _toggleOrFocus(event)

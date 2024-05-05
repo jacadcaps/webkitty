@@ -27,6 +27,8 @@
 
 namespace WebCore {
 
+enum class RepaintRectCalculation : bool;
+
 class SVGMaskElement final : public SVGElement, public SVGTests {
     WTF_MAKE_ISO_ALLOCATED(SVGMaskElement);
 public:
@@ -46,13 +48,14 @@ public:
     SVGAnimatedEnumeration& maskUnitsAnimated() { return m_maskUnits; }
     SVGAnimatedEnumeration& maskContentUnitsAnimated() { return m_maskContentUnits; }
 
+    FloatRect calculateMaskContentRepaintRect(RepaintRectCalculation);
+
 private:
     SVGMaskElement(const QualifiedName&, Document&);
 
     using PropertyRegistry = SVGPropertyOwnerRegistry<SVGMaskElement, SVGElement, SVGTests>;
-    const SVGPropertyRegistry& propertyRegistry() const final { return m_propertyRegistry; }
 
-    void parseAttribute(const QualifiedName&, const AtomString&) final;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
     void svgAttributeChanged(const QualifiedName&) final;
     void childrenChanged(const ChildChange&) final;
 
@@ -62,11 +65,10 @@ private:
     bool needsPendingResourceHandling() const final { return false; }
     bool selfHasRelativeLengths() const final { return true; }
 
-    PropertyRegistry m_propertyRegistry { *this };
-    Ref<SVGAnimatedLength> m_x { SVGAnimatedLength::create(this, SVGLengthMode::Width, "-10%") };
-    Ref<SVGAnimatedLength> m_y { SVGAnimatedLength::create(this, SVGLengthMode::Height, "-10%") };
-    Ref<SVGAnimatedLength> m_width { SVGAnimatedLength::create(this, SVGLengthMode::Width, "120%") };
-    Ref<SVGAnimatedLength> m_height { SVGAnimatedLength::create(this, SVGLengthMode::Height, "120%") };
+    Ref<SVGAnimatedLength> m_x { SVGAnimatedLength::create(this, SVGLengthMode::Width, "-10%"_s) };
+    Ref<SVGAnimatedLength> m_y { SVGAnimatedLength::create(this, SVGLengthMode::Height, "-10%"_s) };
+    Ref<SVGAnimatedLength> m_width { SVGAnimatedLength::create(this, SVGLengthMode::Width, "120%"_s) };
+    Ref<SVGAnimatedLength> m_height { SVGAnimatedLength::create(this, SVGLengthMode::Height, "120%"_s) };
     Ref<SVGAnimatedEnumeration> m_maskUnits { SVGAnimatedEnumeration::create(this, SVGUnitTypes::SVG_UNIT_TYPE_OBJECTBOUNDINGBOX) };
     Ref<SVGAnimatedEnumeration> m_maskContentUnits { SVGAnimatedEnumeration::create(this, SVGUnitTypes::SVG_UNIT_TYPE_USERSPACEONUSE) };
 };

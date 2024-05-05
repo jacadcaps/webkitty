@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include "RenderBoxModelObjectInlines.h"
 #include "RenderSVGInline.h"
 #include "SVGTextPositioningElement.h"
 
@@ -30,18 +31,16 @@ class RenderSVGTSpan final : public RenderSVGInline {
     WTF_MAKE_ISO_ALLOCATED(RenderSVGTSpan);
 public:
     explicit RenderSVGTSpan(SVGTextPositioningElement& element, RenderStyle&& style)
-        : RenderSVGInline(element, WTFMove(style))
+        : RenderSVGInline(Type::SVGTSpan, element, WTFMove(style))
     {
+        ASSERT(isRenderSVGTSpan());
     }
-
-    SVGTextPositioningElement& textPositioningElement() const { return static_cast<SVGTextPositioningElement&>(RenderSVGInline::graphicsElement()); }
 
 private:
     void graphicsElement() const = delete;
-    const char* renderName() const override { return "RenderSVGTSpan"; }
-    bool isSVGTSpan() const override { return true; }
+    ASCIILiteral renderName() const override { return "RenderSVGTSpan"_s; }
 };
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderSVGTSpan, isSVGTSpan())
+SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderSVGTSpan, isRenderSVGTSpan())

@@ -28,37 +28,40 @@
 
 #if ENABLE(GAMEPAD)
 
-#include "DOMWindow.h"
+#include "Document.h"
+#include "FeaturePolicy.h"
 #include "Gamepad.h"
 #include "GamepadManager.h"
 #include "GamepadProvider.h"
+#include "LocalDOMWindow.h"
 #include "Navigator.h"
 #include "PlatformGamepad.h"
 
 namespace WebCore {
 
-NavigatorGamepad::NavigatorGamepad()
+NavigatorGamepad::NavigatorGamepad(Navigator& navigator)
+    : m_navigator(navigator)
 {
-    GamepadManager::singleton().registerNavigator(this);
+    GamepadManager::singleton().registerNavigator(*this);
 }
 
 NavigatorGamepad::~NavigatorGamepad()
 {
-    GamepadManager::singleton().unregisterNavigator(this);
+    GamepadManager::singleton().unregisterNavigator(*this);
 }
 
-const char* NavigatorGamepad::supplementName()
+ASCIILiteral NavigatorGamepad::supplementName()
 {
-    return "NavigatorGamepad";
+    return "NavigatorGamepad"_s;
 }
 
-NavigatorGamepad* NavigatorGamepad::from(Navigator* navigator)
+NavigatorGamepad* NavigatorGamepad::from(Navigator& navigator)
 {
-    NavigatorGamepad* supplement = static_cast<NavigatorGamepad*>(Supplement<Navigator>::from(navigator, supplementName()));
+    NavigatorGamepad* supplement = static_cast<NavigatorGamepad*>(Supplement<Navigator>::from(&navigator, supplementName()));
     if (!supplement) {
-        auto newSupplement = makeUnique<NavigatorGamepad>();
+        auto newSupplement = makeUnique<NavigatorGamepad>(navigator);
         supplement = newSupplement.get();
-        provideTo(navigator, supplementName(), WTFMove(newSupplement));
+        provideTo(&navigator, supplementName(), WTFMove(newSupplement));
     }
     return supplement;
 }
@@ -67,18 +70,17 @@ Ref<Gamepad> NavigatorGamepad::gamepadFromPlatformGamepad(PlatformGamepad& platf
 {
     unsigned index = platformGamepad.index();
     if (index >= m_gamepads.size() || !m_gamepads[index])
-        return Gamepad::create(platformGamepad);
+        return Gamepad::create(m_navigator.document(), platformGamepad);
 
     return *m_gamepads[index];
 }
 
-const Vector<RefPtr<Gamepad>>& NavigatorGamepad::getGamepads(Navigator& navigator)
+ExceptionOr<const Vector<RefPtr<Gamepad>>&> NavigatorGamepad::getGamepads(Navigator& navigator)
 {
-    auto* domWindow = navigator.window();
-    Document* document = domWindow ? domWindow->document() : nullptr;
-    if (!document) {
+    RefPtr document = navigator.document() ? navigator.document() : nullptr;
+    if (!document || !document->isFullyActive()) {
         static NeverDestroyed<Vector<RefPtr<Gamepad>>> emptyGamepads;
-        return emptyGamepads;
+        return { emptyGamepads.get() };
     }
 
     if (!document->isSecureContext()) {
@@ -89,7 +91,10 @@ const Vector<RefPtr<Gamepad>>& NavigatorGamepad::getGamepads(Navigator& navigato
 
     }
 
-    return NavigatorGamepad::from(&navigator)->gamepads();
+    if (!isFeaturePolicyAllowedByDocumentAndAllOwners(FeaturePolicy::Type::Gamepad, *document, LogFeaturePolicyFailure::Yes))
+        return Exception { ExceptionCode::SecurityError, "Third-party iframes are not allowed to call getGamepads() unless explicitly allowed via Feature-Policy (gamepad)"_s };
+
+    return NavigatorGamepad::from(navigator)->gamepads();
 }
 
 const Vector<RefPtr<Gamepad>>& NavigatorGamepad::gamepads()
@@ -97,7 +102,7 @@ const Vector<RefPtr<Gamepad>>& NavigatorGamepad::gamepads()
     if (m_gamepads.isEmpty())
         return m_gamepads;
 
-    const Vector<PlatformGamepad*>& platformGamepads = GamepadProvider::singleton().platformGamepads();
+    auto& platformGamepads = GamepadProvider::singleton().platformGamepads();
 
     for (unsigned i = 0; i < platformGamepads.size(); ++i) {
         if (!platformGamepads[i]) {
@@ -114,14 +119,14 @@ const Vector<RefPtr<Gamepad>>& NavigatorGamepad::gamepads()
 
 void NavigatorGamepad::gamepadsBecameVisible()
 {
-    const Vector<PlatformGamepad*>& platformGamepads = GamepadProvider::singleton().platformGamepads();
+    auto& platformGamepads = GamepadProvider::singleton().platformGamepads();
     m_gamepads.resize(platformGamepads.size());
 
     for (unsigned i = 0; i < platformGamepads.size(); ++i) {
         if (!platformGamepads[i])
             continue;
 
-        m_gamepads[i] = Gamepad::create(*platformGamepads[i]);
+        m_gamepads[i] = Gamepad::create(m_navigator.document(), *platformGamepads[i]);
     }
 }
 
@@ -140,9 +145,9 @@ void NavigatorGamepad::gamepadConnected(PlatformGamepad& platformGamepad)
     ASSERT(index <= m_gamepads.size());
 
     if (index < m_gamepads.size())
-        m_gamepads[index] = Gamepad::create(platformGamepad);
+        m_gamepads[index] = Gamepad::create(m_navigator.document(), platformGamepad);
     else if (index == m_gamepads.size())
-        m_gamepads.append(Gamepad::create(platformGamepad));
+        m_gamepads.append(Gamepad::create(m_navigator.document(), platformGamepad));
 }
 
 void NavigatorGamepad::gamepadDisconnected(PlatformGamepad& platformGamepad)

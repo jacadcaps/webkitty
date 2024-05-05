@@ -23,6 +23,7 @@
 
 #include "JSDOMGlobalObject.h"
 #include <wtf/Forward.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
@@ -30,7 +31,7 @@ class WindowProxy;
 
 typedef HashMap<void*, JSC::Weak<JSC::JSObject>> DOMObjectWrapperMap;
 
-class DOMWrapperWorld : public RefCounted<DOMWrapperWorld> {
+class DOMWrapperWorld : public RefCounted<DOMWrapperWorld>, public CanMakeSingleThreadWeakPtr<DOMWrapperWorld> {
 public:
     enum class Type {
         Normal,   // Main (e.g. Page)
@@ -53,13 +54,14 @@ public:
     void setShadowRootIsAlwaysOpen() { m_shadowRootIsAlwaysOpen = true; }
     bool shadowRootIsAlwaysOpen() const { return m_shadowRootIsAlwaysOpen; }
 
-    void disableOverrideBuiltinsBehavior() { m_shouldDisableOverrideBuiltinsBehavior = true; }
-    bool shouldDisableOverrideBuiltinsBehavior() const { return m_shouldDisableOverrideBuiltinsBehavior; }
+    void disableLegacyOverrideBuiltInsBehavior() { m_shouldDisableLegacyOverrideBuiltInsBehavior = true; }
+    bool shouldDisableLegacyOverrideBuiltInsBehavior() const { return m_shouldDisableLegacyOverrideBuiltInsBehavior; }
 
     DOMObjectWrapperMap& wrappers() { return m_wrappers; }
 
     Type type() const { return m_type; }
     bool isNormal() const { return m_type == Type::Normal; }
+    bool isUser() const { return m_type == Type::User; }
 
     const String& name() const { return m_name; }
 
@@ -77,7 +79,7 @@ private:
     Type m_type { Type::Internal };
 
     bool m_shadowRootIsAlwaysOpen { false };
-    bool m_shouldDisableOverrideBuiltinsBehavior { false };
+    bool m_shouldDisableLegacyOverrideBuiltInsBehavior { false };
 };
 
 DOMWrapperWorld& normalWorld(JSC::VM&);

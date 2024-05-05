@@ -20,7 +20,7 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #pragma once
@@ -28,6 +28,7 @@
 #if ENABLE(MEDIA_SOURCE)
 
 #include "MediaSourcePrivate.h"
+#include <wtf/LoggerHelper.h>
 #include <wtf/MediaTime.h>
 
 namespace WebCore {
@@ -35,25 +36,23 @@ namespace WebCore {
 class MockMediaPlayerMediaSource;
 class MockSourceBufferPrivate;
 
-class MockMediaSourcePrivate final : public MediaSourcePrivate {
+class MockMediaSourcePrivate final
+    : public MediaSourcePrivate
+#if !RELEASE_LOG_DISABLED
+    , private LoggerHelper
+#endif
+{
 public:
     static Ref<MockMediaSourcePrivate> create(MockMediaPlayerMediaSource&, MediaSourcePrivateClient&);
     virtual ~MockMediaSourcePrivate();
 
-    const Vector<MockSourceBufferPrivate*>& activeSourceBuffers() const { return m_activeSourceBuffers; }
+    constexpr MediaPlatformType platformType() const final { return MediaPlatformType::Mock; }
 
-    bool hasAudio() const;
-    bool hasVideo() const;
+    WeakPtr<MockMediaPlayerMediaSource> player() const { return m_player; }
 
-    MediaTime duration();
-    std::unique_ptr<PlatformTimeRanges> buffered();
+    MediaTime currentMediaTime() const final;
 
-    MockMediaPlayerMediaSource& player() const { return m_player; }
-
-    void seekToTime(const MediaTime&);
-    MediaTime seekToTime(const MediaTime&, const MediaTime& negativeThreshold, const MediaTime& positiveThreshold);
-
-    Optional<VideoPlaybackQualityMetrics> videoPlaybackQualityMetrics();
+    std::optional<VideoPlaybackQualityMetrics> videoPlaybackQualityMetrics();
 
     void incrementTotalVideoFrames() { ++m_totalVideoFrames; }
     void incrementDroppedFrames() { ++m_droppedVideoFrames; }
@@ -61,40 +60,46 @@ public:
     void incrementTotalFrameDelayBy(const MediaTime& delay) { m_totalFrameDelay += delay; }
 
 #if !RELEASE_LOG_DISABLED
-    const Logger& mediaSourceLogger() const;
-    const void* mediaSourceLogIdentifier();
+    const Logger& logger() const final { return m_logger.get(); }
+    const char* logClassName() const override { return "MockMediaSourcePrivate"; }
+    const void* logIdentifier() const final { return m_logIdentifier; }
+    WTFLogChannel& logChannel() const final;
+
+    const void* nextSourceBufferLogIdentifier() { return childLogIdentifier(m_logIdentifier, ++m_nextSourceBufferID); }
 #endif
 
 private:
     MockMediaSourcePrivate(MockMediaPlayerMediaSource&, MediaSourcePrivateClient&);
 
     // MediaSourcePrivate Overrides
-    AddStatus addSourceBuffer(const ContentType&, RefPtr<SourceBufferPrivate>&) override;
-    void durationChanged() override;
+    AddStatus addSourceBuffer(const ContentType&, bool webMParserEnabled, RefPtr<SourceBufferPrivate>&) override;
+    void durationChanged(const MediaTime&) override;
     void markEndOfStream(EndOfStreamStatus) override;
-    void unmarkEndOfStream() override;
-    MediaPlayer::ReadyState readyState() const override;
-    void setReadyState(MediaPlayer::ReadyState) override;
-    void waitForSeekCompleted() override;
-    void seekCompleted() override;
 
-    void sourceBufferPrivateDidChangeActiveState(MockSourceBufferPrivate*, bool active);
-    void removeSourceBuffer(SourceBufferPrivate*);
+    MediaPlayer::ReadyState mediaPlayerReadyState() const override;
+    void setMediaPlayerReadyState(MediaPlayer::ReadyState) override;
+
+    void notifyActiveSourceBuffersChanged() final;
 
     friend class MockSourceBufferPrivate;
 
-    MockMediaPlayerMediaSource& m_player;
-    Ref<MediaSourcePrivateClient> m_client;
-    Vector<RefPtr<MockSourceBufferPrivate>> m_sourceBuffers;
-    Vector<MockSourceBufferPrivate*> m_activeSourceBuffers;
-    bool m_isEnded { false };
+    WeakPtr<MockMediaPlayerMediaSource> m_player;
 
     unsigned m_totalVideoFrames { 0 };
     unsigned m_droppedVideoFrames { 0 };
     unsigned m_corruptedVideoFrames { 0 };
     MediaTime m_totalFrameDelay;
+#if !RELEASE_LOG_DISABLED
+    Ref<const Logger> m_logger;
+    const void* m_logIdentifier;
+    uint64_t m_nextSourceBufferID { 0 };
+#endif
 };
 
-}
+} // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::MockMediaSourcePrivate)
+static bool isType(const WebCore::MediaSourcePrivate& mediaSource) { return mediaSource.platformType() == WebCore::MediaPlatformType::Mock; }
+SPECIALIZE_TYPE_TRAITS_END()
 
 #endif // ENABLE(MEDIA_SOURCE)

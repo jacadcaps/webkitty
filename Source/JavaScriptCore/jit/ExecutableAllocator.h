@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2008-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,29 +25,27 @@
 
 #pragma once
 
+#include "ExecutableMemoryHandle.h"
 #include "FastJITPermissions.h"
 #include "JITCompilationEffort.h"
 #include "JSCConfig.h"
 #include "JSCPtrTag.h"
 #include "Options.h"
-#include <stddef.h> // for ptrdiff_t
 #include <limits>
 #include <wtf/Assertions.h>
+#include <wtf/ForbidHeapAllocation.h>
 #include <wtf/Gigacage.h>
 #include <wtf/Lock.h>
-#include <wtf/MetaAllocatorHandle.h>
+#include <wtf/TZoneMalloc.h>
+
+#if !ENABLE(LIBPAS_JIT_HEAP)
 #include <wtf/MetaAllocator.h>
+#endif
 
 #if OS(DARWIN)
 #include <libkern/OSCacheControl.h>
 #include <sys/mman.h>
 #endif
-
-#if CPU(MIPS) && OS(LINUX)
-#include <sys/cachectl.h>
-#endif
-
-#define JIT_ALLOCATOR_LARGE_ALLOC_SIZE (pageSize() * 4)
 
 #define EXECUTABLE_POOL_WRITABLE true
 
@@ -55,10 +53,8 @@ namespace JSC {
 
 static constexpr unsigned jitAllocationGranule = 32;
 
-typedef WTF::MetaAllocatorHandle ExecutableMemoryHandle;
-
 class ExecutableAllocatorBase {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_FORBID_HEAP_ALLOCATION;
     WTF_MAKE_NONCOPYABLE(ExecutableAllocatorBase);
 public:
     bool isValid() const { return false; }
@@ -71,13 +67,13 @@ public:
 
     RefPtr<ExecutableMemoryHandle> allocate(size_t, JITCompilationEffort) { return nullptr; }
 
-    static void setJITEnabled(bool) { };
+    static void disableJIT() { };
     
     bool isValidExecutableMemory(const AbstractLocker&, void*) { return false; }
 
     static size_t committedByteCount() { return 0; }
 
-    Lock& getLock() const
+    Lock& getLock() const WTF_RETURNS_LOCK(m_lock)
     {
         return m_lock;
     }
@@ -107,7 +103,10 @@ T endOfFixedExecutableMemoryPool()
     return bitwise_cast<T>(endOfFixedExecutableMemoryPoolImpl());
 }
 
-JS_EXPORT_PRIVATE bool isJITPC(void* pc);
+ALWAYS_INLINE bool isJITPC(void* pc)
+{
+    return g_jscConfig.startExecutableMemory <= pc && pc < g_jscConfig.endExecutableMemory;
+}
 
 JS_EXPORT_PRIVATE void dumpJITMemory(const void*, const void*, size_t);
 
@@ -125,7 +124,7 @@ static ALWAYS_INLINE void* performJITMemcpy(void *dst, const void *src, size_t n
         if (UNLIKELY(Options::dumpJITMemoryPath()))
             dumpJITMemory(dst, src, n);
 
-        if (useFastJITPermissions()) {
+        if (g_jscConfig.useFastJITPermissions) {
             threadSelfRestrictRWXToRW();
             memcpy(dst, src, n);
             threadSelfRestrictRWXToRX();
@@ -149,6 +148,7 @@ static ALWAYS_INLINE void* performJITMemcpy(void *dst, const void *src, size_t n
 }
 
 class ExecutableAllocator : private ExecutableAllocatorBase {
+    WTF_MAKE_TZONE_ALLOCATED(ExecutableAllocator);
 public:
     using Base = ExecutableAllocatorBase;
 
@@ -168,7 +168,7 @@ public:
     static void dumpProfile() { }
 #endif
     
-    JS_EXPORT_PRIVATE static void setJITEnabled(bool);
+    JS_EXPORT_PRIVATE static void disableJIT();
 
     RefPtr<ExecutableMemoryHandle> allocate(size_t sizeInBytes, JITCompilationEffort);
 
@@ -178,8 +178,9 @@ public:
 
     Lock& getLock() const;
 
-#if USE(JUMP_ISLANDS)
-    JS_EXPORT_PRIVATE void* getJumpIslandTo(void* from, void* newDestination);
+#if ENABLE(JUMP_ISLANDS)
+    JS_EXPORT_PRIVATE void* getJumpIslandToUsingJITMemcpy(void* from, void* newDestination);
+    JS_EXPORT_PRIVATE void* getJumpIslandToUsingMemcpy(void* from, void* newDestination);
     JS_EXPORT_PRIVATE void* getJumpIslandToConcurrently(void* from, void* newDestination);
 #endif
 
@@ -191,6 +192,7 @@ private:
 #else
 
 class ExecutableAllocator : public ExecutableAllocatorBase {
+    WTF_MAKE_TZONE_ALLOCATED(ExecutableAllocator);
 public:
     static ExecutableAllocator& singleton();
     static void initialize();
@@ -208,6 +210,5 @@ static inline void* performJITMemcpy(void *dst, const void *src, size_t n)
 
 inline bool isJITPC(void*) { return false; }
 #endif // ENABLE(JIT)
-
 
 } // namespace JSC

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,7 +31,8 @@
 #include "B3PCToOriginMap.h"
 #include "DFGNode.h"
 #include "LinkBuffer.h"
-#include <wtf/Optional.h>
+#include "WasmOpcodeOrigin.h"
+#include <wtf/TZoneMallocInlines.h>
 
 #if COMPILER(MSVC)
 // See https://msdn.microsoft.com/en-us/library/4wz07268.aspx
@@ -100,20 +101,17 @@ private:
 } // anonymous namespace
 
 PCToCodeOriginMapBuilder::PCToCodeOriginMapBuilder(VM& vm)
-    : m_vm(vm)
-    , m_shouldBuildMapping(vm.shouldBuilderPCToCodeOriginMapping())
+    : m_shouldBuildMapping(vm.shouldBuilderPCToCodeOriginMapping())
 { }
 
 PCToCodeOriginMapBuilder::PCToCodeOriginMapBuilder(PCToCodeOriginMapBuilder&& other)
-    : m_vm(other.m_vm)
-    , m_codeRanges(WTFMove(other.m_codeRanges))
+    : m_codeRanges(WTFMove(other.m_codeRanges))
     , m_shouldBuildMapping(other.m_shouldBuildMapping)
 { }
 
 #if ENABLE(FTL_JIT)
-PCToCodeOriginMapBuilder::PCToCodeOriginMapBuilder(VM& vm, B3::PCToOriginMap&& b3PCToOriginMap)
-    : m_vm(vm)
-    , m_shouldBuildMapping(vm.shouldBuilderPCToCodeOriginMapping())
+PCToCodeOriginMapBuilder::PCToCodeOriginMapBuilder(JSTag, VM& vm, B3::PCToOriginMap b3PCToOriginMap)
+    : m_shouldBuildMapping(vm.shouldBuilderPCToCodeOriginMapping())
 {
     if (!m_shouldBuildMapping)
         return;
@@ -128,7 +126,27 @@ PCToCodeOriginMapBuilder::PCToCodeOriginMapBuilder(VM& vm, B3::PCToOriginMap&& b
 }
 #endif
 
-void PCToCodeOriginMapBuilder::appendItem(MacroAssembler::Label label, const CodeOrigin& codeOrigin)
+#if ENABLE(WEBASSEMBLY_OMGJIT) || ENABLE(WEBASSEMBLY_BBQJIT)
+PCToCodeOriginMapBuilder::PCToCodeOriginMapBuilder(WasmTag, B3::PCToOriginMap b3PCToOriginMap)
+    : m_shouldBuildMapping(true)
+{
+    for (const B3::PCToOriginMap::OriginRange& originRange : b3PCToOriginMap.ranges()) {
+        B3::Origin b3Origin = originRange.origin;
+        if (b3Origin) {
+#if USE(JSVALUE64)
+            Wasm::OpcodeOrigin wasmOrigin { b3Origin };
+            // We stash the location into a BytecodeIndex.
+            appendItem(originRange.label, CodeOrigin(BytecodeIndex(wasmOrigin.location())));
+#elif USE(JSVALUE32_64)
+            UNREACHABLE_FOR_PLATFORM(); // Needs porting
+#endif
+        } else
+            appendItem(originRange.label, PCToCodeOriginMapBuilder::defaultCodeOrigin());
+    }
+}
+#endif
+
+void PCToCodeOriginMapBuilder::appendItemSlow(MacroAssembler::Label label, const CodeOrigin& codeOrigin)
 {
     if (!m_shouldBuildMapping)
         return;
@@ -231,6 +249,8 @@ PCToCodeOriginMap::PCToCodeOriginMap(PCToCodeOriginMapBuilder&& builder, LinkBuf
     m_compressedCodeOrigins = static_cast<uint8_t*>(fastRealloc(codeOriginCompressor.m_buffer, m_compressedCodeOriginsSize));
 }
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(PCToCodeOriginMap);
+
 PCToCodeOriginMap::~PCToCodeOriginMap()
 {
     if (m_compressedPCs)
@@ -247,11 +267,11 @@ double PCToCodeOriginMap::memorySize()
     return size;
 }
 
-Optional<CodeOrigin> PCToCodeOriginMap::findPC(void* pc) const
+std::optional<CodeOrigin> PCToCodeOriginMap::findPC(void* pc) const
 {
     uintptr_t pcAsInt = bitwise_cast<uintptr_t>(pc);
     if (!(m_pcRangeStart <= pcAsInt && pcAsInt <= m_pcRangeEnd))
-        return WTF::nullopt;
+        return std::nullopt;
 
     uintptr_t currentPC = 0;
     BytecodeIndex currentBytecodeIndex = BytecodeIndex(0);
@@ -295,12 +315,12 @@ Optional<CodeOrigin> PCToCodeOriginMap::findPC(void* pc) const
             // We subtract 1 because we generate end points inclusively in this table, even though we are interested in ranges of the form: [previousPC, currentPC)
             uintptr_t endOfRange = currentPC - 1;
             if (startOfRange <= pcAsInt && pcAsInt <= endOfRange)
-                return Optional<CodeOrigin>(previousOrigin); // We return previousOrigin here because CodeOrigin's are mapped to the startValue of the range.
+                return std::optional<CodeOrigin>(previousOrigin); // We return previousOrigin here because CodeOrigin's are mapped to the startValue of the range.
         }
     }
 
     RELEASE_ASSERT_NOT_REACHED();
-    return WTF::nullopt;
+    return std::nullopt;
 }
 
 } // namespace JSC

@@ -37,23 +37,26 @@ class WebProcess;
 
 class AudioSessionRoutingArbitrator final
     : public WebProcessSupplement
-    , public WebCore::AudioSessionRoutingArbitrationClient
-    , public CanMakeWeakPtr<AudioSessionRoutingArbitrator> {
+    , public WebCore::AudioSessionRoutingArbitrationClient {
     WTF_MAKE_FAST_ALLOCATED;
 public:
     explicit AudioSessionRoutingArbitrator(WebProcess&);
     virtual ~AudioSessionRoutingArbitrator();
 
-    static const char* supplementName();
+    static ASCIILiteral supplementName();
 
     using WeakValueType = WebCore::AudioSessionRoutingArbitrationClient;
 
-private:
     // AudioSessionRoutingAbritrator
     void beginRoutingArbitrationWithCategory(WebCore::AudioSession::CategoryType, CompletionHandler<void(RoutingArbitrationError, DefaultRouteChanged)>&&) final;
     void leaveRoutingAbritration() final;
 
-    WebProcess& m_process;
+private:
+    const void* logIdentifier() const final { return m_logIdentifier; }
+    bool canLog() const final;
+
+    WebCore::AudioSession::ChangedObserver m_observer;
+    const void* m_logIdentifier;
 };
 
 }

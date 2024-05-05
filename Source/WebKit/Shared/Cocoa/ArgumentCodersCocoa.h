@@ -23,29 +23,139 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#pragma once
+
 #import "ArgumentCoders.h"
+#import "CoreIPCRetainPtr.h"
 
 #if PLATFORM(COCOA)
 
+#import "WKKeyedCoder.h"
 #import <wtf/RetainPtr.h>
+
+#if ENABLE(DATA_DETECTION)
+OBJC_CLASS DDScannerResult;
+#if PLATFORM(MAC)
+#if HAVE(SECURE_ACTION_CONTEXT)
+OBJC_CLASS DDSecureActionContext;
+using WKDDActionContext = DDSecureActionContext;
+#else
+OBJC_CLASS DDActionContext;
+using WKDDActionContext = DDActionContext;
+#endif // #if HAVE(SECURE_ACTION_CONTEXT)
+#endif // #if PLATFORM(MAC)
+#endif // #if ENABLE(DATA_DETECTION)
+
+#if USE(AVFOUNDATION)
+OBJC_CLASS AVOutputContext;
+#endif
+
+#if USE(PASSKIT)
+OBJC_CLASS CNPhoneNumber;
+OBJC_CLASS CNPostalAddress;
+OBJC_CLASS PKContact;
+OBJC_CLASS PKPaymentMerchantSession;
+#endif
 
 namespace IPC {
 
-void encodeObject(Encoder&, id);
-Optional<RetainPtr<id>> decodeObject(Decoder&, NSArray<Class> *allowedClasses);
+#ifdef __OBJC__
 
-template<typename T> using IsObjCObject = std::enable_if_t<std::is_convertible<T *, id>::value, T *>;
+enum class NSType : uint8_t {
+#if USE(AVFOUNDATION)
+    AVOutputContext,
+#endif
+    Array,
+#if USE(PASSKIT)
+    CNPhoneNumber,
+    CNPostalAddress,
+    PKContact,
+    PKPaymentMerchantSession,
+#endif
+    Color,
+#if ENABLE(DATA_DETECTION)
+#if PLATFORM(MAC)
+    DDActionContext,
+#endif
+    DDScannerResult,
+#endif
+    Data,
+    Date,
+    Error,
+    Dictionary,
+    Font,
+    Locale,
+    Number,
+    PersonNameComponents,
+    PresentationIntent,
+    SecureCoding,
+    String,
+    URL,
+    NSValue,
+    CF,
+    Unknown,
+};
+NSType typeFromObject(id);
+bool isSerializableValue(id);
+
+enum class CFType : uint8_t {
+    CFArray,
+    CFBoolean,
+    CFCharacterSet,
+    CFData,
+    CFDate,
+    CFDictionary,
+    CFNull,
+    CFNumber,
+    CFString,
+    CFURL,
+    SecCertificate,
+#if HAVE(SEC_KEYCHAIN)
+    SecKeychainItem,
+#endif
+#if HAVE(SEC_ACCESS_CONTROL)
+    SecAccessControl,
+#endif
+    SecTrust,
+    CGColorSpace,
+    CGColor,
+    Nullptr,
+    Unknown,
+};
+CFType typeFromCFTypeRef(CFTypeRef);
+
+#if ENABLE(DATA_DETECTION)
+template<> Class getClass<DDScannerResult>();
+#if PLATFORM(MAC)
+template<> Class getClass<WKDDActionContext>();
+#endif
+#endif
+#if USE(AVFOUNDATION)
+template<> Class getClass<AVOutputContext>();
+#endif
+#if USE(PASSKIT)
+template<> Class getClass<CNPhoneNumber>();
+template<> Class getClass<CNPostalAddress>();
+template<> Class getClass<PKContact>();
+template<> Class getClass<PKPaymentMerchantSession>();
+#endif
+
+void encodeObjectWithWrapper(Encoder&, id);
+std::optional<RetainPtr<id>> decodeObjectFromWrapper(Decoder&, const HashSet<Class>& allowedClasses);
+
+template<typename T> void encodeObjectDirectly(Encoder&, T *);
+template<typename T> void encodeObjectDirectly(Encoder&, T);
+template<typename T> void encodeObjectDirectly(StreamConnectionEncoder&, T *);
+template<typename T> void encodeObjectDirectly(StreamConnectionEncoder&, T);
+template<typename T> std::optional<RetainPtr<id>> decodeObjectDirectlyRequiringAllowedClasses(Decoder&);
 
 template<typename T, typename = IsObjCObject<T>> void encode(Encoder&, T *);
-template<typename T, typename = IsObjCObject<T>> WARN_UNUSED_RETURN bool decode(Decoder&, RetainPtr<T>&, NSArray<Class> *allowedClasses = @[ [T class] ]);
-template<typename T, typename = IsObjCObject<T>> Optional<RetainPtr<T>> decode(Decoder&, NSArray<Class> *allowedClasses = @[ [T class] ]);
-template<typename T, typename = IsObjCObject<T>> Optional<RetainPtr<T>> decode(Decoder&, Class allowedClass);
 
 #if ASSERT_ENABLED
 
-static inline bool isObjectClassAllowed(id object, NSArray<Class> *allowedClasses)
+static inline bool isObjectClassAllowed(id object, const HashSet<Class>& allowedClasses)
 {
-    for (Class allowedClass in allowedClasses) {
+    for (Class allowedClass : allowedClasses) {
         if ([object isKindOfClass:allowedClass])
             return true;
     }
@@ -55,43 +165,50 @@ static inline bool isObjectClassAllowed(id object, NSArray<Class> *allowedClasse
 #endif // ASSERT_ENABLED
 
 template<typename T, typename>
-void encode(Encoder& encoder, T *object)
+std::optional<RetainPtr<T>> decodeRequiringAllowedClasses(Decoder& decoder)
 {
-    encodeObject(encoder, object);
-}
-
-template<typename T, typename>
-bool decode(Decoder& decoder, RetainPtr<T>& result, NSArray<Class> *allowedClasses)
-{
-    auto object = decodeObject(decoder, allowedClasses);
-    if (!object)
-        return false;
-    result = *object;
-    ASSERT(!*object || isObjectClassAllowed((*object).get(), allowedClasses));
-    return true;
-}
-
-template<typename T, typename>
-Optional<RetainPtr<T>> decode(Decoder& decoder, NSArray<Class> *allowedClasses)
-{
-    auto result = decodeObject(decoder, allowedClasses);
+    auto result = decodeObjectFromWrapper(decoder, decoder.allowedClasses());
     if (!result)
-        return WTF::nullopt;
-    ASSERT(!*result || isObjectClassAllowed((*result).get(), allowedClasses));
+        return std::nullopt;
+    ASSERT(!*result || isObjectClassAllowed((*result).get(), decoder.allowedClasses()));
     return { *result };
 }
 
 template<typename T, typename>
-Optional<RetainPtr<T>> decode(Decoder& decoder, Class allowedClass)
+std::optional<T> decodeRequiringAllowedClasses(Decoder& decoder)
 {
-    return decode<T>(decoder, allowedClass ? @[ allowedClass ] : @[ ]);
+    auto result = decodeObjectFromWrapper(decoder, decoder.allowedClasses());
+    if (!result)
+        return std::nullopt;
+    ASSERT(!*result || isObjectClassAllowed((*result).get(), decoder.allowedClasses()));
+    return { *result };
 }
 
 template<typename T> struct ArgumentCoder<T *> {
     template<typename U = T, typename = IsObjCObject<U>>
     static void encode(Encoder& encoder, U *object)
     {
-        encodeObject(encoder, object);
+        encodeObjectWithWrapper(encoder, object);
+    }
+};
+
+template<typename T> struct ArgumentCoder<CoreIPCRetainPtr<T>> {
+    template<typename U = T>
+    static void encode(Encoder& encoder, const CoreIPCRetainPtr<U>& object)
+    {
+        encodeObjectDirectly<U>(encoder, object.get());
+    }
+
+    template<typename U = T>
+    static void encode(StreamConnectionEncoder& encoder, const CoreIPCRetainPtr<U>& object)
+    {
+        encodeObjectDirectly<U>(encoder, object.get());
+    }
+
+    template<typename U = T>
+    static std::optional<RetainPtr<U>> decode(Decoder& decoder)
+    {
+        return decodeObjectDirectlyRequiringAllowedClasses<U>(decoder);
     }
 };
 
@@ -103,11 +220,19 @@ template<typename T> struct ArgumentCoder<RetainPtr<T>> {
     }
 
     template<typename U = T, typename = IsObjCObject<U>>
-    static Optional<RetainPtr<U>> decode(Decoder& decoder)
+    static std::optional<RetainPtr<U>> decode(Decoder& decoder)
     {
-        return IPC::decode<U>(decoder);
+        return decoder.decodeWithAllowedClasses<U>();
     }
 };
+
+template<typename T, typename>
+void encode(Encoder& encoder, T *object)
+{
+    ArgumentCoder<T *>::encode(encoder, object);
+}
+
+#endif // __OBJC__
 
 } // namespace IPC
 

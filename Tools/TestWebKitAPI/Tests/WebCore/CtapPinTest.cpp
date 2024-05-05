@@ -31,7 +31,7 @@
 #include "PlatformUtilities.h"
 #include <WebCore/CBORReader.h>
 #include <WebCore/CBORValue.h>
-#include <WebCore/CryptoAlgorithmAES_CBC.h>
+#include <WebCore/CryptoAlgorithmAESCBC.h>
 #include <WebCore/CryptoAlgorithmAesCbcCfbParams.h>
 #include <WebCore/CryptoAlgorithmECDH.h>
 #include <WebCore/CryptoKeyAES.h>
@@ -52,20 +52,20 @@ using namespace fido::pin;
 TEST(CtapPinTest, TestValidateAndConvertToUTF8)
 {
     // Failure cases
-    auto result = validateAndConvertToUTF8("123");
+    auto result = validateAndConvertToUTF8("123"_s);
     EXPECT_FALSE(result);
-    result = validateAndConvertToUTF8("");
+    result = validateAndConvertToUTF8(emptyString());
     EXPECT_FALSE(result);
-    result = validateAndConvertToUTF8("1234567812345678123456781234567812345678123456781234567812345678");
+    result = validateAndConvertToUTF8("1234567812345678123456781234567812345678123456781234567812345678"_s);
     EXPECT_FALSE(result);
 
     // Success cases
-    result = validateAndConvertToUTF8("1234");
+    result = validateAndConvertToUTF8("1234"_s);
     EXPECT_TRUE(result);
     EXPECT_EQ(result->length(), 4u);
     EXPECT_STREQ(result->data(), "1234");
 
-    result = validateAndConvertToUTF8("123456781234567812345678123456781234567812345678123456781234567");
+    result = validateAndConvertToUTF8("123456781234567812345678123456781234567812345678123456781234567"_s);
     EXPECT_TRUE(result);
     EXPECT_EQ(result->length(), 63u);
     EXPECT_STREQ(result->data(), "123456781234567812345678123456781234567812345678123456781234567");
@@ -127,7 +127,7 @@ TEST(CtapPinTest, TestKeyAgreementResponse)
 
 // FIXME: When can we enable this for non-Cocoa platforms?
 // FIXME: Can we enable this for watchOS and tvOS?
-#if PLATFORM(MAC) || PLATFORM(IOS)
+#if PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(VISION)
     result = KeyAgreementResponse::parse(convertBytesToVector(TestData::kCtapClientPinInvalidKeyAgreementResponse, sizeof(TestData::kCtapClientPinInvalidKeyAgreementResponse))); // The point is not on the curve.
     EXPECT_FALSE(result);
 #endif
@@ -174,7 +174,7 @@ TEST(CtapPinTest, TestKeyAgreementResponse)
 TEST(CtapPinTest, TestTokenRequest)
 {
     // Generate an EC key pair as the peer key.
-    auto keyPairResult = CryptoKeyEC::generatePair(CryptoAlgorithmIdentifier::ECDH, "P-256", true, CryptoKeyUsageDeriveBits);
+    auto keyPairResult = CryptoKeyEC::generatePair(CryptoAlgorithmIdentifier::ECDH, "P-256"_s, true, CryptoKeyUsageDeriveBits);
     ASSERT_FALSE(keyPairResult.hasException());
     auto keyPair = keyPairResult.releaseReturnValue();
 
@@ -225,7 +225,7 @@ TEST(CtapPinTest, TestTokenRequest)
     EXPECT_NE(xIt, coseKey.end());
     const auto& yIt = coseKey.find(CBORValue(COSE::y));
     EXPECT_NE(yIt, coseKey.end());
-    auto cosePublicKey = CryptoKeyEC::importRaw(CryptoAlgorithmIdentifier::ECDH, "P-256", encodeRawPublicKey(xIt->second.getByteString(), yIt->second.getByteString()), true, CryptoKeyUsageDeriveBits);
+    auto cosePublicKey = CryptoKeyEC::importRaw(CryptoAlgorithmIdentifier::ECDH, "P-256"_s, encodeRawPublicKey(xIt->second.getByteString(), yIt->second.getByteString()), true, CryptoKeyUsageDeriveBits);
     EXPECT_TRUE(cosePublicKey);
 
     // Check the encrypted Pin.
@@ -241,7 +241,7 @@ TEST(CtapPinTest, TestTokenRequest)
 
     const auto& it6 = responseMap.find(CBORValue(static_cast<uint8_t>(RequestKey::kPinHashEnc)));
     EXPECT_NE(it6, responseMap.end());
-    auto pinHashResult = CryptoAlgorithmAES_CBC::platformDecrypt({ }, *aesKey, it6->second.getByteString(), CryptoAlgorithmAES_CBC::Padding::No);
+    auto pinHashResult = CryptoAlgorithmAESCBC::platformDecrypt({ }, *aesKey, it6->second.getByteString(), CryptoAlgorithmAESCBC::Padding::No);
     EXPECT_FALSE(pinHashResult.hasException());
     auto pinHash = pinHashResult.releaseReturnValue();
     const uint8_t expectedPinHash[] = { 0x03, 0xac, 0x67, 0x42, 0x16, 0xf3, 0xe1, 0x5c, 0x76, 0x1e, 0xe1, 0xa5, 0xe2, 0x55, 0xf0, 0x67 };

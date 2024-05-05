@@ -49,6 +49,11 @@ public:
         return adoptRef(*new SVGTransform(value.type(), value.matrix()->value(), value.angle(), value.rotationCenter()));
     }
 
+    static Ref<SVGTransform> create(SVGTransformValue&& value)
+    {
+        return adoptRef(*new SVGTransform(WTFMove(value)));
+    }
+
     template<typename T>
     static ExceptionOr<Ref<SVGTransform>> create(ExceptionOr<T>&& value)
     {
@@ -74,20 +79,20 @@ public:
     ExceptionOr<void> setMatrix(DOMMatrix2DInit&& matrixInit)
     {
         if (isReadOnly())
-            return Exception { NoModificationAllowedError };
+            return Exception { ExceptionCode::NoModificationAllowedError };
 
         AffineTransform transform;
-        if (matrixInit.a.hasValue())
+        if (matrixInit.a)
             transform.setA(matrixInit.a.value());
-        if (matrixInit.b.hasValue())
+        if (matrixInit.b)
             transform.setB(matrixInit.b.value());
-        if (matrixInit.c.hasValue())
+        if (matrixInit.c)
             transform.setC(matrixInit.c.value());
-        if (matrixInit.d.hasValue())
+        if (matrixInit.d)
             transform.setD(matrixInit.d.value());
-        if (matrixInit.e.hasValue())
+        if (matrixInit.e)
             transform.setE(matrixInit.e.value());
-        if (matrixInit.f.hasValue())
+        if (matrixInit.f)
             transform.setF(matrixInit.f.value());
         m_value.setMatrix(transform);
         commitChange();
@@ -97,7 +102,7 @@ public:
     ExceptionOr<void> setTranslate(float tx, float ty)
     {
         if (isReadOnly())
-            return Exception { NoModificationAllowedError };
+            return Exception { ExceptionCode::NoModificationAllowedError };
 
         m_value.setTranslate(tx, ty);
         commitChange();
@@ -107,7 +112,7 @@ public:
     ExceptionOr<void> setScale(float sx, float sy)
     {
         if (isReadOnly())
-            return Exception { NoModificationAllowedError };
+            return Exception { ExceptionCode::NoModificationAllowedError };
 
         m_value.setScale(sx, sy);
         commitChange();
@@ -117,7 +122,7 @@ public:
     ExceptionOr<void> setRotate(float angle, float cx, float cy)
     {
         if (isReadOnly())
-            return Exception { NoModificationAllowedError };
+            return Exception { ExceptionCode::NoModificationAllowedError };
 
         m_value.setRotate(angle, cx, cy);
         commitChange();
@@ -127,7 +132,7 @@ public:
     ExceptionOr<void> setSkewX(float angle)
     {
         if (isReadOnly())
-            return Exception { NoModificationAllowedError };
+            return Exception { ExceptionCode::NoModificationAllowedError };
 
         m_value.setSkewX(angle);
         commitChange();
@@ -137,7 +142,7 @@ public:
     ExceptionOr<void> setSkewY(float angle)
     {
         if (isReadOnly())
-            return Exception { NoModificationAllowedError };
+            return Exception { ExceptionCode::NoModificationAllowedError };
 
         m_value.setSkewY(angle);
         commitChange();
@@ -164,6 +169,12 @@ private:
     SVGTransform(SVGTransformValue::SVGTransformType type, const AffineTransform& transform = { }, float angle = 0, const FloatPoint& rotationCenter = { })
         : Base(SVGTransformValue(type, SVGMatrix::create(this, SVGPropertyAccess::ReadWrite, transform), angle, rotationCenter))
     {
+    }
+
+    SVGTransform(SVGTransformValue&& value)
+        : Base(WTFMove(value))
+    {
+        m_value.matrix()->attach(this, SVGPropertyAccess::ReadWrite);
     }
 
     SVGPropertyOwner* owner() const override { return m_owner; }

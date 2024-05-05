@@ -24,6 +24,9 @@
  */
 
 [
-    Conditional=WEBGL
+    Conditional=WEBGL,
+    EnabledBySetting=WebGLEnabled,
+    GenerateIsReachable=Impl,
+    Exposed=(Window,Worker)
 ] interface WebGLShader {
 };

@@ -40,58 +40,36 @@ public:
     {
     }
 
+    FormDataReference(RefPtr<WebCore::FormData>&&, Vector<WebKit::SandboxExtension::Handle>&&);
+
+    RefPtr<WebCore::FormData> data() const { return m_data.get(); }
     RefPtr<WebCore::FormData> takeData() { return WTFMove(m_data); }
 
-    void encode(Encoder& encoder) const
-    {
-        encoder << !!m_data;
-        if (!m_data)
-            return;
-
-        encoder << *m_data;
-
-        auto& elements = m_data->elements();
-        size_t fileCount = std::count_if(elements.begin(), elements.end(), [](auto& element) {
-            return WTF::holds_alternative<WebCore::FormDataElement::EncodedFileData>(element.data);
-        });
-
-        WebKit::SandboxExtension::HandleArray sandboxExtensionHandles;
-        sandboxExtensionHandles.allocate(fileCount);
-        size_t extensionIndex = 0;
-        for (auto& element : elements) {
-            if (auto* fileData = WTF::get_if<WebCore::FormDataElement::EncodedFileData>(element.data)) {
-                const String& path = fileData->filename;
-                WebKit::SandboxExtension::createHandle(path, WebKit::SandboxExtension::Type::ReadOnly, sandboxExtensionHandles[extensionIndex++]);
-            }
-        }
-        encoder << sandboxExtensionHandles;
-    }
-
-    static Optional<FormDataReference> decode(Decoder& decoder)
-    {
-        Optional<bool> hasFormData;
-        decoder >> hasFormData;
-        if (!hasFormData)
-            return WTF::nullopt;
-        if (!hasFormData.value())
-            return FormDataReference { };
-
-        auto formData = WebCore::FormData::decode(decoder);
-        if (!formData)
-            return WTF::nullopt;
-
-        Optional<WebKit::SandboxExtension::HandleArray> sandboxExtensionHandles;
-        decoder >> sandboxExtensionHandles;
-        if (!sandboxExtensionHandles)
-            return WTF::nullopt;
-
-        WebKit::SandboxExtension::consumePermanently(*sandboxExtensionHandles);
-
-        return FormDataReference { formData.releaseNonNull() };
-    }
+    Vector<WebKit::SandboxExtension::Handle> sandboxExtensionHandles() const;
 
 private:
     RefPtr<WebCore::FormData> m_data;
 };
+
+inline FormDataReference::FormDataReference(RefPtr<WebCore::FormData>&& data, Vector<WebKit::SandboxExtension::Handle>&& sandboxExtensionHandles)
+    : m_data(WTFMove(data))
+{
+    WebKit::SandboxExtension::consumePermanently(WTFMove(sandboxExtensionHandles));
+}
+
+inline Vector<WebKit::SandboxExtension::Handle> FormDataReference::sandboxExtensionHandles() const
+{
+    if (!m_data)
+        return { };
+
+    return WTF::compactMap(m_data->elements(), [](auto& element) -> std::optional<WebKit::SandboxExtension::Handle> {
+        if (auto* fileData = std::get_if<WebCore::FormDataElement::EncodedFileData>(&element.data)) {
+            const String& path = fileData->filename;
+            if (auto handle = WebKit::SandboxExtension::createHandle(path, WebKit::SandboxExtension::Type::ReadOnly))
+                return { WTFMove(*handle) };
+        }
+        return std::nullopt;
+    });
+}
 
 } // namespace IPC

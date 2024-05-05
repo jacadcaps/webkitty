@@ -30,6 +30,7 @@
 #include <wtf/RefCounted.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/Vector.h>
+#include <wtf/WeakHashSet.h>
 #include <wtf/text/WTFString.h>
 
 typedef unsigned short CGGlyph;
@@ -38,6 +39,10 @@ typedef const struct __CTRun * CTRunRef;
 typedef const struct __CTLine * CTLineRef;
 
 typedef struct hb_buffer_t hb_buffer_t;
+
+namespace WTF {
+class CachedTextBreakIterator;
+}
 
 namespace WebCore {
 
@@ -51,13 +56,13 @@ enum GlyphIterationStyle { IncludePartialGlyphs, ByWholeGlyphs };
 class ComplexTextController {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    ComplexTextController(const FontCascade&, const TextRun&, bool mayUseNaturalWritingDirection = false, HashSet<const Font*>* fallbackFonts = 0, bool forTextEmphasis = false);
+    ComplexTextController(const FontCascade&, const TextRun&, bool mayUseNaturalWritingDirection = false, SingleThreadWeakHashSet<const Font>* fallbackFonts = 0, bool forTextEmphasis = false);
 
     class ComplexTextRun;
     WEBCORE_EXPORT ComplexTextController(const FontCascade&, const TextRun&, Vector<Ref<ComplexTextRun>>&);
 
     // Advance and emit glyphs up to the specified character.
-    WEBCORE_EXPORT void advance(unsigned to, GlyphBuffer* = nullptr, GlyphIterationStyle = IncludePartialGlyphs, HashSet<const Font*>* fallbackFonts = nullptr);
+    WEBCORE_EXPORT void advance(unsigned to, GlyphBuffer* = nullptr, GlyphIterationStyle = IncludePartialGlyphs, SingleThreadWeakHashSet<const Font>* fallbackFonts = nullptr);
 
     // Compute the character offset for a given x coordinate.
     unsigned offsetForPosition(float x, bool includePartialGlyphs);
@@ -105,33 +110,6 @@ public:
         unsigned endOffsetAt(unsigned i) const { ASSERT(!m_isMonotonic); return m_glyphEndOffsets[i]; }
         const CGGlyph* glyphs() const { return m_glyphs.data(); }
 
-        /*
-         * This is the format of the information CoreText gives us about each run:
-         *
-         *                                        ----->X (Paint glyph position)   X (Paint glyph position)   X (Paint glyph position)
-         *                                       /     7                          7                          7
-         *                                      /     /                          /                          /
-         *                   (Initial advance) /     / (Glyph origin)           / (Glyph origin)           / (Glyph origin)
-         *                  -------------------     /                          /                          /
-         *                 /                       /                          /                          /
-         *                X                       X--------------------------X--------------------------X--------------------------X
-         * (text position ^)                             (base advance)             (base advance)             (base advance)
-         *
-         *
-         *
-         *
-         *
-         * And here is the output we transform this into (for each run):
-         *
-         *                                        ----->X------------------------->X------------------------->X
-         *                                       /            (Paint advance)            (Paint advance)       \
-         *                                      /                                                               \
-         *                   (Initial advance) /                                                                 \ (Paint advance)
-         *                  -------------------                                                                   ----------------
-         *                 /                                                                                                      \
-         *                X--------------------------------------------------X--------------------------X--------------------------X
-         * (text position ^)                (layout advance)                       (layout advance)           (layout advance)
-         */
         void growInitialAdvanceHorizontally(float delta) { m_initialAdvance.expand(delta, 0); }
         FloatSize initialAdvance() const { return m_initialAdvance; }
         const FloatSize* baseAdvances() const { return m_baseAdvances.data(); }
@@ -146,11 +124,15 @@ public:
         ComplexTextRun(const Font&, const UChar* characters, unsigned stringLocation, unsigned stringLength, unsigned indexBegin, unsigned indexEnd, bool ltr);
         WEBCORE_EXPORT ComplexTextRun(const Vector<FloatSize>& advances, const Vector<FloatPoint>& origins, const Vector<Glyph>& glyphs, const Vector<unsigned>& stringIndices, FloatSize initialAdvance, const Font&, const UChar* characters, unsigned stringLocation, unsigned stringLength, unsigned indexBegin, unsigned indexEnd, bool ltr);
 
-        Vector<FloatSize, 64> m_baseAdvances;
+        using BaseAdvancesVector = Vector<FloatSize, 64>;
+        using GlyphVector = Vector<CGGlyph, 64>;
+        using CoreTextIndicesVector = Vector<unsigned, 64>;
+
+        BaseAdvancesVector m_baseAdvances;
         Vector<FloatPoint, 64> m_glyphOrigins;
-        Vector<CGGlyph, 64> m_glyphs;
+        GlyphVector m_glyphs;
         Vector<unsigned, 64> m_glyphEndOffsets;
-        Vector<unsigned, 64> m_coreTextIndices;
+        CoreTextIndicesVector m_coreTextIndices;
         FloatSize m_initialAdvance;
         const Font& m_font;
         const UChar* m_characters;
@@ -181,6 +163,8 @@ private:
 
     FloatPoint glyphOrigin(unsigned index) const { return index < m_glyphOrigins.size() ? m_glyphOrigins[index] : FloatPoint(); }
 
+    bool advanceByCombiningCharacterSequence(const WTF::CachedTextBreakIterator& graphemeClusterIterator, unsigned& location, char32_t& baseCharacter, unsigned& markCount);
+
     Vector<FloatSize, 256> m_adjustedBaseAdvances;
     Vector<FloatPoint, 256> m_glyphOrigins;
     Vector<CGGlyph, 256> m_adjustedGlyphs;
@@ -207,7 +191,7 @@ private:
 
     Vector<String> m_stringsFor8BitRuns;
 
-    HashSet<const Font*>* m_fallbackFonts { nullptr };
+    SingleThreadWeakHashSet<const Font>* m_fallbackFonts { nullptr };
 
     const FontCascade& m_font;
     const TextRun& m_run;
@@ -225,7 +209,7 @@ private:
     float m_expansionPerOpportunity { 0 };
 
     float m_minGlyphBoundingBoxX { std::numeric_limits<float>::max() };
-    float m_maxGlyphBoundingBoxX { std::numeric_limits<float>::min() };
+    float m_maxGlyphBoundingBoxX { std::numeric_limits<float>::lowest() };
     float m_minGlyphBoundingBoxY { std::numeric_limits<float>::max() };
     float m_maxGlyphBoundingBoxY { std::numeric_limits<float>::min() };
 

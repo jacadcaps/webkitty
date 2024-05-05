@@ -26,11 +26,12 @@
 #pragma once
 
 #include "PluginData.h"
-#include <wtf/HashSet.h>
+#include <wtf/WeakHashSet.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
-class WEBCORE_EXPORT PluginInfoProvider : public RefCounted<PluginInfoProvider> {
+class WEBCORE_EXPORT PluginInfoProvider : public RefCounted<PluginInfoProvider>, public CanMakeWeakPtr<PluginInfoProvider> {
 public:
     virtual ~PluginInfoProvider();
 
@@ -40,13 +41,13 @@ public:
     void removePage(Page&);
     void clearPagesPluginData();
 
-    virtual Vector<PluginInfo> pluginInfo(Page&, Optional<Vector<SupportedPluginIdentifier>>&) = 0;
+    virtual Vector<PluginInfo> pluginInfo(Page&, std::optional<Vector<SupportedPluginIdentifier>>&) = 0;
     virtual Vector<PluginInfo> webVisiblePluginInfo(Page&, const URL&) = 0;
 
 private:
     virtual void refreshPlugins() = 0;
 
-    HashSet<Page*> m_pages;
+    SingleThreadWeakHashSet<Page> m_pages;
 };
 
 }

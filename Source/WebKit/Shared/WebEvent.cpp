@@ -32,46 +32,52 @@
 
 namespace WebKit {
 
-WebEvent::WebEvent()
-    : m_type(static_cast<uint32_t>(NoType))
-{
-}
-
-WebEvent::WebEvent(Type type, OptionSet<Modifier> modifiers, WallTime timestamp)
+WebEvent::WebEvent(WebEventType type, OptionSet<WebEventModifier> modifiers, WallTime timestamp, WTF::UUID authorizationToken)
     : m_type(type)
     , m_modifiers(modifiers)
     , m_timestamp(timestamp)
+    , m_authorizationToken(authorizationToken)
 {
 }
 
-void WebEvent::encode(IPC::Encoder& encoder) const
+WebEvent::WebEvent(WebEventType type, OptionSet<WebEventModifier> modifiers, WallTime timestamp)
+    : m_type(type)
+    , m_modifiers(modifiers)
+    , m_timestamp(timestamp)
+    , m_authorizationToken(WTF::UUID::createVersion4())
 {
-    encoder << m_type;
-    encoder << m_modifiers;
-    encoder << m_timestamp;
 }
 
-bool WebEvent::decode(IPC::Decoder& decoder, WebEvent& result)
+TextStream& operator<<(TextStream& ts, WebEventType eventType)
 {
-    if (!decoder.decode(result.m_type))
-        return false;
-    if (!decoder.decode(result.m_modifiers))
-        return false;
-    if (!decoder.decode(result.m_timestamp))
-        return false;
-    return true;
-}
+    switch (eventType) {
+    case WebEventType::MouseDown: ts << "MouseDown"; break;
+    case WebEventType::MouseUp: ts << "MouseUp"; break;
+    case WebEventType::MouseMove: ts << "MouseMove"; break;
+    case WebEventType::MouseForceChanged: ts << "MouseForceChanged"; break;
+    case WebEventType::MouseForceDown: ts << "MouseForceDown"; break;
+    case WebEventType::MouseForceUp: ts << "MouseForceUp"; break;
+    case WebEventType::Wheel: ts << "Wheel"; break;
+    case WebEventType::KeyDown: ts << "KeyDown"; break;
+    case WebEventType::KeyUp: ts << "KeyUp"; break;
+    case WebEventType::RawKeyDown: ts << "RawKeyDown"; break;
+    case WebEventType::Char: ts << "Char"; break;
 
 #if ENABLE(TOUCH_EVENTS)
-bool WebTouchEvent::allTouchPointsAreReleased() const
-{
-    for (const auto& touchPoint : touchPoints()) {
-        if (touchPoint.state() != WebPlatformTouchPoint::TouchReleased && touchPoint.state() != WebPlatformTouchPoint::TouchCancelled)
-            return false;
+    case WebEventType::TouchStart: ts << "TouchStart"; break;
+    case WebEventType::TouchMove: ts << "TouchMove"; break;
+    case WebEventType::TouchEnd: ts << "TouchEnd"; break;
+    case WebEventType::TouchCancel: ts << "TouchCancel"; break;
+#endif
+
+#if ENABLE(MAC_GESTURE_EVENTS)
+    case WebEventType::GestureStart: ts << "GestureStart"; break;
+    case WebEventType::GestureChange: ts << "GestureChange"; break;
+    case WebEventType::GestureEnd: ts << "GestureEnd"; break;
+#endif
     }
 
-    return true;
+    return ts;
 }
-#endif
 
 } // namespace WebKit

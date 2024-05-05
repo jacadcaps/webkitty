@@ -27,10 +27,10 @@
 
 #import "DOMNodeInternal.h"
 #import "DOMRangeInternal.h"
-#import "WebTypesInternal.h"
 #import <JavaScriptCore/InitializeThreading.h>
 #import <WebCore/Range.h>
 #import <WebCore/TextIterator.h>
+#import <WebCore/WebCoreJITOperations.h>
 #import <wtf/MainThread.h>
 #import <wtf/RunLoop.h>
 #import <wtf/Vector.h>
@@ -49,6 +49,7 @@
 #if !PLATFORM(IOS_FAMILY)
     JSC::initialize();
     WTF::initializeMainThread();
+    WebCore::populateJITOperations();
 #endif
 }
 

@@ -25,8 +25,6 @@
 #include "config.h"
 #include "ComplexTextController.h"
 
-#if !USE(DIRECT2D)
-
 #include "FontCache.h"
 #include "FontCascade.h"
 #include "HWndDC.h"
@@ -140,7 +138,6 @@ static Vector<unsigned> stringIndicesFromClusters(const Vector<WORD>& clusters, 
     BidiRange<unsigned> stringIndicesRange(stringIndices, isLTR);
     auto glyphIndex = stringIndicesRange.begin();
     unsigned stringIndex = 0;
-    int i = 0;
     for (;;) {
         auto startStringIndex = stringIndex;
         auto startGlyphIndex = clusters[stringIndex];
@@ -244,7 +241,7 @@ void ComplexTextController::collectComplexTextRunsForCharacters(const UChar* cp,
             continue;
 
         if (m_fallbackFonts)
-            m_fallbackFonts->add(font);
+            m_fallbackFonts->add(*font);
 
         Vector<FloatSize> baseAdvances;
         Vector<FloatPoint> origins;
@@ -252,7 +249,7 @@ void ComplexTextController::collectComplexTextRunsForCharacters(const UChar* cp,
         origins.reserveCapacity(glyphs.size());
 
         for (unsigned k = 0; k < glyphs.size(); k++) {
-            const float cLogicalScale = font->platformData().useGDI() ? 1 : 32;
+            const float cLogicalScale = cWindowsFontScaleFactor;
             float advance = advances[k] / cLogicalScale;
             float offsetX = offsets[k].du / cLogicalScale;
             float offsetY = offsets[k].dv / cLogicalScale;
@@ -264,8 +261,8 @@ void ComplexTextController::collectComplexTextRunsForCharacters(const UChar* cp,
                 offsetY = roundf(offsetY);
             }
 
-            baseAdvances.uncheckedAppend({ advance, 0 });
-            origins.uncheckedAppend({ offsetX, offsetY });
+            baseAdvances.append({ advance, 0 });
+            origins.append({ offsetX, offsetY });
         }
         bool ltr = !item.a.fRTL;
         auto stringIndices = stringIndicesFromClusters(clusters, StringView(str, length), item.iCharPos, glyphs.size(), ltr);
@@ -275,5 +272,3 @@ void ComplexTextController::collectComplexTextRunsForCharacters(const UChar* cp,
 }
 
 }
-
-#endif // !USE(DIRECT2D)

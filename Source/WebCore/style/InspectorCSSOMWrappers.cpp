@@ -29,7 +29,10 @@
 #include "config.h"
 #include "InspectorCSSOMWrappers.h"
 
+#include "CSSContainerRule.h"
 #include "CSSImportRule.h"
+#include "CSSLayerBlockRule.h"
+#include "CSSLayerStatementRule.h"
 #include "CSSMediaRule.h"
 #include "CSSRule.h"
 #include "CSSStyleRule.h"
@@ -57,18 +60,30 @@ void InspectorCSSOMWrappers::collect(ListType* listType)
     unsigned size = listType->length();
     for (unsigned i = 0; i < size; ++i) {
         CSSRule* cssRule = listType->item(i);
-        switch (cssRule->type()) {
-        case CSSRule::IMPORT_RULE:
-            collect(downcast<CSSImportRule>(*cssRule).styleSheet());
+        if (!cssRule)
+            continue;
+        
+        switch (cssRule->styleRuleType()) {
+        case StyleRuleType::Container:
+            collect(uncheckedDowncast<CSSContainerRule>(cssRule));
             break;
-        case CSSRule::MEDIA_RULE:
-            collect(downcast<CSSMediaRule>(cssRule));
+        case StyleRuleType::Import:
+            collect(uncheckedDowncast<CSSImportRule>(*cssRule).styleSheet());
             break;
-        case CSSRule::SUPPORTS_RULE:
-            collect(downcast<CSSSupportsRule>(cssRule));
+        case StyleRuleType::LayerBlock:
+            collect(uncheckedDowncast<CSSLayerBlockRule>(cssRule));
             break;
-        case CSSRule::STYLE_RULE:
-            m_styleRuleToCSSOMWrapperMap.add(&downcast<CSSStyleRule>(*cssRule).styleRule(), downcast<CSSStyleRule>(cssRule));
+        case StyleRuleType::Media:
+            collect(uncheckedDowncast<CSSMediaRule>(cssRule));
+            break;
+        case StyleRuleType::Supports:
+            collect(uncheckedDowncast<CSSSupportsRule>(cssRule));
+            break;
+        case StyleRuleType::Style:
+            m_styleRuleToCSSOMWrapperMap.add(&uncheckedDowncast<CSSStyleRule>(*cssRule).styleRule(), uncheckedDowncast<CSSStyleRule>(cssRule));
+
+            // Eagerly collect rules nested in this style rule.
+            collect(uncheckedDowncast<CSSStyleRule>(cssRule));
             break;
         default:
             break;
@@ -104,14 +119,17 @@ void InspectorCSSOMWrappers::maybeCollectFromStyleSheets(const Vector<RefPtr<CSS
 void InspectorCSSOMWrappers::collectDocumentWrappers(ExtensionStyleSheets& extensionStyleSheets)
 {
     if (m_styleRuleToCSSOMWrapperMap.isEmpty()) {
-        collectFromStyleSheetContents(UserAgentStyle::simpleDefaultStyleSheet);
         collectFromStyleSheetContents(UserAgentStyle::defaultStyleSheet);
         collectFromStyleSheetContents(UserAgentStyle::quirksStyleSheet);
-        collectFromStyleSheetContents(UserAgentStyle::dialogStyleSheet);
         collectFromStyleSheetContents(UserAgentStyle::svgStyleSheet);
         collectFromStyleSheetContents(UserAgentStyle::mathMLStyleSheet);
         collectFromStyleSheetContents(UserAgentStyle::mediaControlsStyleSheet);
+        collectFromStyleSheetContents(UserAgentStyle::horizontalFormControlsStyleSheet);
+        collectFromStyleSheetContents(UserAgentStyle::viewTransitionsStyleSheet);
+        collectFromStyleSheetContents(UserAgentStyle::htmlSwitchControlStyleSheet);
+#if ENABLE(FULLSCREEN_API)
         collectFromStyleSheetContents(UserAgentStyle::fullscreenStyleSheet);
+#endif
 #if ENABLE(DATALIST_ELEMENT)
         collectFromStyleSheetContents(UserAgentStyle::dataListStyleSheet);
 #endif

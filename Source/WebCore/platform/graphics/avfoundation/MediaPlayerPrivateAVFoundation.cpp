@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,7 +29,6 @@
 
 #include "MediaPlayerPrivateAVFoundation.h"
 
-#include "DeprecatedGlobalSettings.h"
 #include "DocumentLoader.h"
 #include "FloatConversion.h"
 #include "GraphicsContext.h"
@@ -38,6 +37,7 @@
 #include "Logging.h"
 #include "PlatformLayer.h"
 #include "PlatformTimeRanges.h"
+#include "ScriptDisallowedScope.h"
 #include "Settings.h"
 #include <CoreMedia/CoreMedia.h>
 #include <JavaScriptCore/DataView.h>
@@ -47,6 +47,7 @@
 #include <wtf/MainThread.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/SoftLinking.h>
+#include <wtf/SortedArrayMap.h>
 #include <wtf/StringPrintStream.h>
 #include <wtf/URL.h>
 #include <wtf/text/CString.h>
@@ -55,8 +56,6 @@ namespace WebCore {
 
 MediaPlayerPrivateAVFoundation::MediaPlayerPrivateAVFoundation(MediaPlayer* player)
     : m_player(player)
-    , m_queuedNotifications()
-    , m_queueMutex()
     , m_networkState(MediaPlayer::NetworkState::Empty)
     , m_readyState(MediaPlayer::ReadyState::HaveNothing)
     , m_preload(MediaPlayer::Preload::Auto)
@@ -65,9 +64,7 @@ MediaPlayerPrivateAVFoundation::MediaPlayerPrivateAVFoundation(MediaPlayer* play
     , m_logIdentifier(player->mediaPlayerLogIdentifier())
 #endif
     , m_cachedDuration(MediaTime::invalidTime())
-    , m_reportedDuration(MediaTime::invalidTime())
     , m_maxTimeLoadedAtLastDidLoadingProgress(MediaTime::invalidTime())
-    , m_delayCallbacks(0)
     , m_delayCharacteristicsChangedNotification(0)
     , m_mainThreadCallPending(false)
     , m_assetIsPlayable(false)
@@ -79,7 +76,6 @@ MediaPlayerPrivateAVFoundation::MediaPlayerPrivateAVFoundation(MediaPlayer* play
     , m_cachedHasCaptions(false)
     , m_ignoreLoadStateChanges(false)
     , m_haveReportedFirstVideoFrame(false)
-    , m_inbandTrackConfigurationPending(false)
     , m_characteristicsChanged(false)
     , m_shouldMaintainAspectRatio(true)
     , m_seeking(false)
@@ -96,23 +92,27 @@ MediaPlayerPrivateAVFoundation::~MediaPlayerPrivateAVFoundation()
 MediaPlayerPrivateAVFoundation::MediaRenderingMode MediaPlayerPrivateAVFoundation::currentRenderingMode() const
 {
     if (platformLayer())
-        return MediaRenderingToLayer;
+        return MediaRenderingMode::MediaRenderingToLayer;
 
     if (hasContextRenderer())
-        return MediaRenderingToContext;
+        return MediaRenderingMode::MediaRenderingToContext;
 
-    return MediaRenderingNone;
+    return MediaRenderingMode::MediaRenderingNone;
 }
 
 MediaPlayerPrivateAVFoundation::MediaRenderingMode MediaPlayerPrivateAVFoundation::preferredRenderingMode() const
 {
-    if (!m_player->visible() || assetStatus() == MediaPlayerAVAssetStatusUnknown)
-        return MediaRenderingNone;
+    if (assetStatus() == MediaPlayerAVAssetStatusUnknown)
+        return MediaRenderingMode::MediaRenderingNone;
 
-    if (supportsAcceleratedRendering() && m_player->renderingCanBeAccelerated())
-        return MediaRenderingToLayer;
+    if (m_readyState >= MediaPlayer::ReadyState::HaveMetadata && !haveBeenAskedToPaint())
+        return MediaRenderingMode::MediaRenderingToLayer;
 
-    return MediaRenderingToContext;
+    RefPtr player = m_player.get();
+    if (supportsAcceleratedRendering() && player && player->renderingCanBeAccelerated())
+        return MediaRenderingMode::MediaRenderingToLayer;
+
+    return MediaRenderingMode::MediaRenderingToContext;
 }
 
 void MediaPlayerPrivateAVFoundation::setUpVideoRendering()
@@ -123,29 +123,52 @@ void MediaPlayerPrivateAVFoundation::setUpVideoRendering()
     MediaRenderingMode currentMode = currentRenderingMode();
     MediaRenderingMode preferredMode = preferredRenderingMode();
 
-    if (preferredMode == MediaRenderingNone)
-        preferredMode = MediaRenderingToContext;
-
-    if (currentMode == preferredMode && currentMode != MediaRenderingNone)
+    if (currentMode == preferredMode && currentMode != MediaRenderingMode::MediaRenderingNone)
         return;
 
-    if (currentMode != MediaRenderingNone)
-        tearDownVideoRendering();
+    ALWAYS_LOG(LOGIDENTIFIER, preferredMode);
 
     switch (preferredMode) {
-    case MediaRenderingNone:
-    case MediaRenderingToContext:
+    case MediaRenderingMode::MediaRenderingNone:
+        tearDownVideoRendering();
+        break;
+
+    case MediaRenderingMode::MediaRenderingToContext:
+        destroyVideoLayer();
         createContextVideoRenderer();
         break;
 
-    case MediaRenderingToLayer:
+    case MediaRenderingMode::MediaRenderingToLayer:
+        destroyContextVideoRenderer();
         createVideoLayer();
         break;
     }
 
     // If using a movie layer, inform the client so the compositing tree is updated.
-    if (currentMode == MediaRenderingToLayer || preferredMode == MediaRenderingToLayer)
-        m_player->renderingModeChanged();
+    if (currentMode == MediaRenderingMode::MediaRenderingToLayer || preferredMode == MediaRenderingMode::MediaRenderingToLayer)
+        setNeedsRenderingModeChanged();
+}
+
+void MediaPlayerPrivateAVFoundation::setNeedsRenderingModeChanged()
+{
+    if (m_needsRenderingModeChanged)
+        return;
+    m_needsRenderingModeChanged = true;
+
+    ALWAYS_LOG(LOGIDENTIFIER);
+
+    queueTaskOnEventLoop([weakThis = ThreadSafeWeakPtr { *this }] {
+        if (RefPtr protectedThis = weakThis.get())
+            protectedThis->renderingModeChanged();
+    });
+}
+
+void MediaPlayerPrivateAVFoundation::renderingModeChanged()
+{
+    ASSERT(m_needsRenderingModeChanged);
+    m_needsRenderingModeChanged = false;
+    if (RefPtr player = m_player.get())
+        player->renderingModeChanged();
 }
 
 void MediaPlayerPrivateAVFoundation::tearDownVideoRendering()
@@ -181,7 +204,7 @@ void MediaPlayerPrivateAVFoundation::load(const String& url)
 }
 
 #if ENABLE(MEDIA_SOURCE)
-void MediaPlayerPrivateAVFoundation::load(const String&, MediaSourcePrivateClient*)
+void MediaPlayerPrivateAVFoundation::load(const URL&, const ContentType&, MediaSourcePrivateClient&)
 {
     setNetworkState(MediaPlayer::NetworkState::FormatError);
 }
@@ -238,19 +261,12 @@ MediaTime MediaPlayerPrivateAVFoundation::durationMediaTime() const
     return m_cachedDuration;
 }
 
-void MediaPlayerPrivateAVFoundation::seek(const MediaTime& time)
+void MediaPlayerPrivateAVFoundation::seekToTarget(const SeekTarget& target)
 {
-    seekWithTolerance(time, MediaTime::zeroTime(), MediaTime::zeroTime());
-}
-
-void MediaPlayerPrivateAVFoundation::seekWithTolerance(const MediaTime& mediaTime, const MediaTime& negativeTolerance, const MediaTime& positiveTolerance)
-{
-    MediaTime time = mediaTime;
-
     if (m_seeking) {
         ALWAYS_LOG(LOGIDENTIFIER, "saving pending seek");
-        m_pendingSeek = [this, time, negativeTolerance, positiveTolerance]() {
-            seekWithTolerance(time, negativeTolerance, positiveTolerance);
+        m_pendingSeek = [this, target]() {
+            seekToTarget(target);
         };
         return;
     }
@@ -259,15 +275,17 @@ void MediaPlayerPrivateAVFoundation::seekWithTolerance(const MediaTime& mediaTim
     if (!metaDataAvailable())
         return;
 
-    if (time > durationMediaTime())
-        time = durationMediaTime();
+    SeekTarget adjustedTarget = target;
+    if (target.time > durationMediaTime())
+        adjustedTarget.time = durationMediaTime();
 
     if (currentTextTrack())
         currentTextTrack()->beginSeeking();
 
-    ALWAYS_LOG(LOGIDENTIFIER, "seeking to  ", time);
+    ALWAYS_LOG(LOGIDENTIFIER, "seeking to ", adjustedTarget.time);
 
-    seekToTime(time, negativeTolerance, positiveTolerance);
+    m_lastSeekTime = adjustedTarget.time;
+    seekToTargetInternal(adjustedTarget);
 }
 
 bool MediaPlayerPrivateAVFoundation::paused() const
@@ -307,7 +325,8 @@ void MediaPlayerPrivateAVFoundation::setNaturalSize(FloatSize size)
     m_cachedNaturalSize = size;
     if (oldSize != m_cachedNaturalSize) {
         INFO_LOG(LOGIDENTIFIER, "was ", oldSize.width(), " x ", oldSize.height(), ", is ", size.width(), " x ", size.height());
-        m_player->sizeChanged();
+        if (RefPtr player = m_player.get())
+            player->sizeChanged();
     }
 }
 
@@ -341,7 +360,8 @@ void MediaPlayerPrivateAVFoundation::setNetworkState(MediaPlayer::NetworkState s
         return;
 
     m_networkState = state;
-    m_player->networkStateChanged();
+    if (RefPtr player = m_player.get())
+        player->networkStateChanged();
 }
 
 void MediaPlayerPrivateAVFoundation::setReadyState(MediaPlayer::ReadyState state)
@@ -349,8 +369,20 @@ void MediaPlayerPrivateAVFoundation::setReadyState(MediaPlayer::ReadyState state
     if (state == m_readyState)
         return;
 
-    m_readyState = state;
-    m_player->readyStateChanged();
+    auto oldState = std::exchange(m_readyState, state);
+    RefPtr player = m_player.get();
+    if (player)
+        player->readyStateChanged();
+
+    if (oldState >= MediaPlayer::ReadyState::HaveMetadata)
+        return;
+
+    // Many state methods in MediaPlayerPrivateAVFoundation will return defaults
+    // if queried before reaching HaveMetadata. Re-fire their changed events after
+    // the ready state moves beyond HaveMetadata so the correct values are reflected
+    // upwards to clients.
+    if (!m_cachedNaturalSize.isEmpty() && player)
+        player->sizeChanged();
 }
 
 void MediaPlayerPrivateAVFoundation::characteristicsChanged()
@@ -361,7 +393,8 @@ void MediaPlayerPrivateAVFoundation::characteristicsChanged()
     }
 
     m_characteristicsChanged = false;
-    m_player->characteristicChanged();
+    if (RefPtr player = m_player.get())
+        player->characteristicChanged();
 }
 
 void MediaPlayerPrivateAVFoundation::setDelayCharacteristicsChangedNotification(bool delay)
@@ -377,12 +410,9 @@ void MediaPlayerPrivateAVFoundation::setDelayCharacteristicsChangedNotification(
         characteristicsChanged();
 }
 
-std::unique_ptr<PlatformTimeRanges> MediaPlayerPrivateAVFoundation::buffered() const
+const PlatformTimeRanges& MediaPlayerPrivateAVFoundation::buffered() const
 {
-    if (!m_cachedLoadedTimeRanges)
-        m_cachedLoadedTimeRanges = platformBufferedTimeRanges();
-
-    return makeUnique<PlatformTimeRanges>(*m_cachedLoadedTimeRanges);
+    return platformBufferedTimeRanges();
 }
 
 MediaTime MediaPlayerPrivateAVFoundation::maxMediaTimeSeekable() const
@@ -434,7 +464,7 @@ bool MediaPlayerPrivateAVFoundation::isReadyForVideoSetup() const
     // AVFoundation will not return true for firstVideoFrameAvailable until
     // an AVPlayerLayer has been added to the AVPlayerItem, so allow video setup
     // here if a video track to trigger allocation of a AVPlayerLayer.
-    return (m_isAllowedToRender || m_cachedHasVideo) && m_readyState >= MediaPlayer::ReadyState::HaveMetadata && m_player->visible();
+    return (m_isAllowedToRender || m_cachedHasVideo) && m_readyState >= MediaPlayer::ReadyState::HaveMetadata && m_visible;
 }
 
 void MediaPlayerPrivateAVFoundation::prepareForRendering()
@@ -445,29 +475,18 @@ void MediaPlayerPrivateAVFoundation::prepareForRendering()
 
     setUpVideoRendering();
 
-    if (currentRenderingMode() == MediaRenderingToLayer || preferredRenderingMode() == MediaRenderingToLayer)
-        m_player->renderingModeChanged();
+    if (currentRenderingMode() == MediaRenderingMode::MediaRenderingToLayer || preferredRenderingMode() == MediaRenderingMode::MediaRenderingToLayer)
+        setNeedsRenderingModeChanged();
 }
 
 bool MediaPlayerPrivateAVFoundation::supportsFullscreen() const
 {
-#if ENABLE(FULLSCREEN_API)
+    // FIXME: WebVideoFullscreenController assumes a QTKit/QuickTime media engine
+#if ENABLE(FULLSCREEN_API) || (PLATFORM(IOS_FAMILY) && HAVE(AVKIT))
     return true;
 #else
-    // FIXME: WebVideoFullscreenController assumes a QTKit/QuickTime media engine
-#if PLATFORM(IOS_FAMILY)
-    if (DeprecatedGlobalSettings::avKitEnabled())
-        return true;
-#endif
     return false;
 #endif
-}
-
-bool MediaPlayerPrivateAVFoundation::hasSingleSecurityOrigin() const
-{
-    if (m_resolvedOrigin && m_requestedOrigin)
-        return m_resolvedOrigin->isSameSchemeHostPort(*m_requestedOrigin);
-    return false;
 }
 
 void MediaPlayerPrivateAVFoundation::setResolvedURL(URL&& resolvedURL)
@@ -481,8 +500,11 @@ void MediaPlayerPrivateAVFoundation::updateStates()
     if (m_ignoreLoadStateChanges)
         return;
 
+    ScriptDisallowedScope::InMainThread scriptDisallowedScope;
+
     MediaPlayer::NetworkState newNetworkState = m_networkState;
     MediaPlayer::ReadyState newReadyState = m_readyState;
+    bool firstVideoFrameBecomeAvailable = false;
 
     if (m_loadingMetadata)
         newNetworkState = MediaPlayer::NetworkState::Loading;
@@ -490,7 +512,7 @@ void MediaPlayerPrivateAVFoundation::updateStates()
         // -loadValuesAsynchronouslyForKeys:completionHandler: has invoked its handler; test status of keys and determine state.
         AssetStatus assetStatus = this->assetStatus();
         ItemStatus itemStatus = playerItemStatus();
-        
+
         m_assetIsPlayable = (assetStatus == MediaPlayerAVAssetStatusPlayable);
         if (m_readyState < MediaPlayer::ReadyState::HaveMetadata && assetStatus > MediaPlayerAVAssetStatusLoading) {
             if (m_assetIsPlayable) {
@@ -511,7 +533,14 @@ void MediaPlayerPrivateAVFoundation::updateStates()
                 newNetworkState = MediaPlayer::NetworkState::FormatError;
             }
         }
-        
+
+        if (!hasAvailableVideoFrame())
+            m_haveReportedFirstVideoFrame = false;
+        else if (!m_haveReportedFirstVideoFrame && m_cachedHasVideo) {
+            m_haveReportedFirstVideoFrame = true;
+            firstVideoFrameBecomeAvailable = true;
+        }
+
         if (assetStatus >= MediaPlayerAVAssetStatusLoaded && itemStatus > MediaPlayerAVPlayerItemStatusUnknown) {
             switch (itemStatus) {
             case MediaPlayerAVPlayerItemStatusDoesNotExist:
@@ -522,13 +551,13 @@ void MediaPlayerPrivateAVFoundation::updateStates()
             case MediaPlayerAVPlayerItemStatusPlaybackLikelyToKeepUp:
             case MediaPlayerAVPlayerItemStatusPlaybackBufferFull:
                 // If the status becomes PlaybackBufferFull, loading stops and the status will not
-                // progress to LikelyToKeepUp. Set the readyState to  HAVE_ENOUGH_DATA, on the
+                // progress to LikelyToKeepUp. Set the readyState to HAVE_ENOUGH_DATA, on the
                 // presumption that if the playback buffer is full, playback will probably not stall.
                 newReadyState = MediaPlayer::ReadyState::HaveEnoughData;
                 break;
 
             case MediaPlayerAVPlayerItemStatusReadyToPlay:
-                if (m_readyState != MediaPlayer::ReadyState::HaveEnoughData && maxTimeLoaded() > currentMediaTime())
+                if (m_readyState != MediaPlayer::ReadyState::HaveEnoughData && (!m_cachedHasVideo || m_haveReportedFirstVideoFrame) && maxTimeLoaded() > currentMediaTime())
                     newReadyState = MediaPlayer::ReadyState::HaveFutureData;
                 break;
 
@@ -542,20 +571,16 @@ void MediaPlayerPrivateAVFoundation::updateStates()
             else if (itemStatus == MediaPlayerAVPlayerItemStatusFailed)
                 newNetworkState = MediaPlayer::NetworkState::DecodeError;
             else if (itemStatus != MediaPlayerAVPlayerItemStatusPlaybackBufferFull && itemStatus >= MediaPlayerAVPlayerItemStatusReadyToPlay)
-                newNetworkState = (maxTimeLoaded() == durationMediaTime()) ? MediaPlayer::NetworkState::Loaded : MediaPlayer::NetworkState::Loading;
+                newNetworkState = (maxTimeLoaded() >= durationMediaTime()) ? MediaPlayer::NetworkState::Loaded : MediaPlayer::NetworkState::Loading;
         }
     }
 
-    if (isReadyForVideoSetup() && currentRenderingMode() != preferredRenderingMode())
-        setUpVideoRendering();
-
-    if (!m_haveReportedFirstVideoFrame && m_cachedHasVideo && hasAvailableVideoFrame()) {
+    if (firstVideoFrameBecomeAvailable) {
         if (m_readyState < MediaPlayer::ReadyState::HaveCurrentData)
             newReadyState = MediaPlayer::ReadyState::HaveCurrentData;
-        m_haveReportedFirstVideoFrame = true;
-        m_player->firstVideoFrameAvailable();
-    } else if (!hasAvailableVideoFrame())
-        m_haveReportedFirstVideoFrame = false;
+        if (RefPtr player = m_player.get())
+            player->firstVideoFrameAvailable();
+    }
 
     if (m_networkState != newNetworkState)
         ALWAYS_LOG(LOGIDENTIFIER, "entered with networkState ", m_networkState, ", exiting with ", newNetworkState);
@@ -564,17 +589,22 @@ void MediaPlayerPrivateAVFoundation::updateStates()
 
     setNetworkState(newNetworkState);
     setReadyState(newReadyState);
+
+    if (isReadyForVideoSetup() && currentRenderingMode() != preferredRenderingMode())
+        setUpVideoRendering();
 }
 
-void MediaPlayerPrivateAVFoundation::setVisible(bool visible)
+void MediaPlayerPrivateAVFoundation::setPageIsVisible(bool visible, String&&)
 {
     if (m_visible == visible)
         return;
 
+    ALWAYS_LOG(LOGIDENTIFIER, visible);
+
     m_visible = visible;
     if (visible)
         setUpVideoRendering();
-    
+
     platformSetVisible(visible);
 }
 
@@ -602,22 +632,24 @@ void MediaPlayerPrivateAVFoundation::metadataLoaded()
 
 void MediaPlayerPrivateAVFoundation::rateChanged()
 {
-    m_player->rateChanged();
+    if (RefPtr player = m_player.get())
+        player->rateChanged();
 }
 
 void MediaPlayerPrivateAVFoundation::loadedTimeRangesChanged()
 {
-    m_cachedLoadedTimeRanges = nullptr;
     m_cachedMaxTimeLoaded = MediaTime::zeroTime();
     invalidateCachedDuration();
-    m_player->bufferedTimeRangesChanged();
+    if (RefPtr player = m_player.get())
+        player->bufferedTimeRangesChanged();
 }
 
 void MediaPlayerPrivateAVFoundation::seekableTimeRangesChanged()
 {
     m_cachedMaxTimeSeekable = MediaTime::zeroTime();
     m_cachedMinTimeSeekable = MediaTime::zeroTime();
-    m_player->seekableTimeRangesChanged();
+    if (RefPtr player = m_player.get())
+        player->seekableTimeRangesChanged();
 }
 
 void MediaPlayerPrivateAVFoundation::timeChanged(const MediaTime& time)
@@ -633,7 +665,7 @@ void MediaPlayerPrivateAVFoundation::seekCompleted(bool finished)
 
     m_seeking = false;
 
-    WTF::Function<void()> pendingSeek;
+    Function<void()> pendingSeek;
     std::swap(pendingSeek, m_pendingSeek);
 
     if (pendingSeek) {
@@ -642,11 +674,18 @@ void MediaPlayerPrivateAVFoundation::seekCompleted(bool finished)
         return;
     }
 
+    if (!finished)
+        return;
+
     if (currentTextTrack())
         currentTextTrack()->endSeeking();
 
     updateStates();
-    m_player->timeChanged();
+
+    if (RefPtr player = m_player.get()) {
+        player->seeked(m_lastSeekTime);
+        player->timeChanged();
+    }
 }
 
 void MediaPlayerPrivateAVFoundation::didEnd()
@@ -654,33 +693,27 @@ void MediaPlayerPrivateAVFoundation::didEnd()
     // Hang onto the current time and use it as duration from now on since we are definitely at
     // the end of the movie. Do this because the initial duration is sometimes an estimate.
     MediaTime now = currentMediaTime();
+    ALWAYS_LOG(LOGIDENTIFIER, "currentTime: ", now, ", seeking: ", m_seeking);
     if (now > MediaTime::zeroTime() && !m_seeking)
         m_cachedDuration = now;
 
     updateStates();
-    m_player->timeChanged();
+    if (RefPtr player = m_player.get())
+        player->timeChanged();
 }
 
 void MediaPlayerPrivateAVFoundation::invalidateCachedDuration()
 {
     m_cachedDuration = MediaTime::invalidTime();
-
-    // For some media files, reported duration is estimated and updated as media is loaded
-    // so report duration changed when the estimate is upated.
-    MediaTime duration = this->durationMediaTime();
-    if (duration != m_reportedDuration) {
-        INFO_LOG(LOGIDENTIFIER, "- ", m_cachedDuration);
-        if (m_reportedDuration.isValid())
-            m_player->durationChanged();
-        m_reportedDuration = duration;
-    }
-    
 }
 
 MediaPlayer::MovieLoadType MediaPlayerPrivateAVFoundation::movieLoadType() const
 {
     if (!metaDataAvailable() || assetStatus() == MediaPlayerAVAssetStatusUnknown)
         return MediaPlayer::MovieLoadType::Unknown;
+
+    if (isHLS())
+        return MediaPlayer::MovieLoadType::HttpLiveStream;
 
     if (isLiveStream())
         return MediaPlayer::MovieLoadType::LiveStream;
@@ -695,189 +728,14 @@ void MediaPlayerPrivateAVFoundation::setPreload(MediaPlayer::Preload preload)
     if (m_assetURL.isEmpty())
         return;
 
-    setDelayCallbacks(true);
-
-    if (m_preload >= MediaPlayer::Preload::MetaData && assetStatus() == MediaPlayerAVAssetStatusDoesNotExist) {
+    if (m_preload >= MediaPlayer::Preload::MetaData && assetStatus() == MediaPlayerAVAssetStatusDoesNotExist)
         createAVAssetForURL(m_assetURL);
-        checkPlayability();
-    }
 
     // Don't force creation of the player and player item unless we already know that the asset is playable. If we aren't
     // there yet, or if we already know it is not playable, creating them now won't help.
     if (m_preload == MediaPlayer::Preload::Auto && m_assetIsPlayable) {
         createAVPlayerItem();
         createAVPlayer();
-    }
-
-    setDelayCallbacks(false);
-}
-
-void MediaPlayerPrivateAVFoundation::setDelayCallbacks(bool delay) const
-{
-    LockHolder lock(m_queueMutex);
-    if (delay)
-        ++m_delayCallbacks;
-    else {
-        ASSERT(m_delayCallbacks);
-        --m_delayCallbacks;
-    }
-}
-
-void MediaPlayerPrivateAVFoundation::mainThreadCallback()
-{
-    clearMainThreadPendingFlag();
-    dispatchNotification();
-}
-
-void MediaPlayerPrivateAVFoundation::clearMainThreadPendingFlag()
-{
-    LockHolder lock(m_queueMutex);
-    m_mainThreadCallPending = false;
-}
-
-void MediaPlayerPrivateAVFoundation::scheduleMainThreadNotification(Notification::Type type, const MediaTime& time)
-{
-    scheduleMainThreadNotification(Notification(type, time));
-}
-
-void MediaPlayerPrivateAVFoundation::scheduleMainThreadNotification(Notification::Type type, bool finished)
-{
-    scheduleMainThreadNotification(Notification(type, finished));
-}
-
-void MediaPlayerPrivateAVFoundation::scheduleMainThreadNotification(Notification&& notification)
-{
-    m_queueMutex.lock();
-
-    // It is important to always process the properties in the order that we are notified,
-    // so always go through the queue because notifications happen on different threads.
-    m_queuedNotifications.append(WTFMove(notification));
-
-#if OS(WINDOWS)
-    bool delayDispatch = true;
-#else
-    bool delayDispatch = m_delayCallbacks || !isMainThread();
-#endif
-    if (delayDispatch && !m_mainThreadCallPending) {
-        m_mainThreadCallPending = true;
-
-        callOnMainThread([weakThis = makeWeakPtr(*this)] {
-            if (!weakThis)
-                return;
-
-            weakThis->mainThreadCallback();
-        });
-    }
-
-    m_queueMutex.unlock();
-
-    if (delayDispatch)
-        return;
-
-    dispatchNotification();
-}
-
-void MediaPlayerPrivateAVFoundation::dispatchNotification()
-{
-    ASSERT(isMainThread());
-
-    Notification notification;
-    {
-        LockHolder lock(m_queueMutex);
-        
-        if (m_queuedNotifications.isEmpty())
-            return;
-        
-        if (!m_delayCallbacks) {
-            // Only dispatch one notification callback per invocation because they can cause recursion.
-            notification = m_queuedNotifications.takeFirst();
-        }
-        
-        if (!m_queuedNotifications.isEmpty() && !m_mainThreadCallPending) {
-            callOnMainThread([weakThis = makeWeakPtr(*this)] {
-                if (!weakThis)
-                    return;
-
-                weakThis->mainThreadCallback();
-            });
-        }
-
-        if (!notification.isValid())
-            return;
-    }
-
-    switch (notification.type()) {
-    case Notification::ItemDidPlayToEndTime:
-        didEnd();
-        break;
-    case Notification::ItemTracksChanged:
-        tracksChanged();
-        updateStates();
-        break;
-    case Notification::ItemStatusChanged:
-        updateStates();
-        break;
-    case Notification::ItemSeekableTimeRangesChanged:
-        seekableTimeRangesChanged();
-        updateStates();
-        break;
-    case Notification::ItemLoadedTimeRangesChanged:
-        loadedTimeRangesChanged();
-        updateStates();
-        break;
-    case Notification::ItemPresentationSizeChanged:
-        sizeChanged();
-        updateStates();
-        break;
-    case Notification::ItemIsPlaybackLikelyToKeepUpChanged:
-        updateStates();
-        break;
-    case Notification::ItemIsPlaybackBufferEmptyChanged:
-        updateStates();
-        break;
-    case Notification::ItemIsPlaybackBufferFullChanged:
-        updateStates();
-        break;
-    case Notification::PlayerRateChanged:
-        updateStates();
-        rateChanged();
-        break;
-    case Notification::PlayerTimeChanged:
-        timeChanged(notification.time());
-        break;
-    case Notification::SeekCompleted:
-        seekCompleted(notification.finished());
-        break;
-    case Notification::AssetMetadataLoaded:
-        metadataLoaded();
-        updateStates();
-        break;
-    case Notification::AssetPlayabilityKnown:
-        updateStates();
-        playabilityKnown();
-        break;
-    case Notification::DurationChanged:
-        invalidateCachedDuration();
-        break;
-    case Notification::ContentsNeedsDisplay:
-        contentsNeedsDisplay();
-        break;
-    case Notification::InbandTracksNeedConfiguration:
-        m_inbandTrackConfigurationPending = false;
-        configureInbandTracks();
-        break;
-    case Notification::FunctionType:
-        notification.function()();
-        break;
-    case Notification::TargetIsWirelessChanged:
-#if ENABLE(WIRELESS_PLAYBACK_TARGET)
-        playbackTargetIsWirelessChanged();
-#endif
-        break;
-
-    case Notification::None:
-        ASSERT_NOT_REACHED();
-        break;
     }
 }
 
@@ -906,16 +764,15 @@ void MediaPlayerPrivateAVFoundation::configureInbandTracks()
 
 void MediaPlayerPrivateAVFoundation::trackModeChanged()
 {
-    if (m_inbandTrackConfigurationPending)
-        return;
-    m_inbandTrackConfigurationPending = true;
-    scheduleMainThreadNotification(Notification::InbandTracksNeedConfiguration);
+    configureInbandTracks();
 }
 
 void MediaPlayerPrivateAVFoundation::clearTextTracks()
 {
+    auto player = this->player();
     for (auto& track : m_textTracks) {
-        player()->removeTextTrack(*track);
+        if (player)
+            player->removeTextTrack(*track);
         track->disconnect();
     }
     m_textTracks.clear();
@@ -923,13 +780,15 @@ void MediaPlayerPrivateAVFoundation::clearTextTracks()
 
 void MediaPlayerPrivateAVFoundation::processNewAndRemovedTextTracks(const Vector<RefPtr<InbandTextTrackPrivateAVF>>& removedTextTracks)
 {
+    auto player = this->player();
     if (removedTextTracks.size()) {
         for (unsigned i = 0; i < m_textTracks.size(); ) {
             if (!removedTextTracks.contains(m_textTracks[i])) {
                 ++i;
                 continue;
             }
-            player()->removeTextTrack(*m_textTracks[i]);
+            if (player)
+                player->removeTextTrack(*m_textTracks[i]);
             m_textTracks.remove(i);
         }
     }
@@ -948,9 +807,10 @@ void MediaPlayerPrivateAVFoundation::processNewAndRemovedTextTracks(const Vector
         ++inBandCount;
         if (track->hasBeenReported())
             continue;
-        
+
         track->setHasBeenReported(true);
-        player()->addTextTrack(*track);
+        if (player)
+            player->addTextTrack(*track);
     }
 
     if (trackCount != m_textTracks.size())
@@ -960,8 +820,8 @@ void MediaPlayerPrivateAVFoundation::processNewAndRemovedTextTracks(const Vector
 #if ENABLE(WIRELESS_PLAYBACK_TARGET)
 void MediaPlayerPrivateAVFoundation::playbackTargetIsWirelessChanged()
 {
-    if (m_player)
-        m_player->currentPlaybackTargetIsWirelessChanged(m_player->isCurrentPlaybackTargetWireless());
+    if (RefPtr player = m_player.get())
+        player->currentPlaybackTargetIsWirelessChanged(player->isCurrentPlaybackTargetWireless());
 }
 #endif
 
@@ -1021,7 +881,7 @@ bool MediaPlayerPrivateAVFoundation::canSaveMediaData() const
 {
     URL url = resolvedURL();
 
-    if (url.isLocalFile())
+    if (url.protocolIsFile())
         return true;
 
     if (!url.protocolIsInHTTPFamily())
@@ -1039,23 +899,27 @@ bool MediaPlayerPrivateAVFoundation::isUnsupportedMIMEType(const String& type)
 
     // AVFoundation will return non-video MIME types which it claims to support, but which we
     // do not support in the <video> element. Reject all non video/, audio/, and application/ types.
-    if (!lowerCaseType.startsWith("video/") && !lowerCaseType.startsWith("audio/") && !lowerCaseType.startsWith("application/"))
+    if (!lowerCaseType.startsWith("video/"_s) && !lowerCaseType.startsWith("audio/"_s) && !lowerCaseType.startsWith("application/"_s))
         return true;
 
     // Reject types we know AVFoundation does not support that sites commonly ask about.
-    if (lowerCaseType == "video/webm" || lowerCaseType == "audio/webm" || lowerCaseType == "video/x-webm")
-        return true;
+    static constexpr ComparableASCIILiteral unsupportedTypesArray[] = { "application/ogg", "audio/ogg", "audio/webm", "video/h264", "video/ogg", "video/webm", "video/x-flv", "video/x-webm" };
+    static constexpr SortedArraySet unsupportedTypesSet { unsupportedTypesArray };
+    return unsupportedTypesSet.contains(lowerCaseType);
+}
 
-    if (lowerCaseType == "video/x-flv")
-        return true;
+bool MediaPlayerPrivateAVFoundation::shouldEnableInheritURIQueryComponent() const
+{
+    static NeverDestroyed<const AtomString> iTunesInheritsURIQueryComponent(MAKE_STATIC_STRING_IMPL("x-itunes-inherit-uri-query-component"));
+    auto player = this->player();
+    return player && player->doesHaveAttribute(iTunesInheritsURIQueryComponent);
+}
 
-    if (lowerCaseType == "audio/ogg" || lowerCaseType == "video/ogg" || lowerCaseType == "application/ogg")
-        return true;
-
-    if (lowerCaseType == "video/h264")
-        return true;
-
-    return false;
+void MediaPlayerPrivateAVFoundation::queueTaskOnEventLoop(Function<void()>&& task)
+{
+    ASSERT(isMainThread());
+    if (RefPtr player = m_player.get())
+        player->queueTaskOnEventLoop(WTFMove(task));
 }
 
 #if !RELEASE_LOG_DISABLED
@@ -1065,42 +929,56 @@ WTFLogChannel& MediaPlayerPrivateAVFoundation::logChannel() const
 }
 #endif
 
-const HashSet<String, ASCIICaseInsensitiveHash>& MediaPlayerPrivateAVFoundation::staticMIMETypeList()
+const HashSet<String>& MediaPlayerPrivateAVFoundation::staticMIMETypeList()
 {
-    static const auto cache = makeNeverDestroyed(HashSet<String, ASCIICaseInsensitiveHash> {
-        "application/vnd.apple.mpegurl",
-        "application/x-mpegurl",
-        "audio/3gpp",
-        "audio/aac",
-        "audio/aacp",
-        "audio/aiff",
-        "audio/basic",
-        "audio/mp3",
-        "audio/mp4",
-        "audio/mpeg",
-        "audio/mpeg3",
-        "audio/mpegurl",
-        "audio/mpg",
-        "audio/vnd.wave",
-        "audio/wav",
-        "audio/wave",
-        "audio/x-aac",
-        "audio/x-aiff",
-        "audio/x-m4a",
-        "audio/x-mpegurl",
-        "audio/x-wav",
-        "video/3gpp",
-        "video/3gpp2",
-        "video/mp4",
-        "video/mpeg",
-        "video/mpeg2",
-        "video/mpg",
-        "video/quicktime",
-        "video/x-m4v",
-        "video/x-mpeg",
-        "video/x-mpg",
-    });
+    static NeverDestroyed cache = HashSet<String> {
+        "application/vnd.apple.mpegurl"_s,
+        "application/x-mpegurl"_s,
+        "audio/3gpp"_s,
+        "audio/aac"_s,
+        "audio/aacp"_s,
+        "audio/aiff"_s,
+        "audio/basic"_s,
+        "audio/mp3"_s,
+        "audio/mp4"_s,
+        "audio/mpeg"_s,
+        "audio/mpeg3"_s,
+        "audio/mpegurl"_s,
+        "audio/mpg"_s,
+        "audio/vnd.wave"_s,
+        "audio/wav"_s,
+        "audio/wave"_s,
+        "audio/x-aac"_s,
+        "audio/x-aiff"_s,
+        "audio/x-m4a"_s,
+        "audio/x-mpegurl"_s,
+        "audio/x-wav"_s,
+        "video/3gpp"_s,
+        "video/3gpp2"_s,
+        "video/mp4"_s,
+        "video/mpeg"_s,
+        "video/mpeg2"_s,
+        "video/mpg"_s,
+        "video/quicktime"_s,
+        "video/x-m4v"_s,
+        "video/x-mpeg"_s,
+        "video/x-mpg"_s,
+    };
     return cache;
+}
+
+String convertEnumerationToString(MediaPlayerPrivateAVFoundation::MediaRenderingMode enumerationValue)
+{
+    static const NeverDestroyed<String> values[] = {
+        MAKE_STATIC_STRING_IMPL("MediaRenderingNone"),
+        MAKE_STATIC_STRING_IMPL("MediaRenderingToContext"),
+        MAKE_STATIC_STRING_IMPL("MediaRenderingToLayer"),
+    };
+    static_assert(static_cast<size_t>(MediaPlayerPrivateAVFoundation::MediaRenderingMode::MediaRenderingNone) == 0, "MediaRenderingMode::MediaRenderingNone is not 0 as expected");
+    static_assert(static_cast<size_t>(MediaPlayerPrivateAVFoundation::MediaRenderingMode::MediaRenderingToContext) == 1, "MediaRenderingMode::MediaRenderingToContext is not 1 as expected");
+    static_assert(static_cast<size_t>(MediaPlayerPrivateAVFoundation::MediaRenderingMode::MediaRenderingToLayer) == 2, "MediaRenderingMode::MediaRenderingToLayer is not 2 as expected");
+    ASSERT(static_cast<size_t>(enumerationValue) < std::size(values));
+    return values[static_cast<size_t>(enumerationValue)];
 }
 
 } // namespace WebCore

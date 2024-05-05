@@ -26,39 +26,17 @@
 #include "config.h"
 #include "WebPage.h"
 
-#include "WebKitWebPageAccessibilityObject.h"
 #include "WebPageProxy.h"
 #include "WebPageProxyMessages.h"
 #include <WebCore/NotImplemented.h>
+#include <WebCore/PlatformScreen.h>
+#include <WebCore/PointerCharacteristics.h>
 
 namespace WebKit {
 using namespace WebCore;
 
-void WebPage::platformInitialize()
-{
-#if ENABLE(ACCESSIBILITY)
-    // Create the accessible object (the plug) that will serve as the
-    // entry point to the web process, and send a message to the UI
-    // process to connect the two worlds through the accessibility
-    // object there specifically placed for that purpose (the socket).
-    m_accessibilityObject = adoptGRef(webkitWebPageAccessibilityObjectNew(this));
-    GUniquePtr<gchar> plugID(atk_plug_get_id(ATK_PLUG(m_accessibilityObject.get())));
-    send(Messages::WebPageProxy::BindAccessibilityTree(String::fromUTF8(plugID.get())));
-#endif
-}
-
 void WebPage::platformReinitialize()
 {
-}
-
-void WebPage::platformDetach()
-{
-}
-
-bool WebPage::performDefaultBehaviorForKeyEvent(const WebKeyboardEvent&)
-{
-    notImplemented();
-    return false;
 }
 
 bool WebPage::platformCanHandleRequest(const ResourceRequest&)
@@ -67,10 +45,49 @@ bool WebPage::platformCanHandleRequest(const ResourceRequest&)
     return false;
 }
 
-String WebPage::platformUserAgent(const URL&) const
+bool WebPage::hoverSupportedByPrimaryPointingDevice() const
 {
-    notImplemented();
-    return String();
+#if ENABLE(TOUCH_EVENTS)
+    return !screenIsTouchPrimaryInputDevice();
+#else
+    return true;
+#endif
 }
+
+bool WebPage::hoverSupportedByAnyAvailablePointingDevice() const
+{
+#if ENABLE(TOUCH_EVENTS)
+    return !screenHasTouchDevice();
+#else
+    return true;
+#endif
+}
+
+std::optional<PointerCharacteristics> WebPage::pointerCharacteristicsOfPrimaryPointingDevice() const
+{
+#if ENABLE(TOUCH_EVENTS)
+    if (screenIsTouchPrimaryInputDevice())
+        return PointerCharacteristics::Coarse;
+#endif
+    return PointerCharacteristics::Fine;
+}
+
+OptionSet<PointerCharacteristics> WebPage::pointerCharacteristicsOfAllAvailablePointingDevices() const
+{
+#if ENABLE(TOUCH_EVENTS)
+    if (screenHasTouchDevice())
+        return PointerCharacteristics::Coarse;
+#endif
+    return PointerCharacteristics::Fine;
+}
+
+#if USE(GBM) && ENABLE(WPE_PLATFORM)
+void WebPage::preferredBufferFormatsDidChange(Vector<DMABufRendererBufferFormat>&& preferredBufferFormats)
+{
+    m_preferredBufferFormats = WTFMove(preferredBufferFormats);
+    if (m_drawingArea)
+        m_drawingArea->preferredBufferFormatsDidChange();
+}
+#endif
 
 } // namespace WebKit

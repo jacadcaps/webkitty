@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,17 +25,29 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
+
 #if ENABLE(JIT)
 
 #include "CacheableIdentifier.h"
+#include "GCAwareJITStubRoutine.h"
+#include "JITStubRoutine.h"
 #include "JSFunctionInlines.h"
 #include "ObjectPropertyConditionSet.h"
 #include "PolyProtoAccessChain.h"
 #include <wtf/CommaPrinter.h>
+#include <wtf/VectorHash.h>
 
 namespace JSC {
 
-struct AccessGenerationState;
+class GetterSetterAccessCase;
+class InstanceOfAccessCase;
+class IntrinsicGetterAccessCase;
+class ModuleNamespaceAccessCase;
+class ProxyableAccessCase;
+
+class InlineCacheCompiler;
+class InlineCacheHandler;
 
 DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(AccessCase);
 
@@ -79,51 +91,127 @@ DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(AccessCase);
 // We will sometimes buffer committed AccessCases in the PolymorphicAccess object before generating
 // code. This allows us to only regenerate once we've accumulated (hopefully) more than one new
 // AccessCase.
-class AccessCase {
+
+#define JSC_FOR_EACH_ACCESS_TYPE(macro) \
+    macro(Load) \
+    macro(LoadMegamorphic) \
+    macro(Transition) \
+    macro(StoreMegamorphic) \
+    macro(Delete) \
+    macro(DeleteNonConfigurable) \
+    macro(DeleteMiss) \
+    macro(Replace) \
+    macro(Miss) \
+    macro(GetGetter) \
+    macro(Getter) \
+    macro(Setter) \
+    macro(CustomValueGetter) \
+    macro(CustomAccessorGetter) \
+    macro(CustomValueSetter) \
+    macro(CustomAccessorSetter) \
+    macro(IntrinsicGetter) \
+    macro(InHit) \
+    macro(InMiss) \
+    macro(ArrayLength) \
+    macro(StringLength) \
+    macro(DirectArgumentsLength) \
+    macro(ScopedArgumentsLength) \
+    macro(ModuleNamespaceLoad) \
+    macro(ProxyObjectHas) \
+    macro(ProxyObjectLoad) \
+    macro(ProxyObjectStore) \
+    macro(InstanceOfHit) \
+    macro(InstanceOfMiss) \
+    macro(InstanceOfGeneric) \
+    macro(CheckPrivateBrand) \
+    macro(SetPrivateBrand) \
+    macro(IndexedProxyObjectLoad) \
+    macro(IndexedMegamorphicLoad) \
+    macro(IndexedInt32Load) \
+    macro(IndexedDoubleLoad) \
+    macro(IndexedContiguousLoad) \
+    macro(IndexedArrayStorageLoad) \
+    macro(IndexedScopedArgumentsLoad) \
+    macro(IndexedDirectArgumentsLoad) \
+    macro(IndexedTypedArrayInt8Load) \
+    macro(IndexedTypedArrayUint8Load) \
+    macro(IndexedTypedArrayUint8ClampedLoad) \
+    macro(IndexedTypedArrayInt16Load) \
+    macro(IndexedTypedArrayUint16Load) \
+    macro(IndexedTypedArrayInt32Load) \
+    macro(IndexedTypedArrayUint32Load) \
+    macro(IndexedTypedArrayFloat32Load) \
+    macro(IndexedTypedArrayFloat64Load) \
+    macro(IndexedResizableTypedArrayInt8Load) \
+    macro(IndexedResizableTypedArrayUint8Load) \
+    macro(IndexedResizableTypedArrayUint8ClampedLoad) \
+    macro(IndexedResizableTypedArrayInt16Load) \
+    macro(IndexedResizableTypedArrayUint16Load) \
+    macro(IndexedResizableTypedArrayInt32Load) \
+    macro(IndexedResizableTypedArrayUint32Load) \
+    macro(IndexedResizableTypedArrayFloat32Load) \
+    macro(IndexedResizableTypedArrayFloat64Load) \
+    macro(IndexedStringLoad) \
+    macro(IndexedNoIndexingMiss) \
+    macro(IndexedMegamorphicStore) \
+    macro(IndexedInt32Store) \
+    macro(IndexedDoubleStore) \
+    macro(IndexedContiguousStore) \
+    macro(IndexedArrayStorageStore) \
+    macro(IndexedTypedArrayInt8Store) \
+    macro(IndexedTypedArrayUint8Store) \
+    macro(IndexedTypedArrayUint8ClampedStore) \
+    macro(IndexedTypedArrayInt16Store) \
+    macro(IndexedTypedArrayUint16Store) \
+    macro(IndexedTypedArrayInt32Store) \
+    macro(IndexedTypedArrayUint32Store) \
+    macro(IndexedTypedArrayFloat32Store) \
+    macro(IndexedTypedArrayFloat64Store) \
+    macro(IndexedResizableTypedArrayInt8Store) \
+    macro(IndexedResizableTypedArrayUint8Store) \
+    macro(IndexedResizableTypedArrayUint8ClampedStore) \
+    macro(IndexedResizableTypedArrayInt16Store) \
+    macro(IndexedResizableTypedArrayUint16Store) \
+    macro(IndexedResizableTypedArrayInt32Store) \
+    macro(IndexedResizableTypedArrayUint32Store) \
+    macro(IndexedResizableTypedArrayFloat32Store) \
+    macro(IndexedResizableTypedArrayFloat64Store) \
+    macro(IndexedInt32InHit) \
+    macro(IndexedDoubleInHit) \
+    macro(IndexedContiguousInHit) \
+    macro(IndexedArrayStorageInHit) \
+    macro(IndexedScopedArgumentsInHit) \
+    macro(IndexedDirectArgumentsInHit) \
+    macro(IndexedTypedArrayInt8InHit) \
+    macro(IndexedTypedArrayUint8InHit) \
+    macro(IndexedTypedArrayUint8ClampedInHit) \
+    macro(IndexedTypedArrayInt16InHit) \
+    macro(IndexedTypedArrayUint16InHit) \
+    macro(IndexedTypedArrayInt32InHit) \
+    macro(IndexedTypedArrayUint32InHit) \
+    macro(IndexedTypedArrayFloat32InHit) \
+    macro(IndexedTypedArrayFloat64InHit) \
+    macro(IndexedResizableTypedArrayInt8InHit) \
+    macro(IndexedResizableTypedArrayUint8InHit) \
+    macro(IndexedResizableTypedArrayUint8ClampedInHit) \
+    macro(IndexedResizableTypedArrayInt16InHit) \
+    macro(IndexedResizableTypedArrayUint16InHit) \
+    macro(IndexedResizableTypedArrayInt32InHit) \
+    macro(IndexedResizableTypedArrayUint32InHit) \
+    macro(IndexedResizableTypedArrayFloat32InHit) \
+    macro(IndexedResizableTypedArrayFloat64InHit) \
+    macro(IndexedStringInHit) \
+    macro(IndexedNoIndexingInMiss) \
+
+
+class AccessCase : public ThreadSafeRefCounted<AccessCase> {
     WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(AccessCase);
 public:
+    friend class InlineCacheCompiler;
     enum AccessType : uint8_t {
-        Load,
-        Transition,
-        Delete,
-        DeleteNonConfigurable,
-        DeleteMiss,
-        Replace,
-        Miss,
-        GetGetter,
-        Getter,
-        Setter,
-        CustomValueGetter,
-        CustomAccessorGetter,
-        CustomValueSetter,
-        CustomAccessorSetter,
-        IntrinsicGetter,
-        InHit,
-        InMiss,
-        ArrayLength,
-        StringLength,
-        DirectArgumentsLength,
-        ScopedArgumentsLength,
-        ModuleNamespaceLoad,
-        InstanceOfHit,
-        InstanceOfMiss,
-        InstanceOfGeneric,
-        IndexedInt32Load,
-        IndexedDoubleLoad,
-        IndexedContiguousLoad,
-        IndexedArrayStorageLoad,
-        IndexedScopedArgumentsLoad,
-        IndexedDirectArgumentsLoad,
-        IndexedTypedArrayInt8Load,
-        IndexedTypedArrayUint8Load,
-        IndexedTypedArrayUint8ClampedLoad,
-        IndexedTypedArrayInt16Load,
-        IndexedTypedArrayUint16Load,
-        IndexedTypedArrayInt32Load,
-        IndexedTypedArrayUint32Load,
-        IndexedTypedArrayFloat32Load,
-        IndexedTypedArrayFloat64Load,
-        IndexedStringLoad
+#define JSC_DEFINE_ACCESS_TYPE(name) name,
+        JSC_FOR_EACH_ACCESS_TYPE(JSC_DEFINE_ACCESS_TYPE)
+#undef JSC_DEFINE_ACCESS_TYPE
     };
 
     enum State : uint8_t {
@@ -139,22 +227,21 @@ public:
     const T& as() const { return *static_cast<const T*>(this); }
 
 
-    template<typename AccessCaseType, typename... Arguments>
-    static std::unique_ptr<AccessCaseType> create(Arguments... arguments)
-    {
-        return std::unique_ptr<AccessCaseType>(new AccessCaseType(arguments...));
-    }
+    static Ref<AccessCase> create(VM&, JSCell* owner, AccessType, CacheableIdentifier, PropertyOffset = invalidOffset,
+        Structure* = nullptr, const ObjectPropertyConditionSet& = ObjectPropertyConditionSet(), RefPtr<PolyProtoAccessChain>&& = nullptr);
 
-    static std::unique_ptr<AccessCase> create(VM&, JSCell* owner, AccessType, CacheableIdentifier, PropertyOffset = invalidOffset,
-        Structure* = nullptr, const ObjectPropertyConditionSet& = ObjectPropertyConditionSet(), std::unique_ptr<PolyProtoAccessChain> = nullptr);
+    static RefPtr<AccessCase> createTransition(VM&, JSCell* owner, CacheableIdentifier, PropertyOffset, Structure* oldStructure,
+        Structure* newStructure, const ObjectPropertyConditionSet&, RefPtr<PolyProtoAccessChain>&&, const StructureStubInfo&);
 
-    static std::unique_ptr<AccessCase> createTransition(VM&, JSCell* owner, CacheableIdentifier, PropertyOffset, Structure* oldStructure,
-        Structure* newStructure, const ObjectPropertyConditionSet&, std::unique_ptr<PolyProtoAccessChain>);
+    static Ref<AccessCase> createDelete(VM&, JSCell* owner, CacheableIdentifier, PropertyOffset, Structure* oldStructure, Structure* newStructure);
 
-    static std::unique_ptr<AccessCase> createDelete(VM&, JSCell* owner, CacheableIdentifier, PropertyOffset, Structure* oldStructure,
-        Structure* newStructure);
+    static Ref<AccessCase> createCheckPrivateBrand(VM&, JSCell* owner, CacheableIdentifier, Structure*);
+
+    static Ref<AccessCase> createSetPrivateBrand(VM&, JSCell* owner, CacheableIdentifier, Structure* oldStructure, Structure* newStructure);
+
+    static Ref<AccessCase> createReplace(VM&, JSCell* owner, CacheableIdentifier, PropertyOffset, Structure* oldStructure, bool viaGlobalProxy);
     
-    static std::unique_ptr<AccessCase> fromStructureStubInfo(VM&, JSCell* owner, CacheableIdentifier, StructureStubInfo&);
+    static RefPtr<AccessCase> fromStructureStubInfo(VM&, JSCell* owner, CacheableIdentifier, StructureStubInfo&);
 
     AccessType type() const { return m_type; }
     State state() const { return m_state; }
@@ -162,25 +249,25 @@ public:
 
     Structure* structure() const
     {
-        if (m_type == Transition || m_type == Delete)
-            return m_structure->previousID();
-        return m_structure.get();
+        if (m_type == Transition || m_type == Delete || m_type == SetPrivateBrand)
+            return m_structureID->previousID();
+        return m_structureID.get();
     }
     bool guardedByStructureCheck(const StructureStubInfo&) const;
 
     Structure* newStructure() const
     {
-        ASSERT(m_type == Transition || m_type == Delete);
-        return m_structure.get();
+        ASSERT(m_type == Transition || m_type == Delete || m_type == SetPrivateBrand);
+        return m_structureID.get();
     }
 
     ObjectPropertyConditionSet conditionSet() const { return m_conditionSet; }
 
-    virtual bool hasAlternateBase() const;
-    virtual JSObject* alternateBase() const;
+    bool hasAlternateBase() const;
+    JSObject* alternateBase() const;
     
-    virtual WatchpointSet* additionalSet() const { return nullptr; }
-    bool viaProxy() const { return m_viaProxy; }
+    WatchpointSet* additionalSet() const;
+    bool viaGlobalProxy() const { return m_viaGlobalProxy; }
 
     // If you supply the optional vector, this will append the set of cells that this will need to keep alive
     // past the call.
@@ -225,9 +312,6 @@ public:
     bool canReplace(const AccessCase& other) const;
 
     void dump(PrintStream& out) const;
-    virtual void dumpImpl(PrintStream&, CommaPrinter&) const { }
-
-    virtual ~AccessCase();
 
     bool usesPolyProto() const
     {
@@ -238,8 +322,6 @@ public:
     bool requiresInt32PropertyCheck() const;
     bool needsScratchFPR() const;
 
-    static TypedArrayType toTypedArrayType(AccessType);
-
     UniquedStringImpl* uid() const { return m_identifier.uid(); }
     CacheableIdentifier identifier() const { return m_identifier; }
 
@@ -248,75 +330,97 @@ public:
 #else
     ALWAYS_INLINE void checkConsistency(StructureStubInfo&) { }
 #endif
-    
+
+    unsigned hash() const
+    {
+        return computeHash(m_conditionSet.hash(), static_cast<unsigned>(m_type), m_viaGlobalProxy, m_structureID.unvalidatedGet(), m_offset);
+    }
+
+    static bool canBeShared(const AccessCase&, const AccessCase&);
+
+    template<typename Func>
+    void runWithDowncast(const Func&);
+
+    void operator delete(AccessCase*, std::destroying_delete_t);
+
 protected:
-    AccessCase(VM&, JSCell* owner, AccessType, CacheableIdentifier, PropertyOffset, Structure*, const ObjectPropertyConditionSet&, std::unique_ptr<PolyProtoAccessChain>);
-    AccessCase(AccessCase&&) = default;
+    AccessCase(VM&, JSCell* owner, AccessType, CacheableIdentifier, PropertyOffset, Structure*, const ObjectPropertyConditionSet&, RefPtr<PolyProtoAccessChain>&&);
+    AccessCase(AccessCase&& other)
+        : m_type(WTFMove(other.m_type))
+        , m_state(WTFMove(other.m_state))
+        , m_viaGlobalProxy(WTFMove(other.m_viaGlobalProxy))
+        , m_offset(WTFMove(other.m_offset))
+        , m_structureID(WTFMove(other.m_structureID))
+        , m_conditionSet(WTFMove(other.m_conditionSet))
+        , m_polyProtoAccessChain(WTFMove(other.m_polyProtoAccessChain))
+        , m_identifier(WTFMove(other.m_identifier))
+    { }
+
     AccessCase(const AccessCase& other)
         : m_type(other.m_type)
         , m_state(other.m_state)
-        , m_viaProxy(other.m_viaProxy)
+        , m_viaGlobalProxy(other.m_viaGlobalProxy)
         , m_offset(other.m_offset)
-        , m_structure(other.m_structure)
+        , m_structureID(other.m_structureID)
         , m_conditionSet(other.m_conditionSet)
+        , m_polyProtoAccessChain(other.m_polyProtoAccessChain)
         , m_identifier(other.m_identifier)
-    {
-        if (other.m_polyProtoAccessChain)
-            m_polyProtoAccessChain = other.m_polyProtoAccessChain->clone();
-    }
+    { }
 
     AccessCase& operator=(const AccessCase&) = delete;
     void resetState() { m_state = Primordial; }
+
+    Ref<AccessCase> cloneImpl() const;
+    WatchpointSet* additionalSetImpl() const { return nullptr; }
+    bool hasAlternateBaseImpl() const;
+    void dumpImpl(PrintStream&, CommaPrinter&, Indenter&) const { }
+    JSObject* alternateBaseImpl() const;
 
 private:
     friend class CodeBlock;
     friend class PolymorphicAccess;
 
+    friend class ProxyableAccessCase;
+    friend class GetterSetterAccessCase;
+    friend class IntrinsicGetterAccessCase;
+    friend class ModuleNamespaceAccessCase;
+    friend class InstanceOfAccessCase;
+
     template<typename Functor>
     void forEachDependentCell(VM&, const Functor&) const;
 
-    void visitAggregate(SlotVisitor&) const;
+    DECLARE_VISIT_AGGREGATE_WITH_MODIFIER(const);
     bool visitWeak(VM&) const;
-    bool propagateTransitions(SlotVisitor&) const;
+    template<typename Visitor> void propagateTransitions(Visitor&) const;
 
     // FIXME: This only exists because of how AccessCase puts post-generation things into itself.
     // https://bugs.webkit.org/show_bug.cgi?id=156456
-    virtual std::unique_ptr<AccessCase> clone() const;
+    Ref<AccessCase> clone() const;
 
     // Perform any action that must be performed before the end of the epoch in which the case
     // was created. Returns a set of watchpoint sets that will need to be watched.
     Vector<WatchpointSet*, 2> commit(VM&);
-
-    // Fall through on success. Two kinds of failures are supported: fall-through, which means that we
-    // should try a different case; and failure, which means that this was the right case but it needs
-    // help from the slow path.
-    void generateWithGuard(AccessGenerationState&, MacroAssembler::JumpList& fallThrough);
-
-    // Fall through on success, add a jump to the failure list on failure.
-    void generate(AccessGenerationState&);
-
-    void generateImpl(AccessGenerationState&);
 
     bool guardedByStructureCheckSkippingConstantIdentifierCheck() const;
 
     AccessType m_type;
     State m_state { Primordial };
 protected:
-    // m_viaProxy is true only if the instance inherits (or it is) ProxyableAccessCase.
+    // m_viaGlobalProxy is true only if the instance inherits (or it is) ProxyableAccessCase.
     // We put this value here instead of ProxyableAccessCase to reduce the size of ProxyableAccessCase and its
     // derived classes, which are super frequently allocated.
-    bool m_viaProxy { false };
+    bool m_viaGlobalProxy { false };
 private:
     PropertyOffset m_offset;
 
     // Usually this is the structure that we expect the base object to have. But, this is the *new*
     // structure for a transition and we rely on the fact that it has a strong reference to the old
     // structure. For proxies, this is the structure of the object behind the proxy.
-    WriteBarrier<Structure> m_structure;
+    WriteBarrierStructureID m_structureID;
 
     ObjectPropertyConditionSet m_conditionSet;
 
-    std::unique_ptr<PolyProtoAccessChain> m_polyProtoAccessChain;
+    RefPtr<PolyProtoAccessChain> m_polyProtoAccessChain;
 
     CacheableIdentifier m_identifier;
 };

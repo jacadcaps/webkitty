@@ -27,42 +27,31 @@
 #include "ResourceTimingInformation.h"
 
 #include "CachedResource.h"
-#include "DOMWindow.h"
-#include "Document.h"
-#include "Frame.h"
+#include "DocumentInlines.h"
+#include "FrameDestructionObserverInlines.h"
 #include "FrameLoader.h"
 #include "HTMLFrameOwnerElement.h"
-#include "LoadTiming.h"
+#include "LocalDOMWindow.h"
+#include "LocalFrame.h"
 #include "Performance.h"
 #include "ResourceTiming.h"
-#include "RuntimeEnabledFeatures.h"
+#include "SecurityOrigin.h"
 
 namespace WebCore {
 
 bool ResourceTimingInformation::shouldAddResourceTiming(CachedResource& resource)
 {
-    // FIXME: We can be less restrictive here.
-    // <https://github.com/w3c/resource-timing/issues/100>
-    if (!resource.resourceRequest().url().protocolIsInHTTPFamily())
-        return false;
-    if (resource.errorOccurred())
-        return false;
-    if (resource.wasCanceled())
-        return false;
-
-    if (resource.options().loadedFromOpaqueSource == LoadedFromOpaqueSource::Yes)
-        return false;
-
-    return true;
+    return resource.resourceRequest().url().protocolIsInHTTPFamily()
+        && !resource.loadFailedOrCanceled()
+        && resource.options().loadedFromOpaqueSource == LoadedFromOpaqueSource::No;
 }
 
 void ResourceTimingInformation::addResourceTiming(CachedResource& resource, Document& document, ResourceTiming&& resourceTiming)
 {
-    ASSERT(RuntimeEnabledFeatures::sharedFeatures().resourceTimingEnabled());
     if (!ResourceTimingInformation::shouldAddResourceTiming(resource))
         return;
 
-    auto iterator = m_initiatorMap.find(&resource);
+    auto iterator = m_initiatorMap.find(resource);
     if (iterator == m_initiatorMap.end())
         return;
 
@@ -70,26 +59,33 @@ void ResourceTimingInformation::addResourceTiming(CachedResource& resource, Docu
     if (info.added == Added)
         return;
 
-    Document* initiatorDocument = &document;
-    if (resource.type() == CachedResource::Type::MainResource && document.frame() && document.frame()->loader().shouldReportResourceTimingToParentFrame())
+    RefPtr initiatorDocument = &document;
+    if (resource.type() == CachedResource::Type::MainResource && document.frame() && document.frame()->loader().shouldReportResourceTimingToParentFrame()) {
         initiatorDocument = document.parentDocument();
+        if (initiatorDocument)
+            resourceTiming.updateExposure(initiatorDocument->protectedSecurityOrigin());
+    }
     if (!initiatorDocument)
         return;
 
-    auto* initiatorWindow = initiatorDocument->domWindow();
+    RefPtr initiatorWindow = initiatorDocument->domWindow();
     if (!initiatorWindow)
         return;
 
-    resourceTiming.overrideInitiatorName(info.name);
+    resourceTiming.overrideInitiatorType(info.type);
 
-    initiatorWindow->performance().addResourceTiming(WTFMove(resourceTiming));
+    initiatorWindow->protectedPerformance()->addResourceTiming(WTFMove(resourceTiming));
 
     info.added = Added;
 }
 
-void ResourceTimingInformation::storeResourceTimingInitiatorInformation(const CachedResourceHandle<CachedResource>& resource, const AtomString& initiatorName, Frame* frame)
+void ResourceTimingInformation::removeResourceTiming(CachedResource& resource)
 {
-    ASSERT(RuntimeEnabledFeatures::sharedFeatures().resourceTimingEnabled());
+    m_initiatorMap.remove(resource);
+}
+
+void ResourceTimingInformation::storeResourceTimingInitiatorInformation(const CachedResourceHandle<CachedResource>& resource, const AtomString& initiatorType, LocalFrame* frame)
+{
     ASSERT(resource.get());
 
     if (resource->type() == CachedResource::Type::MainResource) {
@@ -97,11 +93,11 @@ void ResourceTimingInformation::storeResourceTimingInitiatorInformation(const Ca
         ASSERT(frame);
         if (frame->ownerElement()) {
             InitiatorInfo info = { frame->ownerElement()->localName(), NotYetAdded };
-            m_initiatorMap.add(resource.get(), info);
+            m_initiatorMap.add(*resource, info);
         }
     } else {
-        InitiatorInfo info = { initiatorName, NotYetAdded };
-        m_initiatorMap.add(resource.get(), info);
+        InitiatorInfo info = { initiatorType, NotYetAdded };
+        m_initiatorMap.add(*resource, info);
     }
 }
 

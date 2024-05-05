@@ -21,6 +21,7 @@
 
 #include "WebKitTestServer.h"
 #include "WebViewTest.h"
+#include <WebCore/SoupVersioning.h>
 #include <libsoup/soup.h>
 #include <string.h>
 
@@ -29,24 +30,28 @@ static const int kBackForwardListLimit = 100;
 
 static WebKitTestServer* kServer;
 
-static void serverCallback(SoupServer* server, SoupMessage* msg, const char* path, GHashTable* query, SoupClientContext* context, gpointer data)
+#if USE(SOUP2)
+static void serverCallback(SoupServer* server, SoupMessage* msg, const char* path, GHashTable*, SoupClientContext*, gpointer)
+#else
+static void serverCallback(SoupServer* server, SoupServerMessage* msg, const char* path, GHashTable*, gpointer)
+#endif
 {
-    if (msg->method != SOUP_METHOD_GET) {
-        soup_message_set_status(msg, SOUP_STATUS_NOT_IMPLEMENTED);
+    if (soup_server_message_get_method(msg) != SOUP_METHOD_GET) {
+        soup_server_message_set_status(msg, SOUP_STATUS_NOT_IMPLEMENTED, nullptr);
         return;
     }
 
     if (g_str_has_suffix(path, "favicon.ico")) {
-        soup_message_set_status(msg, SOUP_STATUS_NOT_FOUND);
+        soup_server_message_set_status(msg, SOUP_STATUS_NOT_FOUND, nullptr);
         return;
     }
 
-    soup_message_set_status(msg, SOUP_STATUS_OK);
+    soup_server_message_set_status(msg, SOUP_STATUS_OK, nullptr);
 
     char* body = g_strdup_printf("<html><title>%s</title><body>%s</body></html>", path + 1, path + 1);
-    soup_message_body_append(msg->response_body, SOUP_MEMORY_TAKE, body, strlen(body));
-
-    soup_message_body_complete(msg->response_body);
+    auto* responseBody = soup_server_message_get_response_body(msg);
+    soup_message_body_append(responseBody, SOUP_MEMORY_TAKE, body, strlen(body));
+    soup_message_body_complete(responseBody);
 }
 
 class BackForwardListTest: public WebViewTest {
@@ -64,11 +69,10 @@ public:
         RemovedItems = 1 << 2
     };
 
-    static void checkItem(WebKitBackForwardListItem* item, const char* title, const char* uri, const char* originalURI)
+    static void checkItem(WebKitBackForwardListItem* item, const char* uri, const char* originalURI)
     {
         g_assert_nonnull(item);
         g_assert_cmpstr(webkit_back_forward_list_item_get_uri(item), ==, uri);
-        g_assert_cmpstr(webkit_back_forward_list_item_get_title(item), == , title);
         g_assert_cmpstr(webkit_back_forward_list_item_get_original_uri(item), ==, originalURI);
     }
 
@@ -169,13 +173,14 @@ static void testBackForwardListNavigation(BackForwardListTest* test, gconstpoint
     test->m_changedFlags = BackForwardListTest::CurrentItem | BackForwardListTest::AddedItem;
     test->loadURI(uriPage1.data());
     test->waitUntilLoadFinished();
+    test->waitUntilTitleChanged();
 
     g_assert_false(webkit_web_view_can_go_back(test->m_webView));
     g_assert_false(webkit_web_view_can_go_forward(test->m_webView));
 
     g_assert_cmpuint(webkit_back_forward_list_get_length(test->m_list), ==, 1);
     WebKitBackForwardListItem* itemPage1 = webkit_back_forward_list_get_current_item(test->m_list);
-    BackForwardListTest::checkItem(itemPage1, "Page1", uriPage1.data(), uriPage1.data());
+    BackForwardListTest::checkItem(itemPage1, uriPage1.data(), uriPage1.data());
     g_assert_null(webkit_back_forward_list_get_back_item(test->m_list));
     g_assert_null(webkit_back_forward_list_get_forward_item(test->m_list));
     BackForwardListTest::checkItemIndex(test->m_list);
@@ -186,13 +191,14 @@ static void testBackForwardListNavigation(BackForwardListTest* test, gconstpoint
     test->m_changedFlags = BackForwardListTest::CurrentItem | BackForwardListTest::AddedItem;
     test->loadURI(uriPage2.data());
     test->waitUntilLoadFinished();
+    test->waitUntilTitleChanged();
 
     g_assert_true(webkit_web_view_can_go_back(test->m_webView));
     g_assert_false(webkit_web_view_can_go_forward(test->m_webView));
 
     g_assert_cmpuint(webkit_back_forward_list_get_length(test->m_list), ==, 2);
     WebKitBackForwardListItem* itemPage2 = webkit_back_forward_list_get_current_item(test->m_list);
-    BackForwardListTest::checkItem(itemPage2, "Page2", uriPage2.data(), uriPage2.data());
+    BackForwardListTest::checkItem(itemPage2, uriPage2.data(), uriPage2.data());
     g_assert_true(webkit_back_forward_list_get_back_item(test->m_list) == itemPage1);
     g_assert_null(webkit_back_forward_list_get_forward_item(test->m_list));
     BackForwardListTest::checkItemIndex(test->m_list);
@@ -209,7 +215,7 @@ static void testBackForwardListNavigation(BackForwardListTest* test, gconstpoint
 
     g_assert_cmpuint(webkit_back_forward_list_get_length(test->m_list), ==, 2);
     g_assert_true(itemPage1 == webkit_back_forward_list_get_current_item(test->m_list));
-    BackForwardListTest::checkItem(webkit_back_forward_list_get_current_item(test->m_list), "Page1", uriPage1.data(), uriPage1.data());
+    BackForwardListTest::checkItem(webkit_back_forward_list_get_current_item(test->m_list), uriPage1.data(), uriPage1.data());
     g_assert_null(webkit_back_forward_list_get_back_item(test->m_list));
     g_assert_true(webkit_back_forward_list_get_forward_item(test->m_list) == itemPage2);
     BackForwardListTest::checkItemIndex(test->m_list);
@@ -226,7 +232,7 @@ static void testBackForwardListNavigation(BackForwardListTest* test, gconstpoint
 
     g_assert_cmpuint(webkit_back_forward_list_get_length(test->m_list), ==, 2);
     g_assert_true(itemPage2 == webkit_back_forward_list_get_current_item(test->m_list));
-    BackForwardListTest::checkItem(webkit_back_forward_list_get_current_item(test->m_list), "Page2", uriPage2.data(), uriPage2.data());
+    BackForwardListTest::checkItem(webkit_back_forward_list_get_current_item(test->m_list), uriPage2.data(), uriPage2.data());
     g_assert_true(webkit_back_forward_list_get_back_item(test->m_list) == itemPage1);
     g_assert_null(webkit_back_forward_list_get_forward_item(test->m_list));
     BackForwardListTest::checkItemIndex(test->m_list);
@@ -308,9 +314,9 @@ static void testWebKitWebViewSessionState(BackForwardListTest* test, gconstpoint
     webkit_web_view_restore_session_state(view.get(), state);
     g_assert_cmpuint(webkit_back_forward_list_get_length(bfList), ==, 3);
 
-    BackForwardListTest::checkItem(webkit_back_forward_list_get_nth_item(bfList, -1), "Page1", uriPage1.data(), uriPage1.data());
-    BackForwardListTest::checkItem(webkit_back_forward_list_get_current_item(bfList), "Page2", uriPage2.data(), uriPage2.data());
-    BackForwardListTest::checkItem(webkit_back_forward_list_get_nth_item(bfList, 1), "Page3", uriPage3.data(), uriPage3.data());
+    BackForwardListTest::checkItem(webkit_back_forward_list_get_nth_item(bfList, -1), uriPage1.data(), uriPage1.data());
+    BackForwardListTest::checkItem(webkit_back_forward_list_get_current_item(bfList), uriPage2.data(), uriPage2.data());
+    BackForwardListTest::checkItem(webkit_back_forward_list_get_nth_item(bfList, 1), uriPage3.data(), uriPage3.data());
 
     data = adoptGRef(webkit_web_view_session_state_serialize(state));
     g_assert_nonnull(data);
@@ -325,9 +331,9 @@ static void testWebKitWebViewSessionState(BackForwardListTest* test, gconstpoint
     g_assert_cmpuint(webkit_back_forward_list_get_length(bfList), ==, 3);
     webkit_web_view_session_state_unref(state);
 
-    BackForwardListTest::checkItem(webkit_back_forward_list_get_nth_item(bfList, -1), "Page1", uriPage1.data(), uriPage1.data());
-    BackForwardListTest::checkItem(webkit_back_forward_list_get_current_item(bfList), "Page2", uriPage2.data(), uriPage2.data());
-    BackForwardListTest::checkItem(webkit_back_forward_list_get_nth_item(bfList, 1), "Page3", uriPage3.data(), uriPage3.data());
+    BackForwardListTest::checkItem(webkit_back_forward_list_get_nth_item(bfList, -1), uriPage1.data(), uriPage1.data());
+    BackForwardListTest::checkItem(webkit_back_forward_list_get_current_item(bfList), uriPage2.data(), uriPage2.data());
+    BackForwardListTest::checkItem(webkit_back_forward_list_get_nth_item(bfList, 1), uriPage3.data(), uriPage3.data());
 
     static const char* invalidSessionData = "invalid session data";
     data = adoptGRef(g_bytes_new_static(invalidSessionData, strlen(invalidSessionData)));
@@ -342,7 +348,7 @@ static void testWebKitWebViewSessionStateWithFormData(BackForwardListTest* test,
     test->loadURI(htmlURL.get());
     test->waitUntilLoadFinished();
 
-    webkit_web_view_run_javascript(test->m_webView, "submitForm();", nullptr, nullptr, nullptr);
+    webkit_web_view_evaluate_javascript(test->m_webView, "submitForm();", -1, nullptr, nullptr, nullptr, nullptr, nullptr);
     test->waitUntilLoadFinished();
 
     WebKitWebViewSessionState* state = webkit_web_view_get_session_state(test->m_webView);

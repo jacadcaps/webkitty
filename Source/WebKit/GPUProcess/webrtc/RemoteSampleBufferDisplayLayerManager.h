@@ -27,14 +27,15 @@
 
 #if PLATFORM(COCOA) && ENABLE(GPU_PROCESS) && ENABLE(MEDIA_STREAM)
 
-#include "MessageReceiver.h"
-#include "RemoteSampleBufferDisplayLayerManagerMessagesReplies.h"
+#include "Connection.h"
+#include "LayerHostingContext.h"
 #include "SampleBufferDisplayLayerIdentifier.h"
+#include "WorkQueueMessageReceiver.h"
+#include <WebCore/FloatRect.h>
 #include <WebCore/IntSize.h>
 #include <wtf/HashMap.h>
 
 namespace IPC {
-class Connection;
 class Decoder;
 }
 
@@ -44,27 +45,43 @@ class IntSize;
 
 namespace WebKit {
 
+class GPUConnectionToWebProcess;
 class RemoteSampleBufferDisplayLayer;
 
-class RemoteSampleBufferDisplayLayerManager final : private IPC::MessageReceiver {
+class RemoteSampleBufferDisplayLayerManager final : public IPC::WorkQueueMessageReceiver {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    explicit RemoteSampleBufferDisplayLayerManager(Ref<IPC::Connection>&&);
+    static Ref<RemoteSampleBufferDisplayLayerManager> create(GPUConnectionToWebProcess& connection)
+    {
+        auto instance = adoptRef(*new RemoteSampleBufferDisplayLayerManager(connection));
+        instance->startListeningForIPC();
+        return instance;
+    }
     ~RemoteSampleBufferDisplayLayerManager();
 
-    void didReceiveLayerMessage(IPC::Connection&, IPC::Decoder&);
-    void didReceiveMessageFromWebProcess(IPC::Connection& connection, IPC::Decoder& decoder) { didReceiveMessage(connection, decoder); }
+    void close();
+
+    bool allowsExitUnderMemoryPressure() const;
+    void updateSampleBufferDisplayLayerBoundsAndPosition(SampleBufferDisplayLayerIdentifier, WebCore::FloatRect, std::optional<MachSendRight>&&);
 
 private:
-    // IPC::MessageReceiver
+    explicit RemoteSampleBufferDisplayLayerManager(GPUConnectionToWebProcess&);
+    void startListeningForIPC();
+
+    // IPC::WorkQueueMessageReceiver overrides.
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
 
-    using LayerCreationCallback = CompletionHandler<void(Optional<LayerHostingContextID>)>&&;
-    void createLayer(SampleBufferDisplayLayerIdentifier, bool hideRootLayer, WebCore::IntSize, LayerCreationCallback);
+    bool dispatchMessage(IPC::Connection&, IPC::Decoder&);
+
+    using LayerCreationCallback = CompletionHandler<void(std::optional<LayerHostingContextID>)>&&;
+    void createLayer(SampleBufferDisplayLayerIdentifier, bool hideRootLayer, WebCore::IntSize, bool shouldMaintainAspectRatio, LayerCreationCallback);
     void releaseLayer(SampleBufferDisplayLayerIdentifier);
 
+    GPUConnectionToWebProcess& m_connectionToWebProcess;
     Ref<IPC::Connection> m_connection;
-    HashMap<SampleBufferDisplayLayerIdentifier, std::unique_ptr<RemoteSampleBufferDisplayLayer>> m_layers;
+    Ref<WorkQueue> m_queue;
+    mutable Lock m_layersLock;
+    HashMap<SampleBufferDisplayLayerIdentifier, std::unique_ptr<RemoteSampleBufferDisplayLayer>> m_layers WTF_GUARDED_BY_LOCK(m_layersLock);
 };
 
 }

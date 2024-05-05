@@ -15,12 +15,14 @@
 // So we need to include ANGLETest.h first to avoid this conflict.
 
 #include "libANGLE/Context.h"
+#include "libANGLE/Display.h"
 #include "libANGLE/angletypes.h"
 #include "libANGLE/renderer/vulkan/ContextVk.h"
 #include "libANGLE/renderer/vulkan/ProgramVk.h"
 #include "libANGLE/renderer/vulkan/TextureVk.h"
 #include "test_utils/gl_raii.h"
 #include "util/EGLWindow.h"
+#include "util/random_utils.h"
 #include "util/shader_utils.h"
 
 using namespace angle;
@@ -28,7 +30,7 @@ using namespace angle;
 namespace
 {
 
-class VulkanUniformUpdatesTest : public ANGLETest
+class VulkanUniformUpdatesTest : public ANGLETest<>
 {
   protected:
     VulkanUniformUpdatesTest() : mLastContext(nullptr) {}
@@ -39,70 +41,62 @@ class VulkanUniformUpdatesTest : public ANGLETest
         // tests. This is to ensure that the assumption that each TEST_P will recreate context.
         ASSERT(mLastContext != getEGLWindow()->getContext());
         mLastContext = getEGLWindow()->getContext();
+
+        mMaxSetsPerPool = rx::vk::DynamicDescriptorPool::GetMaxSetsPerPoolForTesting();
+        mMaxSetsPerPoolMultiplier =
+            rx::vk::DynamicDescriptorPool::GetMaxSetsPerPoolMultiplierForTesting();
+    }
+
+    void testTearDown() override
+    {
+        rx::vk::DynamicDescriptorPool::SetMaxSetsPerPoolForTesting(mMaxSetsPerPool);
+        rx::vk::DynamicDescriptorPool::SetMaxSetsPerPoolMultiplierForTesting(
+            mMaxSetsPerPoolMultiplier);
+    }
+
+    gl::Context *hackContext() const
+    {
+        egl::Display *display   = static_cast<egl::Display *>(getEGLWindow()->getDisplay());
+        gl::ContextID contextID = {
+            static_cast<GLuint>(reinterpret_cast<uintptr_t>(getEGLWindow()->getContext()))};
+        return display->getContext(contextID);
     }
 
     rx::ContextVk *hackANGLE() const
     {
         // Hack the angle!
-        const gl::Context *context = static_cast<gl::Context *>(getEGLWindow()->getContext());
-        return rx::GetImplAs<rx::ContextVk>(context);
-    }
-
-    rx::ProgramVk *hackProgram(GLuint handle) const
-    {
-        // Hack the angle!
-        const gl::Context *context = static_cast<gl::Context *>(getEGLWindow()->getContext());
-        const gl::Program *program = context->getProgramResolveLink({handle});
-        return rx::vk::GetImpl(program);
+        return rx::GetImplAs<rx::ContextVk>(hackContext());
     }
 
     rx::TextureVk *hackTexture(GLuint handle) const
     {
         // Hack the angle!
-        const gl::Context *context = static_cast<gl::Context *>(getEGLWindow()->getContext());
+        const gl::Context *context = hackContext();
         const gl::Texture *texture = context->getTexture({handle});
         return rx::vk::GetImpl(texture);
     }
 
-    static constexpr uint32_t kMaxSetsForTesting = 32;
+    static constexpr uint32_t kMaxSetsForTesting           = 1;
+    static constexpr uint32_t kMaxSetsMultiplierForTesting = 1;
 
-    void limitMaxSets(GLuint program)
+    void limitMaxSets()
     {
-        rx::ContextVk *contextVk = hackANGLE();
-        rx::ProgramVk *programVk = hackProgram(program);
-
-        // Force a small limit on the max sets per pool to more easily trigger a new allocation.
-        rx::vk::DynamicDescriptorPool *uniformPool =
-            programVk->getDynamicDescriptorPool(rx::kUniformsAndXfbDescriptorSetIndex);
-        uniformPool->setMaxSetsPerPoolForTesting(kMaxSetsForTesting);
-        VkDescriptorPoolSize uniformSetSize = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
-                                               rx::kReservedDefaultUniformBindingCount};
-        (void)uniformPool->init(contextVk, &uniformSetSize, 1);
-
-        uint32_t textureCount =
-            static_cast<uint32_t>(programVk->getState().getSamplerBindings().size());
-
-        // To support the bindEmptyForUnusedDescriptorSets workaround.
-        textureCount = std::max(textureCount, 1u);
-
-        rx::vk::DynamicDescriptorPool *texturePool =
-            programVk->getDynamicDescriptorPool(rx::kTextureDescriptorSetIndex);
-        texturePool->setMaxSetsPerPoolForTesting(kMaxSetsForTesting);
-        VkDescriptorPoolSize textureSetSize = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                               textureCount};
-        (void)texturePool->init(contextVk, &textureSetSize, 1);
+        rx::vk::DynamicDescriptorPool::SetMaxSetsPerPoolForTesting(kMaxSetsForTesting);
+        rx::vk::DynamicDescriptorPool::SetMaxSetsPerPoolMultiplierForTesting(
+            kMaxSetsMultiplierForTesting);
     }
 
-    static constexpr size_t kTextureStagingBufferSizeForTesting = 128;
-
-    void limitTextureStagingBufferSize(GLuint texture)
+    void setExplicitMaxSetsLimit(uint32_t limit)
     {
-        rx::TextureVk *textureVk = hackTexture(texture);
-        textureVk->overrideStagingBufferSizeForTesting(kTextureStagingBufferSizeForTesting);
+        rx::vk::DynamicDescriptorPool::SetMaxSetsPerPoolForTesting(limit);
+        rx::vk::DynamicDescriptorPool::SetMaxSetsPerPoolMultiplierForTesting(
+            kMaxSetsMultiplierForTesting);
     }
 
   private:
     EGLContext mLastContext;
+    uint32_t mMaxSetsPerPool;
+    uint32_t mMaxSetsPerPoolMultiplier;
 };
 
 // This test updates a uniform until a new buffer is allocated and then make sure the uniform
@@ -128,7 +122,7 @@ void main()
     ANGLE_GL_PROGRAM(program, kPositionUniformVertexShader, kColorUniformFragmentShader);
     glUseProgram(program);
 
-    limitMaxSets(program);
+    limitMaxSets();
 
     // Set a really small min size so that uniform updates often allocates a new buffer.
     rx::ContextVk *contextVk = hackANGLE();
@@ -171,7 +165,7 @@ TEST_P(VulkanUniformUpdatesTest, DescriptorPoolUpdates)
     glUseProgram(program);
 
     // Force a small limit on the max sets per pool to more easily trigger a new allocation.
-    limitMaxSets(program);
+    limitMaxSets();
 
     GLint texLoc = glGetUniformLocation(program, "tex");
     ASSERT_NE(-1, texLoc);
@@ -212,7 +206,7 @@ void main()
     ANGLE_GL_PROGRAM(program, essl1_shaders::vs::Texture2D(), kFS);
     glUseProgram(program);
 
-    limitMaxSets(program);
+    limitMaxSets();
 
     // Get uniform locations.
     GLint texLoc = glGetUniformLocation(program, "tex");
@@ -280,7 +274,7 @@ void main()
     ANGLE_GL_PROGRAM(program, essl1_shaders::vs::Texture2D(), kFS);
     glUseProgram(program);
 
-    limitMaxSets(program);
+    limitMaxSets();
 
     // Initialize large arrays of textures.
     std::vector<GLTexture> whiteTextures;
@@ -369,8 +363,8 @@ void main()
     glUseProgram(program1);
 
     // Force a small limit on the max sets per pool to more easily trigger a new allocation.
-    limitMaxSets(program1);
-    limitMaxSets(program2);
+    limitMaxSets();
+    limitMaxSets();
 
     // Set a really small min size so that uniform updates often allocates a new buffer.
     rx::ContextVk *contextVk = hackANGLE();
@@ -430,7 +424,6 @@ TEST_P(VulkanUniformUpdatesTest, TextureStagingBufferRecycling)
 
     GLTexture tex;
     glBindTexture(GL_TEXTURE_2D, tex);
-    limitTextureStagingBufferSize(tex);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, getWindowWidth(), getWindowHeight(), 0, GL_RGBA,
                  GL_UNSIGNED_BYTE, nullptr);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
@@ -513,7 +506,7 @@ void main()
     ANGLE_GL_PROGRAM(program, kPositionUniformVertexShader, kColorUniformFragmentShader);
     glUseProgram(program);
 
-    limitMaxSets(program);
+    limitMaxSets();
 
     // Set a really small min size so that every uniform update actually allocates a new buffer.
     rx::ContextVk *contextVk = hackANGLE();
@@ -566,6 +559,67 @@ void main()
     }
 }
 
+// Covers a usage pattern where two programs share a descriptor pool.
+TEST_P(VulkanUniformUpdatesTest, MultipleProgramsShareDescriptors)
+{
+    setExplicitMaxSetsLimit(2);
+
+    // Set a min size so uniform updates allocate a new buffer every 2nd time.
+    rx::ContextVk *contextVk = hackANGLE();
+    contextVk->setDefaultUniformBlocksMinSizeForTesting(512);
+
+    static constexpr size_t kNumPrograms    = 2;
+    static constexpr size_t kDrawIterations = 4;
+    static constexpr GLint kPosLoc          = 0;
+
+    std::array<GLuint, kNumPrograms> programs = {};
+
+    for (GLuint &program : programs)
+    {
+        auto preLinkCallback = [](GLuint program) {
+            glBindAttribLocation(program, kPosLoc, essl1_shaders::PositionAttrib());
+        };
+
+        program = CompileProgram(essl1_shaders::vs::Simple(), essl1_shaders::fs::UniformColor(),
+                                 preLinkCallback);
+        ASSERT_NE(program, 0u);
+    }
+
+    const std::array<Vector3, 6> &quadVerts = GetQuadVertices();
+
+    GLBuffer vbo;
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBufferData(GL_ARRAY_BUFFER, quadVerts.size() * sizeof(quadVerts[0]), quadVerts.data(),
+                 GL_STATIC_DRAW);
+
+    glVertexAttribPointer(kPosLoc, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
+    glEnableVertexAttribArray(kPosLoc);
+
+    ASSERT_GL_NO_ERROR();
+
+    RNG rng;
+
+    for (size_t drawIteration = 0; drawIteration < kDrawIterations; ++drawIteration)
+    {
+        for (GLuint program : programs)
+        {
+            Vector3 randVec = RandomVec3(rng.randomInt(), 0.0f, 1.0f);
+
+            glUseProgram(program);
+            glUniform4f(0, randVec.x(), randVec.y(), randVec.z(), 1.0f);
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+            EXPECT_PIXEL_COLOR_NEAR(0, 0, GLColor(randVec), 5);
+        }
+    }
+
+    ASSERT_GL_NO_ERROR();
+
+    for (GLuint &program : programs)
+    {
+        glDeleteProgram(program);
+    }
+}
+
 ANGLE_INSTANTIATE_TEST(VulkanUniformUpdatesTest, ES2_VULKAN(), ES3_VULKAN());
 
 // This test tries to test uniform data update while switching between PPO and monolithic program.
@@ -613,7 +667,7 @@ void main()
     EXPECT_GL_NO_ERROR();
 
     glUseProgram(program);
-    limitMaxSets(program);
+    limitMaxSets();
     // Set a really small min size so that every uniform update actually allocates a new buffer.
     rx::ContextVk *contextVk = hackANGLE();
     contextVk->setDefaultUniformBlocksMinSizeForTesting(128);

@@ -30,6 +30,7 @@
 #include <wtf/HashMap.h>
 #include <wtf/ProcessID.h>
 #include <wtf/RefPtr.h>
+#include <wtf/ThreadSafeWeakPtr.h>
 #include <wtf/Threading.h>
 #include <wtf/WeakPtr.h>
 #include <wtf/text/StringHash.h>
@@ -43,6 +44,10 @@
 #include "XPCEventHandler.h"
 #endif
 
+#if USE(EXTENSIONKIT)
+OBJC_CLASS _SEExtensionProcess;
+#endif
+
 namespace WebKit {
 
 #if PLATFORM(GTK) || PLATFORM(WPE)
@@ -52,7 +57,7 @@ enum class SandboxPermission {
 };
 #endif
 
-class ProcessLauncher : public ThreadSafeRefCounted<ProcessLauncher>, public CanMakeWeakPtr<ProcessLauncher> {
+class ProcessLauncher : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<ProcessLauncher> {
 public:
     class Client {
     public:
@@ -61,6 +66,8 @@ public:
         virtual void didFinishLaunching(ProcessLauncher*, IPC::Connection::Identifier) = 0;
         virtual bool shouldConfigureJSCForTesting() const { return false; }
         virtual bool isJITEnabled() const { return true; }
+        virtual bool shouldEnableSharedArrayBuffer() const { return false; }
+        virtual bool shouldEnableLockdownMode() const { return false; }
 #if PLATFORM(COCOA)
         virtual RefPtr<XPCEventHandler> xpcEventHandler() const { return nullptr; }
 #endif
@@ -68,12 +75,15 @@ public:
     
     enum class ProcessType {
         Web,
-#if ENABLE(NETSCAPE_PLUGIN_API)
-        Plugin,
-#endif
         Network,
 #if ENABLE(GPU_PROCESS)
-        GPU
+        GPU,
+#endif
+#if ENABLE(BUBBLEWRAP_SANDBOX)
+        DBusProxy,
+#endif
+#if ENABLE(MODEL_PROCESS)
+        Model,
 #endif
     };
 
@@ -83,10 +93,9 @@ public:
         HashMap<String, String> extraInitializationData;
         bool nonValidInjectedCodeAllowed { false };
         bool shouldMakeProcessLaunchFailForTesting { false };
-        CString customWebContentServiceBundleIdentifier;
 
 #if PLATFORM(GTK) || PLATFORM(WPE)
-        HashMap<CString, SandboxPermission> extraWebProcessSandboxPaths;
+        HashMap<CString, SandboxPermission> extraSandboxPaths;
 #if ENABLE(DEVELOPER_MODE)
         String processCmdPrefix;
 #endif
@@ -103,24 +112,43 @@ public:
         return adoptRef(*new ProcessLauncher(client, WTFMove(launchOptions)));
     }
 
+    virtual ~ProcessLauncher();
+
     bool isLaunching() const { return m_isLaunching; }
-    ProcessID processIdentifier() const { return m_processIdentifier; }
+    ProcessID processID() const { return m_processID; }
 
     void terminateProcess();
     void invalidate();
+
+#if USE(EXTENSIONKIT)
+    RetainPtr<_SEExtensionProcess> extensionProcess() const { return m_process; }
+    void setIsRetryingLaunch() { m_isRetryingLaunch = true; }
+    bool isRetryingLaunch() const { return m_isRetryingLaunch; }
+#endif
 
 private:
     ProcessLauncher(Client*, LaunchOptions&&);
 
     void launchProcess();
+    void finishLaunchingProcess(const char* name);
     void didFinishLaunchingProcess(ProcessID, IPC::Connection::Identifier);
 
     void platformInvalidate();
+    void platformDestroy();
+
+#if PLATFORM(COCOA)
+    void terminateXPCConnection();
+#endif
 
     Client* m_client;
 
 #if PLATFORM(COCOA)
     OSObjectPtr<xpc_connection_t> m_xpcConnection;
+#endif
+
+#if USE(EXTENSIONKIT)
+    RetainPtr<_SEExtensionProcess> m_process;
+    bool m_isRetryingLaunch { false };
 #endif
 
 #if PLATFORM(WIN)
@@ -129,7 +157,7 @@ private:
 
     const LaunchOptions m_launchOptions;
     bool m_isLaunching { true };
-    ProcessID m_processIdentifier { 0 };
+    ProcessID m_processID { 0 };
 };
 
 } // namespace WebKit

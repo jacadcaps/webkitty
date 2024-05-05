@@ -35,6 +35,7 @@
 #include "ResourceResponse.h"
 #include "SharedBuffer.h"
 #include <mutex>
+#include <wtf/EnumTraits.h>
 #include <wtf/text/CString.h>
 
 namespace WebCore {
@@ -100,7 +101,7 @@ void MockContentFilter::responseReceived(const ResourceResponse&)
     maybeDetermineStatus(DecisionPoint::AfterResponse);
 }
 
-void MockContentFilter::addData(const char*, int)
+void MockContentFilter::addData(const SharedBuffer&)
 {
     maybeDetermineStatus(DecisionPoint::AfterAddData);
 }
@@ -110,7 +111,7 @@ void MockContentFilter::finishedAddingData()
     maybeDetermineStatus(DecisionPoint::AfterFinishedAddingData);
 }
 
-Ref<SharedBuffer> MockContentFilter::replacementData() const
+Ref<FragmentedSharedBuffer> MockContentFilter::replacementData() const
 {
     ASSERT(didBlockData());
     return SharedBuffer::create(m_replacementData.data(), m_replacementData.size());
@@ -142,7 +143,7 @@ void MockContentFilter::maybeDetermineStatus(DecisionPoint decisionPoint)
     if (m_state != State::Filtering || decisionPoint != settings().decisionPoint())
         return;
 
-    LOG(ContentFiltering, "MockContentFilter stopped buffering with state %u at decision point %u.\n", m_state, decisionPoint);
+    LOG(ContentFiltering, "MockContentFilter stopped buffering with state %u at decision point %hhu.\n", enumToUnderlyingType(m_state), enumToUnderlyingType(decisionPoint));
 
     m_state = settings().decision() == Decision::Allow ? State::Allowed : State::Blocked;
     if (m_state != State::Blocked)

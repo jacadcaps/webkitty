@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,10 +26,11 @@
 #pragma once
 
 #include "PageClient.h"
+#include <WebCore/PlatformTextAlternatives.h>
 #include <wtf/Forward.h>
 #include <wtf/WeakObjCPtr.h>
 
-@class NSTextAlternatives;
+@class PlatformTextAlternatives;
 @class WKWebView;
 
 namespace API {
@@ -38,6 +39,9 @@ class Attachment;
 
 namespace WebCore {
 class AlternativeTextUIController;
+class Color;
+
+struct AppHighlight;
 }
 
 namespace WebKit {
@@ -49,6 +53,26 @@ public:
 
     void pageClosed() override;
 
+    void topContentInsetDidChange() final;
+
+#if ENABLE(GPU_PROCESS)
+    void gpuProcessDidFinishLaunching() override;
+    void gpuProcessDidExit() override;
+#endif
+
+#if ENABLE(MODEL_PROCESS)
+    void modelProcessDidFinishLaunching() override;
+    void modelProcessDidExit() override;
+#endif
+
+    void themeColorWillChange() final;
+    void themeColorDidChange() final;
+    void underPageBackgroundColorWillChange() final;
+    void underPageBackgroundColorDidChange() final;
+    void pageExtendedBackgroundColorWillChange() final;
+    void pageExtendedBackgroundColorDidChange() final;
+    void sampledPageTopColorWillChange() final;
+    void sampledPageTopColorDidChange() final;
     void isPlayingAudioWillChange() final;
     void isPlayingAudioDidChange() final;
 
@@ -62,11 +86,33 @@ public:
     NSSet *serializableFileWrapperClasses() const final;
 #endif
 
-    WebCore::DictationContext addDictationAlternatives(NSTextAlternatives *) final;
+    WebCore::DictationContext addDictationAlternatives(PlatformTextAlternatives *) final;
+    void replaceDictationAlternatives(PlatformTextAlternatives *, WebCore::DictationContext) final;
     void removeDictationAlternatives(WebCore::DictationContext) final;
     Vector<String> dictationAlternatives(WebCore::DictationContext) final;
+    PlatformTextAlternatives *platformDictationAlternatives(WebCore::DictationContext) final;
+
+#if ENABLE(APP_HIGHLIGHTS)
+    void storeAppHighlight(const WebCore::AppHighlight&) final;
+#endif
+
+    void microphoneCaptureWillChange() final;
+    void cameraCaptureWillChange() final;
+    void displayCaptureWillChange() final;
+    void displayCaptureSurfacesWillChange() final;
+    void systemAudioCaptureWillChange() final;
+
+    void microphoneCaptureChanged() final;
+    void cameraCaptureChanged() final;
+    void displayCaptureChanged() final;
+    void displayCaptureSurfacesChanged() final;
+    void systemAudioCaptureChanged() final;
+
+    WindowKind windowKind() final;
 
 protected:
+    RetainPtr<WKWebView> webView() const { return m_webView.get(); }
+
     WeakObjCPtr<WKWebView> m_webView;
     std::unique_ptr<WebCore::AlternativeTextUIController> m_alternativeTextUIController;
 };

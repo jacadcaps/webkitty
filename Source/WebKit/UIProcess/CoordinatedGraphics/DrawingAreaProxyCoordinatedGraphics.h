@@ -27,10 +27,13 @@
 
 #pragma once
 
-#include "BackingStore.h"
 #include "DrawingAreaProxy.h"
 #include "LayerTreeContext.h"
 #include <wtf/RunLoop.h>
+
+#if !PLATFORM(WPE)
+typedef struct _cairo cairo_t;
+#endif
 
 namespace WebCore {
 class Region;
@@ -38,52 +41,59 @@ class Region;
 
 namespace WebKit {
 
+class BackingStore;
+
 class DrawingAreaProxyCoordinatedGraphics final : public DrawingAreaProxy {
 public:
     DrawingAreaProxyCoordinatedGraphics(WebPageProxy&, WebProcessProxy&);
     virtual ~DrawingAreaProxyCoordinatedGraphics();
 
 #if !PLATFORM(WPE)
-    void paint(BackingStore::PlatformGraphicsContext, const WebCore::IntRect&, WebCore::Region& unpaintedRegion);
+    void paint(cairo_t*, const WebCore::IntRect&, WebCore::Region& unpaintedRegion);
 #endif
 
     bool isInAcceleratedCompositingMode() const { return !m_layerTreeContext.isEmpty(); }
     const LayerTreeContext& layerTreeContext() const { return m_layerTreeContext; }
 
+    void dispatchAfterEnsuringDrawing(CompletionHandler<void()>&&);
+
 private:
     // DrawingAreaProxy
     void sizeDidChange() override;
     void deviceScaleFactorDidChange() override;
-    void waitForBackingStoreUpdateOnNextPaint() override;
     void setBackingStoreIsDiscardable(bool) override;
 
+#if HAVE(DISPLAY_LINK)
+    std::optional<WebCore::FramesPerSecond> displayNominalFramesPerSecond() override;
+#endif
+
+#if PLATFORM(GTK)
+    void adjustTransientZoom(double scale, WebCore::FloatPoint origin) override;
+    void commitTransientZoom(double scale, WebCore::FloatPoint origin) override;
+#endif
+
     // IPC message handlers
-    void update(uint64_t backingStoreStateID, const UpdateInfo&) override;
-    void didUpdateBackingStoreState(uint64_t backingStoreStateID, const UpdateInfo&, const LayerTreeContext&) override;
+    void update(uint64_t backingStoreStateID, UpdateInfo&&) override;
     void enterAcceleratedCompositingMode(uint64_t backingStoreStateID, const LayerTreeContext&) override;
-    void exitAcceleratedCompositingMode(uint64_t backingStoreStateID, const UpdateInfo&) override;
+    void exitAcceleratedCompositingMode(uint64_t backingStoreStateID, UpdateInfo&&) override;
     void updateAcceleratedCompositingMode(uint64_t backingStoreStateID, const LayerTreeContext&) override;
 
-#if !PLATFORM(WPE)
-    void incorporateUpdate(const UpdateInfo&);
-#endif
+    bool shouldSendWheelEventsToEventDispatcher() const override { return true; }
 
     bool alwaysUseCompositing() const;
     void enterAcceleratedCompositingMode(const LayerTreeContext&);
     void exitAcceleratedCompositingMode();
     void updateAcceleratedCompositingMode(const LayerTreeContext&);
 
-    enum RespondImmediatelyOrNot { DoNotRespondImmediately, RespondImmediately };
-    void backingStoreStateDidChange(RespondImmediatelyOrNot);
-    void sendUpdateBackingStoreState(RespondImmediatelyOrNot);
-    void waitForAndDispatchDidUpdateBackingStoreState();
+    void sendUpdateGeometry();
+    void didUpdateGeometry();
 
 #if !PLATFORM(WPE)
+    bool forceUpdateIfNeeded();
+    void incorporateUpdate(UpdateInfo&&);
     void discardBackingStoreSoon();
     void discardBackingStore();
 #endif
-
-    void dispatchAfterEnsuringDrawing(WTF::Function<void(CallbackBase::Error)>&&) override;
 
     class DrawingMonitor {
         WTF_MAKE_NONCOPYABLE(DrawingMonitor); WTF_MAKE_FAST_ALLOCATED;
@@ -91,47 +101,34 @@ private:
         DrawingMonitor(WebPageProxy&);
         ~DrawingMonitor();
 
-        void start(WTF::Function<void(CallbackBase::Error)>&&);
+        void start(CompletionHandler<void()>&&);
 
     private:
-        static int webViewDrawCallback(DrawingMonitor*);
-
         void stop();
-        void didDraw();
 
-        MonotonicTime m_startTime;
-        WTF::Function<void(CallbackBase::Error)> m_callback;
-        RunLoop::Timer<DrawingMonitor> m_timer;
-#if PLATFORM(GTK)
-        WebPageProxy& m_webPage;
-#endif
+        CompletionHandler<void()> m_callback;
+        RunLoop::Timer m_timer;
     };
-
-    // The state ID corresponding to our current backing store. Updated whenever we allocate
-    // a new backing store. Any messages received that correspond to an earlier state are ignored,
-    // as they don't apply to our current backing store.
-    uint64_t m_currentBackingStoreStateID { 0 };
-
-    // The next backing store state ID we will request the web process update to. Incremented
-    // whenever our state changes in a way that will require a new backing store to be allocated.
-    uint64_t m_nextBackingStoreStateID { 0 };
 
     // The current layer tree context.
     LayerTreeContext m_layerTreeContext;
 
-    // Whether we've sent a UpdateBackingStoreState message and are now waiting for a DidUpdateBackingStoreState message.
-    // Used to throttle UpdateBackingStoreState messages so we don't send them faster than the Web process can handle.
-    bool m_isWaitingForDidUpdateBackingStoreState { false };
+    // Whether we're waiting for a DidUpdateGeometry message from the web process.
+    bool m_isWaitingForDidUpdateGeometry { false };
 
-    // For a new Drawing Area don't draw anything until the WebProcess has sent over the first content.
-    bool m_hasReceivedFirstUpdate { false };
+    // The last size we sent to the web process.
+    WebCore::IntSize m_lastSentSize;
+
 
 #if !PLATFORM(WPE)
     bool m_isBackingStoreDiscardable { true };
+    bool m_inForceUpdate { false };
     std::unique_ptr<BackingStore> m_backingStore;
-    RunLoop::Timer<DrawingAreaProxyCoordinatedGraphics> m_discardBackingStoreTimer;
+    RunLoop::Timer m_discardBackingStoreTimer;
 #endif
     std::unique_ptr<DrawingMonitor> m_drawingMonitor;
 };
 
 } // namespace WebKit
+
+SPECIALIZE_TYPE_TRAITS_DRAWING_AREA_PROXY(DrawingAreaProxyCoordinatedGraphics, DrawingAreaType::CoordinatedGraphics)

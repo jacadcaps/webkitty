@@ -26,9 +26,9 @@
 #import "config.h"
 #import "WKSelectMenuListViewController.h"
 
-#if PLATFORM(WATCHOS)
+#if HAVE(PEPPER_UI_CORE)
 
-#import "UIKitSPI.h"
+#import "PepperUICoreSPI.h"
 #import <wtf/RetainPtr.h>
 
 static const CGFloat checkmarkImageViewWidth = 32;
@@ -43,8 +43,11 @@ typedef NS_ENUM(NSInteger, PUICQuickboardListSection) {
     PUICQuickboardListSectionContentUnavailable,
 };
 
-// FIXME: This method can be removed when <rdar://problem/57807445> lands in a build.
-@interface WKSelectMenuItemCell : WKQuickboardListItemCell
+static constexpr CGFloat itemCellTopToLabelBaseline = 26;
+static constexpr CGFloat itemCellBaselineToBottom = 8;
+
+// FIXME: This can be removed when <rdar://problem/57807445> lands in a build.
+@interface WKSelectMenuItemCell : PUICQuickboardListItemCell
 @property (nonatomic, readonly) UIImageView *imageView;
 @end
 
@@ -52,7 +55,7 @@ typedef NS_ENUM(NSInteger, PUICQuickboardListSection) {
     RetainPtr<UIImageView> _imageView;
 }
 
-- (instancetype) initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier
+- (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier
 {
     if (!(self = [super initWithStyle:style reuseIdentifier:reuseIdentifier]))
         return nil;
@@ -71,11 +74,21 @@ typedef NS_ENUM(NSInteger, PUICQuickboardListSection) {
     return _imageView.get();
 }
 
+- (CGFloat)topToLabelBaselineSpecValue
+{
+    return itemCellTopToLabelBaseline;
+}
+
+- (CGFloat)baselineToBottomSpecValue
+{
+    return itemCellBaselineToBottom;
+}
+
 @end
 
 #if HAVE(QUICKBOARD_COLLECTION_VIEWS)
 
-@interface WKSelectMenuCollectionViewItemCell : WKQuickboardListCollectionViewItemCell
+@interface WKSelectMenuCollectionViewItemCell : PUICQuickboardListCollectionViewItemCell
 @property (nonatomic, readonly) UIImageView *imageView;
 @end
 
@@ -102,6 +115,16 @@ typedef NS_ENUM(NSInteger, PUICQuickboardListSection) {
     return _imageView.get();
 }
 
+- (CGFloat)topToLabelBaselineSpecValue
+{
+    return itemCellTopToLabelBaseline;
+}
+
+- (CGFloat)baselineToBottomSpecValue
+{
+    return itemCellBaselineToBottom;
+}
+
 @end
 
 #endif // HAVE(QUICKBOARD_COLLECTION_VIEWS)
@@ -115,7 +138,8 @@ typedef NS_ENUM(NSInteger, PUICQuickboardListSection) {
 
 - (instancetype)initWithDelegate:(id <WKSelectMenuListViewControllerDelegate>)delegate
 {
-    return [super initWithDelegate:delegate];
+    self = [super initWithDelegate:delegate dictationMode:PUICDictationModeText];
+    return self;
 }
 
 - (void)viewDidLoad
@@ -230,6 +254,11 @@ typedef NS_ENUM(NSInteger, PUICQuickboardListSection) {
     return selectMenuCellReuseIdentifier;
 }
 
+- (BOOL)shouldShowLanguageButton
+{
+    return NO;
+}
+
 #if HAVE(QUICKBOARD_COLLECTION_VIEWS)
 
 - (Class)listItemCellClass
@@ -277,4 +306,4 @@ typedef NS_ENUM(NSInteger, PUICQuickboardListSection) {
 
 @end
 
-#endif // PLATFORM(WATCHOS)
+#endif // HAVE(PEPPER_UI_CORE)

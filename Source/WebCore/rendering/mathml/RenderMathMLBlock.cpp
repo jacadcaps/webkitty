@@ -35,6 +35,8 @@
 #include "MathMLElement.h"
 #include "MathMLNames.h"
 #include "MathMLPresentationElement.h"
+#include "RenderBoxInlines.h"
+#include "RenderTableInlines.h"
 #include "RenderView.h"
 #include <wtf/IsoMallocInlines.h>
 
@@ -49,15 +51,15 @@ using namespace MathMLNames;
 WTF_MAKE_ISO_ALLOCATED_IMPL(RenderMathMLBlock);
 WTF_MAKE_ISO_ALLOCATED_IMPL(RenderMathMLTable);
 
-RenderMathMLBlock::RenderMathMLBlock(MathMLPresentationElement& container, RenderStyle&& style)
-    : RenderBlock(container, WTFMove(style), 0)
+RenderMathMLBlock::RenderMathMLBlock(Type type, MathMLPresentationElement& container, RenderStyle&& style)
+    : RenderBlock(type, container, WTFMove(style), { })
     , m_mathMLStyle(MathMLStyle::create())
 {
     setChildrenInline(false); // All of our children must be block-level.
 }
 
-RenderMathMLBlock::RenderMathMLBlock(Document& document, RenderStyle&& style)
-    : RenderBlock(document, WTFMove(style), 0)
+RenderMathMLBlock::RenderMathMLBlock(Type type, Document& document, RenderStyle&& style)
+    : RenderBlock(type, document, WTFMove(style), { })
     , m_mathMLStyle(MathMLStyle::create())
 {
     setChildrenInline(false); // All of our children must be block-level.
@@ -79,7 +81,7 @@ static LayoutUnit axisHeight(const RenderStyle& style)
 
     // Otherwise, the idea is to try and use the middle of operators as the math axis which we thus approximate by "half of the x-height".
     // Note that Gecko has a slower but more accurate version that measures half of the height of U+2212 MINUS SIGN.
-    return LayoutUnit(style.fontMetrics().xHeight() / 2);
+    return LayoutUnit(style.metricsOfPrimaryFont().xHeight() / 2);
 }
 
 LayoutUnit RenderMathMLBlock::mathAxisHeight() const
@@ -95,14 +97,14 @@ LayoutUnit RenderMathMLBlock::mirrorIfNeeded(LayoutUnit horizontalOffset, Layout
     return horizontalOffset;
 }
 
-int RenderMathMLBlock::baselinePosition(FontBaseline baselineType, bool firstLine, LineDirectionMode direction, LinePositionMode linePositionMode) const
+LayoutUnit RenderMathMLBlock::baselinePosition(FontBaseline baselineType, bool firstLine, LineDirectionMode direction, LinePositionMode linePositionMode) const
 {
     // mathml.css sets math { -webkit-line-box-contain: glyphs replaced; line-height: 0; }, so when linePositionMode == PositionOfInteriorLineBoxes we want to
-    // return 0 here to match our line-height. This matters when RootInlineBox::ascentAndDescentForBox is called on a RootInlineBox for an inline-block.
+    // return 0 here to match our line-height. This matters when LegacyRootInlineBox::ascentAndDescentForBox is called on a RootInlineBox for an inline-block.
     if (linePositionMode == PositionOfInteriorLineBoxes)
         return 0;
 
-    return firstLineBaseline().valueOr(RenderBlock::baselinePosition(baselineType, firstLine, direction, linePositionMode));
+    return firstLineBaseline().value_or(RenderBlock::baselinePosition(baselineType, firstLine, direction, linePositionMode));
 }
 
 #if ENABLE(DEBUG_MATH_LAYOUT)
@@ -118,7 +120,7 @@ void RenderMathMLBlock::paint(PaintInfo& info, const LayoutPoint& paintOffset)
     GraphicsContextStateSaver stateSaver(info.context());
 
     info.context().setStrokeThickness(1.0f);
-    info.context().setStrokeStyle(SolidStroke);
+    info.context().setStrokeStyle(StrokeStyle::SolidStroke);
     info.context().setStrokeColor(Color::blue);
 
     info.context().drawLine(adjustedPaintOffset, IntPoint(adjustedPaintOffset.x() + pixelSnappedOffsetWidth(), adjustedPaintOffset.y()));
@@ -161,7 +163,7 @@ LayoutUnit toUserUnits(const MathMLElement::Length& length, const RenderStyle& s
     case MathMLElement::LengthType::Em:
         return LayoutUnit(length.value * style.fontCascade().size());
     case MathMLElement::LengthType::Ex:
-        return LayoutUnit(length.value * style.fontMetrics().xHeight());
+        return LayoutUnit(length.value * style.metricsOfPrimaryFont().xHeight());
     case MathMLElement::LengthType::MathUnit:
         return LayoutUnit(length.value * style.fontCascade().size() / 18);
     case MathMLElement::LengthType::Percentage:
@@ -176,11 +178,11 @@ LayoutUnit toUserUnits(const MathMLElement::Length& length, const RenderStyle& s
     }
 }
 
-Optional<int> RenderMathMLTable::firstLineBaseline() const
+std::optional<LayoutUnit> RenderMathMLTable::firstLineBaseline() const
 {
     // By default the vertical center of <mtable> is aligned on the math axis.
     // This is different than RenderTable::firstLineBoxBaseline, which returns the baseline of the first row of a <table>.
-    return Optional<int>(logicalHeight() / 2 + axisHeight(style()));
+    return LayoutUnit { (logicalHeight() / 2 + axisHeight(style())).toInt() };
 }
 
 void RenderMathMLBlock::layoutItems(bool relayoutChildren)
@@ -199,6 +201,7 @@ void RenderMathMLBlock::layoutItems(bool relayoutChildren)
 
     LayoutUnit currentHorizontalExtent = contentLogicalWidth();
     for (auto* child = firstChildBox(); child; child = child->nextSiblingBox()) {
+        auto everHadLayout = child->everHadLayout();
         LayoutUnit childSize = child->maxPreferredLogicalWidth() - child->horizontalBorderAndPaddingExtent();
 
         if (preferredHorizontalExtent > currentHorizontalExtent)
@@ -225,6 +228,8 @@ void RenderMathMLBlock::layoutItems(bool relayoutChildren)
 
         child->setLocation(childLocation);
         horizontalOffset += childHorizontalExtent + child->marginEnd();
+        if (!everHadLayout && child->checkForRepaintDuringLayout())
+            child->repaint();
     }
 }
 
@@ -260,13 +265,27 @@ void RenderMathMLBlock::layoutInvalidMarkup(bool relayoutChildren)
     // Invalid MathML subtrees are just renderered as empty boxes.
     // FIXME: https://webkit.org/b/135460 - Should we display some "invalid" markup message instead?
     ASSERT(needsLayout());
-    for (auto child = firstChildBox(); child; child = child->nextSiblingBox())
+    for (auto* child = firstChildBox(); child; child = child->nextSiblingBox()) {
+        if (child->isOutOfFlowPositioned()) {
+            child->containingBlock()->insertPositionedObject(*child);
+            continue;
+        }
         child->layoutIfNeeded();
+    }
     setLogicalWidth(0);
     setLogicalHeight(0);
     layoutPositionedObjects(relayoutChildren);
     updateScrollInfoAfterLayout();
     clearNeedsLayout();
+}
+
+void RenderMathMLBlock::styleDidChange(StyleDifference diff, const RenderStyle* oldStyle)
+{
+    RenderBlock::styleDidChange(diff, oldStyle);
+
+    // MathML displaystyle changes can affect layout.
+    if (oldStyle && style().mathStyle() != oldStyle->mathStyle())
+        setNeedsLayoutAndPrefWidthsRecalc();
 }
 
 }

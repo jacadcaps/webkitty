@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -42,6 +42,10 @@ public:
     RemoteMediaSessionHelperProxy(GPUConnectionToWebProcess&);
     virtual ~RemoteMediaSessionHelperProxy();
 
+    void didReceiveMessageFromWebProcess(IPC::Connection& connection, IPC::Decoder& decoder) { didReceiveMessage(connection, decoder); }
+
+    void overridePresentingApplicationPIDIfNeeded();
+
 private:
     // IPC::MessageReceiver
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
@@ -60,9 +64,11 @@ private:
     void isPlayingToAutomotiveHeadUnitDidChange(PlayingToAutomotiveHeadUnit) final;
     void activeAudioRouteDidChange(ShouldPause) final;
     void activeVideoRouteDidChange(SupportsAirPlayVideo, Ref<WebCore::MediaPlaybackTarget>&&) final;
+    void activeAudioRouteSupportsSpatialPlaybackDidChange(SupportsSpatialAudioPlayback) final;
 
     bool m_isMonitoringWirelessRoutes { false };
     GPUConnectionToWebProcess& m_gpuConnection;
+    std::optional<int> m_presentingApplicationPID;
 };
 
 }

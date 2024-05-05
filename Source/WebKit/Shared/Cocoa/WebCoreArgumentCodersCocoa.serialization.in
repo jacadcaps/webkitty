@@ -1,0 +1,306 @@
+# Copyright (C) 2022 Apple Inc. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+# 1.  Redistributions of source code must retain the above copyright
+#     notice, this list of conditions and the following disclaimer.
+# 2.  Redistributions in binary form must reproduce the above copyright
+#     notice, this list of conditions and the following disclaimer in the
+#     documentation and/or other materials provided with the distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRIBUTORS ``AS IS'' AND
+# ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+# WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS BE LIABLE FOR
+# ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+headers: "ArgumentCodersCocoa.h"
+
+#if USE(CORE_TEXT)
+[CreateUsing=tryMakeFontPlatformData] class WebCore::FontPlatformData {
+    float size();
+    WebCore::FontOrientation orientation();
+    WebCore::FontWidthVariant widthVariant();
+    WebCore::TextRenderingMode textRenderingMode();
+    bool syntheticBold();
+    bool syntheticOblique();
+    std::variant<WebCore::FontPlatformSerializedData,WebCore::FontPlatformSerializedCreationData> platformSerializationData();
+}
+
+header: <WebCore/FontPlatformData.h>
+[CustomHeader] struct WebCore::FontPlatformSerializedCreationData {
+    Vector<uint8_t> fontFaceData;
+    RetainPtr<CFDictionaryRef> attributes;
+    String itemInCollection;
+};
+
+header: <WebCore/FontPlatformData.h>
+[CustomHeader] struct WebCore::FontPlatformSerializedData {
+    CTFontDescriptorOptions options;
+    RetainPtr<CFStringRef> referenceURL;
+    RetainPtr<CFStringRef> postScriptName;
+    RetainPtr<CFDictionaryRef> attributes;
+};
+
+header: <WebCore/FontCustomPlatformData.h>
+[CustomHeader] struct WebCore::FontCustomPlatformSerializedData {
+    Vector<uint8_t> fontFaceData;
+    String itemInCollection;
+    WebCore::RenderingResourceIdentifier renderingResourceIdentifier;
+};
+
+[CreateUsing=tryMakeFromSerializationData, RefCounted] struct WebCore::FontCustomPlatformData {
+    WebCore::FontCustomPlatformSerializedData serializedData()
+};
+#endif
+
+#if ENABLE(CONTENT_FILTERING)
+class WebCore::ContentFilterUnblockHandler {
+    String unblockURLHost()
+    URL unreachableURL()
+#if HAVE(PARENTAL_CONTROLS_WITH_UNBLOCK_HANDLER)
+    Vector<uint8_t> webFilterEvaluatorData()
+#endif
+    bool unblockedAfterRequest()
+}
+#endif
+
+header: <WebCore/DictionaryPopupInfo.h>
+[CustomHeader] struct WebCore::DictionaryPopupInfoCocoa {
+    RetainPtr<NSDictionary> options;
+    WebCore::AttributedString attributedString;
+};
+
+header: <WebCore/ResourceRequest.h>
+[CustomHeader] struct WebCore::ResourceRequestPlatformData {
+    [SecureCodingAllowed=[NSMutableURLRequest.class, NSURLRequest.class]] RetainPtr<NSURLRequest> m_urlRequest;
+    std::optional<bool> m_isAppInitiated;
+    std::optional<WebCore::ResourceRequestRequester> m_requester;
+    bool m_privacyProxyFailClosedForUnreachableNonMainHosts;
+    bool m_useAdvancedPrivacyProtections;
+    bool m_didFilterLinkDecoration;
+    bool m_isPrivateTokenUsageByThirdPartyAllowed;
+};
+
+[Nested] struct WebCore::AttributedString::ParagraphStyleWithTableAndListIDs {
+    RetainPtr<NSParagraphStyle> style
+    Vector<std::optional<WebCore::AttributedString::TableBlockAndTableIDPair>> tableBlockAndTableIDs
+    Vector<WebCore::AttributedString::TextListID> listIDs
+}
+
+[Nested] struct WebCore::AttributedString::AttributeValue {
+    std::variant<double, String, URL, Ref<WebCore::Font>, Vector<String>, Vector<double>, WebCore::AttributedString::ParagraphStyleWithTableAndListIDs, RetainPtr<NSPresentationIntent>, RetainPtr<NSShadow>, RetainPtr<NSDate>, WebCore::AttributedString::ColorFromCGColor, WebCore::AttributedString::ColorFromPlatformColor, WebCore::TextAttachmentFileWrapper, WebCore::TextAttachmentMissingImage> value;
+}
+
+[Nested] struct WebCore::AttributedString::ColorFromPlatformColor {
+    WebCore::Color color
+}
+
+[Nested] struct WebCore::AttributedString::ColorFromCGColor {
+    WebCore::Color color
+}
+
+[Nested] struct WebCore::AttributedString::Range {
+    size_t location
+    size_t length
+};
+
+struct WebCore::AttributedString {
+    String string;
+    [Validator='WebCore::AttributedString::rangesAreSafe(*string, *attributes)'] Vector<std::pair<WebCore::AttributedString::Range, HashMap<String, WebCore::AttributedString::AttributeValue>>> attributes;
+    std::optional<HashMap<String, WebCore::AttributedString::AttributeValue>> documentAttributes;
+};
+
+#if ENABLE(MEDIA_RECORDER)
+struct WebCore::MediaRecorderPrivateOptions {
+    String mimeType;
+    std::optional<unsigned> audioBitsPerSecond;
+    std::optional<unsigned> videoBitsPerSecond;
+    std::optional<unsigned> bitsPerSecond;
+};
+#endif // ENABLE(MEDIA_RECORDER)
+
+[Nested] class WebCore::ProtectionSpace::PlatformData {
+    RetainPtr<NSURLProtectionSpace> nsSpace;
+};
+
+#if ENABLE(APPLE_PAY_LATER_AVAILABILITY)
+header: <WebCore/ApplePayLaterAvailability.h>
+enum class WebCore::ApplePayLaterAvailability : uint8_t {
+    Available,
+    UnavailableItemIneligible,
+    UnavailableRecurringTransaction,
+};
+#endif
+
+#if ENABLE(APPLE_PAY)
+header: <WebCore/ApplePaySessionPaymentRequest.h>
+enum class WebCore::ApplePaySessionPaymentRequestShippingType : uint8_t {
+    Shipping,
+    Delivery,
+    StorePickup,
+    ServicePickup,
+};
+
+class WebCore::PaymentSessionError {
+    [SecureCodingAllowed=[NSError.class]] RetainPtr<NSError> platformError();
+};
+
+
+[Nested] struct WebCore::ApplePaySessionPaymentRequest::MerchantCapabilities {
+    bool supports3DS;
+    bool supportsEMV;
+    bool supportsCredit;
+    bool supportsDebit;
+}
+
+[Nested] struct WebCore::ApplePaySessionPaymentRequest::ContactFields {
+    bool postalAddress;
+    bool phone;
+    bool email;
+    bool name;
+    bool phoneticName;
+};
+
+[CustomHeader] class WebCore::ApplePaySessionPaymentRequest {
+    String countryCode();
+    String currencyCode();
+    WebCore::ApplePaySessionPaymentRequest::ContactFields requiredBillingContactFields();
+    WebCore::PaymentContact billingContact();
+    WebCore::ApplePaySessionPaymentRequest::ContactFields requiredShippingContactFields();
+    WebCore::PaymentContact shippingContact();
+    Vector<String> supportedNetworks();
+    WebCore::ApplePaySessionPaymentRequest::MerchantCapabilities merchantCapabilities();
+    WebCore::ApplePaySessionPaymentRequest::ShippingType shippingType();
+    Vector<WebCore::ApplePayShippingMethod> shippingMethods();
+    Vector<WebCore::ApplePayLineItem> lineItems();
+    WebCore::ApplePayLineItem total();
+    String applicationData();
+    Vector<String> supportedCountries();
+    WebCore::ApplePaySessionPaymentRequest::Requester requester();
+
+#if HAVE(PASSKIT_INSTALLMENTS)
+    WebCore::PaymentInstallmentConfiguration installmentConfiguration();
+#endif
+
+#if ENABLE(APPLE_PAY_SHIPPING_CONTACT_EDITING_MODE)
+    std::optional<WebCore::ApplePayShippingContactEditingMode> shippingContactEditingMode();
+#endif
+
+#if ENABLE(APPLE_PAY_COUPON_CODE)
+    std::optional<bool> supportsCouponCode();
+    String couponCode();
+#endif
+
+#if ENABLE(APPLE_PAY_RECURRING_PAYMENTS)
+    std::optional<WebCore::ApplePayRecurringPaymentRequest> recurringPaymentRequest();
+#endif
+
+#if ENABLE(APPLE_PAY_AUTOMATIC_RELOAD_PAYMENTS)
+    std::optional<WebCore::ApplePayAutomaticReloadPaymentRequest> automaticReloadPaymentRequest();
+#endif
+
+#if ENABLE(APPLE_PAY_MULTI_MERCHANT_PAYMENTS)
+    std::optional<Vector<WebCore::ApplePayPaymentTokenContext>> multiTokenContexts();
+#endif
+
+#if ENABLE(APPLE_PAY_DEFERRED_PAYMENTS)
+    std::optional<WebCore::ApplePayDeferredPaymentRequest> deferredPaymentRequest();
+#endif
+
+#if ENABLE(APPLE_PAY_LATER_AVAILABILITY)
+    std::optional<WebCore::ApplePayLaterAvailability> applePayLaterAvailability();
+#endif
+};
+
+headers: <pal/cocoa/PassKitSoftLink.h>
+class WebCore::PaymentMethod {
+    [Precondition='PAL::isPassKitCoreFrameworkAvailable()', SecureCodingAllowed=[PAL::getPKPaymentMethodClass()], Validator='m_pkPaymentMethod'] RetainPtr<PKPaymentMethod> m_pkPaymentMethod;
+};
+
+class WebCore::Payment {
+    [Precondition='PAL::isPassKitCoreFrameworkAvailable()', SecureCodingAllowed=[PAL::getPKPaymentClass()]] RetainPtr<PKPayment> pkPayment();
+};
+
+class WebCore::PaymentContact {
+    [Precondition='PAL::isPassKitCoreFrameworkAvailable()', SecureCodingAllowed=[PAL::getPKContactClass()]] RetainPtr<PKContact> pkContact();
+};
+
+class WebCore::PaymentMerchantSession {
+    [Precondition='PAL::isPassKitCoreFrameworkAvailable()', SecureCodingAllowed=[PAL::getPKPaymentMerchantSessionClass()]] RetainPtr<PKPaymentMerchantSession> pkPaymentMerchantSession();
+};
+#endif
+
+#if ENABLE(APPLE_PAY_SHIPPING_CONTACT_EDITING_MODE)
+header: <WebCore/ApplePayShippingContactEditingMode.h>
+enum class WebCore::ApplePayShippingContactEditingMode : uint8_t {
+    Available,
+    Enabled,
+    StorePickup,
+};
+#endif
+
+header: <WebCore/PlatformCAAnimation.h>
+enum class WebCore::PlatformCAAnimationType : uint8_t {
+    Basic,
+    Group,
+    Keyframe,
+    Spring
+};
+
+header: <WebCore/PlatformCAAnimation.h>
+enum class WebCore::PlatformCAAnimationFillModeType : uint8_t {
+    NoFillMode,
+    Forwards,
+    Backwards,
+    Both
+};
+
+header: <WebCore/PlatformCAAnimation.h>
+enum class WebCore::PlatformCAAnimationValueFunctionType : uint8_t {
+    NoValueFunction,
+    RotateX,
+    RotateY,
+    RotateZ,
+    ScaleX,
+    ScaleY,
+    ScaleZ,
+    Scale,
+    TranslateX,
+    TranslateY,
+    TranslateZ,
+    Translate
+};
+
+enum class WebCore::PlatformCALayerFilterType : uint8_t {
+    Linear,
+    Nearest,
+    Trilinear
+};
+
+enum class WebCore::PlatformCALayerLayerType : uint8_t {
+        LayerTypeLayer,
+        LayerTypeWebLayer,
+        LayerTypeSimpleLayer,
+        LayerTypeTransformLayer,
+        LayerTypeTiledBackingLayer,
+        LayerTypePageTiledBackingLayer,
+        LayerTypeTiledBackingTileLayer,
+        LayerTypeRootLayer,
+        LayerTypeAVPlayerLayer,
+        LayerTypeContentsProvidedLayer,
+        LayerTypeBackdropLayer,
+        LayerTypeShapeLayer,
+        LayerTypeScrollContainerLayer,
+#if ENABLE(MODEL_ELEMENT)
+        LayerTypeModelLayer,
+#endif
+        LayerTypeCustom,
+        LayerTypeHost,
+};

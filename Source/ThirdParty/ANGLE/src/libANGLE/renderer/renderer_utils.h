@@ -15,6 +15,7 @@
 #include <limits>
 #include <map>
 
+#include "GLSLANG/ShaderLang.h"
 #include "common/angleutils.h"
 #include "common/utilities.h"
 #include "libANGLE/angletypes.h"
@@ -23,6 +24,7 @@ namespace angle
 {
 struct FeatureSetBase;
 struct Format;
+struct ImageLoadContext;
 enum class FormatID;
 }  // namespace angle
 
@@ -30,6 +32,7 @@ namespace gl
 {
 struct FormatType;
 struct InternalFormat;
+class ProgramExecutable;
 class State;
 }  // namespace gl
 
@@ -60,6 +63,10 @@ enum class SurfaceRotation
     EnumCount = InvalidEnum,
 };
 
+bool IsRotatedAspectRatio(SurfaceRotation rotation);
+
+using SpecConstUsageBits = angle::PackedEnumBitSet<sh::vk::SpecConstUsage, uint32_t>;
+
 void RotateRectangle(const SurfaceRotation rotation,
                      const bool flipY,
                      const int framebufferWidth,
@@ -79,7 +86,14 @@ using MipGenerationFunction = void (*)(size_t sourceWidth,
 
 typedef void (*PixelReadFunction)(const uint8_t *source, uint8_t *dest);
 typedef void (*PixelWriteFunction)(const uint8_t *source, uint8_t *dest);
-typedef void (*PixelCopyFunction)(const uint8_t *source, uint8_t *dest);
+typedef void (*FastCopyFunction)(const uint8_t *source,
+                                 int srcXAxisPitch,
+                                 int srcYAxisPitch,
+                                 uint8_t *dest,
+                                 int destXAxisPitch,
+                                 int destYAxisPitch,
+                                 int width,
+                                 int height);
 
 class FastCopyFunctionMap
 {
@@ -87,7 +101,7 @@ class FastCopyFunctionMap
     struct Entry
     {
         angle::FormatID formatID;
-        PixelCopyFunction func;
+        FastCopyFunction func;
     };
 
     constexpr FastCopyFunctionMap() : FastCopyFunctionMap(nullptr, 0) {}
@@ -95,7 +109,7 @@ class FastCopyFunctionMap
     constexpr FastCopyFunctionMap(const Entry *data, size_t size) : mSize(size), mData(data) {}
 
     bool has(angle::FormatID formatID) const;
-    PixelCopyFunction get(angle::FormatID formatID) const;
+    FastCopyFunction get(angle::FormatID formatID) const;
 
   private:
     size_t mSize;
@@ -134,7 +148,8 @@ using InitializeTextureDataFunction = void (*)(size_t width,
                                                size_t outputRowPitch,
                                                size_t outputDepthPitch);
 
-using LoadImageFunction = void (*)(size_t width,
+using LoadImageFunction = void (*)(const angle::ImageLoadContext &context,
+                                   size_t width,
                                    size_t height,
                                    size_t depth,
                                    const uint8_t *input,
@@ -158,7 +173,6 @@ struct LoadImageFunctionInfo
 using LoadFunctionMap = LoadImageFunctionInfo (*)(GLenum);
 
 bool ShouldUseDebugLayers(const egl::AttributeMap &attribs);
-bool ShouldUseVirtualizedContexts(const egl::AttributeMap &attribs, bool defaultValue);
 
 void CopyImageCHROMIUM(const uint8_t *sourceData,
                        size_t sourceRowPitch,
@@ -204,11 +218,15 @@ class IncompleteTextureSet final : angle::NonCopyable
 
     angle::Result getIncompleteTexture(const gl::Context *context,
                                        gl::TextureType type,
+                                       gl::SamplerFormat format,
                                        MultisampleTextureInitializer *multisampleInitializer,
                                        gl::Texture **textureOut);
 
   private:
-    gl::TextureMap mIncompleteTextures;
+    using TextureMapWithSamplerFormat = angle::PackedEnumMap<gl::SamplerFormat, gl::TextureMap>;
+
+    TextureMapWithSamplerFormat mIncompleteTextures;
+    gl::Buffer *mIncompleteTextureBufferAttachment;
 };
 
 // Helpers to set a matrix uniform value based on GLSL or HLSL semantics.
@@ -356,6 +374,12 @@ angle::Result MultiDrawArraysGeneral(ContextImpl *contextImpl,
                                      const GLint *firsts,
                                      const GLsizei *counts,
                                      GLsizei drawcount);
+angle::Result MultiDrawArraysIndirectGeneral(ContextImpl *contextImpl,
+                                             const gl::Context *context,
+                                             gl::PrimitiveMode mode,
+                                             const void *indirect,
+                                             GLsizei drawcount,
+                                             GLsizei stride);
 angle::Result MultiDrawArraysInstancedGeneral(ContextImpl *contextImpl,
                                               const gl::Context *context,
                                               gl::PrimitiveMode mode,
@@ -370,6 +394,13 @@ angle::Result MultiDrawElementsGeneral(ContextImpl *contextImpl,
                                        gl::DrawElementsType type,
                                        const GLvoid *const *indices,
                                        GLsizei drawcount);
+angle::Result MultiDrawElementsIndirectGeneral(ContextImpl *contextImpl,
+                                               const gl::Context *context,
+                                               gl::PrimitiveMode mode,
+                                               gl::DrawElementsType type,
+                                               const void *indirect,
+                                               GLsizei drawcount,
+                                               GLsizei stride);
 angle::Result MultiDrawElementsInstancedGeneral(ContextImpl *contextImpl,
                                                 const gl::Context *context,
                                                 gl::PrimitiveMode mode,
@@ -401,38 +432,55 @@ angle::Result MultiDrawElementsInstancedBaseVertexBaseInstanceGeneral(ContextImp
 class ResetBaseVertexBaseInstance : angle::NonCopyable
 {
   public:
-    ResetBaseVertexBaseInstance(gl::Program *programObject,
+    ResetBaseVertexBaseInstance(gl::ProgramExecutable *executable,
                                 bool resetBaseVertex,
                                 bool resetBaseInstance);
 
     ~ResetBaseVertexBaseInstance();
 
   private:
-    gl::Program *mProgramObject;
+    gl::ProgramExecutable *mExecutable;
     bool mResetBaseVertex;
     bool mResetBaseInstance;
 };
 
+angle::FormatID ConvertToSRGB(angle::FormatID formatID);
+angle::FormatID ConvertToLinear(angle::FormatID formatID);
+bool IsOverridableLinearFormat(angle::FormatID formatID);
+
+template <bool swizzledLuma = true>
+const gl::ColorGeneric AdjustBorderColor(const angle::ColorGeneric &borderColorGeneric,
+                                         const angle::Format &format,
+                                         bool stencilMode);
+
+enum class PipelineType
+{
+    Graphics = 0,
+    Compute  = 1,
+
+    InvalidEnum = 2,
+    EnumCount   = 2,
+};
 }  // namespace rx
 
 // MultiDraw macro patterns
 // These macros are to avoid too much code duplication as we don't want to have if detect for
-// hasDrawID/BaseVertex/BaseInstance inside for loop in a multiDraw call Part of these are put in
-// the header as we want to share with specialized context impl on some platforms for multidraw
+// hasDrawID/BaseVertex/BaseInstance inside for loop in a multiDrawANGLE call Part of these are put
+// in the header as we want to share with specialized context impl on some platforms for multidraw
 #define ANGLE_SET_DRAW_ID_UNIFORM_0(drawID) \
     {}
-#define ANGLE_SET_DRAW_ID_UNIFORM_1(drawID) programObject->setDrawIDUniform(drawID)
+#define ANGLE_SET_DRAW_ID_UNIFORM_1(drawID) executable->setDrawIDUniform(drawID)
 #define ANGLE_SET_DRAW_ID_UNIFORM(cond) ANGLE_SET_DRAW_ID_UNIFORM_##cond
 
 #define ANGLE_SET_BASE_VERTEX_UNIFORM_0(baseVertex) \
     {}
-#define ANGLE_SET_BASE_VERTEX_UNIFORM_1(baseVertex) programObject->setBaseVertexUniform(baseVertex);
+#define ANGLE_SET_BASE_VERTEX_UNIFORM_1(baseVertex) executable->setBaseVertexUniform(baseVertex);
 #define ANGLE_SET_BASE_VERTEX_UNIFORM(cond) ANGLE_SET_BASE_VERTEX_UNIFORM_##cond
 
 #define ANGLE_SET_BASE_INSTANCE_UNIFORM_0(baseInstance) \
     {}
 #define ANGLE_SET_BASE_INSTANCE_UNIFORM_1(baseInstance) \
-    programObject->setBaseInstanceUniform(baseInstance)
+    executable->setBaseInstanceUniform(baseInstance)
 #define ANGLE_SET_BASE_INSTANCE_UNIFORM(cond) ANGLE_SET_BASE_INSTANCE_UNIFORM_##cond
 
 #define ANGLE_NOOP_DRAW_ context->noopDraw(mode, counts[drawID])

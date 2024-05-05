@@ -21,9 +21,8 @@
 #include "modules/rtp_rtcp/source/absolute_capture_time_sender.h"
 #include "modules/rtp_rtcp/source/dtmf_queue.h"
 #include "modules/rtp_rtcp/source/rtp_sender.h"
-#include "rtc_base/constructor_magic.h"
-#include "rtc_base/critical_section.h"
 #include "rtc_base/one_time_event.h"
+#include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/thread_annotations.h"
 #include "system_wrappers/include/clock.h"
 
@@ -32,6 +31,11 @@ namespace webrtc {
 class RTPSenderAudio {
  public:
   RTPSenderAudio(Clock* clock, RTPSender* rtp_sender);
+
+  RTPSenderAudio() = delete;
+  RTPSenderAudio(const RTPSenderAudio&) = delete;
+  RTPSenderAudio& operator=(const RTPSenderAudio&) = delete;
+
   ~RTPSenderAudio();
 
   int32_t RegisterAudioPayload(absl::string_view payload_name,
@@ -40,23 +44,25 @@ class RTPSenderAudio {
                                size_t channels,
                                uint32_t rate);
 
-  bool SendAudio(AudioFrameType frame_type,
-                 int8_t payload_type,
-                 uint32_t rtp_timestamp,
-                 const uint8_t* payload_data,
-                 size_t payload_size);
+  struct RtpAudioFrame {
+    AudioFrameType type = AudioFrameType::kAudioFrameSpeech;
+    rtc::ArrayView<const uint8_t> payload;
 
-  bool SendAudio(AudioFrameType frame_type,
-                 int8_t payload_type,
-                 uint32_t rtp_timestamp,
-                 const uint8_t* payload_data,
-                 size_t payload_size,
-                 int64_t absolute_capture_timestamp_ms);
+    // Payload id to write to the payload type field of the rtp packet.
+    int payload_id = -1;
 
-  // Store the audio level in dBov for
-  // header-extension-for-audio-level-indication.
-  // Valid range is [0,100]. Actual value is negative.
-  int32_t SetAudioLevel(uint8_t level_dbov);
+    // capture time of the audio frame represented as rtp timestamp.
+    uint32_t rtp_timestamp = 0;
+
+    // capture time of the audio frame in the same epoch as `clock->CurrentTime`
+    absl::optional<Timestamp> capture_time;
+
+    // Audio level in dBov for
+    // header-extension-for-audio-level-indication.
+    // Valid range is [0,127]. Actual value is negative.
+    absl::optional<int> audio_level_dbov;
+  };
+  bool SendAudio(const RtpAudioFrame& frame);
 
   // Send a DTMF tone using RFC 2833 (4733)
   int32_t SendTelephoneEvent(uint8_t key, uint16_t time_ms, uint8_t level);
@@ -74,13 +80,13 @@ class RTPSenderAudio {
   Clock* const clock_ = nullptr;
   RTPSender* const rtp_sender_ = nullptr;
 
-  rtc::CriticalSection send_audio_critsect_;
+  Mutex send_audio_mutex_;
 
   // DTMF.
   bool dtmf_event_is_on_ = false;
   bool dtmf_event_first_packet_sent_ = false;
-  int8_t dtmf_payload_type_ RTC_GUARDED_BY(send_audio_critsect_) = -1;
-  uint32_t dtmf_payload_freq_ RTC_GUARDED_BY(send_audio_critsect_) = 8000;
+  int8_t dtmf_payload_type_ RTC_GUARDED_BY(send_audio_mutex_) = -1;
+  uint32_t dtmf_payload_freq_ RTC_GUARDED_BY(send_audio_mutex_) = 8000;
   uint32_t dtmf_timestamp_ = 0;
   uint32_t dtmf_length_samples_ = 0;
   int64_t dtmf_time_last_sent_ = 0;
@@ -89,24 +95,20 @@ class RTPSenderAudio {
   DtmfQueue dtmf_queue_;
 
   // VAD detection, used for marker bit.
-  bool inband_vad_active_ RTC_GUARDED_BY(send_audio_critsect_) = false;
-  int8_t cngnb_payload_type_ RTC_GUARDED_BY(send_audio_critsect_) = -1;
-  int8_t cngwb_payload_type_ RTC_GUARDED_BY(send_audio_critsect_) = -1;
-  int8_t cngswb_payload_type_ RTC_GUARDED_BY(send_audio_critsect_) = -1;
-  int8_t cngfb_payload_type_ RTC_GUARDED_BY(send_audio_critsect_) = -1;
-  int8_t last_payload_type_ RTC_GUARDED_BY(send_audio_critsect_) = -1;
+  bool inband_vad_active_ RTC_GUARDED_BY(send_audio_mutex_) = false;
+  int8_t cngnb_payload_type_ RTC_GUARDED_BY(send_audio_mutex_) = -1;
+  int8_t cngwb_payload_type_ RTC_GUARDED_BY(send_audio_mutex_) = -1;
+  int8_t cngswb_payload_type_ RTC_GUARDED_BY(send_audio_mutex_) = -1;
+  int8_t cngfb_payload_type_ RTC_GUARDED_BY(send_audio_mutex_) = -1;
+  int8_t last_payload_type_ RTC_GUARDED_BY(send_audio_mutex_) = -1;
 
-  // Audio level indication.
-  // (https://datatracker.ietf.org/doc/draft-lennox-avt-rtp-audio-level-exthdr/)
-  uint8_t audio_level_dbov_ RTC_GUARDED_BY(send_audio_critsect_) = 0;
   OneTimeEvent first_packet_sent_;
 
-  absl::optional<uint32_t> encoder_rtp_timestamp_frequency_
-      RTC_GUARDED_BY(send_audio_critsect_);
+  absl::optional<int> encoder_rtp_timestamp_frequency_
+      RTC_GUARDED_BY(send_audio_mutex_);
 
-  AbsoluteCaptureTimeSender absolute_capture_time_sender_;
-
-  RTC_DISALLOW_IMPLICIT_CONSTRUCTORS(RTPSenderAudio);
+  AbsoluteCaptureTimeSender absolute_capture_time_sender_
+      RTC_GUARDED_BY(send_audio_mutex_);
 };
 
 }  // namespace webrtc

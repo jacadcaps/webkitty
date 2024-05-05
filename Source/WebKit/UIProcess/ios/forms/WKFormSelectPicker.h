@@ -28,6 +28,10 @@
 #import "WKFormPeripheral.h"
 #import <UIKit/UIPickerView.h>
 
+#if USE(UICONTEXTMENU)
+#import <UIKit/UIContextMenuInteraction.h>
+#endif
+
 @class WKContentView;
 
 @interface WKSelectSinglePicker : UIPickerView <WKFormControl, UIPickerViewDataSource, UIPickerViewDelegate>
@@ -35,6 +39,18 @@
 @end
 
 @interface WKMultipleSelectPicker : UIPickerView <WKFormControl, UIPickerViewDataSource, UIPickerViewDelegate>
+- (instancetype)initWithView:(WKContentView *)view;
+@end
+
+@interface WKSelectPicker : NSObject <WKFormControl
+#if USE(UICONTEXTMENU)
+, UIContextMenuInteractionDelegate
+#endif
+>
+- (instancetype)initWithView:(WKContentView *)view;
+@end
+
+@interface WKSelectMultiplePicker : NSObject <WKFormControl>
 - (instancetype)initWithView:(WKContentView *)view;
 @end
 
