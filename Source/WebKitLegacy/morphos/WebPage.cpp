@@ -1319,6 +1319,12 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 //	settings.setViewportFitEnabled(true);
 	settings.setConstantPropertiesEnabled(true);
  
+    settings.setLazyImageLoadingEnabled(true);
+    settings.setLazyIframeLoadingEnabled(true);
+
+    settings.setDirectoryUploadEnabled(true);
+    settings.setFileSystemAccessEnabled(true);
+ 
 #if ENABLE(FULLSCREEN_API)
        settings.setFullScreenEnabled(true);
 #endif
