@@ -286,9 +286,9 @@ GPUExternalTexture* GPUDevice::externalTextureForDescriptor(const GPUExternalTex
         if (it != m_videoElementToExternalTextureMap.end())
             return it->value.get();
     }
-#endif
     return nullptr;
 }
+#endif
 
 #if ENABLE(VIDEO)
 class GPUDeviceVideoFrameRequestCallback final : public VideoFrameRequestCallback {
