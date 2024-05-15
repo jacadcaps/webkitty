@@ -1324,7 +1324,13 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 
     settings.setDirectoryUploadEnabled(true);
     settings.setFileSystemAccessEnabled(true);
- 
+
+    // new
+    settings.setBeaconAPIEnabled(true);
+// TODO:
+//    settings.setMediaCapabilitiesEnabled(true);
+//    settings.setPermissionsAPIEnabled(true);
+
 #if ENABLE(FULLSCREEN_API)
        settings.setFullScreenEnabled(true);
 #endif

@@ -220,12 +220,6 @@ void RenderMenuList::updateOptionsWidth()
                 optionWidth += minimumValueForLength(optionStyle->textIndent(), 0);
             if (!text.isEmpty()) {
                 const FontCascade& font = style().fontCascade();
-                #if OS(MORPHOS)
-                volatile void* vAddr = (volatile void *)&font;
-                if (vAddr < (void *)0x1000) {
-                    return;
-                }
-                #endif
                 TextRun run = RenderBlock::constructTextRun(text, style());
                 optionWidth += font.width(run);
             }
