@@ -111,7 +111,12 @@ ResourceResponse::ResourceResponse(CurlResponse& response)
         if (pos != notFound) {
             auto extension = lastPathComponent.substring(pos + 1);
             mimeType = MIMETypeRegistry::mimeTypeForExtension(extension);
-            setHTTPHeaderField(HTTPHeaderName::ContentType, mimeType);
+            // cache the content type, don't override if we're getting a response from cache anyway
+            // since in some cases the deduced mimetype may be wrong (if the server omitted content-type that
+            // mismatches the extension for a 304, like on a1k.org)
+            if (mimeType.length() && httpStatusCode() != 304) {
+                setHTTPHeaderField(HTTPHeaderName::ContentType, mimeType);
+            }
         }
 	}
     setMimeType(mimeType.convertToASCIILowercase());

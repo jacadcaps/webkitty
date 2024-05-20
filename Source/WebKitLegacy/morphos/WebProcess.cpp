@@ -204,7 +204,7 @@ void WebProcess::initialize(int sigbit)
 
 	D(dprintf("%s mask %u\n", __PRETTY_FUNCTION__, m_sigMask));
 
-	GCController::singleton().setJavaScriptGarbageCollectorTimerEnabled(true);
+//	GCController::singleton().setJavaScriptGarbageCollectorTimerEnabled(true);
 
 #if (!MORPHOS_MINIMAL)
 	PAL::GCrypt::initialize();
