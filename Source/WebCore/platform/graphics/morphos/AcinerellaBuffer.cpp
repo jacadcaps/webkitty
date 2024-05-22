@@ -17,6 +17,7 @@
 #include <queue>
 #include "AcinerellaDecoder.h"
 #include "AcinerellaHLS.h"
+#include <wtf/text/StringToIntegerConversion.h>
 
 #if ENABLE(WEB_CRYPTO)
 
@@ -27,8 +28,8 @@
 
 #endif
 
-#define D(x)
-#define DP(x) 
+#define D(x) 
+#define DP(x)
 
 namespace WebCore {
 namespace Acinerella {
@@ -292,7 +293,33 @@ public:
 			
 			// only set on 1st request (or when we're reading from pos=0)
 			if (0 == m_bufferPositionAbs)
+            {
 				m_length = reinterpret_cast<int64_t>(m_response.expectedContentLength());
+                
+                D(dprintf("%s(%p): got expected content length %lld\n", __PRETTY_FUNCTION__, this, m_length));
+    
+                if (-1 == m_length) {
+                    for (auto header : response.headers) {
+                        auto splitPosition = header.find(':');
+                        if (splitPosition == notFound)
+                            continue;
+
+                        auto key = header.left(splitPosition).trim(deprecatedIsSpaceOrNewline);
+                        if (!equalIgnoringASCIICase(key, "Content-Length"_s))
+                            continue;
+
+                        auto contentLength = header.substring(splitPosition + 1).trim(deprecatedIsSpaceOrNewline);
+                        if (auto length = parseIntegerAllowingTrailingJunk<int64_t>(contentLength)) {
+                            m_length = *length;
+                            D(dprintf("%s(%p): got content length from header %lld\n", __PRETTY_FUNCTION__, this, m_length));
+                        }
+                    }
+                }
+                
+                if (-1 == m_length) {
+                    m_length = 0; // disable seeking
+                }
+            }
 
 			if (m_response.isRedirection())
 			{
@@ -359,7 +386,7 @@ public:
 						if (m_curlRequest)
 						{
 							D(dprintf("%s: suspending...\n", __PRETTY_FUNCTION__));
-							m_curlRequest->suspend();
+                            m_curlRequest->suspend();
 							m_isPaused = true;
 						}
 					}
