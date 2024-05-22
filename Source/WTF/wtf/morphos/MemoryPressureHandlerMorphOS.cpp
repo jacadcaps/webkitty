@@ -42,7 +42,7 @@ void MemoryPressureHandler::platformReleaseMemory(Critical)
 
 void MemoryPressureHandler::morphosMeasurementTimerFired()
 {
-    setMemoryPressureStatus(MemoryPressureStatus::Normal);
+    setMemoryPressureStatus(SystemMemoryPressureStatus::Normal);
 
 	bool memoryLow = false;
 	
@@ -74,7 +74,7 @@ void MemoryPressureHandler::morphosMeasurementTimerFired()
 	
 	if (memoryLow)
 	{
-        setMemoryPressureStatus(MemoryPressureStatus::SystemCritical);
+        setMemoryPressureStatus(SystemMemoryPressureStatus::Critical);
         releaseMemory(Critical::Yes);
         WebKit::reactOnMemoryPressureInWebKit();
         return;
