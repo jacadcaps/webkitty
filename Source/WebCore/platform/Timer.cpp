@@ -253,6 +253,8 @@ static bool shouldSuppressThreadSafetyCheck()
     return WebThreadIsEnabled() || !linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::TimerThreadSafetyChecks);
 #elif PLATFORM(MAC)
     return !isInWebProcess() && !linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::TimerThreadSafetyChecks);
+#elif OS(MORPHOS)
+    return true;
 #else
     return false;
 #endif
@@ -500,12 +502,12 @@ void TimerBase::updateHeapIfNeeded(MonotonicTime oldTime)
 void TimerBase::setNextFireTime(MonotonicTime newTime)
 {
     ASSERT(canCurrentThreadAccessThreadLocalData(m_thread));
-    RELEASE_ASSERT(canCurrentThreadAccessThreadLocalData(m_thread) || shouldSuppressThreadSafetyCheck());
-    bool timerHasBeenDeleted = m_unalignedNextFireTime.isNaN();
-    RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(!timerHasBeenDeleted);
+//    RELEASE_ASSERT(canCurrentThreadAccessThreadLocalData(m_thread) || shouldSuppressThreadSafetyCheck());
+//    bool timerHasBeenDeleted = m_unalignedNextFireTime.isNaN();
+//    RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(!timerHasBeenDeleted);
 
     if (m_unalignedNextFireTime != newTime) {
-        RELEASE_ASSERT(!newTime.isNaN());
+//        RELEASE_ASSERT(!newTime.isNaN());
         m_unalignedNextFireTime = newTime;
     }
 

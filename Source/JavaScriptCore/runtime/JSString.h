@@ -123,7 +123,11 @@ public:
     // We employ overflow checks in many places with the assumption that MaxLength
     // is INT_MAX. Hence, it cannot be changed into another length value without
     // breaking all the bounds and overflow checks that assume this.
+#if OS(MORPHOS)
+    static constexpr unsigned MaxLength = 64 * 1024 * 1024;
+#else
     static constexpr unsigned MaxLength = std::numeric_limits<int32_t>::max();
+#endif
     static_assert(MaxLength == String::MaxLength);
 
     static constexpr uintptr_t isRopeInPointer = 0x1;
@@ -434,12 +438,20 @@ public:
             if (m_strings.size() == JSRopeString::s_maxInternalRopeLength)
                 expand();
 
+#if OS(MORPHOS)
+            auto sum = checkedSum<int32_t>(m_length, jsString->length());
+            if (sum.hasOverflowed() || static_cast<unsigned>(sum) >= MaxLength) {
+                this->overflowed();
+                return false;
+            }
+#else
             static_assert(JSString::MaxLength == std::numeric_limits<int32_t>::max());
             auto sum = checkedSum<int32_t>(m_length, jsString->length());
             if (sum.hasOverflowed()) {
                 this->overflowed();
                 return false;
             }
+#endif
             ASSERT(static_cast<unsigned>(sum) <= MaxLength);
             m_strings.append(jsString);
             m_length = static_cast<unsigned>(sum);

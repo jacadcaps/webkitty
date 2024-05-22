@@ -117,6 +117,11 @@ public:
     WTF_EXPORT_PRIVATE CString ascii() const;
     WTF_EXPORT_PRIVATE CString latin1() const;
 
+#if OS(MORPHOS)
+    CString native() const;
+    String(const char * characters, unsigned length, unsigned mib);
+#endif
+
     WTF_EXPORT_PRIVATE CString utf8(ConversionMode = LenientConversion) const;
 
     template<typename Func>

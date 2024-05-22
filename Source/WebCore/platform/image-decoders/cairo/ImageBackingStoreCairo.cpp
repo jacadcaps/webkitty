@@ -33,6 +33,8 @@ namespace WebCore {
 
 PlatformImagePtr ImageBackingStore::image() const
 {
+    if (!m_pixels || !m_pixelsPtr)
+        return nullptr;
     m_pixels->ref();
     RefPtr<cairo_surface_t> surface = adoptRef(cairo_image_surface_create_for_data(
         reinterpret_cast<unsigned char*>(const_cast<uint32_t*>(m_pixelsPtr)),

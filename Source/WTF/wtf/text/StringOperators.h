@@ -36,8 +36,14 @@ public:
     operator String() const
     {
         String result = tryMakeString(m_string1, m_string2);
-        if (!result)
+        if (!result) {
+#if OS(MORPHOS)
+            dprintf("WebKit: failed string concatenate\n");
+            return String();
+#else
             CRASH();
+#endif
+        }
         return result;
     }
 

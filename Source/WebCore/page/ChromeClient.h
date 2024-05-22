@@ -505,6 +505,12 @@ public:
     virtual void postAccessibilityFrameLoadingEventNotification(AccessibilityObject*, AXObjectCache::AXLoadingEvent) = 0;
 #endif
 
+#if OS(MORPHOS)
+    virtual void postAccessibilityNotification(AccessibilityObject&, AXObjectCache::AXNotification) = 0;
+    virtual void postAccessibilityNodeTextChangeNotification(AccessibilityObject*, AXTextChange, unsigned, const String&) = 0;
+    virtual void postAccessibilityFrameLoadingEventNotification(AccessibilityObject*, AXObjectCache::AXLoadingEvent) = 0;
+#endif
+
     virtual bool selectItemWritingDirectionIsNatural() = 0;
     virtual bool selectItemAlignmentFollowsMenuWritingDirection() = 0;
     // Checks if there is an opened popup, called by RenderMenuList::showPopup().
