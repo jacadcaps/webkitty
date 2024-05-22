@@ -497,8 +497,12 @@ NEVER_INLINE void SlotVisitor::drain(MonotonicTime timeout)
     }
     
     Locker locker { m_rightToRun };
-    
+
+#if OS(MORPHOS) // this always evaluates to true since timeout will always be 'infinity'
+    while (1) {
+#else
     while (!hasElapsed(timeout)) {
+#endif
         updateMutatorIsStopped(locker);
         IterationStatus status = forEachMarkStack(
             [&] (MarkStackArray& stack) -> IterationStatus {

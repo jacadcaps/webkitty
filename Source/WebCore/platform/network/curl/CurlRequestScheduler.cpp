@@ -120,13 +120,13 @@ void CurlRequestScheduler::wakeUpThreadIfPossible()
 void CurlRequestScheduler::stopThreadIfNoMoreJobRunning()
 {
     ASSERT(!isMainThread());
-// #if !OS(MORPHOS)
+#if !OS(MORPHOS)
     Locker locker { m_mutex };
     if (m_activeJobs.size() || m_taskQueue.size())
         return;
 
     m_runThread = false;
-// #endif
+#endif
 }
 
 #if OS(MORPHOS)
