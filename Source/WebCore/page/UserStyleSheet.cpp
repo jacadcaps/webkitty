@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2024 Igalia S.L. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,41 +23,28 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#if PLATFORM(IOS_FAMILY)
+#include "config.h"
+#include "UserStyleSheet.h"
 
-#import <UIKit/UIViewController.h>
+#include <wtf/text/StringConcatenateNumbers.h>
 
-@class WKContentView;
-@protocol WKFileUploadPanelDelegate;
+namespace WebCore {
 
-namespace API {
-class OpenPanelParameters;
+static WTF::URL generateUserStyleUniqueURL()
+{
+    static uint64_t identifier;
+    return { { }, makeString("user-style:", ++identifier) };
 }
 
-namespace WebKit {
-class WebOpenPanelResultListenerProxy;
-enum class PickerDismissalReason : uint8_t;
+UserStyleSheet::UserStyleSheet(const String& source, const URL& url, Vector<String>&& allowlist, Vector<String>&& blocklist, UserContentInjectedFrames injectedFrames, UserStyleLevel level, std::optional<PageIdentifier> pageID)
+    : m_source(source)
+    , m_url(url.isEmpty() ? generateUserStyleUniqueURL() : url)
+    , m_allowlist(WTFMove(allowlist))
+    , m_blocklist(WTFMove(blocklist))
+    , m_injectedFrames(injectedFrames)
+    , m_level(level)
+    , m_pageID(pageID)
+{
 }
 
-@interface WKFileUploadPanel : UIViewController
-@property (nonatomic, weak) id <WKFileUploadPanelDelegate> delegate;
-- (instancetype)initWithView:(WKContentView *)view;
-- (void)presentWithParameters:(API::OpenPanelParameters*)parameters resultListener:(WebKit::WebOpenPanelResultListenerProxy*)listener;
-
-- (BOOL)dismissIfNeededWithReason:(WebKit::PickerDismissalReason)reason;
-
-#if USE(UICONTEXTMENU)
-- (void)repositionContextMenuIfNeeded;
-#endif
-
-- (NSArray<NSString *> *)currentAvailableActionTitles;
-- (NSArray<NSString *> *)acceptedTypeIdentifiers;
-@end
-
-@protocol WKFileUploadPanelDelegate <NSObject>
-@optional
-- (void)fileUploadPanelDidDismiss:(WKFileUploadPanel *)fileUploadPanel;
-- (BOOL)fileUploadPanelDestinationIsManaged:(WKFileUploadPanel *)fileUploadPanel;
-@end
-
-#endif // PLATFORM(IOS_FAMILY)
+} // namespace WebCore

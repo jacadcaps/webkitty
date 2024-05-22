@@ -113,6 +113,7 @@ class NativeWebTouchEvent;
 class SmartMagnificationController;
 class WebOpenPanelResultListenerProxy;
 class WebPageProxy;
+enum class PickerDismissalReason : uint8_t;
 }
 
 @class AVPlayerViewController;
@@ -662,6 +663,8 @@ struct ImageAnalysisContextMenuActionData {
 - (void)setUpInteraction;
 - (void)cleanUpInteraction;
 - (void)cleanUpInteractionPreviewContainers;
+
+- (void)dismissPickersIfNeededWithReason:(WebKit::PickerDismissalReason)reason;
 
 - (void)scrollViewWillStartPanOrPinchGesture;
 

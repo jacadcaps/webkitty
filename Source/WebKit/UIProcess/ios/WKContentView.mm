@@ -36,6 +36,7 @@
 #import "Logging.h"
 #import "ModelProcessProxy.h"
 #import "PageClientImplIOS.h"
+#import "PickerDismissalReason.h"
 #import "PrintInfo.h"
 #import "RemoteLayerTreeDrawingAreaProxyIOS.h"
 #import "SmartMagnificationController.h"
@@ -507,6 +508,9 @@ static NSArray *keyCommandsPlaceholderHackForEvernote(id self, SEL _cmd)
 
         [self _updateForScreen:newWindow.screen];
     }
+
+    if (window && !newWindow)
+        [self dismissPickersIfNeededWithReason:WebKit::PickerDismissalReason::ViewRemoved];
 }
 
 - (void)didMoveToWindow

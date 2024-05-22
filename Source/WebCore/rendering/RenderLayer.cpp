@@ -894,7 +894,11 @@ bool RenderLayer::canRender3DTransforms() const
 
 bool RenderLayer::paintsWithFilters() const
 {
-    if (!hasFilter())
+    const auto& filter = renderer().style().filter();
+    if (filter.isEmpty())
+        return false;
+
+    if (renderer().isRenderOrLegacyRenderSVGRoot() && filter.isReferenceFilter())
         return false;
 
     if (RenderLayerFilters::isIdentity(renderer()))
@@ -2840,7 +2844,12 @@ void RenderLayer::paintSVGResourceLayer(GraphicsContext& context, const AffineTr
 
     auto localPaintDirtyRect = LayoutRect::infiniteRect();
 
-    auto* rootPaintingLayer = enclosingSVGRootLayer();
+    auto* rootPaintingLayer = [&] () {
+        auto* curr = parent();
+        while (curr && !(curr->renderer().isAnonymous() && is<RenderSVGViewportContainer>(curr->renderer())))
+            curr = curr->parent();
+        return curr;
+    }();
     ASSERT(rootPaintingLayer);
 
     LayerPaintingInfo paintingInfo(rootPaintingLayer, localPaintDirtyRect, PaintBehavior::Normal, LayoutSize());
@@ -4042,14 +4051,6 @@ RenderLayer* RenderLayer::enclosingFragmentedFlowAncestor() const
             return nullptr;
         }
     }
-    return curr;
-}
-
-RenderLayer* RenderLayer::enclosingSVGRootLayer() const
-{
-    auto* curr = parent();
-    while (curr && !curr->renderer().isRenderSVGRoot())
-        curr = curr->parent();
     return curr;
 }
 
@@ -5681,15 +5682,12 @@ void RenderLayer::clearLayerScrollableArea()
 
 void RenderLayer::updateFiltersAfterStyleChange(StyleDifference diff, const RenderStyle* oldStyle)
 {
-    if (!paintsWithFilters()) {
-        clearLayerFilters();
-        return;
-    }
-
     if (renderer().style().filter().hasReferenceFilter()) {
         ensureLayerFilters();
         m_filters->updateReferenceFilterClients(renderer().style().filter());
-    } else if (m_filters)
+    } else if (!paintsWithFilters())
+        clearLayerFilters();
+    else if (m_filters)
         m_filters->removeReferenceFilterClients();
 
     if (diff >= StyleDifference::RepaintLayer && oldStyle && oldStyle->filter() != renderer().style().filter())

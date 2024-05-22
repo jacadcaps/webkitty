@@ -17565,6 +17565,7 @@
 		BC8B853C0E7C7F1100AB6984 /* ScrollbarThemeMac.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ScrollbarThemeMac.h; sourceTree = "<group>"; };
 		BC8B854A0E7C7F5600AB6984 /* ScrollbarTheme.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ScrollbarTheme.h; sourceTree = "<group>"; };
 		BC8BF150105813BF00A40A07 /* UserStyleSheet.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = UserStyleSheet.h; sourceTree = "<group>"; };
+		BC8BF150105814BF00A40A07 /* UserStyleSheet.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = UserStyleSheet.cpp; sourceTree = "<group>"; };
 		BC8BF1591058141800A40A07 /* UserStyleSheetTypes.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = UserStyleSheetTypes.h; sourceTree = "<group>"; };
 		BC8C8FAB0DDCD31B00B592F4 /* RenderStyle.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = RenderStyle.cpp; sourceTree = "<group>"; };
 		BC8C8FAC0DDCD31B00B592F4 /* RenderStyle.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = RenderStyle.h; sourceTree = "<group>"; };
@@ -17594,6 +17595,7 @@
 		BCA169A10BFD55B40019CA76 /* JSHTMLTableCaptionElement.h */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.c.h; path = JSHTMLTableCaptionElement.h; sourceTree = "<group>"; };
 		BCA257141293C010007A263D /* VerticalPositionCache.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = VerticalPositionCache.h; sourceTree = "<group>"; };
 		BCA2B0601050475F0043BD1C /* UserScript.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = UserScript.h; sourceTree = "<group>"; };
+		BCA2B0601050485F0043BD1C /* UserScript.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = UserScript.cpp; sourceTree = "<group>"; };
 		BCA2B08A10505BCD0043BD1C /* UserScriptTypes.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = UserScriptTypes.h; sourceTree = "<group>"; };
 		BCA378BA0D15F64200B793D6 /* ScheduledAction.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ScheduledAction.cpp; sourceTree = "<group>"; };
 		BCA378BB0D15F64200B793D6 /* ScheduledAction.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ScheduledAction.h; sourceTree = "<group>"; };
@@ -27652,8 +27654,10 @@
 				7C73FB05191EF416007DE061 /* UserMessageHandlersNamespace.cpp */,
 				7C73FB06191EF417007DE061 /* UserMessageHandlersNamespace.h */,
 				7C73FB09191EF49F007DE061 /* UserMessageHandlersNamespace.idl */,
+				BCA2B0601050485F0043BD1C /* UserScript.cpp */,
 				BCA2B0601050475F0043BD1C /* UserScript.h */,
 				BCA2B08A10505BCD0043BD1C /* UserScriptTypes.h */,
+				BC8BF150105814BF00A40A07 /* UserStyleSheet.cpp */,
 				BC8BF150105813BF00A40A07 /* UserStyleSheet.h */,
 				BC8BF1591058141800A40A07 /* UserStyleSheetTypes.h */,
 				F513A3E915FF4841001526DB /* ValidationMessageClient.h */,
