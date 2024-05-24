@@ -63,6 +63,7 @@
 #if OS(MORPHOS)
 #include <exec/system.h>
 #include <proto/exec.h>
+#include <atomic>
 #endif
 
 namespace WTF {
@@ -201,6 +202,69 @@ Int128 currentTimeInNanoseconds()
     return static_cast<Int128>(currentTime() * 1'000'000'000);
 }
 
+#elif OS(MORPHOS)
+
+class tbClock {
+public:
+    tbClock() {
+        ULONG freq;
+        NewGetSystemAttrsA(&freq, sizeof(freq), SYSTEMINFOTYPE_TBCLOCKFREQUENCY, NULL);
+        _frequency = static_cast<double>(freq);
+    }
+    ~tbClock() = default;
+    inline double clockFrequency() const { return _frequency; }
+protected:
+    double _frequency;
+};
+
+class tbRealtimeClock {
+public:
+    tbRealtimeClock() {
+        reset();
+    }
+    ~tbRealtimeClock() = default;
+    void reset() {
+        struct timespec ts { };
+        ULONG freq;
+        NewGetSystemAttrsA(&freq, sizeof(freq), SYSTEMINFOTYPE_TBCLOCKFREQUENCY, NULL);
+        _frequency = static_cast<double>(freq);
+        clock_gettime(CLOCK_REALTIME, &ts);
+        _realTime = static_cast<double>(ts.tv_sec) + ts.tv_nsec / 1'000'000'000.0;
+        _initial =  static_cast<double>(__builtin_ppc_get_timebase()) / _frequency;
+    }
+    inline double now() {
+        double now = (static_cast<double>(__builtin_ppc_get_timebase()) / _frequency);
+        
+        if (_initial + 60.0 < now) {
+            Forbid();
+            reset();
+            Permit();
+            now = (static_cast<double>(__builtin_ppc_get_timebase()) / _frequency);
+        }
+        
+        return _realTime + now - _initial;
+    }
+protected:
+    std::atomic<int> _readCount;
+    double _frequency;
+    double _realTime;
+    double _initial;
+};
+
+Int128 currentTimeInNanoseconds()
+{
+    struct timespec ts { };
+    clock_gettime(CLOCK_REALTIME, &ts);
+    return (static_cast<Int128>(ts.tv_sec) * 1'000'000'000) + ts.tv_nsec;
+}
+
+static inline double currentTime()
+{
+// this can be called @ >50Hz and can be quite expensive, so let's cache the results for a while
+    static tbRealtimeClock rt;
+    return rt.now();
+}
+
 #else
 
 Int128 currentTimeInNanoseconds()
@@ -272,18 +336,6 @@ MonotonicTime MonotonicTime::now()
 #elif OS(FUCHSIA)
     return fromRawSeconds(zx_clock_get_monotonic() / static_cast<double>(ZX_SEC(1)));
 #elif OS(MORPHOS)
-    class tbClock {
-    public:
-        tbClock() {
-            ULONG freq;
-            NewGetSystemAttrsA(&freq, sizeof(freq), SYSTEMINFOTYPE_TBCLOCKFREQUENCY, NULL);
-            _frequency = static_cast<double>(freq);
-        }
-        ~tbClock() = default;
-        inline double clockFrequency() const { return _frequency; }
-    protected:
-        double _frequency;
-    };
     static const tbClock tb;
     return fromRawSeconds(static_cast<double>(__builtin_ppc_get_timebase()) / tb.clockFrequency());
 #elif OS(LINUX) || OS(FREEBSD) || OS(OPENBSD) || OS(NETBSD)
