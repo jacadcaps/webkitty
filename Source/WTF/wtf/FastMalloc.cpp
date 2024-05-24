@@ -333,8 +333,10 @@ TryMallocReturnValue tryFastRealloc(void* p, size_t n)
     return realloc(p, n);
 }
 
+#if !OS(MORPHOS)
 void releaseFastMallocFreeMemory() { }
 void releaseFastMallocFreeMemoryForThisThread() { }
+#endif
 
 FastMallocStatistics fastMallocStatistics()
 {
