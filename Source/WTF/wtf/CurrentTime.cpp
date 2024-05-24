@@ -220,25 +220,23 @@ protected:
 class tbRealtimeClock {
 public:
     tbRealtimeClock() {
+        ULONG freq;
+        NewGetSystemAttrsA(&freq, sizeof(freq), SYSTEMINFOTYPE_TBCLOCKFREQUENCY, NULL);
+        _frequency = static_cast<double>(freq);
         reset();
     }
     ~tbRealtimeClock() = default;
     void reset() {
         struct timespec ts { };
-        ULONG freq;
-        NewGetSystemAttrsA(&freq, sizeof(freq), SYSTEMINFOTYPE_TBCLOCKFREQUENCY, NULL);
-        _frequency = static_cast<double>(freq);
         clock_gettime(CLOCK_REALTIME, &ts);
-        _realTime = static_cast<double>(ts.tv_sec) + ts.tv_nsec / 1'000'000'000.0;
         _initial =  static_cast<double>(__builtin_ppc_get_timebase()) / _frequency;
+        _realTime = static_cast<double>(ts.tv_sec) + ts.tv_nsec / 1'000'000'000.0;
     }
     inline double now() {
         double now = (static_cast<double>(__builtin_ppc_get_timebase()) / _frequency);
         
         if (_initial + 60.0 < now) {
-            Forbid();
             reset();
-            Permit();
             now = (static_cast<double>(__builtin_ppc_get_timebase()) / _frequency);
         }
         
