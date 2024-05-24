@@ -848,6 +848,7 @@ bool WebProcess::shouldAllowRequest(const char *url, const char *mainPageURL, We
 
 	if (m_urlFilter.matches(url, ABP::FONoFilterOption, mainPageURL))
 	{
+        m_blockedRequests ++;
 		return false;
 	}
 #else

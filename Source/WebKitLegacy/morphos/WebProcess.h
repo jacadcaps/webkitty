@@ -98,6 +98,8 @@ public:
 	void dispatchAllEvents();
  
     void setEasyListPath(const char *path);
+    
+    uint32_t blockedRequests() { return m_blockedRequests.load(); }
 
     Ref<WebCore::LocalWebLockRegistry> getOrCreateWebLockRegistry(bool isPrivateBrowsingEnabled);
 
@@ -127,6 +129,7 @@ protected:
 
     std::function<void()> m_fLastPageClosed;
     std::unique_ptr<NetworkSession> m_networkSession;
+    std::atomic<uint32_t> m_blockedRequests;
 	
 	struct Task *m_sigTask;
     uint32_t m_sigMask;

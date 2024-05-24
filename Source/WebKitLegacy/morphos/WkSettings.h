@@ -200,4 +200,7 @@ typedef enum
 
 + (void)setAdBlockBaseName:(OBString *)path;
 
+// Returns # of requests blocked in this session
++ (ULONG)requestsBlockedByAdBlock;
+
 @end

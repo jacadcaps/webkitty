@@ -602,6 +602,11 @@ static cairo_antialias_t defaultAA;
     WebKit::WebProcess::singleton().setEasyListPath([path nativeCString]);
 }
 
++ (ULONG)requestsBlockedByAdBlock
+{
+    return WebKit::WebProcess::singleton().blockedRequests();
+}
+
 + (void)setCustomCertificate:(OBString *)pathToPEM forHost:(OBString *)host withKey:(OBString *)key
 {
 	if ([pathToPEM length] && [host length])
