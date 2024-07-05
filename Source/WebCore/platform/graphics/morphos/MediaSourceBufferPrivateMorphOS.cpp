@@ -477,7 +477,9 @@ MediaSourceBufferPrivateMorphOS::MediaSourceBufferPrivateMorphOS(MediaSourcePriv
 			initialize(success, segment, info);
 		},
 		[this](bool success){
-			appendComplete(success);
+            WTF::callOnMainThread([success, this, protect = Ref{*this}]() {
+                appendComplete(success);
+            });
 		}
 	);
 
@@ -585,10 +587,12 @@ Ref<MediaPromise> MediaSourceBufferPrivateMorphOS::appendInternal(Ref<SharedBuff
 
 void MediaSourceBufferPrivateMorphOS::appendComplete(bool success)
 {
-	DAPPEND(dprintf("[MS][%c]%s: %p succ %d swf %d\n", m_audioDecoderMask == 0 ?'V':'A', __func__, this, success, m_seeking));
+	DAPPEND(dprintf("[MS][%c]%s: %p succ %d swf %d main %d pending %d\n", m_audioDecoderMask == 0 ?'V':'A', __func__, this, success, m_seeking, isMainThread(), !!m_appendCompletePending));
 // todo: use promise for this
-	if (m_appendCompletePending)
+	if (m_appendCompletePending) {
+ dprintf("-- %s: ignored due to pending state\n", __PRETTY_FUNCTION__);
 		return;
+    }
 
     if (m_appendPromise) {
 
@@ -760,7 +764,7 @@ void MediaSourceBufferPrivateMorphOS::setVolume(double vol)
 
 void MediaSourceBufferPrivateMorphOS::clearMediaSource()
 {
-	DI(dprintf("[MS]%s %p\n", __func__, this));
+	DAPPEND(dprintf("[MS]%s %p main %d\n", __func__, this, isMainThread()));
 
 	terminate();
 	m_mediaSource = nullptr;
