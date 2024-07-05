@@ -334,7 +334,7 @@ static int read_packet(void *opaque, uint8_t *buf, int buf_size)
 }
 
 int CALL_CONVT ac_is_initialization_segment(uint8_t *buf, int bufsize,
-    struct ac_initialization_segment_stream *streamInfo, unsigned int streamsMax)
+    struct ac_initialization_segment_stream *streamInfo, int streamsMax)
 {
     AVFormatContext *fmt_ctx = NULL;
     AVIOContext *avio_ctx = NULL;

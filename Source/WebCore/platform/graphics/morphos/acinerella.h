@@ -556,7 +556,7 @@ struct ac_initialization_segment_stream {
 
 EXTERN int CALL_CONVT
     ac_is_initialization_segment(uint8_t *buf, int bufsize,
-        struct ac_initialization_segment_stream *stream, unsigned int streamsMax);
+        struct ac_initialization_segment_stream *stream, int streamsMax);
 
 /*
  * Additional support functions
