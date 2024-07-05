@@ -202,6 +202,7 @@ Int128 currentTimeInNanoseconds()
     return static_cast<Int128>(currentTime() * 1'000'000'000);
 }
 
+#if 0 // disabled since it loses sync with other time-reading functions
 #elif OS(MORPHOS)
 
 class tbClock {
@@ -263,6 +264,7 @@ static inline double currentTime()
     return rt.now();
 }
 
+#endif
 #else
 
 Int128 currentTimeInNanoseconds()
@@ -334,8 +336,25 @@ MonotonicTime MonotonicTime::now()
 #elif OS(FUCHSIA)
     return fromRawSeconds(zx_clock_get_monotonic() / static_cast<double>(ZX_SEC(1)));
 #elif OS(MORPHOS)
+#if 1
+    class tbClock {
+    public:
+        tbClock() {
+            ULONG freq;
+            NewGetSystemAttrsA(&freq, sizeof(freq), SYSTEMINFOTYPE_TBCLOCKFREQUENCY, NULL);
+            _frequency = static_cast<double>(freq);
+        }
+        ~tbClock() = default;
+        inline double clockFrequency() const { return _frequency; }
+    protected:
+        double _frequency;
+    };
     static const tbClock tb;
     return fromRawSeconds(static_cast<double>(__builtin_ppc_get_timebase()) / tb.clockFrequency());
+#else
+    static const tbClock tb;
+    return fromRawSeconds(static_cast<double>(__builtin_ppc_get_timebase()) / tb.clockFrequency());
+#endif
 #elif OS(LINUX) || OS(FREEBSD) || OS(OPENBSD) || OS(NETBSD)
     struct timespec ts { };
     clock_gettime(CLOCK_MONOTONIC, &ts);
