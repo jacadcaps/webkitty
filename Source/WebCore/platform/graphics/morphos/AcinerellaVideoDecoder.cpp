@@ -31,7 +31,7 @@
 #include <proto/graphics.h>
 
 #define D(x)
-#define DSYNC(x) 
+#define DSYNC(x)
 #define DOVL(x)
 #define DFRAME(x) 
 
@@ -646,9 +646,10 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 					decodeUntilBufferFull();
 				});
 
+resync:
 				double audioAt = -1;
 				bool canDropFrames = false;
-				
+
 				while (m_playing && !m_terminating)
 				{
 					{
@@ -668,7 +669,7 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 							{
 								if (getAudioPresentationTime(audioAt))
 								{
-									sleepFor = Seconds((nextPts - pts) - (audioAt - pts));
+									sleepFor = Seconds(nextPts - audioAt);
 									if (audioAt > 0.5)
 										canDropFrames = true;
 								}
@@ -707,11 +708,14 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 					if (sleepFor.value() > (m_frameDuration * 10))
 					{
 						DSYNC(dprintf("\033[36m[VD]%s: long sleep %f to catch to %f\033[0m\n", __func__, float(sleepFor.value()), float(audioAt)));
-                        m_frameEvent.waitFor(10_s);
+                        if (m_frameEvent.waitFor(10_s))
+                            goto resync;
 					}
                     else
                     {
-                        m_frameEvent.waitFor(sleepFor);
+                        // waitFor returns true if sleep was aborted, let's check the time before eating a frame...
+                        if (m_frameEvent.waitFor(sleepFor))
+                            goto resync;
                     }
 				}
 				else if (m_canDropKeyFrames && canDropFrames && sleepFor.value() < -1.0)
