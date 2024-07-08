@@ -193,6 +193,7 @@ class EmptyChromeClient : public ChromeClient {
     void postAccessibilityNotification(AccessibilityObject&, AXObjectCache::AXNotification) final { }
     void postAccessibilityNodeTextChangeNotification(AccessibilityObject*, AXTextChange, unsigned, const String&) final { }
     void postAccessibilityFrameLoadingEventNotification(AccessibilityObject*, AXObjectCache::AXLoadingEvent) final { }
+    void localStorageCreatedForDocument(const LocalFrame& documentFrame, Storage* storage) const final { };
 #endif
 
 #if ENABLE(IOS_TOUCH_EVENTS)

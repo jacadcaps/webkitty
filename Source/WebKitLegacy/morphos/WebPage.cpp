@@ -1257,8 +1257,8 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
     settings.setScriptEnabled(true);
     settings.setScriptMarkupEnabled(true);
     // settings.setDeferredCSSParserEnabled(true);
-    settings.setDeviceWidth(1280);
-    settings.setDeviceHeight(720);
+    settings.setDeviceWidth(860);
+    settings.setDeviceHeight(344);
 //    settings.setEnforceCSSMIMETypeInNoQuirksMode(true);
     settings.setShrinksStandaloneImagesToFit(true);
 //    settings.setSubpixelAntialiasedLayerTextEnabled(true);
@@ -1309,17 +1309,16 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 
 // 	settings.setDeveloperExtrasEnabled(true);
 //	settings.setXSSAuditorEnabled(true);
-	settings.setVisualViewportAPIEnabled(true);
+//	settings.setVisualViewportAPIEnabled(true);
 
 	settings.setHiddenPageCSSAnimationSuspensionEnabled(true);
 	settings.setAnimatedImageAsyncDecodingEnabled(false);
 
     settings.setCSSCustomPropertiesAndValuesEnabled(true);
 
-//	settings.setViewportFitEnabled(true);
 	settings.setConstantPropertiesEnabled(true);
  
-    settings.setLazyImageLoadingEnabled(true);
+//?    settings.setLazyImageLoadingEnabled(true);
     settings.setLazyIframeLoadingEnabled(true);
 
     settings.setDirectoryUploadEnabled(true);
@@ -1337,6 +1336,9 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 
 	// the default
 	settings.setTouchEventEmulationEnabled(false);
+
+    settings.setScreenOrientationAPIEnabled(true);
+//    settings.shouldIgnoreMetaViewport(true);
 
 // crashy
 //    settings.setDiagnosticLoggingEnabled(true);
@@ -4135,6 +4137,31 @@ bool WebPage::screenshotToFile(const char *fileName)
 	cairo_surface_destroy(surface);
 
     return ok;
+}
+
+void WebPage::localStorageCreated(WebCore::Storage* storage)
+{
+    if (storage && _fLocalStorageCreated)
+    {
+        _fLocalStorageCreated(storage);
+    }
+}
+
+} // namespace
+
+namespace WebCore {
+
+FloatRect screenRect(Widget* widget)
+{
+    auto page = widget->root()->frame().page();
+    auto webPage = WebKit::kit(page);
+
+    if (webPage && webPage->screenWidth() > 0)
+    {
+        return { 0, 0, webPage->screenWidth(), webPage->screenHeight() };
+    }
+    
+	return { 0, 0, 844, 390 };
 }
 
 } // namespace

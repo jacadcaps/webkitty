@@ -58,6 +58,7 @@
 #include <WebCore/ApplicationCacheStorage.h>
 #include <WebCore/CookieConsentDecisionResult.h>
 #include <WebCore/ModalContainerTypes.h>
+#include <WebCore/Storage.h>
 #include "PopupMenu.h"
 
 #pragma GCC diagnostic ignored "-Wunused-parameter"
@@ -412,6 +413,12 @@ RefPtr<PopupMenu> WebChromeClient::createPopupMenu(PopupMenuClient& client) cons
 RefPtr<SearchPopupMenu> WebChromeClient::createSearchPopupMenu(PopupMenuClient& client) const
 {
     return adoptRef(new SearchPopupMenuMorphOS(&client, &m_webPage));
+}
+
+void WebChromeClient::localStorageCreatedForDocument(const LocalFrame& documentFrame, Storage* storage) const
+{
+    if (documentFrame.isMainFrame())
+        m_webPage.localStorageCreated(storage);
 }
 
 #if ENABLE(FULLSCREEN_API)

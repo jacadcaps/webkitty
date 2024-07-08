@@ -906,6 +906,12 @@ ExceptionOr<Storage*> LocalDOMWindow::localStorage()
 
     Ref storageArea = page->storageNamespaceProvider().localStorageArea(*document);
     m_localStorage = Storage::create(*this, WTFMove(storageArea));
+
+#if OS(MORPHOS)
+    if (RefPtr frame = this->frame(); frame && frame->page())
+        frame->protectedPage()->chrome().client().localStorageCreatedForDocument(*frame, m_localStorage.get());
+#endif
+
     if (hasEventListeners(eventNames().storageEvent))
         windowsInterestedInStorageEvents().add(*this);
     return m_localStorage.get();

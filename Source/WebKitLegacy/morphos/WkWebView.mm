@@ -23,6 +23,7 @@
 #import <WebCore/HTMLMediaElement.h>
 #import <WebCore/UserGestureIndicator.h>
 #import <WebCore/Credential.h>
+#import <WebCore/Storage.h>
 #import <wtf/MediaTime.h>
 #import <pal/text/TextEncoding.h>
 #import <wtf/text/Base64.h>
@@ -546,6 +547,12 @@ namespace  {
 
 @end
 
+@interface WkWebViewStorageHandlerPrivate : OBObject<WkWebViewStorageHandler>
+{
+    WTF::RefPtr<WebCore::Storage> _storage;
+}
+@end
+
 @interface WkWebViewPrivate : OBObject<OBSignalHandlerDelegate>
 {
 	WTF::RefPtr<WebKit::WebPage>            _page;
@@ -564,6 +571,7 @@ namespace  {
 	id<WkWebViewEditorDelegate>             _editorDelegate;
 	id<WkWebViewMediaDelegate>              _mediaDelegate;
 	id<WkNotificationDelegate>              _notificationDelegate;
+    id<WkWebViewStorageDelegate>            _storageDelegate;
 	OBMutableDictionary                    *_protocolDelegates;
 #if ENABLE(VIDEO)
 	OBMutableDictionary                    *_mediaPlayers;
@@ -968,6 +976,16 @@ namespace  {
 - (id<WkNotificationDelegate>)notificationDelegate
 {
 	return _notificationDelegate;
+}
+
+- (void)setStorageDelegate:(id<WkWebViewStorageDelegate>)delegate
+{
+    _storageDelegate = delegate;
+}
+
+- (id<WkWebViewStorageDelegate>)storageDelegate
+{
+    return _storageDelegate;
 }
 
 - (void)setEditorDelegate:(id<WkWebViewEditorDelegate>)delegate
@@ -1821,6 +1839,57 @@ namespace  {
 		_function(WebCore::PolicyAction::Ignore);
 		_function = nullptr;
 	}
+}
+
+@end
+
+@implementation WkWebViewStorageHandlerPrivate
+
+- (id)initWithStorage:(WebCore::Storage *)storage
+{
+    if ((self = [super init]))
+    {
+        _storage = storage;
+        
+        if (!storage)
+        {
+            [self release];
+            return nil;
+        }
+    }
+    
+    return self;
+}
+
+- (OBString *)localStorageValueForKey:(OBString *)key
+{
+    if (!key)
+        return nil;
+    auto wkey = WTF::String::fromUTF8([key cString]);
+    if (_storage->contains(wkey))
+    {
+        auto value = _storage->getItem(wkey);
+        auto vutf = value.utf8();
+        return [OBString stringWithUTF8String:vutf.data()];
+    }
+    return nil;
+}
+
+- (void)setLocalStorageValue:(OBString *)value forKey:(OBString *)key
+{
+    if (!key)
+        return;
+    auto wkey = WTF::String::fromUTF8([key cString]);
+
+    if (!value)
+    {
+        _storage->removeItem(wkey);
+    }
+    else
+    {
+        auto wvalue = WTF::String::fromUTF8([value cString]);
+        _storage->setItem(wkey, wvalue);
+    }
 }
 
 @end
@@ -2905,6 +2974,14 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			WkWebViewPrivate *privateObject = [self privateObject];
 			[privateObject moveDDWindowToX:atX y:atY];
 		};
+  
+        webPage->_fLocalStorageCreated = [self](WebCore::Storage* storage) {
+			validateObjCContext();
+			WkWebViewPrivate *privateObject = [self privateObject];
+            id<WkWebViewStorageDelegate> storageDelegate = [privateObject storageDelegate];
+            if ([storageDelegate webViewShouldCreateLocalStorageHandler:self])
+                [storageDelegate webView:self createdLocalStorageHandler:[[[WkWebViewStorageHandlerPrivate alloc] initWithStorage:storage] autorelease]];
+        };
 
 #if ENABLE(VIDEO)
 		webPage->_fMediaAdded = [self](void *player, const String &url, WebCore::MediaPlayerMorphOSInfo &info,
@@ -3607,6 +3684,10 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			[_private setPaintPerform:[OBPerform performSelector:@selector(lateDraw) target:self]];
 			[_private setMLeft:[self left] mTop:[self top] mRight:[self right] mBottom:[self bottom]];
 			
+            // update screen size reported to the Screen API
+            struct Screen *scr = [self screen];
+            webPage->setScreenSize(scr->Width, scr->Height);
+   
 			if ([_private documentWidth])
 			{
 				if ([_private printingState])
@@ -3971,6 +4052,11 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 - (void)setNotificationDelegate:(id<WkNotificationDelegate>)delegate
 {
 	[_private setNotificationDelegate:delegate];
+}
+
+- (void)setStorageDelegate:(id<WkWebViewStorageDelegate>)delegate
+{
+    [_private setStorageDelegate:delegate];
 }
 
 - (void)setEditorDelegate:(id<WkWebViewEditorDelegate>)delegate

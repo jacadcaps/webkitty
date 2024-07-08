@@ -160,6 +160,20 @@ typedef enum {
 
 @end
 
+@protocol WkWebViewStorageHandler <OBObject>
+
+- (OBString *)localStorageValueForKey:(OBString *)key;
+- (void)setLocalStorageValue:(OBString *)value forKey:(OBString *)key;
+
+@end
+
+@protocol WkWebViewStorageDelegate <OBObject>
+
+- (BOOL)webViewShouldCreateLocalStorageHandler:(WkWebView *)view;
+- (void)webView:(WkWebView *)view createdLocalStorageHandler:(id<WkWebViewStorageHandler>)handler;
+
+@end
+
 @interface WkWebView : MUIArea
 {
 	WkWebViewPrivate *_private;
@@ -233,6 +247,7 @@ typedef enum {
 - (void)setAllRequestsHandlerDelegate:(id<WkWebViewAllRequestsHandlerDelegate>)delegate;
 - (void)setMediaDelegate:(id<WkWebViewMediaDelegate>)delegate;
 - (void)setNotificationDelegate:(id<WkNotificationDelegate>)delegate;
+- (void)setStorageDelegate:(id<WkWebViewStorageDelegate>)delegate;
 
 - (void)setCustomProtocolHandler:(id<WkWebViewNetworkProtocolHandlerDelegate>)delegate forProtocol:(OBString *)protocol;
 

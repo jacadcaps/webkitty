@@ -24,6 +24,7 @@ namespace WebCore {
 	class SharedBuffer;
 	class Element;
 	class ResourceResponse;
+    class Storage;
 	struct MediaPlayerMorphOSInfo;
 	struct MediaPlayerMorphOSStreamSettings;
 };
@@ -140,6 +141,8 @@ struct WebViewDelegate
 	std::function<void(WebCore::NotificationData&& notification)> _fHideNotification;
 #endif
 
+    std::function<void(WebCore::Storage*)> _fLocalStorageCreated;
+
 	void clearDelegateCallbacks() {
 		_fInvalidate = nullptr;
 		_fScroll = nullptr;
@@ -203,6 +206,7 @@ struct WebViewDelegate
 		_fInspectorDestroyed = nullptr;
 		_fInspectorSave = nullptr;
 		_fInspectorURLChanged = nullptr;
+        _fLocalStorageCreated = nullptr;
 #if ENABLE(NOTIFICATIONS)
 		_fRequestNotificationPermission = nullptr;
 		_fCheckNotificationPermission = nullptr;

@@ -32,6 +32,7 @@ namespace WebCore {
 	class DragItem;
 	class DataTransfer;
     class GraphicsLayer;
+    class Storage;
 };
 
 struct RastPort;
@@ -294,6 +295,12 @@ public:
     void setRootGraphicsLayer(WebCore::GraphicsLayer*);
     
     bool screenshotToFile(const char *fileName);
+    
+    void localStorageCreated(WebCore::Storage* storage);
+    
+    void setScreenSize(int width, int height) { m_screenWidth = width; m_screenHeight = height; };
+    int screenWidth() const { return m_screenWidth; }
+    int screenHeight() const { return m_screenHeight; }
 
 protected:
 	WebPage(WebCore::PageIdentifier, WebPageCreationParameters&&);
@@ -342,6 +349,8 @@ private:
 	int  m_cursorLock { 0 };
 	int  m_middleClick[2];
 	int  m_mouseLastX, m_mouseLastY;
+    int  m_screenWidth { 0 };
+    int  m_screenHeight { 0 };
 	bool m_transparent { false };
 	bool m_usesLayeredWindow { false };
     bool m_mainFrameProgressCompleted { false };
