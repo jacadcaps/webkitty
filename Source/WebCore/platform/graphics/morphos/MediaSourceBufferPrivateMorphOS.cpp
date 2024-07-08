@@ -594,17 +594,16 @@ void MediaSourceBufferPrivateMorphOS::appendComplete(bool success)
 		return;
     }
 
-    if (m_appendPromise) {
-
-        if (success)
-            m_appendPromise->resolve();
-        else
-            m_appendPromise->reject(PlatformMediaError::ParsingError);
-        m_appendPromise.reset();
-    }
-
 	m_appendCompletePending = true;
 	WTF::callOnMainThread([success, this, protect = Ref{*this}]() {
+
+        if (m_appendPromise) {
+            if (success)
+                m_appendPromise->resolve();
+            else
+                m_appendPromise->reject(PlatformMediaError::ParsingError);
+            m_appendPromise.reset();
+        }
 
 		if (!m_appendCompletePending)
 			return;
