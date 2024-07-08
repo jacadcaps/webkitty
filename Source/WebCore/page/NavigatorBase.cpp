@@ -176,6 +176,9 @@ ExceptionOr<ServiceWorkerContainer&> NavigatorBase::serviceWorker(ScriptExecutio
 
 int NavigatorBase::hardwareConcurrency()
 {
+#if OS(MORPHOS)
+    return 1;
+#else
     static int numberOfCores;
 
     static std::once_flag once;
@@ -192,6 +195,7 @@ int NavigatorBase::hardwareConcurrency()
     });
 
     return numberOfCores;
+#endif
 }
 
 WebCoreOpaqueRoot root(NavigatorBase* navigator)
