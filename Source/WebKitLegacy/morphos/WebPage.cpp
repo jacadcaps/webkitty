@@ -1209,7 +1209,7 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
         didOneTimeInitialization = true;
      }
 
-	m_webPageGroup = WebPageGroup::getOrCreate("meh"_s, "PROGDIR:Cache/Storage"_s);
+	m_webPageGroup = WebPageGroup::getOrCreate("meh"_s, "PROGDIR:Cache/WebStorage"_s);
 	auto storageProvider = PageStorageSessionProvider::create();
 
 	WebCore::PageConfiguration pageConfiguration(

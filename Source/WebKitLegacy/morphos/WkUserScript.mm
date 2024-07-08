@@ -193,7 +193,7 @@ OBMutableArray *_scripts;
 
 	if ([scriptContents length] || [cssContents length])
 	{
-		auto group = WebKit::WebPageGroup::getOrCreate("meh"_s, "PROGDIR:Cache/Storage"_s);
+		auto group = WebKit::WebPageGroup::getOrCreate("meh"_s, "PROGDIR:Cache/WebStorage"_s);
 		WTF::Vector<WTF::String> white, black;
 		WTF::Vector<WTF::String> whiteCSS, blackCSS;
 
@@ -253,7 +253,7 @@ OBMutableArray *_scripts;
 {
     [script retain];
 	[_scripts removeObject:script];
-	auto group = WebKit::WebPageGroup::getOrCreate("meh"_s, "PROGDIR:Cache/Storage"_s);
+	auto group = WebKit::WebPageGroup::getOrCreate("meh"_s, "PROGDIR:Cache/WebStorage"_s);
 	group->userContentController().removeUserScript(*group->wrapperWorldForUserScripts(),
 		WTF::URL(WTF::URL(), WTF::String::fromUTF8([[OBString stringWithFormat:@"file:///script_%08lx", script] cString])));
 	group->userContentController().removeUserStyleSheet(*group->wrapperWorldForUserScripts(),
