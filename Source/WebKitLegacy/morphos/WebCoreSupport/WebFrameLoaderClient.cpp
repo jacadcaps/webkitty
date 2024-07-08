@@ -1215,6 +1215,12 @@ void WebFrameLoaderClient::transitionToCommittedForNewPage()
     auto psize = webPage->size();
     IntRect fixedVisibleContentRect = webPage->bounds();
 
+    // force rendering tree destruction now... macOS seems to do just that
+    auto* coreFrame = m_frame->coreFrame();
+    if (isMainFrame && coreFrame->view())
+        coreFrame->view()->setParentVisible(false);
+    coreFrame->setView(nullptr);
+
     // const ResourceResponse& response = m_frame->coreFrame()->loader().documentLoader()->response();
     m_frameCameFromPageCache = false;
 
