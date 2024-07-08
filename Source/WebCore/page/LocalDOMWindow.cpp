@@ -1848,15 +1848,17 @@ ExceptionOr<int> LocalDOMWindow::setTimeout(std::unique_ptr<ScheduledAction> act
     // and expects a reply within a time limit which often isn't possible on slower hw
     if (timeout > 2000 && timeout < 30000) {
         auto* globalObject = JSExecState::currentState();
-        JSC::JSLockHolder locker(globalObject);
-        auto& vm = globalObject->vm();
-        auto* frame = vm.topCallFrame;
-        if (frame && !frame->codeBlock()) {
-            auto origin = frame->callerSourceOrigin(vm);
-            bool isRecaptcha = origin.string().containsIgnoringASCIICase("recaptcha/releases"_s);
-//            dprintf("caller origin %s. is recaptcha? %d\n", origin.string().ascii().data(), isRecaptcha);
-            if (isRecaptcha)
-                timeout *= 4;
+        if (globalObject) {
+            JSC::JSLockHolder locker(globalObject);
+            auto& vm = globalObject->vm();
+            auto* frame = vm.topCallFrame;
+            if (frame && !frame->codeBlock()) {
+                auto origin = frame->callerSourceOrigin(vm);
+                bool isRecaptcha = origin.string().containsIgnoringASCIICase("recaptcha/releases"_s);
+    //            dprintf("caller origin %s. is recaptcha? %d\n", origin.string().ascii().data(), isRecaptcha);
+                if (isRecaptcha)
+                    timeout *= 4;
+            }
         }
     }
 #endif
