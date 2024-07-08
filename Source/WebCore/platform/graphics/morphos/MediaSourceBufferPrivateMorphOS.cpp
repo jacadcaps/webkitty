@@ -769,10 +769,22 @@ void MediaSourceBufferPrivateMorphOS::clearMediaSource()
 	terminate();
 	m_mediaSource = nullptr;
 
-    if (!!m_appendPromise)
+    if (m_appendPromise)
     {
-        m_appendPromise->reject(PlatformMediaError::BufferRemoved);
-        m_appendPromise.reset();
+        if (isMainThread())
+        {
+            m_appendPromise->reject(PlatformMediaError::BufferRemoved);
+            m_appendPromise.reset();
+        }
+        else
+        {
+            WTF::callOnMainThread([this, protect = Ref{*this}]() {
+                if (m_appendPromise) {
+                    m_appendPromise->reject(PlatformMediaError::BufferRemoved);
+                    m_appendPromise.reset();
+                }
+            });
+        }
     }
 }
 
