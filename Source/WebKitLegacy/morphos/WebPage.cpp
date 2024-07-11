@@ -4158,7 +4158,7 @@ FloatRect screenRect(Widget* widget)
 
     if (webPage && webPage->screenWidth() > 0)
     {
-        return { 0, 0, webPage->screenWidth(), webPage->screenHeight() };
+        return { 0, 0, float(webPage->screenWidth()), float(webPage->screenHeight()) };
     }
     
 	return { 0, 0, 844, 390 };
