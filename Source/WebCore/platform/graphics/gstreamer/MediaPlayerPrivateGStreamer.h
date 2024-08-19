@@ -335,7 +335,7 @@ protected:
     template <typename TrackPrivateType> void notifyPlayerOfTrack();
 
     void ensureAudioSourceProvider();
-    void checkPlayingConsistency();
+    virtual void checkPlayingConsistency();
 
     virtual bool doSeek(const SeekTarget& position, float rate);
     void invalidateCachedPosition() const;
@@ -353,8 +353,8 @@ protected:
 
     void setCachedPosition(const MediaTime&) const;
 
-    bool isPipelineSeeking(GstState current, GstState pending, GstStateChangeReturn) const;
-    bool isPipelineSeeking() const;
+    bool isPipelineWaitingPreroll(GstState current, GstState pending, GstStateChangeReturn) const;
+    bool isPipelineWaitingPreroll() const;
 
     Ref<MainThreadNotifier<MainThreadNotification>> m_notifier;
     ThreadSafeWeakPtr<MediaPlayer> m_player;
@@ -408,7 +408,8 @@ protected:
     mutable MediaPlayer::NetworkState m_networkState { MediaPlayer::NetworkState::Empty };
 
     mutable Lock m_sampleMutex;
-    GRefPtr<GstSample> m_sample;
+    GRefPtr<GstSample> m_sample WTF_GUARDED_BY_LOCK(m_sampleMutex);
+    bool m_hasFirstVideoSampleBeenRendered WTF_GUARDED_BY_LOCK(m_sampleMutex) { false };
 
     mutable FloatSize m_videoSize;
     bool m_isUsingFallbackVideoSink { false };
@@ -467,6 +468,7 @@ private:
         Function<void()> m_task = Function<void()>();
     };
 
+    void tearDown(bool clearMediaPlayer);
     bool isPlayerShuttingDown() const { return m_isPlayerShuttingDown.load(); }
     MediaTime maxTimeLoaded() const;
     bool setVideoSourceOrientation(ImageOrientation);
@@ -545,6 +547,8 @@ private:
 
     void configureMediaStreamAudioTracks();
     void invalidateCachedPositionOnNextIteration() const;
+
+    void textureMapperPlatformLayerProxyWasInvalidated();
 
     Atomic<bool> m_isPlayerShuttingDown;
     GRefPtr<GstElement> m_textSink;

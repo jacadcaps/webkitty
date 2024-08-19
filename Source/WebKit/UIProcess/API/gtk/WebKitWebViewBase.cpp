@@ -191,12 +191,19 @@ struct MotionEvent {
             yRoot = rootPoint.y();
         }
 
-        MotionEvent(FloatPoint(x, y), FloatPoint(xRoot, yRoot), state);
+        position = FloatPoint(x, y);
+        globalPosition = FloatPoint(xRoot, yRoot);
+        setState(state);
     }
 
     MotionEvent(FloatPoint&& position, FloatPoint&& globalPosition, GdkModifierType state)
         : position(WTFMove(position))
         , globalPosition(WTFMove(globalPosition))
+    {
+        setState(state);
+    }
+
+    void setState(GdkModifierType state)
     {
         if (state & GDK_CONTROL_MASK)
             modifiers.add(WebEventModifier::ControlKey);
@@ -3020,7 +3027,7 @@ RefPtr<WebKit::ViewSnapshot> webkitWebViewBaseTakeViewSnapshot(WebKitWebViewBase
         return nullptr;
 
     graphene_rect_t viewport = { { 0, 0 }, { static_cast<float>(size.width()), static_cast<float>(size.height()) } };
-    GdkTexture* texture = gsk_renderer_render_texture(renderer, renderNode.get(), &viewport);
+    GRefPtr<GdkTexture> texture = adoptGRef(gsk_renderer_render_texture(renderer, renderNode.get(), &viewport));
 
     return ViewSnapshot::create(WTFMove(texture));
 #endif
