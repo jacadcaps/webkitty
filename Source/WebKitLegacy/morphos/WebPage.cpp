@@ -1345,7 +1345,8 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 //	settings.setLogsPageMessagesToSystemConsoleEnabled(true);
 //  pages purged from cache on back/forward will crash + limited scope since
 //  many pages can't be cached
-//  settings.setUsesBackForwardCache(false);
+    settings.setUsesBackForwardCache(false);
+    settings.setBackForwardCacheExpirationInterval(Seconds::infinity());
 	
 //	settings.setRequestAnimationFrameEnabled(true);
 	settings.setUserStyleSheetLocation(WTF::URL(WTF::URL(), "file:///PROGDIR:Resources/morphos.css"_s));
