@@ -27,6 +27,12 @@
 
 #include <wtf/PrintStream.h>
 
+#if OS(MORPHOS)
+    #ifndef UINT64_MAX
+    #define UINT64_MAX 0xffffffffffffffff
+    #endif
+#endif
+
 namespace JSC {
 
 typedef union v128_u {

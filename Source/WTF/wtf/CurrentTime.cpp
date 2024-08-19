@@ -60,6 +60,12 @@
 #include <glib.h>
 #endif
 
+#if OS(MORPHOS)
+#include <exec/system.h>
+#include <proto/exec.h>
+#include <atomic>
+#endif
+
 namespace WTF {
 
 #if OS(WINDOWS)
@@ -196,6 +202,69 @@ Int128 currentTimeInNanoseconds()
     return static_cast<Int128>(currentTime() * 1'000'000'000);
 }
 
+#if 0 // disabled since it loses sync with other time-reading functions
+#elif OS(MORPHOS)
+
+class tbClock {
+public:
+    tbClock() {
+        ULONG freq;
+        NewGetSystemAttrsA(&freq, sizeof(freq), SYSTEMINFOTYPE_TBCLOCKFREQUENCY, NULL);
+        _frequency = static_cast<double>(freq);
+    }
+    ~tbClock() = default;
+    inline double clockFrequency() const { return _frequency; }
+protected:
+    double _frequency;
+};
+
+class tbRealtimeClock {
+public:
+    tbRealtimeClock() {
+        ULONG freq;
+        NewGetSystemAttrsA(&freq, sizeof(freq), SYSTEMINFOTYPE_TBCLOCKFREQUENCY, NULL);
+        _frequency = static_cast<double>(freq);
+        reset();
+    }
+    ~tbRealtimeClock() = default;
+    void reset() {
+        struct timespec ts { };
+        clock_gettime(CLOCK_REALTIME, &ts);
+        _initial =  static_cast<double>(__builtin_ppc_get_timebase()) / _frequency;
+        _realTime = static_cast<double>(ts.tv_sec) + ts.tv_nsec / 1'000'000'000.0;
+    }
+    inline double now() {
+        double now = (static_cast<double>(__builtin_ppc_get_timebase()) / _frequency);
+        
+        if (_initial + 60.0 < now) {
+            reset();
+            now = (static_cast<double>(__builtin_ppc_get_timebase()) / _frequency);
+        }
+        
+        return _realTime + now - _initial;
+    }
+protected:
+    std::atomic<int> _readCount;
+    double _frequency;
+    double _realTime;
+    double _initial;
+};
+
+Int128 currentTimeInNanoseconds()
+{
+    struct timespec ts { };
+    clock_gettime(CLOCK_REALTIME, &ts);
+    return (static_cast<Int128>(ts.tv_sec) * 1'000'000'000) + ts.tv_nsec;
+}
+
+static inline double currentTime()
+{
+// this can be called @ >50Hz and can be quite expensive, so let's cache the results for a while
+    static tbRealtimeClock rt;
+    return rt.now();
+}
+
+#endif
 #else
 
 Int128 currentTimeInNanoseconds()
@@ -266,6 +335,26 @@ MonotonicTime MonotonicTime::now()
     return fromMachAbsoluteTime(mach_absolute_time());
 #elif OS(FUCHSIA)
     return fromRawSeconds(zx_clock_get_monotonic() / static_cast<double>(ZX_SEC(1)));
+#elif OS(MORPHOS)
+#if 1
+    class tbClock {
+    public:
+        tbClock() {
+            ULONG freq;
+            NewGetSystemAttrsA(&freq, sizeof(freq), SYSTEMINFOTYPE_TBCLOCKFREQUENCY, NULL);
+            _frequency = static_cast<double>(freq);
+        }
+        ~tbClock() = default;
+        inline double clockFrequency() const { return _frequency; }
+    protected:
+        double _frequency;
+    };
+    static const tbClock tb;
+    return fromRawSeconds(static_cast<double>(__builtin_ppc_get_timebase()) / tb.clockFrequency());
+#else
+    static const tbClock tb;
+    return fromRawSeconds(static_cast<double>(__builtin_ppc_get_timebase()) / tb.clockFrequency());
+#endif
 #elif OS(LINUX) || OS(FREEBSD) || OS(OPENBSD) || OS(NETBSD)
     struct timespec ts { };
     clock_gettime(CLOCK_MONOTONIC, &ts);

@@ -906,6 +906,12 @@ ExceptionOr<Storage*> LocalDOMWindow::localStorage()
 
     Ref storageArea = page->storageNamespaceProvider().localStorageArea(*document);
     m_localStorage = Storage::create(*this, WTFMove(storageArea));
+
+#if OS(MORPHOS)
+    if (RefPtr frame = this->frame(); frame && frame->page())
+        frame->protectedPage()->chrome().client().localStorageCreatedForDocument(*frame, m_localStorage.get());
+#endif
+
     if (hasEventListeners(eventNames().storageEvent))
         windowsInterestedInStorageEvents().add(*this);
     return m_localStorage.get();
@@ -1842,6 +1848,26 @@ ExceptionOr<int> LocalDOMWindow::setTimeout(std::unique_ptr<ScheduledAction> act
     }
 
     action->addArguments(WTFMove(arguments));
+
+#if OS(MORPHOS)
+    // Attempt to workaround ReCaptcha problems by making timeouts timeout slower - recaptcha launches worker threads
+    // and expects a reply within a time limit which often isn't possible on slower hw
+    if (timeout > 2000 && timeout < 30000) {
+        auto* globalObject = JSExecState::currentState();
+        if (globalObject) {
+            JSC::JSLockHolder locker(globalObject);
+            auto& vm = globalObject->vm();
+            auto* frame = vm.topCallFrame;
+            if (frame && !frame->codeBlock()) {
+                auto origin = frame->callerSourceOrigin(vm);
+                bool isRecaptcha = origin.string().containsIgnoringASCIICase("recaptcha/releases"_s);
+    //            dprintf("caller origin %s. is recaptcha? %d\n", origin.string().ascii().data(), isRecaptcha);
+                if (isRecaptcha)
+                    timeout *= 4;
+            }
+        }
+    }
+#endif
 
     return DOMTimer::install(*context, WTFMove(action), Seconds::fromMilliseconds(timeout), DOMTimer::Type::SingleShot);
 }

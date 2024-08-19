@@ -617,7 +617,7 @@ static bool endsOfNodeAreVisuallyDistinctPositions(Node* node)
 {
     if (!node || !node->renderer())
         return false;
-        
+
     if (!node->renderer()->isInline())
         return true;
         

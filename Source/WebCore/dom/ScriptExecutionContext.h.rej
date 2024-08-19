@@ -1,0 +1,11 @@
+diff a/Source/WebCore/dom/ScriptExecutionContext.h b/Source/WebCore/dom/ScriptExecutionContext.h	(rejected hunks)
+@@ -42,7 +42,9 @@
+ #include <wtf/CrossThreadTask.h>
+ #include <wtf/Function.h>
+ #include <wtf/HashSet.h>
++#ifndef __MORPHOS_DISABLE
+ #include <wtf/NativePromise.h>
++#endif
+ #include <wtf/ObjectIdentifier.h>
+ #include <wtf/URL.h>
+ #include <wtf/WeakPtr.h>

@@ -57,6 +57,12 @@ class VM;
 enum class ScriptExecutionStatus;
 }
 
+#ifdef __MORPHOS_DISABLE
+namespace WTF {
+class NativePromiseRequest;
+}
+#endif
+
 namespace Inspector {
 class ConsoleMessage;
 class ScriptCallStack;
@@ -242,7 +248,7 @@ public:
     };
 
     virtual void postTask(Task&&) = 0; // Executes the task on context's thread asynchronously.
-
+#ifndef __MORPHOS_DISABLE
     template<typename... Arguments>
     void postCrossThreadTask(Arguments&&... arguments)
     {
@@ -250,7 +256,7 @@ public:
             crossThreadTask.performTask();
         });
     }
-
+#endif
     void postTaskToResponsibleDocument(Function<void(Document&)>&&);
 
     // Gets the next id in a circular sequence from 1 to 2^31-1.
@@ -347,6 +353,7 @@ public:
     void addDeferredPromise(Ref<DeferredPromise>&&);
     RefPtr<DeferredPromise> takeDeferredPromise(DeferredPromise*);
 
+#ifndef __MORPHOS_DISABLE
     template<typename Promise, typename Task>
     void enqueueTaskWhenSettled(Ref<Promise>&& promise, TaskSource taskSource, Task&& task)
     {
@@ -366,8 +373,10 @@ public:
             command->track(*weakRequest);
         }
     }
+#endif
 
 protected:
+#ifndef __MORPHOS_DISABLE
     class AddConsoleMessageTask : public Task {
     public:
         AddConsoleMessageTask(std::unique_ptr<Inspector::ConsoleMessage>&& consoleMessage)
@@ -384,7 +393,7 @@ protected:
         {
         }
     };
-
+#endif
     ReasonForSuspension reasonForSuspendingActiveDOMObjects() const { return m_reasonForSuspendingActiveDOMObjects; }
 
     bool hasPendingActivity() const;

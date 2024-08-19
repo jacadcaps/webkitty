@@ -34,7 +34,7 @@
 
 namespace WebCore {
 
-CurlStream::CurlStream(CurlStreamScheduler& scheduler, CurlStreamID streamID, URL&& url, ServerTrustEvaluation serverTrustEvaluation)
+CurlStream::CurlStream(CurlStreamScheduler& scheduler, CurlStreamID streamID, URL&& url)
     : m_scheduler(scheduler)
     , m_streamID(streamID)
 {
@@ -44,9 +44,6 @@ CurlStream::CurlStream(CurlStreamScheduler& scheduler, CurlStreamID streamID, UR
 
     url.setProtocol(url.protocolIs("wss"_s) ? "https"_s : "http"_s);
     m_curlHandle->setUrl(WTFMove(url));
-
-    if (serverTrustEvaluation == ServerTrustEvaluation::Disable)
-        m_curlHandle->disableServerTrustEvaluation();
 
     m_curlHandle->enableConnectionOnly();
 
@@ -182,14 +179,10 @@ void CurlStream::tryToSend()
 
 void CurlStream::notifyFailure(CURLcode errorCode)
 {
-    CertificateInfo certificateInfo;
-    if (auto info = m_curlHandle->certificateInfo())
-        certificateInfo = WTFMove(*info);
-
     destroyHandle();
 
-    m_scheduler.callClientOnMainThread(m_streamID, [streamID = m_streamID, errorCode, certificateInfo = WTFMove(certificateInfo)](Client& client) mutable {
-        client.didFail(streamID, errorCode, WTFMove(certificateInfo));
+    m_scheduler.callClientOnMainThread(m_streamID, [streamID = m_streamID, errorCode](Client& client) mutable {
+        client.didFail(streamID, errorCode);
     });
 }
 
