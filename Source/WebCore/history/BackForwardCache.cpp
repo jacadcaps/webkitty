@@ -583,6 +583,7 @@ CachedPage* BackForwardCache::get(HistoryItem& item, Page* page)
     if (cachedPage->hasExpired() || (page && page->isResourceCachingDisabledByWebInspector())) {
         LOG(BackForwardCache, "Not restoring page for %s from back/forward cache because cache entry has expired", item.url().string().ascii().data());
         logBackForwardCacheFailureDiagnosticMessage(page, DiagnosticLoggingKeys::expiredKey());
+        cachedPage = nullptr;
         remove(item);
         return nullptr;
     }
