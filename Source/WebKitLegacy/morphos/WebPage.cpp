@@ -1309,7 +1309,8 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 
 // 	settings.setDeveloperExtrasEnabled(true);
 //	settings.setXSSAuditorEnabled(true);
-//	settings.setVisualViewportAPIEnabled(true);
+
+	settings.setVisualViewportAPIEnabled(true);
 
 	settings.setHiddenPageCSSAnimationSuspensionEnabled(true);
 	settings.setAnimatedImageAsyncDecodingEnabled(false);
