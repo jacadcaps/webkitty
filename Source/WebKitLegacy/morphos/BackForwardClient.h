@@ -3,6 +3,7 @@
 #include <WebCore/BackForwardClient.h>
 #include <wtf/HashSet.h>
 #include <wtf/Vector.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 	class HistoryItem;
@@ -53,7 +54,7 @@ public:
 private:
     explicit BackForwardClientMorphOS(WebPage *page);
 
-	WebPage *m_page;
+	WeakPtr<WebPage> m_page;
     HistoryItemVector m_entries;
     HistoryItemHashSet m_entryHash;
     unsigned m_current;

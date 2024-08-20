@@ -29,7 +29,9 @@ void WebDragClient::startDrag(DragItem item, DataTransfer& transfer, Frame& fram
     if (!localFrame)
         return;
 //	dprintf("%s\n", __PRETTY_FUNCTION__);
-	m_page->startDrag(WTFMove(item), transfer, *localFrame);
+    auto page = m_page.get();
+    if (page)
+        page->startDrag(WTFMove(item), transfer, *localFrame);
 }
 
 void WebDragClient::didConcludeEditDrag()

@@ -32,6 +32,7 @@
 #include <WebCore/ScriptExecutionContext.h>
 #include <wtf/HashMap.h>
 #include <wtf/RefPtr.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebKit {
 
@@ -41,7 +42,7 @@ class WebNotificationClient final : public WebCore::NotificationClient {
     WTF_MAKE_FAST_ALLOCATED;
 public:
     WebNotificationClient(WebPage *);
-    WebPage *page() { return m_webPage; }
+//    WebPage *page() { return m_webPage; }
 
 private:
     bool show(WebCore::ScriptExecutionContext&, WebCore::NotificationData&&, RefPtr<WebCore::NotificationResources>&&, CompletionHandler<void()>&&) final;
@@ -52,7 +53,7 @@ private:
     void requestPermission(WebCore::ScriptExecutionContext&, WebCore::NotificationClient::PermissionHandler&&) final;
     WebCore::NotificationClient::Permission checkPermission(WebCore::ScriptExecutionContext*) final;
 
-    WebPage *m_webPage;
+    WeakPtr<WebPage> m_webPage;
 };
 
 }

@@ -56,7 +56,7 @@ WebPage *kit(WebCore::Page* page);
 WebCore::LocalFrame& mainframe(WebCore::Page& page);
 const WebCore::LocalFrame& mainframe(const WebCore::Page& page);
 
-class WebPage : public WebViewDelegate, public WTF::RefCounted<WebPage>
+class WebPage : public WebViewDelegate, public WTF::RefCounted<WebPage>, public WTF::CanMakeWeakPtr<WebPage>
 {
 friend class WebChromeClient;
 public:

@@ -22,12 +22,16 @@ WebNotificationClient::WebNotificationClient(WebPage *webView)
 
 bool WebNotificationClient::show(WebCore::ScriptExecutionContext& context, WebCore::NotificationData&& notification, RefPtr<WebCore::NotificationResources>&&, WTF::CompletionHandler<void()>&& onCompleted)
 {
-	if (!m_webPage->_fShowNotification)
+    auto page = m_webPage.get();
+    if (!page)
+        return false;
+
+	if (!page->_fShowNotification)
 		return false;
 
 	D(dprintf("%s(%p): %p\n", __PRETTY_FUNCTION__, this, notification));
 
-	m_webPage->_fShowNotification(WTFMove(notification));
+	page->_fShowNotification(WTFMove(notification));
 
     onCompleted();
     return true;
@@ -36,14 +40,22 @@ bool WebNotificationClient::show(WebCore::ScriptExecutionContext& context, WebCo
 void WebNotificationClient::cancel(WebCore::NotificationData&& notification)
 {
 	D(dprintf("%s(%p): %p\n", __PRETTY_FUNCTION__, this, notification));
-	if (m_webPage->_fHideNotification)
-		m_webPage->_fHideNotification(WTFMove(notification));
+    auto page = m_webPage.get();
+    if (!page)
+        return;
+
+	if (page->_fHideNotification)
+		page->_fHideNotification(WTFMove(notification));
 }
 
 void WebNotificationClient::notificationObjectDestroyed(WebCore::NotificationData&& notification)
 {
-	if (m_webPage->_fHideNotification)
-		m_webPage->_fHideNotification(WTFMove(notification));
+    auto page = m_webPage.get();
+    if (!page)
+        return;
+
+	if (page->_fHideNotification)
+		page->_fHideNotification(WTFMove(notification));
 }
 
 void WebNotificationClient::notificationControllerDestroyed()
@@ -56,11 +68,14 @@ void WebNotificationClient::notificationControllerDestroyed()
 
 void WebNotificationClient::requestPermission(WebCore::ScriptExecutionContext&context, WebCore::NotificationClient::PermissionHandler&&callback)
 {
-	// TODO: call WkWebView via page
+    auto page = m_webPage.get();
+    if (!page)
+        return;
+
 	D(dprintf("%s(%p): %p\n", __PRETTY_FUNCTION__, this, &context));
-	if (m_webPage->_fRequestNotificationPermission)
+	if (page->_fRequestNotificationPermission)
 	{
-		m_webPage->_fRequestNotificationPermission(context.url(), WTFMove(callback));
+		page->_fRequestNotificationPermission(context.url(), WTFMove(callback));
 	}
 	else
 	{
@@ -70,10 +85,14 @@ void WebNotificationClient::requestPermission(WebCore::ScriptExecutionContext&co
 
 NotificationClient::Permission WebNotificationClient::checkPermission(ScriptExecutionContext* context)
 {
-    if (!context || !context->isDocument() || !m_webPage->_fCheckNotificationPermission)
+    auto page = m_webPage.get();
+    if (!page)
         return NotificationClient::Permission::Denied;
 
-	auto permission = m_webPage->_fCheckNotificationPermission(context->url());
+    if (!context || !context->isDocument() || !page->_fCheckNotificationPermission)
+        return NotificationClient::Permission::Denied;
+
+	auto permission = page->_fCheckNotificationPermission(context->url());
 
 	if (permission == WebViewDelegate::NotificationPermission::Default)
 		return NotificationClient::Permission::Default;
