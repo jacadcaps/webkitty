@@ -42,7 +42,9 @@
 #include <wtf/CrossThreadTask.h>
 #include <wtf/Function.h>
 #include <wtf/HashSet.h>
+#ifndef __MORPHOS_DISABLE
 #include <wtf/NativePromise.h>
+#endif
 #include <wtf/ObjectIdentifier.h>
 #include <wtf/OptionSet.h>
 #include <wtf/URL.h>
