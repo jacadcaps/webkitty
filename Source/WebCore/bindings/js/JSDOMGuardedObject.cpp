@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,6 +26,7 @@
 #include "config.h"
 #include "JSDOMGuardedObject.h"
 
+#include "JSDOMGlobalObjectInlines.h"
 
 namespace WebCore {
 using namespace JSC;
@@ -35,9 +36,12 @@ DOMGuardedObject::DOMGuardedObject(JSDOMGlobalObject& globalObject, JSCell& guar
     , m_guarded(&guarded)
     , m_globalObject(&globalObject)
 {
-    auto locker = lockDuringMarking(globalObject.vm().heap, globalObject.gcLock());
-    globalObject.vm().heap.writeBarrier(&globalObject, &guarded);
-    globalObject.guardedObjects(locker).add(this);
+    if (globalObject.vm().heap.mutatorShouldBeFenced()) {
+        Locker locker { globalObject.gcLock() };
+        globalObject.guardedObjects().add(this);
+    } else
+        globalObject.guardedObjects(NoLockingNecessary).add(this);
+    globalObject.vm().writeBarrier(&globalObject, &guarded);
 }
 
 DOMGuardedObject::~DOMGuardedObject()
@@ -48,11 +52,21 @@ DOMGuardedObject::~DOMGuardedObject()
 void DOMGuardedObject::clear()
 {
     ASSERT(!m_guarded || m_globalObject);
-    if (m_guarded && m_globalObject) {
-        auto locker = lockDuringMarking(m_globalObject->vm().heap, m_globalObject->gcLock());
-        m_globalObject->guardedObjects(locker).remove(this);
-    }
+    removeFromGlobalObject();
     m_guarded.clear();
+}
+
+void DOMGuardedObject::removeFromGlobalObject()
+{
+    if (!m_globalObject)
+        return;
+
+    if (m_globalObject->vm().heap.mutatorShouldBeFenced()) {
+        Locker locker { m_globalObject->gcLock() };
+        m_globalObject->guardedObjects().remove(this);
+    } else
+        m_globalObject->guardedObjects(NoLockingNecessary).remove(this);
+
     m_globalObject.clear();
 }
 

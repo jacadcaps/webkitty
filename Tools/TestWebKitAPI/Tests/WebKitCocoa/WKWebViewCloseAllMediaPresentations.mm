@@ -27,56 +27,119 @@
 
 #import "PlatformUtilities.h"
 #import "TestWKWebView.h"
+#import "WKWebViewConfigurationExtras.h"
 #import <WebCore/PictureInPictureSupport.h>
 #import <WebKit/WKPreferencesPrivate.h>
 #import <WebKit/WKWebViewPrivate.h>
 #import <wtf/RetainPtr.h>
 
-// We can enable the test for old iOS versions after <rdar://problem/63572534> is fixed.
-#if ENABLE(VIDEO_PRESENTATION_MODE) && (PLATFORM(MAC) || (PLATFORM(IOS_FAMILY) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 140000))
+#if ENABLE(FULLSCREEN_API) || ENABLE(VIDEO_PRESENTATION_MODE)
 
-TEST(WKWebViewCloseAllMediaPresentations, PictureInPicture)
+static void loadPictureInPicture(RetainPtr<TestWKWebView> webView)
 {
-    if (!WebCore::supportsPictureInPicture())
-        return;
-
-    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
-    configuration.get().preferences._allowsPictureInPictureMediaPlayback = YES;
-    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get() addToWindow:YES]);
-
     [webView synchronouslyLoadHTMLString:@"<video src=video-with-audio.mp4 webkit-playsinline playsinline loop></video>"];
 
-    [webView objectByEvaluatingJavaScriptWithUserGesture:@"document.querySelector('video').webkitSetPresentationMode('picture-in-picture')"];
-
-    do {
-        id result = [webView objectByEvaluatingJavaScript:@"document.querySelector('video').webkitDisplayingFullscreen"];
-        if ([result boolValue])
-            break;
-
-        TestWebKitAPI::Util::sleep(0.5);
-    } while (true);
+    [[NSUserDefaults standardUserDefaults] registerDefaults:@{
+        @"WebCoreLogging": @"",
+        @"WebKit2Logging": @"",
+    }];
 
     [webView objectByEvaluatingJavaScript:@"document.querySelector('video').addEventListener('webkitpresentationmodechanged', event => { window.webkit.messageHandlers.testHandler.postMessage('presentationmodechanged'); });"];
 
     __block bool presentationModeChanged = false;
     [webView performAfterReceivingMessage:@"presentationmodechanged" action:^{ presentationModeChanged = true; }];
 
-    [webView _closeAllMediaPresentations];
+    [webView objectByEvaluatingJavaScriptWithUserGesture:@"document.querySelector('video').webkitSetPresentationMode('picture-in-picture')"];
+    ASSERT_UNUSED(presentationModeChanged, TestWebKitAPI::Util::runFor(&presentationModeChanged, 10_s));
+    do {
+        if (![webView stringByEvaluatingJavaScript:@"window.internals.isChangingPresentationMode(document.querySelector('video'))"].boolValue)
+            break;
 
-    TestWebKitAPI::Util::run(&presentationModeChanged);
-
-    EXPECT_STREQ([webView stringByEvaluatingJavaScript:@"document.querySelector('video').webkitPresentationMode"].UTF8String, "inline");
+        TestWebKitAPI::Util::runFor(0.5_s);
+    } while (true);
 }
 
+#endif // ENABLE(FULLSCREEN_API) || ENABLE(VIDEO_PRESENTATION_MODE)
+
+#if ENABLE(VIDEO_PRESENTATION_MODE)
+
+// FIXME: Re-enable this test for Big Sur once webkit.org/b/245241 is resolved
+#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED < 141000)
+TEST(WKWebViewCloseAllMediaPresentations, DISABLED_PictureInPicture)
+#else
+TEST(WKWebViewCloseAllMediaPresentations, PictureInPicture)
 #endif
+{
+    if (!WebCore::supportsPictureInPicture())
+        return;
+
+    [[NSUserDefaults standardUserDefaults] registerDefaults:@{
+        @"WebCoreLogging": @"Fullscreen=debug",
+        @"WebKit2Logging": @"Fullscreen=debug",
+    }];
+
+    auto *configuration = [WKWebViewConfiguration _test_configurationWithTestPlugInClassName:@"WebProcessPlugInWithInternals" configureJSCForTesting:YES];
+    [[configuration preferences] _setAllowsPictureInPictureMediaPlayback:YES];
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration addToWindow:YES]);
+
+    loadPictureInPicture(webView);
+
+    static bool isDone = false;
+    [webView closeAllMediaPresentationsWithCompletionHandler:^{
+        isDone = true;
+    }];
+    TestWebKitAPI::Util::run(&isDone);
+
+    EXPECT_TRUE([webView _allMediaPresentationsClosed]);
+}
+
+// FIXME: Re-enable this test for Big Sur once webkit.org/b/245241 is resolved
+#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED < 141000)
+TEST(WKWebViewCloseAllMediaPresentationsInternal, DISABLED_PictureInPicture)
+#else
+TEST(WKWebViewCloseAllMediaPresentationsInternal, PictureInPicture)
+#endif
+{
+    if (!WebCore::supportsPictureInPicture())
+        return;
+
+    [[NSUserDefaults standardUserDefaults] registerDefaults:@{
+        @"WebCoreLogging": @"Fullscreen=debug",
+        @"WebKit2Logging": @"Fullscreen=debug",
+    }];
+
+    auto *configuration = [WKWebViewConfiguration _test_configurationWithTestPlugInClassName:@"WebProcessPlugInWithInternals" configureJSCForTesting:YES];
+    [[configuration preferences] _setAllowsPictureInPictureMediaPlayback:YES];
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration addToWindow:YES]);
+
+    loadPictureInPicture(webView);
+
+    [webView _closeAllMediaPresentations];
+
+    do {
+        if (![webView stringByEvaluatingJavaScript:@"window.internals.isChangingPresentationMode(document.querySelector('video'))"].boolValue)
+            break;
+
+        TestWebKitAPI::Util::runFor(0.5_s);
+    } while (true);
+
+    EXPECT_TRUE([webView _allMediaPresentationsClosed]);
+}
+
+#endif // ENABLE(VIDEO_PRESENTATION_MODE)
 
 #if ENABLE(FULLSCREEN_API)
 
+// FIXME rdar://109155883 is resolved.
+#if PLATFORM(IOS) || PLATFORM(VISION)
+TEST(WKWebViewCloseAllMediaPresentations, DISABLED_VideoFullscreen)
+# else
 TEST(WKWebViewCloseAllMediaPresentations, VideoFullscreen)
+#endif
 {
-    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
-    configuration.get().preferences._fullScreenEnabled = YES;
-    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get() addToWindow:YES]);
+    auto *configuration = [WKWebViewConfiguration _test_configurationWithTestPlugInClassName:@"WebProcessPlugInWithInternals" configureJSCForTesting:YES];
+    [[configuration preferences] _setFullScreenEnabled:YES];
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration addToWindow:YES]);
 
     [webView synchronouslyLoadHTMLString:@"<video src=video-with-audio.mp4 webkit-playsinline playsinline loop></video>"];
     [webView objectByEvaluatingJavaScript:@"document.querySelector('video').addEventListener('webkitpresentationmodechanged', event => { window.webkit.messageHandlers.testHandler.postMessage('presentationmodechanged'); });"];
@@ -85,24 +148,35 @@ TEST(WKWebViewCloseAllMediaPresentations, VideoFullscreen)
     [webView performAfterReceivingMessage:@"presentationmodechanged" action:^{ presentationModeChanged = true; }];
 
     [webView objectByEvaluatingJavaScriptWithUserGesture:@"document.querySelector('video').webkitEnterFullscreen()"];
+    [webView objectByEvaluatingJavaScript:@"window.internals.setMockVideoPresentationModeEnabled(true)"];
 
     TestWebKitAPI::Util::run(&presentationModeChanged);
+    do {
+        if (![webView stringByEvaluatingJavaScript:@"window.internals.isChangingPresentationMode(document.querySelector('video'))"].boolValue)
+            break;
 
-    presentationModeChanged = false;
-    [webView performAfterReceivingMessage:@"presentationmodechanged" action:^{ presentationModeChanged = true; }];
+        TestWebKitAPI::Util::runFor(0.5_s);
+    } while (true);
 
-    [webView _closeAllMediaPresentations];
-
-    TestWebKitAPI::Util::run(&presentationModeChanged);
-
-    EXPECT_STREQ([webView stringByEvaluatingJavaScript:@"document.querySelector('video').webkitPresentationMode"].UTF8String, "inline");
+    static bool isDone = false;
+    [webView closeAllMediaPresentationsWithCompletionHandler:^{
+        isDone = true;
+    }];
+    TestWebKitAPI::Util::run(&isDone);
+    
+    EXPECT_TRUE([webView _allMediaPresentationsClosed]);
 }
 
+// FIXME: Re-enable this test once webkit.org/b/265068 is resolved
+#if PLATFORM(IOS) && !defined(NDEBUG)
+TEST(WKWebViewCloseAllMediaPresentations, DISABLED_ElementFullscreen)
+#else
 TEST(WKWebViewCloseAllMediaPresentations, ElementFullscreen)
+#endif
 {
-    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
-    configuration.get().preferences._fullScreenEnabled = YES;
-    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get() addToWindow:YES]);
+    auto *configuration = [WKWebViewConfiguration _test_configurationWithTestPlugInClassName:@"WebProcessPlugInWithInternals" configureJSCForTesting:YES];
+    [[configuration preferences] _setFullScreenEnabled:YES];
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration addToWindow:YES]);
 
     [webView synchronouslyLoadHTMLString:@"<div id=\"target\" style=\"width:100px;height:100px;background-color:red\"></div>"];
     [webView objectByEvaluatingJavaScript:@"document.querySelector('#target').addEventListener('webkitfullscreenchange', event => { window.webkit.messageHandlers.testHandler.postMessage('fullscreenchange'); });"];
@@ -117,11 +191,69 @@ TEST(WKWebViewCloseAllMediaPresentations, ElementFullscreen)
     fullscreenModeChanged = false;
     [webView performAfterReceivingMessage:@"fullscreenchange" action:^{ fullscreenModeChanged = true; }];
 
-    [webView _closeAllMediaPresentations];
-
-    TestWebKitAPI::Util::run(&fullscreenModeChanged);
-
-    EXPECT_STREQ([webView stringByEvaluatingJavaScript:@"document.webkitFullscreenElement"].UTF8String, "<null>");
+    static bool isDone = false;
+    [webView closeAllMediaPresentationsWithCompletionHandler:^{
+        isDone = true;
+    }];
+    TestWebKitAPI::Util::run(&isDone);
+    
+    EXPECT_TRUE([webView _allMediaPresentationsClosed]);
 }
 
+// FIXME: Re-enable this test for Big Sur once webkit.org/b/245241 is resolved
+#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED < 141000)
+TEST(WKWebViewCloseAllMediaPresentations, DISABLED_MultipleSequentialCloseAllMediaPresentations)
+#else
+TEST(WKWebViewCloseAllMediaPresentations, MultipleSequentialCloseAllMediaPresentations)
 #endif
+{
+    if (!WebCore::supportsPictureInPicture())
+        return;
+
+    [[NSUserDefaults standardUserDefaults] registerDefaults:@{
+        @"WebCoreLogging": @"Fullscreen=debug",
+        @"WebKit2Logging": @"Fullscreen=debug",
+    }];
+
+    auto *configuration = [WKWebViewConfiguration _test_configurationWithTestPlugInClassName:@"WebProcessPlugInWithInternals" configureJSCForTesting:YES];
+    [[configuration preferences] _setAllowsPictureInPictureMediaPlayback:YES];
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration addToWindow:YES]);
+
+    loadPictureInPicture(webView);
+
+    static bool firstIsDone = false;
+    [webView closeAllMediaPresentationsWithCompletionHandler:^{
+        firstIsDone = true;
+    }];
+
+    static bool secondIsDone = false;
+    [webView closeAllMediaPresentationsWithCompletionHandler:^{
+        secondIsDone = true;
+    }];
+
+    TestWebKitAPI::Util::run(&firstIsDone);
+    TestWebKitAPI::Util::run(&secondIsDone);
+
+    EXPECT_TRUE([webView _allMediaPresentationsClosed]);
+}
+
+TEST(WKWebViewCloseAllMediaPresentations, RemovedCloseAllMediaPresentationAPIs)
+{
+    // In r271970, we renamed -closeAllMediaPresentations to -closeAllMediaPresentations:completionHandler, which broke
+    // binary compatability of apps linked against older SDKs. Ensure calling the removed API does not crash.
+
+    auto *configuration = [WKWebViewConfiguration _test_configurationWithTestPlugInClassName:@"WebProcessPlugInWithInternals" configureJSCForTesting:YES];
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration addToWindow:YES]);
+
+    EXPECT_TRUE([webView respondsToSelector:@selector(closeAllMediaPresentations)]);
+
+    RetainPtr<NSException> exception;
+    @try {
+        [webView closeAllMediaPresentations];
+    } @catch(NSException *caught) {
+        exception = caught;
+    }
+    EXPECT_FALSE(exception);
+}
+
+#endif // ENABLE(FULLSCREEN_API)

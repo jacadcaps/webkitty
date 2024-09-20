@@ -26,17 +26,19 @@
 #include "config.h"
 #include "RemoteMediaResourceLoader.h"
 
-#if ENABLE(GPU_PROCESS)
+#if ENABLE(GPU_PROCESS) && ENABLE(VIDEO)
 
 #include "RemoteMediaPlayerProxy.h"
+#include <WebCore/ResourceError.h>
 
 namespace WebKit {
 
 using namespace WebCore;
 
 RemoteMediaResourceLoader::RemoteMediaResourceLoader(RemoteMediaPlayerProxy& remoteMediaPlayerProxy)
-    : m_remoteMediaPlayerProxy(makeWeakPtr(remoteMediaPlayerProxy))
+    : m_remoteMediaPlayerProxy(remoteMediaPlayerProxy)
 {
+    ASSERT(isMainRunLoop());
 }
 
 RemoteMediaResourceLoader::~RemoteMediaResourceLoader()
@@ -45,6 +47,7 @@ RemoteMediaResourceLoader::~RemoteMediaResourceLoader()
 
 RefPtr<PlatformMediaResource> RemoteMediaResourceLoader::requestResource(ResourceRequest&& request, LoadOptions options)
 {
+    ASSERT(isMainRunLoop());
     if (!m_remoteMediaPlayerProxy)
         return nullptr;
 
@@ -53,6 +56,7 @@ RefPtr<PlatformMediaResource> RemoteMediaResourceLoader::requestResource(Resourc
 
 void RemoteMediaResourceLoader::sendH2Ping(const URL& url, CompletionHandler<void(Expected<Seconds, ResourceError>&&)>&& completionHandler)
 {
+    ASSERT(isMainRunLoop());
     if (!m_remoteMediaPlayerProxy)
         return completionHandler(makeUnexpected(internalError(url)));
     
@@ -61,4 +65,4 @@ void RemoteMediaResourceLoader::sendH2Ping(const URL& url, CompletionHandler<voi
 
 } // namespace WebKit
 
-#endif
+#endif // ENABLE(GPU_PROCESS) && ENABLE(VIDEO)

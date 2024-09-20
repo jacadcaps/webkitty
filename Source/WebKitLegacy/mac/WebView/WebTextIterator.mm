@@ -27,10 +27,10 @@
 
 #import "DOMNodeInternal.h"
 #import "DOMRangeInternal.h"
-#import "WebTypesInternal.h"
 #import <JavaScriptCore/InitializeThreading.h>
 #import <WebCore/Range.h>
 #import <WebCore/TextIterator.h>
+#import <WebCore/WebCoreJITOperations.h>
 #import <wtf/MainThread.h>
 #import <wtf/RunLoop.h>
 #import <wtf/Vector.h>
@@ -49,6 +49,7 @@
 #if !PLATFORM(IOS_FAMILY)
     JSC::initialize();
     WTF::initializeMainThread();
+    WebCore::populateJITOperations();
 #endif
 }
 
@@ -108,9 +109,11 @@
     if (!length)
         return nullptr;
     if (!text.is8Bit())
-        return reinterpret_cast<const unichar*>(text.characters16());
-    if (_private->_upconvertedText.isEmpty())
-        _private->_upconvertedText.appendRange(text.characters8(), text.characters8() + length);
+        return reinterpret_cast<const unichar*>(text.span16().data());
+    if (_private->_upconvertedText.isEmpty()) {
+        auto characters = text.span8();
+        _private->_upconvertedText.appendRange(characters.begin(), characters.end());
+    }
     ASSERT(_private->_upconvertedText.size() == text.length());
     return _private->_upconvertedText.data();
 }

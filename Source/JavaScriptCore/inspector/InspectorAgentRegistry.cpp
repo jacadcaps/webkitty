@@ -31,9 +31,7 @@
 
 namespace Inspector {
 
-AgentRegistry::AgentRegistry()
-{
-}
+AgentRegistry::AgentRegistry() = default;
 
 AgentRegistry::~AgentRegistry()
 {
@@ -47,15 +45,6 @@ void AgentRegistry::append(std::unique_ptr<InspectorAgentBase> agent)
 {
     m_agents.append(WTFMove(agent));
 }
-
-#if ENABLE(INSPECTOR_ALTERNATE_DISPATCHERS)
-void AgentRegistry::appendExtraAgent(std::unique_ptr<InspectorAgentBase> agent)
-{
-    m_extraDomains.append(agent->domainName());
-
-    append(WTFMove(agent));
-}
-#endif
 
 void AgentRegistry::didCreateFrontendAndBackend(FrontendRouter* frontendRouter, BackendDispatcher* backendDispatcher)
 {

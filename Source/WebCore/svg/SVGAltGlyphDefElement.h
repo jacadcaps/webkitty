@@ -19,15 +19,14 @@
 
 #pragma once
 
-#if ENABLE(SVG_FONTS)
-
 #include "SVGElement.h"
 #include <wtf/Forward.h>
 
 namespace WebCore {
 
 class SVGAltGlyphDefElement final : public SVGElement {
-    WTF_MAKE_ISO_ALLOCATED(SVGAltGlyphDefElement);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(SVGAltGlyphDefElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SVGAltGlyphDefElement);
 public:
     static Ref<SVGAltGlyphDefElement> create(const QualifiedName&, Document&);
 
@@ -40,5 +39,3 @@ private:
 };
 
 } // namespace WebCore
-
-#endif // ENABLE(SVG_FONTS)

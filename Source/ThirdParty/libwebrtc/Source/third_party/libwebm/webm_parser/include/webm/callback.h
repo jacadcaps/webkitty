@@ -335,6 +335,10 @@ class Callback {
    */
   virtual Status OnSegmentEnd(const ElementMetadata& metadata);
 
+#if defined(WEBRTC_WEBKIT_BUILD)
+  virtual Status OnElementEnd(const ElementMetadata& metadata);
+#endif
+
  protected:
   /**
    Calls (and returns the result of) `Reader::Skip()`, skipping (up to) the

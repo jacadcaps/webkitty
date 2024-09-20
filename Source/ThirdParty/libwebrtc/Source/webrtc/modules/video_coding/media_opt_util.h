@@ -16,6 +16,8 @@
 
 #include <memory>
 
+#include "api/environment/environment.h"
+#include "api/field_trials_view.h"
 #include "modules/video_coding/internal_defines.h"
 #include "rtc_base/experiments/rate_control_settings.h"
 #include "rtc_base/numerics/exp_filter.h"
@@ -26,10 +28,10 @@ namespace media_optimization {
 // Number of time periods used for (max) window filter for packet loss
 // TODO(marpan): set reasonable window size for filtered packet loss,
 // adjustment should be based on logged/real data of loss stats/correlation.
-enum { kLossPrHistorySize = 10 };
+constexpr int kLossPrHistorySize = 10;
 
 // 1000 ms, total filter length is (kLossPrHistorySize * 1000) ms
-enum { kLossPrShortFilterWinMs = 1000 };
+constexpr int kLossPrShortFilterWinMs = 1000;
 
 // The type of filter used on the received packet loss reports.
 enum FilterPacketLossMode {
@@ -41,11 +43,11 @@ enum FilterPacketLossMode {
 
 // Thresholds for hybrid NACK/FEC
 // common to media optimization and the jitter buffer.
-const int64_t kLowRttNackMs = 20;
+constexpr int64_t kLowRttNackMs = 20;
 
 // If the RTT is higher than this an extra RTT wont be added to to the jitter
 // buffer delay.
-const int kMaxRttDelayThreshold = 500;
+constexpr int kMaxRttDelayThreshold = 500;
 
 struct VCMProtectionParameters {
   VCMProtectionParameters();
@@ -153,7 +155,7 @@ class VCMNackMethod : public VCMProtectionMethod {
 
 class VCMFecMethod : public VCMProtectionMethod {
  public:
-  VCMFecMethod();
+  explicit VCMFecMethod(const FieldTrialsView& field_trials);
   ~VCMFecMethod() override;
   bool UpdateParameters(const VCMProtectionParameters* parameters) override;
   // Get the effective packet loss for ER
@@ -175,22 +177,23 @@ class VCMFecMethod : public VCMProtectionMethod {
   int BitsPerFrame(const VCMProtectionParameters* parameters);
 
  protected:
-  enum { kUpperLimitFramesFec = 6 };
+  static constexpr int kUpperLimitFramesFec = 6;
   // Thresholds values for the bytes/frame and round trip time, below which we
-  // may turn off FEC, depending on |_numLayers| and |_maxFramesFec|.
+  // may turn off FEC, depending on `_numLayers` and `_maxFramesFec`.
   // Max bytes/frame for VGA, corresponds to ~140k at 25fps.
-  enum { kMaxBytesPerFrameForFec = 700 };
+  static constexpr int kMaxBytesPerFrameForFec = 700;
   // Max bytes/frame for CIF and lower: corresponds to ~80k at 25fps.
-  enum { kMaxBytesPerFrameForFecLow = 400 };
+  static constexpr int kMaxBytesPerFrameForFecLow = 400;
   // Max bytes/frame for frame size larger than VGA, ~200k at 25fps.
-  enum { kMaxBytesPerFrameForFecHigh = 1000 };
+  static constexpr int kMaxBytesPerFrameForFecHigh = 1000;
 
   const RateControlSettings rate_control_settings_;
 };
 
 class VCMNackFecMethod : public VCMFecMethod {
  public:
-  VCMNackFecMethod(int64_t lowRttNackThresholdMs,
+  VCMNackFecMethod(const FieldTrialsView& field_trials,
+                   int64_t lowRttNackThresholdMs,
                    int64_t highRttNackThresholdMs);
   ~VCMNackFecMethod() override;
   bool UpdateParameters(const VCMProtectionParameters* parameters) override;
@@ -213,7 +216,7 @@ class VCMNackFecMethod : public VCMFecMethod {
 
 class VCMLossProtectionLogic {
  public:
-  explicit VCMLossProtectionLogic(int64_t nowMs);
+  explicit VCMLossProtectionLogic(const Environment& env);
   ~VCMLossProtectionLogic();
 
   // Set the protection method to be used
@@ -306,8 +309,8 @@ class VCMLossProtectionLogic {
 
   // Updates the filtered loss for the average and max window packet loss,
   // and returns the filtered loss probability in the interval [0, 255].
-  // The returned filtered loss value depends on the parameter |filter_mode|.
-  // The input parameter |lossPr255| is the received packet loss.
+  // The returned filtered loss value depends on the parameter `filter_mode`.
+  // The input parameter `lossPr255` is the received packet loss.
 
   // Return value                 : The filtered loss probability
   uint8_t FilteredLoss(int64_t nowMs,
@@ -322,6 +325,8 @@ class VCMLossProtectionLogic {
   // Sets the available loss protection methods.
   void UpdateMaxLossHistory(uint8_t lossPr255, int64_t now);
   uint8_t MaxFilteredLossPr(int64_t nowMs) const;
+
+  const Environment env_;
   std::unique_ptr<VCMProtectionMethod> _selectedMethod;
   VCMProtectionParameters _currentParameters;
   int64_t _rtt;

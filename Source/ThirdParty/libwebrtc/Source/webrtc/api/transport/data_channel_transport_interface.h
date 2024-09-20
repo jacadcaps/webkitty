@@ -35,9 +35,6 @@ enum class DataMessageType {
 // sent reliably and in-order, even if the data channel is configured for
 // unreliable delivery.
 struct SendDataParams {
-  SendDataParams();
-  SendDataParams(const SendDataParams&);
-
   DataMessageType type = DataMessageType::kText;
 
   // Whether to deliver the message in order with respect to other ordered
@@ -47,15 +44,15 @@ struct SendDataParams {
   // If set, the maximum number of times this message may be
   // retransmitted by the transport before it is dropped.
   // Setting this value to zero disables retransmission.
-  // Must be non-negative. |max_rtx_count| and |max_rtx_ms| may not be set
-  // simultaneously.
+  // Valid values are in the range [0-UINT16_MAX].
+  // `max_rtx_count` and `max_rtx_ms` may not be set simultaneously.
   absl::optional<int> max_rtx_count;
 
   // If set, the maximum number of milliseconds for which the transport
   // may retransmit this message before it is dropped.
   // Setting this value to zero disables retransmission.
-  // Must be non-negative. |max_rtx_count| and |max_rtx_ms| may not be set
-  // simultaneously.
+  // Valid values are in the range [0-UINT16_MAX].
+  // `max_rtx_count` and `max_rtx_ms` may not be set simultaneously.
   absl::optional<int> max_rtx_ms;
 };
 
@@ -88,7 +85,11 @@ class DataChannelSink {
   // Callback issued when the data channel becomes unusable (closed).
   // TODO(https://crbug.com/webrtc/10360): Make pure virtual when all
   // consumers updated.
-  virtual void OnTransportClosed() {}
+  virtual void OnTransportClosed(RTCError error) {}
+
+  // The data channel's buffered_amount has fallen to or below the threshold
+  // set when calling `SetBufferedAmountLowThreshold`
+  virtual void OnBufferedAmountLow(int channel_id) = 0;
 };
 
 // Transport for data channels.
@@ -96,18 +97,18 @@ class DataChannelTransportInterface {
  public:
   virtual ~DataChannelTransportInterface() = default;
 
-  // Opens a data |channel_id| for sending.  May return an error if the
-  // specified |channel_id| is unusable.  Must be called before |SendData|.
+  // Opens a data `channel_id` for sending.  May return an error if the
+  // specified `channel_id` is unusable.  Must be called before `SendData`.
   virtual RTCError OpenChannel(int channel_id) = 0;
 
   // Sends a data buffer to the remote endpoint using the given send parameters.
-  // |buffer| may not be larger than 256 KiB. Returns an error if the send
+  // `buffer` may not be larger than 256 KiB. Returns an error if the send
   // fails.
   virtual RTCError SendData(int channel_id,
                             const SendDataParams& params,
                             const rtc::CopyOnWriteBuffer& buffer) = 0;
 
-  // Closes |channel_id| gracefully.  Returns an error if |channel_id| is not
+  // Closes `channel_id` gracefully.  Returns an error if `channel_id` is not
   // open.  Data sent after the closing procedure begins will not be
   // transmitted. The channel becomes closed after pending data is transmitted.
   virtual RTCError CloseChannel(int channel_id) = 0;
@@ -121,6 +122,10 @@ class DataChannelTransportInterface {
   // Note: the default implementation always returns false (as it assumes no one
   // has implemented the interface).  This default implementation is temporary.
   virtual bool IsReadyToSend() const = 0;
+
+  virtual size_t buffered_amount(int channel_id) const = 0;
+  virtual size_t buffered_amount_low_threshold(int channel_id) const = 0;
+  virtual void SetBufferedAmountLowThreshold(int channel_id, size_t bytes) = 0;
 };
 
 }  // namespace webrtc

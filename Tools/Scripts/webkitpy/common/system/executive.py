@@ -81,22 +81,28 @@ class ScriptError(Exception):
         return os.path.basename(command_path)
 
 
+class WrappedPopen(object):
+    def __init__(self, popen):
+        self._popen = popen
+        for attribute in dir(self._popen):
+            if attribute.startswith('__') or attribute == 'returncode':
+                continue
+            setattr(self, attribute, getattr(self._popen, attribute))
+
+    @property
+    def returncode(self):
+        return self._popen.returncode
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.wait()
+
+
 class Executive(AbstractExecutive):
     PIPE = subprocess.PIPE
     STDOUT = subprocess.STDOUT
-
-    class WrappedPopen(object):
-        def __init__(self, popen):
-            for attribute in dir(popen):
-                if attribute.startswith('__'):
-                    continue
-                setattr(self, attribute, getattr(popen, attribute))
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            self.wait()
 
     def __init__(self):
         self.pid_to_system_pid = {}
@@ -196,7 +202,7 @@ class Executive(AbstractExecutive):
         # According to http://docs.python.org/library/os.html
         # os.kill isn't available on Windows. python 2.5.5 os.kill appears
         # to work in cygwin, however it occasionally raises EAGAIN.
-        retries_left = 10 if self._is_cygwin else 2
+        retries_left = 10 if self._is_cygwin else 5
         current_signal = signal.SIGTERM
         while retries_left > 0 and self.check_running_pid(pid):
             try:
@@ -221,8 +227,13 @@ class Executive(AbstractExecutive):
                 else:
                     raise
 
-            # Give processes one chance to clean up quickly before exiting.
-            current_signal = signal.SIGKILL
+            # Fallback to SIGKILL before exiting.
+            if retries_left <= 0 and current_signal != signal.SIGKILL:
+                _log.error('Couldn\'t quit {} with SIGTERM, sending SIGKILL.'.format(pid))
+                current_signal = signal.SIGKILL
+                retries_left = 1
+            else:
+                time.sleep(0.05)  # give the process a chance to finish
 
     def _win32_check_running_pid(self, pid):
         # importing ctypes at the top-level seems to cause weird crashes at
@@ -297,7 +308,7 @@ class Executive(AbstractExecutive):
                     if process_name_filter(process_name):
                         running_pids.append(int(pid))
                         self.pid_to_system_pid[int(pid)] = int(winpid)
-                except ValueError as e:
+                except ValueError:
                     pass
         else:
             with self.popen(['ps', '-eo', 'pid,comm'], stdout=self.PIPE, stderr=self.PIPE) as ps_process:
@@ -309,7 +320,7 @@ class Executive(AbstractExecutive):
                         pid, process_name = line.strip().split(b' ', 1)
                         if process_name_filter(string_utils.decode(process_name, target_type=str)):
                             running_pids.append(int(pid))
-                    except ValueError as e:
+                    except ValueError:
                         pass
 
         return sorted(running_pids)
@@ -354,7 +365,10 @@ class Executive(AbstractExecutive):
         # uses KILL.  Windows is always using /f (which seems like -KILL).
         # We should pick one mode, or add support for switching between them.
         # Note: Mac OS X 10.6 requires -SIGNALNAME before -u USER
-        command = ["killall", "-TERM", "-u", os.getenv("USER"), process_name]
+        try:
+            command = ["killall", "-TERM", "-u", os.environ["USER"], process_name]
+        except KeyError:
+            command = ["killall", "-TERM", process_name]
         # killall returns 1 if no process can be found and 2 on command error.
         # FIXME: We should pass a custom error_handler to allow only exit_code 1.
         # We should log in exit_code == 1
@@ -389,7 +403,8 @@ class Executive(AbstractExecutive):
                     ignore_errors=False,
                     return_exit_code=False,
                     return_stderr=True,
-                    decode_output=True):
+                    decode_output=True,
+                    pass_fds=()):
         """Popen wrapper for convenience and to work around python bugs."""
         assert(isinstance(args, list) or isinstance(args, tuple))
         start_time = time.time()
@@ -403,7 +418,8 @@ class Executive(AbstractExecutive):
                              stderr=stderr,
                              cwd=cwd,
                              env=env,
-                             close_fds=self._should_close_fds())
+                             close_fds=self._should_close_fds(),
+                             pass_fds=pass_fds)
         with process:
             if not string_to_communicate:
                 output = process.communicate()[0]
@@ -483,7 +499,12 @@ class Executive(AbstractExecutive):
             # Must include proper interpreter
             if self._needs_interpreter_check(args[0]):
                 try:
-                    with open(args[0], 'r') as f:
+                    # On Python 2 'encoding' is an invalid keyword argument for this function
+                    open_kwargs = {}
+                    if sys.version_info.major >= 3:
+                        open_kwargs['encoding'] = 'cp437'
+
+                    with open(args[0], 'r', **open_kwargs) as f:
                         line = f.readline()
                         if "perl" in line:
                             args.insert(0, "perl")
@@ -503,10 +524,30 @@ class Executive(AbstractExecutive):
         else:
             string_args = self._stringify_args(args)
 
+        # Windows Python 3 throws a TypeError if the environment contains `bytes` instead of `str`
+        env = kwargs.pop('env', None)
+        if self._is_native_win and env is not None:
+            mod_env = {}
+            if sys.version_info.major >= 3:
+                for key, value in env.items():
+                    if not isinstance(key, str):
+                        key = key.decode('utf-8')
+                    if not isinstance(value, str):
+                        value = value.decode('utf-8')
+                    mod_env[key] = value
+            else:
+                for key, value in env.items():
+                    if not isinstance(key, bytes):
+                        key = key.encode('utf-8')
+                    if not isinstance(value, bytes):
+                        value = value.encode('utf-8')
+                    mod_env[key] = value
+            env = mod_env
+
         # Python 3 treats Popen as a context manager, we should allow this in Python 2
-        result = subprocess.Popen(string_args, **kwargs)
+        result = subprocess.Popen(string_args, env=env, **kwargs)
         if not callable(getattr(result, "__enter__", None)) and not callable(getattr(result, "__exit__", None)):
-            return self.WrappedPopen(result)
+            return WrappedPopen(result)
         return result
 
     def run_in_parallel(self, command_lines_and_cwds, processes=None):

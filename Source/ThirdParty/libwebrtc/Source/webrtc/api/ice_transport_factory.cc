@@ -13,10 +13,15 @@
 #include <memory>
 #include <utility>
 
+#include "api/ice_transport_interface.h"
+#include "api/make_ref_counted.h"
+#include "api/scoped_refptr.h"
+#include "api/sequence_checker.h"
 #include "p2p/base/ice_transport_internal.h"
+#include "p2p/base/p2p_constants.h"
 #include "p2p/base/p2p_transport_channel.h"
 #include "p2p/base/port_allocator.h"
-#include "rtc_base/thread.h"
+#include "rtc_base/thread_annotations.h"
 
 namespace webrtc {
 
@@ -41,7 +46,7 @@ class IceTransportWithTransportChannel : public IceTransportInterface {
   }
 
  private:
-  const rtc::ThreadChecker thread_checker_{};
+  const SequenceChecker thread_checker_{};
   const std::unique_ptr<cricket::IceTransportInternal> internal_
       RTC_GUARDED_BY(thread_checker_);
 };
@@ -57,10 +62,9 @@ rtc::scoped_refptr<IceTransportInterface> CreateIceTransport(
 
 rtc::scoped_refptr<IceTransportInterface> CreateIceTransport(
     IceTransportInit init) {
-  return new rtc::RefCountedObject<IceTransportWithTransportChannel>(
-      std::make_unique<cricket::P2PTransportChannel>(
-          "", 0, init.port_allocator(), init.async_resolver_factory(),
-          init.event_log()));
+  return rtc::make_ref_counted<IceTransportWithTransportChannel>(
+      cricket::P2PTransportChannel::Create(
+          "", cricket::ICE_CANDIDATE_COMPONENT_RTP, std::move(init)));
 }
 
 }  // namespace webrtc

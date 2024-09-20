@@ -28,13 +28,19 @@
 
 #import "WKBackForwardListItemInternal.h"
 #import "WKNSArray.h"
+#import <WebCore/WebCoreObjCExtras.h>
 
 @implementation WKBackForwardList {
     API::ObjectStorage<WebKit::WebBackForwardList> _list;
 }
 
+WK_OBJECT_DISABLE_DISABLE_KVC_IVAR_ACCESS;
+
 - (void)dealloc
 {
+    if (WebCoreObjCScheduleDeallocateOnMainRunLoop(WKBackForwardList.class, self))
+        return;
+
     _list->~WebBackForwardList();
 
     [super dealloc];
@@ -62,12 +68,12 @@
 
 - (NSArray *)backList
 {
-    return WebKit::wrapper(_list->backList());
+    return WebKit::wrapper(_list->backList()).autorelease();
 }
 
 - (NSArray *)forwardList
 {
-    return WebKit::wrapper(_list->forwardList());
+    return WebKit::wrapper(_list->forwardList()).autorelease();
 }
 
 #pragma mark WKObject protocol implementation

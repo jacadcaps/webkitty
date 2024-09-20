@@ -35,7 +35,6 @@
 #import "WebJSPDFDoc.h"
 #import "WebPDFDocumentExtras.h"
 #import "WebPDFView.h"
-#import "WebTypesInternal.h"
 #import <JavaScriptCore/JSContextRef.h>
 #import <JavaScriptCore/OpaqueJSString.h>
 #import <wtf/Assertions.h>
@@ -43,21 +42,9 @@
 
 @implementation WebPDFRepresentation
 
-+ (NSArray *)postScriptMIMETypes
-{
-    return @[
-        @"application/postscript",
-    ];
-}
-
 + (NSArray *)supportedMIMETypes
 {
-    return [[[self class] postScriptMIMETypes] arrayByAddingObjectsFromArray:
-        @[
-            @"text/pdf",
-            @"application/pdf",
-        ]
-    ];
+    return @[ @"text/pdf", @"application/pdf" ];
 }
 
 + (Class)PDFDocumentClass
@@ -84,50 +71,13 @@
 {
 }
 
-- (NSData *)convertPostScriptDataSourceToPDF:(NSData *)data
-{
-    // Convert PostScript to PDF using Quartz 2D API
-    // http://developer.apple.com/documentation/GraphicsImaging/Conceptual/drawingwithquartz2d/dq_ps_convert/chapter_16_section_1.html
-
-    CGPSConverterCallbacks callbacks = { 0, 0, 0, 0, 0, 0, 0, 0 };    
-    RetainPtr<CGPSConverterRef> converter = adoptCF(CGPSConverterCreate(0, &callbacks, 0));
-    ASSERT(converter.get());
-
-    RetainPtr<CGDataProviderRef> provider = adoptCF(CGDataProviderCreateWithCFData((CFDataRef)data));
-    ASSERT(provider.get());
-
-    RetainPtr<CFMutableDataRef> result = adoptCF(CFDataCreateMutable(kCFAllocatorDefault, 0));
-    ASSERT(result.get());
-
-    RetainPtr<CGDataConsumerRef> consumer = adoptCF(CGDataConsumerCreateWithCFData(result.get()));
-    ASSERT(consumer.get());
-
-    // Error handled by detecting zero-length 'result' in caller
-    CGPSConverterConvert(converter.get(), provider.get(), consumer.get(), 0);
-
-    return result.bridgingAutorelease();
-}
-
 - (void)finishedLoadingWithDataSource:(WebDataSource *)dataSource
 {
-    NSData *data = [dataSource data];
-
-    NSArray *postScriptMIMETypes = [[self class] postScriptMIMETypes];
-    NSString *mimeType = [dataSource _responseMIMEType];
-    if ([postScriptMIMETypes containsObject:mimeType]) {
-        data = [self convertPostScriptDataSourceToPDF:data];
-        if ([data length] == 0)
-            return;
-    }
-
     WebPDFView *view = (WebPDFView *)[[[dataSource webFrame] frameView] documentView];
-    PDFDocument *doc = [[[[self class] PDFDocumentClass] alloc] initWithData:data];
-    [view setPDFDocument:doc];
+    auto document = adoptNS([[[[self class] PDFDocumentClass] alloc] initWithData:[dataSource data]]);
+    [view setPDFDocument:document.get()];
 
-    NSArray *scripts = allScriptsInPDFDocument(doc);
-    [doc release];
-    doc = nil;
-
+    NSArray *scripts = allScriptsInPDFDocument(document.get());
     if (![scripts count])
         return;
 

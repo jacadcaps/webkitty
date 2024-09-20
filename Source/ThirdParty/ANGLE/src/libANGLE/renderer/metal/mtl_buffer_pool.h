@@ -12,6 +12,8 @@
 
 #include "libANGLE/renderer/metal/mtl_resources.h"
 
+#include <deque>
+
 namespace rx
 {
 
@@ -34,16 +36,21 @@ namespace mtl
 class BufferPool
 {
   public:
-    // alwaysAllocNewBuffer=true will always allocate new buffer or reuse free buffer on allocate(),
-    // regardless of whether current buffer still has unused portion or not.
-    BufferPool(bool alwaysAllocNewBuffer = false);
+    BufferPool();
+    // - alwaysAllocNewBuffer=true will always allocate new buffer or reuse free buffer on
+    // allocate(), regardless of whether current buffer still has unused portion or not.
+    BufferPool(bool alwaysAllocNewBuffer);
     ~BufferPool();
 
     // Init is called after the buffer creation so that the alignment can be specified later.
-    void initialize(ContextMtl *contextMtl,
-                    size_t initialSize,
-                    size_t alignment,
-                    size_t maxBuffers = 0);
+    void initialize(Context *context, size_t initialSize, size_t alignment, size_t maxBuffers);
+    // Calling this without initialize() will have same effect as calling initialize().
+    // If called after initialize(), the old pending buffers will be flushed and might be re-used if
+    // their size are big enough for the requested initialSize parameter.
+    angle::Result reset(ContextMtl *contextMtl,
+                        size_t initialSize,
+                        size_t alignment,
+                        size_t maxBuffers);
 
     // This call will allocate a new region at the end of the buffer. It internally may trigger
     // a new buffer to be created (which is returned in the optional parameter
@@ -56,8 +63,11 @@ class BufferPool
                            size_t *offsetOut           = nullptr,
                            bool *newBufferAllocatedOut = nullptr);
 
-    // After a sequence of writes, call commit to ensure the data is visible to the device.
-    angle::Result commit(ContextMtl *contextMtl);
+    // After a sequence of CPU writes, call commit to ensure the data is visible to the GPU.
+    // Note: the data will only be made visible to the GPU if the buffer's storage mode is not
+    // shared AND a non-null pointer was passed to allocate(). Otherwise, this call only advances
+    // the flush pointer.
+    angle::Result commit(ContextMtl *contextMtl, bool flushEntireBuffer = false);
 
     // This releases all the buffers that have been allocated since this was last called.
     void releaseInFlightBuffers(ContextMtl *contextMtl);
@@ -68,25 +78,29 @@ class BufferPool
     const BufferRef &getCurrentBuffer() { return mBuffer; }
 
     size_t getAlignment() { return mAlignment; }
-    void updateAlignment(ContextMtl *contextMtl, size_t alignment);
+    void updateAlignment(Context *context, size_t alignment);
+
+    size_t getMaxBuffers() const { return mMaxBuffers; }
 
     // Set whether allocate() will always allocate new buffer or attempting to append to previous
     // buffer or not. Default is false.
     void setAlwaysAllocateNewBuffer(bool e) { mAlwaysAllocateNewBuffer = e; }
 
   private:
+    MTLStorageMode storageMode(ContextMtl *contextMtl) const;
     void reset();
     angle::Result allocateNewBuffer(ContextMtl *contextMtl);
-    void destroyBufferList(ContextMtl *contextMtl, std::vector<BufferRef> *buffers);
-
+    void destroyBufferList(ContextMtl *contextMtl, std::deque<BufferRef> *buffers);
+    angle::Result finalizePendingBuffer(ContextMtl *contextMtl);
     size_t mInitialSize;
     BufferRef mBuffer;
     uint32_t mNextAllocationOffset;
+    uint32_t mLastFlushOffset;
     size_t mSize;
     size_t mAlignment;
 
-    std::vector<BufferRef> mInFlightBuffers;
-    std::vector<BufferRef> mBufferFreeList;
+    std::deque<BufferRef> mInFlightBuffers;
+    std::deque<BufferRef> mBufferFreeList;
 
     size_t mBuffersAllocated;
     size_t mMaxBuffers;

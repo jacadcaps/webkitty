@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -34,12 +34,21 @@ OBJC_CLASS AVRoutePickerView;
 OBJC_CLASS WebAVRoutePickerViewHelper;
 
 namespace WebCore {
+class AVRoutePickerViewTargetPicker;
+}
+
+namespace WTF {
+template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
+template<> struct IsDeprecatedWeakRefSmartPointerException<WebCore::AVRoutePickerViewTargetPicker> : std::true_type { };
+}
+
+namespace WebCore {
 
 class AVRoutePickerViewTargetPicker final : public AVPlaybackTargetPicker {
     WTF_MAKE_FAST_ALLOCATED;
     WTF_MAKE_NONCOPYABLE(AVRoutePickerViewTargetPicker);
 public:
-    explicit AVRoutePickerViewTargetPicker(AVPlaybackTargetPicker::Client&);
+    explicit AVRoutePickerViewTargetPicker(AVPlaybackTargetPickerClient&);
     virtual ~AVRoutePickerViewTargetPicker();
     
     static bool isAvailable();
@@ -66,6 +75,7 @@ private:
     RetainPtr<AVOutputContext> m_outputContext;
     RetainPtr<WebAVRoutePickerViewHelper> m_routePickerViewDelegate;
     bool m_hadActiveRoute { false };
+    bool m_ignoreNextMultipleRoutesDetectedDidChangeNotification { false };
 };
 
 } // namespace WebCore

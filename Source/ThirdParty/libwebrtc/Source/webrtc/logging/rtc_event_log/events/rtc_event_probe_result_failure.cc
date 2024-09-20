@@ -10,7 +10,11 @@
 
 #include "logging/rtc_event_log/events/rtc_event_probe_result_failure.h"
 
+#include <cstdint>
+#include <memory>
+
 #include "absl/memory/memory.h"
+#include "api/rtc_event_log/rtc_event.h"
 
 namespace webrtc {
 
@@ -24,14 +28,6 @@ RtcEventProbeResultFailure::RtcEventProbeResultFailure(
     : RtcEvent(other.timestamp_us_),
       id_(other.id_),
       failure_reason_(other.failure_reason_) {}
-
-RtcEvent::Type RtcEventProbeResultFailure::GetType() const {
-  return RtcEvent::Type::ProbeResultFailure;
-}
-
-bool RtcEventProbeResultFailure::IsConfigEvent() const {
-  return false;
-}
 
 std::unique_ptr<RtcEventProbeResultFailure> RtcEventProbeResultFailure::Copy()
     const {

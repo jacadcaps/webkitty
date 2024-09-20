@@ -25,10 +25,8 @@
 
 #include "config.h"
 
-#if ENABLE(VARIATION_FONTS)
-
 #include "CSSFontVariationValue.h"
-#include <wtf/text/StringConcatenateNumbers.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
@@ -41,7 +39,7 @@ CSSFontVariationValue::CSSFontVariationValue(FontTag tag, float value)
 
 String CSSFontVariationValue::customCSSText() const
 {
-    return makeString('"', m_tag[0], m_tag[1], m_tag[2], m_tag[3], "\" ", m_value);
+    return makeString('"', m_tag[0], m_tag[1], m_tag[2], m_tag[3], "\" "_s, m_value);
 }
 
 bool CSSFontVariationValue::equals(const CSSFontVariationValue& other) const
@@ -50,5 +48,3 @@ bool CSSFontVariationValue::equals(const CSSFontVariationValue& other) const
 }
 
 }
-
-#endif // ENABLE(VARIATION_FONTS)

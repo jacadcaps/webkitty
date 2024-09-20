@@ -26,7 +26,7 @@
 #include "config.h"
 #include "WebKitInspectorWindow.h"
 
-#include "WebInspectorProxy.h"
+#include "WebInspectorUIProxy.h"
 #include <glib/gi18n-lib.h>
 #include <wtf/glib/GUniquePtr.h>
 
@@ -64,14 +64,14 @@ static void webkit_inspector_window_init(WebKitInspectorWindow* window)
     gtk_widget_set_halign(titleLabel, GTK_ALIGN_CENTER);
     gtk_label_set_single_line_mode(GTK_LABEL(titleLabel), TRUE);
     gtk_label_set_ellipsize(GTK_LABEL(titleLabel), PANGO_ELLIPSIZE_END);
-    gtk_widget_add_css_class(titleLabel, GTK_STYLE_CLASS_TITLE);
+    gtk_widget_add_css_class(titleLabel, "title");
     gtk_widget_set_parent(titleLabel, box);
 
     window->subtitleLabel = gtk_label_new(nullptr);
     gtk_widget_set_halign(window->subtitleLabel, GTK_ALIGN_CENTER);
     gtk_label_set_single_line_mode(GTK_LABEL(window->subtitleLabel), TRUE);
     gtk_label_set_ellipsize(GTK_LABEL(window->subtitleLabel), PANGO_ELLIPSIZE_END);
-    gtk_widget_add_css_class(window->subtitleLabel, GTK_STYLE_CLASS_SUBTITLE);
+    gtk_widget_add_css_class(window->subtitleLabel, "subtitle");
     gtk_widget_set_parent(window->subtitleLabel, box);
     gtk_widget_hide(window->subtitleLabel);
 
@@ -92,7 +92,7 @@ GtkWidget* webkitInspectorWindowNew()
 #if !USE(GTK4)
         "type", GTK_WINDOW_TOPLEVEL,
 #endif
-        "default-width", WebInspectorProxy::initialWindowWidth, "default-height", WebInspectorProxy::initialWindowHeight, nullptr));
+        "default-width", WebInspectorUIProxy::initialWindowWidth, "default-height", WebInspectorUIProxy::initialWindowHeight, nullptr));
 }
 
 void webkitInspectorWindowSetSubtitle(WebKitInspectorWindow* window, const char* subtitle)

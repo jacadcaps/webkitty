@@ -34,38 +34,32 @@
 namespace WebCore {
 
 class MathMLPresentationElement : public MathMLElement {
-    WTF_MAKE_ISO_ALLOCATED(MathMLPresentationElement);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(MathMLPresentationElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(MathMLPresentationElement);
 public:
     static Ref<MathMLPresentationElement> create(const QualifiedName& tagName, Document&);
 
 protected:
-    MathMLPresentationElement(const QualifiedName& tagName, Document&);
-    void parseAttribute(const QualifiedName&, const AtomString&) override;
+    MathMLPresentationElement(const QualifiedName& tagName, Document&, OptionSet<TypeFlag> = { });
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) override;
 
-    static bool isPhrasingContent(const Node&);
-    static bool isFlowContent(const Node&);
+    static std::optional<bool> toOptionalBool(const BooleanValue& value) { return value == BooleanValue::Default ? std::nullopt : std::optional<bool>(value == BooleanValue::True); }
+    const BooleanValue& cachedBooleanAttribute(const QualifiedName&, std::optional<BooleanValue>&);
 
-    static Optional<bool> toOptionalBool(const BooleanValue& value) { return value == BooleanValue::Default ? WTF::nullopt : Optional<bool>(value == BooleanValue::True); }
-    const BooleanValue& cachedBooleanAttribute(const QualifiedName&, Optional<BooleanValue>&);
-
-    static Length parseMathMLLength(const String&);
-    const Length& cachedMathMLLength(const QualifiedName&, Optional<Length>&);
-
-    virtual bool acceptsDisplayStyleAttribute();
-    Optional<bool> specifiedDisplayStyle() override;
+    static Length parseMathMLLength(const String&, bool acceptLegacyMathMLLengths);
+    const Length& cachedMathMLLength(const QualifiedName&, std::optional<Length>&);
 
     virtual bool acceptsMathVariantAttribute() { return false; }
-    Optional<MathVariant> specifiedMathVariant() final;
+    std::optional<MathVariant> specifiedMathVariant() final;
 
-    Optional<BooleanValue> m_displayStyle;
-    Optional<MathVariant> m_mathVariant;
+    std::optional<MathVariant> m_mathVariant;
 
 private:
     RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) override;
     bool isPresentationMathML() const final { return true; }
 
-    static Length parseNumberAndUnit(const StringView&);
-    static Length parseNamedSpace(const StringView&);
+    static Length parseNumberAndUnit(StringView, bool acceptLegacyMathMLLengths);
+    static Length parseNamedSpace(StringView);
     static MathVariant parseMathVariantAttribute(const AtomString& attributeValue);
 };
 

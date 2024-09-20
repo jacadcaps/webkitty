@@ -26,6 +26,16 @@
 #pragma once
 
 #include <wtf/Assertions.h>
+#include <wtf/WeakPtr.h>
+
+namespace IPC {
+class MessageReceiver;
+}
+
+namespace WTF {
+template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
+template<> struct IsDeprecatedWeakRefSmartPointerException<IPC::MessageReceiver> : std::true_type { };
+}
 
 namespace IPC {
 
@@ -33,7 +43,7 @@ class Connection;
 class Decoder;
 class Encoder;
 
-class MessageReceiver {
+class MessageReceiver : public CanMakeWeakPtr<MessageReceiver> {
 public:
     virtual ~MessageReceiver()
     {
@@ -45,9 +55,15 @@ public:
         ASSERT_NOT_REACHED();
     }
 
-    virtual void didReceiveSyncMessage(Connection&, Decoder&, std::unique_ptr<Encoder>&)
+    virtual void didReceiveMessageWithReplyHandler(Decoder&, Function<void(UniqueRef<IPC::Encoder>&&)>&&)
     {
         ASSERT_NOT_REACHED();
+    }
+
+    virtual bool didReceiveSyncMessage(Connection&, Decoder&, UniqueRef<Encoder>&)
+    {
+        ASSERT_NOT_REACHED();
+        return false;
     }
 
 private:

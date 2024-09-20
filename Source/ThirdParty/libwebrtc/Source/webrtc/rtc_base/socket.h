@@ -13,6 +13,9 @@
 
 #include <errno.h>
 
+#include "absl/types/optional.h"
+#include "rtc_base/checks.h"
+
 #if defined(WEBRTC_POSIX)
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -25,8 +28,12 @@
 #include "rtc_base/win32.h"
 #endif
 
-#include "rtc_base/constructor_magic.h"
+#include "api/units/timestamp.h"
+#include "rtc_base/buffer.h"
+#include "rtc_base/network/ecn_marking.h"
 #include "rtc_base/socket_address.h"
+#include "rtc_base/system/rtc_export.h"
+#include "rtc_base/third_party/sigslot/sigslot.h"
 
 // Rather than converting errors into a private namespace,
 // Reuse the POSIX socket api errors. Note this depends on
@@ -59,6 +66,8 @@
 #define ECONNREFUSED WSAECONNREFUSED
 #undef EHOSTUNREACH
 #define EHOSTUNREACH WSAEHOSTUNREACH
+#undef ENETUNREACH
+#define ENETUNREACH WSAENETUNREACH
 #define SOCKET_EACCES WSAEACCES
 #endif  // WEBRTC_WIN
 
@@ -76,9 +85,20 @@ inline bool IsBlockingError(int e) {
 
 // General interface for the socket implementations of various networks.  The
 // methods match those of normal UNIX sockets very closely.
-class Socket {
+class RTC_EXPORT Socket {
  public:
+  struct ReceiveBuffer {
+    ReceiveBuffer(Buffer& payload) : payload(payload) {}
+
+    absl::optional<webrtc::Timestamp> arrival_time;
+    SocketAddress source_address;
+    EcnMarking ecn = EcnMarking::kNotEct;
+    Buffer& payload;
+  };
   virtual ~Socket() {}
+
+  Socket(const Socket&) = delete;
+  Socket& operator=(const Socket&) = delete;
 
   // Returns the address to which the socket is bound.  If the socket is not
   // bound, then the any-address is returned.
@@ -92,12 +112,20 @@ class Socket {
   virtual int Connect(const SocketAddress& addr) = 0;
   virtual int Send(const void* pv, size_t cb) = 0;
   virtual int SendTo(const void* pv, size_t cb, const SocketAddress& addr) = 0;
-  // |timestamp| is in units of microseconds.
+  // `timestamp` is in units of microseconds.
   virtual int Recv(void* pv, size_t cb, int64_t* timestamp) = 0;
+  // TODO(webrtc:15368): Deprecate and remove.
   virtual int RecvFrom(void* pv,
                        size_t cb,
                        SocketAddress* paddr,
-                       int64_t* timestamp) = 0;
+                       int64_t* timestamp) {
+    // Not implemented. Use RecvFrom(ReceiveBuffer& buffer).
+    RTC_CHECK_NOTREACHED();
+  }
+  // Intended to replace RecvFrom(void* ...).
+  // Default implementation calls RecvFrom(void* ...) with 64Kbyte buffer.
+  // Returns number of bytes received or a negative value on error.
+  virtual int RecvFrom(ReceiveBuffer& buffer);
   virtual int Listen(int backlog) = 0;
   virtual Socket* Accept(SocketAddress* paddr) = 0;
   virtual int Close() = 0;
@@ -118,15 +146,30 @@ class Socket {
     OPT_RTP_SENDTIME_EXTN_ID,  // This is a non-traditional socket option param.
                                // This is specific to libjingle and will be used
                                // if SendTime option is needed at socket level.
+    OPT_SEND_ECN,              // 2-bit ECN
+    OPT_RECV_ECN,
+    OPT_KEEPALIVE,         // Enable socket keep alive
+    OPT_TCP_KEEPCNT,       // Set TCP keep alive count
+    OPT_TCP_KEEPIDLE,      // Set TCP keep alive idle time in seconds
+    OPT_TCP_KEEPINTVL,     // Set TCP keep alive interval in seconds
+    OPT_TCP_USER_TIMEOUT,  // Set TCP user timeout
   };
   virtual int GetOption(Option opt, int* value) = 0;
   virtual int SetOption(Option opt, int value) = 0;
 
+  // SignalReadEvent and SignalWriteEvent use multi_threaded_local to allow
+  // access concurrently from different thread.
+  // For example SignalReadEvent::connect will be called in AsyncUDPSocket ctor
+  // but at the same time the SocketDispatcher may be signaling the read event.
+  // ready to read
+  sigslot::signal1<Socket*, sigslot::multi_threaded_local> SignalReadEvent;
+  // ready to write
+  sigslot::signal1<Socket*, sigslot::multi_threaded_local> SignalWriteEvent;
+  sigslot::signal1<Socket*> SignalConnectEvent;     // connected
+  sigslot::signal2<Socket*, int> SignalCloseEvent;  // closed
+
  protected:
   Socket() {}
-
- private:
-  RTC_DISALLOW_COPY_AND_ASSIGN(Socket);
 };
 
 }  // namespace rtc

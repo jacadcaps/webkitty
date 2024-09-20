@@ -26,9 +26,7 @@
 #include "config.h"
 #include "JSXMLDocument.h"
 
-#include "JSDOMWindow.h"
 #include "JSDocumentCustom.h"
-#include "JSSVGDocument.h"
 #include "NodeTraversal.h"
 
 namespace WebCore {

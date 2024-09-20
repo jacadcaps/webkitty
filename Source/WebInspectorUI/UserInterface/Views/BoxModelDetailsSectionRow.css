@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2020 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -71,7 +71,7 @@
 }
 
 .details-section .row.box-model .box.border > .label {
-    -webkit-margin-start: 20px;
+    margin-inline-start: 20px;
 }
 
 .details-section .row.box-model .box.border.has-top-left-radius,
@@ -119,45 +119,45 @@
     z-index: 2;
 }
 
-.details-section .row.box-model :matches(.top, .right, .bottom, .left) {
+.details-section .row.box-model :is(.top, .right, .bottom, .left) {
     display: inline-block;
     vertical-align: middle;
 }
 
-.details-section .row.box-model :matches(.top, .right, .bottom, .left):not(.editing),
-.details-section .row.box-model :matches(.top-left, .top-right, .bottom-right, .bottom-left) {
+.details-section .row.box-model :is(.top, .right, .bottom, .left):not(.editing),
+.details-section .row.box-model :is(.top-left, .top-right, .bottom-right, .bottom-left) {
     margin: 0 0.25em;
 }
 
-.details-section .row.box-model :matches(.top-left, .top-right, .bottom-right, .bottom-left) {
+.details-section .row.box-model :is(.top-left, .top-right, .bottom-right, .bottom-left) {
     position: absolute;
 }
 
-.details-section .row.box-model :matches(.top-left, .top-right) {
+.details-section .row.box-model :is(.top-left, .top-right) {
     top: 4px;
 }
 
-.details-section .row.box-model :matches(.bottom-left, .bottom-right):not(.editing) {
+.details-section .row.box-model :is(.bottom-left, .bottom-right):not(.editing) {
     bottom: 3px;
 }
 
-.details-section .row.box-model :matches(.bottom-left, .bottom-right).editing {
+.details-section .row.box-model :is(.bottom-left, .bottom-right).editing {
     bottom: 2px;
 }
 
-.details-section .row.box-model :matches(.top-left, .bottom-left):not(.editing) {
+.details-section .row.box-model :is(.top-left, .bottom-left):not(.editing) {
     left: 3px;
 }
 
-.details-section .row.box-model :matches(.top-left, .bottom-left).editing {
+.details-section .row.box-model :is(.top-left, .bottom-left).editing {
     left: 1px;
 }
 
-.details-section .row.box-model :matches(.top-right, .bottom-right):not(.editing) {
+.details-section .row.box-model :is(.top-right, .bottom-right):not(.editing) {
     right: 3px;
 }
 
-.details-section .row.box-model :matches(.top-right, .bottom-right).editing {
+.details-section .row.box-model :is(.top-right, .bottom-right).editing {
     right: 1px;
 }
 
@@ -176,8 +176,8 @@
         color: var(--text-color);
     }
 
-    .details-section .row.box-model:not(.hovered) .box:matches(.margin, .border, .padding, .content),
-    .details-section .row.box-model .box.active:matches(.margin, .border, .padding, .content) {
+    .details-section .row.box-model:not(.hovered) .box:is(.margin, .border, .padding, .content),
+    .details-section .row.box-model .box.active:is(.margin, .border, .padding, .content) {
         color: black;
     }
 

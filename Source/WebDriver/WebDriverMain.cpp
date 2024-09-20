@@ -31,6 +31,8 @@
 
 int main(int argc, char** argv)
 {
+    WebDriver::WebDriverService::platformInit();
+
     WTF::initializeMainThread();
 
     WebDriver::WebDriverService service;

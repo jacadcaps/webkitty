@@ -25,6 +25,8 @@
 
 #pragma once
 
+#include <wtf/Forward.h>
+
 #if PLATFORM(COCOA)
 
 #include <mach/mach_port.h>
@@ -36,8 +38,10 @@ class MachSendRight {
 public:
     WTF_EXPORT_PRIVATE static MachSendRight adopt(mach_port_t);
     WTF_EXPORT_PRIVATE static MachSendRight create(mach_port_t);
+    WTF_EXPORT_PRIVATE static MachSendRight createFromReceiveRight(mach_port_t);
 
     MachSendRight() = default;
+    WTF_EXPORT_PRIVATE explicit MachSendRight(const MachSendRight&);
     WTF_EXPORT_PRIVATE MachSendRight(MachSendRight&&);
     WTF_EXPORT_PRIVATE ~MachSendRight();
 
@@ -47,7 +51,6 @@ public:
 
     mach_port_t sendRight() const { return m_port; }
 
-    WTF_EXPORT_PRIVATE MachSendRight copySendRight() const;
     WTF_EXPORT_PRIVATE mach_port_t leakSendRight() WARN_UNUSED_RETURN;
 
 private:
@@ -60,7 +63,6 @@ WTF_EXPORT_PRIVATE void deallocateSendRightSafely(mach_port_t);
 
 }
 
-using WTF::MachSendRight;
 using WTF::deallocateSendRightSafely;
 
 #endif

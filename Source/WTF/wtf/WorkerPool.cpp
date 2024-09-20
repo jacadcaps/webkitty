@@ -57,7 +57,7 @@ public:
 
     void threadDidStart() final
     {
-        LockHolder locker(*m_pool.m_lock);
+        Locker locker { *m_pool.m_lock };
         m_pool.m_numberOfActiveWorkers++;
     }
 
@@ -71,7 +71,7 @@ public:
         return m_pool.shouldSleep(locker);
     }
 
-    const char* name() const final
+    ASCIILiteral name() const final
     {
         return m_pool.name();
     }
@@ -87,7 +87,7 @@ WorkerPool::WorkerPool(ASCIILiteral name, unsigned numberOfWorkers, Seconds time
     , m_timeout(timeout)
     , m_name(name)
 {
-    LockHolder locker(*m_lock);
+    Locker locker { *m_lock };
     for (unsigned i = 0; i < numberOfWorkers; ++i)
         m_workers.append(adoptRef(*new Worker(locker, *this, m_lock, m_condition.copyRef(), timeout)));
 }
@@ -95,7 +95,7 @@ WorkerPool::WorkerPool(ASCIILiteral name, unsigned numberOfWorkers, Seconds time
 WorkerPool::~WorkerPool()
 {
     {
-        LockHolder locker(*m_lock);
+        Locker locker { *m_lock };
         for (unsigned i = m_workers.size(); i--;)
             m_tasks.append(nullptr); // Use null task to indicate that we want the thread to terminate.
         m_condition->notifyAll(locker);
@@ -107,11 +107,11 @@ WorkerPool::~WorkerPool()
 
 bool WorkerPool::shouldSleep(const AbstractLocker&)
 {
-    if (m_timeout > 0_s && std::isinf(m_timeout))
+    if (m_timeout > 0_s && m_timeout.isInfinity())
         return false;
 
     MonotonicTime currentTime = MonotonicTime::now();
-    if (std::isnan(m_lastTimeoutTime) || (currentTime >= (m_lastTimeoutTime  + m_timeout))) {
+    if (m_lastTimeoutTime.isNaN() || (currentTime >= (m_lastTimeoutTime  + m_timeout))) {
         m_lastTimeoutTime = currentTime;
         return true;
     }
@@ -120,7 +120,7 @@ bool WorkerPool::shouldSleep(const AbstractLocker&)
 
 void WorkerPool::postTask(Function<void()>&& task)
 {
-    LockHolder locker(*m_lock);
+    Locker locker { *m_lock };
     m_tasks.append(WTFMove(task));
     m_condition->notifyOne(locker);
 }

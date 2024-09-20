@@ -13,11 +13,19 @@
 #include <math.h>
 
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <cstdio>
+#include <deque>
+#include <memory>
 #include <string>
+#include <utility>
 
+#include "absl/strings/match.h"
 #include "absl/types/optional.h"
-#include "modules/remote_bitrate_estimator/include/bwe_defines.h"
-#include "modules/remote_bitrate_estimator/test/bwe_test_logging.h"
+#include "api/field_trials_view.h"
+#include "api/network_state_predictor.h"
+#include "api/transport/bandwidth_usage.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/experiments/struct_parameters_parser.h"
 #include "rtc_base/logging.h"
@@ -33,8 +41,7 @@ constexpr double kDefaultTrendlineThresholdGain = 4.0;
 const char kBweWindowSizeInPacketsExperiment[] =
     "WebRTC-BweWindowSizeInPackets";
 
-size_t ReadTrendlineFilterWindowSize(
-    const WebRtcKeyValueConfig* key_value_config) {
+size_t ReadTrendlineFilterWindowSize(const FieldTrialsView* key_value_config) {
   std::string experiment_string =
       key_value_config->Lookup(kBweWindowSizeInPacketsExperiment);
   size_t window_size;
@@ -43,7 +50,7 @@ size_t ReadTrendlineFilterWindowSize(
   if (parsed_values == 1) {
     if (window_size > 1)
       return window_size;
-    RTC_LOG(WARNING) << "Window size must be greater than 1.";
+    RTC_LOG(LS_WARNING) << "Window size must be greater than 1.";
   }
   RTC_LOG(LS_WARNING) << "Failed to parse parameters for BweWindowSizeInPackets"
                          " experiment from field trial string. Using default.";
@@ -114,9 +121,10 @@ constexpr int kDeltaCounterMax = 1000;
 constexpr char TrendlineEstimatorSettings::kKey[];
 
 TrendlineEstimatorSettings::TrendlineEstimatorSettings(
-    const WebRtcKeyValueConfig* key_value_config) {
-  if (key_value_config->Lookup(kBweWindowSizeInPacketsExperiment)
-          .find("Enabled") == 0) {
+    const FieldTrialsView* key_value_config) {
+  if (absl::StartsWith(
+          key_value_config->Lookup(kBweWindowSizeInPacketsExperiment),
+          "Enabled")) {
     window_size = ReadTrendlineFilterWindowSize(key_value_config);
   }
   Parser()->Parse(key_value_config->Lookup(TrendlineEstimatorSettings::kKey));
@@ -158,7 +166,7 @@ std::unique_ptr<StructParametersParser> TrendlineEstimatorSettings::Parser() {
 }
 
 TrendlineEstimator::TrendlineEstimator(
-    const WebRtcKeyValueConfig* key_value_config,
+    const FieldTrialsView* key_value_config,
     NetworkStatePredictor* network_state_predictor)
     : settings_(key_value_config),
       smoothing_coef_(kDefaultTrendlineSmoothingCoeff),
@@ -202,12 +210,8 @@ void TrendlineEstimator::UpdateTrendline(double recv_delta_ms,
 
   // Exponential backoff filter.
   accumulated_delay_ += delta_ms;
-  BWE_TEST_LOGGING_PLOT(1, "accumulated_delay_ms", arrival_time_ms,
-                        accumulated_delay_);
   smoothed_delay_ = smoothing_coef_ * smoothed_delay_ +
                     (1 - smoothing_coef_) * accumulated_delay_;
-  BWE_TEST_LOGGING_PLOT(1, "smoothed_delay_ms", arrival_time_ms,
-                        smoothed_delay_);
 
   // Maintain packet window
   delay_hist_.emplace_back(
@@ -242,7 +246,6 @@ void TrendlineEstimator::UpdateTrendline(double recv_delta_ms,
       }
     }
   }
-  BWE_TEST_LOGGING_PLOT(1, "trendline_slope", arrival_time_ms, trend);
 
   Detect(trend, send_delta_ms, arrival_time_ms);
 }
@@ -275,8 +278,6 @@ void TrendlineEstimator::Detect(double trend, double ts_delta, int64_t now_ms) {
   const double modified_trend =
       std::min(num_of_deltas_, kMinNumDeltas) * trend * threshold_gain_;
   prev_modified_trend_ = modified_trend;
-  BWE_TEST_LOGGING_PLOT(1, "T", now_ms, modified_trend);
-  BWE_TEST_LOGGING_PLOT(1, "threshold", now_ms, threshold_);
   if (modified_trend > threshold_) {
     if (time_over_using_ == -1) {
       // Initialize the timer. Assume that we've been

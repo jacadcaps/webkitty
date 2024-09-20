@@ -10,12 +10,21 @@
 
 #include "api/audio_codecs/ilbc/audio_encoder_ilbc.h"
 
+#include <map>
 #include <memory>
+#include <string>
+#include <utility>
 #include <vector>
 
 #include "absl/strings/match.h"
+#include "absl/types/optional.h"
+#include "api/audio_codecs/audio_codec_pair_id.h"
+#include "api/audio_codecs/audio_encoder.h"
+#include "api/audio_codecs/audio_format.h"
+#include "api/audio_codecs/ilbc/audio_encoder_ilbc_config.h"
+#include "api/field_trials_view.h"
 #include "modules/audio_coding/codecs/ilbc/audio_encoder_ilbc.h"
-#include "rtc_base/numerics/safe_conversions.h"
+#include "rtc_base/checks.h"
 #include "rtc_base/numerics/safe_minmax.h"
 #include "rtc_base/string_to_number.h"
 
@@ -32,7 +41,7 @@ int GetIlbcBitrate(int ptime) {
       // 50 bytes per frame of 30 ms => (approx) 13333 bits/s.
       return 13333;
     default:
-      RTC_FATAL();
+      RTC_CHECK_NOTREACHED();
   }
 }
 }  // namespace
@@ -53,8 +62,11 @@ absl::optional<AudioEncoderIlbcConfig> AudioEncoderIlbc::SdpToConfig(
       config.frame_size_ms = rtc::SafeClamp<int>(whole_packets * 10, 20, 60);
     }
   }
-  return config.IsOk() ? absl::optional<AudioEncoderIlbcConfig>(config)
-                       : absl::nullopt;
+  if (!config.IsOk()) {
+    RTC_DCHECK_NOTREACHED();
+    return absl::nullopt;
+  }
+  return config;
 }
 
 void AudioEncoderIlbc::AppendSupportedEncoders(
@@ -73,8 +85,12 @@ AudioCodecInfo AudioEncoderIlbc::QueryAudioEncoder(
 std::unique_ptr<AudioEncoder> AudioEncoderIlbc::MakeAudioEncoder(
     const AudioEncoderIlbcConfig& config,
     int payload_type,
-    absl::optional<AudioCodecPairId> /*codec_pair_id*/) {
-  RTC_DCHECK(config.IsOk());
+    absl::optional<AudioCodecPairId> /*codec_pair_id*/,
+    const FieldTrialsView* field_trials) {
+  if (!config.IsOk()) {
+    RTC_DCHECK_NOTREACHED();
+    return nullptr;
+  }
   return std::make_unique<AudioEncoderIlbcImpl>(config, payload_type);
 }
 

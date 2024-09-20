@@ -34,21 +34,30 @@ public:
         return adoptRef(*new JSTestCallbackFunction(callback, globalObject));
     }
 
-    virtual ScriptExecutionContext* scriptExecutionContext() const { return ContextDestructionObserver::scriptExecutionContext(); }
+    ScriptExecutionContext* scriptExecutionContext() const { return ContextDestructionObserver::scriptExecutionContext(); }
 
-    virtual ~JSTestCallbackFunction();
-    JSCallbackDataStrong* callbackData() { return m_data; }
+    ~JSTestCallbackFunction() final;
+    JSCallbackData* callbackData() { return m_data; }
 
     // Functions
-    CallbackResult<typename IDLDOMString::ImplementationType> handleEvent(typename IDLLong::ParameterType argument) override;
+    CallbackResult<typename IDLDOMString::CallbackReturnType> handleEvent(typename IDLLong::ParameterType argument) override;
 
 private:
     JSTestCallbackFunction(JSC::JSObject*, JSDOMGlobalObject*);
 
-    JSCallbackDataStrong* m_data;
+    bool hasCallback() const final { return m_data && m_data->callback(); }
+
+    void visitJSFunction(JSC::AbstractSlotVisitor&) override;
+
+    void visitJSFunction(JSC::SlotVisitor&) override;
+
+    JSCallbackData* m_data;
 };
 
 JSC::JSValue toJS(TestCallbackFunction&);
 inline JSC::JSValue toJS(TestCallbackFunction* impl) { return impl ? toJS(*impl) : JSC::jsNull(); }
 
+template<> struct JSDOMCallbackConverterTraits<JSTestCallbackFunction> {
+    using Base = TestCallbackFunction;
+};
 } // namespace WebCore

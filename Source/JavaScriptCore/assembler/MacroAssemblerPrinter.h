@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,7 +33,6 @@
 namespace JSC {
 
 #if ENABLE(ASSEMBLER)
-#if ENABLE(MASM_PROBE)
 
 // What is MacroAssembler::print()?
 // ===============================
@@ -91,6 +90,7 @@ namespace JSC {
 //   Note: print() does not automatically insert a '\n' at the end of the line.
 //   If you want a '\n', you'll have to add it explicitly (as in the examples above).
 
+namespace Printer {
 
 struct AllRegisters {
     explicit AllRegisters(unsigned charsToIndent = 0)
@@ -165,8 +165,6 @@ struct MemWord : public Memory {
     { }
 };
 
-namespace Printer {
-
 // Add some specialized printers.
 
 void printAllRegisters(PrintStream&, Context&);
@@ -225,7 +223,7 @@ struct Printer<MemWord<IntType>> : public Printer<Memory> {
     { }
 };
 
-void printCallback(Probe::Context&);
+void SYSV_ABI printCallback(Probe::Context&);
 
 } // namespace Printer
 
@@ -236,12 +234,17 @@ inline void MacroAssembler::print(Arguments&&... arguments)
     probe(tagCFunction<JITProbePtrTag>(Printer::printCallback), printRecordList);
 }
 
+template<typename... Arguments>
+inline void MacroAssembler::println(Arguments&&... arguments)
+{
+    print(std::forward<Arguments>(arguments)..., "\n");
+}
+
 inline void MacroAssembler::print(Printer::PrintRecordList* printRecordList)
 {
     probe(tagCFunction<JITProbePtrTag>(Printer::printCallback), printRecordList);
 }
 
-#endif // ENABLE(MASM_PROBE)
 #endif // ENABLE(ASSEMBLER)
 
 } // namespace JSC

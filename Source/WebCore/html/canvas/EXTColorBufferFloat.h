@@ -26,17 +26,20 @@
 #pragma once
 
 #include "WebGLExtension.h"
+#include "WebGLRenderingContextBase.h"
+#include <wtf/Noncopyable.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
-class EXTColorBufferFloat final : public WebGLExtension {
+class EXTColorBufferFloat final : public WebGLExtension<WebGLRenderingContextBase> {
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(EXTColorBufferFloat);
+    WTF_MAKE_NONCOPYABLE(EXTColorBufferFloat);
 public:
     explicit EXTColorBufferFloat(WebGLRenderingContextBase&);
-    virtual ~EXTColorBufferFloat();
+    ~EXTColorBufferFloat();
 
-    ExtensionName getName() const override;
-
-    static bool supported(const WebGLRenderingContextBase&);
+    static bool supported(GraphicsContextGL&);
 };
 
 } // namespace WebCore

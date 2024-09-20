@@ -28,7 +28,6 @@
 #import "APIWebsiteDataRecord.h"
 #import "WKObject.h"
 #import <wtf/OptionSet.h>
-#import <wtf/Optional.h>
 
 namespace WebKit {
 
@@ -36,7 +35,7 @@ template<> struct WrapperTraits<API::WebsiteDataRecord> {
     using WrapperClass = WKWebsiteDataRecord;
 };
 
-static inline Optional<WebsiteDataType> toWebsiteDataType(NSString *websiteDataType)
+static inline std::optional<WebsiteDataType> toWebsiteDataType(NSString *websiteDataType)
 {
     if ([websiteDataType isEqualToString:WKWebsiteDataTypeCookies])
         return WebsiteDataType::Cookies;
@@ -56,31 +55,31 @@ static inline Optional<WebsiteDataType> toWebsiteDataType(NSString *websiteDataT
         return WebsiteDataType::WebSQLDatabases;
     if ([websiteDataType isEqualToString:WKWebsiteDataTypeIndexedDBDatabases])
         return WebsiteDataType::IndexedDBDatabases;
-#if ENABLE(SERVICE_WORKER)
     if ([websiteDataType isEqualToString:WKWebsiteDataTypeServiceWorkerRegistrations])
         return WebsiteDataType::ServiceWorkerRegistrations;
-#endif
+    if ([websiteDataType isEqualToString:WKWebsiteDataTypeFileSystem])
+        return WebsiteDataType::FileSystem;
     if ([websiteDataType isEqualToString:_WKWebsiteDataTypeHSTSCache])
         return WebsiteDataType::HSTSCache;
-    if ([websiteDataType isEqualToString:_WKWebsiteDataTypeMediaKeys])
+    if ([websiteDataType isEqualToString:WKWebsiteDataTypeMediaKeys])
         return WebsiteDataType::MediaKeys;
-    if ([websiteDataType isEqualToString:_WKWebsiteDataTypeSearchFieldRecentSearches])
+    if ([websiteDataType isEqualToString:WKWebsiteDataTypeHashSalt])
+        return WebsiteDataType::DeviceIdHashSalt;
+    if ([websiteDataType isEqualToString:WKWebsiteDataTypeSearchFieldRecentSearches])
         return WebsiteDataType::SearchFieldRecentSearches;
-#if ENABLE(NETSCAPE_PLUGIN_API)
-    if ([websiteDataType isEqualToString:_WKWebsiteDataTypePlugInData])
-        return WebsiteDataType::PlugInData;
-#endif
     if ([websiteDataType isEqualToString:_WKWebsiteDataTypeResourceLoadStatistics])
         return WebsiteDataType::ResourceLoadStatistics;
     if ([websiteDataType isEqualToString:_WKWebsiteDataTypeCredentials])
         return WebsiteDataType::Credentials;
     if ([websiteDataType isEqualToString:_WKWebsiteDataTypeAdClickAttributions])
-        return WebsiteDataType::AdClickAttributions;
-#if HAVE(CFNETWORK_ALTERNATIVE_SERVICE)
+        return WebsiteDataType::PrivateClickMeasurements;
+    if ([websiteDataType isEqualToString:_WKWebsiteDataTypePrivateClickMeasurements])
+        return WebsiteDataType::PrivateClickMeasurements;
+#if HAVE(ALTERNATIVE_SERVICE)
     if ([websiteDataType isEqualToString:_WKWebsiteDataTypeAlternativeServices])
         return WebsiteDataType::AlternativeServices;
 #endif
-    return WTF::nullopt;
+    return std::nullopt;
 }
 
 static inline OptionSet<WebKit::WebsiteDataType> toWebsiteDataTypes(NSSet *websiteDataTypes)
@@ -117,27 +116,25 @@ static inline RetainPtr<NSSet> toWKWebsiteDataTypes(OptionSet<WebKit::WebsiteDat
         [wkWebsiteDataTypes addObject:WKWebsiteDataTypeWebSQLDatabases];
     if (websiteDataTypes.contains(WebsiteDataType::IndexedDBDatabases))
         [wkWebsiteDataTypes addObject:WKWebsiteDataTypeIndexedDBDatabases];
-#if ENABLE(SERVICE_WORKER)
     if (websiteDataTypes.contains(WebsiteDataType::ServiceWorkerRegistrations))
         [wkWebsiteDataTypes addObject:WKWebsiteDataTypeServiceWorkerRegistrations];
-#endif
+    if (websiteDataTypes.contains(WebsiteDataType::FileSystem))
+        [wkWebsiteDataTypes addObject:WKWebsiteDataTypeFileSystem];
     if (websiteDataTypes.contains(WebsiteDataType::HSTSCache))
         [wkWebsiteDataTypes addObject:_WKWebsiteDataTypeHSTSCache];
     if (websiteDataTypes.contains(WebsiteDataType::MediaKeys))
-        [wkWebsiteDataTypes addObject:_WKWebsiteDataTypeMediaKeys];
+        [wkWebsiteDataTypes addObject:WKWebsiteDataTypeMediaKeys];
     if (websiteDataTypes.contains(WebsiteDataType::SearchFieldRecentSearches))
-        [wkWebsiteDataTypes addObject:_WKWebsiteDataTypeSearchFieldRecentSearches];
-#if ENABLE(NETSCAPE_PLUGIN_API)
-    if (websiteDataTypes.contains(WebsiteDataType::PlugInData))
-        [wkWebsiteDataTypes addObject:_WKWebsiteDataTypePlugInData];
-#endif
+        [wkWebsiteDataTypes addObject:WKWebsiteDataTypeSearchFieldRecentSearches];
+    if (websiteDataTypes.contains(WebsiteDataType::DeviceIdHashSalt))
+        [wkWebsiteDataTypes addObject:WKWebsiteDataTypeHashSalt];
     if (websiteDataTypes.contains(WebsiteDataType::ResourceLoadStatistics))
         [wkWebsiteDataTypes addObject:_WKWebsiteDataTypeResourceLoadStatistics];
     if (websiteDataTypes.contains(WebsiteDataType::Credentials))
         [wkWebsiteDataTypes addObject:_WKWebsiteDataTypeCredentials];
-    if (websiteDataTypes.contains(WebsiteDataType::AdClickAttributions))
-        [wkWebsiteDataTypes addObject:_WKWebsiteDataTypeAdClickAttributions];
-#if HAVE(CFNETWORK_ALTERNATIVE_SERVICE)
+    if (websiteDataTypes.contains(WebsiteDataType::PrivateClickMeasurements))
+        [wkWebsiteDataTypes addObject:_WKWebsiteDataTypePrivateClickMeasurements];
+#if HAVE(ALTERNATIVE_SERVICE)
     if (websiteDataTypes.contains(WebsiteDataType::AlternativeServices))
         [wkWebsiteDataTypes addObject:_WKWebsiteDataTypeAlternativeServices];
 #endif

@@ -11,9 +11,8 @@
 #include "api/video/encoded_image.h"
 
 #include <stdlib.h>
-#include <string.h>
 
-#include "rtc_base/ref_counted_object.h"
+#include <algorithm>
 
 namespace webrtc {
 
@@ -23,7 +22,7 @@ EncodedImageBuffer::EncodedImageBuffer(size_t size) : size_(size) {
 
 EncodedImageBuffer::EncodedImageBuffer(const uint8_t* data, size_t size)
     : EncodedImageBuffer(size) {
-  memcpy(buffer_, data, size);
+  std::copy_n(data, size, buffer_);
 }
 
 EncodedImageBuffer::~EncodedImageBuffer() {
@@ -32,13 +31,13 @@ EncodedImageBuffer::~EncodedImageBuffer() {
 
 // static
 rtc::scoped_refptr<EncodedImageBuffer> EncodedImageBuffer::Create(size_t size) {
-  return new rtc::RefCountedObject<EncodedImageBuffer>(size);
+  return rtc::make_ref_counted<EncodedImageBuffer>(size);
 }
 // static
 rtc::scoped_refptr<EncodedImageBuffer> EncodedImageBuffer::Create(
     const uint8_t* data,
     size_t size) {
-  return new rtc::RefCountedObject<EncodedImageBuffer>(data, size);
+  return rtc::make_ref_counted<EncodedImageBuffer>(data, size);
 }
 
 const uint8_t* EncodedImageBuffer::data() const {
@@ -61,30 +60,25 @@ void EncodedImageBuffer::Realloc(size_t size) {
   size_ = size;
 }
 
-EncodedImage::EncodedImage() : EncodedImage(nullptr, 0, 0) {}
+EncodedImage::EncodedImage() = default;
 
 EncodedImage::EncodedImage(EncodedImage&&) = default;
 EncodedImage::EncodedImage(const EncodedImage&) = default;
-
-EncodedImage::EncodedImage(uint8_t* buffer, size_t size, size_t capacity)
-    : size_(size), buffer_(buffer), capacity_(capacity) {}
 
 EncodedImage::~EncodedImage() = default;
 
 EncodedImage& EncodedImage::operator=(EncodedImage&&) = default;
 EncodedImage& EncodedImage::operator=(const EncodedImage&) = default;
 
-void EncodedImage::Retain() {
-  if (buffer_) {
-    encoded_data_ = EncodedImageBuffer::Create(buffer_, size_);
-    buffer_ = nullptr;
-  }
-}
-
 void EncodedImage::SetEncodeTime(int64_t encode_start_ms,
                                  int64_t encode_finish_ms) {
   timing_.encode_start_ms = encode_start_ms;
   timing_.encode_finish_ms = encode_finish_ms;
+}
+
+webrtc::Timestamp EncodedImage::CaptureTime() const {
+  return capture_time_ms_ > 0 ? Timestamp::Millis(capture_time_ms_)
+                              : Timestamp::MinusInfinity();
 }
 
 absl::optional<size_t> EncodedImage::SpatialLayerFrameSize(

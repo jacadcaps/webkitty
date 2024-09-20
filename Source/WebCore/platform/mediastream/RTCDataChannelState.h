@@ -29,7 +29,7 @@
 
 namespace WebCore {
 
-enum class RTCDataChannelState {
+enum class RTCDataChannelState : uint8_t {
     Connecting,
     Open,
     Closing,

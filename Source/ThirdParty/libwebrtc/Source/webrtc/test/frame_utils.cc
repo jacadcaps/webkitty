@@ -14,6 +14,7 @@
 #include <string.h>
 
 #include "api/video/i420_buffer.h"
+#include "api/video/nv12_buffer.h"
 #include "api/video/video_frame.h"
 
 namespace webrtc {
@@ -35,7 +36,7 @@ bool EqualPlane(const uint8_t* data1,
 }
 
 bool FramesEqual(const webrtc::VideoFrame& f1, const webrtc::VideoFrame& f2) {
-  if (f1.timestamp() != f2.timestamp() ||
+  if (f1.rtp_timestamp() != f2.rtp_timestamp() ||
       f1.ntp_time_ms() != f2.ntp_time_ms() ||
       f1.render_time_ms() != f2.render_time_ms()) {
     return false;
@@ -83,6 +84,18 @@ rtc::scoped_refptr<I420Buffer> ReadI420Buffer(int width, int height, FILE* f) {
   if (fread(buffer->MutableDataU(), 1, size_uv, f) < size_uv)
     return nullptr;
   if (fread(buffer->MutableDataV(), 1, size_uv, f) < size_uv)
+    return nullptr;
+  return buffer;
+}
+
+rtc::scoped_refptr<NV12Buffer> ReadNV12Buffer(int width, int height, FILE* f) {
+  rtc::scoped_refptr<NV12Buffer> buffer(NV12Buffer::Create(width, height));
+  size_t size_y = static_cast<size_t>(width) * height;
+  size_t size_uv = static_cast<size_t>(width + width % 2) * ((height + 1) / 2);
+
+  if (fread(buffer->MutableDataY(), 1, size_y, f) < size_y)
+    return nullptr;
+  if (fread(buffer->MutableDataUV(), 1, size_uv, f) < size_uv)
     return nullptr;
   return buffer;
 }

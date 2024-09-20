@@ -31,23 +31,31 @@
 #include "config.h"
 #include "SQLiteFileSystem.h"
 
+#include "Logging.h"
 #include "SQLiteDatabase.h"
 #include "SQLiteStatement.h"
 #include <pal/crypto/CryptoDigest.h>
 #include <sqlite3.h>
 #include <wtf/FileSystem.h>
+#include <wtf/text/MakeString.h>
 
-#if PLATFORM(IOS_FAMILY)
-#include <pal/spi/ios/SQLite3SPI.h>
+#if PLATFORM(COCOA)
+#include <pal/spi/cocoa/SQLite3SPI.h>
+#endif
+
+#if PLATFORM(COCOA)
+#include <sys/xattr.h>
 #endif
 
 namespace WebCore {
+
+static constexpr std::array<ASCIILiteral, 3> databaseFileSuffixes { ""_s, "-shm"_s, "-wal"_s };
 
 SQLiteFileSystem::SQLiteFileSystem()
 {
 }
 
-String SQLiteFileSystem::appendDatabaseFileNameToPath(const String& path, const String& fileName)
+String SQLiteFileSystem::appendDatabaseFileNameToPath(StringView path, StringView fileName)
 {
     return FileSystem::pathByAppendingComponent(path, fileName);
 }
@@ -65,7 +73,7 @@ bool SQLiteFileSystem::ensureDatabaseFileExists(const String& fileName, bool che
         return false;
 
     if (checkPathOnly) {
-        String dir = FileSystem::directoryName(fileName);
+        String dir = FileSystem::parentPath(fileName);
         return ensureDatabaseDirectoryExists(dir);
     }
 
@@ -77,58 +85,73 @@ bool SQLiteFileSystem::deleteEmptyDatabaseDirectory(const String& path)
     return FileSystem::deleteEmptyDirectory(path);
 }
 
-bool SQLiteFileSystem::deleteDatabaseFile(const String& fileName)
+bool SQLiteFileSystem::deleteDatabaseFile(const String& filePath)
 {
-    String walFileName = makeString(fileName, "-wal"_s);
-    String shmFileName = makeString(fileName, "-shm"_s);
+    bool fileExists = false;
+    for (auto suffix : databaseFileSuffixes) {
+        auto path = makeString(filePath, suffix);
+        FileSystem::deleteFile(path);
+        fileExists |= FileSystem::fileExists(path);
+    }
 
-    // Try to delete all three files whether or not they are there.
-    FileSystem::deleteFile(fileName);
-    FileSystem::deleteFile(walFileName);
-    FileSystem::deleteFile(shmFileName);
-
-    // If any of the wal or shm files remain after the delete attempt, the overall delete operation failed.
-    return !FileSystem::fileExists(fileName) && !FileSystem::fileExists(walFileName) && !FileSystem::fileExists(shmFileName);
+    return !fileExists;
 }
 
-#if PLATFORM(IOS_FAMILY)
+#if PLATFORM(COCOA)
+void SQLiteFileSystem::setCanSuspendLockedFileAttribute(const String& filePath)
+{
+    for (auto suffix : databaseFileSuffixes) {
+        auto path = makeString(filePath, suffix);
+        char excluded = 0xff;
+        auto result = setxattr(FileSystem::fileSystemRepresentation(path).data(), "com.apple.runningboard.can-suspend-locked", &excluded, sizeof(excluded), 0, 0);
+        if (result < 0 && !strcmp(suffix, ""))
+            RELEASE_LOG_ERROR(SQLDatabase, "SQLiteFileSystem::setCanSuspendLockedFileAttribute: setxattr failed: %" PUBLIC_LOG_STRING, strerror(errno));
+    }
+}
+#endif
+
+bool SQLiteFileSystem::moveDatabaseFile(const String& oldFilePath, const String& newFilePath)
+{
+    bool allMoved = true;
+    for (auto suffix : databaseFileSuffixes)
+        allMoved &= FileSystem::moveFile(makeString(oldFilePath, suffix), makeString(newFilePath, suffix));
+
+    return allMoved;
+}
+
+#if PLATFORM(COCOA)
 bool SQLiteFileSystem::truncateDatabaseFile(sqlite3* database)
 {
     return sqlite3_file_control(database, 0, SQLITE_TRUNCATE_DATABASE, 0) == SQLITE_OK;
 }
 #endif
     
-long long SQLiteFileSystem::getDatabaseFileSize(const String& fileName)
-{        
-    long long fileSize = 0;
-    long long totalSize = 0;
-
-    if (FileSystem::getFileSize(fileName, fileSize))
-        totalSize += fileSize;
-
-    if (FileSystem::getFileSize(makeString(fileName, "-wal"_s), fileSize))
-        totalSize += fileSize;
-
-    if (FileSystem::getFileSize(makeString(fileName, "-shm"_s), fileSize))
-        totalSize += fileSize;
+uint64_t SQLiteFileSystem::databaseFileSize(const String& filePath)
+{
+    uint64_t totalSize = 0;
+    for (auto suffix : databaseFileSuffixes) {
+        if (auto fileSize = FileSystem::fileSize(makeString(filePath, suffix)))
+            totalSize += *fileSize;
+    }
 
     return totalSize;
 }
 
-Optional<WallTime> SQLiteFileSystem::databaseCreationTime(const String& fileName)
+std::optional<WallTime> SQLiteFileSystem::databaseCreationTime(const String& fileName)
 {
-    return FileSystem::getFileCreationTime(fileName);
+    return FileSystem::fileCreationTime(fileName);
 }
 
-Optional<WallTime> SQLiteFileSystem::databaseModificationTime(const String& fileName)
+std::optional<WallTime> SQLiteFileSystem::databaseModificationTime(const String& fileName)
 {
-    return FileSystem::getFileModificationTime(fileName);
+    return FileSystem::fileModificationTime(fileName);
 }
     
-String SQLiteFileSystem::computeHashForFileName(const String& fileName)
+String SQLiteFileSystem::computeHashForFileName(StringView fileName)
 {
     auto cryptoDigest = PAL::CryptoDigest::create(PAL::CryptoDigest::Algorithm::SHA_256);
-    cryptoDigest->addBytes(fileName.utf8().data(), fileName.utf8().length());
+    auto utf8FileName = fileName.utf8();
+    cryptoDigest->addBytes(utf8FileName.span());
     auto digest = cryptoDigest->computeHash();
     
     // Convert digest to hex.
@@ -140,7 +163,7 @@ String SQLiteFileSystem::computeHashForFileName(const String& fileName)
         snprintf(buffer, 3, "%02X", digest.at(i));
         buffer += 2;
     }
-    return String::fromUTF8(result);
+    return String::fromUTF8(result.span());
 }
 
 } // namespace WebCore

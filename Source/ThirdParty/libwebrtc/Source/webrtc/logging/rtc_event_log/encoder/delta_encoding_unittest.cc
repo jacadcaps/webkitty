@@ -11,6 +11,9 @@
 #include "logging/rtc_event_log/encoder/delta_encoding.h"
 
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
 #include <limits>
 #include <numeric>
 #include <string>
@@ -44,7 +47,7 @@ void MaybeSetSignedness(DeltaSignedness signedness) {
       SetFixedLengthEncoderDeltaSignednessForTesting(true);
       return;
   }
-  RTC_NOTREACHED();
+  RTC_DCHECK_NOTREACHED();
 }
 
 uint64_t RandomWithMaxBitWidth(Random* prng, uint64_t max_width) {
@@ -64,9 +67,9 @@ uint64_t RandomWithMaxBitWidth(Random* prng, uint64_t max_width) {
   }
 }
 
-// Encodes |values| based on |base|, then decodes the result and makes sure
+// Encodes `values` based on `base`, then decodes the result and makes sure
 // that it is equal to the original input.
-// If |encoded_string| is non-null, the encoded result will also be written
+// If `encoded_string` is non-null, the encoded result will also be written
 // into it.
 void TestEncodingAndDecoding(
     absl::optional<uint64_t> base,
@@ -100,7 +103,7 @@ std::vector<absl::optional<uint64_t>> CreateSequenceByLastValue(
   return result;
 }
 
-// If |sequence_length| is greater than the number of deltas, the sequence of
+// If `sequence_length` is greater than the number of deltas, the sequence of
 // deltas will wrap around.
 std::vector<absl::optional<uint64_t>> CreateSequenceByOptionalDeltas(
     uint64_t first,
@@ -141,7 +144,7 @@ size_t EncodingLengthUpperBound(size_t delta_max_bit_width,
   return delta_max_bit_width * num_of_deltas + *smallest_header_size_bytes;
 }
 
-// If |sequence_length| is greater than the number of deltas, the sequence of
+// If `sequence_length` is greater than the number of deltas, the sequence of
 // deltas will wrap around.
 std::vector<absl::optional<uint64_t>> CreateSequenceByDeltas(
     uint64_t first,
@@ -502,7 +505,7 @@ TEST_P(DeltaEncodingCompressionQualityTest,
   uint64_t last_element[arraysize(bases)];
   memcpy(last_element, bases, sizeof(bases));
 
-  // Avoid empty |deltas| due to first element causing wrap-around.
+  // Avoid empty `deltas` due to first element causing wrap-around.
   deltas[0] = 1;
   for (size_t i = 0; i < arraysize(last_element); ++i) {
     last_element[i] += 1;

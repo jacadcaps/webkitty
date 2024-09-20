@@ -27,6 +27,8 @@
 #include "URLDecomposition.h"
 
 #include "SecurityOrigin.h"
+#include <wtf/text/MakeString.h>
+#include <wtf/text/StringToIntegerConversion.h>
 
 namespace WebCore {
 
@@ -58,7 +60,7 @@ String URLDecomposition::username() const
 void URLDecomposition::setUsername(StringView user)
 {
     auto fullURL = this->fullURL();
-    if (fullURL.host().isEmpty() || fullURL.cannotBeABaseURL() || fullURL.protocolIs("file"))
+    if (fullURL.host().isEmpty() || fullURL.protocolIsFile())
         return;
     fullURL.setUser(user);
     setFullURL(fullURL);
@@ -72,7 +74,7 @@ String URLDecomposition::password() const
 void URLDecomposition::setPassword(StringView password)
 {
     auto fullURL = this->fullURL();
-    if (fullURL.host().isEmpty() || fullURL.cannotBeABaseURL() || fullURL.protocolIs("file"))
+    if (fullURL.host().isEmpty() || fullURL.protocolIsFile())
         return;
     fullURL.setPassword(password);
     setFullURL(fullURL);
@@ -83,48 +85,17 @@ String URLDecomposition::host() const
     return fullURL().hostAndPort();
 }
 
-static unsigned countASCIIDigits(StringView string)
-{
-    unsigned length = string.length();
-    for (unsigned count = 0; count < length; ++count) {
-        if (!isASCIIDigit(string[count]))
-            return count;
-    }
-    return length;
-}
-
 void URLDecomposition::setHost(StringView value)
 {
     auto fullURL = this->fullURL();
-    if (value.isEmpty() && !fullURL.protocolIs("file"))
+    if (value.isEmpty() && !fullURL.protocolIsFile() && fullURL.hasSpecialScheme())
         return;
 
-    size_t separator = value.reverseFind(':');
-    if (!separator)
+    if (fullURL.hasOpaquePath())
         return;
 
-    if (fullURL.cannotBeABaseURL() || !fullURL.canSetHostOrPort())
-        return;
+    fullURL.setHostAndPort(value);
 
-    // No port if no colon or rightmost colon is within the IPv6 section.
-    size_t ipv6Separator = value.reverseFind(']');
-    if (separator == notFound || (ipv6Separator != notFound && ipv6Separator > separator))
-        fullURL.setHost(value);
-    else {
-        // Multiple colons are acceptable only in case of IPv6.
-        if (value.find(':') != separator && ipv6Separator == notFound)
-            return;
-        unsigned portLength = countASCIIDigits(value.substring(separator + 1));
-        if (!portLength) {
-            fullURL.setHost(value.substring(0, separator));
-        } else {
-            auto portNumber = parseUInt16(value.substring(separator + 1, portLength));
-            if (portNumber && WTF::isDefaultPortForProtocol(*portNumber, fullURL.protocol()))
-                fullURL.setHostAndPort(value.substring(0, separator));
-            else
-                fullURL.setHostAndPort(value.substring(0, separator + 1 + portLength));
-        }
-    }
     if (fullURL.isValid())
         setFullURL(fullURL);
 }
@@ -134,24 +105,12 @@ String URLDecomposition::hostname() const
     return fullURL().host().toString();
 }
 
-static StringView removeAllLeadingSolidusCharacters(StringView string)
-{
-    unsigned i;
-    unsigned length = string.length();
-    for (i = 0; i < length; ++i) {
-        if (string[i] != '/')
-            break;
-    }
-    return string.substring(i);
-}
-
-void URLDecomposition::setHostname(StringView value)
+void URLDecomposition::setHostname(StringView host)
 {
     auto fullURL = this->fullURL();
-    auto host = removeAllLeadingSolidusCharacters(value);
-    if (host.isEmpty() && !fullURL.protocolIs("file"))
+    if (host.isEmpty() && !fullURL.protocolIsFile() && fullURL.hasSpecialScheme())
         return;
-    if (fullURL.cannotBeABaseURL() || !fullURL.canSetHostOrPort())
+    if (fullURL.hasOpaquePath())
         return;
     fullURL.setHost(host);
     if (fullURL.isValid())
@@ -167,23 +126,36 @@ String URLDecomposition::port() const
 }
 
 // Outer optional is whether we could parse at all. Inner optional is "no port specified".
-static Optional<Optional<uint16_t>> parsePort(StringView string, StringView protocol)
+static std::optional<std::optional<uint16_t>> parsePort(StringView string, StringView protocol)
 {
-    auto digitsOnly = string.left(countASCIIDigits(string));
-    if (digitsOnly.isEmpty())
-        return Optional<uint16_t> { WTF::nullopt };
-    auto port = parseUInt16(digitsOnly);
-    if (!port)
-        return WTF::nullopt;
-    if (WTF::isDefaultPortForProtocol(*port, protocol))
-        return Optional<uint16_t> { WTF::nullopt };
-    return { { *port } };
+    // https://url.spec.whatwg.org/#port-state with state override given.
+    uint32_t port { 0 };
+    bool foundDigit = false;
+    for (size_t i = 0; i < string.length(); ++i) {
+        auto c = string[i];
+        // https://infra.spec.whatwg.org/#ascii-tab-or-newline
+        if (c == 0x0009 || c == 0x000A || c == 0x000D)
+            continue;
+        if (isASCIIDigit(c)) {
+            port = port * 10 + c - '0';
+            foundDigit = true;
+            if (port > std::numeric_limits<uint16_t>::max())
+                return std::nullopt;
+            continue;
+        }
+        if (!foundDigit)
+            return std::nullopt;
+        break;
+    }
+    if (!foundDigit || WTF::isDefaultPortForProtocol(static_cast<uint16_t>(port), protocol))
+        return std::optional<uint16_t> { std::nullopt };
+    return {{ static_cast<uint16_t>(port) }};
 }
 
 void URLDecomposition::setPort(StringView value)
 {
     auto fullURL = this->fullURL();
-    if (fullURL.host().isEmpty() || fullURL.cannotBeABaseURL() || fullURL.protocolIs("file") || !fullURL.canSetHostOrPort())
+    if (fullURL.host().isEmpty() || fullURL.protocolIsFile())
         return;
     auto port = parsePort(value, fullURL.protocol());
     if (!port)
@@ -200,12 +172,9 @@ String URLDecomposition::pathname() const
 void URLDecomposition::setPathname(StringView value)
 {
     auto fullURL = this->fullURL();
-    if (fullURL.cannotBeABaseURL() || !fullURL.canSetPathname())
+    if (fullURL.hasOpaquePath())
         return;
-    if (value.startsWith('/'))
-        fullURL.setPath(value);
-    else
-        fullURL.setPath(makeString('/', value));
+    fullURL.setPath(value);
     setFullURL(fullURL);
 }
 
@@ -222,18 +191,16 @@ void URLDecomposition::setSearch(const String& value)
         // If the given value is the empty string, set url's query to null.
         fullURL.setQuery({ });
     } else {
-        String newSearch = value;
         // Make sure that '#' in the query does not leak to the hash.
-        fullURL.setQuery(newSearch.replaceWithLiteral('#', "%23"));
+        fullURL.setQuery(makeStringByReplacingAll(value, '#', "%23"_s));
     }
     setFullURL(fullURL);
 }
 
 String URLDecomposition::hash() const
 {
-    // FIXME: Why convert this string to an atom here instead of just a string? Intentionally to save memory? An error?
     auto fullURL = this->fullURL();
-    return fullURL.fragmentIdentifier().isEmpty() ? emptyAtom() : fullURL.fragmentIdentifierWithLeadingNumberSign().toAtomString();
+    return fullURL.fragmentIdentifier().isEmpty() ? emptyString() : fullURL.fragmentIdentifierWithLeadingNumberSign().toString();
 }
 
 void URLDecomposition::setHash(StringView value)

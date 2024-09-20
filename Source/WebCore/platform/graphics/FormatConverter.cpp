@@ -27,7 +27,7 @@
 
 #include "config.h"
 
-#if ENABLE(GRAPHICS_CONTEXT_GL)
+#if ENABLE(WEBGL)
 
 #include "FormatConverter.h"
 
@@ -1705,7 +1705,7 @@ struct SupportsConversionFromDomElements {
 
 // Visual Studio crashes with a C1063 Fatal Error if everything is inlined.
 template<GraphicsContextGL::DataFormat SrcFormat, GraphicsContextGL::DataFormat DstFormat, GraphicsContextGL::AlphaOp alphaOp>
-ALWAYS_INLINE_EXCEPT_MSVC void FormatConverter::convert()
+ALWAYS_INLINE void FormatConverter::convert()
 {
     // Many instantiations of this template function will never be entered, so we
     // try to return immediately in these cases to avoid generating useless code.
@@ -1719,7 +1719,7 @@ ALWAYS_INLINE_EXCEPT_MSVC void FormatConverter::convert()
     }
 
     // Only textures uploaded from DOM elements or ImageData can allow DstFormat != SrcFormat.
-    const bool srcFormatComesFromDOMElementOrImageData = GraphicsContextGLOpenGL::srcFormatComesFromDOMElementOrImageData(SrcFormat);
+    const bool srcFormatComesFromDOMElementOrImageData = GraphicsContextGL::srcFormatComesFromDOMElementOrImageData(SrcFormat);
     if (!srcFormatComesFromDOMElementOrImageData && SrcFormat != DstFormat) {
         ASSERT_NOT_REACHED();
         return;
@@ -1733,7 +1733,7 @@ ALWAYS_INLINE_EXCEPT_MSVC void FormatConverter::convert()
         ASSERT_NOT_REACHED();
         return;
     }
-    if ((!GraphicsContextGLOpenGL::hasAlpha(SrcFormat) || !GraphicsContextGLOpenGL::hasColor(SrcFormat) || !GraphicsContextGLOpenGL::hasColor(DstFormat)) && alphaOp != GraphicsContextGL::AlphaOp::DoNothing) {
+    if ((!GraphicsContextGL::hasAlpha(SrcFormat) || !GraphicsContextGL::hasColor(SrcFormat) || !GraphicsContextGL::hasColor(DstFormat)) && alphaOp != GraphicsContextGL::AlphaOp::DoNothing) {
         ASSERT_NOT_REACHED();
         return;
     }
@@ -1810,4 +1810,4 @@ ALWAYS_INLINE_EXCEPT_MSVC void FormatConverter::convert()
 
 } // namespace WebCore
 
-#endif // ENABLE(GRAPHICS_CONTEXT_GL)
+#endif // ENABLE(WEBGL)

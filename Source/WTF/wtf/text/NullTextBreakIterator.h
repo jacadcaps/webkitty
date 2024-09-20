@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2023 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -33,13 +33,13 @@ public:
     NullTextBreakIterator& operator=(const NullTextBreakIterator&) = delete;
     NullTextBreakIterator& operator=(NullTextBreakIterator&&) = default;
 
-    Optional<unsigned> preceding(unsigned) const
+    std::optional<unsigned> preceding(unsigned) const
     {
         ASSERT_NOT_REACHED();
         return { };
     }
 
-    Optional<unsigned> following(unsigned) const
+    std::optional<unsigned> following(unsigned) const
     {
         ASSERT_NOT_REACHED();
         return { };
@@ -51,7 +51,7 @@ public:
         return false;
     }
 
-    void setText(StringView)
+    void setText(StringView, std::span<const UChar>)
     {
         ASSERT_NOT_REACHED();
     }

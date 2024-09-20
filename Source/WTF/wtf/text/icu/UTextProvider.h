@@ -44,15 +44,16 @@ inline UTextProviderContext uTextProviderContext(const UText* text, int64_t nati
     return UTextProviderContext::PriorContext;
 }
 
-inline void initializeContextAwareUTextProvider(UText* text, const UTextFuncs* funcs, const void* string, unsigned length, const UChar* priorContext, int priorContextLength)
+template<typename CharacterType>
+inline void initializeContextAwareUTextProvider(UText* text, const UTextFuncs* funcs, std::span<const CharacterType> string, std::span<const UChar> priorContext)
 {
     text->pFuncs = funcs;
     text->providerProperties = 1 << UTEXT_PROVIDER_STABLE_CHUNKS;
-    text->context = string;
-    text->p = string;
-    text->a = length;
-    text->q = priorContext;
-    text->b = priorContextLength;
+    text->context = string.data();
+    text->p = string.data();
+    text->a = string.size();
+    text->q = priorContext.data();
+    text->b = priorContext.size();
 }
 
 // Shared implementation for the UTextClone function on UTextFuncs.
@@ -79,12 +80,12 @@ inline bool uTextAccessInChunkOrOutOfRange(UText* text, int64_t nativeIndex, int
             // Ensure chunk offset is well formed if computed offset exceeds int32_t range.
             ASSERT(offset < std::numeric_limits<int32_t>::max());
             text->chunkOffset = offset < std::numeric_limits<int32_t>::max() ? static_cast<int32_t>(offset) : 0;
-            isAccessible = TRUE;
+            isAccessible = true;
             return true;
         }
         if (nativeIndex >= nativeLength && text->chunkNativeLimit == nativeLength) {
             text->chunkOffset = text->chunkLength;
-            isAccessible = FALSE;
+            isAccessible = false;
             return true;
         }
     } else {
@@ -93,12 +94,12 @@ inline bool uTextAccessInChunkOrOutOfRange(UText* text, int64_t nativeIndex, int
             // Ensure chunk offset is well formed if computed offset exceeds int32_t range.
             ASSERT(offset < std::numeric_limits<int32_t>::max());
             text->chunkOffset = offset < std::numeric_limits<int32_t>::max() ? static_cast<int32_t>(offset) : 0;
-            isAccessible = TRUE;
+            isAccessible = true;
             return true;
         }
         if (nativeIndex <= 0 && !text->chunkNativeStart) {
             text->chunkOffset = 0;
-            isAccessible = FALSE;
+            isAccessible = false;
             return true;
         }
     }

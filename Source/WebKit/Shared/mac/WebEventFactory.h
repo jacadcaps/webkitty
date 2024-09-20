@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,7 +25,9 @@
 
 #pragma once
 
-#import "WebEvent.h"
+#import "WebKeyboardEvent.h"
+#import "WebMouseEvent.h"
+#import "WebWheelEvent.h"
 
 #if USE(APPKIT)
 #if defined(__OBJC__)
@@ -51,8 +53,9 @@ public:
     static bool shouldBeHandledAsContextClick(const WebCore::PlatformMouseEvent&);
 
 #if defined(__OBJC__)
-    static NSEventModifierFlags toNSEventModifierFlags(OptionSet<WebKit::WebEvent::Modifier>);
-    static NSInteger toNSButtonNumber(WebKit::WebMouseEvent::Button);
+    static OptionSet<WebKit::WebEventModifier> webEventModifiersForNSEventModifierFlags(NSEventModifierFlags);
+    static NSEventModifierFlags toNSEventModifierFlags(OptionSet<WebKit::WebEventModifier>);
+    static NSInteger toNSButtonNumber(WebKit::WebMouseEventButton);
 #endif
 #endif // USE(APPKIT)
 };

@@ -28,9 +28,11 @@
 #if ENABLE(APPLE_PAY)
 
 #include "ApplePayContactField.h"
+#include "ApplePayFeature.h"
 #include "ApplePayInstallmentConfigurationWebCore.h"
 #include "ApplePayMerchantCapability.h"
 #include "ApplePayPaymentContact.h"
+#include "ApplePayShippingContactEditingMode.h"
 
 namespace WebCore {
 
@@ -38,25 +40,44 @@ class Document;
 class PaymentCoordinator;
 
 struct ApplePayRequestBase {
+    std::optional<Vector<ApplePayFeature>> features;
+
     Vector<ApplePayMerchantCapability> merchantCapabilities;
     Vector<String> supportedNetworks;
     String countryCode;
 
-    Optional<Vector<ApplePayContactField>> requiredBillingContactFields;
-    Optional<ApplePayPaymentContact> billingContact;
+    std::optional<Vector<ApplePayContactField>> requiredBillingContactFields;
+    std::optional<ApplePayPaymentContact> billingContact;
 
-    Optional<Vector<ApplePayContactField>> requiredShippingContactFields;
-    Optional<ApplePayPaymentContact> shippingContact;
+    std::optional<Vector<ApplePayContactField>> requiredShippingContactFields;
+    std::optional<ApplePayPaymentContact> shippingContact;
 
     String applicationData;
     Vector<String> supportedCountries;
 
 #if ENABLE(APPLE_PAY_INSTALLMENTS)
-    Optional<ApplePayInstallmentConfiguration> installmentConfiguration;
+    std::optional<ApplePayInstallmentConfiguration> installmentConfiguration;
+#endif
+
+#if ENABLE(APPLE_PAY_COUPON_CODE)
+    std::optional<bool> supportsCouponCode;
+    String couponCode;
+#endif
+
+#if ENABLE(APPLE_PAY_SHIPPING_CONTACT_EDITING_MODE)
+    std::optional<ApplePayShippingContactEditingMode> shippingContactEditingMode;
+#endif
+
+#if ENABLE(APPLE_PAY_LATER_AVAILABILITY)
+    std::optional<ApplePayLaterAvailability> applePayLaterAvailability;
+#endif
+
+#if ENABLE(APPLE_PAY_MERCHANT_CATEGORY_CODE)
+    String merchantCategoryCode;
 #endif
 };
 
-ExceptionOr<ApplePaySessionPaymentRequest> convertAndValidate(Document&, unsigned version, ApplePayRequestBase&, const PaymentCoordinator&);
+ExceptionOr<ApplePaySessionPaymentRequest> convertAndValidate(Document&, unsigned version, const ApplePayRequestBase&, const PaymentCoordinator&);
 
 } // namespace WebCore
 

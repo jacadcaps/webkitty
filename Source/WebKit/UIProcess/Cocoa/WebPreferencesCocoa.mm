@@ -26,16 +26,20 @@
 #import "config.h"
 #import "WebPreferences.h"
 
-#import "StringUtilities.h"
 #import "WebPreferencesKeys.h"
-#import <wtf/text/StringConcatenate.h>
+#import <WebCore/RealtimeMediaSourceCenter.h>
+#import <wtf/text/MakeString.h>
+
+#if ENABLE(MEDIA_STREAM)
+#include "UserMediaPermissionRequestManagerProxy.h"
+#endif
 
 namespace WebKit {
 
 static inline NSString *makeKey(const String& identifier, const String& keyPrefix, const String& key)
 {
     ASSERT(!identifier.isEmpty());
-    return String(identifier + keyPrefix + key);
+    return makeString(identifier, keyPrefix, key);
 }
 
 bool WebPreferences::platformGetStringUserValueForKey(const String& key, String& userValue)
@@ -139,12 +143,22 @@ static void setDebugUInt32ValueIfInUserDefaults(const String& identifier, const 
 void WebPreferences::platformInitializeStore()
 {
     @autoreleasepool {
-#define INITIALIZE_DEBUG_PREFERENCE_FROM_NSUSERDEFAULTS(KeyUpper, KeyLower, TypeName, Type, DefaultValue, HumanReadableName, HumanReadableDescription) \
+#if ENABLE(MEDIA_STREAM)
+        // NOTE: This is set here, and does not setting the default using the 'defaultValue' mechanism, because the
+        // 'defaultValue' must be the same in both the UIProcess and WebProcess, which may not be true for audio
+        // and video capture state as the WebProcess is not entitled to use the camera or microphone by default.
+        // If other preferences need to dynamically set the initial value based on host app state, we should extended
+        // the declarative format rather than adding more special cases here.
+        m_store.setBoolValueForKey(WebPreferencesKey::mediaDevicesEnabledKey(), UserMediaPermissionRequestManagerProxy::permittedToCaptureAudio() || UserMediaPermissionRequestManagerProxy::permittedToCaptureVideo());
+        m_store.setBoolValueForKey(WebPreferencesKey::interruptAudioOnPageVisibilityChangeEnabledKey(),  WebCore::RealtimeMediaSourceCenter::shouldInterruptAudioOnPageVisibilityChange());
+#endif
+
+#define INITIALIZE_DEFAULT_OVERRIDABLE_PREFERENCE_FROM_NSUSERDEFAULTS(KeyUpper, KeyLower, TypeName, Type, DefaultValue, HumanReadableName, HumanReadableDescription) \
         setDebug##TypeName##ValueIfInUserDefaults(m_identifier, m_keyPrefix, m_globalDebugKeyPrefix, WebPreferencesKey::KeyLower##Key(), m_store);
 
-        FOR_EACH_WEBKIT_DEBUG_PREFERENCE(INITIALIZE_DEBUG_PREFERENCE_FROM_NSUSERDEFAULTS)
+        FOR_EACH_DEFAULT_OVERRIDABLE_WEBKIT_PREFERENCE(INITIALIZE_DEFAULT_OVERRIDABLE_PREFERENCE_FROM_NSUSERDEFAULTS)
 
-#undef INITIALIZE_DEBUG_PREFERENCE_FROM_NSUSERDEFAULTS
+#undef INITIALIZE_DEFAULT_OVERRIDABLE_PREFERENCE_FROM_NSUSERDEFAULTS
 
         if (!m_identifier)
             return;
@@ -154,7 +168,7 @@ void WebPreferences::platformInitializeStore()
         if (platformGet##TypeName##UserValueForKey(WebPreferencesKey::KeyLower##Key(), user##KeyUpper##Value)) \
             m_store.set##TypeName##ValueForKey(WebPreferencesKey::KeyLower##Key(), user##KeyUpper##Value);
 
-        FOR_EACH_WEBKIT_PREFERENCE(INITIALIZE_PREFERENCE_FROM_NSUSERDEFAULTS)
+        FOR_EACH_PERSISTENT_WEBKIT_PREFERENCE(INITIALIZE_PREFERENCE_FROM_NSUSERDEFAULTS)
 
 #undef INITIALIZE_PREFERENCE_FROM_NSUSERDEFAULTS
     }
@@ -165,7 +179,7 @@ void WebPreferences::platformUpdateStringValueForKey(const String& key, const St
     if (!m_identifier)
         return;
 
-    [[NSUserDefaults standardUserDefaults] setObject:nsStringFromWebCoreString(value) forKey:makeKey(m_identifier, m_keyPrefix, key)];
+    [[NSUserDefaults standardUserDefaults] setObject:value forKey:makeKey(m_identifier, m_keyPrefix, key)];
 }
 
 void WebPreferences::platformUpdateBoolValueForKey(const String& key, bool value)

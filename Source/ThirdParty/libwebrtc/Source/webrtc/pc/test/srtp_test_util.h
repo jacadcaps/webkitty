@@ -11,32 +11,38 @@
 #ifndef PC_TEST_SRTP_TEST_UTIL_H_
 #define PC_TEST_SRTP_TEST_UTIL_H_
 
-#include <string>
+#include "rtc_base/ssl_stream_adapter.h"
 
 namespace rtc {
-
-extern const char CS_AES_CM_128_HMAC_SHA1_32[];
-extern const char CS_AEAD_AES_128_GCM[];
-extern const char CS_AEAD_AES_256_GCM[];
 
 static const uint8_t kTestKey1[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234";
 static const uint8_t kTestKey2[] = "4321ZYXWVUTSRQPONMLKJIHGFEDCBA";
 static const int kTestKeyLen = 30;
 
-static int rtp_auth_tag_len(const std::string& cs) {
-  if (cs == CS_AES_CM_128_HMAC_SHA1_32) {
-    return 4;
-  } else if (cs == CS_AEAD_AES_128_GCM || cs == CS_AEAD_AES_256_GCM) {
-    return 16;
-  } else {
-    return 10;
+static int rtp_auth_tag_len(int crypto_suite) {
+  switch (crypto_suite) {
+    case kSrtpAes128CmSha1_32:
+      return 4;
+    case kSrtpAes128CmSha1_80:
+      return 10;
+    case kSrtpAeadAes128Gcm:
+    case kSrtpAeadAes256Gcm:
+      return 16;
+    default:
+      RTC_CHECK_NOTREACHED();
   }
 }
-static int rtcp_auth_tag_len(const std::string& cs) {
-  if (cs == CS_AEAD_AES_128_GCM || cs == CS_AEAD_AES_256_GCM) {
-    return 16;
-  } else {
-    return 10;
+
+static int rtcp_auth_tag_len(int crypto_suite) {
+  switch (crypto_suite) {
+    case kSrtpAes128CmSha1_32:
+    case kSrtpAes128CmSha1_80:
+      return 10;
+    case kSrtpAeadAes128Gcm:
+    case kSrtpAeadAes256Gcm:
+      return 16;
+    default:
+      RTC_CHECK_NOTREACHED();
   }
 }
 

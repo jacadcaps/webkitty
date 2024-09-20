@@ -60,7 +60,7 @@ inline void forEachProtocolImplementingProtocol(Class cls, Protocol *target, voi
     {
         unsigned protocolsCount;
         auto protocols = adoptSystem<__unsafe_unretained Protocol*[]>(class_copyProtocolList(cls, &protocolsCount));
-        worklist.append(protocols.get(), protocolsCount);
+        worklist.append(std::span { protocols.get(), protocolsCount });
     }
 
     bool stop = false;
@@ -83,7 +83,7 @@ inline void forEachProtocolImplementingProtocol(Class cls, Protocol *target, voi
         {
             unsigned protocolsCount;
             auto protocols = adoptSystem<__unsafe_unretained Protocol*[]>(protocol_copyProtocolList(protocol, &protocolsCount));
-            worklist.append(protocols.get(), protocolsCount);
+            worklist.append(std::span { protocols.get(), protocolsCount });
         }
     }
 }
@@ -131,7 +131,7 @@ class StringRange {
     WTF_MAKE_NONCOPYABLE(StringRange);
 public:
     StringRange(const char* begin, const char* end)
-        : m_string(begin, end - begin)
+        : m_string({ begin, end })
     { }
     operator const char*() const { return m_string.data(); }
     const char* get() const { return m_string.data(); }
@@ -243,8 +243,6 @@ typename DelegateType::ResultType parseObjCType(const char*& position)
 extern "C" {
     // Forward declare some Objective-C runtime internal methods that are not API.
     const char *_protocol_getMethodTypeEncoding(Protocol *, SEL, BOOL isRequiredMethod, BOOL isInstanceMethod);
-    id objc_initWeak(id *, id);
-    void objc_destroyWeak(id *);
     bool _Block_has_signature(void *);
     const char * _Block_signature(void *);
 }

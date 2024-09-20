@@ -29,27 +29,28 @@
 #include <JavaScriptCore/InspectorBackendDispatchers.h>
 #include <JavaScriptCore/InspectorFrontendDispatchers.h>
 #include <wtf/Forward.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/WeakRef.h>
 
 namespace WebKit {
 
 class WebPageProxy;
-typedef String ErrorString;
 
 class InspectorBrowserAgent final : public InspectorAgentBase, public Inspector::BrowserBackendDispatcherHandler {
     WTF_MAKE_NONCOPYABLE(InspectorBrowserAgent);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(InspectorBrowserAgent);
 public:
     InspectorBrowserAgent(WebPageAgentContext&);
-    ~InspectorBrowserAgent() override;
+    ~InspectorBrowserAgent();
     bool enabled() const;
 
     // InspectorAgentBase
-    void didCreateFrontendAndBackend(Inspector::FrontendRouter*, Inspector::BackendDispatcher*) override;
-    void willDestroyFrontendAndBackend(Inspector::DisconnectReason) override;
+    void didCreateFrontendAndBackend(Inspector::FrontendRouter*, Inspector::BackendDispatcher*);
+    void willDestroyFrontendAndBackend(Inspector::DisconnectReason);
 
     // BrowserBackendDispatcherHandler
-    void enable(ErrorString&) override;
-    void disable(ErrorString&) override;
+    Inspector::Protocol::ErrorStringOr<void> enable();
+    Inspector::Protocol::ErrorStringOr<void> disable();
 
     void extensionsEnabled(HashMap<String, String>&&);
     void extensionsDisabled(HashSet<String>&&);
@@ -57,7 +58,7 @@ public:
 private:
     std::unique_ptr<Inspector::BrowserFrontendDispatcher> m_frontendDispatcher;
     RefPtr<Inspector::BrowserBackendDispatcher> m_backendDispatcher;
-    WebPageProxy& m_inspectedPage;
+    WeakRef<WebPageProxy> m_inspectedPage;
 };
 
 } // namespace WebKit

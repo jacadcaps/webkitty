@@ -89,7 +89,7 @@ static void TestKeyWrap(FileTest *t) {
   ASSERT_EQ(0, AES_set_encrypt_key(key.data(), 8 * key.size(), &aes_key));
 
   // Test with implicit IV.
-  std::unique_ptr<uint8_t[]> buf(new uint8_t[ciphertext.size()]);
+  auto buf = std::make_unique<uint8_t[]>(ciphertext.size());
   int len = AES_wrap_key(&aes_key, nullptr /* iv */, buf.get(),
                          plaintext.data(), plaintext.size());
   ASSERT_GE(len, 0);
@@ -106,7 +106,7 @@ static void TestKeyWrap(FileTest *t) {
   ASSERT_EQ(0, AES_set_decrypt_key(key.data(), 8 * key.size(), &aes_key));
 
   // Test with implicit IV.
-  buf.reset(new uint8_t[plaintext.size()]);
+  buf = std::make_unique<uint8_t[]>(plaintext.size());
   len = AES_unwrap_key(&aes_key, nullptr /* iv */, buf.get(), ciphertext.data(),
                        ciphertext.size());
   ASSERT_GE(len, 0);
@@ -133,7 +133,7 @@ static void TestKeyWrapWithPadding(FileTest *t) {
   // Test encryption.
   AES_KEY aes_key;
   ASSERT_EQ(0, AES_set_encrypt_key(key.data(), 8 * key.size(), &aes_key));
-  std::unique_ptr<uint8_t[]> buf(new uint8_t[plaintext.size() + 15]);
+  auto buf = std::make_unique<uint8_t[]>(plaintext.size() + 15);
   size_t len;
   ASSERT_TRUE(AES_wrap_key_padded(&aes_key, buf.get(), &len,
                                   plaintext.size() + 15, plaintext.data(),
@@ -142,7 +142,7 @@ static void TestKeyWrapWithPadding(FileTest *t) {
 
   // Test decryption
   ASSERT_EQ(0, AES_set_decrypt_key(key.data(), 8 * key.size(), &aes_key));
-  buf.reset(new uint8_t[ciphertext.size() - 8]);
+  buf = std::make_unique<uint8_t[]>(ciphertext.size() - 8);
   ASSERT_TRUE(AES_unwrap_key_padded(&aes_key, buf.get(), &len,
                                     ciphertext.size() - 8, ciphertext.data(),
                                     ciphertext.size()));
@@ -289,7 +289,7 @@ TEST(AESTest, ABI) {
     }
 
     if (bsaes_capable()) {
-      vpaes_set_encrypt_key(kKey, bits, &key);
+      ASSERT_EQ(vpaes_set_encrypt_key(kKey, bits, &key), 0);
       CHECK_ABI(vpaes_encrypt_key_to_bsaes, &key, &key);
       for (size_t blocks : block_counts) {
         SCOPED_TRACE(blocks);
@@ -298,7 +298,7 @@ TEST(AESTest, ABI) {
         }
       }
 
-      vpaes_set_decrypt_key(kKey, bits, &key);
+      ASSERT_EQ(vpaes_set_decrypt_key(kKey, bits, &key), 0);
       CHECK_ABI(vpaes_decrypt_key_to_bsaes, &key, &key);
       for (size_t blocks : block_counts) {
         SCOPED_TRACE(blocks);
@@ -308,7 +308,7 @@ TEST(AESTest, ABI) {
     }
 
     if (vpaes_capable()) {
-      CHECK_ABI(vpaes_set_encrypt_key, kKey, bits, &key);
+      ASSERT_EQ(CHECK_ABI(vpaes_set_encrypt_key, kKey, bits, &key), 0);
       CHECK_ABI(vpaes_encrypt, block, block, &key);
       for (size_t blocks : block_counts) {
         SCOPED_TRACE(blocks);
@@ -321,7 +321,7 @@ TEST(AESTest, ABI) {
 #endif
       }
 
-      CHECK_ABI(vpaes_set_decrypt_key, kKey, bits, &key);
+      ASSERT_EQ(CHECK_ABI(vpaes_set_decrypt_key, kKey, bits, &key), 0);
       CHECK_ABI(vpaes_decrypt, block, block, &key);
 #if defined(VPAES_CBC)
       for (size_t blocks : block_counts) {
@@ -333,7 +333,7 @@ TEST(AESTest, ABI) {
     }
 
     if (hwaes_capable()) {
-      CHECK_ABI(aes_hw_set_encrypt_key, kKey, bits, &key);
+      ASSERT_EQ(CHECK_ABI_SEH(aes_hw_set_encrypt_key, kKey, bits, &key), 0);
       CHECK_ABI(aes_hw_encrypt, block, block, &key);
       for (size_t blocks : block_counts) {
         SCOPED_TRACE(blocks);
@@ -346,7 +346,21 @@ TEST(AESTest, ABI) {
 #endif
       }
 
-      CHECK_ABI(aes_hw_set_decrypt_key, kKey, bits, &key);
+#if defined(OPENSSL_X86) || defined(OPENSSL_X86_64)
+      ASSERT_EQ(CHECK_ABI_SEH(aes_hw_set_encrypt_key_base, kKey, bits, &key), 0);
+      if (aes_hw_set_encrypt_key_alt_capable()) {
+        AES_KEY alt;
+        ASSERT_EQ(CHECK_ABI_SEH(aes_hw_set_encrypt_key_alt, kKey, bits, &alt),
+                  0);
+        EXPECT_EQ(alt.rounds, key.rounds);
+        for (unsigned i = 0; i <= alt.rounds; i++) {
+          EXPECT_EQ(alt.rd_key[i], key.rd_key[i]);
+        }
+      }
+      CHECK_ABI_SEH(aes_hw_encrypt_key_to_decrypt_key, &key);
+#else
+      ASSERT_EQ(CHECK_ABI_SEH(aes_hw_set_decrypt_key, kKey, bits, &key), 0);
+#endif
       CHECK_ABI(aes_hw_decrypt, block, block, &key);
       for (size_t blocks : block_counts) {
         SCOPED_TRACE(blocks);
@@ -403,10 +417,6 @@ static uint32_t aes_ref_sub_word(uint32_t in) {
   return a0 | (a1 << 8) | (a2 << 16) | (a3 << 24);
 }
 
-static uint32_t aes_ref_rot_word(uint32_t in, uint32_t n) {
-  return (in >> n) | (in << (32 - n));
-}
-
 static int aes_ref_set_encrypt_key(const uint8_t *key, int key_bits,
                                    AES_KEY *out) {
   static const uint32_t kRCon[10] = {0x01, 0x02, 0x04, 0x08, 0x10,
@@ -431,7 +441,7 @@ static int aes_ref_set_encrypt_key(const uint8_t *key, int key_bits,
   for (size_t i = words; i < num_subkey_words; i++) {
     uint32_t tmp = out->rd_key[i - 1];
     if (i % words == 0) {
-      tmp = aes_ref_sub_word(aes_ref_rot_word(tmp, 8)) ^ kRCon[(i / words) - 1];
+      tmp = aes_ref_sub_word(CRYPTO_rotr_u32(tmp, 8)) ^ kRCon[(i / words) - 1];
     } else if (key_bits == 256 && i % 4 == 0) {
       tmp = aes_ref_sub_word(tmp);
     }
@@ -532,9 +542,9 @@ print("static const uint32_t kTable[256] = {%s};\n" % body)
   for (size_t i = 0; i < 4; i++) {
     uint32_t in = block[i];
     block[i] = kInvMixColumn[in >> 24];
-    block[i] ^= aes_ref_rot_word(kInvMixColumn[(in >> 16) & 0xff], 8);
-    block[i] ^= aes_ref_rot_word(kInvMixColumn[(in >> 8) & 0xff], 16);
-    block[i] ^= aes_ref_rot_word(kInvMixColumn[in & 0xff], 24);
+    block[i] ^= CRYPTO_rotr_u32(kInvMixColumn[(in >> 16) & 0xff], 8);
+    block[i] ^= CRYPTO_rotr_u32(kInvMixColumn[(in >> 8) & 0xff], 16);
+    block[i] ^= CRYPTO_rotr_u32(kInvMixColumn[in & 0xff], 24);
   }
 }
 
@@ -563,6 +573,10 @@ static int aes_ref_set_decrypt_key(const uint8_t *key, int bits, AES_KEY *out) {
 
 
 TEST(AESTest, VPAESToBSAESConvert) {
+  if (!vpaes_capable()) {
+    GTEST_SKIP();
+  }
+
   const int kNumIterations = 1000;
   for (int i = 0; i < kNumIterations; i++) {
     uint8_t key[256 / 8];

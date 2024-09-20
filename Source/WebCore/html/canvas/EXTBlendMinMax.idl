@@ -25,8 +25,8 @@
 
 [
     Conditional=WEBGL,
-    GenerateIsReachable=ImplWebGLRenderingContext,
-    NoInterfaceObject,
+    GenerateIsReachable,
+    LegacyNoInterfaceObject,
 ] interface EXTBlendMinMax {
     const unsigned long MIN_EXT = 0x8007;
     const unsigned long MAX_EXT = 0x8008;

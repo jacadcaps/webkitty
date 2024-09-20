@@ -28,20 +28,26 @@
 #include "config.h"
 #include "Connection.h"
 
-#include "DataReference.h"
-#include "SharedMemory.h"
+#include "IPCUtilities.h"
 #include "UnixMessage.h"
+#include <WebCore/SharedMemory.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
 #include <wtf/Assertions.h>
+#include <wtf/SafeStrerror.h>
 #include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/UniStdExtras.h>
 
 #if USE(GLIB)
 #include <gio/gio.h>
+#endif
+
+#if OS(DARWIN)
+#define MSG_NOSIGNAL 0
 #endif
 
 // Although it's available on Darwin, SOCK_SEQPACKET seems to work differently
@@ -62,39 +68,37 @@ static const size_t messageMaxSize = 4096;
 static const size_t attachmentMaxAmount = 254;
 
 class AttachmentInfo {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(AttachmentInfo);
 public:
-    AttachmentInfo() = default;
-
-    void setType(Attachment::Type type) { m_type = type; }
-    Attachment::Type type() const { return m_type; }
-    void setSize(size_t size)
+    AttachmentInfo()
     {
-        ASSERT(m_type == Attachment::MappedMemoryType);
-        m_size = size;
+        // The entire AttachmentInfo is passed to write(), so we have to zero our
+        // padding bytes to avoid writing uninitialized memory.
+        memset(static_cast<void*>(this), 0, sizeof(*this));
     }
 
-    size_t size() const
+    AttachmentInfo(const AttachmentInfo& info)
     {
-        ASSERT(m_type == Attachment::MappedMemoryType);
-        return m_size;
+        memset(static_cast<void*>(this), 0, sizeof(*this));
+        *this = info;
     }
+
+    AttachmentInfo& operator=(const AttachmentInfo&) = default;
 
     // The attachment is not null unless explicitly set.
     void setNull() { m_isNull = true; }
     bool isNull() const { return m_isNull; }
 
 private:
-    Attachment::Type m_type { Attachment::Uninitialized };
-    bool m_isNull { false };
-    size_t m_size { 0 };
+    // The AttachmentInfo will be copied using memcpy, so all members must be trivially copyable.
+    bool m_isNull;
 };
 
 static_assert(sizeof(MessageInfo) + sizeof(AttachmentInfo) * attachmentMaxAmount <= messageMaxSize, "messageMaxSize is too small.");
 
 void Connection::platformInitialize(Identifier identifier)
 {
-    m_socketDescriptor = identifier;
+    m_socketDescriptor = identifier.handle;
 #if USE(GLIB)
     m_socket = adoptGRef(g_socket_new_from_fd(m_socketDescriptor, nullptr));
 #endif
@@ -138,7 +142,7 @@ bool Connection::processMessage()
 
     uint8_t* messageData = m_readBuffer.data();
     MessageInfo messageInfo;
-    memcpy(&messageInfo, messageData, sizeof(messageInfo));
+    memcpy(static_cast<void*>(&messageInfo), messageData, sizeof(messageInfo));
     messageData += sizeof(messageInfo);
 
     if (messageInfo.attachmentCount() > attachmentMaxAmount || (!messageInfo.isBodyOutOfLine() && messageInfo.bodySize() > messageMaxSize)) {
@@ -155,20 +159,12 @@ bool Connection::processMessage()
     Vector<AttachmentInfo> attachmentInfo(attachmentCount);
 
     if (attachmentCount) {
-        memcpy(attachmentInfo.data(), messageData, sizeof(AttachmentInfo) * attachmentCount);
+        memcpy(static_cast<void*>(attachmentInfo.data()), messageData, sizeof(AttachmentInfo) * attachmentCount);
         messageData += sizeof(AttachmentInfo) * attachmentCount;
 
         for (size_t i = 0; i < attachmentCount; ++i) {
-            switch (attachmentInfo[i].type()) {
-            case Attachment::MappedMemoryType:
-            case Attachment::SocketType:
-                if (!attachmentInfo[i].isNull())
-                    attachmentFileDescriptorCount++;
-                break;
-            case Attachment::Uninitialized:
-            default:
-                break;
-            }
+            if (!attachmentInfo[i].isNull())
+                attachmentFileDescriptorCount++;
         }
 
         if (messageInfo.isBodyOutOfLine())
@@ -176,41 +172,30 @@ bool Connection::processMessage()
     }
 
     Vector<Attachment> attachments(attachmentCount);
-    RefPtr<WebKit::SharedMemory> oolMessageBody;
+    RefPtr<WebCore::SharedMemory> oolMessageBody;
 
     size_t fdIndex = 0;
     for (size_t i = 0; i < attachmentCount; ++i) {
-        int fd = -1;
-        switch (attachmentInfo[i].type()) {
-        case Attachment::MappedMemoryType:
-            if (!attachmentInfo[i].isNull())
-                fd = m_fileDescriptors[fdIndex++];
-            attachments[attachmentCount - i - 1] = Attachment(fd, attachmentInfo[i].size());
-            break;
-        case Attachment::SocketType:
-            if (!attachmentInfo[i].isNull())
-                fd = m_fileDescriptors[fdIndex++];
-            attachments[attachmentCount - i - 1] = Attachment(fd);
-            break;
-        case Attachment::Uninitialized:
-            attachments[attachmentCount - i - 1] = Attachment();
-        default:
-            break;
-        }
+        int fd = !attachmentInfo[i].isNull() ? m_fileDescriptors[fdIndex++] : -1;
+        attachments[attachmentCount - i - 1] = UnixFileDescriptor { fd, UnixFileDescriptor::Adopt };
     }
 
     if (messageInfo.isBodyOutOfLine()) {
         ASSERT(messageInfo.bodySize());
 
-        if (attachmentInfo[attachmentCount].isNull() || attachmentInfo[attachmentCount].size() != messageInfo.bodySize()) {
+        if (attachmentInfo[attachmentCount].isNull()) {
             ASSERT_NOT_REACHED();
             return false;
         }
 
-        WebKit::SharedMemory::Handle handle;
-        handle.adoptAttachment(IPC::Attachment(m_fileDescriptors[attachmentFileDescriptorCount - 1], attachmentInfo[attachmentCount].size()));
+        auto fd = UnixFileDescriptor { m_fileDescriptors[attachmentFileDescriptorCount - 1], UnixFileDescriptor::Adopt };
+        if (!fd) {
+            ASSERT_NOT_REACHED();
+            return false;
+        }
 
-        oolMessageBody = WebKit::SharedMemory::map(handle, WebKit::SharedMemory::Protection::ReadOnly);
+        auto handle = WebCore::SharedMemory::Handle { WTFMove(fd), messageInfo.bodySize() };
+        oolMessageBody = WebCore::SharedMemory::map(WTFMove(handle), WebCore::SharedMemory::Protection::ReadOnly);
         if (!oolMessageBody) {
             ASSERT_NOT_REACHED();
             return false;
@@ -221,11 +206,14 @@ bool Connection::processMessage()
 
     uint8_t* messageBody = messageData;
     if (messageInfo.isBodyOutOfLine())
-        messageBody = reinterpret_cast<uint8_t*>(oolMessageBody->data());
+        messageBody = oolMessageBody->mutableSpan().data();
 
-    auto decoder = makeUnique<Decoder>(messageBody, messageInfo.bodySize(), nullptr, WTFMove(attachments));
+    auto decoder = Decoder::create({ messageBody, messageInfo.bodySize() }, WTFMove(attachments));
+    ASSERT(decoder);
+    if (!decoder)
+        return false;
 
-    processIncomingMessage(WTFMove(decoder));
+    processIncomingMessage(makeUniqueRefFromNonNullUniquePtr(WTFMove(decoder)));
 
     if (m_readBuffer.size() > messageLength) {
         memmove(m_readBuffer.data(), m_readBuffer.data() + messageLength, m_readBuffer.size() - messageLength);
@@ -328,7 +316,7 @@ void Connection::readyReadHandler()
             }
 
             if (m_isConnected) {
-                WTFLogAlways("Error receiving IPC message on socket %d in process %d: %s", m_socketDescriptor, getpid(), strerror(errno));
+                WTFLogAlways("Error receiving IPC message on socket %d in process %d: %s", m_socketDescriptor, getpid(), safeStrerror(errno).data());
                 connectionDidClose();
             }
             return;
@@ -347,13 +335,16 @@ void Connection::readyReadHandler()
     }
 }
 
-bool Connection::open()
+bool Connection::platformPrepareForOpen()
 {
-    if (!setNonBlock(m_socketDescriptor)) {
-        ASSERT_NOT_REACHED();
-        return false;
-    }
+    if (setNonBlock(m_socketDescriptor))
+        return true;
+    ASSERT_NOT_REACHED();
+    return false;
+}
 
+void Connection::platformOpen()
+{
     RefPtr<Connection> protectedThis(this);
     m_isConnected = true;
 #if USE(GLIB)
@@ -374,7 +365,7 @@ bool Connection::open()
 #endif
 
 #if PLATFORM(PLAYSTATION)
-    m_socketMonitor = Thread::create("SocketMonitor", [protectedThis] {
+    m_socketMonitor = Thread::create("SocketMonitor"_s, [protectedThis] {
         {
             int fd;
             while ((fd = protectedThis->m_socketDescriptor) != -1) {
@@ -391,15 +382,13 @@ bool Connection::open()
 
         }
     });
-    return true;
+    return;
 #endif
 
     // Schedule a call to readyReadHandler. Data may have arrived before installation of the signal handler.
     m_connectionQueue->dispatch([protectedThis] {
         protectedThis->readyReadHandler();
     });
-
-    return true;
 }
 
 bool Connection::platformCanSendOutgoingMessages() const
@@ -407,11 +396,11 @@ bool Connection::platformCanSendOutgoingMessages() const
     return !m_pendingOutputMessage;
 }
 
-bool Connection::sendOutgoingMessage(std::unique_ptr<Encoder> encoder)
+bool Connection::sendOutgoingMessage(UniqueRef<Encoder>&& encoder)
 {
-    COMPILE_ASSERT(sizeof(MessageInfo) + attachmentMaxAmount * sizeof(size_t) <= messageMaxSize, AttachmentsFitToMessageInline);
+    static_assert(sizeof(MessageInfo) + attachmentMaxAmount * sizeof(size_t) <= messageMaxSize, "Attachments fit to message inline");
 
-    UnixMessage outputMessage(*encoder);
+    UnixMessage outputMessage(encoder.get());
     if (outputMessage.attachments().size() > (attachmentMaxAmount - 1)) {
         ASSERT_NOT_REACHED();
         return false;
@@ -419,19 +408,19 @@ bool Connection::sendOutgoingMessage(std::unique_ptr<Encoder> encoder)
 
     size_t messageSizeWithBodyInline = sizeof(MessageInfo) + (outputMessage.attachments().size() * sizeof(AttachmentInfo)) + outputMessage.bodySize();
     if (messageSizeWithBodyInline > messageMaxSize && outputMessage.bodySize()) {
-        RefPtr<WebKit::SharedMemory> oolMessageBody = WebKit::SharedMemory::allocate(encoder->bufferSize());
+        RefPtr oolMessageBody = WebCore::SharedMemory::allocate(outputMessage.bodySize());
         if (!oolMessageBody)
             return false;
 
-        WebKit::SharedMemory::Handle handle;
-        if (!oolMessageBody->createHandle(handle, WebKit::SharedMemory::Protection::ReadOnly))
+        auto handle = oolMessageBody->createHandle(WebCore::SharedMemory::Protection::ReadOnly);
+        if (!handle)
             return false;
 
         outputMessage.messageInfo().setBodyOutOfLine();
 
-        memcpy(oolMessageBody->data(), outputMessage.body(), outputMessage.bodySize());
+        memcpySpan(oolMessageBody->mutableSpan(), outputMessage.body());
 
-        outputMessage.appendAttachment(handle.releaseAttachment());
+        outputMessage.appendAttachment(handle->releaseHandle());
     }
 
     return sendOutputMessage(outputMessage);
@@ -463,7 +452,7 @@ bool Connection::sendOutputMessage(UnixMessage& outputMessage)
 
         size_t attachmentFDBufferLength = std::count_if(attachments.begin(), attachments.end(),
             [](const Attachment& attachment) {
-                return attachment.fileDescriptor() != -1;
+                return !!attachment;
             });
 
         if (attachmentFDBufferLength) {
@@ -484,23 +473,11 @@ bool Connection::sendOutputMessage(UnixMessage& outputMessage)
         attachmentInfo.resize(attachments.size());
         int fdIndex = 0;
         for (size_t i = 0; i < attachments.size(); ++i) {
-            attachmentInfo[i].setType(attachments[i].type());
-
-            switch (attachments[i].type()) {
-            case Attachment::MappedMemoryType:
-                attachmentInfo[i].setSize(attachments[i].size());
-                FALLTHROUGH;
-            case Attachment::SocketType:
-                if (attachments[i].fileDescriptor() != -1) {
-                    ASSERT(fdPtr);
-                    fdPtr[fdIndex++] = attachments[i].fileDescriptor();
-                } else
-                    attachmentInfo[i].setNull();
-                break;
-            case Attachment::Uninitialized:
-            default:
-                break;
-            }
+            if (!!attachments[i]) {
+                ASSERT(fdPtr);
+                fdPtr[fdIndex++] = attachments[i].value();
+            } else
+                attachmentInfo[i].setNull();
         }
 
         iov[iovLength].iov_base = attachmentInfo.data();
@@ -509,7 +486,7 @@ bool Connection::sendOutputMessage(UnixMessage& outputMessage)
     }
 
     if (!messageInfo.isBodyOutOfLine() && outputMessage.bodySize()) {
-        iov[iovLength].iov_base = reinterpret_cast<void*>(outputMessage.body());
+        iov[iovLength].iov_base = reinterpret_cast<void*>(outputMessage.body().data());
         iov[iovLength].iov_len = outputMessage.bodySize();
         ++iovLength;
     }
@@ -522,11 +499,11 @@ bool Connection::sendOutputMessage(UnixMessage& outputMessage)
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
 #if USE(GLIB)
             m_pendingOutputMessage = makeUnique<UnixMessage>(WTFMove(outputMessage));
-            m_writeSocketMonitor.start(m_socket.get(), G_IO_OUT, m_connectionQueue->runLoop(), [this, protectedThis = makeRef(*this)] (GIOCondition condition) -> gboolean {
+            m_writeSocketMonitor.start(m_socket.get(), G_IO_OUT, m_connectionQueue->runLoop(), [this, protectedThis = Ref { *this }] (GIOCondition condition) -> gboolean {
                 if (condition & G_IO_OUT) {
                     ASSERT(m_pendingOutputMessage);
                     // We can't stop the monitor from this lambda, because stop destroys the lambda.
-                    m_connectionQueue->dispatch([this, protectedThis = makeRef(*this)] {
+                    m_connectionQueue->dispatch([this, protectedThis = Ref { *this }] {
                         m_writeSocketMonitor.stop();
                         auto message = WTFMove(m_pendingOutputMessage);
                         if (m_isConnected) {
@@ -561,39 +538,114 @@ bool Connection::sendOutputMessage(UnixMessage& outputMessage)
         }
 
         if (m_isConnected)
-            WTFLogAlways("Error sending IPC message: %s", strerror(errno));
+            WTFLogAlways("Error sending IPC message: %s", safeStrerror(errno).data());
         return false;
     }
+
     return true;
 }
 
-Connection::SocketPair Connection::createPlatformConnection(unsigned options)
+SocketPair createPlatformConnection(unsigned options)
 {
     int sockets[2];
+
+#if USE(GLIB) && OS(LINUX)
+    auto setPasscredIfNeeded = [options, &sockets] {
+        if (options & SetPasscredOnServer) {
+            int enable = 1;
+            RELEASE_ASSERT(!setsockopt(sockets[1], SOL_SOCKET, SO_PASSCRED, &enable, sizeof(enable)));
+        }
+    };
+#else
+    auto setPasscredIfNeeded = [] { };
+#endif
+
+#if OS(LINUX)
+    if ((options & SetCloexecOnServer) || (options & SetCloexecOnClient)) {
+        RELEASE_ASSERT(socketpair(AF_UNIX, SOCKET_TYPE | SOCK_CLOEXEC, 0, sockets) != -1);
+
+        if (!(options & SetCloexecOnServer))
+            RELEASE_ASSERT(unsetCloseOnExec(sockets[1]));
+        if (!(options & SetCloexecOnClient))
+            RELEASE_ASSERT(unsetCloseOnExec(sockets[0]));
+
+        setPasscredIfNeeded();
+
+        return { sockets[0], sockets[1] };
+    }
+#endif
+
     RELEASE_ASSERT(socketpair(AF_UNIX, SOCKET_TYPE, 0, sockets) != -1);
 
-    if (options & SetCloexecOnServer) {
-        // Don't expose the child socket to the parent process.
-        if (!setCloseOnExec(sockets[1]))
-            RELEASE_ASSERT_NOT_REACHED();
+    if (options & SetCloexecOnServer)
+        RELEASE_ASSERT(setCloseOnExec(sockets[1]));
+    if (options & SetCloexecOnClient)
+        RELEASE_ASSERT(setCloseOnExec(sockets[0]));
+
+    setPasscredIfNeeded();
+
+    return { sockets[0], sockets[1] };
+}
+
+std::optional<Connection::ConnectionIdentifierPair> Connection::createConnectionIdentifierPair()
+{
+    SocketPair socketPair = createPlatformConnection();
+    return ConnectionIdentifierPair { Identifier { UnixFileDescriptor { socketPair.server,  UnixFileDescriptor::Adopt } }, UnixFileDescriptor { socketPair.client, UnixFileDescriptor::Adopt } };
+}
+
+#if USE(GLIB) && OS(LINUX)
+void sendPIDToPeer(int socket)
+{
+    char buffer[1] = { 0 };
+    struct msghdr message = { };
+    struct iovec iov = { buffer, sizeof(buffer) };
+
+    // Write one null byte. Credentials will be attached regardless of what we send.
+    message.msg_iov = &iov;
+    message.msg_iovlen = 1;
+
+    if (sendmsg(socket, &message, 0) == -1)
+        g_error("sendPIDToPeer: Failed to send pid: %s", g_strerror(errno));
+}
+
+// The goal here is to receive the pid of the sandboxed child in the parent process's pid namespace.
+// It's impossible for the child to know this, but the kernel will translate it for us.
+//
+// Based on read_pid_from_socket() from bubblewrap's utils.c
+// SPDX-License-Identifier: LGPL-2.0-or-later
+pid_t readPIDFromPeer(int socket)
+{
+    char receiveBuffer[1] = { 0 };
+    struct msghdr message = { };
+    struct iovec iov = { receiveBuffer, sizeof(receiveBuffer) };
+    const ssize_t controlLength = CMSG_SPACE(sizeof(struct ucred));
+    union {
+        char buffer[controlLength];
+        cmsghdr forceAlignment;
+    } controlMessage;
+
+    message.msg_iov = &iov;
+    message.msg_iovlen = 1;
+    message.msg_control = controlMessage.buffer;
+    message.msg_controllen = controlLength;
+
+    if (recvmsg(socket, &message, 0) == -1)
+        g_error("readPIDFromPeer: Failed to read pid from PID socket: %s", g_strerror(errno));
+
+    if (message.msg_controllen <= 0)
+        g_error("readPIDFromPeer: Unexpected short read from PID socket");
+
+    for (cmsghdr* header = CMSG_FIRSTHDR(&message); header; header = CMSG_NXTHDR(&message, header)) {
+        const unsigned payloadLength = header->cmsg_len - CMSG_LEN(0);
+        if (header->cmsg_level == SOL_SOCKET && header->cmsg_type == SCM_CREDENTIALS && payloadLength == sizeof(struct ucred)) {
+            struct ucred credentials;
+            memcpy(&credentials, CMSG_DATA(header), sizeof(struct ucred));
+            return credentials.pid;
+        }
     }
 
-    if (options & SetCloexecOnClient) {
-        // Don't expose the parent socket to potential future children.
-        if (!setCloseOnExec(sockets[0]))
-            RELEASE_ASSERT_NOT_REACHED();
-    }
-
-    SocketPair socketPair = { sockets[0], sockets[1] };
-    return socketPair;
+    g_error("readPIDFromPeer: No pid returned on PID socket");
 }
-
-void Connection::willSendSyncMessage(OptionSet<SendSyncOption>)
-{
-}
-
-void Connection::didReceiveSyncReply(OptionSet<SendSyncOption>)
-{
-}
+#endif
 
 } // namespace IPC

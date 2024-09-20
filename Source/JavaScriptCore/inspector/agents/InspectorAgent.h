@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007-2010, 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2007-2023 Apple Inc. All rights reserved.
  * Copyright (C) 2011 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -33,6 +33,7 @@
 #include "InspectorBackendDispatchers.h"
 #include "InspectorFrontendDispatchers.h"
 #include <wtf/Forward.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 
 namespace Inspector {
@@ -40,11 +41,9 @@ namespace Inspector {
 class BackendDispatcher;
 class InspectorEnvironment;
 
-typedef String ErrorString;
-
 class JS_EXPORT_PRIVATE InspectorAgent final : public InspectorAgentBase, public InspectorBackendDispatcherHandler {
     WTF_MAKE_NONCOPYABLE(InspectorAgent);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(InspectorAgent);
 public:
     InspectorAgent(AgentContext&);
     ~InspectorAgent() final;
@@ -54,19 +53,14 @@ public:
     void willDestroyFrontendAndBackend(DisconnectReason) final;
 
     // InspectorBackendDispatcherHandler
-    void enable(ErrorString&) final;
-    void disable(ErrorString&) final;
-    void initialized(ErrorString&) final;
+    Protocol::ErrorStringOr<void> enable() final;
+    Protocol::ErrorStringOr<void> disable() final;
+    Protocol::ErrorStringOr<void> initialized() final;
 
     // CommandLineAPI
-    void inspect(RefPtr<Protocol::Runtime::RemoteObject>&& objectToInspect, RefPtr<JSON::Object>&& hints);
+    void inspect(Ref<Protocol::Runtime::RemoteObject>&&, Ref<JSON::Object>&& hints);
 
     void evaluateForTestInFrontend(const String& script);
-
-#if ENABLE(INSPECTOR_ALTERNATE_DISPATCHERS)
-    void activateExtraDomain(const String&);
-    void activateExtraDomains(const Vector<String>&);
-#endif
 
 private:
     InspectorEnvironment& m_environment;

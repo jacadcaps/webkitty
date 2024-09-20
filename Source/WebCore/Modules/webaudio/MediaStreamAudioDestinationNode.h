@@ -37,7 +37,7 @@ class BaseAudioContext;
 class MediaStreamAudioSource;
 
 class MediaStreamAudioDestinationNode final : public AudioBasicInspectorNode {
-    WTF_MAKE_ISO_ALLOCATED(MediaStreamAudioDestinationNode);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(MediaStreamAudioDestinationNode);
 public:
     static ExceptionOr<Ref<MediaStreamAudioDestinationNode>> create(BaseAudioContext&, const AudioNodeOptions& = { });
 
@@ -47,13 +47,13 @@ public:
 
     // AudioNode.
     void process(size_t framesToProcess) final;
-    void reset() final;
     
 private:
     explicit MediaStreamAudioDestinationNode(BaseAudioContext&);
 
     double tailTime() const final { return 0; }
     double latencyTime() const final { return 0; }
+    bool requiresTailProcessing() const final { return false; }
 
     // As an audio source, we will never propagate silence.
     bool propagatesSilence() const final { return false; }

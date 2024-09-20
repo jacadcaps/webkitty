@@ -27,13 +27,19 @@
 #import "WKBackForwardListItemInternal.h"
 
 #import "WKNSURLExtras.h"
+#import <WebCore/WebCoreObjCExtras.h>
 
 @implementation WKBackForwardListItem {
     API::ObjectStorage<WebKit::WebBackForwardListItem> _item;
 }
 
+WK_OBJECT_DISABLE_DISABLE_KVC_IVAR_ACCESS;
+
 - (void)dealloc
 {
+    if (WebCoreObjCScheduleDeallocateOnMainRunLoop(WKBackForwardListItem.class, self))
+        return;
+
     _item->~WebBackForwardListItem();
 
     [super dealloc];
@@ -69,9 +75,14 @@
     return nullptr;
 }
 
-- (CGPoint) _scrollPosition
+- (CGPoint)_scrollPosition
 {
     return CGPointMake(_item->pageState().mainFrameState.scrollPosition.x(), _item->pageState().mainFrameState.scrollPosition.y());
+}
+
+- (BOOL)_wasCreatedByJSWithoutUserInteraction
+{
+    return _item->wasCreatedByJSWithoutUserInteraction();
 }
 
 #pragma mark WKObject protocol implementation

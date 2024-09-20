@@ -26,10 +26,9 @@
 typedef unsigned long GLenum;
 
 [
-    NoInterfaceObject,
+    LegacyNoInterfaceObject,
     Conditional=WEBGL,
-    GenerateIsReachable=ImplWebGLRenderingContext,
-    DoNotCheckConstants,
+    GenerateIsReachable,
 ] interface WebGLDrawBuffers {
     const GLenum COLOR_ATTACHMENT0_WEBGL = 0x8CE0;
     const GLenum COLOR_ATTACHMENT1_WEBGL = 0x8CE1;
@@ -68,5 +67,5 @@ typedef unsigned long GLenum;
     const GLenum MAX_COLOR_ATTACHMENTS_WEBGL = 0x8CDF;
     const GLenum MAX_DRAW_BUFFERS_WEBGL = 0x8824;
 
-    void drawBuffersWEBGL(sequence<GLenum> buffers);
+    undefined drawBuffersWEBGL(sequence<GLenum> buffers);
 };

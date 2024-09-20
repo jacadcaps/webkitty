@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,18 +30,17 @@
 
 #include <limits.h>
 #include <wtf/StringPrintStream.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace JSC { namespace B3 { namespace Air {
 
 const char* const Special::dumpPrefix = "&";
 
-Special::Special()
-{
-}
+WTF_MAKE_TZONE_ALLOCATED_IMPL(Special);
 
-Special::~Special()
-{
-}
+Special::Special() = default;
+
+Special::~Special() = default;
 
 CString Special::name() const
 {
@@ -50,9 +49,9 @@ CString Special::name() const
     return out.toCString();
 }
 
-Optional<unsigned> Special::shouldTryAliasingDef(Inst&)
+std::optional<unsigned> Special::shouldTryAliasingDef(Inst&)
 {
-    return WTF::nullopt;
+    return std::nullopt;
 }
 
 bool Special::isTerminal(Inst&)

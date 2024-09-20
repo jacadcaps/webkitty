@@ -22,10 +22,9 @@
 
 #if USE(COORDINATED_GRAPHICS)
 
+#include "BitmapTexture.h"
 #include "GraphicsLayer.h"
-#include "NicosiaBuffer.h"
 #include "TextureMapper.h"
-#include "TextureMapperGL.h"
 
 namespace WebCore {
 
@@ -47,14 +46,30 @@ void CoordinatedBackingStoreTile::swapBuffers(TextureMapper& textureMapper)
         FloatRect unscaledTileRect(update.tileRect);
         unscaledTileRect.scale(1. / m_scale);
 
+        OptionSet<BitmapTexture::Flags> flags;
+        if (update.buffer->supportsAlpha())
+            flags.add(BitmapTexture::Flags::SupportsAlpha);
+
         if (!m_texture || unscaledTileRect != rect()) {
             setRect(unscaledTileRect);
-            m_texture = textureMapper.acquireTextureFromPool(update.tileRect.size(), update.buffer->supportsAlpha() ? BitmapTexture::SupportsAlpha : BitmapTexture::NoFlag);
+            m_texture = textureMapper.acquireTextureFromPool(update.tileRect.size(), flags);
         } else if (update.buffer->supportsAlpha() == m_texture->isOpaque())
-            m_texture->reset(update.tileRect.size(), update.buffer->supportsAlpha());
+            m_texture->reset(update.tileRect.size(), flags);
 
         update.buffer->waitUntilPaintingComplete();
-        m_texture->updateContents(update.buffer->data(), update.sourceRect, update.bufferOffset, update.buffer->stride());
+
+#if USE(SKIA)
+        if (update.buffer->isBackedByOpenGL()) {
+            auto& buffer = static_cast<Nicosia::AcceleratedBuffer&>(*update.buffer);
+            m_texture->copyFromExternalTexture(buffer.textureID(), update.sourceRect, toIntSize(update.bufferOffset));
+            update.buffer = nullptr;
+            continue;
+        }
+#endif
+
+        ASSERT(!update.buffer->isBackedByOpenGL());
+        auto& buffer = static_cast<Nicosia::UnacceleratedBuffer&>(*update.buffer);
+        m_texture->updateContents(buffer.data(), update.sourceRect, update.bufferOffset, buffer.stride());
         update.buffer = nullptr;
     }
 }
@@ -92,7 +107,7 @@ void CoordinatedBackingStore::setSize(const FloatSize& size)
 void CoordinatedBackingStore::paintTilesToTextureMapper(Vector<TextureMapperTile*>& tiles, TextureMapper& textureMapper, const TransformationMatrix& transform, float opacity, const FloatRect& rect)
 {
     for (auto& tile : tiles)
-        tile->paint(textureMapper, transform, opacity, calculateExposedTileEdges(rect, tile->rect()));
+        tile->paint(textureMapper, transform, opacity, allTileEdgesExposed(rect, tile->rect()));
 }
 
 TransformationMatrix CoordinatedBackingStore::adjustedTransformForRect(const FloatRect& targetRect)

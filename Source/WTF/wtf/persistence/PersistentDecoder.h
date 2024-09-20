@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,53 +25,57 @@
 
 #pragma once
 
+#include <span>
 #include <wtf/EnumTraits.h>
 #include <wtf/SHA1.h>
-#include <wtf/persistence/PersistentCoder.h>
+#include <wtf/persistence/PersistentCoders.h>
 
-namespace WTF {
-namespace Persistence {
+namespace WTF::Persistence {
+
+template<typename> struct Coder;
 
 class Decoder {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    WTF_EXPORT_PRIVATE Decoder(const uint8_t* buffer, size_t bufferSize);
+    WTF_EXPORT_PRIVATE Decoder(std::span<const uint8_t>);
     WTF_EXPORT_PRIVATE ~Decoder();
 
-    size_t length() const { return m_bufferEnd - m_buffer; }
-    size_t currentOffset() const { return m_bufferPosition - m_buffer; }
+    size_t length() const { return m_buffer.size(); }
+    size_t currentOffset() const { return static_cast<size_t>(std::distance(m_buffer.begin(), m_bufferPosition)); }
+    
+    WTF_EXPORT_PRIVATE WARN_UNUSED_RETURN bool rewind(size_t);
 
     WTF_EXPORT_PRIVATE WARN_UNUSED_RETURN bool verifyChecksum();
 
-    WTF_EXPORT_PRIVATE WARN_UNUSED_RETURN bool decodeFixedLengthData(uint8_t*, size_t);
+    WTF_EXPORT_PRIVATE WARN_UNUSED_RETURN bool decodeFixedLengthData(std::span<uint8_t>);
 
-    WTF_EXPORT_PRIVATE Decoder& operator>>(Optional<bool>&);
-    WTF_EXPORT_PRIVATE Decoder& operator>>(Optional<uint8_t>&);
-    WTF_EXPORT_PRIVATE Decoder& operator>>(Optional<uint16_t>&);
-    WTF_EXPORT_PRIVATE Decoder& operator>>(Optional<uint32_t>&);
-    WTF_EXPORT_PRIVATE Decoder& operator>>(Optional<uint64_t>&);
-    WTF_EXPORT_PRIVATE Decoder& operator>>(Optional<int16_t>&);
-    WTF_EXPORT_PRIVATE Decoder& operator>>(Optional<int32_t>&);
-    WTF_EXPORT_PRIVATE Decoder& operator>>(Optional<int64_t>&);
-    WTF_EXPORT_PRIVATE Decoder& operator>>(Optional<float>&);
-    WTF_EXPORT_PRIVATE Decoder& operator>>(Optional<double>&);
+    WTF_EXPORT_PRIVATE Decoder& operator>>(std::optional<bool>&);
+    WTF_EXPORT_PRIVATE Decoder& operator>>(std::optional<uint8_t>&);
+    WTF_EXPORT_PRIVATE Decoder& operator>>(std::optional<uint16_t>&);
+    WTF_EXPORT_PRIVATE Decoder& operator>>(std::optional<uint32_t>&);
+    WTF_EXPORT_PRIVATE Decoder& operator>>(std::optional<uint64_t>&);
+    WTF_EXPORT_PRIVATE Decoder& operator>>(std::optional<int16_t>&);
+    WTF_EXPORT_PRIVATE Decoder& operator>>(std::optional<int32_t>&);
+    WTF_EXPORT_PRIVATE Decoder& operator>>(std::optional<int64_t>&);
+    WTF_EXPORT_PRIVATE Decoder& operator>>(std::optional<float>&);
+    WTF_EXPORT_PRIVATE Decoder& operator>>(std::optional<double>&);
 
     template<typename T, std::enable_if_t<!std::is_arithmetic<typename std::remove_const<T>>::value && !std::is_enum<T>::value>* = nullptr>
-    Decoder& operator>>(Optional<T>& result)
+    Decoder& operator>>(std::optional<T>& result)
     {
-        result = Coder<T>::decode(*this);
+        result = Coder<T>::decodeForPersistence(*this);
         return *this;
     }
 
     template<typename E, std::enable_if_t<std::is_enum<E>::value>* = nullptr>
-    Decoder& operator>>(Optional<E>& result)
+    Decoder& operator>>(std::optional<E>& result)
     {
         static_assert(sizeof(E) <= 8, "Enum type T must not be larger than 64 bits!");
-        Optional<uint64_t> value;
+        std::optional<uint64_t> value;
         *this >> value;
         if (!value)
             return *this;
-        if (!isValidEnum<E>(*value))
+        if (!isValidEnumForPersistence<E>(*value))
             return *this;
         result = static_cast<E>(*value);
         return *this;
@@ -81,26 +85,19 @@ public:
     bool bufferIsLargeEnoughToContain(size_t numElements) const
     {
         static_assert(std::is_arithmetic<T>::value, "Type T must have a fixed, known encoded size!");
-
-        if (numElements > std::numeric_limits<size_t>::max() / sizeof(T))
-            return false;
-
-        return bufferIsLargeEnoughToContain(numElements * sizeof(T));
+        return numElements <= std::numeric_limits<size_t>::max() / sizeof(T) && bufferIsLargeEnoughToContain(numElements * sizeof(T));
     }
 
-    static constexpr bool isIPCDecoder = false;
+    WTF_EXPORT_PRIVATE WARN_UNUSED_RETURN const uint8_t* bufferPointerForDirectRead(size_t numBytes);
 
 private:
     WTF_EXPORT_PRIVATE WARN_UNUSED_RETURN bool bufferIsLargeEnoughToContain(size_t) const;
-    template<typename Type> Decoder& decodeNumber(Optional<Type>&);
+    template<typename Type> Decoder& decodeNumber(std::optional<Type>&);
 
-    const uint8_t* m_buffer;
-    const uint8_t* m_bufferPosition;
-    const uint8_t* m_bufferEnd;
+    const std::span<const uint8_t> m_buffer;
+    std::span<const uint8_t>::iterator m_bufferPosition;
 
     SHA1 m_sha1;
 };
 
 } 
-}
-

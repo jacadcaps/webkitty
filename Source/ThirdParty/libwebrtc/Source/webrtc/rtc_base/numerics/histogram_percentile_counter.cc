@@ -12,7 +12,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 
+#include "absl/types/optional.h"
 #include "rtc_base/checks.h"
 
 namespace rtc {
@@ -72,7 +75,7 @@ absl::optional<uint32_t> HistogramPercentileCounter::GetPercentile(
       elements_to_skip -= it.second;
     }
   }
-  RTC_NOTREACHED();
+  RTC_DCHECK_NOTREACHED();
   return absl::nullopt;
 }
 

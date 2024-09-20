@@ -14,7 +14,7 @@
 
 #include "absl/types/bad_any_cast.h"
 
-#ifndef ABSL_HAVE_STD_ANY
+#ifndef ABSL_USES_STD_ANY
 
 #include <cstdlib>
 
@@ -22,6 +22,7 @@
 #include "absl/base/internal/raw_logging.h"
 
 namespace absl {
+ABSL_NAMESPACE_BEGIN
 
 bad_any_cast::~bad_any_cast() = default;
 
@@ -39,6 +40,25 @@ void ThrowBadAnyCast() {
 }
 
 }  // namespace any_internal
+ABSL_NAMESPACE_END
 }  // namespace absl
 
-#endif  // ABSL_HAVE_STD_ANY
+#else
+
+// https://github.com/abseil/abseil-cpp/issues/1465
+// CMake builds on Apple platforms error when libraries are empty.
+// Our CMake configuration can avoid this error on header-only libraries,
+// but since this library is conditionally empty, including a single
+// variable is an easy workaround.
+#ifdef __APPLE__
+namespace absl {
+ABSL_NAMESPACE_BEGIN
+namespace types_internal {
+extern const char kAvoidEmptyBadAnyCastLibraryWarning;
+const char kAvoidEmptyBadAnyCastLibraryWarning = 0;
+}  // namespace types_internal
+ABSL_NAMESPACE_END
+}  // namespace absl
+#endif  // __APPLE__
+
+#endif  // ABSL_USES_STD_ANY

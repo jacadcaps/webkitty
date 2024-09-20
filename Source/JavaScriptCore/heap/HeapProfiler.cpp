@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,17 +27,19 @@
 #include "HeapProfiler.h"
 
 #include "HeapSnapshot.h"
+#include "VM.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace JSC {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(HeapProfiler);
 
 HeapProfiler::HeapProfiler(VM& vm)
     : m_vm(vm)
 {
 }
 
-HeapProfiler::~HeapProfiler()
-{
-}
+HeapProfiler::~HeapProfiler() = default;
 
 HeapSnapshot* HeapProfiler::mostRecentSnapshot()
 {
@@ -60,6 +62,7 @@ void HeapProfiler::setActiveHeapAnalyzer(HeapAnalyzer* analyzer)
 {
     ASSERT(!!m_activeAnalyzer != !!analyzer);
     m_activeAnalyzer = analyzer;
+    m_vm.setActiveHeapAnalyzer(analyzer);
 }
 
 } // namespace JSC

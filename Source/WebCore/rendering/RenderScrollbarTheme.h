@@ -37,13 +37,13 @@ class RenderScrollbarTheme final : public ScrollbarThemeComposite {
 public:
     virtual ~RenderScrollbarTheme() = default;
     
-    int scrollbarThickness(ScrollbarControlSize controlSize, ScrollbarExpansionState expansionState = ScrollbarExpansionState::Expanded) override { return ScrollbarTheme::theme().scrollbarThickness(controlSize, expansionState); }
+    int scrollbarThickness(ScrollbarWidth scrollbarWidth = ScrollbarWidth::Auto, ScrollbarExpansionState expansionState = ScrollbarExpansionState::Expanded) override { return ScrollbarTheme::theme().scrollbarThickness(scrollbarWidth, expansionState); }
 
     ScrollbarButtonsPlacement buttonsPlacement() const override { return ScrollbarTheme::theme().buttonsPlacement(); }
 
     bool supportsControlTints() const override { return true; }
 
-    void paintScrollCorner(GraphicsContext&, const IntRect& cornerRect) override;
+    void paintScrollCorner(ScrollableArea&, GraphicsContext&, const IntRect& cornerRect) override;
 
     ScrollbarButtonPressAction handleMousePressEvent(Scrollbar& scrollbar, const PlatformMouseEvent& event, ScrollbarPart pressedPart) override { return ScrollbarTheme::theme().handleMousePressEvent(scrollbar, event, pressedPart); }
 

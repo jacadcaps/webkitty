@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,108 +28,160 @@
 
 #if PLATFORM(COCOA)
 
+#include "AV1Utilities.h"
+#include "AV1UtilitiesCocoa.h"
 #include "HEVCUtilitiesCocoa.h"
 #include "MediaCapabilitiesDecodingInfo.h"
 #include "MediaDecodingConfiguration.h"
 #include "MediaPlayer.h"
+#include "MediaSessionHelperIOS.h"
+#include "PlatformMediaSessionManager.h"
 #include "VP9UtilitiesCocoa.h"
+#include <pal/avfoundation/OutputContext.h>
+#include <pal/avfoundation/OutputDevice.h>
+#include <wtf/Algorithms.h>
 
 #include "VideoToolboxSoftLink.h"
+#include <pal/cf/AudioToolboxSoftLink.h>
 
 namespace WebCore {
 
-// FIXME: Remove this once kCMVideoCodecType_VP9 is added to CMFormatDescription.h
-constexpr CMVideoCodecType kCMVideoCodecType_VP9 { 'vp09' };
-
-static CMVideoCodecType videoCodecTypeFromRFC4281Type(String type)
+static CMVideoCodecType videoCodecTypeFromRFC4281Type(StringView type)
 {
-    if (type.startsWith("mp4v"))
+    if (type.startsWith("mp4v"_s))
         return kCMVideoCodecType_MPEG4Video;
-    if (type.startsWith("avc1") || type.startsWith("avc3"))
+    if (type.startsWith("avc1"_s) || type.startsWith("avc3"_s))
         return kCMVideoCodecType_H264;
-    if (type.startsWith("hvc1") || type.startsWith("hev1"))
+    if (type.startsWith("hvc1"_s) || type.startsWith("hev1"_s))
         return kCMVideoCodecType_HEVC;
-    if (type.startsWith("vp09"))
+#if ENABLE(VP9)
+    if (type.startsWith("vp09"_s))
         return kCMVideoCodecType_VP9;
+#endif
     return 0;
 }
 
-void createMediaPlayerDecodingConfigurationCocoa(MediaDecodingConfiguration&& configuration, WTF::Function<void(MediaCapabilitiesDecodingInfo&&)>&& callback)
+static std::optional<MediaCapabilitiesInfo> computeMediaCapabilitiesInfo(const MediaDecodingConfiguration& configuration)
 {
-    MediaCapabilitiesDecodingInfo info;
+    MediaCapabilitiesInfo info;
 
     if (configuration.video) {
         auto& videoConfiguration = configuration.video.value();
         MediaEngineSupportParameters parameters { };
-        parameters.type = ContentType(videoConfiguration.contentType);
-        parameters.isMediaSource = configuration.type == MediaDecodingType::MediaSource;
-        if (MediaPlayer::supportsType(parameters) != MediaPlayer::SupportsType::IsSupported) {
-            callback({{ }, WTFMove(configuration)});
-            return;
+        parameters.allowedMediaContainerTypes = configuration.allowedMediaContainerTypes;
+        parameters.allowedMediaCodecTypes = configuration.allowedMediaCodecTypes;
+
+        switch (configuration.type) {
+        case MediaDecodingType::File:
+            parameters.isMediaSource = false;
+            break;
+        case MediaDecodingType::MediaSource:
+            parameters.isMediaSource = true;
+            break;
+        case MediaDecodingType::WebRTC:
+            ASSERT_NOT_REACHED();
+            return std::nullopt;
         }
 
+        parameters.type = ContentType(videoConfiguration.contentType);
+        if (MediaPlayer::supportsType(parameters) != MediaPlayer::SupportsType::IsSupported)
+            return std::nullopt;
+
         auto codecs = parameters.type.codecs();
-        if (codecs.size() != 1) {
-            callback({{ }, WTFMove(configuration)});
-            return;
-        }
+        if (codecs.size() != 1)
+            return std::nullopt;
 
         info.supported = true;
         auto& codec = codecs[0];
         auto videoCodecType = videoCodecTypeFromRFC4281Type(codec);
-        if (!videoCodecType && !(codec.startsWith("dvh1") || codec.startsWith("dvhe"))) {
-            callback({{ }, WTFMove(configuration)});
-            return;
-        }
 
         bool hdrSupported = videoConfiguration.colorGamut || videoConfiguration.hdrMetadataType || videoConfiguration.transferFunction;
         bool alphaChannel = videoConfiguration.alphaChannel && videoConfiguration.alphaChannel.value();
 
         if (videoCodecType == kCMVideoCodecType_HEVC) {
             auto parameters = parseHEVCCodecParameters(codec);
-            if (!parameters || !validateHEVCParameters(parameters.value(), info, alphaChannel, hdrSupported)) {
-                callback({{ }, WTFMove(configuration)});
-                return;
-            }
-        } else if (codec.startsWith("dvh1") || codec.startsWith("dvhe")) {
+            if (!parameters)
+                return std::nullopt;
+            auto parsedInfo = validateHEVCParameters(*parameters, alphaChannel, hdrSupported);
+            if (!parsedInfo)
+                return std::nullopt;
+            info = *parsedInfo;
+        } else if (codec.startsWith("dvh1"_s) || codec.startsWith("dvhe"_s)) {
             auto parameters = parseDoViCodecParameters(codec);
-            if (!parameters || !validateDoViParameters(parameters.value(), info, alphaChannel, hdrSupported)) {
-                callback({{ }, WTFMove(configuration)});
-                return;
-            }
+            if (!parameters)
+                return std::nullopt;
+            auto parsedInfo = validateDoViParameters(*parameters, alphaChannel, hdrSupported);
+            if (!parsedInfo)
+                return std::nullopt;
+            info = *parsedInfo;
+#if ENABLE(VP9)
         } else if (videoCodecType == kCMVideoCodecType_VP9) {
-            auto codecConfiguration = parseVPCodecParameters(codec);
-            if (!codecConfiguration || !validateVPParameters(*codecConfiguration, info, videoConfiguration)) {
-                callback({{ }, WTFMove(configuration)});
-                return;
-            }
-        } else {
-            if (alphaChannel || hdrSupported) {
-                callback({{ }, WTFMove(configuration)});
-                return;
-            }
+            if (!configuration.canExposeVP9)
+                return std::nullopt;
+            auto parameters = parseVPCodecParameters(codec);
+            if (!parameters)
+                return std::nullopt;
+            auto parsedInfo = validateVPParameters(*parameters, videoConfiguration);
+            if (!parsedInfo)
+                return std::nullopt;
+            info = *parsedInfo;
+#endif
+#if ENABLE(AV1)
+        } else if (codec.startsWith("av01"_s)) {
+            auto parameters = parseAV1CodecParameters(codec);
+            if (!parameters)
+                return std::nullopt;
+            auto parsedInfo = validateAV1Parameters(*parameters, videoConfiguration);
+            if (!parsedInfo)
+                return std::nullopt;
+            info = *parsedInfo;
+#endif
+        } else if (videoCodecType) {
+            if (alphaChannel || hdrSupported)
+                return std::nullopt;
 
             if (canLoad_VideoToolbox_VTIsHardwareDecodeSupported()) {
                 info.powerEfficient = VTIsHardwareDecodeSupported(videoCodecType);
                 info.smooth = true;
             }
-        }
+        } else
+            return std::nullopt;
     }
 
-    if (configuration.audio) {
-        MediaEngineSupportParameters parameters { };
-        parameters.type = ContentType(configuration.audio.value().contentType);
-        parameters.isMediaSource = configuration.type == MediaDecodingType::MediaSource;
-        if (MediaPlayer::supportsType(parameters) != MediaPlayer::SupportsType::IsSupported) {
-            callback({{ }, WTFMove(configuration)});
-            return;
-        }
-        info.supported = true;
+    if (!configuration.audio)
+        return info;
+
+    MediaEngineSupportParameters parameters { };
+    parameters.type = ContentType(configuration.audio.value().contentType);
+    parameters.isMediaSource = configuration.type == MediaDecodingType::MediaSource;
+    parameters.allowedMediaContainerTypes = configuration.allowedMediaContainerTypes;
+    parameters.allowedMediaCodecTypes = configuration.allowedMediaCodecTypes;
+
+    if (MediaPlayer::supportsType(parameters) != MediaPlayer::SupportsType::IsSupported)
+        return std::nullopt;
+
+    info.supported = true;
+    if (!configuration.audio->spatialRendering.value_or(false))
+        return info;
+
+    auto supportsSpatialPlayback = PlatformMediaSessionManager::sharedManager().supportsSpatialAudioPlaybackForConfiguration(configuration);
+    if (!supportsSpatialPlayback.has_value())
+        return std::nullopt;
+
+    info.supported = supportsSpatialPlayback.value();
+
+    return info;
+}
+
+void createMediaPlayerDecodingConfigurationCocoa(MediaDecodingConfiguration&& configuration, Function<void(MediaCapabilitiesDecodingInfo&&)>&& callback)
+{
+    auto info = computeMediaCapabilitiesInfo(configuration);
+    if (!info)
+        callback({ { }, WTFMove(configuration) });
+    else {
+        MediaCapabilitiesDecodingInfo infoWithConfiguration = { WTFMove(*info), WTFMove(configuration) };
+        callback(WTFMove(infoWithConfiguration));
     }
-
-    info.supportedConfiguration = WTFMove(configuration);
-
-    callback(WTFMove(info));
 }
 
 }

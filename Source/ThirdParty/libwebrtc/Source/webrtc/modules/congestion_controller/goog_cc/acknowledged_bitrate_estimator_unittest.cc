@@ -10,11 +10,19 @@
 
 #include "modules/congestion_controller/goog_cc/acknowledged_bitrate_estimator.h"
 
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <utility>
+#include <vector>
 
+#include "absl/types/optional.h"
 #include "api/transport/field_trial_based_config.h"
-#include "rtc_base/fake_clock.h"
+#include "api/transport/network_types.h"
+#include "api/units/data_rate.h"
+#include "api/units/data_size.h"
+#include "api/units/timestamp.h"
+#include "modules/congestion_controller/goog_cc/bitrate_estimator.h"
 #include "test/gmock.h"
 #include "test/gtest.h"
 
@@ -35,10 +43,12 @@ constexpr size_t kPayloadSize = 10;
 class MockBitrateEstimator : public BitrateEstimator {
  public:
   using BitrateEstimator::BitrateEstimator;
-  MOCK_METHOD3(Update,
-               void(Timestamp at_time, DataSize data_size, bool in_alr));
-  MOCK_CONST_METHOD0(bitrate, absl::optional<DataRate>());
-  MOCK_METHOD0(ExpectFastRateChange, void());
+  MOCK_METHOD(void,
+              Update,
+              (Timestamp at_time, DataSize data_size, bool in_alr),
+              (override));
+  MOCK_METHOD(absl::optional<DataRate>, bitrate, (), (const, override));
+  MOCK_METHOD(void, ExpectFastRateChange, (), (override));
 };
 
 struct AcknowledgedBitrateEstimatorTestStates {

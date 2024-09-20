@@ -25,7 +25,7 @@
 
 #pragma once
 
-#if HAVE(PDFKIT)
+#if USE(PDFKIT_FOR_TESTING)
 
 #import <PDFKit/PDFKit.h>
 #import <wtf/RefCounted.h>
@@ -68,8 +68,8 @@ public:
 private:
     TestPDFPage(PDFPage *);
     RetainPtr<PDFPage> m_page;
-    Optional<Vector<TestPDFAnnotation>> m_annotations;
-    mutable Optional<String> m_textWithoutSurroundingWhitespace;
+    std::optional<Vector<TestPDFAnnotation>> m_annotations;
+    mutable std::optional<String> m_textWithoutSurroundingWhitespace;
 };
 
 class TestPDFDocument : public RefCounted<TestPDFDocument> {
@@ -89,4 +89,4 @@ private:
 };
 
 } // namespace TestWebKitAPI
-#endif // HAVE(PDFKIT)
+#endif // USE(PDFKIT_FOR_TESTING)

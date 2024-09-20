@@ -7,11 +7,11 @@
  *  in the file PATENTS.  All contributing project authors may
  *  be found in the AUTHORS file in the root of the source tree.
  */
-#include "modules/rtp_rtcp/include/rtp_rtcp.h"
 #include "modules/rtp_rtcp/source/rtcp_packet/tmmb_item.h"
 #include "modules/rtp_rtcp/source/rtcp_receiver.h"
-#include "rtc_base/checks.h"
+#include "modules/rtp_rtcp/source/rtp_rtcp_interface.h"
 #include "system_wrappers/include/clock.h"
+#include "system_wrappers/include/field_trial.h"
 
 namespace webrtc {
 namespace {
@@ -27,7 +27,8 @@ class NullModuleRtpRtcp : public RTCPReceiver::ModuleRtpRtcp {
   void SetTmmbn(std::vector<rtcp::TmmbItem>) override {}
   void OnRequestSendReport() override {}
   void OnReceivedNack(const std::vector<uint16_t>&) override {}
-  void OnReceivedRtcpReportBlocks(const ReportBlockList&) override {}
+  void OnReceivedRtcpReportBlocks(
+      rtc::ArrayView<const ReportBlockData> report_blocks) override {}
 };
 
 }  // namespace
@@ -36,17 +37,18 @@ void FuzzOneInput(const uint8_t* data, size_t size) {
   if (size > kMaxInputLenBytes) {
     return;
   }
-
+  field_trial::InitFieldTrialsFromString(
+      "WebRTC-RFC8888CongestionControlFeedback/Enabled/");
   NullModuleRtpRtcp rtp_rtcp_module;
   SimulatedClock clock(1234);
 
-  RtpRtcp::Configuration config;
+  RtpRtcpInterface::Configuration config;
   config.clock = &clock;
   config.rtcp_report_interval_ms = kRtcpIntervalMs;
   config.local_media_ssrc = 1;
 
   RTCPReceiver receiver(config, &rtp_rtcp_module);
 
-  receiver.IncomingPacket(data, size);
+  receiver.IncomingPacket(rtc::MakeArrayView(data, size));
 }
 }  // namespace webrtc

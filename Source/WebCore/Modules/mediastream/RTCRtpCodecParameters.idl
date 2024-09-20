@@ -25,8 +25,9 @@
 
 [
     Conditional=WEB_RTC,
-    EnabledAtRuntime=PeerConnection,
+    EnabledBySetting=PeerConnectionEnabled,
     JSGenerateToJSObject,
+    JSGenerateToNativeObject
 ] dictionary RTCRtpCodecParameters {
     unsigned short payloadType;
     DOMString mimeType;

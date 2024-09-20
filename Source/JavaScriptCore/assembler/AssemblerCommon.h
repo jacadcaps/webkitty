@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,24 +25,16 @@
 
 #pragma once
 
+#include "OSCheck.h"
+
 namespace JSC {
 
-ALWAYS_INLINE constexpr bool isDarwin()
+template<size_t bits, typename Type>
+ALWAYS_INLINE constexpr bool isInt(Type t)
 {
-#if OS(DARWIN)
-    return true;
-#else
-    return false;
-#endif
-}
-
-ALWAYS_INLINE constexpr bool isIOS()
-{
-#if PLATFORM(IOS_FAMILY)
-    return true;
-#else
-    return false;
-#endif
+    constexpr size_t shift = sizeof(Type) * CHAR_BIT - bits;
+    static_assert(sizeof(Type) * CHAR_BIT > shift, "shift is larger than the size of the value");
+    return ((t << shift) >> shift) == t;
 }
 
 ALWAYS_INLINE bool isInt9(int32_t value)
@@ -72,6 +64,15 @@ ALWAYS_INLINE bool isValidScaledUImm12(int32_t offset)
 ALWAYS_INLINE bool isValidSignedImm9(int32_t value)
 {
     return isInt9(value);
+}
+
+ALWAYS_INLINE bool isValidSignedImm7(int32_t value, int alignmentShiftAmount)
+{
+    constexpr int32_t disallowedHighBits = 32 - 7;
+    int32_t shiftedValue = value >> alignmentShiftAmount;
+    bool fitsIn7Bits = shiftedValue == ((shiftedValue << disallowedHighBits) >> disallowedHighBits);
+    bool hasCorrectAlignment = value == (shiftedValue << alignmentShiftAmount);
+    return fitsIn7Bits && hasCorrectAlignment;
 }
 
 class ARM64LogicalImmediate {
@@ -295,5 +296,50 @@ private:
 
     int m_value;
 };
+
+ALWAYS_INLINE bool isValidARMThumb2Immediate(int64_t value)
+{
+    if (value < 0)
+        return false;
+    if (value > UINT32_MAX)
+        return false;
+    if (value < 256)
+        return true;
+    // If it can be expressed as an 8-bit number, left sifted by a constant
+    const int64_t mask = (value ^ (value & (value - 1))) * 0xff;
+    if ((value & mask) == value)
+        return true;
+    // FIXME: there are a few more valid forms, see section 4.2 in the Thumb-2 Supplement
+    return false;
+}
+
+enum class MachineCodeCopyMode : uint8_t {
+    Memcpy,
+    JITMemcpy,
+};
+
+static void* performJITMemcpy(void *dst, const void *src, size_t n);
+
+template<MachineCodeCopyMode copy>
+ALWAYS_INLINE void* machineCodeCopy(void *dst, const void *src, size_t n)
+{
+#if CPU(ARM_THUMB2)
+    // For thumb instructions, we want to avoid the case where we have
+    // to repatch a 32-bit instruction that crosses 2 words.
+    bool isAligned = (dst == WTF::roundUpToMultipleOf<4>(dst));
+    if (n == 2 * sizeof(int16_t) && isAligned) {
+        *static_cast<uint32_t*>(dst) = *static_cast<const uint32_t*>(src);
+        return dst;
+    }
+    if (n == 1 * sizeof(int16_t)) {
+        *static_cast<uint16_t*>(dst) = *static_cast<const uint16_t*>(src);
+        return dst;
+    }
+#endif
+    if constexpr (copy == MachineCodeCopyMode::Memcpy)
+        return memcpy(dst, src, n);
+    else
+        return performJITMemcpy(dst, src, n);
+}
 
 } // namespace JSC.

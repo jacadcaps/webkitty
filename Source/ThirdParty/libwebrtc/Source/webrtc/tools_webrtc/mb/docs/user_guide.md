@@ -27,8 +27,8 @@ a list of files (e.g., the list of files in a patch on a trybot):
 mb analyze -c chromium_linux_rel //out/Release input.json output.json
 ```
 
-Either the `-c/--config` flag or the `-m/--master` and `-b/--builder` flags
-must be specified so that `mb` can figure out which config to use.
+Either the `-c/--config` flag or the `-m/--builder-group` and `-b/--builder`
+flags must be specified so that `mb` can figure out which config to use.
 
 The first positional argument must be a GN-style "source-absolute" path
 to the build directory.
@@ -90,15 +90,16 @@ differences can be subtle.  We won't even go into how the `targets` and
 `build_targets` differ from each other or from `compile_targets` and
 `test_targets`.
 
-The `-b/--builder`, `-c/--config`, `-f/--config-file`, `-m/--master`,
+The `-b/--builder`, `-c/--config`, `-f/--config-file`, `-m/--builder-group`,
 `-q/--quiet`, and `-v/--verbose` flags work as documented for `mb gen`.
 
 ### `mb audit`
 
 `mb audit` is used to track the progress of the GYP->GN migration. You can
-use it to check a single master, or all the masters we care about. See
-`mb help audit` for more details (most people are not expected to care about
-this).
+use it to check a single builder group, or all the builder groups we care
+about.
+See `mb help audit` for more details (most people are not expected to care
+about this).
 
 ### `mb gen`
 
@@ -111,8 +112,8 @@ a directory, then runs GYP or GN as appropriate:
 % mb gen -c linux_rel_trybot //out/Release
 ```
 
-Either the `-c/--config` flag or the `-m/--master` and `-b/--builder` flags
-must be specified so that `mb` can figure out which config to use. The
+Either the `-c/--config` flag or the `-m/--builder-group` and `-b/--builder`
+flags must be specified so that `mb` can figure out which config to use. The
 `--phase` flag must also be used with builders that have multiple
 build/compile steps (and only with those builders).
 
@@ -131,10 +132,6 @@ You can pass the `-q/--quiet` flag to get mb to be silent unless there is an
 error, and pass the `-v/--verbose` flag to get mb to log all of the files
 that are read and written, and all the commands that are run.
 
-If the build config will use the Goma distributed-build system, you can pass
-the path to your Goma client in the `-g/--goma-dir` flag, and it will be
-incorporated into the appropriate flags for GYP or GN as needed.
-
 If gen ends up using GYP, the path must have a valid GYP configuration as the
 last component of the path (i.e., specify `//out/Release_x64`, not `//out`).
 The gyp script defaults to `//build/gyp_chromium`, but can be overridden with
@@ -149,7 +146,7 @@ Produces help output on the other subcommands
 Prints what command will be run by `mb gen` (like `mb gen -n` but does
 not require you to specify a path).
 
-The `-b/--builder`, `-c/--config`, `-f/--config-file`, `-m/--master`,
+The `-b/--builder`, `-c/--config`, `-f/--config-file`, `-m/--builder-group`,
 `--phase`, `-q/--quiet`, and `-v/--verbose` flags work as documented for
 `mb gen`.
 
@@ -198,11 +195,11 @@ listed here, and so by using the configs in this file you can avoid
 having to juggle long lists of GYP_DEFINES and gn args by hand.
 
 `mb_config.pyl` is structured as a file containing a single PYthon Literal
-expression: a dictionary with three main keys, `masters`, `configs` and
+expression: a dictionary with three main keys, `builder_groups`, `configs` and
 `mixins`.
 
-The `masters` key contains a nested series of dicts containing mappings
-of master -> builder -> config . This allows us to isolate the buildbot
+The `builder_groups` key contains a nested series of dicts containing mappings
+of builder group -> builder -> config . This allows us to isolate the buildbot
 recipes from the actual details of the configs. The config should either
 be a single string value representing a key in the `configs` dictionary,
 or a list of strings, each of which is a key in the `configs` dictionary;
@@ -247,8 +244,8 @@ For example, if you had:
   }
   'mixins': {
     'bot': {
-      'gyp_defines': 'use_goma=1 dcheck_always_on=0',
-      'gn_args': 'use_goma=true dcheck_always_on=false',
+      'gyp_defines': 'use_remoteexec=1 dcheck_always_on=0',
+      'gn_args': 'use_remoteexec=true dcheck_always_on=false',
     },
     'debug': {
       'gn_args': 'is_debug=true',
@@ -275,7 +272,7 @@ For example, if you had:
 
 and you ran `mb gen -c linux_release_trybot //out/Release`, it would
 translate into a call to `gyp_chromium -G Release` with `GYP_DEFINES` set to
-`"use_goma=true dcheck_always_on=false dcheck_always_on=true"`.
+`"use_remoteexec=true dcheck_always_on=false dcheck_always_on=true"`.
 
 (From that you can see that mb is intentionally dumb and does not
 attempt to de-dup the flags, it lets gyp do that).

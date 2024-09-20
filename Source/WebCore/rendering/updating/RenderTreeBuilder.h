@@ -30,7 +30,6 @@
 
 namespace WebCore {
 
-class RenderFullScreen;
 class RenderGrid;
 class RenderTreeUpdater;
 
@@ -43,26 +42,35 @@ public:
     // FIXME: Remove.
     static RenderTreeBuilder* current() { return s_current; }
 
+    static bool isRebuildRootForChildren(const RenderElement&);
+
     void attach(RenderElement& parent, RenderPtr<RenderObject>, RenderObject* beforeChild = nullptr);
 
-    enum class CanCollapseAnonymousBlock { No, Yes };
-    RenderPtr<RenderObject> detach(RenderElement&, RenderObject&, CanCollapseAnonymousBlock = CanCollapseAnonymousBlock::Yes) WARN_UNUSED_RETURN;
+    enum class IsInternalMove : bool { No, Yes };
+    enum class WillBeDestroyed : bool { No, Yes };
+    enum class CanCollapseAnonymousBlock : bool { No, Yes };
+    RenderPtr<RenderObject> detach(RenderElement&, RenderObject&, WillBeDestroyed, CanCollapseAnonymousBlock = CanCollapseAnonymousBlock::Yes) WARN_UNUSED_RETURN;
 
-    void destroy(RenderObject& renderer);
+    enum class TearDownType : uint8_t {
+        Root,                          // destroy root renderer
+        SubtreeWithRootStillAttached,  // subtree teardown when renderers are still attached to the tree (common case)
+        SubtreeWithRootAlreadyDetached // subtree teardown when destroy root gets detached first followed by destroying renderers (e.g. pseudo subtree)
+    };
+    void destroy(RenderObject& renderer, CanCollapseAnonymousBlock = CanCollapseAnonymousBlock::Yes);
 
     // NormalizeAfterInsertion::Yes ensures that the destination subtree is consistent after the insertion (anonymous wrappers etc).
-    enum class NormalizeAfterInsertion { No, Yes };
+    enum class NormalizeAfterInsertion : bool { No, Yes };
     void move(RenderBoxModelObject& from, RenderBoxModelObject& to, RenderObject& child, NormalizeAfterInsertion);
 
     void updateAfterDescendants(RenderElement&);
-    void destroyAndCleanUpAnonymousWrappers(RenderObject& child);
+    void destroyAndCleanUpAnonymousWrappers(RenderObject& child, const RenderElement* destroyRoot);
     void normalizeTreeAfterStyleChange(RenderElement&, RenderStyle& oldStyle);
 
-#if ENABLE(FULLSCREEN_API)
-    void createPlaceholderForFullScreen(RenderFullScreen&, std::unique_ptr<RenderStyle>, const LayoutRect&);
-#endif
+    bool hasBrokenContinuation() const { return m_hasBrokenContinuation; }
 
 private:
+    static void markBoxForRelayoutAfterSplit(RenderBox&);
+
     void attachInternal(RenderElement& parent, RenderPtr<RenderObject>, RenderObject* beforeChild);
 
     void childFlowStateChangesAndAffectsParentBlock(RenderElement& child);
@@ -72,9 +80,8 @@ private:
     void attachToRenderElement(RenderElement& parent, RenderPtr<RenderObject> child, RenderObject* beforeChild = nullptr);
     void attachToRenderElementInternal(RenderElement& parent, RenderPtr<RenderObject> child, RenderObject* beforeChild = nullptr);
 
-    enum class WillBeDestroyed { No, Yes };
-    RenderPtr<RenderObject> detachFromRenderElement(RenderElement& parent, RenderObject& child, WillBeDestroyed = WillBeDestroyed::Yes) WARN_UNUSED_RETURN;
-    RenderPtr<RenderObject> detachFromRenderGrid(RenderGrid& parent, RenderObject& child) WARN_UNUSED_RETURN;
+    RenderPtr<RenderObject> detachFromRenderElement(RenderElement& parent, RenderObject& child, WillBeDestroyed) WARN_UNUSED_RETURN;
+    RenderPtr<RenderObject> detachFromRenderGrid(RenderGrid& parent, RenderObject& child, WillBeDestroyed) WARN_UNUSED_RETURN;
 
     void move(RenderBoxModelObject& from, RenderBoxModelObject& to, RenderObject& child, RenderObject* beforeChild, NormalizeAfterInsertion);
     // Move all of the kids from |startChild| up to but excluding |endChild|. 0 can be passed as the |endChild| to denote
@@ -85,11 +92,15 @@ private:
     void moveAllChildren(RenderBoxModelObject& from, RenderBoxModelObject& to, NormalizeAfterInsertion);
     void moveAllChildren(RenderBoxModelObject& from, RenderBoxModelObject& to, RenderObject* beforeChild, NormalizeAfterInsertion);
 
+    void removeFloatingObjects(RenderBlock&);
+
     RenderObject* splitAnonymousBoxesAroundChild(RenderBox& parent, RenderObject& originalBeforeChild);
-    void makeChildrenNonInline(RenderBlock& parent, RenderObject* insertionPoint = nullptr);
+    void createAnonymousWrappersForInlineContent(RenderBlock& parent, RenderObject* insertionPoint = nullptr);
     void removeAnonymousWrappersForInlineChildrenIfNeeded(RenderElement& parent);
 
     void reportVisuallyNonEmptyContent(const RenderElement& parent, const RenderObject& child);
+
+    void setHasBrokenContinuation() { m_hasBrokenContinuation = true; }
 
     class FirstLetter;
     class List;
@@ -105,9 +116,6 @@ private:
     class MathML;
 #endif
     class Continuation;
-#if ENABLE(FULLSCREEN_API)
-    class FullScreen;
-#endif
 
     FirstLetter& firstLetterBuilder() { return *m_firstLetterBuilder; }
     List& listBuilder() { return *m_listBuilder; }
@@ -123,9 +131,6 @@ private:
     MathML& mathMLBuilder() { return *m_mathMLBuilder; }
 #endif
     Continuation& continuationBuilder() { return *m_continuationBuilder; }
-#if ENABLE(FULLSCREEN_API)
-    FullScreen& fullScreenBuilder() { return *m_fullScreenBuilder; }
-#endif
 
     WidgetHierarchyUpdatesSuspensionScope m_widgetHierarchyUpdatesSuspensionScope;
     RenderView& m_view;
@@ -146,9 +151,11 @@ private:
     std::unique_ptr<MathML> m_mathMLBuilder;
 #endif
     std::unique_ptr<Continuation> m_continuationBuilder;
-#if ENABLE(FULLSCREEN_API)
-    std::unique_ptr<FullScreen> m_fullScreenBuilder;
-#endif
+    bool m_hasBrokenContinuation { false };
+    IsInternalMove m_internalMovesType { IsInternalMove::No };
+    TearDownType m_tearDownType { TearDownType::Root };
+    CheckedPtr<const RenderElement> m_subtreeDestroyRoot;
+    SingleThreadWeakPtr<const RenderObject> m_anonymousDestroyRoot;
 };
 
 }

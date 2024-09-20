@@ -36,18 +36,16 @@
 
 namespace cbor {
 
-CBORWriter::~CBORWriter()
-{
-}
+CBORWriter::~CBORWriter() = default;
 
 // static
-Optional<Vector<uint8_t>> CBORWriter::write(const CBORValue& node, size_t maxNestingLevel)
+std::optional<Vector<uint8_t>> CBORWriter::write(const CBORValue& node, size_t maxNestingLevel)
 {
     Vector<uint8_t> cbor;
     CBORWriter writer(&cbor);
     if (writer.encodeCBOR(node, static_cast<int>(maxNestingLevel)))
         return cbor;
-    return WTF::nullopt;
+    return std::nullopt;
 }
 
 CBORWriter::CBORWriter(Vector<uint8_t>* cbor)
@@ -90,7 +88,7 @@ bool CBORWriter::encodeCBOR(const CBORValue& node, int maxNestingLevel)
         auto utf8String = node.getString().utf8();
         startItem(CBORValue::Type::String, static_cast<uint64_t>(utf8String.length()));
         // Add the characters.
-        m_encodedCBOR->append(utf8String.data(), utf8String.length());
+        m_encodedCBOR->append(utf8String.span());
         return true;
     }
     // Represents an array.

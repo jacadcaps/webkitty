@@ -11,14 +11,28 @@
 
 #include <math.h>
 
+#include <deque>
+#include <memory>
+#include <string>
 #include <utility>
 
+#include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
+#include "api/rtc_event_log_output.h"
+#include "api/transport/goog_cc_factory.h"
+#include "api/transport/network_control.h"
+#include "api/transport/network_types.h"
+#include "api/units/data_rate.h"
+#include "api/units/data_size.h"
+#include "api/units/time_delta.h"
+#include "api/units/timestamp.h"
 #include "modules/congestion_controller/goog_cc/alr_detector.h"
 #include "modules/congestion_controller/goog_cc/delay_based_bwe.h"
+#include "modules/congestion_controller/goog_cc/goog_cc_network_control.h"
 #include "modules/congestion_controller/goog_cc/trendline_estimator.h"
 #include "modules/remote_bitrate_estimator/aimd_rate_control.h"
 #include "rtc_base/checks.h"
+#include "test/logging/log_writer.h"
 
 namespace webrtc {
 namespace {
@@ -44,8 +58,8 @@ void WriteTypedValue(RtcEventLogOutput* out, absl::optional<Timestamp> value) {
 template <typename F>
 class TypedFieldLogger : public FieldLogger {
  public:
-  TypedFieldLogger(std::string name, F&& getter)
-      : name_(std::move(name)), getter_(std::forward<F>(getter)) {}
+  TypedFieldLogger(absl::string_view name, F&& getter)
+      : name_(name), getter_(std::forward<F>(getter)) {}
   const std::string& name() const override { return name_; }
   void WriteValue(RtcEventLogOutput* out) override {
     WriteTypedValue(out, getter_());
@@ -57,8 +71,8 @@ class TypedFieldLogger : public FieldLogger {
 };
 
 template <typename F>
-FieldLogger* Log(std::string name, F&& getter) {
-  return new TypedFieldLogger<F>(std::move(name), std::forward<F>(getter));
+FieldLogger* Log(absl::string_view name, F&& getter) {
+  return new TypedFieldLogger<F>(name, std::forward<F>(getter));
 }
 
 }  // namespace
@@ -87,7 +101,7 @@ std::deque<FieldLogger*> GoogCcStatePrinter::CreateLoggers() {
   };
   auto loss_cont = [&] {
     return &controller_->bandwidth_estimation_
-                ->loss_based_bandwidth_estimation_;
+                ->loss_based_bandwidth_estimator_v1_;
   };
   std::deque<FieldLogger*> loggers({
       Log("time", [=] { return target_.at_time; }),

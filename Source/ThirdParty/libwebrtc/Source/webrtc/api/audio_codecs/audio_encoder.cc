@@ -10,6 +10,15 @@
 
 #include "api/audio_codecs/audio_encoder.h"
 
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <string>
+
+#include "absl/types/optional.h"
+#include "api/array_view.h"
+#include "api/call/bitrate_allocation.h"
+#include "rtc_base/buffer.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/trace_event.h"
 
@@ -83,7 +92,7 @@ void AudioEncoder::OnReceivedUplinkPacketLossFraction(
 
 void AudioEncoder::OnReceivedUplinkRecoverablePacketLossFraction(
     float uplink_recoverable_packet_loss_fraction) {
-  RTC_NOTREACHED();
+  RTC_DCHECK_NOTREACHED();
 }
 
 void AudioEncoder::OnReceivedTargetAudioBitrate(int target_audio_bitrate_bps) {
@@ -110,9 +119,5 @@ ANAStats AudioEncoder::GetANAStats() const {
   return ANAStats();
 }
 
-absl::optional<std::pair<TimeDelta, TimeDelta>>
-AudioEncoder::GetFrameLengthRange() const {
-  return absl::nullopt;
-}
-
+constexpr int AudioEncoder::kMaxNumberOfChannels;
 }  // namespace webrtc

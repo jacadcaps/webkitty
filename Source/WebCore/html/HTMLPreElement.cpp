@@ -26,12 +26,12 @@
 #include "CSSPropertyNames.h"
 #include "CSSValueKeywords.h"
 #include "HTMLNames.h"
-#include "StyleProperties.h"
-#include <wtf/IsoMallocInlines.h>
+#include "MutableStyleProperties.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLPreElement);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(HTMLPreElement);
 
 using namespace HTMLNames;
 
@@ -45,19 +45,20 @@ Ref<HTMLPreElement> HTMLPreElement::create(const QualifiedName& tagName, Documen
     return adoptRef(*new HTMLPreElement(tagName, document));
 }
 
-bool HTMLPreElement::isPresentationAttribute(const QualifiedName& name) const
+bool HTMLPreElement::hasPresentationalHintsForAttribute(const QualifiedName& name) const
 {
     if (name == wrapAttr)
         return true;
-    return HTMLElement::isPresentationAttribute(name);
+    return HTMLElement::hasPresentationalHintsForAttribute(name);
 }
 
-void HTMLPreElement::collectStyleForPresentationAttribute(const QualifiedName& name, const AtomString& value, MutableStyleProperties& style)
+void HTMLPreElement::collectPresentationalHintsForAttribute(const QualifiedName& name, const AtomString& value, MutableStyleProperties& style)
 {
-    if (name == wrapAttr)
-        style.setProperty(CSSPropertyWhiteSpace, CSSValuePreWrap);
-    else
-        HTMLElement::collectStyleForPresentationAttribute(name, value, style);
+    if (name == wrapAttr) {
+        style.setProperty(CSSPropertyWhiteSpaceCollapse, CSSValuePreserve);
+        style.setProperty(CSSPropertyTextWrapMode, CSSValueWrap);
+    } else
+        HTMLElement::collectPresentationalHintsForAttribute(name, value, style);
 }
 
 }

@@ -28,7 +28,6 @@
 #include "Utilities.h"
 
 #include <mutex>
-#include <wtf/Optional.h>
 #include <wtf/Vector.h>
 
 namespace PAL {
@@ -58,6 +57,7 @@ static asn1_node asn1Definitions()
         { "Version", 1073741827, nullptr },
         { "PrivateKeyAlgorithmIdentifier", 1073741826, "AlgorithmIdentifier"},
         { "PrivateKey", 1073741831, nullptr },
+        { "CurvePrivateKey", 1073741831, nullptr },
         { "Attributes", 1610612751, nullptr },
         { nullptr, 2, "Attribute"},
         { "Attribute", 1610612741, nullptr },
@@ -120,39 +120,39 @@ bool decodeStructure(asn1_node* root, const char* elementName, const Vector<uint
     return ret == ASN1_SUCCESS;
 }
 
-Optional<Vector<uint8_t>> elementData(asn1_node root, const char* elementName)
+std::optional<Vector<uint8_t>> elementData(asn1_node root, const char* elementName)
 {
     int length = 0;
     unsigned type = 0;
     int ret = asn1_read_value_type(root, elementName, nullptr, &length, &type);
     if (ret != ASN1_MEM_ERROR)
-        return WTF::nullopt;
+        return std::nullopt;
 
     if (type == ASN1_ETYPE_BIT_STRING) {
         if (length % 8)
-            return WTF::nullopt;
+            return std::nullopt;
         length /= 8;
     }
 
     Vector<uint8_t> data(length);
     ret = asn1_read_value(root, elementName, data.data(), &length);
     if (ret != ASN1_SUCCESS)
-        return WTF::nullopt;
+        return std::nullopt;
 
     return data;
 }
 
-Optional<Vector<uint8_t>> encodedData(asn1_node root, const char* elementName)
+std::optional<Vector<uint8_t>> encodedData(asn1_node root, const char* elementName)
 {
     int length = 0;
     int ret = asn1_der_coding(root, elementName, nullptr, &length, nullptr);
     if (ret != ASN1_MEM_ERROR)
-        return WTF::nullopt;
+        return std::nullopt;
 
     Vector<uint8_t> data(length);
     ret = asn1_der_coding(root, elementName, data.data(), &length, nullptr);
     if (ret != ASN1_SUCCESS)
-        return WTF::nullopt;
+        return std::nullopt;
 
     return data;
 }

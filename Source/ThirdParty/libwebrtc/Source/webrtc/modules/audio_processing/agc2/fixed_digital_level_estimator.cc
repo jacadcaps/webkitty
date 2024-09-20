@@ -14,25 +14,38 @@
 #include <cmath>
 
 #include "api/array_view.h"
+#include "api/audio/audio_frame.h"
 #include "modules/audio_processing/logging/apm_data_dumper.h"
 #include "rtc_base/checks.h"
 
 namespace webrtc {
 namespace {
 
-constexpr float kInitialFilterStateLevel = 0.f;
+constexpr float kInitialFilterStateLevel = 0.0f;
+
+// Instant attack.
+constexpr float kAttackFilterConstant = 0.0f;
+
+// Limiter decay constant.
+// Computed as `10 ** (-1/20 * subframe_duration / kDecayMs)` where:
+// - `subframe_duration` is `kFrameDurationMs / kSubFramesInFrame`;
+// - `kDecayMs` is defined in agc2_testing_common.h.
+constexpr float kDecayFilterConstant = 0.9971259f;
 
 }  // namespace
 
 FixedDigitalLevelEstimator::FixedDigitalLevelEstimator(
-    size_t sample_rate_hz,
+    size_t samples_per_channel,
     ApmDataDumper* apm_data_dumper)
     : apm_data_dumper_(apm_data_dumper),
       filter_state_level_(kInitialFilterStateLevel) {
-  SetSampleRate(sample_rate_hz);
+  SetSamplesPerChannel(samples_per_channel);
   CheckParameterCombination();
   RTC_DCHECK(apm_data_dumper_);
-  apm_data_dumper_->DumpRaw("agc2_level_estimator_samplerate", sample_rate_hz);
+  // Convert `samples_per_channel` to sample rate for
+  // `agc2_level_estimator_samplerate`.
+  apm_data_dumper_->DumpRaw("agc2_level_estimator_samplerate",
+                            samples_per_channel * kDefaultAudioBuffersPerSec);
 }
 
 void FixedDigitalLevelEstimator::CheckParameterCombination() {
@@ -43,7 +56,7 @@ void FixedDigitalLevelEstimator::CheckParameterCombination() {
 }
 
 std::array<float, kSubFramesInFrame> FixedDigitalLevelEstimator::ComputeLevel(
-    const AudioFrameView<const float>& float_frame) {
+    DeinterleavedView<const float> float_frame) {
   RTC_DCHECK_GT(float_frame.num_channels(), 0);
   RTC_DCHECK_EQ(float_frame.samples_per_channel(), samples_in_frame_);
 
@@ -51,9 +64,9 @@ std::array<float, kSubFramesInFrame> FixedDigitalLevelEstimator::ComputeLevel(
   std::array<float, kSubFramesInFrame> envelope{};
   for (size_t channel_idx = 0; channel_idx < float_frame.num_channels();
        ++channel_idx) {
-    const auto channel = float_frame.channel(channel_idx);
-    for (size_t sub_frame = 0; sub_frame < kSubFramesInFrame; ++sub_frame) {
-      for (size_t sample_in_sub_frame = 0;
+    const auto channel = float_frame[channel_idx];
+    for (int sub_frame = 0; sub_frame < kSubFramesInFrame; ++sub_frame) {
+      for (int sample_in_sub_frame = 0;
            sample_in_sub_frame < samples_in_sub_frame_; ++sample_in_sub_frame) {
         envelope[sub_frame] =
             std::max(envelope[sub_frame],
@@ -66,14 +79,14 @@ std::array<float, kSubFramesInFrame> FixedDigitalLevelEstimator::ComputeLevel(
   // Make sure envelope increases happen one step earlier so that the
   // corresponding *gain decrease* doesn't miss a sudden signal
   // increase due to interpolation.
-  for (size_t sub_frame = 0; sub_frame < kSubFramesInFrame - 1; ++sub_frame) {
+  for (int sub_frame = 0; sub_frame < kSubFramesInFrame - 1; ++sub_frame) {
     if (envelope[sub_frame] < envelope[sub_frame + 1]) {
       envelope[sub_frame] = envelope[sub_frame + 1];
     }
   }
 
   // Add attack / decay smoothing.
-  for (size_t sub_frame = 0; sub_frame < kSubFramesInFrame; ++sub_frame) {
+  for (int sub_frame = 0; sub_frame < kSubFramesInFrame; ++sub_frame) {
     const float envelope_value = envelope[sub_frame];
     if (envelope_value > filter_state_level_) {
       envelope[sub_frame] = envelope_value * (1 - kAttackFilterConstant) +
@@ -86,7 +99,7 @@ std::array<float, kSubFramesInFrame> FixedDigitalLevelEstimator::ComputeLevel(
 
     // Dump data for debug.
     RTC_DCHECK(apm_data_dumper_);
-    const auto channel = float_frame.channel(0);
+    const auto channel = float_frame[0];
     apm_data_dumper_->DumpRaw("agc2_level_estimator_samples",
                               samples_in_sub_frame_,
                               &channel[sub_frame * samples_in_sub_frame_]);
@@ -97,9 +110,9 @@ std::array<float, kSubFramesInFrame> FixedDigitalLevelEstimator::ComputeLevel(
   return envelope;
 }
 
-void FixedDigitalLevelEstimator::SetSampleRate(size_t sample_rate_hz) {
-  samples_in_frame_ = rtc::CheckedDivExact(sample_rate_hz * kFrameDurationMs,
-                                           static_cast<size_t>(1000));
+void FixedDigitalLevelEstimator::SetSamplesPerChannel(
+    size_t samples_per_channel) {
+  samples_in_frame_ = static_cast<int>(samples_per_channel);
   samples_in_sub_frame_ =
       rtc::CheckedDivExact(samples_in_frame_, kSubFramesInFrame);
   CheckParameterCombination();

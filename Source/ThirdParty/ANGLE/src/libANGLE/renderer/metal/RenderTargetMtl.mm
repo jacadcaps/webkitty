@@ -18,32 +18,25 @@ RenderTargetMtl::~RenderTargetMtl()
     reset();
 }
 
-RenderTargetMtl::RenderTargetMtl(RenderTargetMtl &&other)
-    : mTexture(std::move(other.mTexture)),
-      mImplicitMSTexture(std::move(other.mImplicitMSTexture)),
-      mLevelIndex(other.mLevelIndex),
-      mLayerIndex(other.mLayerIndex)
-{}
-
 void RenderTargetMtl::set(const mtl::TextureRef &texture,
-                          uint32_t level,
+                          const mtl::MipmapNativeLevel &level,
                           uint32_t layer,
                           const mtl::Format &format)
 {
-    set(texture, nullptr, level, layer, format);
+    setWithImplicitMSTexture(texture, nullptr, level, layer, format);
 }
 
-void RenderTargetMtl::set(const mtl::TextureRef &texture,
-                          const mtl::TextureRef &implicitMSTexture,
-                          uint32_t level,
-                          uint32_t layer,
-                          const mtl::Format &format)
+void RenderTargetMtl::setWithImplicitMSTexture(const mtl::TextureRef &texture,
+                                               const mtl::TextureRef &implicitMSTexture,
+                                               const mtl::MipmapNativeLevel &level,
+                                               uint32_t layer,
+                                               const mtl::Format &format)
 {
     mTexture           = texture;
     mImplicitMSTexture = implicitMSTexture;
     mLevelIndex        = level;
     mLayerIndex        = layer;
-    mFormat            = &format;
+    mFormat            = format;
 }
 
 void RenderTargetMtl::setTexture(const mtl::TextureRef &texture)
@@ -56,25 +49,57 @@ void RenderTargetMtl::setImplicitMSTexture(const mtl::TextureRef &implicitMSText
     mImplicitMSTexture = implicitMSTexture;
 }
 
+void RenderTargetMtl::duplicateFrom(const RenderTargetMtl &src)
+{
+    setWithImplicitMSTexture(src.getTexture(), src.getImplicitMSTexture(), src.getLevelIndex(),
+                             src.getLayerIndex(), src.getFormat());
+}
+
 void RenderTargetMtl::reset()
 {
     mTexture.reset();
     mImplicitMSTexture.reset();
-    mLevelIndex = 0;
+    mLevelIndex = mtl::kZeroNativeMipLevel;
     mLayerIndex = 0;
-    mFormat     = nullptr;
+    mFormat     = mtl::Format();
 }
 
 uint32_t RenderTargetMtl::getRenderSamples() const
 {
-    return mImplicitMSTexture ? mImplicitMSTexture->samples()
-                              : (mTexture ? mTexture->samples() : 1);
+    mtl::TextureRef implicitMSTex = getImplicitMSTexture();
+    mtl::TextureRef tex           = getTexture();
+    return implicitMSTex ? implicitMSTex->samples() : (tex ? tex->samples() : 1);
 }
+
 void RenderTargetMtl::toRenderPassAttachmentDesc(mtl::RenderPassAttachmentDesc *rpaDescOut) const
 {
-    rpaDescOut->texture           = mTexture;
-    rpaDescOut->implicitMSTexture = mImplicitMSTexture;
-    rpaDescOut->level             = mLevelIndex;
-    rpaDescOut->sliceOrDepth      = mLayerIndex;
+    mtl::TextureRef implicitMSTex = getImplicitMSTexture();
+    mtl::TextureRef tex           = getTexture();
+    if (implicitMSTex)
+    {
+        rpaDescOut->texture             = implicitMSTex;
+        rpaDescOut->resolveTexture      = tex;
+        rpaDescOut->resolveLevel        = mLevelIndex;
+        rpaDescOut->resolveSliceOrDepth = mLayerIndex;
+    }
+    else
+    {
+        rpaDescOut->texture      = tex;
+        rpaDescOut->level        = mLevelIndex;
+        rpaDescOut->sliceOrDepth = mLayerIndex;
+    }
+    rpaDescOut->blendable = mFormat.getCaps().blendable;
 }
+
+#if ANGLE_WEBKIT_EXPLICIT_RESOLVE_TARGET_ENABLED
+void RenderTargetMtl::toRenderPassResolveAttachmentDesc(
+    mtl::RenderPassAttachmentDesc *rpaDescOut) const
+{
+    ASSERT(!getImplicitMSTexture());
+    ASSERT(getRenderSamples() == 1);
+    rpaDescOut->resolveTexture      = getTexture();
+    rpaDescOut->resolveLevel        = mLevelIndex;
+    rpaDescOut->resolveSliceOrDepth = mLayerIndex;
 }
+#endif
+}  // namespace rx

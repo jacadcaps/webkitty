@@ -46,7 +46,7 @@ class DateComponents;
 
 class LocaleCocoa final : public Locale {
 public:
-    explicit LocaleCocoa(NSLocale*);
+    explicit LocaleCocoa(const AtomString&);
     ~LocaleCocoa();
 
 #if ENABLE(DATE_AND_TIME_INPUT_TYPES)
@@ -66,7 +66,7 @@ public:
     const Vector<String>& timeAMPMLabels() override;
 #endif
 
-    static AtomString canonicalLanguageIdentifierFromString(const AtomString&);
+    static RetainPtr<CFStringRef> canonicalLanguageIdentifierFromString(const AtomString&);
     static void releaseMemory();
 
 private:

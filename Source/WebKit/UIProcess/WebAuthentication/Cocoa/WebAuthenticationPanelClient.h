@@ -34,6 +34,15 @@
 #import <wtf/WeakObjCPtr.h>
 #import <wtf/WeakPtr.h>
 
+namespace WebKit {
+class WebAuthenticationPanelClient;
+}
+
+namespace WTF {
+template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
+template<> struct IsDeprecatedWeakRefSmartPointerException<WebKit::WebAuthenticationPanelClient> : std::true_type { };
+}
+
 @class _WKWebAuthenticationPanel;
 @protocol _WKWebAuthenticationPanelDelegate;
 
@@ -52,6 +61,7 @@ private:
     void requestPin(uint64_t, CompletionHandler<void(const WTF::String&)>&&) const final;
     void selectAssertionResponse(Vector<Ref<WebCore::AuthenticatorAssertionResponse>>&&, WebAuthenticationSource, CompletionHandler<void(WebCore::AuthenticatorAssertionResponse*)>&&) const final;
     void decidePolicyForLocalAuthenticator(CompletionHandler<void(LocalAuthenticatorPolicy)>&&) const final;
+    void requestLAContextForUserVerification(CompletionHandler<void(LAContext *)>&&) const final;
 
     _WKWebAuthenticationPanel *m_panel;
     WeakObjCPtr<id <_WKWebAuthenticationPanelDelegate> > m_delegate;
@@ -62,6 +72,7 @@ private:
         bool panelRequestPinWithRemainingRetriesCompletionHandler : 1;
         bool panelSelectAssertionResponseSourceCompletionHandler : 1;
         bool panelDecidePolicyForLocalAuthenticatorCompletionHandler : 1;
+        bool panelRequestLAContextForUserVerificationCompletionHandler : 1;
     } m_delegateMethods;
 };
 

@@ -10,7 +10,11 @@
 
 #include "logging/rtc_event_log/events/rtc_event_probe_cluster_created.h"
 
+#include <cstdint>
+#include <memory>
+
 #include "absl/memory/memory.h"
+#include "api/rtc_event_log/rtc_event.h"
 
 namespace webrtc {
 
@@ -30,14 +34,6 @@ RtcEventProbeClusterCreated::RtcEventProbeClusterCreated(
       bitrate_bps_(other.bitrate_bps_),
       min_probes_(other.min_probes_),
       min_bytes_(other.min_bytes_) {}
-
-RtcEvent::Type RtcEventProbeClusterCreated::GetType() const {
-  return RtcEvent::Type::ProbeClusterCreated;
-}
-
-bool RtcEventProbeClusterCreated::IsConfigEvent() const {
-  return false;
-}
 
 std::unique_ptr<RtcEventProbeClusterCreated> RtcEventProbeClusterCreated::Copy()
     const {

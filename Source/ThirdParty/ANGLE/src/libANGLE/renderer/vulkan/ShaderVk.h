@@ -18,12 +18,13 @@ namespace rx
 class ShaderVk : public ShaderImpl
 {
   public:
-    ShaderVk(const gl::ShaderState &data);
+    ShaderVk(const gl::ShaderState &state);
     ~ShaderVk() override;
 
-    std::shared_ptr<WaitableCompileEvent> compile(const gl::Context *context,
-                                                  gl::ShCompilerInstance *compilerInstance,
-                                                  ShCompileOptions options) override;
+    std::shared_ptr<ShaderTranslateTask> compile(const gl::Context *context,
+                                                 ShCompileOptions *options) override;
+    std::shared_ptr<ShaderTranslateTask> load(const gl::Context *context,
+                                              gl::BinaryInputStream *stream) override;
 
     std::string getDebugInfo() const override;
 };

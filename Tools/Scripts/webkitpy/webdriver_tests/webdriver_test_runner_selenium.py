@@ -22,15 +22,16 @@
 
 import logging
 import os
-import sys
 
-from webkitpy.common.system.filesystem import FileSystem
+from webkitcorepy import AutoInstall, Package, Version
 from webkitpy.common.webkit_finder import WebKitFinder
 from webkitpy.webdriver_tests.webdriver_selenium_executor import WebDriverSeleniumExecutor
 from webkitpy.webdriver_tests.webdriver_test_result import WebDriverTestResult
 
 _log = logging.getLogger(__name__)
 
+# Package required by Selenium for BiDi tests
+AutoInstall.register(Package('websocket', Version(1, 8, 0), pypi_name='websocket-client'))
 
 class WebDriverTestRunnerSelenium(object):
 
@@ -52,7 +53,7 @@ class WebDriverTestRunnerSelenium(object):
         # Collected tests are relative to test directory.
         base_dir = os.path.join(self._tests_dir, os.path.dirname(relative_tests_dir))
         collected_tests = {}
-        for test, subtests in executor.collect(os.path.join(self._tests_dir, relative_tests_dir)).iteritems():
+        for test, subtests in executor.collect(os.path.join(self._tests_dir, relative_tests_dir)).items():
             collected_tests[os.path.join(base_dir, test)] = subtests
         selenium_tests = []
         if not tests:
@@ -90,8 +91,8 @@ class WebDriverTestRunnerSelenium(object):
                 for subtest, status, message, backtrace in test_results:
                     result.add_subtest_results(os.path.basename(subtest), status, message, backtrace)
             else:
-                # FIXME: handle other results.
-                pass
+                _log.error("Test %s failed:" % test_name)
+                _log.error(harness_result[1])
             self._results.append(result)
 
     def results(self):

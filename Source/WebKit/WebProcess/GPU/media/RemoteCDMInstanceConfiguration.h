@@ -27,32 +27,12 @@
 
 #if ENABLE(GPU_PROCESS) && ENABLE(ENCRYPTED_MEDIA)
 
-#include <WebCore/ContentType.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebKit {
 
 struct RemoteCDMInstanceConfiguration {
     String keySystem;
-
-    template<class Encoder>
-    void encode(Encoder& encoder) const
-    {
-        encoder << keySystem;
-    }
-
-    template <class Decoder>
-    static Optional<RemoteCDMInstanceConfiguration> decode(Decoder& decoder)
-    {
-        Optional<String> keySystem;
-        decoder >> keySystem;
-        if (!keySystem)
-            return WTF::nullopt;
-
-        return {{
-            WTFMove(*keySystem),
-        }};
-    }
 };
 
 } // namespace WebKit

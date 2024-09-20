@@ -26,9 +26,8 @@
 #include "config.h"
 #include "UIScriptContext.h"
 
+#include "JSBasics.h"
 #include "UIScriptController.h"
-#include <JavaScriptCore/JSContextRef.h>
-#include <JavaScriptCore/JSValueRef.h>
 #include <WebCore/FloatRect.h>
 
 using namespace WTR;
@@ -38,16 +37,12 @@ static inline bool isPersistentCallbackID(unsigned callbackID)
     return callbackID < firstNonPersistentCallbackID;
 }
 
-UIScriptContext::UIScriptContext(UIScriptContextDelegate& delegate)
+UIScriptContext::UIScriptContext(UIScriptContextDelegate& delegate, UIScriptControllerFactory factory)
     : m_context(adopt(JSGlobalContextCreate(nullptr)))
     , m_delegate(delegate)
 {
-    m_controller = UIScriptController::create(*this);
-
-    JSObjectRef globalObject = JSContextGetGlobalObject(m_context.get());
-
-    JSValueRef exception = nullptr;
-    m_controller->makeWindowObject(m_context.get(), globalObject, &exception);
+    m_controller = factory(*this);
+    m_controller->makeWindowObject(m_context.get());
 }
 
 UIScriptContext::~UIScriptContext()
@@ -66,9 +61,7 @@ void UIScriptContext::runUIScript(const String& script, unsigned scriptCallbackI
     JSValueRef result = JSEvaluateScript(m_context.get(), stringRef.get(), 0, 0, 1, &exception);
     
     if (!hasOutstandingAsyncTasks()) {
-        JSValueRef stringifyException = nullptr;
-        auto stringified = adopt(JSValueToStringCopy(m_context.get(), result, &stringifyException));
-        requestUIScriptCompletion(stringified.get());
+        requestUIScriptCompletion(createJSString(m_context.get(), result).get());
         tryToCompleteUIScriptForCurrentParentCallback();
     }
 }
@@ -96,7 +89,7 @@ unsigned UIScriptContext::prepareForAsyncTask(JSValueRef callback, CallbackType 
     return callbackID;
 }
 
-void UIScriptContext::asyncTaskComplete(unsigned callbackID)
+void UIScriptContext::asyncTaskComplete(unsigned callbackID, std::initializer_list<JSValueRef> arguments)
 {
     Task task = m_callbacks.take(callbackID);
     ASSERT(task.callback);
@@ -107,7 +100,7 @@ void UIScriptContext::asyncTaskComplete(unsigned callbackID)
     m_currentScriptCallbackID = task.parentScriptCallbackID;
 
     exception = nullptr;
-    JSObjectCallAsFunction(m_context.get(), callbackObject, JSContextGetGlobalObject(m_context.get()), 0, nullptr, &exception);
+    JSObjectCallAsFunction(m_context.get(), callbackObject, JSContextGetGlobalObject(m_context.get()), arguments.size(), arguments.size() ? arguments.begin() : nullptr, &exception);
     JSValueUnprotect(m_context.get(), task.callback);
     
     tryToCompleteUIScriptForCurrentParentCallback();
@@ -171,7 +164,9 @@ void UIScriptContext::tryToCompleteUIScriptForCurrentParentCallback()
         return;
 
     JSStringRef result = m_uiScriptResultsPendingCompletion.take(m_currentScriptCallbackID);
-    String scriptResult(reinterpret_cast<const UChar*>(JSStringGetCharactersPtr(result)), JSStringGetLength(result));
+    String scriptResult({ reinterpret_cast<const UChar*>(JSStringGetCharactersPtr(result)), JSStringGetLength(result) });
+    if (result)
+        JSStringRelease(result);
 
     m_delegate.uiScriptDidComplete(scriptResult, m_currentScriptCallbackID);
     
@@ -181,18 +176,16 @@ void UIScriptContext::tryToCompleteUIScriptForCurrentParentCallback()
     });
     
     m_currentScriptCallbackID = 0;
-    if (result)
-        JSStringRelease(result);
 }
 
 JSObjectRef UIScriptContext::objectFromRect(const WebCore::FloatRect& rect) const
 {
     JSObjectRef object = JSObjectMake(m_context.get(), nullptr, nullptr);
 
-    JSObjectSetProperty(m_context.get(), object, adopt(JSStringCreateWithUTF8CString("left")).get(), JSValueMakeNumber(m_context.get(), rect.x()), kJSPropertyAttributeNone, nullptr);
-    JSObjectSetProperty(m_context.get(), object, adopt(JSStringCreateWithUTF8CString("top")).get(), JSValueMakeNumber(m_context.get(), rect.y()), kJSPropertyAttributeNone, nullptr);
-    JSObjectSetProperty(m_context.get(), object, adopt(JSStringCreateWithUTF8CString("width")).get(), JSValueMakeNumber(m_context.get(), rect.width()), kJSPropertyAttributeNone, nullptr);
-    JSObjectSetProperty(m_context.get(), object, adopt(JSStringCreateWithUTF8CString("height")).get(), JSValueMakeNumber(m_context.get(), rect.height()), kJSPropertyAttributeNone, nullptr);
+    setProperty(m_context.get(), object, "left", rect.x());
+    setProperty(m_context.get(), object, "top", rect.y());
+    setProperty(m_context.get(), object, "width", rect.width());
+    setProperty(m_context.get(), object, "height", rect.height());
     
     return object;
 }

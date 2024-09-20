@@ -29,6 +29,7 @@
 
 #import "APIAutomationClient.h"
 #import <JavaScriptCore/RemoteInspector.h>
+#import <wtf/TZoneMalloc.h>
 #import <wtf/WeakObjCPtr.h>
 
 @class WKProcessPool;
@@ -38,7 +39,7 @@
 namespace WebKit {
 
 class AutomationClient final : public API::AutomationClient, Inspector::RemoteInspector::Client {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(AutomationClient);
 public:
     explicit AutomationClient(WKProcessPool *, id <_WKAutomationDelegate>);
     virtual ~AutomationClient();
@@ -51,6 +52,7 @@ private:
     // RemoteInspector::Client
     bool remoteAutomationAllowed() const final;
     void requestAutomationSession(const String& sessionIdentifier, const Inspector::RemoteInspector::Client::SessionCapabilities&) final;
+    void requestedDebuggablesToWakeUp() final;
     String browserName() const final;
     String browserVersion() const final;
 
@@ -60,6 +62,7 @@ private:
     struct {
         bool allowsRemoteAutomation : 1;
         bool requestAutomationSession : 1;
+        bool requestedDebuggablesToWakeUp : 1;
         bool browserNameForAutomation : 1;
         bool browserVersionForAutomation : 1;
     } m_delegateMethods;

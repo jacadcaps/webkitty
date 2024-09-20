@@ -39,7 +39,7 @@ class TestUnit final : public rtc_units_impl::RelativeUnit<TestUnit> {
   }
 
  private:
-  friend class UnitBase<TestUnit>;
+  friend class rtc_units_impl::UnitBase<TestUnit>;
   static constexpr bool one_sided = false;
   using RelativeUnit<TestUnit>::RelativeUnit;
 };
@@ -54,10 +54,18 @@ TEST(UnitBaseTest, ConstExpr) {
   constexpr TestUnit kTestUnitZero = TestUnit::Zero();
   constexpr TestUnit kTestUnitPlusInf = TestUnit::PlusInfinity();
   constexpr TestUnit kTestUnitMinusInf = TestUnit::MinusInfinity();
+
   static_assert(kTestUnitZero.IsZero(), "");
   static_assert(kTestUnitPlusInf.IsPlusInfinity(), "");
   static_assert(kTestUnitMinusInf.IsMinusInfinity(), "");
   static_assert(kTestUnitPlusInf.ToKiloOr(-1) == -1, "");
+
+  // Check FromValue is constexpr for floats.
+  static_assert(TestUnit::FromValue(0.0).IsZero());
+  static_assert(TestUnit::FromValue(INFINITY).IsPlusInfinity());
+  static_assert(TestUnit::FromValue(-INFINITY).IsMinusInfinity());
+  static_assert(TestUnit::FromValue(250.0) == TestUnit::FromValue(250));
+  static_assert(TestUnit::FromValue(-250.0) == TestUnit::FromValue(-250));
 
   static_assert(kTestUnitPlusInf > kTestUnitZero, "");
 
@@ -68,6 +76,8 @@ TEST(UnitBaseTest, ConstExpr) {
   static_assert(kTestUnitValue.ToValueOr(0) == kValue, "");
   static_assert(TestUnitAddKilo(kTestUnitValue, 2).ToValue() == kValue + 2000,
                 "");
+  static_assert(TestUnit::FromValue(500) / 2 == TestUnit::FromValue(250));
+  static_assert(TestUnit::FromValue(500.0) / 2 == TestUnit::FromValue(250.0));
 }
 
 TEST(UnitBaseTest, GetBackSameValues) {
@@ -216,7 +226,19 @@ TEST(UnitBaseTest, MathOperations) {
   EXPECT_EQ(mutable_delta, TestUnit::FromKilo(kValueA + kValueB));
   mutable_delta -= TestUnit::FromKilo(kValueB);
   EXPECT_EQ(mutable_delta, TestUnit::FromKilo(kValueA));
+
+  // Division by an int rounds towards zero to follow regular int division.
+  EXPECT_EQ(TestUnit::FromValue(789) / 10, TestUnit::FromValue(78));
+  EXPECT_EQ(TestUnit::FromValue(-789) / 10, TestUnit::FromValue(-78));
 }
+
+#if GTEST_HAS_DEATH_TEST && RTC_DCHECK_IS_ON && !defined(WEBRTC_ANDROID)
+TEST(UnitBaseTest, CrashesWhenCreatedFromNan) {
+  EXPECT_DEATH(TestUnit::FromValue(NAN), "");
+  EXPECT_DEATH(TestUnit::FromValue(0.0 / 0.0), "");
+  EXPECT_DEATH(TestUnit::FromValue(INFINITY - INFINITY), "");
+}
+#endif
 
 TEST(UnitBaseTest, InfinityOperations) {
   const int64_t kValue = 267;
@@ -231,5 +253,16 @@ TEST(UnitBaseTest, InfinityOperations) {
   EXPECT_TRUE((finite + TestUnit::MinusInfinity()).IsMinusInfinity());
   EXPECT_TRUE((finite - TestUnit::PlusInfinity()).IsMinusInfinity());
 }
+
+TEST(UnitBaseTest, UnaryMinus) {
+  const int64_t kValue = 1337;
+  const TestUnit unit = TestUnit::FromValue(kValue);
+  EXPECT_EQ(-unit.ToValue(), -kValue);
+
+  // Check infinity.
+  EXPECT_EQ(-TestUnit::PlusInfinity(), TestUnit::MinusInfinity());
+  EXPECT_EQ(-TestUnit::MinusInfinity(), TestUnit::PlusInfinity());
+}
+
 }  // namespace test
 }  // namespace webrtc

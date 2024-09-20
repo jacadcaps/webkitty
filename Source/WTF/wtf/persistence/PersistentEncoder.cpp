@@ -28,16 +28,11 @@
 
 #include <wtf/SHA1.h>
 
-namespace WTF {
-namespace Persistence {
+namespace WTF::Persistence {
 
-Encoder::Encoder()
-{
-}
+Encoder::Encoder() = default;
 
-Encoder::~Encoder()
-{
-}
+Encoder::~Encoder() = default;
 
 uint8_t* Encoder::grow(size_t size)
 {
@@ -46,19 +41,19 @@ uint8_t* Encoder::grow(size_t size)
     return m_buffer.data() + newPosition;
 }
 
-void Encoder::updateChecksumForData(SHA1& sha1, const uint8_t* data, size_t size)
+void Encoder::updateChecksumForData(SHA1& sha1, std::span<const uint8_t> span)
 {
     auto typeSalt = Salt<uint8_t*>::value;
-    sha1.addBytes(reinterpret_cast<uint8_t*>(&typeSalt), sizeof(typeSalt));
-    sha1.addBytes(data, size);
+    sha1.addBytes(std::span { reinterpret_cast<uint8_t*>(&typeSalt), sizeof(typeSalt) });
+    sha1.addBytes(span);
 }
 
-void Encoder::encodeFixedLengthData(const uint8_t* data, size_t size)
+void Encoder::encodeFixedLengthData(std::span<const uint8_t> span)
 {
-    updateChecksumForData(m_sha1, data, size);
+    updateChecksumForData(m_sha1, span);
 
-    uint8_t* buffer = grow(size);
-    memcpy(buffer, data, size);
+    uint8_t* buffer = grow(span.size());
+    memcpy(buffer, span.data(), span.size());
 }
 
 template<typename Type>
@@ -125,8 +120,7 @@ void Encoder::encodeChecksum()
 {
     SHA1::Digest hash;
     m_sha1.computeHash(hash);
-    encodeFixedLengthData(hash.data(), hash.size());
+    encodeFixedLengthData({ hash.data(), hash.size() });
 }
 
-}
 }

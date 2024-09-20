@@ -23,39 +23,44 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef ResourceError_h
-#define ResourceError_h
+#pragma once
 
 #include "ResourceErrorBase.h"
 
 #if USE(SOUP)
 
+#include "CertificateInfo.h"
 #include <wtf/glib/GRefPtr.h>
 
 typedef struct _GTlsCertificate GTlsCertificate;
-typedef struct _SoupRequest SoupRequest;
 typedef struct _SoupMessage SoupMessage;
 
 namespace WebCore {
 
-class ResourceError : public ResourceErrorBase
-{
+class ResourceError : public ResourceErrorBase {
 public:
     ResourceError(Type type = Type::Null)
         : ResourceErrorBase(type)
-        , m_tlsErrors(0)
     {
     }
 
-    ResourceError(const String& domain, int errorCode, const URL& failingURL, const String& localizedDescription, Type type = Type::General)
-        : ResourceErrorBase(domain, errorCode, failingURL, localizedDescription, type)
-        , m_tlsErrors(0)
-    {
-    }
+    ResourceError(const String& domain, int errorCode, const URL& failingURL, const String& localizedDescription, Type = Type::General, IsSanitized = IsSanitized::No);
 
-    static ResourceError httpError(SoupMessage*, GError*, SoupRequest*);
-    static ResourceError transportError(SoupRequest*, int statusCode, const String& reasonPhrase);
-    static ResourceError genericGError(GError*, SoupRequest*);
+    struct IPCData {
+        Type type;
+        String domain;
+        int errorCode;
+        URL failingURL;
+        String localizedDescription;
+        IsSanitized isSanitized;
+        CertificateInfo certificateInfo;
+    };
+    WEBCORE_EXPORT static ResourceError fromIPCData(std::optional<IPCData>&&);
+    WEBCORE_EXPORT std::optional<IPCData> ipcData() const;
+
+    static ResourceError httpError(SoupMessage*, GError*);
+    static ResourceError transportError(const URL&, int statusCode, const String& reasonPhrase);
+    static ResourceError genericGError(const URL&, GError*);
     static ResourceError tlsError(const URL&, unsigned tlsErrors, GTlsCertificate*);
     static ResourceError timeoutError(const URL& failingURL);
     static ResourceError authenticationError(SoupMessage*);
@@ -65,18 +70,18 @@ public:
     GTlsCertificate* certificate() const { return m_certificate.get(); }
     void setCertificate(GTlsCertificate* certificate) { m_certificate = certificate; }
 
+    ErrorRecoveryMethod errorRecoveryMethod() const { return ErrorRecoveryMethod::NoRecovery; }
+
     static bool platformCompare(const ResourceError& a, const ResourceError& b);
 
 private:
     friend class ResourceErrorBase;
     void doPlatformIsolatedCopy(const ResourceError&);
 
-    unsigned m_tlsErrors;
+    unsigned m_tlsErrors { 0 };
     GRefPtr<GTlsCertificate> m_certificate;
 };
 
-}
+} // namespace WebCore
 
-#endif
-
-#endif // ResourceError_h_
+#endif // USE(SOUP)

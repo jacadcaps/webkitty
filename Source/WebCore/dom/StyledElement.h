@@ -25,81 +25,84 @@
 #pragma once
 
 #include "CSSPrimitiveValue.h"
+#include "CSSProperty.h"
 #include "CSSPropertyNames.h"
 #include "CSSValueKeywords.h"
 #include "Element.h"
+#include "ElementData.h"
 
 namespace WebCore {
 
 class Attribute;
+class ImmutableStyleProperties;
 class MutableStyleProperties;
 class PropertySetCSSStyleDeclaration;
 class StyleProperties;
 class StylePropertyMap;
 
 class StyledElement : public Element {
-    WTF_MAKE_ISO_ALLOCATED(StyledElement);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(StyledElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(StyledElement);
 public:
     virtual ~StyledElement();
 
-    virtual const StyleProperties* additionalPresentationAttributeStyle() const { return nullptr; }
+    void dirtyStyleAttribute();
     void invalidateStyleAttribute();
 
     const StyleProperties* inlineStyle() const { return elementData() ? elementData()->m_inlineStyle.get() : nullptr; }
+    RefPtr<StyleProperties> protectedInlineStyle() const;
     
-    bool setInlineStyleProperty(CSSPropertyID, CSSValueID identifier, bool important = false);
-    bool setInlineStyleProperty(CSSPropertyID, CSSPropertyID identifier, bool important = false);
-    WEBCORE_EXPORT bool setInlineStyleProperty(CSSPropertyID, double value, CSSUnitType, bool important = false);
-    WEBCORE_EXPORT bool setInlineStyleProperty(CSSPropertyID, const String& value, bool important = false);
+    bool setInlineStyleProperty(CSSPropertyID, CSSValueID identifier, IsImportant = IsImportant::No);
+    bool setInlineStyleProperty(CSSPropertyID, CSSPropertyID identifier, IsImportant = IsImportant::No);
+    WEBCORE_EXPORT bool setInlineStyleProperty(CSSPropertyID, double value, CSSUnitType, IsImportant = IsImportant::No);
+    WEBCORE_EXPORT bool setInlineStyleProperty(CSSPropertyID, const String& value, IsImportant = IsImportant::No, bool* didFailParsing = nullptr);
+    bool setInlineStyleCustomProperty(const AtomString& property, const String& value, IsImportant = IsImportant::No);
+    bool setInlineStyleCustomProperty(Ref<CSSValue>&&, IsImportant = IsImportant::No);
+    bool setInlineStyleProperty(CSSPropertyID, Ref<CSSValue>&&, IsImportant = IsImportant::No);
     bool removeInlineStyleProperty(CSSPropertyID);
+    bool removeInlineStyleCustomProperty(const AtomString&);
     void removeAllInlineStyleProperties();
 
-    static void synchronizeStyleAttributeInternal(StyledElement*);
-    void synchronizeStyleAttributeInternal() const { StyledElement::synchronizeStyleAttributeInternal(const_cast<StyledElement*>(this)); }
+    void synchronizeStyleAttributeInternal() const { const_cast<StyledElement*>(this)->synchronizeStyleAttributeInternalImpl(); }
     
     WEBCORE_EXPORT CSSStyleDeclaration& cssomStyle();
-#if ENABLE(CSS_TYPED_OM)
     StylePropertyMap& ensureAttributeStyleMap();
-#endif
 
-    const StyleProperties* presentationAttributeStyle() const;
-    virtual void collectStyleForPresentationAttribute(const QualifiedName&, const AtomString&, MutableStyleProperties&) { }
+    // https://html.spec.whatwg.org/#presentational-hints
+    const ImmutableStyleProperties* presentationalHintStyle() const;
+    virtual void collectPresentationalHintsForAttribute(const QualifiedName&, const AtomString&, MutableStyleProperties&) { }
+    virtual const MutableStyleProperties* additionalPresentationalHintStyle() const { return nullptr; }
+    virtual void collectExtraStyleForPresentationalHints(MutableStyleProperties&) { }
 
 protected:
-    StyledElement(const QualifiedName& name, Document& document, ConstructionType type)
+    StyledElement(const QualifiedName& name, Document& document, OptionSet<TypeFlag> type)
         : Element(name, document, type)
     {
     }
 
-    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason = ModifiedDirectly) override;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason = AttributeModificationReason::Directly) override;
 
-    virtual bool isPresentationAttribute(const QualifiedName&) const { return false; }
+    virtual bool hasPresentationalHintsForAttribute(const QualifiedName&) const { return false; }
 
-    void addPropertyToPresentationAttributeStyle(MutableStyleProperties&, CSSPropertyID, CSSValueID identifier);
-    void addPropertyToPresentationAttributeStyle(MutableStyleProperties&, CSSPropertyID, double value, CSSUnitType);
-    void addPropertyToPresentationAttributeStyle(MutableStyleProperties&, CSSPropertyID, const String& value);
+    void addPropertyToPresentationalHintStyle(MutableStyleProperties&, CSSPropertyID, CSSValueID identifier);
+    void addPropertyToPresentationalHintStyle(MutableStyleProperties&, CSSPropertyID, double value, CSSUnitType);
+    void addPropertyToPresentationalHintStyle(MutableStyleProperties&, CSSPropertyID, const String& value);
+    void addPropertyToPresentationalHintStyle(MutableStyleProperties&, CSSPropertyID, RefPtr<CSSValue>&&);
 
     void addSubresourceAttributeURLs(ListHashSet<URL>&) const override;
+    Attribute replaceURLsInAttributeValue(const Attribute&, const HashMap<String, String>&) const override;
 
 private:
     void styleAttributeChanged(const AtomString& newStyleString, AttributeModificationReason);
+    void synchronizeStyleAttributeInternalImpl();
 
     void inlineStyleChanged();
     PropertySetCSSStyleDeclaration* inlineStyleCSSOMWrapper();
     void setInlineStyleFromString(const AtomString&);
     MutableStyleProperties& ensureMutableInlineStyle();
 
-    void rebuildPresentationAttributeStyle();
+    void rebuildPresentationalHintStyle();
 };
-
-inline const StyleProperties* StyledElement::presentationAttributeStyle() const
-{
-    if (!elementData())
-        return nullptr;
-    if (elementData()->presentationAttributeStyleIsDirty())
-        const_cast<StyledElement&>(*this).rebuildPresentationAttributeStyle();
-    return elementData()->presentationAttributeStyle();
-}
 
 } // namespace WebCore
 

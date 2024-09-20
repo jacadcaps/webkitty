@@ -11,32 +11,20 @@
 #include "api/video_codecs/builtin_video_encoder_factory.h"
 
 #include <memory>
+#include <string>
 #include <vector>
 
-#include "absl/strings/match.h"
+#include "absl/types/optional.h"
+#include "api/environment/environment.h"
 #include "api/video_codecs/sdp_video_format.h"
 #include "api/video_codecs/video_encoder.h"
-#include "media/base/codec.h"
-#include "media/base/media_constants.h"
-#include "media/engine/encoder_simulcast_proxy.h"
+#include "api/video_codecs/video_encoder_factory.h"
 #include "media/engine/internal_encoder_factory.h"
-#include "rtc_base/checks.h"
+#include "media/engine/simulcast_encoder_adapter.h"
 
 namespace webrtc {
 
 namespace {
-
-bool IsFormatSupported(const std::vector<SdpVideoFormat>& supported_formats,
-                       const SdpVideoFormat& format) {
-  for (const SdpVideoFormat& supported_format : supported_formats) {
-    if (cricket::IsSameCodec(format.name, format.parameters,
-                             supported_format.name,
-                             supported_format.parameters)) {
-      return true;
-    }
-  }
-  return false;
-}
 
 // This class wraps the internal factory and adds simulcast.
 class BuiltinVideoEncoderFactory : public VideoEncoderFactory {
@@ -44,32 +32,31 @@ class BuiltinVideoEncoderFactory : public VideoEncoderFactory {
   BuiltinVideoEncoderFactory()
       : internal_encoder_factory_(new InternalEncoderFactory()) {}
 
-  VideoEncoderFactory::CodecInfo QueryVideoEncoder(
-      const SdpVideoFormat& format) const override {
-    // Format must be one of the internal formats.
-    RTC_DCHECK(IsFormatSupported(
-        internal_encoder_factory_->GetSupportedFormats(), format));
-    VideoEncoderFactory::CodecInfo info;
-    info.has_internal_source = false;
-    info.is_hardware_accelerated = false;
-    return info;
-  }
-
-  std::unique_ptr<VideoEncoder> CreateVideoEncoder(
-      const SdpVideoFormat& format) override {
-    // Try creating internal encoder.
-    std::unique_ptr<VideoEncoder> internal_encoder;
-    if (IsFormatSupported(internal_encoder_factory_->GetSupportedFormats(),
-                          format)) {
-      internal_encoder = std::make_unique<EncoderSimulcastProxy>(
-          internal_encoder_factory_.get(), format);
+  std::unique_ptr<VideoEncoder> Create(const Environment& env,
+                                       const SdpVideoFormat& format) override {
+    // Try creating an InternalEncoderFactory-backed SimulcastEncoderAdapter.
+    // The adapter has a passthrough mode for the case that simulcast is not
+    // used, so all responsibility can be delegated to it.
+    if (format.IsCodecInList(
+            internal_encoder_factory_->GetSupportedFormats())) {
+      return std::make_unique<SimulcastEncoderAdapter>(
+          env,
+          /*primary_factory=*/internal_encoder_factory_.get(),
+          /*fallback_factory=*/nullptr, format);
     }
 
-    return internal_encoder;
+    return nullptr;
   }
 
   std::vector<SdpVideoFormat> GetSupportedFormats() const override {
     return internal_encoder_factory_->GetSupportedFormats();
+  }
+
+  CodecSupport QueryCodecSupport(
+      const SdpVideoFormat& format,
+      absl::optional<std::string> scalability_mode) const override {
+    return internal_encoder_factory_->QueryCodecSupport(format,
+                                                        scalability_mode);
   }
 
  private:

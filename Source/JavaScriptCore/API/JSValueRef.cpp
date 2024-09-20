@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,6 +29,7 @@
 #include "APICast.h"
 #include "APIUtils.h"
 #include "DateInstance.h"
+#include "JSAPIWrapperObject.h"
 #include "JSCInlines.h"
 #include "JSCallbackObject.h"
 #include "JSONObject.h"
@@ -53,14 +54,17 @@ using namespace JSC;
         ASSERT_NOT_REACHED();
         return kJSTypeUndefined;
     }
+#if !CPU(ADDRESS64)
     JSGlobalObject* globalObject = toJS(ctx);
     JSLockHolder locker(globalObject);
-
     JSValue jsValue = toJS(globalObject, value);
+#else
+    JSValue jsValue = toJS(value);
+#endif
 
     if (jsValue.isUndefined())
         return kJSTypeUndefined;
-    if (jsValue.isNull())
+    if (!jsValue || jsValue.isNull())
         return kJSTypeNull;
     if (jsValue.isBoolean())
         return kJSTypeBoolean;
@@ -70,6 +74,8 @@ using namespace JSC;
         return kJSTypeString;
     if (jsValue.isSymbol())
         return kJSTypeSymbol;
+    if (jsValue.isBigInt())
+        return kJSTypeBigInt;
     ASSERT(jsValue.isObject());
     return kJSTypeObject;
 }
@@ -80,10 +86,13 @@ bool JSValueIsUndefined(JSContextRef ctx, JSValueRef value)
         ASSERT_NOT_REACHED();
         return false;
     }
+#if !CPU(ADDRESS64)
     JSGlobalObject* globalObject = toJS(ctx);
     JSLockHolder locker(globalObject);
-
     return toJS(globalObject, value).isUndefined();
+#else
+    return toJS(value).isUndefined();
+#endif
 }
 
 bool JSValueIsNull(JSContextRef ctx, JSValueRef value)
@@ -92,10 +101,14 @@ bool JSValueIsNull(JSContextRef ctx, JSValueRef value)
         ASSERT_NOT_REACHED();
         return false;
     }
+
+#if !CPU(ADDRESS64)
     JSGlobalObject* globalObject = toJS(ctx);
     JSLockHolder locker(globalObject);
-
     return toJS(globalObject, value).isNull();
+#else
+    return !value || toJS(value).isNull();
+#endif
 }
 
 bool JSValueIsBoolean(JSContextRef ctx, JSValueRef value)
@@ -104,10 +117,13 @@ bool JSValueIsBoolean(JSContextRef ctx, JSValueRef value)
         ASSERT_NOT_REACHED();
         return false;
     }
+#if !CPU(ADDRESS64)
     JSGlobalObject* globalObject = toJS(ctx);
     JSLockHolder locker(globalObject);
-
     return toJS(globalObject, value).isBoolean();
+#else
+    return toJS(value).isBoolean();
+#endif
 }
 
 bool JSValueIsNumber(JSContextRef ctx, JSValueRef value)
@@ -116,10 +132,13 @@ bool JSValueIsNumber(JSContextRef ctx, JSValueRef value)
         ASSERT_NOT_REACHED();
         return false;
     }
+#if !CPU(ADDRESS64)
     JSGlobalObject* globalObject = toJS(ctx);
     JSLockHolder locker(globalObject);
-
     return toJS(globalObject, value).isNumber();
+#else
+    return toJS(value).isNumber();
+#endif
 }
 
 bool JSValueIsString(JSContextRef ctx, JSValueRef value)
@@ -128,10 +147,13 @@ bool JSValueIsString(JSContextRef ctx, JSValueRef value)
         ASSERT_NOT_REACHED();
         return false;
     }
+#if !CPU(ADDRESS64)
     JSGlobalObject* globalObject = toJS(ctx);
     JSLockHolder locker(globalObject);
-
     return toJS(globalObject, value).isString();
+#else
+    return value && toJS(value).isString();
+#endif
 }
 
 bool JSValueIsObject(JSContextRef ctx, JSValueRef value)
@@ -140,10 +162,13 @@ bool JSValueIsObject(JSContextRef ctx, JSValueRef value)
         ASSERT_NOT_REACHED();
         return false;
     }
+#if !CPU(ADDRESS64)
     JSGlobalObject* globalObject = toJS(ctx);
     JSLockHolder locker(globalObject);
-
     return toJS(globalObject, value).isObject();
+#else
+    return value && toJS(value).isObject();
+#endif
 }
 
 bool JSValueIsSymbol(JSContextRef ctx, JSValueRef value)
@@ -152,10 +177,28 @@ bool JSValueIsSymbol(JSContextRef ctx, JSValueRef value)
         ASSERT_NOT_REACHED();
         return false;
     }
+#if !CPU(ADDRESS64)
     JSGlobalObject* globalObject = toJS(ctx);
     JSLockHolder locker(globalObject);
-
     return toJS(globalObject, value).isSymbol();
+#else
+    return value && toJS(value).isSymbol();
+#endif
+}
+
+bool JSValueIsBigInt(JSContextRef ctx, JSValueRef value)
+{
+    if (!ctx) {
+        ASSERT_NOT_REACHED();
+        return false;
+    }
+#if !CPU(ADDRESS64)
+    JSGlobalObject* globalObject = toJS(ctx);
+    JSLockHolder locker(globalObject);
+    return toJS(globalObject, value).isBigInt();
+#else
+    return value && toJS(value).isBigInt();
+#endif
 }
 
 bool JSValueIsArray(JSContextRef ctx, JSValueRef value)
@@ -165,10 +208,9 @@ bool JSValueIsArray(JSContextRef ctx, JSValueRef value)
         return false;
     }
     JSGlobalObject* globalObject = toJS(ctx);
-    VM& vm = globalObject->vm();
     JSLockHolder locker(globalObject);
 
-    return toJS(globalObject, value).inherits<JSArray>(vm);
+    return toJS(globalObject, value).inherits<JSArray>();
 }
 
 bool JSValueIsDate(JSContextRef ctx, JSValueRef value)
@@ -178,10 +220,9 @@ bool JSValueIsDate(JSContextRef ctx, JSValueRef value)
         return false;
     }
     JSGlobalObject* globalObject = toJS(ctx);
-    VM& vm = globalObject->vm();
     JSLockHolder locker(globalObject);
 
-    return toJS(globalObject, value).inherits<DateInstance>(vm);
+    return toJS(globalObject, value).inherits<DateInstance>();
 }
 
 bool JSValueIsObjectOfClass(JSContextRef ctx, JSValueRef value, JSClassRef jsClass)
@@ -191,21 +232,20 @@ bool JSValueIsObjectOfClass(JSContextRef ctx, JSValueRef value, JSClassRef jsCla
         return false;
     }
     JSGlobalObject* globalObject = toJS(ctx);
-    VM& vm = globalObject->vm();
     JSLockHolder locker(globalObject);
 
     JSValue jsValue = toJS(globalObject, value);
     
     if (JSObject* o = jsValue.getObject()) {
-        if (o->inherits<JSProxy>(vm))
-            o = jsCast<JSProxy*>(o)->target();
+        if (o->inherits<JSGlobalProxy>())
+            o = jsCast<JSGlobalProxy*>(o)->target();
 
-        if (o->inherits<JSCallbackObject<JSGlobalObject>>(vm))
+        if (o->inherits<JSCallbackObject<JSGlobalObject>>())
             return jsCast<JSCallbackObject<JSGlobalObject>*>(o)->inherits(jsClass);
-        if (o->inherits<JSCallbackObject<JSNonFinalObject>>(vm))
+        if (o->inherits<JSCallbackObject<JSNonFinalObject>>())
             return jsCast<JSCallbackObject<JSNonFinalObject>*>(o)->inherits(jsClass);
 #if JSC_OBJC_API_ENABLED
-        if (o->inherits<JSCallbackObject<JSAPIWrapperObject>>(vm))
+        if (o->inherits<JSCallbackObject<JSAPIWrapperObject>>())
             return jsCast<JSCallbackObject<JSAPIWrapperObject>*>(o)->inherits(jsClass);
 #endif
     }
@@ -262,7 +302,7 @@ bool JSValueIsInstanceOfConstructor(JSContextRef ctx, JSValueRef value, JSObject
     JSValue jsValue = toJS(globalObject, value);
 
     JSObject* jsConstructor = toJS(constructor);
-    if (!jsConstructor->structure(vm)->typeInfo().implementsHasInstance())
+    if (!jsConstructor->structure()->typeInfo().implementsHasInstance())
         return false;
     bool result = jsConstructor->hasInstance(globalObject, jsValue); // false if an exception is thrown
     if (handleExceptionIfNeeded(scope, ctx, exception) == ExceptionStatus::DidThrow)
@@ -276,10 +316,13 @@ JSValueRef JSValueMakeUndefined(JSContextRef ctx)
         ASSERT_NOT_REACHED();
         return nullptr;
     }
+#if !CPU(ADDRESS64)
     JSGlobalObject* globalObject = toJS(ctx);
     JSLockHolder locker(globalObject);
-
     return toRef(globalObject, jsUndefined());
+#else
+    return toRef(jsUndefined());
+#endif
 }
 
 JSValueRef JSValueMakeNull(JSContextRef ctx)
@@ -288,10 +331,13 @@ JSValueRef JSValueMakeNull(JSContextRef ctx)
         ASSERT_NOT_REACHED();
         return nullptr;
     }
+#if !CPU(ADDRESS64)
     JSGlobalObject* globalObject = toJS(ctx);
     JSLockHolder locker(globalObject);
-
     return toRef(globalObject, jsNull());
+#else
+    return toRef(jsNull());
+#endif
 }
 
 JSValueRef JSValueMakeBoolean(JSContextRef ctx, bool value)
@@ -300,10 +346,13 @@ JSValueRef JSValueMakeBoolean(JSContextRef ctx, bool value)
         ASSERT_NOT_REACHED();
         return nullptr;
     }
+#if !CPU(ADDRESS64)
     JSGlobalObject* globalObject = toJS(ctx);
     JSLockHolder locker(globalObject);
-
     return toRef(globalObject, jsBoolean(value));
+#else
+    return toRef(jsBoolean(value));
+#endif
 }
 
 JSValueRef JSValueMakeNumber(JSContextRef ctx, double value)
@@ -312,10 +361,13 @@ JSValueRef JSValueMakeNumber(JSContextRef ctx, double value)
         ASSERT_NOT_REACHED();
         return nullptr;
     }
+#if !CPU(ADDRESS64)
     JSGlobalObject* globalObject = toJS(ctx);
     JSLockHolder locker(globalObject);
-
     return toRef(globalObject, jsNumber(purifyNaN(value)));
+#else
+    return toRef(jsNumber(purifyNaN(value)));
+#endif
 }
 
 JSValueRef JSValueMakeSymbol(JSContextRef ctx, JSStringRef description)
@@ -331,6 +383,295 @@ JSValueRef JSValueMakeSymbol(JSContextRef ctx, JSStringRef description)
     if (!description)
         return toRef(globalObject, Symbol::create(vm));
     return toRef(globalObject, Symbol::createWithDescription(vm, description->string()));
+}
+
+JSValueRef JSBigIntCreateWithDouble(JSContextRef ctx, double value, JSValueRef* exception)
+{
+    if (!ctx) {
+        ASSERT_NOT_REACHED();
+        return nullptr;
+    }
+
+    JSGlobalObject* globalObject = toJS(ctx);
+    VM& vm = globalObject->vm();
+    JSLockHolder locker(vm);
+    auto scope = DECLARE_CATCH_SCOPE(vm);
+
+    if (!isInteger(value)) {
+        setException(ctx, exception, createRangeError(globalObject, "Not an integer"_s));
+        return nullptr;
+    }
+
+    JSValue result = JSBigInt::makeHeapBigIntOrBigInt32(globalObject, value);
+    if (handleExceptionIfNeeded(scope, ctx, exception) == ExceptionStatus::DidThrow)
+        return nullptr;
+
+    return toRef(globalObject, result);
+}
+
+JSValueRef JSBigIntCreateWithUInt64(JSContextRef ctx, uint64_t integer, JSValueRef* exception)
+{
+    if (!ctx) {
+        ASSERT_NOT_REACHED();
+        return nullptr;
+    }
+
+    JSGlobalObject* globalObject = toJS(ctx);
+    VM& vm = globalObject->vm();
+    JSLockHolder locker(vm);
+    auto scope = DECLARE_CATCH_SCOPE(vm);
+
+    JSValue result = JSBigInt::makeHeapBigIntOrBigInt32(globalObject, integer);
+    if (handleExceptionIfNeeded(scope, ctx, exception) == ExceptionStatus::DidThrow)
+        return nullptr;
+
+    return toRef(globalObject, result);
+}
+
+JSValueRef JSBigIntCreateWithInt64(JSContextRef ctx, int64_t integer, JSValueRef* exception)
+{
+    if (!ctx) {
+        ASSERT_NOT_REACHED();
+        return nullptr;
+    }
+
+    JSGlobalObject* globalObject = toJS(ctx);
+    VM& vm = globalObject->vm();
+    JSLockHolder locker(vm);
+    auto scope = DECLARE_CATCH_SCOPE(vm);
+
+    JSValue result = JSBigInt::makeHeapBigIntOrBigInt32(globalObject, integer);
+    if (handleExceptionIfNeeded(scope, ctx, exception) == ExceptionStatus::DidThrow)
+        return nullptr;
+
+    return toRef(globalObject, result);
+}
+
+JSValueRef JSBigIntCreateWithString(JSContextRef ctx, JSStringRef string, JSValueRef* exception)
+{
+    if (!ctx) {
+        ASSERT_NOT_REACHED();
+        return nullptr;
+    }
+
+    JSGlobalObject* globalObject = toJS(ctx);
+    VM& vm = globalObject->vm();
+    JSLockHolder locker(vm);
+    auto scope = DECLARE_CATCH_SCOPE(vm);
+
+    JSValue result = JSBigInt::parseInt(globalObject, string->string(), JSBigInt::ErrorParseMode::ThrowExceptions);
+    if (handleExceptionIfNeeded(scope, ctx, exception) == ExceptionStatus::DidThrow)
+        return nullptr;
+
+    return toRef(globalObject, result);
+}
+
+uint64_t JSValueToUInt64(JSContextRef ctx, JSValueRef value, JSValueRef* exception)
+{
+    if (!ctx) {
+        ASSERT_NOT_REACHED();
+        return 0;
+    }
+
+    JSGlobalObject* globalObject = toJS(ctx);
+    JSLockHolder locker(globalObject);
+    auto scope = DECLARE_CATCH_SCOPE(globalObject->vm());
+    JSValue numeric = toJS(globalObject, value).toNumeric(globalObject);
+    if (handleExceptionIfNeeded(scope, ctx, exception) == ExceptionStatus::DidThrow)
+        return 0;
+
+    if (numeric.isBigInt())
+        return JSBigInt::toBigUInt64(numeric);
+
+    ASSERT(numeric.isNumber());
+    return JSC::toUInt64(numeric.asNumber());
+}
+
+int64_t JSValueToInt64(JSContextRef ctx, JSValueRef value, JSValueRef* exception)
+{
+    if (!ctx) {
+        ASSERT_NOT_REACHED();
+        return 0;
+    }
+
+    JSGlobalObject* globalObject = toJS(ctx);
+    JSLockHolder locker(globalObject);
+    auto scope = DECLARE_CATCH_SCOPE(globalObject->vm());
+    JSValue numeric = toJS(globalObject, value).toNumeric(globalObject);
+    if (handleExceptionIfNeeded(scope, ctx, exception) == ExceptionStatus::DidThrow)
+        return 0;
+
+    if (numeric.isBigInt())
+        return JSBigInt::toBigInt64(numeric);
+
+    ASSERT(numeric.isNumber());
+    return JSC::toInt64(numeric.asNumber());
+}
+
+uint32_t JSValueToUInt32(JSContextRef ctx, JSValueRef value, JSValueRef* exception)
+{
+    if (!ctx) {
+        ASSERT_NOT_REACHED();
+        return 0;
+    }
+
+    JSGlobalObject* globalObject = toJS(ctx);
+    JSLockHolder locker(globalObject);
+    auto scope = DECLARE_CATCH_SCOPE(globalObject->vm());
+    JSValue numeric = toJS(globalObject, value).toNumeric(globalObject);
+    if (handleExceptionIfNeeded(scope, ctx, exception) == ExceptionStatus::DidThrow)
+        return 0;
+
+    if (numeric.isBigInt())
+        return static_cast<uint32_t>(JSBigInt::toBigUInt64(numeric));
+
+    ASSERT(numeric.isNumber());
+    return JSC::toUInt32(numeric.asNumber());
+}
+
+int32_t JSValueToInt32(JSContextRef ctx, JSValueRef value, JSValueRef* exception)
+{
+    if (!ctx) {
+        ASSERT_NOT_REACHED();
+        return 0;
+    }
+
+    JSGlobalObject* globalObject = toJS(ctx);
+    JSLockHolder locker(globalObject);
+    auto scope = DECLARE_CATCH_SCOPE(globalObject->vm());
+    JSValue numeric = toJS(globalObject, value).toNumeric(globalObject);
+    if (handleExceptionIfNeeded(scope, ctx, exception) == ExceptionStatus::DidThrow)
+        return 0;
+
+    if (numeric.isBigInt())
+        return static_cast<int32_t>(JSBigInt::toBigInt64(numeric));
+
+    ASSERT(numeric.isNumber());
+    return JSC::toInt32(numeric.asNumber());
+}
+
+ALWAYS_INLINE JSRelationCondition toJSRelationCondition(JSC::JSBigInt::ComparisonResult);
+JSRelationCondition toJSRelationCondition(JSC::JSBigInt::ComparisonResult result)
+{
+    switch (result) {
+    case JSC::JSBigInt::ComparisonResult::Equal:
+        return JSRelationCondition::kJSRelationConditionEqual;
+    case JSC::JSBigInt::ComparisonResult::Undefined:
+        return JSRelationCondition::kJSRelationConditionUndefined;
+    case JSC::JSBigInt::ComparisonResult::GreaterThan:
+        return JSRelationCondition::kJSRelationConditionGreaterThan;
+    case JSC::JSBigInt::ComparisonResult::LessThan:
+        return JSRelationCondition::kJSRelationConditionLessThan;
+    default:
+        ASSERT_NOT_REACHED();
+        return JSRelationCondition::kJSRelationConditionUndefined;
+    }
+}
+
+JSRelationCondition JSValueCompareUInt64(JSContextRef ctx, JSValueRef left, uint64_t right, JSValueRef* exception)
+{
+    if (!ctx) {
+        ASSERT_NOT_REACHED();
+        return kJSRelationConditionUndefined;
+    }
+
+    JSGlobalObject* globalObject = toJS(ctx);
+    JSLockHolder locker(globalObject);
+    auto scope = DECLARE_CATCH_SCOPE(globalObject->vm());
+    JSValue leftNumeric = toJS(globalObject, left).toNumeric(globalObject);
+    if (handleExceptionIfNeeded(scope, ctx, exception) == ExceptionStatus::DidThrow)
+        return kJSRelationConditionUndefined;
+
+    if (leftNumeric.isBigInt())
+        return toJSRelationCondition(JSBigInt::compare(leftNumeric, right));
+    ASSERT(leftNumeric.isNumber());
+    return toJSRelationCondition(JSBigInt::compareToDouble(leftNumeric.asNumber(), right));
+}
+
+JSRelationCondition JSValueCompareInt64(JSContextRef ctx, JSValueRef left, int64_t right, JSValueRef* exception)
+{
+    if (!ctx) {
+        ASSERT_NOT_REACHED();
+        return kJSRelationConditionUndefined;
+    }
+
+    JSGlobalObject* globalObject = toJS(ctx);
+    JSLockHolder locker(globalObject);
+    auto scope = DECLARE_CATCH_SCOPE(globalObject->vm());
+    JSValue leftNumeric = toJS(globalObject, left).toNumeric(globalObject);
+    if (handleExceptionIfNeeded(scope, ctx, exception) == ExceptionStatus::DidThrow)
+        return kJSRelationConditionUndefined;
+
+    if (leftNumeric.isBigInt())
+        return toJSRelationCondition(JSBigInt::compare(leftNumeric, right));
+    ASSERT(leftNumeric.isNumber());
+    return toJSRelationCondition(JSBigInt::compareToDouble(leftNumeric.asNumber(), right));
+}
+
+JSRelationCondition JSValueCompareDouble(JSContextRef ctx, JSValueRef left, double right, JSValueRef* exception)
+{
+    if (!ctx) {
+        ASSERT_NOT_REACHED();
+        return kJSRelationConditionUndefined;
+    }
+
+    JSGlobalObject* globalObject = toJS(ctx);
+    JSLockHolder locker(globalObject);
+    auto scope = DECLARE_CATCH_SCOPE(globalObject->vm());
+    JSValue leftNumeric = toJS(globalObject, left).toNumeric(globalObject);
+    if (handleExceptionIfNeeded(scope, ctx, exception) == ExceptionStatus::DidThrow)
+        return kJSRelationConditionUndefined;
+
+    if (leftNumeric.isBigInt())
+        return toJSRelationCondition(JSBigInt::compareToDouble(leftNumeric, right));
+
+    ASSERT(leftNumeric.isNumber());
+    double leftDouble = leftNumeric.asNumber();
+    if (std::isnan(leftDouble) || std::isnan(right))
+        return kJSRelationConditionUndefined;
+    if (leftDouble == right)
+        return kJSRelationConditionEqual;
+    if (leftDouble < right)
+        return kJSRelationConditionLessThan;
+    return kJSRelationConditionGreaterThan;
+}
+
+JSRelationCondition JSValueCompare(JSContextRef ctx, JSValueRef left, JSValueRef right, JSValueRef* exception)
+{
+    if (!ctx) {
+        ASSERT_NOT_REACHED();
+        return kJSRelationConditionUndefined;
+    }
+
+    JSGlobalObject* globalObject = toJS(ctx);
+    JSLockHolder locker(globalObject);
+    auto scope = DECLARE_CATCH_SCOPE(globalObject->vm());
+    JSValue leftValue = toJS(globalObject, left);
+    JSValue rightValue = toJS(globalObject, right);
+
+    bool isEqual = JSValue::equal(globalObject, leftValue, rightValue);
+    if (handleExceptionIfNeeded(scope, ctx, exception) == ExceptionStatus::DidThrow)
+        return kJSRelationConditionUndefined;
+    if (isEqual)
+        return kJSRelationConditionEqual;
+
+    bool isLessThan = jsLess<true>(globalObject, leftValue, rightValue);
+    if (handleExceptionIfNeeded(scope, ctx, exception) == ExceptionStatus::DidThrow)
+        return kJSRelationConditionUndefined;
+
+    bool isGreaterThan = jsLess<true>(globalObject, rightValue, leftValue);
+    if (handleExceptionIfNeeded(scope, ctx, exception) == ExceptionStatus::DidThrow)
+        return kJSRelationConditionUndefined;
+
+    ASSERT(!isLessThan || !isGreaterThan);
+
+    // This means either the left or right has a NaN result of toPrimitiveNumeric.
+    if (!isLessThan && !isGreaterThan)
+        return kJSRelationConditionUndefined;
+
+    if (isLessThan)
+        return kJSRelationConditionLessThan;
+    return kJSRelationConditionGreaterThan;
 }
 
 JSValueRef JSValueMakeString(JSContextRef ctx, JSStringRef string)
@@ -355,12 +696,11 @@ JSValueRef JSValueMakeFromJSONString(JSContextRef ctx, JSStringRef string)
     JSGlobalObject* globalObject = toJS(ctx);
     JSLockHolder locker(globalObject);
     String str = string->string();
-    unsigned length = str.length();
-    if (!length || str.is8Bit()) {
-        LiteralParser<LChar> parser(globalObject, str.characters8(), length, StrictJSON);
+    if (str.is8Bit()) {
+        LiteralParser parser(globalObject, str.span8(), StrictJSON);
         return toRef(globalObject, parser.tryLiteralParse());
     }
-    LiteralParser<UChar> parser(globalObject, str.characters16(), length, StrictJSON);
+    LiteralParser parser(globalObject, str.span16(), StrictJSON);
     return toRef(globalObject, parser.tryLiteralParse());
 }
 
@@ -407,13 +747,15 @@ double JSValueToNumber(JSContextRef ctx, JSValueRef value, JSValueRef* exception
     VM& vm = globalObject->vm();
     JSLockHolder locker(vm);
     auto scope = DECLARE_CATCH_SCOPE(vm);
-
-    JSValue jsValue = toJS(globalObject, value);
-
-    double number = jsValue.toNumber(globalObject);
+    JSValue numeric = toJS(globalObject, value).toNumeric(globalObject);
     if (handleExceptionIfNeeded(scope, ctx, exception) == ExceptionStatus::DidThrow)
-        number = PNaN;
-    return number;
+        return PNaN;
+
+    if (numeric.isBigInt())
+        return JSBigInt::toNumber(numeric).asNumber();
+
+    ASSERT(numeric.isNumber());
+    return numeric.asNumber();
 }
 
 JSStringRef JSValueToStringCopy(JSContextRef ctx, JSValueRef value, JSValueRef* exception)

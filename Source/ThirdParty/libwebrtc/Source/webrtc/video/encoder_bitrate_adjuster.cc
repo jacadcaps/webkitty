@@ -14,10 +14,11 @@
 #include <memory>
 #include <vector>
 
+#include "api/field_trials_view.h"
+#include "modules/video_coding/svc/scalability_mode_util.h"
 #include "rtc_base/experiments/rate_control_settings.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/time_utils.h"
-#include "system_wrappers/include/field_trial.h"
 
 namespace webrtc {
 namespace {
@@ -40,16 +41,40 @@ struct LayerRateInfo {
   }
 };
 }  // namespace
-constexpr int64_t EncoderBitrateAdjuster::kWindowSizeMs;
+constexpr TimeDelta EncoderBitrateAdjuster::kWindowSize;
 constexpr size_t EncoderBitrateAdjuster::kMinFramesSinceLayoutChange;
 constexpr double EncoderBitrateAdjuster::kDefaultUtilizationFactor;
 
-EncoderBitrateAdjuster::EncoderBitrateAdjuster(const VideoCodec& codec_settings)
-    : utilize_bandwidth_headroom_(RateControlSettings::ParseFromFieldTrials()
+EncoderBitrateAdjuster::EncoderBitrateAdjuster(
+    const VideoCodec& codec_settings,
+    const FieldTrialsView& field_trials,
+    Clock& clock)
+    : utilize_bandwidth_headroom_(RateControlSettings(field_trials)
                                       .BitrateAdjusterCanUseNetworkHeadroom()),
+      use_newfangled_headroom_adjustment_(!field_trials.IsDisabled(
+          "WebRTC-BitrateAdjusterUseNewfangledHeadroomAdjustment")),
       frames_since_layout_change_(0),
-      min_bitrates_bps_{} {
-  if (codec_settings.codecType == VideoCodecType::kVideoCodecVP9) {
+      min_bitrates_bps_{},
+      codec_(codec_settings.codecType),
+      codec_mode_(codec_settings.mode),
+      clock_(clock) {
+  // TODO(https://crbug.com/webrtc/14891): If we want to support simulcast of
+  // SVC streams, EncoderBitrateAdjuster needs to be updated to care about both
+  // `simulcastStream` and `spatialLayers` at the same time.
+  if (codec_settings.codecType == VideoCodecType::kVideoCodecAV1 &&
+      codec_settings.numberOfSimulcastStreams <= 1 &&
+      codec_settings.GetScalabilityMode().has_value()) {
+    for (int si = 0; si < ScalabilityModeToNumSpatialLayers(
+                              *(codec_settings.GetScalabilityMode()));
+         ++si) {
+      if (codec_settings.spatialLayers[si].active) {
+        min_bitrates_bps_[si] =
+            std::max(codec_settings.minBitrate * 1000,
+                     codec_settings.spatialLayers[si].minBitrate * 1000);
+      }
+    }
+  } else if (codec_settings.codecType == VideoCodecType::kVideoCodecVP9 &&
+             codec_settings.numberOfSimulcastStreams <= 1) {
     for (size_t si = 0; si < codec_settings.VP9().numberOfSpatialLayers; ++si) {
       if (codec_settings.spatialLayers[si].active) {
         min_bitrates_bps_[si] =
@@ -73,21 +98,24 @@ EncoderBitrateAdjuster::~EncoderBitrateAdjuster() = default;
 VideoBitrateAllocation EncoderBitrateAdjuster::AdjustRateAllocation(
     const VideoEncoder::RateControlParameters& rates) {
   current_rate_control_parameters_ = rates;
+  const Timestamp now = clock_.CurrentTime();
 
-  // First check that overshoot detectors exist, and store per spatial layer
-  // how many active temporal layers we have.
-  size_t active_tls_[kMaxSpatialLayers] = {};
+  // First check that overshoot detectors exist, and store per simulcast/spatial
+  // layer how many active temporal layers we have.
+  size_t active_tls[kMaxSpatialLayers] = {};
   for (size_t si = 0; si < kMaxSpatialLayers; ++si) {
-    active_tls_[si] = 0;
+    active_tls[si] = 0;
     for (size_t ti = 0; ti < kMaxTemporalStreams; ++ti) {
       // Layer is enabled iff it has both positive bitrate and framerate target.
       if (rates.bitrate.GetBitrate(si, ti) > 0 &&
           current_fps_allocation_[si].size() > ti &&
           current_fps_allocation_[si][ti] > 0) {
-        ++active_tls_[si];
+        ++active_tls[si];
         if (!overshoot_detectors_[si][ti]) {
           overshoot_detectors_[si][ti] =
-              std::make_unique<EncoderOvershootDetector>(kWindowSizeMs);
+              std::make_unique<EncoderOvershootDetector>(
+                  kWindowSize.ms(), codec_,
+                  codec_mode_ == VideoCodecMode::kScreensharing);
           frames_since_layout_change_ = 0;
         }
       } else if (overshoot_detectors_[si][ti]) {
@@ -96,10 +124,26 @@ VideoBitrateAllocation EncoderBitrateAdjuster::AdjustRateAllocation(
         frames_since_layout_change_ = 0;
       }
     }
+    if (use_newfangled_headroom_adjustment_) {
+      // Instantiate average media rate trackers, one per active spatial layer.
+
+      DataRate spatial_layer_rate =
+          DataRate::BitsPerSec(rates.bitrate.GetSpatialLayerSum(si));
+      if (spatial_layer_rate.IsZero()) {
+        media_rate_trackers_[si].reset();
+      } else {
+        if (media_rate_trackers_[si] == nullptr) {
+          constexpr int kMaxDataPointsInUtilizationTrackers = 100;
+          media_rate_trackers_[si] = std::make_unique<RateUtilizationTracker>(
+              kMaxDataPointsInUtilizationTrackers, kWindowSize);
+        }
+        // Media rate trackers use the unadjusted target rate.
+        media_rate_trackers_[si]->OnDataRateChanged(spatial_layer_rate, now);
+      }
+    }
   }
 
   // Next poll the overshoot detectors and populate the adjusted allocation.
-  const int64_t now_ms = rtc::TimeMillis();
   VideoBitrateAllocation adjusted_allocation;
   std::vector<LayerRateInfo> layer_infos;
   DataRate wanted_overshoot_sum = DataRate::Zero();
@@ -111,44 +155,51 @@ VideoBitrateAllocation EncoderBitrateAdjuster::AdjustRateAllocation(
     layer_info.target_rate =
         DataRate::BitsPerSec(rates.bitrate.GetSpatialLayerSum(si));
 
-    // Adjustment is done per spatial layer only (not per temporal layer).
+    // Adjustment is done per simulcast/spatial layer only (not per temporal
+    // layer).
     if (frames_since_layout_change_ < kMinFramesSinceLayoutChange) {
       layer_info.link_utilization_factor = kDefaultUtilizationFactor;
       layer_info.media_utilization_factor = kDefaultUtilizationFactor;
-    } else if (active_tls_[si] == 0 ||
+    } else if (active_tls[si] == 0 ||
                layer_info.target_rate == DataRate::Zero()) {
       // No signaled temporal layers, or no bitrate set. Could either be unused
-      // spatial layer or bitrate dynamic mode; pass bitrate through without any
-      // change.
+      // simulcast/spatial layer or bitrate dynamic mode; pass bitrate through
+      // without any change.
       layer_info.link_utilization_factor = 1.0;
       layer_info.media_utilization_factor = 1.0;
-    } else if (active_tls_[si] == 1) {
+    } else if (active_tls[si] == 1) {
       // A single active temporal layer, this might mean single layer or that
       // encoder does not support temporal layers. Merge target bitrates for
-      // this spatial layer.
+      // this simulcast/spatial layer.
       RTC_DCHECK(overshoot_detectors_[si][0]);
       layer_info.link_utilization_factor =
           overshoot_detectors_[si][0]
-              ->GetNetworkRateUtilizationFactor(now_ms)
+              ->GetNetworkRateUtilizationFactor(now.ms())
               .value_or(kDefaultUtilizationFactor);
       layer_info.media_utilization_factor =
-          overshoot_detectors_[si][0]
-              ->GetMediaRateUtilizationFactor(now_ms)
-              .value_or(kDefaultUtilizationFactor);
+          use_newfangled_headroom_adjustment_
+              ? media_rate_trackers_[si]
+                    ->GetRateUtilizationFactor(now)
+                    .value_or(kDefaultUtilizationFactor)
+              : overshoot_detectors_[si][0]
+                    ->GetMediaRateUtilizationFactor(now.ms())
+                    .value_or(kDefaultUtilizationFactor);
     } else if (layer_info.target_rate > DataRate::Zero()) {
-      // Multiple temporal layers enabled for this spatial layer. Update rate
-      // for each of them and make a weighted average of utilization factors,
-      // with bitrate fraction used as weight.
+      // Multiple temporal layers enabled for this simulcast/spatial layer.
+      // Update rate for each of them and make a weighted average of utilization
+      // factors, with bitrate fraction used as weight.
       // If any layer is missing a utilization factor, fall back to default.
       layer_info.link_utilization_factor = 0.0;
       layer_info.media_utilization_factor = 0.0;
-      for (size_t ti = 0; ti < active_tls_[si]; ++ti) {
+      for (size_t ti = 0; ti < active_tls[si]; ++ti) {
         RTC_DCHECK(overshoot_detectors_[si][ti]);
         const absl::optional<double> ti_link_utilization_factor =
             overshoot_detectors_[si][ti]->GetNetworkRateUtilizationFactor(
-                now_ms);
+                now.ms());
+
         const absl::optional<double> ti_media_utilization_factor =
-            overshoot_detectors_[si][ti]->GetMediaRateUtilizationFactor(now_ms);
+            overshoot_detectors_[si][ti]->GetMediaRateUtilizationFactor(
+                now.ms());
         if (!ti_link_utilization_factor || !ti_media_utilization_factor) {
           layer_info.link_utilization_factor = kDefaultUtilizationFactor;
           layer_info.media_utilization_factor = kDefaultUtilizationFactor;
@@ -162,14 +213,17 @@ VideoBitrateAllocation EncoderBitrateAdjuster::AdjustRateAllocation(
         layer_info.media_utilization_factor +=
             weight * ti_media_utilization_factor.value();
       }
+
+      if (use_newfangled_headroom_adjustment_) {
+        layer_info.media_utilization_factor =
+            media_rate_trackers_[si]->GetRateUtilizationFactor(now).value_or(
+                kDefaultUtilizationFactor);
+      }
     } else {
-      RTC_NOTREACHED();
+      RTC_DCHECK_NOTREACHED();
     }
 
     if (layer_info.link_utilization_factor < 1.0) {
-      // TODO(sprang): Consider checking underuse and allowing it to cancel some
-      // potential overuse by other streams.
-
       // Don't boost target bitrate if encoder is under-using.
       layer_info.link_utilization_factor = 1.0;
     } else {
@@ -222,19 +276,17 @@ VideoBitrateAllocation EncoderBitrateAdjuster::AdjustRateAllocation(
     }
 
     if (layer_info.target_rate > DataRate::Zero()) {
-      RTC_LOG(LS_VERBOSE) << "Utilization factors for spatial index " << si
-                          << ": link = " << layer_info.link_utilization_factor
-                          << ", media = " << layer_info.media_utilization_factor
-                          << ", wanted overshoot = "
-                          << layer_info.WantedOvershoot().bps()
-                          << " bps, available headroom = "
-                          << available_headroom.bps()
-                          << " bps, total utilization factor = "
-                          << utilization_factor;
+      RTC_LOG(LS_VERBOSE)
+          << "Utilization factors for simulcast/spatial index " << si
+          << ": link = " << layer_info.link_utilization_factor
+          << ", media = " << layer_info.media_utilization_factor
+          << ", wanted overshoot = " << layer_info.WantedOvershoot().bps()
+          << " bps, available headroom = " << available_headroom.bps()
+          << " bps, total utilization factor = " << utilization_factor;
     }
 
     // Populate the adjusted allocation with determined utilization factor.
-    if (active_tls_[si] == 1 &&
+    if (active_tls[si] == 1 &&
         layer_info.target_rate >
             DataRate::BitsPerSec(rates.bitrate.GetBitrate(si, 0))) {
       // Bitrate allocation indicates temporal layer usage, but encoder
@@ -282,14 +334,21 @@ VideoBitrateAllocation EncoderBitrateAdjuster::AdjustRateAllocation(
                 (ti == 0 ? 0 : current_fps_allocation_[si][ti - 1])) /
             VideoEncoder::EncoderInfo::kMaxFramerateFraction;
 
+        if (fps_fraction <= 0.0) {
+          RTC_LOG(LS_WARNING)
+              << "Encoder config has temporal layer with non-zero bitrate "
+                 "allocation but zero framerate allocation.";
+          continue;
+        }
+
         overshoot_detectors_[si][ti]->SetTargetRate(
             DataRate::BitsPerSec(layer_bitrate_bps),
-            fps_fraction * rates.framerate_fps, now_ms);
+            fps_fraction * rates.framerate_fps, now.ms());
       }
     }
   }
 
-  // Since no spatial layers or streams are toggled by the adjustment
+  // Since no simulcast/spatial layers or streams are toggled by the adjustment
   // bw-limited flag stays the same.
   adjusted_allocation.set_bw_limited(rates.bitrate.is_bw_limited());
 
@@ -307,15 +366,18 @@ void EncoderBitrateAdjuster::OnEncoderInfo(
   AdjustRateAllocation(current_rate_control_parameters_);
 }
 
-void EncoderBitrateAdjuster::OnEncodedFrame(const EncodedImage& encoded_image,
+void EncoderBitrateAdjuster::OnEncodedFrame(DataSize size,
+                                            int stream_index,
                                             int temporal_index) {
   ++frames_since_layout_change_;
   // Detectors may not exist, for instance if ScreenshareLayers is used.
-  auto& detector =
-      overshoot_detectors_[encoded_image.SpatialIndex().value_or(0)]
-                          [temporal_index];
+  auto& detector = overshoot_detectors_[stream_index][temporal_index];
   if (detector) {
-    detector->OnEncodedFrame(encoded_image.size(), rtc::TimeMillis());
+    detector->OnEncodedFrame(size.bytes(), rtc::TimeMillis());
+  }
+  if (media_rate_trackers_[stream_index]) {
+    media_rate_trackers_[stream_index]->OnDataProduced(size,
+                                                       clock_.CurrentTime());
   }
 }
 
@@ -324,6 +386,7 @@ void EncoderBitrateAdjuster::Reset() {
     for (size_t ti = 0; ti < kMaxTemporalStreams; ++ti) {
       overshoot_detectors_[si][ti].reset();
     }
+    media_rate_trackers_[si].reset();
   }
   // Call AdjustRateAllocation() with the last know bitrate allocation, so that
   // the appropriate overuse detectors are immediately re-created.

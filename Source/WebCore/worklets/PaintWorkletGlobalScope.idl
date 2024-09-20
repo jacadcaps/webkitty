@@ -25,15 +25,13 @@
 
 [
     Exposed=PaintWorklet,
-    EnabledAtRuntime=CSSPaintingAPI,
-    Conditional=CSS_PAINTING_API,
+    EnabledBySetting=CSSPaintingAPIEnabled,
     JSCustomMarkFunction,
     JSGenerateToNativeObject,
-    ImplicitThis,
     IsImmutablePrototypeExoticObject,
     IsImmutablePrototypeExoticObjectOnPrototype,
     Global=(Worklet,PaintWorklet),
 ] interface PaintWorkletGlobalScope : WorkletGlobalScope {
-    [MayThrowException,CallWith=GlobalObject] void registerPaint(DOMString name, object paintConstructor);
+    [CallWith=CurrentGlobalObject] undefined registerPaint([AtomString] DOMString name, object paintConstructor);
     readonly attribute unrestricted double devicePixelRatio;
 };

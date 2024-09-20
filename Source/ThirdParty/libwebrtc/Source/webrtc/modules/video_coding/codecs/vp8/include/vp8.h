@@ -6,33 +6,32 @@
  *  tree. An additional intellectual property rights grant can be found
  *  in the file PATENTS.  All contributing project authors may
  *  be found in the AUTHORS file in the root of the source tree.
- *
- *  WEBRTC VP8 wrapper interface
  */
 
 #ifndef MODULES_VIDEO_CODING_CODECS_VP8_INCLUDE_VP8_H_
 #define MODULES_VIDEO_CODING_CODECS_VP8_INCLUDE_VP8_H_
 
 #include <memory>
+#include <vector>
 
-#include "api/video_codecs/vp8_frame_buffer_controller.h"
+#include "absl/base/nullability.h"
+#include "api/environment/environment.h"
+#include "api/video_codecs/video_encoder.h"
 #include "modules/video_coding/include/video_codec_interface.h"
 
 namespace webrtc {
 
-class VP8Encoder {
- public:
-  static std::unique_ptr<VideoEncoder> Create();
+struct Vp8EncoderSettings {
+  // Allows for overriding the resolution/bitrate limits exposed through
+  // VideoEncoder::GetEncoderInfo(). No override is done if empty.
+  std::vector<VideoEncoder::ResolutionBitrateLimits> resolution_bitrate_limits;
+};
+absl::Nonnull<std::unique_ptr<VideoEncoder>> CreateVp8Encoder(
+    const Environment& env,
+    Vp8EncoderSettings settings = {});
 
-  static std::unique_ptr<VideoEncoder> Create(
-      std::unique_ptr<Vp8FrameBufferControllerFactory>
-          frame_buffer_controller_factory);
-};  // end of VP8Encoder class
+std::unique_ptr<VideoDecoder> CreateVp8Decoder(const Environment& env);
 
-class VP8Decoder {
- public:
-  static std::unique_ptr<VideoDecoder> Create();
-};  // end of VP8Decoder class
 }  // namespace webrtc
 
 #endif  // MODULES_VIDEO_CODING_CODECS_VP8_INCLUDE_VP8_H_

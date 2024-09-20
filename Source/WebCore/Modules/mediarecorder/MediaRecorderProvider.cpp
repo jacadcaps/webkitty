@@ -26,22 +26,59 @@
 #include "config.h"
 #include "MediaRecorderProvider.h"
 
-#if ENABLE(MEDIA_STREAM) && PLATFORM(COCOA)
+#if ENABLE(MEDIA_RECORDER)
 
+#include "ContentType.h"
+#include "MediaRecorderPrivate.h"
+
+#if PLATFORM(COCOA) && USE(AVFOUNDATION)
 #include "MediaRecorderPrivateAVFImpl.h"
+#endif
+
+#if USE(GSTREAMER_TRANSCODER)
+#include "MediaRecorderPrivateGStreamer.h"
+#endif
 
 namespace WebCore {
 
-std::unique_ptr<MediaRecorderPrivate> MediaRecorderProvider::createMediaRecorderPrivate(MediaStreamPrivate& stream)
+std::unique_ptr<MediaRecorderPrivate> MediaRecorderProvider::createMediaRecorderPrivate(MediaStreamPrivate& stream, const MediaRecorderPrivateOptions& options)
 {
-#if HAVE(AVASSETWRITERDELEGATE)
-    return MediaRecorderPrivateAVFImpl::create(stream);
+#if PLATFORM(COCOA) && USE(AVFOUNDATION)
+    return MediaRecorderPrivateAVFImpl::create(stream, options);
+#elif USE(GSTREAMER_TRANSCODER)
+    return MediaRecorderPrivateGStreamer::create(stream, options);
 #else
     UNUSED_PARAM(stream);
-    return nullptr;
+    UNUSED_PARAM(options);
 #endif
+    return nullptr;
 }
 
+bool MediaRecorderProvider::isSupported(const String& value)
+{
+    if (value.isEmpty())
+        return true;
+
+    ContentType mimeType(value);
+#if PLATFORM(COCOA)
+    auto containerType = mimeType.containerType();
+    if (!equalLettersIgnoringASCIICase(containerType, "audio/mp4"_s) && !equalLettersIgnoringASCIICase(containerType, "video/mp4"_s))
+        return false;
+
+    for (auto& item : mimeType.codecs()) {
+        auto codec = StringView(item).trim(isASCIIWhitespace<UChar>);
+        // FIXME: We should further validate parameters.
+        if (!startsWithLettersIgnoringASCIICase(codec, "avc1"_s) && !startsWithLettersIgnoringASCIICase(codec, "mp4a"_s))
+            return false;
+    }
+    return true;
+#elif USE(GSTREAMER_TRANSCODER)
+    return MediaRecorderPrivateGStreamer::isTypeSupported(mimeType);
+#else
+    UNUSED_VARIABLE(mimeType);
+    return false;
+#endif
+}
 }
 
 #endif

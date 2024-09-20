@@ -27,7 +27,8 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-WK_CLASS_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA))
+WK_SWIFT_UI_ACTOR
+WK_CLASS_AVAILABLE(macos(10.15.4), ios(13.4))
 @interface WKFindConfiguration : NSObject <NSCopying>
 
 /* @abstract The direction to search from the current selection

@@ -37,18 +37,19 @@
 #include "Event.h"
 #include "JSDOMConvertNumbers.h"
 #include "JSDOMConvertStrings.h"
+#include "JSDOMWindow.h"
 #include "JSEvent.h"
 #include "JSExecState.h"
 #include "JSExecStateInstrumentation.h"
 #include <JavaScriptCore/JSLock.h>
-#include <JavaScriptCore/VMEntryScope.h>
+#include <JavaScriptCore/VMEntryScopeInlines.h>
 #include <wtf/Ref.h>
 
 namespace WebCore {
 using namespace JSC;
 
 inline JSErrorHandler::JSErrorHandler(JSObject& listener, JSObject& wrapper, bool isAttribute, DOMWrapperWorld& world)
-    : JSEventListener(&listener, &wrapper, isAttribute, world)
+    : JSEventListener(&listener, &wrapper, isAttribute, CreatedFromMarkup::No, world)
 {
 }
 
@@ -61,7 +62,8 @@ JSErrorHandler::~JSErrorHandler() = default;
 
 void JSErrorHandler::handleEvent(ScriptExecutionContext& scriptExecutionContext, Event& event)
 {
-    if (!is<ErrorEvent>(event))
+    auto* errorEvent = dynamicDowncast<ErrorEvent>(event);
+    if (!errorEvent)
         return JSEventListener::handleEvent(scriptExecutionContext, event);
 
     VM& vm = scriptExecutionContext.vm();
@@ -71,25 +73,34 @@ void JSErrorHandler::handleEvent(ScriptExecutionContext& scriptExecutionContext,
     if (!jsFunction)
         return;
 
-    auto* globalObject = toJSDOMGlobalObject(scriptExecutionContext, isolatedWorld());
+    auto* isolatedWorld = this->isolatedWorld();
+    if (UNLIKELY(!isolatedWorld))
+        return;
+
+    auto* globalObject = toJSDOMGlobalObject(scriptExecutionContext, *isolatedWorld);
     if (!globalObject)
         return;
 
-    auto callData = getCallData(vm, jsFunction);
+    auto callData = JSC::getCallData(jsFunction);
     if (callData.type != CallData::Type::None) {
         Ref<JSErrorHandler> protectedThis(*this);
 
-        Event* savedEvent = globalObject->currentEvent();
-        globalObject->setCurrentEvent(&event);
+        RefPtr<Event> savedEvent;
+        auto* jsFunctionWindow = jsDynamicCast<JSDOMWindow*>(jsFunction->globalObject());
+        if (jsFunctionWindow) {
+            savedEvent = jsFunctionWindow->currentEvent();
 
-        auto& errorEvent = downcast<ErrorEvent>(event);
+            // window.event should not be set when the target is inside a shadow tree, as per the DOM specification.
+            if (!errorEvent->currentTargetIsInShadowTree())
+                jsFunctionWindow->setCurrentEvent(errorEvent);
+        }
 
         MarkedArgumentBuffer args;
-        args.append(toJS<IDLDOMString>(*globalObject, errorEvent.message()));
-        args.append(toJS<IDLUSVString>(*globalObject, errorEvent.filename()));
-        args.append(toJS<IDLUnsignedLong>(errorEvent.lineno()));
-        args.append(toJS<IDLUnsignedLong>(errorEvent.colno()));
-        args.append(errorEvent.error(*globalObject));
+        args.append(toJS<IDLDOMString>(*globalObject, errorEvent->message()));
+        args.append(toJS<IDLUSVString>(*globalObject, errorEvent->filename()));
+        args.append(toJS<IDLUnsignedLong>(errorEvent->lineno()));
+        args.append(toJS<IDLUnsignedLong>(errorEvent->colno()));
+        args.append(errorEvent->error(*globalObject));
         ASSERT(!args.hasOverflowed());
 
         VM& vm = globalObject->vm();
@@ -102,14 +113,15 @@ void JSErrorHandler::handleEvent(ScriptExecutionContext& scriptExecutionContext,
 
         InspectorInstrumentation::didCallFunction(&scriptExecutionContext);
 
-        globalObject->setCurrentEvent(savedEvent);
-
         if (exception)
-            reportException(globalObject, exception);
+            reportException(jsFunction->globalObject(), exception);
         else {
             if (returnValue.isTrue())
-                event.preventDefault();
+                errorEvent->preventDefault();
         }
+
+        if (jsFunctionWindow)
+            jsFunctionWindow->setCurrentEvent(savedEvent.get());
     }
 }
 

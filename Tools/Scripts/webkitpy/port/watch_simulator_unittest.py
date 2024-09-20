@@ -1,4 +1,4 @@
-# Copyright (C) 2018 Apple Inc. All rights reserved.
+# Copyright (C) 2018-2020 Apple Inc. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -23,12 +23,12 @@
 from webkitcorepy import Version
 
 from webkitpy.common.system.executive_mock import MockExecutive2, ScriptError
-from webkitpy.common.system.outputcapture import OutputCapture
-from webkitpy.port.config import clear_cached_configuration
 from webkitpy.port.watch_simulator import WatchSimulatorPort
 from webkitpy.port import watch_testcase
 from webkitpy.tool.mocktool import MockOptions
 from webkitpy.xcode.device_type import DeviceType
+
+from webkitcorepy import OutputCapture
 
 
 class WatchSimulatorTest(watch_testcase.WatchTest):
@@ -68,22 +68,11 @@ class WatchSimulatorTest(watch_testcase.WatchTest):
         port = self.make_port()
         self.assertEqual(port.SDK, 'watchsimulator')
 
-    def test_xcrun(self):
-        def throwing_run_command(args):
-            print(args)
-            raise ScriptError("MOCK script error")
-
-        port = self.make_port(options=MockOptions(architecture='i386'))
-        port._executive = MockExecutive2(run_command_fn=throwing_run_command)
-        expected_stdout = "['xcrun', '--sdk', 'watchsimulator', '-find', 'test']\n"
-        OutputCapture().assert_outputs(self, port.xcrun_find, args=['test', 'falling'], expected_stdout=expected_stdout)
-
     def test_max_child_processes(self):
         port = self.make_port()
         self.assertEqual(port.max_child_processes(DeviceType.from_string('iPhone')), 0)
 
     def test_default_upload_configuration(self):
-        clear_cached_configuration()
         port = self.make_port()
         configuration = port.configuration_for_upload()
         self.assertEqual(configuration['architecture'], port.architecture())

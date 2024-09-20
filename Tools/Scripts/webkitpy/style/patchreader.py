@@ -57,7 +57,10 @@ class PatchReader(object):
     def check(self, patch_string, fs=None):
         """Check style in the given patch."""
         fs = fs or FileSystem()
-        patch_string = string_utils.decode(patch_string, target_type=str)
+        try:
+            patch_string = string_utils.decode(patch_string, target_type=str)
+        except UnicodeDecodeError:
+            patch_string = string_utils.decode(patch_string, target_type=str, encoding='iso-8859-1')
         patch_files = DiffParser(patch_string.splitlines()).files
 
         # If the user uses git, checking subversion config file only once is enough.
@@ -68,7 +71,7 @@ class PatchReader(object):
             _log.debug('Found %s new or modified lines in: %s' % (len(line_numbers), path))
 
             if not line_numbers:
-                match = re.search("\s*png$", path)
+                match = re.search(r"\s*png$", path)
                 if match and fs.exists(path):
                     if call_only_once:
                         self._text_file_reader.process_file(file_path=path, line_numbers=None)

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -39,14 +39,14 @@ namespace JSC {
 class JSSymbolTableObject : public JSScope {
 public:
     using Base = JSScope;
-    static constexpr unsigned StructureFlags = Base::StructureFlags | OverridesAnyFormOfGetPropertyNames;
+    static constexpr unsigned StructureFlags = Base::StructureFlags | OverridesGetOwnSpecialPropertyNames;
 
     SymbolTable* symbolTable() const { return m_symbolTable.get(); }
     
     JS_EXPORT_PRIVATE static bool deleteProperty(JSCell*, JSGlobalObject*, PropertyName, DeletePropertySlot&);
-    JS_EXPORT_PRIVATE static void getOwnNonIndexPropertyNames(JSObject*, JSGlobalObject*, PropertyNameArray&, EnumerationMode);
+    JS_EXPORT_PRIVATE static void getOwnSpecialPropertyNames(JSObject*, JSGlobalObject*, PropertyNameArray&, DontEnumPropertiesMode);
     
-    static ptrdiff_t offsetOfSymbolTable() { return OBJECT_OFFSETOF(JSSymbolTableObject, m_symbolTable); }
+    static constexpr ptrdiff_t offsetOfSymbolTable() { return OBJECT_OFFSETOF(JSSymbolTableObject, m_symbolTable); }
 
     DECLARE_EXPORT_INFO;
 
@@ -58,9 +58,10 @@ protected:
     
     JSSymbolTableObject(VM& vm, Structure* structure, JSScope* scope, SymbolTable* symbolTable)
         : Base(vm, structure, scope)
+        , m_symbolTable(symbolTable, WriteBarrierEarlyInit)
     {
         ASSERT(symbolTable);
-        setSymbolTable(vm, symbolTable);
+        symbolTable->notifyCreation(vm, this, "Allocated a scope");
     }
     
     void setSymbolTable(VM& vm, SymbolTable* symbolTable)
@@ -70,7 +71,7 @@ protected:
         m_symbolTable.set(vm, this, symbolTable);
     }
     
-    static void visitChildren(JSCell*, SlotVisitor&);
+    DECLARE_VISIT_CHILDREN;
     
 private:
     WriteBarrier<SymbolTable> m_symbolTable;
@@ -99,14 +100,14 @@ inline bool symbolTableGet(
 
 template<typename SymbolTableObjectType>
 inline bool symbolTableGet(
-    SymbolTableObjectType* object, PropertyName propertyName, PropertyDescriptor& descriptor)
+    SymbolTableObjectType* object, PropertyName propertyName, SymbolTableEntry& entry, PropertyDescriptor& descriptor)
 {
     SymbolTable& symbolTable = *object->symbolTable();
     ConcurrentJSLocker locker(symbolTable.m_lock);
     SymbolTable::Map::iterator iter = symbolTable.find(locker, propertyName.uid());
     if (iter == symbolTable.end(locker))
         return false;
-    SymbolTableEntry::Fast entry = iter->value;
+    entry = iter->value;
     ASSERT(!entry.isNull());
 
     ScopeOffset offset = entry.scopeOffset();
@@ -115,29 +116,6 @@ inline bool symbolTableGet(
         return false;
 
     descriptor.setDescriptor(object->variableAt(offset).get(), entry.getAttributes() | PropertyAttribute::DontDelete);
-    return true;
-}
-
-template<typename SymbolTableObjectType>
-inline bool symbolTableGet(
-    SymbolTableObjectType* object, PropertyName propertyName, PropertySlot& slot,
-    bool& slotIsWriteable)
-{
-    SymbolTable& symbolTable = *object->symbolTable();
-    ConcurrentJSLocker locker(symbolTable.m_lock);
-    SymbolTable::Map::iterator iter = symbolTable.find(locker, propertyName.uid());
-    if (iter == symbolTable.end(locker))
-        return false;
-    SymbolTableEntry::Fast entry = iter->value;
-    ASSERT(!entry.isNull());
-
-    ScopeOffset offset = entry.scopeOffset();
-    // Defend against the inspector asking for a var after it has been optimized out.
-    if (!object->isValidScopeOffset(offset))
-        return false;
-
-    slot.setValue(object, entry.getAttributes() | PropertyAttribute::DontDelete, object->variableAt(offset).get());
-    slotIsWriteable = !entry.isReadOnly();
     return true;
 }
 
@@ -174,7 +152,7 @@ inline bool symbolTablePut(SymbolTableObjectType* object, JSGlobalObject* global
         SymbolTable& symbolTable = *object->symbolTable();
         // FIXME: This is very suspicious. We shouldn't need a GC-safe lock here.
         // https://bugs.webkit.org/show_bug.cgi?id=134601
-        GCSafeConcurrentJSLocker locker(symbolTable.m_lock, vm.heap);
+        GCSafeConcurrentJSLocker locker(symbolTable.m_lock, vm);
         SymbolTable::Map::iterator iter = symbolTable.find(locker, propertyName.uid());
         if (iter == symbolTable.end(locker))
             return false;

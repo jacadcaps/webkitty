@@ -9,12 +9,13 @@
  */
 
 #include "api/test/mock_video_decoder.h"
+#include "api/video_codecs/video_decoder.h"
 #include "modules/video_coding/include/video_coding.h"
-#include "modules/video_coding/timing.h"
+#include "modules/video_coding/timing/timing.h"
 #include "modules/video_coding/video_coding_impl.h"
 #include "system_wrappers/include/clock.h"
 #include "test/gtest.h"
-#include "test/video_codec_settings.h"
+#include "test/scoped_key_value_config.h"
 
 using ::testing::_;
 using ::testing::AnyNumber;
@@ -26,8 +27,10 @@ namespace {
 
 class MockPacketRequestCallback : public VCMPacketRequestCallback {
  public:
-  MOCK_METHOD2(ResendPackets,
-               int32_t(const uint16_t* sequenceNumbers, uint16_t length));
+  MOCK_METHOD(int32_t,
+              ResendPackets,
+              (const uint16_t* sequenceNumbers, uint16_t length),
+              (override));
 };
 
 class MockVCMReceiveCallback : public VCMReceiveCallback {
@@ -35,11 +38,19 @@ class MockVCMReceiveCallback : public VCMReceiveCallback {
   MockVCMReceiveCallback() {}
   virtual ~MockVCMReceiveCallback() {}
 
-  MOCK_METHOD4(
-      FrameToRender,
-      int32_t(VideoFrame&, absl::optional<uint8_t>, int32_t, VideoContentType));
-  MOCK_METHOD1(OnIncomingPayloadType, void(int));
-  MOCK_METHOD1(OnDecoderImplementationName, void(const char*));
+  MOCK_METHOD(int32_t,
+              FrameToRender,
+              (VideoFrame&,
+               absl::optional<uint8_t>,
+               TimeDelta,
+               VideoContentType,
+               VideoFrameType),
+              (override));
+  MOCK_METHOD(void, OnIncomingPayloadType, (int), (override));
+  MOCK_METHOD(void,
+              OnDecoderInfoChanged,
+              (const VideoDecoder::DecoderInfo&),
+              (override));
 };
 
 class TestVideoReceiver : public ::testing::Test {
@@ -48,14 +59,16 @@ class TestVideoReceiver : public ::testing::Test {
   static const uint16_t kMaxWaitTimeMs = 100;
 
   TestVideoReceiver()
-      : clock_(0), timing_(&clock_), receiver_(&clock_, &timing_) {}
+      : clock_(0),
+        timing_(&clock_, field_trials_),
+        receiver_(&clock_, &timing_, field_trials_) {}
 
   virtual void SetUp() {
     // Register decoder.
     receiver_.RegisterExternalDecoder(&decoder_, kUnusedPayloadType);
-    webrtc::test::CodecSettings(kVideoCodecVP8, &settings_);
-    settings_.plType = kUnusedPayloadType;
-    EXPECT_EQ(0, receiver_.RegisterReceiveCodec(&settings_, 1, true));
+    VideoDecoder::Settings settings;
+    settings.set_codec_type(kVideoCodecVP8);
+    receiver_.RegisterReceiveCodec(kUnusedPayloadType, settings);
 
     // Set protection mode.
     const size_t kMaxNackListSize = 250;
@@ -67,8 +80,7 @@ class TestVideoReceiver : public ::testing::Test {
     // Since we call Decode, we need to provide a valid receive callback.
     // However, for the purposes of these tests, we ignore the callbacks.
     EXPECT_CALL(receive_callback_, OnIncomingPayloadType(_)).Times(AnyNumber());
-    EXPECT_CALL(receive_callback_, OnDecoderImplementationName(_))
-        .Times(AnyNumber());
+    EXPECT_CALL(receive_callback_, OnDecoderInfoChanged).Times(AnyNumber());
     receiver_.RegisterReceiveCallback(&receive_callback_);
   }
 
@@ -97,7 +109,7 @@ class TestVideoReceiver : public ::testing::Test {
       ++header->sequenceNumber;
     }
     receiver_.Process();
-    EXPECT_CALL(decoder_, Decode(_, _, _)).Times(0);
+    EXPECT_CALL(decoder_, Decode(_, _)).Times(0);
     EXPECT_EQ(VCM_FRAME_NOT_READY, receiver_.Decode(kMaxWaitTimeMs));
   }
 
@@ -111,12 +123,12 @@ class TestVideoReceiver : public ::testing::Test {
     EXPECT_CALL(packet_request_callback_, ResendPackets(_, _)).Times(0);
 
     receiver_.Process();
-    EXPECT_CALL(decoder_, Decode(_, _, _)).Times(1);
+    EXPECT_CALL(decoder_, Decode(_, _)).Times(1);
     EXPECT_EQ(0, receiver_.Decode(kMaxWaitTimeMs));
   }
 
+  test::ScopedKeyValueConfig field_trials_;
   SimulatedClock clock_;
-  VideoCodec settings_;
   NiceMock<MockVideoDecoder> decoder_;
   NiceMock<MockPacketRequestCallback> packet_request_callback_;
   VCMTiming timing_;

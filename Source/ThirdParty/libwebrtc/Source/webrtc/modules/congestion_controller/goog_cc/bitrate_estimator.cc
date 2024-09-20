@@ -10,15 +10,18 @@
 
 #include "modules/congestion_controller/goog_cc/bitrate_estimator.h"
 
-#include <stdio.h>
-
 #include <algorithm>
 #include <cmath>
-#include <string>
+#include <cstdint>
 
+#include "absl/types/optional.h"
+#include "api/field_trials_view.h"
 #include "api/units/data_rate.h"
-#include "modules/remote_bitrate_estimator/test/bwe_test_logging.h"
-#include "rtc_base/logging.h"
+#include "api/units/data_size.h"
+#include "api/units/time_delta.h"
+#include "api/units/timestamp.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/experiments/field_trial_parser.h"
 
 namespace webrtc {
 
@@ -32,7 +35,7 @@ const char kBweThroughputWindowConfig[] = "WebRTC-BweThroughputWindowConfig";
 
 }  // namespace
 
-BitrateEstimator::BitrateEstimator(const WebRtcKeyValueConfig* key_value_config)
+BitrateEstimator::BitrateEstimator(const FieldTrialsView* key_value_config)
     : sum_(0),
       initial_window_ms_("initial_window_ms",
                          kInitialRateWindowMs,
@@ -110,8 +113,6 @@ void BitrateEstimator::Update(Timestamp at_time, DataSize amount, bool in_alr) {
       std::max(bitrate_estimate_kbps_, estimate_floor_.Get().kbps<float>());
   bitrate_estimate_var_ = sample_var * pred_bitrate_estimate_var /
                           (sample_var + pred_bitrate_estimate_var);
-  BWE_TEST_LOGGING_PLOT(1, "acknowledged_bitrate", at_time.ms(),
-                        bitrate_estimate_kbps_ * 1000);
 }
 
 float BitrateEstimator::UpdateWindow(int64_t now_ms,

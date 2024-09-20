@@ -37,6 +37,7 @@
 #include <pal/SessionID.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/RetainPtr.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
 
 #if PLATFORM(COCOA)
@@ -44,8 +45,13 @@ OBJC_CLASS NSProgress;
 OBJC_CLASS NSURLSessionDownloadTask;
 #endif
 
-namespace IPC {
-class DataReference;
+namespace WebKit {
+class Download;
+}
+
+namespace WTF {
+template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
+template<> struct IsDeprecatedWeakRefSmartPointerException<WebKit::Download> : std::true_type { };
 }
 
 namespace WebCore {
@@ -53,7 +59,6 @@ class AuthenticationChallenge;
 class BlobDataFileReference;
 class Credential;
 class ResourceError;
-class ResourceHandle;
 class ResourceRequest;
 class ResourceResponse;
 }
@@ -66,7 +71,8 @@ class NetworkSession;
 class WebPage;
 
 class Download : public IPC::MessageSender, public CanMakeWeakPtr<Download> {
-    WTF_MAKE_NONCOPYABLE(Download); WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(Download);
+    WTF_MAKE_NONCOPYABLE(Download);
 public:
     Download(DownloadManager&, DownloadID, NetworkDataTask&, NetworkSession&, const String& suggestedFilename = { });
 #if PLATFORM(COCOA)
@@ -75,26 +81,26 @@ public:
 
     ~Download();
 
-    void resume(const IPC::DataReference& resumeData, const String& path, SandboxExtension::Handle&&);
-    void cancel();
+    void resume(std::span<const uint8_t> resumeData, const String& path, SandboxExtension::Handle&&);
+    enum class IgnoreDidFailCallback : bool { No, Yes };
+    void cancel(CompletionHandler<void(std::span<const uint8_t>)>&&, IgnoreDidFailCallback);
 #if PLATFORM(COCOA)
     void publishProgress(const URL&, SandboxExtension::Handle&&);
 #endif
 
+#if HAVE(MODERN_DOWNLOADPROGRESS)
+    void publishProgress(const URL&, std::span<const uint8_t>);
+#endif
+
     DownloadID downloadID() const { return m_downloadID; }
     PAL::SessionID sessionID() const { return m_sessionID; }
-    const String& suggestedName() const { return m_suggestedName; }
 
     void setSandboxExtension(RefPtr<SandboxExtension>&& sandboxExtension) { m_sandboxExtension = WTFMove(sandboxExtension); }
     void didReceiveChallenge(const WebCore::AuthenticationChallenge&, ChallengeCompletionHandler&&);
     void didCreateDestination(const String& path);
     void didReceiveData(uint64_t bytesWritten, uint64_t totalBytesWritten, uint64_t totalBytesExpectedToWrite);
     void didFinish();
-    void didFail(const WebCore::ResourceError&, const IPC::DataReference& resumeData);
-    void didCancel(const IPC::DataReference& resumeData);
-
-    bool isAlwaysOnLoggingAllowed() const;
-    bool wasCanceled() const { return m_wasCanceled; }
+    void didFail(const WebCore::ResourceError&, std::span<const uint8_t> resumeData);
 
     void applicationDidEnterBackground() { m_monitor.applicationDidEnterBackground(); }
     void applicationWillEnterForeground() { m_monitor.applicationWillEnterForeground(); }
@@ -107,7 +113,7 @@ private:
     IPC::Connection* messageSenderConnection() const override;
     uint64_t messageSenderDestinationID() const override;
 
-    void platformCancelNetworkLoad();
+    void platformCancelNetworkLoad(CompletionHandler<void(std::span<const uint8_t>)>&&);
     void platformDestroyDownload();
 
     DownloadManager& m_downloadManager;
@@ -122,12 +128,16 @@ private:
     RetainPtr<NSURLSessionDownloadTask> m_downloadTask;
     RetainPtr<NSProgress> m_progress;
 #endif
+#if HAVE(MODERN_DOWNLOADPROGRESS)
+    RetainPtr<NSData> m_bookmarkData;
+    RetainPtr<NSURL> m_bookmarkURL;
+#endif
     PAL::SessionID m_sessionID;
-    String m_suggestedName;
-    bool m_wasCanceled { false };
     bool m_hasReceivedData { false };
+    IgnoreDidFailCallback m_ignoreDidFailCallback { IgnoreDidFailCallback::No };
     DownloadMonitor m_monitor { *this };
     unsigned m_testSpeedMultiplier { 1 };
+    CompletionHandler<void(std::span<const uint8_t>)> m_cancelCompletionHandler;
 };
 
 } // namespace WebKit

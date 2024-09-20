@@ -62,12 +62,16 @@ void printInternal(PrintStream& out, LocationKind kind)
         out.print("InvalidationPointLoc");
         return;
         
-    case IsObjectOrNullLoc:
-        out.print("IsObjectOrNullLoc");
+    case TypeOfIsObjectLoc:
+        out.print("TypeOfIsObjectLoc");
         return;
 
-    case IsFunctionLoc:
-        out.print("IsFunctionLoc");
+    case TypeOfIsFunctionLoc:
+        out.print("TypeOfIsFunctionLoc");
+        return;
+
+    case IsCallableLoc:
+        out.print("IsCallableLoc");
         return;
         
     case IsConstructorLoc:
@@ -88,6 +92,10 @@ void printInternal(PrintStream& out, LocationKind kind)
         
     case StackPayloadLoc:
         out.print("StackPayloadLoc");
+        return;
+
+    case GlobalProxyTargetLoc:
+        out.print("GlobalProxyTargetLoc");
         return;
         
     case ArrayLengthLoc:
@@ -125,9 +133,13 @@ void printInternal(PrintStream& out, LocationKind kind)
     case GlobalVariableLoc:
         out.print("GlobalVariableLoc");
         return;
-        
+
     case HasIndexedPropertyLoc:
         out.print("HasIndexedPorpertyLoc");
+        return;
+
+    case EnumeratorNextUpdateIndexAndModeLoc:
+        out.print("EnumeratorNextUpdateIndexAndModeLoc");
         return;
 
     case IndexedPropertyDoubleLoc:
@@ -138,8 +150,20 @@ void printInternal(PrintStream& out, LocationKind kind)
         out.print("IndexedPropertyDoubleSaneChainLoc");
         return;
 
+    case IndexedPropertyDoubleOutOfBoundsSaneChainLoc:
+        out.print("IndexedPropertyDoubleOutOfBoundsSaneChainLoc");
+        return;
+
+    case IndexedPropertyDoubleOrOtherOutOfBoundsSaneChainLoc:
+        out.print("IndexedPropertyDoubleOrOtherOutOfBoundsSaneChainLoc");
+        return;
+
     case IndexedPropertyInt32Loc:
         out.print("IndexedPropertyInt32Loc");
+        return;
+
+    case IndexedPropertyInt32OutOfBoundsSaneChainLoc:
+        out.print("IndexedPropertyInt32OutOfBoundsSaneChainLoc");
         return;
 
     case IndexedPropertyInt52Loc:
@@ -148,6 +172,10 @@ void printInternal(PrintStream& out, LocationKind kind)
 
     case IndexedPropertyJSLoc:
         out.print("IndexedPropertyJSLoc");
+        return;
+
+    case IndexedPropertyJSOutOfBoundsSaneChainLoc:
+        out.print("IndexedPropertyJSOutOfBoundsSaneChainLoc");
         return;
 
     case IndexedPropertyStorageLoc:
@@ -160,6 +188,14 @@ void printInternal(PrintStream& out, LocationKind kind)
         
     case TypedArrayByteOffsetLoc:
         out.print("TypedArrayByteOffsetLoc");
+        return;
+
+    case TypedArrayByteOffsetInt52Loc:
+        out.print("TypedArrayByteOffsetInt52Loc");
+        return;
+
+    case TypedArrayLengthInt52Loc:
+        out.print("TypedArrayLengthInt52Loc");
         return;
 
     case PrototypeLoc:
@@ -196,6 +232,50 @@ void printInternal(PrintStream& out, LocationKind kind)
 
     case MapBucketNextLoc:
         out.print("MapBucketNextLoc");
+        return;
+
+    case MapIteratorNextLoc:
+        out.print("MapIteratorNextLoc");
+        return;
+
+    case MapIteratorKeyLoc:
+        out.print("MapIteratorKeyLoc");
+        return;
+
+    case MapIteratorValueLoc:
+        out.print("MapIteratorValueLoc");
+        return;
+
+    case MapStorageLoc:
+        out.print("MapStorageLoc");
+        return;
+
+    case MapIterationNextLoc:
+        out.print("MapIterationNextLoc");
+        return;
+
+    case MapIterationEntryLoc:
+        out.print("MapIterationEntryLoc");
+        return;
+
+    case MapIterationEntryKeyLoc:
+        out.print("MapIterationEntryKeyLoc");
+        return;
+
+    case MapIterationEntryValueLoc:
+        out.print("MapIterationEntryValueLoc");
+        return;
+
+    case MapEntryKeyLoc:
+        out.print("MapEntryKeyLoc");
+        return;
+
+    case MapEntryValueLoc:
+        out.print("MapEntryValueLoc");
+        return;
+
+    case LoadMapValueLoc:
+        out.print("LoadMapValueLoc");
         return;
 
     case WeakMapGetLoc:

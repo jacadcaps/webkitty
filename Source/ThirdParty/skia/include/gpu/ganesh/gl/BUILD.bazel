@@ -1,0 +1,29 @@
+load("//bazel:skia_rules.bzl", "skia_filegroup")
+
+package(
+    default_applicable_licenses = ["//:license"],
+)
+
+licenses(["notice"])
+
+skia_filegroup(
+    name = "public_hdrs",
+    srcs = [
+        "GrGLBackendSurface.h",
+        "GrGLDirectContext.h",
+    ],
+    visibility = [
+        "//include/gpu/ganesh:__pkg__",
+        "//src/gpu/ganesh/gl:__pkg__",
+    ],
+)
+
+skia_filegroup(
+    name = "webgl_hdrs",
+    srcs = [
+        "GrGLMakeWebGLInterface.h",
+    ],
+    visibility = [
+        "//src/gpu/ganesh/gl/webgl:__pkg__",
+    ],
+)

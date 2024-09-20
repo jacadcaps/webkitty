@@ -23,13 +23,11 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef DiagnosticLoggingClient_h
-#define DiagnosticLoggingClient_h
-
-#import "WKFoundation.h"
+#pragma once
 
 #import "APIDiagnosticLoggingClient.h"
-#import <WebCore/DiagnosticLoggingResultType.h>
+#import "WKFoundation.h"
+#import <wtf/TZoneMalloc.h>
 #import <wtf/WeakObjCPtr.h>
 
 @class WKWebView;
@@ -38,7 +36,7 @@
 namespace WebKit {
 
 class DiagnosticLoggingClient final : public API::DiagnosticLoggingClient {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(DiagnosticLoggingClient);
 public:
     explicit DiagnosticLoggingClient(WKWebView *);
 
@@ -52,6 +50,7 @@ private:
     void logDiagnosticMessageWithValue(WebPageProxy*, const String& message, const String& description, const String& value) override;
     void logDiagnosticMessageWithEnhancedPrivacy(WebPageProxy*, const String& message, const String& description) override;
     void logDiagnosticMessageWithValueDictionary(WebPageProxy*, const String& message, const String& description, Ref<API::Dictionary>&&) override;
+    void logDiagnosticMessageWithDomain(WebPageProxy*, const String& message, WebCore::DiagnosticLoggingDomain) override;
 
     WKWebView *m_webView;
     WeakObjCPtr<id <_WKDiagnosticLoggingDelegate>> m_delegate;
@@ -62,10 +61,8 @@ private:
         unsigned webviewLogDiagnosticMessageWithValue : 1;
         unsigned webviewLogDiagnosticMessageWithEnhancedPrivacy : 1;
         unsigned webviewLogDiagnosticMessageWithValueDictionary : 1;
+        unsigned webviewLogDiagnosticMessageWithDomain : 1;
     } m_delegateMethods;
 };
 
 } // WebKit
-
-#endif // DiagnosticLoggingClient_h
-

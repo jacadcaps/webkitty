@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -35,21 +35,16 @@
 
 namespace JSC {
 
-const ClassInfo SparseArrayValueMap::s_info = { "SparseArrayValueMap", nullptr, nullptr, nullptr, CREATE_METHOD_TABLE(SparseArrayValueMap) };
+const ClassInfo SparseArrayValueMap::s_info = { "SparseArrayValueMap"_s, nullptr, nullptr, nullptr, CREATE_METHOD_TABLE(SparseArrayValueMap) };
 
 SparseArrayValueMap::SparseArrayValueMap(VM& vm)
     : Base(vm, vm.sparseArrayValueMapStructure.get())
 {
 }
 
-void SparseArrayValueMap::finishCreation(VM& vm)
-{
-    Base::finishCreation(vm);
-}
-
 SparseArrayValueMap* SparseArrayValueMap::create(VM& vm)
 {
-    SparseArrayValueMap* result = new (NotNull, allocateCell<SparseArrayValueMap>(vm.heap)) SparseArrayValueMap(vm);
+    SparseArrayValueMap* result = new (NotNull, allocateCell<SparseArrayValueMap>(vm)) SparseArrayValueMap(vm);
     result->finishCreation(vm);
     return result;
 }
@@ -69,7 +64,7 @@ SparseArrayValueMap::AddResult SparseArrayValueMap::add(JSObject* array, unsigne
     AddResult result;
     size_t increasedCapacity = 0;
     {
-        auto locker = holdLock(cellLock());
+        Locker locker { cellLock() };
         result = m_map.add(i, SparseArrayEntry());
         size_t capacity = m_map.capacity();
         if (capacity > m_reportedCapacity) {
@@ -78,19 +73,19 @@ SparseArrayValueMap::AddResult SparseArrayValueMap::add(JSObject* array, unsigne
         }
     }
     if (increasedCapacity)
-        Heap::heap(array)->reportExtraMemoryAllocated(increasedCapacity * sizeof(Map::KeyValuePairType));
+        Heap::heap(array)->reportExtraMemoryAllocated(array, increasedCapacity * sizeof(Map::KeyValuePairType));
     return result;
 }
 
 void SparseArrayValueMap::remove(iterator it)
 {
-    auto locker = holdLock(cellLock());
+    Locker locker { cellLock() };
     m_map.remove(it);
 }
 
 void SparseArrayValueMap::remove(unsigned i)
 {
-    auto locker = holdLock(cellLock());
+    Locker locker { cellLock() };
     m_map.remove(i);
 }
 
@@ -106,7 +101,7 @@ bool SparseArrayValueMap::putEntry(JSGlobalObject* globalObject, JSObject* array
     // To save a separate find & add, we first always add to the sparse map.
     // In the uncommon case that this is a new property, and the array is not
     // extensible, this is not the right thing to have done - so remove again.
-    if (result.isNewEntry && !array->isStructureExtensible(vm)) {
+    if (result.isNewEntry && !array->isStructureExtensible()) {
         remove(result.iterator);
         return typeError(globalObject, scope, shouldThrow, ReadonlyPropertyWriteError);
     }
@@ -128,7 +123,7 @@ bool SparseArrayValueMap::putDirect(JSGlobalObject* globalObject, JSObject* arra
     // To save a separate find & add, we first always add to the sparse map.
     // In the uncommon case that this is a new property, and the array is not
     // extensible, this is not the right thing to have done - so remove again.
-    if (mode != PutDirectIndexLikePutDirect && result.isNewEntry && !array->isStructureExtensible(vm)) {
+    if (mode != PutDirectIndexLikePutDirect && result.isNewEntry && !array->isStructureExtensible()) {
         remove(result.iterator);
         return typeError(globalObject, scope, shouldThrow, NonExtensibleObjectPropertyDefineError);
     }
@@ -142,7 +137,7 @@ bool SparseArrayValueMap::putDirect(JSGlobalObject* globalObject, JSObject* arra
 
 JSValue SparseArrayValueMap::getConcurrently(unsigned i)
 {
-    auto locker = holdLock(cellLock());
+    Locker locker { cellLock() };
     auto iterator = m_map.find(i);
     if (iterator == m_map.end())
         return JSValue();
@@ -174,8 +169,8 @@ JSValue SparseArrayEntry::getConcurrently() const
     // By emitting store-store-fence and load-load-fence between value setting and attributes setting,
     // we can ensure that the value is what we want once the attributes get ReadOnly & DontDelete:
     // once attributes get this state, the value should not be changed.
-    unsigned attributes = m_attributes;
-    Dependency attributesDependency = Dependency::fence(attributes);
+    unsigned attributes;
+    Dependency attributesDependency = Dependency::loadAndFence(&m_attributes, attributes);
     if (attributes & PropertyAttribute::Accessor)
         return JSValue();
 
@@ -201,7 +196,7 @@ bool SparseArrayEntry::put(JSGlobalObject* globalObject, JSValue thisValue, Spar
         return true;
     }
 
-    RELEASE_AND_RETURN(scope, callSetter(globalObject, thisValue, Base::get(), value, shouldThrow ? ECMAMode::strict() : ECMAMode::sloppy()));
+    RELEASE_AND_RETURN(scope, jsCast<GetterSetter*>(Base::get())->callSetter(globalObject, thisValue, value, shouldThrow));
 }
 
 JSValue SparseArrayEntry::getNonSparseMode() const
@@ -210,18 +205,26 @@ JSValue SparseArrayEntry::getNonSparseMode() const
     return Base::get();
 }
 
-void SparseArrayValueMap::visitChildren(JSCell* cell, SlotVisitor& visitor)
+JSValue SparseArrayEntry::get() const
+{
+    return Base::get();
+}
+
+template<typename Visitor>
+void SparseArrayValueMap::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
     SparseArrayValueMap* thisObject = jsCast<SparseArrayValueMap*>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     Base::visitChildren(cell, visitor);
     {
-        auto locker = holdLock(thisObject->cellLock());
+        Locker locker { thisObject->cellLock() };
         for (auto& entry : thisObject->m_map)
             visitor.append(entry.value.asValue());
     }
     visitor.reportExtraMemoryVisited(thisObject->m_reportedCapacity * sizeof(Map::KeyValuePairType));
 }
+
+DEFINE_VISIT_CHILDREN(SparseArrayValueMap);
 
 } // namespace JSC
 

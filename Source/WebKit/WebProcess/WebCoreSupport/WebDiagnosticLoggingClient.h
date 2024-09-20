@@ -27,12 +27,15 @@
 #define WebDiagnosticLoggingClient_h
 
 #include <WebCore/DiagnosticLoggingClient.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebKit {
 
 class WebPage;
 
 class WebDiagnosticLoggingClient : public WebCore::DiagnosticLoggingClient {
+    WTF_MAKE_TZONE_ALLOCATED(WebDiagnosticLoggingClient);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(WebDiagnosticLoggingClient);
 public:
     WebDiagnosticLoggingClient(WebPage&);
     virtual ~WebDiagnosticLoggingClient();
@@ -43,6 +46,7 @@ private:
     void logDiagnosticMessageWithValue(const String& message, const String& description, double value, unsigned significantFigures, WebCore::ShouldSample) override;
     void logDiagnosticMessageWithEnhancedPrivacy(const String& message, const String& description, WebCore::ShouldSample) override;
     void logDiagnosticMessageWithValueDictionary(const String& message, const String& description, const ValueDictionary&, WebCore::ShouldSample) override;
+    void logDiagnosticMessageWithDomain(const String& message, WebCore::DiagnosticLoggingDomain) override;
 
     WebPage& m_page;
 };

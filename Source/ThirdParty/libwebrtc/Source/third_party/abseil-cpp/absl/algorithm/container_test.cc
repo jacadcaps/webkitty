@@ -14,6 +14,7 @@
 
 #include "absl/algorithm/container.h"
 
+#include <algorithm>
 #include <functional>
 #include <initializer_list>
 #include <iterator>
@@ -40,8 +41,10 @@ using ::testing::Each;
 using ::testing::ElementsAre;
 using ::testing::Gt;
 using ::testing::IsNull;
+using ::testing::IsSubsetOf;
 using ::testing::Lt;
 using ::testing::Pointee;
+using ::testing::SizeIs;
 using ::testing::Truly;
 using ::testing::UnorderedElementsAre;
 
@@ -57,9 +60,7 @@ class NonMutatingTest : public testing::Test {
 };
 
 struct AccumulateCalls {
-  void operator()(int value) {
-    calls.push_back(value);
-  }
+  void operator()(int value) { calls.push_back(value); }
   std::vector<int> calls;
 };
 
@@ -68,15 +69,17 @@ bool BinPredicate(int v1, int v2) { return v1 < v2; }
 bool Equals(int v1, int v2) { return v1 == v2; }
 bool IsOdd(int x) { return x % 2 != 0; }
 
-
 TEST_F(NonMutatingTest, Distance) {
-  EXPECT_EQ(container_.size(), absl::c_distance(container_));
-  EXPECT_EQ(sequence_.size(), absl::c_distance(sequence_));
-  EXPECT_EQ(vector_.size(), absl::c_distance(vector_));
-  EXPECT_EQ(ABSL_ARRAYSIZE(array_), absl::c_distance(array_));
+  EXPECT_EQ(container_.size(),
+            static_cast<size_t>(absl::c_distance(container_)));
+  EXPECT_EQ(sequence_.size(), static_cast<size_t>(absl::c_distance(sequence_)));
+  EXPECT_EQ(vector_.size(), static_cast<size_t>(absl::c_distance(vector_)));
+  EXPECT_EQ(ABSL_ARRAYSIZE(array_),
+            static_cast<size_t>(absl::c_distance(array_)));
 
   // Works with a temporary argument.
-  EXPECT_EQ(vector_.size(), absl::c_distance(std::vector<int>(vector_)));
+  EXPECT_EQ(vector_.size(),
+            static_cast<size_t>(absl::c_distance(std::vector<int>(vector_))));
 }
 
 TEST_F(NonMutatingTest, Distance_OverloadedBeginEnd) {
@@ -151,35 +154,118 @@ TEST_F(NonMutatingTest, CountIf) {
 }
 
 TEST_F(NonMutatingTest, Mismatch) {
-  absl::c_mismatch(container_, sequence_);
-  absl::c_mismatch(sequence_, container_);
+  // Testing necessary as absl::c_mismatch executes logic.
+  {
+    auto result = absl::c_mismatch(vector_, sequence_);
+    EXPECT_EQ(result.first, vector_.end());
+    EXPECT_EQ(result.second, sequence_.end());
+  }
+  {
+    auto result = absl::c_mismatch(sequence_, vector_);
+    EXPECT_EQ(result.first, sequence_.end());
+    EXPECT_EQ(result.second, vector_.end());
+  }
+
+  sequence_.back() = 5;
+  {
+    auto result = absl::c_mismatch(vector_, sequence_);
+    EXPECT_EQ(result.first, std::prev(vector_.end()));
+    EXPECT_EQ(result.second, std::prev(sequence_.end()));
+  }
+  {
+    auto result = absl::c_mismatch(sequence_, vector_);
+    EXPECT_EQ(result.first, std::prev(sequence_.end()));
+    EXPECT_EQ(result.second, std::prev(vector_.end()));
+  }
+
+  sequence_.pop_back();
+  {
+    auto result = absl::c_mismatch(vector_, sequence_);
+    EXPECT_EQ(result.first, std::prev(vector_.end()));
+    EXPECT_EQ(result.second, sequence_.end());
+  }
+  {
+    auto result = absl::c_mismatch(sequence_, vector_);
+    EXPECT_EQ(result.first, sequence_.end());
+    EXPECT_EQ(result.second, std::prev(vector_.end()));
+  }
+  {
+    struct NoNotEquals {
+      constexpr bool operator==(NoNotEquals) const { return true; }
+      constexpr bool operator!=(NoNotEquals) const = delete;
+    };
+    std::vector<NoNotEquals> first;
+    std::list<NoNotEquals> second;
+
+    // Check this still compiles.
+    absl::c_mismatch(first, second);
+  }
 }
 
 TEST_F(NonMutatingTest, MismatchWithPredicate) {
-  absl::c_mismatch(container_, sequence_, BinPredicate);
-  absl::c_mismatch(sequence_, container_, BinPredicate);
+  // Testing necessary as absl::c_mismatch executes logic.
+  {
+    auto result = absl::c_mismatch(vector_, sequence_, BinPredicate);
+    EXPECT_EQ(result.first, vector_.begin());
+    EXPECT_EQ(result.second, sequence_.begin());
+  }
+  {
+    auto result = absl::c_mismatch(sequence_, vector_, BinPredicate);
+    EXPECT_EQ(result.first, sequence_.begin());
+    EXPECT_EQ(result.second, vector_.begin());
+  }
+
+  sequence_.front() = 0;
+  {
+    auto result = absl::c_mismatch(vector_, sequence_, BinPredicate);
+    EXPECT_EQ(result.first, vector_.begin());
+    EXPECT_EQ(result.second, sequence_.begin());
+  }
+  {
+    auto result = absl::c_mismatch(sequence_, vector_, BinPredicate);
+    EXPECT_EQ(result.first, std::next(sequence_.begin()));
+    EXPECT_EQ(result.second, std::next(vector_.begin()));
+  }
+
+  sequence_.clear();
+  {
+    auto result = absl::c_mismatch(vector_, sequence_, BinPredicate);
+    EXPECT_EQ(result.first, vector_.begin());
+    EXPECT_EQ(result.second, sequence_.end());
+  }
+  {
+    auto result = absl::c_mismatch(sequence_, vector_, BinPredicate);
+    EXPECT_EQ(result.first, sequence_.end());
+    EXPECT_EQ(result.second, vector_.begin());
+  }
 }
 
 TEST_F(NonMutatingTest, Equal) {
   EXPECT_TRUE(absl::c_equal(vector_, sequence_));
   EXPECT_TRUE(absl::c_equal(sequence_, vector_));
+  EXPECT_TRUE(absl::c_equal(sequence_, array_));
+  EXPECT_TRUE(absl::c_equal(array_, vector_));
 
   // Test that behavior appropriately differs from that of equal().
   std::vector<int> vector_plus = {1, 2, 3};
   vector_plus.push_back(4);
   EXPECT_FALSE(absl::c_equal(vector_plus, sequence_));
   EXPECT_FALSE(absl::c_equal(sequence_, vector_plus));
+  EXPECT_FALSE(absl::c_equal(array_, vector_plus));
 }
 
 TEST_F(NonMutatingTest, EqualWithPredicate) {
   EXPECT_TRUE(absl::c_equal(vector_, sequence_, Equals));
   EXPECT_TRUE(absl::c_equal(sequence_, vector_, Equals));
+  EXPECT_TRUE(absl::c_equal(array_, sequence_, Equals));
+  EXPECT_TRUE(absl::c_equal(vector_, array_, Equals));
 
   // Test that behavior appropriately differs from that of equal().
   std::vector<int> vector_plus = {1, 2, 3};
   vector_plus.push_back(4);
   EXPECT_FALSE(absl::c_equal(vector_plus, sequence_, Equals));
   EXPECT_FALSE(absl::c_equal(sequence_, vector_plus, Equals));
+  EXPECT_FALSE(absl::c_equal(vector_plus, array_, Equals));
 }
 
 TEST_F(NonMutatingTest, IsPermutation) {
@@ -513,11 +599,9 @@ TEST_F(SortingTest, IsSortedUntil) {
 TEST_F(SortingTest, NthElement) {
   std::vector<int> unsorted = {2, 4, 1, 3};
   absl::c_nth_element(unsorted, unsorted.begin() + 2);
-  EXPECT_THAT(unsorted,
-              ElementsAre(Lt(3), Lt(3), 3, Gt(3)));
+  EXPECT_THAT(unsorted, ElementsAre(Lt(3), Lt(3), 3, Gt(3)));
   absl::c_nth_element(unsorted, unsorted.begin() + 2, std::greater<int>());
-  EXPECT_THAT(unsorted,
-              ElementsAre(Gt(2), Gt(2), 2, Lt(2)));
+  EXPECT_THAT(unsorted, ElementsAre(Gt(2), Gt(2), 2, Lt(2)));
 }
 
 TEST(MutatingTest, IsPartitioned) {
@@ -670,6 +754,15 @@ TEST(MutatingTest, SwapRanges) {
   absl::c_swap_ranges(odds, evens);
   EXPECT_THAT(odds, ElementsAre(1, 3, 5));
   EXPECT_THAT(evens, ElementsAre(2, 4, 6));
+
+  odds.pop_back();
+  absl::c_swap_ranges(odds, evens);
+  EXPECT_THAT(odds, ElementsAre(2, 4));
+  EXPECT_THAT(evens, ElementsAre(1, 3, 6));
+
+  absl::c_swap_ranges(evens, odds);
+  EXPECT_THAT(odds, ElementsAre(1, 3));
+  EXPECT_THAT(evens, ElementsAre(2, 4, 6));
 }
 
 TEST_F(NonMutatingTest, Transform) {
@@ -684,6 +777,20 @@ TEST_F(NonMutatingTest, Transform) {
   EXPECT_EQ(std::vector<int>({1, 5, 4}), z);
   *end = 7;
   EXPECT_EQ(std::vector<int>({1, 5, 4, 7}), z);
+
+  z.clear();
+  y.pop_back();
+  end = absl::c_transform(x, y, std::back_inserter(z), std::plus<int>());
+  EXPECT_EQ(std::vector<int>({1, 5}), z);
+  *end = 7;
+  EXPECT_EQ(std::vector<int>({1, 5, 7}), z);
+
+  z.clear();
+  std::swap(x, y);
+  end = absl::c_transform(x, y, std::back_inserter(z), std::plus<int>());
+  EXPECT_EQ(std::vector<int>({1, 5}), z);
+  *end = 7;
+  EXPECT_EQ(std::vector<int>({1, 5, 7}), z);
 }
 
 TEST(MutatingTest, Replace) {
@@ -749,10 +856,9 @@ MATCHER_P2(IsElement, key, value, "") {
 TEST(MutatingTest, StableSort) {
   std::vector<Element> test_vector = {{1, 1}, {2, 1}, {2, 0}, {1, 0}, {2, 2}};
   absl::c_stable_sort(test_vector);
-  EXPECT_THAT(
-      test_vector,
-      ElementsAre(IsElement(1, 1), IsElement(1, 0), IsElement(2, 1),
-                  IsElement(2, 0), IsElement(2, 2)));
+  EXPECT_THAT(test_vector,
+              ElementsAre(IsElement(1, 1), IsElement(1, 0), IsElement(2, 1),
+                          IsElement(2, 0), IsElement(2, 2)));
 }
 
 TEST(MutatingTest, StableSortWithPredicate) {
@@ -760,10 +866,9 @@ TEST(MutatingTest, StableSortWithPredicate) {
   absl::c_stable_sort(test_vector, [](const Element& e1, const Element& e2) {
     return e2 < e1;
   });
-  EXPECT_THAT(
-      test_vector,
-      ElementsAre(IsElement(2, 1), IsElement(2, 0), IsElement(2, 2),
-                  IsElement(1, 1), IsElement(1, 0)));
+  EXPECT_THAT(test_vector,
+              ElementsAre(IsElement(2, 1), IsElement(2, 0), IsElement(2, 2),
+                          IsElement(1, 1), IsElement(1, 0)));
 }
 
 TEST(MutatingTest, ReplaceCopyIf) {
@@ -861,10 +966,27 @@ TEST(MutatingTest, RotateCopy) {
   EXPECT_THAT(actual, ElementsAre(3, 4, 1, 2, 5));
 }
 
+template <typename T>
+T RandomlySeededPrng() {
+  std::random_device rdev;
+  std::seed_seq::result_type data[T::state_size];
+  std::generate_n(data, T::state_size, std::ref(rdev));
+  std::seed_seq prng_seed(data, data + T::state_size);
+  return T(prng_seed);
+}
+
 TEST(MutatingTest, Shuffle) {
   std::vector<int> actual = {1, 2, 3, 4, 5};
-  absl::c_shuffle(actual, std::random_device());
+  absl::c_shuffle(actual, RandomlySeededPrng<std::mt19937_64>());
   EXPECT_THAT(actual, UnorderedElementsAre(1, 2, 3, 4, 5));
+}
+
+TEST(MutatingTest, Sample) {
+  std::vector<int> actual;
+  absl::c_sample(std::vector<int>{1, 2, 3, 4, 5}, std::back_inserter(actual), 3,
+                 RandomlySeededPrng<std::mt19937_64>());
+  EXPECT_THAT(actual, IsSubsetOf({1, 2, 3, 4, 5}));
+  EXPECT_THAT(actual, SizeIs(3));
 }
 
 TEST(MutatingTest, PartialSort) {

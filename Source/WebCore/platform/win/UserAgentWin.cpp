@@ -27,26 +27,15 @@
 #include "UserAgent.h"
 
 #include "SystemInfo.h"
-#include <wtf/text/StringBuilder.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
 String standardUserAgent(const String& applicationName, const String& applicationVersion)
 {
-    StringBuilder uaString;
-    uaString.appendLiteral("Mozilla/5.0 (");
-    uaString.append(windowsVersionForUAString());
-    // https://bugs.webkit.org/show_bug.cgi?id=180365
-    uaString.appendLiteral(") AppleWebKit/605.1.15 (KHTML, like Gecko)");
-    if (!applicationName.isEmpty()) {
-        uaString.appendLiteral(" ");
-        uaString.append(applicationName);
-        if (!applicationVersion.isEmpty()) {
-            uaString.appendLiteral("/");
-            uaString.append(applicationVersion);
-        }
-    }
-    return uaString.toString();
+    auto version = applicationName.isEmpty() ? emptyString() : applicationVersion;
+    return makeString("Mozilla/5.0 ("_s, windowsVersionForUAString(), ") AppleWebKit/605.1.15 (KHTML, like Gecko)"_s,
+        applicationName.isEmpty() ? ""_s : " "_s, applicationName, version.isEmpty() ? ""_s : "/"_s, version);
 }
 
 } // namespace WebCore

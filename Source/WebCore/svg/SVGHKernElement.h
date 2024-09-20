@@ -21,18 +21,17 @@
 
 #pragma once
 
-#if ENABLE(SVG_FONTS)
-
 #include "SVGFontElement.h"
 
 namespace WebCore {
 
 class SVGHKernElement final : public SVGElement {
-    WTF_MAKE_ISO_ALLOCATED(SVGHKernElement);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(SVGHKernElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SVGHKernElement);
 public:
     static Ref<SVGHKernElement> create(const QualifiedName&, Document&);
 
-    Optional<SVGKerningPair> buildHorizontalKerningPair() const;
+    std::optional<SVGKerningPair> buildHorizontalKerningPair() const;
 
 private:
     SVGHKernElement(const QualifiedName&, Document&);
@@ -41,5 +40,3 @@ private:
 };
 
 } // namespace WebCore
-
-#endif // ENABLE(SVG_FONTS)

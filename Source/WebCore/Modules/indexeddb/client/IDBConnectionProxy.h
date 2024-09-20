@@ -25,8 +25,6 @@
 
 #pragma once
 
-#if ENABLE(INDEXED_DATABASE)
-
 #include "IDBConnectionToServer.h"
 #include "IDBDatabaseNameAndVersionRequest.h"
 #include "IDBResourceIdentifier.h"
@@ -36,8 +34,10 @@
 #include <wtf/Forward.h>
 #include <wtf/Function.h>
 #include <wtf/HashMap.h>
+#include <wtf/Lock.h>
 #include <wtf/MainThread.h>
 #include <wtf/RefPtr.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
@@ -46,6 +46,7 @@ class IDBDatabase;
 class IDBDatabaseIdentifier;
 class IDBError;
 class IDBOpenDBRequest;
+class IDBOpenRequestData;
 class IDBResultData;
 class IDBTransaction;
 class ScriptExecutionContext;
@@ -58,9 +59,8 @@ namespace IDBClient {
 
 class IDBConnectionToServer;
 
-class WEBCORE_EXPORT IDBConnectionProxy {
-    WTF_MAKE_NONCOPYABLE(IDBConnectionProxy);
-    WTF_MAKE_FAST_ALLOCATED;
+class WEBCORE_EXPORT IDBConnectionProxy final {
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(IDBConnectionProxy);
 public:
     IDBConnectionProxy(IDBConnectionToServer&);
 
@@ -85,29 +85,29 @@ public:
     void renameObjectStore(TransactionOperation&, uint64_t objectStoreIdentifier, const String& newName);
     void renameIndex(TransactionOperation&, uint64_t objectStoreIdentifier, uint64_t indexIdentifier, const String& newName);
 
-    void fireVersionChangeEvent(uint64_t databaseConnectionIdentifier, const IDBResourceIdentifier& requestIdentifier, uint64_t requestedVersion);
-    void didFireVersionChangeEvent(uint64_t databaseConnectionIdentifier, const IDBResourceIdentifier& requestIdentifier, const IndexedDB::ConnectionClosedOnBehalfOfServer = IndexedDB::ConnectionClosedOnBehalfOfServer::No);
+    void fireVersionChangeEvent(IDBDatabaseConnectionIdentifier, const IDBResourceIdentifier& requestIdentifier, uint64_t requestedVersion);
+    void didFireVersionChangeEvent(IDBDatabaseConnectionIdentifier, const IDBResourceIdentifier& requestIdentifier, const IndexedDB::ConnectionClosedOnBehalfOfServer = IndexedDB::ConnectionClosedOnBehalfOfServer::No);
 
     void notifyOpenDBRequestBlocked(const IDBResourceIdentifier& requestIdentifier, uint64_t oldVersion, uint64_t newVersion);
-    void openDBRequestCancelled(const IDBRequestData&);
+    void openDBRequestCancelled(const IDBOpenRequestData&);
 
     void establishTransaction(IDBTransaction&);
-    void commitTransaction(IDBTransaction&);
+    void commitTransaction(IDBTransaction&, uint64_t handledRequestResultsCount);
     void abortTransaction(IDBTransaction&);
 
     void didStartTransaction(const IDBResourceIdentifier& transactionIdentifier, const IDBError&);
     void didCommitTransaction(const IDBResourceIdentifier& transactionIdentifier, const IDBError&);
     void didAbortTransaction(const IDBResourceIdentifier& transactionIdentifier, const IDBError&);
 
-    void didFinishHandlingVersionChangeTransaction(uint64_t databaseConnectionIdentifier, IDBTransaction&);
+    void didFinishHandlingVersionChangeTransaction(IDBDatabaseConnectionIdentifier, IDBTransaction&);
     void databaseConnectionPendingClose(IDBDatabase&);
     void databaseConnectionClosed(IDBDatabase&);
 
-    void didCloseFromServer(uint64_t databaseConnectionIdentifier, const IDBError&);
+    void didCloseFromServer(IDBDatabaseConnectionIdentifier, const IDBError&);
 
     void connectionToServerLost(const IDBError&);
 
-    void abortOpenAndUpgradeNeeded(uint64_t databaseConnectionIdentifier, const IDBResourceIdentifier& transactionIdentifier);
+    void abortOpenAndUpgradeNeeded(IDBDatabaseConnectionIdentifier, const std::optional<IDBResourceIdentifier>& transactionIdentifier);
 
     void completeOperation(const IDBResultData&);
 
@@ -116,20 +116,20 @@ public:
     void ref();
     void deref();
 
-    void getAllDatabaseNamesAndVersions(ScriptExecutionContext&, Function<void(Optional<Vector<IDBDatabaseNameAndVersion>>&&)>&&);
-    void didGetAllDatabaseNamesAndVersions(const IDBResourceIdentifier&, Optional<Vector<IDBDatabaseNameAndVersion>>&&);
+    void getAllDatabaseNamesAndVersions(ScriptExecutionContext&, Function<void(std::optional<Vector<IDBDatabaseNameAndVersion>>&&)>&&);
+    void didGetAllDatabaseNamesAndVersions(const IDBResourceIdentifier&, std::optional<Vector<IDBDatabaseNameAndVersion>>&&);
 
     void registerDatabaseConnection(IDBDatabase&);
     void unregisterDatabaseConnection(IDBDatabase&);
 
     void forgetActiveOperations(const Vector<RefPtr<TransactionOperation>>&);
     void forgetTransaction(IDBTransaction&);
-    void forgetActivityForCurrentThread();
+    void abortActivitiesForCurrentThread();
     void setContextSuspended(ScriptExecutionContext& currentContext, bool isContextSuspended);
 
 private:
     void completeOpenDBRequest(const IDBResultData&);
-    bool hasRecordOfTransaction(const IDBTransaction&) const;
+    bool hasRecordOfTransaction(const IDBTransaction&) const WTF_REQUIRES_LOCK(m_transactionMapLock);
 
     void saveOperation(TransactionOperation&);
 
@@ -157,29 +157,24 @@ private:
     IDBConnectionToServer& m_connectionToServer;
     IDBConnectionIdentifier m_serverConnectionIdentifier;
 
-    HashMap<uint64_t, IDBDatabase*> m_databaseConnectionMap;
     Lock m_databaseConnectionMapLock;
-
-    HashMap<IDBResourceIdentifier, RefPtr<IDBOpenDBRequest>> m_openDBRequestMap;
     Lock m_openDBRequestMapLock;
-
-    HashMap<IDBResourceIdentifier, RefPtr<IDBTransaction>> m_pendingTransactions;
-    HashMap<IDBResourceIdentifier, RefPtr<IDBTransaction>> m_committingTransactions;
-    HashMap<IDBResourceIdentifier, RefPtr<IDBTransaction>> m_abortingTransactions;
     Lock m_transactionMapLock;
-
-    HashMap<IDBResourceIdentifier, RefPtr<TransactionOperation>> m_activeOperations;
     Lock m_transactionOperationLock;
-
-    HashMap<IDBResourceIdentifier, Ref<IDBDatabaseNameAndVersionRequest>> m_databaseInfoCallbacks;
     Lock m_databaseInfoMapLock;
+    Lock m_mainThreadTaskLock;
+
+    HashMap<IDBDatabaseConnectionIdentifier, IDBDatabase*> m_databaseConnectionMap WTF_GUARDED_BY_LOCK(m_databaseConnectionMapLock);
+    HashMap<IDBResourceIdentifier, RefPtr<IDBOpenDBRequest>> m_openDBRequestMap WTF_GUARDED_BY_LOCK(m_openDBRequestMapLock);
+    HashMap<IDBResourceIdentifier, RefPtr<IDBTransaction>> m_pendingTransactions WTF_GUARDED_BY_LOCK(m_transactionMapLock);
+    HashMap<IDBResourceIdentifier, RefPtr<IDBTransaction>> m_committingTransactions WTF_GUARDED_BY_LOCK(m_transactionMapLock);
+    HashMap<IDBResourceIdentifier, RefPtr<IDBTransaction>> m_abortingTransactions WTF_GUARDED_BY_LOCK(m_transactionMapLock);
+    HashMap<IDBResourceIdentifier, RefPtr<TransactionOperation>> m_activeOperations WTF_GUARDED_BY_LOCK(m_transactionOperationLock);
+    HashMap<IDBResourceIdentifier, Ref<IDBDatabaseNameAndVersionRequest>> m_databaseInfoCallbacks WTF_GUARDED_BY_LOCK(m_databaseInfoMapLock);
 
     CrossThreadQueue<CrossThreadTask> m_mainThreadQueue;
-    Lock m_mainThreadTaskLock;
-    RefPtr<IDBConnectionToServer> m_mainThreadProtector;
+    RefPtr<IDBConnectionToServer> m_mainThreadProtector WTF_GUARDED_BY_LOCK(m_mainThreadTaskLock);
 };
 
 } // namespace IDBClient
 } // namespace WebCore
-
-#endif // ENABLE(INDEXED_DATABASE)

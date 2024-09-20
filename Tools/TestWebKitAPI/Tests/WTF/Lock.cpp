@@ -52,7 +52,7 @@ void runLockTest(unsigned numThreadGroups, unsigned numThreadsPerGroup, unsigned
 
         for (unsigned threadIndex = numThreadsPerGroup; threadIndex--;) {
             threads[threadGroupIndex * numThreadsPerGroup + threadIndex] = Thread::create(
-                "Lock test thread",
+                "Lock test thread"_s,
                 [threadGroupIndex, &locks, &words, numIterations, workPerCriticalSection] () {
                     for (unsigned i = numIterations; i--;) {
                         locks[threadGroupIndex].lock();
@@ -185,6 +185,42 @@ TEST(WTF_Lock, SectionAddressCollision)
     if (skipSlow())
         return;
     runLockTest<Lock>(4, 2, 10000, 2000);
+}
+
+namespace {
+class MyValue {
+public:
+    void setValue(int value)
+    {
+        Locker holdLock { m_lock };
+        m_value = value;
+    }
+    void maybeSetOtherValue(int value)
+    {
+        if (!m_otherLock.tryLock())
+            return;
+        Locker holdLock { AdoptLock, m_otherLock };
+        m_otherValue = value;
+    }
+    // This function can be used to manually check that compile fails.
+    template<typename T> void shouldFailCompile(T t)
+    {
+        m_value = t;
+    }
+    private:
+    Lock m_lock;
+    int m_value WTF_GUARDED_BY_LOCK(m_lock) { 77 };
+    Lock m_otherLock;
+    int m_otherValue WTF_GUARDED_BY_LOCK(m_otherLock) { 88 };
+};
+
+}
+
+TEST(WTF_Lock, Basic)
+{
+    MyValue v;
+    v.setValue(7);
+    v.maybeSetOtherValue(34);
 }
 
 } // namespace TestWebKitAPI

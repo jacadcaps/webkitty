@@ -12,21 +12,27 @@
 #include <map>
 
 #include "libANGLE/renderer/ShaderImpl.h"
+#include "libANGLE/renderer/metal/mtl_msl_utils.h"
 
 namespace rx
 {
-
 class ShaderMtl : public ShaderImpl
 {
   public:
-    ShaderMtl(const gl::ShaderState &data);
+    ShaderMtl(const gl::ShaderState &state);
     ~ShaderMtl() override;
 
-    std::shared_ptr<WaitableCompileEvent> compile(const gl::Context *context,
-                                                  gl::ShCompilerInstance *compilerInstance,
-                                                  ShCompileOptions options) override;
+    std::shared_ptr<ShaderTranslateTask> compile(const gl::Context *context,
+                                                 ShCompileOptions *options) override;
+    std::shared_ptr<ShaderTranslateTask> load(const gl::Context *context,
+                                              gl::BinaryInputStream *stream) override;
+
+    const SharedCompiledShaderStateMtl &getCompiledState() const { return mCompiledState; }
 
     std::string getDebugInfo() const override;
+
+  private:
+    SharedCompiledShaderStateMtl mCompiledState;
 };
 
 }  // namespace rx

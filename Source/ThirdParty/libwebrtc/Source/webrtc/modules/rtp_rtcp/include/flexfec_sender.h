@@ -15,15 +15,18 @@
 #include <string>
 #include <vector>
 
+#include "absl/strings/string_view.h"
 #include "api/array_view.h"
 #include "api/rtp_parameters.h"
+#include "api/units/timestamp.h"
 #include "modules/rtp_rtcp/include/rtp_header_extension_map.h"
 #include "modules/rtp_rtcp/include/rtp_rtcp_defines.h"
 #include "modules/rtp_rtcp/source/rtp_header_extension_size.h"
 #include "modules/rtp_rtcp/source/ulpfec_generator.h"
 #include "modules/rtp_rtcp/source/video_fec_generator.h"
+#include "rtc_base/bitrate_tracker.h"
 #include "rtc_base/random.h"
-#include "rtc_base/rate_statistics.h"
+#include "rtc_base/synchronization/mutex.h"
 
 namespace webrtc {
 
@@ -38,7 +41,7 @@ class FlexfecSender : public VideoFecGenerator {
   FlexfecSender(int payload_type,
                 uint32_t ssrc,
                 uint32_t protected_media_ssrc,
-                const std::string& mid,
+                absl::string_view mid,
                 const std::vector<RtpExtension>& rtp_header_extensions,
                 rtc::ArrayView<const RtpExtensionSize> extension_sizes,
                 const RtpState* rtp_state,
@@ -69,13 +72,13 @@ class FlexfecSender : public VideoFecGenerator {
   DataRate CurrentFecRate() const override;
 
   // Only called on the VideoSendStream queue, after operation has shut down.
-  RtpState GetRtpState();
+  absl::optional<RtpState> GetRtpState() override;
 
  private:
   // Utility.
   Clock* const clock_;
   Random random_;
-  int64_t last_generated_packet_ms_;
+  Timestamp last_generated_packet_ = Timestamp::MinusInfinity();
 
   // Config.
   const int payload_type_;
@@ -92,8 +95,8 @@ class FlexfecSender : public VideoFecGenerator {
   const RtpHeaderExtensionMap rtp_header_extension_map_;
   const size_t header_extensions_size_;
 
-  rtc::CriticalSection crit_;
-  RateStatistics fec_bitrate_ RTC_GUARDED_BY(crit_);
+  mutable Mutex mutex_;
+  BitrateTracker fec_bitrate_ RTC_GUARDED_BY(mutex_);
 };
 
 }  // namespace webrtc

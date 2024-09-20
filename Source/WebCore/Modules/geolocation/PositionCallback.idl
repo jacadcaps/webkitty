@@ -24,4 +24,5 @@
 
 [
     Conditional=GEOLOCATION,
-] callback PositionCallback = void (GeolocationPosition? position); // FIXME: This should not be nullable.
+    GenerateIsReachable=ImplScriptExecutionContext
+] callback PositionCallback = undefined (GeolocationPosition? position); // FIXME: This should not be nullable.

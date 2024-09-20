@@ -8,6 +8,9 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#ifndef RTC_BASE_EVENT_TRACER_H_
+#define RTC_BASE_EVENT_TRACER_H_
+
 // This file defines the interface for event tracing in WebRTC.
 //
 // Event log handlers are set through SetupEventTracer(). User of this API will
@@ -23,13 +26,16 @@
 //
 // Parameters for the above two functions are described in trace_event.h.
 
-#ifndef RTC_BASE_EVENT_TRACER_H_
-#define RTC_BASE_EVENT_TRACER_H_
-
 #include <stdio.h>
+
+#include "absl/strings/string_view.h"
+#include "rtc_base/system/rtc_export.h"
 
 namespace webrtc {
 
+#if defined(RTC_USE_PERFETTO)
+void RegisterPerfettoTrackEvents();
+#else
 typedef const unsigned char* (*GetCategoryEnabledPtr)(const char* name);
 typedef void (*AddTraceEventPtr)(char phase,
                                  const unsigned char* category_enabled,
@@ -64,19 +70,19 @@ class EventTracer {
                             const unsigned long long* arg_values,
                             unsigned char flags);
 };
+#endif
 
 }  // namespace webrtc
 
-namespace rtc {
-namespace tracing {
+namespace rtc::tracing {
 // Set up internal event tracer.
-void SetupInternalTracer();
-bool StartInternalCapture(const char* filename);
-void StartInternalCaptureToFile(FILE* file);
-void StopInternalCapture();
+// TODO(webrtc:15917): Implement for perfetto.
+RTC_EXPORT void SetupInternalTracer(bool enable_all_categories = true);
+RTC_EXPORT bool StartInternalCapture(absl::string_view filename);
+RTC_EXPORT void StartInternalCaptureToFile(FILE* file);
+RTC_EXPORT void StopInternalCapture();
 // Make sure we run this, this will tear down the internal tracing.
-void ShutdownInternalTracer();
-}  // namespace tracing
-}  // namespace rtc
+RTC_EXPORT void ShutdownInternalTracer();
+}  // namespace rtc::tracing
 
 #endif  // RTC_BASE_EVENT_TRACER_H_

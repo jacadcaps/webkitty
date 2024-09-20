@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Sony Interactive Entertainment Inc.
+ * Copyright (C) 2021 Sony Interactive Entertainment Inc.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,26 +26,108 @@
 #include "config.h"
 #include "CryptoAlgorithmRSA_OAEP.h"
 
-#if ENABLE(WEB_CRYPTO)
-
 #include "CryptoAlgorithmRsaOaepParams.h"
 #include "CryptoKeyRSA.h"
-#include "NotImplemented.h"
+#include "OpenSSLUtilities.h"
 
 namespace WebCore {
 
-ExceptionOr<Vector<uint8_t>> CryptoAlgorithmRSA_OAEP::platformEncrypt(const CryptoAlgorithmRsaOaepParams&, const CryptoKeyRSA&, const Vector<uint8_t>&)
+ExceptionOr<Vector<uint8_t>> CryptoAlgorithmRSA_OAEP::platformEncrypt(const CryptoAlgorithmRsaOaepParams& parameters, const CryptoKeyRSA& key, const Vector<uint8_t>& plainText)
 {
-    notImplemented();
-    return Exception { NotSupportedError };
+#if defined(EVP_PKEY_CTX_set_rsa_oaep_md) && defined(EVP_PKEY_CTX_set_rsa_mgf1_md) && defined(EVP_PKEY_CTX_set0_rsa_oaep_label)
+    const EVP_MD* md = digestAlgorithm(key.hashAlgorithmIdentifier());
+    if (!md)
+        return Exception { ExceptionCode::NotSupportedError };
+
+    auto ctx = EvpPKeyCtxPtr(EVP_PKEY_CTX_new(key.platformKey(), nullptr));
+    if (!ctx)
+        return Exception { ExceptionCode::OperationError };
+
+    if (EVP_PKEY_encrypt_init(ctx.get()) <= 0)
+        return Exception { ExceptionCode::OperationError };
+
+    if (EVP_PKEY_CTX_set_rsa_padding(ctx.get(), RSA_PKCS1_OAEP_PADDING) <= 0)
+        return Exception { ExceptionCode::OperationError };
+
+    if (EVP_PKEY_CTX_set_rsa_oaep_md(ctx.get(), md) <= 0)
+        return Exception { ExceptionCode::OperationError };
+
+    if (EVP_PKEY_CTX_set_rsa_mgf1_md(ctx.get(), md) <= 0)
+        return Exception { ExceptionCode::OperationError };
+
+    if (!parameters.labelVector().isEmpty()) {
+        size_t labelSize = parameters.labelVector().size();
+        // The library takes ownership of the label so the caller should not free the original memory pointed to by label.
+        auto label = OPENSSL_malloc(labelSize);
+        memcpy(label, parameters.labelVector().data(), labelSize);
+        if (EVP_PKEY_CTX_set0_rsa_oaep_label(ctx.get(), label, labelSize) <= 0) {
+            OPENSSL_free(label);
+            return Exception { ExceptionCode::OperationError };
+        }
+    }
+
+    size_t cipherTextLen;
+    if (EVP_PKEY_encrypt(ctx.get(), nullptr, &cipherTextLen, plainText.data(), plainText.size()) <= 0)
+        return Exception { ExceptionCode::OperationError };
+
+    Vector<uint8_t> cipherText(cipherTextLen);
+    if (EVP_PKEY_encrypt(ctx.get(), cipherText.data(), &cipherTextLen, plainText.data(), plainText.size()) <= 0)
+        return Exception { ExceptionCode::OperationError };
+    cipherText.shrink(cipherTextLen);
+
+    return cipherText;
+#else
+    return Exception { ExceptionCode::NotSupportedError };
+#endif
 }
 
-ExceptionOr<Vector<uint8_t>> CryptoAlgorithmRSA_OAEP::platformDecrypt(const CryptoAlgorithmRsaOaepParams&, const CryptoKeyRSA&, const Vector<uint8_t>&)
+ExceptionOr<Vector<uint8_t>> CryptoAlgorithmRSA_OAEP::platformDecrypt(const CryptoAlgorithmRsaOaepParams& parameters, const CryptoKeyRSA& key, const Vector<uint8_t>& cipherText)
 {
-    notImplemented();
-    return Exception { NotSupportedError };
+#if defined(EVP_PKEY_CTX_set_rsa_oaep_md) && defined(EVP_PKEY_CTX_set_rsa_mgf1_md) && defined(EVP_PKEY_CTX_set0_rsa_oaep_label)
+    const EVP_MD* md = digestAlgorithm(key.hashAlgorithmIdentifier());
+    if (!md)
+        return Exception { ExceptionCode::NotSupportedError };
+
+    auto ctx = EvpPKeyCtxPtr(EVP_PKEY_CTX_new(key.platformKey(), nullptr));
+    if (!ctx)
+        return Exception { ExceptionCode::OperationError };
+
+    if (EVP_PKEY_decrypt_init(ctx.get()) <= 0)
+        return Exception { ExceptionCode::OperationError };
+
+    if (EVP_PKEY_CTX_set_rsa_padding(ctx.get(), RSA_PKCS1_OAEP_PADDING) <= 0)
+        return Exception { ExceptionCode::OperationError };
+
+    if (EVP_PKEY_CTX_set_rsa_oaep_md(ctx.get(), md) <= 0)
+        return Exception { ExceptionCode::OperationError };
+
+    if (EVP_PKEY_CTX_set_rsa_mgf1_md(ctx.get(), md) <= 0)
+        return Exception { ExceptionCode::OperationError };
+
+    if (!parameters.labelVector().isEmpty()) {
+        size_t labelSize = parameters.labelVector().size();
+        // The library takes ownership of the label so the caller should not free the original memory pointed to by label.
+        auto label = OPENSSL_malloc(labelSize);
+        memcpy(label, parameters.labelVector().data(), labelSize);
+        if (EVP_PKEY_CTX_set0_rsa_oaep_label(ctx.get(), label, labelSize) <= 0) {
+            OPENSSL_free(label);
+            return Exception { ExceptionCode::OperationError };
+        }
+    }
+
+    size_t plainTextLen;
+    if (EVP_PKEY_decrypt(ctx.get(), nullptr, &plainTextLen, cipherText.data(), cipherText.size()) <= 0)
+        return Exception { ExceptionCode::OperationError };
+
+    Vector<uint8_t> plainText(plainTextLen);
+    if (EVP_PKEY_decrypt(ctx.get(), plainText.data(), &plainTextLen, cipherText.data(), cipherText.size()) <= 0)
+        return Exception { ExceptionCode::OperationError };
+    plainText.shrink(plainTextLen);
+
+    return plainText;
+#else
+    return Exception { ExceptionCode::NotSupportedError };
+#endif
 }
 
 } // namespace WebCore
-
-#endif // ENABLE(WEB_CRYPTO)

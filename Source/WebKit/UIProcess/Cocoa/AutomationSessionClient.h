@@ -29,6 +29,7 @@
 #import "WKFoundation.h"
 
 #import "APIAutomationSessionClient.h"
+#import <wtf/TZoneMalloc.h>
 #import <wtf/WeakObjCPtr.h>
 
 @protocol _WKAutomationSessionDelegate;
@@ -36,7 +37,7 @@
 namespace WebKit {
 
 class AutomationSessionClient final : public API::AutomationSessionClient {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(AutomationSessionClient);
 public:
     explicit AutomationSessionClient(id <_WKAutomationSessionDelegate>);
 
@@ -55,7 +56,7 @@ private:
     void acceptCurrentJavaScriptDialogOnPage(WebAutomationSession&, WebPageProxy&) override;
     String messageOfCurrentJavaScriptDialogOnPage(WebAutomationSession&, WebPageProxy&) override;
     void setUserInputForCurrentJavaScriptPromptOnPage(WebAutomationSession&, WebPageProxy&, const String&) override;
-    Optional<API::AutomationSessionClient::JavaScriptDialogType> typeOfCurrentJavaScriptDialogOnPage(WebAutomationSession&, WebPageProxy&) override;
+    std::optional<API::AutomationSessionClient::JavaScriptDialogType> typeOfCurrentJavaScriptDialogOnPage(WebAutomationSession&, WebPageProxy&) override;
     API::AutomationSessionClient::BrowsingContextPresentation currentPresentationOfPage(WebAutomationSession&, WebPageProxy&) override;
 
     WeakObjCPtr<id <_WKAutomationSessionDelegate>> m_delegate;

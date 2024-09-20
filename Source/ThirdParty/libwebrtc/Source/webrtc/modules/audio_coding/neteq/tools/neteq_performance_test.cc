@@ -44,7 +44,7 @@ int64_t NetEqPerformanceTest::Run(int runtime_ms,
   auto audio_decoder_factory = CreateBuiltinAudioDecoderFactory();
   auto neteq =
       DefaultNetEqFactory().CreateNetEq(config, audio_decoder_factory, clock);
-  // Register decoder in |neteq|.
+  // Register decoder in `neteq`.
   if (!neteq->RegisterPayloadType(kPayloadType,
                                   SdpAudioFormat("l16", kSampRateHz, 1)))
     return -1;
@@ -87,7 +87,8 @@ int64_t NetEqPerformanceTest::Run(int runtime_ms,
       }
       if (!lost) {
         // Insert packet.
-        int error = neteq->InsertPacket(rtp_header, input_payload);
+        int error = neteq->InsertPacket(rtp_header, input_payload,
+                                        Timestamp::Millis(time_now_ms));
         if (error != NetEq::kOK)
           return -1;
       }

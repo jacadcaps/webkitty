@@ -25,8 +25,6 @@
 
 #pragma once
 
-#if ENABLE(INDEXED_DATABASE)
-
 #include "ExceptionOr.h"
 #include "ScriptWrappable.h"
 #include <wtf/RefCounted.h>
@@ -44,7 +42,7 @@ class IDBKey;
 class ScriptExecutionContext;
 
 class IDBKeyRange final : public ScriptWrappable, public RefCounted<IDBKeyRange> {
-    WTF_MAKE_ISO_ALLOCATED(IDBKeyRange);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(IDBKeyRange);
 public:
     static Ref<IDBKeyRange> create(RefPtr<IDBKey>&& lower, RefPtr<IDBKey>&& upper, bool isLowerOpen, bool isUpperOpen);
     static Ref<IDBKeyRange> create(RefPtr<IDBKey>&&);
@@ -77,5 +75,3 @@ private:
 };
 
 } // namespace WebCore
-
-#endif

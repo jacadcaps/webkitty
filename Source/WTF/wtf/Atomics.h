@@ -26,16 +26,8 @@
 #pragma once
 
 #include <atomic>
+#include <wtf/FastMalloc.h>
 #include <wtf/StdLibExtras.h>
-
-#if OS(WINDOWS)
-#if !COMPILER(GCC_COMPATIBLE)
-extern "C" void _ReadWriteBarrier(void);
-#pragma intrinsic(_ReadWriteBarrier)
-#endif
-#include <windows.h>
-#include <intrin.h>
-#endif
 
 namespace WTF {
 
@@ -132,6 +124,8 @@ struct Atomic {
     
     ALWAYS_INLINE T exchange(T newValue, std::memory_order order = std::memory_order_seq_cst) { return value.exchange(newValue, order); }
 
+    // func is supposed to return false if the value is already in the desired state.
+    // Returns true if the value was changed. Else returns false.
     template<typename Func>
     ALWAYS_INLINE bool transaction(const Func& func, std::memory_order order = std::memory_order_seq_cst)
     {
@@ -145,6 +139,8 @@ struct Atomic {
         }
     }
 
+    // func is supposed to return false if the value is already in the desired state.
+    // Returns true if the value was changed. Else returns false.
     template<typename Func>
     ALWAYS_INLINE bool transactionRelaxed(const Func& func)
     {
@@ -243,11 +239,7 @@ inline T atomicExchange(T* location, T newValue, std::memory_order order = std::
 // to do things like register allocation and code motion over pure operations.
 inline void compilerFence()
 {
-#if OS(WINDOWS) && !COMPILER(GCC_COMPATIBLE)
-    _ReadWriteBarrier();
-#else
     asm volatile("" ::: "memory");
-#endif
 }
 
 #if CPU(ARM_THUMB2) || CPU(ARM64)
@@ -274,17 +266,13 @@ inline void loadLoadFence() { arm_dmb(); }
 inline void loadStoreFence() { arm_dmb(); }
 inline void storeLoadFence() { arm_dmb(); }
 inline void storeStoreFence() { arm_dmb_st(); }
-inline void memoryBarrierAfterLock() { arm_dmb(); }
-inline void memoryBarrierBeforeUnlock() { arm_dmb(); }
 inline void crossModifyingCodeFence() { arm_isb(); }
 
 #elif CPU(X86) || CPU(X86_64)
 
 inline void x86_ortop()
 {
-#if OS(WINDOWS)
-    MemoryBarrier();
-#elif CPU(X86_64)
+#if CPU(X86_64)
     // This has acqrel semantics and is much cheaper than mfence. For exampe, in the JSC GC, using
     // mfence as a store-load fence was a 9% slow-down on Octane/splay while using this was neutral.
     asm volatile("lock; orl $0, (%%rsp)" ::: "memory");
@@ -295,25 +283,18 @@ inline void x86_ortop()
 
 inline void x86_cpuid()
 {
-#if OS(WINDOWS)
-    int info[4];
-    __cpuid(info, 0);
-#else
     intptr_t a = 0, b, c, d;
     asm volatile(
         "cpuid"
         : "+a"(a), "=b"(b), "=c"(c), "=d"(d)
         :
         : "memory");
-#endif
 }
 
 inline void loadLoadFence() { compilerFence(); }
 inline void loadStoreFence() { compilerFence(); }
 inline void storeLoadFence() { x86_ortop(); }
 inline void storeStoreFence() { compilerFence(); }
-inline void memoryBarrierAfterLock() { compilerFence(); }
-inline void memoryBarrierBeforeUnlock() { compilerFence(); }
 inline void crossModifyingCodeFence() { x86_cpuid(); }
 
 #else
@@ -322,11 +303,23 @@ inline void loadLoadFence() { std::atomic_thread_fence(std::memory_order_seq_cst
 inline void loadStoreFence() { std::atomic_thread_fence(std::memory_order_seq_cst); }
 inline void storeLoadFence() { std::atomic_thread_fence(std::memory_order_seq_cst); }
 inline void storeStoreFence() { std::atomic_thread_fence(std::memory_order_seq_cst); }
-inline void memoryBarrierAfterLock() { std::atomic_thread_fence(std::memory_order_seq_cst); }
-inline void memoryBarrierBeforeUnlock() { std::atomic_thread_fence(std::memory_order_seq_cst); }
 inline void crossModifyingCodeFence() { std::atomic_thread_fence(std::memory_order_seq_cst); } // Probably not strong enough.
 
 #endif
+
+#if CPU(ARM64) || CPU(X86) || CPU(X86_64)
+// Use this fence if you want a fence between loads that are already depdendent.
+inline void dependentLoadLoadFence() { compilerFence(); }
+#else
+inline void dependentLoadLoadFence() { loadLoadFence(); }
+#endif
+
+template<typename T>
+T opaque(T pointer)
+{
+    asm volatile("" : "+r"(pointer) ::);
+    return pointer;
+}
 
 typedef unsigned InternalDependencyType;
 
@@ -350,7 +343,7 @@ inline InternalDependencyType opaqueMixture(T value, Arguments... arguments)
 class Dependency {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    Dependency()
+    constexpr Dependency()
         : m_value(0)
     {
     }
@@ -390,6 +383,55 @@ public:
         Dependency result;
         result.m_value = output;
         return result;
+    }
+
+    // This function exists as a helper to aid in not making mistakes when doing a load
+    // and fencing on the result of the load. A couple examples of where things can go
+    // wrong, and how this function helps:
+    // 
+    // Consider this program:
+    // ```
+    // a = load(p1)
+    // b = load(p2)
+    // if (a != b) return;
+    // d = Dependency::fence(b)
+    // ```
+    // When consuming the d dependency, the compiler can prove that a and b are the same
+    // value, and end up replacing the dependency on whatever register is allocated for `a`
+    // instead of being over `b`, leading to the dependency being on load(p1) instead of
+    // load(p2). We fix this by splitting the value feeding into the fence and the value
+    // being used:
+    // b' = load(p2)
+    // Dependency::fence(b')
+    // b = opaque(b')
+    // b' feeds into the fence, and b will be the value compared. Crucially, the compiler can't
+    // prove that b == b'.
+    //
+    // Let's consider another use case. Imagine you end up with a program like this (perhaps
+    // after some inlining or various optimizations):
+    // a = load(p1)
+    // b = load(p2)
+    // if (a != b) return;
+    // c = load(p2)
+    // d = Dependency::fence(c)
+    // Similar to the first test, the compiler can prove a and b are the same, allowing it to
+    // prove that c == a == b, allowing it to potentially have the dependency be on the wrong
+    // value, similar to above. The fix here is to obscure the pointer we're loading from from
+    // the compiler.
+    template<typename T>
+    static Dependency loadAndFence(const T* pointer, T& output)
+    {
+#if CPU(ARM64) || CPU(ARM)
+        T value = *opaque(pointer);
+        Dependency dependency = Dependency::fence(value);
+        output = opaque(value);
+        return dependency;
+#else
+        T value = *pointer;
+        Dependency dependency = Dependency::fence(value);
+        output = value;
+        return dependency;
+#endif
     }
     
     // On TSO architectures, this just returns the pointer you pass it. On ARM, this produces a new

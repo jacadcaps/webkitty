@@ -26,16 +26,16 @@
 #pragma once
 
 #include "Color.h"
-#include <wtf/Optional.h>
 
 namespace WebCore {
 
 struct CompositionHighlight {
     CompositionHighlight() = default;
-    CompositionHighlight(unsigned startOffset, unsigned endOffset, const Color& c)
+    CompositionHighlight(unsigned startOffset, unsigned endOffset, const std::optional<Color>& backgroundColor, const std::optional<Color>& foregroundColor)
         : startOffset(startOffset)
         , endOffset(endOffset)
-        , color(c)
+        , backgroundColor(backgroundColor)
+        , foregroundColor(foregroundColor)
     {
     }
 
@@ -47,39 +47,8 @@ struct CompositionHighlight {
 
     unsigned startOffset { 0 };
     unsigned endOffset { 0 };
-    Color color { defaultCompositionFillColor };
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static Optional<CompositionHighlight> decode(Decoder&);
+    std::optional<Color> backgroundColor;
+    std::optional<Color> foregroundColor;
 };
-
-template<class Encoder>
-void CompositionHighlight::encode(Encoder& encoder) const
-{
-    encoder << startOffset;
-    encoder << endOffset;
-    encoder << color;
-}
-
-template<class Decoder>
-Optional<CompositionHighlight> CompositionHighlight::decode(Decoder& decoder)
-{
-    Optional<unsigned> startOffset;
-    decoder >> startOffset;
-    if (!startOffset)
-        return WTF::nullopt;
-
-    Optional<unsigned> endOffset;
-    decoder >> endOffset;
-    if (!endOffset)
-        return WTF::nullopt;
-
-    Optional<Color> color;
-    decoder >> color;
-    if (!color)
-        return WTF::nullopt;
-
-    return {{ *startOffset, *endOffset, *color }};
-}
 
 } // namespace WebCore

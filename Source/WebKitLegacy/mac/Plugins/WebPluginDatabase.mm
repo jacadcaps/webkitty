@@ -28,7 +28,6 @@
 
 #import "WebPluginDatabase.h"
 
-#import "WebBaseNetscapePluginView.h"
 #import "WebBasePluginPackage.h"
 #import "WebDataSourcePrivate.h"
 #import "WebFrame.h"
@@ -37,7 +36,6 @@
 #import "WebHTMLViewInternal.h"
 #import "WebKitLogging.h"
 #import "WebNSFileManagerExtras.h"
-#import "WebNetscapePluginPackage.h"
 #import "WebPluginController.h"
 #import "WebPluginPackage.h"
 #import "WebViewInternal.h"
@@ -61,27 +59,32 @@ static void checkCandidate(WebBasePluginPackage **currentPlugin, WebBasePluginPa
 
 @implementation WebPluginDatabase
 
-static WebPluginDatabase *sharedDatabase = nil;
+static RetainPtr<WebPluginDatabase>& sharedDatabase()
+{
+    static NeverDestroyed<RetainPtr<WebPluginDatabase>> sharedDatabase;
+    return sharedDatabase;
+}
 
 + (WebPluginDatabase *)sharedDatabase 
 {
-    if (!sharedDatabase) {
-        sharedDatabase = [[WebPluginDatabase alloc] init];
-        [sharedDatabase setPlugInPaths:[self _defaultPlugInPaths]];
-        [sharedDatabase refresh];
+    auto& database = sharedDatabase();
+    if (!database) {
+        database = adoptNS([[WebPluginDatabase alloc] init]);
+        [database setPlugInPaths:[self _defaultPlugInPaths]];
+        [database refresh];
     }
     
-    return sharedDatabase;
+    return database.get();
 }
 
 + (WebPluginDatabase *)sharedDatabaseIfExists
 {
-    return sharedDatabase;
+    return sharedDatabase().get();
 }
 
 + (void)closeSharedDatabase 
 {
-    [sharedDatabase close];
+    [sharedDatabase() close];
 }
 
 static void checkCandidate(WebBasePluginPackage * __strong *currentPlugin, WebBasePluginPackage * __strong *candidatePlugin)
@@ -108,13 +111,6 @@ struct PluginPackageCandidates {
             checkCandidate(&webPlugin, &plugin);
             return;
         }
-            
-#if ENABLE(NETSCAPE_PLUGIN_API)
-        if([plugin isKindOfClass:[WebNetscapePluginPackage class]]) {
-            checkCandidate(&netscapePlugin, &plugin);
-            return;
-        }
-#endif
         ASSERT_NOT_REACHED();
     }
     
@@ -185,15 +181,18 @@ struct PluginPackageCandidates {
     return [plugins allValues];
 }
 
-static NSArray *additionalWebPlugInPaths;
+static RetainPtr<NSArray>& additionalWebPlugInPaths()
+{
+    static NeverDestroyed<RetainPtr<NSArray>> _additionalWebPlugInPaths;
+    return _additionalWebPlugInPaths;
+}
 
 + (void)setAdditionalWebPlugInPaths:(NSArray *)additionalPaths
 {
-    if (additionalPaths == additionalWebPlugInPaths)
+    if (additionalPaths == additionalWebPlugInPaths())
         return;
     
-    [additionalWebPlugInPaths release];
-    additionalWebPlugInPaths = [additionalPaths copy];
+    additionalWebPlugInPaths() = adoptNS([additionalPaths copy]);
 
     // One might be tempted to add additionalWebPlugInPaths to the global WebPluginDatabase here.
     // For backward compatibility with earlier versions of the +setAdditionalWebPlugInPaths: SPI,
@@ -287,7 +286,7 @@ static NSArray *additionalWebPlugInPaths;
             [self _addPlugin:plugin];
 
         // Build a list of MIME types.
-        NSMutableSet *MIMETypes = [[NSMutableSet alloc] init];
+        auto MIMETypes = adoptNS([[NSMutableSet alloc] init]);
         pluginEnumerator = [plugins objectEnumerator];
         while ((plugin = [pluginEnumerator nextObject])) {
             const auto& pluginInfo = [plugin pluginInfo];
@@ -315,10 +314,9 @@ static NSArray *additionalWebPlugInPaths;
                 continue;
             }
 
-            if (self == sharedDatabase)
+            if (self == sharedDatabase())
                 [WebView _registerPluginMIMEType:MIMEType];
         }
-        [MIMETypes release];
     }
 }
 
@@ -347,12 +345,8 @@ static NSArray *additionalWebPlugInPaths;
     NSView <WebDocumentView> *documentView = [[webFrame frameView] documentView]; 
     if ([documentView isKindOfClass:[WebHTMLView class]]) {
         for (NSView *subview in [documentView subviews]) {
-#if ENABLE(NETSCAPE_PLUGIN_API)
-            if ([subview isKindOfClass:[WebBaseNetscapePluginView class]] || [WebPluginController isPlugInView:subview])
-#else
             if ([WebPluginController isPlugInView:subview])
-#endif
-                [pluginInstanceViews removeObject:subview]; 
+                [pluginInstanceViews removeObject:subview];
         }
     }
 }
@@ -363,12 +357,6 @@ static NSArray *additionalWebPlugInPaths;
     NSArray *pli = [pluginInstanceViews allObjects];
     NSEnumerator *enumerator = [pli objectEnumerator];
     while ((view = [enumerator nextObject]) != nil) {
-#if ENABLE(NETSCAPE_PLUGIN_API)
-        if ([view isKindOfClass:[WebBaseNetscapePluginView class]]) {
-            ASSERT([view respondsToSelector:@selector(stop)]);
-            [view performSelector:@selector(stop)];
-        } else
-#endif
         if ([WebPluginController isPlugInView:view]) {
             ASSERT([[view superview] isKindOfClass:[WebHTMLView class]]);
             ASSERT([[view superview] respondsToSelector:@selector(_destroyAllWebPlugins)]);
@@ -384,7 +372,9 @@ static NSArray *additionalWebPlugInPaths;
 
 + (NSArray *)_defaultPlugInPaths
 {
-#if !PLATFORM(IOS_FAMILY)
+#if PLATFORM(IOS_FAMILY)
+    return @[];
+#else
     // Plug-ins are found in order of precedence.
     // If there are duplicates, the first found plug-in is used.
     // For example, if there is a QuickTime.plugin in the users's home directory
@@ -395,33 +385,21 @@ static NSArray *additionalWebPlugInPaths;
         @"/Library/Internet Plug-Ins",
         [[NSBundle mainBundle] builtInPlugInsPath],
     ];
-#else
-    // iOS plug-ins are all located in /System/Library/Internet Plug-Ins
-#if !PLATFORM(IOS_FAMILY_SIMULATOR)
-    NSArray *systemLibrary = NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSSystemDomainMask, YES);
-    if (!systemLibrary || [systemLibrary count] == 0)
-        return nil;
-    NSString *systemDir = (NSString*)[systemLibrary objectAtIndex:0];
-#else
-    NSString* platformRootDir = [NSString stringWithUTF8String:WebKitPlatformSystemRootDirectory()];
-    NSString *systemDir = [platformRootDir stringByAppendingPathComponent:@"System/Library"];
-#endif
-    return @[[systemDir stringByAppendingPathComponent:@"Internet Plug-Ins"]];
 #endif
 }
 
 - (NSArray *)_plugInPaths
 {
-    if (self == sharedDatabase && additionalWebPlugInPaths) {
+    if (self == sharedDatabase() && additionalWebPlugInPaths()) {
         // Add additionalWebPlugInPaths to the global WebPluginDatabase.  We do this here for
         // backward compatibility with earlier versions of the +setAdditionalWebPlugInPaths: SPI,
         // which simply saved a copy of the additional paths and did not cause the plugin DB to 
         // refresh.  See Radars 4608487 and 4609047.
-        NSMutableArray *modifiedPlugInPaths = [[plugInPaths mutableCopy] autorelease];
-        [modifiedPlugInPaths addObjectsFromArray:additionalWebPlugInPaths];
-        return modifiedPlugInPaths;
-    } else
-        return plugInPaths;
+        auto modifiedPlugInPaths = adoptNS([plugInPaths mutableCopy]);
+        [modifiedPlugInPaths addObjectsFromArray:additionalWebPlugInPaths().get()];
+        return modifiedPlugInPaths.autorelease();
+    }
+    return plugInPaths;
 }
 
 - (void)_addPlugin:(WebBasePluginPackage *)plugin
@@ -443,7 +421,7 @@ static NSArray *additionalWebPlugInPaths;
         NSString *MIMEType = pluginInfo.mimes[i].type;
 
         if ([registeredMIMETypes containsObject:MIMEType]) {
-            if (self == sharedDatabase)
+            if (self == sharedDatabase())
                 [WebView _unregisterPluginMIMEType:MIMEType];
             [registeredMIMETypes removeObject:MIMEType];
         }
@@ -452,17 +430,16 @@ static NSArray *additionalWebPlugInPaths;
     // Remove plug-in from database
     NSString *pluginPath = [plugin path];
     ASSERT(pluginPath);
-    [plugin retain];
+    auto protectedPlugin = retainPtr(plugin);
     [plugins removeObjectForKey:pluginPath];
     [plugin wasRemovedFromPluginDatabase:self];
-    [plugin release];
 }
 
 - (NSMutableSet *)_scanForNewPlugins
 {
     NSMutableSet *newPlugins = [NSMutableSet set];
     NSEnumerator *directoryEnumerator = [[self _plugInPaths] objectEnumerator];
-    NSMutableSet *uniqueFilenames = [[NSMutableSet alloc] init];
+    auto uniqueFilenames = adoptNS([[NSMutableSet alloc] init]);
     NSFileManager *fileManager = [NSFileManager defaultManager];
     NSString *pluginDirectory;
     while ((pluginDirectory = [directoryEnumerator nextObject]) != nil) {
@@ -484,7 +461,6 @@ static NSArray *additionalWebPlugInPaths;
                 [newPlugins addObject:pluginPackage];
         }
     }
-    [uniqueFilenames release];
     
     return newPlugins;
 }

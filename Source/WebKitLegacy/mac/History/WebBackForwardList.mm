@@ -37,13 +37,13 @@
 #import "WebKitVersionChecks.h"
 #import "WebNSObjectExtras.h"
 #import "WebPreferencesPrivate.h"
-#import "WebTypesInternal.h"
 #import "WebViewPrivate.h"
 #import <JavaScriptCore/InitializeThreading.h>
 #import <WebCore/BackForwardCache.h>
 #import <WebCore/HistoryItem.h>
 #import <WebCore/Settings.h>
 #import <WebCore/ThreadCheck.h>
+#import <WebCore/WebCoreJITOperations.h>
 #import <WebCore/WebCoreObjCExtras.h>
 #import <wtf/Assertions.h>
 #import <wtf/MainThread.h>
@@ -52,7 +52,7 @@
 #import <wtf/StdLibExtras.h>
 #import <wtf/cocoa/VectorCocoa.h>
 
-typedef HashMap<BackForwardList*, WebBackForwardList*> BackForwardListMap;
+using BackForwardListMap = HashMap<WeakRef<BackForwardList>, WebBackForwardList*>;
 
 // FIXME: Instead of this we could just create a class derived from BackForwardList
 // with a pointer to a WebBackForwardList in it.
@@ -77,10 +77,10 @@ WebBackForwardList *kit(BackForwardList* backForwardList)
     if (!backForwardList)
         return nil;
 
-    if (WebBackForwardList *webBackForwardList = backForwardLists().get(backForwardList))
+    if (WebBackForwardList *webBackForwardList = backForwardLists().get(*backForwardList))
         return webBackForwardList;
 
-    return [[[WebBackForwardList alloc] initWithBackForwardList:*backForwardList] autorelease];
+    return adoptNS([[WebBackForwardList alloc] initWithBackForwardList:*backForwardList]).autorelease();
 }
 
 - (id)initWithBackForwardList:(Ref<BackForwardList>&&)backForwardList
@@ -91,7 +91,7 @@ WebBackForwardList *kit(BackForwardList* backForwardList)
         return nil;
 
     _private = reinterpret_cast<WebBackForwardListPrivate*>(&backForwardList.leakRef());
-    backForwardLists().set(core(self), self);
+    backForwardLists().set(*core(self), self);
     return self;
 }
 
@@ -100,6 +100,7 @@ WebBackForwardList *kit(BackForwardList* backForwardList)
 #if !PLATFORM(IOS_FAMILY)
     JSC::initialize();
     WTF::initializeMainThread();
+    WebCore::populateJITOperations();
 #endif
 }
 
@@ -117,7 +118,7 @@ WebBackForwardList *kit(BackForwardList* backForwardList)
     ASSERT(backForwardList);
     if (backForwardList) {
         ASSERT(backForwardList->closed());
-        backForwardLists().remove(backForwardList);
+        backForwardLists().remove(*backForwardList);
         backForwardList->deref();
     }
 
@@ -132,12 +133,13 @@ WebBackForwardList *kit(BackForwardList* backForwardList)
 - (void)addItem:(WebHistoryItem *)entry
 {
     ASSERT(entry);
-    core(self)->addItem(*core(entry));
+    if (auto* mainFrame = core([core(self)->webView() mainFrame]))
+        core(self)->addItem(mainFrame->frameID(), *core(entry));
     
     // Since the assumed contract with WebBackForwardList is that it retains its WebHistoryItems,
     // the following line prevents a whole class of problems where a history item will be created in
     // a function, added to the BFlist, then used in the rest of that function.
-    [[entry retain] autorelease];
+    retainPtr(entry).autorelease();
 }
 
 - (void)removeItem:(WebHistoryItem *)item
@@ -174,8 +176,10 @@ constexpr auto WebBackForwardListDictionaryCurrentKey = @"current";
     auto& list = *core(self);
 
     list.setCapacity([[dictionary objectForKey:WebBackForwardListDictionaryCapacityKey] unsignedIntValue]);
-    for (NSDictionary *itemDictionary in [dictionary objectForKey:WebBackForwardListDictionaryEntriesKey])
-        list.addItem(*core(adoptNS([[WebHistoryItem alloc] initFromDictionaryRepresentation:itemDictionary]).get()));
+    if (auto* mainFrame = core([core(self)->webView() mainFrame])) {
+        for (NSDictionary *itemDictionary in [dictionary objectForKey:WebBackForwardListDictionaryEntriesKey])
+            list.addItem(mainFrame->frameID(), *core(adoptNS([[WebHistoryItem alloc] initFromDictionaryRepresentation:itemDictionary]).get()));
+    }
 
     unsigned currentIndex = [[dictionary objectForKey:WebBackForwardListDictionaryCurrentKey] unsignedIntValue];
     size_t listSize = list.entries().size();
@@ -212,17 +216,17 @@ constexpr auto WebBackForwardListDictionaryCurrentKey = @"current";
 
 - (WebHistoryItem *)backItem
 {
-    return [[kit(core(self)->backItem().get()) retain] autorelease];
+    return retainPtr(kit(core(self)->backItem().get())).autorelease();
 }
 
 - (WebHistoryItem *)currentItem
 {
-    return [[kit(core(self)->currentItem().get()) retain] autorelease];
+    return retainPtr(kit(core(self)->currentItem().get())).autorelease();
 }
 
 - (WebHistoryItem *)forwardItem
 {
-    return [[kit(core(self)->forwardItem().get()) retain] autorelease];
+    return retainPtr(kit(core(self)->forwardItem().get())).autorelease();
 }
 
 static bool bumperCarBackForwardHackNeeded()
@@ -331,7 +335,7 @@ static bool bumperCarBackForwardHackNeeded()
 
 - (WebHistoryItem *)itemAtIndex:(int)index
 {
-    return [[kit(core(self)->itemAtIndex(index).get()) retain] autorelease];
+    return retainPtr(kit(core(self)->itemAtIndex(index).get())).autorelease();
 }
 
 @end

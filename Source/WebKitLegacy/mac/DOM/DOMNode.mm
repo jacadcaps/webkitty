@@ -33,8 +33,9 @@
 #import "DOMNodeListInternal.h"
 #import "ExceptionHandlers.h"
 #import "ObjCEventListener.h"
+#import <WebCore/AddEventListenerOptions.h>
 #import <WebCore/DOMImplementation.h>
-#import <WebCore/Element.h>
+#import <WebCore/ElementInlines.h>
 #import <WebCore/JSExecState.h>
 #import <WebCore/NodeList.h>
 #import <WebCore/SVGTests.h>
@@ -61,14 +62,14 @@ DOMNode *kit(Node* value)
     if (!value)
         return nil;
     if (DOMNode *wrapper = getDOMWrapper(value))
-        return [[wrapper retain] autorelease];
-    DOMNode *wrapper = [[kitClass(value) alloc] _init];
+        return retainPtr(wrapper).autorelease();
+    RetainPtr<DOMNode> wrapper = adoptNS([[kitClass(value) alloc] _init]);
     if (!wrapper)
         return nil;
     wrapper->_internal = reinterpret_cast<DOMObjectInternal*>(value);
     value->ref();
-    addDOMWrapper(wrapper, value);
-    return [wrapper autorelease];
+    addDOMWrapper(wrapper.get(), value);
+    return wrapper.autorelease();
 }
 
 @implementation DOMNode
@@ -97,7 +98,7 @@ DOMNode *kit(Node* value)
 - (void)setNodeValue:(NSString *)newNodeValue
 {
     JSMainThreadNullState state;
-    raiseOnDOMError(unwrap(*self).setNodeValue(newNodeValue));
+    unwrap(*self).setNodeValue(newNodeValue);
 }
 
 - (unsigned short)nodeType
@@ -193,7 +194,7 @@ DOMNode *kit(Node* value)
 - (void)setTextContent:(NSString *)newTextContent
 {
     JSMainThreadNullState state;
-    raiseOnDOMError(unwrap(*self).setTextContent(newTextContent));
+    unwrap(*self).setTextContent(newTextContent);
 }
 
 - (BOOL)isConnected

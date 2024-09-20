@@ -28,41 +28,59 @@
 #if ENABLE(WIRELESS_PLAYBACK_TARGET)
 
 #include "MediaPlaybackTarget.h"
-#include "MediaPlaybackTargetContext.h"
 #include <wtf/RetainPtr.h>
+
+OBJC_CLASS AVOutputContext;
 
 namespace WebCore {
 
-class MediaPlaybackTargetCocoa : public MediaPlaybackTarget {
+class WEBCORE_EXPORT MediaPlaybackTargetContextCocoa final : public MediaPlaybackTargetContext {
 public:
-    WEBCORE_EXPORT static Ref<MediaPlaybackTarget> create(AVOutputContext *);
+    explicit MediaPlaybackTargetContextCocoa(RetainPtr<AVOutputContext>&&);
+    ~MediaPlaybackTargetContextCocoa();
 
-#if PLATFORM(IOS_FAMILY) && !PLATFORM(IOS_FAMILY_SIMULATOR) && !PLATFORM(MACCATALYST)
-    static Ref<MediaPlaybackTarget> create();
-#endif
-
-    virtual ~MediaPlaybackTargetCocoa();
-
-    TargetType targetType() const final { return AVFoundation; }
-
-    const MediaPlaybackTargetContext& targetContext() const final;
-    bool hasActiveRoute() const final;
+    RetainPtr<AVOutputContext> outputContext() const;
+private:
     String deviceName() const final;
+    bool hasActiveRoute() const final;
     bool supportsRemoteVideoPlayback() const final;
 
-    AVOutputContext *outputContext() const { return m_outputContext.get(); }
-
-protected:
-    MediaPlaybackTargetCocoa(AVOutputContext *);
-
     RetainPtr<AVOutputContext> m_outputContext;
-    mutable MediaPlaybackTargetContext m_context;
-    String m_deviceName;
 };
 
-MediaPlaybackTargetCocoa* toMediaPlaybackTargetCocoa(MediaPlaybackTarget*);
-const MediaPlaybackTargetCocoa* toMediaPlaybackTargetCocoa(const MediaPlaybackTarget*);
+class MediaPlaybackTargetCocoa final : public MediaPlaybackTarget {
+public:
+    WEBCORE_EXPORT static Ref<MediaPlaybackTarget> create(MediaPlaybackTargetContextCocoa&&);
 
+#if PLATFORM(IOS_FAMILY) && !PLATFORM(IOS_FAMILY_SIMULATOR) && !PLATFORM(MACCATALYST)
+    WEBCORE_EXPORT static Ref<MediaPlaybackTargetCocoa> create();
+#endif
+
+    TargetType targetType() const final { return TargetType::AVFoundation; }
+    const MediaPlaybackTargetContext& targetContext() const final { return m_context; }
+
+    AVOutputContext* outputContext() { return m_context.outputContext().get(); }
+
+private:
+    explicit MediaPlaybackTargetCocoa(MediaPlaybackTargetContextCocoa&&);
+
+    MediaPlaybackTargetContextCocoa m_context;
+};
+
+} // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::MediaPlaybackTargetContextCocoa)
+static bool isType(const WebCore::MediaPlaybackTargetContext& context)
+{
+    return context.type() ==  WebCore::MediaPlaybackTargetContextType::AVOutputContext;
 }
+SPECIALIZE_TYPE_TRAITS_END()
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::MediaPlaybackTargetCocoa)
+static bool isType(const WebCore::MediaPlaybackTarget& target)
+{
+    return target.targetType() ==  WebCore::MediaPlaybackTarget::TargetType::AVFoundation;
+}
+SPECIALIZE_TYPE_TRAITS_END()
 
 #endif // ENABLE(WIRELESS_PLAYBACK_TARGET)

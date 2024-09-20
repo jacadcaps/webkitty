@@ -26,50 +26,53 @@
 #include "config.h"
 #include "WebAutomationSession.h"
 
+#if USE(CAIRO)
+
 #include "ViewSnapshotStore.h"
+#include <WebCore/NotImplemented.h>
 #include <WebCore/RefPtrCairo.h>
-#include <cairo/cairo.h>
+#include <cairo.h>
 #include <wtf/text/Base64.h>
 
 namespace WebKit {
 using namespace WebCore;
 
-static Optional<String> base64EncodedPNGData(cairo_surface_t* surface)
+static std::optional<String> base64EncodedPNGData(cairo_surface_t* surface)
 {
     if (!surface)
-        return WTF::nullopt;
+        return std::nullopt;
 
-    Vector<unsigned char> pngData;
+    Vector<uint8_t> pngData;
     cairo_surface_write_to_png_stream(surface, [](void* userData, const unsigned char* data, unsigned length) -> cairo_status_t {
-        auto* pngData = static_cast<Vector<unsigned char>*>(userData);
-        pngData->append(data, length);
+        auto* pngData = static_cast<Vector<uint8_t>*>(userData);
+        pngData->append(std::span { reinterpret_cast<const uint8_t*>(data), length });
         return CAIRO_STATUS_SUCCESS;
     }, &pngData);
 
     if (pngData.isEmpty())
-        return WTF::nullopt;
+        return std::nullopt;
 
-    return base64Encode(pngData);
+    return base64EncodeToString(pngData);
 }
 
-Optional<String> WebAutomationSession::platformGetBase64EncodedPNGData(const ShareableBitmap::Handle& handle)
+std::optional<String> WebAutomationSession::platformGetBase64EncodedPNGData(ShareableBitmap::Handle&& handle)
 {
-    auto bitmap = ShareableBitmap::create(handle, SharedMemory::Protection::ReadOnly);
+    auto bitmap = ShareableBitmap::create(WTFMove(handle), SharedMemory::Protection::ReadOnly);
     if (!bitmap)
-        return WTF::nullopt;
+        return std::nullopt;
 
     auto surface = bitmap->createCairoSurface();
     return base64EncodedPNGData(surface.get());
 }
 
-Optional<String> WebAutomationSession::platformGetBase64EncodedPNGData(const ViewSnapshot& snapshot)
+#if !PLATFORM(GTK)
+std::optional<String> WebAutomationSession::platformGetBase64EncodedPNGData(const ViewSnapshot&)
 {
-#if PLATFORM(GTK)
-    return base64EncodedPNGData(snapshot.surface());
-#else
-    return WTF::nullopt;
-#endif
+    notImplemented();
+    return std::nullopt;
 }
+#endif
 
 } // namespace WebKit
 
+#endif // USE(CAIRO)

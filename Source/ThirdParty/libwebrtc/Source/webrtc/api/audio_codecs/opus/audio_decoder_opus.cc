@@ -10,12 +10,20 @@
 
 #include "api/audio_codecs/opus/audio_decoder_opus.h"
 
+#include <map>
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/strings/match.h"
+#include "absl/types/optional.h"
+#include "api/audio_codecs/audio_codec_pair_id.h"
+#include "api/audio_codecs/audio_decoder.h"
+#include "api/audio_codecs/audio_format.h"
+#include "api/field_trials_view.h"
 #include "modules/audio_coding/codecs/opus/audio_decoder_opus.h"
+#include "rtc_base/checks.h"
 
 namespace webrtc {
 
@@ -51,7 +59,10 @@ absl::optional<AudioDecoderOpus::Config> AudioDecoderOpus::SdpToConfig(
       num_channels) {
     Config config;
     config.num_channels = *num_channels;
-    RTC_DCHECK(config.IsOk());
+    if (!config.IsOk()) {
+      RTC_DCHECK_NOTREACHED();
+      return absl::nullopt;
+    }
     return config;
   } else {
     return absl::nullopt;
@@ -70,8 +81,12 @@ void AudioDecoderOpus::AppendSupportedDecoders(
 
 std::unique_ptr<AudioDecoder> AudioDecoderOpus::MakeAudioDecoder(
     Config config,
-    absl::optional<AudioCodecPairId> /*codec_pair_id*/) {
-  RTC_DCHECK(config.IsOk());
+    absl::optional<AudioCodecPairId> /*codec_pair_id*/,
+    const FieldTrialsView* field_trials) {
+  if (!config.IsOk()) {
+    RTC_DCHECK_NOTREACHED();
+    return nullptr;
+  }
   return std::make_unique<AudioDecoderOpusImpl>(config.num_channels,
                                                 config.sample_rate_hz);
 }

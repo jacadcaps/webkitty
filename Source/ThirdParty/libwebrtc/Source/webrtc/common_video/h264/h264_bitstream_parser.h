@@ -31,11 +31,6 @@ class H264BitstreamParser : public BitstreamParser {
   H264BitstreamParser();
   ~H264BitstreamParser() override;
 
-  // These are here for backwards-compatability for the time being.
-  void ParseBitstream(const uint8_t* bitstream, size_t length);
-  bool GetLastSliceQp(int* qp) const;
-
-  // New interface.
   void ParseBitstream(rtc::ArrayView<const uint8_t> bitstream) override;
   absl::optional<int> GetLastSliceQp() const override;
 
@@ -45,9 +40,8 @@ class H264BitstreamParser : public BitstreamParser {
     kInvalidStream,
     kUnsupportedStream,
   };
-  void ParseSlice(const uint8_t* slice, size_t length);
-  Result ParseNonParameterSetNalu(const uint8_t* source,
-                                  size_t source_length,
+  void ParseSlice(rtc::ArrayView<const uint8_t> slice);
+  Result ParseNonParameterSetNalu(rtc::ArrayView<const uint8_t> source,
                                   uint8_t nalu_type);
 
   // SPS/PPS state, updated when parsing new SPS/PPS, used to parse slices.

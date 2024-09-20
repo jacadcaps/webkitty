@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2020 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,31 +25,16 @@
 
 #pragma once
 
-#include <JavaScriptCore/JavaScript.h>
-#include <wtf/Optional.h>
-#include <wtf/RefCounted.h>
+#include <wtf/ThreadSafeRefCounted.h>
+
+typedef struct OpaqueJSClass* JSClassRef;
 
 namespace WTR {
 
-class JSWrappable : public RefCounted<JSWrappable> {
+class JSWrappable : public ThreadSafeRefCounted<JSWrappable> {
 public:
     virtual ~JSWrappable() { }
     virtual JSClassRef wrapperClass() = 0;
 };
-
-inline JSValueRef JSValueMakeBooleanOrNull(JSContextRef context, Optional<bool> value)
-{
-    return value ? JSValueMakeBoolean(context, value.value()) : JSValueMakeNull(context);
-}
-
-inline Optional<bool> JSValueToNullableBoolean(JSContextRef context, JSValueRef value)
-{
-    return JSValueIsUndefined(context, value) || JSValueIsNull(context, value) ? WTF::nullopt : Optional<bool>(JSValueToBoolean(context, value));
-}
-
-inline JSValueRef JSValueMakeStringOrNull(JSContextRef context, JSStringRef stringOrNull)
-{
-    return stringOrNull ? JSValueMakeString(context, stringOrNull) : JSValueMakeNull(context);
-}
 
 } // namespace WTR

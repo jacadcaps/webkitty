@@ -37,9 +37,11 @@ class PerformanceLoggingClient {
     WTF_MAKE_FAST_ALLOCATED;
 public:
     enum class ScrollingEvent {
+        LoggingEnabled,
         ExposedTilelessArea,
         FilledTile,
         SwitchedScrollingMode,
+        StartedRubberbanding
     };
     virtual void logScrollingEvent(ScrollingEvent, MonotonicTime, uint64_t) = 0;
 

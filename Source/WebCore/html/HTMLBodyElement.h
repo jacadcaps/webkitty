@@ -28,9 +28,10 @@
 namespace WebCore {
 
 class HTMLBodyElement final : public HTMLElement {
-    WTF_MAKE_ISO_ALLOCATED(HTMLBodyElement);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(HTMLBodyElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HTMLBodyElement);
 public:
-    static Ref<HTMLBodyElement> create(Document&);
+    WEBCORE_EXPORT static Ref<HTMLBodyElement> create(Document&);
     static Ref<HTMLBodyElement> create(const QualifiedName&, Document&);
     virtual ~HTMLBodyElement();
 
@@ -39,9 +40,9 @@ public:
 private:
     HTMLBodyElement(const QualifiedName&, Document&);
 
-    void parseAttribute(const QualifiedName&, const AtomString&) final;
-    bool isPresentationAttribute(const QualifiedName&) const final;
-    void collectStyleForPresentationAttribute(const QualifiedName&, const AtomString&, MutableStyleProperties&) final;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
+    bool hasPresentationalHintsForAttribute(const QualifiedName&) const final;
+    void collectPresentationalHintsForAttribute(const QualifiedName&, const AtomString&, MutableStyleProperties&) final;
 
     InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
     void didFinishInsertingNode() final;
@@ -51,8 +52,6 @@ private:
     bool supportsFocus() const final;
 
     void addSubresourceAttributeURLs(ListHashSet<URL>&) const final;
-
-    static EventHandlerNameMap createWindowEventHandlerNameMap();
 };
 
 } //namespace

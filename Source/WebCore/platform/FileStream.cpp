@@ -47,10 +47,10 @@ FileStream::~FileStream()
     close();
 }
 
-long long FileStream::getSize(const String& path, Optional<WallTime> expectedModificationTime)
+long long FileStream::getSize(const String& path, std::optional<WallTime> expectedModificationTime)
 {
     // Check the modification time for the possible file change.
-    auto modificationTime = FileSystem::getFileModificationTime(path);
+    auto modificationTime = FileSystem::fileModificationTime(path);
     if (!modificationTime)
         return -1;
     if (expectedModificationTime) {
@@ -59,11 +59,11 @@ long long FileStream::getSize(const String& path, Optional<WallTime> expectedMod
     }
 
     // Now get the file size.
-    long long length;
-    if (!FileSystem::getFileSize(path, length))
+    auto length = FileSystem::fileSize(path);
+    if (!length)
         return -1;
 
-    return length;
+    return *length;
 }
 
 bool FileStream::openForRead(const String& path, long long offset, long long length)
@@ -96,7 +96,7 @@ void FileStream::close()
     }
 }
 
-int FileStream::read(char* buffer, int bufferSize)
+int FileStream::read(void* buffer, int bufferSize)
 {
     if (!FileSystem::isHandleValid(m_handle))
         return -1;
@@ -105,7 +105,7 @@ int FileStream::read(char* buffer, int bufferSize)
     int bytesToRead = (remaining < bufferSize) ? static_cast<int>(remaining) : bufferSize;
     int bytesRead = 0;
     if (bytesToRead > 0)
-        bytesRead = FileSystem::readFromFile(m_handle, buffer, bytesToRead);
+        bytesRead = FileSystem::readFromFile(m_handle, { static_cast<uint8_t*>(buffer), static_cast<size_t>(bytesToRead) });
     if (bytesRead < 0)
         return -1;
     if (bytesRead > 0)

@@ -25,13 +25,13 @@
 
 #include "config.h"
 #include "JSCConfig.h"
+#include <wtf/WTFConfig.h>
 
 namespace JSC {
 
-void Config::disableFreezingForTesting()
+Config& Config::singleton()
 {
-    RELEASE_ASSERT(!g_jscConfig.isPermanentlyFrozen());
-    g_jscConfig.disabledFreezingForTesting = true;
+    return g_jscConfig;
 }
 
 void Config::enableRestrictedOptions()

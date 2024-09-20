@@ -26,21 +26,29 @@
 #include "config.h"
 #include "RemoteMediaRecorder.h"
 
-#if PLATFORM(COCOA) && ENABLE(GPU_PROCESS) && ENABLE(MEDIA_STREAM) && HAVE(AVASSETWRITERDELEGATE)
+#if PLATFORM(COCOA) && ENABLE(GPU_PROCESS) && ENABLE(MEDIA_RECORDER)
 
-#include "SharedRingBufferStorage.h"
+#include "Connection.h"
+#include "GPUConnectionToWebProcess.h"
+#include "Logging.h"
+#include "RemoteVideoFrameObjectHeap.h"
+#include "SharedCARingBuffer.h"
 #include <WebCore/CARingBuffer.h>
-#include <WebCore/ImageTransferSessionVT.h>
-#include <WebCore/RemoteVideoSample.h>
 #include <WebCore/WebAudioBufferList.h>
 #include <wtf/CompletionHandler.h>
+#include <wtf/TZoneMallocInlines.h>
+
+#define MESSAGE_CHECK(assertion) MESSAGE_CHECK_OPTIONAL_CONNECTION_BASE(assertion, connection())
 
 namespace WebKit {
 using namespace WebCore;
+static constexpr Seconds mediaRecorderDefaultTimeout { 1_s };
 
-std::unique_ptr<RemoteMediaRecorder> RemoteMediaRecorder::create(GPUConnectionToWebProcess& gpuConnectionToWebProcess, MediaRecorderIdentifier identifier, bool recordAudio, bool recordVideo)
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RemoteMediaRecorder);
+
+std::unique_ptr<RemoteMediaRecorder> RemoteMediaRecorder::create(GPUConnectionToWebProcess& gpuConnectionToWebProcess, MediaRecorderIdentifier identifier, bool recordAudio, bool recordVideo, const MediaRecorderPrivateOptions& options)
 {
-    auto writer = MediaRecorderPrivateWriter::create(recordAudio, recordVideo);
+    auto writer = MediaRecorderPrivateWriter::create(recordAudio, recordVideo, options);
     if (!writer)
         return nullptr;
     return std::unique_ptr<RemoteMediaRecorder>(new RemoteMediaRecorder { gpuConnectionToWebProcess, identifier, writer.releaseNonNull(), recordAudio });
@@ -50,89 +58,90 @@ RemoteMediaRecorder::RemoteMediaRecorder(GPUConnectionToWebProcess& gpuConnectio
     : m_gpuConnectionToWebProcess(gpuConnectionToWebProcess)
     , m_identifier(identifier)
     , m_writer(WTFMove(writer))
+    , m_recordAudio(recordAudio)
+    , m_sharedVideoFrameReader(Ref { gpuConnectionToWebProcess.videoFrameObjectHeap() }, { gpuConnectionToWebProcess.webProcessIdentity() })
 {
-    if (recordAudio)
-        m_ringBuffer = makeUnique<CARingBuffer>(makeUniqueRef<SharedRingBufferStorage>(nullptr));
 }
 
 RemoteMediaRecorder::~RemoteMediaRecorder()
 {
+    m_writer->close();
 }
 
-SharedRingBufferStorage& RemoteMediaRecorder::storage()
+RefPtr<IPC::Connection> RemoteMediaRecorder::connection() const
 {
-    return static_cast<SharedRingBufferStorage&>(m_ringBuffer->storage());
+    RefPtr connection = m_gpuConnectionToWebProcess.get();
+    if (!connection)
+        return nullptr;
+    return &connection->connection();
 }
 
-void RemoteMediaRecorder::audioSamplesStorageChanged(const SharedMemory::Handle& handle, const WebCore::CAAudioStreamDescription& description, uint64_t numberOfFrames)
+void RemoteMediaRecorder::audioSamplesStorageChanged(ConsumerSharedCARingBuffer::Handle&& handle, const WebCore::CAAudioStreamDescription& description)
 {
-    ASSERT(m_ringBuffer);
+    MESSAGE_CHECK(m_recordAudio);
+    m_audioBufferList = nullptr;
+    m_ringBuffer = ConsumerSharedCARingBuffer::map(description, WTFMove(handle));
     if (!m_ringBuffer)
         return;
-
     m_description = description;
-
-    if (handle.isNull()) {
-        m_ringBuffer->deallocate();
-        storage().setReadOnly(false);
-        storage().setStorage(nullptr);
-        return;
-    }
-
-    auto memory = SharedMemory::map(handle, SharedMemory::Protection::ReadOnly);
-    storage().setStorage(WTFMove(memory));
-    storage().setReadOnly(true);
-
-    m_ringBuffer->allocate(description, numberOfFrames);
+    m_audioBufferList = makeUnique<WebAudioBufferList>(*m_description);
 }
 
-void RemoteMediaRecorder::audioSamplesAvailable(MediaTime time, uint64_t numberOfFrames, uint64_t startFrame, uint64_t endFrame)
+void RemoteMediaRecorder::audioSamplesAvailable(MediaTime time, uint64_t numberOfFrames)
 {
-    ASSERT(m_ringBuffer);
-    if (!m_ringBuffer)
-        return;
+    MESSAGE_CHECK(m_ringBuffer);
+    MESSAGE_CHECK(m_audioBufferList);
+    MESSAGE_CHECK(m_description && WebAudioBufferList::isSupportedDescription(*m_description, numberOfFrames));
 
-    m_ringBuffer->setCurrentFrameBounds(startFrame, endFrame);
+    m_audioBufferList->setSampleCount(numberOfFrames);
+    m_ringBuffer->fetch(m_audioBufferList->list(), numberOfFrames, time.timeValue());
 
-    WebAudioBufferList audioData(m_description, numberOfFrames);
-    m_ringBuffer->fetch(audioData.list(), numberOfFrames, time.timeValue());
-
-    m_writer->appendAudioSampleBuffer(audioData, m_description, time, numberOfFrames);
+    m_writer->appendAudioSampleBuffer(*m_audioBufferList, *m_description, time, numberOfFrames);
 }
 
-void RemoteMediaRecorder::videoSampleAvailable(WebCore::RemoteVideoSample&& remoteSample)
+void RemoteMediaRecorder::videoFrameAvailable(SharedVideoFrame&& sharedVideoFrame)
 {
-    if (!m_imageTransferSession || m_imageTransferSession->pixelFormat() != remoteSample.videoFormat())
-        m_imageTransferSession = ImageTransferSessionVT::create(remoteSample.videoFormat());
-
-    if (!m_imageTransferSession) {
-        ASSERT_NOT_REACHED();
-        return;
-    }
-
-    auto sampleBuffer = m_imageTransferSession->createMediaSample(remoteSample);
-    if (!sampleBuffer) {
-        ASSERT_NOT_REACHED();
-        return;
-    }
-
-    m_writer->appendVideoSampleBuffer(sampleBuffer->platformSample().sample.cmSampleBuffer);
+    if (auto frame = m_sharedVideoFrameReader.read(WTFMove(sharedVideoFrame)))
+        m_writer->appendVideoFrame(*frame);
 }
 
-void RemoteMediaRecorder::fetchData(CompletionHandler<void(IPC::DataReference&&, const String& mimeType)>&& completionHandler)
+void RemoteMediaRecorder::fetchData(CompletionHandler<void(std::span<const uint8_t>, double)>&& completionHandler)
 {
-    static NeverDestroyed<const String> mp4MimeType(MAKE_STATIC_STRING_IMPL("video/mp4"));
-    m_writer->fetchData([&mp4MimeType = mp4MimeType.get(), completionHandler = WTFMove(completionHandler)](auto&& data) mutable {
-        auto* pointer = reinterpret_cast<const uint8_t*>(data ? data->data() : nullptr);
-        completionHandler(IPC::DataReference { pointer, data ? data->size() : 0 }, mp4MimeType);
+    m_writer->fetchData([completionHandler = WTFMove(completionHandler)](auto&& data, auto timeCode) mutable {
+        completionHandler(data ? data->makeContiguous()->span() : std::span<const uint8_t> { }, timeCode);
     });
 }
 
-void RemoteMediaRecorder::stopRecording()
+void RemoteMediaRecorder::stopRecording(CompletionHandler<void()>&& completionHandler)
 {
     m_writer->stopRecording();
+    completionHandler();
+}
+
+void RemoteMediaRecorder::pause(CompletionHandler<void()>&& completionHandler)
+{
+    m_writer->pause();
+    completionHandler();
+}
+
+void RemoteMediaRecorder::resume(CompletionHandler<void()>&& completionHandler)
+{
+    m_writer->resume();
+    completionHandler();
+}
+
+void RemoteMediaRecorder::setSharedVideoFrameSemaphore(IPC::Semaphore&& semaphore)
+{
+    m_sharedVideoFrameReader.setSemaphore(WTFMove(semaphore));
+}
+
+void RemoteMediaRecorder::setSharedVideoFrameMemory(SharedMemory::Handle&& handle)
+{
+    m_sharedVideoFrameReader.setSharedMemory(WTFMove(handle));
 }
 
 }
 
-#endif // PLATFORM(COCOA) && ENABLE(GPU_PROCESS) && ENABLE(MEDIA_STREAM) && HAVE(AVASSETWRITERDELEGATE)
+#undef MESSAGE_CHECK
+
+#endif // PLATFORM(COCOA) && ENABLE(GPU_PROCESS) && ENABLE(MEDIA_RECORDER)

@@ -24,5 +24,6 @@
 
 [
     Conditional=WEBXR,
-    EnabledAtRuntime=WebXR
-] callback XRSimulateUserActivationFunction = void ();
+    EnabledBySetting=WebXREnabled,
+    GenerateIsReachable=ImplScriptExecutionContext
+] callback XRSimulateUserActivationFunction = undefined ();

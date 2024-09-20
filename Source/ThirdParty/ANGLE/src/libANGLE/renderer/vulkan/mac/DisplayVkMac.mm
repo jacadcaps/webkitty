@@ -11,10 +11,10 @@
 
 #include <vulkan/vulkan.h>
 
-#include "libANGLE/renderer/vulkan/RendererVk.h"
 #include "libANGLE/renderer/vulkan/mac/IOSurfaceSurfaceVkMac.h"
 #include "libANGLE/renderer/vulkan/mac/WindowSurfaceVkMac.h"
 #include "libANGLE/renderer/vulkan/vk_caps_utils.h"
+#include "libANGLE/renderer/vulkan/vk_renderer.h"
 
 #import <Cocoa/Cocoa.h>
 
@@ -43,7 +43,7 @@ SurfaceImpl *DisplayVkMac::createPbufferFromClientBuffer(const egl::SurfaceState
 {
     ASSERT(buftype == EGL_IOSURFACE_ANGLE);
 
-    return new IOSurfaceSurfaceVkMac(state, clientBuffer, attribs);
+    return new IOSurfaceSurfaceVkMac(state, clientBuffer, attribs, mRenderer);
 }
 
 egl::ConfigSet DisplayVkMac::generateConfigs()
@@ -52,11 +52,10 @@ egl::ConfigSet DisplayVkMac::generateConfigs()
     return egl_vk::GenerateConfigs(kColorFormats, egl_vk::kConfigDepthStencilFormats, this);
 }
 
-bool DisplayVkMac::checkConfigSupport(egl::Config *config)
+void DisplayVkMac::checkConfigSupport(egl::Config *config)
 {
     // TODO(geofflang): Test for native support and modify the config accordingly.
-    // anglebug.com/2692
-    return true;
+    // anglebug.com/42261400
 }
 
 const char *DisplayVkMac::getWSIExtension() const
@@ -76,8 +75,7 @@ DisplayImpl *CreateVulkanMacDisplay(const egl::DisplayState &state)
 
 void DisplayVkMac::generateExtensions(egl::DisplayExtensions *outExtensions) const
 {
-    outExtensions->iosurfaceClientBuffer =
-        getRenderer()->getFeatures().supportsExternalMemoryHost.enabled;
+    outExtensions->iosurfaceClientBuffer = true;
 
     DisplayVk::generateExtensions(outExtensions);
 }

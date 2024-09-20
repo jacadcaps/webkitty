@@ -12,7 +12,7 @@
 
 using namespace angle;
 
-class BuiltinVariableVertexIdTest : public ANGLETest
+class BuiltinVariableVertexIdTest : public ANGLETest<>
 {
   protected:
     BuiltinVariableVertexIdTest()
@@ -195,9 +195,10 @@ TEST_P(BuiltinVariableVertexIdTest, Triangles)
     runTest(GL_TRIANGLES, indices, 6);
 }
 
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(BuiltinVariableVertexIdTest);
 ANGLE_INSTANTIATE_TEST_ES3(BuiltinVariableVertexIdTest);
 
-class BuiltinVariableFragDepthClampingFloatRBOTest : public ANGLETest
+class BuiltinVariableFragDepthClampingFloatRBOTest : public ANGLETest<>
 {
   protected:
     void testSetUp() override
@@ -286,7 +287,5 @@ TEST_P(BuiltinVariableFragDepthClampingFloatRBOTest, Below1)
     CheckDepthWritten(1.0f, 42.0f);
 }
 
-ANGLE_INSTANTIATE_TEST(BuiltinVariableFragDepthClampingFloatRBOTest,
-                       ES3_D3D11(),
-                       ES3_OPENGL(),
-                       ES3_OPENGLES());
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(BuiltinVariableFragDepthClampingFloatRBOTest);
+ANGLE_INSTANTIATE_TEST_ES3(BuiltinVariableFragDepthClampingFloatRBOTest);

@@ -25,11 +25,12 @@
 
 WI.FindBanner = class FindBanner extends WI.NavigationItem
 {
-    constructor(delegate, className, fixed = false)
+    constructor(delegate, {alwaysShowing, className} = {})
     {
         super();
 
         this._delegate = delegate || null;
+        this._alwaysShowing = alwaysShowing;
 
         this.element.classList.add("find-banner");
 
@@ -43,12 +44,13 @@ WI.FindBanner = class FindBanner extends WI.NavigationItem
         this._inputField.type = "search";
         this._inputField.placeholder = " "; // This is necessary for :placeholder-shown.
         this._inputField.spellcheck = false;
-        this._inputField.incremental = true;
         this._inputField.setAttribute("results", 5);
         this._inputField.setAttribute("autosave", "inspector-search");
         this._inputField.addEventListener("keydown", this._inputFieldKeyDown.bind(this), false);
-        this._inputField.addEventListener("keyup", this._inputFieldKeyUp.bind(this), false);
-        this._inputField.addEventListener("search", this._inputFieldSearch.bind(this), false);
+        this._inputFieldInputThrottler = new Throttler(this._inputFieldInput.bind(this), 250);
+        this._inputField.addEventListener("input", (event) => {
+            this._inputFieldInputThrottler.fire(event);
+        }, false);
         this.element.appendChild(this._inputField);
 
         this._previousResultButton = document.createElement("button");
@@ -73,9 +75,10 @@ WI.FindBanner = class FindBanner extends WI.NavigationItem
         nextResultButtonGlyphElement.classList.add(WI.FindBanner.SegmentGlyphStyleClassName);
         this._nextResultButton.appendChild(nextResultButtonGlyphElement);
 
-        if (fixed)
+        if (this._alwaysShowing) {
+            this.element.classList.add(WI.FindBanner.ShowingStyleClassName);
             this._clearAndBlurKeyboardShortcut = new WI.KeyboardShortcut(null, WI.KeyboardShortcut.Key.Escape, this.clearAndBlur.bind(this), this.element);
-        else {
+        } else {
             let doneButtonElement = document.createElement("button");
             doneButtonElement.textContent = WI.UIString("Done");
             doneButtonElement.addEventListener("click", this._doneButtonClicked.bind(this));
@@ -84,8 +87,6 @@ WI.FindBanner = class FindBanner extends WI.NavigationItem
         }
 
         this._numberOfResults = null;
-        this._searchBackwards = false;
-        this._searchKeyPressed = false;
         this._previousSearchValue = "";
     }
 
@@ -138,7 +139,9 @@ WI.FindBanner = class FindBanner extends WI.NavigationItem
             this._targetElement.classList.remove(WI.FindBanner.ShowingFindBannerStyleClassName);
 
             this.element.classList.add(WI.FindBanner.NoTransitionStyleClassName);
-            this.element.classList.remove(WI.FindBanner.ShowingStyleClassName);
+
+            if (!this._alwaysShowing)
+                this.element.classList.remove(WI.FindBanner.ShowingStyleClassName);
 
             // Delay so we can remove the no transition style class after the other style changes are committed.
             setTimeout(delayedWork.bind(this), 0);
@@ -214,7 +217,9 @@ WI.FindBanner = class FindBanner extends WI.NavigationItem
         this._inputField.blur();
 
         this._targetElement.classList.remove(WI.FindBanner.ShowingFindBannerStyleClassName);
-        this.element.classList.remove(WI.FindBanner.ShowingStyleClassName);
+
+        if (!this._alwaysShowing)
+            this.element.classList.remove(WI.FindBanner.ShowingStyleClassName);
 
         this.dispatchEventToListeners(WI.FindBanner.Event.DidHide);
     }
@@ -223,34 +228,22 @@ WI.FindBanner = class FindBanner extends WI.NavigationItem
 
     _inputFieldKeyDown(event)
     {
-        if (event.keyIdentifier === "Shift")
-            this._searchBackwards = true;
-        else if (event.keyIdentifier === "Enter")
-            this._searchKeyPressed = true;
+        if (event.keyIdentifier === "Enter") {
+            if (this._numberOfResults > 0) {
+                if (event.shiftKey)
+                    this._delegate?.findBannerRevealPreviousResult?.(this);
+                else
+                    this._delegate?.findBannerRevealNextResult?.(this);
+            }
+        }
     }
 
-    _inputFieldKeyUp(event)
-    {
-        if (event.keyIdentifier === "Shift")
-            this._searchBackwards = false;
-        else if (event.keyIdentifier === "Enter")
-            this._searchKeyPressed = false;
-    }
-
-    _inputFieldSearch(event)
+    _inputFieldInput(event)
     {
         if (this._inputField.value) {
             if (this._previousSearchValue !== this.searchQuery) {
                 if (this._delegate && typeof this._delegate.findBannerPerformSearch === "function")
                     this._delegate.findBannerPerformSearch(this, this.searchQuery);
-            } else if (this._searchKeyPressed && this._numberOfResults > 0) {
-                if (this._searchBackwards) {
-                    if (this._delegate && typeof this._delegate.findBannerRevealPreviousResult === "function")
-                        this._delegate.findBannerRevealPreviousResult(this);
-                } else {
-                    if (this._delegate && typeof this._delegate.findBannerRevealNextResult === "function")
-                        this._delegate.findBannerRevealNextResult(this);
-                }
             }
         } else {
             this.numberOfResults = null;

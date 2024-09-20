@@ -96,12 +96,19 @@ unsigned Arg::jsHash() const
     switch (m_kind) {
     case Invalid:
     case Special:
+    case SIMDInfo:
         break;
     case Tmp:
         result += m_base.internalValue();
         break;
+#if USE(JSVALUE32_64)
+    case TmpPair:
+        result += m_baseHi.internalValue() + m_baseLo.internalValue();
+        break;
+#endif
     case Imm:
     case BitImm:
+    case ZeroReg:
     case CallArg:
     case RelCond:
     case ResCond:
@@ -129,6 +136,11 @@ unsigned Arg::jsHash() const
         result += m_base.internalValue();
         result += m_index.internalValue();
         break;
+    case PreIndex:
+    case PostIndex:
+        result += m_offset;
+        result += m_base.internalValue();
+        break;
     case Stack:
         result += static_cast<unsigned>(m_scale);
         result += stackSlot()->index();
@@ -147,6 +159,11 @@ void Arg::dump(PrintStream& out) const
     case Tmp:
         out.print(tmp());
         return;
+#if USE(JSVALUE32_64)
+    case TmpPair:
+        out.print("(", tmpHi(), ", ", tmpLo(), ")");
+        return;
+#endif
     case Imm:
         out.print("$", m_offset);
         return;
@@ -158,6 +175,9 @@ void Arg::dump(PrintStream& out) const
         return;
     case BitImm64:
         out.printf("$0x%llx", static_cast<long long unsigned>(m_offset));
+        return;
+    case ZeroReg:
+        out.print("%xzr");
         return;
     case SimpleAddr:
         out.print("(", base(), ")");
@@ -175,6 +195,12 @@ void Arg::dump(PrintStream& out) const
         if (scale() != 1)
             out.print(",", scale());
         out.print(")");
+        return;
+    case PreIndex:
+        out.print("(", base(), ",Pre($", offset(), "))");
+        return;
+    case PostIndex:
+        out.print("(", base(), ",Post($", offset(), "))");
         return;
     case Stack:
         if (offset())
@@ -204,6 +230,9 @@ void Arg::dump(PrintStream& out) const
     case WidthArg:
         out.print(width());
         return;
+    case SIMDInfo:
+        out.print("{ ", simdInfo().lane, ", ", simdInfo().signMode, " }");
+        return;
     }
 
     RELEASE_ASSERT_NOT_REACHED();
@@ -224,6 +253,11 @@ void printInternal(PrintStream& out, Arg::Kind kind)
     case Arg::Tmp:
         out.print("Tmp");
         return;
+#if USE(JSVALUE32_64)
+    case Arg::TmpPair:
+        out.print("TmpPair");
+        return;
+#endif
     case Arg::Imm:
         out.print("Imm");
         return;
@@ -235,6 +269,9 @@ void printInternal(PrintStream& out, Arg::Kind kind)
         return;
     case Arg::BitImm64:
         out.print("BitImm64");
+        return;
+    case Arg::ZeroReg:
+        out.print("ZeroReg");
         return;
     case Arg::SimpleAddr:
         out.print("SimpleAddr");
@@ -254,6 +291,12 @@ void printInternal(PrintStream& out, Arg::Kind kind)
     case Arg::Index:
         out.print("Index");
         return;
+    case Arg::PreIndex:
+        out.print("PreIndex");
+        return;
+    case Arg::PostIndex:
+        out.print("PostIndex");
+        return;
     case Arg::RelCond:
         out.print("RelCond");
         return;
@@ -271,6 +314,9 @@ void printInternal(PrintStream& out, Arg::Kind kind)
         return;
     case Arg::WidthArg:
         out.print("WidthArg");
+        return;
+    case Arg::SIMDInfo:
+        out.print("SIMDInfo");
         return;
     }
 

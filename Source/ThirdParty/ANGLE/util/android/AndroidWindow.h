@@ -17,7 +17,6 @@ class AndroidWindow : public OSWindow
     AndroidWindow();
     ~AndroidWindow() override;
 
-    bool initialize(const std::string &name, int width, int height) override;
     void disableErrorMessageDialog() override;
     void destroy() override;
 
@@ -34,6 +33,11 @@ class AndroidWindow : public OSWindow
     void setVisible(bool isVisible) override;
 
     void signalTestEvent() override;
+
+    ANGLE_UTIL_EXPORT static std::string GetExternalStorageDirectory();
+
+  private:
+    bool initializeImpl(const std::string &name, int width, int height) override;
 };
 
 #endif /* UTIL_ANDROID_WINDOW_H_ */

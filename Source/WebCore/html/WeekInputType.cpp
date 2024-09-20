@@ -32,7 +32,9 @@
 #if ENABLE(INPUT_TYPE_WEEK)
 #include "WeekInputType.h"
 
+#include "DateComponents.h"
 #include "Decimal.h"
+#include "ElementInlines.h"
 #include "HTMLInputElement.h"
 #include "HTMLNames.h"
 #include "InputTypeNames.h"
@@ -52,34 +54,51 @@ const AtomString& WeekInputType::formControlType() const
     return InputTypeNames::week();
 }
 
-DateComponents::Type WeekInputType::dateType() const
+DateComponentsType WeekInputType::dateType() const
 {
-    return DateComponents::Week;
+    return DateComponentsType::Week;
 }
 
 StepRange WeekInputType::createStepRange(AnyStepHandling anyStepHandling) const
 {
     ASSERT(element());
-    const Decimal stepBase = parseToNumber(element()->attributeWithoutSynchronization(minAttr), weekDefaultStepBase);
+    const Decimal stepBase = findStepBase(weekDefaultStepBase);
     const Decimal minimum = parseToNumber(element()->attributeWithoutSynchronization(minAttr), Decimal::fromDouble(DateComponents::minimumWeek()));
     const Decimal maximum = parseToNumber(element()->attributeWithoutSynchronization(maxAttr), Decimal::fromDouble(DateComponents::maximumWeek()));
     const Decimal step = StepRange::parseStep(anyStepHandling, weekStepDescription, element()->attributeWithoutSynchronization(stepAttr));
     return StepRange(stepBase, RangeLimitations::Valid, minimum, maximum, step, weekStepDescription);
 }
 
-Optional<DateComponents> WeekInputType::parseToDateComponents(const StringView& source) const
+std::optional<DateComponents> WeekInputType::parseToDateComponents(StringView source) const
 {
     return DateComponents::fromParsingWeek(source);
 }
 
-Optional<DateComponents> WeekInputType::setMillisecondToDateComponents(double value) const
+std::optional<DateComponents> WeekInputType::setMillisecondToDateComponents(double value) const
 {
     return DateComponents::fromMillisecondsSinceEpochForWeek(value);
 }
 
-bool WeekInputType::isWeekField() const
+void WeekInputType::handleDOMActivateEvent(Event&)
 {
-    return true;
+}
+
+void WeekInputType::showPicker()
+{
+}
+
+bool WeekInputType::isValidFormat(OptionSet<DateTimeFormatValidationResults> results) const
+{
+    return results.containsAll({ DateTimeFormatValidationResults::HasYear, DateTimeFormatValidationResults::HasWeek });
+}
+
+String WeekInputType::formatDateTimeFieldsState(const DateTimeFieldsState&) const
+{
+    return emptyString();
+}
+
+void WeekInputType::setupLayoutParameters(DateTimeEditElement::LayoutParameters&, const DateComponents&) const
+{
 }
 
 } // namespace WebCore

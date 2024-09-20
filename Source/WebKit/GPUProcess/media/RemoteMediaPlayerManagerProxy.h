@@ -25,76 +25,102 @@
 
 #pragma once
 
-#if ENABLE(GPU_PROCESS)
+#if ENABLE(GPU_PROCESS) && ENABLE(VIDEO)
 
 #include "Connection.h"
-#include "MediaPlayerPrivateRemoteIdentifier.h"
+#include "GPUConnectionToWebProcess.h"
 #include "MessageReceiver.h"
 #include "SandboxExtension.h"
-#include "TrackPrivateRemoteIdentifier.h"
+#include <WebCore/HTMLMediaElementIdentifier.h>
 #include <WebCore/MediaPlayer.h>
-#include <wtf/LoggerHelper.h>
+#include <WebCore/MediaPlayerIdentifier.h>
+#include <WebCore/ShareableBitmap.h>
+#include <wtf/HashMap.h>
+#include <wtf/Lock.h>
+#include <wtf/Logger.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/ThreadSafeWeakPtr.h>
+#include <wtf/WeakPtr.h>
+
+#if ENABLE(LINEAR_MEDIA_PLAYER)
+#include <WebCore/VideoReceiverEndpoint.h>
+#endif
+
+namespace WebKit {
+class RemoteMediaPlayerManagerProxy;
+class VideoReceiverEndpointMessage;
+}
+
+namespace WTF {
+template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
+template<> struct IsDeprecatedWeakRefSmartPointerException<WebKit::RemoteMediaPlayerManagerProxy> : std::true_type { };
+}
 
 namespace WebKit {
 
-class GPUConnectionToWebProcess;
 class RemoteMediaPlayerProxy;
 struct RemoteMediaPlayerConfiguration;
 struct RemoteMediaPlayerProxyConfiguration;
 
 class RemoteMediaPlayerManagerProxy
-    : private IPC::MessageReceiver
-#if !RELEASE_LOG_DISABLED
-    , private LoggerHelper
-#endif
+    : public IPC::MessageReceiver
 {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(RemoteMediaPlayerManagerProxy);
 public:
     explicit RemoteMediaPlayerManagerProxy(GPUConnectionToWebProcess&);
     ~RemoteMediaPlayerManagerProxy();
 
-    GPUConnectionToWebProcess& gpuConnectionToWebProcess() const { return m_gpuConnectionToWebProcess; }
+    RefPtr<GPUConnectionToWebProcess> gpuConnectionToWebProcess() { return m_gpuConnectionToWebProcess.get(); }
     void clear();
 
-    void didReceiveMessageFromWebProcess(IPC::Connection& connection, IPC::Decoder& decoder) { didReceiveMessage(connection, decoder); }
-    void didReceiveSyncMessageFromWebProcess(IPC::Connection& connection, IPC::Decoder& decoder, std::unique_ptr<IPC::Encoder>& encoder) { didReceiveSyncMessage(connection, decoder, encoder); }
-    void didReceivePlayerMessage(IPC::Connection&, IPC::Decoder&);
-    void didReceiveSyncPlayerMessage(IPC::Connection&, IPC::Decoder&, std::unique_ptr<IPC::Encoder>&);
-
 #if !RELEASE_LOG_DISABLED
-    const Logger& logger() const final;
-    const void* logIdentifier() const final { return m_logIdentifier; }
-    const char* logClassName() const final { return "RemoteMediaPlayerManagerProxy"; }
-    WTFLogChannel& logChannel() const final;
+    Logger& logger();
 #endif
 
-    RemoteMediaPlayerProxy* getProxy(const MediaPlayerPrivateRemoteIdentifier&);
+    void didReceiveMessageFromWebProcess(IPC::Connection& connection, IPC::Decoder& decoder) { didReceiveMessage(connection, decoder); }
+    bool didReceiveSyncMessageFromWebProcess(IPC::Connection& connection, IPC::Decoder& decoder, UniqueRef<IPC::Encoder>& encoder) { return didReceiveSyncMessage(connection, decoder, encoder); }
+    void didReceivePlayerMessage(IPC::Connection&, IPC::Decoder&);
+    bool didReceiveSyncPlayerMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&);
+
+    RefPtr<WebCore::MediaPlayer> mediaPlayer(const WebCore::MediaPlayerIdentifier&);
+
+    std::optional<WebCore::ShareableBitmap::Handle> bitmapImageForCurrentTime(WebCore::MediaPlayerIdentifier);
+
+#if ENABLE(LINEAR_MEDIA_PLAYER)
+    WebCore::PlatformVideoTarget videoTargetForMediaElementIdentifier(WebCore::HTMLMediaElementIdentifier);
+    void handleVideoReceiverEndpointMessage(const VideoReceiverEndpointMessage&);
+#endif
 
 private:
     // IPC::MessageReceiver
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
-    void didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, std::unique_ptr<IPC::Encoder>&) final;
+    bool didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&) final;
 
-    void createMediaPlayer(MediaPlayerPrivateRemoteIdentifier, WebCore::MediaPlayerEnums::MediaEngineIdentifier, RemoteMediaPlayerProxyConfiguration&&, CompletionHandler<void(RemoteMediaPlayerConfiguration&)>&&);
-    void deleteMediaPlayer(MediaPlayerPrivateRemoteIdentifier);
+    void createMediaPlayer(WebCore::MediaPlayerIdentifier, WebCore::MediaPlayerClientIdentifier, WebCore::MediaPlayerEnums::MediaEngineIdentifier, RemoteMediaPlayerProxyConfiguration&&);
+    void deleteMediaPlayer(WebCore::MediaPlayerIdentifier);
 
     // Media player factory
     void getSupportedTypes(WebCore::MediaPlayerEnums::MediaEngineIdentifier, CompletionHandler<void(Vector<String>&&)>&&);
     void supportsTypeAndCodecs(WebCore::MediaPlayerEnums::MediaEngineIdentifier, const WebCore::MediaEngineSupportParameters&&, CompletionHandler<void(WebCore::MediaPlayer::SupportsType)>&&);
-    void canDecodeExtendedType(WebCore::MediaPlayerEnums::MediaEngineIdentifier remoteEngineIdentifier, const String&&, CompletionHandler<void(bool)>&&);
-    void originsInMediaCache(WebCore::MediaPlayerEnums::MediaEngineIdentifier, const String&&, CompletionHandler<void(Vector<WebCore::SecurityOriginData>&&)>&&);
-    void clearMediaCache(WebCore::MediaPlayerEnums::MediaEngineIdentifier, const String&&, WallTime);
-    void clearMediaCacheForOrigins(WebCore::MediaPlayerEnums::MediaEngineIdentifier, const String&&, Vector<WebCore::SecurityOriginData>&&);
     void supportsKeySystem(WebCore::MediaPlayerEnums::MediaEngineIdentifier, const String&&, const String&&, CompletionHandler<void(bool)>&&);
 
-    HashMap<MediaPlayerPrivateRemoteIdentifier, std::unique_ptr<RemoteMediaPlayerProxy>> m_proxies;
-    GPUConnectionToWebProcess& m_gpuConnectionToWebProcess;
+    HashMap<WebCore::MediaPlayerIdentifier, Ref<RemoteMediaPlayerProxy>> m_proxies;
+    ThreadSafeWeakPtr<GPUConnectionToWebProcess> m_gpuConnectionToWebProcess;
+
+#if ENABLE(LINEAR_MEDIA_PLAYER)
+    struct VideoRecevierEndpointCacheEntry {
+        WebCore::MediaPlayerIdentifier playerIdentifier;
+        WebCore::VideoReceiverEndpoint endpoint;
+        WebCore::PlatformVideoTarget videoTarget;
+    };
+    HashMap<WebCore::HTMLMediaElementIdentifier, VideoRecevierEndpointCacheEntry> m_videoReceiverEndpointCache;
+#endif
 
 #if !RELEASE_LOG_DISABLED
-    const void* m_logIdentifier;
+    RefPtr<Logger> m_logger;
 #endif
 };
 
 } // namespace WebKit
 
-#endif
+#endif // ENABLE(GPU_PROCESS) && ENABLE(VIDEO)

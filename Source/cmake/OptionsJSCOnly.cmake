@@ -2,6 +2,10 @@ find_package(Threads REQUIRED)
 
 if (MSVC)
     include(OptionsMSVC)
+else ()
+    set(CMAKE_C_VISIBILITY_PRESET hidden)
+    set(CMAKE_CXX_VISIBILITY_PRESET hidden)
+    set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
 endif ()
 
 add_definitions(-DBUILDING_JSCONLY__)
@@ -13,10 +17,10 @@ set(PROJECT_VERSION ${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${PROJECT_
 
 WEBKIT_OPTION_BEGIN()
 WEBKIT_OPTION_DEFINE(ENABLE_STATIC_JSC "Whether to build JavaScriptCore as a static library." PUBLIC OFF)
+WEBKIT_OPTION_DEFINE(USE_LIBBACKTRACE "Whether to enable usage of libbacktrace." PUBLIC OFF)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_REMOTE_INSPECTOR PRIVATE OFF)
 if (WIN32)
-    # FIXME: Enable FTL on Windows. https://bugs.webkit.org/show_bug.cgi?id=145366
-    WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_FTL_JIT PRIVATE OFF)
+    WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_FTL_JIT PRIVATE ON)
     # FIXME: Port bmalloc to Windows. https://bugs.webkit.org/show_bug.cgi?id=143310
     WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_SYSTEM_MALLOC PRIVATE ON)
 endif ()
@@ -36,6 +40,7 @@ set(ENABLE_WEBCORE OFF)
 set(ENABLE_WEBKIT_LEGACY OFF)
 set(ENABLE_WEBKIT OFF)
 set(ENABLE_WEBINSPECTORUI OFF)
+set(ENABLE_WEBGL OFF)
 
 if (WIN32)
     set(ENABLE_API_TESTS OFF)
@@ -47,10 +52,10 @@ if (WTF_CPU_ARM OR WTF_CPU_MIPS)
     SET_AND_EXPOSE_TO_BUILD(USE_CAPSTONE TRUE)
 endif ()
 
-# FIXME: JSCOnly on WIN32 seems to only work with fully static build
-# https://bugs.webkit.org/show_bug.cgi?id=172862
-if (NOT ENABLE_STATIC_JSC AND NOT WIN32)
+if (NOT ENABLE_STATIC_JSC)
     set(JavaScriptCore_LIBRARY_TYPE SHARED)
+    set(bmalloc_LIBRARY_TYPE OBJECT)
+    set(WTF_LIBRARY_TYPE OBJECT)
 endif ()
 
 if (WIN32)
@@ -71,10 +76,6 @@ if (WIN32)
     if (WTF_CPU_X86_64)
         set_property(GLOBAL PROPERTY FIND_LIBRARY_USE_LIB32_PATHS OFF)
         set_property(GLOBAL PROPERTY FIND_LIBRARY_USE_LIB64_PATHS ON)
-
-        set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib64)
-        set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib64)
-        set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin64)
     endif ()
 
     set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY_DEBUG "${CMAKE_ARCHIVE_OUTPUT_DIRECTORY}")
@@ -96,7 +97,14 @@ else ()
     SET_AND_EXPOSE_TO_BUILD(WTF_DEFAULT_EVENT_LOOP 0)
 endif ()
 
-find_package(ICU 60.2 REQUIRED COMPONENTS data i18n uc)
+find_package(ICU 61.2 REQUIRED COMPONENTS data i18n uc)
 if (APPLE)
     add_definitions(-DU_DISABLE_RENAMING=1)
+endif ()
+
+if (USE_LIBBACKTRACE)
+    find_package(LibBacktrace)
+    if (NOT LIBBACKTRACE_FOUND)
+        message(FATAL_ERROR "libbacktrace is required for USE_LIBBACKTRACE")
+    endif ()
 endif ()

@@ -14,6 +14,7 @@
 #include <memory>
 #include <vector>
 
+#include "api/environment/environment.h"
 #include "api/video_codecs/sdp_video_format.h"
 #include "api/video_codecs/video_decoder.h"
 #include "api/video_codecs/video_decoder_factory.h"
@@ -24,8 +25,10 @@ namespace webrtc {
 class RTC_EXPORT InternalDecoderFactory : public VideoDecoderFactory {
  public:
   std::vector<SdpVideoFormat> GetSupportedFormats() const override;
-  std::unique_ptr<VideoDecoder> CreateVideoDecoder(
-      const SdpVideoFormat& format) override;
+  CodecSupport QueryCodecSupport(const SdpVideoFormat& format,
+                                 bool reference_scaling) const override;
+  std::unique_ptr<VideoDecoder> Create(const Environment& env,
+                                       const SdpVideoFormat& format) override;
 };
 
 }  // namespace webrtc

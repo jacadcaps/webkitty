@@ -27,12 +27,42 @@
 
 #include "FunctionExecutable.h"
 #include "InferredValueInlines.h"
+#include "ScriptExecutableInlines.h"
 
 namespace JSC {
 
-inline void FunctionExecutable::finalizeUnconditionally(VM& vm)
+inline Structure* FunctionExecutable::createStructure(VM& vm, JSGlobalObject* globalObject, JSValue proto)
 {
-    m_singleton.finalizeUnconditionally(vm);
+    return Structure::create(vm, globalObject, proto, TypeInfo(FunctionExecutableType, StructureFlags), info());
+}
+
+inline void FunctionExecutable::finalizeUnconditionally(VM& vm, CollectionScope collectionScope)
+{
+    m_singleton.finalizeUnconditionally(vm, collectionScope);
+    finalizeCodeBlockEdge(vm, m_codeBlockForCall);
+    finalizeCodeBlockEdge(vm, m_codeBlockForConstruct);
+    vm.heap.functionExecutableSpaceAndSet.outputConstraintsSet.remove(this);
+}
+
+inline FunctionCodeBlock* FunctionExecutable::replaceCodeBlockWith(VM& vm, CodeSpecializationKind kind, CodeBlock* newCodeBlock)
+{
+    if (kind == CodeForCall) {
+        FunctionCodeBlock* oldCodeBlock = codeBlockForCall();
+        m_codeBlockForCall.setMayBeNull(vm, this, newCodeBlock);
+        return oldCodeBlock;
+    }
+    ASSERT(kind == CodeForConstruct);
+    FunctionCodeBlock* oldCodeBlock = codeBlockForConstruct();
+    m_codeBlockForConstruct.setMayBeNull(vm, this, newCodeBlock);
+    return oldCodeBlock;
+}
+
+inline JSString* FunctionExecutable::toString(JSGlobalObject* globalObject)
+{
+    RareData& rareData = ensureRareData();
+    if (!rareData.m_asString)
+        return toStringSlow(globalObject);
+    return rareData.m_asString.get();
 }
 
 } // namespace JSC

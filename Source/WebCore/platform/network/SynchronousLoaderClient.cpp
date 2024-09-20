@@ -29,6 +29,7 @@
 #include "AuthenticationChallenge.h"
 #include "ResourceHandle.h"
 #include "ResourceRequest.h"
+#include "SharedBuffer.h"
 #include <wtf/CompletionHandler.h>
 
 namespace WebCore {
@@ -53,14 +54,14 @@ void SynchronousLoaderClient::willSendRequestAsync(ResourceHandle* handle, Resou
 
 bool SynchronousLoaderClient::shouldUseCredentialStorage(ResourceHandle*)
 {
-    // FIXME: We should ask FrameLoaderClient whether using credential storage is globally forbidden.
+    // FIXME: We should ask LocalFrameLoaderClient whether using credential storage is globally forbidden.
     return m_allowStoredCredentials;
 }
 
 #if USE(PROTECTION_SPACE_AUTH_CALLBACK)
 void SynchronousLoaderClient::canAuthenticateAgainstProtectionSpaceAsync(ResourceHandle*, const ProtectionSpace&, CompletionHandler<void(bool)>&& completionHandler)
 {
-    // FIXME: We should ask FrameLoaderClient. <http://webkit.org/b/65196>
+    // FIXME: We should ask LocalFrameLoaderClient. <http://webkit.org/b/65196>
     completionHandler(true);
 }
 #endif
@@ -71,12 +72,12 @@ void SynchronousLoaderClient::didReceiveResponseAsync(ResourceHandle*, ResourceR
     completionHandler();
 }
 
-void SynchronousLoaderClient::didReceiveData(ResourceHandle*, const char* data, unsigned length, int /*encodedDataLength*/)
+void SynchronousLoaderClient::didReceiveData(ResourceHandle*, const SharedBuffer& buffer, int /*encodedDataLength*/)
 {
-    m_data.append(data, length);
+    m_data.append(buffer.span());
 }
 
-void SynchronousLoaderClient::didFinishLoading(ResourceHandle* handle)
+void SynchronousLoaderClient::didFinishLoading(ResourceHandle* handle, const NetworkLoadMetrics&)
 {
     m_messageQueue->kill();
 #if PLATFORM(COCOA)
@@ -101,5 +102,18 @@ void SynchronousLoaderClient::didFail(ResourceHandle* handle, const ResourceErro
     UNUSED_PARAM(handle);
 #endif
 }
+
+#if USE(SOUP) || USE(CURL)
+void SynchronousLoaderClient::didReceiveAuthenticationChallenge(ResourceHandle*, const AuthenticationChallenge&)
+{
+    ASSERT_NOT_REACHED();
+}
+
+ResourceError SynchronousLoaderClient::platformBadResponseError()
+{
+    ASSERT_NOT_REACHED();
+    return { };
+}
+#endif
 
 }

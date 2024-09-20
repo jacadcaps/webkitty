@@ -16,6 +16,7 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
@@ -48,6 +49,7 @@ struct TwoValues {
 
 
 namespace absl {
+ABSL_NAMESPACE_BEGIN
 namespace container_internal {
 namespace {
 
@@ -276,11 +278,11 @@ TEST(CompressedTupleTest, Nested) {
 
 TEST(CompressedTupleTest, Reference) {
   int i = 7;
-  std::string s = "Very long std::string that goes in the heap";
+  std::string s = "Very long string that goes in the heap";
   CompressedTuple<int, int&, std::string, std::string&> x(i, i, s, s);
 
   // Sanity check. We should have not moved from `s`
-  EXPECT_EQ(s, "Very long std::string that goes in the heap");
+  EXPECT_EQ(s, "Very long string that goes in the heap");
 
   EXPECT_EQ(x.get<0>(), x.get<1>());
   EXPECT_NE(&x.get<0>(), &x.get<1>());
@@ -332,10 +334,6 @@ TEST(CompressedTupleTest, AnyElements) {
 
   a = 0.5f;
   EXPECT_EQ(absl::any_cast<float>(x.get<1>()), 0.5);
-
-  // Ensure copy construction work in the face of a type with a universal
-  // implicit constructor;
-  CompressedTuple<absl::any> c{}, d(c);  // NOLINT
 }
 
 TEST(CompressedTupleTest, Constexpr) {
@@ -361,7 +359,6 @@ TEST(CompressedTupleTest, Constexpr) {
   EXPECT_EQ(x2, 5);
   EXPECT_EQ(x3, CallType::kConstRef);
 
-#if !defined(__GNUC__) || defined(__clang__) || __GNUC__ > 4
   constexpr CompressedTuple<Empty<0>, TrivialStruct, int> trivial = {};
   constexpr CallType trivial0 = trivial.get<0>().value();
   constexpr int trivial1 = trivial.get<1>().value();
@@ -370,7 +367,6 @@ TEST(CompressedTupleTest, Constexpr) {
   EXPECT_EQ(trivial0, CallType::kConstRef);
   EXPECT_EQ(trivial1, 0);
   EXPECT_EQ(trivial2, 0);
-#endif
 
   constexpr CompressedTuple<Empty<0>, NonTrivialStruct, absl::optional<int>>
       non_trivial = {};
@@ -389,8 +385,8 @@ TEST(CompressedTupleTest, Constexpr) {
 
 #if defined(__clang__)
   // An apparent bug in earlier versions of gcc claims these are ambiguous.
-  constexpr int x2m = absl::move(x.get<2>()).get<0>();
-  constexpr CallType x3m = absl::move(x).get<3>().value();
+  constexpr int x2m = std::move(x.get<2>()).get<0>();
+  constexpr CallType x3m = std::move(x).get<3>().value();
   EXPECT_EQ(x2m, 5);
   EXPECT_EQ(x3m, CallType::kConstMove);
 #endif
@@ -406,6 +402,17 @@ TEST(CompressedTupleTest, EmptyFinalClass) {
 }
 #endif
 
+// TODO(b/214288561): enable this test.
+TEST(CompressedTupleTest, DISABLED_NestedEbo) {
+  struct Empty1 {};
+  struct Empty2 {};
+  CompressedTuple<Empty1, CompressedTuple<Empty2>, int> x;
+  CompressedTuple<Empty1, Empty2, int> y;
+  // Currently fails with sizeof(x) == 8, sizeof(y) == 4.
+  EXPECT_EQ(sizeof(x), sizeof(y));
+}
+
 }  // namespace
 }  // namespace container_internal
+ABSL_NAMESPACE_END
 }  // namespace absl

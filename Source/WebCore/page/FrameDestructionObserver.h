@@ -25,24 +25,37 @@
 
 #pragma once
 
+#include <wtf/CheckedRef.h>
+#include <wtf/WeakPtr.h>
+
+namespace WebCore {
+class FrameDestructionObserver;
+}
+
+namespace WTF {
+template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
+template<> struct IsDeprecatedWeakRefSmartPointerException<WebCore::FrameDestructionObserver> : std::true_type { };
+}
+
 namespace WebCore {
 
-class Frame;
+class LocalFrame;
 
-class FrameDestructionObserver {
+class FrameDestructionObserver : public CanMakeWeakPtr<FrameDestructionObserver> {
 public:
-    WEBCORE_EXPORT explicit FrameDestructionObserver(Frame*);
+    WEBCORE_EXPORT explicit FrameDestructionObserver(LocalFrame*);
 
     WEBCORE_EXPORT virtual void frameDestroyed();
     WEBCORE_EXPORT virtual void willDetachPage();
 
-    Frame* frame() const { return m_frame; }
+    inline LocalFrame* frame() const; // Defined in FrameDestructionObserverInlines.h.
+    inline RefPtr<LocalFrame> protectedFrame() const; // Defined in FrameDestructionObserverInlines.h.
 
 protected:
     WEBCORE_EXPORT virtual ~FrameDestructionObserver();
-    WEBCORE_EXPORT void observeFrame(Frame*);
+    WEBCORE_EXPORT void observeFrame(LocalFrame*);
 
-    Frame* m_frame;
+    WeakPtr<LocalFrame> m_frame;
 };
 
 } // namespace WebCore

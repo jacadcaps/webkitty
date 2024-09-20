@@ -30,8 +30,11 @@
 
 #include "WebXRFrame.h"
 #include "WebXRInputSource.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(XRInputSourceEvent);
 
 Ref<XRInputSourceEvent> XRInputSourceEvent::create(const AtomString& type, const Init& initializer, IsTrusted isTrusted)
 {
@@ -39,10 +42,9 @@ Ref<XRInputSourceEvent> XRInputSourceEvent::create(const AtomString& type, const
 }
 
 XRInputSourceEvent::XRInputSourceEvent(const AtomString& type, const Init& initializer, IsTrusted isTrusted)
-    : Event(type, initializer, isTrusted)
+    : Event(EventInterfaceType::XRInputSourceEvent, type, initializer, isTrusted)
     , m_frame(initializer.frame)
     , m_inputSource(initializer.inputSource)
-    , m_buttonIndex(initializer.buttonIndex)
 {
     ASSERT(m_frame);
     ASSERT(m_inputSource);
@@ -60,9 +62,9 @@ const WebXRInputSource& XRInputSourceEvent::inputSource() const
     return *m_inputSource;
 }
 
-Optional<int> XRInputSourceEvent::buttonIndex() const
+void XRInputSourceEvent::setFrameActive(bool active)
 {
-    return m_buttonIndex;
+    m_frame->setActive(active);
 }
 
 } // namespace WebCore

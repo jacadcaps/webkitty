@@ -28,20 +28,18 @@
 #include "config.h"
 #include "CryptoAlgorithmPBKDF2.h"
 
-#if ENABLE(WEB_CRYPTO)
-
 #include "CryptoAlgorithmPbkdf2Params.h"
 #include "CryptoKeyRaw.h"
 #include "GCryptUtilities.h"
 
 namespace WebCore {
 
-static Optional<Vector<uint8_t>> gcryptDeriveBits(const Vector<uint8_t>& keyData, const Vector<uint8_t>& saltData, CryptoAlgorithmIdentifier hashIdentifier, size_t iterations, size_t length)
+static std::optional<Vector<uint8_t>> gcryptDeriveBits(const Vector<uint8_t>& keyData, const Vector<uint8_t>& saltData, CryptoAlgorithmIdentifier hashIdentifier, size_t iterations, size_t length)
 {
     // Determine the hash algorithm that will be used for derivation.
     auto hashAlgorithm = digestAlgorithm(hashIdentifier);
     if (!hashAlgorithm)
-        return WTF::nullopt;
+        return std::nullopt;
 
     // Length, in bits, is a multiple of 8, as guaranteed by CryptoAlgorithmPBKDF2::deriveBits().
     ASSERT(!(length % 8));
@@ -51,7 +49,7 @@ static Optional<Vector<uint8_t>> gcryptDeriveBits(const Vector<uint8_t>& keyData
     gcry_error_t error = gcry_kdf_derive(keyData.data(), keyData.size(), GCRY_KDF_PBKDF2, *hashAlgorithm, saltData.data(), saltData.size(), iterations, result.size(), result.data());
     if (error != GPG_ERR_NO_ERROR) {
         PAL::GCrypt::logError(error);
-        return WTF::nullopt;
+        return std::nullopt;
     }
 
     return result;
@@ -61,10 +59,8 @@ ExceptionOr<Vector<uint8_t>> CryptoAlgorithmPBKDF2::platformDeriveBits(const Cry
 {
     auto output = gcryptDeriveBits(key.key(), parameters.saltVector(), parameters.hashIdentifier, parameters.iterations, length);
     if (!output)
-        return Exception { OperationError };
+        return Exception { ExceptionCode::OperationError };
     return WTFMove(*output);
 }
 
 } // namespace WebCore
-
-#endif // ENABLE(WEB_CRYPTO)

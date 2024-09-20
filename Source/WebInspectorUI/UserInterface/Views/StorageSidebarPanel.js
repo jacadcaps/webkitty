@@ -120,10 +120,18 @@ WI.StorageSidebarPanel = class StorageSidebarPanel extends WI.NavigationSidebarP
     {
         super.closed();
 
-        WI.domStorageManager.removeEventListener(null, null, this);
-        WI.databaseManager.removeEventListener(null, null, this);
-        WI.indexedDBManager.removeEventListener(null, null, this);
-        WI.applicationCacheManager.removeEventListener(null, null, this);
+        WI.domStorageManager.removeEventListener(WI.DOMStorageManager.Event.CookieStorageObjectWasAdded, this._cookieStorageObjectWasAdded, this);
+        WI.domStorageManager.removeEventListener(WI.DOMStorageManager.Event.DOMStorageObjectWasAdded, this._domStorageObjectWasAdded, this);
+        WI.domStorageManager.removeEventListener(WI.DOMStorageManager.Event.DOMStorageObjectWasInspected, this._domStorageObjectWasInspected, this);
+        WI.domStorageManager.removeEventListener(WI.DOMStorageManager.Event.Cleared, this._domStorageCleared, this);
+        WI.databaseManager.removeEventListener(WI.DatabaseManager.Event.DatabaseWasAdded, this._databaseWasAdded, this);
+        WI.databaseManager.removeEventListener(WI.DatabaseManager.Event.DatabaseWasInspected, this._databaseWasInspected, this);
+        WI.databaseManager.removeEventListener(WI.DatabaseManager.Event.Cleared, this._databaseCleared, this);
+        WI.indexedDBManager.removeEventListener(WI.IndexedDBManager.Event.IndexedDatabaseWasAdded, this._indexedDatabaseWasAdded, this);
+        WI.indexedDBManager.removeEventListener(WI.IndexedDBManager.Event.Cleared, this._indexedDatabaseCleared, this);
+        WI.applicationCacheManager.removeEventListener(WI.ApplicationCacheManager.Event.FrameManifestAdded, this._frameManifestAdded, this);
+        WI.applicationCacheManager.removeEventListener(WI.ApplicationCacheManager.Event.FrameManifestRemoved, this._frameManifestRemoved, this);
+        WI.applicationCacheManager.removeEventListener(WI.ApplicationCacheManager.Event.Cleared, this._applicationCacheCleared, this);
     }
 
     // Protected
@@ -208,9 +216,9 @@ WI.StorageSidebarPanel = class StorageSidebarPanel extends WI.NavigationSidebarP
         var storageElement = new WI.DOMStorageTreeElement(domStorage);
 
         if (domStorage.isLocalStorage())
-            this._localStorageRootTreeElement = this._addStorageChild(storageElement, this._localStorageRootTreeElement, WI.UIString("Local Storage"));
+            this._localStorageRootTreeElement = this._addStorageChild(storageElement, this._localStorageRootTreeElement, WI.UIString("Local Storage"), "local-storage");
         else
-            this._sessionStorageRootTreeElement = this._addStorageChild(storageElement, this._sessionStorageRootTreeElement, WI.UIString("Session Storage"));
+            this._sessionStorageRootTreeElement = this._addStorageChild(storageElement, this._sessionStorageRootTreeElement, WI.UIString("Session Storage"), "session-storage");
     }
 
     _domStorageObjectWasInspected(event)
@@ -233,7 +241,7 @@ WI.StorageSidebarPanel = class StorageSidebarPanel extends WI.NavigationSidebarP
         if (!databaseHostElement) {
             databaseHostElement = new WI.DatabaseHostTreeElement(database.host);
             this._databaseHostTreeElementMap.set(database.host, databaseHostElement);
-            this._databaseRootTreeElement = this._addStorageChild(databaseHostElement, this._databaseRootTreeElement, WI.UIString("Databases"));
+            this._databaseRootTreeElement = this._addStorageChild(databaseHostElement, this._databaseRootTreeElement, WI.UIString("Databases"), "databases");
         }
 
         let databaseElement = new WI.DatabaseTreeElement(database);
@@ -260,7 +268,7 @@ WI.StorageSidebarPanel = class StorageSidebarPanel extends WI.NavigationSidebarP
         if (!indexedDatabaseHostElement) {
             indexedDatabaseHostElement = new WI.IndexedDatabaseHostTreeElement(indexedDatabase.host);
             this._indexedDatabaseHostTreeElementMap.set(indexedDatabase.host, indexedDatabaseHostElement);
-            this._indexedDatabaseRootTreeElement = this._addStorageChild(indexedDatabaseHostElement, this._indexedDatabaseRootTreeElement, WI.UIString("Indexed Databases"));
+            this._indexedDatabaseRootTreeElement = this._addStorageChild(indexedDatabaseHostElement, this._indexedDatabaseRootTreeElement, WI.UIString("Indexed Databases"), "indexed-databases");
         }
 
         let indexedDatabaseElement = new WI.IndexedDatabaseTreeElement(indexedDatabase);
@@ -277,7 +285,7 @@ WI.StorageSidebarPanel = class StorageSidebarPanel extends WI.NavigationSidebarP
         console.assert(cookieStorage instanceof WI.CookieStorageObject);
 
         var cookieElement = new WI.CookieStorageTreeElement(cookieStorage);
-        this._cookieStorageRootTreeElement = this._addStorageChild(cookieElement, this._cookieStorageRootTreeElement, WI.UIString("Cookies"));
+        this._cookieStorageRootTreeElement = this._addStorageChild(cookieElement, this._cookieStorageRootTreeElement, WI.UIString("Cookies"), "cookies");
     }
 
     _frameManifestAdded(event)
@@ -295,7 +303,7 @@ WI.StorageSidebarPanel = class StorageSidebarPanel extends WI.NavigationSidebarP
         if (!applicationCacheManifestElement) {
             applicationCacheManifestElement = new WI.ApplicationCacheManifestTreeElement(manifest);
             this._applicationCacheURLTreeElementMap.set(manifestURL, applicationCacheManifestElement);
-            this._applicationCacheRootTreeElement = this._addStorageChild(applicationCacheManifestElement, this._applicationCacheRootTreeElement, WI.UIString("Application Cache"));
+            this._applicationCacheRootTreeElement = this._addStorageChild(applicationCacheManifestElement, this._applicationCacheRootTreeElement, WI.UIString("Application Cache"), "application-cache");
         }
 
         let frameCacheElement = new WI.ApplicationCacheFrameTreeElement(frameManifest);
@@ -315,7 +323,7 @@ WI.StorageSidebarPanel = class StorageSidebarPanel extends WI.NavigationSidebarP
         return (a.mainTitle || "").extendedLocaleCompare(b.mainTitle || "");
     }
 
-    _addStorageChild(childElement, parentElement, folderName)
+    _addStorageChild(childElement, parentElement, folderName, folderId)
     {
         if (!parentElement) {
             childElement.flattened = true;
@@ -328,11 +336,12 @@ WI.StorageSidebarPanel = class StorageSidebarPanel extends WI.NavigationSidebarP
         if (parentElement instanceof WI.StorageTreeElement) {
             console.assert(parentElement.flattened);
 
-            var previousOnlyChild = parentElement;
+            let previousOnlyChild = parentElement;
             previousOnlyChild.flattened = false;
             this.contentTreeOutline.removeChild(previousOnlyChild);
 
-            var folderElement = new WI.FolderTreeElement(folderName);
+            const representedObject = null;
+            let folderElement = new WI.FolderTreeElement(folderName, representedObject, {id: folderId});
             this.contentTreeOutline.insertChild(folderElement, insertionIndexForObjectInListSortedByFunction(folderElement, this.contentTreeOutline.children, this._compareTreeElements));
 
             folderElement.appendChild(previousOnlyChild);

@@ -11,16 +11,21 @@
 #include "p2p/base/dtls_transport.h"
 
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <set>
 #include <utility>
 
+#include "absl/strings/string_view.h"
+#include "api/dtls_transport_interface.h"
 #include "p2p/base/fake_ice_transport.h"
 #include "p2p/base/packet_transport_internal.h"
 #include "rtc_base/checks.h"
+#include "rtc_base/crypto_random.h"
 #include "rtc_base/dscp.h"
 #include "rtc_base/gunit.h"
-#include "rtc_base/helpers.h"
+#include "rtc_base/network/received_packet.h"
 #include "rtc_base/rtc_certificate.h"
 #include "rtc_base/ssl_adapter.h"
 #include "rtc_base/ssl_identity.h"
@@ -43,7 +48,7 @@ static bool IsRtpLeadByte(uint8_t b) {
   return ((b & 0xC0) == 0x80);
 }
 
-// |modify_digest| is used to set modified fingerprints that are meant to fail
+// `modify_digest` is used to set modified fingerprints that are meant to fail
 // validation.
 void SetRemoteFingerprintFromCert(
     DtlsTransport* transport,
@@ -52,22 +57,25 @@ void SetRemoteFingerprintFromCert(
   std::unique_ptr<rtc::SSLFingerprint> fingerprint =
       rtc::SSLFingerprint::CreateFromCertificate(*cert);
   if (modify_digest) {
-    ++fingerprint->digest[0];
+    ++fingerprint->digest.MutableData()[0];
   }
-  // Even if digest is verified to be incorrect, should fail asynchrnously.
-  EXPECT_TRUE(transport->SetRemoteFingerprint(
-      fingerprint->algorithm,
-      reinterpret_cast<const uint8_t*>(fingerprint->digest.data()),
-      fingerprint->digest.size()));
+
+  // Even if digest is verified to be incorrect, should fail asynchronously.
+  EXPECT_TRUE(
+      transport
+          ->SetRemoteParameters(
+              fingerprint->algorithm,
+              reinterpret_cast<const uint8_t*>(fingerprint->digest.data()),
+              fingerprint->digest.size(), absl::nullopt)
+          .ok());
 }
 
 class DtlsTestClient : public sigslot::has_slots<> {
  public:
-  explicit DtlsTestClient(const std::string& name) : name_(name) {}
+  explicit DtlsTestClient(absl::string_view name) : name_(name) {}
   void CreateCertificate(rtc::KeyType key_type) {
     certificate_ =
-        rtc::RTCCertificate::Create(std::unique_ptr<rtc::SSLIdentity>(
-            rtc::SSLIdentity::Generate(name_, key_type)));
+        rtc::RTCCertificate::Create(rtc::SSLIdentity::Create(name_, key_type));
   }
   const rtc::scoped_refptr<rtc::RTCCertificate>& certificate() {
     return certificate_;
@@ -77,26 +85,32 @@ class DtlsTestClient : public sigslot::has_slots<> {
   }
   // Set up fake ICE transport and real DTLS transport under test.
   void SetupTransports(IceRole role, int async_delay_ms = 0) {
+    dtls_transport_ = nullptr;
+    fake_ice_transport_ = nullptr;
+
     fake_ice_transport_.reset(new FakeIceTransport("fake", 0));
     fake_ice_transport_->SetAsync(true);
     fake_ice_transport_->SetAsyncDelay(async_delay_ms);
     fake_ice_transport_->SetIceRole(role);
-    fake_ice_transport_->SetIceTiebreaker((role == ICEROLE_CONTROLLING) ? 1
-                                                                        : 2);
     // Hook the raw packets so that we can verify they are encrypted.
-    fake_ice_transport_->SignalReadPacket.connect(
-        this, &DtlsTestClient::OnFakeIceTransportReadPacket);
+    fake_ice_transport_->RegisterReceivedPacketCallback(
+        this, [&](rtc::PacketTransportInternal* transport,
+                  const rtc::ReceivedPacket& packet) {
+          OnFakeIceTransportReadPacket(transport, packet);
+        });
 
-    dtls_transport_ = std::make_unique<DtlsTransport>(fake_ice_transport_.get(),
-                                                      webrtc::CryptoOptions(),
-                                                      /*event_log=*/nullptr);
-    dtls_transport_->SetSslMaxProtocolVersion(ssl_max_version_);
+    dtls_transport_ = std::make_unique<DtlsTransport>(
+        fake_ice_transport_.get(), webrtc::CryptoOptions(),
+        /*event_log=*/nullptr, ssl_max_version_);
     // Note: Certificate may be null here if testing passthrough.
     dtls_transport_->SetLocalCertificate(certificate_);
     dtls_transport_->SignalWritableState.connect(
         this, &DtlsTestClient::OnTransportWritableState);
-    dtls_transport_->SignalReadPacket.connect(
-        this, &DtlsTestClient::OnTransportReadPacket);
+    dtls_transport_->RegisterReceivedPacketCallback(
+        this, [&](rtc::PacketTransportInternal* transport,
+                  const rtc::ReceivedPacket& packet) {
+          OnTransportReadPacket(transport, packet);
+        });
     dtls_transport_->SignalSentPacket.connect(
         this, &DtlsTestClient::OnTransportSentPacket);
   }
@@ -196,14 +210,16 @@ class DtlsTestClient : public sigslot::has_slots<> {
   size_t NumPacketsReceived() { return received_.size(); }
 
   // Inverse of SendPackets.
-  bool VerifyPacket(const char* data, size_t size, uint32_t* out_num) {
-    if (size != packet_size_ ||
-        (data[0] != 0 && static_cast<uint8_t>(data[0]) != 0x80)) {
+  bool VerifyPacket(rtc::ArrayView<const uint8_t> payload, uint32_t* out_num) {
+    const uint8_t* data = payload.data();
+    size_t size = payload.size();
+
+    if (size != packet_size_ || (data[0] != 0 && (data[0]) != 0x80)) {
       return false;
     }
     uint32_t packet_num = rtc::GetBE32(data + kPacketNumOffset);
     for (size_t i = kPacketHeaderLen; i < size; ++i) {
-      if (static_cast<uint8_t>(data[i]) != (packet_num & 0xff)) {
+      if (data[i] != (packet_num & 0xff)) {
         return false;
       }
     }
@@ -212,7 +228,7 @@ class DtlsTestClient : public sigslot::has_slots<> {
     }
     return true;
   }
-  bool VerifyEncryptedPacket(const char* data, size_t size) {
+  bool VerifyEncryptedPacket(const uint8_t* data, size_t size) {
     // This is an encrypted data packet; let's make sure it's mostly random;
     // less than 10% of the bytes should be equal to the cleartext packet.
     if (size <= packet_size_) {
@@ -221,7 +237,7 @@ class DtlsTestClient : public sigslot::has_slots<> {
     uint32_t packet_num = rtc::GetBE32(data + kPacketNumOffset);
     int num_matches = 0;
     for (size_t i = kPacketNumOffset; i < size; ++i) {
-      if (static_cast<uint8_t>(data[i]) == (packet_num & 0xff)) {
+      if (data[i] == (packet_num & 0xff)) {
         ++num_matches;
       }
     }
@@ -235,17 +251,21 @@ class DtlsTestClient : public sigslot::has_slots<> {
   }
 
   void OnTransportReadPacket(rtc::PacketTransportInternal* transport,
-                             const char* data,
-                             size_t size,
-                             const int64_t& /* packet_time_us */,
-                             int flags) {
+                             const rtc::ReceivedPacket& packet) {
     uint32_t packet_num = 0;
-    ASSERT_TRUE(VerifyPacket(data, size, &packet_num));
+    ASSERT_TRUE(VerifyPacket(packet.payload(), &packet_num));
     received_.insert(packet_num);
-    // Only DTLS-SRTP packets should have the bypass flag set.
-    int expected_flags =
-        (certificate_ && IsRtpLeadByte(data[0])) ? PF_SRTP_BYPASS : 0;
-    ASSERT_EQ(expected_flags, flags);
+    switch (packet.decryption_info()) {
+      case rtc::ReceivedPacket::kSrtpEncrypted:
+        ASSERT_TRUE(certificate_ && IsRtpLeadByte(packet.payload()[0]));
+        break;
+      case rtc::ReceivedPacket::kDtlsDecrypted:
+        ASSERT_TRUE(certificate_ && !IsRtpLeadByte(packet.payload()[0]));
+        break;
+      case rtc::ReceivedPacket::kNotDecrypted:
+        ASSERT_FALSE(certificate_);
+        break;
+    }
   }
 
   void OnTransportSentPacket(rtc::PacketTransportInternal* transport,
@@ -257,15 +277,14 @@ class DtlsTestClient : public sigslot::has_slots<> {
 
   // Hook into the raw packet stream to make sure DTLS packets are encrypted.
   void OnFakeIceTransportReadPacket(rtc::PacketTransportInternal* transport,
-                                    const char* data,
-                                    size_t size,
-                                    const int64_t& /* packet_time_us */,
-                                    int flags) {
-    // Flags shouldn't be set on the underlying Transport packets.
-    ASSERT_EQ(0, flags);
+                                    const rtc::ReceivedPacket& packet) {
+    // Packets should not be decrypted on the underlying Transport packets.
+    ASSERT_EQ(packet.decryption_info(), rtc::ReceivedPacket::kNotDecrypted);
 
     // Look at the handshake packets to see what role we played.
     // Check that non-handshake packets are DTLS data or SRTP bypass.
+    const uint8_t* data = packet.payload().data();
+    size_t size = packet.payload().size();
     if (data[0] == 22 && size > 17) {
       if (data[13] == 1) {
         ++received_dtls_client_hellos_;
@@ -278,7 +297,7 @@ class DtlsTestClient : public sigslot::has_slots<> {
       if (data[0] == 23) {
         ASSERT_TRUE(VerifyEncryptedPacket(data, size));
       } else if (IsRtpLeadByte(data[0])) {
-        ASSERT_TRUE(VerifyPacket(data, size, NULL));
+        ASSERT_TRUE(VerifyPacket(packet.payload(), NULL));
       }
     }
   }
@@ -299,7 +318,7 @@ class DtlsTestClient : public sigslot::has_slots<> {
 // Base class for DtlsTransportTest and DtlsEventOrderingTest, which
 // inherit from different variants of ::testing::Test.
 //
-// Note that this test always uses a FakeClock, due to the |fake_clock_| member
+// Note that this test always uses a FakeClock, due to the `fake_clock_` member
 // variable.
 class DtlsTransportTestBase {
  public:
@@ -339,14 +358,14 @@ class DtlsTransportTestBase {
 
     if (use_dtls_) {
       // Check that we negotiated the right ciphers. Since GCM ciphers are not
-      // negotiated by default, we should end up with SRTP_AES128_CM_SHA1_80.
-      client1_.CheckSrtp(rtc::SRTP_AES128_CM_SHA1_80);
-      client2_.CheckSrtp(rtc::SRTP_AES128_CM_SHA1_80);
+      // negotiated by default, we should end up with kSrtpAes128CmSha1_80.
+      client1_.CheckSrtp(rtc::kSrtpAes128CmSha1_80);
+      client2_.CheckSrtp(rtc::kSrtpAes128CmSha1_80);
     } else {
       // If DTLS isn't actually being used, GetSrtpCryptoSuite should return
       // false.
-      client1_.CheckSrtp(rtc::SRTP_INVALID_CRYPTO_SUITE);
-      client2_.CheckSrtp(rtc::SRTP_INVALID_CRYPTO_SUITE);
+      client1_.CheckSrtp(rtc::kSrtpInvalidCryptoSuite);
+      client2_.CheckSrtp(rtc::kSrtpInvalidCryptoSuite);
     }
 
     client1_.CheckSsl();
@@ -381,6 +400,7 @@ class DtlsTransportTestBase {
   }
 
  protected:
+  rtc::AutoThread main_thread_;
   rtc::ScopedFakeClock fake_clock_;
   DtlsTestClient client1_;
   DtlsTestClient client2_;
@@ -619,7 +639,7 @@ class DtlsEventOrderingTest
       public ::testing::TestWithParam<
           ::testing::tuple<std::vector<DtlsTransportEvent>, bool>> {
  protected:
-  // If |valid_fingerprint| is false, the caller will receive a fingerprint
+  // If `valid_fingerprint` is false, the caller will receive a fingerprint
   // that doesn't match the callee's certificate, so the handshake should fail.
   void TestEventOrdering(const std::vector<DtlsTransportEvent>& events,
                          bool valid_fingerprint) {
@@ -670,18 +690,19 @@ class DtlsEventOrderingTest
           // Sanity check that the handshake hasn't already finished.
           EXPECT_FALSE(client1_.dtls_transport()->IsDtlsConnected() ||
                        client1_.dtls_transport()->dtls_state() ==
-                           DTLS_TRANSPORT_FAILED);
+                           webrtc::DtlsTransportState::kFailed);
           EXPECT_TRUE_SIMULATED_WAIT(
               client1_.dtls_transport()->IsDtlsConnected() ||
                   client1_.dtls_transport()->dtls_state() ==
-                      DTLS_TRANSPORT_FAILED,
+                      webrtc::DtlsTransportState::kFailed,
               kTimeout, fake_clock_);
           break;
       }
     }
 
-    DtlsTransportState expected_final_state =
-        valid_fingerprint ? DTLS_TRANSPORT_CONNECTED : DTLS_TRANSPORT_FAILED;
+    webrtc::DtlsTransportState expected_final_state =
+        valid_fingerprint ? webrtc::DtlsTransportState::kConnected
+                          : webrtc::DtlsTransportState::kFailed;
     EXPECT_EQ_SIMULATED_WAIT(expected_final_state,
                              client1_.dtls_transport()->dtls_state(), kTimeout,
                              fake_clock_);

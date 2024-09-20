@@ -29,19 +29,20 @@
 #if PLATFORM(IOS_FAMILY)
 
 #import "WKPDFView.h"
-#import "WKSystemPreviewView.h"
-#import "WKWebViewConfigurationPrivate.h"
+#import "WKPreferencesInternal.h"
+#import "WKUSDPreviewView.h"
 #import "WKWebViewInternal.h"
 #import "WebPageProxy.h"
 #import <WebCore/MIMETypeRegistry.h>
+#import <WebKit/WKPreferencesPrivate.h>
+#import <WebKit/WKWebViewConfigurationPrivate.h>
+#import <wtf/FixedVector.h>
 #import <wtf/HashCountedSet.h>
 #import <wtf/HashMap.h>
 #import <wtf/text/StringHash.h>
-#import <wtf/text/WTFString.h>
 
 @implementation WKWebViewContentProviderRegistry {
     HashMap<String, Class <WKWebViewContentProvider>, ASCIICaseInsensitiveHash> _contentProviderForMIMEType;
-    HashCountedSet<WebKit::WebPageProxy*> _pages;
 }
 
 - (instancetype)initWithConfiguration:(WKWebViewConfiguration *)configuration
@@ -50,38 +51,25 @@
         return nil;
 
 #if ENABLE(WKPDFVIEW)
-    for (auto& mimeType : WebCore::MIMETypeRegistry::pdfMIMETypes())
-        [self registerProvider:[WKPDFView class] forMIMEType:mimeType];
+    if ([WKPDFView platformSupportsPDFView] && (!configuration.preferences || !configuration.preferences->_preferences->unifiedPDFEnabled())) {
+        for (auto& type : WebCore::MIMETypeRegistry::pdfMIMETypes())
+            [self registerProvider:[WKPDFView class] forMIMEType:@(type.characters())];
+    }
 #endif
 
 #if USE(SYSTEM_PREVIEW)
-    if (configuration._systemPreviewEnabled) {
-        for (auto& mimeType : WebCore::MIMETypeRegistry::systemPreviewMIMETypes())
-            [self registerProvider:[WKSystemPreviewView class] forMIMEType:mimeType];
+    if (configuration._systemPreviewEnabled && !configuration.preferences._modelDocumentEnabled) {
+        for (auto& type : WebCore::MIMETypeRegistry::usdMIMETypes())
+            [self registerProvider:[WKUSDPreviewView class] forMIMEType:@(type.characters())];
     }
 #endif
 
     return self;
 }
 
-- (void)addPage:(WebKit::WebPageProxy&)page
-{
-    ASSERT(!_pages.contains(&page));
-    _pages.add(&page);
-}
-
-- (void)removePage:(WebKit::WebPageProxy&)page
-{
-    ASSERT(_pages.contains(&page));
-    _pages.remove(&page);
-}
-
 - (void)registerProvider:(Class <WKWebViewContentProvider>)contentProvider forMIMEType:(const String&)mimeType
 {
     _contentProviderForMIMEType.set(mimeType, contentProvider);
-
-    for (auto& page : _pages)
-        page.key->addMIMETypeWithCustomContentProvider(mimeType);
 }
 
 - (Class <WKWebViewContentProvider>)providerForMIMEType:(const String&)mimeType

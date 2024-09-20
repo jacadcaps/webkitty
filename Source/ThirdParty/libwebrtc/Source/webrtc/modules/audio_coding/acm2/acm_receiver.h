@@ -13,6 +13,7 @@
 
 #include <stdint.h>
 
+#include <array>
 #include <map>
 #include <memory>
 #include <string>
@@ -21,12 +22,17 @@
 
 #include "absl/types/optional.h"
 #include "api/array_view.h"
+#include "api/audio/audio_frame.h"
 #include "api/audio_codecs/audio_decoder.h"
+#include "api/audio_codecs/audio_decoder_factory.h"
 #include "api/audio_codecs/audio_format.h"
+#include "api/neteq/neteq.h"
+#include "api/neteq/neteq_factory.h"
+#include "api/units/timestamp.h"
 #include "modules/audio_coding/acm2/acm_resampler.h"
 #include "modules/audio_coding/acm2/call_statistics.h"
-#include "modules/audio_coding/include/audio_coding_module.h"
-#include "rtc_base/critical_section.h"
+#include "modules/audio_coding/include/audio_coding_module_typedefs.h"
+#include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/thread_annotations.h"
 
 namespace webrtc {
@@ -39,8 +45,20 @@ namespace acm2 {
 
 class AcmReceiver {
  public:
+  struct Config {
+    explicit Config(
+        rtc::scoped_refptr<AudioDecoderFactory> decoder_factory = nullptr);
+    Config(const Config&);
+    ~Config();
+
+    NetEq::Config neteq_config;
+    Clock& clock;
+    rtc::scoped_refptr<AudioDecoderFactory> decoder_factory;
+    NetEqFactory* neteq_factory = nullptr;
+  };
+
   // Constructor of the class
-  explicit AcmReceiver(const AudioCodingModule::Config& config);
+  explicit AcmReceiver(const Config& config);
 
   // Destructor of the class.
   ~AcmReceiver();
@@ -53,13 +71,15 @@ class AcmReceiver {
   //                            information about payload type, sequence number,
   //                            timestamp, SSRC and marker bit.
   //   - incoming_payload     : Incoming audio payload.
-  //   - length_payload       : Length of incoming audio payload in bytes.
+  //   - receive_time         : Timestamp when the packet has been seen on the
+  //                            network card.
   //
   // Return value             : 0 if OK.
   //                           <0 if NetEq returned an error.
   //
   int InsertPacket(const RTPHeader& rtp_header,
-                   rtc::ArrayView<const uint8_t> incoming_payload);
+                   rtc::ArrayView<const uint8_t> incoming_payload,
+                   Timestamp receive_time = Timestamp::MinusInfinity());
 
   //
   // Asks NetEq for 10 milliseconds of decoded audio.
@@ -79,7 +99,9 @@ class AcmReceiver {
   // Return value             : 0 if OK.
   //                           -1 if NetEq returned an error.
   //
-  int GetAudio(int desired_freq_hz, AudioFrame* audio_frame, bool* muted);
+  int GetAudio(int desired_freq_hz,
+               AudioFrame* audio_frame,
+               bool* muted = nullptr);
 
   // Replace the current set of decoders with the specified set.
   void SetCodecs(const std::map<int, SdpAudioFormat>& codecs);
@@ -138,17 +160,13 @@ class AcmReceiver {
   // Output:
   //   - statistics           : The current network statistics.
   //
-  void GetNetworkStatistics(NetworkStatistics* statistics) const;
+  void GetNetworkStatistics(NetworkStatistics* statistics,
+                            bool get_and_clear_legacy_stats = true) const;
 
   //
   // Flushes the NetEq packet and speech buffers.
   //
   void FlushBuffers();
-
-  //
-  // Remove all registered codecs.
-  //
-  void RemoveAllCodecs();
 
   // Returns the RTP timestamp for the last sample delivered by GetAudio().
   // The return value will be empty if no valid timestamp is available.
@@ -176,10 +194,10 @@ class AcmReceiver {
   // enabled then the maximum NACK list size is modified accordingly.
   //
   // If the sequence number of last received packet is N, the sequence numbers
-  // of NACK list are in the range of [N - |max_nack_list_size|, N).
+  // of NACK list are in the range of [N - `max_nack_list_size`, N).
   //
-  // |max_nack_list_size| should be positive (none zero) and less than or
-  // equal to |Nack::kNackListSizeLimit|. Otherwise, No change is applied and -1
+  // `max_nack_list_size` should be positive (none zero) and less than or
+  // equal to `Nack::kNackListSizeLimit`. Otherwise, No change is applied and -1
   // is returned. 0 is returned at success.
   //
   int EnableNack(size_t max_nack_list_size);
@@ -188,12 +206,12 @@ class AcmReceiver {
   void DisableNack();
 
   //
-  // Get a list of packets to be retransmitted. |round_trip_time_ms| is an
+  // Get a list of packets to be retransmitted. `round_trip_time_ms` is an
   // estimate of the round-trip-time (in milliseconds). Missing packets which
   // will be playout in a shorter time than the round-trip-time (with respect
   // to the time this API is called) will not be included in the list.
   //
-  // Negative |round_trip_time_ms| results is an error message and empty list
+  // Negative `round_trip_time_ms` results is an error message and empty list
   // is returned.
   //
   std::vector<uint16_t> GetNackList(int64_t round_trip_time_ms) const;
@@ -212,14 +230,15 @@ class AcmReceiver {
 
   uint32_t NowInTimestamp(int decoder_sampling_rate) const;
 
-  rtc::CriticalSection crit_sect_;
-  absl::optional<DecoderInfo> last_decoder_ RTC_GUARDED_BY(crit_sect_);
-  ACMResampler resampler_ RTC_GUARDED_BY(crit_sect_);
-  std::unique_ptr<int16_t[]> last_audio_buffer_ RTC_GUARDED_BY(crit_sect_);
-  CallStatistics call_stats_ RTC_GUARDED_BY(crit_sect_);
+  mutable Mutex mutex_;
+  absl::optional<DecoderInfo> last_decoder_ RTC_GUARDED_BY(mutex_);
+  ACMResampler resampler_ RTC_GUARDED_BY(mutex_);
+  CallStatistics call_stats_ RTC_GUARDED_BY(mutex_);
   const std::unique_ptr<NetEq> neteq_;  // NetEq is thread-safe; no lock needed.
-  Clock* const clock_;
-  bool resampled_last_output_frame_ RTC_GUARDED_BY(crit_sect_);
+  Clock& clock_;
+  bool resampled_last_output_frame_ RTC_GUARDED_BY(mutex_);
+  std::array<int16_t, AudioFrame::kMaxDataSizeSamples> last_audio_buffer_
+      RTC_GUARDED_BY(mutex_);
 };
 
 }  // namespace acm2

@@ -73,6 +73,8 @@ public:
         return adoptRef(*new StatementCallback(context, WTFMove(requestCallback)));
     }
 
+    bool hasCallback() const final { return true; }
+
 private:
     StatementCallback(ScriptExecutionContext* context, Ref<ExecuteSQLCallback>&& requestCallback)
         : SQLStatementCallback(context)
@@ -111,6 +113,8 @@ public:
         return adoptRef(*new StatementErrorCallback(context, WTFMove(requestCallback)));
     }
 
+    bool hasCallback() const final { return true; }
+
 private:
     StatementErrorCallback(ScriptExecutionContext* context, Ref<ExecuteSQLCallback>&& requestCallback)
         : SQLStatementErrorCallback(context)
@@ -133,6 +137,8 @@ public:
     {
         return adoptRef(*new TransactionCallback(context, sqlStatement, WTFMove(requestCallback)));
     }
+
+    bool hasCallback() const final { return true; }
 
 private:
     TransactionCallback(ScriptExecutionContext* context, const String& sqlStatement, Ref<ExecuteSQLCallback>&& requestCallback)
@@ -164,6 +170,8 @@ public:
         return adoptRef(*new TransactionErrorCallback(context, WTFMove(requestCallback)));
     }
 
+    bool hasCallback() const final { return true; }
+
 private:
     TransactionErrorCallback(ScriptExecutionContext* context, Ref<ExecuteSQLCallback>&& requestCallback)
         : SQLTransactionErrorCallback(context)
@@ -189,6 +197,8 @@ public:
 
     CallbackResult<void> handleEvent() final { return { }; }
 
+    bool hasCallback() const final { return true; }
+
 private:
     TransactionSuccessCallback(ScriptExecutionContext* context)
         : VoidCallback(context)
@@ -210,7 +220,7 @@ void InspectorDatabaseAgent::didOpenDatabase(Database& database)
         return;
     }
 
-    auto resource = InspectorDatabaseResource::create(database, database.securityOrigin().host, database.stringIdentifierIsolatedCopy(), database.expectedVersionIsolatedCopy());
+    auto resource = InspectorDatabaseResource::create(database, database.securityOrigin().host(), database.stringIdentifierIsolatedCopy(), database.expectedVersionIsolatedCopy());
     m_resources.add(resource->id(), resource.ptr());
     resource->bind(*m_frontendDispatcher);
 }
@@ -230,51 +240,48 @@ void InspectorDatabaseAgent::didCreateFrontendAndBackend(Inspector::FrontendRout
 
 void InspectorDatabaseAgent::willDestroyFrontendAndBackend(Inspector::DisconnectReason)
 {
-    ErrorString ignored;
-    disable(ignored);
+    disable();
 }
 
-void InspectorDatabaseAgent::enable(ErrorString& errorString)
+Inspector::Protocol::ErrorStringOr<void> InspectorDatabaseAgent::enable()
 {
-    if (m_instrumentingAgents.enabledDatabaseAgent() == this) {
-        errorString = "Database domain already enabled"_s;
-        return;
-    }
+    if (m_instrumentingAgents.enabledDatabaseAgent() == this)
+        return makeUnexpected("Database domain already enabled"_s);
 
     m_instrumentingAgents.setEnabledDatabaseAgent(this);
 
     for (auto& database : DatabaseTracker::singleton().openDatabases())
         didOpenDatabase(database.get());
+
+    return { };
 }
 
-void InspectorDatabaseAgent::disable(ErrorString& errorString)
+Inspector::Protocol::ErrorStringOr<void> InspectorDatabaseAgent::disable()
 {
-    if (m_instrumentingAgents.enabledDatabaseAgent() != this) {
-        errorString = "Database domain already disabled"_s;
-        return;
-    }
+    if (m_instrumentingAgents.enabledDatabaseAgent() != this)
+        return makeUnexpected("Database domain already disabled"_s);
 
     m_instrumentingAgents.setEnabledDatabaseAgent(nullptr);
 
     m_resources.clear();
+
+    return { };
 }
 
-void InspectorDatabaseAgent::getDatabaseTableNames(ErrorString& errorString, const String& databaseId, RefPtr<JSON::ArrayOf<String>>& names)
+Inspector::Protocol::ErrorStringOr<Ref<JSON::ArrayOf<String>>> InspectorDatabaseAgent::getDatabaseTableNames(const Inspector::Protocol::Database::DatabaseId& databaseId)
 {
-    if (m_instrumentingAgents.enabledDatabaseAgent() != this) {
-        errorString = "Database domain must be enabled"_s;
-        return;
-    }
+    if (m_instrumentingAgents.enabledDatabaseAgent() != this)
+        return makeUnexpected("Database domain must be enabled"_s);
 
-    names = JSON::ArrayOf<String>::create();
-
+    auto names = JSON::ArrayOf<String>::create();
     if (auto* database = databaseForId(databaseId)) {
         for (auto& tableName : database->tableNames())
             names->addItem(tableName);
     }
+    return names;
 }
 
-void InspectorDatabaseAgent::executeSQL(const String& databaseId, const String& query, Ref<ExecuteSQLCallback>&& requestCallback)
+void InspectorDatabaseAgent::executeSQL(const Inspector::Protocol::Database::DatabaseId& databaseId, const String& query, Ref<ExecuteSQLCallback>&& requestCallback)
 {
     if (m_instrumentingAgents.enabledDatabaseAgent() != this) {
         requestCallback->sendFailure("Database domain must be enabled"_s);
@@ -283,7 +290,7 @@ void InspectorDatabaseAgent::executeSQL(const String& databaseId, const String& 
 
     auto* database = databaseForId(databaseId);
     if (!database) {
-        requestCallback->sendFailure("Missing database for given databaseId");
+        requestCallback->sendFailure("Missing database for given databaseId"_s);
         return;
     }
 

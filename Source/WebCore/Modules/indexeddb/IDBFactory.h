@@ -25,13 +25,12 @@
 
 #pragma once
 
-#if ENABLE(INDEXED_DATABASE)
-
 #include "ExceptionOr.h"
-#include "JSDOMPromiseDeferred.h"
+#include "JSDOMPromiseDeferredForward.h"
 #include <wtf/Function.h>
 #include <wtf/Forward.h>
 #include <wtf/Ref.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/ThreadSafeRefCounted.h>
 
 namespace JSC {
@@ -51,6 +50,7 @@ class IDBConnectionProxy;
 }
 
 class IDBFactory : public ThreadSafeRefCounted<IDBFactory> {
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(IDBFactory);
 public:
     static Ref<IDBFactory> create(IDBClient::IDBConnectionProxy&);
     ~IDBFactory();
@@ -60,7 +60,7 @@ public:
         uint64_t version;
     };
 
-    ExceptionOr<Ref<IDBOpenDBRequest>> open(ScriptExecutionContext&, const String& name, Optional<uint64_t> version);
+    ExceptionOr<Ref<IDBOpenDBRequest>> open(ScriptExecutionContext&, const String& name, std::optional<uint64_t> version);
     ExceptionOr<Ref<IDBOpenDBRequest>> deleteDatabase(ScriptExecutionContext&, const String& name);
 
     ExceptionOr<short> cmp(JSC::JSGlobalObject&, JSC::JSValue first, JSC::JSValue second);
@@ -80,5 +80,3 @@ private:
 };
 
 } // namespace WebCore
-
-#endif // ENABLE(INDEXED_DATABASE)

@@ -93,11 +93,11 @@ void HRTFDatabaseLoader::loadAsynchronously()
 {
     ASSERT(isMainThread());
 
-    LockHolder locker(m_threadLock);
+    Locker locker { m_threadLock };
     
     if (!m_hrtfDatabase.get() && !m_databaseLoaderThread) {
         // Start the asynchronous database loading process.
-        m_databaseLoaderThread = Thread::create("HRTF database loader", [this] {
+        m_databaseLoaderThread = Thread::create("HRTF database loader"_s, [this] {
             load();
         });
     }
@@ -110,7 +110,7 @@ bool HRTFDatabaseLoader::isLoaded() const
 
 void HRTFDatabaseLoader::waitForLoaderThreadCompletion()
 {
-    LockHolder locker(m_threadLock);
+    Locker locker { m_threadLock };
     
     // waitForThreadCompletion() should not be called twice for the same thread.
     if (m_databaseLoaderThread)

@@ -30,4 +30,5 @@
 [
     Conditional=WEB_AUDIO,
     JSGenerateToJSObject,
-] callback AudioBufferCallback = void (AudioBuffer? audioBuffer);
+    GenerateIsReachable=ImplScriptExecutionContext
+] callback AudioBufferCallback = undefined (AudioBuffer? audioBuffer);

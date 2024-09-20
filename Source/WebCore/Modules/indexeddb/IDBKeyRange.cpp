@@ -26,20 +26,18 @@
 #include "config.h"
 #include "IDBKeyRange.h"
 
-#if ENABLE(INDEXED_DATABASE)
-
 #include "IDBBindingUtilities.h"
 #include "IDBKey.h"
 #include "IDBKeyData.h"
 #include "ScriptExecutionContext.h"
 #include <JavaScriptCore/JSCJSValue.h>
 #include <JavaScriptCore/JSGlobalObject.h>
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 using namespace JSC;
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(IDBKeyRange);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(IDBKeyRange);
 
 Ref<IDBKeyRange> IDBKeyRange::create(RefPtr<IDBKey>&& lower, RefPtr<IDBKey>&& upper, bool isLowerOpen, bool isUpperOpen)
 {
@@ -65,7 +63,7 @@ IDBKeyRange::~IDBKeyRange() = default;
 ExceptionOr<Ref<IDBKeyRange>> IDBKeyRange::only(RefPtr<IDBKey>&& key)
 {
     if (!key || !key->isValid())
-        return Exception { DataError };
+        return Exception { ExceptionCode::DataError };
 
     return create(WTFMove(key));
 }
@@ -87,7 +85,7 @@ ExceptionOr<Ref<IDBKeyRange>> IDBKeyRange::lowerBound(JSGlobalObject& state, JSV
     auto bound = scriptValueToIDBKey(state, boundValue);
     EXCEPTION_ASSERT_UNUSED(scope, !scope.exception() || !bound->isValid());
     if (!bound->isValid())
-        return Exception { DataError };
+        return Exception { ExceptionCode::DataError };
 
     return create(WTFMove(bound), nullptr, open, true);
 }
@@ -100,7 +98,7 @@ ExceptionOr<Ref<IDBKeyRange>> IDBKeyRange::upperBound(JSGlobalObject& state, JSV
     auto bound = scriptValueToIDBKey(state, boundValue);
     EXCEPTION_ASSERT_UNUSED(scope, !scope.exception() || !bound->isValid());
     if (!bound->isValid())
-        return Exception { DataError };
+        return Exception { ExceptionCode::DataError };
 
     return create(nullptr, WTFMove(bound), true, open);
 }
@@ -113,15 +111,15 @@ ExceptionOr<Ref<IDBKeyRange>> IDBKeyRange::bound(JSGlobalObject& state, JSValue 
     auto lower = scriptValueToIDBKey(state, lowerValue);
     EXCEPTION_ASSERT_UNUSED(scope, !scope.exception() || !lower->isValid());
     if (!lower->isValid())
-        return Exception { DataError };
+        return Exception { ExceptionCode::DataError };
     auto upper = scriptValueToIDBKey(state, upperValue);
     EXCEPTION_ASSERT_UNUSED(scope, !scope.exception() || !upper->isValid());
     if (!upper->isValid())
-        return Exception { DataError };
+        return Exception { ExceptionCode::DataError };
     if (upper->isLessThan(lower.get()))
-        return Exception { DataError };
+        return Exception { ExceptionCode::DataError };
     if (upper->isEqual(lower.get()) && (lowerOpen || upperOpen))
-        return Exception { DataError };
+        return Exception { ExceptionCode::DataError };
 
     return create(WTFMove(lower), WTFMove(upper), lowerOpen, upperOpen);
 }
@@ -139,7 +137,7 @@ ExceptionOr<bool> IDBKeyRange::includes(JSC::JSGlobalObject& state, JSC::JSValue
     auto key = scriptValueToIDBKey(state, keyValue);
     EXCEPTION_ASSERT_UNUSED(scope, !scope.exception() || !key->isValid());
     if (!key->isValid())
-        return Exception { DataError, "Failed to execute 'includes' on 'IDBKeyRange': The passed-in value is not a valid IndexedDB key." };
+        return Exception { ExceptionCode::DataError, "Failed to execute 'includes' on 'IDBKeyRange': The passed-in value is not a valid IndexedDB key."_s };
 
     if (m_lower) {
         int compare = m_lower->compare(key.get());
@@ -163,5 +161,3 @@ ExceptionOr<bool> IDBKeyRange::includes(JSC::JSGlobalObject& state, JSC::JSValue
 }
 
 } // namespace WebCore
-
-#endif // ENABLE(INDEXED_DATABASE)

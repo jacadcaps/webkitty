@@ -21,10 +21,6 @@
 #error "See: bugs.webrtc.org/9213#c13."
 #endif
 
-#include <memory>
-
-#include "modules/video_coding/codecs/h264/include/h264.h"
-
 // CAVEAT: According to ffmpeg docs for avcodec_send_packet, ffmpeg requires a
 // few extra padding bytes after the end of input. And in addition, docs for
 // AV_INPUT_BUFFER_PADDING_SIZE says "If the first 23 bits of the additional
@@ -40,11 +36,14 @@
 // passed to ffmpeg.
 
 extern "C" {
-#include "third_party/ffmpeg/libavcodec/avcodec.h"
+#include <libavcodec/avcodec.h>
 }  // extern "C"
 
+#include <memory>
+
 #include "common_video/h264/h264_bitstream_parser.h"
-#include "common_video/include/i420_buffer_pool.h"
+#include "common_video/include/video_frame_buffer_pool.h"
+#include "modules/video_coding/codecs/h264/include/h264.h"
 
 namespace webrtc {
 
@@ -60,16 +59,13 @@ class H264DecoderImpl : public H264Decoder {
   H264DecoderImpl();
   ~H264DecoderImpl() override;
 
-  // If |codec_settings| is NULL it is ignored. If it is not NULL,
-  // |codec_settings->codecType| must be |kVideoCodecH264|.
-  int32_t InitDecode(const VideoCodec* codec_settings,
-                     int32_t number_of_cores) override;
+  bool Configure(const Settings& settings) override;
   int32_t Release() override;
 
   int32_t RegisterDecodeCompleteCallback(
       DecodedImageCallback* callback) override;
 
-  // |missing_frames|, |fragmentation| and |render_time_ms| are ignored.
+  // `missing_frames`, `fragmentation` and `render_time_ms` are ignored.
   int32_t Decode(const EncodedImage& input_image,
                  bool /*missing_frames*/,
                  int64_t render_time_ms = -1) override;
@@ -78,12 +74,12 @@ class H264DecoderImpl : public H264Decoder {
 
  private:
   // Called by FFmpeg when it needs a frame buffer to store decoded frames in.
-  // The |VideoFrame| returned by FFmpeg at |Decode| originate from here. Their
-  // buffers are reference counted and freed by FFmpeg using |AVFreeBuffer2|.
+  // The `VideoFrame` returned by FFmpeg at `Decode` originate from here. Their
+  // buffers are reference counted and freed by FFmpeg using `AVFreeBuffer2`.
   static int AVGetBuffer2(AVCodecContext* context,
                           AVFrame* av_frame,
                           int flags);
-  // Called by FFmpeg when it is done with a video frame, see |AVGetBuffer2|.
+  // Called by FFmpeg when it is done with a video frame, see `AVGetBuffer2`.
   static void AVFreeBuffer2(void* opaque, uint8_t* data);
 
   bool IsInitialized() const;
@@ -92,7 +88,8 @@ class H264DecoderImpl : public H264Decoder {
   void ReportInit();
   void ReportError();
 
-  I420BufferPool pool_;
+  // Used by ffmpeg via `AVGetBuffer2()` to allocate I420 images.
+  VideoFrameBufferPool ffmpeg_buffer_pool_;
   std::unique_ptr<AVCodecContext, AVCodecContextDeleter> av_context_;
   std::unique_ptr<AVFrame, AVFrameDeleter> av_frame_;
 

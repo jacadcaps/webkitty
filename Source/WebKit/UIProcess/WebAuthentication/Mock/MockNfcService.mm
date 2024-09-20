@@ -57,15 +57,15 @@ uint8_t tagID2[] = { 0x02 };
     RetainPtr<NSData> _tagID;
 }
 
-@synthesize technology=_technology;
-@synthesize AppData=_AppData;
-@synthesize UID=_UID;
-@synthesize ndefAvailability=_ndefAvailability;
-@synthesize ndefMessageSize=_ndefMessageSize;
-@synthesize ndefContainerSize=_ndefContainerSize;
-@synthesize tagA=_tagA;
-@synthesize tagB=_tagB;
-@synthesize tagF=_tagF;
+@synthesize technology = _technology;
+@synthesize AppData = _AppData;
+@synthesize UID = _UID;
+@synthesize ndefAvailability = _ndefAvailability;
+@synthesize ndefMessageSize = _ndefMessageSize;
+@synthesize ndefContainerSize = _ndefContainerSize;
+@synthesize tagA = _tagA;
+@synthesize tagB = _tagB;
+@synthesize tagF = _tagF;
 
 - (NFTagType)type
 {
@@ -177,7 +177,7 @@ static NSData* NFReaderSessionTransceive(id, SEL, NSData *)
 
 #endif // HAVE(NEAR_FIELD)
 
-MockNfcService::MockNfcService(Observer& observer, const WebCore::MockWebAuthenticationConfiguration& configuration)
+MockNfcService::MockNfcService(AuthenticatorTransportServiceObserver& observer, const WebCore::MockWebAuthenticationConfiguration& configuration)
     : NfcService(observer)
     , m_configuration(configuration)
 {
@@ -188,9 +188,9 @@ NSData* MockNfcService::transceive()
     if (m_configuration.nfc->payloadBase64.isEmpty())
         return nil;
 
-    auto result = [[NSData alloc] initWithBase64EncodedString:m_configuration.nfc->payloadBase64[0] options:NSDataBase64DecodingIgnoreUnknownCharacters];
+    auto result = adoptNS([[NSData alloc] initWithBase64EncodedString:m_configuration.nfc->payloadBase64[0] options:NSDataBase64DecodingIgnoreUnknownCharacters]);
     m_configuration.nfc->payloadBase64.remove(0);
-    return [result autorelease];
+    return result.autorelease();
 }
 
 void MockNfcService::receiveStopPolling()
@@ -201,7 +201,7 @@ void MockNfcService::receiveStopPolling()
 
 void MockNfcService::receiveStartPolling()
 {
-    RunLoop::main().dispatch([weakThis = makeWeakPtr(*this)] {
+    RunLoop::main().dispatch([weakThis = WeakPtr { *this }] {
         if (!weakThis)
             return;
         weakThis->detectTags();
@@ -258,7 +258,8 @@ void MockNfcService::detectTags() const
         if (configuration.nfc->multiplePhysicalTags)
             [tags addObject:adoptNS([[WKMockNFTag alloc] initWithType:NFTagTypeGeneric4A tagID:adoptNS([[NSData alloc] initWithBytes:tagID2 length:sizeof(tagID2)]).get()]).get()];
 
-        [globalNFReaderSessionDelegate readerSession:nil didDetectTags:tags.get()];
+        auto readerSession = adoptNS([allocNFReaderSessionInstance() init]);
+        [globalNFReaderSessionDelegate readerSession:readerSession.get() didDetectTags:tags.get()];
     });
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), callback.get());
 #endif // HAVE(NEAR_FIELD)

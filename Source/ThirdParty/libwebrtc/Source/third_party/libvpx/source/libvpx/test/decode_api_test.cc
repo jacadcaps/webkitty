@@ -20,7 +20,7 @@ namespace {
 #define NELEMENTS(x) static_cast<int>(sizeof(x) / sizeof(x[0]))
 
 TEST(DecodeAPI, InvalidParams) {
-  static const vpx_codec_iface_t *kCodecs[] = {
+  static vpx_codec_iface_t *kCodecs[] = {
 #if CONFIG_VP8_DECODER
     &vpx_codec_vp8_dx_algo,
 #endif
@@ -31,27 +31,33 @@ TEST(DecodeAPI, InvalidParams) {
   uint8_t buf[1] = { 0 };
   vpx_codec_ctx_t dec;
 
-  EXPECT_EQ(VPX_CODEC_INVALID_PARAM, vpx_codec_dec_init(NULL, NULL, NULL, 0));
-  EXPECT_EQ(VPX_CODEC_INVALID_PARAM, vpx_codec_dec_init(&dec, NULL, NULL, 0));
-  EXPECT_EQ(VPX_CODEC_INVALID_PARAM, vpx_codec_decode(NULL, NULL, 0, NULL, 0));
-  EXPECT_EQ(VPX_CODEC_INVALID_PARAM, vpx_codec_decode(NULL, buf, 0, NULL, 0));
-  EXPECT_EQ(VPX_CODEC_INVALID_PARAM,
-            vpx_codec_decode(NULL, buf, NELEMENTS(buf), NULL, 0));
-  EXPECT_EQ(VPX_CODEC_INVALID_PARAM,
-            vpx_codec_decode(NULL, NULL, NELEMENTS(buf), NULL, 0));
-  EXPECT_EQ(VPX_CODEC_INVALID_PARAM, vpx_codec_destroy(NULL));
-  EXPECT_TRUE(vpx_codec_error(NULL) != NULL);
+  EXPECT_EQ(vpx_codec_dec_init(nullptr, nullptr, nullptr, 0),
+            VPX_CODEC_INVALID_PARAM);
+  EXPECT_EQ(vpx_codec_dec_init(&dec, nullptr, nullptr, 0),
+            VPX_CODEC_INVALID_PARAM);
+  EXPECT_EQ(vpx_codec_decode(nullptr, nullptr, 0, nullptr, 0),
+            VPX_CODEC_INVALID_PARAM);
+  EXPECT_EQ(vpx_codec_decode(nullptr, buf, 0, nullptr, 0),
+            VPX_CODEC_INVALID_PARAM);
+  EXPECT_EQ(vpx_codec_decode(nullptr, buf, NELEMENTS(buf), nullptr, 0),
+            VPX_CODEC_INVALID_PARAM);
+  EXPECT_EQ(vpx_codec_decode(nullptr, nullptr, NELEMENTS(buf), nullptr, 0),
+            VPX_CODEC_INVALID_PARAM);
+  EXPECT_EQ(vpx_codec_destroy(nullptr), VPX_CODEC_INVALID_PARAM);
+  EXPECT_NE(vpx_codec_error(nullptr), nullptr);
+  EXPECT_EQ(vpx_codec_error_detail(nullptr), nullptr);
 
   for (int i = 0; i < NELEMENTS(kCodecs); ++i) {
     EXPECT_EQ(VPX_CODEC_INVALID_PARAM,
-              vpx_codec_dec_init(NULL, kCodecs[i], NULL, 0));
+              vpx_codec_dec_init(nullptr, kCodecs[i], nullptr, 0));
 
-    EXPECT_EQ(VPX_CODEC_OK, vpx_codec_dec_init(&dec, kCodecs[i], NULL, 0));
+    EXPECT_EQ(VPX_CODEC_OK, vpx_codec_dec_init(&dec, kCodecs[i], nullptr, 0));
     EXPECT_EQ(VPX_CODEC_UNSUP_BITSTREAM,
-              vpx_codec_decode(&dec, buf, NELEMENTS(buf), NULL, 0));
+              vpx_codec_decode(&dec, buf, NELEMENTS(buf), nullptr, 0));
     EXPECT_EQ(VPX_CODEC_INVALID_PARAM,
-              vpx_codec_decode(&dec, NULL, NELEMENTS(buf), NULL, 0));
-    EXPECT_EQ(VPX_CODEC_INVALID_PARAM, vpx_codec_decode(&dec, buf, 0, NULL, 0));
+              vpx_codec_decode(&dec, nullptr, NELEMENTS(buf), nullptr, 0));
+    EXPECT_EQ(VPX_CODEC_INVALID_PARAM,
+              vpx_codec_decode(&dec, buf, 0, nullptr, 0));
 
     EXPECT_EQ(VPX_CODEC_OK, vpx_codec_destroy(&dec));
   }
@@ -62,11 +68,12 @@ TEST(DecodeAPI, OptionalParams) {
   vpx_codec_ctx_t dec;
 
 #if CONFIG_ERROR_CONCEALMENT
-  EXPECT_EQ(VPX_CODEC_OK, vpx_codec_dec_init(&dec, &vpx_codec_vp8_dx_algo, NULL,
-                                             VPX_CODEC_USE_ERROR_CONCEALMENT));
+  EXPECT_EQ(VPX_CODEC_OK,
+            vpx_codec_dec_init(&dec, &vpx_codec_vp8_dx_algo, nullptr,
+                               VPX_CODEC_USE_ERROR_CONCEALMENT));
 #else
   EXPECT_EQ(VPX_CODEC_INCAPABLE,
-            vpx_codec_dec_init(&dec, &vpx_codec_vp8_dx_algo, NULL,
+            vpx_codec_dec_init(&dec, &vpx_codec_vp8_dx_algo, nullptr,
                                VPX_CODEC_USE_ERROR_CONCEALMENT));
 #endif  // CONFIG_ERROR_CONCEALMENT
 }
@@ -90,30 +97,30 @@ void TestVp9Controls(vpx_codec_ctx_t *dec) {
       default: EXPECT_EQ(VPX_CODEC_OK, res) << kControls[i]; break;
     }
     EXPECT_EQ(VPX_CODEC_INVALID_PARAM,
-              vpx_codec_control_(dec, kControls[i], NULL));
+              vpx_codec_control_(dec, kControls[i], nullptr));
   }
 
   vp9_ref_frame_t ref;
   ref.idx = 0;
   EXPECT_EQ(VPX_CODEC_ERROR, vpx_codec_control(dec, VP9_GET_REFERENCE, &ref));
   EXPECT_EQ(VPX_CODEC_INVALID_PARAM,
-            vpx_codec_control(dec, VP9_GET_REFERENCE, NULL));
+            vpx_codec_control(dec, VP9_GET_REFERENCE, nullptr));
 
   vpx_ref_frame_t ref_copy;
   const int width = 352;
   const int height = 288;
-  ASSERT_TRUE(
-      vpx_img_alloc(&ref_copy.img, VPX_IMG_FMT_I420, width, height, 1) != NULL);
+  EXPECT_NE(vpx_img_alloc(&ref_copy.img, VPX_IMG_FMT_I420, width, height, 1),
+            nullptr);
   ref_copy.frame_type = VP8_LAST_FRAME;
   EXPECT_EQ(VPX_CODEC_ERROR,
             vpx_codec_control(dec, VP8_COPY_REFERENCE, &ref_copy));
   EXPECT_EQ(VPX_CODEC_INVALID_PARAM,
-            vpx_codec_control(dec, VP8_COPY_REFERENCE, NULL));
+            vpx_codec_control(dec, VP8_COPY_REFERENCE, nullptr));
   vpx_img_free(&ref_copy.img);
 }
 
 TEST(DecodeAPI, Vp9InvalidDecode) {
-  const vpx_codec_iface_t *const codec = &vpx_codec_vp9_dx_algo;
+  vpx_codec_iface_t *const codec = &vpx_codec_vp9_dx_algo;
   const char filename[] =
       "invalid-vp90-2-00-quantizer-00.webm.ivf.s5861_r01-05_b6-.v2.ivf";
   libvpx_test::IVFVideoSource video(filename);
@@ -122,17 +129,17 @@ TEST(DecodeAPI, Vp9InvalidDecode) {
   ASSERT_TRUE(!HasFailure());
 
   vpx_codec_ctx_t dec;
-  EXPECT_EQ(VPX_CODEC_OK, vpx_codec_dec_init(&dec, codec, NULL, 0));
+  EXPECT_EQ(VPX_CODEC_OK, vpx_codec_dec_init(&dec, codec, nullptr, 0));
   const uint32_t frame_size = static_cast<uint32_t>(video.frame_size());
 #if CONFIG_VP9_HIGHBITDEPTH
   EXPECT_EQ(VPX_CODEC_MEM_ERROR,
-            vpx_codec_decode(&dec, video.cxdata(), frame_size, NULL, 0));
+            vpx_codec_decode(&dec, video.cxdata(), frame_size, nullptr, 0));
 #else
   EXPECT_EQ(VPX_CODEC_UNSUP_BITSTREAM,
-            vpx_codec_decode(&dec, video.cxdata(), frame_size, NULL, 0));
+            vpx_codec_decode(&dec, video.cxdata(), frame_size, nullptr, 0));
 #endif
-  vpx_codec_iter_t iter = NULL;
-  EXPECT_EQ(NULL, vpx_codec_get_frame(&dec, &iter));
+  vpx_codec_iter_t iter = nullptr;
+  EXPECT_EQ(nullptr, vpx_codec_get_frame(&dec, &iter));
 
   TestVp9Controls(&dec);
   EXPECT_EQ(VPX_CODEC_OK, vpx_codec_destroy(&dec));
@@ -140,17 +147,17 @@ TEST(DecodeAPI, Vp9InvalidDecode) {
 
 void TestPeekInfo(const uint8_t *const data, uint32_t data_sz,
                   uint32_t peek_size) {
-  const vpx_codec_iface_t *const codec = &vpx_codec_vp9_dx_algo;
+  vpx_codec_iface_t *const codec = &vpx_codec_vp9_dx_algo;
   // Verify behavior of vpx_codec_decode. vpx_codec_decode doesn't even get
   // to decoder_peek_si_internal on frames of size < 8.
   if (data_sz >= 8) {
     vpx_codec_ctx_t dec;
-    EXPECT_EQ(VPX_CODEC_OK, vpx_codec_dec_init(&dec, codec, NULL, 0));
+    EXPECT_EQ(VPX_CODEC_OK, vpx_codec_dec_init(&dec, codec, nullptr, 0));
     EXPECT_EQ((data_sz < peek_size) ? VPX_CODEC_UNSUP_BITSTREAM
                                     : VPX_CODEC_CORRUPT_FRAME,
-              vpx_codec_decode(&dec, data, data_sz, NULL, 0));
-    vpx_codec_iter_t iter = NULL;
-    EXPECT_EQ(NULL, vpx_codec_get_frame(&dec, &iter));
+              vpx_codec_decode(&dec, data, data_sz, nullptr, 0));
+    vpx_codec_iter_t iter = nullptr;
+    EXPECT_EQ(nullptr, vpx_codec_get_frame(&dec, &iter));
     EXPECT_EQ(VPX_CODEC_OK, vpx_codec_destroy(&dec));
   }
 

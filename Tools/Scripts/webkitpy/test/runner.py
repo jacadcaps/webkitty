@@ -28,14 +28,6 @@ import unittest
 
 from webkitpy.common import message_pool
 
-_test_description = re.compile("(\w+) \(([\w.]+)\)")
-
-
-def unit_test_name(test):
-    m = _test_description.match(str(test))
-    return "%s.%s" % (m.group(2), m.group(1))
-
-
 class Runner(object):
     def __init__(self, printer, loader):
         self.printer = printer
@@ -60,6 +52,9 @@ class Runner(object):
             self.printer.print_started_test(source, test_name)
             return
 
+        if message_name != 'finished_test':
+            raise ValueError("unknown message: %r" % message_type)
+
         self.tests_run.append(test_name)
         if failures:
             self.failures.append((test_name, failures))
@@ -75,11 +70,28 @@ class _Worker(object):
 
     def handle(self, message_name, source, test_name):
         assert message_name == 'test'
-        result = unittest.TestResult()
+        result = TestResult()
         start = time.time()
         self._caller.post('started_test', test_name)
 
         # We will need to rework this if a test_name results in multiple tests.
         self._loader.loadTestsFromName(test_name, None).run(result)
+
+        assert(len(result.errors) + len(result.failures) +
+               len(result.skipped) + len(result.expectedFailures) +
+               len(result.unexpectedSuccesses) + result.successes) == result.testsRun
+
+        failures = ([failure[1] for failure in result.failures]
+                    + ["UNEXPECTED SUCCESS" for _ in result.unexpectedSuccesses])
+
         self._caller.post('finished_test', test_name, time.time() - start,
-            [failure[1] for failure in result.failures], [error[1] for error in result.errors])
+                          failures, [error[1] for error in result.errors])
+
+
+class TestResult(unittest.TestResult):
+    def __init__(self, *args, **kwargs):
+        super(TestResult, self).__init__(*args, **kwargs)
+        self.successes = 0
+
+    def addSuccess(self, test):
+        self.successes += 1

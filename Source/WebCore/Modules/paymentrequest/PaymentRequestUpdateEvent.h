@@ -36,21 +36,20 @@ class DOMPromise;
 struct PaymentRequestUpdateEventInit;
 
 class PaymentRequestUpdateEvent : public Event {
-    WTF_MAKE_ISO_ALLOCATED(PaymentRequestUpdateEvent);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(PaymentRequestUpdateEvent);
 public:
     template <typename... Args> static Ref<PaymentRequestUpdateEvent> create(Args&&... args)
     {
-        return adoptRef(*new PaymentRequestUpdateEvent(std::forward<Args>(args)...));
+        return adoptRef(*new PaymentRequestUpdateEvent(EventInterfaceType::PaymentRequestUpdateEvent, std::forward<Args>(args)...));
     }
     ~PaymentRequestUpdateEvent();
     ExceptionOr<void> updateWith(Ref<DOMPromise>&&);
 
-protected:
-    explicit PaymentRequestUpdateEvent(const AtomString& type);
-    PaymentRequestUpdateEvent(const AtomString& type, const PaymentRequestUpdateEventInit&);
+    bool didCallUpdateWith() const { return m_waitForUpdate; }
 
-    // Event
-    EventInterface eventInterface() const override;
+protected:
+    explicit PaymentRequestUpdateEvent(enum EventInterfaceType, const AtomString& type);
+    PaymentRequestUpdateEvent(enum EventInterfaceType, const AtomString& type, const PaymentRequestUpdateEventInit&);
 
 private:
     bool m_waitForUpdate { false };

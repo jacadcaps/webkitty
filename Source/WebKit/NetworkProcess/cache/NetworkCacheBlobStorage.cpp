@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -65,14 +65,12 @@ void BlobStorage::synchronize()
         if (type != DirectoryEntryType::File)
             return;
         auto path = FileSystem::pathByAppendingComponent(blobDirectory, name);
-        auto filePath = FileSystem::fileSystemRepresentation(path);
-        struct stat stat;
-        ::stat(filePath.data(), &stat);
+        auto linkCount = FileSystem::hardLinkCount(path);
         // No clients left for this blob.
-        if (stat.st_nlink == 1)
-            unlink(filePath.data());
+        if (linkCount && *linkCount == 1)
+            FileSystem::deleteFile(path);
         else
-            m_approximateSize += stat.st_size;
+            m_approximateSize += FileSystem::fileSize(path).value_or(0);
     });
 
     LOG(NetworkCacheStorage, "(NetworkProcess) blob synchronization completed approximateSize=%zu", approximateSize());
@@ -81,7 +79,7 @@ void BlobStorage::synchronize()
 String BlobStorage::blobPathForHash(const SHA1::Digest& hash) const
 {
     auto hashAsString = SHA1::hexDigest(hash);
-    return FileSystem::pathByAppendingComponent(blobDirectoryPathIsolatedCopy(), String::fromUTF8(hashAsString));
+    return FileSystem::pathByAppendingComponent(blobDirectoryPathIsolatedCopy(), StringView::fromLatin1(hashAsString.data()));
 }
 
 BlobStorage::Blob BlobStorage::add(const String& path, const Data& data)
@@ -98,12 +96,13 @@ BlobStorage::Blob BlobStorage::add(const String& path, const Data& data)
 
     bool blobExists = FileSystem::fileExists(blobPath);
     if (blobExists) {
-        FileSystem::makeSafeToUseMemoryMapForPath(blobPath);
-        auto existingData = mapFile(blobPath);
-        if (bytesEqual(existingData, data)) {
-            if (!FileSystem::hardLink(blobPath, path))
-                WTFLogAlways("Failed to create hard link from %s to %s", blobPath.utf8().data(), path.utf8().data());
-            return { existingData, hash };
+        if (FileSystem::makeSafeToUseMemoryMapForPath(blobPath)) {
+            auto existingData = mapFile(blobPath);
+            if (bytesEqual(existingData, data)) {
+                if (!FileSystem::hardLink(blobPath, path))
+                    WTFLogAlways("Failed to create hard link from %s to %s", blobPath.utf8().data(), path.utf8().data());
+                return { existingData, hash };
+            }
         }
         FileSystem::deleteFile(blobPath);
     }
@@ -124,8 +123,7 @@ BlobStorage::Blob BlobStorage::get(const String& path)
 {
     ASSERT(!RunLoop::isMain());
 
-    auto linkPath = FileSystem::fileSystemRepresentation(path);
-    auto data = mapFile(linkPath.data());
+    auto data = mapFile(path);
 
     return { data, computeSHA1(data, m_salt) };
 }
@@ -141,12 +139,11 @@ unsigned BlobStorage::shareCount(const String& path)
 {
     ASSERT(!RunLoop::isMain());
 
-    auto linkPath = FileSystem::fileSystemRepresentation(path);
-    struct stat stat;
-    if (::stat(linkPath.data(), &stat) < 0)
+    auto linkCount = FileSystem::hardLinkCount(path);
+    if (!linkCount)
         return 0;
     // Link count is 2 in the single client case (the blob file and a link).
-    return stat.st_nlink - 1;
+    return *linkCount - 1;
 }
 
 }

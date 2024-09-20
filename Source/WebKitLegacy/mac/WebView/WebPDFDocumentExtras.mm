@@ -25,7 +25,6 @@
 
 #import "WebPDFDocumentExtras.h"
 
-#import "WebTypesInternal.h"
 #import <wtf/Vector.h>
 #import <wtf/RetainPtr.h>
 
@@ -119,12 +118,11 @@ NSArray *allScriptsInPDFDocument(CGPDFDocumentRef pdfDocument)
             continue;
 
         NSStringEncoding encoding = (length > 1 && bytes[0] == 0xFE && bytes[1] == 0xFF) ? NSUnicodeStringEncoding : NSUTF8StringEncoding;
-        NSString *script = [[NSString alloc] initWithBytes:bytes length:length encoding:encoding];
+        auto script = adoptNS([[NSString alloc] initWithBytes:bytes length:length encoding:encoding]);
         if (!script)
             continue;
 
-        [scripts addObject:script];
-        [script release];
+        [scripts addObject:script.get()];
     }
 
     return scripts;

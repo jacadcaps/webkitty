@@ -26,33 +26,46 @@
 
 #include "DataTransfer.h"
 #include "EventNames.h"
-#include <wtf/IsoMallocInlines.h>
+#include "Node.h"
+#include "PlatformMouseEvent.h"
 #include <wtf/MathExtras.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(WheelEvent);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(WheelEvent);
 
 inline static unsigned determineDeltaMode(const PlatformWheelEvent& event)
 {
     return event.granularity() == ScrollByPageWheelEvent ? WheelEvent::DOM_DELTA_PAGE : WheelEvent::DOM_DELTA_PIXEL;
 }
 
-inline WheelEvent::WheelEvent() = default;
+static double wheelDeltaToDelta(int wheelDelta)
+{
+    // Avoid returning negative zero.
+    if (!wheelDelta)
+        return 0;
+    return -static_cast<double>(wheelDelta);
+}
+
+inline WheelEvent::WheelEvent()
+    : MouseEvent(EventInterfaceType::WheelEvent)
+{
+}
 
 inline WheelEvent::WheelEvent(const AtomString& type, const Init& initializer)
-    : MouseEvent(type, initializer)
-    , m_wheelDelta(initializer.wheelDeltaX ? initializer.wheelDeltaX : -initializer.deltaX, initializer.wheelDeltaY ? initializer.wheelDeltaY : -initializer.deltaY)
-    , m_deltaX(initializer.deltaX ? initializer.deltaX : -initializer.wheelDeltaX)
-    , m_deltaY(initializer.deltaY ? initializer.deltaY : -initializer.wheelDeltaY)
+    : MouseEvent(EventInterfaceType::WheelEvent, type, initializer, IsTrusted::No)
+    , m_wheelDelta(initializer.wheelDeltaX ? initializer.wheelDeltaX : clampTo<int>(-initializer.deltaX), initializer.wheelDeltaY ? initializer.wheelDeltaY : clampTo<int>(-initializer.deltaY))
+    , m_deltaX(initializer.deltaX ? initializer.deltaX : wheelDeltaToDelta(initializer.wheelDeltaX))
+    , m_deltaY(initializer.deltaY ? initializer.deltaY : wheelDeltaToDelta(initializer.wheelDeltaY))
     , m_deltaZ(initializer.deltaZ)
     , m_deltaMode(initializer.deltaMode)
 {
 }
 
-inline WheelEvent::WheelEvent(const PlatformWheelEvent& event, RefPtr<WindowProxy>&& view)
-    : MouseEvent(eventNames().wheelEvent, CanBubble::Yes, IsCancelable::Yes, IsComposed::Yes, event.timestamp().approximateMonotonicTime(), WTFMove(view), 0,
-        event.globalPosition(), event.position() , { }, event.modifiers(), 0, 0, nullptr, 0, 0, IsSimulated::No, IsTrusted::Yes)
+inline WheelEvent::WheelEvent(const PlatformWheelEvent& event, RefPtr<WindowProxy>&& view, IsCancelable isCancelable)
+    : MouseEvent(EventInterfaceType::WheelEvent, eventNames().wheelEvent, CanBubble::Yes, isCancelable, IsComposed::Yes, event.timestamp().approximateMonotonicTime(), WTFMove(view), 0,
+        event.globalPosition(), event.position() , 0, 0, event.modifiers(), MouseButton::Left, 0, nullptr, 0, SyntheticClickType::NoTap, { }, { }, IsSimulated::No, IsTrusted::Yes)
     , m_wheelDelta(event.wheelTicksX() * TickMultiplier, event.wheelTicksY() * TickMultiplier)
     , m_deltaX(-event.deltaX())
     , m_deltaY(-event.deltaY())
@@ -61,9 +74,9 @@ inline WheelEvent::WheelEvent(const PlatformWheelEvent& event, RefPtr<WindowProx
 {
 }
 
-Ref<WheelEvent> WheelEvent::create(const PlatformWheelEvent& event, RefPtr<WindowProxy>&& view)
+Ref<WheelEvent> WheelEvent::create(const PlatformWheelEvent& event, RefPtr<WindowProxy>&& view, IsCancelable isCancelable)
 {
-    return adoptRef(*new WheelEvent(event, WTFMove(view)));
+    return adoptRef(*new WheelEvent(event, WTFMove(view), isCancelable));
 }
 
 Ref<WheelEvent> WheelEvent::createForBindings()
@@ -74,28 +87,6 @@ Ref<WheelEvent> WheelEvent::createForBindings()
 Ref<WheelEvent> WheelEvent::create(const AtomString& type, const Init& initializer)
 {
     return adoptRef(*new WheelEvent(type, initializer));
-}
-
-void WheelEvent::initWebKitWheelEvent(int rawDeltaX, int rawDeltaY, RefPtr<WindowProxy>&& view, int screenX, int screenY, int pageX, int pageY, bool ctrlKey, bool altKey, bool shiftKey, bool metaKey)
-{
-    if (isBeingDispatched())
-        return;
-    
-    initMouseEvent(eventNames().wheelEvent, true, true, WTFMove(view), 0, screenX, screenY, pageX, pageY, ctrlKey, altKey, shiftKey, metaKey, 0, nullptr);
-
-    // Normalize to 120 multiple for compatibility with IE.
-    m_wheelDelta = { rawDeltaX * TickMultiplier, rawDeltaY * TickMultiplier };
-    m_deltaX = -rawDeltaX;
-    m_deltaY = -rawDeltaY;
-
-    m_deltaMode = DOM_DELTA_PIXEL;
-
-    m_underlyingPlatformEvent = WTF::nullopt;
-}
-
-EventInterface WheelEvent::eventInterface() const
-{
-    return WheelEventInterfaceType;
 }
 
 bool WheelEvent::isWheelEvent() const

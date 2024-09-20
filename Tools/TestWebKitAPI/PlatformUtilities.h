@@ -23,6 +23,8 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#pragma once
+
 #ifndef PlatformUtilities_h
 #define PlatformUtilities_h
 
@@ -35,6 +37,16 @@
 #if USE(FOUNDATION)
 OBJC_CLASS NSString;
 OBJC_CLASS NSDictionary;
+typedef double NSTimeInterval;
+#endif
+
+#if PLATFORM(COCOA)
+OBJC_CLASS NSImage;
+OBJC_CLASS NSWindow;
+OBJC_CLASS UIImage;
+OBJC_CLASS UIWindow;
+struct CGImage;
+using CGImageRef = CGImage*;
 #endif
 
 namespace TestWebKitAPI {
@@ -44,6 +56,9 @@ std::string toSTD(const char*);
 #if USE(FOUNDATION)
 std::string toSTD(NSString *);
 bool jsonMatchesExpectedValues(NSString *jsonString, NSDictionary *expected);
+#ifdef __OBJC__
+void waitForConditionWithLogging(std::function<bool()>&&, NSTimeInterval loggingTimeout, NSString *message, ...) NS_FORMAT_FUNCTION(3, 4);
+#endif
 #endif
 
 #if WK_HAVE_C_SPI
@@ -62,6 +77,11 @@ bool isKeyDown(WKNativeEventPtr);
 std::string toSTD(WKStringRef);
 std::string toSTD(WKRetainPtr<WKStringRef>);
 
+#if PLATFORM(MAC)
+NSString *toNS(WKStringRef);
+NSString *toNS(WKRetainPtr<WKStringRef>);
+#endif // PLATFORM(MAC)
+
 WKRetainPtr<WKStringRef> toWK(const char* utf8String);
 
 #endif // WK_HAVE_C_SPI
@@ -75,8 +95,17 @@ static inline ::testing::AssertionResult assertWKStringEqual(const char* expecte
 #define EXPECT_WK_STREQ(expected, actual) \
     EXPECT_PRED_FORMAT2(TestWebKitAPI::Util::assertWKStringEqual, expected, actual)
 
+#if PLATFORM(MAC)
+using PlatformImage = NSImage;
+using PlatformWindow = NSWindow;
+#elif PLATFORM(IOS_FAMILY)
+using PlatformImage = UIImage;
+using PlatformWindow = UIWindow;
+#endif
+
 #if PLATFORM(COCOA)
 extern NSString * const TestPlugInClassNameParameter;
+extern RetainPtr<CGImageRef> convertToCGImage(PlatformImage *);
 #endif
 
 } // namespace Util

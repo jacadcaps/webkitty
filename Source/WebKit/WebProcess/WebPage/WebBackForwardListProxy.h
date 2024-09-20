@@ -27,12 +27,9 @@
 
 #include "WebBackForwardListCounts.h"
 #include <WebCore/BackForwardClient.h>
+#include <WebCore/BackForwardItemIdentifier.h>
+#include <WebCore/FrameIdentifier.h>
 #include <WebCore/PageIdentifier.h>
-#include <wtf/HashSet.h>
-
-namespace WebCore {
-struct BackForwardItemIdentifier;
-}
 
 namespace WebKit {
 
@@ -45,10 +42,7 @@ public:
     static WebCore::HistoryItem* itemForID(const WebCore::BackForwardItemIdentifier&);
     static void removeItem(const WebCore::BackForwardItemIdentifier&);
 
-    enum class OverwriteExistingItem {
-        Yes,
-        No
-    };
+    enum class OverwriteExistingItem : bool { No, Yes };
     void addItemFromUIProcess(const WebCore::BackForwardItemIdentifier&, Ref<WebCore::HistoryItem>&&, WebCore::PageIdentifier, OverwriteExistingItem);
 
     void clear();
@@ -56,20 +50,21 @@ public:
 private:
     WebBackForwardListProxy(WebPage&);
 
-    void addItem(Ref<WebCore::HistoryItem>&&) override;
+    void addItem(WebCore::FrameIdentifier, Ref<WebCore::HistoryItem>&&) override;
 
     void goToItem(WebCore::HistoryItem&) override;
         
     RefPtr<WebCore::HistoryItem> itemAtIndex(int) override;
     unsigned backListCount() const override;
     unsigned forwardListCount() const override;
+    bool containsItem(const WebCore::HistoryItem&) const final;
     const WebBackForwardListCounts& cacheListCountsIfNecessary() const;
     void clearCachedListCounts();
 
     void close() override;
 
-    WebPage* m_page;
-    mutable Optional<WebBackForwardListCounts> m_cachedBackForwardListCounts;
+    WeakPtr<WebPage> m_page;
+    mutable std::optional<WebBackForwardListCounts> m_cachedBackForwardListCounts;
 };
 
 } // namespace WebKit

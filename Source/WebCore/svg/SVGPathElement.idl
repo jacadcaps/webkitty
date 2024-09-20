@@ -24,7 +24,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-interface SVGPathElement : SVGGeometryElement {
+[
+    Exposed=Window
+] interface SVGPathElement : SVGGeometryElement {
     unsigned long getPathSegAtLength(optional unrestricted float distance = NaN);
 
     SVGPathSegClosePath createSVGPathSegClosePath();
@@ -96,8 +98,7 @@ interface SVGPathElement : SVGGeometryElement {
     SVGPathSegCurvetoQuadraticSmoothRel createSVGPathSegCurvetoQuadraticSmoothRel(optional unrestricted float x = NaN,
                                                                                   optional unrestricted float y = NaN);
 
+    // FIXME: these are removed from SVG2
     readonly attribute SVGPathSegList pathSegList;
-    readonly attribute SVGPathSegList normalizedPathSegList;
     readonly attribute SVGPathSegList animatedPathSegList;
-    readonly attribute SVGPathSegList animatedNormalizedPathSegList;
 };

@@ -29,17 +29,20 @@
 #ifndef ABSL_CONTAINER_FLAT_HASH_SET_H_
 #define ABSL_CONTAINER_FLAT_HASH_SET_H_
 
+#include <cstddef>
+#include <memory>
 #include <type_traits>
 #include <utility>
 
 #include "absl/algorithm/container.h"
 #include "absl/base/macros.h"
+#include "absl/container/hash_container_defaults.h"
 #include "absl/container/internal/container_memory.h"
-#include "absl/container/internal/hash_function_defaults.h"  // IWYU pragma: export
 #include "absl/container/internal/raw_hash_set.h"  // IWYU pragma: export
 #include "absl/memory/memory.h"
 
 namespace absl {
+ABSL_NAMESPACE_BEGIN
 namespace container_internal {
 template <typename T>
 struct FlatHashSetPolicy;
@@ -57,19 +60,36 @@ struct FlatHashSetPolicy;
 // * Requires keys that are CopyConstructible
 // * Supports heterogeneous lookup, through `find()` and `insert()`, provided
 //   that the set is provided a compatible heterogeneous hashing function and
-//   equality operator.
+//   equality operator. See below for details.
 // * Invalidates any references and pointers to elements within the table after
-//   `rehash()`.
+//   `rehash()` and when the table is moved.
 // * Contains a `capacity()` member function indicating the number of element
 //   slots (open, deleted, and empty) within the hash set.
 // * Returns `void` from the `erase(iterator)` overload.
 //
 // By default, `flat_hash_set` uses the `absl::Hash` hashing framework. All
 // fundamental and Abseil types that support the `absl::Hash` framework have a
-// compatible equality operator for comparing insertions into `flat_hash_map`.
+// compatible equality operator for comparing insertions into `flat_hash_set`.
 // If your type is not yet supported by the `absl::Hash` framework, see
 // absl/hash/hash.h for information on extending Abseil hashing to user-defined
 // types.
+//
+// Using `absl::flat_hash_set` at interface boundaries in dynamically loaded
+// libraries (e.g. .dll, .so) is unsupported due to way `absl::Hash` values may
+// be randomized across dynamically loaded libraries.
+//
+// To achieve heterogeneous lookup for custom types either `Hash` and `Eq` type
+// parameters can be used or `T` should have public inner types
+// `absl_container_hash` and (optionally) `absl_container_eq`. In either case,
+// `typename Hash::is_transparent` and `typename Eq::is_transparent` should be
+// well-formed. Both types are basically functors:
+// * `Hash` should support `size_t operator()(U val) const` that returns a hash
+// for the given `val`.
+// * `Eq` should support `bool operator()(U lhs, V rhs) const` that returns true
+// if `lhs` is equal to `rhs`.
+//
+// In most cases `T` needs only to provide the `absl_container_hash`. In this
+// case `std::equal_to<void>` will be used instead of `eq` part.
 //
 // NOTE: A `flat_hash_set` stores its keys directly inside its implementation
 // array to avoid memory indirection. Because a `flat_hash_set` is designed to
@@ -94,8 +114,8 @@ struct FlatHashSetPolicy;
 //  if (ducks.contains("dewey")) {
 //    std::cout << "We found dewey!" << std::endl;
 //  }
-template <class T, class Hash = absl::container_internal::hash_default_hash<T>,
-          class Eq = absl::container_internal::hash_default_eq<T>,
+template <class T, class Hash = DefaultHashContainerHash<T>,
+          class Eq = DefaultHashContainerEq<T>,
           class Allocator = std::allocator<T>>
 class flat_hash_set
     : public absl::container_internal::raw_hash_set<
@@ -105,7 +125,7 @@ class flat_hash_set
  public:
   // Constructors and Assignment Operators
   //
-  // A flat_hash_set supports the same overload set as `std::unordered_map`
+  // A flat_hash_set supports the same overload set as `std::unordered_set`
   // for construction and assignment:
   //
   // *  Default constructor
@@ -172,7 +192,7 @@ class flat_hash_set
   // available within the `flat_hash_set`.
   //
   // NOTE: this member function is particular to `absl::flat_hash_set` and is
-  // not provided in the `std::unordered_map` API.
+  // not provided in the `std::unordered_set` API.
   using Base::capacity;
 
   // flat_hash_set::empty()
@@ -222,11 +242,16 @@ class flat_hash_set
   // iterator erase(const_iterator first, const_iterator last):
   //
   //   Erases the elements in the open interval [`first`, `last`), returning an
-  //   iterator pointing to `last`.
+  //   iterator pointing to `last`. The special case of calling
+  //   `erase(begin(), end())` resets the reserved growth such that if
+  //   `reserve(N)` has previously been called and there has been no intervening
+  //   call to `clear()`, then after calling `erase(begin(), end())`, it is safe
+  //   to assume that inserting N elements will not cause a rehash.
   //
   // size_type erase(const key_type& key):
   //
-  //   Erases the element with the matching key, if it exists.
+  //   Erases the element with the matching key, if it exists, returning the
+  //   number of elements erased (0 or 1).
   using Base::erase;
 
   // flat_hash_set::insert()
@@ -322,7 +347,7 @@ class flat_hash_set
 
   // flat_hash_set::merge()
   //
-  // Extracts elements from a given `source` flat hash map into this
+  // Extracts elements from a given `source` flat hash set into this
   // `flat_hash_set`. If the destination `flat_hash_set` already contains an
   // element with an equivalent key, that element is not extracted.
   using Base::merge;
@@ -330,15 +355,15 @@ class flat_hash_set
   // flat_hash_set::swap(flat_hash_set& other)
   //
   // Exchanges the contents of this `flat_hash_set` with those of the `other`
-  // flat hash map, avoiding invocation of any move, copy, or swap operations on
+  // flat hash set, avoiding invocation of any move, copy, or swap operations on
   // individual elements.
   //
   // All iterators and references on the `flat_hash_set` remain valid, excepting
   // for the past-the-end iterator, which is invalidated.
   //
   // `swap()` requires that the flat hash set's hashing and key equivalence
-  // functions be Swappable, and are exchaged using unqualified calls to
-  // non-member `swap()`. If the map's allocator has
+  // functions be Swappable, and are exchanged using unqualified calls to
+  // non-member `swap()`. If the set's allocator has
   // `std::allocator_traits<allocator_type>::propagate_on_container_swap::value`
   // set to `true`, the allocators are also exchanged using an unqualified call
   // to non-member `swap()`; otherwise, the allocators are not swapped.
@@ -393,14 +418,14 @@ class flat_hash_set
   // flat_hash_set::bucket_count()
   //
   // Returns the number of "buckets" within the `flat_hash_set`. Note that
-  // because a flat hash map contains all elements within its internal storage,
+  // because a flat hash set contains all elements within its internal storage,
   // this value simply equals the current capacity of the `flat_hash_set`.
   using Base::bucket_count;
 
   // flat_hash_set::load_factor()
   //
   // Returns the current load factor of the `flat_hash_set` (the average number
-  // of slots occupied with a value within the hash map).
+  // of slots occupied with a value within the hash set).
   using Base::load_factor;
 
   // flat_hash_set::max_load_factor()
@@ -438,6 +463,16 @@ class flat_hash_set
   using Base::key_eq;
 };
 
+// erase_if(flat_hash_set<>, Pred)
+//
+// Erases all elements that satisfy the predicate `pred` from the container `c`.
+// Returns the number of erased elements.
+template <typename T, typename H, typename E, typename A, typename Predicate>
+typename flat_hash_set<T, H, E, A>::size_type erase_if(
+    flat_hash_set<T, H, E, A>& c, Predicate pred) {
+  return container_internal::EraseIf(pred, &c);
+}
+
 namespace container_internal {
 
 template <class T>
@@ -453,16 +488,11 @@ struct FlatHashSetPolicy {
                                                  std::forward<Args>(args)...);
   }
 
+  // Return std::true_type in case destroy is trivial.
   template <class Allocator>
-  static void destroy(Allocator* alloc, slot_type* slot) {
+  static auto destroy(Allocator* alloc, slot_type* slot) {
     absl::allocator_traits<Allocator>::destroy(*alloc, slot);
-  }
-
-  template <class Allocator>
-  static void transfer(Allocator* alloc, slot_type* new_slot,
-                       slot_type* old_slot) {
-    construct(alloc, new_slot, std::move(*old_slot));
-    destroy(alloc, old_slot);
+    return IsDestructionTrivial<Allocator, slot_type>();
   }
 
   static T& element(slot_type* slot) { return *slot; }
@@ -476,6 +506,11 @@ struct FlatHashSetPolicy {
   }
 
   static size_t space_used(const T*) { return 0; }
+
+  template <class Hash>
+  static constexpr HashSlotFn get_hash_slot_fn() {
+    return &TypeErasedApplyToSlotFn<Hash, T>;
+  }
 };
 }  // namespace container_internal
 
@@ -488,6 +523,7 @@ struct IsUnorderedContainer<absl::flat_hash_set<Key, Hash, KeyEqual, Allocator>>
 
 }  // namespace container_algorithm_internal
 
+ABSL_NAMESPACE_END
 }  // namespace absl
 
 #endif  // ABSL_CONTAINER_FLAT_HASH_SET_H_

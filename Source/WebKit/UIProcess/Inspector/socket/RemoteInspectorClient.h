@@ -31,6 +31,7 @@
 #include <JavaScriptCore/RemoteInspectorConnectionClient.h>
 #include <WebCore/InspectorDebuggableType.h>
 #include <wtf/HashMap.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/URL.h>
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
@@ -51,7 +52,7 @@ using ConnectionID = Inspector::ConnectionID;
 using TargetID = Inspector::TargetID;
 
 class RemoteInspectorClient final : public Inspector::RemoteInspectorConnectionClient {
-    WTF_MAKE_FAST_ALLOCATED();
+    WTF_MAKE_TZONE_ALLOCATED(RemoteInspectorClient);
 public:
     RemoteInspectorClient(URL, RemoteInspectorObserver&);
     ~RemoteInspectorClient();
@@ -82,14 +83,14 @@ private:
     void sendMessageToFrontend(const Event&);
     void setBackendCommands(const Event&);
 
-    void didClose(ConnectionID) final;
+    void didClose(Inspector::RemoteInspectorSocketEndpoint&, ConnectionID) final;
     HashMap<String, CallHandler>& dispatchMap() final;
 
     void sendWebInspectorEvent(const String&);
 
     String m_backendCommandsURL;
     RemoteInspectorObserver& m_observer;
-    Optional<ConnectionID> m_connectionID;
+    std::optional<ConnectionID> m_connectionID;
     HashMap<ConnectionID, Vector<Target>> m_targets;
     HashMap<std::pair<ConnectionID, TargetID>, std::unique_ptr<RemoteInspectorProxy>> m_inspectorProxyMap;
 };

@@ -41,6 +41,9 @@ shift;
 open HEADER, ">", $header or die;
 open OUT, ">", $out or die;
 
+print HEADER "#include <array>\n";
+print OUT "#include <array>\n";
+
 print HEADER "namespace WebCore {\n";
 print OUT "namespace WebCore {\n";
 
@@ -67,19 +70,21 @@ for my $in (@ARGV) {
     # Write out a C array of the characters.
     my $length = length $text;
     if ($in =~ /(\w+)\.css$/) {
-        print HEADER "extern const char ${name}UserAgentStyleSheet[${length}];\n";
-        print OUT "extern const char ${name}UserAgentStyleSheet[${length}] = {\n";
+        print HEADER "extern const std::array<const char, ${length}> ${name}UserAgentStyleSheet;\n";
+        print OUT "extern const std::array<const char, ${length}> ${name}UserAgentStyleSheet = {\n";
     } else {
-        print HEADER "extern const char ${name}JavaScript[${length}];\n";
-        print OUT "extern const char ${name}JavaScript[${length}] = {\n";
+        print HEADER "extern const std::array<const char, ${length}> ${name}JavaScript;\n";
+        print OUT "extern const std::array<const char, ${length}> ${name}JavaScript = {\n";
     }
     my $i = 0;
     while ($i < $length) {
         print OUT "    ";
         my $j = 0;
         while ($j < 16 && $i < $length) {
+            my $character = ord substr $text, $i, 1;
+            die if $character >= 128;
             print OUT ", " unless $j == 0;
-            print OUT ord substr $text, $i, 1;
+            print OUT $character;
             ++$i;
             ++$j;
         }
