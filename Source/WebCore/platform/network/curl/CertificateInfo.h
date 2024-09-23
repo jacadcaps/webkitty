@@ -55,9 +55,14 @@ public:
 
     bool isEmpty() const { return m_certificateChain.isEmpty(); }
 
-    static Certificate makeCertificate(std::span<const uint8_t>);
+    static Certificate makeCertificate(const uint8_t*, size_t);
 
-    friend bool operator==(const CertificateInfo&, const CertificateInfo&) = default;
+    bool operator==(const CertificateInfo& other) const
+    {
+        return verificationError() == other.verificationError()
+            && certificateChain() == other.certificateChain();
+    }
+    bool operator!=(const CertificateInfo& other) const { return !(*this == other); }
 
 private:
     int m_verificationError { 0 };

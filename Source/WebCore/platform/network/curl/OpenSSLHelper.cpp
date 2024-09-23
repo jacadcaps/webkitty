@@ -30,7 +30,6 @@
 #include <wtf/DateMath.h>
 #include <wtf/HexNumber.h>
 #include <wtf/Seconds.h>
-#include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuilder.h>
 
 namespace OpenSSL {
@@ -125,7 +124,7 @@ public:
         if (length < 0)
             return std::nullopt;
 
-        return Vector(std::span<const uint8_t> { data, static_cast<size_t>(length) });
+        return Vector { data, static_cast<size_t>(length) };
     }
 
     String getDataAsString() const
@@ -135,7 +134,7 @@ public:
         if (length < 0)
             return String();
 
-        return String({ data, static_cast<size_t>(length) });
+        return String(data, length);
     }
 
     std::unique_ptr<X509, deleter<X509>> readX509()
@@ -191,7 +190,7 @@ static String toString(const ASN1_STRING* name)
     if (length <= 0)
         return String();
 
-    String result({ data, static_cast<size_t>(length) });
+    String result(data, length);
     OPENSSL_free(data);
     return result;
 }
@@ -300,7 +299,7 @@ static void getSubjectAltName(const X509* x509, Vector<String>& dnsNames, Vector
         } else if (value->type == GEN_IPADD) {
             auto data = value->d.iPAddress->data;
             if (value->d.iPAddress->length == 4)
-                ipAddresses.append(makeString(data[0], '.', data[1], '.', data[2], '.', data[3]));
+                ipAddresses.append(makeString(data[0], ".", data[1], ".", data[2], ".", data[3]));
             else if (value->d.iPAddress->length == 16) {
                 std::span<uint8_t, 16> dataSpan { data, 16 };
                 ipAddresses.append(canonicalizeIPv6Address(dataSpan));
@@ -340,8 +339,8 @@ String canonicalizeIPv6Address(std::span<uint8_t, 16> data)
     for (int j = 0; j < 8; j++) {
         if (j == start && maxZeros > minimum) {
             if (ipAddress.isEmpty())
-                ipAddress.append(':');
-            ipAddress.append(':');
+                ipAddress.append(":");
+            ipAddress.append(":");
 
             j = end.value();
             continue;
@@ -355,7 +354,7 @@ String canonicalizeIPv6Address(std::span<uint8_t, 16> data)
         ipAddress.append(newSection.toString());
 
         if (j != 7)
-            ipAddress.append(':');
+            ipAddress.append(":");
     }
     return ipAddress.toString();
 }

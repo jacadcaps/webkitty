@@ -31,6 +31,10 @@
 #include <wtf/FastBitVector.h>
 #include <wtf/Vector.h>
 
+#ifndef UINT8_MAX
+#define UINT8_MAX   0xff
+#endif
+
 namespace JSC {
 
 class BytecodeGraph;

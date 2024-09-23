@@ -32,6 +32,10 @@
 
 #include "CurlRequestSchedulerClient.h"
 
+#if OS(MORPHOS)
+#include <proto/exec.h>
+#endif
+
 namespace WebCore {
 
 CurlRequestScheduler::CurlRequestScheduler(long maxConnects, long maxTotalConnections, long maxHostConnections)
@@ -86,6 +90,11 @@ void CurlRequestScheduler::startOrWakeUpThread()
         }
     }
 
+#if OS(MORPHOS)
+	if (m_stopped)
+		return;
+#endif
+
     if (m_thread)
         m_thread->waitForCompletion();
 
@@ -94,7 +103,7 @@ void CurlRequestScheduler::startOrWakeUpThread()
         m_runThread = true;
     }
 
-    m_thread = Thread::create("curlThread"_s, [this] {
+    m_thread = Thread::create("curlThread", [this] {
         workerThread();
     }, ThreadType::Network);
 }
@@ -111,13 +120,22 @@ void CurlRequestScheduler::wakeUpThreadIfPossible()
 void CurlRequestScheduler::stopThreadIfNoMoreJobRunning()
 {
     ASSERT(!isMainThread());
-
+#if !OS(MORPHOS)
     Locker locker { m_mutex };
     if (m_activeJobs.size() || m_taskQueue.size())
         return;
 
     m_runThread = false;
+#endif
 }
+
+#if OS(MORPHOS)
+void CurlRequestScheduler::stopCurlThread()
+{
+	m_stopped = true;
+	stopThread();
+}
+#endif
 
 void CurlRequestScheduler::stopThread()
 {
@@ -169,12 +187,28 @@ void CurlRequestScheduler::workerThread()
 
         executeTasks();
 
-        const int selectTimeoutMS = INT_MAX;
-        m_curlMultiHandle->poll({ }, selectTimeoutMS);
-
+#if 1
+        const int selectTimeoutMS = 500;
+        CURLMcode mc = m_curlMultiHandle->poll({ }, selectTimeoutMS);
+        if (mc != CURLM_OK && mc != CURLM_UNRECOVERABLE_POLL) {
+            break;
+        }
         int activeCount = 0;
-        while (m_curlMultiHandle->perform(activeCount) == CURLM_CALL_MULTI_PERFORM) { }
+        mc = m_curlMultiHandle->perform(activeCount);
+        if (mc != CURLM_OK) {
+            break;
+        }
+#else
+        int activeCount = 0;
+        CURLMcode mc = m_curlMultiHandle->perform(activeCount);
+        if (mc != CURLM_OK)
+            break;
 
+        const int selectTimeoutMS = 100;
+        mc = m_curlMultiHandle->poll({ }, selectTimeoutMS);
+        if (mc != CURLM_OK)
+            break;
+#endif
         // check the curl messages indicating completed transfers
         // and free their resources
         while (true) {
@@ -188,12 +222,13 @@ void CurlRequestScheduler::workerThread()
                 completeTransfer(client, msg->data.result);
         }
 
-//        stopThreadIfNoMoreJobRunning();
+        stopThreadIfNoMoreJobRunning();
     }
 
     {
         Locker locker { m_multiHandleMutex };
         m_curlMultiHandle.reset();
+        m_runThread = false;
     }
 }
 

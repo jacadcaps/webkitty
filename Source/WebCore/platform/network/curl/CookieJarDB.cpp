@@ -28,7 +28,7 @@
 
 #include "CookieUtil.h"
 #include "Logging.h"
-#include "PublicSuffixStore.h"
+#include "PublicSuffix.h"
 #include "RegistrableDomain.h"
 #include "SQLiteFileSystem.h"
 #include <wtf/DateMath.h>
@@ -37,9 +37,11 @@
 #include <wtf/URL.h>
 #include <wtf/Vector.h>
 #include <wtf/WallTime.h>
-#include <wtf/text/MakeString.h>
+#include <wtf/text/StringConcatenateNumbers.h>
 
 namespace WebCore {
+
+#define CORRUPT_MARKER_SUFFIX "-corrupted"
 
 // At least 50 cookies per domain (RFC6265 6.1. Limits)
 #define MAX_COOKIE_PER_DOMAIN 80
@@ -136,7 +138,7 @@ bool CookieJarDB::openDatabase()
     }
 
     if (!existsDatabaseFile) {
-        if (!isOnMemory() && !FileSystem::makeAllDirectories(FileSystem::parentPath(m_databasePath)))
+        if (!FileSystem::makeAllDirectories(FileSystem::parentPath(m_databasePath)))
             LOG_ERROR("Unable to create the Cookie Database path %s", m_databasePath.utf8().data());
 
         m_database.open(m_databasePath);
@@ -210,7 +212,7 @@ void CookieJarDB::verifySchemaVersion()
     }
 
     // Update version
-    executeSQLStatement(m_database.prepareStatementSlow(makeString("PRAGMA user_version="_s, schemaVersion)));
+    executeSQLStatement(m_database.prepareStatementSlow(makeString("PRAGMA user_version=", schemaVersion)));
 }
 
 void CookieJarDB::deleteAllTables()
@@ -225,7 +227,7 @@ String CookieJarDB::getCorruptionMarkerPath() const
 {
     ASSERT(!isOnMemory());
 
-    return makeString(m_databasePath, "-corrupted"_s);
+    return m_databasePath + CORRUPT_MARKER_SUFFIX;
 }
 
 void CookieJarDB::flagDatabaseCorruption()
@@ -307,8 +309,8 @@ void CookieJarDB::deleteAllDatabaseFiles()
 
     FileSystem::deleteFile(m_databasePath);
     FileSystem::deleteFile(getCorruptionMarkerPath());
-    FileSystem::deleteFile(makeString(m_databasePath, "-shm"_s));
-    FileSystem::deleteFile(makeString(m_databasePath, "-wal"_s));
+    FileSystem::deleteFile(m_databasePath + "-shm");
+    FileSystem::deleteFile(m_databasePath + "-wal");
 }
 
 bool CookieJarDB::isEnabled() const
@@ -347,8 +349,10 @@ bool CookieJarDB::hasCookies(const URL& url)
     if (host.isEmpty())
         return false;
 
-    if (PublicSuffixStore::singleton().isPublicSuffix(host))
+#if ENABLE(PUBLIC_SUFFIX_LIST)
+    if (isPublicSuffix(host))
         return false;
+#endif
 
     RegistrableDomain registrableDomain { url };
     auto& statement = preparedStatement(CHECK_EXISTS_COOKIE_SQL);
@@ -358,7 +362,7 @@ bool CookieJarDB::hasCookies(const URL& url)
         statement.bindNull(2);
     } else {
         statement.bindText(1, registrableDomain.string());
-        statement.bindText(2, makeString("*."_s, registrableDomain.string()));
+        statement.bindText(2, makeString("*.", registrableDomain.string()));
     }
 
     return statement.step() == SQLITE_ROW;
@@ -401,7 +405,7 @@ std::optional<Vector<Cookie>> CookieJarDB::searchCookies(const URL& firstParty, 
     if (CookieUtil::isIPAddress(requestHost) || !requestHost.contains('.') || registrableDomain.isEmpty())
         pstmt->bindNull(6);
     else
-        pstmt->bindText(6, makeString("*."_s, registrableDomain.string()));
+        pstmt->bindText(6, makeString("*.", registrableDomain.string()));
 
     Vector<Cookie> results;
 
@@ -498,8 +502,10 @@ static bool checkSecureCookie(const Cookie& cookie)
 
 bool CookieJarDB::canAcceptCookie(const Cookie& cookie, const URL& firstParty, const URL& url, CookieJarDB::Source source)
 {
-    if (PublicSuffixStore::singleton().isPublicSuffix(cookie.domain))
+#if ENABLE(PUBLIC_SUFFIX_LIST)
+    if (isPublicSuffix(cookie.domain))
         return false;
+#endif
 
     bool fromJavaScript = source == CookieJarDB::Source::Script;
     if (fromJavaScript && (cookie.httpOnly || hasHttpOnlyCookie(cookie.name, cookie.domain, cookie.path)))

@@ -156,6 +156,7 @@ RenderPtr<RenderElement> SVGMaskElement::createElementRenderer(RenderStyle&& sty
 FloatRect SVGMaskElement::calculateMaskContentRepaintRect(RepaintRectCalculation repaintRectCalculation)
 {
     ASSERT(renderer());
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
     auto transformationMatrixFromChild = [&](const RenderLayerModelObject& child) -> std::optional<AffineTransform> {
         if (!document().settings().layerBasedSVGEngineEnabled())
             return std::nullopt;
@@ -169,6 +170,7 @@ FloatRect SVGMaskElement::calculateMaskContentRepaintRect(RepaintRectCalculation
         auto transform = SVGLayerTransformComputation(child).computeAccumulatedTransform(downcast<RenderLayerModelObject>(renderer()), TransformState::TrackSVGCTMMatrix);
         return transform.isIdentity() ? std::nullopt : std::make_optional(WTFMove(transform));
     };
+#endif
     FloatRect maskRepaintRect;
     for (auto* childNode = firstChild(); childNode; childNode = childNode->nextSibling()) {
         CheckedPtr renderer = childNode->renderer();

@@ -71,6 +71,10 @@
 #include "PingPongStackOverflowTest.h"
 #include "TypedArrayCTest.h"
 
+#if OS(MORPHOS)
+unsigned long __stack = 2 * 1024 * 1024;
+#endif
+
 #if JSC_OBJC_API_ENABLED
 void testObjectiveCAPI(const char*);
 #endif
@@ -1550,7 +1554,11 @@ int main(int argc, char* argv[])
 
     configureJSCForTesting();
 
-#if !OS(WINDOWS)
+#if OS(MORPHOS)
+    chdir("PROGDIR:");
+#endif
+
+#if !OS(WINDOWS) && !OS(MORPHOS)
     char resolvedPath[PATH_MAX];
     if (!realpath(argv[0], resolvedPath))
         fprintf(stdout, "Could not get the absolute pathname for: %s\n", argv[0]);
@@ -2173,7 +2181,11 @@ int main(int argc, char* argv[])
     JSObjectMakeConstructor(context, nullClass, 0);
     JSClassRelease(nullClass);
 
+#if OS(MORPHOS)
+    const char* scriptPath = "PROGDIR:testapiScripts/testapi.js";
+#else
     const char* scriptPath = "./testapiScripts/testapi.js";
+#endif
     char* scriptUTF8 = createStringWithContentsOfFile(scriptPath);
     if (!scriptUTF8) {
         printf("FAIL: Test script could not be loaded.\n");

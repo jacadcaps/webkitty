@@ -29,6 +29,7 @@
 #include "ThrowScope.h"
 #include "ToNativeFromValue.h"
 #include <wtf/CheckedArithmetic.h>
+#include <wtf/FlipBytes.h>
 
 namespace JSC {
 

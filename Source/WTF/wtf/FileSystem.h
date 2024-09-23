@@ -161,6 +161,7 @@ WTF_EXPORT_PRIVATE int overwriteEntireFile(const String& path, std::span<const u
 
 // Prefix is what the filename should be prefixed with, not the full path.
 WTF_EXPORT_PRIVATE std::pair<String, PlatformFileHandle> openTemporaryFile(StringView prefix, StringView suffix = { });
+WTF_EXPORT_PRIVATE String openTemporaryFile(StringView tmpPath, StringView prefix, PlatformFileHandle&, StringView suffix = { });
 WTF_EXPORT_PRIVATE String createTemporaryFile(StringView prefix, StringView suffix = { });
 WTF_EXPORT_PRIVATE PlatformFileHandle openFile(const String& path, FileOpenMode, FileAccessPermission = FileAccessPermission::All, bool failIfFileExists = false);
 WTF_EXPORT_PRIVATE void closeFile(PlatformFileHandle&);
@@ -172,6 +173,8 @@ WTF_EXPORT_PRIVATE bool flushFile(PlatformFileHandle);
 WTF_EXPORT_PRIVATE int64_t writeToFile(PlatformFileHandle, std::span<const uint8_t> data);
 // Returns number of bytes actually written if successful, -1 otherwise.
 WTF_EXPORT_PRIVATE int64_t readFromFile(PlatformFileHandle, std::span<uint8_t> data);
+WTF_EXPORT_PRIVATE String temporaryFilePathForPrefix(const String& prefix);
+WTF_EXPORT_PRIVATE void setTemporaryFilePathForPrefix(const char * tmpPath, const String& prefix);
 
 WTF_EXPORT_PRIVATE PlatformFileHandle openAndLockFile(const String&, FileOpenMode, OptionSet<FileLockMode> = FileLockMode::Exclusive);
 WTF_EXPORT_PRIVATE void unlockAndCloseFile(PlatformFileHandle);
@@ -216,6 +219,15 @@ WTF_EXPORT_PRIVATE String userDataDirectory();
 WTF_EXPORT_PRIVATE String localUserSpecificStorageDirectory();
 WTF_EXPORT_PRIVATE String roamingUserSpecificStorageDirectory();
 WTF_EXPORT_PRIVATE String createTemporaryDirectory();
+#endif
+
+#if OS(MORPHOS)
+WTF_EXPORT_PRIVATE String openTemporaryFileAsync(StringView prefix, PlatformFileHandle&);
+WTF_EXPORT_PRIVATE PlatformFileHandle openFileAsync(const String& path, FileOpenMode, FileAccessPermission = FileAccessPermission::All, bool failIfFileExists = false);
+WTF_EXPORT_PRIVATE void closeFileAsync(PlatformFileHandle&);
+// Returns the resulting offset from the beginning of the file if successful, -1 otherwise.
+WTF_EXPORT_PRIVATE long long seekFileAsync(PlatformFileHandle, long long offset, FileSeekOrigin);
+WTF_EXPORT_PRIVATE int writeToFileAsync(PlatformFileHandle, const void* data, int length);
 #endif
 
 #if PLATFORM(COCOA)

@@ -54,6 +54,24 @@ class SharedBuffer;
 
 enum class MemoryLedger { None, Default, Network, Media, Graphics, Neural };
 
+#if OS(MORPHOS)
+class MorphOSHandleData : public ThreadSafeRefCounted<MorphOSHandleData> {
+public:
+    MorphOSHandleData(size_t size);
+    ~MorphOSHandleData();
+    size_t size() const { return m_size; }
+    void *data() { return m_data; }
+protected:
+    void*  m_data;
+    size_t m_size;
+};
+
+struct MorphOSHandle {
+    RefPtr<MorphOSHandleData> m_shared;
+    bool operator!() const { return !m_shared; }
+};
+#endif
+
 class SharedMemoryHandle {
 public:
     using Type =
@@ -63,6 +81,8 @@ public:
         MachSendRight;
 #elif OS(WINDOWS)
         Win32Handle;
+#elif OS(MORPHOS)
+        MorphOSHandle;
 #endif
 
     SharedMemoryHandle(SharedMemoryHandle&&) = default;
@@ -145,6 +165,8 @@ private:
     MachSendRight m_sendRight;
 #elif OS(WINDOWS)
     Win32Handle m_handle;
+#elif OS(MORPHOS)
+    MorphOSHandle m_handle;
 #endif
 };
 

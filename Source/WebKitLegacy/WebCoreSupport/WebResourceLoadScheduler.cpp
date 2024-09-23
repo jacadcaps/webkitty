@@ -41,6 +41,7 @@
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/URL.h>
 #include <wtf/text/CString.h>
+#include <WebCore/FrameDestructionObserverInlines.h>
 
 #if PLATFORM(IOS_FAMILY)
 #include <WebCore/RuntimeApplicationChecks.h>

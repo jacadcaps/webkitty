@@ -43,24 +43,20 @@ class CurlStream {
     WTF_MAKE_FAST_ALLOCATED;
     WTF_MAKE_NONCOPYABLE(CurlStream);
 public:
-    using LocalhostAlias = CurlHandle::LocalhostAlias;
-
-    enum class ServerTrustEvaluation : bool { Disable, Enable };
-
     class Client {
     public:
         virtual void didOpen(CurlStreamID) = 0;
         virtual void didSendData(CurlStreamID, size_t) = 0;
         virtual void didReceiveData(CurlStreamID, const SharedBuffer&) = 0;
-        virtual void didFail(CurlStreamID, CURLcode, CertificateInfo&&) = 0;
+        virtual void didFail(CurlStreamID, CURLcode) = 0;
     };
 
-    static std::unique_ptr<CurlStream> create(CurlStreamScheduler& scheduler, CurlStreamID streamID, URL&& url, ServerTrustEvaluation serverTrustEvaluation, LocalhostAlias localhostAlias)
+    static std::unique_ptr<CurlStream> create(CurlStreamScheduler& scheduler, CurlStreamID streamID, URL&& url)
     {
-        return makeUnique<CurlStream>(scheduler, streamID, WTFMove(url), serverTrustEvaluation, localhostAlias);
+        return makeUnique<CurlStream>(scheduler, streamID, WTFMove(url));
     }
 
-    CurlStream(CurlStreamScheduler&, CurlStreamID, URL&&, ServerTrustEvaluation, LocalhostAlias);
+    CurlStream(CurlStreamScheduler&, CurlStreamID, URL&&);
     virtual ~CurlStream();
 
     void send(UniqueArray<uint8_t>&&, size_t);

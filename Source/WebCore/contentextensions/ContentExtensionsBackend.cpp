@@ -52,6 +52,11 @@
 #include <wtf/text/CString.h>
 #include <wtf/text/MakeString.h>
 
+#if OS(MORPHOS)
+extern "C" { void dprintf(const char *,...); }
+bool shouldLoadResource(const WebCore::ContentExtensions::ResourceLoadInfo& info, WebCore::DocumentLoader& loader);
+#endif
+
 namespace WebCore::ContentExtensions {
 
 #if USE(APPLE_INTERNAL_SDK)
@@ -248,6 +253,21 @@ ContentRuleListResults ContentExtensionsBackend::processContentRuleListsForLoad(
         frameURL = url;
 
     ResourceLoadInfo resourceLoadInfo { url, mainDocumentURL, frameURL, resourceType, mainFrameContext };
+#if OS(MORPHOS)
+    ContentRuleListResults results;
+    if (!shouldLoadResource(resourceLoadInfo, initiatingDocumentLoader))
+    {
+        ContentRuleListResults::Result result;
+        results.summary.blockedLoad = true;
+        result.blockedLoad = true;
+        results.results.append({ "x-morphos-blocker"_s, WTFMove(result) });
+    }
+    else
+    {
+        if (page.httpsUpgradeEnabled())
+            makeSecureIfNecessary(results, url, redirectFrom);
+    }
+#else
     auto actions = actionsForResourceLoad(resourceLoadInfo, ruleListFilter);
 
     ContentRuleListResults results;
@@ -304,6 +324,7 @@ ContentRuleListResults ContentExtensionsBackend::processContentRuleListsForLoad(
 
         results.results.append({ contentRuleListIdentifier, WTFMove(result) });
     }
+#endif
 
     if (currentDocument) {
         if (results.summary.madeHTTPS) {

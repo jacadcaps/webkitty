@@ -55,6 +55,9 @@ namespace WTF {
 
 void* OSAllocator::tryReserveAndCommit(size_t bytes, Usage usage, bool writable, bool executable, bool jitCageEnabled, bool includesGuardPages)
 {
+#if OS(MORPHOS)
+    return malloc(bytes);
+#else
     // All POSIX reservations start out logically committed.
     int protection = PROT_READ;
     if (writable)
@@ -123,6 +126,7 @@ void* OSAllocator::tryReserveAndCommit(size_t bytes, Usage usage, bool writable,
         }
     }
     return result;
+#endif
 }
 
 void* OSAllocator::tryReserveUncommitted(size_t bytes, Usage usage, bool writable, bool executable, bool jitCageEnabled, bool includesGuardPages)
@@ -239,9 +243,13 @@ void* OSAllocator::tryReserveUncommittedAligned(size_t bytes, size_t alignment, 
 
 void* OSAllocator::reserveAndCommit(size_t bytes, Usage usage, bool writable, bool executable, bool jitCageEnabled, bool includesGuardPages)
 {
+#if OS(MORPHOS)
+    return malloc(bytes);
+#else
     void* result = tryReserveAndCommit(bytes, usage, writable, executable, jitCageEnabled, includesGuardPages);
     RELEASE_ASSERT(result);
     return result;
+#endif
 }
 
 void OSAllocator::commit(void* address, size_t bytes, bool writable, bool executable)
@@ -291,13 +299,20 @@ void OSAllocator::hintMemoryNotNeededSoon(void* address, size_t bytes)
 
 void OSAllocator::releaseDecommitted(void* address, size_t bytes)
 {
+#if OS(MORPHOS)
+    free(address);
+#else
     int result = munmap(address, bytes);
     if (result == -1)
         CRASH();
+#endif
 }
 
 bool OSAllocator::tryProtect(void* address, size_t bytes, bool readable, bool writable)
 {
+#if OS(MORPHOS)
+    return true;
+#else
     int protection = 0;
     if (readable) {
         if (writable)
@@ -309,6 +324,7 @@ bool OSAllocator::tryProtect(void* address, size_t bytes, bool readable, bool wr
         protection = PROT_NONE;
     }
     return !mprotect(address, bytes, protection);
+#endif
 }
 
 void OSAllocator::protect(void* address, size_t bytes, bool readable, bool writable)

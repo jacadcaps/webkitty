@@ -482,6 +482,10 @@ public:
     bool hasEnabledTargetAvailabilityListeners();
 #endif
 
+#if OS(MORPHOS)
+    Page* mediaPlayerPage() final;
+#endif
+
     bool isPlayingToWirelessPlaybackTarget() const override { return m_isPlayingToWirelessTarget; };
     void setIsPlayingToWirelessTarget(bool);
 

@@ -172,8 +172,10 @@ Notification::Notification(ScriptExecutionContext& context, WTF::UUID identifier
 {
     if (context.isDocument())
         m_notificationSource = NotificationSource::Document;
+#if ENABLE(SERVICE_WORKER)
     else if (context.isServiceWorkerGlobalScope())
         m_notificationSource = NotificationSource::ServiceWorker;
+#endif
     else if (is<DedicatedWorkerGlobalScope>(context))
         m_notificationSource = NotificationSource::DedicatedWorker;
     else

@@ -31,7 +31,6 @@
 
 #include <wtf/DateMath.h>
 #include <wtf/WallTime.h>
-#include <wtf/text/MakeString.h>
 #include <wtf/text/StringToIntegerConversion.h>
 #include <wtf/text/WTFString.h>
 
@@ -81,9 +80,9 @@ bool domainMatch(const String& cookieDomain, const String& host)
     return false;
 }
 
-static std::optional<double> parseExpiresMS(std::span<const LChar> expires)
+static std::optional<double> parseExpiresMS(const char* expires)
 {
-    double tmp = parseDate(expires);
+    double tmp = parseDateFromNullTerminatedCharacters(expires);
     if (isnan(tmp))
         return { };
 
@@ -113,7 +112,7 @@ static void parseCookieAttributes(const String& attribute, bool& hasMaxAge, Cook
 
         // Enforce a dot character prefix to hostnames which are not ip addresses and not single value hostnames such as localhost
         if (!isIPAddress(attributeValue) && !attributeValue.startsWith('.') && attributeValue.find('.') != notFound)
-            attributeValue = makeString('.', attributeValue);
+            attributeValue = "." + attributeValue;
 
         result.domain = attributeValue.convertToASCIILowercase();
 
@@ -130,7 +129,7 @@ static void parseCookieAttributes(const String& attribute, bool& hasMaxAge, Cook
             result.expires = std::nullopt;
         }
     } else if (equalLettersIgnoringASCIICase(attributeName, "expires"_s) && !hasMaxAge) {
-        if (auto expiryTime = parseExpiresMS(attributeValue.utf8().span())) {
+        if (auto expiryTime = parseExpiresMS(attributeValue.utf8().data())) {
             result.expires = expiryTime.value();
             result.session = false;
         } else if (!hasMaxAge) {
