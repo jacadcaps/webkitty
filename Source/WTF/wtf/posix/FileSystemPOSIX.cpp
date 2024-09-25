@@ -510,10 +510,10 @@ long long seekFileAsync(PlatformFileHandle fh, long long offset, FileSeekOrigin 
     return -1;
 }
 
-int writeToFileAsync(PlatformFileHandle fh, const void* data, int length)
+int writeToFileAsync(PlatformFileHandle fh, std::span<const uint8_t> data)
 {
     if (fh != -1)
-        return WriteAsync((AsyncFile *)fh, APTR(data), length);
+        return WriteAsync((AsyncFile *)fh, APTR(data.data()), ULONG(data.size()));
     return -1;
 }
 #endif

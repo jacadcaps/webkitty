@@ -26,15 +26,15 @@
 #include "config.h"
 #include "UserAgent.h"
 
-#include <wtf/text/StringConcatenate.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
 String standardUserAgent(const String& applicationName, const String& applicationVersion)
 {
     auto version = applicationName.isEmpty() ? emptyString() : applicationVersion;
-    return makeString("Mozilla/5.0 (MorphOS) AppleWebKit/605.1.15 (KHTML, like Gecko)",
-        applicationName.isEmpty() ? "" : " ", applicationName, version.isEmpty() ? "" : "/", version);
+    return makeString("Mozilla/5.0 (MorphOS) AppleWebKit/605.1.15 (KHTML, like Gecko)"_s,
+        applicationName.isEmpty() ? ""_s : " "_s, applicationName, version.isEmpty() ? ""_s : "/"_s, version);
 }
 
 } // namespace WebCore

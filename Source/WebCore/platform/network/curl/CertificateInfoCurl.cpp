@@ -53,7 +53,7 @@ String CertificateInfo::verificationErrorDescription() const
 CertificateInfo::Certificate CertificateInfo::makeCertificate(const uint8_t* buffer, size_t size)
 {
     Certificate certificate;
-    certificate.append(buffer, size);
+    certificate.append( std::span<const uint8_t>( buffer, size ) );
     return certificate;
 }
 

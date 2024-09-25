@@ -173,7 +173,7 @@ void CurlDownload::curlDidReceiveResponse(CurlRequest& request, CurlResponse&& r
 }
 
 
-void CurlDownload::curlDidReceiveData(CurlRequest&, const SharedBuffer& buffer)
+void CurlDownload::curlDidReceiveData(CurlRequest&, Ref<SharedBuffer>&& buffer)
 {
     ASSERT(isMainThread());
 
@@ -181,7 +181,7 @@ void CurlDownload::curlDidReceiveData(CurlRequest&, const SharedBuffer& buffer)
         return;
 
     if (m_listener)
-        m_listener->didReceiveDataOfLength(buffer.size());
+        m_listener->didReceiveDataOfLength(buffer->size());
 }
 
 void CurlDownload::curlDidComplete(CurlRequest& request, NetworkLoadMetrics&&)

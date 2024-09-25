@@ -441,7 +441,7 @@ size_t CurlRequest::didReceiveHeader(String&& header)
 
 // called with data after all headers have been processed via headerCallback
 
-size_t CurlRequest::didReceiveData(const SharedBuffer& buffer)
+size_t CurlRequest::didReceiveData(std::span<const uint8_t> buffer)
 {
     if (isCompletedOrCancelled())
         return 0;
@@ -462,11 +462,18 @@ size_t CurlRequest::didReceiveData(const SharedBuffer& buffer)
     writeDataToDownloadFileIfEnabled(buffer);
 
     if (receiveBytes) {
-        if (m_multipartHandle)
-            m_multipartHandle->didReceiveData(buffer);
+        if (m_multipartHandle) {
+            m_multipartHandle->didReceiveMessage(buffer);
+            if (m_multipartHandle->hasError())
+#if LIBCURL_VERSION_NUM >= 0x075700
+                return CURL_WRITEFUNC_ERROR;
+#else
+                return 0;
+#endif
+        }
         else {
-            callClient([buffer = Ref { buffer }](CurlRequest& request, CurlRequestClient& client) {
-                client.curlDidReceiveData(request, buffer);
+            callClient([buffer = SharedBuffer::create(buffer)](CurlRequest& request, CurlRequestClient& client) mutable {
+                client.curlDidReceiveData(request, WTFMove(buffer));
             });
         }
     }
@@ -474,7 +481,7 @@ size_t CurlRequest::didReceiveData(const SharedBuffer& buffer)
     return receiveBytes;
 }
 
-void CurlRequest::didReceiveHeaderFromMultipart(const Vector<String>& headers)
+void CurlRequest::didReceiveHeaderFromMultipart(Vector<String>&& headers)
 {
     if (isCompletedOrCancelled())
         return;
@@ -489,18 +496,25 @@ void CurlRequest::didReceiveHeaderFromMultipart(const Vector<String>& headers)
     invokeDidReceiveResponse(response, Action::None);
 }
 
-void CurlRequest::didReceiveDataFromMultipart(const SharedBuffer& buffer)
+void CurlRequest::didReceiveDataFromMultipart(std::span<const uint8_t> receivedData)
 {
     if (isCompletedOrCancelled())
         return;
 
-    auto receiveBytes = buffer.size();
-
-    if (receiveBytes) {
-        callClient([buffer = Ref { buffer }](CurlRequest& request, CurlRequestClient& client) {
-            client.curlDidReceiveData(request, buffer);
+    if (receivedData.size()) {
+        callClient([buffer = SharedBuffer::create(receivedData)](CurlRequest& request, CurlRequestClient& client) mutable {
+            client.curlDidReceiveData(request, WTFMove(buffer));
         });
     }
+}
+
+void CurlRequest::didCompleteFromMultipart()
+{
+    ASSERT(m_multipartHandle && m_multipartHandle->completed());
+
+    runOnWorkerThreadIfRequired([this, protectedThis = Ref { *this }]() {
+        didCompleteTransfer(CURLE_OK);
+    });
 }
 
 void CurlRequest::didCompleteTransfer(CURLcode result)
@@ -520,8 +534,10 @@ void CurlRequest::didCompleteTransfer(CURLcode result)
             return;
         }
 
-        if (m_multipartHandle)
-            m_multipartHandle->didComplete();
+        if (m_multipartHandle && !m_multipartHandle->completed()) {
+            m_multipartHandle->didCompleteMessage();
+            return;
+        }
 
         auto metrics = networkLoadMetrics();
 
@@ -571,13 +587,13 @@ void CurlRequest::finalizeTransfer()
     m_curlHandle = nullptr;
 }
 
-int CurlRequest::didReceiveDebugInfo(curl_infotype type, char* data, size_t size)
+int CurlRequest::didReceiveDebugInfo(curl_infotype type, std::span<const char> data)
 {
-    if (!data)
+    if (!data.data())
         return 0;
 
     if (type == CURLINFO_HEADER_OUT) {
-        String requestHeader(data, size);
+        String requestHeader(data);
         auto headerFields = requestHeader.split("\r\n"_s);
         // Remove the request line
         if (headerFields.size())
@@ -670,7 +686,7 @@ void CurlRequest::invokeDidReceiveResponseForFile(const URL& url)
         CurlResponse response;
         response.url = WTFMove(url);
         response.statusCode = 200;
-        response.headers.append("Content-Type: " + mimeType);
+        response.headers.append(makeString("Content-Type: "_s, mimeType));
 
         invokeDidReceiveResponse(response, Action::StartTransfer);
     });
@@ -822,7 +838,7 @@ void CurlRequest::enableDownloadToFile()
 
 void CurlRequest::resumeDownloadToFile(const String &tmpDownloadPath)
 {
-    LockHolder locker(m_downloadMutex);
+    Locker locker(m_downloadMutex);
     m_isEnabledDownloadToFile = true;
     m_downloadFilePath = tmpDownloadPath;
     m_downloadPendingResume = true;
@@ -834,7 +850,7 @@ String CurlRequest::getDownloadedFilePath()
     return m_downloadFilePath;
 }
 
-void CurlRequest::writeDataToDownloadFileIfEnabled(const FragmentedSharedBuffer& buffer)
+void CurlRequest::writeDataToDownloadFileIfEnabled(std::span<const uint8_t> buffer)
 {
     {
         Locker locker { m_downloadMutex };
@@ -867,7 +883,7 @@ void CurlRequest::writeDataToDownloadFileIfEnabled(const FragmentedSharedBuffer&
     if (m_downloadFileHandle != FileSystem::invalidPlatformFileHandle)
     {
 #if OS(MORPHOS)
-        if (-1 == FileSystem::writeToFile(m_downloadFileHandle, buffer.makeContiguous()->data(), buffer.size()))
+        if (-1 == FileSystem::writeToFile(m_downloadFileHandle, buffer))
         {
             auto resourceError = ResourceError(507, m_request.url(), ResourceError::Type::General);
             callClient([error = WTFMove(resourceError)](CurlRequest& request, CurlRequestClient& client) mutable {
@@ -878,7 +894,7 @@ void CurlRequest::writeDataToDownloadFileIfEnabled(const FragmentedSharedBuffer&
             });
         }
 #else
-        FileSystem::writeToFile(m_downloadFileHandle, buffer.makeContiguous()->data(), buffer.size());
+        FileSystem::writeToFile(m_downloadFileHandle, buffer);
 #endif
     }
 }
@@ -911,17 +927,17 @@ size_t CurlRequest::willSendDataCallback(char* ptr, size_t blockSize, size_t num
 
 size_t CurlRequest::didReceiveHeaderCallback(char* ptr, size_t blockSize, size_t numberOfBlocks, void* userData)
 {
-    return static_cast<CurlRequest*>(userData)->didReceiveHeader(String(ptr, blockSize * numberOfBlocks));
+    return static_cast<CurlRequest*>(userData)->didReceiveHeader(String({ ptr, blockSize * numberOfBlocks }));
 }
 
 size_t CurlRequest::didReceiveDataCallback(char* ptr, size_t blockSize, size_t numberOfBlocks, void* userData)
 {
-    return static_cast<CurlRequest*>(userData)->didReceiveData(SharedBuffer::create(ptr, blockSize * numberOfBlocks));
+    return static_cast<CurlRequest*>(userData)->didReceiveData({ reinterpret_cast<const uint8_t*>(ptr), blockSize * numberOfBlocks });
 }
 
 int CurlRequest::didReceiveDebugInfoCallback(CURL*, curl_infotype type, char* data, size_t size, void* userData)
 {
-    return static_cast<CurlRequest*>(userData)->didReceiveDebugInfo(type, data, size);
+    return static_cast<CurlRequest*>(userData)->didReceiveDebugInfo(type, { data, size } );
 }
 
 }

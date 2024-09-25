@@ -84,7 +84,7 @@ void CurlSSLHandle::setClientCertificateInfo(const String& hostName, const Strin
 
 void CurlSSLHandle::clearClientCertificateInfo(const String& hostName)
 {
-    LockHolder mutex(m_allowedClientHostsLock);
+    Locker mutex(m_allowedClientHostsLock);
 
 	m_allowedClientHosts.remove(hostName);
 }

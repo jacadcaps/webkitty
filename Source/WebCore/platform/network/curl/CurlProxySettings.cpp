@@ -34,6 +34,7 @@
 
 #include <curl/curl.h>
 #include <wtf/text/StringConcatenateNumbers.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
@@ -118,8 +119,8 @@ static std::optional<String> createProxyUrl(const URL &url)
     if (!port)
         return std::nullopt;
 
-    auto userpass = url.hasCredentials() ? makeString(url.user(), ":", url.password(), "@") : String();
-    return makeString(url.protocol(), "://", userpass, url.host(), ":", *port);
+    auto userpass = url.hasCredentials() ? makeString(url.user(), ":"_s, url.password(), "@"_s) : String();
+    return makeString(url.protocol(), "://"_s, userpass, url.host(), ":"_s, *port);
 }
 
 }

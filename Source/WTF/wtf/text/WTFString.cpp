@@ -90,7 +90,7 @@ CString String::native() const
     unsigned length = this->length();
 
     if (!length)
-        return CString("", 0);
+        return CString();
 
 	struct TagItem tags[] = { { CST_DoNotTerminate, TRUE }, { TAG_DONE, 0 } };
 
@@ -98,12 +98,12 @@ CString String::native() const
     {
     	char* characterBuffer;
 		CString result = CString::newUninitialized(length, characterBuffer);
-		ConvertTagList(reinterpret_cast<APTR>(const_cast<unsigned char *>(this->characters8())), length, reinterpret_cast<APTR>(characterBuffer),
+		ConvertTagList(reinterpret_cast<APTR>(const_cast<unsigned char *>(this->span8().data())), length, reinterpret_cast<APTR>(characterBuffer),
 			length, MIBENUM_ISO_8859_1, MIBENUM_SYSTEM, tags);
 		return result;
 	}
 
-    const UChar* characters = this->characters16();
+    const UChar* characters = this->span16().data();
 
     char* characterBuffer;
     CString result = CString::newUninitialized(length, characterBuffer);

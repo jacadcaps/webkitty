@@ -45,8 +45,10 @@ class ResourceError;
 class FragmentedSharedBuffer;
 class SynchronousLoaderMessageQueue;
 
-class CurlRequest : public ThreadSafeRefCounted<CurlRequest>, public CurlRequestSchedulerClient, public CurlMultipartHandleClient {
+class CurlRequest : public ThreadSafeRefCounted<CurlRequest>, public CurlRequestSchedulerClient, public CurlMultipartHandleClient, public CanMakeThreadSafeCheckedPtr<CurlRequest> {
     WTF_MAKE_NONCOPYABLE(CurlRequest);
+    WTF_MAKE_FAST_ALLOCATED;
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(CurlRequest);
 
 public:
     enum class ShouldSuspend : bool {
@@ -118,6 +120,12 @@ private:
 
     WEBCORE_EXPORT CurlRequest(const ResourceRequest&, CurlRequestClient*, ShouldSuspend, EnableMultipart, CaptureNetworkLoadMetrics, RefPtr<SynchronousLoaderMessageQueue>&&);
 
+    // CheckedPtr interface
+    uint32_t ptrCount() const final { return CanMakeThreadSafeCheckedPtr::ptrCount(); }
+    uint32_t ptrCountWithoutThreadCheck() const final { return CanMakeThreadSafeCheckedPtr::ptrCountWithoutThreadCheck(); }
+    void incrementPtrCount() const final { CanMakeThreadSafeCheckedPtr::incrementPtrCount(); }
+    void decrementPtrCount() const final { CanMakeThreadSafeCheckedPtr::decrementPtrCount(); }
+
     void retain() override { ref(); }
     void release() override { deref(); }
     CURL* handle() override { return m_curlHandle ? m_curlHandle->handle() : nullptr; }
@@ -133,15 +141,16 @@ private:
     CURL* setupTransfer() override;
     size_t willSendData(char*, size_t, size_t);
     size_t didReceiveHeader(String&&);
-    size_t didReceiveData(const SharedBuffer&);
-    void didReceiveHeaderFromMultipart(const Vector<String>&) override;
-    void didReceiveDataFromMultipart(const SharedBuffer&) override;
+    size_t didReceiveData(std::span<const uint8_t>);
+    void didReceiveHeaderFromMultipart(Vector<String>&&) override;
+    void didReceiveDataFromMultipart(std::span<const uint8_t>) override;
+    void didCompleteFromMultipart() override;
     void didCompleteTransfer(CURLcode) override;
     void didCancelTransfer() override;
     void finalizeTransfer();
     void invokeCancel();
 
-    int didReceiveDebugInfo(curl_infotype, char*, size_t);
+    int didReceiveDebugInfo(curl_infotype, std::span<const char> data);
 
     // For setup 
     void appendAcceptLanguageHeader(HTTPHeaderMap&);
@@ -164,7 +173,7 @@ private:
     NetworkLoadMetrics networkLoadMetrics();
 
     // Download
-    void writeDataToDownloadFileIfEnabled(const FragmentedSharedBuffer&);
+    void writeDataToDownloadFileIfEnabled(std::span<const uint8_t>);
     void closeDownloadFile();
     void cleanupDownloadFile();
 

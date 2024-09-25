@@ -146,15 +146,15 @@ void CurlResourceHandleDelegate::curlDidReceiveResponse(CurlRequest& request, Cu
     });
 }
 
-void CurlResourceHandleDelegate::curlDidReceiveData(CurlRequest&, const SharedBuffer& buffer)
+void CurlResourceHandleDelegate::curlDidReceiveData(CurlRequest&, Ref<SharedBuffer>&& buffer)
 {
     ASSERT(isMainThread());
 
     if (cancelledOrClientless())
         return;
 
-    CurlCacheManager::singleton().didReceiveData(m_handle, buffer);
-    client()->didReceiveBuffer(&m_handle, buffer, buffer.size());
+    CurlCacheManager::singleton().didReceiveData(m_handle, buffer->span());
+    client()->didReceiveBuffer(&m_handle, buffer, buffer->size());
 }
 
 void CurlResourceHandleDelegate::curlDidComplete(CurlRequest&, NetworkLoadMetrics&& metrics)

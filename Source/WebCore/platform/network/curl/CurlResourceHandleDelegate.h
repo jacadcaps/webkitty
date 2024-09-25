@@ -54,7 +54,7 @@ public:
 
     void curlDidSendData(CurlRequest&, unsigned long long bytesSent, unsigned long long totalBytesToBeSent) final;
     void curlDidReceiveResponse(CurlRequest&, CurlResponse&&) final;
-    void curlDidReceiveData(CurlRequest&, const SharedBuffer&) final;
+    void curlDidReceiveData(CurlRequest&, Ref<SharedBuffer>&&) final;
     void curlDidComplete(CurlRequest&, NetworkLoadMetrics&&) final;
     void curlDidFailWithError(CurlRequest&, ResourceError&&, CertificateInfo&&) final;
 

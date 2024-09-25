@@ -51,7 +51,7 @@ public:
     bool getCachedResponse(const String& url, ResourceResponse&);
 
     void didReceiveResponse(ResourceHandle&, ResourceResponse&);
-    void didReceiveData(ResourceHandle&, const SharedBuffer&); // Save data
+    void didReceiveData(ResourceHandle&, std::span<const uint8_t>); // Save data
     void didFinishLoading(ResourceHandle&);
     void didFail(ResourceHandle&);
 

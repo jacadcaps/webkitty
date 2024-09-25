@@ -116,13 +116,14 @@ AtomString tryMakeAtomStringFromAdapters(StringTypeAdapters ...adapters)
         return builder.toAtomString();
     } else {
         auto sum = checkedSum<int32_t>(adapters.length()...);
+#if OS(MORPHOS)
         unsigned length = sum;
         if (sum.hasOverflowed() || length >= String::MaxLength)
             return AtomString();
-
+#else
         unsigned length = sum;
         ASSERT(length <= String::MaxLength);
-
+#endif
         bool areAllAdapters8Bit = are8Bit(adapters...);
         constexpr size_t maxLengthToUseStackVariable = 64;
         if (length < maxLengthToUseStackVariable) {

@@ -404,7 +404,7 @@ ALWAYS_INLINE EncodedJSValue genericTypedArrayViewProtoFuncIncludes(VM& vm, JSGl
             if (std::isnan(*targetOption)) {
                 for (; index < searchLength; ++index) {
 #if CPU(BIG_ENDIAN)
-                    if (std::isnan(flipBytes(array[index])))
+                    if (std::isnan(flipBytes(uint16_t(array[index]))))
 #else
                     if (std::isnan(array[index]))
 #endif
@@ -416,7 +416,7 @@ ALWAYS_INLINE EncodedJSValue genericTypedArrayViewProtoFuncIncludes(VM& vm, JSGl
             if (std::isnan(static_cast<double>(*targetOption))) {
                 for (; index < searchLength; ++index) {
 #if CPU(BIG_ENDIAN)
-                    if (std::isnan(static_cast<double>(flipbytes(array[index]))))
+                    if (std::isnan(static_cast<double>(flipBytes(array[index]))))
 #else
                     if (std::isnan(static_cast<double>(array[index])))
 #endif

@@ -654,7 +654,7 @@ bool JSGenericTypedArrayView<Adaptor>::getOwnPropertySlotByIndex(
     } else {
         auto nativeValue = thisObject->getIndexQuicklyAsNativeValue(propertyName);
 #if CPU(BIG_ENDIAN)
-        if constexpr (TypeFloat32 != Adaptor::typeValue && TypeFloat64 != Adaptor::typeValue)
+        if constexpr (TypeFloat32 != Adaptor::typeValue && TypeFloat64 != Adaptor::typeValue && TypeFloat16 != Adaptor::typeValue)
             nativeValue = flipBytes(nativeValue);
 #endif
         value = Adaptor::toJSValue(globalObject, nativeValue);
@@ -823,7 +823,7 @@ template<typename Adaptor> inline typename Adaptor::Type JSGenericTypedArrayView
 template<typename Adaptor> inline JSValue JSGenericTypedArrayView<Adaptor>::getIndexQuickly(size_t i) const
 {
 #if CPU(BIG_ENDIAN)
-    if constexpr (TypeFloat32 == Adaptor::typeValue || TypeFloat64 == Adaptor::typeValue) {
+    if constexpr (TypeFloat32 == Adaptor::typeValue || TypeFloat64 == Adaptor::typeValue || TypeFloat16 == Adaptor::typeValue) {
         return Adaptor::toJSValue(nullptr, getIndexQuicklyAsNativeValue(i));
     }
     else {
@@ -844,7 +844,7 @@ template<typename Adaptor> inline void JSGenericTypedArrayView<Adaptor>::setInde
 template<typename Adaptor> inline void JSGenericTypedArrayView<Adaptor>::setIndexQuickly(size_t i, JSValue value)
 {
 #if CPU(BIG_ENDIAN)
-    if constexpr (TypeFloat32 == Adaptor::typeValue || TypeFloat64 == Adaptor::typeValue) {
+    if constexpr (TypeFloat32 == Adaptor::typeValue || TypeFloat64 == Adaptor::typeValue || TypeFloat16 == Adaptor::typeValue) {
         setIndexQuicklyToNativeValue(i, toNativeFromValue<Adaptor>(value));
     }
     else {
@@ -871,7 +871,7 @@ template<typename Adaptor> inline bool JSGenericTypedArrayView<Adaptor>::setInde
         return false;
 
 #if CPU(BIG_ENDIAN)
-    if constexpr (TypeFloat32 == Adaptor::typeValue || TypeFloat64 == Adaptor::typeValue) {
+    if constexpr (TypeFloat32 == Adaptor::typeValue || TypeFloat64 == Adaptor::typeValue || TypeFloat16 == Adaptor::typeValue) {
         setIndexQuicklyToNativeValue(i, value);
     }
     else {
@@ -886,7 +886,7 @@ template<typename Adaptor> inline bool JSGenericTypedArrayView<Adaptor>::setInde
 template<typename Adaptor> inline auto JSGenericTypedArrayView<Adaptor>::toAdaptorNativeFromValue(JSGlobalObject* globalObject, JSValue jsValue) -> ElementType
 {
 #if CPU(BIG_ENDIAN)
-    if constexpr (TypeFloat32 == Adaptor::typeValue || TypeFloat64 == Adaptor::typeValue) {
+    if constexpr (TypeFloat32 == Adaptor::typeValue || TypeFloat64 == Adaptor::typeValue || TypeFloat16 == Adaptor::typeValue) {
         return toNativeFromValue<Adaptor>(globalObject, jsValue);
     }
     else {
@@ -901,7 +901,7 @@ template<typename Adaptor> inline auto JSGenericTypedArrayView<Adaptor>::toAdapt
 template<typename Adaptor> inline auto JSGenericTypedArrayView<Adaptor>::toAdaptorNativeFromValueWithoutCoercion(JSValue jsValue) -> std::optional<ElementType>
 {
 #if CPU(BIG_ENDIAN)
-    if constexpr (TypeFloat32 == Adaptor::typeValue || TypeFloat64 == Adaptor::typeValue) {
+    if constexpr (TypeFloat32 == Adaptor::typeValue || TypeFloat64 == Adaptor::typeValue || TypeFloat16 == Adaptor::typeValue) {
         return toNativeFromValueWithoutCoercion<Adaptor>(jsValue);
     }
     else {

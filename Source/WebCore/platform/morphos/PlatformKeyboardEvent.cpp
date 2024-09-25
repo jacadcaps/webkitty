@@ -35,6 +35,7 @@
 //#include "TextEncoding.h"
 #include "WindowsKeyboardCodes.h"
 #include <wtf/HexNumber.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/ASCIICType.h>
 
 #include <exec/types.h>
@@ -267,7 +268,7 @@ static String keyIdentifierForWindowsKeyCode(unsigned short keyCode)
         case VK_DELETE:
             return "U+007F"_s;
         default:
-            return makeString("U+", hex(toASCIIUpper(keyCode), 4));
+            return makeString("U+"_s, hex(toASCIIUpper(keyCode), 4));
     }
 }
 
@@ -534,7 +535,7 @@ PlatformKeyboardEvent::PlatformKeyboardEvent(struct IntuiMessage *imsg)
 	bool isUp = !!(imsg->Code & IECODE_UP_PREFIX);
 
 	// String containing the input
-    m_text = WTF::String(ch, 1);
+    m_text = makeString(std::span<UChar>(ch, 1));
     m_unmodifiedText = m_text;
 
 	struct InputEvent ie;

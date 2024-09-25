@@ -46,6 +46,7 @@
 #include <wtf/HexNumber.h>
 #include <wtf/SHA1.h>
 #include <wtf/text/StringToIntegerConversion.h>
+#include <wtf/text/MakeString.h>
 
 #if OS(MORPHOS)
 #define openFile openFileAsync
@@ -128,13 +129,13 @@ bool CurlCacheEntry::isValid()
     return true;
 }
 
-bool CurlCacheEntry::saveCachedData(const uint8_t* data, uint64_t size)
+bool CurlCacheEntry::saveCachedData(std::span<const uint8_t> data)
 {
     if (!openContentFile())
         return false;
 
     // Append
-    FileSystem::writeToFile(m_contentFile, data, size);
+    FileSystem::writeToFile(m_contentFile, data);
 
     return true;
 }
@@ -167,8 +168,8 @@ bool CurlCacheEntry::saveResponseHeaders(const ResourceResponse& response)
     HTTPHeaderMap::const_iterator it = response.httpHeaderFields().begin();
     HTTPHeaderMap::const_iterator end = response.httpHeaderFields().end();
     while (it != end) {
-        auto headerField = makeString(it->key, ": ", it->value, '\n').latin1();
-        FileSystem::writeToFile(headerFile, headerField.data(), headerField.length());
+        auto headerField = makeString(it->key, ": "_s, it->value, '\n').latin1();
+        FileSystem::writeToFile(headerFile, headerField.span());
         m_cachedResponse.setHTTPHeaderField(it->key, it->value);
         ++it;
     }
@@ -250,7 +251,7 @@ void CurlCacheEntry::didFinishLoading()
 void CurlCacheEntry::generateBaseFilename(const CString& url)
 {
     SHA1 sha1;
-    sha1.addBytes(url.dataAsUInt8Ptr(), url.length());
+    sha1.addBytes(url.span());
 
     SHA1::Digest sum;
     sha1.computeHash(sum);

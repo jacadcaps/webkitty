@@ -96,7 +96,7 @@ void RandomDevice::cryptographicallyRandomValues(std::span<uint8_t> buffer)
 #elif OS(FUCHSIA)
     zx_cprng_draw(buffer.data(), buffer.size());
 #elif OS(MORPHOS)
-	RandomBytes((APTR)buffer, length);
+	RandomBytes((APTR)buffer.data(), buffer.size());
 #elif OS(UNIX)
     ssize_t amountRead = 0;
     while (static_cast<size_t>(amountRead) < buffer.size()) {

@@ -575,9 +575,11 @@ void ResourceHandle::handleDataURL()
 
         // didReceiveResponse might cause the client to be deleted.
         if (client()) {
-            auto decodedData = base64Decode(data, Base64DecodeMode::DefaultValidatePaddingAndIgnoreWhitespace);
+            OptionSet<Base64DecodeOption> options = { Base64DecodeOption::IgnoreWhitespace };
+            options.add(Base64DecodeOption::ValidatePadding);
+            auto decodedData = base64Decode(data, options);
             if (decodedData && decodedData->size() > 0)
-                client()->didReceiveBuffer(this, SharedBuffer::create(decodedData->data(), decodedData->size()), originalSize);
+                client()->didReceiveBuffer(this, SharedBuffer::create(std::span<const uint8_t>((const uint8_t*)decodedData->data(), decodedData->size())), originalSize);
         }
     } else {
         PAL::TextEncoding encoding(charset);

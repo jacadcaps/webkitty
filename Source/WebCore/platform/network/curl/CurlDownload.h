@@ -81,7 +81,7 @@ private:
     Ref<CurlRequest> createCurlRequest(ResourceRequest&);
     void curlDidSendData(CurlRequest&, unsigned long long, unsigned long long) override { }
     WEBCORE_EXPORT void curlDidReceiveResponse(CurlRequest&, CurlResponse&&) override;
-    WEBCORE_EXPORT void curlDidReceiveData(CurlRequest&, const SharedBuffer&) override;
+    WEBCORE_EXPORT void curlDidReceiveData(CurlRequest&, Ref<SharedBuffer>&&) override;
     WEBCORE_EXPORT void curlDidComplete(CurlRequest&, NetworkLoadMetrics&&) override;
     WEBCORE_EXPORT void curlDidFailWithError(CurlRequest&, ResourceError&&, CertificateInfo&&) override;
 

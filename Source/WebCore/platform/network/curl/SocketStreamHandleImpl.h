@@ -48,15 +48,15 @@ public:
 
     virtual ~SocketStreamHandleImpl();
 
-    WEBCORE_EXPORT void platformSend(const uint8_t* data, size_t length, Function<void(bool)>&&) final;
-    WEBCORE_EXPORT void platformSendHandshake(const uint8_t* data, size_t length, const std::optional<CookieRequestHeaderFieldProxy>&, Function<void(bool, bool)>&&) final;
+    WEBCORE_EXPORT void platformSend(std::span<const uint8_t> data, Function<void(bool)>&&) final;
+    WEBCORE_EXPORT void platformSendHandshake(std::span<const uint8_t> data, const std::optional<CookieRequestHeaderFieldProxy>&, Function<void(bool, bool)>&&) final;
     WEBCORE_EXPORT void platformClose() final;
 
 private:
     WEBCORE_EXPORT SocketStreamHandleImpl(const URL&, SocketStreamHandleClient&, const StorageSessionProvider*);
 
     size_t bufferedAmount() final;
-    std::optional<size_t> platformSendInternal(const uint8_t*, size_t);
+    std::optional<size_t> platformSendInternal(std::span<const uint8_t> data);
     bool sendPendingData();
 
     // CurlStream::Client

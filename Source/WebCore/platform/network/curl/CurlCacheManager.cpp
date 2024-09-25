@@ -184,10 +184,10 @@ void CurlCacheManager::saveIndex()
         if (entryIt != m_index.end())
         {
             if (!entryIt->value->isLoading()) {
-                FileSystem::writeToFile(indexFile, urlLatin1.data(), urlLatin1.length());
+                FileSystem::writeToFile(indexFile, urlLatin1.span());
                 auto sizeAndTime = makeString("\t"_s, String::number(entryIt->value->entrySize()), "\t"_s, String::number(entryIt->value->expireDate().secondsSinceEpoch().seconds()), "\n"_s);
                 auto cSizeAndTime = sizeAndTime.latin1();
-                FileSystem::writeToFile(indexFile, cSizeAndTime.data(), cSizeAndTime.length());
+                FileSystem::writeToFile(indexFile, cSizeAndTime.span());
             }
             else {
                 entryIt->value->invalidate();
@@ -286,7 +286,7 @@ bool CurlCacheManager::getCachedResponse(const String& url, ResourceResponse& re
     return false;
 }
 
-void CurlCacheManager::didReceiveData(ResourceHandle& job, const SharedBuffer& data)
+void CurlCacheManager::didReceiveData(ResourceHandle& job, std::span<const uint8_t> data)
 {
     if (m_disabled)
         return;
@@ -298,7 +298,7 @@ void CurlCacheManager::didReceiveData(ResourceHandle& job, const SharedBuffer& d
         if (it->value->getJob() != &job)
             return;
 
-        if (!it->value->saveCachedData(data.data(), data.size()))
+        if (!it->value->saveCachedData(data))
             invalidateCacheEntry(url);
 
         else {

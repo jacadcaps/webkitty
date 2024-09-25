@@ -276,7 +276,7 @@ void Pasteboard::writeTrustworthyWebURLsPboardType(const PasteboardURL&)
 void Pasteboard::write(const PasteboardImage& image)
 {
     D(dprintf("%s:\n", __PRETTY_FUNCTION__));
-    auto nativeImage = image.image->nativeImageForCurrentFrame();
+    auto nativeImage = image.image->currentNativeImage();
     if (!nativeImage)
         return;
 
@@ -303,7 +303,7 @@ void Pasteboard::write(const PasteboardImage& image)
 			
 			if (copiedData)
 			{
-				Thread::create("Clipboard Writer", [copiedData, width, height] {
+				Thread::create("Clipboard Writer"_s, [copiedData, width, height] {
 					struct Library *ClipboardBase;
 					if ((ClipboardBase = OpenLibrary("clipboard.library", 53)))
 					{

@@ -1,7 +1,6 @@
 #include "config.h"
-#include "SharedMemory.h"
-
 #include <wtf/RefPtr.h>
+#include "SharedMemory.h"
 
 namespace WebCore {
 

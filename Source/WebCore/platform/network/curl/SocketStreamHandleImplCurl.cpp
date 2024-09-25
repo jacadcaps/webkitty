@@ -63,20 +63,20 @@ SocketStreamHandleImpl::~SocketStreamHandleImpl()
     destructStream();
 }
 
-std::optional<size_t> SocketStreamHandleImpl::platformSendInternal(const uint8_t* data, size_t length)
+std::optional<size_t> SocketStreamHandleImpl::platformSendInternal(std::span<const uint8_t> data)
 {
     if (isStreamInvalidated())
         return std::nullopt;
 
-    if (m_totalSendDataSize + length > maxBufferSize)
+    if (m_totalSendDataSize + data.size() > maxBufferSize)
         return 0;
-    m_totalSendDataSize += length;
+    m_totalSendDataSize += data.size();
 
-    auto buffer = makeUniqueArray<uint8_t>(length);
-    memcpy(buffer.get(), data, length);
+    auto buffer = makeUniqueArray<uint8_t>(data.size());
+    memcpy(buffer.get(), data.data(), data.size());
 
-    m_scheduler.send(m_streamID, WTFMove(buffer), length);
-    return length;
+    m_scheduler.send(m_streamID, WTFMove(buffer), data.size());
+    return data.size();
 }
 
 void SocketStreamHandleImpl::platformClose()
@@ -112,7 +112,7 @@ void SocketStreamHandleImpl::didReceiveData(CurlStreamID, const SharedBuffer& da
     if (m_state != Open)
         return;
 
-    m_client.didReceiveSocketStreamData(*this, data.data(), data.size());
+    m_client.didReceiveSocketStreamData(*this, data.span());
 }
 
 void SocketStreamHandleImpl::didFail(CurlStreamID, CURLcode errorCode)
@@ -137,18 +137,18 @@ void SocketStreamHandleImpl::destructStream()
     m_streamID = invalidCurlStreamID;
 }
 
-static size_t removeTerminationCharacters(const uint8_t* data, size_t dataLength)
+static std::span<const uint8_t> removeTerminationCharacters(std::span<const uint8_t> data)
 {
 #ifndef NDEBUG
-    ASSERT(dataLength > 2);
-    ASSERT(data[dataLength - 2] == '\r');
-    ASSERT(data[dataLength - 1] == '\n');
+    ASSERT(data.size() > 2);
+    ASSERT(data[data.size() - 2] == '\r');
+    ASSERT(data[data.size() - 1] == '\n');
 #else
     UNUSED_PARAM(data);
 #endif
 
     // Remove the terminating '\r\n'
-    return dataLength - 2;
+    return data.first(data.size() - 2);
 }
 
 static std::optional<std::pair<Vector<uint8_t>, bool>> cookieDataForHandshake(const NetworkStorageSession* networkStorageSession, const CookieRequestHeaderFieldProxy& headerFieldProxy)
@@ -160,16 +160,14 @@ static std::optional<std::pair<Vector<uint8_t>, bool>> cookieDataForHandshake(co
     if (cookieDataString.isEmpty())
         return std::pair<Vector<uint8_t>, bool> { { }, secureCookiesAccessed };
 
-    CString cookieData = cookieDataString.utf8();
-
     Vector<uint8_t> data = { 'C', 'o', 'o', 'k', 'i', 'e', ':', ' ' };
-    data.append(cookieData.data(), cookieData.length());
-    data.appendVector(Vector<uint8_t>({ '\r', '\n', '\r', '\n' }));
+    data.append(cookieDataString.utf8().span());
+    data.append("\r\n\r\n"_span);
 
     return std::pair<Vector<uint8_t>, bool> { data, secureCookiesAccessed };
 }
 
-void SocketStreamHandleImpl::platformSendHandshake(const uint8_t* data, size_t length, const std::optional<CookieRequestHeaderFieldProxy>& headerFieldProxy, Function<void(bool, bool)>&& completionHandler)
+void SocketStreamHandleImpl::platformSendHandshake(std::span<const uint8_t> data, const std::optional<CookieRequestHeaderFieldProxy>& headerFieldProxy, Function<void(bool, bool)>&& completionHandler)
 {
     Vector<uint8_t> cookieData;
     bool secureCookiesAccessed = false;
@@ -183,15 +181,15 @@ void SocketStreamHandleImpl::platformSendHandshake(const uint8_t* data, size_t l
 
         std::tie(cookieData, secureCookiesAccessed) = *cookieDataFromNetworkSession;
         if (cookieData.size())
-            length = removeTerminationCharacters(data, length);
+            data = removeTerminationCharacters(data);
     }
 
     if (!m_buffer.isEmpty()) {
-        if (m_buffer.size() + length + cookieData.size() > maxBufferSize) {
+        if (m_buffer.size() + data.size() + cookieData.size() > maxBufferSize) {
             // FIXME: report error to indicate that buffer has no more space.
             return completionHandler(false, secureCookiesAccessed);
         }
-        m_buffer.append(data, length);
+        m_buffer.append(data);
         m_buffer.append(cookieData.data(), cookieData.size());
         m_client.didUpdateBufferedAmount(*this, bufferedAmount());
         return completionHandler(true, secureCookiesAccessed);
@@ -200,55 +198,55 @@ void SocketStreamHandleImpl::platformSendHandshake(const uint8_t* data, size_t l
     if (m_state == Open) {
         // Unfortunately, we need to send the data in one buffer or else the handshake fails.
         Vector<uint8_t> sendData;
-        sendData.reserveInitialCapacity(length + cookieData.size());
-        sendData.append(data, length);
-        sendData.append(cookieData.data(), cookieData.size());
+        sendData.reserveInitialCapacity(data.size() + cookieData.size());
+        sendData.append(data);
+        sendData.appendVector(cookieData);
 
-        if (auto result = platformSendInternal(sendData.data(), sendData.size()))
+        if (auto result = platformSendInternal(sendData.span()))
             bytesWritten = result.value();
         else
             return completionHandler(false, secureCookiesAccessed);
     }
-    if (m_buffer.size() + length + cookieData.size() - bytesWritten > maxBufferSize) {
+    if (m_buffer.size() + data.size() + cookieData.size() - bytesWritten > maxBufferSize) {
         // FIXME: report error to indicate that buffer has no more space.
         return completionHandler(false, secureCookiesAccessed);
     }
-    if (bytesWritten < length + cookieData.size()) {
+    if (bytesWritten < data.size() + cookieData.size()) {
         size_t cookieBytesWritten = 0;
-        if (bytesWritten < length)
-            m_buffer.append(data + bytesWritten, length - bytesWritten);
+        if (bytesWritten < data.size())
+            m_buffer.append(data.subspan(bytesWritten));
         else
-            cookieBytesWritten = bytesWritten - length;
+            cookieBytesWritten = bytesWritten - data.size();
         m_buffer.append(cookieData.data() + cookieBytesWritten, cookieData.size() - cookieBytesWritten);
         m_client.didUpdateBufferedAmount(static_cast<SocketStreamHandle&>(*this), bufferedAmount());
     }
     return completionHandler(true, secureCookiesAccessed);
 }
 
-void SocketStreamHandleImpl::platformSend(const uint8_t* data, size_t length, Function<void(bool)>&& completionHandler)
+void SocketStreamHandleImpl::platformSend(std::span<const uint8_t> data, Function<void(bool)>&& completionHandler)
 {
     if (!m_buffer.isEmpty()) {
-        if (m_buffer.size() + length > maxBufferSize) {
+        if (m_buffer.size() + data.size() > maxBufferSize) {
             // FIXME: report error to indicate that buffer has no more space.
             return completionHandler(false);
         }
-        m_buffer.append(data, length);
+        m_buffer.append(data);
         m_client.didUpdateBufferedAmount(*this, bufferedAmount());
         return completionHandler(true);
     }
     size_t bytesWritten = 0;
     if (m_state == Open) {
-        if (auto result = platformSendInternal(data, length))
+        if (auto result = platformSendInternal(data))
             bytesWritten = result.value();
         else
             return completionHandler(false);
     }
-    if (m_buffer.size() + length - bytesWritten > maxBufferSize) {
+    if (m_buffer.size() + data.size() - bytesWritten > maxBufferSize) {
         // FIXME: report error to indicate that buffer has no more space.
         return completionHandler(false);
     }
-    if (bytesWritten < length) {
-        m_buffer.append(data + bytesWritten, length - bytesWritten);
+    if (bytesWritten < data.size()) {
+        m_buffer.append(data.subspan(bytesWritten));
         m_client.didUpdateBufferedAmount(static_cast<SocketStreamHandle&>(*this), bufferedAmount());
     }
     return completionHandler(true);
@@ -268,7 +266,7 @@ bool SocketStreamHandleImpl::sendPendingData()
     }
     bool pending;
     do {
-        auto result = platformSendInternal(m_buffer.firstBlockData(), m_buffer.firstBlockSize());
+        auto result = platformSendInternal(m_buffer.firstBlockSpan());
         if (!result)
             return false;
         size_t bytesWritten = result.value();
