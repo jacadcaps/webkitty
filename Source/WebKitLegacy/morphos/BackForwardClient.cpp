@@ -25,7 +25,7 @@ BackForwardClientMorphOS::BackForwardClientMorphOS(WebPage *page)
 {
 }
 
-void BackForwardClientMorphOS::addItem(Ref<HistoryItem>&& newItem)
+void BackForwardClientMorphOS::addItem(WebCore::FrameIdentifier, Ref<HistoryItem>&& newItem)
 {
     if (!m_capacity || !m_enabled)
         return;

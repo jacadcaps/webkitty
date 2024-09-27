@@ -24,7 +24,7 @@ public:
         return WTF::adoptRef(*new BackForwardClientMorphOS(view));
     }
 	
-    void addItem(WTF::Ref<WebCore::HistoryItem>&&) override;
+    void addItem(WebCore::FrameIdentifier, WTF::Ref<WebCore::HistoryItem>&&) override;
     void goBack();
     void goForward();
     void goToItem(WebCore::HistoryItem&) override;

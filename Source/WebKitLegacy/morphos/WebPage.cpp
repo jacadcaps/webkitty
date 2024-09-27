@@ -141,6 +141,7 @@
 #include "WebCoreSupport/WebProgressTrackerClient.h"
 #include "WebCoreSupport/WebNotificationClient.h"
 #include "WebCoreSupport/LegacyHistoryItemClient.h"
+#include "WebCoreSupport/WebCryptoClient.h"
 #include "../../WebCoreSupport/WebBroadcastChannelRegistry.h"
 #include "WebApplicationCache.h"
 #include "../../Storage/WebDatabaseProvider.h"
@@ -228,12 +229,6 @@ extern "C" {
 };
 
 #define D(x) 
-
-namespace WebCore {
-// from JSDOMWindowCustom.h
-class JSLocalDOMWindow;
-JSLocalDOMWindow& mainWorldGlobalObject(LocalFrame& frame);
-}
 
 using namespace std;
 using namespace WebCore;
@@ -1179,6 +1174,13 @@ Ref<WebPage> WebPage::create(WebCore::PageIdentifier pageID, WebPageCreationPara
     return page;
 }
 
+static PageConfiguration::ClientCreatorForMainFrame clientCreatorForMainFrame(Ref<WebFrame>&& mainFrame)
+{
+    return CompletionHandler<UniqueRef<LocalFrameLoaderClient>(LocalFrame&)> { [mainFrame = WTFMove(mainFrame)] (auto& localFrame) mutable {
+        return makeUniqueRef<WebFrameLoaderClient>(WTFMove(mainFrame));
+    } };
+}
+
 WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& parameters)
 	: m_mainFrame(WebFrame::create())
 	, m_pageID(pageID)
@@ -1223,8 +1225,9 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
         BackForwardClientMorphOS::create(this),
         WebCore::CookieJar::create(storageProvider.copyRef()),
         makeUniqueRef<WebProgressTrackerClient>(*this),
-        UniqueRef<WebCore::LocalFrameLoaderClient>(makeUniqueRef<WebFrameLoaderClient>(m_mainFrame.copyRef())),
+        clientCreatorForMainFrame(m_mainFrame.copyRef()),
         WebCore::FrameIdentifier::generate(),
+        nullptr,
         makeUniqueRef<WebCore::DummySpeechRecognitionProvider>(),
         makeUniqueRef<WebCore::MediaRecorderProvider>(),
         WebBroadcastChannelRegistry::getOrCreate(false),
@@ -1233,7 +1236,8 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
         WebCore::EmptyBadgeClient::create(),
         LegacyHistoryItemClient::singleton(),
         makeUniqueRef<WebContextMenuClient>(this),
-        makeUniqueRef<WebChromeClient>(*this)
+        makeUniqueRef<WebChromeClient>(*this),
+        makeUniqueRef<WebCryptoClient>()
     );
 
 	pageConfiguration.inspectorClient = makeUnique<WebInspectorClient>(this);
@@ -1315,11 +1319,6 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 	settings.setHiddenPageCSSAnimationSuspensionEnabled(true);
 	settings.setAnimatedImageAsyncDecodingEnabled(false);
 
-    settings.setCSSCustomPropertiesAndValuesEnabled(true);
-
-	settings.setConstantPropertiesEnabled(true);
- 
-//?    settings.setLazyImageLoadingEnabled(true);
     settings.setLazyIframeLoadingEnabled(true);
 
     settings.setDirectoryUploadEnabled(true);
@@ -1435,7 +1434,7 @@ void WebPage::loadData(const char *data, size_t length, const char *url)
 
     ResourceRequest request(baseURL);
     ResourceResponse response(WTF::aboutBlankURL(), "text/html"_s, length, "UTF-8"_s);
-    SubstituteData substituteData(WebCore::SharedBuffer::create(data, length), WTF::aboutBlankURL(), response, SubstituteData::SessionHistoryVisibility::Hidden);
+    SubstituteData substituteData(WebCore::SharedBuffer::create(std::span(data, length)), WTF::aboutBlankURL(), response, SubstituteData::SessionHistoryVisibility::Hidden);
 
 	auto* coreFrame = m_mainFrame->coreFrame();
     coreFrame->loader().load(FrameLoadRequest(*coreFrame, request, substituteData));
@@ -1519,11 +1518,9 @@ void *WebPage::evaluate(const char *js, WTF::Function<void *(const char *)>&& cb
 		return cb("");
 	}
 
-    WebCore::LocalFrame& frameRef(*coreFrame);
-    auto state = static_cast<JSC::JSGlobalObject*>(&mainWorldGlobalObject(frameRef));
-    JSC::JSLockHolder lock(state);
-	WTF::String string = result.toWTFString(state);
-	auto ustring = string.utf8();
+    JSC::JSGlobalObject* lexicalGlobalObject = coreFrame->script().globalObject(WebCore::mainThreadNormalWorld());
+    JSC::JSLockHolder lock(lexicalGlobalObject);
+	auto ustring = result.toWTFString(lexicalGlobalObject).utf8();
 	return cb(ustring.data());
 }
 
@@ -1571,7 +1568,9 @@ bool WebPage::canGoForward()
 
 void WebPage::goToItem(WebCore::HistoryItem& item)
 {
-	m_page->goToItem(item, FrameLoadType::IndexedBackForward, ShouldTreatAsContinuingLoad::No);
+    auto* localFrame = mainFrame();
+    if (localFrame)
+        m_page->goToItem(*localFrame, item, FrameLoadType::IndexedBackForward, ShouldTreatAsContinuingLoad::No);
 }
 
 WTF::RefPtr<WebKit::BackForwardClientMorphOS> WebPage::backForwardClient()
@@ -3332,7 +3331,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 						if (doEvent)
 						{
 							bool rmbHandled = eventHandler.handleMousePressEvent(pme).wasHandled();
-							LocalFrame* targetFrame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : &m_page->focusController().focusedOrMainFrame();
+							auto targetFrame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : m_page->focusController().focusedOrMainFrame();
 
 							if (targetFrame)
 							{
@@ -3466,7 +3465,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 					auto position = m_mainFrame->coreFrame()->view()->windowToContents(pke.position());
 					constexpr OptionSet<HitTestRequest::Type> hitType { WebCore::HitTestRequest::Type::ReadOnly, WebCore::HitTestRequest::Type::Active, WebCore::HitTestRequest::Type::DisallowUserAgentShadowContent, WebCore::HitTestRequest::Type::AllowChildFrameContent };
 					auto result = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, hitType);
-					Frame* targetFrame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : &m_page->focusController().focusedOrMainFrame();
+					auto targetFrame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : m_page->focusController().focusedOrMainFrame();
 					bool handled = eventHandler.handleWheelEvent(pke, { WheelEventProcessingSteps::SynchronousScrolling, WheelEventProcessingSteps::BlockingDOMEventDispatch }).wasHandled();
 					if (!handled)
 						wheelScrollOrZoomBy(0, (code == NM_WHEEL_UP) ? 1 : -1, imsg->Qualifier, targetFrame);
@@ -3495,7 +3494,7 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 					auto position = m_mainFrame->coreFrame()->view()->windowToContents(pke.position());
 					constexpr OptionSet<HitTestRequest::Type> hitType { WebCore::HitTestRequest::Type::ReadOnly, WebCore::HitTestRequest::Type::Active, WebCore::HitTestRequest::Type::DisallowUserAgentShadowContent, WebCore::HitTestRequest::Type::AllowChildFrameContent };
 					auto result = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, hitType);
-					Frame* targetFrame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : &m_page->focusController().focusedOrMainFrame();
+					auto targetFrame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : m_page->focusController().focusedOrMainFrame();
 					bool handled = eventHandler.handleWheelEvent(pke, { WheelEventProcessingSteps::SynchronousScrolling, WheelEventProcessingSteps::BlockingDOMEventDispatch }).wasHandled();
 					if (!handled)
 						wheelScrollOrZoomBy((code == NM_WHEEL_LEFT) ? 1 : -1, 0, imsg->Qualifier, targetFrame);
@@ -3512,8 +3511,9 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 				{
 					if (m_justWentActive)
 					{
-						auto& frame = m_page->focusController().focusedOrMainFrame();
-						frame.document()->setFocusedElement(0);
+						auto frame = m_page->focusController().focusedOrMainFrame();
+                        if (frame)
+                            frame->document()->setFocusedElement(0);
 						m_page->focusController().setInitialFocus((imsg->Qualifier & (IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT)) ?
 							FocusDirection::Backward : FocusDirection::Forward, nullptr);
 						m_justWentActive = false;
@@ -3551,7 +3551,9 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 
 					if (doHandle)
 					{
-                        handled = focusController.focusedOrMainFrame().eventHandler().keyEvent(WebCore::PlatformKeyboardEvent(imsg));
+                        auto frame = focusController.focusedOrMainFrame();
+                        if (frame)
+                            handled = frame->eventHandler().keyEvent(WebCore::PlatformKeyboardEvent(imsg));
 					}
 
 					#define KEYQUALIFIERS (IEQUALIFIER_LALT|IEQUALIFIER_RALT|IEQUALIFIER_LSHIFT|IEQUALIFIER_RSHIFT|IEQUALIFIER_LCOMMAND|IEQUALIFIER_RCOMMAND|IEQUALIFIER_CONTROL)
@@ -3800,13 +3802,13 @@ void WebPage::hitTestSetImageFloat(WebCore::HitTestResult &hitTest, ContextMenuI
 		switch (imageFloat)
 		{
 		case ContextMenuImageFloat::Left:
-			element->setInlineStyleProperty(CSSPropertyFloat, CSSValueLeft, true);
+			element->setInlineStyleProperty(CSSPropertyFloat, CSSValueLeft, IsImportant::Yes);
 			break;
 		case ContextMenuImageFloat::Right:
-			element->setInlineStyleProperty(CSSPropertyFloat, CSSValueRight, true);
+			element->setInlineStyleProperty(CSSPropertyFloat, CSSValueRight, IsImportant::Yes);
 			break;
 		default:
-			element->setInlineStyleProperty(CSSPropertyFloat, CSSValueNone, true);
+			element->setInlineStyleProperty(CSSPropertyFloat, CSSValueNone, IsImportant::Yes);
 			break;
 		}
 	}

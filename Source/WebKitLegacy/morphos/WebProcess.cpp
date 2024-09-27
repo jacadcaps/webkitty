@@ -288,7 +288,7 @@ void WebProcess::initialize(int sigbit)
 		{
 			bool found = false;
 			webpage->corePage()->forEachMediaElement([player, &found](WebCore::HTMLMediaElement&e){
-				if (player == e.player().get())
+				if (player == e.player())
 				{
 					found = true;
 				}
@@ -311,7 +311,7 @@ void WebProcess::initialize(int sigbit)
 		{
 			bool found = false;
 			webpage->corePage()->forEachMediaElement([player, &found](WebCore::HTMLMediaElement&e){
-				if (player == e.player().get())
+				if (player == e.player())
 				{
 					found = true;
 				}
@@ -360,7 +360,7 @@ void WebProcess::initialize(int sigbit)
 			WebCore::Element* pElement;
 			bool found = false;
 			webpage->corePage()->forEachMediaElement([player, &found, &pElement](WebCore::HTMLMediaElement&e){
-				if (player == e.player().get())
+				if (player == e.player())
 				{
 					pElement = &e;
 					found = true;
@@ -388,7 +388,7 @@ void WebProcess::initialize(int sigbit)
 			WebCore::Element* pElement;
 			bool found = false;
 			webpage->corePage()->forEachMediaElement([player, &found, &pElement](WebCore::HTMLMediaElement&e){
-				if (player == e.player().get())
+				if (player == e.player())
 				{
 					pElement = &e;
 					found = true;
@@ -440,7 +440,7 @@ void WebProcess::initialize(int sigbit)
 		if (size > 0ll)
 		{
 			m_urlFilterData.resize(size + 1);
-			if (size == WTF::FileSystemImpl::readFromFile(fh, &m_urlFilterData[0], int(size)))
+			if (size == WTF::FileSystemImpl::readFromFile(fh, std::span((unsigned char *)&m_urlFilterData[0], size)))
 			{
 				m_urlFilterData[size] = 0; // terminate just in case
 				m_urlFilter.deserialize(&m_urlFilterData[0]);
@@ -466,7 +466,7 @@ void WebProcess::initialize(int sigbit)
 				char *buffer = (char *)malloc(size + 1);
 				if (buffer)
 				{
-					if (size == WTF::FileSystemImpl::readFromFile(fh, buffer, int(size)))
+					if (size == WTF::FileSystemImpl::readFromFile(fh, std::span((unsigned char *)buffer, int(size))))
 					{
 						buffer[size] = 0; // terminate, parser expects this to be a null-term string
 dprintf("Parsing easylist.txt; this will take a while... and will be faster on next launch!\n");
@@ -477,7 +477,7 @@ dprintf("Parsing easylist.txt; this will take a while... and will be faster on n
 						WTF::FileSystemImpl::PlatformFileHandle dfh = WTF::FileSystemImpl::openFile(easyListSerializedPath, WTF::FileSystemImpl::FileOpenMode::Truncate);
 						if (WTF::FileSystemImpl::invalidPlatformFileHandle != dfh)
 						{
-							if (ssize != WTF::FileSystemImpl::writeToFile(dfh, sbuffer, ssize))
+							if (ssize != WTF::FileSystemImpl::writeToFile(dfh, std::span((unsigned char *)sbuffer, ssize)))
 							{
 								WTF::FileSystemImpl::closeFile(dfh);
 								WTF::FileSystemImpl::deleteFile(easyListSerializedPath);
@@ -534,7 +534,7 @@ void WebProcess::waitForThreads()
 	while (loops-- > 0)
 	{
 		{
-			LockHolder lock(Thread::allThreadsLock());
+			Locker lock(Thread::allThreadsLock());
 			auto& allThreads = Thread::allThreads();
 			auto count = allThreads.size();
 			if (0 == count)
@@ -869,7 +869,7 @@ void WebProcess::setEasyListPath(const char *path)
     if (path && *path)
     {
         StringBuilder builder;
-        builder.append("PROGDIR:Resources/");
+        builder.append("PROGDIR:Resources/"_s);
         builder.append(WTF::String(path, strlen(path), MIBENUM_SYSTEM));
         m_easyListPath = builder.toString();
     }
@@ -884,7 +884,7 @@ void WebProcess::setEasyListPath(const char *path)
 RefPtr<WebCore::SharedBuffer> loadResourceIntoBuffer(const char* name);
 RefPtr<WebCore::SharedBuffer> loadResourceIntoBuffer(const char* name)
 {
-	WTF::String path = makeString("PROGDIR:Resources/", name, ".png");
+	WTF::String path = makeString("PROGDIR:Resources/"_s, StringView::fromLatin1(name), ".png"_s);
 	WTF::FileSystemImpl::PlatformFileHandle fh = WTF::FileSystemImpl::openFile(path, WTF::FileSystemImpl::FileOpenMode::Read);
 
 	if (WTF::FileSystemImpl::invalidPlatformFileHandle != fh)
@@ -893,10 +893,10 @@ RefPtr<WebCore::SharedBuffer> loadResourceIntoBuffer(const char* name)
 		if (size > 0ll && size < (512ll * 1024ll))
 		{
 			char buffer[size];
-			if (size == WTF::FileSystemImpl::readFromFile(fh, buffer, int(size)))
+			if (size == WTF::FileSystemImpl::readFromFile(fh, std::span((unsigned char *)buffer, int(size))))
 			{
 				WTF::FileSystemImpl::closeFile(fh);
-				return WebCore::SharedBuffer::create(reinterpret_cast<const char*>(buffer), size);
+				return WebCore::SharedBuffer::create(std::span(reinterpret_cast<const char*>(buffer), size));
 			}
 		}
 		WTF::FileSystemImpl::closeFile(fh);

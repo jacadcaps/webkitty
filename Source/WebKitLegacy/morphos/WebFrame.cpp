@@ -92,7 +92,9 @@ DEFINE_DEBUG_ONLY_GLOBAL(WTF::RefCountedLeakCounter, webFrameCounter, ("WebFrame
 Ref<WebFrame> WebFrame::createSubframe(WebPage* page, const WTF::AtomString& frameName, HTMLFrameOwnerElement* ownerElement)
 {
     auto frame = create();
-    auto coreFrame = LocalFrame::createSubframe(*page->corePage(), makeUniqueRef<WebFrameLoaderClient>(frame.get()), WebCore::FrameIdentifier::generate(), *ownerElement);
+    auto coreFrame = WebCore::LocalFrame::createSubframe(*page->corePage(), [frame] (auto&) {
+        return makeUniqueRef<WebFrameLoaderClient>(frame.get());
+    }, WebCore::FrameIdentifier::generate(), *ownerElement);
     frame->m_coreFrame = coreFrame.ptr();
 
     coreFrame->tree().setSpecifiedName(frameName);
@@ -214,7 +216,7 @@ String WebFrame::source() const
     if (!mainResourceData)
         return String();
     auto data = mainResourceData->extractData();
-    return decoder->encoding().decode(data.data(), data.size());
+    return decoder->encoding().decode(data.span());
 }
 
 String WebFrame::contentsAsString() const 
