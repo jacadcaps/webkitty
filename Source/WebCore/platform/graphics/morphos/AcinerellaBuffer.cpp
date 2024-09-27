@@ -369,17 +369,17 @@ public:
 		}
 	}
 	
-	void curlDidReceiveData(CurlRequest& request, const SharedBuffer& buffer) override
+	void curlDidReceiveData(CurlRequest& request, Ref<SharedBuffer>&& buffer) override
 	{
-		D(dprintf("%s(%p): %d bytes, currently buffered size: %d\n", __PRETTY_FUNCTION__, this, buffer.size(), m_bufferSize));
+		D(dprintf("%s(%p): %d bytes, currently buffered size: %d\n", __PRETTY_FUNCTION__, this, buffer->size(), m_bufferSize));
 		if (m_curlRequest.get() == &request)
 		{
-			if (buffer.size())
+			if (buffer->size())
 			{
 				{
 					auto lock = Locker(m_bufferLock);
-					m_bufferSize += buffer.size();
-					m_buffer.append(buffer.copyData());
+					m_bufferSize += buffer->size();
+					m_buffer.append(buffer->copyData());
 
 					if (m_bufferSize > m_readAhead && !m_isPaused)
 					{
@@ -577,7 +577,7 @@ public:
 
 			if (size > 0 && size < int(m_buffer->size()))
 			{
-				memcpy(outBuffer, m_buffer->data() + m_bufferPositionAbs, size);
+				memcpy(outBuffer, m_buffer->span().data() + m_bufferPositionAbs, size);
 
 				DP(dprintf("%s(%p): read from %d, size %d\n", __PRETTY_FUNCTION__, this, int(m_bufferPositionAbs), size));
 				m_bufferPositionAbs += size;
@@ -824,14 +824,14 @@ public:
 		}
 	}
 	
-	void curlDidReceiveData(CurlRequest& request, const SharedBuffer& buffer) override
+	void curlDidReceiveData(CurlRequest& request, Ref<SharedBuffer>&& buffer) override
 	{
 		if (m_curlRequest.get() == &request)
 		{
-			if (buffer.size())
+			if (buffer->size())
 			{
-				D(dprintf("%s(%p): append %d\n", __PRETTY_FUNCTION__, this, buffer.size()));
-				m_buffer.append(buffer);
+				D(dprintf("%s(%p): append %d\n", __PRETTY_FUNCTION__, this, buffer->size()));
+				m_buffer.append(buffer.get());
 			}
 		}
 	}

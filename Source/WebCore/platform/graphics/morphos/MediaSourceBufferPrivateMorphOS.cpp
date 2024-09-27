@@ -48,7 +48,7 @@ MediaSourceChunkReader::MediaSourceChunkReader(MediaSourceBufferPrivateMorphOS *
 	, m_source(source)
 {
 	DLIFETIME(dprintf("%s(%p):\n", __PRETTY_FUNCTION__, this));
-	m_thread = Thread::create("Acinerella Media Source Chunk Reader", [this] {
+	m_thread = Thread::create("Acinerella Media Source Chunk Reader"_s, [this] {
 		while (auto function = m_queue.waitForMessage())
 		{
 			(*function)();
@@ -483,7 +483,7 @@ MediaSourceBufferPrivateMorphOS::MediaSourceBufferPrivateMorphOS(MediaSourcePriv
 		}
 	);
 
-	m_thread = Thread::create("Acinerella Media Source Buffer", [this] {
+	m_thread = Thread::create("Acinerella Media Source Buffer"_s, [this] {
 		threadEntryPoint();
 	});
 
@@ -508,19 +508,18 @@ Ref<MediaPromise> MediaSourceBufferPrivateMorphOS::appendInternal(Ref<SharedBuff
         m_initializationBuffer.resize(buffer->size());
         if (m_initializationBuffer.size() == buffer->size())
         {
-            unsigned char *dest = m_initializationBuffer.data();
-            buffer->copyTo(dest, m_initializationBuffer.size());
+            buffer->copyTo(m_initializationBuffer.mutableSpan());
         }
 	}
 	else if (m_mustAppendInitializationSegment)
 	{
 		Vector<unsigned char> merged;
 		merged.reserveCapacity(m_initializationBuffer.size() + buffer->size());
-		merged.append(m_initializationBuffer.data(), m_initializationBuffer.size());
+		merged.append(m_initializationBuffer.span());
         merged.resize(m_initializationBuffer.size() + buffer->size());
-        unsigned char *dest = merged.data();
+        unsigned char *dest = merged.mutableSpan().data();
         dest += m_initializationBuffer.size();
-        buffer->copyTo(dest, buffer->size());
+        buffer->copyTo(std::span(dest, buffer->size()));
 		m_reader->decode(WTFMove(merged));
 		m_appendCount ++;
 		m_mustAppendInitializationSegment = false;
@@ -567,8 +566,7 @@ Ref<MediaPromise> MediaSourceBufferPrivateMorphOS::appendInternal(Ref<SharedBuff
             m_initializationBuffer.resize(buffer->size());
             if (m_initializationBuffer.size() == buffer->size())
             {
-                unsigned char *dest = m_initializationBuffer.data();
-                buffer->copyTo(dest, m_initializationBuffer.size());
+                buffer->copyTo(m_initializationBuffer.mutableSpan());
             }
         }
     }
@@ -577,7 +575,7 @@ Ref<MediaPromise> MediaSourceBufferPrivateMorphOS::appendInternal(Ref<SharedBuff
     vector.resize(buffer->size());
     if (vector.size() == buffer->size())
     {
-        buffer->copyTo(vector.data(), vector.size());
+        buffer->copyTo(vector.mutableSpan());
         m_reader->decode(WTFMove(vector));
     }
 	m_appendCount ++;

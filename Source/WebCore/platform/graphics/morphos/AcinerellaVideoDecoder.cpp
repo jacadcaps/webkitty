@@ -60,7 +60,7 @@ AcinerellaVideoDecoder::AcinerellaVideoDecoder(AcinerellaDecoderClient* client, 
 	
     m_cgxVideo = OpenLibrary("cgxvideo.library", 43);
  
-	m_pullThread = Thread::create("Acinerella Video Pump", [this] {
+	m_pullThread = Thread::create("Acinerella Video Pump"_s, [this] {
 		pullThreadEntryPoint();
 	});
 	

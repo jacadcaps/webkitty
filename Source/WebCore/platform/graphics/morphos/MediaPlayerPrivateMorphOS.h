@@ -56,19 +56,15 @@ public:
     unsigned decodedFrameCount() const { return m_decodedFrameCount; }
     unsigned droppedFrameCount() const { return m_droppedFrameCount; }
 
-	float maxTimeSeekable() const final;
+	MediaTime maxTimeSeekable() const final;
+    MediaTime duration() const final;
 
-    float duration() const final { return durationMediaTime().toFloat(); }
-    double durationDouble() const final { return durationMediaTime().toDouble(); }
-    MediaTime durationMediaTime() const final;
-    float currentTime() const final { return currentMediaTime().toFloat(); }
-    double currentTimeDouble() const final { return currentMediaTime().toDouble(); }
-    MediaTime currentMediaTime() const final;
+    MediaTime currentTime() const final;
 
     bool hasVideo() const final;
     bool hasAudio() const final;
 
-    void setPageIsVisible(bool, String&& sceneIdentifier = ""_s) final;
+    void setPageIsVisible(bool) final;
     bool seeking() const final;
     bool paused() const final;
 

@@ -57,10 +57,13 @@ SVGResourceImage::SVGResourceImage(LegacyRenderSVGResourceContainer& renderResou
 
 ImageDrawResult SVGResourceImage::draw(GraphicsContext& context, const FloatRect& destinationRect, const FloatRect& sourceRect, ImagePaintingOptions options)
 {
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
     if (CheckedPtr masker = dynamicDowncast<RenderSVGResourceMasker>(m_renderResource.get())) {
         if (masker->drawContentIntoContext(context, destinationRect, sourceRect, options))
             return ImageDrawResult::DidDraw;
     }
+#endif
+
     if (CheckedPtr masker = dynamicDowncast<LegacyRenderSVGResourceMasker>(m_legacyRenderResource.get())) {
         if (masker->drawContentIntoContext(context, destinationRect, sourceRect, options))
             return ImageDrawResult::DidDraw;

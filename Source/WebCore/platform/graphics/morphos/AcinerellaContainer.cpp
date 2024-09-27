@@ -40,7 +40,7 @@ Acinerella::Acinerella(AcinerellaClient *client, const String &url)
 		m_networkBuffer->start();
 	}
 	ref();
-	m_thread = Thread::create("Acinerella", [this] {
+	m_thread = Thread::create("Acinerella"_s, [this] {
 		threadEntryPoint();
 	});
 	if (!m_thread)

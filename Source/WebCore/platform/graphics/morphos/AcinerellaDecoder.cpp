@@ -56,7 +56,7 @@ void AcinerellaDecoder::warmUp()
 	if (!m_terminating && !m_thread)
 	{
 		DI(dprintf("%s: %p starting thread\033[0m\n", __func__, this));
-		m_thread = Thread::create(isAudio() ? "Acinerella Audio Decoder" : "Acinerella Video Decoder", [this] {
+		m_thread = Thread::create(isAudio() ? "Acinerella Audio Decoder"_s : "Acinerella Video Decoder"_s, [this] {
 			threadEntryPoint();
 		});
 	}

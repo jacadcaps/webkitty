@@ -43,7 +43,7 @@ FontRenderOptions::FontRenderOptions()
     : m_fontOptions(cairo_font_options_create())
 {
 #if OS(MORPHOS)
-    cairo_font_options_set_antialias(m_fontOptions, cairoDefaultFontAntialias);
+    cairo_font_options_set_antialias(m_fontOptions.get(), cairoDefaultFontAntialias);
 #endif
 }
 

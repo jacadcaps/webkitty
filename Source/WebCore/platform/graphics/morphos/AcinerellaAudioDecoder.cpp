@@ -286,7 +286,7 @@ bool AcinerellaAudioDecoder::initializeAudio()
     m_ahiThreadTransitionPlaying.store(false);
     m_ahiThreadTransitionPaused.store(false);
 
-    m_ahiThread = Thread::create("Acinerella AHI Pump", [this] {
+    m_ahiThread = Thread::create("Acinerella AHI Pump"_s, [this] {
         ahiThreadEntryPoint();
     });
     

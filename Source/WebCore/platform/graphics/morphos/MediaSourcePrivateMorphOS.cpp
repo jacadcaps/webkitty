@@ -153,13 +153,18 @@ MediaTime MediaSourcePrivateMorphOS::currentMediaTime() const
 	if (m_seekCompleted != Pending && m_seeking)
 		return MediaTime::invalidTime();
 	if (m_player)
-		return MediaTime::createWithFloat(m_player->currentTime());
+		return m_player->currentTime();
 	return { };
 }
 
 bool MediaSourcePrivateMorphOS::isLiveStream() const
 {
 	return std::isinf(duration().toFloat());
+}
+
+RefPtr<MediaPlayerPrivateInterface> MediaSourcePrivateMorphOS::player() const
+{
+    return m_player.get();
 }
 
 #if 0

@@ -191,8 +191,10 @@ FloatRect SVGClipPathElement::calculateClipContentRepaintRect(RepaintRectCalcula
         if (style.display() == DisplayType::None || style.usedVisibility() != Visibility::Visible)
             continue;
         auto r = renderer->repaintRectInLocalCoordinates(repaintRectCalculation);
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
         if (auto transform = transformationMatrixFromChild(downcast<RenderLayerModelObject>(*renderer)))
             r = transform->mapRect(r);
+#endif
         clipContentRepaintRect.unite(r);
     }
     return clipContentRepaintRect;

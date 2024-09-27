@@ -505,7 +505,7 @@ FloatSize MediaPlayerPrivateMorphOS::naturalSize() const
 	return { float(m_width), float(m_height) };
 }
 
-MediaTime MediaPlayerPrivateMorphOS::durationMediaTime() const
+MediaTime MediaPlayerPrivateMorphOS::duration() const
 {
 	if (m_acinerella && m_acinerella->isLive())
 		return MediaTime::invalidTime();
@@ -516,7 +516,7 @@ MediaTime MediaPlayerPrivateMorphOS::durationMediaTime() const
 	return m_duration;
 }
 
-MediaTime MediaPlayerPrivateMorphOS::currentMediaTime() const
+MediaTime MediaPlayerPrivateMorphOS::currentTime() const
 {
     return m_currentTime;
 }
@@ -543,7 +543,7 @@ bool MediaPlayerPrivateMorphOS::hasAudio() const
 	return false;
 }
 
-void MediaPlayerPrivateMorphOS::setPageIsVisible(bool visible, String&& sceneIdentifier)
+void MediaPlayerPrivateMorphOS::setPageIsVisible(bool visible)
 {
 	m_visible = visible;
 //	D(dprintf("%s: visible %d\n", __PRETTY_FUNCTION__, visible));
@@ -696,7 +696,7 @@ bool MediaPlayerPrivateMorphOS::accCodecSupported(const String &codec)
 {
 	MediaEngineSupportParameters parameters;
 	parameters.page = m_player->client().mediaPlayerPage();
-    auto ct = makeString("video/mp4; codecs=\"", codec, "\"");
+    auto ct = makeString("video/mp4; codecs=\""_s, codec, "\""_s);
 	parameters.type = ContentType(ct);
 	return MediaPlayerFactoryMediaSourceMorphOS::s_supportsTypeAndCodecs(parameters) == MediaPlayer::SupportsType::IsSupported;
 }
@@ -732,14 +732,14 @@ MediaPlayer::MovieLoadType MediaPlayerPrivateMorphOS::movieLoadType() const
 	return MediaPlayer::MovieLoadType::Download;
 }
 
-float MediaPlayerPrivateMorphOS::maxTimeSeekable() const
+MediaTime MediaPlayerPrivateMorphOS::maxTimeSeekable() const
 {
 	if (m_acinerella && m_acinerella->canSeek())
-		return m_duration.toFloat();
+		return m_duration;
 #if ENABLE(MEDIA_SOURCE)
-	return m_duration.toFloat();
+	return m_duration;
 #endif
-	return 0.f;
+	return MediaTime::createWithDouble(0.0);
 }
 
 void MediaPlayerPrivateMorphOS::accInitialized(MediaPlayerMorphOSInfo info)

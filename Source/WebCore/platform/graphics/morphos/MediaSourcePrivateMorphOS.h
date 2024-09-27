@@ -33,6 +33,7 @@ public:
     void unmarkEndOfStream() override;
     MediaPlayer::ReadyState mediaPlayerReadyState() const override;
     void setMediaPlayerReadyState(MediaPlayer::ReadyState) override;
+    RefPtr<MediaPlayerPrivateInterface> player() const override;
 
     bool isLiveStream() const;
 
@@ -74,8 +75,8 @@ public:
     void seekToTarget(const SeekTarget&);
 
     void orphan();
-    WeakPtr<MediaPlayerPrivateMorphOS> &player() { return m_player; }
-    WeakPtr<MediaPlayerPrivateMorphOS> const &player() const { return m_player; }
+    WeakPtr<MediaPlayerPrivateMorphOS> &mediaPlayer() { return m_player; }
+    WeakPtr<MediaPlayerPrivateMorphOS> const &mediaPlayer() const { return m_player; }
     void warmUp();
     void coolDown();
 

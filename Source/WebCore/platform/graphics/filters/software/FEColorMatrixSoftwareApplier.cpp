@@ -389,14 +389,14 @@ void FEColorMatrixSoftwareApplier::applyPlatform(PixelBuffer& pixelBuffer) const
 #elif OS(MORPHOS)
     switch (m_effect.type()) {
     case ColorMatrixType::FECOLORMATRIX_TYPE_MATRIX:
-       applyMatrixFast(m_effect.values(), pixelBuffer.bytes(), pixelBuffer.size().width(), pixelBuffer.size().height());
+       applyMatrixFast(m_effect.values(), pixelBuffer.bytes().data(), pixelBuffer.size().width(), pixelBuffer.size().height());
        return;
     case ColorMatrixType::FECOLORMATRIX_TYPE_SATURATE:
     case ColorMatrixType::FECOLORMATRIX_TYPE_HUEROTATE:
-       applyHueSaturateFast(m_components, pixelBuffer.bytes(), pixelBuffer.size().width(), pixelBuffer.size().height());
+       applyHueSaturateFast(m_components, pixelBuffer.bytes().data(), pixelBuffer.size().width(), pixelBuffer.size().height());
        return;
        case ColorMatrixType::FECOLORMATRIX_TYPE_LUMINANCETOALPHA:
-       applyLuminanceFast(pixelBuffer.bytes(), pixelBuffer.size().width(), pixelBuffer.size().height());
+       applyLuminanceFast(pixelBuffer.bytes().data(), pixelBuffer.size().width(), pixelBuffer.size().height());
        return;
     default:
         break;

@@ -85,7 +85,7 @@ static void png_write_func(png_structp png_ptr, png_bytep data, png_size_t lengt
 {
     pngWriteStruct *ws = static_cast<pngWriteStruct*>(png_get_io_ptr(png_ptr));
 
-    if (!ws->output->tryAppend(data, length)) {
+    if (!ws->output->tryAppend(std::span(data, length))) {
         png_error(png_ptr, "write function failed");
     }
 }

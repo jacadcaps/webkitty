@@ -114,6 +114,7 @@ void SVGMaskElement::svgAttributeChanged(const QualifiedName& attrName)
     }
 
     if (PropertyRegistry::isKnownAttribute(attrName)) {
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
         if (document().settings().layerBasedSVGEngineEnabled()) {
             if (CheckedPtr maskRenderer = dynamicDowncast<RenderSVGResourceMasker>(renderer())) {
                 maskRenderer->invalidateMask();
@@ -121,7 +122,7 @@ void SVGMaskElement::svgAttributeChanged(const QualifiedName& attrName)
                 return;
             }
         }
-
+#endif
         updateSVGRendererForElementChange();
         return;
     }
@@ -136,20 +137,24 @@ void SVGMaskElement::childrenChanged(const ChildChange& change)
     if (change.source == ChildChange::Source::Parser)
         return;
 
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
     if (document().settings().layerBasedSVGEngineEnabled()) {
         if (CheckedPtr maskRenderer = dynamicDowncast<RenderSVGResourceMasker>(renderer())) {
             maskRenderer->invalidateMask();
             maskRenderer->repaintClientsOfReferencedSVGResources();
         }
     }
+#endif
 
     updateSVGRendererForElementChange();
 }
 
 RenderPtr<RenderElement> SVGMaskElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
 {
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
     if (document().settings().layerBasedSVGEngineEnabled())
         return createRenderer<RenderSVGResourceMasker>(*this, WTFMove(style));
+#endif
     return createRenderer<LegacyRenderSVGResourceMasker>(*this, WTFMove(style));
 }
 
@@ -180,8 +185,10 @@ FloatRect SVGMaskElement::calculateMaskContentRepaintRect(RepaintRectCalculation
         if (style.display() == DisplayType::None || style.usedVisibility() != Visibility::Visible)
             continue;
         auto r = renderer->repaintRectInLocalCoordinates(repaintRectCalculation);
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
         if (auto transform = transformationMatrixFromChild(downcast<RenderLayerModelObject>(*renderer)))
             r = transform->mapRect(r);
+#endif
         maskRepaintRect.unite(r);
     }
     return maskRepaintRect;

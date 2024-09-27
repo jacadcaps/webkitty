@@ -188,7 +188,7 @@ HLSStream::HLSStream(const URL &baseURL, const String &sdata)
 			else if (startsWithLettersIgnoringASCIICase(line, "#ext-x-program-date-time"_s))
 			{
 				bool local;
-				auto time = WTF::parseES5DateFromNullTerminatedCharacters(line.substring(25).utf8().data(), local);
+				auto time = WTF::parseES5Date(line.substring(25).utf8().span(), local);
 				if (time == time)
 				{
 					programTimeDate = time / 1000.0;
@@ -458,7 +458,7 @@ void AcinerellaNetworkBufferHLS::masterPlaylistReceived(bool succ)
 
 		if (buffer && buffer->size())
 		{
-			HLSMasterPlaylistParser parser(m_baseURL, String::fromUTF8(buffer->data(), buffer->size()));
+			HLSMasterPlaylistParser parser(m_baseURL, String::fromUTF8(buffer->span()));
 
 			m_hasMasterList = true;
 			m_streams = WTFMove(parser.streams());
@@ -522,7 +522,7 @@ void AcinerellaNetworkBufferHLS::childPlaylistReceived(bool succ)
 
 		if (buffer && buffer->size())
 		{
-			auto contents = String::fromUTF8(buffer->data(), buffer->size());
+			auto contents = String::fromUTF8(buffer->span());
 			bool initial = m_stream.empty();
 			HLSStream stream(URL({}, m_selectedStream.m_url), contents);
 			m_stream += stream; // append and merge :)
