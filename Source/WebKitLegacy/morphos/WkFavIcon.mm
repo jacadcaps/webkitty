@@ -23,7 +23,7 @@ namespace WebKit {
     if (image->setData(data, true) < WebCore::EncodedDataStatus::SizeAvailable)
         return NO;
 	
-	auto nativeImage = image->nativeImageForCurrentFrame();
+	auto nativeImage = image->currentNativeImage();
 	if (!nativeImage.get())
 		return NO;
 

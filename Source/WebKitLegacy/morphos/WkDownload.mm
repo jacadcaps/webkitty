@@ -621,12 +621,14 @@ void WebDownload::setUserPassword(const String& user, const String &password)
             FileSystem::PlatformFileHandle downloadFileHandle;
 
             @synchronized (self) {
-                _downloadPath = FileSystem::openTemporaryFile("download"_s, downloadFileHandle);
+                auto [filePath, fileHandle] = FileSystem::openTemporaryFile("download"_s);
+                _downloadPath = filePath;
+                downloadFileHandle = fileHandle;
             }
 
             if (downloadFileHandle != FileSystem::invalidPlatformFileHandle)
             {
-                if (-1 != FileSystem::writeToFile(downloadFileHandle, result->data.data(), result->data.size()))
+                if (-1 != FileSystem::writeToFile(downloadFileHandle, result->data.span()))
                 {
                     _downloadedSize = result->data.size();
                     [_delegate download:self didReceiveBytes:_downloadedSize];
@@ -824,7 +826,9 @@ void WebDownload::setUserPassword(const String& user, const String &password)
                 FileSystem::PlatformFileHandle downloadFileHandle;
 
                 @synchronized (self) {
-                    _downloadPath = FileSystem::openTemporaryFile("download"_s, downloadFileHandle);
+                    auto [filePath, fileHandle] = FileSystem::openTemporaryFile("download"_s);
+                    _downloadPath = filePath;
+                    downloadFileHandle = fileHandle;
                 }
 
                 if (downloadFileHandle != FileSystem::invalidPlatformFileHandle)
@@ -833,7 +837,7 @@ void WebDownload::setUserPassword(const String& user, const String &password)
                     {
 						D(dprintf("%s: item offset %lld size %d data %p\n", __PRETTY_FUNCTION__, item.offset(), item.data()->size(), item.data()->data()->data()));
                     
-                        if (-1 != FileSystem::writeToFile(downloadFileHandle, item.data()->data(), item.data()->size()))
+                        if (-1 != FileSystem::writeToFile(downloadFileHandle, item.data()->span()))
 						{
 							_downloadedSize += item.data()->size();
 							[_delegate download:self didReceiveBytes:item.data()->size()];

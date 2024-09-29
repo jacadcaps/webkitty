@@ -214,7 +214,7 @@ WebCore::ResourceRequest WkMutableNetworkRequestPrivateTranslator::fromNetworkRe
 	OBData *body = [request HTTPBody];
 	if ([body length])
 	{
-		out.setHTTPBody(WebCore::FormData::create([body bytes], [body length]));
+		out.setHTTPBody(WebCore::FormData::create(std::span(static_cast<const uint8_t *>([body bytes]), [body length])));
 	}
 
 	OBDictionary *headers = [request allHTTPHeaderFields];
@@ -288,7 +288,7 @@ private:
     	if (m_resourceData && m_resourceData.size())
     	{
             auto buffer = m_resourceData.takeAsContiguous();
-    		resp = [OBData dataWithBytes:buffer->data() length:buffer->size()];
+    		resp = [OBData dataWithBytes:buffer->span().data() length:buffer->span().size()];
 		}
 		m_handle = nullptr;
 		[m_parent onFinishWithData:resp];
@@ -301,7 +301,7 @@ private:
     	if (m_resourceData && m_resourceData.size())
     	{
             auto buffer = m_resourceData.takeAsContiguous();
-    		resp = [OBData dataWithBytes:buffer->data() length:buffer->size()];
+    		resp = [OBData dataWithBytes:buffer->span().data() length:buffer->span().size()];
 		}
 		m_handle = nullptr;
 		[m_parent onError:[WkError errorWithResourceError:error] withData:resp];

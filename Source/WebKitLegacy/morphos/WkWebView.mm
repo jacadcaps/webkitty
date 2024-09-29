@@ -382,7 +382,7 @@ namespace  {
 		if (page) {
 			bool isFs = false;
 			page->forEachMediaElement([&](WebCore::HTMLMediaElement& element) {
-				if (player == element.player().get()) {
+				if (player == element.player()) {
 					isFs = element.isFullscreen();
 				}
 			});
@@ -401,7 +401,7 @@ namespace  {
 		WebCore::Page* page = player->client().mediaPlayerPage();
 		if (page) {
 			page->forEachMediaElement([&](WebCore::HTMLMediaElement& element) {
-				if (player == element.player().get()) {
+				if (player == element.player()) {
 					WebCore::UserGestureIndicator gestureIndicator(WebCore::IsProcessingUserGesture::Yes, &element.document());
 					if (fs)
 						element.enterFullscreen();
@@ -448,7 +448,7 @@ namespace  {
 	if (_info.m_hlsStreams.size())
 	{
 		OBMutableArray *streams = [OBMutableArray arrayWithCapacity:_info.m_hlsStreams.size()];
-		for (int i = 0; i < _info.m_hlsStreams.size(); i++)
+		for (size_t i = 0; i < _info.m_hlsStreams.size(); i++)
 		{
 			auto uurl = _info.m_hlsStreams[i].m_url.utf8();
 			if (_info.m_hlsStreams[i].m_codecs.size() == 0)
@@ -464,7 +464,7 @@ namespace  {
 			}
 			else if (_info.m_hlsStreams[i].m_codecs.size() > 1)
 			{
-				String s = makeString(_info.m_hlsStreams[i].m_codecs[0], ", ", _info.m_hlsStreams[i].m_codecs[1]);
+				String s = makeString(_info.m_hlsStreams[i].m_codecs[0], ", "_s, _info.m_hlsStreams[i].m_codecs[1]);
 				auto ucodecs = s.utf8();
 				[streams addObject:[[[WkHLSStreamPrivate alloc] initWithURL:[OBString stringWithUTF8String:uurl.data()] codecs:[OBString stringWithUTF8String:ucodecs.data()] fps:_info.m_hlsStreams[i].m_fps bitrate:_info.m_hlsStreams[i].m_bitRate
 					width:_info.m_hlsStreams[i].m_width height:_info.m_hlsStreams[i].m_height] autorelease]];
@@ -4190,13 +4190,13 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 	WebCore::FindOptions options;
 
 	if (!forward)
-		options.add(WebCore::FindOptionFlag::Backwards);
+		options.add(WebCore::FindOption::Backwards);
 	if (!caseFlag)
-		options.add(WebCore::FindOptionFlag::CaseInsensitive);
+		options.add(WebCore::FindOption::CaseInsensitive);
 	if (wrapFlag)
-		options.add(WebCore::FindOptionFlag::WrapAround);
+		options.add(WebCore::FindOption::WrapAround);
 	if (startInSelection)
-		options.add(WebCore::FindOptionFlag::StartInSelection);
+		options.add(WebCore::FindOption::StartInSelection);
 
 	bool outWrapped = false;
 	return webPage->search(WTF::String::fromUTF8([string cString]), options, outWrapped);

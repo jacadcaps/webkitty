@@ -161,7 +161,7 @@ WTF_EXPORT_PRIVATE int overwriteEntireFile(const String& path, std::span<const u
 
 // Prefix is what the filename should be prefixed with, not the full path.
 WTF_EXPORT_PRIVATE std::pair<String, PlatformFileHandle> openTemporaryFile(StringView prefix, StringView suffix = { });
-WTF_EXPORT_PRIVATE String openTemporaryFile(StringView tmpPath, StringView prefix, PlatformFileHandle&, StringView suffix = { });
+//WTF_EXPORT_PRIVATE std::pair<String, PlatformFileHandle> openTemporaryFile(StringView tmpPath, StringView prefix, StringView suffix = { });
 WTF_EXPORT_PRIVATE String createTemporaryFile(StringView prefix, StringView suffix = { });
 WTF_EXPORT_PRIVATE PlatformFileHandle openFile(const String& path, FileOpenMode, FileAccessPermission = FileAccessPermission::All, bool failIfFileExists = false);
 WTF_EXPORT_PRIVATE void closeFile(PlatformFileHandle&);
@@ -222,7 +222,7 @@ WTF_EXPORT_PRIVATE String createTemporaryDirectory();
 #endif
 
 #if OS(MORPHOS)
-WTF_EXPORT_PRIVATE String openTemporaryFileAsync(StringView prefix, PlatformFileHandle&);
+WTF_EXPORT_PRIVATE std::pair<String, PlatformFileHandle> openTemporaryFileAsync(StringView prefix);
 WTF_EXPORT_PRIVATE PlatformFileHandle openFileAsync(const String& path, FileOpenMode, FileAccessPermission = FileAccessPermission::All, bool failIfFileExists = false);
 WTF_EXPORT_PRIVATE void closeFileAsync(PlatformFileHandle&);
 // Returns the resulting offset from the beginning of the file if successful, -1 otherwise.

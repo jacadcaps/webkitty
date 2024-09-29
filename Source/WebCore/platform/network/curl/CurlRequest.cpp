@@ -859,7 +859,11 @@ void CurlRequest::writeDataToDownloadFileIfEnabled(std::span<const uint8_t> buff
             return;
 
         if (m_downloadFilePath.isEmpty())
-            m_downloadFilePath = FileSystem::openTemporaryFile("download"_s, m_downloadFileHandle);
+        {
+            auto [filePath, fileHandle] = FileSystem::openTemporaryFile("download"_s);
+            m_downloadFilePath = filePath;
+            m_downloadFileHandle = fileHandle;
+        }
 
         if (m_downloadFilePath.isEmpty() && m_downloadFileHandle != FileSystem::invalidPlatformFileHandle) {
             FileSystem::closeFile(m_downloadFileHandle);

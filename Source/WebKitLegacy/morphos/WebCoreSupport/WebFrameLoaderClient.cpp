@@ -557,7 +557,7 @@ LocalFrame* WebFrameLoaderClient::dispatchCreatePage(const NavigationAction& nav
         return nullptr;
 
     // Just call through to the chrome client.
-    Page* newPage = webPage->corePage()->chrome().createWindow(*m_frame->coreFrame(), { }, navigationAction);
+    auto newPage = webPage->corePage()->chrome().createWindow(*m_frame->coreFrame(), { }, navigationAction);
     if (!newPage)
         return nullptr;
 	
@@ -1431,7 +1431,7 @@ String generateFileNameForIcon(const WTF::String &inHost)
     StringBuilder baseNameBuilder;
     for (size_t i = 0; i < MD5::hashSize; i++)
         baseNameBuilder.append(WTF::hex(rawdata[i], WTF::Lowercase));
-    return makeString("PROGDIR:Cache/FavIcons/", baseNameBuilder.toString());
+    return makeString("PROGDIR:Cache/FavIcons/"_s, baseNameBuilder.toString());
 }
 
 void WebFrameLoaderClient::getLoadDecisionForIcons(const Vector<std::pair<WebCore::LinkIcon&, uint64_t>>& icons)
@@ -1490,7 +1490,7 @@ void WebFrameLoaderClient::finishedLoadingIcon(WebCore::FragmentedSharedBuffer* 
 		WTF::FileSystemImpl::PlatformFileHandle file = WTF::FileSystemImpl::openFile(fileName, WTF::FileSystemImpl::FileOpenMode::Truncate);
 		if (file != WTF::FileSystemImpl::invalidPlatformFileHandle)
 		{
-			if (int(data->size()) != WTF::FileSystemImpl::writeToFile(file, data->data(), data->size()))
+			if (int(data->size()) != WTF::FileSystemImpl::writeToFile(file, data->span()))
 			{
 				WTF::FileSystemImpl::closeFile(file);
 				WTF::FileSystemImpl::deleteFile(fileName);

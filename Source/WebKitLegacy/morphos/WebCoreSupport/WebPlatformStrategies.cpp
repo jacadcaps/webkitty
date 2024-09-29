@@ -86,7 +86,7 @@ private:
     void writeBlobsToTemporaryFilesForIndexedDB(const Vector<String>& blobURLs, CompletionHandler<void(Vector<String>&& filePaths)>&& completionHandler) final { m_blobRegistry.writeBlobsToTemporaryFilesForIndexedDB(blobURLs, WTFMove(completionHandler)); }
     void registerBlobURLHandle(const URL& url, const std::optional<SecurityOriginData>& topOrigin) final { m_blobRegistry.registerBlobURLHandle(url, topOrigin); }
     void unregisterBlobURLHandle(const URL& url, const std::optional<SecurityOriginData>& topOrigin) final { m_blobRegistry.unregisterBlobURLHandle(url, topOrigin); }
-
+    String blobType(const URL& url) final { return m_blobRegistry.blobType(url); }
     BlobRegistryImpl* blobRegistryImpl() final { return &m_blobRegistry; }
 
     BlobRegistryImpl m_blobRegistry;

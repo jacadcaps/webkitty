@@ -65,7 +65,12 @@
 extern "C" {
 LONG WaitSelect(LONG nfds, fd_set *readfds, fd_set *writefds, fd_set *exeptfds,
                 struct timeval *timeout, ULONG *maskp);
+
+double roundeven(double operand) { return __builtin_roundeven(operand); }
+float roundevenf(float operand) { return __builtin_roundevenf(operand); }
+
 }
+
 typedef uint32_t socklen_t;
 #if (!MORPHOS_MINIMAL)
 #include <pal/crypto/gcrypt/Initialization.h>

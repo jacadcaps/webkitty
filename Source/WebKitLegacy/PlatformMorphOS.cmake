@@ -74,6 +74,7 @@ list(APPEND WebKitLegacy_SOURCES_WebCoreSupport
     morphos/WebCoreSupport/WebPageGroup.cpp
     morphos/WebCoreSupport/WebProgressTrackerClient.cpp
     morphos/WebCoreSupport/WebNotificationClient.cpp
+    morphos/WebCoreSupport/WebCryptoClient.cpp
 )
 
 #list(APPEND WebKitLegacy_SOURCES_WebCoreSupport

@@ -290,13 +290,15 @@ static const char* temporaryFileDirectory()
 #endif
 }
 
-String openTemporaryFile(StringView tmpPath, StringView prefix, PlatformFileHandle& handle, StringView suffix)
- {
-     // Suffix is not supported because that's incompatible with mkstemp.
-     // This is OK for now since the code using it is built on macOS only.
-     ASSERT_UNUSED(suffix, suffix.isEmpty());
- 
-     char buffer[PATH_MAX];
+std::pair<String, PlatformFileHandle> openTemporaryFile(StringView tmpPath, StringView prefix, StringView suffix)
+{
+    // Suffix is not supported because that's incompatible with mkstemp.
+    // This is OK for now since the code using it is built on macOS only.
+    ASSERT_UNUSED(suffix, suffix.isEmpty());
+
+    PlatformFileHandle handle = invalidPlatformFileHandle;
+
+    char buffer[PATH_MAX];
 #if OS(MORPHOS)
 	stccpy(buffer, fileSystemRepresentation(tmpPath.toString()).data(), sizeof(buffer));
 	auto prefixadd = fileSystemRepresentation(prefix.toString());
@@ -306,23 +308,23 @@ String openTemporaryFile(StringView tmpPath, StringView prefix, PlatformFileHand
     	goto end;
 	strcat(buffer, "XXXXXX");
 #else
-     if (snprintf(buffer, PATH_MAX, "%s/%sXXXXXX", temporaryFileDirectory(), prefix.utf8().data()) >= PATH_MAX)
-         goto end;
+    if (snprintf(buffer, PATH_MAX, "%s/%sXXXXXX", temporaryFileDirectory(), prefix.utf8().data()) >= PATH_MAX)
+        goto end;
 #endif
  
-     handle = mkstemp(buffer);
-     if (handle < 0)
-         goto end;
+    handle = mkstemp(buffer);
+    if (handle < 0)
+        goto end;
  
 #if OS(MORPHOS)
-    return String(buffer, strlen(buffer), MIBENUM_SYSTEM);
+    return { String(buffer, strlen(buffer), MIBENUM_SYSTEM), handle };
 #else
-     return String::fromUTF8(buffer);
+    return { String::fromUTF8(buffer), handle };
 #endif
- end:
-     handle = invalidPlatformFileHandle;
-     return String();
- }
+end:
+    handle = invalidPlatformFileHandle;
+    return { String(), handle };
+}
 
 HashMap<String, String> tmpPathPrefixes;
 
@@ -340,16 +342,16 @@ void setTemporaryFilePathForPrefix(const char * tmpPath, const String& prefix)
 #endif
 }
 
-String openTemporaryFile(StringView prefix, PlatformFileHandle& handle, StringView suffix)
+std::pair<String, PlatformFileHandle> openTemporaryFile(StringView prefix, StringView suffix)
 {
 #if OS(MORPHOS)
 	const char* tmpDir = "PROGDIR:Tmp";
     auto prefixStr = prefix.toString();
 	if (tmpPathPrefixes.contains(prefixStr))
 	{
-		return openTemporaryFile(tmpPathPrefixes.get(prefixStr), prefix, handle, suffix);
+		return openTemporaryFile(tmpPathPrefixes.get(prefixStr), prefix, suffix);
 	}
-	return openTemporaryFile(String(tmpDir, strlen(tmpDir), MIBENUM_SYSTEM), prefix, handle, suffix);
+	return openTemporaryFile(String(tmpDir, strlen(tmpDir), MIBENUM_SYSTEM), prefix, suffix);
 #else
     const char* tmpDir = getenv("TMPDIR");
 
@@ -428,9 +430,11 @@ int mkstempasync(char *path)
     return fd;
 }
 
-String openTemporaryFileAsync(StringView prefix, PlatformFileHandle& handle)
+std::pair<String, PlatformFileHandle> openTemporaryFileAsync(StringView prefix)
 {
     char buffer[PATH_MAX];
+
+    PlatformFileHandle handle = invalidPlatformFileHandle;
 
 	const char* tmpDirIn = "PROGDIR:Tmp";
     String tmpDir = String(tmpDirIn, strlen(tmpDirIn), MIBENUM_SYSTEM);
@@ -450,10 +454,10 @@ String openTemporaryFileAsync(StringView prefix, PlatformFileHandle& handle)
     if (handle == -1)
         goto end;
 
-	return String(buffer, strlen(buffer), MIBENUM_SYSTEM);
+	return { String(buffer, strlen(buffer), MIBENUM_SYSTEM), handle };
 end:
     handle = invalidPlatformFileHandle;
-    return String();
+    return { String(), handle };
 }
 
 PlatformFileHandle openFileAsync(const String& path, FileOpenMode mode, FileAccessPermission, bool failIfFileExists)

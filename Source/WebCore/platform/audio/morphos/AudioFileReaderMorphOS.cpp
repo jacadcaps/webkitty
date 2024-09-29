@@ -342,15 +342,15 @@ protected:
 	int            m_rate;
 };
 
-RefPtr<AudioBus> createBusFromInMemoryAudioFile(const void* data, size_t dataSize, bool mixToMono, float sampleRate)
+RefPtr<AudioBus> createBusFromInMemoryAudioFile(std::span<const uint8_t> data, bool mixToMono, float sampleRate)
 {
 	DINIT(dprintf("%s\n", __PRETTY_FUNCTION__));
-	AcinerellaSoundReader reader(data, dataSize, mixToMono, sampleRate);
+	AcinerellaSoundReader reader(data.data(), data.size(), mixToMono, sampleRate);
 
 #if 0
 	{
 		BPTR file = Open("ram:sample.wav", MODE_NEWFILE);
-		Write(file, (APTR)data, dataSize);
+		Write(file, (APTR)data.data(), data.size());
 		Close(file);
 	}
 #endif
