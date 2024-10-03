@@ -511,7 +511,7 @@ ALWAYS_INLINE EncodedJSValue genericTypedArrayViewProtoFuncJoin(VM& vm, JSGlobal
             else {
                 auto nativeValue = thisObject->getIndexQuicklyAsNativeValue(i);
 #if CPU(BIG_ENDIAN)
-                if constexpr (TypeFloat32 != ViewClass::Adaptor::typeValue && TypeFloat64 != ViewClass::Adaptor::typeValue) {
+                if constexpr (TypeFloat16 != ViewClass::Adaptor::typeValue && TypeFloat32 != ViewClass::Adaptor::typeValue && TypeFloat64 != ViewClass::Adaptor::typeValue) {
                     nativeValue = flipBytes(nativeValue);
                 }
 #endif
