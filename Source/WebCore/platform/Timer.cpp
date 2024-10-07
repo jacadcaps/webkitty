@@ -287,7 +287,7 @@ static_assert(sizeof(DeferrableOneShotTimer) == sizeof(SameSizeAsDeferrableOneSh
 TimerBase::TimerBase()
 {
 #if USE(WEB_THREAD)
-    RELEASE_ASSERT(WebThreadIsLockedOrDisabled());
+    RELEASE_ASSERT(WebThreadIsLockedOrDisabledInMainOrWebThread());
 #endif
 }
 
@@ -509,15 +509,15 @@ void TimerBase::updateHeapIfNeeded(MonotonicTime oldTime)
 void TimerBase::setNextFireTime(MonotonicTime newTime)
 {
 #if USE(WEB_THREAD)
-    RELEASE_ASSERT(WebThreadIsLockedOrDisabled());
+    RELEASE_ASSERT(WebThreadIsLockedOrDisabledInMainOrWebThread());
 #endif
     ASSERT(canCurrentThreadAccessThreadLocalData(m_thread));
-    // RELEASE_ASSERT(canCurrentThreadAccessThreadLocalData(m_thread) || shouldSuppressThreadSafetyCheck());
+    //RELEASE_ASSERT(canCurrentThreadAccessThreadLocalData(m_thread) || shouldSuppressThreadSafetyCheck());
     //bool timerHasBeenDeleted = m_unalignedNextFireTime.isNaN();
     //RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(!timerHasBeenDeleted);
 
     if (m_unalignedNextFireTime != newTime) {
-        //RELEASE_ASSERT(!newTime.isNaN());
+    //    RELEASE_ASSERT(!newTime.isNaN());
         m_unalignedNextFireTime = newTime;
     }
 
