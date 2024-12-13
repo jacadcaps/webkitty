@@ -44,9 +44,54 @@
 #include <bit>
 #include <wtf/Platform.h>
 #include <wtf/StdLibExtras.h>
+#include <wtf/BitCast.h>
 
 namespace WTF {
 
+
+#if HAVE(FLOAT16)
+class Float16 {
+public:
+    constexpr Float16() = default;
+    constexpr Float16(double value)
+        : m_value(static_cast<_Float16>(value))
+    {
+    }
+
+    static constexpr Float16 min() { return Float16 { std::bit_cast<_Float16>(static_cast<uint16_t>(0xfbff)) }; }
+    static constexpr Float16 max() { return Float16 { std::bit_cast<_Float16>(static_cast<uint16_t>(0x7bff)) }; }
+
+    constexpr operator double() const
+    {
+        return static_cast<double>(m_value);
+    }
+
+    auto operator<=>(const Float16& other) const
+    {
+        return m_value <=> other.m_value;
+    }
+
+    bool operator==(const Float16& other) const
+    {
+        return m_value == other.m_value;
+    }
+
+    bool operator!=(const Float16& other) const
+    {
+        return m_value != other.m_value;
+    }
+
+private:
+    explicit constexpr Float16(_Float16 value)
+        : m_value(value)
+    {
+    }
+
+    _Float16 m_value { 0 };
+};
+#else
+class Float16 {
+public:
 /*
  * Convert a 16-bit floating-point number in IEEE half-precision format, in bit representation, to
  * a 32-bit floating-point number in IEEE single-precision format.
@@ -54,7 +99,7 @@ namespace WTF {
  * @note The implementation relies on IEEE-like (no assumption about rounding mode and no operations on denormals)
  * floating-point operations and bitcasts between integer and floating-point variables.
  */
-constexpr float convertFloat16ToFloat32(uint16_t h)
+static float convertFloat16ToFloat32(uint16_t h)
 {
 #if HAVE(FLOAT16)
     return static_cast<float>(std::bit_cast<_Float16>(h));
@@ -163,7 +208,7 @@ constexpr float convertFloat16ToFloat32(uint16_t h)
 #endif
 }
 
-constexpr double convertFloat16ToFloat64(uint16_t h)
+static double convertFloat16ToFloat64(uint16_t h)
 {
     return static_cast<double>(convertFloat16ToFloat32(h));
 }
@@ -175,7 +220,7 @@ constexpr double convertFloat16ToFloat64(uint16_t h)
  * @note The implementation relies on IEEE-like (no assumption about rounding mode and no operations on denormals)
  * floating-point operations and bitcasts between integer and floating-point variables.
  */
-constexpr uint16_t convertFloat32ToFloat16(float f)
+static uint16_t convertFloat32ToFloat16(float f)
 {
 #if HAVE(FLOAT16)
     return std::bit_cast<uint16_t>(static_cast<_Float16>(f));
@@ -203,7 +248,7 @@ constexpr uint16_t convertFloat32ToFloat16(float f)
 }
 
 // Adopted from V8's DoubleToFloat16, which adopted from https://gist.github.com/rygorous/2156668.
-constexpr uint16_t convertFloat64ToFloat16(double value)
+static uint16_t convertFloat64ToFloat16(double value)
 {
 #if HAVE(FLOAT16)
     return std::bit_cast<uint16_t>(static_cast<_Float16>(value));
@@ -285,51 +330,8 @@ constexpr uint16_t convertFloat64ToFloat16(double value)
 #endif
 }
 
-#if HAVE(FLOAT16)
-class Float16 {
-public:
     constexpr Float16() = default;
-    constexpr Float16(double value)
-        : m_value(static_cast<_Float16>(value))
-    {
-    }
-
-    static constexpr Float16 min() { return Float16 { std::bit_cast<_Float16>(static_cast<uint16_t>(0xfbff)) }; }
-    static constexpr Float16 max() { return Float16 { std::bit_cast<_Float16>(static_cast<uint16_t>(0x7bff)) }; }
-
-    constexpr operator double() const
-    {
-        return static_cast<double>(m_value);
-    }
-
-    auto operator<=>(const Float16& other) const
-    {
-        return m_value <=> other.m_value;
-    }
-
-    bool operator==(const Float16& other) const
-    {
-        return m_value == other.m_value;
-    }
-
-    bool operator!=(const Float16& other) const
-    {
-        return m_value != other.m_value;
-    }
-
-private:
-    explicit constexpr Float16(_Float16 value)
-        : m_value(value)
-    {
-    }
-
-    _Float16 m_value { 0 };
-};
-#else
-class Float16 {
-public:
-    constexpr Float16() = default;
-    constexpr Float16(double value)
+    Float16(double value)
         : Float16(convertFloat64ToFloat16(value))
     {
     }
@@ -337,7 +339,7 @@ public:
     static constexpr Float16 min() { return Float16 { static_cast<uint16_t>(0xfbff) }; }
     static constexpr Float16 max() { return Float16 { static_cast<uint16_t>(0x7bff) }; }
 
-    constexpr operator double() const
+    operator double() const
     {
         return asDouble();
     }
@@ -363,7 +365,7 @@ private:
     {
     }
 
-    constexpr double asDouble() const { return convertFloat16ToFloat64(m_value); }
+    double asDouble() const { return convertFloat16ToFloat64(m_value); }
 
     uint16_t m_value { 0 };
 };

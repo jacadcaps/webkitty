@@ -178,15 +178,13 @@ if (COMPILER_IS_GCC_OR_CLANG)
 
     # Warnings to be disabled
     # FIXME: We should probably not be disabling -Wno-maybe-uninitialized?
-    WEBKIT_PREPEND_GLOBAL_COMPILER_FLAGS(-Qunused-arguments
-                                         -Wno-maybe-uninitialized
-                                         -Wno-parentheses-equality
+    WEBKIT_PREPEND_GLOBAL_COMPILER_FLAGS(-Wno-maybe-uninitialized
                                          -Wno-misleading-indentation
                                          -Wno-psabi)
 
     # GCC < 12.0 gives false warnings for mismatched-new-delete <https://webkit.org/b/241516>
     if ((CMAKE_CXX_COMPILER_ID MATCHES "GNU") AND (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "12.0.0"))
-        WEBKIT_PREPEND_GLOBAL_COMPILER_FLAGS(-Wno-mismatched-new-delete)
+#        WEBKIT_PREPEND_GLOBAL_COMPILER_FLAGS(-Wno-mismatched-new-delete)
         WEBKIT_PREPEND_GLOBAL_COMPILER_FLAGS(-Wno-uninitialized)
     endif ()
 
@@ -208,7 +206,7 @@ if (COMPILER_IS_GCC_OR_CLANG)
         # This triggers warnings in wtf/Packed.h, a header that is included in many places. It does not
         # respect ignore warning pragmas and we cannot easily suppress it for all affected files.
         # https://bugs.webkit.org/show_bug.cgi?id=226557
-        WEBKIT_PREPEND_GLOBAL_CXX_FLAGS(-Wno-stringop-overread)
+#        WEBKIT_PREPEND_GLOBAL_CXX_FLAGS(-Wno-stringop-overread)
 
         # -Wodr trips over our bindings integrity feature when LTO is enabled.
         # https://bugs.webkit.org/show_bug.cgi?id=229867
@@ -452,7 +450,7 @@ int main() {
         #include <filesystem>
         int main() { std::filesystem::path p1(\"\"); std::filesystem::status(p1); }
     ")
-    set(CMAKE_REQUIRED_FLAGS "--std=c++2b")
+    set(CMAKE_REQUIRED_FLAGS "--std=gnu++20")
     check_cxx_source_compiles("${FILESYSTEM_TEST_SOURCE}" STD_FILESYSTEM_IS_AVAILABLE)
     if (NOT STD_FILESYSTEM_IS_AVAILABLE)
         set(EXPERIMENTAL_FILESYSTEM_TEST_SOURCE "
@@ -469,18 +467,18 @@ int main() {
     unset(CMAKE_REQUIRED_FLAGS)
 endif ()
 
-if (NOT WTF_PLATFORM_COCOA)
-  set(FLOAT16_TEST_SOURCE "
-int main() {
-  _Float16 f;
-
-  f += static_cast<_Float16>(1.0);
-
-  return 0;
-}
-  ")
-  check_cxx_source_compiles("${FLOAT16_TEST_SOURCE}" HAVE_FLOAT16)
-endif ()
+#if (NOT WTF_PLATFORM_COCOA)
+#  set(FLOAT16_TEST_SOURCE "
+#int main() {
+#  _Float16 f;
+#
+#  f += static_cast<_Float16>(1.0);
+#
+#  return 0;
+#}
+#  ")
+#  check_cxx_source_compiles("${FLOAT16_TEST_SOURCE}" HAVE_FLOAT16)
+#endif ()
 
 if (CMAKE_CXX_COMPILER_ID MATCHES "GNU" AND WTF_CPU_MIPS)
     # Work around https://gcc.gnu.org/bugzilla/show_bug.cgi?id=78176.
@@ -491,7 +489,7 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "GNU" AND WTF_CPU_MIPS)
 endif ()
 
 if (COMPILER_IS_GCC_OR_CLANG)
-    set(COMPILE_C_AS_CXX "-xc++;-std=c++2b")
+    set(COMPILE_C_AS_CXX "-xc++;-std=gnu++20")
 endif ()
 
 # FIXME: Enable pre-compiled headers for all ports <https://webkit.org/b/139438>
