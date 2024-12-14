@@ -155,9 +155,10 @@ public:
 				if (!m_buffer.isEmpty())
 				{
 					auto& buffer = m_buffer.first();
-					int write = std::min(int(buffer.size() - m_bufferRead), sizeLeft);
+                    auto bufferSpan = buffer->span();
+					int write = std::min(int(bufferSpan.size() - m_bufferRead), sizeLeft);
 
-					memcpy(outBuffer + sizeWritten, buffer.data() + m_bufferRead, write);
+					memcpy(outBuffer + sizeWritten, bufferSpan.data() + m_bufferRead, write);
 					m_bufferRead += write;
 					m_bufferPositionAbs += write;
 					sizeLeft -= write;
@@ -165,7 +166,7 @@ public:
 
 					D(dprintf("%s: read %d from current block\n", "nbRead", write));
 
-					if (m_bufferRead == int(buffer.size()))
+					if (m_bufferRead == int(bufferSpan.size()))
 					{
 						m_buffer.removeFirst();
 						m_bufferSize -= m_bufferRead;
@@ -379,7 +380,7 @@ public:
 				{
 					auto lock = Locker(m_bufferLock);
 					m_bufferSize += buffer->size();
-					m_buffer.append(buffer->copyData());
+					m_buffer.append(WTFMove(buffer));
 
 					if (m_bufferSize > m_readAhead && !m_isPaused)
 					{
@@ -433,7 +434,7 @@ protected:
 	BinarySemaphore                  m_eventSemaphore;
 	RefPtr<CurlRequest>              m_curlRequest;
 	Lock                             m_bufferLock;
-	Deque<Vector<uint8_t>>           m_buffer;
+	Deque<Ref<SharedBuffer>>         m_buffer;
 	// pos within the front() chunk
 	int                              m_bufferRead = 0;
 	// abs position in the stream that we've read (not in the buffer anymore)
