@@ -91,6 +91,7 @@ Ref<Node> DocumentFragment::cloneNodeInternal(Document& targetDocument, CloningO
 void DocumentFragment::parseHTML(const String& source, Element& contextElement, OptionSet<ParserContentPolicy> parserContentPolicy)
 {
     Ref document = this->document();
+#if !OS(MORPHOS) // TODO: borks on big endian
     if (tryFastParsingHTMLFragment(source, document, *this, contextElement, parserContentPolicy)) {
 #if ASSERT_ENABLED
         // As a sanity check for the fast-path, create another fragment using the full parser and compare the results.
@@ -100,6 +101,7 @@ void DocumentFragment::parseHTML(const String& source, Element& contextElement, 
 #endif
         return;
     }
+#endif
     if (hasChildNodes())
         removeChildren();
 
