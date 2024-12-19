@@ -480,7 +480,11 @@ void RenderTreeBuilder::attachToRenderElementInternal(RenderElement& parent, Ren
             // FIXME: Introduce a dirty bit to bridge the gap between parent and containing block which would
             // not trigger layout but a simple traversal all the way to the direct parent and also expand it non-direct parent cases.
             // FIXME: RenderVideo's setNeedsLayout pattern does not play well with this optimization: see webkit.org/b/276253
+#if ENABLE(VIDEO)
             if (newChild->containingBlock() == &parent && !is<RenderVideo>(*newChild))
+#else
+            if (newChild->containingBlock() == &parent)
+#endif
                 parent.setOutOfFlowChildNeedsStaticPositionLayout();
             else
                 parent.setChildNeedsLayout();

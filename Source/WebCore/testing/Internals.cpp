@@ -7552,7 +7552,11 @@ const String& Internals::defaultSpatialTrackingLabel() const
 
 bool Internals::isEffectivelyMuted(const HTMLMediaElement& element)
 {
+#if ENABLE(VIDEO)
     return element.effectiveMuted();
+#else
+    return false;
+#endif
 }
 
 std::optional<RenderingMode> Internals::getEffectiveRenderingModeOfNewlyCreatedAcceleratedImageBuffer()

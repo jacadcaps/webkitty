@@ -791,6 +791,7 @@ String DiagnosticLoggingKeys::audioCodecKey()
     return "audioCodec"_s;
 }
 
+#if ENABLE(VIDEO)
 String DiagnosticLoggingKeys::mediaElementSourceTypeDiagnosticLoggingKey(HTMLMediaElementSourceType sourceType)
 {
     switch (sourceType) {
@@ -813,7 +814,7 @@ String DiagnosticLoggingKeys::mediaElementSourceTypeDiagnosticLoggingKey(HTMLMed
     ASSERT_NOT_REACHED();
     return nullString();
 }
-
+#endif
 
 
 } // namespace WebCore

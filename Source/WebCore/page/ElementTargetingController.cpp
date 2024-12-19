@@ -429,6 +429,7 @@ static String computeHasChildSelector(Element& element)
         HTMLNames::buttonTag
     } };
 
+#if ENABLE(VIDEO)
     String selectorSuffix;
     for (auto& child : descendantsOfType<HTMLElement>(element)) {
         if (!tagsToCheckForUniqueAttributes->contains(child.tagQName()))
@@ -455,7 +456,7 @@ static String computeHasChildSelector(Element& element)
 
         selectorSuffix = makeString(" > "_s, WTFMove(selectorWithTag));
     }
-
+#endif
     return emptyString();
 }
 
@@ -616,6 +617,7 @@ static String searchableTextForTarget(Element& target)
 
 static bool hasAudibleMedia(const Element& element)
 {
+#if ENABLE(VIDEO)
     if (RefPtr media = dynamicDowncast<HTMLMediaElement>(element))
         return media->isAudible();
 
@@ -628,7 +630,7 @@ static bool hasAudibleMedia(const Element& element)
         if (hasAudibleMedia(documentElement))
             return true;
     }
-
+#endif
     return false;
 }
 
@@ -640,8 +642,10 @@ static URL urlForElement(const Element& element)
     if (RefPtr image = dynamicDowncast<HTMLImageElement>(element))
         return image->currentURL();
 
+#if ENABLE(VIDEO)
     if (RefPtr media = dynamicDowncast<HTMLMediaElement>(element))
         return media->currentSrc();
+#endif
 
     if (CheckedPtr renderer = element.renderer()) {
         if (auto& style = renderer->style(); style.hasBackgroundImage()) {
