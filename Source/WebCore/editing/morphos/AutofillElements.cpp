@@ -138,7 +138,17 @@ bool AutofillElements::computeAutofillElements(Ref<HTMLInputElement> start)
             return true;
 		}
     }
-    return false;
+
+    auto autofillData = start->autofillData();
+    switch (toAutofillFieldName(autofillData.fieldName)) {
+    case AutofillFieldName::Email:
+    case AutofillFieldName::Username:
+    case AutofillFieldName::WebAuthn:
+        m_username = start.ptr();
+        return true;
+    default:
+        return false;
+    }
 }
 
 void AutofillElements::autofill(String username, String password)

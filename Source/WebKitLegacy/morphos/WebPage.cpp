@@ -1279,7 +1279,9 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
     settings.setAsyncClipboardAPIEnabled(true);
     settings.setOffscreenCanvasEnabled(true);
     settings.setOffscreenCanvasInWorkersEnabled(true);
-    settings.setCacheAPIEnabled(true);
+
+// todo: this doesn't actually work
+    settings.setCacheAPIEnabled(false);
 
 	settings.setForceCompositingMode(false);
 	settings.setAcceleratedCompositingEnabled(false);
@@ -1877,15 +1879,13 @@ WebCore::IntRect WebPage::getElementBounds(WebCore::Element *e)
 	return { };
 }
 
-void WebPage::startedEditingElement(WebCore::HTMLInputElement *input)
+void WebPage::startedEditingElement(Ref<WebCore::HTMLInputElement> input)
 {
-	if (nullptr == input)
-		return;
 	if (nullptr == m_autofillElements)
 		m_autofillElements = new WebCore::AutofillElements();
 	if (m_autofillElements)
 	{
-		if (m_autofillElements->computeAutofillElements(*input))
+		if (m_autofillElements->computeAutofillElements(input))
 		{
 			if (_fHasAutofill)
 				_fHasAutofill();

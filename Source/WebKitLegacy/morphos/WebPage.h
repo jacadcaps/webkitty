@@ -214,7 +214,7 @@ public:
     bool isFullscreen() const;
     void exitFullscreen();
 
-	void startedEditingElement(WebCore::HTMLInputElement *);
+	void startedEditingElement(Ref<WebCore::HTMLInputElement> input);
 	bool hasAutofillElements();
 	void clearAutofillElements();
 	void setAutofillElements(const WTF::String &login, const WTF::String &password);

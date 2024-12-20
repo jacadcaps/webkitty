@@ -436,11 +436,11 @@ bool WebEditorClient::isSelectTrailingWhitespaceEnabled(void) const
 void WebEditorClient::textFieldDidBeginEditing(Element& e)
 {
 //    notImplemented();
-	
-    if (is<HTMLInputElement>(e) && !m_webPage->hasAutofillElements())
+    if (!m_webPage->hasAutofillElements())
     {
-		HTMLInputElement* element = dynamicDowncast<HTMLInputElement>(e);
-		m_webPage->startedEditingElement(element);
+        if (RefPtr input = dynamicDowncast<HTMLInputElement>(e)) {
+            m_webPage->startedEditingElement(*input);
+        }
 	}
 }
 
