@@ -1063,6 +1063,10 @@ bool Quirks::shouldMakeEventListenerPassive(const EventTarget& eventTarget, cons
 // baidu.com rdar://56421276
 bool Quirks::shouldEnableLegacyGetUserMediaQuirk() const
 {
+#if OS(MORPHOS)
+    return true;
+#endif
+
     if (!needsQuirks())
         return false;
 

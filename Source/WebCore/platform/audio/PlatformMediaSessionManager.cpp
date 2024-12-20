@@ -859,6 +859,7 @@ void PlatformMediaSessionManager::setMediaCapabilityGrantsEnabled(bool mediaCapa
 }
 #endif
 
+#if ENABLE(VIDEO) || ENABLE(WEB_AUDIO)
 WeakPtr<PlatformMediaSession> PlatformMediaSessionManager::bestEligibleSessionForRemoteControls(const Function<bool(const PlatformMediaSession&)>& filterFunction, PlatformMediaSession::PlaybackControlsPurpose purpose)
 {
     Vector<WeakPtr<PlatformMediaSession>> eligibleAudioVideoSessions;
@@ -943,6 +944,7 @@ void PlatformMediaSessionManager::dumpSessionStates()
 
     ALWAYS_LOG(LOGIDENTIFIER, " Sessions:\n", builder.toString());
 }
+#endif
 #endif
 
 } // namespace WebCore

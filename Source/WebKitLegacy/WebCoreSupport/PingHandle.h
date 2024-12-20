@@ -31,7 +31,9 @@
 #include <WebCore/ResourceLoaderOptions.h>
 #include <WebCore/ResourceRequest.h>
 #include <WebCore/ResourceResponse.h>
+#ifndef __MORPHOS__
 #include <WebCore/SharedBuffer.h>
+#endif
 #include <WebCore/Timer.h>
 #include <wtf/CompletionHandler.h>
 #include <wtf/TZoneMallocInlines.h>

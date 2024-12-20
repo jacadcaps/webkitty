@@ -253,6 +253,11 @@ static bool styleChangeAffectsRelativeUnits(const RenderStyle& style, const Rend
         || existingStyle->computedLineHeight() != style.computedLineHeight();
 }
 
+#if OS(MORPHOS)
+#pragma GCC diagnostic push
+#pragma GCC optimize ("O1")
+#endif
+
 auto TreeResolver::resolveElement(Element& element, const RenderStyle* existingStyle, ResolutionType resolutionType) -> std::pair<ElementUpdate, DescendantsToResolve>
 {
     if (m_didSeePendingStylesheet && !element.renderOrDisplayContentsStyle() && !m_document.isIgnoringPendingStylesheets()) {
@@ -364,6 +369,10 @@ auto TreeResolver::resolveElement(Element& element, const RenderStyle* existingS
 
     return { WTFMove(update), descendantsToResolve };
 }
+
+#if OS(MORPHOS)
+#pragma GCC diagnostic pop
+#endif
 
 inline bool supportsFirstLineAndLetterPseudoElement(const RenderStyle& style)
 {
@@ -634,6 +643,11 @@ const RenderStyle* TreeResolver::parentBoxStyleForPseudoElement(const ElementUpd
     }
 }
 
+#if OS(MORPHOS)
+#pragma GCC diagnostic push
+#pragma GCC optimize ("O1")
+#endif
+
 ElementUpdate TreeResolver::createAnimatedElementUpdate(ResolvedStyle&& resolvedStyle, const Styleable& styleable, Change parentChange, const ResolutionContext& resolutionContext, IsInDisplayNoneTree isInDisplayNoneTree)
 {
     auto& element = styleable.element;
@@ -771,6 +785,10 @@ ElementUpdate TreeResolver::createAnimatedElementUpdate(ResolvedStyle&& resolved
 
     return { WTFMove(newStyle), change, shouldRecompositeLayer, mayNeedRebuildRoot };
 }
+
+#if OS(MORPHOS)
+#pragma GCC diagnostic pop
+#endif
 
 std::unique_ptr<RenderStyle> TreeResolver::resolveStartingStyle(const ResolvedStyle& resolvedStyle, const Styleable& styleable, const ResolutionContext& resolutionContext) const
 {

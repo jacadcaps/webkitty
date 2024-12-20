@@ -43,6 +43,20 @@
 #include <wtf/WTFConfig.h>
 #include <wtf/WordLock.h>
 
+#if OS(MORPHOS)
+#include <semaphore.h>
+#include <sys/mman.h>
+#include <unistd.h>
+#include <pthread.h>
+extern "C" {
+int pthread_setname_np(pthread_t thread, const char *name);
+#include <exec/tasks.h>
+#include <exec/libraries.h>
+#include <exec/system.h>
+#include <proto/exec.h>
+}
+#endif
+
 #if OS(LINUX)
 #include <sched.h>
 #include <sys/prctl.h>
@@ -112,6 +126,7 @@ static LazyNeverDestroyed<Semaphore> globalSemaphoreForSuspendResume;
 
 static std::atomic<Thread*> targetThread { nullptr };
 
+#if !OS(MORPHOS)
 void Thread::signalHandlerSuspendResume(int, siginfo_t*, void* ucontext)
 {
     // Touching a global variable atomic types from signal handlers is allowed.
@@ -169,7 +184,7 @@ void Thread::signalHandlerSuspendResume(int, siginfo_t*, void* ucontext)
     // Allow resume caller to see that this thread is resumed.
     globalSemaphoreForSuspendResume->post();
 }
-
+#endif
 #endif // !OS(DARWIN)
 
 void Thread::initializePlatformThreading()
@@ -187,6 +202,7 @@ void Thread::initializePlatformThreading()
 #if !OS(DARWIN)
     globalSemaphoreForSuspendResume.construct(0);
 
+#if !OS(MORPHOS)
     // Signal handlers are process global configuration.
     // Intentionally block sigThreadSuspendResume in the handler.
     // sigThreadSuspendResume will be allowed in the handler by sigsuspend.
@@ -214,6 +230,7 @@ void Thread::initializePlatformThreading()
     bool signalIsInstalled = attemptToSetSignal(g_wtfConfig.sigThreadSuspendResume);
     RELEASE_ASSERT(signalIsInstalled);
 #endif
+#endif
 }
 
 #if OS(LINUX)
@@ -225,7 +242,7 @@ ThreadIdentifier Thread::currentID()
 
 void Thread::initializeCurrentThreadEvenIfNonWTFCreated()
 {
-#if !OS(DARWIN)
+#if !OS(DARWIN) && !OS(MORPHOS)
     RELEASE_ASSERT(g_wtfConfig.isThreadSuspendResumeSignalConfigured);
     sigset_t mask;
     sigemptyset(&mask);
@@ -346,6 +363,22 @@ void Thread::initializeCurrentThreadInternal(const char* threadName)
     pthread_setname_np(normalizeThreadName(threadName));
 #elif OS(LINUX)
     prctl(PR_SET_NAME, normalizeThreadName(threadName));
+#elif OS(MORPHOS)
+	char nameBuffer[256];
+	strcpy(nameBuffer, "WkWebView:");
+	stccpy(nameBuffer + 10, threadName, sizeof(nameBuffer) - 10);
+	pthread_setname_np(pthread_self(), nameBuffer);
+	// Enable priority changes with MorphOS libpthread
+#ifdef SCHED_MORPHOS
+	// The priority changes are only necessary with the old scheduler
+	ULONG flag;
+	if (!NewGetSystemAttrsA(&flag, sizeof(flag), SYSTEMINFOTYPE_NEWSCHEDULER, NULL) ||
+	    !flag)
+	{
+		const struct sched_param param = {FindTask(NULL)->tc_Node.ln_Pri};
+		pthread_setschedparam(pthread_self(), SCHED_MORPHOS, &param);
+	}
+#endif
 #else
     UNUSED_PARAM(threadName);
 #endif
@@ -394,7 +427,11 @@ int Thread::waitForCompletion()
         handle = m_handle;
     }
 
-    int joinResult = pthread_join(handle, 0);
+	int joinResult;
+	do
+	{
+    	joinResult = pthread_join(handle, 0);
+	} while (joinResult == EINTR);
 
     if (joinResult == EDEADLK)
         LOG_ERROR("Thread %p was found to be deadlocked trying to quit", this);
@@ -435,6 +472,13 @@ Thread& Thread::initializeCurrentTLS()
     return initializeTLS(WTFMove(thread));
 }
 
+#ifdef __MORPHOS__
+Thread* Thread::getUserDataThreadPointer()
+{
+    return (Thread *)FindTask(NULL)->tc_UserData;
+}
+#endif
+
 bool Thread::signal(int signalNumber)
 {
     Locker locker { m_mutex };
@@ -452,7 +496,7 @@ auto Thread::suspend(const ThreadSuspendLocker&) -> Expected<void, PlatformSuspe
     if (result != KERN_SUCCESS)
         return makeUnexpected(result);
     return { };
-#else
+#elif !OS(MORPHOS)
     if (!m_suspendCount) {
         targetThread.store(this);
 
@@ -472,13 +516,14 @@ auto Thread::suspend(const ThreadSuspendLocker&) -> Expected<void, PlatformSuspe
     ++m_suspendCount;
     return { };
 #endif
+	return { };
 }
 
 void Thread::resume(const ThreadSuspendLocker&)
 {
 #if OS(DARWIN)
     thread_resume(m_platformThread);
-#else
+#elif !OS(MORPHOS)
     if (m_suspendCount == 1) {
         // When allowing sigThreadSuspendResume interrupt in the signal handler by sigsuspend and SigThreadSuspendResume is actually issued,
         // the signal handler itself will be called once again.
@@ -558,6 +603,18 @@ void Thread::establishPlatformSpecificHandle(pthread_t handle)
 #endif
 }
 
+#if OS(MORPHOS)
+void Thread::deleteTLSKey()
+{
+#if !HAVE(FAST_TLS)
+    // Make sure that the Thread::destructTLS is not called for the main thread
+    threadSpecificSet(s_key, NULL);
+    // Actually delete the TLS key
+    threadSpecificKeyDelete(s_key);
+#endif
+}
+#endif
+
 #if !HAVE(FAST_TLS)
 void Thread::initializeTLSKey()
 {
@@ -572,6 +629,7 @@ Thread& Thread::initializeTLS(Ref<Thread>&& thread)
 #if !HAVE(FAST_TLS)
     ASSERT(s_key != InvalidThreadSpecificKey);
     threadSpecificSet(s_key, &threadInTLS);
+    FindTask(NULL)->tc_UserData = &threadInTLS;
 #else
     _pthread_setspecific_direct(WTF_THREAD_DATA_KEY, &threadInTLS);
     pthread_key_init_np(WTF_THREAD_DATA_KEY, &destructTLS);
@@ -641,19 +699,30 @@ ThreadCondition::~ThreadCondition()
     pthread_cond_destroy(&m_condition);
 }
     
+#if OS(MORPHOS)
+bool ThreadCondition::wait(Mutex& mutex)
+{
+    return pthread_cond_wait(&m_condition, &mutex.impl()) == 0;
+}
+#else
 void ThreadCondition::wait(Mutex& mutex)
 {
     int result = pthread_cond_wait(&m_condition, &mutex.impl());
     ASSERT_UNUSED(result, !result);
 }
+#endif
 
 bool ThreadCondition::timedWait(Mutex& mutex, WallTime absoluteTime)
 {
     if (absoluteTime.isInfinity()) {
         if (absoluteTime == -WallTime::infinity())
             return false;
+#if OS(MORPHOS)
+        return wait(mutex);
+#else
         wait(mutex);
         return true;
+#endif
     }
 
     if (absoluteTime < WallTime::now())

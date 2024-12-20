@@ -211,6 +211,7 @@ Path SVGGraphicsElement::toClipPath()
 
 void SVGGraphicsElement::invalidateResourceImageBuffersIfNeeded()
 {
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
     if (!document().settings().layerBasedSVGEngineEnabled())
         return;
     if (CheckedPtr svgRenderer = dynamicDowncast<RenderLayerModelObject>(renderer())) {
@@ -221,6 +222,7 @@ void SVGGraphicsElement::invalidateResourceImageBuffersIfNeeded()
                 patternRenderer->invalidatePattern(RenderSVGResourcePattern::SuppressRepaint::Yes);
         }
     }
+#endif
 }
 
 }

@@ -99,6 +99,10 @@ cairo_matrix_t toCairoMatrix(const AffineTransform&);
 void attachSurfaceUniqueID(cairo_surface_t*);
 uintptr_t getSurfaceUniqueID(cairo_surface_t*);
 
+#if OS(MORPHOS)
+void setDefaultCairoFontAntialias(cairo_antialias_t aa);
+#endif
+
 } // namespace WebCore
 
 #endif // USE(CAIRO)

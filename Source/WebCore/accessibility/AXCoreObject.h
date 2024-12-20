@@ -69,6 +69,8 @@ typedef WebCore::AccessibilityObjectAtspi AccessibilityObjectWrapper;
 
 #elif PLATFORM(PLAYSTATION)
 class AccessibilityObjectWrapper : public RefCounted<AccessibilityObjectWrapper> { };
+#elif OS(MORPHOS)
+class AccessibilityObjectWrapper : public RefCounted<AccessibilityObjectWrapper> { };
 #else
 class AccessibilityObjectWrapper;
 #endif
@@ -1384,6 +1386,8 @@ private:
 #elif PLATFORM(WIN)
     COMPtr<AccessibilityObjectWrapper> m_wrapper;
 #elif PLATFORM(PLAYSTATION)
+    RefPtr<AccessibilityObjectWrapper> m_wrapper;
+#elif OS(MORPHOS)
     RefPtr<AccessibilityObjectWrapper> m_wrapper;
 #elif USE(ATSPI)
     RefPtr<AccessibilityObjectAtspi> m_wrapper;

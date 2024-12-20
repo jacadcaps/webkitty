@@ -98,6 +98,12 @@ protected:
     // Returns whether the pointer should be freed or not.
     bool derefBase() const
     {
+#ifdef __MORPHOS__
+        volatile void* vAddr = (volatile void *)&m_refCount;
+        if (vAddr < (void *)0x1000) {
+            return false;
+        }
+#endif
 #if CHECK_THREAD_SAFE_REF_COUNTED_LIFECYCLE
         ASSERT_WITH_SECURITY_IMPLICATION(!m_deletionHasBegun);
 #endif

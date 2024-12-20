@@ -311,7 +311,9 @@ GPUExternalTexture* GPUDevice::externalTextureForDescriptor(const GPUExternalTex
     }
     return nullptr;
 }
+#endif
 
+#if ENABLE(VIDEO)
 class GPUDeviceVideoFrameRequestCallback final : public VideoFrameRequestCallback {
 public:
     CallbackResult<void> handleEvent(double, const VideoFrameMetadata&) override

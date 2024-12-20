@@ -1123,6 +1123,7 @@ bool MediaSource::isTypeSupported(ScriptExecutionContext& context, const String&
     parameters.type = contentType;
     parameters.isMediaSource = true;
     parameters.contentTypesRequiringHardwareSupport = WTFMove(contentTypesRequiringHardwareSupport);
+    parameters.page = context.isDocument() ? downcast<Document>(context).page() : nullptr;
 
     if (RefPtr document = dynamicDowncast<Document>(context)) {
         if (!contentTypeMeetsContainerAndCodecTypeRequirements(contentType, document->settings().allowedMediaContainerTypes(), document->settings().allowedMediaCodecTypes()))
