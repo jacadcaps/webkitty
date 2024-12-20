@@ -1,5 +1,5 @@
 /*
- * Copyright 2024 RDK Management
+ * Copyright (C) 2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,30 +23,18 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#pragma once
-
-#if USE(GSTREAMER)
-
-#include "GStreamerQuirks.h"
+#include "config.h"
+#include "JSNavigateEvent.h"
 
 namespace WebCore {
 
-class GStreamerQuirkRialto final : public GStreamerQuirk {
-public:
-    GStreamerQuirkRialto();
-    const ASCIILiteral identifier() const final { return "Rialto"_s; }
+template<typename Visitor>
+void JSNavigateEvent::visitAdditionalChildren(Visitor& visitor)
+{
+    auto& event = wrapped();
+    event.infoWrapper().visit(visitor);
+}
 
-    void configureElement(GstElement*, const OptionSet<ElementRuntimeCharacteristics>&) final;
-    GstElement* createAudioSink() final;
-    GstElement* createWebAudioSink() final;
-    std::optional<bool> isHardwareAccelerated(GstElementFactory*) final;
-    bool shouldParseIncomingLibWebRTCBitStream() const final { return false; }
-    unsigned getAdditionalPlaybinFlags() const { return getGstPlayFlag("text") | getGstPlayFlag("native-audio") | getGstPlayFlag("native-video"); }
-
-private:
-    GRefPtr<GstCaps> m_sinkCaps;
-};
+DEFINE_VISIT_ADDITIONAL_CHILDREN(JSNavigateEvent);
 
 } // namespace WebCore
-
-#endif // USE(GSTREAMER)

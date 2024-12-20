@@ -915,9 +915,14 @@ bool webkitGstSetElementStateSynchronously(GstElement* pipeline, GstState target
 
     auto cleanup = makeScopeExit([bus = GRefPtr<GstBus>(bus), pipeline, targetState] {
         gst_bus_disable_sync_message_emission(bus.get());
+#ifdef GST_DISABLE_GST_DEBUG
+        UNUSED_VARIABLE(pipeline);
+        UNUSED_VARIABLE(targetState);
+#else
         GstState currentState;
         auto result = gst_element_get_state(pipeline, &currentState, nullptr, 0);
         GST_DEBUG_OBJECT(pipeline, "Task finished, result: %s, target state reached: %s", gst_element_state_change_return_get_name(result), boolForPrinting(currentState == targetState));
+#endif
     });
 
     result = gst_element_set_state(pipeline, targetState);
@@ -1019,6 +1024,11 @@ std::optional<T> gstStructureGet(const GstStructure* structure, ASCIILiteral key
 template<typename T>
 std::optional<T> gstStructureGet(const GstStructure* structure, StringView key)
 {
+    if (!structure) {
+        ASSERT_NOT_REACHED_WITH_MESSAGE("tried to access a field of a null GstStructure");
+        return std::nullopt;
+    }
+
     T value;
     auto strKey = key.toStringWithoutCopying();
     if constexpr(std::is_same_v<T, int>) {
@@ -1063,18 +1073,65 @@ template std::optional<bool> gstStructureGet(const GstStructure*, StringView key
 
 StringView gstStructureGetString(const GstStructure* structure, ASCIILiteral key)
 {
+    if (!structure) {
+        ASSERT_NOT_REACHED_WITH_MESSAGE("tried to access a field of a null GstStructure");
+        return { };
+    }
+
     return gstStructureGetString(structure, StringView { key });
 }
 
 StringView gstStructureGetString(const GstStructure* structure, StringView key)
 {
+    if (!structure) {
+        ASSERT_NOT_REACHED_WITH_MESSAGE("tried to access a field of a null GstStructure");
+        return { };
+    }
+
     return StringView::fromLatin1(gst_structure_get_string(structure, static_cast<const char*>(key.rawCharacters())));
 }
 
 StringView gstStructureGetName(const GstStructure* structure)
 {
+    if (!structure) {
+        ASSERT_NOT_REACHED_WITH_MESSAGE("tried to access a field of a null GstStructure");
+        return { };
+    }
+
     return StringView::fromLatin1(gst_structure_get_name(structure));
 }
+
+template<typename T>
+Vector<T> gstStructureGetArray(const GstStructure* structure, ASCIILiteral key)
+{
+    static_assert(std::is_same_v<T, int> || std::is_same_v<T, int64_t> || std::is_same_v<T, unsigned>
+        || std::is_same_v<T, uint64_t> || std::is_same_v<T, double> || std::is_same_v<T, const GstStructure*>);
+    Vector<T> result;
+    if (!structure)
+        return result;
+    const GValue* array = gst_structure_get_value(structure, key.characters());
+    if (!GST_VALUE_HOLDS_ARRAY (array))
+        return result;
+    unsigned size = gst_value_array_get_size(array);
+    for (unsigned i = 0; i < size; i++) {
+        const GValue* item = gst_value_array_get_value(array, i);
+        if constexpr(std::is_same_v<T, int>)
+            result.append(g_value_get_int(item));
+        else if constexpr(std::is_same_v<T, int64_t>)
+            result.append(g_value_get_int64(item));
+        else if constexpr(std::is_same_v<T, unsigned>)
+            result.append(g_value_get_uint(item));
+        else if constexpr(std::is_same_v<T, uint64_t>)
+            result.append(g_value_get_uint64(item));
+        else if constexpr(std::is_same_v<T, double>)
+            result.append(g_value_get_double(item));
+        else if constexpr(std::is_same_v<T, const GstStructure*>)
+            result.append(gst_value_get_structure(item));
+    }
+    return result;
+}
+
+template Vector<const GstStructure*> gstStructureGetArray(const GstStructure*, ASCIILiteral key);
 
 static RefPtr<JSON::Value> gstStructureToJSON(const GstStructure*);
 
