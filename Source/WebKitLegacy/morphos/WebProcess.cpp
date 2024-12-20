@@ -55,6 +55,7 @@
 #include "StorageTracker.h"
 #include <WebCore/PageConsoleClient.h>
 #include <WebCore/DeprecatedGlobalSettings.h>
+#include <WebCore/DataURLDecoder.h>
 #include <libraries/charsets.h>
 #include <proto/exec.h>
 #include "Gamepad.h"
@@ -204,6 +205,8 @@ protected:
 
 void WebProcess::initialize(int sigbit)
 {
+    WTF::initializeMainThread();
+
 	m_sigTask = FindTask(0);
 	m_sigMask = 1UL << sigbit;
 
@@ -516,6 +519,7 @@ void WebProcess::terminate()
 	NetworkStorageSessionMap::destroyAllSessions();
 	WebStorageNamespaceProvider::closeLocalStorage();
 	CurlCacheManager::singleton().setStorageSizeLimit(0);
+    WebCore::DataURLDecoder::shutdownDecodePipeline();
 
     m_networkSession->shutdown();
 
@@ -524,12 +528,12 @@ void WebProcess::terminate()
     GCController::singleton().garbageCollectNow();
 //    FontCache::singleton().invalidate(); // trashes memory like fuck on https://testdrive-archive.azurewebsites.net/Graphics/CanvasPinball/default.html
     MemoryCache::singleton().setDisabled(true);
-	WTF::Thread::deleteTLSKey();
 	D(dprintf("%s done\n", __PRETTY_FUNCTION__));
 }
 
 WebProcess::~WebProcess()
 {
+	WTF::Thread::deleteTLSKey();
 	D(dprintf("%s\n", __PRETTY_FUNCTION__));
 }
 
@@ -655,7 +659,7 @@ WebFrame* WebProcess::webFrame(WebCore::FrameIdentifier frameID) const
 
 void WebProcess::addWebFrame(WebCore::FrameIdentifier frameID, WebFrame* frame)
 {
-	D(dprintf("%s %p %llu\n", __PRETTY_FUNCTION__, frame, frameID.toUInt64()));
+	D(dprintf("%s %p \n", __PRETTY_FUNCTION__, frame));
 
 	// fallbacks if WkSettings weren't applied yet
 	if (!m_hasSetCacheModel)
@@ -669,7 +673,7 @@ void WebProcess::addWebFrame(WebCore::FrameIdentifier frameID, WebFrame* frame)
 
 void WebProcess::removeWebFrame(WebCore::FrameIdentifier frameID)
 {
-	D(dprintf("%s %llu knowsFrames %ld\n", __PRETTY_FUNCTION__, frameID.toUInt64(), m_frameMap.size()));
+	D(dprintf("knowsFrames %ld\n", __PRETTY_FUNCTION__, m_frameMap.size()));
 
     m_frameMap.remove(frameID);
 

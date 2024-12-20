@@ -68,6 +68,11 @@ static WorkQueue& decodeQueue()
     return queue.get();
 }
 
+void shutdownDecodePipeline()
+{
+    decodeQueue().shutdown();
+}
+
 static Result parseMediaType(const String& mediaType)
 {
     if (std::optional<ParsedContentType> parsedContentType = ParsedContentType::create(mediaType))
