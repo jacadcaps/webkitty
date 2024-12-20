@@ -26,13 +26,11 @@
 #import "WebCache.h"
 
 #import "NetworkStorageSessionMap.h"
-#import "WebApplicationCacheInternal.h"
 #import "WebNSObjectExtras.h"
 #import "WebPreferences.h"
 #import "WebView.h"
 #import "WebViewInternal.h"
 #import <JavaScriptCore/InitializeThreading.h>
-#import <WebCore/ApplicationCacheStorage.h>
 #import <WebCore/CookieJar.h>
 #import <WebCore/CredentialStorage.h>
 #import <WebCore/CrossOriginPreflightResultCache.h>
@@ -40,6 +38,7 @@
 #import <WebCore/MemoryCache.h>
 #import <WebCore/NetworkStorageSession.h>
 #import <WebCore/StorageSessionProvider.h>
+#import <WebCore/WebCoreJITOperations.h>
 #import <wtf/MainThread.h>
 #import <wtf/RunLoop.h>
 
@@ -47,7 +46,7 @@
 #import "WebFrameInternal.h"
 #import <WebCore/BackForwardCache.h>
 #import <WebCore/CachedImage.h>
-#import <WebCore/Frame.h>
+#import <WebCore/LocalFrame.h>
 #import <WebCore/WebCoreThreadRun.h>
 #endif
 
@@ -65,6 +64,7 @@ class DefaultStorageSessionProvider : public WebCore::StorageSessionProvider {
 #if !PLATFORM(IOS_FAMILY)
     JSC::initialize();
     WTF::initializeMainThread();
+    WebCore::populateJITOperations();
 #endif
 }
 
@@ -122,9 +122,6 @@ class DefaultStorageSessionProvider : public WebCore::StorageSessionProvider {
     [WebView _setCacheModel:WebCacheModelDocumentViewer];
     [WebView _setCacheModel:cacheModel];
 
-    // Empty the application cache.
-    webApplicationCacheStorage().empty();
-
     // Empty the Cross-Origin Preflight cache
     WebCore::CrossOriginPreflightResultCache::singleton().clear();
 }
@@ -169,10 +166,16 @@ class DefaultStorageSessionProvider : public WebCore::StorageSessionProvider {
     WebCore::CachedResource* cachedResource = WebCore::MemoryCache::singleton().resourceForRequest(request, PAL::SessionID::defaultSessionID());
     if (!is<WebCore::CachedImage>(cachedResource))
         return nullptr;
-    WebCore::CachedImage& cachedImage = downcast<WebCore::CachedImage>(*cachedResource);
+
+    auto& cachedImage = downcast<WebCore::CachedImage>(*cachedResource);
     if (!cachedImage.hasImage())
         return nullptr;
-    return cachedImage.image()->nativeImage().get();
+    
+    auto nativeImage = cachedImage.image()->nativeImage();
+    if (!nativeImage)
+        return nullptr;
+
+    return nativeImage->platformImage().get();
 }
 
 #endif // PLATFORM(IOS_FAMILY)

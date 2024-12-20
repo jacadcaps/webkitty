@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,27 +25,32 @@
 
 #include "config.h"
 #include "SimpleMarkingConstraint.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace JSC {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(SimpleMarkingConstraint);
+
 SimpleMarkingConstraint::SimpleMarkingConstraint(
     CString abbreviatedName, CString name,
-    ::Function<void(SlotVisitor&)> executeFunction,
+    MarkingConstraintExecutorPair&& executors,
     ConstraintVolatility volatility, ConstraintConcurrency concurrency,
     ConstraintParallelism parallelism)
     : MarkingConstraint(WTFMove(abbreviatedName), WTFMove(name), volatility, concurrency, parallelism)
-    , m_executeFunction(WTFMove(executeFunction))
+    , m_executors(WTFMove(executors))
 {
 }
 
-SimpleMarkingConstraint::~SimpleMarkingConstraint()
+SimpleMarkingConstraint::~SimpleMarkingConstraint() = default;
+
+template<typename Visitor>
+void SimpleMarkingConstraint::executeImplImpl(Visitor& visitor)
 {
+    m_executors.execute(visitor);
 }
 
-void SimpleMarkingConstraint::executeImpl(SlotVisitor& visitor)
-{
-    m_executeFunction(visitor);
-}
+void SimpleMarkingConstraint::executeImpl(AbstractSlotVisitor& visitor) { executeImplImpl(visitor); }
+void SimpleMarkingConstraint::executeImpl(SlotVisitor& visitor) { executeImplImpl(visitor); }
 
 } // namespace JSC
 

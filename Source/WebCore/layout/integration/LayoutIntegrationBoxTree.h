@@ -25,43 +25,73 @@
 
 #pragma once
 
-#if ENABLE(LAYOUT_FORMATTING_CONTEXT)
-
 #include "LayoutInitialContainingBlock.h"
 #include <wtf/HashMap.h>
+#include <wtf/UniqueRef.h>
 #include <wtf/Vector.h>
+#include <wtf/WeakPtr.h>
+
+namespace WebCore {
+namespace LayoutIntegration {
+class BoxTree;
+}
+}
+
+namespace WTF {
+template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
+template<> struct IsDeprecatedWeakRefSmartPointerException<WebCore::LayoutIntegration::BoxTree> : std::true_type { };
+}
 
 namespace WebCore {
 
-class RenderBlockFlow;
+class RenderBlock;
+class RenderBoxModelObject;
+class RenderElement;
+class RenderObject;
+class RenderInline;
+class RenderText;
 
 namespace LayoutIntegration {
 
-class BoxTree {
+#if ENABLE(TREE_DEBUGGING)
+struct InlineContent;
+#endif
+
+class BoxTree : public CanMakeWeakPtr<BoxTree> {
 public:
-    BoxTree(const RenderBlockFlow&);
+    BoxTree(RenderBlock&);
+    ~BoxTree();
 
-    const Layout::InitialContainingBlock& rootLayoutBox() const { return m_root; }
-    Layout::InitialContainingBlock& rootLayoutBox() { return m_root; }
+    static void updateStyle(const RenderObject&);
+    void updateContent(const RenderText&);
 
-    const Layout::Box* layoutBoxForRenderer(const RenderObject&) const;
-    const RenderObject* rendererForLayoutBox(const Layout::Box&) const;
+    const Layout::Box& insert(const RenderElement& parent, RenderObject& child, const RenderObject* beforeChild = nullptr);
+    UniqueRef<Layout::Box> remove(const RenderElement& parent, RenderObject& child);
+
+    const RenderBlock& rootRenderer() const { return m_rootRenderer; }
+    RenderBlock& rootRenderer() { return m_rootRenderer; }
+
+    const Layout::ElementBox& rootLayoutBox() const;
+    Layout::ElementBox& rootLayoutBox();
+
+    bool contains(const RenderElement&) const;
 
 private:
-    void buildTree(const RenderBlockFlow&);
+    Layout::InitialContainingBlock& initialContainingBlock();
 
-    Layout::InitialContainingBlock m_root;
-    struct BoxAndRenderer {
-        std::unique_ptr<const Layout::Box> box;
-        const RenderObject* renderer { nullptr };
-    };
-    Vector<BoxAndRenderer, 1> m_boxes;
+    static UniqueRef<Layout::Box> createLayoutBox(RenderObject&);
+    static void adjustStyleIfNeeded(const RenderElement&, RenderStyle&, RenderStyle* firstLineStyle);
 
-    mutable HashMap<const RenderObject*, const Layout::Box*> m_rendererToBoxMap;
-    mutable HashMap<const Layout::Box*, const RenderObject*> m_boxToRendererMap;
+    void buildTreeForInlineContent();
+    void buildTreeForFlexContent();
+    void insertChild(UniqueRef<Layout::Box>, RenderObject&, const RenderObject* beforeChild = nullptr);
+
+    RenderBlock& m_rootRenderer;
 };
 
+#if ENABLE(TREE_DEBUGGING)
+void showInlineContent(TextStream&, const InlineContent&, size_t depth, bool isDamaged = false);
+#endif
 }
 }
 
-#endif

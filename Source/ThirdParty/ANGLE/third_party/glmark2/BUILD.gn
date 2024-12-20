@@ -42,6 +42,12 @@ raw_glmark_data_path = rebase_path(glmark_data_path, root_build_dir)
 config("glmark2_common_config") {
   defines = [ "GLMARK_DATA_PATH=\"${raw_glmark_data_path}\"" ]
   include_dirs = [ "src/src" ]
+  cflags = []
+
+  if (is_clang) {
+    cflags += [ "-Wno-shadow" ]
+  }
+
   if (is_win) {
     include_dirs += [ "src/src/include" ]
 
@@ -49,12 +55,15 @@ config("glmark2_common_config") {
     defines += [ "_USE_MATH_DEFINES" ]
 
     if (!is_clang) {
-      cflags = [
+      cflags += [
         # MSVC warns about the copyright character being illegal.
         "/wd4828",
 
         # A warning generated in scene-effect-2d in vec2::calc_offset
         "/wd4146",
+
+        # Needs to be explicitly disabled after http://crrev.com/c/3189512
+        "/wd4312",
       ]
     }
   }
@@ -111,7 +120,7 @@ source_set("glmark2_headers") {
     "src/src/texture.h",
   ]
 
-  if (is_linux) {
+  if (is_linux || is_chromeos) {
     sources += [ "src/src/gl-state-glx.h" ]
   }
   if (is_win) {
@@ -346,7 +355,7 @@ template("glmark2_exe") {
         "src/src/native-state-win32.h",
       ]
     }
-    if (is_linux) {
+    if (is_linux || is_chromeos) {
       defines += [ "GLMARK2_USE_X11" ]
       sources += [
         "src/src/native-state-x11.cpp",
@@ -370,13 +379,13 @@ glmark2_exe("glmark2_angle") {
     "GLMARK2_USE_EGL",
   ]
 
-  if (is_linux && !is_component_build) {
+  if ((is_linux || is_chromeos) && !is_component_build) {
     # Set rpath to find shared libs in a non-component build.
     public_configs = [ "//build/config/gcc:rpath_for_built_shared_libraries" ]
   }
 }
 
-if (is_linux) {
+if (is_linux || is_chromeos) {
   glmark2_exe("glmark2_glx") {
     sources = [
       "src/src/gl-state-glx.cpp",

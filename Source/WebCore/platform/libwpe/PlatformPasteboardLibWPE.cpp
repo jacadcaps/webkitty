@@ -47,14 +47,20 @@ PlatformPasteboard::PlatformPasteboard()
     ASSERT(m_pasteboard);
 }
 
-void PlatformPasteboard::getTypes(Vector<String>& types)
+void PlatformPasteboard::performAsDataOwner(DataOwnerType, Function<void()>&& actions)
+{
+    actions();
+}
+
+void PlatformPasteboard::getTypes(Vector<String>& types) const
 {
     struct wpe_pasteboard_string_vector pasteboardTypes = { nullptr, 0 };
     wpe_pasteboard_get_types(m_pasteboard, &pasteboardTypes);
 
     for (unsigned i = 0; i < pasteboardTypes.length; ++i) {
         auto& typeString = pasteboardTypes.strings[i];
-        types.append(String(typeString.data, typeString.length));
+        const auto length = std::min(static_cast<size_t>(typeString.length), std::numeric_limits<size_t>::max());
+        types.append(String({ typeString.data, length }));
     }
 
     wpe_pasteboard_string_vector_free(&pasteboardTypes);
@@ -67,7 +73,8 @@ String PlatformPasteboard::readString(size_t, const String& type) const
     if (!string.length)
         return String();
 
-    String returnValue(string.data, string.length);
+    const auto length = std::min(static_cast<size_t>(string.length), std::numeric_limits<size_t>::max());
+    String returnValue({ string.data, length });
 
     wpe_pasteboard_string_free(&string);
     return returnValue;

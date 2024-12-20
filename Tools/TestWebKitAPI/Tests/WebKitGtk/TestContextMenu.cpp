@@ -4,7 +4,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2,1 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -21,10 +21,13 @@
 
 #include "WebKitTestServer.h"
 #include "WebViewTest.h"
+#include <WebCore/SoupVersioning.h>
 #include <wtf/Vector.h>
 #include <wtf/glib/GRefPtr.h>
 
+#if !USE(GTK4)
 static WebKitTestServer* kServer;
+#endif
 
 class ContextMenuTest: public WebViewTest {
 public:
@@ -63,6 +66,7 @@ public:
     {
         g_assert_true(WEBKIT_IS_CONTEXT_MENU(contextMenu));
         test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(contextMenu));
+        g_assert_true(webkit_context_menu_get_event(contextMenu) == event);
         test->checkContextMenuEvent(event);
         g_assert_true(WEBKIT_IS_HIT_TEST_RESULT(hitTestResult));
         test->assertObjectIsDeletedWhenTestFinishes(G_OBJECT(hitTestResult));
@@ -323,7 +327,7 @@ public:
     {
     }
 
-    bool contextMenu(WebKitContextMenu* contextMenu, GdkEvent* event, WebKitHitTestResult* hitTestResult)
+    bool contextMenu(WebKitContextMenu* contextMenu, GdkEvent*, WebKitHitTestResult* hitTestResult)
     {
         GList* iter = webkit_context_menu_get_items(contextMenu);
 
@@ -481,6 +485,7 @@ public:
     DefaultMenuType m_expectedMenuType;
 };
 
+#if !USE(GTK4)
 static void prepareContextMenuTestView(ContextMenuDefaultTest* test)
 {
     GUniquePtr<char> baseDir(g_strdup_printf("file://%s/", Test::getResourcesDir().data()));
@@ -569,6 +574,7 @@ static void testContextMenuKey(ContextMenuDefaultTest* test, gconstpointer)
     test->m_expectedMenuType = ContextMenuDefaultTest::Selection;
     test->showContextMenuTriggeredByContextMenuKeyAndWaitUntilFinished();
 }
+#endif
 
 class ContextMenuCustomTest: public ContextMenuTest {
 public:
@@ -612,11 +618,11 @@ public:
     void activateMenuItem()
     {
         g_assert_nonnull(m_itemToActivateLabel);
-        auto* menu = getContextMenuWidget();
-        auto* item = getMenuItem(menu, m_itemToActivateLabel);
 #if USE(GTK4)
 
 #else
+        auto* menu = getContextMenuWidget();
+        auto* item = getMenuItem(menu, m_itemToActivateLabel);
         // GTK3 uses a menu, which contains menu items.
         gtk_menu_shell_activate_item(GTK_MENU_SHELL(menu), GTK_WIDGET(item), TRUE);
 #endif // USE(GTK4)
@@ -700,6 +706,7 @@ public:
     bool m_toggled { false };
 };
 
+#if !USE(GTK4)
 static void testContextMenuPopulateMenu(ContextMenuCustomTest* test, gconstpointer)
 {
     test->showInWindow();
@@ -749,6 +756,7 @@ static void testContextMenuPopulateMenu(ContextMenuCustomTest* test, gconstpoint
     test->activateCustomMenuItemAndWaitUntilActivated("Custom _GAction With Target");
     g_assert_true(test->m_activated);
 }
+#endif
 
 class ContextMenuCustomFullTest: public ContextMenuTest {
 public:
@@ -775,6 +783,7 @@ public:
         gtk_toggle_action_set_active(GTK_TOGGLE_ACTION(toggleAction.get()), TRUE);
         webkit_context_menu_append(contextMenu, webkit_context_menu_item_new(toggleAction.get()));
         webkit_context_menu_append(contextMenu, webkit_context_menu_item_new_separator());
+        G_GNUC_END_IGNORE_DEPRECATIONS;
 #endif
         GRefPtr<GAction> gAction = adoptGRef(G_ACTION(g_simple_action_new("WebKitGTKCustomGAction", nullptr)));
         g_simple_action_set_enabled(G_SIMPLE_ACTION(gAction.get()), FALSE);
@@ -782,7 +791,6 @@ public:
         GRefPtr<GAction> toggleGAction = adoptGRef(G_ACTION(g_simple_action_new_stateful("WebKitGTKCustomToggleGAction", nullptr, g_variant_new_boolean(TRUE))));
         webkit_context_menu_append(contextMenu, webkit_context_menu_item_new_from_gaction(toggleGAction.get(), "Custom T_oggle GAction", nullptr));
         webkit_context_menu_append(contextMenu, webkit_context_menu_item_new_separator());
-        G_GNUC_END_IGNORE_DEPRECATIONS;
 
         // Add a submenu.
         GRefPtr<WebKitContextMenu> subMenu = adoptGRef(webkit_context_menu_new());
@@ -826,6 +834,7 @@ public:
     }
 };
 
+#if !USE(GTK4)
 static void testContextMenuCustomMenu(ContextMenuCustomFullTest* test, gconstpointer)
 {
     test->showInWindow();
@@ -834,6 +843,7 @@ static void testContextMenuCustomMenu(ContextMenuCustomFullTest* test, gconstpoi
 
     test->showContextMenuAndWaitUntilFinished();
 }
+#endif
 
 class ContextMenuSubmenuTest: public ContextMenuTest {
 public:
@@ -874,6 +884,7 @@ public:
     }
 };
 
+#if !USE(GTK4)
 static void testContextMenuSubMenu(ContextMenuSubmenuTest* test, gconstpointer)
 {
     test->showInWindow();
@@ -882,6 +893,7 @@ static void testContextMenuSubMenu(ContextMenuSubmenuTest* test, gconstpointer)
 
     test->showContextMenuAndWaitUntilFinished();
 }
+#endif
 
 class ContextMenuDismissedTest: public ContextMenuTest {
 public:
@@ -914,6 +926,7 @@ public:
     bool m_dismissed;
 };
 
+#if !USE(GTK4)
 static void testContextMenuDismissed(ContextMenuDismissedTest* test, gconstpointer)
 {
     test->showInWindow();
@@ -923,6 +936,7 @@ static void testContextMenuDismissed(ContextMenuDismissedTest* test, gconstpoint
     test->showContextMenuAndWaitUntilDismissed();
     g_assert_true(test->m_dismissed);
 }
+#endif
 
 class ContextMenuWebExtensionTest: public ContextMenuTest {
 public:
@@ -940,7 +954,7 @@ public:
 
         uint32_t item;
         while (g_variant_iter_next(&iter, "u", &item))
-            m_actions.uncheckedAppend(static_cast<WebKitContextMenuAction>(item));
+            m_actions.append(static_cast<WebKitContextMenuAction>(item));
     }
 
     bool contextMenu(WebKitContextMenu* menu, GdkEvent*, WebKitHitTestResult*)
@@ -963,6 +977,7 @@ public:
     Vector<WebKitContextMenuAction> m_actions;
 };
 
+#if !USE(GTK4)
 static void testContextMenuWebExtensionMenu(ContextMenuWebExtensionTest* test, gconstpointer)
 {
     test->showInWindow();
@@ -1003,6 +1018,7 @@ static void testContextMenuWebExtensionMenu(ContextMenuWebExtensionTest* test, g
     test->showContextMenuAndWaitUntilFinished();
     g_assert_cmpuint(test->m_actions.size(), ==, 0);
 }
+#endif
 
 class ContextMenuWebExtensionNodeTest: public ContextMenuTest {
 public:
@@ -1053,6 +1069,7 @@ public:
     Node m_node;
 };
 
+#if !USE(GTK4)
 static void testContextMenuWebExtensionNode(ContextMenuWebExtensionNodeTest* test, gconstpointer)
 {
     test->showInWindow();
@@ -1081,29 +1098,38 @@ static void testContextMenuWebExtensionNode(ContextMenuWebExtensionNodeTest* tes
     g_assert_cmpstr(test->m_node.parentName.data(), ==, "A");
 }
 
+#if USE(SOUP2)
 static void writeNextChunk(SoupMessage* message)
+#else
+static void writeNextChunk(SoupServerMessage* message)
+#endif
 {
+    auto* responseBody = soup_server_message_get_response_body(message);
     GUniquePtr<char> filePath(g_build_filename(Test::getResourcesDir().data(), "silence.webm", nullptr));
     char* contents;
     gsize contentsLength;
     if (!g_file_get_contents(filePath.get(), &contents, &contentsLength, nullptr)) {
-        soup_message_set_status(message, SOUP_STATUS_NOT_FOUND);
-        soup_message_body_complete(message->response_body);
+        soup_server_message_set_status(message, SOUP_STATUS_NOT_FOUND, nullptr);
+        soup_message_body_complete(responseBody);
         return;
     }
 
-    soup_message_body_append(message->response_body, SOUP_MEMORY_TAKE, contents, contentsLength);
-    soup_message_body_complete(message->response_body);
+    soup_message_body_append(responseBody, SOUP_MEMORY_TAKE, contents, contentsLength);
+    soup_message_body_complete(responseBody);
 }
 
+#if USE(SOUP2)
 static void serverCallback(SoupServer* server, SoupMessage* message, const char* path, GHashTable*, SoupClientContext*, gpointer)
+#else
+static void serverCallback(SoupServer* server, SoupServerMessage* message, const char* path, GHashTable*, gpointer)
+#endif
 {
-    if (message->method != SOUP_METHOD_GET) {
-        soup_message_set_status(message, SOUP_STATUS_NOT_IMPLEMENTED);
+    if (soup_server_message_get_method(message) != SOUP_METHOD_GET) {
+        soup_server_message_set_status(message, SOUP_STATUS_NOT_IMPLEMENTED, nullptr);
         return;
     }
 
-    soup_message_set_status(message, SOUP_STATUS_OK);
+    soup_server_message_set_status(message, SOUP_STATUS_OK, nullptr);
 
     if (g_str_equal(path, "/live-stream")) {
         static const char* html =
@@ -1112,15 +1138,15 @@ static void serverCallback(SoupServer* server, SoupMessage* message, const char*
             "  <source src='/live-stream.webm' type='video/webm' />"
             " </video>"
             "</body></html>";
-        soup_message_body_append(message->response_body, SOUP_MEMORY_STATIC, html, strlen(html));
+        soup_message_body_append(soup_server_message_get_response_body(message), SOUP_MEMORY_STATIC, html, strlen(html));
     } else if (g_str_equal(path, "/live-stream.webm")) {
-        soup_message_headers_set_encoding(message->response_headers, SOUP_ENCODING_CHUNKED);
-        g_signal_connect(message, "wrote_headers", G_CALLBACK(writeNextChunk), nullptr);
-        g_signal_connect(message, "wrote_chunk", G_CALLBACK(writeNextChunk), nullptr);
+        soup_message_headers_set_encoding(soup_server_message_get_response_headers(message), SOUP_ENCODING_CHUNKED);
+        g_signal_connect(message, "wrote-headers", G_CALLBACK(writeNextChunk), nullptr);
+        g_signal_connect(message, "wrote-chunk", G_CALLBACK(writeNextChunk), nullptr);
         return;
     }
 
-    soup_message_body_complete(message->response_body);
+    soup_message_body_complete(soup_server_message_get_response_body(message));
 }
 
 static void testContextMenuLiveStream(ContextMenuDefaultTest* test, gconstpointer)
@@ -1133,13 +1159,16 @@ static void testContextMenuLiveStream(ContextMenuDefaultTest* test, gconstpointe
     test->showContextMenuAtPositionAndWaitUntilFinished(1, 1);
 }
 
+#endif // !USE(GTK4)
+
 void beforeAll()
 {
+#if !USE(GTK4)
     kServer = new WebKitTestServer();
     kServer->run(serverCallback);
 
-#if !USE(GTK4)
-    // FIXME: Rework context menu API in GTK4 to not expose GdkEvent.
+    Test::shouldInitializeWebProcessExtensions = true;
+
     ContextMenuDefaultTest::add("WebKitWebView", "default-menu", testContextMenuDefaultMenu);
     ContextMenuDefaultTest::add("WebKitWebView", "context-menu-key", testContextMenuKey);
     ContextMenuDefaultTest::add("WebKitWebView", "popup-event-signal", testPopupEventSignal);
@@ -1155,5 +1184,7 @@ void beforeAll()
 
 void afterAll()
 {
+#if !USE(GTK4)
     delete kServer;
+#endif
 }

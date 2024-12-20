@@ -25,12 +25,9 @@
 
 #pragma once
 
-#if ENABLE(SERVICE_WORKER)
-
 #include "ActiveDOMObject.h"
 #include "ContextDestructionObserver.h"
 #include "EventTarget.h"
-#include "PostMessageOptions.h"
 #include "ServiceWorkerData.h"
 #include <JavaScriptCore/Strong.h>
 #include <wtf/RefCounted.h>
@@ -43,16 +40,18 @@ class JSValue;
 
 namespace WebCore {
 
-class Frame;
+class LocalFrame;
 class SWClientConnection;
 
-class ServiceWorker final : public RefCounted<ServiceWorker>, public EventTargetWithInlineData, public ActiveDOMObject {
-    WTF_MAKE_ISO_ALLOCATED(ServiceWorker);
+struct StructuredSerializeOptions;
+
+class ServiceWorker final : public RefCounted<ServiceWorker>, public EventTarget, public ActiveDOMObject {
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED_EXPORT(ServiceWorker, WEBCORE_EXPORT);
 public:
     using State = ServiceWorkerState;
     static Ref<ServiceWorker> getOrCreate(ScriptExecutionContext&, ServiceWorkerData&&);
 
-    virtual ~ServiceWorker();
+    WEBCORE_EXPORT virtual ~ServiceWorker();
 
     const URL& scriptURL() const { return m_data.scriptURL; }
 
@@ -60,28 +59,29 @@ public:
     
     void updateState(State);
 
-    ExceptionOr<void> postMessage(JSC::JSGlobalObject&, JSC::JSValue message, PostMessageOptions&&);
+    ExceptionOr<void> postMessage(JSC::JSGlobalObject&, JSC::JSValue message, StructuredSerializeOptions&&);
 
     ServiceWorkerIdentifier identifier() const { return m_data.identifier; }
     ServiceWorkerRegistrationIdentifier registrationIdentifier() const { return m_data.registrationIdentifier; }
+    WorkerType workerType() const { return m_data.type; }
 
-    using RefCounted::ref;
-    using RefCounted::deref;
+    // ActiveDOMObject.
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
+    const ServiceWorkerData& data() const { return m_data; }
 
 private:
     ServiceWorker(ScriptExecutionContext&, ServiceWorkerData&&);
     void updatePendingActivityForEventDispatch();
 
-    EventTargetInterface eventTargetInterface() const final;
+    enum EventTargetInterfaceType eventTargetInterface() const final;
     ScriptExecutionContext* scriptExecutionContext() const final;
     void refEventTarget() final { ref(); }
     void derefEventTarget() final { deref(); }
 
     // ActiveDOMObject.
-    const char* activeDOMObjectName() const final;
     void stop() final;
-
-    bool isAlwaysOnLoggingAllowed() const;
 
     SWClientConnection& swConnection();
 
@@ -91,5 +91,3 @@ private:
 };
 
 } // namespace WebCore
-
-#endif // ENABLE(SERVICE_WORKER)

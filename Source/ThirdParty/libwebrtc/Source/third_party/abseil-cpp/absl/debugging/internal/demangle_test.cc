@@ -17,26 +17,202 @@
 #include <cstdlib>
 #include <string>
 
+#include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "absl/base/internal/raw_logging.h"
+#include "absl/base/config.h"
 #include "absl/debugging/internal/stack_consumption.h"
+#include "absl/log/log.h"
 #include "absl/memory/memory.h"
 
 namespace absl {
+ABSL_NAMESPACE_BEGIN
 namespace debugging_internal {
 namespace {
 
-// A wrapper function for Demangle() to make the unit test simple.
-static const char *DemangleIt(const char * const mangled) {
-  static char demangled[4096];
-  if (Demangle(mangled, demangled, sizeof(demangled))) {
-    return demangled;
-  } else {
-    return mangled;
-  }
+using ::testing::ContainsRegex;
+
+TEST(Demangle, FunctionTemplate) {
+  char tmp[100];
+
+  // template <typename T>
+  // int foo(T);
+  //
+  // foo<int>(5);
+  ASSERT_TRUE(Demangle("_Z3fooIiEiT_", tmp, sizeof(tmp)));
+  EXPECT_STREQ(tmp, "foo<>()");
 }
 
-// Test corner cases of bounary conditions.
+TEST(Demangle, FunctionTemplateWithNesting) {
+  char tmp[100];
+
+  // template <typename T>
+  // int foo(T);
+  //
+  // foo<Wrapper<int>>({ .value = 5 });
+  ASSERT_TRUE(Demangle("_Z3fooI7WrapperIiEEiT_", tmp, sizeof(tmp)));
+  EXPECT_STREQ(tmp, "foo<>()");
+}
+
+TEST(Demangle, FunctionTemplateWithNonTypeParamConstraint) {
+  char tmp[100];
+
+  // template <std::integral T>
+  // int foo(T);
+  //
+  // foo<int>(5);
+  ASSERT_TRUE(Demangle("_Z3fooITkSt8integraliEiT_", tmp, sizeof(tmp)));
+  EXPECT_STREQ(tmp, "foo<>()");
+}
+
+TEST(Demangle, FunctionTemplateWithFunctionRequiresClause) {
+  char tmp[100];
+
+  // template <typename T>
+  // int foo() requires std::integral<T>;
+  //
+  // foo<int>();
+  ASSERT_TRUE(Demangle("_Z3fooIiEivQsr3stdE8integralIT_E", tmp, sizeof(tmp)));
+  EXPECT_STREQ(tmp, "foo<>()");
+}
+
+TEST(Demangle, FunctionWithTemplateParamRequiresClause) {
+  char tmp[100];
+
+  // template <typename T>
+  //     requires std::integral<T>
+  // int foo();
+  //
+  // foo<int>();
+  ASSERT_TRUE(Demangle("_Z3fooIiQsr3stdE8integralIT_EEiv", tmp, sizeof(tmp)));
+  EXPECT_STREQ(tmp, "foo<>()");
+}
+
+TEST(Demangle, FunctionWithTemplateParamAndFunctionRequiresClauses) {
+  char tmp[100];
+
+  // template <typename T>
+  //     requires std::integral<T>
+  // int foo() requires std::integral<T>;
+  //
+  // foo<int>();
+  ASSERT_TRUE(Demangle("_Z3fooIiQsr3stdE8integralIT_EEivQsr3stdE8integralIS0_E",
+                       tmp, sizeof(tmp)));
+  EXPECT_STREQ(tmp, "foo<>()");
+}
+
+TEST(Demangle, FunctionTemplateBacktracksOnMalformedRequiresClause) {
+  char tmp[100];
+
+  // template <typename T>
+  // int foo(T);
+  //
+  // foo<int>(5);
+  // Except there's an extra `Q` where the mangled requires clause would be.
+  ASSERT_FALSE(Demangle("_Z3fooIiQEiT_", tmp, sizeof(tmp)));
+}
+
+TEST(Demangle, FunctionTemplateWithAutoParam) {
+  char tmp[100];
+
+  // template <auto>
+  // void foo();
+  //
+  // foo<1>();
+  ASSERT_TRUE(Demangle("_Z3fooITnDaLi1EEvv", tmp, sizeof(tmp)));
+  EXPECT_STREQ(tmp, "foo<>()");
+}
+
+TEST(Demangle, FunctionTemplateWithNonTypeParamPack) {
+  char tmp[100];
+
+  // template <int&..., typename T>
+  // void foo(T);
+  //
+  // foo(2);
+  ASSERT_TRUE(Demangle("_Z3fooITpTnRiJEiEvT0_", tmp, sizeof(tmp)));
+  EXPECT_STREQ(tmp, "foo<>()");
+}
+
+TEST(Demangle, FunctionTemplateTemplateParamWithConstrainedArg) {
+  char tmp[100];
+
+  // template <typename T>
+  // concept True = true;
+  //
+  // template <typename T> requires True<T>
+  // struct Fooer {};
+  //
+  // template <template <typename T> typename>
+  // void foo() {}
+  //
+  // foo<Fooer>();
+  ASSERT_TRUE(Demangle("_Z3fooITtTyE5FooerEvv", tmp, sizeof(tmp)));
+  EXPECT_STREQ(tmp, "foo<>()");
+}
+
+TEST(Demangle, NonTemplateBuiltinType) {
+  char tmp[100];
+
+  // void foo(__my_builtin_type t);
+  //
+  // foo({});
+  ASSERT_TRUE(Demangle("_Z3foou17__my_builtin_type", tmp, sizeof(tmp)));
+  EXPECT_STREQ(tmp, "foo()");
+}
+
+TEST(Demangle, SingleArgTemplateBuiltinType) {
+  char tmp[100];
+
+  // template <typename T>
+  // __my_builtin_type<T> foo();
+  //
+  // foo<int>();
+  ASSERT_TRUE(Demangle("_Z3fooIiEu17__my_builtin_typeIT_Ev", tmp, sizeof(tmp)));
+  EXPECT_STREQ(tmp, "foo<>()");
+}
+
+TEST(Demangle, FailsOnTwoArgTemplateBuiltinType) {
+  char tmp[100];
+
+  // template <typename T, typename U>
+  // __my_builtin_type<T, U> foo();
+  //
+  // foo<int, char>();
+  ASSERT_FALSE(
+      Demangle("_Z3fooIicEu17__my_builtin_typeIT_T0_Ev", tmp, sizeof(tmp)));
+}
+
+TEST(Demangle, TemplateTemplateParamSubstitution) {
+  char tmp[100];
+
+  // template <typename T>
+  // concept True = true;
+  //
+  // template<std::integral T, T> struct Foolable {};
+  // template<template<typename T, T> typename> void foo() {}
+  //
+  // template void foo<Foolable>();
+  ASSERT_TRUE(Demangle("_Z3fooITtTyTnTL0__E8FoolableEvv", tmp, sizeof(tmp)));
+  EXPECT_STREQ(tmp, "foo<>()");
+}
+
+TEST(Demangle, TemplateParamSubstitutionWithGenericLambda) {
+  char tmp[100];
+
+  // template <typename>
+  // struct Fooer {
+  //     template <typename>
+  //     void foo(decltype([](auto x, auto y) {})) {}
+  // };
+  //
+  // Fooer<int> f;
+  // f.foo<int>({});
+  ASSERT_TRUE(
+      Demangle("_ZN5FooerIiE3fooIiEEvNS0_UlTL0__TL0_0_E_E", tmp, sizeof(tmp)));
+  EXPECT_STREQ(tmp, "Fooer<>::foo<>()");
+}
+
+// Test corner cases of boundary conditions.
 TEST(Demangle, CornerCases) {
   char tmp[10];
   EXPECT_TRUE(Demangle("_Z6foobarv", tmp, sizeof(tmp)));
@@ -68,22 +244,78 @@ TEST(Demangle, Clones) {
   EXPECT_STREQ("Foo()", tmp);
   EXPECT_TRUE(Demangle("_ZL3Foov.isra.2.constprop.18", tmp, sizeof(tmp)));
   EXPECT_STREQ("Foo()", tmp);
-  // Invalid (truncated), should not demangle.
-  EXPECT_FALSE(Demangle("_ZL3Foov.clo", tmp, sizeof(tmp)));
+  // Demangle suffixes produced by -funique-internal-linkage-names.
+  EXPECT_TRUE(Demangle("_ZL3Foov.__uniq.12345", tmp, sizeof(tmp)));
+  EXPECT_STREQ("Foo()", tmp);
+  EXPECT_TRUE(Demangle("_ZL3Foov.__uniq.12345.isra.2.constprop.18", tmp,
+                       sizeof(tmp)));
+  EXPECT_STREQ("Foo()", tmp);
+  // Suffixes without the number should also demangle.
+  EXPECT_TRUE(Demangle("_ZL3Foov.clo", tmp, sizeof(tmp)));
+  EXPECT_STREQ("Foo()", tmp);
+  // Suffixes with just the number should also demangle.
+  EXPECT_TRUE(Demangle("_ZL3Foov.123", tmp, sizeof(tmp)));
+  EXPECT_STREQ("Foo()", tmp);
+  // (.clone. followed by non-number), should also demangle.
+  EXPECT_TRUE(Demangle("_ZL3Foov.clone.foo", tmp, sizeof(tmp)));
+  EXPECT_STREQ("Foo()", tmp);
+  // (.clone. followed by multiple numbers), should also demangle.
+  EXPECT_TRUE(Demangle("_ZL3Foov.clone.123.456", tmp, sizeof(tmp)));
+  EXPECT_STREQ("Foo()", tmp);
+  // (a long valid suffix), should demangle.
+  EXPECT_TRUE(Demangle("_ZL3Foov.part.9.165493.constprop.775.31805", tmp,
+                       sizeof(tmp)));
+  EXPECT_STREQ("Foo()", tmp);
+  // Invalid (. without anything else), should not demangle.
+  EXPECT_FALSE(Demangle("_ZL3Foov.", tmp, sizeof(tmp)));
+  // Invalid (. with mix of alpha and digits), should not demangle.
+  EXPECT_FALSE(Demangle("_ZL3Foov.abc123", tmp, sizeof(tmp)));
   // Invalid (.clone. not followed by number), should not demangle.
   EXPECT_FALSE(Demangle("_ZL3Foov.clone.", tmp, sizeof(tmp)));
-  // Invalid (.clone. followed by non-number), should not demangle.
-  EXPECT_FALSE(Demangle("_ZL3Foov.clone.foo", tmp, sizeof(tmp)));
   // Invalid (.constprop. not followed by number), should not demangle.
   EXPECT_FALSE(Demangle("_ZL3Foov.isra.2.constprop.", tmp, sizeof(tmp)));
+}
+
+// Test the GNU abi_tag extension.
+TEST(Demangle, AbiTags) {
+  char tmp[80];
+
+  // Mangled name generated via:
+  // struct [[gnu::abi_tag("abc")]] A{};
+  // A a;
+  EXPECT_TRUE(Demangle("_Z1aB3abc", tmp, sizeof(tmp)));
+  EXPECT_STREQ("a[abi:abc]", tmp);
+
+  // Mangled name generated via:
+  // struct B {
+  //   B [[gnu::abi_tag("xyz")]] (){};
+  // };
+  // B b;
+  EXPECT_TRUE(Demangle("_ZN1BC2B3xyzEv", tmp, sizeof(tmp)));
+  EXPECT_STREQ("B::B[abi:xyz]()", tmp);
+
+  // Mangled name generated via:
+  // [[gnu::abi_tag("foo", "bar")]] void C() {}
+  EXPECT_TRUE(Demangle("_Z1CB3barB3foov", tmp, sizeof(tmp)));
+  EXPECT_STREQ("C[abi:bar][abi:foo]()", tmp);
+}
+
+// Test one Rust symbol to exercise Demangle's delegation path.  Rust demangling
+// itself is more thoroughly tested in demangle_rust_test.cc.
+TEST(Demangle, DelegatesToDemangleRustSymbolEncoding) {
+  char tmp[80];
+
+  EXPECT_TRUE(Demangle("_RNvC8my_crate7my_func", tmp, sizeof(tmp)));
+  EXPECT_STREQ("my_crate::my_func", tmp);
 }
 
 // Tests that verify that Demangle footprint is within some limit.
 // They are not to be run under sanitizers as the sanitizers increase
 // stack consumption by about 4x.
-#if defined(ABSL_INTERNAL_HAVE_DEBUGGING_STACK_CONSUMPTION) &&   \
-    !defined(ADDRESS_SANITIZER) && !defined(MEMORY_SANITIZER) && \
-    !defined(THREAD_SANITIZER)
+#if defined(ABSL_INTERNAL_HAVE_DEBUGGING_STACK_CONSUMPTION) && \
+    !defined(ABSL_HAVE_ADDRESS_SANITIZER) &&                   \
+    !defined(ABSL_HAVE_MEMORY_SANITIZER) &&                    \
+    !defined(ABSL_HAVE_THREAD_SANITIZER)
 
 static const char *g_mangled;
 static char g_demangle_buffer[4096];
@@ -102,7 +334,7 @@ static const char *DemangleStackConsumption(const char *mangled,
                                             int *stack_consumed) {
   g_mangled = mangled;
   *stack_consumed = GetSignalHandlerStackConsumption(DemangleSignalHandler);
-  ABSL_RAW_LOG(INFO, "Stack consumption of Demangle: %d", *stack_consumed);
+  LOG(INFO) << "Stack consumption of Demangle: " << *stack_consumed;
   return g_demangle_result;
 }
 
@@ -188,6 +420,26 @@ TEST(DemangleRegression, DeeplyNestedArrayType) {
   TestOnInput(data.c_str());
 }
 
+struct Base {
+  virtual ~Base() = default;
+};
+
+struct Derived : public Base {};
+
+TEST(DemangleStringTest, SupportsSymbolNameReturnedByTypeId) {
+  EXPECT_EQ(DemangleString(typeid(int).name()), "int");
+  // We want to test that `DemangleString` can demangle the symbol names
+  // returned by `typeid`, but without hard-coding the actual demangled values
+  // (because they are platform-specific).
+  EXPECT_THAT(
+      DemangleString(typeid(Base).name()),
+      ContainsRegex("absl.*debugging_internal.*anonymous namespace.*::Base"));
+  EXPECT_THAT(DemangleString(typeid(Derived).name()),
+              ContainsRegex(
+                  "absl.*debugging_internal.*anonymous namespace.*::Derived"));
+}
+
 }  // namespace
 }  // namespace debugging_internal
+ABSL_NAMESPACE_END
 }  // namespace absl

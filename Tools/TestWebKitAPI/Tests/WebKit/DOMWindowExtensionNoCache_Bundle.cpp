@@ -31,7 +31,6 @@
 #include <WebKit/WKBundleDOMWindowExtension.h>
 #include <WebKit/WKBundleFrame.h>
 #include <WebKit/WKBundlePage.h>
-#include <WebKit/WKBundlePageGroup.h>
 #include <WebKit/WKBundlePagePrivate.h>
 #include <WebKit/WKBundlePrivate.h>
 #include <WebKit/WKBundleScriptWorld.h>
@@ -112,7 +111,9 @@ DOMWindowExtensionNoCache::DOMWindowExtensionNoCache(const std::string& identifi
 
 void DOMWindowExtensionNoCache::frameLoadFinished(WKBundleFrameRef frame)
 {
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     bool mainFrame = !WKBundleFrameGetParentFrame(frame);
+    ALLOW_DEPRECATED_DECLARATIONS_END
     if (mainFrame)
         m_numberMainFrameLoads++;
 
@@ -205,7 +206,9 @@ void DOMWindowExtensionNoCache::globalObjectIsAvailableForFrame(WKBundleFrameRef
     bool standard;
     standard = world == WKBundleScriptWorldNormalWorld();
 
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     bool mainFrame = !WKBundleFrameGetParentFrame(frame);
+    ALLOW_DEPRECATED_DECLARATIONS_END
     switch (m_numberMainFrameLoads) {
     case 0:
         index = mainFrame ? (standard ? 0 : 1) : (standard ? 2 : 3);

@@ -10,7 +10,11 @@
 
 #include "logging/rtc_event_log/events/rtc_event_ice_candidate_pair.h"
 
+#include <cstdint>
+#include <memory>
+
 #include "absl/memory/memory.h"
+#include "api/rtc_event_log/rtc_event.h"
 
 namespace webrtc {
 
@@ -30,14 +34,6 @@ RtcEventIceCandidatePair::RtcEventIceCandidatePair(
       transaction_id_(other.transaction_id_) {}
 
 RtcEventIceCandidatePair::~RtcEventIceCandidatePair() = default;
-
-RtcEvent::Type RtcEventIceCandidatePair::GetType() const {
-  return RtcEvent::Type::IceCandidatePairEvent;
-}
-
-bool RtcEventIceCandidatePair::IsConfigEvent() const {
-  return false;
-}
 
 std::unique_ptr<RtcEventIceCandidatePair> RtcEventIceCandidatePair::Copy()
     const {

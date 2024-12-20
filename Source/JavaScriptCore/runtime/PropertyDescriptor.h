@@ -64,7 +64,7 @@ public:
     JSObject* setterObject() const;
     JS_EXPORT_PRIVATE void setUndefined();
     JS_EXPORT_PRIVATE void setDescriptor(JSValue, unsigned attributes);
-    JS_EXPORT_PRIVATE void setCustomDescriptor(unsigned attributes);
+    JS_EXPORT_PRIVATE void setAccessorDescriptor(unsigned attributes);
     JS_EXPORT_PRIVATE void setAccessorDescriptor(GetterSetter* accessor, unsigned attributes);
     JS_EXPORT_PRIVATE void setWritable(bool);
     JS_EXPORT_PRIVATE void setEnumerable(bool);
@@ -81,6 +81,8 @@ public:
     bool equalTo(JSGlobalObject*, const PropertyDescriptor& other) const;
     bool attributesEqual(const PropertyDescriptor& other) const;
     unsigned attributesOverridingCurrent(const PropertyDescriptor& current) const;
+
+    JS_EXPORT_PRIVATE bool setPropertySlot(JSGlobalObject*, PropertyName, const PropertySlot&);
 
 private:
     static constexpr unsigned defaultAttributes = PropertyAttribute::DontDelete | PropertyAttribute::DontEnum | PropertyAttribute::ReadOnly;
@@ -100,16 +102,16 @@ inline PropertyDescriptor toPropertyDescriptor(JSValue value, JSValue getter, JS
     // We assume that validation is already done.
     PropertyDescriptor desc;
 
-    if (Optional<bool> enumerable = attributes.enumerable())
+    if (std::optional<bool> enumerable = attributes.enumerable())
         desc.setEnumerable(enumerable.value());
 
-    if (Optional<bool> configurable = attributes.configurable())
+    if (std::optional<bool> configurable = attributes.configurable())
         desc.setConfigurable(configurable.value());
 
     if (attributes.hasValue())
         desc.setValue(value);
 
-    if (Optional<bool> writable = attributes.writable())
+    if (std::optional<bool> writable = attributes.writable())
         desc.setWritable(writable.value());
 
     if (attributes.hasGet())

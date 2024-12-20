@@ -46,7 +46,7 @@ class AudioProcessingEvent;
 // AudioBuffers for each input and output.
 
 class ScriptProcessorNode final : public AudioNode, public ActiveDOMObject {
-    WTF_MAKE_ISO_ALLOCATED(ScriptProcessorNode);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(ScriptProcessorNode);
 public:
     // bufferSize must be one of the following values: 256, 512, 1024, 2048, 4096, 8192, 16384.
     // This value controls how frequently the onaudioprocess event handler is called and how many sample-frames need to be processed each call.
@@ -56,42 +56,56 @@ public:
 
     virtual ~ScriptProcessorNode();
 
-    const char* activeDOMObjectName() const override { return "ScriptProcessorNode"; }
+    // ActiveDOMObject.
+    void ref() const final { AudioNode::ref(); }
+    void deref() const final { AudioNode::deref(); }
 
     // AudioNode
     void process(size_t framesToProcess) override;
-    void reset() override;
     void initialize() override;
     void uninitialize() override;
-    void didBecomeMarkedForDeletion() override;
 
     size_t bufferSize() const { return m_bufferSize; }
+
+    ExceptionOr<void> setChannelCount(unsigned) final;
+    ExceptionOr<void> setChannelCountMode(ChannelCountMode) final;
 
 private:
     double tailTime() const override;
     double latencyTime() const override;
+    bool requiresTailProcessing() const final;
 
     ScriptProcessorNode(BaseAudioContext&, size_t bufferSize, unsigned numberOfInputChannels, unsigned numberOfOutputChannels);
 
-    void fireProcessEvent();
+    // ActiveDOMObject.
+    bool virtualHasPendingActivity() const final;
 
-    // Double buffering
-    unsigned doubleBufferIndex() const { return m_doubleBufferIndex; }
-    void swapBuffers() { m_doubleBufferIndex = 1 - m_doubleBufferIndex; }
-    unsigned m_doubleBufferIndex;
-    unsigned m_doubleBufferIndexForEvent;
-    Vector<RefPtr<AudioBuffer>> m_inputBuffers;
-    Vector<RefPtr<AudioBuffer>> m_outputBuffers;
+    void eventListenersDidChange() final;
+    void fireProcessEvent(unsigned bufferIndex);
+
+    RefPtr<AudioBuffer> createInputBufferForJS(AudioBuffer*) const;
+    RefPtr<AudioBuffer> createOutputBufferForJS(AudioBuffer&) const;
+
+    // Double buffering.
+    static constexpr unsigned bufferCount = 2;
+    unsigned bufferIndex() const { return m_bufferIndex; }
+    void swapBuffers() { m_bufferIndex = (m_bufferIndex + 1) % bufferCount; }
+
+    unsigned m_bufferIndex { 0 };
+    std::array<Lock, bufferCount> m_bufferLocks;
+    std::array<RefPtr<AudioBuffer>, bufferCount> m_inputBuffers;
+    std::array<RefPtr<AudioBuffer>, bufferCount> m_outputBuffers;
+    mutable RefPtr<AudioBuffer> m_cachedInputBufferForJS;
+    mutable RefPtr<AudioBuffer> m_cachedOutputBufferForJS;
 
     size_t m_bufferSize;
-    unsigned m_bufferReadWriteIndex;
-    volatile bool m_isRequestOutstanding;
+    unsigned m_bufferReadWriteIndex { 0 };
 
     unsigned m_numberOfInputChannels;
     unsigned m_numberOfOutputChannels;
 
     RefPtr<AudioBus> m_internalInputBus;
-    RefPtr<PendingActivity<ScriptProcessorNode>> m_pendingActivity;
+    bool m_hasAudioProcessEventListener { false };
 };
 
 } // namespace WebCore

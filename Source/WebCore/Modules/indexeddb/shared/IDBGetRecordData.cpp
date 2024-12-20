@@ -26,9 +26,8 @@
 #include "config.h"
 #include "IDBGetRecordData.h"
 
-#if ENABLE(INDEXED_DATABASE)
-
 #include "IDBKeyRangeData.h"
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
@@ -41,11 +40,9 @@ IDBGetRecordData IDBGetRecordData::isolatedCopy() const
 
 String IDBGetRecordData::loggingString() const
 {
-    return makeString("<GetRecord: ", type == IDBGetRecordDataType::KeyOnly ? "KeyOnly" : "Key+Value", ' ', keyRangeData.loggingString(), '>');
+    return makeString("<GetRecord: "_s, type == IDBGetRecordDataType::KeyOnly ? "KeyOnly"_s : "Key+Value"_s, ' ', keyRangeData.loggingString(), '>');
 }
 
 #endif
 
 } // namespace WebCore
-
-#endif // ENABLE(INDEXED_DATABASE)

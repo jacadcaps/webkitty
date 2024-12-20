@@ -38,9 +38,9 @@ template<typename IDLStringType>
 struct IdentifierConverter;
 
 template<> struct IdentifierConverter<IDLDOMString> {
-    static String convert(JSC::JSGlobalObject&, const JSC::Identifier& identifier)
+    static String convert(JSC::JSGlobalObject& lexicalGlobalObject, const JSC::Identifier& identifier)
     {
-        return identifier.string();
+        return identifierToString(lexicalGlobalObject, identifier);
     }
 };
 
@@ -61,23 +61,43 @@ template<> struct IdentifierConverter<IDLUSVString> {
 }
 
 template<typename K, typename V> struct Converter<IDLRecord<K, V>> : DefaultConverter<IDLRecord<K, V>> {
-    using ReturnType = typename IDLRecord<K, V>::ImplementationType;
-    using KeyType = typename K::ImplementationType;
-    using ValueType = typename V::ImplementationType;
+    using ReturnType = typename DefaultConverter<IDLRecord<K, V>>::ReturnType;
+    using KeyType = typename K::InnerParameterType;
+    using ValueType = typename V::InnerParameterType;
+    using Result = ConversionResult<IDLRecord<K, V>>;
 
-    static ReturnType convert(JSC::JSGlobalObject& lexicalGlobalObject, JSC::JSValue value, JSDOMGlobalObject& globalObject)
+    static Result convert(JSC::JSGlobalObject& lexicalGlobalObject, JSC::JSValue value, JSDOMGlobalObject& globalObject)
     {
-        return convertRecord<JSDOMGlobalObject&>(lexicalGlobalObject, value, globalObject);
+        return convertRecord(lexicalGlobalObject, value, globalObject);
     }
 
-    static ReturnType convert(JSC::JSGlobalObject& lexicalGlobalObject, JSC::JSValue value)
+    static Result convert(JSC::JSGlobalObject& lexicalGlobalObject, JSC::JSValue value)
     {
         return convertRecord(lexicalGlobalObject, value);
     }
 
 private:
-    template<class...Args>
-    static ReturnType convertRecord(JSC::JSGlobalObject& lexicalGlobalObject, JSC::JSValue value, Args ... args)
+    // As temporary measure, IDL interfaces need to have their conversion result adjusted
+    // to properly form an inner parameter type. Once all IDL types have full support for
+    // using Ref for interfaces, this adjustment can be removed.
+    template<typename IDL>
+    struct ValueAdjuster {
+        static ValueType adjust(ConversionResult<IDL>&& result)
+        {
+            return result.releaseReturnValue();
+        }
+    };
+
+    template<typename T>
+    struct ValueAdjuster<IDLInterface<T>> {
+        static ValueType adjust(ConversionResult<IDLInterface<T>>&& result)
+        {
+            return Ref { *result.releaseReturnValue() };
+        }
+    };
+
+    template<class... Args>
+    static Result convertRecord(JSC::JSGlobalObject& lexicalGlobalObject, JSC::JSValue value, Args&& ...args)
     {
         auto& vm = JSC::getVM(&lexicalGlobalObject);
         auto scope = DECLARE_THROW_SCOPE(vm);
@@ -85,54 +105,69 @@ private:
         // 1. Let result be a new empty instance of record<K, V>.
         // 2. If Type(O) is Undefined or Null, return result.
         if (value.isUndefinedOrNull())
-            return { };
-        
+            return ReturnType { };
+
         // 3. If Type(O) is not Object, throw a TypeError.
         if (!value.isObject()) {
             throwTypeError(&lexicalGlobalObject, scope);
-            return { };
+            return Result::exception();
         }
         
         JSC::JSObject* object = JSC::asObject(value);
     
         ReturnType result;
+        HashMap<KeyType, size_t> resultMap;
     
         // 4. Let keys be ? O.[[OwnPropertyKeys]]().
-        JSC::PropertyNameArray keys(vm, JSC::PropertyNameMode::Strings, JSC::PrivateSymbolMode::Exclude);
-        object->methodTable(vm)->getOwnPropertyNames(object, &lexicalGlobalObject, keys, JSC::EnumerationMode(JSC::DontEnumPropertiesMode::Include));
-
-        RETURN_IF_EXCEPTION(scope, { });
+        JSC::PropertyNameArray keys(vm, JSC::PropertyNameMode::StringsAndSymbols, JSC::PrivateSymbolMode::Exclude);
+        object->methodTable()->getOwnPropertyNames(object, &lexicalGlobalObject, keys, JSC::DontEnumPropertiesMode::Include);
+        RETURN_IF_EXCEPTION(scope, Result::exception());
 
         // 5. Repeat, for each element key of keys in List order:
         for (auto& key : keys) {
             // 1. Let desc be ? O.[[GetOwnProperty]](key).
-            JSC::PropertyDescriptor descriptor;
-            bool didGetDescriptor = object->getOwnPropertyDescriptor(&lexicalGlobalObject, key, descriptor);
-            RETURN_IF_EXCEPTION(scope, { });
+            JSC::PropertySlot slot(object, JSC::PropertySlot::InternalMethodType::GetOwnProperty);
+            bool hasProperty = object->methodTable()->getOwnPropertySlot(object, &lexicalGlobalObject, key, slot);
+            RETURN_IF_EXCEPTION(scope, Result::exception());
 
             // 2. If desc is not undefined and desc.[[Enumerable]] is true:
 
-            // It's necessary to filter enumerable here rather than using the default EnumerationMode,
+            // It's necessary to filter enumerable here rather than using DontEnumPropertiesMode::Exclude,
             // to prevent an observable extra [[GetOwnProperty]] operation in the case of ProxyObject records.
-            if (didGetDescriptor && descriptor.enumerable()) {
+            if (hasProperty && !(slot.attributes() & JSC::PropertyAttribute::DontEnum)) {
                 // 1. Let typedKey be key converted to an IDL value of type K.
                 auto typedKey = Detail::IdentifierConverter<K>::convert(lexicalGlobalObject, key);
-                RETURN_IF_EXCEPTION(scope, { });
+                RETURN_IF_EXCEPTION(scope, Result::exception());
 
                 // 2. Let value be ? Get(O, key).
-                auto subValue = object->get(&lexicalGlobalObject, key);
-                RETURN_IF_EXCEPTION(scope, { });
+                JSC::JSValue subValue;
+                if (LIKELY(!slot.isTaintedByOpaqueObject()))
+                    subValue = slot.getValue(&lexicalGlobalObject, key);
+                else
+                    subValue = object->get(&lexicalGlobalObject, key);
+                RETURN_IF_EXCEPTION(scope, Result::exception());
 
                 // 3. Let typedValue be value converted to an IDL value of type V.
-                auto typedValue = Converter<V>::convert(lexicalGlobalObject, subValue, args...);
-                RETURN_IF_EXCEPTION(scope, { });
-                
-                // 4. If typedKey is already a key in result, set its value to typedValue.
-                // Note: This can happen when O is a proxy object.
-                // FIXME: Handle this case.
+                auto typedValue = WebCore::convert<V>(lexicalGlobalObject, subValue, args...);
+                if (UNLIKELY(typedValue.hasException(scope)))
+                    return Result::exception();
+
+                // 4. Set result[typedKey] to typedValue.
+                // Note: It's possible that typedKey is already in result if K is USVString and key contains unpaired surrogates.
+                if constexpr (std::is_same_v<K, IDLUSVString>) {
+                    if (!typedKey.is8Bit()) {
+                        auto addResult = resultMap.add(typedKey, result.size());
+                        if (!addResult.isNewEntry) {
+                            ASSERT(result[addResult.iterator->value].key == typedKey);
+                            result[addResult.iterator->value].value = ValueAdjuster<V>::adjust(WTFMove(typedValue));
+                            continue;
+                        }
+                    }
+                } else
+                    UNUSED_VARIABLE(resultMap);
                 
                 // 5. Otherwise, append to result a mapping (typedKey, typedValue).
-                result.append({ typedKey, typedValue });
+                result.append({ WTFMove(typedKey), ValueAdjuster<V>::adjust(WTFMove(typedValue)) });
             }
         }
 

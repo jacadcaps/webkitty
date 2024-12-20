@@ -26,19 +26,17 @@
 #include "config.h"
 #include "ServerOpenDBRequest.h"
 
-#if ENABLE(INDEXED_DATABASE)
-
 #include "IDBResultData.h"
 
 namespace WebCore {
 namespace IDBServer {
 
-Ref<ServerOpenDBRequest> ServerOpenDBRequest::create(IDBConnectionToClient& connection, const IDBRequestData& requestData)
+Ref<ServerOpenDBRequest> ServerOpenDBRequest::create(IDBConnectionToClient& connection, const IDBOpenRequestData& requestData)
 {
     return adoptRef(*new ServerOpenDBRequest(connection, requestData));
 }
 
-ServerOpenDBRequest::ServerOpenDBRequest(IDBConnectionToClient& connection, const IDBRequestData& requestData)
+ServerOpenDBRequest::ServerOpenDBRequest(IDBConnectionToClient& connection, const IDBOpenRequestData& requestData)
     : m_connection(connection)
     , m_requestData(requestData)
 {
@@ -72,7 +70,7 @@ void ServerOpenDBRequest::notifyDidDeleteDatabase(const IDBDatabaseInfo& info)
     m_connection->didDeleteDatabase(IDBResultData::deleteDatabaseSuccess(m_requestData.requestIdentifier(), info));
 }
 
-void ServerOpenDBRequest::notifiedConnectionsOfVersionChange(HashSet<uint64_t>&& connectionIdentifiers)
+void ServerOpenDBRequest::notifiedConnectionsOfVersionChange(HashSet<IDBDatabaseConnectionIdentifier>&& connectionIdentifiers)
 {
     ASSERT(!m_notifiedConnectionsOfVersionChange);
 
@@ -80,12 +78,10 @@ void ServerOpenDBRequest::notifiedConnectionsOfVersionChange(HashSet<uint64_t>&&
     m_connectionsPendingVersionChangeEvent = WTFMove(connectionIdentifiers);
 }
 
-void ServerOpenDBRequest::connectionClosedOrFiredVersionChangeEvent(uint64_t connectionIdentifier)
+void ServerOpenDBRequest::connectionClosedOrFiredVersionChangeEvent(IDBDatabaseConnectionIdentifier connectionIdentifier)
 {
     m_connectionsPendingVersionChangeEvent.remove(connectionIdentifier);
 }
 
 } // namespace IDBServer
 } // namespace WebCore
-
-#endif // ENABLE(INDEXED_DATABASE)

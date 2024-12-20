@@ -35,11 +35,11 @@
 
 #import "DumpRenderTreeMac.h"
 #import "NSPasteboardAdditions.h"
-#import <WebKit/WebTypesInternal.h>
 #import <objc/runtime.h>
 #import <wtf/Assertions.h>
 #import <wtf/HashMap.h>
 #import <wtf/ListHashSet.h>
+#import <wtf/Lock.h>
 #import <wtf/RetainPtr.h>
 
 @interface LocalPasteboard : NSPasteboard {
@@ -56,30 +56,30 @@
 -(id)initWithName:(NSString *)name;
 @end
 
-static NSMutableDictionary *localPasteboards;
+static Lock localPasteboardsLock;
+static RetainPtr<NSMutableDictionary> localPasteboards WTF_GUARDED_BY_LOCK(localPasteboardsLock);
 
 @implementation DumpRenderTreePasteboard
 
 // Return a local pasteboard so we don't disturb the real pasteboards when running tests.
 + (NSPasteboard *)_pasteboardWithName:(NSString *)name
 {
-    static int number = 0;
+    Locker locker { localPasteboardsLock };
+    static uint64_t number WTF_GUARDED_BY_LOCK(localPasteboardsLock) = 0;
     if (!name)
-        name = [NSString stringWithFormat:@"LocalPasteboard%d", ++number];
+        name = [NSString stringWithFormat:@"LocalPasteboard%llu", ++number];
     if (!localPasteboards)
-        localPasteboards = [[NSMutableDictionary alloc] init];
-    LocalPasteboard *pasteboard = [localPasteboards objectForKey:name];
-    if (pasteboard)
+        localPasteboards = adoptNS([[NSMutableDictionary alloc] init]);
+    if (LocalPasteboard *pasteboard = [localPasteboards objectForKey:name])
         return pasteboard;
-    pasteboard = [[LocalPasteboard alloc] initWithName:name];
-    [localPasteboards setObject:pasteboard forKey:name];
-    [pasteboard release];
-    return pasteboard;
+    auto pasteboard = adoptNS([[LocalPasteboard alloc] initWithName:name]);
+    [localPasteboards setObject:pasteboard.get() forKey:name];
+    return pasteboard.get();
 }
 
 + (void)releaseLocalPasteboards
 {
-    [localPasteboards release];
+    Locker locker { localPasteboardsLock };
     localPasteboards = nil;
 }
 

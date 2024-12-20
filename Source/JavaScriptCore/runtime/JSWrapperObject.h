@@ -1,6 +1,6 @@
 /*
  *  Copyright (C) 2006 Maks Orlovich
- *  Copyright (C) 2006, 2007, 2008, 2009 Apple Inc. All rights reserved.
+ *  Copyright (C) 2006-2021 Apple Inc. All rights reserved.
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Library General Public
@@ -51,8 +51,8 @@ public:
     JSValue internalValue() const;
     void setInternalValue(VM&, JSValue);
 
-    static ptrdiff_t internalValueOffset() { return offsetOfInternalField(static_cast<unsigned>(Field::WrappedValue)); }
-    static ptrdiff_t internalValueCellOffset()
+    static constexpr ptrdiff_t internalValueOffset() { return offsetOfInternalField(static_cast<unsigned>(Field::WrappedValue)); }
+    static constexpr ptrdiff_t internalValueCellOffset()
     {
 #if USE(JSVALUE64)
         return internalValueOffset();
@@ -64,7 +64,7 @@ public:
 protected:
     explicit JSWrapperObject(VM&, Structure*);
 
-    JS_EXPORT_PRIVATE static void visitChildren(JSCell*, SlotVisitor&);
+    DECLARE_VISIT_CHILDREN_WITH_MODIFIER(JS_EXPORT_PRIVATE);
 };
 
 inline JSWrapperObject::JSWrapperObject(VM& vm, Structure* structure)

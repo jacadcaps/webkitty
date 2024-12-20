@@ -27,8 +27,8 @@
 #import "WKDOMTextIterator.h"
 
 #import "WKDOMInternals.h"
-#import "WKDOMRange.h"
 #import <WebCore/TextIterator.h>
+#import <WebKit/WKDOMRange.h>
 
 @interface WKDOMTextIterator () {
 @private
@@ -79,9 +79,11 @@
     if (!length)
         return nullptr;
     if (!text.is8Bit())
-        return reinterpret_cast<const unichar*>(text.characters16());
-    if (_upconvertedText.isEmpty())
-        _upconvertedText.appendRange(text.characters8(), text.characters8() + length);
+        return reinterpret_cast<const unichar*>(text.span16().data());
+    if (_upconvertedText.isEmpty()) {
+        auto characters = text.span8();
+        _upconvertedText.appendRange(characters.begin(), characters.end());
+    }
     ASSERT(_upconvertedText.size() == text.length());
     return _upconvertedText.data();
 }

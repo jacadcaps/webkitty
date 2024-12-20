@@ -25,31 +25,12 @@
 
 #pragma once
 
-#if ENABLE(INDEXED_DATABASE)
-
-#include <wtf/EnumTraits.h>
-
 namespace WebCore {
 
-enum class IDBTransactionMode {
+enum class IDBTransactionMode : uint8_t {
     Readonly,
     Readwrite,
     Versionchange
 };
 
 } // namespace WebCore
-
-namespace WTF {
-
-template<> struct EnumTraits<WebCore::IDBTransactionMode> {
-    using values = EnumValues<
-        WebCore::IDBTransactionMode,
-        WebCore::IDBTransactionMode::Readonly,
-        WebCore::IDBTransactionMode::Readwrite,
-        WebCore::IDBTransactionMode::Versionchange
-    >;
-};
-
-} // namespace WTF
-
-#endif

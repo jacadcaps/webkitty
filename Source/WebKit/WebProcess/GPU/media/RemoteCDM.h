@@ -43,6 +43,10 @@ public:
 private:
     RemoteCDM(WeakPtr<RemoteCDMFactory>&&, RemoteCDMIdentifier&&, RemoteCDMConfiguration&&);
 
+#if !RELEASE_LOG_DISABLED
+    void setLogIdentifier(const void*) final;
+#endif
+
     void getSupportedConfiguration(WebCore::CDMKeySystemConfiguration&& candidateConfiguration, LocalStorageAccess, SupportedConfigurationCallback&&) final;
 
     bool supportsConfiguration(const WebCore::CDMKeySystemConfiguration&) const final;
@@ -55,7 +59,7 @@ private:
     RefPtr<WebCore::CDMInstance> createInstance() final;
     void loadAndInitialize() final;
     RefPtr<WebCore::SharedBuffer> sanitizeResponse(const WebCore::SharedBuffer&) const final;
-    Optional<String> sanitizeSessionId(const String&) const final;
+    std::optional<String> sanitizeSessionId(const String&) const final;
 
     Vector<AtomString> supportedInitDataTypes() const final { return m_configuration.supportedInitDataTypes; }
     Vector<AtomString> supportedRobustnesses() const final { return m_configuration.supportedRobustnesses; }

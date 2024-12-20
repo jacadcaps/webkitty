@@ -10,6 +10,7 @@
 
 #include "pc/used_ids.h"
 
+#include "absl/strings/string_view.h"
 #include "test/gtest.h"
 
 using cricket::UsedIds;
@@ -118,7 +119,8 @@ TEST_F(UsedRtpHeaderExtensionIdsTest, TwoByteIdsAllowed) {
       UsedRtpHeaderExtensionIds::IdDomain::kTwoByteAllowed);
 
   // Fill all one byte IDs.
-  for (int i = 1; i < 15; ++i) {
+  for (int i = 1; i <= webrtc::RtpExtension::kOneByteHeaderExtensionMaxId;
+       ++i) {
     webrtc::RtpExtension id("", i);
     used_ids.FindAndSetIdUsed(&id);
   }
@@ -130,11 +132,11 @@ TEST_F(UsedRtpHeaderExtensionIdsTest, TwoByteIdsAllowed) {
 
   // Expect to reassign to two-byte header extension IDs.
   used_ids.FindAndSetIdUsed(&id1_collision);
-  EXPECT_EQ(id1_collision.id, 15);
+  EXPECT_EQ(id1_collision.id, 16);
   used_ids.FindAndSetIdUsed(&id2_collision);
-  EXPECT_EQ(id2_collision.id, 16);
+  EXPECT_EQ(id2_collision.id, 17);
   used_ids.FindAndSetIdUsed(&id3_collision);
-  EXPECT_EQ(id3_collision.id, 17);
+  EXPECT_EQ(id3_collision.id, 18);
 }
 
 // Death tests.

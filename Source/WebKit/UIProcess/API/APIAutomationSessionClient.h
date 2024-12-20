@@ -27,6 +27,7 @@
 #define APIAutomationSessionClient_h
 
 #include <wtf/CompletionHandler.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebKit {
@@ -41,7 +42,7 @@ enum AutomationSessionBrowsingContextOptions : uint16_t {
 };
 
 class AutomationSessionClient {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(AutomationSessionClient);
 public:
     enum class JavaScriptDialogType {
         Alert,
@@ -69,7 +70,7 @@ public:
     virtual void acceptCurrentJavaScriptDialogOnPage(WebKit::WebAutomationSession&, WebKit::WebPageProxy&) { }
     virtual WTF::String messageOfCurrentJavaScriptDialogOnPage(WebKit::WebAutomationSession&, WebKit::WebPageProxy&) { return WTF::String(); }
     virtual void setUserInputForCurrentJavaScriptPromptOnPage(WebKit::WebAutomationSession&, WebKit::WebPageProxy&, const WTF::String&) { }
-    virtual Optional<JavaScriptDialogType> typeOfCurrentJavaScriptDialogOnPage(WebKit::WebAutomationSession&, WebKit::WebPageProxy&) { return WTF::nullopt; }
+    virtual std::optional<JavaScriptDialogType> typeOfCurrentJavaScriptDialogOnPage(WebKit::WebAutomationSession&, WebKit::WebPageProxy&) { return std::nullopt; }
     virtual BrowsingContextPresentation currentPresentationOfPage(WebKit::WebAutomationSession&, WebKit::WebPageProxy&) { return BrowsingContextPresentation::Window; }
 };
 

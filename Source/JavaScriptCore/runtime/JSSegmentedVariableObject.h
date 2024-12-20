@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,7 +29,6 @@
 #pragma once
 
 #include "ConcurrentJSLock.h"
-#include "JSObject.h"
 #include "JSSymbolTableObject.h"
 #include "SymbolTable.h"
 #include <wtf/SegmentedVector.h>
@@ -85,8 +84,8 @@ public:
     // Adds numberOfRegistersToAdd registers, initializes them to Undefined, and returns
     // the index of the first one added.
     JS_EXPORT_PRIVATE ScopeOffset addVariables(unsigned numberOfVariablesToAdd, JSValue);
-    
-    JS_EXPORT_PRIVATE static void visitChildren(JSCell*, SlotVisitor&);
+
+    DECLARE_VISIT_CHILDREN_WITH_MODIFIER(JS_EXPORT_PRIVATE);
     JS_EXPORT_PRIVATE static void analyzeHeap(JSCell*, HeapAnalyzer&);
     
 protected:

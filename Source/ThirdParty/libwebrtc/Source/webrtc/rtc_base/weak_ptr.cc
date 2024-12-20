@@ -16,30 +16,19 @@
 namespace rtc {
 namespace internal {
 
-WeakReference::Flag::Flag() : is_valid_(true) {
-  // Flags only become bound when checked for validity, or invalidated,
-  // so that we can check that later validity/invalidation operations on
-  // the same Flag take place on the same sequence.
-  checker_.Detach();
-}
-
 void WeakReference::Flag::Invalidate() {
-  RTC_DCHECK(checker_.IsCurrent())
-      << "WeakPtrs must be invalidated on the same sequence.";
+  RTC_DCHECK_RUN_ON(&checker_);
   is_valid_ = false;
 }
 
 bool WeakReference::Flag::IsValid() const {
-  RTC_DCHECK(checker_.IsCurrent())
-      << "WeakPtrs must be checked on the same sequence.";
+  RTC_DCHECK_RUN_ON(&checker_);
   return is_valid_;
 }
 
-WeakReference::Flag::~Flag() {}
-
 WeakReference::WeakReference() {}
 
-WeakReference::WeakReference(const Flag* flag) : flag_(flag) {}
+WeakReference::WeakReference(const RefCountedFlag* flag) : flag_(flag) {}
 
 WeakReference::~WeakReference() {}
 
@@ -60,7 +49,7 @@ WeakReferenceOwner::~WeakReferenceOwner() {
 WeakReference WeakReferenceOwner::GetRef() const {
   // If we hold the last reference to the Flag then create a new one.
   if (!HasRefs())
-    flag_ = new RefCountedObject<WeakReference::Flag>();
+    flag_ = new WeakReference::RefCountedFlag();
 
   return WeakReference(flag_.get());
 }

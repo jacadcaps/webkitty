@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007-2018 Apple Inc.  All rights reserved.
+ * Copyright (C) 2007-2020 Apple Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -294,7 +294,7 @@ WI.TreeOutline = class TreeOutline extends WI.Object
             current = current.traverseNextTreeElement(false, child, true);
         }
 
-        if (child.hasChildren && child.treeOutline._treeElementsExpandedState[child.identifier] !== undefined)
+        if (child.expandable && child.treeOutline._treeElementsExpandedState[child.identifier] !== undefined)
             child.expanded = child.treeOutline._treeElementsExpandedState[child.identifier];
 
         if (this._childrenListNode)
@@ -316,13 +316,15 @@ WI.TreeOutline = class TreeOutline extends WI.Object
         let child = this.children[childIndex];
         let parent = child.parent;
 
-        if (child.deselect(suppressOnDeselect) && !suppressSelectSibling) {
+        let childOrDescendantWasSelected = child.deselect(suppressOnDeselect) || child.selfOrDescendant((descendant) => descendant.selected);
+        if (childOrDescendantWasSelected && !suppressSelectSibling) {
+            const omitFocus = true;
             if (child.previousSibling)
-                child.previousSibling.select(true, false);
+                child.previousSibling.select(omitFocus);
             else if (child.nextSibling)
-                child.nextSibling.select(true, false);
+                child.nextSibling.select(omitFocus);
             else
-                parent.select(true, false);
+                parent.select(omitFocus);
         }
 
         let treeOutline = child.treeOutline;
@@ -516,8 +518,10 @@ WI.TreeOutline = class TreeOutline extends WI.Object
             // FIXME: we could do something faster than findTreeElement since we will know the next
             // ancestor exists in the tree.
             item = this.findTreeElement(ancestors[i], isAncestor, getParent);
-            if (item)
-                item.onpopulate();
+            if (!item)
+                return null;
+
+            item.onpopulate();
         }
 
         return this.getCachedTreeElement(representedObject);
@@ -585,7 +589,7 @@ WI.TreeOutline = class TreeOutline extends WI.Object
                 if (!this.selectedTreeElement.revealed()) {
                     this.selectedTreeElement.reveal();
                     handled = true;
-                } else if (this.selectedTreeElement.hasChildren) {
+                } else if (this.selectedTreeElement.expandable) {
                     handled = true;
                     if (this.selectedTreeElement.expanded) {
                         nextSelectedElement = this.selectedTreeElement.children[0];
@@ -909,7 +913,7 @@ WI.TreeOutline = class TreeOutline extends WI.Object
             // Keep all the elements at the same depth once the maximum is reached.
             childrenSubstring += i === maximumTreeDepth ? " .children" : " > .children";
             styleText += `.${WI.TreeOutline.ElementStyleClassName}:not(.${WI.TreeOutline.CustomIndentStyleClassName})${childrenSubstring} > .item { `;
-            styleText += `-webkit-padding-start: calc(var(--tree-outline-item-padding) + ${depthPadding * i}px);`;
+            styleText += `padding-inline-start: calc(var(--tree-outline-item-padding) + ${depthPadding * i}px);`;
             styleText += ` }\n`;
         }
 
@@ -1090,14 +1094,14 @@ WI.TreeOutline.ElementStyleClassName = "tree-outline";
 WI.TreeOutline.CustomIndentStyleClassName = "custom-indent";
 
 WI.TreeOutline.Event = {
-    ElementAdded: Symbol("element-added"),
-    ElementDidChange: Symbol("element-did-change"),
-    ElementRemoved: Symbol("element-removed"),
-    ElementRevealed: Symbol("element-revealed"),
-    ElementClicked: Symbol("element-clicked"),
-    ElementDisclosureDidChanged: Symbol("element-disclosure-did-change"),
-    ElementVisibilityDidChange: Symbol("element-visbility-did-change"),
-    SelectionDidChange: Symbol("selection-did-change")
+    ElementAdded: "element-added",
+    ElementDidChange: "element-did-change",
+    ElementRemoved: "element-removed",
+    ElementRevealed: "element-revealed",
+    ElementClicked: "element-clicked",
+    ElementDisclosureDidChanged: "element-disclosure-did-change",
+    ElementVisibilityDidChange: "element-visbility-did-change",
+    SelectionDidChange: "selection-did-change",
 };
 
 WI.TreeOutline._knownTreeElementNextIdentifier = 1;

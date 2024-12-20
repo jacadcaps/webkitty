@@ -20,26 +20,26 @@
 
 namespace cricket {
 
-webrtc::SdpAudioFormat AudioCodecToSdpAudioFormat(const AudioCodec& ac);
+webrtc::SdpAudioFormat AudioCodecToSdpAudioFormat(const Codec& ac);
 
 class PayloadTypeMapper {
  public:
   PayloadTypeMapper();
   ~PayloadTypeMapper();
 
-  // Finds the current payload type for |format| or assigns a new one, if no
+  // Finds the current payload type for `format` or assigns a new one, if no
   // current mapping exists. Will return an empty value if it was unable to
   // create a mapping, i.e. if all dynamic payload type ids have been used up.
   absl::optional<int> GetMappingFor(const webrtc::SdpAudioFormat& format);
 
-  // Finds the current payload type for |format|, if any. Returns an empty value
+  // Finds the current payload type for `format`, if any. Returns an empty value
   // if no payload type mapping exists for the format.
   absl::optional<int> FindMappingFor(
       const webrtc::SdpAudioFormat& format) const;
 
   // Like GetMappingFor, but fills in an AudioCodec structure with the necessary
   // information instead.
-  absl::optional<AudioCodec> ToAudioCodec(const webrtc::SdpAudioFormat& format);
+  absl::optional<Codec> ToAudioCodec(const webrtc::SdpAudioFormat& format);
 
  private:
   struct SdpAudioFormatOrdering {

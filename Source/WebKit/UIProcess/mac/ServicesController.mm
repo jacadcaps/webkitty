@@ -68,16 +68,11 @@ static void hasCompatibleServicesForItems(dispatch_group_t group, NSArray *items
 {
     NSSharingServiceMask servicesMask = NSSharingServiceMaskViewer | NSSharingServiceMaskEditor;
 
-    if ([NSSharingService respondsToSelector:@selector(getSharingServicesForItems:mask:completion:)]) {
-        dispatch_group_enter(group);
-        [NSSharingService getSharingServicesForItems:items mask:servicesMask completion:makeBlockPtr([completionHandler = WTFMove(completionHandler), group](NSArray *services) {
-            completionHandler(services.count);
-            dispatch_group_leave(group);
-        }).get()];
-        return;
-    }
-    
-    completionHandler([NSSharingService sharingServicesForItems:items mask:servicesMask].count);
+    dispatch_group_enter(group);
+    [NSSharingService getSharingServicesForItems:items mask:servicesMask completion:makeBlockPtr([completionHandler = WTFMove(completionHandler), group](NSArray *services) {
+        completionHandler(services.count);
+        dispatch_group_leave(group);
+    }).get()];
 }
 
 void ServicesController::refreshExistingServices(bool refreshImmediately)
@@ -101,19 +96,20 @@ void ServicesController::refreshExistingServices(bool refreshImmediately)
             m_hasSelectionServices = hasServices;
         });
 
-        static NSAttributedString *attributedStringWithRichContent = [] {
-            NSMutableAttributedString *richString;
-            dispatch_sync(dispatch_get_main_queue(), [&richString] {
+        static NeverDestroyed<RetainPtr<NSAttributedString>> attributedStringWithRichContent;
+        static std::once_flag attributedStringWithRichContentOnceFlag;
+        std::call_once(attributedStringWithRichContentOnceFlag, [&] {
+            WorkQueue::main().dispatchSync([&] {
                 auto attachment = adoptNS([[NSTextAttachment alloc] init]);
                 auto cell = adoptNS([[NSTextAttachmentCell alloc] initImageCell:image]);
                 [attachment setAttachmentCell:cell.get()];
-                richString = [[NSAttributedString attributedStringWithAttachment:attachment.get()] mutableCopy];
+                auto richString = adoptNS([[NSAttributedString attributedStringWithAttachment:attachment.get()] mutableCopy]);
                 [richString appendAttributedString:attributedString];
+                attributedStringWithRichContent.get() = WTFMove(richString);
             });
-            return richString;
-        }();
+        });
 
-        hasCompatibleServicesForItems(serviceLookupGroup.get(), @[ attributedStringWithRichContent ], [this] (bool hasServices) {
+        hasCompatibleServicesForItems(serviceLookupGroup.get(), @[ attributedStringWithRichContent.get().get() ], [this] (bool hasServices) {
             m_hasRichContentServices = hasServices;
         });
 

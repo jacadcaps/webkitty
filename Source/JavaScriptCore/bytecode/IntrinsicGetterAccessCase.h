@@ -33,23 +33,19 @@ namespace JSC {
 
 class IntrinsicGetterAccessCase final : public AccessCase {
 public:
-    typedef AccessCase Base;
+    using Base = AccessCase;
     friend class AccessCase;
+    friend class InlineCacheCompiler;
 
     JSFunction* intrinsicFunction() const { return m_intrinsicFunction.get(); }
     Intrinsic intrinsic() const { return m_intrinsicFunction->intrinsic(); }
 
-    static bool canEmitIntrinsicGetter(JSFunction*, Structure*);
-    void emitIntrinsicGetter(AccessGenerationState&);
+    static Ref<AccessCase> create(VM&, JSCell*, CacheableIdentifier, PropertyOffset, Structure*, const ObjectPropertyConditionSet&, JSFunction* intrinsicFunction, RefPtr<PolyProtoAccessChain>&&);
 
-    static std::unique_ptr<AccessCase> create(VM&, JSCell*, CacheableIdentifier, PropertyOffset, Structure*, const ObjectPropertyConditionSet&, JSFunction* intrinsicFunction, std::unique_ptr<PolyProtoAccessChain>);
-
-    std::unique_ptr<AccessCase> clone() const final;
-
-    ~IntrinsicGetterAccessCase() final;
+    bool doesCalls() const;
 
 private:
-    IntrinsicGetterAccessCase(VM&, JSCell*, CacheableIdentifier, PropertyOffset, Structure*, const ObjectPropertyConditionSet&, JSFunction* intrinsicFunction, std::unique_ptr<PolyProtoAccessChain>);
+    IntrinsicGetterAccessCase(VM&, JSCell*, CacheableIdentifier, PropertyOffset, Structure*, const ObjectPropertyConditionSet&, JSFunction* intrinsicFunction, RefPtr<PolyProtoAccessChain>&&);
 
     WriteBarrier<JSFunction> m_intrinsicFunction;
 };

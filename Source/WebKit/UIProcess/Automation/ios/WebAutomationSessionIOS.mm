@@ -30,6 +30,7 @@
 
 #import "Logging.h"
 #import "NativeWebKeyboardEvent.h"
+#import "WKWebView.h"
 #import "WebAutomationSessionMacros.h"
 #import "WebPageProxy.h"
 #import "_WKTouchEventGenerator.h"
@@ -68,37 +69,47 @@ void WebAutomationSession::sendSynthesizedEventsToPage(WebPageProxy& page, NSArr
 #pragma mark Commands for Platform: 'iOS'
 
 #if ENABLE(WEBDRIVER_KEYBOARD_INTERACTIONS)
-void WebAutomationSession::platformSimulateKeyboardInteraction(WebPageProxy& page, KeyboardInteraction interaction, WTF::Variant<VirtualKey, CharKey>&& key)
+void WebAutomationSession::platformSimulateKeyboardInteraction(WebPageProxy& page, KeyboardInteraction interaction, std::variant<VirtualKey, CharKey>&& key)
 {
     // The modifiers changed by the virtual key when it is pressed or released.
     WebEventFlags changedModifiers = 0;
 
-    // UIKit does not send key codes for virtual keys even for a hardware keyboard.
-    // Instead, it sends single unichars and WebCore maps these to "windows" key codes.
-    // Synthesize a single unichar such that the correct key code is inferred.
-    Optional<unichar> charCode;
-    Optional<unichar> charCodeIgnoringModifiers;
+    NSString *characters;
+    NSString *unmodifiedCharacters;
 
+    // FIXME: consider using UIKit SPI to normalize 'characters', i.e., changing * to Shift-8,
+    // and passing that in to charactersIgnoringModifiers. This is probably not worth the trouble
+    // unless it causes an actual behavioral difference.
     // Figure out the effects of sticky modifiers.
     WTF::switchOn(key,
         [&] (VirtualKey virtualKey) {
-            charCode = charCodeForVirtualKey(virtualKey);
-            charCodeIgnoringModifiers = charCodeIgnoringModifiersForVirtualKey(virtualKey);
+            // UIKit does not send key codes for virtual keys even for a hardware keyboard. Instead, it sends single
+            // unichars and WebCore maps these to "windows" key codes. Synthesize a single unichar such that the correct
+            // key code is inferred.
+            if (auto charCode = charCodeForVirtualKey(virtualKey))
+                characters = [NSString stringWithCharacters:&charCode.value() length:1];
+            if (auto charCodeIgnoringModifiers = charCodeIgnoringModifiersForVirtualKey(virtualKey))
+                unmodifiedCharacters = [NSString stringWithCharacters:&charCodeIgnoringModifiers.value() length:1];
 
             switch (virtualKey) {
             case VirtualKey::Shift:
+            case VirtualKey::ShiftRight:
                 changedModifiers |= WebEventFlagMaskShiftKey;
                 break;
             case VirtualKey::Control:
+            case VirtualKey::ControlRight:
                 changedModifiers |= WebEventFlagMaskControlKey;
                 break;
             case VirtualKey::Alternate:
+            case VirtualKey::AlternateRight:
                 changedModifiers |= WebEventFlagMaskOptionKey;
                 break;
             case VirtualKey::Meta:
+            case VirtualKey::MetaRight:
                 // The 'meta' key does not exist on Apple keyboards and is usually
                 // mapped to the Command key when using third-party keyboards.
             case VirtualKey::Command:
+            case VirtualKey::CommandRight:
                 changedModifiers |= WebEventFlagMaskCommandKey;
                 break;
             default:
@@ -106,17 +117,12 @@ void WebAutomationSession::platformSimulateKeyboardInteraction(WebPageProxy& pag
             }
         },
         [&] (CharKey charKey) {
-            charCode = (unichar)charKey;
-            charCodeIgnoringModifiers = (unichar)charKey;
+            characters = charKey;
+            unmodifiedCharacters = charKey;
         }
     );
 
-    // FIXME: consider using UIKit SPI to normalize 'characters', i.e., changing * to Shift-8,
-    // and passing that in to charactersIgnoringModifiers. This is probably not worth the trouble
-    // unless it causes an actual behavioral difference.
-    NSString *characters = charCode ? [NSString stringWithCharacters:&charCode.value() length:1] : nil;
-    NSString *unmodifiedCharacters = charCodeIgnoringModifiers ? [NSString stringWithCharacters:&charCodeIgnoringModifiers.value() length:1] : nil;
-    BOOL isTabKey = charCode && charCode.value() == NSTabCharacter;
+    BOOL isTabKey = characters.length == 1 && [characters characterAtIndex:0] == NSTabCharacter;
 
     // This is used as WebEvent.keyboardFlags, which are only used if we need to
     // send this event back to UIKit to be interpreted by the keyboard / input manager.
@@ -132,19 +138,19 @@ void WebAutomationSession::platformSimulateKeyboardInteraction(WebPageProxy& pag
     case KeyboardInteraction::KeyPress: {
         m_currentModifiers |= changedModifiers;
 
-        [eventsToBeSent addObject:[[[::WebEvent alloc] initWithKeyEventType:WebEventKeyDown timeStamp:CFAbsoluteTimeGetCurrent() characters:characters charactersIgnoringModifiers:unmodifiedCharacters modifiers:m_currentModifiers isRepeating:NO withFlags:inputFlags withInputManagerHint:nil keyCode:keyCode isTabKey:isTabKey] autorelease]];
+        [eventsToBeSent addObject:adoptNS([[::WebEvent alloc] initWithKeyEventType:WebEventKeyDown timeStamp:CFAbsoluteTimeGetCurrent() characters:characters charactersIgnoringModifiers:unmodifiedCharacters modifiers:m_currentModifiers isRepeating:NO withFlags:inputFlags withInputManagerHint:nil keyCode:keyCode isTabKey:isTabKey]).get()];
         break;
     }
     case KeyboardInteraction::KeyRelease: {
         m_currentModifiers &= ~changedModifiers;
 
-        [eventsToBeSent addObject:[[[::WebEvent alloc] initWithKeyEventType:WebEventKeyUp timeStamp:CFAbsoluteTimeGetCurrent() characters:characters charactersIgnoringModifiers:unmodifiedCharacters modifiers:m_currentModifiers isRepeating:NO withFlags:inputFlags withInputManagerHint:nil keyCode:keyCode isTabKey:isTabKey] autorelease]];
+        [eventsToBeSent addObject:adoptNS([[::WebEvent alloc] initWithKeyEventType:WebEventKeyUp timeStamp:CFAbsoluteTimeGetCurrent() characters:characters charactersIgnoringModifiers:unmodifiedCharacters modifiers:m_currentModifiers isRepeating:NO withFlags:inputFlags withInputManagerHint:nil keyCode:keyCode isTabKey:isTabKey]).get()];
         break;
     }
     case KeyboardInteraction::InsertByKey: {
         // Modifiers only change with KeyPress or KeyRelease, this code path is for single characters.
-        [eventsToBeSent addObject:[[[::WebEvent alloc] initWithKeyEventType:WebEventKeyDown timeStamp:CFAbsoluteTimeGetCurrent() characters:characters charactersIgnoringModifiers:unmodifiedCharacters modifiers:m_currentModifiers isRepeating:NO withFlags:inputFlags withInputManagerHint:nil keyCode:keyCode isTabKey:isTabKey] autorelease]];
-        [eventsToBeSent addObject:[[[::WebEvent alloc] initWithKeyEventType:WebEventKeyUp timeStamp:CFAbsoluteTimeGetCurrent() characters:characters charactersIgnoringModifiers:unmodifiedCharacters modifiers:m_currentModifiers isRepeating:NO withFlags:inputFlags withInputManagerHint:nil keyCode:keyCode isTabKey:isTabKey] autorelease]];
+        [eventsToBeSent addObject:adoptNS([[::WebEvent alloc] initWithKeyEventType:WebEventKeyDown timeStamp:CFAbsoluteTimeGetCurrent() characters:characters charactersIgnoringModifiers:unmodifiedCharacters modifiers:m_currentModifiers isRepeating:NO withFlags:inputFlags withInputManagerHint:nil keyCode:keyCode isTabKey:isTabKey]).get()];
+        [eventsToBeSent addObject:adoptNS([[::WebEvent alloc] initWithKeyEventType:WebEventKeyUp timeStamp:CFAbsoluteTimeGetCurrent() characters:characters charactersIgnoringModifiers:unmodifiedCharacters modifiers:m_currentModifiers isRepeating:NO withFlags:inputFlags withInputManagerHint:nil keyCode:keyCode isTabKey:isTabKey]).get()];
         break;
     }
     }
@@ -194,25 +200,27 @@ static TextStream& operator<<(TextStream& ts, TouchInteraction interaction)
 }
 #endif // !LOG_DISABLED
 
-void WebAutomationSession::platformSimulateTouchInteraction(WebPageProxy& page, TouchInteraction interaction, const WebCore::IntPoint& locationInViewport, Optional<Seconds> duration, AutomationCompletionHandler&& completionHandler)
+void WebAutomationSession::platformSimulateTouchInteraction(WebPageProxy& page, TouchInteraction interaction, const WebCore::IntPoint& locationInViewport, std::optional<Seconds> duration, AutomationCompletionHandler&& completionHandler)
 {
     WebCore::IntPoint locationOnScreen = page.syncRootViewToScreen(IntRect(locationInViewport, IntSize())).location();
-    LOG_WITH_STREAM(AutomationInteractions, stream << "platformSimulateTouchInteraction: interaction=" << interaction << ", locationInViewport=" << locationInViewport << ", locationOnScreen=" << locationOnScreen << ", duration=" << duration.valueOr(0_s).seconds());
+    LOG_WITH_STREAM(AutomationInteractions, stream << "platformSimulateTouchInteraction: interaction=" << interaction << ", locationInViewport=" << locationInViewport << ", locationOnScreen=" << locationOnScreen << ", duration=" << duration.value_or(0_s).seconds());
 
     auto interactionFinished = makeBlockPtr([completionHandler = WTFMove(completionHandler)] () mutable {
-        completionHandler(WTF::nullopt);
+        completionHandler(std::nullopt);
     });
 
     _WKTouchEventGenerator *generator = [_WKTouchEventGenerator sharedTouchEventGenerator];
+    UIWindow *window = [page.cocoaView() window];
+
     switch (interaction) {
     case TouchInteraction::TouchDown:
-        [generator touchDown:locationOnScreen completionBlock:interactionFinished.get()];
+        [generator touchDown:locationOnScreen window:window completionBlock:interactionFinished.get()];
         break;
     case TouchInteraction::LiftUp:
-        [generator liftUp:locationOnScreen completionBlock:interactionFinished.get()];
+        [generator liftUp:locationOnScreen window:window completionBlock:interactionFinished.get()];
         break;
     case TouchInteraction::MoveTo:
-        [generator moveToPoint:locationOnScreen duration:duration.valueOr(0_s).seconds() completionBlock:interactionFinished.get()];
+        [generator moveToPoint:locationOnScreen duration:duration.value_or(0_s).seconds() window:window completionBlock:interactionFinished.get()];
         break;
     }
 }

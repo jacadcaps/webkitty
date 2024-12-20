@@ -31,7 +31,7 @@
 #import <WebKit/WKFoundation.h>
 #import <WebKit/WKPreferencesPrivate.h>
 #import <WebKit/WKUIDelegate.h>
-#import <WebKit/_WKExperimentalFeature.h>
+#import <WebKit/_WKFeature.h>
 #import <wtf/RetainPtr.h>
 
 TEST(WebKit, DefaultWKPreferences)
@@ -61,7 +61,7 @@ TEST(WebKit, ExperimentalFeatures)
 
     RetainPtr<WKPreferences> preferences = adoptNS([[WKPreferences alloc] init]);
 
-    for (_WKExperimentalFeature *feature in features) {
+    for (_WKFeature *feature in features) {
         BOOL value = [preferences _isEnabledForFeature:feature];
         [preferences _setEnabled:value forFeature:feature];
     }
@@ -70,12 +70,12 @@ TEST(WebKit, ExperimentalFeatures)
 TEST(WebKit, WebAudioPreference)
 {
     auto check = [](bool value) {
-        WKWebViewConfiguration *configuration = [[[WKWebViewConfiguration alloc] init] autorelease];
-        configuration.preferences._webAudioEnabled = value;
-        auto webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 100, 100) configuration:configuration]);
+        auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+        [configuration preferences]._webAudioEnabled = value;
+        auto webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 100, 100) configuration:configuration.get()]);
         __block bool done = false;
         __block RetainPtr<NSString> result;
-        [webView evaluateJavaScript:@"new Boolean(window.webkitAudioContext).toString()" completionHandler:^(id resultFromJS, NSError *error) {
+        [webView evaluateJavaScript:@"new Boolean(window.AudioContext).toString()" completionHandler:^(id resultFromJS, NSError *error) {
             result = resultFromJS;
             done = true;
         }];

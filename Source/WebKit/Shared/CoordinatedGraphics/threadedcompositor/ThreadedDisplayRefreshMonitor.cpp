@@ -37,10 +37,11 @@
 
 namespace WebKit {
 
-ThreadedDisplayRefreshMonitor::ThreadedDisplayRefreshMonitor(WebCore::PlatformDisplayID displayID, Client& client)
+ThreadedDisplayRefreshMonitor::ThreadedDisplayRefreshMonitor(WebCore::PlatformDisplayID displayID, Client& client, WebCore::DisplayUpdate displayUpdate)
     : WebCore::DisplayRefreshMonitor(displayID)
     , m_displayRefreshTimer(RunLoop::main(), this, &ThreadedDisplayRefreshMonitor::displayRefreshCallback)
     , m_client(&client)
+    , m_displayUpdate(displayUpdate)
 {
 #if USE(GLIB_EVENT_LOOP)
     m_displayRefreshTimer.setPriority(RunLoopSourcePriority::DisplayRefreshMonitorTimer);
@@ -55,7 +56,7 @@ bool ThreadedDisplayRefreshMonitor::requestRefreshCallback()
 
     bool previousFrameDone { false };
     {
-        LockHolder locker(mutex());
+        Locker locker { lock() };
         setIsScheduled(true);
         previousFrameDone = isPreviousFrameDone();
     }
@@ -69,9 +70,10 @@ bool ThreadedDisplayRefreshMonitor::requestRefreshCallback()
     return true;
 }
 
-bool ThreadedDisplayRefreshMonitor::requiresDisplayRefreshCallback()
+bool ThreadedDisplayRefreshMonitor::requiresDisplayRefreshCallback(const WebCore::DisplayUpdate& displayUpdate)
 {
-    LockHolder locker(mutex());
+    Locker locker { lock() };
+    m_displayUpdate = displayUpdate;
     return isScheduled() && isPreviousFrameDone();
 }
 
@@ -87,31 +89,40 @@ void ThreadedDisplayRefreshMonitor::invalidate()
     m_displayRefreshTimer.stop();
     bool wasScheduled = false;
     {
-        LockHolder locker(mutex());
+        Locker locker { lock() };
         wasScheduled = isScheduled();
     }
-    if (wasScheduled)
-        DisplayRefreshMonitor::handleDisplayRefreshedNotificationOnMainThread(this);
+    if (wasScheduled) {
+        // This is shutting down, so there's no up-to-date DisplayUpdate available.
+        // Instead, the current value is progressed and used for this dispatch.
+        m_displayUpdate = m_displayUpdate.nextUpdate();
+        displayDidRefresh(m_displayUpdate);
+    }
     m_client = nullptr;
 }
 
+// FIXME: Refactor to share more code with DisplayRefreshMonitor::displayLinkFired().
 void ThreadedDisplayRefreshMonitor::displayRefreshCallback()
 {
     bool shouldHandleDisplayRefreshNotification { false };
+    WebCore::DisplayUpdate displayUpdate;
     {
-        LockHolder locker(mutex());
+        Locker locker { lock() };
         shouldHandleDisplayRefreshNotification = isScheduled() && isPreviousFrameDone();
-        if (shouldHandleDisplayRefreshNotification)
+        displayUpdate = m_displayUpdate;
+        if (shouldHandleDisplayRefreshNotification) {
+            setIsScheduled(false);
             setIsPreviousFrameDone(false);
+        }
     }
 
     if (shouldHandleDisplayRefreshNotification)
-        DisplayRefreshMonitor::handleDisplayRefreshedNotificationOnMainThread(this);
+        displayDidRefresh(displayUpdate);
 
     // Retrieve the scheduled status for this DisplayRefreshMonitor.
     bool hasBeenRescheduled { false };
     {
-        LockHolder locker(mutex());
+        Locker locker { lock() };
         hasBeenRescheduled = isScheduled();
     }
 

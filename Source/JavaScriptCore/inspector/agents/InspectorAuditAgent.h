@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,20 +28,22 @@
 #include "InspectorAgentBase.h"
 #include "InspectorBackendDispatchers.h"
 #include "JSCInlines.h"
-#include <wtf/FastMalloc.h>
 #include <wtf/Forward.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/TZoneMalloc.h>
+
+namespace JSC {
+class Debugger;
+}
 
 namespace Inspector {
 
 class InjectedScript;
 class InjectedScriptManager;
-class ScriptDebugServer;
-typedef String ErrorString;
 
 class JS_EXPORT_PRIVATE InspectorAuditAgent : public InspectorAgentBase, public AuditBackendDispatcherHandler {
     WTF_MAKE_NONCOPYABLE(InspectorAuditAgent);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(InspectorAuditAgent);
 public:
     ~InspectorAuditAgent() override;
 
@@ -50,9 +52,9 @@ public:
     void willDestroyFrontendAndBackend(DisconnectReason) final;
 
     // AuditBackendDispatcherHandler
-    void setup(ErrorString&, const int* executionContextId) final;
-    void run(ErrorString&, const String& test, const int* executionContextId, RefPtr<Protocol::Runtime::RemoteObject>& result, Optional<bool>& wasThrown) final;
-    void teardown(ErrorString&) final;
+    Protocol::ErrorStringOr<void> setup(std::optional<Protocol::Runtime::ExecutionContextId>&&) final;
+    Protocol::ErrorStringOr<std::tuple<Ref<Protocol::Runtime::RemoteObject>, std::optional<bool> /* wasThrown */>> run(const String& test, std::optional<Protocol::Runtime::ExecutionContextId>&&) final;
+    Protocol::ErrorStringOr<void> teardown() final;
 
     bool hasActiveAudit() const;
 
@@ -61,7 +63,7 @@ protected:
 
     InjectedScriptManager& injectedScriptManager() { return m_injectedScriptManager; }
 
-    virtual InjectedScript injectedScriptForEval(ErrorString&, const int* executionContextId) = 0;
+    virtual InjectedScript injectedScriptForEval(Protocol::ErrorString&, std::optional<Protocol::Runtime::ExecutionContextId>&&) = 0;
 
     virtual void populateAuditObject(JSC::JSGlobalObject*, JSC::Strong<JSC::JSObject>& auditObject);
 
@@ -71,7 +73,7 @@ protected:
 private:
     RefPtr<AuditBackendDispatcher> m_backendDispatcher;
     InjectedScriptManager& m_injectedScriptManager;
-    ScriptDebugServer& m_scriptDebugServer;
+    JSC::Debugger& m_debugger;
 
     JSC::Strong<JSC::JSObject> m_injectedWebInspectorAuditValue;
 };

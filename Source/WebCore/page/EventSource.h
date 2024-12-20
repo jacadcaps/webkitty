@@ -32,9 +32,9 @@
 #pragma once
 
 #include "ActiveDOMObject.h"
+#include "EventLoop.h"
 #include "EventTarget.h"
 #include "ExceptionOr.h"
-#include "SuspendableTimer.h"
 #include "ThreadableLoaderClient.h"
 #include "Timer.h"
 #include <wtf/URL.h>
@@ -46,14 +46,19 @@ class MessageEvent;
 class TextResourceDecoder;
 class ThreadableLoader;
 
-class EventSource final : public RefCounted<EventSource>, public EventTargetWithInlineData, private ThreadableLoaderClient, public ActiveDOMObject {
-    WTF_MAKE_ISO_ALLOCATED(EventSource);
+class EventSource final : public RefCounted<EventSource>, public EventTarget, private ThreadableLoaderClient, public ActiveDOMObject {
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(EventSource);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(EventSource);
 public:
     struct Init {
         bool withCredentials;
     };
     static ExceptionOr<Ref<EventSource>> create(ScriptExecutionContext&, const String& url, const Init&);
     virtual ~EventSource();
+
+    using EventTarget::weakPtrFactory;
+    using EventTarget::WeakValueType;
+    using EventTarget::WeakPtrImplType;
 
     const String& url() const;
     bool withCredentials() const;
@@ -67,13 +72,14 @@ public:
 
     void close();
 
-    using RefCounted::ref;
-    using RefCounted::deref;
+    // ActiveDOMObject.
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
 
 private:
     EventSource(ScriptExecutionContext&, const URL&, const Init&);
 
-    EventTargetInterface eventTargetInterface() const final { return EventSourceEventTargetInterfaceType; }
+    enum EventTargetInterfaceType eventTargetInterface() const final { return EventTargetInterfaceType::EventSource; }
     ScriptExecutionContext* scriptExecutionContext() const final { return ActiveDOMObject::scriptExecutionContext(); }
 
     void refEventTarget() final { ref(); }
@@ -83,16 +89,16 @@ private:
     void doExplicitLoadCancellation();
 
     // ThreadableLoaderClient
-    void didReceiveResponse(unsigned long, const ResourceResponse&) final;
-    void didReceiveData(const char*, int) final;
-    void didFinishLoading(unsigned long) final;
-    void didFail(const ResourceError&) final;
+    void didReceiveResponse(ScriptExecutionContextIdentifier, ResourceLoaderIdentifier, const ResourceResponse&) final;
+    void didReceiveData(const SharedBuffer&) final;
+    void didFinishLoading(ScriptExecutionContextIdentifier, ResourceLoaderIdentifier, const NetworkLoadMetrics&) final;
+    void didFail(ScriptExecutionContextIdentifier, const ResourceError&) final;
 
     // ActiveDOMObject
     void stop() final;
-    const char* activeDOMObjectName() const final;
     void suspend(ReasonForSuspension) final;
     void resume() final;
+    bool virtualHasPendingActivity() const final;
 
     void connect();
     void networkRequestEnded();
@@ -100,7 +106,7 @@ private:
     void scheduleReconnect();
     void abortConnectionAttempt();
     void parseEventStream();
-    void parseEventStreamLine(unsigned position, Optional<unsigned> fieldLength, unsigned lineLength);
+    void parseEventStreamLine(unsigned position, std::optional<unsigned> fieldLength, unsigned lineLength);
     void dispatchMessageEvent();
 
     bool responseIsValid(const ResourceResponse&) const;
@@ -113,7 +119,7 @@ private:
 
     Ref<TextResourceDecoder> m_decoder;
     RefPtr<ThreadableLoader> m_loader;
-    SuspendableTimer m_connectTimer;
+    EventLoopTimerHandle m_connectTimer;
     Vector<UChar> m_receiveBuffer;
     bool m_discardTrailingNewline { false };
     bool m_requestInFlight { false };

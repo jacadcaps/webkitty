@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012, Google Inc. All rights reserved.
- * Copyright (C) 2015, Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -31,140 +31,253 @@
 
 #pragma once
 
-#include <wtf/EnumTraits.h>
+#include "TextDirection.h"
+#include <array>
 
 namespace WebCore {
 
-enum class TextDirection : bool { LTR, RTL };
-
-inline bool isLeftToRightDirection(TextDirection direction)
-{
-    return direction == TextDirection::LTR;
-}
-
-enum WritingMode {
-    TopToBottomWritingMode = 0, // horizontal-tb
-    BottomToTopWritingMode = 1, // horizontal-bt
-    LeftToRightWritingMode = 2, // vertical-lr
-    RightToLeftWritingMode = 3, // vertical-rl
+enum class TypographicMode : bool {
+    Horizontal,
+    Vertical,
 };
 
-#define MAKE_TEXT_FLOW(writingMode, direction)  ((writingMode) << 1 | static_cast<unsigned>(direction))
+enum class BlockFlowDirection : uint8_t {
+    TopToBottom,
+    BottomToTop,
+    LeftToRight,
+    RightToLeft,
+};
+
+enum class WritingMode : uint8_t {
+    HorizontalTb,
+    HorizontalBt, // Non-standard
+    VerticalLr,
+    VerticalRl,
+    SidewaysLr,
+    SidewaysRl,
+};
+
+constexpr inline BlockFlowDirection writingModeToBlockFlowDirection(WritingMode writingMode)
+{
+    switch (writingMode) {
+    case WritingMode::HorizontalTb:
+        return BlockFlowDirection::TopToBottom;
+    case WritingMode::HorizontalBt:
+        return BlockFlowDirection::BottomToTop;
+    case WritingMode::SidewaysLr:
+    case WritingMode::VerticalLr:
+        return BlockFlowDirection::LeftToRight;
+    case WritingMode::SidewaysRl:
+    case WritingMode::VerticalRl:
+        return BlockFlowDirection::RightToLeft;
+    }
+    ASSERT_NOT_REACHED();
+    return BlockFlowDirection::TopToBottom;
+}
 
 // Define the text flow in terms of the writing mode and the text direction. The first
-// part is the line growing direction and the second part is the block growing direction.
-enum TextFlow {
-    InlineEastBlockSouth = MAKE_TEXT_FLOW(TopToBottomWritingMode, TextDirection::LTR),
-    InlineWestBlockSouth = MAKE_TEXT_FLOW(TopToBottomWritingMode, TextDirection::RTL),
-    InlineEastBlockNorth = MAKE_TEXT_FLOW(BottomToTopWritingMode, TextDirection::LTR),
-    InlineWestBlockNorth = MAKE_TEXT_FLOW(BottomToTopWritingMode, TextDirection::RTL),
-    InlineSouthBlockEast = MAKE_TEXT_FLOW(LeftToRightWritingMode, TextDirection::LTR),
-    InlineSouthBlockWest = MAKE_TEXT_FLOW(LeftToRightWritingMode, TextDirection::RTL),
-    InlineNorthBlockEast = MAKE_TEXT_FLOW(RightToLeftWritingMode, TextDirection::LTR),
-    InlineNorthBlockWest = MAKE_TEXT_FLOW(RightToLeftWritingMode, TextDirection::RTL)
+// part is the block flow direction and the second part is the inline base direction.
+struct TextFlow {
+    BlockFlowDirection blockDirection;
+    TextDirection textDirection;
+
+    constexpr inline bool isReversed()
+    {
+        return textDirection == TextDirection::RTL;
+    }
+
+    constexpr inline bool isFlipped()
+    {
+        return blockDirection == BlockFlowDirection::BottomToTop
+            || blockDirection == BlockFlowDirection::RightToLeft;
+    }
+
+    constexpr inline bool isVertical()
+    {
+        return blockDirection == BlockFlowDirection::LeftToRight
+            || blockDirection == BlockFlowDirection::RightToLeft;
+    }
+
+    constexpr inline bool isFlippedLines()
+    {
+        return isFlipped() != isVertical();
+    }
 };
 
-inline TextFlow makeTextFlow(WritingMode writingMode, TextDirection direction)
+constexpr inline TextFlow makeTextFlow(WritingMode writingMode, TextDirection direction)
 {
-    return static_cast<TextFlow>(MAKE_TEXT_FLOW(writingMode, direction));
-}
+    auto textDirection = direction;
 
-#undef MAKE_TEXT_FLOW
+    // FIXME: Remove this erronous logic and remove `makeTextFlow` helper (webkit.org/b/276028).
+    if (writingMode == WritingMode::SidewaysLr)
+        textDirection = direction == TextDirection::RTL ? TextDirection::LTR : TextDirection::RTL;
 
-const unsigned TextFlowReversedMask = 1;
-const unsigned TextFlowFlippedMask = 2;
-const unsigned TextFlowVerticalMask = 4;
-
-inline bool isReversedTextFlow(TextFlow textflow)
-{
-    return textflow & TextFlowReversedMask;
-}
-
-inline bool isFlippedTextFlow(TextFlow textflow)
-{
-    return textflow & TextFlowFlippedMask;
-}
-
-inline bool isVerticalTextFlow(TextFlow textflow)
-{
-    return textflow & TextFlowVerticalMask;
+    return { writingModeToBlockFlowDirection(writingMode), textDirection };
 }
 
 // Lines have vertical orientation; modes vertical-lr or vertical-rl.
-inline bool isVerticalWritingMode(WritingMode writingMode)
+constexpr inline bool isVerticalWritingMode(WritingMode writingMode)
 {
-    return isVerticalTextFlow(makeTextFlow(writingMode, TextDirection::LTR));
+    return makeTextFlow(writingMode, TextDirection::LTR).isVertical();
 }
 
 // Block progression increases in the opposite direction to normal; modes vertical-rl or horizontal-bt.
-inline bool isFlippedWritingMode(WritingMode writingMode)
+constexpr inline bool isFlippedWritingMode(WritingMode writingMode)
 {
-    return isFlippedTextFlow(makeTextFlow(writingMode, TextDirection::LTR));
+    return makeTextFlow(writingMode, TextDirection::LTR).isFlipped();
 }
 
 // Lines have horizontal orientation; modes horizontal-tb or horizontal-bt.
-inline bool isHorizontalWritingMode(WritingMode writingMode)
+constexpr inline bool isHorizontalWritingMode(WritingMode writingMode)
 {
     return !isVerticalWritingMode(writingMode);
 }
 
 // Bottom of the line occurs earlier in the block; modes vertical-lr or horizontal-bt.
-inline bool isFlippedLinesWritingMode(WritingMode writingMode)
+constexpr inline bool isFlippedLinesWritingMode(WritingMode writingMode)
 {
-    return isVerticalWritingMode(writingMode) != isFlippedWritingMode(writingMode);
+    return makeTextFlow(writingMode, TextDirection::LTR).isFlippedLines();
 }
 
 enum class LogicalBoxSide : uint8_t {
-    Before,
-    End,
-    After,
-    Start
+    BlockStart,
+    InlineEnd,
+    BlockEnd,
+    InlineStart
 };
 
-enum class PhysicalBoxSide : uint8_t {
+enum class BoxSide : uint8_t {
     Top,
     Right,
     Bottom,
     Left
 };
 
-inline bool isHorizontalPhysicalSide(PhysicalBoxSide physicalSide)
+// The mapping is with the first start/end giving the block axis side,
+// and the second the inline-axis side, e.g LogicalBoxCorner::StartEnd is
+// the corner between LogicalBoxSide::BlockStart and LogicalBoxSide::InlineEnd.
+enum class LogicalBoxCorner : uint8_t {
+    StartStart,
+    StartEnd,
+    EndStart,
+    EndEnd
+};
+
+enum class BoxCorner : uint8_t {
+    TopLeft,
+    TopRight,
+    BottomRight,
+    BottomLeft
+};
+
+enum class LogicalBoxAxis : uint8_t {
+    Inline,
+    Block
+};
+
+enum class BoxAxis : uint8_t {
+    Horizontal,
+    Vertical
+};
+
+constexpr std::array<BoxSide, 4> allBoxSides = { BoxSide::Top, BoxSide::Right, BoxSide::Bottom, BoxSide::Left };
+
+constexpr BoxSide mapLogicalSideToPhysicalSide(TextFlow flow, LogicalBoxSide logicalSide)
 {
-    return physicalSide == PhysicalBoxSide::Left || physicalSide == PhysicalBoxSide::Right;
+    bool isBlock = logicalSide == LogicalBoxSide::BlockStart || logicalSide == LogicalBoxSide::BlockEnd;
+    bool isStart = logicalSide == LogicalBoxSide::BlockStart || logicalSide == LogicalBoxSide::InlineStart;
+    bool isNormalStart = isStart != (isBlock ? flow.isFlipped() : flow.isReversed());
+    bool isVertical = isBlock != flow.isVertical();
+    if (isVertical)
+        return isNormalStart ? BoxSide::Top : BoxSide::Bottom;
+    return isNormalStart ? BoxSide::Left : BoxSide::Right;
 }
 
-inline PhysicalBoxSide mirrorPhysicalSide(PhysicalBoxSide physicalSide)
-{
-    // top <-> bottom and left <-> right conversion
-    return static_cast<PhysicalBoxSide>((static_cast<int>(physicalSide) + 2) % 4);
-}
-
-inline PhysicalBoxSide rotatePhysicalSide(PhysicalBoxSide physicalSide)
-{
-    // top <-> left and right <-> bottom conversion
-    bool horizontalSide = isHorizontalPhysicalSide(physicalSide);
-    return static_cast<PhysicalBoxSide>((static_cast<int>(physicalSide) + (horizontalSide ? 1 : 3)) % 4);
-}
-
-inline PhysicalBoxSide mapLogicalSideToPhysicalSide(TextFlow textflow, LogicalBoxSide logicalSide)
-{
-    PhysicalBoxSide physicalSide = static_cast<PhysicalBoxSide>(logicalSide);
-    bool horizontalSide = isHorizontalPhysicalSide(physicalSide);
-
-    if (isVerticalTextFlow(textflow))
-        physicalSide = rotatePhysicalSide(physicalSide);
-
-    if ((horizontalSide && isReversedTextFlow(textflow)) || (!horizontalSide && isFlippedTextFlow(textflow)))
-        physicalSide = mirrorPhysicalSide(physicalSide);
-
-    return physicalSide;
-}
-
-inline PhysicalBoxSide mapLogicalSideToPhysicalSide(WritingMode writingMode, LogicalBoxSide logicalSide)
+constexpr BoxSide mapLogicalSideToPhysicalSide(WritingMode writingMode, LogicalBoxSide logicalSide)
 {
     // Set the direction such that side is mirrored if isFlippedWritingMode() is true
-    TextDirection direction = isFlippedWritingMode(writingMode) ? TextDirection::RTL : TextDirection::LTR;
+    auto direction = isFlippedWritingMode(writingMode) ? TextDirection::RTL : TextDirection::LTR;
     return mapLogicalSideToPhysicalSide(makeTextFlow(writingMode, direction), logicalSide);
+}
+
+constexpr LogicalBoxSide mapPhysicalSideToLogicalSide(TextFlow flow, BoxSide side)
+{
+    bool isNormalStart = side == BoxSide::Top || side == BoxSide::Left;
+    bool isVertical = side == BoxSide::Top || side == BoxSide::Bottom;
+    bool isBlock = isVertical != flow.isVertical();
+    if (isBlock) {
+        bool isBlockStart = isNormalStart != flow.isFlipped();
+        return isBlockStart ? LogicalBoxSide::BlockStart : LogicalBoxSide::BlockEnd;
+    }
+    bool isInlineStart = isNormalStart != flow.isReversed();
+    return isInlineStart ? LogicalBoxSide::InlineStart : LogicalBoxSide::InlineEnd;
+}
+
+constexpr BoxCorner mapLogicalCornerToPhysicalCorner(TextFlow flow, LogicalBoxCorner logicalBoxCorner)
+{
+    bool isBlockStart = logicalBoxCorner == LogicalBoxCorner::StartStart || logicalBoxCorner == LogicalBoxCorner::StartEnd;
+    bool isInlineStart = logicalBoxCorner == LogicalBoxCorner::StartStart || logicalBoxCorner == LogicalBoxCorner::EndStart;
+    bool isNormalBlockStart = isBlockStart != flow.isFlipped();
+    bool isNormalInlineStart = isInlineStart != flow.isReversed();
+    bool usingVerticalTextFlow = flow.isVertical();
+    bool isTop = usingVerticalTextFlow ? isNormalInlineStart : isNormalBlockStart;
+    bool isLeft = usingVerticalTextFlow ? isNormalBlockStart : isNormalInlineStart;
+    if (isTop)
+        return isLeft ? BoxCorner::TopLeft : BoxCorner::TopRight;
+    return isLeft ? BoxCorner::BottomLeft : BoxCorner::BottomRight;
+}
+
+constexpr LogicalBoxCorner mapPhysicalCornerToLogicalCorner(TextFlow flow, BoxCorner boxCorner)
+{
+    bool isTop = boxCorner == BoxCorner::TopLeft || boxCorner == BoxCorner::TopRight;
+    bool isLeft = boxCorner == BoxCorner::TopLeft || boxCorner == BoxCorner::BottomLeft;
+    bool usingVerticalTextFlow = flow.isVertical();
+    bool isNormalBlockStart = usingVerticalTextFlow ? isLeft : isTop;
+    bool isNormalInlineStart = usingVerticalTextFlow ? isTop : isLeft;
+    bool isBlockStart = isNormalBlockStart != flow.isFlipped();
+    bool isInlineStart = isNormalInlineStart != flow.isReversed();
+    if (isBlockStart)
+        return isInlineStart ? LogicalBoxCorner::StartStart : LogicalBoxCorner::StartEnd;
+    return isInlineStart ? LogicalBoxCorner::EndStart : LogicalBoxCorner::EndEnd;
+}
+
+constexpr BoxAxis mapLogicalAxisToPhysicalAxis(TextFlow flow, LogicalBoxAxis logicalAxis)
+{
+    bool isBlock = logicalAxis == LogicalBoxAxis::Block;
+    bool isVertical = isBlock != flow.isVertical();
+    return isVertical ? BoxAxis::Vertical : BoxAxis::Horizontal;
+}
+
+constexpr LogicalBoxAxis mapPhysicalAxisToLogicalAxis(TextFlow flow, BoxAxis axis)
+{
+    bool isVertical = axis == BoxAxis::Vertical;
+    bool isBlock = isVertical != flow.isVertical();
+    return isBlock ? LogicalBoxAxis::Block : LogicalBoxAxis::Inline;
+}
+
+inline TextStream& operator<<(TextStream& stream, BlockFlowDirection blockFlow)
+{
+    switch (blockFlow) {
+    case BlockFlowDirection::TopToBottom:
+        stream << "top-to-bottom";
+        break;
+    case BlockFlowDirection::BottomToTop:
+        stream << "bottom-to-top";
+        break;
+    case BlockFlowDirection::LeftToRight:
+        stream << "left-to-right";
+        break;
+    case BlockFlowDirection::RightToLeft:
+        stream << "right-to-left";
+        break;
+    }
+    return stream;
+}
+
+inline TextStream& operator<<(TextStream& stream, TextFlow flow)
+{
+    stream << "(" << flow.blockDirection << ", " << flow.textDirection << ")";
+    return stream;
 }
 
 } // namespace WebCore

@@ -39,16 +39,23 @@
 #include "JSCommandLineAPIHost.h"
 #include "JSDOMGlobalObject.h"
 #include "JSEventListener.h"
+#include "PagePasteboardContext.h"
 #include "Pasteboard.h"
 #include "Storage.h"
 #include "WebConsoleAgent.h"
+#include <JavaScriptCore/InjectedScriptBase.h>
 #include <JavaScriptCore/InspectorAgent.h>
 #include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/JSLock.h>
-#include <JavaScriptCore/ScriptValue.h>
+#include <JavaScriptCore/ObjectConstructor.h>
 #include <wtf/JSONValues.h>
 #include <wtf/RefPtr.h>
 #include <wtf/StdLibExtras.h>
+
+#if ENABLE(WEB_RTC)
+#include "JSRTCPeerConnection.h"
+#include "RTCLogsCallback.h"
+#endif
 
 namespace WebCore {
 
@@ -73,7 +80,7 @@ void CommandLineAPIHost::disconnect()
     m_instrumentingAgents = nullptr;
 }
 
-void CommandLineAPIHost::inspect(JSC::JSGlobalObject& lexicalGlobalObject, JSC::JSValue valueToInspect, JSC::JSValue hintsValue)
+void CommandLineAPIHost::inspect(JSC::JSGlobalObject& lexicalGlobalObject, JSC::JSValue object, JSC::JSValue hints)
 {
     if (!m_instrumentingAgents)
         return;
@@ -82,12 +89,20 @@ void CommandLineAPIHost::inspect(JSC::JSGlobalObject& lexicalGlobalObject, JSC::
     if (!inspectorAgent)
         return;
 
-    RefPtr<JSON::Object> hintsObject;
-    if (!Inspector::toInspectorValue(&lexicalGlobalObject, hintsValue)->asObject(hintsObject))
+    auto objectValue = Inspector::toInspectorValue(&lexicalGlobalObject, object);
+    if (!objectValue)
         return;
 
-    auto remoteObject = BindingTraits<Inspector::Protocol::Runtime::RemoteObject>::runtimeCast(Inspector::toInspectorValue(&lexicalGlobalObject, valueToInspect));
-    inspectorAgent->inspect(WTFMove(remoteObject), WTFMove(hintsObject));
+    auto hintsValue = Inspector::toInspectorValue(&lexicalGlobalObject, hints);
+    if (!hintsValue)
+        return;
+
+    auto hintsObject = hintsValue->asObject();
+    if (!hintsObject)
+        return;
+
+    auto remoteObject = Inspector::Protocol::BindingTraits<Inspector::Protocol::Runtime::RemoteObject>::runtimeCast(objectValue.releaseNonNull());
+    inspectorAgent->inspect(WTFMove(remoteObject), hintsObject.releaseNonNull());
 }
 
 CommandLineAPIHost::EventListenersRecord CommandLineAPIHost::getEventListeners(JSGlobalObject& lexicalGlobalObject, EventTarget& target)
@@ -110,7 +125,7 @@ CommandLineAPIHost::EventListenersRecord CommandLineAPIHost::getEventListeners(J
             auto& jsListener = downcast<JSEventListener>(eventListener->callback());
 
             // Hide listeners from other contexts.
-            if (&jsListener.isolatedWorld() != &currentWorld(lexicalGlobalObject))
+            if (jsListener.isolatedWorld() != &currentWorld(lexicalGlobalObject))
                 continue;
 
             auto* function = jsListener.ensureJSFunction(*scriptExecutionContext);
@@ -127,22 +142,30 @@ CommandLineAPIHost::EventListenersRecord CommandLineAPIHost::getEventListeners(J
     return result;
 }
 
-void CommandLineAPIHost::clearConsoleMessages()
+#if ENABLE(WEB_RTC)
+void CommandLineAPIHost::gatherRTCLogs(JSGlobalObject& globalObject, RefPtr<RTCLogsCallback>&& callback)
 {
-    if (!m_instrumentingAgents)
+    RefPtr document = dynamicDowncast<Document>(jsCast<JSDOMGlobalObject*>(&globalObject)->scriptExecutionContext());
+    if (!document)
         return;
 
-    auto* consoleAgent = m_instrumentingAgents->webConsoleAgent();
-    if (!consoleAgent)
+    if (!callback) {
+        document->stopGatheringRTCLogs();
         return;
+    }
 
-    ErrorString ignored;
-    consoleAgent->clearMessages(ignored);
+    document->startGatheringRTCLogs([callback = callback.releaseNonNull()] (auto&& logType, auto&& logMessage, auto&& logLevel, auto&& connection) mutable {
+        ASSERT(!logType.isNull());
+        ASSERT(!logMessage.isNull());
+
+        callback->handleEvent({ WTFMove(logType), WTFMove(logMessage), WTFMove(logLevel), WTFMove(connection) });
+    });
 }
+#endif
 
 void CommandLineAPIHost::copyText(const String& text)
 {
-    Pasteboard::createForCopyAndPaste()->writePlainText(text, Pasteboard::CannotSmartReplace);
+    Pasteboard::createForCopyAndPaste({ })->writePlainText(text, Pasteboard::CannotSmartReplace);
 }
 
 JSC::JSValue CommandLineAPIHost::InspectableObject::get(JSC::JSGlobalObject&)
@@ -187,7 +210,7 @@ JSValue CommandLineAPIHost::wrapper(JSGlobalObject* exec, JSDOMGlobalObject* glo
 
     JSObject* prototype = JSCommandLineAPIHost::createPrototype(exec->vm(), *globalObject);
     Structure* structure = JSCommandLineAPIHost::createStructure(exec->vm(), globalObject, prototype);
-    JSCommandLineAPIHost* commandLineAPIHost = JSCommandLineAPIHost::create(structure, globalObject, makeRef(*this));
+    JSCommandLineAPIHost* commandLineAPIHost = JSCommandLineAPIHost::create(structure, globalObject, Ref { *this });
     m_wrappers.addWrapper(globalObject, commandLineAPIHost);
 
     return commandLineAPIHost;

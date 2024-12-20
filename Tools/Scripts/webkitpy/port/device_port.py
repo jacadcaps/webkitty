@@ -45,6 +45,12 @@ class DevicePort(DarwinPort):
         self._test_runner_process_constructor = SimulatorProcess
         self._printing_cmd_line = False
 
+    def is_simulator(self):
+        if not self.DEVICE_MANAGER:
+            raise RuntimeError(self.NO_DEVICE_MANAGER)
+
+        return self.DEVICE_MANAGER == SimulatedDeviceManager
+
     def driver_cmd_line_for_logging(self):
         # Avoid creating/connecting to devices just for command line logging.
         self._printing_cmd_line = True
@@ -134,14 +140,14 @@ class DevicePort(DarwinPort):
 
     def max_child_processes(self, device_type=None):
         result = self.default_child_processes(device_type=device_type)
-        if result and self.DEVICE_MANAGER == SimulatedDeviceManager:
+        if result and self.is_simulator():
             return super(DevicePort, self).max_child_processes(device_type=None)
         return result
 
     def supported_device_types(self):
         types = set()
         for device in self.DEVICE_MANAGER.available_devices(host=self.host):
-            if self.DEVICE_MANAGER == SimulatedDeviceManager and not device.platform_device.is_booted_or_booting():
+            if self.is_simulator() and not device.platform_device.is_booted_or_booting():
                 continue
             if device.device_type in self.DEVICE_TYPE:
                 types.add(device.device_type)
@@ -250,7 +256,6 @@ class DevicePort(DarwinPort):
             model += u' {}'.format(device_type.hardware_type)
 
         version = self.device_version()
-        version_name = None
         for table in [INTERNAL_TABLE, PUBLIC_TABLE]:
             version_name = VersionNameMap.map(self.host.platform).to_name(version, platform=device_type.software_variant.lower(), table=table)
             if version_name:
@@ -265,11 +270,12 @@ class DevicePort(DarwinPort):
 
         return Upload.create_configuration(
             platform=device_type.software_variant.lower(),
-            is_simulator=self.DEVICE_MANAGER == SimulatedDeviceManager,
+            is_simulator=self.is_simulator(),
             version=str(version),
             version_name=version_name,
             architecture=configuration.architecture,
             style=style,
             model=model,
+            flavor=self.get_option('result_report_flavor'),
             sdk=host.build_version if host else None,
         )

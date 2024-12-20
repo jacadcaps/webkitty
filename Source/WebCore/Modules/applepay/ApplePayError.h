@@ -27,37 +27,58 @@
 
 #if ENABLE(APPLE_PAY)
 
-#include "ApplePaySessionPaymentRequest.h"
+#include "ApplePayErrorCode.h"
+#include "ApplePayErrorContactField.h"
+#include <wtf/Ref.h>
 #include <wtf/RefCounted.h>
+#include <wtf/RefPtr.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
 class ApplePayError final : public RefCounted<ApplePayError> {
 public:
-    using Code = PaymentError::Code;
-    using ContactField = PaymentError::ContactField;
 
-    static Ref<ApplePayError> create(Code, Optional<ContactField>, const String& message);
-    virtual ~ApplePayError();
+    enum class Domain : uint8_t {
+        Disbursement
+    };
 
-    Code code() const { return m_code; }
-    void setCode(Code code) { m_code = code; }
+    static Ref<ApplePayError> create(ApplePayErrorCode code, std::optional<ApplePayErrorContactField> contactField, const String& message, std::optional<ApplePayError::Domain> domain = { })
+    {
+        return adoptRef(*new ApplePayError(code, contactField, message, domain));
+    }
 
-    Optional<ContactField> contactField() const { return m_contactField; }
-    void setContactField(Optional<ContactField> contactField) { m_contactField = contactField; }
+    virtual ~ApplePayError() = default;
+
+    ApplePayErrorCode code() const { return m_code; }
+    void setCode(ApplePayErrorCode code) { m_code = code; }
+
+    std::optional<ApplePayErrorContactField> contactField() const { return m_contactField; }
+    void setContactField(std::optional<ApplePayErrorContactField> contactField) { m_contactField = contactField; }
 
     String message() const { return m_message; }
     void setMessage(String&& message) { m_message = WTFMove(message); }
 
-private:
-    ApplePayError(Code, Optional<ContactField>, const String& message);
+    std::optional<Domain> domain() const { return m_domain; }
+    void setDomain(std::optional<Domain> domain) { m_domain = domain; }
 
-    Code m_code;
-    Optional<ContactField> m_contactField;
+
+private:
+    ApplePayError(ApplePayErrorCode code, std::optional<ApplePayErrorContactField> contactField, const String& message, std::optional<ApplePayError::Domain> domain)
+        : m_code(code)
+        , m_contactField(contactField)
+        , m_message(message)
+        , m_domain(domain)
+    {
+    }
+
+    ApplePayErrorCode m_code;
+    std::optional<ApplePayErrorContactField> m_contactField;
     String m_message;
+
+    std::optional<ApplePayError::Domain> m_domain;
 };
 
-}
+} // namespace WebCore
 
 #endif

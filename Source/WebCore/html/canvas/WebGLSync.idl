@@ -24,6 +24,8 @@
  */
 
 [
-    Conditional=WEBGL
+    Conditional=WEBGL,
+    EnabledBySetting=WebGLEnabled,
+    Exposed=(Window,Worker)
 ] interface WebGLSync {
 };

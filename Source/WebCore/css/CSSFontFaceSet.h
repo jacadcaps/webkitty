@@ -26,25 +26,38 @@
 #pragma once
 
 #include "CSSFontFace.h"
+#include <variant>
 #include <wtf/HashMap.h>
+#include <wtf/Observer.h>
 #include <wtf/Vector.h>
+#include <wtf/WeakHashSet.h>
 #include <wtf/text/StringHash.h>
+
+namespace WebCore {
+struct FontEventClient;
+}
+
+namespace WTF {
+template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
+template<> struct IsDeprecatedWeakRefSmartPointerException<WebCore::FontEventClient> : std::true_type { };
+}
 
 namespace WebCore {
 
 class CSSPrimitiveValue;
+class CSSSegmentedFontFace;
 class FontFaceSet;
 
-class CSSFontFaceSetClient {
-public:
-    virtual ~CSSFontFaceSetClient() = default;
-    virtual void faceFinished(CSSFontFace&, CSSFontFace::Status) { };
-    virtual void fontModified() { };
-    virtual void startedLoading() { };
-    virtual void completedLoading() { };
+template<typename> class ExceptionOr;
+
+struct FontEventClient : public CanMakeWeakPtr<FontEventClient> {
+    virtual ~FontEventClient() = default;
+    virtual void faceFinished(CSSFontFace&, CSSFontFace::Status) = 0;
+    virtual void startedLoading() = 0;
+    virtual void completedLoading() = 0;
 };
 
-class CSSFontFaceSet final : public RefCounted<CSSFontFaceSet>, public CSSFontFace::Client {
+class CSSFontFaceSet final : public RefCounted<CSSFontFaceSet>, public CSSFontFaceClient {
 public:
     static Ref<CSSFontFaceSet> create(CSSFontSelector* owningFontSelector = nullptr)
     {
@@ -52,8 +65,13 @@ public:
     }
     ~CSSFontFaceSet();
 
-    void addClient(CSSFontFaceSetClient&);
-    void removeClient(CSSFontFaceSetClient&);
+    using FontModifiedObserver = Observer<void()>;
+    void addFontModifiedObserver(const FontModifiedObserver&);
+
+    void addFontEventClient(const FontEventClient&);
+
+    // Calling updateStyleIfNeeded() might delete |this|.
+    void updateStyleIfNeeded();
 
     bool hasFace(const CSSFontFace&) const;
     size_t faceCount() const { return m_faces.size(); }
@@ -75,11 +93,15 @@ public:
 
     bool hasActiveFontFaces() { return status() == Status::Loading; }
 
+    size_t facesPartitionIndex() const { return m_facesPartitionIndex; }
+
     ExceptionOr<Vector<std::reference_wrapper<CSSFontFace>>> matchingFacesExcludingPreinstalledFonts(const String& font, const String& text);
 
-    // CSSFontFace::Client needs to be able to be held in a RefPtr.
-    void ref() final { RefCounted::ref(); }
-    void deref() final { RefCounted::deref(); }
+    // CSSFontFaceClient needs to be able to be held in a RefPtr.
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+    // FIXME: Should this be implemented?
+    void updateStyleIfNeeded(CSSFontFace&) final { }
 
 private:
     CSSFontFaceSet(CSSFontSelector*);
@@ -93,11 +115,11 @@ private:
     void fontStateChanged(CSSFontFace&, CSSFontFace::Status oldState, CSSFontFace::Status newState) final;
     void fontPropertyChanged(CSSFontFace&, CSSValueList* oldFamilies = nullptr) final;
 
-    void ensureLocalFontFacesForFamilyRegistered(const String&);
+    void ensureLocalFontFacesForFamilyRegistered(const AtomString&);
 
     static String familyNameFromPrimitive(const CSSPrimitiveValue&);
 
-    using FontSelectionKey = Optional<FontSelectionRequest>;
+    using FontSelectionKey = std::optional<FontSelectionRequest>;
     struct FontSelectionKeyHash {
         static unsigned hash(const FontSelectionKey& key) { return computeHash(key); }
         static bool equal(const FontSelectionKey& a, const FontSelectionKey& b) { return a == b; }
@@ -106,7 +128,7 @@ private:
     struct FontSelectionKeyHashTraits : SimpleClassHashTraits<FontSelectionKey> {
         static const bool emptyValueIsZero = false;
         static FontSelectionKey emptyValue() { return FontSelectionRequest { }; }
-        static void constructDeletedValue(FontSelectionKey& slot) { slot = WTF::nullopt; }
+        static void constructDeletedValue(FontSelectionKey& slot) { slot = std::nullopt; }
         static bool isDeletedValue(const FontSelectionKey& value) { return !value; }
     };
     using FontSelectionHashMap = HashMap<FontSelectionKey, RefPtr<CSSSegmentedFontFace>, FontSelectionKeyHash, FontSelectionKeyHashTraits>;
@@ -119,7 +141,8 @@ private:
     HashMap<StyleRuleFontFace*, CSSFontFace*> m_constituentCSSConnections;
     size_t m_facesPartitionIndex { 0 }; // All entries in m_faces before this index are CSS-connected.
     Status m_status { Status::Loaded };
-    HashSet<CSSFontFaceSetClient*> m_clients;
+    WeakHashSet<FontModifiedObserver> m_fontModifiedObservers;
+    WeakHashSet<FontEventClient> m_fontEventClients;
     WeakPtr<CSSFontSelector> m_owningFontSelector;
     unsigned m_activeCount { 0 };
 };

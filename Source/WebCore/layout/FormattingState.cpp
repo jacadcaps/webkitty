@@ -26,20 +26,17 @@
 #include "config.h"
 #include "FormattingState.h"
 
-#if ENABLE(LAYOUT_FORMATTING_CONTEXT)
-
-#include "DisplayBox.h"
-#include "FloatingState.h"
-#include <wtf/IsoMallocInlines.h>
+#include "LayoutBoxGeometry.h"
+#include "RenderObject.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 namespace Layout {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(FormattingState);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(FormattingState);
 
-FormattingState::FormattingState(Ref<FloatingState>&& floatingState, Type type, LayoutState& layoutState)
+FormattingState::FormattingState(Type type, LayoutState& layoutState)
     : m_layoutState(layoutState)
-    , m_floatingState(WTFMove(floatingState))
     , m_type(type)
 {
 }
@@ -48,15 +45,11 @@ FormattingState::~FormattingState()
 {
 }
 
-Display::Box& FormattingState::displayBox(const Box& layoutBox)
+BoxGeometry& FormattingState::boxGeometry(const Box& layoutBox)
 {
-    // Should never need to mutate a display box outside of the formatting context.
-    ASSERT(&layoutState().establishedFormattingState(layoutBox.formattingContextRoot()) == this);
-    // Anonymous text wrappers/line break boxes should not need display boxes.
-    ASSERT(!layoutBox.isInlineTextBox() && (!layoutBox.isLineBreakBox() || layoutBox.isOutOfFlowPositioned()));
-    return layoutState().ensureDisplayBoxForLayoutBox(layoutBox);
+    // FIXME: Remove this when all FormattingStates transtioned to a cache setup.
+    return layoutState().ensureGeometryForBox(layoutBox);
 }
 
 }
 }
-#endif

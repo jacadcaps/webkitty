@@ -30,6 +30,30 @@
 
 namespace WebCore {
 
+class CSSLinearTimingFunctionValue final : public CSSValue {
+public:
+    static Ref<CSSLinearTimingFunctionValue> create(const Vector<LinearTimingFunction::Point>& points)
+    {
+        return adoptRef(*new CSSLinearTimingFunctionValue(points));
+    }
+
+    const Vector<LinearTimingFunction::Point>& points() const { return m_points; }
+
+    String customCSSText() const;
+
+    bool equals(const CSSLinearTimingFunctionValue&) const;
+
+private:
+    CSSLinearTimingFunctionValue(const Vector<LinearTimingFunction::Point>& points)
+        : CSSValue(LinearTimingFunctionClass)
+        , m_points(points)
+    {
+        ASSERT(m_points.isEmpty() || m_points.size() >= 2);
+    }
+
+    Vector<LinearTimingFunction::Point> m_points;
+};
+
 class CSSCubicBezierTimingFunctionValue final : public CSSValue {
 public:
     static Ref<CSSCubicBezierTimingFunctionValue> create(double x1, double y1, double x2, double y2)
@@ -64,20 +88,20 @@ private:
 
 class CSSStepsTimingFunctionValue final : public CSSValue {
 public:
-    static Ref<CSSStepsTimingFunctionValue> create(int steps, Optional<StepsTimingFunction::StepPosition> stepPosition)
+    static Ref<CSSStepsTimingFunctionValue> create(int steps, std::optional<StepsTimingFunction::StepPosition> stepPosition)
     {
         return adoptRef(*new CSSStepsTimingFunctionValue(steps, stepPosition));
     }
 
     int numberOfSteps() const { return m_steps; }
-    Optional<StepsTimingFunction::StepPosition> stepPosition() const { return m_stepPosition; }
+    std::optional<StepsTimingFunction::StepPosition> stepPosition() const { return m_stepPosition; }
 
     String customCSSText() const;
 
     bool equals(const CSSStepsTimingFunctionValue&) const;
 
 private:
-    CSSStepsTimingFunctionValue(int steps, Optional<StepsTimingFunction::StepPosition> stepPosition)
+    CSSStepsTimingFunctionValue(int steps, std::optional<StepsTimingFunction::StepPosition> stepPosition)
         : CSSValue(StepsTimingFunctionClass)
         , m_steps(steps)
         , m_stepPosition(stepPosition)
@@ -85,7 +109,7 @@ private:
     }
 
     int m_steps;
-    Optional<StepsTimingFunction::StepPosition> m_stepPosition;
+    std::optional<StepsTimingFunction::StepPosition> m_stepPosition;
 };
 
 class CSSSpringTimingFunctionValue final : public CSSValue {
@@ -122,6 +146,7 @@ private:
 
 } // namespace WebCore
 
+SPECIALIZE_TYPE_TRAITS_CSS_VALUE(CSSLinearTimingFunctionValue, isLinearTimingFunctionValue())
 SPECIALIZE_TYPE_TRAITS_CSS_VALUE(CSSCubicBezierTimingFunctionValue, isCubicBezierTimingFunctionValue())
 SPECIALIZE_TYPE_TRAITS_CSS_VALUE(CSSStepsTimingFunctionValue, isStepsTimingFunctionValue())
 SPECIALIZE_TYPE_TRAITS_CSS_VALUE(CSSSpringTimingFunctionValue, isSpringTimingFunctionValue())

@@ -28,20 +28,20 @@
 #include "StorageThread.h"
 #include "StorageTrackerClient.h"
 #include "WebStorageNamespaceProvider.h"
-#include <WebCore/PageGroup.h>
 #include <WebCore/SQLiteDatabaseTracker.h>
 #include <WebCore/SQLiteStatement.h>
 #include <WebCore/SecurityOrigin.h>
 #include <WebCore/SecurityOriginData.h>
-#include <WebCore/TextEncoding.h>
+#include <pal/text/TextEncoding.h>
 #include <wtf/FileSystem.h>
 #include <wtf/MainThread.h>
 #include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/Vector.h>
 #include <wtf/text/CString.h>
 
-#if PLATFORM(IOS_FAMILY)
-#include <pal/spi/ios/SQLite3SPI.h>
+#if PLATFORM(COCOA)
+#include <pal/spi/cocoa/SQLite3SPI.h>
 #endif
 
 using namespace WebCore;
@@ -53,7 +53,9 @@ static StorageTracker* storageTracker = nullptr;
 // If there is no document referencing a storage database, close the underlying database
 // after it has been idle for m_StorageDatabaseIdleInterval seconds.
 static const Seconds defaultStorageDatabaseIdleInterval { 300_s };
-    
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(StorageTracker);
+
 void StorageTracker::initializeTracker(const String& storagePath, StorageTrackerClient* client)
 {
     ASSERT(isMainThread());
@@ -74,21 +76,21 @@ void StorageTracker::internalInitialize()
 
     // Make sure text encoding maps have been built on the main thread, as the StorageTracker thread might try to do it there instead.
     // FIXME (<rdar://problem/9127819>): Is there a more explicit way of doing this besides accessing the UTF8Encoding?
-    UTF8Encoding();
+    PAL::UTF8Encoding();
     
     storageTracker->setIsActive(true);
     storageTracker->m_thread->start();  
     storageTracker->importOriginIdentifiers();
 
     m_thread->dispatch([this] {
-        FileSystem::deleteFile(FileSystem::pathByAppendingComponent(m_storageDirectoryPath, "StorageTracker.db"));
+        FileSystem::deleteFile(FileSystem::pathByAppendingComponent(m_storageDirectoryPath, "StorageTracker.db"_s));
     });
 }
 
 StorageTracker& StorageTracker::tracker()
 {
     if (!storageTracker)
-        storageTracker = new StorageTracker("");
+        storageTracker = new StorageTracker(emptyString());
     if (storageTracker->m_needsInitialization)
         storageTracker->internalInitialize();
     
@@ -108,13 +110,13 @@ StorageTracker::StorageTracker(const String& storagePath)
 String StorageTracker::trackerDatabasePath()
 {
     ASSERT(!m_databaseMutex.tryLock());
-    return FileSystem::pathByAppendingComponent(m_storageDirectoryPath, "LegacyStorageTracker.db");
+    return FileSystem::pathByAppendingComponent(m_storageDirectoryPath, "LegacyStorageTracker.db"_s);
 }
 
 static bool ensureDatabaseFileExists(const String& fileName, bool createIfDoesNotExist)
 {
     if (createIfDoesNotExist)
-        return FileSystem::makeAllDirectories(FileSystem::directoryName(fileName));
+        return FileSystem::makeAllDirectories(FileSystem::parentPath(fileName));
 
     return FileSystem::fileExists(fileName);
 }
@@ -146,8 +148,8 @@ void StorageTracker::openTrackerDatabase(bool createIfDoesNotExist)
     
     m_database.disableThreadingChecks();
     
-    if (!m_database.tableExists("Origins")) {
-        if (!m_database.executeCommand("CREATE TABLE Origins (origin TEXT UNIQUE ON CONFLICT REPLACE, path TEXT);"))
+    if (!m_database.tableExists("Origins"_s)) {
+        if (!m_database.executeCommand("CREATE TABLE Origins (origin TEXT UNIQUE ON CONFLICT REPLACE, path TEXT);"_s))
             LOG_ERROR("Failed to create Origins table.");
     }
 }
@@ -167,7 +169,7 @@ void StorageTracker::importOriginIdentifiers()
 
 void StorageTracker::finishedImportingOriginIdentifiers()
 {
-    LockHolder locker(m_databaseMutex);
+    Locker locker { m_databaseMutex };
     if (m_client)
         m_client->didFinishLoadingOrigins();
 }
@@ -179,7 +181,7 @@ void StorageTracker::syncImportOriginIdentifiers()
     ASSERT(!isMainThread());
 
     {
-        LockHolder locker(m_databaseMutex);
+        Locker locker { m_databaseMutex };
 
         // Don't force creation of StorageTracker's db just because a tracker
         // was initialized. It will be created if local storage dbs are found
@@ -190,8 +192,8 @@ void StorageTracker::syncImportOriginIdentifiers()
         if (m_database.isOpen()) {
             SQLiteTransactionInProgressAutoCounter transactionCounter;
 
-            SQLiteStatement statement(m_database, "SELECT origin FROM Origins");
-            if (statement.prepare() != SQLITE_OK) {
+            auto statement = m_database.prepareStatement("SELECT origin FROM Origins"_s);
+            if (!statement) {
                 LOG_ERROR("Failed to prepare statement.");
                 return;
             }
@@ -199,9 +201,9 @@ void StorageTracker::syncImportOriginIdentifiers()
             int result;
             
             {
-                LockHolder lockOrigins(m_originSetMutex);
-                while ((result = statement.step()) == SQLITE_ROW)
-                    m_originSet.add(statement.getColumnText(0).isolatedCopy());
+                Locker lockOrigins { m_originSetMutex };
+                while ((result = statement->step()) == SQLITE_ROW)
+                    m_originSet.add(statement->columnText(0).isolatedCopy());
             }
             
             if (result != SQLITE_DONE) {
@@ -214,10 +216,10 @@ void StorageTracker::syncImportOriginIdentifiers()
     syncFileSystemAndTrackerDatabase();
     
     {
-        LockHolder locker(m_clientMutex);
+        Locker locker { m_clientMutex };
 
         if (m_client) {
-            LockHolder locker(m_originSetMutex);
+            Locker locker { m_originSetMutex };
             OriginSet::const_iterator end = m_originSet.end();
             for (OriginSet::const_iterator it = m_originSet.begin(); it != end; ++it)
                 m_client->dispatchDidModifyOrigin(*it);
@@ -237,17 +239,17 @@ void StorageTracker::syncFileSystemAndTrackerDatabase()
 
     ASSERT(m_isActive);
 
-    Vector<String> paths;
+    Vector<String> fileNames;
     {
-        LockHolder locker(m_databaseMutex);
-        paths = FileSystem::listDirectory(m_storageDirectoryPath, "*.localstorage");
+        Locker locker { m_databaseMutex };
+        fileNames = FileSystem::listDirectory(m_storageDirectoryPath);
     }
 
     // Use a copy of m_originSet to find expired entries and to schedule their
     // deletions from disk and from m_originSet.
     OriginSet originSetCopy;
     {
-        LockHolder locker(m_originSetMutex);
+        Locker locker { m_originSetMutex };
         for (OriginSet::const_iterator it = m_originSet.begin(), end = m_originSet.end(); it != end; ++it)
             originSetCopy.add((*it).isolatedCopy());
     }
@@ -256,17 +258,16 @@ void StorageTracker::syncFileSystemAndTrackerDatabase()
     OriginSet foundOrigins;
     String fileExtension = ".localstorage"_s;
 
-    for (Vector<String>::const_iterator it = paths.begin(), end = paths.end(); it != end; ++it) {
-        const String& path = *it;
+    for (auto& fileName : fileNames) {
+        if (fileName.length() <= fileExtension.length() || !fileName.endsWith(fileExtension))
+            continue;
 
-        if (path.length() > fileExtension.length() && path.endsWith(fileExtension)) {
-            String file = FileSystem::pathGetFileName(path);
-            String originIdentifier = file.substring(0, file.length() - fileExtension.length());
-            if (!originSetCopy.contains(originIdentifier))
-                syncSetOriginDetails(originIdentifier, path);
+        auto filePath = FileSystem::pathByAppendingComponent(m_storageDirectoryPath, fileName);
+        String originIdentifier = fileName.left(fileName.length() - fileExtension.length());
+        if (!originSetCopy.contains(originIdentifier))
+            syncSetOriginDetails(originIdentifier, filePath);
 
-            foundOrigins.add(originIdentifier);
-        }
+        foundOrigins.add(originIdentifier);
     }
 
     // Delete stale StorageTracker records.
@@ -287,7 +288,7 @@ void StorageTracker::setOriginDetails(const String& originIdentifier, const Stri
         return;
 
     {
-        LockHolder locker(m_originSetMutex);
+        Locker locker { m_originSetMutex };
 
         if (m_originSet.contains(originIdentifier))
             return;
@@ -299,15 +300,10 @@ void StorageTracker::setOriginDetails(const String& originIdentifier, const Stri
         syncSetOriginDetails(originIdentifier, databaseFile);
     };
 
-    if (isMainThread()) {
-        ASSERT(m_thread);
+    // FIXME: This weird ping-ponging was done to fix a deadlock. We should figure out a cleaner way to avoid it instead.
+    ensureOnMainThread([this, function = WTFMove(function)]() mutable {
         m_thread->dispatch(WTFMove(function));
-    } else {
-        // FIXME: This weird ping-ponging was done to fix a deadlock. We should figure out a cleaner way to avoid it instead.
-        callOnMainThread([this, function = WTFMove(function)]() mutable {
-            m_thread->dispatch(WTFMove(function));
-        });
-    }
+    });
 }
 
 void StorageTracker::syncSetOriginDetails(const String& originIdentifier, const String& databaseFile)
@@ -316,33 +312,33 @@ void StorageTracker::syncSetOriginDetails(const String& originIdentifier, const 
 
     SQLiteTransactionInProgressAutoCounter transactionCounter;
 
-    LockHolder locker(m_databaseMutex);
+    Locker locker { m_databaseMutex };
 
     openTrackerDatabase(true);
     
     if (!m_database.isOpen())
         return;
 
-    SQLiteStatement statement(m_database, "INSERT INTO Origins VALUES (?, ?)");
-    if (statement.prepare() != SQLITE_OK) {
+    auto statement = m_database.prepareStatement("INSERT INTO Origins VALUES (?, ?)"_s);
+    if (!statement) {
         LOG_ERROR("Unable to establish origin '%s' in the tracker", originIdentifier.ascii().data());
         return;
     } 
     
-    statement.bindText(1, originIdentifier);
-    statement.bindText(2, databaseFile);
+    statement->bindText(1, originIdentifier);
+    statement->bindText(2, databaseFile);
     
-    if (statement.step() != SQLITE_DONE)
+    if (statement->step() != SQLITE_DONE)
         LOG_ERROR("Unable to establish origin '%s' in the tracker", originIdentifier.ascii().data());
 
     {
-        LockHolder locker(m_originSetMutex);
+        Locker locker { m_originSetMutex };
         if (!m_originSet.contains(originIdentifier))
             m_originSet.add(originIdentifier);
     }
 
     {
-        LockHolder locker(m_clientMutex);
+        Locker locker { m_clientMutex };
         if (m_client)
             m_client->dispatchDidModifyOrigin(originIdentifier);
     }
@@ -355,7 +351,7 @@ Vector<SecurityOriginData> StorageTracker::origins()
     if (!m_isActive)
         return { };
 
-    LockHolder locker(m_originSetMutex);
+    Locker locker { m_originSetMutex };
 
     Vector<SecurityOriginData> result;
     result.reserveInitialCapacity(m_originSet.size());
@@ -365,7 +361,7 @@ Vector<SecurityOriginData> StorageTracker::origins()
             ASSERT_NOT_REACHED();
             continue;
         }
-        result.uncheckedAppend(origin.value());
+        result.append(origin.value());
     }
     return result;
 }
@@ -380,7 +376,7 @@ void StorageTracker::deleteAllOrigins()
         return;
 
     {
-        LockHolder locker(m_originSetMutex);
+        Locker locker { m_originSetMutex };
         willDeleteAllOrigins();
         m_originSet.clear();
     }
@@ -405,29 +401,29 @@ void StorageTracker::syncDeleteAllOrigins()
 
     SQLiteTransactionInProgressAutoCounter transactionCounter;
     
-    LockHolder locker(m_databaseMutex);
+    Locker locker { m_databaseMutex };
     
     openTrackerDatabase(false);
     if (!m_database.isOpen())
         return;
     
-    SQLiteStatement statement(m_database, "SELECT origin, path FROM Origins");
-    if (statement.prepare() != SQLITE_OK) {
+    auto statement = m_database.prepareStatement("SELECT origin, path FROM Origins"_s);
+    if (!statement) {
         LOG_ERROR("Failed to prepare statement.");
         return;
     }
     
     int result;
-    while ((result = statement.step()) == SQLITE_ROW) {
-        if (!canDeleteOrigin(statement.getColumnText(0)))
+    while ((result = statement->step()) == SQLITE_ROW) {
+        if (!canDeleteOrigin(statement->columnText(0)))
             continue;
 
-        FileSystem::deleteFile(statement.getColumnText(1));
+        FileSystem::deleteFile(statement->columnText(1));
 
         {
-            LockHolder locker(m_clientMutex);
+            Locker locker { m_clientMutex };
             if (m_client)
-                m_client->dispatchDidModifyOrigin(statement.getColumnText(0));
+                m_client->dispatchDidModifyOrigin(statement->columnText(0));
         }
     }
     
@@ -448,12 +444,12 @@ void StorageTracker::syncDeleteAllOrigins()
         openTrackerDatabase(false);
         if (!m_database.isOpen())
             return;
-        SQLiteStatement deleteStatement(m_database, "DELETE FROM Origins");
-        if (deleteStatement.prepare() != SQLITE_OK) {
+        auto deleteStatement = m_database.prepareStatement("DELETE FROM Origins"_s);
+        if (!deleteStatement) {
             LOG_ERROR("Unable to prepare deletion of all origins");
             return;
         }
-        if (!deleteStatement.executeCommand()) {
+        if (!deleteStatement->executeCommand()) {
             LOG_ERROR("Unable to execute deletion of all origins");
             return;
         }
@@ -492,12 +488,12 @@ void StorageTracker::deleteOrigin(const SecurityOriginData& origin)
     String originId = origin.databaseIdentifier();
     
     {
-        LockHolder locker(m_originSetMutex);
+        Locker locker { m_originSetMutex };
         willDeleteOrigin(originId);
         m_originSet.remove(originId);
     }
 
-    m_thread->dispatch([this, originId = originId.isolatedCopy()] {
+    m_thread->dispatch([this, originId = WTFMove(originId).isolatedCopy()] {
         syncDeleteOrigin(originId);
     });
 }
@@ -508,7 +504,7 @@ void StorageTracker::syncDeleteOrigin(const String& originIdentifier)
 
     SQLiteTransactionInProgressAutoCounter transactionCounter;
 
-    LockHolder locker(m_databaseMutex);
+    Locker locker { m_databaseMutex };
     
     if (!canDeleteOrigin(originIdentifier)) {
         LOG_ERROR("Attempted to delete origin '%s' while it was being created\n", originIdentifier.ascii().data());
@@ -526,22 +522,24 @@ void StorageTracker::syncDeleteOrigin(const String& originIdentifier)
         return;
     }
     
-    SQLiteStatement deleteStatement(m_database, "DELETE FROM Origins where origin=?");
-    if (deleteStatement.prepare() != SQLITE_OK) {
-        LOG_ERROR("Unable to prepare deletion of origin '%s'", originIdentifier.ascii().data());
-        return;
-    }
-    deleteStatement.bindText(1, originIdentifier);
-    if (!deleteStatement.executeCommand()) {
-        LOG_ERROR("Unable to execute deletion of origin '%s'", originIdentifier.ascii().data());
-        return;
+    {
+        auto deleteStatement = m_database.prepareStatement("DELETE FROM Origins where origin=?"_s);
+        if (!deleteStatement) {
+            LOG_ERROR("Unable to prepare deletion of origin '%s'", originIdentifier.ascii().data());
+            return;
+        }
+        deleteStatement->bindText(1, originIdentifier);
+        if (!deleteStatement->executeCommand()) {
+            LOG_ERROR("Unable to execute deletion of origin '%s'", originIdentifier.ascii().data());
+            return;
+        }
     }
 
     FileSystem::deleteFile(path);
     
     bool shouldDeleteTrackerFiles = false;
     {
-        LockHolder locker(m_originSetMutex);
+        Locker locker { m_originSetMutex };
         m_originSet.remove(originIdentifier);
         shouldDeleteTrackerFiles = m_originSet.isEmpty();
     }
@@ -558,7 +556,7 @@ void StorageTracker::syncDeleteOrigin(const String& originIdentifier)
     }
 
     {
-        LockHolder locker(m_clientMutex);
+        Locker locker { m_clientMutex };
         if (m_client)
             m_client->dispatchDidModifyOrigin(originIdentifier);
     }
@@ -584,7 +582,7 @@ void StorageTracker::willDeleteOrigin(const String& originIdentifier)
 bool StorageTracker::canDeleteOrigin(const String& originIdentifier)
 {
     ASSERT(!m_databaseMutex.tryLock());
-    LockHolder locker(m_originSetMutex);
+    Locker locker { m_originSetMutex };
     return m_originsBeingDeleted.contains(originIdentifier);
 }
 
@@ -593,9 +591,9 @@ void StorageTracker::cancelDeletingOrigin(const String& originIdentifier)
     if (!m_isActive)
         return;
 
-    LockHolder locker(m_databaseMutex);
+    Locker locker { m_databaseMutex };
     {
-        LockHolder locker(m_originSetMutex);
+        Locker locker { m_originSetMutex };
         if (!m_originsBeingDeleted.isEmpty())
             m_originsBeingDeleted.remove(originIdentifier);
     }
@@ -621,32 +619,31 @@ String StorageTracker::databasePathForOrigin(const String& originIdentifier)
 
     SQLiteTransactionInProgressAutoCounter transactionCounter;
 
-    SQLiteStatement pathStatement(m_database, "SELECT path FROM Origins WHERE origin=?");
-    if (pathStatement.prepare() != SQLITE_OK) {
+    auto pathStatement = m_database.prepareStatement("SELECT path FROM Origins WHERE origin=?"_s);
+    if (!pathStatement) {
         LOG_ERROR("Unable to prepare selection of path for origin '%s'", originIdentifier.ascii().data());
         return String();
     }
-    pathStatement.bindText(1, originIdentifier);
-    int result = pathStatement.step();
+    pathStatement->bindText(1, originIdentifier);
+    int result = pathStatement->step();
     if (result != SQLITE_ROW)
         return String();
 
-    return pathStatement.getColumnText(0);
+    return pathStatement->columnText(0);
 }
     
-long long StorageTracker::diskUsageForOrigin(SecurityOrigin* origin)
+uint64_t StorageTracker::diskUsageForOrigin(SecurityOrigin* origin)
 {
     if (!m_isActive)
         return 0;
 
-    LockHolder locker(m_databaseMutex);
+    Locker locker { m_databaseMutex };
 
     String path = databasePathForOrigin(origin->data().databaseIdentifier());
     if (path.isEmpty())
         return 0;
 
-    long long size;
-    return FileSystem::getFileSize(path, size) ? size : 0;
+    return FileSystem::fileSize(path).value_or(0);
 }
 
 } // namespace WebCore

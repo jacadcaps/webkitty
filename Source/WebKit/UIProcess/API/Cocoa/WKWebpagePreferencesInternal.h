@@ -25,8 +25,7 @@
 
 #import "APIWebsitePolicies.h"
 #import "WKObject.h"
-#import "WKWebpagePreferencesPrivate.h"
-#import "_WKWebsitePolicies.h"
+#import <WebKit/WKWebpagePreferencesPrivate.h>
 
 namespace WebKit {
 
@@ -47,4 +46,5 @@ WebContentMode webContentMode(WKContentMode);
 }
 
 @property (class, nonatomic, readonly) WKWebpagePreferences *defaultPreferences;
+
 @end

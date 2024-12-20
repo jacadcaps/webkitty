@@ -1,5 +1,5 @@
 // Copyright 2014 The Chromium Authors. All rights reserved.
-// Copyright (C) 2016 Apple Inc. All rights reserved.
+// Copyright (C) 2016-2021 Apple Inc. All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
 // modification, are permitted provided that the following conditions are
@@ -31,27 +31,26 @@
 #include "CSSParserToken.h"
 
 #include "CSSMarkup.h"
-#include "CSSPrimitiveValue.h"
 #include "CSSPropertyParser.h"
-#include "RuntimeEnabledFeatures.h"
-#include <limits.h>
 #include <wtf/HexNumber.h>
 #include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
+DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(CSSParserToken);
 
 template<typename CharacterType>
-CSSUnitType cssPrimitiveValueUnitFromTrie(const CharacterType* data, unsigned length)
+CSSUnitType cssPrimitiveValueUnitFromTrie(std::span<const CharacterType> data)
 {
-    ASSERT(data);
-    ASSERT(length);
-    switch (length) {
+    ASSERT(data.data());
+    switch (data.size()) {
     case 1:
         switch (toASCIILower(data[0])) {
         case 'q':
             return CSSUnitType::CSS_Q;
         case 's':
             return CSSUnitType::CSS_S;
+        case 'x':
+            return CSSUnitType::CSS_X;
         }
         break;
     case 2:
@@ -59,7 +58,7 @@ CSSUnitType cssPrimitiveValueUnitFromTrie(const CharacterType* data, unsigned le
         case 'c':
             switch (toASCIILower(data[1])) {
             case 'h':
-                return CSSUnitType::CSS_CHS;
+                return CSSUnitType::CSS_CH;
             case 'm':
                 return CSSUnitType::CSS_CM;
             }
@@ -67,9 +66,9 @@ CSSUnitType cssPrimitiveValueUnitFromTrie(const CharacterType* data, unsigned le
         case 'e':
             switch (toASCIILower(data[1])) {
             case 'm':
-                return CSSUnitType::CSS_EMS;
+                return CSSUnitType::CSS_EM;
             case 'x':
-                return CSSUnitType::CSS_EXS;
+                return CSSUnitType::CSS_EX;
             }
             break;
         case 'f':
@@ -81,12 +80,16 @@ CSSUnitType cssPrimitiveValueUnitFromTrie(const CharacterType* data, unsigned le
                 return CSSUnitType::CSS_HZ;
             break;
         case 'i':
-            if (toASCIILower(data[1]) == 'n')
+            switch (toASCIILower(data[1])) {
+            case 'c':
+                return CSSUnitType::CSS_IC;
+            case 'n':
                 return CSSUnitType::CSS_IN;
+            }
             break;
         case 'l':
-            if (toASCIILower(data[1]) == 'h' && RuntimeEnabledFeatures::sharedFeatures().lineHeightUnitsEnabled())
-                return CSSUnitType::CSS_LHS;
+            if (toASCIILower(data[1]) == 'h')
+                return CSSUnitType::CSS_LH;
             break;
         case 'm':
             switch (toASCIILower(data[1])) {
@@ -108,8 +111,12 @@ CSSUnitType cssPrimitiveValueUnitFromTrie(const CharacterType* data, unsigned le
             break;
         case 'v':
             switch (toASCIILower(data[1])) {
+            case 'b':
+                return CSSUnitType::CSS_VB;
             case 'h':
                 return CSSUnitType::CSS_VH;
+            case 'i':
+                return CSSUnitType::CSS_VI;
             case 'w':
                 return CSSUnitType::CSS_VW;
             }
@@ -118,6 +125,24 @@ CSSUnitType cssPrimitiveValueUnitFromTrie(const CharacterType* data, unsigned le
         break;
     case 3:
         switch (toASCIILower(data[0])) {
+        case 'c':
+            if (toASCIILower(data[1]) == 'a') {
+                if (toASCIILower(data[2]) == 'p')
+                    return CSSUnitType::CSS_CAP;
+            }
+            if (toASCIILower(data[1]) == 'q') {
+                switch (toASCIILower(data[2])) {
+                case 'b':
+                    return CSSUnitType::CSS_CQB;
+                case 'h':
+                    return CSSUnitType::CSS_CQH;
+                case 'i':
+                    return CSSUnitType::CSS_CQI;
+                case 'w':
+                    return CSSUnitType::CSS_CQW;
+                }
+            }
+            break;
         case 'd':
             switch (toASCIILower(data[1])) {
             case 'e':
@@ -128,8 +153,34 @@ CSSUnitType cssPrimitiveValueUnitFromTrie(const CharacterType* data, unsigned le
                 if (toASCIILower(data[2]) == 'i')
                     return CSSUnitType::CSS_DPI;
                 break;
+            case 'v':
+                switch (toASCIILower(data[2])) {
+                case 'b':
+                    return CSSUnitType::CSS_DVB;
+                case 'h':
+                    return CSSUnitType::CSS_DVH;
+                case 'i':
+                    return CSSUnitType::CSS_DVI;
+                case 'w':
+                    return CSSUnitType::CSS_DVW;
+                }
+                break;
             }
-        break;
+            break;
+        case 'l':
+            if (toASCIILower(data[1]) == 'v') {
+                switch (toASCIILower(data[2])) {
+                case 'b':
+                    return CSSUnitType::CSS_LVB;
+                case 'h':
+                    return CSSUnitType::CSS_LVH;
+                case 'i':
+                    return CSSUnitType::CSS_LVI;
+                case 'w':
+                    return CSSUnitType::CSS_LVW;
+                }
+            }
+            break;
         case 'k':
             if (toASCIILower(data[1]) == 'h' && toASCIILower(data[2]) == 'z')
                 return CSSUnitType::CSS_KHZ;
@@ -140,18 +191,42 @@ CSSUnitType cssPrimitiveValueUnitFromTrie(const CharacterType* data, unsigned le
                 if (toASCIILower(data[2]) == 'd')
                     return CSSUnitType::CSS_RAD;
                 break;
+            case 'c':
+                if (toASCIILower(data[2]) == 'h')
+                    return CSSUnitType::CSS_RCH;
+                break;
             case 'e':
                 if (toASCIILower(data[2]) == 'm')
-                    return CSSUnitType::CSS_REMS;
+                    return CSSUnitType::CSS_REM;
+                if (toASCIILower(data[2]) == 'x')
+                    return CSSUnitType::CSS_REX;
+                break;
+            case 'i':
+                if (toASCIILower(data[2]) == 'c')
+                    return CSSUnitType::CSS_RIC;
                 break;
             case 'l':
-                if (toASCIILower(data[2]) == 'h' && RuntimeEnabledFeatures::sharedFeatures().lineHeightUnitsEnabled())
-                    return CSSUnitType::CSS_RLHS;
+                if (toASCIILower(data[2]) == 'h')
+                    return CSSUnitType::CSS_RLH;
                 break;
             }
+            break;
+        case 's':
+            if (toASCIILower(data[1]) == 'v') {
+                switch (toASCIILower(data[2])) {
+                case 'b':
+                    return CSSUnitType::CSS_SVB;
+                case 'h':
+                    return CSSUnitType::CSS_SVH;
+                case 'i':
+                    return CSSUnitType::CSS_SVI;
+                case 'w':
+                    return CSSUnitType::CSS_SVW;
+                }
+            }
+            break;
+        }
         break;
-    }
-    break;
     case 4:
         switch (toASCIILower(data[0])) {
         case 'd':
@@ -167,12 +242,16 @@ CSSUnitType cssPrimitiveValueUnitFromTrie(const CharacterType* data, unsigned le
                         return CSSUnitType::CSS_DPPX;
                     break;
                 }
+                break;
+            }
             break;
-        }
-        break;
         case 'g':
             if (toASCIILower(data[1]) == 'r' && toASCIILower(data[2]) == 'a' && toASCIILower(data[3]) == 'd')
                 return CSSUnitType::CSS_GRAD;
+            break;
+        case 'r':
+            if (toASCIILower(data[1]) == 'c' && toASCIILower(data[2]) == 'a' && toASCIILower(data[3]) == 'p')
+                return CSSUnitType::CSS_RCAP;
             break;
         case 't':
             if (toASCIILower(data[1]) == 'u' && toASCIILower(data[2]) == 'r' && toASCIILower(data[3]) == 'n')
@@ -200,7 +279,63 @@ CSSUnitType cssPrimitiveValueUnitFromTrie(const CharacterType* data, unsigned le
         switch (toASCIILower(data[0])) {
         case '_':
             if (toASCIILower(data[1]) == '_' && toASCIILower(data[2]) == 'q' && toASCIILower(data[3]) == 'e' && toASCIILower(data[4]) == 'm')
-                return CSSUnitType::CSS_QUIRKY_EMS;
+                return CSSUnitType::CSS_QUIRKY_EM;
+            break;
+        case 'c':
+            if (toASCIILower(data[1]) == 'q' && toASCIILower(data[2]) == 'm') {
+                switch (toASCIILower(data[3])) {
+                case 'a':
+                    if (toASCIILower(data[4]) == 'x')
+                        return CSSUnitType::CSS_CQMAX;
+                    break;
+                case 'i':
+                    if (toASCIILower(data[4]) == 'n')
+                        return CSSUnitType::CSS_CQMIN;
+                    break;
+                }
+            }
+            break;
+        case 'd':
+            if (toASCIILower(data[1]) == 'v' && toASCIILower(data[2]) == 'm') {
+                switch (toASCIILower(data[3])) {
+                case 'a':
+                    if (toASCIILower(data[4]) == 'x')
+                        return CSSUnitType::CSS_DVMAX;
+                    break;
+                case 'i':
+                    if (toASCIILower(data[4]) == 'n')
+                        return CSSUnitType::CSS_DVMIN;
+                    break;
+                }
+            }
+            break;
+        case 'l':
+            if (toASCIILower(data[1]) == 'v' && toASCIILower(data[2]) == 'm') {
+                switch (toASCIILower(data[3])) {
+                case 'a':
+                    if (toASCIILower(data[4]) == 'x')
+                        return CSSUnitType::CSS_LVMAX;
+                    break;
+                case 'i':
+                    if (toASCIILower(data[4]) == 'n')
+                        return CSSUnitType::CSS_LVMIN;
+                    break;
+                }
+            }
+            break;
+        case 's':
+            if (toASCIILower(data[1]) == 'v' && toASCIILower(data[2]) == 'm') {
+                switch (toASCIILower(data[3])) {
+                case 'a':
+                    if (toASCIILower(data[4]) == 'x')
+                        return CSSUnitType::CSS_SVMAX;
+                    break;
+                case 'i':
+                    if (toASCIILower(data[4]) == 'n')
+                        return CSSUnitType::CSS_SVMIN;
+                    break;
+                }
+            }
             break;
         }
         break;
@@ -208,16 +343,23 @@ CSSUnitType cssPrimitiveValueUnitFromTrie(const CharacterType* data, unsigned le
     return CSSUnitType::CSS_UNKNOWN;
 }
 
-static CSSUnitType stringToUnitType(StringView stringView)
+CSSUnitType CSSParserToken::stringToUnitType(StringView stringView)
 {
     if (stringView.is8Bit())
-        return cssPrimitiveValueUnitFromTrie(stringView.characters8(), stringView.length());
-    return cssPrimitiveValueUnitFromTrie(stringView.characters16(), stringView.length());
+        return cssPrimitiveValueUnitFromTrie(stringView.span8());
+    return cssPrimitiveValueUnitFromTrie(stringView.span16());
 }
 
 CSSParserToken::CSSParserToken(CSSParserTokenType type, BlockType blockType)
     : m_type(type)
     , m_blockType(blockType)
+{
+}
+
+CSSParserToken::CSSParserToken(unsigned nonNewlineWhitespaceCount)
+    : m_type(NonNewlineWhitespaceToken)
+    , m_blockType(NotBlock)
+    , m_whitespaceCount(nonNewlineWhitespaceCount)
 {
 }
 
@@ -238,24 +380,15 @@ CSSParserToken::CSSParserToken(CSSParserTokenType type, StringView value, BlockT
     m_id = -1;
 }
 
-CSSParserToken::CSSParserToken(CSSParserTokenType type, double numericValue, NumericValueType numericValueType, NumericSign sign)
-    : m_type(type)
+CSSParserToken::CSSParserToken(double numericValue, NumericValueType numericValueType, NumericSign sign, StringView originalText)
+    : m_type(NumberToken)
     , m_blockType(NotBlock)
     , m_numericValueType(numericValueType)
     , m_numericSign(sign)
     , m_unit(static_cast<unsigned>(CSSUnitType::CSS_NUMBER))
+    , m_numericValue(numericValue)
 {
-    ASSERT(type == NumberToken);
-    m_numericValue = numericValue;
-}
-
-CSSParserToken::CSSParserToken(CSSParserTokenType type, UChar32 start, UChar32 end)
-    : m_type(UnicodeRangeToken)
-    , m_blockType(NotBlock)
-{
-    ASSERT_UNUSED(type, type == UnicodeRangeToken);
-    m_unicodeRange.start = start;
-    m_unicodeRange.end = end;
+    initValueFromStringView(originalText);
 }
 
 CSSParserToken::CSSParserToken(HashTokenType type, StringView value)
@@ -266,12 +399,34 @@ CSSParserToken::CSSParserToken(HashTokenType type, StringView value)
     initValueFromStringView(value);
 }
 
+static StringView mergeIfAdjacent(StringView a, StringView b)
+{
+    if (a.is8Bit() && b.is8Bit()) {
+        auto characters = a.span8();
+        if (characters.end() == b.span8().begin())
+            return std::span { characters.data(), a.length() + b.length() };
+    } else if (!a.is8Bit() && !b.is8Bit()) {
+        auto characters = a.span16();
+        if (characters.end() == b.span16().begin())
+            return std::span { characters.data(), a.length() + b.length() };
+    }
+    return { };
+}
+
 void CSSParserToken::convertToDimensionWithUnit(StringView unit)
 {
     ASSERT(m_type == NumberToken);
+    auto originalNumberText = originalText();
+    auto originalNumberTextLength = originalNumberText.length();
+    auto string = unit;
+    if (originalNumberTextLength && originalNumberTextLength < 16) {
+        if (auto merged = mergeIfAdjacent(originalNumberText, unit))
+            string = merged;
+    }
     m_type = DimensionToken;
-    initValueFromStringView(unit);
     m_unit = static_cast<unsigned>(stringToUnitType(unit));
+    m_nonUnitPrefixLength = string == unit ? 0 : originalNumberTextLength;
+    initValueFromStringView(string);
 }
 
 void CSSParserToken::convertToPercentage()
@@ -279,6 +434,18 @@ void CSSParserToken::convertToPercentage()
     ASSERT(m_type == NumberToken);
     m_type = PercentageToken;
     m_unit = static_cast<unsigned>(CSSUnitType::CSS_PERCENTAGE);
+}
+
+StringView CSSParserToken::originalText() const
+{
+    ASSERT(m_type == NumberToken || m_type == DimensionToken || m_type == PercentageToken);
+    return value();
+}
+
+StringView CSSParserToken::unitString() const
+{
+    ASSERT(m_type == DimensionToken);
+    return value().substring(m_nonUnitPrefixLength);
 }
 
 UChar CSSParserToken::delimiter() const
@@ -317,15 +484,19 @@ CSSValueID CSSParserToken::id() const
 {
     if (m_type != IdentToken)
         return CSSValueInvalid;
-    if (m_id < 0)
-        m_id = cssValueKeywordID(value());
-    return static_cast<CSSValueID>(m_id);
+    return identOrFunctionId();
 }
 
 CSSValueID CSSParserToken::functionId() const
 {
     if (m_type != FunctionToken)
         return CSSValueInvalid;
+    return identOrFunctionId();
+}
+
+CSSValueID CSSParserToken::identOrFunctionId() const
+{
+    ASSERT(m_type == IdentToken || m_type == FunctionToken);
     if (m_id < 0)
         m_id = cssValueKeywordID(value());
     return static_cast<CSSValueID>(m_id);
@@ -333,35 +504,68 @@ CSSValueID CSSParserToken::functionId() const
 
 bool CSSParserToken::hasStringBacking() const
 {
-    CSSParserTokenType tokenType = type();
-    return tokenType == IdentToken
-        || tokenType == FunctionToken
-        || tokenType == AtKeywordToken
-        || tokenType == HashToken
-        || tokenType == UrlToken
-        || tokenType == DimensionToken
-        || tokenType == StringToken;
+    switch (type()) {
+    case AtKeywordToken:
+    case DimensionToken:
+    case FunctionToken:
+    case HashToken:
+    case IdentToken:
+    case NumberToken:
+    case PercentageToken:
+    case StringToken:
+    case UrlToken:
+        return true;
+    case BadStringToken:
+    case BadUrlToken:
+    case CDCToken:
+    case CDOToken:
+    case ColonToken:
+    case ColumnToken:
+    case CommaToken:
+    case CommentToken:
+    case DashMatchToken:
+    case DelimiterToken:
+    case EOFToken:
+    case IncludeMatchToken:
+    case LeftBraceToken:
+    case LeftBracketToken:
+    case LeftParenthesisToken:
+    case NewlineToken:
+    case NonNewlineWhitespaceToken:
+    case PrefixMatchToken:
+    case RightBraceToken:
+    case RightBracketToken:
+    case RightParenthesisToken:
+    case SemicolonToken:
+    case SubstringMatchToken:
+    case SuffixMatchToken:
+        return false;
+    }
+    ASSERT_NOT_REACHED();
+    return false;
 }
 
-CSSParserToken CSSParserToken::copyWithUpdatedString(const StringView& string) const
+bool CSSParserToken::tryUseStringLiteralBacking()
 {
-    CSSParserToken copy(*this);
-    copy.initValueFromStringView(string);
-    return copy;
-}
-
-bool CSSParserToken::valueDataCharRawEqual(const CSSParserToken& other) const
-{
-    if (m_valueLength != other.m_valueLength)
+    if (m_type != IdentToken && m_type != FunctionToken)
         return false;
 
-    if (m_valueDataCharRaw == other.m_valueDataCharRaw && m_valueIs8Bit == other.m_valueIs8Bit)
-        return true;
+    if (!m_isBackedByStringLiteral) {
+        auto valueId = identOrFunctionId();
+        if (valueId == CSSValueInvalid)
+            return false;
 
-    if (m_valueIs8Bit)
-        return other.m_valueIs8Bit ? equal(static_cast<const LChar*>(m_valueDataCharRaw), static_cast<const LChar*>(other.m_valueDataCharRaw), m_valueLength) : equal(static_cast<const LChar*>(m_valueDataCharRaw), static_cast<const UChar*>(other.m_valueDataCharRaw), m_valueLength);
-    
-    return other.m_valueIs8Bit ? equal(static_cast<const UChar*>(m_valueDataCharRaw), static_cast<const LChar*>(other.m_valueDataCharRaw), m_valueLength) : equal(static_cast<const UChar*>(m_valueDataCharRaw), static_cast<const UChar*>(other.m_valueDataCharRaw), m_valueLength);
+        auto literal = nameLiteral(valueId);
+
+        // Typically all lowercase but we need to keep the original for correct serialization if they differ.
+        if (value() != literal)
+            return false;
+
+        updateCharacters(literal.span8());
+
+        m_isBackedByStringLiteral = true;
+    }
+    return true;
 }
 
 bool CSSParserToken::operator==(const CSSParserToken& other) const
@@ -379,28 +583,59 @@ bool CSSParserToken::operator==(const CSSParserToken& other) const
     case FunctionToken:
     case StringToken:
     case UrlToken:
-        return valueDataCharRawEqual(other);
+        return value() == other.value();
     case DimensionToken:
-        if (!valueDataCharRawEqual(other))
-            return false;
+        if (!m_nonUnitPrefixLength) {
+            // The spec wants equality comparison of the original text but in some rare dimension cases we don't have it. Fall back to parsed values.
+            if (unitString() != other.unitString())
+                return false;
+            return m_numericSign == other.m_numericSign && m_numericValue == other.m_numericValue && m_numericValueType == other.m_numericValueType;
+        }
         FALLTHROUGH;
     case NumberToken:
     case PercentageToken:
-        return m_numericSign == other.m_numericSign && m_numericValue == other.m_numericValue && m_numericValueType == other.m_numericValueType;
-    case UnicodeRangeToken:
-        return m_unicodeRange.start == other.m_unicodeRange.start && m_unicodeRange.end == other.m_unicodeRange.end;
+        return originalText() == other.originalText();
+    case NonNewlineWhitespaceToken:
+        return m_whitespaceCount == other.m_whitespaceCount;
     default:
         return true;
     }
 }
 
-void CSSParserToken::serialize(StringBuilder& builder) const
+struct NextTokenNeedsCommentBuilder {
+    constexpr NextTokenNeedsCommentBuilder(std::initializer_list<CSSParserTokenType> tokens)
+    {
+        for (auto token : tokens)
+            buffer[token] = true;
+    }
+
+    std::array<bool, numberOfCSSParserTokenTypes> buffer { false };
+};
+
+void CSSParserToken::serialize(StringBuilder& builder, const CSSParserToken* nextToken, SerializationMode mode) const
 {
     // This is currently only used for @supports CSSOM. To keep our implementation
     // simple we handle some of the edge cases incorrectly (see comments below).
+    auto appendCommentIfNeeded = [&] (const NextTokenNeedsCommentBuilder& tokensNeedingComment, auto... delimitersNeedingComment) {
+        if (!nextToken)
+            return;
+
+        CSSParserTokenType nextType = nextToken->type();
+        if (tokensNeedingComment.buffer[nextType]) {
+            builder.append("/**/"_s);
+            return;
+        }
+
+        if (nextType == DelimiterToken && ((delimitersNeedingComment == nextToken->delimiter()) || ... || false)) {
+            builder.append("/**/"_s);
+            return;
+        }
+    };
+
     switch (type()) {
     case IdentToken:
         serializeIdentifier(value().toString(), builder);
+        appendCommentIfNeeded({ IdentToken, FunctionToken, UrlToken, BadUrlToken, NumberToken, PercentageToken, DimensionToken, CDCToken, LeftParenthesisToken }, '-');
         break;
     case FunctionToken:
         serializeIdentifier(value().toString(), builder);
@@ -409,79 +644,120 @@ void CSSParserToken::serialize(StringBuilder& builder) const
     case AtKeywordToken:
         builder.append('@');
         serializeIdentifier(value().toString(), builder);
+        appendCommentIfNeeded({ IdentToken, FunctionToken, UrlToken, BadUrlToken, NumberToken, PercentageToken, DimensionToken, CDCToken }, '-');
         break;
     case HashToken:
         builder.append('#');
         serializeIdentifier(value().toString(), builder, (getHashTokenType() == HashTokenUnrestricted));
+        appendCommentIfNeeded({ IdentToken, FunctionToken, UrlToken, BadUrlToken, NumberToken, PercentageToken, DimensionToken, CDCToken }, '-');
         break;
     case UrlToken:
-        builder.appendLiteral("url(");
+        builder.append("url("_s);
         serializeIdentifier(value().toString(), builder);
         builder.append(')');
         break;
     case DelimiterToken:
-        if (delimiter() == '\\') {
-            builder.appendLiteral("\\\n");
+        switch (delimiter()) {
+        case '\\':
+            builder.append("\\\n"_s);
+            break;
+
+        case '#':
+        case '-':
+            builder.append(delimiter());
+            appendCommentIfNeeded({ IdentToken, FunctionToken, UrlToken, BadUrlToken, NumberToken, PercentageToken, DimensionToken }, '-');
+            break;
+
+        case '@':
+            builder.append('@');
+            appendCommentIfNeeded({ IdentToken, FunctionToken, UrlToken, BadUrlToken }, '-');
+            break;
+
+        case '.':
+        case '+':
+            builder.append(delimiter());
+            appendCommentIfNeeded({ NumberToken, PercentageToken, DimensionToken });
+            break;
+
+        case '/':
+            builder.append('/');
+            // Weirdly Clang errors if you try to use the fold expression in buildNextTokenNeedsCommentTable() because the true value is unused.
+            // So we just build the table by hand here instead. See: rdar://69710661
+            appendCommentIfNeeded({ }, '*');
+            break;
+
+        default:
+            builder.append(delimiter());
             break;
         }
-        builder.append(delimiter());
         break;
     case NumberToken:
-        // These won't properly preserve the NumericValueType flag
-        if (m_numericSign == PlusSign)
-            builder.append('+');
-        builder.append(numericValue());
+        if (mode == SerializationMode::CustomProperty)
+            builder.append(originalText());
+        else {
+            if (m_numericSign == PlusSign)
+                builder.append('+');
+            builder.append(numericValue());
+        }
+        appendCommentIfNeeded({ IdentToken, FunctionToken, UrlToken, BadUrlToken, NumberToken, PercentageToken, DimensionToken }, '%');
         break;
     case PercentageToken:
-        builder.append(numericValue(), '%');
+        if (mode == SerializationMode::CustomProperty)
+            builder.append(originalText(), '%');
+        else
+            builder.append(numericValue(), '%');
         break;
     case DimensionToken:
-        // This will incorrectly serialize e.g. 4e3e2 as 4000e2
-        builder.append(numericValue());
-        serializeIdentifier(value().toString(), builder);
-        break;
-    case UnicodeRangeToken:
-        builder.appendLiteral("U+");
-        builder.append(hex(unicodeRangeStart()));
-        builder.append('-');
-        builder.append(hex(unicodeRangeEnd()));
+        if (mode == SerializationMode::CustomProperty && m_nonUnitPrefixLength)
+            builder.append(originalText());
+        else {
+            builder.append(numericValue());
+            serializeIdentifier(unitString().toString(), builder);
+        }
+        appendCommentIfNeeded({ IdentToken, FunctionToken, UrlToken, BadUrlToken, NumberToken, PercentageToken, DimensionToken, CDCToken }, '-');
         break;
     case StringToken:
         serializeString(value().toString(), builder);
         break;
 
     case IncludeMatchToken:
-        builder.appendLiteral("~=");
+        builder.append("~="_s);
         break;
     case DashMatchToken:
-        builder.appendLiteral("|=");
+        builder.append("|="_s);
         break;
     case PrefixMatchToken:
-        builder.appendLiteral("^=");
+        builder.append("^="_s);
         break;
     case SuffixMatchToken:
-        builder.appendLiteral("$=");
+        builder.append("$="_s);
         break;
     case SubstringMatchToken:
-        builder.appendLiteral("*=");
+        builder.append("*="_s);
         break;
     case ColumnToken:
-        builder.appendLiteral("||");
+        builder.append("||"_s);
         break;
     case CDOToken:
-        builder.appendLiteral("<!--");
+        builder.append("<!--"_s);
         break;
     case CDCToken:
-        builder.appendLiteral("-->");
+        builder.append("-->"_s);
         break;
     case BadStringToken:
-        builder.appendLiteral("'\n");
+        builder.append("'\n"_s);
         break;
     case BadUrlToken:
-        builder.appendLiteral("url(()");
+        builder.append("url(()"_s);
         break;
-    case WhitespaceToken:
-        builder.append(' ');
+    case NonNewlineWhitespaceToken: {
+        auto count = mode == SerializationMode::CustomProperty ? m_whitespaceCount : 1;
+        for (auto i = 0u; i < count; ++i)
+            builder.append(' ');
+        break;
+    }
+    case NewlineToken:
+        builder.append(mode == SerializationMode::CustomProperty ? '\n' : ' ');
         break;
     case ColonToken:
         builder.append(':');

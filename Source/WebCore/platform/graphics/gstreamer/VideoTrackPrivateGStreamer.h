@@ -28,46 +28,69 @@
 #if ENABLE(VIDEO) && USE(GSTREAMER)
 
 #include "GStreamerCommon.h"
+#include "MediaPlayerPrivateGStreamer.h"
 #include "TrackPrivateBaseGStreamer.h"
 #include "VideoTrackPrivate.h"
 
-#include <gst/gst.h>
-#include <wtf/WeakPtr.h>
+#include <wtf/ThreadSafeWeakPtr.h>
 
 namespace WebCore {
 class MediaPlayerPrivateGStreamer;
 
 class VideoTrackPrivateGStreamer final : public VideoTrackPrivate, public TrackPrivateBaseGStreamer {
 public:
-    static Ref<VideoTrackPrivateGStreamer> create(WeakPtr<MediaPlayerPrivateGStreamer> player, gint index, GRefPtr<GstPad> pad)
+    static Ref<VideoTrackPrivateGStreamer> create(ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>&& player, unsigned index, GRefPtr<GstPad>&& pad, bool shouldHandleStreamStartEvent = true)
     {
-        return adoptRef(*new VideoTrackPrivateGStreamer(player, index, pad));
+        return adoptRef(*new VideoTrackPrivateGStreamer(WTFMove(player), index, WTFMove(pad), shouldHandleStreamStartEvent));
     }
 
-    static Ref<VideoTrackPrivateGStreamer> create(WeakPtr<MediaPlayerPrivateGStreamer> player, gint index, GRefPtr<GstStream> stream)
+    static Ref<VideoTrackPrivateGStreamer> create(ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>&& player, unsigned index, GRefPtr<GstPad>&& pad, TrackID trackId)
     {
-        return adoptRef(*new VideoTrackPrivateGStreamer(player, index, stream));
+        return adoptRef(*new VideoTrackPrivateGStreamer(WTFMove(player), index, WTFMove(pad), trackId));
+    }
+
+    static Ref<VideoTrackPrivateGStreamer> create(ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>&& player, unsigned index, GstStream* stream)
+    {
+        return adoptRef(*new VideoTrackPrivateGStreamer(WTFMove(player), index, stream));
     }
 
     Kind kind() const final;
 
-    void disconnect() override;
+    void disconnect() final;
 
-    void setSelected(bool) override;
-    void setActive(bool enabled) override { setSelected(enabled); }
+    void setSelected(bool) final;
+    void setActive(bool enabled) final { setSelected(enabled); }
 
-    int trackIndex() const override { return m_index; }
+    int trackIndex() const final { return m_index; }
 
-    AtomString id() const override { return m_id; }
-    AtomString label() const override { return m_label; }
-    AtomString language() const override { return m_language; }
+    TrackID id() const final { return m_trackID.value_or(m_id); }
+    std::optional<AtomString> trackUID() const final
+    {
+        auto player = m_player.get();
+
+        if (player && player->isMediaStreamPlayer())
+            return m_gstStreamId;
+
+        return std::nullopt;
+    }
+
+    AtomString label() const final { return m_label; }
+    AtomString language() const final { return m_language; }
+
+    void updateConfigurationFromCaps(GRefPtr<GstCaps>&&) final;
+
+protected:
+    void updateConfigurationFromTags(GRefPtr<GstTagList>&&) final;
+
+    void tagsChanged(GRefPtr<GstTagList>&& tags) final { updateConfigurationFromTags(WTFMove(tags)); }
+    void capsChanged(TrackID, GRefPtr<GstCaps>&&) final;
 
 private:
-    VideoTrackPrivateGStreamer(WeakPtr<MediaPlayerPrivateGStreamer>, gint index, GRefPtr<GstPad>);
-    VideoTrackPrivateGStreamer(WeakPtr<MediaPlayerPrivateGStreamer>, gint index, GRefPtr<GstStream>);
+    VideoTrackPrivateGStreamer(ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>&&, unsigned index, GRefPtr<GstPad>&&, bool shouldHandleStreamStartEvent);
+    VideoTrackPrivateGStreamer(ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>&&, unsigned index, GRefPtr<GstPad>&&, TrackID);
+    VideoTrackPrivateGStreamer(ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>&&, unsigned index, GstStream*);
 
-    AtomString m_id;
-    WeakPtr<MediaPlayerPrivateGStreamer> m_player;
+    ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer> m_player;
 };
 
 } // namespace WebCore

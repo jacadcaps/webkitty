@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,43 +26,84 @@
 #pragma once
 
 #include "JSRunLoopTimer.h"
-#include "Strong.h"
+#include "WeakInlines.h"
 
 #include <wtf/Deque.h>
-#include <wtf/HashMap.h>
-#include <wtf/Lock.h>
+#include <wtf/FixedVector.h>
+#include <wtf/HashSet.h>
+#include <wtf/RefPtr.h>
+#include <wtf/ThreadSafeWeakPtr.h>
 #include <wtf/Vector.h>
 
 namespace JSC {
 
-class JSPromise;
 class VM;
 class JSCell;
+class JSObject;
+class JSGlobalObject;
 
-class JS_EXPORT_PRIVATE DeferredWorkTimer final : public JSRunLoopTimer {
+class DeferredWorkTimer final : public JSRunLoopTimer {
 public:
     using Base = JSRunLoopTimer;
 
+    enum class WorkType : uint8_t {
+        ImminentlyScheduled,
+        AtSomePoint,
+    };
+
+    class TicketData : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<TicketData>  {
+    private:
+        WTF_MAKE_TZONE_ALLOCATED(TicketData);
+        WTF_MAKE_NONCOPYABLE(TicketData);
+    public:
+        inline static Ref<TicketData> create(WorkType, JSGlobalObject*, JSObject* scriptExecutionOwner, Vector<Weak<JSCell>>&& dependencies);
+
+        WorkType type() const { return m_type; }
+        inline VM& vm();
+        JSObject* target();
+        inline bool hasValidTarget() const;
+        inline FixedVector<Weak<JSCell>>& dependencies();
+        inline JSObject* scriptExecutionOwner();
+        inline JSGlobalObject* globalObject();
+
+        inline void cancel();
+        bool isCancelled() const { return !m_scriptExecutionOwner.get() || !m_globalObject.get() || !hasValidTarget(); }
+
+    private:
+        inline TicketData(WorkType, JSGlobalObject*, JSObject* scriptExecutionOwner, Vector<Weak<JSCell>>&& dependencies);
+
+        WorkType m_type;
+        FixedVector<Weak<JSCell>> m_dependencies;
+        Weak<JSObject> m_scriptExecutionOwner;
+        Weak<JSGlobalObject> m_globalObject;
+    };
+
+    using Ticket = TicketData*;
+
     void doWork(VM&) final;
 
-    using Ticket = JSObject*;
-    void addPendingWork(VM&, Ticket, Vector<Strong<JSCell>>&& dependencies);
-    bool hasPendingWork(Ticket);
-    bool hasDependancyInPendingWork(Ticket, JSCell* dependency);
-    bool cancelPendingWork(Ticket);
+    JS_EXPORT_PRIVATE Ticket addPendingWork(WorkType, VM&, JSObject* target, Vector<Weak<JSCell>>&& dependencies);
 
-    using Task = Function<void()>;
-    void scheduleWorkSoon(Ticket, Task&&);
+    JS_EXPORT_PRIVATE bool hasAnyPendingWork() const;
+    JS_EXPORT_PRIVATE bool hasImminentlyScheduledWork() const;
+    bool hasPendingWork(Ticket);
+    bool hasDependencyInPendingWork(Ticket, JSCell* dependency);
+    bool cancelPendingWork(Ticket);
+    void cancelPendingWorkSafe(JSGlobalObject*);
+
+    // If the script execution owner your ticket is associated with gets canceled
+    // the Task will not be called and will be deallocated. So it's important
+    // to make sure your memory ownership model won't leak memory when
+    // this occurs. The easiest way is to make sure everything is either owned
+    // by a GC'd value in dependencies or by the Task lambda.
+    using Task = Function<void(Ticket)>;
+    JS_EXPORT_PRIVATE void scheduleWorkSoon(Ticket, Task&&);
+    JS_EXPORT_PRIVATE void didResumeScriptExecutionOwner();
 
     void stopRunningTasks() { m_runTasks = false; }
+    JS_EXPORT_PRIVATE void runRunLoop();
 
-    void runRunLoop();
-
-    static Ref<DeferredWorkTimer> create(VM& vm)
-    {
-        return adoptRef(*new DeferredWorkTimer(vm));
-    }
-
+    static Ref<DeferredWorkTimer> create(VM& vm) { return adoptRef(*new DeferredWorkTimer(vm)); }
 private:
     DeferredWorkTimer(VM&);
 
@@ -70,8 +111,37 @@ private:
     bool m_runTasks { true };
     bool m_shouldStopRunLoopWhenAllTicketsFinish { false };
     bool m_currentlyRunningTask { false };
-    Deque<std::tuple<Ticket, Task>> m_tasks;
-    HashMap<Ticket, Vector<Strong<JSCell>>> m_pendingTickets;
+    Deque<std::tuple<Ticket, Task>> m_tasks WTF_GUARDED_BY_LOCK(m_taskLock);
+    HashSet<Ref<TicketData>> m_pendingTickets;
 };
+
+inline JSObject* DeferredWorkTimer::TicketData::target()
+{
+    ASSERT(!isCancelled());
+    return jsCast<JSObject*>(m_dependencies.last().get());
+}
+
+inline bool DeferredWorkTimer::TicketData::hasValidTarget() const
+{
+    return !m_dependencies.isEmpty() && !!m_dependencies.last().get();
+}
+
+inline FixedVector<Weak<JSCell>>& DeferredWorkTimer::TicketData::dependencies()
+{
+    ASSERT(!isCancelled());
+    return m_dependencies;
+}
+
+inline JSObject* DeferredWorkTimer::TicketData::scriptExecutionOwner()
+{
+    ASSERT(!isCancelled());
+    return m_scriptExecutionOwner.get();
+}
+
+inline JSGlobalObject* DeferredWorkTimer::TicketData::globalObject()
+{
+    ASSERT(!isCancelled());
+    return m_globalObject.get();
+}
 
 } // namespace JSC

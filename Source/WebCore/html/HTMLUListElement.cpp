@@ -25,11 +25,11 @@
 
 #include "CSSPropertyNames.h"
 #include "HTMLNames.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLUListElement);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(HTMLUListElement);
 
 using namespace HTMLNames;
 
@@ -49,19 +49,29 @@ Ref<HTMLUListElement> HTMLUListElement::create(const QualifiedName& tagName, Doc
     return adoptRef(*new HTMLUListElement(tagName, document));
 }
 
-bool HTMLUListElement::isPresentationAttribute(const QualifiedName& name) const
+bool HTMLUListElement::hasPresentationalHintsForAttribute(const QualifiedName& name) const
 {
     if (name == typeAttr)
         return true;
-    return HTMLElement::isPresentationAttribute(name);
+    return HTMLElement::hasPresentationalHintsForAttribute(name);
 }
 
-void HTMLUListElement::collectStyleForPresentationAttribute(const QualifiedName& name, const AtomString& value, MutableStyleProperties& style)
+void HTMLUListElement::collectPresentationalHintsForAttribute(const QualifiedName& name, const AtomString& value, MutableStyleProperties& style)
 {
-    if (name == typeAttr)
-        addPropertyToPresentationAttributeStyle(style, CSSPropertyListStyleType, value);
-    else
-        HTMLElement::collectStyleForPresentationAttribute(name, value, style);
+    if (name == typeAttr) {
+        auto valueLowerCase = value.convertToASCIILowercase();
+        if (valueLowerCase == "disc"_s)
+            addPropertyToPresentationalHintStyle(style, CSSPropertyListStyleType, CSSValueDisc);
+        else if (valueLowerCase == "circle"_s)
+            addPropertyToPresentationalHintStyle(style, CSSPropertyListStyleType, CSSValueCircle);
+        else if (valueLowerCase == "round"_s)
+            addPropertyToPresentationalHintStyle(style, CSSPropertyListStyleType, CSSValueRound);
+        else if (valueLowerCase == "square"_s)
+            addPropertyToPresentationalHintStyle(style, CSSPropertyListStyleType, CSSValueSquare);
+        else if (valueLowerCase == "none"_s)
+            addPropertyToPresentationalHintStyle(style, CSSPropertyListStyleType, CSSValueNone);
+    } else
+        HTMLElement::collectPresentationalHintsForAttribute(name, value, style);
 }
 
 }

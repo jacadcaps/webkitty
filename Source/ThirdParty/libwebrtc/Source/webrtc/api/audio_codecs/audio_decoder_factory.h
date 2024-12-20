@@ -18,12 +18,12 @@
 #include "api/audio_codecs/audio_codec_pair_id.h"
 #include "api/audio_codecs/audio_decoder.h"
 #include "api/audio_codecs/audio_format.h"
-#include "rtc_base/ref_count.h"
+#include "api/ref_count.h"
 
 namespace webrtc {
 
 // A factory that creates AudioDecoders.
-class AudioDecoderFactory : public rtc::RefCountInterface {
+class AudioDecoderFactory : public RefCountInterface {
  public:
   virtual std::vector<AudioCodecSpec> GetSupportedDecoders() = 0;
 
@@ -37,6 +37,8 @@ class AudioDecoderFactory : public rtc::RefCountInterface {
   // decoder form a pair. (The intended use case for this is to set up
   // communication between the AudioEncoder and AudioDecoder instances, which is
   // needed for some codecs with built-in bandwidth adaptation.)
+  //
+  // Returns null if the format isn't supported.
   //
   // Note: Implementations need to be robust against combinations other than
   // one encoder, one decoder getting the same ID; such decoders must still

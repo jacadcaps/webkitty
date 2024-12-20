@@ -25,12 +25,14 @@
 
 #if PLATFORM(MAC)
 
+#include <wtf/RetainPtr.h>
+
 @interface WebKitTestRunnerDraggingInfo : NSObject <NSDraggingInfo> {
 @private
     NSSize _offset;
-    NSImage *_draggedImage;
-    NSPasteboard *_draggingPasteboard;
-    id _draggingSource;
+    RetainPtr<NSImage> _draggedImage;
+    RetainPtr<NSPasteboard> _draggingPasteboard;
+    RetainPtr<id> _draggingSource;
 }
 
 - (id)initWithImage:(NSImage *)image offset:(NSSize)offset pasteboard:(NSPasteboard *)pasteboard source:(id)source;
@@ -46,6 +48,9 @@
 
 - (void)slideDraggedImageTo:(NSPoint)screenPoint;
 - (NSArray *)namesOfPromisedFilesDroppedAtDestination:(NSURL *)dropDestination;
+
+@property (nonatomic, readonly) id localContext;
+
 @end
 
 #endif // PLATFORM(MAC)

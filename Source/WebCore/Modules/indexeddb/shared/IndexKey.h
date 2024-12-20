@@ -25,8 +25,6 @@
 
 #pragma once
 
-#if ENABLE(INDEXED_DATABASE)
-
 #include "IDBKeyData.h"
 #include <wtf/HashMap.h>
 #include <wtf/Vector.h>
@@ -35,22 +33,22 @@ namespace WebCore {
 
 class IndexKey {
 public:
+    using Data = std::variant<std::nullptr_t, IDBKeyData, Vector<IDBKeyData>>;
     IndexKey();
-    IndexKey(Vector<IDBKeyData>&&);
+    IndexKey(Data&&);
 
-    IndexKey isolatedCopy() const;
+    IndexKey isolatedCopy() const &;
+    IndexKey isolatedCopy() &&;
 
     IDBKeyData asOneKey() const;
     Vector<IDBKeyData> multiEntry() const;
 
-    bool isNull() const { return m_keys.isEmpty(); }
+    bool isNull() const { return std::holds_alternative<std::nullptr_t>(m_keys); }
 
 private:
-    Vector<IDBKeyData> m_keys;
+    Data m_keys;
 };
 
 typedef HashMap<uint64_t, IndexKey> IndexIDToIndexKeyMap;
 
 } // namespace WebCore
-
-#endif // ENABLE(INDEXED_DATABASE)

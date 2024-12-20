@@ -20,17 +20,31 @@
  *
  */
 
-#ifndef WTF_GRefPtr_h
-#define WTF_GRefPtr_h
+#pragma once
 
 #if USE(GLIB)
 
-#include <wtf/HashTraits.h>
 #include <algorithm>
 #include <glib.h>
+#include <wtf/HashTraits.h>
 
-extern "C" void g_object_unref(gpointer);
-extern "C" gpointer g_object_ref_sink(gpointer);
+extern "C" {
+    typedef struct _GDBusConnection GDBusConnection;
+    typedef struct _GDBusNodeInfo GDBusNodeInfo;
+
+    GDBusNodeInfo* g_dbus_node_info_ref(GDBusNodeInfo*);
+    void g_dbus_node_info_unref(GDBusNodeInfo*);
+
+    // Since GLib 2.56 a g_object_ref_sink() macro may be defined which propagates
+    // the type of the parameter to the returned value, but it conflicts with the
+    // declaration below, causing an error when glib-object.h is included before
+    // this file. Thus, add the forward declarations only when the macro is not
+    // present.
+#ifndef g_object_ref_sink
+    void g_object_unref(gpointer);
+    gpointer g_object_ref_sink(gpointer);
+#endif
+};
 
 namespace WTF {
 
@@ -94,7 +108,7 @@ public:
 
     T*& outPtr()
     {
-        ASSERT(!m_ptr);
+        clear();
         return m_ptr;
     }
 
@@ -210,6 +224,7 @@ template <typename T, typename U> inline GRefPtr<T> const_pointer_cast(const GRe
 
 template <typename T> struct IsSmartPtr<GRefPtr<T>> {
     static const bool value = true;
+    static constexpr bool isNullable = true;
 };
 
 template <typename T> GRefPtr<T> adoptGRef(T* p)
@@ -243,6 +258,15 @@ template <> WTF_EXPORT_PRIVATE GMappedFile* refGPtr(GMappedFile*);
 template <> WTF_EXPORT_PRIVATE void derefGPtr(GMappedFile*);
 template <> WTF_EXPORT_PRIVATE GDateTime* refGPtr(GDateTime* ptr);
 template <> WTF_EXPORT_PRIVATE void derefGPtr(GDateTime* ptr);
+template <> WTF_EXPORT_PRIVATE GDBusNodeInfo* refGPtr(GDBusNodeInfo* ptr);
+template <> WTF_EXPORT_PRIVATE void derefGPtr(GDBusNodeInfo* ptr);
+template <> WTF_EXPORT_PRIVATE GArray* refGPtr(GArray*);
+template <> WTF_EXPORT_PRIVATE void derefGPtr(GArray*);
+
+#if HAVE(GURI)
+template <> WTF_EXPORT_PRIVATE GUri* refGPtr(GUri*);
+template <> WTF_EXPORT_PRIVATE void derefGPtr(GUri*);
+#endif
 
 template <typename T> inline T* refGPtr(T* ptr)
 {
@@ -281,5 +305,3 @@ using WTF::GRefPtr;
 using WTF::adoptGRef;
 
 #endif // USE(GLIB)
-
-#endif // WTF_GRefPtr_h

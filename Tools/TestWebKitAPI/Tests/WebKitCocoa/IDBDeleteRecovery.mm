@@ -25,18 +25,17 @@
 
 #import "config.h"
 
+#import "DeprecatedGlobalValues.h"
 #import "PlatformUtilities.h"
 #import "Test.h"
 #import <WebKit/WKProcessPoolPrivate.h>
 #import <WebKit/WKUserContentControllerPrivate.h>
 #import <WebKit/WKWebViewConfigurationPrivate.h>
+#import <WebKit/WKWebsiteDataStorePrivate.h>
 #import <WebKit/WebKit.h>
 #import <WebKit/_WKProcessPoolConfiguration.h>
 #import <WebKit/_WKUserStyleSheet.h>
 #import <wtf/RetainPtr.h>
-
-static bool receivedScriptMessage;
-static RetainPtr<WKScriptMessage> lastScriptMessage;
 
 @interface IDBDeleteRecoveryMessageHandler : NSObject <WKScriptMessageHandler>
 @end
@@ -57,7 +56,7 @@ TEST(IndexedDB, DeleteRecovery)
     RetainPtr<WKWebViewConfiguration> configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
     [[configuration userContentController] addScriptMessageHandler:handler.get() name:@"testHandler"];
 
-    [configuration.get().processPool _terminateNetworkProcess];
+    [configuration.get().websiteDataStore _terminateNetworkProcess];
 
     // Copy the inconsistent database files to the database directory
     NSURL *url1 = [[NSBundle mainBundle] URLForResource:@"IDBDeleteRecovery" withExtension:@"sqlite3" subdirectory:@"TestWebKitAPI.resources"];

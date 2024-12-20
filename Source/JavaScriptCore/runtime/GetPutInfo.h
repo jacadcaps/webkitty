@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2020 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2015-2021 Apple Inc. All Rights Reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -39,13 +39,28 @@ enum ResolveMode {
     DoNotThrowIfNotFound
 };
 
+#define FOR_EACH_RESOLVE_TYPE(v) \
+    v(GlobalProperty) \
+    v(GlobalVar) \
+    v(GlobalLexicalVar) \
+    v(ClosureVar) \
+    v(ResolvedClosureVar) \
+    v(ModuleVar) \
+    v(GlobalPropertyWithVarInjectionChecks) \
+    v(GlobalVarWithVarInjectionChecks) \
+    v(GlobalLexicalVarWithVarInjectionChecks) \
+    v(ClosureVarWithVarInjectionChecks) \
+    v(UnresolvedProperty) \
+    v(UnresolvedPropertyWithVarInjectionChecks) \
+    v(Dynamic)
+
 enum ResolveType : unsigned {
     // Lexical scope guaranteed a certain type of variable access.
     GlobalProperty,
     GlobalVar,
     GlobalLexicalVar,
     ClosureVar,
-    LocalClosureVar,
+    ResolvedClosureVar,
     ModuleVar,
 
     // Ditto, but at least one intervening scope used non-strict eval, which
@@ -68,7 +83,8 @@ enum ResolveType : unsigned {
 enum class InitializationMode : unsigned {
     Initialization,      // "let x = 20;"
     ConstInitialization, // "const x = 20;"
-    NotInitialization    // "x = 20;"
+    NotInitialization,   // "x = 20;"
+    ScopedArgumentInitialization // Assign to scoped argument, which also has NotInitialization semantics.
 };
 
 ALWAYS_INLINE const char* resolveModeName(ResolveMode resolveMode)
@@ -87,7 +103,7 @@ ALWAYS_INLINE const char* resolveTypeName(ResolveType type)
         "GlobalVar",
         "GlobalLexicalVar",
         "ClosureVar",
-        "LocalClosureVar",
+        "ResolvedClosureVar",
         "ModuleVar",
         "GlobalPropertyWithVarInjectionChecks",
         "GlobalVarWithVarInjectionChecks",
@@ -105,7 +121,8 @@ ALWAYS_INLINE const char* initializationModeName(InitializationMode initializati
     static const char* const names[] = {
         "Initialization",
         "ConstInitialization",
-        "NotInitialization"
+        "NotInitialization",
+        "ScopedArgumentInitialization"
     };
     return names[static_cast<unsigned>(initializationMode)];
 }
@@ -117,6 +134,7 @@ ALWAYS_INLINE bool isInitialization(InitializationMode initializationMode)
     case InitializationMode::ConstInitialization:
         return true;
     case InitializationMode::NotInitialization:
+    case InitializationMode::ScopedArgumentInitialization:
         return false;
     }
     ASSERT_NOT_REACHED();
@@ -136,7 +154,7 @@ ALWAYS_INLINE ResolveType makeType(ResolveType type, bool needsVarInjectionCheck
     case GlobalLexicalVar:
         return GlobalLexicalVarWithVarInjectionChecks;
     case ClosureVar:
-    case LocalClosureVar:
+    case ResolvedClosureVar:
         return ClosureVarWithVarInjectionChecks;
     case UnresolvedProperty:
         return UnresolvedPropertyWithVarInjectionChecks;
@@ -161,7 +179,7 @@ ALWAYS_INLINE bool needsVarInjectionChecks(ResolveType type)
     case GlobalVar:
     case GlobalLexicalVar:
     case ClosureVar:
-    case LocalClosureVar:
+    case ResolvedClosureVar:
     case ModuleVar:
     case UnresolvedProperty:
         return false;

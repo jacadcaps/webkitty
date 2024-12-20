@@ -10,7 +10,11 @@
 
 #include "api/rtc_event_log_output_file.h"
 
+#include <stdio.h>
+
+#include <cstddef>
 #include <fstream>
+#include <ios>
 #include <iterator>
 #include <memory>
 #include <string>
@@ -34,7 +38,8 @@ class RtcEventLogOutputFileTest : public ::testing::Test {
  protected:
   std::string GetOutputFilePath() const {
     auto test_info = ::testing::UnitTest::GetInstance()->current_test_info();
-    return test::OutputPath() + test_info->test_case_name() + test_info->name();
+    return test::OutputPathWithRandomDirectory() + test_info->test_case_name() +
+           test_info->name();
   }
 
   std::string GetOutputFileContents() const {
@@ -72,7 +77,7 @@ TEST_F(RtcEventLogOutputFileTest, UnlimitedOutputFile) {
   EXPECT_EQ(GetOutputFileContents(), output_str);
 }
 
-// Do not allow writing more bytes to the file than
+// Do not allow writing more bytes to the file than max file size.
 TEST_F(RtcEventLogOutputFileTest, LimitedOutputFileCappedToCapacity) {
   // Fit two bytes, then the third should be rejected.
   auto output_file =
@@ -141,14 +146,16 @@ TEST_F(RtcEventLogOutputFileTest, AllowReasonableFileSizeLimits) {
 }
 
 #if RTC_DCHECK_IS_ON && GTEST_HAS_DEATH_TEST && !defined(WEBRTC_ANDROID)
-TEST_F(RtcEventLogOutputFileTest, WritingToInactiveFileForbidden) {
+class RtcEventLogOutputFileDeathTest : public RtcEventLogOutputFileTest {};
+
+TEST_F(RtcEventLogOutputFileDeathTest, WritingToInactiveFileForbidden) {
   RtcEventLogOutputFile output_file(output_file_name_, 2);
   ASSERT_FALSE(output_file.Write("abc"));
   ASSERT_FALSE(output_file.IsActive());
   EXPECT_DEATH(output_file.Write("abc"), "");
 }
 
-TEST_F(RtcEventLogOutputFileTest, DisallowUnreasonableFileSizeLimits) {
+TEST_F(RtcEventLogOutputFileDeathTest, DisallowUnreasonableFileSizeLimits) {
   // Keeping in a temporary unique_ptr to make it clearer that the death is
   // triggered by construction, not destruction.
   std::unique_ptr<RtcEventLogOutputFile> output_file;

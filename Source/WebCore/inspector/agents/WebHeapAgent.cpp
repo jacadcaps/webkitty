@@ -28,6 +28,8 @@
 
 #include "InstrumentingAgents.h"
 #include "WebConsoleAgent.h"
+#include <JavaScriptCore/InspectorProtocolTypes.h>
+#include <wtf/Lock.h>
 #include <wtf/RunLoop.h>
 
 namespace WebCore {
@@ -50,9 +52,9 @@ private:
     void timerFired();
 
     WebHeapAgent& m_agent;
-    Vector<GarbageCollectionData> m_collections;
-    RunLoop::Timer<SendGarbageCollectionEventsTask> m_timer;
-    Lock m_mutex;
+    Lock m_collectionsLock;
+    Vector<GarbageCollectionData> m_collections WTF_GUARDED_BY_LOCK(m_collectionsLock);
+    RunLoop::Timer m_timer;
 };
 
 SendGarbageCollectionEventsTask::SendGarbageCollectionEventsTask(WebHeapAgent& agent)
@@ -64,7 +66,7 @@ SendGarbageCollectionEventsTask::SendGarbageCollectionEventsTask(WebHeapAgent& a
 void SendGarbageCollectionEventsTask::addGarbageCollection(GarbageCollectionData&& collection)
 {
     {
-        auto locker = holdLock(m_mutex);
+        Locker locker { m_collectionsLock };
         m_collections.append(WTFMove(collection));
     }
 
@@ -75,7 +77,7 @@ void SendGarbageCollectionEventsTask::addGarbageCollection(GarbageCollectionData
 void SendGarbageCollectionEventsTask::reset()
 {
     {
-        auto locker = holdLock(m_mutex);
+        Locker locker { m_collectionsLock };
         m_collections.clear();
     }
 
@@ -87,7 +89,7 @@ void SendGarbageCollectionEventsTask::timerFired()
     Vector<GarbageCollectionData> collectionsToSend;
 
     {
-        auto locker = holdLock(m_mutex);
+        Locker locker { m_collectionsLock };
         m_collections.swap(collectionsToSend);
     }
 
@@ -103,22 +105,24 @@ WebHeapAgent::WebHeapAgent(WebAgentContext& context)
 
 WebHeapAgent::~WebHeapAgent() = default;
 
-void WebHeapAgent::enable(ErrorString& errorString)
+Inspector::Protocol::ErrorStringOr<void> WebHeapAgent::enable()
 {
-    InspectorHeapAgent::enable(errorString);
+    auto result = InspectorHeapAgent::enable();
 
     if (auto* consoleAgent = m_instrumentingAgents.webConsoleAgent())
         consoleAgent->setHeapAgent(this);
+
+    return result;
 }
 
-void WebHeapAgent::disable(ErrorString& errorString)
+Inspector::Protocol::ErrorStringOr<void> WebHeapAgent::disable()
 {
     m_sendGarbageCollectionEventsTask->reset();
 
     if (auto* consoleAgent = m_instrumentingAgents.webConsoleAgent())
         consoleAgent->setHeapAgent(nullptr);
 
-    InspectorHeapAgent::disable(errorString);
+    return InspectorHeapAgent::disable();
 }
 
 void WebHeapAgent::dispatchGarbageCollectedEvent(Inspector::Protocol::Heap::GarbageCollection::Type type, Seconds startTime, Seconds endTime)

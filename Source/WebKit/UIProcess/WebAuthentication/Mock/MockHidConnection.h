@@ -33,6 +33,15 @@
 #include <wtf/WeakPtr.h>
 
 namespace WebKit {
+class MockHidConnection;
+}
+
+namespace WTF {
+template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
+template<> struct IsDeprecatedWeakRefSmartPointerException<WebKit::MockHidConnection> : std::true_type { };
+}
+
+namespace WebKit {
 
 // The following basically simulates an external HID token that:
 //    1. Supports only one protocol, either CTAP2 or U2F.
@@ -63,7 +72,7 @@ private:
     void continueFeedReports();
 
     WebCore::MockWebAuthenticationConfiguration m_configuration;
-    Optional<fido::FidoHidMessage> m_requestMessage;
+    std::optional<fido::FidoHidMessage> m_requestMessage;
     WebCore::MockWebAuthenticationConfiguration::HidStage m_stage { WebCore::MockWebAuthenticationConfiguration::HidStage::Info };
     WebCore::MockWebAuthenticationConfiguration::HidSubStage m_subStage { WebCore::MockWebAuthenticationConfiguration::HidSubStage::Init };
     uint32_t m_currentChannel { fido::kHidBroadcastChannel };

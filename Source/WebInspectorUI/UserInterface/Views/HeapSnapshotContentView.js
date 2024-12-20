@@ -37,7 +37,10 @@ WI.HeapSnapshotContentView = class HeapSnapshotContentView extends WI.ContentVie
         this._exportButtonNavigationItem.tooltip = WI.UIString("Export (%s)").format(WI.saveKeyboardShortcut.displayName);
         this._exportButtonNavigationItem.buttonStyle = WI.ButtonNavigationItem.Style.ImageAndText;
         this._exportButtonNavigationItem.visibilityPriority = WI.NavigationItem.VisibilityPriority.High;
-        this._exportButtonNavigationItem.addEventListener(WI.ButtonNavigationItem.Event.Clicked, () => { this._exportSnapshot(); });
+        this._exportButtonNavigationItem.enabled = WI.FileUtilities.canSave(WI.FileUtilities.SaveMode.SingleFile);
+        this._exportButtonNavigationItem.addEventListener(WI.ButtonNavigationItem.Event.Clicked, function(event) {
+            this._exportSnapshot();
+        }, this);
 
         this._dataGrid = new WI.DataGrid(columns);
         this._dataGrid.sortColumnIdentifier = "retainedSize";
@@ -88,18 +91,18 @@ WI.HeapSnapshotContentView = class HeapSnapshotContentView extends WI.ContentVie
         return [];
     }
 
-    shown()
+    attached()
     {
-        super.shown();
+        super.attached();
 
         this._heapSnapshotDataGridTree.shown();
     }
 
-    hidden()
+    detached()
     {
-        super.hidden();
-
         this._heapSnapshotDataGridTree.hidden();
+
+        super.detached();
     }
 
     get scrollableElements()
@@ -125,11 +128,12 @@ WI.HeapSnapshotContentView = class HeapSnapshotContentView extends WI.ContentVie
             Number.zeroPad(date.getMinutes(), 2),
             Number.zeroPad(date.getSeconds(), 2),
         ];
-        WI.FileUtilities.save({
+
+        const forceSaveAs = true;
+        WI.FileUtilities.save(WI.FileUtilities.SaveMode.SingleFile, {
             content: this.representedObject.snapshotStringData,
             suggestedName: WI.UIString("Heap Snapshot %s-%s-%s at %s.%s.%s").format(...values) + ".json",
-            forceSaveAs: true,
-        });
+        }, forceSaveAs);
     }
 
     _sortDataGrid()

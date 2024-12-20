@@ -26,13 +26,18 @@
 #include "config.h"
 #include "WebDiagnosticLoggingClient.h"
 
+#include "MessageSenderInlines.h"
 #include "WebCoreArgumentCoders.h"
 #include "WebPage.h"
 #include "WebPageProxyMessages.h"
+#include <WebCore/Page.h>
 #include <WebCore/Settings.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
 using namespace WebCore;
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WebDiagnosticLoggingClient);
 
 WebDiagnosticLoggingClient::WebDiagnosticLoggingClient(WebPage& page)
     : m_page(page)
@@ -50,7 +55,7 @@ void WebDiagnosticLoggingClient::logDiagnosticMessage(const String& message, con
     if (!shouldLogAfterSampling(shouldSample))
         return;
 
-    m_page.send(Messages::WebPageProxy::LogDiagnosticMessage(message, description, ShouldSample::No));
+    m_page.send(Messages::WebPageProxy::LogDiagnosticMessageFromWebProcess(message, description, ShouldSample::No));
 }
 
 void WebDiagnosticLoggingClient::logDiagnosticMessageWithResult(const String& message, const String& description, WebCore::DiagnosticLoggingResultType result, WebCore::ShouldSample shouldSample)
@@ -60,7 +65,7 @@ void WebDiagnosticLoggingClient::logDiagnosticMessageWithResult(const String& me
     if (!shouldLogAfterSampling(shouldSample))
         return;
 
-    m_page.send(Messages::WebPageProxy::LogDiagnosticMessageWithResult(message, description, result, ShouldSample::No));
+    m_page.send(Messages::WebPageProxy::LogDiagnosticMessageWithResultFromWebProcess(message, description, result, ShouldSample::No));
 }
 
 void WebDiagnosticLoggingClient::logDiagnosticMessageWithValue(const String& message, const String& description, double value, unsigned significantFigures, WebCore::ShouldSample shouldSample)
@@ -70,7 +75,7 @@ void WebDiagnosticLoggingClient::logDiagnosticMessageWithValue(const String& mes
     if (!shouldLogAfterSampling(shouldSample))
         return;
 
-    m_page.send(Messages::WebPageProxy::LogDiagnosticMessageWithValue(message, description, value, significantFigures, ShouldSample::No));
+    m_page.send(Messages::WebPageProxy::LogDiagnosticMessageWithValueFromWebProcess(message, description, value, significantFigures, ShouldSample::No));
 }
 
 void WebDiagnosticLoggingClient::logDiagnosticMessageWithEnhancedPrivacy(const String& message, const String& description, WebCore::ShouldSample shouldSample)
@@ -80,7 +85,7 @@ void WebDiagnosticLoggingClient::logDiagnosticMessageWithEnhancedPrivacy(const S
     if (!shouldLogAfterSampling(shouldSample))
         return;
 
-    m_page.send(Messages::WebPageProxy::LogDiagnosticMessageWithEnhancedPrivacy(message, description, ShouldSample::No));
+    m_page.send(Messages::WebPageProxy::LogDiagnosticMessageWithEnhancedPrivacyFromWebProcess(message, description, ShouldSample::No));
 }
 
 void WebDiagnosticLoggingClient::logDiagnosticMessageWithValueDictionary(const String& message, const String& description, const ValueDictionary& value, ShouldSample shouldSample)
@@ -90,7 +95,14 @@ void WebDiagnosticLoggingClient::logDiagnosticMessageWithValueDictionary(const S
     if (!shouldLogAfterSampling(shouldSample))
         return;
 
-    m_page.send(Messages::WebPageProxy::LogDiagnosticMessageWithValueDictionary(message, description, value, ShouldSample::No));
+    m_page.send(Messages::WebPageProxy::LogDiagnosticMessageWithValueDictionaryFromWebProcess(message, description, value, ShouldSample::No));
+}
+
+void WebDiagnosticLoggingClient::logDiagnosticMessageWithDomain(const String& message, WebCore::DiagnosticLoggingDomain domain)
+{
+    ASSERT(!m_page.corePage() || m_page.corePage()->settings().diagnosticLoggingEnabled());
+
+    m_page.send(Messages::WebPageProxy::LogDiagnosticMessageWithDomainFromWebProcess(message, domain));
 }
 
 } // namespace WebKit

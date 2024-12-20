@@ -11,6 +11,7 @@
 #ifndef MODULES_AUDIO_DEVICE_MOCK_AUDIO_DEVICE_BUFFER_H_
 #define MODULES_AUDIO_DEVICE_MOCK_AUDIO_DEVICE_BUFFER_H_
 
+#include "absl/types/optional.h"
 #include "modules/audio_device/audio_device_buffer.h"
 #include "test/gmock.h"
 
@@ -20,12 +21,16 @@ class MockAudioDeviceBuffer : public AudioDeviceBuffer {
  public:
   using AudioDeviceBuffer::AudioDeviceBuffer;
   virtual ~MockAudioDeviceBuffer() {}
-  MOCK_METHOD1(RequestPlayoutData, int32_t(size_t nSamples));
-  MOCK_METHOD1(GetPlayoutData, int32_t(void* audioBuffer));
-  MOCK_METHOD2(SetRecordedBuffer,
-               int32_t(const void* audioBuffer, size_t nSamples));
-  MOCK_METHOD2(SetVQEData, void(int playDelayMS, int recDelayMS));
-  MOCK_METHOD0(DeliverRecordedData, int32_t());
+  MOCK_METHOD(int32_t, RequestPlayoutData, (size_t nSamples), (override));
+  MOCK_METHOD(int32_t, GetPlayoutData, (void* audioBuffer), (override));
+  MOCK_METHOD(int32_t,
+              SetRecordedBuffer,
+              (const void* audioBuffer,
+               size_t nSamples,
+               absl::optional<int64_t> capture_time_ns),
+              (override));
+  MOCK_METHOD(void, SetVQEData, (int playDelayMS, int recDelayMS), (override));
+  MOCK_METHOD(int32_t, DeliverRecordedData, (), (override));
 };
 
 }  // namespace webrtc

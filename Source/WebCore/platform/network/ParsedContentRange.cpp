@@ -27,7 +27,8 @@
 #include "ParsedContentRange.h"
 
 #include <wtf/StdLibExtras.h>
-#include <wtf/text/StringConcatenateNumbers.h>
+#include <wtf/text/MakeString.h>
+#include <wtf/text/StringToIntegerConversion.h>
 
 namespace WebCore {
 
@@ -51,7 +52,7 @@ static bool areContentRangeValuesValid(int64_t firstBytePosition, int64_t lastBy
     return lastBytePosition < instanceLength;
 }
 
-static bool parseContentRange(const String& headerValue, int64_t& firstBytePosition, int64_t& lastBytePosition, int64_t& instanceLength)
+static bool parseContentRange(StringView headerValue, int64_t& firstBytePosition, int64_t& lastBytePosition, int64_t& instanceLength)
 {
     // From <http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html>
     // 14.16 Content-Range
@@ -65,8 +66,8 @@ static bool parseContentRange(const String& headerValue, int64_t& firstBytePosit
     //                               | "*"
     // instance-length           = 1*DIGIT
 
-    static const char* prefix = "bytes ";
-    static const size_t prefixLength = 6;
+    static constexpr auto prefix = "bytes "_s;
+    static constexpr size_t prefixLength = 6;
 
     if (!headerValue.startsWith(prefix))
         return false;
@@ -79,33 +80,35 @@ static bool parseContentRange(const String& headerValue, int64_t& firstBytePosit
     if (instanceLengthSeparatorToken == notFound)
         return false;
 
-    bool isOk = true;
-    String firstByteString = headerValue.substring(prefixLength, byteSeparatorTokenLoc - prefixLength);
-    if (!firstByteString.isAllSpecialCharacters<isASCIIDigit>())
+    auto firstByteString = headerValue.substring(prefixLength, byteSeparatorTokenLoc - prefixLength);
+    if (!firstByteString.containsOnly<isASCIIDigit>())
         return false;
 
-    firstBytePosition = firstByteString.toInt64Strict(&isOk);
-    if (!isOk)
+    auto optionalFirstBytePosition = parseInteger<int64_t>(firstByteString);
+    if (!optionalFirstBytePosition)
+        return false;
+    firstBytePosition = *optionalFirstBytePosition;
+
+    auto lastByteString = headerValue.substring(byteSeparatorTokenLoc + 1, instanceLengthSeparatorToken - (byteSeparatorTokenLoc + 1));
+    if (!lastByteString.containsOnly<isASCIIDigit>())
         return false;
 
-    String lastByteString = headerValue.substring(byteSeparatorTokenLoc + 1, instanceLengthSeparatorToken - (byteSeparatorTokenLoc + 1));
-    if (!lastByteString.isAllSpecialCharacters<isASCIIDigit>())
+    auto optionalLastBytePosition = parseInteger<int64_t>(lastByteString);
+    if (!optionalLastBytePosition)
         return false;
+    lastBytePosition = *optionalLastBytePosition;
 
-    lastBytePosition = lastByteString.toInt64Strict(&isOk);
-    if (!isOk)
-        return false;
-
-    String instanceString = headerValue.substring(instanceLengthSeparatorToken + 1);
-    if (instanceString == "*")
+    auto instanceString = headerValue.substring(instanceLengthSeparatorToken + 1);
+    if (instanceString == "*"_s)
         instanceLength = ParsedContentRange::unknownLength;
     else {
-        if (!instanceString.isAllSpecialCharacters<isASCIIDigit>())
+        if (!instanceString.containsOnly<isASCIIDigit>())
             return false;
 
-        instanceLength = instanceString.toInt64Strict(&isOk);
-        if (!isOk)
+        auto optionalInstanceLength = parseInteger<int64_t>(instanceString);
+        if (!optionalInstanceLength)
             return false;
+        instanceLength = *optionalInstanceLength;
     }
 
     return areContentRangeValuesValid(firstBytePosition, lastBytePosition, instanceLength);
@@ -113,7 +116,7 @@ static bool parseContentRange(const String& headerValue, int64_t& firstBytePosit
 
 ParsedContentRange::ParsedContentRange(const String& headerValue)
 {
-    if (!parseContentRange(headerValue, m_firstBytePosition, m_lastBytePosition, m_instanceLength))
+    if (!parseContentRange(StringView(headerValue), m_firstBytePosition, m_lastBytePosition, m_instanceLength))
         m_instanceLength = invalidLength;
 }
 
@@ -131,8 +134,8 @@ String ParsedContentRange::headerValue() const
     if (!isValid())
         return String();
     if (m_instanceLength == unknownLength)
-        return makeString("bytes ", m_firstBytePosition, '-', m_lastBytePosition, "/*");
-    return makeString("bytes ", m_firstBytePosition, '-', m_lastBytePosition, '/', m_instanceLength);
+        return makeString("bytes "_s, m_firstBytePosition, '-', m_lastBytePosition, "/*"_s);
+    return makeString("bytes "_s, m_firstBytePosition, '-', m_lastBytePosition, '/', m_instanceLength);
 }
 
 }

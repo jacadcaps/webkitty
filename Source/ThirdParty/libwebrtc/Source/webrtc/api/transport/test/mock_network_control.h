@@ -16,13 +16,67 @@
 
 namespace webrtc {
 
+class MockNetworkControllerInterface : public NetworkControllerInterface {
+ public:
+  MOCK_METHOD(NetworkControlUpdate,
+              OnNetworkAvailability,
+              (NetworkAvailability),
+              (override));
+  MOCK_METHOD(NetworkControlUpdate,
+              OnProcessInterval,
+              (ProcessInterval),
+              (override));
+  MOCK_METHOD(NetworkControlUpdate,
+              OnNetworkRouteChange,
+              (NetworkRouteChange),
+              (override));
+  MOCK_METHOD(NetworkControlUpdate,
+              OnRemoteBitrateReport,
+              (RemoteBitrateReport),
+              (override));
+  MOCK_METHOD(NetworkControlUpdate,
+              OnRoundTripTimeUpdate,
+              (RoundTripTimeUpdate),
+              (override));
+  MOCK_METHOD(NetworkControlUpdate, OnSentPacket, (SentPacket), (override));
+  MOCK_METHOD(NetworkControlUpdate,
+              OnReceivedPacket,
+              (ReceivedPacket),
+              (override));
+  MOCK_METHOD(NetworkControlUpdate,
+              OnStreamsConfig,
+              (StreamsConfig),
+              (override));
+  MOCK_METHOD(NetworkControlUpdate,
+              OnTargetRateConstraints,
+              (TargetRateConstraints),
+              (override));
+  MOCK_METHOD(NetworkControlUpdate,
+              OnTransportLossReport,
+              (TransportLossReport),
+              (override));
+  MOCK_METHOD(NetworkControlUpdate,
+              OnTransportPacketsFeedback,
+              (TransportPacketsFeedback),
+              (override));
+  MOCK_METHOD(NetworkControlUpdate,
+              OnNetworkStateEstimate,
+              (NetworkStateEstimate),
+              (override));
+};
+
 class MockNetworkStateEstimator : public NetworkStateEstimator {
  public:
-  MOCK_METHOD0(GetCurrentEstimate, absl::optional<NetworkStateEstimate>());
-  MOCK_METHOD1(OnTransportPacketsFeedback,
-               void(const TransportPacketsFeedback&));
-  MOCK_METHOD1(OnReceivedPacket, void(const PacketResult&));
-  MOCK_METHOD1(OnRouteChange, void(const NetworkRouteChange&));
+  MOCK_METHOD(absl::optional<NetworkStateEstimate>,
+              GetCurrentEstimate,
+              (),
+              (override));
+  MOCK_METHOD(void,
+              OnTransportPacketsFeedback,
+              (const TransportPacketsFeedback&),
+              (override));
+  MOCK_METHOD(void, OnReceivedPacket, (const PacketResult&), (override));
+  MOCK_METHOD(void, OnRouteChange, (const NetworkRouteChange&), (override));
 };
 
 }  // namespace webrtc

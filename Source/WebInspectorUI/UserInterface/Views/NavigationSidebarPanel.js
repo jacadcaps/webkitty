@@ -67,9 +67,9 @@ WI.NavigationSidebarPanel = class NavigationSidebarPanel extends WI.SidebarPanel
         this._shouldAutoPruneStaleTopLevelResourceTreeElements = shouldAutoPruneStaleTopLevelResourceTreeElements || false;
 
         if (this._shouldAutoPruneStaleTopLevelResourceTreeElements) {
-            WI.Frame.addEventListener(WI.Frame.Event.MainResourceDidChange, this._checkForStaleResources, this);
-            WI.Frame.addEventListener(WI.Frame.Event.ChildFrameWasRemoved, this._checkForStaleResources, this);
-            WI.Frame.addEventListener(WI.Frame.Event.ResourceWasRemoved, this._checkForStaleResources, this);
+            WI.Frame.addEventListener(WI.Frame.Event.MainResourceDidChange, this.pruneStaleResourceTreeElements, this);
+            WI.Frame.addEventListener(WI.Frame.Event.ChildFrameWasRemoved, this.pruneStaleResourceTreeElements, this);
+            WI.Frame.addEventListener(WI.Frame.Event.ResourceWasRemoved, this.pruneStaleResourceTreeElements, this);
         }
 
         this._pendingViewStateCookie = null;
@@ -84,7 +84,12 @@ WI.NavigationSidebarPanel = class NavigationSidebarPanel extends WI.SidebarPanel
     closed()
     {
         window.removeEventListener("resize", this._boundUpdateContentOverflowShadowVisibilitySoon);
-        WI.Frame.removeEventListener(null, null, this);
+
+        if (this._shouldAutoPruneStaleTopLevelResourceTreeElements) {
+            WI.Frame.removeEventListener(WI.Frame.Event.MainResourceDidChange, this.pruneStaleResourceTreeElements, this);
+            WI.Frame.removeEventListener(WI.Frame.Event.ChildFrameWasRemoved, this.pruneStaleResourceTreeElements, this);
+            WI.Frame.removeEventListener(WI.Frame.Event.ResourceWasRemoved, this.pruneStaleResourceTreeElements, this);
+        }
     }
 
     get contentBrowser()
@@ -466,22 +471,20 @@ WI.NavigationSidebarPanel = class NavigationSidebarPanel extends WI.SidebarPanel
         treeElement.hidden = true;
     }
 
-    shown()
+    attached()
     {
-        super.shown();
+        super.attached();
 
         this._updateContentOverflowShadowVisibilityDebouncer.force();
+
+        if (this._contentBrowser && !this._contentBrowser.currentContentView)
+            this.showDefaultContentView();
     }
 
     // Protected
 
     pruneStaleResourceTreeElements()
     {
-        if (this._checkForStaleResourcesTimeoutIdentifier) {
-            clearTimeout(this._checkForStaleResourcesTimeoutIdentifier);
-            this._checkForStaleResourcesTimeoutIdentifier = undefined;
-        }
-
         for (let contentTreeOutline of this.contentTreeOutlines) {
             // Check all the ResourceTreeElements at the top level to make sure their Resource still has a parentFrame in the frame hierarchy.
             // If the parentFrame is no longer in the frame hierarchy we know it was removed due to a navigation or some other page change and
@@ -493,7 +496,7 @@ WI.NavigationSidebarPanel = class NavigationSidebarPanel extends WI.SidebarPanel
 
                 // Local Overrides are never stale resources.
                 let resource = treeElement.resource;
-                if (resource.isLocalResourceOverride)
+                if (resource.localResourceOverride)
                     continue;
 
                 if (!resource.parentFrame || resource.parentFrame.isDetached())
@@ -623,24 +626,6 @@ WI.NavigationSidebarPanel = class NavigationSidebarPanel extends WI.SidebarPanel
             this._updateContentOverflowShadowVisibilityDebouncer.delayForTime(0);
     }
 
-    _checkForStaleResourcesIfNeeded()
-    {
-        if (!this._checkForStaleResourcesTimeoutIdentifier || !this._shouldAutoPruneStaleTopLevelResourceTreeElements)
-            return;
-        this.pruneStaleResourceTreeElements();
-    }
-
-    _checkForStaleResources(event)
-    {
-        console.assert(this._shouldAutoPruneStaleTopLevelResourceTreeElements);
-
-        if (this._checkForStaleResourcesTimeoutIdentifier)
-            return;
-
-        // Check on a delay to coalesce multiple calls to _checkForStaleResources.
-        this._checkForStaleResourcesTimeoutIdentifier = setTimeout(this.pruneStaleResourceTreeElements.bind(this));
-    }
-
     _isTreeElementWithoutRepresentedObject(treeElement)
     {
         return treeElement instanceof WI.FolderTreeElement
@@ -652,6 +637,7 @@ WI.NavigationSidebarPanel = class NavigationSidebarPanel extends WI.SidebarPanel
             || treeElement instanceof WI.DOMBreakpointTreeElement
             || treeElement instanceof WI.EventBreakpointTreeElement
             || treeElement instanceof WI.URLBreakpointTreeElement
+            || treeElement instanceof WI.SymbolicBreakpointTreeElement
             || treeElement instanceof WI.CSSStyleSheetTreeElement
             || typeof treeElement.representedObject === "string"
             || treeElement.representedObject instanceof String;
@@ -662,7 +648,8 @@ WI.NavigationSidebarPanel = class NavigationSidebarPanel extends WI.SidebarPanel
         if (!this._pendingViewStateCookie)
             return;
 
-        this._checkForStaleResourcesIfNeeded();
+        if (this.shouldAutoPruneStaleTopLevelResourceTreeElements)
+            this.pruneStaleResourceTreeElements();
 
         var visibleTreeElements = [];
         this.contentTreeOutlines.forEach(function(outline) {

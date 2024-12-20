@@ -15,6 +15,7 @@
 #include <string>
 #include <vector>
 
+#include "api/environment/environment.h"
 #include "api/test/videocodec_test_fixture.h"
 #include "api/video_codecs/video_decoder_factory.h"
 #include "api/video_codecs/video_encoder_factory.h"
@@ -59,9 +60,9 @@ class VideoCodecTestFixtureImpl : public VideoCodecTestFixture {
  private:
   class CpuProcessTime;
 
-  void CreateEncoderAndDecoder();
+  bool CreateEncoderAndDecoder();
   void DestroyEncoderAndDecoder();
-  void SetUpAndInitObjects(TaskQueueForTest* task_queue,
+  bool SetUpAndInitObjects(TaskQueueForTest* task_queue,
                            size_t initial_bitrate_kbps,
                            double initial_framerate_fps);
   void ReleaseAndCloseObjects(TaskQueueForTest* task_queue);
@@ -82,6 +83,7 @@ class VideoCodecTestFixtureImpl : public VideoCodecTestFixture {
       size_t target_bitrate_kbps,
       double input_framerate_fps);
 
+  std::string GetCodecName(TaskQueueForTest* task_queue, bool is_encoder) const;
   void PrintSettings(TaskQueueForTest* task_queue) const;
 
   // Codecs.
@@ -91,6 +93,7 @@ class VideoCodecTestFixtureImpl : public VideoCodecTestFixture {
   VideoProcessor::VideoDecoderList decoders_;
 
   // Helper objects.
+  const Environment env_;
   Config config_;
   VideoCodecTestStatsImpl stats_;
   std::unique_ptr<FrameReader> source_frame_reader_;

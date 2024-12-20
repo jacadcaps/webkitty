@@ -8,28 +8,39 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include "rtc_base/ssl_stream_adapter.h"
+
 #include <algorithm>
 #include <memory>
 #include <set>
 #include <string>
 
+#include "absl/memory/memory.h"
+#include "absl/strings/string_view.h"
+#include "api/array_view.h"
+#include "api/task_queue/pending_task_safety_flag.h"
 #include "rtc_base/buffer_queue.h"
+#include "rtc_base/callback_list.h"
 #include "rtc_base/checks.h"
+#include "rtc_base/crypto_random.h"
 #include "rtc_base/gunit.h"
-#include "rtc_base/helpers.h"
 #include "rtc_base/memory/fifo_buffer.h"
 #include "rtc_base/memory_stream.h"
 #include "rtc_base/message_digest.h"
+#include "rtc_base/openssl_stream_adapter.h"
 #include "rtc_base/ssl_adapter.h"
 #include "rtc_base/ssl_identity.h"
-#include "rtc_base/ssl_stream_adapter.h"
 #include "rtc_base/stream.h"
 #include "test/field_trial.h"
+#include "test/gmock.h"
+#include "test/gtest.h"
 
 using ::testing::Combine;
+using ::testing::NotNull;
 using ::testing::tuple;
 using ::testing::Values;
 using ::testing::WithParamInterface;
+using ::webrtc::SafeTask;
 
 static const int kBlockSize = 4096;
 static const char kExporterLabel[] = "label";
@@ -139,27 +150,85 @@ static const char kCACert[] =
 
 class SSLStreamAdapterTestBase;
 
-class SSLDummyStreamBase : public rtc::StreamInterface,
-                           public sigslot::has_slots<> {
+// StreamWrapper is a middle layer between `stream`, which supports a single
+// event callback, and test classes in this file that need that event forwarded
+// to them. I.e. this class wraps a `stream` object that it delegates all calls
+// to, but for the event callback, `StreamWrapper` additionally provides support
+// for forwarding event notifications to test classes that call
+// `SubscribeStreamEvent()`.
+//
+// This is needed because in this file, tests connect both client and server
+// streams (SSLDummyStream) to the same underlying `stream` objects
+// (see CreateClientStream() and CreateServerStream()).
+class StreamWrapper : public rtc::StreamInterface {
  public:
-  SSLDummyStreamBase(SSLStreamAdapterTestBase* test,
-                     const std::string& side,
-                     rtc::StreamInterface* in,
-                     rtc::StreamInterface* out)
+  explicit StreamWrapper(std::unique_ptr<rtc::StreamInterface> stream)
+      : stream_(std::move(stream)) {
+    stream_->SetEventCallback([this](int events, int err) {
+      RTC_DCHECK_RUN_ON(&callback_sequence_);
+      callbacks_.Send(events, err);
+      FireEvent(events, err);
+    });
+  }
+
+  template <typename F>
+  void SubscribeStreamEvent(const void* removal_tag, F&& callback) {
+    callbacks_.AddReceiver(removal_tag, std::forward<F>(callback));
+  }
+
+  void UnsubscribeStreamEvent(const void* removal_tag) {
+    callbacks_.RemoveReceivers(removal_tag);
+  }
+
+  rtc::StreamState GetState() const override { return stream_->GetState(); }
+
+  void Close() override { stream_->Close(); }
+
+  rtc::StreamResult Read(rtc::ArrayView<uint8_t> buffer,
+                         size_t& read,
+                         int& error) override {
+    return stream_->Read(buffer, read, error);
+  }
+
+  rtc::StreamResult Write(rtc::ArrayView<const uint8_t> data,
+                          size_t& written,
+                          int& error) override {
+    return stream_->Write(data, written, error);
+  }
+
+ private:
+  const std::unique_ptr<rtc::StreamInterface> stream_;
+  webrtc::CallbackList<int, int> callbacks_;
+};
+
+class SSLDummyStream final : public rtc::StreamInterface {
+ public:
+  SSLDummyStream(SSLStreamAdapterTestBase* test,
+                 absl::string_view side,
+                 StreamWrapper* in,
+                 StreamWrapper* out)
       : test_base_(test), side_(side), in_(in), out_(out), first_packet_(true) {
-    in_->SignalEvent.connect(this, &SSLDummyStreamBase::OnEventIn);
-    out_->SignalEvent.connect(this, &SSLDummyStreamBase::OnEventOut);
+    RTC_CHECK(thread_);
+    RTC_CHECK_NE(in, out);
+    in_->SubscribeStreamEvent(
+        this, [this](int events, int err) { OnEventIn(events, err); });
+    out_->SubscribeStreamEvent(
+        this, [this](int events, int err) { OnEventOut(events, err); });
+  }
+
+  ~SSLDummyStream() override {
+    in_->UnsubscribeStreamEvent(this);
+    out_->UnsubscribeStreamEvent(this);
   }
 
   rtc::StreamState GetState() const override { return rtc::SS_OPEN; }
 
-  rtc::StreamResult Read(void* buffer,
-                         size_t buffer_len,
-                         size_t* read,
-                         int* error) override {
+  rtc::StreamResult Read(rtc::ArrayView<uint8_t> buffer,
+                         size_t& read,
+                         int& error) override {
     rtc::StreamResult r;
 
-    r = in_->Read(buffer, buffer_len, read, error);
+    r = in_->Read(buffer, read, error);
     if (r == rtc::SR_BLOCK)
       return rtc::SR_BLOCK;
     if (r == rtc::SR_EOS)
@@ -174,20 +243,20 @@ class SSLDummyStreamBase : public rtc::StreamInterface,
   }
 
   // Catch readability events on in and pass them up.
-  void OnEventIn(rtc::StreamInterface* stream, int sig, int err) {
+  void OnEventIn(int sig, int err) {
     int mask = (rtc::SE_READ | rtc::SE_CLOSE);
 
     if (sig & mask) {
-      RTC_LOG(LS_VERBOSE) << "SSLDummyStreamBase::OnEvent side=" << side_
+      RTC_LOG(LS_VERBOSE) << "SSLDummyStream::OnEventIn side=" << side_
                           << " sig=" << sig << " forwarding upward";
       PostEvent(sig & mask, 0);
     }
   }
 
   // Catch writeability events on out and pass them up.
-  void OnEventOut(rtc::StreamInterface* stream, int sig, int err) {
+  void OnEventOut(int sig, int err) {
     if (sig & rtc::SE_WRITE) {
-      RTC_LOG(LS_VERBOSE) << "SSLDummyStreamBase::OnEvent side=" << side_
+      RTC_LOG(LS_VERBOSE) << "SSLDummyStream::OnEventOut side=" << side_
                           << " sig=" << sig << " forwarding upward";
 
       PostEvent(sig & rtc::SE_WRITE, 0);
@@ -195,44 +264,42 @@ class SSLDummyStreamBase : public rtc::StreamInterface,
   }
 
   // Write to the outgoing FifoBuffer
-  rtc::StreamResult WriteData(const void* data,
-                              size_t data_len,
-                              size_t* written,
-                              int* error) {
-    return out_->Write(data, data_len, written, error);
+  rtc::StreamResult WriteData(rtc::ArrayView<const uint8_t> data,
+                              size_t& written,
+                              int& error) {
+    return out_->Write(data, written, error);
   }
 
-  rtc::StreamResult Write(const void* data,
-                          size_t data_len,
-                          size_t* written,
-                          int* error) override;
+  rtc::StreamResult Write(rtc::ArrayView<const uint8_t> data,
+                          size_t& written,
+                          int& error) override;
 
   void Close() override {
     RTC_LOG(LS_INFO) << "Closing outbound stream";
     out_->Close();
   }
 
- protected:
+ private:
+  void PostEvent(int events, int err) {
+    thread_->PostTask(SafeTask(task_safety_.flag(), [this, events, err]() {
+      RTC_DCHECK_RUN_ON(&callback_sequence_);
+      FireEvent(events, err);
+    }));
+  }
+
+  webrtc::ScopedTaskSafety task_safety_;
+  rtc::Thread* const thread_ = rtc::Thread::Current();
   SSLStreamAdapterTestBase* test_base_;
   const std::string side_;
-  rtc::StreamInterface* in_;
-  rtc::StreamInterface* out_;
+  StreamWrapper* const in_;
+  StreamWrapper* const out_;
   bool first_packet_;
 };
 
-class SSLDummyStreamTLS : public SSLDummyStreamBase {
- public:
-  SSLDummyStreamTLS(SSLStreamAdapterTestBase* test,
-                    const std::string& side,
-                    rtc::FifoBuffer* in,
-                    rtc::FifoBuffer* out)
-      : SSLDummyStreamBase(test, side, in, out) {}
-};
-
-class BufferQueueStream : public rtc::BufferQueue, public rtc::StreamInterface {
+class BufferQueueStream : public rtc::StreamInterface {
  public:
   BufferQueueStream(size_t capacity, size_t default_size)
-      : rtc::BufferQueue(capacity, default_size) {}
+      : buffer_(capacity, default_size) {}
 
   // Implementation of abstract StreamInterface methods.
 
@@ -240,24 +307,30 @@ class BufferQueueStream : public rtc::BufferQueue, public rtc::StreamInterface {
   rtc::StreamState GetState() const override { return rtc::SS_OPEN; }
 
   // Reading a buffer queue stream will either succeed or block.
-  rtc::StreamResult Read(void* buffer,
-                         size_t buffer_len,
-                         size_t* read,
-                         int* error) override {
-    if (!ReadFront(buffer, buffer_len, read)) {
+  rtc::StreamResult Read(rtc::ArrayView<uint8_t> buffer,
+                         size_t& read,
+                         int& error) override {
+    const bool was_writable = buffer_.is_writable();
+    if (!buffer_.ReadFront(buffer.data(), buffer.size(), &read))
       return rtc::SR_BLOCK;
-    }
+
+    if (!was_writable)
+      NotifyWritableForTest();
+
     return rtc::SR_SUCCESS;
   }
 
   // Writing to a buffer queue stream will either succeed or block.
-  rtc::StreamResult Write(const void* data,
-                          size_t data_len,
-                          size_t* written,
-                          int* error) override {
-    if (!WriteBack(data, data_len, written)) {
+  rtc::StreamResult Write(rtc::ArrayView<const uint8_t> data,
+                          size_t& written,
+                          int& error) override {
+    const bool was_readable = buffer_.is_readable();
+    if (!buffer_.WriteBack(data.data(), data.size(), &written))
       return rtc::SR_BLOCK;
-    }
+
+    if (!was_readable)
+      NotifyReadableForTest();
+
     return rtc::SR_SUCCESS;
   }
 
@@ -265,18 +338,20 @@ class BufferQueueStream : public rtc::BufferQueue, public rtc::StreamInterface {
   void Close() override {}
 
  protected:
-  void NotifyReadableForTest() override { PostEvent(rtc::SE_READ, 0); }
+  void NotifyReadableForTest() { PostEvent(rtc::SE_READ, 0); }
+  void NotifyWritableForTest() { PostEvent(rtc::SE_WRITE, 0); }
 
-  void NotifyWritableForTest() override { PostEvent(rtc::SE_WRITE, 0); }
-};
+ private:
+  void PostEvent(int events, int err) {
+    thread_->PostTask(SafeTask(task_safety_.flag(), [this, events, err]() {
+      RTC_DCHECK_RUN_ON(&callback_sequence_);
+      FireEvent(events, err);
+    }));
+  }
 
-class SSLDummyStreamDTLS : public SSLDummyStreamBase {
- public:
-  SSLDummyStreamDTLS(SSLStreamAdapterTestBase* test,
-                     const std::string& side,
-                     BufferQueueStream* in,
-                     BufferQueueStream* out)
-      : SSLDummyStreamBase(test, side, in, out) {}
+  rtc::Thread* const thread_ = rtc::Thread::Current();
+  webrtc::ScopedTaskSafety task_safety_;
+  rtc::BufferQueue buffer_;
 };
 
 static const int kFifoBufferSize = 4096;
@@ -287,8 +362,8 @@ class SSLStreamAdapterTestBase : public ::testing::Test,
                                  public sigslot::has_slots<> {
  public:
   SSLStreamAdapterTestBase(
-      const std::string& client_cert_pem,
-      const std::string& client_private_key_pem,
+      absl::string_view client_cert_pem,
+      absl::string_view client_private_key_pem,
       bool dtls,
       rtc::KeyParams client_key_type = rtc::KeyParams(rtc::KT_DEFAULT),
       rtc::KeyParams server_key_type = rtc::KeyParams(rtc::KT_DEFAULT))
@@ -296,10 +371,6 @@ class SSLStreamAdapterTestBase : public ::testing::Test,
         client_private_key_pem_(client_private_key_pem),
         client_key_type_(client_key_type),
         server_key_type_(server_key_type),
-        client_stream_(nullptr),
-        server_stream_(nullptr),
-        client_identity_(nullptr),
-        server_identity_(nullptr),
         delay_(0),
         mtu_(1460),
         loss_(0),
@@ -318,25 +389,19 @@ class SSLStreamAdapterTestBase : public ::testing::Test,
   }
 
   void SetUp() override {
-    CreateStreams();
+    InitializeClientAndServerStreams();
 
-    client_ssl_.reset(rtc::SSLStreamAdapter::Create(client_stream_));
-    server_ssl_.reset(rtc::SSLStreamAdapter::Create(server_stream_));
-
-    // Set up the slots
-    client_ssl_->SignalEvent.connect(this, &SSLStreamAdapterTestBase::OnEvent);
-    server_ssl_->SignalEvent.connect(this, &SSLStreamAdapterTestBase::OnEvent);
-
+    std::unique_ptr<rtc::SSLIdentity> client_identity;
     if (!client_cert_pem_.empty() && !client_private_key_pem_.empty()) {
-      client_identity_ = rtc::SSLIdentity::FromPEMStrings(
+      client_identity = rtc::SSLIdentity::CreateFromPEMStrings(
           client_private_key_pem_, client_cert_pem_);
     } else {
-      client_identity_ = rtc::SSLIdentity::Generate("client", client_key_type_);
+      client_identity = rtc::SSLIdentity::Create("client", client_key_type_);
     }
-    server_identity_ = rtc::SSLIdentity::Generate("server", server_key_type_);
+    auto server_identity = rtc::SSLIdentity::Create("server", server_key_type_);
 
-    client_ssl_->SetIdentity(client_identity_);
-    server_ssl_->SetIdentity(server_identity_);
+    client_ssl_->SetIdentity(std::move(client_identity));
+    server_ssl_->SetIdentity(std::move(server_identity));
   }
 
   void TearDown() override {
@@ -344,19 +409,40 @@ class SSLStreamAdapterTestBase : public ::testing::Test,
     server_ssl_.reset(nullptr);
   }
 
-  virtual void CreateStreams() = 0;
+  virtual std::unique_ptr<rtc::StreamInterface> CreateClientStream() = 0;
+  virtual std::unique_ptr<rtc::StreamInterface> CreateServerStream() = 0;
+
+  void InitializeClientAndServerStreams(
+      absl::string_view client_experiment = "",
+      absl::string_view server_experiment = "") {
+    // Note: `client_ssl_` and `server_ssl_` may be non-nullptr.
+
+    // The legacy TLS protocols flag is read when the OpenSSLStreamAdapter is
+    // initialized, so we set the field trials while constructing the adapters.
+    using webrtc::test::ScopedFieldTrials;
+    {
+      std::unique_ptr<ScopedFieldTrials> trial(
+          client_experiment.empty() ? nullptr
+                                    : new ScopedFieldTrials(client_experiment));
+      client_ssl_ = rtc::SSLStreamAdapter::Create(CreateClientStream());
+    }
+    {
+      std::unique_ptr<ScopedFieldTrials> trial(
+          server_experiment.empty() ? nullptr
+                                    : new ScopedFieldTrials(server_experiment));
+      server_ssl_ = rtc::SSLStreamAdapter::Create(CreateServerStream());
+    }
+    client_ssl_->SetEventCallback(
+        [this](int events, int err) { OnClientEvent(events, err); });
+    server_ssl_->SetEventCallback(
+        [this](int events, int err) { OnServerEvent(events, err); });
+  }
 
   // Recreate the client/server identities with the specified validity period.
-  // |not_before| and |not_after| are offsets from the current time in number
+  // `not_before` and `not_after` are offsets from the current time in number
   // of seconds.
   void ResetIdentitiesWithValidity(int not_before, int not_after) {
-    CreateStreams();
-
-    client_ssl_.reset(rtc::SSLStreamAdapter::Create(client_stream_));
-    server_ssl_.reset(rtc::SSLStreamAdapter::Create(server_stream_));
-
-    client_ssl_->SignalEvent.connect(this, &SSLStreamAdapterTestBase::OnEvent);
-    server_ssl_->SignalEvent.connect(this, &SSLStreamAdapterTestBase::OnEvent);
+    InitializeClientAndServerStreams();
 
     time_t now = time(nullptr);
 
@@ -365,29 +451,17 @@ class SSLStreamAdapterTestBase : public ::testing::Test,
     client_params.common_name = "client";
     client_params.not_before = now + not_before;
     client_params.not_after = now + not_after;
-    client_identity_ = rtc::SSLIdentity::GenerateForTest(client_params);
+    auto client_identity = rtc::SSLIdentity::CreateForTest(client_params);
 
     rtc::SSLIdentityParams server_params;
     server_params.key_params = rtc::KeyParams(rtc::KT_DEFAULT);
     server_params.common_name = "server";
     server_params.not_before = now + not_before;
     server_params.not_after = now + not_after;
-    server_identity_ = rtc::SSLIdentity::GenerateForTest(server_params);
+    auto server_identity = rtc::SSLIdentity::CreateForTest(server_params);
 
-    client_ssl_->SetIdentity(client_identity_);
-    server_ssl_->SetIdentity(server_identity_);
-  }
-
-  virtual void OnEvent(rtc::StreamInterface* stream, int sig, int err) {
-    RTC_LOG(LS_VERBOSE) << "SSLStreamAdapterTestBase::OnEvent sig=" << sig;
-
-    if (sig & rtc::SE_READ) {
-      ReadData(stream);
-    }
-
-    if ((stream == client_ssl_.get()) && (sig & rtc::SE_WRITE)) {
-      WriteData();
-    }
+    client_ssl_->SetIdentity(std::move(client_identity));
+    server_ssl_->SetIdentity(std::move(server_identity));
   }
 
   void SetPeerIdentitiesByDigest(bool correct, bool expect_success) {
@@ -404,10 +478,10 @@ class SSLStreamAdapterTestBase : public ::testing::Test,
 
     RTC_LOG(LS_INFO) << "Setting peer identities by digest";
 
-    rv = server_identity_->certificate().ComputeDigest(
+    rv = server_identity()->certificate().ComputeDigest(
         rtc::DIGEST_SHA_1, server_digest, 20, &server_digest_len);
     ASSERT_TRUE(rv);
-    rv = client_identity_->certificate().ComputeDigest(
+    rv = client_identity()->certificate().ComputeDigest(
         rtc::DIGEST_SHA_1, client_digest, 20, &client_digest_len);
     ASSERT_TRUE(rv);
 
@@ -475,8 +549,52 @@ class SSLStreamAdapterTestBase : public ::testing::Test,
     }
   }
 
-  // This tests that the handshake can complete before the identity is
-  // verified, and the identity will be verified after the fact.
+  // This tests that we give up after 12 DTLS resends.
+  void TestHandshakeTimeout() {
+    rtc::ScopedFakeClock clock;
+    int64_t time_start = clock.TimeNanos();
+    webrtc::TimeDelta time_increment = webrtc::TimeDelta::Millis(1000);
+    server_ssl_->SetMode(dtls_ ? rtc::SSL_MODE_DTLS : rtc::SSL_MODE_TLS);
+    client_ssl_->SetMode(dtls_ ? rtc::SSL_MODE_DTLS : rtc::SSL_MODE_TLS);
+
+    if (!dtls_) {
+      // Make sure we simulate a reliable network for TLS.
+      // This is just a check to make sure that people don't write wrong
+      // tests.
+      RTC_CHECK_EQ(1460, mtu_);
+      RTC_CHECK(!loss_);
+      RTC_CHECK(!lose_first_packet_);
+    }
+
+    if (!identities_set_)
+      SetPeerIdentitiesByDigest(true, true);
+
+    // Start the handshake
+    int rv;
+
+    server_ssl_->SetServerRole();
+    rv = server_ssl_->StartSSL();
+    ASSERT_EQ(0, rv);
+
+    rv = client_ssl_->StartSSL();
+    ASSERT_EQ(0, rv);
+
+    // Now wait for the handshake to timeout (or fail after an hour of simulated
+    // time).
+    while (client_ssl_->GetState() == rtc::SS_OPENING &&
+           (rtc::TimeDiff(clock.TimeNanos(), time_start) <
+            3600 * rtc::kNumNanosecsPerSec)) {
+      EXPECT_TRUE_WAIT(!((client_ssl_->GetState() == rtc::SS_OPEN) &&
+                         (server_ssl_->GetState() == rtc::SS_OPEN)),
+                       1000);
+      clock.AdvanceTime(time_increment);
+    }
+    RTC_CHECK_EQ(client_ssl_->GetState(), rtc::SS_CLOSED);
+  }
+
+  // This tests that the handshake can complete before the identity is verified,
+  // and the identity will be verified after the fact. It also verifies that
+  // packets can't be read or written before the identity has been verified.
   void TestHandshakeWithDelayedIdentity(bool valid_identity) {
     server_ssl_->SetMode(dtls_ ? rtc::SSL_MODE_DTLS : rtc::SSL_MODE_TLS);
     client_ssl_->SetMode(dtls_ ? rtc::SSL_MODE_DTLS : rtc::SSL_MODE_TLS);
@@ -491,14 +609,9 @@ class SSLStreamAdapterTestBase : public ::testing::Test,
     }
 
     // Start the handshake
-    int rv;
-
     server_ssl_->SetServerRole();
-    rv = server_ssl_->StartSSL();
-    ASSERT_EQ(0, rv);
-
-    rv = client_ssl_->StartSSL();
-    ASSERT_EQ(0, rv);
+    ASSERT_EQ(0, server_ssl_->StartSSL());
+    ASSERT_EQ(0, client_ssl_->StartSSL());
 
     // Now run the handshake.
     EXPECT_TRUE_WAIT(
@@ -509,39 +622,86 @@ class SSLStreamAdapterTestBase : public ::testing::Test,
     // SS_OPENING and writes should return SR_BLOCK.
     EXPECT_EQ(rtc::SS_OPENING, client_ssl_->GetState());
     EXPECT_EQ(rtc::SS_OPENING, server_ssl_->GetState());
-    unsigned char packet[1];
+    uint8_t packet[1];
     size_t sent;
-    EXPECT_EQ(rtc::SR_BLOCK, client_ssl_->Write(&packet, 1, &sent, 0));
-    EXPECT_EQ(rtc::SR_BLOCK, server_ssl_->Write(&packet, 1, &sent, 0));
+    int error;
+    EXPECT_EQ(rtc::SR_BLOCK, client_ssl_->Write(packet, sent, error));
+    EXPECT_EQ(rtc::SR_BLOCK, server_ssl_->Write(packet, sent, error));
 
-    // If we set an invalid identity at this point, SetPeerCertificateDigest
-    // should return false.
-    SetPeerIdentitiesByDigest(valid_identity, valid_identity);
+    // Collect both of the certificate digests; needs to be done before calling
+    // SetPeerCertificateDigest as that may reset the identity.
+    unsigned char server_digest[20];
+    size_t server_digest_len;
+    unsigned char client_digest[20];
+    size_t client_digest_len;
+    bool rv;
+
+    ASSERT_THAT(server_identity(), NotNull());
+    rv = server_identity()->certificate().ComputeDigest(
+        rtc::DIGEST_SHA_1, server_digest, 20, &server_digest_len);
+    ASSERT_TRUE(rv);
+
+    ASSERT_THAT(client_identity(), NotNull());
+    rv = client_identity()->certificate().ComputeDigest(
+        rtc::DIGEST_SHA_1, client_digest, 20, &client_digest_len);
+    ASSERT_TRUE(rv);
+
+    if (!valid_identity) {
+      RTC_LOG(LS_INFO) << "Setting bogus digest for client/server certs";
+      client_digest[0]++;
+      server_digest[0]++;
+    }
+
+    // Set the peer certificate digest for the client.
+    rtc::SSLPeerCertificateDigestError err;
+    rtc::SSLPeerCertificateDigestError expected_err =
+        valid_identity
+            ? rtc::SSLPeerCertificateDigestError::NONE
+            : rtc::SSLPeerCertificateDigestError::VERIFICATION_FAILED;
+    rv = client_ssl_->SetPeerCertificateDigest(rtc::DIGEST_SHA_1, server_digest,
+                                               server_digest_len, &err);
+    EXPECT_EQ(expected_err, err);
+    EXPECT_EQ(valid_identity, rv);
     // State should then transition to SS_OPEN or SS_CLOSED based on validation
     // of the identity.
     if (valid_identity) {
       EXPECT_EQ(rtc::SS_OPEN, client_ssl_->GetState());
-      EXPECT_EQ(rtc::SS_OPEN, server_ssl_->GetState());
+      // If the client sends a packet while the server still hasn't verified the
+      // client identity, the server should continue to return SR_BLOCK.
+      int error;
+      EXPECT_EQ(rtc::SR_SUCCESS, client_ssl_->Write(packet, sent, error));
+      size_t read;
+      EXPECT_EQ(rtc::SR_BLOCK, server_ssl_->Read(packet, read, error));
     } else {
       EXPECT_EQ(rtc::SS_CLOSED, client_ssl_->GetState());
+    }
+
+    // Set the peer certificate digest for the server.
+    rv = server_ssl_->SetPeerCertificateDigest(rtc::DIGEST_SHA_1, client_digest,
+                                               client_digest_len, &err);
+    EXPECT_EQ(expected_err, err);
+    EXPECT_EQ(valid_identity, rv);
+    if (valid_identity) {
+      EXPECT_EQ(rtc::SS_OPEN, server_ssl_->GetState());
+    } else {
       EXPECT_EQ(rtc::SS_CLOSED, server_ssl_->GetState());
     }
   }
 
-  rtc::StreamResult DataWritten(SSLDummyStreamBase* from,
+  rtc::StreamResult DataWritten(SSLDummyStream* from,
                                 const void* data,
                                 size_t data_len,
-                                size_t* written,
-                                int* error) {
+                                size_t& written,
+                                int& error) {
     // Randomly drop loss_ percent of packets
     if (rtc::CreateRandomId() % 100 < static_cast<uint32_t>(loss_)) {
       RTC_LOG(LS_VERBOSE) << "Randomly dropping packet, size=" << data_len;
-      *written = data_len;
+      written = data_len;
       return rtc::SR_SUCCESS;
     }
     if (dtls_ && (data_len > mtu_)) {
       RTC_LOG(LS_VERBOSE) << "Dropping packet > mtu, size=" << data_len;
-      *written = data_len;
+      written = data_len;
       return rtc::SR_SUCCESS;
     }
 
@@ -549,17 +709,19 @@ class SSLStreamAdapterTestBase : public ::testing::Test,
     // handshake packets and we damage the last byte to keep the header
     // intact but break the MAC.
     if (damage_ && (*static_cast<const unsigned char*>(data) == 23)) {
-      std::vector<char> buf(data_len);
+      std::vector<uint8_t> buf(data_len);
 
       RTC_LOG(LS_VERBOSE) << "Damaging packet";
 
       memcpy(&buf[0], data, data_len);
       buf[data_len - 1]++;
-
-      return from->WriteData(&buf[0], data_len, written, error);
+      return from->WriteData(rtc::MakeArrayView(&buf[0], data_len), written,
+                             error);
     }
 
-    return from->WriteData(data, data_len, written, error);
+    return from->WriteData(
+        rtc::MakeArrayView(reinterpret_cast<const uint8_t*>(data), data_len),
+        written, error);
   }
 
   void SetDelay(int delay) { delay_ = delay; }
@@ -606,14 +768,14 @@ class SSLStreamAdapterTestBase : public ::testing::Test,
       return server_ssl_->GetSslCipherSuite(retval);
   }
 
-  int GetSslVersion(bool client) {
+  bool GetSslVersionBytes(bool client, int* version) {
     if (client)
-      return client_ssl_->GetSslVersion();
+      return client_ssl_->GetSslVersionBytes(version);
     else
-      return server_ssl_->GetSslVersion();
+      return server_ssl_->GetSslVersionBytes(version);
   }
 
-  bool ExportKeyingMaterial(const char* label,
+  bool ExportKeyingMaterial(absl::string_view label,
                             const unsigned char* context,
                             size_t context_len,
                             bool use_context,
@@ -633,17 +795,49 @@ class SSLStreamAdapterTestBase : public ::testing::Test,
   virtual void ReadData(rtc::StreamInterface* stream) = 0;
   virtual void TestTransfer(int size) = 0;
 
+ private:
+  void OnClientEvent(int sig, int err) {
+    RTC_LOG(LS_VERBOSE) << "SSLStreamAdapterTestBase::OnClientEvent sig="
+                        << sig;
+
+    if (sig & rtc::SE_READ) {
+      ReadData(client_ssl_.get());
+    }
+
+    if (sig & rtc::SE_WRITE) {
+      WriteData();
+    }
+  }
+
+  void OnServerEvent(int sig, int err) {
+    RTC_LOG(LS_VERBOSE) << "SSLStreamAdapterTestBase::OnServerEvent sig="
+                        << sig;
+    if (sig & rtc::SE_READ) {
+      ReadData(server_ssl_.get());
+    }
+  }
+
  protected:
+  rtc::SSLIdentity* client_identity() const {
+    if (!client_ssl_) {
+      return nullptr;
+    }
+    return client_ssl_->GetIdentityForTesting();
+  }
+  rtc::SSLIdentity* server_identity() const {
+    if (!server_ssl_) {
+      return nullptr;
+    }
+    return server_ssl_->GetIdentityForTesting();
+  }
+
+  rtc::AutoThread main_thread_;
   std::string client_cert_pem_;
   std::string client_private_key_pem_;
   rtc::KeyParams client_key_type_;
   rtc::KeyParams server_key_type_;
-  SSLDummyStreamBase* client_stream_;  // freed by client_ssl_ destructor
-  SSLDummyStreamBase* server_stream_;  // freed by server_ssl_ destructor
   std::unique_ptr<rtc::SSLStreamAdapter> client_ssl_;
   std::unique_ptr<rtc::SSLStreamAdapter> server_ssl_;
-  rtc::SSLIdentity* client_identity_;  // freed by client_ssl_ destructor
-  rtc::SSLIdentity* server_identity_;  // freed by server_ssl_ destructor
   int delay_;
   size_t mtu_;
   int loss_;
@@ -663,15 +857,16 @@ class SSLStreamAdapterTestTLS
                                  "",
                                  false,
                                  ::testing::get<0>(GetParam()),
-                                 ::testing::get<1>(GetParam())),
-        client_buffer_(kFifoBufferSize),
-        server_buffer_(kFifoBufferSize) {}
+                                 ::testing::get<1>(GetParam())) {}
 
-  void CreateStreams() override {
-    client_stream_ =
-        new SSLDummyStreamTLS(this, "c2s", &client_buffer_, &server_buffer_);
-    server_stream_ =
-        new SSLDummyStreamTLS(this, "s2c", &server_buffer_, &client_buffer_);
+  std::unique_ptr<rtc::StreamInterface> CreateClientStream() override final {
+    return absl::WrapUnique(
+        new SSLDummyStream(this, "c2s", &client_buffer_, &server_buffer_));
+  }
+
+  std::unique_ptr<rtc::StreamInterface> CreateServerStream() override final {
+    return absl::WrapUnique(
+        new SSLDummyStream(this, "s2c", &server_buffer_, &client_buffer_));
   }
 
   // Test data transfer for TLS
@@ -682,8 +877,10 @@ class SSLStreamAdapterTestTLS
 
     send_stream_.ReserveSize(size);
     for (int i = 0; i < size; ++i) {
-      char ch = static_cast<char>(i);
-      send_stream_.Write(&ch, 1, nullptr, nullptr);
+      uint8_t ch = static_cast<uint8_t>(i);
+      size_t written;
+      int error;
+      send_stream_.Write(rtc::MakeArrayView(&ch, 1), written, error);
     }
     send_stream_.Rewind();
 
@@ -708,7 +905,7 @@ class SSLStreamAdapterTestTLS
     size_t position, tosend, size;
     rtc::StreamResult rv;
     size_t sent;
-    char block[kBlockSize];
+    uint8_t block[kBlockSize];
 
     send_stream_.GetSize(&size);
     if (!size)
@@ -716,9 +913,10 @@ class SSLStreamAdapterTestTLS
 
     for (;;) {
       send_stream_.GetPosition(&position);
-      if (send_stream_.Read(block, sizeof(block), &tosend, nullptr) !=
-          rtc::SR_EOS) {
-        rv = client_ssl_->Write(block, tosend, &sent, 0);
+      int dummy_error;
+      if (send_stream_.Read(block, tosend, dummy_error) != rtc::SR_EOS) {
+        int error;
+        rv = client_ssl_->Write(rtc::MakeArrayView(block, tosend), sent, error);
 
         if (rv == rtc::SR_SUCCESS) {
           send_stream_.SetPosition(position + sent);
@@ -740,14 +938,14 @@ class SSLStreamAdapterTestTLS
     }
   }
 
-  void ReadData(rtc::StreamInterface* stream) override {
-    char buffer[1600];
+  void ReadData(rtc::StreamInterface* stream) override final {
+    uint8_t buffer[1600];
     size_t bread;
     int err2;
     rtc::StreamResult r;
 
     for (;;) {
-      r = stream->Read(buffer, sizeof(buffer), &bread, &err2);
+      r = stream->Read(buffer, bread, err2);
 
       if (r == rtc::SR_ERROR || r == rtc::SR_EOS) {
         // Unfortunately, errors are the way that the stream adapter
@@ -761,14 +959,17 @@ class SSLStreamAdapterTestTLS
 
       ASSERT_EQ(rtc::SR_SUCCESS, r);
       RTC_LOG(LS_VERBOSE) << "Read " << bread;
-
-      recv_stream_.Write(buffer, bread, nullptr, nullptr);
+      size_t written;
+      int error;
+      recv_stream_.Write(rtc::MakeArrayView(buffer, bread), written, error);
     }
   }
 
  private:
-  rtc::FifoBuffer client_buffer_;
-  rtc::FifoBuffer server_buffer_;
+  StreamWrapper client_buffer_{
+      std::make_unique<rtc::FifoBuffer>(kFifoBufferSize)};
+  StreamWrapper server_buffer_{
+      std::make_unique<rtc::FifoBuffer>(kFifoBufferSize)};
   rtc::MemoryStream send_stream_;
   rtc::MemoryStream recv_stream_;
 };
@@ -777,30 +978,29 @@ class SSLStreamAdapterTestDTLSBase : public SSLStreamAdapterTestBase {
  public:
   SSLStreamAdapterTestDTLSBase(rtc::KeyParams param1, rtc::KeyParams param2)
       : SSLStreamAdapterTestBase("", "", true, param1, param2),
-        client_buffer_(kBufferCapacity, kDefaultBufferSize),
-        server_buffer_(kBufferCapacity, kDefaultBufferSize),
         packet_size_(1000),
         count_(0),
         sent_(0) {}
 
-  SSLStreamAdapterTestDTLSBase(const std::string& cert_pem,
-                               const std::string& private_key_pem)
+  SSLStreamAdapterTestDTLSBase(absl::string_view cert_pem,
+                               absl::string_view private_key_pem)
       : SSLStreamAdapterTestBase(cert_pem, private_key_pem, true),
-        client_buffer_(kBufferCapacity, kDefaultBufferSize),
-        server_buffer_(kBufferCapacity, kDefaultBufferSize),
         packet_size_(1000),
         count_(0),
         sent_(0) {}
 
-  void CreateStreams() override {
-    client_stream_ =
-        new SSLDummyStreamDTLS(this, "c2s", &client_buffer_, &server_buffer_);
-    server_stream_ =
-        new SSLDummyStreamDTLS(this, "s2c", &server_buffer_, &client_buffer_);
+  std::unique_ptr<rtc::StreamInterface> CreateClientStream() override final {
+    return absl::WrapUnique(
+        new SSLDummyStream(this, "c2s", &client_buffer_, &server_buffer_));
+  }
+
+  std::unique_ptr<rtc::StreamInterface> CreateServerStream() override final {
+    return absl::WrapUnique(
+        new SSLDummyStream(this, "s2c", &server_buffer_, &client_buffer_));
   }
 
   void WriteData() override {
-    unsigned char* packet = new unsigned char[1600];
+    uint8_t* packet = new uint8_t[1600];
 
     while (sent_ < count_) {
       unsigned int rand_state = sent_;
@@ -812,7 +1012,9 @@ class SSLStreamAdapterTestDTLSBase : public SSLStreamAdapterTestBase {
       }
 
       size_t sent;
-      rtc::StreamResult rv = client_ssl_->Write(packet, packet_size_, &sent, 0);
+      int error;
+      rtc::StreamResult rv = client_ssl_->Write(
+          rtc::MakeArrayView(packet, packet_size_), sent, error);
       if (rv == rtc::SR_SUCCESS) {
         RTC_LOG(LS_VERBOSE) << "Sent: " << sent_;
         sent_++;
@@ -828,14 +1030,14 @@ class SSLStreamAdapterTestDTLSBase : public SSLStreamAdapterTestBase {
     delete[] packet;
   }
 
-  void ReadData(rtc::StreamInterface* stream) override {
-    unsigned char buffer[2000];
+  void ReadData(rtc::StreamInterface* stream) override final {
+    uint8_t buffer[2000];
     size_t bread;
     int err2;
     rtc::StreamResult r;
 
     for (;;) {
-      r = stream->Read(buffer, 2000, &bread, &err2);
+      r = stream->Read(buffer, bread, err2);
 
       if (r == rtc::SR_ERROR) {
         // Unfortunately, errors are the way that the stream adapter
@@ -884,8 +1086,10 @@ class SSLStreamAdapterTestDTLSBase : public SSLStreamAdapterTestBase {
   }
 
  protected:
-  BufferQueueStream client_buffer_;
-  BufferQueueStream server_buffer_;
+  StreamWrapper client_buffer_{
+      std::make_unique<BufferQueueStream>(kBufferCapacity, kDefaultBufferSize)};
+  StreamWrapper server_buffer_{
+      std::make_unique<BufferQueueStream>(kBufferCapacity, kDefaultBufferSize)};
 
  private:
   size_t packet_size_;
@@ -902,27 +1106,27 @@ class SSLStreamAdapterTestDTLS
       : SSLStreamAdapterTestDTLSBase(::testing::get<0>(GetParam()),
                                      ::testing::get<1>(GetParam())) {}
 
-  SSLStreamAdapterTestDTLS(const std::string& cert_pem,
-                           const std::string& private_key_pem)
+  SSLStreamAdapterTestDTLS(absl::string_view cert_pem,
+                           absl::string_view private_key_pem)
       : SSLStreamAdapterTestDTLSBase(cert_pem, private_key_pem) {}
 };
 
-rtc::StreamResult SSLDummyStreamBase::Write(const void* data,
-                                            size_t data_len,
-                                            size_t* written,
-                                            int* error) {
-  RTC_LOG(LS_VERBOSE) << "Writing to loopback " << data_len;
+rtc::StreamResult SSLDummyStream::Write(rtc::ArrayView<const uint8_t> data,
+                                        size_t& written,
+                                        int& error) {
+  RTC_LOG(LS_VERBOSE) << "Writing to loopback " << data.size();
 
   if (first_packet_) {
     first_packet_ = false;
     if (test_base_->GetLoseFirstPacket()) {
-      RTC_LOG(LS_INFO) << "Losing initial packet of length " << data_len;
-      *written = data_len;  // Fake successful writing also to writer.
+      RTC_LOG(LS_INFO) << "Losing initial packet of length " << data.size();
+      written = data.size();  // Fake successful writing also to writer.
       return rtc::SR_SUCCESS;
     }
   }
 
-  return test_base_->DataWritten(this, data, data_len, written, error);
+  return test_base_->DataWritten(this, data.data(), data.size(), written,
+                                 error);
 }
 
 class SSLStreamAdapterTestDTLSFromPEMStrings : public SSLStreamAdapterTestDTLS {
@@ -937,27 +1141,17 @@ class SSLStreamAdapterTestDTLSCertChain : public SSLStreamAdapterTestDTLS {
  public:
   SSLStreamAdapterTestDTLSCertChain() : SSLStreamAdapterTestDTLS("", "") {}
   void SetUp() override {
-    CreateStreams();
+    InitializeClientAndServerStreams();
 
-    client_ssl_.reset(rtc::SSLStreamAdapter::Create(client_stream_));
-    server_ssl_.reset(rtc::SSLStreamAdapter::Create(server_stream_));
-
-    // Set up the slots
-    client_ssl_->SignalEvent.connect(
-        reinterpret_cast<SSLStreamAdapterTestBase*>(this),
-        &SSLStreamAdapterTestBase::OnEvent);
-    server_ssl_->SignalEvent.connect(
-        reinterpret_cast<SSLStreamAdapterTestBase*>(this),
-        &SSLStreamAdapterTestBase::OnEvent);
-
+    std::unique_ptr<rtc::SSLIdentity> client_identity;
     if (!client_cert_pem_.empty() && !client_private_key_pem_.empty()) {
-      client_identity_ = rtc::SSLIdentity::FromPEMStrings(
+      client_identity = rtc::SSLIdentity::CreateFromPEMStrings(
           client_private_key_pem_, client_cert_pem_);
     } else {
-      client_identity_ = rtc::SSLIdentity::Generate("client", client_key_type_);
+      client_identity = rtc::SSLIdentity::Create("client", client_key_type_);
     }
 
-    client_ssl_->SetIdentity(client_identity_);
+    client_ssl_->SetIdentity(std::move(client_identity));
   }
 };
 
@@ -975,49 +1169,57 @@ TEST_P(SSLStreamAdapterTestTLS, GetPeerCertChainWithOneCertificate) {
   ASSERT_NE(nullptr, cert_chain);
   EXPECT_EQ(1u, cert_chain->GetSize());
   EXPECT_EQ(cert_chain->Get(0).ToPEMString(),
-            server_identity_->certificate().ToPEMString());
+            server_identity()->certificate().ToPEMString());
 }
 
 TEST_F(SSLStreamAdapterTestDTLSCertChain, TwoCertHandshake) {
-  server_identity_ = rtc::SSLIdentity::FromPEMChainStrings(
+  auto server_identity = rtc::SSLIdentity::CreateFromPEMChainStrings(
       kRSA_PRIVATE_KEY_PEM, std::string(kCERT_PEM) + kCACert);
-  server_ssl_->SetIdentity(server_identity_);
+  server_ssl_->SetIdentity(std::move(server_identity));
   TestHandshake();
   std::unique_ptr<rtc::SSLCertChain> peer_cert_chain =
       client_ssl_->GetPeerSSLCertChain();
   ASSERT_NE(nullptr, peer_cert_chain);
-  ASSERT_EQ(2u, peer_cert_chain->GetSize());
   EXPECT_EQ(kCERT_PEM, peer_cert_chain->Get(0).ToPEMString());
+  // TODO(bugs.webrtc.org/15153): Fix peer_cert_chain to return multiple
+  // certificates under OpenSSL. Today it only works with BoringSSL.
+#ifdef OPENSSL_IS_BORINGSSL
+  ASSERT_EQ(2u, peer_cert_chain->GetSize());
   EXPECT_EQ(kCACert, peer_cert_chain->Get(1).ToPEMString());
+#endif
 }
 
 TEST_F(SSLStreamAdapterTestDTLSCertChain, TwoCertHandshakeWithCopy) {
-  std::unique_ptr<rtc::SSLIdentity> identity(
-      rtc::SSLIdentity::FromPEMChainStrings(kRSA_PRIVATE_KEY_PEM,
-                                            std::string(kCERT_PEM) + kCACert));
-  server_identity_ = identity->GetReference();
-  server_ssl_->SetIdentity(server_identity_);
+  server_ssl_->SetIdentity(rtc::SSLIdentity::CreateFromPEMChainStrings(
+      kRSA_PRIVATE_KEY_PEM, std::string(kCERT_PEM) + kCACert));
   TestHandshake();
   std::unique_ptr<rtc::SSLCertChain> peer_cert_chain =
       client_ssl_->GetPeerSSLCertChain();
   ASSERT_NE(nullptr, peer_cert_chain);
-  ASSERT_EQ(2u, peer_cert_chain->GetSize());
   EXPECT_EQ(kCERT_PEM, peer_cert_chain->Get(0).ToPEMString());
+  // TODO(bugs.webrtc.org/15153): Fix peer_cert_chain to return multiple
+  // certificates under OpenSSL. Today it only works with BoringSSL.
+#ifdef OPENSSL_IS_BORINGSSL
+  ASSERT_EQ(2u, peer_cert_chain->GetSize());
   EXPECT_EQ(kCACert, peer_cert_chain->Get(1).ToPEMString());
+#endif
 }
 
 TEST_F(SSLStreamAdapterTestDTLSCertChain, ThreeCertHandshake) {
-  server_identity_ = rtc::SSLIdentity::FromPEMChainStrings(
-      kRSA_PRIVATE_KEY_PEM, std::string(kCERT_PEM) + kIntCert1 + kCACert);
-  server_ssl_->SetIdentity(server_identity_);
+  server_ssl_->SetIdentity(rtc::SSLIdentity::CreateFromPEMChainStrings(
+      kRSA_PRIVATE_KEY_PEM, std::string(kCERT_PEM) + kIntCert1 + kCACert));
   TestHandshake();
   std::unique_ptr<rtc::SSLCertChain> peer_cert_chain =
       client_ssl_->GetPeerSSLCertChain();
   ASSERT_NE(nullptr, peer_cert_chain);
-  ASSERT_EQ(3u, peer_cert_chain->GetSize());
   EXPECT_EQ(kCERT_PEM, peer_cert_chain->Get(0).ToPEMString());
+  // TODO(bugs.webrtc.org/15153): Fix peer_cert_chain to return multiple
+  // certificates under OpenSSL. Today it only works with BoringSSL.
+#ifdef OPENSSL_IS_BORINGSSL
+  ASSERT_EQ(3u, peer_cert_chain->GetSize());
   EXPECT_EQ(kIntCert1, peer_cert_chain->Get(1).ToPEMString());
   EXPECT_EQ(kCACert, peer_cert_chain->Get(2).ToPEMString());
+#endif
 }
 
 // Test that closing the connection on one side updates the other side.
@@ -1040,15 +1242,16 @@ TEST_P(SSLStreamAdapterTestTLS, ReadWriteAfterClose) {
   client_ssl_->Close();
 
   rtc::StreamResult rv;
-  char block[kBlockSize];
+  uint8_t block[kBlockSize];
   size_t dummy;
+  int error;
 
   // It's an error to write after closed.
-  rv = client_ssl_->Write(block, sizeof(block), &dummy, nullptr);
+  rv = client_ssl_->Write(block, dummy, error);
   ASSERT_EQ(rtc::SR_ERROR, rv);
 
   // But after closed read gives you EOS.
-  rv = client_ssl_->Read(block, sizeof(block), &dummy, nullptr);
+  rv = client_ssl_->Read(block, dummy, error);
   ASSERT_EQ(rtc::SR_EOS, rv);
 }
 
@@ -1075,7 +1278,7 @@ TEST_P(SSLStreamAdapterTestTLS,
   bool rv;
   rtc::SSLPeerCertificateDigestError err;
 
-  rv = server_identity_->certificate().ComputeDigest(
+  rv = server_identity()->certificate().ComputeDigest(
       rtc::DIGEST_SHA_1, server_digest, 20, &server_digest_len);
   ASSERT_TRUE(rv);
 
@@ -1093,7 +1296,7 @@ TEST_P(SSLStreamAdapterTestTLS, TestSetPeerCertificateDigestWithInvalidLength) {
   bool rv;
   rtc::SSLPeerCertificateDigestError err;
 
-  rv = server_identity_->certificate().ComputeDigest(
+  rv = server_identity()->certificate().ComputeDigest(
       rtc::DIGEST_SHA_1, server_digest, 20, &server_digest_len);
   ASSERT_TRUE(rv);
 
@@ -1135,6 +1338,12 @@ TEST_P(SSLStreamAdapterTestDTLS, DISABLED_TestDTLSConnectWithSmallMtu) {
   TestHandshake();
 }
 
+// Test a handshake with total loss and timing out.
+TEST_P(SSLStreamAdapterTestDTLS, TestDTLSConnectTimeout) {
+  SetLoss(100);
+  TestHandshakeTimeout();
+}
+
 // Test transfer -- trivial
 TEST_P(SSLStreamAdapterTestDTLS, TestDTLSTransfer) {
   TestHandshake();
@@ -1162,12 +1371,11 @@ TEST_P(SSLStreamAdapterTestDTLS, TestDTLSDelayedIdentityWithBogusDigest) {
   TestHandshakeWithDelayedIdentity(false);
 }
 
-// Test DTLS-SRTP with all high ciphers
-TEST_P(SSLStreamAdapterTestDTLS, TestDTLSSrtpHigh) {
-  std::vector<int> high;
-  high.push_back(rtc::SRTP_AES128_CM_SHA1_80);
-  SetDtlsSrtpCryptoSuites(high, true);
-  SetDtlsSrtpCryptoSuites(high, false);
+// Test DTLS-SRTP with SrtpAes128CmSha1_80
+TEST_P(SSLStreamAdapterTestDTLS, TestDTLSSrtpAes128CmSha1_80) {
+  const std::vector<int> crypto_suites = {rtc::kSrtpAes128CmSha1_80};
+  SetDtlsSrtpCryptoSuites(crypto_suites, true);
+  SetDtlsSrtpCryptoSuites(crypto_suites, false);
   TestHandshake();
 
   int client_cipher;
@@ -1176,15 +1384,14 @@ TEST_P(SSLStreamAdapterTestDTLS, TestDTLSSrtpHigh) {
   ASSERT_TRUE(GetDtlsSrtpCryptoSuite(false, &server_cipher));
 
   ASSERT_EQ(client_cipher, server_cipher);
-  ASSERT_EQ(client_cipher, rtc::SRTP_AES128_CM_SHA1_80);
+  ASSERT_EQ(client_cipher, rtc::kSrtpAes128CmSha1_80);
 }
 
-// Test DTLS-SRTP with all low ciphers
-TEST_P(SSLStreamAdapterTestDTLS, TestDTLSSrtpLow) {
-  std::vector<int> low;
-  low.push_back(rtc::SRTP_AES128_CM_SHA1_32);
-  SetDtlsSrtpCryptoSuites(low, true);
-  SetDtlsSrtpCryptoSuites(low, false);
+// Test DTLS-SRTP with SrtpAes128CmSha1_32
+TEST_P(SSLStreamAdapterTestDTLS, TestDTLSSrtpAes128CmSha1_32) {
+  const std::vector<int> crypto_suites = {rtc::kSrtpAes128CmSha1_32};
+  SetDtlsSrtpCryptoSuites(crypto_suites, true);
+  SetDtlsSrtpCryptoSuites(crypto_suites, false);
   TestHandshake();
 
   int client_cipher;
@@ -1193,17 +1400,13 @@ TEST_P(SSLStreamAdapterTestDTLS, TestDTLSSrtpLow) {
   ASSERT_TRUE(GetDtlsSrtpCryptoSuite(false, &server_cipher));
 
   ASSERT_EQ(client_cipher, server_cipher);
-  ASSERT_EQ(client_cipher, rtc::SRTP_AES128_CM_SHA1_32);
+  ASSERT_EQ(client_cipher, rtc::kSrtpAes128CmSha1_32);
 }
 
-// Test DTLS-SRTP with a mismatch -- should not converge
-TEST_P(SSLStreamAdapterTestDTLS, TestDTLSSrtpHighLow) {
-  std::vector<int> high;
-  high.push_back(rtc::SRTP_AES128_CM_SHA1_80);
-  std::vector<int> low;
-  low.push_back(rtc::SRTP_AES128_CM_SHA1_32);
-  SetDtlsSrtpCryptoSuites(high, true);
-  SetDtlsSrtpCryptoSuites(low, false);
+// Test DTLS-SRTP with incompatible cipher suites -- should not converge.
+TEST_P(SSLStreamAdapterTestDTLS, TestDTLSSrtpIncompatibleCipherSuites) {
+  SetDtlsSrtpCryptoSuites({rtc::kSrtpAes128CmSha1_80}, true);
+  SetDtlsSrtpCryptoSuites({rtc::kSrtpAes128CmSha1_32}, false);
   TestHandshake();
 
   int client_cipher;
@@ -1212,13 +1415,13 @@ TEST_P(SSLStreamAdapterTestDTLS, TestDTLSSrtpHighLow) {
   ASSERT_FALSE(GetDtlsSrtpCryptoSuite(false, &server_cipher));
 }
 
-// Test DTLS-SRTP with each side being mixed -- should select high
+// Test DTLS-SRTP with each side being mixed -- should select the stronger
+// cipher.
 TEST_P(SSLStreamAdapterTestDTLS, TestDTLSSrtpMixed) {
-  std::vector<int> mixed;
-  mixed.push_back(rtc::SRTP_AES128_CM_SHA1_80);
-  mixed.push_back(rtc::SRTP_AES128_CM_SHA1_32);
-  SetDtlsSrtpCryptoSuites(mixed, true);
-  SetDtlsSrtpCryptoSuites(mixed, false);
+  const std::vector<int> crypto_suites = {rtc::kSrtpAes128CmSha1_80,
+                                          rtc::kSrtpAes128CmSha1_32};
+  SetDtlsSrtpCryptoSuites(crypto_suites, true);
+  SetDtlsSrtpCryptoSuites(crypto_suites, false);
   TestHandshake();
 
   int client_cipher;
@@ -1227,15 +1430,14 @@ TEST_P(SSLStreamAdapterTestDTLS, TestDTLSSrtpMixed) {
   ASSERT_TRUE(GetDtlsSrtpCryptoSuite(false, &server_cipher));
 
   ASSERT_EQ(client_cipher, server_cipher);
-  ASSERT_EQ(client_cipher, rtc::SRTP_AES128_CM_SHA1_80);
+  ASSERT_EQ(client_cipher, rtc::kSrtpAes128CmSha1_80);
 }
 
-// Test DTLS-SRTP with all GCM-128 ciphers.
-TEST_P(SSLStreamAdapterTestDTLS, TestDTLSSrtpGCM128) {
-  std::vector<int> gcm128;
-  gcm128.push_back(rtc::SRTP_AEAD_AES_128_GCM);
-  SetDtlsSrtpCryptoSuites(gcm128, true);
-  SetDtlsSrtpCryptoSuites(gcm128, false);
+// Test DTLS-SRTP with SrtpAeadAes128Gcm.
+TEST_P(SSLStreamAdapterTestDTLS, TestDTLSSrtpAeadAes128Gcm) {
+  std::vector<int> crypto_suites = {rtc::kSrtpAeadAes128Gcm};
+  SetDtlsSrtpCryptoSuites(crypto_suites, true);
+  SetDtlsSrtpCryptoSuites(crypto_suites, false);
   TestHandshake();
 
   int client_cipher;
@@ -1244,15 +1446,14 @@ TEST_P(SSLStreamAdapterTestDTLS, TestDTLSSrtpGCM128) {
   ASSERT_TRUE(GetDtlsSrtpCryptoSuite(false, &server_cipher));
 
   ASSERT_EQ(client_cipher, server_cipher);
-  ASSERT_EQ(client_cipher, rtc::SRTP_AEAD_AES_128_GCM);
+  ASSERT_EQ(client_cipher, rtc::kSrtpAeadAes128Gcm);
 }
 
 // Test DTLS-SRTP with all GCM-256 ciphers.
 TEST_P(SSLStreamAdapterTestDTLS, TestDTLSSrtpGCM256) {
-  std::vector<int> gcm256;
-  gcm256.push_back(rtc::SRTP_AEAD_AES_256_GCM);
-  SetDtlsSrtpCryptoSuites(gcm256, true);
-  SetDtlsSrtpCryptoSuites(gcm256, false);
+  std::vector<int> crypto_suites = {rtc::kSrtpAeadAes256Gcm};
+  SetDtlsSrtpCryptoSuites(crypto_suites, true);
+  SetDtlsSrtpCryptoSuites(crypto_suites, false);
   TestHandshake();
 
   int client_cipher;
@@ -1261,17 +1462,13 @@ TEST_P(SSLStreamAdapterTestDTLS, TestDTLSSrtpGCM256) {
   ASSERT_TRUE(GetDtlsSrtpCryptoSuite(false, &server_cipher));
 
   ASSERT_EQ(client_cipher, server_cipher);
-  ASSERT_EQ(client_cipher, rtc::SRTP_AEAD_AES_256_GCM);
+  ASSERT_EQ(client_cipher, rtc::kSrtpAeadAes256Gcm);
 }
 
-// Test DTLS-SRTP with mixed GCM-128/-256 ciphers -- should not converge.
-TEST_P(SSLStreamAdapterTestDTLS, TestDTLSSrtpGCMMismatch) {
-  std::vector<int> gcm128;
-  gcm128.push_back(rtc::SRTP_AEAD_AES_128_GCM);
-  std::vector<int> gcm256;
-  gcm256.push_back(rtc::SRTP_AEAD_AES_256_GCM);
-  SetDtlsSrtpCryptoSuites(gcm128, true);
-  SetDtlsSrtpCryptoSuites(gcm256, false);
+// Test DTLS-SRTP with incompatbile GCM-128/-256 ciphers -- should not converge.
+TEST_P(SSLStreamAdapterTestDTLS, TestDTLSSrtpIncompatibleGcmCipherSuites) {
+  SetDtlsSrtpCryptoSuites({rtc::kSrtpAeadAes128Gcm}, true);
+  SetDtlsSrtpCryptoSuites({rtc::kSrtpAeadAes256Gcm}, false);
   TestHandshake();
 
   int client_cipher;
@@ -1282,11 +1479,10 @@ TEST_P(SSLStreamAdapterTestDTLS, TestDTLSSrtpGCMMismatch) {
 
 // Test DTLS-SRTP with both GCM-128/-256 ciphers -- should select GCM-256.
 TEST_P(SSLStreamAdapterTestDTLS, TestDTLSSrtpGCMMixed) {
-  std::vector<int> gcmBoth;
-  gcmBoth.push_back(rtc::SRTP_AEAD_AES_256_GCM);
-  gcmBoth.push_back(rtc::SRTP_AEAD_AES_128_GCM);
-  SetDtlsSrtpCryptoSuites(gcmBoth, true);
-  SetDtlsSrtpCryptoSuites(gcmBoth, false);
+  std::vector<int> crypto_suites = {rtc::kSrtpAeadAes256Gcm,
+                                    rtc::kSrtpAeadAes128Gcm};
+  SetDtlsSrtpCryptoSuites(crypto_suites, true);
+  SetDtlsSrtpCryptoSuites(crypto_suites, false);
   TestHandshake();
 
   int client_cipher;
@@ -1295,7 +1491,7 @@ TEST_P(SSLStreamAdapterTestDTLS, TestDTLSSrtpGCMMixed) {
   ASSERT_TRUE(GetDtlsSrtpCryptoSuite(false, &server_cipher));
 
   ASSERT_EQ(client_cipher, server_cipher);
-  ASSERT_EQ(client_cipher, rtc::SRTP_AEAD_AES_256_GCM);
+  ASSERT_EQ(client_cipher, rtc::kSrtpAeadAes256Gcm);
 }
 
 // Test SRTP cipher suite lengths.
@@ -1303,26 +1499,26 @@ TEST_P(SSLStreamAdapterTestDTLS, TestDTLSSrtpKeyAndSaltLengths) {
   int key_len;
   int salt_len;
 
-  ASSERT_FALSE(rtc::GetSrtpKeyAndSaltLengths(rtc::SRTP_INVALID_CRYPTO_SUITE,
+  ASSERT_FALSE(rtc::GetSrtpKeyAndSaltLengths(rtc::kSrtpInvalidCryptoSuite,
                                              &key_len, &salt_len));
 
-  ASSERT_TRUE(rtc::GetSrtpKeyAndSaltLengths(rtc::SRTP_AES128_CM_SHA1_32,
-                                            &key_len, &salt_len));
+  ASSERT_TRUE(rtc::GetSrtpKeyAndSaltLengths(rtc::kSrtpAes128CmSha1_32, &key_len,
+                                            &salt_len));
   ASSERT_EQ(128 / 8, key_len);
   ASSERT_EQ(112 / 8, salt_len);
 
-  ASSERT_TRUE(rtc::GetSrtpKeyAndSaltLengths(rtc::SRTP_AES128_CM_SHA1_80,
-                                            &key_len, &salt_len));
+  ASSERT_TRUE(rtc::GetSrtpKeyAndSaltLengths(rtc::kSrtpAes128CmSha1_80, &key_len,
+                                            &salt_len));
   ASSERT_EQ(128 / 8, key_len);
   ASSERT_EQ(112 / 8, salt_len);
 
-  ASSERT_TRUE(rtc::GetSrtpKeyAndSaltLengths(rtc::SRTP_AEAD_AES_128_GCM,
-                                            &key_len, &salt_len));
+  ASSERT_TRUE(rtc::GetSrtpKeyAndSaltLengths(rtc::kSrtpAeadAes128Gcm, &key_len,
+                                            &salt_len));
   ASSERT_EQ(128 / 8, key_len);
   ASSERT_EQ(96 / 8, salt_len);
 
-  ASSERT_TRUE(rtc::GetSrtpKeyAndSaltLengths(rtc::SRTP_AEAD_AES_256_GCM,
-                                            &key_len, &salt_len));
+  ASSERT_TRUE(rtc::GetSrtpKeyAndSaltLengths(rtc::kSrtpAeadAes256Gcm, &key_len,
+                                            &salt_len));
   ASSERT_EQ(256 / 8, key_len);
   ASSERT_EQ(96 / 8, salt_len);
 }
@@ -1395,9 +1591,25 @@ TEST_F(SSLStreamAdapterTestDTLSFromPEMStrings, TestDTLSGetPeerCertificate) {
   ASSERT_EQ(kCERT_PEM, server_peer_cert->ToPEMString());
 }
 
-// Test getting the used DTLS 1.2 ciphers.
-// DTLS 1.2 enabled for client and server -> DTLS 1.2 will be used.
-TEST_P(SSLStreamAdapterTestDTLS, TestGetSslCipherSuiteDtls12Both) {
+// Test getting the DTLS 1.2 version.
+TEST_P(SSLStreamAdapterTestDTLS, TestGetSslVersionBytes) {
+  // https://datatracker.ietf.org/doc/html/rfc9147#section-5.3
+  const int kDtls1_2 = 0xFEFD;
+  SetupProtocolVersions(rtc::SSL_PROTOCOL_DTLS_12, rtc::SSL_PROTOCOL_DTLS_12);
+  TestHandshake();
+
+  int client_version;
+  ASSERT_TRUE(GetSslVersionBytes(true, &client_version));
+  EXPECT_EQ(client_version, kDtls1_2);
+
+  int server_version;
+  ASSERT_TRUE(GetSslVersionBytes(false, &server_version));
+  EXPECT_EQ(server_version, kDtls1_2);
+}
+
+// Test getting the used DTLS ciphers.
+// DTLS 1.2 is max version for client and server.
+TEST_P(SSLStreamAdapterTestDTLS, TestGetSslCipherSuite) {
   SetupProtocolVersions(rtc::SSL_PROTOCOL_DTLS_12, rtc::SSL_PROTOCOL_DTLS_12);
   TestHandshake();
 
@@ -1405,29 +1617,6 @@ TEST_P(SSLStreamAdapterTestDTLS, TestGetSslCipherSuiteDtls12Both) {
   ASSERT_TRUE(GetSslCipherSuite(true, &client_cipher));
   int server_cipher;
   ASSERT_TRUE(GetSslCipherSuite(false, &server_cipher));
-
-  ASSERT_EQ(rtc::SSL_PROTOCOL_DTLS_12, GetSslVersion(true));
-  ASSERT_EQ(rtc::SSL_PROTOCOL_DTLS_12, GetSslVersion(false));
-
-  ASSERT_EQ(client_cipher, server_cipher);
-  ASSERT_TRUE(rtc::SSLStreamAdapter::IsAcceptableCipher(
-      server_cipher, ::testing::get<1>(GetParam()).type()));
-}
-
-// Test getting the used DTLS ciphers.
-// DTLS 1.0 is max version for client and server, this will only work if
-// legacy is enabled.
-TEST_P(SSLStreamAdapterTestDTLS, TestGetSslCipherSuite) {
-  SetupProtocolVersions(rtc::SSL_PROTOCOL_DTLS_10, rtc::SSL_PROTOCOL_DTLS_10);
-  TestHandshake();
-
-  int client_cipher;
-  ASSERT_TRUE(GetSslCipherSuite(true, &client_cipher));
-  int server_cipher;
-  ASSERT_TRUE(GetSslCipherSuite(false, &server_cipher));
-
-  ASSERT_EQ(rtc::SSL_PROTOCOL_DTLS_10, GetSslVersion(true));
-  ASSERT_EQ(rtc::SSL_PROTOCOL_DTLS_10, GetSslVersion(false));
 
   ASSERT_EQ(client_cipher, server_cipher);
   ASSERT_TRUE(rtc::SSLStreamAdapter::IsAcceptableCipher(
@@ -1456,161 +1645,50 @@ INSTANTIATE_TEST_SUITE_P(
                    rtc::KeyParams::RSA(1152, 65537),
                    rtc::KeyParams::ECDSA(rtc::EC_NIST_P256))));
 
-// Tests for enabling / disabling legacy TLS protocols in DTLS.
-class SSLStreamAdapterTestDTLSLegacyProtocols
+// Tests for enabling the (D)TLS extension permutation which randomizes the
+// order of extensions in the client hello.
+// These tests are a no-op under OpenSSL.
+#ifdef OPENSSL_IS_BORINGSSL
+class SSLStreamAdapterTestDTLSExtensionPermutation
     : public SSLStreamAdapterTestDTLSBase {
  public:
-  SSLStreamAdapterTestDTLSLegacyProtocols()
+  SSLStreamAdapterTestDTLSExtensionPermutation()
       : SSLStreamAdapterTestDTLSBase(rtc::KeyParams::ECDSA(rtc::EC_NIST_P256),
                                      rtc::KeyParams::ECDSA(rtc::EC_NIST_P256)) {
   }
 
-  // Do not use the SetUp version from the parent class.
-  void SetUp() override {}
-
-  // The legacy TLS protocols flag is read when the OpenSSLStreamAdapter is
-  // initialized, so we set the experiment while creationg client_ssl_
-  // and server_ssl_.
-
-  void ConfigureClient(std::string experiment) {
-    webrtc::test::ScopedFieldTrials trial(experiment);
-    client_stream_ =
-        new SSLDummyStreamDTLS(this, "c2s", &client_buffer_, &server_buffer_);
-    client_ssl_.reset(rtc::SSLStreamAdapter::Create(client_stream_));
-    client_ssl_->SignalEvent.connect(
-        static_cast<SSLStreamAdapterTestBase*>(this),
-        &SSLStreamAdapterTestBase::OnEvent);
-    client_identity_ = rtc::SSLIdentity::Generate("client", client_key_type_);
-    client_ssl_->SetIdentity(client_identity_);
-  }
-
-  void ConfigureServer(std::string experiment) {
-    // webrtc::test::ScopedFieldTrials trial(experiment);
-    server_stream_ =
-        new SSLDummyStreamDTLS(this, "s2c", &server_buffer_, &client_buffer_);
-    server_ssl_.reset(rtc::SSLStreamAdapter::Create(server_stream_));
-    server_ssl_->SignalEvent.connect(
-        static_cast<SSLStreamAdapterTestBase*>(this),
-        &SSLStreamAdapterTestBase::OnEvent);
-    server_identity_ = rtc::SSLIdentity::Generate("server", server_key_type_);
-    server_ssl_->SetIdentity(server_identity_);
+  void Initialize(absl::string_view client_experiment,
+                  absl::string_view server_experiment) {
+    InitializeClientAndServerStreams(client_experiment, server_experiment);
+    client_ssl_->SetIdentity(
+        rtc::SSLIdentity::Create("client", client_key_type_));
+    server_ssl_->SetIdentity(
+        rtc::SSLIdentity::Create("server", server_key_type_));
   }
 };
 
-// Test getting the used DTLS ciphers.
-// DTLS 1.2 enabled for neither client nor server -> DTLS 1.0 will be used.
-TEST_F(SSLStreamAdapterTestDTLSLegacyProtocols, TestGetSslCipherSuite) {
-  ConfigureClient("");
-  ConfigureServer("");
-  SetupProtocolVersions(rtc::SSL_PROTOCOL_DTLS_10, rtc::SSL_PROTOCOL_DTLS_10);
-  TestHandshake();
-
-  int client_cipher;
-  ASSERT_TRUE(GetSslCipherSuite(true, &client_cipher));
-  int server_cipher;
-  ASSERT_TRUE(GetSslCipherSuite(false, &server_cipher));
-
-  ASSERT_EQ(rtc::SSL_PROTOCOL_DTLS_10, GetSslVersion(true));
-  ASSERT_EQ(rtc::SSL_PROTOCOL_DTLS_10, GetSslVersion(false));
-
-  ASSERT_EQ(client_cipher, server_cipher);
-}
-
-// Test getting the used DTLS 1.2 ciphers.
-// DTLS 1.2 enabled for client and server -> DTLS 1.2 will be used.
-TEST_F(SSLStreamAdapterTestDTLSLegacyProtocols,
-       TestGetSslCipherSuiteDtls12Both) {
-  ConfigureClient("");
-  ConfigureServer("");
-  SetupProtocolVersions(rtc::SSL_PROTOCOL_DTLS_12, rtc::SSL_PROTOCOL_DTLS_12);
-  TestHandshake();
-
-  int client_cipher;
-  ASSERT_TRUE(GetSslCipherSuite(true, &client_cipher));
-  int server_cipher;
-  ASSERT_TRUE(GetSslCipherSuite(false, &server_cipher));
-
-  ASSERT_EQ(rtc::SSL_PROTOCOL_DTLS_12, GetSslVersion(true));
-  ASSERT_EQ(rtc::SSL_PROTOCOL_DTLS_12, GetSslVersion(false));
-
-  ASSERT_EQ(client_cipher, server_cipher);
-}
-
-// DTLS 1.2 enabled for client only -> DTLS 1.0 will be used.
-TEST_F(SSLStreamAdapterTestDTLSLegacyProtocols,
-       TestGetSslCipherSuiteDtls12Client) {
-  ConfigureClient("");
-  ConfigureServer("");
-  SetupProtocolVersions(rtc::SSL_PROTOCOL_DTLS_10, rtc::SSL_PROTOCOL_DTLS_12);
-  TestHandshake();
-
-  int client_cipher;
-  ASSERT_TRUE(GetSslCipherSuite(true, &client_cipher));
-  int server_cipher;
-  ASSERT_TRUE(GetSslCipherSuite(false, &server_cipher));
-
-  ASSERT_EQ(rtc::SSL_PROTOCOL_DTLS_10, GetSslVersion(true));
-  ASSERT_EQ(rtc::SSL_PROTOCOL_DTLS_10, GetSslVersion(false));
-
-  ASSERT_EQ(client_cipher, server_cipher);
-}
-
-// DTLS 1.2 enabled for server only -> DTLS 1.0 will be used.
-TEST_F(SSLStreamAdapterTestDTLSLegacyProtocols,
-       TestGetSslCipherSuiteDtls12Server) {
-  ConfigureClient("");
-  ConfigureServer("");
-  SetupProtocolVersions(rtc::SSL_PROTOCOL_DTLS_12, rtc::SSL_PROTOCOL_DTLS_10);
-  TestHandshake();
-
-  int client_cipher;
-  ASSERT_TRUE(GetSslCipherSuite(true, &client_cipher));
-  int server_cipher;
-  ASSERT_TRUE(GetSslCipherSuite(false, &server_cipher));
-
-  ASSERT_EQ(rtc::SSL_PROTOCOL_DTLS_10, GetSslVersion(true));
-  ASSERT_EQ(rtc::SSL_PROTOCOL_DTLS_10, GetSslVersion(false));
-
-  ASSERT_EQ(client_cipher, server_cipher);
-}
-
-// Client has legacy TLS versions disabled, server has DTLS 1.0 only.
-// This is meant to cause a failure.
-TEST_F(SSLStreamAdapterTestDTLSLegacyProtocols,
-       TestGetSslVersionLegacyDisabledServer10) {
-  ConfigureClient("WebRTC-LegacyTlsProtocols/Disabled/");
-  ConfigureServer("");
-  SetupProtocolVersions(rtc::SSL_PROTOCOL_DTLS_10, rtc::SSL_PROTOCOL_DTLS_12);
-  // Handshake should fail.
-  TestHandshake(false);
-}
-
-// Both client and server have legacy TLS versions disabled and support
-// DTLS 1.2. This should work.
-TEST_F(SSLStreamAdapterTestDTLSLegacyProtocols,
-       TestGetSslVersionLegacyDisabledServer12) {
-  ConfigureClient("WebRTC-LegacyTlsProtocols/Disabled/");
-  ConfigureServer("WebRTC-LegacyTlsProtocols/Disabled/");
-  SetupProtocolVersions(rtc::SSL_PROTOCOL_DTLS_12, rtc::SSL_PROTOCOL_DTLS_12);
+TEST_F(SSLStreamAdapterTestDTLSExtensionPermutation,
+       ClientDefaultServerDefault) {
+  Initialize("", "");
   TestHandshake();
 }
 
-// Both client and server have legacy TLS versions enabled and support DTLS 1.0.
-// This should work.
-TEST_F(SSLStreamAdapterTestDTLSLegacyProtocols,
-       TestGetSslVersionLegacyEnabledClient10Server10) {
-  ConfigureClient("WebRTC-LegacyTlsProtocols/Enabled/");
-  ConfigureServer("WebRTC-LegacyTlsProtocols/Enabled/");
-  SetupProtocolVersions(rtc::SSL_PROTOCOL_DTLS_10, rtc::SSL_PROTOCOL_DTLS_10);
+TEST_F(SSLStreamAdapterTestDTLSExtensionPermutation,
+       ClientDefaultServerPermute) {
+  Initialize("", "WebRTC-PermuteTlsClientHello/Enabled/");
   TestHandshake();
 }
 
-// Legacy protocols are disabled, max TLS version is 1.0
-// This should be a configuration error, and handshake should fail.
-TEST_F(SSLStreamAdapterTestDTLSLegacyProtocols,
-       TestGetSslVersionLegacyDisabledClient10Server10) {
-  ConfigureClient("WebRTC-LegacyTlsProtocols/Disabled/");
-  ConfigureServer("WebRTC-LegacyTlsProtocols/Disabled/");
-  SetupProtocolVersions(rtc::SSL_PROTOCOL_DTLS_10, rtc::SSL_PROTOCOL_DTLS_10);
-  TestHandshake(false);
+TEST_F(SSLStreamAdapterTestDTLSExtensionPermutation,
+       ClientPermuteServerDefault) {
+  Initialize("WebRTC-PermuteTlsClientHello/Enabled/", "");
+  TestHandshake();
 }
+
+TEST_F(SSLStreamAdapterTestDTLSExtensionPermutation,
+       ClientPermuteServerPermute) {
+  Initialize("WebRTC-PermuteTlsClientHello/Enabled/",
+             "WebRTC-PermuteTlsClientHello/Enabled/");
+  TestHandshake();
+}
+#endif  // OPENSSL_IS_BORINGSSL

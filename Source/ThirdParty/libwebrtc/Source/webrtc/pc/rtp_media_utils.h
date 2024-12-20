@@ -11,7 +11,7 @@
 #ifndef PC_RTP_MEDIA_UTILS_H_
 #define PC_RTP_MEDIA_UTILS_H_
 
-#include "api/rtp_transceiver_interface.h"
+#include "api/rtp_transceiver_direction.h"
 
 namespace webrtc {
 
@@ -31,12 +31,12 @@ bool RtpTransceiverDirectionHasRecv(RtpTransceiverDirection direction);
 RtpTransceiverDirection RtpTransceiverDirectionReversed(
     RtpTransceiverDirection direction);
 
-// Returns the RtpTransceiverDirection with its send component set to |send|.
+// Returns the RtpTransceiverDirection with its send component set to `send`.
 RtpTransceiverDirection RtpTransceiverDirectionWithSendSet(
     RtpTransceiverDirection direction,
     bool send = true);
 
-// Returns the RtpTransceiverDirection with its recv component set to |recv|.
+// Returns the RtpTransceiverDirection with its recv component set to `recv`.
 RtpTransceiverDirection RtpTransceiverDirectionWithRecvSet(
     RtpTransceiverDirection direction,
     bool recv = true);
@@ -48,14 +48,6 @@ const char* RtpTransceiverDirectionToString(RtpTransceiverDirection direction);
 RtpTransceiverDirection RtpTransceiverDirectionIntersection(
     RtpTransceiverDirection lhs,
     RtpTransceiverDirection rhs);
-
-#ifdef UNIT_TEST
-inline std::ostream& operator<<(  // no-presubmit-check TODO(webrtc:8982)
-    std::ostream& os,             // no-presubmit-check TODO(webrtc:8982)
-    RtpTransceiverDirection direction) {
-  return os << RtpTransceiverDirectionToString(direction);
-}
-#endif  // UNIT_TEST
 
 }  // namespace webrtc
 

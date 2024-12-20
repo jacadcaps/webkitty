@@ -30,8 +30,10 @@
 
 namespace WebCore {
 
+class WebCoreOpaqueRoot;
+
 class XMLHttpRequestUpload final : public XMLHttpRequestEventTarget {
-    WTF_MAKE_ISO_ALLOCATED(XMLHttpRequestUpload);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(XMLHttpRequestUpload);
 public:
     explicit XMLHttpRequestUpload(XMLHttpRequest&);
 
@@ -40,7 +42,7 @@ public:
 
     void dispatchProgressEvent(const AtomString& type, unsigned long long loaded, unsigned long long total);
 
-    bool hasRelevantEventListener() const { return m_hasRelevantEventListener; }
+    bool hasRelevantEventListener() const;
 
 private:
     // EventTarget.
@@ -48,11 +50,12 @@ private:
     void refEventTarget() final { ref(); }
     void derefEventTarget() final { deref(); }
 
-    EventTargetInterface eventTargetInterface() const final { return XMLHttpRequestUploadEventTargetInterfaceType; }
+    enum EventTargetInterfaceType eventTargetInterface() const final { return EventTargetInterfaceType::XMLHttpRequestUpload; }
     ScriptExecutionContext* scriptExecutionContext() const final { return m_request.scriptExecutionContext(); }
 
     XMLHttpRequest& m_request;
-    bool m_hasRelevantEventListener { false };
 };
+
+WebCoreOpaqueRoot root(XMLHttpRequestUpload*);
     
 } // namespace WebCore

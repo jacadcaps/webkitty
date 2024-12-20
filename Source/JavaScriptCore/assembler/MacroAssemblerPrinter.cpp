@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,7 +27,6 @@
 #include "MacroAssemblerPrinter.h"
 
 #if ENABLE(ASSEMBLER)
-#if ENABLE(MASM_PROBE)
 
 #include "MacroAssembler.h"
 #include <inttypes.h>
@@ -63,18 +62,18 @@ void printAllRegisters(PrintStream& out, Context& context)
 
     for (auto id = MacroAssembler::firstRegister(); id <= MacroAssembler::lastRegister(); id = nextID(id)) {
         intptr_t value = static_cast<intptr_t>(cpu.gpr(id));
-        INDENT; out.printf("    %6s: " INTPTR_HEX_VALUE_FORMAT "  %" PRIdPTR "\n", cpu.gprName(id), value, value);
+        INDENT; out.printf("    %6s: " INTPTR_HEX_VALUE_FORMAT "  %" PRIdPTR "\n", cpu.gprName(id).characters(), value, value);
     }
     for (auto id = MacroAssembler::firstSPRegister(); id <= MacroAssembler::lastSPRegister(); id = nextID(id)) {
         intptr_t value = static_cast<intptr_t>(cpu.spr(id));
-        INDENT; out.printf("    %6s: " INTPTR_HEX_VALUE_FORMAT "  %" PRIdPTR "\n", cpu.sprName(id), value, value);
+        INDENT; out.printf("    %6s: " INTPTR_HEX_VALUE_FORMAT "  %" PRIdPTR "\n", cpu.sprName(id).characters(), value, value);
     }
     #undef INTPTR_HEX_VALUE_FORMAT
 
     for (auto id = MacroAssembler::firstFPRegister(); id <= MacroAssembler::lastFPRegister(); id = nextID(id)) {
         uint64_t u = bitwise_cast<uint64_t>(cpu.fpr(id));
         double d = cpu.fpr(id);
-        INDENT; out.printf("    %6s: 0x%016" PRIx64 "  %.13g\n", cpu.fprName(id), u, d);
+        INDENT; out.printf("    %6s: 0x%016" PRIx64 "  %.13g\n", cpu.fprName(id).characters(), u, d);
     }
 
     INDENT; out.print("}\n");
@@ -126,7 +125,7 @@ void printMemory(PrintStream& out, Context& context)
         break;
     }
     case Memory::AddressType::AbsoluteAddress: {
-        ptr = reinterpret_cast<uint8_t*>(const_cast<void*>(memory.u.absoluteAddress.m_ptr));
+        ptr = static_cast<uint8_t*>(const_cast<void*>(memory.u.absoluteAddress.m_ptr));
         break;
     }
     }
@@ -172,7 +171,7 @@ void printMemory(PrintStream& out, Context& context)
         out.print("\n");
 }
 
-void printCallback(Probe::Context& probeContext)
+void SYSV_ABI printCallback(Probe::Context& probeContext)
 {
     auto& out = WTF::dataFile();
     PrintRecordList& list = *probeContext.arg<PrintRecordList*>();
@@ -186,5 +185,4 @@ void printCallback(Probe::Context& probeContext)
 } // namespace Printer
 } // namespace JSC
 
-#endif // ENABLE(MASM_PROBE)
 #endif // ENABLE(ASSEMBLER)

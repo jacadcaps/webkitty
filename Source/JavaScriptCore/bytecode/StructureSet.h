@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -39,22 +39,20 @@ public:
     // using TinyPtrSet::TinyPtrSet;
     //
     // But I can't because Windows.
-    
-    StructureSet()
-    {
-    }
-    
+
+    StructureSet() = default;
+
     StructureSet(Structure* structure)
         : TinyPtrSet(structure)
     {
     }
-    
+
     Structure* onlyStructure() const
     {
         return onlyEntry();
     }
 
-    void markIfCheap(SlotVisitor&) const;
+    template<typename Visitor> void markIfCheap(Visitor&) const;
     bool isStillAlive(VM&) const;
     
     void dumpInContext(PrintStream&, DumpContext*) const;

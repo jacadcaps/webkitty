@@ -25,11 +25,12 @@
 
 #pragma once
 
-#include "ScrollingTreeScrollingNodeDelegate.h"
-
 #if ENABLE(ASYNC_SCROLLING) && PLATFORM(MAC)
 
-#include "ScrollController.h"
+#include "ScrollerPairMac.h"
+#include "ScrollingEffectsController.h"
+#include "ThreadedScrollingTreeScrollingNodeDelegate.h"
+#include <wtf/RunLoop.h>
 
 OBJC_CLASS NSScrollerImp;
 
@@ -42,7 +43,7 @@ class ScrollingStateScrollingNode;
 class ScrollingTreeScrollingNode;
 class ScrollingTree;
 
-class ScrollingTreeScrollingNodeDelegateMac : public ScrollingTreeScrollingNodeDelegate, private ScrollControllerClient {
+class ScrollingTreeScrollingNodeDelegateMac final : public ThreadedScrollingTreeScrollingNodeDelegate {
 public:
     explicit ScrollingTreeScrollingNodeDelegateMac(ScrollingTreeScrollingNode&);
     virtual ~ScrollingTreeScrollingNodeDelegateMac();
@@ -51,55 +52,39 @@ public:
 
     bool handleWheelEvent(const PlatformWheelEvent&);
 
-#if ENABLE(CSS_SCROLL_SNAP)
-    void updateScrollSnapPoints(ScrollEventAxis, const Vector<LayoutUnit>&, const Vector<ScrollOffsetRange<LayoutUnit>>&);
-    void setActiveScrollSnapIndexForAxis(ScrollEventAxis, unsigned);
-    bool activeScrollSnapIndexDidChange() const;
-    unsigned activeScrollSnapIndexForAxis(ScrollEventAxis) const;
-    bool isScrollSnapInProgress() const;
-#endif
+    void willDoProgrammaticScroll(const FloatPoint&);
+    void currentScrollPositionChanged();
 
-    void updateFromStateNode(const ScrollingStateScrollingNode&);
+    bool isRubberBandInProgress() const;
+
     void updateScrollbarPainters();
-
-    void deferWheelEventTestCompletionForReason(WheelEventTestMonitor::ScrollableAreaIdentifier, WheelEventTestMonitor::DeferReason) const override;
-    void removeWheelEventTestCompletionDeferralForReason(WheelEventTestMonitor::ScrollableAreaIdentifier, WheelEventTestMonitor::DeferReason) const override;
+    void updateScrollbarLayers() final;
+    
+    void handleWheelEventPhase(const PlatformWheelEventPhase) final;
+    void viewWillStartLiveResize() final;
+    void viewWillEndLiveResize() final;
+    void viewSizeDidChange() final;
+    void initScrollbars() final;
+    String scrollbarStateForOrientation(ScrollbarOrientation) const final;
 
 private:
-    bool isAlreadyPinnedInDirectionOfGesture(const PlatformWheelEvent&, ScrollEventAxis) const;
+    void updateFromStateNode(const ScrollingStateScrollingNode&) final;
 
-    // ScrollControllerClient.
-    std::unique_ptr<ScrollControllerTimer> createTimer(Function<void()>&&) final;
+    // ScrollingEffectsControllerClient.
     bool allowsHorizontalStretching(const PlatformWheelEvent&) const final;
     bool allowsVerticalStretching(const PlatformWheelEvent&) const final;
     IntSize stretchAmount() const final;
-    bool pinnedInDirection(const FloatSize&) const final;
-    bool canScrollHorizontally() const final;
-    bool canScrollVertically() const final;
-    bool shouldRubberBandInDirection(ScrollDirection) const final;
-    void immediateScrollBy(const FloatSize&) final;
-    void immediateScrollByWithoutContentEdgeConstraints(const FloatSize&) final;
-    void didStopRubberbandSnapAnimation() final;
-    void adjustScrollPositionToBoundsIfNecessary() final;
+    bool isPinnedOnSide(BoxSide) const final;
+    RectEdges<bool> edgePinnedState() const final;
 
-#if ENABLE(CSS_SCROLL_SNAP)
-    FloatPoint scrollOffset() const override;
-    void immediateScrollOnAxis(ScrollEventAxis, float delta) override;
-    float pageScaleFactor() const override;
-    void willStartScrollSnapAnimation() final;
-    void didStopScrollSnapAnimation() final;
-    LayoutSize scrollExtent() const override;
-    FloatSize viewportSize() const override;
-#endif
+    bool shouldRubberBandOnSide(BoxSide) const final;
+    void didStopRubberBandAnimation() final;
+    void rubberBandingStateChanged(bool) final;
+    bool scrollPositionIsNotRubberbandingEdge(const FloatPoint&) const;
 
-    void releaseReferencesToScrollerImpsOnTheMainThread();
+    Ref<ScrollerPairMac> m_scrollerPair;
 
-    ScrollController m_scrollController;
-    
     bool m_inMomentumPhase { false };
-
-    RetainPtr<NSScrollerImp> m_verticalScrollerImp;
-    RetainPtr<NSScrollerImp> m_horizontalScrollerImp;
 };
 
 } // namespace WebCore

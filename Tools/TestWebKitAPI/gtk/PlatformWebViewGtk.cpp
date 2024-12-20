@@ -26,21 +26,20 @@
 #include "config.h"
 #include "PlatformWebView.h"
 
-#include "WebKitWebViewBaseInternal.h"
 #include <WebCore/GUniquePtrGtk.h>
 #include <WebCore/GtkVersioning.h>
 #include <WebKit/WKRetainPtr.h>
 #include <WebKit/WKView.h>
 #include <gtk/gtk.h>
+#include <webkit/WebKitWebViewBaseInternal.h>
 #include <wtf/glib/GUniquePtr.h>
 
 namespace TestWebKitAPI {
 
-PlatformWebView::PlatformWebView(WKContextRef contextRef, WKPageGroupRef pageGroupRef)
+PlatformWebView::PlatformWebView(WKContextRef contextRef)
 {
     WKRetainPtr<WKPageConfigurationRef> configuration = adoptWK(WKPageConfigurationCreate());
     WKPageConfigurationSetContext(configuration.get(), contextRef);
-    WKPageConfigurationSetPageGroup(configuration.get(), pageGroupRef);
 
     initialize(configuration.get());
 }
@@ -54,8 +53,11 @@ PlatformWebView::PlatformWebView(WKPageRef relatedPage)
 {
     WKRetainPtr<WKPageConfigurationRef> configuration = adoptWK(WKPageConfigurationCreate());
     WKPageConfigurationSetContext(configuration.get(), WKPageGetContext(relatedPage));
-    WKPageConfigurationSetPageGroup(configuration.get(), WKPageGetPageGroup(relatedPage));
     WKPageConfigurationSetRelatedPage(configuration.get(), relatedPage);
+
+    auto relatedConfiguration = adoptWK(WKPageCopyPageConfiguration(relatedPage));
+    if (auto* preferences = WKPageConfigurationGetPreferences(relatedConfiguration.get()))
+        WKPageConfigurationSetPreferences(configuration.get(), preferences);
 
     initialize(configuration.get());
 }

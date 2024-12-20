@@ -34,6 +34,7 @@ WI.DOMNodeStyles = class DOMNodeStyles extends WI.Object
 
         this._rulesMap = new Map;
         this._stylesMap = new Multimap;
+        this._groupingsMap = new Map;
 
         this._matchedRules = [];
         this._inheritedRules = [];
@@ -43,10 +44,17 @@ WI.DOMNodeStyles = class DOMNodeStyles extends WI.Object
         this._computedStyle = null;
         this._orderedStyles = [];
 
+        this._computedPrimaryFont = null;
+
         this._propertyNameToEffectivePropertyMap = {};
+        this._usedCSSVariables = new Set;
+        this._allCSSVariables = new Set;
 
         this._pendingRefreshTask = null;
         this.refresh();
+
+        this._trackedStyleSheets = new WeakSet;
+        WI.CSSStyleSheet.addEventListener(WI.CSSStyleSheet.Event.ContentDidChange, this._handleCSSStyleSheetContentDidChange, this);
     }
 
     // Static
@@ -123,6 +131,11 @@ WI.DOMNodeStyles = class DOMNodeStyles extends WI.Object
     get pseudoElements() { return this._pseudoElements; }
     get computedStyle() { return this._computedStyle; }
     get orderedStyles() { return this._orderedStyles; }
+    get computedPrimaryFont() { return this._computedPrimaryFont; }
+    get usedCSSVariables() { return this._usedCSSVariables; }
+    get allCSSVariables() { return this._allCSSVariables; }
+
+    set ignoreNextContentDidChangeForStyleSheet(ignoreNextContentDidChangeForStyleSheet) { this._ignoreNextContentDidChangeForStyleSheet = ignoreNextContentDidChangeForStyleSheet; }
 
     get needsRefresh()
     {
@@ -150,11 +163,10 @@ WI.DOMNodeStyles = class DOMNodeStyles extends WI.Object
 
         this._needsRefresh = false;
 
-        let previousStylesMap = this._stylesMap.copy();
-
         let fetchedMatchedStylesPromise = new WI.WrappedPromise;
         let fetchedInlineStylesPromise = new WI.WrappedPromise;
         let fetchedComputedStylesPromise = new WI.WrappedPromise;
+        let fetchedFontDataPromise = new WI.WrappedPromise;
 
         // Ensure we resolve these promises even in the case of an error.
         function wrap(func, promise) {
@@ -188,6 +200,10 @@ WI.DOMNodeStyles = class DOMNodeStyles extends WI.Object
             matchedRulesPayload = matchedRulesPayload || [];
             pseudoElementRulesPayload = pseudoElementRulesPayload || [];
             inheritedRulesPayload = inheritedRulesPayload || [];
+
+            this._previousStylesMap = this._stylesMap;
+            this._stylesMap = new Multimap;
+            this._groupingsMap = new Map;
 
             this._matchedRules = parseRuleMatchArrayPayload(matchedRulesPayload, this._node);
 
@@ -250,7 +266,8 @@ WI.DOMNodeStyles = class DOMNodeStyles extends WI.Object
 
             let significantChange = false;
             for (let [key, styles] of this._stylesMap.sets()) {
-                let previousStyles = previousStylesMap.get(key);
+                // Check if the same key exists in the previous map and has the same style objects.
+                let previousStyles = this._previousStylesMap.get(key);
                 if (previousStyles) {
                     // Some styles have selectors such that they will match with the DOM node twice (for example "::before, ::after").
                     // In this case a second style for a second matching may be generated and added which will cause the shallowEqual
@@ -284,7 +301,7 @@ WI.DOMNodeStyles = class DOMNodeStyles extends WI.Object
             }
 
             if (!significantChange) {
-                for (let [key, previousStyles] of previousStylesMap.sets()) {
+                for (let [key, previousStyles] of this._previousStylesMap.sets()) {
                     // Check if the same key exists in current map. If it does exist it was already checked for equality above.
                     if (this._stylesMap.has(key))
                         continue;
@@ -302,11 +319,20 @@ WI.DOMNodeStyles = class DOMNodeStyles extends WI.Object
                 }
             }
 
+            this._previousStylesMap = null;
             this._includeUserAgentRulesOnNextRefresh = false;
 
-            this.dispatchEventToListeners(WI.DOMNodeStyles.Event.Refreshed, {significantChange});
+            fetchedComputedStylesPromise.resolve({significantChange});
+        }
 
-            fetchedComputedStylesPromise.resolve();
+        function fetchedFontData(error, fontDataPayload)
+        {
+            if (fontDataPayload)
+                this._computedPrimaryFont = WI.Font.fromPayload(fontDataPayload);
+            else
+                this._computedPrimaryFont = null;
+
+            fetchedFontDataPromise.resolve();
         }
 
         let target = WI.assumingMainTarget();
@@ -314,9 +340,18 @@ WI.DOMNodeStyles = class DOMNodeStyles extends WI.Object
         target.CSSAgent.getInlineStylesForNode.invoke({nodeId: this._node.id}, wrap.call(this, fetchedInlineStyles, fetchedInlineStylesPromise));
         target.CSSAgent.getComputedStyleForNode.invoke({nodeId: this._node.id}, wrap.call(this, fetchedComputedStyle, fetchedComputedStylesPromise));
 
-        this._pendingRefreshTask = Promise.all([fetchedMatchedStylesPromise.promise, fetchedInlineStylesPromise.promise, fetchedComputedStylesPromise.promise])
-        .then(() => {
+        // COMPATIBILITY (iOS 14.0): `CSS.getFontDataForNode` did not exist yet.
+        if (InspectorBackend.hasCommand("CSS.getFontDataForNode"))
+            target.CSSAgent.getFontDataForNode.invoke({nodeId: this._node.id}, wrap.call(this, fetchedFontData, fetchedFontDataPromise));
+        else
+            fetchedFontDataPromise.resolve();
+
+        this._pendingRefreshTask = Promise.all([fetchedComputedStylesPromise.promise, fetchedMatchedStylesPromise.promise, fetchedInlineStylesPromise.promise, fetchedFontDataPromise.promise])
+        .then(([fetchComputedStylesResult]) => {
             this._pendingRefreshTask = null;
+            this.dispatchEventToListeners(WI.DOMNodeStyles.Event.Refreshed, {
+                significantChange: fetchComputedStylesResult.significantChange,
+            });
             return this;
         });
 
@@ -327,12 +362,20 @@ WI.DOMNodeStyles = class DOMNodeStyles extends WI.Object
     {
         selector = selector || this._node.appropriateSelectorFor(true);
 
+        let result = new WI.WrappedPromise;
         let target = WI.assumingMainTarget();
 
         function completed()
         {
             target.DOMAgent.markUndoableState();
-            this.refresh();
+
+            // Wait for the refresh promise caused by injecting an empty inspector stylesheet to resolve
+            // (another call will be ignored while one is still pending),
+            // then refresh again to get the latest matching styles which include the newly created rule.
+            if (this._pendingRefreshTask)
+                this._pendingRefreshTask.then(this.refresh.bind(this));
+            else
+                this.refresh();
         }
 
         function styleChanged(error, stylePayload)
@@ -345,8 +388,12 @@ WI.DOMNodeStyles = class DOMNodeStyles extends WI.Object
 
         function addedRule(error, rulePayload)
         {
-            if (error)
+            if (error){
+                result.reject(error);
                 return;
+            }
+
+            result.resolve(rulePayload);
 
             if (!text || !text.length) {
                 completed.call(this);
@@ -368,6 +415,8 @@ WI.DOMNodeStyles = class DOMNodeStyles extends WI.Object
             inspectorStyleSheetAvailable.call(this, WI.cssManager.styleSheetForIdentifier(styleSheetId));
         else
             WI.cssManager.preferredInspectorStyleSheetForFrame(this._node.frame, inspectorStyleSheetAvailable.bind(this));
+
+        return result.promise;
     }
 
     effectivePropertyForName(name)
@@ -514,7 +563,7 @@ WI.DOMNodeStyles = class DOMNodeStyles extends WI.Object
 
         if (styleDeclaration) {
             // Use propertyForName when the index is NaN since propertyForName is fast in that case.
-            var property = isNaN(index) ? styleDeclaration.propertyForName(name, true) : styleDeclaration.enabledProperties[index];
+            var property = isNaN(index) ? styleDeclaration.propertyForName(name) : styleDeclaration.properties[index];
 
             // Reuse a property if the index and name matches. Otherwise it is a different property
             // and should be created from scratch. This works in the simple cases where only existing
@@ -561,7 +610,8 @@ WI.DOMNodeStyles = class DOMNodeStyles extends WI.Object
         console.assert(matchesNode || style);
 
         if (matchesNode) {
-            let existingStyles = this._stylesMap.get(mapKey);
+            console.assert(this._previousStylesMap);
+            let existingStyles = this._previousStylesMap.get(mapKey);
             if (existingStyles && !style) {
                 for (let existingStyle of existingStyles) {
                     if (existingStyle.node === node && existingStyle.inherited === inherited) {
@@ -603,7 +653,7 @@ WI.DOMNodeStyles = class DOMNodeStyles extends WI.Object
         if (styleSheet) {
             if (type === WI.CSSStyleDeclaration.Type.Inline)
                 styleSheet.markAsInlineStyleAttributeStyleSheet();
-            styleSheet.addEventListener(WI.CSSStyleSheet.Event.ContentDidChange, this._styleSheetContentDidChange, this);
+            this._trackedStyleSheets.add(styleSheet);
         }
 
         if (inherited && !inheritedPropertyCount)
@@ -679,11 +729,49 @@ WI.DOMNodeStyles = class DOMNodeStyles extends WI.Object
 
         // COMPATIBILITY (iOS 13): CSS.CSSRule.groupings did not exist yet.
         let groupings = (payload.groupings || payload.media || []).map((grouping) => {
+            // COMPATIBILITY (macOS 13, iOS 16) CSS.CSSRule.ruleId did not exist yet.
+            let ruleId = grouping.ruleId;
+
+            let ruleIdForMap = null;
+            if (ruleId) {
+                ruleIdForMap = `${ruleId.styleSheetId}-${ruleId.ordinal}`;
+
+                let existingGroupingForRuleId = this._groupingsMap.get(ruleIdForMap);
+                if (existingGroupingForRuleId) {
+                    console.assert(existingGroupingForRuleId.text === grouping.text);
+                    console.assert(existingGroupingForRuleId.type === grouping.type);
+                    return existingGroupingForRuleId;
+                }
+            }
+
             let groupingType = WI.CSSManager.protocolGroupingTypeToEnum(grouping.type || grouping.source);
-            let groupingSourceCodeLocation = DOMNodeStyles.createSourceCodeLocation(grouping.sourceURL);
-            if (styleSheet)
-                groupingSourceCodeLocation = styleSheet.offsetSourceCodeLocation(groupingSourceCodeLocation);
-            return new WI.CSSGrouping(groupingType, grouping.text, groupingSourceCodeLocation);
+
+            let location = {};
+            if (payload.range) {
+                location.line = payload.range.startLine;
+                location.column = payload.range.startColumn;
+                location.documentNode = this._node.ownerDocument;
+            }
+
+            // The style sheet may be different from the style rule's style sheet, since groupings are computed beyond
+            // `@import` boundaries, and an `@import` statement from another style sheet may have been wrapped in
+            // another `@` rule.
+            let groupingStyleSheet = ruleId ? WI.cssManager.styleSheetForIdentifier(ruleId.styleSheetId) : null;
+
+            let groupingSourceCodeLocation = WI.DOMNodeStyles.createSourceCodeLocation(grouping.sourceURL, location);
+            let offsetGroupingSourceCodeLocation = styleSheet?.offsetSourceCodeLocation(groupingSourceCodeLocation) ?? groupingSourceCodeLocation;
+
+            let cssGrouping = new WI.CSSGrouping(this, groupingType, {
+                ownerStyleSheet: groupingStyleSheet,
+                id: grouping.ruleId,
+                text: grouping.text,
+                sourceCodeLocation: offsetGroupingSourceCodeLocation,
+            });
+
+            if (ruleIdForMap)
+                this._groupingsMap.set(ruleIdForMap, cssGrouping);
+
+            return cssGrouping;
         });
 
         if (rule) {
@@ -692,9 +780,9 @@ WI.DOMNodeStyles = class DOMNodeStyles extends WI.Object
         }
 
         if (styleSheet)
-            styleSheet.addEventListener(WI.CSSStyleSheet.Event.ContentDidChange, this._styleSheetContentDidChange, this);
+            this._trackedStyleSheets.add(styleSheet);
 
-        rule = new WI.CSSRule(this, styleSheet, id, type, sourceCodeLocation, selectorText, selectors, matchedSelectorIndices, style, groupings);
+        rule = new WI.CSSRule(this, styleSheet, id, type, sourceCodeLocation, selectorText, selectors, matchedSelectorIndices, style, groupings, payload.isImplicitlyNested);
 
         if (mapKey)
             this._rulesMap.set(mapKey, rule);
@@ -708,11 +796,10 @@ WI.DOMNodeStyles = class DOMNodeStyles extends WI.Object
         this.dispatchEventToListeners(WI.DOMNodeStyles.Event.NeedsRefresh);
     }
 
-    _styleSheetContentDidChange(event)
+    _handleCSSStyleSheetContentDidChange(event)
     {
-        var styleSheet = event.target;
-        console.assert(styleSheet);
-        if (!styleSheet)
+        let styleSheet = event.target;
+        if (!this._trackedStyleSheets.has(styleSheet))
             return;
 
         // Ignore the stylesheet we know we just changed and handled above.
@@ -740,6 +827,7 @@ WI.DOMNodeStyles = class DOMNodeStyles extends WI.Object
 
         this._associateRelatedProperties(cascadeOrderedStyleDeclarations, this._propertyNameToEffectivePropertyMap);
         this._markOverriddenProperties(cascadeOrderedStyleDeclarations, this._propertyNameToEffectivePropertyMap);
+        this._collectCSSVariables(cascadeOrderedStyleDeclarations);
 
         for (let pseudoElementInfo of this._pseudoElements.values()) {
             pseudoElementInfo.orderedStyles = this._collectStylesInCascadeOrder(pseudoElementInfo.matchedRules, null, null);
@@ -871,7 +959,7 @@ WI.DOMNodeStyles = class DOMNodeStyles extends WI.Object
                 if (!property.valid)
                     continue;
 
-                if (!WI.CSSCompletions.cssNameCompletions.isShorthandPropertyName(property.name))
+                if (!WI.CSSKeywordCompletions.LonghandNamesForShorthandProperty.has(property.name))
                     continue;
 
                 if (knownShorthands[property.canonicalName] && !knownShorthands[property.canonicalName].overridden) {
@@ -891,7 +979,7 @@ WI.DOMNodeStyles = class DOMNodeStyles extends WI.Object
                 var shorthandProperty = null;
 
                 if (!isEmptyObject(knownShorthands)) {
-                    var possibleShorthands = WI.CSSCompletions.cssNameCompletions.shorthandsForLonghand(property.canonicalName);
+                    var possibleShorthands = WI.CSSKeywordCompletions.ShorthandNamesForLongHandProperty.get(property.canonicalName) || [];
                     for (var k = 0; k < possibleShorthands.length; ++k) {
                         if (possibleShorthands[k] in knownShorthands) {
                             shorthandProperty = knownShorthands[possibleShorthands[k]];
@@ -911,6 +999,39 @@ WI.DOMNodeStyles = class DOMNodeStyles extends WI.Object
 
                 if (propertyNameToEffectiveProperty && propertyNameToEffectiveProperty[shorthandProperty.canonicalName] === shorthandProperty)
                     propertyNameToEffectiveProperty[property.canonicalName] = property;
+            }
+        }
+    }
+
+    _collectCSSVariables(styles)
+    {
+        this._allCSSVariables = new Set;
+        this._usedCSSVariables = new Set;
+
+        for (let style of styles) {
+            for (let property of style.enabledProperties) {
+                if (property.isVariable)
+                    this._allCSSVariables.add(property.name);
+
+                let variables = WI.CSSProperty.findVariableNames(property.value);
+
+                if (!style.inherited) {
+                    // FIXME: <https://webkit.org/b/226648> Support the case of variables declared on matching styles but not used anywhere.
+                    this._usedCSSVariables.addAll(variables);
+                    continue;
+                }
+
+                // Always collect variables used in values of inheritable properties.
+                if (WI.CSSKeywordCompletions.InheritedProperties.has(property.name)) {
+                    this._usedCSSVariables.addAll(variables);
+                    continue;
+                }
+
+                // For variables from inherited styles, leverage the fact that styles are already sorted in cascade order to support inherited variables referencing other variables.
+                // If the variable was found to be used before, collect any variables used in its declaration value
+                // (if any variables are found, this isn't the end of the variable reference chain in the inheritance stack).
+                if (property.isVariable && this._usedCSSVariables.has(property.name))
+                    this._usedCSSVariables.addAll(variables);
             }
         }
     }

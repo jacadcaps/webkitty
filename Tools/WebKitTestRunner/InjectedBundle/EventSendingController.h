@@ -30,31 +30,30 @@
 #include <WebKit/WKGeometry.h>
 #include <wtf/Ref.h>
 
+typedef const struct OpaqueJSContext* JSContextRef;
+typedef struct OpaqueJSString* JSStringRef;
+typedef const struct OpaqueJSValue* JSValueRef;
+
 namespace WTR {
 
 struct MonitorWheelEventsOptions {
-    MonitorWheelEventsOptions(bool resetLatching = true)
-        : resetLatching(resetLatching)
-    { }
-
     bool resetLatching { true };
 };
 
 MonitorWheelEventsOptions* toMonitorWheelEventsOptions(JSContextRef, JSValueRef);
 
-class EventSendingController : public JSWrappable {
+class EventSendingController final : public JSWrappable {
 public:
     static Ref<EventSendingController> create();
-    virtual ~EventSendingController();
 
-    void makeWindowObject(JSContextRef, JSObjectRef windowObject, JSValueRef* exception);
+    void makeWindowObject(JSContextRef);
 
-    // JSWrappable
-    virtual JSClassRef wrapperClass();
-
-    void mouseDown(int button, JSValueRef modifierArray);
-    void mouseUp(int button, JSValueRef modifierArray);
-    void mouseMoveTo(int x, int y);
+    void mouseDown(JSContextRef, int button, JSValueRef modifierArray, JSStringRef pointerType);
+    void mouseUp(JSContextRef, int button, JSValueRef modifierArray, JSStringRef pointerType);
+    void mouseMoveTo(int x, int y, JSStringRef pointerType);
+    void asyncMouseDown(JSContextRef, int button, JSValueRef modifierArray, JSStringRef pointerType, JSValueRef completionHandler);
+    void asyncMouseUp(JSContextRef, int button, JSValueRef modifierArray, JSStringRef pointerType, JSValueRef completionHandler);
+    void asyncMouseMoveTo(JSContextRef, int x, int y, JSStringRef pointerType, JSValueRef completionHandler);
     void mouseForceClick();
     void startAndCancelMouseForceClick();
     void mouseForceDown();
@@ -62,18 +61,23 @@ public:
     void mouseForceChanged(double force);
     void mouseScrollBy(int x, int y);
     void mouseScrollByWithWheelAndMomentumPhases(int x, int y, JSStringRef phase, JSStringRef momentum);
+    void setWheelHasPreciseDeltas(bool);
     void continuousMouseScrollBy(int x, int y, bool paged);
-    JSValueRef contextClick();
+    JSValueRef contextClick(JSContextRef);
     void leapForward(int milliseconds);
     void scheduleAsynchronousClick();
 
     void monitorWheelEvents(MonitorWheelEventsOptions*);
-    void callAfterScrollingCompletes(JSValueRef functionCallback);
+    void callAfterScrollingCompletes(JSContextRef, JSValueRef functionCallback);
+    
+    void sentWheelPhaseEndOrCancel() { m_sentWheelPhaseEndOrCancel = true; }
+    void sentWheelMomentumPhaseEnd() { m_sentWheelMomentumPhaseEnd = true; }
 
-    void keyDown(JSStringRef key, JSValueRef modifierArray, int location);
+    void keyDown(JSContextRef, JSStringRef key, JSValueRef modifierArray, int location);
+    void rawKeyDown(JSContextRef, JSStringRef key, JSValueRef modifierArray, int location);
+    void rawKeyUp(JSContextRef, JSStringRef key, JSValueRef modifierArray, int location);
     void scheduleAsynchronousKeyDown(JSStringRef key);
 
-    // Zoom functions.
     void textZoomIn();
     void textZoomOut();
     void zoomPageIn();
@@ -81,10 +85,9 @@ public:
     void scalePageBy(double scale, double x, double y);
 
 #if ENABLE(TOUCH_EVENTS)
-    // Touch events.
     void addTouchPoint(int x, int y);
     void updateTouchPoint(int index, int x, int y);
-    void setTouchModifier(const JSStringRef &modifier, bool enable);
+    void setTouchModifier(JSStringRef modifier, bool enable);
     void setTouchPointRadius(int radiusX, int radiusY);
     void touchStart();
     void touchMove();
@@ -95,8 +98,19 @@ public:
     void cancelTouchPoint(int index);
 #endif
 
+    void smartMagnify();
+
+#if ENABLE(MAC_GESTURE_EVENTS)
+    void scaleGestureStart(double scale);
+    void scaleGestureChange(double scale);
+    void scaleGestureEnd(double scale);
+#endif
+
 private:
-    EventSendingController();
+    EventSendingController() = default;
+
+    JSClassRef wrapperClass() final;
+
     WKPoint m_position;
     bool m_sentWheelPhaseEndOrCancel { false };
     bool m_sentWheelMomentumPhaseEnd { false };

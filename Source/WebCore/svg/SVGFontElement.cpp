@@ -21,8 +21,6 @@
  */
 
 #include "config.h"
-
-#if ENABLE(SVG_FONTS)
 #include "SVGFontElement.h"
 
 #include "Document.h"
@@ -34,14 +32,14 @@
 #include "SVGNames.h"
 #include "SVGVKernElement.h"
 #include <wtf/ASCIICType.h>
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(SVGFontElement);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(SVGFontElement);
 
 inline SVGFontElement::SVGFontElement(const QualifiedName& tagName, Document& document)
-    : SVGElement(tagName, document)
+    : SVGElement(tagName, document, makeUniqueRef<PropertyRegistry>(*this))
 {
     ASSERT(hasTagName(SVGNames::fontTag));
 }
@@ -52,5 +50,3 @@ Ref<SVGFontElement> SVGFontElement::create(const QualifiedName& tagName, Documen
 }
 
 }
-
-#endif // ENABLE(SVG_FONTS)

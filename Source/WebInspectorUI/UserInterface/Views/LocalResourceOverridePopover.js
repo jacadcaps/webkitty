@@ -29,14 +29,23 @@ WI.LocalResourceOverridePopover = class LocalResourceOverridePopover extends WI.
     {
         super(delegate);
 
+        this._typeSelectElement = null;
         this._urlCodeMirror = null;
         this._isCaseSensitiveCheckbox = null;
         this._isRegexCheckbox = null;
+        this._isPassthroughCheckbox = null;
+        this._requestURLCodeMirror = null;
+        this._mappedDirectorySubpathCodeMirror = null;
+        this._mappedDirectoryPathValueElement = null;
+        this._methodSelectElement = null;
         this._mimeTypeCodeMirror = null;
         this._statusCodeCodeMirror = null;
         this._statusTextCodeMirror = null;
         this._headersDataGrid = null;
+        this._mappedFilePathValueElement = null;
+        this._skipNetworkCheckbox = null;
 
+        this._originalRequestURL = null;
         this._serializedDataWhenShown = null;
 
         this.windowResizeHandler = this._presentOverTargetElement.bind(this);
@@ -49,60 +58,97 @@ WI.LocalResourceOverridePopover = class LocalResourceOverridePopover extends WI.
         if (!this._targetElement)
             return null;
 
-        let url = this._urlCodeMirror.getValue();
-        if (!url)
+        // COMPATIBILITY (iOS 13.4): `Network.addInterception` did not exist yet.
+        let data = {
+            type: this._typeSelectElement.value,
+            url: this._urlCodeMirror.getValue(),
+            isCaseSensitive: !this._isCaseSensitiveCheckbox || this._isCaseSensitiveCheckbox.checked,
+            isRegex: !!this._isRegexCheckbox?.checked,
+            isPassthrough: this._isPassthroughCheckbox.checked,
+        };
+
+        if (data.type === WI.LocalResourceOverride.InterceptType.Response && this._skipNetworkCheckbox?.checked)
+            data.type = WI.LocalResourceOverride.InterceptType.ResponseSkippingNetwork;
+
+        if (!data.url)
             return null;
 
-        let isRegex = this._isRegexCheckbox && this._isRegexCheckbox.checked;
-        if (!isRegex) {
+        if (!data.isRegex) {
             const schemes = ["http:", "https:", "file:"];
-            if (!schemes.some((scheme) => url.toLowerCase().startsWith(scheme)))
+            if (!schemes.some((scheme) => data.url.toLowerCase().startsWith(scheme)))
                 return null;
         }
-
-        // NOTE: We can allow an empty mimeType / statusCode / statusText to pass
-        // network values through, but lets require them for overrides so that
-        // the popover doesn't have to have an additional state for "pass through".
-
-        let mimeType = this._mimeTypeCodeMirror.getValue() || this._mimeTypeCodeMirror.getOption("placeholder");
-        if (!mimeType)
-            return null;
-
-        let statusCode = parseInt(this._statusCodeCodeMirror.getValue());
-        if (isNaN(statusCode))
-            statusCode = parseInt(this._statusCodeCodeMirror.getOption("placeholder"));
-        if (isNaN(statusCode) || statusCode < 0)
-            return null;
-
-        let statusText = this._statusTextCodeMirror.getValue() || this._statusTextCodeMirror.getOption("placeholder");
-        if (!statusText)
-            return null;
 
         let headers = {};
         for (let node of this._headersDataGrid.children) {
             let {name, value} = node.data;
             if (!name || !value)
                 continue;
-            if (name.toLowerCase() === "content-type")
-                continue;
-            if (name.toLowerCase() === "set-cookie")
-                continue;
+            if (data.type === WI.LocalResourceOverride.InterceptType.Response || data.type === WI.LocalResourceOverride.InterceptType.ResponseSkippingNetwork) {
+                if (name.toLowerCase() === "content-type")
+                    continue;
+                if (name.toLowerCase() === "set-cookie")
+                    continue;
+            }
             headers[name] = value;
         }
 
-        let data = {
-            url,
-            mimeType,
-            statusCode,
-            statusText,
-            headers,
-        };
+        switch (data.type) {
+        case WI.LocalResourceOverride.InterceptType.Request:
+            data.requestURL = this._requestURLCodeMirror.getValue();
+            data.requestMethod = this._methodSelectElement.value;
+            data.requestHeaders = headers;
+            break;
 
-        if (this._isCaseSensitiveCheckbox)
-            data.isCaseSensitive = this._isCaseSensitiveCheckbox.checked;
+        case WI.LocalResourceOverride.InterceptType.Response:
+        case WI.LocalResourceOverride.InterceptType.ResponseSkippingNetwork:
+            // NOTE: We can allow an empty mimeType / statusCode / statusText to pass
+            // network values through, but lets require them for overrides so that
+            // the popover doesn't have to have an additional state for "pass through".
 
-        if (this._isRegexCheckbox)
-            data.isRegex = this._isRegexCheckbox.checked;
+            data.responseMIMEType = this._mimeTypeCodeMirror.getValue() || this._mimeTypeCodeMirror.getOption("placeholder");
+            if (!data.responseMIMEType)
+                return null;
+
+            data.responseStatusCode = parseInt(this._statusCodeCodeMirror.getValue());
+            if (isNaN(data.responseStatusCode))
+                data.responseStatusCode = parseInt(this._statusCodeCodeMirror.getOption("placeholder"));
+            if (isNaN(data.responseStatusCode) || data.responseStatusCode < 0)
+                return null;
+
+            data.responseStatusText = this._statusTextCodeMirror.getValue() || this._statusTextCodeMirror.getOption("placeholder");
+            if (!data.responseStatusText)
+                return null;
+
+            data.responseHeaders = headers;
+
+            data.mappedFilePath = this._mappedFilePathValueElement.textContent;
+            break;
+
+        case WI.LocalResourceOverride.InterceptType.ResponseMappedDirectory:
+            data.requestURL = this._mappedDirectorySubpathCodeMirror.getValue();
+            if (!data.requestURL)
+                return null;
+
+            data.mappedFilePath = this._mappedDirectoryPathValueElement.textContent;
+            if (!data.mappedFilePath)
+                return null;
+
+            break;
+        }
+
+        if (!data.requestURL) {
+            if (data.isCaseSensitive && !data.isRegex)
+                data.requestURL = data.url;
+            else if (this._originalRequestURL)
+                data.requestURL = this._originalRequestURL;
+        }
+
+        if (!data.responseMIMEType && data.requestURL) {
+            data.responseMIMEType = WI.mimeTypeForFileExtension(WI.fileExtensionForURL(data.requestURL));
+            if (data.type === WI.LocalResourceOverride.InterceptType.Response || data.type === WI.LocalResourceOverride.InterceptType.ResponseSkippingNetwork)
+                headers["Content-Type"] = data.responseMIMEType;
+        }
 
         // No change.
         let oldSerialized = JSON.stringify(this._serializedDataWhenShown);
@@ -120,37 +166,44 @@ WI.LocalResourceOverridePopover = class LocalResourceOverridePopover extends WI.
 
         let localResource = localResourceOverride ? localResourceOverride.localResource : null;
 
-        let data = {};
-        let resourceData = {};
+        let placeholderData = {};
+        let valueData = {};
         if (localResource) {
-            data.url = resourceData.url = localResource.url;
-            data.mimeType = resourceData.mimeType = localResource.mimeType;
-            data.statusCode = resourceData.statusCode = String(localResource.statusCode);
-            data.statusText = resourceData.statusText = localResource.statusText;
+            placeholderData.url = valueData.url = localResourceOverride.url;
+            placeholderData.requestURL = valueData.requestURL = localResource.url;
+            placeholderData.method = valueData.method = localResource.requestMethod;
+            placeholderData.mimeType = valueData.mimeType = localResource.mimeType;
+            placeholderData.statusCode = valueData.statusCode = String(localResource.statusCode);
+            placeholderData.statusText = valueData.statusText = localResource.statusText;
+            placeholderData.mappedFilePath = valueData.mappedFilePath = localResource.mappedFilePath;
         }
 
-        if (!data.url)
-            data.url = this._defaultURL();
-
-        if (!data.mimeType)
-            data.mimeType = "text/javascript";
-
-        if (!data.statusCode || data.statusCode === "NaN") {
-            data.statusCode = "200";
-            resourceData.statusCode = undefined;
+        placeholderData.url ||= this._defaultURL();
+        placeholderData.requestURL ||= placeholderData.url;
+        placeholderData.method ||= "GET";
+        placeholderData.mimeType ||= "text/javascript";
+        if (!placeholderData.statusCode || placeholderData.statusCode === "NaN") {
+            placeholderData.statusCode = "200";
+            placeholderData.statusText = undefined;
+            valueData.statusCode = undefined;
+            valueData.statusText = undefined;
+        }
+        if (!placeholderData.statusText) {
+            placeholderData.statusText = WI.HTTPUtilities.statusTextForStatusCode(parseInt(placeholderData.statusCode));
+            valueData.statusText = undefined;
         }
 
-        if (!data.statusText) {
-            data.statusText = WI.HTTPUtilities.statusTextForStatusCode(parseInt(data.statusCode));
-            resourceData.statusText = undefined;
-        }
-
-        let responseHeaders = localResource ? localResource.responseHeaders : {};
+        let requestHeaders = localResource?.requestHeaders ?? {};
+        let responseHeaders = localResource?.responseHeaders ?? {};
 
         let popoverContentElement = document.createElement("div");
         popoverContentElement.className = "local-resource-override-popover-content";
 
         let table = popoverContentElement.appendChild(document.createElement("table"));
+
+        function createEditorId(id) {
+            return `local-resource-override-popover-${id}-input-field`;
+        }
 
         let createRow = (label, id, value, placeholder) => {
             let row = table.appendChild(document.createElement("tr"));
@@ -165,13 +218,57 @@ WI.LocalResourceOverridePopover = class LocalResourceOverridePopover extends WI.
 
             let codeMirror = this._createEditor(editorElement, {value, placeholder});
             let inputField = codeMirror.getInputField();
-            inputField.id = `local-resource-override-popover-${id}-input-field`;
+            inputField.id = createEditorId(id);
             labelElement.setAttribute("for", inputField.id);
 
-            return {codeMirror, dataElement};
+            return {element: row, dataElement, codeMirror};
         };
 
-        let urlRow = createRow(WI.UIString("URL"), "url", resourceData.url || "", data.url);
+        this._typeSelectElement = document.createElement("select");
+
+        let createOption = (type, label) => {
+            let optionElement = document.createElement("option");
+            optionElement.textContent = label ?? WI.LocalResourceOverride.displayNameForType(type);
+            optionElement.value = type;
+            return optionElement;
+        };
+        if (WI.NetworkManager.supportsOverridingRequests())
+            this._typeSelectElement.appendChild(createOption(WI.LocalResourceOverride.InterceptType.Request));
+        if (WI.LocalResource.canMapToFile()) {
+            let optionGroupElement = this._typeSelectElement.appendChild(document.createElement("optgroup"));
+            optionGroupElement.label = WI.LocalResourceOverride.displayNameForType(WI.LocalResourceOverride.InterceptType.Response);
+            optionGroupElement.appendChild(createOption(WI.LocalResourceOverride.InterceptType.Response, WI.UIString("File", "File @ Local Override Type", "Option for creating a local override for a single file.")));
+            optionGroupElement.appendChild(createOption(WI.LocalResourceOverride.InterceptType.ResponseMappedDirectory, WI.UIString("Directory", "Directory @ Local Override Type", "Option for creating a local override for an entire directory.")));
+        } else
+            this._typeSelectElement.appendChild(createOption(WI.LocalResourceOverride.InterceptType.Response));
+        if (WI.NetworkManager.supportsBlockingRequests())
+            this._typeSelectElement.appendChild(createOption(WI.LocalResourceOverride.InterceptType.Block));
+
+        this._typeSelectElement.value = localResourceOverride?.type ?? this._typeSelectElement.options[0].value;
+        if (localResourceOverride?.type === WI.LocalResourceOverride.InterceptType.ResponseSkippingNetwork)
+            this._typeSelectElement.value = WI.LocalResourceOverride.InterceptType.Response;
+
+        if (!localResourceOverride && this._typeSelectElement.options.length > 1) {
+            let typeRowElement = table.appendChild(document.createElement("tr"));
+
+            let typeHeaderElement = typeRowElement.appendChild(document.createElement("th"));
+
+            let typeLabelElement = typeHeaderElement.appendChild(document.createElement("label"));
+            typeLabelElement.textContent = WI.UIString("Type");
+
+            let typeDataElement = typeRowElement.appendChild(document.createElement("td"));
+            typeDataElement.appendChild(this._typeSelectElement);
+
+            this._typeSelectElement.addEventListener("change", (event) => {
+                toggleInputsForType();
+                this.update();
+            });
+
+            this._typeSelectElement.id = "local-resource-override-popover-type-input-field";
+            typeLabelElement.setAttribute("for", this._typeSelectElement.id);
+        }
+
+        let urlRow = createRow(WI.UIString("URL"), "url", valueData.url || "", placeholderData.url);
         this._urlCodeMirror = urlRow.codeMirror;
 
         let updateURLCodeMirrorMode = () => {
@@ -189,6 +286,7 @@ WI.LocalResourceOverridePopover = class LocalResourceOverridePopover extends WI.
             }
         };
 
+        // COMPATIBILITY (iOS 13.4): `Network.addInterception` did not exist yet.
         if (InspectorBackend.hasCommand("Network.addInterception", "caseSensitive")) {
             let isCaseSensitiveLabel = urlRow.dataElement.appendChild(document.createElement("label"));
             isCaseSensitiveLabel.className = "is-case-sensitive";
@@ -200,6 +298,7 @@ WI.LocalResourceOverridePopover = class LocalResourceOverridePopover extends WI.
             isCaseSensitiveLabel.append(WI.UIString("Case Sensitive"));
         }
 
+        // COMPATIBILITY (iOS 13.4): `Network.addInterception` did not exist yet.
         if (InspectorBackend.hasCommand("Network.addInterception", "isRegex")) {
             let isRegexLabel = urlRow.dataElement.appendChild(document.createElement("label"));
             isRegexLabel.className = "is-regex";
@@ -214,17 +313,105 @@ WI.LocalResourceOverridePopover = class LocalResourceOverridePopover extends WI.
             isRegexLabel.append(WI.UIString("Regular Expression"));
         }
 
-        let mimeTypeRow = createRow(WI.UIString("MIME Type"), "mime", resourceData.mimeType || "", data.mimeType);
+        let requestURLRow = null;
+        let methodRowElement = null;
+        if (WI.NetworkManager.supportsOverridingRequests()) {
+            requestURLRow = createRow(WI.UIString("Redirect"), "redirect", valueData.requestURL || "", placeholderData.requestURL);
+            this._requestURLCodeMirror = requestURLRow.codeMirror;
+
+            methodRowElement = table.appendChild(document.createElement("tr"));
+
+            let methodHeaderElement = methodRowElement.appendChild(document.createElement("th"));
+
+            let methodLabelElement = methodHeaderElement.appendChild(document.createElement("label"));
+            methodLabelElement.textContent = WI.UIString("Method");
+
+            let methodDataElement = methodRowElement.appendChild(document.createElement("td"));
+
+            this._methodSelectElement = methodDataElement.appendChild(document.createElement("select"));
+
+            [
+                WI.HTTPUtilities.RequestMethod.GET,
+                WI.HTTPUtilities.RequestMethod.POST,
+                null, // divider
+                WI.HTTPUtilities.RequestMethod.HEAD,
+                WI.HTTPUtilities.RequestMethod.PATCH,
+                WI.HTTPUtilities.RequestMethod.PUT,
+                WI.HTTPUtilities.RequestMethod.DELETE,
+                null, // divider
+                WI.HTTPUtilities.RequestMethod.OPTIONS,
+                WI.HTTPUtilities.RequestMethod.CONNECT,
+                WI.HTTPUtilities.RequestMethod.TRACE,
+            ].forEach((method) => {
+                if (!method) {
+                    this._methodSelectElement.appendChild(document.createElement("hr"));
+                    return;
+                }
+
+                let optionElement = this._methodSelectElement.appendChild(document.createElement("option"));
+                optionElement.textContent = method;
+            });
+
+            this._methodSelectElement.value = valueData.method || placeholderData.method;
+
+            this._methodSelectElement.id = "local-resource-override-popover-method-input-field";
+            methodLabelElement.setAttribute("for", this._methodSelectElement.id);
+        }
+
+        let mappedDirectorySubpathRow = null;
+        let mappedDirectoryPathRowElement = null;
+        if (WI.NetworkManager.supportsOverridingResponses() && WI.LocalResource.canMapToFile()) {
+            const mappedDirectorySubpathLabel = WI.UIString("Subpath", "Subpath @ Local Override Popover", "Label for the input of where to find the corresponding file within the mapped directory on disk.");
+            mappedDirectorySubpathRow = createRow(mappedDirectorySubpathLabel, "mapped-directory-subpath", valueData.requestURL || "", placeholderData.requestURL !== placeholderData.url ? placeholderData.requestURL : "$1");
+            this._mappedDirectorySubpathCodeMirror = mappedDirectorySubpathRow.codeMirror;
+
+            mappedDirectoryPathRowElement = table.appendChild(document.createElement("tr"));
+            let mappedDirectoryPathHeaderElement = mappedDirectoryPathRowElement.appendChild(document.createElement("th"));
+            let mappedDirectoryPathDataElement = mappedDirectoryPathRowElement.appendChild(document.createElement("td"));
+
+            let mappedDirectoryPathLabelElement = mappedDirectoryPathHeaderElement.appendChild(document.createElement("label"));
+            mappedDirectoryPathLabelElement.textContent = WI.UIString("Directory", "Directory @ Local Override Popopver", "Label for the input used for mapping the local override to a directory on disk.");
+
+            // Simulate the UI of a `<input type="file">`, as there's no way to provide an initial value to an actual `<input type="file">`.
+
+            let mappedDirectoryPathEditorElement = mappedDirectoryPathDataElement.appendChild(document.createElement("div"));
+            mappedDirectoryPathEditorElement.classList.add("mapped-directory-path");
+
+            let mappedDirectoryPathButtonElement = mappedDirectoryPathEditorElement.appendChild(document.createElement("button"));
+            mappedDirectoryPathButtonElement.textContent = WI.UIString("Choose Directory", "Choose Directory @ Local Override Popover", "Text of button that shows native UI to pick a directory on disk.");
+
+            this._mappedDirectoryPathValueElement = mappedDirectoryPathEditorElement.appendChild(document.createElement("span"));
+            this._mappedDirectoryPathValueElement.classList.add("value");
+            this._mappedDirectoryPathValueElement.textContent = valueData.mappedFilePath;
+
+            let mappedDirectoryPathPlaceholderElement = mappedDirectoryPathEditorElement.appendChild(document.createElement("span"));
+            mappedDirectoryPathPlaceholderElement.classList.add("placeholder");
+            mappedDirectoryPathPlaceholderElement.textContent = WI.UIString("no directory selected", "no directory selected @ Local Override Popover", "Placeholder text indicating that no directory has been selected.");
+
+            mappedDirectoryPathEditorElement.title = this._mappedDirectoryPathValueElement.textContent;
+
+            let updateMappedDirectoryPath = async () => {
+                WI.FileUtilities.import((files) => {
+                    this._mappedDirectoryPathValueElement.textContent = WI.FileUtilities.longestCommonPrefix(files, {directory: true});
+
+                    mappedDirectoryPathEditorElement.title = this._mappedDirectoryPathValueElement.textContent;
+                }, {directory: true});
+            };
+            mappedDirectoryPathLabelElement.addEventListener("click", updateMappedDirectoryPath);
+            mappedDirectoryPathEditorElement.addEventListener("click", updateMappedDirectoryPath);
+        }
+
+        let mimeTypeRow = createRow(WI.UIString("MIME Type", "MIME Type @ Local Override Popover", "Label for MIME type input for the local override currently being edited."), "mime", valueData.mimeType || "", placeholderData.mimeType);
         this._mimeTypeCodeMirror = mimeTypeRow.codeMirror;
 
-        let statusCodeRow = createRow(WI.UIString("Status"), "status", resourceData.statusCode || "", data.statusCode);
+        let statusCodeRow = createRow(WI.UIString("Status", "Status @ Local Override Popover", "Label for the HTTP status code input for the local override currently being edited."), "status", valueData.statusCode || "", placeholderData.statusCode);
         this._statusCodeCodeMirror = statusCodeRow.codeMirror;
 
         let statusTextEditorElement = statusCodeRow.dataElement.appendChild(document.createElement("div"));
         statusTextEditorElement.className = "editor status-text";
-        this._statusTextCodeMirror = this._createEditor(statusTextEditorElement, {value: resourceData.statusText || "", placeholder: data.statusText});
+        this._statusTextCodeMirror = this._createEditor(statusTextEditorElement, {value: valueData.statusText || "", placeholder: placeholderData.statusText});
 
-        let editCallback = () => {};
+        let afterEditCallback = () => {}; // We must provide a callback in order to enable builtin editing support.
         let deleteCallback = (node) => {
             if (node === contentTypeDataGridNode)
                 return;
@@ -234,7 +421,7 @@ WI.LocalResourceOverridePopover = class LocalResourceOverridePopover extends WI.
             if (siblingToSelect)
                 siblingToSelect.select();
 
-            this._headersDataGrid.updateLayoutIfNeeded();
+            toggleHeadersDataGridVisibility();
             this.update();
         };
 
@@ -248,7 +435,7 @@ WI.LocalResourceOverridePopover = class LocalResourceOverridePopover extends WI.
             },
         };
 
-        this._headersDataGrid = new WI.DataGrid(columns, {editCallback, deleteCallback});
+        this._headersDataGrid = new WI.DataGrid(columns, {afterEditCallback, deleteCallback});
         this._headersDataGrid.inline = true;
         this._headersDataGrid.variableHeightRows = true;
         this._headersDataGrid.copyTextDelimiter = ": ";
@@ -259,15 +446,14 @@ WI.LocalResourceOverridePopover = class LocalResourceOverridePopover extends WI.
             return node;
         };
 
-        let contentTypeDataGridNode = addDataGridNodeForHeader("Content-Type", data.mimeType, {selectable: false, editable: false, classNames: ["header-content-type"]});
+        let toggleHeadersDataGridVisibility = (force) => {
+            let hidden = force ?? !this._headersDataGrid.hasChildren;
+            this._headersDataGrid.element.hidden = hidden;
+            if (!hidden)
+                this._headersDataGrid.updateLayout();
+        };
 
-        for (let name in responseHeaders) {
-            if (name.toLowerCase() === "content-type")
-                continue;
-            if (name.toLowerCase() === "set-cookie")
-                continue;
-            addDataGridNodeForHeader(name, responseHeaders[name]);
-        }
+        let contentTypeDataGridNode = addDataGridNodeForHeader(WI.unlocalizedString("Content-Type"), valueData.mimeType || placeholderData.mimeType, {selectable: false, editable: false, classNames: ["header-content-type"]});
 
         let headersRow = table.appendChild(document.createElement("tr"));
         let headersHeader = headersRow.appendChild(document.createElement("th"));
@@ -275,7 +461,6 @@ WI.LocalResourceOverridePopover = class LocalResourceOverridePopover extends WI.
         let headersLabel = headersHeader.appendChild(document.createElement("label"));
         headersLabel.textContent = WI.UIString("Headers");
         headersData.appendChild(this._headersDataGrid.element);
-        this._headersDataGrid.updateLayoutIfNeeded();
 
         let addHeaderButton = headersData.appendChild(document.createElement("button"));
         addHeaderButton.className = "add-header";
@@ -286,12 +471,82 @@ WI.LocalResourceOverridePopover = class LocalResourceOverridePopover extends WI.
                 value: WI.UIString("value", "value @ Local Override Popover New Headers Data Grid Item", "Placeholder text in an editable field for the value of a HTTP header"),
             });
             this._headersDataGrid.appendChild(newNode);
-            this._headersDataGrid.updateLayoutIfNeeded();
+            toggleHeadersDataGridVisibility(false);
             this.update();
             this._headersDataGrid.startEditingNode(newNode);
         });
 
-        headersData.appendChild(WI.createReferencePageLink("local-overrides", "configuring-local-overrides"));
+        let mappedFilePathRowElement = null;
+        if (WI.LocalResource.canMapToFile()) {
+            mappedFilePathRowElement = table.appendChild(document.createElement("tr"));
+            let mappedFilePathHeaderElement = mappedFilePathRowElement.appendChild(document.createElement("th"));
+            let mappedFilePathDataElement = mappedFilePathRowElement.appendChild(document.createElement("td"));
+
+            let mappedFilePathLabelElement = mappedFilePathHeaderElement.appendChild(document.createElement("label"));
+            mappedFilePathLabelElement.textContent = WI.UIString("File", "File @ Local Override Popopver", "Label for the input used for mapping the local override to a file on disk.");
+
+            // Simulate the UI of a `<input type="file">`, as there's no way to provide an initial value to an actual `<input type="file">`.
+
+            let mappedFilePathEditorElement = mappedFilePathDataElement.appendChild(document.createElement("div"));
+            mappedFilePathEditorElement.classList.add("mapped-file-path");
+
+            let mappedFilePathButtonElement = mappedFilePathEditorElement.appendChild(document.createElement("button"));
+            mappedFilePathButtonElement.textContent = WI.UIString("Choose File", "Choose File @ Local Override Popover", "Text of button that shows native UI to pick a file on disk.");
+
+            this._mappedFilePathValueElement = mappedFilePathEditorElement.appendChild(document.createElement("span"));
+            this._mappedFilePathValueElement.classList.add("value");
+            this._mappedFilePathValueElement.textContent = valueData.mappedFilePath;
+
+            let mappedFilePathPlaceholderElement = mappedFilePathEditorElement.appendChild(document.createElement("span"));
+            mappedFilePathPlaceholderElement.classList.add("placeholder");
+            mappedFilePathPlaceholderElement.textContent = WI.UIString("no file selected", "no file selected @ Local Override Popover", "Placeholder text indicating that no file has been selected.");
+
+            mappedFilePathEditorElement.title = this._mappedFilePathValueElement.textContent;
+
+            let updateMappedFilePath = async () => {
+                WI.FileUtilities.import((files) => {
+                    console.assert(files.length === 1);
+                    this._mappedFilePathValueElement.textContent = WI.FileUtilities.longestCommonPrefix(files);
+
+                    mappedFilePathEditorElement.title = this._mappedFilePathValueElement.textContent;
+                });
+            };
+            mappedFilePathLabelElement.addEventListener("click", updateMappedFilePath);
+            mappedFilePathEditorElement.addEventListener("click", updateMappedFilePath);
+        }
+
+        let optionsRowElement = table.appendChild(document.createElement("tr"));
+        optionsRowElement.className = "options";
+
+        let optionsHeader = optionsRowElement.appendChild(document.createElement("th"));
+
+        let optionsLabel = optionsHeader.appendChild(document.createElement("label"));
+        optionsLabel.textContent = WI.UIString("Options");
+
+        let optionsData = optionsRowElement.appendChild(document.createElement("td"));
+
+        let isPassthroughLabel = optionsData.appendChild(document.createElement("label"));
+        isPassthroughLabel.className = "is-passthrough";
+
+        this._isPassthroughCheckbox = isPassthroughLabel.appendChild(document.createElement("input"));
+        this._isPassthroughCheckbox.type = "checkbox";
+        this._isPassthroughCheckbox.checked = !!localResourceOverride?.isPassthrough;
+
+        let isPassthroughLabelText = isPassthroughLabel.appendChild(document.createTextNode(""));
+
+        let skipNetworkLabel = null;
+        if (WI.NetworkManager.supportsOverridingRequestsWithResponses()) {
+            skipNetworkLabel = optionsData.appendChild(document.createElement("label"));
+            skipNetworkLabel.className = "skip-network";
+
+            this._skipNetworkCheckbox = skipNetworkLabel.appendChild(document.createElement("input"));
+            this._skipNetworkCheckbox.type = "checkbox";
+            this._skipNetworkCheckbox.checked = localResourceOverride?.type === WI.LocalResourceOverride.InterceptType.ResponseSkippingNetwork;
+
+            skipNetworkLabel.appendChild(document.createTextNode(WI.UIString("Skip Network", "Skip Network @ Local Override Popover Options", "Label for checkbox that controls whether the local override will actually perform a network request or skip it to immediately serve the response.")));
+        }
+
+        popoverContentElement.appendChild(WI.ReferencePage.LocalOverrides.ConfiguringLocalOverrides.createLinkElement());
 
         let incrementStatusCode = () => {
             let x = parseInt(this._statusCodeCodeMirror.getValue());
@@ -380,6 +635,84 @@ WI.LocalResourceOverridePopover = class LocalResourceOverridePopover extends WI.
 
         updateURLCodeMirrorMode();
 
+        let toggleInputsForType = (initializeHeaders) => {
+            let isBlock = this._typeSelectElement.value === WI.LocalResourceOverride.InterceptType.Block;
+            let isRequest = this._typeSelectElement.value === WI.LocalResourceOverride.InterceptType.Request;
+            let isResponse = this._typeSelectElement.value === WI.LocalResourceOverride.InterceptType.Response || this._typeSelectElement.value === WI.LocalResourceOverride.InterceptType.ResponseSkippingNetwork;
+            let isResponseMappedDirectory = this._typeSelectElement.value === WI.LocalResourceOverride.InterceptType.ResponseMappedDirectory;
+
+            popoverContentElement.classList.toggle("block", isBlock);
+            popoverContentElement.classList.toggle("request", isRequest);
+            popoverContentElement.classList.toggle("response", isResponse);
+            popoverContentElement.classList.toggle("response-mapped-directory", isResponseMappedDirectory);
+
+            initializeHeaders &&= isRequest || isResponse;
+            if (initializeHeaders) {
+                let headers = isRequest ? requestHeaders : responseHeaders;
+                for (let name in headers) {
+                    if (!isRequest) {
+                        if (name.toLowerCase() === "content-type")
+                            continue;
+                        if (name.toLowerCase() === "set-cookie")
+                            continue;
+                    }
+                    addDataGridNodeForHeader(name, headers[name]);
+                }
+            }
+
+            this._isRegexCheckbox.disabled = isResponseMappedDirectory;
+            if (requestURLRow)
+                requestURLRow.element.hidden = !isRequest;
+            if (mappedDirectorySubpathRow)
+                mappedDirectorySubpathRow.element.hidden = !isResponseMappedDirectory;
+            if (mappedDirectoryPathRowElement)
+                mappedDirectoryPathRowElement.hidden = !isResponseMappedDirectory;
+            if (methodRowElement)
+                methodRowElement.hidden = !isRequest;
+            mimeTypeRow.element.hidden = !isResponse;
+            statusCodeRow.element.hidden = !isResponse;
+            headersRow.hidden = !isRequest && !isResponse;
+            if (mappedFilePathRowElement)
+                mappedFilePathRowElement.hidden = !isResponse;
+
+            isPassthroughLabel.hidden = !isRequest && !isResponse && !isResponseMappedDirectory;
+            this._isPassthroughCheckbox.disabled = isResponseMappedDirectory;
+            if (skipNetworkLabel)
+                skipNetworkLabel.hidden = !isResponse;
+            optionsRowElement.hidden = isPassthroughLabel.hidden && (skipNetworkLabel?.hidden ?? true);
+
+            if (isRequest) {
+                this._requestURLCodeMirror.refresh();
+
+                if (contentTypeDataGridNode.parent)
+                    this._headersDataGrid.removeChild(contentTypeDataGridNode);
+
+                isPassthroughLabelText.textContent = WI.UIString("Include original request data");
+            } else if (isResponse) {
+                this._mimeTypeCodeMirror.refresh();
+                this._statusCodeCodeMirror.refresh();
+                this._statusTextCodeMirror.refresh();
+
+                if (!contentTypeDataGridNode.parent)
+                    this._headersDataGrid.insertChild(contentTypeDataGridNode, 0);
+
+                isPassthroughLabelText.textContent = WI.UIString("Include original response data");
+            } else if (isResponseMappedDirectory) {
+                this._isRegexCheckbox.checked = true;
+                this._mappedDirectorySubpathCodeMirror.refresh();
+                this._isPassthroughCheckbox.checked = true;
+
+                isPassthroughLabelText.textContent = WI.UIString("Include original response data");
+
+                updateURLCodeMirrorMode();
+            }
+
+            toggleHeadersDataGridVisibility();
+        };
+        toggleInputsForType(true);
+
+        this._originalRequestURL = localResource?.url ?? null;
+        this._originalMappedFilePath = localResource?.mappedFilePath ?? null;
         this._serializedDataWhenShown = this.serializedData;
 
         this.content = popoverContentElement;
@@ -388,6 +721,8 @@ WI.LocalResourceOverridePopover = class LocalResourceOverridePopover extends WI.
         // CodeMirror needs a refresh after the popover displays, to layout, otherwise it doesn't appear.
         setTimeout(() => {
             this._urlCodeMirror.refresh();
+            this._requestURLCodeMirror?.refresh();
+            this._mappedDirectorySubpathCodeMirror?.refresh();
             this._mimeTypeCodeMirror.refresh();
             this._statusCodeCodeMirror.refresh();
             this._statusTextCodeMirror.refresh();

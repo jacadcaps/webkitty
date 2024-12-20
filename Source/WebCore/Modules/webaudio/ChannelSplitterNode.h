@@ -32,13 +32,12 @@ namespace WebCore {
 class AudioContext;
     
 class ChannelSplitterNode final : public AudioNode {
-    WTF_MAKE_ISO_ALLOCATED(ChannelSplitterNode);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(ChannelSplitterNode);
 public:
     static ExceptionOr<Ref<ChannelSplitterNode>> create(BaseAudioContext&, const ChannelSplitterOptions& = { });
 
     // AudioNode
     void process(size_t framesToProcess) override;
-    void reset() override;
     
     ExceptionOr<void> setChannelCount(unsigned) final;
     ExceptionOr<void> setChannelCountMode(ChannelCountMode) final;
@@ -47,6 +46,7 @@ public:
 private:
     double tailTime() const override { return 0; }
     double latencyTime() const override { return 0; }
+    bool requiresTailProcessing() const final { return false; }
 
     ChannelSplitterNode(BaseAudioContext&, unsigned numberOfOutputs);
 };

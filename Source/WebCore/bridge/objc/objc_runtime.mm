@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2004-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2004-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -44,6 +44,8 @@ using namespace WebCore;
 
 namespace JSC {
 namespace Bindings {
+
+static JSC_DECLARE_HOST_FUNCTION(convertObjCFallbackObjectToPrimitive);
 
 ClassStructPtr webScriptObjectClass()
 {
@@ -117,9 +119,7 @@ JSValue ObjcField::valueFromInstance(JSGlobalObject* lexicalGlobalObject, const 
         throwError(lexicalGlobalObject, scope, [localException reason]);
     }
 
-    // Work around problem in some versions of GCC where result gets marked volatile and
-    // it can't handle copying from a volatile to non-volatile.
-    return const_cast<JSValue&>(result);
+    return result;
 }
 
 static id convertValueToObjcObject(JSGlobalObject* lexicalGlobalObject, JSValue value)
@@ -168,13 +168,13 @@ bool ObjcArray::setValueAt(JSGlobalObject* lexicalGlobalObject, unsigned int ind
     JSC::VM& vm = lexicalGlobalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    if (![_array.get() respondsToSelector:@selector(insertObject:atIndex:)]) {
+    if (![_array respondsToSelector:@selector(insertObject:atIndex:)]) {
         throwTypeError(lexicalGlobalObject, scope, "Array is not mutable."_s);
         return false;
     }
 
-    if (index > [_array.get() count]) {
-        throwException(lexicalGlobalObject, scope, createRangeError(lexicalGlobalObject, "Index exceeds array size."));
+    if (index > [_array count]) {
+        throwException(lexicalGlobalObject, scope, createRangeError(lexicalGlobalObject, "Index exceeds array size."_s));
         return false;
     }
     
@@ -183,10 +183,10 @@ bool ObjcArray::setValueAt(JSGlobalObject* lexicalGlobalObject, unsigned int ind
     ObjcValue oValue = convertValueToObjcValue (lexicalGlobalObject, aValue, ObjcObjectType);
 
     @try {
-        [_array.get() insertObject:(__bridge id)oValue.objectValue atIndex:index];
+        [_array insertObject:(__bridge id)oValue.objectValue atIndex:index];
         return true;
     } @catch(NSException* localException) {
-        throwException(lexicalGlobalObject, scope, createError(lexicalGlobalObject, "Objective-C exception."));
+        throwException(lexicalGlobalObject, scope, createError(lexicalGlobalObject, "Objective-C exception."_s));
         return false;
     }
 }
@@ -196,24 +196,24 @@ JSValue ObjcArray::valueAt(JSGlobalObject* lexicalGlobalObject, unsigned int ind
     JSC::VM& vm = lexicalGlobalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    if (index > [_array.get() count])
-        return throwException(lexicalGlobalObject, scope, createRangeError(lexicalGlobalObject, "Index exceeds array size."));
+    if (index > [_array count])
+        return throwException(lexicalGlobalObject, scope, createRangeError(lexicalGlobalObject, "Index exceeds array size."_s));
     @try {
-        id obj = [_array.get() objectAtIndex:index];
+        id obj = [_array objectAtIndex:index];
         if (obj)
             return convertObjcValueToValue (lexicalGlobalObject, &obj, ObjcObjectType, m_rootObject.get());
     } @catch(NSException* localException) {
-        return throwException(lexicalGlobalObject, scope, createError(lexicalGlobalObject, "Objective-C exception."));
+        return throwException(lexicalGlobalObject, scope, createError(lexicalGlobalObject, "Objective-C exception."_s));
     }
     return jsUndefined();
 }
 
 unsigned int ObjcArray::getLength() const
 {
-    return [_array.get() count];
+    return [_array count];
 }
 
-const ClassInfo ObjcFallbackObjectImp::s_info = { "ObjcFallbackObject", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(ObjcFallbackObjectImp) };
+const ClassInfo ObjcFallbackObjectImp::s_info = { "ObjcFallbackObject"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(ObjcFallbackObjectImp) };
 
 ObjcFallbackObjectImp::ObjcFallbackObjectImp(JSGlobalObject* globalObject, Structure* structure, ObjcInstance* i, const String& propertyName)
     : JSDestructibleObject(globalObject->vm(), structure)
@@ -231,11 +231,17 @@ void ObjcFallbackObjectImp::finishCreation(JSGlobalObject* globalObject)
 {
     VM& vm = globalObject->vm();
     Base::finishCreation(vm);
-    ASSERT(inherits(vm, info()));
+    ASSERT(inherits(info()));
+    putDirect(vm, vm.propertyNames->toPrimitiveSymbol,
+        JSFunction::create(vm, globalObject, 0, "[Symbol.toPrimitive]"_s, convertObjCFallbackObjectToPrimitive, ImplementationVisibility::Public),
+        static_cast<unsigned>(PropertyAttribute::DontEnum));
 }
 
-bool ObjcFallbackObjectImp::getOwnPropertySlot(JSObject*, JSGlobalObject*, PropertyName, PropertySlot& slot)
+bool ObjcFallbackObjectImp::getOwnPropertySlot(JSObject* object, JSGlobalObject* globalObject, PropertyName propertyName, PropertySlot& slot)
 {
+    VM& vm = globalObject->vm();
+    if (propertyName.uid() == vm.propertyNames->toPrimitiveSymbol.impl())
+        return JSObject::getOwnPropertySlot(object, globalObject, propertyName, slot);
     // keep the prototype from getting called instead of just returning false
     slot.setUndefined();
     return true;
@@ -246,13 +252,15 @@ bool ObjcFallbackObjectImp::put(JSCell*, JSGlobalObject*, PropertyName, JSValue,
     return false;
 }
 
-static EncodedJSValue JSC_HOST_CALL callObjCFallbackObject(JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame)
+static JSC_DECLARE_HOST_FUNCTION(callObjCFallbackObject);
+
+JSC_DEFINE_HOST_FUNCTION(callObjCFallbackObject, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
 {
     JSC::VM& vm = lexicalGlobalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     JSValue thisValue = callFrame->thisValue();
-    if (!thisValue.inherits<ObjCRuntimeObject>(vm))
+    if (!thisValue.inherits<ObjCRuntimeObject>())
         return throwVMTypeError(lexicalGlobalObject, scope);
 
     JSValue result = jsUndefined();
@@ -261,7 +269,7 @@ static EncodedJSValue JSC_HOST_CALL callObjCFallbackObject(JSGlobalObject* lexic
     ObjcInstance* objcInstance = runtimeObject->getInternalObjCInstance();
 
     if (!objcInstance)
-        return JSValue::encode(RuntimeObject::throwInvalidAccessError(lexicalGlobalObject, scope));
+        return JSValue::encode(throwRuntimeObjectInvalidAccessError(lexicalGlobalObject, scope));
     
     objcInstance->begin();
 
@@ -289,6 +297,7 @@ CallData ObjcFallbackObjectImp::getCallData(JSCell* cell)
     if ([targetObject respondsToSelector:@selector(invokeUndefinedMethodFromWebScript:withArguments:)]) {
         callData.type = CallData::Type::Native;
         callData.native.function = callObjCFallbackObject;
+        callData.native.isBoundFunction = false;
     }
 
     return callData;
@@ -299,11 +308,17 @@ bool ObjcFallbackObjectImp::deleteProperty(JSCell*, JSGlobalObject*, PropertyNam
     return false;
 }
 
-JSValue ObjcFallbackObjectImp::defaultValue(const JSObject* object, JSGlobalObject* lexicalGlobalObject, PreferredPrimitiveType)
+JSC_DEFINE_HOST_FUNCTION(convertObjCFallbackObjectToPrimitive, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
 {
     VM& vm = lexicalGlobalObject->vm();
-    const ObjcFallbackObjectImp* thisObject = jsCast<const ObjcFallbackObjectImp*>(object);
-    return thisObject->_instance->getValueOfUndefinedField(lexicalGlobalObject, Identifier::fromString(vm, thisObject->m_item));
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    auto* thisObject = jsDynamicCast<ObjcFallbackObjectImp*>(callFrame->thisValue());
+    if (!thisObject)
+        return throwVMTypeError(lexicalGlobalObject, scope, "ObjcFallbackObject[Symbol.toPrimitive] method called on incompatible |this| value."_s);
+
+    scope.release();
+    return JSValue::encode(thisObject->getInternalObjCInstance()->getValueOfUndefinedField(lexicalGlobalObject, Identifier::fromString(vm, thisObject->propertyName())));
 }
 
 bool ObjcFallbackObjectImp::toBoolean(JSGlobalObject*) const
@@ -316,11 +331,13 @@ bool ObjcFallbackObjectImp::toBoolean(JSGlobalObject*) const
     return false;
 }
 
-JSC::IsoSubspace* ObjcFallbackObjectImp::subspaceForImpl(JSC::VM& vm)
+JSC::GCClient::IsoSubspace* ObjcFallbackObjectImp::subspaceForImpl(JSC::VM& vm)
 {
-    static NeverDestroyed<JSC::IsoSubspacePerVM> perVM([] (JSC::VM& vm) { return ISO_SUBSPACE_PARAMETERS(vm.destructibleObjectHeapCellType.get(), ObjcFallbackObjectImp); });
-    return &perVM.get().forVM(vm);
+    static NeverDestroyed<JSC::IsoSubspacePerVM> perVM([] (JSC::Heap& heap) {
+        return ISO_SUBSPACE_PARAMETERS(heap.destructibleObjectHeapCellType, ObjcFallbackObjectImp);
+    });
+    return &perVM.get().clientIsoSubspaceforVM(vm);
 }
 
-}
-}
+} // namespace Bindings
+} // namespace JSC

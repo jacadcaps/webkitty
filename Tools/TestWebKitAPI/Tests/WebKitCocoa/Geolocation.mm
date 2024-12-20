@@ -28,16 +28,32 @@
 #if PLATFORM(IOS_FAMILY)
 
 #import "PlatformUtilities.h"
+#import "TestUIDelegate.h"
 #import "TestWKWebView.h"
 #import <CoreLocation/CLLocation.h>
+#import <WebCore/SecurityOriginData.h>
 #import <WebKit/WKProcessPoolPrivate.h>
 #import <WebKit/WKUIDelegatePrivate.h>
 #import <WebKit/_WKGeolocationCoreLocationProvider.h>
 #import <WebKit/_WKGeolocationPosition.h>
 #import <wtf/MainThread.h>
+#import <wtf/NeverDestroyed.h>
 #import <wtf/RetainPtr.h>
 
 static bool hasReceivedAlert;
+static bool didShowGeolocationPrompt = false;
+
+@interface TestWKWebViewForGeolocation : TestWKWebView
+- (BOOL)_shouldBypassGeolocationPromptForTesting;
+@end
+
+@implementation TestWKWebViewForGeolocation
+- (BOOL)_shouldBypassGeolocationPromptForTesting
+{
+    didShowGeolocationPrompt = true;
+    return YES;
+}
+@end
 
 @interface TestCoreLocationProvider : NSObject<_WKGeolocationCoreLocationProvider>
 @property (nonatomic) BOOL shouldAuthorizeGeolocation;
@@ -134,16 +150,13 @@ static void expectException(void (^completionHandler)())
 
 @end
 
-
-using namespace std;
-
 namespace TestWebKitAPI {
 
 // These tests need to use TestWKWebView because it sets up a visible window for the web
 // view. Without this, the web process would wait until the page is visible before sending
 // the requests to the UI process.
 
-TEST(WebKit, GeolocationDeniedByLocationProvider)
+TEST(Geolocation, DeniedByLocationProvider)
 {
     auto uiDelegate = adoptNS([[GeolocationTestUIDelegate alloc] init]);
     auto coreLocationProvider = adoptNS([[TestCoreLocationProvider alloc] init]);
@@ -167,7 +180,7 @@ TEST(WebKit, GeolocationDeniedByLocationProvider)
     EXPECT_FALSE(uiDelegate.get().authorizationWasRequested);
 }
 
-TEST(WebKit, GeolocationDeniedByAPI)
+TEST(Geolocation, DeniedByAPI)
 {
     auto uiDelegate = adoptNS([[GeolocationTestUIDelegate alloc] init]);
     auto coreLocationProvider = adoptNS([[TestCoreLocationProvider alloc] init]);
@@ -191,7 +204,7 @@ TEST(WebKit, GeolocationDeniedByAPI)
     EXPECT_TRUE(uiDelegate.get().authorizationWasRequested);
 }
 
-TEST(WebKit, GeolocationAllowedByAPI)
+TEST(Geolocation, AllowedByAPI)
 {
     auto uiDelegate = adoptNS([[GeolocationTestUIDelegate alloc] init]);
     auto coreLocationProvider = adoptNS([[TestCoreLocationProvider alloc] init]);
@@ -215,7 +228,7 @@ TEST(WebKit, GeolocationAllowedByAPI)
     EXPECT_TRUE(uiDelegate.get().authorizationWasRequested);
 }
 
-TEST(WebKit, GeolocationError)
+TEST(Geolocation, Error)
 {
     auto uiDelegate = adoptNS([[GeolocationTestUIDelegate alloc] init]);
     auto coreLocationProvider = adoptNS([[TestCoreLocationProvider alloc] init]);
@@ -240,7 +253,7 @@ TEST(WebKit, GeolocationError)
     EXPECT_TRUE(uiDelegate.get().authorizationWasRequested);
 }
 
-TEST(WebKit, DuplicateGeolocationAuthorizationCallbackCalls)
+TEST(Geolocation, DuplicateAuthorizationCallbackCalls)
 {
     auto uiDelegate = adoptNS([[GeolocationTestUIDelegate alloc] init]);
     auto coreLocationProvider = adoptNS([[TestCoreLocationProvider alloc] init]);
@@ -263,6 +276,22 @@ TEST(WebKit, DuplicateGeolocationAuthorizationCallbackCalls)
     EXPECT_WK_STREQ(uiDelegate.get().alertMessage, "SUCCESS");
     EXPECT_TRUE(coreLocationProvider.get().authorizationWasRequested);
     EXPECT_TRUE(uiDelegate.get().authorizationWasRequested);
+}
+
+TEST(Geolocation, DelegateNotImplemented)
+{
+    auto coreLocationProvider = adoptNS([TestCoreLocationProvider new]);
+    coreLocationProvider.get().shouldAuthorizeGeolocation = YES;
+    auto processPool = adoptNS([WKProcessPool new]);
+    processPool.get()._coreLocationProvider = coreLocationProvider.get();
+    auto config = adoptNS([WKWebViewConfiguration new]);
+    config.get().processPool = processPool.get();
+    auto webView = adoptNS([[TestWKWebViewForGeolocation alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:config.get()]);
+    EXPECT_FALSE(didShowGeolocationPrompt);
+    [webView loadTestPageNamed:@"GeolocationGetCurrentPositionResult"];
+    EXPECT_WK_STREQ([webView _test_waitForAlert], "SUCCESS");
+    EXPECT_TRUE(coreLocationProvider.get().authorizationWasRequested);
+    EXPECT_TRUE(didShowGeolocationPrompt);
 }
 
 } // namespace TestWebKitAPI

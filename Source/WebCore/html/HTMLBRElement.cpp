@@ -27,11 +27,12 @@
 #include "CSSValueKeywords.h"
 #include "HTMLNames.h"
 #include "RenderLineBreak.h"
-#include <wtf/IsoMallocInlines.h>
+#include "RenderStyleInlines.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLBRElement);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(HTMLBRElement);
 
 using namespace HTMLNames;
 
@@ -51,31 +52,31 @@ Ref<HTMLBRElement> HTMLBRElement::create(const QualifiedName& tagName, Document&
     return adoptRef(*new HTMLBRElement(tagName, document));
 }
 
-bool HTMLBRElement::isPresentationAttribute(const QualifiedName& name) const
+bool HTMLBRElement::hasPresentationalHintsForAttribute(const QualifiedName& name) const
 {
     if (name == clearAttr)
         return true;
-    return HTMLElement::isPresentationAttribute(name);
+    return HTMLElement::hasPresentationalHintsForAttribute(name);
 }
 
-void HTMLBRElement::collectStyleForPresentationAttribute(const QualifiedName& name, const AtomString& value, MutableStyleProperties& style)
+void HTMLBRElement::collectPresentationalHintsForAttribute(const QualifiedName& name, const AtomString& value, MutableStyleProperties& style)
 {
     if (name == clearAttr) {
         // If the string is empty, then don't add the clear property.
         // <br clear> and <br clear=""> are just treated like <br> by Gecko, Mac IE, etc. -dwh
         if (!value.isEmpty()) {
-            if (equalLettersIgnoringASCIICase(value, "all"))
-                addPropertyToPresentationAttributeStyle(style, CSSPropertyClear, CSSValueBoth);
+            if (equalLettersIgnoringASCIICase(value, "all"_s))
+                addPropertyToPresentationalHintStyle(style, CSSPropertyClear, CSSValueBoth);
             else
-                addPropertyToPresentationAttributeStyle(style, CSSPropertyClear, value);
+                addPropertyToPresentationalHintStyle(style, CSSPropertyClear, value);
         }
     } else
-        HTMLElement::collectStyleForPresentationAttribute(name, value, style);
+        HTMLElement::collectPresentationalHintsForAttribute(name, value, style);
 }
 
 RenderPtr<RenderElement> HTMLBRElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
 {
-    if (style.hasContent())
+    if (style.hasContent() && RenderElement::isContentDataSupported(*style.contentData()))
         return RenderElement::createFor(*this, WTFMove(style));
 
     return createRenderer<RenderLineBreak>(*this, WTFMove(style));

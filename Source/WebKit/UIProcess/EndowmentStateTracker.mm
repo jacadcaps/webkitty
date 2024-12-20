@@ -31,6 +31,8 @@
 #import "Logging.h"
 #import "RunningBoardServicesSPI.h"
 #include <wtf/NeverDestroyed.h>
+#include <wtf/RunLoop.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
 
@@ -72,6 +74,8 @@ static NSSet<NSString *> *endowmentsForHandle(RBSProcessHandle *processHandle)
     return [state endowmentNamespaces];
 }
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(EndowmentStateTracker);
+
 inline auto EndowmentStateTracker::stateFromEndowments(NSSet *endowments) -> State
 {
     return State {
@@ -104,20 +108,20 @@ void EndowmentStateTracker::registerMonitorIfNecessary()
         [config setStateDescriptor:stateDescriptor];
 
         [config setUpdateHandler:[this] (RBSProcessMonitor * _Nonnull monitor, RBSProcessHandle * _Nonnull process, RBSProcessStateUpdate * _Nonnull update) mutable {
-            dispatch_async(dispatch_get_main_queue(), [this, state = stateFromEndowments(update.state.endowmentNamespaces)]() mutable {
+            RunLoop::main().dispatch([this, state = stateFromEndowments(update.state.endowmentNamespaces)]() mutable {
                 setState(WTFMove(state));
             });
         }];
     }];
 }
 
-void EndowmentStateTracker::addClient(Client& client)
+void EndowmentStateTracker::addClient(EndowmentStateTrackerClient& client)
 {
     m_clients.add(client);
     registerMonitorIfNecessary();
 }
 
-void EndowmentStateTracker::removeClient(Client& client)
+void EndowmentStateTracker::removeClient(EndowmentStateTrackerClient& client)
 {
     m_clients.remove(client);
 }

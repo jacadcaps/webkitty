@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,6 +29,7 @@
 #import "Pasteboard.h"
 #import "PasteboardItemInfo.h"
 #import "WebCoreNSURLExtras.h"
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
 #if PLATFORM(IOS_FAMILY)
 #import "AbstractPasteboard.h"
@@ -38,10 +39,10 @@
 
 namespace WebCore {
 
-Optional<Vector<PasteboardItemInfo>> PlatformPasteboard::allPasteboardItemInfo(int64_t changeCount)
+std::optional<Vector<PasteboardItemInfo>> PlatformPasteboard::allPasteboardItemInfo(int64_t changeCount)
 {
     if (changeCount != [m_pasteboard changeCount])
-        return WTF::nullopt;
+        return std::nullopt;
 
     Vector<PasteboardItemInfo> itemInfo;
     int numberOfItems = count();
@@ -49,9 +50,9 @@ Optional<Vector<PasteboardItemInfo>> PlatformPasteboard::allPasteboardItemInfo(i
     for (NSInteger itemIndex = 0; itemIndex < numberOfItems; ++itemIndex) {
         auto item = informationForItemAtIndex(itemIndex, changeCount);
         if (!item)
-            return WTF::nullopt;
+            return std::nullopt;
 
-        itemInfo.uncheckedAppend(WTFMove(*item));
+        itemInfo.append(WTFMove(*item));
     }
     return itemInfo;
 }
@@ -74,8 +75,8 @@ String PlatformPasteboard::urlStringSuitableForLoading(String& title)
 
 #if PLATFORM(IOS_FAMILY)
     UNUSED_PARAM(title);
-    String urlPasteboardType = kUTTypeURL;
-    String stringPasteboardType = kUTTypeText;
+    String urlPasteboardType = UTTypeURL.identifier;
+    String stringPasteboardType = UTTypeText.identifier;
 #else
     String urlPasteboardType = legacyURLPasteboardType();
     String stringPasteboardType = legacyStringPasteboardType();

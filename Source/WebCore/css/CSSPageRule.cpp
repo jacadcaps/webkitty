@@ -25,11 +25,12 @@
 #include "CSSParser.h"
 #include "CSSSelector.h"
 #include "CSSStyleSheet.h"
+#include "CommonAtomStrings.h"
 #include "Document.h"
 #include "PropertySetCSSStyleDeclaration.h"
 #include "StyleProperties.h"
 #include "StyleRule.h"
-#include <wtf/text/StringBuilder.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
@@ -57,7 +58,7 @@ String CSSPageRule::selectorText() const
     if (auto* selector = m_pageRule->selector()) {
         String pageSpecification = selector->selectorText();
         if (!pageSpecification.isEmpty() && pageSpecification != starAtom())
-            return makeString("@page ", pageSpecification);
+            return makeString("@page "_s, pageSpecification);
     }
     return "@page"_s;
 }
@@ -65,27 +66,21 @@ String CSSPageRule::selectorText() const
 void CSSPageRule::setSelectorText(const String& selectorText)
 {
     CSSParser parser(parserContext());
-    CSSSelectorList selectorList;
-    parser.parseSelector(selectorText, selectorList);
-    if (!selectorList.isValid())
+    auto* sheet = parentStyleSheet();
+    auto selectorList = parser.parseSelectorList(selectorText, sheet ? &sheet->contents() : nullptr);
+    if (!selectorList)
         return;
 
     CSSStyleSheet::RuleMutationScope mutationScope(this);
 
-    m_pageRule->wrapperAdoptSelectorList(WTFMove(selectorList));
+    m_pageRule->wrapperAdoptSelectorList(WTFMove(*selectorList));
 }
 
 String CSSPageRule::cssText() const
 {
-    StringBuilder result;
-    result.append(selectorText());
-    result.appendLiteral(" { ");
-    String decls = m_pageRule->properties().asText();
-    result.append(decls);
-    if (!decls.isEmpty())
-        result.append(' ');
-    result.append('}');
-    return result.toString();
+    if (auto declarations = m_pageRule->properties().asText(); !declarations.isEmpty())
+        return makeString(selectorText(), " { "_s, declarations, " }"_s);
+    return makeString(selectorText(), " { }"_s);
 }
 
 void CSSPageRule::reattach(StyleRuleBase& rule)

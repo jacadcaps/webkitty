@@ -15,9 +15,10 @@
 #include <memory>
 
 #include "absl/base/attributes.h"
+#include "api/environment/environment.h"
+#include "api/field_trials_view.h"
 #include "api/rtc_event_log/rtc_event_log.h"
 #include "api/transport/network_types.h"
-#include "api/transport/webrtc_key_value_config.h"
 
 namespace webrtc {
 
@@ -35,6 +36,10 @@ class TargetTransferRateObserver {
 // Configuration sent to factory create function. The parameters here are
 // optional to use for a network controller implementation.
 struct NetworkControllerConfig {
+  explicit NetworkControllerConfig(const Environment& env) : env(env) {}
+
+  Environment env;
+
   // The initial constraints to start with, these can be changed at any later
   // time by calls to OnTargetRateConstraints. Note that the starting rate
   // has to be set initially to provide a starting state for the network
@@ -43,12 +48,6 @@ struct NetworkControllerConfig {
   // Initial stream specific configuration, these are changed at any later time
   // by calls to OnStreamsConfig.
   StreamsConfig stream_based_config;
-
-  // Optional override of configuration of WebRTC internals. Using nullptr here
-  // indicates that the field trial API will be used.
-  const WebRtcKeyValueConfig* key_value_config = nullptr;
-  // Optional override of event log.
-  RtcEventLog* event_log = nullptr;
 };
 
 // NetworkControllerInterface is implemented by network controllers. A network
@@ -61,42 +60,42 @@ class NetworkControllerInterface {
   virtual ~NetworkControllerInterface() = default;
 
   // Called when network availabilty changes.
-  virtual NetworkControlUpdate OnNetworkAvailability(NetworkAvailability)
-      ABSL_MUST_USE_RESULT = 0;
+  ABSL_MUST_USE_RESULT virtual NetworkControlUpdate OnNetworkAvailability(
+      NetworkAvailability) = 0;
   // Called when the receiving or sending endpoint changes address.
-  virtual NetworkControlUpdate OnNetworkRouteChange(NetworkRouteChange)
-      ABSL_MUST_USE_RESULT = 0;
+  ABSL_MUST_USE_RESULT virtual NetworkControlUpdate OnNetworkRouteChange(
+      NetworkRouteChange) = 0;
   // Called periodically with a periodicy as specified by
   // NetworkControllerFactoryInterface::GetProcessInterval.
-  virtual NetworkControlUpdate OnProcessInterval(ProcessInterval)
-      ABSL_MUST_USE_RESULT = 0;
+  ABSL_MUST_USE_RESULT virtual NetworkControlUpdate OnProcessInterval(
+      ProcessInterval) = 0;
   // Called when remotely calculated bitrate is received.
-  virtual NetworkControlUpdate OnRemoteBitrateReport(RemoteBitrateReport)
-      ABSL_MUST_USE_RESULT = 0;
+  ABSL_MUST_USE_RESULT virtual NetworkControlUpdate OnRemoteBitrateReport(
+      RemoteBitrateReport) = 0;
   // Called round trip time has been calculated by protocol specific mechanisms.
-  virtual NetworkControlUpdate OnRoundTripTimeUpdate(RoundTripTimeUpdate)
-      ABSL_MUST_USE_RESULT = 0;
+  ABSL_MUST_USE_RESULT virtual NetworkControlUpdate OnRoundTripTimeUpdate(
+      RoundTripTimeUpdate) = 0;
   // Called when a packet is sent on the network.
-  virtual NetworkControlUpdate OnSentPacket(SentPacket)
-      ABSL_MUST_USE_RESULT = 0;
+  ABSL_MUST_USE_RESULT virtual NetworkControlUpdate OnSentPacket(
+      SentPacket) = 0;
   // Called when a packet is received from the remote client.
-  virtual NetworkControlUpdate OnReceivedPacket(ReceivedPacket)
-      ABSL_MUST_USE_RESULT = 0;
+  ABSL_MUST_USE_RESULT virtual NetworkControlUpdate OnReceivedPacket(
+      ReceivedPacket) = 0;
   // Called when the stream specific configuration has been updated.
-  virtual NetworkControlUpdate OnStreamsConfig(StreamsConfig)
-      ABSL_MUST_USE_RESULT = 0;
+  ABSL_MUST_USE_RESULT virtual NetworkControlUpdate OnStreamsConfig(
+      StreamsConfig) = 0;
   // Called when target transfer rate constraints has been changed.
-  virtual NetworkControlUpdate OnTargetRateConstraints(TargetRateConstraints)
-      ABSL_MUST_USE_RESULT = 0;
+  ABSL_MUST_USE_RESULT virtual NetworkControlUpdate OnTargetRateConstraints(
+      TargetRateConstraints) = 0;
   // Called when a protocol specific calculation of packet loss has been made.
-  virtual NetworkControlUpdate OnTransportLossReport(TransportLossReport)
-      ABSL_MUST_USE_RESULT = 0;
+  ABSL_MUST_USE_RESULT virtual NetworkControlUpdate OnTransportLossReport(
+      TransportLossReport) = 0;
   // Called with per packet feedback regarding receive time.
-  virtual NetworkControlUpdate OnTransportPacketsFeedback(
-      TransportPacketsFeedback) ABSL_MUST_USE_RESULT = 0;
+  ABSL_MUST_USE_RESULT virtual NetworkControlUpdate OnTransportPacketsFeedback(
+      TransportPacketsFeedback) = 0;
   // Called with network state estimate updates.
-  virtual NetworkControlUpdate OnNetworkStateEstimate(NetworkStateEstimate)
-      ABSL_MUST_USE_RESULT = 0;
+  ABSL_MUST_USE_RESULT virtual NetworkControlUpdate OnNetworkStateEstimate(
+      NetworkStateEstimate) = 0;
 };
 
 // NetworkControllerFactoryInterface is an interface for creating a network
@@ -132,7 +131,7 @@ class NetworkStateEstimator {
 class NetworkStateEstimatorFactory {
  public:
   virtual std::unique_ptr<NetworkStateEstimator> Create(
-      const WebRtcKeyValueConfig* key_value_config) = 0;
+      const FieldTrialsView* key_value_config) = 0;
   virtual ~NetworkStateEstimatorFactory() = default;
 };
 }  // namespace webrtc

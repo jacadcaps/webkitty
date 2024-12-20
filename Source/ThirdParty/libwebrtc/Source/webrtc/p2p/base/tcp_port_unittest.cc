@@ -17,14 +17,15 @@
 #include "p2p/base/basic_packet_socket_factory.h"
 #include "p2p/base/p2p_constants.h"
 #include "p2p/base/transport_description.h"
+#include "rtc_base/crypto_random.h"
 #include "rtc_base/gunit.h"
-#include "rtc_base/helpers.h"
 #include "rtc_base/ip_address.h"
 #include "rtc_base/third_party/sigslot/sigslot.h"
 #include "rtc_base/thread.h"
 #include "rtc_base/time_utils.h"
 #include "rtc_base/virtual_socket_server.h"
 #include "test/gtest.h"
+#include "test/scoped_key_value_config.h"
 
 using cricket::Connection;
 using cricket::ICE_PWD_LENGTH;
@@ -42,10 +43,19 @@ static const SocketAddress kRemoteAddr("22.22.22.22", 0);
 static const SocketAddress kRemoteIPv6Addr("2401:fa00:4:1000:be30:5bff:fee5:c4",
                                            0);
 
+constexpr uint64_t kTiebreakerDefault = 44444;
+
 class ConnectionObserver : public sigslot::has_slots<> {
  public:
-  explicit ConnectionObserver(Connection* conn) {
+  explicit ConnectionObserver(Connection* conn) : conn_(conn) {
     conn->SignalDestroyed.connect(this, &ConnectionObserver::OnDestroyed);
+  }
+
+  ~ConnectionObserver() {
+    if (!connection_destroyed_) {
+      RTC_DCHECK(conn_);
+      conn_->SignalDestroyed.disconnect(this);
+    }
   }
 
   bool connection_destroyed() { return connection_destroyed_; }
@@ -53,6 +63,7 @@ class ConnectionObserver : public sigslot::has_slots<> {
  private:
   void OnDestroyed(Connection*) { connection_destroyed_ = true; }
 
+  Connection* const conn_;
   bool connection_destroyed_ = false;
 };
 
@@ -61,7 +72,7 @@ class TCPPortTest : public ::testing::Test, public sigslot::has_slots<> {
   TCPPortTest()
       : ss_(new rtc::VirtualSocketServer()),
         main_(ss_.get()),
-        socket_factory_(rtc::Thread::Current()),
+        socket_factory_(ss_.get()),
         username_(rtc::CreateRandomString(ICE_UFRAG_LENGTH)),
         password_(rtc::CreateRandomString(ICE_PWD_LENGTH)) {}
 
@@ -72,14 +83,29 @@ class TCPPortTest : public ::testing::Test, public sigslot::has_slots<> {
   }
 
   std::unique_ptr<TCPPort> CreateTCPPort(const SocketAddress& addr) {
-    return std::unique_ptr<TCPPort>(
-        TCPPort::Create(&main_, &socket_factory_, MakeNetwork(addr), 0, 0,
-                        username_, password_, true));
+    auto port = std::unique_ptr<TCPPort>(
+        TCPPort::Create({.network_thread = &main_,
+                         .socket_factory = &socket_factory_,
+                         .network = MakeNetwork(addr),
+                         .ice_username_fragment = username_,
+                         .ice_password = password_,
+                         .field_trials = &field_trials_},
+                        0, 0, true));
+    port->SetIceTiebreaker(kTiebreakerDefault);
+    return port;
   }
 
-  std::unique_ptr<TCPPort> CreateTCPPort(rtc::Network* network) {
-    return std::unique_ptr<TCPPort>(TCPPort::Create(
-        &main_, &socket_factory_, network, 0, 0, username_, password_, true));
+  std::unique_ptr<TCPPort> CreateTCPPort(const rtc::Network* network) {
+    auto port = std::unique_ptr<TCPPort>(
+        TCPPort::Create({.network_thread = &main_,
+                         .socket_factory = &socket_factory_,
+                         .network = network,
+                         .ice_username_fragment = username_,
+                         .ice_password = password_,
+                         .field_trials = &field_trials_},
+                        0, 0, true));
+    port->SetIceTiebreaker(kTiebreakerDefault);
+    return port;
   }
 
  protected:
@@ -92,6 +118,7 @@ class TCPPortTest : public ::testing::Test, public sigslot::has_slots<> {
   rtc::BasicPacketSocketFactory socket_factory_;
   std::string username_;
   std::string password_;
+  webrtc::test::ScopedKeyValueConfig field_trials_;
 };
 
 TEST_F(TCPPortTest, TestTCPPortWithLocalhostAddress) {

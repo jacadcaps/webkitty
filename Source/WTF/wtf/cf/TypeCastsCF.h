@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -36,6 +36,45 @@ namespace WTF {
 
 template <typename> struct CFTypeTrait;
 
+// Use dynamic_cf_cast<> instead of checked_cf_cast<> when actively checking CF types,
+// similar to dynamic_cast<> in C++. Be sure to include a nullptr check.
+
+template<typename T> T dynamic_cf_cast(CFTypeRef object)
+{
+    if (!object)
+        return nullptr;
+
+    if (CFGetTypeID(object) != CFTypeTrait<T>::typeID())
+        return nullptr;
+
+    return static_cast<T>(const_cast<CF_BRIDGED_TYPE(id) void*>(object));
+}
+
+template<typename T, typename U> RetainPtr<T> dynamic_cf_cast(RetainPtr<U>&& object)
+{
+    if (!object)
+        return nullptr;
+
+    if (CFGetTypeID(object.get()) != CFTypeTrait<T>::typeID())
+        return nullptr;
+
+    return adoptCF(static_cast<T>(const_cast<CF_BRIDGED_TYPE(id) void*>(object.leakRef())));
+}
+
+// Use checked_cf_cast<> instead of dynamic_cf_cast<> when a specific CF type is required.
+
+template<typename T> T checked_cf_cast(CFTypeRef object)
+{
+    if (!object)
+        return nullptr;
+
+    RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(CFGetTypeID(object) == CFTypeTrait<T>::typeID());
+
+    return static_cast<T>(const_cast<CF_BRIDGED_TYPE(id) void*>(object));
+}
+
+} // namespace WTF
+
 #define WTF_DECLARE_CF_TYPE_TRAIT(ClassName) \
 template <> \
 struct WTF::CFTypeTrait<ClassName##Ref> { \
@@ -48,6 +87,7 @@ WTF_DECLARE_CF_TYPE_TRAIT(CFData);
 WTF_DECLARE_CF_TYPE_TRAIT(CFDictionary);
 WTF_DECLARE_CF_TYPE_TRAIT(CFNumber);
 WTF_DECLARE_CF_TYPE_TRAIT(CFString);
+WTF_DECLARE_CF_TYPE_TRAIT(CFURL);
 
 #define WTF_DECLARE_CF_MUTABLE_TYPE_TRAIT(ClassName, MutableClassName) \
 template <> \
@@ -61,30 +101,6 @@ WTF_DECLARE_CF_MUTABLE_TYPE_TRAIT(CFDictionary, CFMutableDictionary);
 WTF_DECLARE_CF_MUTABLE_TYPE_TRAIT(CFString, CFMutableString);
 
 #undef WTF_DECLARE_CF_MUTABLE_TYPE_TRAIT
-
-template<typename T> T dynamic_cf_cast(CFTypeRef object)
-{
-    if (!object)
-        return nullptr;
-
-    ASSERT_WITH_SECURITY_IMPLICATION(CFGetTypeID(object) == CFTypeTrait<T>::typeID());
-    if (CFGetTypeID(object) != CFTypeTrait<T>::typeID())
-        return nullptr;
-
-    return static_cast<T>(const_cast<CF_BRIDGED_TYPE(id) void*>(object));
-}
-
-template<typename T> T checked_cf_cast(CFTypeRef object)
-{
-    if (!object)
-        return nullptr;
-
-    RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(CFGetTypeID(object) == CFTypeTrait<T>::typeID());
-
-    return static_cast<T>(const_cast<CF_BRIDGED_TYPE(id) void*>(object));
-}
-
-} // namespace WTF
 
 using WTF::checked_cf_cast;
 using WTF::dynamic_cf_cast;

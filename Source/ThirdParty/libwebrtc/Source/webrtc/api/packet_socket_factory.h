@@ -11,11 +11,12 @@
 #ifndef API_PACKET_SOCKET_FACTORY_H_
 #define API_PACKET_SOCKET_FACTORY_H_
 
+#include <memory>
 #include <string>
 #include <vector>
 
+#include "api/async_dns_resolver.h"
 #include "rtc_base/async_packet_socket.h"
-#include "rtc_base/proxy_info.h"
 #include "rtc_base/system/rtc_export.h"
 
 namespace rtc {
@@ -56,7 +57,7 @@ class RTC_EXPORT PacketSocketFactory {
   virtual AsyncPacketSocket* CreateUdpSocket(const SocketAddress& address,
                                              uint16_t min_port,
                                              uint16_t max_port) = 0;
-  virtual AsyncPacketSocket* CreateServerTcpSocket(
+  virtual AsyncListenSocket* CreateServerTcpSocket(
       const SocketAddress& local_address,
       uint16_t min_port,
       uint16_t max_port,
@@ -65,11 +66,10 @@ class RTC_EXPORT PacketSocketFactory {
   virtual AsyncPacketSocket* CreateClientTcpSocket(
       const SocketAddress& local_address,
       const SocketAddress& remote_address,
-      const ProxyInfo& proxy_info,
-      const std::string& user_agent,
       const PacketSocketTcpOptions& tcp_options) = 0;
 
-  virtual AsyncResolverInterface* CreateAsyncResolver() = 0;
+  virtual std::unique_ptr<webrtc::AsyncDnsResolverInterface>
+  CreateAsyncDnsResolver() = 0;
 
  private:
   PacketSocketFactory(const PacketSocketFactory&) = delete;

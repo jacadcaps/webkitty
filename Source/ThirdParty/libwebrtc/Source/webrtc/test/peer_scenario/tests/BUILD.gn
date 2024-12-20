@@ -12,15 +12,30 @@ if (rtc_include_tests) {
   rtc_library("tests") {
     testonly = true
     sources = [
+      "bwe_ramp_up_test.cc",
       "peer_scenario_quality_test.cc",
       "remote_estimate_test.cc",
+      "unsignaled_stream_test.cc",
     ]
     deps = [
       "..:peer_scenario",
+      "../../:create_frame_generator_capturer",
       "../../:field_trial",
       "../../:test_support",
-      "../../../modules/rtp_rtcp:rtp_rtcp",
-      "../../../pc:rtc_pc_base",
+      "../../../api:rtc_stats_api",
+      "../../../api/units:data_rate",
+      "../../../api/units:time_delta",
+      "../../../media:stream_params",
+      "../../../modules/rtp_rtcp:rtp_rtcp_format",
+      "../../../pc:media_session",
+      "../../../pc:pc_test_utils",
+      "../../../pc:session_description",
     ]
+    if (rtc_enable_protobuf) {
+      deps += [
+        "../../../api/test/network_emulation:network_config_schedule_proto",
+        "../../../api/test/network_emulation:schedulable_network_node_builder",
+      ]
+    }
   }
 }

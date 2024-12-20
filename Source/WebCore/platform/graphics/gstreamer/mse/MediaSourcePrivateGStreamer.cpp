@@ -41,28 +41,33 @@
 #include "Logging.h"
 #include "MediaPlayerPrivateGStreamer.h"
 #include "MediaPlayerPrivateGStreamerMSE.h"
+#include "MediaSourceTrackGStreamer.h"
 #include "NotImplemented.h"
-#include "PlaybackPipeline.h"
 #include "SourceBufferPrivateGStreamer.h"
 #include "TimeRanges.h"
 #include "WebKitMediaSourceGStreamer.h"
+#include <wtf/NativePromise.h>
 #include <wtf/RefPtr.h>
 #include <wtf/glib/GRefPtr.h>
 
+GST_DEBUG_CATEGORY_EXTERN(webkit_mse_debug);
+#define GST_CAT_DEFAULT webkit_mse_debug
+
 namespace WebCore {
 
-void MediaSourcePrivateGStreamer::open(MediaSourcePrivateClient& mediaSource, MediaPlayerPrivateGStreamerMSE& playerPrivate)
+Ref<MediaSourcePrivateGStreamer> MediaSourcePrivateGStreamer::open(MediaSourcePrivateClient& mediaSource, MediaPlayerPrivateGStreamerMSE& playerPrivate)
 {
-    mediaSource.setPrivateAndOpen(adoptRef(*new MediaSourcePrivateGStreamer(mediaSource, playerPrivate)));
+    auto mediaSourcePrivate = adoptRef(*new MediaSourcePrivateGStreamer(mediaSource, playerPrivate));
+    mediaSource.setPrivateAndOpen(mediaSourcePrivate.copyRef());
+    return mediaSourcePrivate;
 }
 
 MediaSourcePrivateGStreamer::MediaSourcePrivateGStreamer(MediaSourcePrivateClient& mediaSource, MediaPlayerPrivateGStreamerMSE& playerPrivate)
-    : MediaSourcePrivate()
-    , m_mediaSource(mediaSource)
+    : MediaSourcePrivate(mediaSource)
     , m_playerPrivate(playerPrivate)
 #if !RELEASE_LOG_DISABLED
-    , m_logger(m_playerPrivate.mediaPlayerLogger())
-    , m_logIdentifier(m_playerPrivate.mediaPlayerLogIdentifier())
+    , m_logger(playerPrivate.mediaPlayerLogger())
+    , m_logIdentifier(playerPrivate.mediaPlayerLogIdentifier())
 #endif
 {
 }
@@ -70,83 +75,138 @@ MediaSourcePrivateGStreamer::MediaSourcePrivateGStreamer(MediaSourcePrivateClien
 MediaSourcePrivateGStreamer::~MediaSourcePrivateGStreamer()
 {
     ALWAYS_LOG(LOGIDENTIFIER);
-    for (auto& sourceBufferPrivate : m_sourceBuffers)
-        sourceBufferPrivate->clearMediaSource();
 }
 
-MediaSourcePrivateGStreamer::AddStatus MediaSourcePrivateGStreamer::addSourceBuffer(const ContentType& contentType, RefPtr<SourceBufferPrivate>& sourceBufferPrivate)
+MediaSourcePrivateGStreamer::AddStatus MediaSourcePrivateGStreamer::addSourceBuffer(const ContentType& contentType, bool, RefPtr<SourceBufferPrivate>& sourceBufferPrivate)
 {
     DEBUG_LOG(LOGIDENTIFIER, contentType);
-    sourceBufferPrivate = SourceBufferPrivateGStreamer::create(this, contentType, m_playerPrivate);
-    RefPtr<SourceBufferPrivateGStreamer> sourceBufferPrivateGStreamer = static_cast<SourceBufferPrivateGStreamer*>(sourceBufferPrivate.get());
-    m_sourceBuffers.add(sourceBufferPrivateGStreamer);
-    return m_playerPrivate.playbackPipeline()->addSourceBuffer(sourceBufferPrivateGStreamer);
+
+    // Once every SourceBuffer has had an initialization segment appended playback starts and it's too late to add new SourceBuffers.
+    if (m_hasAllTracks)
+        return MediaSourcePrivateGStreamer::AddStatus::ReachedIdLimit;
+
+    if (!SourceBufferPrivateGStreamer::isContentTypeSupported(contentType))
+        return MediaSourcePrivateGStreamer::AddStatus::NotSupported;
+
+    m_sourceBuffers.append(SourceBufferPrivateGStreamer::create(*this, contentType, m_playerPrivate));
+    sourceBufferPrivate = m_sourceBuffers.last();
+    sourceBufferPrivate->setMediaSourceDuration(duration());
+    return MediaSourcePrivateGStreamer::AddStatus::Ok;
 }
 
-void MediaSourcePrivateGStreamer::removeSourceBuffer(SourceBufferPrivate* sourceBufferPrivate)
+RefPtr<MediaPlayerPrivateInterface> MediaSourcePrivateGStreamer::player() const
 {
-    RefPtr<SourceBufferPrivateGStreamer> sourceBufferPrivateGStreamer = static_cast<SourceBufferPrivateGStreamer*>(sourceBufferPrivate);
-    ASSERT(m_sourceBuffers.contains(sourceBufferPrivateGStreamer));
-
-    sourceBufferPrivateGStreamer->clearMediaSource();
-    m_sourceBuffers.remove(sourceBufferPrivateGStreamer);
-    m_activeSourceBuffers.remove(sourceBufferPrivateGStreamer.get());
+    return &m_playerPrivate;
 }
 
-void MediaSourcePrivateGStreamer::durationChanged()
+void MediaSourcePrivateGStreamer::durationChanged(const MediaTime& duration)
 {
     ASSERT(isMainThread());
 
-    MediaTime duration = m_mediaSource->duration();
-    GST_TRACE("duration: %f", duration.toFloat());
-    if (!duration.isValid() || duration.isPositiveInfinite() || duration.isNegativeInfinite())
+    MediaSourcePrivate::durationChanged(duration);
+    GST_TRACE_OBJECT(m_playerPrivate.pipeline(), "Duration: %" GST_TIME_FORMAT, GST_TIME_ARGS(toGstClockTime(duration)));
+    if (!duration.isValid() || duration.isNegativeInfinite())
         return;
 
     m_playerPrivate.durationChanged();
 }
 
-void MediaSourcePrivateGStreamer::markEndOfStream(EndOfStreamStatus status)
+void MediaSourcePrivateGStreamer::markEndOfStream(EndOfStreamStatus endOfStreamStatus)
 {
     ASSERT(isMainThread());
-    m_playerPrivate.markEndOfStream(status);
+#ifndef GST_DISABLE_GST_DEBUG
+    const char* statusString = nullptr;
+    switch (endOfStreamStatus) {
+    case EndOfStreamStatus::NoError:
+        statusString = "no-error";
+        break;
+    case EndOfStreamStatus::DecodeError:
+        statusString = "decode-error";
+        break;
+    case EndOfStreamStatus::NetworkError:
+        statusString = "network-error";
+        break;
+    }
+    GST_DEBUG_OBJECT(m_playerPrivate.pipeline(), "Marking EOS, status is %s", statusString);
+#endif
+    if (endOfStreamStatus == EndOfStreamStatus::NoError)
+        m_playerPrivate.setNetworkState(MediaPlayer::NetworkState::Loaded);
+    MediaSourcePrivate::markEndOfStream(endOfStreamStatus);
 }
 
-void MediaSourcePrivateGStreamer::unmarkEndOfStream()
-{
-    notImplemented();
-}
-
-MediaPlayer::ReadyState MediaSourcePrivateGStreamer::readyState() const
+MediaPlayer::ReadyState MediaSourcePrivateGStreamer::mediaPlayerReadyState() const
 {
     return m_playerPrivate.readyState();
 }
 
-void MediaSourcePrivateGStreamer::setReadyState(MediaPlayer::ReadyState state)
+void MediaSourcePrivateGStreamer::setMediaPlayerReadyState(MediaPlayer::ReadyState state)
 {
     m_playerPrivate.setReadyState(state);
 }
 
-void MediaSourcePrivateGStreamer::waitForSeekCompleted()
+void MediaSourcePrivateGStreamer::startPlaybackIfHasAllTracks()
 {
-    m_playerPrivate.waitForSeekCompleted();
+    if (m_hasAllTracks) {
+        // Already started, nothing to do.
+        return;
+    }
+
+    for (auto& sourceBuffer : m_sourceBuffers) {
+        if (!sourceBuffer->hasReceivedFirstInitializationSegment()) {
+            GST_DEBUG_OBJECT(m_playerPrivate.pipeline(), "There are still SourceBuffers without an initialization segment, not starting source yet.");
+            return;
+        }
+    }
+
+    GST_DEBUG_OBJECT(m_playerPrivate.pipeline(), "All SourceBuffers have an initialization segment, starting source.");
+    m_hasAllTracks = true;
+
+    Vector<RefPtr<MediaSourceTrackGStreamer>> tracks;
+    for (auto& privateSourceBuffer : m_sourceBuffers) {
+        auto sourceBuffer = downcast<SourceBufferPrivateGStreamer>(privateSourceBuffer);
+        for (auto& [_, track] : sourceBuffer->tracks())
+            tracks.append(track);
+    }
+    m_playerPrivate.startSource(tracks);
 }
 
-void MediaSourcePrivateGStreamer::seekCompleted()
+TrackID MediaSourcePrivateGStreamer::registerTrackId(TrackID preferredId)
 {
-    m_playerPrivate.seekCompleted();
+    ASSERT(isMainThread());
+
+    if (m_trackIdRegistry.add(preferredId).isNewEntry) {
+        GST_DEBUG_OBJECT(m_playerPrivate.pipeline(), "Registered new Track ID: %" PRIu64 "", preferredId);
+        return preferredId;
+    }
+
+    // If the ID is already known, assign one starting at 100 - this helps avoid a snowball effect
+    // where each following ID would now need to be offset by 1.
+    auto maxRegisteredId = std::max_element(m_trackIdRegistry.begin(), m_trackIdRegistry.end());
+    auto assignedId = std::max((TrackID) 100, *maxRegisteredId + 1);
+
+    ASSERT(m_trackIdRegistry.add(assignedId).isNewEntry);
+    GST_DEBUG_OBJECT(m_playerPrivate.pipeline(), "Registered new Track ID: %" PRIu64 " (preferred ID would have been %" PRIu64 ")", assignedId, preferredId);
+
+    return assignedId;
 }
 
-void MediaSourcePrivateGStreamer::sourceBufferPrivateDidChangeActiveState(SourceBufferPrivateGStreamer* sourceBufferPrivate, bool isActive)
+bool MediaSourcePrivateGStreamer::unregisterTrackId(TrackID trackId)
 {
-    if (!isActive)
-        m_activeSourceBuffers.remove(sourceBufferPrivate);
-    else if (!m_activeSourceBuffers.contains(sourceBufferPrivate))
-        m_activeSourceBuffers.add(sourceBufferPrivate);
+    ASSERT(isMainThread());
+
+    bool res = m_trackIdRegistry.remove(trackId);
+
+    if (res)
+        GST_DEBUG_OBJECT(m_playerPrivate.pipeline(), "Unregistered Track ID: %" PRIu64 "", trackId);
+    else
+        GST_WARNING_OBJECT(m_playerPrivate.pipeline(), "Failed to unregister unknown Track ID: %" PRIu64 "", trackId);
+
+    return res;
 }
 
-std::unique_ptr<PlatformTimeRanges> MediaSourcePrivateGStreamer::buffered()
+void MediaSourcePrivateGStreamer::notifyActiveSourceBuffersChanged()
 {
-    return m_mediaSource->buffered();
+    m_playerPrivate.notifyActiveSourceBuffersChanged();
 }
 
 #if !RELEASE_LOG_DISABLED
@@ -157,5 +217,8 @@ WTFLogChannel& MediaSourcePrivateGStreamer::logChannel() const
 
 #endif
 
-}
-#endif
+#undef GST_CAT_DEFAULT
+
+} // namespace WebCore
+
+#endif // ENABLE(MEDIA_SOURCE) && USE(GSTREAMER)

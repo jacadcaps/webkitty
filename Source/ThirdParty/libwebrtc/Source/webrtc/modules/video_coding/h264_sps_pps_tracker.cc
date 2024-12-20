@@ -49,6 +49,7 @@ H264SpsPpsTracker::FixedBitstream H264SpsPpsTracker::CopyAndFixBitstream(
     RTPVideoHeader* video_header) {
   RTC_DCHECK(video_header);
   RTC_DCHECK(video_header->codec == kVideoCodecH264);
+  RTC_DCHECK_GT(bitstream.size(), 0);
 
   auto& h264_header =
       absl::get<RTPVideoHeaderH264>(video_header->video_type_header);
@@ -57,8 +58,7 @@ H264SpsPpsTracker::FixedBitstream H264SpsPpsTracker::CopyAndFixBitstream(
   auto sps = sps_data_.end();
   auto pps = pps_data_.end();
 
-  for (size_t i = 0; i < h264_header.nalus_length; ++i) {
-    const NaluInfo& nalu = h264_header.nalus[i];
+  for (const NaluInfo& nalu : h264_header.nalus) {
     switch (nalu.type) {
       case H264::NaluType::kSps: {
         SpsInfo& sps_info = sps_data_[nalu.sps_id];
@@ -101,7 +101,7 @@ H264SpsPpsTracker::FixedBitstream H264SpsPpsTracker::CopyAndFixBitstream(
           video_header->height = sps->second.height;
 
           // If the SPS/PPS was supplied out of band then we will have saved
-          // the actual bitstream in |data|.
+          // the actual bitstream in `data`.
           if (sps->second.data && pps->second.data) {
             RTC_DCHECK_GT(sps->second.size, 0);
             RTC_DCHECK_GT(pps->second.size, 0);
@@ -128,8 +128,7 @@ H264SpsPpsTracker::FixedBitstream H264SpsPpsTracker::CopyAndFixBitstream(
 
   if (h264_header.packetization_type == kH264StapA) {
     const uint8_t* nalu_ptr = bitstream.data() + 1;
-    while (nalu_ptr < bitstream.data() + bitstream.size()) {
-      RTC_DCHECK(video_header->is_first_packet_in_frame);
+    while (nalu_ptr < bitstream.data() + bitstream.size() - 1) {
       required_size += sizeof(start_code_h264);
 
       // The first two bytes describe the length of a segment.
@@ -140,7 +139,7 @@ H264SpsPpsTracker::FixedBitstream H264SpsPpsTracker::CopyAndFixBitstream(
       nalu_ptr += segment_length;
     }
   } else {
-    if (h264_header.nalus_length > 0) {
+    if (!h264_header.nalus.empty()) {
       required_size += sizeof(start_code_h264);
     }
     required_size += bitstream.size();
@@ -160,27 +159,17 @@ H264SpsPpsTracker::FixedBitstream H264SpsPpsTracker::CopyAndFixBitstream(
     fixed.bitstream.AppendData(pps->second.data.get(), pps->second.size);
 
     // Update codec header to reflect the newly added SPS and PPS.
-    NaluInfo sps_info;
-    sps_info.type = H264::NaluType::kSps;
-    sps_info.sps_id = sps->first;
-    sps_info.pps_id = -1;
-    NaluInfo pps_info;
-    pps_info.type = H264::NaluType::kPps;
-    pps_info.sps_id = sps->first;
-    pps_info.pps_id = pps->first;
-    if (h264_header.nalus_length + 2 <= kMaxNalusPerPacket) {
-      h264_header.nalus[h264_header.nalus_length++] = sps_info;
-      h264_header.nalus[h264_header.nalus_length++] = pps_info;
-    } else {
-      RTC_LOG(LS_WARNING) << "Not enough space in H.264 codec header to insert "
-                             "SPS/PPS provided out-of-band.";
-    }
+    h264_header.nalus.push_back(
+        {.type = H264::NaluType::kSps, .sps_id = sps->first, .pps_id = -1});
+    h264_header.nalus.push_back({.type = H264::NaluType::kPps,
+                                 .sps_id = sps->first,
+                                 .pps_id = pps->first});
   }
 
   // Copy the rest of the bitstream and insert start codes.
   if (h264_header.packetization_type == kH264StapA) {
     const uint8_t* nalu_ptr = bitstream.data() + 1;
-    while (nalu_ptr < bitstream.data() + bitstream.size()) {
+    while (nalu_ptr < bitstream.data() + bitstream.size() - 1) {
       fixed.bitstream.AppendData(start_code_h264);
 
       // The first two bytes describe the length of a segment.
@@ -196,7 +185,7 @@ H264SpsPpsTracker::FixedBitstream H264SpsPpsTracker::CopyAndFixBitstream(
       nalu_ptr += segment_length;
     }
   } else {
-    if (h264_header.nalus_length > 0) {
+    if (!h264_header.nalus.empty()) {
       fixed.bitstream.AppendData(start_code_h264);
     }
     fixed.bitstream.AppendData(bitstream.data(), bitstream.size());
@@ -228,9 +217,9 @@ void H264SpsPpsTracker::InsertSpsPpsNalus(const std::vector<uint8_t>& sps,
     return;
   }
   absl::optional<SpsParser::SpsState> parsed_sps = SpsParser::ParseSps(
-      sps.data() + kNaluHeaderOffset, sps.size() - kNaluHeaderOffset);
+      rtc::ArrayView<const uint8_t>(sps).subview(kNaluHeaderOffset));
   absl::optional<PpsParser::PpsState> parsed_pps = PpsParser::ParsePps(
-      pps.data() + kNaluHeaderOffset, pps.size() - kNaluHeaderOffset);
+      rtc::ArrayView<const uint8_t>(pps).subview(kNaluHeaderOffset));
 
   if (!parsed_sps) {
     RTC_LOG(LS_WARNING) << "Failed to parse SPS.";

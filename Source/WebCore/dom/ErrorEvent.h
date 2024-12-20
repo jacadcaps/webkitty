@@ -40,11 +40,16 @@
 namespace WebCore {
 
 class ErrorEvent final : public Event {
-    WTF_MAKE_ISO_ALLOCATED(ErrorEvent);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(ErrorEvent);
 public:
     static Ref<ErrorEvent> create(const String& message, const String& fileName, unsigned lineNumber, unsigned columnNumber, JSC::Strong<JSC::Unknown> error)
     {
         return adoptRef(*new ErrorEvent(message, fileName, lineNumber, columnNumber, error));
+    }
+
+    static Ref<ErrorEvent> create(const AtomString& type, const String& message, const String& fileName, unsigned lineNumber, unsigned columnNumber, JSC::Strong<JSC::Unknown> error)
+    {
+        return adoptRef(*new ErrorEvent(type, message, fileName, lineNumber, columnNumber, error));
     }
 
     struct Init : EventInit {
@@ -52,7 +57,7 @@ public:
         String filename;
         unsigned lineno { 0 };
         unsigned colno { 0 };
-        JSC::JSValue error;
+        JSC::JSValue error { JSC::jsUndefined() };
     };
 
     static Ref<ErrorEvent> create(const AtomString& type, const Init& initializer, IsTrusted isTrusted = IsTrusted::No)
@@ -71,11 +76,10 @@ public:
     const JSValueInWrappedObject& originalError() const { return m_error; }
     SerializedScriptValue* serializedError() const { return m_serializedError.get(); }
 
-    EventInterface eventInterface() const override;
-
     RefPtr<SerializedScriptValue> trySerializeError(JSC::JSGlobalObject&);
 
 private:
+    ErrorEvent(const AtomString& type, const String& message, const String& fileName, unsigned lineNumber, unsigned columnNumber, JSC::Strong<JSC::Unknown> error);
     ErrorEvent(const String& message, const String& fileName, unsigned lineNumber, unsigned columnNumber, JSC::Strong<JSC::Unknown> error);
     ErrorEvent(const AtomString&, const Init&, IsTrusted);
 

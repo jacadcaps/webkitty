@@ -23,6 +23,15 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#if TARGET_OS_IPHONE
+#if __has_include(<UIKit/_UIFindInteraction.h>)
+#import <UIKit/_UIFindInteraction.h>
+#endif
+#if __has_include(<UIKit/_UITextSearching.h>)
+#import <UIKit/_UITextSearching.h>
+#endif
+#endif
+
 #import <WebKit/WKDataDetectorTypes.h>
 #import <WebKit/WKWebView.h>
 #import <WebKit/_WKActivatedElementInfo.h>
@@ -30,6 +39,7 @@
 #import <WebKit/_WKFindOptions.h>
 #import <WebKit/_WKLayoutMode.h>
 #import <WebKit/_WKOverlayScrollbarStyle.h>
+#import <WebKit/_WKRectEdge.h>
 #import <WebKit/_WKRenderingProgressEvents.h>
 
 typedef NS_ENUM(NSInteger, _WKPaginationMode) {
@@ -40,12 +50,12 @@ typedef NS_ENUM(NSInteger, _WKPaginationMode) {
     _WKPaginationModeBottomToTop,
 } WK_API_AVAILABLE(macos(10.10), ios(8.0));
 
-typedef NS_OPTIONS(NSUInteger, _WKMediaCaptureState) {
-    _WKMediaCaptureStateNone = 0,
-    _WKMediaCaptureStateActiveMicrophone = 1 << 0,
-    _WKMediaCaptureStateActiveCamera = 1 << 1,
-    _WKMediaCaptureStateMutedMicrophone = 1 << 2,
-    _WKMediaCaptureStateMutedCamera = 1 << 3,
+typedef NS_OPTIONS(NSUInteger, _WKMediaCaptureStateDeprecated) {
+    _WKMediaCaptureStateDeprecatedNone = 0,
+    _WKMediaCaptureStateDeprecatedActiveMicrophone = 1 << 0,
+    _WKMediaCaptureStateDeprecatedActiveCamera = 1 << 1,
+    _WKMediaCaptureStateDeprecatedMutedMicrophone = 1 << 2,
+    _WKMediaCaptureStateDeprecatedMutedCamera = 1 << 3,
 } WK_API_AVAILABLE(macos(10.13), ios(11.0));
 
 typedef NS_OPTIONS(NSUInteger, _WKMediaMutedState) {
@@ -65,8 +75,13 @@ typedef NS_OPTIONS(NSUInteger, _WKSelectionAttributes) {
     _WKSelectionAttributeNoSelection = 0,
     _WKSelectionAttributeIsCaret = 1 << 0,
     _WKSelectionAttributeIsRange = 1 << 1,
-    _WKSelectionAttributeAtStartOfSentence = 1 << 2,
 } WK_API_AVAILABLE(macos(10.15), ios(13.0));
+
+typedef NS_ENUM(NSInteger, _WKShouldOpenExternalURLsPolicy) {
+    _WKShouldOpenExternalURLsPolicyNotAllow,
+    _WKShouldOpenExternalURLsPolicyAllow,
+    _WKShouldOpenExternalURLsPolicyAllowExternalSchemesButNotAppLinks,
+} WK_API_AVAILABLE(macos(12.0), ios(15.0));
 
 #if TARGET_OS_IPHONE
 
@@ -91,21 +106,19 @@ typedef NS_ENUM(NSInteger, _WKImmediateActionType) {
     _WKImmediateActionTelLink
 } WK_API_AVAILABLE(macos(10.12));
 
-typedef NS_OPTIONS(NSUInteger, _WKRectEdge) {
-    _WKRectEdgeNone = 0,
-    _WKRectEdgeLeft = 1 << CGRectMinXEdge,
-    _WKRectEdgeTop = 1 << CGRectMinYEdge,
-    _WKRectEdgeRight = 1 << CGRectMaxXEdge,
-    _WKRectEdgeBottom = 1 << CGRectMaxYEdge,
-    _WKRectEdgeAll = _WKRectEdgeLeft | _WKRectEdgeTop | _WKRectEdgeRight | _WKRectEdgeBottom,
-} WK_API_AVAILABLE(macos(10.13.4));
-
 #endif
 
+@class UIEventAttribution;
+@class UITextInputTraits;
 @class WKBrowsingContextHandle;
+@class WKDownload;
 @class WKFrameInfo;
+@class WKSecurityOrigin;
 @class WKWebpagePreferences;
+@class _UIFindInteraction;
 @class _WKApplicationManifest;
+@class _WKArchiveConfiguration;
+@class _WKDataTask;
 @class _WKFrameHandle;
 @class _WKFrameTreeNode;
 @class _WKHitTestResult;
@@ -113,20 +126,27 @@ typedef NS_OPTIONS(NSUInteger, _WKRectEdge) {
 @class _WKRemoteObjectRegistry;
 @class _WKSafeBrowsingWarning;
 @class _WKSessionState;
+@class _WKTargetedElementInfo;
+@class _WKTargetedElementRequest;
 @class _WKTextInputContext;
 @class _WKTextManipulationConfiguration;
 @class _WKTextManipulationItem;
 @class _WKThumbnailView;
-@class _WKWebsitePolicies;
 @class _WKWebViewPrintFormatter;
 
+#if TARGET_OS_IPHONE
+@class UIImage;
+#else
+@class NSImage;
+#endif
+
 @protocol WKHistoryDelegatePrivate;
+@protocol _WKAppHighlightDelegate;
 @protocol _WKDiagnosticLoggingDelegate;
 @protocol _WKFindDelegate;
 @protocol _WKFullscreenDelegate;
 @protocol _WKIconLoadingDelegate;
 @protocol _WKInputDelegate;
-@protocol _WKInspectorDelegate;
 @protocol _WKResourceLoadDelegate;
 @protocol _WKTextManipulationDelegate;
 
@@ -140,7 +160,7 @@ typedef NS_OPTIONS(NSUInteger, _WKRectEdge) {
 
 @property (nonatomic, weak, setter=_setHistoryDelegate:) id <WKHistoryDelegatePrivate> _historyDelegate;
 @property (nonatomic, weak, setter=_setIconLoadingDelegate:) id <_WKIconLoadingDelegate> _iconLoadingDelegate;
-@property (nonatomic, weak, setter=_setResourceLoadDelegate:) id <_WKResourceLoadDelegate> _resourceLoadDelegate WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
+@property (nonatomic, weak, setter=_setResourceLoadDelegate:) id <_WKResourceLoadDelegate> _resourceLoadDelegate WK_API_AVAILABLE(macos(11.0), ios(14.0));
 
 @property (nonatomic, readonly) NSURL *_unreachableURL;
 @property (nonatomic, readonly) NSURL *_mainFrameURL WK_API_AVAILABLE(macos(10.15), ios(13.0));
@@ -149,6 +169,14 @@ typedef NS_OPTIONS(NSUInteger, _WKRectEdge) {
 - (void)_loadAlternateHTMLString:(NSString *)string baseURL:(NSURL *)baseURL forUnreachableURL:(NSURL *)unreachableURL;
 - (WKNavigation *)_loadData:(NSData *)data MIMEType:(NSString *)MIMEType characterEncodingName:(NSString *)characterEncodingName baseURL:(NSURL *)baseURL userData:(id)userData WK_API_AVAILABLE(macos(10.12), ios(10.0));
 - (WKNavigation *)_loadRequest:(NSURLRequest *)request shouldOpenExternalURLs:(BOOL)shouldOpenExternalURLs WK_API_AVAILABLE(macos(10.13), ios(11.0));
+- (WKNavigation *)_loadRequest:(NSURLRequest *)request shouldOpenExternalURLsPolicy:(_WKShouldOpenExternalURLsPolicy)shouldOpenExternalURLsPolicy WK_API_AVAILABLE(macos(12.0), ios(15.0));
+
+// If maxSize is CGSizeZero, the size of the image will not be constrained.
+#if TARGET_OS_IPHONE
+- (void)_loadAndDecodeImage:(NSURLRequest *)request constrainedToSize:(CGSize)maxSize maximumBytesFromNetwork:(size_t)maximumBytesFromNetwork completionHandler:(void (^)(UIImage *, NSError *))completionHandler WK_API_AVAILABLE(macos(15.0), ios(18.0), visionos(2.0));
+#else
+- (void)_loadAndDecodeImage:(NSURLRequest *)request constrainedToSize:(CGSize)maxSize maximumBytesFromNetwork:(size_t)maximumBytesFromNetwork completionHandler:(void (^)(NSImage *, NSError *))completionHandler WK_API_AVAILABLE(macos(15.0), ios(18.0), visionos(2.0));
+#endif
 
 @property (nonatomic, readonly) NSArray *_certificateChain WK_API_DEPRECATED_WITH_REPLACEMENT("certificateChain", macos(10.10, 10.11), ios(8.0, 9.0));
 @property (nonatomic, readonly) NSURL *_committedURL;
@@ -162,6 +190,8 @@ typedef NS_OPTIONS(NSUInteger, _WKRectEdge) {
 
 @property (nonatomic, readonly) pid_t _webProcessIdentifier;
 @property (nonatomic, readonly) pid_t _provisionalWebProcessIdentifier WK_API_AVAILABLE(macos(10.14.4), ios(12.2));
+@property (nonatomic, readonly) pid_t _gpuProcessIdentifier WK_API_AVAILABLE(macos(13.0), ios(16.0));
+@property (nonatomic, readonly) pid_t _modelProcessIdentifier WK_API_AVAILABLE(macos(15.0), ios(18.0), visionos(2.0));
 
 @property (nonatomic, getter=_isEditable, setter=_setEditable:) BOOL _editable WK_API_AVAILABLE(macos(10.11), ios(9.0));
 
@@ -170,9 +200,12 @@ has been loaded over a connection using TLS 1.0 or TLS 1.1.
 @discussion @link WKWebView @/link is key-value observing (KVO) compliant
 for this property.
 */
-@property (nonatomic, readonly) BOOL _negotiatedLegacyTLS WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
+@property (nonatomic, readonly) BOOL _negotiatedLegacyTLS WK_API_AVAILABLE(macos(10.15.4), ios(13.4));
 
-- (void)_frames:(void (^)(_WKFrameTreeNode *))completionHandler WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
+@property (nonatomic, readonly) BOOL _wasPrivateRelayed WK_API_AVAILABLE(macos(13.1), ios(16.2));
+
+- (void)_frames:(void (^)(_WKFrameTreeNode *))completionHandler WK_API_AVAILABLE(macos(11.0), ios(14.0));
+- (void)_frameTrees:(void (^)(NSSet<_WKFrameTreeNode *> *))completionHandler WK_API_AVAILABLE(macos(14.0), ios(17.0));
 
 // FIXME: Remove these once nobody is using them.
 @property (nonatomic, readonly) NSData *_sessionStateData;
@@ -182,17 +215,17 @@ for this property.
 - (WKNavigation *)_restoreSessionState:(_WKSessionState *)sessionState andNavigate:(BOOL)navigate;
 - (_WKSessionState *)_sessionStateWithFilter:(BOOL (^)(WKBackForwardListItem *item))filter;
 
-@property (nonatomic, setter=_setAllowsRemoteInspection:) BOOL _allowsRemoteInspection;
+@property (nonatomic, setter=_setAllowsRemoteInspection:) BOOL _allowsRemoteInspection WK_API_DEPRECATED_WITH_REPLACEMENT("inspectable", macos(10.10, 13.3), ios(8.0, 16.4));
 @property (nonatomic, copy, setter=_setRemoteInspectionNameOverride:) NSString *_remoteInspectionNameOverride WK_API_AVAILABLE(macos(10.12), ios(10.0));
+@property (nonatomic, readonly) BOOL _isBeingInspected WK_API_AVAILABLE(macos(12.0), ios(15.0));
 @property (nonatomic, readonly) _WKInspector *_inspector WK_API_AVAILABLE(macos(10.14.4), ios(12.2));
-@property (nonatomic, weak, setter=_setInspectorDelegate:) id <_WKInspectorDelegate> _inspectorDelegate WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
 
 @property (nonatomic, readonly) _WKFrameHandle *_mainFrame WK_API_AVAILABLE(macos(10.14.4), ios(12.2));
 
-@property (nonatomic, weak, setter=_setTextManipulationDelegate:) id <_WKTextManipulationDelegate> _textManipulationDelegate WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
-- (void)_startTextManipulationsWithConfiguration:(_WKTextManipulationConfiguration *)configuration completion:(void(^)(void))completionHandler WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
-- (void)_completeTextManipulation:(_WKTextManipulationItem *)item completion:(void(^)(BOOL success))completionHandler WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
-- (void)_completeTextManipulationForItems:(NSArray<_WKTextManipulationItem *> *)items completion:(void(^)(NSArray<NSError *> *errors))completionHandler WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
+@property (nonatomic, weak, setter=_setTextManipulationDelegate:) id <_WKTextManipulationDelegate> _textManipulationDelegate WK_API_AVAILABLE(macos(10.15.4), ios(13.4));
+- (void)_startTextManipulationsWithConfiguration:(_WKTextManipulationConfiguration *)configuration completion:(void(^)(void))completionHandler WK_API_AVAILABLE(macos(10.15.4), ios(13.4));
+- (void)_completeTextManipulation:(_WKTextManipulationItem *)item completion:(void(^)(BOOL success))completionHandler WK_API_AVAILABLE(macos(10.15.4), ios(13.4));
+- (void)_completeTextManipulationForItems:(NSArray<_WKTextManipulationItem *> *)items completion:(void(^)(NSArray<NSError *> *errors))completionHandler WK_API_AVAILABLE(macos(11.0), ios(14.0));
 
 @property (nonatomic, setter=_setAddsVisitedLinks:) BOOL _addsVisitedLinks;
 
@@ -201,18 +234,20 @@ for this property.
 @property (nonatomic, readonly, getter=_isShowingNavigationGestureSnapshot) BOOL _showingNavigationGestureSnapshot;
 
 - (void)_close;
-- (void)_tryClose WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
-- (BOOL)_isClosed WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
+- (BOOL)_tryClose WK_API_AVAILABLE(macos(10.15.4), ios(13.4));
+- (BOOL)_isClosed WK_API_AVAILABLE(macos(10.15.4), ios(13.4));
 
-- (void)_updateWebsitePolicies:(_WKWebsitePolicies *)websitePolicies WK_API_DEPRECATED_WITH_REPLACEMENT("-_updateWebpagePreferences:", macos(10.13, WK_MAC_TBA), ios(11.3, WK_IOS_TBA));
-- (void)_updateWebpagePreferences:(WKWebpagePreferences *)webpagePreferences WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
-- (void)_notifyUserScripts WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
-@property (nonatomic, readonly) BOOL _deferrableUserScriptsNeedNotification WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
+- (void)_updateWebpagePreferences:(WKWebpagePreferences *)webpagePreferences WK_API_AVAILABLE(macos(10.15.4), ios(13.4));
+- (void)_notifyUserScripts WK_API_AVAILABLE(macos(11.0), ios(14.0));
+@property (nonatomic, readonly) BOOL _deferrableUserScriptsNeedNotification WK_API_AVAILABLE(macos(11.0), ios(14.0));
 
 - (void)_evaluateJavaScriptWithoutUserGesture:(NSString *)javaScriptString completionHandler:(void (^)(id, NSError *))completionHandler WK_API_AVAILABLE(macos(10.13), ios(11.0));
-- (void)_evaluateJavaScript:(NSString *)javaScriptString inFrame:(WKFrameInfo *)frame inContentWorld:(WKContentWorld *)contentWorld completionHandler:(void (^)(id, NSError * error))completionHandler WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
-- (void)_evaluateJavaScript:(NSString *)javaScriptString withSourceURL:(NSURL *)sourceURL inFrame:(WKFrameInfo *)frame inContentWorld:(WKContentWorld *)contentWorld completionHandler:(void (^)(id, NSError * error))completionHandler WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
-- (void)_callAsyncJavaScript:(NSString *)functionBody arguments:(NSDictionary<NSString *, id> *)arguments inFrame:(WKFrameInfo *)frame inContentWorld:(WKContentWorld *)contentWorld completionHandler:(void (^)(id, NSError *error))completionHandler WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
+- (void)_evaluateJavaScript:(NSString *)javaScriptString inFrame:(WKFrameInfo *)frame inContentWorld:(WKContentWorld *)contentWorld completionHandler:(void (^)(id, NSError * error))completionHandler WK_API_AVAILABLE(macos(11.0), ios(14.0));
+- (void)_evaluateJavaScript:(NSString *)javaScriptString withSourceURL:(NSURL *)sourceURL inFrame:(WKFrameInfo *)frame inContentWorld:(WKContentWorld *)contentWorld completionHandler:(void (^)(id, NSError * error))completionHandler WK_API_AVAILABLE(macos(11.0), ios(14.0));
+- (void)_evaluateJavaScript:(NSString *)javaScriptString withSourceURL:(NSURL *)url inFrame:(WKFrameInfo *)frame inContentWorld:(WKContentWorld *)contentWorld withUserGesture:(BOOL)withUserGesture completionHandler:(void (^)(id, NSError *error))completionHandler WK_API_AVAILABLE(macos(15.0), ios(18.0), visionos(2.0));
+- (void)_callAsyncJavaScript:(NSString *)functionBody arguments:(NSDictionary<NSString *, id> *)arguments inFrame:(WKFrameInfo *)frame inContentWorld:(WKContentWorld *)contentWorld completionHandler:(void (^)(id, NSError *error))completionHandler WK_API_AVAILABLE(macos(11.0), ios(14.0));
+
+- (BOOL)_allMediaPresentationsClosed WK_API_AVAILABLE(macos(12.0), ios(15.0));
 
 @property (nonatomic, setter=_setLayoutMode:) _WKLayoutMode _layoutMode;
 // For use with _layoutMode = _WKLayoutModeFixedSize:
@@ -221,8 +256,6 @@ for this property.
 @property (nonatomic, setter=_setViewportSizeForCSSViewportUnits:) CGSize _viewportSizeForCSSViewportUnits WK_API_AVAILABLE(macos(10.13), ios(11.0));
 
 @property (nonatomic, setter=_setViewScale:) CGFloat _viewScale WK_API_AVAILABLE(macos(10.11), ios(9.0));
-
-@property (nonatomic, copy, setter=_setCORSDisablingPatterns:) NSArray<NSString *> *_corsDisablingPatterns WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
 
 @property (nonatomic, setter=_setMinimumEffectiveDeviceWidth:) CGFloat _minimumEffectiveDeviceWidth WK_API_AVAILABLE(macos(10.14.4), ios(12.2));
 
@@ -233,17 +266,24 @@ for this property.
 - (_WKAttachment *)_insertAttachmentWithFileWrapper:(NSFileWrapper *)fileWrapper contentType:(NSString *)contentType completion:(void(^)(BOOL success))completionHandler WK_API_AVAILABLE(macos(10.14.4), ios(12.2));
 - (_WKAttachment *)_attachmentForIdentifier:(NSString *)identifier WK_API_AVAILABLE(macos(10.14.4), ios(12.2));
 
+- (void)_launchInitialProcessIfNecessary WK_API_AVAILABLE(macos(14.0), ios(17.0));
+- (void)_clearBackForwardCache WK_API_AVAILABLE(macos(14.0), ios(17.0));
+
 - (void)_simulateDeviceOrientationChangeWithAlpha:(double)alpha beta:(double)beta gamma:(double)gamma WK_API_AVAILABLE(macos(10.14.4), ios(12.2));
+
++ (BOOL)_willUpgradeToHTTPS:(NSURL *)url WK_API_AVAILABLE(macos(12.0), ios(15.0));
 
 + (BOOL)_handlesSafeBrowsing WK_API_AVAILABLE(macos(10.14.4), ios(12.2));
 + (NSURL *)_confirmMalwareSentinel WK_API_AVAILABLE(macos(10.14.4), ios(12.2));
 + (NSURL *)_visitUnsafeWebsiteSentinel WK_API_AVAILABLE(macos(10.14.4), ios(12.2));
 - (void)_showSafeBrowsingWarningWithTitle:(NSString *)title warning:(NSString *)warning details:(NSAttributedString *)details completionHandler:(void(^)(BOOL))completionHandler WK_API_DEPRECATED_WITH_REPLACEMENT("-_showSafeBrowsingWarningWithURL:title:warning:detailsWithLinks:completionHandler:", macos(10.14.4, 10.15.4), ios(12.2, 13.2));
 - (void)_showSafeBrowsingWarningWithURL:(NSURL *)url title:(NSString *)title warning:(NSString *)warning details:(NSAttributedString *)details completionHandler:(void(^)(BOOL))completionHandler WK_API_DEPRECATED_WITH_REPLACEMENT("-_showSafeBrowsingWarningWithURL:title:warning:detailsWithLinks:completionHandler:", macos(10.14.4, 10.15.4), ios(12.2, 13.2));
-- (void)_showSafeBrowsingWarningWithURL:(NSURL *)url title:(NSString *)title warning:(NSString *)warning detailsWithLinks:(NSAttributedString *)details completionHandler:(void(^)(BOOL, NSURL *))completionHandler WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
+- (void)_showSafeBrowsingWarningWithURL:(NSURL *)url title:(NSString *)title warning:(NSString *)warning detailsWithLinks:(NSAttributedString *)details completionHandler:(void(^)(BOOL, NSURL *))completionHandler WK_API_AVAILABLE(macos(10.15.4), ios(13.2));
 
 - (void)_doAfterNextPresentationUpdate:(void (^)(void))updateBlock WK_API_AVAILABLE(macos(10.12), ios(10.0));
-- (void)_doAfterNextPresentationUpdateWithoutWaitingForPainting:(void (^)(void))updateBlock WK_API_AVAILABLE(macos(10.12.3), ios(10.3));
+- (void)_doAfterNextPresentationUpdateWithoutWaitingForPainting:(void (^)(void))updateBlock WK_API_AVAILABLE(macos(10.12.4), ios(10.3));
+
+- (void)_doAfterNextVisibleContentRectUpdate:(void (^)(void))updateBlock WK_API_AVAILABLE(macos(13.0), ios(16.0));
 
 - (void)_executeEditCommand:(NSString *)command argument:(NSString *)argument completion:(void (^)(BOOL))completion WK_API_AVAILABLE(macos(10.13.4), ios(11.3));
 
@@ -278,13 +318,18 @@ for this property.
 - (void)_killWebContentProcess;
 - (void)_killWebContentProcessAndResetState;
 
+- (void)_saveResources:(NSURL *)directory suggestedFileName:(NSString *)name completionHandler:(void (^)(NSError *error))completionHandler WK_API_AVAILABLE(macos(14.4), ios(17.4), visionos(1.1));
+- (void)_archiveWithConfiguration:(_WKArchiveConfiguration*)configuration completionHandler:(void (^)(NSError *error))completionHandler WK_API_AVAILABLE(macos(14.4), ios(17.4), visionos(1.1));
 - (void)_getMainResourceDataWithCompletionHandler:(void (^)(NSData *, NSError *))completionHandler;
 - (void)_getWebArchiveDataWithCompletionHandler:(void (^)(NSData *, NSError *))completionHandler;
 - (void)_getContentsAsStringWithCompletionHandler:(void (^)(NSString *, NSError *))completionHandler WK_API_AVAILABLE(macos(10.13), ios(11.0));
-- (void)_getContentsOfAllFramesAsStringWithCompletionHandler:(void (^)(NSString *))completionHandler WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
+- (void)_getContentsAsStringWithCompletionHandlerKeepIPCConnectionAliveForTesting:(void (^)(NSString *, NSError *))completionHandler;
+- (void)_getContentsOfAllFramesAsStringWithCompletionHandler:(void (^)(NSString *))completionHandler WK_API_AVAILABLE(macos(11.0), ios(14.0));
 - (void)_getContentsAsAttributedStringWithCompletionHandler:(void (^)(NSAttributedString *, NSDictionary<NSAttributedStringDocumentAttributeKey, id> *, NSError *))completionHandler WK_API_AVAILABLE(macos(10.15), ios(13.0));
 
 - (void)_getApplicationManifestWithCompletionHandler:(void (^)(_WKApplicationManifest *))completionHandler WK_API_AVAILABLE(macos(10.13.4), ios(11.3));
+
+- (void)_getTextFragmentMatchWithCompletionHandler:(void (^)(NSString *))completionHandler WK_API_AVAILABLE(macos(13.3), ios(16.4));
 
 @property (nonatomic, setter=_setPaginationMode:) _WKPaginationMode _paginationMode;
 // Whether the column-break-{before,after} properties are respected instead of the
@@ -308,6 +353,7 @@ for this property.
 
 @property (nonatomic, weak, setter=_setInputDelegate:) id <_WKInputDelegate> _inputDelegate WK_API_AVAILABLE(macos(10.12), ios(10.0));
 
+@property (nonatomic, readonly, getter=_isDisplayingPDF) BOOL _displayingPDF WK_API_AVAILABLE(macos(15.0), ios(18.0), visionos(2.0));
 @property (nonatomic, readonly, getter=_isDisplayingStandaloneImageDocument) BOOL _displayingStandaloneImageDocument;
 @property (nonatomic, readonly, getter=_isDisplayingStandaloneMediaDocument) BOOL _displayingStandaloneMediaDocument;
 
@@ -319,52 +365,254 @@ for this property.
 @property (nonatomic, getter=_allowsMediaDocumentInlinePlayback, setter=_setAllowsMediaDocumentInlinePlayback:) BOOL _allowsMediaDocumentInlinePlayback;
 
 @property (nonatomic, setter=_setFullscreenDelegate:) id<_WKFullscreenDelegate> _fullscreenDelegate WK_API_AVAILABLE(macos(10.13), ios(11.0));
-@property (nonatomic, readonly) BOOL _isInFullscreen WK_API_AVAILABLE(macos(10.12.3));
+@property (nonatomic, readonly) BOOL _isInFullscreen WK_API_AVAILABLE(macos(10.12.4));
 
-@property (nonatomic, readonly) _WKMediaCaptureState _mediaCaptureState WK_API_AVAILABLE(macos(10.15), ios(13.0));
-@property (nonatomic, readonly) _WKMediaMutedState _mediaMutedState WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
+@property (nonatomic, readonly) _WKMediaCaptureStateDeprecated _mediaCaptureState WK_API_AVAILABLE(macos(10.15), ios(13.0));
+@property (nonatomic, readonly) _WKMediaMutedState _mediaMutedState WK_API_AVAILABLE(macos(11.0), ios(14.0));
 
 - (void)_setPageMuted:(_WKMediaMutedState)mutedState WK_API_AVAILABLE(macos(10.13), ios(11.0));
 
 @property (nonatomic, setter=_setMediaCaptureEnabled:) BOOL _mediaCaptureEnabled WK_API_AVAILABLE(macos(10.13), ios(11.0));
-- (void)_stopMediaCapture WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
+- (void)_stopMediaCapture WK_API_AVAILABLE(macos(10.15.4), ios(13.4));
+
+@property (nonatomic, readonly) BOOL _isSuspended;
 
 @property (nonatomic, readonly) BOOL _canTogglePictureInPicture;
+@property (nonatomic, readonly) BOOL _canToggleInWindow;
+@property (nonatomic, readonly) BOOL _canEnterFullscreen WK_API_AVAILABLE(macos(15.0), ios(18.0), visionos(2.0));
 @property (nonatomic, readonly) BOOL _isPictureInPictureActive;
+@property (nonatomic, readonly) BOOL _isInWindowActive;
 - (void)_updateMediaPlaybackControlsManager;
 - (void)_togglePictureInPicture;
+- (void)_toggleInWindow;
+- (void)_enterInWindow;
+- (void)_exitInWindow;
+- (void)_enterFullscreen WK_API_AVAILABLE(macos(15.0), ios(18.0), visionos(2.0));
 - (void)_stopAllMediaPlayback;
 - (void)_suspendAllMediaPlayback;
 - (void)_resumeAllMediaPlayback;
 - (void)_closeAllMediaPresentations;
 
-- (void)_takePDFSnapshotWithConfiguration:(WKSnapshotConfiguration *)snapshotConfiguration completionHandler:(void (^)(NSData *pdfSnapshotData, NSError *error))completionHandler WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
+- (void)_nowPlayingMediaTitleAndArtist:(void (^)(NSString *, NSString *))completionHandler;
 
-- (void)_getProcessDisplayNameWithCompletionHandler:(void (^)(NSString *))completionHandler WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
+- (void)_takePDFSnapshotWithConfiguration:(WKSnapshotConfiguration *)snapshotConfiguration completionHandler:(void (^)(NSData *pdfSnapshotData, NSError *error))completionHandler WK_API_AVAILABLE(macos(10.15.4), ios(13.4));
+- (void)_getPDFFirstPageSizeInFrame:(_WKFrameHandle *)frame completionHandler:(void(^)(CGSize))completionHandler WK_API_AVAILABLE(macos(12.0), ios(15.0));
 
-- (void)_isNavigatingToAppBoundDomain:(void(^)(BOOL))completionHandler WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
-- (void)_isForcedIntoAppBoundMode:(void(^)(BOOL))completionHandler WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
+- (void)_getProcessDisplayNameWithCompletionHandler:(void (^)(NSString *))completionHandler WK_API_AVAILABLE(macos(11.0), ios(14.0));
 
-- (void)_grantAccessToPreferenceService WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
+- (void)_serviceWorkersEnabled:(void(^)(BOOL))completionHandler WK_API_AVAILABLE(macos(11.0), ios(14.0));
+- (void)_clearServiceWorkerEntitlementOverride:(void (^)(void))completionHandler WK_API_AVAILABLE(macos(11.0), ios(14.0));
 
-- (void)_serviceWorkersEnabled:(void(^)(BOOL))completionHandler WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
-- (void)_clearServiceWorkerEntitlementOverride:(void (^)(void))completionHandler WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
+- (void)_preconnectToServer:(NSURL *)serverURL WK_API_AVAILABLE(macos(11.0), ios(14.0));
 
-- (void)_preconnectToServer:(NSURL *)serverURL WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
+@property (nonatomic, setter=_setCanUseCredentialStorage:) BOOL _canUseCredentialStorage WK_API_AVAILABLE(macos(12.0), ios(15.0));
 
-@property (nonatomic, setter=_setCanUseCredentialStorage:) BOOL _canUseCredentialStorage WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
+- (void)_didEnableBrowserExtensions:(NSDictionary<NSString *, NSString *> *)extensionIDToNameMap WK_API_AVAILABLE(macos(12.0), ios(15.0));
+- (void)_didDisableBrowserExtensions:(NSSet<NSString *> *)extensionIDs WK_API_AVAILABLE(macos(12.0), ios(15.0));
+
+@property (nonatomic, weak, setter=_setAppHighlightDelegate:) id <_WKAppHighlightDelegate> _appHighlightDelegate WK_API_AVAILABLE(macos(12.0), ios(15.0));
+- (void)_restoreAppHighlights:(NSArray<NSData *> *)highlights WK_API_AVAILABLE(macos(12.0), ios(15.0));
+- (void)_restoreAndScrollToAppHighlight:(NSData *)highlight WK_API_AVAILABLE(macos(12.0), ios(15.0));
+- (void)_addAppHighlight WK_API_AVAILABLE(macos(12.0), ios(15.0));
+- (void)_addAppHighlightInNewGroup:(BOOL)newGroup originatedInApp:(BOOL)originatedInApp WK_API_AVAILABLE(macos(12.0), ios(15.0));
+
+- (NSUUID *)_enableTextIndicatorStylingAfterElementWithID:(NSString *)elementID WK_API_AVAILABLE(macos(15.0), ios(18.0), visionos(2.0));
+- (NSUUID *)_enableTextIndicatorStylingForElementWithID:(NSString *)elementID WK_API_AVAILABLE(macos(15.0), ios(18.0), visionos(2.0));
+- (void)_disableTextIndicatorStylingWithUUID:(NSUUID *)nsUUID WK_API_AVAILABLE(macos(15.0), ios(18.0), visionos(2.0));
+
+- (NSUUID *)_enableSourceTextAnimationAfterElementWithID:(NSString *)elementID WK_API_AVAILABLE(macos(15.0), ios(18.0), visionos(2.0));
+- (NSUUID *)_enableFinalTextAnimationForElementWithID:(NSString *)elementID WK_API_AVAILABLE(macos(15.0), ios(18.0), visionos(2.0));
+- (void)_disableTextAnimationWithUUID:(NSUUID *)nsUUID WK_API_AVAILABLE(macos(15.0), ios(18.0), visionos(2.0));
+
+// FIXME: Remove old `-[WKWebView _themeColor]` SPI <rdar://76662644>
+#if TARGET_OS_IPHONE
+@property (nonatomic, readonly) UIColor *_themeColor WK_API_DEPRECATED_WITH_REPLACEMENT("themeColor", ios(15.0, 15.0));
+#else
+@property (nonatomic, readonly) NSColor *_themeColor WK_API_DEPRECATED_WITH_REPLACEMENT("themeColor", macos(12.0, 12.0));
+#endif
+
+// FIXME: Remove old `-[WKWebView _pageExtendedBackgroundColor]` SPI <rdar://77789732>
+#if TARGET_OS_IPHONE
+@property (nonatomic, readonly) UIColor *_pageExtendedBackgroundColor WK_API_DEPRECATED_WITH_REPLACEMENT("underPageBackgroundColor", ios(15.0, 15.0));
+#else
+@property (nonatomic, readonly) NSColor *_pageExtendedBackgroundColor WK_API_DEPRECATED_WITH_REPLACEMENT("underPageBackgroundColor", macos(10.10, 12.0));
+#endif
+
+// Only set if `-[WKWebViewConfiguration _sampledPageTopColorMaxDifference]` is a positive number.
+#if TARGET_OS_IPHONE
+@property (nonatomic, readonly) UIColor *_sampledPageTopColor WK_API_AVAILABLE(ios(15.0));
+#else
+@property (nonatomic, readonly) NSColor *_sampledPageTopColor WK_API_AVAILABLE(macos(12.0));
+#endif
+
+- (void)_grantAccessToAssetServices WK_API_AVAILABLE(macos(12.0), ios(14.0));
+- (void)_revokeAccessToAssetServices WK_API_AVAILABLE(macos(12.0), ios(14.0));
+
+- (void)_disableURLSchemeCheckInDataDetectors WK_API_AVAILABLE(ios(16.0));
+
+/*! @abstract If the WKWebView was created with _shouldAllowUserInstalledFonts = NO,
+ the web process will automatically use an in-process font registry, and its sandbox
+ will be restricted to forbid access to fontd. Otherwise, the web process will use
+ fontd to look up fonts instead of using the in-process registry, and the web
+ process's sandbox will automatically be extended to allow access to fontd. This
+ method represents a one-time, web-process-wide switch from using the in-process
+ font registry to using fontd, including granting the relevant sandbox extension.
+*/
+- (void)_switchFromStaticFontRegistryToUserFontRegistry WK_API_AVAILABLE(macos(12.0));
+
+- (void)_didLoadAppInitiatedRequest:(void (^)(BOOL result))completionHandler;
+- (void)_didLoadNonAppInitiatedRequest:(void (^)(BOOL result))completionHandler;
+
+- (void)_loadServiceWorker:(NSURL *)url usingModules:(BOOL)usingModules completionHandler:(void (^)(BOOL success))completionHandler WK_API_AVAILABLE(macos(13.3), ios(16.4));
+- (void)_loadServiceWorker:(NSURL *)url completionHandler:(void (^)(BOOL success))completionHandler WK_API_AVAILABLE(macos(13.0), ios(16.0));
+
+- (void)_suspendPage:(void (^)(BOOL))completionHandler WK_API_AVAILABLE(macos(12.0), ios(15.0));
+- (void)_resumePage:(void (^)(BOOL))completionHandler WK_API_AVAILABLE(macos(12.0), ios(15.0));
+
+- (void)_startImageAnalysis:(NSString *)identifier target:(NSString *)targetIdentifier WK_API_AVAILABLE(macos(13.0), ios(16.0));
+
+- (void)_dataTaskWithRequest:(NSURLRequest *)request completionHandler:(void(^)(_WKDataTask *))completionHandler WK_API_AVAILABLE(macos(13.0), ios(16.0));
+- (void)_dataTaskWithRequest:(NSURLRequest *)request runAtForegroundPriority:(BOOL)runAtForegroundPriority completionHandler:(void(^)(_WKDataTask *))completionHandler WK_API_AVAILABLE(macos(15.0), ios(18.0), visionos(2.0));
+
+- (void)_adjustVisibilityForTargetedElements:(NSArray<_WKTargetedElementInfo *> *)elements completionHandler:(void(^)(BOOL success))completionHandler WK_API_AVAILABLE(macos(15.0), ios(18.0), visionos(2.0));
+- (void)_numberOfVisibilityAdjustmentRectsWithCompletionHandler:(void(^)(NSUInteger))completionHandler WK_API_AVAILABLE(macos(15.0), ios(18.0), visionos(2.0));
+// Passing a null or empty list resets visibility adjustment for all current targets.
+- (void)_resetVisibilityAdjustmentsForTargetedElements:(NSArray<_WKTargetedElementInfo *> *)elements completionHandler:(void(^)(BOOL success))completionHandler WK_API_AVAILABLE(macos(15.0), ios(18.0), visionos(2.0));
+
+// Default value is 0. A value of 0 means the window's backing scale factor will be used and automatically update when the window moves screens.
+@property (nonatomic, setter=_setOverrideDeviceScaleFactor:) CGFloat _overrideDeviceScaleFactor WK_API_AVAILABLE(macos(10.11), ios(16.4));
+
+typedef NS_ENUM(NSInteger, WKDisplayCaptureState) {
+    WKDisplayCaptureStateNone,
+    WKDisplayCaptureStateActive,
+    WKDisplayCaptureStateMuted,
+} WK_API_AVAILABLE(macos(13.0), ios(16.0));
+
+typedef NS_ENUM(NSInteger, WKSystemAudioCaptureState) {
+    WKSystemAudioCaptureStateNone,
+    WKSystemAudioCaptureStateActive,
+    WKSystemAudioCaptureStateMuted,
+} WK_API_AVAILABLE(macos(13.0), ios(16.0));
+
+typedef NS_OPTIONS(NSUInteger, WKDisplayCaptureSurfaces) {
+    WKDisplayCaptureSurfaceNone = 0,
+    WKDisplayCaptureSurfaceScreen = 0x1,
+    WKDisplayCaptureSurfaceWindow = 0x2,
+};
+
+/*! @abstract The type(s) of displays being captured on a web page.
+ @discussion @link WKWebView @/link is key-value observing (KVO) compliant
+ for this property.
+ */
+@property (nonatomic, readonly) WKDisplayCaptureSurfaces _displayCaptureSurfaces WK_API_AVAILABLE(macos(13.0), ios(16.0));
+
+/*! @abstract The state of display capture on a web page.
+ @discussion @link WKWebView @/link is key-value observing (KVO) compliant
+ for this property.
+ */
+@property (nonatomic, readonly) WKDisplayCaptureState _displayCaptureState WK_API_AVAILABLE(macos(13.0), ios(16.0));
+
+/*! @abstract The state of system audio capture on a web page.
+ @discussion @link WKWebView @/link is key-value observing (KVO) compliant
+ for this property.
+ */
+@property (nonatomic, readonly) WKSystemAudioCaptureState _systemAudioCaptureState WK_API_AVAILABLE(macos(13.0), ios(16.0));
+
+/*! @abstract Set display capture state of a WKWebView.
+ @param state State to apply for capture.
+ @param completionHandler A block to invoke after the screen state has been changed.
+ @discussion
+ If value is WKDisplayCaptureStateNone, this will stop all display capture.
+ If value is WKDisplayCaptureStateMuted, all active display captures will become muted.
+ If value is WKDisplayCaptureStateActive, all muted display captures will become active.
+ */
+- (void)_setDisplayCaptureState:(WKDisplayCaptureState)state completionHandler:(void (^)(void))completionHandler WK_API_AVAILABLE(macos(13.0), ios(16.0));
+
+/*! @abstract Set system audio capture state of a WKWebView.
+ @param state State to apply for system audio capture.
+ @param completionHandler A block to invoke after the system audio state has been changed.
+ @discussion
+ If value is WKSystemAudioCaptureStateNone, this will stop any system audio capture.
+ If value is WKSystemAudioCaptureStateMuted, any active system audio capture will become muted.
+ If value is WKSystemAudioCaptureStateActive, any muted system audio capture will become active.
+ @note When system audio capture is active, if screenCaptureState is active, all system audio will be captured.
+ Otherwise, if windowCaptureState is active, only the application whose window being is captured will have its audio captured.
+ If both screenCaptureState and windowCaptureState are None or Muted, no system audio will be captured.
+ */
+- (void)_setSystemAudioCaptureState:(WKSystemAudioCaptureState)state completionHandler:(void (^)(void))completionHandler WK_API_AVAILABLE(macos(13.0), ios(16.0));
+
++ (void)_permissionChanged:(NSString *)permissionName forOrigin:(WKSecurityOrigin *)origin WK_API_AVAILABLE(macos(13.3), ios(16.4));
+
+/*! @abstract `YES` if any animation on the page is allowed to play.
+  @discussion Animations can be disallowed from starting both individually and globally. If even a single animation is allowed to play, this property will be `YES`. Calling @link _pauseAllAnimationsWithCompletionHandler @/link causes this property to become `NO`, while @link _playAllAnimationsWithCompletionHandler @/link causes it to become `YES`.
+*/
+@property (nonatomic, readonly) BOOL _allowsAnyAnimationToPlay WK_API_AVAILABLE(macos(13.3), ios(16.4));
+
+/*! @abstract Pauses all animations on the page.
+  @discussion Calling this function also results in @link _allowsAnyAnimationToPlay @/link becoming `NO`, meaning animations loaded after a call to this function will be paused until @link _playAllAnimationsWithCompletionHandler @/link is called.
+*/
+- (void)_pauseAllAnimationsWithCompletionHandler:(void(^)(void))completionHandler WK_API_AVAILABLE(macos(13.3), ios(16.4));
+
+/*! @abstract Plays all animations on the page.
+  @discussion Calling this function also results in @link _allowsAnyAnimationToPlay @/link becoming `YES`, meaning animations loaded after a call to this function will be allowed to begin playing.
+*/
+- (void)_playAllAnimationsWithCompletionHandler:(void(^)(void))completionHandler WK_API_AVAILABLE(macos(13.3), ios(16.4));
+
+- (BOOL)_allowAnimationControls WK_API_AVAILABLE(macos(14.0), ios(17.0));
+
+- (void)_setStatisticsCrossSiteLoadWithLinkDecorationForTesting:(NSString *)fromHost withToHost:(NSString *)toHost withWasFiltered:(BOOL)wasFiltered withCompletionHandler:(void(^)(void))completionHandler WK_API_AVAILABLE(macos(15.0), ios(18.0), visionos(2.0));
+
+- (void)_requestTargetedElementInfo:(_WKTargetedElementRequest *)request completionHandler:(void(^)(NSArray<_WKTargetedElementInfo *> *))completionHandler WK_API_AVAILABLE(macos(15.0), ios(18.0), visionos(2.0));
+
+@property (nonatomic, readonly) NSURL *_requiredWebExtensionBaseURL WK_API_AVAILABLE(macos(15.0), ios(18.0), visionos(2.0));
+
+@property (nonatomic, readonly) BOOL _hasActiveNowPlayingSession WK_API_AVAILABLE(macos(15.0), ios(18.0), visionos(2.0));
+
+- (void)_playPredominantOrNowPlayingMediaSession:(void(^)(BOOL))completionHandler WK_API_AVAILABLE(macos(15.0), ios(18.0), visionos(2.0));
+- (void)_pauseNowPlayingMediaSession:(void(^)(BOOL))completionHandler WK_API_AVAILABLE(macos(15.0), ios(18.0), visionos(2.0));
+
+- (void)_simulateClickOverFirstMatchingTextInViewportWithUserInteraction:(NSString *)targetText completionHandler:(void(^)(BOOL))completionHandler WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA), visionos(WK_XROS_TBA));
+
+@property (nonatomic, setter=_setDontResetTransientActivationAfterRunJavaScript:) BOOL _dontResetTransientActivationAfterRunJavaScript WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA), visionos(WK_XROS_TBA));
 
 @end
 
 #if TARGET_OS_IPHONE
 
+#if !TARGET_OS_TV && !TARGET_OS_WATCH && __has_include(<UIKit/_UITextSearching.h>)
+@interface WKWebView (WKPrivateIOS) <_UITextSearching, UITextSearching, UIFindInteractionDelegate>
+#elif TARGET_OS_IOS || (defined(TARGET_OS_VISION) && TARGET_OS_VISION)
+@interface WKWebView (WKPrivateIOS) <UITextSearching, UIFindInteractionDelegate>
+#else
 @interface WKWebView (WKPrivateIOS)
+#endif
+
+#if !TARGET_OS_TV && !TARGET_OS_WATCH
+@property (nonatomic, copy, setter=_setUIEventAttribution:) UIEventAttribution *_uiEventAttribution WK_API_AVAILABLE(ios(15.0));
+@property (nonatomic, copy, setter=_setEphemeralUIEventAttribution:) UIEventAttribution *_ephemeralUIEventAttribution WK_API_AVAILABLE(ios(16.0));
+- (void)_setEphemeralUIEventAttribution:(UIEventAttribution *)attribution forApplicationWithBundleID:(NSString *)bundleID WK_API_AVAILABLE(ios(16.0));
+
+#if TARGET_OS_IOS || (defined(TARGET_OS_VISION) && TARGET_OS_VISION)
+@property (nonatomic, readonly) _UIFindInteraction *_findInteraction WK_API_AVAILABLE(ios(16.0));
+@property (nonatomic, readwrite, setter=_setFindInteractionEnabled:) BOOL _findInteractionEnabled WK_API_AVAILABLE(ios(16.0));
+
+@property (nonatomic, readonly) CALayer *_layerForFindOverlay WK_API_AVAILABLE(ios(16.0));
+
+- (void)_requestRectForFoundTextRange:(UITextRange *)ranges completionHandler:(void (^)(CGRect))completionHandler WK_API_AVAILABLE(ios(16.0));
+
+- (void)_addLayerForFindOverlay WK_API_AVAILABLE(ios(16.0));
+- (void)_removeLayerForFindOverlay WK_API_AVAILABLE(ios(16.0));
+#endif
+
+#endif
 
 @property (nonatomic, readonly) CGRect _contentVisibleRect WK_API_AVAILABLE(ios(10.0));
 
 // DERECATED: The setters of the three following function are deprecated, please use overrideLayoutParameters.
 // Define the smallest size a page take with a regular viewport.
 @property (nonatomic, readonly) CGSize _minimumLayoutSizeOverride;
+// Define the smallest size the unobscured area can get for the current view bounds. This value is used to define viewport units.
+@property (nonatomic, readonly) CGSize _minimumUnobscuredSizeOverride WK_API_AVAILABLE(ios(17.4), visionos(1.1));
 // Define the largest size the unobscured area can get for the current view bounds. This value is used to define viewport units.
 @property (nonatomic, readonly) CGSize _maximumUnobscuredSizeOverride;
 
@@ -386,7 +634,6 @@ for this property.
 @property (nonatomic, setter=_setAllowsViewportShrinkToFit:) BOOL _allowsViewportShrinkToFit;
 
 // FIXME: Remove these three properties once we expose WKWebViewContentProvider as API.
-@property (nonatomic, readonly, getter=_isDisplayingPDF) BOOL _displayingPDF;
 @property (nonatomic, readonly) NSData *_dataForDisplayedPDF;
 // FIXME: This can be removed once WKNavigation's response property is implemented.
 @property (nonatomic, readonly) NSString *_suggestedFilenameForDisplayedPDF;
@@ -425,9 +672,11 @@ for this property.
 - (void)_endAnimatedResize;
 - (void)_resizeWhileHidingContentWithUpdates:(void (^)(void))updateBlock;
 
+- (void)_snapshotRectAfterScreenUpdates:(BOOL)afterScreenUpdates rectInViewCoordinates:(CGRect)rectInViewCoordinates intoImageOfWidth:(CGFloat)imageWidth completionHandler:(void(^)(CGImageRef))completionHandler WK_API_AVAILABLE(ios(16.0));
 - (void)_snapshotRect:(CGRect)rectInViewCoordinates intoImageOfWidth:(CGFloat)imageWidth completionHandler:(void(^)(CGImageRef))completionHandler;
 
-- (void)_overrideLayoutParametersWithMinimumLayoutSize:(CGSize)minimumLayoutSize maximumUnobscuredSizeOverride:(CGSize)maximumUnobscuredSizeOverride WK_API_AVAILABLE(ios(9_0));
+- (void)_overrideLayoutParametersWithMinimumLayoutSize:(CGSize)minimumLayoutSize maximumUnobscuredSizeOverride:(CGSize)maximumUnobscuredSizeOverride WK_API_DEPRECATED_WITH_REPLACEMENT("-_overrideLayoutParametersWithMinimumLayoutSize:minimumUnobscuredSizeOverride:maximumUnobscuredSizeOverride:", ios(9.0, 17.4), visionos(1.0, 1.1));
+- (void)_overrideLayoutParametersWithMinimumLayoutSize:(CGSize)minimumLayoutSize minimumUnobscuredSizeOverride:(CGSize)minimumUnobscuredSizeOverride maximumUnobscuredSizeOverride:(CGSize)maximumUnobscuredSizeOverride WK_API_AVAILABLE(ios(17.4), visionos(1.1));
 - (void)_clearOverrideLayoutParameters WK_API_AVAILABLE(ios(11.0));
 - (void)_overrideViewportWithArguments:(NSDictionary<NSString *, NSString *> *)arguments WK_API_AVAILABLE(ios(13.0));
 
@@ -454,12 +703,20 @@ for this property.
 
 - (UIView *)_fullScreenPlaceholderView WK_API_AVAILABLE(ios(12.0));
 
-- (void)_grantAccessToAssetServices WK_API_AVAILABLE(ios(WK_IOS_TBA));
-- (void)_revokeAccessToAssetServices WK_API_AVAILABLE(ios(WK_IOS_TBA));
+- (void)_willOpenAppLink WK_API_AVAILABLE(ios(14.0));
 
-- (void)_willOpenAppLink WK_API_AVAILABLE(ios(WK_IOS_TBA));
+- (void)_isNavigatingToAppBoundDomain:(void(^)(BOOL))completionHandler WK_API_AVAILABLE(ios(14.0));
+- (void)_isForcedIntoAppBoundMode:(void(^)(BOOL))completionHandler WK_API_AVAILABLE(ios(14.0));
+
+- (UITextInputTraits *)_textInputTraits WK_API_AVAILABLE(ios(16.4));
 
 @end
+
+#if TARGET_OS_VISION
+@interface WKWebView (WKPrivateVision)
+@property (copy, setter=_setDefaultSTSLabel:) NSString *_defaultSTSLabel;
+@end
+#endif
 
 @interface WKWebView () <UIResponderStandardEditActions>
 @end
@@ -484,18 +741,18 @@ for this property.
 @property (nonatomic, readonly) WKPageRef _pageRefForTransitionToWKWebView  WK_API_AVAILABLE(macos(10.13.4));
 @property (nonatomic, readonly) BOOL _hasActiveVideoForControlsManager WK_API_AVAILABLE(macos(10.12));
 @property (nonatomic, readwrite, setter=_setIgnoresNonWheelEvents:) BOOL _ignoresNonWheelEvents WK_API_AVAILABLE(macos(10.13.4));
+@property (nonatomic, readwrite, setter=_setIgnoresMouseMoveEvents:) BOOL _ignoresMouseMoveEvents WK_API_AVAILABLE(macos(13.0));
 
 /*! @abstract A Boolean value indicating whether drawing clips to the visibleRect.
 @discussion When YES, the view will use its -visibleRect when determining which areas of the WKWebView to draw. This may improve performance for large WKWebViews which are mostly clipped out by enclosing views.  The default value is NO.
 */
-@property (nonatomic, readwrite, setter=_setClipsToVisibleRect:) BOOL _clipsToVisibleRect WK_API_AVAILABLE(macos(WK_MAC_TBA));
+@property (nonatomic, readwrite, setter=_setClipsToVisibleRect:) BOOL _clipsToVisibleRect WK_API_AVAILABLE(macos(11.0));
 
 @property (nonatomic, readonly) NSView *_safeBrowsingWarning WK_API_AVAILABLE(macos(10.14.4));
 
 @property (nonatomic, readonly) _WKRectEdge _pinnedState WK_API_AVAILABLE(macos(10.13.4));
 @property (nonatomic, setter=_setRubberBandingEnabled:) _WKRectEdge _rubberBandingEnabled WK_API_AVAILABLE(macos(10.13.4));
 
-@property (readonly) NSColor *_pageExtendedBackgroundColor;
 @property (nonatomic, setter=_setBackgroundColor:) NSColor *_backgroundColor WK_API_AVAILABLE(macos(10.14));
 @property (nonatomic, copy, setter=_setUnderlayColor:) NSColor *_underlayColor WK_API_AVAILABLE(macos(10.13.4));
 
@@ -504,9 +761,6 @@ for this property.
 @property (nonatomic, setter=_setTopContentInset:) CGFloat _topContentInset;
 
 @property (nonatomic, setter=_setAutomaticallyAdjustsContentInsets:) BOOL _automaticallyAdjustsContentInsets;
-
-// Default value is 0. A value of 0 means the window's backing scale factor will be used and automatically update when the window moves screens.
-@property (nonatomic, setter=_setOverrideDeviceScaleFactor:) CGFloat _overrideDeviceScaleFactor WK_API_AVAILABLE(macos(10.11));
 
 @property (nonatomic, setter=_setWindowOcclusionDetectionEnabled:) BOOL _windowOcclusionDetectionEnabled;
 
@@ -526,11 +780,16 @@ for this property.
 @property (nonatomic, setter=_setOverlayScrollbarStyle:) _WKOverlayScrollbarStyle _overlayScrollbarStyle WK_API_AVAILABLE(macos(10.13.4));
 @property (strong, nonatomic, setter=_setInspectorAttachmentView:) NSView *_inspectorAttachmentView WK_API_AVAILABLE(macos(10.13.4));
 
+@property (nonatomic, setter=_setHeaderBannerLayer:) CALayer *_headerBannerLayer;
+@property (nonatomic, setter=_setFooterBannerLayer:) CALayer *_footerBannerLayer;
+
 @property (nonatomic, setter=_setThumbnailView:) _WKThumbnailView *_thumbnailView WK_API_AVAILABLE(macos(10.13.4));
 @property (nonatomic, setter=_setIgnoresAllEvents:) BOOL _ignoresAllEvents WK_API_AVAILABLE(macos(10.13.4));
 
 // Defaults to YES; if set to NO, WebKit will draw the grey wash and highlights itself.
 @property (nonatomic, setter=_setUsePlatformFindUI:) BOOL _usePlatformFindUI WK_API_AVAILABLE(macos(10.15));
+
+@property (nonatomic, readonly) CGFloat minimumMagnification WK_API_AVAILABLE(macos(15.0));
 
 - (void)_setShouldSuppressFirstResponderChanges:(BOOL)shouldSuppress;
 - (BOOL)_canChangeFrameLayout:(_WKFrameHandle *)frameHandle WK_API_AVAILABLE(macos(10.13.4));
@@ -563,14 +822,23 @@ for this property.
 - (NSPrintOperation *)_printOperationWithPrintInfo:(NSPrintInfo *)printInfo forFrame:(_WKFrameHandle *)frameHandle WK_API_AVAILABLE(macos(10.12));
 
 // FIXME: This SPI should become a part of the WKUIDelegate. rdar://problem/26561537
-@property (nonatomic, readwrite, setter=_setWantsMediaPlaybackControlsView:) BOOL _wantsMediaPlaybackControlsView WK_API_AVAILABLE(macos(10.12.3));
+@property (nonatomic, readwrite, setter=_setWantsMediaPlaybackControlsView:) BOOL _wantsMediaPlaybackControlsView WK_API_AVAILABLE(macos(10.12.4));
 @property (nonatomic, readonly) id _mediaPlaybackControlsView WK_API_AVAILABLE(macos(10.13));
 
 - (void)_addMediaPlaybackControlsView:(id)mediaPlaybackControlsView WK_API_AVAILABLE(macos(10.13));
-- (void)_removeMediaPlaybackControlsView WK_API_AVAILABLE(macos(10.12.3));
+- (void)_removeMediaPlaybackControlsView WK_API_AVAILABLE(macos(10.12.4));
 
 - (void)_prepareForMoveToWindow:(NSWindow *)targetWindow completionHandler:(void(^)(void))completionHandler WK_API_AVAILABLE(macos(10.13));
 
+- (void)_simulateMouseMove:(NSEvent *)event WK_API_AVAILABLE(macos(13.0));
+- (void)_simulateMouseEnter:(NSEvent *)event WK_API_AVAILABLE(macos(15.0));
+
+- (void)_setFont:(NSFont *)font sender:(id)sender WK_API_AVAILABLE(macos(13.3));
+
+@end
+
+@interface WKWebView (WKWindowSnapshot)
+- (NSImage *)_windowSnapshotInRect:(CGRect)rect;
 @end
 
 #endif // !TARGET_OS_IPHONE

@@ -1,0 +1,26 @@
+load("//bazel:skia_rules.bzl", "skia_filegroup")
+
+package(
+    default_applicable_licenses = ["//:license"],
+)
+
+licenses(["notice"])
+
+skia_filegroup(
+    name = "public_hdrs",
+    srcs = [
+        "SkSLDebugTrace.h",
+        "SkSLVersion.h",
+    ],
+    visibility = [
+        "//include:__pkg__",
+    ],
+)
+
+alias(
+    name = "core_hdrs",
+    actual = ":public_hdrs",
+    visibility = [
+        "//src/core:__pkg__",
+    ],
+)

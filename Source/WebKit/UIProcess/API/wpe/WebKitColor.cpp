@@ -24,12 +24,13 @@
 #include <WebCore/CSSParser.h>
 
 /**
- * SECTION: WebKitColor
- * @Short_description: A boxed type representing a RGBA color
- * @Title: WebKitColor
- * @See_also: #WebKitWebView.
+ * WebKitColor:
+ * @red: Red channel, between 0.0 and 1.0 inclusive
+ * @green: Green channel, between 0.0 and 1.0 inclusive
+ * @blue: Blue channel, between 0.0 and 1.0 inclusive
+ * @alpha: Alpha channel, between 0.0 and 1.0 inclusive
  *
- * A WebKitColor is a boxed type representing a RGBA color.
+ * Boxed type representing a RGBA color.
  *
  * Since: 2.24
  */
@@ -75,14 +76,14 @@ G_DEFINE_BOXED_TYPE(WebKitColor, webkit_color, webkit_color_copy, webkit_color_f
 
 const WebCore::Color webkitColorToWebCoreColor(WebKitColor* color)
 {
-    return WebCore::convertToComponentBytes(WebCore::SRGBA { static_cast<float>(color->red), static_cast<float>(color->green), static_cast<float>(color->blue), static_cast<float>(color->alpha) });
+    return WebCore::convertColor<WebCore::SRGBA<uint8_t>>(WebCore::SRGBA<float> { static_cast<float>(color->red), static_cast<float>(color->green), static_cast<float>(color->blue), static_cast<float>(color->alpha) });
 }
 
 void webkitColorFillFromWebCoreColor(const WebCore::Color& webCoreColor, WebKitColor* color)
 {
     RELEASE_ASSERT(webCoreColor.isValid());
 
-    auto [r, g, b, a] = webCoreColor.toSRGBALossy<float>();
+    auto [r, g, b, a] = webCoreColor.toColorTypeLossy<WebCore::SRGBA<float>>().resolved();
     color->red = r;
     color->green = g;
     color->blue = b;
@@ -108,7 +109,7 @@ gboolean webkit_color_parse(WebKitColor* color, const gchar* colorString)
     g_return_val_if_fail(color, FALSE);
     g_return_val_if_fail(colorString, FALSE);
 
-    auto webCoreColor = WebCore::CSSParser::parseColor({ colorString });
+    auto webCoreColor = WebCore::CSSParser::parseColorWithoutContext(String::fromLatin1(colorString));
     if (!webCoreColor.isValid())
         return FALSE;
 

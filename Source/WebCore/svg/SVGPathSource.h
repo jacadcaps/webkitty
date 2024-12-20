@@ -21,11 +21,20 @@
 
 #include "FloatPoint.h"
 #include "SVGPathSeg.h"
+#include <wtf/WeakPtr.h>
+
+namespace WebCore {
+class SVGPathSource;
+}
+
+namespace WTF {
+template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
+template<> struct IsDeprecatedWeakRefSmartPointerException<WebCore::SVGPathSource> : std::true_type { };
+}
 
 namespace WebCore {
 
-
-class SVGPathSource {
+class SVGPathSource : public CanMakeSingleThreadWeakPtr<SVGPathSource> {
     WTF_MAKE_NONCOPYABLE(SVGPathSource); WTF_MAKE_FAST_ALLOCATED;
 public:
     SVGPathSource() = default;
@@ -35,51 +44,51 @@ public:
     virtual bool moveToNextToken() = 0;
     virtual SVGPathSegType nextCommand(SVGPathSegType previousCommand) = 0;
 
-    virtual Optional<SVGPathSegType> parseSVGSegmentType() = 0;
+    virtual std::optional<SVGPathSegType> parseSVGSegmentType() = 0;
 
     struct MoveToSegment {
         FloatPoint targetPoint;
     };
-    virtual Optional<MoveToSegment> parseMoveToSegment() = 0;
+    virtual std::optional<MoveToSegment> parseMoveToSegment() = 0;
 
     struct LineToSegment {
         FloatPoint targetPoint;
     };
-    virtual Optional<LineToSegment> parseLineToSegment() = 0;
+    virtual std::optional<LineToSegment> parseLineToSegment() = 0;
 
     struct LineToHorizontalSegment {
         float x = 0;
     };
-    virtual Optional<LineToHorizontalSegment> parseLineToHorizontalSegment() = 0;
+    virtual std::optional<LineToHorizontalSegment> parseLineToHorizontalSegment() = 0;
 
     struct LineToVerticalSegment {
         float y = 0;
     };
-    virtual Optional<LineToVerticalSegment> parseLineToVerticalSegment() = 0;
+    virtual std::optional<LineToVerticalSegment> parseLineToVerticalSegment() = 0;
 
     struct CurveToCubicSegment {
         FloatPoint point1;
         FloatPoint point2;
         FloatPoint targetPoint;
     };
-    virtual Optional<CurveToCubicSegment> parseCurveToCubicSegment() = 0;
+    virtual std::optional<CurveToCubicSegment> parseCurveToCubicSegment() = 0;
 
     struct CurveToCubicSmoothSegment {
         FloatPoint point2;
         FloatPoint targetPoint;
     };
-    virtual Optional<CurveToCubicSmoothSegment> parseCurveToCubicSmoothSegment() = 0;
+    virtual std::optional<CurveToCubicSmoothSegment> parseCurveToCubicSmoothSegment() = 0;
 
     struct CurveToQuadraticSegment {
         FloatPoint point1;
         FloatPoint targetPoint;
     };
-    virtual Optional<CurveToQuadraticSegment> parseCurveToQuadraticSegment() = 0;
+    virtual std::optional<CurveToQuadraticSegment> parseCurveToQuadraticSegment() = 0;
 
     struct CurveToQuadraticSmoothSegment {
         FloatPoint targetPoint;
     };
-    virtual Optional<CurveToQuadraticSmoothSegment> parseCurveToQuadraticSmoothSegment() = 0;
+    virtual std::optional<CurveToQuadraticSmoothSegment> parseCurveToQuadraticSmoothSegment() = 0;
 
     struct ArcToSegment {
         float rx = 0;
@@ -89,7 +98,7 @@ public:
         bool sweep = false;
         FloatPoint targetPoint;
     };
-    virtual Optional<ArcToSegment> parseArcToSegment() = 0;
+    virtual std::optional<ArcToSegment> parseArcToSegment() = 0;
 };
 
 } // namespace WebCore

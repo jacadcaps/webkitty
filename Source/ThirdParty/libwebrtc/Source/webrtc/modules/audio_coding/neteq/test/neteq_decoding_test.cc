@@ -10,21 +10,23 @@
 
 #include "modules/audio_coding/neteq/test/neteq_decoding_test.h"
 
+#include "absl/strings/string_view.h"
 #include "api/audio_codecs/builtin_audio_decoder_factory.h"
 #include "api/rtp_headers.h"
+#include "api/units/timestamp.h"
 #include "modules/audio_coding/neteq/default_neteq_factory.h"
 #include "modules/audio_coding/neteq/test/result_sink.h"
 #include "rtc_base/strings/string_builder.h"
 #include "test/testsupport/file_utils.h"
 
 #ifdef WEBRTC_NETEQ_UNITTEST_BITEXACT
-RTC_PUSH_IGNORING_WUNDEF()
+
 #ifdef WEBRTC_ANDROID_PLATFORM_BUILD
 #include "external/webrtc/webrtc/modules/audio_coding/neteq/neteq_unittest.pb.h"
 #else
 #include "modules/audio_coding/neteq/neteq_unittest.pb.h"
 #endif
-RTC_POP_IGNORING_WUNDEF()
+
 #endif
 
 namespace webrtc {
@@ -93,7 +95,7 @@ void NetEqDecodingTest::SetUp() {
 
 void NetEqDecodingTest::TearDown() {}
 
-void NetEqDecodingTest::OpenInputFile(const std::string& rtp_file) {
+void NetEqDecodingTest::OpenInputFile(absl::string_view rtp_file) {
   rtp_source_.reset(test::RtpFileSource::Create(rtp_file));
 }
 
@@ -105,11 +107,11 @@ void NetEqDecodingTest::Process() {
       // Ignore payload type 104 (iSAC-swb) if ISAC is not supported.
       if (packet_->header().payloadType != 104)
 #endif
-        ASSERT_EQ(
-            0, neteq_->InsertPacket(
-                   packet_->header(),
-                   rtc::ArrayView<const uint8_t>(
-                       packet_->payload(), packet_->payload_length_bytes())));
+        ASSERT_EQ(0, neteq_->InsertPacket(packet_->header(),
+                                          rtc::ArrayView<const uint8_t>(
+                                              packet_->payload(),
+                                              packet_->payload_length_bytes()),
+                                          clock_.CurrentTime()));
     }
     // Get next packet.
     packet_ = rtp_source_->NextPacket();
@@ -131,9 +133,9 @@ void NetEqDecodingTest::Process() {
 }
 
 void NetEqDecodingTest::DecodeAndCompare(
-    const std::string& rtp_file,
-    const std::string& output_checksum,
-    const std::string& network_stats_checksum,
+    absl::string_view rtp_file,
+    absl::string_view output_checksum,
+    absl::string_view network_stats_checksum,
     bool gen_ref) {
   OpenInputFile(rtp_file);
 
@@ -193,7 +195,7 @@ void NetEqDecodingTest::PopulateRtpInfo(int frame_index,
   rtp_info->timestamp = timestamp;
   rtp_info->ssrc = 0x1234;     // Just an arbitrary SSRC.
   rtp_info->payloadType = 94;  // PCM16b WB codec.
-  rtp_info->markerBit = 0;
+  rtp_info->markerBit = false;
 }
 
 void NetEqDecodingTest::PopulateCng(int frame_index,
@@ -205,7 +207,7 @@ void NetEqDecodingTest::PopulateCng(int frame_index,
   rtp_info->timestamp = timestamp;
   rtp_info->ssrc = 0x1234;     // Just an arbitrary SSRC.
   rtp_info->payloadType = 98;  // WB CNG.
-  rtp_info->markerBit = 0;
+  rtp_info->markerBit = false;
   payload[0] = 64;   // Noise level -64 dBov, quite arbitrarily chosen.
   *payload_len = 1;  // Only noise level, no spectral parameters.
 }
@@ -222,11 +224,9 @@ void NetEqDecodingTest::WrapTest(uint16_t start_seq_no,
   const int kSamples = kBlockSize16kHz * kBlocksPerFrame;
   const size_t kPayloadBytes = kSamples * sizeof(int16_t);
   double next_input_time_ms = 0.0;
-  uint32_t receive_timestamp = 0;
 
   // Insert speech for 2 seconds.
   const int kSpeechDurationMs = 2000;
-  int packets_inserted = 0;
   uint16_t last_seq_no;
   uint32_t last_timestamp;
   bool timestamp_wrapped = false;
@@ -240,27 +240,20 @@ void NetEqDecodingTest::WrapTest(uint16_t start_seq_no,
       PopulateRtpInfo(seq_no, timestamp, &rtp_info);
       if (drop_seq_numbers.find(seq_no) == drop_seq_numbers.end()) {
         // This sequence number was not in the set to drop. Insert it.
-        ASSERT_EQ(0, neteq_->InsertPacket(rtp_info, payload));
-        ++packets_inserted;
+        ASSERT_EQ(0, neteq_->InsertPacket(rtp_info, payload,
+                                          Timestamp::Millis(t_ms)));
       }
       NetEqNetworkStatistics network_stats;
       ASSERT_EQ(0, neteq_->NetworkStatistics(&network_stats));
 
-      // Due to internal NetEq logic, preferred buffer-size is about 4 times the
-      // packet size for first few packets. Therefore we refrain from checking
-      // the criteria.
-      if (packets_inserted > 4) {
-        // Expect preferred and actual buffer size to be no more than 2 frames.
-        EXPECT_LE(network_stats.preferred_buffer_size_ms, kFrameSizeMs * 2);
-        EXPECT_LE(network_stats.current_buffer_size_ms,
-                  kFrameSizeMs * 2 + algorithmic_delay_ms_);
-      }
+      EXPECT_LE(network_stats.preferred_buffer_size_ms, 80);
+      EXPECT_LE(network_stats.current_buffer_size_ms,
+                80 + algorithmic_delay_ms_);
       last_seq_no = seq_no;
       last_timestamp = timestamp;
 
       ++seq_no;
       timestamp += kSamples;
-      receive_timestamp += kSamples;
       next_input_time_ms += static_cast<double>(kFrameSizeMs);
 
       seq_no_wrapped |= seq_no < last_seq_no;
@@ -307,7 +300,8 @@ void NetEqDecodingTest::LongCngWithClockDrift(double drift_factor,
       uint8_t payload[kPayloadBytes] = {0};
       RTPHeader rtp_info;
       PopulateRtpInfo(seq_no, timestamp, &rtp_info);
-      ASSERT_EQ(0, neteq_->InsertPacket(rtp_info, payload));
+      ASSERT_EQ(
+          0, neteq_->InsertPacket(rtp_info, payload, Timestamp::Millis(t_ms)));
       ++seq_no;
       timestamp += kSamples;
       next_input_time_ms += static_cast<double>(kFrameSizeMs) * drift_factor;
@@ -334,8 +328,10 @@ void NetEqDecodingTest::LongCngWithClockDrift(double drift_factor,
       size_t payload_len;
       RTPHeader rtp_info;
       PopulateCng(seq_no, timestamp, &rtp_info, payload, &payload_len);
-      ASSERT_EQ(0, neteq_->InsertPacket(rtp_info, rtc::ArrayView<const uint8_t>(
-                                                      payload, payload_len)));
+      ASSERT_EQ(
+          0, neteq_->InsertPacket(
+                 rtp_info, rtc::ArrayView<const uint8_t>(payload, payload_len),
+                 Timestamp::Millis(t_ms)));
       ++seq_no;
       timestamp += kCngPeriodSamples;
       next_input_time_ms += static_cast<double>(kCngPeriodMs) * drift_factor;
@@ -348,8 +344,8 @@ void NetEqDecodingTest::LongCngWithClockDrift(double drift_factor,
   EXPECT_EQ(AudioFrame::kCNG, out_frame_.speech_type_);
 
   if (network_freeze_ms > 0) {
-    // First keep pulling audio for |network_freeze_ms| without inserting
-    // any data, then insert CNG data corresponding to |network_freeze_ms|
+    // First keep pulling audio for `network_freeze_ms` without inserting
+    // any data, then insert CNG data corresponding to `network_freeze_ms`
     // without pulling any output audio.
     const double loop_end_time = t_ms + network_freeze_ms;
     for (; t_ms < loop_end_time; t_ms += 10) {
@@ -359,7 +355,7 @@ void NetEqDecodingTest::LongCngWithClockDrift(double drift_factor,
       EXPECT_EQ(AudioFrame::kCNG, out_frame_.speech_type_);
     }
     bool pull_once = pull_audio_during_freeze;
-    // If |pull_once| is true, GetAudio will be called once half-way through
+    // If `pull_once` is true, GetAudio will be called once half-way through
     // the network recovery period.
     double pull_time_ms = (t_ms + next_input_time_ms) / 2;
     while (next_input_time_ms <= t_ms) {
@@ -376,8 +372,10 @@ void NetEqDecodingTest::LongCngWithClockDrift(double drift_factor,
       size_t payload_len;
       RTPHeader rtp_info;
       PopulateCng(seq_no, timestamp, &rtp_info, payload, &payload_len);
-      ASSERT_EQ(0, neteq_->InsertPacket(rtp_info, rtc::ArrayView<const uint8_t>(
-                                                      payload, payload_len)));
+      ASSERT_EQ(
+          0, neteq_->InsertPacket(
+                 rtp_info, rtc::ArrayView<const uint8_t>(payload, payload_len),
+                 Timestamp::Millis(t_ms)));
       ++seq_no;
       timestamp += kCngPeriodSamples;
       next_input_time_ms += kCngPeriodMs * drift_factor;
@@ -393,7 +391,8 @@ void NetEqDecodingTest::LongCngWithClockDrift(double drift_factor,
       uint8_t payload[kPayloadBytes] = {0};
       RTPHeader rtp_info;
       PopulateRtpInfo(seq_no, timestamp, &rtp_info);
-      ASSERT_EQ(0, neteq_->InsertPacket(rtp_info, payload));
+      ASSERT_EQ(
+          0, neteq_->InsertPacket(rtp_info, payload, Timestamp::Millis(t_ms)));
       ++seq_no;
       timestamp += kSamples;
       next_input_time_ms += kFrameSizeMs * drift_factor;

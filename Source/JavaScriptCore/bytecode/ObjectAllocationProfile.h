@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,7 +26,6 @@
 #pragma once
 
 #include "VM.h"
-#include "JSGlobalObject.h"
 #include "ObjectPrototype.h"
 #include "SlotVisitor.h"
 #include "WriteBarrier.h"
@@ -39,8 +38,8 @@ template<typename Derived>
 class ObjectAllocationProfileBase {
     friend class LLIntOffsetsExtractor;
 public:
-    static ptrdiff_t offsetOfAllocator() { return OBJECT_OFFSETOF(ObjectAllocationProfileBase, m_allocator); }
-    static ptrdiff_t offsetOfStructure() { return OBJECT_OFFSETOF(ObjectAllocationProfileBase, m_structure); }
+    static constexpr ptrdiff_t offsetOfAllocator() { return OBJECT_OFFSETOF(ObjectAllocationProfileBase, m_allocator); }
+    static constexpr ptrdiff_t offsetOfStructure() { return OBJECT_OFFSETOF(ObjectAllocationProfileBase, m_structure); }
 
     ObjectAllocationProfileBase() = default;
 
@@ -52,7 +51,7 @@ public:
     {
         Structure* structure = m_structure.get();
         // Ensure that if we see the structure, it has been properly created
-        WTF::loadLoadFence();
+        WTF::dependentLoadLoadFence();
         return structure;
     }
 
@@ -64,7 +63,8 @@ protected:
         ASSERT(isNull());
     }
 
-    void visitAggregate(SlotVisitor& visitor)
+    template<typename Visitor>
+    void visitAggregate(Visitor& visitor)
     {
         visitor.append(m_structure);
     }
@@ -92,14 +92,14 @@ class ObjectAllocationProfileWithPrototype : public ObjectAllocationProfileBase<
 public:
     using Base = ObjectAllocationProfileBase<ObjectAllocationProfileWithPrototype>;
 
-    static ptrdiff_t offsetOfPrototype() { return OBJECT_OFFSETOF(ObjectAllocationProfileWithPrototype, m_prototype); }
+    static constexpr ptrdiff_t offsetOfPrototype() { return OBJECT_OFFSETOF(ObjectAllocationProfileWithPrototype, m_prototype); }
 
     ObjectAllocationProfileWithPrototype() = default;
 
     JSObject* prototype()
     {
         JSObject* prototype = m_prototype.get();
-        WTF::loadLoadFence();
+        WTF::dependentLoadLoadFence();
         return prototype;
     }
 
@@ -110,7 +110,8 @@ public:
         ASSERT(isNull());
     }
 
-    void visitAggregate(SlotVisitor& visitor)
+    template<typename Visitor>
+    void visitAggregate(Visitor& visitor)
     {
         Base::visitAggregate(visitor);
         visitor.append(m_prototype);

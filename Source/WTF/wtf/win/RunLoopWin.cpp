@@ -74,15 +74,6 @@ void RunLoop::run()
     }
 }
 
-void RunLoop::iterate()
-{
-    MSG message;
-    while (::PeekMessage(&message, nullptr, 0, 0, PM_REMOVE)) {
-        ::TranslateMessage(&message);
-        ::DispatchMessage(&message);
-    }
-}
-
 void RunLoop::setWakeUpCallback(WTF::Function<void()>&& function)
 {
     RunLoop::current().m_wakeUpCallback = WTFMove(function);
@@ -100,9 +91,9 @@ void RunLoop::stop()
 void RunLoop::registerRunLoopMessageWindowClass()
 {
     WNDCLASS windowClass = { };
-    windowClass.lpfnWndProc     = RunLoop::RunLoopWndProc;
-    windowClass.cbWndExtra      = sizeof(RunLoop*);
-    windowClass.lpszClassName   = kRunLoopMessageWindowClassName;
+    windowClass.lpfnWndProc = RunLoop::RunLoopWndProc;
+    windowClass.cbWndExtra = sizeof(RunLoop*);
+    windowClass.lpszClassName = kRunLoopMessageWindowClassName;
     bool result = ::RegisterClass(&windowClass);
     RELEASE_ASSERT(result);
 }
@@ -111,11 +102,12 @@ RunLoop::RunLoop()
 {
     m_runLoopMessageWindow = ::CreateWindow(kRunLoopMessageWindowClassName, nullptr, 0,
         CW_USEDEFAULT, 0, CW_USEDEFAULT, 0, HWND_MESSAGE, nullptr, nullptr, this);
-    ASSERT(::IsWindow(m_runLoopMessageWindow));
+    RELEASE_ASSERT(::IsWindow(m_runLoopMessageWindow));
 }
 
 RunLoop::~RunLoop()
 {
+    ::DestroyWindow(m_runLoopMessageWindow);
 }
 
 void RunLoop::wakeUp()
@@ -131,12 +123,13 @@ void RunLoop::wakeUp()
 RunLoop::CycleResult RunLoop::cycle(RunLoopMode)
 {
     MSG message;
-    if (!::GetMessage(&message, nullptr, 0, 0))
-        return CycleResult::Stop;
+    while (::PeekMessage(&message, nullptr, 0, 0, PM_REMOVE)) {
+        if (message.message == WM_QUIT)
+            return CycleResult::Stop;
 
-    ::TranslateMessage(&message);
-    ::DispatchMessage(&message);
-
+        ::TranslateMessage(&message);
+        ::DispatchMessage(&message);
+    }
     return CycleResult::Continue;
 }
 
@@ -145,7 +138,7 @@ RunLoop::CycleResult RunLoop::cycle(RunLoopMode)
 void RunLoop::TimerBase::timerFired()
 {
     {
-        LockHolder locker(m_runLoop->m_loopLock);
+        Locker locker { m_runLoop->m_loopLock };
 
         if (!m_isActive)
             return;
@@ -154,7 +147,7 @@ void RunLoop::TimerBase::timerFired()
             m_isActive = false;
             ::KillTimer(m_runLoop->m_runLoopMessageWindow, bitwise_cast<uintptr_t>(this));
         } else
-            m_nextFireDate = MonotonicTime::now() + m_interval;
+            m_nextFireDate = MonotonicTime::timePointFromNow(m_interval);
     }
 
     fired();
@@ -172,39 +165,39 @@ RunLoop::TimerBase::~TimerBase()
 
 void RunLoop::TimerBase::start(Seconds interval, bool repeat)
 {
-    LockHolder locker(m_runLoop->m_loopLock);
+    Locker locker { m_runLoop->m_loopLock };
     m_isRepeating = repeat;
     m_isActive = true;
     m_interval = interval;
-    m_nextFireDate = MonotonicTime::now() + m_interval;
+    m_nextFireDate = MonotonicTime::timePointFromNow(m_interval);
     ::SetTimer(m_runLoop->m_runLoopMessageWindow, bitwise_cast<uintptr_t>(this), interval.millisecondsAs<UINT>(), nullptr);
 }
 
 void RunLoop::TimerBase::stop()
 {
-    LockHolder locker(m_runLoop->m_loopLock);
-    if (!isActive(locker))
+    Locker locker { m_runLoop->m_loopLock };
+    if (!isActiveWithLock())
         return;
 
     m_isActive = false;
     ::KillTimer(m_runLoop->m_runLoopMessageWindow, bitwise_cast<uintptr_t>(this));
 }
 
-bool RunLoop::TimerBase::isActive(const AbstractLocker&) const
+bool RunLoop::TimerBase::isActiveWithLock() const
 {
     return m_isActive;
 }
 
 bool RunLoop::TimerBase::isActive() const
 {
-    LockHolder locker(m_runLoop->m_loopLock);
-    return isActive(locker);
+    Locker locker { m_runLoop->m_loopLock };
+    return isActiveWithLock();
 }
 
 Seconds RunLoop::TimerBase::secondsUntilFire() const
 {
-    LockHolder locker(m_runLoop->m_loopLock);
-    if (isActive(locker))
+    Locker locker { m_runLoop->m_loopLock };
+    if (isActiveWithLock())
         return std::max<Seconds>(m_nextFireDate - MonotonicTime::now(), 0_s);
     return 0_s;
 }

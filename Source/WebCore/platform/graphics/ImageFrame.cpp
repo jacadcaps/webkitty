@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc.  All rights reserved.
+ * Copyright (C) 2016-2024 Apple Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,6 +32,13 @@ namespace WebCore {
 
 ImageFrame::ImageFrame()
 {
+}
+
+ImageFrame::ImageFrame(Ref<NativeImage>&& nativeImage)
+    : m_nativeImage(WTFMove(nativeImage))
+{
+    m_size = m_nativeImage->size();
+    m_hasAlpha = m_nativeImage->hasAlpha();
 }
 
 ImageFrame::~ImageFrame()
@@ -82,7 +89,7 @@ unsigned ImageFrame::clearImage()
 
     unsigned frameBytes = this->frameBytes();
 
-    clearNativeImageSubimages(m_nativeImage);
+    m_nativeImage->clearSubimages();
     m_nativeImage = nullptr;
     m_decodingOptions = DecodingOptions();
 
@@ -96,32 +103,19 @@ unsigned ImageFrame::clear()
     return frameBytes;
 }
 
-IntSize ImageFrame::size() const
-{
-    return m_size;
-}
-    
-bool ImageFrame::hasNativeImage(const Optional<SubsamplingLevel>& subsamplingLevel) const
+bool ImageFrame::hasNativeImage(const std::optional<SubsamplingLevel>& subsamplingLevel) const
 {
     return m_nativeImage && (!subsamplingLevel || *subsamplingLevel >= m_subsamplingLevel);
 }
 
-bool ImageFrame::hasFullSizeNativeImage(const Optional<SubsamplingLevel>& subsamplingLevel) const
+bool ImageFrame::hasFullSizeNativeImage(const std::optional<SubsamplingLevel>& subsamplingLevel) const
 {
-    return hasNativeImage(subsamplingLevel) && (m_decodingOptions.isSynchronous() || m_decodingOptions.hasFullSize());
+    return hasNativeImage(subsamplingLevel) && m_decodingOptions.hasFullSize();
 }
 
-bool ImageFrame::hasDecodedNativeImageCompatibleWithOptions(const Optional<SubsamplingLevel>& subsamplingLevel, const DecodingOptions& decodingOptions) const
+bool ImageFrame::hasDecodedNativeImageCompatibleWithOptions(const std::optional<SubsamplingLevel>& subsamplingLevel, const DecodingOptions& decodingOptions) const
 {
-    return hasNativeImage(subsamplingLevel) && m_decodingOptions.isAsynchronousCompatibleWith(decodingOptions);
+    return isComplete() && hasNativeImage(subsamplingLevel) && m_decodingOptions.isCompatibleWith(decodingOptions);
 }
 
-Color ImageFrame::singlePixelSolidColor() const
-{
-    if (!hasNativeImage() || m_size != IntSize(1, 1))
-        return Color();
-
-    return nativeImageSinglePixelSolidColor(m_nativeImage);
-}
-
-}
+} // namespace WebCore

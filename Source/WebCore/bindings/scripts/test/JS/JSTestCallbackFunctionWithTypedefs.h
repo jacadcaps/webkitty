@@ -34,21 +34,30 @@ public:
         return adoptRef(*new JSTestCallbackFunctionWithTypedefs(callback, globalObject));
     }
 
-    virtual ScriptExecutionContext* scriptExecutionContext() const { return ContextDestructionObserver::scriptExecutionContext(); }
+    ScriptExecutionContext* scriptExecutionContext() const { return ContextDestructionObserver::scriptExecutionContext(); }
 
-    virtual ~JSTestCallbackFunctionWithTypedefs();
-    JSCallbackDataStrong* callbackData() { return m_data; }
+    ~JSTestCallbackFunctionWithTypedefs() final;
+    JSCallbackData* callbackData() { return m_data; }
 
     // Functions
-    CallbackResult<typename IDLVoid::ImplementationType> handleEvent(typename IDLSequence<IDLNullable<IDLLong>>::ParameterType sequenceArg, typename IDLLong::ParameterType longArg) override;
+    CallbackResult<typename IDLUndefined::CallbackReturnType> handleEvent(typename IDLSequence<IDLNullable<IDLLong>>::ParameterType sequenceArg, typename IDLLong::ParameterType longArg) override;
 
 private:
     JSTestCallbackFunctionWithTypedefs(JSC::JSObject*, JSDOMGlobalObject*);
 
-    JSCallbackDataStrong* m_data;
+    bool hasCallback() const final { return m_data && m_data->callback(); }
+
+    void visitJSFunction(JSC::AbstractSlotVisitor&) override;
+
+    void visitJSFunction(JSC::SlotVisitor&) override;
+
+    JSCallbackData* m_data;
 };
 
 JSC::JSValue toJS(TestCallbackFunctionWithTypedefs&);
 inline JSC::JSValue toJS(TestCallbackFunctionWithTypedefs* impl) { return impl ? toJS(*impl) : JSC::jsNull(); }
 
+template<> struct JSDOMCallbackConverterTraits<JSTestCallbackFunctionWithTypedefs> {
+    using Base = TestCallbackFunctionWithTypedefs;
+};
 } // namespace WebCore

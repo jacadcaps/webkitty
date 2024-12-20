@@ -25,10 +25,13 @@
 
 #pragma once
 
+#include <span>
+#include <wtf/DebugHeap.h>
 #include <wtf/HashFunctions.h>
 #include <wtf/HashTraits.h>
 #include <wtf/Ref.h>
 #include <wtf/RefCounted.h>
+#include <wtf/StdLibExtras.h>
 
 namespace WTF {
 
@@ -39,7 +42,7 @@ DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(CStringBuffer);
 class CStringBuffer final : public RefCounted<CStringBuffer> {
     WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(CStringBuffer);
 public:
-    const char* data() { return mutableData(); }
+    const char* data() LIFETIME_BOUND { return mutableData(); }
     size_t length() const { return m_length; }
 
 private:
@@ -48,40 +51,42 @@ private:
     static Ref<CStringBuffer> createUninitialized(size_t length);
 
     CStringBuffer(size_t length) : m_length(length) { }
-    char* mutableData() { return reinterpret_cast_ptr<char*>(this + 1); }
+    char* mutableData() LIFETIME_BOUND { return reinterpret_cast_ptr<char*>(this + 1); }
 
     const size_t m_length;
 };
 
-// A container for a null-terminated char array supporting copy-on-write
-// assignment.  The contained char array may be null.
+// A container for a null-terminated char array supporting copy-on-write assignment.
+// The contained char array may be null.
 class CString final {
     WTF_MAKE_FAST_ALLOCATED;
 public:
     CString() { }
     WTF_EXPORT_PRIVATE CString(const char*);
-    WTF_EXPORT_PRIVATE CString(const char*, size_t length);
+    WTF_EXPORT_PRIVATE CString(std::span<const char>);
+    CString(std::span<const uint8_t>);
+    CString(std::span<const char8_t> characters) : CString(byteCast<uint8_t>(characters)) { }
     CString(CStringBuffer* buffer) : m_buffer(buffer) { }
     WTF_EXPORT_PRIVATE static CString newUninitialized(size_t length, char*& characterBuffer);
     CString(HashTableDeletedValueType) : m_buffer(HashTableDeletedValue) { }
 
-    const char* data() const
-    {
-        return m_buffer ? m_buffer->data() : nullptr;
-    }
-    WTF_EXPORT_PRIVATE char* mutableData();
-    size_t length() const
-    {
-        return m_buffer ? m_buffer->length() : 0;
-    }
+    const char* data() const LIFETIME_BOUND;
+
+    std::string toStdString() const { return m_buffer ? std::string(m_buffer->data()) : std::string(); }
+
+    std::span<const uint8_t> span() const LIFETIME_BOUND;
+    std::span<const char> spanIncludingNullTerminator() const LIFETIME_BOUND;
+
+    WTF_EXPORT_PRIVATE char* mutableData() LIFETIME_BOUND;
+    size_t length() const;
 
     bool isNull() const { return !m_buffer; }
     bool isSafeToSendToAnotherThread() const;
 
-    CStringBuffer* buffer() const { return m_buffer.get(); }
-    
+    CStringBuffer* buffer() const LIFETIME_BOUND { return m_buffer.get(); }
+
     bool isHashTableDeletedValue() const { return m_buffer.isHashTableDeletedValue(); }
-    
+
     WTF_EXPORT_PRIVATE unsigned hash() const;
 
     // Useful if you want your CString to hold dynamic data.
@@ -89,15 +94,13 @@ public:
 
 private:
     void copyBufferIfNeeded();
-    void init(const char*, size_t length);
+    void init(std::span<const char>);
     RefPtr<CStringBuffer> m_buffer;
 };
 
-WTF_EXPORT_PRIVATE bool operator==(const CString& a, const CString& b);
-inline bool operator!=(const CString& a, const CString& b) { return !(a == b); }
-WTF_EXPORT_PRIVATE bool operator==(const CString& a, const char* b);
-inline bool operator!=(const CString& a, const char* b) { return !(a == b); }
-WTF_EXPORT_PRIVATE bool operator<(const CString& a, const CString& b);
+WTF_EXPORT_PRIVATE bool operator==(const CString&, const CString&);
+WTF_EXPORT_PRIVATE bool operator==(const CString&, const char*);
+WTF_EXPORT_PRIVATE bool operator<(const CString&, const CString&);
 
 struct CStringHash {
     static unsigned hash(const CString& string) { return string.hash(); }
@@ -105,11 +108,40 @@ struct CStringHash {
     static constexpr bool safeToCompareToEmptyOrDeleted = true;
 };
 
-template<typename T> struct DefaultHash;
+template<typename> struct DefaultHash;
 template<> struct DefaultHash<CString> : CStringHash { };
 
-template<typename T> struct HashTraits;
+template<typename> struct HashTraits;
 template<> struct HashTraits<CString> : SimpleClassHashTraits<CString> { };
+
+inline CString::CString(std::span<const uint8_t> bytes)
+    : CString(byteCast<char>(bytes))
+{
+}
+
+inline const char* CString::data() const
+{
+    return m_buffer ? m_buffer->data() : nullptr;
+}
+
+inline std::span<const uint8_t> CString::span() const
+{
+    if (m_buffer)
+        return { byteCast<uint8_t>(m_buffer->data()), m_buffer->length() };
+    return { };
+}
+
+inline std::span<const char> CString::spanIncludingNullTerminator() const
+{
+    if (m_buffer)
+        return { m_buffer->data(), m_buffer->length() + 1 };
+    return { };
+}
+
+inline size_t CString::length() const
+{
+    return m_buffer ? m_buffer->length() : 0;
+}
 
 } // namespace WTF
 

@@ -14,15 +14,17 @@
 #include <memory>
 #include <string>
 
+#include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
+#include "api/environment/environment.h"
+#include "api/sequence_checker.h"
 #include "api/test/frame_generator_interface.h"
 #include "api/video/video_codec_type.h"
 #include "api/video/video_frame.h"
 #include "api/video_codecs/video_decoder.h"
 #include "modules/video_coding/utility/ivf_file_reader.h"
-#include "rtc_base/critical_section.h"
 #include "rtc_base/event.h"
-#include "rtc_base/synchronization/sequence_checker.h"
+#include "rtc_base/synchronization/mutex.h"
 
 namespace webrtc {
 namespace test {
@@ -30,11 +32,14 @@ namespace test {
 // All methods except constructor must be used from the same thread.
 class IvfVideoFrameGenerator : public FrameGeneratorInterface {
  public:
-  explicit IvfVideoFrameGenerator(const std::string& file_name);
+  IvfVideoFrameGenerator(const Environment& env, absl::string_view file_name);
   ~IvfVideoFrameGenerator() override;
 
   VideoFrameData NextFrame() override;
   void ChangeResolution(size_t width, size_t height) override;
+  Resolution GetResolution() const override;
+
+  absl::optional<int> fps() const override { return absl::nullopt; }
 
  private:
   class DecodedCallback : public DecodedImageCallback {
@@ -53,8 +58,6 @@ class IvfVideoFrameGenerator : public FrameGeneratorInterface {
   };
 
   void OnFrameDecoded(const VideoFrame& decoded_frame);
-  static std::unique_ptr<VideoDecoder> CreateVideoDecoder(
-      VideoCodecType codec_type);
 
   DecodedCallback callback_;
   std::unique_ptr<IvfFileReader> file_reader_;
@@ -71,11 +74,11 @@ class IvfVideoFrameGenerator : public FrameGeneratorInterface {
   // FrameGenerator is injected into PeerConnection via some scoped_ref object
   // and it can happen that the last pointer will be destroyed on the different
   // thread comparing to the one from which frames were read.
-  rtc::CriticalSection lock_;
+  Mutex lock_;
   // This lock is used to sync between sending and receiving frame from decoder.
-  // We can't reuse |lock_| because then generator can be destroyed between
+  // We can't reuse `lock_` because then generator can be destroyed between
   // frame was sent to decoder and decoder callback was invoked.
-  rtc::CriticalSection frame_decode_lock_;
+  Mutex frame_decode_lock_;
 
   rtc::Event next_frame_decoded_;
   absl::optional<VideoFrame> next_frame_ RTC_GUARDED_BY(frame_decode_lock_);

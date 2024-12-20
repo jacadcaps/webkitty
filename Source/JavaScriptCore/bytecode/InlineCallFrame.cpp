@@ -31,6 +31,8 @@
 
 namespace JSC {
 
+DEFINE_COMPACT_ALLOCATOR_WITH_HEAP_IDENTIFIER(InlineCallFrame);
+
 JSFunction* InlineCallFrame::calleeConstant() const
 {
     if (calleeRecovery.isConstant())
@@ -74,7 +76,7 @@ void InlineCallFrame::dumpInContext(PrintStream& out, DumpContext* context) cons
     else
         out.print(", known callee: ", inContext(calleeRecovery.constant(), context));
     out.print(", numArgs+this = ", argumentCountIncludingThis);
-    out.print(", numFixup = ", argumentsWithFixup.size() - argumentCountIncludingThis);
+    out.print(", numFixup = ", m_argumentsWithFixup.size() - argumentCountIncludingThis);
     out.print(", stackOffset = ", stackOffset);
     out.print(" (", virtualRegisterForLocal(0), " maps to ", virtualRegisterForLocal(0) + stackOffset, ")>");
 }
@@ -114,6 +116,21 @@ void printInternal(PrintStream& out, JSC::InlineCallFrame::Kind kind)
         return;
     case JSC::InlineCallFrame::SetterCall:
         out.print("SetterCall");
+        return;
+    case JSC::InlineCallFrame::ProxyObjectLoadCall:
+        out.print("ProxyObjectLoadCall");
+        return;
+    case JSC::InlineCallFrame::ProxyObjectStoreCall:
+        out.print("ProxyObjectStoreCall");
+        return;
+    case JSC::InlineCallFrame::ProxyObjectInCall:
+        out.print("ProxyObjectInCall");
+        return;
+    case JSC::InlineCallFrame::BoundFunctionCall:
+        out.print("BoundFunctionCall");
+        return;
+    case JSC::InlineCallFrame::BoundFunctionTailCall:
+        out.print("BoundFunctionTailCall");
         return;
     }
     RELEASE_ASSERT_NOT_REACHED();

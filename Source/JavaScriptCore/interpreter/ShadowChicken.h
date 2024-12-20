@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,21 +27,21 @@
 
 #include "CallFrame.h"
 #include "JSCJSValue.h"
-#include <wtf/FastMalloc.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/PrintStream.h>
 #include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 
 namespace JSC {
 
+class AbstractSlotVisitor;
 class CallFrame;
 class CodeBlock;
 class JSArray;
 class JSObject;
 class JSScope;
 class LLIntOffsetsExtractor;
-class SlotVisitor;
 class VM;
 
 // ShadowChicken is a log that can be used to produce a shadow stack of CHICKEN-style stack frames.
@@ -68,7 +68,7 @@ class VM;
 
 class ShadowChicken {
     WTF_MAKE_NONCOPYABLE(ShadowChicken);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(ShadowChicken);
 public:
     struct Packet {
         Packet()
@@ -151,21 +151,7 @@ public:
         {
         }
         
-        bool operator==(const Frame& other) const
-        {
-            return callee == other.callee
-                && frame == other.frame
-                && thisValue == other.thisValue
-                && scope == other.scope
-                && codeBlock == other.codeBlock
-                && callSiteIndex.bits() == other.callSiteIndex.bits()
-                && isTailDeleted == other.isTailDeleted;
-        }
-        
-        bool operator!=(const Frame& other) const
-        {
-            return !(*this == other);
-        }
+        friend bool operator==(const Frame&, const Frame&) = default;
         
         void dump(PrintStream&) const;
         
@@ -196,7 +182,7 @@ public:
     template<typename Functor>
     void iterate(VM&, CallFrame*, const Functor&);
     
-    void visitChildren(SlotVisitor&);
+    void visitChildren(AbstractSlotVisitor&);
     void reset();
     
     // JIT support.

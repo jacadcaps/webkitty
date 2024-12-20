@@ -31,6 +31,7 @@
 #include "EditingRange.h"
 #include "MessageReceiver.h"
 #include <WebCore/SimpleRange.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 
 namespace IPC {
@@ -48,7 +49,7 @@ namespace WebKit {
 class WebPage;
 
 class TextCheckingControllerProxy : public IPC::MessageReceiver {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(TextCheckingControllerProxy);
 public:
     TextCheckingControllerProxy(WebPage&);
     ~TextCheckingControllerProxy();
@@ -63,7 +64,7 @@ private:
         WebCore::SimpleRange range;
         size_t locationInRoot;    
     };
-    Optional<RangeAndOffset> rangeAndOffsetRelativeToSelection(int64_t offset, uint64_t length);
+    std::optional<RangeAndOffset> rangeAndOffsetRelativeToSelection(int64_t offset, uint64_t length);
 
     // Message handlers.
     void replaceRelativeToSelection(const WebCore::AttributedString&, int64_t selectionOffset, uint64_t length, uint64_t relativeReplacementLocation, uint64_t relativeReplacementLength);

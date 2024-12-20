@@ -28,6 +28,7 @@
 #include <JavaScriptCore/GenericTypedArrayViewInlines.h>
 #include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/JSGenericTypedArrayViewInlines.h>
+#include <wtf/StdLibExtras.h>
 
 namespace WebCore {
 
@@ -38,9 +39,38 @@ String TextEncoder::encoding() const
 
 RefPtr<Uint8Array> TextEncoder::encode(String&& input) const
 {
-    // FIXME: We should not need to allocate a CString to encode into a Uint8Array.
-    CString utf8 = input.utf8();
-    return Uint8Array::tryCreate(reinterpret_cast<const uint8_t*>(utf8.data()), utf8.length());
+    auto result = input.tryGetUTF8([&](std::span<const char8_t> span) -> RefPtr<Uint8Array> {
+        return Uint8Array::tryCreate(byteCast<uint8_t>(span));
+    });
+    if (result)
+        return result.value();
+    return Uint8Array::tryCreate(nullptr, 0);
+}
+
+auto TextEncoder::encodeInto(String&& input, Ref<Uint8Array>&& array) -> EncodeIntoResult
+{
+    auto* destinationBytes = static_cast<uint8_t*>(array->baseAddress());
+    auto capacity = array->byteLength();
+
+    uint64_t read = 0;
+    uint64_t written = 0;
+
+    for (auto token : StringView(input).codePoints()) {
+        if (written >= capacity) {
+            ASSERT(written == capacity);
+            break;
+        }
+        UBool sawError = false;
+        U8_APPEND(destinationBytes, written, capacity, token, sawError);
+        if (sawError)
+            break;
+        if (U_IS_BMP(token))
+            read++;
+        else
+            read += 2;
+    }
+
+    return { read, written };
 }
 
 }

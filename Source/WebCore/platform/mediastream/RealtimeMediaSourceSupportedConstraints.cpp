@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,10 +27,6 @@
 #include "RealtimeMediaSourceSupportedConstraints.h"
 
 #if ENABLE(MEDIA_STREAM)
-
-#include <wtf/HashMap.h>
-#include <wtf/text/AtomString.h>
-#include <wtf/text/AtomStringHash.h>
 
 namespace WebCore {
 
@@ -65,6 +61,18 @@ bool RealtimeMediaSourceSupportedConstraints::supportsConstraint(MediaConstraint
         return supportsDisplaySurface();
     case MediaConstraintType::LogicalSurface:
         return supportsLogicalSurface();
+    case MediaConstraintType::FocusDistance:
+        return supportsFocusDistance();
+    case MediaConstraintType::WhiteBalanceMode:
+        return supportsWhiteBalanceMode();
+    case MediaConstraintType::Zoom:
+        return supportsZoom();
+    case MediaConstraintType::Torch:
+        return supportsTorch();
+    case MediaConstraintType::BackgroundBlur:
+        return supportsBackgroundBlur();
+    case MediaConstraintType::PowerEfficient:
+        return false;
     }
 
     ASSERT_NOT_REACHED();

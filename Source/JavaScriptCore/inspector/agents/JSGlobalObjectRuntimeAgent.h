@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014, 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,6 +27,7 @@
 
 #include "InspectorFrontendDispatchers.h"
 #include "InspectorRuntimeAgent.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace JSC {
 class JSGlobalObject;
@@ -36,13 +37,13 @@ namespace Inspector {
 
 class JSGlobalObjectRuntimeAgent final : public InspectorRuntimeAgent {
     WTF_MAKE_NONCOPYABLE(JSGlobalObjectRuntimeAgent);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(JSGlobalObjectRuntimeAgent);
 public:
     JSGlobalObjectRuntimeAgent(JSAgentContext&);
     ~JSGlobalObjectRuntimeAgent() final;
 
 private:
-    InjectedScript injectedScriptForEval(ErrorString&, const int* executionContextId) final;
+    InjectedScript injectedScriptForEval(Protocol::ErrorString&, std::optional<Protocol::Runtime::ExecutionContextId>&&) final;
 
     // NOTE: JavaScript inspector does not yet need to mute a console because no messages
     // are sent to the console outside of the API boundary or console object.

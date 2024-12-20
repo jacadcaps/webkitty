@@ -36,64 +36,65 @@
 #include "SecurityOrigin.h"
 #include "URLSearchParams.h"
 #include <wtf/MainThread.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
-inline DOMURL::DOMURL(URL&& completeURL, const URL& baseURL)
-    : m_baseURL(baseURL)
-    , m_url(WTFMove(completeURL))
+inline DOMURL::DOMURL(URL&& completeURL)
+    : m_url(WTFMove(completeURL))
 {
+    ASSERT(m_url.isValid());
 }
 
 ExceptionOr<Ref<DOMURL>> DOMURL::create(const String& url, const URL& base)
 {
-    if (!base.isValid())
-        return Exception { TypeError };
+    ASSERT(base.isValid() || base.isNull());
     URL completeURL { base, url };
     if (!completeURL.isValid())
-        return Exception { TypeError };
-    return adoptRef(*new DOMURL(WTFMove(completeURL), base));
+        return Exception { ExceptionCode::TypeError, makeString('"', url, "\" cannot be parsed as a URL."_s) };
+    return adoptRef(*new DOMURL(WTFMove(completeURL)));
 }
 
 ExceptionOr<Ref<DOMURL>> DOMURL::create(const String& url, const String& base)
 {
-    return create(url, URL { URL { }, base });
+    URL baseURL { base };
+    if (!base.isNull() && !baseURL.isValid())
+        return Exception { ExceptionCode::TypeError, makeString('"', url, "\" cannot be parsed as a URL against \""_s, base, "\"."_s) };
+    return create(url, baseURL);
 }
 
-ExceptionOr<Ref<DOMURL>> DOMURL::create(const String& url, const DOMURL& base)
+DOMURL::~DOMURL() = default;
+
+static URL parseInternal(const String& url, const String& base)
 {
-    return create(url, base.href());
+    URL baseURL { base };
+    if (!base.isNull() && !baseURL.isValid())
+        return { };
+    return { baseURL, url };
 }
 
-ExceptionOr<Ref<DOMURL>> DOMURL::create(const String& url)
+RefPtr<DOMURL> DOMURL::parse(const String& url, const String& base)
 {
-    URL baseURL { aboutBlankURL() };
-    URL completeURL { baseURL, url };
+    auto completeURL = parseInternal(url, base);
     if (!completeURL.isValid())
-        return Exception { TypeError };
-    return adoptRef(*new DOMURL(WTFMove(completeURL), WTFMove(baseURL)));
+        return { };
+    return adoptRef(*new DOMURL(WTFMove(completeURL)));
 }
 
-DOMURL::~DOMURL()
+bool DOMURL::canParse(const String& url, const String& base)
 {
-    if (m_searchParams)
-        m_searchParams->associatedURLDestroyed();
+    return parseInternal(url, base).isValid();
 }
 
 ExceptionOr<void> DOMURL::setHref(const String& url)
 {
-    URL completeURL { m_baseURL, url };
+    URL completeURL { url };
     if (!completeURL.isValid())
-        return Exception { TypeError };
+        return Exception { ExceptionCode::TypeError };
     m_url = WTFMove(completeURL);
     if (m_searchParams)
         m_searchParams->updateFromAssociatedURL();
     return { };
-}
-
-void DOMURL::setQuery(const String& query)
-{
-    m_url.setQuery(query);
 }
 
 String DOMURL::createObjectURL(ScriptExecutionContext& scriptExecutionContext, Blob& blob)
@@ -118,10 +119,10 @@ URLSearchParams& DOMURL::searchParams()
         m_searchParams = URLSearchParams::create(search(), this);
     return *m_searchParams;
 }
-    
+
 void DOMURL::revokeObjectURL(ScriptExecutionContext& scriptExecutionContext, const String& urlString)
 {
-    URL url(URL(), urlString);
+    URL url { urlString };
     ResourceRequest request(url);
     request.setDomainForCachePartition(scriptExecutionContext.domainForCachePartition());
 

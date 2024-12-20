@@ -24,17 +24,21 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-interface SVGAnimationElement : SVGElement {
-    readonly attribute SVGElement targetElement;
+// https://svgwg.org/specs/animations/#InterfaceSVGAnimationElement
 
-    unrestricted float getStartTime();
-    unrestricted float getCurrentTime();
-    unrestricted float getSimpleDuration();
+[
+    Exposed=Window
+] interface SVGAnimationElement : SVGElement {
+    readonly attribute SVGElement? targetElement;
 
-    void beginElement();
-    void beginElementAt(optional unrestricted float offset = NaN);
-    void endElement();
-    void endElementAt(optional unrestricted float offset = NaN);
+    float getStartTime();
+    float getCurrentTime();
+    float getSimpleDuration();
+
+    undefined beginElement();
+    undefined beginElementAt(float offset);
+    undefined endElement();
+    undefined endElementAt(float offset);
 };
 
-SVGAnimationElement implements SVGTests;
+SVGAnimationElement includes SVGTests;

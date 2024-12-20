@@ -18,6 +18,7 @@
 #include <string>
 #include <vector>
 
+#include "api/environment/environment.h"
 #include "api/fec_controller_override.h"
 #include "api/video/encoded_image.h"
 #include "api/video/video_bitrate_allocation.h"
@@ -29,8 +30,8 @@
 #include "api/video_codecs/video_encoder.h"
 #include "api/video_codecs/video_encoder_factory.h"
 #include "modules/video_coding/include/video_codec_interface.h"
-#include "rtc_base/critical_section.h"
 #include "rtc_base/event.h"
+#include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/thread_annotations.h"
 
 namespace cricket {
@@ -44,8 +45,8 @@ class FakeWebRtcVideoDecoder : public webrtc::VideoDecoder {
   explicit FakeWebRtcVideoDecoder(FakeWebRtcVideoDecoderFactory* factory);
   ~FakeWebRtcVideoDecoder();
 
-  int32_t InitDecode(const webrtc::VideoCodec*, int32_t) override;
-  int32_t Decode(const webrtc::EncodedImage&, bool, int64_t) override;
+  bool Configure(const Settings& settings) override;
+  int32_t Decode(const webrtc::EncodedImage&, int64_t) override;
   int32_t RegisterDecodeCompleteCallback(
       webrtc::DecodedImageCallback*) override;
   int32_t Release() override;
@@ -63,11 +64,12 @@ class FakeWebRtcVideoDecoderFactory : public webrtc::VideoDecoderFactory {
   FakeWebRtcVideoDecoderFactory();
 
   std::vector<webrtc::SdpVideoFormat> GetSupportedFormats() const override;
-  std::unique_ptr<webrtc::VideoDecoder> CreateVideoDecoder(
+  std::unique_ptr<webrtc::VideoDecoder> Create(
+      const webrtc::Environment& env,
       const webrtc::SdpVideoFormat& format) override;
 
   void DecoderDestroyed(FakeWebRtcVideoDecoder* decoder);
-  void AddSupportedVideoCodecType(const webrtc::SdpVideoFormat& format);
+  void AddSupportedVideoCodecType(const std::string& name);
   int GetNumCreatedDecoders();
   const std::vector<FakeWebRtcVideoDecoder*>& decoders();
 
@@ -101,10 +103,10 @@ class FakeWebRtcVideoEncoder : public webrtc::VideoEncoder {
   int GetNumEncodedFrames();
 
  private:
-  rtc::CriticalSection crit_;
+  webrtc::Mutex mutex_;
   rtc::Event init_encode_event_;
-  int num_frames_encoded_ RTC_GUARDED_BY(crit_);
-  webrtc::VideoCodec codec_settings_ RTC_GUARDED_BY(crit_);
+  int num_frames_encoded_ RTC_GUARDED_BY(mutex_);
+  webrtc::VideoCodec codec_settings_ RTC_GUARDED_BY(mutex_);
   FakeWebRtcVideoEncoderFactory* factory_;
 };
 
@@ -114,26 +116,29 @@ class FakeWebRtcVideoEncoderFactory : public webrtc::VideoEncoderFactory {
   FakeWebRtcVideoEncoderFactory();
 
   std::vector<webrtc::SdpVideoFormat> GetSupportedFormats() const override;
-  std::unique_ptr<webrtc::VideoEncoder> CreateVideoEncoder(
+  webrtc::VideoEncoderFactory::CodecSupport QueryCodecSupport(
+      const webrtc::SdpVideoFormat& format,
+      absl::optional<std::string> scalability_mode) const override;
+  std::unique_ptr<webrtc::VideoEncoder> Create(
+      const webrtc::Environment& env,
       const webrtc::SdpVideoFormat& format) override;
-  CodecInfo QueryVideoEncoder(
-      const webrtc::SdpVideoFormat& format) const override;
 
   bool WaitForCreatedVideoEncoders(int num_encoders);
   void EncoderDestroyed(FakeWebRtcVideoEncoder* encoder);
   void set_encoders_have_internal_sources(bool internal_source);
   void AddSupportedVideoCodec(const webrtc::SdpVideoFormat& format);
-  void AddSupportedVideoCodecType(const std::string& name);
+  void AddSupportedVideoCodecType(
+      const std::string& name,
+      const std::vector<webrtc::ScalabilityMode>& scalability_modes = {});
   int GetNumCreatedEncoders();
   const std::vector<FakeWebRtcVideoEncoder*> encoders();
 
  private:
-  rtc::CriticalSection crit_;
+  webrtc::Mutex mutex_;
   rtc::Event created_video_encoder_event_;
   std::vector<webrtc::SdpVideoFormat> formats_;
-  std::vector<FakeWebRtcVideoEncoder*> encoders_ RTC_GUARDED_BY(crit_);
-  int num_created_encoders_ RTC_GUARDED_BY(crit_);
-  bool encoders_have_internal_sources_;
+  std::vector<FakeWebRtcVideoEncoder*> encoders_ RTC_GUARDED_BY(mutex_);
+  int num_created_encoders_ RTC_GUARDED_BY(mutex_);
   bool vp8_factory_mode_;
 };
 

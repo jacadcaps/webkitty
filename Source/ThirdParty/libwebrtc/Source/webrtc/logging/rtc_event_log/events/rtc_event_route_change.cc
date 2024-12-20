@@ -10,7 +10,11 @@
 
 #include "logging/rtc_event_log/events/rtc_event_route_change.h"
 
+#include <cstdint>
+#include <memory>
+
 #include "absl/memory/memory.h"
+#include "api/rtc_event_log/rtc_event.h"
 
 namespace webrtc {
 
@@ -23,14 +27,6 @@ RtcEventRouteChange::RtcEventRouteChange(const RtcEventRouteChange& other)
       overhead_(other.overhead_) {}
 
 RtcEventRouteChange::~RtcEventRouteChange() = default;
-
-RtcEvent::Type RtcEventRouteChange::GetType() const {
-  return RtcEvent::Type::RouteChangeEvent;
-}
-
-bool RtcEventRouteChange::IsConfigEvent() const {
-  return false;
-}
 
 std::unique_ptr<RtcEventRouteChange> RtcEventRouteChange::Copy() const {
   return absl::WrapUnique<RtcEventRouteChange>(new RtcEventRouteChange(*this));

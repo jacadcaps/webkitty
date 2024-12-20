@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013, 2015-2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,9 +31,9 @@
 #include "FTLAbbreviatedTypes.h"
 #include "JSCJSValue.h"
 #include <array>
-#include <wtf/FastMalloc.h>
 #include <wtf/HashMap.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 #include <wtf/text/CString.h>
 
@@ -44,7 +44,8 @@ class Output;
 class TypedPointer;
 
 class AbstractHeap {
-    WTF_MAKE_NONCOPYABLE(AbstractHeap); WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_NONCOPYABLE(AbstractHeap);
+    WTF_MAKE_TZONE_ALLOCATED(AbstractHeap);
 public:
     AbstractHeap()
     {
@@ -154,7 +155,7 @@ private:
     size_t m_elementSize;
     std::array<AbstractHeap, 16> m_smallIndices;
     
-    struct WithoutZeroOrOneHashTraits : WTF::GenericHashTraits<ptrdiff_t> {
+    struct WithoutZeroOrOneHashTraits : HashTraits<ptrdiff_t> {
         static void constructDeletedValue(ptrdiff_t& slot) { slot = 1; }
         static bool isDeletedValue(ptrdiff_t value) { return value == 1; }
     };

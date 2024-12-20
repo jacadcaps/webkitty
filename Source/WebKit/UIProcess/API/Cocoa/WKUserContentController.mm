@@ -38,6 +38,7 @@
 #import "WKScriptMessageInternal.h"
 #import "WKUserScriptInternal.h"
 #import "WKWebViewInternal.h"
+#import "WebPageProxy.h"
 #import "WebScriptMessageHandler.h"
 #import "WebUserContentControllerProxy.h"
 #import "_WKUserContentFilterInternal.h"
@@ -46,8 +47,12 @@
 #import <WebCore/SecurityOrigin.h>
 #import <WebCore/SecurityOriginData.h>
 #import <WebCore/SerializedScriptValue.h>
+#import <WebCore/WebCoreObjCExtras.h>
+#import <wtf/TZoneMallocInlines.h>
 
 @implementation WKUserContentController
+
+WK_OBJECT_DISABLE_DISABLE_KVC_IVAR_ACCESS;
 
 - (instancetype)init
 {
@@ -61,6 +66,9 @@
 
 - (void)dealloc
 {
+    if (WebCoreObjCScheduleDeallocateOnMainRunLoop(WKUserContentController.class, self))
+        return;
+
     _userContentControllerProxy->~WebUserContentControllerProxy();
 
     [super dealloc];
@@ -120,7 +128,7 @@
 }
 
 class ScriptMessageHandlerDelegate final : public WebKit::WebScriptMessageHandler::Client {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(ScriptMessageHandlerDelegate);
 public:
     ScriptMessageHandlerDelegate(WKUserContentController *controller, id <WKScriptMessageHandler> handler, NSString *name)
         : m_controller(controller)
@@ -141,9 +149,12 @@ public:
     void didPostMessage(WebKit::WebPageProxy& page, WebKit::FrameInfoData&& frameInfoData, API::ContentWorld& world, WebCore::SerializedScriptValue& serializedScriptValue) final
     {
         @autoreleasepool {
+            RetainPtr webView = page.cocoaView();
+            if (!webView)
+                return;
             RetainPtr<WKFrameInfo> frameInfo = wrapper(API::FrameInfo::create(WTFMove(frameInfoData), &page));
-            id body = API::SerializedScriptValue::deserialize(serializedScriptValue, 0);
-            auto message = adoptNS([[WKScriptMessage alloc] _initWithBody:body webView:fromWebPageProxy(page) frameInfo:frameInfo.get() name:m_name.get() world:wrapper(world)]);
+            id body = API::SerializedScriptValue::deserialize(serializedScriptValue);
+            auto message = adoptNS([[WKScriptMessage alloc] _initWithBody:body webView:webView.get() frameInfo:frameInfo.get() name:m_name.get() world:wrapper(world)]);
         
             [(id<WKScriptMessageHandler>)m_handler.get() userContentController:m_controller.get() didReceiveScriptMessage:message.get()];
         }
@@ -158,6 +169,12 @@ public:
     {
         ASSERT(m_supportsAsyncReply);
 
+        auto webView = page.cocoaView();
+        if (!webView) {
+            replyHandler(nullptr, "The WKWebView was deallocated before the message was delivered"_s);
+            return;
+        }
+
         auto finalizer = [](Function<void(API::SerializedScriptValue*, const String&)>& function) {
             function(nullptr, "WKWebView API client did not respond to this postMessage"_s);
         };
@@ -165,10 +182,13 @@ public:
 
         @autoreleasepool {
             RetainPtr<WKFrameInfo> frameInfo = wrapper(API::FrameInfo::create(WTFMove(frameInfoData), &page));
-            id body = API::SerializedScriptValue::deserialize(serializedScriptValue, 0);
-            auto message = adoptNS([[WKScriptMessage alloc] _initWithBody:body webView:fromWebPageProxy(page) frameInfo:frameInfo.get() name:m_name.get() world:wrapper(world)]);
+            id body = API::SerializedScriptValue::deserialize(serializedScriptValue);
+            auto message = adoptNS([[WKScriptMessage alloc] _initWithBody:body webView:webView.get() frameInfo:frameInfo.get() name:m_name.get() world:wrapper(world)]);
 
             [(id<WKScriptMessageHandlerWithReply>)m_handler.get() userContentController:m_controller.get() didReceiveScriptMessage:message.get() replyHandler:^(id result, NSString *errorMessage) {
+                if (!handler)
+                    [NSException raise:NSInternalInconsistencyException format:@"replyHandler passed to userContentController:didReceiveScriptMessage:replyHandler: should not be called twice"];
+
                 if (errorMessage) {
                     handler(nullptr, errorMessage);
                     return;
@@ -262,10 +282,20 @@ private:
     _userContentControllerProxy->addUserScript(*userScript->_userScript, WebKit::InjectUserScriptImmediately::Yes);
 }
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-implementations"
 - (void)_addUserContentFilter:(_WKUserContentFilter *)userContentFilter
+#pragma clang diagnostic pop
 {
 #if ENABLE(CONTENT_EXTENSIONS)
     _userContentControllerProxy->addContentRuleList(*userContentFilter->_contentRuleList->_contentRuleList);
+#endif
+}
+
+- (void)_addContentRuleList:(WKContentRuleList *)contentRuleList extensionBaseURL:(NSURL *)extensionBaseURL
+{
+#if ENABLE(CONTENT_EXTENSIONS)
+    _userContentControllerProxy->addContentRuleList(*contentRuleList->_contentRuleList, extensionBaseURL);
 #endif
 }
 

@@ -60,7 +60,7 @@ public:
     Checkpoint checkpoint() const { return m_packedBits & checkpointMask; }
     uint32_t asBits() const { return m_packedBits; }
 
-    unsigned hash() const { return WTF::intHash(m_packedBits); }
+    unsigned hash() const { return intHash(m_packedBits); }
     static BytecodeIndex deletedValue() { return fromBits(invalidOffset - 1); }
     bool isHashTableDeletedValue() const { return *this == deletedValue(); }
 
@@ -70,7 +70,6 @@ public:
     // Comparison operators.
     explicit operator bool() const { return m_packedBits != invalidOffset && m_packedBits != deletedValue().offset(); }
     bool operator ==(const BytecodeIndex& other) const { return asBits() == other.asBits(); }
-    bool operator !=(const BytecodeIndex& other) const { return !(*this == other); }
 
     bool operator <(const BytecodeIndex& other) const { return asBits() < other.asBits(); }
     bool operator >(const BytecodeIndex& other) const { return asBits() > other.asBits(); }

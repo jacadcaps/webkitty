@@ -22,26 +22,35 @@
 
 #pragma once
 
-#if ENABLE(MEDIA_STREAM) && USE(LIBWEBRTC) && USE(GSTREAMER)
+#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER)
 
+#include "GStreamerVideoCapturer.h"
 #include "MockRealtimeVideoSource.h"
 
 namespace WebCore {
 
-class MockRealtimeVideoSourceGStreamer final : public MockRealtimeVideoSource {
+class MockRealtimeVideoSourceGStreamer final : public MockRealtimeVideoSource, GStreamerCapturerObserver {
 public:
-    static Ref<MockRealtimeVideoSource> createForMockDisplayCapturer(String&& deviceID, String&& name, String&& hashSalt);
+    MockRealtimeVideoSourceGStreamer(String&& deviceID, AtomString&& name, MediaDeviceHashSalts&&, PageIdentifier);
+    ~MockRealtimeVideoSourceGStreamer();
 
-    ~MockRealtimeVideoSourceGStreamer() = default;
+    // GStreamerCapturerObserver
+    void captureEnded() final;
+
+    std::pair<GstClockTime, GstClockTime> queryCaptureLatency() const final;
 
 private:
     friend class MockRealtimeVideoSource;
-    MockRealtimeVideoSourceGStreamer(String&& deviceID, String&& name, String&& hashSalt);
 
+    void startProducingData() final;
+    void stopProducingData() final;
     void updateSampleBuffer() final;
     bool canResizeVideoFrames() const final { return true; }
+    void setSizeFrameRateAndZoom(const VideoPresetConstraints&) final;
+
+    RefPtr<GStreamerVideoCapturer> m_capturer;
 };
 
 } // namespace WebCore
 
-#endif // ENABLE(MEDIA_STREAM) && USE(LIBWEBRTC) && USE(GSTREAMER)
+#endif // ENABLE(MEDIA_STREAM) && USE(GSTREAMER)

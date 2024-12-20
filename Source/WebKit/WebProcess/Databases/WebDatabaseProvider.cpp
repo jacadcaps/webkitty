@@ -29,32 +29,31 @@
 #include "NetworkProcessConnection.h"
 #include "WebIDBConnectionToServer.h"
 #include "WebProcess.h"
+#include <wtf/CheckedPtr.h>
 #include <wtf/HashMap.h>
 #include <wtf/NeverDestroyed.h>
 
 namespace WebKit {
 using namespace WebCore;
 
-static HashMap<uint64_t, WebDatabaseProvider*>& databaseProviders()
+static HashMap<PageGroupIdentifier, WeakRef<WebDatabaseProvider>>& databaseProviders()
 {
-    static NeverDestroyed<HashMap<uint64_t, WebDatabaseProvider*>> databaseProviders;
+    static NeverDestroyed<HashMap<PageGroupIdentifier, WeakRef<WebDatabaseProvider>>> databaseProviders;
 
     return databaseProviders;
 }
 
-Ref<WebDatabaseProvider> WebDatabaseProvider::getOrCreate(uint64_t identifier)
+Ref<WebDatabaseProvider> WebDatabaseProvider::getOrCreate(PageGroupIdentifier identifier)
 {
-    auto& slot = databaseProviders().add(identifier, nullptr).iterator->value;
-    if (slot)
-        return *slot;
-
-    Ref<WebDatabaseProvider> databaseProvider = adoptRef(*new WebDatabaseProvider(identifier));
-    slot = databaseProvider.ptr();
-
-    return databaseProvider;
+    RefPtr<WebDatabaseProvider> databaseProvider;
+    auto& slot = databaseProviders().ensure(identifier, [&] {
+        databaseProvider = adoptRef(new WebDatabaseProvider(identifier));
+        return WeakRef { *databaseProvider };
+    }).iterator->value;
+    return databaseProvider ? databaseProvider.releaseNonNull() : Ref { slot.get() };
 }
 
-WebDatabaseProvider::WebDatabaseProvider(uint64_t identifier)
+WebDatabaseProvider::WebDatabaseProvider(PageGroupIdentifier identifier)
     : m_identifier(identifier)
 {
 }
@@ -66,11 +65,9 @@ WebDatabaseProvider::~WebDatabaseProvider()
     databaseProviders().remove(m_identifier);
 }
 
-#if ENABLE(INDEXED_DATABASE)
-WebCore::IDBClient::IDBConnectionToServer& WebDatabaseProvider::idbConnectionToServerForSession(const PAL::SessionID&)
+WebCore::IDBClient::IDBConnectionToServer& WebDatabaseProvider::idbConnectionToServerForSession(PAL::SessionID)
 {
     return WebProcess::singleton().ensureNetworkProcessConnection().idbConnectionToServer().coreConnectionToServer();
 }
-#endif
 
 }

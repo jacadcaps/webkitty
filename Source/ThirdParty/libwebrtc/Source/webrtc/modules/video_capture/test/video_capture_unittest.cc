@@ -21,36 +21,16 @@
 #include "api/video/i420_buffer.h"
 #include "api/video/video_frame.h"
 #include "common_video/libyuv/include/webrtc_libyuv.h"
-#include "modules/utility/include/process_thread.h"
 #include "modules/video_capture/video_capture_factory.h"
-#include "rtc_base/critical_section.h"
+#include "rtc_base/gunit.h"
+#include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/time_utils.h"
-#include "system_wrappers/include/sleep.h"
 #include "test/frame_utils.h"
 #include "test/gtest.h"
 
-using webrtc::SleepMs;
 using webrtc::VideoCaptureCapability;
 using webrtc::VideoCaptureFactory;
 using webrtc::VideoCaptureModule;
-
-#define WAIT_(ex, timeout, res)                           \
-  do {                                                    \
-    res = (ex);                                           \
-    int64_t start = rtc::TimeMillis();                    \
-    while (!res && rtc::TimeMillis() < start + timeout) { \
-      SleepMs(5);                                         \
-      res = (ex);                                         \
-    }                                                     \
-  } while (0)
-
-#define EXPECT_TRUE_WAIT(ex, timeout) \
-  do {                                \
-    bool res;                         \
-    WAIT_(ex, timeout, res);          \
-    if (!res)                         \
-      EXPECT_TRUE(ex);                \
-  } while (0)
 
 static const int kTimeOut = 5000;
 #ifdef WEBRTC_MAC
@@ -74,7 +54,7 @@ class TestVideoCaptureCallback
   }
 
   void OnFrame(const webrtc::VideoFrame& videoFrame) override {
-    rtc::CritScope cs(&capture_cs_);
+    webrtc::MutexLock lock(&capture_lock_);
     int height = videoFrame.height();
     int width = videoFrame.width();
 #if defined(WEBRTC_ANDROID) && WEBRTC_ANDROID
@@ -106,38 +86,38 @@ class TestVideoCaptureCallback
   }
 
   void SetExpectedCapability(VideoCaptureCapability capability) {
-    rtc::CritScope cs(&capture_cs_);
+    webrtc::MutexLock lock(&capture_lock_);
     capability_ = capability;
     incoming_frames_ = 0;
     last_render_time_ms_ = 0;
   }
   int incoming_frames() {
-    rtc::CritScope cs(&capture_cs_);
+    webrtc::MutexLock lock(&capture_lock_);
     return incoming_frames_;
   }
 
   int timing_warnings() {
-    rtc::CritScope cs(&capture_cs_);
+    webrtc::MutexLock lock(&capture_lock_);
     return timing_warnings_;
   }
   VideoCaptureCapability capability() {
-    rtc::CritScope cs(&capture_cs_);
+    webrtc::MutexLock lock(&capture_lock_);
     return capability_;
   }
 
   bool CompareLastFrame(const webrtc::VideoFrame& frame) {
-    rtc::CritScope cs(&capture_cs_);
+    webrtc::MutexLock lock(&capture_lock_);
     return webrtc::test::FrameBufsEqual(last_frame_,
                                         frame.video_frame_buffer());
   }
 
   void SetExpectedCaptureRotation(webrtc::VideoRotation rotation) {
-    rtc::CritScope cs(&capture_cs_);
+    webrtc::MutexLock lock(&capture_lock_);
     rotate_frame_ = rotation;
   }
 
  private:
-  rtc::CriticalSection capture_cs_;
+  webrtc::Mutex capture_lock_;
   VideoCaptureCapability capability_;
   int64_t last_render_time_ms_;
   int incoming_frames_;
@@ -152,7 +132,7 @@ class VideoCaptureTest : public ::testing::Test {
 
   void SetUp() override {
     device_info_.reset(VideoCaptureFactory::CreateDeviceInfo());
-    assert(device_info_.get());
+    RTC_DCHECK(device_info_.get());
     number_of_devices_ = device_info_->NumberOfDevices();
     ASSERT_GT(number_of_devices_, 0u);
   }
@@ -169,7 +149,7 @@ class VideoCaptureTest : public ::testing::Test {
     rtc::scoped_refptr<VideoCaptureModule> module(
         VideoCaptureFactory::Create(unique_name));
     if (module.get() == NULL)
-      return NULL;
+      return nullptr;
 
     EXPECT_FALSE(module->CaptureStarted());
 
@@ -242,11 +222,6 @@ TEST_F(VideoCaptureTest, MAYBE_CreateDelete) {
 #define MAYBE_Capabilities Capabilities
 #endif
 TEST_F(VideoCaptureTest, MAYBE_Capabilities) {
-#ifdef WEBRTC_MAC
-  printf("Video capture capabilities are not supported on Mac.\n");
-  return;
-#endif
-
   TestVideoCaptureCallback capture_observer;
 
   rtc::scoped_refptr<VideoCaptureModule> module(
@@ -346,4 +321,37 @@ TEST_F(VideoCaptureTest, DISABLED_TestTwoCameras) {
   EXPECT_TRUE_WAIT(capture_observer2.incoming_frames() >= 5, kTimeOut);
   EXPECT_EQ(0, module2->StopCapture());
   EXPECT_EQ(0, module1->StopCapture());
+}
+
+#ifdef WEBRTC_MAC
+// No VideoCaptureImpl on Mac.
+#define MAYBE_ConcurrentAccess DISABLED_ConcurrentAccess
+#else
+#define MAYBE_ConcurrentAccess ConcurrentAccess
+#endif
+TEST_F(VideoCaptureTest, MAYBE_ConcurrentAccess) {
+  TestVideoCaptureCallback capture_observer1;
+  rtc::scoped_refptr<VideoCaptureModule> module1(
+      OpenVideoCaptureDevice(0, &capture_observer1));
+  ASSERT_TRUE(module1.get() != NULL);
+  VideoCaptureCapability capability;
+  device_info_->GetCapability(module1->CurrentDeviceName(), 0, capability);
+  capture_observer1.SetExpectedCapability(capability);
+
+  TestVideoCaptureCallback capture_observer2;
+  rtc::scoped_refptr<VideoCaptureModule> module2(
+      OpenVideoCaptureDevice(0, &capture_observer2));
+  ASSERT_TRUE(module2.get() != NULL);
+  capture_observer2.SetExpectedCapability(capability);
+
+  // Starting module1 should work.
+  ASSERT_NO_FATAL_FAILURE(StartCapture(module1.get(), capability));
+  EXPECT_TRUE_WAIT(capture_observer1.incoming_frames() >= 5, kTimeOut);
+
+  // When module1 is stopped, starting module2 for the same device should work.
+  EXPECT_EQ(0, module1->StopCapture());
+  ASSERT_NO_FATAL_FAILURE(StartCapture(module2.get(), capability));
+  EXPECT_TRUE_WAIT(capture_observer2.incoming_frames() >= 5, kTimeOut);
+
+  EXPECT_EQ(0, module2->StopCapture());
 }

@@ -13,9 +13,16 @@
 #include <memory>
 #include <vector>
 
+#include "absl/types/optional.h"
+#include "api/audio_codecs/audio_codec_pair_id.h"
+#include "api/audio_codecs/audio_encoder.h"
+#include "api/audio_codecs/audio_encoder_factory.h"
 #include "api/audio_codecs/audio_encoder_factory_template.h"
+#include "api/audio_codecs/audio_format.h"
 #include "api/audio_codecs/opus/audio_encoder_multi_channel_opus.h"
 #include "api/audio_codecs/opus/audio_encoder_opus.h"
+#include "api/field_trials_view.h"
+#include "api/scoped_refptr.h"
 
 namespace webrtc {
 namespace {
@@ -37,8 +44,10 @@ struct NotAdvertised {
   static std::unique_ptr<AudioEncoder> MakeAudioEncoder(
       const Config& config,
       int payload_type,
-      absl::optional<AudioCodecPairId> codec_pair_id = absl::nullopt) {
-    return T::MakeAudioEncoder(config, payload_type, codec_pair_id);
+      absl::optional<AudioCodecPairId> codec_pair_id = absl::nullopt,
+      const FieldTrialsView* field_trials = nullptr) {
+    return T::MakeAudioEncoder(config, payload_type, codec_pair_id,
+                               field_trials);
   }
 };
 

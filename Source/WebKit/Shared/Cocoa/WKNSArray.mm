@@ -26,12 +26,17 @@
 #import "config.h"
 #import "WKNSArray.h"
 
+#import <WebCore/WebCoreObjCExtras.h>
+
 @implementation WKNSArray {
     API::ObjectStorage<API::Array> _array;
 }
 
 - (void)dealloc
 {
+    if (WebCoreObjCScheduleDeallocateOnMainRunLoop(WKNSArray.class, self))
+        return;
+
     _array->~Array();
 
     [super dealloc];
@@ -46,8 +51,8 @@
 
 - (id)objectAtIndex:(NSUInteger)i
 {
-    API::Object* object = _array->at(i);
-    return object ? object->wrapper() : [NSNull null];
+    RefPtr object = _array->at(i);
+    return object ? (id)object->wrapper() : [NSNull null];
 }
 
 #pragma mark NSCopying protocol implementation

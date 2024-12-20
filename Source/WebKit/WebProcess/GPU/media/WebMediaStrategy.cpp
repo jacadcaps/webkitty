@@ -30,14 +30,21 @@
 #include "GPUProcessConnection.h"
 #include "RemoteAudioDestinationProxy.h"
 #include "RemoteCDMFactory.h"
+#include "WebCoreArgumentCoders.h"
 #include "WebProcess.h"
 #include <WebCore/AudioDestination.h>
 #include <WebCore/AudioIOCallback.h>
 #include <WebCore/CDMFactory.h>
-#include <WebCore/NowPlayingInfo.h>
+#include <WebCore/MediaPlayer.h>
+#include <WebCore/NowPlayingManager.h>
+#include <WebCore/SharedAudioDestination.h>
 
 #if PLATFORM(COCOA)
 #include <WebCore/MediaSessionManagerCocoa.h>
+#endif
+
+#if ENABLE(MEDIA_SOURCE)
+#include <WebCore/DeprecatedGlobalSettings.h>
 #endif
 
 namespace WebKit {
@@ -45,40 +52,72 @@ namespace WebKit {
 WebMediaStrategy::~WebMediaStrategy() = default;
 
 #if ENABLE(WEB_AUDIO)
-std::unique_ptr<WebCore::AudioDestination> WebMediaStrategy::createAudioDestination(WebCore::AudioIOCallback& callback, const String& inputDeviceId,
+Ref<WebCore::AudioDestination> WebMediaStrategy::createAudioDestination(WebCore::AudioIOCallback& callback, const String& inputDeviceId,
     unsigned numberOfInputChannels, unsigned numberOfOutputChannels, float sampleRate)
 {
+    ASSERT(isMainRunLoop());
 #if ENABLE(GPU_PROCESS)
     if (m_useGPUProcess)
-        return RemoteAudioDestinationProxy::create(callback, inputDeviceId, numberOfInputChannels, numberOfOutputChannels, sampleRate);
+        return WebCore::SharedAudioDestination::create(callback, numberOfOutputChannels, sampleRate, [inputDeviceId, numberOfInputChannels, numberOfOutputChannels, sampleRate] (WebCore::AudioIOCallback& callback) {
+            return RemoteAudioDestinationProxy::create(callback, inputDeviceId, numberOfInputChannels, numberOfOutputChannels, sampleRate);
+        });
 #endif
     return WebCore::AudioDestination::create(callback, inputDeviceId, numberOfInputChannels, numberOfOutputChannels, sampleRate);
 }
 #endif
 
-#if PLATFORM(COCOA)
-void WebMediaStrategy::clearNowPlayingInfo()
+std::unique_ptr<WebCore::NowPlayingManager> WebMediaStrategy::createNowPlayingManager() const
 {
+    ASSERT(isMainRunLoop());
 #if ENABLE(GPU_PROCESS)
     if (m_useGPUProcess) {
-        auto& connection = WebProcess::singleton().ensureGPUProcessConnection().connection();
-        connection.send(Messages::GPUConnectionToWebProcess::ClearNowPlayingInfo { }, 0);
-        return;
+        class NowPlayingInfoForGPUManager : public WebCore::NowPlayingManager {
+            void clearNowPlayingInfoPrivate() final
+            {
+                if (auto* connection = WebProcess::singleton().existingGPUProcessConnection())
+                    connection->connection().send(Messages::GPUConnectionToWebProcess::ClearNowPlayingInfo { }, 0);
+            }
+
+            void setNowPlayingInfoPrivate(const WebCore::NowPlayingInfo& nowPlayingInfo) final
+            {
+                Ref connection = WebProcess::singleton().ensureGPUProcessConnection().connection();
+                connection->send(Messages::GPUConnectionToWebProcess::SetNowPlayingInfo { nowPlayingInfo }, 0);
+            }
+        };
+        return makeUnique<NowPlayingInfoForGPUManager>();
     }
 #endif
-    WebCore::MediaSessionManagerCocoa::clearNowPlayingInfo();
+    return WebCore::MediaStrategy::createNowPlayingManager();
 }
 
-void WebMediaStrategy::setNowPlayingInfo(bool setAsNowPlayingApplication, const WebCore::NowPlayingInfo& nowPlayingInfo)
+bool WebMediaStrategy::hasThreadSafeMediaSourceSupport() const
 {
 #if ENABLE(GPU_PROCESS)
+    return m_useGPUProcess;
+#else
+    return false;
+#endif
+}
+
+#if ENABLE(MEDIA_SOURCE)
+void WebMediaStrategy::enableMockMediaSource()
+{
+    ASSERT(isMainRunLoop());
+#if USE(AVFOUNDATION)
+    WebCore::DeprecatedGlobalSettings::setAVFoundationEnabled(false);
+#endif
+#if USE(GSTREAMER)
+    WebCore::DeprecatedGlobalSettings::setGStreamerEnabled(false);
+#endif
+    m_mockMediaSourceEnabled = true;
+#if ENABLE(GPU_PROCESS)
     if (m_useGPUProcess) {
-        auto& connection = WebProcess::singleton().ensureGPUProcessConnection().connection();
-        connection.send(Messages::GPUConnectionToWebProcess::SetNowPlayingInfo { setAsNowPlayingApplication, nowPlayingInfo }, 0);
+        Ref connection = WebProcess::singleton().ensureGPUProcessConnection().connection();
+        connection->send(Messages::GPUConnectionToWebProcess::EnableMockMediaSource { }, 0);
         return;
     }
 #endif
-    WebCore::MediaSessionManagerCocoa::setNowPlayingInfo(setAsNowPlayingApplication, nowPlayingInfo);
+    WebCore::MediaStrategy::addMockMediaSourceEngine();
 }
 #endif
 

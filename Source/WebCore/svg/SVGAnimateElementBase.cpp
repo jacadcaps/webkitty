@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2004, 2005 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2004, 2005, 2006 Rob Buis <buis@kde.org>
- * Copyright (C) 2008-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2008-2021 Apple Inc. All rights reserved.
  * Copyright (C) Research In Motion Limited 2011. All rights reserved.
  * Copyright (C) 2014 Adobe Systems Incorporated. All rights reserved.
  *
@@ -28,18 +28,17 @@
 #include "SVGAttributeAnimator.h"
 #include "SVGElement.h"
 #include "SVGNames.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(SVGAnimateElementBase);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(SVGAnimateElementBase);
 
 SVGAnimateElementBase::SVGAnimateElementBase(const QualifiedName& tagName, Document& document)
     : SVGAnimationElement(tagName, document)
 {
     ASSERT(hasTagName(SVGNames::animateTag)
         || hasTagName(SVGNames::setTag)
-        || hasTagName(SVGNames::animateColorTag)
         || hasTagName(SVGNames::animateTransformTag));
 }
 
@@ -49,7 +48,7 @@ SVGAttributeAnimator* SVGAnimateElementBase::animator() const
     ASSERT(!hasInvalidCSSAttributeType());
 
     if (!m_animator)
-        m_animator = targetElement()->createAnimator(attributeName(), animationMode(), calcMode(), isAccumulated(), isAdditive());
+        m_animator = protectedTargetElement()->createAnimator(attributeName(), animationMode(), calcMode(), isAccumulated(), isAdditive());
 
     return m_animator.get();
 }
@@ -59,7 +58,7 @@ bool SVGAnimateElementBase::hasValidAttributeType() const
     if (!targetElement() || hasInvalidCSSAttributeType())
         return false;
 
-    return targetElement()->isAnimatedAttribute(attributeName());
+    return protectedTargetElement()->isAnimatedAttribute(attributeName());
 }
 
 bool SVGAnimateElementBase::hasInvalidCSSAttributeType() const
@@ -68,7 +67,7 @@ bool SVGAnimateElementBase::hasInvalidCSSAttributeType() const
         return false;
 
     if (!m_hasInvalidCSSAttributeType)
-        m_hasInvalidCSSAttributeType = hasValidAttributeName() && attributeType() == AttributeType::CSS && !isTargetAttributeCSSProperty(targetElement(), attributeName());
+        m_hasInvalidCSSAttributeType = hasValidAttributeName() && attributeType() == AttributeType::CSS && !isTargetAttributeCSSProperty(protectedTargetElement().get(), attributeName());
 
     return m_hasInvalidCSSAttributeType.value();
 }
@@ -78,13 +77,13 @@ bool SVGAnimateElementBase::isDiscreteAnimator() const
     if (!hasValidAttributeType())
         return false;
 
-    auto* animator = this->animator();
+    RefPtr animator = this->animator();
     return animator && animator->isDiscrete();
 }
 
-void SVGAnimateElementBase::setTargetElement(SVGElement* target)
+void SVGAnimateElementBase::setTargetElement(SVGElement* targetElement)
 {
-    SVGAnimationElement::setTargetElement(target);
+    SVGAnimationElement::setTargetElement(targetElement);
     resetAnimation();
 }
 
@@ -101,21 +100,21 @@ void SVGAnimateElementBase::resetAnimation()
     m_hasInvalidCSSAttributeType = { };
 }
 
-bool SVGAnimateElementBase::calculateFromAndToValues(const String& fromString, const String& toString)
+bool SVGAnimateElementBase::setFromAndToValues(const String& fromString, const String& toString)
 {
     if (!targetElement())
         return false;
 
-    if (auto* animator = this->animator()) {
-        animator->setFromAndToValues(targetElement(), animateRangeString(fromString), animateRangeString(toString));
+    if (RefPtr animator = this->animator()) {
+        animator->setFromAndToValues(*protectedTargetElement(), animateRangeString(fromString), animateRangeString(toString));
         return true;
     }
     return false;
 }
 
-bool SVGAnimateElementBase::calculateFromAndByValues(const String& fromString, const String& byString)
+bool SVGAnimateElementBase::setFromAndByValues(const String& fromString, const String& byString)
 {
-    if (!this->targetElement())
+    if (!targetElement())
         return false;
 
     if (animationMode() == AnimationMode::By && (!isAdditive() || isDiscreteAnimator()))
@@ -124,14 +123,14 @@ bool SVGAnimateElementBase::calculateFromAndByValues(const String& fromString, c
     if (animationMode() == AnimationMode::FromBy && isDiscreteAnimator())
         return false;
 
-    if (auto* animator = this->animator()) {
-        animator->setFromAndByValues(targetElement(), animateRangeString(fromString), animateRangeString(byString));
+    if (RefPtr animator = this->animator()) {
+        animator->setFromAndByValues(*protectedTargetElement(), animateRangeString(fromString), animateRangeString(byString));
         return true;
     }
     return false;
 }
 
-bool SVGAnimateElementBase::calculateToAtEndOfDurationValue(const String& toAtEndOfDurationString)
+bool SVGAnimateElementBase::setToAtEndOfDurationValue(const String& toAtEndOfDurationString)
 {
     if (!targetElement() || toAtEndOfDurationString.isEmpty())
         return false;
@@ -139,7 +138,7 @@ bool SVGAnimateElementBase::calculateToAtEndOfDurationValue(const String& toAtEn
     if (isDiscreteAnimator())
         return true;
 
-    if (auto* animator = this->animator()) {
+    if (RefPtr animator = this->animator()) {
         animator->setToAtEndOfDurationValue(animateRangeString(toAtEndOfDurationString));
         return true;
     }
@@ -151,8 +150,8 @@ void SVGAnimateElementBase::startAnimation()
     if (!targetElement())
         return;
 
-    if (auto protectedAnimator = makeRefPtr(this->animator()))
-        protectedAnimator->start(targetElement());
+    if (RefPtr protectedAnimator = this->animator())
+        protectedAnimator->start(*protectedTargetElement());
 }
 
 void SVGAnimateElementBase::calculateAnimatedValue(float progress, unsigned repeatCount)
@@ -167,8 +166,8 @@ void SVGAnimateElementBase::calculateAnimatedValue(float progress, unsigned repe
     if (calcMode() == CalcMode::Discrete)
         progress = progress < 0.5 ? 0 : 1;
 
-    if (auto protectedAnimator = makeRefPtr(this->animator()))
-        protectedAnimator->animate(targetElement(), progress, repeatCount);
+    if (RefPtr animator = this->animator())
+        animator->animate(*protectedTargetElement(), progress, repeatCount);
 }
 
 void SVGAnimateElementBase::applyResultsToTarget()
@@ -176,8 +175,8 @@ void SVGAnimateElementBase::applyResultsToTarget()
     if (!targetElement())
         return;
 
-    if (auto* animator = this->animator())
-        animator->apply(targetElement());
+    if (RefPtr animator = this->animator())
+        animator->apply(*protectedTargetElement());
 }
 
 void SVGAnimateElementBase::stopAnimation(SVGElement* targetElement)
@@ -185,18 +184,18 @@ void SVGAnimateElementBase::stopAnimation(SVGElement* targetElement)
     if (!targetElement)
         return;
 
-    if (auto* animator = this->animatorIfExists())
-        animator->stop(targetElement);
+    if (RefPtr animator = this->animatorIfExists())
+        animator->stop(*targetElement);
 }
 
-Optional<float> SVGAnimateElementBase::calculateDistance(const String& fromString, const String& toString)
+std::optional<float> SVGAnimateElementBase::calculateDistance(const String& fromString, const String& toString)
 {
     // FIXME: A return value of float is not enough to support paced animations on lists.
     if (!targetElement())
         return { };
 
-    if (auto* animator = this->animator())
-        return animator->calculateDistance(targetElement(), fromString, toString);
+    if (RefPtr animator = this->animator())
+        return animator->calculateDistance(*protectedTargetElement(), fromString, toString);
 
     return { };
 }

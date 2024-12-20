@@ -35,6 +35,13 @@ class BufferImpl : public angle::Subject
     ~BufferImpl() override {}
     virtual void destroy(const gl::Context *context) {}
 
+    virtual angle::Result setDataWithUsageFlags(const gl::Context *context,
+                                                gl::BufferBinding target,
+                                                GLeglClientBufferEXT clientBuffer,
+                                                const void *data,
+                                                size_t size,
+                                                gl::BufferUsage usage,
+                                                GLbitfield flags);
     virtual angle::Result setData(const gl::Context *context,
                                   gl::BufferBinding target,
                                   const void *data,
@@ -69,6 +76,8 @@ class BufferImpl : public angle::Subject
                                      GLintptr offset,
                                      GLsizeiptr size,
                                      void *outData);
+
+    virtual angle::Result onLabelUpdate(const gl::Context *context);
 
     // Override if accurate native memory size information is available
     virtual GLint64 getMemorySize() const;

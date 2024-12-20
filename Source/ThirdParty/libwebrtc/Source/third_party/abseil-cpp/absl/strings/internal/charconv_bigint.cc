@@ -19,6 +19,7 @@
 #include <string>
 
 namespace absl {
+ABSL_NAMESPACE_BEGIN
 namespace strings_internal {
 
 namespace {
@@ -157,12 +158,12 @@ const uint32_t* LargePowerOfFiveData(int i) {
 int LargePowerOfFiveSize(int i) { return 2 * i; }
 }  // namespace
 
-const uint32_t kFiveToNth[14] = {
+ABSL_DLL const uint32_t kFiveToNth[14] = {
     1,     5,      25,      125,     625,      3125,      15625,
     78125, 390625, 1953125, 9765625, 48828125, 244140625, 1220703125,
 };
 
-const uint32_t kTenToNth[10] = {
+ABSL_DLL const uint32_t kTenToNth[10] = {
     1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000, 1000000000,
 };
 
@@ -207,7 +208,7 @@ int BigUnsigned<max_words>::ReadDigits(const char* begin, const char* end,
     ++dropped_digits;
   }
   if (begin < end && *std::prev(end) == '.') {
-    // If the std::string ends in '.', either before or after dropping zeroes, then
+    // If the string ends in '.', either before or after dropping zeroes, then
     // drop the decimal point and look for more digits to drop.
     dropped_digits = 0;
     --end;
@@ -241,7 +242,7 @@ int BigUnsigned<max_words>::ReadDigits(const char* begin, const char* end,
       // decimal exponent to compensate.
       --exponent_adjust;
     }
-    int digit = (*begin - '0');
+    char digit = (*begin - '0');
     --significant_digits;
     if (significant_digits == 0 && std::next(begin) != end &&
         (digit == 0 || digit == 5)) {
@@ -254,7 +255,7 @@ int BigUnsigned<max_words>::ReadDigits(const char* begin, const char* end,
       // 500000...000000000001 to correctly round up, rather than to nearest.
       ++digit;
     }
-    queued = 10 * queued + digit;
+    queued = 10 * queued + static_cast<uint32_t>(digit);
     ++digits_queued;
     if (digits_queued == kMaxSmallPowerOfTen) {
       MultiplyBy(kTenToNth[kMaxSmallPowerOfTen]);
@@ -295,10 +296,8 @@ template <int max_words>
         std::min(n / kLargePowerOfFiveStep, kLargestPowerOfFiveIndex);
     if (first_pass) {
       // just copy, rather than multiplying by 1
-      std::copy(
-          LargePowerOfFiveData(big_power),
-          LargePowerOfFiveData(big_power) + LargePowerOfFiveSize(big_power),
-          answer.words_);
+      std::copy_n(LargePowerOfFiveData(big_power),
+                  LargePowerOfFiveSize(big_power), answer.words_);
       answer.size_ = LargePowerOfFiveSize(big_power);
       first_pass = false;
     } else {
@@ -340,8 +339,8 @@ std::string BigUnsigned<max_words>::ToString() const {
   std::string result;
   // Build result in reverse order
   while (copy.size() > 0) {
-    int next_digit = copy.DivMod<10>();
-    result.push_back('0' + next_digit);
+    uint32_t next_digit = copy.DivMod<10>();
+    result.push_back('0' + static_cast<char>(next_digit));
   }
   if (result.empty()) {
     result.push_back('0');
@@ -354,4 +353,5 @@ template class BigUnsigned<4>;
 template class BigUnsigned<84>;
 
 }  // namespace strings_internal
+ABSL_NAMESPACE_END
 }  // namespace absl

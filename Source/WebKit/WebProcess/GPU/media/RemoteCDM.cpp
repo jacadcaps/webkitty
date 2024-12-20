@@ -28,13 +28,11 @@
 
 #if ENABLE(GPU_PROCESS) && ENABLE(ENCRYPTED_MEDIA)
 
-#include "DataReference.h"
 #include "GPUProcessConnection.h"
 #include "RemoteCDMInstance.h"
 #include "RemoteCDMInstanceConfiguration.h"
 #include "RemoteCDMInstanceIdentifier.h"
 #include "RemoteCDMProxyMessages.h"
-#include "SharedBufferDataReference.h"
 #include "WebCoreArgumentCoders.h"
 #include "WebProcess.h"
 #include <WebCore/CDMKeySystemConfiguration.h>
@@ -45,28 +43,35 @@ namespace WebKit {
 
 using namespace WebCore;
 
-std::unique_ptr<RemoteCDM> RemoteCDM::create(WeakPtr<RemoteCDMFactory>&& factory, RemoteCDMIdentifier&& id, RemoteCDMConfiguration&& configuration)
+std::unique_ptr<RemoteCDM> RemoteCDM::create(WeakPtr<RemoteCDMFactory>&& factory, RemoteCDMIdentifier&& identifier, RemoteCDMConfiguration&& configuration)
 {
-    return std::unique_ptr<RemoteCDM>(new RemoteCDM(WTFMove(factory), WTFMove(id), WTFMove(configuration)));
+    return std::unique_ptr<RemoteCDM>(new RemoteCDM(WTFMove(factory), WTFMove(identifier), WTFMove(configuration)));
 }
 
-RemoteCDM::RemoteCDM(WeakPtr<RemoteCDMFactory>&& factory, RemoteCDMIdentifier&& id, RemoteCDMConfiguration&& configuration)
+RemoteCDM::RemoteCDM(WeakPtr<RemoteCDMFactory>&& factory, RemoteCDMIdentifier&& identifier, RemoteCDMConfiguration&& configuration)
     : m_factory(WTFMove(factory))
-    , m_identifier(WTFMove(id))
+    , m_identifier(WTFMove(identifier))
     , m_configuration(WTFMove(configuration))
 {
 }
 
+#if !RELEASE_LOG_DISABLED
+void RemoteCDM::setLogIdentifier(const void* logIdentifier)
+{
+    if (m_factory)
+        m_factory->gpuProcessConnection().connection().send(Messages::RemoteCDMProxy::SetLogIdentifier(reinterpret_cast<uint64_t>(logIdentifier)), m_identifier);
+}
+#endif
+
 void RemoteCDM::getSupportedConfiguration(CDMKeySystemConfiguration&& configuration, LocalStorageAccess access, SupportedConfigurationCallback&& callback)
 {
     if (!m_factory) {
-        callback(WTF::nullopt);
+        callback(std::nullopt);
         return;
     }
 
     m_factory->gpuProcessConnection().connection().sendWithAsyncReply(Messages::RemoteCDMProxy::GetSupportedConfiguration(WTFMove(configuration), access), WTFMove(callback), m_identifier);
 }
-
 
 bool RemoteCDM::supportsConfiguration(const CDMKeySystemConfiguration&) const
 {
@@ -115,12 +120,11 @@ RefPtr<CDMInstance> RemoteCDM::createInstance()
     if (!m_factory)
         return nullptr;
 
-    RemoteCDMInstanceIdentifier id;
-    RemoteCDMInstanceConfiguration configuration;
-    m_factory->gpuProcessConnection().connection().sendSync(Messages::RemoteCDMProxy::CreateInstance(), Messages::RemoteCDMProxy::CreateInstance::Reply(id, configuration), m_identifier);
-    if (!id)
+    auto sendResult = m_factory->gpuProcessConnection().connection().sendSync(Messages::RemoteCDMProxy::CreateInstance(), m_identifier);
+    auto [identifier, configuration] = sendResult.takeReplyOr(RemoteCDMInstanceIdentifier { }, RemoteCDMInstanceConfiguration { });
+    if (!identifier)
         return nullptr;
-    return RemoteCDMInstance::create(makeWeakPtr(m_factory.get()), WTFMove(id), WTFMove(configuration));
+    return RemoteCDMInstance::create(m_factory.get(), WTFMove(identifier), WTFMove(configuration));
 }
 
 void RemoteCDM::loadAndInitialize()
@@ -134,10 +138,10 @@ void RemoteCDM::loadAndInitialize()
 RefPtr<SharedBuffer> RemoteCDM::sanitizeResponse(const SharedBuffer& response) const
 {
     // This check will be done, later, inside RemoteCDMInstanceSessionProxy::updateLicense().
-    return response.copy();
+    return response.makeContiguous();
 }
 
-Optional<String> RemoteCDM::sanitizeSessionId(const String& sessionId) const
+std::optional<String> RemoteCDM::sanitizeSessionId(const String& sessionId) const
 {
     // This check will be done, later, inside RemoteCDMInstanceSessionProxy::loadSession().
     return sessionId;

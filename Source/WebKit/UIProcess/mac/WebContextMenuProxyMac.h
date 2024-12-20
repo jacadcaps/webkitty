@@ -35,6 +35,13 @@ OBJC_CLASS NSMenu;
 OBJC_CLASS NSMenuItem;
 OBJC_CLASS NSView;
 OBJC_CLASS NSWindow;
+OBJC_CLASS WKMenuDelegate;
+
+#if ENABLE(WRITING_TOOLS)
+namespace WebCore::WritingTools {
+enum class RequestedTool : uint16_t;
+}
+#endif
 
 namespace WebKit {
 
@@ -50,11 +57,20 @@ public:
 
     void contextMenuItemSelected(const WebContextMenuItemData&);
 
+#if ENABLE(WRITING_TOOLS)
+    void handleContextMenuWritingTools(WebCore::WritingTools::RequestedTool);
+#endif
+
 #if ENABLE(SERVICE_CONTROLS)
     void clearServicesMenu();
+    void removeBackgroundFromControlledImage();
 #endif
 
     NSWindow *window() const;
+
+#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+    RetainPtr<CGImageRef> imageForCopySubject() const final { return m_copySubjectResult; }
+#endif
 
 private:
     WebContextMenuProxyMac(NSView *, WebPageProxy&, ContextMenuContextData&&, const UserData&);
@@ -63,6 +79,8 @@ private:
     void showContextMenuWithItems(Vector<Ref<WebContextMenuItem>>&&) override;
     void useContextMenuItems(Vector<Ref<WebContextMenuItem>>&&) override;
 
+    bool showAfterPostProcessingContextData();
+
     void getContextMenuItem(const WebContextMenuItemData&, CompletionHandler<void(NSMenuItem *)>&&);
     void getContextMenuFromItems(const Vector<WebContextMenuItemData>&, CompletionHandler<void(NSMenu *)>&&);
 
@@ -70,10 +88,18 @@ private:
     void getShareMenuItem(CompletionHandler<void(NSMenuItem *)>&&);
     void showServicesMenu();
     void setupServicesMenu();
+    void appendRemoveBackgroundItemToControlledImageMenuIfNeeded();
 #endif
 
+    NSMenu *platformMenu() const override;
+    NSArray *platformData() const override;
+
     RetainPtr<NSMenu> m_menu;
+    RetainPtr<WKMenuDelegate> m_menuDelegate;
     WeakObjCPtr<NSView> m_webView;
+#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+    RetainPtr<CGImageRef> m_copySubjectResult;
+#endif
 };
 
 } // namespace WebKit

@@ -34,7 +34,6 @@
 #import "SandboxExtension.h"
 #import "SandboxInitializationParameters.h"
 #import "SecItemShim.h"
-#import "StringUtilities.h"
 #import "WKFoundation.h"
 #import <WebCore/CertificateInfo.h>
 #import <WebCore/LocalizedStrings.h>
@@ -45,26 +44,21 @@
 #import <sysexits.h>
 #import <wtf/FileSystem.h>
 #import <wtf/MemoryPressureHandler.h>
+#import <wtf/text/MakeString.h>
 #import <wtf/text/WTFString.h>
 
 namespace WebKit {
-using namespace WebCore;
 
 void NetworkProcess::initializeProcess(const AuxiliaryProcessInitializationParameters&)
 {
-#if PLATFORM(MAC) && !PLATFORM(MACCATALYST)
-    // Having a window server connection in this process would result in spin logs (<rdar://problem/13239119>).
-    OSStatus error = SetApplicationIsDaemon(true);
-    ASSERT_UNUSED(error, error == noErr);
-#endif
-
+    setApplicationIsDaemon();
     launchServicesCheckIn();
 }
 
 void NetworkProcess::initializeProcessName(const AuxiliaryProcessInitializationParameters& parameters)
 {
 #if !PLATFORM(MACCATALYST)
-    NSString *applicationName = [NSString stringWithFormat:WEB_UI_STRING("%@ Networking", "visible name of the network process. The argument is the application name."), (NSString *)parameters.uiProcessName];
+    NSString *applicationName = [NSString stringWithFormat:WEB_UI_NSSTRING(@"%@ Networking", "visible name of the network process. The argument is the application name."), (NSString *)parameters.uiProcessName];
     _LSSetApplicationInformationItem(kLSDefaultSessionID, _LSGetCurrentApplicationASN(), _kLSDisplayNameKey, (CFStringRef)applicationName, nullptr);
 #endif
 }
@@ -79,17 +73,11 @@ void NetworkProcess::platformInitializeNetworkProcess(const NetworkProcessCreati
 #endif
 }
 
-void NetworkProcess::allowSpecificHTTPSCertificateForHost(const CertificateInfo& certificateInfo, const String& host)
-{
-    [NSURLRequest setAllowsSpecificHTTPSCertificate:(__bridge NSArray *)certificateInfo.certificateChain() forHost:(NSString *)host];
-}
-
 void NetworkProcess::initializeSandbox(const AuxiliaryProcessInitializationParameters& parameters, SandboxInitializationParameters& sandboxParameters)
 {
-    // Need to overide the default, because service has a different bundle ID.
-    auto webKitBundle = [NSBundle bundleWithIdentifier:@"com.apple.WebKit"];
+    auto webKitBundle = [NSBundle bundleForClass:NSClassFromString(@"WKWebView")];
 
-    sandboxParameters.setOverrideSandboxProfilePath(makeString(String([webKitBundle resourcePath]), "/com.apple.WebKit.NetworkProcess.sb"));
+    sandboxParameters.setOverrideSandboxProfilePath(makeString(String([webKitBundle resourcePath]), "/com.apple.WebKit.NetworkProcess.sb"_s));
 
     AuxiliaryProcess::initializeSandbox(parameters, sandboxParameters);
 }
@@ -97,9 +85,8 @@ void NetworkProcess::initializeSandbox(const AuxiliaryProcessInitializationParam
 void NetworkProcess::platformTerminate()
 {
     if (m_clearCacheDispatchGroup) {
-        dispatch_group_wait(m_clearCacheDispatchGroup, DISPATCH_TIME_FOREVER);
-        dispatch_release(m_clearCacheDispatchGroup);
-        m_clearCacheDispatchGroup = 0;
+        dispatch_group_wait(m_clearCacheDispatchGroup.get(), DISPATCH_TIME_FOREVER);
+        m_clearCacheDispatchGroup = nullptr;
     }
 }
 

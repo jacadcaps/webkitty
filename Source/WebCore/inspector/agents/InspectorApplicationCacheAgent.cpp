@@ -28,14 +28,14 @@
 
 #include "ApplicationCacheHost.h"
 #include "DocumentLoader.h"
-#include "Frame.h"
 #include "FrameLoader.h"
 #include "InspectorPageAgent.h"
 #include "InstrumentingAgents.h"
 #include "LoaderStrategy.h"
+#include "LocalFrame.h"
 #include "Page.h"
 #include "PlatformStrategies.h"
-#include <wtf/text/StringBuilder.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
@@ -57,34 +57,33 @@ void InspectorApplicationCacheAgent::didCreateFrontendAndBackend(FrontendRouter*
 
 void InspectorApplicationCacheAgent::willDestroyFrontendAndBackend(Inspector::DisconnectReason)
 {
-    ErrorString ignored;
-    disable(ignored);
+    disable();
 }
 
-void InspectorApplicationCacheAgent::enable(ErrorString& errorString)
+Inspector::Protocol::ErrorStringOr<void> InspectorApplicationCacheAgent::enable()
 {
-    if (m_instrumentingAgents.enabledApplicationCacheAgent() == this) {
-        errorString = "ApplicationCache domain already enabled"_s;
-        return;
-    }
+    if (m_instrumentingAgents.enabledApplicationCacheAgent() == this)
+        return makeUnexpected("ApplicationCache domain already enabled"_s);
 
     m_instrumentingAgents.setEnabledApplicationCacheAgent(this);
 
     // We need to pass initial navigator.onOnline.
     networkStateChanged();
+
+    return { };
 }
 
-void InspectorApplicationCacheAgent::disable(ErrorString& errorString)
+Inspector::Protocol::ErrorStringOr<void> InspectorApplicationCacheAgent::disable()
 {
-    if (m_instrumentingAgents.enabledApplicationCacheAgent() != this) {
-        errorString = "ApplicationCache domain already disabled"_s;
-        return;
-    }
+    if (m_instrumentingAgents.enabledApplicationCacheAgent() != this)
+        return makeUnexpected("ApplicationCache domain already disabled"_s);
 
     m_instrumentingAgents.setEnabledApplicationCacheAgent(nullptr);
+
+    return { };
 }
 
-void InspectorApplicationCacheAgent::updateApplicationCacheStatus(Frame* frame)
+void InspectorApplicationCacheAgent::updateApplicationCacheStatus(LocalFrame* frame)
 {
     auto* pageAgent = m_instrumentingAgents.enabledPageAgent();
     if (!pageAgent)
@@ -109,34 +108,32 @@ void InspectorApplicationCacheAgent::networkStateChanged()
     m_frontendDispatcher->networkStateUpdated(platformStrategies()->loaderStrategy()->isOnLine());
 }
 
-void InspectorApplicationCacheAgent::getFramesWithManifests(ErrorString& errorString, RefPtr<JSON::ArrayOf<Inspector::Protocol::ApplicationCache::FrameWithManifest>>& result)
+Expected<Ref<JSON::ArrayOf<Inspector::Protocol::ApplicationCache::FrameWithManifest>>, Inspector::Protocol::ErrorString> InspectorApplicationCacheAgent::getFramesWithManifests()
 {
     auto* pageAgent = m_instrumentingAgents.enabledPageAgent();
-    if (!pageAgent) {
-        errorString = "Page domain must be enabled"_s;
-        return;
-    }
+    if (!pageAgent)
+        return makeUnexpected("Page domain must be enabled"_s);
 
-    result = JSON::ArrayOf<Inspector::Protocol::ApplicationCache::FrameWithManifest>::create();
-
-    for (Frame* frame = &m_inspectedPage.mainFrame(); frame; frame = frame->tree().traverseNext()) {
-        auto* documentLoader = frame->loader().documentLoader();
+    auto result = JSON::ArrayOf<Inspector::Protocol::ApplicationCache::FrameWithManifest>::create();
+    m_inspectedPage.forEachLocalFrame([&](LocalFrame& frame) {
+        auto* documentLoader = frame.loader().documentLoader();
         if (!documentLoader)
-            continue;
+            return;
 
         auto& host = documentLoader->applicationCacheHost();
         String manifestURL = host.applicationCacheInfo().manifest.string();
         if (!manifestURL.isEmpty()) {
             result->addItem(Inspector::Protocol::ApplicationCache::FrameWithManifest::create()
-                .setFrameId(pageAgent->frameId(frame))
+                .setFrameId(pageAgent->frameId(&frame))
                 .setManifestURL(manifestURL)
                 .setStatus(static_cast<int>(host.status()))
                 .release());
         }
-    }
+    });
+    return result;
 }
 
-DocumentLoader* InspectorApplicationCacheAgent::assertFrameWithDocumentLoader(ErrorString& errorString, const String& frameId)
+DocumentLoader* InspectorApplicationCacheAgent::assertFrameWithDocumentLoader(Inspector::Protocol::ErrorString& errorString, const Inspector::Protocol::Network::FrameId& frameId)
 {
     auto* pageAgent = m_instrumentingAgents.enabledPageAgent();
     if (!pageAgent) {
@@ -151,23 +148,27 @@ DocumentLoader* InspectorApplicationCacheAgent::assertFrameWithDocumentLoader(Er
     return InspectorPageAgent::assertDocumentLoader(errorString, frame);
 }
 
-void InspectorApplicationCacheAgent::getManifestForFrame(ErrorString& errorString, const String& frameId, String* manifestURL)
+Expected<String, Inspector::Protocol::ErrorString> InspectorApplicationCacheAgent::getManifestForFrame(const Inspector::Protocol::Network::FrameId& frameId)
 {
+    Inspector::Protocol::ErrorString errorString;
+
     DocumentLoader* documentLoader = assertFrameWithDocumentLoader(errorString, frameId);
     if (!documentLoader)
-        return;
+        return makeUnexpected(errorString);
 
-    *manifestURL = documentLoader->applicationCacheHost().applicationCacheInfo().manifest.string();
+    return documentLoader->applicationCacheHost().applicationCacheInfo().manifest.string();
 }
 
-void InspectorApplicationCacheAgent::getApplicationCacheForFrame(ErrorString& errorString, const String& frameId, RefPtr<Inspector::Protocol::ApplicationCache::ApplicationCache>& applicationCache)
+Expected<Ref<Inspector::Protocol::ApplicationCache::ApplicationCache>, Inspector::Protocol::ErrorString> InspectorApplicationCacheAgent::getApplicationCacheForFrame(const Inspector::Protocol::Network::FrameId& frameId)
 {
+    Inspector::Protocol::ErrorString errorString;
+
     auto* documentLoader = assertFrameWithDocumentLoader(errorString, frameId);
     if (!documentLoader)
-        return;
+        return makeUnexpected(errorString);
 
     auto& host = documentLoader->applicationCacheHost();
-    applicationCache = buildObjectForApplicationCache(host.resourceList(), host.applicationCacheInfo());
+    return buildObjectForApplicationCache(host.resourceList(), host.applicationCacheInfo());
 }
 
 Ref<Inspector::Protocol::ApplicationCache::ApplicationCache> InspectorApplicationCacheAgent::buildObjectForApplicationCache(const Vector<ApplicationCacheHost::ResourceInfo>& applicationCacheResources, const ApplicationCacheHost::CacheInfo& applicationCacheInfo)
@@ -191,27 +192,15 @@ Ref<JSON::ArrayOf<Inspector::Protocol::ApplicationCache::ApplicationCacheResourc
 
 Ref<Inspector::Protocol::ApplicationCache::ApplicationCacheResource> InspectorApplicationCacheAgent::buildObjectForApplicationCacheResource(const ApplicationCacheHost::ResourceInfo& resourceInfo)
 {
-    StringBuilder types;
-
-    if (resourceInfo.isMaster)
-        types.appendLiteral("Master ");
-
-    if (resourceInfo.isManifest)
-        types.appendLiteral("Manifest ");
-
-    if (resourceInfo.isFallback)
-        types.appendLiteral("Fallback ");
-
-    if (resourceInfo.isForeign)
-        types.appendLiteral("Foreign ");
-
-    if (resourceInfo.isExplicit)
-        types.appendLiteral("Explicit ");
-
+    auto types = makeString(resourceInfo.isMaster ? "Master "_s : ""_s,
+        resourceInfo.isManifest ? "Manifest "_s : ""_s,
+        resourceInfo.isFallback ? "Fallback "_s : ""_s,
+        resourceInfo.isForeign ? "Foreign "_s : ""_s,
+        resourceInfo.isExplicit ? "Explicit "_s : ""_s);
     return Inspector::Protocol::ApplicationCache::ApplicationCacheResource::create()
         .setUrl(resourceInfo.resource.string())
         .setSize(static_cast<int>(resourceInfo.size))
-        .setType(types.toString())
+        .setType(types)
         .release();
 }
 

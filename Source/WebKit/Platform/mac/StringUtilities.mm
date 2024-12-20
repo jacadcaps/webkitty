@@ -26,18 +26,10 @@
 #import "config.h"
 #import "StringUtilities.h"
 
-#import "WKSharedAPICast.h"
-#import "WKStringCF.h"
-#import <JavaScriptCore/RegularExpression.h>
 #import <wtf/SoftLinking.h>
 #import <wtf/text/StringBuilder.h>
 
 namespace WebKit {
-
-NSString *nsStringFromWebCoreString(const String& string)
-{
-    return string.isEmpty() ? @"" : CFBridgingRelease(WKStringCopyCFString(0, toAPI(string.impl())));
-}
 
 #if ENABLE(TELEPHONE_NUMBER_DETECTION) && PLATFORM(MAC)
 
@@ -65,18 +57,11 @@ NSString *formattedPhoneNumberString(NSString *originalPhoneNumber)
     if (!phoneNumber)
         return originalPhoneNumber;
 
-    CFStringRef phoneNumberString = CFPhoneNumberCopyFormattedRepresentation(phoneNumber.get());
+    auto phoneNumberString = adoptCF(CFPhoneNumberCopyFormattedRepresentation(phoneNumber.get()));
     if (!phoneNumberString)
-        phoneNumberString = CFPhoneNumberCopyUnformattedRepresentation(phoneNumber.get());
+        phoneNumberString = adoptCF(CFPhoneNumberCopyUnformattedRepresentation(phoneNumber.get()));
 
-    return CFBridgingRelease(phoneNumberString);
-}
-
-#else
-
-NSString *formattedPhoneNumberString(NSString *)
-{
-    return nil;
+    return phoneNumberString.bridgingAutorelease();
 }
 
 #endif // ENABLE(TELEPHONE_NUMBER_DETECTION) && PLATFORM(MAC)

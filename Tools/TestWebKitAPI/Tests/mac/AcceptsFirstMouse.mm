@@ -24,8 +24,10 @@
  */
 
 #import "config.h"
+#import "TestNavigationDelegate.h"
+#import "TestWKWebView.h"
 #import "WebKitAgnosticTest.h"
-
+#import <Carbon/Carbon.h>
 #import <wtf/RetainPtr.h>
 
 @interface NSApplication (TestWebKitAPINSApplicationDetails)
@@ -41,7 +43,7 @@ public:
     // WebKitAgnosticTest
     virtual NSURL *url() const { return [[NSBundle mainBundle] URLForResource:@"acceptsFirstMouse" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"]; }
     virtual void didLoadURL(WebView *webView) { runTest(webView); }
-    virtual void didLoadURL(WKView *wkView) { runTest(wkView); }
+    virtual void didLoadURL(WKWebView *wkView) { runTest(wkView); }
 };
 
 template <typename View>
@@ -57,7 +59,7 @@ void AcceptsFirstMouse::runTest(View view)
     NSEvent *mouseEventInsideSelection = [NSEvent mouseEventWithType:NSEventTypeLeftMouseDown location:pointInsideSelection modifierFlags:0 timestamp:0 windowNumber:[window.get() windowNumber] context:nil eventNumber:0 clickCount:1 pressure:1];
     EXPECT_TRUE([[view hitTest:pointInsideSelection] acceptsFirstMouse:mouseEventInsideSelection]);
 
-    NSPoint pointOutsideSelection = NSMakePoint(50, viewHeight - 150);
+    NSPoint pointOutsideSelection = NSMakePoint(150, viewHeight - 150);
     NSEvent *mouseEventOutsideSelection = [NSEvent mouseEventWithType:NSEventTypeLeftMouseDown location:pointOutsideSelection modifierFlags:0 timestamp:0 windowNumber:[window.get() windowNumber] context:nil eventNumber:0 clickCount:1 pressure:1];
     EXPECT_FALSE([[view hitTest:pointInsideSelection] acceptsFirstMouse:mouseEventOutsideSelection]);
 }
@@ -73,6 +75,17 @@ TEST_F(AcceptsFirstMouse, WebKit)
 TEST_F(AcceptsFirstMouse, WebKit2)
 {
     runWebKit2Test();
+}
+
+TEST(WebKit2, AcceptsFirstMouseDuringWebProcessLaunch)
+{
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 400, 400)]);
+    [webView loadHTMLString:@"<body>" baseURL:nil];
+
+    auto mouseEvent = [NSEvent mouseEventWithType:NSEventTypeLeftMouseDown location:NSMakePoint(1, 1) modifierFlags:0 timestamp:GetCurrentEventTime() windowNumber:[webView window].windowNumber context:NSGraphicsContext.currentContext eventNumber:1 clickCount:1 pressure:0];
+    [webView acceptsFirstMouse:mouseEvent];
+
+    [webView _test_waitForDidFinishNavigation];
 }
 
 } // namespace TestWebKitAPI

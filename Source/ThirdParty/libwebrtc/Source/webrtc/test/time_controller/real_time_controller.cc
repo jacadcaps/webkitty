@@ -9,9 +9,9 @@
  */
 #include "test/time_controller/real_time_controller.h"
 
+#include "api/field_trials_view.h"
 #include "api/task_queue/default_task_queue_factory.h"
 #include "rtc_base/null_socket_server.h"
-#include "system_wrappers/include/sleep.h"
 
 namespace webrtc {
 namespace {
@@ -31,8 +31,8 @@ class MainThread : public rtc::Thread {
   CurrentThreadSetter current_setter_;
 };
 }  // namespace
-RealTimeController::RealTimeController()
-    : task_queue_factory_(CreateDefaultTaskQueueFactory()),
+RealTimeController::RealTimeController(const FieldTrialsView* field_trials)
+    : task_queue_factory_(CreateDefaultTaskQueueFactory(field_trials)),
       main_thread_(std::make_unique<MainThread>()) {
   main_thread_->SetName("Main", this);
 }
@@ -43,11 +43,6 @@ Clock* RealTimeController::GetClock() {
 
 TaskQueueFactory* RealTimeController::GetTaskQueueFactory() {
   return task_queue_factory_.get();
-}
-
-std::unique_ptr<ProcessThread> RealTimeController::CreateProcessThread(
-    const char* thread_name) {
-  return ProcessThread::Create(thread_name);
 }
 
 std::unique_ptr<rtc::Thread> RealTimeController::CreateThread(

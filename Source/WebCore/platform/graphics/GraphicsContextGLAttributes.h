@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,39 +25,46 @@
 
 #pragma once
 
-#if ENABLE(GRAPHICS_CONTEXT_GL)
+#if ENABLE(WEBGL)
+#include <optional>
 
 namespace WebCore {
 
-enum class GraphicsContextGLPowerPreference {
+enum class GraphicsContextGLPowerPreference : uint8_t {
     Default,
     LowPower,
     HighPerformance
 };
 
+enum class GraphicsContextGLSimulatedCreationFailure : uint8_t {
+    None,
+    IPCBufferOOM,
+    CreationTimeout,
+    FailPlatformContextCreation
+};
+
+#if PLATFORM(MAC)
+using PlatformGPUID = uint64_t;
+#endif
+
 struct GraphicsContextGLAttributes {
-    // WebGLContextAttributes
     bool alpha { true };
     bool depth { true };
     bool stencil { false };
     bool antialias { true };
     bool premultipliedAlpha { true };
     bool preserveDrawingBuffer { false };
-    bool failIfMajorPerformanceCaveat { false };
-    using PowerPreference = GraphicsContextGLPowerPreference;
-    PowerPreference powerPreference { PowerPreference::Default };
-
-    // Additional attributes.
-    bool shareResources { true };
+    GraphicsContextGLPowerPreference powerPreference { GraphicsContextGLPowerPreference::Default };
     bool isWebGL2 { false };
-    bool noExtensions { false };
-    float devicePixelRatio { 1 };
-    PowerPreference initialPowerPreference { PowerPreference::Default };
+#if PLATFORM(MAC)
+    PlatformGPUID windowGPUID { 0 };
+#endif
 #if ENABLE(WEBXR)
     bool xrCompatible { false };
 #endif
+    using SimulatedCreationFailure = GraphicsContextGLSimulatedCreationFailure;
+    SimulatedCreationFailure failContextCreationForTesting { SimulatedCreationFailure::None };
 };
-
 }
 
-#endif // ENABLE(GRAPHICS_CONTEXT_GL)
+#endif // ENABLE(WEBGL)

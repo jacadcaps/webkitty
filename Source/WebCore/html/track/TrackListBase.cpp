@@ -30,45 +30,55 @@
 #include "TrackListBase.h"
 
 #include "EventNames.h"
-#include "HTMLMediaElement.h"
 #include "ScriptExecutionContext.h"
 #include "TrackEvent.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(TrackListBase);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(TrackListBase);
 
-TrackListBase::TrackListBase(WeakPtr<HTMLMediaElement> element, ScriptExecutionContext* context)
+TrackListBase::TrackListBase(ScriptExecutionContext* context, Type type)
     : ActiveDOMObject(context)
-    , m_element(element)
-    , m_asyncEventQueue(MainThreadGenericEventQueue::create(*this))
+    , m_type(type)
 {
-    ASSERT(!context || is<Document>(context));
 }
 
-TrackListBase::~TrackListBase()
+TrackListBase::~TrackListBase() = default;
+
+void TrackListBase::didMoveToNewDocument(Document& newDocument)
 {
-    clearElement();
+    ActiveDOMObject::didMoveToNewDocument(newDocument);
+    for (RefPtr track : m_inbandTracks)
+        track->didMoveToNewDocument(newDocument);
 }
 
-void TrackListBase::clearElement()
+WebCoreOpaqueRoot TrackListBase::opaqueRoot()
 {
-    m_element = nullptr;
-    for (auto& track : m_inbandTracks) {
-        track->setMediaElement(nullptr);
-        track->clearClient();
-    }
-}
-
-Element* TrackListBase::element() const
-{
-    return m_element.get();
+    if (auto* rootObserver = m_opaqueRootObserver.get())
+        return (*rootObserver)();
+    return WebCoreOpaqueRoot { this };
 }
 
 unsigned TrackListBase::length() const
 {
     return m_inbandTracks.size();
+}
+
+RefPtr<TrackBase> TrackListBase::find(TrackID trackID) const
+{
+    size_t index = m_inbandTracks.findIf([&](auto& value) {
+        return value->trackId() == trackID;
+    });
+    if (index == notFound)
+        return nullptr;
+    return m_inbandTracks[index];
+}
+
+void TrackListBase::remove(TrackID trackID, bool scheduleEvent)
+{
+    if (RefPtr track = find(trackID))
+        remove(*track, scheduleEvent);
 }
 
 void TrackListBase::remove(TrackBase& track, bool scheduleEvent)
@@ -77,10 +87,8 @@ void TrackListBase::remove(TrackBase& track, bool scheduleEvent)
     if (index == notFound)
         return;
 
-    if (track.mediaElement()) {
-        ASSERT(track.mediaElement() == m_element);
-        track.setMediaElement(nullptr);
-    }
+    if (track.trackList() == this)
+        track.clearTrackList();
 
     Ref<TrackBase> trackRef = *m_inbandTracks[index];
 
@@ -95,9 +103,14 @@ bool TrackListBase::contains(TrackBase& track) const
     return m_inbandTracks.find(&track) != notFound;
 }
 
+bool TrackListBase::contains(TrackID trackID) const
+{
+    return find(trackID);
+}
+
 void TrackListBase::scheduleTrackEvent(const AtomString& eventName, Ref<TrackBase>&& track)
 {
-    m_asyncEventQueue->enqueueEvent(TrackEvent::create(eventName, Event::CanBubble::No, Event::IsCancelable::No, WTFMove(track)));
+    queueTaskToDispatchEvent(*this, TaskSource::MediaElement, TrackEvent::create(eventName, Event::CanBubble::No, Event::IsCancelable::No, WTFMove(track)));
 }
 
 void TrackListBase::scheduleAddTrackEvent(Ref<TrackBase>&& track)
@@ -160,12 +173,11 @@ void TrackListBase::scheduleChangeEvent()
     // Whenever a track in a VideoTrackList that was previously not selected is
     // selected, the user agent must queue a task to fire a simple event named
     // change at the VideoTrackList object.
-    m_asyncEventQueue->enqueueEvent(Event::create(eventNames().changeEvent, Event::CanBubble::No, Event::IsCancelable::No));
-}
-
-bool TrackListBase::isChangeEventScheduled() const
-{
-    return m_asyncEventQueue->hasPendingEventsOfType(eventNames().changeEvent);
+    m_isChangeEventScheduled = true;
+    queueTaskKeepingObjectAlive(*this, TaskSource::MediaElement, [this] {
+        m_isChangeEventScheduled = false;
+        dispatchEvent(Event::create(eventNames().changeEvent, Event::CanBubble::No, Event::IsCancelable::No));
+    });
 }
 
 bool TrackListBase::isAnyTrackEnabled() const
@@ -175,11 +187,6 @@ bool TrackListBase::isAnyTrackEnabled() const
             return true;
     }
     return false;
-}
-
-bool TrackListBase::virtualHasPendingActivity() const
-{
-    return m_asyncEventQueue->hasPendingActivity();
 }
 
 } // namespace WebCore

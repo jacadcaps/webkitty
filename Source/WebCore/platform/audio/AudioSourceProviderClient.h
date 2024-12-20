@@ -25,9 +25,20 @@
 #ifndef AudioSourceProviderClient_h
 #define AudioSourceProviderClient_h
 
+#include <wtf/WeakPtr.h>
+
+namespace WebCore {
+class AudioSourceProviderClient;
+}
+
+namespace WTF {
+template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
+template<> struct IsDeprecatedWeakRefSmartPointerException<WebCore::AudioSourceProviderClient> : std::true_type { };
+}
+
 namespace WebCore {
 
-class AudioSourceProviderClient {
+class AudioSourceProviderClient : public CanMakeWeakPtr<AudioSourceProviderClient, WeakPtrFactoryInitialization::Eager> {
 public:
     virtual void setFormat(size_t numberOfChannels, float sampleRate) = 0;
 protected:

@@ -26,8 +26,7 @@
 #include "config.h"
 #include "AccessibilityController.h"
 
-#if HAVE(ACCESSIBILITY)
-
+#include "AccessibilityUIElement.h"
 #include <WebCore/NotImplemented.h>
 
 namespace WTR {
@@ -37,7 +36,7 @@ void AccessibilityController::resetToConsistentState()
     notImplemented();
 }
 
-RefPtr<AccessibilityUIElement> AccessibilityController::accessibleElementById(JSStringRef id)
+RefPtr<AccessibilityUIElement> AccessibilityController::accessibleElementById(JSContextRef, JSStringRef id)
 {
     notImplemented();
     return nullptr;
@@ -49,19 +48,24 @@ JSRetainPtr<JSStringRef> AccessibilityController::platformName()
     return nullptr;
 }
 
-Ref<AccessibilityUIElement> AccessibilityController::rootElement()
+void AccessibilityController::injectAccessibilityPreference(JSStringRef domain, JSStringRef key, JSStringRef value)
+{
+    notImplemented();
+}
+
+Ref<AccessibilityUIElement> AccessibilityController::rootElement(JSContextRef)
 {
     notImplemented();
     return AccessibilityUIElement::create(nullptr);
 }
 
-Ref<AccessibilityUIElement> AccessibilityController::focusedElement()
+RefPtr<AccessibilityUIElement> AccessibilityController::focusedElement(JSContextRef)
 {
     notImplemented();
-    return AccessibilityUIElement::create(nullptr);
+    return nullptr;
 }
 
-bool AccessibilityController::addNotificationListener(JSValueRef)
+bool AccessibilityController::addNotificationListener(JSContextRef, JSValueRef)
 {
     notImplemented();
     return false;
@@ -73,6 +77,8 @@ bool AccessibilityController::removeNotificationListener()
     return false;
 }
 
-} // namespace WTR
+void AccessibilityController::overrideClient(JSStringRef)
+{
+}
 
-#endif // HAVE(ACCESSIBILITY)
+} // namespace WTR

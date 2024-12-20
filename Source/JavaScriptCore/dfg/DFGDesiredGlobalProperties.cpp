@@ -31,6 +31,7 @@
 #include "CodeBlock.h"
 #include "DFGCommonData.h"
 #include "DFGDesiredIdentifiers.h"
+#include "DFGDesiredWatchpoints.h"
 #include "JSGlobalObject.h"
 
 namespace JSC { namespace DFG {
@@ -54,19 +55,25 @@ bool DesiredGlobalProperties::isStillValidOnMainThread(VM& vm, DesiredIdentifier
     return isStillValid;
 }
 
-void DesiredGlobalProperties::reallyAdd(CodeBlock* codeBlock, DesiredIdentifiers& identifiers, CommonData& common)
+bool DesiredGlobalProperties::reallyAdd(CodeBlock* codeBlock, DesiredIdentifiers& identifiers, WatchpointCollector& collector)
 {
     for (const auto& property : m_set) {
-        auto* uid = identifiers.at(property.identifierNumber());
-        auto& watchpointSet = property.globalObject()->ensureReferencedPropertyWatchpointSet(uid);
-        ASSERT(watchpointSet.isStillValid());
-        CodeBlockJettisoningWatchpoint* watchpoint = nullptr;
-        {
-            ConcurrentJSLocker locker(codeBlock->m_lock);
-            watchpoint = common.watchpoints.add(codeBlock);
-        }
-        watchpointSet.add(WTFMove(watchpoint));
+        bool result = collector.addWatchpoint([&](CodeBlockJettisoningWatchpoint& watchpoint) {
+            auto* uid = identifiers.at(property.identifierNumber());
+            JSGlobalObject* globalObject = property.globalObject();
+            {
+                ConcurrentJSLocker locker(codeBlock->m_lock);
+                watchpoint.initialize(codeBlock);
+            }
+            auto& watchpointSet = globalObject->ensureReferencedPropertyWatchpointSet(uid);
+            ASSERT(watchpointSet.isStillValid());
+            watchpointSet.add(&watchpoint);
+            return true;
+        });
+        if (!result)
+            return false;
     }
+    return true;
 }
 
 } } // namespace JSC::DFG

@@ -29,26 +29,35 @@
 
 #include "WebXRPose.h"
 #include "WebXRView.h"
-#include <wtf/IsoMalloc.h>
 #include <wtf/Ref.h>
 #include <wtf/RefCounted.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 
 namespace WebCore {
 
 class WebXRViewerPose : public WebXRPose {
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(WebXRViewerPose);
 public:
-    static Ref<WebXRViewerPose> create();
-    ~WebXRViewerPose();
+    static Ref<WebXRViewerPose> create(Ref<WebXRRigidTransform>&&, bool emulatedPosition);
+    virtual ~WebXRViewerPose();
 
     const Vector<Ref<WebXRView>>& views() const;
+    void setViews(Vector<Ref<WebXRView>>&&);
+
+    JSValueInWrappedObject& cachedViews() { return m_cachedViews; }
 
 private:
-    WebXRViewerPose();
+    WebXRViewerPose(Ref<WebXRRigidTransform>&&, bool emulatedPosition);
+
+    bool isViewerPose() const final { return true; }
 
     Vector<Ref<WebXRView>> m_views;
+    JSValueInWrappedObject m_cachedViews;
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_WEBXRPOSE(WebXRViewerPose, isViewerPose())
 
 #endif // ENABLE(WEBXR)

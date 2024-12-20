@@ -102,10 +102,9 @@ DiskCacheMonitor::DiskCacheMonitor(const ResourceRequest& request, PAL::SessionI
 
 #if USE(WEB_THREAD)
     auto blockToRun = ^(CFCachedURLResponseRef response) {
-        CFRetain(response);
+        auto strongResponse = retainPtr(response);
         WebThreadRun(^{
-            block(response);
-            CFRelease(response);
+            block(strongResponse.get());
         });
     };
 #else
@@ -116,7 +115,7 @@ DiskCacheMonitor::DiskCacheMonitor(const ResourceRequest& request, PAL::SessionI
 
 void DiskCacheMonitor::resourceBecameFileBacked(SharedBuffer& fileBackedBuffer)
 {
-    auto* resource = MemoryCache::singleton().resourceForRequest(m_resourceRequest, m_sessionID);
+    CachedResourceHandle resource = MemoryCache::singleton().resourceForRequest(m_resourceRequest, m_sessionID);
     if (!resource)
         return;
 

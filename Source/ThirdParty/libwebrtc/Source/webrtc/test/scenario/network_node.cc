@@ -10,9 +10,11 @@
 #include "test/scenario/network_node.h"
 
 #include <algorithm>
+#include <memory>
 #include <vector>
 
-#include <memory>
+#include "absl/cleanup/cleanup.h"
+#include "api/sequence_checker.h"
 #include "rtc_base/net_helper.h"
 #include "rtc_base/numerics/safe_minmax.h"
 
@@ -23,16 +25,20 @@ constexpr char kDummyTransportName[] = "dummy";
 SimulatedNetwork::Config CreateSimulationConfig(
     NetworkSimulationConfig config) {
   SimulatedNetwork::Config sim_config;
-  sim_config.link_capacity_kbps = config.bandwidth.kbps_or(0);
+  sim_config.link_capacity = config.bandwidth;
   sim_config.loss_percent = config.loss_rate * 100;
   sim_config.queue_delay_ms = config.delay.ms();
   sim_config.delay_standard_deviation_ms = config.delay_std_dev.ms();
   sim_config.packet_overhead = config.packet_overhead.bytes<int>();
-  sim_config.codel_active_queue_management =
-      config.codel_active_queue_management;
   sim_config.queue_length_packets =
       config.packet_queue_length_limit.value_or(0);
   return sim_config;
+}
+
+rtc::RouteEndpoint CreateRouteEndpoint(uint16_t network_id,
+                                       uint16_t adapter_id) {
+  return rtc::RouteEndpoint(rtc::ADAPTER_TYPE_UNKNOWN, adapter_id, network_id,
+                            /* uses_turn = */ false);
 }
 }  // namespace
 
@@ -69,12 +75,13 @@ ColumnPrinter SimulationNode::ConfigPrinter() const {
 
 NetworkNodeTransport::NetworkNodeTransport(Clock* sender_clock,
                                            Call* sender_call)
-    : sender_clock_(sender_clock), sender_call_(sender_call) {}
+    : sender_clock_(sender_clock), sender_call_(sender_call) {
+  sequence_checker_.Detach();
+}
 
 NetworkNodeTransport::~NetworkNodeTransport() = default;
 
-bool NetworkNodeTransport::SendRtp(const uint8_t* packet,
-                                   size_t length,
+bool NetworkNodeTransport::SendRtp(rtc::ArrayView<const uint8_t> packet,
                                    const PacketOptions& options) {
   int64_t send_time_ms = sender_clock_->TimeInMilliseconds();
   rtc::SentPacket sent_packet;
@@ -82,46 +89,56 @@ bool NetworkNodeTransport::SendRtp(const uint8_t* packet,
   sent_packet.info.included_in_feedback = options.included_in_feedback;
   sent_packet.info.included_in_allocation = options.included_in_allocation;
   sent_packet.send_time_ms = send_time_ms;
-  sent_packet.info.packet_size_bytes = length;
+  sent_packet.info.packet_size_bytes = packet.size();
   sent_packet.info.packet_type = rtc::PacketType::kData;
   sender_call_->OnSentPacket(sent_packet);
 
-  rtc::CritScope crit(&crit_sect_);
+  MutexLock lock(&mutex_);
   if (!endpoint_)
     return false;
-  rtc::CopyOnWriteBuffer buffer(packet, length);
+  rtc::CopyOnWriteBuffer buffer(packet);
   endpoint_->SendPacket(local_address_, remote_address_, buffer,
                         packet_overhead_.bytes());
   return true;
 }
 
-bool NetworkNodeTransport::SendRtcp(const uint8_t* packet, size_t length) {
-  rtc::CopyOnWriteBuffer buffer(packet, length);
-  rtc::CritScope crit(&crit_sect_);
+bool NetworkNodeTransport::SendRtcp(rtc::ArrayView<const uint8_t> packet) {
+  rtc::CopyOnWriteBuffer buffer(packet);
+  MutexLock lock(&mutex_);
   if (!endpoint_)
     return false;
   endpoint_->SendPacket(local_address_, remote_address_, buffer,
                         packet_overhead_.bytes());
   return true;
+}
+
+void NetworkNodeTransport::UpdateAdapterId(int adapter_id) {
+  RTC_DCHECK_RUN_ON(&sequence_checker_);
+  adapter_id_ = adapter_id;
 }
 
 void NetworkNodeTransport::Connect(EmulatedEndpoint* endpoint,
                                    const rtc::SocketAddress& receiver_address,
                                    DataSize packet_overhead) {
+  RTC_DCHECK_RUN_ON(&sequence_checker_);
   rtc::NetworkRoute route;
   route.connected = true;
   // We assume that the address will be unique in the lower bytes.
-  route.local_network_id = static_cast<uint16_t>(
-      receiver_address.ipaddr().v4AddressAsHostOrderInteger());
-  route.remote_network_id = static_cast<uint16_t>(
-      receiver_address.ipaddr().v4AddressAsHostOrderInteger());
+  route.local = CreateRouteEndpoint(
+      static_cast<uint16_t>(
+          receiver_address.ipaddr().v4AddressAsHostOrderInteger()),
+      adapter_id_);
+  route.remote = CreateRouteEndpoint(
+      static_cast<uint16_t>(
+          receiver_address.ipaddr().v4AddressAsHostOrderInteger()),
+      adapter_id_);
   route.packet_overhead = packet_overhead.bytes() +
                           receiver_address.ipaddr().overhead() +
                           cricket::kUdpHeaderSize;
   {
     // Only IPv4 address is supported.
     RTC_CHECK_EQ(receiver_address.family(), AF_INET);
-    rtc::CritScope crit(&crit_sect_);
+    MutexLock lock(&mutex_);
     endpoint_ = endpoint;
     local_address_ = rtc::SocketAddress(endpoint_->GetPeerLocalAddress(), 0);
     remote_address_ = receiver_address;
@@ -129,13 +146,25 @@ void NetworkNodeTransport::Connect(EmulatedEndpoint* endpoint,
     current_network_route_ = route;
   }
 
-  sender_call_->GetTransportControllerSend()->OnNetworkRouteChanged(
-      kDummyTransportName, route);
+  // Must be called from the worker thread.
+  rtc::Event event;
+  auto cleanup = absl::MakeCleanup([&event] { event.Set(); });
+  auto&& task = [this, &route, cleanup = std::move(cleanup)] {
+    sender_call_->GetTransportControllerSend()->OnNetworkRouteChanged(
+        kDummyTransportName, route);
+  };
+  if (!sender_call_->worker_thread()->IsCurrent()) {
+    sender_call_->worker_thread()->PostTask(std::move(task));
+  } else {
+    std::move(task)();
+  }
+  event.Wait(TimeDelta::Seconds(1));
 }
 
 void NetworkNodeTransport::Disconnect() {
-  rtc::CritScope crit(&crit_sect_);
+  MutexLock lock(&mutex_);
   current_network_route_.connected = false;
+
   sender_call_->GetTransportControllerSend()->OnNetworkRouteChanged(
       kDummyTransportName, current_network_route_);
   current_network_route_ = {};

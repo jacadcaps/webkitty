@@ -28,9 +28,12 @@
 
 #if ENABLE(WEBXR)
 
+#include <wtf/TZoneMallocInlines.h>
 #include "WebXRSession.h"
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(XRSessionEvent);
 
 Ref<XRSessionEvent> XRSessionEvent::create(const AtomString& type, const Init& initializer, IsTrusted isTrusted)
 {
@@ -38,7 +41,7 @@ Ref<XRSessionEvent> XRSessionEvent::create(const AtomString& type, const Init& i
 }
 
 XRSessionEvent::XRSessionEvent(const AtomString& type, const Init& initializer, IsTrusted isTrusted)
-    : Event(type, initializer, isTrusted)
+    : Event(EventInterfaceType::XRSessionEvent, type, initializer, isTrusted)
     , m_session(initializer.session)
 {
     ASSERT(m_session);
@@ -48,6 +51,7 @@ XRSessionEvent::~XRSessionEvent() = default;
 
 const WebXRSession& XRSessionEvent::session() const
 {
+    ASSERT(m_session);
     return *m_session;
 }
 

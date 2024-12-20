@@ -33,10 +33,10 @@ typedef void (*ScaleFrameFunc)(const YV12_BUFFER_CONFIG *src,
 class ScaleTest : public VpxScaleBase,
                   public ::testing::TestWithParam<ScaleFrameFunc> {
  public:
-  virtual ~ScaleTest() {}
+  ~ScaleTest() override = default;
 
  protected:
-  virtual void SetUp() { scale_fn_ = GetParam(); }
+  void SetUp() override { scale_fn_ = GetParam(); }
 
   void ReferenceScaleFrame(INTERP_FILTER filter_type, int phase_scaler) {
     vp9_scale_and_extend_frame_c(&img_, &ref_img_, filter_type, phase_scaler);
@@ -48,12 +48,11 @@ class ScaleTest : public VpxScaleBase,
   }
 
   void RunTest(INTERP_FILTER filter_type) {
-    static const int kNumSizesToTest = 20;
+    static const int kNumSizesToTest = 22;
     static const int kNumScaleFactorsToTest = 4;
-    static const int kSizesToTest[] = {
-      2,  4,  6,  8,  10, 12, 14, 16, 18,  20,
-      22, 24, 26, 28, 30, 32, 34, 68, 128, 134
-    };
+    static const int kSizesToTest[] = { 1,  2,  3,  4,  6,   8,  10, 12,
+                                        14, 16, 18, 20, 22,  24, 26, 28,
+                                        30, 32, 34, 68, 128, 134 };
     static const int kScaleFactors[] = { 1, 2, 3, 4 };
     for (int phase_scaler = 0; phase_scaler < 16; ++phase_scaler) {
       for (int h = 0; h < kNumSizesToTest; ++h) {
@@ -199,17 +198,17 @@ TEST_P(ScaleTest, DISABLED_Speed) {
   }
 }
 
-INSTANTIATE_TEST_CASE_P(C, ScaleTest,
-                        ::testing::Values(vp9_scale_and_extend_frame_c));
+INSTANTIATE_TEST_SUITE_P(C, ScaleTest,
+                         ::testing::Values(vp9_scale_and_extend_frame_c));
 
 #if HAVE_SSSE3
-INSTANTIATE_TEST_CASE_P(SSSE3, ScaleTest,
-                        ::testing::Values(vp9_scale_and_extend_frame_ssse3));
+INSTANTIATE_TEST_SUITE_P(SSSE3, ScaleTest,
+                         ::testing::Values(vp9_scale_and_extend_frame_ssse3));
 #endif  // HAVE_SSSE3
 
 #if HAVE_NEON
-INSTANTIATE_TEST_CASE_P(NEON, ScaleTest,
-                        ::testing::Values(vp9_scale_and_extend_frame_neon));
+INSTANTIATE_TEST_SUITE_P(NEON, ScaleTest,
+                         ::testing::Values(vp9_scale_and_extend_frame_neon));
 #endif  // HAVE_NEON
 
 }  // namespace libvpx_test

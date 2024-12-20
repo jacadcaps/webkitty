@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,39 +26,39 @@
 #pragma once
 
 #include "DisplayList.h"
+#include "DisplayListItem.h"
 #include <wtf/Noncopyable.h>
-#include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
-enum class AlphaPremultiplication : uint8_t;
 class FloatRect;
 class GraphicsContext;
-class ImageData;
 
 namespace DisplayList {
+
+class DisplayList;
+class ResourceHeap;
+
+struct ReplayResult {
+    std::unique_ptr<DisplayList> trackedDisplayList;
+    std::optional<RenderingResourceIdentifier> missingCachedResourceIdentifier;
+    StopReplayReason reasonForStopping { StopReplayReason::ReplayedAllItems };
+};
 
 class Replayer {
     WTF_MAKE_NONCOPYABLE(Replayer);
 public:
-    class Delegate;
-    WEBCORE_EXPORT Replayer(GraphicsContext&, const DisplayList&, Delegate* = nullptr);
-    WEBCORE_EXPORT ~Replayer();
+    WEBCORE_EXPORT Replayer(GraphicsContext&, const DisplayList&);
+    WEBCORE_EXPORT Replayer(GraphicsContext&, const Vector<Item>&, const ResourceHeap&);
+    ~Replayer() = default;
 
-    WEBCORE_EXPORT std::unique_ptr<DisplayList> replay(const FloatRect& initialClip = { }, bool trackReplayList = false);
+    WEBCORE_EXPORT ReplayResult replay(const FloatRect& initialClip = { }, bool trackReplayList = false);
 
-    class Delegate {
-    public:
-        virtual ~Delegate() { }
-        virtual bool apply(Item&, GraphicsContext&) { return false; }
-    };
-    
 private:
-    const DisplayList& m_displayList;
     GraphicsContext& m_context;
-    Delegate* m_delegate;
+    const Vector<Item>& m_items;
+    const ResourceHeap& m_resourceHeap;
 };
 
-}
-}
-
+} // namespace DisplayList
+} // namespace WebCore

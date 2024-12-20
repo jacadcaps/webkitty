@@ -4,23 +4,20 @@ list(APPEND WTF_SOURCES
 
 if (WIN32)
     list(APPEND WTF_SOURCES
+        text/win/StringWin.cpp
         text/win/TextBreakIteratorInternalICUWin.cpp
 
         win/CPUTimeWin.cpp
         win/DbgHelperWin.cpp
         win/FileSystemWin.cpp
         win/LanguageWin.cpp
+        win/LoggingWin.cpp
         win/MainThreadWin.cpp
         win/OSAllocatorWin.cpp
         win/PathWalker.cpp
-        win/ThreadSpecificWin.cpp
+        win/SignalsWin.cpp
         win/ThreadingWin.cpp
-    )
-    list(APPEND WTF_PUBLIC_HEADERS
-        win/DbgHelperWin.h
-        win/PathWalker.h
-
-        text/win/WCharStringExtras.h
+        win/Win32Handle.cpp
     )
     list(APPEND WTF_LIBRARIES
         DbgHelp
@@ -37,6 +34,7 @@ else ()
         text/unix/TextBreakIteratorInternalICUUnix.cpp
 
         unix/LanguageUnix.cpp
+        unix/LoggingUnix.cpp
     )
     if (WTF_OS_FUCHSIA)
         list(APPEND WTF_SOURCES
@@ -44,30 +42,28 @@ else ()
         )
     else ()
         list(APPEND WTF_SOURCES
-            unix/CPUTimeUnix.cpp
+            posix/CPUTimePOSIX.cpp
         )
     endif ()
 
     if (LOWERCASE_EVENT_LOOP_TYPE STREQUAL "glib")
         list(APPEND WTF_SOURCES
             glib/FileSystemGlib.cpp
-        )
-    else ()
-        list(APPEND WTF_SOURCES
-            posix/FileSystemPOSIX.cpp
-
-            unix/UniStdExtrasUnix.cpp
+            glib/Sandbox.cpp
         )
     endif ()
 
+    list(APPEND WTF_SOURCES
+        posix/FileSystemPOSIX.cpp
+
+        unix/UniStdExtrasUnix.cpp
+    )
 endif ()
 
 if (WIN32)
     list(APPEND WTF_SOURCES
         win/MemoryFootprintWin.cpp
-    )
-    list(APPEND WTF_PUBLIC_HEADERS
-        win/Win32Handle.h
+        win/MemoryPressureHandlerWin.cpp
     )
 elseif (APPLE)
     file(COPY mac/MachExceptions.defs DESTINATION ${WTF_DERIVED_SOURCES_DIR})
@@ -79,26 +75,23 @@ elseif (APPLE)
             ${WTF_DERIVED_SOURCES_DIR}/mach_excUser.c
         MAIN_DEPENDENCY mac/MachExceptions.defs
         WORKING_DIRECTORY ${WTF_DERIVED_SOURCES_DIR}
-        COMMAND mig -sheader MachExceptionsServer.h MachExceptions.defs
+        COMMAND mig -DMACH_EXC_SERVER_TASKIDTOKEN_STATE -sheader MachExceptionsServer.h MachExceptions.defs
         VERBATIM)
     list(APPEND WTF_SOURCES
         cocoa/MemoryFootprintCocoa.cpp
+
+        generic/MemoryPressureHandlerGeneric.cpp
+
         ${WTF_DERIVED_SOURCES_DIR}/mach_excServer.c
         ${WTF_DERIVED_SOURCES_DIR}/mach_excUser.c
-    )
-    list(APPEND WTF_PUBLIC_HEADERS
-        spi/darwin/ProcessMemoryFootprint.h
     )
 elseif (CMAKE_SYSTEM_NAME MATCHES "Linux")
     list(APPEND WTF_SOURCES
         linux/CurrentProcessMemoryStatus.cpp
         linux/MemoryFootprintLinux.cpp
+        linux/RealTimeThreads.cpp
 
         unix/MemoryPressureHandlerUnix.cpp
-    )
-    list(APPEND WTF_PUBLIC_HEADERS
-        linux/ProcessMemoryFootprint.h
-        linux/CurrentProcessMemoryStatus.h
     )
 elseif (CMAKE_SYSTEM_NAME MATCHES "FreeBSD")
     list(APPEND WTF_SOURCES
@@ -114,25 +107,19 @@ else ()
 endif ()
 
 if (LOWERCASE_EVENT_LOOP_TYPE STREQUAL "glib")
-    list(APPEND WTF_SOURCES
-        glib/GRefPtr.cpp
-        glib/RunLoopGLib.cpp
-    )
     list(APPEND WTF_PUBLIC_HEADERS
         glib/GRefPtr.h
         glib/GTypedefs.h
         glib/RunLoopSourcePriority.h
     )
-
+    list(APPEND WTF_SOURCES
+        glib/GRefPtr.cpp
+        glib/RunLoopGLib.cpp
+    )
     if (ENABLE_REMOTE_INSPECTOR)
         list(APPEND WTF_SOURCES
             glib/GSocketMonitor.cpp
             glib/SocketConnection.cpp
-        )
-        list(APPEND WTF_PUBLIC_HEADERS
-            glib/GSocketMonitor.h
-            glib/GUniquePtr.h
-            glib/SocketConnection.h
         )
     endif ()
 
@@ -155,3 +142,9 @@ endif ()
 list(APPEND WTF_LIBRARIES
     Threads::Threads
 )
+
+if (USE_LIBBACKTRACE)
+    list(APPEND WTF_LIBRARIES
+        LIBBACKTRACE::LIBBACKTRACE
+    )
+endif ()

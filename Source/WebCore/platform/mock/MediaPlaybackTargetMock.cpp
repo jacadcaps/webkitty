@@ -26,41 +26,20 @@
 #include "config.h"
 #include "MediaPlaybackTargetMock.h"
 
-#if ENABLE(WIRELESS_PLAYBACK_TARGET) && !PLATFORM(IOS_FAMILY)
+#if ENABLE(WIRELESS_PLAYBACK_TARGET)
 
 namespace WebCore {
 
-Ref<MediaPlaybackTarget> MediaPlaybackTargetMock::create(const String& name, MediaPlaybackTargetContext::State state)
+Ref<MediaPlaybackTarget> MediaPlaybackTargetMock::create(MediaPlaybackTargetContextMock&& context)
 {
-    return adoptRef(*new MediaPlaybackTargetMock(name, state));
+    return adoptRef(*new MediaPlaybackTargetMock(WTFMove(context)));
 }
 
-MediaPlaybackTargetMock::MediaPlaybackTargetMock(const String& name, MediaPlaybackTargetContext::State state)
-    : MediaPlaybackTarget()
-    , m_name(name)
-    , m_state(state)
+MediaPlaybackTargetMock::MediaPlaybackTargetMock(MediaPlaybackTargetContextMock&& context)
+    : m_context(context.deviceName(), context.state())
 {
-}
-
-MediaPlaybackTargetMock::~MediaPlaybackTargetMock() = default;
-
-const MediaPlaybackTargetContext& MediaPlaybackTargetMock::targetContext() const
-{
-    m_context = MediaPlaybackTargetContext(m_name, m_state);
-    return m_context;
-}
-
-MediaPlaybackTargetMock* toMediaPlaybackTargetMock(MediaPlaybackTarget* rep)
-{
-    return const_cast<MediaPlaybackTargetMock*>(toMediaPlaybackTargetMock(const_cast<const MediaPlaybackTarget*>(rep)));
-}
-
-const MediaPlaybackTargetMock* toMediaPlaybackTargetMock(const MediaPlaybackTarget* rep)
-{
-    ASSERT_WITH_SECURITY_IMPLICATION(rep->targetType() == MediaPlaybackTarget::Mock);
-    return static_cast<const MediaPlaybackTargetMock*>(rep);
 }
 
 } // namespace WebCore
 
-#endif // ENABLE(WIRELESS_PLAYBACK_TARGET) && !PLATFORM(IOS_FAMILY)
+#endif // ENABLE(WIRELESS_PLAYBACK_TARGET)

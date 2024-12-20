@@ -31,11 +31,24 @@
 #pragma once
 
 #include <array>
-#include <wtf/Vector.h>
+#include <span>
 #include <wtf/text/CString.h>
 
 #if PLATFORM(COCOA)
 #include <CommonCrypto/CommonDigest.h>
+#endif
+
+#ifdef __OBJC__
+#include <objc/objc.h>
+#endif
+
+#if USE(CF)
+typedef const struct __CFString * CFStringRef;
+#endif
+
+// On Cocoa platforms, CoreUtils.h has a SHA1() macro that sometimes get included above here.
+#ifdef SHA1
+#undef SHA1
 #endif
 
 namespace WTF {
@@ -45,16 +58,26 @@ class SHA1 {
 public:
     WTF_EXPORT_PRIVATE SHA1();
 
-    void addBytes(const Vector<uint8_t>& input)
+    WTF_EXPORT_PRIVATE void addBytes(std::span<const std::byte>);
+
+    void addBytes(std::span<const uint8_t> input)
     {
-        addBytes(input.data(), input.size());
+        addBytes(std::as_bytes(input));
     }
+
     void addBytes(const CString& input)
     {
-        const char* string = input.data();
-        addBytes(reinterpret_cast<const uint8_t*>(string), input.length());
+        addBytes(input.span());
     }
-    WTF_EXPORT_PRIVATE void addBytes(const uint8_t* input, size_t length);
+
+    WTF_EXPORT_PRIVATE void addUTF8Bytes(StringView);
+
+#if USE(CF)
+    WTF_EXPORT_PRIVATE void addUTF8Bytes(CFStringRef);
+#ifdef __OBJC__
+    void addUTF8Bytes(NSString *string) { addUTF8Bytes((__bridge CFStringRef)string); }
+#endif
+#endif
 
     // Size of the SHA1 hash
     WTF_EXPORT_PRIVATE static constexpr size_t hashSize = 20;

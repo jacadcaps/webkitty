@@ -28,14 +28,14 @@
 
 #if ENABLE(CONTEXT_MENUS)
 
+#include "WebPage.h"
 #include <WebCore/ContextMenuClient.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebKit {
 
-class WebPage;
-
 class WebContextMenuClient : public WebCore::ContextMenuClient {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(WebContextMenuClient);
 public:
     WebContextMenuClient(WebPage* page)
         : m_page(page)
@@ -43,28 +43,34 @@ public:
     }
     
 private:
-    void contextMenuDestroyed() override;
-
     void downloadURL(const URL&) override;
-    void searchWithGoogle(const WebCore::Frame*) override;
-    void lookUpInDictionary(WebCore::Frame*) override;
-    bool isSpeaking() override;
+    void searchWithGoogle(const WebCore::LocalFrame*) override;
+    void lookUpInDictionary(WebCore::LocalFrame*) override;
+    bool isSpeaking() const override;
     void speak(const String&) override;
     void stopSpeaking() override;
 
-#if PLATFORM(COCOA)
-    void searchWithSpotlight() override;
+#if ENABLE(IMAGE_ANALYSIS)
+    bool supportsLookUpInImages() final { return true; }
+#endif
+
+#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+    bool supportsCopySubject() final { return true; }
+#endif
+
+#if HAVE(TRANSLATION_UI_SERVICES)
+    void handleTranslation(const WebCore::TranslationContextMenuInfo&) final;
 #endif
 
 #if PLATFORM(GTK)
-    void insertEmoji(WebCore::Frame&) override;
+    void insertEmoji(WebCore::LocalFrame&) override;
 #endif
 
 #if USE(ACCESSIBILITY_CONTEXT_MENUS)
     void showContextMenu() override;
 #endif
 
-    WebPage* m_page;
+    WeakPtr<WebPage> m_page;
 };
 
 } // namespace WebKit

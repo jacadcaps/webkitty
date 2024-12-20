@@ -28,10 +28,12 @@
 #if ENABLE(MEDIA_STREAM) && PLATFORM(IOS_FAMILY)
 
 #include "CaptureDeviceManager.h"
-#include <wtf/Forward.h>
-#include <wtf/HashSet.h>
+#include <wtf/Lock.h>
 #include <wtf/RetainPtr.h>
+#include <wtf/WorkQueue.h>
 
+OBJC_CLASS AVAudioSession;
+OBJC_CLASS AVAudioSessionPortDescription;
 OBJC_CLASS WebAVAudioSessionAvailableInputsListener;
 
 namespace WebCore {
@@ -42,23 +44,46 @@ class CaptureDevice;
 class AVAudioSessionCaptureDeviceManager final : public CaptureDeviceManager {
     friend class NeverDestroyed<AVAudioSessionCaptureDeviceManager>;
 public:
-    static AVAudioSessionCaptureDeviceManager& singleton();
+    WEBCORE_EXPORT static AVAudioSessionCaptureDeviceManager& singleton();
 
     const Vector<CaptureDevice>& captureDevices() final;
-    Optional<CaptureDevice> captureDeviceWithPersistentID(CaptureDevice::DeviceType, const String&);
+    void computeCaptureDevices(CompletionHandler<void()>&&) final;
+    const Vector<CaptureDevice>& speakerDevices() const { return m_speakerDevices; }
+    std::optional<CaptureDevice> captureDeviceWithPersistentID(CaptureDevice::DeviceType, const String&);
 
-    Vector<AVAudioSessionCaptureDevice>& audioSessionCaptureDevices();
-    Optional<AVAudioSessionCaptureDevice> audioSessionDeviceWithUID(const String&);
+    std::optional<AVAudioSessionCaptureDevice> audioSessionDeviceWithUID(const String&);
+    
+    void scheduleUpdateCaptureDevices();
+
+    void enableAllDevicesQuery();
+    void disableAllDevicesQuery();
+
+    void setPreferredAudioSessionDeviceUID(const String&);
+    String preferredAudioSessionDeviceUID() const { return m_preferredAudioDeviceUID; }
+    void configurePreferredAudioCaptureDevice();
 
 private:
-    AVAudioSessionCaptureDeviceManager() = default;
+    AVAudioSessionCaptureDeviceManager();
     ~AVAudioSessionCaptureDeviceManager();
 
+    void createAudioSession();
     void refreshAudioCaptureDevices();
+    Vector<AVAudioSessionCaptureDevice> retrieveAudioSessionCaptureDevices() const;
+    void setAudioCaptureDevices(Vector<AVAudioSessionCaptureDevice>&&);
+    bool setPreferredAudioSessionDeviceUIDInternal(const String&);
+    void notifyNewCurrentMicrophoneDevice(CaptureDevice&&);
 
-    Optional<Vector<CaptureDevice>> m_devices;
-    Optional<Vector<AVAudioSessionCaptureDevice>> m_audioSessionCaptureDevices;
+    enum class AudioSessionState { NotNeeded, Inactive, Active };
+
+    std::optional<Vector<CaptureDevice>> m_devices;
+    Vector<CaptureDevice> m_speakerDevices;
+    std::optional<Vector<AVAudioSessionCaptureDevice>> m_audioSessionCaptureDevices;
     RetainPtr<WebAVAudioSessionAvailableInputsListener> m_listener;
+    RetainPtr<AVAudioSession> m_audioSession;
+    Ref<WorkQueue> m_dispatchQueue;
+    String m_preferredAudioDeviceUID;
+    bool m_recomputeDevices { true };
+    mutable RetainPtr<AVAudioSessionPortDescription> m_lastDefaultMicrophone;
 };
 
 } // namespace WebCore

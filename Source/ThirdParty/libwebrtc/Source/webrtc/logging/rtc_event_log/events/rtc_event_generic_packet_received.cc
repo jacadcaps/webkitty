@@ -10,6 +10,10 @@
 
 #include "logging/rtc_event_log/events/rtc_event_generic_packet_received.h"
 
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+
 #include "absl/memory/memory.h"
 
 namespace webrtc {
@@ -27,13 +31,6 @@ RtcEventGenericPacketReceived::~RtcEventGenericPacketReceived() = default;
 std::unique_ptr<RtcEventGenericPacketReceived>
 RtcEventGenericPacketReceived::Copy() const {
   return absl::WrapUnique(new RtcEventGenericPacketReceived(*this));
-}
-RtcEvent::Type RtcEventGenericPacketReceived::GetType() const {
-  return RtcEvent::Type::GenericPacketReceived;
-}
-
-bool RtcEventGenericPacketReceived::IsConfigEvent() const {
-  return false;
 }
 
 }  // namespace webrtc

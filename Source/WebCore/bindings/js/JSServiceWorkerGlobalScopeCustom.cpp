@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -24,22 +24,24 @@
  */
 
 #include "config.h"
-
-#if ENABLE(SERVICE_WORKER)
 #include "JSServiceWorkerGlobalScope.h"
 
+#include "JSDOMPromiseDeferred.h"
+#include "ServiceWorkerClients.h"
 #include "ServiceWorkerGlobalScope.h"
+#include "WebCoreOpaqueRootInlines.h"
 
 namespace WebCore {
 
 using namespace JSC;
 
-void JSServiceWorkerGlobalScope::visitAdditionalChildren(SlotVisitor& visitor)
+template<typename Visitor>
+void JSServiceWorkerGlobalScope::visitAdditionalChildren(Visitor& visitor)
 {
-    visitor.addOpaqueRoot(&wrapped().clients());
-    visitor.addOpaqueRoot(&wrapped().registration());
+    addWebCoreOpaqueRoot(visitor, wrapped().clients());
+    addWebCoreOpaqueRoot(visitor, wrapped().registration());
 }
 
-} // namespace WebCore
+DEFINE_VISIT_ADDITIONAL_CHILDREN(JSServiceWorkerGlobalScope);
 
-#endif
+} // namespace WebCore

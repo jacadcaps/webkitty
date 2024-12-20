@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005, 2006, 2007, 2009 Apple Inc. All rights reserved.
+ * Copyright (C) 2005-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,12 +32,13 @@
 #import "DumpRenderTree.h"
 #import "DumpRenderTreeWindow.h"
 #import "PixelDumpSupportCG.h"
-#import "UIKitSPI.h"
+#import "UIKitSPIForTesting.h"
 
 #define COMMON_DIGEST_FOR_OPENSSL
 #import <CommonCrypto/CommonDigest.h>
 #import <MobileCoreServices/UTCoreTypes.h>
 #import <QuartzCore/QuartzCore.h>
+#import <WebCore/DestinationColorSpace.h>
 #import <WebCore/GraphicsContextCG.h>
 #import <WebCore/IOSurface.h>
 #import <WebCore/PlatformScreen.h>
@@ -49,8 +50,8 @@
 #import <wtf/RefPtr.h>
 #import <wtf/RetainPtr.h>
 
-extern DumpRenderTreeWindow *gDrtWindow;
-extern DumpRenderTreeBrowserView *gWebBrowserView;
+extern RetainPtr<DumpRenderTreeWindow> gDrtWindow;
+extern RetainPtr<DumpRenderTreeBrowserView> gWebBrowserView;
 
 RefPtr<BitmapContext> createBitmapContextFromWebView(bool onscreen, bool incrementalRepaint, bool sweepHorizontally, bool drawSelectionRect)
 {
@@ -67,18 +68,21 @@ RefPtr<BitmapContext> createBitmapContextFromWebView(bool onscreen, bool increme
     snapshotSize.scale(deviceScaleFactor);
 
 #if HAVE(IOSURFACE_RGB10)
-    WebCore::IOSurface::Format snapshotFormat = WebCore::screenSupportsExtendedColor() ? WebCore::IOSurface::Format::RGB10 : WebCore::IOSurface::Format::RGBA;
+    WebCore::IOSurface::Format snapshotFormat = WebCore::screenSupportsExtendedColor() ? WebCore::IOSurface::Format::RGB10 : WebCore::IOSurface::Format::BGRA;
 #else
-    WebCore::IOSurface::Format snapshotFormat = WebCore::IOSurface::Format::RGBA;
+    WebCore::IOSurface::Format snapshotFormat = WebCore::IOSurface::Format::BGRA;
 #endif
-    auto surface = WebCore::IOSurface::create(WebCore::expandedIntSize(snapshotSize), WebCore::sRGBColorSpaceRef(), snapshotFormat);
-    RetainPtr<CGImageRef> cgImage = surface->createImage();
+    auto surface = WebCore::IOSurface::create(nullptr, WebCore::expandedIntSize(snapshotSize), WebCore::DestinationColorSpace::SRGB(), WebCore::IOSurface::Name::Snapshot, snapshotFormat);
+    // FIXME: Something is missing here, nothing draws to surface.
+    auto context = surface->createPlatformContext();
+    RetainPtr<CGImageRef> cgImage = surface->createImage(context.get());
 
-    void* bitmapBuffer = nullptr;
     size_t bitmapRowBytes = 0;
-    auto bitmapContext = createBitmapContext(bufferWidth, bufferHeight, bitmapRowBytes, bitmapBuffer);
+    auto bitmapContext = createBitmapContext(bufferWidth, bufferHeight, bitmapRowBytes);
     if (!bitmapContext)
         return nullptr;
+
+    bitmapContext->setScaleFactor(deviceScaleFactor);
 
     CGContextDrawImage(bitmapContext->cgContext(), CGRectMake(0, 0, bufferWidth, bufferHeight), cgImage.get());
     return bitmapContext;

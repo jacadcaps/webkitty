@@ -26,27 +26,20 @@
 #include "config.h"
 #include "IDBKeyRangeData.h"
 
-#if ENABLE(INDEXED_DATABASE)
-
 #include "IDBKey.h"
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
 IDBKeyRangeData::IDBKeyRangeData(IDBKey* key)
-    : isNull(!key)
-    , lowerKey(key)
+    : lowerKey(key)
     , upperKey(key)
-    , lowerOpen(false)
-    , upperOpen(false)
 {
 }
 
 IDBKeyRangeData::IDBKeyRangeData(const IDBKeyData& keyData)
-    : isNull(keyData.isNull())
-    , lowerKey(keyData)
+    : lowerKey(keyData)
     , upperKey(keyData)
-    , lowerOpen(false)
-    , upperOpen(false)
 {
 }
 
@@ -54,7 +47,6 @@ IDBKeyRangeData IDBKeyRangeData::isolatedCopy() const
 {
     IDBKeyRangeData result;
 
-    result.isNull = isNull;
     result.lowerKey = lowerKey.isolatedCopy();
     result.upperKey = upperKey.isolatedCopy();
     result.lowerOpen = lowerOpen;
@@ -63,17 +55,9 @@ IDBKeyRangeData IDBKeyRangeData::isolatedCopy() const
     return result;
 }
 
-RefPtr<IDBKeyRange> IDBKeyRangeData::maybeCreateIDBKeyRange() const
-{
-    if (isNull)
-        return nullptr;
-
-    return IDBKeyRange::create(lowerKey.maybeCreateIDBKey(), upperKey.maybeCreateIDBKey(), lowerOpen, upperOpen);
-}
-
 bool IDBKeyRangeData::isExactlyOneKey() const
 {
-    if (isNull || lowerOpen || upperOpen || !upperKey.isValid() || !lowerKey.isValid())
+    if (isNull() || lowerOpen || upperOpen || !upperKey.isValid() || !lowerKey.isValid())
         return false;
 
     return !lowerKey.compare(upperKey);
@@ -101,7 +85,7 @@ bool IDBKeyRangeData::containsKey(const IDBKeyData& key) const
 
 bool IDBKeyRangeData::isValid() const
 {
-    if (isNull)
+    if (isNull())
         return false;
 
     if (!lowerKey.isValid() && !lowerKey.isNull())
@@ -116,16 +100,12 @@ bool IDBKeyRangeData::isValid() const
 #if !LOG_DISABLED
 String IDBKeyRangeData::loggingString() const
 {
-    auto result = makeString(lowerOpen ? "( " : "[ ", lowerKey.loggingString(), ", ", upperKey.loggingString(), upperOpen ? " )" : " ]");
-    if (result.length() > 400) {
-        result.truncate(397);
-        result.append("..."_s);
-    }
+    auto result = makeString(lowerOpen ? "( "_s : "[ "_s, lowerKey.loggingString(), ", "_s, upperKey.loggingString(), upperOpen ? " )"_s : " ]"_s);
+    if (result.length() > 400)
+        result = makeString(StringView(result).left(397), "..."_s);
 
     return result;
 }
 #endif
 
 } // namespace WebCore
-
-#endif // ENABLE(INDEXED_DATABASE)

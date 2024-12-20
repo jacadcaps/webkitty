@@ -29,6 +29,7 @@
 #if ENABLE(DRAG_SUPPORT)
 
 #import "DataTransfer.h"
+#import "DeprecatedGlobalSettings.h"
 #import "Document.h"
 #import "DocumentFragment.h"
 #import "DragClient.h"
@@ -37,15 +38,15 @@
 #import "EditorClient.h"
 #import "Element.h"
 #import "File.h"
-#import "Frame.h"
-#import "FrameView.h"
 #import "HTMLAttachmentElement.h"
+#import "LocalFrame.h"
+#import "LocalFrameView.h"
 #import "Page.h"
 #import "Pasteboard.h"
 #import "PasteboardStrategy.h"
 #import "PlatformStrategies.h"
 #import "Range.h"
-#import "RuntimeEnabledFeatures.h"
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
 #if PLATFORM(IOS_FAMILY)
 #import <MobileCoreServices/MobileCoreServices.h>
@@ -61,13 +62,13 @@ const float DragController::DragImageAlpha = 0.75f;
 
 bool DragController::isCopyKeyDown(const DragData& dragData)
 {
-    return dragData.flags().contains(DragApplicationIsCopyKeyDown);
+    return dragData.flags().contains(DragApplicationFlags::IsCopyKeyDown);
 }
     
-Optional<DragOperation> DragController::dragOperation(const DragData& dragData)
+std::optional<DragOperation> DragController::dragOperation(const DragData& dragData)
 {
-    if (dragData.flags().contains(DragApplicationIsModal))
-        return WTF::nullopt;
+    if (dragData.flags().contains(DragApplicationFlags::IsModal))
+        return std::nullopt;
 
     bool mayContainURL;
     if (canLoadDataFromDraggingPasteboard())
@@ -76,12 +77,12 @@ Optional<DragOperation> DragController::dragOperation(const DragData& dragData)
         mayContainURL = dragData.containsURLTypeIdentifier();
 
     if (!mayContainURL && !dragData.containsPromise())
-        return WTF::nullopt;
+        return std::nullopt;
 
-    if (!m_documentUnderMouse || (!(dragData.flags().containsAll({ DragApplicationHasAttachedSheet, DragApplicationIsSource }))))
+    if (!m_documentUnderMouse || (!(dragData.flags().containsAll({ DragApplicationFlags::HasAttachedSheet, DragApplicationFlags::IsSource }))))
         return DragOperation::Copy;
 
-    return WTF::nullopt;
+    return std::nullopt;
 }
 
 const IntSize& DragController::maxDragImageSize()
@@ -100,7 +101,8 @@ void DragController::cleanupAfterSystemDrag()
     // call it anyway to be on the safe side.
     // We don't want to do this for WebKit2, since the client call to start the drag
     // is asynchronous.
-    if (m_page.mainFrame().view()->platformWidget())
+
+    if (m_page->mainFrame().virtualView()->platformWidget())
         dragEnded();
 #endif
 }
@@ -119,17 +121,17 @@ void DragController::updateSupportedTypeIdentifiersForDragHandlingMethod(DragHan
     Vector<String> supportedTypes;
     switch (dragHandlingMethod) {
     case DragHandlingMethod::PageLoad:
-        supportedTypes.append(kUTTypeURL);
+        supportedTypes.append(UTTypeURL.identifier);
         break;
     case DragHandlingMethod::EditPlainText:
-        supportedTypes.append(kUTTypeURL);
-        supportedTypes.append(kUTTypePlainText);
+        supportedTypes.append(UTTypeURL.identifier);
+        supportedTypes.append(UTTypePlainText.identifier);
         break;
     case DragHandlingMethod::EditRichText:
-        if (RuntimeEnabledFeatures::sharedFeatures().attachmentElementEnabled()) {
+        if (DeprecatedGlobalSettings::attachmentElementEnabled()) {
             supportedTypes.append(WebArchivePboardType);
-            supportedTypes.append(kUTTypeContent);
-            supportedTypes.append(kUTTypeItem);
+            supportedTypes.append(UTTypeContent.identifier);
+            supportedTypes.append(UTTypeItem.identifier);
         } else {
             for (NSString *type in Pasteboard::supportedWebContentPasteboardTypes())
                 supportedTypes.append(type);
@@ -143,7 +145,9 @@ void DragController::updateSupportedTypeIdentifiersForDragHandlingMethod(DragHan
             supportedTypes.append(type);
         break;
     }
-    platformStrategies()->pasteboardStrategy()->updateSupportedTypeIdentifiers(supportedTypes, dragData.pasteboardName());
+
+    auto context = dragData.createPasteboardContext();
+    platformStrategies()->pasteboardStrategy()->updateSupportedTypeIdentifiers(supportedTypes, dragData.pasteboardName(), context.get());
 }
 
 #endif // PLATFORM(IOS_FAMILY)

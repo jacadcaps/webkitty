@@ -29,26 +29,29 @@
 #include "AuthenticationChallengeDisposition.h"
 #include "AuthenticationManager.h"
 #include "Connection.h"
-#include "DataReference.h"
 #include "DownloadManager.h"
 #include "DownloadMonitor.h"
 #include "DownloadProxyMessages.h"
 #include "Logging.h"
+#include "MessageSenderInlines.h"
 #include "NetworkDataTask.h"
 #include "NetworkProcess.h"
 #include "NetworkSession.h"
 #include "SandboxExtension.h"
 #include "WebCoreArgumentCoders.h"
 #include <WebCore/NotImplemented.h>
+#include <wtf/TZoneMallocInlines.h>
 
 #if PLATFORM(COCOA)
 #include "NetworkDataTaskCocoa.h"
 #endif
 
-#define RELEASE_LOG_IF_ALLOWED(fmt, ...) RELEASE_LOG_IF(isAlwaysOnLoggingAllowed(), Network, "%p - Download::" fmt, this, ##__VA_ARGS__)
+#define DOWNLOAD_RELEASE_LOG(fmt, ...) RELEASE_LOG(Network, "%p - Download::" fmt, this, ##__VA_ARGS__)
 
 namespace WebKit {
 using namespace WebCore;
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(Download);
 
 Download::Download(DownloadManager& downloadManager, DownloadID downloadID, NetworkDataTask& download, NetworkSession& session, const String& suggestedName)
     : m_downloadManager(downloadManager)
@@ -56,10 +59,9 @@ Download::Download(DownloadManager& downloadManager, DownloadID downloadID, Netw
     , m_client(downloadManager.client())
     , m_download(&download)
     , m_sessionID(session.sessionID())
-    , m_suggestedName(suggestedName)
     , m_testSpeedMultiplier(session.testSpeedMultiplier())
 {
-    ASSERT(m_downloadID.downloadID());
+    ASSERT(m_downloadID);
 
     m_downloadManager.didCreateDownload();
 }
@@ -71,10 +73,9 @@ Download::Download(DownloadManager& downloadManager, DownloadID downloadID, NSUR
     , m_client(downloadManager.client())
     , m_downloadTask(download)
     , m_sessionID(session.sessionID())
-    , m_suggestedName(suggestedName)
     , m_testSpeedMultiplier(session.testSpeedMultiplier())
 {
-    ASSERT(m_downloadID.downloadID());
+    ASSERT(m_downloadID);
 
     m_downloadManager.didCreateDownload();
 }
@@ -86,20 +87,31 @@ Download::~Download()
     m_downloadManager.didDestroyDownload();
 }
 
-void Download::cancel()
+void Download::cancel(CompletionHandler<void(std::span<const uint8_t>)>&& completionHandler, IgnoreDidFailCallback ignoreDidFailCallback)
 {
-    RELEASE_ASSERT(isMainThread());
+    RELEASE_ASSERT(isMainRunLoop());
 
-    if (m_wasCanceled)
-        return;
-    m_wasCanceled = true;
+    // URLSession:task:didCompleteWithError: is still called after cancelByProducingResumeData's completionHandler.
+    // If this cancel request came from the API, we do not want to send DownloadProxy::DidFail because the
+    // completionHandler will inform the API that the cancellation succeeded.
+    m_ignoreDidFailCallback = ignoreDidFailCallback;
+
+    auto completionHandlerWrapper = [this, weakThis = WeakPtr { *this }, completionHandler = WTFMove(completionHandler)] (std::span<const uint8_t> resumeData) mutable {
+        completionHandler(resumeData);
+        if (!weakThis || m_ignoreDidFailCallback == IgnoreDidFailCallback::No)
+            return;
+        DOWNLOAD_RELEASE_LOG("didCancel: (id = %" PRIu64 ")", downloadID().toUInt64());
+        if (auto extension = std::exchange(m_sandboxExtension, nullptr))
+            extension->revoke();
+        m_downloadManager.downloadFinished(*this);
+    };
 
     if (m_download) {
         m_download->cancel();
-        didCancel({ });
+        completionHandlerWrapper({ });
         return;
     }
-    platformCancelNetworkLoad();
+    platformCancelNetworkLoad(WTFMove(completionHandlerWrapper));
 }
 
 void Download::didReceiveChallenge(const WebCore::AuthenticationChallenge& challenge, ChallengeCompletionHandler&& completionHandler)
@@ -120,7 +132,7 @@ void Download::didCreateDestination(const String& path)
 void Download::didReceiveData(uint64_t bytesWritten, uint64_t totalBytesWritten, uint64_t totalBytesExpectedToWrite)
 {
     if (!m_hasReceivedData) {
-        RELEASE_LOG_IF_ALLOWED("didReceiveData: Started receiving data (id = %" PRIu64 ")", downloadID().downloadID());
+        DOWNLOAD_RELEASE_LOG("didReceiveData: Started receiving data (id = %" PRIu64 ", expected length = %" PRIu64 ")", downloadID().toUInt64(), totalBytesExpectedToWrite);
         m_hasReceivedData = true;
     }
     
@@ -131,7 +143,7 @@ void Download::didReceiveData(uint64_t bytesWritten, uint64_t totalBytesWritten,
 
 void Download::didFinish()
 {
-    RELEASE_LOG_IF_ALLOWED("didFinish: (id = %" PRIu64 ")", downloadID().downloadID());
+    DOWNLOAD_RELEASE_LOG("didFinish: (id = %" PRIu64 ")", downloadID().toUInt64());
 
     send(Messages::DownloadProxy::DidFinish());
 
@@ -143,25 +155,15 @@ void Download::didFinish()
     m_downloadManager.downloadFinished(*this);
 }
 
-void Download::didFail(const ResourceError& error, const IPC::DataReference& resumeData)
+void Download::didFail(const ResourceError& error, std::span<const uint8_t> resumeData)
 {
-    RELEASE_LOG_IF_ALLOWED("didFail: (id = %" PRIu64 ", isTimeout = %d, isCancellation = %d, errCode = %d)",
-        downloadID().downloadID(), error.isTimeout(), error.isCancellation(), error.errorCode());
+    if (m_ignoreDidFailCallback == IgnoreDidFailCallback::Yes)
+        return;
+
+    DOWNLOAD_RELEASE_LOG("didFail: (id = %" PRIu64 ", isTimeout = %d, isCancellation = %d, errCode = %d)",
+        downloadID().toUInt64(), error.isTimeout(), error.isCancellation(), error.errorCode());
 
     send(Messages::DownloadProxy::DidFail(error, resumeData));
-
-    if (m_sandboxExtension) {
-        m_sandboxExtension->revoke();
-        m_sandboxExtension = nullptr;
-    }
-    m_downloadManager.downloadFinished(*this);
-}
-
-void Download::didCancel(const IPC::DataReference& resumeData)
-{
-    RELEASE_LOG_IF_ALLOWED("didCancel: (id = %" PRIu64 ")", downloadID().downloadID());
-
-    send(Messages::DownloadProxy::DidCancel(resumeData));
 
     if (m_sandboxExtension) {
         m_sandboxExtension->revoke();
@@ -177,21 +179,13 @@ IPC::Connection* Download::messageSenderConnection() const
 
 uint64_t Download::messageSenderDestinationID() const
 {
-    return m_downloadID.downloadID();
-}
-
-bool Download::isAlwaysOnLoggingAllowed() const
-{
-#if PLATFORM(COCOA)
-    return m_sessionID.isAlwaysOnLoggingAllowed();
-#else
-    return false;
-#endif
+    return m_downloadID.toUInt64();
 }
 
 #if !PLATFORM(COCOA)
-void Download::platformCancelNetworkLoad()
+void Download::platformCancelNetworkLoad(CompletionHandler<void(std::span<const uint8_t>)>&& completionHandler)
 {
+    completionHandler({ });
 }
 
 void Download::platformDestroyDownload()
@@ -201,4 +195,4 @@ void Download::platformDestroyDownload()
 
 } // namespace WebKit
 
-#undef RELEASE_LOG_IF_ALLOWED
+#undef DOWNLOAD_RELEASE_LOG

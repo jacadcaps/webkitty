@@ -11,7 +11,7 @@
 #ifndef MODULES_AUDIO_DEVICE_INCLUDE_MOCK_AUDIO_TRANSPORT_H_
 #define MODULES_AUDIO_DEVICE_INCLUDE_MOCK_AUDIO_TRANSPORT_H_
 
-#include "modules/audio_device/include/audio_device_defines.h"
+#include "api/audio/audio_device_defines.h"
 #include "test/gmock.h"
 
 namespace webrtc {
@@ -22,36 +22,57 @@ class MockAudioTransport : public AudioTransport {
   MockAudioTransport() {}
   ~MockAudioTransport() {}
 
-  MOCK_METHOD10(RecordedDataIsAvailable,
-                int32_t(const void* audioSamples,
-                        const size_t nSamples,
-                        const size_t nBytesPerSample,
-                        const size_t nChannels,
-                        const uint32_t samplesPerSec,
-                        const uint32_t totalDelayMS,
-                        const int32_t clockDrift,
-                        const uint32_t currentMicLevel,
-                        const bool keyPressed,
-                        uint32_t& newMicLevel));
+  MOCK_METHOD(int32_t,
+              RecordedDataIsAvailable,
+              (const void* audioSamples,
+               size_t nSamples,
+               size_t nBytesPerSample,
+               size_t nChannels,
+               uint32_t samplesPerSec,
+               uint32_t totalDelayMS,
+               int32_t clockDrift,
+               uint32_t currentMicLevel,
+               bool keyPressed,
+               uint32_t& newMicLevel),
+              (override));
 
-  MOCK_METHOD8(NeedMorePlayData,
-               int32_t(const size_t nSamples,
-                       const size_t nBytesPerSample,
-                       const size_t nChannels,
-                       const uint32_t samplesPerSec,
-                       void* audioSamples,
-                       size_t& nSamplesOut,
-                       int64_t* elapsed_time_ms,
-                       int64_t* ntp_time_ms));
+  MOCK_METHOD(int32_t,
+              RecordedDataIsAvailable,
+              (const void* audioSamples,
+               size_t nSamples,
+               size_t nBytesPerSample,
+               size_t nChannels,
+               uint32_t samplesPerSec,
+               uint32_t totalDelayMS,
+               int32_t clockDrift,
+               uint32_t currentMicLevel,
+               bool keyPressed,
+               uint32_t& newMicLevel,
+               absl::optional<int64_t> estimated_capture_time_ns),
+              (override));
 
-  MOCK_METHOD7(PullRenderData,
-               void(int bits_per_sample,
-                    int sample_rate,
-                    size_t number_of_channels,
-                    size_t number_of_frames,
-                    void* audio_data,
-                    int64_t* elapsed_time_ms,
-                    int64_t* ntp_time_ms));
+  MOCK_METHOD(int32_t,
+              NeedMorePlayData,
+              (size_t nSamples,
+               size_t nBytesPerSample,
+               size_t nChannels,
+               uint32_t samplesPerSec,
+               void* audioSamples,
+               size_t& nSamplesOut,
+               int64_t* elapsed_time_ms,
+               int64_t* ntp_time_ms),
+              (override));
+
+  MOCK_METHOD(void,
+              PullRenderData,
+              (int bits_per_sample,
+               int sample_rate,
+               size_t number_of_channels,
+               size_t number_of_frames,
+               void* audio_data,
+               int64_t* elapsed_time_ms,
+               int64_t* ntp_time_ms),
+              (override));
 };
 
 }  // namespace test

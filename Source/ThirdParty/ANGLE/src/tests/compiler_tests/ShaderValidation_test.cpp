@@ -86,7 +86,7 @@ class ComputeShaderEnforcePackingValidationTest : public ComputeShaderValidation
 
     void SetUp() override
     {
-        mExtraCompileOptions |= (SH_VARIABLES | SH_ENFORCE_PACKING_RESTRICTIONS);
+        mCompileOptions.enforcePackingRestrictions = true;
         ShaderCompileTreeTest::SetUp();
     }
 
@@ -511,7 +511,7 @@ TEST_F(FragmentShaderValidationTest, TernaryOperatorNotConstantExpression)
     }
 }
 
-// Ternary operator can't operate on arrays (ESSL 3.00 section 5.7)
+// Ternary operator can operate on arrays (ESSL 3.00 section 5.7)
 TEST_F(FragmentShaderValidationTest, TernaryOperatorOnArrays)
 {
     const std::string &shaderString =
@@ -524,13 +524,13 @@ TEST_F(FragmentShaderValidationTest, TernaryOperatorOnArrays)
         "   float[1] c = true ? a : b;\n"
         "   my_FragColor = vec4(1.0);\n"
         "}\n";
-    if (compile(shaderString))
+    if (!compile(shaderString))
     {
-        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+        FAIL() << "Shader compilation failed, expecting success:\n" << mInfoLog;
     }
 }
 
-// Ternary operator can't operate on structs (ESSL 3.00 section 5.7)
+// Ternary operator can operate on structs (ESSL 3.00 section 5.7)
 TEST_F(FragmentShaderValidationTest, TernaryOperatorOnStructs)
 {
     const std::string &shaderString =
@@ -544,9 +544,9 @@ TEST_F(FragmentShaderValidationTest, TernaryOperatorOnStructs)
         "   S c = true ? a : b;\n"
         "   my_FragColor = vec4(1.0);\n"
         "}\n";
-    if (compile(shaderString))
+    if (!compile(shaderString))
     {
-        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+        FAIL() << "Shader compilation failed, expecting success:\n" << mInfoLog;
     }
 }
 
@@ -3334,6 +3334,25 @@ TEST_F(FragmentShaderValidationTest, FloatDeclarationNoQualifiersNoPrecision)
     }
 }
 
+// Precision must be specified for floats. Test this with a function argument no qualifiers.
+TEST_F(FragmentShaderValidationTest, FloatDeclarationNoQualifiersNoPrecisionFunctionArg)
+{
+    const std::string &shaderString = R"(
+int c(float x)
+{
+    return int(x);
+}
+void main()
+{
+    c(5.0);
+})";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
 // Check compiler doesn't crash on incorrect unsized array declarations.
 TEST_F(FragmentShaderValidationTest, IncorrectUnsizedArray)
 {
@@ -5154,6 +5173,26 @@ TEST_F(VertexShaderValidationTest, LocationConflictsOnStructElement)
         "};\n"
         "layout (location = 0) out S s_in;"
         "layout (location = 1) out vec4 o_color;\n"
+        "void main()\n"
+        "{\n"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Test that declaring inputs of a vertex shader with a location larger than GL_MAX_VERTEX_ATTRIBS
+// causes a compile error.
+TEST_F(VertexShaderValidationTest, AttributeLocationOutOfRange)
+{
+    // Assumes 1000 >= GL_MAX_VERTEX_ATTRIBS.
+    // Current OpenGL and Direct3D implementations support up to 32.
+
+    const std::string &shaderString =
+        "#version 300 es\n"
+        "layout (location = 1000) in float i_value;\n"
         "void main()\n"
         "{\n"
         "}\n";

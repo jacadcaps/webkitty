@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # Copyright (C) 2011, 2012, 2017 Igalia S.L.
 #
@@ -30,7 +30,7 @@ sys.path.insert(0, os.path.join(top_level_directory, "Tools", "glib"))
 import common
 from webkitpy.common.host import Host
 from webkitpy.common.test_expectations import TestExpectations
-from webkitpy.common.timeout_context import Timeout
+from webkitcorepy import Timeout
 
 if os.name == 'posix' and sys.version_info[0] < 3:
     try:
@@ -44,6 +44,8 @@ class TestRunner(object):
     TEST_TARGETS = []
 
     def __init__(self, port, options, tests=[]):
+        if len(options.subtests) > 0 and len(tests) != 1:
+            raise ValueError("Passing one or more subtests requires one and only test argument")
         self._options = options
 
         self._port = Host().port_factory.get(port)
@@ -57,7 +59,7 @@ class TestRunner(object):
             self._build_type = self._port.default_configuration()
         common.set_build_types((self._build_type,))
 
-        self._programs_path = common.binary_build_path()
+        self._programs_path = common.binary_build_path(self._port)
         expectations_file = os.path.join(common.top_level_path(), "Tools", "TestWebKitAPI", "glib", "TestExpectations.json")
         self._expectations = TestExpectations(self._port.name(), expectations_file, self._build_type)
         self._tests = self._get_tests(tests)
@@ -85,6 +87,11 @@ class TestRunner(object):
             if os.path.isdir(test):
                 tests.extend(self._get_tests_from_dir(test))
             else:
+                if not os.path.exists(test):
+                    candidate = os.path.join(self._test_programs_base_dir(), test)
+                    if not os.path.exists(candidate):
+                        raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), test)
+                    test = candidate
                 tests.append(test)
         if tests:
             return tests
@@ -108,7 +115,7 @@ class TestRunner(object):
     def _setup_testing_environment(self):
         self._test_env = self._driver._setup_environ_for_test()
         self._test_env["TEST_WEBKIT_API_WEBKIT2_RESOURCES_PATH"] = common.top_level_path("Tools", "TestWebKitAPI", "Tests", "WebKit")
-        self._test_env["TEST_WEBKIT_API_WEBKIT2_INJECTED_BUNDLE_PATH"] = common.library_build_path()
+        self._test_env["TEST_WEBKIT_API_WEBKIT2_INJECTED_BUNDLE_PATH"] = common.library_build_path(self._port)
         self._test_env["WEBKIT_EXEC_PATH"] = self._programs_path
 
     def _tear_down_testing_environment(self):
@@ -159,18 +166,19 @@ class TestRunner(object):
                     return 0
                 raise
 
-    def _run_test_glib(self, test_program, skipped_test_cases):
+    def _run_test_glib(self, test_program, subtests, skipped_test_cases):
         timeout = self._options.timeout
 
         def is_slow_test(test, subtest):
             return self._expectations.is_slow(test, subtest)
 
-        return GLibTestRunner(test_program, timeout, is_slow_test, timeout * 10).run(skipped=skipped_test_cases, env=self._test_env)
+        runner = GLibTestRunner(test_program, timeout, is_slow_test, timeout * 10)
+        return runner.run(subtests=subtests, skipped=skipped_test_cases, env=self._test_env)
 
     def _run_test_qt(self, test_program):
         env = self._test_env
         env['XDG_SESSION_TYPE'] = 'wayland'
-        env['QML2_IMPORT_PATH'] = common.library_build_path('qt5', 'qml')
+        env['QML2_IMPORT_PATH'] = common.library_build_path(self._port, 'qt5', 'qml')
 
         name = os.path.basename(test_program)
         if not hasattr(subprocess, 'TimeoutExpired'):
@@ -196,11 +204,11 @@ class TestRunner(object):
 
     def _get_tests_from_google_test_suite(self, test_program, skipped_test_cases):
         try:
-            output = subprocess.check_output([test_program, '--gtest_list_tests'], env=self._test_env)
+            output = subprocess.check_output([test_program, '--gtest_list_tests'], env=self._test_env).decode('utf-8')
         except subprocess.CalledProcessError:
             sys.stderr.write("ERROR: could not list available tests for binary %s.\n" % (test_program))
             sys.stderr.flush()
-            return 1
+            sys.exit(1)
 
         tests = []
         prefix = None
@@ -230,7 +238,7 @@ class TestRunner(object):
                 common.parse_output_lines(fd, sys.stdout.write)
                 status = self._waitpid(pid)
                 os.close(fd)
-            except RuntimeError:
+            except Timeout.Exception:
                 self._kill_process(pid)
                 os.close(fd)
                 sys.stdout.write("**TIMEOUT** %s\n" % subtest)
@@ -247,10 +255,11 @@ class TestRunner(object):
 
         return {subtest: "PASS"}
 
-    def _run_google_test_suite(self, test_program, skipped_test_cases):
+    def _run_google_test_suite(self, test_program, subtests, skipped_test_cases):
         result = {}
         for subtest in self._get_tests_from_google_test_suite(test_program, skipped_test_cases):
-            result.update(self._run_google_test(test_program, subtest))
+            if subtest in subtests or not subtests:
+                result.update(self._run_google_test(test_program, subtest))
         return result
 
     def is_glib_test(self, test_program):
@@ -262,24 +271,28 @@ class TestRunner(object):
     def is_qt_test(self, test_program):
         raise NotImplementedError
 
-    def _run_test(self, test_program, skipped_test_cases):
+    def _run_test(self, test_program, subtests, skipped_test_cases):
         if self.is_glib_test(test_program):
-            return self._run_test_glib(test_program, skipped_test_cases)
+            return self._run_test_glib(test_program, subtests, skipped_test_cases)
 
         if self.is_google_test(test_program):
-            return self._run_google_test_suite(test_program, skipped_test_cases)
+            return self._run_google_test_suite(test_program, subtests, skipped_test_cases)
 
         # FIXME: support skipping Qt subtests
         if self.is_qt_test(test_program):
             return self._run_test_qt(test_program)
 
+        sys.stderr.write("WARNING: %s doesn't seem to be a supported test program.\n" % test_program)
         return {}
+
+    def _has_gpu_available(self):
+        return os.access("/dev/dri/card0", os.R_OK | os.W_OK) and os.access("/dev/dri/renderD128", os.R_OK | os.W_OK)
 
     def run_tests(self):
         if not self._tests:
             sys.stderr.write("ERROR: tests not found in %s.\n" % (self._test_programs_base_dir()))
             sys.stderr.flush()
-            return 1
+            sys.exit(1)
 
         self._setup_testing_environment()
 
@@ -287,6 +300,11 @@ class TestRunner(object):
         # Remove skipped tests now instead of when we find them, because
         # some tests might be skipped while setting up the test environment.
         self._tests = [test for test in self._tests if self._should_run_test_program(test)]
+        # Skip Qt tests if there is no GPU <https://webkit.org/b/264458>
+        number_of_qt_tests = len([test for test in self._tests if self.is_qt_test(test)])
+        if number_of_qt_tests > 0 and not self._has_gpu_available():
+            sys.stderr.write("WARNING: Skipping %d Qt tests because this system doesn't have a working GPU (/dev/dri devices are not available).\n" % number_of_qt_tests)
+            self._tests = [test for test in self._tests if not self.is_qt_test(test)]
         number_of_executed_tests = len(self._tests)
 
         crashed_tests = {}
@@ -294,15 +312,21 @@ class TestRunner(object):
         timed_out_tests = {}
         passed_tests = {}
         try:
+            subtests = self._options.subtests
             for test in self._tests:
                 skipped_subtests = self._test_cases_to_skip(test)
-                number_of_total_tests += len(skipped_subtests)
-                results = self._run_test(test, skipped_subtests)
+                number_of_total_tests += len(skipped_subtests if not subtests else set(skipped_subtests).intersection(subtests))
+                results = self._run_test(test, subtests, skipped_subtests)
+                if len(results) == 0:
+                    # No subtests were emitted, either the test binary didn't exist, or we don't know how to run it, or it crashed.
+                    sys.stderr.write("ERROR: %s failed to run, as it didn't emit any subtests.\n" % test)
+                    crashed_tests[test] = ["(problem in test executable)"]
+                    continue
                 number_of_executed_subtests_for_test = len(results)
                 if number_of_executed_subtests_for_test > 1:
                     number_of_executed_tests += number_of_executed_subtests_for_test
                     number_of_total_tests += number_of_executed_subtests_for_test
-                for test_case, result in results.iteritems():
+                for test_case, result in results.items():
                     if result in self._expectations.get_expectation(os.path.basename(test), test_case):
                         continue
 
@@ -318,7 +342,7 @@ class TestRunner(object):
             self._tear_down_testing_environment()
 
         def number_of_tests(tests):
-            return sum(len(value) for value in tests.itervalues())
+            return sum(len(value) for value in tests.values())
 
         def report(tests, title, base_dir):
             if not tests:
@@ -378,3 +402,27 @@ def add_options(option_parser):
                              help='Time in seconds until a test times out')
     option_parser.add_option('--json-output', action='store', default=None,
                              help='Save test results as JSON to file')
+    option_parser.add_option('-p', action='append', dest='subtests', default=[],
+                             help='Subtests to run')
+
+
+def get_runner_args(argv):
+    runner_args = []
+    for arg in argv:
+        if (arg == "-d"):
+            runner_args.append("--debug")
+            continue
+        # FIXME: This parameter -r is ambiguous for some or the
+        # scripts using flatpak, we consume it, users must use the
+        # long name format for the flatpak option --regenerate-toolchains.
+        if (arg == "-r"):
+            runner_args.append("--release")
+            continue
+        # FIXME: This parameter -t is ambiguous for some or the
+        # scripts using flatpak, we consume it, users must use the
+        # long name format for the flatpak option --sccache-token.
+        if (arg == "-t"):
+            runner_args.append("--timeout")
+            continue
+        runner_args.append(arg)
+    return runner_args

@@ -36,7 +36,7 @@ String SVGPathStringBuilder::result()
         return String();
 
     // Remove trailing space.
-    m_stringBuilder.resize(size - 1);
+    m_stringBuilder.shrink(size - 1);
     return m_stringBuilder.toString();
 }
 
@@ -69,9 +69,9 @@ static void appendPoint(StringBuilder& stringBuilder, const FloatPoint& point)
 void SVGPathStringBuilder::moveTo(const FloatPoint& targetPoint, bool, PathCoordinateMode mode)
 {
     if (mode == AbsoluteCoordinates)
-        m_stringBuilder.appendLiteral("M ");
+        m_stringBuilder.append("M "_s);
     else
-        m_stringBuilder.appendLiteral("m ");
+        m_stringBuilder.append("m "_s);
 
     appendPoint(m_stringBuilder, targetPoint);
 }
@@ -79,9 +79,9 @@ void SVGPathStringBuilder::moveTo(const FloatPoint& targetPoint, bool, PathCoord
 void SVGPathStringBuilder::lineTo(const FloatPoint& targetPoint, PathCoordinateMode mode)
 {
     if (mode == AbsoluteCoordinates)
-        m_stringBuilder.appendLiteral("L ");
+        m_stringBuilder.append("L "_s);
     else
-        m_stringBuilder.appendLiteral("l ");
+        m_stringBuilder.append("l "_s);
 
     appendPoint(m_stringBuilder, targetPoint);
 }
@@ -89,9 +89,9 @@ void SVGPathStringBuilder::lineTo(const FloatPoint& targetPoint, PathCoordinateM
 void SVGPathStringBuilder::lineToHorizontal(float x, PathCoordinateMode mode)
 {
     if (mode == AbsoluteCoordinates)
-        m_stringBuilder.appendLiteral("H ");
+        m_stringBuilder.append("H "_s);
     else
-        m_stringBuilder.appendLiteral("h ");
+        m_stringBuilder.append("h "_s);
 
     appendNumber(m_stringBuilder, x);
 }
@@ -99,9 +99,9 @@ void SVGPathStringBuilder::lineToHorizontal(float x, PathCoordinateMode mode)
 void SVGPathStringBuilder::lineToVertical(float y, PathCoordinateMode mode)
 {
     if (mode == AbsoluteCoordinates)
-        m_stringBuilder.appendLiteral("V ");
+        m_stringBuilder.append("V "_s);
     else
-        m_stringBuilder.appendLiteral("v ");
+        m_stringBuilder.append("v "_s);
 
     appendNumber(m_stringBuilder, y);
 }
@@ -109,9 +109,9 @@ void SVGPathStringBuilder::lineToVertical(float y, PathCoordinateMode mode)
 void SVGPathStringBuilder::curveToCubic(const FloatPoint& point1, const FloatPoint& point2, const FloatPoint& targetPoint, PathCoordinateMode mode)
 {
     if (mode == AbsoluteCoordinates)
-        m_stringBuilder.appendLiteral("C ");
+        m_stringBuilder.append("C "_s);
     else
-        m_stringBuilder.appendLiteral("c ");
+        m_stringBuilder.append("c "_s);
 
     appendPoint(m_stringBuilder, point1);
     appendPoint(m_stringBuilder, point2);
@@ -121,9 +121,9 @@ void SVGPathStringBuilder::curveToCubic(const FloatPoint& point1, const FloatPoi
 void SVGPathStringBuilder::curveToCubicSmooth(const FloatPoint& point2, const FloatPoint& targetPoint, PathCoordinateMode mode)
 {
     if (mode == AbsoluteCoordinates)
-        m_stringBuilder.appendLiteral("S ");
+        m_stringBuilder.append("S "_s);
     else
-        m_stringBuilder.appendLiteral("s ");
+        m_stringBuilder.append("s "_s);
 
     appendPoint(m_stringBuilder, point2);
     appendPoint(m_stringBuilder, targetPoint);
@@ -132,9 +132,9 @@ void SVGPathStringBuilder::curveToCubicSmooth(const FloatPoint& point2, const Fl
 void SVGPathStringBuilder::curveToQuadratic(const FloatPoint& point1, const FloatPoint& targetPoint, PathCoordinateMode mode)
 {
     if (mode == AbsoluteCoordinates)
-        m_stringBuilder.appendLiteral("Q ");
+        m_stringBuilder.append("Q "_s);
     else
-        m_stringBuilder.appendLiteral("q ");
+        m_stringBuilder.append("q "_s);
 
     appendPoint(m_stringBuilder, point1);
     appendPoint(m_stringBuilder, targetPoint);
@@ -143,9 +143,9 @@ void SVGPathStringBuilder::curveToQuadratic(const FloatPoint& point1, const Floa
 void SVGPathStringBuilder::curveToQuadraticSmooth(const FloatPoint& targetPoint, PathCoordinateMode mode)
 {
     if (mode == AbsoluteCoordinates)
-        m_stringBuilder.appendLiteral("T ");
+        m_stringBuilder.append("T "_s);
     else
-        m_stringBuilder.appendLiteral("t ");
+        m_stringBuilder.append("t "_s);
 
     appendPoint(m_stringBuilder, targetPoint);
 }
@@ -153,9 +153,9 @@ void SVGPathStringBuilder::curveToQuadraticSmooth(const FloatPoint& targetPoint,
 void SVGPathStringBuilder::arcTo(float r1, float r2, float angle, bool largeArcFlag, bool sweepFlag, const FloatPoint& targetPoint, PathCoordinateMode mode)
 {
     if (mode == AbsoluteCoordinates)
-        m_stringBuilder.appendLiteral("A ");
+        m_stringBuilder.append("A "_s);
     else
-        m_stringBuilder.appendLiteral("a ");
+        m_stringBuilder.append("a "_s);
 
     appendNumber(m_stringBuilder, r1);
     appendNumber(m_stringBuilder, r2);
@@ -167,7 +167,7 @@ void SVGPathStringBuilder::arcTo(float r1, float r2, float angle, bool largeArcF
 
 void SVGPathStringBuilder::closePath()
 {
-    m_stringBuilder.appendLiteral("Z ");
+    m_stringBuilder.append("Z "_s);
 }
 
 } // namespace WebCore

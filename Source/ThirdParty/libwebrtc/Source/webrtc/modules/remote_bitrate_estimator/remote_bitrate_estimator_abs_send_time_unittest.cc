@@ -10,8 +10,10 @@
 
 #include "modules/remote_bitrate_estimator/remote_bitrate_estimator_abs_send_time.h"
 
+#include <memory>
+
+#include "api/environment/environment_factory.h"
 #include "modules/remote_bitrate_estimator/remote_bitrate_estimator_unittest_helper.h"
-#include "rtc_base/constructor_magic.h"
 #include "test/gtest.h"
 
 namespace webrtc {
@@ -20,13 +22,16 @@ class RemoteBitrateEstimatorAbsSendTimeTest
     : public RemoteBitrateEstimatorTest {
  public:
   RemoteBitrateEstimatorAbsSendTimeTest() {}
-  virtual void SetUp() {
-    bitrate_estimator_.reset(new RemoteBitrateEstimatorAbsSendTime(
-        bitrate_observer_.get(), &clock_));
-  }
 
- protected:
-  RTC_DISALLOW_COPY_AND_ASSIGN(RemoteBitrateEstimatorAbsSendTimeTest);
+  RemoteBitrateEstimatorAbsSendTimeTest(
+      const RemoteBitrateEstimatorAbsSendTimeTest&) = delete;
+  RemoteBitrateEstimatorAbsSendTimeTest& operator=(
+      const RemoteBitrateEstimatorAbsSendTimeTest&) = delete;
+
+  void SetUp() override {
+    bitrate_estimator_ = std::make_unique<RemoteBitrateEstimatorAbsSendTime>(
+        CreateEnvironment(&clock_), bitrate_observer_.get());
+  }
 };
 
 TEST_F(RemoteBitrateEstimatorAbsSendTimeTest, InitialBehavior) {

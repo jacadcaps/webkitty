@@ -27,8 +27,7 @@ namespace webrtc {
 // without it. You may assume that this interface will have the same lifetime
 // as the RTPReceiver it is attached to. It must only be attached to one
 // RTPReceiver. Additional data may be null.
-// Note: This interface is not ready for production use.
-class FrameDecryptorInterface : public rtc::RefCountInterface {
+class FrameDecryptorInterface : public RefCountInterface {
  public:
   // The Status enum represents all possible states that can be
   // returned when attempting to decrypt a frame. kRecoverable indicates that

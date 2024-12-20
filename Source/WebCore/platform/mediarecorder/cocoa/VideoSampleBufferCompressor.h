@@ -24,10 +24,11 @@
 
 #pragma once
 
-#if ENABLE(MEDIA_STREAM) && USE(AVFOUNDATION)
+#if ENABLE(MEDIA_RECORDER) && USE(AVFOUNDATION)
 
 #include <CoreMedia/CoreMedia.h>
 #include <VideoToolbox/VTErrors.h>
+#include <wtf/WorkQueue.h>
 
 typedef struct opaqueCMSampleBuffer *CMSampleBufferRef;
 typedef struct OpaqueVTCompressionSession *VTCompressionSessionRef;
@@ -37,33 +38,43 @@ namespace WebCore {
 class VideoSampleBufferCompressor {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    static std::unique_ptr<VideoSampleBufferCompressor> create(CMVideoCodecType, CMBufferQueueTriggerCallback, void* callbackObject);
+    static std::unique_ptr<VideoSampleBufferCompressor> create(String mimeType, CMBufferQueueTriggerCallback, void* callbackObject);
     ~VideoSampleBufferCompressor();
 
-    void finish();
+    void setBitsPerSecond(unsigned);
+    void finish() { flushInternal(true); }
+    void flush() { flushInternal(false); }
     void addSampleBuffer(CMSampleBufferRef);
     CMSampleBufferRef getOutputSampleBuffer();
     RetainPtr<CMSampleBufferRef> takeOutputSampleBuffer();
 
+    unsigned bitRate() const;
+
 private:
-    explicit VideoSampleBufferCompressor(CMVideoCodecType);
+    enum class Profile : uint8_t { Baseline, Main, High };
+    VideoSampleBufferCompressor(CMVideoCodecType, Profile);
 
     bool initialize(CMBufferQueueTriggerCallback, void* callbackObject);
 
     void processSampleBuffer(CMSampleBufferRef);
     bool initCompressionSession(CMVideoFormatDescriptionRef);
+    CFStringRef vtProfileLevel() const;
+    void flushInternal(bool isFinished);
 
     static void videoCompressionCallback(void *refCon, void*, OSStatus, VTEncodeInfoFlags, CMSampleBufferRef);
 
-    dispatch_queue_t m_serialDispatchQueue;
+    Ref<WorkQueue> m_serialDispatchQueue;
     CMVideoCodecType m_outputCodecType { kCMVideoCodecType_H264 };
 
     RetainPtr<CMBufferQueueRef> m_outputBufferQueue;
     RetainPtr<VTCompressionSessionRef> m_vtSession;
+    CMBufferQueueTriggerToken m_triggerToken;
 
     bool m_isEncoding { false };
     float m_maxKeyFrameIntervalDuration { 2.0 };
     unsigned m_expectedFrameRate { 30 };
+    std::optional<unsigned> m_outputBitRate;
+    Profile m_profile;
 };
 
 }

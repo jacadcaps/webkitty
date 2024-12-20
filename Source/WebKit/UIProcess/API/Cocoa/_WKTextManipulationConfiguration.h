@@ -28,9 +28,10 @@
 
 @class _WKTextManipulationExclusionRule;
 
-WK_CLASS_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA))
+WK_CLASS_AVAILABLE(macos(10.15.4), ios(13.4))
 @interface _WKTextManipulationConfiguration : NSObject
 
 @property (nonatomic, copy) NSArray<_WKTextManipulationExclusionRule *> *exclusionRules;
+@property (nonatomic) BOOL includeSubframes WK_API_AVAILABLE(macos(14.0), ios(17.0));
 
 @end

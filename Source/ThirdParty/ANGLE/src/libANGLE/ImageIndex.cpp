@@ -35,21 +35,14 @@ GLint TextureTargetToLayer(TextureTarget target)
         case TextureTarget::CubeMapNegativeZ:
             return 5;
         case TextureTarget::External:
-            return ImageIndex::kEntireLevel;
         case TextureTarget::Rectangle:
-            return ImageIndex::kEntireLevel;
         case TextureTarget::_2D:
-            return ImageIndex::kEntireLevel;
         case TextureTarget::VideoImage:
-            return ImageIndex::kEntireLevel;
         case TextureTarget::_2DArray:
-            return ImageIndex::kEntireLevel;
         case TextureTarget::_2DMultisample:
-            return ImageIndex::kEntireLevel;
         case TextureTarget::_2DMultisampleArray:
-            return ImageIndex::kEntireLevel;
         case TextureTarget::_3D:
-            return ImageIndex::kEntireLevel;
+        case TextureTarget::Buffer:
         case TextureTarget::CubeMapArray:
             return ImageIndex::kEntireLevel;
         default:
@@ -64,6 +57,7 @@ bool IsArrayTarget(TextureTarget target)
     {
         case TextureTarget::_2DArray:
         case TextureTarget::_2DMultisampleArray:
+        case TextureTarget::CubeMapArray:
             return true;
         default:
             return false;
@@ -209,6 +203,11 @@ ImageIndex ImageIndex::MakeFromType(TextureType type,
     return ImageIndex(type, levelIndex, layerIndex, overrideLayerCount);
 }
 
+ImageIndex ImageIndex::MakeBuffer()
+{
+    return ImageIndex(TextureType::Buffer, 0, kEntireLevel, 1);
+}
+
 ImageIndex ImageIndex::Make2DMultisample()
 {
     return ImageIndex(TextureType::_2DMultisample, 0, kEntireLevel, 1);
@@ -298,6 +297,13 @@ ImageIndexIterator ImageIndexIterator::Make2DMultisample()
                               nullptr);
 }
 
+ImageIndexIterator ImageIndexIterator::MakeBuffer()
+{
+    return ImageIndexIterator(TextureType::Buffer, Range<GLint>(0, 1),
+                              Range<GLint>(ImageIndex::kEntireLevel, ImageIndex::kEntireLevel),
+                              nullptr);
+}
+
 ImageIndexIterator ImageIndexIterator::Make2DMultisampleArray(const GLsizei *layerCounts)
 {
     return ImageIndexIterator(TextureType::_2DMultisampleArray, Range<GLint>(0, 1),
@@ -311,7 +317,8 @@ ImageIndexIterator ImageIndexIterator::MakeGeneric(TextureType type,
                                                    GLint minLayer,
                                                    GLint maxLayer)
 {
-    if (type == TextureType::CubeMap)
+    if (type == TextureType::CubeMap && minLayer == ImageIndex::kEntireLevel &&
+        maxLayer == ImageIndex::kEntireLevel)
     {
         return MakeCube(minMip, maxMip);
     }

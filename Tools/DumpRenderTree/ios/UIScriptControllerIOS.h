@@ -43,14 +43,14 @@ public:
     double zoomScale() const override;
     double contentOffsetX() const override;
     double contentOffsetY() const override;
-    void scrollToOffset(long x, long y) override;
-    void immediateScrollToOffset(long x, long y) override;
+    void scrollToOffset(long x, long y, ScrollToOptions*) override;
+    void immediateScrollToOffset(long x, long y, ScrollToOptions*) override;
     void immediateZoomToScale(double scale) override;
     double minimumZoomScale() const override;
     double maximumZoomScale() const override;
     JSObjectRef contentVisibleRect() const override;
     void copyText(JSStringRef) override;
-    void setSpellCheckerResults(JSValueRef) override { }
+    int64_t pasteboardChangeCount() const final;
 };
 
 }

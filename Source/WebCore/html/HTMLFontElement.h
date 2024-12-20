@@ -28,7 +28,8 @@
 namespace WebCore {
 
 class HTMLFontElement final : public HTMLElement {
-    WTF_MAKE_ISO_ALLOCATED(HTMLFontElement);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(HTMLFontElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HTMLFontElement);
 public:
     static Ref<HTMLFontElement> create(const QualifiedName&, Document&);
     
@@ -37,8 +38,8 @@ public:
 private:
     HTMLFontElement(const QualifiedName&, Document&);
 
-    bool isPresentationAttribute(const QualifiedName&) const final;
-    void collectStyleForPresentationAttribute(const QualifiedName&, const AtomString&, MutableStyleProperties&) final;
+    bool hasPresentationalHintsForAttribute(const QualifiedName&) const final;
+    void collectPresentationalHintsForAttribute(const QualifiedName&, const AtomString&, MutableStyleProperties&) final;
 };
 
 } // namespace WebCore

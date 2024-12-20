@@ -29,32 +29,41 @@
 
 #include "AuxiliaryProcessMain.h"
 #include "NetworkProcess.h"
+#include "NetworkSession.h"
 #include <WebCore/NetworkStorageSession.h>
+
+#if USE(GCRYPT)
+#include <pal/crypto/gcrypt/Initialization.h>
+#endif
 
 namespace WebKit {
 
-static RefPtr<NetworkProcess> globalNetworkProcess;
-
-class NetworkProcessMainSoup final: public AuxiliaryProcessMainBase {
+class NetworkProcessMainSoup final: public AuxiliaryProcessMainBaseNoSingleton<NetworkProcess> {
 public:
+    bool platformInitialize() override
+    {
+#if USE(GCRYPT)
+        PAL::GCrypt::initialize();
+#endif
+        return true;
+    }
+
     void platformFinalize() override
     {
         // Needed to destroy the SoupSession and SoupCookieJar, e.g. to avoid
         // leaking SQLite temporary journaling files.
-        globalNetworkProcess->destroySession(PAL::SessionID::defaultSessionID());
+        Vector<PAL::SessionID> sessionIDs;
+        process().forEachNetworkSession([&sessionIDs](auto& session) {
+            sessionIDs.append(session.sessionID());
+        });
+        for (auto& sessionID : sessionIDs)
+            process().destroySession(sessionID);
     }
 };
 
-template<>
-void initializeAuxiliaryProcess<NetworkProcess>(AuxiliaryProcessInitializationParameters&& parameters)
-{
-    static NeverDestroyed<NetworkProcess> networkProcess(WTFMove(parameters));
-    globalNetworkProcess = &networkProcess.get();
-}
-    
 int NetworkProcessMain(int argc, char** argv)
 {
-    return AuxiliaryProcessMain<NetworkProcess, NetworkProcessMainSoup>(argc, argv);
+    return AuxiliaryProcessMain<NetworkProcessMainSoup>(argc, argv);
 }
 
 } // namespace WebKit

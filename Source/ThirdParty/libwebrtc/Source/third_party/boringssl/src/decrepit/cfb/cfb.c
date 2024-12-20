@@ -10,7 +10,7 @@
 // SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
 // WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
 // OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
-// CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE. */
+// CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 #include <openssl/cipher.h>
 
@@ -19,6 +19,7 @@
 #include <openssl/aes.h>
 #include <openssl/obj.h>
 
+#include "../../crypto/fipsmodule/cipher/internal.h"
 #include "../../crypto/internal.h"
 
 typedef struct {
@@ -51,18 +52,41 @@ static int aes_cfb128_cipher(EVP_CIPHER_CTX *ctx, uint8_t *out,
 }
 
 static const EVP_CIPHER aes_128_cfb128 = {
-    NID_aes_128_cfb128,  1 /* block_size */,  16 /* key_size */,
-    16 /* iv_len */,     sizeof(EVP_CFB_CTX), EVP_CIPH_CFB_MODE,
-    NULL /* app_data */, aes_cfb_init_key,    aes_cfb128_cipher,
-    NULL /* cleanup */,  NULL /* ctrl */,
+    .nid = NID_aes_128_cfb128,
+    .block_size = 1,
+    .key_len = 16,
+    .iv_len = 16,
+    .ctx_size = sizeof(EVP_CFB_CTX),
+    .flags = EVP_CIPH_CFB_MODE,
+    .init = aes_cfb_init_key,
+    .cipher = aes_cfb128_cipher,
+};
+
+static const EVP_CIPHER aes_192_cfb128 = {
+    .nid = NID_aes_192_cfb128,
+    .block_size = 1,
+    .key_len = 24,
+    .iv_len = 16,
+    .ctx_size = sizeof(EVP_CFB_CTX),
+    .flags = EVP_CIPH_CFB_MODE,
+    .init = aes_cfb_init_key,
+    .cipher = aes_cfb128_cipher,
 };
 
 static const EVP_CIPHER aes_256_cfb128 = {
-    NID_aes_256_cfb128,  1 /* block_size */,  32 /* key_size */,
-    16 /* iv_len */,     sizeof(EVP_CFB_CTX), EVP_CIPH_CFB_MODE,
-    NULL /* app_data */, aes_cfb_init_key,    aes_cfb128_cipher,
-    NULL /* cleanup */,  NULL /* ctrl */,
+    .nid = NID_aes_256_cfb128,
+    .block_size = 1,
+    .key_len = 32,
+    .iv_len = 16,
+    .ctx_size = sizeof(EVP_CFB_CTX),
+    .flags = EVP_CIPH_CFB_MODE,
+    .init = aes_cfb_init_key,
+    .cipher = aes_cfb128_cipher,
 };
 
 const EVP_CIPHER *EVP_aes_128_cfb128(void) { return &aes_128_cfb128; }
+const EVP_CIPHER *EVP_aes_128_cfb(void) { return &aes_128_cfb128; }
+const EVP_CIPHER *EVP_aes_192_cfb128(void) { return &aes_192_cfb128; }
+const EVP_CIPHER *EVP_aes_192_cfb(void) { return &aes_192_cfb128; }
 const EVP_CIPHER *EVP_aes_256_cfb128(void) { return &aes_256_cfb128; }
+const EVP_CIPHER *EVP_aes_256_cfb(void) { return &aes_256_cfb128; }

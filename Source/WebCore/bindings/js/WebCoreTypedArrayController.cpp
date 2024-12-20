@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -34,7 +34,10 @@
 
 namespace WebCore {
 
-WebCoreTypedArrayController::WebCoreTypedArrayController() = default;
+WebCoreTypedArrayController::WebCoreTypedArrayController(bool allowAtomicsWait)
+    : m_allowAtomicsWait(allowAtomicsWait)
+{
+}
 
 WebCoreTypedArrayController::~WebCoreTypedArrayController() = default;
 
@@ -50,13 +53,13 @@ void WebCoreTypedArrayController::registerWrapper(JSC::JSGlobalObject* globalObj
 
 bool WebCoreTypedArrayController::isAtomicsWaitAllowedOnCurrentThread()
 {
-    return !isMainThread();
+    return m_allowAtomicsWait;
 }
 
-bool WebCoreTypedArrayController::JSArrayBufferOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, JSC::SlotVisitor& visitor, const char** reason)
+bool WebCoreTypedArrayController::JSArrayBufferOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, JSC::AbstractSlotVisitor& visitor, ASCIILiteral* reason)
 {
     if (UNLIKELY(reason))
-        *reason = "ArrayBuffer is opaque root";
+        *reason = "ArrayBuffer is opaque root"_s;
     auto& wrapper = *JSC::jsCast<JSC::JSArrayBuffer*>(handle.slot()->asCell());
     return visitor.containsOpaqueRoot(wrapper.impl());
 }

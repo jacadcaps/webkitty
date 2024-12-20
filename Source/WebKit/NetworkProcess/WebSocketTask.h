@@ -25,25 +25,41 @@
 
 #pragma once
 
-#if PLATFORM(COCOA) && HAVE(NSURLSESSION_WEBSOCKET)
+#if PLATFORM(COCOA)
 #include "WebSocketTaskCocoa.h"
 #elif USE(SOUP)
 #include "WebSocketTaskSoup.h"
+#elif USE(CURL)
+#include "WebSocketTaskCurl.h"
 #else
+#include <wtf/TZoneMallocInlines.h>
+
+namespace WebKit {
+class WebSocketTask;
+}
+
+namespace WTF {
+template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
+template<> struct IsDeprecatedWeakRefSmartPointerException<WebKit::WebSocketTask> : std::true_type { };
+}
 
 namespace WebKit {
 
-class WebSocketTask {
-    WTF_MAKE_FAST_ALLOCATED;
+struct SessionSet;
+
+class WebSocketTask : public CanMakeWeakPtr<WebSocketTask> {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(WebSocketTask);
 public:
     typedef uint64_t TaskIdentifier;
 
-    void sendString(const IPC::DataReference&, CompletionHandler<void()>&&) { }
-    void sendData(const IPC::DataReference&, CompletionHandler<void()>&&) { }
+    void sendString(std::span<const uint8_t>, CompletionHandler<void()>&&) { }
+    void sendData(std::span<const uint8_t>, CompletionHandler<void()>&&) { }
     void close(int32_t code, const String& reason) { }
 
     void cancel() { }
     void resume() { }
+    
+    SessionSet* sessionSet() { return nullptr; }
 };
 
 } // namespace WebKit

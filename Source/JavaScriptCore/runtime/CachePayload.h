@@ -26,6 +26,7 @@
 #pragma once
 
 #include "VM.h"
+#include <variant>
 #include <wtf/FileSystem.h>
 #include <wtf/MallocPtr.h>
 
@@ -39,24 +40,16 @@ public:
 
     JS_EXPORT_PRIVATE CachePayload(CachePayload&&);
     JS_EXPORT_PRIVATE ~CachePayload();
-    JS_EXPORT_PRIVATE CachePayload& operator=(CachePayload&& other);
 
-    const uint8_t* data() const { return m_data; }
-    size_t size() const { return m_size; }
+    JS_EXPORT_PRIVATE size_t size() const;
+    std::span<const uint8_t> span() const { return { data(), size() }; }
 
 private:
-    CachePayload(bool mapped, void* data, size_t size)
-        : m_mapped(mapped)
-        , m_size(size)
-        , m_data(static_cast<uint8_t*>(data))
-    {
-    }
+    CachePayload(std::variant<FileSystem::MappedFileData, std::pair<MallocPtr<uint8_t, VMMalloc>, size_t>>&&);
 
-    void freeData();
+    JS_EXPORT_PRIVATE const uint8_t* data() const;
 
-    bool m_mapped;
-    size_t m_size;
-    uint8_t* m_data;
+    std::variant<FileSystem::MappedFileData, std::pair<MallocPtr<uint8_t, VMMalloc>, size_t>> m_data;
 };
 
 } // namespace JSC

@@ -23,22 +23,27 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-interface SVGTextContentElement : SVGGraphicsElement {
+// https://svgwg.org/svg2-draft/text.html#InterfaceSVGTextContentElement
+
+[
+    Exposed=Window
+] interface SVGTextContentElement : SVGGraphicsElement {
     // lengthAdjust Types
     const unsigned short LENGTHADJUST_UNKNOWN = 0;
     const unsigned short LENGTHADJUST_SPACING = 1;
     const unsigned short LENGTHADJUST_SPACINGANDGLYPHS = 2;
 
-    readonly attribute SVGAnimatedLength textLength;
-    readonly attribute SVGAnimatedEnumeration lengthAdjust;
+    [SameObject] readonly attribute SVGAnimatedLength textLength;
+    [SameObject] readonly attribute SVGAnimatedEnumeration lengthAdjust;
 
     long getNumberOfChars();
-    unrestricted float getComputedTextLength();
-    [MayThrowException] unrestricted float getSubStringLength(optional unsigned long offset = 0, optional unsigned long length = 0);
-    [MayThrowException, NewObject] SVGPoint getStartPositionOfChar(optional unsigned long offset = 0);
-    [MayThrowException, NewObject] SVGPoint getEndPositionOfChar(optional unsigned long offset = 0);
-    [MayThrowException, NewObject] SVGRect getExtentOfChar(optional unsigned long offset = 0);
-    [MayThrowException] unrestricted float getRotationOfChar(optional unsigned long offset = 0);
-    long getCharNumAtPosition(DOMPointInit point);
-    [MayThrowException] void selectSubString(optional unsigned long offset = 0, optional unsigned long length = 0);
+    float getComputedTextLength();
+    float getSubStringLength(unsigned long charnum, unsigned long nchars);
+    // FIXME: SVGPoint/SVGRect should be DOMPoint/DOMRect as per web-spec.
+    SVGPoint getStartPositionOfChar(unsigned long charnum);
+    SVGPoint getEndPositionOfChar(unsigned long charnum);
+    SVGRect getExtentOfChar(unsigned long charnum);
+    float getRotationOfChar(unsigned long charnum);
+    long getCharNumAtPosition(optional DOMPointInit point = {});
+    undefined selectSubString(unsigned long charnum, unsigned long nchars);
 };

@@ -26,20 +26,28 @@
 #include "config.h"
 #include "CryptoAlgorithmPBKDF2.h"
 
-#if ENABLE(WEB_CRYPTO)
-
 #include "CryptoAlgorithmPbkdf2Params.h"
 #include "CryptoKeyRaw.h"
-#include "NotImplemented.h"
+#include "OpenSSLUtilities.h"
+#include <openssl/evp.h>
 
 namespace WebCore {
 
-ExceptionOr<Vector<uint8_t>> CryptoAlgorithmPBKDF2::platformDeriveBits(const CryptoAlgorithmPbkdf2Params&, const CryptoKeyRaw&, size_t)
+ExceptionOr<Vector<uint8_t>> CryptoAlgorithmPBKDF2::platformDeriveBits(const CryptoAlgorithmPbkdf2Params& parameters, const CryptoKeyRaw& key, size_t length)
 {
-    notImplemented();
-    return Exception { NotSupportedError };
+    auto algorithm = digestAlgorithm(parameters.hashIdentifier);
+    if (!algorithm)
+        return Exception { ExceptionCode::NotSupportedError };
+
+    // iterations must not be zero.
+    if (!parameters.iterations)
+        return Exception { ExceptionCode::OperationError };
+
+    Vector<uint8_t> output(length / 8);
+    if (PKCS5_PBKDF2_HMAC(reinterpret_cast<const char*>(key.key().data()), key.key().size(), parameters.saltVector().data(), parameters.saltVector().size(), parameters.iterations, algorithm, output.size(), output.data()) <= 0)
+        return Exception { ExceptionCode::OperationError };
+
+    return output;
 }
 
 } // namespace WebCore
-
-#endif // ENABLE(WEB_CRYPTO)

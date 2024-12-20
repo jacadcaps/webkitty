@@ -24,14 +24,15 @@ namespace webrtc {
 
 namespace {
 
+using FrameSize = rtc::VideoSinkWants::FrameSize;
 constexpr int kIntUnconstrained = std::numeric_limits<int>::max();
 
 class MockVideoSinkWithVideoFrame : public rtc::VideoSinkInterface<VideoFrame> {
  public:
   ~MockVideoSinkWithVideoFrame() override {}
 
-  MOCK_METHOD1(OnFrame, void(const VideoFrame& frame));
-  MOCK_METHOD0(OnDiscardedFrame, void());
+  MOCK_METHOD(void, OnFrame, (const VideoFrame& frame), (override));
+  MOCK_METHOD(void, OnDiscardedFrame, (), (override));
 };
 
 class MockVideoSourceWithVideoFrame
@@ -39,10 +40,16 @@ class MockVideoSourceWithVideoFrame
  public:
   ~MockVideoSourceWithVideoFrame() override {}
 
-  MOCK_METHOD2(AddOrUpdateSink,
-               void(rtc::VideoSinkInterface<VideoFrame>*,
-                    const rtc::VideoSinkWants&));
-  MOCK_METHOD1(RemoveSink, void(rtc::VideoSinkInterface<VideoFrame>*));
+  MOCK_METHOD(void,
+              AddOrUpdateSink,
+              (rtc::VideoSinkInterface<VideoFrame>*,
+               const rtc::VideoSinkWants&),
+              (override));
+  MOCK_METHOD(void,
+              RemoveSink,
+              (rtc::VideoSinkInterface<VideoFrame>*),
+              (override));
+  MOCK_METHOD(void, RequestRefreshFrame, (), (override));
 };
 
 }  // namespace
@@ -55,6 +62,7 @@ TEST(VideoSourceSinkControllerTest, UnconstrainedByDefault) {
   EXPECT_FALSE(controller.pixels_per_frame_upper_limit().has_value());
   EXPECT_FALSE(controller.frame_rate_upper_limit().has_value());
   EXPECT_FALSE(controller.rotation_applied());
+  EXPECT_FALSE(controller.requested_resolution().has_value());
   EXPECT_EQ(controller.resolution_alignment(), 1);
 
   EXPECT_CALL(source, AddOrUpdateSink(_, _))
@@ -65,6 +73,7 @@ TEST(VideoSourceSinkControllerTest, UnconstrainedByDefault) {
         EXPECT_EQ(wants.target_pixel_count, absl::nullopt);
         EXPECT_EQ(wants.max_framerate_fps, kIntUnconstrained);
         EXPECT_EQ(wants.resolution_alignment, 1);
+        EXPECT_FALSE(wants.requested_resolution.has_value());
       });
   controller.PushSourceSinkSettings();
 }
@@ -75,11 +84,11 @@ TEST(VideoSourceSinkControllerTest, VideoRestrictionsToSinkWants) {
   VideoSourceSinkController controller(&sink, &source);
 
   VideoSourceRestrictions restrictions = controller.restrictions();
-  // max_pixels_per_frame() maps to |max_pixel_count|.
+  // max_pixels_per_frame() maps to `max_pixel_count`.
   restrictions.set_max_pixels_per_frame(42u);
-  // target_pixels_per_frame() maps to |target_pixel_count|.
+  // target_pixels_per_frame() maps to `target_pixel_count`.
   restrictions.set_target_pixels_per_frame(200u);
-  // max_frame_rate() maps to |max_framerate_fps|.
+  // max_frame_rate() maps to `max_framerate_fps`.
   restrictions.set_max_frame_rate(30.0);
   controller.SetRestrictions(restrictions);
   EXPECT_CALL(source, AddOrUpdateSink(_, _))
@@ -91,9 +100,9 @@ TEST(VideoSourceSinkControllerTest, VideoRestrictionsToSinkWants) {
       });
   controller.PushSourceSinkSettings();
 
-  // pixels_per_frame_upper_limit() caps |max_pixel_count|.
+  // pixels_per_frame_upper_limit() caps `max_pixel_count`.
   controller.SetPixelsPerFrameUpperLimit(24);
-  // frame_rate_upper_limit() caps |max_framerate_fps|.
+  // frame_rate_upper_limit() caps `max_framerate_fps`.
   controller.SetFrameRateUpperLimit(10.0);
 
   EXPECT_CALL(source, AddOrUpdateSink(_, _))
@@ -139,6 +148,51 @@ TEST(VideoSourceSinkControllerTest,
      PushSourceSinkSettingsWithoutSourceDoesNotCrash) {
   MockVideoSinkWithVideoFrame sink;
   VideoSourceSinkController controller(&sink, nullptr);
+  controller.PushSourceSinkSettings();
+}
+
+TEST(VideoSourceSinkControllerTest, RequestsRefreshFrameWithSource) {
+  MockVideoSinkWithVideoFrame sink;
+  MockVideoSourceWithVideoFrame source;
+  VideoSourceSinkController controller(&sink, &source);
+  EXPECT_CALL(source, RequestRefreshFrame);
+  controller.RequestRefreshFrame();
+}
+
+TEST(VideoSourceSinkControllerTest,
+     RequestsRefreshFrameWithoutSourceDoesNotCrash) {
+  MockVideoSinkWithVideoFrame sink;
+  VideoSourceSinkController controller(&sink, nullptr);
+  controller.RequestRefreshFrame();
+}
+
+TEST(VideoSourceSinkControllerTest, RequestedResolutionPropagatesToWants) {
+  MockVideoSinkWithVideoFrame sink;
+  MockVideoSourceWithVideoFrame source;
+  VideoSourceSinkController controller(&sink, &source);
+  controller.SetRequestedResolution(FrameSize(640, 360));
+  EXPECT_TRUE(controller.requested_resolution().has_value());
+
+  EXPECT_CALL(source, AddOrUpdateSink(_, _))
+      .WillOnce([](rtc::VideoSinkInterface<VideoFrame>* sink,
+                   const rtc::VideoSinkWants& wants) {
+        EXPECT_EQ(*wants.requested_resolution, FrameSize(640, 360));
+      });
+  controller.PushSourceSinkSettings();
+}
+
+TEST(VideoSourceSinkControllerTest, ActivePropagatesToWants) {
+  MockVideoSinkWithVideoFrame sink;
+  MockVideoSourceWithVideoFrame source;
+  VideoSourceSinkController controller(&sink, &source);
+  controller.SetActive(true);
+  EXPECT_TRUE(controller.active());
+
+  EXPECT_CALL(source, AddOrUpdateSink(_, _))
+      .WillOnce([](rtc::VideoSinkInterface<VideoFrame>* sink,
+                   const rtc::VideoSinkWants& wants) {
+        EXPECT_TRUE(wants.is_active);
+      });
   controller.PushSourceSinkSettings();
 }
 

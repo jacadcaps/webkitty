@@ -29,6 +29,7 @@
 
 #import "APIIconLoadingClient.h"
 #import <wtf/RetainPtr.h>
+#import <wtf/TZoneMalloc.h>
 #import <wtf/WeakObjCPtr.h>
 
 @class WKWebView;
@@ -37,7 +38,7 @@
 namespace WebKit {
 
 class IconLoadingDelegate {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(IconLoadingDelegate);
 public:
     explicit IconLoadingDelegate(WKWebView *);
     ~IconLoadingDelegate();
@@ -49,13 +50,13 @@ public:
 
 private:
     class IconLoadingClient : public API::IconLoadingClient {
-        WTF_MAKE_FAST_ALLOCATED;
+        WTF_MAKE_TZONE_ALLOCATED(IconLoadingClient);
     public:
         explicit IconLoadingClient(IconLoadingDelegate&);
         ~IconLoadingClient();
 
     private:
-        void getLoadDecisionForIcon(const WebCore::LinkIcon&, WTF::CompletionHandler<void(WTF::Function<void(API::Data*, WebKit::CallbackBase::Error)>&&)>&&) override;
+        void getLoadDecisionForIcon(const WebCore::LinkIcon&, CompletionHandler<void(CompletionHandler<void(API::Data*)>&&)>&&) override;
 
         IconLoadingDelegate& m_iconLoadingDelegate;
     };

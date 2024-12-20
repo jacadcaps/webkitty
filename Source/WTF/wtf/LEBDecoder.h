@@ -38,24 +38,33 @@ namespace WTF { namespace LEBDecoder {
 template<typename T>
 constexpr size_t maxByteLength()
 {
-    const size_t numBits = sizeof(T) * CHAR_BIT;
+    constexpr size_t numBits = sizeof(T) * CHAR_BIT;
     return (numBits - 1) / 7 + 1; // numBits / 7 rounding up.
 }
 
 template<typename T>
-inline bool WARN_UNUSED_RETURN decodeUInt(const uint8_t* bytes, size_t length, size_t& offset, T& result)
+constexpr unsigned lastByteMask()
 {
-    if (length <= offset)
+    constexpr size_t numBits = sizeof(T) * CHAR_BIT;
+    static_assert(numBits % 7);
+    return ~((1U << (numBits % 7)) - 1);
+}
+
+template<typename T>
+inline bool WARN_UNUSED_RETURN decodeUInt(std::span<const uint8_t> bytes, size_t& offset, T& result)
+{
+    static_assert(std::is_unsigned_v<T>);
+    if (bytes.size() <= offset)
         return false;
     result = 0;
     unsigned shift = 0;
-    size_t last = std::min(maxByteLength<T>(), length - offset) - 1;
+    size_t last = std::min(maxByteLength<T>(), bytes.size() - offset) - 1;
     for (unsigned i = 0; true; ++i) {
         uint8_t byte = bytes[offset++];
         result |= static_cast<T>(byte & 0x7f) << shift;
         shift += 7;
         if (!(byte & 0x80))
-            return true;
+            return !(((maxByteLength<T>() - 1) == i && (byte & lastByteMask<T>())));
         if (i == last)
             return false;
     }
@@ -64,49 +73,66 @@ inline bool WARN_UNUSED_RETURN decodeUInt(const uint8_t* bytes, size_t length, s
 }
 
 template<typename T>
-inline bool WARN_UNUSED_RETURN decodeInt(const uint8_t* bytes, size_t length, size_t& offset, T& result)
+inline bool WARN_UNUSED_RETURN decodeInt(std::span<const uint8_t> bytes, size_t& offset, T& result)
 {
-    if (length <= offset)
+    static_assert(std::is_signed_v<T>);
+    if (bytes.size() <= offset)
         return false;
+    using UnsignedT = typename std::make_unsigned<T>::type;
     result = 0;
     unsigned shift = 0;
-    size_t last = std::min(maxByteLength<T>(), length - offset) - 1;
+    size_t last = std::min(maxByteLength<T>(), bytes.size() - offset) - 1;
     uint8_t byte;
     for (unsigned i = 0; true; ++i) {
         byte = bytes[offset++];
-        result |= static_cast<T>(byte & 0x7f) << shift;
+        result |= static_cast<T>(static_cast<UnsignedT>(byte & 0x7f) << shift);
         shift += 7;
-        if (!(byte & 0x80))
+        if (!(byte & 0x80)) {
+            if ((maxByteLength<T>() - 1) == i) {
+                if (!(byte & 0x40)) {
+                    // This is a non-sign-extended, positive number. Then, the remaining bits should be (lastByteMask<T>() >> 1).
+                    // For example, in the int32_t case, the last byte should be less than 0b00000111, since 7 * 4 + 3 = 31.
+                    if (byte & (lastByteMask<T>() >> 1))
+                        return false;
+                } else {
+                    // This is sign-extended, negative number. Then, zero should not exists in (lastByteMask<T>() >> 1) bits except for the top bit.
+                    // For example, in the int32_t case, the last byte should be 0b01111XXX and 1 part must be 1. Since we already checked 0x40 is 1,
+                    // middle [3,5] bits must be zero (e.g. 0b01000111 is invalid). We convert 0b01111XXX =(| 0x80)=> 0b11111XXX =(~)=> 0b00000YYY.
+                    // And check that we do not have 1 in upper 5 bits.
+                    if (static_cast<uint8_t>(~(byte | 0x80)) & (lastByteMask<T>() >> 1))
+                        return false;
+                }
+            }
             break;
+        }
         if (i == last)
             return false;
     }
 
-    using UnsignedT = typename std::make_unsigned<T>::type;
     const size_t numBits = sizeof(T) * CHAR_BIT;
     if (shift < numBits && (byte & 0x40))
         result = static_cast<T>(static_cast<UnsignedT>(result) | (static_cast<UnsignedT>(-1) << shift));
     return true;
 }
 
-inline bool WARN_UNUSED_RETURN decodeUInt32(const uint8_t* bytes, size_t length, size_t& offset, uint32_t& result)
+inline bool WARN_UNUSED_RETURN decodeUInt32(std::span<const uint8_t> bytes, size_t& offset, uint32_t& result)
 {
-    return decodeUInt<uint32_t>(bytes, length, offset, result);
+    return decodeUInt<uint32_t>(bytes, offset, result);
 }
 
-inline bool WARN_UNUSED_RETURN decodeUInt64(const uint8_t* bytes, size_t length, size_t& offset, uint64_t& result)
+inline bool WARN_UNUSED_RETURN decodeUInt64(std::span<const uint8_t> bytes, size_t& offset, uint64_t& result)
 {
-    return decodeUInt<uint64_t>(bytes, length, offset, result);
+    return decodeUInt<uint64_t>(bytes, offset, result);
 }
 
-inline bool WARN_UNUSED_RETURN decodeInt32(const uint8_t* bytes, size_t length, size_t& offset, int32_t& result)
+inline bool WARN_UNUSED_RETURN decodeInt32(std::span<const uint8_t> bytes, size_t& offset, int32_t& result)
 {
-    return decodeInt<int32_t>(bytes, length, offset, result);
+    return decodeInt<int32_t>(bytes, offset, result);
 }
 
-inline bool WARN_UNUSED_RETURN decodeInt64(const uint8_t* bytes, size_t length, size_t& offset, int64_t& result)
+inline bool WARN_UNUSED_RETURN decodeInt64(std::span<const uint8_t> bytes, size_t& offset, int64_t& result)
 {
-    return decodeInt<int64_t>(bytes, length, offset, result);
+    return decodeInt<int64_t>(bytes, offset, result);
 }
 
 } } // WTF::LEBDecoder

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,20 +25,23 @@
 
 #pragma once
 
-#if ENABLE(JIT)
-
+#include "DFGCodeOriginPool.h"
 #include "JITStubRoutine.h"
 #include "JSObject.h"
 #include "WriteBarrier.h"
+#include <wtf/FixedVector.h>
+#include <wtf/Hasher.h>
 #include <wtf/Vector.h>
 
 namespace JSC {
-namespace DFG {
-class CodeOriginPool;
-}
 
+class AccessCase;
+class AdaptiveValueStructureStubClearingWatchpoint;
 class CallLinkInfo;
 class JITStubRoutineSet;
+class OptimizingCallLinkInfo;
+class StructureTransitionStructureStubClearingWatchpoint;
+class WatchpointsOnStructureStubInfo;
 
 // Use this stub routine if you know that your code might be on stack when
 // either GC or other kinds of stub deletion happen. Basicaly, if your stub
@@ -53,47 +56,124 @@ class JITStubRoutineSet;
 // list which does not get reclaimed all at once).
 class GCAwareJITStubRoutine : public JITStubRoutine {
 public:
-    GCAwareJITStubRoutine(const MacroAssemblerCodeRef<JITStubRoutinePtrTag>&, VM&);
-    ~GCAwareJITStubRoutine() override;
+    using Base = JITStubRoutine;
+    friend class JITStubRoutine;
+    GCAwareJITStubRoutine(Type, const MacroAssemblerCodeRef<JITStubRoutinePtrTag>&, JSCell* owner);
 
-    static Ref<JITStubRoutine> create(const MacroAssemblerCodeRef<JITStubRoutinePtrTag>& code, VM& vm)
+    static Ref<JITStubRoutine> create(VM& vm, const MacroAssemblerCodeRef<JITStubRoutinePtrTag>& code, JSCell* owner)
     {
-        return adoptRef(*new GCAwareJITStubRoutine(code, vm));
+        auto stub = adoptRef(*new GCAwareJITStubRoutine(Type::GCAwareJITStubRoutineType, code, owner));
+        constexpr bool isCodeImmutable = false;
+        stub->makeGCAware(vm, isCodeImmutable);
+        return stub;
     }
-    
-    void markRequiredObjects(SlotVisitor& visitor)
-    {
-        markRequiredObjectsInternal(visitor);
-    }
-    
+
     void deleteFromGC();
+
+    void makeGCAware(VM&, bool isCodeImmutable);
+
+    JSCell* owner() const { return m_owner; }
+
+    bool removeDeadOwners(VM&);
     
 protected:
-    void observeZeroRefCount() override;
-    
-    virtual void markRequiredObjectsInternal(SlotVisitor&);
+    void observeZeroRefCountImpl();
 
-private:
     friend class JITStubRoutineSet;
 
-    bool m_mayBeExecuting { false };
-    bool m_isJettisoned { false };
+    JSCell* m_owner { nullptr };
+    bool m_mayBeExecuting : 1 { false };
+    bool m_isJettisoned : 1 { false };
+    bool m_ownerIsDead : 1 { false };
+    bool m_isGCAware : 1 { false };
+    bool m_isCodeImmutable : 1 { false };
+    bool m_isInSharedJITStubSet : 1 { false };
+};
+
+#if ENABLE(JIT)
+
+class PolymorphicAccessJITStubRoutine : public GCAwareJITStubRoutine {
+public:
+    using Base = GCAwareJITStubRoutine;
+    friend class JITStubRoutine;
+    friend class GCAwareJITStubRoutine;
+
+    using Watchpoints = Bag<std::variant<StructureTransitionStructureStubClearingWatchpoint, AdaptiveValueStructureStubClearingWatchpoint>>;
+
+    PolymorphicAccessJITStubRoutine(Type, const MacroAssemblerCodeRef<JITStubRoutinePtrTag>&, VM&, FixedVector<Ref<AccessCase>>&&, FixedVector<StructureID>&&, JSCell* owner);
+    ~PolymorphicAccessJITStubRoutine();
+
+    const FixedVector<Ref<AccessCase>>& cases() const { return m_cases; }
+    const FixedVector<StructureID>& weakStructures() const { return m_weakStructures; }
+
+    unsigned hash() const
+    {
+        if (!m_hash)
+            m_hash = computeHash(m_cases.span());
+        return m_hash;
+    }
+
+    static unsigned computeHash(std::span<const Ref<AccessCase>>);
+
+    void addedToSharedJITStubSet();
+
+    Watchpoints& watchpoints() { return m_watchpoints; }
+    WatchpointSet& watchpointSet() { return *m_watchpointSet.get(); }
+    void invalidate();
+
+    bool isStillValid() const
+    {
+        if (!m_watchpointSet)
+            return false;
+        if (!m_watchpointSet->isStillValid())
+            return false;
+        return !m_ownerIsDead;
+    }
+
+    void addOwner(CodeBlock* codeBlock)
+    {
+        if (m_isInSharedJITStubSet)
+            m_owners.add(codeBlock);
+    }
+
+    void removeOwner(CodeBlock* codeBlock)
+    {
+        if (m_isInSharedJITStubSet)
+            m_owners.remove(codeBlock);
+    }
+
+protected:
+    void observeZeroRefCountImpl();
+
+private:
+    VM& m_vm;
+    FixedVector<Ref<AccessCase>> m_cases;
+    FixedVector<StructureID> m_weakStructures;
+    RefPtr<WatchpointSet> m_watchpointSet;
+    HashCountedSet<CodeBlock*> m_owners;
+    Watchpoints m_watchpoints;
 };
 
 // Use this if you want to mark one additional object during GC if your stub
 // routine is known to be executing.
-class MarkingGCAwareJITStubRoutine : public GCAwareJITStubRoutine {
+class MarkingGCAwareJITStubRoutine : public PolymorphicAccessJITStubRoutine {
 public:
-    MarkingGCAwareJITStubRoutine(
-        const MacroAssemblerCodeRef<JITStubRoutinePtrTag>&, VM&, const JSCell* owner, const Vector<JSCell*>&, Bag<CallLinkInfo>&&);
-    ~MarkingGCAwareJITStubRoutine() override;
-    
+    using Base = PolymorphicAccessJITStubRoutine;
+    friend class JITStubRoutine;
+
+    MarkingGCAwareJITStubRoutine(Type, const MacroAssemblerCodeRef<JITStubRoutinePtrTag>&, VM&, FixedVector<Ref<AccessCase>>&&, FixedVector<StructureID>&&, JSCell* owner, const Vector<JSCell*>&, Vector<std::unique_ptr<OptimizingCallLinkInfo>, 16>&&);
+
+    bool visitWeakImpl(VM&);
+    CallLinkInfo* callLinkInfoAtImpl(const ConcurrentJSLocker&, unsigned);
+
 protected:
-    void markRequiredObjectsInternal(SlotVisitor&) override;
+    template<typename Visitor> void markRequiredObjectsInternalImpl(Visitor&);
+    void markRequiredObjectsImpl(AbstractSlotVisitor&);
+    void markRequiredObjectsImpl(SlotVisitor&);
 
 private:
-    Vector<WriteBarrier<JSCell>> m_cells;
-    Bag<CallLinkInfo> m_callLinkInfos;
+    FixedVector<WriteBarrier<JSCell>> m_cells;
+    FixedVector<std::unique_ptr<OptimizingCallLinkInfo>> m_callLinkInfos;
 };
 
 
@@ -102,15 +182,24 @@ private:
 // for new exception handlers to use the same DisposableCallSiteIndex.
 class GCAwareJITStubRoutineWithExceptionHandler final : public MarkingGCAwareJITStubRoutine {
 public:
-    typedef GCAwareJITStubRoutine Base;
+    using Base = MarkingGCAwareJITStubRoutine;
+    friend class JITStubRoutine;
 
-    GCAwareJITStubRoutineWithExceptionHandler(const MacroAssemblerCodeRef<JITStubRoutinePtrTag>&, VM&, const JSCell* owner, const Vector<JSCell*>&, Bag<CallLinkInfo>&&, CodeBlock*, DisposableCallSiteIndex);
-    ~GCAwareJITStubRoutineWithExceptionHandler() final;
+    GCAwareJITStubRoutineWithExceptionHandler(const MacroAssemblerCodeRef<JITStubRoutinePtrTag>&, VM&, FixedVector<Ref<AccessCase>>&&, FixedVector<StructureID>&&, JSCell* owner, const Vector<JSCell*>&, Vector<std::unique_ptr<OptimizingCallLinkInfo>, 16>&&, CodeBlock*, DisposableCallSiteIndex);
+    ~GCAwareJITStubRoutineWithExceptionHandler();
 
-    void aboutToDie() final;
-    void observeZeroRefCount() final;
 
 private:
+    void aboutToDieImpl()
+    {
+        m_codeBlockWithExceptionHandler = nullptr;
+#if ENABLE(DFG_JIT)
+        m_codeOriginPool = nullptr;
+#endif
+    }
+
+    void observeZeroRefCountImpl();
+
     CodeBlock* m_codeBlockWithExceptionHandler;
 #if ENABLE(DFG_JIT)
     RefPtr<DFG::CodeOriginPool> m_codeOriginPool;
@@ -124,10 +213,11 @@ private:
 // appropriate. Generally you only need to pass pointers that will be used
 // after the first call to C++ or JS.
 // 
-// Ref<JITStubRoutine> createJITStubRoutine(
+// Ref<PolymorphicAccessJITStubRoutine> createICJITStubRoutine(
 //    const MacroAssemblerCodeRef<JITStubRoutinePtrTag>& code,
 //    VM& vm,
-//    const JSCell* owner,
+//    FixedVector<Ref<AccessCase>>&& cases,
+//    JSCell* owner,
 //    bool makesCalls,
 //    ...);
 //
@@ -137,11 +227,13 @@ private:
 // this function using varargs, I ended up with more code than this simple
 // way.
 
-Ref<JITStubRoutine> createJITStubRoutine(
-    const MacroAssemblerCodeRef<JITStubRoutinePtrTag>&, VM&, const JSCell* owner, bool makesCalls,
-    const Vector<JSCell*>&, Bag<CallLinkInfo>&& callLinkInfos,
+Ref<PolymorphicAccessJITStubRoutine> createICJITStubRoutine(
+    const MacroAssemblerCodeRef<JITStubRoutinePtrTag>&, FixedVector<Ref<AccessCase>>&& cases, FixedVector<StructureID>&& weakStructures, VM&, JSCell* owner, bool makesCalls,
+    const Vector<JSCell*>&, Vector<std::unique_ptr<OptimizingCallLinkInfo>, 16>&& callLinkInfos,
     CodeBlock* codeBlockForExceptionHandlers, DisposableCallSiteIndex exceptionHandlingCallSiteIndex);
 
-} // namespace JSC
+Ref<PolymorphicAccessJITStubRoutine> createPreCompiledICJITStubRoutine(const MacroAssemblerCodeRef<JITStubRoutinePtrTag>&, VM&);
 
 #endif // ENABLE(JIT)
+
+} // namespace JSC

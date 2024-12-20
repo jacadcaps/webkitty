@@ -37,13 +37,13 @@ class AudioContext;
 // De-zippering (smoothing) is applied when the gain value is changed dynamically.
 
 class GainNode final : public AudioNode {
-    WTF_MAKE_ISO_ALLOCATED(GainNode);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(GainNode);
 public:
     static ExceptionOr<Ref<GainNode>> create(BaseAudioContext& context, const GainOptions& = { });
 
     // AudioNode
     void process(size_t framesToProcess) override;
-    void reset() override;
+    void processOnlyAudioParams(size_t framesToProcess) final;
 
     // Called in the main thread when the number of channels for the input may have changed.
     void checkNumberOfChannelsForInput(AudioNodeInput*) override;
@@ -54,10 +54,10 @@ public:
 private:
     double tailTime() const override { return 0; }
     double latencyTime() const override { return 0; }
+    bool requiresTailProcessing() const final { return false; }
 
     explicit GainNode(BaseAudioContext&);
 
-    float m_lastGain { 1.0 }; // for de-zippering
     AudioFloatArray m_sampleAccurateGainValues;
     Ref<AudioParam> m_gain;
 };

@@ -42,18 +42,18 @@ public:
 
     void signal()
     {
-        auto locker = holdLock(m_lock);
+        Locker locker { m_lock };
         m_value++;
         m_condition.notifyOne();
     }
 
     bool waitUntil(const TimeWithDynamicClockType& timeout)
     {
-        auto locker = holdLock(m_lock);
-        bool satisfied = m_condition.waitUntil(m_lock, timeout,
-            [&] {
-                return m_value;
-            });
+        Locker locker { m_lock };
+        bool satisfied = m_condition.waitUntil(m_lock, timeout, [&] {
+            assertIsHeld(m_lock);
+            return m_value;
+        });
         if (satisfied)
             --m_value;
         return satisfied;
@@ -61,7 +61,7 @@ public:
 
     bool waitFor(Seconds relativeTimeout)
     {
-        return waitUntil(MonotonicTime::now() + relativeTimeout);
+        return waitUntil(MonotonicTime::timePointFromNow(relativeTimeout));
     }
 
     void wait()
@@ -70,7 +70,7 @@ public:
     }
 
 private:
-    unsigned m_value { 0 };
+    unsigned m_value WTF_GUARDED_BY_LOCK(m_lock) { 0 };
     Lock m_lock;
     Condition m_condition;
 };

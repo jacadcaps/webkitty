@@ -35,7 +35,12 @@ struct GPtrDeleter {
 };
 
 template<typename T>
-using GUniquePtr = std::unique_ptr<T, GPtrDeleter<T>>;
+struct GFreeDeleter {
+    void operator()(T* ptr) const { g_free(ptr); }
+};
+
+template<typename T, typename U = GPtrDeleter<T>>
+using GUniquePtr = std::unique_ptr<T, U>;
 
 #define FOR_EACH_GLIB_DELETER(macro) \
     macro(GError, g_error_free) \
@@ -47,7 +52,8 @@ using GUniquePtr = std::unique_ptr<T, GPtrDeleter<T>>;
     macro(GKeyFile, g_key_file_free) \
     macro(char*, g_strfreev) \
     macro(GVariantIter, g_variant_iter_free) \
-    macro(GVariantType, g_variant_type_free)
+    macro(GVariantType, g_variant_type_free) \
+    macro(GMarkupParseContext, g_markup_parse_context_free)
 
 #define WTF_DEFINE_GPTR_DELETER(typeName, deleterFunc) \
     template<> struct GPtrDeleter<typeName> \
@@ -60,6 +66,19 @@ using GUniquePtr = std::unique_ptr<T, GPtrDeleter<T>>;
 
 FOR_EACH_GLIB_DELETER(WTF_DEFINE_GPTR_DELETER)
 #undef FOR_EACH_GLIB_DELETER
+
+#define WTF_DEFINE_DEPRECATED_GPTR_DELETER(typeName, deleterFunc) \
+    template<> struct GPtrDeleter<typeName> { \
+        void operator()(typeName* ptr) const \
+        { \
+            ALLOW_DEPRECATED_DECLARATIONS_BEGIN; \
+            deleterFunc(ptr); \
+            ALLOW_DEPRECATED_DECLARATIONS_END; \
+        } \
+    };
+
+WTF_DEFINE_DEPRECATED_GPTR_DELETER(GValueArray, g_value_array_free)
+#undef WTF_DEFINE_DEPRECATED_GPTR_DELETER
 
 template <typename T> class GUniqueOutPtr {
     WTF_MAKE_NONCOPYABLE(GUniqueOutPtr);
@@ -121,6 +140,7 @@ private:
 
 using WTF::GUniquePtr;
 using WTF::GUniqueOutPtr;
+using WTF::GFreeDeleter;
 
 #endif // USE(GLIB)
 

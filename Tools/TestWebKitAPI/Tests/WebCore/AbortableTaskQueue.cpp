@@ -56,7 +56,7 @@ TEST(AbortableTaskQueue, AsyncTasks)
         });
     };
     RunLoop::current().dispatch([backgroundThreadFunction = WTFMove(backgroundThreadFunction)]() mutable {
-        WTF::Thread::create("atq-background", WTFMove(backgroundThreadFunction))->detach();
+        WTF::Thread::create("atq-background"_s, WTFMove(backgroundThreadFunction))->detach();
     });
 
     Util::run(&testFinished);
@@ -105,7 +105,7 @@ TEST(AbortableTaskQueue, SyncTasks)
 
     auto backgroundThreadFunction = [&]() {
         EXPECT_FALSE(isMainThread());
-        Optional<FancyResponse> response = taskQueue.enqueueTaskAndWait<FancyResponse>([&]() -> FancyResponse {
+        std::optional<FancyResponse> response = taskQueue.enqueueTaskAndWait<FancyResponse>([&]() -> FancyResponse {
             EXPECT_TRUE(isMainThread());
             currentStep++;
             EXPECT_EQ(1, currentStep);
@@ -117,14 +117,14 @@ TEST(AbortableTaskQueue, SyncTasks)
         EXPECT_TRUE(response);
         EXPECT_FALSE(destructedResponseFlag);
         EXPECT_EQ(100, response->fancyInt);
-        response = WTF::nullopt;
+        response = std::nullopt;
         EXPECT_TRUE(destructedResponseFlag);
         RunLoop::main().dispatch([&]() {
             testFinished = true;
         });
     };
     RunLoop::current().dispatch([backgroundThreadFunction = WTFMove(backgroundThreadFunction)]() mutable {
-        WTF::Thread::create("atq-background", WTFMove(backgroundThreadFunction))->detach();
+        WTF::Thread::create("atq-background"_s, WTFMove(backgroundThreadFunction))->detach();
     });
 
     Util::run(&testFinished);
@@ -147,7 +147,7 @@ public:
 
         void waitMyTurn()
         {
-            LockHolder lock(m_scheduler.m_mutex);
+            Locker locker { m_scheduler.m_mutex };
             m_scheduler.m_currentThreadChanged.wait(m_scheduler.m_mutex, [this]() {
                 return m_scheduler.m_currentThread == m_thisThread;
             });
@@ -155,7 +155,7 @@ public:
 
         void yieldToThread(ThreadEnum nextThread)
         {
-            LockHolder lock(m_scheduler.m_mutex);
+            Locker locker { m_scheduler.m_mutex };
             m_scheduler.m_currentThread = nextThread;
             m_scheduler.m_currentThreadChanged.notifyAll();
         }
@@ -203,7 +203,7 @@ TEST(AbortableTaskQueue, Abort)
             EXPECT_TRUE(false);
         });
         // This call must return immediately because we are aborting.
-        Optional<FancyResponse> response = taskQueue.enqueueTaskAndWait<FancyResponse>([]() -> FancyResponse {
+        std::optional<FancyResponse> response = taskQueue.enqueueTaskAndWait<FancyResponse>([]() -> FancyResponse {
             // This task should not have been able to run under the scheduling of this test.
             EXPECT_TRUE(false);
             return FancyResponse(100);
@@ -221,7 +221,7 @@ TEST(AbortableTaskQueue, Abort)
     RunLoop::current().dispatch([&, backgroundThreadFunction = WTFMove(backgroundThreadFunction)]() mutable {
         EXPECT_TRUE(isMainThread());
         DeterministicScheduler<TestThread>::ThreadContext mainThreadContext(scheduler, TestThread::Main);
-        WTF::Thread::create("atq-background", WTFMove(backgroundThreadFunction))->detach();
+        WTF::Thread::create("atq-background"_s, WTFMove(backgroundThreadFunction))->detach();
 
         mainThreadContext.waitMyTurn();
 
@@ -245,7 +245,7 @@ TEST(AbortableTaskQueue, AbortBeforeSyncTaskRun)
     auto backgroundThreadFunction = [&]() {
         EXPECT_FALSE(isMainThread());
 
-        Optional<FancyResponse> response = taskQueue.enqueueTaskAndWait<FancyResponse>([]() -> FancyResponse {
+        std::optional<FancyResponse> response = taskQueue.enqueueTaskAndWait<FancyResponse>([]() -> FancyResponse {
             // This task should not have been able to run under the scheduling of this test.
             EXPECT_TRUE(false);
             return FancyResponse(100);
@@ -260,7 +260,7 @@ TEST(AbortableTaskQueue, AbortBeforeSyncTaskRun)
     };
     RunLoop::current().dispatch([&, backgroundThreadFunction = WTFMove(backgroundThreadFunction)]() mutable {
         EXPECT_TRUE(isMainThread());
-        WTF::Thread::create("atq-background", WTFMove(backgroundThreadFunction))->detach();
+        WTF::Thread::create("atq-background"_s, WTFMove(backgroundThreadFunction))->detach();
 
         // Give the background thread a bit of time to get blocked waiting for a response.
         WTF::sleep(100_ms);
@@ -284,7 +284,7 @@ TEST(AbortableTaskQueue, AbortedBySyncTaskHandler)
         currentStep++;
         EXPECT_EQ(1, currentStep);
 
-        Optional<FancyResponse> response = taskQueue.enqueueTaskAndWait<FancyResponse>([&]() -> FancyResponse {
+        std::optional<FancyResponse> response = taskQueue.enqueueTaskAndWait<FancyResponse>([&]() -> FancyResponse {
             currentStep++;
             EXPECT_EQ(2, currentStep);
             taskQueue.startAborting();
@@ -307,7 +307,7 @@ TEST(AbortableTaskQueue, AbortedBySyncTaskHandler)
     };
     RunLoop::current().dispatch([&, backgroundThreadFunction = WTFMove(backgroundThreadFunction)]() mutable {
         EXPECT_TRUE(isMainThread());
-        WTF::Thread::create("atq-background", WTFMove(backgroundThreadFunction))->detach();
+        WTF::Thread::create("atq-background"_s, WTFMove(backgroundThreadFunction))->detach();
     });
 
     Util::run(&testFinished);

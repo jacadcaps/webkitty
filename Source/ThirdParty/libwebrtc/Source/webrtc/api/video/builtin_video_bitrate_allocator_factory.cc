@@ -12,10 +12,11 @@
 
 #include <memory>
 
+#include "absl/base/attributes.h"
 #include "absl/base/macros.h"
 #include "api/video/video_bitrate_allocator.h"
 #include "api/video_codecs/video_codec.h"
-#include "modules/video_coding/codecs/vp9/svc_rate_allocator.h"
+#include "modules/video_coding/svc/svc_rate_allocator.h"
 #include "modules/video_coding/utility/simulcast_rate_allocator.h"
 
 namespace webrtc {
@@ -28,17 +29,17 @@ class BuiltinVideoBitrateAllocatorFactory
   BuiltinVideoBitrateAllocatorFactory() = default;
   ~BuiltinVideoBitrateAllocatorFactory() override = default;
 
-  std::unique_ptr<VideoBitrateAllocator> CreateVideoBitrateAllocator(
+  std::unique_ptr<VideoBitrateAllocator> Create(
+      const Environment& env,
       const VideoCodec& codec) override {
-    std::unique_ptr<VideoBitrateAllocator> rate_allocator;
-    switch (codec.codecType) {
-      case kVideoCodecVP9:
-        rate_allocator.reset(new SvcRateAllocator(codec));
-        break;
-      default:
-        rate_allocator.reset(new SimulcastRateAllocator(codec));
+    // TODO(https://crbug.com/webrtc/14884): Update SvcRateAllocator to
+    // support simulcast and use it for VP9/AV1 simulcast as well.
+    if ((codec.codecType == kVideoCodecAV1 ||
+         codec.codecType == kVideoCodecVP9) &&
+        codec.numberOfSimulcastStreams <= 1) {
+      return std::make_unique<SvcRateAllocator>(codec);
     }
-    return rate_allocator;
+    return std::make_unique<SimulcastRateAllocator>(env, codec);
   }
 };
 

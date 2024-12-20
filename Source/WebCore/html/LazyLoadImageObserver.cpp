@@ -26,11 +26,11 @@
 #include "config.h"
 #include "LazyLoadImageObserver.h"
 
-#include "Frame.h"
+#include "DocumentInlines.h"
 #include "HTMLImageElement.h"
 #include "IntersectionObserverCallback.h"
-#include "RenderStyle.h"
-
+#include "IntersectionObserverEntry.h"
+#include "LocalFrame.h"
 #include <limits>
 
 namespace WebCore {
@@ -43,6 +43,8 @@ public:
     }
 
 private:
+    bool hasCallback() const final { return true; }
+
     CallbackResult<void> handleEvent(IntersectionObserver&, const Vector<Ref<IntersectionObserverEntry>>& entries, IntersectionObserver&) final
     {
         ASSERT(!entries.isEmpty());
@@ -50,9 +52,8 @@ private:
         for (auto& entry : entries) {
             if (!entry->isIntersecting())
                 continue;
-            auto* element = entry->target();
-            if (is<HTMLImageElement>(element)) {
-                downcast<HTMLImageElement>(*element).loadDeferredImage();
+            if (RefPtr element = dynamicDowncast<HTMLImageElement>(entry->target())) {
+                element->loadDeferredImage();
                 element->document().lazyLoadImageObserver().unobserve(*element, element->document());
             }
         }
@@ -68,7 +69,7 @@ private:
 void LazyLoadImageObserver::observe(Element& element)
 {
     auto& observer = element.document().lazyLoadImageObserver();
-    auto* intersectionObserver = observer.intersectionObserver(element.document());
+    auto* intersectionObserver = observer.intersectionObserver(element.protectedDocument());
     if (!intersectionObserver)
         return;
     intersectionObserver->observe(element);
@@ -76,27 +77,27 @@ void LazyLoadImageObserver::observe(Element& element)
 
 void LazyLoadImageObserver::unobserve(Element& element, Document& document)
 {
-    auto& observer = document.lazyLoadImageObserver();
-    ASSERT(observer.isObserved(element));
-    observer.m_lazyLoadIntersectionObserver->unobserve(element);
+    if (auto& observer = document.lazyLoadImageObserver().m_observer)
+        observer->unobserve(element);
 }
 
 IntersectionObserver* LazyLoadImageObserver::intersectionObserver(Document& document)
 {
-    if (!m_lazyLoadIntersectionObserver) {
+    if (!m_observer) {
         auto callback = LazyImageLoadIntersectionObserverCallback::create(document);
-        IntersectionObserver::Init options { WTF::nullopt, emptyString(), { } };
+        static NeverDestroyed<const String> lazyLoadingRootMarginFallback(MAKE_STATIC_STRING_IMPL("100%"));
+        IntersectionObserver::Init options { &document, lazyLoadingRootMarginFallback, { } };
         auto observer = IntersectionObserver::create(document, WTFMove(callback), WTFMove(options));
         if (observer.hasException())
             return nullptr;
-        m_lazyLoadIntersectionObserver = observer.returnValue().ptr();
+        m_observer = observer.returnValue().ptr();
     }
-    return m_lazyLoadIntersectionObserver.get();
+    return m_observer.get();
 }
 
 bool LazyLoadImageObserver::isObserved(Element& element) const
 {
-    return m_lazyLoadIntersectionObserver && m_lazyLoadIntersectionObserver->observationTargets().contains(&element);
+    return m_observer && m_observer->isObserving(element);
 }
 
 }

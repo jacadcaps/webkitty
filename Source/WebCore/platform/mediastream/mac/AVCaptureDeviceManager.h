@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,8 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef AVCaptureDeviceManager_h
-#define AVCaptureDeviceManager_h
+#pragma once
 
 #if ENABLE(MEDIA_STREAM) && USE(AVFOUNDATION)
 
@@ -33,6 +32,7 @@
 #include "RealtimeMediaSourceSupportedConstraints.h"
 #include <wtf/NeverDestroyed.h>
 #include <wtf/RetainPtr.h>
+#include <wtf/WorkQueue.h>
 #include <wtf/text/WTFString.h>
 
 OBJC_CLASS AVCaptureDevice;
@@ -47,11 +47,9 @@ namespace WebCore {
 class AVCaptureDeviceManager final : public CaptureDeviceManager {
     friend class NeverDestroyed<AVCaptureDeviceManager>;
 public:
-    const Vector<CaptureDevice>& captureDevices() final;
-
     static AVCaptureDeviceManager& singleton();
 
-    void refreshCaptureDevices();
+    void refreshCaptureDevices() { refreshCaptureDevicesInternal([] { }, ShouldSetUserPreferredCamera::No); };
 
 private:
     static bool isAvailable();
@@ -59,19 +57,27 @@ private:
     AVCaptureDeviceManager();
     ~AVCaptureDeviceManager() final;
 
+    void computeCaptureDevices(CompletionHandler<void()>&&) final;
+    const Vector<CaptureDevice>& captureDevices() final;
+
     void registerForDeviceNotifications();
-    Vector<CaptureDevice>& captureDevicesInternal();
     void updateCachedAVCaptureDevices();
-    bool isMatchingExistingCaptureDevice(AVCaptureDevice*);
+    Vector<CaptureDevice> retrieveCaptureDevices();
+    RetainPtr<NSArray> currentCameras();
+
+    enum class ShouldSetUserPreferredCamera : bool { No, Yes };
+    void refreshCaptureDevicesInternal(CompletionHandler<void()>&&, ShouldSetUserPreferredCamera);
+    void setUserPreferredCamera();
 
     RetainPtr<WebCoreAVCaptureDeviceManagerObserver> m_objcObserver;
     Vector<CaptureDevice> m_devices;
     RetainPtr<NSMutableArray> m_avCaptureDevices;
-    bool m_notifyWhenDeviceListChanges { false };
+    RetainPtr<NSArray> m_avCaptureDeviceTypes;
+    bool m_isInitialized { false };
+
+    Ref<WorkQueue> m_dispatchQueue;
 };
 
 } // namespace WebCore
 
-#endif // ENABLE(MEDIA_STREAM)
-
-#endif // AVCaptureDeviceManager_h
+#endif // ENABLE(MEDIA_STREAM) && USE(AVFOUNDATION)

@@ -1,5 +1,5 @@
 // Copyright 2017 The Chromium Authors. All rights reserved.
-// Copyright (C) 2018 Apple Inc. All rights reserved.
+// Copyright (C) 2018-2023 Apple Inc. All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
 // modification, are permitted provided that the following conditions are
@@ -51,39 +51,37 @@ uint8_t getAdditionalInfo(uint8_t initialDataByte)
 }
 
 // Error messages that correspond to each of the error codes.
-const char kNoError[] = "Successfully deserialized to a CBOR value.";
-const char kUnsupportedMajorType[] = "Unsupported major type.";
-const char kUnknownAdditionalInfo[] = "Unknown additional info format in the first byte.";
-const char kIncompleteCBORData[] = "Prematurely terminated CBOR data byte array.";
-const char kIncorrectMapKeyType[] = "Map keys other than utf-8 encoded strings are not allowed.";
-const char kTooMuchNesting[] = "Too much nesting.";
-const char kInvalidUTF8[] = "String encoding other than utf8 are not allowed.";
-const char kExtraneousData[] = "Trailing data bytes are not allowed.";
-const char kDuplicateKey[] = "Duplicate map keys are not allowed.";
-const char kMapKeyOutOfOrder[] = "Map keys must be sorted by byte length and then by byte-wise lexical order.";
-const char kNonMinimalCBOREncoding[] = "Unsigned integers must be encoded with minimum number of bytes.";
-const char kUnsupportedSimpleValue[] = "Unsupported or unassigned simple value.";
-const char kUnsupportedFloatingPointValue[] = "Floating point numbers are not supported.";
-const char kOutOfRangeIntegerValue[] = "Integer values must be between INT64_MIN and INT64_MAX.";
+constexpr auto kNoError = "Successfully deserialized to a CBOR value."_s;
+constexpr auto kUnsupportedMajorType = "Unsupported major type."_s;
+constexpr auto kUnknownAdditionalInfo = "Unknown additional info format in the first byte."_s;
+constexpr auto kIncompleteCBORData = "Prematurely terminated CBOR data byte array."_s;
+constexpr auto kIncorrectMapKeyType = "Map keys other than utf-8 encoded strings are not allowed."_s;
+constexpr auto kTooMuchNesting = "Too much nesting."_s;
+constexpr auto kInvalidUTF8 = "String encoding other than utf8 are not allowed."_s;
+constexpr auto kExtraneousData = "Trailing data bytes are not allowed."_s;
+constexpr auto kDuplicateKey = "Duplicate map keys are not allowed."_s;
+constexpr auto kMapKeyOutOfOrder = "Map keys must be sorted by byte length and then by byte-wise lexical order."_s;
+constexpr auto kNonMinimalCBOREncoding = "Unsigned integers must be encoded with minimum number of bytes."_s;
+constexpr auto kUnsupportedSimpleValue = "Unsupported or unassigned simple value."_s;
+constexpr auto kUnsupportedFloatingPointValue = "Floating point numbers are not supported."_s;
+constexpr auto kOutOfRangeIntegerValue = "Integer values must be between INT64_MIN and INT64_MAX."_s;
 
 } // namespace
 
-CBORReader::CBORReader(Bytes::const_iterator it, Bytes::const_iterator end)
-    : m_it(it)
-    , m_end(end)
+CBORReader::CBORReader(const Bytes& data)
+    : m_data(data)
+    , m_it(data.begin())
     , m_errorCode(DecoderError::CBORNoError)
 {
 }
 
-CBORReader::~CBORReader()
-{
-}
+CBORReader::~CBORReader() = default;
 
 // static
-Optional<CBORValue> CBORReader::read(const Bytes& data, DecoderError* errorCodeOut, int maxNestingLevel)
+std::optional<CBORValue> CBORReader::read(const Bytes& data, DecoderError* errorCodeOut, int maxNestingLevel)
 {
-    CBORReader reader(data.begin(), data.end());
-    Optional<CBORValue> decodedCbor = reader.decodeCBOR(maxNestingLevel);
+    CBORReader reader(data);
+    std::optional<CBORValue> decodedCbor = reader.decodeCBOR(maxNestingLevel);
 
     if (decodedCbor)
         reader.checkExtraneousData();
@@ -91,20 +89,20 @@ Optional<CBORValue> CBORReader::read(const Bytes& data, DecoderError* errorCodeO
         *errorCodeOut = reader.getErrorCode();
 
     if (reader.getErrorCode() != DecoderError::CBORNoError)
-        return WTF::nullopt;
+        return std::nullopt;
     return decodedCbor;
 }
 
-Optional<CBORValue> CBORReader::decodeCBOR(int maxNestingLevel)
+std::optional<CBORValue> CBORReader::decodeCBOR(int maxNestingLevel)
 {
     if (maxNestingLevel < 0 || maxNestingLevel > kCBORMaxDepth) {
         m_errorCode = DecoderError::TooMuchNesting;
-        return WTF::nullopt;
+        return std::nullopt;
     }
 
     if (!canConsume(1)) {
         m_errorCode = DecoderError::IncompleteCBORData;
-        return WTF::nullopt;
+        return std::nullopt;
     }
 
     const uint8_t initialByte = *m_it++;
@@ -113,7 +111,7 @@ Optional<CBORValue> CBORReader::decodeCBOR(int maxNestingLevel)
 
     uint64_t value;
     if (!readVariadicLengthInteger(additionalInfo, &value))
-        return WTF::nullopt;
+        return std::nullopt;
 
     switch (major_type) {
     case CBORValue::Type::Unsigned:
@@ -135,7 +133,7 @@ Optional<CBORValue> CBORReader::decodeCBOR(int maxNestingLevel)
     }
 
     m_errorCode = DecoderError::UnsupportedMajorType;
-    return WTF::nullopt;
+    return std::nullopt;
 }
 
 bool CBORReader::readVariadicLengthInteger(uint8_t additionalInfo, uint64_t* value)
@@ -174,30 +172,30 @@ bool CBORReader::readVariadicLengthInteger(uint8_t additionalInfo, uint64_t* val
     return checkMinimalEncoding(additionalBytes, intData);
 }
 
-Optional<CBORValue> CBORReader::decodeValueToNegative(uint64_t value)
+std::optional<CBORValue> CBORReader::decodeValueToNegative(uint64_t value)
 {
     if (value > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
         m_errorCode = DecoderError::OutOfRangeIntegerValue;
-        return WTF::nullopt;
+        return std::nullopt;
     }
     return CBORValue(-static_cast<int64_t>(value) - 1);
 }
 
-Optional<CBORValue> CBORReader::decodeValueToUnsigned(uint64_t value)
+std::optional<CBORValue> CBORReader::decodeValueToUnsigned(uint64_t value)
 {
     if (value > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
         m_errorCode = DecoderError::OutOfRangeIntegerValue;
-        return WTF::nullopt;
+        return std::nullopt;
     }
     return CBORValue(static_cast<int64_t>(value));
 }
 
-Optional<CBORValue> CBORReader::readSimpleValue(uint8_t additionalInfo, uint64_t value)
+std::optional<CBORValue> CBORReader::readSimpleValue(uint8_t additionalInfo, uint64_t value)
 {
     // Floating point numbers are not supported.
     if (additionalInfo > 24 && additionalInfo < 28) {
         m_errorCode = DecoderError::UnsupportedFloatingPointValue;
-        return WTF::nullopt;
+        return std::nullopt;
     }
 
     ASSERT(value <= 255u);
@@ -211,70 +209,70 @@ Optional<CBORValue> CBORReader::readSimpleValue(uint8_t additionalInfo, uint64_t
     }
 
     m_errorCode = DecoderError::UnsupportedSimpleValue;
-    return WTF::nullopt;
+    return std::nullopt;
 }
 
-Optional<CBORValue> CBORReader::readString(uint64_t numBytes)
+std::optional<CBORValue> CBORReader::readString(uint64_t numBytes)
 {
     if (!canConsume(numBytes)) {
         m_errorCode = DecoderError::IncompleteCBORData;
-        return WTF::nullopt;
+        return std::nullopt;
     }
 
     ASSERT(numBytes <= std::numeric_limits<size_t>::max());
-    String cborString = String::fromUTF8(m_it, static_cast<size_t>(numBytes));
+    String cborString = String::fromUTF8(m_data.subspan(std::distance(m_data.begin(), m_it), numBytes));
     m_it += numBytes;
 
     // Invalid UTF8 bytes produce an empty WTFString.
     // Not to confuse it with an actual empty WTFString.
     if (!numBytes || hasValidUTF8Format(cborString))
         return CBORValue(WTFMove(cborString));
-    return WTF::nullopt;
+    return std::nullopt;
 }
 
-Optional<CBORValue> CBORReader::readBytes(uint64_t numBytes)
+std::optional<CBORValue> CBORReader::readBytes(uint64_t numBytes)
 {
     if (!canConsume(numBytes)) {
         m_errorCode = DecoderError::IncompleteCBORData;
-        return WTF::nullopt;
+        return std::nullopt;
     }
 
-    Bytes cborByteString;
+    Vector<uint8_t> cborByteString;
     ASSERT(numBytes <= std::numeric_limits<size_t>::max());
-    cborByteString.append(m_it, static_cast<size_t>(numBytes));
+    cborByteString.append(m_data.subspan(std::distance(m_data.begin(), m_it), static_cast<size_t>(numBytes)));
     m_it += numBytes;
 
     return CBORValue(WTFMove(cborByteString));
 }
 
-Optional<CBORValue> CBORReader::readCBORArray(uint64_t length, int maxNestingLevel)
+std::optional<CBORValue> CBORReader::readCBORArray(uint64_t length, int maxNestingLevel)
 {
     CBORValue::ArrayValue cborArray;
     while (length-- > 0) {
-        Optional<CBORValue> cborElement = decodeCBOR(maxNestingLevel - 1);
+        std::optional<CBORValue> cborElement = decodeCBOR(maxNestingLevel - 1);
         if (!cborElement)
-            return WTF::nullopt;
+            return std::nullopt;
         cborArray.append(WTFMove(cborElement.value()));
     }
     return CBORValue(WTFMove(cborArray));
 }
 
-Optional<CBORValue> CBORReader::readCBORMap(uint64_t length, int maxNestingLevel)
+std::optional<CBORValue> CBORReader::readCBORMap(uint64_t length, int maxNestingLevel)
 {
     CBORValue::MapValue cborMap;
     while (length-- > 0) {
-        Optional<CBORValue> key = decodeCBOR(maxNestingLevel - 1);
-        Optional<CBORValue> value = decodeCBOR(maxNestingLevel - 1);
+        std::optional<CBORValue> key = decodeCBOR(maxNestingLevel - 1);
+        std::optional<CBORValue> value = decodeCBOR(maxNestingLevel - 1);
         if (!key || !value)
-            return WTF::nullopt;
+            return std::nullopt;
 
         // Only CBOR maps with integer or string type keys are allowed.
         if (!key->isString() && !key->isInteger()) {
             m_errorCode = DecoderError::IncorrectMapKeyType;
-            return WTF::nullopt;
+            return std::nullopt;
         }
         if (!checkDuplicateKey(key.value(), cborMap) || !checkOutOfOrderKey(key.value(), cborMap))
-            return WTF::nullopt;
+            return std::nullopt;
 
         cborMap.emplace(std::make_pair(WTFMove(key.value()), WTFMove(value.value())));
     }
@@ -283,7 +281,7 @@ Optional<CBORValue> CBORReader::readCBORMap(uint64_t length, int maxNestingLevel
 
 bool CBORReader::canConsume(uint64_t bytes)
 {
-    if (static_cast<uint64_t>(std::distance(m_it, m_end)) >= bytes)
+    if (static_cast<uint64_t>(std::distance(m_it, m_data.end())) >= bytes)
         return true;
     m_errorCode = DecoderError::IncompleteCBORData;
     return false;
@@ -300,7 +298,7 @@ bool CBORReader::checkMinimalEncoding(uint8_t additionalBytes, uint64_t uintData
 
 void CBORReader::checkExtraneousData()
 {
-    if (m_it != m_end)
+    if (m_it != m_data.end())
         m_errorCode = DecoderError::ExtraneousData;
 }
 
@@ -339,7 +337,7 @@ CBORReader::DecoderError CBORReader::getErrorCode()
 }
 
 // static
-const char* CBORReader::errorCodeToString(DecoderError error)
+ASCIILiteral CBORReader::errorCodeToString(DecoderError error)
 {
     switch (error) {
     case DecoderError::CBORNoError:
@@ -372,7 +370,7 @@ const char* CBORReader::errorCodeToString(DecoderError error)
         return kOutOfRangeIntegerValue;
     default:
         ASSERT_NOT_REACHED();
-        return "Unknown error code.";
+        return "Unknown error code."_s;
     }
 }
 
