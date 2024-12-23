@@ -84,7 +84,8 @@ protected:
 
     void setResizable(bool) final;
 
-    void addMessageToConsole(JSC::MessageSource, JSC::MessageLevel, const WTF::String& message, unsigned lineNumber, unsigned columnNumber, const WTF::String& url) final;
+    void addMessageToConsole(JSC::MessageSource, JSC::MessageLevel, const WTF::String& message, unsigned lineNumber, unsigned columnNumber, const WTF::String& url) final { };
+    void addMessageWithArgumentsToConsole(MessageSource, MessageLevel, const String&, std::span<const String>, unsigned, unsigned, const String&) final;
 
     bool canRunBeforeUnloadConfirmPanel() final;
     bool runBeforeUnloadConfirmPanel(const WTF::String& message, WebCore::LocalFrame&) final;

@@ -173,10 +173,18 @@ static BOOL messageIsError(MessageLevel level)
 }
 #endif
 
+#if 0
 void WebChromeClient::addMessageToConsole(MessageSource source, MessageLevel level, const String& message, unsigned lineNumber, unsigned columnNumber, const String& url)
 {
 	if (m_webPage._fConsole)
 		m_webPage._fConsole(url, message, int(level), lineNumber, columnNumber);
+}
+#endif
+
+void WebChromeClient::addMessageWithArgumentsToConsole(MessageSource source, MessageLevel level, const String& message, std::span<const String> arguments, unsigned lineNumber, unsigned columnNumber, const String&url)
+{
+	if (m_webPage._fConsole)
+		m_webPage._fConsole(url, equalIgnoringASCIICase(message, "%s"_s) ? makeStringByJoining(arguments, " "_s) : message, int(level), lineNumber, columnNumber);
 }
 
 bool WebChromeClient::canRunBeforeUnloadConfirmPanel()
