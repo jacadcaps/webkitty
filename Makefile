@@ -255,6 +255,7 @@ LINKFILES := \
 	$(ROOTPATH)/morphoswb/libs/freetype/library/lib/libfreetype.a \
 	$(ROOTPATH)/gen/host/libnix/lib/libnghttp2.a \
 	$(ROOTPATH)/lib/libjpeg/libjpeg.a \
+	$(ROOTPATH)/gen/host/libnix/lib/liblcms2.a \
 	$(ROOTPATH)/gen/host/libnix/lib/libpsl.a \
 	$(ROOTPATH)/gen/host/libnix/libpng16/lib/libpng16.a  \
 	$(ROOTPATH)/gen/host/libnix/lib/libhyphen.a \

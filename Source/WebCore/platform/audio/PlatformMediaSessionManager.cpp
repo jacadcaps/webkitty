@@ -35,6 +35,8 @@
 #include "VP9UtilitiesCocoa.h"
 #endif
 
+#if ENABLE(VIDEO) || ENABLE(WEB_AUDIO)
+
 namespace WebCore {
 
 #if ENABLE(WEBM_FORMAT_READER)
@@ -948,3 +950,6 @@ void PlatformMediaSessionManager::dumpSessionStates()
 #endif
 
 } // namespace WebCore
+
+#endif
+
