@@ -1,4 +1,14 @@
 =================
+WPE WebKit 2.46.5
+=================
+
+What's new in WPE WebKit 2.46.5?
+
+  - Fix audio/video synchronization issues in the GStreamer playback backend.
+  - Fix the build with GBM and release logs disabled.
+  - Fix several crashes and rendering issues.
+
+=================
 WPE WebKit 2.46.4
 =================
 

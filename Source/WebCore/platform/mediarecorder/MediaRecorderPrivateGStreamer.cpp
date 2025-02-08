@@ -130,8 +130,12 @@ MediaRecorderPrivateBackend::MediaRecorderPrivateBackend(MediaStreamPrivate& str
         }
     } else {
         containerType = selectedTracks.videoTrack ? "video/mp4"_s : "audio/mp4"_s;
-        if (codecs.isEmpty() && selectedTracks.audioTrack && !selectedTracks.videoTrack)
-            codecs.append("mp4a"_s);
+        if (codecs.isEmpty()) {
+            if (selectedTracks.videoTrack)
+                codecs.append("avc1.4d002a"_s);
+            if (selectedTracks.audioTrack)
+                codecs.append("mp4a"_s);
+        }
     }
 
     StringBuilder builder;
@@ -169,9 +173,9 @@ void MediaRecorderPrivateBackend::stopRecording(CompletionHandler<void()>&& comp
     GST_DEBUG_OBJECT(m_transcoder.get(), "Stop requested, pushing EOS event");
 
     auto scopeExit = makeScopeExit([this, completionHandler = WTFMove(completionHandler)]() mutable {
+        GST_DEBUG_OBJECT(m_transcoder.get(), "Tearing down pipeline");
         unregisterPipeline(m_pipeline);
         m_pipeline.clear();
-        GST_DEBUG_OBJECT(m_transcoder.get(), "Stopping");
         m_transcoder.clear();
         completionHandler();
     });
@@ -181,7 +185,13 @@ void MediaRecorderPrivateBackend::stopRecording(CompletionHandler<void()>&& comp
         m_eos = true;
         return;
     }
-    webkitMediaStreamSrcSignalEndOfStream(WEBKIT_MEDIA_STREAM_SRC(m_src.get()));
+
+    GST_DEBUG_OBJECT(m_transcoder.get(), "Emitting EOS event(s)");
+    if (!webkitMediaStreamSrcSignalEndOfStream(WEBKIT_MEDIA_STREAM_SRC(m_src.get()))) {
+        GST_DEBUG_OBJECT(m_transcoder.get(), "EOS event(s) un-successfully sent, not expecting them on the sink");
+        m_eos = true;
+        return;
+    }
 
     bool isEOS = false;
     while (!isEOS) {
@@ -193,6 +203,7 @@ void MediaRecorderPrivateBackend::stopRecording(CompletionHandler<void()>&& comp
         });
         isEOS = m_eos;
     }
+    GST_DEBUG_OBJECT(m_transcoder.get(), "EOS event received on sink");
 }
 
 void MediaRecorderPrivateBackend::fetchData(MediaRecorderPrivate::FetchDataCallback&& completionHandler)

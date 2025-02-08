@@ -366,17 +366,19 @@ public:
             m_audioTrack->play();
     }
 
-    void signalEndOfStream()
+    bool signalEndOfStream()
     {
+        bool result = false;
         if (m_src)
-            gst_app_src_end_of_stream(GST_APP_SRC(m_src.get()));
+            result = gst_app_src_end_of_stream(GST_APP_SRC(m_src.get())) == GST_FLOW_OK;
         callOnMainThreadAndWait([&] {
             stopObserving();
         });
 
         if (!m_track)
-            return;
+            return result;
         trackEnded(*m_track);
+        return result;
     }
 
     void pushSample(GRefPtr<GstSample>&& sample, [[maybe_unused]] const ASCIILiteral logMessage)
@@ -622,7 +624,8 @@ private:
 
         VideoFrameTimeMetadata metadata;
         metadata.captureTime = MonotonicTime::now().secondsSinceEpoch();
-        auto buffer = adoptGRef(webkitGstBufferSetVideoFrameTimeMetadata(gst_buffer_new_allocate(nullptr, GST_VIDEO_INFO_SIZE(&info), nullptr), metadata));
+        auto emptyBuffer = adoptGRef(gst_buffer_new_allocate(nullptr, GST_VIDEO_INFO_SIZE(&info), nullptr));
+        auto buffer = webkitGstBufferSetVideoFrameTimeMetadata(WTFMove(emptyBuffer), metadata);
         {
             GstMappedBuffer data(buffer, GST_MAP_WRITE);
             auto yOffset = GST_VIDEO_INFO_PLANE_OFFSET(&info, 1);
@@ -1077,12 +1080,14 @@ static GstPadProbeReturn webkitMediaStreamSrcPadProbeCb(GstPad* pad, GstPadProbe
     GST_DEBUG_OBJECT(self, "Event %" GST_PTR_FORMAT, event);
     switch (GST_EVENT_TYPE(event)) {
     case GST_EVENT_STREAM_START: {
-        GST_DEBUG_OBJECT(self, "Replacing stream-start event");
-        auto sequenceNumber = gst_event_get_seqnum(event);
-        gst_event_unref(event);
-        data->streamStartEvent = adoptGRef(gst_event_make_writable(data->streamStartEvent.leakRef()));
-        gst_event_set_seqnum(data->streamStartEvent.get(), sequenceNumber);
-        info->data = gst_event_ref(data->streamStartEvent.get());
+        if (data->streamStartEvent) {
+            GST_DEBUG_OBJECT(self, "Replacing stream-start event");
+            auto sequenceNumber = gst_event_get_seqnum(event);
+            gst_event_unref(event);
+            data->streamStartEvent = adoptGRef(gst_event_make_writable(data->streamStartEvent.leakRef()));
+            gst_event_set_seqnum(data->streamStartEvent.get(), sequenceNumber);
+            info->data = gst_event_ref(data->streamStartEvent.get());
+        }
         return GST_PAD_PROBE_OK;
     }
     case GST_EVENT_CAPS: {
@@ -1185,12 +1190,18 @@ void webkitMediaStreamSrcReplaceTrack(WebKitMediaStreamSrc* self, RefPtr<MediaSt
     self->priv->sources[0]->replaceTrack(WTFMove(newTrack));
 }
 
-void webkitMediaStreamSrcSignalEndOfStream(WebKitMediaStreamSrc* self)
+bool webkitMediaStreamSrcSignalEndOfStream(WebKitMediaStreamSrc* self)
 {
+    bool result = true;
     GST_DEBUG_OBJECT(self, "Signaling EOS");
-    for (auto& source : self->priv->sources)
-        source->signalEndOfStream();
+    for (auto& source : self->priv->sources) {
+        if (!source->signalEndOfStream()) {
+            result = false;
+            break;
+        }
+    }
     self->priv->sources.clear();
+    return result;
 }
 
 void webkitMediaStreamSrcCharacteristicsChanged([[maybe_unused]] WebKitMediaStreamSrc* self)

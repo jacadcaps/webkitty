@@ -1,4 +1,13 @@
 ================
+WebKitGTK 2.46.6
+================
+
+What's new in WebKitGTK 2.46.6?
+
+  - Fix a crash when enabling Skia CPU rendering.
+  - Fix several crashes and rendering issues.
+
+================
 WebKitGTK 2.46.5
 ================
 

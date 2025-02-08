@@ -65,7 +65,8 @@ public:
     ~GStreamerPeerConnectionBackend();
 
     GStreamerRtpSenderBackend& backendFromRTPSender(RTCRtpSender&);
-    RefPtr<RTCRtpSender> findExistingSender(const Vector<RefPtr<RTCRtpTransceiver>>&, GStreamerRtpSenderBackend&);
+
+    void dispatchSenderBitrateRequest(const GRefPtr<GstWebRTCDTLSTransport>&, uint32_t bitrate);
 
 private:
     void close() final;

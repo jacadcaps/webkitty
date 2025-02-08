@@ -165,7 +165,7 @@ public:
     void setMuted(bool) final;
     MediaPlayer::NetworkState networkState() const final;
     MediaPlayer::ReadyState readyState() const final;
-    void setPageIsVisible(bool visible) final { m_visible = visible; }
+    void setPageIsVisible(bool visible) final { m_pageIsVisible = visible; }
     void setVisibleInViewport(bool isVisible) final;
     void setPresentationSize(const IntSize&) final;
     MediaTime duration() const override;
@@ -379,6 +379,8 @@ protected:
     bool m_didErrorOccur { false };
     mutable bool m_isEndReached { false };
     mutable std::optional<bool> m_isLiveStream;
+
+    // Must reflect whether the last successfull call to gst_element_set_state() was for PLAYING.
     bool m_isPipelinePlaying = false;
 
     // m_isPaused represents:
@@ -404,6 +406,9 @@ protected:
     SeekTarget m_seekTarget;
     GRefPtr<GstElement> m_source { nullptr };
     bool m_areVolumeAndMuteInitialized { false };
+
+    // Reflects whether the pipeline was paused due to the HTMLMediaElement being both muted and invisible in the viewport.
+    bool m_isPausedByViewport { false };
 
 #if USE(TEXTURE_MAPPER)
     OptionSet<TextureMapperFlags> m_textureMapperFlags;
@@ -604,7 +609,9 @@ private:
 #endif
 
     bool m_isMuted { false };
-    bool m_visible { false };
+
+    // Whether the page containing the HTMLMediaElement is visible, reflects: setPageIsVisible()
+    bool m_pageIsVisible { false };
 
     // playbin3 only:
     bool m_waitingForStreamsSelectedEvent { true };
@@ -665,7 +672,6 @@ private:
 
     bool m_didTryToRecoverPlayingState { false };
 
-    bool m_isVisibleInViewport { true };
     GstState m_invisiblePlayerState { GST_STATE_VOID_PENDING };
 
     // Specific to MediaStream playback.

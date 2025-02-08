@@ -59,6 +59,7 @@ public:
     GLuint getStaticVBO(GLenum target, GLsizeiptr, const void* data);
     GLuint getVAO();
     Ref<TextureMapperShaderProgram> getShaderProgram(TextureMapperShaderProgram::Options);
+    int32_t maxTextureSize() const;
 
     TransformationMatrix projectionMatrix;
     TextureMapper::FlipY flipY { TextureMapper::FlipY::No };
@@ -108,9 +109,13 @@ private:
             return map;
         }
 
-        SharedGLData() = default;
+        SharedGLData()
+        {
+            glGetIntegerv(GL_MAX_TEXTURE_SIZE, &m_maxTextureSize);
+        }
 
         HashMap<unsigned, RefPtr<TextureMapperShaderProgram>> m_programs;
+        int32_t m_maxTextureSize;
     };
 
     Ref<SharedGLData> m_sharedGLData;
@@ -169,6 +174,11 @@ Ref<TextureMapperShaderProgram> TextureMapperGLData::getShaderProgram(TextureMap
         return TextureMapperShaderProgram::create(options);
     });
     return *addResult.iterator->value;
+}
+
+int32_t TextureMapperGLData::maxTextureSize() const
+{
+    return m_sharedGLData->m_maxTextureSize;
 }
 
 std::unique_ptr<TextureMapper> TextureMapper::create()
@@ -1326,6 +1336,11 @@ void TextureMapper::endClip()
 IntRect TextureMapper::clipBounds()
 {
     return clipStack().current().scissorBox;
+}
+
+IntSize TextureMapper::maxTextureSize() const
+{
+    return IntSize(data().maxTextureSize(), data().maxTextureSize());
 }
 
 void TextureMapper::setDepthRange(double zNear, double zFar)

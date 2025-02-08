@@ -1150,7 +1150,8 @@ StringView gstStructureGetString(const GstStructure* structure, StringView key)
         return { };
     }
 
-    return StringView::fromLatin1(gst_structure_get_string(structure, static_cast<const char*>(key.rawCharacters())));
+    auto utf8String = key.utf8();
+    return StringView::fromLatin1(gst_structure_get_string(structure, utf8String.data()));
 }
 
 StringView gstStructureGetName(const GstStructure* structure)
@@ -1578,6 +1579,10 @@ void configureAudioDecoderForHarnessing(const GRefPtr<GstElement>& element)
 {
     if (gstObjectHasProperty(element.get(), "max-errors"))
         g_object_set(element.get(), "max-errors", 0, nullptr);
+
+    // rawaudioparse-specific:
+    if (gstObjectHasProperty(element.get(), "use-sink-caps"))
+        g_object_set(element.get(), "use-sink-caps", TRUE, nullptr);
 }
 
 void configureVideoDecoderForHarnessing(const GRefPtr<GstElement>& element)
@@ -1823,6 +1828,43 @@ GRefPtr<GstCaps> buildDMABufCaps()
     return caps;
 }
 #endif // USE(GBM)
+
+static std::optional<GRefPtr<GstContext>> requestGLContext(const char* contextType)
+{
+    auto& sharedDisplay = PlatformDisplay::sharedDisplay();
+    auto* gstGLDisplay = sharedDisplay.gstGLDisplay();
+    auto* gstGLContext = sharedDisplay.gstGLContext();
+
+    if (!gstGLDisplay || !gstGLContext)
+        return std::nullopt;
+
+    if (!g_strcmp0(contextType, GST_GL_DISPLAY_CONTEXT_TYPE)) {
+        GRefPtr<GstContext> displayContext = adoptGRef(gst_context_new(GST_GL_DISPLAY_CONTEXT_TYPE, FALSE));
+        gst_context_set_gl_display(displayContext.get(), gstGLDisplay);
+        return displayContext;
+    }
+
+    if (!g_strcmp0(contextType, "gst.gl.app_context")) {
+        GRefPtr<GstContext> appContext = adoptGRef(gst_context_new("gst.gl.app_context", FALSE));
+        GstStructure* structure = gst_context_writable_structure(appContext.get());
+        gst_structure_set(structure, "context", GST_TYPE_GL_CONTEXT, gstGLContext, nullptr);
+        return appContext;
+    }
+
+    return std::nullopt;
+}
+
+bool setGstElementGLContext(GstElement* element, const char* contextType)
+{
+    GRefPtr<GstContext> oldContext = adoptGRef(gst_element_get_context(element, contextType));
+    if (!oldContext) {
+        auto newContext = requestGLContext(contextType);
+        if (!newContext)
+            return false;
+        gst_element_set_context(element, newContext->get());
+    }
+    return true;
+}
 
 #undef GST_CAT_DEFAULT
 

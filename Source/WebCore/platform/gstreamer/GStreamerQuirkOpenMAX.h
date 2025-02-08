@@ -1,5 +1,6 @@
 /*
- * Copyright (C) 2021 Igalia S.L
+ * Copyright (C) 2024 Igalia S.L
+ * Copyright (C) 2024 Metrological Group B.V.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -19,14 +20,21 @@
 
 #pragma once
 
-#if ENABLE(VIDEO) && USE(GSTREAMER)
+#if USE(GSTREAMER)
 
-#include "GRefPtrGStreamer.h"
-#include "VideoFrameMetadata.h"
-#include "VideoFrameTimeMetadata.h"
+#include "GStreamerQuirks.h"
 
-WARN_UNUSED_RETURN GRefPtr<GstBuffer> webkitGstBufferSetVideoFrameTimeMetadata(GRefPtr<GstBuffer>&&, std::optional<WebCore::VideoFrameTimeMetadata>&&);
-void webkitGstTraceProcessingTimeForElement(GstElement*);
-WebCore::VideoFrameMetadata webkitGstBufferGetVideoFrameMetadata(GstBuffer*);
+namespace WebCore {
 
-#endif // ENABLE(VIDEO) && USE(GSTREAMER)
+class GStreamerQuirkOpenMAX final : public GStreamerQuirk {
+public:
+    GStreamerQuirkOpenMAX();
+    const ASCIILiteral identifier() const final { return "OpenMAX"_s; }
+    unsigned getAdditionalPlaybinFlags() const final { return getGstPlayFlag("text") | getGstPlayFlag("native-video"); }
+
+    bool processWebAudioSilentBuffer(GstBuffer*) const final;
+};
+
+} // namespace WebCore
+
+#endif // USE(GSTREAMER)

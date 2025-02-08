@@ -81,6 +81,8 @@ public:
     void stopSource();
     void tearDown();
 
+    void dispatchBitrateRequest(uint32_t bitrate);
+
 private:
     bool replaceTrack(RTCRtpSender&, MediaStreamTrack*) final;
     RTCRtpSendParameters getParameters() const final;

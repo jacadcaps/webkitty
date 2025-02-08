@@ -382,8 +382,8 @@ void MediaPlayerPrivateGStreamer::load(const String& urlString)
         m_fillTimer.stop();
 
     ASSERT(m_pipeline);
-    setVisibleInViewport(player->isVisibleInViewport());
     setPlaybinURL(url);
+    setVisibleInViewport(player->isVisibleInViewport());
 
     GST_DEBUG_OBJECT(pipeline(), "preload: %s", convertEnumerationToString(m_preload).utf8().data());
     if (m_preload == MediaPlayer::Preload::None && !isMediaSource()) {
@@ -543,8 +543,9 @@ bool MediaPlayerPrivateGStreamer::paused() const
 #if !defined(GST_DISABLE_GST_DEBUG) || !defined(NDEBUG)
     if (!isPipelineWaitingPreroll(state, pending, stateChange) && isPipelinePaused != !m_isPipelinePlaying
         && (stateChange == GST_STATE_CHANGE_SUCCESS || stateChange == GST_STATE_CHANGE_NO_PREROLL)) {
-        GST_WARNING_OBJECT(pipeline(), "states are not synchronized, player paused %s, pipeline paused %s",
-            boolForPrinting(!m_isPipelinePlaying), boolForPrinting(isPipelinePaused));
+        GST_WARNING_OBJECT(pipeline(), "states are not synchronized, player paused %s, pipeline paused %s. Current state is %s with %s pending",
+            boolForPrinting(!m_isPipelinePlaying), boolForPrinting(isPipelinePaused),
+            gst_element_state_get_name(state), gst_element_state_get_name(pending));
         ASSERT_NOT_REACHED_WITH_MESSAGE("pipeline and player states are not synchronized");
     }
 #else
@@ -1055,7 +1056,7 @@ MediaPlayerPrivateGStreamer::ChangePipelineStateResult MediaPlayerPrivateGStream
 {
     ASSERT(m_pipeline);
 
-    if (!m_isVisibleInViewport && newState > GST_STATE_PAUSED) {
+    if (m_isPausedByViewport && newState > GST_STATE_PAUSED) {
         GST_DEBUG_OBJECT(pipeline(), "Saving state for when player becomes visible: %s", gst_element_state_get_name(newState));
         m_invisiblePlayerState = newState;
         return ChangePipelineStateResult::Ok;
@@ -1072,9 +1073,14 @@ MediaPlayerPrivateGStreamer::ChangePipelineStateResult MediaPlayerPrivateGStream
         gst_element_state_get_name(currentState), gst_element_state_get_name(pending));
 
     change = gst_element_set_state(m_pipeline.get(), newState);
+    GST_DEBUG_OBJECT(pipeline(), "Changing state returned %s", gst_element_state_change_return_get_name(change));
+
     GstState pausedOrPlaying = newState == GST_STATE_PLAYING ? GST_STATE_PAUSED : GST_STATE_PLAYING;
-    if (currentState != pausedOrPlaying && change == GST_STATE_CHANGE_FAILURE)
+    if (currentState != pausedOrPlaying && change == GST_STATE_CHANGE_FAILURE) {
+        GST_WARNING_OBJECT(pipeline(), "Changing state to %s from %s with %s pending failed", gst_element_state_get_name(newState),
+            gst_element_state_get_name(currentState), gst_element_state_get_name(pending));
         return ChangePipelineStateResult::Failed;
+    }
 
     m_isPipelinePlaying = newState == GST_STATE_PLAYING;
 
@@ -4101,12 +4107,16 @@ void MediaPlayerPrivateGStreamer::setVisibleInViewport(bool isVisible)
         gst_element_get_state(m_pipeline.get(), &currentState, nullptr, 0);
         if (currentState > GST_STATE_NULL)
             m_invisiblePlayerState = currentState;
-        m_isVisibleInViewport = false;
+        m_isPausedByViewport = true;
+        GST_DEBUG_OBJECT(pipeline(), "Media element is muted and not visible in viewport, pausing it to save resources.");
         gst_element_set_state(m_pipeline.get(), GST_STATE_PAUSED);
+        m_isPipelinePlaying = false;
     } else {
-        m_isVisibleInViewport = true;
-        if (m_invisiblePlayerState != GST_STATE_VOID_PENDING)
+        m_isPausedByViewport = false;
+        if (m_invisiblePlayerState != GST_STATE_VOID_PENDING) {
+            GST_DEBUG_OBJECT(pipeline(), "Element in viewport again, resuming playback.");
             changePipelineState(m_invisiblePlayerState);
+        }
     }
 }
 
@@ -4120,14 +4130,27 @@ void MediaPlayerPrivateGStreamer::paint(GraphicsContext& context, const FloatRec
     if (context.paintingDisabled())
         return;
 
-    if (!m_visible || !m_isVisibleInViewport)
+    if (!m_pageIsVisible || m_isPausedByViewport)
         return;
 
-    Locker sampleLocker { m_sampleMutex };
-    if (!GST_IS_SAMPLE(m_sample.get()))
+    // Keep a reference to the sample to avoid keeping the sampleMutex locked, which would be prone
+    // to deadlocks if triggerRepaint is called while the video frame converter is blocked on its
+    // state change.
+    GRefPtr<GstSample> sample;
+    {
+        Locker sampleLocker { m_sampleMutex };
+        if (!GST_IS_SAMPLE(m_sample.get()))
+            return;
+
+        sample = m_sample;
+    }
+
+    auto caps = gst_sample_get_caps(sample.get());
+    auto presentationSize = getVideoResolutionFromCaps(caps);
+    if (!presentationSize)
         return;
 
-    auto frame = VideoFrameGStreamer::createWrappedSample(m_sample);
+    auto frame = VideoFrameGStreamer::create(WTFMove(sample), *presentationSize);
     frame->paintInContext(context, rect, m_videoSourceOrientation, false);
 }
 

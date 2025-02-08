@@ -49,15 +49,18 @@ std::pair<const char*, const char*> GStreamerCodecUtilities::parseH264ProfileAnd
 {
     ensureDebugCategoryInitialized();
 
+    uint64_t spsAsInteger = 0;
     auto components = codec.split('.');
-    long int spsAsInteger = strtol(components[1].utf8().data(), nullptr, 16);
-    uint8_t sps[3];
+    if (components.size() > 1)
+        spsAsInteger = parseInteger<uint64_t>(components[1], 16).value_or(0);
+
+    std::array<uint8_t, 3> sps;
     sps[0] = spsAsInteger >> 16;
     sps[1] = spsAsInteger >> 8;
     sps[2] = spsAsInteger;
 
-    const char* profile = gst_codec_utils_h264_get_profile(sps, 3);
-    const char* level = gst_codec_utils_h264_get_level(sps, 3);
+    const char* profile = gst_codec_utils_h264_get_profile(sps.data(), 3);
+    const char* level = gst_codec_utils_h264_get_level(sps.data(), 3);
 
     // To avoid going through a class hierarchy for such a simple
     // string conversion, we use a little trick here: See
@@ -83,19 +86,17 @@ static std::pair<GRefPtr<GstCaps>, GRefPtr<GstCaps>> h264CapsFromCodecString(con
 
     StringBuilder formatBuilder;
     auto profile = StringView::fromLatin1(gstProfile);
-    auto isY444 = profile.findIgnoringASCIICase("high-4:4:4"_s) != notFound;
-    auto isY422 = profile.findIgnoringASCIICase("high-4:2:2"_s) != notFound;
-    auto isY420 = profile.findIgnoringASCIICase("high-10"_s) != notFound;
-    if (isY444)
+    auto isY444TenBits = profile.startsWithIgnoringASCIICase("high-4:4:4"_s);
+    auto isY422TenBits = profile.findIgnoringASCIICase("high-4:2:2"_s) != notFound;
+    auto isI420TenBits = profile.findIgnoringASCIICase("high-10"_s) != notFound;
+    if (isY444TenBits)
         formatBuilder.append("Y444"_s);
-    else if (isY422)
+    else if (isY422TenBits)
         formatBuilder.append("I422"_s);
-    else if (isY420)
-        formatBuilder.append("Y420"_s);
     else
         formatBuilder.append("I420"_s);
 
-    if (isY444 || isY422 || isY420) {
+    if (isY444TenBits || isY422TenBits || isI420TenBits) {
 #if G_BYTE_ORDER == G_LITTLE_ENDIAN
         auto endianness = "LE"_s;
 #else

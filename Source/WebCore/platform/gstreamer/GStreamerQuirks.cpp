@@ -31,6 +31,7 @@
 #include "GStreamerQuirkAmLogic.h"
 #include "GStreamerQuirkBcmNexus.h"
 #include "GStreamerQuirkBroadcom.h"
+#include "GStreamerQuirkOpenMAX.h"
 #include "GStreamerQuirkRealtek.h"
 #include "GStreamerQuirkRialto.h"
 #include "GStreamerQuirkWesteros.h"
@@ -72,7 +73,7 @@ GStreamerQuirksManager::GStreamerQuirksManager(bool isForTesting, bool loadQuirk
     if (quirksList) {
         StringView quirks { std::span { quirksList, strlen(quirksList) } };
         if (WTF::equalLettersIgnoringASCIICase(quirks, "help"_s)) {
-            WTFLogAlways("Supported quirks for WEBKIT_GST_QUIRKS are: amlogic, broadcom, bcmnexus, realtek, westeros");
+            gst_printerrln("Supported quirks for WEBKIT_GST_QUIRKS are: amlogic, broadcom, bcmnexus, openmax, realtek, westeros");
             return;
         }
 
@@ -84,6 +85,8 @@ GStreamerQuirksManager::GStreamerQuirksManager(bool isForTesting, bool loadQuirk
                 quirk = WTF::makeUnique<GStreamerQuirkBroadcom>();
             else if (WTF::equalLettersIgnoringASCIICase(identifier, "bcmnexus"_s))
                 quirk = WTF::makeUnique<GStreamerQuirkBcmNexus>();
+            else if (WTF::equalLettersIgnoringASCIICase(identifier, "openmax"_s))
+                quirk = WTF::makeUnique<GStreamerQuirkOpenMAX>();
             else if (WTF::equalLettersIgnoringASCIICase(identifier, "realtek"_s))
                 quirk = WTF::makeUnique<GStreamerQuirkRealtek>();
             else if (WTF::equalLettersIgnoringASCIICase(identifier, "rialto"_s))
@@ -329,6 +332,14 @@ void GStreamerQuirksManager::setupBufferingPercentageCorrection(MediaPlayerPriva
             quirk->setupBufferingPercentageCorrection(playerPrivate, currentState, newState, WTFMove(element));
             return;
         }
+    }
+}
+
+void GStreamerQuirksManager::processWebAudioSilentBuffer(GstBuffer* buffer) const
+{
+    for (const auto& quirk : m_quirks) {
+        if (quirk->processWebAudioSilentBuffer(buffer))
+            break;
     }
 }
 
