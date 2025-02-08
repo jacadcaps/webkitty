@@ -84,6 +84,8 @@ typedef uint32_t socklen_t;
 #define USE_ADFILTER 1
 #endif
 
+#define YT_FILTERS 0
+
 extern "C" {
 	void dprintf(const char *, ...);
 };
@@ -843,6 +845,45 @@ void WebProcess::signalMainThread()
 	Signal(m_sigTask, m_sigMask);
 }
 
+#if YT_FILTERS
+static bool ytFilters(const char *mainPageURL, const char *url)
+{
+    dprintf("%s: '%s' '%s'\n", __PRETTY_FUNCTION__, mainPageURL, url);
+
+    if (0 == strncmp(mainPageURL, "https://m.youtube.", 18)) {
+        if (0 == strcmp(url, "https://m.youtube.com/s/search/audio/failure.mp3"))
+            return false;
+        if (0 == strcmp(url, "https://m.youtube.com/s/search/audio/no_input.mp3"))
+            return false;
+        if (0 == strcmp(url, "https://m.youtube.com/s/search/audio/open.mp3"))
+            return false;
+        if (0 == strcmp(url, "https://m.youtube.com/s/search/audio/success.mp3"))
+            return false;
+        
+        if (0 == strcmp(url, "https://www.gstatic.com/external_hosted/lottie/lottie_light.js"))
+            return false;
+    }
+    
+    if (0 == strncmp(mainPageURL, "https://www.youtube.", 20))
+    {
+        if (0 ==strcmp(url, "https://www.youtube.com/youtubei/v1/next?prettyPrint=false"))
+            return false;
+        if (0 == strcmp(url, "https://www.youtube.com/s/player/03dbdfab/player_ias.vflset/en_US/offline.js"))
+            return false;
+        if (0 == strcmp(url, "https://www.youtube.com/s/player/03dbdfab/player_ias.vflset/en_US/remote.js"))
+            return false;
+        if (0 == strcmp(url, "https://www.gstatic.com/external_hosted/lottie/lottie_light.js"))
+            return false;
+        if (0 == strcmp(url, "https://www.youtube.com/s/player/03dbdfab/player_ias.vflset/en_US/endscreen.js"))
+            return false;
+        if (0 == strcmp(url, "https://www.youtube.com/s/player/03dbdfab/player_ias.vflset/en_US/annotations_module.js"))
+            return false;
+    }
+    
+    return true;
+}
+#endif
+
 bool WebProcess::shouldAllowRequest(const char *url, const char *mainPageURL, WebCore::DocumentLoader& loader)
 {
 #if USE_ADFILTER
@@ -854,6 +895,13 @@ bool WebProcess::shouldAllowRequest(const char *url, const char *mainPageURL, We
 
 	if (LIKELY(page) && !page->adBlockingEnabled())
 		return true;
+
+#if YT_FILTERS
+    if (!ytFilters(mainPageURL, url)) {
+        dprintf("yt blocking %s\n", url);
+        return false;
+    }
+#endif
 
 	if (m_urlFilter.matches(url, ABP::FONoFilterOption, mainPageURL))
 	{
