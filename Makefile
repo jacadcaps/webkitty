@@ -12,68 +12,12 @@ NATIVE_GCC:=/home/jaca/gcc7/inst/bin/x86_64-pc-linux-gnu-
 
 OBJC:=$(ROOTPATH)/morphoswb/classes/frameworks/includes/
 
-CMAKE = $(abspath cmake-3.16.2/bin)
-
 all:
-
-configure-native:
-	rm -rf build
-	mkdir build
-	(cd build && PATH=~/cmake-3.10.3-Linux-x86_64/bin/:${PATH} \
-		cmake -DCMAKE_MODULE_PATH=$(realpath Source/cmake) \
-		-DCMAKE_BUILD_TYPE=Release -DPORT=JSCOnly -DUSE_SYSTEM_MALLOC=YES -DCMAKE_CXX_FLAGS="-O2 -fPIC" -DCMAKE_C_FLAGS="-O2 -fPIC" \
-		-DCMAKE_C_COMPILER=$(NATIVE_GCC)gcc -DCMAKE_CXX_COMPILER=$(NATIVE_GCC)g++ \
-		$(realpath ./))
-
-jscore-native:
-	rm -rf WebKitBuild build
-	mkdir build
-	(cd build && PATH=$(CMAKE):${PATH} \
-		$(realpath Tools/Scripts/run-javascriptcore-tests) --jsc-only --no-flt-jit \
-		--cmakeargs='-DCMAKE_MODULE_PATH=$(realpath Source/cmake) -DJAVASCRIPTCORE_DIR=$(realpath Source/JavaScriptCore) \
-                -DCMAKE_BUILD_TYPE=Release -DPORT=JSCOnly -DUSE_SYSTEM_MALLOC=YES -DCMAKE_CXX_FLAGS="-O2 -fPIC" -DCMAKE_C_FLAGS="-O2 -fPIC" \
-                -DCMAKE_C_COMPILER=$(NATIVE_GCC)gcc -DCMAKE_CXX_COMPILER=$(NATIVE_GCC)g++')
-	cp -a Source/JavaScriptCore/API/tests/testapiScripts ~/morphos/morphoswb/apps/webkitty/WebKitBuild/Release/Source/JavaScriptCore/shell/
-	Tools/Scripts/run-javascriptcore-tests --root WebKitBuild/Release/Source/JavaScriptCore/shell/ --no-jsc-stress --no-jit-stress-test
-
-jscore-morphos: morphos.cmake
-	rm -rf WebKitBuild cross-build
-	mkdir -p cross-build WebKitBuild/Release/bin
-	(cd cross-build && PKG_CONFIG_PATH=$(PKG) PATH=$(CMAKE):${PATH} \
-		$(realpath Tools/Scripts/run-javascriptcore-tests) --jsc-only --no-flt-jit \
-		--cmakeargs='-DCMAKE_CROSSCOMPILING=ON -DCMAKE_TOOLCHAIN_FILE=$(realpath morphos.cmake) -DCMAKE_MODULE_PATH=$(realpath Source/cmake) \
-		-DJAVASCRIPTCORE_DIR=$(realpath Source/JavaScriptCore) -DBUILD_SHARED_LIBS=NO \
-		-DJPEG_LIBRARY=$(LIB)/libjpeg -DJPEG_INCLUDE_DIR=$(LIB)/libjpeg \
-		-DLIBXML2_LIBRARY=$(LIB)/libxml2/instdir/lib -DLIBXML2_INCLUDE_DIR=$(LIB)/libxml2/instdir/include/libxml2 \
-		-DPNG_LIBRARY=$(GEN)/libpng16/lib/ -DPNG_INCLUDE_DIR=$(GEN)/libpng16/include \
-		-DLIBXSLT_LIBRARIES=$(LIB)/libxslt/instdir/lib -DLIBXSLT_INCLUDE_DIR=$(LIB)/libxslt/instdir/include \
-		-DSQLITE_LIBRARIES=$(LIB)/sqlite/instdir/lib -DSQLITE_INCLUDE_DIR=$(LIB)/sqlite/instdir/include \
-                -DCMAKE_BUILD_TYPE=Release -DPORT=JSCOnly -DUSE_SYSTEM_MALLOC=YES \
-		-DCMAKE_FIND_LIBRARY_SUFFIXES=".a" ')
-	cp -a Source/JavaScriptCore/API/tests/testapiScripts ./WebKitBuild/Release/Source/JavaScriptCore/shell/
-#	Tools/Scripts/run-javascriptcore-tests --root WebKitBuild/Release/Source/JavaScriptCore/shell/ --no-jsc-stress --no-jit-stress-test
-
-jscore-pack:
-	ppc-morphos-strip ./WebKitBuild/Release/Source/JavaScriptCore/shell/jsc
-	ppc-morphos-strip ./WebKitBuild/Release/Source/JavaScriptCore/shell/testRegExp
-	ppc-morphos-strip ./WebKitBuild/Release/Source/JavaScriptCore/shell/testair
-	ppc-morphos-strip ./WebKitBuild/Release/Source/JavaScriptCore/shell/testapi
-	ppc-morphos-strip ./WebKitBuild/Release/Source/JavaScriptCore/shell/testb3
-	ppc-morphos-strip ./WebKitBuild/Release/Source/JavaScriptCore/shell/testdfg
-	ppc-morphos-strip ./WebKitBuild/Release/Source/JavaScriptCore/shell/testmasm
-	tar cJf testsuite.tar.xz Tools ./WebKitBuild/Release/Source/JavaScriptCore/shell/jsc \
-		./WebKitBuild/Release/Source/JavaScriptCore/shell/testRegExp \
-		./WebKitBuild/Release/Source/JavaScriptCore/shell/testair \
-		./WebKitBuild/Release/Source/JavaScriptCore/shell/testapi \
-		./WebKitBuild/Release/Source/JavaScriptCore/shell/testb3 \
-		./WebKitBuild/Release/Source/JavaScriptCore/shell/testdfg \
-		./WebKitBuild/Release/Source/JavaScriptCore/shell/testmasm \
-		 JSTests LayoutTests PerformanceTests
 
 configure: morphos.cmake link.sh CMakeLists.txt Dummy/libdummy.a ffmpeg/.buildstamp
 	rm -rf cross-build
 	mkdir cross-build
-	(cd cross-build && PKG_CONFIG_PATH=$(PKG) PATH=$(CMAKE):${PATH} \
+	(cd cross-build && PKG_CONFIG_PATH=$(PKG) \
 		cmake -DCMAKE_CROSSCOMPILING=ON -DCMAKE_BUILD_TYPE=RelWithDebugInfo -DCMAKE_TOOLCHAIN_FILE=$(realpath morphos.cmake) -DCMAKE_DL_LIBS="syscall" \
 		-DBUILD_SHARED_LIBS=NO -DPORT=MorphOS -DENABLE_WEBCORE=1 -DENABLE_WEBKIT_LEGACY=1 -DLOG_DISABLED=0 -DMORPHOS_MINIMAL=0 -DROOTPATH="$(ROOTPATH)" \
 		-DJPEG_LIBRARY=$(LIB)/libjpeg/libjpeg.a \
@@ -117,7 +61,7 @@ configure: morphos.cmake link.sh CMakeLists.txt Dummy/libdummy.a ffmpeg/.buildst
 configure-mini: morphos.cmake link.sh CMakeLists.txt Dummy/libdummy.a ffmpeg/.buildstamp
 	rm -rf cross-build-mini
 	mkdir cross-build-mini
-	(cd cross-build-mini && PKG_CONFIG_PATH=$(PKG) PATH=$(CMAKE):${PATH} \
+	(cd cross-build-mini && PKG_CONFIG_PATH=$(PKG) \
 		cmake -DCMAKE_CROSSCOMPILING=ON -DCMAKE_BUILD_TYPE=RelWithDebugInfo -DCMAKE_TOOLCHAIN_FILE=$(realpath morphos.cmake) -DCMAKE_DL_LIBS="syscall" \
 		-DBUILD_SHARED_LIBS=NO -DPORT=MorphOS -DENABLE_WEBCORE=1 -DENABLE_WEBKIT_LEGACY=1 -DLOG_DISABLED=0 -DMORPHOS_MINIMAL=1 -DROOTPATH="$(ROOTPATH)" \
 		-DJPEG_LIBRARY=$(LIB)/libjpeg/libjpeg.a \
@@ -198,12 +142,6 @@ install-iso:
 source:
 
 sdk:
-
-$(CMAKE):
-	rm -rf cmake-3.16.2
-	tar xf cmake-3.16.2.tar.gz
-	(cd cmake-3.16.2 && ./bootstrap -- -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_USE_OPENSSL=OFF )
-	(cd cmake-3.16.2 && make -j$(shell nproc))
 
 Dummy/libdummy.a:
 	ppc-morphos-gcc-9 -c -o Dummy/dummy.o Dummy/dummy.c
