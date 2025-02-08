@@ -52,11 +52,19 @@ public:
     void ref() const final { RefCounted::ref(); }
     void deref() const final { RefCounted::deref(); }
 
+#if OS(MORPHOS)
+    static Seconds defaultMinimumInterval() { return 30_ms; }
+    static Seconds defaultAlignmentInterval() { return 10_ms; }
+    static Seconds defaultAlignmentIntervalInLowPowerOrThermallyMitigatedMode() { return 250_ms; }
+    static Seconds nonInteractedCrossOriginFrameAlignmentInterval() { return 500_ms; }
+    static Seconds hiddenPageAlignmentInterval() { return 3_s; }
+#else
     static Seconds defaultMinimumInterval() { return 4_ms; }
     static Seconds defaultAlignmentInterval() { return 0_s; }
     static Seconds defaultAlignmentIntervalInLowPowerOrThermallyMitigatedMode() { return 30_ms; }
     static Seconds nonInteractedCrossOriginFrameAlignmentInterval() { return 30_ms; }
     static Seconds hiddenPageAlignmentInterval() { return 1_s; }
+#endif
 
     enum class Type : bool { SingleShot, Repeating };
     static int install(ScriptExecutionContext&, std::unique_ptr<ScheduledAction>, Seconds timeout, Type);

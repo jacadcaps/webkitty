@@ -2171,7 +2171,8 @@ void Page::finalizeRenderingUpdateForRootFrame(LocalFrame& rootFrame, OptionSet<
     if (flags.contains(FinalizeRenderingUpdateFlags::InvalidateImagesWithAsyncDecodes))
         view->invalidateImagesWithAsyncDecodes();
 
-    m_renderingUpdateRemainingSteps.last().remove(RenderingUpdateStep::LayerFlush);
+    if (!m_renderingUpdateRemainingSteps.isEmpty())
+        m_renderingUpdateRemainingSteps.last().remove(RenderingUpdateStep::LayerFlush);
 
     view->flushCompositingStateIncludingSubframes();
 
@@ -2190,7 +2191,8 @@ void Page::finalizeRenderingUpdateForRootFrame(LocalFrame& rootFrame, OptionSet<
 
 void Page::renderingUpdateCompleted()
 {
-    m_renderingUpdateRemainingSteps.removeLast();
+    if (!m_renderingUpdateRemainingSteps.isEmpty())
+        m_renderingUpdateRemainingSteps.removeLast();
 
     LOG_WITH_STREAM(EventLoop, stream << "Page " << this << " renderingUpdateCompleted() - steps " << m_renderingUpdateRemainingSteps << " unfulfilled steps " << m_unfulfilledRequestedSteps);
 
@@ -2616,6 +2618,13 @@ void Page::hiddenPageDOMTimerThrottlingStateChanged()
 
 void Page::updateTimerThrottlingState()
 {
+#if OS(MORPHOS)
+    if (isLowPowerModeEnabled()) {
+        setTimerThrottlingState(TimerThrottlingState::EnabledIncreasing);
+        return;
+    }
+#endif
+
     // Timer throttling disabled if page is visually active, or disabled by setting.
     if (!m_settings->hiddenPageDOMTimerThrottlingEnabled() || !(m_activityState & ActivityState::IsVisuallyIdle)) {
         setTimerThrottlingState(TimerThrottlingState::Disabled);
@@ -2935,7 +2944,9 @@ void Page::setActivityState(OptionSet<ActivityState> activityState)
         observer.activityStateDidChange(oldActivityState, m_activityState);
 
     if (wasVisibleAndActive != isVisibleAndActive()) {
+#if ENABLE(VIDEO)
         PlatformMediaSessionManager::updateNowPlayingInfoIfNecessary();
+#endif
         stopKeyboardScrollAnimation();
     }
 

@@ -39,7 +39,7 @@ namespace WebCore {
 class HTMLVideoElement;
 #if ENABLE(WEB_CODECS)
 using GPUVideoSource = std::variant<RefPtr<HTMLVideoElement>, RefPtr<WebCodecsVideoFrame>>;
-#else
+#elif ENABLE(VIDEO)
 using GPUVideoSource = RefPtr<HTMLVideoElement>;
 #endif
 

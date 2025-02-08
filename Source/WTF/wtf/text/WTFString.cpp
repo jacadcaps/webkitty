@@ -37,6 +37,11 @@
 #include <wtf/unicode/CharacterNames.h>
 #include <wtf/unicode/UTF8Conversion.h>
 
+#if OS(MORPHOS)
+#include <proto/charsets.h>
+#include <libraries/charsets.h>
+#endif
+
 namespace WTF {
 
 // Construct a string with UTF-16 data.
@@ -61,6 +66,54 @@ String::String(const char* nullTerminatedString)
     : m_impl(nullTerminatedString ? RefPtr { StringImpl::createFromCString(nullTerminatedString) } : nullptr)
 {
 }
+
+#if OS(MORPHOS)
+String::String(const char * characters, unsigned inlength, unsigned mib)
+{
+	if (characters)
+	{
+		auto length = GetLength(reinterpret_cast<APTR>(const_cast<char *>(characters)), inlength, mib);
+		UChar *outBytes = nullptr;
+		m_impl = StringImpl::createUninitialized(length, outBytes);
+		if (m_impl)
+		{
+			struct TagItem tags[] = { { CST_DoNotTerminate, TRUE }, { TAG_DONE, 0 } };
+			ConvertTagList(reinterpret_cast<APTR>(const_cast<char *>(characters)), inlength, reinterpret_cast<APTR>(outBytes),
+				length * sizeof(UChar), mib, MIBENUM_UTF_16, tags);
+		}
+	}
+}
+
+CString String::native() const
+{
+	// string > MorphOS' default codepage string - required for FS access, etc
+    unsigned length = this->length();
+
+    if (!length)
+        return CString();
+
+	struct TagItem tags[] = { { CST_DoNotTerminate, TRUE }, { TAG_DONE, 0 } };
+
+    if (is8Bit())
+    {
+    	char* characterBuffer;
+		CString result = CString::newUninitialized(length, characterBuffer);
+		ConvertTagList(reinterpret_cast<APTR>(const_cast<unsigned char *>(this->span8().data())), length, reinterpret_cast<APTR>(characterBuffer),
+			length, MIBENUM_ISO_8859_1, MIBENUM_SYSTEM, tags);
+		return result;
+	}
+
+    const UChar* characters = this->span16().data();
+
+    char* characterBuffer;
+    CString result = CString::newUninitialized(length, characterBuffer);
+
+	ConvertTagList(reinterpret_cast<APTR>(const_cast<UChar *>(characters)), length * sizeof(UChar), reinterpret_cast<APTR>(characterBuffer),
+		length, MIBENUM_UTF_16, MIBENUM_SYSTEM, tags);
+
+    return result;
+}
+#endif
 
 int codePointCompare(const String& a, const String& b)
 {

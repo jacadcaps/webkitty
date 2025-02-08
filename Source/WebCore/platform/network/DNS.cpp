@@ -40,6 +40,10 @@
 #include <sys/socket.h>
 #endif
 
+#if OS(MORPHOS)
+#define	INADDR_LOOPBACK		0x7f000001
+#endif
+
 namespace WebCore {
 
 void prefetchDNS(const String& hostname)

@@ -283,7 +283,9 @@ public:
         // In normal execution, a CheckedPtr always points to an object with a non-zero ptrCount().
         // When it detects a dangling pointer, WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR scribbles an object with zeroes and then leaks it.
         // When we check ptrCountWithoutThreadCheck() here, we're checking for a scribbled object.
+#ifndef __MORPHOS__
         RELEASE_ASSERT(ptrCountWithoutThreadCheck());
+#endif
         --m_count;
     }
 

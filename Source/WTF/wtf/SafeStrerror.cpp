@@ -40,6 +40,10 @@ CString safeStrerror(int errnum)
     auto result = CString::newUninitialized(bufferLength, cstringBuffer);
 #if OS(WINDOWS)
     strerror_s(cstringBuffer, bufferLength, errnum);
+#elif OS(MORPHOS)
+    const char *message = strerror(errnum);
+    if (message)
+        strncpy(cstringBuffer, message, bufferLength);
 #else
     auto ret = strerror_r(errnum, cstringBuffer, bufferLength);
     if constexpr (std::is_same<decltype(ret), char*>::value) {

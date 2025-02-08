@@ -32,6 +32,7 @@
 #include <wtf/ProcessPrivilege.h>
 #include <wtf/UUID.h>
 #include <wtf/text/MakeString.h>
+#include <wtf/NeverDestroyed.h>
 
 static std::unique_ptr<WebCore::NetworkStorageSession>& defaultNetworkStorageSession()
 {
@@ -58,6 +59,12 @@ WebCore::NetworkStorageSession& NetworkStorageSessionMap::defaultStorageSession(
     if (!defaultNetworkStorageSession())
         defaultNetworkStorageSession() = makeUnique<WebCore::NetworkStorageSession>(PAL::SessionID::defaultSessionID());
     return *defaultNetworkStorageSession();
+}
+
+void NetworkStorageSessionMap::destroyAllSessions()
+{
+	globalSessionMap().clear();
+	defaultNetworkStorageSession() = nullptr;
 }
 
 void NetworkStorageSessionMap::switchToNewTestingSession()
