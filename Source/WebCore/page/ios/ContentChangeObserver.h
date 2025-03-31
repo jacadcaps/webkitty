@@ -25,7 +25,7 @@
 
 #pragma once
 
-#if PLATFORM(IOS_FAMILY)
+#if ENABLE(CONTENT_CHANGE_OBSERVER)
 
 #include "CSSPropertyNames.h"
 #include "Document.h"
@@ -34,20 +34,26 @@
 #include "RenderStyleConstants.h"
 #include "Timer.h"
 #include "WKContentObservation.h"
+#include "WebAnimationTypes.h"
+#include <wtf/CheckedRef.h>
 #include <wtf/HashSet.h>
 #include <wtf/Seconds.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
+
+namespace WebCore {
+class ContentChangeObserver;
+}
 
 namespace WebCore {
 
 class Animation;
 class DOMTimer;
-class Element;
 
 class ContentChangeObserver : public CanMakeWeakPtr<ContentChangeObserver> {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(ContentChangeObserver, WEBCORE_EXPORT);
 public:
-    ContentChangeObserver(Document&);
+    explicit ContentChangeObserver(Document&);
 
     WEBCORE_EXPORT void startContentObservationForDuration(Seconds duration);
     WEBCORE_EXPORT void stopContentObservation();
@@ -58,13 +64,18 @@ public:
     void didInstallDOMTimer(const DOMTimer&, Seconds timeout, bool singleShot);
     void didRemoveDOMTimer(const DOMTimer&);
 
+    void ref() const { m_document->ref(); }
+    void deref() const { m_document->deref(); }
+
     void didAddTransition(const Element&, const Animation&);
     void didFinishTransition(const Element&, CSSPropertyID);
     void didRemoveTransition(const Element&, CSSPropertyID);
 
-    WEBCORE_EXPORT static void didRecognizeLongPress(Frame& mainFrame);
-    WEBCORE_EXPORT static void didPreventDefaultForEvent(Frame& mainFrame);
-    WEBCORE_EXPORT static void didCancelPotentialTap(Frame& mainFrame);
+    WEBCORE_EXPORT static void didRecognizeLongPress(LocalFrame& mainFrame);
+    WEBCORE_EXPORT static void didPreventDefaultForEvent(LocalFrame& mainFrame);
+    WEBCORE_EXPORT static void didCancelPotentialTap(LocalFrame& mainFrame);
+
+    void setClickTarget(Node& target) { m_clickTarget = target; }
 
     void didSuspendActiveDOMObjects();
     void willDetachPage();
@@ -72,9 +83,10 @@ public:
     void rendererWillBeDestroyed(const Element&);
     void willNotProceedWithClick();
 
+    void didAddMouseMoveRelatedEventListener(const AtomString& eventType, const Node&);
     void willNotProceedWithFixedObservationTimeWindow();
 
-    void setHiddenTouchTarget(Element& targetElement) { m_hiddenTouchTargetElement = makeWeakPtr(targetElement); }
+    void setHiddenTouchTarget(Element& targetElement) { m_hiddenTouchTargetElement = targetElement; }
     void resetHiddenTouchTarget() { m_hiddenTouchTargetElement = { }; }
     Element* hiddenTouchTarget() const { return m_hiddenTouchTargetElement.get(); }
 
@@ -86,7 +98,7 @@ public:
     private:
         ContentChangeObserver& m_contentChangeObserver;
         const Element& m_element;
-        Optional<bool> m_wasHidden;
+        std::optional<bool> m_wasHidden;
         bool m_hadRenderer { false };
     };
 
@@ -138,14 +150,13 @@ private:
     void setShouldObserveDOMTimerSchedulingAndTransitions(bool);
     bool isObservingDOMTimerScheduling() const { return m_isObservingDOMTimerScheduling; }
     bool isObservingTransitions() const { return m_isObservingTransitions; }
-    bool isObservedPropertyForTransition(CSSPropertyID propertyId) const { return propertyId == CSSPropertyLeft || propertyId == CSSPropertyOpacity; }
     void domTimerExecuteDidStart(const DOMTimer&);
     void domTimerExecuteDidFinish(const DOMTimer&);
-    void registerDOMTimer(const DOMTimer& timer) { m_DOMTimerList.add(&timer); }
-    void unregisterDOMTimer(const DOMTimer& timer) { m_DOMTimerList.remove(&timer); }
-    void clearObservedDOMTimers() { m_DOMTimerList.clear(); }
+    void registerDOMTimer(const DOMTimer&);
+    void unregisterDOMTimer(const DOMTimer&);
+    void clearObservedDOMTimers();
     void clearObservedTransitions() { m_elementsWithTransition.clear(); }
-    bool containsObservedDOMTimer(const DOMTimer& timer) const { return m_DOMTimerList.contains(&timer); }
+    bool containsObservedDOMTimer(const DOMTimer&) const;
 
     void styleRecalcDidStart();
     void styleRecalcDidFinish();
@@ -162,8 +173,8 @@ private:
     void setHasVisibleChangeState() { m_observedContentState = WKContentVisibilityChange; } 
 
     bool hasVisibleChangeState() const { return observedContentChange() == WKContentVisibilityChange; }
-    bool hasObservedDOMTimer() const { return !m_DOMTimerList.isEmpty(); }
-    bool hasObservedTransition() const { return !m_elementsWithTransition.isEmpty(); }
+    bool hasObservedDOMTimer() const;
+    bool hasObservedTransition() const { return !m_elementsWithTransition.isEmptyIgnoringNullReferences(); }
 
     void setIsBetweenTouchEndAndMouseMoved(bool isBetween) { m_isBetweenTouchEndAndMouseMoved = isBetween; }
     bool isBetweenTouchEndAndMouseMoved() const { return m_isBetweenTouchEndAndMouseMoved; }
@@ -179,10 +190,15 @@ private:
 
     void completeDurationBasedContentObservation();
 
-    bool visibleRendererWasDestroyed(const Element& element) const { return m_elementsWithDestroyedVisibleRenderer.contains(&element); }
+    bool visibleRendererWasDestroyed(const Element& element) const { return m_elementsWithDestroyedVisibleRenderer.contains(element); }
     bool shouldObserveVisibilityChangeForElement(const Element&);
 
-    enum class Event {
+    enum class ElementHadRenderer : bool { No, Yes };
+    bool isConsideredActionableContent(const Element&, ElementHadRenderer) const;
+    
+    bool isContentChangeObserverEnabled();
+
+    enum class Event : uint8_t {
         StartedTouchStartEventDispatching,
         EndedTouchStartEventDispatching,
         WillNotProceedWithClick,
@@ -201,19 +217,20 @@ private:
         StartedFixedObservationTimeWindow,
         EndedFixedObservationTimeWindow,
         WillNotProceedWithFixedObservationTimeWindow,
-        ElementDidBecomeVisible
+        ElementDidBecomeVisible,
+        DidAddMouseoutListenerAboveClickTarget,
     };
     void adjustObservedState(Event);
 
-    Document& m_document;
+    CheckedRef<Document> m_document;
     Timer m_contentObservationTimer;
-    HashSet<const DOMTimer*> m_DOMTimerList;
-    // FIXME: Move over to WeakHashSet when it starts supporting const.
-    HashSet<const Element*> m_elementsWithTransition;
-    HashSet<const Element*> m_elementsWithDestroyedVisibleRenderer;
+    WeakHashSet<const DOMTimer> m_DOMTimerList;
+    WeakHashSet<const Element, WeakPtrImplWithEventTargetData> m_elementsWithTransition;
+    WeakHashSet<const Element, WeakPtrImplWithEventTargetData> m_elementsWithDestroyedVisibleRenderer;
     WKContentChange m_observedContentState { WKContentNoChange };
-    WeakPtr<Element> m_hiddenTouchTargetElement;
-    WeakHashSet<Element> m_visibilityCandidateList;
+    WeakPtr<Element, WeakPtrImplWithEventTargetData> m_hiddenTouchTargetElement;
+    WeakPtr<Node, WeakPtrImplWithEventTargetData> m_clickTarget;
+    WeakHashSet<Element, WeakPtrImplWithEventTargetData> m_visibilityCandidateList;
     bool m_touchEventIsBeingDispatched { false };
     bool m_isWaitingForStyleRecalc { false };
     bool m_isInObservedStyleRecalc { false };
@@ -241,4 +258,4 @@ inline void ContentChangeObserver::setShouldObserveDOMTimerSchedulingAndTransiti
 }
 
 }
-#endif
+#endif // ENABLE(CONTENT_CHANGE_OBSERVER)

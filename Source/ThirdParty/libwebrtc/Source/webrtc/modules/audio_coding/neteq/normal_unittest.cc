@@ -48,10 +48,11 @@ TEST(Normal, CreateAndDestroy) {
   BackgroundNoise bgn(channels);
   SyncBuffer sync_buffer(1, 1000);
   RandomVector random_vector;
-  StatisticsCalculator statistics;
+  TickTimer timer;
+  StatisticsCalculator statistics(&timer);
   Expand expand(&bgn, &sync_buffer, &random_vector, &statistics, fs, channels);
-  Normal normal(fs, &db, bgn, &expand);
-  EXPECT_CALL(db, Die());  // Called when |db| goes out of scope.
+  Normal normal(fs, &db, bgn, &expand, &statistics);
+  EXPECT_CALL(db, Die());  // Called when `db` goes out of scope.
 }
 
 TEST(Normal, AvoidDivideByZero) {
@@ -61,10 +62,11 @@ TEST(Normal, AvoidDivideByZero) {
   BackgroundNoise bgn(channels);
   SyncBuffer sync_buffer(1, 1000);
   RandomVector random_vector;
-  StatisticsCalculator statistics;
+  TickTimer timer;
+  StatisticsCalculator statistics(&timer);
   MockExpand expand(&bgn, &sync_buffer, &random_vector, &statistics, fs,
                     channels);
-  Normal normal(fs, &db, bgn, &expand);
+  Normal normal(fs, &db, bgn, &expand, &statistics);
 
   int16_t input[1000] = {0};
   AudioMultiVector output(channels);
@@ -85,8 +87,8 @@ TEST(Normal, AvoidDivideByZero) {
   EXPECT_EQ(input_size_samples, normal.Process(input, input_size_samples,
                                                NetEq::Mode::kExpand, &output));
 
-  EXPECT_CALL(db, Die());      // Called when |db| goes out of scope.
-  EXPECT_CALL(expand, Die());  // Called when |expand| goes out of scope.
+  EXPECT_CALL(db, Die());      // Called when `db` goes out of scope.
+  EXPECT_CALL(expand, Die());  // Called when `expand` goes out of scope.
 }
 
 TEST(Normal, InputLengthAndChannelsDoNotMatch) {
@@ -96,10 +98,11 @@ TEST(Normal, InputLengthAndChannelsDoNotMatch) {
   BackgroundNoise bgn(channels);
   SyncBuffer sync_buffer(channels, 1000);
   RandomVector random_vector;
-  StatisticsCalculator statistics;
+  TickTimer timer;
+  StatisticsCalculator statistics(&timer);
   MockExpand expand(&bgn, &sync_buffer, &random_vector, &statistics, fs,
                     channels);
-  Normal normal(fs, &db, bgn, &expand);
+  Normal normal(fs, &db, bgn, &expand, &statistics);
 
   int16_t input[1000] = {0};
   AudioMultiVector output(channels);
@@ -109,8 +112,8 @@ TEST(Normal, InputLengthAndChannelsDoNotMatch) {
   EXPECT_EQ(0, normal.Process(input, input_len, NetEq::Mode::kExpand, &output));
   EXPECT_EQ(0u, output.Size());
 
-  EXPECT_CALL(db, Die());      // Called when |db| goes out of scope.
-  EXPECT_CALL(expand, Die());  // Called when |expand| goes out of scope.
+  EXPECT_CALL(db, Die());      // Called when `db` goes out of scope.
+  EXPECT_CALL(expand, Die());  // Called when `expand` goes out of scope.
 }
 
 TEST(Normal, LastModeExpand120msPacket) {
@@ -121,10 +124,11 @@ TEST(Normal, LastModeExpand120msPacket) {
   BackgroundNoise bgn(kChannels);
   SyncBuffer sync_buffer(kChannels, 1000);
   RandomVector random_vector;
-  StatisticsCalculator statistics;
+  TickTimer timer;
+  StatisticsCalculator statistics(&timer);
   MockExpand expand(&bgn, &sync_buffer, &random_vector, &statistics, kFs,
                     kChannels);
-  Normal normal(kFs, &db, bgn, &expand);
+  Normal normal(kFs, &db, bgn, &expand, &statistics);
 
   int16_t input[kPacketsizeBytes] = {0};
   AudioMultiVector output(kChannels);
@@ -138,8 +142,8 @@ TEST(Normal, LastModeExpand120msPacket) {
 
   EXPECT_EQ(kPacketsizeBytes, output.Size());
 
-  EXPECT_CALL(db, Die());      // Called when |db| goes out of scope.
-  EXPECT_CALL(expand, Die());  // Called when |expand| goes out of scope.
+  EXPECT_CALL(db, Die());      // Called when `db` goes out of scope.
+  EXPECT_CALL(expand, Die());  // Called when `expand` goes out of scope.
 }
 
 // TODO(hlundin): Write more tests.

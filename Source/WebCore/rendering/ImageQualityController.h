@@ -28,6 +28,7 @@
 #include "GraphicsTypes.h"
 #include "Timer.h"
 #include <wtf/HashMap.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
@@ -39,18 +40,19 @@ class RenderView;
 class RenderStyle;
 
 class ImageQualityController {
-    WTF_MAKE_NONCOPYABLE(ImageQualityController); WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(ImageQualityController);
+    WTF_MAKE_NONCOPYABLE(ImageQualityController);
 public:
     explicit ImageQualityController(const RenderView&);
 
-    static Optional<InterpolationQuality> interpolationQualityFromStyle(const RenderStyle&);
+    static std::optional<InterpolationQuality> interpolationQualityFromStyle(const RenderStyle&);
     InterpolationQuality chooseInterpolationQuality(GraphicsContext&, RenderBoxModelObject*, Image&, const void* layer, const LayoutSize&);
 
     void rendererWillBeDestroyed(RenderBoxModelObject& renderer) { removeObject(&renderer); }
 
 private:
-    typedef HashMap<const void*, LayoutSize> LayerSizeMap;
-    typedef HashMap<RenderBoxModelObject*, LayerSizeMap> ObjectLayerSizeMap;
+    using LayerSizeMap = UncheckedKeyHashMap<const void*, LayoutSize>;
+    using ObjectLayerSizeMap = UncheckedKeyHashMap<SingleThreadWeakRef<RenderBoxModelObject>, LayerSizeMap>;
 
     void removeLayer(RenderBoxModelObject*, LayerSizeMap* innerMap, const void* layer);
     void set(RenderBoxModelObject*, LayerSizeMap* innerMap, const void* layer, const LayoutSize&);
@@ -60,7 +62,7 @@ private:
 
     const RenderView& m_renderView;
     ObjectLayerSizeMap m_objectLayerSizeMap;
-    Timer m_timer;
+    DeferrableOneShotTimer m_timer;
     bool m_animatedResizeIsActive { false };
     bool m_liveResizeOptimizationIsActive { false };
 };

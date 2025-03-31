@@ -36,7 +36,8 @@
 namespace WebCore {
 
 class MathMLElement : public StyledElement {
-    WTF_MAKE_ISO_ALLOCATED(MathMLElement);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(MathMLElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(MathMLElement);
 public:
     static Ref<MathMLElement> create(const QualifiedName& tagName, Document&);
 
@@ -85,21 +86,20 @@ public:
         Stretched = 18
     };
 
-    virtual Optional<bool> specifiedDisplayStyle() { return WTF::nullopt; }
-    virtual Optional<MathVariant> specifiedMathVariant() { return WTF::nullopt; }
+    virtual std::optional<MathVariant> specifiedMathVariant() { return std::nullopt; }
 
     virtual void updateSelectedChild() { }
 
 protected:
-    MathMLElement(const QualifiedName& tagName, Document&);
+    MathMLElement(const QualifiedName& tagName, Document&, OptionSet<TypeFlag> = { });
 
-    void parseAttribute(const QualifiedName&, const AtomString&) override;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) override;
     bool childShouldCreateRenderer(const Node&) const override;
 
-    bool isPresentationAttribute(const QualifiedName&) const override;
-    void collectStyleForPresentationAttribute(const QualifiedName&, const AtomString&, MutableStyleProperties&) override;
+    bool hasPresentationalHintsForAttribute(const QualifiedName&) const override;
+    void collectPresentationalHintsForAttribute(const QualifiedName&, const AtomString&, MutableStyleProperties&) override;
 
-    bool willRespondToMouseClickEvents() override;
+    bool willRespondToMouseClickEventsWithEditability(Editability) const override;
     void defaultEventHandler(Event&) override;
 
 private:

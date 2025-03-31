@@ -27,13 +27,25 @@
 
 #if ENABLE(LEGACY_ENCRYPTED_MEDIA)
 
-#include <JavaScriptCore/Uint8Array.h>
+#include <JavaScriptCore/Forward.h>
+#include <wtf/AbstractRefCounted.h>
 #include <wtf/Forward.h>
+#include <wtf/TZoneMallocInlines.h>
+#include <wtf/WeakPtr.h>
+
+namespace WebCore {
+class LegacyCDMSessionClient;
+}
+
+namespace WTF {
+template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
+template<> struct IsDeprecatedWeakRefSmartPointerException<WebCore::LegacyCDMSessionClient> : std::true_type { };
+}
 
 namespace WebCore {
 
-class LegacyCDMSessionClient {
-    WTF_MAKE_FAST_ALLOCATED;
+class LegacyCDMSessionClient : public CanMakeWeakPtr<LegacyCDMSessionClient> {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(LegacyCDMSessionClient);
 public:
     virtual ~LegacyCDMSessionClient() = default;
     virtual void sendMessage(Uint8Array*, String destinationURL) = 0;
@@ -50,28 +62,34 @@ public:
     virtual void sendError(MediaKeyErrorCode, uint32_t systemCode) = 0;
 
     virtual String mediaKeysStorageDirectory() const = 0;
+
+#if !RELEASE_LOG_DISABLED
+    virtual const Logger& logger() const = 0;
+    virtual uint64_t logIdentifier() const = 0;
+#endif
 };
 
 enum LegacyCDMSessionType {
     CDMSessionTypeUnknown,
     CDMSessionTypeClearKey,
     CDMSessionTypeAVFoundationObjC,
-    CDMSessionTypeAVStreamSession,
     CDMSessionTypeAVContentKeySession,
     CDMSessionTypeRemote,
 };
 
-class WEBCORE_EXPORT LegacyCDMSession {
+class WEBCORE_EXPORT LegacyCDMSession : public AbstractRefCounted {
 public:
     virtual ~LegacyCDMSession() = default;
+    virtual void invalidate() { }
 
     virtual LegacyCDMSessionType type() { return CDMSessionTypeUnknown; }
-    virtual void setClient(LegacyCDMSessionClient*) = 0;
     virtual const String& sessionId() const = 0;
     virtual RefPtr<Uint8Array> generateKeyRequest(const String& mimeType, Uint8Array* initData, String& destinationURL, unsigned short& errorCode, uint32_t& systemCode) = 0;
     virtual void releaseKeys() = 0;
     virtual bool update(Uint8Array*, RefPtr<Uint8Array>& nextMessage, unsigned short& errorCode, uint32_t& systemCode) = 0;
-    virtual RefPtr<ArrayBuffer> cachedKeyForKeyID(const String&) const { return nullptr; }
+    virtual RefPtr<ArrayBuffer> cachedKeyForKeyID(const String&) const = 0;
+
+    virtual bool isRemoteLegacyCDMSession() const { return false; }
 };
 
 }

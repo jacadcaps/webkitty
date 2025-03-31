@@ -29,19 +29,24 @@
 
 #import <wtf/CompletionHandler.h>
 #import <wtf/MainThread.h>
+#import <wtf/TZoneMallocInlines.h>
 #import <wtf/URL.h>
 
-WebPaymentCoordinatorClient::WebPaymentCoordinatorClient()
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WebPaymentCoordinatorClient);
+
+Ref<WebPaymentCoordinatorClient> WebPaymentCoordinatorClient::create()
 {
+    return adoptRef(*new WebPaymentCoordinatorClient);
 }
 
-WebPaymentCoordinatorClient::~WebPaymentCoordinatorClient()
-{
-}
+// FIXME: Why is this distinct from EmptyPaymentCoordinatorClient?
+WebPaymentCoordinatorClient::WebPaymentCoordinatorClient() = default;
 
-Optional<String> WebPaymentCoordinatorClient::validatedPaymentNetwork(const String&)
+WebPaymentCoordinatorClient::~WebPaymentCoordinatorClient() = default;
+
+std::optional<String> WebPaymentCoordinatorClient::validatedPaymentNetwork(const String&) const
 {
-    return WTF::nullopt;
+    return std::nullopt;
 }
 
 bool WebPaymentCoordinatorClient::canMakePayments()
@@ -72,19 +77,27 @@ void WebPaymentCoordinatorClient::completeMerchantValidation(const WebCore::Paym
 {
 }
 
-void WebPaymentCoordinatorClient::completeShippingMethodSelection(Optional<WebCore::ShippingMethodUpdate>&&)
+void WebPaymentCoordinatorClient::completeShippingMethodSelection(std::optional<WebCore::ApplePayShippingMethodUpdate>&&)
 {
 }
 
-void WebPaymentCoordinatorClient::completeShippingContactSelection(Optional<WebCore::ShippingContactUpdate>&&)
+void WebPaymentCoordinatorClient::completeShippingContactSelection(std::optional<WebCore::ApplePayShippingContactUpdate>&&)
 {
 }
 
-void WebPaymentCoordinatorClient::completePaymentMethodSelection(Optional<WebCore::PaymentMethodUpdate>&&)
+void WebPaymentCoordinatorClient::completePaymentMethodSelection(std::optional<WebCore::ApplePayPaymentMethodUpdate>&&)
 {
 }
 
-void WebPaymentCoordinatorClient::completePaymentSession(Optional<WebCore::PaymentAuthorizationResult>&&)
+#if ENABLE(APPLE_PAY_COUPON_CODE)
+
+void WebPaymentCoordinatorClient::completeCouponCodeChange(std::optional<WebCore::ApplePayCouponCodeUpdate>&&)
+{
+}
+
+#endif // ENABLE(APPLE_PAY_COUPON_CODE)
+
+void WebPaymentCoordinatorClient::completePaymentSession(WebCore::ApplePayPaymentAuthorizationResult&&)
 {
 }
 
@@ -94,16 +107,6 @@ void WebPaymentCoordinatorClient::abortPaymentSession()
 
 void WebPaymentCoordinatorClient::cancelPaymentSession()
 {
-}
-
-void WebPaymentCoordinatorClient::paymentCoordinatorDestroyed()
-{
-    delete this;
-}
-
-bool WebPaymentCoordinatorClient::supportsUnrestrictedApplePay() const
-{
-    return false;
 }
 
 #endif

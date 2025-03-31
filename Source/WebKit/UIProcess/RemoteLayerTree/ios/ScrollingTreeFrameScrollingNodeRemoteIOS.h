@@ -27,30 +27,37 @@
 
 #if ENABLE(ASYNC_SCROLLING) && PLATFORM(IOS_FAMILY)
 
+OBJC_CLASS WKBaseScrollView;
+
 #include <WebCore/ScrollingTreeFrameScrollingNode.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebKit {
 
 class ScrollingTreeScrollingNodeDelegateIOS;
 
 class ScrollingTreeFrameScrollingNodeRemoteIOS : public WebCore::ScrollingTreeFrameScrollingNode {
+    WTF_MAKE_TZONE_ALLOCATED(ScrollingTreeFrameScrollingNodeRemoteIOS);
 public:
     static Ref<ScrollingTreeFrameScrollingNodeRemoteIOS> create(WebCore::ScrollingTree&, WebCore::ScrollingNodeType, WebCore::ScrollingNodeID);
     virtual ~ScrollingTreeFrameScrollingNodeRemoteIOS();
 
+    WKBaseScrollView *scrollView() const;
+    String scrollbarStateForOrientation(WebCore::ScrollbarOrientation) const override;
+
 private:
     ScrollingTreeFrameScrollingNodeRemoteIOS(WebCore::ScrollingTree&, WebCore::ScrollingNodeType, WebCore::ScrollingNodeID);
 
-    void commitStateBeforeChildren(const WebCore::ScrollingStateNode&) override;
-    void commitStateAfterChildren(const WebCore::ScrollingStateNode&) override;
+    ScrollingTreeScrollingNodeDelegateIOS* delegate() const;
+
+    bool commitStateBeforeChildren(const WebCore::ScrollingStateNode&) override;
+    bool commitStateAfterChildren(const WebCore::ScrollingStateNode&) override;
 
     WebCore::FloatPoint minimumScrollPosition() const override;
     WebCore::FloatPoint maximumScrollPosition() const override;
 
     void repositionScrollingLayers() override;
     void repositionRelatedLayers() override;
-
-    std::unique_ptr<ScrollingTreeScrollingNodeDelegateIOS> m_scrollingNodeDelegate;
 
     RetainPtr<CALayer> m_counterScrollingLayer;
     RetainPtr<CALayer> m_headerLayer;

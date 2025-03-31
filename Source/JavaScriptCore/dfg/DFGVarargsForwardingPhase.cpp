@@ -34,6 +34,7 @@
 #include "DFGClobberize.h"
 #include "DFGForAllKills.h"
 #include "DFGGraph.h"
+#include "DFGMayExit.h"
 #include "DFGPhase.h"
 #include <wtf/ListDump.h>
 
@@ -46,7 +47,7 @@ class VarargsForwardingPhase : public Phase {
     static constexpr bool verbose = false;
 public:
     VarargsForwardingPhase(Graph& graph)
-        : Phase(graph, "varargs forwarding")
+        : Phase(graph, "varargs forwarding"_s)
     {
     }
     
@@ -54,10 +55,7 @@ public:
     {
         DFG_ASSERT(m_graph, nullptr, m_graph.m_form != SSA);
         
-        if (verbose) {
-            dataLog("Graph before varargs forwarding:\n");
-            m_graph.dump();
-        }
+        dataLogIf(verbose, "Graph before varargs forwarding:\n", m_graph);
         
         m_changed = false;
         for (BasicBlock* block : m_graph.blocksInNaturalOrder())
@@ -86,8 +84,7 @@ private:
         // We expect calls into this function to be rare. So, this is written in a simple O(n) manner.
         
         Node* candidate = block->at(candidateNodeIndex);
-        if (verbose)
-            dataLog("Handling candidate ", candidate, "\n");
+        dataLogLnIf(verbose, "Handling candidate ", candidate);
         
         // We eliminate GetButterfly over CreateClonedArguments if the butterfly is only
         // used by a GetByOffset  that loads the CreateClonedArguments's length. We also
@@ -103,8 +100,7 @@ private:
 
             auto defaultEscape = [&] {
                 if (m_graph.uses(node, candidate)) {
-                    if (verbose)
-                        dataLog("    Escape at ", node, "\n");
+                    dataLogLnIf(verbose, "    Escape at ", node);
                     return true;
                 }
                 return false;
@@ -139,8 +135,7 @@ private:
                         }
                     });
                 if (sawEscape) {
-                    if (verbose)
-                        dataLog("    Escape at ", node, "\n");
+                    dataLogLnIf(verbose, "    Escape at ", node);
                     return;
                 }
                 break;
@@ -157,8 +152,7 @@ private:
             case TailCallVarargs:
             case TailCallVarargsInlinedCaller:
                 if (node->child1() == candidate || node->child2() == candidate) {
-                    if (verbose)
-                        dataLog("    Escape at ", node, "\n");
+                    dataLogLnIf(verbose, "    Escape at ", node);
                     return;
                 }
                 if (node->child2() == candidate)
@@ -167,8 +161,7 @@ private:
                 
             case SetLocal:
                 if (node->child1() == candidate && node->variableAccessData()->isLoadedFrom()) {
-                    if (verbose)
-                        dataLog("    Escape at ", node, "\n");
+                    dataLogLnIf(verbose, "    Escape at ", node);
                     return;
                 }
                 break;
@@ -195,10 +188,12 @@ private:
             }
                 
             case FilterGetByStatus:
-            case FilterPutByIdStatus:
+            case FilterPutByStatus:
             case FilterCallLinkStatus:
-            case FilterInByIdStatus:
+            case FilterInByStatus:
             case FilterDeleteByStatus:
+            case FilterCheckPrivateBrandStatus:
+            case FilterSetPrivateBrandStatus:
                 break;
 
             case GetByOffset: {
@@ -227,8 +222,7 @@ private:
             if (!validGetByOffset) {
                 for (Node* butterfly : candidateButterflies) {
                     if (m_graph.uses(node, butterfly)) {
-                        if (verbose)
-                            dataLog("    Butterfly escaped at ", node, "\n");
+                        dataLogLnIf(verbose, "    Butterfly escaped at ", node);
                         return;
                     }
                 }
@@ -237,8 +231,7 @@ private:
             forAllKilledOperands(
                 m_graph, node, block->tryAt(nodeIndex + 1),
                 [&] (Operand operand) {
-                    if (verbose)
-                        dataLog("    Killing ", operand, " while we are interested in ", listDump(relevantLocals), "\n");
+                    dataLogLnIf(verbose, "    Killing ", operand, " while we are interested in ", listDump(relevantLocals));
                     for (unsigned i = 0; i < relevantLocals.size(); ++i) {
                         if (operand == relevantLocals[i]) {
                             relevantLocals[i--] = relevantLocals.last();
@@ -250,8 +243,10 @@ private:
                     }
                 });
         }
-        if (verbose)
-            dataLog("Selected lastUserIndex = ", lastUserIndex, ", ", block->at(lastUserIndex), "\n");
+        dataLogLnIf(verbose, "Selected lastUserIndex = ", lastUserIndex, ", ", block->at(lastUserIndex));
+
+        InlineCallFrame* startingInlineCallFrame = block->at(candidateNodeIndex)->origin.forExit.inlineCallFrame();
+        UncheckedKeyHashSet<InlineCallFrame*, WTF::DefaultHash<InlineCallFrame*>, WTF::NullableHashTraits<InlineCallFrame*>> seenInlineCallFrames;
         
         // We're still in business. Determine if between the candidate and the last user there is any
         // effect that could interfere with sinking.
@@ -267,25 +262,21 @@ private:
             case ZombieHint:
             case KillStack:
                 if (argumentsInvolveStackSlot(candidate, node->unlinkedOperand())) {
-                    if (verbose)
-                        dataLog("    Interference at ", node, "\n");
+                    dataLogLnIf(verbose, "    Interference at ", node);
                     return;
                 }
                 break;
                 
             case PutStack:
                 if (argumentsInvolveStackSlot(candidate, node->stackAccessData()->operand)) {
-                    if (verbose)
-                        dataLog("    Interference at ", node, "\n");
+                    dataLogLnIf(verbose, "    Interference at ", node);
                     return;
                 }
                 break;
                 
             case SetLocal:
-            case Flush:
                 if (argumentsInvolveStackSlot(candidate, node->operand())) {
-                    if (verbose)
-                        dataLog("    Interference at ", node, "\n");
+                    dataLogLnIf(verbose, "    Interference at ", node);
                     return;
                 }
                 break;
@@ -305,16 +296,32 @@ private:
                     },
                     NoOpClobberize());
                 if (doesInterfere) {
-                    if (verbose)
-                        dataLog("    Interference at ", node, "\n");
+                    dataLogLnIf(verbose, "    Interference at ", node);
                     return;
                 }
             } }
+
+
+            if (startingInlineCallFrame) {
+                if (mayExit(m_graph, node) != DoesNotExit)
+                    seenInlineCallFrames.add(node->origin.forExit.inlineCallFrame());
+            }
+        }
+
+        for (InlineCallFrame* inlineCallFrame : seenInlineCallFrames) {
+            ASSERT(startingInlineCallFrame);
+
+            while (1) {
+                if (!inlineCallFrame)
+                    return;
+                if (inlineCallFrame == startingInlineCallFrame)
+                    break;
+                inlineCallFrame = inlineCallFrame->directCaller.inlineCallFrame();
+            }
         }
         
         // We can make this work.
-        if (verbose)
-            dataLog("    Will do forwarding!\n");
+        dataLogLnIf(verbose, "    Will do forwarding!");
         m_changed = true;
         
         // Transform the program.
@@ -399,10 +406,12 @@ private:
             }
 
             case FilterGetByStatus:
-            case FilterPutByIdStatus:
+            case FilterPutByStatus:
             case FilterCallLinkStatus:
-            case FilterInByIdStatus:
+            case FilterInByStatus:
             case FilterDeleteByStatus:
+            case FilterCheckPrivateBrandStatus:
+            case FilterSetPrivateBrandStatus:
                 if (node->child1().node() == candidate)
                     node->remove(m_graph);
                 break;

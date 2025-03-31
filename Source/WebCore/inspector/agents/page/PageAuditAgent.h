@@ -27,6 +27,7 @@
 
 #include "InspectorWebAgentBase.h"
 #include <JavaScriptCore/InspectorAuditAgent.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
@@ -34,21 +35,23 @@ class Page;
 
 class PageAuditAgent final : public Inspector::InspectorAuditAgent {
     WTF_MAKE_NONCOPYABLE(PageAuditAgent);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(PageAuditAgent);
 public:
     PageAuditAgent(PageAgentContext&);
-    ~PageAuditAgent() override;
+    ~PageAuditAgent();
+
+    Page& inspectedPage() const { return m_inspectedPage; }
 
 private:
-    Inspector::InjectedScript injectedScriptForEval(const int* executionContextId);
-    Inspector::InjectedScript injectedScriptForEval(Inspector::ErrorString&, const int* executionContextId) override;
+    Inspector::InjectedScript injectedScriptForEval(std::optional<Inspector::Protocol::Runtime::ExecutionContextId>&&);
+    Inspector::InjectedScript injectedScriptForEval(Inspector::Protocol::ErrorString&, std::optional<Inspector::Protocol::Runtime::ExecutionContextId>&&);
 
-    void populateAuditObject(JSC::JSGlobalObject*, JSC::Strong<JSC::JSObject>& auditObject) override;
+    void populateAuditObject(JSC::JSGlobalObject*, JSC::Strong<JSC::JSObject>& auditObject);
 
-    void muteConsole() override;
-    void unmuteConsole() override;
+    void muteConsole();
+    void unmuteConsole();
 
-    Page& m_inspectedPage;
+    WeakRef<Page> m_inspectedPage;
 };
 
 } // namespace WebCore

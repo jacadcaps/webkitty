@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,8 +30,11 @@
 #include <wtf/DoublyLinkedList.h>
 #include <wtf/StdLibExtras.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
 
+class AbstractSlotVisitor;
 class Heap;
 class SlotVisitor;
 
@@ -40,7 +43,7 @@ DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(WeakBlock);
 class WeakBlock : public DoublyLinkedListNode<WeakBlock> {
 public:
     friend class WTF::DoublyLinkedListNode<WeakBlock>;
-    static constexpr size_t blockSize = 256; // 1/16 of MarkedBlock size
+    static constexpr size_t blockSize = 1024; // 1/16 of MarkedBlock size
 
     struct FreeCell {
         FreeCell* next;
@@ -65,7 +68,8 @@ public:
     void sweep();
     SweepResult takeSweepResult();
 
-    void visit(SlotVisitor&);
+    JS_EXPORT_PRIVATE void visit(AbstractSlotVisitor&);
+    JS_EXPORT_PRIVATE void visit(SlotVisitor&);
 
     void reap();
 
@@ -73,10 +77,12 @@ public:
     void disconnectContainer() { m_container = CellContainer(); }
 
 private:
+    template<typename Visitor> void visitImpl(Visitor&);
+
     static FreeCell* asFreeCell(WeakImpl*);
     
-    template<typename ContainerType>
-    void specializedVisit(ContainerType&, SlotVisitor&);
+    template<typename ContainerType, typename Visitor>
+    void specializedVisit(ContainerType&, Visitor&);
 
     explicit WeakBlock(CellContainer);
     void finalize(WeakImpl*);
@@ -144,3 +150,5 @@ inline bool WeakBlock::isLogicallyEmptyButNotFree() const
 }
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

@@ -29,18 +29,23 @@
 #include "GraphicsContext.h"
 #include "TileController.h"
 #include "TileGrid.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(TileCoverageMap);
 
 TileCoverageMap::TileCoverageMap(const TileController& controller)
     : m_controller(controller)
     , m_updateTimer(*this, &TileCoverageMap::updateTimerFired)
-    , m_layer(controller.rootLayer().createCompatibleLayer(PlatformCALayer::LayerTypeSimpleLayer, this))
-    , m_visibleViewportIndicatorLayer(controller.rootLayer().createCompatibleLayer(PlatformCALayer::LayerTypeLayer, nullptr))
-    , m_layoutViewportIndicatorLayer(controller.rootLayer().createCompatibleLayer(PlatformCALayer::LayerTypeLayer, nullptr))
-    , m_coverageRectIndicatorLayer(controller.rootLayer().createCompatibleLayer(PlatformCALayer::LayerTypeLayer, nullptr))
-    , m_position(FloatPoint(0, controller.topContentInset()))
+    , m_layer(controller.rootLayer().createCompatibleLayer(PlatformCALayer::LayerType::LayerTypeSimpleLayer, this))
+    , m_visibleViewportIndicatorLayer(controller.rootLayer().createCompatibleLayer(PlatformCALayer::LayerType::LayerTypeLayer, nullptr))
+    , m_layoutViewportIndicatorLayer(controller.rootLayer().createCompatibleLayer(PlatformCALayer::LayerType::LayerTypeLayer, nullptr))
+    , m_coverageRectIndicatorLayer(controller.rootLayer().createCompatibleLayer(PlatformCALayer::LayerType::LayerTypeLayer, nullptr))
 {
+    auto obscuredContentInsets = controller.obscuredContentInsets();
+    m_position = { obscuredContentInsets.left(), obscuredContentInsets.top() };
+
     m_layer.get().setOpacity(0.75);
     m_layer.get().setAnchorPoint(FloatPoint3D());
     m_layer.get().setBorderColor(Color::black);
@@ -48,17 +53,17 @@ TileCoverageMap::TileCoverageMap(const TileController& controller)
     m_layer.get().setPosition(FloatPoint(2, 2));
     m_layer.get().setContentsScale(m_controller.deviceScaleFactor());
 
-    m_visibleViewportIndicatorLayer.get().setName("visible viewport indicator");
+    m_visibleViewportIndicatorLayer.get().setName(MAKE_STATIC_STRING_IMPL("visible viewport indicator"));
     m_visibleViewportIndicatorLayer.get().setBorderWidth(2);
     m_visibleViewportIndicatorLayer.get().setAnchorPoint(FloatPoint3D());
     m_visibleViewportIndicatorLayer.get().setBorderColor(Color::red.colorWithAlphaByte(200));
 
-    m_layoutViewportIndicatorLayer.get().setName("layout viewport indicator");
+    m_layoutViewportIndicatorLayer.get().setName(MAKE_STATIC_STRING_IMPL("layout viewport indicator"));
     m_layoutViewportIndicatorLayer.get().setBorderWidth(2);
     m_layoutViewportIndicatorLayer.get().setAnchorPoint(FloatPoint3D());
     m_layoutViewportIndicatorLayer.get().setBorderColor(SRGBA<uint8_t> { 0, 128, 128, 200 });
     
-    m_coverageRectIndicatorLayer.get().setName("coverage indicator");
+    m_coverageRectIndicatorLayer.get().setName(MAKE_STATIC_STRING_IMPL("coverage indicator"));
     m_coverageRectIndicatorLayer.get().setAnchorPoint(FloatPoint3D());
     m_coverageRectIndicatorLayer.get().setBackgroundColor(SRGBA<uint8_t> { 64, 64, 64, 50 });
 
@@ -98,7 +103,7 @@ void TileCoverageMap::update()
     float scale = 1;
     if (!containerBounds.isEmpty()) {
         widthScale = std::min<float>(visibleRect.width() / containerBounds.width(), 0.1);
-        float visibleHeight = visibleRect.height() - std::min(m_controller.topContentInset(), visibleRect.y());
+        float visibleHeight = visibleRect.height() - std::min(m_controller.obscuredContentInsets().top(), visibleRect.y());
         scale = std::min(widthScale, visibleHeight / containerBounds.height());
     }
 
@@ -152,7 +157,12 @@ void TileCoverageMap::update()
     m_visibleViewportIndicatorLayer.get().setBorderColor(visibleRectIndicatorColor);
 }
 
-void TileCoverageMap::platformCALayerPaintContents(PlatformCALayer* platformCALayer, GraphicsContext& context, const FloatRect&, GraphicsLayerPaintBehavior)
+PlatformLayerIdentifier TileCoverageMap::platformCALayerIdentifier() const
+{
+    return m_layer->layerID();
+}
+
+void TileCoverageMap::platformCALayerPaintContents(PlatformCALayer* platformCALayer, GraphicsContext& context, const FloatRect&, OptionSet<GraphicsLayerPaintBehavior>)
 {
     ASSERT_UNUSED(platformCALayer, platformCALayer == m_layer.ptr());
     m_controller.tileGrid().drawTileMapContents(context.platformContext(), m_layer.get().bounds());

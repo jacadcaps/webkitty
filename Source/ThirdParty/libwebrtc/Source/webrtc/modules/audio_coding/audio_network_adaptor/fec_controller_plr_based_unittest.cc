@@ -79,8 +79,8 @@ FecControllerPlrBasedTestStates CreateFecControllerPlrBased(
 }
 
 void UpdateNetworkMetrics(FecControllerPlrBasedTestStates* states,
-                          const absl::optional<int>& uplink_bandwidth_bps,
-                          const absl::optional<float>& uplink_packet_loss) {
+                          const std::optional<int>& uplink_bandwidth_bps,
+                          const std::optional<float>& uplink_packet_loss) {
   // UpdateNetworkMetrics can accept multiple network metric updates at once.
   // However, currently, the most used case is to update one metric at a time.
   // To reflect this fact, we separate the calls.
@@ -100,9 +100,9 @@ void UpdateNetworkMetrics(FecControllerPlrBasedTestStates* states,
   }
 }
 
-// Checks that the FEC decision and |uplink_packet_loss_fraction| given by
-// |states->controller->MakeDecision| matches |expected_enable_fec| and
-// |expected_uplink_packet_loss_fraction|, respectively.
+// Checks that the FEC decision and `uplink_packet_loss_fraction` given by
+// `states->controller->MakeDecision` matches `expected_enable_fec` and
+// `expected_uplink_packet_loss_fraction`, respectively.
 void CheckDecision(FecControllerPlrBasedTestStates* states,
                    bool expected_enable_fec,
                    float expected_uplink_packet_loss_fraction) {
@@ -132,7 +132,7 @@ TEST(FecControllerPlrBasedTest, OutputInitValueWhenUplinkBandwidthUnknown) {
           kEnablingPacketLossAtLowBw - kEpsilon, kEnablingPacketLossAtLowBw,
           kEnablingPacketLossAtLowBw + kEpsilon}) {
       auto states = CreateFecControllerPlrBased(initial_fec_enabled);
-      UpdateNetworkMetrics(&states, absl::nullopt, packet_loss);
+      UpdateNetworkMetrics(&states, std::nullopt, packet_loss);
       CheckDecision(&states, initial_fec_enabled, packet_loss);
     }
   }
@@ -147,7 +147,7 @@ TEST(FecControllerPlrBasedTest,
                           kDisablingBandwidthLow + 1, kEnablingBandwidthLow - 1,
                           kEnablingBandwidthLow, kEnablingBandwidthLow + 1}) {
       auto states = CreateFecControllerPlrBased(initial_fec_enabled);
-      UpdateNetworkMetrics(&states, bandwidth, absl::nullopt);
+      UpdateNetworkMetrics(&states, bandwidth, std::nullopt);
       CheckDecision(&states, initial_fec_enabled, 0.0);
     }
   }
@@ -221,7 +221,7 @@ TEST(FecControllerPlrBasedTest, MaintainFecOffForLowBandwidth) {
 
 TEST(FecControllerPlrBasedTest, MaintainFecOffForVeryLowBandwidth) {
   auto states = CreateFecControllerPlrBased(false);
-  // Below |kEnablingBandwidthLow|, no packet loss fraction can cause FEC to
+  // Below `kEnablingBandwidthLow`, no packet loss fraction can cause FEC to
   // turn on.
   UpdateNetworkMetrics(&states, kEnablingBandwidthLow - 1, 1.0);
   CheckDecision(&states, false, 1.0);
@@ -272,7 +272,7 @@ TEST(FecControllerPlrBasedTest, DisableFecForLowBandwidth) {
 
 TEST(FecControllerPlrBasedTest, DisableFecForVeryLowBandwidth) {
   auto states = CreateFecControllerPlrBased(true);
-  // Below |kEnablingBandwidthLow|, any packet loss fraction can cause FEC to
+  // Below `kEnablingBandwidthLow`, any packet loss fraction can cause FEC to
   // turn off.
   UpdateNetworkMetrics(&states, kDisablingBandwidthLow - 1, 1.0);
   CheckDecision(&states, false, 1.0);

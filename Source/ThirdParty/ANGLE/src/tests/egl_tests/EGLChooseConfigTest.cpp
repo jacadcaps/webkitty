@@ -16,7 +16,7 @@ using namespace angle;
 
 namespace angle
 {
-class EGLChooseConfigTest : public ANGLETest
+class EGLChooseConfigTest : public ANGLETest<>
 {
   protected:
     EGLChooseConfigTest() {}
@@ -110,6 +110,29 @@ TEST_P(EGLChooseConfigTest, Defaults)
             }
         }
         ASSERT_EQ(isADefault, foundInDefaultConfigs);
+    }
+}
+
+// Test the validation errors for bad parameters for eglChooseConfig
+TEST_P(EGLChooseConfigTest, NegativeValidationBadAttributes)
+{
+    EGLDisplay display = getEGLWindow()->getDisplay();
+
+    // Choose configs using invalid attributes:
+    const EGLint invalidConfigAttributeList[][3] = {
+        {EGL_CONFIG_CAVEAT, 0, EGL_NONE},
+        {EGL_SURFACE_TYPE, ~EGL_VG_COLORSPACE_LINEAR_BIT, EGL_NONE},
+        {EGL_CONFORMANT, (EGL_OPENGL_ES_BIT | 0x0020), EGL_NONE},
+        {EGL_RENDERABLE_TYPE, (EGL_OPENGL_ES_BIT | 0x0020), EGL_NONE},
+    };
+    EGLint configCount;
+    EGLConfig config;
+
+    for (size_t i = 0; i < 4; i++)
+    {
+        ASSERT_EGL_FALSE(
+            eglChooseConfig(display, &invalidConfigAttributeList[i][0], &config, 1, &configCount));
+        ASSERT_EGL_ERROR(EGL_BAD_ATTRIBUTE);
     }
 }
 

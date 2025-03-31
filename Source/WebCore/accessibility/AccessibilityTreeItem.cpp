@@ -36,21 +36,35 @@ namespace WebCore {
     
 using namespace HTMLNames;
     
-AccessibilityTreeItem::AccessibilityTreeItem(RenderObject* renderer)
-    : AccessibilityRenderObject(renderer)
+AccessibilityTreeItem::AccessibilityTreeItem(AXID axID, RenderObject& renderer)
+    : AccessibilityRenderObject(axID, renderer)
 {
 }
-    
+
+AccessibilityTreeItem::AccessibilityTreeItem(AXID axID, Node& node)
+    : AccessibilityRenderObject(axID, node)
+{
+}
+
 AccessibilityTreeItem::~AccessibilityTreeItem() = default;
     
-Ref<AccessibilityTreeItem> AccessibilityTreeItem::create(RenderObject* renderer)
+Ref<AccessibilityTreeItem> AccessibilityTreeItem::create(AXID axID, RenderObject& renderer)
 {
-    return adoptRef(*new AccessibilityTreeItem(renderer));
+    return adoptRef(*new AccessibilityTreeItem(axID, renderer));
+}
+
+Ref<AccessibilityTreeItem> AccessibilityTreeItem::create(AXID axID, Node& node)
+{
+    return adoptRef(*new AccessibilityTreeItem(axID, node));
+}
+
+bool AccessibilityTreeItem::supportsCheckedState() const
+{
+    return hasAttribute(aria_checkedAttr);
 }
 
 AccessibilityRole AccessibilityTreeItem::determineAccessibilityRole()
 {
-    
     // Walk the parent chain looking for a parent that is a tree. A treeitem is
     // only considered valid if it is in a tree.
     AccessibilityObject* parent = nullptr;

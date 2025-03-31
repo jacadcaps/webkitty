@@ -36,8 +36,11 @@
 #include "HTMLInputElement.h"
 #include "InputTypeNames.h"
 #include <wtf/Assertions.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(PasswordInputType);
 
 const AtomString& PasswordInputType::formControlType() const
 {
@@ -84,11 +87,6 @@ bool PasswordInputType::shouldResetOnDocumentActivation()
 bool PasswordInputType::shouldRespectListAttribute()
 {
     return false;
-}
-
-bool PasswordInputType::isPasswordField() const
-{
-    return true;
 }
 
 } // namespace WebCore

@@ -30,19 +30,20 @@
 TEST(WTF, CStringNullStringConstructor)
 {
     CString string;
+    constexpr size_t zeroLength = 0;
     ASSERT_TRUE(string.isNull());
     ASSERT_EQ(string.data(), static_cast<const char*>(0));
-    ASSERT_EQ(string.length(), static_cast<size_t>(0));
+    ASSERT_EQ(string.length(), zeroLength);
 
     CString stringFromCharPointer(static_cast<const char*>(0));
     ASSERT_TRUE(stringFromCharPointer.isNull());
     ASSERT_EQ(stringFromCharPointer.data(), static_cast<const char*>(0));
-    ASSERT_EQ(stringFromCharPointer.length(), static_cast<size_t>(0));
+    ASSERT_EQ(stringFromCharPointer.length(), zeroLength);
 
-    CString stringFromCharAndLength(static_cast<const char*>(0), 0);
+    CString stringFromCharAndLength({ static_cast<const char*>(0), zeroLength });
     ASSERT_TRUE(stringFromCharAndLength.isNull());
     ASSERT_EQ(stringFromCharAndLength.data(), static_cast<const char*>(0));
-    ASSERT_EQ(stringFromCharAndLength.length(), static_cast<size_t>(0));
+    ASSERT_EQ(stringFromCharAndLength.length(), zeroLength);
 }
 
 TEST(WTF, CStringEmptyEmptyConstructor)
@@ -53,7 +54,7 @@ TEST(WTF, CStringEmptyEmptyConstructor)
     ASSERT_EQ(string.length(), static_cast<size_t>(0));
     ASSERT_EQ(string.data()[0], 0);
 
-    CString stringWithLength(emptyString, 0);
+    CString stringWithLength(""_span);
     ASSERT_FALSE(stringWithLength.isNull());
     ASSERT_EQ(stringWithLength.length(), static_cast<size_t>(0));
     ASSERT_EQ(stringWithLength.data()[0], 0);
@@ -68,7 +69,7 @@ TEST(WTF, CStringEmptyRegularConstructor)
     ASSERT_EQ(string.length(), strlen(referenceString));
     ASSERT_STREQ(referenceString, string.data());
 
-    CString stringWithLength(referenceString, 6);
+    CString stringWithLength({ referenceString, 6 });
     ASSERT_FALSE(stringWithLength.isNull());
     ASSERT_EQ(stringWithLength.length(), strlen(referenceString));
     ASSERT_STREQ(referenceString, stringWithLength.data());
@@ -76,23 +77,23 @@ TEST(WTF, CStringEmptyRegularConstructor)
 
 TEST(WTF, CStringUninitializedConstructor)
 {
-    char* buffer;
+    std::span<char> buffer;
     CString emptyString = CString::newUninitialized(0, buffer);
     ASSERT_FALSE(emptyString.isNull());
-    ASSERT_EQ(buffer, emptyString.data());
-    ASSERT_EQ(buffer[0], 0);
+    ASSERT_EQ(buffer.data(), emptyString.data());
+    ASSERT_TRUE(buffer.empty());
 
     const size_t length = 25;
     CString uninitializedString = CString::newUninitialized(length, buffer);
     ASSERT_FALSE(uninitializedString.isNull());
-    ASSERT_EQ(buffer, uninitializedString.data());
+    ASSERT_EQ(buffer.data(), uninitializedString.data());
     ASSERT_EQ(uninitializedString.data()[length], 0);
 }
 
 TEST(WTF, CStringZeroTerminated)
 {
     const char* referenceString = "WebKit";
-    CString stringWithLength(referenceString, 3);
+    CString stringWithLength({ referenceString, 3 });
     ASSERT_EQ(stringWithLength.data()[3], 0);
 }
 
@@ -102,7 +103,7 @@ TEST(WTF, CStringCopyOnWrite)
     CString string(initialString);
     CString copy = string;
 
-    string.mutableData()[3] = 'K';
+    string.mutableSpan()[3] = 'K';
     ASSERT_TRUE(string != copy);
     ASSERT_STREQ(string.data(), "WebKit");
     ASSERT_STREQ(copy.data(), initialString);

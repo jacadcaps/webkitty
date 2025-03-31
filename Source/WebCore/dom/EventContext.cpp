@@ -29,103 +29,91 @@
 #include "EventContext.h"
 
 #include "Document.h"
+#include "EventNames.h"
 #include "FocusEvent.h"
+#include "HTMLFieldSetElement.h"
+#include "HTMLFormElement.h"
+#include "LocalDOMWindow.h"
 #include "MouseEvent.h"
 #include "TouchEvent.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-EventContext::EventContext(Node* node, EventTarget* currentTarget, EventTarget* target, int closedShadowDepth)
-    : m_node { node }
-    , m_currentTarget { currentTarget }
-    , m_target { target }
-    , m_closedShadowDepth { closedShadowDepth }
-{
-    ASSERT(!isUnreachableNode(m_target.get()));
-}
-
-EventContext::~EventContext() = default;
+WTF_MAKE_TZONE_ALLOCATED_IMPL(EventContext);
 
 void EventContext::handleLocalEvents(Event& event, EventInvokePhase phase) const
 {
-    event.setTarget(m_target.get());
-    event.setCurrentTarget(m_currentTarget.get());
-    // FIXME: Consider merging handleLocalEvents and fireEventListeners.
-    if (m_node)
-        m_node->handleLocalEvents(event, phase);
-    else
-        m_currentTarget->fireEventListeners(event, phase);
-}
+    event.setTarget(m_target.copyRef());
+    event.setCurrentTarget(m_currentTarget.copyRef(), m_currentTargetIsInShadowTree);
 
-bool EventContext::isMouseOrFocusEventContext() const
-{
-    return false;
-}
+    if (m_relatedTargetIsSet) {
+        ASSERT(!m_relatedTarget || isMouseOrFocusEventContext() || isWindowContext());
+        event.setRelatedTarget(m_relatedTarget.copyRef());
+    }
 
-bool EventContext::isTouchEventContext() const
-{
-    return false;
-}
+#if ENABLE(TOUCH_EVENTS)
+    if (m_type == Type::Touch) {
 
-MouseOrFocusEventContext::MouseOrFocusEventContext(Node& node, EventTarget* currentTarget, EventTarget* target, int closedShadowDepth)
-    : EventContext(&node, currentTarget, target, closedShadowDepth)
-{
-}
+#if ASSERT_ENABLED
+        auto checkReachability = [&](const Ref<TouchList>& touchList) {
+            size_t length = touchList->length();
+            for (size_t i = 0; i < length; ++i)
+                ASSERT(!isUnreachableNode(downcast<Node>(touchList->item(i)->target())));
+        };
+        checkReachability(*m_touches);
+        checkReachability(*m_targetTouches);
+        checkReachability(*m_changedTouches);
+#endif
 
-MouseOrFocusEventContext::~MouseOrFocusEventContext() = default;
+        auto& touchEvent = downcast<TouchEvent>(event);
+        touchEvent.setTouches(m_touches.get());
+        touchEvent.setTargetTouches(m_targetTouches.get());
+        touchEvent.setChangedTouches(m_changedTouches.get());
+    }
+#endif
 
-void MouseOrFocusEventContext::handleLocalEvents(Event& event, EventInvokePhase phase) const
-{
-    if (m_relatedTarget)
-        event.setRelatedTarget(*m_relatedTarget);
-    EventContext::handleLocalEvents(event, phase);
-}
+    if (!m_node || UNLIKELY(m_type == Type::Window)) {
+        protectedCurrentTarget()->fireEventListeners(event, phase);
+        return;
+    }
 
-bool MouseOrFocusEventContext::isMouseOrFocusEventContext() const
-{
-    return true;
+    if (UNLIKELY(m_contextNodeIsFormElement)) {
+        ASSERT(is<HTMLFormElement>(*m_node));
+        auto& eventNames = WebCore::eventNames();
+        if ((event.type() == eventNames.submitEvent || event.type() == eventNames.resetEvent)
+            && event.eventPhase() != Event::CAPTURING_PHASE && event.target() != m_node && is<Node>(event.target())) {
+            event.stopPropagation();
+            return;
+        }
+    }
+
+    if (!m_node->hasEventTargetData())
+        return;
+
+    protectedNode()->fireEventListeners(event, phase);
 }
 
 #if ENABLE(TOUCH_EVENTS)
 
-TouchEventContext::TouchEventContext(Node& node, EventTarget* currentTarget, EventTarget* target, int closedShadowDepth)
-    : EventContext(&node, currentTarget, target, closedShadowDepth)
-    , m_touches(TouchList::create())
-    , m_targetTouches(TouchList::create())
-    , m_changedTouches(TouchList::create())
+void EventContext::initializeTouchLists()
 {
+    m_touches = TouchList::create();
+    m_targetTouches = TouchList::create();
+    m_changedTouches = TouchList::create();
 }
 
-TouchEventContext::~TouchEventContext() = default;
-
-void TouchEventContext::handleLocalEvents(Event& event, EventInvokePhase phase) const
-{
-    checkReachability(m_touches);
-    checkReachability(m_targetTouches);
-    checkReachability(m_changedTouches);
-    auto& touchEvent = downcast<TouchEvent>(event);
-    touchEvent.setTouches(m_touches.ptr());
-    touchEvent.setTargetTouches(m_targetTouches.ptr());
-    touchEvent.setChangedTouches(m_changedTouches.ptr());
-    EventContext::handleLocalEvents(event, phase);
-}
-
-bool TouchEventContext::isTouchEventContext() const
-{
-    return true;
-}
+#endif // ENABLE(TOUCH_EVENTS)
 
 #if ASSERT_ENABLED
 
-void TouchEventContext::checkReachability(const Ref<TouchList>& touchList) const
+bool EventContext::isUnreachableNode(EventTarget* target) const
 {
-    size_t length = touchList->length();
-    for (size_t i = 0; i < length; ++i)
-        ASSERT(!isUnreachableNode(downcast<Node>(touchList->item(i)->target())));
+    // FIXME: Checks also for SVG elements.
+    auto* node = dynamicDowncast<Node>(target);
+    return node && !node->isSVGElement() && m_node && m_node->isClosedShadowHidden(*node);
 }
 
-#endif // ASSERT_ENABLED
-
-#endif // ENABLE(TOUCH_EVENTS)
+#endif
 
 }

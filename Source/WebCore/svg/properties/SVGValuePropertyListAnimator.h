@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2019 Apple Inc.  All rights reserved.
+ * Copyright (C) 2018-2024 Apple Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,6 +31,7 @@ namespace WebCore {
 
 template<typename ListType, typename AnimationFunction>
 class SVGValuePropertyListAnimator : public SVGPropertyAnimator<AnimationFunction> {
+    WTF_MAKE_TZONE_ALLOCATED_TEMPLATE(SVGValuePropertyListAnimator);
     using Base = SVGPropertyAnimator<AnimationFunction>;
     using Base::Base;
     using Base::applyAnimatedStylePropertyChange;
@@ -44,12 +45,12 @@ public:
     {
     }
 
-    void animate(SVGElement* targetElement, float progress, unsigned repeatCount) override
+    void animate(SVGElement& targetElement, float progress, unsigned repeatCount) override
     {
         m_function.animate(targetElement, progress, repeatCount, m_list);
     }
 
-    void apply(SVGElement* targetElement) override
+    void apply(SVGElement& targetElement) override
     {
         applyAnimatedStylePropertyChange(targetElement, m_list->valueAsString());
     }
@@ -61,4 +62,12 @@ protected:
     RefPtr<ListType> m_list;
 };
 
-}
+#define TZONE_TEMPLATE_PARAMS template<typename ListType, typename AnimationFunction>
+#define TZONE_TYPE SVGValuePropertyListAnimator<ListType, AnimationFunction>
+
+WTF_MAKE_TZONE_ALLOCATED_TEMPLATE_IMPL_WITH_MULTIPLE_OR_SPECIALIZED_PARAMETERS();
+
+#undef TZONE_TEMPLATE_PARAMS
+#undef TZONE_TYPE
+
+} // namespace WebCore

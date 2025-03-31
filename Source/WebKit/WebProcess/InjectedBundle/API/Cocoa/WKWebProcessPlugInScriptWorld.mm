@@ -26,22 +26,27 @@
 #import "config.h"
 #import "WKWebProcessPlugInScriptWorldInternal.h"
 
+#import <WebCore/WebCoreObjCExtras.h>
+#import <wtf/AlignedStorage.h>
+
 @implementation WKWebProcessPlugInScriptWorld {
-    API::ObjectStorage<WebKit::InjectedBundleScriptWorld> _world;
+    AlignedStorage<WebKit::InjectedBundleScriptWorld> _world;
 }
 
 + (WKWebProcessPlugInScriptWorld *)world
 {
-    return WebKit::wrapper(WebKit::InjectedBundleScriptWorld::create());
+    return WebKit::wrapper(WebKit::InjectedBundleScriptWorld::create()).autorelease();
 }
 
 + (WKWebProcessPlugInScriptWorld *)normalWorld
 {
-    return WebKit::wrapper(WebKit::InjectedBundleScriptWorld::normalWorld());
+    return WebKit::wrapper(WebKit::InjectedBundleScriptWorld::normalWorldSingleton());
 }
 
 - (void)dealloc
 {
+    if (WebCoreObjCScheduleDeallocateOnMainRunLoop(WKWebProcessPlugInScriptWorld.class, self))
+        return;
     _world->~InjectedBundleScriptWorld();
     [super dealloc];
 }

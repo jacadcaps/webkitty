@@ -31,22 +31,50 @@
 #include "config.h"
 #include "WebSocketProvider.h"
 
+#include "NetworkProcessConnection.h"
 #include "WebProcess.h"
 #include "WebSocketChannelManager.h"
-#include "WebSocketStream.h"
+#include "WebTransportSession.h"
+#include <WebCore/DocumentInlines.h>
+#include <WebCore/WebTransportSessionClient.h>
+#include <WebCore/WorkerGlobalScope.h>
 
 namespace WebKit {
 using namespace WebCore;
 
-Ref<SocketStreamHandle> WebSocketProvider::createSocketStreamHandle(const URL& url, SocketStreamHandleClient& client, PAL::SessionID sessionID, const String& credentialPartition, const StorageSessionProvider*)
-{
-    ASSERT_UNUSED(sessionID, sessionID == WebProcess::singleton().sessionID());
-    return WebSocketStream::create(url, client, credentialPartition);
-}
-
 RefPtr<ThreadableWebSocketChannel> WebSocketProvider::createWebSocketChannel(Document& document, WebSocketChannelClient& client)
 {
-    return WebSocketChannel::create(document, client);
+    return WebKit::WebSocketChannel::create(m_webPageProxyID, document, client);
+}
+
+Ref<WebCore::WebTransportSessionPromise> WebSocketProvider::initializeWebTransportSession(ScriptExecutionContext& context, WebTransportSessionClient& client, const URL& url)
+{
+    if (RefPtr scope = dynamicDowncast<WorkerGlobalScope>(context)) {
+        ASSERT(!RunLoop::isMain());
+        WebCore::WebTransportSessionPromise::Producer producer;
+        Ref<WebCore::WebTransportSessionPromise> promise = producer.promise();
+
+        RunLoop::protectedMain()->dispatch([
+            contextID = context.identifier(),
+            producer = WTFMove(producer),
+            webPageProxyID = m_webPageProxyID,
+            origin = crossThreadCopy(scope->clientOrigin()),
+            client = ThreadSafeWeakPtr { client },
+            url = crossThreadCopy(url)
+        ] mutable {
+            WebKit::WebTransportSession::initialize(WebProcess::singleton().ensureNetworkProcessConnection().connection(), WTFMove(client), url, webPageProxyID, origin)->whenSettled(RunLoop::protectedMain(), [producer = WTFMove(producer)] (auto&& result) mutable {
+                if (!result)
+                    producer.reject();
+                else
+                    producer.resolve(WTFMove(*result));
+            });
+        });
+        return promise;
+    }
+
+    Ref document = downcast<Document>(context);
+    ASSERT(RunLoop::isMain());
+    return WebKit::WebTransportSession::initialize(WebProcess::singleton().ensureNetworkProcessConnection().connection(), client, url, m_webPageProxyID, document->clientOrigin());
 }
 
 } // namespace WebKit

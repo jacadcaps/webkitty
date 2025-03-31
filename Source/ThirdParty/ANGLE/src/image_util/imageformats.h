@@ -70,6 +70,16 @@ struct A8L8
     static void average(A8L8 *dst, const A8L8 *src1, const A8L8 *src2);
 };
 
+struct L4A4
+{
+    uint8_t L : 4;
+    uint8_t A : 4;
+
+    static void readColor(gl::ColorF *dst, const L4A4 *src);
+    static void writeColor(L4A4 *dst, const gl::ColorF *src);
+    static void average(L4A4 *dst, const L4A4 *src1, const L4A4 *src2);
+};
+
 struct R8G8
 {
     uint8_t R;
@@ -195,6 +205,20 @@ struct B8G8R8X8
     static void writeColor(B8G8R8X8 *dst, const gl::ColorF *src);
     static void writeColor(B8G8R8X8 *dst, const gl::ColorUI *src);
     static void average(B8G8R8X8 *dst, const B8G8R8X8 *src1, const B8G8R8X8 *src2);
+};
+
+struct R8G8B8X8
+{
+    uint8_t R;
+    uint8_t G;
+    uint8_t B;
+    uint8_t X;
+
+    static void readColor(gl::ColorF *dst, const R8G8B8X8 *src);
+    static void readColor(gl::ColorUI *dst, const R8G8B8X8 *src);
+    static void writeColor(R8G8B8X8 *dst, const gl::ColorF *src);
+    static void writeColor(R8G8B8X8 *dst, const gl::ColorUI *src);
+    static void average(R8G8B8X8 *dst, const R8G8B8X8 *src1, const R8G8B8X8 *src2);
 };
 
 struct A1R5G5B5

@@ -55,6 +55,12 @@
 {
     ASSERT(!_tileController);
     _tileController = makeUnique<WebCore::TileController>(rootLayer);
+
+    // Sync the underlying layer with the controller's scale, and keep the rasterization scale the same, as PlatformCALayerCocoa does.
+    CGFloat initialScale = _tileController->contentsScale();
+    [super setContentsScale:initialScale];
+    [super setRasterizationScale:initialScale];
+
     return _tileController.get();
 }
 
@@ -103,28 +109,19 @@
     return _tileController ? _tileController->acceleratesDrawing() : NO;
 }
 
-- (void)setWantsDeepColorBackingStore:(BOOL)wantsDeepColor
+- (void)setContentsFormat:(WebCore::ContentsFormat)contentsFormat
 {
-    _tileController->setWantsDeepColorBackingStore(wantsDeepColor);
+    _tileController->setContentsFormat(contentsFormat);
 }
 
-- (BOOL)wantsDeepColorBackingStore
+- (WebCore::ContentsFormat)contentsFormat
 {
-    return _tileController->wantsDeepColorBackingStore();
-}
-
-- (void)setSupportsSubpixelAntialiasedText:(BOOL)supportsSubpixelAntialiasedText
-{
-    _tileController->setSupportsSubpixelAntialiasedText(supportsSubpixelAntialiasedText);
-}
-
-- (BOOL)supportsSubpixelAntialiasedText
-{
-    return _tileController->supportsSubpixelAntialiasedText();
+    return _tileController->contentsFormat();
 }
 
 - (void)setContentsScale:(CGFloat)contentsScale
 {
+    [super setContentsScale:contentsScale];
     _tileController->setContentsScale(contentsScale);
 }
 
@@ -147,7 +144,7 @@
 
 - (void)setBorderColor:(CGColorRef)borderColor
 {
-    _tileController->setTileDebugBorderColor(WebCore::Color(borderColor));
+    _tileController->setTileDebugBorderColor(WebCore::roundAndClampToSRGBALossy(borderColor));
 }
 
 - (void)setBorderWidth:(CGFloat)borderWidth

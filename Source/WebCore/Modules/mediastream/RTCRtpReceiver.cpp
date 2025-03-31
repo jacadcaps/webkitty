@@ -34,25 +34,45 @@
 #if ENABLE(WEB_RTC)
 
 #include "JSDOMPromiseDeferred.h"
+#include "Logging.h"
 #include "PeerConnectionBackend.h"
 #include "RTCRtpCapabilities.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(RTCRtpReceiver);
+#if !RELEASE_LOG_DISABLED
+#define LOGIDENTIFIER_RECEIVER Logger::LogSiteIdentifier(logClassName(), __func__, m_connection->logIdentifier())
+#else
+#define LOGIDENTIFIER_RECEIVER
+#endif
+
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(RTCRtpReceiver);
 
 RTCRtpReceiver::RTCRtpReceiver(PeerConnectionBackend& connection, Ref<MediaStreamTrack>&& track, std::unique_ptr<RTCRtpReceiverBackend>&& backend)
     : m_track(WTFMove(track))
     , m_backend(WTFMove(backend))
-    , m_connection(makeWeakPtr(&connection))
+    , m_connection(connection)
+#if !RELEASE_LOG_DISABLED
+    , m_logger(connection.logger())
+    , m_logIdentifier(connection.logIdentifier())
+#endif
 {
+}
+
+RTCRtpReceiver::~RTCRtpReceiver()
+{
+    if (m_transform)
+        m_transform->detachFromReceiver(*this);
 }
 
 void RTCRtpReceiver::stop()
 {
     if (!m_backend)
         return;
+
+    if (m_transform)
+        m_transform->detachFromReceiver(*this);
 
     m_backend = nullptr;
     m_track->stopTrack(MediaStreamTrack::StopMode::PostEvent);
@@ -61,16 +81,53 @@ void RTCRtpReceiver::stop()
 void RTCRtpReceiver::getStats(Ref<DeferredPromise>&& promise)
 {
     if (!m_connection) {
-        promise->reject(InvalidStateError);
+        promise->reject(ExceptionCode::InvalidStateError);
         return;
     }
     m_connection->getStats(*this, WTFMove(promise));
 }
 
-Optional<RTCRtpCapabilities> RTCRtpReceiver::getCapabilities(ScriptExecutionContext& context, const String& kind)
+std::optional<RTCRtpCapabilities> RTCRtpReceiver::getCapabilities(ScriptExecutionContext& context, const String& kind)
 {
     return PeerConnectionBackend::receiverCapabilities(context, kind);
 }
+
+ExceptionOr<void> RTCRtpReceiver::setTransform(std::unique_ptr<RTCRtpTransform>&& transform)
+{
+    ALWAYS_LOG_IF(m_connection, LOGIDENTIFIER_RECEIVER);
+
+    if (transform && m_transform && *transform == *m_transform)
+        return { };
+    if (!transform) {
+        if (m_transform) {
+            m_transform->detachFromReceiver(*this);
+            m_transform = { };
+        }
+        return { };
+    }
+
+    if (transform->isAttached())
+        return Exception { ExceptionCode::InvalidStateError, "transform is already in use"_s };
+
+    transform->attachToReceiver(*this, m_transform.get());
+    m_transform = WTFMove(transform);
+
+    return { };
+}
+
+std::optional<RTCRtpTransform::Internal> RTCRtpReceiver::transform()
+{
+    if (!m_transform)
+        return { };
+    return m_transform->internalTransform();
+}
+
+#if !RELEASE_LOG_DISABLED
+WTFLogChannel& RTCRtpReceiver::logChannel() const
+{
+    return LogWebRTC;
+}
+#endif
 
 } // namespace WebCore
 

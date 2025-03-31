@@ -23,14 +23,19 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#if ENABLE(INPUT_TYPE_COLOR) && PLATFORM(IOS_FAMILY)
+#if PLATFORM(IOS_FAMILY)
 
 #import "WKFormPeripheralBase.h"
 
+@class UIColor;
 @class WKContentView;
 
 @interface WKFormColorControl : WKFormPeripheralBase
 - (instancetype)initWithView:(WKContentView *)view;
 @end
 
-#endif // ENABLE(INPUT_TYPE_COLOR) && PLATFORM(IOS_FAMILY)
+@interface WKFormColorControl (WKTesting)
+- (void)selectColor:(UIColor *)color;
+@end
+
+#endif // PLATFORM(IOS_FAMILY)

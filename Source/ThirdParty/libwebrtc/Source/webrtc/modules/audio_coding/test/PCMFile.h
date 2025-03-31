@@ -14,9 +14,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include <optional>
 #include <string>
 
-#include "absl/types/optional.h"
+#include "absl/strings/string_view.h"
 #include "api/audio/audio_frame.h"
 
 namespace webrtc {
@@ -27,9 +28,9 @@ class PCMFile {
   PCMFile(uint32_t timestamp);
   ~PCMFile();
 
-  void Open(const std::string& filename,
+  void Open(absl::string_view filename,
             uint16_t frequency,
-            const char* mode,
+            absl::string_view mode,
             bool auto_rewind = false);
 
   int32_t Read10MsData(AudioFrame& audio_frame);
@@ -67,7 +68,7 @@ class PCMFile {
   uint32_t timestamp_;
   bool read_stereo_;
   bool save_stereo_;
-  absl::optional<int> num_10ms_blocks_to_read_;
+  std::optional<int> num_10ms_blocks_to_read_;
   int blocks_read_ = 0;
 };
 

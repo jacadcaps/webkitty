@@ -8,18 +8,19 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef RTC_BASE_NUMERICS_RUNNING_STATISTICS_H_
-#define RTC_BASE_NUMERICS_RUNNING_STATISTICS_H_
+#ifndef API_NUMERICS_RUNNING_STATISTICS_H_
+#define API_NUMERICS_RUNNING_STATISTICS_H_
 
 #include <algorithm>
 #include <cmath>
-#include <limits>
+#include <cstdint>
+#include <optional>
 
-#include "absl/types/optional.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/numerics/math_utils.h"
 
 namespace webrtc {
+namespace webrtc_impl {
 
 // tl;dr: Robust and efficient online computation of statistics,
 //        using Welford's method for variance. [1]
@@ -32,7 +33,7 @@ namespace webrtc {
 // If you want a full-fledged moving window over N last samples,
 // please use webrtc::RollingAccumulator.
 //
-// The measures return absl::nullopt if no samples were fed (Size() == 0),
+// The measures return std::nullopt if no samples were fed (Size() == 0),
 // otherwise the returned optional is guaranteed to contain a value.
 //
 // [1]
@@ -50,6 +51,7 @@ class RunningStatistics {
   void AddSample(T sample) {
     max_ = std::max(max_, sample);
     min_ = std::min(min_, sample);
+    sum_ += sample;
     ++size_;
     // Welford's incremental update.
     const double delta = sample - mean_;
@@ -106,42 +108,50 @@ class RunningStatistics {
 
   // Returns minimum among all seen samples, in O(1) time.
   // This isn't affected by RemoveSample().
-  absl::optional<T> GetMin() const {
+  std::optional<T> GetMin() const {
     if (size_ == 0) {
-      return absl::nullopt;
+      return std::nullopt;
     }
     return min_;
   }
 
   // Returns maximum among all seen samples, in O(1) time.
   // This isn't affected by RemoveSample().
-  absl::optional<T> GetMax() const {
+  std::optional<T> GetMax() const {
     if (size_ == 0) {
-      return absl::nullopt;
+      return std::nullopt;
     }
     return max_;
   }
 
-  // Returns mean in O(1) time.
-  absl::optional<double> GetMean() const {
+  // Returns sum in O(1) time.
+  std::optional<double> GetSum() const {
     if (size_ == 0) {
-      return absl::nullopt;
+      return std::nullopt;
+    }
+    return sum_;
+  }
+
+  // Returns mean in O(1) time.
+  std::optional<double> GetMean() const {
+    if (size_ == 0) {
+      return std::nullopt;
     }
     return mean_;
   }
 
   // Returns unbiased sample variance in O(1) time.
-  absl::optional<double> GetVariance() const {
+  std::optional<double> GetVariance() const {
     if (size_ == 0) {
-      return absl::nullopt;
+      return std::nullopt;
     }
     return cumul_ / size_;
   }
 
   // Returns unbiased standard deviation in O(1) time.
-  absl::optional<double> GetStandardDeviation() const {
+  std::optional<double> GetStandardDeviation() const {
     if (size_ == 0) {
-      return absl::nullopt;
+      return std::nullopt;
     }
     return std::sqrt(*GetVariance());
   }
@@ -152,8 +162,10 @@ class RunningStatistics {
   T max_ = minus_infinity_or_min<T>();
   double mean_ = 0;
   double cumul_ = 0;  // Variance * size_, sometimes noted m2.
+  double sum_ = 0;
 };
 
+}  // namespace webrtc_impl
 }  // namespace webrtc
 
-#endif  // RTC_BASE_NUMERICS_RUNNING_STATISTICS_H_
+#endif  // API_NUMERICS_RUNNING_STATISTICS_H_

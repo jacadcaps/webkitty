@@ -164,8 +164,24 @@ static void valueToGValue(GCLogging::Level value, GValue* gValue)
     }
 }
 
+static bool valueFromGValue(const GValue* gValue, OSLogType& value)
+{
+    unsigned optionValue = g_value_get_uint(gValue);
+    if (optionValue > static_cast<unsigned>(OSLogType::Fault))
+        return false;
+    value = static_cast<OSLogType>(optionValue);
+    return true;
+}
+
+static void valueToGValue(OSLogType value, GValue* gValue)
+{
+    g_value_set_uint(gValue, static_cast<unsigned>(value));
+}
+
 static gboolean jscOptionsSetValue(const char* option, const GValue* value)
 {
+    Options::AllowUnfinalizedAccessScope scope;
+
 #define SET_OPTION_VALUE(type_, name_, defaultValue_, availability_, description_) \
     if (!g_strcmp0(#name_, option)) {                                   \
         OptionsStorage::type_ valueToSet;                                  \
@@ -184,6 +200,8 @@ static gboolean jscOptionsSetValue(const char* option, const GValue* value)
 
 static gboolean jscOptionsGetValue(const char* option, GValue* value)
 {
+    Options::AllowUnfinalizedAccessScope scope;
+
 #define GET_OPTION_VALUE(type_, name_, defaultValue_, availability_, description_) \
     if (!g_strcmp0(#name_, option)) {                                   \
         OptionsStorage::type_ valueToGet = Options::name_();               \
@@ -569,6 +587,11 @@ static JSCOptionType jscOptionsType(const OptionRange&)
     return JSC_OPTION_RANGE_STRING;
 }
 
+static JSCOptionType jscOptionsType(const OSLogType&)
+{
+    return JSC_OPTION_UINT;
+}
+
 /**
  * JSCOptionType:
  * @JSC_OPTION_BOOLEAN: A #gboolean option type.
@@ -628,6 +651,7 @@ void jsc_options_foreach(JSCOptionsFunc function, gpointer userData)
 #undef VISIT_OPTION
 }
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GLib port
 static gboolean setOptionEntry(const char* optionNameFull, const char* value, gpointer, GError** error)
 {
     const char* optionName = optionNameFull + 6; // Remove the --jsc- prefix.
@@ -638,6 +662,7 @@ static gboolean setOptionEntry(const char* optionNameFull, const char* value, gp
     }
     return TRUE;
 }
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 /**
  * jsc_options_get_option_group:
@@ -663,6 +688,7 @@ GOptionGroup* jsc_options_get_option_group(void)
     });
     g_option_group_set_translation_domain(group, GETTEXT_PACKAGE);
 
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GLib port
     GArray* entries = g_array_new(TRUE, TRUE, sizeof(GOptionEntry));
 #define REGISTER_OPTION(type_, name_, defaultValue_, availability_, description_) \
     if (Options::Availability::availability_ == Options::Availability::Normal \
@@ -680,6 +706,7 @@ GOptionGroup* jsc_options_get_option_group(void)
     Options::initialize();
     FOR_EACH_JSC_OPTION(REGISTER_OPTION)
 #undef REGISTER_OPTION
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
     g_option_group_add_entries(group, reinterpret_cast<GOptionEntry*>(entries->data));
     return group;

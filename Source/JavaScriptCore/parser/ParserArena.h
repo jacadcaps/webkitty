@@ -27,9 +27,12 @@
 
 #include "CommonIdentifiers.h"
 #include "Identifier.h"
+#include "MathCommon.h"
 #include <array>
 #include <type_traits>
 #include <wtf/SegmentedVector.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
@@ -45,13 +48,14 @@ namespace JSC {
         }
 
         template <typename T>
-        ALWAYS_INLINE const Identifier& makeIdentifier(VM&, const T* characters, size_t length);
+        ALWAYS_INLINE const Identifier& makeIdentifier(VM&, std::span<const T> characters);
         ALWAYS_INLINE const Identifier& makeEmptyIdentifier(VM&);
-        ALWAYS_INLINE const Identifier& makeIdentifierLCharFromUChar(VM&, const UChar* characters, size_t length);
+        ALWAYS_INLINE const Identifier& makeIdentifierLCharFromUChar(VM&, std::span<const UChar> characters);
         ALWAYS_INLINE const Identifier& makeIdentifier(VM&, SymbolImpl*);
 
-        const Identifier& makeBigIntDecimalIdentifier(VM&, const Identifier&, uint8_t radix);
+        const Identifier* makeBigIntDecimalIdentifier(VM&, const Identifier&, uint8_t radix);
         const Identifier& makeNumericIdentifier(VM&, double number);
+        const Identifier& makePrivateIdentifier(VM&, ASCIILiteral, unsigned);
 
     public:
         static const int MaximumCachableCharacter = 128;
@@ -72,26 +76,26 @@ namespace JSC {
     };
 
     template <typename T>
-    ALWAYS_INLINE const Identifier& IdentifierArena::makeIdentifier(VM& vm, const T* characters, size_t length)
+    ALWAYS_INLINE const Identifier& IdentifierArena::makeIdentifier(VM& vm, std::span<const T> characters)
     {
-        if (!length)
+        if (characters.empty())
             return vm.propertyNames->emptyIdentifier;
-        if (characters[0] >= MaximumCachableCharacter) {
-            m_identifiers.append(Identifier::fromString(vm, characters, length));
+        if (characters.front() >= MaximumCachableCharacter) {
+            m_identifiers.append(Identifier::fromString(vm, characters));
             return m_identifiers.last();
         }
-        if (length == 1) {
-            if (Identifier* ident = m_shortIdentifiers[characters[0]])
+        if (characters.size() == 1) {
+            if (Identifier* ident = m_shortIdentifiers[characters.front()])
                 return *ident;
-            m_identifiers.append(Identifier::fromString(vm, characters, length));
-            m_shortIdentifiers[characters[0]] = &m_identifiers.last();
+            m_identifiers.append(Identifier::fromString(vm, characters));
+            m_shortIdentifiers[characters.front()] = &m_identifiers.last();
             return m_identifiers.last();
         }
-        Identifier* ident = m_recentIdentifiers[characters[0]];
-        if (ident && Identifier::equal(ident->impl(), characters, length))
+        Identifier* ident = m_recentIdentifiers[characters.front()];
+        if (ident && Identifier::equal(ident->impl(), characters))
             return *ident;
-        m_identifiers.append(Identifier::fromString(vm, characters, length));
-        m_recentIdentifiers[characters[0]] = &m_identifiers.last();
+        m_identifiers.append(Identifier::fromString(vm, characters));
+        m_recentIdentifiers[characters.front()] = &m_identifiers.last();
         return m_identifiers.last();
     }
 
@@ -107,34 +111,38 @@ namespace JSC {
         return vm.propertyNames->emptyIdentifier;
     }
 
-    ALWAYS_INLINE const Identifier& IdentifierArena::makeIdentifierLCharFromUChar(VM& vm, const UChar* characters, size_t length)
+    ALWAYS_INLINE const Identifier& IdentifierArena::makeIdentifierLCharFromUChar(VM& vm, std::span<const UChar> characters)
     {
-        if (!length)
+        if (characters.empty())
             return vm.propertyNames->emptyIdentifier;
-        if (characters[0] >= MaximumCachableCharacter) {
-            m_identifiers.append(Identifier::createLCharFromUChar(vm, characters, length));
+        if (characters.front() >= MaximumCachableCharacter) {
+            m_identifiers.append(Identifier::createLCharFromUChar(vm, characters));
             return m_identifiers.last();
         }
-        if (length == 1) {
-            if (Identifier* ident = m_shortIdentifiers[characters[0]])
+        if (characters.size() == 1) {
+            if (Identifier* ident = m_shortIdentifiers[characters.front()])
                 return *ident;
-            m_identifiers.append(Identifier::fromString(vm, characters, length));
-            m_shortIdentifiers[characters[0]] = &m_identifiers.last();
+            m_identifiers.append(Identifier::fromString(vm, characters));
+            m_shortIdentifiers[characters.front()] = &m_identifiers.last();
             return m_identifiers.last();
         }
-        Identifier* ident = m_recentIdentifiers[characters[0]];
-        if (ident && Identifier::equal(ident->impl(), characters, length))
+        Identifier* ident = m_recentIdentifiers[characters.front()];
+        if (ident && Identifier::equal(ident->impl(), characters))
             return *ident;
-        m_identifiers.append(Identifier::createLCharFromUChar(vm, characters, length));
-        m_recentIdentifiers[characters[0]] = &m_identifiers.last();
+        m_identifiers.append(Identifier::createLCharFromUChar(vm, characters));
+        m_recentIdentifiers[characters.front()] = &m_identifiers.last();
         return m_identifiers.last();
     }
     
     inline const Identifier& IdentifierArena::makeNumericIdentifier(VM& vm, double number)
     {
-        // FIXME: Why doesn't this use the Identifier::from overload that takes a double?
-        // Seems we are missing out on multiple optimizations by not using it.
-        m_identifiers.append(Identifier::fromString(vm, String::number(number)));
+        Identifier token;
+        // This is possible that number can be -0, but it is OK since ToString(-0) is "0".
+        if (canBeInt32(number))
+            token = Identifier::from(vm, static_cast<int32_t>(number));
+        else
+            token = Identifier::from(vm, number);
+        m_identifiers.append(WTFMove(token));
         return m_identifiers.last();
     }
 
@@ -209,3 +217,5 @@ namespace JSC {
     };
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

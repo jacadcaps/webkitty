@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,12 +26,16 @@
 #import "config.h"
 #import "WKNavigationActionInternal.h"
 
+#import "APIHitTestResult.h"
 #import "NavigationActionData.h"
 #import "WKFrameInfoInternal.h"
 #import "WKNavigationInternal.h"
 #import "WebEventFactory.h"
+#import "WebsiteDataStore.h"
+#import "_WKHitTestResultInternal.h"
 #import "_WKUserInitiatedActionInternal.h"
 #import <WebCore/FloatPoint.h>
+#import <WebCore/WebCoreObjCExtras.h>
 #import <wtf/RetainPtr.h>
 
 #if PLATFORM(IOS_FAMILY)
@@ -62,14 +66,14 @@ static WKNavigationType toWKNavigationType(WebCore::NavigationType navigationTyp
 }
 
 #if PLATFORM(IOS_FAMILY)
-static WKSyntheticClickType toWKSyntheticClickType(WebKit::WebMouseEvent::SyntheticClickType syntheticClickType)
+static WKSyntheticClickType toWKSyntheticClickType(WebKit::WebMouseEventSyntheticClickType syntheticClickType)
 {
     switch (syntheticClickType) {
-    case WebKit::WebMouseEvent::NoTap:
+    case WebKit::WebMouseEventSyntheticClickType::NoTap:
         return WKSyntheticClickTypeNoTap;
-    case WebKit::WebMouseEvent::OneFingerTap:
+    case WebKit::WebMouseEventSyntheticClickType::OneFingerTap:
         return WKSyntheticClickTypeOneFingerTap;
-    case WebKit::WebMouseEvent::TwoFingerTap:
+    case WebKit::WebMouseEventSyntheticClickType::TwoFingerTap:
         return WKSyntheticClickTypeTwoFingerTap;
     }
     ASSERT_NOT_REACHED();
@@ -79,6 +83,9 @@ static WKSyntheticClickType toWKSyntheticClickType(WebKit::WebMouseEvent::Synthe
 
 - (void)dealloc
 {
+    if (WebCoreObjCScheduleDeallocateOnMainRunLoop(WKNavigationAction.class, self))
+        return;
+
     _navigationAction->~NavigationAction();
 
     [super dealloc];
@@ -98,12 +105,12 @@ static WKSyntheticClickType toWKSyntheticClickType(WebKit::WebMouseEvent::Synthe
 
 - (WKFrameInfo *)sourceFrame
 {
-    return wrapper(_navigationAction->sourceFrame());
+    return wrapper(Ref { *_navigationAction }->sourceFrame());
 }
 
 - (WKFrameInfo *)targetFrame
 {
-    return wrapper(_navigationAction->targetFrame());
+    return wrapper(_navigationAction->protectedTargetFrame().get());
 }
 
 - (WKNavigationType)navigationType
@@ -114,6 +121,11 @@ static WKSyntheticClickType toWKSyntheticClickType(WebKit::WebMouseEvent::Synthe
 - (NSURLRequest *)request
 {
     return _navigationAction->request().nsURLRequest(WebCore::HTTPBodyUpdatePolicy::UpdateHTTPBody);
+}
+
+- (BOOL)shouldPerformDownload
+{
+    return _navigationAction->shouldPerformDownload();
 }
 
 #if PLATFORM(IOS_FAMILY)
@@ -144,7 +156,12 @@ static WKSyntheticClickType toWKSyntheticClickType(WebKit::WebMouseEvent::Synthe
 
 - (UIKeyModifierFlags)modifierFlags
 {
-    return WebIOSEventFactory::toUIKeyModifierFlags(_navigationAction->modifiers());
+    return WebKit::WebIOSEventFactory::toUIKeyModifierFlags(_navigationAction->modifiers());
+}
+
+- (UIEventButtonMask)buttonNumber
+{
+    return WebKit::WebIOSEventFactory::toUIEventButtonMask(_navigationAction->mouseButton());
 }
 
 #endif
@@ -162,7 +179,7 @@ static WKSyntheticClickType toWKSyntheticClickType(WebKit::WebMouseEvent::Synthe
 
 - (NSURL *)_originalURL
 {
-    return _navigationAction->originalURL();
+    return Ref { *_navigationAction }->originalURL();
 }
 
 - (BOOL)_isUserInitiated
@@ -197,7 +214,7 @@ static WKSyntheticClickType toWKSyntheticClickType(WebKit::WebMouseEvent::Synthe
 
 - (_WKUserInitiatedAction *)_userInitiatedAction
 {
-    return wrapper(_navigationAction->userInitiatedAction());
+    return wrapper(_navigationAction->protectedUserInitiatedAction().get());
 }
 
 - (BOOL)_isRedirect
@@ -207,7 +224,58 @@ static WKSyntheticClickType toWKSyntheticClickType(WebKit::WebMouseEvent::Synthe
 
 - (WKNavigation *)_mainFrameNavigation
 {
-    return wrapper(_navigationAction->mainFrameNavigation());
+    return wrapper(_navigationAction->protectedMainFrameNavigation().get());
+}
+
+
+- (void)_storeSKAdNetworkAttribution
+{
+    RefPtr mainFrameNavigation = _navigationAction->mainFrameNavigation();
+    if (!mainFrameNavigation)
+        return;
+    auto& privateClickMeasurement = mainFrameNavigation->privateClickMeasurement();
+    if (!privateClickMeasurement || !privateClickMeasurement->isSKAdNetworkAttribution())
+        return;
+    RefPtr sourceFrame = _navigationAction->sourceFrame();
+    if (!sourceFrame)
+        return;
+    RefPtr page = sourceFrame->page();
+    if (!page)
+        return;
+    page->protectedWebsiteDataStore()->storePrivateClickMeasurement(*privateClickMeasurement);
+}
+
+- (_WKHitTestResult *)_hitTestResult
+{
+#if PLATFORM(MAC) || HAVE(UIKIT_WITH_MOUSE_SUPPORT)
+    auto& webHitTestResultData = _navigationAction->webHitTestResultData();
+    if (!webHitTestResultData)
+        return nil;
+    RefPtr sourceFrame = _navigationAction->sourceFrame();
+    if (!sourceFrame)
+        return nil;
+    RefPtr page = sourceFrame->page();
+    if (!page)
+        return nil;
+
+    auto apiHitTestResult = API::HitTestResult::create(webHitTestResultData.value(), page.get());
+    return retainPtr(wrapper(apiHitTestResult)).autorelease();
+#else
+    return nil;
+#endif
+}
+
+- (NSString *)_targetFrameName
+{
+    auto& name = _navigationAction->targetFrameName();
+    if (name.isNull())
+        return nil;
+    return name;
+}
+
+- (BOOL)_hasOpener
+{
+    return _navigationAction->hasOpener();
 }
 
 @end

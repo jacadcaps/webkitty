@@ -14,29 +14,28 @@
 
 #include <string>
 
+#include "absl/memory/memory.h"
 #include "api/audio_codecs/builtin_audio_decoder_factory.h"
-#include "rtc_base/ref_counted_object.h"
+#include "api/environment/environment_factory.h"
 #include "test/gmock.h"
 #include "test/gtest.h"
 #include "test/mock_audio_decoder.h"
 #include "test/mock_audio_decoder_factory.h"
 
-using ::testing::_;
-using ::testing::Invoke;
-
 namespace webrtc {
 
+using ::testing::WithArg;
+
 TEST(DecoderDatabase, CreateAndDestroy) {
-  DecoderDatabase db(new rtc::RefCountedObject<MockAudioDecoderFactory>,
-                     absl::nullopt);
+  DecoderDatabase db(CreateEnvironment(),
+                     make_ref_counted<MockAudioDecoderFactory>(), std::nullopt);
   EXPECT_EQ(0, db.Size());
   EXPECT_TRUE(db.Empty());
 }
 
 TEST(DecoderDatabase, InsertAndRemove) {
-  rtc::scoped_refptr<MockAudioDecoderFactory> factory(
-      new rtc::RefCountedObject<MockAudioDecoderFactory>);
-  DecoderDatabase db(factory, absl::nullopt);
+  DecoderDatabase db(CreateEnvironment(),
+                     make_ref_counted<MockAudioDecoderFactory>(), std::nullopt);
   const uint8_t kPayloadType = 0;
   const std::string kCodecName = "Robert\'); DROP TABLE Students;";
   EXPECT_EQ(
@@ -50,9 +49,8 @@ TEST(DecoderDatabase, InsertAndRemove) {
 }
 
 TEST(DecoderDatabase, InsertAndRemoveAll) {
-  rtc::scoped_refptr<MockAudioDecoderFactory> factory(
-      new rtc::RefCountedObject<MockAudioDecoderFactory>);
-  DecoderDatabase db(factory, absl::nullopt);
+  DecoderDatabase db(CreateEnvironment(),
+                     make_ref_counted<MockAudioDecoderFactory>(), std::nullopt);
   const std::string kCodecName1 = "Robert\'); DROP TABLE Students;";
   const std::string kCodecName2 = "https://xkcd.com/327/";
   EXPECT_EQ(DecoderDatabase::kOK,
@@ -67,17 +65,14 @@ TEST(DecoderDatabase, InsertAndRemoveAll) {
 }
 
 TEST(DecoderDatabase, GetDecoderInfo) {
-  rtc::scoped_refptr<MockAudioDecoderFactory> factory(
-      new rtc::RefCountedObject<MockAudioDecoderFactory>);
+  auto factory = rtc::make_ref_counted<MockAudioDecoderFactory>();
   auto* decoder = new MockAudioDecoder;
-  EXPECT_CALL(*factory, MakeAudioDecoderMock(_, _, _))
-      .WillOnce(Invoke([decoder](const SdpAudioFormat& format,
-                                 absl::optional<AudioCodecPairId> codec_pair_id,
-                                 std::unique_ptr<AudioDecoder>* dec) {
+  EXPECT_CALL(*factory, Create)
+      .WillOnce(WithArg<1>([decoder](const SdpAudioFormat& format) {
         EXPECT_EQ("pcmu", format.name);
-        dec->reset(decoder);
+        return absl::WrapUnique(decoder);
       }));
-  DecoderDatabase db(factory, absl::nullopt);
+  DecoderDatabase db(CreateEnvironment(), std::move(factory), std::nullopt);
   const uint8_t kPayloadType = 0;
   const std::string kCodecName = "pcmu";
   EXPECT_EQ(
@@ -94,7 +89,8 @@ TEST(DecoderDatabase, GetDecoderInfo) {
 }
 
 TEST(DecoderDatabase, GetDecoder) {
-  DecoderDatabase db(CreateBuiltinAudioDecoderFactory(), absl::nullopt);
+  DecoderDatabase db(CreateEnvironment(), CreateBuiltinAudioDecoderFactory(),
+                     std::nullopt);
   const uint8_t kPayloadType = 0;
   EXPECT_EQ(DecoderDatabase::kOK,
             db.RegisterPayload(kPayloadType, SdpAudioFormat("l16", 8000, 1)));
@@ -103,9 +99,8 @@ TEST(DecoderDatabase, GetDecoder) {
 }
 
 TEST(DecoderDatabase, TypeTests) {
-  rtc::scoped_refptr<MockAudioDecoderFactory> factory(
-      new rtc::RefCountedObject<MockAudioDecoderFactory>);
-  DecoderDatabase db(factory, absl::nullopt);
+  DecoderDatabase db(CreateEnvironment(),
+                     make_ref_counted<MockAudioDecoderFactory>(), std::nullopt);
   const uint8_t kPayloadTypePcmU = 0;
   const uint8_t kPayloadTypeCng = 13;
   const uint8_t kPayloadTypeDtmf = 100;
@@ -131,8 +126,6 @@ TEST(DecoderDatabase, TypeTests) {
   EXPECT_FALSE(db.IsComfortNoise(kPayloadTypePcmU));
   EXPECT_FALSE(db.IsDtmf(kPayloadTypePcmU));
   EXPECT_FALSE(db.IsRed(kPayloadTypePcmU));
-  EXPECT_FALSE(db.IsType(kPayloadTypePcmU, "isac"));
-  EXPECT_TRUE(db.IsType(kPayloadTypePcmU, "pcmu"));
   EXPECT_TRUE(db.IsComfortNoise(kPayloadTypeCng));
   EXPECT_TRUE(db.IsDtmf(kPayloadTypeDtmf));
   EXPECT_TRUE(db.IsRed(kPayloadTypeRed));
@@ -140,9 +133,8 @@ TEST(DecoderDatabase, TypeTests) {
 
 TEST(DecoderDatabase, CheckPayloadTypes) {
   constexpr int kNumPayloads = 10;
-  rtc::scoped_refptr<MockAudioDecoderFactory> factory(
-      new rtc::RefCountedObject<MockAudioDecoderFactory>);
-  DecoderDatabase db(factory, absl::nullopt);
+  DecoderDatabase db(CreateEnvironment(),
+                     make_ref_counted<MockAudioDecoderFactory>(), std::nullopt);
   // Load a number of payloads into the database. Payload types are 0, 1, ...,
   // while the decoder type is the same for all payload types (this does not
   // matter for the test).
@@ -153,7 +145,7 @@ TEST(DecoderDatabase, CheckPayloadTypes) {
   }
   PacketList packet_list;
   for (int i = 0; i < kNumPayloads + 1; ++i) {
-    // Create packet with payload type |i|. The last packet will have a payload
+    // Create packet with payload type `i`. The last packet will have a payload
     // type that is not registered in the decoder database.
     Packet packet;
     packet.payload_type = i;
@@ -183,7 +175,8 @@ TEST(DecoderDatabase, CheckPayloadTypes) {
 
 // Test the methods for setting and getting active speech and CNG decoders.
 TEST(DecoderDatabase, IF_ISAC(ActiveDecoders)) {
-  DecoderDatabase db(CreateBuiltinAudioDecoderFactory(), absl::nullopt);
+  DecoderDatabase db(CreateEnvironment(), CreateBuiltinAudioDecoderFactory(),
+                     std::nullopt);
   // Load payload types.
   ASSERT_EQ(DecoderDatabase::kOK,
             db.RegisterPayload(0, SdpAudioFormat("pcmu", 8000, 1)));

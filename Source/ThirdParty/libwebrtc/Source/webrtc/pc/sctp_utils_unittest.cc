@@ -12,9 +12,16 @@
 
 #include <stdint.h>
 
+#include <limits>
+#include <optional>
+
+#include "api/priority.h"
+#include "media/sctp/sctp_transport_internal.h"
 #include "rtc_base/byte_buffer.h"
 #include "rtc_base/copy_on_write_buffer.h"
 #include "test/gtest.h"
+
+using webrtc::StreamId;
 
 class SctpUtilsTest : public ::testing::Test {
  public:
@@ -28,7 +35,7 @@ class SctpUtilsTest : public ::testing::Test {
     uint16_t label_length;
     uint16_t protocol_length;
 
-    rtc::ByteBufferReader buffer(packet.data<char>(), packet.size());
+    rtc::ByteBufferReader buffer(packet);
     ASSERT_TRUE(buffer.ReadUInt8(&message_type));
     EXPECT_EQ(0x03, message_type);
 
@@ -45,6 +52,14 @@ class SctpUtilsTest : public ::testing::Test {
     }
 
     ASSERT_TRUE(buffer.ReadUInt16(&priority));
+    if (config.priority) {
+      // Exact values are checked by round-trip conversion, but
+      // all values defined are greater than zero.
+      EXPECT_EQ(priority, config.priority->value());
+    } else {
+      EXPECT_EQ(priority,
+                webrtc::PriorityValue(webrtc::Priority::kLow).value());
+    }
 
     ASSERT_TRUE(buffer.ReadUInt32(&reliability));
     if (config.maxRetransmits || config.maxRetransmitTime) {
@@ -58,11 +73,11 @@ class SctpUtilsTest : public ::testing::Test {
     EXPECT_EQ(label.size(), label_length);
     EXPECT_EQ(config.protocol.size(), protocol_length);
 
-    std::string label_output;
-    ASSERT_TRUE(buffer.ReadString(&label_output, label_length));
+    absl::string_view label_output;
+    ASSERT_TRUE(buffer.ReadStringView(&label_output, label_length));
     EXPECT_EQ(label, label_output);
-    std::string protocol_output;
-    ASSERT_TRUE(buffer.ReadString(&protocol_output, protocol_length));
+    absl::string_view protocol_output;
+    ASSERT_TRUE(buffer.ReadStringView(&protocol_output, protocol_length));
     EXPECT_EQ(config.protocol, protocol_output);
   }
 };
@@ -136,12 +151,33 @@ TEST_F(SctpUtilsTest, WriteParseOpenMessageWithMaxRetransmits) {
   EXPECT_FALSE(output_config.maxRetransmitTime);
 }
 
+TEST_F(SctpUtilsTest, WriteParseOpenMessageWithPriority) {
+  webrtc::DataChannelInit config;
+  std::string label = "abc";
+  config.protocol = "y";
+  config.priority = webrtc::PriorityValue(webrtc::Priority::kVeryLow);
+
+  rtc::CopyOnWriteBuffer packet;
+  ASSERT_TRUE(webrtc::WriteDataChannelOpenMessage(label, config, &packet));
+
+  VerifyOpenMessageFormat(packet, label, config);
+
+  std::string output_label;
+  webrtc::DataChannelInit output_config;
+  ASSERT_TRUE(webrtc::ParseDataChannelOpenMessage(packet, &output_label,
+                                                  &output_config));
+
+  EXPECT_EQ(label, output_label);
+  ASSERT_TRUE(output_config.priority);
+  EXPECT_EQ(*config.priority, *output_config.priority);
+}
+
 TEST_F(SctpUtilsTest, WriteParseAckMessage) {
   rtc::CopyOnWriteBuffer packet;
   webrtc::WriteDataChannelOpenAckMessage(&packet);
 
   uint8_t message_type;
-  rtc::ByteBufferReader buffer(packet.data<char>(), packet.size());
+  rtc::ByteBufferReader buffer(packet);
   ASSERT_TRUE(buffer.ReadUInt8(&message_type));
   EXPECT_EQ(0x02, message_type);
 
@@ -150,17 +186,27 @@ TEST_F(SctpUtilsTest, WriteParseAckMessage) {
 
 TEST_F(SctpUtilsTest, TestIsOpenMessage) {
   rtc::CopyOnWriteBuffer open(1);
-  open[0] = 0x03;
+  open.MutableData()[0] = 0x03;
   EXPECT_TRUE(webrtc::IsOpenMessage(open));
 
   rtc::CopyOnWriteBuffer openAck(1);
-  openAck[0] = 0x02;
+  openAck.MutableData()[0] = 0x02;
   EXPECT_FALSE(webrtc::IsOpenMessage(openAck));
 
   rtc::CopyOnWriteBuffer invalid(1);
-  invalid[0] = 0x01;
+  invalid.MutableData()[0] = 0x01;
   EXPECT_FALSE(webrtc::IsOpenMessage(invalid));
 
   rtc::CopyOnWriteBuffer empty;
   EXPECT_FALSE(webrtc::IsOpenMessage(empty));
+}
+
+TEST(SctpSidTest, Basics) {
+  // These static asserts are mostly here to aid with readability (i.e. knowing
+  // what these constants represent).
+  static_assert(cricket::kMinSctpSid == 0, "Min stream id should be 0");
+  static_assert(cricket::kMaxSctpSid <= cricket::kSpecMaxSctpSid, "");
+  static_assert(
+      cricket::kSpecMaxSctpSid == std::numeric_limits<uint16_t>::max(),
+      "Max legal sctp stream value should be 0xffff");
 }

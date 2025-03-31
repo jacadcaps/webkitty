@@ -40,10 +40,15 @@
 #include "config.h"
 #include "JPEGImageDecoder.h"
 
-extern "C" {
-#if USE(ICCJPEG)
-#include <iccjpeg.h>
+#include <wtf/TZoneMallocInlines.h>
+#include <wtf/StdLibExtras.h>
+#include <wtf/text/ParsingUtilities.h>
+
+#if USE(LCMS)
+#include "LCMSUniquePtr.h"
 #endif
+
+extern "C" {
 #include <setjmp.h>
 }
 
@@ -75,7 +80,12 @@ inline bool doFancyUpsampling() { return false; }
 inline bool doFancyUpsampling() { return true; }
 #endif
 
-const int exifMarker = JPEG_APP0 + 1;
+static const int exifMarker = JPEG_APP0 + 1;
+
+#if USE(LCMS)
+static const int iccMarker = JPEG_APP0 + 2;
+static const unsigned iccHeaderSize = 14;
+#endif
 
 namespace WebCore {
 
@@ -107,14 +117,14 @@ struct decoder_source_mgr {
     JPEGImageReader* decoder;
 };
 
-static unsigned readUint16(JOCTET* data, bool isBigEndian)
+static unsigned readUint16(std::span<JOCTET> data, bool isBigEndian)
 {
     if (isBigEndian)
         return (GETJOCTET(data[0]) << 8) | GETJOCTET(data[1]);
     return (GETJOCTET(data[1]) << 8) | GETJOCTET(data[0]);
 }
 
-static unsigned readUint32(JOCTET* data, bool isBigEndian)
+static unsigned readUint32(std::span<JOCTET> data, bool isBigEndian)
 {
     if (isBigEndian)
         return (GETJOCTET(data[0]) << 24) | (GETJOCTET(data[1]) << 16) | (GETJOCTET(data[2]) << 8) | GETJOCTET(data[3]);
@@ -129,24 +139,25 @@ static bool checkExifHeader(jpeg_saved_marker_ptr marker, bool& isBigEndian, uns
     // 'M', 'M' (motorola / big endian byte order), followed by (uint16_t)42,
     // followed by an uint32_t with the offset to the tag block, relative to the
     // tiff file start.
-    const unsigned exifHeaderSize = 14;
+    constexpr unsigned exifHeaderSize = 14;
+    auto markerData = unsafeMakeSpan(marker->data, marker->data_length);
     if (!(marker->marker == exifMarker
-        && marker->data_length >= exifHeaderSize
-        && marker->data[0] == 'E'
-        && marker->data[1] == 'x'
-        && marker->data[2] == 'i'
-        && marker->data[3] == 'f'
-        && marker->data[4] == '\0'
+        && markerData.size() >= exifHeaderSize
+        && markerData[0] == 'E'
+        && markerData[1] == 'x'
+        && markerData[2] == 'i'
+        && markerData[3] == 'f'
+        && markerData[4] == '\0'
         // data[5] is a fill byte
-        && ((marker->data[6] == 'I' && marker->data[7] == 'I')
-            || (marker->data[6] == 'M' && marker->data[7] == 'M'))))
+        && ((markerData[6] == 'I' && markerData[7] == 'I')
+            || (markerData[6] == 'M' && markerData[7] == 'M'))))
         return false;
 
-    isBigEndian = marker->data[6] == 'M';
-    if (readUint16(marker->data + 8, isBigEndian) != 42)
+    isBigEndian = markerData[6] == 'M';
+    if (readUint16(markerData.subspan(8), isBigEndian) != 42)
         return false;
 
-    ifdOffset = readUint32(marker->data + 10, isBigEndian);
+    ifdOffset = readUint32(markerData.subspan(10), isBigEndian);
     return true;
 }
 
@@ -171,31 +182,83 @@ static ImageOrientation readImageOrientation(jpeg_decompress_struct* info)
         // the number of ifd entries, followed by that many entries.
         // When touching this code, it's useful to look at the tiff spec:
         // http://partners.adobe.com/public/developer/en/tiff/TIFF6.pdf
-        JOCTET* ifd = marker->data + ifdOffset;
-        JOCTET* end = marker->data + marker->data_length;
-        if (end - ifd < 2)
+        auto markerData = unsafeMakeSpan(marker->data, marker->data_length).subspan(ifdOffset);
+        if (markerData.size() < 2)
             continue;
-        unsigned tagCount = readUint16(ifd, isBigEndian);
-        ifd += 2; // Skip over the uint16 that was just read.
+        unsigned tagCount = readUint16(markerData, isBigEndian);
+        skip(markerData, 2); // Skip over the uint16 that was just read.
 
         // Every ifd entry is 2 bytes of tag, 2 bytes of contents datatype,
         // 4 bytes of number-of-elements, and 4 bytes of either offset to the
         // tag data, or if the data is small enough, the inlined data itself.
-        const int ifdEntrySize = 12;
-        for (unsigned i = 0; i < tagCount && end - ifd >= ifdEntrySize; ++i, ifd += ifdEntrySize) {
-            unsigned tag = readUint16(ifd, isBigEndian);
-            unsigned type = readUint16(ifd + 2, isBigEndian);
-            unsigned count = readUint32(ifd + 4, isBigEndian);
+        constexpr int ifdEntrySize = 12;
+        for (unsigned i = 0; i < tagCount && markerData.size() >= ifdEntrySize; ++i, skip(markerData, ifdEntrySize)) {
+            unsigned tag = readUint16(markerData, isBigEndian);
+            unsigned type = readUint16(markerData.subspan(2), isBigEndian);
+            unsigned count = readUint32(markerData.subspan(4), isBigEndian);
             if (tag == orientationTag && type == shortType && count == 1)
-                return ImageOrientation::fromEXIFValue(readUint16(ifd + 8, isBigEndian));
+                return ImageOrientation::fromEXIFValue(readUint16(markerData.subspan(8), isBigEndian));
         }
     }
 
-    return ImageOrientation::None;
+    return ImageOrientation::Orientation::None;
 }
 
+#if USE(LCMS)
+static bool isICCMarker(jpeg_saved_marker_ptr marker)
+{
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // non-Apple ports
+    return marker->marker == iccMarker
+        && marker->data_length >= iccHeaderSize
+        && marker->data[0] == 'I'
+        && marker->data[1] == 'C'
+        && marker->data[2] == 'C'
+        && marker->data[3] == '_'
+        && marker->data[4] == 'P'
+        && marker->data[5] == 'R'
+        && marker->data[6] == 'O'
+        && marker->data[7] == 'F'
+        && marker->data[8] == 'I'
+        && marker->data[9] == 'L'
+        && marker->data[10] == 'E'
+        && marker->data[11] == '\0';
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+}
+
+static RefPtr<SharedBuffer> readICCProfile(jpeg_decompress_struct* info)
+{
+    SharedBufferBuilder buffer;
+    for (jpeg_saved_marker_ptr marker = info->marker_list; marker; marker = marker->next) {
+        if (!isICCMarker(marker))
+            continue;
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // non-Apple ports
+        unsigned sequenceNumber = marker->data[12];
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+        if (!sequenceNumber)
+            return nullptr;
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // non-Apple ports
+        unsigned markerCount = marker->data[13];
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+        if (sequenceNumber > markerCount)
+            return nullptr;
+
+        unsigned markerSize = marker->data_length - iccHeaderSize;
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // non-Apple ports
+        buffer.append(unsafeMakeSpan(reinterpret_cast<const uint8_t*>(marker->data + iccHeaderSize), markerSize));
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+    }
+
+    if (buffer.isEmpty())
+        return nullptr;
+
+    return buffer.takeAsContiguous();
+}
+#endif
+
 class JPEGImageReader {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(JPEGImageReader);
 public:
     JPEGImageReader(JPEGImageDecoder* decoder)
         : m_decoder(decoder)
@@ -204,7 +267,7 @@ public:
         , m_state(JPEG_HEADER)
         , m_samples(0)
     {
-        memset(&m_info, 0, sizeof(jpeg_decompress_struct));
+        zeroBytes(m_info);
 
         // We set up the normal JPEG error routines, then override error_exit.
         m_info.err = jpeg_std_error(&m_err.pub);
@@ -232,13 +295,15 @@ public:
         src->pub.term_source = term_source;
         src->decoder = this;
 
-#if USE(ICCJPEG)
-        // Retain ICC color profile markers for color management.
-        setup_read_icc_profile(&m_info);
-#endif
-
         // Keep APP1 blocks, for obtaining exif data.
         jpeg_save_markers(&m_info, exifMarker, 0xFFFF);
+
+#if USE(LCMS)
+        if (!m_decoder->ignoresGammaAndColorProfile()) {
+            // Keep APP2 blocks, for obtaining ICC profile data.
+            jpeg_save_markers(&m_info, iccMarker, 0xFFFF);
+        }
+#endif
     }
 
     ~JPEGImageReader()
@@ -258,15 +323,17 @@ public:
 
     void skipBytes(long numBytes)
     {
+        WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
         decoder_source_mgr* src = (decoder_source_mgr*)m_info.src;
         long bytesToSkip = std::min(numBytes, (long)src->pub.bytes_in_buffer);
         src->pub.bytes_in_buffer -= (size_t)bytesToSkip;
         src->pub.next_input_byte += bytesToSkip;
+        WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
         m_bytesToSkip = std::max(numBytes - bytesToSkip, static_cast<long>(0));
     }
 
-    bool decode(const SharedBuffer::DataSegment& data, bool onlySize)
+    bool decode(const SharedBuffer& data, bool onlySize)
     {
         m_decodingSizeOnly = onlySize;
 
@@ -274,7 +341,7 @@ public:
         unsigned readOffset = m_bufferLength - m_info.src->bytes_in_buffer;
 
         m_info.src->bytes_in_buffer += newByteCount;
-        m_info.src->next_input_byte = (JOCTET*)(data.data()) + readOffset;
+        m_info.src->next_input_byte = (JOCTET*)data.span().subspan(readOffset).data();
 
         // If we still have bytes to skip, try to skip those now.
         if (m_bytesToSkip)
@@ -316,6 +383,10 @@ public:
                 return false;
 
             m_decoder->setOrientation(readImageOrientation(info()));
+#if USE(LCMS)
+            if (!m_decoder->ignoresGammaAndColorProfile() && m_info.out_color_space == rgbOutputColorSpace())
+                m_decoder->setICCProfile(readICCProfile(&m_info));
+#endif
 
             // Don't allocate a giant and superfluous memory buffer when the
             // image is a sequential JPEG.
@@ -338,7 +409,7 @@ public:
                 m_info.src->bytes_in_buffer = 0;
                 return true;
             }
-        // FALL THROUGH
+            FALLTHROUGH;
 
         case JPEG_START_DECOMPRESS:
             // Set parameters for decompression.
@@ -356,7 +427,7 @@ public:
 
             // If this is a progressive JPEG ...
             m_state = (m_info.buffered_image) ? JPEG_DECOMPRESS_PROGRESSIVE : JPEG_DECOMPRESS_SEQUENTIAL;
-        // FALL THROUGH
+            FALLTHROUGH;
 
         case JPEG_DECOMPRESS_SEQUENTIAL:
             if (m_state == JPEG_DECOMPRESS_SEQUENTIAL) {
@@ -368,7 +439,7 @@ public:
                 ASSERT(m_info.output_scanline == m_info.output_height);
                 m_state = JPEG_DONE;
             }
-        // FALL THROUGH
+            FALLTHROUGH;
 
         case JPEG_DECOMPRESS_PROGRESSIVE:
             if (m_state == JPEG_DECOMPRESS_PROGRESSIVE) {
@@ -422,7 +493,7 @@ public:
 
                 m_state = JPEG_DONE;
             }
-        // FALL THROUGH
+            FALLTHROUGH;
 
         case JPEG_DONE:
             // Finish decompression.
@@ -490,7 +561,10 @@ JPEGImageDecoder::JPEGImageDecoder(AlphaOption alphaOption, GammaAndColorProfile
 {
 }
 
-JPEGImageDecoder::~JPEGImageDecoder() = default;
+JPEGImageDecoder::~JPEGImageDecoder()
+{
+    clear();
+}
 
 ScalableImageDecoderFrame* JPEGImageDecoder::frameBufferAtIndex(size_t index)
 {
@@ -506,20 +580,30 @@ ScalableImageDecoderFrame* JPEGImageDecoder::frameBufferAtIndex(size_t index)
     return &frame;
 }
 
-bool JPEGImageDecoder::setFailed()
+void JPEGImageDecoder::clear()
 {
     m_reader = nullptr;
+#if USE(LCMS)
+    m_iccTransform.reset();
+#endif
+}
+
+bool JPEGImageDecoder::setFailed()
+{
+    clear();
     return ScalableImageDecoder::setFailed();
 }
 
 template <J_COLOR_SPACE colorSpace>
-void setPixel(ScalableImageDecoderFrame& buffer, uint32_t* currentAddress, JSAMPARRAY samples, int column)
+void setPixel(ScalableImageDecoderFrame& buffer, std::span<uint32_t> currentAddress, JSAMPARRAY samples, int column)
 {
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
     JSAMPLE* jsample = *samples + column * (colorSpace == JCS_RGB ? 3 : 4);
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
     switch (colorSpace) {
     case JCS_RGB:
-        buffer.backingStore()->setPixel(currentAddress, jsample[0], jsample[1], jsample[2], 0xFF);
+        buffer.backingStore()->setPixel(currentAddress[0], jsample[0], jsample[1], jsample[2], 0xFF);
         break;
     case JCS_CMYK:
         // Source is 'Inverted CMYK', output is RGB.
@@ -532,7 +616,7 @@ void setPixel(ScalableImageDecoderFrame& buffer, uint32_t* currentAddress, JSAMP
         // From CMY (0..1) to RGB (0..1):
         // R = 1 - C => 1 - (1 - iC*iK) => iC*iK  [G and B similar]
         unsigned k = jsample[3];
-        buffer.backingStore()->setPixel(currentAddress, jsample[0] * k / 255, jsample[1] * k / 255, jsample[2] * k / 255, 0xFF);
+        buffer.backingStore()->setPixel(currentAddress[0], jsample[0] * k / 255, jsample[1] * k / 255, jsample[2] * k / 255, 0xFF);
         break;
     }
 }
@@ -552,11 +636,17 @@ bool JPEGImageDecoder::outputScanlines(ScalableImageDecoderFrame& buffer)
         if (jpeg_read_scanlines(info, samples, 1) != 1)
             return false;
 
-        auto* currentAddress = buffer.backingStore()->pixelAt(0, sourceY);
+        auto row = buffer.backingStore()->pixelsStartingAt(0, sourceY);
+        auto currentAddress = row;
         for (int x = 0; x < width; ++x) {
             setPixel<colorSpace>(buffer, currentAddress, samples, x);
-            ++currentAddress;
+            skip(currentAddress, 1);
         }
+
+#if USE(LCMS)
+        if (m_iccTransform)
+            cmsDoTransform(m_iccTransform.get(), row.data(), row.data(), info->output_width);
+#endif
     }
     return true;
 }
@@ -582,9 +672,14 @@ bool JPEGImageDecoder::outputScanlines()
 #if defined(TURBO_JPEG_RGB_SWIZZLE)
     if (turboSwizzled(info->out_color_space)) {
         while (info->output_scanline < info->output_height) {
-            unsigned char* row = reinterpret_cast<unsigned char*>(buffer.backingStore()->pixelAt(0, info->output_scanline));
+            auto* row = reinterpret_cast<unsigned char*>(buffer.backingStore()->pixelsStartingAt(0, info->output_scanline).data());
             if (jpeg_read_scanlines(info, &row, 1) != 1)
                 return false;
+
+#if USE(LCMS)
+            if (m_iccTransform)
+                cmsDoTransform(m_iccTransform.get(), row, row, info->output_width);
+#endif
          }
          return true;
      }
@@ -623,8 +718,10 @@ void JPEGImageDecoder::decode(bool onlySize, bool allDataReceived)
     if (failed())
         return;
 
-    if (!m_reader)
+    if (!m_reader) {
+        clear();
         m_reader = makeUnique<JPEGImageReader>(this);
+    }
 
     // If we couldn't decode the image but we've received all the data, decoding
     // has failed.
@@ -633,7 +730,23 @@ void JPEGImageDecoder::decode(bool onlySize, bool allDataReceived)
     // If we're done decoding the image, we don't need the JPEGImageReader
     // anymore.  (If we failed, |m_reader| has already been cleared.)
     else if (!m_frameBufferCache.isEmpty() && (m_frameBufferCache[0].isComplete()))
-        m_reader = nullptr;
+        clear();
 }
+
+#if USE(LCMS)
+void JPEGImageDecoder::setICCProfile(RefPtr<SharedBuffer>&& buffer)
+{
+    if (!buffer)
+        return;
+
+    auto span = buffer->span();
+    auto iccProfile = LCMSProfilePtr(cmsOpenProfileFromMem(span.data(), span.size()));
+    if (!iccProfile || cmsGetColorSpace(iccProfile.get()) != cmsSigRgbData)
+        return;
+
+    auto srgbProfile = LCMSProfilePtr(cmsCreate_sRGBProfile());
+    m_iccTransform = LCMSTransformPtr(cmsCreateTransform(iccProfile.get(), TYPE_BGRA_8, srgbProfile.get(), TYPE_BGRA_8, INTENT_RELATIVE_COLORIMETRIC, 0));
+}
+#endif
 
 }

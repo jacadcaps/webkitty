@@ -28,58 +28,46 @@
 
 #if ENABLE(WEBXR)
 
-#include "HTMLCanvasElement.h"
-#include "WebXRWebGLLayer.h"
 #include "XRRenderStateInit.h"
-#include <wtf/IsoMallocInlines.h>
 #include <wtf/MathExtras.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(WebXRRenderState);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(WebXRRenderState);
 
 Ref<WebXRRenderState> WebXRRenderState::create(XRSessionMode mode)
 {
     // https://immersive-web.github.io/webxr/#initialize-the-render-state
     // depthNear, depthFar and baseLayer are initialized in the class definition
-    return adoptRef(*new WebXRRenderState(mode == XRSessionMode::Inline ? makeOptional(piOverTwoDouble) : WTF::nullopt));
+    return adoptRef(*new WebXRRenderState(mode == XRSessionMode::Inline ? std::make_optional(piOverTwoDouble) : std::nullopt));
 }
 
-WebXRRenderState::WebXRRenderState(Optional<double>&& inlineVerticalFieldOfView)
-    : m_inlineVerticalFieldOfView(WTFMove(inlineVerticalFieldOfView))
-{
-}
-
-WebXRRenderState::WebXRRenderState(const XRRenderStateInit&)
+WebXRRenderState::WebXRRenderState(std::optional<double> inlineVerticalFieldOfView)
+    : m_inlineVerticalFieldOfView(inlineVerticalFieldOfView)
 {
 }
 
 WebXRRenderState::~WebXRRenderState() = default;
 
-double WebXRRenderState::depthNear() const
+Ref<WebXRRenderState> WebXRRenderState::clone() const
 {
-    return m_depth.near;
+    return adoptRef(*new WebXRRenderState(*this));
 }
 
-double WebXRRenderState::depthFar() const
+WebXRRenderState::WebXRRenderState(const WebXRRenderState& other)
+    : m_depth(other.m_depth)
+    , m_inlineVerticalFieldOfView(other.m_inlineVerticalFieldOfView)
+    , m_baseLayer(other.baseLayer())
 {
-    return m_depth.far;
 }
 
-Optional<double> WebXRRenderState::inlineVerticalFieldOfView() const
+#if ENABLE(WEBXR_LAYERS)
+void WebXRRenderState::setLayers(const Vector<Ref<WebXRLayer>>& layers)
 {
-    return m_inlineVerticalFieldOfView;
+    m_layers = layers;
 }
-
-RefPtr<WebXRWebGLLayer> WebXRRenderState::baseLayer() const
-{
-    return m_baseLayer;
-}
-
-HTMLCanvasElement* WebXRRenderState::outputCanvas() const
-{
-    return m_outputCanvas.get();
-}
+#endif
 
 } // namespace WebCore
 

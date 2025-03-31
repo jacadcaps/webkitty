@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010, Google Inc. All rights reserved.
+ * Copyright (C) 2010-2016 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,38 +29,65 @@
 #include "DelayDSPKernel.h"
 
 #include "AudioUtilities.h"
+#include "VectorMath.h"
 #include <algorithm>
+#include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-const float SmoothingTimeConstant = 0.020f; // 20ms
+WTF_MAKE_TZONE_ALLOCATED_IMPL(DelayDSPKernel);
+
+static size_t bufferLengthForDelay(double maxDelayTime, double sampleRate)
+{
+    // Compute the length of the buffer needed to handle a max delay of |maxDelayTime|. Add an additional render quantum frame size so we can
+    // vectorize the delay processing. The extra space is needed so that writes to the buffer won't overlap reads from the buffer.
+    return AudioUtilities::renderQuantumSize + AudioUtilities::timeToSampleFrame(maxDelayTime, sampleRate, AudioUtilities::SampleFrameRounding::Up);
+}
+
+// Returns (a - b) if a is greater than b, 0 otherwise.
+template<typename T> static inline size_t positiveSubtract(T a, T b)
+{
+    return a <= b ? 0 : static_cast<size_t>(a - b);
+}
+
+static void copyToCircularBuffer(std::span<float> buffer, size_t writeIndex, std::span<const float> source)
+{
+    // The algorithm below depends on this being true because we don't expect to have to fill the entire buffer more than once.
+    RELEASE_ASSERT(buffer.size() >= source.size());
+
+    // Copy |source.size()| values from |source| to the circular buffer that starts at |buffer| of length |buffer.size()|. The
+    // copy starts at index |writeIndex| into the buffer.
+    auto writePointer = buffer.subspan(writeIndex);
+    size_t remainder = positiveSubtract(buffer.size(), writeIndex);
+
+    // Copy the frames over, carefully handling the case where we need to wrap around to the beginning of the buffer.
+    memcpySpan(writePointer, source.first(std::min(source.size(), remainder)));
+    if (auto remainingLength = positiveSubtract(source.size(), remainder))
+        memcpySpan(buffer, source.subspan(remainder, remainingLength));
+}
 
 DelayDSPKernel::DelayDSPKernel(DelayProcessor* processor)
     : AudioDSPKernel(processor)
-    , m_writeIndex(0)
-    , m_firstTime(true)
-    , m_delayTimes(AudioNode::ProcessingSizeInFrames)
+    , m_delayTimes(AudioUtilities::renderQuantumSize)
+    , m_tempBuffer(AudioUtilities::renderQuantumSize)
 {
     ASSERT(processor && processor->sampleRate() > 0);
     if (!(processor && processor->sampleRate() > 0))
         return;
 
     m_maxDelayTime = processor->maxDelayTime();
-    ASSERT(m_maxDelayTime >= 0);
-    if (m_maxDelayTime < 0)
+    ASSERT(m_maxDelayTime >= 0 && !std::isnan(m_maxDelayTime));
+    if (m_maxDelayTime < 0 || std::isnan(m_maxDelayTime))
         return;
 
-    m_buffer.allocate(bufferLengthForDelay(m_maxDelayTime, processor->sampleRate()));
-    m_buffer.zero();
-
-    m_smoothingRate = AudioUtilities::discreteTimeConstantForSampleRate(SmoothingTimeConstant, processor->sampleRate());
+    m_buffer.resize(bufferLengthForDelay(m_maxDelayTime, processor->sampleRate()));
 }
 
 DelayDSPKernel::DelayDSPKernel(double maxDelayTime, float sampleRate)
     : AudioDSPKernel(sampleRate)
     , m_maxDelayTime(maxDelayTime)
-    , m_writeIndex(0)
-    , m_firstTime(true)
+    , m_tempBuffer(AudioUtilities::renderQuantumSize)
 {
     ASSERT(maxDelayTime > 0.0);
     if (maxDelayTime <= 0.0)
@@ -71,92 +98,132 @@ DelayDSPKernel::DelayDSPKernel(double maxDelayTime, float sampleRate)
     if (!bufferLength)
         return;
 
-    m_buffer.allocate(bufferLength);
-    m_buffer.zero();
-
-    m_smoothingRate = AudioUtilities::discreteTimeConstantForSampleRate(SmoothingTimeConstant, sampleRate);
+    m_buffer.resize(bufferLength);
 }
 
-size_t DelayDSPKernel::bufferLengthForDelay(double maxDelayTime, double sampleRate) const
+void DelayDSPKernel::process(std::span<const float> source, std::span<float> destination)
 {
-    // Compute the length of the buffer needed to handle a max delay of |maxDelayTime|. One is
-    // added to handle the case where the actual delay equals the maximum delay.
-    return 1 + AudioUtilities::timeToSampleFrame(maxDelayTime, sampleRate);
-}
-
-void DelayDSPKernel::process(const float* source, float* destination, size_t framesToProcess)
-{
-    size_t bufferLength = m_buffer.size();
-    float* buffer = m_buffer.data();
-
-    ASSERT(bufferLength);
-    if (!bufferLength)
+    ASSERT(m_buffer.size());
+    ASSERT(source.data() && destination.data());
+    if (UNLIKELY(m_buffer.isEmpty() || !source.data() || !destination.data()))
         return;
-
-    ASSERT(source && destination);
-    if (!source || !destination)
-        return;
-
-    float sampleRate = this->sampleRate();
-    double delayTime = 0;
-    float* delayTimes = m_delayTimes.data();
-    double maxTime = maxDelayTime();
 
     bool sampleAccurate = delayProcessor() && delayProcessor()->delayTime().hasSampleAccurateValues();
+    bool shouldUseARate = delayProcessor() && delayProcessor()->delayTime().automationRate() == AutomationRate::ARate;
+    if (sampleAccurate && shouldUseARate)
+        processARate(source, destination);
+    else
+        processKRate(source, destination);
+}
 
-    if (sampleAccurate)
-        delayProcessor()->delayTime().calculateSampleAccurateValues(delayTimes, framesToProcess);
-    else {
-        delayTime = delayProcessor() ? delayProcessor()->delayTime().finalValue() : m_desiredDelayFrames / sampleRate;
+void DelayDSPKernel::processARate(std::span<const float> source, std::span<float> destination)
+{
+    size_t bufferLength = m_buffer.size();
+    auto buffer = m_buffer.span();
 
-        // Make sure the delay time is in a valid range.
-        delayTime = std::min(maxTime, delayTime);
-        delayTime = std::max(0.0, delayTime);
+    delayProcessor()->delayTime().calculateSampleAccurateValues(m_delayTimes.span().first(source.size()));
 
-        if (m_firstTime) {
-            m_currentDelayTime = delayTime;
-            m_firstTime = false;
-        }
-    }
+    copyToCircularBuffer(buffer, m_writeIndex, source);
 
-    for (unsigned i = 0; i < framesToProcess; ++i) {
-        if (sampleAccurate) {
-            delayTime = delayTimes[i];
-            delayTime = std::min(maxTime, delayTime);
-            delayTime = std::max(0.0, delayTime);
-            m_currentDelayTime = delayTime;
-        } else {
-            // Approach desired delay time.
-            m_currentDelayTime += (delayTime - m_currentDelayTime) * m_smoothingRate;
-        }
+    for (size_t i = 0; i < source.size(); ++i) {
+        double delayTime = m_delayTimes[i];
+        if (std::isnan(delayTime))
+            delayTime = maxDelayTime();
+        else
+            delayTime = std::clamp<double>(delayTime, 0.0, maxDelayTime());
 
-        double desiredDelayFrames = m_currentDelayTime * sampleRate;
+        double desiredDelayFrames = delayTime * sampleRate();
 
         double readPosition = m_writeIndex + bufferLength - desiredDelayFrames;
         if (readPosition >= bufferLength)
             readPosition -= bufferLength;
 
         // Linearly interpolate in-between delay times.
-        int readIndex1 = static_cast<int>(readPosition);
-        int readIndex2 = (readIndex1 + 1) % bufferLength;
-        double interpolationFactor = readPosition - readIndex1;
+        size_t readIndex1 = static_cast<size_t>(readPosition);
+        size_t readIndex2 = (readIndex1 + 1) % bufferLength;
+        float interpolationFactor = readPosition - readIndex1;
 
-        double input = static_cast<float>(*source++);
-        buffer[m_writeIndex] = static_cast<float>(input);
         m_writeIndex = (m_writeIndex + 1) % bufferLength;
 
-        double sample1 = buffer[readIndex1];
-        double sample2 = buffer[readIndex2];
-
-        double output = (1.0 - interpolationFactor) * sample1 + interpolationFactor * sample2;
-
-        *destination++ = static_cast<float>(output);
+        float sample1 = buffer[readIndex1];
+        float sample2 = buffer[readIndex2];
+        destination[i] = sample1 + interpolationFactor * (sample2 - sample1);
     }
+}
+
+// Optimized version of processARate() when the delayTime is constant.
+void DelayDSPKernel::processKRate(std::span<const float> source, std::span<float> destination)
+{
+    size_t bufferLength = m_buffer.size();
+    auto buffer = m_buffer.span();
+
+    double delayTime = delayProcessor() ? delayProcessor()->delayTime().finalValue() : m_desiredDelayFrames / sampleRate();
+    // Make sure the delay time is in a valid range.
+    delayTime = std::clamp(delayTime, 0.0, maxDelayTime());
+    double desiredDelayFrames = delayTime * sampleRate();
+
+    double readPosition = m_writeIndex + bufferLength - desiredDelayFrames;
+    if (readPosition >= bufferLength)
+        readPosition -= bufferLength;
+
+    // Linearly interpolate in-between delay times. |readIndex1| and |readIndex2| are the indices of the frames to be used
+    // for interpolation.
+    size_t readIndex1 = static_cast<size_t>(readPosition);
+    float interpolationFactor = readPosition - readIndex1;
+    auto* bufferEnd = std::to_address(buffer.end());
+    ASSERT(static_cast<unsigned>(bufferLength) >= source.size());
+
+    // sample1 and sample2 hold the current and next samples in the buffer. These are used for interoplating the delay value.
+    // To reduce memory usage and an extra memcpy, sample1 can be the same as destination.
+    // VectorMath::interpolate() below has an optimization in the case where the input buffer is the same as the output one.
+    auto sample1 = destination;
+
+    // Copy data from the source into the buffer, starting at the write index. The buffer is circular, so carefully handle
+    // the wrapping of the write pointer.
+    copyToCircularBuffer(buffer, m_writeIndex, source);
+    m_writeIndex = (m_writeIndex + source.size()) % bufferLength;
+
+    // Now copy out the samples from the buffer, starting at the read pointer, carefully handling wrapping of the read pointer.
+    auto readPointer = buffer.subspan(readIndex1);
+
+    size_t remainder = positiveSubtract(bufferEnd, readPointer.data());
+    memcpySpan(sample1, readPointer.first(std::min(source.size(), remainder)));
+    if (auto remainingLength = positiveSubtract(source.size(), remainder))
+        memcpySpan(sample1.subspan(remainder), buffer.first(remainingLength));
+
+    // If interpolationFactor is 0, we don't need to do any interpolation and sample1 contains the desired values.
+    if (!interpolationFactor)
+        return;
+
+    ASSERT(source.size() <= m_tempBuffer.size());
+
+    size_t readIndex2 = (readIndex1 + 1) % bufferLength;
+    auto sample2 = m_tempBuffer.span();
+
+    readPointer = buffer.subspan(readIndex2);
+    remainder = positiveSubtract(bufferEnd, readPointer.data());
+    memcpySpan(sample2, readPointer.first(std::min(source.size(), remainder)));
+    if (auto remainingLength = positiveSubtract(source.size(), remainder))
+        memcpySpan(sample2.subspan(remainder), buffer.first(remainingLength));
+
+    // Interpolate samples.
+    // destination[k] = sample1[k] + interpolationFactor * (sample2[k] - sample1[k]);
+    VectorMath::interpolate(sample1.first(source.size()), sample2.first(source.size()), interpolationFactor, destination);
+}
+
+void DelayDSPKernel::processOnlyAudioParams(size_t framesToProcess)
+{
+    if (!delayProcessor())
+        return;
+
+    std::array<float, AudioUtilities::renderQuantumSize> values;
+    ASSERT(framesToProcess <= AudioUtilities::renderQuantumSize);
+
+    delayProcessor()->delayTime().calculateSampleAccurateValues(std::span { values }.first(framesToProcess));
 }
 
 void DelayDSPKernel::reset()
 {
-    m_firstTime = true;
     m_buffer.zero();
 }
 
@@ -168,6 +235,16 @@ double DelayDSPKernel::tailTime() const
 double DelayDSPKernel::latencyTime() const
 {
     return 0;
+}
+
+bool DelayDSPKernel::requiresTailProcessing() const
+{
+    // Always return true even if the tail time and latency might both
+    // be zero. This is for simplicity; most interesting delay nodes
+    // have non-zero delay times anyway. And it's ok to return true. It
+    // just means the node lives a little longer than strictly
+    // necessary.
+    return true;
 }
 
 } // namespace WebCore

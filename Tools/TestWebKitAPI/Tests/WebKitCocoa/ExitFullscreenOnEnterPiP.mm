@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,6 +27,7 @@
 
 #if !PLATFORM(IOS_FAMILY_SIMULATOR) && ENABLE(FULLSCREEN_API)
 
+#import "DeprecatedGlobalValues.h"
 #import "PlatformUtilities.h"
 #import "Test.h"
 #import "TestWKWebView.h"
@@ -36,8 +37,6 @@
 #import <wtf/RetainPtr.h>
 #import <wtf/Seconds.h>
 
-static bool didEnterPiP;
-static bool didExitPiP;
 static bool didEnterFullscreen;
 static bool didExitFullscreen;
 
@@ -67,10 +66,15 @@ static bool didExitFullscreen;
 
 namespace TestWebKitAPI {
 
+// FIXME: Re-enable this test once webkit.org/b/248093 is resolved.
+#if !defined(NDEBUG)
+TEST(ExitFullscreenOnEnterPiP, DISABLED_VideoFullscreen)
+#else
 TEST(ExitFullscreenOnEnterPiP, VideoFullscreen)
+#endif
 {
     RetainPtr<WKWebViewConfiguration> configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
-    [configuration preferences]._fullScreenEnabled = YES;
+    [configuration preferences].elementFullscreenEnabled = YES;
     [configuration preferences]._allowsPictureInPictureMediaPlayback = YES;
     RetainPtr<TestWKWebView> webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 300, 300) configuration:configuration.get() addToWindow:YES]);
     RetainPtr<ExitFullscreenOnEnterPiPUIDelegate> handler = adoptNS([[ExitFullscreenOnEnterPiPUIDelegate alloc] init]);
@@ -96,11 +100,16 @@ TEST(ExitFullscreenOnEnterPiP, VideoFullscreen)
     TestWebKitAPI::Util::run(&didExitPiP);
 }
 
-
-TEST(ExitFullscreenOnEnterPiP, ElementFullscreen)
+// FIXME: Re-enable this test for Big Sur once webkit.org/b/245241 is resolved
+// FIXME: Re-enable this test once webkit.org/b/248093 is resolved.
+TEST(ExitFullscreenOnEnterPiP, DISABLED_ElementFullscreen)
 {
+    [[NSUserDefaults standardUserDefaults] registerDefaults:@{
+        @"WebCoreLogging": @"Fullscreen=debug",
+        @"WebKit2Logging": @"Fullscreen=debug",
+    }];
     RetainPtr<WKWebViewConfiguration> configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
-    [configuration preferences]._fullScreenEnabled = YES;
+    [configuration preferences].elementFullscreenEnabled = YES;
     [configuration preferences]._allowsPictureInPictureMediaPlayback = YES;
     RetainPtr<TestWKWebView> webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 300, 300) configuration:configuration.get() addToWindow:YES]);
     RetainPtr<ExitFullscreenOnEnterPiPUIDelegate> handler = adoptNS([[ExitFullscreenOnEnterPiPUIDelegate alloc] init]);
@@ -109,27 +118,33 @@ TEST(ExitFullscreenOnEnterPiP, ElementFullscreen)
 
     [webView synchronouslyLoadTestPageNamed:@"ExitFullscreenOnEnterPiP"];
 
+    [[NSUserDefaults standardUserDefaults] registerDefaults:@{
+        @"WebCoreLogging": @"",
+        @"WebKit2Logging": @"",
+    }];
+
     didEnterFullscreen = false;
     [webView evaluateJavaScript:@"document.getElementById('enter-element-fullscreen').click()" completionHandler: nil];
-    TestWebKitAPI::Util::run(&didEnterFullscreen);
+    ASSERT_TRUE(TestWebKitAPI::Util::runFor(&didEnterFullscreen, 10_s));
     ASSERT_TRUE(didEnterFullscreen);
 
     // Make the video the "main content" by playing with a user gesture.
     __block bool didBeginPlaying = false;
     [webView performAfterReceivingMessage:@"playing" action:^{ didBeginPlaying = true; }];
     [webView evaluateJavaScript:@"document.getElementById('play').click()" completionHandler:nil];
-    TestWebKitAPI::Util::run(&didBeginPlaying);
+    ASSERT_TRUE(TestWebKitAPI::Util::runFor(&didBeginPlaying, 10_s));
 
     didEnterPiP = false;
     didExitFullscreen = false;
     [webView evaluateJavaScript:@"document.getElementById('enter-pip').click()" completionHandler: nil];
-    TestWebKitAPI::Util::run(&didEnterPiP);
-    TestWebKitAPI::Util::run(&didExitFullscreen);
+    ASSERT_TRUE(TestWebKitAPI::Util::runFor(&didEnterPiP, 10_s));
+    ASSERT_TRUE(TestWebKitAPI::Util::runFor(&didExitFullscreen, 10_s));
 
     sleep(1_s); // Wait for PIPAgent to launch, or it won't call -pipDidClose: callback.
 
     [webView evaluateJavaScript:@"document.getElementById('exit-pip').click()" completionHandler: nil];
-    TestWebKitAPI::Util::run(&didExitPiP);
+    ASSERT_TRUE(TestWebKitAPI::Util::runFor(&didExitPiP, 10_s));
+
 }
 
 } // namespace TestWebKitAPI

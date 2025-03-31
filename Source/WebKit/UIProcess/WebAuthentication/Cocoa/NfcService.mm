@@ -39,15 +39,18 @@
 
 namespace WebKit {
 
-NfcService::NfcService(Observer& observer)
+Ref<NfcService> NfcService::create(AuthenticatorTransportServiceObserver& observer)
+{
+    return adoptRef(*new NfcService(observer));
+}
+
+NfcService::NfcService(AuthenticatorTransportServiceObserver& observer)
     : FidoService(observer)
     , m_restartTimer(RunLoop::main(), this, &NfcService::platformStartDiscovery)
 {
 }
 
-NfcService::~NfcService()
-{
-}
+NfcService::~NfcService() = default;
 
 bool NfcService::isAvailable()
 {
@@ -63,7 +66,7 @@ void NfcService::didConnectTag()
 #if HAVE(NEAR_FIELD)
     auto connection = m_connection;
     ASSERT(connection);
-    getInfo(WTF::makeUnique<CtapNfcDriver>(connection.releaseNonNull()));
+    getInfo(CtapNfcDriver::create(connection.releaseNonNull()));
 #endif
 }
 
@@ -101,14 +104,14 @@ void NfcService::platformStartDiscovery()
         return;
 
     // Will be executed in a different thread.
-    auto callback = makeBlockPtr([weakThis = makeWeakPtr(*this), this] (NFReaderSession *session, NSError *error) mutable {
+    auto callback = makeBlockPtr([weakThis = WeakPtr { *this }, this] (NFReaderSession *session, NSError *error) mutable {
         ASSERT(!RunLoop::isMain());
         if (error) {
             LOG_ERROR("Couldn't start a NFC reader session: %@", error);
             return;
         }
 
-        RunLoop::main().dispatch([weakThis = WTFMove(weakThis), this, session = retainPtr(session)] () mutable {
+        RunLoop::protectedMain()->dispatch([weakThis = WTFMove(weakThis), this, session = retainPtr(session)] () mutable {
             if (!weakThis) {
                 [session endSession];
                 return;

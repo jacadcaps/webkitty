@@ -36,10 +36,9 @@ import sys
 import logging
 import threading
 
-if sys.version_info > (3, 0):
-    from urllib.parse import quote as urllib_quote
-else:
-    from urllib import quote as urllib_quote
+from webkitcorepy import string_utils
+
+from urllib.parse import quote as urllib_quote
 
 _log = logging.getLogger(__name__)
 
@@ -110,14 +109,15 @@ class _CygPath(object):
     def convert(self, path):
         if not self.is_running():
             self.start()
-        self._child_process.stdin.write("%s\r\n" % path)
+        self._child_process.stdin.write(string_utils.encode(path))
+        self._child_process.stdin.write(b'\r\n')
         self._child_process.stdin.flush()
 
-        windows_path = self._child_process.stdout.readline().rstrip()
+        windows_path = string_utils.decode(self._child_process.stdout.readline().rstrip())
         if windows_path == "":
             self._child_process.stdin.close()
             self._child_process.wait()
-            windows_path = self._child_process.stdout.readline().rstrip()
+            windows_path = string_utils.decode(self._child_process.stdout.readline().rstrip())
             self._child_process = None
         # Some versions of cygpath use lowercase drive letters while others
         # use uppercase. We always convert to uppercase for consistency.

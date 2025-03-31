@@ -33,15 +33,20 @@
 #include "B3MemoryValue.h"
 #include "B3PatchpointValue.h"
 #include "B3ValueInlines.h"
+#include "ClonedArguments.h"
 #include "DateInstance.h"
 #include "DirectArguments.h"
 #include "FTLState.h"
 #include "GetterSetter.h"
 #include "JSPropertyNameEnumerator.h"
+#include "JSWebAssemblyInstance.h"
+#include "JSWrapperObject.h"
 #include "RegExpObject.h"
 #include "ScopedArguments.h"
 #include "ShadowChicken.h"
 #include "StructureChain.h"
+#include "StructureRareDataInlines.h"
+#include "WebAssemblyModuleRecord.h"
 
 namespace JSC { namespace FTL {
 
@@ -76,7 +81,7 @@ AbstractHeapRepository::AbstractHeapRepository()
     JSCell_header.changeParent(&JSCellHeaderAndNamedProperties);
     properties.atAnyNumber().changeParent(&JSCellHeaderAndNamedProperties);
 
-    // Make sure that our explicit assumptions about the StructureIDBlob match reality.
+    // Make sure that our explicit assumptions about the TypeInfoBlob match reality.
     RELEASE_ASSERT(!(JSCell_indexingTypeAndMisc.offset() & (sizeof(int32_t) - 1)));
     RELEASE_ASSERT(JSCell_indexingTypeAndMisc.offset() + 1 == JSCell_typeInfoType.offset());
     RELEASE_ASSERT(JSCell_indexingTypeAndMisc.offset() + 2 == JSCell_typeInfoFlags.offset());
@@ -94,9 +99,7 @@ AbstractHeapRepository::AbstractHeapRepository()
     RELEASE_ASSERT(!JSCell_freeListNext.offset());
 }
 
-AbstractHeapRepository::~AbstractHeapRepository()
-{
-}
+AbstractHeapRepository::~AbstractHeapRepository() = default;
 
 void AbstractHeapRepository::decorateMemory(const AbstractHeap* heap, B3::Value* value)
 {
@@ -143,9 +146,11 @@ void AbstractHeapRepository::computeRangesAndDecorateInstructions()
     using namespace B3;
     root.compute();
 
-    if (verboseCompilationEnabled()) {
-        dataLog("Abstract Heap Repository:\n");
-        root.deepDump(WTF::dataFile());
+    if (UNLIKELY(verboseCompilationEnabled())) {
+        WTF::dataFile().atomically([&](auto&) {
+            dataLogLn("Abstract Heap Repository:");
+            root.deepDump(WTF::dataFile());
+        });
     }
     
     auto rangeFor = [&] (const AbstractHeap* heap) -> HeapRange {

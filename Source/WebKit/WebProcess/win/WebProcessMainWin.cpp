@@ -29,24 +29,11 @@
 #include "AuxiliaryProcessMain.h"
 #include "WebProcess.h"
 #include <Objbase.h>
-#include <wtf/win/SoftLinking.h>
-
-SOFT_LINK_LIBRARY(user32);
-SOFT_LINK_OPTIONAL(user32, SetProcessDpiAwarenessContext, BOOL, STDAPICALLTYPE, (DPI_AWARENESS_CONTEXT));
 
 namespace WebKit {
 using namespace WebCore;
 
-class WebProcessMainWin final : public AuxiliaryProcessMainBase {
-public:
-    bool platformInitialize() override
-    {
-        if (SetProcessDpiAwarenessContextPtr())
-            SetProcessDpiAwarenessContextPtr()(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-        else
-            SetProcessDPIAware();
-        return true;
-    }
+class WebProcessMainWin final : public AuxiliaryProcessMainBase<WebProcess> {
 };
 
 int WebProcessMain(int argc, char** argv)
@@ -54,7 +41,7 @@ int WebProcessMain(int argc, char** argv)
     // WebProcess uses DirectX
     HRESULT hr = ::CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     RELEASE_ASSERT(SUCCEEDED(hr));
-    return AuxiliaryProcessMain<WebProcess, WebProcessMainWin>(argc, argv);
+    return AuxiliaryProcessMain<WebProcessMainWin>(argc, argv);
 }
 
 } // namespace WebKit

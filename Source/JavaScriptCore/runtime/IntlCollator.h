@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2015 Andy VanWagoner (andy@vanwagoner.family)
+ * Copyright (C) 2021-2023 Apple Inc. All Rights Reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,9 +26,9 @@
 
 #pragma once
 
-#include "JSObject.h"
-
-struct UCollator;
+#include "IntlObject.h"
+#include <unicode/ucol.h>
+#include <wtf/unicode/icu/ICUHelpers.h>
 
 namespace JSC {
 
@@ -39,7 +40,7 @@ class IntlCollator final : public JSNonFinalObject {
 public:
     using Base = JSNonFinalObject;
 
-    static constexpr bool needsDestruction = true;
+    static constexpr DestructionMode needsDestruction = NeedsDestruction;
 
     static void destroy(JSCell* cell)
     {
@@ -47,7 +48,7 @@ public:
     }
 
     template<typename CellType, SubspaceAccess mode>
-    static IsoSubspace* subspaceFor(VM& vm)
+    static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
         return vm.intlCollatorSpace<mode>();
     }
@@ -58,16 +59,31 @@ public:
     DECLARE_INFO;
 
     void initializeCollator(JSGlobalObject*, JSValue locales, JSValue optionsValue);
-    JSValue compareStrings(JSGlobalObject*, StringView, StringView) const;
+    UCollationResult compareStrings(JSGlobalObject*, StringView, StringView) const;
     JSObject* resolvedOptions(JSGlobalObject*) const;
 
     JSBoundFunction* boundCompare() const { return m_boundCompare.get(); }
     void setBoundCompare(VM&, JSBoundFunction*);
 
+    bool canDoASCIIUCADUCETComparison() const
+    {
+        if (m_canDoASCIIUCADUCETComparison == TriState::Indeterminate)
+            updateCanDoASCIIUCADUCETComparison();
+        return m_canDoASCIIUCADUCETComparison == TriState::True;
+    }
+
+#if ASSERT_ENABLED
+    static void checkICULocaleInvariants(const LocaleSet&);
+#else
+    static inline void checkICULocaleInvariants(const LocaleSet&) { }
+#endif
+
 private:
     IntlCollator(VM&, Structure*);
-    void finishCreation(VM&);
-    static void visitChildren(JSCell*, SlotVisitor&);
+    DECLARE_DEFAULT_FINISH_CREATION;
+    DECLARE_VISIT_CHILDREN;
+
+    bool updateCanDoASCIIUCADUCETComparison() const;
 
     static Vector<String> sortLocaleData(const String&, RelevantExtensionKey);
     static Vector<String> searchLocaleData(const String&, RelevantExtensionKey);
@@ -76,9 +92,7 @@ private:
     enum class Sensitivity : uint8_t { Base, Accent, Case, Variant };
     enum class CaseFirst : uint8_t { Upper, Lower, False };
 
-    struct UCollatorDeleter {
-        void operator()(UCollator*) const;
-    };
+    using UCollatorDeleter = ICUDeleter<ucol_close>;
 
     static ASCIILiteral usageString(Usage);
     static ASCIILiteral sensitivityString(Sensitivity);
@@ -92,6 +106,7 @@ private:
     Usage m_usage;
     Sensitivity m_sensitivity;
     CaseFirst m_caseFirst;
+    mutable TriState m_canDoASCIIUCADUCETComparison { TriState::Indeterminate };
     bool m_numeric;
     bool m_ignorePunctuation;
 };

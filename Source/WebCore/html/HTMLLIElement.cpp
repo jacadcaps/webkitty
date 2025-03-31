@@ -26,24 +26,25 @@
 #include "Attribute.h"
 #include "CSSPropertyNames.h"
 #include "CSSValueKeywords.h"
-#include "ElementAncestorIterator.h"
+#include "ElementAncestorIteratorInlines.h"
 #include "HTMLNames.h"
 #include "HTMLOListElement.h"
+#include "HTMLParserIdioms.h"
 #include "HTMLUListElement.h"
 #include "RenderListItem.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLLIElement);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(HTMLLIElement);
 
 using namespace HTMLNames;
 
 HTMLLIElement::HTMLLIElement(const QualifiedName& tagName, Document& document)
-    : HTMLElement(tagName, document)
+    : HTMLElement(tagName, document, TypeFlag::HasCustomStyleResolveCallbacks)
 {
     ASSERT(hasTagName(liTag));
-    setHasCustomStyleResolveCallbacks();
 }
 
 Ref<HTMLLIElement> HTMLLIElement::create(Document& document)
@@ -56,74 +57,44 @@ Ref<HTMLLIElement> HTMLLIElement::create(const QualifiedName& tagName, Document&
     return adoptRef(*new HTMLLIElement(tagName, document));
 }
 
-bool HTMLLIElement::isPresentationAttribute(const QualifiedName& name) const
+bool HTMLLIElement::hasPresentationalHintsForAttribute(const QualifiedName& name) const
 {
-    if (name == typeAttr)
+    if (name == typeAttr || name == valueAttr)
         return true;
-    return HTMLElement::isPresentationAttribute(name);
+    return HTMLElement::hasPresentationalHintsForAttribute(name);
 }
 
-void HTMLLIElement::collectStyleForPresentationAttribute(const QualifiedName& name, const AtomString& value, MutableStyleProperties& style)
+void HTMLLIElement::collectPresentationalHintsForAttribute(const QualifiedName& name, const AtomString& value, MutableStyleProperties& style)
 {
     if (name == typeAttr) {
-        if (value == "a")
-            addPropertyToPresentationAttributeStyle(style, CSSPropertyListStyleType, CSSValueLowerAlpha);
-        else if (value == "A")
-            addPropertyToPresentationAttributeStyle(style, CSSPropertyListStyleType, CSSValueUpperAlpha);
-        else if (value == "i")
-            addPropertyToPresentationAttributeStyle(style, CSSPropertyListStyleType, CSSValueLowerRoman);
-        else if (value == "I")
-            addPropertyToPresentationAttributeStyle(style, CSSPropertyListStyleType, CSSValueUpperRoman);
-        else if (value == "1")
-            addPropertyToPresentationAttributeStyle(style, CSSPropertyListStyleType, CSSValueDecimal);
-        else
-            addPropertyToPresentationAttributeStyle(style, CSSPropertyListStyleType, value);
-    } else
-        HTMLElement::collectStyleForPresentationAttribute(name, value, style);
-}
-
-void HTMLLIElement::parseAttribute(const QualifiedName& name, const AtomString& value)
-{
-    if (name == valueAttr) {
-        if (renderer() && renderer()->isListItem())
-            parseValue(value);
-    } else
-        HTMLElement::parseAttribute(name, value);
-}
-
-void HTMLLIElement::didAttachRenderers()
-{
-    if (!is<RenderListItem>(renderer()))
-        return;
-    auto& listItemRenderer = downcast<RenderListItem>(*renderer());
-
-    // Check if there is an enclosing list.
-    bool isInList = false;
-    for (auto& ancestor : ancestorsOfType<HTMLElement>(*this)) {
-        if (is<HTMLUListElement>(ancestor) || is<HTMLOListElement>(ancestor)) {
-            isInList = true;
-            break;
+        if (value == "a"_s)
+            addPropertyToPresentationalHintStyle(style, CSSPropertyListStyleType, CSSValueLowerAlpha);
+        else if (value == "A"_s)
+            addPropertyToPresentationalHintStyle(style, CSSPropertyListStyleType, CSSValueUpperAlpha);
+        else if (value == "i"_s)
+            addPropertyToPresentationalHintStyle(style, CSSPropertyListStyleType, CSSValueLowerRoman);
+        else if (value == "I"_s)
+            addPropertyToPresentationalHintStyle(style, CSSPropertyListStyleType, CSSValueUpperRoman);
+        else if (value == "1"_s)
+            addPropertyToPresentationalHintStyle(style, CSSPropertyListStyleType, CSSValueDecimal);
+        else {
+            auto valueLowerCase = value.convertToASCIILowercase();
+            if (valueLowerCase == "disc"_s)
+                addPropertyToPresentationalHintStyle(style, CSSPropertyListStyleType, CSSValueDisc);
+            else if (valueLowerCase == "circle"_s)
+                addPropertyToPresentationalHintStyle(style, CSSPropertyListStyleType, CSSValueCircle);
+            else if (valueLowerCase == "round"_s)
+                addPropertyToPresentationalHintStyle(style, CSSPropertyListStyleType, CSSValueRound);
+            else if (valueLowerCase == "square"_s)
+                addPropertyToPresentationalHintStyle(style, CSSPropertyListStyleType, CSSValueSquare);
+            else if (valueLowerCase == "none"_s)
+                addPropertyToPresentationalHintStyle(style, CSSPropertyListStyleType, CSSValueNone);
         }
-    }
-
-    // If we are not in a list, tell the renderer so it can position us inside.
-    // We don't want to change our style to say "inside" since that would affect nested nodes.
-    if (!isInList)
-        listItemRenderer.setNotInList(true);
-
-    parseValue(attributeWithoutSynchronization(valueAttr));
-}
-
-inline void HTMLLIElement::parseValue(const AtomString& value)
-{
-    ASSERT(renderer());
-
-    bool valueOK;
-    int requestedValue = value.toInt(&valueOK);
-    if (valueOK)
-        downcast<RenderListItem>(*renderer()).setExplicitValue(requestedValue);
-    else
-        downcast<RenderListItem>(*renderer()).setExplicitValue(WTF::nullopt);
+    } else if (name == valueAttr) {
+        if (auto parsedValue = parseHTMLInteger(value))
+            addPropertyToPresentationalHintStyle(style, CSSPropertyCounterSet, makeString("list-item "_s, *parsedValue));
+    } else
+        HTMLElement::collectPresentationalHintsForAttribute(name, value, style);
 }
 
 }

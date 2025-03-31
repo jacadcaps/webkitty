@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,7 +29,6 @@
 #include <algorithm>
 #include <tuple>
 #include <wtf/Hasher.h>
-#include <wtf/Optional.h>
 #include <wtf/text/TextStream.h>
 
 namespace WebCore {
@@ -42,6 +41,9 @@ public:
     using BackingType = int16_t;
 
     FontSelectionValue() = default;
+
+    // Exposed over IPC
+    explicit constexpr FontSelectionValue(BackingType);
 
     // Explicit because it won't work correctly for values outside the representable range.
     explicit constexpr FontSelectionValue(int);
@@ -66,12 +68,6 @@ public:
 
     constexpr BackingType rawValue() const { return m_backing; }
 
-    template<class Encoder>
-    void encode(Encoder&) const;
-
-    template<class Decoder>
-    static Optional<FontSelectionValue> decode(Decoder&);
-
 private:
     enum class RawTag { RawTag };
     constexpr FontSelectionValue(int, RawTag);
@@ -80,23 +76,9 @@ private:
     BackingType m_backing { 0 };
 };
 
-template<class Encoder>
-void FontSelectionValue::encode(Encoder& encoder) const
+constexpr FontSelectionValue::FontSelectionValue(BackingType x)
+    : m_backing(x)
 {
-    encoder << m_backing;
-}
-
-template<class Decoder>
-Optional<FontSelectionValue> FontSelectionValue::decode(Decoder& decoder)
-{
-    Optional<FontSelectionValue::BackingType> backing;
-    decoder >> backing;
-    if (!backing)
-        return WTF::nullopt;
-
-    FontSelectionValue result;
-    result.m_backing = *backing;
-    return result;
 }
 
 constexpr FontSelectionValue::FontSelectionValue(int x)
@@ -161,16 +143,6 @@ constexpr FontSelectionValue operator-(FontSelectionValue value)
     return { -value.m_backing, FontSelectionValue::RawTag::RawTag };
 }
 
-constexpr bool operator==(FontSelectionValue a, FontSelectionValue b)
-{
-    return a.rawValue() == b.rawValue();
-}
-
-constexpr bool operator!=(FontSelectionValue a, FontSelectionValue b)
-{
-    return a.rawValue() != b.rawValue();
-}
-
 constexpr bool operator<(FontSelectionValue a, FontSelectionValue b)
 {
     return a.rawValue() < b.rawValue();
@@ -193,12 +165,12 @@ constexpr bool operator>=(FontSelectionValue a, FontSelectionValue b)
 
 constexpr FontSelectionValue italicThreshold()
 {
-    return FontSelectionValue { 20 };
+    return FontSelectionValue { 14 };
 }
 
-constexpr bool isItalic(Optional<FontSelectionValue> fontWeight)
+constexpr bool isItalic(std::optional<FontSelectionValue> slope)
 {
-    return fontWeight && fontWeight.value() >= italicThreshold();
+    return slope && slope.value() >= italicThreshold();
 }
 
 constexpr FontSelectionValue normalItalicValue()
@@ -208,7 +180,7 @@ constexpr FontSelectionValue normalItalicValue()
 
 constexpr FontSelectionValue italicValue()
 {
-    return FontSelectionValue { 20 };
+    return FontSelectionValue { 14 };
 }
 
 constexpr FontSelectionValue boldThreshold()
@@ -246,58 +218,63 @@ constexpr FontSelectionValue upperWeightSearchThreshold()
     return FontSelectionValue { 500 };
 }
 
-constexpr FontSelectionValue ultraCondensedStretchValue()
+constexpr FontSelectionValue ultraCondensedWidthValue()
 {
     return FontSelectionValue { 50 };
 }
 
-constexpr FontSelectionValue extraCondensedStretchValue()
+constexpr FontSelectionValue extraCondensedWidthValue()
 {
     return FontSelectionValue { 62.5f };
 }
 
-constexpr FontSelectionValue condensedStretchValue()
+constexpr FontSelectionValue condensedWidthValue()
 {
     return FontSelectionValue { 75 };
 }
 
-constexpr FontSelectionValue semiCondensedStretchValue()
+constexpr FontSelectionValue semiCondensedWidthValue()
 {
     return FontSelectionValue { 87.5f };
 }
 
-constexpr FontSelectionValue normalStretchValue()
+constexpr FontSelectionValue normalWidthValue()
 {
     return FontSelectionValue { 100 };
 }
 
-constexpr FontSelectionValue semiExpandedStretchValue()
+constexpr FontSelectionValue semiExpandedWidthValue()
 {
     return FontSelectionValue { 112.5f };
 }
 
-constexpr FontSelectionValue expandedStretchValue()
+constexpr FontSelectionValue expandedWidthValue()
 {
     return FontSelectionValue { 125 };
 }
 
-constexpr FontSelectionValue extraExpandedStretchValue()
+constexpr FontSelectionValue extraExpandedWidthValue()
 {
     return FontSelectionValue { 150 };
 }
 
-constexpr FontSelectionValue ultraExpandedStretchValue()
+constexpr FontSelectionValue ultraExpandedWidthValue()
 {
     return FontSelectionValue { 200 };
+}
+
+inline void add(Hasher& hasher, const FontSelectionValue& value)
+{
+    add(hasher, value.rawValue());
 }
 
 // [Inclusive, Inclusive]
 struct FontSelectionRange {
     using Value = FontSelectionValue;
 
-    constexpr FontSelectionRange(Value minimum, Value maximum)
-        : minimum(minimum)
-        , maximum(maximum)
+    constexpr FontSelectionRange(Value a, Value b)
+        : minimum(std::min(a, b))
+        , maximum(std::max(a, b))
     {
     }
 
@@ -307,10 +284,7 @@ struct FontSelectionRange {
     {
     }
 
-    constexpr bool operator==(const FontSelectionRange& other) const
-    {
-        return WTF::tie(minimum, maximum) == WTF::tie(other.minimum, other.maximum);
-    }
+    friend constexpr bool operator==(const FontSelectionRange&, const FontSelectionRange&) = default;
 
     constexpr bool isValid() const
     {
@@ -334,50 +308,13 @@ struct FontSelectionRange {
         return target >= minimum && target <= maximum;
     }
 
-    // FIXME: This name is not so great. Move this into the add function below
-    // once we move FontPlatformDataCacheKeyHash from IntegerHasher to Hasher,
-    // and then it doesn't need to have a name.
-    constexpr uint32_t uniqueValue() const
-    {
-        return minimum.rawValue() << 16 | maximum.rawValue();
-    }
-
-    template<class Encoder>
-    void encode(Encoder&) const;
-
-    template<class Decoder>
-    static Optional<FontSelectionRange> decode(Decoder&);
-
     Value minimum { 1 };
     Value maximum { 0 };
 };
 
-template<class Encoder>
-void FontSelectionRange::encode(Encoder& encoder) const
-{
-    encoder << minimum;
-    encoder << maximum;
-}
-
-template<class Decoder>
-Optional<FontSelectionRange> FontSelectionRange::decode(Decoder& decoder)
-{
-    Optional<FontSelectionRange::Value> minimum;
-    decoder >> minimum;
-    if (!minimum)
-        return WTF::nullopt;
-
-    Optional<FontSelectionRange::Value> maximum;
-    decoder >> maximum;
-    if (!maximum)
-        return WTF::nullopt;
-
-    return {{ *minimum, *maximum }};
-}
-
 inline void add(Hasher& hasher, const FontSelectionRange& range)
 {
-    add(hasher, range.uniqueValue());
+    add(hasher, range.minimum, range.maximum);
 }
 
 struct FontSelectionRequest {
@@ -385,18 +322,16 @@ struct FontSelectionRequest {
 
     Value weight;
     Value width;
+
     // FIXME: We are using an optional here to be able to distinguish between an explicit
     // or implicit slope (for "italic" and "oblique") and the "normal" value which has no
     // slope. The "italic" and "oblique" values can be distinguished by looking at the
     // "fontStyleAxis" on the FontDescription. We should come up with a tri-state member
     // so that it's a lot clearer whether we're dealing with a "normal", "italic" or explicit
     // "oblique" font style. See webkit.org/b/187774.
-    Optional<Value> slope;
+    std::optional<Value> slope;
 
-    std::tuple<Value, Value, Optional<Value>> tied() const
-    {
-        return WTF::tie(weight, width, slope);
-    }
+    friend bool operator==(const FontSelectionRequest&, const FontSelectionRequest&) = default;
 };
 
 inline TextStream& operator<<(TextStream& ts, const FontSelectionValue& fontSelectionValue)
@@ -405,36 +340,21 @@ inline TextStream& operator<<(TextStream& ts, const FontSelectionValue& fontSele
     return ts;
 }
 
-inline TextStream& operator<<(TextStream& ts, const Optional<FontSelectionValue>& optionalFontSelectionValue)
+inline TextStream& operator<<(TextStream& ts, const std::optional<FontSelectionValue>& optionalFontSelectionValue)
 {
-    ts << optionalFontSelectionValue.valueOr(normalItalicValue());
+    ts << optionalFontSelectionValue.value_or(normalItalicValue());
     return ts;
-}
-
-inline bool operator==(const FontSelectionRequest& a, const FontSelectionRequest& b)
-{
-    return a.tied() == b.tied();
-}
-
-inline bool operator!=(const FontSelectionRequest& a, const FontSelectionRequest& b)
-{
-    return !(a == b);
 }
 
 inline void add(Hasher& hasher, const FontSelectionRequest& request)
 {
-    add(hasher, request.tied());
+    add(hasher, request.weight, request.width, request.slope);
 }
 
 struct FontSelectionCapabilities {
     using Range = FontSelectionRange;
 
-    FontSelectionCapabilities& operator=(const FontSelectionCapabilities&) = default;
-
-    constexpr std::tuple<Range, Range, Range> tied() const
-    {
-        return WTF::tie(weight, width, slope);
-    }
+    friend constexpr bool operator==(const FontSelectionCapabilities&, const FontSelectionCapabilities&) = default;
 
     void expand(const FontSelectionCapabilities& capabilities)
     {
@@ -444,109 +364,53 @@ struct FontSelectionCapabilities {
     }
 
     Range weight { normalWeightValue() };
-    Range width { normalStretchValue() };
+    Range width { normalWidthValue() };
     Range slope { normalItalicValue() };
 };
-
-constexpr bool operator==(const FontSelectionCapabilities& a, const FontSelectionCapabilities& b)
-{
-    return a.tied() == b.tied();
-}
-
-constexpr bool operator!=(const FontSelectionCapabilities& a, const FontSelectionCapabilities& b)
-{
-    return !(a == b);
-}
 
 struct FontSelectionSpecifiedCapabilities {
     using Capabilities = FontSelectionCapabilities;
     using Range = FontSelectionRange;
-    using OptionalRange = Optional<Range>;
+    using OptionalRange = std::optional<Range>;
 
     constexpr Capabilities computeFontSelectionCapabilities() const
     {
         return { computeWeight(), computeWidth(), computeSlope() };
     }
 
-    constexpr std::tuple<OptionalRange&, OptionalRange&, OptionalRange&> tied()
-    {
-        return WTF::tie(weight, width, slope);
-    }
-
-    constexpr std::tuple<const OptionalRange&, const OptionalRange&, const OptionalRange&> tied() const
-    {
-        return WTF::tie(weight, width, slope);
-    }
+    friend constexpr bool operator==(const FontSelectionSpecifiedCapabilities&, const FontSelectionSpecifiedCapabilities&) = default;
 
     FontSelectionSpecifiedCapabilities& operator=(const Capabilities& other)
     {
-        tied() = other.tied();
+        weight = other.weight;
+        width = other.width;
+        slope = other.slope;
         return *this;
     }
 
     constexpr Range computeWeight() const
     {
-        return weight.valueOr(Range { normalWeightValue() });
+        return weight.value_or(Range { normalWeightValue() });
     }
 
     constexpr Range computeWidth() const
     {
-        return width.valueOr(Range { normalStretchValue() });
+        return width.value_or(Range { normalWidthValue() });
     }
 
     constexpr Range computeSlope() const
     {
-        return slope.valueOr(Range { normalItalicValue() });
+        return slope.value_or(Range { normalItalicValue() });
     }
-
-    template<class Encoder>
-    void encode(Encoder&) const;
-
-    template<class Decoder>
-    static Optional<FontSelectionSpecifiedCapabilities> decode(Decoder&);
 
     OptionalRange weight;
     OptionalRange width;
     OptionalRange slope;
 };
 
-template<class Encoder>
-void FontSelectionSpecifiedCapabilities::encode(Encoder& encoder) const
+inline void add(Hasher& hasher, const FontSelectionSpecifiedCapabilities& capabilities)
 {
-    encoder << weight;
-    encoder << width;
-    encoder << slope;
-}
-
-template<class Decoder>
-Optional<FontSelectionSpecifiedCapabilities> FontSelectionSpecifiedCapabilities::decode(Decoder& decoder)
-{
-    Optional<OptionalRange> weight;
-    decoder >> weight;
-    if (!weight)
-        return WTF::nullopt;
-
-    Optional<OptionalRange> width;
-    decoder >> width;
-    if (!width)
-        return WTF::nullopt;
-
-    Optional<OptionalRange> slope;
-    decoder >> slope;
-    if (!slope)
-        return WTF::nullopt;
-
-    return {{ *weight, *width, *slope }};
-}
-
-constexpr bool operator==(const FontSelectionSpecifiedCapabilities& a, const FontSelectionSpecifiedCapabilities& b)
-{
-    return a.tied() == b.tied();
-}
-
-constexpr bool operator!=(const FontSelectionSpecifiedCapabilities& a, const FontSelectionSpecifiedCapabilities& b)
-{
-    return !(a == b);
+    add(hasher, capabilities.weight, capabilities.width, capabilities.slope);
 }
 
 class FontSelectionAlgorithm {
@@ -554,13 +418,13 @@ public:
     using Capabilities = FontSelectionCapabilities;
 
     FontSelectionAlgorithm() = delete;
-    FontSelectionAlgorithm(FontSelectionRequest, const Vector<Capabilities>&, Optional<Capabilities> capabilitiesBounds = WTF::nullopt);
+    FontSelectionAlgorithm(FontSelectionRequest, const Vector<Capabilities>&, std::optional<Capabilities> capabilitiesBounds = std::nullopt);
 
     struct DistanceResult {
         FontSelectionValue distance;
         FontSelectionValue value;
     };
-    DistanceResult stretchDistance(Capabilities) const;
+    DistanceResult widthDistance(Capabilities) const;
     DistanceResult styleDistance(Capabilities) const;
     DistanceResult weightDistance(Capabilities) const;
 
@@ -569,8 +433,8 @@ public:
 private:
     using DistanceFunction = DistanceResult (FontSelectionAlgorithm::*)(Capabilities) const;
     using CapabilitiesRange = FontSelectionRange Capabilities::*;
-    FontSelectionValue bestValue(const bool eliminated[], DistanceFunction) const;
-    void filterCapability(bool eliminated[], DistanceFunction, CapabilitiesRange);
+    FontSelectionValue bestValue(std::span<const bool> eliminated, DistanceFunction) const;
+    void filterCapability(std::span<bool> eliminated, DistanceFunction, CapabilitiesRange);
 
     FontSelectionRequest m_request;
     Capabilities m_capabilitiesBounds;

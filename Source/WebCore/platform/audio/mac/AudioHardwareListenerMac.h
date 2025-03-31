@@ -23,10 +23,10 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef AudioHardwareListenerMac_h
-#define AudioHardwareListenerMac_h
+#pragma once
 
 #include "AudioHardwareListener.h"
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/WeakPtr.h>
 
 #if PLATFORM(MAC)
@@ -35,18 +35,20 @@
 
 namespace WebCore {
 
-class AudioHardwareListenerMac : public AudioHardwareListener, public CanMakeWeakPtr<AudioHardwareListenerMac> {
+class AudioHardwareListenerMac : public RefCountedAndCanMakeWeakPtr<AudioHardwareListenerMac>, public AudioHardwareListener {
 public:
-    static WTF::Ref<AudioHardwareListenerMac> create(Client&);
+    static Ref<AudioHardwareListenerMac> create(Client&);
+    virtual ~AudioHardwareListenerMac();
+    void ref() const final { return RefCounted<AudioHardwareListenerMac>::ref(); }
+    void deref() const final { return RefCounted<AudioHardwareListenerMac>::deref(); }
 
 private:
     AudioHardwareListenerMac(Client&);
-    virtual ~AudioHardwareListenerMac();
 
     void processIsRunningChanged();
     void outputDeviceChanged();
 
-    void propertyChanged(UInt32, const AudioObjectPropertyAddress[]);
+    void propertyChanged(std::span<const AudioObjectPropertyAddress>);
 
     AudioObjectPropertyListenerBlock m_block;
 };
@@ -54,5 +56,3 @@ private:
 }
 
 #endif // PLATFORM(MAC)
-
-#endif // AudioHardwareListenerMac_h

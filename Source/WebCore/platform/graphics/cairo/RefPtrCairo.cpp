@@ -19,79 +19,85 @@
 #include "config.h"
 #include "RefPtrCairo.h"
 
-#if USE(CAIRO)
+#if USE(CAIRO) || PLATFORM(GTK)
 
 #include <cairo.h>
 
 namespace WTF {
 
-template<> void refIfNotNull(cairo_t* ptr)
+cairo_t* DefaultRefDerefTraits<cairo_t>::refIfNotNull(cairo_t* ptr)
 {
     if (LIKELY(ptr))
         cairo_reference(ptr);
+    return ptr;
 }
 
-template<> void derefIfNotNull(cairo_t* ptr)
+void DefaultRefDerefTraits<cairo_t>::derefIfNotNull(cairo_t* ptr)
 {
     if (LIKELY(ptr))
         cairo_destroy(ptr);
 }
 
-template<> void refIfNotNull(cairo_surface_t* ptr)
+cairo_surface_t* DefaultRefDerefTraits<cairo_surface_t>::refIfNotNull(cairo_surface_t* ptr)
 {
     if (LIKELY(ptr))
         cairo_surface_reference(ptr);
+    return ptr;
 }
 
-template<> void derefIfNotNull(cairo_surface_t* ptr)
+void DefaultRefDerefTraits<cairo_surface_t>::derefIfNotNull(cairo_surface_t* ptr)
 {
     if (LIKELY(ptr))
         cairo_surface_destroy(ptr);
 }
 
-template<> void refIfNotNull(cairo_font_face_t* ptr)
+cairo_font_face_t* DefaultRefDerefTraits<cairo_font_face_t>::refIfNotNull(cairo_font_face_t* ptr)
 {
     if (LIKELY(ptr))
         cairo_font_face_reference(ptr);
+    return ptr;
 }
 
-template<> void derefIfNotNull(cairo_font_face_t* ptr)
+void DefaultRefDerefTraits<cairo_font_face_t>::derefIfNotNull(cairo_font_face_t* ptr)
 {
     if (LIKELY(ptr))
         cairo_font_face_destroy(ptr);
 }
 
-template<> void refIfNotNull(cairo_scaled_font_t* ptr)
+cairo_scaled_font_t* DefaultRefDerefTraits<cairo_scaled_font_t>::refIfNotNull(cairo_scaled_font_t* ptr)
 {
     if (LIKELY(ptr))
         cairo_scaled_font_reference(ptr);
+    return ptr;
 }
 
-template<> void derefIfNotNull(cairo_scaled_font_t* ptr)
+void DefaultRefDerefTraits<cairo_scaled_font_t>::derefIfNotNull(cairo_scaled_font_t* ptr)
 {
     if (LIKELY(ptr))
         cairo_scaled_font_destroy(ptr);
 }
 
-template<> void refIfNotNull(cairo_pattern_t* ptr)
+cairo_pattern_t* DefaultRefDerefTraits<cairo_pattern_t>::refIfNotNull(cairo_pattern_t* ptr)
 {
     if (LIKELY(ptr))
         cairo_pattern_reference(ptr);
+    return ptr;
 }
 
-template<> void derefIfNotNull(cairo_pattern_t* ptr)
+void DefaultRefDerefTraits<cairo_pattern_t>::derefIfNotNull(cairo_pattern_t* ptr)
 {
     if (LIKELY(ptr))
         cairo_pattern_destroy(ptr);
 }
 
-template<> void refIfNotNull(cairo_region_t* ptr)
+cairo_region_t* DefaultRefDerefTraits<cairo_region_t>::refIfNotNull(cairo_region_t* ptr)
 {
     if (LIKELY(ptr))
         cairo_region_reference(ptr);
+    return ptr;
 }
 
-template<> void derefIfNotNull(cairo_region_t* ptr)
+void DefaultRefDerefTraits<cairo_region_t>::derefIfNotNull(cairo_region_t* ptr)
 {
     if (LIKELY(ptr))
         cairo_region_destroy(ptr);
@@ -99,4 +105,4 @@ template<> void derefIfNotNull(cairo_region_t* ptr)
 
 } // namespace WTF
 
-#endif // USE(CAIRO)
+#endif // USE(CAIRO) || PLATFORM(GTK)

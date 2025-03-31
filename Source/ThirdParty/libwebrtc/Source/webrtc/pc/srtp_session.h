@@ -11,14 +11,19 @@
 #ifndef PC_SRTP_SESSION_H_
 #define PC_SRTP_SESSION_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <vector>
 
+#include "api/field_trials_view.h"
 #include "api/scoped_refptr.h"
-#include "rtc_base/thread_checker.h"
+#include "api/sequence_checker.h"
+#include "rtc_base/buffer.h"
 
 // Forward declaration to avoid pulling in libsrtp headers here
 struct srtp_event_data_t;
-struct srtp_ctx_t_;
+struct srtp_ctx_t_;  // Trailing _ is required.
 
 namespace cricket {
 
@@ -31,29 +36,49 @@ void ProhibitLibsrtpInitialization();
 class SrtpSession {
  public:
   SrtpSession();
+  explicit SrtpSession(const webrtc::FieldTrialsView& field_trials);
   ~SrtpSession();
 
+  SrtpSession(const SrtpSession&) = delete;
+  SrtpSession& operator=(const SrtpSession&) = delete;
+
   // Configures the session for sending data using the specified
-  // cipher-suite and key. Receiving must be done by a separate session.
-  bool SetSend(int cs,
-               const uint8_t* key,
-               size_t len,
+  // crypto suite and key. Receiving must be done by a separate session.
+  [[deprecated("Pass ZeroOnFreeBuffer to SetSend")]] bool SetSend(
+      int crypto_suite,
+      const uint8_t* key,
+      size_t len,
+      const std::vector<int>& extension_ids);
+  bool SetSend(int crypto_suite,
+               const rtc::ZeroOnFreeBuffer<uint8_t>& key,
                const std::vector<int>& extension_ids);
-  bool UpdateSend(int cs,
-                  const uint8_t* key,
-                  size_t len,
+  [[deprecated("Pass ZeroOnFreeBuffer to UpdateSend")]] bool UpdateSend(
+      int crypto_suite,
+      const uint8_t* key,
+      size_t len,
+      const std::vector<int>& extension_ids);
+  bool UpdateSend(int crypto_suite,
+                  const rtc::ZeroOnFreeBuffer<uint8_t>& key,
                   const std::vector<int>& extension_ids);
 
   // Configures the session for receiving data using the specified
-  // cipher-suite and key. Sending must be done by a separate session.
-  bool SetRecv(int cs,
-               const uint8_t* key,
-               size_t len,
-               const std::vector<int>& extension_ids);
-  bool UpdateRecv(int cs,
-                  const uint8_t* key,
-                  size_t len,
+  // crypto suite and key. Sending must be done by a separate session.
+  [[deprecated("Pass ZeroOnFreeBuffer to SetReceive")]] bool SetRecv(
+      int crypto_suite,
+      const uint8_t* key,
+      size_t len,
+      const std::vector<int>& extension_ids);
+  bool SetReceive(int crypto_suite,
+                  const rtc::ZeroOnFreeBuffer<uint8_t>& key,
                   const std::vector<int>& extension_ids);
+  [[deprecated("Pass ZeroOnFreeBuffer to UpdateReceive")]] bool UpdateRecv(
+      int crypto_suite,
+      const uint8_t* key,
+      size_t len,
+      const std::vector<int>& extension_ids);
+  bool UpdateReceive(int crypto_suite,
+                     const rtc::ZeroOnFreeBuffer<uint8_t>& key,
+                     const std::vector<int>& extension_ids);
 
   // Encrypts/signs an individual RTP/RTCP packet, in-place.
   // If an HMAC is used, this will increase the packet size.
@@ -88,47 +113,53 @@ class SrtpSession {
   // been set.
   bool IsExternalAuthActive() const;
 
+  // Removes a SSRC from the underlying libSRTP session.
+  // Note: this should only be done for SSRCs that are received.
+  // Removing SSRCs that were sent and then reusing them leads to
+  // cryptographic weaknesses described in
+  // https://www.rfc-editor.org/rfc/rfc3711#section-8
+  // https://www.rfc-editor.org/rfc/rfc7714#section-8.4
+  bool RemoveSsrcFromSession(uint32_t ssrc);
+
  private:
   bool DoSetKey(int type,
-                int cs,
-                const uint8_t* key,
-                size_t len,
+                int crypto_suite,
+                const rtc::ZeroOnFreeBuffer<uint8_t>& key,
                 const std::vector<int>& extension_ids);
   bool SetKey(int type,
-              int cs,
-              const uint8_t* key,
-              size_t len,
+              int crypto_suite,
+              const rtc::ZeroOnFreeBuffer<uint8_t>& key,
               const std::vector<int>& extension_ids);
   bool UpdateKey(int type,
-                 int cs,
-                 const uint8_t* key,
-                 size_t len,
+                 int crypto_suite,
+                 const rtc::ZeroOnFreeBuffer<uint8_t>& key,
                  const std::vector<int>& extension_ids);
   // Returns send stream current packet index from srtp db.
   bool GetSendStreamPacketIndex(void* data, int in_len, int64_t* index);
 
-  // These methods are responsible for initializing libsrtp (if the usage count
-  // is incremented from 0 to 1) or deinitializing it (when decremented from 1
-  // to 0).
-  //
-  // Returns true if successful (will always be successful if already inited).
-  static bool IncrementLibsrtpUsageCountAndMaybeInit();
-  static void DecrementLibsrtpUsageCountAndMaybeDeinit();
+  // Writes unencrypted packets in text2pcap format to the log file
+  // for debugging.
+  void DumpPacket(const void* buf, int len, bool outbound);
 
   void HandleEvent(const srtp_event_data_t* ev);
   static void HandleEventThunk(srtp_event_data_t* ev);
 
-  rtc::ThreadChecker thread_checker_;
+  webrtc::SequenceChecker thread_checker_;
   srtp_ctx_t_* session_ = nullptr;
+
+  // Overhead of the SRTP auth tag for RTP and RTCP in bytes.
+  // Depends on the cipher suite used and is usually the same with the exception
+  // of the kCsAesCm128HmacSha1_32 cipher suite. The additional four bytes
+  // required for RTCP protection are not included.
   int rtp_auth_tag_len_ = 0;
   int rtcp_auth_tag_len_ = 0;
+
   bool inited_ = false;
-  static rtc::GlobalLock lock_;
   int last_send_seq_num_ = -1;
   bool external_auth_active_ = false;
   bool external_auth_enabled_ = false;
   int decryption_failure_count_ = 0;
-  RTC_DISALLOW_COPY_AND_ASSIGN(SrtpSession);
+  bool dump_plain_rtp_ = false;
 };
 
 }  // namespace cricket

@@ -31,8 +31,6 @@
 #include "AuthenticationManager.h"
 #include "AuthenticationManagerMessages.h"
 #include "AuxiliaryProcessProxy.h"
-#include "WebCertificateInfo.h"
-#include "WebCoreArgumentCoders.h"
 #include "WebCredential.h"
 #include "WebProcessProxy.h"
 #include "WebProtectionSpace.h"
@@ -43,7 +41,7 @@
 
 namespace WebKit {
 
-AuthenticationChallengeProxy::AuthenticationChallengeProxy(WebCore::AuthenticationChallenge&& authenticationChallenge, uint64_t challengeID, Ref<IPC::Connection>&& connection, WeakPtr<SecKeyProxyStore>&& secKeyProxyStore)
+AuthenticationChallengeProxy::AuthenticationChallengeProxy(WebCore::AuthenticationChallenge&& authenticationChallenge, AuthenticationChallengeIdentifier challengeID, Ref<IPC::Connection>&& connection, WeakPtrSecKeyProxyStore&& secKeyProxyStore)
     : m_coreAuthenticationChallenge(WTFMove(authenticationChallenge))
     , m_listener(AuthenticationDecisionListener::create([challengeID, connection = WTFMove(connection), secKeyProxyStore = WTFMove(secKeyProxyStore)](AuthenticationChallengeDisposition disposition, const WebCore::Credential& credential) {
 #if HAVE(SEC_KEY_PROXY)
@@ -51,12 +49,15 @@ AuthenticationChallengeProxy::AuthenticationChallengeProxy(WebCore::Authenticati
             sendClientCertificateCredentialOverXpc(connection, *secKeyProxyStore, challengeID, credential);
             return;
         }
+#else
+        UNUSED_PARAM(secKeyProxyStore);
 #endif
         connection->send(Messages::AuthenticationManager::CompleteAuthenticationChallenge(challengeID, disposition, credential), 0);
     }))
 {
-    ASSERT(challengeID);
 }
+
+AuthenticationChallengeProxy::~AuthenticationChallengeProxy() = default;
 
 WebCredential* AuthenticationChallengeProxy::proposedCredential() const
 {
@@ -72,6 +73,11 @@ WebProtectionSpace* AuthenticationChallengeProxy::protectionSpace() const
         m_webProtectionSpace = WebProtectionSpace::create(m_coreAuthenticationChallenge.protectionSpace());
 
     return m_webProtectionSpace.get();
+}
+
+Ref<AuthenticationDecisionListener> AuthenticationChallengeProxy::protectedListener() const
+{
+    return m_listener;
 }
 
 } // namespace WebKit

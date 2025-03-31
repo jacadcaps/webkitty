@@ -34,14 +34,17 @@
 #if ENABLE(MEDIA_STREAM)
 
 #include "Document.h"
-#include "Frame.h"
+#include "LocalFrame.h"
 #include "MediaDevices.h"
 #include "Navigator.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-NavigatorMediaDevices::NavigatorMediaDevices(DOMWindow* window)
-    : DOMWindowProperty(window)
+WTF_MAKE_TZONE_ALLOCATED_IMPL(NavigatorMediaDevices);
+
+NavigatorMediaDevices::NavigatorMediaDevices(LocalDOMWindow* window)
+    : LocalDOMWindowProperty(window)
 {
 }
 
@@ -70,9 +73,9 @@ MediaDevices* NavigatorMediaDevices::mediaDevices() const
     return m_mediaDevices.get();
 }
 
-const char* NavigatorMediaDevices::supplementName()
+ASCIILiteral NavigatorMediaDevices::supplementName()
 {
-    return "NavigatorMediaDevices";
+    return "NavigatorMediaDevices"_s;
 }
 
 } // namespace WebCore

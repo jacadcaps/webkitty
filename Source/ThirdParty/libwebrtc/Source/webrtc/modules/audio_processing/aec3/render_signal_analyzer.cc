@@ -27,7 +27,7 @@ constexpr size_t kCounterThreshold = 5;
 // Identifies local bands with narrow characteristics.
 void IdentifySmallNarrowBandRegions(
     const RenderBuffer& render_buffer,
-    const absl::optional<size_t>& delay_partitions,
+    const std::optional<size_t>& delay_partitions,
     std::array<size_t, kFftLengthBy2 - 1>* narrow_band_counters) {
   RTC_DCHECK(narrow_band_counters);
 
@@ -56,20 +56,19 @@ void IdentifySmallNarrowBandRegions(
 // Identifies whether the signal has a single strong narrow-band component.
 void IdentifyStrongNarrowBandComponent(const RenderBuffer& render_buffer,
                                        int strong_peak_freeze_duration,
-                                       absl::optional<int>* narrow_peak_band,
+                                       std::optional<int>* narrow_peak_band,
                                        size_t* narrow_peak_counter) {
   RTC_DCHECK(narrow_peak_band);
   RTC_DCHECK(narrow_peak_counter);
   if (*narrow_peak_band &&
       ++(*narrow_peak_counter) >
           static_cast<size_t>(strong_peak_freeze_duration)) {
-    *narrow_peak_band = absl::nullopt;
+    *narrow_peak_band = std::nullopt;
   }
 
-  const std::vector<std::vector<std::vector<float>>>& x_latest =
-      render_buffer.Block(0);
+  const Block& x_latest = render_buffer.GetBlock(0);
   float max_peak_level = 0.f;
-  for (size_t channel = 0; channel < x_latest[0].size(); ++channel) {
+  for (int channel = 0; channel < x_latest.NumChannels(); ++channel) {
     rtc::ArrayView<const float, kFftLengthBy2Plus1> X2_latest =
         render_buffer.Spectrum(0)[channel];
 
@@ -90,13 +89,14 @@ void IdentifyStrongNarrowBandComponent(const RenderBuffer& render_buffer,
     }
 
     // Assess the render signal strength.
-    auto result0 = std::minmax_element(x_latest[0][channel].begin(),
-                                       x_latest[0][channel].end());
+    auto result0 = std::minmax_element(x_latest.begin(/*band=*/0, channel),
+                                       x_latest.end(/*band=*/0, channel));
     float max_abs = std::max(fabs(*result0.first), fabs(*result0.second));
 
-    if (x_latest.size() > 1) {
-      const auto result1 = std::minmax_element(x_latest[1][channel].begin(),
-                                               x_latest[1][channel].end());
+    if (x_latest.NumBands() > 1) {
+      const auto result1 =
+          std::minmax_element(x_latest.begin(/*band=*/1, channel),
+                              x_latest.end(/*band=*/1, channel));
       max_abs =
           std::max(max_abs, static_cast<float>(std::max(
                                 fabs(*result1.first), fabs(*result1.second))));
@@ -118,14 +118,14 @@ void IdentifyStrongNarrowBandComponent(const RenderBuffer& render_buffer,
 }  // namespace
 
 RenderSignalAnalyzer::RenderSignalAnalyzer(const EchoCanceller3Config& config)
-    : strong_peak_freeze_duration_(config.filter.main.length_blocks) {
+    : strong_peak_freeze_duration_(config.filter.refined.length_blocks) {
   narrow_band_counters_.fill(0);
 }
 RenderSignalAnalyzer::~RenderSignalAnalyzer() = default;
 
 void RenderSignalAnalyzer::Update(
     const RenderBuffer& render_buffer,
-    const absl::optional<size_t>& delay_partitions) {
+    const std::optional<size_t>& delay_partitions) {
   // Identify bands of narrow nature.
   IdentifySmallNarrowBandRegions(render_buffer, delay_partitions,
                                  &narrow_band_counters_);

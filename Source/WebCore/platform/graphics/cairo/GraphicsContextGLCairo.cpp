@@ -26,38 +26,37 @@
  */
 
 #include "config.h"
-#include "GraphicsContextGLOpenGL.h"
+#include "GraphicsContextGL.h"
 
-#if ENABLE(GRAPHICS_CONTEXT_GL) && USE(CAIRO)
+#if ENABLE(WEBGL) && USE(CAIRO)
 
+#include "BitmapImage.h"
 #include "CairoUtilities.h"
-#include "Image.h"
-#include "ImageSource.h"
-#include "PlatformContextCairo.h"
+#include "GraphicsContext.h"
+#include "GraphicsContextGLImageExtractor.h"
+#include "PixelBuffer.h"
 #include "RefPtrCairo.h"
 #include <cairo.h>
 
 namespace WebCore {
 
-GraphicsContextGLOpenGL::ImageExtractor::~ImageExtractor() = default;
+GraphicsContextGLImageExtractor::~GraphicsContextGLImageExtractor() = default;
 
-bool GraphicsContextGLOpenGL::ImageExtractor::extractImage(bool premultiplyAlpha, bool ignoreGammaAndColorProfile, bool)
+bool GraphicsContextGLImageExtractor::extractImage(bool premultiplyAlpha, bool ignoreGammaAndColorProfile, bool)
 {
-    if (!m_image)
-        return false;
     // We need this to stay in scope because the native image is just a shallow copy of the data.
     AlphaOption alphaOption = premultiplyAlpha ? AlphaOption::Premultiplied : AlphaOption::NotPremultiplied;
     GammaAndColorProfileOption gammaAndColorProfileOption = ignoreGammaAndColorProfile ? GammaAndColorProfileOption::Ignored : GammaAndColorProfileOption::Applied;
-    auto source = ImageSource::create(nullptr, alphaOption, gammaAndColorProfileOption);
+    auto image = BitmapImage::create(nullptr, alphaOption, gammaAndColorProfileOption);
     m_alphaOp = AlphaOp::DoNothing;
 
     if (m_image->data()) {
-        source->setData(m_image->data(), true);
-        if (!source->frameCount())
+        image->setData(m_image->data(), true);
+        if (!image->frameCount())
             return false;
-        m_imageSurface = source->createFrameImageAtIndex(0);
+        m_imageSurface = image->currentNativeImage()->platformImage();
     } else {
-        m_imageSurface = m_image->nativeImageForCurrentFrame();
+        m_imageSurface = m_image->currentNativeImage()->platformImage();
         // 1. For texImage2D with HTMLVideoElment input, assume no PremultiplyAlpha had been applied and the alpha value is 0xFF for each pixel,
         // which is true at present and may be changed in the future and needs adjustment accordingly.
         // 2. For texImage2D with HTMLCanvasElement input in which Alpha is already Premultiplied in this port, 
@@ -98,43 +97,41 @@ bool GraphicsContextGLOpenGL::ImageExtractor::extractImage(bool premultiplyAlpha
             ++srcUnpackAlignment;
     }
 
-    m_imagePixelData = cairo_image_surface_get_data(m_imageSurface.get());
+    m_imagePixelData = span(m_imageSurface.get());
     m_imageSourceFormat = DataFormat::BGRA8;
     m_imageSourceUnpackAlignment = srcUnpackAlignment;
     return true;
 }
 
-void GraphicsContextGLOpenGL::paintToCanvas(const unsigned char* imagePixels, const IntSize& imageSize, const IntSize& canvasSize, GraphicsContext& context)
+RefPtr<NativeImage> GraphicsContextGL::createNativeImageFromPixelBuffer(const GraphicsContextGLAttributes& sourceContextAttributes, Ref<PixelBuffer>&& pixelBuffer)
 {
-    if (!imagePixels || imageSize.isEmpty() || canvasSize.isEmpty())
-        return;
+    ASSERT(!pixelBuffer->size().isEmpty());
 
-    PlatformContextCairo* platformContext = context.platformContext();
-    if (!platformContext)
-        return;
+    // Convert RGBA to BGRA. BGRA is CAIRO_FORMAT_ARGB32 on little-endian architectures.
+    Ref protectedPixelBuffer = pixelBuffer;
+    size_t totalBytes = pixelBuffer->bytes().size();
+    uint8_t* pixels = pixelBuffer->bytes().data();
+    for (size_t i = 0; i < totalBytes; i += 4)
+        std::swap(pixels[i], pixels[i + 2]);
 
-    cairo_t* cr = platformContext->cr();
-    platformContext->save();
+    if (!sourceContextAttributes.premultipliedAlpha) {
+        for (size_t i = 0; i < totalBytes; i += 4) {
+            pixels[i + 0] = std::min(255, pixels[i + 0] * pixels[i + 3] / 255);
+            pixels[i + 1] = std::min(255, pixels[i + 1] * pixels[i + 3] / 255);
+            pixels[i + 2] = std::min(255, pixels[i + 2] * pixels[i + 3] / 255);
+        }
+    }
 
-    cairo_rectangle(cr, 0, 0, canvasSize.width(), canvasSize.height());
-    cairo_set_operator(cr, CAIRO_OPERATOR_CLEAR);
-    cairo_paint(cr);
-
+    auto imageSize = pixelBuffer->size();
     RefPtr<cairo_surface_t> imageSurface = adoptRef(cairo_image_surface_create_for_data(
-        const_cast<unsigned char*>(imagePixels), CAIRO_FORMAT_ARGB32, imageSize.width(), imageSize.height(), imageSize.width() * 4));
-
-    // OpenGL keeps the pixels stored bottom up, so we need to flip the image here.
-    cairo_translate(cr, 0, imageSize.height());
-    cairo_scale(cr, 1, -1);
-
-    cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
-    cairo_set_source_surface(cr, imageSurface.get(), 0, 0);
-    cairo_rectangle(cr, 0, 0, canvasSize.width(), -canvasSize.height());
-
-    cairo_fill(cr);
-    platformContext->restore();
+        pixels, CAIRO_FORMAT_ARGB32, imageSize.width(), imageSize.height(), imageSize.width() * 4));
+    static cairo_user_data_key_t dataKey;
+    cairo_surface_set_user_data(imageSurface.get(), &dataKey, &protectedPixelBuffer.leakRef(), [](void* buffer) {
+        static_cast<PixelBuffer*>(buffer)->deref();
+    });
+    return NativeImage::create(WTFMove(imageSurface));
 }
 
 } // namespace WebCore
 
-#endif // ENABLE(GRAPHICS_CONTEXT_GL) && USE(CAIRO)
+#endif // ENABLE(WEBGL) && USE(CAIRO)

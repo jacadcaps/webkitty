@@ -28,12 +28,22 @@
 #if PLATFORM(MAC)
 
 #include <pal/system/SystemSleepListener.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
+
+namespace PAL {
+class SystemSleepListenerMac;
+}
+
+namespace WTF {
+template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
+template<> struct IsDeprecatedWeakRefSmartPointerException<PAL::SystemSleepListenerMac> : std::true_type { };
+}
 
 namespace PAL {
 
 class SystemSleepListenerMac : public SystemSleepListener, public CanMakeWeakPtr<SystemSleepListenerMac> {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(SystemSleepListenerMac);
 protected:
     SystemSleepListenerMac(Client&);
     virtual ~SystemSleepListenerMac();

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,108 +30,64 @@
 
 #include "Connection.h"
 #include "GPUConnectionToWebProcessMessages.h"
-#include "GPUProcessConnection.h"
+#include "MediaPlaybackTargetContextSerialized.h"
+#include "RemoteMediaSessionHelperMessages.h"
 #include "RemoteMediaSessionHelperProxyMessages.h"
 #include "WebProcess.h"
 #include <WebCore/MediaPlaybackTargetCocoa.h>
-#include <WebCore/MediaPlaybackTargetContext.h>
-#include <WebCore/MediaPlaybackTargetMock.h>
 
 namespace WebKit {
 
 using namespace WebCore;
 
-RemoteMediaSessionHelper::RemoteMediaSessionHelper(WebProcess& process)
-    : m_process(process)
-{
-    connection().send(Messages::GPUConnectionToWebProcess::EnsureMediaSessionHelper(), { });
-}
+RemoteMediaSessionHelper::RemoteMediaSessionHelper() = default;
 
-IPC::Connection& RemoteMediaSessionHelper::connection()
+IPC::Connection& RemoteMediaSessionHelper::ensureConnection()
 {
-    return m_process.ensureGPUProcessConnection().connection();
-}
-
-void RemoteMediaSessionHelper::startMonitoringWirelessRoutes()
-{
-    if (m_monitoringWirelessRoutesCount++)
-        return;
-
-    connection().send(Messages::RemoteMediaSessionHelperProxy::StartMonitoringWirelessRoutes(), { });
-}
-
-void RemoteMediaSessionHelper::stopMonitoringWirelessRoutes()
-{
-    if (!m_monitoringWirelessRoutesCount) {
-        ASSERT_NOT_REACHED();
-        return;
+    auto gpuProcessConnection = m_gpuProcessConnection.get();
+    if (!gpuProcessConnection) {
+        gpuProcessConnection = &WebProcess::singleton().ensureGPUProcessConnection();
+        m_gpuProcessConnection = gpuProcessConnection;
+        gpuProcessConnection->addClient(*this);
+        gpuProcessConnection->messageReceiverMap().addMessageReceiver(Messages::RemoteMediaSessionHelper::messageReceiverName(), *this);
+        gpuProcessConnection->connection().send(Messages::GPUConnectionToWebProcess::EnsureMediaSessionHelper(), { });
     }
+    return gpuProcessConnection->connection();
+}
 
-    if (--m_monitoringWirelessRoutesCount)
+void RemoteMediaSessionHelper::gpuProcessConnectionDidClose(GPUProcessConnection& gpuProcessConnection)
+{
+    gpuProcessConnection.messageReceiverMap().removeMessageReceiver(*this);
+    m_gpuProcessConnection = nullptr;
+}
+
+void RemoteMediaSessionHelper::startMonitoringWirelessRoutesInternal()
+{
+    ensureConnection().send(Messages::RemoteMediaSessionHelperProxy::StartMonitoringWirelessRoutes(), { });
+}
+
+void RemoteMediaSessionHelper::stopMonitoringWirelessRoutesInternal()
+{
+    ensureConnection().send(Messages::RemoteMediaSessionHelperProxy::StopMonitoringWirelessRoutes(), { });
+}
+
+void RemoteMediaSessionHelper::providePresentingApplicationPID(int pid, ShouldOverride shouldOverride)
+{
+    ensureConnection().send(Messages::RemoteMediaSessionHelperProxy::ProvidePresentingApplicationPID(pid, shouldOverride), { });
+}
+
+void RemoteMediaSessionHelper::activeVideoRouteDidChange(SupportsAirPlayVideo supportsAirPlayVideo, MediaPlaybackTargetContextSerialized&& targetContext)
+{
+    WTF::switchOn(targetContext.platformContext(), [](WebCore::MediaPlaybackTargetContextMock&&) {
         return;
-
-    connection().send(Messages::RemoteMediaSessionHelperProxy::StopMonitoringWirelessRoutes(), { });
+    }, [&](WebCore::MediaPlaybackTargetContextCocoa&& context) {
+        WebCore::MediaSessionHelper::activeVideoRouteDidChange(supportsAirPlayVideo, WebCore::MediaPlaybackTargetCocoa::create(WTFMove(context)));
+    });
 }
 
-void RemoteMediaSessionHelper::providePresentingApplicationPID(int pid)
+void RemoteMediaSessionHelper::activeAudioRouteSupportsSpatialPlaybackDidChange(SupportsSpatialAudioPlayback supportsSpatialAudioPlayback)
 {
-    connection().send(Messages::RemoteMediaSessionHelperProxy::ProvidePresentingApplicationPID(pid), { });
-}
-
-void RemoteMediaSessionHelper::applicationWillEnterForeground(SuspendedUnderLock suspendedUnderLock)
-{
-    for (auto& client : m_clients)
-        client.applicationWillEnterForeground(suspendedUnderLock);
-}
-
-void RemoteMediaSessionHelper::applicationDidEnterBackground(SuspendedUnderLock suspendedUnderLock)
-{
-    for (auto& client : m_clients)
-        client.applicationDidEnterBackground(suspendedUnderLock);
-}
-
-void RemoteMediaSessionHelper::applicationWillBecomeInactive()
-{
-    for (auto& client : m_clients)
-        client.applicationWillBecomeInactive();
-}
-
-void RemoteMediaSessionHelper::applicationDidBecomeActive()
-{
-    for (auto& client : m_clients)
-        client.applicationDidBecomeActive();
-}
-
-void RemoteMediaSessionHelper::externalOutputDeviceAvailableDidChange(HasAvailableTargets hasAvailableTargets)
-{
-    for (auto& client : m_clients)
-        client.externalOutputDeviceAvailableDidChange(hasAvailableTargets);
-}
-
-void RemoteMediaSessionHelper::isPlayingToAutomotiveHeadUnitDidChange(PlayingToAutomotiveHeadUnit playingToAutomotiveHeadUnit)
-{
-    for (auto& client : m_clients)
-        client.isPlayingToAutomotiveHeadUnitDidChange(playingToAutomotiveHeadUnit);
-}
-
-void RemoteMediaSessionHelper::activeAudioRouteDidChange(ShouldPause shouldPause)
-{
-    for (auto& client : m_clients)
-        client.activeAudioRouteDidChange(shouldPause);
-}
-
-void RemoteMediaSessionHelper::activeVideoRouteDidChange(SupportsAirPlayVideo supportsAirPlayVideo, MediaPlaybackTargetContext&& targetContext)
-{
-    RefPtr<MediaPlaybackTarget> targetObject;
-    if (targetContext.type() == MediaPlaybackTargetContext::AVOutputContextType)
-        targetObject = WebCore::MediaPlaybackTargetCocoa::create(targetContext.avOutputContext());
-    else {
-        ASSERT_NOT_REACHED();
-        return;
-    }
-
-    for (auto& client : m_clients)
-        client.activeVideoRouteDidChange(supportsAirPlayVideo, targetObject.copyRef().releaseNonNull());
+    WebCore::MediaSessionHelper::activeAudioRouteSupportsSpatialPlaybackDidChange(supportsSpatialAudioPlayback);
 }
 
 }

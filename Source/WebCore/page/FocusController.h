@@ -26,11 +26,14 @@
 #pragma once
 
 #include "ActivityState.h"
-#include "FocusDirection.h"
+#include "FocusOptions.h"
 #include "LayoutRect.h"
+#include "LocalFrame.h"
 #include "Timer.h"
+#include <wtf/CheckedRef.h>
 #include <wtf/Forward.h>
 #include <wtf/RefPtr.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
@@ -47,21 +50,25 @@ class TreeScope;
 
 struct FocusCandidate;
 
-class FocusController {
-    WTF_MAKE_FAST_ALLOCATED;
+class FocusController final : public CanMakeCheckedPtr<FocusController> {
+    WTF_MAKE_TZONE_ALLOCATED(FocusController);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(FocusController);
 public:
-    explicit FocusController(Page&, OptionSet<ActivityState::Flag>);
+    explicit FocusController(Page&, OptionSet<ActivityState>);
 
-    WEBCORE_EXPORT void setFocusedFrame(Frame*);
+    enum class BroadcastFocusedFrame : bool { No, Yes };
+    WEBCORE_EXPORT void setFocusedFrame(Frame*, BroadcastFocusedFrame = BroadcastFocusedFrame::Yes);
     Frame* focusedFrame() const { return m_focusedFrame.get(); }
-    WEBCORE_EXPORT Frame& focusedOrMainFrame() const;
+    LocalFrame* focusedLocalFrame() const { return dynamicDowncast<LocalFrame>(m_focusedFrame.get()); }
+    WEBCORE_EXPORT LocalFrame* focusedOrMainFrame() const;
+    RefPtr<LocalFrame> protectedFocusedOrMainFrame() const { return focusedOrMainFrame(); }
 
     WEBCORE_EXPORT bool setInitialFocus(FocusDirection, KeyboardEvent*);
     bool advanceFocus(FocusDirection, KeyboardEvent*, bool initialFocus = false);
 
-    WEBCORE_EXPORT bool setFocusedElement(Element*, Frame&, FocusDirection = FocusDirectionNone);
+    WEBCORE_EXPORT bool setFocusedElement(Element*, LocalFrame&, const FocusOptions& = { });
 
-    void setActivityState(OptionSet<ActivityState::Flag>);
+    void setActivityState(OptionSet<ActivityState>);
 
     WEBCORE_EXPORT void setActive(bool);
     bool isActive() const { return m_activityState.contains(ActivityState::WindowIsActive); }
@@ -116,11 +123,12 @@ private:
     void findFocusCandidateInContainer(Node& container, const LayoutRect& startingRect, FocusDirection, KeyboardEvent*, FocusCandidate& closest);
 
     void focusRepaintTimerFired();
+    Ref<Page> protectedPage() const;
 
-    Page& m_page;
-    RefPtr<Frame> m_focusedFrame;
+    WeakRef<Page> m_page;
+    WeakPtr<Frame> m_focusedFrame;
     bool m_isChangingFocusedFrame;
-    OptionSet<ActivityState::Flag> m_activityState;
+    OptionSet<ActivityState> m_activityState;
 
     Timer m_focusRepaintTimer;
     MonotonicTime m_focusSetTime;

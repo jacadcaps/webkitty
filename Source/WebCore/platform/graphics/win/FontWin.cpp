@@ -26,15 +26,6 @@
 #include "config.h"
 #include "FontCascade.h"
 
-#include "Font.h"
-#include "GlyphBuffer.h"
-#include "GraphicsContext.h"
-#include "IntRect.h"
-#include "LayoutRect.h"
-#include "Logging.h"
-#include "TextRun.h"
-#include <wtf/MathExtras.h>
-
 namespace WebCore {
 
 bool FontCascade::canReturnFallbackFontsForComplexText()
@@ -47,4 +38,9 @@ bool FontCascade::canExpandAroundIdeographsInComplexText()
     return false;
 }
 
+bool FontCascade::canUseGlyphDisplayList(const RenderStyle&)
+{
+    return true;
 }
+
+} // namespace WebCore

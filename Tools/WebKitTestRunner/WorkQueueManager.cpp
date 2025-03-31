@@ -27,7 +27,9 @@
 #include "WorkQueueManager.h"
 
 #include "PlatformWebView.h"
+#include "StringFunctions.h"
 #include "TestController.h"
+#include "TestInvocation.h"
 #include <WebKit/WKPage.h>
 #include <WebKit/WKPagePrivate.h>
 #include <WebKit/WKRetainPtr.h>
@@ -66,22 +68,17 @@ public:
     virtual Type invoke() const = 0;
 };
 
-// Required by WKPageRunJavaScriptInMainFrame().
-static void runJavaScriptFunction(WKSerializedScriptValueRef, WKErrorRef, void*)
-{
-}
-
 template <WorkQueueItem::Type type>
 class ScriptItem : public WorkQueueItem {
 public:
     explicit ScriptItem(const String& script)
-        : m_script(adoptWK(WKStringCreateWithUTF8CString(script.utf8().data())))
+        : m_script(toWK(script))
     {
     }
 
     WorkQueueItem::Type invoke() const
     {
-        WKPageRunJavaScriptInMainFrame(mainPage(), m_script.get(), 0, runJavaScriptFunction);
+        WKPageEvaluateJavaScriptInMainFrame(mainPage(), m_script.get(), nullptr, nullptr);
         return type;
     }
 
@@ -126,12 +123,12 @@ bool WorkQueueManager::processWorkQueue()
     return !m_processing;
 }
 
-void WorkQueueManager::queueLoad(const String& url, const String& target, bool shouldOpenExternalURLs)
+void WorkQueueManager::queueLoad(const String& relativeURL, const String& target, bool shouldOpenExternalURLs)
 {
     class LoadItem : public WorkQueueItem {
     public:
-        LoadItem(const String& url, const String& target, bool shouldOpenExternalURLs)
-            : m_url(adoptWK(WKURLCreateWithUTF8CString(url.utf8().data())))
+        LoadItem(WKRetainPtr<WKURLRef>&& url, const String& target, bool shouldOpenExternalURLs)
+            : m_url(WTFMove(url))
             , m_target(target)
             , m_shouldOpenExternalURLs(shouldOpenExternalURLs)
         {
@@ -153,7 +150,9 @@ void WorkQueueManager::queueLoad(const String& url, const String& target, bool s
         bool m_shouldOpenExternalURLs;
     };
 
-    enqueue(new LoadItem(url, target, shouldOpenExternalURLs));
+    auto baseURL = adoptWK(WKFrameCopyURL(WKPageGetMainFrame(mainPage())));
+    auto url = adoptWK(WKURLCreateWithBaseURL(baseURL.get(), relativeURL.utf8().data()));
+    enqueue(new LoadItem(WTFMove(url), target, shouldOpenExternalURLs));
 }
 
 void WorkQueueManager::queueLoadHTMLString(const String& content, const String& baseURL, const String& unreachableURL)
@@ -161,7 +160,7 @@ void WorkQueueManager::queueLoadHTMLString(const String& content, const String& 
     class LoadHTMLStringItem : public WorkQueueItem {
     public:
         LoadHTMLStringItem(const String& content, const String& baseURL, const String& unreachableURL)
-            : m_content(adoptWK(WKStringCreateWithUTF8CString(content.utf8().data())))
+            : m_content(toWK(content))
             , m_baseURL(adoptWK(WKURLCreateWithUTF8CString(baseURL.utf8().data())))
             , m_unreachableURL(adoptWK(WKURLCreateWithUTF8CString(unreachableURL.utf8().data())))
         {
@@ -197,7 +196,10 @@ void WorkQueueManager::queueReload()
     public:
         WorkQueueItem::Type invoke() const
         {
-            WKPageReload(mainPage());
+            if (auto* currentInvocation = TestController::singleton().currentInvocation(); currentInvocation && currentInvocation->options().runInCrossOriginFrame())
+                currentInvocation->loadTestInCrossOriginIframe();
+            else
+                WKPageReload(mainPage());
             return WorkQueueItem::Loading;
         }
     };

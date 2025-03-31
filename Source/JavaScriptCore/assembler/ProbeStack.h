@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,16 +28,19 @@
 #include "CPU.h"
 #include <wtf/HashMap.h>
 #include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Threading.h>
 
-#if ENABLE(MASM_PROBE)
+#if ENABLE(ASSEMBLER)
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
 namespace Probe {
 
 class Page {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(Page);
 public:
     Page(void* baseAddress);
 
@@ -63,7 +66,7 @@ public:
     template<typename T>
     T get(void* logicalBaseAddress, ptrdiff_t offset)
     {
-        return get<T>(reinterpret_cast<uint8_t*>(logicalBaseAddress) + offset);
+        return get<T>(static_cast<uint8_t*>(logicalBaseAddress) + offset);
     }
 
     template<typename T>
@@ -73,7 +76,7 @@ public:
             m_dirtyBits |= dirtyBitFor(logicalAddress);
         else {
             size_t numberOfChunks = roundUpToMultipleOf<sizeof(T)>(s_chunkSize) / s_chunkSize;
-            uint8_t* dirtyAddress = reinterpret_cast<uint8_t*>(logicalAddress);
+            uint8_t* dirtyAddress = static_cast<uint8_t*>(logicalAddress);
             for (size_t i = 0; i < numberOfChunks; ++i, dirtyAddress += s_chunkSize)
                 m_dirtyBits |= dirtyBitFor(dirtyAddress);
         }
@@ -83,7 +86,7 @@ public:
     template<typename T>
     void set(void* logicalBaseAddress, ptrdiff_t offset, T value)
     {
-        set<T>(reinterpret_cast<uint8_t*>(logicalBaseAddress) + offset, value);
+        set<T>(static_cast<uint8_t*>(logicalBaseAddress) + offset, value);
     }
 
     bool hasWritesToFlush() const { return !!m_dirtyBits; }
@@ -104,7 +107,7 @@ private:
 
     void* physicalAddressFor(void* logicalAddress)
     {
-        return reinterpret_cast<uint8_t*>(logicalAddress) + m_physicalAddressOffset;
+        return static_cast<uint8_t*>(logicalAddress) + m_physicalAddressOffset;
     }
 
     void flushWrites();
@@ -138,12 +141,14 @@ private:
     static_assert(s_pageSize > s_chunkSize, "bad pageSize or chunkSize");
     static_assert(s_chunkSize == (1 << s_chunkSizeShift), "bad chunkSizeShift");
 
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     typedef typename std::aligned_storage<s_pageSize, std::alignment_of<uintptr_t>::value>::type Buffer;
+    ALLOW_DEPRECATED_DECLARATIONS_END
     Buffer m_buffer;
 };
 
 class Stack {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(Stack);
 public:
     Stack()
         : m_stackBounds(Thread::current().stack())
@@ -166,7 +171,7 @@ public:
     template<typename T>
     T get(void* logicalBaseAddress, ptrdiff_t offset)
     {
-        return get<T>(reinterpret_cast<uint8_t*>(logicalBaseAddress) + offset);
+        return get<T>(static_cast<uint8_t*>(logicalBaseAddress) + offset);
     }
 
     template<typename T>
@@ -179,7 +184,7 @@ public:
     template<typename T>
     void set(void* logicalBaseAddress, ptrdiff_t offset, T value)
     {
-        set<T>(reinterpret_cast<uint8_t*>(logicalBaseAddress) + offset, value);
+        set<T>(static_cast<uint8_t*>(logicalBaseAddress) + offset, value);
     }
 
     JS_EXPORT_PRIVATE Page* ensurePageFor(void* address);
@@ -209,7 +214,7 @@ private:
     Page* m_lastAccessedPage { nullptr };
 
     StackBounds m_stackBounds;
-    HashMap<void*, std::unique_ptr<Page>> m_pages;
+    UncheckedKeyHashMap<void*, std::unique_ptr<Page>> m_pages;
 
 #if ASSERT_ENABLED
     bool m_isValid { true };
@@ -219,4 +224,6 @@ private:
 } // namespace Probe
 } // namespace JSC
 
-#endif // ENABLE(MASM_PROBE)
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+
+#endif // ENABLE(ASSEMBLER)

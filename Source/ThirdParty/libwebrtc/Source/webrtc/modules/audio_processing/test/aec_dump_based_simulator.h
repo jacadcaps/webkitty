@@ -11,20 +11,22 @@
 #ifndef MODULES_AUDIO_PROCESSING_TEST_AEC_DUMP_BASED_SIMULATOR_H_
 #define MODULES_AUDIO_PROCESSING_TEST_AEC_DUMP_BASED_SIMULATOR_H_
 
+#include <cstdio>
 #include <fstream>
-#include <string>
+#include <memory>
 
+#include "absl/base/nullability.h"
+#include "api/audio/audio_processing.h"
+#include "api/scoped_refptr.h"
+#include "common_audio/channel_buffer.h"
 #include "modules/audio_processing/test/audio_processing_simulator.h"
-#include "rtc_base/constructor_magic.h"
-#include "rtc_base/ignore_wundef.h"
+#include "modules/audio_processing/test/test_utils.h"
 
-RTC_PUSH_IGNORING_WUNDEF()
 #ifdef WEBRTC_ANDROID_PLATFORM_BUILD
 #include "external/webrtc/webrtc/modules/audio_processing/debug.pb.h"
 #else
 #include "modules/audio_processing/debug.pb.h"
 #endif
-RTC_POP_IGNORING_WUNDEF()
 
 namespace webrtc {
 namespace test {
@@ -32,17 +34,27 @@ namespace test {
 // Used to perform an audio processing simulation from an aec dump.
 class AecDumpBasedSimulator final : public AudioProcessingSimulator {
  public:
-  AecDumpBasedSimulator(const SimulationSettings& settings,
-                        std::unique_ptr<AudioProcessingBuilder> ap_builder);
+  AecDumpBasedSimulator(
+      const SimulationSettings& settings,
+      absl::Nonnull<scoped_refptr<AudioProcessing>> audio_processing);
+
+  AecDumpBasedSimulator() = delete;
+  AecDumpBasedSimulator(const AecDumpBasedSimulator&) = delete;
+  AecDumpBasedSimulator& operator=(const AecDumpBasedSimulator&) = delete;
+
   ~AecDumpBasedSimulator() override;
 
   // Processes the messages in the aecdump file.
   void Process() override;
 
+  // Analyzes the data in the aecdump file and reports the resulting statistics.
+  void Analyze() override;
+
  private:
   void HandleEvent(const webrtc::audioproc::Event& event_msg,
-                   int* num_forward_chunks_processed);
-  void HandleMessage(const webrtc::audioproc::Init& msg);
+                   int& num_forward_chunks_processed,
+                   int& init_index);
+  void HandleMessage(const webrtc::audioproc::Init& msg, int init_index);
   void HandleMessage(const webrtc::audioproc::Stream& msg);
   void HandleMessage(const webrtc::audioproc::ReverseStream& msg);
   void HandleMessage(const webrtc::audioproc::Config& msg);
@@ -64,7 +76,7 @@ class AecDumpBasedSimulator final : public AudioProcessingSimulator {
   bool artificial_nearend_eof_reported_ = false;
   InterfaceType interface_used_ = InterfaceType::kNotSpecified;
   std::unique_ptr<std::ofstream> call_order_output_file_;
-  RTC_DISALLOW_IMPLICIT_CONSTRUCTORS(AecDumpBasedSimulator);
+  bool finished_processing_specified_init_block_ = false;
 };
 
 }  // namespace test

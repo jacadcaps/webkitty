@@ -13,20 +13,18 @@
 #include <string>
 #include <utility>
 
+#include "absl/strings/string_view.h"
 #include "modules/audio_coding/audio_network_adaptor/mock/mock_controller.h"
 #include "modules/audio_coding/audio_network_adaptor/mock/mock_debug_dump_writer.h"
 #include "rtc_base/fake_clock.h"
-#include "rtc_base/ignore_wundef.h"
 #include "test/gtest.h"
 
 #if WEBRTC_ENABLE_PROTOBUF
-RTC_PUSH_IGNORING_WUNDEF()
 #ifdef WEBRTC_ANDROID_PLATFORM_BUILD
 #include "external/webrtc/webrtc/modules/audio_coding/audio_network_adaptor/config.pb.h"
 #else
 #include "modules/audio_coding/audio_network_adaptor/config.pb.h"
 #endif
-RTC_POP_IGNORING_WUNDEF()
 #endif
 
 namespace webrtc {
@@ -43,7 +41,7 @@ constexpr int kMinReorderingTimeMs = 200;
 constexpr int kFactor = 100;
 constexpr float kMinReorderingSquareDistance = 1.0f / kFactor / kFactor;
 
-// |kMinUplinkBandwidthBps| and |kMaxUplinkBandwidthBps| are copied from
+// `kMinUplinkBandwidthBps` and `kMaxUplinkBandwidthBps` are copied from
 // controller_manager.cc
 constexpr int kMinUplinkBandwidthBps = 0;
 constexpr int kMaxUplinkBandwidthBps = 120000;
@@ -82,14 +80,14 @@ ControllerManagerStates CreateControllerManager() {
   return states;
 }
 
-// |expected_order| contains the expected indices of all controllers in the
+// `expected_order` contains the expected indices of all controllers in the
 // vector of controllers returned by GetSortedControllers(). A negative index
 // means that we do not care about its exact place, but we do check that it
 // exists in the vector.
 void CheckControllersOrder(
     ControllerManagerStates* states,
-    const absl::optional<int>& uplink_bandwidth_bps,
-    const absl::optional<float>& uplink_packet_loss_fraction,
+    const std::optional<int>& uplink_bandwidth_bps,
+    const std::optional<float>& uplink_packet_loss_fraction,
     const std::vector<int>& expected_order) {
   RTC_DCHECK_EQ(kNumControllers, expected_order.size());
   Controller::NetworkMetrics metrics;
@@ -112,8 +110,8 @@ void CheckControllersOrder(
 TEST(ControllerManagerTest, GetControllersReturnAllControllers) {
   auto states = CreateControllerManager();
   auto check = states.controller_manager->GetControllers();
-  // Verify that controllers in |check| are one-to-one mapped to those in
-  // |mock_controllers_|.
+  // Verify that controllers in `check` are one-to-one mapped to those in
+  // `mock_controllers_`.
   EXPECT_EQ(states.mock_controllers.size(), check.size());
   for (auto& controller : check)
     EXPECT_NE(states.mock_controllers.end(),
@@ -123,9 +121,9 @@ TEST(ControllerManagerTest, GetControllersReturnAllControllers) {
 
 TEST(ControllerManagerTest, ControllersInDefaultOrderOnEmptyNetworkMetrics) {
   auto states = CreateControllerManager();
-  // |network_metrics| are empty, and the controllers are supposed to follow the
+  // `network_metrics` are empty, and the controllers are supposed to follow the
   // default order.
-  CheckControllersOrder(&states, absl::nullopt, absl::nullopt, {0, 1, 2, 3});
+  CheckControllersOrder(&states, std::nullopt, std::nullopt, {0, 1, 2, 3});
 }
 
 TEST(ControllerManagerTest, ControllersWithoutCharPointAtEndAndInDefaultOrder) {
@@ -260,6 +258,14 @@ void AddFrameLengthControllerConfig(
       kChracteristicPacketLossFraction[1]);
 }
 
+void AddFrameLengthControllerV2Config(
+    audio_network_adaptor::config::ControllerManager* config) {
+  auto controller =
+      config->add_controllers()->mutable_frame_length_controller_v2();
+  controller->set_min_payload_bitrate_bps(16000);
+  controller->set_use_slow_adaptation(true);
+}
+
 constexpr int kInitialBitrateBps = 24000;
 constexpr size_t kIntialChannelsToEncode = 1;
 constexpr bool kInitialDtxEnabled = true;
@@ -268,7 +274,7 @@ constexpr int kInitialFrameLengthMs = 60;
 constexpr int kMinBitrateBps = 6000;
 
 ControllerManagerStates CreateControllerManager(
-    const std::string& config_string) {
+    absl::string_view config_string) {
   ControllerManagerStates states;
   constexpr size_t kNumEncoderChannels = 2;
   const std::vector<int> encoder_frame_lengths_ms = {20, 60};
@@ -296,7 +302,7 @@ void CheckControllersOrder(const std::vector<Controller*>& controllers,
 
   for (size_t i = 0; i < controllers.size(); ++i) {
     AudioEncoderRuntimeConfig encoder_config;
-    // We check the order of |controllers| by judging their decisions.
+    // We check the order of `controllers` by judging their decisions.
     controllers[i]->MakeDecision(&encoder_config);
 
     // Since controllers are not provided with network metrics, they give the
@@ -463,6 +469,14 @@ TEST(ControllerManagerTest, CreateFromConfigStringAndCheckReordering) {
                             ControllerType::FRAME_LENGTH, ControllerType::FEC,
                             ControllerType::CHANNEL, ControllerType::DTX,
                             ControllerType::BIT_RATE});
+}
+
+TEST(ControllerManagerTest, CreateFrameLengthControllerV2) {
+  audio_network_adaptor::config::ControllerManager config;
+  AddFrameLengthControllerV2Config(&config);
+  auto states = CreateControllerManager(config.SerializeAsString());
+  auto controllers = states.controller_manager->GetControllers();
+  EXPECT_TRUE(controllers.size() == 1);
 }
 #endif  // WEBRTC_ENABLE_PROTOBUF
 

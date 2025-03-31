@@ -28,8 +28,8 @@
 
 #if PLATFORM(IOS_FAMILY)
 
+#import "MessageSenderInlines.h"
 #import "SmartMagnificationControllerMessages.h"
-#import "UserInterfaceIdiom.h"
 #import "ViewGestureGeometryCollectorMessages.h"
 #import "WKContentView.h"
 #import "WKScrollView.h"
@@ -37,6 +37,8 @@
 #import "WebPageMessages.h"
 #import "WebPageProxy.h"
 #import "WebProcessProxy.h"
+#import <pal/system/ios/UserInterfaceIdiom.h>
+#import <wtf/TZoneMallocInlines.h>
 
 static const float smartMagnificationPanScrollThresholdZoomedOut = 60;
 static const float smartMagnificationPanScrollThresholdIPhone = 100;
@@ -49,21 +51,30 @@ static const double smartMagnificationMinimumScale = 0;
 namespace WebKit {
 using namespace WebCore;
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(SmartMagnificationController);
+
+Ref<SmartMagnificationController> SmartMagnificationController::create(WKContentView *contentView)
+{
+    return adoptRef(*new SmartMagnificationController(contentView));
+}
+
 SmartMagnificationController::SmartMagnificationController(WKContentView *contentView)
     : m_webPageProxy(*contentView.page)
     , m_contentView(contentView)
 {
-    m_webPageProxy.process().addMessageReceiver(Messages::SmartMagnificationController::messageReceiverName(), m_webPageProxy.webPageID(), *this);
+    m_webPageProxy->protectedLegacyMainFrameProcess()->addMessageReceiver(Messages::SmartMagnificationController::messageReceiverName(), m_webPageProxy->webPageIDInMainFrameProcess(), *this);
 }
 
 SmartMagnificationController::~SmartMagnificationController()
 {
-    m_webPageProxy.process().removeMessageReceiver(Messages::SmartMagnificationController::messageReceiverName(), m_webPageProxy.webPageID());
+    if (RefPtr page = m_webPageProxy.get())
+        page->protectedLegacyMainFrameProcess()->removeMessageReceiver(Messages::SmartMagnificationController::messageReceiverName(), page->webPageIDInMainFrameProcess());
 }
 
 void SmartMagnificationController::handleSmartMagnificationGesture(FloatPoint origin)
 {
-    m_webPageProxy.send(Messages::ViewGestureGeometryCollector::CollectGeometryForSmartMagnificationGesture(origin));
+    if (RefPtr page = m_webPageProxy.get())
+        page->protectedLegacyMainFrameProcess()->send(Messages::ViewGestureGeometryCollector::CollectGeometryForSmartMagnificationGesture(origin), page->webPageIDInMainFrameProcess());
 }
 
 void SmartMagnificationController::handleResetMagnificationGesture(FloatPoint origin)
@@ -103,26 +114,30 @@ double SmartMagnificationController::zoomFactorForTargetRect(FloatRect targetRec
     return targetScale;
 }
 
-void SmartMagnificationController::didCollectGeometryForSmartMagnificationGesture(FloatPoint origin, FloatRect targetRect, FloatRect visibleContentRect, bool fitEntireRect, double viewportMinimumScale, double viewportMaximumScale)
+void SmartMagnificationController::didCollectGeometryForSmartMagnificationGesture(FloatPoint origin, FloatRect absoluteTargetRect, FloatRect visibleContentRect, bool fitEntireRect, double viewportMinimumScale, double viewportMaximumScale)
 {
-    if (targetRect.isEmpty()) {
+    if (absoluteTargetRect.isEmpty()) {
         // FIXME: If we don't zoom, send the tap along to text selection (see <rdar://problem/6810344>).
         [m_contentView _zoomToInitialScaleWithOrigin:origin];
         return;
     }
-    auto [adjustedTargetRect, minimumScale, maximumScale] = smartMagnificationTargetRectAndZoomScales(targetRect, viewportMinimumScale, viewportMaximumScale, !fitEntireRect);
+    RefPtr page = m_webPageProxy.get();
+    if (!page)
+        return;
+
+    auto [adjustedTargetRect, minimumScale, maximumScale] = smartMagnificationTargetRectAndZoomScales(absoluteTargetRect, viewportMinimumScale, viewportMaximumScale, !fitEntireRect);
 
     // FIXME: Check if text selection wants to consume the double tap before we attempt magnification.
 
     // If the content already fits in the scroll view and we're already zoomed in to the target scale,
     // it is most likely that the user intended to scroll, so use a small distance threshold to initiate panning.
     float minimumScrollDistance;
-    if ([m_contentView bounds].size.width <= m_webPageProxy.unobscuredContentRect().width())
+    if ([m_contentView bounds].size.width <= page->unobscuredContentRect().width())
         minimumScrollDistance = smartMagnificationPanScrollThresholdZoomedOut;
-    else if (currentUserInterfaceIdiomIsPad())
-        minimumScrollDistance = smartMagnificationPanScrollThresholdIPad;
-    else
+    else if (PAL::currentUserInterfaceIdiomIsSmallScreen())
         minimumScrollDistance = smartMagnificationPanScrollThresholdIPhone;
+    else
+        minimumScrollDistance = smartMagnificationPanScrollThresholdIPad;
 
     // For replaced elements like images, we want to fit the whole element
     // in the view, so scale it down enough to make both dimensions fit if possible.

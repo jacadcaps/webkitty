@@ -27,22 +27,51 @@
 
 #if PLATFORM(IOS_FAMILY) || (PLATFORM(MAC) && ENABLE(VIDEO_PRESENTATION_MODE))
 
+#include "NowPlayingMetadataObserver.h"
+#include "PlatformMediaSession.h"
+#include "VideoReceiverEndpoint.h"
+#include <wtf/CheckedRef.h>
 #include <wtf/Forward.h>
 #include <wtf/Ref.h>
 #include <wtf/Vector.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
+class PlaybackSessionModel;
+class PlaybackSessionModelClient;
+}
+
+namespace WebCore {
 
 class TimeRanges;
 class PlaybackSessionModelClient;
 struct MediaSelectionOption;
+struct SpatialVideoMetadata;
+
+enum class AudioSessionSoundStageSize : uint8_t;
+
+enum class PlaybackSessionModelExternalPlaybackTargetType : uint8_t {
+    TargetTypeNone,
+    TargetTypeAirPlay,
+    TargetTypeTVOut
+};
+
+enum class PlaybackSessionModelPlaybackState : uint8_t {
+    Playing = 1 << 0,
+    Stalled = 1 << 1,
+};
 
 class PlaybackSessionModel : public CanMakeWeakPtr<PlaybackSessionModel> {
 public:
     virtual ~PlaybackSessionModel() { };
     virtual void addClient(PlaybackSessionModelClient&) = 0;
     virtual void removeClient(PlaybackSessionModelClient&) = 0;
+
+    // CheckedPtr interface
+    virtual uint32_t checkedPtrCount() const = 0;
+    virtual uint32_t checkedPtrCountWithoutThreadCheck() const = 0;
+    virtual void incrementCheckedPtrCount() const = 0;
+    virtual void decrementCheckedPtrCount() const = 0;
 
     virtual void play() = 0;
     virtual void pause() = 0;
@@ -54,23 +83,45 @@ public:
     virtual void beginScanningForward() = 0;
     virtual void beginScanningBackward() = 0;
     virtual void endScanning() = 0;
+    virtual void setDefaultPlaybackRate(double) = 0;
+    virtual void setPlaybackRate(double) = 0;
     virtual void selectAudioMediaOption(uint64_t index) = 0;
     virtual void selectLegibleMediaOption(uint64_t index) = 0;
     virtual void togglePictureInPicture() = 0;
+    virtual void enterInWindowFullscreen() = 0;
+    virtual void exitInWindowFullscreen() = 0;
+    virtual void setPlayerIdentifierForVideoElement() = 0;
+    virtual void enterFullscreen() = 0;
+    virtual void exitFullscreen() = 0;
     virtual void toggleMuted() = 0;
     virtual void setMuted(bool) = 0;
     virtual void setVolume(double) = 0;
     virtual void setPlayingOnSecondScreen(bool) = 0;
+    virtual void sendRemoteCommand(PlatformMediaSession::RemoteControlCommandType, const PlatformMediaSession::RemoteCommandArgument&) { };
+    virtual void setVideoReceiverEndpoint(const VideoReceiverEndpoint&) = 0;
 
-    enum ExternalPlaybackTargetType { TargetTypeNone, TargetTypeAirPlay, TargetTypeTVOut };
+#if HAVE(SPATIAL_TRACKING_LABEL)
+    virtual const String& spatialTrackingLabel() const { return emptyString(); }
+    virtual void setSpatialTrackingLabel(const String&) { }
+#endif
+
+    virtual void addNowPlayingMetadataObserver(const WebCore::NowPlayingMetadataObserver&) { }
+    virtual void removeNowPlayingMetadataObserver(const WebCore::NowPlayingMetadataObserver&) { }
+
+    using ExternalPlaybackTargetType = PlaybackSessionModelExternalPlaybackTargetType;
 
     virtual double playbackStartedTime() const = 0;
     virtual double duration() const = 0;
     virtual double currentTime() const = 0;
     virtual double bufferedTime() const = 0;
+
+    using PlaybackState = PlaybackSessionModelPlaybackState;
+
     virtual bool isPlaying() const = 0;
+    virtual bool isStalled() const = 0;
     virtual bool isScrubbing() const = 0;
-    virtual float playbackRate() const = 0;
+    virtual double defaultPlaybackRate() const = 0;
+    virtual double playbackRate() const = 0;
     virtual Ref<TimeRanges> seekableRanges() const = 0;
     virtual double seekableTimeRangesLastModifiedTime() const = 0;
     virtual double liveUpdateInterval() const = 0;
@@ -87,16 +138,34 @@ public:
     virtual double volume() const = 0;
     virtual bool isPictureInPictureSupported() const = 0;
     virtual bool isPictureInPictureActive() const = 0;
+    virtual bool isInWindowFullscreenActive() const { return false; }
+    virtual AudioSessionSoundStageSize soundStageSize() const = 0;
+    virtual void setSoundStageSize(AudioSessionSoundStageSize) = 0;
+#if ENABLE(LINEAR_MEDIA_PLAYER)
+    virtual bool supportsLinearMediaPlayer() const { return false; }
+#endif
+
+#if !RELEASE_LOG_DISABLED
+    virtual uint64_t logIdentifier() const { return 0; }
+    virtual const Logger* loggerPtr() const { return nullptr; }
+#endif
 };
 
-class PlaybackSessionModelClient {
+class PlaybackSessionModelClient : public CanMakeWeakPtr<PlaybackSessionModelClient> {
 public:
     virtual ~PlaybackSessionModelClient() { };
+
+    // CheckedPtr interface
+    virtual uint32_t checkedPtrCount() const = 0;
+    virtual uint32_t checkedPtrCountWithoutThreadCheck() const = 0;
+    virtual void incrementCheckedPtrCount() const = 0;
+    virtual void decrementCheckedPtrCount() const = 0;
+
     virtual void durationChanged(double) { }
     virtual void currentTimeChanged(double /* currentTime */, double /* anchorTime */) { }
     virtual void bufferedTimeChanged(double) { }
     virtual void playbackStartedTimeChanged(double /* playbackStartedTime */) { }
-    virtual void rateChanged(bool /* isPlaying */, float /* playbackRate */) { }
+    virtual void rateChanged(OptionSet<PlaybackSessionModel::PlaybackState>, double /* playbackRate */, double /* defaultPlaybackRate */) { }
     virtual void seekableRangesChanged(const TimeRanges&, double /* lastModified */, double /* liveInterval */) { }
     virtual void canPlayFastReverseChanged(bool) { }
     virtual void audioMediaSelectionOptionsChanged(const Vector<MediaSelectionOption>& /* options */, uint64_t /* selectedIndex */) { }
@@ -109,10 +178,16 @@ public:
     virtual void volumeChanged(double) { }
     virtual void isPictureInPictureSupportedChanged(bool) { }
     virtual void pictureInPictureActiveChanged(bool) { }
+    virtual void isInWindowFullscreenActiveChanged(bool) { }
+#if ENABLE(LINEAR_MEDIA_PLAYER)
+    virtual void supportsLinearMediaPlayerChanged(bool) { }
+    virtual void spatialVideoMetadataChanged(const std::optional<SpatialVideoMetadata>&) { };
+    virtual void isImmersiveVideoChanged(bool) { };
+#endif
     virtual void ensureControlsManager() { }
     virtual void modelDestroyed() { }
 };
 
-}
+} // namespace WebCore
 
 #endif // PLATFORM(IOS_FAMILY) || (PLATFORM(MAC) && ENABLE(VIDEO_PRESENTATION_MODE))

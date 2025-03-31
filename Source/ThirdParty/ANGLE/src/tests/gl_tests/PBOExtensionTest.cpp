@@ -29,7 +29,7 @@ void main()
 })";
 }  // namespace
 
-class PBOExtensionTest : public ANGLETest
+class PBOExtensionTest : public ANGLETest<>
 {
   protected:
     PBOExtensionTest()
@@ -68,9 +68,9 @@ class PBOExtensionTest : public ANGLETest
         glDeleteProgram(mProgram);
     }
 
-    GLuint mPBO;
-    GLuint mProgram;
-    GLuint mPositionVBO;
+    GLuint mPBO         = 0;
+    GLuint mProgram     = 0;
+    GLuint mPositionVBO = 0;
 };
 
 TEST_P(PBOExtensionTest, PBOWithOtherTarget)

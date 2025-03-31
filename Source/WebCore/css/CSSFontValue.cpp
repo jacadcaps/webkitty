@@ -1,6 +1,6 @@
 /**
  * (C) 1999-2003 Lars Knoll (knoll@kde.org)
- * Copyright (C) 2004, 2005, 2006 Apple Inc.
+ * Copyright (C) 2004-2022 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -17,54 +17,35 @@
  * the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
  * Boston, MA 02110-1301, USA.
  */
+
 #include "config.h"
 #include "CSSFontValue.h"
 
+#include "CSSFontStyleWithAngleValue.h"
+#include "CSSPrimitiveValue.h"
 #include "CSSValueList.h"
 #include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
 
-String CSSFontValue::customCSSText() const
+String CSSFontValue::customCSSText(const CSS::SerializationContext& context) const
 {
     // font variant weight size / line-height family
-
     StringBuilder result;
-
     if (style)
-        result.append(style->cssText());
-    if (variant) {
-        if (!result.isEmpty())
-            result.append(' ');
-        result.append(variant->cssText());
-    }
-    if (weight) {
-        if (!result.isEmpty())
-            result.append(' ');
-        result.append(weight->cssText());
-    }
-    if (stretch) {
-        if (!result.isEmpty())
-            result.append(' ');
-        result.append(stretch->cssText());
-    }
-    if (size) {
-        if (!result.isEmpty())
-            result.append(' ');
-        result.append(size->cssText());
-    }
-    if (lineHeight) {
-        if (!size)
-            result.append(' ');
-        result.append('/');
-        result.append(lineHeight->cssText());
-    }
-    if (family) {
-        if (!result.isEmpty())
-            result.append(' ');
-        result.append(family->cssText());
-    }
-
+        result.append(style->cssText(context));
+    if (variant)
+        result.append(result.isEmpty() ? ""_s : " "_s, variant->cssText(context));
+    if (weight)
+        result.append(result.isEmpty() ? ""_s : " "_s, weight->cssText(context));
+    if (width)
+        result.append(result.isEmpty() ? ""_s : " "_s, width->cssText(context));
+    if (size)
+        result.append(result.isEmpty() ? ""_s : " "_s, size->cssText(context));
+    if (lineHeight)
+        result.append(size ? " / "_s : result.isEmpty() ? ""_s : " "_s, lineHeight->cssText(context));
+    if (family)
+        result.append(result.isEmpty() ? ""_s : " "_s, family->cssText(context));
     return result.toString();
 }
 
@@ -73,10 +54,43 @@ bool CSSFontValue::equals(const CSSFontValue& other) const
     return compareCSSValuePtr(style, other.style)
         && compareCSSValuePtr(variant, other.variant)
         && compareCSSValuePtr(weight, other.weight)
-        && compareCSSValuePtr(stretch, other.stretch)
+        && compareCSSValuePtr(width, other.width)
         && compareCSSValuePtr(size, other.size)
         && compareCSSValuePtr(lineHeight, other.lineHeight)
         && compareCSSValuePtr(family, other.family);
+}
+
+IterationStatus CSSFontValue::customVisitChildren(NOESCAPE const Function<IterationStatus(CSSValue&)>& func) const
+{
+    if (style) {
+        if (func(*style) == IterationStatus::Done)
+            return IterationStatus::Done;
+    }
+    if (variant) {
+        if (func(*variant) == IterationStatus::Done)
+            return IterationStatus::Done;
+    }
+    if (weight) {
+        if (func(*weight) == IterationStatus::Done)
+            return IterationStatus::Done;
+    }
+    if (width) {
+        if (func(*width) == IterationStatus::Done)
+            return IterationStatus::Done;
+    }
+    if (size) {
+        if (func(*size) == IterationStatus::Done)
+            return IterationStatus::Done;
+    }
+    if (lineHeight) {
+        if (func(*lineHeight) == IterationStatus::Done)
+            return IterationStatus::Done;
+    }
+    if (family) {
+        if (func(*family) == IterationStatus::Done)
+            return IterationStatus::Done;
+    }
+    return IterationStatus::Continue;
 }
 
 }

@@ -3,25 +3,26 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
-// This file includes APIs to detect whether certain Apple renderer is availabe for testing.
+// This file includes APIs to detect whether certain Apple renderer is available for testing.
 //
 
 #include "test_utils/angle_test_instantiate_apple.h"
 
 #include "common/apple_platform_utils.h"
+#include "test_utils/angle_test_instantiate.h"
 
 namespace angle
 {
 
-bool IsMetalRendererAvailable()
+bool IsMetalTextureSwizzleAvailable()
 {
-    // NOTE(hqle): This code is currently duplicated with rx::IsMetalDisplayAvailable().
-    // Consider move it to a common source code accessible to both libANGLE and test apps.
-    if (ANGLE_APPLE_AVAILABLE_XCI(10.13, 13.0, 11))
-    {
-        return true;
-    }
+#if ANGLE_PLATFORM_IOS_FAMILY_SIMULATOR
     return false;
+#else
+    // All NVIDIA and older Intel don't support swizzle because they are GPU family 1.
+    // We don't have a way to detect Metal family here, so skip all Intel for now.
+    return !IsIntel() && !IsNVIDIA();
+#endif
 }
 
 }  // namespace angle

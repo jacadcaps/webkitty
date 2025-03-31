@@ -33,12 +33,14 @@
 #include "URLInputType.h"
 
 #include "HTMLInputElement.h"
-#include "HTMLParserIdioms.h"
 #include "InputTypeNames.h"
 #include "LocalizedStrings.h"
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/URL.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(URLInputType);
 
 const AtomString& URLInputType::formControlType() const
 {
@@ -47,7 +49,7 @@ const AtomString& URLInputType::formControlType() const
 
 bool URLInputType::typeMismatchFor(const String& value) const
 {
-    return !value.isEmpty() && !URL(URL(), value).isValid();
+    return !value.isEmpty() && !URL(value).isValid();
 }
 
 bool URLInputType::typeMismatch() const
@@ -61,14 +63,9 @@ String URLInputType::typeMismatchText() const
     return validationMessageTypeMismatchForURLText();
 }
 
-bool URLInputType::isURLField() const
-{
-    return true;
-}
-
 String URLInputType::sanitizeValue(const String& proposedValue) const
 {
-    return stripLeadingAndTrailingHTMLSpaces(BaseTextInputType::sanitizeValue(proposedValue));
+    return BaseTextInputType::sanitizeValue(proposedValue).trim(isASCIIWhitespace);
 }
 
 } // namespace WebCore

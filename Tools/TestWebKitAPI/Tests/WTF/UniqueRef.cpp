@@ -29,7 +29,9 @@
 #include <wtf/Vector.h>
 
 namespace TestWebKitAPI {
-    
+
+namespace UniqueRefTest {
+
 class A {
     WTF_MAKE_FAST_ALLOCATED;
 };
@@ -55,13 +57,9 @@ public:
 };
 class D : public A { };
 
-void function(const UniqueRef<A> a)
-{
-    const A& b = a.get();
-    const A* c = &a;
-    UNUSED_PARAM(b);
-    UNUSED_PARAM(c);
-}
+} // namespace UniqueRefTest
+
+using namespace UniqueRefTest;
 
 TEST(WTF, UniqueRef)
 {
@@ -83,6 +81,9 @@ TEST(WTF, UniqueRef)
     C h(makeUniqueRef<A>());
     C i(makeUniqueRef<D>());
     
+    const UniqueRef<B> k = makeUniqueRef<B>(1, 2, 3);
+    k->a = 4;
+
     UNUSED_PARAM(b);
     UNUSED_PARAM(c);
     UNUSED_PARAM(d);
@@ -92,6 +93,7 @@ TEST(WTF, UniqueRef)
     UNUSED_PARAM(h);
     UNUSED_PARAM(i);
     UNUSED_PARAM(j);
+    UNUSED_PARAM(k);
 }
 
 } // namespace TestWebKitAPI

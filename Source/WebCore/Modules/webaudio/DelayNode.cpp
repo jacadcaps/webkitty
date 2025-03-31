@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010, Google Inc. All rights reserved.
+ * Copyright (C) 2010-2014 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,30 +30,31 @@
 
 #include "DelayOptions.h"
 #include "DelayProcessor.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(DelayNode);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(DelayNode);
 
-const double maximumAllowedDelayTime = 180;
+constexpr double maximumAllowedDelayTime = 180;
 
 inline DelayNode::DelayNode(BaseAudioContext& context, double maxDelayTime)
-    : AudioBasicProcessorNode(context)
+    : AudioBasicProcessorNode(context, NodeTypeDelay)
 {
-    setNodeType(NodeTypeDelay);
     m_processor = makeUnique<DelayProcessor>(context, context.sampleRate(), 1, maxDelayTime);
+
+    // Initialize so that AudioParams can be processed.
+    initialize();
 }
 
 ExceptionOr<Ref<DelayNode>> DelayNode::create(BaseAudioContext& context, const DelayOptions& options)
 {
-    if (context.isStopped())
-        return Exception { InvalidStateError };
+    if (options.maxDelayTime <= 0)
+        return Exception { ExceptionCode::NotSupportedError, "maxDelayTime should be a positive value"_s };
 
-    context.lazyInitialize();
-
-    if (options.maxDelayTime <= 0 || options.maxDelayTime >= maximumAllowedDelayTime)
-        return Exception { NotSupportedError };
+    if (options.maxDelayTime >= maximumAllowedDelayTime || std::isnan(options.maxDelayTime))
+        return Exception { ExceptionCode::NotSupportedError, makeString("maxDelayTime should be less than "_s, maximumAllowedDelayTime) };
 
     auto delayNode = adoptRef(*new DelayNode(context, options.maxDelayTime));
 
@@ -68,7 +69,7 @@ ExceptionOr<Ref<DelayNode>> DelayNode::create(BaseAudioContext& context, const D
 
 AudioParam& DelayNode::delayTime()
 {
-    return static_cast<DelayProcessor&>(*m_processor).delayTime();
+    return downcast<DelayProcessor>(*m_processor).delayTime();
 }
 
 } // namespace WebCore

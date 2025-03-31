@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -34,23 +34,22 @@
 #include <type_traits>
 #include <wtf/Assertions.h>
 #include <wtf/MainThread.h>
-#include <wtf/RandomNumber.h>
 
 namespace JSC {
 
 ALWAYS_INLINE VM& Heap::vm() const
 {
-    return *bitwise_cast<VM*>(bitwise_cast<uintptr_t>(this) - OBJECT_OFFSETOF(VM, heap));
+    return *std::bit_cast<VM*>(std::bit_cast<uintptr_t>(this) - OBJECT_OFFSETOF(VM, heap));
 }
 
-ALWAYS_INLINE Heap* Heap::heap(const HeapCell* cell)
+ALWAYS_INLINE JSC::Heap* Heap::heap(const HeapCell* cell)
 {
     if (!cell)
         return nullptr;
     return cell->heap();
 }
 
-inline Heap* Heap::heap(const JSValue v)
+inline JSC::Heap* Heap::heap(const JSValue v)
 {
     if (!v.isCell())
         return nullptr;
@@ -69,7 +68,8 @@ inline bool Heap::worldIsStopped() const
 
 ALWAYS_INLINE bool Heap::isMarked(const void* rawCell)
 {
-    HeapCell* cell = bitwise_cast<HeapCell*>(rawCell);
+    ASSERT(!m_isMarkingForGCVerifier);
+    HeapCell* cell = std::bit_cast<HeapCell*>(rawCell);
     if (cell->isPreciseAllocation())
         return cell->preciseAllocation().isMarked();
     MarkedBlock& block = cell->markedBlock();
@@ -78,17 +78,17 @@ ALWAYS_INLINE bool Heap::isMarked(const void* rawCell)
 
 ALWAYS_INLINE bool Heap::testAndSetMarked(HeapVersion markingVersion, const void* rawCell)
 {
-    HeapCell* cell = bitwise_cast<HeapCell*>(rawCell);
+    HeapCell* cell = std::bit_cast<HeapCell*>(rawCell);
     if (cell->isPreciseAllocation())
         return cell->preciseAllocation().testAndSetMarked();
     MarkedBlock& block = cell->markedBlock();
-    Dependency dependency = block.aboutToMark(markingVersion);
+    Dependency dependency = block.aboutToMark(markingVersion, cell);
     return block.testAndSetMarked(cell, dependency);
 }
 
 ALWAYS_INLINE size_t Heap::cellSize(const void* rawCell)
 {
-    return bitwise_cast<HeapCell*>(rawCell)->cellSize();
+    return std::bit_cast<HeapCell*>(rawCell)->cellSize();
 }
 
 inline void Heap::writeBarrier(const JSCell* from, JSValue to)
@@ -108,9 +108,9 @@ inline void Heap::writeBarrier(const JSCell* from, JSCell* to)
 #endif
     if (!from)
         return;
-    if (!isWithinThreshold(from->cellState(), barrierThreshold()))
-        return;
     if (LIKELY(!to))
+        return;
+    if (!isWithinThreshold(from->cellState(), barrierThreshold()))
         return;
     writeBarrierSlowPath(from);
 }
@@ -124,27 +124,18 @@ inline void Heap::writeBarrier(const JSCell* from)
         writeBarrierSlowPath(from);
 }
 
-inline void Heap::writeBarrierWithoutFence(const JSCell* from)
-{
-    ASSERT_GC_OBJECT_LOOKS_VALID(const_cast<JSCell*>(from));
-    if (!from)
-        return;
-    if (UNLIKELY(isWithinThreshold(from->cellState(), blackThreshold)))
-        addToRememberedSet(from);
-}
-
 inline void Heap::mutatorFence()
 {
     if (isX86() || UNLIKELY(mutatorShouldBeFenced()))
         WTF::storeStoreFence();
 }
 
-template<typename Functor> inline void Heap::forEachCodeBlock(const Functor& func)
+template<typename Functor> inline void Heap::forEachCodeBlock(NOESCAPE const Functor& func)
 {
     forEachCodeBlockImpl(scopedLambdaRef<void(CodeBlock*)>(func));
 }
 
-template<typename Functor> inline void Heap::forEachCodeBlockIgnoringJITPlans(const AbstractLocker& codeBlockSetLocker, const Functor& func)
+template<typename Functor> inline void Heap::forEachCodeBlockIgnoringJITPlans(const AbstractLocker& codeBlockSetLocker, NOESCAPE const Functor& func)
 {
     forEachCodeBlockIgnoringJITPlansImpl(codeBlockSetLocker, scopedLambdaRef<void(CodeBlock*)>(func));
 }
@@ -214,17 +205,21 @@ inline void Heap::decrementDeferralDepthAndGCIfNeeded()
     }
 }
 
-inline HashSet<MarkedArgumentBuffer*>& Heap::markListSet()
+inline UncheckedKeyHashSet<MarkedVectorBase*>& Heap::markListSet()
 {
-    if (!m_markListSet)
-        m_markListSet = makeUnique<HashSet<MarkedArgumentBuffer*>>();
-    return *m_markListSet;
+    return m_markListSet;
 }
 
-inline void Heap::reportExtraMemoryAllocated(size_t size)
+inline void Heap::reportExtraMemoryAllocated(const JSCell* cell, size_t size)
 {
-    if (size > minExtraMemory) 
-        reportExtraMemoryAllocatedSlowCase(size);
+    if (size > minExtraMemory)
+        reportExtraMemoryAllocatedSlowCase(nullptr, cell, size);
+}
+
+inline void Heap::reportExtraMemoryAllocated(GCDeferralContext* deferralContext, const JSCell* cell, size_t size)
+{
+    if (size > minExtraMemory)
+        reportExtraMemoryAllocatedSlowCase(deferralContext, cell, size);
 }
 
 inline void Heap::deprecatedReportExtraMemory(size_t size)
@@ -236,7 +231,7 @@ inline void Heap::deprecatedReportExtraMemory(size_t size)
 inline void Heap::acquireAccess()
 {
     if constexpr (validateDFGDoesGC)
-        verifyCanGC();
+        vm().verifyCanGC();
 
     if (m_worldState.compareExchangeWeak(0, hasAccessBit))
         return;
@@ -263,7 +258,7 @@ inline bool Heap::mayNeedToStop()
 inline void Heap::stopIfNecessary()
 {
     if constexpr (validateDFGDoesGC)
-        verifyCanGC();
+        vm().verifyCanGC();
 
     if (mayNeedToStop())
         stopIfNecessarySlow();
@@ -274,8 +269,17 @@ void Heap::forEachSlotVisitor(const Func& func)
 {
     func(*m_collectorSlotVisitor);
     func(*m_mutatorSlotVisitor);
-    for (auto& slotVisitor : m_parallelSlotVisitors)
-        func(*slotVisitor);
+    for (auto& visitor : m_parallelSlotVisitors)
+        func(*visitor);
 }
+
+namespace GCClient {
+
+ALWAYS_INLINE VM& Heap::vm() const
+{
+    return *std::bit_cast<VM*>(std::bit_cast<uintptr_t>(this) - OBJECT_OFFSETOF(VM, clientHeap));
+}
+
+} // namespace GCClient
 
 } // namespace JSC

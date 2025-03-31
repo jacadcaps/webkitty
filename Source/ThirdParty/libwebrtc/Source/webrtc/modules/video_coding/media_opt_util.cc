@@ -10,17 +10,19 @@
 
 #include "modules/video_coding/media_opt_util.h"
 
-#include <assert.h>
 #include <math.h>
 
 #include <algorithm>
+#include <memory>
 
+#include "api/field_trials_view.h"
 #include "modules/video_coding/fec_rate_table.h"
 #include "modules/video_coding/internal_defines.h"
 #include "modules/video_coding/utility/simulcast_rate_allocator.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/experiments/rate_control_settings.h"
 #include "rtc_base/numerics/safe_conversions.h"
+#include "system_wrappers/include/clock.h"
 
 namespace webrtc {
 // Max value of loss rates in off-line model
@@ -81,16 +83,17 @@ int VCMProtectionMethod::MaxFramesFec() const {
   return 1;
 }
 
-VCMNackFecMethod::VCMNackFecMethod(int64_t lowRttNackThresholdMs,
+VCMNackFecMethod::VCMNackFecMethod(const FieldTrialsView& field_trials,
+                                   int64_t lowRttNackThresholdMs,
                                    int64_t highRttNackThresholdMs)
-    : VCMFecMethod(),
+    : VCMFecMethod(field_trials),
       _lowRttNackMs(lowRttNackThresholdMs),
       _highRttNackMs(highRttNackThresholdMs),
       _maxFramesFec(1) {
-  assert(lowRttNackThresholdMs >= -1 && highRttNackThresholdMs >= -1);
-  assert(highRttNackThresholdMs == -1 ||
-         lowRttNackThresholdMs <= highRttNackThresholdMs);
-  assert(lowRttNackThresholdMs > -1 || highRttNackThresholdMs == -1);
+  RTC_DCHECK(lowRttNackThresholdMs >= -1 && highRttNackThresholdMs >= -1);
+  RTC_DCHECK(highRttNackThresholdMs == -1 ||
+             lowRttNackThresholdMs <= highRttNackThresholdMs);
+  RTC_DCHECK(lowRttNackThresholdMs > -1 || highRttNackThresholdMs == -1);
   _type = kNackFec;
 }
 
@@ -154,7 +157,7 @@ int VCMNackFecMethod::ComputeMaxFramesFec(
       rtc::saturated_cast<int>(
           2.0f * base_layer_framerate * parameters->rtt / 1000.0f + 0.5f),
       1);
-  // |kUpperLimitFramesFec| is the upper limit on how many frames we
+  // `kUpperLimitFramesFec` is the upper limit on how many frames we
   // allow any FEC to be based on.
   if (max_frames_fec > kUpperLimitFramesFec) {
     max_frames_fec = kUpperLimitFramesFec;
@@ -172,7 +175,7 @@ bool VCMNackFecMethod::BitRateTooLowForFec(
   // The condition should depend on resolution and content. For now, use
   // threshold on bytes per frame, with some effect for the frame size.
   // The condition for turning off FEC is also based on other factors,
-  // such as |_numLayers|, |_maxFramesFec|, and |_rtt|.
+  // such as `_numLayers`, `_maxFramesFec`, and `_rtt`.
   int estimate_bytes_per_frame = 1000 * BitsPerFrame(parameters) / 8;
   int max_bytes_per_frame = kMaxBytesPerFrameForFec;
   int num_pixels = parameters->codecWidth * parameters->codecHeight;
@@ -245,9 +248,8 @@ bool VCMNackMethod::UpdateParameters(
   return true;
 }
 
-VCMFecMethod::VCMFecMethod()
-    : VCMProtectionMethod(),
-      rate_control_settings_(RateControlSettings::ParseFromFieldTrials()) {
+VCMFecMethod::VCMFecMethod(const FieldTrialsView& field_trials)
+    : rate_control_settings_(field_trials) {
   _type = kFec;
 }
 
@@ -384,7 +386,7 @@ bool VCMFecMethod::ProtectionFactor(const VCMProtectionParameters* parameters) {
   indexTableKey = VCM_MIN(indexTableKey, kFecRateTableSize);
 
   // Check on table index
-  assert(indexTableKey < kFecRateTableSize);
+  RTC_DCHECK_LT(indexTableKey, kFecRateTableSize);
 
   // Protection factor for I frame
   codeRateKey = kFecRateTable[indexTableKey];
@@ -490,8 +492,9 @@ bool VCMFecMethod::UpdateParameters(const VCMProtectionParameters* parameters) {
 
   return true;
 }
-VCMLossProtectionLogic::VCMLossProtectionLogic(int64_t nowMs)
-    : _currentParameters(),
+VCMLossProtectionLogic::VCMLossProtectionLogic(const Environment& env)
+    : env_(env),
+      _currentParameters(),
       _rtt(0),
       _lossPr(0.0f),
       _bitRate(0.0f),
@@ -508,7 +511,7 @@ VCMLossProtectionLogic::VCMLossProtectionLogic(int64_t nowMs)
       _codecWidth(704),
       _codecHeight(576),
       _numLayers(1) {
-  Reset(nowMs);
+  Reset(env_.clock().CurrentTime().ms());
 }
 
 VCMLossProtectionLogic::~VCMLossProtectionLogic() {
@@ -525,10 +528,11 @@ void VCMLossProtectionLogic::SetMethod(
       _selectedMethod.reset(new VCMNackMethod());
       break;
     case kFec:
-      _selectedMethod.reset(new VCMFecMethod());
+      _selectedMethod = std::make_unique<VCMFecMethod>(env_.field_trials());
       break;
     case kNackFec:
-      _selectedMethod.reset(new VCMNackFecMethod(kLowRttNackMs, -1));
+      _selectedMethod = std::make_unique<VCMNackFecMethod>(env_.field_trials(),
+                                                           kLowRttNackMs, -1);
       break;
     case kNone:
       _selectedMethod.reset();

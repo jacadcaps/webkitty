@@ -60,10 +60,14 @@ static void okButtonClicked(GtkButton*, WebKitAuthenticationDialog* authDialog)
     WebKitAuthenticationDialogPrivate* priv = authDialog->priv;
     const char* username = gtk_entry_get_text(GTK_ENTRY(priv->loginEntry));
     const char* password = gtk_entry_get_text(GTK_ENTRY(priv->passwordEntry));
+#if USE(GTK4)
+    bool rememberPassword = gtk_check_button_get_active(GTK_CHECK_BUTTON(priv->rememberCheckButton));
+#else
     bool rememberPassword = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(priv->rememberCheckButton));
+#endif
 
     WebCore::CredentialPersistence persistence = rememberPassword && priv->credentialStorageMode == AllowPersistentStorage ?
-        WebCore::CredentialPersistencePermanent : WebCore::CredentialPersistenceForSession;
+        WebCore::CredentialPersistence::Permanent : WebCore::CredentialPersistence::ForSession;
 
     // FIXME: Use a stack allocated WebKitCredential.
     WebKitCredential* credential = webkitCredentialCreate(WebCore::Credential(String::fromUTF8(username), String::fromUTF8(password), persistence));
@@ -98,12 +102,12 @@ static void webkitAuthenticationDialogInitialize(WebKitAuthenticationDialog* aut
     GtkWidget* vBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 20);
 
     GtkWidget* box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-    gtk_widget_add_css_class(box, GTK_STYLE_CLASS_TITLEBAR);
+    gtk_widget_add_css_class(box, "titlebar");
     gtk_widget_set_size_request(box, -1, 16);
     GtkWidget* title = gtk_label_new(_("Authentication Required"));
     gtk_widget_set_margin_top(title, 6);
     gtk_widget_set_margin_bottom(title, 6);
-    gtk_widget_add_css_class(title, GTK_STYLE_CLASS_TITLE);
+    gtk_widget_add_css_class(title, "title");
 #if USE(GTK4)
     gtk_widget_set_hexpand(title, TRUE);
     gtk_widget_set_halign(title, GTK_ALIGN_CENTER);
@@ -178,9 +182,8 @@ static void webkitAuthenticationDialogInitialize(WebKitAuthenticationDialog* aut
 
     // Check button on the HTTP authentication dialog.
     priv->rememberCheckButton = gtk_check_button_new_with_mnemonic(_("_Remember password"));
-#if USE(GTK4)
-    gtk_label_set_line_wrap(GTK_LABEL(gtk_button_get_child(GTK_BUTTON(priv->rememberCheckButton))), TRUE);
-#else
+
+#if !USE(GTK4)
     gtk_label_set_line_wrap(GTK_LABEL(gtk_bin_get_child(GTK_BIN(priv->rememberCheckButton))), TRUE);
 #endif
 
@@ -193,7 +196,7 @@ static void webkitAuthenticationDialogInitialize(WebKitAuthenticationDialog* aut
     GtkWidget* loginLabel = gtk_label_new_with_mnemonic(_("_Username"));
     gtk_label_set_mnemonic_widget(GTK_LABEL(loginLabel), priv->loginEntry);
     gtk_widget_set_halign(loginLabel, GTK_ALIGN_END);
-    gtk_widget_add_css_class(loginLabel, GTK_STYLE_CLASS_DIM_LABEL);
+    gtk_widget_add_css_class(loginLabel, "dim-label");
     gtk_widget_show(loginLabel);
 
     priv->passwordEntry = gtk_entry_new();
@@ -205,7 +208,7 @@ static void webkitAuthenticationDialogInitialize(WebKitAuthenticationDialog* aut
     GtkWidget* passwordLabel = gtk_label_new_with_mnemonic(_("_Password"));
     gtk_label_set_mnemonic_widget(GTK_LABEL(passwordLabel), priv->passwordEntry);
     gtk_widget_set_halign(passwordLabel, GTK_ALIGN_END);
-    gtk_widget_add_css_class(passwordLabel, GTK_STYLE_CLASS_DIM_LABEL);
+    gtk_widget_add_css_class(passwordLabel, "dim-label");
     gtk_widget_show(passwordLabel);
 
     GtkWidget* grid = gtk_grid_new();
@@ -230,7 +233,12 @@ static void webkitAuthenticationDialogInitialize(WebKitAuthenticationDialog* aut
     if (!credentialFromPersistentStorage.isEmpty()) {
         gtk_entry_set_text(GTK_ENTRY(priv->loginEntry), credentialFromPersistentStorage.user().utf8().data());
         gtk_entry_set_text(GTK_ENTRY(priv->passwordEntry), credentialFromPersistentStorage.password().utf8().data());
+
+#if USE(GTK4)
+        gtk_check_button_set_active(GTK_CHECK_BUTTON(priv->rememberCheckButton), TRUE);
+#else
         gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(priv->rememberCheckButton), TRUE);
+#endif
     }
 
 #if USE(GTK4)
@@ -257,6 +265,20 @@ static void webkitAuthenticationDialogInitialize(WebKitAuthenticationDialog* aut
 
     authDialog->priv->authenticationCancelledID = g_signal_connect(authDialog->priv->request.get(), "cancelled", G_CALLBACK(authenticationCancelled), authDialog);
 }
+
+#if USE(GTK4)
+static void webkitAuthenticationDialogUnmap(GtkWidget* widget)
+{
+    if (!gtk_widget_get_mapped(widget))
+        return;
+
+    auto* toplevel = gtk_widget_get_toplevel(GTK_WIDGET(widget));
+    if (WebCore::widgetIsOnscreenToplevelWindow(toplevel))
+        gtk_window_set_default(GTK_WINDOW(toplevel), nullptr);
+
+    GTK_WIDGET_CLASS(webkit_authentication_dialog_parent_class)->unmap(widget);
+}
+#endif
 
 static void webkitAuthenticationDialogMap(GtkWidget* widget)
 {
@@ -291,6 +313,10 @@ static void webkit_authentication_dialog_class_init(WebKitAuthenticationDialogCl
 
     GtkWidgetClass* widgetClass = GTK_WIDGET_CLASS(klass);
     widgetClass->map = webkitAuthenticationDialogMap;
+
+#if USE(GTK4)
+    widgetClass->unmap = webkitAuthenticationDialogUnmap;
+#endif
 }
 
 GtkWidget* webkitAuthenticationDialogNew(WebKitAuthenticationRequest* request, CredentialStorageMode mode)

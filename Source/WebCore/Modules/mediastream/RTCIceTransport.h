@@ -33,34 +33,65 @@
 
 #if ENABLE(WEB_RTC)
 
+#include "ActiveDOMObject.h"
+#include "EventTarget.h"
+#include "RTCIceCandidate.h"
 #include "RTCIceGatheringState.h"
+#include "RTCIceTransportBackend.h"
 #include "RTCIceTransportState.h"
-#include "ScriptWrappable.h"
+#include "RTCPeerConnection.h"
 #include <wtf/RefCounted.h>
 #include <wtf/RefPtr.h>
 
 namespace WebCore {
 
-class RTCIceTransport final : public RefCounted<RTCIceTransport>, public ScriptWrappable {
-    WTF_MAKE_ISO_ALLOCATED(RTCIceTransport);
+class RTCPeerConnection;
+
+class RTCIceTransport : public RefCounted<RTCIceTransport>, public ActiveDOMObject, public EventTarget, public RTCIceTransportBackendClient {
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(RTCIceTransport);
 public:
-    static Ref<RTCIceTransport> create()
-    {
-        return adoptRef(*new RTCIceTransport());
-    }
-    virtual ~RTCIceTransport() = default;
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
+    static Ref<RTCIceTransport> create(ScriptExecutionContext&, UniqueRef<RTCIceTransportBackend>&&, RTCPeerConnection&);
+    ~RTCIceTransport();
 
     RTCIceTransportState state() const { return m_transportState; }
-    void setState(RTCIceTransportState state) { m_transportState = state; }
-
     RTCIceGatheringState gatheringState() const { return m_gatheringState; }
-    void setGatheringState(RTCIceGatheringState state) { m_gatheringState = state; }
+
+    const RTCIceTransportBackend& backend() const { return m_backend.get(); }
+    RefPtr<RTCPeerConnection> connection() const { return m_connection.get(); }
+
+    struct CandidatePair {
+        RefPtr<RTCIceCandidate> local;
+        RefPtr<RTCIceCandidate> remote;
+    };
+    std::optional<CandidatePair> getSelectedCandidatePair();
 
 private:
-    RTCIceTransport() { };
+    RTCIceTransport(ScriptExecutionContext&, UniqueRef<RTCIceTransportBackend>&&, RTCPeerConnection&);
 
+    // EventTarget
+    enum EventTargetInterfaceType eventTargetInterface() const final { return EventTargetInterfaceType::RTCIceTransport; }
+    ScriptExecutionContext* scriptExecutionContext() const final { return ActiveDOMObject::scriptExecutionContext(); }
+    void refEventTarget() final { ref(); }
+    void derefEventTarget() final { deref(); }
+
+    // ActiveDOMObject.
+    void stop() final;
+    bool virtualHasPendingActivity() const final;
+
+    // RTCIceTransportBackendClient
+    void onStateChanged(RTCIceTransportState) final;
+    void onGatheringStateChanged(RTCIceGatheringState) final;
+    void onSelectedCandidatePairChanged(RefPtr<RTCIceCandidate>&&, RefPtr<RTCIceCandidate>&&) final;
+
+    bool m_isStopped { false };
+    UniqueRef<RTCIceTransportBackend> m_backend;
+    WeakPtr<RTCPeerConnection, WeakPtrImplWithEventTargetData> m_connection;
     RTCIceTransportState m_transportState { RTCIceTransportState::New };
     RTCIceGatheringState m_gatheringState { RTCIceGatheringState::New };
+    std::optional<CandidatePair> m_selectedCandidatePair;
 };
 
 } // namespace WebCore

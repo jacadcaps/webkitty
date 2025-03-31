@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,26 +25,33 @@
 
 #pragma once
 
+#include "WebFrameMetrics.h"
+#include <WebCore/CertificateInfo.h>
 #include <WebCore/FrameIdentifier.h>
 #include <WebCore/ResourceRequest.h>
+#include <WebCore/ScriptExecutionContextIdentifier.h>
 #include <WebCore/SecurityOriginData.h>
-
-namespace IPC {
-class Decoder;
-class Encoder;
-}
+#include <wtf/ProcessID.h>
 
 namespace WebKit {
 
-struct FrameInfoData {
-    void encode(IPC::Encoder&) const;
-    static Optional<FrameInfoData> decode(IPC::Decoder&);
+enum class FrameType : bool { Local, Remote };
 
+struct FrameInfoData {
     bool isMainFrame { false };
+    FrameType frameType { FrameType::Local };
     WebCore::ResourceRequest request;
     WebCore::SecurityOriginData securityOrigin;
-    Optional<WebCore::FrameIdentifier> frameID;
-    Optional<WebCore::FrameIdentifier> parentFrameID;
+    String frameName;
+    // FIXME: Make this no longer Markable. That requires fixes in WebAuthN code.
+    Markable<WebCore::FrameIdentifier> frameID;
+    Markable<WebCore::FrameIdentifier> parentFrameID;
+    Markable<WebCore::ScriptExecutionContextIdentifier> documentID;
+    WebCore::CertificateInfo certificateInfo;
+    ProcessID processID;
+    bool isFocused { false };
+    bool errorOccurred { false };
+    WebFrameMetrics frameMetrics { };
 };
 
 }

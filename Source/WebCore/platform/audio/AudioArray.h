@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2010 Google Inc. All rights reserved.
+ * Copyright (C) 2024 Apple Inc. All Rights Reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,91 +30,98 @@
 #ifndef AudioArray_h
 #define AudioArray_h
 
+#include <span>
 #include <string.h>
 #include <wtf/CheckedArithmetic.h>
-#include <wtf/FastMalloc.h>
+#include <wtf/MallocSpan.h>
+#include <wtf/StdLibExtras.h>
 
 namespace WebCore {
 
 template<typename T>
 class AudioArray {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_TEMPLATE(AudioArray);
 public:
     AudioArray() = default;
     explicit AudioArray(size_t n)
     {
-        allocate(n);
+        resize(n);
     }
 
-    ~AudioArray()
-    {
-        fastAlignedFree(m_allocation);
-    }
+    ~AudioArray() = default;
 
-    // It's OK to call allocate() multiple times, but data will *not* be copied from an initial allocation
+    // It's OK to call resize() multiple times, but data will *not* be copied from an initial allocation
     // if re-allocated. Allocations are zero-initialized.
-    void allocate(Checked<size_t> n)
+    void resize(Checked<size_t> n)
     {
+        if (n == size())
+            return;
+
         Checked<size_t> initialSize = sizeof(T) * n;
-        const size_t alignment = 16;
+        // Accelerate.framework behaves differently based on input vector alignment. And each implementation
+        // has very small difference in output! We ensure 32byte alignment so that we will always take the most
+        // optimized implementation if possible, which makes the result deterministic.
+        constexpr size_t alignment = 32;
 
-        fastAlignedFree(m_allocation);
-
-        m_allocation = static_cast<T*>(fastAlignedMalloc(alignment, initialSize.unsafeGet()));
-        if (!m_allocation)
-            CRASH();
-        m_size = n.unsafeGet();
+        m_allocation = MallocSpan<T, FastAlignedMalloc>::alignedMalloc(alignment, initialSize);
         zero();
     }
 
-    T* data() { return m_allocation; }
-    const T* data() const { return m_allocation; }
-    size_t size() const { return m_size; }
+    std::span<T> span() { return m_allocation.mutableSpan(); }
+    std::span<const T> span() const { return m_allocation.span(); }
+    T* data() { return span().data(); }
+    const T* data() const { return span().data(); }
+    size_t size() const { return span().size(); }
+    bool isEmpty() const { return span().empty(); }
 
-    T& at(size_t i)
-    {
-        // Note that although it is a size_t, m_size is now guaranteed to be
-        // no greater than max unsigned. This guarantee is enforced in allocate().
-        ASSERT_WITH_SECURITY_IMPLICATION(i < size());
-        return data()[i];
-    }
-
+    T& at(size_t i) { return m_allocation[i]; }
+    const T& at(size_t i) const { return m_allocation[i]; }
     T& operator[](size_t i) { return at(i); }
+    const T& operator[](size_t i) const { return at(i); }
 
-    void zero()
-    {
-        // This multiplication is made safe by the check in allocate().
-        memset(this->data(), 0, sizeof(T) * this->size());
-    }
+    void zero() { zeroSpan(span()); }
 
     void zeroRange(unsigned start, unsigned end)
     {
-        bool isSafe = (start <= end) && (end <= this->size());
+        bool isSafe = (start <= end) && (end <= size());
         ASSERT(isSafe);
         if (!isSafe)
             return;
 
         // This expression cannot overflow because end - start cannot be
-        // greater than m_size, which is safe due to the check in allocate().
-        memset(this->data() + start, 0, sizeof(T) * (end - start));
+        // greater than m_size, which is safe due to the check in resize().
+        zeroSpan(span().subspan(start, end - start));
     }
 
-    void copyToRange(const T* sourceData, unsigned start, unsigned end)
+    void copyToRange(std::span<const T> sourceData, unsigned start, unsigned end)
     {
-        bool isSafe = (start <= end) && (end <= this->size());
+        bool isSafe = (start <= end) && (end <= size());
         ASSERT(isSafe);
         if (!isSafe)
             return;
 
         // This expression cannot overflow because end - start cannot be
-        // greater than m_size, which is safe due to the check in allocate().
-        memcpy(this->data() + start, sourceData, sizeof(T) * (end - start));
+        // greater than m_size, which is safe due to the check in resize().
+        memcpySpan(this->span().subspan(start), sourceData.first(end - start));
+    }
+
+    bool containsConstantValue() const
+    {
+        if (size() <= 1)
+            return true;
+        float constant = m_allocation[0];
+        for (auto& value : span().subspan(1)) {
+            if (value != constant)
+                return false;
+        }
+        return true;
     }
 
 private:
-    T* m_allocation { nullptr };
-    size_t m_size { 0 };
+    MallocSpan<T, FastAlignedMalloc> m_allocation;
 };
+
+WTF_MAKE_TZONE_ALLOCATED_TEMPLATE_IMPL(template<typename T>, AudioArray<T>);
 
 typedef AudioArray<float> AudioFloatArray;
 typedef AudioArray<double> AudioDoubleArray;

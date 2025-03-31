@@ -76,7 +76,7 @@ void MoveSelectionCommand::doApply()
 
     cleanupAfterDeletion(pos);
 
-    setEndingSelection(VisibleSelection(pos, endingSelection().affinity(), endingSelection().isDirectional()));
+    setEndingSelection(VisibleSelection(pos, endingSelection().affinity(), endingSelection().directionality()));
     setStartingSelection(endingSelection());
     if (!pos.anchorNode()->isConnected()) {
         // Document was modified out from under us.
@@ -87,7 +87,7 @@ void MoveSelectionCommand::doApply()
         options.add(ReplaceSelectionCommand::SmartReplace);
 
     {
-        auto replaceSelection = ReplaceSelectionCommand::create(document(), WTFMove(m_fragment), options, EditAction::InsertFromDrop);
+        auto replaceSelection = ReplaceSelectionCommand::create(document(), m_fragment.copyRef(), options, EditAction::InsertFromDrop);
         replaceSelection->setParent(this);
         replaceSelection->apply();
         m_commands.append(WTFMove(replaceSelection));

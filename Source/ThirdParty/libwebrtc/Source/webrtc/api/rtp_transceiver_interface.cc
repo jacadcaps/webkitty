@@ -10,6 +10,10 @@
 
 #include "api/rtp_transceiver_interface.h"
 
+#include <optional>
+
+#include "api/rtc_error.h"
+#include "api/rtp_transceiver_direction.h"
 #include "rtc_base/checks.h"
 
 namespace webrtc {
@@ -20,20 +24,41 @@ RtpTransceiverInit::RtpTransceiverInit(const RtpTransceiverInit& rhs) = default;
 
 RtpTransceiverInit::~RtpTransceiverInit() = default;
 
-absl::optional<RtpTransceiverDirection>
+std::optional<RtpTransceiverDirection>
 RtpTransceiverInterface::fired_direction() const {
-  return absl::nullopt;
+  return std::nullopt;
 }
 
-RTCError RtpTransceiverInterface::SetCodecPreferences(
-    rtc::ArrayView<RtpCodecCapability>) {
-  RTC_NOTREACHED() << "Not implemented";
-  return {};
+bool RtpTransceiverInterface::stopping() const {
+  return false;
 }
 
-std::vector<RtpCodecCapability> RtpTransceiverInterface::codec_preferences()
-    const {
-  return {};
+void RtpTransceiverInterface::Stop() {
+  StopInternal();
+}
+
+RTCError RtpTransceiverInterface::StopStandard() {
+  RTC_DCHECK_NOTREACHED()
+      << "DEBUG: RtpTransceiverInterface::StopStandard called";
+  return RTCError::OK();
+}
+
+void RtpTransceiverInterface::StopInternal() {
+  RTC_DCHECK_NOTREACHED()
+      << "DEBUG: RtpTransceiverInterface::StopInternal called";
+}
+
+// TODO(bugs.webrtc.org/11839) Remove default implementations when clients
+// are updated.
+void RtpTransceiverInterface::SetDirection(
+    RtpTransceiverDirection new_direction) {
+  SetDirectionWithError(new_direction);
+}
+
+RTCError RtpTransceiverInterface::SetDirectionWithError(
+    RtpTransceiverDirection /* new_direction */) {
+  RTC_DCHECK_NOTREACHED() << "Default implementation called";
+  return RTCError::OK();
 }
 
 }  // namespace webrtc

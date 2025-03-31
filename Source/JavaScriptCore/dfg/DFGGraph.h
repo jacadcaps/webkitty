@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -36,14 +36,14 @@
 #include "DFGNode.h"
 #include "DFGPlan.h"
 #include "DFGPropertyTypeKey.h"
-#include "DFGScannable.h"
 #include "FullBytecodeLiveness.h"
+#include "JITScannable.h"
 #include "MethodOfGettingAValueProfile.h"
 #include <wtf/BitVector.h>
+#include <wtf/GenericHashKey.h>
 #include <wtf/HashMap.h>
 #include <wtf/StackCheck.h>
 #include <wtf/StdLibExtras.h>
-#include <wtf/StdUnorderedMap.h>
 #include <wtf/Vector.h>
 
 namespace WTF {
@@ -75,24 +75,36 @@ using SSADominators = Dominators<SSACFG>;
 using CPSNaturalLoops = NaturalLoops<CPSCFG>;
 using SSANaturalLoops = NaturalLoops<SSACFG>;
 
-#define DFG_NODE_DO_TO_CHILDREN(graph, node, thingToDo) do {            \
-        Node* _node = (node);                                           \
-        if (_node->flags() & NodeHasVarArgs) {                          \
-            for (unsigned _childIdx = _node->firstChild();              \
-                _childIdx < _node->firstChild() + _node->numChildren(); \
-                _childIdx++) {                                          \
-                if (!!(graph).m_varArgChildren[_childIdx])              \
-                    thingToDo(_node, (graph).m_varArgChildren[_childIdx]); \
-            }                                                           \
-        } else {                                                        \
+#define APPLY_THING_TO_DO(node, edge, thingToDo) thingToDo(node, edge);
+#define APPLY_THING_TO_DO_WITH_CHECK(node, edge, thingToDo) \
+    if (thingToDo(node, edge) == IterationStatus::Done)     \
+        return;
+
+#define DFG_NODE_DO_TO_CHILDREN_COMMON(graph, node, thingToDo, THING_TO_DO)                 \
+    do {                                                                                    \
+        Node* _node = (node);                                                               \
+        if (_node->flags() & NodeHasVarArgs) {                                              \
+            for (unsigned _childIdx = _node->firstChild();                                  \
+                 _childIdx < _node->firstChild() + _node->numChildren();                    \
+                 _childIdx++) {                                                             \
+                if (!!(graph).m_varArgChildren[_childIdx])                                  \
+                    THING_TO_DO(_node, (graph).m_varArgChildren[_childIdx], thingToDo)      \
+            }                                                                               \
+        } else {                                                                            \
             for (unsigned _edgeIndex = 0; _edgeIndex < AdjacencyList::Size; _edgeIndex++) { \
-                Edge& _edge = _node->children.child(_edgeIndex);        \
-                if (!_edge)                                             \
-                    break;                                              \
-                thingToDo(_node, _edge);                                \
-            }                                                           \
-        }                                                               \
+                Edge& _edge = _node->children.child(_edgeIndex);                            \
+                if (!_edge)                                                                 \
+                    break;                                                                  \
+                THING_TO_DO(_node, _edge, thingToDo)                                        \
+            }                                                                               \
+        }                                                                                   \
     } while (false)
+
+#define DFG_NODE_DO_TO_CHILDREN(graph, node, thingToDo) \
+    DFG_NODE_DO_TO_CHILDREN_COMMON(graph, node, thingToDo, APPLY_THING_TO_DO)
+
+#define DFG_NODE_DO_TO_CHILDREN_WITH_CHECK(graph, node, thingToDo) \
+    DFG_NODE_DO_TO_CHILDREN_COMMON(graph, node, thingToDo, APPLY_THING_TO_DO_WITH_CHECK)
 
 #define DFG_ASSERT(graph, node, assertion, ...) do {                    \
         if (!!(assertion))                                              \
@@ -217,17 +229,23 @@ public:
         // have a replacement.
         ASSERT(!child->replacement());
     }
-    
+
+    Node* cloneAndAdd(const Node& node)
+    {
+        return m_nodes.cloneAndAdd(node);
+    }
+
     template<typename... Params>
     Node* addNode(Params... params)
     {
-        return m_nodes.addNew(params...);
+        Node* node = m_nodes.addNew(params...);
+        return node;
     }
 
     template<typename... Params>
     Node* addNode(SpeculatedType type, Params... params)
     {
-        Node* node = m_nodes.addNew(params...);
+        Node* node = addNode(params...);
         node->predict(type);
         return node;
     }
@@ -236,6 +254,7 @@ public:
     unsigned maxNodeCount() const { return m_nodes.size(); }
     Node* nodeAt(unsigned index) const { return m_nodes[index]; }
     void packNodeIndices();
+    void clearAbstractValues();
 
     void dethread();
     
@@ -267,7 +286,17 @@ public:
     void assertIsRegistered(Structure* structure);
     
     // CodeBlock is optional, but may allow additional information to be dumped (e.g. Identifier names).
-    void dump(PrintStream& = WTF::dataFile(), DumpContext* = nullptr);
+    void dump() const
+    {
+        const_cast<Graph&>(*this).dump(WTF::dataFile(), nullptr);
+    }
+
+    void dump(PrintStream& out) const
+    {
+        const_cast<Graph&>(*this).dump(out, nullptr);
+    }
+
+    void dump(PrintStream&, DumpContext*);
 
     bool terminalsAreValid();
     
@@ -303,8 +332,8 @@ public:
     {
         return addSpeculationMode(
             add,
-            add->child1()->shouldSpeculateInt32OrBooleanExpectingDefined(),
-            add->child2()->shouldSpeculateInt32OrBooleanExpectingDefined(),
+            add->child1()->shouldSpeculateInt32OrBooleanExpectingDefined(add->mayHaveDoubleResult()),
+            add->child2()->shouldSpeculateInt32OrBooleanExpectingDefined(add->mayHaveDoubleResult()),
             pass);
     }
     
@@ -312,8 +341,8 @@ public:
     {
         return addSpeculationMode(
             add,
-            add->child1()->shouldSpeculateInt32OrBooleanForArithmetic(),
-            add->child2()->shouldSpeculateInt32OrBooleanForArithmetic(),
+            add->child1()->shouldSpeculateInt32OrBooleanForArithmetic(add->mayHaveDoubleResult()),
+            add->child2()->shouldSpeculateInt32OrBooleanForArithmetic(add->mayHaveDoubleResult()),
             pass);
     }
     
@@ -364,7 +393,7 @@ public:
             NodeFlags flags = node->flags() & NodeBytecodeBackPropMask;
             if (!flags)
                 return false;
-            return (flags & (NodeBytecodeUsesAsNumber | NodeBytecodeNeedsNegZero | NodeBytecodeUsesAsInt | NodeBytecodeUsesAsArrayIndex)) == flags;
+            return (flags & (NodeBytecodeUsesAsNumber | NodeBytecodeNeedsNegZero | NodeBytecodeNeedsNaNOrInfinity | NodeBytecodeUsesAsInt | NodeBytecodePrefersArrayIndex)) == flags;
         };
 
         // Wrapping Int52 to Value is also not so cheap. Thus, we allow Int52 addition only when the node is used as number.
@@ -431,6 +460,23 @@ public:
     }
 #endif
 
+    bool variadicArithShouldSpeculateInt32(Node* node, PredictionPass pass)
+    {
+        bool result = true;
+        RareCaseProfilingSource source = AllRareCases;
+        if (pass == PrimaryPass)
+            source = DFGRareCase;
+
+        doToChildren(node, [&](Edge& child) {
+            if (!child->shouldSpeculateInt32OrBooleanForArithmetic())
+                result = false;
+            if (child->sawBooleans())
+                source = DFGRareCase;
+        });
+
+        return result && node->canSpeculateInt32(source);
+    }
+
     bool canOptimizeStringObjectAccess(const CodeOrigin&);
 
     bool getRegExpPrototypeProperty(JSObject* regExpPrototype, Structure* regExpPrototypeStructure, UniquedStringImpl* uid, JSValue& returnJSValue);
@@ -441,12 +487,11 @@ public:
         return arithRound->canSpeculateInt32(pass) && !hasExitSite(arithRound->origin.semantic, Overflow) && !hasExitSite(arithRound->origin.semantic, NegativeZero);
     }
     
-    static const char* opName(NodeType);
+    static ASCIILiteral opName(NodeType);
     
     RegisteredStructureSet* addStructureSet(const StructureSet& structureSet)
     {
-        m_structureSets.append();
-        RegisteredStructureSet* result = &m_structureSets.last();
+        RegisteredStructureSet* result = &m_structureSets.alloc();
 
         for (Structure* structure : structureSet)
             result->add(registerStructure(structure));
@@ -456,8 +501,7 @@ public:
 
     RegisteredStructureSet* addStructureSet(const RegisteredStructureSet& structureSet)
     {
-        m_structureSets.append();
-        RegisteredStructureSet* result = &m_structureSets.last();
+        RegisteredStructureSet* result = &m_structureSets.alloc();
 
         for (RegisteredStructure structure : structureSet)
             result->add(structure);
@@ -473,20 +517,7 @@ public:
     JSObject* globalThisObjectFor(CodeOrigin codeOrigin)
     {
         JSGlobalObject* object = globalObjectFor(codeOrigin);
-        return jsCast<JSObject*>(object->methodTable(m_vm)->toThis(object, object, ECMAMode::sloppy()));
-    }
-    
-    ScriptExecutable* executableFor(InlineCallFrame* inlineCallFrame)
-    {
-        if (!inlineCallFrame)
-            return m_codeBlock->ownerExecutable();
-        
-        return inlineCallFrame->baselineCodeBlock->ownerExecutable();
-    }
-    
-    ScriptExecutable* executableFor(const CodeOrigin& codeOrigin)
-    {
-        return executableFor(codeOrigin.inlineCallFrame());
+        return object->globalThis();
     }
     
     CodeBlock* baselineCodeBlockFor(InlineCallFrame* inlineCallFrame)
@@ -499,11 +530,6 @@ public:
     CodeBlock* baselineCodeBlockFor(const CodeOrigin& codeOrigin)
     {
         return baselineCodeBlockForOriginAndBaselineCodeBlock(codeOrigin, m_profiledBlock);
-    }
-    
-    bool masqueradesAsUndefinedWatchpointIsStillValid(const CodeOrigin& codeOrigin)
-    {
-        return globalObjectFor(codeOrigin)->masqueradesAsUndefinedWatchpoint()->isStillValid();
     }
     
     bool hasGlobalExitSite(const CodeOrigin& codeOrigin, ExitKind exitKind)
@@ -527,7 +553,7 @@ public:
     BasicBlock* block(BlockIndex blockIndex) const { return m_blocks[blockIndex].get(); }
     BasicBlock* lastBlock() const { return block(numBlocks() - 1); }
 
-    void appendBlock(Ref<BasicBlock>&& basicBlock)
+    void appendBlock(std::unique_ptr<BasicBlock>&& basicBlock)
     {
         basicBlock->index = m_blocks.size();
         m_blocks.append(WTFMove(basicBlock));
@@ -548,6 +574,7 @@ public:
     void killUnreachableBlocks();
     
     void determineReachability();
+    void clearReachability();
     void resetReachability();
     
     void computeRefCounts();
@@ -686,7 +713,7 @@ public:
         {
         }
         
-        NaturalBlockIterable(Graph& graph)
+        NaturalBlockIterable(const Graph& graph)
             : m_graph(&graph)
         {
         }
@@ -699,7 +726,7 @@ public:
             {
             }
             
-            iterator(Graph& graph, BlockIndex index)
+            iterator(const Graph& graph, BlockIndex index)
                 : m_graph(&graph)
                 , m_index(findNext(index))
             {
@@ -721,11 +748,6 @@ public:
                 return m_index == other.m_index;
             }
             
-            bool operator!=(const iterator& other) const
-            {
-                return !(*this == other);
-            }
-            
         private:
             BlockIndex findNext(BlockIndex index)
             {
@@ -734,7 +756,7 @@ public:
                 return index;
             }
             
-            Graph* m_graph;
+            const Graph* m_graph;
             BlockIndex m_index;
         };
         
@@ -749,10 +771,10 @@ public:
         }
         
     private:
-        Graph* m_graph;
+        const Graph* m_graph;
     };
     
-    NaturalBlockIterable blocksInNaturalOrder()
+    NaturalBlockIterable blocksInNaturalOrder() const
     {
         return NaturalBlockIterable(*this);
     }
@@ -785,6 +807,29 @@ public:
     
         doToChildrenWithNode(node, ForwardingFunc(functor));
     }
+
+    template<typename ChildFunctor>
+    ALWAYS_INLINE void doToChildrenWithCheck(Node* node, const ChildFunctor& functor)
+    {
+        class ForwardingFunc {
+        public:
+            ForwardingFunc(const ChildFunctor& functor)
+                : m_functor(functor)
+            {
+            }
+
+            // This is a manually written func because we want ALWAYS_INLINE.
+            ALWAYS_INLINE IterationStatus operator()(Node*, Edge& edge) const
+            {
+                return m_functor(edge);
+            }
+
+        private:
+            const ChildFunctor& m_functor;
+        };
+
+        DFG_NODE_DO_TO_CHILDREN_WITH_CHECK(*this, node, ForwardingFunc(functor));
+    }
     
     bool uses(Node* node, Node* child)
     {
@@ -793,14 +838,27 @@ public:
         return result;
     }
 
-    bool isWatchingHavingABadTimeWatchpoint(Node* node)
+    template<typename WatchpointSet>
+    bool isWatchingGlobalObjectWatchpoint(JSGlobalObject* globalObject, WatchpointSet& set, LinkerIR::Type type)
     {
-        JSGlobalObject* globalObject = globalObjectFor(node->origin.semantic);
-        return watchpoints().isWatched(globalObject->havingABadTimeWatchpoint());
-    }
+        if (m_plan.isUnlinked()) {
+            if (m_codeBlock->globalObject() != globalObject)
+                return false;
 
-    bool isWatchingGlobalObjectWatchpoint(JSGlobalObject* globalObject, InlineWatchpointSet& set)
-    {
+            LinkerIR::Value value { nullptr, type };
+            if (m_constantPoolMap.contains(value))
+                return true;
+
+            if (set.isStillValid()) {
+                auto result = m_constantPoolMap.add(value, m_constantPoolMap.size());
+                ASSERT_UNUSED(result, result.isNewEntry);
+                m_constantPool.append(value);
+                return true;
+            }
+
+            return false;
+        }
+
         if (watchpoints().isWatched(set))
             return true;
 
@@ -817,25 +875,94 @@ public:
         return false;
     }
 
+    bool isWatchingHavingABadTimeWatchpoint(Node* node)
+    {
+        JSGlobalObject* globalObject = globalObjectFor(node->origin.semantic);
+        WatchpointSet& set = globalObject->havingABadTimeWatchpointSet();
+        return isWatchingGlobalObjectWatchpoint(globalObject, set, LinkerIR::Type::HavingABadTimeWatchpointSet);
+    }
+
+    bool isWatchingMasqueradesAsUndefinedWatchpointSet(Node* node)
+    {
+        JSGlobalObject* globalObject = globalObjectFor(node->origin.semantic);
+        WatchpointSet& set = globalObject->masqueradesAsUndefinedWatchpointSet();
+        return isWatchingGlobalObjectWatchpoint(globalObject, set, LinkerIR::Type::MasqueradesAsUndefinedWatchpointSet);
+    }
+
+    bool isWatchingArrayBufferDetachWatchpoint(Node* node)
+    {
+        JSGlobalObject* globalObject = globalObjectFor(node->origin.semantic);
+        WatchpointSet& set = globalObject->arrayBufferDetachWatchpointSet();
+        return isWatchingGlobalObjectWatchpoint(globalObject, set, LinkerIR::Type::ArrayBufferDetachWatchpointSet);
+    }
+
     bool isWatchingArrayIteratorProtocolWatchpoint(Node* node)
     {
         JSGlobalObject* globalObject = globalObjectFor(node->origin.semantic);
         InlineWatchpointSet& set = globalObject->arrayIteratorProtocolWatchpointSet();
-        return isWatchingGlobalObjectWatchpoint(globalObject, set);
+        return isWatchingGlobalObjectWatchpoint(globalObject, set, LinkerIR::Type::ArrayIteratorProtocolWatchpointSet);
     }
 
     bool isWatchingNumberToStringWatchpoint(Node* node)
     {
         JSGlobalObject* globalObject = globalObjectFor(node->origin.semantic);
         InlineWatchpointSet& set = globalObject->numberToStringWatchpointSet();
-        return isWatchingGlobalObjectWatchpoint(globalObject, set);
+        return isWatchingGlobalObjectWatchpoint(globalObject, set, LinkerIR::Type::NumberToStringWatchpointSet);
+    }
+
+    bool isWatchingStructureCacheClearedWatchpoint(Node* node)
+    {
+        JSGlobalObject* globalObject = globalObjectFor(node->origin.semantic);
+        InlineWatchpointSet& set = globalObject->structureCacheClearedWatchpointSet();
+        return isWatchingGlobalObjectWatchpoint(globalObject, set, LinkerIR::Type::StructureCacheClearedWatchpointSet);
+    }
+
+    bool isWatchingStringSymbolReplaceWatchpoint(Node* node)
+    {
+        JSGlobalObject* globalObject = globalObjectFor(node->origin.semantic);
+        InlineWatchpointSet& set = globalObject->stringSymbolReplaceWatchpointSet();
+        return isWatchingGlobalObjectWatchpoint(globalObject, set, LinkerIR::Type::StringSymbolReplaceWatchpointSet);
+    }
+
+    bool isWatchingRegExpPrimordialPropertiesWatchpoint(Node* node)
+    {
+        JSGlobalObject* globalObject = globalObjectFor(node->origin.semantic);
+        InlineWatchpointSet& set = globalObject->regExpPrimordialPropertiesWatchpointSet();
+        return isWatchingGlobalObjectWatchpoint(globalObject, set, LinkerIR::Type::RegExpPrimordialPropertiesWatchpointSet);
+    }
+
+    bool isWatchingArraySpeciesWatchpoint(Node* node)
+    {
+        JSGlobalObject* globalObject = globalObjectFor(node->origin.semantic);
+        InlineWatchpointSet& set = globalObject->arraySpeciesWatchpointSet();
+        return isWatchingGlobalObjectWatchpoint(globalObject, set, LinkerIR::Type::ArraySpeciesWatchpointSet);
+    }
+
+    bool isWatchingArrayPrototypeChainIsSaneWatchpoint(Node* node)
+    {
+        JSGlobalObject* globalObject = globalObjectFor(node->origin.semantic);
+        InlineWatchpointSet& set = globalObject->arrayPrototypeChainIsSaneWatchpointSet();
+        return isWatchingGlobalObjectWatchpoint(globalObject, set, LinkerIR::Type::ArrayPrototypeChainIsSaneWatchpointSet);
+    }
+
+    bool isWatchingStringPrototypeChainIsSaneWatchpoint(Node* node)
+    {
+        JSGlobalObject* globalObject = globalObjectFor(node->origin.semantic);
+        InlineWatchpointSet& set = globalObject->stringPrototypeChainIsSaneWatchpointSet();
+        return isWatchingGlobalObjectWatchpoint(globalObject, set, LinkerIR::Type::StringPrototypeChainIsSaneWatchpointSet);
+    }
+
+    bool isWatchingObjectPrototypeChainIsSaneWatchpoint(Node* node)
+    {
+        JSGlobalObject* globalObject = globalObjectFor(node->origin.semantic);
+        InlineWatchpointSet& set = globalObject->objectPrototypeChainIsSaneWatchpointSet();
+        return isWatchingGlobalObjectWatchpoint(globalObject, set, LinkerIR::Type::ObjectPrototypeChainIsSaneWatchpointSet);
     }
 
     Profiler::Compilation* compilation() { return m_plan.compilation(); }
 
     DesiredIdentifiers& identifiers() { return m_plan.identifiers(); }
     DesiredWatchpoints& watchpoints() { return m_plan.watchpoints(); }
-    DesiredGlobalProperties& globalProperties() { return m_plan.globalProperties(); }
 
     // Returns false if the key is already invalid or unwatchable. If this is a Presence condition,
     // this also makes it cheap to query if the condition holds. Also makes sure that the GC knows
@@ -851,8 +978,8 @@ public:
 
     // This uses either constant property inference or property type inference to derive a good abstract
     // value for some property accessed with the given abstract value base.
-    AbstractValue inferredValueForProperty(
-        const AbstractValue& base, PropertyOffset, StructureClobberState);
+    AbstractValue inferredValueForProperty(const AbstractValue& base, PropertyOffset, StructureClobberState);
+    AbstractValue inferredValueForProperty(const AbstractValue& base, const RegisteredStructureSet&, PropertyOffset, StructureClobberState);
     
     FullBytecodeLiveness& livenessFor(CodeBlock*);
     FullBytecodeLiveness& livenessFor(InlineCallFrame*);
@@ -916,7 +1043,7 @@ public:
             // Arguments are always live. This would be redundant if it wasn't for our
             // op_call_varargs inlining. See the comment above.
             exclusionStart = stackOffset + CallFrame::argumentOffsetIncludingThis(0);
-            exclusionEnd = stackOffset + CallFrame::argumentOffsetIncludingThis(inlineCallFrame->argumentsWithFixup.size());
+            exclusionEnd = stackOffset + CallFrame::argumentOffsetIncludingThis(inlineCallFrame->m_argumentsWithFixup.size());
             
             // We will always have a "this" argument and exclusionStart should be a smaller stack
             // offset than exclusionEnd.
@@ -949,6 +1076,7 @@ public:
             case op_call_varargs:
             case op_tail_call_varargs:
             case op_construct_varargs:
+            case op_super_construct_varargs:
                 // When inlining varargs call, uses include array used for varargs. But when we are in inlined function,
                 // the content of this is already read and flushed to the stack. So, at this point, we no longer need to
                 // keep these use registers. We can use the liveness at LivenessCalculationPoint::AfterUse point.
@@ -997,12 +1125,16 @@ public:
     JSArrayBufferView* tryGetFoldableView(JSValue);
     JSArrayBufferView* tryGetFoldableView(JSValue, ArrayMode arrayMode);
 
+    JSValue tryGetConstantGetter(Node* getterSetter);
+    JSValue tryGetConstantSetter(Node* getterSetter);
+
     bool canDoFastSpread(Node*, const AbstractValue&);
     
     void registerFrozenValues();
-    
+
+    void visitChildren(AbstractSlotVisitor&) final;
     void visitChildren(SlotVisitor&) final;
-    
+
     void logAssertionFailure(
         std::nullptr_t, const char* file, int line, const char* function,
         const char* assertion);
@@ -1035,8 +1167,7 @@ public:
     }
     bool willCatchExceptionInMachineFrame(CodeOrigin, CodeOrigin& opCatchOriginOut, HandlerInfo*& catchHandlerOut);
     
-    bool needsScopeRegister() const { return m_hasDebuggerEnabled || m_codeBlock->usesEval(); }
-    bool needsFlushedThis() const { return m_codeBlock->usesEval(); }
+    bool needsScopeRegister() const { return m_hasDebuggerEnabled; }
 
     void clearCPSCFGData();
 
@@ -1063,18 +1194,52 @@ public:
     Prefix& prefix() { return m_prefix; }
     void nextPhase() { m_prefix.phaseNumber++; }
 
+    const UnlinkedSimpleJumpTable& unlinkedSwitchJumpTable(unsigned index) const { return *m_unlinkedSwitchJumpTables[index]; }
+    SimpleJumpTable& switchJumpTable(unsigned index) { return m_switchJumpTables[index]; }
+
+    const UnlinkedStringJumpTable& unlinkedStringSwitchJumpTable(unsigned index) const { return *m_unlinkedStringSwitchJumpTables[index]; }
+    StringJumpTable& stringSwitchJumpTable(unsigned index) { return m_stringSwitchJumpTables[index]; }
+
+    void appendCatchEntrypoint(BytecodeIndex bytecodeIndex, CodePtr<ExceptionHandlerPtrTag> machineCode, Vector<FlushFormat>&& argumentFormats)
+    {
+        m_catchEntrypoints.append(CatchEntrypointData { machineCode, FixedVector<FlushFormat>(WTFMove(argumentFormats)), bytecodeIndex });
+    }
+
+    void freeDFGIRAfterLowering();
+
+    bool isNeverResizableOrGrowableSharedTypedArrayIncludingDataView(const AbstractValue&);
+
+    const BoyerMooreHorspoolTable<uint8_t>* tryAddStringSearchTable8(const String&);
+
+    bool afterFixup() { return m_planStage >= PlanStage::AfterFixup; }
+
     StackCheck m_stackChecker;
     VM& m_vm;
     Plan& m_plan;
-    CodeBlock* m_codeBlock;
-    CodeBlock* m_profiledBlock;
+    CodeBlock* const m_codeBlock;
+    CodeBlock* const m_profiledBlock;
 
-    Vector<RefPtr<BasicBlock>, 8> m_blocks;
+    Vector<std::unique_ptr<BasicBlock>, 8> m_blocks;
     Vector<BasicBlock*, 1> m_roots;
     Vector<Edge, 16> m_varArgChildren;
 
-    HashMap<EncodedJSValue, FrozenValue*, EncodedJSValueHash, EncodedJSValueHashTraits> m_frozenValueMap;
-    Bag<FrozenValue> m_frozenValues;
+    struct TupleData {
+        uint16_t refCount { 0 };
+        uint16_t resultFlags { 0 };
+        VirtualRegister virtualRegister;
+    };
+
+    Vector<TupleData> m_tupleData;
+
+    // UnlinkedSimpleJumpTable/UnlinkedStringJumpTable are kept by UnlinkedCodeBlocks retained by baseline CodeBlocks handled by DFG / FTL.
+    Vector<const UnlinkedSimpleJumpTable*> m_unlinkedSwitchJumpTables;
+    Vector<SimpleJumpTable> m_switchJumpTables;
+    Vector<const UnlinkedStringJumpTable*> m_unlinkedStringSwitchJumpTables;
+    Vector<StringJumpTable> m_stringSwitchJumpTables;
+    UncheckedKeyHashMap<String, std::unique_ptr<BoyerMooreHorspoolTable<uint8_t>>> m_stringSearchTable8;
+
+    UncheckedKeyHashMap<EncodedJSValue, FrozenValue*, EncodedJSValueHash, EncodedJSValueHashTraits> m_frozenValueMap;
+    SegmentedVector<FrozenValue, 16> m_frozenValues;
 
     Vector<uint32_t> m_uint32ValuesInUse;
     
@@ -1083,7 +1248,7 @@ public:
     // In CPS, this is all of the SetArgumentDefinitely nodes for the arguments in the machine code block
     // that survived DCE. All of them except maybe "this" will survive DCE, because of the Flush
     // nodes. In SSA, this has no meaning. It's empty.
-    HashMap<BasicBlock*, ArgumentsVector> m_rootToArguments;
+    UncheckedKeyHashMap<BasicBlock*, ArgumentsVector> m_rootToArguments;
 
     // In SSA, this is the argument speculation that we've locked in for an entrypoint block.
     //
@@ -1126,10 +1291,12 @@ public:
     Bag<StackAccessData> m_stackAccessData;
     Bag<LazyJSValue> m_lazyJSValues;
     Bag<CallDOMGetterData> m_callDOMGetterData;
+    Bag<CallCustomAccessorData> m_callCustomAccessorData;
+    Bag<GetByIdData> m_getByIdData;
     Bag<BitVector> m_bitVectors;
     Vector<InlineVariableData, 4> m_inlineVariableData;
-    HashMap<CodeBlock*, std::unique_ptr<FullBytecodeLiveness>> m_bytecodeLiveness;
-    HashSet<std::pair<JSObject*, PropertyOffset>> m_safeToLoad;
+    UncheckedKeyHashMap<CodeBlock*, std::unique_ptr<FullBytecodeLiveness>> m_bytecodeLiveness;
+    UncheckedKeyHashSet<std::pair<JSObject*, PropertyOffset>> m_safeToLoad;
     Vector<Ref<Snippet>> m_domJITSnippets;
     std::unique_ptr<CPSDominators> m_cpsDominators;
     std::unique_ptr<SSADominators> m_ssaDominators;
@@ -1153,15 +1320,19 @@ public:
 
     // This maps an entrypoint index to a particular op_catch bytecode offset. By convention,
     // it'll never have zero as a key because we use zero to mean the op_enter entrypoint.
-    HashMap<unsigned, BytecodeIndex> m_entrypointIndexToCatchBytecodeIndex;
+    UncheckedKeyHashMap<unsigned, BytecodeIndex> m_entrypointIndexToCatchBytecodeIndex;
+    Vector<CatchEntrypointData> m_catchEntrypoints;
 
-    HashSet<String> m_localStrings;
-    HashMap<const StringImpl*, String> m_copiedStrings;
+    UncheckedKeyHashSet<String> m_localStrings;
+    UncheckedKeyHashSet<String> m_copiedStrings;
 
 #if USE(JSVALUE32_64)
-    StdUnorderedMap<int64_t, double*> m_doubleConstantsMap;
-    std::unique_ptr<Bag<double>> m_doubleConstants;
+    UncheckedKeyHashMap<GenericHashKey<int64_t>, double*> m_doubleConstantsMap;
+    Bag<double> m_doubleConstants;
 #endif
+
+    Vector<LinkerIR::Value> m_constantPool;
+    UncheckedKeyHashMap<LinkerIR::Value, LinkerIR::Constant, LinkerIR::ValueHash, LinkerIR::ValueTraits> m_constantPoolMap;
     
     OptimizationFixpointState m_fixpointState;
     StructureRegistrationState m_structureRegistrationState;
@@ -1172,7 +1343,8 @@ public:
     bool m_hasDebuggerEnabled;
     bool m_hasExceptionHandlers { false };
     bool m_isInSSAConversion { false };
-    Optional<uint32_t> m_maxLocalsForCatchOSREntry;
+    bool m_isValidating { false };
+    std::optional<uint32_t> m_maxLocalsForCatchOSREntry;
     std::unique_ptr<FlowIndexing> m_indexingCache;
     std::unique_ptr<FlowMap<AbstractValue>> m_abstractValuesCache;
     Bag<EntrySwitchData> m_entrySwitchData;
@@ -1180,14 +1352,17 @@ public:
     RegisteredStructure stringStructure;
     RegisteredStructure symbolStructure;
 
-    HashSet<Node*> m_slowGetByVal;
+    UncheckedKeyHashSet<Node*> m_slowGetByVal;
+    UncheckedKeyHashSet<Node*> m_slowPutByVal;
 
 private:
+    template<typename Visitor> void visitChildrenImpl(Visitor&);
+
     bool isStringPrototypeMethodSane(JSGlobalObject*, UniquedStringImpl*);
 
     void handleSuccessor(Vector<BasicBlock*, 16>& worklist, BasicBlock*, BasicBlock* successor);
     
-    AddSpeculationMode addImmediateShouldSpeculateInt32(Node* add, bool variableShouldSpeculateInt32, Node* operand, Node*immediate, RareCaseProfilingSource source)
+    AddSpeculationMode addImmediateShouldSpeculateInt32(Node* add, bool variableShouldSpeculateInt32, Node* operand, Node* immediate, RareCaseProfilingSource source)
     {
         ASSERT(immediate->hasConstant());
         
@@ -1203,16 +1378,30 @@ private:
         NodeFlags operandResultType = operand->result();
         if (operandResultType != NodeResultInt32 && immediateValue.isDouble())
             return DontSpeculateInt32;
-        
+
         if (immediateValue.isBoolean() || jsNumber(immediateValue.asNumber()).isInt32())
             return add->canSpeculateInt32(source) ? SpeculateInt32 : DontSpeculateInt32;
-        
+
+        // At this point {immediateValue} must be a double and {operandResultType} must be NodeResultInt32.
+        ASSERT(immediateValue.isDouble() && operandResultType == NodeResultInt32);
         double doubleImmediate = immediateValue.asDouble();
+        if (std::isnan(doubleImmediate))
+            return DontSpeculateInt32;
+
         const double twoToThe48 = 281474976710656.0;
         if (doubleImmediate < -twoToThe48 || doubleImmediate > twoToThe48)
             return DontSpeculateInt32;
         
-        return bytecodeCanTruncateInteger(add->arithNodeFlags()) ? SpeculateInt32AndTruncateConstants : DontSpeculateInt32;
+        if (bytecodeCanTruncateInteger(add->arithNodeFlags())) {
+            // This function is called from attemptToMakeIntegerAdd. If we return SpeculateInt32AndTruncateConstants
+            // both operands will be truncated to integers. If int32 + double, then we should not speculate this add
+            // node with int32 type. Because ToInt32(int32 + double) is not always equivalent to int32 + ToInt32(double).
+            // For example:
+            //     let the int32 be -1 and double be 0.1, then ToInt32(-1 + 0.1) is 0 but -1 + ToInt32(0.1) is -1.
+            return isInteger(doubleImmediate) ? SpeculateInt32AndTruncateConstants : DontSpeculateInt32;
+        }
+
+        return DontSpeculateInt32;
     }
 
     B3::SparseCollection<Node> m_nodes;

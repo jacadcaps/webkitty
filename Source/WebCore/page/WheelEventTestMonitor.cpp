@@ -49,7 +49,7 @@ WheelEventTestMonitor::WheelEventTestMonitor(Page& page)
 
 void WheelEventTestMonitor::clearAllTestDeferrals()
 {
-    LockHolder lock(m_mutex);
+    Locker locker { m_lock };
 
     ASSERT(isMainThread());
     m_deferCompletionReasons.clear();
@@ -60,8 +60,10 @@ void WheelEventTestMonitor::clearAllTestDeferrals()
     LOG_WITH_STREAM(WheelEventTestMonitor, stream << "  WheelEventTestMonitor::clearAllTestDeferrals: cleared all test state.");
 }
 
-void WheelEventTestMonitor::setTestCallbackAndStartMonitoring(bool expectWheelEndOrCancel, bool expectMomentumEnd, WTF::Function<void()>&& functionCallback)
+void WheelEventTestMonitor::setTestCallbackAndStartMonitoring(bool expectWheelEndOrCancel, bool expectMomentumEnd, Function<void()>&& functionCallback)
 {
+    Locker locker { m_lock };
+
     ASSERT(isMainThread());
     m_completionCallback = WTFMove(functionCallback);
 #if ENABLE(KINETIC_SCROLLING)
@@ -72,14 +74,14 @@ void WheelEventTestMonitor::setTestCallbackAndStartMonitoring(bool expectWheelEn
     UNUSED_PARAM(expectMomentumEnd);
 #endif
 
-    m_page.scheduleRenderingUpdate();
+    m_page.scheduleRenderingUpdate(RenderingUpdateStep::WheelEventMonitorCallbacks);
 
     LOG_WITH_STREAM(WheelEventTestMonitor, stream << "  WheelEventTestMonitor::setTestCallbackAndStartMonitoring - expect end/cancel " << expectWheelEndOrCancel << ", expect momentum end " << expectMomentumEnd);
 }
 
-void WheelEventTestMonitor::deferForReason(ScrollableAreaIdentifier identifier, DeferReason reason)
+void WheelEventTestMonitor::deferForReason(ScrollingNodeID identifier, OptionSet<DeferReason> reason)
 {
-    LockHolder lock(m_mutex);
+    Locker locker { m_lock };
 
     m_deferCompletionReasons.ensure(identifier, [] {
         return OptionSet<DeferReason>();
@@ -90,13 +92,15 @@ void WheelEventTestMonitor::deferForReason(ScrollableAreaIdentifier identifier, 
     LOG_WITH_STREAM(WheelEventTestMonitor, stream << "      (=) WheelEventTestMonitor::deferForReason: id=" << identifier << ", reason=" << reason);
 }
 
-void WheelEventTestMonitor::removeDeferralForReason(ScrollableAreaIdentifier identifier, DeferReason reason)
+void WheelEventTestMonitor::removeDeferralForReason(ScrollingNodeID identifier, OptionSet<DeferReason> reason)
 {
-    LockHolder lock(m_mutex);
+    Locker locker { m_lock };
 
     auto it = m_deferCompletionReasons.find(identifier);
-    if (it == m_deferCompletionReasons.end())
+    if (it == m_deferCompletionReasons.end()) {
+        LOG_WITH_STREAM(WheelEventTestMonitor, stream << "      (=) WheelEventTestMonitor::removeDeferralForReason: failed to find defer for id=" << identifier << ", reason=" << reason);
         return;
+    }
 
     LOG_WITH_STREAM(WheelEventTestMonitor, stream << "      (=) WheelEventTestMonitor::removeDeferralForReason: id=" << identifier << ", reason=" << reason);
     it->value.remove(reason);
@@ -107,27 +111,31 @@ void WheelEventTestMonitor::removeDeferralForReason(ScrollableAreaIdentifier ide
     scheduleCallbackCheck();
 }
 
-void WheelEventTestMonitor::receivedWheelEvent(const PlatformWheelEvent& event)
+void WheelEventTestMonitor::receivedWheelEventWithPhases(PlatformWheelEventPhase phase, PlatformWheelEventPhase momentumPhase)
 {
 #if ENABLE(KINETIC_SCROLLING)
-    if (event.phase() == PlatformWheelEventPhaseEnded || event.phase() == PlatformWheelEventPhaseCancelled)
+    Locker locker { m_lock };
+
+    LOG_WITH_STREAM(WheelEventTestMonitor, stream << "      (=) WheelEventTestMonitor::receivedWheelEventWithPhases: phase=" << phase << " momentumPhase=" << momentumPhase);
+
+    if (phase == PlatformWheelEventPhase::Ended || phase == PlatformWheelEventPhase::Cancelled)
         m_receivedWheelEndOrCancel = true;
 
-    if (event.momentumPhase() == PlatformWheelEventPhaseEnded)
+    if (momentumPhase == PlatformWheelEventPhase::Ended)
         m_receivedMomentumEnd = true;
+#else
+    UNUSED_PARAM(phase);
+    UNUSED_PARAM(momentumPhase);
 #endif
 }
 
 void WheelEventTestMonitor::scheduleCallbackCheck()
 {
-    if (isMainThread()) {
-        m_page.scheduleRenderingUpdate();
-        return;
-    }
-
-    RunLoop::main().dispatch([weakPage = makeWeakPtr(m_page)] {
-        if (weakPage)
-            weakPage->scheduleRenderingUpdate();
+    ensureOnMainThread([weakThis = ThreadSafeWeakPtr { *this }] {
+        RefPtr protectedThis = weakThis.get();
+        if (!protectedThis)
+            return;
+        protectedThis->m_page.scheduleRenderingUpdate(RenderingUpdateStep::WheelEventMonitorCallbacks);
     });
 }
 
@@ -135,7 +143,7 @@ void WheelEventTestMonitor::checkShouldFireCallbacks()
 {
     ASSERT(isMainThread());
     {
-        LockHolder lock(m_mutex);
+        Locker locker { m_lock };
 
         if (!m_deferCompletionReasons.isEmpty()) {
             LOG_WITH_STREAM(WheelEventTestMonitor, stream << "  WheelEventTestMonitor::checkShouldFireCallbacks - scrolling still active, reasons " << m_deferCompletionReasons);
@@ -168,13 +176,17 @@ void WheelEventTestMonitor::checkShouldFireCallbacks()
 TextStream& operator<<(TextStream& ts, WheelEventTestMonitor::DeferReason reason)
 {
     switch (reason) {
-    case WheelEventTestMonitor::HandlingWheelEvent: ts << "handling wheel event"; break;
-    case WheelEventTestMonitor::HandlingWheelEventOnMainThread: ts << "handling wheel event on main thread"; break;
-    case WheelEventTestMonitor::RubberbandInProgress: ts << "rubberbanding"; break;
-    case WheelEventTestMonitor::ScrollSnapInProgress: ts << "scroll-snapping"; break;
-    case WheelEventTestMonitor::ScrollingThreadSyncNeeded: ts << "scrolling thread sync needed"; break;
-    case WheelEventTestMonitor::ContentScrollInProgress: ts << "content scrolling"; break;
-    case WheelEventTestMonitor::RequestedScrollPosition: ts << "requested scroll position"; break;
+    case WheelEventTestMonitor::DeferReason::None: ts << "none"; break;
+    case WheelEventTestMonitor::DeferReason::HandlingWheelEvent: ts << "handling wheel event"; break;
+    case WheelEventTestMonitor::DeferReason::HandlingWheelEventOnMainThread: ts << "handling wheel event on main thread"; break;
+    case WheelEventTestMonitor::DeferReason::PostMainThreadWheelEventHandling: ts << "post-main thread event handling"; break;
+    case WheelEventTestMonitor::DeferReason::RubberbandInProgress: ts << "rubberbanding"; break;
+    case WheelEventTestMonitor::DeferReason::ScrollSnapInProgress: ts << "scroll-snapping"; break;
+    case WheelEventTestMonitor::DeferReason::ScrollAnimationInProgress: ts << "scroll animation"; break;
+    case WheelEventTestMonitor::DeferReason::ScrollingThreadSyncNeeded: ts << "scrolling thread sync needed"; break;
+    case WheelEventTestMonitor::DeferReason::ContentScrollInProgress: ts << "content scrolling"; break;
+    case WheelEventTestMonitor::DeferReason::RequestedScrollPosition: ts << "requested scroll position"; break;
+    case WheelEventTestMonitor::DeferReason::CommittingTransientZoom: ts << "committing transient zoom"; break;
     }
     return ts;
 }

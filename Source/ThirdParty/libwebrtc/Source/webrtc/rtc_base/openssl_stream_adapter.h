@@ -16,14 +16,27 @@
 #include <stdint.h>
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
+#include "absl/functional/any_invocable.h"
+#include "absl/strings/string_view.h"
+#include "api/array_view.h"
 #include "rtc_base/buffer.h"
+#ifdef OPENSSL_IS_BORINGSSL
+#include <openssl/base.h>
+
+#include "rtc_base/boringssl_identity.h"
+#else
 #include "rtc_base/openssl_identity.h"
+#endif
+#include "api/task_queue/pending_task_safety_flag.h"
 #include "rtc_base/ssl_identity.h"
 #include "rtc_base/ssl_stream_adapter.h"
 #include "rtc_base/stream.h"
+#include "rtc_base/task_utils/repeating_task.h"
+#include "rtc_base/thread.h"
 
 namespace rtc {
 
@@ -49,23 +62,24 @@ namespace rtc {
 // and it has an explicit SSL_CLOSED state. It should not be possible to send
 // any data in clear after one of the StartSSL methods has been called.
 
-// Look in sslstreamadapter.h for documentation of the methods.
-
-class SSLCertChain;
+// Look in ssl_stream_adapter.h for documentation of the methods.
 
 ///////////////////////////////////////////////////////////////////////////////
 
 class OpenSSLStreamAdapter final : public SSLStreamAdapter {
  public:
-  explicit OpenSSLStreamAdapter(StreamInterface* stream);
+  OpenSSLStreamAdapter(
+      std::unique_ptr<StreamInterface> stream,
+      absl::AnyInvocable<void(SSLHandshakeError)> handshake_error);
   ~OpenSSLStreamAdapter() override;
 
-  void SetIdentity(SSLIdentity* identity) override;
+  void SetIdentity(std::unique_ptr<SSLIdentity> identity) override;
+  SSLIdentity* GetIdentityForTesting() const override;
 
   // Default argument is for compatibility
   void SetServerRole(SSLRole role = SSL_SERVER) override;
   bool SetPeerCertificateDigest(
-      const std::string& digest_alg,
+      absl::string_view digest_alg,
       const unsigned char* digest_val,
       size_t digest_len,
       SSLPeerCertificateDigestError* error = nullptr) override;
@@ -75,39 +89,41 @@ class OpenSSLStreamAdapter final : public SSLStreamAdapter {
   // Goes from state SSL_NONE to either SSL_CONNECTING or SSL_WAIT, depending
   // on whether the underlying stream is already open or not.
   int StartSSL() override;
-  void SetMode(SSLMode mode) override;
+  [[deprecated]] void SetMode(SSLMode mode) override;
   void SetMaxProtocolVersion(SSLProtocolVersion version) override;
   void SetInitialRetransmissionTimeout(int timeout_ms) override;
 
-  StreamResult Read(void* data,
-                    size_t data_len,
-                    size_t* read,
-                    int* error) override;
-  StreamResult Write(const void* data,
-                     size_t data_len,
-                     size_t* written,
-                     int* error) override;
+  StreamResult Read(rtc::ArrayView<uint8_t> data,
+                    size_t& read,
+                    int& error) override;
+  StreamResult Write(rtc::ArrayView<const uint8_t> data,
+                     size_t& written,
+                     int& error) override;
   void Close() override;
   StreamState GetState() const override;
 
-  // TODO(guoweis): Move this away from a static class method.
-  static std::string SslCipherSuiteToName(int crypto_suite);
+  std::optional<absl::string_view> GetTlsCipherSuiteName() const override;
 
-  bool GetSslCipherSuite(int* cipher) override;
-
-  SSLProtocolVersion GetSslVersion() const override;
+  bool GetSslCipherSuite(int* cipher) const override;
+  [[deprecated("Use GetSslVersionBytes")]] SSLProtocolVersion GetSslVersion()
+      const override;
   bool GetSslVersionBytes(int* version) const override;
   // Key Extractor interface
-  bool ExportKeyingMaterial(const std::string& label,
-                            const uint8_t* context,
-                            size_t context_len,
-                            bool use_context,
-                            uint8_t* result,
-                            size_t result_len) override;
+  bool ExportSrtpKeyingMaterial(
+      rtc::ZeroOnFreeBuffer<uint8_t>& keying_material) override;
+  [[deprecated("Use ExportSrtpKeyingMaterial instead")]] bool
+  ExportKeyingMaterial(absl::string_view label,
+                       const uint8_t* context,
+                       size_t context_len,
+                       bool use_context,
+                       uint8_t* result,
+                       size_t result_len) override;
+
+  uint16_t GetPeerSignatureAlgorithm() const override;
 
   // DTLS-SRTP interface
   bool SetDtlsSrtpCryptoSuites(const std::vector<int>& crypto_suites) override;
-  bool GetDtlsSrtpCryptoSuite(int* crypto_suite) override;
+  bool GetDtlsSrtpCryptoSuite(int* crypto_suite) const override;
 
   bool IsTlsConnected() override;
 
@@ -115,14 +131,11 @@ class OpenSSLStreamAdapter final : public SSLStreamAdapter {
   static bool IsBoringSsl();
 
   static bool IsAcceptableCipher(int cipher, KeyType key_type);
-  static bool IsAcceptableCipher(const std::string& cipher, KeyType key_type);
+  static bool IsAcceptableCipher(absl::string_view cipher, KeyType key_type);
 
   // Use our timeutils.h source of timing in BoringSSL, allowing us to test
   // using a fake clock.
   static void EnableTimeCallbackForTesting();
-
- protected:
-  void OnEvent(StreamInterface* stream, int events, int err) override;
 
  private:
   enum SSLState {
@@ -136,7 +149,10 @@ class OpenSSLStreamAdapter final : public SSLStreamAdapter {
     SSL_CLOSED       // Clean close
   };
 
-  enum { MSG_TIMEOUT = MSG_MAX + 1 };
+  void OnEvent(int events, int err);
+
+  void PostEvent(int events, int err);
+  void SetTimeout(int delay_ms);
 
   // The following three methods return 0 on success and a negative
   // error code on failure. The error code may be from OpenSSL or -1
@@ -154,14 +170,11 @@ class OpenSSLStreamAdapter final : public SSLStreamAdapter {
   // raised on the stream with the specified error.
   // A 0 error means a graceful close, otherwise there is not really enough
   // context to interpret the error code.
-  // |alert| indicates an alert description (one of the SSL_AD constants) to
+  // `alert` indicates an alert description (one of the SSL_AD constants) to
   // send to the remote endpoint when closing the association. If 0, a normal
   // shutdown will be performed.
-  void Error(const char* context, int err, uint8_t alert, bool signal);
+  void Error(absl::string_view context, int err, uint8_t alert, bool signal);
   void Cleanup(uint8_t alert);
-
-  // Override MessageHandler
-  void OnMessage(Message* msg) override;
 
   // Flush the input buffers by reading left bytes (for DTLS)
   void FlushInput(unsigned int left);
@@ -170,9 +183,16 @@ class OpenSSLStreamAdapter final : public SSLStreamAdapter {
   SSL_CTX* SetupSSLContext();
   // Verify the peer certificate matches the signaled digest.
   bool VerifyPeerCertificate();
+
+#ifdef OPENSSL_IS_BORINGSSL
+  // SSL certificate verification callback. See SSL_CTX_set_custom_verify.
+  static enum ssl_verify_result_t SSLVerifyCallback(SSL* ssl,
+                                                    uint8_t* out_alert);
+#else
   // SSL certificate verification callback. See
   // SSL_CTX_set_cert_verify_callback.
   static int SSLVerifyCallback(X509_STORE_CTX* store, void* arg);
+#endif
 
   bool WaitingToVerifyPeerCertificate() const {
     return GetClientAuthEnabled() && !peer_certificate_verified_;
@@ -182,6 +202,13 @@ class OpenSSLStreamAdapter final : public SSLStreamAdapter {
     return !peer_certificate_digest_algorithm_.empty() &&
            !peer_certificate_digest_value_.empty();
   }
+
+  const std::unique_ptr<StreamInterface> stream_;
+  absl::AnyInvocable<void(SSLHandshakeError)> handshake_error_;
+
+  rtc::Thread* const owner_;
+  webrtc::ScopedTaskSafety task_safety_;
+  webrtc::RepeatingTaskHandle timeout_task_;
 
   SSLState state_;
   SSLRole role_;
@@ -195,7 +222,11 @@ class OpenSSLStreamAdapter final : public SSLStreamAdapter {
   SSL_CTX* ssl_ctx_;
 
   // Our key and certificate.
+#ifdef OPENSSL_IS_BORINGSSL
+  std::unique_ptr<BoringSSLIdentity> identity_;
+#else
   std::unique_ptr<OpenSSLIdentity> identity_;
+#endif
   // The certificate chain that the peer presented. Initially null, until the
   // connection is established.
   std::unique_ptr<SSLCertChain> peer_cert_chain_;
@@ -217,8 +248,8 @@ class OpenSSLStreamAdapter final : public SSLStreamAdapter {
   // be too aggressive for low bandwidth links.
   int dtls_handshake_timeout_ms_ = 50;
 
-  // TODO(https://bugs.webrtc.org/10261): Completely remove this option in M84.
-  const bool support_legacy_tls_protocols_flag_;
+  // Rollout killswitch for disabling session tickets.
+  const bool disable_handshake_ticket_;
 };
 
 /////////////////////////////////////////////////////////////////////////////

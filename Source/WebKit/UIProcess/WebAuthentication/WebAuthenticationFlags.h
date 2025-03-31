@@ -49,6 +49,9 @@ enum class WebAuthenticationStatus : uint8_t {
     LAError,
     LAExcludeCredentialsMatched,
     LANoCredential,
+    KeyStoreFull,
+    PINTooShort,
+    PINTooLong,
 };
 
 enum class LocalAuthenticatorPolicy : bool {

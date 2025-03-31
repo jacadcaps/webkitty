@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -55,13 +55,13 @@ using NaturalLoop = CPSNaturalLoop;
 class TierUpCheckInjectionPhase : public Phase {
 public:
     TierUpCheckInjectionPhase(Graph& graph)
-        : Phase(graph, "tier-up check injection")
+        : Phase(graph, "tier-up check injection"_s)
     {
     }
     
     bool run()
     {
-        RELEASE_ASSERT(m_graph.m_plan.mode() == DFGMode);
+        RELEASE_ASSERT(m_graph.m_plan.isDFG());
 
         if (!Options::useFTLJIT())
             return false;
@@ -85,9 +85,9 @@ public:
         
         m_graph.ensureCPSNaturalLoops();
         CPSNaturalLoops& naturalLoops = *m_graph.m_cpsNaturalLoops;
-        HashMap<const NaturalLoop*, BytecodeIndex> naturalLoopToLoopHint = buildNaturalLoopToLoopHintMap(naturalLoops);
+        UncheckedKeyHashMap<const NaturalLoop*, BytecodeIndex> naturalLoopToLoopHint = buildNaturalLoopToLoopHintMap(naturalLoops);
 
-        HashMap<BytecodeIndex, LoopHintDescriptor> tierUpHierarchy;
+        UncheckedKeyHashMap<BytecodeIndex, LoopHintDescriptor> tierUpHierarchy;
 
         InsertionSet insertionSet(m_graph);
         for (BlockIndex blockIndex = m_graph.numBlocks(); blockIndex--;) {
@@ -147,7 +147,7 @@ public:
             }
 
             if (!tierUpCandidates.isEmpty())
-                m_graph.m_plan.tierUpInLoopHierarchy().add(entry.key, WTFMove(tierUpCandidates));
+                m_graph.m_plan.tierUpInLoopHierarchy().ensure(entry.key, [&] { return FixedVector<BytecodeIndex>(WTFMove(tierUpCandidates)); });
         }
         m_graph.m_plan.setWillTryToTierUp(true);
         return true;
@@ -183,9 +183,9 @@ private:
         return true;
     }
 
-    HashMap<const NaturalLoop*, BytecodeIndex> buildNaturalLoopToLoopHintMap(const CPSNaturalLoops& naturalLoops)
+    UncheckedKeyHashMap<const NaturalLoop*, BytecodeIndex> buildNaturalLoopToLoopHintMap(const CPSNaturalLoops& naturalLoops)
     {
-        HashMap<const NaturalLoop*, BytecodeIndex> naturalLoopsToLoopHint;
+        UncheckedKeyHashMap<const NaturalLoop*, BytecodeIndex> naturalLoopsToLoopHint;
 
         for (BasicBlock* block : m_graph.blocksInNaturalOrder()) {
             for (unsigned nodeIndex = 0; nodeIndex < block->size(); ++nodeIndex) {

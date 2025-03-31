@@ -39,18 +39,13 @@ class ModuleNamespaceAccessCase final : public AccessCase {
 public:
     using Base = AccessCase;
     friend class AccessCase;
+    friend class InlineCacheCompiler;
 
     JSModuleNamespaceObject* moduleNamespaceObject() const { return m_moduleNamespaceObject.get(); }
     JSModuleEnvironment* moduleEnvironment() const { return m_moduleEnvironment.get(); }
     ScopeOffset scopeOffset() const { return m_scopeOffset; }
 
-    static std::unique_ptr<AccessCase> create(VM&, JSCell* owner, CacheableIdentifier, JSModuleNamespaceObject*, JSModuleEnvironment*, ScopeOffset);
-
-    std::unique_ptr<AccessCase> clone() const final;
-
-    void emit(AccessGenerationState&, MacroAssembler::JumpList& fallThrough);
-
-    ~ModuleNamespaceAccessCase() final;
+    static Ref<AccessCase> create(VM&, JSCell* owner, CacheableIdentifier, JSModuleNamespaceObject*, JSModuleEnvironment*, ScopeOffset);
 
 private:
     ModuleNamespaceAccessCase(VM&, JSCell* owner, CacheableIdentifier, JSModuleNamespaceObject*, JSModuleEnvironment*, ScopeOffset);

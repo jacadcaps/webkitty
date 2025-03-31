@@ -27,10 +27,11 @@
 
 namespace Gigacage {
 
-enum Kind {
-    Primitive,
-    JSValue,
+enum class Kind {
+    Primitive = 0,
     NumberOfKinds
 };
+
+using enum Kind;
 
 } // namespace Gigacage

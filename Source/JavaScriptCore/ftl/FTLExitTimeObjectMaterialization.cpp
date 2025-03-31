@@ -34,15 +34,15 @@ namespace JSC { namespace FTL {
 
 using namespace JSC::DFG;
 
-ExitTimeObjectMaterialization::ExitTimeObjectMaterialization(NodeType type, CodeOrigin codeOrigin)
-    : m_type(type)
+ExitTimeObjectMaterialization::ExitTimeObjectMaterialization(Node* node, CodeOrigin codeOrigin)
+    : m_type(node->op())
+    , m_indexingType(node->op() == DFG::PhantomNewArrayWithConstantSize ? node->indexingType() : NoIndexingShape)
+    , m_size(node->op() == DFG::PhantomNewArrayWithConstantSize ? node->newArraySize() : 0)
     , m_origin(codeOrigin)
 {
 }
 
-ExitTimeObjectMaterialization::~ExitTimeObjectMaterialization()
-{
-}
+ExitTimeObjectMaterialization::~ExitTimeObjectMaterialization() = default;
 
 void ExitTimeObjectMaterialization::add(
     PromotedLocationDescriptor location, const ExitValue& value)

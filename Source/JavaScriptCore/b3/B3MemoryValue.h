@@ -32,6 +32,8 @@
 #include "B3Value.h"
 #include <type_traits>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC { namespace B3 {
 
 class JS_EXPORT_PRIVATE MemoryValue : public Value {
@@ -57,7 +59,7 @@ public:
     // A necessary consequence of MemoryValue having an offset is that it participates in instruction
     // selection. This tells you if this will get lowered to something that requires an offsetless
     // address.
-    bool requiresSimpleAddr() const;
+    inline bool requiresSimpleAddr() const;
 
     const HeapRange& range() const { return m_range; }
     void setRange(const HeapRange& range) { m_range = range; }
@@ -79,9 +81,9 @@ public:
     Bank accessBank() const;
     size_t accessByteSize() const;
     
-    Width accessWidth() const;
+    inline Width accessWidth() const;
 
-    bool isCanonicalWidth() const { return B3::isCanonicalWidth(accessWidth()); }
+    inline bool isCanonicalWidth() const;
 
     B3_SPECIALIZE_VALUE_FOR_NON_VARARGS_CHILDREN
 
@@ -101,7 +103,7 @@ private:
     friend class Procedure;
     friend class Value;
 
-    bool isLegalOffsetImpl(int32_t offset) const;
+    inline bool isLegalOffsetImpl(int32_t offset) const;
     bool isLegalOffsetImpl(int64_t offset) const;
 
     enum MemoryValueLoad { MemoryValueLoadTag };
@@ -153,5 +155,7 @@ private:
 };
 
 } } // namespace JSC::B3
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif // ENABLE(B3_JIT)

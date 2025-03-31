@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006, 2007, 2008 Apple Inc.  All rights reserved.
+ * Copyright (C) 2006-2021 Apple Inc.  All rights reserved.
  * Copyright (C) 2008 Eric Seidel <eric@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
@@ -28,26 +28,47 @@
 #include "Pattern.h"
 
 #include "Image.h"
+#include "ImageBuffer.h"
+#include "NativeImage.h"
 
 namespace WebCore {
 
-Ref<Pattern> Pattern::create(Ref<Image>&& tileImage, bool repeatX, bool repeatY)
+Ref<Pattern> Pattern::create(SourceImage&& tileImage, const Parameters& parameters)
 {
-    return adoptRef(*new Pattern(WTFMove(tileImage), repeatX, repeatY));
+    return adoptRef(*new Pattern(WTFMove(tileImage), parameters));
 }
 
-Pattern::Pattern(Ref<Image>&& image, bool repeatX, bool repeatY)
-    : m_tileImage(WTFMove(image))
-    , m_repeatX(repeatX)
-    , m_repeatY(repeatY)
+Pattern::Pattern(SourceImage&& tileImage, const Parameters& parameters)
+    : m_tileImage(WTFMove(tileImage))
+    , m_parameters(parameters)
 {
 }
 
 Pattern::~Pattern() = default;
 
-void Pattern::setPatternSpaceTransform(const AffineTransform& patternSpaceTransformation)
+void Pattern::setPatternSpaceTransform(const AffineTransform& patternSpaceTransform)
 {
-    m_patternSpaceTransformation = patternSpaceTransformation;
+    m_parameters.patternSpaceTransform = patternSpaceTransform;
+}
+
+const SourceImage& Pattern::tileImage() const
+{
+    return m_tileImage;
+}
+
+RefPtr<NativeImage> Pattern::tileNativeImage() const
+{
+    return m_tileImage.nativeImage();
+}
+
+RefPtr<ImageBuffer> Pattern::tileImageBuffer() const
+{
+    return m_tileImage.imageBuffer();
+}
+
+void Pattern::setTileImage(SourceImage&& tileImage)
+{
+    m_tileImage = WTFMove(tileImage);
 }
 
 }

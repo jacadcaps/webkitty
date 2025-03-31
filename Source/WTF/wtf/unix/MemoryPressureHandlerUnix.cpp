@@ -30,6 +30,7 @@
 
 #include <malloc.h>
 #include <unistd.h>
+#include <wtf/Logging.h>
 #include <wtf/MainThread.h>
 #include <wtf/MemoryFootprint.h>
 #include <wtf/text/WTFString.h>
@@ -40,9 +41,10 @@
 #include <sys/sysctl.h>
 #include <sys/types.h>
 #include <sys/user.h>
+#elif OS(QNX)
+#include <fcntl.h>
+#include <sys/procfs.h>
 #endif
-
-#define LOG_CHANNEL_PREFIX Log
 
 namespace WTF {
 
@@ -67,19 +69,16 @@ void MemoryPressureHandler::triggerMemoryPressureEvent(bool isCritical)
     if (ReliefLogger::loggingEnabled())
         LOG(MemoryPressure, "Got memory pressure notification (%s)", isCritical ? "critical" : "non-critical");
 
-    setUnderMemoryPressure(true);
+    setMemoryPressureStatus(SystemMemoryPressureStatus::Critical);
 
-    if (isMainThread())
+    ensureOnMainThread([this, isCritical] {
         respondToMemoryPressure(isCritical ? Critical::Yes : Critical::No);
-    else
-        RunLoop::main().dispatch([this, isCritical] {
-            respondToMemoryPressure(isCritical ? Critical::Yes : Critical::No);
-        });
+    });
 
     if (ReliefLogger::loggingEnabled() && isUnderMemoryPressure())
         LOG(MemoryPressure, "System is no longer under memory pressure.");
 
-    setUnderMemoryPressure(false);
+    setMemoryPressureStatus(SystemMemoryPressureStatus::Normal);
 }
 
 void MemoryPressureHandler::install()
@@ -131,6 +130,19 @@ static size_t processMemoryUsage()
         return 0;
 
     return static_cast<size_t>(info.ki_rssize - info.ki_tsize) * pageSize;
+#elif OS(QNX)
+    int fd = open("/proc/self/ctl", O_RDONLY);
+    if (fd == -1)
+        return 0;
+
+    procfs_asinfo info;
+    int rc = devctl(fd, DCMD_PROC_ASINFO, &info, sizeof(info), nullptr);
+    close(fd);
+
+    if (rc)
+        return 0;
+
+    return static_cast<size_t>(info.rss);
 #else
 #error "Missing a platform specific way of determining the memory usage"
 #endif
@@ -157,7 +169,7 @@ void MemoryPressureHandler::platformReleaseMemory(Critical)
 #endif
 }
 
-Optional<MemoryPressureHandler::ReliefLogger::MemoryUsage> MemoryPressureHandler::ReliefLogger::platformMemoryUsage()
+std::optional<MemoryPressureHandler::ReliefLogger::MemoryUsage> MemoryPressureHandler::ReliefLogger::platformMemoryUsage()
 {
     return MemoryUsage {processMemoryUsage(), memoryFootprint()};
 }

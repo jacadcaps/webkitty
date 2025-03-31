@@ -28,7 +28,9 @@
 
 #include "ContextDestructionObserver.h"
 #include "TaskSource.h"
+#include <wtf/AbstractRefCounted.h>
 #include <wtf/Assertions.h>
+#include <wtf/CancellableTask.h>
 #include <wtf/Forward.h>
 #include <wtf/Function.h>
 #include <wtf/RefCounted.h>
@@ -41,19 +43,21 @@ class Event;
 class EventLoopTaskGroup;
 class EventTarget;
 
-enum class ReasonForSuspension {
+enum class ReasonForSuspension : uint8_t {
     JavaScriptDebuggerPaused,
     WillDeferLoading,
     BackForwardCache,
     PageWillBeSuspended,
 };
 
-class WEBCORE_EXPORT ActiveDOMObject : public ContextDestructionObserver {
+class WEBCORE_EXPORT ActiveDOMObject : public AbstractRefCounted, public ContextDestructionObserver {
 public:
     // The suspendIfNeeded must be called exactly once after object construction to update
     // the suspended state to match that of the ScriptExecutionContext.
     void suspendIfNeeded();
     void assertSuspendIfNeededWasCalled() const;
+
+    void didMoveToNewDocument(Document&);
 
     // This function is used by JS bindings to determine if the JS wrapper should be kept alive or not.
     bool hasPendingActivity() const { return m_pendingActivityInstanceCount || virtualHasPendingActivity(); }
@@ -61,8 +65,6 @@ public:
     // However, the suspend function will sometimes be called even if canSuspendForDocumentSuspension() returns false.
     // That happens in step-by-step JS debugging for example - in this case it would be incorrect
     // to stop the object. Exact semantics of suspend is up to the object in cases like that.
-
-    virtual const char* activeDOMObjectName() const = 0;
 
     // These functions must not have a side effect of creating or destroying
     // any ActiveDOMObject. That means they must not result in calls to arbitrary JavaScript.
@@ -73,24 +75,6 @@ public:
     // That means it must not result in calls to arbitrary JavaScript.
     // It can, however, have a side effect of deleting an ActiveDOMObject.
     virtual void stop();
-
-    // FIXME: Drop this function.
-    // Call sites should be using makePendingActivity() or overriding virtualHasPendingActivity() instead.
-    template<typename T> void setPendingActivity(T& thisObject)
-    {
-        ASSERT(&thisObject == this);
-        thisObject.ref();
-        ++m_pendingActivityInstanceCount;
-    }
-
-    // FIXME: Drop this function.
-    // Call sites should be using makePendingActivity() or overriding virtualHasPendingActivity() instead.
-    template<typename T> void unsetPendingActivity(T& thisObject)
-    {
-        ASSERT(m_pendingActivityInstanceCount > 0);
-        --m_pendingActivityInstanceCount;
-        thisObject.deref();
-    }
 
     template<class T>
     class PendingActivity : public RefCounted<PendingActivity<T>> {
@@ -123,15 +107,34 @@ public:
     template<typename T>
     static void queueTaskKeepingObjectAlive(T& object, TaskSource source, Function<void ()>&& task)
     {
-        object.queueTaskInEventLoop(source, [protectedObject = makeRef(object), activity = object.ActiveDOMObject::makePendingActivity(object), task = WTFMove(task)] () {
+        // Calls the template member function outside of lambda init-captures to work around a MSVC bug.
+        auto activity = object.ActiveDOMObject::makePendingActivity(object);
+        object.queueTaskInEventLoop(source, [protectedObject = Ref { object }, activity = WTFMove(activity), task = WTFMove(task)] () {
             task();
         });
     }
 
-    template<typename EventTargetType, typename EventType>
-    static void queueTaskToDispatchEvent(EventTargetType& target, TaskSource source, Ref<EventType>&& event)
+    template<typename T>
+    static void queueCancellableTaskKeepingObjectAlive(T& object, TaskSource source, TaskCancellationGroup& cancellationGroup, Function<void()>&& task)
+    {
+        CancellableTask cancellableTask(cancellationGroup, WTFMove(task));
+        // Calls the template member function outside of lambda init-captures to work around a MSVC bug.
+        auto activity = object.ActiveDOMObject::makePendingActivity(object);
+        object.queueTaskInEventLoop(source, [protectedObject = Ref { object }, activity = WTFMove(activity), cancellableTask = WTFMove(cancellableTask)]() mutable {
+            cancellableTask();
+        });
+    }
+
+    template<typename EventTargetType>
+    static void queueTaskToDispatchEvent(EventTargetType& target, TaskSource source, Ref<Event>&& event)
     {
         target.queueTaskToDispatchEventInternal(target, source, WTFMove(event));
+    }
+
+    template<typename EventTargetType>
+    static void queueCancellableTaskToDispatchEvent(EventTargetType& target, TaskSource source, TaskCancellationGroup& cancellationGroup, Ref<Event>&& event)
+    {
+        target.queueCancellableTaskToDispatchEventInternal(target, source, cancellationGroup, WTFMove(event));
     }
 
 protected:
@@ -150,8 +153,9 @@ private:
 
     void queueTaskInEventLoop(TaskSource, Function<void ()>&&);
     void queueTaskToDispatchEventInternal(EventTarget&, TaskSource, Ref<Event>&&);
+    void queueCancellableTaskToDispatchEventInternal(EventTarget&, TaskSource, TaskCancellationGroup&, Ref<Event>&&);
 
-    unsigned m_pendingActivityInstanceCount { 0 };
+    uint64_t m_pendingActivityInstanceCount { 0 };
 #if ASSERT_ENABLED
     bool m_suspendIfNeededWasCalled { false };
     Ref<Thread> m_creationThread { Thread::current() };

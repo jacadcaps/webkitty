@@ -30,25 +30,22 @@
 #include "config.h"
 #include "ApduResponse.h"
 
-#include <wtf/Optional.h>
-
 #if ENABLE(WEB_AUTHN)
 
 namespace apdu {
 
 // static
-Optional<ApduResponse> ApduResponse::createFromMessage(const Vector<uint8_t>& data)
+std::optional<ApduResponse> ApduResponse::createFromMessage(Vector<uint8_t>&& data)
 {
     // Invalid message size, data is appended by status byte.
     if (data.size() < 2)
-        return WTF::nullopt;
+        return std::nullopt;
 
     uint16_t statusBytes = data[data.size() - 2] << 8;
     statusBytes |= data[data.size() - 1];
 
-    Vector<uint8_t> newData;
-    newData.appendRange(data.begin(), data.end() - 2);
-    return ApduResponse(WTFMove(newData), static_cast<Status>(statusBytes));
+    data.shrink(data.size() - 2);
+    return ApduResponse(WTFMove(data), static_cast<Status>(statusBytes));
 }
 
 ApduResponse::ApduResponse(Vector<uint8_t>&& data, Status responseStatus)

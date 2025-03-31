@@ -29,14 +29,18 @@
 #import "SystemBattery.h"
 #import <notify.h>
 #import <pal/spi/cocoa/IOPSLibSPI.h>
+#import <wtf/RunLoop.h>
+#import <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(PowerSourceNotifier);
 
 PowerSourceNotifier::PowerSourceNotifier(PowerSourceNotifierCallback&& callback)
     : m_callback(WTFMove(callback))
 {
     int token = 0;
-    auto status = notify_register_dispatch(kIOPSNotifyPowerSource, &token, dispatch_get_main_queue(), [weakThis = makeWeakPtr(*this)] (int) {
+    auto status = notify_register_dispatch(kIOPSNotifyPowerSource, &token, dispatch_get_main_queue(), [weakThis = WeakPtr { *this }] (int) {
         if (weakThis)
             weakThis->notifyPowerSourceChanged();
     });
@@ -45,7 +49,7 @@ PowerSourceNotifier::PowerSourceNotifier(PowerSourceNotifierCallback&& callback)
 
     // If the current value of systemHasAC() is uncached, force a notification.
     if (!cachedSystemHasAC()) {
-        dispatch_async(dispatch_get_main_queue(), [weakThis = makeWeakPtr(*this)] {
+        RunLoop::protectedMain()->dispatch([weakThis = WeakPtr { *this }] {
             if (weakThis)
                 weakThis->notifyPowerSourceChanged();
         });

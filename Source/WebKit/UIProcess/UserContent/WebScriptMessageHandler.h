@@ -26,6 +26,7 @@
 #pragma once
 
 #include "APIContentWorld.h"
+#include "ScriptMessageHandlerIdentifier.h"
 #include "WebUserContentControllerDataTypes.h"
 #include <wtf/Identified.h>
 #include <wtf/Ref.h>
@@ -33,7 +34,7 @@
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
-struct SecurityOriginData;
+class SecurityOriginData;
 class SerializedScriptValue;
 }
 
@@ -48,7 +49,7 @@ class WebPageProxy;
 class WebFrameProxy;
 struct FrameInfoData;
 
-class WebScriptMessageHandler : public RefCounted<WebScriptMessageHandler>, public Identified<WebScriptMessageHandler>  {
+class WebScriptMessageHandler : public RefCounted<WebScriptMessageHandler>, public Identified<ScriptMessageHandlerIdentifier>  {
 public:
     class Client {
     public:
@@ -64,6 +65,7 @@ public:
     String name() const { return m_name; }
 
     API::ContentWorld& world() { return m_world.get(); }
+    Ref<API::ContentWorld> protectedWorld();
 
     Client& client() const { return *m_client; }
 

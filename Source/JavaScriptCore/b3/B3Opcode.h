@@ -29,7 +29,6 @@
 
 #include "B3Type.h"
 #include "B3Width.h"
-#include <wtf/Optional.h>
 #include <wtf/StdLibExtras.h>
 
 namespace JSC { namespace B3 {
@@ -55,6 +54,7 @@ enum Opcode : uint8_t {
     Const64,
     ConstDouble,
     ConstFloat,
+    Const128,
 
     // Tuple filled with zeros. This appears when Tuple Patchpoints are replaced with Bottom values.
     BottomTuple,
@@ -111,7 +111,10 @@ enum Opcode : uint8_t {
     Abs,
     Ceil,
     Floor,
+    FTrunc,
     Sqrt,
+    FMax,
+    FMin,
 
     // Casts and such.
     // Bitwise Cast of Double->Int64 or Int64->Double
@@ -120,10 +123,17 @@ enum Opcode : uint8_t {
     SExt8,
     SExt16,
     // Takes Int32 and returns Int64:
+    SExt8To64,
+    SExt16To64,
     SExt32,
     ZExt32,
     // Does a bitwise truncation of Int64->Int32 and Double->Float:
     Trunc,
+    // On JSVALUE32_64 platforms only: gets the high 32-bits of an Int64.
+    TruncHigh,
+    // On JSVALUE32_64 platforms only: puts together an Int32 from two Int32s.
+    // High bits come from the first child.
+    Stitch,
     // Takes ints and returns floating point value. Note that we don't currently provide the opposite operation,
     // because double-to-int conversions have weirdly different semantics on different platforms. Use
     // a patchpoint if you need to do that.
@@ -132,6 +142,8 @@ enum Opcode : uint8_t {
     // Convert between double and float.
     FloatToDouble,
     DoubleToFloat,
+
+    PurifyNaN,
 
     // Polymorphic comparisons, usable with any value type. Returns int32 0 or 1. Note that "Not"
     // is just Equal(x, 0), and "ToBoolean" is just NotEqual(x, 0).
@@ -342,20 +354,104 @@ enum Opcode : uint8_t {
     // to be able to perform such optimizations.
     WasmBoundsCheck,
 
+    // SIMD instructions
+    VectorExtractLane,
+    VectorReplaceLane,
+
+    // Currently only some architectures support this.
+    // FIXME: Expand this to identical instructions for the other architectures as a macro.
+    VectorDupElement,
+
+    VectorSplat,
+
+    VectorEqual,
+    VectorNotEqual,
+    VectorLessThan,
+    VectorLessThanOrEqual,
+    VectorBelow,
+    VectorBelowOrEqual,
+    VectorGreaterThan,
+    VectorGreaterThanOrEqual,
+    VectorAbove,
+    VectorAboveOrEqual,
+
+    VectorAdd,
+    VectorSub,
+    VectorAddSat,
+    VectorSubSat,
+    VectorMul,
+    VectorDotProduct,
+    VectorDiv,
+    VectorMin,
+    VectorMax,
+    VectorPmin,
+    VectorPmax,
+
+    VectorNarrow,
+
+    VectorNot,
+    VectorAnd,
+    VectorAndnot,
+    VectorOr,
+    VectorXor,
+
+    VectorShl,
+    VectorShr,
+
+    VectorAbs,
+    VectorNeg,
+    VectorPopcnt,
+    VectorCeil,
+    VectorFloor,
+    VectorTrunc,
+    VectorTruncSat,
+    VectorConvert,
+    VectorConvertLow,
+    VectorNearest,
+    VectorSqrt,
+
+    VectorExtendLow,
+    VectorExtendHigh,
+
+    VectorPromote,
+    VectorDemote,
+
+    VectorAnyTrue,
+    VectorAllTrue,
+    VectorAvgRound,
+    VectorBitmask,
+    VectorBitwiseSelect,
+    VectorExtaddPairwise,
+    VectorMulSat,
+    VectorSwizzle,
+
+    // Relaxed SIMD
+
+    VectorRelaxedSwizzle,
+    VectorRelaxedTruncSat,
+    VectorRelaxedMAdd,
+    VectorRelaxedNMAdd,
+    VectorRelaxedLaneSelect,
+
+    // Currently only some architectures support this.
+    // FIXME: Expand this to identical instructions for the other architectures as a macro.
+    VectorMulByElement,
+    VectorShiftByVector,
+
     // SSA support, in the style of DFG SSA.
     Upsilon, // This uses the UpsilonValue class.
     Phi,
 
     // Jump.
     Jump,
-    
+
     // Polymorphic branch, usable with any integer type. Branches if not equal to zero. The 0-index
     // successor is the true successor.
     Branch,
 
     // Switch. Switches over either Int32 or Int64. Uses the SwitchValue class.
     Switch,
-    
+
     // Multiple entrypoints are supported via the EntrySwitch operation. Place this in the root
     // block and list the entrypoints as the successors. All blocks backwards-reachable from
     // EntrySwitch are duplicated for each entrypoint.
@@ -381,7 +477,7 @@ inline bool isCheckMath(Opcode opcode)
     }
 }
 
-Optional<Opcode> invertedCompare(Opcode, Type);
+std::optional<Opcode> invertedCompare(Opcode, Type);
 
 inline Opcode constPtrOpcode()
 {
@@ -397,6 +493,7 @@ inline bool isConstant(Opcode opcode)
     case Const64:
     case ConstDouble:
     case ConstFloat:
+    case Const128:
         return true;
     default:
         return false;
@@ -410,6 +507,7 @@ inline Opcode opcodeForConstant(Type type)
     case Int64: return Const64;
     case Float: return ConstFloat;
     case Double: return ConstDouble;
+    case V128: return Const128;
     default:
         RELEASE_ASSERT_NOT_REACHED();
     }

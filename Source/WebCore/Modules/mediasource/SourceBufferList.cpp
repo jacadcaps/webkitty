@@ -33,20 +33,27 @@
 
 #if ENABLE(MEDIA_SOURCE)
 
+#include "ContextDestructionObserverInlines.h"
 #include "Event.h"
 #include "EventNames.h"
 #include "SourceBuffer.h"
-#include <wtf/IsoMallocInlines.h>
+#include "WebCoreOpaqueRoot.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(SourceBufferList);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(SourceBufferList);
+
+Ref<SourceBufferList> SourceBufferList::create(ScriptExecutionContext* context)
+{
+    auto result = adoptRef(*new SourceBufferList(context));
+    result->suspendIfNeeded();
+    return result;
+}
 
 SourceBufferList::SourceBufferList(ScriptExecutionContext* context)
     : ActiveDOMObject(context)
-    , m_asyncEventQueue(MainThreadGenericEventQueue::create(*this))
 {
-    suspendIfNeeded();
 }
 
 SourceBufferList::~SourceBufferList()
@@ -60,9 +67,21 @@ void SourceBufferList::add(Ref<SourceBuffer>&& buffer)
     scheduleEvent(eventNames().addsourcebufferEvent);
 }
 
+bool SourceBufferList::contains(SourceBuffer& buffer) const
+{
+    return m_list.find(Ref { buffer } ) != notFound;
+}
+
+RefPtr<SourceBuffer> SourceBufferList::item(unsigned index) const
+{
+    if (index < m_list.size())
+        return m_list[index].copyRef();
+    return { };
+}
+
 void SourceBufferList::remove(SourceBuffer& buffer)
 {
-    size_t index = m_list.find(&buffer);
+    size_t index = m_list.find(Ref { buffer });
     if (index == notFound)
         return;
     m_list.remove(index);
@@ -75,7 +94,7 @@ void SourceBufferList::clear()
     scheduleEvent(eventNames().removesourcebufferEvent);
 }
 
-void SourceBufferList::swap(Vector<RefPtr<SourceBuffer>>& other)
+void SourceBufferList::replaceWith(Vector<Ref<SourceBuffer>>&& other)
 {
     int changeInSize = other.size() - m_list.size();
     int addedEntries = 0;
@@ -85,7 +104,7 @@ void SourceBufferList::swap(Vector<RefPtr<SourceBuffer>>& other)
     }
     int removedEntries = addedEntries - changeInSize;
 
-    m_list.swap(other);
+    m_list = WTFMove(other);
 
     if (addedEntries)
         scheduleEvent(eventNames().addsourcebufferEvent);
@@ -95,15 +114,12 @@ void SourceBufferList::swap(Vector<RefPtr<SourceBuffer>>& other)
 
 void SourceBufferList::scheduleEvent(const AtomString& eventName)
 {
-    auto event = Event::create(eventName, Event::CanBubble::No, Event::IsCancelable::No);
-    event->setTarget(this);
-
-    m_asyncEventQueue->enqueueEvent(WTFMove(event));
+    queueTaskToDispatchEvent(*this, TaskSource::MediaElement, Event::create(eventName, Event::CanBubble::No, Event::IsCancelable::No));
 }
 
-const char* SourceBufferList::activeDOMObjectName() const
+WebCoreOpaqueRoot root(SourceBufferList* list)
 {
-    return "SourceBufferList";
+    return WebCoreOpaqueRoot { list };
 }
 
 } // namespace WebCore

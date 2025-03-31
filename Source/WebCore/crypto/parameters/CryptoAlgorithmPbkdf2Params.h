@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,16 +31,15 @@
 #include <JavaScriptCore/Strong.h>
 #include <wtf/Vector.h>
 
-#if ENABLE(WEB_CRYPTO)
-
 namespace WebCore {
 
 class CryptoAlgorithmPbkdf2Params final : public CryptoAlgorithmParameters {
+    WTF_MAKE_TZONE_ALLOCATED(CryptoAlgorithmPbkdf2Params);
 public:
     BufferSource salt;
     unsigned long iterations;
     // FIXME: Consider merging hash and hashIdentifier.
-    Variant<JSC::Strong<JSC::JSObject>, String> hash;
+    std::variant<JSC::Strong<JSC::JSObject>, String> hash;
     CryptoAlgorithmIdentifier hashIdentifier;
 
     const Vector<uint8_t>& saltVector() const
@@ -48,7 +47,7 @@ public:
         if (!m_saltVector.isEmpty() || !salt.length())
             return m_saltVector;
 
-        m_saltVector.append(salt.data(), salt.length());
+        m_saltVector.append(salt.span());
         return m_saltVector;
     }
 
@@ -72,5 +71,3 @@ private:
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_CRYPTO_ALGORITHM_PARAMETERS(Pbkdf2Params)
-
-#endif // ENABLE(WEB_CRYPTO)

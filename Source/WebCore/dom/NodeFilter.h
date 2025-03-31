@@ -26,6 +26,7 @@
 
 #include "ActiveDOMCallback.h"
 #include "CallbackResult.h"
+#include "WebCoreOpaqueRoot.h"
 #include <wtf/RefCounted.h>
 
 namespace WebCore {
@@ -37,6 +38,7 @@ public:
     using ActiveDOMCallback::ActiveDOMCallback;
 
     virtual CallbackResult<unsigned short> acceptNode(Node&) = 0;
+    virtual CallbackResult<unsigned short> acceptNodeRethrowingException(Node&) = 0;
 
     virtual bool hasCallback() const = 0;
 
@@ -72,5 +74,7 @@ public:
         SHOW_NOTATION                  = 0x00000800
     };
 };
+
+inline WebCoreOpaqueRoot root(NodeFilter* filter) { return WebCoreOpaqueRoot { filter }; }
 
 } // namespace WebCore

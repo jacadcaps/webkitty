@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2004, 2005, 2006, 2009 Apple Inc. All rights reserved.
+ * Copyright (C) 2004-2025 Apple Inc. All rights reserved.
  * Copyright (C) 2006 James G. Speth (speth@end.com)
  * Copyright (C) 2006 Samuel Weinig (sam.weinig@gmail.com)
  *
@@ -39,7 +39,6 @@
 #import "DOMCSSStyleDeclaration.h"
 #import "DOMCSSStyleRule.h"
 #import "DOMCSSStyleSheet.h"
-#import "DOMCSSUnknownRule.h"
 #import "DOMCSSValueInternal.h"
 #import "DOMCSSValueList.h"
 #import "DOMInternal.h"
@@ -60,29 +59,22 @@ Class kitClass(WebCore::StyleSheet* impl)
 
 Class kitClass(WebCore::CSSRule* impl)
 {
-    switch (impl->type()) {
-    case WebCore::CSSRule::UNKNOWN_RULE:
-        return [DOMCSSUnknownRule class];
-    case WebCore::CSSRule::STYLE_RULE:
+    switch (impl->styleRuleType()) {
+    case WebCore::StyleRuleType::Style:
         return [DOMCSSStyleRule class];
-    case WebCore::CSSRule::CHARSET_RULE:
+    case WebCore::StyleRuleType::Charset:
         return [DOMCSSCharsetRule class];
-    case WebCore::CSSRule::IMPORT_RULE:
+    case WebCore::StyleRuleType::Import:
         return [DOMCSSImportRule class];
-    case WebCore::CSSRule::MEDIA_RULE:
+    case WebCore::StyleRuleType::Media:
         return [DOMCSSMediaRule class];
-    case WebCore::CSSRule::FONT_FACE_RULE:
+    case WebCore::StyleRuleType::FontFace:
         return [DOMCSSFontFaceRule class];
-    case WebCore::CSSRule::PAGE_RULE:
+    case WebCore::StyleRuleType::Page:
         return [DOMCSSPageRule class];
-    case WebCore::CSSRule::KEYFRAMES_RULE:
-    case WebCore::CSSRule::NAMESPACE_RULE:
-    case WebCore::CSSRule::KEYFRAME_RULE:
-    case WebCore::CSSRule::SUPPORTS_RULE:
+    default:
         return [DOMCSSRule class];
     }
-    ASSERT_NOT_REACHED();
-    return nil;
 }
 
 //------------------------------------------------------------------------------------------
@@ -95,12 +87,9 @@ Class kitClass(WebCore::DeprecatedCSSOMValue* impl)
         return [DOMCSSPrimitiveValue class];
     case WebCore::DeprecatedCSSOMValue::CSS_VALUE_LIST:
         return [DOMCSSValueList class];
-    case WebCore::DeprecatedCSSOMValue::CSS_INHERIT:
-    case WebCore::DeprecatedCSSOMValue::CSS_CUSTOM:
+    default:
         return [DOMCSSValue class];
     }
-    ASSERT_NOT_REACHED();
-    return nil;
 }
 
 //------------------------------------------------------------------------------------------

@@ -28,9 +28,9 @@
 #if PLATFORM(IOS_FAMILY)
 
 #include "ArgumentCoders.h"
-#include "ShareableBitmap.h"
 #include <WebCore/IntPoint.h>
-#include <WebCore/SelectionRect.h>
+#include <WebCore/SelectionGeometry.h>
+#include <WebCore/ShareableBitmap.h>
 #include <WebCore/TextIndicator.h>
 #include <wtf/text/WTFString.h>
 
@@ -41,22 +41,33 @@ struct InteractionInformationRequest {
 
     bool includeSnapshot { false };
     bool includeLinkIndicator { false };
-    bool includeCaretContext { false };
+    bool includeCursorContext { false };
     bool includeHasDoubleClickHandler { true };
+    bool includeImageData { false };
 
+    bool gatherAnimations { false };
     bool linkIndicatorShouldHaveLegacyMargins { false };
 
     InteractionInformationRequest() { }
     explicit InteractionInformationRequest(WebCore::IntPoint point)
+        : point(point)
     {
-        this->point = point;
+    }
+
+    explicit InteractionInformationRequest(WebCore::IntPoint point, bool includeSnapshot, bool includeLinkIndicator, bool includeCursorContext, bool includeHasDoubleClickHandler, bool includeImageData, bool gatherAnimations, bool linkIndicatorShouldHaveLegacyMargins)
+        : point(point)
+        , includeSnapshot(includeSnapshot)
+        , includeLinkIndicator(includeLinkIndicator)
+        , includeCursorContext(includeCursorContext)
+        , includeHasDoubleClickHandler(includeHasDoubleClickHandler)
+        , includeImageData(includeImageData)
+        , gatherAnimations(gatherAnimations)
+        , linkIndicatorShouldHaveLegacyMargins(linkIndicatorShouldHaveLegacyMargins)
+    {
     }
 
     bool isValidForRequest(const InteractionInformationRequest&, int radius = 0) const;
     bool isApproximatelyValidForRequest(const InteractionInformationRequest&, int radius) const;
-
-    void encode(IPC::Encoder&) const;
-    static WARN_UNUSED_RETURN bool decode(IPC::Decoder&, InteractionInformationRequest&);
 };
 
 }

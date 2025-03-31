@@ -21,8 +21,6 @@
 
 namespace webrtc {
 namespace rtcp {
-constexpr uint8_t App::kPacketType;
-constexpr size_t App::kMaxDataSize;
 // Application-Defined packet (APP) (RFC 3550).
 //
 //     0                   1                   2                   3
@@ -91,7 +89,9 @@ bool App::Create(uint8_t* packet,
 
   ByteWriter<uint32_t>::WriteBigEndian(&packet[*index + 0], sender_ssrc());
   ByteWriter<uint32_t>::WriteBigEndian(&packet[*index + 4], name_);
-  memcpy(&packet[*index + 8], data_.data(), data_.size());
+  if (!data_.empty()) {
+    memcpy(&packet[*index + 8], data_.data(), data_.size());
+  }
   *index += (8 + data_.size());
   RTC_DCHECK_EQ(index_end, *index);
   return true;

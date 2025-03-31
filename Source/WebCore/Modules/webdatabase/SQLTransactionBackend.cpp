@@ -357,7 +357,7 @@ void SQLTransactionBackend::doCleanup()
 
     m_frontend.releaseOriginLockIfNeeded();
 
-    LockHolder locker(m_frontend.m_statementMutex);
+    Locker locker { m_frontend.m_statementLock };
     m_frontend.m_statementQueue.clear();
 
     if (m_frontend.m_sqliteTransaction) {
@@ -401,7 +401,7 @@ void SQLTransactionBackend::doCleanup()
 
 SQLTransactionBackend::StateFunction SQLTransactionBackend::stateFunctionFor(SQLTransactionState state)
 {
-    static const StateFunction stateFunctions[] = {
+    static constexpr std::array<StateFunction, 13> stateFunctions {
         &SQLTransactionBackend::unreachableState,            // 0. end
         &SQLTransactionBackend::unreachableState,            // 1. idle
         &SQLTransactionBackend::acquireLock,                 // 2.
@@ -417,7 +417,7 @@ SQLTransactionBackend::StateFunction SQLTransactionBackend::stateFunctionFor(SQL
         &SQLTransactionBackend::unreachableState             // 12. deliverSuccessCallback
     };
 
-    ASSERT(WTF_ARRAY_LENGTH(stateFunctions) == static_cast<int>(SQLTransactionState::NumberOfStates));
+    ASSERT(stateFunctions.size() == static_cast<int>(SQLTransactionState::NumberOfStates));
     ASSERT(state < SQLTransactionState::NumberOfStates);
 
     return stateFunctions[static_cast<int>(state)];
@@ -436,7 +436,7 @@ void SQLTransactionBackend::computeNextStateAndCleanupIfNeeded()
             || m_nextState == SQLTransactionState::CleanupAndTerminate
             || m_nextState == SQLTransactionState::CleanupAfterTransactionErrorCallback);
 
-        LOG(StorageAPI, "State %s\n", nameForSQLTransactionState(m_nextState));
+        LOG(StorageAPI, "State %s\n", nameForSQLTransactionState(m_nextState).characters());
         return;
     }
 
@@ -505,7 +505,7 @@ void SQLTransactionBackend::cleanupAfterTransactionErrorCallback()
 // modify is m_requestedState which is meant for this purpose.
 void SQLTransactionBackend::requestTransitToState(SQLTransactionState nextState)
 {
-    LOG(StorageAPI, "Scheduling %s for transaction %p\n", nameForSQLTransactionState(nextState), this);
+    LOG(StorageAPI, "Scheduling %s for transaction %p\n", nameForSQLTransactionState(nextState).characters(), this);
     m_requestedState = nextState;
     ASSERT(m_requestedState != SQLTransactionState::End);
     m_frontend.m_database->scheduleTransactionStep(m_frontend);

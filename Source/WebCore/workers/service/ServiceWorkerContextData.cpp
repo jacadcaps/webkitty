@@ -27,11 +27,9 @@
 #include "ServiceWorkerContextData.h"
 #include <wtf/CrossThreadCopier.h>
 
-#if ENABLE(SERVICE_WORKER)
-
 namespace WebCore {
 
-ServiceWorkerContextData ServiceWorkerContextData::isolatedCopy() const
+ServiceWorkerContextData ServiceWorkerContextData::isolatedCopy() const &
 {
     return {
         jobDataIdentifier,
@@ -40,14 +38,37 @@ ServiceWorkerContextData ServiceWorkerContextData::isolatedCopy() const
         script.isolatedCopy(),
         certificateInfo.isolatedCopy(),
         contentSecurityPolicy.isolatedCopy(),
+        crossOriginEmbedderPolicy.isolatedCopy(),
         referrerPolicy.isolatedCopy(),
         scriptURL.isolatedCopy(),
         workerType,
         loadedFromDisk,
-        crossThreadCopy(scriptResourceMap)
+        lastNavigationWasAppInitiated,
+        crossThreadCopy(scriptResourceMap),
+        serviceWorkerPageIdentifier,
+        crossThreadCopy(navigationPreloadState),
+    };
+}
+
+ServiceWorkerContextData ServiceWorkerContextData::isolatedCopy() &&
+{
+    return {
+        jobDataIdentifier,
+        WTFMove(registration).isolatedCopy(),
+        serviceWorkerIdentifier,
+        WTFMove(script).isolatedCopy(),
+        WTFMove(certificateInfo).isolatedCopy(),
+        WTFMove(contentSecurityPolicy).isolatedCopy(),
+        WTFMove(crossOriginEmbedderPolicy).isolatedCopy(),
+        WTFMove(referrerPolicy).isolatedCopy(),
+        WTFMove(scriptURL).isolatedCopy(),
+        workerType,
+        loadedFromDisk,
+        lastNavigationWasAppInitiated,
+        crossThreadCopy(WTFMove(scriptResourceMap)),
+        serviceWorkerPageIdentifier,
+        crossThreadCopy(WTFMove(navigationPreloadState))
     };
 }
 
 } // namespace WebCore
-
-#endif // ENABLE(SERVICE_WORKER)

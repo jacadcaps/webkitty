@@ -63,13 +63,14 @@ WI.IssueMessage = class IssueMessage extends WI.Object
 
         case WI.ConsoleMessage.MessageSource.ConsoleAPI:
         case WI.ConsoleMessage.MessageSource.Storage:
-        case WI.ConsoleMessage.MessageSource.Appcache:
         case WI.ConsoleMessage.MessageSource.Rendering:
         case WI.ConsoleMessage.MessageSource.Media:
         case WI.ConsoleMessage.MessageSource.Mediasource:
         case WI.ConsoleMessage.MessageSource.WebRTC:
         case WI.ConsoleMessage.MessageSource.ITPDebug:
-        case WI.ConsoleMessage.MessageSource.AdClickAttribution:
+        case WI.ConsoleMessage.MessageSource.PrivateClickMeasurement:
+        case WI.ConsoleMessage.MessageSource.PaymentRequest:
+        case WI.ConsoleMessage.MessageSource.AdClickAttribution: // COMPATIBILITY (iOS 14.0): `Console.ChannelSource.AdClickAttribution` was renamed to `Console.ChannelSource.PrivateClickMeasurement`.
         case WI.ConsoleMessage.MessageSource.Other:
             this._type = WI.IssueMessage.Type.OtherIssue;
             break;

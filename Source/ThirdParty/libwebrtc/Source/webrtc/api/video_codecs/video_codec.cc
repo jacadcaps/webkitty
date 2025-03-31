@@ -12,40 +12,39 @@
 
 #include <string.h>
 
+#include <optional>
 #include <string>
 
 #include "absl/strings/match.h"
+#include "api/video/video_codec_type.h"
+#include "api/video_codecs/scalability_mode.h"
+#include "api/video_codecs/simulcast_stream.h"
 #include "rtc_base/checks.h"
+#include "rtc_base/strings/string_builder.h"
 
 namespace webrtc {
 namespace {
 constexpr char kPayloadNameVp8[] = "VP8";
 constexpr char kPayloadNameVp9[] = "VP9";
-// TODO(bugs.webrtc.org/11042): Rename to AV1 when rtp payload format for av1 is
-// frozen.
-constexpr char kPayloadNameAv1[] = "AV1X";
+constexpr char kPayloadNameAv1[] = "AV1";
+// TODO(bugs.webrtc.org/13166): Remove AV1X when backwards compatibility is not
+// needed.
+constexpr char kPayloadNameAv1x[] = "AV1X";
 constexpr char kPayloadNameH264[] = "H264";
-#ifndef DISABLE_H265
-constexpr char kPayloadNameH265[] = "H265";
-#endif
 constexpr char kPayloadNameGeneric[] = "Generic";
-constexpr char kPayloadNameMultiplex[] = "Multiplex";
+constexpr char kPayloadNameH265[] = "H265";
 }  // namespace
 
 bool VideoCodecVP8::operator==(const VideoCodecVP8& other) const {
-  return (complexity == other.complexity &&
-          numberOfTemporalLayers == other.numberOfTemporalLayers &&
+  return (numberOfTemporalLayers == other.numberOfTemporalLayers &&
           denoisingOn == other.denoisingOn &&
           automaticResizeOn == other.automaticResizeOn &&
-          frameDroppingOn == other.frameDroppingOn &&
           keyFrameInterval == other.keyFrameInterval);
 }
 
 bool VideoCodecVP9::operator==(const VideoCodecVP9& other) const {
-  return (complexity == other.complexity &&
-          numberOfTemporalLayers == other.numberOfTemporalLayers &&
+  return (numberOfTemporalLayers == other.numberOfTemporalLayers &&
           denoisingOn == other.denoisingOn &&
-          frameDroppingOn == other.frameDroppingOn &&
           keyFrameInterval == other.keyFrameInterval &&
           adaptiveQpMode == other.adaptiveQpMode &&
           automaticResizeOn == other.automaticResizeOn &&
@@ -54,35 +53,12 @@ bool VideoCodecVP9::operator==(const VideoCodecVP9& other) const {
 }
 
 bool VideoCodecH264::operator==(const VideoCodecH264& other) const {
-  return (frameDroppingOn == other.frameDroppingOn &&
-          keyFrameInterval == other.keyFrameInterval &&
+  return (keyFrameInterval == other.keyFrameInterval &&
           numberOfTemporalLayers == other.numberOfTemporalLayers);
-}
-
-#ifndef DISABLE_H265
-bool VideoCodecH265::operator==(const VideoCodecH265& other) const {
-  return (frameDroppingOn == other.frameDroppingOn &&
-          keyFrameInterval == other.keyFrameInterval &&
-          vpsLen == other.vpsLen && spsLen == other.spsLen &&
-          ppsLen == other.ppsLen &&
-          (spsLen == 0 || memcmp(spsData, other.spsData, spsLen) == 0) &&
-          (ppsLen == 0 || memcmp(ppsData, other.ppsData, ppsLen) == 0));
-}
-#endif
-
-bool SpatialLayer::operator==(const SpatialLayer& other) const {
-  return (width == other.width && height == other.height &&
-          maxFramerate == other.maxFramerate &&
-          numberOfTemporalLayers == other.numberOfTemporalLayers &&
-          maxBitrate == other.maxBitrate &&
-          targetBitrate == other.targetBitrate &&
-          minBitrate == other.minBitrate && qpMax == other.qpMax &&
-          active == other.active);
 }
 
 VideoCodec::VideoCodec()
     : codecType(kVideoCodecGeneric),
-      plType(0),
       width(0),
       height(0),
       startBitrate(0),
@@ -97,7 +73,42 @@ VideoCodec::VideoCodec()
       mode(VideoCodecMode::kRealtimeVideo),
       expect_encode_from_texture(false),
       timing_frame_thresholds({0, 0}),
-      codec_specific_() {}
+      legacy_conference_mode(false),
+      codec_specific_(),
+      complexity_(VideoCodecComplexity::kComplexityNormal) {}
+
+std::string VideoCodec::ToString() const {
+  char string_buf[2048];
+  rtc::SimpleStringBuilder ss(string_buf);
+
+  ss << "VideoCodec {" << "type: " << CodecTypeToPayloadString(codecType)
+     << ", mode: "
+     << (mode == VideoCodecMode::kRealtimeVideo ? "RealtimeVideo"
+                                                : "Screensharing");
+  if (IsSinglecast()) {
+    std::optional<ScalabilityMode> scalability_mode = GetScalabilityMode();
+    if (scalability_mode.has_value()) {
+      ss << ", Singlecast: {" << width << "x" << height << " "
+         << ScalabilityModeToString(*scalability_mode)
+         << (active ? ", active" : ", inactive") << "}";
+    }
+  } else {
+    ss << ", Simulcast: {";
+    for (size_t i = 0; i < numberOfSimulcastStreams; ++i) {
+      const SimulcastStream stream = simulcastStream[i];
+      std::optional<ScalabilityMode> scalability_mode =
+          stream.GetScalabilityMode();
+      if (scalability_mode.has_value()) {
+        ss << "[" << stream.width << "x" << stream.height << " "
+           << ScalabilityModeToString(*scalability_mode)
+           << (stream.active ? ", active" : ", inactive") << "]";
+      }
+    }
+    ss << "}";
+  }
+  ss << "}";
+  return ss.str();
+}
 
 VideoCodecVP8* VideoCodec::VP8() {
   RTC_DCHECK_EQ(codecType, kVideoCodecVP8);
@@ -129,17 +140,15 @@ const VideoCodecH264& VideoCodec::H264() const {
   return codec_specific_.H264;
 }
 
-#ifndef DISABLE_H265
-VideoCodecH265* VideoCodec::H265() {
-  RTC_DCHECK_EQ(codecType, kVideoCodecH265);
-  return &codec_specific_.H265;
+VideoCodecAV1* VideoCodec::AV1() {
+  RTC_DCHECK_EQ(codecType, kVideoCodecAV1);
+  return &codec_specific_.AV1;
 }
 
-const VideoCodecH265& VideoCodec::H265() const {
-  RTC_DCHECK_EQ(codecType, kVideoCodecH265);
-  return codec_specific_.H265;
+const VideoCodecAV1& VideoCodec::AV1() const {
+  RTC_DCHECK_EQ(codecType, kVideoCodecAV1);
+  return codec_specific_.AV1;
 }
-#endif
 
 const char* CodecTypeToPayloadString(VideoCodecType type) {
   switch (type) {
@@ -151,15 +160,12 @@ const char* CodecTypeToPayloadString(VideoCodecType type) {
       return kPayloadNameAv1;
     case kVideoCodecH264:
       return kPayloadNameH264;
-#ifndef DISABLE_H265
-    case kVideoCodecH265:
-      return kPayloadNameH265;
-#endif
-    case kVideoCodecMultiplex:
-      return kPayloadNameMultiplex;
     case kVideoCodecGeneric:
       return kPayloadNameGeneric;
+    case kVideoCodecH265:
+      return kPayloadNameH265;
   }
+  RTC_CHECK_NOTREACHED();
 }
 
 VideoCodecType PayloadStringToCodecType(const std::string& name) {
@@ -167,17 +173,31 @@ VideoCodecType PayloadStringToCodecType(const std::string& name) {
     return kVideoCodecVP8;
   if (absl::EqualsIgnoreCase(name, kPayloadNameVp9))
     return kVideoCodecVP9;
-  if (absl::EqualsIgnoreCase(name, kPayloadNameAv1))
+  if (absl::EqualsIgnoreCase(name, kPayloadNameAv1) ||
+      absl::EqualsIgnoreCase(name, kPayloadNameAv1x))
     return kVideoCodecAV1;
   if (absl::EqualsIgnoreCase(name, kPayloadNameH264))
     return kVideoCodecH264;
-#ifndef DISABLE_H265
   if (absl::EqualsIgnoreCase(name, kPayloadNameH265))
     return kVideoCodecH265;
-#endif
-  if (absl::EqualsIgnoreCase(name, kPayloadNameMultiplex))
-    return kVideoCodecMultiplex;
   return kVideoCodecGeneric;
+}
+
+VideoCodecComplexity VideoCodec::GetVideoEncoderComplexity() const {
+  return complexity_;
+}
+
+void VideoCodec::SetVideoEncoderComplexity(
+    VideoCodecComplexity complexity_setting) {
+  complexity_ = complexity_setting;
+}
+
+bool VideoCodec::GetFrameDropEnabled() const {
+  return frame_drop_enabled_;
+}
+
+void VideoCodec::SetFrameDropEnabled(bool enabled) {
+  frame_drop_enabled_ = enabled;
 }
 
 }  // namespace webrtc

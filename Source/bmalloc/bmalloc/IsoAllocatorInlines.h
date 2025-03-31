@@ -25,11 +25,15 @@
 
 #pragma once
 
+#if !BUSE(TZONE)
+
 #include "BInline.h"
 #include "EligibilityResult.h"
 #include "IsoAllocator.h"
 #include "IsoHeapImplInlines.h"
 #include "IsoPage.h"
+
+#if !BUSE(LIBPAS)
 
 namespace bmalloc {
 
@@ -102,3 +106,5 @@ void IsoAllocator<Config>::scavenge(IsoHeapImpl<Config>& heap)
 
 } // namespace bmalloc
 
+#endif
+#endif // !BUSE(TZONE)

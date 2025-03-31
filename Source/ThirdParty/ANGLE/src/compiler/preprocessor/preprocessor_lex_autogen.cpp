@@ -1087,7 +1087,10 @@ YY_DECL
                 /* Line breaks are just counted - not returned. */
                 /* The comment is replaced by a single space. */
                 case 2:
-                    YY_RULE_SETUP { BEGIN(COMMENT); }
+                    YY_RULE_SETUP
+                    {
+                        BEGIN(COMMENT);
+                    }
                     YY_BREAK
                 case 3:
                     YY_RULE_SETUP
@@ -1310,7 +1313,10 @@ YY_DECL
                     }
                     YY_BREAK
                 case 34:
-                    YY_RULE_SETUP { yyextra->leadingSpace = true; }
+                    YY_RULE_SETUP
+                    {
+                        yyextra->leadingSpace = true;
+                    }
                     YY_BREAK
                 case 35:
                     /* rule 35 can match eol */

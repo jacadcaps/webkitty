@@ -39,6 +39,8 @@ namespace WebKit {
 class WebURLSchemeTask;
 
 class RemoteInspectorProtocolHandler final : public RemoteInspectorObserver, public WebURLSchemeHandler {
+    WTF_MAKE_FAST_ALLOCATED;
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RemoteInspectorProtocolHandler);
 public:
     static Ref<RemoteInspectorProtocolHandler> create(WebPageProxy& page) { return adoptRef(*new RemoteInspectorProtocolHandler(page)); }
 
@@ -55,14 +57,14 @@ private:
     // WebURLSchemeHandler
     void platformStartTask(WebPageProxy&, WebURLSchemeTask&) final;
     void platformStopTask(WebPageProxy&, WebURLSchemeTask&) final { }
-    void platformTaskCompleted(WebURLSchemeTask&) final { }
 
     void updateTargetList();
 
     void runScript(const String&);
+    Ref<WebPageProxy> protectedPage() const;
 
     std::unique_ptr<RemoteInspectorClient> m_inspectorClient;
-    WebPageProxy& m_page;
+    WeakRef<WebPageProxy> m_page;
     bool m_pageLoaded { false };
     String m_targetListsHtml;
 };

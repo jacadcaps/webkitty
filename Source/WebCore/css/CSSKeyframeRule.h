@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007, 2008, 2012, 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2007-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,31 +26,41 @@
 #pragma once
 
 #include "CSSRule.h"
-#include "StyleProperties.h"
 #include "StyleRule.h"
 
 namespace WebCore {
 
 class CSSStyleDeclaration;
-class StyleRuleCSSStyleDeclaration;
 class CSSKeyframesRule;
+class StyleProperties;
+class StyleRuleCSSStyleDeclaration;
 
 class StyleRuleKeyframe final : public StyleRuleBase {
 public:
     static Ref<StyleRuleKeyframe> create(Ref<StyleProperties>&&);
-    static Ref<StyleRuleKeyframe> create(Vector<double>&& keys, Ref<StyleProperties>&&);
+    static Ref<StyleRuleKeyframe> create(Vector<std::pair<CSSValueID, double>>&& keys, Ref<StyleProperties>&&);
     ~StyleRuleKeyframe();
+
+    Ref<StyleRuleKeyframe> copy() const { RELEASE_ASSERT_NOT_REACHED(); }
+
+    struct Key {
+        CSSValueID rangeName;
+        double offset;
+
+        void writeToString(StringBuilder&) const;
+        bool operator==(const Key&) const = default;
+    };
 
     String keyText() const;
     bool setKeyText(const String&);
-    void setKey(double key)
+    void setKey(Key key)
     {
         ASSERT(m_keys.isEmpty());
         m_keys.clear();
         m_keys.append(key);
     }
 
-    const Vector<double>& keys() const { return m_keys; };
+    const Vector<Key>& keys() const { return m_keys; };
 
     const StyleProperties& properties() const { return m_properties; }
     MutableStyleProperties& mutableProperties();
@@ -59,10 +69,10 @@ public:
 
 private:
     explicit StyleRuleKeyframe(Ref<StyleProperties>&&);
-    StyleRuleKeyframe(Vector<double>&&, Ref<StyleProperties>&&);
+    StyleRuleKeyframe(Vector<Key>&&, Ref<StyleProperties>&&);
 
     Ref<StyleProperties> m_properties;
-    Vector<double> m_keys;
+    Vector<Key> m_keys;
 };
 
 class CSSKeyframeRule final : public CSSRule {
@@ -80,7 +90,7 @@ public:
 private:
     CSSKeyframeRule(StyleRuleKeyframe&, CSSKeyframesRule* parent);
 
-    CSSRule::Type type() const final { return KEYFRAME_RULE; }
+    StyleRuleType styleRuleType() const final { return StyleRuleType::Keyframe; }
 
     Ref<StyleRuleKeyframe> m_keyframe;
     mutable RefPtr<StyleRuleCSSStyleDeclaration> m_propertiesCSSOMWrapper;

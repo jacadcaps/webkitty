@@ -34,6 +34,12 @@ use FindBin;
 use lib $FindBin::Bin;
 use webkitdirs;
 
+if (isLinux()) {
+    my $scriptsDir = relativeScriptsDir();
+    exec "$scriptsDir/../glib/run-webkit-app.py", @ARGV;
+    exit;
+}
+
 printHelpAndExitForRunAndDebugWebKitAppIfNeeded();
 
 setConfiguration();
@@ -42,7 +48,7 @@ setUpGuardMallocIfNeeded();
 die "Did not specify an application to open (e.g. run-webkit-app AppName).\n" unless length($ARGV[0]) > 0;
 
 # Check to see that all the frameworks are built.
-checkFrameworks();
+checkBuild();
 
 my $appPath = shift(@ARGV);
 if (isIOSWebKit()) {

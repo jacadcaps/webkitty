@@ -28,11 +28,15 @@
 
 #if PLATFORM(MAC)
 
+#import "ContentsFormat.h"
+#import "FloatPoint.h"
 #import "FloatRect.h"
-#import "FrameView.h"
 #import "HostWindow.h"
+#import "LocalFrameView.h"
 #import "ScreenProperties.h"
+#import "ThermalMitigationNotifier.h"
 #import <ColorSync/ColorSync.h>
+#import <pal/cocoa/OpenGLSoftLinkCocoa.h>
 #import <pal/spi/cg/CoreGraphicsSPI.h>
 #import <pal/spi/cocoa/AVFoundationSPI.h>
 #import <wtf/ProcessPrivilege.h>
@@ -124,28 +128,12 @@ ScreenProperties collectScreenProperties()
     ScreenProperties screenProperties;
     bool screenHasInvertedColors = [[NSWorkspace sharedWorkspace] accessibilityDisplayShouldInvertColors];
 
-    for (NSScreen *screen in [NSScreen screens]) {
-        auto displayID = WebCore::displayID(screen);
-        FloatRect screenAvailableRect = screen.visibleFrame;
-        screenAvailableRect.setY(NSMaxY(screen.frame) - (screenAvailableRect.y() + screenAvailableRect.height())); // flip
-        FloatRect screenRect = screen.frame;
-
-        RetainPtr<CGColorSpaceRef> colorSpace = screen.colorSpace.CGColorSpace;
-
-        int screenDepth = NSBitsPerPixelFromDepth(screen.depth);
-        int screenDepthPerComponent = NSBitsPerSampleFromDepth(screen.depth);
-        bool screenSupportsExtendedColor = [screen canRepresentDisplayGamut:NSDisplayGamutP3];
-        bool screenIsMonochrome = CGDisplayUsesForceToGray();
-        uint32_t displayMask = CGDisplayIDToOpenGLDisplayMask(displayID);
-        IORegistryGPUID gpuID = 0;
-        bool screenSupportsHighDynamicRange = false;
-        float scaleFactor = screen.backingScaleFactor;
-        DynamicRangeMode dynamicRangeMode = DynamicRangeMode::None;
-
+    auto screenSupportsHighDynamicRange = [](PlatformDisplayID displayID, DynamicRangeMode& dynamicRangeMode) {
+        bool supportsHighDynamicRange = false;
 #if HAVE(AVPLAYER_VIDEORANGEOVERRIDE)
-        if (PAL::isAVFoundationFrameworkAvailable() && [PAL::getAVPlayerClass() respondsToSelector:@selector(preferredVideoRangeForDisplays:)]) {
+        if (PAL::isAVFoundationFrameworkAvailable()) {
             dynamicRangeMode = convertAVVideoRangeToEnum([PAL::getAVPlayerClass() preferredVideoRangeForDisplays:@[ @(displayID) ]]);
-            screenSupportsHighDynamicRange = dynamicRangeMode > DynamicRangeMode::Standard;
+            supportsHighDynamicRange = dynamicRangeMode > DynamicRangeMode::Standard;
         }
 #endif
 #if HAVE(AVPLAYER_VIDEORANGEOVERRIDE) && USE(MEDIATOOLBOX)
@@ -153,17 +141,42 @@ ScreenProperties collectScreenProperties()
 #endif
 #if USE(MEDIATOOLBOX)
         if (PAL::isMediaToolboxFrameworkAvailable() && PAL::canLoad_MediaToolbox_MTShouldPlayHDRVideo())
-            screenSupportsHighDynamicRange = PAL::softLink_MediaToolbox_MTShouldPlayHDRVideo((__bridge CFArrayRef)@[ @(displayID) ]);
+            supportsHighDynamicRange = PAL::softLink_MediaToolbox_MTShouldPlayHDRVideo((__bridge CFArrayRef)@[ @(displayID) ]);
 #endif
 
-        if (!screenSupportsHighDynamicRange && dynamicRangeMode > DynamicRangeMode::Standard)
+        if (!supportsHighDynamicRange && dynamicRangeMode > DynamicRangeMode::Standard)
             dynamicRangeMode = DynamicRangeMode::Standard;
 
-        if (displayMask)
-            gpuID = gpuIDForDisplayMask(displayMask);
+        if (supportsHighDynamicRange && WebCore::ThermalMitigationNotifier::isThermalMitigationEnabled())
+            supportsHighDynamicRange = false;
 
-        screenProperties.screenDataMap.set(displayID, ScreenData { screenAvailableRect, screenRect, colorSpace, screenDepth, screenDepthPerComponent, screenSupportsExtendedColor, screenHasInvertedColors, screenSupportsHighDynamicRange, screenIsMonochrome, displayMask, gpuID, dynamicRangeMode, scaleFactor });
+        return supportsHighDynamicRange;
+    };
 
+    for (NSScreen *screen in [NSScreen screens]) {
+        ScreenData screenData;
+        auto displayID = WebCore::displayID(screen);
+
+        auto screenAvailableRect = FloatRect { screen.visibleFrame };
+        screenAvailableRect.setY(NSMaxY(screen.frame) - (screenAvailableRect.y() + screenAvailableRect.height())); // flip
+        screenData.screenAvailableRect = screenAvailableRect;
+
+        screenData.screenRect = screen.frame;
+        screenData.colorSpace = DestinationColorSpace { screen.colorSpace.CGColorSpace };
+        screenData.screenDepth = NSBitsPerPixelFromDepth(screen.depth);
+        screenData.screenDepthPerComponent = NSBitsPerSampleFromDepth(screen.depth);
+        screenData.screenSupportsExtendedColor = [screen canRepresentDisplayGamut:NSDisplayGamutP3];
+        screenData.screenHasInvertedColors = screenHasInvertedColors;
+        screenData.screenIsMonochrome = CGDisplayUsesForceToGray();
+        screenData.displayMask = CGDisplayIDToOpenGLDisplayMask(displayID);
+        if (screenData.displayMask)
+            screenData.gpuID = gpuIDForDisplayMask(screenData.displayMask);
+
+        screenData.screenSize = FloatSize { CGDisplayScreenSize(displayID) };
+        screenData.scaleFactor = screen.backingScaleFactor;
+        screenData.screenSupportsHighDynamicRange = screenSupportsHighDynamicRange(displayID, screenData.preferredDynamicRangeMode);
+
+        screenProperties.screenDataMap.set(displayID, WTFMove(screenData));
         if (!screenProperties.primaryDisplayID)
             screenProperties.primaryDisplayID = displayID;
     }
@@ -194,23 +207,20 @@ uint32_t displayMaskForDisplay(PlatformDisplayID displayID)
     return 0;
 }
 
-IORegistryGPUID primaryGPUID()
+PlatformGPUID primaryGPUID()
 {
     return gpuIDForDisplay(primaryScreenDisplayID());
 }
 
-IORegistryGPUID gpuIDForDisplay(PlatformDisplayID displayID)
+PlatformGPUID gpuIDForDisplay(PlatformDisplayID displayID)
 {
-#if ENABLE(WEBPROCESS_WINDOWSERVER_BLOCKING)
     if (auto data = screenData(displayID))
         return data->gpuID;
+
     return 0;
-#else
-    return gpuIDForDisplayMask(CGDisplayIDToOpenGLDisplayMask(displayID));
-#endif
 }
 
-IORegistryGPUID gpuIDForDisplayMask(GLuint displayMask)
+PlatformGPUID gpuIDForDisplayMask(GLuint displayMask)
 {
     GLint numRenderers = 0;
     CGLRendererInfoObj rendererInfo = nullptr;
@@ -226,6 +236,9 @@ IORegistryGPUID gpuIDForDisplayMask(GLuint displayMask)
         return 0;
     }
 
+    // (kCGLRPRegistryIDHigh, kCGLRPRegistryIDLow) are defined as (upper, lower) 32-bits
+    // of the uint64_t IORegistryGPUID, even though they're obtained through the signed GLint getter.
+    // Thus care must be taken when converting them to unsigned PlatformGPUID.
     GLint gpuIDLow = 0;
     GLint gpuIDHigh = 0;
 
@@ -242,7 +255,7 @@ IORegistryGPUID gpuIDForDisplayMask(GLuint displayMask)
     }
 
     CGLDestroyRendererInfo(rendererInfo);
-    return (IORegistryGPUID) gpuIDHigh << 32 | gpuIDLow;
+    return static_cast<PlatformGPUID>(static_cast<uint32_t>(gpuIDHigh)) << 32 | static_cast<uint32_t>(gpuIDLow);
 }
 
 static const ScreenData* screenProperties(Widget* widget)
@@ -342,17 +355,40 @@ NSScreen *screen(PlatformDisplayID displayID)
     return firstScreen();
 }
 
-CGColorSpaceRef screenColorSpace(Widget* widget)
+DestinationColorSpace screenColorSpace(Widget* widget)
 {
     if (auto data = screenProperties(widget))
-        return data->colorSpace.get();
+        return data->colorSpace;
 
     ASSERT(hasProcessPrivilege(ProcessPrivilege::CanCommunicateWithWindowServer));
-    return screen(widget).colorSpace.CGColorSpace;
+    return DestinationColorSpace { screen(widget).colorSpace.CGColorSpace };
+}
+
+OptionSet<ContentsFormat> screenContentsFormats(Widget* widget)
+{
+    OptionSet<ContentsFormat> contentsFormats = { ContentsFormat::RGBA8 };
+
+#if ENABLE(PIXEL_FORMAT_RGBA16F)
+    if (screenSupportsHighDynamicRange(widget))
+        contentsFormats.add(ContentsFormat::RGBA16F);
+#endif
+
+#if ENABLE(PIXEL_FORMAT_RGB10)
+    if (screenSupportsExtendedColor(widget))
+        contentsFormats.add(ContentsFormat::RGBA10);
+#endif
+
+    UNUSED_PARAM(widget);
+    return contentsFormats;
 }
 
 bool screenSupportsExtendedColor(Widget* widget)
 {
+#if HAVE(SUPPORT_HDR_DISPLAY) && ENABLE(PIXEL_FORMAT_RGB10)
+    if (screenContentsFormatsForTesting().contains(ContentsFormat::RGBA10))
+        return true;
+#endif
+
     if (auto data = screenProperties(widget))
         return data->screenSupportsExtendedColor;
 
@@ -362,6 +398,11 @@ bool screenSupportsExtendedColor(Widget* widget)
 
 bool screenSupportsHighDynamicRange(Widget* widget)
 {
+#if HAVE(SUPPORT_HDR_DISPLAY) && ENABLE(PIXEL_FORMAT_RGBA16F)
+    if (screenContentsFormatsForTesting().contains(ContentsFormat::RGBA16F))
+        return true;
+#endif
+
     if (auto data = screenProperties(widget))
         return data->screenSupportsHighDynamicRange;
 
@@ -382,7 +423,7 @@ DynamicRangeMode preferredDynamicRangeMode(Widget* widget)
         return data->preferredDynamicRangeMode;
 
     ASSERT(hasProcessPrivilege(ProcessPrivilege::CanCommunicateWithWindowServer));
-    if (PAL::isAVFoundationFrameworkAvailable() && [PAL::getAVPlayerClass() respondsToSelector:@selector(preferredVideoRangeForDisplays:)]) {
+    if (PAL::isAVFoundationFrameworkAvailable()) {
         auto displayID = WebCore::displayID(screen(widget));
         return convertAVVideoRangeToEnum([PAL::getAVPlayerClass() preferredVideoRangeForDisplays:@[ @(displayID) ]]);
     }
@@ -405,6 +446,13 @@ FloatRect toUserSpaceForPrimaryScreen(const NSRect& rect)
     return userRect;
 }
 
+FloatPoint toUserSpaceForPrimaryScreen(const NSPoint& point)
+{
+    FloatPoint userPoint = point;
+    userPoint.setY(NSMaxY(screenRectForDisplay(primaryScreenDisplayID())) - userPoint.y()); // flip
+    return userPoint;
+}
+
 NSRect toDeviceSpace(const FloatRect& rect, NSWindow *source)
 {
     FloatRect deviceRect = rect;
@@ -417,6 +465,24 @@ NSPoint flipScreenPoint(const NSPoint& screenPoint, NSScreen *screen)
     NSPoint flippedPoint = screenPoint;
     flippedPoint.y = NSMaxY([screen frame]) - flippedPoint.y;
     return flippedPoint;
+}
+
+FloatRect safeScreenFrame(NSScreen* screen)
+{
+    FloatRect frame = screen.frame;
+#if HAVE(NSSCREEN_SAFE_AREA)
+    auto insets = screen.safeAreaInsets;
+    frame.contract(insets.left + insets.right, insets.top + insets.bottom);
+    frame.move(insets.left, insets.bottom);
+#endif
+    return frame;
+}
+
+double ScreenData::screenDPI() const
+{
+    constexpr double mmPerInch = 25.4;
+    auto screenWidthInches = screenSize.width() / mmPerInch;
+    return screenRect.width() / screenWidthInches;
 }
 
 } // namespace WebCore

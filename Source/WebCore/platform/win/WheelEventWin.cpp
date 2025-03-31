@@ -64,7 +64,7 @@ static int horizontalScrollChars()
     return scrollChars;
 }
 
-static int verticalScrollLines()
+static unsigned verticalScrollLines()
 {
     static ULONG scrollLines;
     if (!scrollLines && !SystemParametersInfo(SPI_GETWHEELSCROLLLINES, 0, &scrollLines, 0))
@@ -73,10 +73,9 @@ static int verticalScrollLines()
 }
 
 PlatformWheelEvent::PlatformWheelEvent(HWND hWnd, WPARAM wParam, LPARAM lParam, bool isMouseHWheel)
-    : PlatformEvent(PlatformEvent::Wheel, wParam & MK_SHIFT, wParam & MK_CONTROL, GetKeyState(VK_MENU) & HIGH_BIT_MASK_SHORT, GetKeyState(VK_MENU) & HIGH_BIT_MASK_SHORT, WallTime::fromRawSeconds(::GetTickCount() * 0.001))
+    : PlatformEvent(PlatformEvent::Type::Wheel, wParam & MK_SHIFT, wParam & MK_CONTROL, GetKeyState(VK_MENU) & HIGH_BIT_MASK_SHORT, GetKeyState(VK_MENU) & HIGH_BIT_MASK_SHORT, WallTime::fromRawSeconds(::GetTickCount() * 0.001))
     , m_position(positionForEvent(hWnd, lParam))
     , m_globalPosition(globalPositionForEvent(hWnd, lParam))
-    , m_directionInvertedFromDevice(false)
 {
     float scaleFactor = deviceScaleFactorForWindow(hWnd);
 
@@ -102,7 +101,7 @@ PlatformWheelEvent::PlatformWheelEvent(HWND hWnd, WPARAM wParam, LPARAM lParam, 
     } else {
         m_deltaX = 0;
         m_deltaY = delta;
-        int verticalMultiplier = verticalScrollLines();
+        unsigned verticalMultiplier = verticalScrollLines();
         m_granularity = (verticalMultiplier == WHEEL_PAGESCROLL) ? ScrollByPageWheelEvent : ScrollByPixelWheelEvent;
         if (m_granularity == ScrollByPixelWheelEvent)
             m_deltaY *= static_cast<float>(verticalMultiplier) * cScrollbarPixelsPerLine;

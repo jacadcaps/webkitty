@@ -26,8 +26,9 @@
 #pragma once
 
 #include "APIObject.h"
-#include "ContentWorldShared.h"
-#include <wtf/HashSet.h>
+#include "ContentWorldData.h"
+#include <wtf/WeakHashSet.h>
+#include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebKit {
@@ -36,29 +37,42 @@ class WebUserContentControllerProxy;
 
 namespace API {
 
-class ContentWorld final : public API::ObjectImpl<API::Object::Type::ContentWorld> {
+class ContentWorld final : public API::ObjectImpl<API::Object::Type::ContentWorld>, public CanMakeWeakPtr<ContentWorld> {
 public:
     static ContentWorld* worldForIdentifier(WebKit::ContentWorldIdentifier);
-    static Ref<ContentWorld> sharedWorldWithName(const WTF::String&);
-    static ContentWorld& pageContentWorld();
-    static ContentWorld& defaultClientWorld();
+    static Ref<ContentWorld> sharedWorldWithName(const WTF::String&, OptionSet<WebKit::ContentWorldOption> options = { });
+    static ContentWorld& pageContentWorldSingleton();
+    static ContentWorld& defaultClientWorldSingleton();
 
     virtual ~ContentWorld();
 
     WebKit::ContentWorldIdentifier identifier() const { return m_identifier; }
     const WTF::String& name() const { return m_name; }
-    std::pair<WebKit::ContentWorldIdentifier, WTF::String> worldData() const { return { m_identifier, m_name }; }
+    WebKit::ContentWorldData worldData() const { return { m_identifier, m_name, m_options }; }
+
+    bool allowAccessToClosedShadowRoots() const { return m_options.contains(WebKit::ContentWorldOption::AllowAccessToClosedShadowRoots); }
+    void setAllowAccessToClosedShadowRoots(bool value) { m_options.add(WebKit::ContentWorldOption::AllowAccessToClosedShadowRoots); }
+
+    bool allowAutofill() const { return m_options.contains(WebKit::ContentWorldOption::AllowAutofill); }
+    void setAllowAutofill(bool value) { m_options.add(WebKit::ContentWorldOption::AllowAutofill); }
+
+    bool allowElementUserInfo() const { return m_options.contains(WebKit::ContentWorldOption::AllowElementUserInfo); }
+    void setAllowElementUserInfo(bool value) { m_options.add(WebKit::ContentWorldOption::AllowElementUserInfo); }
+
+    bool disableLegacyBuiltinOverrides() const { return m_options.contains(WebKit::ContentWorldOption::DisableLegacyBuiltinOverrides); }
+    void setDisableLegacyBuiltinOverrides(bool value) { m_options.add(WebKit::ContentWorldOption::DisableLegacyBuiltinOverrides); }
 
     void addAssociatedUserContentControllerProxy(WebKit::WebUserContentControllerProxy&);
     void userContentControllerProxyDestroyed(WebKit::WebUserContentControllerProxy&);
 
 private:
-    explicit ContentWorld(const WTF::String&);
+    explicit ContentWorld(const WTF::String&, OptionSet<WebKit::ContentWorldOption>);
     explicit ContentWorld(WebKit::ContentWorldIdentifier);
 
     WebKit::ContentWorldIdentifier m_identifier;
     WTF::String m_name;
-    HashSet<WebKit::WebUserContentControllerProxy*> m_associatedContentControllerProxies;
+    OptionSet<WebKit::ContentWorldOption> m_options;
+    WeakHashSet<WebKit::WebUserContentControllerProxy> m_associatedContentControllerProxies;
 };
 
 } // namespace API

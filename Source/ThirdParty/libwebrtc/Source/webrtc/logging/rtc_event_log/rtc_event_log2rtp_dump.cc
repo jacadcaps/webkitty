@@ -13,24 +13,24 @@
 
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "absl/flags/flag.h"
 #include "absl/flags/parse.h"
 #include "absl/flags/usage.h"
-#include "absl/memory/memory.h"
-#include "absl/types/optional.h"
+#include "absl/strings/string_view.h"
 #include "api/array_view.h"
-#include "api/rtc_event_log/rtc_event_log.h"
 #include "api/rtp_headers.h"
+#include "logging/rtc_event_log/events/logged_rtp_rtcp.h"
 #include "logging/rtc_event_log/rtc_event_log_parser.h"
 #include "logging/rtc_event_log/rtc_event_processor.h"
 #include "modules/rtp_rtcp/include/rtp_header_extension_map.h"
 #include "modules/rtp_rtcp/source/rtp_header_extensions.h"
 #include "modules/rtp_rtcp/source/rtp_packet.h"
 #include "rtc_base/checks.h"
+#include "rtc_base/string_to_number.h"
 #include "test/rtp_file_reader.h"
 #include "test/rtp_file_writer.h"
 
@@ -70,30 +70,19 @@ namespace {
 using MediaType = webrtc::ParsedRtcEventLog::MediaType;
 
 // Parses the input string for a valid SSRC. If a valid SSRC is found, it is
-// written to the output variable |ssrc|, and true is returned. Otherwise,
+// written to the output variable `ssrc`, and true is returned. Otherwise,
 // false is returned.
 // The empty string must be validated as true, because it is the default value
 // of the command-line flag. In this case, no value is written to the output
 // variable.
-absl::optional<uint32_t> ParseSsrc(std::string str) {
-  // If the input string starts with 0x or 0X it indicates a hexadecimal number.
-  uint32_t ssrc;
-  auto read_mode = std::dec;
-  if (str.size() > 2 &&
-      (str.substr(0, 2) == "0x" || str.substr(0, 2) == "0X")) {
-    read_mode = std::hex;
-    str = str.substr(2);
-  }
-  std::stringstream ss(str);
-  ss >> read_mode >> ssrc;
-  if (str.empty() || (!ss.fail() && ss.eof()))
-    return ssrc;
-  return absl::nullopt;
+std::optional<uint32_t> ParseSsrc(absl::string_view str) {
+  // Set `base` to 0 to allow detection of the "0x" prefix in case hex is used.
+  return rtc::StringToNumber<uint32_t>(str, 0);
 }
 
 bool ShouldSkipStream(MediaType media_type,
                       uint32_t ssrc,
-                      absl::optional<uint32_t> ssrc_filter) {
+                      std::optional<uint32_t> ssrc_filter) {
   if (!absl::GetFlag(FLAGS_audio) && media_type == MediaType::AUDIO)
     return true;
   if (!absl::GetFlag(FLAGS_video) && media_type == MediaType::VIDEO)
@@ -134,10 +123,9 @@ void ConvertRtpPacket(
   if (incoming.rtp.header.extension.hasTransportSequenceNumber)
     reconstructed_packet.SetExtension<webrtc::TransportSequenceNumber>(
         incoming.rtp.header.extension.transportSequenceNumber);
-  if (incoming.rtp.header.extension.hasAudioLevel)
-    reconstructed_packet.SetExtension<webrtc::AudioLevel>(
-        incoming.rtp.header.extension.voiceActivity,
-        incoming.rtp.header.extension.audioLevel);
+  if (incoming.rtp.header.extension.audio_level())
+    reconstructed_packet.SetExtension<webrtc::AudioLevelExtension>(
+        *incoming.rtp.header.extension.audio_level());
   if (incoming.rtp.header.extension.hasVideoRotation)
     reconstructed_packet.SetExtension<webrtc::VideoOrientation>(
         incoming.rtp.header.extension.videoRotation);
@@ -179,7 +167,7 @@ int main(int argc, char* argv[]) {
   std::string input_file = args[1];
   std::string output_file = args[2];
 
-  absl::optional<uint32_t> ssrc_filter;
+  std::optional<uint32_t> ssrc_filter;
   if (!absl::GetFlag(FLAGS_ssrc).empty()) {
     ssrc_filter = ParseSsrc(absl::GetFlag(FLAGS_ssrc));
     RTC_CHECK(ssrc_filter.has_value()) << "Failed to read SSRC filter flag.";
@@ -240,7 +228,7 @@ int main(int argc, char* argv[]) {
       continue;
     event_processor.AddEvents(stream.incoming_packets, handle_rtp);
   }
-  // Note that |packet_ssrc| is the sender SSRC. An RTCP message may contain
+  // Note that `packet_ssrc` is the sender SSRC. An RTCP message may contain
   // report blocks for many streams, thus several SSRCs and they don't
   // necessarily have to be of the same media type. We therefore don't
   // support filtering of RTCP based on SSRC and media type.

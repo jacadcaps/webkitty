@@ -30,39 +30,40 @@
 #include "Chrome.h"
 #include "EventHandler.h"
 #include "EventNames.h"
-#include "Frame.h"
 #include "HTMLNames.h"
+#include "LocalFrame.h"
 #include "MouseEvent.h"
 #include "Page.h"
 #include "RenderBox.h"
 #include "RenderTheme.h"
+#include "ScriptDisallowedScope.h"
 #include "ScrollbarTheme.h"
-#include "WheelEvent.h"
-#include <wtf/IsoMallocInlines.h>
+#include "UserAgentParts.h"
 #include <wtf/Ref.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(SpinButtonElement);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(SpinButtonElement);
 
 using namespace HTMLNames;
 
 inline SpinButtonElement::SpinButtonElement(Document& document, SpinButtonOwner& spinButtonOwner)
-    : HTMLDivElement(divTag, document)
-    , m_spinButtonOwner(&spinButtonOwner)
+    : HTMLDivElement(divTag, document, TypeFlag::HasCustomStyleResolveCallbacks)
+    , m_spinButtonOwner(spinButtonOwner)
     , m_capturing(false)
     , m_upDownState(Indeterminate)
     , m_pressStartingState(Indeterminate)
     , m_repeatingTimer(*this, &SpinButtonElement::repeatingTimerFired)
 {
-    static MainThreadNeverDestroyed<const AtomString> webkitInnerSpinButtonName("-webkit-inner-spin-button", AtomString::ConstructFromLiteral);
-    setHasCustomStyleResolveCallbacks();
-    setPseudo(webkitInnerSpinButtonName);
 }
 
 Ref<SpinButtonElement> SpinButtonElement::create(Document& document, SpinButtonOwner& spinButtonOwner)
 {
-    return adoptRef(*new SpinButtonElement(document, spinButtonOwner));
+    auto element = adoptRef(*new SpinButtonElement(document, spinButtonOwner));
+    ScriptDisallowedScope::EventAllowedScope eventAllowedScope { element };
+    element->setUserAgentPart(UserAgentParts::webkitInnerSpinButton());
+    return element;
 }
 
 void SpinButtonElement::willDetachRenderers()
@@ -72,7 +73,8 @@ void SpinButtonElement::willDetachRenderers()
 
 void SpinButtonElement::defaultEventHandler(Event& event)
 {
-    if (!is<MouseEvent>(event)) {
+    auto* mouseEvent = dynamicDowncast<MouseEvent>(event);
+    if (!mouseEvent) {
         if (!event.defaultHandled())
             HTMLDivElement::defaultEventHandler(event);
         return;
@@ -91,9 +93,8 @@ void SpinButtonElement::defaultEventHandler(Event& event)
         return;
     }
 
-    MouseEvent& mouseEvent = downcast<MouseEvent>(event);
-    IntPoint local = roundedIntPoint(box->absoluteToLocal(mouseEvent.absoluteLocation(), UseTransforms));
-    if (mouseEvent.type() == eventNames().mousedownEvent && mouseEvent.button() == LeftButton) {
+    IntPoint local = roundedIntPoint(box->absoluteToLocal(mouseEvent->absoluteLocation(), UseTransforms));
+    if (mouseEvent->type() == eventNames().mousedownEvent && mouseEvent->button() == MouseButton::Left) {
         if (box->borderBoxRect().contains(local)) {
             // The following functions of HTMLInputElement may run JavaScript
             // code which detaches this shadow node. We need to take a reference
@@ -112,14 +113,14 @@ void SpinButtonElement::defaultEventHandler(Event& event)
                     doStepAction(m_upDownState == Up ? 1 : -1);
                 }
             }
-            mouseEvent.setDefaultHandled();
+            mouseEvent->setDefaultHandled();
         }
-    } else if (mouseEvent.type() == eventNames().mouseupEvent && mouseEvent.button() == LeftButton)
+    } else if (mouseEvent->type() == eventNames().mouseupEvent && mouseEvent->button() == MouseButton::Left)
         stopRepeatingTimer();
-    else if (mouseEvent.type() == eventNames().mousemoveEvent) {
+    else if (mouseEvent->type() == eventNames().mousemoveEvent) {
         if (box->borderBoxRect().contains(local)) {
             if (!m_capturing) {
-                if (RefPtr<Frame> frame = document().frame()) {
+                if (RefPtr frame = document().frame()) {
                     frame->eventHandler().setCapturingMouseEventsElement(this);
                     m_capturing = true;
                     if (Page* page = document().page())
@@ -146,8 +147,8 @@ void SpinButtonElement::defaultEventHandler(Event& event)
         }
     }
 
-    if (!mouseEvent.defaultHandled())
-        HTMLDivElement::defaultEventHandler(mouseEvent);
+    if (!mouseEvent->defaultHandled())
+        HTMLDivElement::defaultEventHandler(*mouseEvent);
 }
 
 void SpinButtonElement::willOpenPopup()
@@ -156,22 +157,7 @@ void SpinButtonElement::willOpenPopup()
     m_upDownState = Indeterminate;
 }
 
-void SpinButtonElement::forwardEvent(Event& event)
-{
-    if (!is<WheelEvent>(event))
-        return;
-
-    if (!m_spinButtonOwner)
-        return;
-
-    if (!m_spinButtonOwner->shouldSpinButtonRespondToWheelEvents())
-        return;
-
-    doStepAction(downcast<WheelEvent>(event).wheelDeltaY());
-    event.setDefaultHandled();
-}
-
-bool SpinButtonElement::willRespondToMouseMoveEvents()
+bool SpinButtonElement::willRespondToMouseMoveEvents() const
 {
     if (renderBox() && shouldRespondToMouseEvents())
         return true;
@@ -179,12 +165,12 @@ bool SpinButtonElement::willRespondToMouseMoveEvents()
     return HTMLDivElement::willRespondToMouseMoveEvents();
 }
 
-bool SpinButtonElement::willRespondToMouseClickEvents()
+bool SpinButtonElement::willRespondToMouseClickEventsWithEditability(Editability editability) const
 {
     if (renderBox() && shouldRespondToMouseEvents())
         return true;
 
-    return HTMLDivElement::willRespondToMouseClickEvents();
+    return HTMLDivElement::willRespondToMouseClickEventsWithEditability(editability);
 }
 
 void SpinButtonElement::doStepAction(int amount)
@@ -202,7 +188,7 @@ void SpinButtonElement::releaseCapture()
 {
     stopRepeatingTimer();
     if (m_capturing) {
-        if (RefPtr<Frame> frame = document().frame()) {
+        if (RefPtr frame = document().frame()) {
             frame->eventHandler().setCapturingMouseEventsElement(nullptr);
             m_capturing = false;
             if (Page* page = document().page())
@@ -235,7 +221,7 @@ void SpinButtonElement::step(int amount)
     // On Mac OS, NSStepper updates the value for the button under the mouse
     // cursor regardless of the button pressed at the beginning. So the
     // following check is not needed for Mac OS.
-#if !OS(MAC_OS_X)
+#if !OS(MACOS)
     if (m_upDownState != m_pressStartingState)
         return;
 #endif
@@ -248,14 +234,14 @@ void SpinButtonElement::repeatingTimerFired()
         step(m_upDownState == Up ? 1 : -1);
 }
 
-void SpinButtonElement::setHovered(bool flag)
+void SpinButtonElement::setHovered(bool flag, Style::InvalidationScope invalidationScope, HitTestRequest request)
 {
     if (!flag)
         m_upDownState = Indeterminate;
-    HTMLDivElement::setHovered(flag);
+    HTMLDivElement::setHovered(flag, invalidationScope, request);
 }
 
-bool SpinButtonElement::shouldRespondToMouseEvents()
+bool SpinButtonElement::shouldRespondToMouseEvents() const
 {
     return !m_spinButtonOwner || m_spinButtonOwner->shouldSpinButtonRespondToMouseEvents();
 }

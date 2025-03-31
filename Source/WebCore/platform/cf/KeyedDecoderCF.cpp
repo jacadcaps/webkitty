@@ -26,19 +26,23 @@
 #include "config.h"
 #include "KeyedDecoderCF.h"
 
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/cf/TypeCastsCF.h>
+#include <wtf/cf/VectorCF.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
-std::unique_ptr<KeyedDecoder> KeyedDecoder::decoder(const uint8_t* data, size_t size)
+WTF_MAKE_TZONE_ALLOCATED_IMPL(KeyedDecoderCF);
+
+std::unique_ptr<KeyedDecoder> KeyedDecoder::decoder(std::span<const uint8_t> data)
 {
-    return makeUnique<KeyedDecoderCF>(data, size);
+    return makeUnique<KeyedDecoderCF>(data);
 }
 
-KeyedDecoderCF::KeyedDecoderCF(const uint8_t* data, size_t size)
+KeyedDecoderCF::KeyedDecoderCF(std::span<const uint8_t> data)
 {
-    auto cfData = adoptCF(CFDataCreateWithBytesNoCopy(kCFAllocatorDefault, data, size, kCFAllocatorNull));
+    auto cfData = adoptCF(CFDataCreateWithBytesNoCopy(kCFAllocatorDefault, data.data(), data.size(), kCFAllocatorNull));
     auto cfPropertyList = adoptCF(CFPropertyListCreateWithData(kCFAllocatorDefault, cfData.get(), kCFPropertyListImmutable, nullptr, nullptr));
 
     if (dynamic_cf_cast<CFDictionaryRef>(cfPropertyList.get()))
@@ -56,14 +60,13 @@ KeyedDecoderCF::~KeyedDecoderCF()
     ASSERT(m_arrayIndexStack.isEmpty());
 }
 
-bool KeyedDecoderCF::decodeBytes(const String& key, const uint8_t*& bytes, size_t& size)
+bool KeyedDecoderCF::decodeBytes(const String& key, std::span<const uint8_t>& bytes)
 {
     auto data = dynamic_cf_cast<CFDataRef>(CFDictionaryGetValue(m_dictionaryStack.last(), key.createCFString().get()));
     if (!data)
         return false;
 
-    bytes = CFDataGetBytePtr(data);
-    size = CFDataGetLength(data);
+    bytes = span(data);
     return true;
 }
 

@@ -13,9 +13,9 @@
 
 #include <stddef.h>
 
+#include <optional>
 #include <vector>
 
-#include "absl/types/optional.h"
 #include "rtc_base/system/rtc_export.h"
 
 namespace webrtc {
@@ -43,16 +43,16 @@ struct RTC_EXPORT AudioEncoderOpusConfig {
 
   // NOTE: This member must always be set.
   // TODO(kwiberg): Turn it into just an int.
-  absl::optional<int> bitrate_bps;
+  std::optional<int> bitrate_bps;
 
   bool fec_enabled;
   bool cbr_enabled;
   int max_playback_rate_hz;
 
-  // |complexity| is used when the bitrate goes above
-  // |complexity_threshold_bps| + |complexity_threshold_window_bps|;
-  // |low_rate_complexity| is used when the bitrate falls below
-  // |complexity_threshold_bps| - |complexity_threshold_window_bps|. In the
+  // `complexity` is used when the bitrate goes above
+  // `complexity_threshold_bps` + `complexity_threshold_window_bps`;
+  // `low_rate_complexity` is used when the bitrate falls below
+  // `complexity_threshold_bps` - `complexity_threshold_window_bps`. In the
   // interval in the middle, we keep using the most recent of the two
   // complexity settings.
   int complexity;

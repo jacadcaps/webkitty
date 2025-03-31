@@ -23,13 +23,16 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#if HAVE(CELESTIAL)
+#if HAVE(MEDIAEXPERIENCE_AVSYSTEMCONTROLLER)
 
 #import <Foundation/Foundation.h>
 
 #if USE(APPLE_INTERNAL_SDK)
 
-#import <Celestial/AVSystemController.h>
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-W#warnings"
+#import <MediaExperience/AVSystemController.h>
+#pragma clang diagnostic pop
 
 #else
 
@@ -44,4 +47,4 @@
 
 #endif
 
-#endif // HAVE(CELESTIAL)
+#endif // HAVE(MEDIAEXPERIENCE_AVSYSTEMCONTROLLER)

@@ -28,8 +28,10 @@
 #include "StorageAreaImpl.h"
 #include "StorageSyncManager.h"
 #include "StorageTracker.h"
+#include <WebCore/SecurityOrigin.h>
 #include <WebCore/StorageMap.h>
 #include <WebCore/StorageType.h>
+#include <wtf/CheckedPtr.h>
 #include <wtf/MainThread.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/text/StringHash.h>
@@ -38,9 +40,9 @@ using namespace WebCore;
 
 namespace WebKit {
 
-static HashMap<String, StorageNamespaceImpl*>& localStorageNamespaceMap()
+static HashMap<String, WeakRef<StorageNamespaceImpl>>& localStorageNamespaceMap()
 {
-    static NeverDestroyed<HashMap<String, StorageNamespaceImpl*>> localStorageNamespaceMap;
+    static NeverDestroyed<HashMap<String, WeakRef<StorageNamespaceImpl>>> localStorageNamespaceMap;
 
     return localStorageNamespaceMap;
 }
@@ -54,25 +56,23 @@ Ref<StorageNamespaceImpl> StorageNamespaceImpl::getOrCreateLocalStorageNamespace
 {
     ASSERT(!databasePath.isNull());
 
-    auto& slot = localStorageNamespaceMap().add(databasePath, nullptr).iterator->value;
-    if (slot)
-        return *slot;
-
-    Ref<StorageNamespaceImpl> storageNamespace = adoptRef(*new StorageNamespaceImpl(StorageType::Local, databasePath, quota, sessionID));
-    slot = storageNamespace.ptr();
-
-    return storageNamespace;
+    RefPtr<StorageNamespaceImpl> storageNamespace;
+    auto& slot = localStorageNamespaceMap().ensure(databasePath, [&] {
+        storageNamespace = adoptRef(*new StorageNamespaceImpl(StorageType::Local, databasePath, quota, sessionID));
+        return WeakRef { *storageNamespace };
+    }).iterator->value;
+    return storageNamespace ? storageNamespace.releaseNonNull() : Ref { slot.get() };
 }
 
 StorageNamespaceImpl::StorageNamespaceImpl(StorageType storageType, const String& path, unsigned quota, PAL::SessionID sessionID)
     : m_storageType(storageType)
     , m_path(path.isolatedCopy())
-    , m_syncManager(0)
+    , m_syncManager(nullptr)
     , m_quota(quota)
     , m_isShutdown(false)
     , m_sessionID(sessionID)
 {
-    if (isPersistentLocalStorage(m_storageType) && !m_path.isEmpty())
+    if (isLocalStorage(m_storageType) && !m_path.isEmpty())
         m_syncManager = StorageSyncManager::create(m_path);
 }
 
@@ -80,7 +80,7 @@ StorageNamespaceImpl::~StorageNamespaceImpl()
 {
     ASSERT(isMainThread());
 
-    if (isPersistentLocalStorage(m_storageType)) {
+    if (isLocalStorage(m_storageType)) {
         ASSERT(localStorageNamespaceMap().get(m_path) == this);
         localStorageNamespaceMap().remove(m_path);
     }
@@ -102,17 +102,14 @@ Ref<StorageNamespace> StorageNamespaceImpl::copy(Page&)
     return WTFMove(newNamespace);
 }
 
-Ref<StorageArea> StorageNamespaceImpl::storageArea(const SecurityOriginData& origin)
+Ref<StorageArea> StorageNamespaceImpl::storageArea(const SecurityOrigin& origin)
 {
     ASSERT(isMainThread());
     ASSERT(!m_isShutdown);
 
-    if (RefPtr<StorageAreaImpl> storageArea = m_storageAreaMap.get(origin))
-        return storageArea.releaseNonNull();
-
-    auto storageArea = StorageAreaImpl::create(m_storageType, origin, m_syncManager.get(), m_quota);
-    m_storageAreaMap.set(origin, storageArea.ptr());
-    return WTFMove(storageArea);
+    return *m_storageAreaMap.ensure(origin.data(), [&] {
+        return StorageAreaImpl::create(m_storageType, origin, m_syncManager.get(), m_quota);
+    }).iterator->value;
 }
 
 void StorageNamespaceImpl::close()

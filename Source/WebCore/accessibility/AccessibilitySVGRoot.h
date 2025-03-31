@@ -28,28 +28,31 @@
 
 #pragma once
 
-#include "AccessibilitySVGElement.h"
+#include "AccessibilitySVGObject.h"
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
-class AccessibilitySVGRoot final : public AccessibilitySVGElement {
+class AccessibilitySVGRoot final : public AccessibilitySVGObject {
 public:
-    static Ref<AccessibilitySVGRoot> create(RenderObject*);
+    static Ref<AccessibilitySVGRoot> create(AXID, RenderObject&, AXObjectCache*);
     virtual ~AccessibilitySVGRoot();
-    
-    void setParent(AccessibilityRenderObject*);
 
+    void setParent(AccessibilityRenderObject*);
+    bool hasAccessibleContent() const;
 private:
-    explicit AccessibilitySVGRoot(RenderObject*);
-    
-    AccessibilityObject* parentObject() const override;
-    bool isAccessibilitySVGRoot() const override { return true; }
+    explicit AccessibilitySVGRoot(AXID, RenderObject&, AXObjectCache*);
+
+    AccessibilityObject* parentObject() const final;
+    bool isAccessibilitySVGRoot() const final { return true; }
+
+    AccessibilityRole determineAccessibilityRole() final;
 
     WeakPtr<AccessibilityRenderObject> m_parent;
-    AccessibilityRole roleValue() const override;
 };
-    
+
 } // namespace WebCore 
 
-SPECIALIZE_TYPE_TRAITS_ACCESSIBILITY(AccessibilitySVGRoot, isAccessibilitySVGRoot())
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::AccessibilitySVGRoot) \
+    static bool isType(const WebCore::AccessibilityObject& object) { return object.isAccessibilitySVGRoot(); } \
+SPECIALIZE_TYPE_TRAITS_END()

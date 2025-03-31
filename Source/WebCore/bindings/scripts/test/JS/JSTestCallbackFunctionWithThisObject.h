@@ -34,21 +34,31 @@ public:
         return adoptRef(*new JSTestCallbackFunctionWithThisObject(callback, globalObject));
     }
 
-    virtual ScriptExecutionContext* scriptExecutionContext() const { return ContextDestructionObserver::scriptExecutionContext(); }
+    ScriptExecutionContext* scriptExecutionContext() const { return ContextDestructionObserver::scriptExecutionContext(); }
 
-    virtual ~JSTestCallbackFunctionWithThisObject();
-    JSCallbackDataStrong* callbackData() { return m_data; }
+    ~JSTestCallbackFunctionWithThisObject() final;
+    JSCallbackData* callbackData() { return m_data; }
 
     // Functions
-    CallbackResult<typename IDLVoid::ImplementationType> handleEvent(typename IDLInterface<TestNode>::ParameterType thisObject, typename IDLSequence<IDLInterface<TestNode>>::ParameterType parameter) override;
+    CallbackResult<typename IDLUndefined::CallbackReturnType> handleEvent(typename IDLInterface<TestNode>::ParameterType thisObject, typename IDLSequence<IDLInterface<TestNode>>::ParameterType parameter) override;
+    CallbackResult<typename IDLUndefined::CallbackReturnType> handleEventRethrowingException(typename IDLInterface<TestNode>::ParameterType thisObject, typename IDLSequence<IDLInterface<TestNode>>::ParameterType parameter) override;
 
 private:
     JSTestCallbackFunctionWithThisObject(JSC::JSObject*, JSDOMGlobalObject*);
 
-    JSCallbackDataStrong* m_data;
+    bool hasCallback() const final { return m_data && m_data->callback(); }
+
+    void visitJSFunction(JSC::AbstractSlotVisitor&) override;
+
+    void visitJSFunction(JSC::SlotVisitor&) override;
+
+    JSCallbackData* m_data;
 };
 
 JSC::JSValue toJS(TestCallbackFunctionWithThisObject&);
 inline JSC::JSValue toJS(TestCallbackFunctionWithThisObject* impl) { return impl ? toJS(*impl) : JSC::jsNull(); }
 
+template<> struct JSDOMCallbackConverterTraits<JSTestCallbackFunctionWithThisObject> {
+    using Base = TestCallbackFunctionWithThisObject;
+};
 } // namespace WebCore

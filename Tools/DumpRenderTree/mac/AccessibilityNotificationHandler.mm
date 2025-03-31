@@ -38,6 +38,7 @@
 #import <JavaScriptCore/JSStringRefCF.h>
 #import <WebKit/WebFrame.h>
 #import <objc/runtime.h>
+#import <wtf/ObjCRuntimeExtras.h>
 
 @interface NSObject (WebAccessibilityObjectWrapperAdditions)
 + (void)accessibilitySetShouldRepostNotifications:(BOOL)repost;
@@ -106,7 +107,7 @@ static JSValueRef makeValueRefForValue(JSContextRef context, id value)
     if ([value isKindOfClass:[NSString class]])
         return JSValueMakeString(context, [value createJSStringRef].get());
     if ([value isKindOfClass:[NSNumber class]]) {
-        if (!strcmp([value objCType], @encode(BOOL)) || !strcmp([value objCType], "c"))
+        if (nsValueHasObjCType<BOOL>((NSValue *)value) || nsValueHasObjCType<char>((NSValue *)value))
             return JSValueMakeBoolean(context, [value boolValue]);
         return JSValueMakeNumber(context, [value doubleValue]);
     }
@@ -122,7 +123,9 @@ static JSValueRef makeValueRefForValue(JSContextRef context, id value)
 static JSObjectRef makeArrayRefForArray(JSContextRef context, NSArray *array)
 {
     NSUInteger count = array.count;
+IGNORE_WARNINGS_BEGIN("vla")
     JSValueRef arguments[count];
+IGNORE_WARNINGS_END
     for (NSUInteger i = 0; i < count; i++)
         arguments[i] = makeValueRefForValue(context, [array objectAtIndex:i]);
     return JSObjectMakeArray(context, count, arguments, nullptr);

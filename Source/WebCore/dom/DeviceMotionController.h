@@ -28,14 +28,17 @@
 
 #include "DeviceController.h"
 #include <wtf/Noncopyable.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class DeviceMotionClient;
 class DeviceMotionData;
 
-class DeviceMotionController final : public DeviceController {
+class DeviceMotionController : public DeviceController {
+    WTF_MAKE_TZONE_ALLOCATED(DeviceMotionController);
     WTF_MAKE_NONCOPYABLE(DeviceMotionController);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(DeviceMotionController);
 public:
     explicit DeviceMotionController(DeviceMotionClient&);
     virtual ~DeviceMotionController() = default;
@@ -53,7 +56,7 @@ public:
     bool hasLastData() override;
     RefPtr<Event> getLastEvent() override;
 
-    static const char* supplementName();
+    static ASCIILiteral supplementName();
     static DeviceMotionController* from(Page*);
     static bool isActiveAt(Page*);
 };

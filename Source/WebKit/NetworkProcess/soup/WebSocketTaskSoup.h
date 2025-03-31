@@ -25,50 +25,55 @@
 
 #pragma once
 
+#include <WebCore/ResourceRequest.h>
 #include <libsoup/soup.h>
 #include <wtf/RunLoop.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/glib/GRefPtr.h>
-
-namespace IPC {
-class DataReference;
-}
 
 namespace WebKit {
 class NetworkSocketChannel;
+struct SessionSet;
 
-class WebSocketTask {
-    WTF_MAKE_FAST_ALLOCATED;
+class WebSocketTask : public CanMakeWeakPtr<WebSocketTask>, public CanMakeCheckedPtr<WebSocketTask> {
+    WTF_MAKE_TZONE_ALLOCATED(WebSocketTask);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(WebSocketTask);
 public:
-    WebSocketTask(NetworkSocketChannel&, SoupSession*, SoupMessage*, const String& protocol);
+    WebSocketTask(NetworkSocketChannel&, const WebCore::ResourceRequest&, SoupSession*, SoupMessage*, const String& protocol);
     ~WebSocketTask();
 
-    void sendString(const IPC::DataReference&, CompletionHandler<void()>&&);
-    void sendData(const IPC::DataReference&, CompletionHandler<void()>&&);
+    void sendString(std::span<const uint8_t>, CompletionHandler<void()>&&);
+    void sendData(std::span<const uint8_t>, CompletionHandler<void()>&&);
     void close(int32_t code, const String& reason);
 
     void cancel();
     void resume();
 
+    SessionSet* sessionSet() { return nullptr; }
+
 private:
     void didConnect(GRefPtr<SoupWebsocketConnection>&&);
-    void didFail(const String&);
+    void didFail(String&&);
     void didClose(unsigned short code, const String& reason);
     void delayFailTimerFired();
 
     String acceptedExtensions() const;
 
+    Ref<NetworkSocketChannel> protectedChannel() const;
+
     static void didReceiveMessageCallback(WebSocketTask*, SoupWebsocketDataType, GBytes*);
     static void didReceiveErrorCallback(WebSocketTask*, GError*);
     static void didCloseCallback(WebSocketTask*);
 
-    NetworkSocketChannel& m_channel;
+    WeakRef<NetworkSocketChannel> m_channel;
+    WebCore::ResourceRequest m_request;
     GRefPtr<SoupMessage> m_handshakeMessage;
     GRefPtr<SoupWebsocketConnection> m_connection;
     GRefPtr<GCancellable> m_cancellable;
     bool m_receivedDidFail { false };
     bool m_receivedDidClose { false };
     String m_delayErrorMessage;
-    RunLoop::Timer<WebSocketTask> m_delayFailTimer;
+    RunLoop::Timer m_delayFailTimer;
 };
 
 } // namespace WebKit

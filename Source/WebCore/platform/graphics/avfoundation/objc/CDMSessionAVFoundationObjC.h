@@ -26,7 +26,9 @@
 #pragma once
 
 #include "LegacyCDMSession.h"
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/RetainPtr.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
 
@@ -39,26 +41,46 @@ namespace WebCore {
 
 class MediaPlayerPrivateAVFoundationObjC;
 
-class CDMSessionAVFoundationObjC final : public LegacyCDMSession, public CanMakeWeakPtr<CDMSessionAVFoundationObjC> {
-    WTF_MAKE_FAST_ALLOCATED;
+class CDMSessionAVFoundationObjC final : public LegacyCDMSession, public RefCountedAndCanMakeWeakPtr<CDMSessionAVFoundationObjC> {
+    WTF_MAKE_TZONE_ALLOCATED(CDMSessionAVFoundationObjC);
 public:
-    CDMSessionAVFoundationObjC(MediaPlayerPrivateAVFoundationObjC* parent, LegacyCDMSessionClient*);
+    static Ref<CDMSessionAVFoundationObjC> create(MediaPlayerPrivateAVFoundationObjC* parent, LegacyCDMSessionClient& client)
+    {
+        return adoptRef(*new CDMSessionAVFoundationObjC(parent, client));
+    }
     virtual ~CDMSessionAVFoundationObjC();
 
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     LegacyCDMSessionType type() override { return CDMSessionTypeAVFoundationObjC; }
-    void setClient(LegacyCDMSessionClient* client) override { m_client = client; }
     const String& sessionId() const override { return m_sessionId; }
     RefPtr<Uint8Array> generateKeyRequest(const String& mimeType, Uint8Array* initData, String& destinationURL, unsigned short& errorCode, uint32_t& systemCode) override;
     void releaseKeys() override;
     bool update(Uint8Array*, RefPtr<Uint8Array>& nextMessage, unsigned short& errorCode, uint32_t& systemCode) override;
+    RefPtr<ArrayBuffer> cachedKeyForKeyID(const String&) const override;
 
     void playerDidReceiveError(NSError *);
 
 private:
-    WeakPtr<MediaPlayerPrivateAVFoundationObjC> m_parent;
-    LegacyCDMSessionClient* m_client;
+    CDMSessionAVFoundationObjC(MediaPlayerPrivateAVFoundationObjC* parent, LegacyCDMSessionClient&);
+
+#if !RELEASE_LOG_DISABLED
+    const Logger& logger() const { return m_logger; }
+    uint64_t logIdentifier() const { return m_logIdentifier; }
+    ASCIILiteral logClassName() const { return "CDMSessionAVFoundationObjC"_s; }
+    WTFLogChannel& logChannel() const;
+#endif
+
+    ThreadSafeWeakPtr<MediaPlayerPrivateAVFoundationObjC> m_parent;
+    WeakPtr<LegacyCDMSessionClient> m_client;
     String m_sessionId;
     RetainPtr<AVAssetResourceLoadingRequest> m_request;
+
+#if !RELEASE_LOG_DISABLED
+    Ref<const Logger> m_logger;
+    const uint64_t m_logIdentifier;
+#endif
 };
 
 }

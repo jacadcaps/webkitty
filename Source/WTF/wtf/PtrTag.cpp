@@ -28,11 +28,13 @@
 
 #include <wtf/WTFConfig.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace WTF {
 
-#if CPU(ARM64E)
+#if CPU(ARM64E) && ENABLE(PTRTAG_DEBUGGING)
 
-static const char* tagForPtr(const void* ptr)
+const char* tagForPtr(const void* ptr)
 {
     PtrTagLookup* lookup = g_wtfConfig.ptrTagLookupHead;
     while (lookup) {
@@ -46,7 +48,7 @@ static const char* tagForPtr(const void* ptr)
         return "NoPtrTag";
 
 #define RETURN_NAME_IF_TAG_MATCHES(tag) \
-    if (ptr == tagCodePtrImpl<PtrTagAction::NoAssert>(removeCodePtrTag(ptr), tag)) \
+    if (ptr == tagCodePtrImpl<PtrTagAction::NoAssert, tag>(removeCodePtrTag(ptr))) \
         return #tag;
     FOR_EACH_WTF_PTRTAG(RETURN_NAME_IF_TAG_MATCHES)
 #undef RETURN_NAME_IF_TAG_MATCHES
@@ -54,7 +56,7 @@ static const char* tagForPtr(const void* ptr)
     return "<unknown PtrTag>";
 }
 
-static const char* ptrTagName(PtrTag tag)
+const char* ptrTagName(PtrTag tag)
 {
     PtrTagLookup* lookup = g_wtfConfig.ptrTagLookupHead;
     while (lookup) {
@@ -87,6 +89,8 @@ void reportBadTag(const void* ptr, PtrTag expectedTag)
         dataLogLn(", expected tag = ", ptrTagName(expectedTag));
 }
 
-#endif // CPU(ARM64E)
+#endif // CPU(ARM64E) && ENABLE(PTRTAG_DEBUGGING)
 
 } // namespace WTF
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

@@ -28,14 +28,11 @@
 
 import mimetypes
 import time
-import sys
 
 from webkitpy.common.net.networktransaction import NetworkTransaction, NetworkTimeout
+from webkitcorepy import string_utils, unicode
 
-if sys.version_info > (3, 0):
-    from urllib.request import Request, urlopen
-else:
-    from urllib2 import Request, urlopen
+from urllib.request import Request, urlopen
 
 def get_mime_type(filename):
     return mimetypes.guess_type(filename)[0] or 'application/octet-stream'
@@ -105,7 +102,7 @@ class FileUploader(object):
             # FIXME: Setting a timeout, either globally using socket.setdefaulttimeout()
             # or in urlopen(), doesn't appear to work on Mac 10.5 with Python 2.7.
             # For now we will ignore the timeout value and hope for the best.
-            request = Request(self._url, data, {"Content-Type": content_type})
+            request = Request(self._url, string_utils.encode(data), {string_utils.encode(b'Content-Type'): string_utils.encode(content_type)})
             return urlopen(request)
 
         return NetworkTransaction(timeout_seconds=self._timeout_seconds).run(callback)

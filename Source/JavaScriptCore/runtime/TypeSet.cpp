@@ -28,6 +28,7 @@
 
 #include "HeapInlines.h"
 #include "InspectorProtocolObjects.h"
+#include <wtf/text/MakeString.h>
 #include <wtf/text/WTFString.h>
 #include <wtf/text/StringBuilder.h>
 #include <wtf/Vector.h>
@@ -95,42 +96,36 @@ String TypeSet::dumpTypes() const
     StringBuilder seen;
 
     if (m_seenTypes & TypeFunction)
-        seen.appendLiteral("Function ");
+        seen.append("Function "_s);
     if (m_seenTypes & TypeUndefined)
-        seen.appendLiteral("Undefined ");
+        seen.append("Undefined "_s);
     if (m_seenTypes & TypeNull)
-        seen.appendLiteral("Null ");
+        seen.append("Null "_s);
     if (m_seenTypes & TypeBoolean)
-        seen.appendLiteral("Boolean ");
+        seen.append("Boolean "_s);
     if (m_seenTypes & TypeAnyInt)
-        seen.appendLiteral("AnyInt ");
+        seen.append("AnyInt "_s);
     if (m_seenTypes & TypeNumber)
-        seen.appendLiteral("Number ");
+        seen.append("Number "_s);
     if (m_seenTypes & TypeString)
-        seen.appendLiteral("String ");
+        seen.append("String "_s);
     if (m_seenTypes & TypeObject)
-        seen.appendLiteral("Object ");
+        seen.append("Object "_s);
     if (m_seenTypes & TypeSymbol)
-        seen.appendLiteral("Symbol ");
+        seen.append("Symbol "_s);
 
-    for (const auto& shape : m_structureHistory) {
-        seen.append(shape->m_constructorName);
-        seen.append(' ');
-    }
+    for (const auto& shape : m_structureHistory)
+        seen.append(shape->m_constructorName, ' ');
 
     if (m_structureHistory.size()) 
-        seen.appendLiteral("\nStructures:[ ");
-    for (const auto& shape : m_structureHistory) {
-        seen.append(shape->stringRepresentation());
-        seen.append(' ');
-    }
+        seen.append("\nStructures:[ "_s);
+    for (const auto& shape : m_structureHistory)
+        seen.append(shape->stringRepresentation(), ' ');
     if (m_structureHistory.size())
         seen.append(']');
 
-    if (m_structureHistory.size()) {
-        seen.appendLiteral("\nLeast Common Ancestor: ");
-        seen.append(leastCommonAncestor());
-    }
+    if (m_structureHistory.size())
+        seen.append("\nLeast Common Ancestor: "_s, leastCommonAncestor());
 
     return seen.toString();
 }
@@ -166,7 +161,7 @@ String TypeSet::displayName() const
         if (doesTypeConformTo(TypeObject))
             return ctorName;
         if (doesTypeConformTo(TypeObject | TypeNull | TypeUndefined))
-            return ctorName + '?';
+            return makeString(ctorName, '?');
     }
 
     // The order of these checks are important. For example, if a value is only a function, it conforms to TypeFunction, but it also conforms to TypeFunction | TypeNull.
@@ -258,59 +253,57 @@ String TypeSet::toJSONString() const
     StringBuilder json;
     json.append('{');
 
-    json.appendLiteral("\"displayTypeName\":");
+    json.append("\"displayTypeName\":"_s);
     json.appendQuotedJSONString(displayName());
     json.append(',');
 
-    json.appendLiteral("\"primitiveTypeNames\":");
-    json.append('[');
+    json.append("\"primitiveTypeNames\":["_s);
     bool hasAnItem = false;
     if (m_seenTypes & TypeUndefined) {
         hasAnItem = true;
-        json.appendLiteral("\"Undefined\"");
+        json.append("\"Undefined\""_s);
     }
     if (m_seenTypes & TypeNull) {
         if (hasAnItem)
             json.append(',');
         hasAnItem = true;
-        json.appendLiteral("\"Null\"");
+        json.append("\"Null\""_s);
     }
     if (m_seenTypes & TypeBoolean) {
         if (hasAnItem)
             json.append(',');
         hasAnItem = true;
-        json.appendLiteral("\"Boolean\"");
+        json.append("\"Boolean\""_s);
     }
     if (m_seenTypes & TypeAnyInt) {
         if (hasAnItem)
             json.append(',');
         hasAnItem = true;
-        json.appendLiteral("\"Integer\"");
+        json.append("\"Integer\""_s);
     }
     if (m_seenTypes & TypeNumber) {
         if (hasAnItem)
             json.append(',');
         hasAnItem = true;
-        json.appendLiteral("\"Number\"");
+        json.append("\"Number\""_s);
     }
     if (m_seenTypes & TypeString) {
         if (hasAnItem)
             json.append(',');
         hasAnItem = true;
-        json.appendLiteral("\"String\"");
+        json.append("\"String\""_s);
     }
     if (m_seenTypes & TypeSymbol) {
         if (hasAnItem)
             json.append(',');
         hasAnItem = true;
-        json.appendLiteral("\"Symbol\"");
+        json.append("\"Symbol\""_s);
     }
     json.append(']');
 
     json.append(',');
 
-    json.appendLiteral("\"structures\":");
-    json.append('[');
+    json.append("\"structures\":["_s);
     hasAnItem = false;
     for (size_t i = 0; i < m_structureHistory.size(); i++) {
         if (hasAnItem)
@@ -355,16 +348,13 @@ String StructureShape::propertyHash()
     builder.append(m_constructorName);
     builder.append(':');
     for (auto& key : m_fields) {
-        String property = key.get();
-        property.replace(":", "\\:"); // Ensure that hash({"foo:", "bar"}) != hash({"foo", ":bar"}) because we're using colons as a separator and colons are legal characters in field names in JS.
+        // Ensure that hash({"foo:", "bar"}) != hash({"foo", ":bar"}) because we're using colons as a separator and colons are legal characters in field names in JS.
+        String property = makeStringByReplacingAll(key.get(), ':', "\\:"_s);
         builder.append(property);
     }
 
-    if (m_proto) {
-        builder.append(':');
-        builder.appendLiteral("__proto__");
-        builder.append(m_proto->propertyHash());
-    }
+    if (m_proto)
+        builder.append(":__proto__"_s, m_proto->propertyHash());
 
     m_propertyHash = makeUnique<String>(builder.toString());
     return *m_propertyHash;
@@ -397,7 +387,7 @@ String StructureShape::leastCommonAncestor(const Vector<Ref<StructureShape>>& sh
             }
         }
 
-        if (origin->m_constructorName == "Object")
+        if (origin->m_constructorName == "Object"_s)
             break;
     }
 
@@ -412,14 +402,14 @@ String StructureShape::stringRepresentation()
     representation.append('{');
     while (curShape) {
         for (auto& field : curShape->m_fields)
-            representation.append(StringView { field.get() }, ", ");
+            representation.append(StringView { field.get() }, ", "_s);
         if (curShape->m_proto)
-            representation.append("__proto__ [", curShape->m_proto->m_constructorName, "], ");
+            representation.append("__proto__ ["_s, curShape->m_proto->m_constructorName, "], "_s);
         curShape = curShape->m_proto;
     }
 
     if (representation.length() >= 3)
-        representation.resize(representation.length() - 2);
+        representation.shrink(representation.length() - 2);
 
     representation.append('}');
 
@@ -437,50 +427,47 @@ String StructureShape::toJSONString() const
     StringBuilder json;
     json.append('{');
 
-    json.appendLiteral("\"constructorName\":");
+    json.append("\"constructorName\":"_s);
     json.appendQuotedJSONString(m_constructorName);
     json.append(',');
 
-    json.appendLiteral("\"isInDictionaryMode\":");
+    json.append("\"isInDictionaryMode\":"_s);
     if (m_isInDictionaryMode)
-        json.appendLiteral("true");
+        json.append("true"_s);
     else
-        json.appendLiteral("false");
+        json.append("false"_s);
     json.append(',');
 
-    json.appendLiteral("\"fields\":");
-    json.append('[');
+    json.append("\"fields\":["_s);
     bool hasAnItem = false;
-    for (auto it = m_fields.begin(), end = m_fields.end(); it != end; ++it) {
+    for (auto& field : m_fields) {
         if (hasAnItem)
             json.append(',');
         hasAnItem = true;
 
-        String fieldName((*it).get());
+        String fieldName(field.get());
         json.appendQuotedJSONString(fieldName);
     }
-    json.append(']');
-    json.append(',');
+    json.append("],"_s);
 
-    json.appendLiteral("\"optionalFields\":");
-    json.append('[');
+    json.append("\"optionalFields\":["_s);
     hasAnItem = false;
-    for (auto it = m_optionalFields.begin(), end = m_optionalFields.end(); it != end; ++it) {
+    for (auto& field : m_optionalFields) {
         if (hasAnItem)
             json.append(',');
         hasAnItem = true;
 
-        String fieldName((*it).get());
+        String fieldName(field.get());
         json.appendQuotedJSONString(fieldName);
     }
     json.append(']');
     json.append(',');
 
-    json.appendLiteral("\"proto\":");
+    json.append("\"proto\":"_s);
     if (m_proto)
         json.append(m_proto->toJSONString());
     else
-        json.appendLiteral("null");
+        json.append("null"_s);
 
     json.append('}');
 
@@ -501,14 +488,14 @@ Ref<Inspector::Protocol::Runtime::StructureDescription> StructureShape::inspecto
         for (const auto& field : currentShape->m_optionalFields)
             optionalFields->addItem(field.get());
 
-        currentObject->setFields(&fields.get());
-        currentObject->setOptionalFields(&optionalFields.get());
+        currentObject->setFields(WTFMove(fields));
+        currentObject->setOptionalFields(WTFMove(optionalFields));
         currentObject->setConstructorName(currentShape->m_constructorName);
         currentObject->setIsImprecise(currentShape->m_isInDictionaryMode);
 
         if (currentShape->m_proto) {
             auto nextObject = Inspector::Protocol::Runtime::StructureDescription::create().release();
-            currentObject->setPrototypeStructure(&nextObject.get());
+            currentObject->setPrototypeStructure(nextObject.copyRef());
             currentObject = WTFMove(nextObject);
         }
 

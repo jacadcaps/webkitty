@@ -30,7 +30,7 @@
 
 #pragma once
 
-#include "CSSValueKeywords.h"
+#include "CSSPrimitiveValue.h"
 #include "CSSValueList.h"
 
 namespace WebCore {
@@ -43,27 +43,28 @@ namespace WebCore {
 //                          [ <line-names>? <track-size> ]+ <line-names>? )
 // <fixed-repeat> = repeat( [ <positive-integer> ],
 //                          [ <line-names>? <fixed-size> ]+ <line-names>? )
-class CSSGridIntegerRepeatValue final : public CSSValueList {
+class CSSGridIntegerRepeatValue final : public CSSValueContainingVector {
 public:
-    static Ref<CSSGridIntegerRepeatValue> create(size_t repetitions)
-    {
-        return adoptRef(*new CSSGridIntegerRepeatValue(repetitions));
-    }
+    static Ref<CSSGridIntegerRepeatValue> create(Ref<CSSPrimitiveValue>&& repetitions, CSSValueListBuilder);
 
-    String customCSSText() const;
+    const CSSPrimitiveValue& repetitions() const { return m_repetitions; }
+
+    String customCSSText(const CSS::SerializationContext&) const;
     bool equals(const CSSGridIntegerRepeatValue&) const;
 
-    size_t repetitions() const { return m_repetitions; }
-
-private:
-    CSSGridIntegerRepeatValue(size_t repetitions)
-        : CSSValueList(GridIntegerRepeatClass, SpaceSeparator)
-        , m_repetitions(repetitions)
+    IterationStatus customVisitChildren(NOESCAPE const Function<IterationStatus(CSSValue&)>& func) const
     {
-        ASSERT(repetitions > 0);
+        if (CSSValueContainingVector::customVisitChildren(func) == IterationStatus::Done)
+            return IterationStatus::Done;
+        if (func(m_repetitions.get()) == IterationStatus::Done)
+            return IterationStatus::Done;
+        return IterationStatus::Continue;
     }
 
-    const size_t m_repetitions;
+private:
+    CSSGridIntegerRepeatValue(Ref<CSSPrimitiveValue>&& repetitions, CSSValueListBuilder);
+
+    Ref<CSSPrimitiveValue> m_repetitions;
 };
 
 } // namespace WebCore

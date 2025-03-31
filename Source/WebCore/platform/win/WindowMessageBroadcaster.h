@@ -40,11 +40,11 @@ namespace WebCore {
     class WindowMessageBroadcaster {
         WTF_MAKE_NONCOPYABLE(WindowMessageBroadcaster);
     public:
-        static void addListener(HWND, WindowMessageListener*);
-        static void removeListener(HWND, WindowMessageListener*);
+        WEBCORE_EXPORT static void addListener(HWND, WindowMessageListener*);
+        WEBCORE_EXPORT static void removeListener(HWND, WindowMessageListener*);
 
     private:
-        typedef HashSet<WindowMessageListener*> ListenerSet;
+        typedef UncheckedKeyHashSet<WindowMessageListener*> ListenerSet;
 
         static LRESULT CALLBACK SubclassedWndProc(HWND, UINT, WPARAM, LPARAM);
 

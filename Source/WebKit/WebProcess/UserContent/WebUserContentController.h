@@ -26,7 +26,10 @@
 #pragma once
 
 #include "MessageReceiver.h"
+#include "ScriptMessageHandlerIdentifier.h"
 #include "UserContentControllerIdentifier.h"
+#include "UserScriptIdentifier.h"
+#include "UserStyleSheetIdentifier.h"
 #include "WebScriptMessageHandler.h"
 #include "WebUserContentControllerDataTypes.h"
 #include <WebCore/UserContentProvider.h>
@@ -49,10 +52,13 @@ class WebCompiledContentRuleListData;
 class WebUserMessageHandlerDescriptorProxy;
 enum class InjectUserScriptImmediately : bool;
 
-class WebUserContentController final : public WebCore::UserContentProvider, private IPC::MessageReceiver {
+class WebUserContentController final : public WebCore::UserContentProvider, public IPC::MessageReceiver {
 public:
     static Ref<WebUserContentController> getOrCreate(UserContentControllerIdentifier);
     virtual ~WebUserContentController();
+
+    void ref() const final { WebCore::UserContentProvider::ref(); }
+    void deref() const final { WebCore::UserContentProvider::deref(); }
 
     UserContentControllerIdentifier identifier() { return m_identifier; }
 
@@ -66,13 +72,13 @@ public:
 
     InjectedBundleScriptWorld* worldForIdentifier(ContentWorldIdentifier);
 
-    void addContentWorlds(const Vector<std::pair<ContentWorldIdentifier, String>>&);
-    InjectedBundleScriptWorld* addContentWorld(const std::pair<ContentWorldIdentifier, String>&);
+    void addContentWorlds(const Vector<ContentWorldData>&);
+    InjectedBundleScriptWorld* addContentWorld(const ContentWorldData&);
     void addUserScripts(Vector<WebUserScriptData>&&, InjectUserScriptImmediately);
     void addUserStyleSheets(const Vector<WebUserStyleSheetData>&);
     void addUserScriptMessageHandlers(const Vector<WebScriptMessageHandlerData>&);
 #if ENABLE(CONTENT_EXTENSIONS)
-    void addContentRuleLists(Vector<std::pair<String, WebCompiledContentRuleListData>>&&);
+    void addContentRuleLists(Vector<std::pair<WebCompiledContentRuleListData, URL>>&&);
 #endif
 
 private:
@@ -93,13 +99,13 @@ private:
 
     void removeContentWorlds(const Vector<ContentWorldIdentifier>&);
 
-    void removeUserScript(ContentWorldIdentifier, uint64_t userScriptIdentifier);
+    void removeUserScript(ContentWorldIdentifier, UserScriptIdentifier);
     void removeAllUserScripts(const Vector<ContentWorldIdentifier>&);
 
-    void removeUserStyleSheet(ContentWorldIdentifier, uint64_t userScriptIdentifier);
+    void removeUserStyleSheet(ContentWorldIdentifier, UserStyleSheetIdentifier);
     void removeAllUserStyleSheets(const Vector<ContentWorldIdentifier>&);
 
-    void removeUserScriptMessageHandler(ContentWorldIdentifier, uint64_t userScriptIdentifier);
+    void removeUserScriptMessageHandler(ContentWorldIdentifier, ScriptMessageHandlerIdentifier);
     void removeAllUserScriptMessageHandlersForWorlds(const Vector<ContentWorldIdentifier>&);
     void removeAllUserScriptMessageHandlers();
 
@@ -108,25 +114,25 @@ private:
     void removeAllContentRuleLists();
 #endif
 
-    void addUserScriptInternal(InjectedBundleScriptWorld&, const Optional<uint64_t>& userScriptIdentifier, WebCore::UserScript&&, InjectUserScriptImmediately);
-    void removeUserScriptInternal(InjectedBundleScriptWorld&, uint64_t userScriptIdentifier);
-    void addUserStyleSheetInternal(InjectedBundleScriptWorld&, const Optional<uint64_t>& userStyleSheetIdentifier, WebCore::UserStyleSheet&&);
-    void removeUserStyleSheetInternal(InjectedBundleScriptWorld&, uint64_t userStyleSheetIdentifier);
+    void addUserScriptInternal(InjectedBundleScriptWorld&, const std::optional<UserScriptIdentifier>&, WebCore::UserScript&&, InjectUserScriptImmediately);
+    void removeUserScriptInternal(InjectedBundleScriptWorld&, UserScriptIdentifier);
+    void addUserStyleSheetInternal(InjectedBundleScriptWorld&, const std::optional<UserStyleSheetIdentifier>&, WebCore::UserStyleSheet&&);
+    void removeUserStyleSheetInternal(InjectedBundleScriptWorld&, UserStyleSheetIdentifier);
 #if ENABLE(USER_MESSAGE_HANDLERS)
-    void addUserScriptMessageHandlerInternal(InjectedBundleScriptWorld&, uint64_t userScriptMessageHandlerIdentifier, const String& name);
-    void removeUserScriptMessageHandlerInternal(InjectedBundleScriptWorld&, uint64_t userScriptMessageHandlerIdentifier);
+    void addUserScriptMessageHandlerInternal(InjectedBundleScriptWorld&, ScriptMessageHandlerIdentifier, const AtomString& name);
+    void removeUserScriptMessageHandlerInternal(InjectedBundleScriptWorld&, ScriptMessageHandlerIdentifier);
 #endif
 
     UserContentControllerIdentifier m_identifier;
 
-    typedef HashMap<RefPtr<InjectedBundleScriptWorld>, Vector<std::pair<Optional<uint64_t>, WebCore::UserScript>>> WorldToUserScriptMap;
+    typedef HashMap<RefPtr<InjectedBundleScriptWorld>, Vector<std::pair<std::optional<UserScriptIdentifier>, WebCore::UserScript>>> WorldToUserScriptMap;
     WorldToUserScriptMap m_userScripts;
 
-    typedef HashMap<RefPtr<InjectedBundleScriptWorld>, Vector<std::pair<Optional<uint64_t>, WebCore::UserStyleSheet>>> WorldToUserStyleSheetMap;
+    typedef HashMap<RefPtr<InjectedBundleScriptWorld>, Vector<std::pair<std::optional<UserStyleSheetIdentifier>, WebCore::UserStyleSheet>>> WorldToUserStyleSheetMap;
     WorldToUserStyleSheetMap m_userStyleSheets;
 
 #if ENABLE(USER_MESSAGE_HANDLERS)
-    typedef HashMap<RefPtr<InjectedBundleScriptWorld>, Vector<std::pair<uint64_t, RefPtr<WebUserMessageHandlerDescriptorProxy>>>> WorldToUserMessageHandlerVectorMap;
+    typedef HashMap<RefPtr<InjectedBundleScriptWorld>, Vector<std::pair<ScriptMessageHandlerIdentifier, RefPtr<WebUserMessageHandlerDescriptorProxy>>>> WorldToUserMessageHandlerVectorMap;
     WorldToUserMessageHandlerVectorMap m_userMessageHandlers;
 #endif
 #if ENABLE(CONTENT_EXTENSIONS)

@@ -11,7 +11,13 @@
 #ifndef MODULES_RTP_RTCP_SOURCE_VIDEO_RTP_DEPACKETIZER_H_
 #define MODULES_RTP_RTCP_SOURCE_VIDEO_RTP_DEPACKETIZER_H_
 
-#include "absl/types/optional.h"
+#include <stdint.h>
+
+#include <optional>
+
+#include "api/array_view.h"
+#include "api/scoped_refptr.h"
+#include "api/video/encoded_image.h"
 #include "modules/rtp_rtcp/source/rtp_video_header.h"
 #include "rtc_base/copy_on_write_buffer.h"
 
@@ -25,8 +31,10 @@ class VideoRtpDepacketizer {
   };
 
   virtual ~VideoRtpDepacketizer() = default;
-  virtual absl::optional<ParsedRtpPayload> Parse(
+  virtual std::optional<ParsedRtpPayload> Parse(
       rtc::CopyOnWriteBuffer rtp_payload) = 0;
+  virtual rtc::scoped_refptr<EncodedImageBuffer> AssembleFrame(
+      rtc::ArrayView<const rtc::ArrayView<const uint8_t>> rtp_payloads);
 };
 
 }  // namespace webrtc

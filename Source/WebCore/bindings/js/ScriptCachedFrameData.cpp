@@ -34,8 +34,9 @@
 
 #include "CommonVM.h"
 #include "Document.h"
-#include "Frame.h"
 #include "GCController.h"
+#include "JSDOMWindow.h"
+#include "LocalFrame.h"
 #include "Page.h"
 #include "PageConsoleClient.h"
 #include "PageGroup.h"
@@ -43,11 +44,14 @@
 #include <JavaScriptCore/JSLock.h>
 #include <JavaScriptCore/StrongInlines.h>
 #include <JavaScriptCore/WeakGCMapInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 using namespace JSC;
 
-ScriptCachedFrameData::ScriptCachedFrameData(Frame& frame)
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ScriptCachedFrameData);
+
+ScriptCachedFrameData::ScriptCachedFrameData(LocalFrame& frame)
 {
     JSLockHolder lock(commonVM());
 
@@ -65,7 +69,7 @@ ScriptCachedFrameData::~ScriptCachedFrameData()
     clear();
 }
 
-void ScriptCachedFrameData::restore(Frame& frame)
+void ScriptCachedFrameData::restore(LocalFrame& frame)
 {
     JSLockHolder lock(commonVM());
 
@@ -91,7 +95,7 @@ void ScriptCachedFrameData::restore(Frame& frame)
         }
 
         if (page)
-            windowProxy->window()->setConsoleClient(&page->console());
+            windowProxy->window()->setConsoleClient(page->console());
     }
 }
 

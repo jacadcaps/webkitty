@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,11 +25,14 @@
 
 #pragma once
 
-#include "DocumentIdentifier.h"
+#include "MediaSessionGroupIdentifier.h"
 #include "MediaSessionIdentifier.h"
 #include "Timer.h"
+#include <wtf/Logger.h>
 #include <wtf/LoggerHelper.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/ProcessID.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
 
@@ -38,16 +41,90 @@
 #endif
 
 namespace WebCore {
+class PlatformMediaSession;
+class AudioCaptureSource;
+}
+
+namespace WTF {
+class MediaTime;
+}
+
+namespace WebCore {
 
 class Document;
 class MediaPlaybackTarget;
 class PlatformMediaSessionClient;
 class PlatformMediaSessionManager;
-enum class DelayCallingUpdateNowPlaying { No, Yes };
+enum class DelayCallingUpdateNowPlaying : bool { No, Yes };
 struct NowPlayingInfo;
 
+enum class PlatformMediaSessionRemoteControlCommandType : uint8_t {
+    NoCommand,
+    PlayCommand,
+    PauseCommand,
+    StopCommand,
+    TogglePlayPauseCommand,
+    BeginSeekingBackwardCommand,
+    EndSeekingBackwardCommand,
+    BeginSeekingForwardCommand,
+    EndSeekingForwardCommand,
+    SeekToPlaybackPositionCommand,
+    SkipForwardCommand,
+    SkipBackwardCommand,
+    NextTrackCommand,
+    PreviousTrackCommand,
+    BeginScrubbingCommand,
+    EndScrubbingCommand,
+};
+
+enum class PlatformMediaSessionMediaType : uint8_t {
+    None,
+    Video,
+    VideoAudio,
+    Audio,
+    WebAudio,
+};
+
+enum class PlatformMediaSessionState : uint8_t {
+    Idle,
+    Autoplaying,
+    Playing,
+    Paused,
+    Interrupted,
+};
+
+enum class PlatformMediaSessionInterruptionType : uint8_t {
+    NoInterruption,
+    SystemSleep,
+    EnteringBackground,
+    SystemInterruption,
+    SuspendedUnderLock,
+    InvisibleAutoplay,
+    ProcessInactive,
+    PlaybackSuspended,
+    PageNotVisible,
+};
+
+enum class PlatformMediaSessionEndInterruptionFlags : uint8_t {
+    NoFlags = 0,
+    MayResumePlaying = 1 << 0,
+};
+
+struct PlatformMediaSessionRemoteCommandArgument {
+    std::optional<double> time;
+    std::optional<bool> fastSeek;
+};
+
+class AudioCaptureSource : public CanMakeWeakPtr<AudioCaptureSource> {
+public:
+    virtual ~AudioCaptureSource() = default;
+    virtual bool isCapturingAudio() const = 0;
+    virtual bool wantsToCaptureAudio() const = 0;
+};
+
 class PlatformMediaSession
-    : public CanMakeWeakPtr<PlatformMediaSession>
+    : public CanMakeCheckedPtr<PlatformMediaSession>
+    , public CanMakeWeakPtr<PlatformMediaSession>
 #if ENABLE(WIRELESS_PLAYBACK_TARGET)
     , public MediaPlaybackTargetClient
 #endif
@@ -55,53 +132,38 @@ class PlatformMediaSession
     , private LoggerHelper
 #endif
 {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(PlatformMediaSession);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(PlatformMediaSession);
 public:
     static std::unique_ptr<PlatformMediaSession> create(PlatformMediaSessionManager&, PlatformMediaSessionClient&);
 
     virtual ~PlatformMediaSession();
 
-    enum class MediaType : uint8_t {
-        None = 0,
-        Video,
-        VideoAudio,
-        Audio,
-        WebAudio,
-    };
+    void setActive(bool);
+
+    using MediaType = WebCore::PlatformMediaSessionMediaType;
+    enum class PlaybackControlsPurpose { ControlsManager, NowPlaying, MediaSession };
+
     MediaType mediaType() const;
     MediaType presentationType() const;
 
-    enum State : uint8_t {
-        Idle,
-        Autoplaying,
-        Playing,
-        Paused,
-        Interrupted,
-    };
+    using State = PlatformMediaSessionState;
+
     State state() const { return m_state; }
     void setState(State);
 
-    enum InterruptionType : uint8_t {
-        NoInterruption,
-        SystemSleep,
-        EnteringBackground,
-        SystemInterruption,
-        SuspendedUnderLock,
-        InvisibleAutoplay,
-        ProcessInactive,
-        PlaybackSuspended,
-    };
-    InterruptionType interruptionType() const { return m_interruptionType; }
+    State stateToRestore() const { return m_stateToRestore; }
 
-    enum EndInterruptionFlags : uint8_t {
-        NoFlags = 0,
-        MayResumePlaying = 1 << 0,
-    };
+    using InterruptionType = PlatformMediaSessionInterruptionType;
 
-    void clientCharacteristicsChanged();
+    InterruptionType interruptionType() const;
+
+    using EndInterruptionFlags = PlatformMediaSessionEndInterruptionFlags;
+
+    virtual void clientCharacteristicsChanged(bool);
 
     void beginInterruption(InterruptionType);
-    void endInterruption(EndInterruptionFlags);
+    void endInterruption(OptionSet<EndInterruptionFlags>);
 
     virtual void clientWillBeginAutoplaying();
     virtual bool clientWillBeginPlayback();
@@ -114,25 +176,12 @@ public:
 
     virtual void suspendBuffering() { }
     virtual void resumeBuffering() { }
-    
-    typedef union {
-        double asDouble;
-    } RemoteCommandArgument;
 
-    enum RemoteControlCommandType : uint8_t {
-        NoCommand,
-        PlayCommand,
-        PauseCommand,
-        StopCommand,
-        TogglePlayPauseCommand,
-        BeginSeekingBackwardCommand,
-        EndSeekingBackwardCommand,
-        BeginSeekingForwardCommand,
-        EndSeekingForwardCommand,
-        SeekToPlaybackPositionCommand,
-    };
+    using RemoteCommandArgument = PlatformMediaSessionRemoteCommandArgument;
+
+    using RemoteControlCommandType = PlatformMediaSessionRemoteControlCommandType;
     bool canReceiveRemoteControlCommands() const;
-    void didReceiveRemoteControlCommand(RemoteControlCommandType, const RemoteCommandArgument* argument = nullptr);
+    virtual void didReceiveRemoteControlCommand(RemoteControlCommandType, const RemoteCommandArgument&);
     bool supportsSeeking() const;
 
     enum DisplayType : uint8_t {
@@ -144,6 +193,10 @@ public:
 
     bool isHidden() const;
     bool isSuspended() const;
+    bool isPlaying() const;
+    bool isAudible() const;
+    bool isEnded() const;
+    WTF::MediaTime duration() const;
 
     bool shouldOverrideBackgroundLoadingRestriction() const;
 
@@ -162,61 +215,72 @@ public:
     virtual bool requiresPlaybackTargetRouteMonitoring() const { return false; }
 #endif
 
+    bool blockedBySystemInterruption() const;
     bool activeAudioSessionRequired() const;
     bool canProduceAudio() const;
+    bool hasMediaStreamSource() const;
     void canProduceAudioChanged();
 
     virtual void resetPlaybackSessionState() { }
     String sourceApplicationIdentifier() const;
 
-    bool hasPlayedSinceLastInterruption() const { return m_hasPlayedSinceLastInterruption; }
-    void clearHasPlayedSinceLastInterruption() { m_hasPlayedSinceLastInterruption = false; }
+    bool hasPlayedAudiblySinceLastInterruption() const { return m_hasPlayedAudiblySinceLastInterruption; }
+    void clearHasPlayedAudiblySinceLastInterruption() { m_hasPlayedAudiblySinceLastInterruption = false; }
+
+    bool preparingToPlay() const { return m_preparingToPlay; }
 
 #if !RELEASE_LOG_DISABLED
-    const Logger& logger() const final { return m_logger.get(); }
-    const void* logIdentifier() const override { return m_logIdentifier; }
-    const char* logClassName() const override { return "PlatformMediaSession"; }
+    const Logger& logger() const final;
+    uint64_t logIdentifier() const final;
+    ASCIILiteral logClassName() const override { return "PlatformMediaSession"_s; }
     WTFLogChannel& logChannel() const final;
 #endif
 
     bool canPlayConcurrently(const PlatformMediaSession&) const;
     bool shouldOverridePauseDuringRouteChange() const;
 
-    class AudioCaptureSource : public CanMakeWeakPtr<AudioCaptureSource> {
-    public:
-        virtual ~AudioCaptureSource() = default;
-        virtual bool isCapturingAudio() const = 0;
-    };
+    std::optional<NowPlayingInfo> nowPlayingInfo() const;
+    bool isNowPlayingEligible() const;
+    WeakPtr<PlatformMediaSession> selectBestMediaSession(const Vector<WeakPtr<PlatformMediaSession>>&, PlaybackControlsPurpose);
 
-    virtual Optional<NowPlayingInfo> nowPlayingInfo() const;
     virtual void updateMediaUsageIfChanged() { }
 
+    virtual bool isLongEnoughForMainContent() const { return false; }
+
     MediaSessionIdentifier mediaSessionIdentifier() const { return m_mediaSessionIdentifier; }
+
+    bool isActiveNowPlayingSession() const { return m_isActiveNowPlayingSession; }
+    void setActiveNowPlayingSession(bool);
+
+    ProcessID presentingApplicationPID() const;
+
+#if !RELEASE_LOG_DISABLED
+    virtual String description() const;
+#endif
 
 protected:
     PlatformMediaSession(PlatformMediaSessionManager&, PlatformMediaSessionClient&);
     PlatformMediaSessionClient& client() const { return m_client; }
 
-    PlatformMediaSessionManager& manager();
-
 private:
     bool processClientWillPausePlayback(DelayCallingUpdateNowPlaying);
+    size_t activeInterruptionCount() const;
 
-    WeakPtr<PlatformMediaSessionManager> m_manager;
     PlatformMediaSessionClient& m_client;
     MediaSessionIdentifier m_mediaSessionIdentifier;
-    State m_state;
-    State m_stateToRestore;
-    InterruptionType m_interruptionType { NoInterruption };
-    int m_interruptionCount { 0 };
-    bool m_notifyingClient;
+    State m_state { State::Idle };
+    State m_stateToRestore { State::Idle };
+    struct Interruption {
+        InterruptionType type { InterruptionType::NoInterruption };
+        bool ignored { false };
+    };
+    Vector<Interruption> m_interruptionStack;
+    bool m_active { false };
+    bool m_notifyingClient { false };
     bool m_isPlayingToWirelessPlaybackTarget { false };
-    bool m_hasPlayedSinceLastInterruption { false };
-
-#if !RELEASE_LOG_DISABLED
-    Ref<const Logger> m_logger;
-    const void* m_logIdentifier;
-#endif
+    bool m_hasPlayedAudiblySinceLastInterruption { false };
+    bool m_preparingToPlay { false };
+    bool m_isActiveNowPlayingSession { false };
 
     friend class PlatformMediaSessionManager;
 };
@@ -235,11 +299,15 @@ public:
     virtual void suspendPlayback() = 0;
 
     virtual bool canReceiveRemoteControlCommands() const = 0;
-    virtual void didReceiveRemoteControlCommand(PlatformMediaSession::RemoteControlCommandType, const PlatformMediaSession::RemoteCommandArgument*) = 0;
+    virtual void didReceiveRemoteControlCommand(PlatformMediaSession::RemoteControlCommandType, const PlatformMediaSession::RemoteCommandArgument&) = 0;
     virtual bool supportsSeeking() const = 0;
 
     virtual bool canProduceAudio() const { return false; }
-    virtual bool isSuspended() const { return false; };
+    virtual bool isSuspended() const { return false; }
+    virtual bool isPlaying() const { return false; }
+    virtual bool isAudible() const { return false; }
+    virtual bool isEnded() const { return false; }
+    virtual WTF::MediaTime mediaSessionDuration() const;
 
     virtual bool shouldOverrideBackgroundPlaybackRestriction(PlatformMediaSession::InterruptionType) const = 0;
     virtual bool shouldOverrideBackgroundLoadingRestriction() const { return false; }
@@ -252,7 +320,7 @@ public:
 
     virtual bool isPlayingOnSecondScreen() const { return false; }
 
-    virtual DocumentIdentifier hostingDocumentIdentifier() const = 0;
+    virtual std::optional<MediaSessionGroupIdentifier> mediaSessionGroupIdentifier() const = 0;
 
     virtual bool hasMediaStreamSource() const { return false; }
 
@@ -260,8 +328,17 @@ public:
 
     virtual bool shouldOverridePauseDuringRouteChange() const { return false; }
 
+    virtual bool isNowPlayingEligible() const { return false; }
+    virtual std::optional<NowPlayingInfo> nowPlayingInfo() const;
+    virtual WeakPtr<PlatformMediaSession> selectBestMediaSession(const Vector<WeakPtr<PlatformMediaSession>>&, PlatformMediaSession::PlaybackControlsPurpose) { return nullptr; }
+
+    virtual void isActiveNowPlayingSessionChanged() = 0;
+
+    virtual ProcessID presentingApplicationPID() const = 0;
+
 #if !RELEASE_LOG_DISABLED
     virtual const Logger& logger() const = 0;
+    virtual uint64_t logIdentifier() const = 0;
 #endif
 
 protected:
@@ -270,8 +347,10 @@ protected:
 
 String convertEnumerationToString(PlatformMediaSession::State);
 String convertEnumerationToString(PlatformMediaSession::InterruptionType);
-String convertEnumerationToString(PlatformMediaSession::RemoteControlCommandType);
-}
+String convertEnumerationToString(PlatformMediaSession::MediaType);
+WEBCORE_EXPORT String convertEnumerationToString(PlatformMediaSession::RemoteControlCommandType);
+
+} // namespace WebCore
 
 namespace WTF {
 
@@ -302,64 +381,12 @@ struct LogArgument<WebCore::PlatformMediaSession::RemoteControlCommandType> {
     }
 };
 
-template <> struct EnumTraits<WebCore::PlatformMediaSession::MediaType> {
-    using values = EnumValues <
-    WebCore::PlatformMediaSession::MediaType,
-    WebCore::PlatformMediaSession::MediaType::None,
-    WebCore::PlatformMediaSession::MediaType::Video,
-    WebCore::PlatformMediaSession::MediaType::VideoAudio,
-    WebCore::PlatformMediaSession::MediaType::Audio,
-    WebCore::PlatformMediaSession::MediaType::WebAudio
-    >;
-};
-
-template <> struct EnumTraits<WebCore::PlatformMediaSession::State> {
-    using values = EnumValues <
-    WebCore::PlatformMediaSession::State,
-    WebCore::PlatformMediaSession::State::Idle,
-    WebCore::PlatformMediaSession::State::Autoplaying,
-    WebCore::PlatformMediaSession::State::Playing,
-    WebCore::PlatformMediaSession::State::Paused,
-    WebCore::PlatformMediaSession::State::Interrupted
-    >;
-};
-
-template <> struct EnumTraits<WebCore::PlatformMediaSession::InterruptionType> {
-    using values = EnumValues <
-    WebCore::PlatformMediaSession::InterruptionType,
-    WebCore::PlatformMediaSession::InterruptionType::NoInterruption,
-    WebCore::PlatformMediaSession::InterruptionType::SystemSleep,
-    WebCore::PlatformMediaSession::InterruptionType::EnteringBackground,
-    WebCore::PlatformMediaSession::InterruptionType::SystemInterruption,
-    WebCore::PlatformMediaSession::InterruptionType::SuspendedUnderLock,
-    WebCore::PlatformMediaSession::InterruptionType::InvisibleAutoplay,
-    WebCore::PlatformMediaSession::InterruptionType::ProcessInactive,
-    WebCore::PlatformMediaSession::InterruptionType::PlaybackSuspended
-    >;
-};
-
-template <> struct EnumTraits<WebCore::PlatformMediaSession::EndInterruptionFlags> {
-    using values = EnumValues <
-    WebCore::PlatformMediaSession::EndInterruptionFlags,
-    WebCore::PlatformMediaSession::EndInterruptionFlags::NoFlags,
-    WebCore::PlatformMediaSession::EndInterruptionFlags::MayResumePlaying
-    >;
-};
-
-template <> struct EnumTraits<WebCore::PlatformMediaSession::RemoteControlCommandType> {
-    using values = EnumValues <
-    WebCore::PlatformMediaSession::RemoteControlCommandType,
-    WebCore::PlatformMediaSession::RemoteControlCommandType::NoCommand,
-    WebCore::PlatformMediaSession::RemoteControlCommandType::PlayCommand,
-    WebCore::PlatformMediaSession::RemoteControlCommandType::PauseCommand,
-    WebCore::PlatformMediaSession::RemoteControlCommandType::StopCommand,
-    WebCore::PlatformMediaSession::RemoteControlCommandType::TogglePlayPauseCommand,
-    WebCore::PlatformMediaSession::RemoteControlCommandType::BeginSeekingBackwardCommand,
-    WebCore::PlatformMediaSession::RemoteControlCommandType::EndSeekingBackwardCommand,
-    WebCore::PlatformMediaSession::RemoteControlCommandType::BeginSeekingForwardCommand,
-    WebCore::PlatformMediaSession::RemoteControlCommandType::EndSeekingForwardCommand,
-    WebCore::PlatformMediaSession::RemoteControlCommandType::SeekToPlaybackPositionCommand
-    >;
+template <>
+struct LogArgument<WebCore::PlatformMediaSession::MediaType> {
+    static String toString(const WebCore::PlatformMediaSession::MediaType mediaType)
+    {
+        return convertEnumerationToString(mediaType);
+    }
 };
 
 } // namespace WTF

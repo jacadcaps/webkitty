@@ -25,8 +25,6 @@
 
 #pragma once
 
-#if ENABLE(DATALIST_ELEMENT)
-
 #include "HTMLDivElement.h"
 
 namespace WebCore {
@@ -34,7 +32,8 @@ namespace WebCore {
 class TextFieldInputType;
 
 class DataListButtonElement final : public HTMLDivElement {
-    WTF_MAKE_ISO_ALLOCATED(DataListButtonElement);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(DataListButtonElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(DataListButtonElement);
 public:
     class DataListButtonOwner {
     public:
@@ -55,5 +54,3 @@ private:
 };
 
 } // namespace WebCore
-
-#endif // ENABLE(DATALIST_ELEMENT)

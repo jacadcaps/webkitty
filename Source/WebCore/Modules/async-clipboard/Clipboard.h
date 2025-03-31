@@ -26,8 +26,7 @@
 #pragma once
 
 #include "EventTarget.h"
-#include <wtf/IsoMalloc.h>
-#include <wtf/Optional.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 #include <wtf/WeakPtr.h>
 
@@ -35,21 +34,21 @@ namespace WebCore {
 
 class ClipboardItem;
 class DeferredPromise;
-class Frame;
+class LocalFrame;
 class Navigator;
 class Pasteboard;
 class PasteboardCustomData;
 
-class Clipboard final : public RefCounted<Clipboard>, public EventTargetWithInlineData, public CanMakeWeakPtr<Clipboard> {
-    WTF_MAKE_ISO_ALLOCATED(Clipboard);
+class Clipboard final : public RefCounted<Clipboard>, public EventTarget {
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(Clipboard);
 public:
     static Ref<Clipboard> create(Navigator&);
     ~Clipboard();
 
-    EventTargetInterface eventTargetInterface() const final;
+    enum EventTargetInterfaceType eventTargetInterface() const final;
     ScriptExecutionContext* scriptExecutionContext() const final;
 
-    Frame* frame() const;
+    LocalFrame* frame() const;
     Navigator* navigator();
 
     using RefCounted::ref;
@@ -59,7 +58,7 @@ public:
     void writeText(const String& data, Ref<DeferredPromise>&&);
 
     void read(Ref<DeferredPromise>&&);
-    void write(const Vector<RefPtr<ClipboardItem>>& data, Ref<DeferredPromise>&&);
+    void write(const Vector<Ref<ClipboardItem>>& data, Ref<DeferredPromise>&&);
 
     void getType(ClipboardItem&, const String& type, Ref<DeferredPromise>&&);
 
@@ -77,7 +76,7 @@ private:
 
     Pasteboard& activePasteboard();
 
-    enum class SessionIsValid { No, Yes };
+    enum class SessionIsValid : bool { No, Yes };
     SessionIsValid updateSessionValidity();
 
     class ItemWriter : public RefCounted<ItemWriter> {
@@ -89,31 +88,29 @@ private:
 
         ~ItemWriter();
 
-        void write(const Vector<RefPtr<ClipboardItem>>&);
+        void write(const Vector<Ref<ClipboardItem>>&);
         void invalidate();
 
     private:
         ItemWriter(Clipboard&, Ref<DeferredPromise>&&);
 
-        void setData(Optional<PasteboardCustomData>&&, size_t index);
+        void setData(std::optional<PasteboardCustomData>&&, size_t index);
         void didSetAllData();
         void reject();
 
-        WeakPtr<Clipboard> m_clipboard;
-        Vector<Optional<PasteboardCustomData>> m_dataToWrite;
+        WeakPtr<Clipboard, WeakPtrImplWithEventTargetData> m_clipboard;
+        Vector<std::optional<PasteboardCustomData>> m_dataToWrite;
         RefPtr<DeferredPromise> m_promise;
         unsigned m_pendingItemCount;
         std::unique_ptr<Pasteboard> m_pasteboard;
-#if PLATFORM(COCOA)
         int64_t m_changeCountAtStart { 0 };
-#endif
     };
 
     void didResolveOrReject(ItemWriter&);
 
-    Optional<Session> m_activeSession;
+    std::optional<Session> m_activeSession;
     WeakPtr<Navigator> m_navigator;
-    Vector<Optional<PasteboardCustomData>> m_dataToWrite;
+    Vector<std::optional<PasteboardCustomData>> m_dataToWrite;
     RefPtr<ItemWriter> m_activeItemWriter;
 };
 

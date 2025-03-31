@@ -26,8 +26,6 @@
 #include "config.h"
 #include "CryptoKeyRaw.h"
 
-#if ENABLE(WEB_CRYPTO)
-
 #include "CryptoAlgorithmRegistry.h"
 
 namespace WebCore {
@@ -45,6 +43,15 @@ auto CryptoKeyRaw::algorithm() const -> KeyAlgorithm
     return result;
 }
 
-} // namespace WebCore
+CryptoKey::Data CryptoKeyRaw::data() const
+{
+    return CryptoKey::Data {
+        CryptoKeyClass::Raw,
+        algorithmIdentifier(),
+        extractable(),
+        usagesBitmap(),
+        { key() },
+    };
+}
 
-#endif // ENABLE(WEB_CRYPTO)
+} // namespace WebCore

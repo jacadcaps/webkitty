@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,7 +31,11 @@
 #include <wtf/Assertions.h>
 #include <wtf/CagedUniquePtr.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
+
+class WatchpointSet;
 
 // This class's only job is to hold onto the list of ScopeOffsets for each argument that a
 // function has. Most of the time, the BytecodeGenerator will create one of these and it will
@@ -45,10 +49,10 @@ class ScopedArgumentsTable final : public JSCell {
 public:
     using Base = JSCell;
     static constexpr unsigned StructureFlags = Base::StructureFlags | StructureIsImmortal;
-    static constexpr bool needsDestruction = true;
+    static constexpr DestructionMode needsDestruction = NeedsDestruction;
 
     template<typename CellType, SubspaceAccess mode>
-    static IsoSubspace* subspaceFor(VM& vm)
+    static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
         return vm.scopedArgumentsTableSpace<mode>();
     }
@@ -67,6 +71,7 @@ public:
     ScopedArgumentsTable* trySetLength(VM&, uint32_t newLength);
     
     ScopeOffset get(uint32_t i) const { return at(i); }
+    WatchpointSet* getWatchpointSet(uint32_t i) const { return m_watchpointSets.at(i); }
     
     void lock()
     {
@@ -74,13 +79,15 @@ public:
     }
     
     ScopedArgumentsTable* trySet(VM&, uint32_t index, ScopeOffset);
-    
+    void trySetWatchpointSet(uint32_t index, WatchpointSet* watchpoints);
+    void clearWatchpointSet(uint32_t index) { m_watchpointSets[index] = nullptr; }
+
     DECLARE_INFO;
     
     static Structure* createStructure(VM&, JSGlobalObject*, JSValue prototype);
 
-    static ptrdiff_t offsetOfLength() { return OBJECT_OFFSETOF(ScopedArgumentsTable, m_length); }
-    static ptrdiff_t offsetOfArguments() { return OBJECT_OFFSETOF(ScopedArgumentsTable, m_arguments); }
+    static constexpr ptrdiff_t offsetOfLength() { return OBJECT_OFFSETOF(ScopedArgumentsTable, m_length); }
+    static constexpr ptrdiff_t offsetOfArguments() { return OBJECT_OFFSETOF(ScopedArgumentsTable, m_arguments); }
 
     typedef CagedUniquePtr<Gigacage::Primitive, ScopeOffset> ArgumentsPtr;
 
@@ -90,12 +97,15 @@ private:
     ScopeOffset& at(uint32_t i) const
     {
         ASSERT_WITH_SECURITY_IMPLICATION(i < m_length);
-        return m_arguments.get(length())[i];
+        return m_arguments.get()[i];
     }
     
     uint32_t m_length;
     bool m_locked; // Being locked means that there are multiple references to this object and none of them expect to see the others' modifications. This means that modifications need to make a copy first.
     ArgumentsPtr m_arguments;
+    Vector<WatchpointSet*> m_watchpointSets;
 };
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

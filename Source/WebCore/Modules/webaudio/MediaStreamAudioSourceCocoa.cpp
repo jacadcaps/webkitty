@@ -31,13 +31,14 @@
 #include "AudioBus.h"
 #include "CAAudioStreamDescription.h"
 #include "Logging.h"
+#include "SpanCoreAudio.h"
 #include "WebAudioBufferList.h"
 #include <CoreAudio/CoreAudioTypes.h>
 #include <pal/avfoundation/MediaTimeAVFoundation.h>
+#include <wtf/StdLibExtras.h>
+
 #include <pal/cf/CoreMediaSoftLink.h>
 #include "CoreVideoSoftLink.h"
-
-using namespace PAL;
 
 namespace WebCore {
 
@@ -58,10 +59,10 @@ static inline void copyChannelData(AudioChannel& channel, AudioBuffer& buffer, s
     buffer.mDataByteSize = numberOfFrames * sizeof(float);
     buffer.mNumberChannels = 1;
     if (isMuted) {
-        memset(buffer.mData, 0, buffer.mDataByteSize);
+        zeroSpan(mutableSpan<uint8_t>(buffer));
         return;
     }
-    memcpy(buffer.mData, channel.data(), buffer.mDataByteSize);
+    memcpySpan(mutableSpan<uint8_t>(buffer), asByteSpan(channel.span()).first(buffer.mDataByteSize));
 }
 
 void MediaStreamAudioSource::consumeAudio(AudioBus& bus, size_t numberOfFrames)
@@ -71,7 +72,7 @@ void MediaStreamAudioSource::consumeAudio(AudioBus& bus, size_t numberOfFrames)
         return;
     }
 
-    CMTime startTime = CMTimeMake(m_numberOfFrames, m_currentSettings.sampleRate());
+    CMTime startTime = PAL::CMTimeMake(m_numberOfFrames, m_currentSettings.sampleRate());
     auto mediaTime = PAL::toMediaTime(startTime);
     m_numberOfFrames += numberOfFrames;
 
@@ -79,7 +80,10 @@ void MediaStreamAudioSource::consumeAudio(AudioBus& bus, size_t numberOfFrames)
 
     auto description = streamDescription(m_currentSettings.sampleRate(), bus.numberOfChannels());
     if (!audioBuffer || audioBuffer->channelCount() != bus.numberOfChannels()) {
-        m_audioBuffer = makeUnique<WebAudioBufferList>(description, WTF::safeCast<uint32_t>(numberOfFrames));
+        // Heap allocations are forbidden on the audio thread for performance reasons so we need to
+        // explicitly allow the following allocation(s).
+        DisableMallocRestrictionsForCurrentThreadScope disableMallocRestrictions;
+        m_audioBuffer = makeUnique<WebAudioBufferList>(description, numberOfFrames);
         audioBuffer = &downcast<WebAudioBufferList>(*m_audioBuffer);
     } else
         audioBuffer->setSampleCount(numberOfFrames);

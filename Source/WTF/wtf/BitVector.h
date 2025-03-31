@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,11 +33,19 @@
 #include <wtf/PrintStream.h>
 #include <wtf/StdLibExtras.h>
 
+#if USE(CF)
+#include <CoreFoundation/CoreFoundation.h>
+#endif
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
 class CachedBitVector;
 }
 
 namespace WTF {
+
+class FixedBitVector;
 
 // This is a space-efficient, resizeable bitvector class. In the common case it
 // occupies one word, but if necessary, it will inflate this one word to point
@@ -60,6 +68,8 @@ namespace WTF {
 // juggle a lot of variable-length BitVectors and you're worried about wasting
 // space.
 
+// If you know the length of the vector at compile-time,
+// please consider using WTF::BitSet instead.
 class BitVector final {
     WTF_MAKE_FAST_ALLOCATED;
 public: 
@@ -80,6 +90,17 @@ public:
         (*this) = other;
     }
 
+#if USE(CF)
+    BitVector(CFBitVectorRef bitVector)
+        : BitVector(CFBitVectorGetCount(bitVector))
+    {
+        auto count = CFBitVectorGetCount(bitVector);
+        for (CFIndex i = 0; i < count; ++i) {
+            if (CFBitVectorGetBitAtIndex(bitVector, i))
+                quickSet(i);
+        }
+    }
+#endif
     
     ~BitVector()
     {
@@ -256,6 +277,14 @@ public:
         }
         return result;
     }
+
+    // If the lambda returns an IterationStatus, we use it. The lambda can also return
+    // void, in which case, we'll iterate every set bit.
+    template<typename Func>
+    constexpr ALWAYS_INLINE void forEachSetBit(const Func&) const;
+
+    template<typename Func>
+    constexpr ALWAYS_INLINE void forEachSetBit(size_t startIndex, const Func&) const;
     
     WTF_EXPORT_PRIVATE void dump(PrintStream& out) const;
     
@@ -337,10 +366,6 @@ public:
             return m_index == other.m_index;
         }
         
-        bool operator!=(const iterator& other) const
-        {
-            return !(*this == other);
-        }
     private:
         const BitVector* m_bitVector;
         size_t m_index;
@@ -349,9 +374,20 @@ public:
     // Use this to iterate over set bits.
     iterator begin() const { return iterator(*this, findBit(0, true)); }
     iterator end() const { return iterator(*this, size()); }
+
+    static unsigned outOfLineMemoryUse(size_t bitCount)
+    {
+        if (bitCount <= maxInlineBits())
+            return 0;
+        return byteCount(bitCount);
+    }
+    unsigned outOfLineMemoryUse() const { return outOfLineMemoryUse(size()); }
         
+    WTF_EXPORT_PRIVATE void shiftRightByMultipleOf64(size_t);
+
 private:
     friend class JSC::CachedBitVector;
+    friend class FixedBitVector;
 
     static unsigned bitsInPointer()
     {
@@ -399,20 +435,20 @@ private:
         // value = true: casts to 1, then xors to 0, then negates to 0.
         // value = false: casts to 0, then xors to 1, then negates to -1 (i.e. all one bits).
         uintptr_t skipValue = -(static_cast<uintptr_t>(value) ^ 1);
-        size_t numWords = bits->numWords();
         
         size_t wordIndex = startIndex / bitsInPointer();
         size_t startIndexInWord = startIndex - wordIndex * bitsInPointer();
         
-        while (wordIndex < numWords) {
-            uintptr_t word = bits->bits()[wordIndex];
+        auto words = bits->wordsSpan();
+        while (wordIndex < words.size()) {
+            uintptr_t word = words[wordIndex];
             if (word != skipValue) {
                 size_t index = startIndexInWord;
                 if (findBitInWord(word, index, bitsInPointer(), value))
                     return wordIndex * bitsInPointer() + index;
             }
             
-            wordIndex++;
+            ++wordIndex;
             startIndexInWord = 0;
         }
         
@@ -424,7 +460,7 @@ private:
         while (index < size()) {
             if (get(index) == value)
                 return index;
-            index++;
+            ++index;
         }
         return size();
     }
@@ -433,9 +469,12 @@ private:
     public:
         size_t numBits() const { return m_numBits; }
         size_t numWords() const { return (m_numBits + bitsInPointer() - 1) / bitsInPointer(); }
-        uintptr_t* bits() { return bitwise_cast<uintptr_t*>(this + 1); }
-        const uintptr_t* bits() const { return bitwise_cast<const uintptr_t*>(this + 1); }
-        
+
+        std::span<const uint8_t> byteSpan() const { return unsafeMakeSpan(reinterpret_cast<const uint8_t*>(bits()), byteCount(numBits())); }
+        std::span<uint8_t> byteSpan() { return unsafeMakeSpan(reinterpret_cast<uint8_t*>(bits()), byteCount(numBits())); }
+        std::span<const uintptr_t> wordsSpan() const { return unsafeMakeSpan(bits(), numWords()); }
+        std::span<uintptr_t> wordsSpan() { return unsafeMakeSpan(bits(), numWords()); }
+
         static WTF_EXPORT_PRIVATE OutOfLineBits* create(size_t numBits);
         
         static WTF_EXPORT_PRIVATE void destroy(OutOfLineBits*);
@@ -445,16 +484,19 @@ private:
             : m_numBits(numBits)
         {
         }
+
+        uintptr_t* bits() { return std::bit_cast<uintptr_t*>(this + 1); }
+        const uintptr_t* bits() const { return std::bit_cast<const uintptr_t*>(this + 1); }
         
         size_t m_numBits;
     };
     
     bool isInline() const { return m_bitsOrPointer >> maxInlineBits(); }
     
-    const OutOfLineBits* outOfLineBits() const { return bitwise_cast<const OutOfLineBits*>(m_bitsOrPointer << 1); }
-    OutOfLineBits* outOfLineBits() { return bitwise_cast<OutOfLineBits*>(m_bitsOrPointer << 1); }
+    const OutOfLineBits* outOfLineBits() const { return std::bit_cast<const OutOfLineBits*>(m_bitsOrPointer << 1); }
+    OutOfLineBits* outOfLineBits() { return std::bit_cast<OutOfLineBits*>(m_bitsOrPointer << 1); }
     
-    WTF_EXPORT_PRIVATE void resizeOutOfLine(size_t numBits);
+    WTF_EXPORT_PRIVATE void resizeOutOfLine(size_t numBits, size_t shiftInWords = 0);
     WTF_EXPORT_PRIVATE void setSlow(const BitVector& other);
     
     WTF_EXPORT_PRIVATE void mergeSlow(const BitVector& other);
@@ -473,18 +515,37 @@ private:
     {
         if (isInline())
             return &m_bitsOrPointer;
-        return outOfLineBits()->bits();
+        return outOfLineBits()->wordsSpan().data();
     }
     
     const uintptr_t* bits() const
     {
         if (isInline())
             return &m_bitsOrPointer;
-        return outOfLineBits()->bits();
+        return outOfLineBits()->wordsSpan().data();
     }
-    
+
+    std::span<uint8_t> byteSpan() { return unsafeMakeSpan(reinterpret_cast<uint8_t*>(bits()), byteCount(size())); }
+    std::span<const uint8_t> byteSpan() const { return unsafeMakeSpan(reinterpret_cast<const uint8_t*>(bits()), byteCount(size())); }
+
     uintptr_t m_bitsOrPointer;
 };
+
+template<typename Func>
+ALWAYS_INLINE constexpr void BitVector::forEachSetBit(const Func& func) const
+{
+    const uintptr_t copiedInline = cleanseInlineBits(m_bitsOrPointer);
+    auto words = isInline() ? singleElementSpan(copiedInline) : outOfLineBits()->wordsSpan();
+    WTF::forEachSetBit(words, func);
+}
+
+template<typename Func>
+ALWAYS_INLINE constexpr void BitVector::forEachSetBit(size_t startIndex, const Func& func) const
+{
+    const uintptr_t copiedInline = cleanseInlineBits(m_bitsOrPointer);
+    auto words = isInline() ? singleElementSpan(copiedInline) : outOfLineBits()->wordsSpan();
+    WTF::forEachSetBit(words, startIndex, func);
+}
 
 struct BitVectorHash {
     static unsigned hash(const BitVector& vector) { return vector.hash(); }
@@ -500,3 +561,5 @@ template<> struct HashTraits<BitVector> : public CustomHashTraits<BitVector> { }
 } // namespace WTF
 
 using WTF::BitVector;
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

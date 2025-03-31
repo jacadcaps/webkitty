@@ -27,16 +27,17 @@
 
 #include "AnimationEventBase.h"
 #include "AnimationPlaybackEventInit.h"
+#include "WebAnimationTypes.h"
 #include <wtf/Markable.h>
 
 namespace WebCore {
 
 class AnimationPlaybackEvent final : public AnimationEventBase {
-    WTF_MAKE_ISO_ALLOCATED(AnimationPlaybackEvent);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(AnimationPlaybackEvent);
 public:
-    static Ref<AnimationPlaybackEvent> create(const AtomString& type, Optional<Seconds> currentTime, Optional<Seconds> timelineTime, WebAnimation* animation)
+    static Ref<AnimationPlaybackEvent> create(const AtomString& type, WebAnimation* animation, std::optional<WebAnimationTime> scheduledTime, std::optional<WebAnimationTime> timelineTime, std::optional<WebAnimationTime> currentTime)
     {
-        return adoptRef(*new AnimationPlaybackEvent(type, currentTime, timelineTime, animation));
+        return adoptRef(*new AnimationPlaybackEvent(type, animation, scheduledTime, timelineTime, currentTime));
     }
 
     static Ref<AnimationPlaybackEvent> create(const AtomString& type, const AnimationPlaybackEventInit& initializer, IsTrusted isTrusted = IsTrusted::No)
@@ -48,17 +49,15 @@ public:
 
     bool isAnimationPlaybackEvent() const final { return true; }
 
-    Optional<double> bindingsCurrentTime() const;
-    Optional<Seconds> currentTime() const { return m_currentTime; }
-    Optional<double> bindingsTimelineTime() const;
-
-    EventInterface eventInterface() const override { return AnimationPlaybackEventInterfaceType; }
+    std::optional<WebAnimationTime> timelineTime() const { return m_timelineTime; }
+    std::optional<WebAnimationTime> currentTime() const { return m_currentTime; }
 
 private:
-    AnimationPlaybackEvent(const AtomString&, Optional<Seconds>, Optional<Seconds>, WebAnimation*);
+    AnimationPlaybackEvent(const AtomString&, WebAnimation*, std::optional<WebAnimationTime> scheduledTime, std::optional<WebAnimationTime> timelineTime, std::optional<WebAnimationTime> currentTime);
     AnimationPlaybackEvent(const AtomString&, const AnimationPlaybackEventInit&, IsTrusted);
 
-    Markable<Seconds, Seconds::MarkableTraits> m_currentTime;
+    std::optional<WebAnimationTime> m_timelineTime;
+    std::optional<WebAnimationTime> m_currentTime;
 };
 
 }

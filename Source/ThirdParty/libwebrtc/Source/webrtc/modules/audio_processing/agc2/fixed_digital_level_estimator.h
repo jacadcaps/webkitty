@@ -16,7 +16,6 @@
 
 #include "modules/audio_processing/agc2/agc2_common.h"
 #include "modules/audio_processing/include/audio_frame_view.h"
-#include "rtc_base/constructor_magic.h"
 
 namespace webrtc {
 
@@ -26,24 +25,32 @@ class ApmDataDumper;
 // filtering.
 class FixedDigitalLevelEstimator {
  public:
-  // Sample rates are allowed if the number of samples in a frame
-  // (sample_rate_hz * kFrameDurationMs / 1000) is divisible by
+  // `samples_per_channel` is expected to be derived from this formula:
+  //   sample_rate_hz * kFrameDurationMs / 1000
+  // or, for a 10ms duration:
+  //   sample_rate_hz / 100
+  // I.e. the number of samples for 10ms of the given sample rate. The
+  // expectation is that samples per channel is divisible by
   // kSubFramesInSample. For kFrameDurationMs=10 and
-  // kSubFramesInSample=20, this means that sample_rate_hz has to be
-  // divisible by 2000.
-  FixedDigitalLevelEstimator(size_t sample_rate_hz,
+  // kSubFramesInSample=20, this means that the original sample rate has to be
+  // divisible by 2000 and therefore `samples_per_channel` by 20.
+  FixedDigitalLevelEstimator(size_t samples_per_channel,
                              ApmDataDumper* apm_data_dumper);
+
+  FixedDigitalLevelEstimator(const FixedDigitalLevelEstimator&) = delete;
+  FixedDigitalLevelEstimator& operator=(const FixedDigitalLevelEstimator&) =
+      delete;
 
   // The input is assumed to be in FloatS16 format. Scaled input will
   // produce similarly scaled output. A frame of with kFrameDurationMs
   // ms of audio produces a level estimates in the same scale. The
   // level estimate contains kSubFramesInFrame values.
   std::array<float, kSubFramesInFrame> ComputeLevel(
-      const AudioFrameView<const float>& float_frame);
+      DeinterleavedView<const float> float_frame);
 
   // Rate may be changed at any time (but not concurrently) from the
   // value passed to the constructor. The class is not thread safe.
-  void SetSampleRate(size_t sample_rate_hz);
+  void SetSamplesPerChannel(size_t samples_per_channel);
 
   // Resets the level estimator internal state.
   void Reset();
@@ -55,10 +62,8 @@ class FixedDigitalLevelEstimator {
 
   ApmDataDumper* const apm_data_dumper_ = nullptr;
   float filter_state_level_;
-  size_t samples_in_frame_;
-  size_t samples_in_sub_frame_;
-
-  RTC_DISALLOW_COPY_AND_ASSIGN(FixedDigitalLevelEstimator);
+  int samples_in_frame_;
+  int samples_in_sub_frame_;
 };
 }  // namespace webrtc
 

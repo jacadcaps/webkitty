@@ -38,7 +38,7 @@ struct DOMPointInit;
 struct DOMRectInit;
 
 class DOMQuad : public ScriptWrappable, public RefCounted<DOMQuad> {
-    WTF_MAKE_ISO_ALLOCATED(DOMQuad);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(DOMQuad);
 public:
     static Ref<DOMQuad> create(const DOMPointInit& p1, const DOMPointInit& p2, const DOMPointInit& p3, const DOMPointInit& p4) { return adoptRef(*new DOMQuad(p1, p2, p3, p4)); }
     static Ref<DOMQuad> fromRect(const DOMRectInit& init) { return adoptRef(*new DOMQuad(init)); }
@@ -55,10 +55,10 @@ private:
     DOMQuad(const DOMPointInit&, const DOMPointInit&, const DOMPointInit&, const DOMPointInit&);
     explicit DOMQuad(const DOMRectInit&);
     
-    Ref<DOMPoint> m_p1;
-    Ref<DOMPoint> m_p2;
-    Ref<DOMPoint> m_p3;
-    Ref<DOMPoint> m_p4;
+    const Ref<DOMPoint> m_p1;
+    const Ref<DOMPoint> m_p2;
+    const Ref<DOMPoint> m_p3;
+    const Ref<DOMPoint> m_p4;
 };
 
 }

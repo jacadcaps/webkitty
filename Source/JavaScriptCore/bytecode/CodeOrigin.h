@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,9 +29,15 @@
 
 #include <limits.h>
 #include <wtf/HashMap.h>
+#include <wtf/MathExtras.h>
 #include <wtf/PrintStream.h>
 #include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
+
+#if OS(DARWIN)
+#include <mach/vm_param.h>
+#endif
 
 namespace JSC {
 
@@ -70,7 +76,7 @@ public:
     {
         ASSERT(!!bytecodeIndex);
 #if CPU(ADDRESS64)
-        ASSERT(!(bitwise_cast<uintptr_t>(inlineCallFrame) & ~s_maskCompositeValueForPointer));
+        ASSERT(!(std::bit_cast<uintptr_t>(inlineCallFrame) & ~s_maskCompositeValueForPointer));
 #endif
     }
     
@@ -150,9 +156,8 @@ public:
     int stackOffset() const;
     
     unsigned hash() const;
-    bool operator==(const CodeOrigin& other) const;
-    bool operator!=(const CodeOrigin& other) const { return !(*this == other); }
-    
+    bool operator==(const CodeOrigin&) const;
+
     // This checks if the two code origins correspond to the same stack trace snippets,
     // but ignore whether the InlineCallFrame's are identical.
     bool isApproximatelyEqualTo(const CodeOrigin& other, InlineCallFrame* terminal = nullptr) const;
@@ -160,7 +165,7 @@ public:
     unsigned approximateHash(InlineCallFrame* terminal = nullptr) const;
 
     template <typename Function>
-    void walkUpInlineStack(const Function&) const;
+    void walkUpInlineStack(NOESCAPE const Function&) const;
 
     inline bool inlineStackContainsActiveCheckpoint() const;
     
@@ -188,7 +193,7 @@ public:
 #if CPU(ADDRESS64)
         if (UNLIKELY(isOutOfLine()))
             return outOfLineCodeOrigin()->inlineCallFrame;
-        return bitwise_cast<InlineCallFrame*>(m_compositeValue & s_maskCompositeValueForPointer);
+        return std::bit_cast<InlineCallFrame*>(m_compositeValue & s_maskCompositeValueForPointer);
 #else
         return m_inlineCallFrame;
 #endif
@@ -200,7 +205,7 @@ private:
     static constexpr uintptr_t s_maskIsBytecodeIndexInvalid = 2;
 
     struct OutOfLineCodeOrigin {
-        WTF_MAKE_FAST_ALLOCATED;
+        WTF_MAKE_TZONE_ALLOCATED(OutOfLineCodeOrigin);
     public:
         InlineCallFrame* inlineCallFrame;
         BytecodeIndex bytecodeIndex;
@@ -219,7 +224,7 @@ private:
     OutOfLineCodeOrigin* outOfLineCodeOrigin() const
     {
         ASSERT(isOutOfLine());
-        return bitwise_cast<OutOfLineCodeOrigin*>(m_compositeValue & s_maskCompositeValueForPointer);
+        return std::bit_cast<OutOfLineCodeOrigin*>(m_compositeValue & s_maskCompositeValueForOutOfLinePointer);
     }
 #endif
 
@@ -230,25 +235,26 @@ private:
         ASSERT(value & s_maskCompositeValueForPointer);
         ASSERT(!(value & ~s_maskCompositeValueForPointer));
 #endif
-        return bitwise_cast<InlineCallFrame*>(value);
+        return std::bit_cast<InlineCallFrame*>(value);
     }
 
 #if CPU(ADDRESS64)
     static constexpr unsigned s_freeBitsAtTop = 64 - OS_CONSTANT(EFFECTIVE_ADDRESS_WIDTH);
-    static constexpr uintptr_t s_maskCompositeValueForPointer = ((1ULL << OS_CONSTANT(EFFECTIVE_ADDRESS_WIDTH)) - 1) & ~(8ULL - 1);
+    static constexpr uintptr_t s_maskCompositeValueForOutOfLinePointer = ~7ULL;
+    static constexpr uintptr_t s_maskCompositeValueForPointer = ((1ULL << OS_CONSTANT(EFFECTIVE_ADDRESS_WIDTH)) - 1) & s_maskCompositeValueForOutOfLinePointer;
     static uintptr_t buildCompositeValue(InlineCallFrame* inlineCallFrame, BytecodeIndex bytecodeIndex)
     {
         if (!bytecodeIndex)
-            return bitwise_cast<uintptr_t>(inlineCallFrame) | s_maskIsBytecodeIndexInvalid;
+            return std::bit_cast<uintptr_t>(inlineCallFrame) | s_maskIsBytecodeIndexInvalid;
 
         if (UNLIKELY(bytecodeIndex.asBits() >= 1 << s_freeBitsAtTop)) {
             auto* outOfLine = new OutOfLineCodeOrigin(inlineCallFrame, bytecodeIndex);
-            return bitwise_cast<uintptr_t>(outOfLine) | s_maskIsOutOfLine;
+            return std::bit_cast<uintptr_t>(outOfLine) | s_maskIsOutOfLine;
         }
 
         uintptr_t encodedBytecodeIndex = static_cast<uintptr_t>(bytecodeIndex.asBits()) << (64 - s_freeBitsAtTop);
-        ASSERT(!(encodedBytecodeIndex & bitwise_cast<uintptr_t>(inlineCallFrame)));
-        return encodedBytecodeIndex | bitwise_cast<uintptr_t>(inlineCallFrame);
+        ASSERT(!(encodedBytecodeIndex & std::bit_cast<uintptr_t>(inlineCallFrame)));
+        return encodedBytecodeIndex | std::bit_cast<uintptr_t>(inlineCallFrame);
     }
 
     // The bottom bit indicates whether to look at an out-of-line implementation (because of a bytecode index which is too big for us to store).

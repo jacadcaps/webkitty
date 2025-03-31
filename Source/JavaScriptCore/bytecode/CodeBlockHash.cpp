@@ -30,9 +30,11 @@
 #include <wtf/SHA1.h>
 #include <wtf/SixCharacterHash.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
 
-CodeBlockHash::CodeBlockHash(const char* string)
+CodeBlockHash::CodeBlockHash(std::span<const char, 6> string)
     : m_hash(sixCharacterHashStringToInteger(string))
 {
 }
@@ -53,7 +55,7 @@ CodeBlockHash::CodeBlockHash(const SourceCode& sourceCode, CodeSpecializationKin
     ASSERT(sourceCode.length() >= 0);
     constexpr unsigned maxSourceCodeLengthToHash = 500 * MB;
     if (static_cast<unsigned>(sourceCode.length()) < maxSourceCodeLengthToHash)
-        sha1.addBytes(sourceCode.toUTF8());
+        sha1.addUTF8Bytes(sourceCode.view());
     else {
         // Just hash with the length and samples of the source string instead.
         StringView str = sourceCode.provider()->source();
@@ -62,10 +64,10 @@ CodeBlockHash::CodeBlockHash(const SourceCode& sourceCode, CodeSpecializationKin
         unsigned length = str.length();
         unsigned step = (length >> 10) + 1;
 
-        sha1.addBytes(bitwise_cast<uint8_t*>(&length), sizeof(length));
+        sha1.addBytes(std::span { std::bit_cast<uint8_t*>(&length), sizeof(length) });
         do {
             UChar character = str[index];
-            sha1.addBytes(bitwise_cast<uint8_t*>(&character), sizeof(character));
+            sha1.addBytes(std::span { std::bit_cast<uint8_t*>(&character), sizeof(character) });
             oldIndex = index;
             index += step;
         } while (index > oldIndex && index < length);
@@ -77,23 +79,24 @@ CodeBlockHash::CodeBlockHash(const SourceCode& sourceCode, CodeSpecializationKin
 
     if (m_hash == 0 || m_hash == 1)
         m_hash += 0x2d5a93d0; // Ensures a non-zero hash, and gets us #Azero0 for CodeForCall and #Azero1 for CodeForConstruct.
-    static_assert(static_cast<unsigned>(CodeForCall) == 0, "");
-    static_assert(static_cast<unsigned>(CodeForConstruct) == 1, "");
+    static_assert(static_cast<unsigned>(CodeForCall) == 0);
+    static_assert(static_cast<unsigned>(CodeForConstruct) == 1);
     m_hash ^= static_cast<unsigned>(kind);
     ASSERT(m_hash);
 }
 
 void CodeBlockHash::dump(PrintStream& out) const
 {
-    std::array<char, 7> buffer = integerToSixCharacterHashString(m_hash);
+    auto buffer = integerToSixCharacterHashString(m_hash);
     
 #if ASSERT_ENABLED
-    CodeBlockHash recompute(buffer.data());
+    CodeBlockHash recompute(buffer);
     ASSERT(recompute == *this);
 #endif // ASSERT_ENABLED
     
-    out.print(buffer.data());
+    out.print(std::span<const char> { buffer });
 }
 
 } // namespace JSC
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

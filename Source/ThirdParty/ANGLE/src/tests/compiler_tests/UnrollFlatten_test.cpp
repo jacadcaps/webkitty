@@ -28,10 +28,12 @@ class UnrollFlattenTest : public testing::Test
   protected:
     void compile(const std::string &shaderString)
     {
+        ShCompileOptions compileOptions = {};
+
         std::string infoLog;
         bool compilationSuccess =
             compileTestShader(GL_FRAGMENT_SHADER, mInputSpec, SH_HLSL_4_1_OUTPUT, shaderString,
-                              SH_VARIABLES, &mTranslatedSource, &infoLog);
+                              compileOptions, &mTranslatedSource, &infoLog);
         if (!compilationSuccess)
         {
             FAIL() << "Shader compilation failed " << infoLog;
@@ -199,14 +201,14 @@ TEST_F(UnrollFlattenTest, GradientInDiscont)
     expect(expectations, ArraySize(expectations));
 }
 
-class UnrollFlattenTest_ES3 : public UnrollFlattenTest
+class UnrollFlattenTestES3 : public UnrollFlattenTest
 {
   public:
-    UnrollFlattenTest_ES3() : UnrollFlattenTest(SH_GLES3_SPEC) {}
+    UnrollFlattenTestES3() : UnrollFlattenTest(SH_GLES3_SPEC) {}
 };
 
 // Check that we correctly detect the ES3 builtin "texture" function as a gradient operation.
-TEST_F(UnrollFlattenTest_ES3, TextureBuiltin)
+TEST_F(UnrollFlattenTestES3, TextureBuiltin)
 {
     const std::string &shaderString =
         "#version 300 es\n"

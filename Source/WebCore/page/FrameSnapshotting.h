@@ -29,32 +29,46 @@
 
 #pragma once
 
+#include "Color.h"
+#include "DestinationColorSpace.h"
+#include "ImageBufferPixelFormat.h"
+#include "SimpleRange.h"
 #include <memory>
-#include <wtf/Forward.h>
+#include <wtf/OptionSet.h>
 
 namespace WebCore {
 
 class FloatRect;
-class Frame;
 class IntRect;
 class ImageBuffer;
+class LocalFrame;
 class Node;
 
-enum {
-    SnapshotOptionsNone = 0,
-    SnapshotOptionsExcludeSelectionHighlighting = 1 << 0,
-    SnapshotOptionsPaintSelectionOnly = 1 << 1,
-    SnapshotOptionsInViewCoordinates = 1 << 2,
-    SnapshotOptionsForceBlackText = 1 << 3,
-    SnapshotOptionsPaintSelectionAndBackgroundsOnly = 1 << 4,
-    SnapshotOptionsPaintEverythingExcludingSelection = 1 << 5,
-    SnapshotOptionsPaintWithIntegralScaleFactor = 1 << 6,
+enum class SnapshotFlags : uint16_t {
+    ExcludeSelectionHighlighting = 1 << 0,
+    PaintSelectionOnly = 1 << 1,
+    InViewCoordinates = 1 << 2,
+    ForceBlackText = 1 << 3,
+    PaintSelectionAndBackgroundsOnly = 1 << 4,
+    PaintEverythingExcludingSelection = 1 << 5,
+    PaintWithIntegralScaleFactor = 1 << 6,
+    Shareable = 1 << 7,
+    Accelerated = 1 << 8,
+    ExcludeReplacedContent = 1 << 9,
+    PaintWith3xBaseScale = 1 << 10,
 };
-typedef unsigned SnapshotOptions;
 
-WEBCORE_EXPORT std::unique_ptr<ImageBuffer> snapshotFrameRect(Frame&, const IntRect&, SnapshotOptions = SnapshotOptionsNone);
-std::unique_ptr<ImageBuffer> snapshotFrameRectWithClip(Frame&, const IntRect&, const Vector<FloatRect>& clipRects, SnapshotOptions = SnapshotOptionsNone);
-std::unique_ptr<ImageBuffer> snapshotNode(Frame&, Node&);
-WEBCORE_EXPORT std::unique_ptr<ImageBuffer> snapshotSelection(Frame&, SnapshotOptions = SnapshotOptionsNone);
+struct SnapshotOptions {
+    OptionSet<SnapshotFlags> flags;
+    ImageBufferPixelFormat pixelFormat;
+    DestinationColorSpace colorSpace;
+};
+
+WEBCORE_EXPORT RefPtr<ImageBuffer> snapshotFrameRect(LocalFrame&, const IntRect&, SnapshotOptions&&);
+RefPtr<ImageBuffer> snapshotFrameRectWithClip(LocalFrame&, const IntRect&, const Vector<FloatRect>& clipRects, SnapshotOptions&&);
+RefPtr<ImageBuffer> snapshotNode(LocalFrame&, Node&, SnapshotOptions&&);
+WEBCORE_EXPORT RefPtr<ImageBuffer> snapshotSelection(LocalFrame&, SnapshotOptions&&);
+
+Color estimatedBackgroundColorForRange(const SimpleRange&, const LocalFrame&);
 
 } // namespace WebCore

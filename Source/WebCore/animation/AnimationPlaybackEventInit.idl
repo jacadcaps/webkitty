@@ -23,9 +23,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-[
-    EnabledAtRuntime=WebAnimations
-] dictionary AnimationPlaybackEventInit : EventInit {
-    double? currentTime = null;
-    double? timelineTime = null;
+typedef (double or CSSNumericValue) CSSNumberish;
+
+dictionary AnimationPlaybackEventInit : EventInit {
+    CSSNumberish? currentTime = null;
+    CSSNumberish? timelineTime = null;
 };

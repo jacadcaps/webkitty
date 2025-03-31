@@ -27,7 +27,8 @@
 namespace WebCore {
 
 class HTMLUListElement final : public HTMLElement {
-    WTF_MAKE_ISO_ALLOCATED(HTMLUListElement);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(HTMLUListElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HTMLUListElement);
 public:
     static Ref<HTMLUListElement> create(Document&);
     static Ref<HTMLUListElement> create(const QualifiedName&, Document&);
@@ -35,8 +36,8 @@ public:
 private:
     HTMLUListElement(const QualifiedName&, Document&);
 
-    bool isPresentationAttribute(const QualifiedName&) const final;
-    void collectStyleForPresentationAttribute(const QualifiedName&, const AtomString&, MutableStyleProperties&) final;
+    bool hasPresentationalHintsForAttribute(const QualifiedName&) const final;
+    void collectPresentationalHintsForAttribute(const QualifiedName&, const AtomString&, MutableStyleProperties&) final;
 };
 
 } // namespace WebCore

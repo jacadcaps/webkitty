@@ -32,13 +32,13 @@ FrameLoadState::~FrameLoadState()
 {
 }
 
-void FrameLoadState::addObserver(Observer& observer)
+void FrameLoadState::addObserver(FrameLoadStateObserver& observer)
 {
     auto result = m_observers.add(observer);
     ASSERT_UNUSED(result, result.isNewEntry);
 }
 
-void FrameLoadState::removeObserver(Observer& observer)
+void FrameLoadState::removeObserver(FrameLoadStateObserver& observer)
 {
     auto result = m_observers.remove(observer);
     ASSERT_UNUSED(result, result);
@@ -50,12 +50,28 @@ void FrameLoadState::didStartProvisionalLoad(const URL& url)
 
     m_state = State::Provisional;
     m_provisionalURL = url;
+
+    forEachObserver([&url](FrameLoadStateObserver& observer) {
+        observer.didReceiveProvisionalURL(url);
+        observer.didStartProvisionalLoad(url);
+    });
+}
+
+void FrameLoadState::didSuspend()
+{
+    m_state = State::Finished;
+    m_provisionalURL = { };
+
+    forEachObserver([](FrameLoadStateObserver& observer) {
+        observer.didCancelProvisionalLoad();
+    });
 }
 
 void FrameLoadState::didExplicitOpen(const URL& url)
 {
-    m_url = url;
+    ASSERT(!url.isNull());
     m_provisionalURL = { };
+    setURL(url);
 }
 
 void FrameLoadState::didReceiveServerRedirectForProvisionalLoad(const URL& url)
@@ -63,6 +79,10 @@ void FrameLoadState::didReceiveServerRedirectForProvisionalLoad(const URL& url)
     ASSERT(m_state == State::Provisional);
 
     m_provisionalURL = url;
+
+    forEachObserver([&url](FrameLoadStateObserver& observer) {
+        observer.didReceiveProvisionalURL(url);
+    });
 }
 
 void FrameLoadState::didFailProvisionalLoad()
@@ -72,6 +92,11 @@ void FrameLoadState::didFailProvisionalLoad()
     m_state = State::Finished;
     m_provisionalURL = { };
     m_unreachableURL = m_lastUnreachableURL;
+
+    forEachObserver([&](FrameLoadStateObserver& observer) {
+        observer.didCancelProvisionalLoad();
+        observer.didFailProvisionalLoad(m_unreachableURL);
+    });
 }
 
 void FrameLoadState::didCommitLoad()
@@ -79,8 +104,14 @@ void FrameLoadState::didCommitLoad()
     ASSERT(m_state == State::Provisional);
 
     m_state = State::Committed;
-    m_url = m_provisionalURL;
+    ASSERT(!m_provisionalURL.isNull());
+    m_url = m_provisionalURL.isNull() ? aboutBlankURL() : m_provisionalURL;
     m_provisionalURL = { };
+
+    forEachObserver([&](FrameLoadStateObserver& observer) {
+        observer.didCommitProvisionalLoad();
+        observer.didCommitProvisionalLoad(m_isMainFrame);
+    });
 }
 
 void FrameLoadState::didFinishLoad()
@@ -90,11 +121,9 @@ void FrameLoadState::didFinishLoad()
 
     m_state = State::Finished;
 
-    Vector<Observer*> observersCopy;
-    for (auto& observer : m_observers)
-        observersCopy.append(&observer);
-    for (auto* observer : observersCopy)
-        observer->didFinishLoad();
+    forEachObserver([&](FrameLoadStateObserver& observer) {
+        observer.didFinishLoad(m_isMainFrame, m_url);
+    });
 }
 
 void FrameLoadState::didFailLoad()
@@ -103,17 +132,38 @@ void FrameLoadState::didFailLoad()
     ASSERT(m_provisionalURL.isEmpty());
 
     m_state = State::Finished;
+    forEachObserver([&](FrameLoadStateObserver& observer) {
+        observer.didFailLoad(m_url);
+    });
 }
 
 void FrameLoadState::didSameDocumentNotification(const URL& url)
 {
+    ASSERT(!url.isNull());
+    setURL(url.isNull() ? aboutBlankURL() : url);
+}
+
+void FrameLoadState::setURL(const URL& url)
+{
     m_url = url;
+    forEachObserver([&url](FrameLoadStateObserver& observer) {
+        observer.didCancelProvisionalLoad();
+        observer.didReceiveProvisionalURL(url);
+        observer.didCommitProvisionalLoad();
+    });
 }
 
 void FrameLoadState::setUnreachableURL(const URL& unreachableURL)
 {
     m_lastUnreachableURL = m_unreachableURL;
     m_unreachableURL = unreachableURL;
+}
+
+void FrameLoadState::forEachObserver(NOESCAPE const Function<void(FrameLoadStateObserver&)>& callback)
+{
+    m_observers.forEach([&callback](FrameLoadStateObserver& observer) {
+        callback(Ref { observer });
+    });
 }
 
 } // namespace WebKit

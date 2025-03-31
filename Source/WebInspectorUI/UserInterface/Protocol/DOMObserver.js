@@ -77,6 +77,11 @@ WI.DOMObserver = class DOMObserver extends InspectorBackend.Dispatcher
         WI.domManager._childNodeRemoved(parentNodeId, nodeId);
     }
 
+    willDestroyDOMNode(nodeId)
+    {
+        WI.domManager.willDestroyDOMNode(nodeId);
+    }
+
     shadowRootPushed(hostId, root)
     {
         WI.domManager._childNodeInserted(hostId, 0, root);
@@ -115,12 +120,6 @@ WI.DOMObserver = class DOMObserver extends InspectorBackend.Dispatcher
     didFireEvent(nodeId, eventName, timestamp, data)
     {
         WI.domManager.didFireEvent(nodeId, eventName, timestamp, data);
-    }
-
-    videoLowPowerChanged(nodeId, timestamp, isLowPower)
-    {
-        // COMPATIBILITY (iOS 12.2): DOM.videoLowPowerChanged was renamed to DOM.powerEfficientPlaybackStateChanged.
-        WI.domManager.powerEfficientPlaybackStateChanged(nodeId, timestamp, isLowPower);
     }
 
     powerEfficientPlaybackStateChanged(nodeId, timestamp, isPowerEfficient)

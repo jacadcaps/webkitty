@@ -47,12 +47,15 @@ struct Node;
 
 enum PromotedLocationKind {
     InvalidPromotedLocationKind,
-    
+
     ActivationScopePLoc,
     ActivationSymbolTablePLoc,
     ArgumentCountPLoc,
     ArgumentPLoc,
     ArgumentsCalleePLoc,
+    ArrayPLoc,
+    ArrayLengthPropertyPLoc,
+    ArrayIndexedPropertyPLoc,
     ClosureVarPLoc,
     InternalFieldObjectPLoc,
     FunctionActivationPLoc,
@@ -99,17 +102,8 @@ public:
         return m_kind + m_info;
     }
     
-    bool operator==(const PromotedLocationDescriptor& other) const
-    {
-        return m_kind == other.m_kind
-            && m_info == other.m_info;
-    }
+    friend bool operator==(const PromotedLocationDescriptor&, const PromotedLocationDescriptor&) = default;
     
-    bool operator!=(const PromotedLocationDescriptor& other) const
-    {
-        return !(*this == other);
-    }
-
     bool isHashTableDeletedValue() const
     {
         return m_kind == InvalidPromotedLocationKind && m_info;
@@ -184,11 +178,7 @@ public:
         return m_meta.hash() + WTF::PtrHash<Node*>::hash(m_base);
     }
     
-    bool operator==(const PromotedHeapLocation& other) const
-    {
-        return m_base == other.m_base
-            && m_meta == other.m_meta;
-    }
+    friend bool operator==(const PromotedHeapLocation&, const PromotedHeapLocation&) = default;
     
     bool isHashTableDeletedValue() const
     {

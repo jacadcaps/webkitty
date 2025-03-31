@@ -23,10 +23,11 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#import "WKContentRuleList.h"
+#import "WKContentRuleListPrivate.h"
 
 #import "APIContentRuleList.h"
 #import "WKObject.h"
+#import <wtf/AlignedStorage.h>
 
 namespace WebKit {
 
@@ -38,6 +39,6 @@ template<> struct WrapperTraits<API::ContentRuleList> {
 
 @interface WKContentRuleList () <WKObject> {
 @package
-    API::ObjectStorage<API::ContentRuleList> _contentRuleList;
+    AlignedStorage<API::ContentRuleList> _contentRuleList;
 }
 @end

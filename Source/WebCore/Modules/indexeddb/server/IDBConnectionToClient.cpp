@@ -26,8 +26,6 @@
 #include "config.h"
 #include "IDBConnectionToClient.h"
 
-#if ENABLE(INDEXED_DATABASE)
-
 #include "IDBDatabaseNameAndVersion.h"
 #include "UniqueIDBDatabaseConnection.h"
 
@@ -47,7 +45,7 @@ IDBConnectionToClient::IDBConnectionToClient(IDBConnectionToClientDelegate& dele
 IDBConnectionIdentifier IDBConnectionToClient::identifier() const
 {
     ASSERT(m_delegate);
-    return m_delegate->identifier();
+    return *m_delegate->identifier();
 }
 
 void IDBConnectionToClient::didDeleteDatabase(const IDBResultData& result)
@@ -204,8 +202,8 @@ void IDBConnectionToClient::connectionToClientClosed()
     m_isClosed = true;
     auto databaseConnections = m_databaseConnections;
 
-    for (auto* connection : databaseConnections) {
-        ASSERT(m_databaseConnections.contains(connection));
+    for (RefPtr connection : databaseConnections) {
+        ASSERT(m_databaseConnections.contains(connection.get()));
         connection->connectionClosedFromClient();
     }
 
@@ -214,5 +212,3 @@ void IDBConnectionToClient::connectionToClientClosed()
 
 } // namespace IDBServer
 } // namespace WebCore
-
-#endif // ENABLE(INDEXED_DATABASE)

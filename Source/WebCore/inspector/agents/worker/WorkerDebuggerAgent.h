@@ -26,29 +26,32 @@
 #pragma once
 
 #include "WebDebuggerAgent.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
-class WorkerGlobalScope;
+class WorkerOrWorkletGlobalScope;
 
 class WorkerDebuggerAgent final : public WebDebuggerAgent {
     WTF_MAKE_NONCOPYABLE(WorkerDebuggerAgent);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(WorkerDebuggerAgent);
 public:
     WorkerDebuggerAgent(WorkerAgentContext&);
-    ~WorkerDebuggerAgent() override;
+    ~WorkerDebuggerAgent();
 
-    // ScriptDebugListener
-    void breakpointActionLog(JSC::JSGlobalObject*, const String&) override;
+    // JSC::Debugger::Observer
+    void breakpointActionLog(JSC::JSGlobalObject*, const String& data);
 
 private:
     // We don't need to mute console for workers.
-    void muteConsole() override { }
-    void unmuteConsole() override { }
+    void muteConsole() { }
+    void unmuteConsole() { }
 
-    Inspector::InjectedScript injectedScriptForEval(ErrorString&, const int* executionContextId) override;
+    Ref<WorkerOrWorkletGlobalScope> protectedGlobalScope() const;
 
-    WorkerGlobalScope& m_workerGlobalScope;
+    Inspector::InjectedScript injectedScriptForEval(Inspector::Protocol::ErrorString&, std::optional<Inspector::Protocol::Runtime::ExecutionContextId>&&);
+
+    WeakRef<WorkerOrWorkletGlobalScope> m_globalScope;
 };
 
 } // namespace WebCore

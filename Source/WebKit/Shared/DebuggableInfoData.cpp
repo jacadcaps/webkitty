@@ -26,7 +26,6 @@
 #include "config.h"
 #include "DebuggableInfoData.h"
 
-#include "WebCoreArgumentCoders.h"
 #include <WebCore/InspectorDebuggableType.h>
 
 namespace WebKit {
@@ -40,51 +39,6 @@ DebuggableInfoData DebuggableInfoData::empty()
         "Unknown"_s,
         false
     };
-}
-
-void DebuggableInfoData::encode(IPC::Encoder& encoder) const
-{
-    encoder << debuggableType;
-    encoder << targetPlatformName;
-    encoder << targetBuildVersion;
-    encoder << targetProductVersion;
-    encoder << targetIsSimulator;
-}
-
-Optional<DebuggableInfoData> DebuggableInfoData::decode(IPC::Decoder& decoder)
-{
-    Optional<Inspector::DebuggableType> debuggableType;
-    decoder >> debuggableType;
-    if (!debuggableType)
-        return WTF::nullopt;
-
-    Optional<String> targetPlatformName;
-    decoder >> targetPlatformName;
-    if (!targetPlatformName)
-        return WTF::nullopt;
-
-    Optional<String> targetBuildVersion;
-    decoder >> targetBuildVersion;
-    if (!targetBuildVersion)
-        return WTF::nullopt;
-
-    Optional<String> targetProductVersion;
-    decoder >> targetProductVersion;
-    if (!targetProductVersion)
-        return WTF::nullopt;
-
-    Optional<bool> targetIsSimulator;
-    decoder >> targetIsSimulator;
-    if (!targetIsSimulator)
-        return WTF::nullopt;
-
-    return {{
-        *debuggableType,
-        *targetPlatformName,
-        *targetBuildVersion,
-        *targetProductVersion,
-        *targetIsSimulator
-    }};
 }
 
 } // namespace WebKit

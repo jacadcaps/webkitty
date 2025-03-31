@@ -23,12 +23,21 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#if ENABLE(ACCESSIBILITY) && PLATFORM(IOS_FAMILY)
+#if PLATFORM(IOS_FAMILY)
 
 #import "AXObjectCache.h"
 #import "AccessibilityObject.h"
 #import "WebAccessibilityObjectWrapperBase.h"
 #import "WAKView.h"
+
+namespace WebCore {
+class VisiblePosition;
+}
+
+// NSAttributedStrings support.
+
+static NSString * const UIAccessibilityTextAttributeContext = @"UIAccessibilityTextAttributeContext";
+static NSString * const UIAccessibilityTextualContextSourceCode = @"UIAccessibilityTextualContextSourceCode";
 
 @interface WAKView (iOSAccessibility)
 - (BOOL)accessibilityIsIgnored;
@@ -39,6 +48,8 @@
     int m_isAccessibilityElement;
     uint64_t m_accessibilityTraitsFromAncestor;
 }
+
+- (WebCore::AccessibilityObject *)axBackingObject;
 
 - (id)accessibilityHitTest:(CGPoint)point;
 - (AccessibilityObjectWrapper *)accessibilityPostProcessHitTest:(CGPoint)point;
@@ -55,18 +66,25 @@
 
 - (BOOL)isAttachment;
 
-- (void)postFocusChangeNotification;
-- (void)postSelectedTextChangeNotification;
-- (void)postLayoutChangeNotification;
-- (void)postLiveRegionChangeNotification;
-- (void)postLoadCompleteNotification;
-- (void)postChildrenChangedNotification;
-- (void)postInvalidStatusChangedNotification;
-- (void)postLiveRegionCreatedNotification;
-- (void)postScrollStatusChangeNotification;
-- (void)postValueChangedNotification;
-- (void)postExpandedChangedNotification;
+// This interacts with Accessibility system to post-process some notifications.
+- (void)accessibilityOverrideProcessNotification:(NSString *)notificationName notificationData:(NSData *)notificationData;
+
+// This is called by the Accessibility system to relay back to the chrome.
+- (void)handleNotificationRelayToChrome:(NSString *)notificationName notificationData:(NSData *)notificationData;
 
 @end
 
-#endif // ENABLE(ACCESSIBILITY) && PLATFORM(IOS_FAMILY)
+@interface WebAccessibilityTextMarker : NSObject {
+    WebCore::AXObjectCache* _cache;
+    WebCore::TextMarkerData _textMarkerData;
+}
+
++ (WebAccessibilityTextMarker *)textMarkerWithVisiblePosition:(WebCore::VisiblePosition&)visiblePos cache:(WebCore::AXObjectCache*)cache;
++ (WebAccessibilityTextMarker *)textMarkerWithCharacterOffset:(WebCore::CharacterOffset&)characterOffset cache:(WebCore::AXObjectCache*)cache;
++ (WebAccessibilityTextMarker *)startOrEndTextMarkerForRange:(const std::optional<WebCore::SimpleRange>&)range isStart:(BOOL)isStart cache:(WebCore::AXObjectCache*)cache;
+
+- (id)initWithTextMarker:(const WebCore::TextMarkerData *)data cache:(WebCore::AXObjectCache*)cache;
+- (WebCore::TextMarkerData)textMarkerData;
+@end
+
+#endif // PLATFORM(IOS_FAMILY)

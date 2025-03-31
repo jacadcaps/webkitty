@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,6 +30,8 @@
 #include "ExecutionCounter.h"
 #include "InstructionStream.h"
 #include "Options.h"
+#include "VirtualRegister.h"
+#include <wtf/FixedVector.h>
 #include <wtf/HashMap.h>
 
 namespace JSC { namespace Wasm {
@@ -39,22 +41,28 @@ class LLIntTierUpCounter : public BaselineExecutionCounter {
 
 public:
     enum class CompilationStatus : uint8_t {
-        NotCompiled,
+        NotCompiled = 0,
         Compiling,
         Compiled,
     };
 
-    LLIntTierUpCounter()
+    struct OSREntryData {
+        uint32_t loopIndex;
+        Vector<VirtualRegister> values;
+    };
+
+    LLIntTierUpCounter(UncheckedKeyHashMap<WasmInstructionStream::Offset, OSREntryData>&& osrEntryData)
+        : m_osrEntryData(WTFMove(osrEntryData))
     {
         optimizeAfterWarmUp();
+        m_compilationStatus.fill(CompilationStatus::NotCompiled);
+        m_loopCompilationStatus.fill(CompilationStatus::NotCompiled);
     }
 
     void optimizeAfterWarmUp()
     {
-        if (Options::wasmLLIntTiersUpToBBQ())
-            setNewThreshold(Options::thresholdForBBQOptimizeAfterWarmUp(), nullptr);
-        else
-            setNewThreshold(Options::thresholdForOMGOptimizeAfterWarmUp(), nullptr);
+        setNewThreshold(Options::thresholdForBBQOptimizeAfterWarmUp());
+        ASSERT(Options::useWasmLLInt() || checkIfOptimizationThresholdReached());
     }
 
     bool checkIfOptimizationThresholdReached()
@@ -64,25 +72,24 @@ public:
 
     void optimizeSoon()
     {
-        if (Options::wasmLLIntTiersUpToBBQ())
-            setNewThreshold(Options::thresholdForBBQOptimizeSoon(), nullptr);
-        else
-            setNewThreshold(Options::thresholdForOMGOptimizeSoon(), nullptr);
+        setNewThreshold(Options::thresholdForBBQOptimizeSoon());
     }
 
-    struct OSREntryData {
-        uint32_t loopIndex;
-        Vector<VirtualRegister> values;
-    };
+    const OSREntryData& osrEntryDataForLoop(WasmInstructionStream::Offset) const;
 
-    void addOSREntryDataForLoop(InstructionStream::Offset, OSREntryData&&);
+    ALWAYS_INLINE CompilationStatus compilationStatus(MemoryMode mode) WTF_REQUIRES_LOCK(m_lock) { return m_compilationStatus[static_cast<MemoryModeType>(mode)]; }
+    ALWAYS_INLINE void setCompilationStatus(MemoryMode mode, CompilationStatus status) WTF_REQUIRES_LOCK(m_lock) { m_compilationStatus[static_cast<MemoryModeType>(mode)] = status; }
 
-    const OSREntryData& osrEntryDataForLoop(InstructionStream::Offset) const;
+    ALWAYS_INLINE CompilationStatus loopCompilationStatus(MemoryMode mode) WTF_REQUIRES_LOCK(m_lock) { return m_loopCompilationStatus[static_cast<MemoryModeType>(mode)]; }
+    ALWAYS_INLINE void setLoopCompilationStatus(MemoryMode mode, CompilationStatus status) WTF_REQUIRES_LOCK(m_lock) { m_loopCompilationStatus[static_cast<MemoryModeType>(mode)] = status; }
+
+    void resetAndOptimizeSoon(MemoryMode mode);
 
     Lock m_lock;
-    CompilationStatus m_compilationStatus { CompilationStatus::NotCompiled };
-    CompilationStatus m_loopCompilationStatus { CompilationStatus::NotCompiled };
-    HashMap<InstructionStream::Offset, OSREntryData> m_osrEntryData;
+private:
+    std::array<CompilationStatus, numberOfMemoryModes> m_compilationStatus WTF_GUARDED_BY_LOCK(m_lock);
+    std::array<CompilationStatus, numberOfMemoryModes> m_loopCompilationStatus WTF_GUARDED_BY_LOCK(m_lock);
+    const UncheckedKeyHashMap<WasmInstructionStream::Offset, OSREntryData> m_osrEntryData;
 };
 
 } } // namespace JSC::Wasm

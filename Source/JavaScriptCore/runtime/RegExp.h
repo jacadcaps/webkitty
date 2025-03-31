@@ -1,6 +1,6 @@
 /*
  *  Copyright (C) 1999-2000 Harri Porten (porten@kde.org)
- *  Copyright (C) 2007-2019 Apple Inc. All rights reserved.
+ *  Copyright (C) 2007-2022 Apple Inc. All rights reserved.
  *  Copyright (C) 2009 Torch Mobile, Inc.
  *
  *  This library is free software; you can redistribute it and/or
@@ -44,31 +44,31 @@ class RegExp final : public JSCell {
 public:
     using Base = JSCell;
     static constexpr unsigned StructureFlags = Base::StructureFlags | StructureIsImmortal;
-    static constexpr bool needsDestruction = true;
+    static constexpr DestructionMode needsDestruction = NeedsDestruction;
 
     template<typename CellType, SubspaceAccess mode>
-    static IsoSubspace* subspaceFor(VM& vm)
+    static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
-        return &vm.regExpSpace;
+        return &vm.regExpSpace();
     }
 
     JS_EXPORT_PRIVATE static RegExp* create(VM&, const String& pattern, OptionSet<Yarr::Flags>);
     static void destroy(JSCell*);
     static size_t estimatedSize(JSCell*, VM&);
     JS_EXPORT_PRIVATE static void dumpToStream(const JSCell*, PrintStream&);
+    void dumpSimpleName(PrintStream&) const;
 
-    bool global() const { return m_flags.contains(Yarr::Flags::Global); }
-    bool ignoreCase() const { return m_flags.contains(Yarr::Flags::IgnoreCase); }
-    bool multiline() const { return m_flags.contains(Yarr::Flags::Multiline); }
-    bool sticky() const { return m_flags.contains(Yarr::Flags::Sticky); }
+    OptionSet<Yarr::Flags> flags() const { return m_flags; }
+#define JSC_DEFINE_REGEXP_FLAG_ACCESSOR(key, name, lowerCaseName, index) bool lowerCaseName() const { return m_flags.contains(Yarr::Flags::name); }
+    JSC_REGEXP_FLAGS(JSC_DEFINE_REGEXP_FLAG_ACCESSOR)
+#undef JSC_DEFINE_REGEXP_FLAG_ACCESSOR
     bool globalOrSticky() const { return global() || sticky(); }
-    bool unicode() const { return m_flags.contains(Yarr::Flags::Unicode); }
-    bool dotAll() const { return m_flags.contains(Yarr::Flags::DotAll); }
+    bool eitherUnicode() const { return unicode() || unicodeSets(); }
 
     const String& pattern() const { return m_patternString; }
 
     bool isValid() const { return !Yarr::hasError(m_constructionErrorCode); }
-    const char* errorMessage() const { return Yarr::errorMessage(m_constructionErrorCode); }
+    ASCIILiteral errorMessage() const { return Yarr::errorMessage(m_constructionErrorCode); }
     JSObject* errorToThrow(JSGlobalObject* globalObject) { return Yarr::errorToThrow(globalObject, m_constructionErrorCode); }
     void reset()
     {
@@ -76,68 +76,103 @@ public:
         m_constructionErrorCode = Yarr::ErrorCode::NoError;
     }
 
-    JS_EXPORT_PRIVATE int match(JSGlobalObject*, const String&, unsigned startOffset, Vector<int>& ovector);
+    JS_EXPORT_PRIVATE int match(JSGlobalObject*, StringView, unsigned startOffset, Vector<int>& ovector);
 
     // Returns false if we couldn't run the regular expression for any reason.
-    bool matchConcurrently(VM&, const String&, unsigned startOffset, int& position, Vector<int>& ovector);
+    bool matchConcurrently(VM&, StringView, unsigned startOffset, int& position, Vector<int>& ovector);
     
-    JS_EXPORT_PRIVATE MatchResult match(JSGlobalObject*, const String&, unsigned startOffset);
+    JS_EXPORT_PRIVATE MatchResult match(JSGlobalObject*, StringView, unsigned startOffset);
 
-    bool matchConcurrently(VM&, const String&, unsigned startOffset, MatchResult&);
+    bool matchConcurrently(VM&, StringView, unsigned startOffset, MatchResult&);
 
     // Call these versions of the match functions if you're desperate for performance.
     template<typename VectorType, Yarr::MatchFrom thread = Yarr::MatchFrom::VMThread>
-    int matchInline(JSGlobalObject* nullOrGlobalObject, VM&, const String&, unsigned startOffset, VectorType& ovector);
+    int matchInline(JSGlobalObject* nullOrGlobalObject, VM&, StringView, unsigned startOffset, VectorType& ovector);
     template<Yarr::MatchFrom thread = Yarr::MatchFrom::VMThread>
-    MatchResult matchInline(JSGlobalObject* nullOrGlobalObject, VM&, const String&, unsigned startOffset);
+    MatchResult matchInline(JSGlobalObject* nullOrGlobalObject, VM&, StringView, unsigned startOffset);
     
     unsigned numSubpatterns() const { return m_numSubpatterns; }
 
-    bool hasNamedCaptures()
+    unsigned offsetVectorBaseForNamedCaptures() const
+    {
+        return (numSubpatterns() + 1) * 2;
+    }
+
+    int offsetVectorSize() const
+    {
+        if (!hasNamedCaptures())
+            return offsetVectorBaseForNamedCaptures();
+        return offsetVectorBaseForNamedCaptures() + m_rareData->m_numDuplicateNamedCaptureGroups;
+    }
+
+    bool hasNamedCaptures() const
     {
         return m_rareData && !m_rareData->m_captureGroupNames.isEmpty();
     }
 
-    String getCaptureGroupName(unsigned i)
+    String getCaptureGroupNameForSubpatternId(unsigned i) const
     {
-        if (!i || !m_rareData || m_rareData->m_captureGroupNames.size() <= i)
+        if (!i || !m_rareData || m_rareData->m_captureGroupNames.isEmpty())
             return String();
         ASSERT(m_rareData);
         return m_rareData->m_captureGroupNames[i];
     }
 
-    unsigned subpatternForName(String groupName)
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+    template <typename Offsets>
+    unsigned subpatternIdForGroupName(StringView groupName, const Offsets ovector) const
     {
         if (!m_rareData)
             return 0;
-        auto it = m_rareData->m_namedGroupToParenIndex.find(groupName);
-        if (it == m_rareData->m_namedGroupToParenIndex.end())
+        auto it = m_rareData->m_namedGroupToParenIndices.find<StringViewHashTranslator>(groupName);
+        if (it == m_rareData->m_namedGroupToParenIndices.end())
             return 0;
-        return it->value;
+        if (it->value.size() == 1)
+            return it->value[0];
+
+        return ovector[offsetVectorBaseForNamedCaptures() + it->value[0] - 1];
     }
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
     bool hasCode()
     {
         return m_state == JITCode || m_state == ByteCode;
     }
 
-    bool hasCodeFor(Yarr::YarrCharSize);
-    bool hasMatchOnlyCodeFor(Yarr::YarrCharSize);
+    bool hasCodeFor(Yarr::CharSize);
+    bool hasMatchOnlyCodeFor(Yarr::CharSize);
 
     void deleteCode();
 
 #if ENABLE(REGEXP_TRACING)
+    constexpr static unsigned SameLineFormatedRegExpnWidth = 74;
+    static void printTraceHeader();
     void printTraceData();
 #endif
 
-    static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
-    {
-        return Structure::create(vm, globalObject, prototype, TypeInfo(CellType, StructureFlags), info());
-    }
+    inline static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
     DECLARE_INFO;
 
     RegExpKey key() { return RegExpKey(m_flags, m_patternString); }
+
+    String escapedPattern() const;
+
+    String toSourceString() const;
+
+#if ENABLE(YARR_JIT)
+    Yarr::YarrCodeBlock* getRegExpJITCodeBlock()
+    {
+        if (m_state != JITCode)
+            return nullptr;
+
+        return m_regExpJITCode.get();
+    }
+#endif
+
+    bool hasValidAtom() const { return !m_atom.isNull(); }
+    const String& atom() const { return m_atom; }
+    void setAtom(String&& atom) { m_atom = WTFMove(atom); }
 
 private:
     friend class RegExpCache;
@@ -155,32 +190,38 @@ private:
 
     void byteCodeCompileIfNecessary(VM*);
 
-    void compile(VM*, Yarr::YarrCharSize);
-    void compileIfNecessary(VM&, Yarr::YarrCharSize);
+    void compile(VM*, Yarr::CharSize, std::optional<StringView> sampleString);
+    void compileIfNecessary(VM&, Yarr::CharSize, std::optional<StringView> sampleString);
 
-    void compileMatchOnly(VM*, Yarr::YarrCharSize);
-    void compileIfNecessaryMatchOnly(VM&, Yarr::YarrCharSize);
+    void compileMatchOnly(VM*, Yarr::CharSize, std::optional<StringView> sampleString);
+    void compileIfNecessaryMatchOnly(VM&, Yarr::CharSize, std::optional<StringView> sampleString);
 
 #if ENABLE(YARR_JIT_DEBUG)
-    void matchCompareWithInterpreter(const String&, int startOffset, int* offsetVector, int jitResult);
+    void matchCompareWithInterpreter(StringView, int startOffset, int* offsetVector, int jitResult);
 #endif
 
 #if ENABLE(YARR_JIT)
     Yarr::YarrCodeBlock& ensureRegExpJITCode()
     {
         if (!m_regExpJITCode)
-            m_regExpJITCode = makeUnique<Yarr::YarrCodeBlock>();
+            m_regExpJITCode = makeUnique<Yarr::YarrCodeBlock>(this);
         return *m_regExpJITCode.get();
     }
 #endif
 
     struct RareData {
         WTF_MAKE_STRUCT_FAST_ALLOCATED;
+        unsigned m_numDuplicateNamedCaptureGroups;
         Vector<String> m_captureGroupNames;
-        HashMap<String, unsigned> m_namedGroupToParenIndex;
+
+        // This first element of the RHS vector is the subpatternId in the non-duplicate case.
+        // For the duplicate case, the first element is the namedCaptureGroupId.
+        // The remaining elements are the subpatternIds for each of the duplicate groups.
+        UncheckedKeyHashMap<String, Vector<unsigned>> m_namedGroupToParenIndices;
     };
 
     String m_patternString;
+    String m_atom;
     RegExpState m_state { NotCompiled };
     OptionSet<Yarr::Flags> m_flags;
     Yarr::ErrorCode m_constructionErrorCode { Yarr::ErrorCode::NoError };

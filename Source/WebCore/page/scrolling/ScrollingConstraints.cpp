@@ -26,9 +26,19 @@
 #include "config.h"
 #include "ScrollingConstraints.h"
 
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/TextStream.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(AbsolutePositionConstraints);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ViewportConstraints);
+
+AbsolutePositionConstraints::AbsolutePositionConstraints(const FloatSize& alignmentOffset, const FloatPoint& layerPositionAtLastLayout)
+    : m_alignmentOffset(alignmentOffset)
+    , m_layerPositionAtLastLayout(layerPositionAtLastLayout)
+{
+}
 
 FloatPoint FixedPositionViewportConstraints::layerPositionForViewportRect(const FloatRect& viewportRect) const
 {
@@ -129,6 +139,10 @@ TextStream& operator<<(TextStream& ts, const StickyPositionViewportConstraints& 
 {
     ts.dumpProperty("sticky-position-at-last-layout", constraints.stickyOffsetAtLastLayout());
     ts.dumpProperty("layer-position-at-last-layout", constraints.layerPositionAtLastLayout());
+
+    ts.dumpProperty("sticky-box-rect", constraints.stickyBoxRect());
+    ts.dumpProperty("containing-block-rect", constraints.containingBlockRect());
+    ts.dumpProperty("constraining-rect-at-last-layout", constraints.constrainingRectAtLastLayout());
 
     return ts;
 }

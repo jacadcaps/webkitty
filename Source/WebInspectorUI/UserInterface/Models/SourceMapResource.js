@@ -25,7 +25,7 @@
 
 WI.SourceMapResource = class SourceMapResource extends WI.Resource
 {
-    constructor(url, sourceMap)
+    constructor(url, sourceMap, {ignored} = {})
     {
         super(url);
 
@@ -33,11 +33,14 @@ WI.SourceMapResource = class SourceMapResource extends WI.Resource
         console.assert(sourceMap);
 
         this._sourceMap = sourceMap;
+        this._ignored = ignored || false;
 
         var inheritedMIMEType = this._sourceMap.originalSourceCode instanceof WI.Resource ? this._sourceMap.originalSourceCode.syntheticMIMEType : null;
 
-        var fileExtension = WI.fileExtensionForURL(url) || "";
-        var fileExtensionMIMEType = WI.mimeTypeForFileExtension(fileExtension, true);
+        let fileExtension = WI.fileExtensionForURL(url) || "";
+
+        // React serves JSX resources with "js" extension.
+        let fileExtensionMIMEType = fileExtension === "js" ? "text/jsx" : WI.mimeTypeForFileExtension(fileExtension, true);
 
         // FIXME: This is a layering violation. It should use a helper function on the
         // Resource base-class to set _mimeType and _type.
@@ -52,6 +55,9 @@ WI.SourceMapResource = class SourceMapResource extends WI.Resource
     // Public
 
     get sourceMap() { return this._sourceMap; }
+
+    get ignored() { return this._ignored; }
+    set ignored(ignored) { this._ignored = ignored; }
 
     get sourceMapDisplaySubpath()
     {
@@ -87,7 +93,14 @@ WI.SourceMapResource = class SourceMapResource extends WI.Resource
 
     get supportsScriptBlackboxing()
     {
-        return false;
+        if (!super.supportsScriptBlackboxing)
+            return false;
+
+        if (!this._sourceMap.originalSourceCode.supportsScriptBlackboxing)
+            return false;
+
+        // COMPATIBILITY (macOS X.Y, iOS X.Y): Debugger.setShouldBlackboxURL.sourceRanges did not exist yet.
+        return InspectorBackend.hasCommand("Debugger.setShouldBlackboxURL", "sourceRanges");
     }
 
     requestContentFromBackend()

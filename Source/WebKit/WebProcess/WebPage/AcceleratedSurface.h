@@ -25,41 +25,68 @@
 
 #pragma once
 
+#include <WebCore/Damage.h>
 #include <WebCore/IntSize.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/WeakRef.h>
+
+namespace WTF {
+class RunLoop;
+}
+
+namespace WebCore {
+class Region;
+}
 
 namespace WebKit {
 
+class ThreadedCompositor;
 class WebPage;
 
 class AcceleratedSurface {
-    WTF_MAKE_NONCOPYABLE(AcceleratedSurface); WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_NONCOPYABLE(AcceleratedSurface);
+    WTF_MAKE_TZONE_ALLOCATED(AcceleratedSurface);
 public:
-    class Client {
-    public:
-        virtual void frameComplete() = 0;
-    };
-
-    static std::unique_ptr<AcceleratedSurface> create(WebPage&, Client&);
+    static std::unique_ptr<AcceleratedSurface> create(ThreadedCompositor&, WebPage&, Function<void()>&& frameCompleteHandler);
     virtual ~AcceleratedSurface() = default;
 
     virtual uint64_t window() const { ASSERT_NOT_REACHED(); return 0; }
     virtual uint64_t surfaceID() const { ASSERT_NOT_REACHED(); return 0; }
-    virtual bool hostResize(const WebCore::IntSize&);
-    virtual void clientResize(const WebCore::IntSize&) { };
+    virtual bool resize(const WebCore::IntSize&);
     virtual bool shouldPaintMirrored() const { return false; }
 
-    virtual void initialize() { }
+    virtual void didCreateGLContext() { }
+    virtual void willDestroyGLContext() { }
     virtual void finalize() { }
     virtual void willRenderFrame() { }
     virtual void didRenderFrame() { }
 
-protected:
-    AcceleratedSurface(WebPage&, Client&);
+#if ENABLE(DAMAGE_TRACKING)
+    virtual const WebCore::Damage& addDamage(const WebCore::Damage&) { return WebCore::Damage::invalid(); };
+#endif
 
-    WebPage& m_webPage;
-    Client& m_client;
+    virtual void didCreateCompositingRunLoop(WTF::RunLoop&) { }
+    virtual void willDestroyCompositingRunLoop() { }
+
+#if PLATFORM(WPE) && USE(GBM) && ENABLE(WPE_PLATFORM)
+    virtual void preferredBufferFormatsDidChange() { }
+#endif
+
+    virtual void visibilityDidChange(bool) { }
+    virtual bool backgroundColorDidChange();
+
+    void clearIfNeeded();
+
+protected:
+    AcceleratedSurface(WebPage&, Function<void()>&& frameCompleteHandler);
+
+    void frameComplete() const;
+
+    WeakRef<WebPage> m_webPage;
+    Function<void()> m_frameCompleteHandler;
     WebCore::IntSize m_size;
+    std::atomic<bool> m_isOpaque { true };
 };
 
 } // namespace WebKit

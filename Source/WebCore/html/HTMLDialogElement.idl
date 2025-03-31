@@ -25,11 +25,11 @@
 
 [
     Exposed=Window,
-    EnabledAtRuntime=DialogElement,
 ] interface HTMLDialogElement : HTMLElement {
-    [CEReactions, Reflect] attribute boolean open;
+    [CEReactions=Needed, Reflect] attribute boolean open;
     attribute DOMString returnValue;
-    [CEReactions] void show();
-    [CEReactions, MayThrowException] void showModal();
-    [CEReactions] void close(optional DOMString returnValue);
+    [CEReactions=Needed] undefined show();
+    [CEReactions=Needed] undefined showModal();
+    [CEReactions=Needed] undefined close(optional DOMString returnValue);
+    [CEReactions=Needed] undefined requestClose(optional DOMString returnValue);
 };

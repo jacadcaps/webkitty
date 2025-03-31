@@ -27,7 +27,7 @@
 
 #pragma once
 
-#if ENABLE(OFFSCREEN_CANVAS)
+#if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
 
 #include "ActiveDOMObject.h"
 #include "DOMHighResTimeStamp.h"
@@ -48,14 +48,14 @@ public:
     int requestAnimationFrame(Ref<RequestAnimationFrameCallback>&&);
     void cancelAnimationFrame(int);
 
-    using ThreadSafeRefCounted::ref;
-    using ThreadSafeRefCounted::deref;
+    // ActiveDOMObject.
+    void ref() const final { ThreadSafeRefCounted::ref(); }
+    void deref() const final { ThreadSafeRefCounted::deref(); }
 
 private:
     WorkerAnimationController(WorkerGlobalScope&);
 
-    const char* activeDOMObjectName() const final;
-
+    // ActiveDOMObject.
     bool virtualHasPendingActivity() const final;
     void stop() final;
     void suspend(ReasonForSuspension) final;

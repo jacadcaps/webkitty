@@ -31,6 +31,7 @@
 #include <wtf/HashMap.h>
 #include <wtf/Lock.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Threading.h>
 
 namespace WebCore {
@@ -38,7 +39,7 @@ namespace WebCore {
 class CurlRequestSchedulerClient;
 
 class CurlRequestScheduler {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(CurlRequestScheduler);
     WTF_MAKE_NONCOPYABLE(CurlRequestScheduler);
     friend NeverDestroyed<CurlRequestScheduler>;
 public:
@@ -48,10 +49,11 @@ public:
     bool add(CurlRequestSchedulerClient*);
     void cancel(CurlRequestSchedulerClient*);
 
-    void callOnWorkerThread(WTF::Function<void()>&&);
+    void callOnWorkerThread(Function<void()>&&);
 
 private:
-    void startThreadIfNeeded();
+    void startOrWakeUpThread();
+    void wakeUpThreadIfPossible();
     void stopThreadIfNoMoreJobRunning();
     void stopThread();
 
@@ -69,10 +71,11 @@ private:
     bool m_runThread { false };
 
     Vector<Function<void()>> m_taskQueue;
-    HashSet<CurlRequestSchedulerClient*> m_activeJobs;
+    UncheckedKeyHashSet<CurlRequestSchedulerClient*> m_activeJobs;
     HashMap<CURL*, CurlRequestSchedulerClient*> m_clientMaps;
 
-    std::unique_ptr<CurlMultiHandle> m_curlMultiHandle;
+    Lock m_multiHandleMutex;
+    std::optional<CurlMultiHandle> m_curlMultiHandle;
 
     long m_maxConnects;
     long m_maxTotalConnections;

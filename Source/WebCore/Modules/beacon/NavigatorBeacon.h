@@ -30,7 +30,9 @@
 #include "ExceptionOr.h"
 #include "FetchBody.h"
 #include "Supplementable.h"
+#include <wtf/CheckedRef.h>
 #include <wtf/Forward.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
@@ -40,25 +42,25 @@ class Navigator;
 class ResourceError;
 
 class NavigatorBeacon final : public Supplement<Navigator>, private CachedRawResourceClient {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(NavigatorBeacon);
 public:
     explicit NavigatorBeacon(Navigator&);
     ~NavigatorBeacon();
-    static ExceptionOr<bool> sendBeacon(Navigator&, Document&, const String& url, Optional<FetchBody::Init>&&);
+    static ExceptionOr<bool> sendBeacon(Navigator&, Document&, const String& url, std::optional<FetchBody::Init>&&);
 
     size_t inflightBeaconsCount() const { return m_inflightBeacons.size(); }
 
     WEBCORE_EXPORT static NavigatorBeacon* from(Navigator&);
 
 private:
-    ExceptionOr<bool> sendBeacon(Document&, const String& url, Optional<FetchBody::Init>&&);
+    ExceptionOr<bool> sendBeacon(Document&, const String& url, std::optional<FetchBody::Init>&&);
 
-    static const char* supplementName();
+    static ASCIILiteral supplementName();
 
-    void notifyFinished(CachedResource&, const NetworkLoadMetrics&) final;
+    void notifyFinished(CachedResource&, const NetworkLoadMetrics&, LoadWillContinueInAnotherProcess) final;
     void logError(const ResourceError&);
 
-    Navigator& m_navigator;
+    CheckedRef<Navigator> m_navigator;
     Vector<CachedResourceHandle<CachedRawResource>> m_inflightBeacons;
 };
 

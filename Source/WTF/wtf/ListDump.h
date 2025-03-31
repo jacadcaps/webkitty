@@ -29,12 +29,14 @@
 #include <wtf/PrintStream.h>
 #include <wtf/StringPrintStream.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace WTF {
 
 template<typename T>
 class ListDump {
 public:
-    ListDump(const T& list, const char* comma)
+    ListDump(const T& list, ASCIILiteral comma)
         : m_list(list)
         , m_comma(comma)
     {
@@ -54,7 +56,7 @@ private:
 template<typename T>
 class PointerListDump {
 public:
-    PointerListDump(const T& list, const char* comma)
+    PointerListDump(const T& list, ASCIILiteral comma)
         : m_list(list)
         , m_comma(comma)
     {
@@ -74,7 +76,7 @@ private:
 template<typename T>
 class MapDump {
 public:
-    MapDump(const T& map, const char* arrow, const char* comma)
+    MapDump(const T& map, ASCIILiteral arrow, ASCIILiteral comma)
         : m_map(map)
         , m_arrow(arrow)
         , m_comma(comma)
@@ -89,24 +91,24 @@ public:
     
 private:
     const T& m_map;
-    const char* m_arrow;
+    ASCIILiteral m_arrow;
     CommaPrinter m_comma;
 };
 
 template<typename T>
-ListDump<T> listDump(const T& list, const char* comma = ", ")
+ListDump<T> listDump(const T& list, ASCIILiteral comma = ", "_s)
 {
     return ListDump<T>(list, comma);
 }
 
 template<typename T>
-PointerListDump<T> pointerListDump(const T& list, const char* comma = ", ")
+PointerListDump<T> pointerListDump(const T& list, ASCIILiteral comma = ", "_s)
 {
     return PointerListDump<T>(list, comma);
 }
 
 template<typename T, typename Comparator>
-CString sortedListDump(const T& list, const Comparator& comparator, const char* comma = ", ")
+CString sortedListDump(const T& list, const Comparator& comparator, ASCIILiteral comma = ", "_s)
 {
     Vector<typename T::ValueType> myList;
     myList.appendRange(list.begin(), list.end());
@@ -119,19 +121,19 @@ CString sortedListDump(const T& list, const Comparator& comparator, const char* 
 }
 
 template<typename T>
-CString sortedListDump(const T& list, const char* comma = ", ")
+CString sortedListDump(const T& list, ASCIILiteral comma = ", "_s)
 {
-    return sortedListDump(list, std::less<typename T::ValueType>(), comma);
+    return sortedListDump(list, std::less<>(), comma);
 }
 
 template<typename T>
-MapDump<T> mapDump(const T& map, const char* arrow = "=>", const char* comma = ", ")
+MapDump<T> mapDump(const T& map, ASCIILiteral arrow = "=>"_s, ASCIILiteral comma = ", "_s)
 {
     return MapDump<T>(map, arrow, comma);
 }
 
 template<typename T, typename Comparator>
-CString sortedMapDump(const T& map, const Comparator& comparator, const char* arrow = "=>", const char* comma = ", ")
+CString sortedMapDump(const T& map, const Comparator& comparator, ASCIILiteral arrow = "=>"_s, ASCIILiteral comma = ", "_s)
 {
     Vector<typename T::KeyType> keys;
     for (auto iter = map.begin(); iter != map.end(); ++iter)
@@ -147,7 +149,7 @@ CString sortedMapDump(const T& map, const Comparator& comparator, const char* ar
 template<typename T, typename U>
 class ListDumpInContext {
 public:
-    ListDumpInContext(const T& list, U* context, const char* comma)
+    ListDumpInContext(const T& list, U* context, ASCIILiteral comma)
         : m_list(list)
         , m_context(context)
         , m_comma(comma)
@@ -168,7 +170,7 @@ private:
 
 template<typename T, typename U>
 ListDumpInContext<T, U> listDumpInContext(
-    const T& list, U* context, const char* comma = ", ")
+    const T& list, U* context, ASCIILiteral comma = ", "_s)
 {
     return ListDumpInContext<T, U>(list, context, comma);
 }
@@ -181,3 +183,5 @@ using WTF::mapDump;
 using WTF::pointerListDump;
 using WTF::sortedListDump;
 using WTF::sortedMapDump;
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

@@ -34,31 +34,39 @@
 
 #include "BaseButtonInputType.h"
 #include "IntPoint.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class ImageInputType final : public BaseButtonInputType {
+    WTF_MAKE_TZONE_ALLOCATED(ImageInputType);
 public:
-    explicit ImageInputType(HTMLInputElement&);
+    static Ref<ImageInputType> create(HTMLInputElement& element)
+    {
+        return adoptRef(*new ImageInputType(element));
+    }
 
 private:
+    explicit ImageInputType(HTMLInputElement&);
+
     const AtomString& formControlType() const final;
     bool isFormDataAppendable() const final;
-    bool appendFormData(DOMFormData&, bool) const final;
-    bool supportsValidation() const final;
+    bool appendFormData(DOMFormData&) const final;
     RenderPtr<RenderElement> createInputRenderer(RenderStyle&&) final;
     void handleDOMActivateEvent(Event&) final;
     void attributeChanged(const QualifiedName&) final;
     void attach() final;
     bool shouldRespectAlignAttribute() final;
     bool canBeSuccessfulSubmitButton() final;
-    bool isImageButton() const final;
-    bool isEnumeratable() final;
     bool shouldRespectHeightAndWidthAttributes() final;
     unsigned height() const final;
     unsigned width() const final;
+    String resultForDialogSubmit() const final;
+    bool dirAutoUsesValue() const final;
 
-    IntPoint m_clickLocation; // Valid only during HTMLFormElement::prepareForSubmission().
+    IntPoint m_clickLocation; // Valid only during HTMLFormElement::submitIfPossible().
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_INPUT_TYPE(ImageInputType, Type::Image)

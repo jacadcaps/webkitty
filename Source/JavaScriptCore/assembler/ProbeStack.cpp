@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,8 +28,11 @@
 
 #include <memory>
 #include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMallocInlines.h>
 
-#if ENABLE(MASM_PROBE)
+#if ENABLE(ASSEMBLER)
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 namespace Probe {
@@ -53,6 +56,8 @@ static void copyStackPage(void* dst, void* src, size_t size)
 #else
 #define copyStackPage(dst, src, size) std::memcpy(dst, src, size)
 #endif
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(Page);
 
 Page::Page(void* baseAddress)
     : m_baseLogicalAddress(baseAddress)
@@ -98,6 +103,8 @@ void* Page::lowWatermarkFromVisitingDirtyChunks()
     }
     return maxLowWatermark;
 }
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(Stack);
 
 Stack::Stack(Stack&& other)
     : m_stackBounds(WTFMove(other.m_stackBounds))
@@ -157,4 +164,6 @@ void* Stack::lowWatermarkFromVisitingDirtyPages()
 } // namespace Probe
 } // namespace JSC
 
-#endif // ENABLE(MASM_PROBE)
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+
+#endif // ENABLE(ASSEMBLER)

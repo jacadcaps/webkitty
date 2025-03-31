@@ -25,6 +25,8 @@
 
 #pragma once
 
+#if ENABLE(DFG_JIT)
+
 #include "DFGCombinedLiveness.h"
 #include "DFGGraph.h"
 #include "DFGOSRAvailabilityAnalysisPhase.h"
@@ -130,7 +132,7 @@ void forAllKilledNodesAtNodeIndex(
 {
     static constexpr unsigned seenInClosureFlag = 1;
     static constexpr unsigned calledFunctorFlag = 2;
-    HashMap<Node*, unsigned> flags;
+    UncheckedKeyHashMap<Node*, unsigned> flags;
 
     ASSERT(nodeIndex);
     Node* node = block->at(nodeIndex);
@@ -181,17 +183,21 @@ void forAllKillsInBlock(
     
     LocalOSRAvailabilityCalculator localAvailability(graph);
     localAvailability.beginBlock(block);
-    // Start at the second node, because the functor is expected to only inspect nodes from the start of
+    // Start running functor at the second node, because the functor is expected to only inspect nodes from the start of
     // the block up to nodeIndex (exclusive), so if nodeIndex is zero then the functor has nothing to do.
-    for (unsigned nodeIndex = 1; nodeIndex < block->size(); ++nodeIndex) {
+    for (unsigned nodeIndex = 0; nodeIndex < block->size(); ++nodeIndex) {
         dataLogLnIf(ForAllKillsInternal::verbose, "local availability at index: ", nodeIndex, " ", localAvailability.m_availability);
-        forAllKilledNodesAtNodeIndex(
-            graph, localAvailability.m_availability, block, nodeIndex,
-            [&] (Node* node) {
-                functor(nodeIndex, node);
-            });
+        if (nodeIndex) {
+            forAllKilledNodesAtNodeIndex(
+                graph, localAvailability.m_availability, block, nodeIndex,
+                [&] (Node* node) {
+                    functor(nodeIndex, node);
+                });
+        }
         localAvailability.executeNode(block->at(nodeIndex));
     }
 }
 
 } } // namespace JSC::DFG
+
+#endif // ENABLE(DFG_JIT)

@@ -25,15 +25,16 @@
 
 #pragma once
 
-#if !USE(GTK4)
+#if !USE(GTK4) && USE(CAIRO)
 
 #include "RenderThemeGadget.h"
 #include <gtk/gtk.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class RenderThemeScrollbar {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(RenderThemeScrollbar);
     WTF_MAKE_NONCOPYABLE(RenderThemeScrollbar);
 public:
     enum class Type {
@@ -68,4 +69,4 @@ private:
 
 } // namespace WebCore
 
-#endif // !USE(GTK4)
+#endif // !USE(GTK4) && USE(CAIRO)

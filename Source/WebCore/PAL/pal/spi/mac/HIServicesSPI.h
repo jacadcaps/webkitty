@@ -26,6 +26,8 @@
 #pragma once
 
 #include <pal/spi/cg/CoreGraphicsSPI.h>
+#include <span>
+#include <wtf/StdLibExtras.h>
 
 #if USE(APPLE_INTERNAL_SDK)
 
@@ -130,7 +132,6 @@ OSStatus SetApplicationIsDaemon(Boolean);
 AXError _AXUIElementUseSecondaryAXThread(bool enabled);
 #endif
 
-#if HAVE(AX_CLIENT_TYPE)
 typedef CF_ENUM(int32_t, AXClientType)
 {
     kAXClientTypeNoActiveRequestFound = 0,
@@ -147,10 +148,29 @@ typedef CF_ENUM(int32_t, AXClientType)
 };
 AXClientType _AXGetClientForCurrentRequestUntrusted(void);
 void _AXSetClientIdentificationOverride(AXClientType);
-#endif // HAVE(AX_CLIENT_TYPE)
+
+extern CFStringRef kAXInterfaceReduceMotionKey;
+extern CFStringRef kAXInterfaceReduceMotionStatusDidChangeNotification;
+
+extern CFStringRef kAXInterfaceIncreaseContrastKey;
+
+extern CFStringRef kAXInterfaceDifferentiateWithoutColorKey;
 
 WTF_EXTERN_C_END
 
 #endif // USE(APPLE_INTERNAL_SDK)
+
+#if PLATFORM(MAC)
+inline std::span<const uint8_t> AXTextMarkerGetByteSpan(AXTextMarkerRef marker)
+{
+    return unsafeMakeSpan(AXTextMarkerGetBytePtr(marker), AXTextMarkerGetLength(marker));
+}
+#endif
+
+WTF_EXTERN_C_BEGIN
+
+typedef Boolean (*AXAuditTokenIsAuthenticatedCallback)(audit_token_t);
+
+WTF_EXTERN_C_END
 
 #define kAXClientTypeWebKitTesting 999999

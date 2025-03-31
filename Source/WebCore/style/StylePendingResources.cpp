@@ -31,13 +31,15 @@
 #include "ContentData.h"
 #include "CursorData.h"
 #include "CursorList.h"
-#include "Document.h"
-#include "RenderStyle.h"
+#include "DocumentInlines.h"
+#include "FillLayer.h"
+#include "RenderStyleInlines.h"
 #include "SVGURIReference.h"
 #include "Settings.h"
-#include "StyleCachedImage.h"
-#include "StyleGeneratedImage.h"
-#include "TransformFunctions.h"
+#include "ShapeValue.h"
+#include "StyleImage.h"
+#include "StyleReflection.h"
+#include "TransformOperationsBuilder.h"
 
 namespace WebCore {
 namespace Style {
@@ -77,8 +79,8 @@ void loadPendingResources(RenderStyle& style, Document& document, const Element*
         loadPendingImage(document, backgroundLayer->image(), element);
 
     for (auto* contentData = style.contentData(); contentData; contentData = contentData->next()) {
-        if (is<ImageContentData>(*contentData)) {
-            auto& styleImage = downcast<ImageContentData>(*contentData).image();
+        if (auto* imageContentData = dynamicDowncast<ImageContentData>(*contentData)) {
+            auto& styleImage = imageContentData->image();
             loadPendingImage(document, &styleImage, element);
         }
     }
@@ -90,19 +92,23 @@ void loadPendingResources(RenderStyle& style, Document& document, const Element*
 
     loadPendingImage(document, style.listStyleImage(), element);
     loadPendingImage(document, style.borderImageSource(), element);
-    loadPendingImage(document, style.maskBoxImageSource(), element);
+    loadPendingImage(document, style.maskBorderSource(), element);
 
     if (auto* reflection = style.boxReflect())
         loadPendingImage(document, reflection->mask().image(), element);
 
     // Masking operations may be sensitive to timing attacks that can be used to reveal the pixel data of
     // the image used as the mask. As a means to mitigate such attacks CSS mask images and shape-outside
-    // images are retreived in "Anonymous" mode, which uses a potentially CORS-enabled fetch.
+    // images are retrieved in "Anonymous" mode, which uses a potentially CORS-enabled fetch.
     for (auto* maskLayer = &style.maskLayers(); maskLayer; maskLayer = maskLayer->next())
         loadPendingImage(document, maskLayer->image(), element, LoadPolicy::CORS);
 
     if (style.shapeOutside())
         loadPendingImage(document, style.shapeOutside()->image(), element, LoadPolicy::Anonymous);
+
+    // Are there other pseudo-elements that need resource loading? 
+    if (auto* firstLineStyle = style.getCachedPseudoStyle({ PseudoId::FirstLine }))
+        loadPendingResources(*firstLineStyle, document, element);
 }
 
 }

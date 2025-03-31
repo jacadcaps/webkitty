@@ -26,53 +26,41 @@
 #include "config.h"
 #include "CachePayload.h"
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
 
 CachePayload CachePayload::makeMappedPayload(FileSystem::MappedFileData&& data)
 {
-    return CachePayload(true, data.leakHandle(), data.size());
+    return CachePayload(WTFMove(data));
 }
 
-CachePayload CachePayload::makeMallocPayload(MallocPtr<uint8_t, VMMalloc>&& data, size_t size)
+CachePayload CachePayload::makeMallocPayload(MallocSpan<uint8_t, VMMalloc>&& data)
 {
-    return CachePayload(false, data.leakPtr(), size);
+    return CachePayload(WTFMove(data));
 }
 
 CachePayload CachePayload::makeEmptyPayload()
 {
-    return CachePayload(true, nullptr, 0);
+    return CachePayload({ });
 }
 
-CachePayload::CachePayload(CachePayload&& other)
+CachePayload::CachePayload(CachePayload&&) = default;
+
+CachePayload::CachePayload(DataType&& data)
+    : m_data(WTFMove(data))
 {
-    m_mapped = other.m_mapped;
-    m_size = other.m_size;
-    m_data = other.m_data;
-    other.m_mapped = false;
-    other.m_data = nullptr;
-    other.m_size = 0;
 }
 
-CachePayload::~CachePayload()
-{
-    freeData();
-}
+CachePayload::~CachePayload() = default;
 
-CachePayload& CachePayload::operator=(CachePayload&& other)
+std::span<const uint8_t> CachePayload::span() const
 {
-    ASSERT(&other != this);
-    freeData();
-    return *new (this) CachePayload(WTFMove(other));
-}
-
-void CachePayload::freeData()
-{
-    if (!m_data)
-        return;
-    if (m_mapped) {
-        FileSystem::unmapViewOfFile(m_data, m_size);
-    } else
-        fastFree(m_data);
+    return WTF::switchOn(m_data, [](const auto& data) {
+        return data.span();
+    });
 }
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

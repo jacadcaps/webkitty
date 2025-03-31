@@ -26,53 +26,41 @@
 #pragma once
 
 #include "AccessibilityMockObject.h"
+#include "AccessibilitySpinButtonPart.h"
 #include "SpinButtonElement.h"
 
 namespace WebCore {
-    
+
+// Currently only represents native spinbuttons (i.e. <input type="number">) and not role="spinbutton" elements.
 class AccessibilitySpinButton final : public AccessibilityMockObject {
 public:
-    static Ref<AccessibilitySpinButton> create();
+    static Ref<AccessibilitySpinButton> create(AXID, AXObjectCache&);
     virtual ~AccessibilitySpinButton();
-    
+
     void setSpinButtonElement(SpinButtonElement* spinButton) { m_spinButtonElement = spinButton; }
-    
-    AXCoreObject* incrementButton() override;
-    AXCoreObject* decrementButton() override;
+
+    AccessibilitySpinButtonPart* incrementButton() final;
+    AccessibilitySpinButtonPart* decrementButton() final;
 
     void step(int amount);
-    
-private:
-    AccessibilitySpinButton();
 
-    AccessibilityRole roleValue() const override { return AccessibilityRole::SpinButton; }
-    bool isNativeSpinButton() const override { return true; }
-    void addChildren() override;
-    LayoutRect elementRect() const override;
-    
-    SpinButtonElement* m_spinButtonElement;
-}; 
-   
-class AccessibilitySpinButtonPart final : public AccessibilityMockObject {
-public:
-    static Ref<AccessibilitySpinButtonPart> create();
-    virtual ~AccessibilitySpinButtonPart() = default;
-    
-    bool isIncrementor() const override { return m_isIncrementor; }
-    void setIsIncrementor(bool value) { m_isIncrementor = value; }
-    
 private:
-    AccessibilitySpinButtonPart();
-    
-    bool press() override;
-    AccessibilityRole roleValue() const override { return AccessibilityRole::Button; }
-    bool isSpinButtonPart() const override { return true; }
-    LayoutRect elementRect() const override;
+    explicit AccessibilitySpinButton(AXID, AXObjectCache&);
 
-    unsigned m_isIncrementor : 1;
+    AccessibilityRole determineAccessibilityRole() final { return AccessibilityRole::SpinButton; }
+    bool isNativeSpinButton() const final { return true; }
+    void clearChildren() final { };
+    void addChildren() final;
+    LayoutRect elementRect() const final;
+
+    WeakPtr<SpinButtonElement, WeakPtrImplWithEventTargetData> m_spinButtonElement;
+    // FIXME: Nothing calls AXObjectCache::remove for m_incrementor and m_decrementor.
+    Ref<AccessibilitySpinButtonPart> m_incrementor;
+    Ref<AccessibilitySpinButtonPart> m_decrementor;
 };
-    
+
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_ACCESSIBILITY(AccessibilitySpinButton, isNativeSpinButton())
-SPECIALIZE_TYPE_TRAITS_ACCESSIBILITY(AccessibilitySpinButtonPart, isSpinButtonPart())
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::AccessibilitySpinButton) \
+    static bool isType(const WebCore::AccessibilityObject& object) { return object.isNativeSpinButton(); } \
+SPECIALIZE_TYPE_TRAITS_END()

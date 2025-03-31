@@ -41,7 +41,7 @@
    $make -j32
 
  * Build vp9 fuzzer
-   $ $CXX $CXXFLAGS -std=c++11 -DDECODER=vp9 \
+   $ $CXX $CXXFLAGS -std=gnu++11 -DDECODER=vp9 \
    -fsanitize=fuzzer -I../libvpx -I. -Wl,--start-group \
    ../libvpx/examples/vpx_dec_fuzzer.cc -o ./vpx_dec_fuzzer_vp9 \
    ./libvpx.a -Wl,--end-group
@@ -94,6 +94,13 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     return 0;
   }
 
+  if (threads > 1) {
+    const int enable = (data[IVF_FILE_HDR_SZ] & 0xa0) != 0;
+    const vpx_codec_err_t err =
+        vpx_codec_control(&codec, VP9D_SET_LOOP_FILTER_OPT, enable);
+    static_cast<void>(err);
+  }
+
   data += IVF_FILE_HDR_SZ;
   size -= IVF_FILE_HDR_SZ;
 
@@ -103,8 +110,13 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     data += IVF_FRAME_HDR_SZ;
     frame_size = std::min(size, frame_size);
 
-    const vpx_codec_err_t err =
-        vpx_codec_decode(&codec, data, frame_size, nullptr, 0);
+    vpx_codec_stream_info_t stream_info;
+    stream_info.sz = sizeof(stream_info);
+    vpx_codec_err_t err = vpx_codec_peek_stream_info(VPXD_INTERFACE(DECODER),
+                                                     data, size, &stream_info);
+    static_cast<void>(err);
+
+    err = vpx_codec_decode(&codec, data, frame_size, nullptr, 0);
     static_cast<void>(err);
     vpx_codec_iter_t iter = nullptr;
     vpx_image_t *img = nullptr;

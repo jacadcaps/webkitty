@@ -29,9 +29,11 @@
 #include "Document.h"
 #include "ElementIterator.h"
 #include "Page.h"
+#include "SVGElementTypeHelpers.h"
 #include "SVGSMILElement.h"
 #include "SVGSVGElement.h"
 #include "ScopedEventQueue.h"
+#include "TypedElementDescendantIteratorInlines.h"
 
 namespace WebCore {
 
@@ -81,10 +83,10 @@ void SMILTimeContainer::notifyIntervalsChanged()
 
 Seconds SMILTimeContainer::animationFrameDelay() const
 {
-    auto* page = m_ownerSVGElement.document().page();
+    RefPtr page = m_ownerSVGElement->document().page();
     if (!page)
         return SMILAnimationFrameDelay;
-    return page->isLowPowerModeEnabled() ? SMILAnimationFrameThrottledDelay : SMILAnimationFrameDelay;
+    return (page->isLowPowerModeEnabled() || page->isAggressiveThermalMitigationEnabled()) ? SMILAnimationFrameThrottledDelay : SMILAnimationFrameDelay;
 }
 
 SMILTime SMILTimeContainer::elapsed() const
@@ -113,7 +115,13 @@ bool SMILTimeContainer::isStarted() const
 
 void SMILTimeContainer::begin()
 {
-    ASSERT(!m_beginTime);
+    if (isStarted())
+        return;
+
+    ASSERT(Page::nonUtilityPageCount());
+    if (!Page::nonUtilityPageCount())
+        return;
+
     MonotonicTime now = MonotonicTime::now();
 
     // If 'm_presetStartTime' is set, the timeline was modified via setElapsed() before the document began.
@@ -142,6 +150,9 @@ void SMILTimeContainer::pause()
 void SMILTimeContainer::resume()
 {
     ASSERT(isPaused());
+    ASSERT(Page::nonUtilityPageCount());
+    if (!Page::nonUtilityPageCount())
+        return;
 
     m_resumeTime = MonotonicTime::now();
     m_pauseTime = MonotonicTime();
@@ -150,7 +161,11 @@ void SMILTimeContainer::resume()
 
 void SMILTimeContainer::setElapsed(SMILTime time)
 {
-    // If the documment didn't begin yet, record a new start time, we'll seek to once its possible.
+    ASSERT(Page::nonUtilityPageCount());
+    if (!Page::nonUtilityPageCount())
+        return;
+
+    // If the document didn't begin yet, record a new start time, we'll seek to once its possible.
     if (!m_beginTime) {
         m_presetStartTime = Seconds(time.value());
         return;
@@ -183,6 +198,10 @@ void SMILTimeContainer::startTimer(SMILTime elapsed, SMILTime fireTime, SMILTime
     if (!fireTime.isFinite())
         return;
 
+    ASSERT(Page::nonUtilityPageCount());
+    if (!Page::nonUtilityPageCount())
+        return;
+
     SMILTime delay = std::max(fireTime - elapsed, minimumDelay);
     m_timer.startOneShot(1_s * delay.value());
 }
@@ -198,8 +217,8 @@ void SMILTimeContainer::updateDocumentOrderIndexes()
 {
     unsigned timingElementCount = 0;
 
-    for (auto& smilElement : descendantsOfType<SVGSMILElement>(m_ownerSVGElement))
-        smilElement.setDocumentOrderIndex(timingElementCount++);
+    for (Ref smilElement : descendantsOfType<SVGSMILElement>(Ref { m_ownerSVGElement.get() }))
+        smilElement->setDocumentOrderIndex(timingElementCount++);
 
     m_documentOrderIndexesDirty = false;
 }
@@ -228,16 +247,20 @@ void SMILTimeContainer::sortByPriority(AnimationsVector& animations, SMILTime el
     std::sort(animations.begin(), animations.end(), PriorityCompare(elapsed));
 }
 
-void SMILTimeContainer::processScheduledAnimations(const Function<void(SVGSMILElement&)>& callback)
+void SMILTimeContainer::processScheduledAnimations(NOESCAPE const Function<void(SVGSMILElement&)>& callback)
 {
     for (auto& animations : copyToVector(m_scheduledAnimations.values())) {
-        for (auto* animation : animations)
+        for (RefPtr animation : animations)
             callback(*animation);
     }
 }
 
 void SMILTimeContainer::updateAnimations(SMILTime elapsed, bool seekToTime)
 {
+    ASSERT(Page::nonUtilityPageCount());
+    if (!Page::nonUtilityPageCount())
+        return;
+
     // Don't mutate the DOM while updating the animations.
     EventQueueScope scope;
 
@@ -257,7 +280,7 @@ void SMILTimeContainer::updateAnimations(SMILTime elapsed, bool seekToTime)
         sortByPriority(animations, elapsed);
 
         RefPtr<SVGSMILElement> firstAnimation;
-        for (auto* animation : animations) {
+        for (RefPtr animation : animations) {
             ASSERT(animation->timeContainer() == this);
             ASSERT(animation->targetElement());
             ASSERT(animation->hasValidAttributeName());
@@ -283,7 +306,7 @@ void SMILTimeContainer::updateAnimations(SMILTime elapsed, bool seekToTime)
     }
 
     // Apply results to target elements.
-    for (auto& animation : animationsToApply)
+    for (RefPtr animation : animationsToApply)
         animation->applyResultsToTarget();
 
     startTimer(elapsed, earliestFireTime, animationFrameDelay());

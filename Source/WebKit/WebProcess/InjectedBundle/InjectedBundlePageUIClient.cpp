@@ -26,6 +26,7 @@
 #include "config.h"
 #include "InjectedBundlePageUIClient.h"
 
+#include "APIArray.h"
 #include "APISecurityOrigin.h"
 #include "InjectedBundleHitTestResult.h"
 #include "InjectedBundleNodeHandle.h"
@@ -33,10 +34,13 @@
 #include "WKBundleAPICast.h"
 #include "WebFrame.h"
 #include "WebPage.h"
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebKit {
 using namespace WebCore;
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(InjectedBundlePageUIClient);
 
 InjectedBundlePageUIClient::InjectedBundlePageUIClient(const WKBundlePageUIClientBase* client)
 {
@@ -49,10 +53,10 @@ void InjectedBundlePageUIClient::willAddMessageToConsole(WebPage* page, MessageS
         m_client.willAddMessageToConsole(toAPI(page), toAPI(message.impl()), lineNumber, m_client.base.clientInfo);
 }
 
-void InjectedBundlePageUIClient::willSetStatusbarText(WebPage* page, const String& statusbarText)
+void InjectedBundlePageUIClient::willAddMessageWithArgumentsToConsole(WebPage* page, MessageSource, MessageLevel, const String& message, std::span<const String> messageArguments, unsigned lineNumber, unsigned columnNumber, const String& sourceID)
 {
-    if (m_client.willSetStatusbarText)
-        m_client.willSetStatusbarText(toAPI(page), toAPI(statusbarText.impl()), m_client.base.clientInfo);
+    if (m_client.willAddMessageWithDetailsToConsole)
+        m_client.willAddMessageWithDetailsToConsole(toAPI(page), toAPI(message.impl()), toAPI(&API::Array::createStringArray(messageArguments).leakRef()), lineNumber, columnNumber, toAPI(sourceID.impl()), m_client.base.clientInfo);
 }
 
 void InjectedBundlePageUIClient::willRunJavaScriptAlert(WebPage* page, const String& alertText, WebFrame* frame)
@@ -73,7 +77,7 @@ void InjectedBundlePageUIClient::willRunJavaScriptPrompt(WebPage* page, const St
         m_client.willRunJavaScriptPrompt(toAPI(page), toAPI(message.impl()), toAPI(defaultValue.impl()), toAPI(frame), m_client.base.clientInfo);
 }
 
-void InjectedBundlePageUIClient::mouseDidMoveOverElement(WebPage* page, const HitTestResult& coreHitTestResult, OptionSet<WebEvent::Modifier> modifiers, RefPtr<API::Object>& userData)
+void InjectedBundlePageUIClient::mouseDidMoveOverElement(WebPage* page, const HitTestResult& coreHitTestResult, OptionSet<WebEventModifier> modifiers, RefPtr<API::Object>& userData)
 {
     if (!m_client.mouseDidMoveOverElement)
         return;
@@ -132,57 +136,12 @@ API::InjectedBundle::PageUIClient::UIElementVisibility InjectedBundlePageUIClien
     return toUIElementVisibility(m_client.toolbarsAreVisible(toAPI(page), m_client.base.clientInfo));
 }
 
-bool InjectedBundlePageUIClient::didReachApplicationCacheOriginQuota(WebPage* page, API::SecurityOrigin* origin, int64_t totalBytesNeeded)
-{
-    if (!m_client.didReachApplicationCacheOriginQuota)
-        return false;
-
-    m_client.didReachApplicationCacheOriginQuota(toAPI(page), toAPI(origin), totalBytesNeeded, m_client.base.clientInfo);
-    return true;
-}
-
 uint64_t InjectedBundlePageUIClient::didExceedDatabaseQuota(WebPage* page, API::SecurityOrigin* origin, const String& databaseName, const String& databaseDisplayName, uint64_t currentQuotaBytes, uint64_t currentOriginUsageBytes, uint64_t currentDatabaseUsageBytes, uint64_t expectedUsageBytes)
 {
     if (!m_client.didExceedDatabaseQuota)
         return 0;
 
     return m_client.didExceedDatabaseQuota(toAPI(page), toAPI(origin), toAPI(databaseName.impl()), toAPI(databaseDisplayName.impl()), currentQuotaBytes, currentOriginUsageBytes, currentDatabaseUsageBytes, expectedUsageBytes, m_client.base.clientInfo);
-}
-
-String InjectedBundlePageUIClient::plugInStartLabelTitle(const String& mimeType) const
-{
-    if (!m_client.createPlugInStartLabelTitle)
-        return String();
-
-    RefPtr<API::String> title = adoptRef(toImpl(m_client.createPlugInStartLabelTitle(toAPI(mimeType.impl()), m_client.base.clientInfo)));
-    return title ? title->string() : String();
-}
-
-String InjectedBundlePageUIClient::plugInStartLabelSubtitle(const String& mimeType) const
-{
-    if (!m_client.createPlugInStartLabelSubtitle)
-        return String();
-
-    RefPtr<API::String> subtitle = adoptRef(toImpl(m_client.createPlugInStartLabelSubtitle(toAPI(mimeType.impl()), m_client.base.clientInfo)));
-    return subtitle ? subtitle->string() : String();
-}
-
-String InjectedBundlePageUIClient::plugInExtraStyleSheet() const
-{
-    if (!m_client.createPlugInExtraStyleSheet)
-        return String();
-
-    RefPtr<API::String> styleSheet = adoptRef(toImpl(m_client.createPlugInExtraStyleSheet(m_client.base.clientInfo)));
-    return styleSheet ? styleSheet->string() : String();
-}
-
-String InjectedBundlePageUIClient::plugInExtraScript() const
-{
-    if (!m_client.createPlugInExtraScript)
-        return String();
-
-    RefPtr<API::String> script = adoptRef(toImpl(m_client.createPlugInExtraScript(m_client.base.clientInfo)));
-    return script ? script->string() : String();
 }
 
 void InjectedBundlePageUIClient::didClickAutoFillButton(WebPage& page, InjectedBundleNodeHandle& nodeHandle, RefPtr<API::Object>& userData)

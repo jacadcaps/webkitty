@@ -26,9 +26,12 @@
 #include "config.h"
 #include "StyleFlexibleBoxData.h"
 
-#include "RenderStyle.h"
+#include "RenderStyleDifference.h"
+#include "RenderStyleInlines.h"
 
 namespace WebCore {
+
+DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(StyleFlexibleBoxData);
 
 StyleFlexibleBoxData::StyleFlexibleBoxData()
     : flexGrow(RenderStyle::initialFlexGrow())
@@ -59,5 +62,17 @@ bool StyleFlexibleBoxData::operator==(const StyleFlexibleBoxData& other) const
     return flexGrow == other.flexGrow && flexShrink == other.flexShrink && flexBasis == other.flexBasis
         && flexDirection == other.flexDirection && flexWrap == other.flexWrap;
 }
+
+#if !LOG_DISABLED
+void StyleFlexibleBoxData::dumpDifferences(TextStream& ts, const StyleFlexibleBoxData& other) const
+{
+    LOG_IF_DIFFERENT(flexGrow);
+    LOG_IF_DIFFERENT(flexShrink);
+    LOG_IF_DIFFERENT(flexBasis);
+
+    LOG_IF_DIFFERENT_WITH_CAST(FlexDirection, flexDirection);
+    LOG_IF_DIFFERENT_WITH_CAST(FlexWrap, flexWrap);
+}
+#endif // !LOG_DISABLED
 
 }

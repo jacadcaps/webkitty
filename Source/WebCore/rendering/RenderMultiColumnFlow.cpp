@@ -1,5 +1,6 @@
 /*
- * Copyright (C) 2012 Apple Inc.  All rights reserved.
+ * Copyright (C) 2012-2023 Apple Inc.  All rights reserved.
+ * Copyright (C) 2014 Google Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,47 +28,41 @@
 #include "RenderMultiColumnFlow.h"
 
 #include "HitTestResult.h"
+#include "RenderBoxInlines.h"
+#include "RenderBoxModelObjectInlines.h"
 #include "RenderIterator.h"
 #include "RenderLayoutState.h"
 #include "RenderMultiColumnSet.h"
 #include "RenderMultiColumnSpannerPlaceholder.h"
+#include "RenderStyleInlines.h"
 #include "RenderTreeBuilder.h"
 #include "RenderView.h"
 #include "TransformState.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(RenderMultiColumnFlow);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(RenderMultiColumnFlow);
 
 RenderMultiColumnFlow::RenderMultiColumnFlow(Document& document, RenderStyle&& style)
-    : RenderFragmentedFlow(document, WTFMove(style))
-    , m_spannerMap(makeUnique<SpannerMap>())
-    , m_lastSetWorkedOn(nullptr)
-    , m_columnCount(1)
-    , m_columnWidth(0)
-    , m_columnHeightAvailable(0)
-    , m_inLayout(false)
-    , m_inBalancingPass(false)
-    , m_needsHeightsRecalculation(false)
-    , m_progressionIsInline(false)
-    , m_progressionIsReversed(false)
+    : RenderFragmentedFlow(Type::MultiColumnFlow, document, WTFMove(style))
 {
-    setFragmentedFlowState(InsideInFragmentedFlow);
+    setFragmentedFlowState(FragmentedFlowState::InsideFlow);
+    ASSERT(isRenderMultiColumnFlow());
 }
 
 RenderMultiColumnFlow::~RenderMultiColumnFlow() = default;
 
-const char* RenderMultiColumnFlow::renderName() const
+ASCIILiteral RenderMultiColumnFlow::renderName() const
 {    
-    return "RenderMultiColumnFlowThread";
+    return "RenderMultiColumnFlowThread"_s;
 }
 
 RenderMultiColumnSet* RenderMultiColumnFlow::firstMultiColumnSet() const
 {
     for (RenderObject* sibling = nextSibling(); sibling; sibling = sibling->nextSibling()) {
-        if (is<RenderMultiColumnSet>(*sibling))
-            return downcast<RenderMultiColumnSet>(sibling);
+        if (auto* multiColumnSet = dynamicDowncast<RenderMultiColumnSet>(*sibling))
+            return multiColumnSet;
     }
     return nullptr;
 }
@@ -77,8 +72,8 @@ RenderMultiColumnSet* RenderMultiColumnFlow::lastMultiColumnSet() const
     ASSERT(multiColumnBlockFlow());
 
     for (RenderObject* sibling = multiColumnBlockFlow()->lastChild(); sibling; sibling = sibling->previousSibling()) {
-        if (is<RenderMultiColumnSet>(*sibling))
-            return downcast<RenderMultiColumnSet>(sibling);
+        if (auto* multiColumnSet = dynamicDowncast<RenderMultiColumnSet>(*sibling))
+            return multiColumnSet;
     }
     return nullptr;
 }
@@ -109,9 +104,9 @@ RenderBox* RenderMultiColumnFlow::previousColumnSetOrSpannerSiblingOf(const Rend
     return nullptr;
 }
 
-RenderMultiColumnSpannerPlaceholder* RenderMultiColumnFlow::findColumnSpannerPlaceholder(RenderBox* spanner) const
+RenderMultiColumnSpannerPlaceholder* RenderMultiColumnFlow::findColumnSpannerPlaceholder(const RenderBox* spanner) const
 {
-    return m_spannerMap->get(spanner).get();
+    return m_spannerMap.get(spanner).get();
 }
 
 void RenderMultiColumnFlow::layout()
@@ -120,9 +115,9 @@ void RenderMultiColumnFlow::layout()
     m_inLayout = true;
     m_lastSetWorkedOn = nullptr;
     if (RenderBox* first = firstColumnSetOrSpanner()) {
-        if (is<RenderMultiColumnSet>(*first)) {
-            m_lastSetWorkedOn = downcast<RenderMultiColumnSet>(first);
-            m_lastSetWorkedOn->beginFlow(this);
+        if (CheckedPtr multiColumnSet = dynamicDowncast<RenderMultiColumnSet>(*first)) {
+            m_lastSetWorkedOn = multiColumnSet.get();
+            multiColumnSet->beginFlow(this);
         }
     }
     RenderFragmentedFlow::layout();
@@ -139,11 +134,11 @@ void RenderMultiColumnFlow::addFragmentToThread(RenderFragmentContainer* fragmen
 {
     auto* columnSet = downcast<RenderMultiColumnSet>(fragmentContainer);
     if (RenderMultiColumnSet* nextSet = columnSet->nextSiblingMultiColumnSet()) {
-        RenderFragmentContainerList::iterator it = m_fragmentList.find(nextSet);
+        auto it = m_fragmentList.find(*nextSet);
         ASSERT(it != m_fragmentList.end());
-        m_fragmentList.insertBefore(it, columnSet);
+        m_fragmentList.insertBefore(it, *columnSet);
     } else
-        m_fragmentList.add(columnSet);
+        m_fragmentList.add(*columnSet);
     fragmentContainer->setIsValid(true);
 }
 
@@ -159,22 +154,23 @@ void RenderMultiColumnFlow::willBeRemovedFromTree()
 
 void RenderMultiColumnFlow::fragmentedFlowDescendantBoxLaidOut(RenderBox* descendant)
 {
-    if (!is<RenderMultiColumnSpannerPlaceholder>(*descendant))
+    CheckedPtr placeholder = dynamicDowncast<RenderMultiColumnSpannerPlaceholder>(*descendant);
+    if (!placeholder)
         return;
-    auto& placeholder = downcast<RenderMultiColumnSpannerPlaceholder>(*descendant);
-    RenderBlock* container = placeholder.containingBlock();
 
-    for (RenderBox* prev = previousColumnSetOrSpannerSiblingOf(placeholder.spanner()); prev; prev = previousColumnSetOrSpannerSiblingOf(prev)) {
-        if (is<RenderMultiColumnSet>(*prev)) {
-            downcast<RenderMultiColumnSet>(*prev).endFlow(container, placeholder.logicalTop());
+    CheckedPtr container = placeholder->containingBlock();
+
+    for (RenderBox* prev = previousColumnSetOrSpannerSiblingOf(placeholder->spanner()); prev; prev = previousColumnSetOrSpannerSiblingOf(prev)) {
+        if (CheckedPtr multiColumnSet = dynamicDowncast<RenderMultiColumnSet>(*prev)) {
+            multiColumnSet->endFlow(container.get(), placeholder->logicalTop());
             break;
         }
     }
 
-    for (RenderBox* next = nextColumnSetOrSpannerSiblingOf(placeholder.spanner()); next; next = nextColumnSetOrSpannerSiblingOf(next)) {
-        if (is<RenderMultiColumnSet>(*next)) {
-            m_lastSetWorkedOn = downcast<RenderMultiColumnSet>(next);
-            m_lastSetWorkedOn->beginFlow(container);
+    for (RenderBox* next = nextColumnSetOrSpannerSiblingOf(placeholder->spanner()); next; next = nextColumnSetOrSpannerSiblingOf(next)) {
+        if (CheckedPtr multiColumnSet = dynamicDowncast<RenderMultiColumnSet>(*next)) {
+            m_lastSetWorkedOn = multiColumnSet.get();
+            multiColumnSet->beginFlow(container.get());
             break;
         }
     }
@@ -193,14 +189,30 @@ LayoutUnit RenderMultiColumnFlow::initialLogicalWidth() const
 
 void RenderMultiColumnFlow::setPageBreak(const RenderBlock* block, LayoutUnit offset, LayoutUnit spaceShortage)
 {
+    // Only positive values are interesting (and allowed) here. Zero space shortage may be reported
+    // when we're at the top of a column and the element has zero height. Ignore this, and also
+    // ignore any negative values, which may occur when we set an early break in order to honor
+    // widows in the next column.
+    if (spaceShortage <= 0)
+        return;
+
     if (auto* multicolSet = downcast<RenderMultiColumnSet>(fragmentAtBlockOffset(block, offset)))
         multicolSet->recordSpaceShortage(spaceShortage);
 }
 
 void RenderMultiColumnFlow::updateMinimumPageHeight(const RenderBlock* block, LayoutUnit offset, LayoutUnit minHeight)
 {
+    if (!hasValidFragmentInfo())
+        return;
+
     if (auto* multicolSet = downcast<RenderMultiColumnSet>(fragmentAtBlockOffset(block, offset)))
         multicolSet->updateMinimumColumnHeight(minHeight);
+}
+
+void RenderMultiColumnFlow::updateSpaceShortageForSizeContainment(const RenderBlock* block, LayoutUnit offset, LayoutUnit shortage)
+{
+    if (auto* multicolSet = downcast<RenderMultiColumnSet>(fragmentAtBlockOffset(block, offset)))
+        multicolSet->updateSpaceShortageForSizeContainment(shortage);
 }
 
 RenderFragmentContainer* RenderMultiColumnFlow::fragmentAtBlockOffset(const RenderBox* box, LayoutUnit offset, bool extendLastFragment) const
@@ -211,7 +223,10 @@ RenderFragmentContainer* RenderMultiColumnFlow::fragmentAtBlockOffset(const Rend
     // Layout in progress. We are calculating the set heights as we speak, so the fragment range
     // information is not up-to-date.
 
-    RenderMultiColumnSet* columnSet = m_lastSetWorkedOn ? m_lastSetWorkedOn : firstMultiColumnSet();
+    if (m_lastSetWorkedOn && m_lastSetWorkedOn->fragmentedFlow() != this)
+        m_lastSetWorkedOn = nullptr;
+
+    RenderMultiColumnSet* columnSet = m_lastSetWorkedOn ? m_lastSetWorkedOn.get() : firstMultiColumnSet();
     if (!columnSet) {
         // If there's no set, bail. This multicol is empty or only consists of spanners. There
         // are no fragments.
@@ -280,12 +295,12 @@ LayoutSize RenderMultiColumnFlow::offsetFromContainer(RenderElement& enclosingCo
         translatedPhysicalPoint.moveBy(fragment->topLeftLocation());
     
     LayoutSize offset(translatedPhysicalPoint.x(), translatedPhysicalPoint.y());
-    if (is<RenderBox>(enclosingContainer))
-        offset -= toLayoutSize(downcast<RenderBox>(enclosingContainer).scrollPosition());
+    if (auto* enclosingBox = dynamicDowncast<RenderBox>(enclosingContainer))
+        offset -= toLayoutSize(enclosingBox->scrollPosition());
     return offset;
 }
     
-void RenderMultiColumnFlow::mapAbsoluteToLocalPoint(MapCoordinatesFlags mode, TransformState& transformState) const
+void RenderMultiColumnFlow::mapAbsoluteToLocalPoint(OptionSet<MapCoordinatesMode> mode, TransformState& transformState) const
 {
     // First get the transform state's point into the block flow thread's physical coordinate space.
     parent()->mapAbsoluteToLocalPoint(mode, transformState);
@@ -312,13 +327,7 @@ void RenderMultiColumnFlow::mapAbsoluteToLocalPoint(MapCoordinatesFlags mode, Tr
     // Once we have a good guess as to which fragment we hit tested through (and yes, this was just a heuristic, but it's
     // the best we could do), then we can map from the fragment into the flow thread.
     LayoutSize translationOffset = physicalTranslationFromFragmentToFlow(candidateColumnSet, candidatePoint) + candidateContainerOffset;
-    bool preserve3D = mode & UseTransforms && (parent()->style().preserves3D() || style().preserves3D());
-    if (mode & UseTransforms && shouldUseTransformFromContainer(parent())) {
-        TransformationMatrix t;
-        getTransformFromContainer(parent(), translationOffset, t);
-        transformState.applyTransform(t, preserve3D ? TransformState::AccumulateTransform : TransformState::FlattenTransform);
-    } else
-        transformState.move(translationOffset.width(), translationOffset.height(), preserve3D ? TransformState::AccumulateTransform : TransformState::FlattenTransform);
+    pushOntoTransformState(transformState, mode, nullptr, parent(), translationOffset, false);
 }
 
 LayoutSize RenderMultiColumnFlow::physicalTranslationFromFragmentToFlow(const RenderMultiColumnSet* columnSet, const LayoutPoint& physicalPoint) const
@@ -357,7 +366,7 @@ LayoutSize RenderMultiColumnFlow::physicalTranslationOffsetFromFlowToFragment(co
     
     // Now we know how we want the rect to be translated into the fragment. At this point we're converting
     // back to physical coordinates.
-    if (style().isFlippedBlocksWritingMode()) {
+    if (writingMode().isBlockFlipped()) {
         LayoutRect portionRect(columnSet->fragmentedFlowPortionRect());
         LayoutRect columnRect = columnSet->columnRectAt(0);
         LayoutUnit physicalDeltaFromPortionBottom = logicalHeight() - columnSet->logicalBottomInFragmentedFlow();

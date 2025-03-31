@@ -29,29 +29,48 @@
 
 #include "WebXRSpace.h"
 #include "XRReferenceSpaceType.h"
-#include <wtf/IsoMalloc.h>
 #include <wtf/Ref.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
 class WebXRRigidTransform;
 class WebXRSession;
 
-class WebXRReferenceSpace : public WebXRSpace {
-    WTF_MAKE_ISO_ALLOCATED(WebXRReferenceSpace);
+class WebXRReferenceSpace : public RefCounted<WebXRReferenceSpace>, public WebXRSpace {
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(WebXRReferenceSpace);
 public:
-    static Ref<WebXRReferenceSpace> create(Document&, Ref<WebXRSession>&&, XRReferenceSpaceType);
+    static Ref<WebXRReferenceSpace> create(Document&, WebXRSession&, XRReferenceSpaceType);
+    static Ref<WebXRReferenceSpace> create(Document&, WebXRSession&, Ref<WebXRRigidTransform>&&, XRReferenceSpaceType);
 
     virtual ~WebXRReferenceSpace();
 
-    RefPtr<WebXRReferenceSpace> getOffsetReferenceSpace(const WebXRRigidTransform&);
+    using RefCounted<WebXRReferenceSpace>::ref;
+    using RefCounted<WebXRReferenceSpace>::deref;
+
+    WebXRSession* session() const final { return m_session.get(); }
+    std::optional<TransformationMatrix> nativeOrigin() const override;
+    virtual ExceptionOr<Ref<WebXRReferenceSpace>> getOffsetReferenceSpace(const WebXRRigidTransform&);
+    XRReferenceSpaceType type() const { return m_type; }
 
 protected:
-    WebXRReferenceSpace(Document&, Ref<WebXRSession>&&, XRReferenceSpaceType);
+    WebXRReferenceSpace(Document&, WebXRSession&, Ref<WebXRRigidTransform>&&, XRReferenceSpaceType);
 
+    bool isReferenceSpace() const final { return true; }
+
+    std::optional<TransformationMatrix> floorOriginTransform() const;
+
+    WeakPtr<WebXRSession> m_session;
     XRReferenceSpaceType m_type;
+
+private:
+    void refEventTarget() final { ref(); }
+    void derefEventTarget() final { deref(); }
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_WEBXRSPACE(WebXRReferenceSpace, isReferenceSpace())
 
 #endif // ENABLE(WEBXR)

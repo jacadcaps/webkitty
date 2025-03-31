@@ -1,5 +1,6 @@
 /*
  * Copyright (C) Research In Motion Limited 2010-2012. All rights reserved.
+ * Copyright (C) 2014 Google Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -21,11 +22,14 @@
 #include "SVGTextQuery.h"
 
 #include "FloatConversion.h"
-#include "InlineFlowBox.h"
+#include "LegacyInlineFlowBox.h"
 #include "RenderBlockFlow.h"
 #include "RenderInline.h"
+#include "RenderSVGInlineText.h"
 #include "RenderSVGText.h"
-#include "SVGInlineTextBox.h"
+#include "SVGElementTypeHelpers.h"
+#include "SVGInlineTextBoxInlines.h"
+#include "SVGTextBoxPainter.h"
 #include "VisiblePosition.h"
 
 #include <wtf/MathExtras.h>
@@ -34,79 +38,60 @@ namespace WebCore {
 
 // Base structure for callback user data
 struct SVGTextQuery::Data {
-    Data()
-        : isVerticalText(false)
-        , processedCharacters(0)
-        , textRenderer(0)
-        , textBox(0)
-    {
-    }
-
-    bool isVerticalText;
-    unsigned processedCharacters;
-    RenderSVGInlineText* textRenderer;
-    const SVGInlineTextBox* textBox;
+    bool isVerticalText { false };
+    unsigned processedCharacters { 0 };
+    CheckedPtr<const RenderSVGInlineText> textRenderer;
+    InlineIterator::SVGTextBoxIterator textBox;
 };
 
-static inline InlineFlowBox* flowBoxForRenderer(RenderObject* renderer)
+static inline InlineIterator::InlineBoxIterator inlineBoxForRenderer(RenderObject* renderer)
 {
     if (!renderer)
-        return nullptr;
+        return { };
 
-    if (is<RenderBlockFlow>(*renderer)) {
+    if (CheckedPtr renderBlock = dynamicDowncast<RenderBlockFlow>(*renderer)) {
         // If we're given a block element, it has to be a RenderSVGText.
-        ASSERT(is<RenderSVGText>(*renderer));
-        RenderBlockFlow& renderBlock = downcast<RenderBlockFlow>(*renderer);
-
-        // RenderSVGText only ever contains a single line box.
-        auto flowBox = renderBlock.firstRootBox();
-        ASSERT(flowBox == renderBlock.lastRootBox());
-        return flowBox;
+        ASSERT(is<RenderSVGText>(*renderBlock));
+        return InlineIterator::firstRootInlineBoxFor(*renderBlock);
     }
 
-    if (is<RenderInline>(*renderer)) {
-        // We're given a RenderSVGInline or objects that derive from it (RenderSVGTSpan / RenderSVGTextPath)
-        RenderInline& renderInline = downcast<RenderInline>(*renderer);
-
-        // RenderSVGInline only ever contains a single line box.
-        InlineFlowBox* flowBox = renderInline.firstLineBox();
-        ASSERT(flowBox == renderInline.lastLineBox());
-        return flowBox;
-    }
+    if (CheckedPtr renderInline = dynamicDowncast<RenderInline>(*renderer))
+        return InlineIterator::lineLeftmostInlineBoxFor(*renderInline);
 
     ASSERT_NOT_REACHED();
-    return nullptr;
+    return { };
 }
 
 SVGTextQuery::SVGTextQuery(RenderObject* renderer)
 {
-    collectTextBoxesInFlowBox(flowBoxForRenderer(renderer));
+    collectTextBoxesInInlineBox(inlineBoxForRenderer(renderer));
 }
 
-void SVGTextQuery::collectTextBoxesInFlowBox(InlineFlowBox* flowBox)
+void SVGTextQuery::collectTextBoxesInInlineBox(InlineIterator::InlineBoxIterator parent)
 {
-    if (!flowBox)
+    if (!parent)
         return;
 
-    for (InlineBox* child = flowBox->firstChild(); child; child = child->nextOnLine()) {
-        if (is<InlineFlowBox>(*child)) {
+    auto descendants = parent->descendants();
+    for (auto box = descendants.begin(), end = descendants.end(); box != end;) {
+        if (auto* flowBox = dynamicDowncast<InlineIterator::InlineBox>(*box)) {
             // Skip generated content.
-            if (!child->renderer().node())
-                continue;
-
-            collectTextBoxesInFlowBox(downcast<InlineFlowBox>(child));
+            if (!flowBox->renderer().element())
+                box.traverseLineRightwardOnLineSkippingChildren();
+            else
+                box.traverseLineRightwardOnLine();
             continue;
         }
 
-        if (is<SVGInlineTextBox>(*child))
-            m_textBoxes.append(downcast<SVGInlineTextBox>(child));
+        if (auto* inlineTextBox = dynamicDowncast<InlineIterator::SVGTextBoxIterator>(box))
+            m_textBoxes.append(*inlineTextBox);
+
+        box.traverseLineRightwardOnLine();
     }
 }
 
 bool SVGTextQuery::executeQuery(Data* queryData, ProcessTextFragmentCallback fragmentCallback) const
 {
-    ASSERT(!m_textBoxes.isEmpty());
-
     unsigned processedCharacters = 0;
     unsigned textBoxCount = m_textBoxes.size();
 
@@ -115,7 +100,7 @@ bool SVGTextQuery::executeQuery(Data* queryData, ProcessTextFragmentCallback fra
         queryData->textBox = m_textBoxes.at(textBoxPosition);
         queryData->textRenderer = &queryData->textBox->renderer();
 
-        queryData->isVerticalText = queryData->textRenderer->style().isVerticalWritingMode();
+        queryData->isVerticalText = queryData->textRenderer->writingMode().isVertical();
         const Vector<SVGTextFragment>& fragments = queryData->textBox->textFragments();
     
         // Loop over all text fragments in this text box, firing a callback for each.
@@ -142,85 +127,57 @@ bool SVGTextQuery::mapStartEndPositionsIntoFragmentCoordinates(Data* queryData, 
     startPosition -= queryData->processedCharacters;
     endPosition -= queryData->processedCharacters;
 
+    // <startPosition, endPosition> is now a tuple of offsets relative to the current text box.
+    // Compute the offsets of the fragment in the same offset space.
+    unsigned fragmentStartInBox = fragment.characterOffset - queryData->textBox->start();
+    unsigned fragmentEndInBox = fragmentStartInBox + fragment.length;
+
+    // Check if the ranges intersect.
+    startPosition = std::max<unsigned>(startPosition, fragmentStartInBox);
+    endPosition = std::min<unsigned>(endPosition, fragmentEndInBox);
+
     if (startPosition >= endPosition)
         return false;
 
-    modifyStartEndPositionsRespectingLigatures(queryData, startPosition, endPosition);
-    if (!queryData->textBox->mapStartEndPositionsIntoFragmentCoordinates(fragment, startPosition, endPosition))
+    modifyStartEndPositionsRespectingLigatures(queryData, fragment, startPosition, endPosition);
+    if (!WebCore::mapStartEndPositionsIntoFragmentCoordinates(queryData->textBox->start(), fragment, startPosition, endPosition))
         return false;
 
     ASSERT_WITH_SECURITY_IMPLICATION(startPosition < endPosition);
     return true;
 }
 
-void SVGTextQuery::modifyStartEndPositionsRespectingLigatures(Data* queryData, unsigned& startPosition, unsigned& endPosition) const
+void SVGTextQuery::modifyStartEndPositionsRespectingLigatures(Data* queryData, const SVGTextFragment& fragment, unsigned& startPosition, unsigned& endPosition) const
 {
-    SVGTextLayoutAttributes* layoutAttributes = queryData->textRenderer->layoutAttributes();
-    Vector<SVGTextMetrics>& textMetricsValues = layoutAttributes->textMetricsValues();
-    unsigned boxStart = queryData->textBox->start();
-    unsigned boxLength = queryData->textBox->len();
+    const SVGTextLayoutAttributes* layoutAttributes = queryData->textRenderer->layoutAttributes();
+    const Vector<SVGTextMetrics>& textMetricsValues = layoutAttributes->textMetricsValues();
 
-    unsigned textMetricsOffset = 0;
-    unsigned textMetricsSize = textMetricsValues.size();
+    unsigned textMetricsOffset = fragment.metricsListOffset;
 
-    unsigned positionOffset = 0;
-    unsigned positionSize = layoutAttributes->context().text().length();
-
-    bool alterStartPosition = true;
-    bool alterEndPosition = true;
-
-    Optional<unsigned> lastPositionOffset;
-    for (; textMetricsOffset < textMetricsSize && positionOffset < positionSize; ++textMetricsOffset) {
-        SVGTextMetrics& metrics = textMetricsValues[textMetricsOffset];
-
-        // Advance to text box start location.
-        if (positionOffset < boxStart) {
-            positionOffset += metrics.length();
-            continue;
-        }
-
-        // Stop if we've finished processing this text box.
-        if (positionOffset >= boxStart + boxLength)
+    // Compute the offset of the fragment within the box, since that's the
+    // space <startPosition, endPosition> is in (and that's what we need).
+    unsigned fragmentOffsetInBox = fragment.characterOffset - queryData->textBox->start();
+    unsigned fragmentEndInBox = fragmentOffsetInBox + fragment.length;
+    // Find the text metrics cell that start at or contain the character startPosition.
+    while (fragmentOffsetInBox < fragmentEndInBox) {
+        auto& metrics = textMetricsValues[textMetricsOffset];
+        unsigned glyphEnd = fragmentOffsetInBox + metrics.length();
+        if (startPosition < glyphEnd)
             break;
+        fragmentOffsetInBox = glyphEnd;
+        ++textMetricsOffset;
+    }
+    startPosition = fragmentOffsetInBox;
 
-        // If the start position maps to a character in the metrics list, we don't need to modify it.
-        if (startPosition == positionOffset)
-            alterStartPosition = false;
-
-        // If the start position maps to a character in the metrics list, we don't need to modify it.
-        if (endPosition == positionOffset)
-            alterEndPosition = false;
-
-        // Detect ligatures.
-        if (lastPositionOffset && lastPositionOffset.value() - positionOffset > 1) {
-            if (alterStartPosition && startPosition > lastPositionOffset.value() && startPosition < positionOffset) {
-                startPosition = lastPositionOffset.value();
-                alterStartPosition = false;
-            }
-
-            if (alterEndPosition && endPosition > lastPositionOffset.value() && endPosition < positionOffset) {
-                endPosition = positionOffset;
-                alterEndPosition = false;
-            }
-        }
-
-        if (!alterStartPosition && !alterEndPosition)
+    // Find the text metrics cell that contain or ends at the character endPosition.
+    while (fragmentOffsetInBox < fragmentEndInBox) {
+        auto& metrics = textMetricsValues[textMetricsOffset];
+        fragmentOffsetInBox += metrics.length();
+        if (fragmentOffsetInBox >= endPosition)
             break;
-
-        lastPositionOffset = positionOffset;
-        positionOffset += metrics.length();
+        ++textMetricsOffset;
     }
-
-    if (!alterStartPosition && !alterEndPosition)
-        return;
-
-    if (lastPositionOffset && lastPositionOffset.value() - positionOffset > 1) {
-        if (alterStartPosition && startPosition > lastPositionOffset.value() && startPosition < positionOffset)
-            startPosition = lastPositionOffset.value();
-
-        if (alterEndPosition && endPosition > lastPositionOffset.value() && endPosition < positionOffset)
-            endPosition = positionOffset;
-    }
+    endPosition = fragmentOffsetInBox;
 }
 
 // numberOfCharacters() implementation
@@ -232,9 +189,6 @@ bool SVGTextQuery::numberOfCharactersCallback(Data*, const SVGTextFragment&) con
 
 unsigned SVGTextQuery::numberOfCharacters() const
 {
-    if (m_textBoxes.isEmpty())
-        return 0;
-
     Data data;
     executeQuery(&data, &SVGTextQuery::numberOfCharactersCallback);
     return data.processedCharacters;
@@ -298,9 +252,6 @@ bool SVGTextQuery::subStringLengthCallback(Data* queryData, const SVGTextFragmen
 
 float SVGTextQuery::subStringLength(unsigned startPosition, unsigned length) const
 {
-    if (m_textBoxes.isEmpty())
-        return 0;
-
     SubStringLengthData data(startPosition, length);
     executeQuery(&data, &SVGTextQuery::subStringLengthCallback);
     return data.subStringLength;
@@ -347,9 +298,6 @@ bool SVGTextQuery::startPositionOfCharacterCallback(Data* queryData, const SVGTe
 
 FloatPoint SVGTextQuery::startPositionOfCharacter(unsigned position) const
 {
-    if (m_textBoxes.isEmpty())
-        return { };
-
     StartPositionOfCharacterData data(position);
     executeQuery(&data, &SVGTextQuery::startPositionOfCharacterCallback);
     return data.startPosition;
@@ -394,9 +342,6 @@ bool SVGTextQuery::endPositionOfCharacterCallback(Data* queryData, const SVGText
 
 FloatPoint SVGTextQuery::endPositionOfCharacter(unsigned position) const
 {
-    if (m_textBoxes.isEmpty())
-        return { };
-
     EndPositionOfCharacterData data(position);
     executeQuery(&data, &SVGTextQuery::endPositionOfCharacterCallback);
     return data.endPosition;
@@ -437,9 +382,6 @@ bool SVGTextQuery::rotationOfCharacterCallback(Data* queryData, const SVGTextFra
 
 float SVGTextQuery::rotationOfCharacter(unsigned position) const
 {
-    if (m_textBoxes.isEmpty())
-        return 0;
-
     RotationOfCharacterData data(position);
     executeQuery(&data, &SVGTextQuery::rotationOfCharacterCallback);
     return data.rotation;
@@ -461,7 +403,7 @@ static inline void calculateGlyphBoundaries(SVGTextQuery::Data* queryData, const
     float scalingFactor = queryData->textRenderer->scalingFactor();
     ASSERT(scalingFactor);
 
-    extent.setLocation(FloatPoint(fragment.x, fragment.y - queryData->textRenderer->scaledFont().fontMetrics().floatAscent() / scalingFactor));
+    extent.setLocation(FloatPoint(fragment.x, fragment.y - queryData->textRenderer->scaledFont().metricsOfPrimaryFont().ascent() / scalingFactor));
 
     if (startPosition) {
         SVGTextMetrics metrics = SVGTextMetrics::measureCharacterRange(*queryData->textRenderer, fragment.characterOffset, startPosition);
@@ -482,6 +424,19 @@ static inline void calculateGlyphBoundaries(SVGTextQuery::Data* queryData, const
     extent = fragmentTransform.mapRect(extent);
 }
 
+static inline FloatRect calculateFragmentBoundaries(const RenderSVGInlineText& textRenderer, const SVGTextFragment& fragment)
+{
+    float scalingFactor = textRenderer.scalingFactor();
+    ASSERT(scalingFactor);
+
+    float baseline = textRenderer.scaledFont().metricsOfPrimaryFont().ascent() / scalingFactor;
+
+    AffineTransform fragmentTransform;
+    FloatRect fragmentRect(fragment.x, fragment.y - baseline, fragment.width, fragment.height);
+    fragment.buildFragmentTransform(fragmentTransform);
+    return fragmentTransform.mapRect(fragmentRect);
+}
+
 bool SVGTextQuery::extentOfCharacterCallback(Data* queryData, const SVGTextFragment& fragment) const
 {
     ExtentOfCharacterData* data = static_cast<ExtentOfCharacterData*>(queryData);
@@ -497,9 +452,6 @@ bool SVGTextQuery::extentOfCharacterCallback(Data* queryData, const SVGTextFragm
 
 FloatRect SVGTextQuery::extentOfCharacter(unsigned position) const
 {
-    if (m_textBoxes.isEmpty())
-        return FloatRect();
-
     ExtentOfCharacterData data(position);
     executeQuery(&data, &SVGTextQuery::extentOfCharacterCallback);
     return data.extent;
@@ -517,30 +469,36 @@ struct CharacterNumberAtPositionData : SVGTextQuery::Data {
 
 bool SVGTextQuery::characterNumberAtPositionCallback(Data* queryData, const SVGTextFragment& fragment) const
 {
-    CharacterNumberAtPositionData* data = static_cast<CharacterNumberAtPositionData*>(queryData);
+    auto* data = static_cast<CharacterNumberAtPositionData*>(queryData);
 
+    // Test the query point against the bounds of the entire fragment first.
+    FloatRect fragmentExtents = calculateFragmentBoundaries(*queryData->textRenderer, fragment);
+    if (!fragmentExtents.contains(data->position))
+        return false;
+
+    // Iterate through the glyphs in this fragment, and check if their extents
+    // contain the query point.
     FloatRect extent;
-    for (unsigned i = 0; i < fragment.length; ++i) {
-        unsigned startPosition = data->processedCharacters + i;
-        unsigned endPosition = startPosition + 1;
-        if (!mapStartEndPositionsIntoFragmentCoordinates(queryData, fragment, startPosition, endPosition))
-            continue;
-
-        calculateGlyphBoundaries(queryData, fragment, startPosition, extent);
+    auto& textMetrics = queryData->textRenderer->layoutAttributes()->textMetricsValues();
+    unsigned textMetricsOffset = fragment.metricsListOffset;
+    unsigned fragmentOffset = 0;
+    while (fragmentOffset < fragment.length) {
+        calculateGlyphBoundaries(queryData, fragment, fragmentOffset, extent);
         if (extent.contains(data->position)) {
-            data->processedCharacters += i;
+            // Compute the character offset of the glyph within the text box
+            // and add to processedCharacters.
+            unsigned characterOffset = fragment.characterOffset + fragmentOffset;
+            data->processedCharacters += characterOffset - data->textBox->start();
             return true;
         }
+        fragmentOffset += textMetrics[textMetricsOffset].length();
+        ++textMetricsOffset;
     }
-
     return false;
 }
 
 int SVGTextQuery::characterNumberAtPosition(const FloatPoint& position) const
 {
-    if (m_textBoxes.isEmpty())
-        return -1;
-
     CharacterNumberAtPositionData data(position);
     if (!executeQuery(&data, &SVGTextQuery::characterNumberAtPositionCallback))
         return -1;

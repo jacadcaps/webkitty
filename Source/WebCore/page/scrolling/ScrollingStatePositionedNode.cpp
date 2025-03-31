@@ -29,15 +29,20 @@
 #include "GraphicsLayer.h"
 #include "Logging.h"
 #include "ScrollingStateTree.h"
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/TextStream.h>
 
 #if ENABLE(ASYNC_SCROLLING)
 
 namespace WebCore {
 
-Ref<ScrollingStatePositionedNode> ScrollingStatePositionedNode::create(ScrollingStateTree& stateTree, ScrollingNodeID nodeID)
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ScrollingStatePositionedNode);
+
+ScrollingStatePositionedNode::ScrollingStatePositionedNode(ScrollingNodeID nodeID, Vector<Ref<ScrollingStateNode>>&& children, OptionSet<ScrollingStateNodeProperty> changedProperties, std::optional<PlatformLayerIdentifier> layerID, Vector<ScrollingNodeID>&& relatedOverflowScrollingNodes, AbsolutePositionConstraints&& constraints)
+    : ScrollingStateNode(ScrollingNodeType::Positioned, nodeID, WTFMove(children), changedProperties, layerID)
+    , m_relatedOverflowScrollingNodes(WTFMove(relatedOverflowScrollingNodes))
+    , m_constraints(WTFMove(constraints))
 {
-    return adoptRef(*new ScrollingStatePositionedNode(stateTree, nodeID));
 }
 
 ScrollingStatePositionedNode::ScrollingStatePositionedNode(ScrollingStateTree& tree, ScrollingNodeID nodeID)
@@ -59,11 +64,13 @@ Ref<ScrollingStateNode> ScrollingStatePositionedNode::clone(ScrollingStateTree& 
     return adoptRef(*new ScrollingStatePositionedNode(*this, adoptiveTree));
 }
 
-void ScrollingStatePositionedNode::setPropertyChangedBitsAfterReattach()
+OptionSet<ScrollingStateNode::Property> ScrollingStatePositionedNode::applicableProperties() const
 {
-    setPropertyChangedBit(RelatedOverflowScrollingNodes);
-    setPropertyChangedBit(LayoutConstraintData);
-    ScrollingStateNode::setPropertyChangedBitsAfterReattach();
+    constexpr OptionSet<Property> nodeProperties = { Property::RelatedOverflowScrollingNodes, Property::LayoutConstraintData };
+
+    auto properties = ScrollingStateNode::applicableProperties();
+    properties.add(nodeProperties);
+    return properties;
 }
 
 void ScrollingStatePositionedNode::setRelatedOverflowScrollingNodes(Vector<ScrollingNodeID>&& nodes)
@@ -72,7 +79,7 @@ void ScrollingStatePositionedNode::setRelatedOverflowScrollingNodes(Vector<Scrol
         return;
 
     m_relatedOverflowScrollingNodes = WTFMove(nodes);
-    setPropertyChanged(RelatedOverflowScrollingNodes);
+    setPropertyChanged(Property::RelatedOverflowScrollingNodes);
 }
 
 void ScrollingStatePositionedNode::updateConstraints(const AbsolutePositionConstraints& constraints)
@@ -83,10 +90,10 @@ void ScrollingStatePositionedNode::updateConstraints(const AbsolutePositionConst
     LOG_WITH_STREAM(Scrolling, stream << "ScrollingStatePositionedNode " << scrollingNodeID() << " updateConstraints " << constraints);
 
     m_constraints = constraints;
-    setPropertyChanged(LayoutConstraintData);
+    setPropertyChanged(Property::LayoutConstraintData);
 }
 
-void ScrollingStatePositionedNode::dumpProperties(TextStream& ts, ScrollingStateTreeAsTextBehavior behavior) const
+void ScrollingStatePositionedNode::dumpProperties(TextStream& ts, OptionSet<ScrollingStateTreeAsTextBehavior> behavior) const
 {
     ts << "Positioned node";
     ScrollingStateNode::dumpProperties(ts, behavior);
@@ -94,7 +101,7 @@ void ScrollingStatePositionedNode::dumpProperties(TextStream& ts, ScrollingState
     ts.dumpProperty("layout constraints", m_constraints);
     ts.dumpProperty("related overflow nodes", m_relatedOverflowScrollingNodes.size());
 
-    if (behavior & ScrollingStateTreeAsTextBehaviorIncludeNodeIDs) {
+    if (behavior & ScrollingStateTreeAsTextBehavior::IncludeNodeIDs) {
         if (!m_relatedOverflowScrollingNodes.isEmpty()) {
             TextStream::GroupScope scope(ts);
             ts << "overflow nodes";

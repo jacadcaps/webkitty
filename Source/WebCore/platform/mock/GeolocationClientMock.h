@@ -45,6 +45,8 @@ class GeolocationController;
 // FIXME: this should not be in WebCore. It should be moved to WebKit.
 // Provides a mock object for the geolocation client.
 class GeolocationClientMock : public GeolocationClient {
+    WTF_MAKE_FAST_ALLOCATED;
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(GeolocationClientMock);
 public:
     GeolocationClientMock();
     virtual ~GeolocationClientMock();
@@ -59,10 +61,10 @@ public:
 
     // GeolocationClient
     void geolocationDestroyed() override;
-    void startUpdating(const String& authorizationToken) override;
+    void startUpdating(const String& authorizationToken, bool enableHighAccuracy) override;
     void stopUpdating() override;
     void setEnableHighAccuracy(bool) override;
-    Optional<GeolocationPositionData> lastPosition() override;
+    std::optional<GeolocationPositionData> lastPosition() override;
     void requestPermission(Geolocation&) override;
     void cancelPermissionRequest(Geolocation&) override;
 
@@ -76,7 +78,7 @@ private:
     void clearError();
 
     GeolocationController* m_controller;
-    Optional<GeolocationPositionData> m_lastPosition;
+    std::optional<GeolocationPositionData> m_lastPosition;
     bool m_hasError;
     String m_errorMessage;
     Timer m_controllerTimer;
@@ -88,7 +90,7 @@ private:
         PermissionStateAllowed,
         PermissionStateDenied,
     } m_permissionState;
-    typedef WTF::HashSet<RefPtr<Geolocation> > GeolocationSet;
+    typedef UncheckedKeyHashSet<RefPtr<Geolocation>> GeolocationSet;
     GeolocationSet m_pendingPermission;
 };
 

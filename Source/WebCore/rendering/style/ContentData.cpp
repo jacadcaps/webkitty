@@ -30,8 +30,15 @@
 #include "RenderStyle.h"
 #include "RenderTextFragment.h"
 #include "StyleInheritedData.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ContentData);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ImageContentData);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(TextContentData);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(CounterContentData);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(QuoteContentData);
 
 std::unique_ptr<ContentData> ContentData::clone() const
 {
@@ -46,7 +53,7 @@ std::unique_ptr<ContentData> ContentData::clone() const
 
 RenderPtr<RenderObject> ImageContentData::createContentRenderer(Document& document, const RenderStyle& pseudoStyle) const
 {
-    auto image = createRenderer<RenderImage>(document, RenderStyle::createStyleInheritingFromPseudoStyle(pseudoStyle), const_cast<StyleImage*>(m_image.ptr()));
+    auto image = createRenderer<RenderImage>(RenderObject::Type::Image, document, RenderStyle::createStyleInheritingFromPseudoStyle(pseudoStyle), const_cast<StyleImage*>(m_image.ptr()));
     image->initializeStyle();
     image->setAltText(altText());
     return image;

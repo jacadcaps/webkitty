@@ -10,6 +10,7 @@
 
 #include "modules/rtp_rtcp/source/rtp_dependency_descriptor_extension.h"
 
+#include <bitset>
 #include <cstdint>
 
 #include "api/array_view.h"
@@ -21,9 +22,6 @@
 
 namespace webrtc {
 
-constexpr RTPExtensionType RtpDependencyDescriptorExtension::kId;
-constexpr char RtpDependencyDescriptorExtension::kUri[];
-
 bool RtpDependencyDescriptorExtension::Parse(
     rtc::ArrayView<const uint8_t> data,
     const FrameDependencyStructure* structure,
@@ -34,17 +32,34 @@ bool RtpDependencyDescriptorExtension::Parse(
 
 size_t RtpDependencyDescriptorExtension::ValueSize(
     const FrameDependencyStructure& structure,
+    std::bitset<32> active_chains,
     const DependencyDescriptor& descriptor) {
-  RtpDependencyDescriptorWriter writer(/*data=*/{}, structure, descriptor);
+  RtpDependencyDescriptorWriter writer(/*data=*/{}, structure, active_chains,
+                                       descriptor);
   return DivideRoundUp(writer.ValueSizeBits(), 8);
 }
 
 bool RtpDependencyDescriptorExtension::Write(
     rtc::ArrayView<uint8_t> data,
     const FrameDependencyStructure& structure,
+    std::bitset<32> active_chains,
     const DependencyDescriptor& descriptor) {
-  RtpDependencyDescriptorWriter writer(data, structure, descriptor);
+  RtpDependencyDescriptorWriter writer(data, structure, active_chains,
+                                       descriptor);
   return writer.Write();
+}
+
+bool RtpDependencyDescriptorExtension::Parse(
+    rtc::ArrayView<const uint8_t> data,
+    DependencyDescriptorMandatory* descriptor) {
+  if (data.size() < 3) {
+    return false;
+  }
+  descriptor->set_first_packet_in_frame(data[0] & 0b1000'0000);
+  descriptor->set_last_packet_in_frame(data[0] & 0b0100'0000);
+  descriptor->set_template_id(data[0] & 0b0011'1111);
+  descriptor->set_frame_number((uint16_t{data[1]} << 8) | data[2]);
+  return true;
 }
 
 }  // namespace webrtc

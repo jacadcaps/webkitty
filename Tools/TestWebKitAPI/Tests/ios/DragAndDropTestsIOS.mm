@@ -31,21 +31,28 @@
 #import "DragAndDropSimulator.h"
 #import "NSItemProviderAdditions.h"
 #import "PlatformUtilities.h"
+#import "TestURLSchemeHandler.h"
 #import "TestWKWebView.h"
-#import "UIKitSPI.h"
+#import "UIKitSPIForTesting.h"
 #import "WKWebViewConfigurationExtras.h"
 #import <Contacts/Contacts.h>
 #import <MapKit/MapKit.h>
 #import <MobileCoreServices/MobileCoreServices.h>
 #import <UIKit/NSItemProvider+UIKitAdditions.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <WebKit/WKPreferencesPrivate.h>
 #import <WebKit/WKPreferencesRefPrivate.h>
 #import <WebKit/WKProcessPoolPrivate.h>
 #import <WebKit/WKWebViewConfigurationPrivate.h>
 #import <WebKit/WebItemProviderPasteboard.h>
+#import <WebKit/_WKFeature.h>
 #import <WebKit/_WKProcessPoolConfiguration.h>
 #import <wtf/Seconds.h>
 #import <wtf/SoftLinking.h>
+
+#if USE(BROWSERENGINEKIT)
+#import <BrowserEngineKit/BrowserEngineKit.h>
+#endif
 
 SOFT_LINK_FRAMEWORK(Contacts)
 SOFT_LINK_CLASS(Contacts, CNMutableContact)
@@ -69,12 +76,12 @@ static NSString *InjectedBundlePasteboardDataType = @"org.webkit.data";
 
 static UIImage *testIconImage()
 {
-    return [UIImage imageNamed:@"TestWebKitAPI.resources/icon.png"];
+    return [UIImage imageNamed:@"TestWebKitAPIResources.bundle/icon.png"];
 }
 
 static NSData *testZIPArchive()
 {
-    NSURL *zipFileURL = [[NSBundle mainBundle] URLForResource:@"compressed-files" withExtension:@"zip" subdirectory:@"TestWebKitAPI.resources"];
+    NSURL *zipFileURL = [NSBundle.test_resourcesBundle URLForResource:@"compressed-files" withExtension:@"zip"];
     return [NSData dataWithContentsOfURL:zipFileURL];
 }
 
@@ -91,6 +98,28 @@ static NSData *testZIPArchive()
 }
 
 @end
+
+@interface ModelLoadingMessageHandler : NSObject <WKScriptMessageHandler>
+
+@property (nonatomic) BOOL didLoadModel;
+@property (nonatomic) BOOL modelIsReady;
+
+@end
+
+@implementation ModelLoadingMessageHandler
+- (void)userContentController:(WKUserContentController *)userContentController didReceiveScriptMessage:(WKScriptMessage *)message
+{
+    if ([[message body] isEqualToString:@"LOADED"])
+        _didLoadModel = YES;
+    else if ([[message body] isEqualToString:@"READY"])
+        _modelIsReady = YES;
+    else {
+        EXPECT_TRUE(false);
+        NSLog(@"Unexpected message received: %@", [message body]);
+    }
+}
+@end
+
 
 static void loadTestPageAndEnsureInputSession(DragAndDropSimulator *simulator, NSString *testPageName)
 {
@@ -111,13 +140,16 @@ static void checkCGRectIsEqualToCGRectWithLogging(CGRect expected, CGRect observ
 
 static void checkRichTextTypePrecedesPlainTextType(DragAndDropSimulator *simulator)
 {
-    // At least one of "com.apple.flat-rtfd" or "public.rtf" is expected to have higher precedence than "public.utf8-plain-text".
     NSArray *registeredTypes = [simulator.sourceItemProviders.firstObject registeredTypeIdentifiers];
-    auto indexOfRTFType = [registeredTypes indexOfObject:(__bridge NSString *)kUTTypeRTF];
-    auto indexOfFlatRTFDType = [registeredTypes indexOfObject:(__bridge NSString *)kUTTypeFlatRTFD];
-    auto indexOfPlainTextType = [registeredTypes indexOfObject:(__bridge NSString *)kUTTypeUTF8PlainText];
+    auto indexOfHTMLType = [registeredTypes indexOfObject:UTTypeHTML.identifier];
+    auto indexOfRTFType = [registeredTypes indexOfObject:UTTypeRTF.identifier];
+    auto indexOfFlatRTFDType = [registeredTypes indexOfObject:UTTypeFlatRTFD.identifier];
+    auto indexOfPlainTextType = [registeredTypes indexOfObject:UTTypeUTF8PlainText.identifier];
     EXPECT_NE((NSInteger)indexOfPlainTextType, NSNotFound);
-    EXPECT_TRUE((indexOfRTFType != NSNotFound && indexOfRTFType < indexOfPlainTextType) || (indexOfFlatRTFDType != NSNotFound && indexOfFlatRTFDType < indexOfPlainTextType));
+    BOOL hasHighFidelityRTF = indexOfRTFType != NSNotFound && indexOfRTFType < indexOfPlainTextType;
+    BOOL hasHighFidelityFlatRTFD = indexOfFlatRTFDType != NSNotFound && indexOfFlatRTFDType < indexOfPlainTextType;
+    BOOL hasHighFidelityHTML = indexOfHTMLType != NSNotFound && indexOfHTMLType < indexOfPlainTextType;
+    EXPECT_TRUE(hasHighFidelityHTML || hasHighFidelityFlatRTFD || hasHighFidelityRTF);
 }
 
 static void checkFirstTypeIsPresentAndSecondTypeIsMissing(DragAndDropSimulator *simulator, CFStringRef firstType, CFStringRef secondType)
@@ -179,7 +211,7 @@ static void checkJSONWithLogging(NSString *jsonString, NSDictionary *expected)
 
 static NSData *testIconImageData()
 {
-    return [NSData dataWithContentsOfURL:[[NSBundle mainBundle] URLForResource:@"icon" withExtension:@"png" subdirectory:@"TestWebKitAPI.resources"]];
+    return [NSData dataWithContentsOfURL:[NSBundle.test_resourcesBundle URLForResource:@"icon" withExtension:@"png"]];
 }
 
 static void runTestWithTemporaryTextFile(void(^runTest)(NSURL *fileURL))
@@ -292,7 +324,7 @@ TEST(DragAndDropTests, ImageInLinkToInput)
     [simulator runFrom:CGPointMake(100, 50) to:CGPointMake(100, 300)];
 
     EXPECT_WK_STREQ("https://www.apple.com/", [webView editorValue].UTF8String);
-    checkCGRectIsEqualToCGRectWithLogging(CGRectMake(2156, 241, 2, 232), [simulator finalSelectionStartRect]);
+    checkCGRectIsEqualToCGRectWithLogging(CGRectMake(2069, 170, 2, 240), [simulator finalSelectionStartRect]);
     checkSuggestedNameAndEstimatedSize(simulator.get(), @"icon.png", { 215, 174 });
     checkTypeIdentifierIsRegisteredAtIndex(simulator.get(), (__bridge NSString *)kUTTypePNG, 0);
     EXPECT_TRUE([simulator lastKnownDropProposal].precise);
@@ -364,9 +396,7 @@ TEST(DragAndDropTests, ContentEditableToContentEditable)
     checkCGRectIsEqualToCGRectWithLogging(CGRectMake(960, 205, 2, 223), [simulator finalSelectionStartRect]);
     checkRichTextTypePrecedesPlainTextType(simulator.get());
     EXPECT_TRUE([simulator lastKnownDropProposal].precise);
-
-    // FIXME: Once <rdar://problem/46830277> is fixed, we should add "com.apple.webarchive" as a registered pasteboard type and rebaseline this expectation.
-    EXPECT_FALSE([[[simulator sourceItemProviders].firstObject registeredTypeIdentifiers] containsObject:(__bridge NSString *)kUTTypeWebArchive]);
+    EXPECT_TRUE([[[simulator sourceItemProviders].firstObject registeredTypeIdentifiers] containsObject:UTTypeWebArchive.identifier]);
 }
 
 TEST(DragAndDropTests, ContentEditableToTextarea)
@@ -384,7 +414,7 @@ TEST(DragAndDropTests, ContentEditableToTextarea)
     EXPECT_TRUE([observedEventNames containsObject:@"dragenter"]);
     EXPECT_TRUE([observedEventNames containsObject:@"dragover"]);
     EXPECT_TRUE([observedEventNames containsObject:@"drop"]);
-    checkCGRectIsEqualToCGRectWithLogging(CGRectMake(1089, 203, 2, 232), [simulator finalSelectionStartRect]);
+    checkCGRectIsEqualToCGRectWithLogging(CGRectMake(1033, 203, 2, 240), [simulator finalSelectionStartRect]);
     checkRichTextTypePrecedesPlainTextType(simulator.get());
     EXPECT_TRUE([simulator lastKnownDropProposal].precise);
 }
@@ -465,7 +495,7 @@ TEST(DragAndDropTests, TextAreaToInput)
 
     EXPECT_EQ([webView stringByEvaluatingJavaScript:@"source.value"].length, 0UL);
     EXPECT_WK_STREQ("Hello world", [webView editorValue].UTF8String);
-    checkCGRectIsEqualToCGRectWithLogging(CGRectMake(1089, 241, 2, 232), [simulator finalSelectionStartRect]);
+    checkCGRectIsEqualToCGRectWithLogging(CGRectMake(1033, 170, 2, 240), [simulator finalSelectionStartRect]);
 }
 
 TEST(DragAndDropTests, SinglePlainTextWordTypeIdentifiers)
@@ -532,7 +562,9 @@ TEST(DragAndDropTests, LinkToInput)
     EXPECT_TRUE([observedEventNames containsObject:@"dragenter"]);
     EXPECT_TRUE([observedEventNames containsObject:@"dragover"]);
     EXPECT_TRUE([observedEventNames containsObject:@"drop"]);
-    checkCGRectIsEqualToCGRectWithLogging(CGRectMake(2156, 273, 2, 232), [simulator finalSelectionStartRect]);
+    auto selectionRectWithRoundedWidth = [simulator finalSelectionStartRect];
+    selectionRectWithRoundedWidth.size.width = std::round(selectionRectWithRoundedWidth.size.width);
+    checkCGRectIsEqualToCGRectWithLogging(CGRectMake(2069, 202, 2, 240), selectionRectWithRoundedWidth);
     checkTypeIdentifierIsRegisteredAtIndex(simulator.get(), (__bridge NSString *)kUTTypeURL, 0);
 }
 
@@ -550,7 +582,7 @@ TEST(DragAndDropTests, BackgroundImageLinkToInput)
     EXPECT_TRUE([observedEventNames containsObject:@"dragenter"]);
     EXPECT_TRUE([observedEventNames containsObject:@"dragover"]);
     EXPECT_TRUE([observedEventNames containsObject:@"drop"]);
-    checkCGRectIsEqualToCGRectWithLogging(CGRectMake(2156, 241, 2, 232), [simulator finalSelectionStartRect]);
+    checkCGRectIsEqualToCGRectWithLogging(CGRectMake(2069, 170, 2, 240), [simulator finalSelectionStartRect]);
     checkTypeIdentifierIsRegisteredAtIndex(simulator.get(), (__bridge NSString *)kUTTypeURL, 0);
 }
 
@@ -879,8 +911,8 @@ TEST(DragAndDropTests, ExternalSourceBoldSystemAttributedStringToContentEditable
 
     auto simulator = adoptNS([[DragAndDropSimulator alloc] initWithWebView:webView.get()]);
     NSDictionary *textAttributes = @{ NSFontAttributeName: [UIFont boldSystemFontOfSize:20] };
-    NSAttributedString *richText = [[NSAttributedString alloc] initWithString:@"This is a test" attributes:textAttributes];
-    auto itemProvider = adoptNS([[NSItemProvider alloc] initWithObject:richText]);
+    auto richText = adoptNS([[NSAttributedString alloc] initWithString:@"This is a test" attributes:textAttributes]);
+    auto itemProvider = adoptNS([[NSItemProvider alloc] initWithObject:richText.get()]);
     [simulator setExternalItemProviders:@[ itemProvider.get() ]];
     [simulator runFrom:CGPointMake(300, 400) to:CGPointMake(100, 300)];
 
@@ -895,8 +927,8 @@ TEST(DragAndDropTests, ExternalSourceColoredAttributedStringToContentEditable)
 
     auto simulator = adoptNS([[DragAndDropSimulator alloc] initWithWebView:webView.get()]);
     NSDictionary *textAttributes = @{ NSForegroundColorAttributeName: [UIColor redColor] };
-    NSAttributedString *richText = [[NSAttributedString alloc] initWithString:@"This is a test" attributes:textAttributes];
-    auto itemProvider = adoptNS([[NSItemProvider alloc] initWithObject:richText]);
+    auto richText = adoptNS([[NSAttributedString alloc] initWithString:@"This is a test" attributes:textAttributes]);
+    auto itemProvider = adoptNS([[NSItemProvider alloc] initWithObject:richText.get()]);
     [simulator setExternalItemProviders:@[ itemProvider.get() ]];
     [simulator runFrom:CGPointMake(300, 400) to:CGPointMake(100, 300)];
 
@@ -1078,6 +1110,7 @@ TEST(DragAndDropTests, ExternalSourceOverrideDropFileUpload)
     NSString *outputValue = [webView stringByEvaluatingJavaScript:@"output.value"];
     EXPECT_WK_STREQ("text/html", outputValue.UTF8String);
     EXPECT_FALSE([simulator lastKnownDropProposal].precise);
+    EXPECT_EQ(2, WebItemProviderPasteboard.sharedInstance.changeCount);
 }
 
 static RetainPtr<NSItemProvider> createMapItemForTesting()
@@ -1113,7 +1146,7 @@ TEST(DragAndDropTests, ExternalSourceMapItemIntoEditableAreas)
     [webView _synchronouslyExecuteEditCommand:@"Delete" argument:nil];
 
     auto simulator = adoptNS([[DragAndDropSimulator alloc] initWithWebView:webView.get()]);
-    [simulator setExternalItemProviders:@[ createMapItemForTesting().autorelease() ]];
+    [simulator setExternalItemProviders:@[ createMapItemForTesting().get() ]];
     [simulator runFrom:CGPointMake(0, 0) to:CGPointMake(100, 100)];
     EXPECT_WK_STREQ("Apple Park", [webView stringByEvaluatingJavaScript:@"document.querySelector('div[contenteditable]').textContent"]);
     NSURL *firstURL = [NSURL URLWithString:[webView stringByEvaluatingJavaScript:@"document.querySelector('a').href"]];
@@ -1131,7 +1164,7 @@ TEST(DragAndDropTests, ExternalSourceContactIntoEditableAreas)
     [webView _synchronouslyExecuteEditCommand:@"Delete" argument:nil];
 
     auto simulator = adoptNS([[DragAndDropSimulator alloc] initWithWebView:webView.get()]);
-    [simulator setExternalItemProviders:@[ createContactItemForTesting().autorelease() ]];
+    [simulator setExternalItemProviders:@[ createContactItemForTesting().get() ]];
     [simulator runFrom:CGPointMake(0, 0) to:CGPointMake(100, 100)];
     EXPECT_WK_STREQ("", [webView stringByEvaluatingJavaScript:@"document.querySelector('div[contenteditable]').textContent"]);
 
@@ -1145,7 +1178,7 @@ TEST(DragAndDropTests, ExternalSourceMapItemAndContactToUploadArea)
     [webView synchronouslyLoadTestPageNamed:@"file-uploading"];
 
     auto simulator = adoptNS([[DragAndDropSimulator alloc] initWithWebView:webView.get()]);
-    [simulator setExternalItemProviders:@[ createMapItemForTesting().autorelease(), createContactItemForTesting().autorelease() ]];
+    [simulator setExternalItemProviders:@[ createMapItemForTesting().get(), createContactItemForTesting().get() ]];
     [simulator runFrom:CGPointMake(200, 100) to:CGPointMake(100, 300)];
 
     EXPECT_WK_STREQ("text/vcard, text/vcard", [webView stringByEvaluatingJavaScript:@"output.value"]);
@@ -1194,7 +1227,7 @@ TEST(DragAndDropTests, ExternalSourceDataTransferItemGetFolderAsEntry)
 
         auto simulator = adoptNS([[DragAndDropSimulator alloc] initWithWebView:webView.get()]);
         [simulator setExternalItemProviders:@[ itemProvider.get() ]];
-        [simulator runFrom:CGPointMake(50, 50) to:CGPointMake(150, 50)];
+        [simulator runFromElement:@"#output" toElement:@"#droparea"];
     });
 
     TestWebKitAPI::Util::run(&done);
@@ -1224,7 +1257,7 @@ TEST(DragAndDropTests, ExternalSourceDataTransferItemGetPlainTextFileAsEntry)
 
         auto simulator = adoptNS([[DragAndDropSimulator alloc] initWithWebView:webView.get()]);
         [simulator setExternalItemProviders:@[ itemProvider.get() ]];
-        [simulator runFrom:CGPointMake(50, 50) to:CGPointMake(150, 50)];
+        [simulator runFromElement:@"#output" toElement:@"#droparea"];
     });
 
     TestWebKitAPI::Util::run(&done);
@@ -1257,6 +1290,7 @@ TEST(DragAndDropTests, ExternalSourceOverrideDropInsertURL)
     [simulator runFrom:CGPointMake(300, 400) to:CGPointMake(100, 300)];
 
     EXPECT_WK_STREQ("https://webkit.org/", [webView stringByEvaluatingJavaScript:@"editor.textContent"]);
+    EXPECT_EQ(2, WebItemProviderPasteboard.sharedInstance.changeCount);
 }
 
 TEST(DragAndDropTests, OverrideDrop)
@@ -1277,8 +1311,8 @@ TEST(DragAndDropTests, OverrideDrop)
     [simulator setDropCompletionBlock:^(BOOL handled, NSArray *itemProviders) {
         EXPECT_FALSE(handled);
         [itemProviders.firstObject loadDataRepresentationForTypeIdentifier:(__bridge NSString *)kUTTypeHTML completionHandler:^(NSData *data, NSError *error) {
-            NSString *text = [[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] autorelease];
-            EXPECT_WK_STREQ("<body></body>", text.UTF8String);
+            auto text = adoptNS([[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding]);
+            EXPECT_WK_STREQ("<body></body>", [text UTF8String]);
             EXPECT_FALSE(!!error);
             finishedLoadingData = true;
         }];
@@ -1546,16 +1580,22 @@ TEST(DragAndDropTests, CustomActionSheetPopover)
 
 TEST(DragAndDropTests, UnresponsivePageDoesNotHangUI)
 {
-    _WKProcessPoolConfiguration *processPoolConfiguration = [[[_WKProcessPoolConfiguration alloc] init] autorelease];
-    processPoolConfiguration.ignoreSynchronousMessagingTimeoutsForTesting = YES;
+    auto processPoolConfiguration = adoptNS([[_WKProcessPoolConfiguration alloc] init]);
+    [processPoolConfiguration setIgnoreSynchronousMessagingTimeoutsForTesting:YES];
 
-    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 320, 500) configuration:[[[WKWebViewConfiguration alloc] init] autorelease] processPoolConfiguration:processPoolConfiguration]);
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 320, 500) configuration:adoptNS([[WKWebViewConfiguration alloc] init]).get() processPoolConfiguration:processPoolConfiguration.get()]);
     [webView synchronouslyLoadTestPageNamed:@"simple"];
     [webView evaluateJavaScript:@"while(1);" completionHandler:nil];
 
     // The test passes if we can prepare for a drag session without timing out.
     auto dragSession = adoptNS([[MockDragSession alloc] init]);
-    [(id <UIDragInteractionDelegate_ForWebKitOnly>)[webView dragInteractionDelegate] _dragInteraction:[webView dragInteraction] prepareForSession:dragSession.get() completion:^() { }];
+#if USE(BROWSERENGINEKIT)
+    [[webView dragInteractionDelegate] dragInteraction:[webView dragInteraction] prepareDragSession:dragSession.get() completion:^{
+        return NO;
+    }];
+#else
+    [(id<UIDragInteractionDelegate_SPI>)[webView dragInteractionDelegate] _dragInteraction:[webView dragInteraction] prepareForSession:dragSession.get() completion:^{ }];
+#endif
 }
 
 TEST(DragAndDropTests, WebItemProviderPasteboardLoading)
@@ -1674,7 +1714,7 @@ TEST(DragAndDropTests, DragLiftPreviewDataTransferSetDragImage)
 
 static NSData *testIconImageData()
 {
-    return [NSData dataWithContentsOfFile:[[NSBundle mainBundle] pathForResource:@"icon" ofType:@"png" inDirectory:@"TestWebKitAPI.resources"]];
+    return [NSData dataWithContentsOfFile:[NSBundle.test_resourcesBundle pathForResource:@"icon" ofType:@"png"]];
 }
 
 TEST(DragAndDropTests, DataTransferGetDataWhenDroppingImageAndMarkup)
@@ -1771,7 +1811,7 @@ TEST(DragAndDropTests, DataTransferGetDataWhenDroppingImageWithFileURL)
     auto simulator = adoptNS([[DragAndDropSimulator alloc] initWithWebView:webView.get()]);
 
     auto itemProvider = adoptNS([[NSItemProvider alloc] init]);
-    NSURL *iconURL = [[NSBundle mainBundle] URLForResource:@"icon" withExtension:@"png" subdirectory:@"TestWebKitAPI.resources"];
+    NSURL *iconURL = [NSBundle.test_resourcesBundle URLForResource:@"icon" withExtension:@"png"];
     [itemProvider registerFileRepresentationForTypeIdentifier:(__bridge NSString *)kUTTypePNG fileOptions:0 visibility:NSItemProviderRepresentationVisibilityAll loadHandler:[protectedIconURL = retainPtr(iconURL)] (FileLoadCompletionBlock completionHandler) -> NSProgress * {
         completionHandler(protectedIconURL.get(), NO, nil);
         return nil;
@@ -1872,8 +1912,8 @@ TEST(DragAndDropTests, DataTransferGetDataReadPlainAndRichText)
 
     auto itemProvider = adoptNS([[NSItemProvider alloc] init]);
     NSDictionary *textAttributes = @{ NSFontAttributeName: [UIFont boldSystemFontOfSize:20] };
-    NSAttributedString *richText = [[NSAttributedString alloc] initWithString:@"WebKit" attributes:textAttributes];
-    [itemProvider registerObject:richText visibility:NSItemProviderRepresentationVisibilityAll];
+    auto richText = adoptNS([[NSAttributedString alloc] initWithString:@"WebKit" attributes:textAttributes]);
+    [itemProvider registerObject:richText.get() visibility:NSItemProviderRepresentationVisibilityAll];
     [itemProvider registerObject:[NSURL URLWithString:@"https://www.webkit.org/"] visibility:NSItemProviderRepresentationVisibilityAll];
     [itemProvider registerObject:@"WebKit" visibility:NSItemProviderRepresentationVisibilityAll];
 
@@ -2076,7 +2116,7 @@ TEST(DragAndDropTests, DataTransferSanitizeHTML)
         auto *item = session.items[0].itemProvider;
         EXPECT_TRUE([item.registeredTypeIdentifiers containsObject:(__bridge NSString *)kUTTypeHTML]);
         [item loadDataRepresentationForTypeIdentifier:(__bridge NSString *)kUTTypeHTML completionHandler:^(NSData *data, NSError *error) {
-            NSString *markup = [[[NSString alloc] initWithData:(NSData *)data encoding:NSUTF8StringEncoding] autorelease];
+            auto markup = adoptNS([[NSString alloc] initWithData:(NSData *)data encoding:NSUTF8StringEncoding]);
             EXPECT_TRUE([markup containsString:@"hello"]);
             EXPECT_TRUE([markup containsString:@", world"]);
             EXPECT_FALSE([markup containsString:@"secret"]);
@@ -2136,6 +2176,23 @@ TEST(DragAndDropTests, DropPreviewForImageInEditableArea)
     EXPECT_FALSE(isCompletelyWhite([(UIImageView *)finalPreview.view image]));
 }
 
+TEST(DragAndDropTests, DropUserSelectAllUserDragElementDiv)
+{
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 320, 500)]);
+    [webView synchronouslyLoadTestPageNamed:@"contenteditable-user-select-user-drag"];
+
+    auto simulator = adoptNS([[DragAndDropSimulator alloc] initWithWebView:webView.get()]);
+    [simulator runFrom:CGPointMake(100, 100) to:CGPointMake(100, 300)];
+
+    NSArray *liftPreviews = [simulator liftPreviews];
+    EXPECT_EQ(1U, liftPreviews.count);
+    EXPECT_EQ(UITargetedDragPreview.class, [liftPreviews.firstObject class]);
+
+    checkCGRectIsEqualToCGRectWithLogging({ { 0, 0 }, { 200, 200 } }, [simulator liftPreviews][0].view.frame);
+
+    EXPECT_WK_STREQ(@"Text", [webView stringByEvaluatingJavaScript:@"document.getElementById(\"editor\").textContent"]);
+}
+
 TEST(DragAndDropTests, SuggestedNameContainsDot)
 {
     auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 320, 500)]);
@@ -2155,6 +2212,81 @@ TEST(DragAndDropTests, SuggestedNameContainsDot)
 
     EXPECT_WK_STREQ("one.foo.png (image/png)\ntwo.foo.PNG (image/png)", [webView stringByEvaluatingJavaScript:@"output.innerText"]);
 }
+
+TEST(DragAndDropTests, CanStartDragOnModel)
+{
+    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    for (_WKFeature *feature in [WKPreferences _features]) {
+        if ([feature.key isEqualToString:@"ModelElementEnabled"])
+            [[configuration preferences] _setEnabled:YES forFeature:feature];
+    }
+
+    RetainPtr messageHandler = adoptNS([[ModelLoadingMessageHandler alloc] init]);
+    [[configuration userContentController] addScriptMessageHandler:messageHandler.get() name:@"modelLoading"];
+    
+    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 320, 500) configuration:configuration.get()]);
+    [webView synchronouslyLoadTestPageNamed:@"simple-model-page"];
+
+    while (![messageHandler didLoadModel])
+        Util::spinRunLoop();
+
+    auto simulator = adoptNS([[DragAndDropSimulator alloc] initWithWebView:webView.get()]);
+    [simulator runFrom:CGPointMake(20, 20) to:CGPointMake(100, 100)];
+
+    NSArray *registeredTypes = [[simulator sourceItemProviders].firstObject registeredTypeIdentifiers];
+    EXPECT_WK_STREQ("com.pixar.universal-scene-description-mobile", [registeredTypes firstObject]);
+}
+
+#if ENABLE(MODEL_PROCESS)
+
+TEST(DragAndDropTests, CheckModelDragPreview)
+{
+    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    for (_WKFeature *feature in [WKPreferences _features]) {
+        if ([feature.key isEqualToString:@"ModelElementEnabled"] || [feature.key isEqualToString:@"ModelProcessEnabled"])
+            [[configuration preferences] _setEnabled:YES forFeature:feature];
+    }
+
+    RetainPtr messageHandler = adoptNS([[ModelLoadingMessageHandler alloc] init]);
+    [[configuration userContentController] addScriptMessageHandler:messageHandler.get() name:@"modelLoading"];
+
+    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 320, 500) configuration:configuration.get()]);
+    [webView synchronouslyLoadTestPageNamed:@"simple-model-page"];
+
+    while (![messageHandler modelIsReady])
+        Util::spinRunLoop();
+
+    [webView waitForNextPresentationUpdate];
+
+    bool done = false;
+
+    auto simulator = adoptNS([[DragAndDropSimulator alloc] initWithWebView:webView.get()]);
+    [simulator setDragProgressMidPointReachedBlock:makeBlockPtr([&done, simulator, webView] () mutable {
+        EXPECT_TRUE([[simulator liftPreviews].firstObject.view window] != nil);
+
+        [webView evaluateJavaScript:@"document.querySelector('model').remove()" completionHandler:makeBlockPtr([&done, simulator, webView] (NSNumber *value, NSError *error) mutable {
+            [webView waitForNextPresentationUpdate];
+            NSArray *liftPreviews = [simulator liftPreviews];
+            UITargetedDragPreview *liftPreview = (UITargetedDragPreview *)liftPreviews.firstObject;
+            EXPECT_TRUE([liftPreview.view isKindOfClass:_UIRemoteView.class]);
+            EXPECT_TRUE([liftPreview.view window] != nil);
+            done = true;
+        }).get()];
+    }).get()];
+
+    [simulator runFrom:CGPointMake(20, 20) to:CGPointMake(100, 100)];
+
+    NSArray *liftPreviews = [simulator liftPreviews];
+    EXPECT_EQ(1U, liftPreviews.count);
+    EXPECT_TRUE([liftPreviews.firstObject isKindOfClass:UITargetedDragPreview.class]);
+    UITargetedDragPreview *liftPreview = (UITargetedDragPreview *)liftPreviews.firstObject;
+    EXPECT_TRUE([liftPreview.view isKindOfClass:_UIRemoteView.class]);
+
+    TestWebKitAPI::Util::run(&done);
+    done = false;
+}
+
+#endif
 
 } // namespace TestWebKitAPI
 

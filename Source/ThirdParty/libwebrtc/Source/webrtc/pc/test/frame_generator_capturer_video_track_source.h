@@ -49,7 +49,7 @@ class FrameGeneratorCapturerVideoTrackSource : public VideoTrackSource {
     video_capturer_ = std::make_unique<test::FrameGeneratorCapturer>(
         clock,
         test::CreateSquareFrameGenerator(config.width, config.height,
-                                         absl::nullopt,
+                                         std::nullopt,
                                          config.num_squares_generated),
         config.frames_per_second, *task_queue_factory_);
     video_capturer_->Init();
@@ -64,9 +64,15 @@ class FrameGeneratorCapturerVideoTrackSource : public VideoTrackSource {
 
   ~FrameGeneratorCapturerVideoTrackSource() = default;
 
-  void Start() { SetState(kLive); }
+  void Start() {
+    SetState(kLive);
+    video_capturer_->Start();
+  }
 
-  void Stop() { SetState(kMuted); }
+  void Stop() {
+    SetState(kMuted);
+    video_capturer_->Stop();
+  }
 
   bool is_screencast() const override { return is_screencast_; }
 

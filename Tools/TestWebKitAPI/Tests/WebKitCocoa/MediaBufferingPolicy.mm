@@ -10,7 +10,7 @@
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
  *
- * THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRIBUTORS ``AS IS''
+ * THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRI
  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
  * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
  * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
@@ -41,13 +41,18 @@ static void waitUntilBufferingPolicyIsEqualTo(WKWebView* webView, const char* ex
         if ([observed isEqualToString:@(expected)])
             break;
 
-        TestWebKitAPI::Util::sleep(0.1);
+        TestWebKitAPI::Util::runFor(0.1_s);
     } while (++tries <= 100);
 
     EXPECT_WK_STREQ(expected, observed);
 }
 
+// rdar://136704178
+#if PLATFORM(MAC)
+TEST(WebKit, DISABLED_MediaBufferingPolicy)
+#else
 TEST(WebKit, MediaBufferingPolicy)
+#endif
 {
     auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
     auto context = adoptWK(TestWebKitAPI::Util::createContextForInjectedBundleTest("InternalsInjectedBundleTest"));
@@ -68,7 +73,12 @@ TEST(WebKit, MediaBufferingPolicy)
 
     // Suspending the process also forces a memory warning, which should purge whatever possible ASAP.
     [webView _processWillSuspendImminentlyForTesting];
+#if PLATFORM(MAC)
+    // On macOS, we don't run the memory pressure logic on suspension.
+    waitUntilBufferingPolicyIsEqualTo(webView.get(), "LimitReadAhead");
+#else
     waitUntilBufferingPolicyIsEqualTo(webView.get(), "PurgeResources");
+#endif
 
     // And should switch back to default when buffering is allowed.
     [webView _processDidResumeForTesting];

@@ -37,11 +37,11 @@ namespace WebCore {
 
 class KeyedDecoderGlib final : public KeyedDecoder {
 public:
-    KeyedDecoderGlib(const uint8_t* data, size_t);
+    KeyedDecoderGlib(std::span<const uint8_t> data);
     ~KeyedDecoderGlib() override;
 
 private:
-    WARN_UNUSED_RETURN bool decodeBytes(const String& key, const uint8_t*&, size_t&) override;
+    WARN_UNUSED_RETURN bool decodeBytes(const String& key, std::span<const uint8_t>&) override;
     WARN_UNUSED_RETURN bool decodeBool(const String& key, bool&) override;
     WARN_UNUSED_RETURN bool decodeUInt32(const String& key, uint32_t&) override;
     WARN_UNUSED_RETURN bool decodeUInt64(const String& key, uint64_t&) override;
@@ -60,9 +60,9 @@ private:
     void endArray() override;
 
     template<typename T, typename F> WARN_UNUSED_RETURN bool decodeSimpleValue(const String& key, T& result, F getFunction);
-    HashMap<String, GRefPtr<GVariant>> dictionaryFromGVariant(GVariant*);
+    UncheckedKeyHashMap<String, GRefPtr<GVariant>> dictionaryFromGVariant(GVariant*);
 
-    Vector<HashMap<String, GRefPtr<GVariant>>> m_dictionaryStack;
+    Vector<UncheckedKeyHashMap<String, GRefPtr<GVariant>>> m_dictionaryStack;
     Vector<GVariant*, 16> m_arrayStack;
     Vector<unsigned> m_arrayIndexStack;
 };

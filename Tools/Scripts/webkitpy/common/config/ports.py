@@ -32,7 +32,6 @@
 
 import os
 import platform
-import sys
 
 from webkitpy.common.system.executive import Executive
 
@@ -63,17 +62,13 @@ class DeprecatedPort(object):
     @staticmethod
     def port(port_name):
         ports = {
-            "ftw": FTWPort,
             "gtk-wk2": GtkWK2Port,
             "ios-device": IOSPort,
-            # FIXME: https://bugs.webkit.org/show_bug.cgi?id=169302
-            "ios": IOSPort,
             "ios-simulator-wk2": IOSSimulatorWK2Port,
             "jsc-only": JscOnlyPort,
             "mac": MacPort,
             "mac-wk2": MacWK2Port,
             "win": WinPort,
-            "wincairo": WinCairoPort,
             "wpe": WpePort,
         }
         default_port = {
@@ -174,40 +169,6 @@ class MacWK2Port(DeprecatedPort):
 
 class WinPort(DeprecatedPort):
     port_flag_name = "win"
-
-    def run_webkit_tests_command(self, build_style=None):
-        command = super(WinPort, self).run_webkit_tests_command(build_style)
-        command.append("--dump-render-tree")
-        return command
-
-
-class WinCairoPort(DeprecatedPort):
-    port_flag_name = "wincairo"
-
-    def build_webkit_command(self, build_style=None):
-        command = super(WinCairoPort, self).build_webkit_command(build_style=build_style)
-        command.append('--wincairo')
-        return command
-
-    def run_webkit_tests_command(self, build_style=None):
-        command = super(WinCairoPort, self).run_webkit_tests_command(build_style)
-        command.append("--wincairo")
-        return command
-
-
-class FTWPort(DeprecatedPort):
-    port_flag_name = "ftw"
-
-    def build_webkit_command(self, build_style=None):
-        command = super(FTWPort, self).build_webkit_command(build_style=build_style)
-        command.append('--ftw')
-        return command
-
-    def run_webkit_tests_command(self, build_style=None):
-        command = super(FTWPort, self).run_webkit_tests_command(build_style)
-        command.append("--ftw")
-        return command
-
 
 class GtkWK2Port(DeprecatedPort):
     port_flag_name = "gtk-wk2"

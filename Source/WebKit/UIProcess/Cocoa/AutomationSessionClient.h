@@ -29,6 +29,7 @@
 #import "WKFoundation.h"
 
 #import "APIAutomationSessionClient.h"
+#import <wtf/TZoneMalloc.h>
 #import <wtf/WeakObjCPtr.h>
 
 @protocol _WKAutomationSessionDelegate;
@@ -36,7 +37,7 @@
 namespace WebKit {
 
 class AutomationSessionClient final : public API::AutomationSessionClient {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(AutomationSessionClient);
 public:
     explicit AutomationSessionClient(id <_WKAutomationSessionDelegate>);
 
@@ -50,12 +51,17 @@ private:
     void requestRestoreWindowOfPage(WebKit::WebAutomationSession&, WebKit::WebPageProxy&, CompletionHandler<void()>&&) override;
     void requestMaximizeWindowOfPage(WebKit::WebAutomationSession&, WebKit::WebPageProxy&, CompletionHandler<void()>&&) override;
 
+#if ENABLE(WK_WEB_EXTENSIONS_IN_WEBDRIVER)
+    void loadWebExtensionWithOptions(WebKit::WebAutomationSession&, API::AutomationSessionWebExtensionResourceOptions, const String& resource, CompletionHandler<void(const String&)>&&) override;
+    void unloadWebExtension(WebKit::WebAutomationSession&, const String& identifier, CompletionHandler<void(bool)>&&) override;
+#endif
+
     bool isShowingJavaScriptDialogOnPage(WebAutomationSession&, WebPageProxy&) override;
     void dismissCurrentJavaScriptDialogOnPage(WebAutomationSession&, WebPageProxy&) override;
     void acceptCurrentJavaScriptDialogOnPage(WebAutomationSession&, WebPageProxy&) override;
     String messageOfCurrentJavaScriptDialogOnPage(WebAutomationSession&, WebPageProxy&) override;
     void setUserInputForCurrentJavaScriptPromptOnPage(WebAutomationSession&, WebPageProxy&, const String&) override;
-    Optional<API::AutomationSessionClient::JavaScriptDialogType> typeOfCurrentJavaScriptDialogOnPage(WebAutomationSession&, WebPageProxy&) override;
+    std::optional<API::AutomationSessionClient::JavaScriptDialogType> typeOfCurrentJavaScriptDialogOnPage(WebAutomationSession&, WebPageProxy&) override;
     API::AutomationSessionClient::BrowsingContextPresentation currentPresentationOfPage(WebAutomationSession&, WebPageProxy&) override;
 
     WeakObjCPtr<id <_WKAutomationSessionDelegate>> m_delegate;
@@ -75,6 +81,8 @@ private:
         bool setUserInputForCurrentJavaScriptPromptForWebView : 1;
         bool typeOfCurrentJavaScriptDialogForWebView : 1;
         bool currentPresentationForWebView : 1;
+        bool loadWebExtensionWithOptions : 1;
+        bool unloadWebExtension : 1;
     } m_delegateMethods;
 };
 

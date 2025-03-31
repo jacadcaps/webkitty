@@ -30,11 +30,9 @@
 
 @protocol WKURLSchemeHandler;
 
-namespace API {
-class URLSchemeTask;
-}
-
 namespace WebKit {
+
+class WebURLSchemeTask;
 
 class WebURLSchemeHandlerCocoa : public WebURLSchemeHandler {
 public:
@@ -42,16 +40,22 @@ public:
 
     id <WKURLSchemeHandler> apiHandler() const { return m_apiHandler.get(); }
 
+    bool isAPIHandler() final { return true; }
+
 private:
     WebURLSchemeHandlerCocoa(id <WKURLSchemeHandler>);
 
+    bool isWebURLSchemeHandlerCocoa() const final { return true; }
+
     void platformStartTask(WebPageProxy&, WebURLSchemeTask&) final;
     void platformStopTask(WebPageProxy&, WebURLSchemeTask&) final;
-    void platformTaskCompleted(WebURLSchemeTask&) final;
 
     RetainPtr<id <WKURLSchemeHandler>> m_apiHandler;
-    HashMap<uint64_t, Ref<API::URLSchemeTask>> m_apiTasks;
 
 }; // class WebURLSchemeHandler
 
 } // namespace WebKit
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::WebURLSchemeHandlerCocoa) \
+    static bool isType(const WebKit::WebURLSchemeHandler& handler) { return handler.isWebURLSchemeHandlerCocoa(); } \
+SPECIALIZE_TYPE_TRAITS_END()

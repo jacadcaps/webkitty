@@ -33,20 +33,14 @@
 #include "WebCompiledContentRuleList.h"
 #include "WebPageProxy.h"
 #include "WebPreferences.h"
-#include "WebUserContentControllerProxy.h"
+#include <wtf/CheckedPtr.h>
 #include <wtf/HashMap.h>
 #include <wtf/NeverDestroyed.h>
-#include <wtf/text/StringConcatenate.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebKit {
 
-static uint64_t generatePageGroupID()
-{
-    static uint64_t uniquePageGroupID = 1;
-    return uniquePageGroupID++;
-}
-
-typedef HashMap<uint64_t, WebPageGroup*> WebPageGroupMap;
+using WebPageGroupMap = HashMap<PageGroupIdentifier, WeakRef<WebPageGroup>>;
 
 static WebPageGroupMap& webPageGroupMap()
 {
@@ -59,33 +53,37 @@ Ref<WebPageGroup> WebPageGroup::create(const String& identifier)
     return adoptRef(*new WebPageGroup(identifier));
 }
 
-WebPageGroup* WebPageGroup::get(uint64_t pageGroupID)
-{
-    return webPageGroupMap().get(pageGroupID);
-}
-
 static WebPageGroupData pageGroupData(const String& identifier)
 {
-    WebPageGroupData data;
+    static NeverDestroyed<HashMap<String, PageGroupIdentifier>> map;
+    auto pageGroupID = [&] {
+        if (HashMap<String, PageGroupIdentifier>::isValidKey(identifier)) {
+            return map.get().ensure(identifier, [] {
+                return PageGroupIdentifier::generate();
+            }).iterator->value;
+        }
+        return PageGroupIdentifier::generate();
+    }();
 
-    data.pageGroupID = generatePageGroupID();
-
+    String validIdentifier;
     if (!identifier.isEmpty())
-        data.identifier = identifier;
+        validIdentifier = identifier;
     else
-        data.identifier = makeString("__uniquePageGroupID-", data.pageGroupID);
+        validIdentifier = makeString("__uniquePageGroupID-"_s, pageGroupID.toUInt64());
 
-    return data;
+    return {
+        WTFMove(validIdentifier),
+        pageGroupID
+    };
 }
 
 // FIXME: Why does the WebPreferences object here use ".WebKit2" instead of "WebKit2." which all the other constructors use.
 // If it turns out that it's wrong, we can change it to to "WebKit2." and get rid of the globalDebugKeyPrefix from WebPreferences.
 WebPageGroup::WebPageGroup(const String& identifier)
     : m_data(pageGroupData(identifier))
-    , m_preferences(WebPreferences::createWithLegacyDefaults(m_data.identifier, ".WebKit2", "WebKit2."))
-    , m_userContentController(WebUserContentControllerProxy::create())
+    , m_preferences(WebPreferences::createWithLegacyDefaults(m_data.identifier, ".WebKit2"_s, "WebKit2."_s))
 {
-    webPageGroupMap().set(m_data.pageGroupID, this);
+    webPageGroupMap().set(m_data.pageGroupID, *this);
 }
 
 WebPageGroup::~WebPageGroup()
@@ -93,35 +91,14 @@ WebPageGroup::~WebPageGroup()
     webPageGroupMap().remove(pageGroupID());
 }
 
-void WebPageGroup::addPage(WebPageProxy* page)
-{
-    m_pages.add(page);
-}
-
-void WebPageGroup::removePage(WebPageProxy* page)
-{
-    m_pages.remove(page);
-}
-
-void WebPageGroup::setPreferences(WebPreferences* preferences)
-{
-    if (preferences == m_preferences)
-        return;
-
-    m_preferences = preferences;
-
-    for (auto& webPageProxy : m_pages)
-        webPageProxy->setPreferences(*m_preferences);
-}
-
 WebPreferences& WebPageGroup::preferences() const
 {
-    return *m_preferences;
+    return m_preferences;
 }
 
-WebUserContentControllerProxy& WebPageGroup::userContentController()
+Ref<WebPreferences> WebPageGroup::protectedPreferences() const
 {
-    return m_userContentController;
+    return m_preferences;
 }
 
 } // namespace WebKit

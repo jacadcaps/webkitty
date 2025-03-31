@@ -17,7 +17,10 @@
 #include "audio/remix_resample.h"
 #include "audio/utility/audio_frame_operations.h"
 #include "call/audio_sender.h"
+#include "modules/async_audio_processing/async_audio_processing.h"
+#include "modules/audio_processing/include/audio_frame_proxies.h"
 #include "rtc_base/checks.h"
+#include "rtc_base/trace_event.h"
 
 namespace webrtc {
 
@@ -35,8 +38,8 @@ void InitializeCaptureFrame(int input_sample_rate,
   RTC_DCHECK(audio_frame);
   int min_processing_rate_hz = std::min(input_sample_rate, send_sample_rate_hz);
   for (int native_rate_hz : AudioProcessing::kNativeSampleRatesHz) {
-    audio_frame->sample_rate_hz_ = native_rate_hz;
-    if (audio_frame->sample_rate_hz_ >= min_processing_rate_hz) {
+    audio_frame->SetSampleRateAndChannelSize(native_rate_hz);
+    if (native_rate_hz >= min_processing_rate_hz) {
       break;
     }
   }
@@ -48,59 +51,91 @@ void ProcessCaptureFrame(uint32_t delay_ms,
                          bool swap_stereo_channels,
                          AudioProcessing* audio_processing,
                          AudioFrame* audio_frame) {
-  RTC_DCHECK(audio_processing);
   RTC_DCHECK(audio_frame);
-  audio_processing->set_stream_delay_ms(delay_ms);
-  audio_processing->set_stream_key_pressed(key_pressed);
-  int error = audio_processing->ProcessStream(audio_frame);
-  RTC_DCHECK_EQ(0, error) << "ProcessStream() error: " << error;
+  if (audio_processing) {
+    audio_processing->set_stream_delay_ms(delay_ms);
+    audio_processing->set_stream_key_pressed(key_pressed);
+    int error = ProcessAudioFrame(audio_processing, audio_frame);
+
+    RTC_DCHECK_EQ(0, error) << "ProcessStream() error: " << error;
+  }
+
   if (swap_stereo_channels) {
     AudioFrameOperations::SwapStereoChannels(audio_frame);
   }
 }
 
-// Resample audio in |frame| to given sample rate preserving the
-// channel count and place the result in |destination|.
+// Resample audio in `frame` to given sample rate preserving the
+// channel count and place the result in `destination`.
 int Resample(const AudioFrame& frame,
              const int destination_sample_rate,
              PushResampler<int16_t>* resampler,
-             int16_t* destination) {
-  const int number_of_channels = static_cast<int>(frame.num_channels_);
-  const int target_number_of_samples_per_channel =
-      destination_sample_rate / 100;
-  resampler->InitializeIfNeeded(frame.sample_rate_hz_, destination_sample_rate,
-                                number_of_channels);
+             InterleavedView<int16_t> destination) {
+  TRACE_EVENT2("webrtc", "Resample", "frame sample rate", frame.sample_rate_hz_,
+               "destination_sample_rate", destination_sample_rate);
+  const size_t target_number_of_samples_per_channel =
+      SampleRateToDefaultChannelSize(destination_sample_rate);
+  RTC_DCHECK_EQ(NumChannels(destination), frame.num_channels_);
+  RTC_DCHECK_EQ(SamplesPerChannel(destination),
+                target_number_of_samples_per_channel);
+  RTC_CHECK_EQ(destination.data().size(),
+               frame.num_channels_ * target_number_of_samples_per_channel);
 
-  // TODO(yujo): make resampler take an AudioFrame, and add special case
-  // handling of muted frames.
-  return resampler->Resample(
-      frame.data(), frame.samples_per_channel_ * number_of_channels,
-      destination, number_of_channels * target_number_of_samples_per_channel);
+  // TODO(yujo): Add special case handling of muted frames.
+  return resampler->Resample(frame.data_view(), destination);
 }
 }  // namespace
 
-AudioTransportImpl::AudioTransportImpl(AudioMixer* mixer,
-                                       AudioProcessing* audio_processing)
-    : audio_processing_(audio_processing), mixer_(mixer) {
+AudioTransportImpl::AudioTransportImpl(
+    AudioMixer* mixer,
+    AudioProcessing* audio_processing,
+    AsyncAudioProcessing::Factory* async_audio_processing_factory)
+    : audio_processing_(audio_processing),
+      async_audio_processing_(
+          async_audio_processing_factory
+              ? async_audio_processing_factory->CreateAsyncAudioProcessing(
+                    [this](std::unique_ptr<AudioFrame> frame) {
+                      this->SendProcessedData(std::move(frame));
+                    })
+              : nullptr),
+      mixer_(mixer) {
   RTC_DCHECK(mixer);
-  RTC_DCHECK(audio_processing);
 }
 
 AudioTransportImpl::~AudioTransportImpl() {}
+
+int32_t AudioTransportImpl::RecordedDataIsAvailable(
+    const void* audio_data,
+    size_t number_of_frames,
+    size_t bytes_per_sample,
+    size_t number_of_channels,
+    uint32_t sample_rate,
+    uint32_t audio_delay_milliseconds,
+    int32_t clock_drift,
+    uint32_t volume,
+    bool key_pressed,
+    uint32_t& new_mic_volume) {  // NOLINT: to avoid changing APIs
+  return RecordedDataIsAvailable(
+      audio_data, number_of_frames, bytes_per_sample, number_of_channels,
+      sample_rate, audio_delay_milliseconds, clock_drift, volume, key_pressed,
+      new_mic_volume, /*estimated_capture_time_ns=*/std::nullopt);
+}
 
 // Not used in Chromium. Process captured audio and distribute to all sending
 // streams, and try to do this at the lowest possible sample rate.
 int32_t AudioTransportImpl::RecordedDataIsAvailable(
     const void* audio_data,
-    const size_t number_of_frames,
-    const size_t bytes_per_sample,
-    const size_t number_of_channels,
-    const uint32_t sample_rate,
-    const uint32_t audio_delay_milliseconds,
-    const int32_t /*clock_drift*/,
-    const uint32_t /*volume*/,
-    const bool key_pressed,
-    uint32_t& /*new_mic_volume*/) {  // NOLINT: to avoid changing APIs
+    size_t number_of_frames,
+    size_t bytes_per_sample,
+    size_t number_of_channels,
+    uint32_t sample_rate,
+    uint32_t audio_delay_milliseconds,
+    int32_t /*clock_drift*/,
+    uint32_t /*volume*/,
+    bool key_pressed,
+    uint32_t& /*new_mic_volume*/,
+    std::optional<int64_t>
+        estimated_capture_time_ns) {  // NOLINT: to avoid changing APIs
   RTC_DCHECK(audio_data);
   RTC_DCHECK_GE(number_of_channels, 1);
   RTC_DCHECK_LE(number_of_channels, 2);
@@ -111,11 +146,14 @@ int32_t AudioTransportImpl::RecordedDataIsAvailable(
   RTC_DCHECK_LE(bytes_per_sample * number_of_frames * number_of_channels,
                 AudioFrame::kMaxDataSizeBytes);
 
+  InterleavedView<const int16_t> source(static_cast<const int16_t*>(audio_data),
+                                        number_of_frames, number_of_channels);
+
   int send_sample_rate_hz = 0;
   size_t send_num_channels = 0;
   bool swap_stereo_channels = false;
   {
-    rtc::CritScope lock(&capture_lock_);
+    MutexLock lock(&capture_lock_);
     send_sample_rate_hz = send_sample_rate_hz_;
     send_num_channels = send_num_channels_;
     swap_stereo_channels = swap_stereo_channels_;
@@ -124,44 +162,42 @@ int32_t AudioTransportImpl::RecordedDataIsAvailable(
   std::unique_ptr<AudioFrame> audio_frame(new AudioFrame());
   InitializeCaptureFrame(sample_rate, send_sample_rate_hz, number_of_channels,
                          send_num_channels, audio_frame.get());
-  voe::RemixAndResample(static_cast<const int16_t*>(audio_data),
-                        number_of_frames, number_of_channels, sample_rate,
-                        &capture_resampler_, audio_frame.get());
+  voe::RemixAndResample(source, sample_rate, &capture_resampler_,
+                        audio_frame.get());
   ProcessCaptureFrame(audio_delay_milliseconds, key_pressed,
                       swap_stereo_channels, audio_processing_,
                       audio_frame.get());
 
-  // Typing detection (utilizes the APM/VAD decision). We let the VAD determine
-  // if we're using this feature or not.
-  // TODO(solenberg): GetConfig() takes a lock. Work around that.
-  bool typing_detected = false;
-  if (audio_processing_->GetConfig().voice_detection.enabled) {
-    if (audio_frame->vad_activity_ != AudioFrame::kVadUnknown) {
-      bool vad_active = audio_frame->vad_activity_ == AudioFrame::kVadActive;
-      typing_detected = typing_detection_.Process(key_pressed, vad_active);
-    }
+  if (estimated_capture_time_ns) {
+    audio_frame->set_absolute_capture_timestamp_ms(*estimated_capture_time_ns /
+                                                   1000000);
   }
 
-  // Copy frame and push to each sending stream. The copy is required since an
-  // encoding task will be posted internally to each stream.
-  {
-    rtc::CritScope lock(&capture_lock_);
-    typing_noise_detected_ = typing_detected;
-
-    RTC_DCHECK_GT(audio_frame->samples_per_channel_, 0);
-    if (!audio_senders_.empty()) {
-      auto it = audio_senders_.begin();
-      while (++it != audio_senders_.end()) {
-        std::unique_ptr<AudioFrame> audio_frame_copy(new AudioFrame());
-        audio_frame_copy->CopyFrom(*audio_frame);
-        (*it)->SendAudioData(std::move(audio_frame_copy));
-      }
-      // Send the original frame to the first stream w/o copying.
-      (*audio_senders_.begin())->SendAudioData(std::move(audio_frame));
-    }
-  }
+  RTC_DCHECK_GT(audio_frame->samples_per_channel_, 0);
+  if (async_audio_processing_)
+    async_audio_processing_->Process(std::move(audio_frame));
+  else
+    SendProcessedData(std::move(audio_frame));
 
   return 0;
+}
+
+void AudioTransportImpl::SendProcessedData(
+    std::unique_ptr<AudioFrame> audio_frame) {
+  TRACE_EVENT0("webrtc", "AudioTransportImpl::SendProcessedData");
+  RTC_DCHECK_GT(audio_frame->samples_per_channel_, 0);
+  MutexLock lock(&capture_lock_);
+  if (audio_senders_.empty())
+    return;
+
+  auto it = audio_senders_.begin();
+  while (++it != audio_senders_.end()) {
+    auto audio_frame_copy = std::make_unique<AudioFrame>();
+    audio_frame_copy->CopyFrom(*audio_frame);
+    (*it)->SendAudioData(std::move(audio_frame_copy));
+  }
+  // Send the original frame to the first stream w/o copying.
+  (*audio_senders_.begin())->SendAudioData(std::move(audio_frame));
 }
 
 // Mix all received streams, feed the result to the AudioProcessing module, then
@@ -174,6 +210,7 @@ int32_t AudioTransportImpl::NeedMorePlayData(const size_t nSamples,
                                              size_t& nSamplesOut,
                                              int64_t* elapsed_time_ms,
                                              int64_t* ntp_time_ms) {
+  TRACE_EVENT0("webrtc", "AudioTransportImpl::SendProcessedData");
   RTC_DCHECK_EQ(sizeof(int16_t) * nChannels, nBytesPerSample);
   RTC_DCHECK_GE(nChannels, 1);
   RTC_DCHECK_LE(nChannels, 2);
@@ -190,11 +227,16 @@ int32_t AudioTransportImpl::NeedMorePlayData(const size_t nSamples,
   *elapsed_time_ms = mixed_frame_.elapsed_time_ms_;
   *ntp_time_ms = mixed_frame_.ntp_time_ms_;
 
-  const auto error = audio_processing_->ProcessReverseStream(&mixed_frame_);
-  RTC_DCHECK_EQ(error, AudioProcessing::kNoError);
+  if (audio_processing_) {
+    const auto error =
+        ProcessReverseAudioFrame(audio_processing_, &mixed_frame_);
+    RTC_DCHECK_EQ(error, AudioProcessing::kNoError);
+  }
 
-  nSamplesOut = Resample(mixed_frame_, samplesPerSec, &render_resampler_,
-                         static_cast<int16_t*>(audioSamples));
+  nSamplesOut =
+      Resample(mixed_frame_, samplesPerSec, &render_resampler_,
+               InterleavedView<int16_t>(static_cast<int16_t*>(audioSamples),
+                                        nSamples, nChannels));
   RTC_DCHECK_EQ(nSamplesOut, nChannels * nSamples);
   return 0;
 }
@@ -208,6 +250,8 @@ void AudioTransportImpl::PullRenderData(int bits_per_sample,
                                         void* audio_data,
                                         int64_t* elapsed_time_ms,
                                         int64_t* ntp_time_ms) {
+  TRACE_EVENT2("webrtc", "AudioTransportImpl::PullRenderData", "sample_rate",
+               sample_rate, "number_of_frames", number_of_frames);
   RTC_DCHECK_EQ(bits_per_sample, 16);
   RTC_DCHECK_GE(number_of_channels, 1);
   RTC_DCHECK_GE(sample_rate, AudioProcessing::NativeRate::kSampleRate8kHz);
@@ -222,27 +266,25 @@ void AudioTransportImpl::PullRenderData(int bits_per_sample,
   *elapsed_time_ms = mixed_frame_.elapsed_time_ms_;
   *ntp_time_ms = mixed_frame_.ntp_time_ms_;
 
-  auto output_samples = Resample(mixed_frame_, sample_rate, &render_resampler_,
-                                 static_cast<int16_t*>(audio_data));
+  int output_samples =
+      Resample(mixed_frame_, sample_rate, &render_resampler_,
+               InterleavedView<int16_t>(static_cast<int16_t*>(audio_data),
+                                        number_of_frames, number_of_channels));
   RTC_DCHECK_EQ(output_samples, number_of_channels * number_of_frames);
 }
 
 void AudioTransportImpl::UpdateAudioSenders(std::vector<AudioSender*> senders,
                                             int send_sample_rate_hz,
                                             size_t send_num_channels) {
-  rtc::CritScope lock(&capture_lock_);
+  MutexLock lock(&capture_lock_);
   audio_senders_ = std::move(senders);
   send_sample_rate_hz_ = send_sample_rate_hz;
   send_num_channels_ = send_num_channels;
 }
 
 void AudioTransportImpl::SetStereoChannelSwapping(bool enable) {
-  rtc::CritScope lock(&capture_lock_);
+  MutexLock lock(&capture_lock_);
   swap_stereo_channels_ = enable;
 }
 
-bool AudioTransportImpl::typing_noise_detected() const {
-  rtc::CritScope lock(&capture_lock_);
-  return typing_noise_detected_;
-}
 }  // namespace webrtc

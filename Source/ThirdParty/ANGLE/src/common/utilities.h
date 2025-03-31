@@ -11,6 +11,7 @@
 
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
+#include <GLSLANG/ShaderLang.h>
 
 #include <math.h>
 #include <string>
@@ -39,6 +40,7 @@ int VariableRowCount(GLenum type);
 int VariableColumnCount(GLenum type);
 bool IsSamplerType(GLenum type);
 bool IsSamplerCubeType(GLenum type);
+bool IsSamplerYUVType(GLenum type);
 bool IsImageType(GLenum type);
 bool IsImage2DType(GLenum type);
 bool IsAtomicCounterType(GLenum type);
@@ -60,6 +62,12 @@ int AllocateFirstFreeBits(unsigned int *bits, unsigned int allocationSize, unsig
 // outermost array indices in the back. If an array index is invalid, GL_INVALID_INDEX is added to
 // outSubscripts.
 std::string ParseResourceName(const std::string &name, std::vector<unsigned int> *outSubscripts);
+
+bool IsBuiltInName(const char *name);
+ANGLE_INLINE bool IsBuiltInName(const std::string &name)
+{
+    return IsBuiltInName(name.c_str());
+}
 
 // Strips only the last array index from a resource name.
 std::string StripLastArrayIndex(const std::string &name);
@@ -108,6 +116,11 @@ bool IsIntegerFormat(GLenum unsizedFormat);
 // Returns the product of the sizes in the vector, or 1 if the vector is empty. Doesn't currently
 // perform overflow checks.
 unsigned int ArraySizeProduct(const std::vector<unsigned int> &arraySizes);
+// Returns the product of the sizes in the vector except for the outermost dimension, or 1 if the
+// vector is empty.
+unsigned int InnerArraySizeProduct(const std::vector<unsigned int> &arraySizes);
+// Returns the outermost array dimension, or 1 if the vector is empty.
+unsigned int OutermostArraySize(const std::vector<unsigned int> &arraySizes);
 
 // Return the array index at the end of name, and write the length of name before the final array
 // index into nameLengthWithoutArrayIndexOut. In case name doesn't include an array index, return
@@ -141,8 +154,7 @@ struct UniformTypeInfo final : angle::NonCopyable
                                      size_t externalSize,
                                      bool isSampler,
                                      bool isMatrixType,
-                                     bool isImageType,
-                                     const char *glslAsFloat);
+                                     bool isImageType);
 
     GLenum type;
     GLenum componentType;
@@ -159,7 +171,6 @@ struct UniformTypeInfo final : angle::NonCopyable
     bool isSampler;
     bool isMatrixType;
     bool isImageType;
-    const char *glslAsFloat;
 };
 
 inline constexpr UniformTypeInfo::UniformTypeInfo(GLenum type,
@@ -176,8 +187,7 @@ inline constexpr UniformTypeInfo::UniformTypeInfo(GLenum type,
                                                   size_t externalSize,
                                                   bool isSampler,
                                                   bool isMatrixType,
-                                                  bool isImageType,
-                                                  const char *glslAsFloat)
+                                                  bool isImageType)
     : type(type),
       componentType(componentType),
       textureType(textureType),
@@ -192,15 +202,21 @@ inline constexpr UniformTypeInfo::UniformTypeInfo(GLenum type,
       externalSize(externalSize),
       isSampler(isSampler),
       isMatrixType(isMatrixType),
-      isImageType(isImageType),
-      glslAsFloat(glslAsFloat)
+      isImageType(isImageType)
 {}
 
+struct UniformTypeIndex
+{
+    uint16_t value;
+};
 const UniformTypeInfo &GetUniformTypeInfo(GLenum uniformType);
+UniformTypeIndex GetUniformTypeIndex(GLenum uniformType);
 
 const char *GetGenericErrorMessage(GLenum error);
 
 unsigned int ElementTypeSize(GLenum elementType);
+
+bool IsMipmapFiltered(GLenum minFilterMode);
 
 template <typename T>
 T GetClampedVertexCount(size_t vertexCount)
@@ -222,19 +238,75 @@ const char *GetDebugMessageSourceString(GLenum source);
 const char *GetDebugMessageTypeString(GLenum type);
 const char *GetDebugMessageSeverityString(GLenum severity);
 
-// For use with EXT_texture_format_sRGB_override and EXT_texture_sRGB_decode
-// A texture may either have SRGB decoding forced on, or use whatever decode state is default for
-// the texture format.
+// For use with EXT_texture_sRGB_decode
+// A texture may be forced to skip decoding to a linear colorspace even if its format
+// is in sRGB colorspace.
+//
+// Default - decode data according to the image's format's colorspace
+// Skip - data is not decoded during sampling
+enum class SrgbDecode
+{
+    Default = 0,
+    Skip
+};
+
+// For use with EXT_texture_format_sRGB_override
+// A texture may be forced to decode data to linear colorspace even if its format
+// is in linear colorspace.
+//
+// Default - decode data according to the image's format's colorspace
+// SRGB - data will be decoded to linear colorspace irrespective of texture's format
 enum class SrgbOverride
 {
     Default = 0,
-    Enabled
+    SRGB
 };
+
+// For use with EXT_sRGB_write_control
+// A framebuffer may be forced to not encode data to sRGB colorspace even if its format
+// is in sRGB colorspace.
+//
+// Default - encode data according to the image's format's colorspace
+// Linear - data will not be encoded into sRGB colorspace
+enum class SrgbWriteControlMode
+{
+    Default = 0,
+    Linear  = 1
+};
+
+// For use with EXT_YUV_target
+// A sampler of external YUV textures may either implicitly perform RGB conversion (regular
+// samplerExternalOES) or skip the conversion and sample raw YUV values (__samplerExternal2DY2Y).
+enum class YuvSamplingMode
+{
+    Default = 0,
+    Y2Y     = 1
+};
+
+ShaderType GetShaderTypeFromBitfield(size_t singleShaderType);
+GLbitfield GetBitfieldFromShaderType(ShaderType shaderType);
+bool ShaderTypeSupportsTransformFeedback(ShaderType shaderType);
+// Given a set of shader stages, returns the last vertex processing stage.  This is the stage that
+// interfaces the fragment shader.
+ShaderType GetLastPreFragmentStage(ShaderBitSet shaderTypes);
 
 }  // namespace gl
 
 namespace egl
 {
+// For use with EGL_EXT_image_gl_colorspace
+// An EGLImage can be created with attributes that override the color space of underlying image data
+// when rendering to the image, or sampling from the image. The possible values are -
+//  Default - EGLImage source's colorspace should be preserved
+//  sRGB - EGLImage targets will assume sRGB colorspace
+//  Linear - EGLImage targets will assume linear colorspace
+enum class ImageColorspace
+{
+    Default = 0,
+    SRGB,
+    Linear
+};
+
 static const EGLenum FirstCubeMapTextureTarget = EGL_GL_TEXTURE_CUBE_MAP_POSITIVE_X_KHR;
 static const EGLenum LastCubeMapTextureTarget  = EGL_GL_TEXTURE_CUBE_MAP_NEGATIVE_Z_KHR;
 bool IsCubeMapTextureTarget(EGLenum target);
@@ -258,13 +330,69 @@ EGLenum GLComponentTypeToEGLColorComponentType(GLenum glComponentType);
 EGLClientBuffer GLObjectHandleToEGLClientBuffer(GLuint handle);
 }  // namespace gl_egl
 
-#if !defined(ANGLE_ENABLE_WINDOWS_UWP)
-std::string getTempPath();
-void writeFile(const char *path, const void *data, size_t size);
-#endif
+namespace angle
+{
 
-#if defined(ANGLE_PLATFORM_WINDOWS)
-void ScheduleYield();
-#endif
+// All state that modify attachment's colorspace
+struct ColorspaceState
+{
+  public:
+    ColorspaceState() { reset(); }
+    void reset()
+    {
+        hasStaticTexelFetchAccess = false;
+        srgbDecode                = gl::SrgbDecode::Default;
+        srgbOverride              = gl::SrgbOverride::Default;
+        srgbWriteControl          = gl::SrgbWriteControlMode::Default;
+        eglImageColorspace        = egl::ImageColorspace::Default;
+    }
+
+    // States that affect read operations
+    bool hasStaticTexelFetchAccess;
+    gl::SrgbDecode srgbDecode;
+    gl::SrgbOverride srgbOverride;
+
+    // States that affect write operations
+    gl::SrgbWriteControlMode srgbWriteControl;
+
+    // States that affect both read and write operations
+    egl::ImageColorspace eglImageColorspace;
+};
+
+template <typename T>
+constexpr size_t ConstStrLen(T s)
+{
+    if (s == nullptr)
+    {
+        return 0;
+    }
+    return std::char_traits<char>::length(s);
+}
+
+bool IsDrawEntryPoint(EntryPoint entryPoint);
+bool IsDispatchEntryPoint(EntryPoint entryPoint);
+bool IsClearEntryPoint(EntryPoint entryPoint);
+bool IsQueryEntryPoint(EntryPoint entryPoint);
+
+template <typename T>
+void FillWithNullptr(T *array)
+{
+    // std::array::fill(nullptr) yields unoptimized, unrolled loop over array items
+    memset(array->data(), 0, array->size() * sizeof(*array->data()));
+    // sanity check for non-0 nullptr
+    ASSERT(array->data()[0] == nullptr);
+}
+}  // namespace angle
+
+void writeFile(const char *path, const void *data, size_t size);
+
+// Get the underlying type. Useful for indexing into arrays with enum values by avoiding the clutter
+// of the extraneous static_cast<>() calls.
+// https://stackoverflow.com/a/8357462
+template <typename E>
+constexpr typename std::underlying_type<E>::type ToUnderlying(E e) noexcept
+{
+    return static_cast<typename std::underlying_type<E>::type>(e);
+}
 
 #endif  // COMMON_UTILITIES_H_

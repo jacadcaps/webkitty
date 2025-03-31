@@ -14,14 +14,16 @@
 #include <memory>
 #include <vector>
 
+#include "api/environment/environment.h"
+#include "api/environment/environment_factory.h"
 #include "api/test/frame_generator_interface.h"
 #include "api/video_codecs/video_decoder.h"
 #include "api/video_codecs/video_encoder.h"
 #include "modules/video_coding/include/video_codec_interface.h"
 #include "modules/video_coding/utility/vp8_header_parser.h"
 #include "modules/video_coding/utility/vp9_uncompressed_header_parser.h"
-#include "rtc_base/critical_section.h"
 #include "rtc_base/event.h"
+#include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/thread_annotations.h"
 #include "test/gtest.h"
 
@@ -30,7 +32,8 @@ namespace webrtc {
 class VideoCodecUnitTest : public ::testing::Test {
  public:
   VideoCodecUnitTest()
-      : encode_complete_callback_(this),
+      : env_(CreateEnvironment()),
+        encode_complete_callback_(this),
         decode_complete_callback_(this),
         wait_for_encoded_frames_threshold_(1),
         last_input_frame_timestamp_(0) {}
@@ -42,8 +45,7 @@ class VideoCodecUnitTest : public ::testing::Test {
         : test_(test) {}
 
     Result OnEncodedImage(const EncodedImage& frame,
-                          const CodecSpecificInfo* codec_specific_info,
-                          const RTPFragmentationHeader* fragmentation);
+                          const CodecSpecificInfo* codec_specific_info);
 
    private:
     VideoCodecUnitTest* const test_;
@@ -55,16 +57,16 @@ class VideoCodecUnitTest : public ::testing::Test {
         : test_(test) {}
 
     int32_t Decoded(VideoFrame& frame) override {
-      RTC_NOTREACHED();
+      RTC_DCHECK_NOTREACHED();
       return -1;
     }
     int32_t Decoded(VideoFrame& frame, int64_t decode_time_ms) override {
-      RTC_NOTREACHED();
+      RTC_DCHECK_NOTREACHED();
       return -1;
     }
     void Decoded(VideoFrame& frame,
-                 absl::optional<int32_t> decode_time_ms,
-                 absl::optional<uint8_t> qp) override;
+                 std::optional<int32_t> decode_time_ms,
+                 std::optional<uint8_t> qp) override;
 
    private:
     VideoCodecUnitTest* const test_;
@@ -84,7 +86,7 @@ class VideoCodecUnitTest : public ::testing::Test {
                            CodecSpecificInfo* codec_specific_info);
 
   // Helper methods for waiting for multiple encoded frames. Caller must
-  // define how many frames are to be waited for via |num_frames| before calling
+  // define how many frames are to be waited for via `num_frames` before calling
   // Encode(). Then, they can expect to retrive them via WaitForEncodedFrames().
   void SetWaitForEncodedFramesThreshold(size_t num_frames);
   bool WaitForEncodedFrames(
@@ -93,10 +95,11 @@ class VideoCodecUnitTest : public ::testing::Test {
 
   // Helper method for waiting a single decoded frame.
   bool WaitForDecodedFrame(std::unique_ptr<VideoFrame>* frame,
-                           absl::optional<uint8_t>* qp);
+                           std::optional<uint8_t>* qp);
 
   size_t GetNumEncodedFrames();
 
+  const Environment env_;
   VideoCodec codec_settings_;
 
   std::unique_ptr<VideoEncoder> encoder_;
@@ -108,7 +111,7 @@ class VideoCodecUnitTest : public ::testing::Test {
   FakeDecodeCompleteCallback decode_complete_callback_;
 
   rtc::Event encoded_frame_event_;
-  rtc::CriticalSection encoded_frame_section_;
+  Mutex encoded_frame_section_;
   size_t wait_for_encoded_frames_threshold_;
   std::vector<EncodedImage> encoded_frames_
       RTC_GUARDED_BY(encoded_frame_section_);
@@ -116,10 +119,10 @@ class VideoCodecUnitTest : public ::testing::Test {
       RTC_GUARDED_BY(encoded_frame_section_);
 
   rtc::Event decoded_frame_event_;
-  rtc::CriticalSection decoded_frame_section_;
-  absl::optional<VideoFrame> decoded_frame_
+  Mutex decoded_frame_section_;
+  std::optional<VideoFrame> decoded_frame_
       RTC_GUARDED_BY(decoded_frame_section_);
-  absl::optional<uint8_t> decoded_qp_ RTC_GUARDED_BY(decoded_frame_section_);
+  std::optional<uint8_t> decoded_qp_ RTC_GUARDED_BY(decoded_frame_section_);
 
   uint32_t last_input_frame_timestamp_;
 };

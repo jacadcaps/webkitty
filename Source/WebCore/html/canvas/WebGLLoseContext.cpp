@@ -26,33 +26,35 @@
 #include "config.h"
 
 #if ENABLE(WEBGL)
-
 #include "WebGLLoseContext.h"
 
-#include "WebGLRenderingContextBase.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(WebGLLoseContext);
+
 WebGLLoseContext::WebGLLoseContext(WebGLRenderingContextBase& context)
-    : WebGLExtension(context)
+    : WebGLExtension(context, WebGLExtensionName::WebGLLoseContext)
 {
 }
 
 WebGLLoseContext::~WebGLLoseContext() = default;
 
-WebGLExtension::ExtensionName WebGLLoseContext::getName() const
-{
-    return WebGLLoseContextName;
-}
-
 void WebGLLoseContext::loseContext()
 {
-    m_context.forceLostContext(WebGLRenderingContextBase::SyntheticLostContext);
+    if (isContextLost())
+        return;
+    auto& context = this->context();
+    context.forceLostContext(WebGLRenderingContextBase::SyntheticLostContext);
 }
 
 void WebGLLoseContext::restoreContext()
 {
-    m_context.forceRestoreContext();
+    if (isContextLost())
+        return;
+    auto& context = this->context();
+    context.forceRestoreContext();
 }
 
 } // namespace WebCore

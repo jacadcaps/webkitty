@@ -23,15 +23,19 @@
 
 #include "SVGTextPositioningElement.h"
 #include "SVGURIReference.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class SVGTRefTargetEventListener;
 
 class SVGTRefElement final : public SVGTextPositioningElement, public SVGURIReference {
-    WTF_MAKE_ISO_ALLOCATED(SVGTRefElement);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(SVGTRefElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SVGTRefElement);
 public:
     static Ref<SVGTRefElement> create(const QualifiedName&, Document&);
+
+    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGTRefElement, SVGTextPositioningElement, SVGURIReference>;
 
 private:
     friend class SVGTRefTargetEventListener;
@@ -39,10 +43,9 @@ private:
     SVGTRefElement(const QualifiedName&, Document&);
     virtual ~SVGTRefElement();
 
-    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGTRefElement, SVGTextPositioningElement, SVGURIReference>;
-    const SVGPropertyRegistry& propertyRegistry() const final { return m_propertyRegistry; }
+    Ref<SVGTRefTargetEventListener> protectedTargetListener() const;
 
-    void parseAttribute(const QualifiedName&, const AtomString&) override;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) override;
     void svgAttributeChanged(const QualifiedName&) override;
 
     RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) override;
@@ -58,7 +61,6 @@ private:
     void detachTarget();
     void buildPendingResource() override;
 
-    PropertyRegistry m_propertyRegistry { *this };
     Ref<SVGTRefTargetEventListener> m_targetListener;
 };
 

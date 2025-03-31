@@ -37,21 +37,16 @@ class InspectorAgentBase;
 
 enum class DisconnectReason;
 
-class JS_EXPORT_PRIVATE AgentRegistry {
+class AgentRegistry {
 public:
-    AgentRegistry();
-    ~AgentRegistry();
+    JS_EXPORT_PRIVATE AgentRegistry();
+    JS_EXPORT_PRIVATE ~AgentRegistry();
 
-    void append(std::unique_ptr<InspectorAgentBase>);
+    JS_EXPORT_PRIVATE void append(std::unique_ptr<InspectorAgentBase>);
 
-    void didCreateFrontendAndBackend(FrontendRouter*, BackendDispatcher*);
-    void willDestroyFrontendAndBackend(DisconnectReason);
-    void discardValues();
-
-#if ENABLE(INSPECTOR_ALTERNATE_DISPATCHERS)
-    void appendExtraAgent(std::unique_ptr<InspectorAgentBase>);
-    Vector<String> extraDomains() const { return m_extraDomains; }
-#endif
+    JS_EXPORT_PRIVATE void didCreateFrontendAndBackend(FrontendRouter*, BackendDispatcher*);
+    JS_EXPORT_PRIVATE void willDestroyFrontendAndBackend(DisconnectReason);
+    JS_EXPORT_PRIVATE void discardValues();
 
 private:
     // These are declared here to avoid MSVC from trying to create default iplementations which would
@@ -60,9 +55,6 @@ private:
     AgentRegistry& operator=(const AgentRegistry&) = delete;
 
     Vector<std::unique_ptr<InspectorAgentBase>> m_agents;
-#if ENABLE(INSPECTOR_ALTERNATE_DISPATCHERS)
-    Vector<String> m_extraDomains;
-#endif
 };
 
 } // namespace Inspector

@@ -26,12 +26,18 @@
 #import "config.h"
 #import "WKNSData.h"
 
+#import <WebCore/WebCoreObjCExtras.h>
+#import <wtf/AlignedStorage.h>
+
 @implementation WKNSData {
-    API::ObjectStorage<API::Data> _data;
+    AlignedStorage<API::Data> _data;
 }
 
 - (void)dealloc
 {
+    if (WebCoreObjCScheduleDeallocateOnMainRunLoop(WKNSData.class, self))
+        return;
+
     _data->~Data();
 
     [super dealloc];
@@ -46,7 +52,7 @@
 
 - (const void*)bytes
 {
-    return _data->bytes();
+    return _data->span().data();
 }
 
 #pragma mark NSCopying protocol implementation

@@ -13,9 +13,10 @@
 
 #include <stdint.h>
 
-#include "absl/types/optional.h"
+#include <optional>
+
+#include "api/field_trials_view.h"
 #include "api/transport/network_types.h"
-#include "api/transport/webrtc_key_value_config.h"
 #include "api/units/data_rate.h"
 #include "api/units/timestamp.h"
 #include "modules/congestion_controller/goog_cc/link_capacity_estimator.h"
@@ -30,8 +31,8 @@ namespace webrtc {
 // multiplicatively.
 class AimdRateControl {
  public:
-  explicit AimdRateControl(const WebRtcKeyValueConfig* key_value_config);
-  AimdRateControl(const WebRtcKeyValueConfig* key_value_config, bool send_side);
+  explicit AimdRateControl(const FieldTrialsView& key_value_config);
+  AimdRateControl(const FieldTrialsView& key_value_config, bool send_side);
   ~AimdRateControl();
 
   // Returns true if the target bitrate has been initialized. This happens
@@ -53,11 +54,11 @@ class AimdRateControl {
 
   DataRate LatestEstimate() const;
   void SetRtt(TimeDelta rtt);
-  DataRate Update(const RateControlInput* input, Timestamp at_time);
+  DataRate Update(const RateControlInput& input, Timestamp at_time);
   void SetInApplicationLimitedRegion(bool in_alr);
   void SetEstimate(DataRate bitrate, Timestamp at_time);
   void SetNetworkStateEstimate(
-      const absl::optional<NetworkStateEstimate>& estimate);
+      const std::optional<NetworkStateEstimate>& estimate);
 
   // Returns the increase rate when used bandwidth is near the link capacity.
   double GetNearMaxIncreaseRateBpsPerSecond() const;
@@ -65,6 +66,8 @@ class AimdRateControl {
   TimeDelta GetExpectedBandwidthPeriod() const;
 
  private:
+  enum class RateControlState { kRcHold, kRcIncrease, kRcDecrease };
+
   friend class GoogCcStatePrinter;
   // Update the target bitrate based on, among other things, the current rate
   // control state, the current target bitrate and the estimated throughput.
@@ -88,7 +91,7 @@ class AimdRateControl {
   DataRate current_bitrate_;
   DataRate latest_estimated_throughput_;
   LinkCapacityEstimator link_capacity_;
-  absl::optional<NetworkStateEstimate> network_estimate_;
+  std::optional<NetworkStateEstimate> network_estimate_;
   RateControlState rate_control_state_;
   Timestamp time_last_bitrate_change_;
   Timestamp time_last_bitrate_decrease_;
@@ -98,19 +101,14 @@ class AimdRateControl {
   bool in_alr_;
   TimeDelta rtt_;
   const bool send_side_;
-  const bool in_experiment_;
   // Allow the delay based estimate to only increase as long as application
   // limited region (alr) is not detected.
   const bool no_bitrate_increase_in_alr_;
-  // Use estimated link capacity lower bound if it is higher than the
-  // acknowledged rate when backing off due to overuse.
-  const bool estimate_bounded_backoff_;
-  // Use estimated link capacity upper bound as upper limit for increasing
-  // bitrate over the acknowledged rate.
-  const bool estimate_bounded_increase_;
-  absl::optional<DataRate> last_decrease_;
-  FieldTrialOptional<TimeDelta> initial_backoff_interval_;
-  FieldTrialFlag link_capacity_fix_;
+  // If "Disabled",  estimated link capacity is not used as upper bound.
+  FieldTrialFlag disable_estimate_bounded_increase_{"Disabled"};
+  FieldTrialParameter<bool> use_current_estimate_as_min_upper_bound_{"c_upper",
+                                                                     true};
+  std::optional<DataRate> last_decrease_;
 };
 }  // namespace webrtc
 

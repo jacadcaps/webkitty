@@ -29,12 +29,13 @@
 #include "BackForwardCache.h"
 #include "DOMWrapperWorld.h"
 #include "Document.h"
-#include "Frame.h"
+#include "LocalFrame.h"
 #include "Page.h"
 #include "StorageNamespace.h"
 #include <JavaScriptCore/HeapInlines.h>
 #include <JavaScriptCore/StructureInlines.h>
 #include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMallocInlines.h>
 
 #if ENABLE(VIDEO)
 #if PLATFORM(MAC) || HAVE(MEDIA_ACCESSIBILITY_FRAMEWORK)
@@ -45,6 +46,8 @@
 #endif
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(PageGroup);
 
 static unsigned getUniqueIdentifier()
 {
@@ -68,7 +71,7 @@ PageGroup::PageGroup(Page& page)
 
 PageGroup::~PageGroup() = default;
 
-typedef HashMap<String, PageGroup*> PageGroupMap;
+using PageGroupMap = HashMap<String, PageGroup*>;
 static PageGroupMap* pageGroups = nullptr;
 
 PageGroup* PageGroup::pageGroup(const String& groupName)
@@ -91,31 +94,31 @@ PageGroup* PageGroup::pageGroup(const String& groupName)
 
 void PageGroup::addPage(Page& page)
 {
-    ASSERT(!m_pages.contains(&page));
-    m_pages.add(&page);
+    ASSERT(!m_pages.contains(page));
+    m_pages.add(page);
 }
 
 void PageGroup::removePage(Page& page)
 {
-    ASSERT(m_pages.contains(&page));
-    m_pages.remove(&page);
+    ASSERT(m_pages.contains(page));
+    m_pages.remove(page);
 }
 
 #if ENABLE(VIDEO)
 void PageGroup::captionPreferencesChanged()
 {
     for (auto& page : m_pages)
-        page->captionPreferencesChanged();
+        page.captionPreferencesChanged();
     BackForwardCache::singleton().markPagesForCaptionPreferencesChanged();
 }
 
-CaptionUserPreferences& PageGroup::captionPreferences()
+CaptionUserPreferences& PageGroup::ensureCaptionPreferences()
 {
     if (!m_captionPreferences) {
 #if PLATFORM(MAC) || HAVE(MEDIA_ACCESSIBILITY_FRAMEWORK)
-        m_captionPreferences = makeUnique<CaptionUserPreferencesMediaAF>(*this);
+        m_captionPreferences = CaptionUserPreferencesMediaAF::create(*this);
 #else
-        m_captionPreferences = makeUnique<CaptionUserPreferences>(*this);
+        m_captionPreferences = CaptionUserPreferences::create(*this);
 #endif
     }
 

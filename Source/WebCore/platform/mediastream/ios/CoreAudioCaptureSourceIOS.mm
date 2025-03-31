@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,6 +28,7 @@
 
 #if ENABLE(MEDIA_STREAM) && PLATFORM(IOS_FAMILY)
 
+#import "AVAudioSessionCaptureDeviceManager.h"
 #import "Logging.h"
 #import <AVFoundation/AVAudioSession.h>
 #import <wtf/MainThread.h>
@@ -86,12 +87,10 @@ namespace WebCore {
 CoreAudioCaptureSourceFactoryIOS::CoreAudioCaptureSourceFactoryIOS()
     : m_listener(adoptNS([[WebCoreAudioCaptureSourceIOSListener alloc] initWithCallback:this]))
 {
-    AudioSession::sharedSession().addInterruptionObserver(*this);
 }
 
 CoreAudioCaptureSourceFactoryIOS::~CoreAudioCaptureSourceFactoryIOS()
 {
-    AudioSession::sharedSession().removeInterruptionObserver(*this);
     [m_listener invalidate];
     m_listener = nullptr;
 }

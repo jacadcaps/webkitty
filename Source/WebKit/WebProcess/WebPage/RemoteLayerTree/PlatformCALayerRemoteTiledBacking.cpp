@@ -36,8 +36,9 @@ using namespace WebCore;
 
 PlatformCALayerRemoteTiledBacking::PlatformCALayerRemoteTiledBacking(LayerType layerType, PlatformCALayerClient* owner, RemoteLayerTreeContext& context)
     : PlatformCALayerRemote(layerType, owner, context)
-    , m_tileController(makeUnique<TileController>(this))
+    , m_tileController(makeUnique<TileController>(this, WebCore::TileController::AllowScrollPerformanceLogging::No))
 {
+    PlatformCALayerRemote::setContentsScale(m_tileController->contentsScale());
 }
 
 PlatformCALayerRemoteTiledBacking::~PlatformCALayerRemoteTiledBacking()
@@ -86,24 +87,14 @@ void PlatformCALayerRemoteTiledBacking::setAcceleratesDrawing(bool acceleratesDr
     m_tileController->setAcceleratesDrawing(acceleratesDrawing);
 }
 
-bool PlatformCALayerRemoteTiledBacking::wantsDeepColorBackingStore() const
+ContentsFormat PlatformCALayerRemoteTiledBacking::contentsFormat() const
 {
-    return m_tileController->wantsDeepColorBackingStore();
+    return m_tileController->contentsFormat();
 }
 
-void PlatformCALayerRemoteTiledBacking::setWantsDeepColorBackingStore(bool wantsDeepColorBackingStore)
+void PlatformCALayerRemoteTiledBacking::setContentsFormat(ContentsFormat contentsFormat)
 {
-    m_tileController->setWantsDeepColorBackingStore(wantsDeepColorBackingStore);
-}
-
-bool PlatformCALayerRemoteTiledBacking::supportsSubpixelAntialiasedText() const
-{
-    return m_tileController->supportsSubpixelAntialiasedText();
-}
-
-void PlatformCALayerRemoteTiledBacking::setSupportsSubpixelAntialiasedText(bool supportsSubpixelAntialiasedText)
-{
-    m_tileController->setSupportsSubpixelAntialiasedText(supportsSubpixelAntialiasedText);
+    m_tileController->setContentsFormat(contentsFormat);
 }
 
 float PlatformCALayerRemoteTiledBacking::contentsScale() const
@@ -113,6 +104,7 @@ float PlatformCALayerRemoteTiledBacking::contentsScale() const
 
 void PlatformCALayerRemoteTiledBacking::setContentsScale(float scale)
 {
+    PlatformCALayerRemote::setContentsScale(scale);
     m_tileController->setContentsScale(scale);
 }
 

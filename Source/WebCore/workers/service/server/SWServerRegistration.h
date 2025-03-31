@@ -25,15 +25,20 @@
 
 #pragma once
 
-#if ENABLE(SERVICE_WORKER)
-
+#include "CookieChangeSubscription.h"
+#include "NavigationPreloadState.h"
 #include "SWServer.h"
-#include "ServiceWorkerClientIdentifier.h"
+#include "ScriptExecutionContextIdentifier.h"
 #include "ServiceWorkerRegistrationData.h"
 #include "ServiceWorkerTypes.h"
 #include "Timer.h"
+#include <wtf/Forward.h>
 #include <wtf/HashCountedSet.h>
+#include <wtf/HashSet.h>
+#include <wtf/Identified.h>
 #include <wtf/MonotonicTime.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WallTime.h>
 #include <wtf/WeakPtr.h>
 
@@ -45,16 +50,16 @@ enum class ServiceWorkerRegistrationState : uint8_t;
 enum class ServiceWorkerState : uint8_t;
 struct ExceptionData;
 struct ServiceWorkerContextData;
-struct ServiceWorkerFetchResult;
 
-class SWServerRegistration : public CanMakeWeakPtr<SWServerRegistration> {
-    WTF_MAKE_FAST_ALLOCATED;
+enum class IsAppInitiated : bool { No, Yes };
+
+class SWServerRegistration : public RefCountedAndCanMakeWeakPtr<SWServerRegistration>, public Identified<ServiceWorkerRegistrationIdentifier> {
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(SWServerRegistration, WEBCORE_EXPORT);
 public:
-    SWServerRegistration(SWServer&, const ServiceWorkerRegistrationKey&, ServiceWorkerUpdateViaCache, const URL& scopeURL, const URL& scriptURL);
-    ~SWServerRegistration();
+    static Ref<SWServerRegistration> create(SWServer&, const ServiceWorkerRegistrationKey&, ServiceWorkerUpdateViaCache, const URL& scopeURL, const URL& scriptURL, std::optional<ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier, NavigationPreloadState&&);
+    WEBCORE_EXPORT ~SWServerRegistration();
 
     const ServiceWorkerRegistrationKey& key() const { return m_registrationKey; }
-    ServiceWorkerRegistrationIdentifier identifier() const { return m_identifier; }
 
     SWServerWorker* getNewestWorker();
     WEBCORE_EXPORT ServiceWorkerRegistrationData data() const;
@@ -75,19 +80,23 @@ public:
 
     void setPreInstallationWorker(SWServerWorker*);
     SWServerWorker* preInstallationWorker() const { return m_preInstallationWorker.get(); }
+    RefPtr<SWServerWorker> protectedPreInstallationWorker() const { return m_preInstallationWorker; }
     SWServerWorker* installingWorker() const { return m_installingWorker.get(); }
+    RefPtr<SWServerWorker> protectedInstallingWorker() const { return m_installingWorker; }
     SWServerWorker* waitingWorker() const { return m_waitingWorker.get(); }
+    RefPtr<SWServerWorker> protectedWaitingWorker() const { return m_waitingWorker; }
     SWServerWorker* activeWorker() const { return m_activeWorker.get(); }
+    RefPtr<SWServerWorker> protectedActiveWorker() const { return m_activeWorker; }
 
     MonotonicTime creationTime() const { return m_creationTime; }
 
     bool hasClientsUsingRegistration() const { return !m_clientsUsingRegistration.isEmpty(); }
-    void addClientUsingRegistration(const ServiceWorkerClientIdentifier&);
-    void removeClientUsingRegistration(const ServiceWorkerClientIdentifier&);
+    void addClientUsingRegistration(const ScriptExecutionContextIdentifier&);
+    void removeClientUsingRegistration(const ScriptExecutionContextIdentifier&);
     void unregisterServerConnection(SWServerConnectionIdentifier);
 
     void notifyClientsOfControllerChange();
-    void controlClient(ServiceWorkerClientIdentifier);
+    void controlClient(ScriptExecutionContextIdentifier);
 
     void clear();
     bool tryClear();
@@ -96,42 +105,61 @@ public:
     
     bool isUnregistered() const;
 
-    void forEachConnection(const WTF::Function<void(SWServer::Connection&)>&);
+    void forEachConnection(NOESCAPE const Function<void(SWServer::Connection&)>&);
 
     WEBCORE_EXPORT bool shouldSoftUpdate(const FetchOptions&) const;
-    WEBCORE_EXPORT void scheduleSoftUpdate();
+    WEBCORE_EXPORT void scheduleSoftUpdate(IsAppInitiated);
     static constexpr Seconds softUpdateDelay { 1_s };
 
     URL scopeURLWithoutFragment() const { return m_scopeURL; }
     URL scriptURL() const { return m_scriptURL; }
 
+    bool isAppInitiated() const { return m_isAppInitiated; }
+    std::optional<ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier() const { return m_serviceWorkerPageIdentifier; }
+
+    WEBCORE_EXPORT std::optional<ExceptionData> enableNavigationPreload();
+    WEBCORE_EXPORT std::optional<ExceptionData> disableNavigationPreload();
+    WEBCORE_EXPORT std::optional<ExceptionData> setNavigationPreloadHeaderValue(String&&);
+    const NavigationPreloadState& navigationPreloadState() const { return m_preloadState; }
+
+    WEBCORE_EXPORT void addCookieChangeSubscriptions(Vector<CookieChangeSubscription>&&);
+    WEBCORE_EXPORT void removeCookieChangeSubscriptions(Vector<CookieChangeSubscription>&&);
+    WEBCORE_EXPORT Vector<CookieChangeSubscription> cookieChangeSubscriptions() const;
+
 private:
+    SWServerRegistration(SWServer&, const ServiceWorkerRegistrationKey&, ServiceWorkerUpdateViaCache, const URL& scopeURL, const URL& scriptURL, std::optional<ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier, NavigationPreloadState&&);
+
     void activate();
     void handleClientUnload();
     void softUpdate();
 
-    ServiceWorkerRegistrationIdentifier m_identifier;
+    RefPtr<SWServer> protectedServer() const { return m_server.get(); }
+
     ServiceWorkerRegistrationKey m_registrationKey;
     ServiceWorkerUpdateViaCache m_updateViaCache;
     URL m_scopeURL;
     URL m_scriptURL;
+    std::optional<ScriptExecutionContextIdentifier> m_serviceWorkerPageIdentifier;
 
     RefPtr<SWServerWorker> m_preInstallationWorker; // Implementation detail, not part of the specification.
     RefPtr<SWServerWorker> m_installingWorker;
     RefPtr<SWServerWorker> m_waitingWorker;
     RefPtr<SWServerWorker> m_activeWorker;
 
+    HashSet<CookieChangeSubscription> m_cookieChangeSubscriptions;
+
     WallTime m_lastUpdateTime;
     
     HashCountedSet<SWServerConnectionIdentifier> m_connectionsWithClientRegistrations;
-    SWServer& m_server;
+    WeakPtr<SWServer> m_server;
 
     MonotonicTime m_creationTime;
-    HashMap<SWServerConnectionIdentifier, HashSet<DocumentIdentifier>> m_clientsUsingRegistration;
+    HashMap<SWServerConnectionIdentifier, HashSet<ScriptExecutionContextIdentifier>> m_clientsUsingRegistration;
 
     WebCore::Timer m_softUpdateTimer;
+    
+    bool m_isAppInitiated { true };
+    NavigationPreloadState m_preloadState;
 };
 
 } // namespace WebCore
-
-#endif // ENABLE(SERVICE_WORKER)

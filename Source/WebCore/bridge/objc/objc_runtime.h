@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2004-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2004-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -56,7 +56,7 @@ private:
 class ObjcMethod : public Method {
 public:
     ObjcMethod() : _objcClass(0), _selector(0), _javaScriptName(0) {}
-    ObjcMethod(ClassStructPtr aClass, SEL _selector);
+    ObjcMethod(ClassStructPtr aClass, SELStructPtr _selector);
 
     virtual int numParameters() const;
 
@@ -66,11 +66,11 @@ public:
     void setJavaScriptName(CFStringRef n) { _javaScriptName = n; }
     CFStringRef javaScriptName() const { return _javaScriptName.get(); }
     
-    SEL selector() const { return _selector; }
+    SELStructPtr selector() const { return _selector; }
 
 private:
     ClassStructPtr _objcClass;
-    SEL _selector;
+    SELStructPtr _selector;
     RetainPtr<CFStringRef> _javaScriptName;
 };
 
@@ -91,11 +91,11 @@ private:
 class ObjcFallbackObjectImp final : public JSDestructibleObject {
 public:
     using Base = JSDestructibleObject;
-    static constexpr unsigned StructureFlags = Base::StructureFlags | OverridesGetOwnPropertySlot | OverridesGetCallData;
-    static constexpr bool needsDestruction = true;
+    static constexpr unsigned StructureFlags = Base::StructureFlags | OverridesGetOwnPropertySlot | OverridesGetCallData | OverridesPut;
+    static constexpr JSC::DestructionMode needsDestruction = JSC::NeedsDestruction;
 
     template<typename CellType, JSC::SubspaceAccess>
-    static IsoSubspace* subspaceFor(JSC::VM& vm)
+    static GCClient::IsoSubspace* subspaceFor(JSC::VM& vm)
     {
         return subspaceForImpl(vm);
     }
@@ -105,7 +105,7 @@ public:
         VM& vm = globalObject->vm();
         // FIXME: deprecatedGetDOMStructure uses the prototype off of the wrong global object
         Structure* domStructure = WebCore::deprecatedGetDOMStructure<ObjcFallbackObjectImp>(exec);
-        ObjcFallbackObjectImp* fallbackObject = new (NotNull, allocateCell<ObjcFallbackObjectImp>(vm.heap)) ObjcFallbackObjectImp(globalObject, domStructure, instance, propertyName);
+        ObjcFallbackObjectImp* fallbackObject = new (NotNull, allocateCell<ObjcFallbackObjectImp>(vm)) ObjcFallbackObjectImp(globalObject, domStructure, instance, propertyName);
         fallbackObject->finishCreation(globalObject);
         return fallbackObject;
     }
@@ -124,20 +124,22 @@ public:
         return Structure::create(vm, globalObject, prototype, TypeInfo(ObjectType, StructureFlags), info());
     }
 
+    ObjcInstance* getInternalObjCInstance() const { return _instance.get(); }
+
+    static void destroy(JSCell*);
+
 private:
     ObjcFallbackObjectImp(JSGlobalObject*, Structure*, ObjcInstance*, const String& propertyName);
     void finishCreation(JSGlobalObject*);
 
-    static void destroy(JSCell*);
     static bool getOwnPropertySlot(JSObject*, JSGlobalObject*, PropertyName, PropertySlot&);
     static bool put(JSCell*, JSGlobalObject*, PropertyName, JSValue, PutPropertySlot&);
     static CallData getCallData(JSCell*);
     static bool deleteProperty(JSCell*, JSGlobalObject*, PropertyName, DeletePropertySlot&);
-    static JSValue defaultValue(const JSObject*, JSGlobalObject*, PreferredPrimitiveType);
 
     bool toBoolean(JSGlobalObject*) const; // FIXME: Currently this is broken because none of the superclasses are marked virtual. We need to solve this in the longer term.
 
-    static IsoSubspace* subspaceForImpl(VM&);
+    static GCClient::IsoSubspace* subspaceForImpl(VM&);
 
     RefPtr<ObjcInstance> _instance;
     String m_item;

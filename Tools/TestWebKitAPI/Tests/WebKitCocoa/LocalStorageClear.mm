@@ -25,6 +25,7 @@
 
 #import "config.h"
 
+#import "DeprecatedGlobalValues.h"
 #import "InstanceMethodSwizzler.h"
 #import "PlatformUtilities.h"
 #import "Test.h"
@@ -35,8 +36,6 @@
 #import <WebKit/WebKit.h>
 #import <WebKit/_WKProcessPoolConfiguration.h>
 #import <wtf/RetainPtr.h>
-
-static bool readyToContinue;
 
 @interface LocalStorageClearMessageHandler : NSObject <WKScriptMessageHandler>
 @end
@@ -62,7 +61,7 @@ TEST(WKWebView, LocalStorageClear)
     @autoreleasepool {
         RetainPtr<WKWebView> webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
 
-        NSURLRequest *request = [NSURLRequest requestWithURL:[[NSBundle mainBundle] URLForResource:@"LocalStorageClear" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"]];
+        NSURLRequest *request = [NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"LocalStorageClear" withExtension:@"html"]];
         [webView loadRequest:request];
 
         TestWebKitAPI::Util::run(&readyToContinue);
@@ -124,7 +123,7 @@ NSString *defaultApplicationCacheDirectory()
 #endif
 }
 
-TEST(WKWebView, ClearAppCache)
+TEST(WKWebView, ClearStaleAppCache)
 {
 #if PLATFORM(IOS_FAMILY)
     // On iOS, MobileSafari and webbookmarksd need to share the same AppCache directory.
@@ -149,9 +148,9 @@ TEST(WKWebView, ClearAppCache)
         [[NSFileManager defaultManager] removeItemAtURL:appCacheURL error:nil];
     }
 
-    NSURL *dbResourceURL = [[NSBundle mainBundle] URLForResource:@"ApplicationCache" withExtension:@"db" subdirectory:@"TestWebKitAPI.resources"];
-    NSURL *shmResourceURL = [[NSBundle mainBundle] URLForResource:@"ApplicationCache" withExtension:@"db-shm" subdirectory:@"TestWebKitAPI.resources"];
-    NSURL *walResourceURL = [[NSBundle mainBundle] URLForResource:@"ApplicationCache" withExtension:@"db-wal" subdirectory:@"TestWebKitAPI.resources"];
+    NSURL *dbResourceURL = [NSBundle.test_resourcesBundle URLForResource:@"ApplicationCache" withExtension:@"db"];
+    NSURL *shmResourceURL = [NSBundle.test_resourcesBundle URLForResource:@"ApplicationCache" withExtension:@"db-shm"];
+    NSURL *walResourceURL = [NSBundle.test_resourcesBundle URLForResource:@"ApplicationCache" withExtension:@"db-wal"];
 
     NSURL *targetURL = [NSURL fileURLWithPath:[defaultApplicationCacheDirectory() stringByExpandingTildeInPath]];
     [[NSFileManager defaultManager] createDirectoryAtURL:targetURL withIntermediateDirectories:YES attributes:nil error:nil];
@@ -172,37 +171,12 @@ TEST(WKWebView, ClearAppCache)
     EXPECT_GT(fileSize(shmTargetURL), 0);
     EXPECT_GT(fileSize(walTargetURL), 0);
 
-    static size_t originalWebsiteDataRecordCount;
-
-    // Make sure there is a record in the WKWebsiteDataStore.
+    // Stale AppCache data is removed, so there should be no record.
     readyToContinue = false;
     [[WKWebsiteDataStore defaultDataStore] fetchDataRecordsOfTypes:[WKWebsiteDataStore allWebsiteDataTypes] completionHandler:^(NSArray<WKWebsiteDataRecord *> *websiteDataRecords)
     {
-        EXPECT_EQ(websiteDataRecords.count, 1ul);
-        for (WKWebsiteDataRecord *record in websiteDataRecords) {
-            EXPECT_STREQ("127.0.0.1", [record.displayName UTF8String]);
-            for (NSString *type in record.dataTypes)
-                EXPECT_STREQ([WKWebsiteDataTypeOfflineWebApplicationCache UTF8String], [type UTF8String]);
-        }
-
-        originalWebsiteDataRecordCount = websiteDataRecords.count;
+        EXPECT_EQ(websiteDataRecords.count, 0ul);
         readyToContinue = true;
-    }];
-    TestWebKitAPI::Util::run(&readyToContinue);
-
-    readyToContinue = false;
-    [[WKWebsiteDataStore defaultDataStore] removeDataOfTypes:[WKWebsiteDataStore allWebsiteDataTypes] modifiedSince:[NSDate distantPast] completionHandler:^()
-    {
-        NSURL *targetURL = [NSURL fileURLWithPath:[defaultApplicationCacheDirectory() stringByExpandingTildeInPath]];
-        NSURL *walTargetURL = [targetURL URLByAppendingPathComponent:@"ApplicationCache.db-wal"];
-        
-        // Make sure there is no record in the WKWebsiteDataStore.
-        EXPECT_EQ(fileSize(walTargetURL), 0);
-        [[WKWebsiteDataStore defaultDataStore] fetchDataRecordsOfTypes:[WKWebsiteDataStore allWebsiteDataTypes] completionHandler:^(NSArray<WKWebsiteDataRecord *> *websiteDataRecords)
-        {
-            EXPECT_EQ(websiteDataRecords.count, originalWebsiteDataRecordCount - 1);
-            readyToContinue = true;
-        }];
     }];
     TestWebKitAPI::Util::run(&readyToContinue);
 }

@@ -25,8 +25,10 @@
 
 #import "config.h"
 
+#import "CGImagePixelReader.h"
 #import "PlatformUtilities.h"
 #import "TestWKWebView.h"
+#import <WebCore/Color.h>
 #import <WebKit/WKWebViewPrivate.h>
 #import <wtf/RetainPtr.h>
 
@@ -115,5 +117,98 @@ TEST(WebKit, BackgroundColorCustomColorNoDrawsBackground)
 
     EXPECT_EQ(CGColorGetConstantColor(kCGColorClear), [webView layer].backgroundColor);
 }
+
+TEST(WebKit, BackgroundColorToggleAppearance)
+{
+    const NSInteger width = 800;
+    const NSInteger height = 600;
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, width, height)]);
+
+    const auto& checkWhitePixel = [&] {
+        uint8_t* pixelBuffer = static_cast<uint8_t*>(calloc(width * height, 4));
+        auto colorSpace = adoptCF(CGColorSpaceCreateDeviceRGB());
+        auto context = adoptCF(CGBitmapContextCreate(pixelBuffer, width, height, 8, 4 * width, colorSpace.get(), static_cast<uint32_t>(kCGImageAlphaPremultipliedLast) | static_cast<uint32_t>(kCGBitmapByteOrder32Big)));
+
+        [[webView layer] renderInContext:context.get()];
+
+        EXPECT_EQ(255, pixelBuffer[0]);
+        EXPECT_EQ(255, pixelBuffer[1]);
+        EXPECT_EQ(255, pixelBuffer[2]);
+
+        free(pixelBuffer);
+    };
+
+    [webView _setUseSystemAppearance:YES];
+    [webView setAppearance:[NSAppearance appearanceNamed:NSAppearanceNameAqua]];
+    [webView synchronouslyLoadHTMLString:@""];
+
+    checkWhitePixel();
+
+    [webView _setDrawsBackground:NO];
+    [webView setAppearance:[NSAppearance appearanceNamed:NSAppearanceNameDarkAqua]];
+    [webView _setDrawsBackground:YES];
+    [webView setAppearance:[NSAppearance appearanceNamed:NSAppearanceNameAqua]];
+
+    [webView waitForNextPresentationUpdate];
+
+    checkWhitePixel();
+}
+
+#if PLATFORM(MAC)
+
+static void testDrawsBackgroundAfterLoadingWebContent(BOOL startValue, BOOL endValue)
+{
+    NSString *html = @""
+    "<!DOCTYPE html>\n"
+    "<html>\n"
+    "<head>\n"
+    "    <meta charset=\"utf-8\">\n"
+    "    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
+    "    <title></title>\n"
+    "</head>\n"
+    "<body>\n"
+    "\n"
+    "</body>\n"
+    "</html>";
+
+    auto webViewFrame = CGRectMake(0, 0, 800, 600);
+    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:webViewFrame]);
+
+    [webView window].backgroundColor = NSColor.blueColor;
+
+    [webView synchronouslyLoadHTMLString:html];
+
+    __auto_type expectColor = ^(WebCore::Color color) {
+        [webView waitForNextPresentationUpdate];
+        [webView waitForNextPresentationUpdate];
+
+        RetainPtr snapshotImage = adoptNS([webView _windowSnapshotInRect:CGRectNull withOptions:0]);
+        RetainPtr snapshotCGImage = [snapshotImage CGImageForProposedRect:NULL context:nil hints:nil];
+        CGImagePixelReader pixelReader { snapshotCGImage.get() };
+
+        auto x = static_cast<unsigned>(100 * (pixelReader.width() / CGRectGetWidth(webViewFrame)));
+        auto y = static_cast<unsigned>(100 * (pixelReader.height() / CGRectGetHeight(webViewFrame)));
+
+        EXPECT_EQ(pixelReader.at(x, y), color);
+    };
+
+    [webView _setDrawsBackground:startValue];
+    expectColor(startValue ? WebCore::Color::white : WebCore::Color::blue);
+
+    [webView _setDrawsBackground:endValue];
+    expectColor(endValue ? WebCore::Color::white : WebCore::Color::blue);
+}
+
+TEST(WebKit, DrawsBackgroundAfterLoadingWebContentNoToYes)
+{
+    testDrawsBackgroundAfterLoadingWebContent(NO, YES);
+}
+
+TEST(WebKit, DrawsBackgroundAfterLoadingWebContentYesToNo)
+{
+    testDrawsBackgroundAfterLoadingWebContent(YES, NO);
+}
+
+#endif
 
 } // namespace TestWebKitAPI

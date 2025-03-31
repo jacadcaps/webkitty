@@ -21,13 +21,14 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #pragma once
 
 #include "HTMLConstructionSite.h"
 #include "HTMLParserOptions.h"
+#include <wtf/TZoneMalloc.h>
 #include <wtf/text/StringBuilder.h>
 #include <wtf/text/TextPosition.h>
 
@@ -37,41 +38,48 @@ class JSCustomElementInterface;
 class HTMLDocumentParser;
 class ScriptElement;
 
+enum class TagName : uint16_t;
+
 struct CustomElementConstructionData {
     WTF_MAKE_STRUCT_FAST_ALLOCATED;
 
-    CustomElementConstructionData(Ref<JSCustomElementInterface>&&, const AtomString& name, Vector<Attribute>&&);
+    CustomElementConstructionData(Ref<JSCustomElementInterface>&&, Ref<CustomElementRegistry>&&, const AtomString& name, Vector<Attribute>&&);
     ~CustomElementConstructionData();
 
     Ref<JSCustomElementInterface> elementInterface;
+    Ref<CustomElementRegistry> registry;
     AtomString name;
     Vector<Attribute> attributes;
 };
 
 class HTMLTreeBuilder {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(HTMLTreeBuilder);
 public:
-    HTMLTreeBuilder(HTMLDocumentParser&, HTMLDocument&, ParserContentPolicy, const HTMLParserOptions&);
-    HTMLTreeBuilder(HTMLDocumentParser&, DocumentFragment&, Element& contextElement, ParserContentPolicy, const HTMLParserOptions&);
+    HTMLTreeBuilder(HTMLDocumentParser&, HTMLDocument&, OptionSet<ParserContentPolicy>, const HTMLParserOptions&);
+    HTMLTreeBuilder(HTMLDocumentParser&, DocumentFragment&, Element& contextElement, OptionSet<ParserContentPolicy>, const HTMLParserOptions&, CustomElementRegistry*);
     void setShouldSkipLeadingNewline(bool);
 
     ~HTMLTreeBuilder();
 
     bool isParsingFragment() const;
 
-    void constructTree(AtomicHTMLToken&&);
+    void constructTree(AtomHTMLToken&&);
 
     bool isParsingTemplateContents() const;
     bool hasParserBlockingScriptWork() const;
 
     // Must be called to take the parser-blocking script before calling the parser again.
     RefPtr<ScriptElement> takeScriptToProcess(TextPosition& scriptStartPosition);
+    const ScriptElement* scriptToProcess() const { return m_scriptToProcess.get(); }
+    RefPtr<const ScriptElement> protectedScriptToProcess() const;
 
     std::unique_ptr<CustomElementConstructionData> takeCustomElementConstructionData() { return WTFMove(m_customElementToConstruct); }
     void didCreateCustomOrFallbackElement(Ref<Element>&&, CustomElementConstructionData&);
 
     // Done, close any open tags, etc.
     void finished();
+
+    bool isOnStackOfOpenElements(Element&) const;
 
 private:
     class ExternalCharacterTokenBuffer;
@@ -111,45 +119,46 @@ private:
     void linkifyPhoneNumbers(const String&);
 #endif
 
-    void processToken(AtomicHTMLToken&&);
+    void processToken(AtomHTMLToken&&);
 
-    void processDoctypeToken(AtomicHTMLToken&&);
-    void processStartTag(AtomicHTMLToken&&);
-    void processEndTag(AtomicHTMLToken&&);
-    void processComment(AtomicHTMLToken&&);
-    void processCharacter(AtomicHTMLToken&&);
-    void processEndOfFile(AtomicHTMLToken&&);
+    void processDoctypeToken(AtomHTMLToken&&);
+    void processStartTag(AtomHTMLToken&&);
+    void processEndTag(AtomHTMLToken&&);
+    void processComment(AtomHTMLToken&&);
+    void processCharacter(AtomHTMLToken&&);
+    void processEndOfFile(AtomHTMLToken&&);
 
-    bool processStartTagForInHead(AtomicHTMLToken&&);
-    void processStartTagForInBody(AtomicHTMLToken&&);
-    void processStartTagForInTable(AtomicHTMLToken&&);
-    void processEndTagForInBody(AtomicHTMLToken&&);
-    void processEndTagForInTable(AtomicHTMLToken&&);
-    void processEndTagForInTableBody(AtomicHTMLToken&&);
-    void processEndTagForInRow(AtomicHTMLToken&&);
-    void processEndTagForInCell(AtomicHTMLToken&&);
+    bool processStartTagForInHead(AtomHTMLToken&&);
+    void processStartTagForInBody(AtomHTMLToken&&);
+    void processStartTagForInTable(AtomHTMLToken&&);
+    void processEndTagForInBody(AtomHTMLToken&&);
+    void processEndTagForInTable(AtomHTMLToken&&);
+    void processEndTagForInTableBody(AtomHTMLToken&&);
+    void processEndTagForInRow(AtomHTMLToken&&);
+    void processEndTagForInCell(AtomHTMLToken&&);
 
-    void processHtmlStartTagForInBody(AtomicHTMLToken&&);
-    bool processBodyEndTagForInBody(AtomicHTMLToken&&);
+    void processHtmlStartTagForInBody(AtomHTMLToken&&);
+    bool processBodyEndTagForInBody(AtomHTMLToken&&);
     bool processTableEndTagForInTable();
     bool processCaptionEndTagForInCaption();
     bool processColgroupEndTagForInColumnGroup();
     bool processTrEndTagForInRow();
 
-    void processAnyOtherEndTagForInBody(AtomicHTMLToken&&);
+    void processAnyOtherEndTagForInBody(AtomHTMLToken&&);
 
+    inline bool consumeAndInsertWhitespace(ExternalCharacterTokenBuffer&);
     void processCharacterBuffer(ExternalCharacterTokenBuffer&);
     inline void processCharacterBufferForInBody(ExternalCharacterTokenBuffer&);
 
-    void processFakeStartTag(const QualifiedName&, Vector<Attribute>&& attributes = Vector<Attribute>());
-    void processFakeEndTag(const QualifiedName&);
-    void processFakeEndTag(const AtomString&);
+    void processFakeStartTag(TagName, Vector<Attribute>&& attributes = Vector<Attribute>());
+    void processFakeEndTag(TagName);
+    void processFakeEndTag(const HTMLStackItem&);
     void processFakeCharacters(const String&);
     void processFakePEndTagIfPInButtonScope();
 
-    void processGenericRCDATAStartTag(AtomicHTMLToken&&);
-    void processGenericRawTextStartTag(AtomicHTMLToken&&);
-    void processScriptStartTag(AtomicHTMLToken&&);
+    void processGenericRCDATAStartTag(AtomHTMLToken&&);
+    void processGenericRawTextStartTag(AtomHTMLToken&&);
+    void processScriptStartTag(AtomHTMLToken&&);
 
     // Default processing for the different insertion modes.
     void defaultForInitial();
@@ -160,26 +169,26 @@ private:
     void defaultForAfterHead();
     void defaultForInTableText();
 
-    bool shouldProcessTokenInForeignContent(const AtomicHTMLToken&);
-    void processTokenInForeignContent(AtomicHTMLToken&&);
-    
-    HTMLStackItem& adjustedCurrentStackItem() const;
+    bool shouldProcessTokenInForeignContent(const AtomHTMLToken&);
+    void processTokenInForeignContent(AtomHTMLToken&&);
 
-    void callTheAdoptionAgency(AtomicHTMLToken&);
+    HTMLStackItem& adjustedCurrentStackItem();
+
+    void callTheAdoptionAgency(AtomHTMLToken&);
 
     void closeTheCell();
 
-    template <bool shouldClose(const HTMLStackItem&)> void processCloseWhenNestedTag(AtomicHTMLToken&&);
+    template <bool shouldClose(const HTMLStackItem&)> void processCloseWhenNestedTag(AtomHTMLToken&&);
 
-    void parseError(const AtomicHTMLToken&);
+    void parseError(const AtomHTMLToken&);
 
     void resetInsertionModeAppropriately();
 
-    void insertGenericHTMLElement(AtomicHTMLToken&&);
+    void insertGenericHTMLElement(AtomHTMLToken&&);
 
-    void processTemplateStartTag(AtomicHTMLToken&&);
-    bool processTemplateEndTag(AtomicHTMLToken&&);
-    bool processEndOfFileForInTemplateContents(AtomicHTMLToken&&);
+    void processTemplateStartTag(AtomHTMLToken&&);
+    bool processTemplateEndTag(AtomHTMLToken&&);
+    bool processEndOfFileForInTemplateContents(AtomHTMLToken&&);
 
     class FragmentParsingContext {
     public:
@@ -187,17 +196,17 @@ private:
         FragmentParsingContext(DocumentFragment&, Element& contextElement);
 
         DocumentFragment* fragment() const;
-        Element& contextElement() const;
-        HTMLStackItem& contextElementStackItem() const;
+        Element& contextElement();
+        HTMLStackItem& contextElementStackItem();
 
     private:
         DocumentFragment* m_fragment { nullptr };
-        RefPtr<HTMLStackItem> m_contextElementStackItem;
+        HTMLStackItem m_contextElementStackItem;
     };
 
     HTMLDocumentParser& m_parser;
     const HTMLParserOptions m_options;
-    const FragmentParsingContext m_fragmentContext;
+    FragmentParsingContext m_fragmentContext;
 
     HTMLConstructionSite m_tree;
 

@@ -26,107 +26,145 @@
 #import "config.h"
 #import "AXObjectCache.h"
 
-#if ENABLE(ACCESSIBILITY) && PLATFORM(IOS_FAMILY)
+#if PLATFORM(IOS_FAMILY)
 
 #import "AccessibilityObject.h"
-#import "WebAccessibilityObjectWrapperIOS.h"
+#import "Chrome.h"
 #import "RenderObject.h"
-
+#import "WebAccessibilityObjectWrapperIOS.h"
 #import <wtf/RetainPtr.h>
 
 namespace WebCore {
-    
-void AXObjectCache::attachWrapper(AXCoreObject* obj)
+
+void AXObjectCache::attachWrapper(AccessibilityObject& object)
 {
-    RetainPtr<AccessibilityObjectWrapper> wrapper = adoptNS([[WebAccessibilityObjectWrapper alloc] initWithAccessibilityObject:obj]);
-    obj->setWrapper(wrapper.get());
+    RetainPtr<AccessibilityObjectWrapper> wrapper = adoptNS([[WebAccessibilityObjectWrapper alloc] initWithAccessibilityObject:object]);
+    object.setWrapper(wrapper.get());
 }
 
-void AXObjectCache::postPlatformNotification(AXCoreObject* obj, AXNotification notification)
+ASCIILiteral AXObjectCache::notificationPlatformName(AXNotification notification)
 {
-    if (!obj)
+    ASCIILiteral name;
+
+    switch (notification) {
+    case AXNotification::ActiveDescendantChanged:
+    case AXNotification::FocusedUIElementChanged:
+        name = "AXFocusChanged"_s;
+        break;
+    case AXNotification::ImageOverlayChanged:
+        name = "AXImageOverlayChanged"_s;
+        break;
+    case AXNotification::PageScrolled:
+        name = "AXPageScrolled"_s;
+        break;
+    case AXNotification::SelectedCellsChanged:
+        name = "AXSelectedCellsChanged"_s;
+        break;
+    case AXNotification::SelectedTextChanged:
+        name = "AXSelectedTextChanged"_s;
+        break;
+    case AXNotification::LiveRegionChanged:
+    case AXNotification::LiveRegionCreated:
+        name = "AXLiveRegionChanged"_s;
+        break;
+    case AXNotification::InvalidStatusChanged:
+        name = "AXInvalidStatusChanged"_s;
+        break;
+    case AXNotification::CheckedStateChanged:
+    case AXNotification::ValueChanged:
+        name = "AXValueChanged"_s;
+        break;
+    case AXNotification::ExpandedChanged:
+        name = "AXExpandedChanged"_s;
+        break;
+    case AXNotification::CurrentStateChanged:
+        name = "AXCurrentStateChanged"_s;
+        break;
+    case AXNotification::SortDirectionChanged:
+        name = "AXSortDirectionChanged"_s;
+        break;
+    case AXNotification::AnnouncementRequested:
+        name = "AXAnnouncementRequested"_s;
+        break;
+    default:
+        break;
+    }
+
+    return name;
+}
+
+void AXObjectCache::relayNotification(const String& notificationName, RetainPtr<NSData> notificationData)
+{
+    if (RefPtr page = document() ? document()->page() : nullptr)
+        page->chrome().relayAccessibilityNotification(notificationName, notificationData);
+}
+
+void AXObjectCache::postPlatformNotification(AccessibilityObject& object, AXNotification notification)
+{
+    auto stringNotification = notificationPlatformName(notification);
+    if (stringNotification.isEmpty())
         return;
 
-    NSString *notificationString = nil;
-    switch (notification) {
-        case AXActiveDescendantChanged:
-        case AXFocusedUIElementChanged:
-            [obj->wrapper() postFocusChangeNotification];
-            notificationString = @"AXFocusChanged";
-            break;
-        case AXSelectedTextChanged:
-            [obj->wrapper() postSelectedTextChangeNotification];
-            break;
-        case AXLayoutComplete:
-            [obj->wrapper() postLayoutChangeNotification];
-            break;
-        case AXLiveRegionChanged:
-            [obj->wrapper() postLiveRegionChangeNotification];
-            break;
-        case AXLiveRegionCreated:
-            [obj->wrapper() postLiveRegionCreatedNotification];
-            break;
-        case AXChildrenChanged:
-            [obj->wrapper() postChildrenChangedNotification];
-            break;
-        case AXLoadComplete:
-            [obj->wrapper() postLoadCompleteNotification];
-            break;
-        case AXInvalidStatusChanged:
-            [obj->wrapper() postInvalidStatusChangedNotification];
-            break;
-        case AXValueChanged:
-            [obj->wrapper() postValueChangedNotification];
-            break;
-        case AXExpandedChanged:
-            [obj->wrapper() postExpandedChangedNotification];
-            break;
-        case AXSelectedChildrenChanged:
-        case AXCheckedStateChanged:
-        default:
-            break;
-    }
-    
-    // Used by DRT to know when notifications are posted.
-    if (notificationString)
-        [obj->wrapper() accessibilityPostedNotification:notificationString];
+    auto notificationName = stringNotification.createNSString();
+    [object.wrapper() accessibilityOverrideProcessNotification:notificationName.get() notificationData:nil];
+
+    // To simulate AX notifications for LayoutTests on the simulator, call
+    // the wrapper's accessibilityPostedNotification.
+    [object.wrapper() accessibilityPostedNotification:notificationName.get()];
 }
 
-void AXObjectCache::postTextStateChangePlatformNotification(AXCoreObject* object, const AXTextStateChangeIntent&, const VisibleSelection&)
+void AXObjectCache::postPlatformAnnouncementNotification(const String& message)
 {
-    postPlatformNotification(object, AXSelectedTextChanged);
+    auto notificationName = notificationPlatformName(AXNotification::AnnouncementRequested).createNSString();
+    NSString *nsMessage = static_cast<NSString *>(message);
+    if (RefPtr root = getOrCreate(m_document->view())) {
+        [root->wrapper() accessibilityOverrideProcessNotification:notificationName.get() notificationData:[nsMessage dataUsingEncoding:NSUTF8StringEncoding]];
+
+        // To simulate AX notifications for LayoutTests on the simulator, call
+        // the wrapper's accessibilityPostedNotification.
+        [root->wrapper() accessibilityPostedNotification:notificationName.get() userInfo:@{ notificationName.get() : nsMessage }];
+    }
+}
+
+void AXObjectCache::postTextStateChangePlatformNotification(AccessibilityObject* object, const AXTextStateChangeIntent&, const VisibleSelection&)
+{
+    if (object)
+        postPlatformNotification(*object, AXNotification::SelectedTextChanged);
 }
 
 void AXObjectCache::postTextStateChangePlatformNotification(AccessibilityObject* object, AXTextEditType, const String&, const VisiblePosition&)
 {
-    postPlatformNotification(object, AXValueChanged);
+    if (object)
+        postPlatformNotification(*object, AXNotification::ValueChanged);
 }
 
-void AXObjectCache::postTextReplacementPlatformNotification(AXCoreObject* object, AXTextEditType, const String&, AXTextEditType, const String&, const VisiblePosition&)
+void AXObjectCache::postTextReplacementPlatformNotification(AccessibilityObject* object, AXTextEditType, const String&, AXTextEditType, const String&, const VisiblePosition&)
 {
-    postPlatformNotification(object, AXValueChanged);
+    if (object)
+        postPlatformNotification(*object, AXNotification::ValueChanged);
 }
 
-void AXObjectCache::postTextReplacementPlatformNotificationForTextControl(AXCoreObject* object, const String&, const String&, HTMLTextFormControlElement&)
+void AXObjectCache::postTextReplacementPlatformNotificationForTextControl(AccessibilityObject* object, const String&, const String&)
 {
-    postPlatformNotification(object, AXValueChanged);
+    if (object)
+        postPlatformNotification(*object, AXNotification::ValueChanged);
 }
 
 void AXObjectCache::frameLoadingEventPlatformNotification(AccessibilityObject* axFrameObject, AXLoadingEvent loadingEvent)
 {
     if (!axFrameObject)
         return;
-    
-    if (loadingEvent == AXLoadingFinished && axFrameObject->document() == axFrameObject->topDocument())
-        postPlatformNotification(axFrameObject, AXLoadComplete);
+
+    if (loadingEvent == AXLoadingEvent::Finished && axFrameObject->document() == axFrameObject->topDocument())
+        postPlatformNotification(*axFrameObject, AXNotification::LoadComplete);
 }
 
-void AXObjectCache::platformHandleFocusedUIElementChanged(Node*, Node* newNode)
+void AXObjectCache::platformHandleFocusedUIElementChanged(Element*, Element* newElement)
 {
-    postNotification(newNode, AXFocusedUIElementChanged, TargetElement, PostAsynchronously);
+    postNotification(newElement, AXNotification::FocusedUIElementChanged);
 }
 
-void AXObjectCache::handleScrolledToAnchor(const Node*)
+void AXObjectCache::handleScrolledToAnchor(const Node&)
 {
 }
 
@@ -136,4 +174,4 @@ void AXObjectCache::platformPerformDeferredCacheUpdate()
 
 }
 
-#endif // ENABLE(ACCESSIBILITY) && PLATFORM(IOS_FAMILY)
+#endif // PLATFORM(IOS_FAMILY)

@@ -31,19 +31,29 @@
 #pragma once
 
 #include "BaseButtonInputType.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class ResetInputType final : public BaseButtonInputType {
+    WTF_MAKE_TZONE_ALLOCATED(ResetInputType);
 public:
-    explicit ResetInputType(HTMLInputElement& element) : BaseButtonInputType(element) { }
+    static Ref<ResetInputType> create(HTMLInputElement& element)
+    {
+        return adoptRef(*new ResetInputType(element));
+    }
 
 private:
-    const AtomString& formControlType() const override;
-    bool supportsValidation() const override;
-    void handleDOMActivateEvent(Event&) override;
-    String defaultValue() const override;
-    bool isTextButton() const override;
+    explicit ResetInputType(HTMLInputElement& element)
+        : BaseButtonInputType(Type::Reset, element)
+    {
+    }
+
+    const AtomString& formControlType() const final;
+    void handleDOMActivateEvent(Event&) final;
+    String defaultValue() const final;
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_INPUT_TYPE(ResetInputType, Type::Reset)

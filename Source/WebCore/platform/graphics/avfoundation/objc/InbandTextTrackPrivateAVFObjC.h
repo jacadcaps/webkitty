@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,17 +29,25 @@
 
 #include "InbandTextTrackPrivateAVF.h"
 #include <wtf/RetainPtr.h>
+#include <wtf/TZoneMalloc.h>
 
 OBJC_CLASS AVAsset;
+OBJC_CLASS AVAssetTrack;
+OBJC_CLASS AVMediaSelectionGroup;
 OBJC_CLASS AVMediaSelectionOption;
 
 namespace WebCore {
 
-class InbandTextTrackPrivateAVFObjC : public InbandTextTrackPrivateAVF {
+class InbandTextTrackPrivateAVFObjC final : public InbandTextTrackPrivateAVF {
+    WTF_MAKE_TZONE_ALLOCATED(InbandTextTrackPrivateAVFObjC);
 public:
-    static Ref<InbandTextTrackPrivateAVFObjC> create(AVFInbandTrackParent* player,  AVMediaSelectionOption *selection, InbandTextTrackPrivate::CueFormat format)
+    static Ref<InbandTextTrackPrivateAVFObjC> create(AVMediaSelectionGroup *group, AVMediaSelectionOption *selection, TrackID trackID, InbandTextTrackPrivate::CueFormat format, ModeChangedCallback&& callback)
     {
-        return adoptRef(*new InbandTextTrackPrivateAVFObjC(player, selection, format));
+        return adoptRef(*new InbandTextTrackPrivateAVFObjC(group, selection, trackID, format, WTFMove(callback)));
+    }
+    static Ref<InbandTextTrackPrivateAVFObjC> create(AVAssetTrack* track, TrackID trackID, InbandTextTrackPrivate::CueFormat format)
+    {
+        return adoptRef(*new InbandTextTrackPrivateAVFObjC(track, trackID, format));
     }
 
     ~InbandTextTrackPrivateAVFObjC() = default;
@@ -56,16 +64,29 @@ public:
 
     void disconnect() override;
 
-    Category textTrackCategory() const override { return InBand; }
-    
+    Category textTrackCategory() const final { return InBand; }
+
     AVMediaSelectionOption *mediaSelectionOption() const { return m_mediaSelectionOption.get(); }
 
 protected:
-    InbandTextTrackPrivateAVFObjC(AVFInbandTrackParent*, AVMediaSelectionOption *, InbandTextTrackPrivate::CueFormat);
-    
+    InbandTextTrackPrivateAVFObjC(AVMediaSelectionGroup *, AVMediaSelectionOption *, TrackID, InbandTextTrackPrivate::CueFormat, ModeChangedCallback&&);
+    InbandTextTrackPrivateAVFObjC(AVAssetTrack*, TrackID, InbandTextTrackPrivate::CueFormat);
+
+    bool isInbandTextTrackPrivateAVFObjC() const final { return true; }
+
+private:
+    String mediaType() const;
+    bool hasMediaCharacteristic(const String&) const;
+
+    RetainPtr<AVMediaSelectionGroup> m_mediaSelectionGroup;
     RetainPtr<AVMediaSelectionOption> m_mediaSelectionOption;
+    RetainPtr<AVAssetTrack> m_assetTrack;
 };
 
 }
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::InbandTextTrackPrivateAVFObjC)
+static bool isType(const WebCore::InbandTextTrackPrivateAVF& track) { return track.isInbandTextTrackPrivateAVFObjC(); }
+SPECIALIZE_TYPE_TRAITS_END()
 
 #endif

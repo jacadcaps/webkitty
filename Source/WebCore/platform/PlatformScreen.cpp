@@ -26,9 +26,10 @@
 #include "config.h"
 #include "PlatformScreen.h"
 
-#if PLATFORM(COCOA)
+#if PLATFORM(COCOA) || PLATFORM(GTK) || (PLATFORM(WPE) && ENABLE(WPE_PLATFORM))
 
 #include "ScreenProperties.h"
+#include <wtf/NeverDestroyed.h>
 
 namespace WebCore {
 
@@ -69,6 +70,18 @@ const ScreenData* screenData(PlatformDisplayID screenDisplayID)
     return &screenProperties().screenDataMap.begin()->value;
 }
 
+#if HAVE(SUPPORT_HDR_DISPLAY)
+void setScreenContentsFormatsForTesting(OptionSet<ContentsFormat> contentsFormats)
+{
+    screenProperties().screenContentsFormatsForTesting = contentsFormats;
+}
+
+OptionSet<ContentsFormat> screenContentsFormatsForTesting()
+{
+    return screenProperties().screenContentsFormatsForTesting;
+}
+#endif
+
 } // namespace WebCore
 
-#endif // PLATFORM(COCOA)
+#endif // PLATFORM(COCOA) || PLATFORM(GTK) || (PLATFORM(WPE) && ENABLE(WPE_PLATFORM))

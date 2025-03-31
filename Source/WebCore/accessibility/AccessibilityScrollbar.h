@@ -36,31 +36,31 @@ class Scrollbar;
 
 class AccessibilityScrollbar final : public AccessibilityMockObject {
 public:
-    static Ref<AccessibilityScrollbar> create(Scrollbar*);
+    static Ref<AccessibilityScrollbar> create(AXID, Scrollbar&);
 
-    Scrollbar* scrollbar() const { return m_scrollbar.get(); }
-    
 private:
-    explicit AccessibilityScrollbar(Scrollbar*);
+    explicit AccessibilityScrollbar(AXID, Scrollbar&);
 
-    bool canSetValueAttribute() const override { return true; }
-    bool canSetNumericValue() const override { return true; }
+    bool canSetValueAttribute() const final { return true; }
 
-    bool isAccessibilityScrollbar() const override { return true; }
-    LayoutRect elementRect() const override;
-    
-    AccessibilityRole roleValue() const override { return AccessibilityRole::ScrollBar; }
-    AccessibilityOrientation orientation() const override;
-    Document* document() const override;
-    bool isEnabled() const override;
-    
+    bool isAccessibilityScrollbar() const final { return true; }
+    LayoutRect elementRect() const final;
+
+    AccessibilityRole determineAccessibilityRole() final { return AccessibilityRole::ScrollBar; }
+    AccessibilityOrientation orientation() const final;
+    Document* document() const final;
+    bool isEnabled() const final;
+
     // Assumes float [0..1]
-    bool setValue(float) override;
-    float valueForRange() const override;
+    bool setValue(float) final;
+    float valueForRange() const final;
 
-    RefPtr<Scrollbar> m_scrollbar;
+    Ref<Scrollbar> m_scrollbar;
 };
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_ACCESSIBILITY(AccessibilityScrollbar, isAccessibilityScrollbar())
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::AccessibilityScrollbar) \
+    static bool isType(const WebCore::AccessibilityObject& object) { return object.isAccessibilityScrollbar(); } \
+SPECIALIZE_TYPE_TRAITS_END()

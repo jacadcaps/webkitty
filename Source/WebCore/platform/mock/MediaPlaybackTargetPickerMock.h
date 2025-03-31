@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,16 +28,26 @@
 
 #if ENABLE(WIRELESS_PLAYBACK_TARGET) && !PLATFORM(IOS_FAMILY)
 
-#include "GenericTaskQueue.h"
 #include "MediaPlaybackTargetContext.h"
 #include "MediaPlaybackTargetPicker.h"
+#include <wtf/TZoneMalloc.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
+class MediaPlaybackTargetPickerMock;
+}
 
-class MediaPlaybackTargetPickerMock final : public MediaPlaybackTargetPicker {
-    WTF_MAKE_FAST_ALLOCATED;
+namespace WTF {
+template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
+template<> struct IsDeprecatedWeakRefSmartPointerException<WebCore::MediaPlaybackTargetPickerMock> : std::true_type { };
+}
+
+namespace WebCore {
+
+class MediaPlaybackTargetPickerMock final : public MediaPlaybackTargetPicker, public CanMakeWeakPtr<MediaPlaybackTargetPickerMock> {
+    WTF_MAKE_TZONE_ALLOCATED(MediaPlaybackTargetPickerMock);
     WTF_MAKE_NONCOPYABLE(MediaPlaybackTargetPickerMock);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(MediaPlaybackTargetPickerMock);
 public:
     explicit MediaPlaybackTargetPickerMock(MediaPlaybackTargetPicker::Client&);
 
@@ -48,7 +58,7 @@ public:
     void stopMonitoringPlaybackTargets() override;
     void invalidatePlaybackTargets() override;
 
-    void setState(const String&, MediaPlaybackTargetContext::State);
+    void setState(const String&, MediaPlaybackTargetContext::MockState);
     void dismissPopup();
 
 private:
@@ -56,8 +66,7 @@ private:
     Ref<MediaPlaybackTarget> playbackTarget() override;
 
     String m_deviceName;
-    GenericTaskQueue<Timer> m_taskQueue;
-    MediaPlaybackTargetContext::State m_state { MediaPlaybackTargetContext::Unknown };
+    MediaPlaybackTargetContext::MockState m_state { MediaPlaybackTargetContext::MockState::Unknown };
     bool m_showingMenu { false };
 };
 

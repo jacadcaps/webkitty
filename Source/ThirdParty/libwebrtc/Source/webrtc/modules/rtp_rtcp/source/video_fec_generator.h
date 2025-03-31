@@ -28,7 +28,7 @@ class VideoFecGenerator {
   enum class FecType { kFlexFec, kUlpFec };
   virtual FecType GetFecType() const = 0;
   // Returns the SSRC used for FEC packets (i.e. FlexFec SSRC).
-  virtual absl::optional<uint32_t> FecSsrc() = 0;
+  virtual std::optional<uint32_t> FecSsrc() = 0;
   // Returns the overhead, in bytes per packet, for FEC (and possibly RED).
   virtual size_t MaxPacketOverhead() const = 0;
   // Current rate of FEC packets generated, including all RTP-level headers.
@@ -45,6 +45,9 @@ class VideoFecGenerator {
   // will lack sequence numbers, that needs to be set externally.
   // TODO(bugs.webrtc.org/11340): Actually FlexFec sets seq#, fix that!
   virtual std::vector<std::unique_ptr<RtpPacketToSend>> GetFecPackets() = 0;
+  // Only called on the VideoSendStream queue, after operation has shut down,
+  // and only populated if there is an RtpState (e.g. FlexFec).
+  virtual std::optional<RtpState> GetRtpState() = 0;
 };
 
 }  // namespace webrtc

@@ -27,20 +27,33 @@
 
 #pragma once
 
+#include "AnchorPositionEvaluator.h"
+#include "LayoutSize.h"
+#include "StyleScopeOrdinal.h"
 #include "Timer.h"
 #include <memory>
-#include <wtf/FastMalloc.h>
+#include <wtf/CheckedPtr.h>
+#include <wtf/HashMap.h>
 #include <wtf/HashSet.h>
 #include <wtf/ListHashSet.h>
 #include <wtf/RefPtr.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/UniqueRef.h>
 #include <wtf/Vector.h>
+#include <wtf/WeakHashMap.h>
+#include <wtf/WeakHashSet.h>
+#include <wtf/WeakListHashSet.h>
+#include <wtf/text/AtomStringHash.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
+class CSSCounterStyleRegistry;
 class CSSStyleSheet;
 class Document;
 class Element;
+class WeakPtrImplWithEventTargetData;
+class HTMLSlotElement;
 class Node;
 class ProcessingInstruction;
 class StyleSheet;
@@ -51,19 +64,14 @@ class TreeScope;
 
 namespace Style {
 
+class CustomPropertyRegistry;
 class Resolver;
+class RuleSet;
+struct MatchResult;
 
-// This is used to identify style scopes that can affect an element.
-// Scopes are in tree-of-trees order. Styles from earlier scopes win over later ones (modulo !important).
-enum class ScopeOrdinal : int {
-    ContainingHost = -1, // ::part rules and author-exposed UA pseudo classes from the host tree scope.
-    Element = 0, // Normal rules in the same tree where the element is.
-    FirstSlot = 1, // ::slotted rules in the parent's shadow tree. Values greater than FirstSlot indicate subsequent slots in the chain.
-    Shadow = std::numeric_limits<int>::max(), // :host rules in element's own shadow tree.
-};
-
-class Scope {
-    WTF_MAKE_FAST_ALLOCATED;
+class Scope final : public CanMakeWeakPtr<Scope>, public CanMakeCheckedPtr<Scope> {
+    WTF_MAKE_TZONE_ALLOCATED(Scope);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(Scope);
 public:
     explicit Scope(Document&);
     explicit Scope(ShadowRoot&);
@@ -78,7 +86,6 @@ public:
     void addStyleSheetCandidateNode(Node&, bool createdByParser);
     void removeStyleSheetCandidateNode(Node&);
 
-    String preferredStylesheetSetName() const { return m_preferredStylesheetSetName; }
     void setPreferredStylesheetSetName(const String&);
 
     void addPendingSheet(const Element&);
@@ -92,9 +99,10 @@ public:
     bool hasPendingSheetInBody(const Element&) const;
     bool hasPendingSheet(const ProcessingInstruction&) const;
 
-    bool usesStyleBasedEditability() { return m_usesStyleBasedEditability; }
+    bool usesStyleBasedEditability() const { return m_usesStyleBasedEditability; }
+    bool usesHasPseudoClass() const { return m_usesHasPseudoClass; }
 
-    bool activeStyleSheetsContains(const CSSStyleSheet*) const;
+    bool activeStyleSheetsContains(const CSSStyleSheet&) const;
 
     void evaluateMediaQueriesForViewportChange();
     void evaluateMediaQueriesForAccessibilitySettingsChange();
@@ -108,6 +116,8 @@ public:
     // The change is assumed to potentially affect all author and user stylesheets including shadow roots.
     WEBCORE_EXPORT void didChangeStyleSheetEnvironment();
 
+    void didChangeViewportSize();
+
     void invalidateMatchedDeclarationsCache();
 
     bool hasPendingUpdate() const { return m_pendingUpdate || m_hasDescendantWithPendingUpdate; }
@@ -118,9 +128,14 @@ public:
 #endif
 
     WEBCORE_EXPORT Resolver& resolver();
-    Resolver* resolverIfExists();
+    Resolver* resolverIfExists() { return m_resolver.get(); }
     void clearResolver();
     void releaseMemory();
+
+    void clearViewTransitionStyles();
+
+    const MatchResult* cachedMatchResult(const Element&);
+    void updateCachedMatchResult(const Element&, const MatchResult&);
 
     const Document& document() const { return m_document; }
     Document& document() { return m_document; }
@@ -128,23 +143,48 @@ public:
     ShadowRoot* shadowRoot() { return m_shadowRoot; }
 
     static Scope& forNode(Node&);
+    static const Scope& forNode(const Node&);
     static Scope* forOrdinal(Element&, ScopeOrdinal);
 
+    struct LayoutDependencyUpdateContext {
+        UncheckedKeyHashSet<CheckedRef<const Element>> invalidatedContainers;
+        UncheckedKeyHashSet<CheckedRef<const Element>> invalidatedAnchorPositioned;
+    };
+    bool invalidateForLayoutDependencies(LayoutDependencyUpdateContext&);
+
+    const CustomPropertyRegistry& customPropertyRegistry() const { return m_customPropertyRegistry.get(); }
+    CustomPropertyRegistry& customPropertyRegistry() { return m_customPropertyRegistry.get(); }
+    const CSSCounterStyleRegistry& counterStyleRegistry() const { return m_counterStyleRegistry.get(); }
+    CSSCounterStyleRegistry& counterStyleRegistry() { return m_counterStyleRegistry.get(); }
+
+    AnchorPositionedStates& anchorPositionedStates() { return m_anchorPositionedStates; }
+    const AnchorPositionedStates& anchorPositionedStates() const { return m_anchorPositionedStates; }
+    void resetAnchorPositioningStateBeforeStyleResolution();
+    void updateAnchorPositioningStateAfterStyleResolution();
+
 private:
-    bool shouldUseSharedUserAgentShadowTreeStyleResolver() const;
+    Scope& documentScope();
+    bool isForUserAgentShadowTree() const;
 
     void didRemovePendingStylesheet();
 
-    enum class UpdateType { ActiveSet, ContentsOrInterpretation };
+    enum class UpdateType : uint8_t { ActiveSet, ContentsOrInterpretation };
     void updateActiveStyleSheets(UpdateType);
     void scheduleUpdate(UpdateType);
 
+    using ResolverScopes = UncheckedKeyHashMap<Ref<Resolver>, Vector<WeakPtr<Scope>>>;
+    ResolverScopes collectResolverScopes();
     template <typename TestFunction> void evaluateMediaQueries(TestFunction&&);
 
     WEBCORE_EXPORT void flushPendingSelfUpdate();
     WEBCORE_EXPORT void flushPendingDescendantUpdates();
 
-    void collectActiveStyleSheets(Vector<RefPtr<StyleSheet>>&);
+    struct ActiveStyleSheetCollection {
+        Vector<RefPtr<StyleSheet>> activeStyleSheets;
+        Vector<RefPtr<StyleSheet>> styleSheetsForStyleSheetList;
+    };
+
+    ActiveStyleSheetCollection collectActiveStyleSheets();
 
     enum class ResolverUpdateType {
         Reconstruct,
@@ -153,61 +193,82 @@ private:
     };
     struct StyleSheetChange {
         ResolverUpdateType resolverUpdateType;
-        Vector<StyleSheetContents*> addedSheets { };
+        Vector<Ref<StyleSheetContents>> addedSheets { };
     };
     StyleSheetChange analyzeStyleSheetChange(const Vector<RefPtr<CSSStyleSheet>>& newStylesheets);
     void invalidateStyleAfterStyleSheetChange(const StyleSheetChange&);
 
     void updateResolver(Vector<RefPtr<CSSStyleSheet>>&, ResolverUpdateType);
+    void createDocumentResolver();
+    void createOrFindSharedShadowTreeResolver();
+    void unshareShadowTreeResolverBeforeMutation();
+
+    using ResolverSharingKey = std::tuple<Vector<RefPtr<StyleSheetContents>>, bool, bool>;
+    ResolverSharingKey makeResolverSharingKey();
 
     void pendingUpdateTimerFired();
     void clearPendingUpdate();
 
-    Document& m_document;
+    TreeScope& treeScope();
+
+    using MediaQueryViewportState = std::tuple<IntSize, float, bool>;
+    static MediaQueryViewportState mediaQueryViewportStateForDocument(const Document&);
+
+    bool invalidateForContainerDependencies(LayoutDependencyUpdateContext&);
+    bool invalidateForAnchorDependencies(LayoutDependencyUpdateContext&);
+    bool invalidateForPositionTryFallbacks(LayoutDependencyUpdateContext&);
+
+    CheckedRef<Document> m_document;
     ShadowRoot* m_shadowRoot { nullptr };
 
-    std::unique_ptr<Resolver> m_resolver;
+    RefPtr<Resolver> m_resolver;
 
     Vector<RefPtr<StyleSheet>> m_styleSheetsForStyleSheetList;
     Vector<RefPtr<CSSStyleSheet>> m_activeStyleSheets;
 
+    mutable RefPtr<RuleSet> m_dynamicViewTransitionsStyle;
+
     Timer m_pendingUpdateTimer;
 
-    mutable std::unique_ptr<HashSet<const CSSStyleSheet*>> m_weakCopyOfActiveStyleSheetListForFastLookup;
+    mutable UncheckedKeyHashSet<SingleThreadWeakRef<const CSSStyleSheet>> m_weakCopyOfActiveStyleSheetListForFastLookup;
 
     // Track the currently loading top-level stylesheets needed for rendering.
     // Sheets loaded using the @import directive are not included in this count.
     // We use this count of pending sheets to detect when we can begin attaching
     // elements and when it is safe to execute scripts.
-    HashSet<const ProcessingInstruction*> m_processingInstructionsWithPendingSheets;
-    HashSet<const Element*> m_elementsInHeadWithPendingSheets;
-    HashSet<const Element*> m_elementsInBodyWithPendingSheets;
+    WeakHashSet<const ProcessingInstruction, WeakPtrImplWithEventTargetData> m_processingInstructionsWithPendingSheets;
+    WeakHashSet<const Element, WeakPtrImplWithEventTargetData> m_elementsInHeadWithPendingSheets;
+    WeakHashSet<const Element, WeakPtrImplWithEventTargetData> m_elementsInBodyWithPendingSheets;
 
-    Optional<UpdateType> m_pendingUpdate;
-    bool m_hasDescendantWithPendingUpdate { false };
-
-    ListHashSet<Node*> m_styleSheetCandidateNodes;
+    WeakListHashSet<Node, WeakPtrImplWithEventTargetData> m_styleSheetCandidateNodes;
 
     String m_preferredStylesheetSetName;
 
+    std::optional<UpdateType> m_pendingUpdate;
+
+    bool m_hasDescendantWithPendingUpdate { false };
     bool m_usesStyleBasedEditability { false };
+    bool m_usesHasPseudoClass { false };
     bool m_isUpdatingStyleResolver { false };
+
+    std::optional<MediaQueryViewportState> m_viewportStateOnPreviousMediaQueryEvaluation;
+    WeakHashMap<Element, LayoutSize, WeakPtrImplWithEventTargetData> m_queryContainerDimensionsOnLastUpdate;
+
+    SingleThreadWeakHashMap<const RenderBoxModelObject, LayoutRect> m_anchorRectsOnLastUpdate;
+
+    mutable WeakHashMap<const Element, UniqueRef<MatchResult>, WeakPtrImplWithEventTargetData> m_cachedMatchResults;
+
+    UniqueRef<CustomPropertyRegistry> m_customPropertyRegistry;
+    UniqueRef<CSSCounterStyleRegistry> m_counterStyleRegistry;
+
+    // FIXME: These (and some things above) are only relevant for the root scope.
+    UncheckedKeyHashMap<ResolverSharingKey, Ref<Resolver>> m_sharedShadowTreeResolvers;
+
+    AnchorPositionedStates m_anchorPositionedStates;
 };
 
-inline bool Scope::hasPendingSheets() const
-{
-    return hasPendingSheetsBeforeBody() || !m_elementsInBodyWithPendingSheets.isEmpty();
-}
-
-inline bool Scope::hasPendingSheetsBeforeBody() const
-{
-    return !m_elementsInHeadWithPendingSheets.isEmpty() || !m_processingInstructionsWithPendingSheets.isEmpty();
-}
-
-inline bool Scope::hasPendingSheetsInBody() const
-{
-    return !m_elementsInBodyWithPendingSheets.isEmpty();
-}
+HTMLSlotElement* assignedSlotForScopeOrdinal(const Element&, ScopeOrdinal);
+Element* hostForScopeOrdinal(const Element&, ScopeOrdinal);
 
 inline void Scope::flushPendingUpdate()
 {
@@ -215,12 +276,6 @@ inline void Scope::flushPendingUpdate()
         flushPendingDescendantUpdates();
     if (m_pendingUpdate)
         flushPendingSelfUpdate();
-}
-
-inline ScopeOrdinal& operator++(ScopeOrdinal& ordinal)
-{
-    ASSERT(ordinal < ScopeOrdinal::Shadow);
-    return ordinal = static_cast<ScopeOrdinal>(static_cast<int>(ordinal) + 1);
 }
 
 }

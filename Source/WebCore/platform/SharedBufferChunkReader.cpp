@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2011 Google Inc. All rights reserved.
+ * Copyright (C) 2021 Apple Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -31,35 +32,24 @@
 #include "config.h"
 #include "SharedBufferChunkReader.h"
 
-#if ENABLE(MHTML)
-
-// FIXME: This class is overkill. Remove this class and just iterate the segments of a SharedBuffer
-// using the cool new SharedBuffer::begin() and SharedBuffer::end() instead of using this class.
-
-#include "SharedBuffer.h"
+#include <wtf/text/StringCommon.h>
 
 namespace WebCore {
 
-SharedBufferChunkReader::SharedBufferChunkReader(SharedBuffer* buffer, const Vector<char>& separator)
-    : m_buffer(buffer)
-    , m_bufferPosition(0)
-    , m_segment(0)
-    , m_segmentLength(0)
-    , m_segmentIndex(0)
-    , m_reachedEndOfFile(false)
+#if ENABLE(MHTML)
+
+SharedBufferChunkReader::SharedBufferChunkReader(FragmentedSharedBuffer* buffer, const Vector<char>& separator)
+    : m_iteratorCurrent(buffer->begin())
+    , m_iteratorEnd(buffer->end())
+    , m_segment(m_iteratorCurrent != m_iteratorEnd ? m_iteratorCurrent->segment->span().data() : nullptr)
     , m_separator(separator)
-    , m_separatorIndex(0)
 {
 }
 
-SharedBufferChunkReader::SharedBufferChunkReader(SharedBuffer* buffer, const char* separator)
-    : m_buffer(buffer)
-    , m_bufferPosition(0)
-    , m_segment(0)
-    , m_segmentLength(0)
-    , m_segmentIndex(0)
-    , m_reachedEndOfFile(false)
-    , m_separatorIndex(0)
+SharedBufferChunkReader::SharedBufferChunkReader(FragmentedSharedBuffer* buffer, const char* separator)
+    : m_iteratorCurrent(buffer->begin())
+    , m_iteratorEnd(buffer->end())
+    , m_segment(m_iteratorCurrent != m_iteratorEnd ? m_iteratorCurrent->segment->span().data() : nullptr)
 {
     setSeparator(separator);
 }
@@ -72,22 +62,25 @@ void SharedBufferChunkReader::setSeparator(const Vector<char>& separator)
 void SharedBufferChunkReader::setSeparator(const char* separator)
 {
     m_separator.clear();
-    m_separator.append(separator, strlen(separator));
+    m_separator.append(unsafeSpan(separator));
 }
 
-bool SharedBufferChunkReader::nextChunk(Vector<char>& chunk, bool includeSeparator)
+bool SharedBufferChunkReader::nextChunk(Vector<uint8_t>& chunk, bool includeSeparator)
 {
-    if (m_reachedEndOfFile)
+    if (m_iteratorCurrent == m_iteratorEnd)
         return false;
 
     chunk.clear();
     while (true) {
-        while (m_segmentIndex < m_segmentLength) {
-            char currentCharacter = m_segment[m_segmentIndex++];
+        while (m_segmentIndex < m_iteratorCurrent->segment->size()) {
+            // FIXME: The existing code to check for separators doesn't work correctly with arbitrary separator strings.
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+            auto currentCharacter = m_segment[m_segmentIndex++];
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
             if (currentCharacter != m_separator[m_separatorIndex]) {
                 if (m_separatorIndex > 0) {
                     ASSERT_WITH_SECURITY_IMPLICATION(m_separatorIndex <= m_separator.size());
-                    chunk.append(m_separator.data(), m_separatorIndex);
+                    chunk.append(m_separator.span().first(m_separatorIndex));
                     m_separatorIndex = 0;
                 }
                 chunk.append(currentCharacter);
@@ -104,59 +97,56 @@ bool SharedBufferChunkReader::nextChunk(Vector<char>& chunk, bool includeSeparat
 
         // Read the next segment.
         m_segmentIndex = 0;
-        m_bufferPosition += m_segmentLength;
-        // Let's pretend all the data is in one block.
-        // FIXME: This class should be removed in favor of just iterating the segments of the SharedBuffer.
-        m_segment = m_buffer->data() + m_bufferPosition;
-        m_segmentLength = m_buffer->size() - m_bufferPosition;
-        if (!m_segmentLength) {
-            m_reachedEndOfFile = true;
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+        if (++m_iteratorCurrent == m_iteratorEnd) {
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+            m_segment = nullptr;
             if (m_separatorIndex > 0)
-                chunk.append(m_separator.data(), m_separatorIndex);
+                chunk.append(byteCast<uint8_t>(m_separator.subspan(0, m_separatorIndex)));
             return !chunk.isEmpty();
         }
+        m_segment = m_iteratorCurrent->segment->span().data();
     }
+
     ASSERT_NOT_REACHED();
     return false;
 }
 
 String SharedBufferChunkReader::nextChunkAsUTF8StringWithLatin1Fallback(bool includeSeparator)
 {
-    Vector<char> data;
+    Vector<uint8_t> data;
     if (!nextChunk(data, includeSeparator))
         return String();
 
-    return data.size() ? String::fromUTF8WithLatin1Fallback(data.data(), data.size()) : emptyString();
+    return data.size() ? String::fromUTF8WithLatin1Fallback(data.span()) : emptyString();
 }
 
-size_t SharedBufferChunkReader::peek(Vector<char>& data, size_t requestedSize)
+size_t SharedBufferChunkReader::peek(Vector<uint8_t>& data, size_t requestedSize)
 {
     data.clear();
-    if (requestedSize <= m_segmentLength - m_segmentIndex) {
-        data.append(m_segment + m_segmentIndex, requestedSize);
-        return requestedSize;
-    }
+    if (m_iteratorCurrent == m_iteratorEnd)
+        return 0;
 
-    size_t readBytesCount = m_segmentLength - m_segmentIndex;
-    data.append(m_segment + m_segmentIndex, readBytesCount);
+    size_t availableInSegment = std::min(m_iteratorCurrent->segment->size() - m_segmentIndex, requestedSize);
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+    data.append(unsafeMakeSpan(m_segment + m_segmentIndex, availableInSegment));
 
-    size_t bufferPosition = m_bufferPosition + m_segmentLength;
-    const char* segment = 0;
+    size_t readBytesCount = availableInSegment;
+    requestedSize -= readBytesCount;
 
-    // Let's pretend all the data is in one block.
-    // FIXME: This class should be removed in favor of just iterating the segments of the SharedBuffer.
-    if (bufferPosition != m_buffer->size()) {
-        segment = m_buffer->data() + bufferPosition;
-        size_t segmentLength = m_buffer->size() - bufferPosition;
-        if (segmentLength > requestedSize)
-            segmentLength = requestedSize;
-        data.append(segment, segmentLength);
-        readBytesCount += segmentLength;
-        bufferPosition += segmentLength;
+    auto currentSegment = m_iteratorCurrent;
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+
+    while (requestedSize && ++currentSegment != m_iteratorEnd) {
+        size_t lengthInSegment = std::min(currentSegment->segment->size(), requestedSize);
+        data.append(currentSegment->segment->span().first(lengthInSegment));
+        readBytesCount += lengthInSegment;
+        requestedSize -= lengthInSegment;
     }
     return readBytesCount;
 }
 
+#endif
+
 }
 
-#endif

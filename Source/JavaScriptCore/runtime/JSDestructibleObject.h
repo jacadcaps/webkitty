@@ -35,14 +35,14 @@ class JSDestructibleObject : public JSNonFinalObject {
 public:
     using Base = JSNonFinalObject;
 
-    static constexpr bool needsDestruction = true;
+    static constexpr DestructionMode needsDestruction = NeedsDestruction;
     
     const ClassInfo* classInfo() const { return m_classInfo; }
 
 protected:
     JSDestructibleObject(VM& vm, Structure* structure, Butterfly* butterfly = nullptr)
         : JSNonFinalObject(vm, structure, butterfly)
-        , m_classInfo(structure->classInfo())
+        , m_classInfo(structure->classInfoForCells())
     {
         ASSERT(m_classInfo);
     }

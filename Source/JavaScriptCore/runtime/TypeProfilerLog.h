@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,13 +30,15 @@
 
 #include "JSCJSValue.h"
 #include "Structure.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace JSC {
 
+class AbstractSlotVisitor;
 class TypeLocation;
 
 class TypeProfilerLog {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(TypeProfilerLog);
 public:
     struct LogEntry {
         WTF_MAKE_STRUCT_FAST_ALLOCATED;
@@ -47,9 +49,9 @@ public:
         TypeLocation* location; 
         StructureID structureID;
 
-        static ptrdiff_t structureIDOffset() { return OBJECT_OFFSETOF(LogEntry, structureID); }
-        static ptrdiff_t valueOffset() { return OBJECT_OFFSETOF(LogEntry, value); }
-        static ptrdiff_t locationOffset() { return OBJECT_OFFSETOF(LogEntry, location); }
+        static constexpr ptrdiff_t structureIDOffset() { return OBJECT_OFFSETOF(LogEntry, structureID); }
+        static constexpr ptrdiff_t valueOffset() { return OBJECT_OFFSETOF(LogEntry, value); }
+        static constexpr ptrdiff_t locationOffset() { return OBJECT_OFFSETOF(LogEntry, location); }
     };
 
 
@@ -59,10 +61,10 @@ public:
     JS_EXPORT_PRIVATE void processLogEntries(VM&, const String&);
     LogEntry* logEndPtr() const { return m_logEndPtr; }
 
-    void visit(SlotVisitor&);
+    void visit(AbstractSlotVisitor&);
 
-    static ptrdiff_t logStartOffset() { return OBJECT_OFFSETOF(TypeProfilerLog, m_logStartPtr); }
-    static ptrdiff_t currentLogEntryOffset() { return OBJECT_OFFSETOF(TypeProfilerLog, m_currentLogEntryPtr); }
+    static constexpr ptrdiff_t logStartOffset() { return OBJECT_OFFSETOF(TypeProfilerLog, m_logStartPtr); }
+    static constexpr ptrdiff_t currentLogEntryOffset() { return OBJECT_OFFSETOF(TypeProfilerLog, m_currentLogEntryPtr); }
 
 private:
     friend class LLIntOffsetsExtractor;

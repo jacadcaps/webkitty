@@ -22,38 +22,42 @@
 
 #include "SVGFitToViewBox.h"
 #include "SVGZoomAndPan.h"
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
 class SVGElement;
 class SVGTransformList;
+class WeakPtrImplWithEventTargetData;
 
 class SVGViewSpec final : public RefCounted<SVGViewSpec>, public SVGFitToViewBox, public SVGZoomAndPan {
+    WTF_MAKE_TZONE_ALLOCATED(SVGViewSpec);
 public:
     static Ref<SVGViewSpec> create(SVGElement& contextElement)
     {
         return adoptRef(*new SVGViewSpec(contextElement));
     }
 
-    bool parseViewSpec(const StringView&);
+    bool parseViewSpec(StringView);
     void reset();
     void resetContextElement() { m_contextElement = nullptr; }
 
-    SVGElement* viewTarget() const;
+    RefPtr<SVGElement> viewTarget() const;
     const String& viewTargetString() const { return m_viewTargetString; }
 
     String transformString() const { return m_transform->valueAsString(); }
     Ref<SVGTransformList>& transform() { return m_transform; }
+    Ref<SVGTransformList> protectedTransform();
 
-    const WeakPtr<SVGElement>& contextElementConcurrently() const { return m_contextElement; }
+    const WeakPtr<SVGElement, WeakPtrImplWithEventTargetData>& contextElementConcurrently() const { return m_contextElement; }
+
+    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGViewSpec, SVGFitToViewBox>;
 
 private:
     explicit SVGViewSpec(SVGElement&);
 
-    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGViewSpec, SVGFitToViewBox>;
-
-    WeakPtr<SVGElement> m_contextElement;
+    WeakPtr<SVGElement, WeakPtrImplWithEventTargetData> m_contextElement;
     String m_viewTargetString;
     Ref<SVGTransformList> m_transform;
 };

@@ -27,7 +27,7 @@ AdaptedVideoTrackSource::AdaptedVideoTrackSource(int required_alignment)
 AdaptedVideoTrackSource::~AdaptedVideoTrackSource() = default;
 
 bool AdaptedVideoTrackSource::GetStats(Stats* stats) {
-  rtc::CritScope lock(&stats_crit_);
+  webrtc::MutexLock lock(&stats_mutex_);
 
   if (!stats_) {
     return false;
@@ -59,6 +59,10 @@ void AdaptedVideoTrackSource::OnFrame(const webrtc::VideoFrame& frame) {
   } else {
     broadcaster_.OnFrame(frame);
   }
+}
+
+void AdaptedVideoTrackSource::OnFrameDropped() {
+  broadcaster_.OnDiscardedFrame();
 }
 
 void AdaptedVideoTrackSource::AddOrUpdateSink(
@@ -93,7 +97,7 @@ bool AdaptedVideoTrackSource::AdaptFrame(int width,
                                          int* crop_x,
                                          int* crop_y) {
   {
-    rtc::CritScope lock(&stats_crit_);
+    webrtc::MutexLock lock(&stats_mutex_);
     stats_ = Stats{width, height};
   }
 
@@ -112,6 +116,11 @@ bool AdaptedVideoTrackSource::AdaptFrame(int width,
   *crop_x = (width - *crop_width) / 2;
   *crop_y = (height - *crop_height) / 2;
   return true;
+}
+
+void AdaptedVideoTrackSource::ProcessConstraints(
+    const webrtc::VideoTrackSourceConstraints& constraints) {
+  broadcaster_.ProcessConstraints(constraints);
 }
 
 }  // namespace rtc

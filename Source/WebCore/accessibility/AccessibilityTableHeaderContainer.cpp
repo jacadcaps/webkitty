@@ -34,13 +34,16 @@
 
 namespace WebCore {
 
-AccessibilityTableHeaderContainer::AccessibilityTableHeaderContainer() = default;
+AccessibilityTableHeaderContainer::AccessibilityTableHeaderContainer(AXID axID)
+    : AccessibilityMockObject(axID)
+{
+}
 
 AccessibilityTableHeaderContainer::~AccessibilityTableHeaderContainer() = default;
 
-Ref<AccessibilityTableHeaderContainer> AccessibilityTableHeaderContainer::create()
+Ref<AccessibilityTableHeaderContainer> AccessibilityTableHeaderContainer::create(AXID axID)
 {
-    return adoptRef(*new AccessibilityTableHeaderContainer());
+    return adoptRef(*new AccessibilityTableHeaderContainer(axID));
 }
     
 LayoutRect AccessibilityTableHeaderContainer::elementRect() const
@@ -49,31 +52,25 @@ LayoutRect AccessibilityTableHeaderContainer::elementRect() const
     return m_headerRect;
 }
 
-bool AccessibilityTableHeaderContainer::computeAccessibilityIsIgnored() const
+bool AccessibilityTableHeaderContainer::computeIsIgnored() const
 {
-    if (!m_parent)
-        return true;
-    
-#if PLATFORM(IOS_FAMILY) || USE(ATK)
+#if PLATFORM(IOS_FAMILY) || USE(ATSPI)
     return true;
 #endif
-
-    return m_parent->accessibilityIsIgnored();
+    return !m_parent || m_parent->isIgnored();
 }
 
 void AccessibilityTableHeaderContainer::addChildren()
 {
-    ASSERT(!m_haveChildren); 
+    ASSERT(!m_childrenInitialized); 
     
-    m_haveChildren = true;
-    if (!is<AccessibilityTable>(m_parent))
+    m_childrenInitialized = true;
+    RefPtr parentTable = dynamicDowncast<AccessibilityTable>(m_parent.get());
+    if (!parentTable || !parentTable->isExposable())
         return;
 
-    auto& parentTable = downcast<AccessibilityTable>(*m_parent);
-    if (!parentTable.isExposable())
-        return;
-
-    m_children = parentTable.columnHeaders();
+    for (auto& columnHeader : parentTable->columnHeaders())
+        addChild(downcast<AccessibilityObject>(columnHeader.get()));
 
     for (const auto& child : m_children)
         m_headerRect.unite(child->elementRect());

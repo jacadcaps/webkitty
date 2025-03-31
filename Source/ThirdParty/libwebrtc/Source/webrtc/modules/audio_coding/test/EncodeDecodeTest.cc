@@ -15,8 +15,12 @@
 
 #include <memory>
 
+#include "absl/strings/string_view.h"
 #include "api/audio_codecs/builtin_audio_decoder_factory.h"
 #include "api/audio_codecs/builtin_audio_encoder_factory.h"
+#include "api/environment/environment.h"
+#include "api/environment/environment_factory.h"
+#include "api/neteq/default_neteq_factory.h"
 #include "modules/audio_coding/include/audio_coding_module.h"
 #include "rtc_base/strings/string_builder.h"
 #include "test/gtest.h"
@@ -35,12 +39,13 @@ TestPacketization::TestPacketization(RTPStream* rtpStream, uint16_t frequency)
 
 TestPacketization::~TestPacketization() {}
 
-int32_t TestPacketization::SendData(const AudioFrameType /* frameType */,
-                                    const uint8_t payloadType,
-                                    const uint32_t timeStamp,
-                                    const uint8_t* payloadData,
-                                    const size_t payloadSize,
-                                    int64_t absolute_capture_timestamp_ms) {
+int32_t TestPacketization::SendData(
+    const AudioFrameType /* frameType */,
+    const uint8_t payloadType,
+    const uint32_t timeStamp,
+    const uint8_t* payloadData,
+    const size_t payloadSize,
+    int64_t /* absolute_capture_timestamp_ms */) {
   _rtpStream->Write(payloadType, timeStamp, _seqNo++, payloadData, payloadSize,
                     _frequency);
   return 1;
@@ -49,9 +54,10 @@ int32_t TestPacketization::SendData(const AudioFrameType /* frameType */,
 Sender::Sender()
     : _acm(NULL), _pcmFile(), _audioFrame(), _packetization(NULL) {}
 
-void Sender::Setup(AudioCodingModule* acm,
+void Sender::Setup(const Environment& env,
+                   AudioCodingModule* acm,
                    RTPStream* rtpStream,
-                   std::string in_file_name,
+                   absl::string_view in_file_name,
                    int in_sample_rate,
                    int payload_type,
                    SdpAudioFormat format) {
@@ -66,8 +72,8 @@ void Sender::Setup(AudioCodingModule* acm,
   // Fast-forward 1 second (100 blocks) since the file starts with silence.
   _pcmFile.FastForward(100);
 
-  acm->SetEncoder(CreateBuiltinAudioEncoderFactory()->MakeAudioEncoder(
-      payload_type, format, absl::nullopt));
+  acm->SetEncoder(CreateBuiltinAudioEncoderFactory()->Create(
+      env, format, {.payload_type = payload_type}));
   _packetization = new TestPacketization(rtpStream, format.clockrate_hz);
   EXPECT_EQ(0, acm->RegisterTransportCallback(_packetization));
 
@@ -101,36 +107,31 @@ Receiver::Receiver()
     : _playoutLengthSmpls(kWebRtc10MsPcmAudio),
       _payloadSizeBytes(MAX_INCOMING_PAYLOAD) {}
 
-void Receiver::Setup(AudioCodingModule* acm,
+void Receiver::Setup(NetEq* neteq,
                      RTPStream* rtpStream,
-                     std::string out_file_name,
+                     absl::string_view out_file_name,
                      size_t channels,
                      int file_num) {
-  EXPECT_EQ(0, acm->InitializeReceiver());
-
   if (channels == 1) {
-    acm->SetReceiveCodecs({{103, {"ISAC", 16000, 1}},
-                           {104, {"ISAC", 32000, 1}},
-                           {107, {"L16", 8000, 1}},
-                           {108, {"L16", 16000, 1}},
-                           {109, {"L16", 32000, 1}},
-                           {0, {"PCMU", 8000, 1}},
-                           {8, {"PCMA", 8000, 1}},
-                           {102, {"ILBC", 8000, 1}},
-                           {9, {"G722", 8000, 1}},
-                           {120, {"OPUS", 48000, 2}},
-                           {13, {"CN", 8000, 1}},
-                           {98, {"CN", 16000, 1}},
-                           {99, {"CN", 32000, 1}}});
+    neteq->SetCodecs({{107, {"L16", 8000, 1}},
+                      {108, {"L16", 16000, 1}},
+                      {109, {"L16", 32000, 1}},
+                      {0, {"PCMU", 8000, 1}},
+                      {8, {"PCMA", 8000, 1}},
+                      {9, {"G722", 8000, 1}},
+                      {120, {"OPUS", 48000, 2}},
+                      {13, {"CN", 8000, 1}},
+                      {98, {"CN", 16000, 1}},
+                      {99, {"CN", 32000, 1}}});
   } else {
     ASSERT_EQ(channels, 2u);
-    acm->SetReceiveCodecs({{111, {"L16", 8000, 2}},
-                           {112, {"L16", 16000, 2}},
-                           {113, {"L16", 32000, 2}},
-                           {110, {"PCMU", 8000, 2}},
-                           {118, {"PCMA", 8000, 2}},
-                           {119, {"G722", 8000, 2}},
-                           {120, {"OPUS", 48000, 2, {{"stereo", "1"}}}}});
+    neteq->SetCodecs({{111, {"L16", 8000, 2}},
+                      {112, {"L16", 16000, 2}},
+                      {113, {"L16", 32000, 2}},
+                      {110, {"PCMU", 8000, 2}},
+                      {118, {"PCMA", 8000, 2}},
+                      {119, {"G722", 8000, 2}},
+                      {120, {"OPUS", 48000, 2, {{"stereo", "1"}}}}});
   }
 
   int playSampFreq;
@@ -147,7 +148,7 @@ void Receiver::Setup(AudioCodingModule* acm,
   _realPayloadSizeBytes = 0;
   _playoutBuffer = new int16_t[kWebRtc10MsPcmAudio];
   _frequency = playSampFreq;
-  _acm = acm;
+  _neteq = neteq;
   _firstTime = true;
 }
 
@@ -172,8 +173,11 @@ bool Receiver::IncomingPacket() {
       }
     }
 
-    EXPECT_EQ(0, _acm->IncomingPacket(_incomingPayload, _realPayloadSizeBytes,
-                                      _rtpHeader));
+    EXPECT_GE(
+        0, _neteq->InsertPacket(_rtpHeader,
+                                rtc::ArrayView<const uint8_t>(
+                                    _incomingPayload, _realPayloadSizeBytes),
+                                /*receive_time=*/Timestamp::Millis(_nextTime)));
     _realPayloadSizeBytes = _rtpStream->Read(&_rtpHeader, _incomingPayload,
                                              _payloadSizeBytes, &_nextTime);
     if (_realPayloadSizeBytes == 0 && _rtpStream->EndOfFile()) {
@@ -186,18 +190,19 @@ bool Receiver::IncomingPacket() {
 bool Receiver::PlayoutData() {
   AudioFrame audioFrame;
   bool muted;
-  int32_t ok = _acm->PlayoutData10Ms(_frequency, &audioFrame, &muted);
+  int ok = _neteq->GetAudio(&audioFrame, &muted);
   if (muted) {
     ADD_FAILURE();
     return false;
   }
-  EXPECT_EQ(0, ok);
+  EXPECT_EQ(NetEq::kOK, ok);
   if (ok < 0) {
     return false;
   }
   if (_playoutLengthSmpls == 0) {
     return false;
   }
+  EXPECT_TRUE(_resampler_helper.MaybeResample(_frequency, &audioFrame));
   _pcmFile.Write10MsData(audioFrame.data(), audioFrame.samples_per_channel_ *
                                                 audioFrame.num_channels_);
   return true;
@@ -231,26 +236,26 @@ EncodeDecodeTest::EncodeDecodeTest() = default;
 
 void EncodeDecodeTest::Perform() {
   const std::map<int, SdpAudioFormat> send_codecs = {
-      {103, {"ISAC", 16000, 1}}, {104, {"ISAC", 32000, 1}},
-      {107, {"L16", 8000, 1}},   {108, {"L16", 16000, 1}},
-      {109, {"L16", 32000, 1}},  {0, {"PCMU", 8000, 1}},
+      {107, {"L16", 8000, 1}},  {108, {"L16", 16000, 1}},
+      {109, {"L16", 32000, 1}}, {0, {"PCMU", 8000, 1}},
       {8, {"PCMA", 8000, 1}},
-#ifdef WEBRTC_CODEC_ILBC
-      {102, {"ILBC", 8000, 1}},
+// TODO(bugs.webrtc.org/345525069): Either fix/enable or remove G722.
+#if defined(__has_feature) && !__has_feature(undefined_behavior_sanitizer)
+      {9, {"G722", 8000, 1}},
 #endif
-      {9, {"G722", 8000, 1}}};
+  };
+  const Environment env = CreateEnvironment();
   int file_num = 0;
   for (const auto& send_codec : send_codecs) {
     RTPFile rtpFile;
-    std::unique_ptr<AudioCodingModule> acm(AudioCodingModule::Create(
-        AudioCodingModule::Config(CreateBuiltinAudioDecoderFactory())));
+    std::unique_ptr<AudioCodingModule> acm(AudioCodingModule::Create());
 
     std::string fileName = webrtc::test::TempFilename(
         webrtc::test::OutputPath(), "encode_decode_rtp");
     rtpFile.Open(fileName.c_str(), "wb+");
     rtpFile.WriteHeader();
     Sender sender;
-    sender.Setup(acm.get(), &rtpFile, "audio_coding/testfile32kHz", 32000,
+    sender.Setup(env, acm.get(), &rtpFile, "audio_coding/testfile32kHz", 32000,
                  send_codec.first, send_codec.second);
     sender.Run();
     sender.Teardown();
@@ -258,8 +263,10 @@ void EncodeDecodeTest::Perform() {
 
     rtpFile.Open(fileName.c_str(), "rb");
     rtpFile.ReadHeader();
+    std::unique_ptr<NetEq> neteq = DefaultNetEqFactory().Create(
+        env, NetEq::Config(), CreateBuiltinAudioDecoderFactory());
     Receiver receiver;
-    receiver.Setup(acm.get(), &rtpFile, "encodeDecode_out", 1, file_num);
+    receiver.Setup(neteq.get(), &rtpFile, "encodeDecode_out", 1, file_num);
     receiver.Run();
     receiver.Teardown();
     rtpFile.Close();

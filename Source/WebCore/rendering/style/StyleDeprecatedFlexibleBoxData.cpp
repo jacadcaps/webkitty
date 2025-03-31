@@ -22,9 +22,12 @@
 #include "config.h"
 #include "StyleDeprecatedFlexibleBoxData.h"
 
-#include "RenderStyle.h"
+#include "RenderStyleDifference.h"
+#include "RenderStyleInlines.h"
 
 namespace WebCore {
+
+DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(StyleDeprecatedFlexibleBoxData);
 
 StyleDeprecatedFlexibleBoxData::StyleDeprecatedFlexibleBoxData()
     : flex(RenderStyle::initialBoxFlex())
@@ -60,5 +63,19 @@ bool StyleDeprecatedFlexibleBoxData::operator==(const StyleDeprecatedFlexibleBox
         && ordinalGroup == other.ordinalGroup && align == other.align
         && pack == other.pack && orient == other.orient && lines == other.lines;
 }
+
+#if !LOG_DISABLED
+void StyleDeprecatedFlexibleBoxData::dumpDifferences(TextStream& ts, const StyleDeprecatedFlexibleBoxData& other) const
+{
+    LOG_IF_DIFFERENT(flex);
+    LOG_IF_DIFFERENT(flexGroup);
+    LOG_IF_DIFFERENT(ordinalGroup);
+
+    LOG_IF_DIFFERENT_WITH_CAST(BoxAlignment, align);
+    LOG_IF_DIFFERENT_WITH_CAST(BoxPack, pack);
+    LOG_IF_DIFFERENT_WITH_CAST(BoxOrient, orient);
+    LOG_IF_DIFFERENT_WITH_CAST(BoxLines, lines);
+}
+#endif // !LOG_DISABLED
 
 } // namespace WebCore

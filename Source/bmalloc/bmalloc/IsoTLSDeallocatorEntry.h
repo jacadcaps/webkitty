@@ -25,10 +25,14 @@
 
 #pragma once
 
+#if !BUSE(TZONE)
+
 #include "IsoDeallocator.h"
 #include "IsoTLSEntry.h"
 #include "Mutex.h"
 #include <mutex>
+
+#if !BUSE(LIBPAS)
 
 namespace bmalloc {
 
@@ -51,3 +55,5 @@ private:
 
 } // namespace bmalloc
 
+#endif
+#endif // !BUSE(TZONE)

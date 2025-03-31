@@ -31,8 +31,8 @@
 #include <stdio.h>
 #include <wtf/ProcessID.h>
 #include <wtf/text/CString.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuilder.h>
-#include <wtf/text/StringConcatenateNumbers.h>
 
 namespace WebKit {
 using namespace WebCore;
@@ -89,12 +89,12 @@ void WebMemorySampler::start(SandboxExtension::Handle&& sampleLogFileHandle, con
 void WebMemorySampler::initializeTimers(double interval)
 {
     m_sampleTimer.startRepeating(1_s);
-    printf("Started memory sampler for process %s %d", processName().utf8().data(), getCurrentProcessID());
+    SAFE_PRINTF("Started memory sampler for process %s %d", processName().utf8(), getCurrentProcessID());
     if (interval > 0) {
         m_stopTimer.startOneShot(1_s * interval);
         printf(" for a interval of %g seconds", interval);
     }
-    printf("; Sampler log file stored at: %s\n", m_sampleLogFilePath.utf8().data());
+    SAFE_PRINTF("; Sampler log file stored at: %s\n", m_sampleLogFilePath.utf8());
     m_runningTime = interval;
     m_isRunning = true;
 }
@@ -106,7 +106,7 @@ void WebMemorySampler::stop()
     m_sampleTimer.stop();
     FileSystem::closeFile(m_sampleLogFile);
 
-    printf("Stopped memory sampler for process %s %d\n", processName().utf8().data(), getCurrentProcessID());
+    SAFE_PRINTF("Stopped memory sampler for process %s %d\n", processName().utf8(), getCurrentProcessID());
     // Flush stdout buffer so python script can be guaranteed to read up to this point.
     fflush(stdout);
     m_isRunning = false;
@@ -127,7 +127,9 @@ bool WebMemorySampler::isRunning() const
     
 void WebMemorySampler::initializeTempLogFile()
 {
-    m_sampleLogFilePath = FileSystem::openTemporaryFile(processName(), m_sampleLogFile);
+    auto result = FileSystem::openTemporaryFile(processName());
+    m_sampleLogFilePath = result.first;
+    m_sampleLogFile = result.second;
     writeHeaders();
 }
 
@@ -137,16 +139,14 @@ void WebMemorySampler::initializeSandboxedLogFile(SandboxExtension::Handle&& sam
     if (m_sampleLogSandboxExtension)
         m_sampleLogSandboxExtension->consume();
     m_sampleLogFilePath = sampleLogFilePath;
-    m_sampleLogFile = FileSystem::openFile(m_sampleLogFilePath, FileSystem::FileOpenMode::Write);
+    m_sampleLogFile = FileSystem::openFile(m_sampleLogFilePath, FileSystem::FileOpenMode::Truncate);
     writeHeaders();
 }
 
 void WebMemorySampler::writeHeaders()
 {
-    String processDetails = makeString("Process: ", processName(), " Pid: ", getCurrentProcessID(), '\n');
-
-    CString utf8String = processDetails.utf8();
-    FileSystem::writeToFile(m_sampleLogFile, utf8String.data(), utf8String.length());
+    auto processDetails = makeString("Process: "_s, processName(), " Pid: "_s, getCurrentProcessID(), '\n').utf8();
+    FileSystem::writeToFile(m_sampleLogFile, byteCast<uint8_t>(processDetails.span()));
 }
 
 void WebMemorySampler::sampleTimerFired()
@@ -172,17 +172,15 @@ void WebMemorySampler::appendCurrentMemoryUsageToFile(FileSystem::PlatformFileHa
     if (!memoryStats.values.isEmpty()) {
         statString.append(separator);
         for (size_t i = 0; i < memoryStats.values.size(); ++i) {
-            statString.append('\n');
-            statString.append(separator);
-            statString.append(memoryStats.keys[i]);
+            statString.append('\n', separator, memoryStats.keys[i]);
             appendSpaces(statString, 35 - memoryStats.keys[i].length());
-            statString.appendNumber(memoryStats.values[i]);
+            statString.append(memoryStats.values[i]);
         }
     }
     statString.append('\n');
 
     CString utf8String = statString.toString().utf8();
-    FileSystem::writeToFile(m_sampleLogFile, utf8String.data(), utf8String.length());
+    FileSystem::writeToFile(m_sampleLogFile, byteCast<uint8_t>(utf8String.span()));
 }
 
 }

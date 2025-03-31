@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,18 +25,24 @@
 
 #include "config.h"
 #include "WasmOMGPlan.h"
+#include "JSToWasm.h"
 
-#if ENABLE(WEBASSEMBLY)
+#if ENABLE(WEBASSEMBLY_OMGJIT)
 
-#include "B3Compilation.h"
+#include "JITCompilation.h"
 #include "LinkBuffer.h"
-#include "WasmB3IRGenerator.h"
+#include "NativeCalleeRegistry.h"
+#include "VMInspector.h"
 #include "WasmCallee.h"
+#include "WasmIRGeneratorHelpers.h"
 #include "WasmNameSection.h"
-#include "WasmSignatureInlines.h"
+#include "WasmOMGIRGenerator.h"
+#include "WasmTypeDefinitionInlines.h"
 #include <wtf/DataLog.h>
 #include <wtf/Locker.h>
+#include <wtf/ScopedPrintStream.h>
 #include <wtf/StdLibExtras.h>
+#include <wtf/text/MakeString.h>
 
 namespace JSC { namespace Wasm {
 
@@ -44,101 +50,195 @@ namespace WasmOMGPlanInternal {
 static constexpr bool verbose = false;
 }
 
-OMGPlan::OMGPlan(Context* context, Ref<Module>&& module, uint32_t functionIndex, MemoryMode mode, CompletionTask&& task)
-    : Base(context, makeRef(const_cast<ModuleInformation&>(module->moduleInformation())), WTFMove(task))
+OMGPlan::OMGPlan(VM& vm, Ref<Module>&& module, FunctionCodeIndex functionIndex, std::optional<bool> hasExceptionHandlers, MemoryMode mode, CompletionTask&& task)
+    : Base(vm, const_cast<ModuleInformation&>(module->moduleInformation()), WTFMove(task))
     , m_module(WTFMove(module))
-    , m_codeBlock(*m_module->codeBlockFor(mode))
+    , m_calleeGroup(*m_module->calleeGroupFor(mode))
+    , m_hasExceptionHandlers(hasExceptionHandlers)
     , m_functionIndex(functionIndex)
 {
     ASSERT(Options::useOMGJIT());
     setMode(mode);
-    ASSERT(m_codeBlock->runnable());
-    ASSERT(m_codeBlock.ptr() == m_module->codeBlockFor(m_mode));
-    dataLogLnIf(WasmOMGPlanInternal::verbose, "Starting OMG plan for ", functionIndex, " of module: ", RawPointer(&m_module.get()));
+    ASSERT(m_calleeGroup->runnable());
+    ASSERT(m_calleeGroup.ptr() == m_module->calleeGroupFor(m_mode));
+    dataLogLnIf(WasmOMGPlanInternal::verbose, "[", m_moduleInformation->toSpaceIndex(m_functionIndex), "]: Starting OMG plan for ", functionIndex, " of module: ", RawPointer(&m_module.get()));
 }
 
-void OMGPlan::work(CompilationEffort)
+FunctionAllowlist& OMGPlan::ensureGlobalOMGAllowlist()
 {
-    ASSERT(m_codeBlock->runnable());
-    ASSERT(m_codeBlock.ptr() == m_module->codeBlockFor(mode()));
+    static LazyNeverDestroyed<FunctionAllowlist> omgAllowlist;
+    static std::once_flag initializeAllowlistFlag;
+    std::call_once(initializeAllowlistFlag, [] {
+        const char* functionAllowlistFile = Options::omgAllowlist();
+        omgAllowlist.construct(functionAllowlistFile);
+    });
+    return omgAllowlist;
+}
+
+void OMGPlan::dumpDisassembly(CompilationContext& context, LinkBuffer& linkBuffer, FunctionCodeIndex functionIndex, const TypeDefinition& signature, FunctionSpaceIndex functionIndexSpace)
+{
+    dataLogLnIf(context.procedure->shouldDumpIR() || shouldDumpDisassemblyFor(CompilationMode::OMGMode), "Generated OMG code for WebAssembly OMG function[", functionIndex, "] ", signature.toString().ascii().data(), " name ", makeString(IndexOrName(functionIndexSpace, m_moduleInformation->nameSection->get(functionIndexSpace))).ascii().data());
+    if (UNLIKELY(shouldDumpDisassemblyFor(CompilationMode::OMGMode))) {
+        ScopedPrintStream out;
+        UncheckedKeyHashSet<B3::Value*> printedValues;
+        auto* disassembler = context.procedure->code().disassembler();
+
+        const char* b3Prefix = "b3    ";
+        const char* airPrefix = "Air        ";
+        const char* asmPrefix = "asm              ";
+
+        B3::Value* prevOrigin = nullptr;
+        auto forEachInst = scopedLambda<void(B3::Air::Inst&)>([&] (B3::Air::Inst& inst) {
+            if (inst.origin && inst.origin != prevOrigin && context.procedure->code().shouldPreserveB3Origins()) {
+                if (String string = inst.origin->compilerConstructionSite(); !string.isNull())
+                    out.println(string);
+                Vector<B3::Value*> children;
+                Vector<B3::Value*> worklist;
+                children.append(inst.origin);
+                worklist.append(inst.origin);
+                while (!worklist.isEmpty()) {
+                    B3::Value* current = worklist.takeLast();
+                    for (B3::Value* child : current->children()) {
+                        if (printedValues.add(child).isNewEntry) {
+                            children.append(child);
+                            worklist.append(child);
+                        }
+                    }
+                }
+                for (size_t i = children.size(); i--;) {
+                    out.print(b3Prefix);
+                    children[i]->deepDump(context.procedure.get(), out);
+                    out.println();
+                }
+
+                prevOrigin = inst.origin;
+            }
+        });
+
+        disassembler->dump(context.procedure->code(), out, linkBuffer, airPrefix, asmPrefix, forEachInst);
+        linkBuffer.didAlreadyDisassemble();
+    }
+}
+
+void OMGPlan::work()
+{
+    ASSERT(m_calleeGroup->runnable());
+    ASSERT(m_calleeGroup.ptr() == m_module->calleeGroupFor(mode()));
     const FunctionData& function = m_moduleInformation->functions[m_functionIndex];
 
-    const uint32_t functionIndexSpace = m_functionIndex + m_module->moduleInformation().importFunctionCount();
-    ASSERT(functionIndexSpace < m_module->moduleInformation().functionIndexSpaceSize());
+    const FunctionSpaceIndex functionIndexSpace = m_moduleInformation->toSpaceIndex(m_functionIndex);
+    TypeIndex typeIndex = m_moduleInformation->internalFunctionTypeIndices[m_functionIndex];
+    const TypeDefinition& signature = TypeInformation::get(typeIndex).expand();
 
-    SignatureIndex signatureIndex = m_moduleInformation->internalFunctionSignatureIndices[m_functionIndex];
-    const Signature& signature = SignatureInformation::get(signatureIndex);
+    Ref<OMGCallee> callee = OMGCallee::create(functionIndexSpace, m_moduleInformation->nameSection->get(functionIndexSpace));
 
+    beginCompilerSignpost(callee.get());
     Vector<UnlinkedWasmToWasmCall> unlinkedCalls;
-    unsigned osrEntryScratchBufferSize;
     CompilationContext context;
-    auto parseAndCompileResult = parseAndCompile(context, function, signature, unlinkedCalls, osrEntryScratchBufferSize, m_moduleInformation.get(), m_mode, CompilationMode::OMGMode, m_functionIndex, UINT32_MAX);
+    auto parseAndCompileResult = parseAndCompileOMG(context, callee.get(), function, signature, unlinkedCalls, m_calleeGroup.get(), m_moduleInformation.get(), m_mode, CompilationMode::OMGMode, m_functionIndex, m_hasExceptionHandlers, UINT32_MAX);
+    endCompilerSignpost(callee.get());
 
     if (UNLIKELY(!parseAndCompileResult)) {
-        fail(holdLock(m_lock), makeString(parseAndCompileResult.error(), "when trying to tier up ", String::number(m_functionIndex)));
+        Locker locker { m_lock };
+        fail(makeString(parseAndCompileResult.error(), "when trying to tier up "_s, m_functionIndex.rawIndex()), Plan::Error::Parse);
         return;
     }
 
     Entrypoint omgEntrypoint;
-    LinkBuffer linkBuffer(*context.wasmEntrypointJIT, nullptr, JITCompilationCanFail);
+    LinkBuffer linkBuffer(*context.wasmEntrypointJIT, callee.ptr(), LinkBuffer::Profile::WasmOMG, JITCompilationCanFail);
     if (UNLIKELY(linkBuffer.didFailToAllocate())) {
-        Base::fail(holdLock(m_lock), makeString("Out of executable memory while tiering up function at index ", String::number(m_functionIndex)));
+        Locker locker { m_lock };
+        Base::fail(makeString("Out of executable memory while tiering up function at index "_s, m_functionIndex.rawIndex()), Plan::Error::OutOfMemory);
         return;
     }
 
-    omgEntrypoint.compilation = makeUnique<B3::Compilation>(
-        FINALIZE_WASM_CODE_FOR_MODE(CompilationMode::OMGMode, linkBuffer, B3CompilationPtrTag, "WebAssembly OMG function[%i] %s name %s", m_functionIndex, signature.toString().ascii().data(), makeString(IndexOrName(functionIndexSpace, m_moduleInformation->nameSection->get(functionIndexSpace))).ascii().data()),
-        WTFMove(context.wasmEntrypointByproducts));
+    InternalFunction* internalFunction = parseAndCompileResult->get();
+    Vector<CodeLocationLabel<ExceptionHandlerPtrTag>> exceptionHandlerLocations;
+    computeExceptionHandlerLocations(exceptionHandlerLocations, internalFunction, context, linkBuffer);
 
-    omgEntrypoint.calleeSaveRegisters = WTFMove(parseAndCompileResult.value()->entrypoint.calleeSaveRegisters);
-
-    MacroAssemblerCodePtr<WasmEntryPtrTag> entrypoint;
+    auto samplingProfilerMap = callee->materializePCToOriginMap(context.procedure->releasePCToOriginMap(), linkBuffer);
     {
-        ASSERT(m_codeBlock.ptr() == m_module->codeBlockFor(mode()));
-        Ref<OMGCallee> callee = OMGCallee::create(WTFMove(omgEntrypoint), functionIndexSpace, m_moduleInformation->nameSection->get(functionIndexSpace), WTFMove(unlinkedCalls));
-        MacroAssembler::repatchPointer(parseAndCompileResult.value()->calleeMoveLocation, CalleeBits::boxWasm(callee.ptr()));
-        ASSERT(!m_codeBlock->m_omgCallees[m_functionIndex]);
+        ScopedPrintStream out;
+        dumpDisassembly(context, linkBuffer, m_functionIndex, signature, functionIndexSpace);
+        omgEntrypoint.compilation = makeUnique<Compilation>(
+            FINALIZE_CODE_IF(context.procedure->shouldDumpIR(), linkBuffer, JITCompilationPtrTag, nullptr, "WebAssembly OMG function[%i] %s name %s", m_functionIndex, signature.toString().ascii().data(), makeString(IndexOrName(functionIndexSpace, m_moduleInformation->nameSection->get(functionIndexSpace))).ascii().data()),
+            WTFMove(context.wasmEntrypointByproducts));
+    }
+
+    omgEntrypoint.calleeSaveRegisters = WTFMove(internalFunction->entrypoint.calleeSaveRegisters);
+
+    CodePtr<WasmEntryPtrTag> entrypoint;
+    {
+        ASSERT(m_calleeGroup.ptr() == m_module->calleeGroupFor(mode()));
+        callee->setEntrypoint(WTFMove(omgEntrypoint), WTFMove(unlinkedCalls), WTFMove(internalFunction->stackmaps), WTFMove(internalFunction->exceptionHandlers), WTFMove(exceptionHandlerLocations));
         entrypoint = callee->entrypoint();
+
+        if (samplingProfilerMap)
+            NativeCalleeRegistry::singleton().addPCToCodeOriginMap(callee.ptr(), WTFMove(samplingProfilerMap));
 
         // We want to make sure we publish our callee at the same time as we link our callsites. This enables us to ensure we
         // always call the fastest code. Any function linked after us will see our new code and the new callsites, which they
         // will update. It's also ok if they publish their code before we reset the instruction caches because after we release
         // the lock our code is ready to be published too.
-        LockHolder holder(m_codeBlock->m_lock);
+        Locker locker { m_calleeGroup->m_lock };
 
-        m_codeBlock->m_omgCallees[m_functionIndex] = callee.copyRef();
+        m_calleeGroup->setOMGCallee(locker, m_functionIndex, callee.copyRef());
+        ASSERT(m_calleeGroup->replacement(locker, callee->index()) == callee.ptr());
+        m_calleeGroup->reportCallees(locker, callee.ptr(), internalFunction->outgoingJITDirectCallees);
 
         for (auto& call : callee->wasmToWasmCallsites()) {
-            MacroAssemblerCodePtr<WasmEntryPtrTag> entrypoint;
+            CodePtr<WasmEntryPtrTag> entrypoint;
+            Wasm::Callee* calleeCallee = nullptr;
             if (call.functionIndexSpace < m_module->moduleInformation().importFunctionCount())
-                entrypoint = m_codeBlock->m_wasmToWasmExitStubs[call.functionIndexSpace].code();
-            else
-                entrypoint = m_codeBlock->wasmEntrypointCalleeFromFunctionIndexSpace(call.functionIndexSpace).entrypoint().retagged<WasmEntryPtrTag>();
+                entrypoint = m_calleeGroup->m_wasmToWasmExitStubs[call.functionIndexSpace].code();
+            else {
+                calleeCallee = &m_calleeGroup->wasmEntrypointCalleeFromFunctionIndexSpace(locker, call.functionIndexSpace);
+                entrypoint = m_calleeGroup->wasmEntrypointCalleeFromFunctionIndexSpace(locker, call.functionIndexSpace).entrypoint().retagged<WasmEntryPtrTag>();
+            }
 
+            // FIXME: This does an icache flush for each of these... which doesn't make any sense since this code isn't runnable here
+            // and any stale cache will be evicted when updateCallsitesToCallUs is called.
             MacroAssembler::repatchNearCall(call.callLocation, CodeLocationLabel<WasmEntryPtrTag>(entrypoint));
+            MacroAssembler::repatchPointer(call.calleeLocation, CalleeBits::boxNativeCalleeIfExists(calleeCallee));
         }
 
-        Plan::updateCallSitesToCallUs(m_codeBlock, CodeLocationLabel<WasmEntryPtrTag>(entrypoint), m_functionIndex, functionIndexSpace);
+        m_calleeGroup->updateCallsitesToCallUs(locker, CodeLocationLabel<WasmEntryPtrTag>(entrypoint), m_functionIndex);
+        ASSERT(*m_calleeGroup->entrypointLoadLocationFromFunctionIndexSpace(functionIndexSpace) == entrypoint);
 
         {
-            if (BBQCallee* bbqCallee = m_codeBlock->m_bbqCallees[m_functionIndex].get()) {
-                auto locker = holdLock(bbqCallee->tierUpCount()->getLock());
-                bbqCallee->setReplacement(callee.copyRef());
-                bbqCallee->tierUpCount()->m_compilationStatusForOMG = TierUpCount::CompilationStatus::Compiled;
+            WTF::storeStoreFence();
+            if (BBQCallee* bbqCallee = m_calleeGroup->bbqCallee(locker, m_functionIndex)) {
+                Locker locker { bbqCallee->tierUpCounter().getLock() };
+                bbqCallee->tierUpCounter().setCompilationStatusForOMG(mode(), TierUpCount::CompilationStatus::Compiled);
             }
-            if (m_codeBlock->m_llintCallees) {
-                LLIntCallee& llintCallee = m_codeBlock->m_llintCallees->at(m_functionIndex).get();
-                auto locker = holdLock(llintCallee.tierUpCounter().m_lock);
-                llintCallee.setReplacement(callee.copyRef());
-                llintCallee.tierUpCounter().m_compilationStatus = LLIntTierUpCounter::CompilationStatus::Compiled;
+            if (Options::useWasmIPInt() && m_calleeGroup->m_ipintCallees) {
+                IPIntCallee& ipintCallee = m_calleeGroup->m_ipintCallees->at(m_functionIndex).get();
+                Locker locker { ipintCallee.tierUpCounter().m_lock };
+                ipintCallee.tierUpCounter().setCompilationStatus(mode(), IPIntTierUpCounter::CompilationStatus::Compiled);
+            }
+            if (!Options::useWasmIPInt() && m_calleeGroup->m_llintCallees) {
+                LLIntCallee& llintCallee = m_calleeGroup->m_llintCallees->at(m_functionIndex).get();
+                Locker locker { llintCallee.tierUpCounter().m_lock };
+                llintCallee.tierUpCounter().setCompilationStatus(mode(), LLIntTierUpCounter::CompilationStatus::Compiled);
             }
         }
     }
 
+    auto* jsEntrypointCallee = m_calleeGroup->m_jsEntrypointCallees.get(m_functionIndex);
+    if (jsEntrypointCallee)
+        jsEntrypointCallee->setReplacementTarget(entrypoint);
+
+    if (Options::freeRetiredWasmCode()) {
+        WTF::storeStoreFence();
+        Locker locker { m_calleeGroup->m_lock };
+        m_calleeGroup->releaseBBQCallee(locker, m_functionIndex);
+    }
+
     dataLogLnIf(WasmOMGPlanInternal::verbose, "Finished OMG ", m_functionIndex);
-    complete(holdLock(m_lock));
+    Locker locker { m_lock };
+    complete();
 }
 
 } } // namespace JSC::Wasm
 
-#endif // ENABLE(WEBASSEMBLY)
+#endif // ENABLE(WEBASSEMBLY_OMGJIT)

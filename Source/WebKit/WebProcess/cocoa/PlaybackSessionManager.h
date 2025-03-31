@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,14 +32,17 @@
 #include <WebCore/EventListener.h>
 #include <WebCore/HTMLMediaElementEnums.h>
 #include <WebCore/PlatformCALayer.h>
+#include <WebCore/PlatformMediaSession.h>
 #include <WebCore/PlaybackSessionModelMediaElement.h>
+#include <wtf/CheckedRef.h>
 #include <wtf/HashCountedSet.h>
 #include <wtf/HashMap.h>
 #include <wtf/RefCounted.h>
 #include <wtf/RefPtr.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/WeakHashSet.h>
 
 namespace IPC {
-class Attachment;
 class Connection;
 class Decoder;
 class MessageReceiver;
@@ -47,6 +50,7 @@ class MessageReceiver;
 
 namespace WebCore {
 class Node;
+enum class AudioSessionSoundStageSize : uint8_t;
 }
 
 namespace WebKit {
@@ -56,7 +60,10 @@ class PlaybackSessionManager;
 
 class PlaybackSessionInterfaceContext final
     : public RefCounted<PlaybackSessionInterfaceContext>
-    , public WebCore::PlaybackSessionModelClient {
+    , public WebCore::PlaybackSessionModelClient
+    , public CanMakeCheckedPtr<PlaybackSessionInterfaceContext> {
+    WTF_MAKE_TZONE_ALLOCATED(PlaybackSessionInterfaceContext);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(PlaybackSessionInterfaceContext);
 public:
     static Ref<PlaybackSessionInterfaceContext> create(PlaybackSessionManager& manager, PlaybackSessionContextIdentifier contextId)
     {
@@ -67,14 +74,20 @@ public:
     void invalidate() { m_manager = nullptr; }
 
 private:
-    friend class VideoFullscreenInterfaceContext;
+    friend class VideoPresentationInterfaceContext;
+
+    // CheckedPtr interface
+    uint32_t checkedPtrCount() const final { return CanMakeCheckedPtr::checkedPtrCount(); }
+    uint32_t checkedPtrCountWithoutThreadCheck() const final { return CanMakeCheckedPtr::checkedPtrCountWithoutThreadCheck(); }
+    void incrementCheckedPtrCount() const final { CanMakeCheckedPtr::incrementCheckedPtrCount(); }
+    void decrementCheckedPtrCount() const final { CanMakeCheckedPtr::decrementCheckedPtrCount(); }
 
     // PlaybackSessionModelClient
     void durationChanged(double) final;
     void currentTimeChanged(double currentTime, double anchorTime) final;
     void bufferedTimeChanged(double) final;
     void playbackStartedTimeChanged(double playbackStartedTime) final;
-    void rateChanged(bool isPlaying, float playbackRate) final;
+    void rateChanged(OptionSet<WebCore::PlaybackSessionModel::PlaybackState>, double playbackRate, double defaultPlaybackRate) final;
     void seekableRangesChanged(const WebCore::TimeRanges&, double lastModifiedTime, double liveUpdateInterval) final;
     void canPlayFastReverseChanged(bool value) final;
     void audioMediaSelectionOptionsChanged(const Vector<WebCore::MediaSelectionOption>& options, uint64_t selectedIndex) final;
@@ -86,39 +99,55 @@ private:
     void mutedChanged(bool) final;
     void volumeChanged(double) final;
     void isPictureInPictureSupportedChanged(bool) final;
+    void isInWindowFullscreenActiveChanged(bool) final;
+#if ENABLE(LINEAR_MEDIA_PLAYER)
+    void spatialVideoMetadataChanged(const std::optional<WebCore::SpatialVideoMetadata>&) final;
+    void isImmersiveVideoChanged(bool) final;
+#endif
 
     PlaybackSessionInterfaceContext(PlaybackSessionManager&, PlaybackSessionContextIdentifier);
 
-    PlaybackSessionManager* m_manager;
+    CheckedPtr<PlaybackSessionManager> m_manager;
     PlaybackSessionContextIdentifier m_contextId;
 };
 
-class PlaybackSessionManager : public RefCounted<PlaybackSessionManager>, private IPC::MessageReceiver {
+class PlaybackSessionManager : public RefCounted<PlaybackSessionManager>, private IPC::MessageReceiver, public CanMakeCheckedPtr<PlaybackSessionManager> {
+    WTF_MAKE_FAST_ALLOCATED;
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(PlaybackSessionManager);
 public:
     static Ref<PlaybackSessionManager> create(WebPage&);
     virtual ~PlaybackSessionManager();
-    
+
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     void invalidate();
 
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
 
     void setUpPlaybackControlsManager(WebCore::HTMLMediaElement&);
     void clearPlaybackControlsManager();
+    void mediaEngineChanged(WebCore::HTMLMediaElement&);
     PlaybackSessionContextIdentifier contextIdForMediaElement(WebCore::HTMLMediaElement&);
 
+    WebCore::HTMLMediaElement* mediaElementWithContextId(PlaybackSessionContextIdentifier) const;
     WebCore::HTMLMediaElement* currentPlaybackControlsElement() const;
 
-protected:
+#if !RELEASE_LOG_DISABLED
+    void sendLogIdentifierForMediaElement(WebCore::HTMLMediaElement&);
+#endif
+
+private:
     friend class PlaybackSessionInterfaceContext;
-    friend class VideoFullscreenManager;
+    friend class VideoPresentationManager;
 
     explicit PlaybackSessionManager(WebPage&);
 
-    typedef std::tuple<RefPtr<WebCore::PlaybackSessionModelMediaElement>, RefPtr<PlaybackSessionInterfaceContext>> ModelInterfaceTuple;
+    typedef std::tuple<Ref<WebCore::PlaybackSessionModelMediaElement>, Ref<PlaybackSessionInterfaceContext>> ModelInterfaceTuple;
     ModelInterfaceTuple createModelAndInterface(PlaybackSessionContextIdentifier);
-    ModelInterfaceTuple& ensureModelAndInterface(PlaybackSessionContextIdentifier);
-    WebCore::PlaybackSessionModelMediaElement& ensureModel(PlaybackSessionContextIdentifier);
-    PlaybackSessionInterfaceContext& ensureInterface(PlaybackSessionContextIdentifier);
+    const ModelInterfaceTuple& ensureModelAndInterface(PlaybackSessionContextIdentifier);
+    Ref<WebCore::PlaybackSessionModelMediaElement> ensureModel(PlaybackSessionContextIdentifier);
+    Ref<PlaybackSessionInterfaceContext> ensureInterface(PlaybackSessionContextIdentifier);
     void removeContext(PlaybackSessionContextIdentifier);
     void addClientForContext(PlaybackSessionContextIdentifier);
     void removeClientForContext(PlaybackSessionContextIdentifier);
@@ -128,7 +157,7 @@ protected:
     void currentTimeChanged(PlaybackSessionContextIdentifier, double currentTime, double anchorTime);
     void bufferedTimeChanged(PlaybackSessionContextIdentifier, double bufferedTime);
     void playbackStartedTimeChanged(PlaybackSessionContextIdentifier, double playbackStartedTime);
-    void rateChanged(PlaybackSessionContextIdentifier, bool isPlaying, float playbackRate);
+    void rateChanged(PlaybackSessionContextIdentifier, OptionSet<WebCore::PlaybackSessionModel::PlaybackState>, double playbackRate, double defaultPlaybackRate);
     void seekableRangesChanged(PlaybackSessionContextIdentifier, const WebCore::TimeRanges&, double lastModifiedTime, double liveUpdateInterval);
     void canPlayFastReverseChanged(PlaybackSessionContextIdentifier, bool value);
     void audioMediaSelectionOptionsChanged(PlaybackSessionContextIdentifier, const Vector<WebCore::MediaSelectionOption>& options, uint64_t selectedIndex);
@@ -140,6 +169,9 @@ protected:
     void mutedChanged(PlaybackSessionContextIdentifier, bool);
     void volumeChanged(PlaybackSessionContextIdentifier, double);
     void isPictureInPictureSupportedChanged(PlaybackSessionContextIdentifier, bool);
+    void isInWindowFullscreenActiveChanged(PlaybackSessionContextIdentifier, bool);
+    void spatialVideoMetadataChanged(PlaybackSessionContextIdentifier, const std::optional<WebCore::SpatialVideoMetadata>&);
+    void isImmersiveVideoChanged(PlaybackSessionContextIdentifier, bool);
 
     // Messages from PlaybackSessionManagerProxy
     void play(PlaybackSessionContextIdentifier);
@@ -152,20 +184,47 @@ protected:
     void beginScanningForward(PlaybackSessionContextIdentifier);
     void beginScanningBackward(PlaybackSessionContextIdentifier);
     void endScanning(PlaybackSessionContextIdentifier);
+    void setDefaultPlaybackRate(PlaybackSessionContextIdentifier, float);
+    void setPlaybackRate(PlaybackSessionContextIdentifier, float);
     void selectAudioMediaOption(PlaybackSessionContextIdentifier, uint64_t index);
     void selectLegibleMediaOption(PlaybackSessionContextIdentifier, uint64_t index);
     void handleControlledElementIDRequest(PlaybackSessionContextIdentifier);
     void togglePictureInPicture(PlaybackSessionContextIdentifier);
+    void enterFullscreen(PlaybackSessionContextIdentifier);
+    void setPlayerIdentifierForVideoElement(PlaybackSessionContextIdentifier);
+    void exitFullscreen(PlaybackSessionContextIdentifier);
+    void enterInWindow(PlaybackSessionContextIdentifier);
+    void exitInWindow(PlaybackSessionContextIdentifier);
     void toggleMuted(PlaybackSessionContextIdentifier);
     void setMuted(PlaybackSessionContextIdentifier, bool muted);
     void setVolume(PlaybackSessionContextIdentifier, double volume);
     void setPlayingOnSecondScreen(PlaybackSessionContextIdentifier, bool value);
+    void sendRemoteCommand(PlaybackSessionContextIdentifier, WebCore::PlatformMediaSession::RemoteControlCommandType, const WebCore::PlatformMediaSession::RemoteCommandArgument&);
+    void setSoundStageSize(PlaybackSessionContextIdentifier, WebCore::AudioSessionSoundStageSize);
 
-    WebPage* m_page;
-    HashMap<WebCore::HTMLMediaElement*, PlaybackSessionContextIdentifier> m_mediaElements;
+#if HAVE(SPATIAL_TRACKING_LABEL)
+    void setSpatialTrackingLabel(PlaybackSessionContextIdentifier, const String&);
+#endif
+
+    void forEachModel(Function<void(WebCore::PlaybackSessionModel&)>&&);
+
+#if !RELEASE_LOG_DISABLED
+    const Logger& logger() const { return m_logger; }
+    uint64_t logIdentifier() const { return m_logIdentifier; }
+    ASCIILiteral logClassName() const { return "VideoPresentationManager"_s; }
+    WTFLogChannel& logChannel() const;
+#endif
+
+    WeakPtr<WebPage> m_page;
+    WeakHashSet<WebCore::HTMLMediaElement> m_mediaElements;
     HashMap<PlaybackSessionContextIdentifier, ModelInterfaceTuple> m_contextMap;
-    PlaybackSessionContextIdentifier m_controlsManagerContextId;
+    Markable<PlaybackSessionContextIdentifier> m_controlsManagerContextId;
     HashCountedSet<PlaybackSessionContextIdentifier> m_clientCounts;
+
+#if !RELEASE_LOG_DISABLED
+    Ref<const Logger> m_logger;
+    const uint64_t m_logIdentifier;
+#endif
 };
 
 } // namespace WebKit

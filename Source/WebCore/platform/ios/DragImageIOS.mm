@@ -33,10 +33,13 @@
 #import "FloatRoundedRect.h"
 #import "FontCascade.h"
 #import "FontPlatformData.h"
-#import "Frame.h"
 #import "GeometryUtilities.h"
+#import "GraphicsClient.h"
 #import "GraphicsContext.h"
+#import "GraphicsContextCG.h"
 #import "Image.h"
+#import "ImageBuffer.h"
+#import "LocalFrame.h"
 #import "NotImplemented.h"
 #import "Page.h"
 #import "Range.h"
@@ -62,89 +65,65 @@ IntSize dragImageSize(DragImageRef image)
     return IntSize(CGImageGetWidth(image.get()), CGImageGetHeight(image.get()));
 }
 
-DragImageRef scaleDragImage(DragImageRef image, FloatSize scale)
+DragImageRef scaleDragImage(DragImageRef image, FloatSize)
 {
-    CGSize imageSize = CGSizeMake(scale.width() * CGImageGetWidth(image.get()), scale.height() * CGImageGetHeight(image.get()));
-    CGRect imageRect = { CGPointZero, imageSize };
-
-    RetainPtr<UIGraphicsImageRenderer> render = adoptNS([PAL::allocUIGraphicsImageRendererInstance() initWithSize:imageSize]);
-    UIImage *imageCopy = [render.get() imageWithActions:^(UIGraphicsImageRendererContext *rendererContext) {
-        CGContextRef context = rendererContext.CGContext;
-        CGContextTranslateCTM(context, 0, imageSize.height);
-        CGContextScaleCTM(context, 1, -1);
-        CGContextDrawImage(context, imageRect, image.get());
-    }];
-    return imageCopy.CGImage;
+    // It's unnecessary to apply additional scaling to the drag image on iOS, since the drag image will always perform lift and cancel animations
+    // using targeted previews which will scale to fit the bounds of the dragged element anyways.
+    return image;
 }
 
 static float maximumAllowedDragImageArea = 600 * 1024;
 
-DragImageRef createDragImageFromImage(Image* image, ImageOrientation orientation)
+DragImageRef createDragImageFromImage(Image* image, ImageOrientation orientation, GraphicsClient* client, float scale)
 {
-    if (!image || !image->width() || !image->height())
+    if (!image)
+        return nil;
+
+    auto imageSize = image->size();
+    if (imageSize.isEmpty())
         return nil;
 
     float adjustedImageScale = 1;
-    CGSize imageSize(image->size());
-    if (imageSize.width * imageSize.height > maximumAllowedDragImageArea) {
-        auto adjustedSize = roundedIntSize(sizeWithAreaAndAspectRatio(maximumAllowedDragImageArea, imageSize.width / imageSize.height));
-        adjustedImageScale = adjustedSize.width() / imageSize.width;
+    if (imageSize.area() > maximumAllowedDragImageArea) {
+        auto adjustedSize = sizeWithAreaAndAspectRatio(maximumAllowedDragImageArea, imageSize.width() / imageSize.height());
+        adjustedImageScale = adjustedSize.width() / imageSize.width();
         imageSize = adjustedSize;
     }
 
-    RetainPtr<UIGraphicsImageRenderer> render = adoptNS([PAL::allocUIGraphicsImageRendererInstance() initWithSize:imageSize]);
-    UIImage *imageCopy = [render.get() imageWithActions:^(UIGraphicsImageRendererContext *rendererContext) {
-        GraphicsContext context(rendererContext.CGContext);
-        context.translate(0, imageSize.height);
-        context.scale({ adjustedImageScale, -adjustedImageScale });
-        context.drawImage(*image, FloatPoint(), { orientation });
-    }];
-    return imageCopy.CGImage;
+    RefPtr buffer = ImageBuffer::create(imageSize, RenderingMode::Accelerated, RenderingPurpose::Snapshot, scale, DestinationColorSpace::SRGB(), ImageBufferPixelFormat::BGRA8, client);
+    if (!buffer)
+        return nil;
+
+    buffer->context().translate(0, imageSize.height());
+    buffer->context().scale({ adjustedImageScale, -adjustedImageScale });
+    buffer->context().drawImage(*image, FloatPoint { }, { orientation });
+
+    RefPtr nativeImage = ImageBuffer::sinkIntoNativeImage(WTFMove(buffer));
+    if (!nativeImage)
+        return nil;
+
+    return RetainPtr { nativeImage->platformImage() }.autorelease();
 }
 
 void deleteDragImage(DragImageRef)
 {
 }
 
-static FontCascade cascadeForSystemFont(CGFloat size)
+static RetainPtr<CGImageRef> cgImageFromTextIndicator(const TextIndicator& textIndicator)
 {
-    UIFont *font = [PAL::getUIFontClass() systemFontOfSize:size];
-    return FontCascade(FontPlatformData(CTFontCreateWithName((CFStringRef)font.fontName, font.pointSize, nil), font.pointSize));
+    RefPtr image = textIndicator.contentImage();
+    if (!image)
+        return { };
+
+    RefPtr nativeImage = image->nativeImage();
+    if (!nativeImage)
+        return { };
+
+    return nativeImage->platformImage();
 }
 
-DragImageRef createDragImageForLink(Element& linkElement, URL& url, const String& title, TextIndicatorData& indicatorData, FontRenderingMode, float)
+DragImageRef createDragImageForLink(Element& linkElement, URL&, const String&, TextIndicatorData& indicatorData, float)
 {
-    // FIXME: Most of this can go away once we can use UIURLDragPreviewView unconditionally.
-    static const CGFloat dragImagePadding = 10;
-    static const auto titleFontCascade = makeNeverDestroyed(cascadeForSystemFont(16));
-    static const auto urlFontCascade = makeNeverDestroyed(cascadeForSystemFont(14));
-
-    String topString(title.stripWhiteSpace());
-    String bottomString([(NSURL *)url absoluteString]);
-    if (topString.isEmpty()) {
-        topString = bottomString;
-        bottomString = emptyString();
-    }
-
-    static CGFloat maxTextWidth = 320;
-    auto truncatedTopString = StringTruncator::rightTruncate(topString, maxTextWidth, titleFontCascade);
-    auto truncatedBottomString = StringTruncator::centerTruncate(bottomString, maxTextWidth, urlFontCascade);
-    CGFloat textWidth = std::max(StringTruncator::width(truncatedTopString, titleFontCascade), StringTruncator::width(truncatedBottomString, urlFontCascade));
-    CGFloat textHeight = truncatedBottomString.isEmpty() ? 22 : 44;
-
-    CGRect imageRect = CGRectMake(0, 0, textWidth + 2 * dragImagePadding, textHeight + 2 * dragImagePadding);
-
-    auto renderer = adoptNS([PAL::allocUIGraphicsImageRendererInstance() initWithSize:imageRect.size]);
-    auto image = [renderer imageWithActions:^(UIGraphicsImageRendererContext *rendererContext) {
-        GraphicsContext context(rendererContext.CGContext);
-        context.translate(0, CGRectGetHeight(imageRect));
-        context.scale({ 1, -1 });
-        context.fillRoundedRect(FloatRoundedRect(imageRect, FloatRoundedRect::Radii(4)), Color::white);
-        titleFontCascade.get().drawText(context, TextRun(truncatedTopString), FloatPoint(dragImagePadding, 18 + dragImagePadding));
-        if (!truncatedBottomString.isEmpty())
-            urlFontCascade.get().drawText(context, TextRun(truncatedBottomString), FloatPoint(dragImagePadding, 40 + dragImagePadding));
-    }];
-
     constexpr OptionSet<TextIndicatorOption> defaultLinkIndicatorOptions {
         TextIndicatorOption::TightlyFitContent,
         TextIndicatorOption::RespectTextColor,
@@ -153,10 +132,12 @@ DragImageRef createDragImageForLink(Element& linkElement, URL& url, const String
         TextIndicatorOption::ComputeEstimatedBackgroundColor
     };
 
-    if (auto textIndicator = TextIndicator::createWithRange(makeRangeSelectingNodeContents(linkElement), defaultLinkIndicatorOptions, TextIndicatorPresentationTransition::None, FloatSize()))
-        indicatorData = textIndicator->data();
+    auto textIndicator = TextIndicator::createWithRange(makeRangeSelectingNodeContents(linkElement), defaultLinkIndicatorOptions, TextIndicatorPresentationTransition::None, { });
+    if (!textIndicator)
+        return nullptr;
 
-    return image.CGImage;
+    indicatorData = textIndicator->data();
+    return cgImageFromTextIndicator(*textIndicator).autorelease();
 }
 
 DragImageRef createDragImageIconForCachedImageFilename(const String&)
@@ -178,7 +159,7 @@ constexpr OptionSet<TextIndicatorOption> defaultSelectionDragImageTextIndicatorO
     TextIndicatorOption::ComputeEstimatedBackgroundColor
 };
 
-DragImageRef createDragImageForSelection(Frame& frame, TextIndicatorData& indicatorData, bool forceBlackText)
+DragImageRef createDragImageForSelection(LocalFrame& frame, TextIndicatorData& indicatorData, bool forceBlackText)
 {
     if (auto document = frame.document())
         document->updateLayout();
@@ -191,26 +172,8 @@ DragImageRef createDragImageForSelection(Frame& frame, TextIndicatorData& indica
     if (!textIndicator)
         return nullptr;
 
-    auto image = textIndicator->contentImage();
-    if (image)
-        indicatorData = textIndicator->data();
-    else
-        return nullptr;
-
-    FloatRect imageRect(0, 0, image->width(), image->height());
-    if (auto page = frame.page())
-        imageRect.scale(1 / page->deviceScaleFactor());
-
-
-    auto renderer = adoptNS([PAL::allocUIGraphicsImageRendererInstance() initWithSize:imageRect.size()]);
-    return [renderer imageWithActions:^(UIGraphicsImageRendererContext *rendererContext) {
-        GraphicsContext context(rendererContext.CGContext);
-        // FIXME: The context flip here should not be necessary, and suggests that somewhere else in the regular
-        // drag initiation flow, we unnecessarily flip the graphics context.
-        context.translate(0, imageRect.height());
-        context.scale({ 1, -1 });
-        context.drawImage(*image, imageRect);
-    }].CGImage;
+    indicatorData = textIndicator->data();
+    return cgImageFromTextIndicator(*textIndicator).autorelease();
 }
 
 DragImageRef dissolveDragImageToFraction(DragImageRef image, float)
@@ -219,7 +182,7 @@ DragImageRef dissolveDragImageToFraction(DragImageRef image, float)
     return image;
 }
 
-DragImageRef createDragImageForRange(Frame& frame, const SimpleRange& range, bool forceBlackText)
+DragImageRef createDragImageForRange(LocalFrame& frame, const SimpleRange& range, bool forceBlackText)
 {
     if (auto document = frame.document())
         document->updateLayout();
@@ -237,8 +200,8 @@ DragImageRef createDragImageForRange(Frame& frame, const SimpleRange& range, boo
 
     auto& image = *textIndicator->contentImage();
     auto render = adoptNS([PAL::allocUIGraphicsImageRendererInstance() initWithSize:image.size()]);
-    UIImage *finalImage = [render.get() imageWithActions:[&image](UIGraphicsImageRendererContext *rendererContext) {
-        GraphicsContext context(rendererContext.CGContext);
+    UIImage *finalImage = [render imageWithActions:[&image](UIGraphicsImageRendererContext *rendererContext) {
+        GraphicsContextCG context(rendererContext.CGContext);
         context.drawImage(image, FloatPoint());
     }];
 
@@ -252,7 +215,7 @@ DragImageRef createDragImageForColor(const Color& color, const FloatRect& elemen
 
     auto render = adoptNS([PAL::allocUIGraphicsImageRendererInstance() initWithSize:imageRect.size()]);
     UIImage *image = [render imageWithActions:^(UIGraphicsImageRendererContext *rendererContext) {
-        GraphicsContext context { rendererContext.CGContext };
+        GraphicsContextCG context { rendererContext.CGContext };
         context.translate(0, CGRectGetHeight(imageRect));
         context.scale({ 1, -1 });
         context.fillRoundedRect(swatch, color);
@@ -281,12 +244,12 @@ RetainPtr<CGImageRef> scaleDragImage(RetainPtr<CGImageRef>, FloatSize)
     return nullptr;
 }
 
-RetainPtr<CGImageRef> createDragImageFromImage(Image*, ImageOrientation)
+RetainPtr<CGImageRef> createDragImageFromImage(Image*, ImageOrientation, GraphicsClient*, float)
 {
     return nullptr;
 }
 
-DragImageRef createDragImageForRange(Frame&, const SimpleRange&, bool)
+DragImageRef createDragImageForRange(LocalFrame&, const SimpleRange&, bool)
 {
     return nullptr;
 }

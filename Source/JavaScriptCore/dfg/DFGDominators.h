@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,21 +30,23 @@
 #include "DFGCFG.h"
 #include "DFGGraph.h"
 #include <wtf/Dominators.h>
-#include <wtf/FastMalloc.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace JSC { namespace DFG {
 
 template <typename CFGKind>
 class Dominators : public WTF::Dominators<CFGKind> {
     WTF_MAKE_NONCOPYABLE(Dominators);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_TEMPLATE(Dominators);
 public:
     Dominators(Graph& graph)
         : WTF::Dominators<CFGKind>(selectCFG<CFGKind>(graph))
     {
     }
 };
+
+WTF_MAKE_TZONE_ALLOCATED_TEMPLATE_IMPL(template<typename CFGKind>, Dominators<CFGKind>);
 
 using SSADominators = Dominators<SSACFG>;
 using CPSDominators = Dominators<CPSCFG>;

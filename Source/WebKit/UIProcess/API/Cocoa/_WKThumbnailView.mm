@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -34,8 +34,11 @@
 #import "WKViewInternal.h"
 #import "WKWebViewInternal.h"
 #import "WebPageProxy.h"
+#import <WebCore/ShareableBitmap.h>
 #import <pal/spi/cg/CoreGraphicsSPI.h>
+#import <wtf/MathExtras.h>
 #import <wtf/NakedPtr.h>
+#import <wtf/SystemTracing.h>
 
 // FIXME: Make it possible to leave a snapshot of the content presented in the WKView while the thumbnail is live.
 // FIXME: Don't make new speculative tiles while thumbnailed.
@@ -44,9 +47,9 @@
 // FIXME: We should switch to the low-resolution scale if a view we have high-resolution tiles for repaints.
 
 @implementation _WKThumbnailView {
-    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     RetainPtr<WKView> _wkView;
-    ALLOW_DEPRECATED_DECLARATIONS_END
+ALLOW_DEPRECATED_DECLARATIONS_END
     RetainPtr<WKWebView> _wkWebView;
     NakedPtr<WebKit::WebPageProxy> _webPageProxy;
 
@@ -60,7 +63,8 @@
     RetainPtr<NSColor> _overrideBackgroundColor;
 }
 
-@synthesize _waitingForSnapshot=_waitingForSnapshot;
+@synthesize _waitingForSnapshot;
+@synthesize _sublayerTranslation;
 
 - (instancetype)initWithFrame:(NSRect)frame
 {
@@ -102,6 +106,11 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     return self;
 }
 
+- (BOOL)isFlipped
+{
+    return YES;
+}
+
 - (BOOL)wantsUpdateLayer
 {
     return YES;
@@ -122,11 +131,16 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         return;
     }
 
+    tracePoint(TakeSnapshotStart);
     _waitingForSnapshot = YES;
 
     RetainPtr<_WKThumbnailView> thumbnailView = self;
-    WebCore::IntRect snapshotRect(WebCore::IntPoint(), _webPageProxy->viewSize() - WebCore::IntSize(0, _webPageProxy->topContentInset()));
-    WebKit::SnapshotOptions options = WebKit::SnapshotOptionsInViewCoordinates | WebKit::SnapshotOptionsUseScreenColorSpace;
+    auto obscuredContentInsets = _webPageProxy->obscuredContentInsets();
+    WebCore::IntRect snapshotRect(WebCore::IntPoint(), _webPageProxy->viewSize() - WebCore::IntSize {
+        static_cast<int>(obscuredContentInsets.left()),
+        static_cast<int>(obscuredContentInsets.top())
+    });
+    WebKit::SnapshotOptions options { WebKit::SnapshotOption::InViewCoordinates, WebKit::SnapshotOption::UseScreenColorSpace };
     WebCore::IntSize bitmapSize = snapshotRect.size();
     bitmapSize.scale(_scale * _webPageProxy->deviceScaleFactor());
 
@@ -141,9 +155,12 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     _lastSnapshotScale = _scale;
     _lastSnapshotMaximumSize = _maximumSnapshotSize;
-    _webPageProxy->takeSnapshot(snapshotRect, bitmapSize, options, [thumbnailView](const WebKit::ShareableBitmap::Handle& imageHandle, WebKit::CallbackBase::Error) {
-        auto bitmap = WebKit::ShareableBitmap::create(imageHandle, WebKit::SharedMemory::Protection::ReadOnly);
+    _webPageProxy->takeSnapshot(snapshotRect, bitmapSize, options, [thumbnailView](std::optional<WebCore::ShareableBitmap::Handle>&& imageHandle) {
+        if (!imageHandle)
+            return;
+        auto bitmap = WebCore::ShareableBitmap::create(WTFMove(*imageHandle), WebCore::SharedMemory::Protection::ReadOnly);
         RetainPtr<CGImageRef> cgImage = bitmap ? bitmap->makeCGImage() : nullptr;
+        tracePoint(TakeSnapshotEnd, !!cgImage);
         [thumbnailView _didTakeSnapshot:cgImage.get()];
     });
 }
@@ -165,6 +182,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 - (void)_viewWasUnparented
 {
     if (!_exclusivelyUsesSnapshot) {
+        self._sublayerTranslation = CGPointMake(0, 0);
         if (_wkView) {
             [_wkView _setThumbnailView:nil];
             [_wkView _setIgnoresAllEvents:NO];
@@ -196,6 +214,8 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     [self _requestSnapshotIfNeeded];
 
     if (!_exclusivelyUsesSnapshot) {
+        auto obscuredContentInsets = _webPageProxy->obscuredContentInsets();
+        self._sublayerTranslation = CGPointMake(-obscuredContentInsets.left(), -obscuredContentInsets.top());
         if (_wkView) {
             [_wkView _setThumbnailView:self];
             [_wkView _setIgnoresAllEvents:YES];
@@ -251,7 +271,17 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     [self _requestSnapshotIfNeeded];
 
-    self.layer.sublayerTransform = CATransform3DMakeScale(_scale, _scale, 1);
+    auto scaleTransform = CATransform3DMakeScale(_scale, _scale, 1);
+    self.layer.sublayerTransform = CATransform3DTranslate(scaleTransform, _sublayerTranslation.x, _sublayerTranslation.y, 0);
+}
+
+- (void)_setSublayerTranslation:(CGPoint)translation
+{
+    if (WTF::areEssentiallyEqual(_sublayerTranslation.x, translation.x) && WTF::areEssentiallyEqual(_sublayerTranslation.y, translation.y))
+        return;
+
+    self.layer.sublayerTransform = CATransform3DTranslate(self.layer.sublayerTransform, translation.x - _sublayerTranslation.x, translation.y - _sublayerTranslation.y, 0);
+    _sublayerTranslation = translation;
 }
 
 - (void)setMaximumSnapshotSize:(CGSize)maximumSnapshotSize

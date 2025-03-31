@@ -28,27 +28,35 @@
 #include "TestController.h"
 
 #include "PlatformWebView.h"
+#include <WebKit/WKTextCheckerGLib.h>
+#include <WebKit/WKViewPrivate.h>
 #include <gtk/gtk.h>
 #include <wtf/Platform.h>
 #include <wtf/RunLoop.h>
+#include <wtf/WTFProcess.h>
 #include <wtf/glib/GRefPtr.h>
 #include <wtf/glib/GUniquePtr.h>
+#include <wtf/text/Base64.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/WTFString.h>
+
+#if USE(SKIA)
+#include <skia/core/SkData.h>
+
+IGNORE_CLANG_WARNINGS_BEGIN("cast-align")
+#include <skia/encode/SkPngEncoder.h>
+IGNORE_CLANG_WARNINGS_END
+#endif
 
 namespace WTR {
 
 void TestController::notifyDone()
 {
-    RunLoop::main().stop();
+    RunLoop::protectedMain()->stop();
 }
 
-void TestController::platformInitialize()
+void TestController::platformInitialize(const Options&)
 {
-}
-
-WKPreferencesRef TestController::platformPreferences()
-{
-    return WKPageGroupGetPreferences(m_pageGroup.get());
 }
 
 void TestController::platformDestroy()
@@ -57,29 +65,25 @@ void TestController::platformDestroy()
 
 void TestController::platformRunUntil(bool& done, WTF::Seconds timeout)
 {
-    struct TimeoutTimer {
-        TimeoutTimer()
-            : timer(RunLoop::main(), this, &TimeoutTimer::fired)
-        { }
-
-        void fired()
+    bool timedOut = false;
+    class TimeoutTimer {
+    public:
+        TimeoutTimer(WTF::Seconds timeout, bool& timedOut)
+            : m_timer(RunLoop::main(), [&timedOut] {
+                timedOut = true;
+                RunLoop::protectedMain()->stop();
+            })
         {
-            timedOut = true;
-            RunLoop::main().stop();
+            m_timer.setPriority(G_PRIORITY_DEFAULT_IDLE);
+            if (timeout >= 0_s)
+                m_timer.startOneShot(timeout);
         }
+    private:
+        RunLoop::Timer m_timer;
+    } timeoutTimer(timeout, timedOut);
 
-        RunLoop::Timer<TimeoutTimer> timer;
-        bool timedOut { false };
-    } timeoutTimer;
-
-    timeoutTimer.timer.setPriority(G_PRIORITY_DEFAULT_IDLE);
-    if (timeout >= 0_s)
-        timeoutTimer.timer.startOneShot(timeout);
-
-    while (!done && !timeoutTimer.timedOut)
+    while (!done && !timedOut)
         RunLoop::main().run();
-
-    timeoutTimer.timer.stop();
 }
 
 static char* getEnvironmentVariableAsUTF8String(const char* variableName)
@@ -87,7 +91,7 @@ static char* getEnvironmentVariableAsUTF8String(const char* variableName)
     const char* value = g_getenv(variableName);
     if (!value) {
         fprintf(stderr, "%s environment variable not found\n", variableName);
-        exit(0);
+        exitProcess(0);
     }
     gsize bytesWritten;
     return g_filename_to_utf8(value, -1, 0, &bytesWritten, 0);
@@ -101,8 +105,7 @@ void TestController::initializeInjectedBundlePath()
 
 void TestController::initializeTestPluginDirectory()
 {
-    GUniquePtr<char> testPluginPath(getEnvironmentVariableAsUTF8String("TEST_RUNNER_TEST_PLUGIN_PATH"));
-    m_testPluginDirectory.adopt(WKStringCreateWithUTF8CString(testPluginPath.get()));
+    // Plugins are no longer supported in WebKit (see WKContextSetAdditionalPluginsDirectory()).
 }
 
 void TestController::platformInitializeContext()
@@ -140,19 +143,41 @@ const char* TestController::platformLibraryPathForTesting()
 
 void TestController::platformConfigureViewForTest(const TestInvocation&)
 {
-    WKPageSetApplicationNameForUserAgent(mainWebView()->page(), WKStringCreateWithUTF8CString("WebKitTestRunnerGTK"));
+    WKRetainPtr<WKStringRef> appName = adoptWK(WKStringCreateWithUTF8CString("WebKitTestRunnerGTK"));
+    WKPageSetApplicationNameForUserAgent(mainWebView()->page(), appName.get());
 }
 
-void TestController::platformResetPreferencesToConsistentValues()
+bool TestController::platformResetStateToConsistentValues(const TestOptions&)
 {
-    if (!m_mainWebView)
-        return;
-    m_mainWebView->dismissAllPopupMenus();
+    if (m_mainWebView) {
+        m_mainWebView->dismissAllPopupMenus();
+        WKViewSetEditable(m_mainWebView->platformView(), false);
+    }
+
+    WKTextCheckerContinuousSpellCheckingEnabledStateChanged(true);
+    return true;
 }
 
-void TestController::updatePlatformSpecificTestOptionsForTest(TestOptions& options, const std::string&) const
+TestFeatures TestController::platformSpecificFeatureDefaultsForTest(const TestCommand&) const
 {
-    options.enableModernMediaControls = false;
+    return { };
+}
+
+WKRetainPtr<WKStringRef> TestController::takeViewPortSnapshot()
+{
+#if USE(CAIRO)
+    Vector<uint8_t> output;
+    cairo_surface_write_to_png_stream(mainWebView()->windowSnapshotImage(), [](void* output, const unsigned char* data, unsigned length) -> cairo_status_t {
+        reinterpret_cast<Vector<uint8_t>*>(output)->append(std::span { reinterpret_cast<const uint8_t*>(data), length });
+        return CAIRO_STATUS_SUCCESS;
+    }, &output);
+    auto uri = makeString("data:image/png;base64,"_s, base64Encoded(output.span()));
+#elif USE(SKIA)
+    sk_sp<SkImage> image(mainWebView()->windowSnapshotImage());
+    auto data = SkPngEncoder::Encode(nullptr, image.get(), { });
+    auto uri = makeString("data:image/png;base64,"_s, base64Encoded(std::span { static_cast<const uint8_t*>(data->data()), data->size() }));
+#endif
+    return adoptWK(WKStringCreateWithUTF8CString(uri.utf8().data()));
 }
 
 } // namespace WTR

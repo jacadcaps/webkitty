@@ -12,9 +12,9 @@
 #define MODULES_AUDIO_PROCESSING_AEC3_REVERB_DECAY_ESTIMATOR_H_
 
 #include <array>
+#include <optional>
 #include <vector>
 
-#include "absl/types/optional.h"
 #include "api/array_view.h"
 #include "modules/audio_processing/aec3/aec3_common.h"  // kMaxAdaptiveFilter...
 
@@ -30,12 +30,19 @@ class ReverbDecayEstimator {
   ~ReverbDecayEstimator();
   // Updates the decay estimate.
   void Update(rtc::ArrayView<const float> filter,
-              const absl::optional<float>& filter_quality,
+              const std::optional<float>& filter_quality,
               int filter_delay_blocks,
               bool usable_linear_filter,
               bool stationary_signal);
-  // Returns the decay for the exponential model.
-  float Decay() const { return decay_; }
+  // Returns the decay for the exponential model. The parameter `mild` indicates
+  // which exponential decay to return, the default one or a milder one.
+  float Decay(bool mild) const {
+    if (use_adaptive_echo_decay_) {
+      return decay_;
+    } else {
+      return mild ? mild_decay_ : decay_;
+    }
+  }
   // Dumps debug data.
   void Dump(ApmDataDumper* data_dumper) const;
 
@@ -103,6 +110,7 @@ class ReverbDecayEstimator {
   bool estimation_region_identified_ = false;
   std::vector<float> previous_gains_;
   float decay_;
+  float mild_decay_;
   float tail_gain_ = 0.f;
   float smoothing_constant_ = 0.f;
 };

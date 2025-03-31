@@ -10,10 +10,20 @@
 
 #include "modules/congestion_controller/include/receive_side_congestion_controller.h"
 
-#include "modules/pacing/packet_router.h"
-#include "modules/remote_bitrate_estimator/include/bwe_defines.h"
+#include <algorithm>
+#include <memory>
+#include <utility>
+
+#include "absl/base/nullability.h"
+#include "api/environment/environment.h"
+#include "api/media_types.h"
+#include "api/sequence_checker.h"
+#include "api/units/data_rate.h"
+#include "modules/remote_bitrate_estimator/congestion_control_feedback_generator.h"
 #include "modules/remote_bitrate_estimator/remote_bitrate_estimator_abs_send_time.h"
 #include "modules/remote_bitrate_estimator/remote_bitrate_estimator_single_stream.h"
+#include "modules/remote_bitrate_estimator/transport_sequence_number_feedback_generator.h"
+#include "modules/rtp_rtcp/source/rtp_header_extensions.h"
 #include "rtc_base/logging.h"
 
 namespace webrtc {
@@ -22,74 +32,32 @@ namespace {
 static const uint32_t kTimeOffsetSwitchThreshold = 30;
 }  // namespace
 
-ReceiveSideCongestionController::WrappingBitrateEstimator::
-    WrappingBitrateEstimator(RemoteBitrateObserver* observer, Clock* clock)
-    : observer_(observer),
-      clock_(clock),
-      rbe_(new RemoteBitrateEstimatorSingleStream(observer_, clock_)),
-      using_absolute_send_time_(false),
-      packets_since_absolute_send_time_(0),
-      min_bitrate_bps_(congestion_controller::GetMinBitrateBps()) {}
-
-ReceiveSideCongestionController::WrappingBitrateEstimator::
-    ~WrappingBitrateEstimator() = default;
-
-void ReceiveSideCongestionController::WrappingBitrateEstimator::IncomingPacket(
-    int64_t arrival_time_ms,
-    size_t payload_size,
-    const RTPHeader& header) {
-  rtc::CritScope cs(&crit_sect_);
-  PickEstimatorFromHeader(header);
-  rbe_->IncomingPacket(arrival_time_ms, payload_size, header);
-}
-
-void ReceiveSideCongestionController::WrappingBitrateEstimator::Process() {
-  rtc::CritScope cs(&crit_sect_);
-  rbe_->Process();
-}
-
-int64_t ReceiveSideCongestionController::WrappingBitrateEstimator::
-    TimeUntilNextProcess() {
-  rtc::CritScope cs(&crit_sect_);
-  return rbe_->TimeUntilNextProcess();
-}
-
-void ReceiveSideCongestionController::WrappingBitrateEstimator::OnRttUpdate(
-    int64_t avg_rtt_ms,
-    int64_t max_rtt_ms) {
-  rtc::CritScope cs(&crit_sect_);
+void ReceiveSideCongestionController::OnRttUpdate(int64_t avg_rtt_ms,
+                                                  int64_t max_rtt_ms) {
+  MutexLock lock(&mutex_);
   rbe_->OnRttUpdate(avg_rtt_ms, max_rtt_ms);
 }
 
-void ReceiveSideCongestionController::WrappingBitrateEstimator::RemoveStream(
-    unsigned int ssrc) {
-  rtc::CritScope cs(&crit_sect_);
+void ReceiveSideCongestionController::RemoveStream(uint32_t ssrc) {
+  MutexLock lock(&mutex_);
   rbe_->RemoveStream(ssrc);
 }
 
-bool ReceiveSideCongestionController::WrappingBitrateEstimator::LatestEstimate(
-    std::vector<unsigned int>* ssrcs,
-    unsigned int* bitrate_bps) const {
-  rtc::CritScope cs(&crit_sect_);
-  return rbe_->LatestEstimate(ssrcs, bitrate_bps);
+DataRate ReceiveSideCongestionController::LatestReceiveSideEstimate() const {
+  MutexLock lock(&mutex_);
+  return rbe_->LatestEstimate();
 }
 
-void ReceiveSideCongestionController::WrappingBitrateEstimator::SetMinBitrate(
-    int min_bitrate_bps) {
-  rtc::CritScope cs(&crit_sect_);
-  rbe_->SetMinBitrate(min_bitrate_bps);
-  min_bitrate_bps_ = min_bitrate_bps;
-}
-
-void ReceiveSideCongestionController::WrappingBitrateEstimator::
-    PickEstimatorFromHeader(const RTPHeader& header) {
-  if (header.extension.hasAbsoluteSendTime) {
+void ReceiveSideCongestionController::PickEstimator(
+    bool has_absolute_send_time) {
+  if (has_absolute_send_time) {
     // If we see AST in header, switch RBE strategy immediately.
     if (!using_absolute_send_time_) {
       RTC_LOG(LS_INFO)
           << "WrappingBitrateEstimator: Switching to absolute send time RBE.";
       using_absolute_send_time_ = true;
-      PickEstimator();
+      rbe_ = std::make_unique<RemoteBitrateEstimatorAbsSendTime>(
+          env_, &remb_throttler_);
     }
     packets_since_absolute_send_time_ = 0;
   } else {
@@ -101,89 +69,119 @@ void ReceiveSideCongestionController::WrappingBitrateEstimator::
             << "WrappingBitrateEstimator: Switching to transmission "
                "time offset RBE.";
         using_absolute_send_time_ = false;
-        PickEstimator();
+        rbe_ = std::make_unique<RemoteBitrateEstimatorSingleStream>(
+            env_, &remb_throttler_);
       }
     }
   }
 }
 
-// Instantiate RBE for Time Offset or Absolute Send Time extensions.
-void ReceiveSideCongestionController::WrappingBitrateEstimator::
-    PickEstimator() {
-  if (using_absolute_send_time_) {
-    rbe_.reset(new RemoteBitrateEstimatorAbsSendTime(observer_, clock_));
-  } else {
-    rbe_.reset(new RemoteBitrateEstimatorSingleStream(observer_, clock_));
+ReceiveSideCongestionController::ReceiveSideCongestionController(
+    const Environment& env,
+    TransportSequenceNumberFeedbackGenenerator::RtcpSender feedback_sender,
+    RembThrottler::RembSender remb_sender,
+    absl::Nullable<NetworkStateEstimator*> network_state_estimator)
+    : env_(env),
+      remb_throttler_(std::move(remb_sender), &env_.clock()),
+      transport_sequence_number_feedback_generator_(feedback_sender,
+                                                    network_state_estimator),
+      congestion_control_feedback_generator_(env, feedback_sender),
+      rbe_(std::make_unique<RemoteBitrateEstimatorSingleStream>(
+          env_,
+          &remb_throttler_)),
+      using_absolute_send_time_(false),
+      packets_since_absolute_send_time_(0) {
+  FieldTrialParameter<bool> force_send_rfc8888_feedback("force_send", false);
+  ParseFieldTrial(
+      {&force_send_rfc8888_feedback},
+      env.field_trials().Lookup("WebRTC-RFC8888CongestionControlFeedback"));
+  if (force_send_rfc8888_feedback) {
+    EnablSendCongestionControlFeedbackAccordingToRfc8888();
   }
-  rbe_->SetMinBitrate(min_bitrate_bps_);
 }
 
-ReceiveSideCongestionController::ReceiveSideCongestionController(
-    Clock* clock,
-    PacketRouter* packet_router)
-    : ReceiveSideCongestionController(clock, packet_router, nullptr) {}
-
-ReceiveSideCongestionController::ReceiveSideCongestionController(
-    Clock* clock,
-    PacketRouter* packet_router,
-    NetworkStateEstimator* network_state_estimator)
-    : remote_bitrate_estimator_(packet_router, clock),
-      remote_estimator_proxy_(clock,
-                              packet_router,
-                              &field_trial_config_,
-                              network_state_estimator) {}
+void ReceiveSideCongestionController::
+    EnablSendCongestionControlFeedbackAccordingToRfc8888() {
+  RTC_DCHECK_RUN_ON(&sequence_checker_);
+  send_rfc8888_congestion_feedback_ = true;
+}
 
 void ReceiveSideCongestionController::OnReceivedPacket(
-    int64_t arrival_time_ms,
-    size_t payload_size,
-    const RTPHeader& header) {
-  remote_estimator_proxy_.IncomingPacket(arrival_time_ms, payload_size, header);
-  if (!header.extension.hasTransportSequenceNumber) {
+    const RtpPacketReceived& packet,
+    MediaType media_type) {
+  bool has_transport_sequence_number =
+      packet.HasExtension<TransportSequenceNumber>() ||
+      packet.HasExtension<TransportSequenceNumberV2>();
+  if (send_rfc8888_congestion_feedback_) {
+    RTC_DCHECK_RUN_ON(&sequence_checker_);
+    congestion_control_feedback_generator_.OnReceivedPacket(packet);
+    // TODO(https://bugs.webrtc.org/374197376): Utilize RFC 8888 feedback, which
+    // provides comprehensive details similar to transport-cc. To ensure a
+    // smooth transition, we will continue using transport sequence number
+    // feedback temporarily. Once validation is complete, we will fully
+    // transition to using RFC 8888 feedback exclusively.
+    if (has_transport_sequence_number) {
+      transport_sequence_number_feedback_generator_.OnReceivedPacket(packet);
+    }
+    return;
+  }
+  if (media_type == MediaType::AUDIO && !has_transport_sequence_number) {
+    // For audio, we only support send side BWE.
+    return;
+  }
+
+  if (has_transport_sequence_number) {
+    // Send-side BWE.
+    transport_sequence_number_feedback_generator_.OnReceivedPacket(packet);
+  } else {
     // Receive-side BWE.
-    remote_bitrate_estimator_.IncomingPacket(arrival_time_ms, payload_size,
-                                             header);
+    MutexLock lock(&mutex_);
+    PickEstimator(packet.HasExtension<AbsoluteSendTime>());
+    rbe_->IncomingPacket(packet);
   }
-}
-
-void ReceiveSideCongestionController::SetSendPeriodicFeedback(
-    bool send_periodic_feedback) {
-  remote_estimator_proxy_.SetSendPeriodicFeedback(send_periodic_feedback);
-}
-
-RemoteBitrateEstimator*
-ReceiveSideCongestionController::GetRemoteBitrateEstimator(bool send_side_bwe) {
-  if (send_side_bwe) {
-    return &remote_estimator_proxy_;
-  } else {
-    return &remote_bitrate_estimator_;
-  }
-}
-
-const RemoteBitrateEstimator*
-ReceiveSideCongestionController::GetRemoteBitrateEstimator(
-    bool send_side_bwe) const {
-  if (send_side_bwe) {
-    return &remote_estimator_proxy_;
-  } else {
-    return &remote_bitrate_estimator_;
-  }
-}
-
-void ReceiveSideCongestionController::OnRttUpdate(int64_t avg_rtt_ms,
-                                                  int64_t max_rtt_ms) {
-  remote_bitrate_estimator_.OnRttUpdate(avg_rtt_ms, max_rtt_ms);
 }
 
 void ReceiveSideCongestionController::OnBitrateChanged(int bitrate_bps) {
-  remote_estimator_proxy_.OnBitrateChanged(bitrate_bps);
+  RTC_DCHECK_RUN_ON(&sequence_checker_);
+  DataRate send_bandwidth_estimate = DataRate::BitsPerSec(bitrate_bps);
+  transport_sequence_number_feedback_generator_.OnSendBandwidthEstimateChanged(
+      send_bandwidth_estimate);
+  congestion_control_feedback_generator_.OnSendBandwidthEstimateChanged(
+      send_bandwidth_estimate);
 }
 
-int64_t ReceiveSideCongestionController::TimeUntilNextProcess() {
-  return remote_bitrate_estimator_.TimeUntilNextProcess();
+TimeDelta ReceiveSideCongestionController::MaybeProcess() {
+  Timestamp now = env_.clock().CurrentTime();
+  if (send_rfc8888_congestion_feedback_) {
+    RTC_DCHECK_RUN_ON(&sequence_checker_);
+    TimeDelta time_until_cc_rep =
+        congestion_control_feedback_generator_.Process(now);
+    TimeDelta time_until_rep =
+        transport_sequence_number_feedback_generator_.Process(now);
+    TimeDelta time_until = std::min(time_until_cc_rep, time_until_rep);
+    return std::max(time_until, TimeDelta::Zero());
+  }
+  mutex_.Lock();
+  TimeDelta time_until_rbe = rbe_->Process();
+  mutex_.Unlock();
+  TimeDelta time_until_rep =
+      transport_sequence_number_feedback_generator_.Process(now);
+  TimeDelta time_until = std::min(time_until_rbe, time_until_rep);
+  return std::max(time_until, TimeDelta::Zero());
 }
 
-void ReceiveSideCongestionController::Process() {
-  remote_bitrate_estimator_.Process();
+void ReceiveSideCongestionController::SetMaxDesiredReceiveBitrate(
+    DataRate bitrate) {
+  remb_throttler_.SetMaxDesiredReceiveBitrate(bitrate);
+}
+
+void ReceiveSideCongestionController::SetTransportOverhead(
+    DataSize overhead_per_packet) {
+  RTC_DCHECK_RUN_ON(&sequence_checker_);
+  transport_sequence_number_feedback_generator_.SetTransportOverhead(
+      overhead_per_packet);
+  congestion_control_feedback_generator_.SetTransportOverhead(
+      overhead_per_packet);
 }
 
 }  // namespace webrtc

@@ -31,14 +31,17 @@ import os
 import platform
 import sys
 
-from webkitpy.common.system import environment, executive, file_lock, filesystem, platforminfo, user, workspace
+from webkitpy.common.system import environment, executive, filesystem, platforminfo, user, workspace
+from webkitcorepy import FileLock
 
 
 class SystemHost(object):
+    _default_system_host = None
+
     def __init__(self):
         self.executive = executive.Executive()
         self.filesystem = filesystem.FileSystem()
-        self.platform = platforminfo.PlatformInfo(sys, platform, self.executive)
+        self.platform = platforminfo.PlatformInfo(executive=self.executive)
         self.user = user.User(self.platform)
         self.workspace = workspace.Workspace(self.filesystem, self.executive)
 
@@ -46,7 +49,7 @@ class SystemHost(object):
         return environment.Environment(os.environ.copy())
 
     def make_file_lock(self, path):
-        return file_lock.FileLock(path)
+        return FileLock(path)
 
     def symbolicate_crash_log_if_needed(self, path):
         return self.filesystem.read_text_file(path)
@@ -54,10 +57,30 @@ class SystemHost(object):
     def path_to_lldb_python_directory(self):
         if not self.platform.is_mac():
             return ''
-        # Explicitly use Python 2.7
         path = self.executive.run_command(['xcrun', 'lldb', '--python-path'], return_stderr=False).rstrip()
-        return self.filesystem.join(self.filesystem.dirname(path), 'Python')
+
+        xcode_python = self.executive.run_command(
+            ['xcrun', 'python3', '-c', 'import sys; print(sys.executable)'],
+            return_stderr=False,
+        ).rstrip()
+
+        try:
+            this_python = sys._base_executable
+        except AttributeError:
+            this_python = sys.executable
+
+        if self.filesystem.realpath(this_python) != self.filesystem.realpath(xcode_python):
+            msg = 'Cannot load lldb module from a different Python, try running the script with xcrun python3 ...'
+            raise RuntimeError(msg)
+
+        return path
 
     @property
     def device_type(self):
         return None
+
+    @staticmethod
+    def get_default():
+        if not SystemHost._default_system_host:
+            SystemHost._default_system_host = SystemHost()
+        return SystemHost._default_system_host

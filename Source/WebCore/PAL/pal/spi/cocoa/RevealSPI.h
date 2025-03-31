@@ -23,7 +23,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
+#import <Foundation/Foundation.h>
 #import <objc/runtime.h>
+
 #if PLATFORM(MAC)
 #import <pal/spi/mac/NSImmediateActionGestureRecognizerSPI.h>
 #endif // PLATFORM(MAC)
@@ -42,11 +44,14 @@
 #import <RevealCore/RevealCore.h>
 #else // USE(APPLE_INTERNAL_SDK)
 
-
+@class DDScannerResult;
+@class NSMenuItem;
 @protocol RVPresenterHighlightDelegate;
 
 @interface RVItem : NSObject <NSSecureCoding>
 - (instancetype)initWithText:(NSString *)text selectedRange:(NSRange)selectedRange NS_DESIGNATED_INITIALIZER;
+- (instancetype)initWithDDResult:(DDScannerResult *)result NS_DESIGNATED_INITIALIZER;
+- (instancetype)initWithURL:(NSURL *)url rangeInContext:(NSRange)rangeInContext;
 @property (readonly, nonatomic) NSRange highlightRange;
 @end
 
@@ -69,13 +74,14 @@
 @end
 #endif
 
-@interface RVDocumentContext : NSObject < NSSecureCoding >
+@interface RVDocumentContext : NSObject <NSSecureCoding>
 @end
 
 @interface RVPresenter : NSObject
 #if PLATFORM(MAC)
 - (id<NSImmediateActionAnimationController>)animationControllerForItem:(RVItem *)item documentContext:(RVDocumentContext *)documentContext presentingContext:(RVPresentingContext *)presentingContext options:(NSDictionary *)options;
 - (BOOL)revealItem:(RVItem *)item documentContext:(RVDocumentContext *)documentContext presentingContext:(RVPresentingContext *)presentingContext options:(NSDictionary *)options;
+- (NSArray<NSMenuItem *> *)menuItemsForItem:(RVItem *)item documentContext:(RVDocumentContext *)documentContext presentingContext:(RVPresentingContext *)presentingContext options:(NSDictionary *)options;
 #endif // PLATFORM(MAC)
 @end
 

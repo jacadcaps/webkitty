@@ -15,7 +15,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "absl/types/optional.h"
+#include <optional>
+
 #include "api/video/color_space.h"
 #include "common_video/h264/sps_parser.h"
 #include "rtc_base/buffer.h"
@@ -42,36 +43,23 @@ class SpsVuiRewriter : private SpsParser {
   // SPS state. This function assumes that any previous headers
   // (NALU start, type, Stap-A, etc) have already been parsed and that RBSP
   // decoding has been performed.
-  static ParseResult ParseAndRewriteSps(
-      const uint8_t* buffer,
-      size_t length,
-      absl::optional<SpsParser::SpsState>* sps,
-      const ColorSpace* color_space,
-      rtc::Buffer* destination,
-      Direction Direction);
+  static ParseResult ParseAndRewriteSps(rtc::ArrayView<const uint8_t> buffer,
+                                        std::optional<SpsParser::SpsState>* sps,
+                                        const ColorSpace* color_space,
+                                        rtc::Buffer* destination,
+                                        Direction Direction);
 
-  // Parses NAL units from |buffer| based on |nalu_offsets| and |nalu_lengths|
-  // and rewrites VUI in SPS blocks if necessary.
-  // The result is written to |output_buffer| and modified NAL unit offsets
-  // and lenghts are written to |output_nalu_offsets| and |output_nalu_lenghts|
-  // to account for any added data.
-  static void ParseOutgoingBitstreamAndRewriteSps(
+  // Parses NAL units from `buffer`, strips AUD blocks and rewrites VUI in SPS
+  // blocks if necessary.
+  static rtc::Buffer ParseOutgoingBitstreamAndRewrite(
       rtc::ArrayView<const uint8_t> buffer,
-      size_t num_nalus,
-      const size_t* nalu_offsets,
-      const size_t* nalu_lengths,
-      const ColorSpace* color_space,
-      rtc::Buffer* output_buffer,
-      size_t* output_nalu_offsets,
-      size_t* output_nalu_lengths);
+      const ColorSpace* color_space);
 
  private:
-  static ParseResult ParseAndRewriteSps(
-      const uint8_t* buffer,
-      size_t length,
-      absl::optional<SpsParser::SpsState>* sps,
-      const ColorSpace* color_space,
-      rtc::Buffer* destination);
+  static ParseResult ParseAndRewriteSps(rtc::ArrayView<const uint8_t> buffer,
+                                        std::optional<SpsParser::SpsState>* sps,
+                                        const ColorSpace* color_space,
+                                        rtc::Buffer* destination);
 
   static void UpdateStats(ParseResult result, Direction direction);
 };

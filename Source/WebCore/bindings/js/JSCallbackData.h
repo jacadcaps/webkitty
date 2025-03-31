@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007-2009, 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2007-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,97 +29,72 @@
 #pragma once
 
 #include "JSDOMBinding.h"
-#include "JSDOMGlobalObject.h"
 #include "ScriptExecutionContext.h"
 #include <JavaScriptCore/JSObject.h>
-#include <JavaScriptCore/Strong.h>
-#include <JavaScriptCore/StrongInlines.h>
+#include <JavaScriptCore/Weak.h>
+#include <JavaScriptCore/WeakInlines.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Threading.h>
 
 namespace WebCore {
+
+template<typename ImplementationClass> struct JSDOMCallbackConverterTraits;
 
 // We have to clean up this data on the context thread because unprotecting a
 // JSObject on the wrong thread without synchronization would corrupt the heap
 // (and synchronization would be slow).
 
 class JSCallbackData {
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(JSCallbackData, WEBCORE_EXPORT);
 public:
     enum class CallbackType { Function, Object, FunctionOrObject };
 
-    JSDOMGlobalObject* globalObject() { return m_globalObject.get(); }
-
-protected:
-    explicit JSCallbackData(JSDOMGlobalObject* globalObject)
+    JSCallbackData(JSC::JSObject* callback, JSDOMGlobalObject* globalObject, void* owner)
         : m_globalObject(globalObject)
+        , m_callback(callback, &m_weakOwner, owner)
     {
     }
-    
+
     ~JSCallbackData()
     {
 #if !PLATFORM(IOS_FAMILY)
         ASSERT(m_thread.ptr() == &Thread::current());
 #endif
     }
-    
-    static JSC::JSValue invokeCallback(JSDOMGlobalObject&, JSC::JSObject* callback, JSC::JSValue thisValue, JSC::MarkedArgumentBuffer&, CallbackType, JSC::PropertyName functionName, NakedPtr<JSC::Exception>& returnedException);
+
+    JSDOMGlobalObject* globalObject() { return m_globalObject.get(); }
+    JSC::JSObject* callback() { return m_callback.get(); }
+
+    template<typename Visitor> void visitJSFunction(Visitor&);
+
+    WEBCORE_EXPORT static JSC::JSValue invokeCallback(JSDOMGlobalObject&, JSC::JSObject* callback, JSC::JSValue thisValue, JSC::MarkedArgumentBuffer&, CallbackType, JSC::PropertyName functionName, NakedPtr<JSC::Exception>& returnedException);
+
+    JSC::JSValue invokeCallback(JSC::JSValue thisValue, JSC::MarkedArgumentBuffer& args, CallbackType callbackType, JSC::PropertyName functionName, NakedPtr<JSC::Exception>& returnedException)
+    {
+        auto* globalObject = this->globalObject();
+        if (!globalObject)
+            return { };
+
+        return JSCallbackData::invokeCallback(*globalObject, callback(), thisValue, args, callbackType, functionName, returnedException);
+    }
 
 private:
     JSC::Weak<JSDOMGlobalObject> m_globalObject;
-#if ASSERT_ENABLED
-    Ref<Thread> m_thread { Thread::current() };
-#endif
-};
 
-class JSCallbackDataStrong : public JSCallbackData {
-public:
-    JSCallbackDataStrong(JSC::JSObject* callback, JSDOMGlobalObject* globalObject, void*)
-        : JSCallbackData(globalObject)
-        , m_callback(globalObject->vm(), callback)
-    {
-    }
-
-    JSC::JSObject* callback() { return m_callback.get(); }
-
-    JSC::JSValue invokeCallback(JSC::JSValue thisValue, JSC::MarkedArgumentBuffer& args, CallbackType callbackType, JSC::PropertyName functionName, NakedPtr<JSC::Exception>& returnedException)
-    {
-        auto* globalObject = this->globalObject();
-        if (!globalObject)
-            return { };
-
-        return JSCallbackData::invokeCallback(*globalObject, callback(), thisValue, args, callbackType, functionName, returnedException);
-    }
-
-private:
-    JSC::Strong<JSC::JSObject> m_callback;
-};
-
-class JSCallbackDataWeak : public JSCallbackData {
-public:
-    JSCallbackDataWeak(JSC::JSObject* callback, JSDOMGlobalObject* globalObject, void* owner)
-        : JSCallbackData(globalObject)
-        , m_callback(callback, &m_weakOwner, owner)
-    {
-    }
-
-    JSC::JSObject* callback() { return m_callback.get(); }
-
-    JSC::JSValue invokeCallback(JSC::JSValue thisValue, JSC::MarkedArgumentBuffer& args, CallbackType callbackType, JSC::PropertyName functionName, NakedPtr<JSC::Exception>& returnedException)
-    {
-        auto* globalObject = this->globalObject();
-        if (!globalObject)
-            return { };
-
-        return JSCallbackData::invokeCallback(*globalObject, callback(), thisValue, args, callbackType, functionName, returnedException);
-    }
-
-    void visitJSFunction(JSC::SlotVisitor&);
-
-private:
     class WeakOwner : public JSC::WeakHandleOwner {
-        bool isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown>, void* context, JSC::SlotVisitor&, const char**) override;
+        bool isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown>, void* owner, JSC::AbstractSlotVisitor& visitor, ASCIILiteral* reason) override
+        {
+            if (UNLIKELY(reason))
+                *reason = "Callback owner is an opaque root"_s;
+            return visitor.containsOpaqueRoot(owner);
+        }
     };
     WeakOwner m_weakOwner;
     JSC::Weak<JSC::JSObject> m_callback;
+
+#if ASSERT_ENABLED
+    Ref<Thread> m_thread { Thread::current() };
+#endif
 };
 
 class DeleteCallbackDataTask : public ScriptExecutionContext::Task {

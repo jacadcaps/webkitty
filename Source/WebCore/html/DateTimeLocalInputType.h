@@ -30,27 +30,40 @@
 
 #pragma once
 
-#if ENABLE(INPUT_TYPE_DATETIMELOCAL)
-
-#include "BaseChooserOnlyDateAndTimeInputType.h"
+#include "BaseDateAndTimeInputType.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
-class DateTimeLocalInputType final : public BaseChooserOnlyDateAndTimeInputType {
+class DateTimeLocalInputType final : public BaseDateAndTimeInputType {
+    WTF_MAKE_TZONE_ALLOCATED(DateTimeLocalInputType);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(DateTimeLocalInputType);
 public:
-    explicit DateTimeLocalInputType(HTMLInputElement& element) : BaseChooserOnlyDateAndTimeInputType(element) { }
+    static Ref<DateTimeLocalInputType> create(HTMLInputElement& element)
+    {
+        return adoptRef(*new DateTimeLocalInputType(element));
+    }
 
 private:
+    explicit DateTimeLocalInputType(HTMLInputElement& element)
+        : BaseDateAndTimeInputType(Type::DateTimeLocal, element)
+    {
+    }
+
     const AtomString& formControlType() const final;
-    DateComponents::Type dateType() const final;
-    double valueAsDate() const final;
-    ExceptionOr<void> setValueAsDate(double) const final;
+    DateComponentsType dateType() const final;
+    WallTime valueAsDate() const final;
+    ExceptionOr<void> setValueAsDate(WallTime) const final;
     StepRange createStepRange(AnyStepHandling) const final;
-    Optional<DateComponents> parseToDateComponents(const StringView&) const final;
-    Optional<DateComponents> setMillisecondToDateComponents(double) const final;
-    bool isDateTimeLocalField() const final;
+    std::optional<DateComponents> parseToDateComponents(StringView) const final;
+    std::optional<DateComponents> setMillisecondToDateComponents(double) const final;
+    String sanitizeValue(const String&) const final;
+
+    bool isValidFormat(OptionSet<DateTimeFormatValidationResults>) const final;
+    String formatDateTimeFieldsState(const DateTimeFieldsState&) const final;
+    void setupLayoutParameters(DateTimeEditElement::LayoutParameters&, const DateComponents&) const final;
 };
 
 } // namespace WebCore
 
-#endif
+SPECIALIZE_TYPE_TRAITS_INPUT_TYPE(DateTimeLocalInputType, Type::DateTimeLocal)

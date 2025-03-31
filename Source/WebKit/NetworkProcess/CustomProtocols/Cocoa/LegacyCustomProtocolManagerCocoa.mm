@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012, 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,16 +26,17 @@
 #import "config.h"
 #import "LegacyCustomProtocolManager.h"
 
-#import "DataReference.h"
+#import "CacheStoragePolicy.h"
 #import "LegacyCustomProtocolManagerMessages.h"
 #import "NetworkProcess.h"
 #import <Foundation/NSURLSession.h>
 #import <WebCore/ResourceError.h>
 #import <WebCore/ResourceRequest.h>
 #import <WebCore/ResourceResponse.h>
-#import <WebCore/TextEncoding.h>
 #import <pal/spi/cocoa/NSURLConnectionSPI.h>
+#import <pal/text/TextEncoding.h>
 #import <wtf/URL.h>
+#import <wtf/cocoa/SpanCocoa.h>
 
 using namespace WebKit;
 
@@ -45,36 +46,42 @@ static RefPtr<NetworkProcess>& firstNetworkProcess()
     return networkProcess.get();
 }
 
+static RefPtr<NetworkProcess> protectedFirstNetworkProcess()
+{
+    return firstNetworkProcess();
+}
+
 void LegacyCustomProtocolManager::networkProcessCreated(NetworkProcess& networkProcess)
 {
     auto hasRegisteredSchemes = [] (auto* legacyCustomProtocolManager) {
         if (!legacyCustomProtocolManager)
             return false;
-        LockHolder locker(legacyCustomProtocolManager->m_registeredSchemesMutex);
+        Locker locker { legacyCustomProtocolManager->m_registeredSchemesLock };
         return !legacyCustomProtocolManager->m_registeredSchemes.isEmpty();
     };
 
-    RELEASE_ASSERT(!firstNetworkProcess() || !hasRegisteredSchemes(firstNetworkProcess()->supplement<LegacyCustomProtocolManager>()));
+    RELEASE_ASSERT(!firstNetworkProcess() || !hasRegisteredSchemes(RefPtr { protectedFirstNetworkProcess()->supplement<LegacyCustomProtocolManager>() }.get()));
     firstNetworkProcess() = &networkProcess;
 }
 
 @interface WKCustomProtocol : NSURLProtocol {
 @private
-    LegacyCustomProtocolID _customProtocolID;
+    Markable<LegacyCustomProtocolID> _customProtocolID;
     RetainPtr<CFRunLoopRef> _initializationRunLoop;
 }
-@property (nonatomic, readonly) LegacyCustomProtocolID customProtocolID;
+@property (nonatomic, readonly) Markable<LegacyCustomProtocolID> customProtocolID;
 @property (nonatomic, readonly) CFRunLoopRef initializationRunLoop;
 @end
 
 @implementation WKCustomProtocol
 
-@synthesize customProtocolID=_customProtocolID;
+@synthesize customProtocolID = _customProtocolID;
 
 + (BOOL)canInitWithRequest:(NSURLRequest *)request
 {
-    if (auto* customProtocolManager = firstNetworkProcess()->supplement<LegacyCustomProtocolManager>())
-        return customProtocolManager->supportsScheme([[[request URL] scheme] lowercaseString]);
+    // FIXME: This code runs in a dispatch queue so we can't ref NetworkProcess here.
+    if (SUPPRESS_UNCOUNTED_LOCAL auto* customProtocolManager = protectedFirstNetworkProcess()->supplement<LegacyCustomProtocolManager>())
+        SUPPRESS_UNCOUNTED_ARG return customProtocolManager->supportsScheme([[[request URL] scheme] lowercaseString]);
     return NO;
 }
 
@@ -94,7 +101,7 @@ void LegacyCustomProtocolManager::networkProcessCreated(NetworkProcess& networkP
     if (!self)
         return nil;
 
-    if (auto* customProtocolManager = firstNetworkProcess()->supplement<LegacyCustomProtocolManager>())
+    if (RefPtr customProtocolManager = protectedFirstNetworkProcess()->supplement<LegacyCustomProtocolManager>())
         _customProtocolID = customProtocolManager->addCustomProtocol(self);
     _initializationRunLoop = CFRunLoopGetCurrent();
 
@@ -108,16 +115,20 @@ void LegacyCustomProtocolManager::networkProcessCreated(NetworkProcess& networkP
 
 - (void)startLoading
 {
-    if (auto* customProtocolManager = firstNetworkProcess()->supplement<LegacyCustomProtocolManager>())
-        customProtocolManager->startLoading(self.customProtocolID, [self request]);
+    ensureOnMainRunLoop([customProtocolID = *self.customProtocolID, request = retainPtr([self request])] {
+        if (RefPtr customProtocolManager = protectedFirstNetworkProcess()->supplement<LegacyCustomProtocolManager>())
+            customProtocolManager->startLoading(customProtocolID, request.get());
+    });
 }
 
 - (void)stopLoading
 {
-    if (auto* customProtocolManager = firstNetworkProcess()->supplement<LegacyCustomProtocolManager>()) {
-        customProtocolManager->stopLoading(self.customProtocolID);
-        customProtocolManager->removeCustomProtocol(self.customProtocolID);
-    }
+    ensureOnMainRunLoop([customProtocolID = *self.customProtocolID] {
+        if (RefPtr customProtocolManager = protectedFirstNetworkProcess()->supplement<LegacyCustomProtocolManager>()) {
+            customProtocolManager->stopLoading(customProtocolID);
+            customProtocolManager->removeCustomProtocol(customProtocolID);
+        }
+    });
 }
 
 @end
@@ -136,14 +147,14 @@ void LegacyCustomProtocolManager::registerProtocolClass(NSURLSessionConfiguratio
 void LegacyCustomProtocolManager::registerScheme(const String& scheme)
 {
     ASSERT(!scheme.isNull());
-    LockHolder locker(m_registeredSchemesMutex);
+    Locker locker { m_registeredSchemesLock };
     m_registeredSchemes.add(scheme);
 }
 
 void LegacyCustomProtocolManager::unregisterScheme(const String& scheme)
 {
     ASSERT(!scheme.isNull());
-    LockHolder locker(m_registeredSchemesMutex);
+    Locker locker { m_registeredSchemesLock };
     m_registeredSchemes.remove(scheme);
 }
 
@@ -152,7 +163,7 @@ bool LegacyCustomProtocolManager::supportsScheme(const String& scheme)
     if (scheme.isNull())
         return false;
 
-    LockHolder locker(m_registeredSchemesMutex);
+    Locker locker { m_registeredSchemesLock };
     return m_registeredSchemes.contains(scheme);
 }
 
@@ -178,20 +189,20 @@ void LegacyCustomProtocolManager::didFailWithError(LegacyCustomProtocolID custom
     removeCustomProtocol(customProtocolID);
 }
 
-void LegacyCustomProtocolManager::didLoadData(LegacyCustomProtocolID customProtocolID, const IPC::DataReference& data)
+void LegacyCustomProtocolManager::didLoadData(LegacyCustomProtocolID customProtocolID, std::span<const uint8_t> data)
 {
     RetainPtr<WKCustomProtocol> protocol = protocolForID(customProtocolID);
     if (!protocol)
         return;
 
-    RetainPtr<NSData> nsData = adoptNS([[NSData alloc] initWithBytes:data.data() length:data.size()]);
+    RetainPtr nsData = toNSData(data);
 
     dispatchOnInitializationRunLoop(protocol.get(), ^ {
         [[protocol client] URLProtocol:protocol.get() didLoadData:nsData.get()];
     });
 }
 
-void LegacyCustomProtocolManager::didReceiveResponse(LegacyCustomProtocolID customProtocolID, const WebCore::ResourceResponse& response, uint32_t cacheStoragePolicy)
+void LegacyCustomProtocolManager::didReceiveResponse(LegacyCustomProtocolID customProtocolID, const WebCore::ResourceResponse& response, CacheStoragePolicy cacheStoragePolicy)
 {
     RetainPtr<WKCustomProtocol> protocol = protocolForID(customProtocolID);
     if (!protocol)
@@ -200,7 +211,7 @@ void LegacyCustomProtocolManager::didReceiveResponse(LegacyCustomProtocolID cust
     RetainPtr<NSURLResponse> nsResponse = response.nsURLResponse();
 
     dispatchOnInitializationRunLoop(protocol.get(), ^ {
-        [[protocol client] URLProtocol:protocol.get() didReceiveResponse:nsResponse.get() cacheStoragePolicy:static_cast<NSURLCacheStoragePolicy>(cacheStoragePolicy)];
+        [[protocol client] URLProtocol:protocol.get() didReceiveResponse:nsResponse.get() cacheStoragePolicy:toNSURLCacheStoragePolicy(cacheStoragePolicy)];
     });
 }
 
@@ -233,7 +244,7 @@ void LegacyCustomProtocolManager::wasRedirectedToRequest(LegacyCustomProtocolID 
 
 RetainPtr<WKCustomProtocol> LegacyCustomProtocolManager::protocolForID(LegacyCustomProtocolID customProtocolID)
 {
-    LockHolder locker(m_customProtocolMapMutex);
+    Locker locker { m_customProtocolMapLock };
 
     CustomProtocolMap::const_iterator it = m_customProtocolMap.find(customProtocolID);
     if (it == m_customProtocolMap.end())

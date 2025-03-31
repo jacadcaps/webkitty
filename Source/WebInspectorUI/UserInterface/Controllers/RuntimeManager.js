@@ -31,26 +31,20 @@ WI.RuntimeManager = class RuntimeManager extends WI.Object
 
         this._activeExecutionContext = null;
 
-        WI.settings.consoleSavedResultAlias.addEventListener(WI.Setting.Event.Changed, (event) => {
+        WI.settings.consoleSavedResultAlias.addEventListener(WI.Setting.Event.Changed, function(event) {
             for (let target of WI.targets) {
-                // COMPATIBILITY (iOS 12.2): Runtime.setSavedResultAlias did not exist.
+                // COMPATIBILITY (iOS 13.0): Runtime.setSavedResultAlias did not exist.
                 if (target.hasCommand("Runtime.setSavedResultAlias"))
                     target.RuntimeAgent.setSavedResultAlias(WI.settings.consoleSavedResultAlias.value);
             }
-        });
+        }, this);
     }
 
     // Static
 
-    static supportsAwaitPromise()
-    {
-        // COMPATIBILITY (iOS 12): Runtime.awaitPromise did not exist.
-        return InspectorBackend.hasCommand("Runtime.awaitPromise");
-    }
-
     static preferredSavedResultPrefix()
     {
-        // COMPATIBILITY (iOS 12.2): Runtime.setSavedResultAlias did not exist.
+        // COMPATIBILITY (iOS 13.0): Runtime.setSavedResultAlias did not exist.
         if (!InspectorBackend.hasCommand("Runtime.setSavedResultAlias"))
             return "$";
         return WI.settings.consoleSavedResultAlias.value || "$";
@@ -68,7 +62,7 @@ WI.RuntimeManager = class RuntimeManager extends WI.Object
         if (WI.settings.enableControlFlowProfiler.value)
             target.RuntimeAgent.enableControlFlowProfiler();
 
-        // COMPATIBILITY (iOS 12.2): Runtime.setSavedResultAlias did not exist.
+        // COMPATIBILITY (iOS 13.0): Runtime.setSavedResultAlias did not exist.
         if (target.hasCommand("Runtime.setSavedResultAlias") && WI.settings.consoleSavedResultAlias.value)
             target.RuntimeAgent.setSavedResultAlias(WI.settings.consoleSavedResultAlias.value);
     }
@@ -171,7 +165,7 @@ WI.RuntimeManager = class RuntimeManager extends WI.Object
             returnByValue,
             generatePreview,
             saveResult,
-            emulateUserGesture, // COMPATIBILITY (iOS 12.2): "emulateUserGesture" did not exist yet.
+            emulateUserGesture,
         }, evalCallback.bind(this));
     }
 
@@ -285,7 +279,7 @@ WI.RuntimeManager.ConsoleObjectGroup = "console";
 WI.RuntimeManager.TopLevelExecutionContextIdentifier = undefined;
 
 WI.RuntimeManager.Event = {
-    DidEvaluate: Symbol("runtime-manager-did-evaluate"),
-    DefaultExecutionContextChanged: Symbol("runtime-manager-default-execution-context-changed"),
-    ActiveExecutionContextChanged: Symbol("runtime-manager-active-execution-context-changed"),
+    DidEvaluate: "runtime-manager-did-evaluate",
+    DefaultExecutionContextChanged: "runtime-manager-default-execution-context-changed",
+    ActiveExecutionContextChanged: "runtime-manager-active-execution-context-changed",
 };

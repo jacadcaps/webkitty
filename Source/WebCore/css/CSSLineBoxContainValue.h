@@ -33,7 +33,7 @@ namespace WebCore {
 
 class CSSPrimitiveValue;
 
-enum class LineBoxContain {
+enum class LineBoxContain : uint8_t {
     Block           = 1 << 0,
     Inline          = 1 << 1,
     Font            = 1 << 2,
@@ -51,7 +51,7 @@ public:
         return adoptRef(*new CSSLineBoxContainValue(value));
     }
 
-    String customCSSText() const;
+    String customCSSText(const CSS::SerializationContext&) const;
     bool equals(const CSSLineBoxContainValue& other) const { return m_value == other.m_value; }
     OptionSet<LineBoxContain> value() const { return m_value; }
 

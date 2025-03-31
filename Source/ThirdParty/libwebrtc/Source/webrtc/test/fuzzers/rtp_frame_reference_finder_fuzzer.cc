@@ -11,10 +11,8 @@
 #include <memory>
 
 #include "api/rtp_packet_infos.h"
-#include "modules/video_coding/frame_object.h"
-#include "modules/video_coding/packet_buffer.h"
+#include "modules/rtp_rtcp/source/frame_object.h"
 #include "modules/video_coding/rtp_frame_reference_finder.h"
-#include "system_wrappers/include/clock.h"
 
 namespace webrtc {
 
@@ -25,7 +23,7 @@ class DataReader {
 
   template <typename T>
   void CopyTo(T* object) {
-    static_assert(std::is_pod<T>(), "");
+    static_assert(std::is_trivial_v<T> && std::is_standard_layout_v<T>, "");
     uint8_t* destination = reinterpret_cast<uint8_t*>(object);
     size_t object_size = sizeof(T);
     size_t num_bytes = std::min(size_ - offset_, object_size);
@@ -58,14 +56,21 @@ class DataReader {
   size_t offset_ = 0;
 };
 
-class NullCallback : public video_coding::OnCompleteFrameCallback {
-  void OnCompleteFrame(
-      std::unique_ptr<video_coding::EncodedFrame> frame) override {}
-};
+RTPVideoHeaderH264 GenerateRTPVideoHeaderH264(DataReader* reader) {
+  RTPVideoHeaderH264 result;
+  result.nalu_type = reader->GetNum<uint8_t>();
+  result.packetization_type = reader->GetNum<H264PacketizationTypes>();
+  int nalus_length = reader->GetNum<uint8_t>();
+  for (int i = 0; i < nalus_length; ++i) {
+    reader->CopyTo(&result.nalus.emplace_back());
+  }
+  result.packetization_mode = reader->GetNum<H264PacketizationMode>();
+  return result;
+}
 
-absl::optional<RTPVideoHeader::GenericDescriptorInfo>
+std::optional<RTPVideoHeader::GenericDescriptorInfo>
 GenerateGenericFrameDependencies(DataReader* reader) {
-  absl::optional<RTPVideoHeader::GenericDescriptorInfo> result;
+  std::optional<RTPVideoHeader::GenericDescriptorInfo> result;
   uint8_t flags = reader->GetNum<uint8_t>();
   if (flags & 0b1000'0000) {
     // i.e. with 50% chance there are no generic dependencies.
@@ -78,7 +83,6 @@ GenerateGenericFrameDependencies(DataReader* reader) {
   result->frame_id = reader->GetNum<int32_t>();
   result->spatial_index = (flags & 0b0111'0000) >> 4;
   result->temporal_index = (flags & 0b0000'1110) >> 1;
-  result->discardable = (flags & 0b0000'0001);
 
   // Larger than supported by the RtpFrameReferenceFinder.
   int num_diffs = (reader->GetNum<uint8_t>() % 16);
@@ -93,8 +97,7 @@ GenerateGenericFrameDependencies(DataReader* reader) {
 
 void FuzzOneInput(const uint8_t* data, size_t size) {
   DataReader reader(data, size);
-  NullCallback cb;
-  video_coding::RtpFrameReferenceFinder reference_finder(&cb);
+  RtpFrameReferenceFinder reference_finder;
 
   auto codec = static_cast<VideoCodecType>(reader.GetNum<uint8_t>() % 5);
 
@@ -126,18 +129,19 @@ void FuzzOneInput(const uint8_t* data, size_t size) {
             &video_header.video_type_header.emplace<RTPVideoHeaderVP9>());
         break;
       case kVideoCodecH264:
-        reader.CopyTo(
-            &video_header.video_type_header.emplace<RTPVideoHeaderH264>());
+        video_header.video_type_header = GenerateRTPVideoHeaderH264(&reader);
+        break;
+      case kVideoCodecH265:
+        // TODO(bugs.webrtc.org/13485)
         break;
       default:
         break;
     }
 
-    reader.CopyTo(&video_header.frame_marking);
     video_header.generic = GenerateGenericFrameDependencies(&reader);
 
     // clang-format off
-    auto frame = std::make_unique<video_coding::RtpFrameObject>(
+    auto frame = std::make_unique<RtpFrameObject>(
         first_seq_num,
         last_seq_num,
         marker_bit,
@@ -152,7 +156,8 @@ void FuzzOneInput(const uint8_t* data, size_t size) {
         kVideoRotation_0,
         VideoContentType::UNSPECIFIED,
         video_header,
-        /*color_space=*/absl::nullopt,
+        /*color_space=*/std::nullopt,
+        /*frame_instrumentation_data=*/std::nullopt,
         RtpPacketInfos(),
         EncodedImageBuffer::Create(/*size=*/0));
     // clang-format on

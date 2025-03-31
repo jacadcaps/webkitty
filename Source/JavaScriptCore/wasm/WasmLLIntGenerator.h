@@ -27,13 +27,20 @@
 
 #if ENABLE(WEBASSEMBLY)
 
-#include "WasmB3IRGenerator.h"
+#include "WasmFormat.h"
+#include <wtf/Expected.h>
+#include <wtf/text/WTFString.h>
 
 namespace JSC { namespace Wasm {
 
-class FunctionCodeBlock;
+class FunctionCodeBlockGenerator;
+class TypeDefinition;
+struct ModuleInformation;
 
-Expected<std::unique_ptr<FunctionCodeBlock>, String> parseAndCompileBytecode(const uint8_t*, size_t, const Signature&, const ModuleInformation&, uint32_t functionIndex);
+enum class UseDefaultValue : bool { No, Yes };
+enum class ArrayGetKind : unsigned { New, NewDefault, NewFixed };
+
+Expected<std::unique_ptr<FunctionCodeBlockGenerator>, String> parseAndCompileBytecode(std::span<const uint8_t>, const TypeDefinition&, ModuleInformation&, FunctionCodeIndex functionIndex);
 
 } } // namespace JSC::Wasm
 

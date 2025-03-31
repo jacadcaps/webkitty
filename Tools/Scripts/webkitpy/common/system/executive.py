@@ -36,7 +36,7 @@ import subprocess
 import sys
 import time
 
-from webkitcorepy import StringIO, string_utils, unicode
+from webkitcorepy import StringIO, Timeout, string_utils, unicode
 
 from webkitpy.common.system.abstractexecutive import AbstractExecutive
 from webkitpy.common.system.outputtee import Tee
@@ -85,41 +85,16 @@ class Executive(AbstractExecutive):
     PIPE = subprocess.PIPE
     STDOUT = subprocess.STDOUT
 
-    class WrappedPopen(object):
-        def __init__(self, popen):
-            for attribute in dir(popen):
-                if attribute.startswith('__'):
-                    continue
-                setattr(self, attribute, getattr(popen, attribute))
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            self.wait()
-
     def __init__(self):
         self.pid_to_system_pid = {}
         self._is_native_win = sys.platform.startswith('win')
         self._is_cygwin = sys.platform == 'cygwin'
 
-    def _should_close_fds(self):
-        # We need to pass close_fds=True to work around Python bug #2320
-        # (otherwise we can hang when we kill DumpRenderTree when we are running
-        # multiple threads). See http://bugs.python.org/issue2320 .
-        # In Python 2.7.10, close_fds is also supported on Windows.
-        # However, "you cannot set close_fds to true and also redirect the standard
-        # handles by setting stdin, stdout or stderr.".
-        if self._is_native_win:
-            return False
-        else:
-            return True
-
     def _run_command_with_teed_output(self, args, teed_output, **kwargs):
         child_process = self.popen(args,
                                    stdout=self.PIPE,
                                    stderr=self.STDOUT,
-                                   close_fds=self._should_close_fds(),
+                                   close_fds=True,
                                    **kwargs)
 
         with child_process:
@@ -196,7 +171,7 @@ class Executive(AbstractExecutive):
         # According to http://docs.python.org/library/os.html
         # os.kill isn't available on Windows. python 2.5.5 os.kill appears
         # to work in cygwin, however it occasionally raises EAGAIN.
-        retries_left = 10 if self._is_cygwin else 2
+        retries_left = 10 if self._is_cygwin else 5
         current_signal = signal.SIGTERM
         while retries_left > 0 and self.check_running_pid(pid):
             try:
@@ -221,8 +196,13 @@ class Executive(AbstractExecutive):
                 else:
                     raise
 
-            # Give processes one chance to clean up quickly before exiting.
-            current_signal = signal.SIGKILL
+            # Fallback to SIGKILL before exiting.
+            if retries_left <= 0 and current_signal != signal.SIGKILL:
+                _log.error('Couldn\'t quit {} with SIGTERM, sending SIGKILL.'.format(pid))
+                current_signal = signal.SIGKILL
+                retries_left = 1
+            else:
+                time.sleep(0.05)  # give the process a chance to finish
 
     def _win32_check_running_pid(self, pid):
         # importing ctypes at the top-level seems to cause weird crashes at
@@ -297,7 +277,7 @@ class Executive(AbstractExecutive):
                     if process_name_filter(process_name):
                         running_pids.append(int(pid))
                         self.pid_to_system_pid[int(pid)] = int(winpid)
-                except ValueError as e:
+                except ValueError:
                     pass
         else:
             with self.popen(['ps', '-eo', 'pid,comm'], stdout=self.PIPE, stderr=self.PIPE) as ps_process:
@@ -309,7 +289,7 @@ class Executive(AbstractExecutive):
                         pid, process_name = line.strip().split(b' ', 1)
                         if process_name_filter(string_utils.decode(process_name, target_type=str)):
                             running_pids.append(int(pid))
-                    except ValueError as e:
+                    except ValueError:
                         pass
 
         return sorted(running_pids)
@@ -354,7 +334,10 @@ class Executive(AbstractExecutive):
         # uses KILL.  Windows is always using /f (which seems like -KILL).
         # We should pick one mode, or add support for switching between them.
         # Note: Mac OS X 10.6 requires -SIGNALNAME before -u USER
-        command = ["killall", "-TERM", "-u", os.getenv("USER"), process_name]
+        try:
+            command = ["killall", "-TERM", "-u", os.environ["USER"], process_name]
+        except KeyError:
+            command = ["killall", "-TERM", process_name]
         # killall returns 1 if no process can be found and 2 on command error.
         # FIXME: We should pass a custom error_handler to allow only exit_code 1.
         # We should log in exit_code == 1
@@ -389,7 +372,8 @@ class Executive(AbstractExecutive):
                     ignore_errors=False,
                     return_exit_code=False,
                     return_stderr=True,
-                    decode_output=True):
+                    decode_output=True,
+                    pass_fds=()):
         """Popen wrapper for convenience and to work around python bugs."""
         assert(isinstance(args, list) or isinstance(args, tuple))
         start_time = time.time()
@@ -403,12 +387,14 @@ class Executive(AbstractExecutive):
                              stderr=stderr,
                              cwd=cwd,
                              env=env,
-                             close_fds=self._should_close_fds())
-        with process:
+                             close_fds=True,
+                             pass_fds=pass_fds)
+        try:
+            output = ''
             if not string_to_communicate:
-                output = process.communicate()[0]
+                output = process.communicate(timeout=Timeout.difference())[0]
             else:
-                output = process.communicate(string_utils.encode(string_to_communicate, encoding='utf-8'))[0]
+                output = process.communicate(string_utils.encode(string_to_communicate, encoding='utf-8'), timeout=Timeout.difference())[0]
 
             # run_command automatically decodes to unicode() and converts CRLF to LF unless explicitly told not to.
             if decode_output:
@@ -416,33 +402,31 @@ class Executive(AbstractExecutive):
 
             # wait() is not threadsafe and can throw OSError due to:
             # http://bugs.python.org/issue1731717
-            exit_code = process.wait()
+            exit_code = process.wait(timeout=Timeout.difference())
 
             _log.debug('"%s" took %.2fs' % (self.command_for_printing(args), time.time() - start_time))
 
-            if return_exit_code:
-                return exit_code
+        except subprocess.TimeoutExpired:
+            _log.debug('"%s" timed out after %.2fs' % (self.command_for_printing(args), time.time() - start_time))
+            exit_code = 255
 
-            if exit_code:
-                script_error = ScriptError(script_args=args,
-                                           exit_code=exit_code,
-                                           output=output,
-                                           cwd=cwd)
+        finally:
+            if process.poll() is None:
+                process.kill()
 
-                if ignore_errors:
-                    assert error_handler is None, "don't specify error_handler if ignore_errors is True"
-                    error_handler = Executive.ignore_error
+        if return_exit_code:
+            return exit_code
 
-                (error_handler or self.default_error_handler)(script_error)
-            return output
+        if exit_code:
+            script_error = ScriptError(script_args=args, exit_code=exit_code, output=output, cwd=cwd)
+            if ignore_errors:
+                assert error_handler is None, "don't specify error_handler if ignore_errors is True"
+                error_handler = Executive.ignore_error
+            (error_handler or self.default_error_handler)(script_error)
+
+        return output
 
     def _child_process_encoding(self):
-        # Win32 Python 2.x uses CreateProcessA rather than CreateProcessW
-        # to launch subprocesses, so we have to encode arguments using the
-        # current code page.
-        if self._is_native_win and sys.version < '3':
-            return 'mbcs'
-        # All other platforms use UTF-8.
         # FIXME: Using UTF-8 on Cygwin will confuse Windows-native commands
         # which will expect arguments to be encoded using the current code
         # page.
@@ -452,12 +436,6 @@ class Executive(AbstractExecutive):
         # Cygwin's Python's os.execv doesn't support unicode command
         # arguments, and neither does Cygwin's execv itself.
         if self._is_cygwin:
-            return True
-
-        # Win32 Python 2.x uses CreateProcessA rather than CreateProcessW
-        # to launch subprocesses, so we have to encode arguments using the
-        # current code page.
-        if self._is_native_win and sys.version < '3':
             return True
 
         return False
@@ -483,7 +461,7 @@ class Executive(AbstractExecutive):
             # Must include proper interpreter
             if self._needs_interpreter_check(args[0]):
                 try:
-                    with open(args[0], 'r') as f:
+                    with open(args[0], 'r', encoding='cp437') as f:
                         line = f.readline()
                         if "perl" in line:
                             args.insert(0, "perl")
@@ -503,11 +481,19 @@ class Executive(AbstractExecutive):
         else:
             string_args = self._stringify_args(args)
 
-        # Python 3 treats Popen as a context manager, we should allow this in Python 2
-        result = subprocess.Popen(string_args, **kwargs)
-        if not callable(getattr(result, "__enter__", None)) and not callable(getattr(result, "__exit__", None)):
-            return self.WrappedPopen(result)
-        return result
+        # Windows Python 3 throws a TypeError if the environment contains `bytes` instead of `str`
+        env = kwargs.pop('env', None)
+        if self._is_native_win and env is not None:
+            mod_env = {}
+            for key, value in env.items():
+                if not isinstance(key, str):
+                    key = key.decode('utf-8')
+                if not isinstance(value, str):
+                    value = value.decode('utf-8')
+                mod_env[key] = value
+            env = mod_env
+
+        return subprocess.Popen(string_args, env=env, **kwargs)
 
     def run_in_parallel(self, command_lines_and_cwds, processes=None):
         """Runs a list of (cmd_line list, cwd string) tuples in parallel and returns a list of (retcode, stdout, stderr) tuples."""

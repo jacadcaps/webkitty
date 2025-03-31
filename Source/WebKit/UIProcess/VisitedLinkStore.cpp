@@ -43,7 +43,7 @@ Ref<VisitedLinkStore> VisitedLinkStore::create()
 
 VisitedLinkStore::~VisitedLinkStore()
 {
-    RELEASE_ASSERT(m_processes.computesEmpty());
+    RELEASE_ASSERT(m_processes.isEmptyIgnoringNullReferences());
 }
 
 VisitedLinkStore::VisitedLinkStore()
@@ -94,16 +94,16 @@ void VisitedLinkStore::removeAll()
 {
     m_linkHashStore.clear();
 
-    for (auto& process : m_processes) {
-        ASSERT(process.processPool().processes().contains(&process));
-        process.send(Messages::VisitedLinkTableController::RemoveAllVisitedLinks(), identifier());
+    for (Ref process : m_processes) {
+        ASSERT(process->processPool().processes().containsIf([&](auto& item) { return item.ptr() == &process.get(); }));
+        process->send(Messages::VisitedLinkTableController::RemoveAllVisitedLinks(), identifier());
     }
 }
 
 void VisitedLinkStore::addVisitedLinkHashFromPage(WebPageProxyIdentifier pageProxyID, SharedStringHash linkHash)
 {
-    if (auto* webPageProxy = WebProcessProxy::webPage(pageProxyID)) {
-        if (!webPageProxy->addsVisitedLinks())
+    if (RefPtr page = WebProcessProxy::webPage(pageProxyID)) {
+        if (!page || !page->addsVisitedLinks())
             return;
     }
 
@@ -112,32 +112,31 @@ void VisitedLinkStore::addVisitedLinkHashFromPage(WebPageProxyIdentifier pagePro
 
 void VisitedLinkStore::sendStoreHandleToProcess(WebProcessProxy& process)
 {
-    ASSERT(process.processPool().processes().contains(&process));
+    ASSERT(process.processPool().processes().containsIf([&](auto& item) { return item.ptr() == &process; }));
 
-    SharedMemory::Handle handle;
-    if (!m_linkHashStore.createSharedMemoryHandle(handle))
+    auto handle = m_linkHashStore.createSharedMemoryHandle();
+    if (!handle)
         return;
-
-    process.send(Messages::VisitedLinkTableController::SetVisitedLinkTable(handle), identifier());
+    process.send(Messages::VisitedLinkTableController::SetVisitedLinkTable(WTFMove(*handle)), identifier());
 }
 
 void VisitedLinkStore::didInvalidateSharedMemory()
 {
-    for (auto& process : m_processes)
-        sendStoreHandleToProcess(process);
+    for (Ref process : m_processes)
+        sendStoreHandleToProcess(process.get());
 }
 
 void VisitedLinkStore::didUpdateSharedStringHashes(const Vector<WebCore::SharedStringHash>& addedHashes, const Vector<WebCore::SharedStringHash>& removedHashes)
 {
     ASSERT(!addedHashes.isEmpty() || !removedHashes.isEmpty());
 
-    for (auto& process : m_processes) {
-        ASSERT(process.processPool().processes().contains(&process));
+    for (Ref process : m_processes) {
+        ASSERT(process->processPool().processes().containsIf([&](auto& item) { return item.ptr() == process.ptr(); }));
 
-        if (addedHashes.size() > 20 || !removedHashes.isEmpty())
-            process.send(Messages::VisitedLinkTableController::AllVisitedLinkStateChanged(), identifier());
+        if (addedHashes.size() > 20 || !removedHashes.isEmpty() || process->throttler().isSuspended())
+            process->send(Messages::VisitedLinkTableController::AllVisitedLinkStateChanged(), identifier());
         else
-            process.send(Messages::VisitedLinkTableController::VisitedLinkStateChanged(addedHashes), identifier());
+            process->send(Messages::VisitedLinkTableController::VisitedLinkStateChanged(addedHashes), identifier());
     }
 }
 

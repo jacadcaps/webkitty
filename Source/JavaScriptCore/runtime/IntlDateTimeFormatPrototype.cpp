@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2015 Andy VanWagoner (andy@vanwagoner.family)
- * Copyright (C) 2016-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,16 +29,20 @@
 
 #include "BuiltinNames.h"
 #include "DateConstructor.h"
-#include "IntlDateTimeFormat.h"
+#include "IntlDateTimeFormatInlines.h"
 #include "JSBoundFunction.h"
 #include "JSCInlines.h"
+#include "TemporalInstant.h"
 #include <wtf/DateMath.h>
 
 namespace JSC {
 
-static EncodedJSValue JSC_HOST_CALL IntlDateTimeFormatPrototypeGetterFormat(JSGlobalObject*, CallFrame*);
-static EncodedJSValue JSC_HOST_CALL IntlDateTimeFormatPrototypeFuncFormatToParts(JSGlobalObject*, CallFrame*);
-static EncodedJSValue JSC_HOST_CALL IntlDateTimeFormatPrototypeFuncResolvedOptions(JSGlobalObject*, CallFrame*);
+static JSC_DECLARE_CUSTOM_GETTER(intlDateTimeFormatPrototypeGetterFormat);
+static JSC_DECLARE_HOST_FUNCTION(intlDateTimeFormatPrototypeFuncFormatRange);
+static JSC_DECLARE_HOST_FUNCTION(intlDateTimeFormatPrototypeFuncFormatRangeToParts);
+static JSC_DECLARE_HOST_FUNCTION(intlDateTimeFormatPrototypeFuncFormatToParts);
+static JSC_DECLARE_HOST_FUNCTION(intlDateTimeFormatPrototypeFuncResolvedOptions);
+static JSC_DECLARE_HOST_FUNCTION(intlDateTimeFormatFuncFormatDateTime);
 
 }
 
@@ -46,20 +50,22 @@ static EncodedJSValue JSC_HOST_CALL IntlDateTimeFormatPrototypeFuncResolvedOptio
 
 namespace JSC {
 
-const ClassInfo IntlDateTimeFormatPrototype::s_info = { "Intl.DateTimeFormat", &Base::s_info, &dateTimeFormatPrototypeTable, nullptr, CREATE_METHOD_TABLE(IntlDateTimeFormatPrototype) };
+const ClassInfo IntlDateTimeFormatPrototype::s_info = { "Intl.DateTimeFormat"_s, &Base::s_info, &dateTimeFormatPrototypeTable, nullptr, CREATE_METHOD_TABLE(IntlDateTimeFormatPrototype) };
 
 /* Source for IntlDateTimeFormatPrototype.lut.h
 @begin dateTimeFormatPrototypeTable
-  format           IntlDateTimeFormatPrototypeGetterFormat         DontEnum|Accessor
-  formatToParts    IntlDateTimeFormatPrototypeFuncFormatToParts    DontEnum|Function 1
-  resolvedOptions  IntlDateTimeFormatPrototypeFuncResolvedOptions  DontEnum|Function 0
+  format                intlDateTimeFormatPrototypeGetterFormat              DontEnum|ReadOnly|CustomAccessor
+  formatRange           intlDateTimeFormatPrototypeFuncFormatRange           DontEnum|Function 2
+  formatRangeToParts    intlDateTimeFormatPrototypeFuncFormatRangeToParts    DontEnum|Function 2
+  formatToParts         intlDateTimeFormatPrototypeFuncFormatToParts         DontEnum|Function 1
+  resolvedOptions       intlDateTimeFormatPrototypeFuncResolvedOptions       DontEnum|Function 0
 @end
 */
 
-IntlDateTimeFormatPrototype* IntlDateTimeFormatPrototype::create(VM& vm, JSGlobalObject*, Structure* structure)
+IntlDateTimeFormatPrototype* IntlDateTimeFormatPrototype::create(VM& vm, JSGlobalObject* globalObject, Structure* structure)
 {
-    IntlDateTimeFormatPrototype* object = new (NotNull, allocateCell<IntlDateTimeFormatPrototype>(vm.heap)) IntlDateTimeFormatPrototype(vm, structure);
-    object->finishCreation(vm);
+    IntlDateTimeFormatPrototype* object = new (NotNull, allocateCell<IntlDateTimeFormatPrototype>(vm)) IntlDateTimeFormatPrototype(vm, structure);
+    object->finishCreation(vm, globalObject);
     return object;
 }
 
@@ -73,66 +79,79 @@ IntlDateTimeFormatPrototype::IntlDateTimeFormatPrototype(VM& vm, Structure* stru
 {
 }
 
-void IntlDateTimeFormatPrototype::finishCreation(VM& vm)
+void IntlDateTimeFormatPrototype::finishCreation(VM& vm, JSGlobalObject* globalObject)
 {
     Base::finishCreation(vm);
-    ASSERT(inherits(vm, info()));
+    ASSERT(inherits(info()));
+    UNUSED_PARAM(globalObject);
     JSC_TO_STRING_TAG_WITHOUT_TRANSITION();
 }
 
-static EncodedJSValue JSC_HOST_CALL IntlDateTimeFormatFuncFormatDateTime(JSGlobalObject* globalObject, CallFrame* callFrame)
+// HandleDateTimeValue ( dateTimeFormat, x )
+// https://tc39.es/proposal-temporal/#sec-temporal-handledatetimevalue
+double IntlDateTimeFormat::handleDateTimeValue(JSGlobalObject* globalObject, JSValue x)
+{
+    VM& vm = globalObject->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    if (x.isUndefined())
+        RELEASE_AND_RETURN(scope, dateNowImpl().toNumber(globalObject));
+
+    // FIXME:
+    //  - Add all of the other Temporal types
+    //  - Work in epoch nanoseconds
+    //  - Return UDateFormat and UDateIntervalFormat depending on the type
+    TemporalInstant* instant = jsDynamicCast<TemporalInstant*>(x);
+    if (instant)
+        return instant->exactTime().epochMilliseconds();
+
+    RELEASE_AND_RETURN(scope, WTF::timeClip(x.toNumber(globalObject)));
+}
+
+JSC_DEFINE_HOST_FUNCTION(intlDateTimeFormatFuncFormatDateTime, (JSGlobalObject* globalObject, CallFrame* callFrame))
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
     // 12.1.7 DateTime Format Functions (ECMA-402)
     // https://tc39.github.io/ecma402/#sec-formatdatetime
 
-    IntlDateTimeFormat* format = jsCast<IntlDateTimeFormat*>(callFrame->thisValue());
+    IntlDateTimeFormat* format = jsDynamicCast<IntlDateTimeFormat*>(callFrame->thisValue());
+    if (UNLIKELY(!format))
+        return JSValue::encode(throwTypeError(globalObject, scope, "Intl.DateTimeFormat.prototype.format called on value that's not a DateTimeFormat"_s));
 
     JSValue date = callFrame->argument(0);
-    double value;
-
-    if (date.isUndefined())
-        value = dateNowImpl().toNumber(globalObject);
-    else {
-        value = WTF::timeClip(date.toNumber(globalObject));
-        RETURN_IF_EXCEPTION(scope, encodedJSValue());
-    }
+    double value = IntlDateTimeFormat::handleDateTimeValue(globalObject, date);
+    RETURN_IF_EXCEPTION(scope, { });
 
     RELEASE_AND_RETURN(scope, JSValue::encode(format->format(globalObject, value)));
 }
 
-EncodedJSValue JSC_HOST_CALL IntlDateTimeFormatPrototypeGetterFormat(JSGlobalObject* globalObject, CallFrame* callFrame)
+JSC_DEFINE_CUSTOM_GETTER(intlDateTimeFormatPrototypeGetterFormat, (JSGlobalObject* globalObject, EncodedJSValue thisValue, PropertyName))
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     // 12.3.3 Intl.DateTimeFormat.prototype.format (ECMA-402 2.0)
     // 1. Let dtf be this DateTimeFormat object.
-    IntlDateTimeFormat* dtf = jsDynamicCast<IntlDateTimeFormat*>(vm, callFrame->thisValue());
-
-    // FIXME: Workaround to provide compatibility with ECMA-402 1.0 call/apply patterns.
-    // https://bugs.webkit.org/show_bug.cgi?id=153679
-    if (!dtf) {
-        JSValue value = callFrame->thisValue().get(globalObject, vm.propertyNames->builtinNames().intlSubstituteValuePrivateName());
-        RETURN_IF_EXCEPTION(scope, encodedJSValue());
-        dtf = jsDynamicCast<IntlDateTimeFormat*>(vm, value);
-    }
-
+    auto* dtf = IntlDateTimeFormat::unwrapForOldFunctions(globalObject, JSValue::decode(thisValue));
+    RETURN_IF_EXCEPTION(scope, { });
     // 2. ReturnIfAbrupt(dtf).
-    if (!dtf)
-        return JSValue::encode(throwTypeError(globalObject, scope, "Intl.DateTimeFormat.prototype.format called on value that's not an object initialized as a DateTimeFormat"_s));
+    if (UNLIKELY(!dtf))
+        return JSValue::encode(throwTypeError(globalObject, scope, "Intl.DateTimeFormat.prototype.format called on value that's not a DateTimeFormat"_s));
 
     JSBoundFunction* boundFormat = dtf->boundFormat();
     // 3. If the [[boundFormat]] internal slot of this DateTimeFormat object is undefined,
     if (!boundFormat) {
-        JSGlobalObject* globalObject = dtf->globalObject(vm);
+        JSGlobalObject* globalObject = dtf->globalObject();
         // a. Let F be a new built-in function object as defined in 12.3.4.
         // b. The value of F’s length property is 1. (Note: F’s length property was 0 in ECMA-402 1.0)
-        JSFunction* targetObject = JSFunction::create(vm, globalObject, 1, "format"_s, IntlDateTimeFormatFuncFormatDateTime, NoIntrinsic);
+        JSFunction* targetObject = JSFunction::create(vm, globalObject, 1, "format"_s, intlDateTimeFormatFuncFormatDateTime, ImplementationVisibility::Public);
         // c. Let bf be BoundFunctionCreate(F, «this value»).
-        boundFormat = JSBoundFunction::create(vm, globalObject, targetObject, dtf, nullptr, 1, nullptr);
-        RETURN_IF_EXCEPTION(scope, encodedJSValue());
+        boundFormat = JSBoundFunction::create(vm, globalObject, targetObject, dtf, { }, 1, jsEmptyString(vm));
+        RETURN_IF_EXCEPTION(scope, { });
+        boundFormat->reifyLazyPropertyIfNeeded<>(vm, globalObject, vm.propertyNames->name);
+        RETURN_IF_EXCEPTION(scope, { });
+        boundFormat->putDirect(vm, vm.propertyNames->name, jsEmptyString(vm), PropertyAttribute::ReadOnly | PropertyAttribute::DontEnum);
         // d. Set dtf.[[boundFormat]] to bf.
         dtf->setBoundFormat(vm, boundFormat);
     }
@@ -140,7 +159,7 @@ EncodedJSValue JSC_HOST_CALL IntlDateTimeFormatPrototypeGetterFormat(JSGlobalObj
     return JSValue::encode(boundFormat);
 }
 
-EncodedJSValue JSC_HOST_CALL IntlDateTimeFormatPrototypeFuncFormatToParts(JSGlobalObject* globalObject, CallFrame* callFrame)
+JSC_DEFINE_HOST_FUNCTION(intlDateTimeFormatPrototypeFuncFormatToParts, (JSGlobalObject* globalObject, CallFrame* callFrame))
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
@@ -148,41 +167,79 @@ EncodedJSValue JSC_HOST_CALL IntlDateTimeFormatPrototypeFuncFormatToParts(JSGlob
     // 15.4 Intl.DateTimeFormat.prototype.formatToParts (ECMA-402 4.0)
     // https://tc39.github.io/ecma402/#sec-Intl.DateTimeFormat.prototype.formatToParts
 
-    IntlDateTimeFormat* dateTimeFormat = jsDynamicCast<IntlDateTimeFormat*>(vm, callFrame->thisValue());
-    if (!dateTimeFormat)
-        return JSValue::encode(throwTypeError(globalObject, scope, "Intl.DateTimeFormat.prototype.formatToParts called on value that's not an object initialized as a DateTimeFormat"_s));
+    // Do not use unwrapForOldFunctions.
+    auto* dateTimeFormat = jsDynamicCast<IntlDateTimeFormat*>(callFrame->thisValue());
+    if (UNLIKELY(!dateTimeFormat))
+        return JSValue::encode(throwTypeError(globalObject, scope, "Intl.DateTimeFormat.prototype.formatToParts called on value that's not a DateTimeFormat"_s));
 
     JSValue date = callFrame->argument(0);
-    double value;
-
-    if (date.isUndefined())
-        value = dateNowImpl().toNumber(globalObject);
-    else {
-        value = WTF::timeClip(date.toNumber(globalObject));
-        RETURN_IF_EXCEPTION(scope, encodedJSValue());
-    }
+    double value = IntlDateTimeFormat::handleDateTimeValue(globalObject, date);
+    RETURN_IF_EXCEPTION(scope, { });
 
     RELEASE_AND_RETURN(scope, JSValue::encode(dateTimeFormat->formatToParts(globalObject, value)));
 }
 
-EncodedJSValue JSC_HOST_CALL IntlDateTimeFormatPrototypeFuncResolvedOptions(JSGlobalObject* globalObject, CallFrame* callFrame)
+// http://tc39.es/proposal-intl-DateTimeFormat-formatRange/#sec-intl.datetimeformat.prototype.formatRange
+JSC_DEFINE_HOST_FUNCTION(intlDateTimeFormatPrototypeFuncFormatRange, (JSGlobalObject* globalObject, CallFrame* callFrame))
+{
+    VM& vm = globalObject->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    // Do not use unwrapForOldFunctions.
+    auto* dateTimeFormat = jsDynamicCast<IntlDateTimeFormat*>(callFrame->thisValue());
+    if (UNLIKELY(!dateTimeFormat))
+        return JSValue::encode(throwTypeError(globalObject, scope, "Intl.DateTimeFormat.prototype.formatRange called on value that's not a DateTimeFormat"_s));
+
+    JSValue startDateValue = callFrame->argument(0);
+    JSValue endDateValue = callFrame->argument(1);
+
+    if (startDateValue.isUndefined() || endDateValue.isUndefined())
+        return throwVMTypeError(globalObject, scope, "startDate or endDate is undefined"_s);
+
+    double startDate = IntlDateTimeFormat::handleDateTimeValue(globalObject, startDateValue);
+    RETURN_IF_EXCEPTION(scope, { });
+    double endDate = IntlDateTimeFormat::handleDateTimeValue(globalObject, endDateValue);
+    RETURN_IF_EXCEPTION(scope, { });
+
+    RELEASE_AND_RETURN(scope, JSValue::encode(dateTimeFormat->formatRange(globalObject, startDate, endDate)));
+}
+
+// http://tc39.es/proposal-intl-DateTimeFormat-formatRange/#sec-intl.datetimeformat.prototype.formatRangeToParts
+JSC_DEFINE_HOST_FUNCTION(intlDateTimeFormatPrototypeFuncFormatRangeToParts, (JSGlobalObject* globalObject, CallFrame* callFrame))
+{
+    VM& vm = globalObject->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    // Do not use unwrapForOldFunctions.
+    auto* dateTimeFormat = jsDynamicCast<IntlDateTimeFormat*>(callFrame->thisValue());
+    if (UNLIKELY(!dateTimeFormat))
+        return JSValue::encode(throwTypeError(globalObject, scope, "Intl.DateTimeFormat.prototype.formatRangeToParts called on value that's not a DateTimeFormat"_s));
+
+    JSValue startDateValue = callFrame->argument(0);
+    JSValue endDateValue = callFrame->argument(1);
+
+    if (startDateValue.isUndefined() || endDateValue.isUndefined())
+        return throwVMTypeError(globalObject, scope, "startDate or endDate is undefined"_s);
+
+    double startDate = IntlDateTimeFormat::handleDateTimeValue(globalObject, startDateValue);
+    RETURN_IF_EXCEPTION(scope, { });
+    double endDate = IntlDateTimeFormat::handleDateTimeValue(globalObject, endDateValue);
+    RETURN_IF_EXCEPTION(scope, { });
+
+    RELEASE_AND_RETURN(scope, JSValue::encode(dateTimeFormat->formatRangeToParts(globalObject, startDate, endDate)));
+}
+
+JSC_DEFINE_HOST_FUNCTION(intlDateTimeFormatPrototypeFuncResolvedOptions, (JSGlobalObject* globalObject, CallFrame* callFrame))
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     // 12.3.5 Intl.DateTimeFormat.prototype.resolvedOptions() (ECMA-402 2.0)
-    IntlDateTimeFormat* dateTimeFormat = jsDynamicCast<IntlDateTimeFormat*>(vm, callFrame->thisValue());
 
-    // FIXME: Workaround to provide compatibility with ECMA-402 1.0 call/apply patterns.
-    // https://bugs.webkit.org/show_bug.cgi?id=153679
-    if (!dateTimeFormat) {
-        JSValue value = callFrame->thisValue().get(globalObject, vm.propertyNames->builtinNames().intlSubstituteValuePrivateName());
-        RETURN_IF_EXCEPTION(scope, encodedJSValue());
-        dateTimeFormat = jsDynamicCast<IntlDateTimeFormat*>(vm, value);
-    }
-
-    if (!dateTimeFormat)
-        return JSValue::encode(throwTypeError(globalObject, scope, "Intl.DateTimeFormat.prototype.resolvedOptions called on value that's not an object initialized as a DateTimeFormat"_s));
+    auto* dateTimeFormat = IntlDateTimeFormat::unwrapForOldFunctions(globalObject, callFrame->thisValue());
+    RETURN_IF_EXCEPTION(scope, { });
+    if (UNLIKELY(!dateTimeFormat))
+        return JSValue::encode(throwTypeError(globalObject, scope, "Intl.DateTimeFormat.prototype.resolvedOptions called on value that's not a DateTimeFormat"_s));
 
     RELEASE_AND_RETURN(scope, JSValue::encode(dateTimeFormat->resolvedOptions(globalObject)));
 }

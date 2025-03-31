@@ -35,23 +35,26 @@
 namespace WebCore {
 
 class WaveShaperNode final : public AudioBasicProcessorNode {
-    WTF_MAKE_ISO_ALLOCATED(WaveShaperNode);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(WaveShaperNode);
 public:
     static ExceptionOr<Ref<WaveShaperNode>> create(BaseAudioContext&, const WaveShaperOptions& = { });
 
     // setCurve() is called on the main thread.
-    ExceptionOr<void> setCurve(RefPtr<Float32Array>&&);
-    Float32Array* curve();
+    ExceptionOr<void> setCurveForBindings(RefPtr<Float32Array>&&);
+    RefPtr<Float32Array> curveForBindings();
 
-    void setOversample(OverSampleType);
-    OverSampleType oversample() const;
+    void setOversampleForBindings(OverSampleType);
+    OverSampleType oversampleForBindings() const;
 
     double latency() const { return latencyTime(); }
 
 private:    
     explicit WaveShaperNode(BaseAudioContext&);
 
-    WaveShaperProcessor* waveShaperProcessor() { return static_cast<WaveShaperProcessor*>(processor()); }
+    bool propagatesSilence() const final;
+
+    WaveShaperProcessor* waveShaperProcessor() { return downcast<WaveShaperProcessor>(processor()); }
+    const WaveShaperProcessor* waveShaperProcessor() const { return downcast<WaveShaperProcessor>(processor()); }
 };
 
 String convertEnumerationToString(WebCore::OverSampleType); // in JSOverSampleType.cpp

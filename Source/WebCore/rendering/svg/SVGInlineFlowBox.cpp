@@ -24,48 +24,28 @@
 #include "SVGInlineFlowBox.h"
 
 #include "GraphicsContext.h"
+#include "SVGElementTypeHelpers.h"
 #include "SVGInlineTextBox.h"
 #include "SVGRenderingContext.h"
 #include "SVGTextFragment.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(SVGInlineFlowBox);
-
-void SVGInlineFlowBox::paintSelectionBackground(PaintInfo& paintInfo)
-{
-    ASSERT(paintInfo.phase == PaintPhase::Foreground || paintInfo.phase == PaintPhase::Selection);
-    ASSERT(!paintInfo.context().paintingDisabled());
-
-    PaintInfo childPaintInfo(paintInfo);
-    for (InlineBox* child = firstChild(); child; child = child->nextOnLine()) {
-        if (is<SVGInlineTextBox>(*child))
-            downcast<SVGInlineTextBox>(*child).paintSelectionBackground(childPaintInfo);
-        else if (is<SVGInlineFlowBox>(*child))
-            downcast<SVGInlineFlowBox>(*child).paintSelectionBackground(childPaintInfo);
-    }
-}
-
-void SVGInlineFlowBox::paint(PaintInfo& paintInfo, const LayoutPoint& paintOffset, LayoutUnit, LayoutUnit)
-{
-    ASSERT(paintInfo.phase == PaintPhase::Foreground || paintInfo.phase == PaintPhase::Selection);
-    ASSERT(!paintInfo.context().paintingDisabled());
-
-    SVGRenderingContext renderingContext(renderer(), paintInfo, SVGRenderingContext::SaveGraphicsContext);
-    if (renderingContext.isRenderingPrepared()) {
-        for (InlineBox* child = firstChild(); child; child = child->nextOnLine())
-            child->paint(paintInfo, paintOffset, 0, 0);
-    }
-}
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(SVGInlineFlowBox);
 
 FloatRect SVGInlineFlowBox::calculateBoundaries() const
 {
     FloatRect childRect;
-    for (InlineBox* child = firstChild(); child; child = child->nextOnLine()) {
-        if (!child->isSVGInlineTextBox() && !child->isSVGInlineFlowBox())
+    for (auto* child = firstChild(); child; child = child->nextOnLine()) {
+        if (auto* textBox = dynamicDowncast<SVGInlineTextBox>(child)) {
+            childRect.unite(textBox->calculateBoundaries());
             continue;
-        childRect.unite(child->calculateBoundaries());
+        }
+        if (auto* flowBox = dynamicDowncast<SVGInlineFlowBox>(child)) {
+            childRect.unite(flowBox->calculateBoundaries());
+            continue;
+        }
     }
     return childRect;
 }

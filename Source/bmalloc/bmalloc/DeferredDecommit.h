@@ -25,6 +25,9 @@
 
 #pragma once
 
+#if !BUSE(TZONE)
+#if !BUSE(LIBPAS)
+
 namespace bmalloc {
 
 class IsoDirectoryBaseBase;
@@ -41,3 +44,5 @@ struct DeferredDecommit {
 
 } // namespace bmalloc
     
+#endif
+#endif // !BUSE(TZONE)

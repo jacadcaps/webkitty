@@ -29,14 +29,19 @@
 #import "WKNSURLExtras.h"
 #import <WebCore/ResourceRequest.h>
 #import <WebCore/ResourceResponse.h>
+#import <WebCore/WebCoreObjCExtras.h>
+#import <wtf/AlignedStorage.h>
 
 @implementation WKNavigationData {
-    API::ObjectStorage<API::NavigationData> _data;
+    AlignedStorage<API::NavigationData> _data;
 }
 
 - (void)dealloc
 {
-    _data->~NavigationData();
+    if (WebCoreObjCScheduleDeallocateOnMainRunLoop(WKNavigationData.class, self))
+        return;
+
+    Ref { *_data }->~NavigationData();
 
     [super dealloc];
 }

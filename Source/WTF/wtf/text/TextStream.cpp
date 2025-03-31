@@ -26,6 +26,7 @@
 #include "config.h"
 #include <wtf/text/TextStream.h>
 
+#include <wtf/text/MakeString.h>
 #include <wtf/text/WTFString.h>
 
 namespace WTF {
@@ -37,7 +38,7 @@ static inline bool hasFractions(double val)
     static constexpr double s_epsilon = 0.0001;
     int ival = static_cast<int>(val);
     double dval = static_cast<double>(ival);
-    return fabs(val - dval) > s_epsilon;
+    return std::abs(val - dval) > s_epsilon;
 }
 
 TextStream& TextStream::operator<<(bool b)
@@ -53,37 +54,37 @@ TextStream& TextStream::operator<<(char c)
 
 TextStream& TextStream::operator<<(int i)
 {
-    m_text.appendNumber(i);
+    m_text.append(i);
     return *this;
 }
 
 TextStream& TextStream::operator<<(unsigned i)
 {
-    m_text.appendNumber(i);
+    m_text.append(i);
     return *this;
 }
 
 TextStream& TextStream::operator<<(long i)
 {
-    m_text.appendNumber(i);
+    m_text.append(i);
     return *this;
 }
 
 TextStream& TextStream::operator<<(unsigned long i)
 {
-    m_text.appendNumber(i);
+    m_text.append(i);
     return *this;
 }
 
 TextStream& TextStream::operator<<(long long i)
 {
-    m_text.appendNumber(i);
+    m_text.append(i);
     return *this;
 }
 
 TextStream& TextStream::operator<<(unsigned long long i)
 {
-    m_text.appendNumber(i);
+    m_text.append(i);
     return *this;
 }
 
@@ -107,20 +108,56 @@ TextStream& TextStream::operator<<(double d)
 
 TextStream& TextStream::operator<<(const char* string)
 {
-    m_text.append(string);
+    m_text.append(unsafeSpan(string));
     return *this;
 }
 
 TextStream& TextStream::operator<<(const void* p)
 {
     char buffer[printBufferSize];
-    snprintf(buffer, sizeof(buffer) - 1, "%p", p);
+    SAFE_SPRINTF(std::span { buffer }, "%p", p);
     return *this << buffer;
+}
+
+TextStream& TextStream::operator<<(const AtomString& string)
+{
+    m_text.append(string);
+    return *this;
+}
+
+TextStream& TextStream::operator<<(const CString& string)
+{
+    m_text.append(string);
+    return *this;
 }
 
 TextStream& TextStream::operator<<(const String& string)
 {
     m_text.append(string);
+    return *this;
+}
+
+TextStream& TextStream::operator<<(ASCIILiteral string)
+{
+    m_text.append(string);
+    return *this;
+}
+
+TextStream& TextStream::operator<<(StringView string)
+{
+    m_text.append(string);
+    return *this;
+}
+
+TextStream& TextStream::operator<<(const HexNumberBuffer& buffer)
+{
+    m_text.append(buffer);
+    return *this;
+}
+
+TextStream& TextStream::operator<<(const FormattedCSSNumber& number)
+{
+    m_text.append(number);
     return *this;
 }
 
@@ -131,7 +168,7 @@ TextStream& TextStream::operator<<(const FormatNumberRespectingIntegers& numberT
         return *this;
     }
 
-    m_text.appendNumber(static_cast<int>(numberToFormat.value));
+    m_text.append(static_cast<int>(numberToFormat.value));
     return *this;
 }
 
@@ -185,4 +222,4 @@ void writeIndent(TextStream& ts, int indent)
         ts << "  ";
 }
 
-}
+} // namespace WTF

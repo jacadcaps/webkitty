@@ -27,16 +27,15 @@
 
 #if ENABLE(ENCRYPTED_MEDIA)
 
+#include "CDMPrivate.h"
 #include "ContextDestructionObserver.h"
 #include "MediaKeySessionType.h"
 #include "MediaKeySystemConfiguration.h"
 #include "MediaKeySystemMediaCapability.h"
 #include "MediaKeysRestrictions.h"
-#include "SharedBuffer.h"
 #include <wtf/Function.h>
-#include <wtf/HashSet.h>
 #include <wtf/Ref.h>
-#include <wtf/RefCounted.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
 
@@ -55,15 +54,15 @@ class Document;
 class ScriptExecutionContext;
 class SharedBuffer;
 
-class CDM : public RefCounted<CDM>, public CanMakeWeakPtr<CDM>, private ContextDestructionObserver {
+class CDM : public RefCountedAndCanMakeWeakPtr<CDM>, public CDMPrivateClient, private ContextDestructionObserver {
 public:
     static bool supportsKeySystem(const String&);
     static bool isPersistentType(MediaKeySessionType);
 
-    static Ref<CDM> create(Document&, const String& keySystem);
+    static Ref<CDM> create(Document&, const String& keySystem, const String& mediaKeysHashSalt);
     ~CDM();
 
-    using SupportedConfigurationCallback = WTF::Function<void(Optional<MediaKeySystemConfiguration>)>;
+    using SupportedConfigurationCallback = Function<void(std::optional<MediaKeySystemConfiguration>)>;
     void getSupportedConfiguration(MediaKeySystemConfiguration&& candidateConfiguration, SupportedConfigurationCallback&&);
 
     const String& keySystem() const { return m_keySystem; }
@@ -79,18 +78,26 @@ public:
 
     RefPtr<SharedBuffer> sanitizeResponse(const SharedBuffer&);
 
-    Optional<String> sanitizeSessionId(const String& sessionId);
+    std::optional<String> sanitizeSessionId(const String& sessionId);
 
     String storageDirectory() const;
 
-private:
-    CDM(Document&, const String& keySystem);
+    const String& mediaKeysHashSalt() const { return m_mediaKeysHashSalt; }
 
 #if !RELEASE_LOG_DISABLED
-    Ref<WTF::Logger> m_logger;
-    const void* m_logIdentifier;
+    const Logger& logger() const final { return m_logger; }
+    uint64_t logIdentifier() const { return m_logIdentifier; }
+#endif
+
+private:
+    CDM(Document&, const String& keySystem, const String& mediaKeysHashSalt);
+
+#if !RELEASE_LOG_DISABLED
+    Ref<const Logger> m_logger;
+    const uint64_t m_logIdentifier;
 #endif
     String m_keySystem;
+    String m_mediaKeysHashSalt;
     std::unique_ptr<CDMPrivate> m_private;
 };
 

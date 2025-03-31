@@ -29,14 +29,95 @@
 
 #pragma once
 
+#include "CSSParserContext.h"
+#include "CSSParserEnum.h"
+#include "CSSParserTokenRange.h"
+#include "CSSSelectorList.h"
+#include "CSSSelectorParserContext.h"
+#include "MutableCSSSelector.h"
+#include "StyleSheetContents.h"
+
 namespace WebCore {
 
 class CSSParserTokenRange;
 class CSSSelectorList;
 class StyleSheetContents;
+class StyleRule;
 
-struct CSSParserContext;
+namespace Style {
 
-CSSSelectorList parseCSSSelector(CSSParserTokenRange, const CSSParserContext&, StyleSheetContents*);
+struct PseudoElementIdentifier;
+
+}
+
+class CSSSelectorParser {
+public:
+    enum class DisallowPseudoElement : bool { No, Yes };
+    CSSSelectorParser(const CSSSelectorParserContext&, StyleSheetContents*, CSSParserEnum::NestedContext = { }, DisallowPseudoElement= DisallowPseudoElement::No);
+
+    MutableCSSSelectorList consumeComplexSelectorList(CSSParserTokenRange&);
+    MutableCSSSelectorList consumeNestedSelectorList(CSSParserTokenRange&);
+    MutableCSSSelectorList consumeComplexForgivingSelectorList(CSSParserTokenRange&);
+    MutableCSSSelectorList consumeNestedComplexForgivingSelectorList(CSSParserTokenRange&);
+
+    static bool supportsComplexSelector(CSSParserTokenRange, const CSSSelectorParserContext&);
+    static CSSSelectorList resolveNestingParent(const CSSSelectorList& nestedSelectorList, const CSSSelectorList* parentResolvedSelectorList);
+    static std::pair<bool, std::optional<Style::PseudoElementIdentifier>> parsePseudoElement(const String&, const CSSSelectorParserContext&);
+
+private:
+    template<typename ConsumeSelector> MutableCSSSelectorList consumeSelectorList(CSSParserTokenRange&, ConsumeSelector&&);
+    template<typename ConsumeSelector> MutableCSSSelectorList consumeForgivingSelectorList(CSSParserTokenRange&, ConsumeSelector&&);
+
+    MutableCSSSelectorList consumeCompoundSelectorList(CSSParserTokenRange&);
+    MutableCSSSelectorList consumeRelativeSelectorList(CSSParserTokenRange&);
+
+    std::unique_ptr<MutableCSSSelector> consumeComplexSelector(CSSParserTokenRange&);
+    std::unique_ptr<MutableCSSSelector> consumeNestedComplexSelector(CSSParserTokenRange&);
+    std::unique_ptr<MutableCSSSelector> consumeCompoundSelector(CSSParserTokenRange&);
+    std::unique_ptr<MutableCSSSelector> consumeRelativeScopeSelector(CSSParserTokenRange&);
+    std::unique_ptr<MutableCSSSelector> consumeRelativeNestedSelector(CSSParserTokenRange&);
+
+    // This doesn't include element names, since they're handled specially.
+    std::unique_ptr<MutableCSSSelector> consumeSimpleSelector(CSSParserTokenRange&);
+
+    bool consumeName(CSSParserTokenRange&, AtomString& name, AtomString& namespacePrefix);
+
+    // These will return nullptr when the selector is invalid.
+    std::unique_ptr<MutableCSSSelector> consumeId(CSSParserTokenRange&);
+    std::unique_ptr<MutableCSSSelector> consumeClass(CSSParserTokenRange&);
+    std::unique_ptr<MutableCSSSelector> consumePseudo(CSSParserTokenRange&);
+    std::unique_ptr<MutableCSSSelector> consumeAttribute(CSSParserTokenRange&);
+    std::unique_ptr<MutableCSSSelector> consumeNesting(CSSParserTokenRange&);
+
+    CSSSelector::Relation consumeCombinator(CSSParserTokenRange&);
+    CSSSelector::Match consumeAttributeMatch(CSSParserTokenRange&);
+    CSSSelector::AttributeMatchType consumeAttributeFlags(CSSParserTokenRange&);
+
+    const AtomString& defaultNamespace() const;
+    const AtomString& determineNamespace(const AtomString& prefix);
+    void prependTypeSelectorIfNeeded(const AtomString& namespacePrefix, const AtomString& elementName, MutableCSSSelector&);
+    static std::unique_ptr<MutableCSSSelector> splitCompoundAtImplicitShadowCrossingCombinator(std::unique_ptr<MutableCSSSelector> compoundSelector, const CSSSelectorParserContext&);
+    static bool containsUnknownWebKitPseudoElements(const CSSSelector& complexSelector);
+
+    class DisallowPseudoElementsScope;
+
+    const CSSSelectorParserContext m_context;
+    const RefPtr<StyleSheetContents> m_styleSheet;
+    CSSParserEnum::NestedContext m_nestedContext;
+
+    // FIXME: This m_failedParsing is ugly and confusing, we should look into removing it (the return value of each function already convey this information).
+    bool m_failedParsing { false };
+
+    bool m_disallowPseudoElements { false };
+    bool m_disallowHasPseudoClass { false };
+    bool m_resistDefaultNamespace { false };
+    bool m_ignoreDefaultNamespace { false };
+    bool m_disableForgivingParsing { false };
+    std::optional<CSSSelector::PseudoElement> m_precedingPseudoElement;
+};
+
+std::optional<CSSSelectorList> parseCSSSelectorList(CSSParserTokenRange, const CSSSelectorParserContext&, StyleSheetContents* = nullptr, CSSParserEnum::NestedContext = { });
+
+MutableCSSSelectorList parseMutableCSSSelectorList(CSSParserTokenRange&, const CSSSelectorParserContext&, StyleSheetContents*, CSSParserEnum::NestedContext, CSSParserEnum::IsForgiving, CSSSelectorParser::DisallowPseudoElement);
 
 } // namespace WebCore

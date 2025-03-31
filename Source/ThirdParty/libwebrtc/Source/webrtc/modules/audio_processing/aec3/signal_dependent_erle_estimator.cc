@@ -122,7 +122,7 @@ SignalDependentErleEstimator::SignalDependentErleEstimator(
     size_t num_capture_channels)
     : min_erle_(config.erle.min),
       num_sections_(config.erle.num_sections),
-      num_blocks_(config.filter.main.length_blocks),
+      num_blocks_(config.filter.refined.length_blocks),
       delay_headroom_blocks_(config.delay.delay_headroom_samples / kBlockSize),
       band_to_subband_(FormSubbandMap()),
       max_erle_(SetMaxErleSubbands(config.erle.max_l,
@@ -131,7 +131,9 @@ SignalDependentErleEstimator::SignalDependentErleEstimator(
       section_boundaries_blocks_(SetSectionsBoundaries(delay_headroom_blocks_,
                                                        num_blocks_,
                                                        num_sections_)),
+      use_onset_detection_(config.erle.onset_detection),
       erle_(num_capture_channels),
+      erle_onset_compensated_(num_capture_channels),
       S2_section_accum_(
           num_capture_channels,
           std::vector<std::array<float, kFftLengthBy2Plus1>>(num_sections_)),
@@ -154,6 +156,7 @@ SignalDependentErleEstimator::~SignalDependentErleEstimator() = default;
 void SignalDependentErleEstimator::Reset() {
   for (size_t ch = 0; ch < erle_.size(); ++ch) {
     erle_[ch].fill(min_erle_);
+    erle_onset_compensated_[ch].fill(min_erle_);
     for (auto& erle_estimator : erle_estimators_[ch]) {
       erle_estimator.fill(min_erle_);
     }
@@ -180,6 +183,8 @@ void SignalDependentErleEstimator::Update(
     rtc::ArrayView<const std::array<float, kFftLengthBy2Plus1>> Y2,
     rtc::ArrayView<const std::array<float, kFftLengthBy2Plus1>> E2,
     rtc::ArrayView<const std::array<float, kFftLengthBy2Plus1>> average_erle,
+    rtc::ArrayView<const std::array<float, kFftLengthBy2Plus1>>
+        average_erle_onset_compensated,
     const std::vector<bool>& converged_filters) {
   RTC_DCHECK_GT(num_sections_, 1);
 
@@ -202,6 +207,11 @@ void SignalDependentErleEstimator::Update(
                              [band_to_subband_[k]];
       erle_[ch][k] = rtc::SafeClamp(average_erle[ch][k] * correction_factor,
                                     min_erle_, max_erle_[band_to_subband_[k]]);
+      if (use_onset_detection_) {
+        erle_onset_compensated_[ch][k] = rtc::SafeClamp(
+            average_erle_onset_compensated[ch][k] * correction_factor,
+            min_erle_, max_erle_[band_to_subband_[k]]);
+      }
     }
   }
 }
@@ -261,9 +271,9 @@ void SignalDependentErleEstimator::UpdateCorrectionFactors(
       for (size_t subband = 0; subband < kSubbands; ++subband) {
         // When aggregating the number of active sections in the filter for
         // different bands we choose to take the minimum of all of them. As an
-        // example, if for one of the bands it is the direct path its main
+        // example, if for one of the bands it is the direct path its refined
         // contributor to the final echo estimate, we consider the direct path
-        // is as well the main contributor for the subband that contains that
+        // is as well the refined contributor for the subband that contains that
         // particular band. That aggregate number of sections will be later used
         // as the identifier of the erle estimator that needs to be updated.
         RTC_DCHECK_LE(kBandBoundaries[subband + 1],

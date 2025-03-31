@@ -62,7 +62,9 @@ static void didFinishLoadForFrame(WKBundlePageRef page, WKBundleFrameRef frame, 
         return;
     }
     
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     bool isParentFrameCheckSuccessful = childFrame ? WKBundleFrameGetParentFrame(childFrame.get()) == frame : false;
+    ALLOW_DEPRECATED_DECLARATIONS_END
     WKBundlePostMessage(testBundle.get(), Util::toWK("DidCheckParentFrame").get(), adoptWK(WKBooleanCreate(isParentFrameCheckSuccessful)).get());
 }
 
@@ -71,7 +73,7 @@ void ParentFrameTest::didCreatePage(WKBundleRef bundle, WKBundlePageRef page)
     testBundle = bundle;
     
     WKBundlePageLoaderClientV1 pageLoaderClient;
-    memset(&pageLoaderClient, 0, sizeof(pageLoaderClient));
+    zeroBytes(pageLoaderClient);
     
     pageLoaderClient.base.version = 1;
     pageLoaderClient.didFinishLoadForFrame = didFinishLoadForFrame;

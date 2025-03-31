@@ -39,7 +39,7 @@ namespace JSC { namespace DFG {
 class CriticalEdgeBreakingPhase : public Phase {
 public:
     CriticalEdgeBreakingPhase(Graph& graph)
-        : Phase(graph, "critical edge breaking")
+        : Phase(graph, "critical edge breaking"_s)
         , m_insertionSet(graph)
     {
     }
@@ -59,7 +59,7 @@ public:
 
             // Break critical edges by inserting a "Jump" pad block in place of each
             // unique A->B critical edge.
-            HashMap<BasicBlock*, BasicBlock*> successorPads;
+            UncheckedKeyHashMap<BasicBlock*, BasicBlock*> successorPads;
 
             for (unsigned i = block->numSuccessors(); i--;) {
                 BasicBlock** successor = &block->successor(i);

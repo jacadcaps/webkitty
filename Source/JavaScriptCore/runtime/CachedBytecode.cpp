@@ -29,6 +29,8 @@
 #include "CachedTypes.h"
 #include "UnlinkedFunctionExecutable.h"
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
 
 void CachedBytecode::addGlobalUpdate(Ref<CachedBytecode> bytecode)
@@ -46,7 +48,7 @@ void CachedBytecode::addFunctionUpdate(const UnlinkedFunctionExecutable* executa
     ptrdiff_t offset = it->value.base();
     ASSERT(offset);
     copyLeafExecutables(bytecode.get());
-    m_updates.append(CacheUpdate::FunctionUpdate { offset, kind, { executable->features(), executable->hasCapturedVariables() }, WTFMove(bytecode->m_payload) });
+    m_updates.append(CacheUpdate::FunctionUpdate { offset, kind, { executable->features(), executable->lexicallyScopedFeatures(), executable->hasCapturedVariables() }, WTFMove(bytecode->m_payload) });
 }
 
 void CachedBytecode::copyLeafExecutables(const CachedBytecode& bytecode)
@@ -72,21 +74,23 @@ void CachedBytecode::commitUpdates(const ForEachUpdateCallback& callback) const
                 ptrdiff_t kindOffset = functionUpdate.m_kind == CodeForCall ? CachedFunctionExecutableOffsets::codeBlockForCallOffset() : CachedFunctionExecutableOffsets::codeBlockForConstructOffset();
                 ptrdiff_t codeBlockOffset = functionUpdate.m_base + kindOffset + CachedWriteBarrierOffsets::ptrOffset() + CachedPtrOffsets::offsetOffset();
                 ptrdiff_t offsetPayload = static_cast<ptrdiff_t>(offset) - codeBlockOffset;
-                static_assert(std::is_same<decltype(VariableLengthObjectBase::m_offset), ptrdiff_t>::value, "");
-                callback(codeBlockOffset, &offsetPayload, sizeof(ptrdiff_t));
+                static_assert(std::is_same<decltype(VariableLengthObjectBase::m_offset), ptrdiff_t>::value);
+                callback(codeBlockOffset, { reinterpret_cast<const uint8_t*>(&offsetPayload), sizeof(ptrdiff_t) });
             }
 
             {
                 ptrdiff_t metadataOffset = functionUpdate.m_base + CachedFunctionExecutableOffsets::metadataOffset();
-                callback(metadataOffset, &functionUpdate.m_metadata, sizeof(functionUpdate.m_metadata));
+                callback(metadataOffset, { reinterpret_cast<const uint8_t*>(&functionUpdate.m_metadata), sizeof(functionUpdate.m_metadata) });
             }
         }
 
         ASSERT(payload);
-        callback(offset, payload->data(), payload->size());
+        callback(offset, payload->span());
         offset += payload->size();
     }
     ASSERT(static_cast<size_t>(offset) == m_size);
 }
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

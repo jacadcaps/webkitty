@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2009-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,10 +25,11 @@
 
 #pragma once
 
-#include "ExecutableToCodeBlockEdge.h"
 #include "GlobalExecutable.h"
 
 namespace JSC {
+
+class UnlinkedModuleProgramCodeBlock;
 
 class ModuleProgramExecutable final : public GlobalExecutable {
     friend class LLIntOffsetsExtractor;
@@ -37,7 +38,7 @@ public:
     static constexpr unsigned StructureFlags = Base::StructureFlags | StructureIsImmortal;
 
     template<typename CellType, SubspaceAccess mode>
-    static IsoSubspace* subspaceFor(VM& vm)
+    static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
         return vm.moduleProgramExecutableSpace<mode>();
     }
@@ -46,26 +47,28 @@ public:
 
     static void destroy(JSCell*);
 
-    ModuleProgramCodeBlock* codeBlock()
+    ModuleProgramCodeBlock* codeBlock() const
     {
-        return bitwise_cast<ModuleProgramCodeBlock*>(ExecutableToCodeBlockEdge::unwrap(m_moduleProgramCodeBlock.get()));
+        return std::bit_cast<ModuleProgramCodeBlock*>(Base::codeBlock());
     }
 
-    Ref<JITCode> generatedJITCode()
+    UnlinkedModuleProgramCodeBlock* getUnlinkedCodeBlock(JSGlobalObject*);
+
+    UnlinkedModuleProgramCodeBlock* unlinkedCodeBlock() const
+    {
+        return std::bit_cast<UnlinkedModuleProgramCodeBlock*>(Base::unlinkedCodeBlock());
+    }
+
+    Ref<JSC::JITCode> generatedJITCode()
     {
         return generatedJITCodeForCall();
     }
 
-    static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue proto)
-    {
-        return Structure::create(vm, globalObject, proto, TypeInfo(ModuleProgramExecutableType, StructureFlags), info());
-    }
+    inline static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
     DECLARE_INFO;
 
-    ExecutableInfo executableInfo() const { return ExecutableInfo(usesEval(), false, false, ConstructorKind::None, JSParserScriptMode::Module, SuperBinding::NotNeeded, SourceParseMode::ModuleEvaluateMode, derivedContextType(), NeedsClassFieldInitializer::No, isArrowFunctionContext(), false, EvalContextType::None); }
-
-    UnlinkedModuleProgramCodeBlock* unlinkedModuleProgramCodeBlock() { return m_unlinkedModuleProgramCodeBlock.get(); }
+    bool isAsync() const { return features() & AwaitFeature; }
 
     SymbolTable* moduleEnvironmentSymbolTable() { return m_moduleEnvironmentSymbolTable.get(); }
 
@@ -77,11 +80,9 @@ private:
 
     ModuleProgramExecutable(JSGlobalObject*, const SourceCode&);
 
-    static void visitChildren(JSCell*, SlotVisitor&);
+    DECLARE_VISIT_CHILDREN;
 
-    WriteBarrier<UnlinkedModuleProgramCodeBlock> m_unlinkedModuleProgramCodeBlock;
     WriteBarrier<SymbolTable> m_moduleEnvironmentSymbolTable;
-    WriteBarrier<ExecutableToCodeBlockEdge> m_moduleProgramCodeBlock;
     std::unique_ptr<TemplateObjectMap> m_templateObjectMap;
 };
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,15 +29,23 @@
 #include "CacheableIdentifierInlines.h"
 #include "CodeBlock.h"
 #include "ICStatusUtils.h"
-#include "PolymorphicAccess.h"
+#include "InlineCacheCompiler.h"
 #include "StructureStubInfo.h"
 #include <wtf/ListDump.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace JSC {
 
-bool DeleteByStatus::appendVariant(const DeleteByIdVariant& variant)
+WTF_MAKE_TZONE_ALLOCATED_IMPL(DeleteByStatus);
+
+bool DeleteByStatus::appendVariant(const DeleteByVariant& variant)
 {
     return appendICStatusVariant(m_variants, variant);
+}
+
+void DeleteByStatus::shrinkToFit()
+{
+    m_variants.shrinkToFit();
 }
 
 DeleteByStatus DeleteByStatus::computeForBaseline(CodeBlock* baselineBlock, ICStatusMap& map, BytecodeIndex bytecodeIndex, ExitFlag didExit)
@@ -69,6 +77,7 @@ DeleteByStatus::DeleteByStatus(StubInfoSummary summary, StructureStubInfo& stubI
         m_state = NoInformation;
         return;
     case StubInfoSummary::Simple:
+    case StubInfoSummary::Megamorphic:
     case StubInfoSummary::MakesCalls:
     case StubInfoSummary::TakesSlowPathAndMakesCalls:
         RELEASE_ASSERT_NOT_REACHED();
@@ -80,10 +89,9 @@ DeleteByStatus::DeleteByStatus(StubInfoSummary summary, StructureStubInfo& stubI
     RELEASE_ASSERT_NOT_REACHED();
 }
 
-DeleteByStatus DeleteByStatus::computeForStubInfoWithoutExitSiteFeedback(
-    const ConcurrentJSLocker&, CodeBlock* block, StructureStubInfo* stubInfo)
+DeleteByStatus DeleteByStatus::computeForStubInfoWithoutExitSiteFeedback(const ConcurrentJSLocker& locker, CodeBlock* block, StructureStubInfo* stubInfo)
 {
-    StubInfoSummary summary = StructureStubInfo::summary(block->vm(), stubInfo);
+    StubInfoSummary summary = StructureStubInfo::summary(locker, block->vm(), stubInfo);
     if (!isInlineable(summary))
         return DeleteByStatus(summary, *stubInfo);
 
@@ -94,11 +102,10 @@ DeleteByStatus DeleteByStatus::computeForStubInfoWithoutExitSiteFeedback(
         return DeleteByStatus(NoInformation);
 
     case CacheType::Stub: {
-        PolymorphicAccess* list = stubInfo->u.stub;
-
-        for (unsigned listIndex = 0; listIndex < list->size(); ++listIndex) {
-            const AccessCase& access = list->at(listIndex);
-            ASSERT(!access.viaProxy());
+        auto list = stubInfo->listedAccessCases(locker);
+        for (unsigned listIndex = 0; listIndex < list.size(); ++listIndex) {
+            const AccessCase& access = *list.at(listIndex);
+            ASSERT(!access.viaGlobalProxy());
 
             Structure* structure = access.structure();
             ASSERT(structure);
@@ -106,7 +113,7 @@ DeleteByStatus DeleteByStatus::computeForStubInfoWithoutExitSiteFeedback(
             switch (access.type()) {
             case AccessCase::DeleteMiss:
             case AccessCase::DeleteNonConfigurable: {
-                DeleteByIdVariant variant(access.identifier(), access.type() == AccessCase::DeleteMiss ? true : false, structure, nullptr, invalidOffset);
+                DeleteByVariant variant(access.identifier(), access.type() == AccessCase::DeleteMiss ? true : false, structure, nullptr, invalidOffset);
                 if (!result.appendVariant(variant))
                     return DeleteByStatus(JSC::slowVersion(summary), *stubInfo);
                 break;
@@ -117,7 +124,7 @@ DeleteByStatus DeleteByStatus::computeForStubInfoWithoutExitSiteFeedback(
                 if (!newStructure)
                     return DeleteByStatus(JSC::slowVersion(summary), *stubInfo);
                 ASSERT_UNUSED(offset, offset == access.offset());                
-                DeleteByIdVariant variant(access.identifier(), true, structure, newStructure, access.offset());
+                DeleteByVariant variant(access.identifier(), true, structure, newStructure, access.offset());
 
                 if (!result.appendVariant(variant))
                     return DeleteByStatus(JSC::slowVersion(summary), *stubInfo);
@@ -129,6 +136,7 @@ DeleteByStatus DeleteByStatus::computeForStubInfoWithoutExitSiteFeedback(
             }
         }
 
+        result.shrinkToFit();
         return result;
     }
 
@@ -214,6 +222,7 @@ void DeleteByStatus::merge(const DeleteByStatus& other)
             if (!appendVariant(otherVariant))
                 return mergeSlow();
         }
+        shrinkToFit();
         return;
 
     case LikelyTakesSlowPath:
@@ -238,33 +247,27 @@ void DeleteByStatus::filter(const StructureSet& set)
 
 CacheableIdentifier DeleteByStatus::singleIdentifier() const
 {
-    if (m_variants.isEmpty())
-        return nullptr;
-
-    CacheableIdentifier result = m_variants.first().identifier();
-    if (!result)
-        return nullptr;
-    for (size_t i = 1; i < m_variants.size(); ++i) {
-        CacheableIdentifier identifier = m_variants[i].identifier();
-        if (!identifier)
-            return nullptr;
-        if (identifier != result)
-            return nullptr;
-    }
-    return result;
+    return singleIdentifierForICStatus(m_variants);
 }
 
-void DeleteByStatus::visitAggregate(SlotVisitor& visitor)
+template<typename Visitor>
+void DeleteByStatus::visitAggregateImpl(Visitor& visitor)
 {
-    for (DeleteByIdVariant& variant : m_variants)
+    for (DeleteByVariant& variant : m_variants)
         variant.visitAggregate(visitor);
 }
 
-void DeleteByStatus::markIfCheap(SlotVisitor& visitor)
+DEFINE_VISIT_AGGREGATE(DeleteByStatus);
+
+template<typename Visitor>
+void DeleteByStatus::markIfCheap(Visitor& visitor)
 {
-    for (DeleteByIdVariant& variant : m_variants)
+    for (DeleteByVariant& variant : m_variants)
         variant.markIfCheap(visitor);
 }
+
+template void DeleteByStatus::markIfCheap(AbstractSlotVisitor&);
+template void DeleteByStatus::markIfCheap(SlotVisitor&);
 
 bool DeleteByStatus::finalize(VM& vm)
 {

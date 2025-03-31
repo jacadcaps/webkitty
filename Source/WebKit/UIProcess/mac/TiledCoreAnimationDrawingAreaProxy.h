@@ -28,17 +28,26 @@
 #if !PLATFORM(IOS_FAMILY)
 
 #include "DrawingAreaProxy.h"
+#include <wtf/RefCounted.h>
 
 namespace WebKit {
 
-class TiledCoreAnimationDrawingAreaProxy : public DrawingAreaProxy {
+class TiledCoreAnimationDrawingAreaProxy final : public DrawingAreaProxy, public RefCounted<TiledCoreAnimationDrawingAreaProxy> {
+    WTF_MAKE_TZONE_ALLOCATED(TiledCoreAnimationDrawingAreaProxy);
+    WTF_MAKE_NONCOPYABLE(TiledCoreAnimationDrawingAreaProxy);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(TiledCoreAnimationDrawingAreaProxy);
 public:
-    TiledCoreAnimationDrawingAreaProxy(WebPageProxy&, WebProcessProxy&);
+    static Ref<TiledCoreAnimationDrawingAreaProxy> create(WebPageProxy&, WebProcessProxy&);
     virtual ~TiledCoreAnimationDrawingAreaProxy();
 
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
 private:
+    TiledCoreAnimationDrawingAreaProxy(WebPageProxy&, WebProcessProxy&);
+
     // DrawingAreaProxy
-    void deviceScaleFactorDidChange() override;
+    void deviceScaleFactorDidChange(CompletionHandler<void()>&&) override;
     void sizeDidChange() override;
     void colorSpaceDidChange() override;
     void minimumSizeForAutoLayoutDidChange() override;
@@ -52,20 +61,22 @@ private:
     void commitTransientZoom(double scale, WebCore::FloatPoint origin) override;
 
     void waitForDidUpdateActivityState(ActivityStateChangeID) override;
-    void dispatchAfterEnsuringDrawing(WTF::Function<void (CallbackBase::Error)>&&) override;
-    void dispatchPresentationCallbacksAfterFlushingLayers(const Vector<CallbackID>&) final;
+    void dispatchPresentationCallbacksAfterFlushingLayers(IPC::Connection&, Vector<IPC::AsyncReplyID>&&) final;
 
-    void willSendUpdateGeometry() override;
+    std::optional<WebCore::FramesPerSecond> displayNominalFramesPerSecond() final;
+
+    void willSendUpdateGeometry();
 
     WTF::MachSendRight createFence() override;
 
-    // Message handlers.
-    void didUpdateGeometry() override;
+    bool shouldSendWheelEventsToEventDispatcher() const override { return true; }
+
+    void didUpdateGeometry();
 
     void sendUpdateGeometry();
 
     // Whether we're waiting for a DidUpdateGeometry message from the web process.
-    bool m_isWaitingForDidUpdateGeometry;
+    bool m_isWaitingForDidUpdateGeometry { false };
 
     // The last size we sent to the web process.
     WebCore::IntSize m_lastSentSize;
@@ -75,12 +86,10 @@ private:
 
     // The last maxmium size for size-to-content auto-sizing we sent to the web process.
     WebCore::IntSize m_lastSentSizeToContentAutoSizeMaximumSize;
-
-    CallbackMap m_callbacks;
 };
 
 } // namespace WebKit
 
-SPECIALIZE_TYPE_TRAITS_DRAWING_AREA_PROXY(TiledCoreAnimationDrawingAreaProxy, DrawingAreaTypeTiledCoreAnimation)
+SPECIALIZE_TYPE_TRAITS_DRAWING_AREA_PROXY(TiledCoreAnimationDrawingAreaProxy, DrawingAreaType::TiledCoreAnimation)
 
 #endif // !PLATFORM(IOS_FAMILY)

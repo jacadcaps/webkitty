@@ -30,15 +30,9 @@
 #include <mach/mach_init.h>
 #include <utility>
 
-#define LOG_CHANNEL_PREFIX Log
+#include <wtf/Logging.h>
 
 namespace WTF {
-
-#if RELEASE_LOG_DISABLED
-WTFLogChannel LogProcess = { WTFLogChannelState::On, "Process", WTFLogLevel::Error };
-#else
-WTFLogChannel LogProcess = { WTFLogChannelState::On, "Process", WTFLogLevel::Error, LOG_CHANNEL_WEBKIT_SUBSYSTEM, OS_LOG_DEFAULT };
-#endif
 
 static void retainSendRight(mach_port_t port)
 {
@@ -59,16 +53,11 @@ static void retainSendRight(mach_port_t port)
     }
 }
 
-static void releaseSendRight(mach_port_t port)
+void deallocateSendRightSafely(mach_port_t port)
 {
     if (port == MACH_PORT_NULL)
         return;
 
-    deallocateSendRightSafely(port);
-}
-
-void deallocateSendRightSafely(mach_port_t port)
-{
     auto kr = mach_port_deallocate(mach_task_self(), port);
     if (kr == KERN_SUCCESS)
         return;
@@ -78,16 +67,41 @@ void deallocateSendRightSafely(mach_port_t port)
         CRASH();
 }
 
+static void assertSendRight(mach_port_t port)
+{
+    if (port == MACH_PORT_NULL)
+        return;
+
+    unsigned count = 0;
+    auto kr = mach_port_get_refs(mach_task_self(), port, MACH_PORT_RIGHT_SEND, &count);
+    if (kr == KERN_SUCCESS && !count)
+        kr = mach_port_get_refs(mach_task_self(), port, MACH_PORT_RIGHT_DEAD_NAME, &count);
+
+    if (kr == KERN_SUCCESS && count > 0)
+        return;
+
+    RELEASE_LOG_ERROR(Process, "mach_port_get_refs error for port %d: %{private}s (%#x)", port, mach_error_string(kr), kr);
+    CRASH();
+}
+
 MachSendRight MachSendRight::adopt(mach_port_t port)
 {
+    assertSendRight(port);
     return MachSendRight(port);
 }
 
 MachSendRight MachSendRight::create(mach_port_t port)
 {
     retainSendRight(port);
-
     return adopt(port);
+}
+
+MachSendRight MachSendRight::createFromReceiveRight(mach_port_t receiveRight)
+{
+    ASSERT(MACH_PORT_VALID(receiveRight));
+    if (mach_port_insert_right(mach_task_self(), receiveRight, receiveRight, MACH_MSG_TYPE_MAKE_SEND) == KERN_SUCCESS)
+        return MachSendRight { receiveRight };
+    return { };
 }
 
 MachSendRight::MachSendRight(mach_port_t port)
@@ -100,24 +114,25 @@ MachSendRight::MachSendRight(MachSendRight&& other)
 {
 }
 
+MachSendRight::MachSendRight(const MachSendRight& other)
+    : m_port(other.m_port)
+{
+    retainSendRight(m_port);
+}
+
 MachSendRight::~MachSendRight()
 {
-    releaseSendRight(m_port);
+    deallocateSendRightSafely(m_port);
 }
 
 MachSendRight& MachSendRight::operator=(MachSendRight&& other)
 {
     if (this != &other) {
-        releaseSendRight(m_port);
+        deallocateSendRightSafely(m_port);
         m_port = other.leakSendRight();
     }
 
     return *this;
-}
-
-MachSendRight MachSendRight::copySendRight() const
-{
-    return create(m_port);
 }
 
 mach_port_t MachSendRight::leakSendRight()

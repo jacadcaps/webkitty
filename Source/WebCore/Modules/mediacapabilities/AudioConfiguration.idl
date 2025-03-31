@@ -24,12 +24,13 @@
  */
 
 [
-    EnabledBySetting=MediaCapabilities,
+    EnabledBySetting=MediaCapabilitiesEnabled,
     JSGenerateToJSObject,
-]
-dictionary AudioConfiguration {
+    JSGenerateToNativeObject
+] dictionary AudioConfiguration {
   required DOMString contentType;
   DOMString channels;
   unsigned long long bitrate;
   unsigned long samplerate;
+  boolean spatialRendering;
 };

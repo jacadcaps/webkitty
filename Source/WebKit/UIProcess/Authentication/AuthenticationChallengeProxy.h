@@ -26,6 +26,7 @@
 #pragma once
 
 #include "APIObject.h"
+#include "IdentifierTypes.h"
 #include <WebCore/AuthenticationChallenge.h>
 #include <wtf/WeakPtr.h>
 
@@ -36,28 +37,37 @@ class Connection;
 namespace WebKit {
 
 class AuthenticationDecisionListener;
-class SecKeyProxyStore;
 class WebCredential;
 class WebProtectionSpace;
 
+#if HAVE(SEC_KEY_PROXY)
+class SecKeyProxyStore;
+using WeakPtrSecKeyProxyStore = WeakPtr<SecKeyProxyStore>;
+#else
+using WeakPtrSecKeyProxyStore = std::nullptr_t;
+#endif
+
 class AuthenticationChallengeProxy : public API::ObjectImpl<API::Object::Type::AuthenticationChallenge> {
 public:
-    static Ref<AuthenticationChallengeProxy> create(WebCore::AuthenticationChallenge&& authenticationChallenge, uint64_t challengeID, Ref<IPC::Connection>&& connection, WeakPtr<SecKeyProxyStore>&& secKeyProxyStore)
+    static Ref<AuthenticationChallengeProxy> create(WebCore::AuthenticationChallenge&& authenticationChallenge, AuthenticationChallengeIdentifier challengeID, Ref<IPC::Connection>&& connection, WeakPtrSecKeyProxyStore&& secKeyProxyStore)
     {
         return adoptRef(*new AuthenticationChallengeProxy(WTFMove(authenticationChallenge), challengeID, WTFMove(connection), WTFMove(secKeyProxyStore)));
     }
+
+    virtual ~AuthenticationChallengeProxy();
 
     WebCredential* proposedCredential() const;
     WebProtectionSpace* protectionSpace() const;
 
     AuthenticationDecisionListener& listener() const { return m_listener.get(); }
+    Ref<AuthenticationDecisionListener> protectedListener() const;
     const WebCore::AuthenticationChallenge& core() { return m_coreAuthenticationChallenge; }
 
 private:
-    AuthenticationChallengeProxy(WebCore::AuthenticationChallenge&&, uint64_t challengeID, Ref<IPC::Connection>&&, WeakPtr<SecKeyProxyStore>&&);
+    AuthenticationChallengeProxy(WebCore::AuthenticationChallenge&&, AuthenticationChallengeIdentifier, Ref<IPC::Connection>&&, WeakPtrSecKeyProxyStore&&);
 
 #if HAVE(SEC_KEY_PROXY)
-    static void sendClientCertificateCredentialOverXpc(IPC::Connection&, SecKeyProxyStore&, uint64_t challengeID, const WebCore::Credential&);
+    static void sendClientCertificateCredentialOverXpc(IPC::Connection&, SecKeyProxyStore&, AuthenticationChallengeIdentifier, const WebCore::Credential&);
 #endif
 
     WebCore::AuthenticationChallenge m_coreAuthenticationChallenge;

@@ -40,7 +40,14 @@ namespace WTF {
     template<typename HashTableType, typename ValueType> struct HashTableConstIteratorAdapter;
     template<typename HashTableType, typename ValueType> struct HashTableIteratorAdapter;
 
-    template<typename HashTableType, typename KeyType, typename MappedType> struct HashTableConstIteratorAdapter<HashTableType, KeyValuePair<KeyType, MappedType>> : public std::iterator<std::forward_iterator_tag, KeyValuePair<KeyType, MappedType>, std::ptrdiff_t, const KeyValuePair<KeyType, MappedType>*, const KeyValuePair<KeyType, MappedType>&> {
+    template<typename HashTableType, typename KeyType, typename MappedType> struct HashTableConstIteratorAdapter<HashTableType, KeyValuePair<KeyType, MappedType>> {
+    public:
+        using iterator_category = std::forward_iterator_tag;
+        using value_type = KeyValuePair<KeyType, MappedType>;
+        using difference_type = ptrdiff_t;
+        using pointer = const value_type*;
+        using reference = const value_type&;
+
     private:
         typedef KeyValuePair<KeyType, MappedType> ValueType;
     public:
@@ -55,7 +62,7 @@ namespace WTF {
         const ValueType* operator->() const { return get(); }
 
         HashTableConstIteratorAdapter& operator++() { ++m_impl; return *this; }
-        // postfix ++ intentionally omitted
+        HashTableConstIteratorAdapter& operator++(int) { auto result = *this; ++m_impl; return result; }
 
         Keys keys() { return Keys(*this); }
         Values values() { return Values(*this); }
@@ -63,7 +70,14 @@ namespace WTF {
         typename HashTableType::const_iterator m_impl;
     };
 
-    template<typename HashTableType, typename KeyType, typename MappedType> struct HashTableIteratorAdapter<HashTableType, KeyValuePair<KeyType, MappedType>> : public std::iterator<std::forward_iterator_tag, KeyValuePair<KeyType, MappedType>, std::ptrdiff_t, KeyValuePair<KeyType, MappedType>*, KeyValuePair<KeyType, MappedType>&> {
+    template<typename HashTableType, typename KeyType, typename MappedType> struct HashTableIteratorAdapter<HashTableType, KeyValuePair<KeyType, MappedType>> {
+    public:
+        using iterator_category = std::forward_iterator_tag;
+        using value_type = KeyValuePair<KeyType, MappedType>;
+        using difference_type = ptrdiff_t;
+        using pointer = value_type*;
+        using reference = value_type&;
+
     private:
         typedef KeyValuePair<KeyType, MappedType> ValueType;
     public:
@@ -78,7 +92,7 @@ namespace WTF {
         ValueType* operator->() const { return get(); }
 
         HashTableIteratorAdapter& operator++() { ++m_impl; return *this; }
-        // postfix ++ intentionally omitted
+        HashTableIteratorAdapter& operator++(int) { auto result = *this; ++m_impl; return result; }
 
         operator HashTableConstIteratorAdapter<HashTableType, ValueType>() {
             typename HashTableType::const_iterator i = m_impl;
@@ -91,11 +105,19 @@ namespace WTF {
         typename HashTableType::iterator m_impl;
     };
 
-    template<typename HashTableType, typename KeyType, typename MappedType> struct HashTableConstKeysIterator : public std::iterator<std::forward_iterator_tag, KeyType, std::ptrdiff_t, const KeyType*, const KeyType&> {
+    template<typename HashTableType, typename KeyType, typename MappedType> struct HashTableConstKeysIterator {
+    public:
+        using iterator_category = std::forward_iterator_tag;
+        using value_type = KeyType;
+        using difference_type = ptrdiff_t;
+        using pointer = const value_type*;
+        using reference = const value_type&;
+
     private:
         typedef HashTableConstIteratorAdapter<HashTableType, KeyValuePair<KeyType, MappedType>> ConstIterator;
 
     public:
+        HashTableConstKeysIterator() { }
         HashTableConstKeysIterator(const ConstIterator& impl) : m_impl(impl) {}
         
         const KeyType* get() const { return &(m_impl.get()->key); }
@@ -103,34 +125,50 @@ namespace WTF {
         const KeyType* operator->() const { return get(); }
 
         HashTableConstKeysIterator& operator++() { ++m_impl; return *this; }
-        // postfix ++ intentionally omitted
+        HashTableConstKeysIterator& operator++(int) { auto result = *this; ++m_impl; return result; }
 
         ConstIterator m_impl;
     };
 
-    template<typename HashTableType, typename KeyType, typename MappedType> struct HashTableConstValuesIterator : public std::iterator<std::forward_iterator_tag, MappedType, std::ptrdiff_t, const MappedType*, const MappedType&> {
+    template<typename HashTableType, typename KeyType, typename MappedType> struct HashTableConstValuesIterator {
+    public:
+        using iterator_category = std::forward_iterator_tag;
+        using value_type = MappedType;
+        using difference_type = ptrdiff_t;
+        using pointer = const value_type*;
+        using reference = const value_type&;
+
     private:
         typedef HashTableConstIteratorAdapter<HashTableType, KeyValuePair<KeyType, MappedType>> ConstIterator;
 
     public:
+        HashTableConstValuesIterator() { }
         HashTableConstValuesIterator(const ConstIterator& impl) : m_impl(impl) {}
         
-        const MappedType* get() const { return &(m_impl.get()->value); }
+        const MappedType* get() const { return std::addressof(m_impl.get()->value); }
         const MappedType& operator*() const { return *get(); }
         const MappedType* operator->() const { return get(); }
 
         HashTableConstValuesIterator& operator++() { ++m_impl; return *this; }
-        // postfix ++ intentionally omitted
+        HashTableConstValuesIterator& operator++(int) { auto result = *this; ++m_impl; return result; }
 
         ConstIterator m_impl;
     };
 
-    template<typename HashTableType, typename KeyType, typename MappedType> struct HashTableKeysIterator : public std::iterator<std::forward_iterator_tag, KeyType, std::ptrdiff_t, KeyType*, KeyType&> {
+    template<typename HashTableType, typename KeyType, typename MappedType> struct HashTableKeysIterator {
+    public:
+        using iterator_category = std::forward_iterator_tag;
+        using value_type = KeyType;
+        using difference_type = ptrdiff_t;
+        using pointer = value_type*;
+        using reference = value_type&;
+
     private:
         typedef HashTableIteratorAdapter<HashTableType, KeyValuePair<KeyType, MappedType>> Iterator;
         typedef HashTableConstIteratorAdapter<HashTableType, KeyValuePair<KeyType, MappedType>> ConstIterator;
 
     public:
+        HashTableKeysIterator() { }
         HashTableKeysIterator(const Iterator& impl) : m_impl(impl) {}
         
         KeyType* get() const { return &(m_impl.get()->key); }
@@ -138,7 +176,7 @@ namespace WTF {
         KeyType* operator->() const { return get(); }
 
         HashTableKeysIterator& operator++() { ++m_impl; return *this; }
-        // postfix ++ intentionally omitted
+        HashTableKeysIterator& operator++(int) { auto result = *this; ++m_impl; return result; }
 
         operator HashTableConstKeysIterator<HashTableType, KeyType, MappedType>() {
             ConstIterator i = m_impl;
@@ -148,12 +186,20 @@ namespace WTF {
         Iterator m_impl;
     };
 
-    template<typename HashTableType, typename KeyType, typename MappedType> struct HashTableValuesIterator : public std::iterator<std::forward_iterator_tag, MappedType, std::ptrdiff_t, MappedType*, MappedType&> {
+    template<typename HashTableType, typename KeyType, typename MappedType> struct HashTableValuesIterator {
+    public:
+        using iterator_category = std::forward_iterator_tag;
+        using value_type = MappedType;
+        using difference_type = ptrdiff_t;
+        using pointer = value_type*;
+        using reference = value_type&;
+
     private:
         typedef HashTableIteratorAdapter<HashTableType, KeyValuePair<KeyType, MappedType>> Iterator;
         typedef HashTableConstIteratorAdapter<HashTableType, KeyValuePair<KeyType, MappedType>> ConstIterator;
 
     public:
+        HashTableValuesIterator() { }
         HashTableValuesIterator(const Iterator& impl) : m_impl(impl) {}
         
         MappedType* get() const { return std::addressof(m_impl.get()->value); }
@@ -161,7 +207,7 @@ namespace WTF {
         MappedType* operator->() const { return get(); }
 
         HashTableValuesIterator& operator++() { ++m_impl; return *this; }
-        // postfix ++ intentionally omitted
+        HashTableValuesIterator& operator++(int) { auto result = *this; ++m_impl; return result; }
 
         operator HashTableConstValuesIterator<HashTableType, KeyType, MappedType>() {
             ConstIterator i = m_impl;
@@ -178,21 +224,9 @@ namespace WTF {
     }
 
     template<typename T, typename U, typename V>
-        inline bool operator!=(const HashTableConstKeysIterator<T, U, V>& a, const HashTableConstKeysIterator<T, U, V>& b)
-    {
-        return a.m_impl != b.m_impl;
-    }
-
-    template<typename T, typename U, typename V>
         inline bool operator==(const HashTableConstValuesIterator<T, U, V>& a, const HashTableConstValuesIterator<T, U, V>& b)
     {
         return a.m_impl == b.m_impl;
-    }
-
-    template<typename T, typename U, typename V>
-        inline bool operator!=(const HashTableConstValuesIterator<T, U, V>& a, const HashTableConstValuesIterator<T, U, V>& b)
-    {
-        return a.m_impl != b.m_impl;
     }
 
     template<typename T, typename U, typename V>
@@ -202,21 +236,9 @@ namespace WTF {
     }
 
     template<typename T, typename U, typename V>
-        inline bool operator!=(const HashTableKeysIterator<T, U, V>& a, const HashTableKeysIterator<T, U, V>& b)
-    {
-        return a.m_impl != b.m_impl;
-    }
-
-    template<typename T, typename U, typename V>
         inline bool operator==(const HashTableValuesIterator<T, U, V>& a, const HashTableValuesIterator<T, U, V>& b)
     {
         return a.m_impl == b.m_impl;
-    }
-
-    template<typename T, typename U, typename V>
-        inline bool operator!=(const HashTableValuesIterator<T, U, V>& a, const HashTableValuesIterator<T, U, V>& b)
-    {
-        return a.m_impl != b.m_impl;
     }
 
 } // namespace WTF

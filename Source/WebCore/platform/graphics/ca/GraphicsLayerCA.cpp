@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,21 +29,29 @@
 #if USE(CA)
 
 #include "Animation.h"
-#include "DisplayListRecorder.h"
+#include "DisplayList.h"
+#include "DisplayListRecorderImpl.h"
 #include "DisplayListReplayer.h"
 #include "FloatConversion.h"
 #include "FloatRect.h"
+#include "GraphicsLayerAsyncContentsDisplayDelegateCocoa.h"
+#include "GraphicsLayerContentsDisplayDelegate.h"
 #include "GraphicsLayerFactory.h"
+#include "HTMLVideoElement.h"
 #include "Image.h"
 #include "Logging.h"
+#include "Model.h"
+#include "PlatformCAAnimationCocoa.h"
 #include "PlatformCAFilters.h"
 #include "PlatformCALayer.h"
+#include "PlatformCALayerCocoa.h"
 #include "PlatformScreen.h"
 #include "Region.h"
 #include "RotateTransformOperation.h"
-#include "RuntimeEnabledFeatures.h"
 #include "ScaleTransformOperation.h"
+#include "Settings.h"
 #include "TiledBacking.h"
+#include "TransformOperationsSharedPrimitivesPrefix.h"
 #include "TransformState.h"
 #include "TranslateTransformOperation.h"
 #include <QuartzCore/CATransform3D.h>
@@ -56,7 +64,9 @@
 #include <wtf/PointerComparison.h>
 #include <wtf/SetForScope.h>
 #include <wtf/SystemTracing.h>
-#include <wtf/text/StringConcatenateNumbers.h>
+#include <wtf/TZoneMallocInlines.h>
+#include <wtf/UUID.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/TextStream.h>
 
 #if PLATFORM(IOS_FAMILY)
@@ -64,22 +74,18 @@
 #include "WebCoreThread.h"
 #endif
 
-#if PLATFORM(COCOA)
-#include "PlatformCAAnimationCocoa.h"
-#include "PlatformCALayerCocoa.h"
+#if ENABLE(THREADED_ANIMATION_RESOLUTION)
+#include "AcceleratedEffect.h"
+#include "AcceleratedEffectStack.h"
 #endif
 
-#if PLATFORM(WIN)
-#include "PlatformCAAnimationWin.h"
-#include "PlatformCALayerWin.h"
-#endif
-
-#if COMPILER(MSVC)
-// See https://msdn.microsoft.com/en-us/library/1wea5zwe.aspx
-#pragma warning(disable: 4701)
+#if ENABLE(MODEL_PROCESS)
+#include "ModelContext.h"
 #endif
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(GraphicsLayerCA);
 
 // The threshold width or height above which a tiled layer will be used. This should be
 // large enough to avoid tiled layers for most GraphicsLayers, but less than the OpenGL
@@ -98,94 +104,97 @@ static const unsigned cMaxLayerTreeDepth = 128;
 // About 10 screens of an iPhone 6 Plus. <rdar://problem/44532782>
 static const unsigned cMaxTotalBackdropFilterArea = 1242 * 2208 * 10;
 
+// Don't let a single tiled layer use more than 156MB of memory. On a 3x display with RGB10A8 surfaces, this is about 12 tiles.
+static const unsigned cMaxScaledTiledLayerMemorySize = 1024 * 1024 * 156;
+
 // If we send a duration of 0 to CA, then it will use the default duration
 // of 250ms. So send a very small value instead.
 static const float cAnimationAlmostZeroDuration = 1e-3f;
 
-static bool isTransformTypeTransformationMatrix(TransformOperation::OperationType transformType)
+static bool isTransformTypeTransformationMatrix(TransformOperation::Type transformType)
 {
     switch (transformType) {
-    case TransformOperation::SKEW_X:
-    case TransformOperation::SKEW_Y:
-    case TransformOperation::SKEW:
-    case TransformOperation::MATRIX:
-    case TransformOperation::ROTATE_3D:
-    case TransformOperation::MATRIX_3D:
-    case TransformOperation::PERSPECTIVE:
-    case TransformOperation::IDENTITY:
-    case TransformOperation::NONE:
+    case TransformOperation::Type::SkewX:
+    case TransformOperation::Type::SkewY:
+    case TransformOperation::Type::Skew:
+    case TransformOperation::Type::Matrix:
+    case TransformOperation::Type::Rotate3D:
+    case TransformOperation::Type::Matrix3D:
+    case TransformOperation::Type::Perspective:
+    case TransformOperation::Type::Identity:
+    case TransformOperation::Type::None:
         return true;
     default:
         return false;
     }
 }
 
-static bool isTransformTypeFloatPoint3D(TransformOperation::OperationType transformType)
+static bool isTransformTypeFloatPoint3D(TransformOperation::Type transformType)
 {
     switch (transformType) {
-    case TransformOperation::SCALE:
-    case TransformOperation::SCALE_3D:
-    case TransformOperation::TRANSLATE:
-    case TransformOperation::TRANSLATE_3D:
+    case TransformOperation::Type::Scale:
+    case TransformOperation::Type::Scale3D:
+    case TransformOperation::Type::Translate:
+    case TransformOperation::Type::Translate3D:
         return true;
     default:
         return false;
     }
 }
 
-static bool isTransformTypeNumber(TransformOperation::OperationType transformType)
+static bool isTransformTypeNumber(TransformOperation::Type transformType)
 {
     return !isTransformTypeTransformationMatrix(transformType) && !isTransformTypeFloatPoint3D(transformType);
 }
 
-static void getTransformFunctionValue(const TransformOperation* transformOp, TransformOperation::OperationType transformType, const FloatSize& size, float& value)
+static void getTransformFunctionValue(const TransformOperation* transformOp, TransformOperation::Type transformType, const FloatSize& size, float& value)
 {
     switch (transformType) {
-    case TransformOperation::ROTATE:
-    case TransformOperation::ROTATE_X:
-    case TransformOperation::ROTATE_Y:
+    case TransformOperation::Type::Rotate:
+    case TransformOperation::Type::RotateX:
+    case TransformOperation::Type::RotateY:
         value = transformOp ? narrowPrecisionToFloat(deg2rad(downcast<RotateTransformOperation>(*transformOp).angle())) : 0;
         break;
-    case TransformOperation::SCALE_X:
+    case TransformOperation::Type::ScaleX:
         value = transformOp ? narrowPrecisionToFloat(downcast<ScaleTransformOperation>(*transformOp).x()) : 1;
         break;
-    case TransformOperation::SCALE_Y:
+    case TransformOperation::Type::ScaleY:
         value = transformOp ? narrowPrecisionToFloat(downcast<ScaleTransformOperation>(*transformOp).y()) : 1;
         break;
-    case TransformOperation::SCALE_Z:
+    case TransformOperation::Type::ScaleZ:
         value = transformOp ? narrowPrecisionToFloat(downcast<ScaleTransformOperation>(*transformOp).z()) : 1;
         break;
-    case TransformOperation::TRANSLATE_X:
-        value = transformOp ? narrowPrecisionToFloat(downcast<TranslateTransformOperation>(*transformOp).x(size)) : 0;
+    case TransformOperation::Type::TranslateX:
+        value = transformOp ? downcast<TranslateTransformOperation>(*transformOp).xAsFloat(size) : 0;
         break;
-    case TransformOperation::TRANSLATE_Y:
-        value = transformOp ? narrowPrecisionToFloat(downcast<TranslateTransformOperation>(*transformOp).y(size)) : 0;
+    case TransformOperation::Type::TranslateY:
+        value = transformOp ? downcast<TranslateTransformOperation>(*transformOp).yAsFloat(size) : 0;
         break;
-    case TransformOperation::TRANSLATE_Z:
-        value = transformOp ? narrowPrecisionToFloat(downcast<TranslateTransformOperation>(*transformOp).z(size)) : 0;
+    case TransformOperation::Type::TranslateZ:
+        value = transformOp ? downcast<TranslateTransformOperation>(*transformOp).zAsFloat() : 0;
         break;
     default:
         break;
     }
 }
 
-static void getTransformFunctionValue(const TransformOperation* transformOp, TransformOperation::OperationType transformType, const FloatSize& size, FloatPoint3D& value)
+static void getTransformFunctionValue(const TransformOperation* transformOp, TransformOperation::Type transformType, const FloatSize& size, FloatPoint3D& value)
 {
     switch (transformType) {
-    case TransformOperation::SCALE:
-    case TransformOperation::SCALE_3D: {
+    case TransformOperation::Type::Scale:
+    case TransformOperation::Type::Scale3D: {
         const auto* scaleTransformOp = downcast<ScaleTransformOperation>(transformOp);
         value.setX(scaleTransformOp ? narrowPrecisionToFloat(scaleTransformOp->x()) : 1);
         value.setY(scaleTransformOp ? narrowPrecisionToFloat(scaleTransformOp->y()) : 1);
         value.setZ(scaleTransformOp ? narrowPrecisionToFloat(scaleTransformOp->z()) : 1);
         break;
     }
-    case TransformOperation::TRANSLATE:
-    case TransformOperation::TRANSLATE_3D: {
+    case TransformOperation::Type::Translate:
+    case TransformOperation::Type::Translate3D: {
         const auto* translateTransformOp = downcast<TranslateTransformOperation>(transformOp);
-        value.setX(translateTransformOp ? narrowPrecisionToFloat(translateTransformOp->x(size)) : 0);
-        value.setY(translateTransformOp ? narrowPrecisionToFloat(translateTransformOp->y(size)) : 0);
-        value.setZ(translateTransformOp ? narrowPrecisionToFloat(translateTransformOp->z(size)) : 0);
+        value.setX(translateTransformOp ? translateTransformOp->xAsFloat(size) : 0);
+        value.setY(translateTransformOp ? translateTransformOp->yAsFloat(size) : 0);
+        value.setZ(translateTransformOp ? translateTransformOp->zAsFloat() : 0);
         break;
     }
     default:
@@ -193,20 +202,20 @@ static void getTransformFunctionValue(const TransformOperation* transformOp, Tra
     }
 }
 
-static void getTransformFunctionValue(const TransformOperation* transformOp, TransformOperation::OperationType transformType, const FloatSize& size, TransformationMatrix& value)
+static void getTransformFunctionValue(const TransformOperation* transformOp, TransformOperation::Type transformType, const FloatSize& size, TransformationMatrix& value)
 {
     switch (transformType) {
-    case TransformOperation::SKEW_X:
-    case TransformOperation::SKEW_Y:
-    case TransformOperation::SKEW:
-    case TransformOperation::MATRIX:
-    case TransformOperation::ROTATE_3D:
-    case TransformOperation::MATRIX_3D:
-    case TransformOperation::PERSPECTIVE:
-    case TransformOperation::IDENTITY:
-    case TransformOperation::NONE:
+    case TransformOperation::Type::SkewX:
+    case TransformOperation::Type::SkewY:
+    case TransformOperation::Type::Skew:
+    case TransformOperation::Type::Matrix:
+    case TransformOperation::Type::Rotate3D:
+    case TransformOperation::Type::Matrix3D:
+    case TransformOperation::Type::Perspective:
+    case TransformOperation::Type::Identity:
+    case TransformOperation::Type::None:
         if (transformOp)
-            transformOp->apply(value, size);
+            transformOp->applyUnrounded(value, size);
         else
             value.makeIdentity();
         break;
@@ -215,76 +224,56 @@ static void getTransformFunctionValue(const TransformOperation* transformOp, Tra
     }
 }
 
-static PlatformCAAnimation::ValueFunctionType getValueFunctionNameForTransformOperation(TransformOperation::OperationType transformType)
+static PlatformCAAnimation::ValueFunctionType getValueFunctionNameForTransformOperation(TransformOperation::Type transformType)
 {
     // Use literal strings to avoid link-time dependency on those symbols.
     switch (transformType) {
-    case TransformOperation::ROTATE_X:
-        return PlatformCAAnimation::RotateX;
-    case TransformOperation::ROTATE_Y:
-        return PlatformCAAnimation::RotateY;
-    case TransformOperation::ROTATE:
-        return PlatformCAAnimation::RotateZ;
-    case TransformOperation::SCALE_X:
-        return PlatformCAAnimation::ScaleX;
-    case TransformOperation::SCALE_Y:
-        return PlatformCAAnimation::ScaleY;
-    case TransformOperation::SCALE_Z:
-        return PlatformCAAnimation::ScaleZ;
-    case TransformOperation::TRANSLATE_X:
-        return PlatformCAAnimation::TranslateX;
-    case TransformOperation::TRANSLATE_Y:
-        return PlatformCAAnimation::TranslateY;
-    case TransformOperation::TRANSLATE_Z:
-        return PlatformCAAnimation::TranslateZ;
-    case TransformOperation::SCALE:
-    case TransformOperation::SCALE_3D:
-        return PlatformCAAnimation::Scale;
-    case TransformOperation::TRANSLATE:
-    case TransformOperation::TRANSLATE_3D:
-        return PlatformCAAnimation::Translate;
+    case TransformOperation::Type::RotateX:
+        return PlatformCAAnimation::ValueFunctionType::RotateX;
+    case TransformOperation::Type::RotateY:
+        return PlatformCAAnimation::ValueFunctionType::RotateY;
+    case TransformOperation::Type::Rotate:
+        return PlatformCAAnimation::ValueFunctionType::RotateZ;
+    case TransformOperation::Type::ScaleX:
+        return PlatformCAAnimation::ValueFunctionType::ScaleX;
+    case TransformOperation::Type::ScaleY:
+        return PlatformCAAnimation::ValueFunctionType::ScaleY;
+    case TransformOperation::Type::ScaleZ:
+        return PlatformCAAnimation::ValueFunctionType::ScaleZ;
+    case TransformOperation::Type::TranslateX:
+        return PlatformCAAnimation::ValueFunctionType::TranslateX;
+    case TransformOperation::Type::TranslateY:
+        return PlatformCAAnimation::ValueFunctionType::TranslateY;
+    case TransformOperation::Type::TranslateZ:
+        return PlatformCAAnimation::ValueFunctionType::TranslateZ;
+    case TransformOperation::Type::Scale:
+    case TransformOperation::Type::Scale3D:
+        return PlatformCAAnimation::ValueFunctionType::Scale;
+    case TransformOperation::Type::Translate:
+    case TransformOperation::Type::Translate3D:
+        return PlatformCAAnimation::ValueFunctionType::Translate;
     default:
-        return PlatformCAAnimation::NoValueFunction;
+        return PlatformCAAnimation::ValueFunctionType::NoValueFunction;
     }
 }
 
-static ASCIILiteral propertyIdToString(AnimatedPropertyID property)
+static bool animatedPropertyIsTransformOrRelated(AnimatedProperty property)
 {
-    switch (property) {
-    case AnimatedPropertyTransform:
-        return "transform"_s;
-    case AnimatedPropertyOpacity:
-        return "opacity"_s;
-    case AnimatedPropertyBackgroundColor:
-        return "backgroundColor"_s;
-    case AnimatedPropertyFilter:
-        return "filters"_s;
-#if ENABLE(FILTERS_LEVEL_2)
-    case AnimatedPropertyWebkitBackdropFilter:
-        return "backdropFilters"_s;
-#endif
-    case AnimatedPropertyInvalid:
-        ASSERT_NOT_REACHED();
-    }
-    ASSERT_NOT_REACHED();
-    return ASCIILiteral::null();
-}
-
-static String animationIdentifier(const String& animationName, AnimatedPropertyID property, int index, int subIndex)
-{
-    return makeString(animationName, '_', static_cast<unsigned>(property), '_', index, '_', subIndex);
+    return property == AnimatedProperty::Transform || property == AnimatedProperty::Translate || property == AnimatedProperty::Scale || property == AnimatedProperty::Rotate;
 }
 
 static bool animationHasStepsTimingFunction(const KeyframeValueList& valueList, const Animation* anim)
 {
     if (is<StepsTimingFunction>(anim->timingFunction()))
         return true;
-    
+
+    bool hasStepsDefaultTimingFunctionForKeyframes = is<StepsTimingFunction>(anim->defaultTimingFunctionForKeyframes());
     for (unsigned i = 0; i < valueList.size(); ++i) {
         if (const TimingFunction* timingFunction = valueList.at(i).timingFunction()) {
             if (is<StepsTimingFunction>(timingFunction))
                 return true;
-        }
+        } else if (hasStepsDefaultTimingFunctionForKeyframes)
+            return true;
     }
 
     return false;
@@ -292,45 +281,38 @@ static bool animationHasStepsTimingFunction(const KeyframeValueList& valueList, 
 
 static inline bool supportsAcceleratedFilterAnimations()
 {
-#if PLATFORM(COCOA)
     return true;
-#else
-    return false;
-#endif
+}
+
+static PlatformCALayer::FilterType toPlatformCALayerFilterType(GraphicsLayer::ScalingFilter filter)
+{
+    switch (filter) {
+    case GraphicsLayer::ScalingFilter::Linear:
+        return PlatformCALayer::FilterType::Linear;
+    case GraphicsLayer::ScalingFilter::Nearest:
+        return PlatformCALayer::FilterType::Nearest;
+    case GraphicsLayer::ScalingFilter::Trilinear:
+        return PlatformCALayer::FilterType::Trilinear;
+    }
+    ASSERT_NOT_REACHED();
+    return PlatformCALayer::FilterType::Linear;
 }
 
 bool GraphicsLayer::supportsLayerType(Type type)
 {
     switch (type) {
     case Type::Normal:
+    case Type::Structural:
     case Type::PageTiledBacking:
     case Type::ScrollContainer:
     case Type::ScrolledContents:
+    case Type::TiledBacking:
         return true;
     case Type::Shape:
-#if PLATFORM(COCOA)
-        // FIXME: we can use shaper layers on Windows when PlatformCALayerCocoa::setShapePath() etc are implemented.
         return true;
-#else
-        return false;
-#endif
     }
     ASSERT_NOT_REACHED();
     return false;
-}
-
-bool GraphicsLayer::supportsBackgroundColorContent()
-{
-    return true;
-}
-
-bool GraphicsLayer::supportsSubpixelAntialiasedLayerText()
-{
-#if PLATFORM(MAC)
-    return true;
-#else
-    return false;
-#endif
 }
 
 Ref<GraphicsLayer> GraphicsLayer::create(GraphicsLayerFactory* factory, GraphicsLayerClient& client, Type layerType)
@@ -348,51 +330,60 @@ Ref<GraphicsLayer> GraphicsLayer::create(GraphicsLayerFactory* factory, Graphics
 
 bool GraphicsLayerCA::filtersCanBeComposited(const FilterOperations& filters)
 {
-#if PLATFORM(COCOA)
     return PlatformCALayerCocoa::filtersCanBeComposited(filters);
-#elif PLATFORM(WIN)
-    return PlatformCALayerWin::filtersCanBeComposited(filters);
-#endif
 }
 
 Ref<PlatformCALayer> GraphicsLayerCA::createPlatformCALayer(PlatformCALayer::LayerType layerType, PlatformCALayerClient* owner)
 {
-#if PLATFORM(COCOA)
     auto result = PlatformCALayerCocoa::create(layerType, owner);
-    
-    if (result->canHaveBackingStore())
-        result->setWantsDeepColorBackingStore(screenSupportsExtendedColor());
-    
+
+    if (result->canHaveBackingStore()) {
+        auto contentsFormat = PlatformCALayer::contentsFormatForLayer(nullptr, owner);
+        result->setContentsFormat(contentsFormat);
+    }
+
     return result;
-#elif PLATFORM(WIN)
-    return PlatformCALayerWin::create(layerType, owner);
-#endif
 }
     
 Ref<PlatformCALayer> GraphicsLayerCA::createPlatformCALayer(PlatformLayer* platformLayer, PlatformCALayerClient* owner)
 {
-#if PLATFORM(COCOA)
     return PlatformCALayerCocoa::create(platformLayer, owner);
-#elif PLATFORM(WIN)
-    return PlatformCALayerWin::create(platformLayer, owner);
-#endif
 }
 
-Ref<PlatformCALayer> GraphicsLayerCA::createPlatformCALayerForEmbeddedView(PlatformCALayer::LayerType layerType, GraphicsLayer::EmbeddedViewID, PlatformCALayerClient* owner)
+#if ENABLE(MODEL_PROCESS)
+Ref<PlatformCALayer> GraphicsLayerCA::createPlatformCALayer(Ref<ModelContext>, PlatformCALayerClient* owner)
 {
-    return GraphicsLayerCA::createPlatformCALayer(layerType, owner);
+    ASSERT_NOT_REACHED_WITH_MESSAGE("GraphicsLayerCARemote::createPlatformCALayer should always be called instead of this, but this symbol is needed to compile WebKitLegacy.");
+    return GraphicsLayerCA::createPlatformCALayer(PlatformCALayer::LayerType::LayerTypeLayer, owner);
+}
+#endif
+
+#if ENABLE(MODEL_ELEMENT)
+Ref<PlatformCALayer> GraphicsLayerCA::createPlatformCALayer(Ref<WebCore::Model>, PlatformCALayerClient* owner)
+{
+    // By default, just make a plain layer; subclasses can override to provide a custom PlatformCALayer for Model.
+    return GraphicsLayerCA::createPlatformCALayer(PlatformCALayer::LayerType::LayerTypeLayer, owner);
+}
+#endif
+
+Ref<PlatformCALayer> GraphicsLayerCA::createPlatformCALayerHost(LayerHostingContextIdentifier, PlatformCALayerClient* owner)
+{
+    ASSERT_NOT_REACHED_WITH_MESSAGE("GraphicsLayerCARemote::createPlatformCALayerHost should always be called instead of this, but this symbol is needed to compile WebKitLegacy.");
+    return GraphicsLayerCA::createPlatformCALayer(PlatformCALayer::LayerType::LayerTypeLayer, owner);
+}
+
+Ref<PlatformCALayer> GraphicsLayerCA::createPlatformVideoLayer(HTMLVideoElement&, PlatformCALayerClient* owner)
+{
+    // By default, just make a plain layer; subclasses can override to provide a custom PlatformCALayer for hosting context id.
+    return GraphicsLayerCA::createPlatformCALayer(PlatformCALayer::LayerType::LayerTypeLayer, owner);
 }
 
 Ref<PlatformCAAnimation> GraphicsLayerCA::createPlatformCAAnimation(PlatformCAAnimation::AnimationType type, const String& keyPath)
 {
-#if PLATFORM(COCOA)
     return PlatformCAAnimationCocoa::create(type, keyPath);
-#elif PLATFORM(WIN)
-    return PlatformCAAnimationWin::create(type, keyPath);
-#endif
 }
 
-typedef HashMap<const GraphicsLayerCA*, std::pair<FloatRect, std::unique_ptr<DisplayList::DisplayList>>> LayerDisplayListHashMap;
+typedef UncheckedKeyHashMap<const GraphicsLayerCA*, std::pair<FloatRect, std::unique_ptr<DisplayList::DisplayList>>> LayerDisplayListHashMap;
 
 static LayerDisplayListHashMap& layerDisplayListMap()
 {
@@ -403,7 +394,6 @@ static LayerDisplayListHashMap& layerDisplayListMap()
 GraphicsLayerCA::GraphicsLayerCA(Type layerType, GraphicsLayerClient& client)
     : GraphicsLayer(layerType, client)
     , m_needsFullRepaint(false)
-    , m_usingBackdropLayerType(false)
     , m_allowsBackingStoreDetaching(true)
     , m_intersectsCoverageRect(false)
     , m_hasEverPainted(false)
@@ -417,6 +407,11 @@ void GraphicsLayerCA::initialize(Type layerType)
     PlatformCALayer::LayerType platformLayerType;
     switch (layerType) {
     case Type::Normal:
+        platformLayerType = PlatformCALayer::LayerType::LayerTypeWebLayer;
+        break;
+    case Type::Structural:
+        platformLayerType = PlatformCALayer::LayerType::LayerTypeTransformLayer;
+        break;
     case Type::ScrolledContents:
         platformLayerType = PlatformCALayer::LayerType::LayerTypeWebLayer;
         break;
@@ -429,8 +424,13 @@ void GraphicsLayerCA::initialize(Type layerType)
     case Type::Shape:
         platformLayerType = PlatformCALayer::LayerType::LayerTypeShapeLayer;
         break;
+    case Type::TiledBacking:
+        platformLayerType = PlatformCALayer::LayerType::LayerTypeTiledBackingLayer;
+        break;
     }
+
     m_layer = createPlatformCALayer(platformLayerType, this);
+
     noteLayerPropertyChanged(ContentsScaleChanged);
     noteLayerPropertyChanged(CoverageRectChanged);
 }
@@ -440,12 +440,6 @@ GraphicsLayerCA::~GraphicsLayerCA()
     if (UNLIKELY(isTrackingDisplayListReplay()))
         layerDisplayListMap().remove(this);
 
-    // Do cleanup while we can still safely call methods on the derived class.
-    willBeDestroyed();
-}
-
-void GraphicsLayerCA::willBeDestroyed()
-{
     // We release our references to the PlatformCALayers here, but do not actively unparent them,
     // since that will cause a commit and break our batched commit model. The layers will
     // get released when the rootmost modified GraphicsLayerCA rebuilds its child layers.
@@ -477,7 +471,10 @@ void GraphicsLayerCA::willBeDestroyed()
 
     removeCloneLayers();
 
-    GraphicsLayer::willBeDestroyed();
+    if (m_parent)
+        downcast<GraphicsLayerCA>(*m_parent).noteSublayersChanged();
+
+    willBeDestroyed();
 }
 
 void GraphicsLayerCA::setName(const String& name)
@@ -493,15 +490,15 @@ String GraphicsLayerCA::debugName() const
 {
 #if ENABLE(TREE_DEBUGGING)
     String caLayerDescription;
-    if (!m_layer->isPlatformCALayerRemote())
-        caLayerDescription = makeString("CALayer(0x", hex(reinterpret_cast<uintptr_t>(m_layer->platformLayer()), Lowercase), ") ");
-    return makeString(caLayerDescription, "GraphicsLayer(0x", hex(reinterpret_cast<uintptr_t>(this), Lowercase), ", ", primaryLayerID(), ") ", name());
+    if (m_layer->type() == PlatformCALayer::Type::Cocoa)
+        caLayerDescription = makeString("CALayer(0x"_s, hex(reinterpret_cast<uintptr_t>(m_layer->platformLayer()), Lowercase), ") "_s);
+    return makeString(caLayerDescription, "GraphicsLayer(0x"_s, hex(reinterpret_cast<uintptr_t>(this), Lowercase), ", "_s, primaryLayerID()->object(), ") "_s, name());
 #else
     return name();
 #endif
 }
 
-GraphicsLayer::PlatformLayerID GraphicsLayerCA::primaryLayerID() const
+std::optional<PlatformLayerIdentifier> GraphicsLayerCA::primaryLayerID() const
 {
     return primaryLayer()->layerID();
 }
@@ -553,11 +550,9 @@ bool GraphicsLayerCA::replaceChild(GraphicsLayer* oldChild, Ref<GraphicsLayer>&&
     return false;
 }
 
-void GraphicsLayerCA::removeFromParent()
+void GraphicsLayerCA::willModifyChildren()
 {
-    if (m_parent)
-        downcast<GraphicsLayerCA>(*m_parent).noteSublayersChanged();
-    GraphicsLayer::removeFromParent();
+    noteSublayersChanged();
 }
 
 void GraphicsLayerCA::setMaskLayer(RefPtr<GraphicsLayer>&& layer)
@@ -580,7 +575,7 @@ void GraphicsLayerCA::setReplicatedLayer(GraphicsLayer* layer)
         return;
 
     GraphicsLayer::setReplicatedLayer(layer);
-    noteLayerPropertyChanged(ReplicatedLayerChanged);
+    noteLayerPropertyChanged(ReplicatedLayerChanged | ChildrenChanged);
 }
 
 void GraphicsLayerCA::setReplicatedByLayer(RefPtr<GraphicsLayer>&& layer)
@@ -676,11 +671,14 @@ void GraphicsLayerCA::setChildrenTransform(const TransformationMatrix& t)
     noteLayerPropertyChanged(ChildrenTransformChanged);
 }
 
-void GraphicsLayerCA::moveOrCopyLayerAnimation(MoveOrCopy operation, const String& animationIdentifier, PlatformCALayer *fromLayer, PlatformCALayer *toLayer)
+void GraphicsLayerCA::moveOrCopyLayerAnimation(MoveOrCopy operation, const String& animationIdentifier, std::optional<Seconds> beginTime, PlatformCALayer *fromLayer, PlatformCALayer *toLayer)
 {
     RefPtr<PlatformCAAnimation> anim = fromLayer->animationForKey(animationIdentifier);
     if (!anim)
         return;
+
+    if (beginTime && beginTime->seconds() != anim->beginTime())
+        anim->setBeginTime(beginTime->seconds());
 
     switch (operation) {
     case Move:
@@ -696,22 +694,12 @@ void GraphicsLayerCA::moveOrCopyLayerAnimation(MoveOrCopy operation, const Strin
 
 void GraphicsLayerCA::moveOrCopyAnimations(MoveOrCopy operation, PlatformCALayer *fromLayer, PlatformCALayer *toLayer)
 {
-    if (!hasAnimations())
-        return;
-
-    // Look for running animations affecting this property.
-    for (const auto& it : m_animations->runningAnimations) {
-        const auto& propertyAnimations = it.value;
-        size_t numAnimations = propertyAnimations.size();
-        for (size_t i = 0; i < numAnimations; ++i) {
-            const LayerPropertyAnimation& currAnimation = propertyAnimations[i];
-
-            if (currAnimation.m_property == AnimatedPropertyTransform
-                || currAnimation.m_property == AnimatedPropertyOpacity
-                || currAnimation.m_property == AnimatedPropertyBackgroundColor
-                || currAnimation.m_property == AnimatedPropertyFilter)
-                moveOrCopyLayerAnimation(operation, animationIdentifier(currAnimation.m_name, currAnimation.m_property, currAnimation.m_index, currAnimation.m_subIndex), fromLayer, toLayer);
-        }
+    for (auto& animationGroup : m_animationGroups) {
+        if ((animatedPropertyIsTransformOrRelated(animationGroup.m_property)
+            || animationGroup.m_property == AnimatedProperty::Opacity
+            || animationGroup.m_property == AnimatedProperty::BackgroundColor
+            || animationGroup.m_property == AnimatedProperty::Filter))
+            moveOrCopyLayerAnimation(operation, animationGroup.animationIdentifier(), animationGroup.computedBeginTime(), fromLayer, toLayer);
     }
 }
 
@@ -742,6 +730,17 @@ void GraphicsLayerCA::setDrawsContent(bool drawsContent)
     noteLayerPropertyChanged(DrawsContentChanged | DebugIndicatorsChanged);
 }
 
+#if HAVE(SUPPORT_HDR_DISPLAY)
+void GraphicsLayerCA::setDrawsHDRContent(bool drawsHDRContent)
+{
+    if (drawsHDRContent == m_drawsHDRContent)
+        return;
+
+    GraphicsLayer::setDrawsHDRContent(drawsHDRContent);
+    noteLayerPropertyChanged(DrawsHDRContentChanged | DebugIndicatorsChanged);
+}
+#endif
+
 void GraphicsLayerCA::setContentsVisible(bool contentsVisible)
 {
     if (contentsVisible == m_contentsVisible)
@@ -749,8 +748,9 @@ void GraphicsLayerCA::setContentsVisible(bool contentsVisible)
 
     GraphicsLayer::setContentsVisible(contentsVisible);
     noteLayerPropertyChanged(ContentsVisibilityChanged);
+
     // Visibility affects whether the contentsLayer is parented.
-    if (m_contentsLayer)
+    if (m_contentsLayer || m_contentsClippingLayer)
         noteSublayersChanged();
 }
 
@@ -781,6 +781,66 @@ void GraphicsLayerCA::setUsesDisplayListDrawing(bool usesDisplayListDrawing)
     GraphicsLayer::setUsesDisplayListDrawing(usesDisplayListDrawing);
 }
 
+#if HAVE(CORE_ANIMATION_SEPARATED_LAYERS)
+void GraphicsLayerCA::setIsSeparated(bool isSeparated)
+{
+    if (isSeparated == m_isSeparated)
+        return;
+
+    GraphicsLayer::setIsSeparated(isSeparated);
+    noteLayerPropertyChanged(SeparatedChanged);
+}
+
+void GraphicsLayerCA::setIsSeparatedImage(bool isSeparatedImage)
+{
+    if (isSeparatedImage == m_isSeparatedImage)
+        return;
+
+    GraphicsLayer::setIsSeparatedImage(isSeparatedImage);
+    // Impacts layer type not properties.
+    noteLayerPropertyChanged(SeparatedChanged);
+}
+
+#if HAVE(CORE_ANIMATION_SEPARATED_PORTALS)
+void GraphicsLayerCA::setIsSeparatedPortal(bool isSeparatedPortal)
+{
+    if (isSeparatedPortal == m_isSeparatedPortal)
+        return;
+
+    GraphicsLayer::setIsSeparatedPortal(isSeparatedPortal);
+    noteLayerPropertyChanged(SeparatedPortalChanged);
+
+}
+
+void GraphicsLayerCA::setIsDescendentOfSeparatedPortal(bool isDescendentOfSeparatedPortal)
+{
+    if (isDescendentOfSeparatedPortal == m_isDescendentOfSeparatedPortal)
+        return;
+
+    GraphicsLayer::setIsDescendentOfSeparatedPortal(isDescendentOfSeparatedPortal);
+    noteLayerPropertyChanged(DescendentOfSeparatedPortalChanged);
+}
+#endif
+#endif
+
+#if HAVE(CORE_MATERIAL)
+void GraphicsLayerCA::setAppleVisualEffectData(AppleVisualEffectData effectData)
+{
+    if (effectData == m_appleVisualEffectData)
+        return;
+
+    bool backdropFiltersChanged = appleVisualEffectNeedsBackdrop(effectData.effect) != appleVisualEffectNeedsBackdrop(m_appleVisualEffectData.effect);
+
+    GraphicsLayer::setAppleVisualEffectData(effectData);
+
+    LayerChangeFlags changes = AppleVisualEffectChanged;
+    if (backdropFiltersChanged)
+        changes |= BackdropFiltersChanged;
+
+    noteLayerPropertyChanged(changes);
+}
+#endif
+
 void GraphicsLayerCA::setBackgroundColor(const Color& color)
 {
     if (m_backgroundColor == color)
@@ -797,15 +857,6 @@ void GraphicsLayerCA::setContentsOpaque(bool opaque)
 
     GraphicsLayer::setContentsOpaque(opaque);
     noteLayerPropertyChanged(ContentsOpaqueChanged);
-}
-
-void GraphicsLayerCA::setSupportsSubpixelAntialiasedText(bool supportsSubpixelAntialiasedText)
-{
-    if (m_supportsSubpixelAntialiasedText == supportsSubpixelAntialiasedText)
-        return;
-
-    GraphicsLayer::setSupportsSubpixelAntialiasedText(supportsSubpixelAntialiasedText);
-    noteLayerPropertyChanged(SupportsSubpixelAntialiasedTextChanged);
 }
 
 void GraphicsLayerCA::setBackfaceVisibility(bool visible)
@@ -871,6 +922,12 @@ bool GraphicsLayerCA::setBackdropFilters(const FilterOperations& filterOperation
     return canCompositeFilters;
 }
 
+void GraphicsLayerCA::setIsBackdropRoot(bool isBackdropRoot)
+{
+    GraphicsLayer::setIsBackdropRoot(isBackdropRoot);
+    noteLayerPropertyChanged(BackdropRootChanged);
+}
+
 void GraphicsLayerCA::setBackdropFiltersRect(const FloatRoundedRect& backdropFiltersRect)
 {
     if (backdropFiltersRect == m_backdropFiltersRect)
@@ -880,7 +937,6 @@ void GraphicsLayerCA::setBackdropFiltersRect(const FloatRoundedRect& backdropFil
     noteLayerPropertyChanged(BackdropFiltersRectChanged);
 }
 
-#if ENABLE(CSS_COMPOSITING)
 void GraphicsLayerCA::setBlendMode(BlendMode blendMode)
 {
     if (GraphicsLayer::blendMode() == blendMode)
@@ -889,7 +945,6 @@ void GraphicsLayerCA::setBlendMode(BlendMode blendMode)
     GraphicsLayer::setBlendMode(blendMode);
     noteLayerPropertyChanged(BlendModeChanged);
 }
-#endif
 
 bool GraphicsLayerCA::backingStoreAttached() const
 {
@@ -978,14 +1033,13 @@ void GraphicsLayerCA::setContentsRectClipsDescendants(bool contentsRectClipsDesc
     noteLayerPropertyChanged(ChildrenChanged | ContentsRectsChanged);
 }
 
-bool GraphicsLayerCA::setMasksToBoundsRect(const FloatRoundedRect& roundedRect)
+void GraphicsLayerCA::setVideoGravity(MediaPlayerVideoGravity gravity)
 {
-    if (roundedRect == m_masksToBoundsRect)
-        return true;
+    if (gravity == m_videoGravity)
+        return;
 
-    GraphicsLayer::setMasksToBoundsRect(roundedRect);
-    noteLayerPropertyChanged(MasksToBoundsRectChanged);
-    return true;
+    GraphicsLayer::setVideoGravity(gravity);
+    noteLayerPropertyChanged(VideoGravityChanged);
 }
 
 void GraphicsLayerCA::setShapeLayerPath(const Path& path)
@@ -1014,7 +1068,7 @@ void GraphicsLayerCA::setEventRegion(EventRegion&& eventRegion)
 }
 
 #if ENABLE(SCROLLING_THREAD)
-void GraphicsLayerCA::setScrollingNodeID(ScrollingNodeID nodeID)
+void GraphicsLayerCA::setScrollingNodeID(std::optional<ScrollingNodeID> nodeID)
 {
     if (nodeID == m_scrollingNodeID)
         return;
@@ -1029,9 +1083,48 @@ bool GraphicsLayerCA::shouldRepaintOnSizeChange() const
     return drawsContent() && !tiledBacking();
 }
 
-bool GraphicsLayerCA::animationCanBeAccelerated(const KeyframeValueList& valueList, const Animation* anim) const
+bool GraphicsLayerCA::animationIsRunning(const String& animationName) const
 {
-    if (anim->playbackRate() != 1)
+    auto index = m_animations.findIf([&](LayerPropertyAnimation animation) {
+        return animation.m_name == animationName;
+    });
+    return index != notFound && m_animations[index].m_playState == PlayState::Playing;
+}
+
+static bool timingFunctionIsCubicTimingFunctionWithYValueOutOfRange(const TimingFunction* timingFunction)
+{
+    auto* cubicBezierTimingFunction = dynamicDowncast<CubicBezierTimingFunction>(timingFunction);
+    if (!cubicBezierTimingFunction)
+        return false;
+
+    auto yValueIsOutOfRange = [](double y) -> bool {
+        return y < 0 || y > 1;
+    };
+
+    return yValueIsOutOfRange(cubicBezierTimingFunction->y1()) || yValueIsOutOfRange(cubicBezierTimingFunction->y2());
+}
+
+static bool keyframeValueListHasSingleIntervalWithLinearOrEquivalentTimingFunction(const KeyframeValueList& valueList)
+{
+    if (valueList.size() != 2)
+        return false;
+
+    auto* timingFunction = valueList.at(0).timingFunction();
+    if (!timingFunction)
+        return true;
+
+    if (is<LinearTimingFunction>(*timingFunction)) {
+        ASSERT(LinearTimingFunction::identity() == *timingFunction);
+        return true;
+    }
+
+    auto* cubicBezierTimingFunction = dynamicDowncast<CubicBezierTimingFunction>(*timingFunction);
+    return cubicBezierTimingFunction && cubicBezierTimingFunction->isLinear();
+}
+
+static bool animationCanBeAccelerated(const KeyframeValueList& valueList, const Animation* anim)
+{
+    if (anim->playbackRate() != 1 || !anim->directionIsForwards())
         return false;
 
     if (!anim || anim->isEmptyOrZeroDuration() || valueList.size() < 2)
@@ -1043,20 +1136,6 @@ bool GraphicsLayerCA::animationCanBeAccelerated(const KeyframeValueList& valueLi
     return true;
 }
 
-void GraphicsLayerCA::addProcessingActionForAnimation(const String& animationName, AnimationProcessingAction processingAction)
-{
-    ensureLayerAnimations();
-
-    auto& processingActions = m_animations->animationsToProcess.ensure(animationName, [] {
-        return Vector<AnimationProcessingAction> { };
-    }).iterator->value;
-
-    if (!processingActions.isEmpty() && processingActions.last().action == Remove)
-        return;
-
-    processingActions.append(processingAction);
-}
-
 bool GraphicsLayerCA::addAnimation(const KeyframeValueList& valueList, const FloatSize& boxSize, const Animation* anim, const String& animationName, double timeOffset)
 {
     LOG_WITH_STREAM(Animations, stream << "GraphicsLayerCA " << this << " id " << primaryLayerID() << " addAnimation " << anim << " " << animationName << " duration " << anim->duration() << " (can be accelerated " << animationCanBeAccelerated(valueList, anim) << ")");
@@ -1066,21 +1145,27 @@ bool GraphicsLayerCA::addAnimation(const KeyframeValueList& valueList, const Flo
     if (!animationCanBeAccelerated(valueList, anim))
         return false;
 
+    bool keyframesShouldUseAnimationWideTimingFunction = false;
+    // Core Animation clips values outside of the [0-1] range for animation-wide cubic timing functions.
+    if (timingFunctionIsCubicTimingFunctionWithYValueOutOfRange(anim->timingFunction())) {
+        if (!keyframeValueListHasSingleIntervalWithLinearOrEquivalentTimingFunction(valueList))
+            return false;
+        keyframesShouldUseAnimationWideTimingFunction = true;
+    }
+
     bool createdAnimations = false;
-    if (valueList.property() == AnimatedPropertyTransform)
-        createdAnimations = createTransformAnimationsFromKeyframes(valueList, anim, animationName, Seconds { timeOffset }, boxSize);
-    else if (valueList.property() == AnimatedPropertyFilter) {
+    if (animatedPropertyIsTransformOrRelated(valueList.property()))
+        createdAnimations = createTransformAnimationsFromKeyframes(valueList, anim, animationName, Seconds { timeOffset }, boxSize, keyframesShouldUseAnimationWideTimingFunction);
+    else if (valueList.property() == AnimatedProperty::Filter) {
         if (supportsAcceleratedFilterAnimations())
-            createdAnimations = createFilterAnimationsFromKeyframes(valueList, anim, animationName, Seconds { timeOffset });
+            createdAnimations = createFilterAnimationsFromKeyframes(valueList, anim, animationName, Seconds { timeOffset }, keyframesShouldUseAnimationWideTimingFunction);
     }
-#if ENABLE(FILTERS_LEVEL_2)
-    else if (valueList.property() == AnimatedPropertyWebkitBackdropFilter) {
+    else if (valueList.property() == AnimatedProperty::WebkitBackdropFilter) {
         if (supportsAcceleratedFilterAnimations())
-            createdAnimations = createFilterAnimationsFromKeyframes(valueList, anim, animationName, Seconds { timeOffset });
+            createdAnimations = createFilterAnimationsFromKeyframes(valueList, anim, animationName, Seconds { timeOffset }, keyframesShouldUseAnimationWideTimingFunction);
     }
-#endif
     else
-        createdAnimations = createAnimationFromKeyframes(valueList, anim, animationName, Seconds { timeOffset });
+        createdAnimations = createAnimationFromKeyframes(valueList, anim, animationName, Seconds { timeOffset }, keyframesShouldUseAnimationWideTimingFunction);
 
     if (createdAnimations)
         noteLayerPropertyChanged(AnimationChanged | CoverageRectChanged);
@@ -1092,28 +1177,56 @@ void GraphicsLayerCA::pauseAnimation(const String& animationName, double timeOff
 {
     LOG_WITH_STREAM(Animations, stream << "GraphicsLayerCA " << this << " id " << primaryLayerID() << " pauseAnimation " << animationName << " (is running " << animationIsRunning(animationName) << ")");
 
-    // Call add since if there is already a Remove in there, we don't want to overwrite it with a Pause.
-    addProcessingActionForAnimation(animationName, AnimationProcessingAction { Pause, Seconds { timeOffset } });
+    for (auto& animation : m_animations) {
+        // There may be several animations with the same name in the case of transform animations
+        // animating multiple components as individual animations.
+        if (animation.m_name == animationName && !animation.m_pendingRemoval) {
+            animation.m_playState = PlayState::PausePending;
+            animation.m_timeOffset = Seconds { timeOffset };
 
-    noteLayerPropertyChanged(AnimationChanged);
+            noteLayerPropertyChanged(AnimationChanged);
+        }
+    }
 }
 
-void GraphicsLayerCA::removeAnimation(const String& animationName)
+void GraphicsLayerCA::removeAnimation(const String& animationName, std::optional<AnimatedProperty> property)
 {
     LOG_WITH_STREAM(Animations, stream << "GraphicsLayerCA " << this << " id " << primaryLayerID() << " removeAnimation " << animationName << " (is running " << animationIsRunning(animationName) << ")");
 
-    if (!animationIsRunning(animationName)) {
-        removeFromUncommittedAnimations(animationName);
-        return;
+    for (auto& animation : m_animations) {
+        // There may be several animations with the same name in the case of transform animations
+        // animating multiple components as individual animations.
+        if (animation.m_name == animationName && !animation.m_pendingRemoval) {
+            // If a specific property is provided, we must check we only remove the animations
+            // for this specific property.
+            if (property && animation.m_property != *property)
+                continue;
+            animation.m_pendingRemoval = true;
+            noteLayerPropertyChanged(AnimationChanged | CoverageRectChanged);
+        }
     }
+}
 
-    addProcessingActionForAnimation(animationName, AnimationProcessingAction(Remove));
-    noteLayerPropertyChanged(AnimationChanged | CoverageRectChanged);
+void GraphicsLayerCA::transformRelatedPropertyDidChange()
+{
+    // If we are currently running a transform-related animation, a change in underlying
+    // transform value means we must re-evaluate all transform-related animations to ensure
+    // that the base value transform animations are current.
+    if (isRunningTransformAnimation())
+        noteLayerPropertyChanged(AnimationChanged | CoverageRectChanged);
 }
 
 void GraphicsLayerCA::platformCALayerAnimationStarted(const String& animationKey, MonotonicTime startTime)
 {
     LOG_WITH_STREAM(Animations, stream << "GraphicsLayerCA " << this << " id " << primaryLayerID() << " platformCALayerAnimationStarted " << animationKey);
+
+    auto index = m_animations.findIf([&](LayerPropertyAnimation animation) {
+        return animation.animationIdentifier() == animationKey && !animation.m_beginTime;
+    });
+
+    if (index != notFound)
+        m_animations[index].m_beginTime = startTime.secondsSinceEpoch();
+
     client().notifyAnimationStarted(this, animationKey, startTime);
 }
 
@@ -1135,11 +1248,11 @@ void GraphicsLayerCA::setContentsToSolidColor(const Color& color)
     if (m_contentsSolidColor.isVisible()) {
         if (!m_contentsLayer || m_contentsLayerPurpose != ContentsLayerPurpose::BackgroundColor) {
             m_contentsLayerPurpose = ContentsLayerPurpose::BackgroundColor;
-            m_contentsLayer = createPlatformCALayer(PlatformCALayer::LayerTypeLayer, this);
+            m_contentsLayer = createPlatformCALayer(PlatformCALayer::LayerType::LayerTypeLayer, this);
 #if ENABLE(TREE_DEBUGGING)
-            m_contentsLayer->setName(makeString("contents color ", m_contentsLayer->layerID()));
+            m_contentsLayer->setName(makeString("contents color "_s, m_contentsLayer->layerID().object()));
 #else
-            m_contentsLayer->setName("contents color");
+            m_contentsLayer->setName(MAKE_STATIC_STRING_IMPL("contents color"));
 #endif
             contentsLayerChanged = true;
         }
@@ -1148,6 +1261,7 @@ void GraphicsLayerCA::setContentsToSolidColor(const Color& color)
         m_contentsLayerPurpose = ContentsLayerPurpose::None;
         m_contentsLayer = nullptr;
     }
+    m_contentsDisplayDelegate = nullptr;
 
     if (contentsLayerChanged)
         noteSublayersChanged();
@@ -1158,71 +1272,98 @@ void GraphicsLayerCA::setContentsToSolidColor(const Color& color)
 void GraphicsLayerCA::setContentsToImage(Image* image)
 {
     if (image) {
-        auto newImage = image->nativeImageForCurrentFrame();
+        auto newImage = image->currentNativeImage();
         if (!newImage)
             return;
 
-        // FIXME: probably don't need m_uncorrectedContentsImage at all now.
-        if (m_uncorrectedContentsImage == newImage)
+        if (m_pendingContentsImage == newImage)
             return;
-        
-        m_uncorrectedContentsImage = WTFMove(newImage);
-        m_pendingContentsImage = m_uncorrectedContentsImage;
 
+        m_pendingContentsImage = WTFMove(newImage);
         m_contentsLayerPurpose = ContentsLayerPurpose::Image;
         if (!m_contentsLayer)
             noteSublayersChanged();
     } else {
-        m_uncorrectedContentsImage = nullptr;
         m_pendingContentsImage = nullptr;
         m_contentsLayerPurpose = ContentsLayerPurpose::None;
         if (m_contentsLayer)
             noteSublayersChanged();
     }
+    m_contentsDisplayDelegate = nullptr;
+    m_pendingContentsImageBuffer = nullptr;
 
     noteLayerPropertyChanged(ContentsImageChanged);
 }
 
-void GraphicsLayerCA::setContentsToEmbeddedView(GraphicsLayer::ContentsLayerEmbeddedViewType layerType, GraphicsLayer::EmbeddedViewID embeddedViewID)
+void GraphicsLayerCA::setContentsToImageBuffer(ImageBuffer* image)
 {
+    if (image) {
+        if (m_pendingContentsImageBuffer == image)
+            return;
+
+        m_pendingContentsImageBuffer = image;
+
+        m_contentsLayerPurpose = ContentsLayerPurpose::Image;
+        if (!m_contentsLayer)
+            noteSublayersChanged();
+    } else {
+        m_pendingContentsImageBuffer = nullptr;
+        m_contentsLayerPurpose = ContentsLayerPurpose::None;
+        if (m_contentsLayer)
+            noteSublayersChanged();
+    }
+    m_contentsDisplayDelegate = nullptr;
+    m_pendingContentsImage = nullptr;
+
+    noteLayerPropertyChanged(ContentsImageChanged);
+}
+
+#if ENABLE(MODEL_ELEMENT)
+void GraphicsLayerCA::setContentsToModel(RefPtr<Model>&& model, ModelInteraction interactive)
+{
+    if (model == m_contentsModel)
+        return;
+
+    m_contentsModel = model;
+
     bool contentsLayerChanged = false;
 
-    if (layerType != GraphicsLayer::ContentsLayerEmbeddedViewType::None) {
-        m_contentsLayerPurpose = ContentsLayerPurpose::EmbeddedView;
+    if (model) {
+        m_contentsLayer = createPlatformCALayer(*model, this);
+#if ENABLE(TREE_DEBUGGING)
+        m_contentsLayer->setName(makeString("contents model "_s, m_contentsLayer->layerID().object()));
+#else
+        m_contentsLayer->setName(MAKE_STATIC_STRING_IMPL("contents model"));
+#endif
 
-        PlatformCALayer::LayerType platformType;
-        switch (layerType) {
-        case GraphicsLayer::ContentsLayerEmbeddedViewType::EditableImage:
-            platformType = PlatformCALayer::LayerTypeEditableImageLayer;
-            break;
-        default:
-            ASSERT_NOT_REACHED();
-            platformType = PlatformCALayer::LayerTypeLayer;
-            break;
-        }
-
-        if (!m_contentsLayer || m_contentsLayer->layerType() != platformType || m_contentsLayer->embeddedViewID() != embeddedViewID) {
-            m_contentsLayer = createPlatformCALayerForEmbeddedView(platformType, embeddedViewID, this);
-            m_contentsLayer->setAnchorPoint(FloatPoint3D());
-            contentsLayerChanged = true;
-        }
+        m_contentsLayer->setUserInteractionEnabled(interactive == ModelInteraction::Enabled);
+        m_contentsLayer->setAnchorPoint({ });
+        m_contentsLayerPurpose = ContentsLayerPurpose::Model;
+        contentsLayerChanged = true;
     } else {
-        m_contentsLayerPurpose = ContentsLayerPurpose::None;
         contentsLayerChanged = m_contentsLayer;
+        m_contentsLayerPurpose = ContentsLayerPurpose::None;
         m_contentsLayer = nullptr;
     }
+    m_contentsDisplayDelegate = nullptr;
 
     if (contentsLayerChanged)
         noteSublayersChanged();
+
+    noteLayerPropertyChanged(ContentsRectsChanged | OpacityChanged);
 }
+
+std::optional<PlatformLayerIdentifier> GraphicsLayerCA::contentsLayerIDForModel() const
+{
+    return m_contentsLayerPurpose == ContentsLayerPurpose::Model ? std::optional { m_contentsLayer->layerID() } : std::nullopt;
+}
+
+#endif
 
 void GraphicsLayerCA::setContentsToPlatformLayer(PlatformLayer* platformLayer, ContentsLayerPurpose purpose)
 {
     if (m_contentsLayer && platformLayer == m_contentsLayer->platformLayer())
         return;
-
-    if (m_contentsClippingLayer && m_contentsLayer)
-        m_contentsLayer->removeFromSuperlayer();
 
     // FIXME: The passed in layer might be a raw layer or an externally created
     // PlatformCALayer. To determine this we attempt to get the
@@ -1237,16 +1378,94 @@ void GraphicsLayerCA::setContentsToPlatformLayer(PlatformLayer* platformLayer, C
             m_contentsLayer = WTFMove(platformCALayer);
         else
             m_contentsLayer = createPlatformCALayer(platformLayer, this);
+        m_contentsLayer->setBackingStoreAttached(false);
     } else
         m_contentsLayer = nullptr;
 
     m_contentsLayerPurpose = platformLayer ? purpose : ContentsLayerPurpose::None;
+    m_contentsDisplayDelegate = nullptr;
+    noteSublayersChanged();
+    noteLayerPropertyChanged(ContentsPlatformLayerChanged);
+}
 
-    if (m_contentsClippingLayer && m_contentsLayer)
-        m_contentsClippingLayer->appendSublayer(*m_contentsLayer);
+void GraphicsLayerCA::setContentsToPlatformLayerHost(LayerHostingContextIdentifier identifier)
+{
+    if (m_contentsLayer && m_contentsLayer->hostingContextIdentifier() == identifier)
+        return;
+
+    m_contentsLayer = createPlatformCALayerHost(identifier, this);
+    m_contentsLayerPurpose = GraphicsLayer::ContentsLayerPurpose::Host;
+    m_contentsDisplayDelegate = nullptr;
+    noteSublayersChanged();
+    noteLayerPropertyChanged(ContentsPlatformLayerChanged);
+}
+
+#if ENABLE(MODEL_PROCESS)
+void GraphicsLayerCA::setContentsToModelContext(Ref<ModelContext> modelContext, ContentsLayerPurpose purpose)
+{
+    if (m_contentsLayer && m_contentsLayer->hostingContextIdentifier() == modelContext->modelContentsLayerHostingContextIdentifier())
+        return;
+
+    m_contentsLayer = createPlatformCALayer(modelContext, this);
+    m_contentsLayerPurpose = purpose;
+    m_contentsDisplayDelegate = nullptr;
+    noteSublayersChanged();
+    noteLayerPropertyChanged(ContentsPlatformLayerChanged);
+}
+#endif
+
+void GraphicsLayerCA::setContentsToVideoElement(HTMLVideoElement& videoElement, ContentsLayerPurpose purpose)
+{
+#if HAVE(AVKIT)
+    if (auto hostingContextID = videoElement.layerHostingContextID()) {
+        if (m_contentsLayer && !m_contentsDisplayDelegate
+            && m_layerHostingContextID == hostingContextID
+            && m_contentsLayerPurpose == purpose) {
+                return;
+        }
+
+        m_contentsLayer = createPlatformVideoLayer(videoElement, this);
+        m_layerHostingContextID = hostingContextID;
+        m_contentsLayerPurpose = purpose;
+        m_contentsDisplayDelegate = nullptr;
+        updateVideoGravity();
+        noteSublayersChanged();
+        noteLayerPropertyChanged(ContentsPlatformLayerChanged);
+        return;
+    }
+#endif
+    setContentsToPlatformLayer(videoElement.platformLayer(), purpose);
+}
+
+void GraphicsLayerCA::setContentsDisplayDelegate(RefPtr<GraphicsLayerContentsDisplayDelegate>&& delegate, ContentsLayerPurpose purpose)
+{
+    if (m_contentsLayer && delegate == m_contentsDisplayDelegate)
+        return;
+
+    if (m_contentsLayer)
+        m_contentsLayer->setOwner(nullptr);
+    m_contentsLayer = nullptr;
+    m_contentsDisplayDelegate = nullptr;
+    m_contentsLayerPurpose = ContentsLayerPurpose::None;
+    if (delegate) {
+        m_contentsLayer = createPlatformCALayer(PlatformCALayer::LayerType::LayerTypeContentsProvidedLayer, this);
+        m_contentsDisplayDelegate = WTFMove(delegate);
+        m_contentsLayerPurpose = purpose;
+        // Currently delegated display is only useful when delegatee calls setContents, so set the
+        // backing store settings accordingly.
+        m_contentsLayer->setBackingStoreAttached(true);
+        m_contentsLayer->setAcceleratesDrawing(true);
+        m_contentsDisplayDelegate->prepareToDelegateDisplay(*m_contentsLayer);
+    }
 
     noteSublayersChanged();
     noteLayerPropertyChanged(ContentsPlatformLayerChanged);
+}
+
+PlatformLayerIdentifier GraphicsLayerCA::setContentsToAsyncDisplayDelegate(RefPtr<GraphicsLayerContentsDisplayDelegate> delegate, ContentsLayerPurpose purpose)
+{
+    setContentsDisplayDelegate(WTFMove(delegate), purpose);
+    return m_contentsLayer->layerID();
 }
 
 #if PLATFORM(IOS_FAMILY)
@@ -1255,6 +1474,22 @@ PlatformLayer* GraphicsLayerCA::contentsLayerForMedia() const
     return m_contentsLayerPurpose == ContentsLayerPurpose::Media ? m_contentsLayer->platformLayer() : nullptr;
 }
 #endif
+
+void GraphicsLayerCA::setContentsMinificationFilter(ScalingFilter filter)
+{
+    if (filter == m_contentsMinificationFilter)
+        return;
+    GraphicsLayer::setContentsMinificationFilter(filter);
+    noteLayerPropertyChanged(ContentsScalingFiltersChanged);
+}
+
+void GraphicsLayerCA::setContentsMagnificationFilter(ScalingFilter filter)
+{
+    if (filter == m_contentsMagnificationFilter)
+        return;
+    GraphicsLayer::setContentsMagnificationFilter(filter);
+    noteLayerPropertyChanged(ContentsScalingFiltersChanged);
+}
 
 void GraphicsLayerCA::layerDidDisplay(PlatformCALayer* layer)
 {
@@ -1278,17 +1513,18 @@ FloatPoint GraphicsLayerCA::computePositionRelativeToBase(float& pageScale) cons
 {
     pageScale = 1;
 
+    bool didFindAnyLayerThatAppliesPageScale = false;
     FloatPoint offset;
     for (const GraphicsLayer* currLayer = this; currLayer; currLayer = currLayer->parent()) {
         if (currLayer->appliesPageScale()) {
-            pageScale = currLayer->pageScaleFactor();
-            return offset;
+            pageScale *= currLayer->pageScaleFactor();
+            didFindAnyLayerThatAppliesPageScale = true;
         }
 
         offset += currLayer->position();
     }
 
-    return FloatPoint();
+    return didFindAnyLayerThatAppliesPageScale ? offset : FloatPoint { };
 }
 
 void GraphicsLayerCA::flushCompositingState(const FloatRect& visibleRect)
@@ -1298,12 +1534,17 @@ void GraphicsLayerCA::flushCompositingState(const FloatRect& visibleRect)
 
     CommitState commitState;
     commitState.ancestorHadChanges = visibleRect != m_previousCommittedVisibleRect;
+
+    // There is no backdrop root above the root layer, and we can just assume the backing
+    // will be opaque. RenderLayerBacking will force an explicit backdrop root outside
+    // of any filters if needed.
+    commitState.backdropRootIsOpaque = client().backdropRootIsOpaque(this);
     m_previousCommittedVisibleRect = visibleRect;
 
 #if PLATFORM(IOS_FAMILY)
     // In WK1, UIKit may be changing layer bounds behind our back in overflow-scroll layers, so disable the optimization.
     // See the similar test in computeVisibleAndCoverageRect().
-    if (m_layer->isPlatformCALayerCocoa())
+    if (m_layer->type() == PlatformCALayer::Type::Cocoa)
         commitState.ancestorHadChanges = true;
 #endif
 
@@ -1318,6 +1559,7 @@ void GraphicsLayerCA::flushCompositingStateForThisLayerOnly()
     CommitState commitState;
 
     FloatPoint offset = computePositionRelativeToBase(pageScaleFactor);
+    commitLayerTypeChangesBeforeSublayers(commitState, pageScaleFactor, layerTypeChanged);
     commitLayerChangesBeforeSublayers(commitState, pageScaleFactor, offset, layerTypeChanged);
     commitLayerChangesAfterSublayers(commitState);
 
@@ -1389,22 +1631,26 @@ TiledBacking* GraphicsLayerCA::tiledBacking() const
 
 TransformationMatrix GraphicsLayerCA::layerTransform(const FloatPoint& position, const TransformationMatrix* customTransform) const
 {
-    TransformationMatrix transform;
-    transform.translate(position.x(), position.y());
+    auto transform = TransformationMatrix(position.x(), position.y());
 
-    TransformationMatrix currentTransform;
-    if (customTransform)
-        currentTransform = *customTransform;
-    else if (m_transform)
-        currentTransform = *m_transform;
+    auto currentTransform = [&]() -> const TransformationMatrix* {
+        if (customTransform)
+            return customTransform;
 
-    transform.multiply(transformByApplyingAnchorPoint(currentTransform));
+        if (m_transform)
+            return m_transform.get();
 
-    if (GraphicsLayer* parentLayer = parent()) {
+        return nullptr;
+    }();
+
+    if (currentTransform)
+        transform.multiply(transformByApplyingAnchorPoint(*currentTransform));
+
+    if (auto* parentLayer = parent()) {
         if (parentLayer->hasNonIdentityChildrenTransform()) {
-            FloatPoint boundsOrigin = parentLayer->boundsOrigin();
+            auto boundsOrigin = parentLayer->boundsOrigin();
 
-            FloatPoint3D parentAnchorPoint(parentLayer->anchorPoint());
+            auto parentAnchorPoint(parentLayer->anchorPoint());
             parentAnchorPoint.scale(parentLayer->size().width(), parentLayer->size().height(), 1);
             parentAnchorPoint += boundsOrigin;
 
@@ -1431,35 +1677,69 @@ TransformationMatrix GraphicsLayerCA::transformByApplyingAnchorPoint(const Trans
     return result;
 }
 
+void GraphicsLayerCA::adjustContentsScaleLimitingFactor()
+{
+    if (type() == Type::PageTiledBacking || !m_layer->usesTiledBackingLayer())
+        return;
+
+    float contentsScaleLimitingFactor = 1;
+    auto bounds = FloatRect { m_boundsOrigin, size() };
+    auto tileCoverageRect = intersection(m_coverageRect, bounds);
+    if (!tileCoverageRect.isEmpty()) {
+        const unsigned bytesPerPixel = 4; // FIXME: Use backingStoreBytesPerPixel(), which needs to be plumbed out through TiledBacking.
+        double scaleFactor = deviceScaleFactor() * pageScaleFactor();
+        double memoryEstimate = tileCoverageRect.area() * scaleFactor * scaleFactor * bytesPerPixel;
+        if (memoryEstimate > cMaxScaledTiledLayerMemorySize) {
+            // sqrt because the memory computation is based on area, while contents scale is per-axis.
+            contentsScaleLimitingFactor = std::sqrt(cMaxScaledTiledLayerMemorySize / memoryEstimate);
+
+            const float minFactor = 0.05;
+            const float maxFactor = 1;
+            contentsScaleLimitingFactor = clampTo(contentsScaleLimitingFactor, minFactor, maxFactor);
+
+            // Quantize the value to avoid too many repaints when animating.
+            const float quanitzationFactor = 20;
+            contentsScaleLimitingFactor = std::round(contentsScaleLimitingFactor * quanitzationFactor) / quanitzationFactor;
+        }
+
+        LOG_WITH_STREAM(Tiling, stream << "GraphicsLayerCA " << this << " id " << primaryLayerID() << " " << size() << " adjustContentsScaleLimitingFactor: for coverage area " << tileCoverageRect << " memory " << (memoryEstimate / (1024 * 1024)) << "MP computed contentsScaleLimitingFactor " << contentsScaleLimitingFactor);
+    }
+
+    setContentsScaleLimitingFactor(contentsScaleLimitingFactor);
+}
+
+void GraphicsLayerCA::setContentsScaleLimitingFactor(float factor)
+{
+    if (factor == m_contentsScaleLimitingFactor)
+        return;
+    
+    m_contentsScaleLimitingFactor = factor;
+    noteLayerPropertyChanged(ContentsScaleChanged);
+}
+
 GraphicsLayerCA::VisibleAndCoverageRects GraphicsLayerCA::computeVisibleAndCoverageRect(TransformState& state, bool preserves3D, ComputeVisibleRectFlags flags) const
 {
     FloatPoint position = approximatePosition();
     client().customPositionForVisibleRectComputation(this, position);
 
-    TransformationMatrix layerTransform;
     TransformationMatrix currentTransform;
-    if ((flags & RespectAnimatingTransforms) && client().getCurrentTransform(this, currentTransform))
-        layerTransform = this->layerTransform(position, &currentTransform);
-    else
-        layerTransform = this->layerTransform(position);
+    auto transform = [&]() {
+        if ((flags & RespectAnimatingTransforms) && client().getCurrentTransform(this, currentTransform))
+            return layerTransform(position, &currentTransform);
+
+        return layerTransform(position);
+    }();
 
     bool applyWasClamped;
     TransformState::TransformAccumulation accumulation = preserves3D ? TransformState::AccumulateTransform : TransformState::FlattenTransform;
-    state.applyTransform(layerTransform, accumulation, &applyWasClamped);
+    state.applyTransform(transform, accumulation, &applyWasClamped);
 
     bool mapWasClamped;
-    FloatRect clipRectForChildren = state.mappedQuad(&mapWasClamped).boundingBox();
-    FloatPoint boundsOrigin = m_boundsOrigin;
-#if PLATFORM(IOS_FAMILY)
-    // In WK1, UIKit may be changing layer bounds behind our back in overflow-scroll layers, so use the layer's origin.
-    if (m_layer->isPlatformCALayerCocoa())
-        boundsOrigin = m_layer->bounds().location();
-#endif
-    clipRectForChildren.move(boundsOrigin.x(), boundsOrigin.y());
-    
-    FloatRect clipRectForSelf(boundsOrigin, m_size);
+    auto clipRectFromParent = state.mappedQuad(&mapWasClamped).boundingBox();
+
+    auto clipRectForSelf = FloatRect { { }, m_size };
     if (!applyWasClamped && !mapWasClamped)
-        clipRectForSelf.intersect(clipRectForChildren);
+        clipRectForSelf.intersect(clipRectFromParent);
 
     if (masksToBounds()) {
         ASSERT(accumulation == TransformState::FlattenTransform);
@@ -1470,10 +1750,23 @@ GraphicsLayerCA::VisibleAndCoverageRects GraphicsLayerCA::computeVisibleAndCover
             state.setSecondaryQuad(FloatQuad { clipRectForSelf });
     }
 
-    FloatRect coverageRect = clipRectForSelf;
+    auto boundsOrigin = m_boundsOrigin;
+#if PLATFORM(IOS_FAMILY)
+    // In WK1, UIKit may be changing layer bounds behind our back in overflow-scroll layers, so use the layer's origin.
+    if (m_layer->type() == PlatformCALayer::Type::Cocoa)
+        boundsOrigin = m_layer->bounds().location();
+#endif
+
+    auto coverageRect = clipRectForSelf;
     auto quad = state.mappedSecondaryQuad(&mapWasClamped);
     if (quad && !mapWasClamped && !applyWasClamped)
         coverageRect = (*quad).boundingBox();
+
+    if (!boundsOrigin.isZero()) {
+        state.move(LayoutSize { toFloatSize(-boundsOrigin) }, accumulation);
+        clipRectForSelf.moveBy(boundsOrigin);
+        coverageRect.moveBy(boundsOrigin);
+    }
 
     return { clipRectForSelf, coverageRect, currentTransform };
 }
@@ -1495,6 +1788,7 @@ bool GraphicsLayerCA::adjustCoverageRect(VisibleAndCoverageRects& rects, const F
         }
         break;
     case Type::Normal:
+    case Type::TiledBacking:
         if (m_layer->usesTiledBackingLayer())
             coverageRect = tiledBacking()->adjustTileCoverageRect(coverageRect, oldVisibleRect, rects.visibleRect, size() != m_sizeAtLastCoverageRectUpdate);
         break;
@@ -1522,7 +1816,7 @@ void GraphicsLayerCA::setVisibleAndCoverageRects(const VisibleAndCoverageRects& 
     if (auto extent = animationExtent()) {
         // Adjust the animation extent to match the current animation position.
         auto animatingTransformWithAnchorPoint = transformByApplyingAnchorPoint(rects.animatingTransform);
-        bounds = animatingTransformWithAnchorPoint.inverse().valueOr(TransformationMatrix()).mapRect(*extent);
+        bounds = valueOrDefault(animatingTransformWithAnchorPoint.inverse()).mapRect(*extent);
     }
 
     // FIXME: we need to take reflections into account when determining whether this layer intersects the coverage rect.
@@ -1544,10 +1838,15 @@ void GraphicsLayerCA::setVisibleAndCoverageRects(const VisibleAndCoverageRects& 
         addUncommittedChanges(CoverageRectChanged);
         m_coverageRect = rects.coverageRect;
     }
+
+    adjustContentsScaleLimitingFactor();
 }
 
 bool GraphicsLayerCA::needsCommit(const CommitState& commitState)
 {
+    if (renderingIsSuppressedIncludingDescendants())
+        return false;
+
     if (commitState.ancestorHadChanges)
         return true;
     if (m_uncommittedChanges)
@@ -1563,8 +1862,6 @@ bool GraphicsLayerCA::needsCommit(const CommitState& commitState)
     return false;
 }
 
-// rootRelativeTransformForScaling is a transform from the root, but for layers with transform animations, it cherry-picked the state of the
-// animation that contributes maximally to the scale (on every layer with animations down the hierarchy).
 void GraphicsLayerCA::recursiveCommitChanges(CommitState& commitState, const TransformState& state, float pageScaleFactor, const FloatPoint& positionRelativeToBase, bool affectedByPageScale)
 {
     if (!needsCommit(commitState))
@@ -1572,6 +1869,13 @@ void GraphicsLayerCA::recursiveCommitChanges(CommitState& commitState, const Tra
 
     TransformState localState = state;
     CommitState childCommitState = commitState;
+
+    ++childCommitState.treeDepth;
+    if (structuralLayerPurpose() != NoStructuralLayer)
+        ++childCommitState.treeDepth;
+
+    bool layerTypeChanged = false;
+    commitLayerTypeChangesBeforeSublayers(childCommitState, pageScaleFactor, layerTypeChanged);
 
     bool affectedByTransformAnimation = commitState.ancestorHasTransformAnimation;
 
@@ -1594,8 +1898,7 @@ void GraphicsLayerCA::recursiveCommitChanges(CommitState& commitState, const Tra
         constexpr auto washBorderColor = Color::red.colorWithAlphaByte(100);
         
         m_visibleTileWashLayer = createPlatformCALayer(PlatformCALayer::LayerTypeLayer, this);
-        String name = makeString("Visible Tile Wash Layer 0x", hex(reinterpret_cast<uintptr_t>(m_visibleTileWashLayer->platformLayer()), Lowercase));
-        m_visibleTileWashLayer->setName(name);
+        m_visibleTileWashLayer->setName(makeString("Visible Tile Wash Layer 0x"_s, hex(reinterpret_cast<uintptr_t>(m_visibleTileWashLayer->platformLayer()), Lowercase)));
         m_visibleTileWashLayer->setAnchorPoint(FloatPoint3D(0, 0, 0));
         m_visibleTileWashLayer->setBorderColor(washBorderColor);
         m_visibleTileWashLayer->setBorderWidth(8);
@@ -1616,7 +1919,7 @@ void GraphicsLayerCA::recursiveCommitChanges(CommitState& commitState, const Tra
         childCommitState.ancestorHadChanges = hadChanges;
 
     if (appliesPageScale()) {
-        pageScaleFactor = this->pageScaleFactor();
+        pageScaleFactor *= this->pageScaleFactor();
         affectedByPageScale = true;
     }
 
@@ -1626,8 +1929,7 @@ void GraphicsLayerCA::recursiveCommitChanges(CommitState& commitState, const Tra
         baseRelativePosition += m_position;
 
     bool wasRunningTransformAnimation = isRunningTransformAnimation();
-    bool layerTypeChanged = false;
-    
+
     commitLayerChangesBeforeSublayers(childCommitState, pageScaleFactor, baseRelativePosition, layerTypeChanged);
 
     bool nowRunningTransformAnimation = wasRunningTransformAnimation;
@@ -1643,20 +1945,26 @@ void GraphicsLayerCA::recursiveCommitChanges(CommitState& commitState, const Tra
             childCommitState.ancestorWithTransformAnimationIntersectsCoverageRect = true;
         affectedByTransformAnimation = true;
     }
-    
+
+    if (isBackdropRoot())
+        childCommitState.backdropRootIsOpaque = backgroundColor().isOpaque() || client().backdropRootIsOpaque(this);
+
     if (GraphicsLayerCA* maskLayer = downcast<GraphicsLayerCA>(m_maskLayer.get())) {
         maskLayer->setVisibleAndCoverageRects(rects);
+        maskLayer->commitLayerTypeChangesBeforeSublayers(childCommitState, pageScaleFactor, layerTypeChanged);
         maskLayer->commitLayerChangesBeforeSublayers(childCommitState, pageScaleFactor, baseRelativePosition, layerTypeChanged);
     }
 
     bool hasDescendantsWithRunningTransformAnimations = false;
-    
-    for (auto& layer : children()) {
-        auto& currentChild = downcast<GraphicsLayerCA>(layer.get());
-        currentChild.recursiveCommitChanges(childCommitState, localState, pageScaleFactor, baseRelativePosition, affectedByPageScale);
 
-        if (currentChild.isRunningTransformAnimation() || currentChild.hasDescendantsWithRunningTransformAnimations())
-            hasDescendantsWithRunningTransformAnimations = true;
+    if (childCommitState.treeDepth <= cMaxLayerTreeDepth) {
+        for (auto& layer : children()) {
+            auto& currentChild = downcast<GraphicsLayerCA>(layer.get());
+            currentChild.recursiveCommitChanges(childCommitState, localState, pageScaleFactor, baseRelativePosition, affectedByPageScale);
+
+            if (currentChild.isRunningTransformAnimation() || currentChild.hasDescendantsWithRunningTransformAnimations())
+                hasDescendantsWithRunningTransformAnimations = true;
+        }
     }
 
     commitState.totalBackdropFilterArea = childCommitState.totalBackdropFilterArea;
@@ -1673,8 +1981,8 @@ void GraphicsLayerCA::recursiveCommitChanges(CommitState& commitState, const Tra
     bool hadDirtyRects = m_uncommittedChanges & DirtyRectsChanged;
     commitLayerChangesAfterSublayers(childCommitState);
 
-    if (affectedByTransformAnimation && m_layer->layerType() == PlatformCALayer::LayerTypeTiledBackingLayer)
-        client().notifyFlushBeforeDisplayRefresh(this);
+    if (affectedByTransformAnimation && m_layer->layerType() == PlatformCALayer::LayerType::LayerTypeTiledBackingLayer)
+        client().notifySubsequentFlushRequired(this);
 
     if (layerTypeChanged)
         client().didChangePlatformLayerForLayer(this);
@@ -1686,9 +1994,7 @@ void GraphicsLayerCA::recursiveCommitChanges(CommitState& commitState, const Tra
         
         FloatRect initialClip(boundsOrigin(), size());
 
-        GraphicsContext context([&](GraphicsContext& context) {
-            return makeUnique<DisplayList::Recorder>(context, *m_displayList, GraphicsContextState(), initialClip, AffineTransform());
-        });
+        DisplayList::RecorderImpl context(*m_displayList, GraphicsContextState(), initialClip, AffineTransform());
         paintGraphicsLayerContents(context, FloatRect(FloatPoint(), size()));
     }
 }
@@ -1708,14 +2014,14 @@ bool GraphicsLayerCA::platformCALayerShowRepaintCounter(PlatformCALayer* platfor
     return isShowingRepaintCounter();
 }
 
-void GraphicsLayerCA::platformCALayerPaintContents(PlatformCALayer*, GraphicsContext& context, const FloatRect& clip, GraphicsLayerPaintBehavior layerPaintBehavior)
+void GraphicsLayerCA::platformCALayerPaintContents(PlatformCALayer*, GraphicsContext& context, const FloatRect& clip, OptionSet<GraphicsLayerPaintBehavior> layerPaintBehavior)
 {
     m_hasEverPainted = true;
     if (m_displayList) {
         DisplayList::Replayer replayer(context, *m_displayList);
         
         if (UNLIKELY(isTrackingDisplayListReplay())) {
-            auto replayList = replayer.replay(clip, isTrackingDisplayListReplay());
+            auto replayList = replayer.replay(clip, isTrackingDisplayListReplay()).trackedDisplayList;
             layerDisplayListMap().add(this, std::pair<FloatRect, std::unique_ptr<DisplayList::DisplayList>>(clip, WTFMove(replayList)));
         } else
             replayer.replay(clip);
@@ -1757,28 +2063,63 @@ bool GraphicsLayerCA::platformCALayerUseGiantTiles() const
     return client().useGiantTiles();
 }
 
+bool GraphicsLayerCA::platformCALayerCSSUnprefixedBackdropFilterEnabled() const
+{
+    return client().cssUnprefixedBackdropFilterEnabled();
+}
+
 void GraphicsLayerCA::platformCALayerLogFilledVisibleFreshTile(unsigned blankPixelCount)
 {
     client().logFilledVisibleFreshTile(blankPixelCount);
 }
 
-static PlatformCALayer::LayerType layerTypeForCustomBackdropAppearance(GraphicsLayer::CustomAppearance appearance)
+bool GraphicsLayerCA::platformCALayerDelegatesDisplay(PlatformCALayer* layer) const
 {
-    return appearance == GraphicsLayer::CustomAppearance::LightBackdrop ? PlatformCALayer::LayerTypeLightSystemBackdropLayer : PlatformCALayer::LayerTypeDarkSystemBackdropLayer;
+    return (m_contentsDisplayDelegate || m_contentsLayerPurpose == ContentsLayerPurpose::Image) && m_contentsLayer == layer;
 }
 
-static bool isCustomBackdropLayerType(PlatformCALayer::LayerType layerType)
+void GraphicsLayerCA::platformCALayerLayerDisplay(PlatformCALayer* layer)
 {
-    return layerType == PlatformCALayer::LayerTypeLightSystemBackdropLayer || layerType == PlatformCALayer::LayerTypeDarkSystemBackdropLayer;
+    ASSERT(m_contentsDisplayDelegate || m_contentsLayerPurpose == ContentsLayerPurpose::Image);
+    ASSERT(layer == m_contentsLayer);
+    if (m_contentsDisplayDelegate)
+        m_contentsDisplayDelegate->display(*layer);
+}
+
+bool GraphicsLayerCA::platformCALayerNeedsPlatformContext(const PlatformCALayer*) const
+{
+    return client().layerNeedsPlatformContext(this);
+}
+
+void GraphicsLayerCA::commitLayerTypeChangesBeforeSublayers(CommitState&, float pageScaleFactor, bool& layerTypeChanged)
+{
+    SetForScope committingChangesChange(m_isCommittingChanges, true);
+
+    bool needTiledLayer = requiresTiledLayer(pageScaleFactor);
+
+    PlatformCALayer::LayerType currentLayerType = m_layer->layerType();
+    PlatformCALayer::LayerType neededLayerType = currentLayerType;
+
+    if (needTiledLayer)
+        neededLayerType = PlatformCALayer::LayerType::LayerTypeTiledBackingLayer;
+#if HAVE(CORE_ANIMATION_SEPARATED_LAYERS)
+    else if (m_isSeparatedImage)
+        neededLayerType = PlatformCALayer::LayerType::LayerTypeSeparatedImageLayer;
+    else if (currentLayerType == PlatformCALayer::LayerType::LayerTypeSeparatedImageLayer)
+        neededLayerType = PlatformCALayer::LayerType::LayerTypeWebLayer;
+#endif
+    else if (currentLayerType == PlatformCALayer::LayerType::LayerTypeTiledBackingLayer)
+        neededLayerType = PlatformCALayer::LayerType::LayerTypeWebLayer;
+
+    if (neededLayerType != m_layer->layerType()) {
+        changeLayerTypeTo(neededLayerType);
+        layerTypeChanged = true;
+    }
 }
 
 void GraphicsLayerCA::commitLayerChangesBeforeSublayers(CommitState& commitState, float pageScaleFactor, const FloatPoint& positionRelativeToBase, bool& layerChanged)
 {
-    SetForScope<bool> committingChangesChange(m_isCommittingChanges, true);
-
-    ++commitState.treeDepth;
-    if (m_structuralLayer)
-        ++commitState.treeDepth;
+    SetForScope committingChangesChange(m_isCommittingChanges, true);
 
     if (!m_uncommittedChanges) {
         // Ensure that we cap layer depth in commitLayerChangesAfterSublayers().
@@ -1786,26 +2127,12 @@ void GraphicsLayerCA::commitLayerChangesBeforeSublayers(CommitState& commitState
             addUncommittedChanges(ChildrenChanged);
     }
 
-    bool needTiledLayer = requiresTiledLayer(pageScaleFactor);
-    bool needBackdropLayerType = (customAppearance() == CustomAppearance::LightBackdrop || customAppearance() == CustomAppearance::DarkBackdrop);
-
-    PlatformCALayer::LayerType currentLayerType = m_layer->layerType();
-    PlatformCALayer::LayerType neededLayerType = currentLayerType;
-
-    if (needBackdropLayerType)
-        neededLayerType = layerTypeForCustomBackdropAppearance(customAppearance());
-    else if (needTiledLayer)
-        neededLayerType = PlatformCALayer::LayerTypeTiledBackingLayer;
-    else if (currentLayerType == PlatformCALayer::LayerTypeTiledBackingLayer || isCustomBackdropLayerType(m_layer->layerType()))
-        neededLayerType = PlatformCALayer::LayerTypeWebLayer;
-
-    if (neededLayerType != m_layer->layerType()) {
-        changeLayerTypeTo(neededLayerType);
-        layerChanged = true;
-    }
-
     // Need to handle Preserves3DChanged first, because it affects which layers subsequent properties are applied to
-    if (m_uncommittedChanges & (Preserves3DChanged | ReplicatedLayerChanged | BackdropFiltersChanged)) {
+    LayerChangeFlags structuralLayerUpdateReasons = Preserves3DChanged | ReplicatedLayerChanged | BackdropFiltersChanged;
+#if HAVE(CORE_MATERIAL)
+    structuralLayerUpdateReasons |= AppleVisualEffectChanged;
+#endif
+    if (m_uncommittedChanges & structuralLayerUpdateReasons) {
         if (updateStructuralLayer())
             layerChanged = true;
     }
@@ -1815,6 +2142,11 @@ void GraphicsLayerCA::commitLayerChangesBeforeSublayers(CommitState& commitState
 
     if (m_uncommittedChanges & DrawsContentChanged)
         updateDrawsContent();
+
+#if HAVE(SUPPORT_HDR_DISPLAY)
+    if (m_uncommittedChanges & DrawsHDRContentChanged)
+        updateDrawsHDRContent();
+#endif
 
     if (m_uncommittedChanges & NameChanged)
         updateNames();
@@ -1864,13 +2196,22 @@ void GraphicsLayerCA::commitLayerChangesBeforeSublayers(CommitState& commitState
     if (m_uncommittedChanges & BackdropFiltersChanged || needsBackdrop())
         updateBackdropFilters(commitState);
 
+#if HAVE(CORE_MATERIAL)
+    if (m_uncommittedChanges & AppleVisualEffectChanged)
+        updateAppleVisualEffectData();
+#endif
+
+    if (m_uncommittedChanges & BackdropRootChanged)
+        updateBackdropRoot();
+
     if (m_uncommittedChanges & BackdropFiltersRectChanged)
         updateBackdropFiltersRect();
 
-#if ENABLE(CSS_COMPOSITING)
     if (m_uncommittedChanges & BlendModeChanged)
         updateBlendMode();
-#endif
+
+    if (m_uncommittedChanges & VideoGravityChanged)
+        updateVideoGravity();
 
     if (m_uncommittedChanges & ShapeChanged)
         updateShape();
@@ -1881,10 +2222,12 @@ void GraphicsLayerCA::commitLayerChangesBeforeSublayers(CommitState& commitState
     if (m_uncommittedChanges & AnimationChanged)
         updateAnimations();
 
+    updateRootRelativeScale(); // Needs to happen before ContentsScaleChanged.
+
     // Updating the contents scale can cause parts of the layer to be invalidated,
     // so make sure to update the contents scale before updating the dirty rects.
     if (m_uncommittedChanges & ContentsScaleChanged)
-        updateContentsScale(pageScaleFactor);
+        updateContentsScale(m_rootRelativeScaleFactor * pageScaleFactor);
 
     if (m_uncommittedChanges & CoverageRectChanged)
         updateCoverage(commitState);
@@ -1900,9 +2243,6 @@ void GraphicsLayerCA::commitLayerChangesBeforeSublayers(CommitState& commitState
     
     if (m_uncommittedChanges & ContentsRectsChanged) // Needs to happen before ChildrenChanged
         updateContentsRects();
-
-    if (m_uncommittedChanges & MasksToBoundsRectChanged) // Needs to happen before ChildrenChanged
-        updateMasksToBoundsRect();
 
     if (m_uncommittedChanges & EventRegionChanged)
         updateEventRegion();
@@ -1922,14 +2262,26 @@ void GraphicsLayerCA::commitLayerChangesBeforeSublayers(CommitState& commitState
     if (m_uncommittedChanges & ContentsNeedsDisplay)
         updateContentsNeedsDisplay();
 
-    if (m_uncommittedChanges & SupportsSubpixelAntialiasedTextChanged)
-        updateSupportsSubpixelAntialiasedText();
-
     if (m_uncommittedChanges & DebugIndicatorsChanged)
         updateDebugIndicators();
 
     if (m_uncommittedChanges & CustomAppearanceChanged)
         updateCustomAppearance();
+
+#if HAVE(CORE_ANIMATION_SEPARATED_LAYERS)
+    if (m_uncommittedChanges & SeparatedChanged)
+        updateIsSeparated();
+
+#if HAVE(CORE_ANIMATION_SEPARATED_PORTALS)
+    if (m_uncommittedChanges & SeparatedPortalChanged)
+        updateIsSeparatedPortal();
+
+    if (m_uncommittedChanges & DescendentOfSeparatedPortalChanged)
+        updateIsDescendentOfSeparatedPortal();
+#endif
+#endif
+    if (m_uncommittedChanges & ContentsScalingFiltersChanged)
+        updateContentsScalingFilters();
 
     if (m_uncommittedChanges & ChildrenChanged) {
         updateSublayerList();
@@ -1947,7 +2299,7 @@ void GraphicsLayerCA::commitLayerChangesAfterSublayers(CommitState& commitState)
     if (!m_uncommittedChanges)
         return;
 
-    SetForScope<bool> committingChangesChange(m_isCommittingChanges, true);
+    SetForScope committingChangesChange(m_isCommittingChanges, true);
 
     if (m_uncommittedChanges & MaskLayerChanged)
         updateMaskLayer();
@@ -1966,14 +2318,19 @@ void GraphicsLayerCA::updateNames()
     auto name = debugName();
     switch (structuralLayerPurpose()) {
     case StructuralLayerForPreserves3D:
-        m_structuralLayer->setName("preserve-3d: " + name);
+        m_structuralLayer->setName(makeString("preserve-3d: "_s, name));
         break;
     case StructuralLayerForReplicaFlattening:
-        m_structuralLayer->setName("replica flattening: " + name);
+        m_structuralLayer->setName(makeString("replica flattening: "_s, name));
         break;
     case StructuralLayerForBackdrop:
-        m_structuralLayer->setName("backdrop hosting: " + name);
+        m_structuralLayer->setName(makeString("backdrop hosting: "_s, name));
         break;
+#if HAVE(MATERIAL_HOSTING)
+    case StructuralLayerForMaterial:
+        m_structuralLayer->setName(makeString("material hosting: "_s, name));
+        break;
+#endif
     case NoStructuralLayer:
         break;
     }
@@ -1997,24 +2354,24 @@ void GraphicsLayerCA::updateSublayerList(bool maxLayerDepthReached)
         list.append(m_layer);
     };
 
-    auto appendClippingLayers = [&](PlatformCALayerList& list) {
-        if (!m_contentsVisible)
-            return;
-
-        if (m_contentsClippingLayer) {
-            list.append(m_contentsClippingLayer);
-            return;
-        }
-
-        if (m_contentsLayer)
+    auto appendContentsLayer = [&](PlatformCALayerList& list) {
+        if (m_contentsVisible && m_contentsLayer)
             list.append(m_contentsLayer);
+    };
+
+    auto appendClippingLayers = [&](PlatformCALayerList& list) {
+        if (m_contentsVisible && m_contentsClippingLayer)
+            list.append(m_contentsClippingLayer);
     };
 
     auto appendCustomAndClippingLayers = [&](PlatformCALayerList& list) {
         if (auto* customSublayers = m_layer->customSublayers())
             list.appendVector(*customSublayers);
 
-        appendClippingLayers(list);
+        if (m_contentsClippingLayer)
+            appendClippingLayers(list);
+        else
+            appendContentsLayer(list);
     };
 
     auto appendLayersFromChildren = [&](PlatformCALayerList& list) {
@@ -2043,9 +2400,12 @@ void GraphicsLayerCA::updateSublayerList(bool maxLayerDepthReached)
     appendCustomAndClippingLayers(primaryLayerChildren);
 
     bool clippingLayerHostsChildren = m_contentsRectClipsDescendants && m_contentsClippingLayer;
-    if (clippingLayerHostsChildren) {
+    bool structuralLayerHostsChildren = !clippingLayerHostsChildren && m_structuralLayer && structuralLayerPurpose() != StructuralLayerPurpose::StructuralLayerForBackdrop;
+    if (m_contentsClippingLayer) {
         PlatformCALayerList clippingChildren;
-        buildChildLayerList(clippingChildren);
+        appendContentsLayer(clippingChildren);
+        if (clippingLayerHostsChildren)
+            buildChildLayerList(clippingChildren);
         m_contentsClippingLayer->setSublayers(clippingChildren);
     }
 
@@ -2053,11 +2413,13 @@ void GraphicsLayerCA::updateSublayerList(bool maxLayerDepthReached)
         PlatformCALayerList layerList;
         appendStructuralLayerChildren(layerList);
 
-        if (!clippingLayerHostsChildren)
+        if (structuralLayerHostsChildren)
             buildChildLayerList(layerList);
 
         m_structuralLayer->setSublayers(layerList);
-    } else if (!clippingLayerHostsChildren)
+    }
+
+    if (!clippingLayerHostsChildren && !structuralLayerHostsChildren)
         buildChildLayerList(primaryLayerChildren);
 
     m_layer->setSublayers(primaryLayerChildren);
@@ -2076,10 +2438,10 @@ void GraphicsLayerCA::updateGeometry(float pageScaleFactor, const FloatPoint& po
 
     // Update position.
     // Position is offset on the layer by the layer anchor point.
-    FloatPoint adjustedPosition(scaledPosition.x() + scaledAnchorPoint.x() * scaledSize.width(), scaledPosition.y() + scaledAnchorPoint.y() * scaledSize.height());
+    FloatPoint3D adjustedPosition(scaledPosition.x() + scaledAnchorPoint.x() * scaledSize.width(), scaledPosition.y() + scaledAnchorPoint.y() * scaledSize.height(), scaledAnchorPoint.z());
 
     if (m_structuralLayer) {
-        FloatPoint layerPosition(m_position.x() + m_anchorPoint.x() * m_size.width(), m_position.y() + m_anchorPoint.y() * m_size.height());
+        FloatPoint3D layerPosition(m_position.x() + m_anchorPoint.x() * m_size.width(), m_position.y() + m_anchorPoint.y() * m_size.height(), scaledAnchorPoint.z());
         FloatRect layerBounds(m_boundsOrigin, m_size);
 
         m_structuralLayer->setPosition(layerPosition);
@@ -2089,7 +2451,7 @@ void GraphicsLayerCA::updateGeometry(float pageScaleFactor, const FloatPoint& po
         if (m_layerClones) {
             for (auto& clone : m_layerClones->structuralLayerClones) {
                 PlatformCALayer* cloneLayer = clone.value.get();
-                FloatPoint clonePosition = layerPosition;
+                FloatPoint3D clonePosition = layerPosition;
 
                 if (m_replicaLayer && isReplicatedRootClone(clone.key)) {
                     // Maintain the special-case position for the root of a clone subtree,
@@ -2119,7 +2481,7 @@ void GraphicsLayerCA::updateGeometry(float pageScaleFactor, const FloatPoint& po
     if (m_layerClones) {
         for (auto& clone : m_layerClones->primaryLayerClones) {
             PlatformCALayer* cloneLayer = clone.value.get();
-            FloatPoint clonePosition = adjustedPosition;
+            FloatPoint3D clonePosition = adjustedPosition;
 
             if (!m_structuralLayer && m_replicaLayer && isReplicatedRootClone(clone.key)) {
                 // Maintain the special-case position for the root of a clone subtree,
@@ -2181,7 +2543,7 @@ void GraphicsLayerCA::updateContentsVisibility()
         if (m_backdropLayer)
             m_backdropLayer->setHidden(false);
     } else {
-        m_layer->setContents(nullptr);
+        m_layer->clearContents();
 
         if (m_layerClones) {
             for (auto& layer : m_layerClones->primaryLayerClones.values())
@@ -2219,7 +2581,8 @@ void GraphicsLayerCA::updateContentsOpaque(float pageScaleFactor)
 
 void GraphicsLayerCA::updateBackfaceVisibility()
 {
-    if (m_structuralLayer && structuralLayerPurpose() == StructuralLayerForReplicaFlattening) {
+    if (m_structuralLayer && (structuralLayerPurpose() == StructuralLayerForReplicaFlattening || structuralLayerPurpose() == StructuralLayerForBackdrop)) {
+
         m_structuralLayer->setDoubleSided(m_backfaceVisibility);
 
         if (m_layerClones) {
@@ -2238,10 +2601,10 @@ void GraphicsLayerCA::updateBackfaceVisibility()
 
 void GraphicsLayerCA::updateFilters()
 {
-    m_layer->setFilters(m_filters);
+    primaryLayer()->setFilters(m_filters);
 
-    if (m_layerClones) {
-        for (auto& clone : m_layerClones->primaryLayerClones) {
+    if (LayerMap* layerCloneMap = primaryLayerClones()) {
+        for (auto& clone : *layerCloneMap) {
             if (m_replicaLayer && isReplicatedRootClone(clone.key))
                 continue;
 
@@ -2252,19 +2615,16 @@ void GraphicsLayerCA::updateFilters()
 
 void GraphicsLayerCA::updateBackdropFilters(CommitState& commitState)
 {
-    using CheckedUnsigned = Checked<unsigned, RecordOverflow>;
-
     bool canHaveBackdropFilters = needsBackdrop();
-
     if (canHaveBackdropFilters) {
         canHaveBackdropFilters = false;
         IntRect backdropFilterRect = enclosingIntRect(m_backdropFiltersRect.rect());
         if (backdropFilterRect.width() > 0 && backdropFilterRect.height() > 0) {
-            CheckedUnsigned backdropFilterArea = CheckedUnsigned(backdropFilterRect.width()) * CheckedUnsigned(backdropFilterRect.height());
+            CheckedUint32 backdropFilterArea = CheckedUint32(backdropFilterRect.width()) * CheckedUint32(backdropFilterRect.height());
             if (!backdropFilterArea.hasOverflowed()) {
-                CheckedUnsigned newTotalBackdropFilterArea = CheckedUnsigned(commitState.totalBackdropFilterArea) + backdropFilterArea;
-                if (!newTotalBackdropFilterArea.hasOverflowed() && newTotalBackdropFilterArea.unsafeGet() <= cMaxTotalBackdropFilterArea) {
-                    commitState.totalBackdropFilterArea = newTotalBackdropFilterArea.unsafeGet();
+                CheckedUint32 newTotalBackdropFilterArea = CheckedUint32(commitState.totalBackdropFilterArea) + backdropFilterArea;
+                if (!newTotalBackdropFilterArea.hasOverflowed() && newTotalBackdropFilterArea <= cMaxTotalBackdropFilterArea) {
+                    commitState.totalBackdropFilterArea = newTotalBackdropFilterArea;
                     canHaveBackdropFilters = true;
                 }
             }
@@ -2281,29 +2641,54 @@ void GraphicsLayerCA::updateBackdropFilters(CommitState& commitState)
     }
 
     // If nothing actually changed, no need to touch the layer properties.
-    if (!(m_uncommittedChanges & BackdropFiltersChanged))
-        return;
+    if (!(m_uncommittedChanges & BackdropFiltersChanged) && m_backdropLayer) {
+        if (m_backdropLayer->backdropRootIsOpaque() == commitState.backdropRootIsOpaque)
+            return;
+    }
 
-    bool madeLayer = !m_backdropLayer;
-    if (!m_backdropLayer) {
-        m_backdropLayer = createPlatformCALayer(PlatformCALayer::LayerTypeBackdropLayer, this);
+    auto expectedLayerType = PlatformCALayer::LayerType::LayerTypeBackdropLayer;
+#if HAVE(CORE_MATERIAL)
+    if (appleVisualEffectNeedsBackdrop(m_appleVisualEffectData.effect))
+        expectedLayerType = PlatformCALayer::LayerType::LayerTypeMaterialLayer;
+#endif
+
+    bool makeLayer = !m_backdropLayer || (m_backdropLayer->layerType() != expectedLayerType);
+    if (makeLayer) {
+        m_backdropLayer = createPlatformCALayer(expectedLayerType, this);
         m_backdropLayer->setAnchorPoint(FloatPoint3D());
         m_backdropLayer->setMasksToBounds(true);
-        m_backdropLayer->setName("backdrop");
+#if HAVE(CORE_MATERIAL)
+        if (expectedLayerType == PlatformCALayer::LayerType::LayerTypeMaterialLayer)
+            m_backdropLayer->setName(MAKE_STATIC_STRING_IMPL("material"));
+        else
+#endif
+            m_backdropLayer->setName(MAKE_STATIC_STRING_IMPL("backdrop"));
     }
 
     m_backdropLayer->setHidden(!m_contentsVisible);
-    m_backdropLayer->setFilters(m_backdropFilters);
+    m_backdropLayer->setBackdropRootIsOpaque(commitState.backdropRootIsOpaque);
+
+    bool shouldSetFilters = true;
+#if HAVE(CORE_MATERIAL)
+    if (m_appleVisualEffectData.effect != AppleVisualEffect::None) {
+        m_backdropLayer->setAppleVisualEffectData(m_appleVisualEffectData);
+        shouldSetFilters = false;
+    }
+#endif
+
+    if (shouldSetFilters)
+        m_backdropLayer->setFilters(m_backdropFilters);
 
     if (m_layerClones) {
-        for (auto& clone : m_layerClones->backdropLayerClones) {
-            PlatformCALayer* cloneLayer = clone.value.get();
-            cloneLayer->setHidden(!m_contentsVisible);
-            cloneLayer->setFilters(m_backdropFilters);
+        for (auto& clone : m_layerClones->backdropLayerClones.values()) {
+            clone->setHidden(!m_contentsVisible);
+            clone->setBackdropRootIsOpaque(commitState.backdropRootIsOpaque);
+            if (shouldSetFilters)
+                clone->setFilters(m_backdropFilters);
         }
     }
 
-    if (madeLayer) {
+    if (makeLayer) {
         updateBackdropFiltersRect();
         noteSublayersChanged(DontScheduleFlush);
     }
@@ -2342,7 +2727,11 @@ void GraphicsLayerCA::updateBackdropFiltersRect()
     }
 }
 
-#if ENABLE(CSS_COMPOSITING)
+void GraphicsLayerCA::updateBackdropRoot()
+{
+    m_layer->setIsBackdropRoot(isBackdropRoot());
+}
+
 void GraphicsLayerCA::updateBlendMode()
 {
     primaryLayer()->setBlendMode(m_blendMode);
@@ -2355,7 +2744,12 @@ void GraphicsLayerCA::updateBlendMode()
         }
     }
 }
-#endif
+
+void GraphicsLayerCA::updateVideoGravity()
+{
+    if (m_contentsLayer)
+        m_contentsLayer->setVideoGravity(m_videoGravity);
+}
 
 void GraphicsLayerCA::updateShape()
 {
@@ -2370,6 +2764,51 @@ void GraphicsLayerCA::updateShape()
 void GraphicsLayerCA::updateWindRule()
 {
     m_layer->setShapeWindRule(m_shapeLayerWindRule);
+}
+
+#if HAVE(CORE_ANIMATION_SEPARATED_LAYERS)
+void GraphicsLayerCA::updateIsSeparated()
+{
+    m_layer->setIsSeparated(m_isSeparated);
+}
+
+#if HAVE(CORE_ANIMATION_SEPARATED_PORTALS)
+void GraphicsLayerCA::updateIsSeparatedPortal()
+{
+    m_layer->setIsSeparatedPortal(m_isSeparatedPortal);
+}
+
+void GraphicsLayerCA::updateIsDescendentOfSeparatedPortal()
+{
+    m_layer->setIsDescendentOfSeparatedPortal(m_isDescendentOfSeparatedPortal);
+}
+#endif
+#endif
+
+#if HAVE(CORE_MATERIAL)
+void GraphicsLayerCA::updateAppleVisualEffectData()
+{
+    if (m_backdropLayer && (appleVisualEffectNeedsBackdrop(m_backdropLayer->appleVisualEffectData().effect) || appleVisualEffectNeedsBackdrop(m_appleVisualEffectData.effect)))
+        m_backdropLayer->setAppleVisualEffectData(m_appleVisualEffectData);
+
+    if (appleVisualEffectAppliesFilter(m_appleVisualEffectData.effect))
+        m_layer->setAppleVisualEffectData(m_appleVisualEffectData);
+    else
+        m_layer->setAppleVisualEffectData({ });
+
+#if HAVE(MATERIAL_HOSTING)
+    if (m_structuralLayer && appleVisualEffectIsHostedMaterial(m_appleVisualEffectData.effect))
+        m_structuralLayer->setAppleVisualEffectData(m_appleVisualEffectData);
+#endif
+}
+#endif
+
+void GraphicsLayerCA::updateContentsScalingFilters()
+{
+    if (!m_contentsLayer)
+        return;
+    m_contentsLayer->setMinificationFilter(toPlatformCALayerFilterType(m_contentsMinificationFilter));
+    m_contentsLayer->setMagnificationFilter(toPlatformCALayerFilterType(m_contentsMagnificationFilter));
 }
 
 bool GraphicsLayerCA::updateStructuralLayer()
@@ -2387,6 +2826,8 @@ bool GraphicsLayerCA::ensureStructuralLayer(StructuralLayerPurpose purpose)
         | BackfaceVisibilityChanged
         | FiltersChanged
         | BackdropFiltersChanged
+        | BlendModeChanged
+        | BackdropRootChanged
         | MaskLayerChanged
         | OpacityChanged;
 
@@ -2413,20 +2854,32 @@ bool GraphicsLayerCA::ensureStructuralLayer(StructuralLayerPurpose purpose)
         return structuralLayerChanged;
     }
 
-    if (purpose == StructuralLayerForPreserves3D) {
-        if (m_structuralLayer && m_structuralLayer->layerType() != PlatformCALayer::LayerTypeTransformLayer)
-            m_structuralLayer = nullptr;
-        
-        if (!m_structuralLayer) {
-            m_structuralLayer = createPlatformCALayer(PlatformCALayer::LayerTypeTransformLayer, this);
-            structuralLayerChanged = true;
-        }
-    } else {
-        if (m_structuralLayer && m_structuralLayer->layerType() != PlatformCALayer::LayerTypeLayer)
+#if HAVE(MATERIAL_HOSTING)
+    if (purpose == StructuralLayerForMaterial) {
+        if (m_structuralLayer && m_structuralLayer->layerType() != PlatformCALayer::LayerType::LayerTypeMaterialHostingLayer)
             m_structuralLayer = nullptr;
 
         if (!m_structuralLayer) {
-            m_structuralLayer = createPlatformCALayer(PlatformCALayer::LayerTypeLayer, this);
+            m_structuralLayer = createPlatformCALayer(PlatformCALayer::LayerType::LayerTypeMaterialHostingLayer, this);
+            structuralLayerChanged = true;
+        }
+    } else if (purpose == StructuralLayerForPreserves3D) {
+#else
+    if (purpose == StructuralLayerForPreserves3D) {
+#endif
+        if (m_structuralLayer && m_structuralLayer->layerType() != PlatformCALayer::LayerType::LayerTypeTransformLayer)
+            m_structuralLayer = nullptr;
+        
+        if (!m_structuralLayer) {
+            m_structuralLayer = createPlatformCALayer(PlatformCALayer::LayerType::LayerTypeTransformLayer, this);
+            structuralLayerChanged = true;
+        }
+    } else {
+        if (m_structuralLayer && m_structuralLayer->layerType() != PlatformCALayer::LayerType::LayerTypeLayer)
+            m_structuralLayer = nullptr;
+
+        if (!m_structuralLayer) {
+            m_structuralLayer = createPlatformCALayer(PlatformCALayer::LayerType::LayerTypeLayer, this);
             structuralLayerChanged = true;
         }
     }
@@ -2445,8 +2898,10 @@ bool GraphicsLayerCA::ensureStructuralLayer(StructuralLayerPurpose purpose)
     FloatPoint3D anchorPoint(0.5f, 0.5f, 0);
     m_layer->setPosition(point);
     m_layer->setAnchorPoint(anchorPoint);
+    m_layer->setFilters(FilterOperations());
     m_layer->setTransform(TransformationMatrix());
     m_layer->setOpacity(1);
+    m_layer->setBlendMode(BlendMode::Normal);
     if (m_layerClones) {
         for (auto& layer : m_layerClones->primaryLayerClones.values()) {
             layer->setPosition(point);
@@ -2462,7 +2917,12 @@ bool GraphicsLayerCA::ensureStructuralLayer(StructuralLayerPurpose purpose)
 
 GraphicsLayerCA::StructuralLayerPurpose GraphicsLayerCA::structuralLayerPurpose() const
 {
-    if (preserves3D())
+#if HAVE(MATERIAL_HOSTING)
+    if (appleVisualEffectIsHostedMaterial(m_appleVisualEffectData.effect))
+        return StructuralLayerForMaterial;
+#endif
+
+    if (preserves3D() && m_type != Type::Structural)
         return StructuralLayerForPreserves3D;
     
     if (isReplicated())
@@ -2480,7 +2940,7 @@ void GraphicsLayerCA::updateDrawsContent()
         m_layer->setNeedsDisplay();
         m_hasEverPainted = false;
     } else {
-        m_layer->setContents(nullptr);
+        m_layer->clearContents();
         if (m_layerClones) {
             for (auto& layer : m_layerClones->primaryLayerClones.values())
                 layer->setContents(nullptr);
@@ -2496,6 +2956,10 @@ void GraphicsLayerCA::updateCoverage(const CommitState& commitState)
         backing->setCoverageRect(m_coverageRect);
     }
 
+#if ENABLE(INTERACTION_REGIONS_IN_EVENT_REGION) || HAVE(CORE_ANIMATION_SEPARATED_LAYERS)
+    m_layer->setVisibleRect(m_visibleRect);
+#endif
+
     bool requiresBacking = m_intersectsCoverageRect
         || !allowsBackingStoreDetaching()
         || commitState.ancestorWithTransformAnimationIntersectsCoverageRect // FIXME: Compute backing exactly for descendants of animating layers.
@@ -2503,21 +2967,21 @@ void GraphicsLayerCA::updateCoverage(const CommitState& commitState)
 
 #if !LOG_DISABLED
     if (requiresBacking) {
-        auto reasonForBacking = [&]() -> const char* {
+        auto reasonForBacking = [&] {
             if (m_intersectsCoverageRect)
-                return "intersectsCoverageRect";
+                return "intersectsCoverageRect"_s;
             
             if (!allowsBackingStoreDetaching())
-                return "backing detachment disallowed";
+                return "backing detachment disallowed"_s;
 
             if (commitState.ancestorWithTransformAnimationIntersectsCoverageRect)
-                return "ancestor with transform";
+                return "ancestor with transform"_s;
             
-            return "has transform animation with unknown extent";
+            return "has transform animation with unknown extent"_s;
         };
-        LOG_WITH_STREAM(Layers, stream << "GraphicsLayerCA " << this << " id " << primaryLayerID() << " setBackingStoreAttached: " << requiresBacking << " (" << reasonForBacking() << ")");
+        LOG_WITH_STREAM(Layers, stream << "GraphicsLayerCA "_s << this << " id "_s << primaryLayerID() << " setBackingStoreAttached: "_s << requiresBacking << " ("_s << reasonForBacking() << ')');
     } else
-        LOG_WITH_STREAM(Layers, stream << "GraphicsLayerCA " << this << " id " << primaryLayerID() << " setBackingStoreAttached: " << requiresBacking);
+        LOG_WITH_STREAM(Layers, stream << "GraphicsLayerCA "_s << this << " id "_s << primaryLayerID() << " setBackingStoreAttached: "_s << requiresBacking);
 #endif
 
     m_layer->setBackingStoreAttached(requiresBacking);
@@ -2532,11 +2996,6 @@ void GraphicsLayerCA::updateCoverage(const CommitState& commitState)
 void GraphicsLayerCA::updateAcceleratesDrawing()
 {
     m_layer->setAcceleratesDrawing(m_acceleratesDrawing);
-}
-
-void GraphicsLayerCA::updateSupportsSubpixelAntialiasedText()
-{
-    m_layer->setSupportsSubpixelAntialiasedText(m_supportsSubpixelAntialiasedText);
 }
 
 static void setLayerDebugBorder(PlatformCALayer& layer, Color borderColor, float borderWidth)
@@ -2602,13 +3061,13 @@ void GraphicsLayerCA::updateBackgroundColor()
 
 void GraphicsLayerCA::updateContentsImage()
 {
-    if (m_pendingContentsImage) {
+    if (m_pendingContentsImage || m_pendingContentsImageBuffer) {
         if (!m_contentsLayer.get()) {
-            m_contentsLayer = createPlatformCALayer(PlatformCALayer::LayerTypeLayer, this);
+            m_contentsLayer = createPlatformCALayer(PlatformCALayer::LayerType::LayerTypeLayer, this);
 #if ENABLE(TREE_DEBUGGING)
-            m_contentsLayer->setName(makeString("contents image ", m_contentsLayer->layerID()));
+            m_contentsLayer->setName(makeString("contents image "_s, m_contentsLayer->layerID().object()));
 #else
-            m_contentsLayer->setName("contents image");
+            m_contentsLayer->setName(MAKE_STATIC_STRING_IMPL("contents image"));
 #endif
             setupContentsLayer(m_contentsLayer.get());
             // m_contentsLayer will be parented by updateSublayerList
@@ -2616,15 +3075,25 @@ void GraphicsLayerCA::updateContentsImage()
 
         // FIXME: maybe only do trilinear if the image is being scaled down,
         // but then what if the layer size changes?
-        m_contentsLayer->setMinificationFilter(PlatformCALayer::Trilinear);
-        m_contentsLayer->setContents(m_pendingContentsImage.get());
-        m_pendingContentsImage = nullptr;
+        m_contentsLayer->setMinificationFilter(PlatformCALayer::FilterType::Trilinear);
+
+        if (m_pendingContentsImage) {
+            m_contentsLayer->setContents(m_pendingContentsImage->platformImage().get());
+            m_pendingContentsImage = nullptr;
+        } else
+            setLayerContentsToImageBuffer(m_contentsLayer.get(), m_pendingContentsImageBuffer.get());
 
         if (m_layerClones) {
-            for (auto& layer : m_layerClones->contentsLayerClones.values())
-                layer->setContents(m_contentsLayer->contents());
+            for (auto& layer : m_layerClones->contentsLayerClones.values()) {
+                if (m_pendingContentsImageBuffer)
+                    setLayerContentsToImageBuffer(layer.get(), m_pendingContentsImageBuffer.get());
+                else
+                    layer->setContents(m_contentsLayer->contents());
+            }
         }
-        
+
+        m_pendingContentsImageBuffer = nullptr;
+
         updateContentsRects();
     } else {
         // No image.
@@ -2639,12 +3108,14 @@ void GraphicsLayerCA::updateContentsPlatformLayer()
         return;
 
     // Platform layer was set as m_contentsLayer, and will get parented in updateSublayerList().
-    setupContentsLayer(m_contentsLayer.get());
+    auto orientation = m_contentsDisplayDelegate ? m_contentsDisplayDelegate->orientation() : defaultContentsOrientation;
+    setupContentsLayer(m_contentsLayer.get(), orientation);
 
     if (m_contentsLayerPurpose == ContentsLayerPurpose::Canvas)
         m_contentsLayer->setNeedsDisplay();
 
     updateContentsRects();
+    updateContentsScalingFilters();
 }
 
 void GraphicsLayerCA::updateContentsColorLayer()
@@ -2668,8 +3139,16 @@ void GraphicsLayerCA::updateContentsColorLayer()
 // roundedRect is in the coordinate space of clippingLayer.
 void GraphicsLayerCA::updateClippingStrategy(PlatformCALayer& clippingLayer, RefPtr<PlatformCALayer>& shapeMaskLayer, const FloatRoundedRect& roundedRect)
 {
+#if HAVE(CORE_ANIMATION_SEPARATED_LAYERS)
+    if (m_isSeparated && roundedRect.radii().hasEvenCorners() && clippingLayer.bounds() == roundedRect.rect()) {
+        m_layer->setCornerRadius(roundedRect.radii().topLeft().width());
+        return;
+    }
+    m_layer->setCornerRadius(0);
+#endif
+
     if (roundedRect.radii().isUniformCornerRadius() && clippingLayer.bounds() == roundedRect.rect()) {
-        clippingLayer.setMask(nullptr);
+        clippingLayer.setMaskLayer(nullptr);
         if (shapeMaskLayer) {
             shapeMaskLayer->setOwner(nullptr);
             shapeMaskLayer = nullptr;
@@ -2681,9 +3160,9 @@ void GraphicsLayerCA::updateClippingStrategy(PlatformCALayer& clippingLayer, Ref
     }
 
     if (!shapeMaskLayer) {
-        shapeMaskLayer = createPlatformCALayer(PlatformCALayer::LayerTypeShapeLayer, this);
+        shapeMaskLayer = createPlatformCALayer(PlatformCALayer::LayerType::LayerTypeShapeLayer, this);
         shapeMaskLayer->setAnchorPoint({ });
-        shapeMaskLayer->setName("shape mask");
+        shapeMaskLayer->setName(MAKE_STATIC_STRING_IMPL("shape mask"));
     }
 
     // clippingLayer's boundsOrigin is roundedRect.rect().location(), and is non-zero to positioning descendant layers.
@@ -2699,7 +3178,8 @@ void GraphicsLayerCA::updateClippingStrategy(PlatformCALayer& clippingLayer, Ref
     shapeMaskLayer->setShapeRoundedRect(localRoundedRect);
 
     clippingLayer.setCornerRadius(0);
-    clippingLayer.setMask(shapeMaskLayer.get());
+    RefPtr maskLayer = shapeMaskLayer;
+    clippingLayer.setMaskLayer(WTFMove(maskLayer));
 }
 
 void GraphicsLayerCA::updateContentsRects()
@@ -2712,12 +3192,12 @@ void GraphicsLayerCA::updateContentsRects()
     bool gainedOrLostClippingLayer = false;
     if (m_contentsClippingRect.isRounded() || !m_contentsClippingRect.rect().contains(m_contentsRect)) {
         if (!m_contentsClippingLayer) {
-            m_contentsClippingLayer = createPlatformCALayer(PlatformCALayer::LayerTypeLayer, this);
+            m_contentsClippingLayer = createPlatformCALayer(PlatformCALayer::LayerType::LayerTypeLayer, this);
             m_contentsClippingLayer->setAnchorPoint({ });
 #if ENABLE(TREE_DEBUGGING)
-            m_contentsClippingLayer->setName(makeString("contents clipping ", m_contentsClippingLayer->layerID()));
+            m_contentsClippingLayer->setName(makeString("contents clipping "_s, m_contentsClippingLayer->layerID().object()));
 #else
-            m_contentsClippingLayer->setName("contents clipping");
+            m_contentsClippingLayer->setName(MAKE_STATIC_STRING_IMPL("contents clipping"));
 #endif
             gainedOrLostClippingLayer = true;
         }
@@ -2738,7 +3218,7 @@ void GraphicsLayerCA::updateContentsRects()
 
             m_contentsClippingLayer->removeFromSuperlayer();
             m_contentsClippingLayer->setOwner(nullptr);
-            m_contentsClippingLayer->setMask(nullptr);
+            m_contentsClippingLayer->setMaskLayer(nullptr);
             m_contentsClippingLayer = nullptr;
             gainedOrLostClippingLayer = true;
         }
@@ -2778,26 +3258,6 @@ void GraphicsLayerCA::updateContentsRects()
     }
 }
 
-void GraphicsLayerCA::updateMasksToBoundsRect()
-{
-    updateClippingStrategy(*m_layer, m_shapeMaskLayer, m_masksToBoundsRect);
-
-    if (m_layerClones) {
-        for (auto& clone : m_layerClones->primaryLayerClones) {
-            CloneID cloneID = clone.key;
-            RefPtr<PlatformCALayer> shapeMaskLayerClone = m_layerClones->shapeMaskLayerClones.get(cloneID);
-
-            bool hadShapeMask = shapeMaskLayerClone;
-            updateClippingStrategy(*clone.value, shapeMaskLayerClone, m_masksToBoundsRect);
-
-            if (!shapeMaskLayerClone)
-                m_layerClones->shapeMaskLayerClones.remove(cloneID);
-            else if (!hadShapeMask && shapeMaskLayerClone)
-                m_layerClones->shapeMaskLayerClones.add(cloneID, shapeMaskLayerClone);
-        }
-    }
-}
-
 void GraphicsLayerCA::updateEventRegion()
 {
     m_layer->setEventRegion(eventRegion());
@@ -2812,22 +3272,22 @@ void GraphicsLayerCA::updateScrollingNode()
 
 void GraphicsLayerCA::updateMaskLayer()
 {
-    PlatformCALayer* maskCALayer = m_maskLayer ? downcast<GraphicsLayerCA>(*m_maskLayer).primaryLayer() : nullptr;
+    RefPtr<PlatformCALayer> maskCALayer = m_maskLayer ? downcast<GraphicsLayerCA>(*m_maskLayer).primaryLayer() : nullptr;
     
     LayerMap* layerCloneMap;
     if (m_structuralLayer && structuralLayerPurpose() == StructuralLayerForBackdrop) {
-        m_structuralLayer->setMask(maskCALayer);
+        m_structuralLayer->setMaskLayer(WTFMove(maskCALayer));
         layerCloneMap = m_layerClones ? &m_layerClones->structuralLayerClones : nullptr;
     } else {
-        m_layer->setMask(maskCALayer);
+        m_layer->setMaskLayer(WTFMove(maskCALayer));
         layerCloneMap = m_layerClones ? &m_layerClones->primaryLayerClones : nullptr;
     }
 
     LayerMap* maskLayerCloneMap = m_maskLayer ? downcast<GraphicsLayerCA>(*m_maskLayer).primaryLayerClones() : nullptr;
     if (layerCloneMap) {
         for (auto& clone : *layerCloneMap) {
-            PlatformCALayer* maskClone = maskLayerCloneMap ? maskLayerCloneMap->get(clone.key) : nullptr;
-            clone.value->setMask(maskClone);
+            RefPtr<PlatformCALayer> maskClone = maskLayerCloneMap ? maskLayerCloneMap->get(clone.key) : nullptr;
+            clone.value->setMaskLayer(WTFMove(maskClone));
         }
     }
 }
@@ -2847,6 +3307,14 @@ void GraphicsLayerCA::updateReplicatedLayers()
         m_layer->insertSublayer(*replicaRoot, 0);
 }
 
+#if HAVE(SUPPORT_HDR_DISPLAY)
+void GraphicsLayerCA::updateDrawsHDRContent()
+{
+    auto contentsFormat = PlatformCALayer::contentsFormatForLayer(nullptr, this);
+    m_layer->setContentsFormat(contentsFormat);
+}
+#endif
+
 // For now, this assumes that layers only ever have one replica, so replicaIndices contains only 0 and 1.
 GraphicsLayerCA::CloneID GraphicsLayerCA::ReplicaState::cloneID() const
 {
@@ -2855,8 +3323,7 @@ GraphicsLayerCA::CloneID GraphicsLayerCA::ReplicaState::cloneID() const
     const size_t bitsPerUChar = sizeof(UChar) * 8;
     size_t vectorSize = (depth + bitsPerUChar - 1) / bitsPerUChar;
     
-    Vector<UChar> result(vectorSize);
-    result.fill(0);
+    Vector<UChar> result(vectorSize, 0);
 
     // Create a string from the bit sequence which we can use to identify the clone.
     // Note that the string may contain embedded nulls, but that's OK.
@@ -2888,88 +3355,243 @@ RefPtr<PlatformCALayer> GraphicsLayerCA::replicatedLayerRoot(ReplicaState& repli
 
 void GraphicsLayerCA::updateAnimations()
 {
-    if (!hasAnimations())
-        return;
+    // In order to guarantee that transform animations are applied in the expected order (translate, rotate, scale and transform),
+    // we need to have them wrapped individually in an animation group because Core Animation sorts animations first by their begin
+    // time, and then by the order in which they were added (for those with the same begin time). Since a rotate animation can have
+    // an earlier begin time than a translate animation, we cannot rely on adding the animations in the correct order.
+    //
+    // Having an animation group wrapping each animation means that we can guarantee the order in which animations are applied by
+    // ensuring they each have the same begin time. We set this begin time to be the smallest value possible, ensuring that base
+    // transform animations are applied continuously. We'll then set the begin time of interpolating animations to be local to the
+    // animation group, which means subtracting the group's begin time.
 
-    size_t numAnimations;
-    if ((numAnimations = m_animations->uncomittedAnimations.size())) {
-        for (size_t i = 0; i < numAnimations; ++i) {
-            const LayerPropertyAnimation& pendingAnimation = m_animations->uncomittedAnimations[i];
-            setAnimationOnLayer(*pendingAnimation.m_animation, pendingAnimation.m_property, pendingAnimation.m_name, pendingAnimation.m_index, pendingAnimation.m_subIndex, pendingAnimation.m_timeOffset);
+    // We use 1_s here because 0_s would have special meaning in Core Animation, meaning that the animation would have its begin
+    // time set to the current time when it's committed.
+    auto animationGroupBeginTime = 1_s;
+    auto infiniteDuration = std::numeric_limits<double>::max();
+    auto currentTime = Seconds(CACurrentMediaTime());
 
-            AnimationsMap::iterator it = m_animations->runningAnimations.find(pendingAnimation.m_name);
-            if (it == m_animations->runningAnimations.end()) {
-                Vector<LayerPropertyAnimation> animations;
-                animations.append(pendingAnimation);
-                m_animations->runningAnimations.add(pendingAnimation.m_name, animations);
-            } else {
-                Vector<LayerPropertyAnimation>& animations = it->value;
-                animations.append(pendingAnimation);
-            }
+    auto addAnimationGroup = [&](AnimatedProperty property, const Vector<RefPtr<PlatformCAAnimation>>& animations) {
+        auto caAnimationGroup = createPlatformCAAnimation(PlatformCAAnimation::AnimationType::Group, PlatformCAAnimation::makeGroupKeyPath());
+        caAnimationGroup->setDuration(infiniteDuration);
+        caAnimationGroup->setAnimations(animations);
+
+        auto animationGroup = LayerPropertyAnimation(WTFMove(caAnimationGroup), makeString("group-"_s, WTF::UUID::createVersion4()), property, 0, 0_s);
+        animationGroup.m_beginTime = animationGroupBeginTime;
+
+        setAnimationOnLayer(animationGroup);
+        m_animationGroups.append(WTFMove(animationGroup));
+    };
+
+    enum class Additive : bool { No, Yes };
+    auto prepareAnimationForAddition = [&](LayerPropertyAnimation& animation, Additive additive = Additive::Yes) {
+        auto caAnim = animation.m_animation;
+        caAnim->setAdditive(additive == Additive::Yes);
+        if (auto beginTime = animation.computedBeginTime())
+            caAnim->setBeginTime(beginTime->seconds());
+
+        if (animation.m_playState == PlayState::PausePending || animation.m_playState == PlayState::Paused) {
+            caAnim->setSpeed(0);
+            caAnim->setTimeOffset(animation.m_timeOffset.seconds());
+            animation.m_playState = PlayState::Paused;
+        } else
+            animation.m_playState = PlayState::Playing;
+    };
+
+    auto addLeafAnimation = [&](LayerPropertyAnimation& animation) {
+        if (!animation.m_beginTime)
+            animation.m_beginTime = currentTime;
+        prepareAnimationForAddition(animation, Additive::No);
+        setAnimationOnLayer(animation);
+    };
+
+    enum class TransformationMatrixSource { UseIdentityMatrix, AskClient };
+    auto makeBaseValueTransformAnimation = [&](AnimatedProperty property, TransformationMatrixSource matrixSource = TransformationMatrixSource::AskClient, Seconds beginTimeOfEarliestPropertyAnimation = 0_s) -> LayerPropertyAnimation* {
+        // A base value transform animation can either be set to the identity matrix or to read the underlying
+        // value from the GraphicsLayerClient. If we didn't explicitly ask for an identity matrix, we can skip
+        // the addition of this base value transform animation since it will be a no-op.
+        auto matrix = matrixSource == TransformationMatrixSource::UseIdentityMatrix ? TransformationMatrix() : client().transformMatrixForProperty(property);
+        if (matrixSource == TransformationMatrixSource::AskClient && matrix.isIdentity())
+            return nullptr;
+
+        auto delay = beginTimeOfEarliestPropertyAnimation > currentTime ? beginTimeOfEarliestPropertyAnimation - currentTime : 0_s;
+
+        // A base value transform animation needs to last forever and use the same value for its from and to values,
+        // unless we're just filling until an animation for this property starts, in which case it must last for duration
+        // of the delay until that animation.
+        auto caAnimation = createPlatformCAAnimation(PlatformCAAnimation::AnimationType::Basic, PlatformCAAnimation::makeKeyPath(property));
+        caAnimation->setDuration(delay ? delay.seconds() : infiniteDuration);
+        caAnimation->setFromValue(matrix);
+        caAnimation->setToValue(matrix);
+
+        auto animation = LayerPropertyAnimation(WTFMove(caAnimation), makeString("base-transform-"_s, WTF::UUID::createVersion4()), property, 0, 0_s);
+        if (delay)
+            animation.m_beginTime = currentTime - animationGroupBeginTime;
+
+        m_baseValueTransformAnimations.append(WTFMove(animation));
+        return &m_baseValueTransformAnimations.last();
+    };
+
+    auto addBaseValueTransformAnimation = [&](AnimatedProperty property, TransformationMatrixSource matrixSource = TransformationMatrixSource::AskClient, Seconds beginTimeOfEarliestPropertyAnimation = 0_s) {
+        // Additivity will depend on the source of the matrix, if it was explicitly provided as an identity matrix, it
+        // is the initial base value transform animation and must override the current transform value for this layer.
+        // Otherwise, it is meant to apply the underlying value for one specific transform-related property and be additive
+        // to be combined with the other base value transform animations and interpolating animations.
+        if (auto* animation = makeBaseValueTransformAnimation(property, matrixSource, beginTimeOfEarliestPropertyAnimation)) {
+            prepareAnimationForAddition(*animation, matrixSource == TransformationMatrixSource::AskClient ? Additive::Yes : Additive::No);
+            addAnimationGroup(animation->m_property, { animation->m_animation });
         }
-        m_animations->uncomittedAnimations.clear();
+    };
+
+    // Now, remove all animation groups and leaf animations from the layer so that
+    // we no longer have any layer animations.
+    for (auto& animation : m_animations)
+        removeCAAnimationFromLayer(animation);
+    for (auto& animationGroup : m_animationGroups)
+        removeCAAnimationFromLayer(animationGroup);
+
+    // We can remove all previously-created base value transform animations and animation groups.
+    m_baseValueTransformAnimations.clear();
+    m_animationGroups.clear();
+
+    // Now remove all the animations marked as pending removal.
+    m_animations.removeAllMatching([&](LayerPropertyAnimation animation) {
+        return animation.m_pendingRemoval;
+    });
+
+    // Now that our list of animations is current, we can separate animations by property so that
+    // we can apply them in order. We only need to apply the last animation applied for a given
+    // individual transform property, so we keep a reference to that. For animations targeting
+    // the transform property itself, we keep them in order since they all need to apply and build
+    // on top of each other. Finally, animations that are not transform-related can be applied
+    // right away since their order relative to transform animations does not matter.
+    LayerPropertyAnimation* translateAnimation = nullptr;
+    LayerPropertyAnimation* scaleAnimation = nullptr;
+    LayerPropertyAnimation* rotateAnimation = nullptr;
+    Vector<LayerPropertyAnimation*> translateAnimations;
+    Vector<LayerPropertyAnimation*> scaleAnimations;
+    Vector<LayerPropertyAnimation*> rotateAnimations;
+    Vector<LayerPropertyAnimation*> transformAnimations;
+
+    for (auto& animation : m_animations) {
+        switch (animation.m_property) {
+        case AnimatedProperty::Translate:
+            translateAnimation = &animation;
+            break;
+        case AnimatedProperty::Scale:
+            scaleAnimation = &animation;
+            break;
+        case AnimatedProperty::Rotate:
+            rotateAnimation = &animation;
+            break;
+        case AnimatedProperty::Transform:
+            // In the case of animations targeting the "transform" CSS property, there may be several
+            // animations created for a single KeyframeEffect, one for each transform component. In that
+            // case the animation index starts at 0 and increases for each component. If we encounter an
+            // index of 0 this means this animation establishes a new group of animation belonging to a
+            // single KeyframeEffect. As such, since the top-most KeyframeEffect replaces the previous
+            // ones, we can remove all the previously-added "transform" animations.
+            if (!animation.m_index)
+                transformAnimations.clear();
+            transformAnimations.append(&animation);
+            break;
+        case AnimatedProperty::Opacity:
+        case AnimatedProperty::BackgroundColor:
+        case AnimatedProperty::Filter:
+        case AnimatedProperty::WebkitBackdropFilter:
+            addLeafAnimation(animation);
+            break;
+        case AnimatedProperty::Invalid:
+            ASSERT_NOT_REACHED();
+        }
     }
 
-    if (m_animations->animationsToProcess.size()) {
-        for (const auto& it : m_animations->animationsToProcess) {
-            const String& currentAnimationName = it.key;
-            auto animationIterator = m_animations->runningAnimations.find(currentAnimationName);
-            if (animationIterator == m_animations->runningAnimations.end())
-                continue;
+    if (translateAnimation)
+        translateAnimations.append(translateAnimation);
+    if (scaleAnimation)
+        scaleAnimations.append(scaleAnimation);
+    if (rotateAnimation)
+        rotateAnimations.append(rotateAnimation);
 
-            for (const auto& processingInfo : it.value) {
-                const Vector<LayerPropertyAnimation>& animations = animationIterator->value;
-                for (const auto& currentAnimation : animations) {
-                    switch (processingInfo.action) {
-                    case Remove:
-                        removeCAAnimationFromLayer(currentAnimation.m_property, currentAnimationName, currentAnimation.m_index, currentAnimation.m_subIndex);
-                        break;
-                    case Pause:
-                        pauseCAAnimationOnLayer(currentAnimation.m_property, currentAnimationName, currentAnimation.m_index, currentAnimation.m_subIndex, processingInfo.timeOffset);
-                        break;
+    // Now we can apply the transform-related animations, taking care to add them in the right order
+    // (translate/scale/rotate/transform) and generate non-interpolating base value transform animations
+    // for each property that is not otherwise interpolated.
+    if (!translateAnimations.isEmpty() || !scaleAnimations.isEmpty() || !rotateAnimations.isEmpty() || !transformAnimations.isEmpty()) {
+        // Start with a base identity transform to override the transform applied to the layer and have a
+        // sound base to add animations on top of with additivity enabled.
+        addBaseValueTransformAnimation(AnimatedProperty::Transform, TransformationMatrixSource::UseIdentityMatrix);
+
+        auto addAnimationsForProperty = [&](const Vector<LayerPropertyAnimation*>& animations, AnimatedProperty property) {
+            if (animations.isEmpty()) {
+                addBaseValueTransformAnimation(property);
+                return;
+            }
+
+            LayerPropertyAnimation* earliestAnimation = nullptr;
+            Vector<RefPtr<PlatformCAAnimation>> caAnimations;
+            for (auto* animation : makeReversedRange(animations)) {
+                if (!animation->m_beginTime)
+                    animation->m_beginTime = currentTime - animationGroupBeginTime;
+                if (auto beginTime = animation->computedBeginTime()) {
+                    if (!earliestAnimation || *earliestAnimation->computedBeginTime() > *beginTime)
+                        earliestAnimation = animation;
+                }
+                prepareAnimationForAddition(*animation);
+                caAnimations.append(animation->m_animation);
+            }
+
+            // If we have an animation with an explicit begin time that does not fill backwards and starts with a delay,
+            // we must create a non-interpolating animation to set the current value for this transform-related property
+            // until that animation begins.
+            if (earliestAnimation) {
+                auto fillMode = earliestAnimation->m_animation->fillMode();
+                if (fillMode != PlatformCAAnimation::FillModeType::Backwards && fillMode != PlatformCAAnimation::FillModeType::Both) {
+                    Seconds earliestBeginTime = *earliestAnimation->computedBeginTime() + animationGroupBeginTime;
+                    if (earliestBeginTime > currentTime) {
+                        if (auto* baseValueTransformAnimation = makeBaseValueTransformAnimation(property, TransformationMatrixSource::AskClient, earliestBeginTime)) {
+                            prepareAnimationForAddition(*baseValueTransformAnimation);
+                            caAnimations.append(baseValueTransformAnimation->m_animation);
+                        }
                     }
                 }
-
-                if (processingInfo.action == Remove)
-                    m_animations->runningAnimations.remove(currentAnimationName);
             }
-        }
 
-        m_animations->animationsToProcess.clear();
+            addAnimationGroup(property, caAnimations);
+        };
+
+        addAnimationsForProperty(transformAnimations, AnimatedProperty::Transform);
+        addAnimationsForProperty(scaleAnimations, AnimatedProperty::Scale);
+        addAnimationsForProperty(rotateAnimations, AnimatedProperty::Rotate);
+        addAnimationsForProperty(translateAnimations, AnimatedProperty::Translate);
     }
 }
 
 bool GraphicsLayerCA::isRunningTransformAnimation() const
 {
-    if (!hasAnimations())
-        return false;
-
-    for (const auto& it : m_animations->runningAnimations) {
-        const auto& propertyAnimations = it.value;
-        size_t numAnimations = propertyAnimations.size();
-        for (size_t i = 0; i < numAnimations; ++i) {
-            const LayerPropertyAnimation& currAnimation = propertyAnimations[i];
-            if (currAnimation.m_property == AnimatedPropertyTransform)
-                return true;
-        }
+#if ENABLE(THREADED_ANIMATION_RESOLUTION)
+    if (auto* effectStack = acceleratedEffectStack()) {
+        return effectStack->primaryLayerEffects().findIf([](auto& effect) {
+            return effect->animatesTransformRelatedProperty();
+        }) != notFound;
     }
-    return false;
+#endif
+
+    return m_animations.findIf([&](LayerPropertyAnimation animation) {
+        return animatedPropertyIsTransformOrRelated(animation.m_property) && (animation.m_playState == PlayState::Playing || animation.m_playState == PlayState::Paused);
+    }) != notFound;
 }
 
-void GraphicsLayerCA::ensureLayerAnimations()
+void GraphicsLayerCA::setAnimationOnLayer(LayerPropertyAnimation& animation)
 {
-    if (!m_animations)
-        m_animations = makeUnique<LayerAnimations>();
-}
-
-void GraphicsLayerCA::setAnimationOnLayer(PlatformCAAnimation& caAnim, AnimatedPropertyID property, const String& animationName, int index, int subIndex, Seconds timeOffset)
-{
+    auto property = animation.m_property;
     PlatformCALayer* layer = animatedLayer(property);
 
-    if (timeOffset)
-        caAnim.setBeginTime(CACurrentMediaTime() - timeOffset.seconds());
+    auto& caAnim = *animation.m_animation;
 
-    String animationID = animationIdentifier(animationName, property, index, subIndex);
+    if (auto beginTime = animation.computedBeginTime())
+        caAnim.setBeginTime(beginTime->seconds());
+
+    String animationID = animation.animationIdentifier();
 
     layer->removeAnimationForKey(animationID);
     layer->addAnimationForKey(animationID, caAnim);
@@ -3000,11 +3622,11 @@ static void bug7311367Workaround(PlatformCALayer* transformLayer, const Transfor
     transformLayer->setTransform(caTransform);
 }
 
-bool GraphicsLayerCA::removeCAAnimationFromLayer(AnimatedPropertyID property, const String& animationName, int index, int subIndex)
+bool GraphicsLayerCA::removeCAAnimationFromLayer(LayerPropertyAnimation& animation)
 {
-    PlatformCALayer* layer = animatedLayer(property);
+    PlatformCALayer* layer = animatedLayer(animation.m_property);
 
-    String animationID = animationIdentifier(animationName, property, index, subIndex);
+    String animationID = animation.animationIdentifier();
 
     if (!layer->animationForKey(animationID))
         return false;
@@ -3012,7 +3634,7 @@ bool GraphicsLayerCA::removeCAAnimationFromLayer(AnimatedPropertyID property, co
     layer->removeAnimationForKey(animationID);
     bug7311367Workaround(m_structuralLayer.get(), transform());
 
-    if (LayerMap* layerCloneMap = animatedLayerClones(property)) {
+    if (LayerMap* layerCloneMap = animatedLayerClones(animation.m_property)) {
         for (auto& clone : *layerCloneMap) {
             // Skip immediate replicas, since they move with the original.
             if (m_replicaLayer && isReplicatedRootClone(clone.key))
@@ -3024,11 +3646,11 @@ bool GraphicsLayerCA::removeCAAnimationFromLayer(AnimatedPropertyID property, co
     return true;
 }
 
-void GraphicsLayerCA::pauseCAAnimationOnLayer(AnimatedPropertyID property, const String& animationName, int index, int subIndex, Seconds timeOffset)
+void GraphicsLayerCA::pauseCAAnimationOnLayer(LayerPropertyAnimation& animation)
 {
-    PlatformCALayer* layer = animatedLayer(property);
+    PlatformCALayer* layer = animatedLayer(animation.m_property);
 
-    String animationID = animationIdentifier(animationName, property, index, subIndex);
+    String animationID = animation.animationIdentifier();
 
     RefPtr<PlatformCAAnimation> curAnim = layer->animationForKey(animationID);
     if (!curAnim)
@@ -3038,12 +3660,12 @@ void GraphicsLayerCA::pauseCAAnimationOnLayer(AnimatedPropertyID property, const
     RefPtr<PlatformCAAnimation> newAnim = curAnim->copy();
 
     newAnim->setSpeed(0);
-    newAnim->setTimeOffset(timeOffset.seconds());
+    newAnim->setTimeOffset(animation.m_timeOffset.seconds());
 
     layer->addAnimationForKey(animationID, *newAnim); // This will replace the running animation.
 
     // Pause the animations on the clones too.
-    if (LayerMap* layerCloneMap = animatedLayerClones(property)) {
+    if (LayerMap* layerCloneMap = animatedLayerClones(animation.m_property)) {
         for (auto& clone : *layerCloneMap) {
             // Skip immediate replicas, since they move with the original.
             if (m_replicaLayer && isReplicatedRootClone(clone.key))
@@ -3076,14 +3698,12 @@ void GraphicsLayerCA::updateContentsNeedsDisplay()
 
 static bool isKeyframe(const KeyframeValueList& list)
 {
-    if (RuntimeEnabledFeatures::sharedFeatures().webAnimationsCSSIntegrationEnabled())
-        return list.size() > 1;
-    return list.size() > 2;
+    return list.size() > 1;
 }
 
-bool GraphicsLayerCA::createAnimationFromKeyframes(const KeyframeValueList& valueList, const Animation* animation, const String& animationName, Seconds timeOffset)
+bool GraphicsLayerCA::createAnimationFromKeyframes(const KeyframeValueList& valueList, const Animation* animation, const String& animationName, Seconds timeOffset, bool keyframesShouldUseAnimationWideTimingFunction)
 {
-    ASSERT(valueList.property() != AnimatedPropertyTransform && (!supportsAcceleratedFilterAnimations() || valueList.property() != AnimatedPropertyFilter));
+    ASSERT(!animatedPropertyIsTransformOrRelated(valueList.property()) && (!supportsAcceleratedFilterAnimations() || valueList.property() != AnimatedProperty::Filter));
 
     bool valuesOK;
     
@@ -3093,160 +3713,147 @@ bool GraphicsLayerCA::createAnimationFromKeyframes(const KeyframeValueList& valu
     RefPtr<PlatformCAAnimation> caAnimation;
 
     if (isKeyframe(valueList)) {
-        caAnimation = createKeyframeAnimation(animation, propertyIdToString(valueList.property()), additive);
-        valuesOK = setAnimationKeyframes(valueList, animation, caAnimation.get());
+        caAnimation = createKeyframeAnimation(animation, PlatformCAAnimation::makeKeyPath(valueList.property()), additive, keyframesShouldUseAnimationWideTimingFunction);
+        valuesOK = setAnimationKeyframes(valueList, animation, caAnimation.get(), keyframesShouldUseAnimationWideTimingFunction);
     } else {
         if (animation->timingFunction()->isSpringTimingFunction())
-            caAnimation = createSpringAnimation(animation, propertyIdToString(valueList.property()), additive);
+            caAnimation = createSpringAnimation(animation, PlatformCAAnimation::makeKeyPath(valueList.property()), additive, keyframesShouldUseAnimationWideTimingFunction);
         else
-            caAnimation = createBasicAnimation(animation, propertyIdToString(valueList.property()), additive);
+            caAnimation = createBasicAnimation(animation, PlatformCAAnimation::makeKeyPath(valueList.property()), additive, keyframesShouldUseAnimationWideTimingFunction);
         valuesOK = setAnimationEndpoints(valueList, animation, caAnimation.get());
     }
 
     if (!valuesOK)
         return false;
 
-    appendToUncommittedAnimations(LayerPropertyAnimation(caAnimation.releaseNonNull(), animationName, valueList.property(), animationIndex, 0, timeOffset));
+    m_animations.append(LayerPropertyAnimation(caAnimation.releaseNonNull(), animationName, valueList.property(), animationIndex, timeOffset));
 
     return true;
 }
 
-bool GraphicsLayerCA::appendToUncommittedAnimations(const KeyframeValueList& valueList, const TransformOperations* operations, const Animation* animation, const String& animationName, const FloatSize& boxSize, int animationIndex, Seconds timeOffset, bool isMatrixAnimation)
+bool GraphicsLayerCA::appendToUncommittedAnimations(const KeyframeValueList& valueList, TransformOperation::Type operationType, const Animation* animation, const String& animationName, const FloatSize& boxSize, unsigned animationIndex, Seconds timeOffset, bool isMatrixAnimation, bool keyframesShouldUseAnimationWideTimingFunction)
 {
-    TransformOperation::OperationType transformOp = isMatrixAnimation ? TransformOperation::MATRIX_3D : operations->operations().at(animationIndex)->type();
-#if !PLATFORM(WIN) && !HAVE(CA_WHERE_ADDITIVE_TRANSFORMS_ARE_REVERSED)
-    bool additive = animationIndex > 0;
-#else
-    int numAnimations = isMatrixAnimation ? 1 : operations->size();
-    bool additive = animationIndex < numAnimations - 1;
-#endif
-
     RefPtr<PlatformCAAnimation> caAnimation;
     bool validMatrices = true;
     if (isKeyframe(valueList)) {
-        caAnimation = createKeyframeAnimation(animation, propertyIdToString(valueList.property()), additive);
-        validMatrices = setTransformAnimationKeyframes(valueList, animation, caAnimation.get(), animationIndex, transformOp, isMatrixAnimation, boxSize);
+        caAnimation = createKeyframeAnimation(animation, PlatformCAAnimation::makeKeyPath(valueList.property()), false, keyframesShouldUseAnimationWideTimingFunction);
+        validMatrices = setTransformAnimationKeyframes(valueList, animation, caAnimation.get(), animationIndex, operationType, isMatrixAnimation, boxSize, keyframesShouldUseAnimationWideTimingFunction);
     } else {
         if (animation->timingFunction()->isSpringTimingFunction())
-            caAnimation = createSpringAnimation(animation, propertyIdToString(valueList.property()), additive);
+            caAnimation = createSpringAnimation(animation, PlatformCAAnimation::makeKeyPath(valueList.property()), false, keyframesShouldUseAnimationWideTimingFunction);
         else
-            caAnimation = createBasicAnimation(animation, propertyIdToString(valueList.property()), additive);
-        validMatrices = setTransformAnimationEndpoints(valueList, animation, caAnimation.get(), animationIndex, transformOp, isMatrixAnimation, boxSize);
+            caAnimation = createBasicAnimation(animation, PlatformCAAnimation::makeKeyPath(valueList.property()), false, keyframesShouldUseAnimationWideTimingFunction);
+        validMatrices = setTransformAnimationEndpoints(valueList, animation, caAnimation.get(), animationIndex, operationType, isMatrixAnimation, boxSize);
     }
     
     if (!validMatrices)
         return false;
 
-    appendToUncommittedAnimations(LayerPropertyAnimation(caAnimation.releaseNonNull(), animationName, valueList.property(), animationIndex, 0, timeOffset));
+    m_animations.append(LayerPropertyAnimation(caAnimation.releaseNonNull(), animationName, valueList.property(), animationIndex, timeOffset));
     return true;
 }
 
-bool GraphicsLayerCA::createTransformAnimationsFromKeyframes(const KeyframeValueList& valueList, const Animation* animation, const String& animationName, Seconds timeOffset, const FloatSize& boxSize)
+static const TransformOperations& transformationAnimationValueAt(const KeyframeValueList& valueList, unsigned i)
 {
-    ASSERT(valueList.property() == AnimatedPropertyTransform);
-
-    bool hasBigRotation;
-    int listIndex = validateTransformOperations(valueList, hasBigRotation);
-    const TransformOperations* operations = (listIndex >= 0) ? &static_cast<const TransformAnimationValue&>(valueList.at(listIndex)).value() : 0;
-
-    bool validMatrices = true;
-
-    // If function lists don't match we do a matrix animation, otherwise we do a component hardware animation.
-    bool isMatrixAnimation = listIndex < 0;
-    int numAnimations = isMatrixAnimation ? 1 : operations->size();
-
-#if !PLATFORM(WIN) && !HAVE(CA_WHERE_ADDITIVE_TRANSFORMS_ARE_REVERSED)
-    for (int animationIndex = 0; animationIndex < numAnimations; ++animationIndex) {
-#else
-    // Some versions of CA require animation lists to be applied in reverse order (<rdar://problem/43908047> and <rdar://problem/9112233>).
-    for (int animationIndex = numAnimations - 1; animationIndex >= 0; --animationIndex) {
-#endif
-        if (!appendToUncommittedAnimations(valueList, operations, animation, animationName, boxSize, animationIndex, timeOffset, isMatrixAnimation)) {
-            validMatrices = false;
-            break;
-        }
-    }
-
-    return validMatrices;
+    return static_cast<const TransformAnimationValue&>(valueList.at(i)).value();
 }
 
-bool GraphicsLayerCA::appendToUncommittedAnimations(const KeyframeValueList& valueList, const FilterOperation* operation, const Animation* animation, const String& animationName, int animationIndex, Seconds timeOffset)
+static bool hasBig3DRotation(const KeyframeValueList& valueList, const TransformOperationsSharedPrimitivesPrefix& prefix)
 {
-    FilterOperation::OperationType filterOp = operation->type();
-    int numAnimatedProperties = PlatformCAFilters::numAnimatedFilterProperties(filterOp);
-    
-    // Each filter might need to animate multiple properties, each with their own keyPath. The keyPath is always of the form:
-    //
-    //      filter.filter_<animationIndex>.<filterPropertyName>
-    //
-    // PlatformCAAnimation tells us how many properties each filter has and we iterate that many times and create an animation
-    // for each. This internalFilterPropertyIndex gets passed to PlatformCAAnimation so it can properly create the property animation
-    // values.
-    for (int internalFilterPropertyIndex = 0; internalFilterPropertyIndex < numAnimatedProperties; ++internalFilterPropertyIndex) {
-        bool valuesOK;
-        RefPtr<PlatformCAAnimation> caAnimation;
-        String keyPath = makeString("filters.filter_", animationIndex, '.', PlatformCAFilters::animatedFilterPropertyName(filterOp, internalFilterPropertyIndex));
-        
-        if (isKeyframe(valueList)) {
-            caAnimation = createKeyframeAnimation(animation, keyPath, false);
-            valuesOK = setFilterAnimationKeyframes(valueList, animation, caAnimation.get(), animationIndex, internalFilterPropertyIndex, filterOp);
-        } else {
-            caAnimation = createBasicAnimation(animation, keyPath, false);
-            valuesOK = setFilterAnimationEndpoints(valueList, animation, caAnimation.get(), animationIndex, internalFilterPropertyIndex);
+    // Hardware non-matrix animations are used for every function in the shared primitives prefix.
+    // These kind of animations have issues with large rotation angles, so for every function that
+    // will be represented as a hardware non-matrix animation, check that for each of those functions
+    // the animation that's created for it will not have two consecutive keyframes that have a large
+    // rotation angle between them.
+    const auto& primitives = prefix.primitives();
+    for (unsigned animationIndex = 0; animationIndex < primitives.size(); ++animationIndex) {
+        auto type = primitives[animationIndex];
+        if (type != TransformOperation::Type::Rotate3D)
+            continue;
+        for (size_t i = 1; i < valueList.size(); ++i) {
+            // Since the shared primitive at this index is a rotation, both of these transform
+            // functions should be RotateTransformOperations.
+            auto prevOperation = downcast<RotateTransformOperation>(transformationAnimationValueAt(valueList, i - 1).at(animationIndex));
+            auto operation = downcast<RotateTransformOperation>(transformationAnimationValueAt(valueList, i).at(animationIndex));
+            auto angle = std::abs((prevOperation ? prevOperation->angle() : 0.0) - (operation ? operation->angle() : 0.0));
+            if (angle > 180.0)
+                return true;
         }
-        
-        ASSERT(valuesOK);
-
-        appendToUncommittedAnimations(LayerPropertyAnimation(caAnimation.releaseNonNull(), animationName, valueList.property(), animationIndex, internalFilterPropertyIndex, timeOffset));
     }
+
+    return false;
+}
+
+bool GraphicsLayerCA::createTransformAnimationsFromKeyframes(const KeyframeValueList& valueList, const Animation* animation, const String& animationName, Seconds timeOffset, const FloatSize& boxSize, bool keyframesShouldUseAnimationWideTimingFunction)
+{
+    ASSERT(animatedPropertyIsTransformOrRelated(valueList.property()));
+
+    // https://www.w3.org/TR/css-transforms-1/#interpolation-of-transforms
+    // In the CSS Transform Level 1 and 2 Specification some transform functions can share a compatible transform
+    // function primitive. For instance, the shared primitive of a translateX and translate3D operation is
+    // TransformOperation::Type::Translate3D. When the transform function list of every keyframe in an animation
+    // shares the same transform function primitive, we should interpolate between them without resorting
+    // to matrix decomposition. The remaining parts of the transform function list should be interpolated
+    // using matrix decomposition. The code below finds the shared primitives in this prefix.
+    // FIXME: Currently, this only supports situations where every keyframe shares the same prefix of shared
+    // transformation primitives, but the specification says direct interpolation should be determined by
+    // the primitives shared between any two adjacent keyframes.
+    TransformOperationsSharedPrimitivesPrefix prefix;
+    for (size_t i = 0; i < valueList.size(); ++i)
+        prefix.update(transformationAnimationValueAt(valueList, i));
+
+    // If this animation has a big rotation between two keyframes, fall back to software animation. CoreAnimation
+    // will always take the shortest path between two rotations, which will result in incorrect animation when
+    // the keyframes specify angles larger than one half rotation.
+    if (hasBig3DRotation(valueList, prefix))
+        return false;
+
+    const auto& primitives = prefix.primitives();
+    unsigned numberOfSharedPrimitives = valueList.size() > 1 ? primitives.size() : 0;
+
+    removeAnimation(animationName, valueList.property());
+
+    for (unsigned animationIndex = 0; animationIndex < numberOfSharedPrimitives; ++animationIndex) {
+        if (!appendToUncommittedAnimations(valueList, primitives[animationIndex], animation, animationName, boxSize, animationIndex, timeOffset, false /* isMatrixAnimation */, keyframesShouldUseAnimationWideTimingFunction))
+            return false;
+    }
+
+    if (!prefix.hadIncompatibleTransformFunctions())
+        return true;
+
+    // If there were any incompatible transform functions, they will be appended to the animation list
+    // as a single combined transformation matrix animation.
+    return appendToUncommittedAnimations(valueList, TransformOperation::Type::Matrix3D, animation, animationName, boxSize, primitives.size(), timeOffset, true /* isMatrixAnimation */, keyframesShouldUseAnimationWideTimingFunction);
+}
+
+bool GraphicsLayerCA::appendToUncommittedAnimations(const KeyframeValueList& valueList, const FilterOperation& operation, const Animation* animation, const String& animationName, int animationIndex, Seconds timeOffset, bool keyframesShouldUseAnimationWideTimingFunction)
+{
+    auto filterOp = operation.type();
+    if (!PlatformCAFilters::isAnimatedFilterProperty(filterOp))
+        return true;
+
+    bool valuesOK;
+    RefPtr<PlatformCAAnimation> caAnimation;
+    auto keyPath = PlatformCAAnimation::makeKeyPath(AnimatedProperty::Filter, filterOp, animationIndex);
+
+    if (isKeyframe(valueList)) {
+        caAnimation = createKeyframeAnimation(animation, keyPath, false, keyframesShouldUseAnimationWideTimingFunction);
+        valuesOK = setFilterAnimationKeyframes(valueList, animation, caAnimation.get(), animationIndex, filterOp, keyframesShouldUseAnimationWideTimingFunction);
+    } else {
+        caAnimation = createBasicAnimation(animation, keyPath, false, keyframesShouldUseAnimationWideTimingFunction);
+        valuesOK = setFilterAnimationEndpoints(valueList, animation, caAnimation.get(), animationIndex);
+    }
+
+    ASSERT_UNUSED(valuesOK, valuesOK);
+
+    m_animations.append(LayerPropertyAnimation(caAnimation.releaseNonNull(), animationName, valueList.property(), animationIndex, timeOffset));
 
     return true;
 }
 
-void GraphicsLayerCA::appendToUncommittedAnimations(LayerPropertyAnimation&& animation)
+bool GraphicsLayerCA::createFilterAnimationsFromKeyframes(const KeyframeValueList& valueList, const Animation* animation, const String& animationName, Seconds timeOffset, bool keyframesShouldUseAnimationWideTimingFunction)
 {
-    ensureLayerAnimations();
-
-    // Since we're adding a new animation, make sure we clear any pending AnimationProcessingAction for this animation
-    // as these are applied after we've committed new animations. However, we want to check if we had a pending removal
-    // such that removing an animation prior to adding a new one for the same name works.
-    auto processingInfoIterator = m_animations->animationsToProcess.find(animation.m_name);
-    if (processingInfoIterator != m_animations->animationsToProcess.end()) {
-        auto animationIterator = m_animations->runningAnimations.find(animation.m_name);
-        if (animationIterator != m_animations->runningAnimations.end()) {
-            auto& animations = animationIterator->value;
-            for (const auto& processingInfo : processingInfoIterator->value) {
-                if (processingInfo.action == Remove) {
-                    for (const auto& currentAnimation : animations)
-                        removeCAAnimationFromLayer(currentAnimation.m_property, animation.m_name, currentAnimation.m_index, currentAnimation.m_subIndex);
-                    m_animations->runningAnimations.remove(animationIterator);
-                    break;
-                }
-            }
-        }
-        m_animations->animationsToProcess.remove(processingInfoIterator);
-    }
-
-    m_animations->uncomittedAnimations.append(WTFMove(animation));
-}
-
-void GraphicsLayerCA::removeFromUncommittedAnimations(const String& animationName)
-{
-    if (!m_animations)
-        return;
-
-    m_animations->uncomittedAnimations.removeFirstMatching([&animationName] (auto& current) {
-        return current.m_name == animationName;
-    });
-}
-
-bool GraphicsLayerCA::createFilterAnimationsFromKeyframes(const KeyframeValueList& valueList, const Animation* animation, const String& animationName, Seconds timeOffset)
-{
-#if ENABLE(FILTERS_LEVEL_2)
-    ASSERT(valueList.property() == AnimatedPropertyFilter || valueList.property() == AnimatedPropertyWebkitBackdropFilter);
-#else
-    ASSERT(valueList.property() == AnimatedPropertyFilter);
-#endif
+    ASSERT(valueList.property() == AnimatedProperty::Filter || valueList.property() == AnimatedProperty::WebkitBackdropFilter);
 
     int listIndex = validateFilterOperations(valueList);
     if (listIndex < 0)
@@ -3257,95 +3864,100 @@ bool GraphicsLayerCA::createFilterAnimationsFromKeyframes(const KeyframeValueLis
     if (!filtersCanBeComposited(operations))
         return false;
 
-    int numAnimations = operations.size();
-
     // FIXME: We can't currently hardware animate shadows.
-    for (int i = 0; i < numAnimations; ++i) {
-        if (operations.at(i)->type() == FilterOperation::DROP_SHADOW)
-            return false;
-    }
+    if (operations.hasFilterOfType<FilterOperation::Type::DropShadow>())
+        return false;
 
-    for (int animationIndex = 0; animationIndex < numAnimations; ++animationIndex) {
-        if (!appendToUncommittedAnimations(valueList, operations.operations().at(animationIndex).get(), animation, animationName, animationIndex, timeOffset))
+    removeAnimation(animationName, valueList.property());
+
+    int numberOfAnimations = operations.size();
+    for (int animationIndex = 0; animationIndex < numberOfAnimations; ++animationIndex) {
+        if (!appendToUncommittedAnimations(valueList, operations[animationIndex], animation, animationName, animationIndex, timeOffset, keyframesShouldUseAnimationWideTimingFunction))
             return false;
     }
 
     return true;
 }
 
-Ref<PlatformCAAnimation> GraphicsLayerCA::createBasicAnimation(const Animation* anim, const String& keyPath, bool additive)
+Ref<PlatformCAAnimation> GraphicsLayerCA::createBasicAnimation(const Animation* anim, const String& keyPath, bool additive, bool keyframesShouldUseAnimationWideTimingFunction)
 {
-    auto basicAnim = createPlatformCAAnimation(PlatformCAAnimation::Basic, keyPath);
-    setupAnimation(basicAnim.ptr(), anim, additive);
+    auto basicAnim = createPlatformCAAnimation(PlatformCAAnimation::AnimationType::Basic, keyPath);
+    setupAnimation(basicAnim.ptr(), anim, additive, keyframesShouldUseAnimationWideTimingFunction);
     return basicAnim;
 }
 
-Ref<PlatformCAAnimation> GraphicsLayerCA::createKeyframeAnimation(const Animation* anim, const String& keyPath, bool additive)
+Ref<PlatformCAAnimation> GraphicsLayerCA::createKeyframeAnimation(const Animation* anim, const String& keyPath, bool additive, bool keyframesShouldUseAnimationWideTimingFunction)
 {
-    auto keyframeAnim = createPlatformCAAnimation(PlatformCAAnimation::Keyframe, keyPath);
-    setupAnimation(keyframeAnim.ptr(), anim, additive);
+    auto keyframeAnim = createPlatformCAAnimation(PlatformCAAnimation::AnimationType::Keyframe, keyPath);
+    setupAnimation(keyframeAnim.ptr(), anim, additive, keyframesShouldUseAnimationWideTimingFunction);
     return keyframeAnim;
 }
 
-Ref<PlatformCAAnimation> GraphicsLayerCA::createSpringAnimation(const Animation* anim, const String& keyPath, bool additive)
+Ref<PlatformCAAnimation> GraphicsLayerCA::createSpringAnimation(const Animation* anim, const String& keyPath, bool additive, bool keyframesShouldUseAnimationWideTimingFunction)
 {
-    auto basicAnim = createPlatformCAAnimation(PlatformCAAnimation::Spring, keyPath);
-    setupAnimation(basicAnim.ptr(), anim, additive);
+    auto basicAnim = createPlatformCAAnimation(PlatformCAAnimation::AnimationType::Spring, keyPath);
+    setupAnimation(basicAnim.ptr(), anim, additive, keyframesShouldUseAnimationWideTimingFunction);
     return basicAnim;
 }
 
-void GraphicsLayerCA::setupAnimation(PlatformCAAnimation* propertyAnim, const Animation* anim, bool additive)
+void GraphicsLayerCA::setupAnimation(PlatformCAAnimation* propertyAnim, const Animation* anim, bool additive, bool keyframesShouldUseAnimationWideTimingFunction)
 {
-    double duration = anim->duration();
+    double duration = anim->duration().value_or(0);
     if (duration <= 0)
         duration = cAnimationAlmostZeroDuration;
 
     float repeatCount = anim->iterationCount();
     if (repeatCount == Animation::IterationCountInfinite)
         repeatCount = std::numeric_limits<float>::max();
-    else if (anim->direction() == Animation::AnimationDirectionAlternate || anim->direction() == Animation::AnimationDirectionAlternateReverse)
+    else if (anim->direction() == Animation::Direction::Alternate || anim->direction() == Animation::Direction::AlternateReverse)
         repeatCount /= 2;
 
-    PlatformCAAnimation::FillModeType fillMode = PlatformCAAnimation::NoFillMode;
+    PlatformCAAnimation::FillModeType fillMode = PlatformCAAnimation::FillModeType::NoFillMode;
     switch (anim->fillMode()) {
     case AnimationFillMode::None:
-        fillMode = PlatformCAAnimation::Forwards; // Use "forwards" rather than "removed" because the style system will remove the animation when it is finished. This avoids a flash.
+        fillMode = PlatformCAAnimation::FillModeType::Forwards; // Use "forwards" rather than "removed" because the style system will remove the animation when it is finished. This avoids a flash.
         break;
     case AnimationFillMode::Backwards:
-        fillMode = PlatformCAAnimation::Both; // Use "both" rather than "backwards" because the style system will remove the animation when it is finished. This avoids a flash.
+        fillMode = PlatformCAAnimation::FillModeType::Both; // Use "both" rather than "backwards" because the style system will remove the animation when it is finished. This avoids a flash.
         break;
     case AnimationFillMode::Forwards:
-        fillMode = PlatformCAAnimation::Forwards;
+        fillMode = PlatformCAAnimation::FillModeType::Forwards;
         break;
     case AnimationFillMode::Both:
-        fillMode = PlatformCAAnimation::Both;
+        fillMode = PlatformCAAnimation::FillModeType::Both;
         break;
     }
 
     propertyAnim->setDuration(duration);
     propertyAnim->setRepeatCount(repeatCount);
-    propertyAnim->setAutoreverses(anim->direction() == Animation::AnimationDirectionAlternate || anim->direction() == Animation::AnimationDirectionAlternateReverse);
+    propertyAnim->setAutoreverses(anim->direction() == Animation::Direction::Alternate || anim->direction() == Animation::Direction::AlternateReverse);
     propertyAnim->setRemovedOnCompletion(false);
     propertyAnim->setAdditive(additive);
     propertyAnim->setFillMode(fillMode);
 
-    if (RuntimeEnabledFeatures::sharedFeatures().webAnimationsCSSIntegrationEnabled())
+    // FIXME: https://bugs.webkit.org/show_bug.cgi?id=215918
+    // A CSS Transition is the only scenario where Animation::property() will have
+    // its mode set to SingleProperty. In this case, we don't set the animation-wide
+    // timing function to work around a Core Animation limitation.
+    if (!keyframesShouldUseAnimationWideTimingFunction)
         propertyAnim->setTimingFunction(anim->timingFunction());
 }
 
-const TimingFunction& GraphicsLayerCA::timingFunctionForAnimationValue(const AnimationValue& animValue, const Animation& anim)
+const TimingFunction& GraphicsLayerCA::timingFunctionForAnimationValue(const AnimationValue& animValue, const Animation& anim, bool keyframesShouldUseAnimationWideTimingFunction)
 {
-    if (RuntimeEnabledFeatures::sharedFeatures().webAnimationsCSSIntegrationEnabled()) {
-        if (animValue.timingFunction())
-            return *animValue.timingFunction();
-        return LinearTimingFunction::sharedLinearTimingFunction();
+    if (keyframesShouldUseAnimationWideTimingFunction && anim.timingFunction()) {
+        // FIXME: https://bugs.webkit.org/show_bug.cgi?id=215918
+        // A CSS Transition is the only scenario where Animation::property() will have
+        // its mode set to SingleProperty. In this case, we chose not to set set the
+        // animation-wide timing function, so we set it on the single keyframe interval
+        // to work around a Core Animation limitation.
+        return *anim.timingFunction();
     }
-
     if (animValue.timingFunction())
         return *animValue.timingFunction();
-    if (anim.isTimingFunctionSet())
-        return *anim.timingFunction();
-    return CubicBezierTimingFunction::defaultTimingFunction();
+    if (anim.defaultTimingFunctionForKeyframes())
+        return *anim.defaultTimingFunctionForKeyframes();
+    return LinearTimingFunction::identity();
 }
 
 bool GraphicsLayerCA::setAnimationEndpoints(const KeyframeValueList& valueList, const Animation* animation, PlatformCAAnimation* basicAnim)
@@ -3356,7 +3968,7 @@ bool GraphicsLayerCA::setAnimationEndpoints(const KeyframeValueList& valueList, 
     unsigned toIndex = forwards;
     
     switch (valueList.property()) {
-    case AnimatedPropertyOpacity: {
+    case AnimatedProperty::Opacity: {
         basicAnim->setFromValue(static_cast<const FloatAnimationValue&>(valueList.at(fromIndex)).value());
         basicAnim->setToValue(static_cast<const FloatAnimationValue&>(valueList.at(toIndex)).value());
         break;
@@ -3366,19 +3978,14 @@ bool GraphicsLayerCA::setAnimationEndpoints(const KeyframeValueList& valueList, 
         break;
     }
 
-    // This codepath is used for 2-keyframe animations, so we still need to look in the start
-    // for a timing function. Even in the reversing animation case, the first keyframe provides the timing function.
-    if (!RuntimeEnabledFeatures::sharedFeatures().webAnimationsCSSIntegrationEnabled())
-        basicAnim->setTimingFunction(&timingFunctionForAnimationValue(valueList.at(0), *animation), !forwards);
-
     return true;
 }
 
-bool GraphicsLayerCA::setAnimationKeyframes(const KeyframeValueList& valueList, const Animation* animation, PlatformCAAnimation* keyframeAnim)
+bool GraphicsLayerCA::setAnimationKeyframes(const KeyframeValueList& valueList, const Animation* animation, PlatformCAAnimation* keyframeAnim, bool keyframesShouldUseAnimationWideTimingFunction)
 {
     Vector<float> keyTimes;
     Vector<float> values;
-    Vector<const TimingFunction*> timingFunctions;
+    Vector<Ref<const TimingFunction>> timingFunctions;
 
     bool forwards = animation->directionIsForwards();
     
@@ -3388,7 +3995,7 @@ bool GraphicsLayerCA::setAnimationKeyframes(const KeyframeValueList& valueList, 
         keyTimes.append(forwards ? curValue.keyTime() : (1 - curValue.keyTime()));
 
         switch (valueList.property()) {
-        case AnimatedPropertyOpacity: {
+        case AnimatedProperty::Opacity: {
             const FloatAnimationValue& floatValue = static_cast<const FloatAnimationValue&>(curValue);
             values.append(floatValue.value());
             break;
@@ -3399,7 +4006,7 @@ bool GraphicsLayerCA::setAnimationKeyframes(const KeyframeValueList& valueList, 
         }
 
         if (i < (valueList.size() - 1))
-            timingFunctions.append(&timingFunctionForAnimationValue(forwards ? curValue : valueList.at(index - 1), *animation));
+            timingFunctions.append(timingFunctionForAnimationValue(forwards ? curValue : valueList.at(index - 1), *animation, keyframesShouldUseAnimationWideTimingFunction));
     }
 
     keyframeAnim->setKeyTimes(keyTimes);
@@ -3409,7 +4016,7 @@ bool GraphicsLayerCA::setAnimationKeyframes(const KeyframeValueList& valueList, 
     return true;
 }
 
-bool GraphicsLayerCA::setTransformAnimationEndpoints(const KeyframeValueList& valueList, const Animation* animation, PlatformCAAnimation* basicAnim, int functionIndex, TransformOperation::OperationType transformOpType, bool isMatrixAnimation, const FloatSize& boxSize)
+bool GraphicsLayerCA::setTransformAnimationEndpoints(const KeyframeValueList& valueList, const Animation* animation, PlatformCAAnimation* basicAnim, int functionIndex, TransformOperation::Type transformOpType, bool isMatrixAnimation, const FloatSize& boxSize)
 {
     ASSERT(valueList.size() == 2);
 
@@ -3418,13 +4025,13 @@ bool GraphicsLayerCA::setTransformAnimationEndpoints(const KeyframeValueList& va
     unsigned fromIndex = !forwards;
     unsigned toIndex = forwards;
     
-    auto& startValue = static_cast<const TransformAnimationValue&>(valueList.at(fromIndex));
-    auto& endValue = static_cast<const TransformAnimationValue&>(valueList.at(toIndex));
+    const auto& startValue = transformationAnimationValueAt(valueList, fromIndex);
+    const auto& endValue = transformationAnimationValueAt(valueList, toIndex);
 
     if (isMatrixAnimation) {
         TransformationMatrix fromTransform, toTransform;
-        startValue.value().apply(boxSize, fromTransform);
-        endValue.value().apply(boxSize, toTransform);
+        startValue.apply(fromTransform, boxSize);
+        endValue.apply(toTransform, boxSize);
 
         // If any matrix is singular, CA won't animate it correctly. So fall back to software animation
         if (!fromTransform.isInvertible() || !toTransform.isInvertible())
@@ -3435,50 +4042,45 @@ bool GraphicsLayerCA::setTransformAnimationEndpoints(const KeyframeValueList& va
     } else {
         if (isTransformTypeNumber(transformOpType)) {
             float fromValue;
-            getTransformFunctionValue(startValue.value().at(functionIndex), transformOpType, boxSize, fromValue);
+            getTransformFunctionValue(startValue.at(functionIndex), transformOpType, boxSize, fromValue);
             basicAnim->setFromValue(fromValue);
             
             float toValue;
-            getTransformFunctionValue(endValue.value().at(functionIndex), transformOpType, boxSize, toValue);
+            getTransformFunctionValue(endValue.at(functionIndex), transformOpType, boxSize, toValue);
             basicAnim->setToValue(toValue);
         } else if (isTransformTypeFloatPoint3D(transformOpType)) {
             FloatPoint3D fromValue;
-            getTransformFunctionValue(startValue.value().at(functionIndex), transformOpType, boxSize, fromValue);
+            getTransformFunctionValue(startValue.at(functionIndex), transformOpType, boxSize, fromValue);
             basicAnim->setFromValue(fromValue);
             
             FloatPoint3D toValue;
-            getTransformFunctionValue(endValue.value().at(functionIndex), transformOpType, boxSize, toValue);
+            getTransformFunctionValue(endValue.at(functionIndex), transformOpType, boxSize, toValue);
             basicAnim->setToValue(toValue);
         } else {
             TransformationMatrix fromValue;
-            getTransformFunctionValue(startValue.value().at(functionIndex), transformOpType, boxSize, fromValue);
+            getTransformFunctionValue(startValue.at(functionIndex), transformOpType, boxSize, fromValue);
             basicAnim->setFromValue(fromValue);
 
             TransformationMatrix toValue;
-            getTransformFunctionValue(endValue.value().at(functionIndex), transformOpType, boxSize, toValue);
+            getTransformFunctionValue(endValue.at(functionIndex), transformOpType, boxSize, toValue);
             basicAnim->setToValue(toValue);
         }
     }
 
-    // This codepath is used for 2-keyframe animations, so we still need to look in the start
-    // for a timing function. Even in the reversing animation case, the first keyframe provides the timing function.
-    if (!RuntimeEnabledFeatures::sharedFeatures().webAnimationsCSSIntegrationEnabled())
-        basicAnim->setTimingFunction(&timingFunctionForAnimationValue(valueList.at(0), *animation), !forwards);
-
     auto valueFunction = getValueFunctionNameForTransformOperation(transformOpType);
-    if (valueFunction != PlatformCAAnimation::NoValueFunction)
+    if (valueFunction != PlatformCAAnimation::ValueFunctionType::NoValueFunction)
         basicAnim->setValueFunction(valueFunction);
 
     return true;
 }
 
-bool GraphicsLayerCA::setTransformAnimationKeyframes(const KeyframeValueList& valueList, const Animation* animation, PlatformCAAnimation* keyframeAnim, int functionIndex, TransformOperation::OperationType transformOpType, bool isMatrixAnimation, const FloatSize& boxSize)
+bool GraphicsLayerCA::setTransformAnimationKeyframes(const KeyframeValueList& valueList, const Animation* animation, PlatformCAAnimation* keyframeAnim, int functionIndex, TransformOperation::Type transformOpType, bool isMatrixAnimation, const FloatSize& boxSize, bool keyframesShouldUseAnimationWideTimingFunction)
 {
     Vector<float> keyTimes;
     Vector<float> floatValues;
     Vector<FloatPoint3D> floatPoint3DValues;
     Vector<TransformationMatrix> transformationMatrixValues;
-    Vector<const TimingFunction*> timingFunctions;
+    Vector<Ref<const TimingFunction>> timingFunctions;
 
     bool forwards = animation->directionIsForwards();
 
@@ -3487,10 +4089,9 @@ bool GraphicsLayerCA::setTransformAnimationKeyframes(const KeyframeValueList& va
         const TransformAnimationValue& curValue = static_cast<const TransformAnimationValue&>(valueList.at(index));
         keyTimes.append(forwards ? curValue.keyTime() : (1 - curValue.keyTime()));
 
-        TransformationMatrix transform;
-
         if (isMatrixAnimation) {
-            curValue.value().apply(boxSize, transform);
+            TransformationMatrix transform;
+            curValue.value().apply(transform, boxSize, functionIndex);
 
             // If any matrix is singular, CA won't animate it correctly. So fall back to software animation
             if (!transform.isInvertible())
@@ -3512,12 +4113,10 @@ bool GraphicsLayerCA::setTransformAnimationKeyframes(const KeyframeValueList& va
                 getTransformFunctionValue(transformOp, transformOpType, boxSize, value);
                 transformationMatrixValues.append(value);
             }
-
-            curValue.value().apply(boxSize, transform);
         }
 
         if (i < (valueList.size() - 1))
-            timingFunctions.append(&timingFunctionForAnimationValue(forwards ? curValue : valueList.at(index - 1), *animation));
+            timingFunctions.append(timingFunctionForAnimationValue(forwards ? curValue : valueList.at(index - 1), *animation, keyframesShouldUseAnimationWideTimingFunction));
     }
     
     keyframeAnim->setKeyTimes(keyTimes);
@@ -3532,13 +4131,13 @@ bool GraphicsLayerCA::setTransformAnimationKeyframes(const KeyframeValueList& va
     keyframeAnim->setTimingFunctions(timingFunctions, !forwards);
 
     PlatformCAAnimation::ValueFunctionType valueFunction = getValueFunctionNameForTransformOperation(transformOpType);
-    if (valueFunction != PlatformCAAnimation::NoValueFunction)
+    if (valueFunction != PlatformCAAnimation::ValueFunctionType::NoValueFunction)
         keyframeAnim->setValueFunction(valueFunction);
 
     return true;
 }
 
-bool GraphicsLayerCA::setFilterAnimationEndpoints(const KeyframeValueList& valueList, const Animation* animation, PlatformCAAnimation* basicAnim, int functionIndex, int internalFilterPropertyIndex)
+bool GraphicsLayerCA::setFilterAnimationEndpoints(const KeyframeValueList& valueList, const Animation* animation, PlatformCAAnimation* basicAnim, int functionIndex)
 {
     ASSERT(valueList.size() == 2);
 
@@ -3568,22 +4167,17 @@ bool GraphicsLayerCA::setFilterAnimationEndpoints(const KeyframeValueList& value
         toOperation = defaultToOperation.get();
     }
 
-    basicAnim->setFromValue(fromOperation, internalFilterPropertyIndex);
-    basicAnim->setToValue(toOperation, internalFilterPropertyIndex);
-
-    // This codepath is used for 2-keyframe animations, so we still need to look in the start
-    // for a timing function. Even in the reversing animation case, the first keyframe provides the timing function.
-    if (!RuntimeEnabledFeatures::sharedFeatures().webAnimationsCSSIntegrationEnabled())
-        basicAnim->setTimingFunction(&timingFunctionForAnimationValue(valueList.at(0), *animation), !forwards);
+    basicAnim->setFromValue(*fromOperation);
+    basicAnim->setToValue(*toOperation);
 
     return true;
 }
 
-bool GraphicsLayerCA::setFilterAnimationKeyframes(const KeyframeValueList& valueList, const Animation* animation, PlatformCAAnimation* keyframeAnim, int functionIndex, int internalFilterPropertyIndex, FilterOperation::OperationType filterOp)
+bool GraphicsLayerCA::setFilterAnimationKeyframes(const KeyframeValueList& valueList, const Animation* animation, PlatformCAAnimation* keyframeAnim, int functionIndex, FilterOperation::Type filterOp, bool keyframesShouldUseAnimationWideTimingFunction)
 {
     Vector<float> keyTimes;
-    Vector<RefPtr<FilterOperation>> values;
-    Vector<const TimingFunction*> timingFunctions;
+    Vector<Ref<FilterOperation>> values;
+    Vector<Ref<const TimingFunction>> timingFunctions;
     RefPtr<DefaultFilterOperation> defaultOperation;
 
     bool forwards = animation->directionIsForwards();
@@ -3593,20 +4187,20 @@ bool GraphicsLayerCA::setFilterAnimationKeyframes(const KeyframeValueList& value
         const FilterAnimationValue& curValue = static_cast<const FilterAnimationValue&>(valueList.at(index));
         keyTimes.append(forwards ? curValue.keyTime() : (1 - curValue.keyTime()));
 
-        if (curValue.value().operations().size() > static_cast<size_t>(functionIndex))
-            values.append(curValue.value().operations()[functionIndex]);
+        if (curValue.value().size() > static_cast<size_t>(functionIndex))
+            values.append(curValue.value()[functionIndex].copyRef());
         else {
             if (!defaultOperation)
                 defaultOperation = DefaultFilterOperation::create(filterOp);
-            values.append(defaultOperation);
+            values.append(*defaultOperation);
         }
 
         if (i < (valueList.size() - 1))
-            timingFunctions.append(&timingFunctionForAnimationValue(forwards ? curValue : valueList.at(index - 1), *animation));
+            timingFunctions.append(timingFunctionForAnimationValue(forwards ? curValue : valueList.at(index - 1), *animation, keyframesShouldUseAnimationWideTimingFunction));
     }
     
     keyframeAnim->setKeyTimes(keyTimes);
-    keyframeAnim->setValues(values, internalFilterPropertyIndex);
+    keyframeAnim->setValues(values);
     keyframeAnim->setTimingFunctions(timingFunctions, !forwards);
 
     return true;
@@ -3657,16 +4251,14 @@ PlatformCALayer* GraphicsLayerCA::layerForSuperlayer() const
     return m_structuralLayer ? m_structuralLayer.get() : m_layer.get();
 }
 
-PlatformCALayer* GraphicsLayerCA::animatedLayer(AnimatedPropertyID property) const
+PlatformCALayer* GraphicsLayerCA::animatedLayer(AnimatedProperty property) const
 {
     switch (property) {
-    case AnimatedPropertyBackgroundColor:
+    case AnimatedProperty::BackgroundColor:
         return m_contentsLayer.get();
-#if ENABLE(FILTERS_LEVEL_2)
-    case AnimatedPropertyWebkitBackdropFilter:
+    case AnimatedProperty::WebkitBackdropFilter:
         // FIXME: Should be just m_backdropLayer.get(). Also, add an ASSERT(m_backdropLayer) here when https://bugs.webkit.org/show_bug.cgi?id=145322 is fixed.
         return m_backdropLayer ? m_backdropLayer.get() : primaryLayer();
-#endif
     default:
         return primaryLayer();
     }
@@ -3680,22 +4272,58 @@ GraphicsLayerCA::LayerMap* GraphicsLayerCA::primaryLayerClones() const
     return m_structuralLayer ? &m_layerClones->structuralLayerClones : &m_layerClones->primaryLayerClones;
 }
 
-GraphicsLayerCA::LayerMap* GraphicsLayerCA::animatedLayerClones(AnimatedPropertyID property) const
+GraphicsLayerCA::LayerMap* GraphicsLayerCA::animatedLayerClones(AnimatedProperty property) const
 {
     if (!m_layerClones)
         return nullptr;
 
-    return (property == AnimatedPropertyBackgroundColor) ? &m_layerClones->contentsLayerClones : primaryLayerClones();
+    return (property == AnimatedProperty::BackgroundColor) ? &m_layerClones->contentsLayerClones : primaryLayerClones();
+}
+
+void GraphicsLayerCA::updateRootRelativeScale()
+{
+    // For CSS animations we could figure out the max scale level during the animation and only figure out the max content scale once.
+    // For JS driven animation, we need to be more clever to keep the peformance as before. Ideas:
+    // - only update scale factor when the change is 'significant' (to be defined, (orig - new)/orig > delta?)
+    // - never update the scale factor when it gets smaller (unless we're under memory pressure) (or only periodcally)
+    // - ...
+    // --> For now we disable this logic alltogether, but allow to turn it on selectively (for LBSE)
+    if (!m_shouldUpdateRootRelativeScaleFactor)
+        return;
+
+    auto computeMaxScaleFromTransform = [](const TransformationMatrix& transform) -> float {
+        if (transform.isIdentityOrTranslation())
+            return 1;
+        TransformationMatrix::Decomposed2Type decomposeData;
+        if (!transform.decompose2(decomposeData))
+            return 1;
+        return std::max(std::abs(decomposeData.scaleX), std::abs(decomposeData.scaleY));
+    };
+
+    float rootRelativeScaleFactor = hasNonIdentityTransform() ? computeMaxScaleFromTransform(transform()) : 1;
+    if (m_parent) {
+        if (m_parent->hasNonIdentityChildrenTransform())
+            rootRelativeScaleFactor *= computeMaxScaleFromTransform(m_parent->childrenTransform());
+        rootRelativeScaleFactor *= downcast<GraphicsLayerCA>(*m_parent).rootRelativeScaleFactor();
+    }
+
+    if (rootRelativeScaleFactor != m_rootRelativeScaleFactor) {
+        m_rootRelativeScaleFactor = rootRelativeScaleFactor;
+        m_uncommittedChanges |= ContentsScaleChanged;
+    }
 }
 
 void GraphicsLayerCA::updateContentsScale(float pageScaleFactor)
 {
-    float contentsScale = pageScaleFactor * deviceScaleFactor();
+    float contentsScale = pageScaleFactor * deviceScaleFactor() * m_contentsScaleLimitingFactor;
 
     if (isPageTiledBackingLayer() && tiledBacking()) {
         float zoomedOutScale = client().zoomedOutPageScaleFactor() * deviceScaleFactor();
         tiledBacking()->setZoomedOutContentsScale(zoomedOutScale);
     }
+
+    if (auto customScale = client().customContentsScale(this))
+        contentsScale = *customScale;
 
     if (contentsScale == m_layer->contentsScale())
         return;
@@ -3737,7 +4365,7 @@ void GraphicsLayerCA::setShowRepaintCounter(bool showCounter)
     noteLayerPropertyChanged(DebugIndicatorsChanged);
 }
 
-String GraphicsLayerCA::displayListAsText(DisplayList::AsTextFlags flags) const
+String GraphicsLayerCA::displayListAsText(OptionSet<DisplayList::AsTextFlag> flags) const
 {
     if (!m_displayList)
         return String();
@@ -3764,7 +4392,7 @@ void GraphicsLayerCA::setIsTrackingDisplayListReplay(bool isTracking)
         layerDisplayListMap().remove(this);
 }
 
-String GraphicsLayerCA::replayDisplayListAsText(DisplayList::AsTextFlags flags) const
+String GraphicsLayerCA::replayDisplayListAsText(OptionSet<DisplayList::AsTextFlag> flags) const
 {
     auto it = layerDisplayListMap().find(this);
     if (it != layerDisplayListMap().end()) {
@@ -3788,46 +4416,252 @@ void GraphicsLayerCA::setDebugBackgroundColor(const Color& color)
         m_layer->setBackgroundColor(Color::transparentBlack);
 }
 
+Color GraphicsLayerCA::pageTiledBackingBorderColor() const
+{
+    return SRGBA<uint8_t> { 0, 0, 128, 128 }; // tile cache layer: dark blue
+}
+
 void GraphicsLayerCA::getDebugBorderInfo(Color& color, float& width) const
 {
     if (isPageTiledBackingLayer()) {
-        color = SRGBA<uint8_t> { 0, 0, 128, 128 }; // tile cache layer: dark blue
-#if OS(WINDOWS)
-        width = 1.0;
-#else
+        color = pageTiledBackingBorderColor();
         width = 0.5;
-#endif
         return;
     }
 
     GraphicsLayer::getDebugBorderInfo(color, width);
 }
 
-static void dumpInnerLayer(TextStream& textStream, String label, PlatformCALayer* layer, LayerTreeAsTextBehavior behavior)
+ASCIILiteral GraphicsLayerCA::purposeNameForInnerLayer(PlatformCALayer& layer) const
+{
+    if (&layer == m_structuralLayer.get())
+        return "structural layer"_s;
+    if (&layer == m_contentsClippingLayer.get())
+        return "contents clipping layer"_s;
+    if (&layer == m_shapeMaskLayer.get())
+        return "shape mask layer"_s;
+    if (&layer == m_backdropClippingLayer.get())
+        return "backdrop clipping layer"_s;
+    if (&layer == m_contentsLayer.get()) {
+        switch (m_contentsLayerPurpose) {
+        case ContentsLayerPurpose::None:
+            return "contents layer (none)"_s;
+        case ContentsLayerPurpose::Image:
+            return "contents layer (image)"_s;
+        case ContentsLayerPurpose::Media:
+            return "contents layer (media)"_s;
+        case ContentsLayerPurpose::Canvas:
+            return "contents layer (canvas)"_s;
+        case ContentsLayerPurpose::BackgroundColor:
+            return "contents layer (background color)"_s;
+        case ContentsLayerPurpose::Plugin:
+            return "contents layer (plugin)"_s;
+        case ContentsLayerPurpose::Model:
+            return "contents layer (model)"_s;
+        case ContentsLayerPurpose::HostedModel:
+            return "contents layer (hosted model)"_s;
+        case ContentsLayerPurpose::Host:
+            return "contents layer (host)"_s;
+        }
+    }
+    if (&layer == m_contentsShapeMaskLayer.get())
+        return "contents shape mask layer"_s;
+    if (&layer == m_backdropLayer.get()) {
+#if HAVE(CORE_MATERIAL)
+        if (m_backdropLayer->appleVisualEffectData().effect != AppleVisualEffect::None)
+            return "backdrop layer (material)"_s;
+#endif
+        return "backdrop layer"_s;
+    }
+    return "platform layer"_s;
+}
+
+void GraphicsLayerCA::dumpInnerLayer(TextStream& ts, PlatformCALayer* layer, OptionSet<PlatformLayerTreeAsTextFlags> flags) const
 {
     if (!layer)
         return;
 
-    textStream << indent << "(" << label << " ";
-    if (behavior & LayerTreeAsTextDebug)
-        textStream << "id=" << layer->layerID() << " ";
-    textStream << layer->position().x() << ", " << layer->position().y() << " " << layer->bounds().width() << " x " << layer->bounds().height();
-    if (layer->isHidden())
-        textStream << " hidden";
-    textStream << ")\n";
+    ts << indent << '(' << purposeNameForInnerLayer(*layer) << '\n';
+
+    {
+        TextStream::IndentScope indentScope(ts);
+
+        if (flags.contains(PlatformLayerTreeAsTextFlags::Debug))
+            ts << indent << "(id "_s << layer->layerID() << ")\n"_s;
+
+        ts << indent << "(position "_s << layer->position().x() << ' ' << layer->position().y() << ")\n"_s;
+        ts << indent << "(bounds "_s << layer->bounds().width() << ' ' << layer->bounds().height() << ")\n"_s;
+        
+        if (layer->opacity() != 1)
+            ts << indent << "(opacity "_s << layer->opacity() << ")\n"_s;
+
+        if (layer->isHidden())
+            ts << indent << "(hidden)\n"_s;
+
+        layer->dumpAdditionalProperties(ts, flags);
+
+        if (!flags.contains(PlatformLayerTreeAsTextFlags::IgnoreChildren)) {
+            auto sublayers = layer->sublayersForLogging();
+            if (sublayers.size()) {
+                ts << indent << "(children "_s << "\n"_s;
+
+                {
+                    TextStream::IndentScope indentScope(ts);
+                    for (auto& child : sublayers)
+                        dumpInnerLayer(ts, child.get(), flags);
+                }
+
+                ts << indent << ")\n"_s;
+            }
+        }
+    }
+
+    ts << indent << ")\n"_s;
 }
 
-void GraphicsLayerCA::dumpAdditionalProperties(TextStream& textStream, LayerTreeAsTextBehavior behavior) const
+static TextStream& operator<<(TextStream& textStream, AnimatedProperty propertyID)
 {
-    if (behavior & LayerTreeAsTextIncludeVisibleRects) {
+    switch (propertyID) {
+    case AnimatedProperty::Invalid: textStream << "invalid"; break;
+    case AnimatedProperty::Translate: textStream << "translate"; break;
+    case AnimatedProperty::Scale: textStream << "scale"; break;
+    case AnimatedProperty::Rotate: textStream << "rotate"; break;
+    case AnimatedProperty::Transform: textStream << "transform"; break;
+    case AnimatedProperty::Opacity: textStream << "opacity"; break;
+    case AnimatedProperty::BackgroundColor: textStream << "background-color"; break;
+    case AnimatedProperty::Filter: textStream << "filter"; break;
+    case AnimatedProperty::WebkitBackdropFilter: textStream << "backdrop-filter"; break;
+    }
+    return textStream;
+}
+
+void GraphicsLayerCA::dumpAnimations(WTF::TextStream& textStream, ASCIILiteral category, const Vector<LayerPropertyAnimation>& animations)
+{
+    auto dumpAnimation = [&textStream](const LayerPropertyAnimation& animation) {
+        textStream << indent << '(' << animation.m_name;
+        {
+            TextStream::IndentScope indentScope(textStream);
+            textStream.dumpProperty("CA animation"_s, animation.m_animation.get());
+            textStream.dumpProperty("property"_s, animation.m_property);
+            textStream.dumpProperty("index"_s, animation.m_index);
+            textStream.dumpProperty("time offset"_s, animation.m_timeOffset);
+            textStream.dumpProperty("begin time"_s, animation.m_beginTime);
+            textStream.dumpProperty("play state"_s, (unsigned)animation.m_playState);
+            if (animation.m_pendingRemoval)
+                textStream.dumpProperty("pending removal"_s, animation.m_pendingRemoval);
+            textStream << ')';
+        }
+    };
+    
+    if (animations.isEmpty())
+        return;
+    
+    textStream << indent << '(' << category << '\n';
+    {
+        TextStream::IndentScope indentScope(textStream);
+        for (const auto& animation : animations) {
+            TextStream::IndentScope indentScope(textStream);
+            dumpAnimation(animation);
+        }
+
+        textStream << ")\n"_s;
+    }
+}
+
+ASCIILiteral GraphicsLayerCA::layerChangeAsString(LayerChange layerChange)
+{
+    switch (layerChange) {
+    case LayerChange::NoChange: return ""_s; break;
+    case LayerChange::NameChanged: return "NameChanged"_s;
+    case LayerChange::ChildrenChanged: return "ChildrenChanged"_s;
+    case LayerChange::GeometryChanged: return "GeometryChanged"_s;
+    case LayerChange::TransformChanged: return "TransformChanged"_s;
+    case LayerChange::ChildrenTransformChanged: return "ChildrenTransformChanged"_s;
+    case LayerChange::Preserves3DChanged: return "Preserves3DChanged"_s;
+    case LayerChange::MasksToBoundsChanged: return "MasksToBoundsChanged"_s;
+    case LayerChange::DrawsContentChanged: return "DrawsContentChanged"_s;
+    case LayerChange::BackgroundColorChanged: return "BackgroundColorChanged"_s;
+    case LayerChange::ContentsOpaqueChanged: return "ContentsOpaqueChanged"_s;
+    case LayerChange::BackfaceVisibilityChanged: return "BackfaceVisibilityChanged"_s;
+    case LayerChange::OpacityChanged: return "OpacityChanged"_s;
+    case LayerChange::AnimationChanged: return "AnimationChanged"_s;
+    case LayerChange::DirtyRectsChanged: return "DirtyRectsChanged"_s;
+    case LayerChange::ContentsImageChanged: return "ContentsImageChanged"_s;
+    case LayerChange::ContentsPlatformLayerChanged: return "ContentsPlatformLayerChanged"_s;
+    case LayerChange::ContentsColorLayerChanged: return "ContentsColorLayerChanged"_s;
+    case LayerChange::ContentsRectsChanged: return "ContentsRectsChanged"_s;
+    case LayerChange::MaskLayerChanged: return "MaskLayerChanged"_s;
+    case LayerChange::ReplicatedLayerChanged: return "ReplicatedLayerChanged"_s;
+    case LayerChange::ContentsNeedsDisplay: return "ContentsNeedsDisplay"_s;
+    case LayerChange::AcceleratesDrawingChanged: return "AcceleratesDrawingChanged"_s;
+    case LayerChange::ContentsScaleChanged: return "ContentsScaleChanged"_s;
+    case LayerChange::ContentsVisibilityChanged: return "ContentsVisibilityChanged"_s;
+    case LayerChange::CoverageRectChanged: return "CoverageRectChanged"_s;
+    case LayerChange::FiltersChanged: return "FiltersChanged"_s;
+    case LayerChange::BackdropFiltersChanged: return "BackdropFiltersChanged"_s;
+    case LayerChange::BackdropFiltersRectChanged: return "BackdropFiltersRectChanged"_s;
+    case LayerChange::TilingAreaChanged: return "TilingAreaChanged"_s;
+    case LayerChange::DebugIndicatorsChanged: return "DebugIndicatorsChanged"_s;
+    case LayerChange::CustomAppearanceChanged: return "CustomAppearanceChanged"_s;
+    case LayerChange::BlendModeChanged: return "BlendModeChanged"_s;
+    case LayerChange::ShapeChanged: return "ShapeChanged"_s;
+    case LayerChange::WindRuleChanged: return "WindRuleChanged"_s;
+    case LayerChange::UserInteractionEnabledChanged: return "UserInteractionEnabledChanged"_s;
+    case LayerChange::NeedsComputeVisibleAndCoverageRect: return "NeedsComputeVisibleAndCoverageRect"_s;
+    case LayerChange::EventRegionChanged: return "EventRegionChanged"_s;
+#if ENABLE(SCROLLING_THREAD)
+    case LayerChange::ScrollingNodeChanged: return "ScrollingNodeChanged"_s;
+#endif
+#if HAVE(CORE_ANIMATION_SEPARATED_LAYERS)
+    case LayerChange::SeparatedChanged: return "SeparatedChanged"_s;
+#if HAVE(CORE_ANIMATION_SEPARATED_PORTALS)
+    case LayerChange::SeparatedPortalChanged: return "SeparatedPortalChanged"_s;
+    case LayerChange::DescendentOfSeparatedPortalChanged: return "DescendentOfSeparatedPortalChanged"_s;
+#endif
+#endif
+    case LayerChange::ContentsScalingFiltersChanged: return "ContentsScalingFiltersChanged"_s;
+    case LayerChange::VideoGravityChanged: return "VideoGravityChanged"_s;
+    case LayerChange::BackdropRootChanged: return "BackdropRootChanged"_s;
+#if HAVE(CORE_MATERIAL)
+    case LayerChange::AppleVisualEffectChanged: return "AppleVisualEffectChanged"_s;
+#endif
+#if HAVE(SUPPORT_HDR_DISPLAY)
+    case LayerChange::DrawsHDRContentChanged: return "DrawsHDRContentChanged"_s;
+#endif
+    }
+    ASSERT_NOT_REACHED();
+    return ""_s;
+}
+
+void GraphicsLayerCA::dumpLayerChangeFlags(TextStream& textStream, LayerChangeFlags layerChangeFlags)
+{
+    textStream << '{';
+    uint64_t bit = 1;
+    bool first = true;
+    while (layerChangeFlags) {
+        if (layerChangeFlags & bit) {
+            textStream << (first ? " "_s : ", "_s) << layerChangeAsString(static_cast<LayerChange>(bit));
+            first = false;
+        }
+        layerChangeFlags &= ~bit;
+        bit <<= 1;
+    }
+    textStream << " }"_s;
+}
+
+void GraphicsLayerCA::dumpAdditionalProperties(TextStream& textStream, OptionSet<LayerTreeAsTextOptions> options) const
+{
+    if (options & LayerTreeAsTextOptions::IncludeVisibleRects) {
         textStream << indent << "(visible rect " << m_visibleRect.x() << ", " << m_visibleRect.y() << " " << m_visibleRect.width() << " x " << m_visibleRect.height() << ")\n";
         textStream << indent << "(coverage rect " << m_coverageRect.x() << ", " << m_coverageRect.y() << " " << m_coverageRect.width() << " x " << m_coverageRect.height() << ")\n";
         textStream << indent << "(intersects coverage rect " << m_intersectsCoverageRect << ")\n";
         textStream << indent << "(contentsScale " << m_layer->contentsScale() << ")\n";
+        if (m_contentsScaleLimitingFactor != 1)
+            textStream << indent << "(contentsScale limiting factor " << m_contentsScaleLimitingFactor << ")\n";
     }
 
-    if (tiledBacking() && (behavior & LayerTreeAsTextIncludeTileCaches)) {
-        if (behavior & LayerTreeAsTextDebug)
+    if (tiledBacking() && (options & LayerTreeAsTextOptions::IncludeTileCaches)) {
+        if (options & LayerTreeAsTextOptions::Debug)
             textStream << indent << "(tiled backing " << tiledBacking() << ")\n";
 
         IntRect tileCoverageRect = tiledBacking()->tileCoverageRect();
@@ -3842,23 +4676,46 @@ void GraphicsLayerCA::dumpAdditionalProperties(TextStream& textStream, LayerTree
         textStream << indent << "(in window " << tiledBacking()->isInWindow() << ")\n";
     }
 
-    if ((behavior & LayerTreeAsTextIncludeDeepColor) && m_layer->wantsDeepColorBackingStore())
-        textStream << indent << "(deep color 1)\n";
+    if (options & LayerTreeAsTextOptions::IncludeDeviceScale)
+        textStream << indent << "(device scale " << deviceScaleFactor() << ")\n";
 
-    if (behavior & LayerTreeAsTextIncludeContentLayers) {
-        dumpInnerLayer(textStream, "structural layer", m_structuralLayer.get(), behavior);
-        dumpInnerLayer(textStream, "contents clipping layer", m_contentsClippingLayer.get(), behavior);
-        dumpInnerLayer(textStream, "shape mask layer", m_shapeMaskLayer.get(), behavior);
-        dumpInnerLayer(textStream, "backdrop clipping layer", m_backdropClippingLayer.get(), behavior);
-        dumpInnerLayer(textStream, "contents layer", m_contentsLayer.get(), behavior);
-        dumpInnerLayer(textStream, "contents shape mask layer", m_contentsShapeMaskLayer.get(), behavior);
-        dumpInnerLayer(textStream, "backdrop layer", m_backdropLayer.get(), behavior);
+    if ((options & LayerTreeAsTextOptions::IncludeExtendedColor) && m_layer->contentsFormat() != ContentsFormat::RGBA8)
+        textStream << indent << "(contentsFormat " << m_layer->contentsFormat() << ")\n";
+
+    if (options & LayerTreeAsTextOptions::IncludeContentLayers) {
+        OptionSet<PlatformLayerTreeAsTextFlags> platformFlags = { PlatformLayerTreeAsTextFlags::IgnoreChildren };
+        if (options & LayerTreeAsTextOptions::Debug)
+            platformFlags.add(PlatformLayerTreeAsTextFlags::Debug);
+        dumpInnerLayer(textStream, m_structuralLayer.get(), platformFlags);
+        dumpInnerLayer(textStream, m_contentsClippingLayer.get(), platformFlags);
+        dumpInnerLayer(textStream, m_shapeMaskLayer.get(), platformFlags);
+        dumpInnerLayer(textStream, m_backdropClippingLayer.get(), platformFlags);
+        dumpInnerLayer(textStream, m_contentsLayer.get(), platformFlags);
+        dumpInnerLayer(textStream, m_contentsShapeMaskLayer.get(), platformFlags);
+        dumpInnerLayer(textStream, m_backdropLayer.get(), platformFlags);
     }
 
-    if (behavior & LayerTreeAsTextDebug) {
+    if (options & LayerTreeAsTextOptions::Debug) {
         if (m_usesDisplayListDrawing)
             textStream << indent << "(uses display-list drawing " << m_usesDisplayListDrawing << ")\n";
+
+        if (m_uncommittedChanges) {
+            textStream << indent << "(uncommitted changes ";
+            dumpLayerChangeFlags(textStream, m_uncommittedChanges);
+            textStream << ")\n";
+        }
+
+        dumpAnimations(textStream, "animations"_s, m_animations);
+        dumpAnimations(textStream, "base value animations"_s, m_baseValueTransformAnimations);
+        dumpAnimations(textStream, "animation groups"_s, m_animationGroups);
     }
+}
+
+String GraphicsLayerCA::platformLayerTreeAsText(OptionSet<PlatformLayerTreeAsTextFlags> flags) const
+{
+    TextStream ts(TextStream::LineMode::MultipleLine, TextStream::Formatting::SVGStyleRect);
+    dumpInnerLayer(ts, primaryLayer(), flags);
+    return ts.release();
 }
 
 void GraphicsLayerCA::setDebugBorder(const Color& color, float borderWidth)
@@ -3877,7 +4734,10 @@ void GraphicsLayerCA::setCustomAppearance(CustomAppearance customAppearance)
 
 bool GraphicsLayerCA::requiresTiledLayer(float pageScaleFactor) const
 {
-    if (!m_drawsContent || isPageTiledBackingLayer())
+    if (isTiledBackingLayer())
+        return true;
+
+    if (!m_drawsContent || isPageTiledBackingLayer() || !allowsTiling())
         return false;
 
     // FIXME: catch zero-size height or width here (or earlier)?
@@ -3889,19 +4749,26 @@ bool GraphicsLayerCA::requiresTiledLayer(float pageScaleFactor) const
 #endif
 }
 
+void GraphicsLayerCA::setTileCoverage(TileCoverage coverage)
+{
+    m_tileCoverage = coverage;
+    GraphicsLayer::setTileCoverage(coverage);
+}
+
 void GraphicsLayerCA::changeLayerTypeTo(PlatformCALayer::LayerType newLayerType)
 {
     PlatformCALayer::LayerType oldLayerType = m_layer->layerType();
     if (newLayerType == oldLayerType)
         return;
 
-    bool wasTiledLayer = oldLayerType == PlatformCALayer::LayerTypeTiledBackingLayer;
-    bool isTiledLayer = newLayerType == PlatformCALayer::LayerTypeTiledBackingLayer;
+    bool wasTiledLayer = oldLayerType == PlatformCALayer::LayerType::LayerTypeTiledBackingLayer;
+    bool isTiledLayer = newLayerType == PlatformCALayer::LayerType::LayerTypeTiledBackingLayer;
 
     RefPtr<PlatformCALayer> oldLayer = m_layer;
     m_layer = createPlatformCALayer(newLayerType, this);
 
-    m_usingBackdropLayerType = isCustomBackdropLayerType(newLayerType);
+    if (auto* backing = tiledBacking())
+        backing->setTileCoverage(m_tileCoverage);
 
     m_layer->adoptSublayers(*oldLayer);
 
@@ -3932,16 +4799,32 @@ void GraphicsLayerCA::changeLayerTypeTo(PlatformCALayer::LayerType newLayerType)
         | BackgroundColorChanged
         | ContentsScaleChanged
         | AcceleratesDrawingChanged
-        | SupportsSubpixelAntialiasedTextChanged
         | FiltersChanged
         | BackdropFiltersChanged
+        | BackdropRootChanged
+        | BlendModeChanged
         | MaskLayerChanged
         | OpacityChanged
+        | EventRegionChanged
         | NameChanged
-        | DebugIndicatorsChanged);
-    
-    if (isTiledLayer)
-        addUncommittedChanges(CoverageRectChanged);
+        | DebugIndicatorsChanged
+#if HAVE(CORE_MATERIAL)
+        | AppleVisualEffectChanged
+#endif
+#if HAVE(CORE_ANIMATION_SEPARATED_LAYERS)
+        | ContentsRectsChanged
+        | SeparatedChanged
+#endif
+#if ENABLE(INTERACTION_REGIONS_IN_EVENT_REGION) || HAVE(CORE_ANIMATION_SEPARATED_LAYERS)
+        | CoverageRectChanged);
+#else
+        );
+
+        if (isTiledLayer)
+            addUncommittedChanges(CoverageRectChanged);
+#endif
+
+    adjustContentsScaleLimitingFactor();
 
     moveAnimations(oldLayer.get(), m_layer.get());
     
@@ -3950,21 +4833,17 @@ void GraphicsLayerCA::changeLayerTypeTo(PlatformCALayer::LayerType newLayerType)
 
     if (wasTiledLayer || isTiledLayer)
         client().tiledBackingUsageChanged(this, isTiledLayer);
+
+    oldLayer->setOwner(nullptr);
 }
 
-GraphicsLayer::CompositingCoordinatesOrientation GraphicsLayerCA::defaultContentsOrientation() const
-{
-    return CompositingCoordinatesOrientation::TopDown;
-}
-
-void GraphicsLayerCA::setupContentsLayer(PlatformCALayer* contentsLayer)
+void GraphicsLayerCA::setupContentsLayer(PlatformCALayer* contentsLayer, CompositingCoordinatesOrientation orientation)
 {
     // Turn off implicit animations on the inner layer.
 #if !PLATFORM(IOS_FAMILY)
     contentsLayer->setMasksToBounds(true);
 #endif
-
-    if (defaultContentsOrientation() == CompositingCoordinatesOrientation::BottomUp) {
+    if (orientation == CompositingCoordinatesOrientation::BottomUp) {
         TransformationMatrix flipper(
             1.0f, 0.0f, 0.0f, 0.0f,
             0.0f, -1.0f, 0.0f, 0.0f,
@@ -3978,7 +4857,7 @@ void GraphicsLayerCA::setupContentsLayer(PlatformCALayer* contentsLayer)
     setLayerDebugBorder(*contentsLayer, contentsLayerDebugBorderColor(isShowingDebugBorder()), contentsLayerBorderWidth);
 }
 
-RefPtr<PlatformCALayer> GraphicsLayerCA::findOrMakeClone(CloneID cloneID, PlatformCALayer *sourceLayer, LayerMap& clones, CloneLevel cloneLevel)
+RefPtr<PlatformCALayer> GraphicsLayerCA::findOrMakeClone(const CloneID& cloneID, PlatformCALayer *sourceLayer, LayerMap& clones, CloneLevel cloneLevel)
 {
     if (!sourceLayer)
         return nullptr;
@@ -3995,15 +4874,15 @@ RefPtr<PlatformCALayer> GraphicsLayerCA::findOrMakeClone(CloneID cloneID, Platfo
     } else {
         resultLayer = cloneLayer(sourceLayer, cloneLevel);
 #if ENABLE(TREE_DEBUGGING)
-        resultLayer->setName(makeString("clone ", cloneID[0U], " of ", sourceLayer->layerID()));
+        resultLayer->setName(makeString("clone "_s, hex(cloneID[0U]), " of "_s, sourceLayer->layerID().object()));
 #else
-        resultLayer->setName("clone of " + m_name);
+        resultLayer->setName(makeString("clone of "_s, m_name));
 #endif
         addResult.iterator->value = resultLayer;
     }
 
     return resultLayer;
-}   
+}
 
 void GraphicsLayerCA::ensureCloneLayers(CloneID cloneID, RefPtr<PlatformCALayer>& primaryLayer, RefPtr<PlatformCALayer>& structuralLayer,
     RefPtr<PlatformCALayer>& contentsLayer, RefPtr<PlatformCALayer>& contentsClippingLayer, RefPtr<PlatformCALayer>& contentsShapeMaskLayer, RefPtr<PlatformCALayer>& shapeMaskLayer, RefPtr<PlatformCALayer>& backdropLayer, RefPtr<PlatformCALayer>& backdropClippingLayer, CloneLevel cloneLevel)
@@ -4084,7 +4963,7 @@ RefPtr<PlatformCALayer> GraphicsLayerCA::fetchCloneLayers(GraphicsLayer* replica
 
     if (m_maskLayer) {
         RefPtr<PlatformCALayer> maskClone = downcast<GraphicsLayerCA>(*m_maskLayer).fetchCloneLayers(replicaRoot, replicaState, IntermediateCloneLevel);
-        primaryLayer->setMask(maskClone.get());
+        primaryLayer->setMaskLayer(WTFMove(maskClone));
     }
 
     if (m_replicatedLayer) {
@@ -4114,21 +4993,20 @@ RefPtr<PlatformCALayer> GraphicsLayerCA::fetchCloneLayers(GraphicsLayer* replica
         replicaState.setBranchType(ReplicaState::ChildBranch);
     }
 
-    if (contentsClippingLayer && contentsLayer) {
+    if (contentsClippingLayer && contentsLayer)
         contentsClippingLayer->appendSublayer(*contentsLayer);
-    }
 
     if (contentsShapeMaskLayer)
-        contentsClippingLayer->setMask(contentsShapeMaskLayer.get());
+        contentsClippingLayer->setMaskLayer(WTFMove(contentsShapeMaskLayer));
 
     if (shapeMaskLayer)
-        primaryLayer->setMask(shapeMaskLayer.get());
+        primaryLayer->setMaskLayer(WTFMove(shapeMaskLayer));
 
     if (replicaLayer || structuralLayer || contentsLayer || contentsClippingLayer || childLayers.size() > 0) {
         if (structuralLayer) {
             if (backdropLayer) {
                 clonalSublayers.append(backdropLayer);
-                backdropLayer->setMask(backdropClippingLayer.get());
+                backdropLayer->setMaskLayer(WTFMove(backdropClippingLayer));
             }
             
             // Replicas render behind the actual layer content.
@@ -4197,27 +5075,6 @@ Ref<PlatformCALayer> GraphicsLayerCA::cloneLayer(PlatformCALayer *layer, CloneLe
     return newLayer;
 }
 
-void GraphicsLayerCA::setOpacityInternal(float accumulatedOpacity)
-{
-    LayerMap* layerCloneMap = nullptr;
-    
-    if (preserves3D()) {
-        m_layer->setOpacity(accumulatedOpacity);
-        layerCloneMap = m_layerClones ? &m_layerClones->primaryLayerClones : nullptr;
-    } else {
-        primaryLayer()->setOpacity(accumulatedOpacity);
-        layerCloneMap = primaryLayerClones();
-    }
-
-    if (layerCloneMap) {
-        for (auto& clone : *layerCloneMap) {
-            if (m_replicaLayer && isReplicatedRootClone(clone.key))
-                continue;
-            clone.value->setOpacity(m_opacity);
-        }
-    }
-}
-
 void GraphicsLayerCA::updateOpacityOnLayer()
 {
     primaryLayer()->setOpacity(m_opacity);
@@ -4230,6 +5087,11 @@ void GraphicsLayerCA::updateOpacityOnLayer()
             clone.value->setOpacity(m_opacity);
         }
     }
+
+#if ENABLE(MODEL_ELEMENT)
+    if (m_contentsLayer && m_contentsLayerPurpose == ContentsLayerPurpose::Model)
+        m_contentsLayer->setOpacity(m_opacity);
+#endif
 }
 
 void GraphicsLayerCA::deviceOrPageScaleFactorChanged()
@@ -4332,42 +5194,107 @@ double GraphicsLayerCA::backingStoreMemoryEstimate() const
     return m_layer->backingStoreBytesPerPixel() * size().width() * m_layer->contentsScale() * size().height() * m_layer->contentsScale();
 }
 
-static String animatedPropertyIDAsString(AnimatedPropertyID property)
-{
-    if (property == AnimatedPropertyTransform)
-        return "transform";
-    if (property == AnimatedPropertyOpacity)
-        return "opacity";
-    if (property == AnimatedPropertyBackgroundColor)
-        return "background-color";
-    if (property == AnimatedPropertyFilter)
-        return "filter";
-    if (property == AnimatedPropertyInvalid)
-        return "invalid";
-#if ENABLE(FILTERS_LEVEL_2)
-    if (property == AnimatedPropertyWebkitBackdropFilter)
-        return "backdrop-filter";
-#endif
-    return "";
-}
-
-Vector<std::pair<String, double>> GraphicsLayerCA::acceleratedAnimationsForTesting() const
+Vector<std::pair<String, double>> GraphicsLayerCA::acceleratedAnimationsForTesting(const Settings& settings) const
 {
     Vector<std::pair<String, double>> animations;
 
-    if (hasAnimations()) {
-        for (auto it : m_animations->runningAnimations) {
-            auto& propertyAnimations = it.value;
-            size_t numAnimations = propertyAnimations.size();
-            for (size_t i = 0; i < numAnimations; ++i) {
-                const LayerPropertyAnimation& currAnimation = propertyAnimations[i];
-                auto caAnimation = animatedLayer(currAnimation.m_property)->animationForKey(animationIdentifier(currAnimation.m_name, currAnimation.m_property, currAnimation.m_index, currAnimation.m_subIndex));
-                animations.append({ animatedPropertyIDAsString(currAnimation.m_property), caAnimation->speed() });
-            }
+#if ENABLE(THREADED_ANIMATION_RESOLUTION)
+    auto addAcceleratedEffect = [&](const AcceleratedEffect& effect) {
+        for (auto property : effect.animatedProperties())
+            animations.append({ acceleratedEffectPropertyIDAsString(property), effect.playbackRate() });
+    };
+
+    if (settings.threadedAnimationResolutionEnabled()) {
+        if (auto* effectsStack = acceleratedEffectStack()) {
+            for (auto& effect : effectsStack->primaryLayerEffects())
+                addAcceleratedEffect(effect.get());
+            for (auto& effect : effectsStack->backdropLayerEffects())
+                addAcceleratedEffect(effect.get());
         }
+
+        return animations;
+    }
+#endif
+
+    for (auto& animation : m_animations) {
+        if (animation.m_pendingRemoval)
+            continue;
+        if (auto caAnimation = animatedLayer(animation.m_property)->animationForKey(animation.animationIdentifier()))
+            animations.append({ animatedPropertyIDAsString(animation.m_property), caAnimation->speed() });
+        else
+            animations.append({ animatedPropertyIDAsString(animation.m_property), (animation.m_playState == PlayState::Playing || animation.m_playState == PlayState::PlayPending) ? 1 : 0 });
     }
 
     return animations;
+}
+
+RefPtr<GraphicsLayerAsyncContentsDisplayDelegate> GraphicsLayerCA::createAsyncContentsDisplayDelegate(GraphicsLayerAsyncContentsDisplayDelegate* existing)
+{
+    if (existing && existing->isGraphicsLayerAsyncContentsDisplayDelegateCocoa()) {
+        static_cast<GraphicsLayerAsyncContentsDisplayDelegateCocoa*>(existing)->updateGraphicsLayerCA(*this);
+        return existing;
+    }
+    return adoptRef(new GraphicsLayerAsyncContentsDisplayDelegateCocoa(*this));
+}
+
+#if ENABLE(THREADED_ANIMATION_RESOLUTION)
+void GraphicsLayerCA::setAcceleratedEffectsAndBaseValues(AcceleratedEffects&& effects, AcceleratedEffectValues&& baseValues)
+{
+    auto hadEffectStack = !!acceleratedEffectStack();
+
+    GraphicsLayer::setAcceleratedEffectsAndBaseValues(WTFMove(effects), WTFMove(baseValues));
+
+    // Nothing to do if we didn't have an accelerated stack and we still don't.
+    if (!hadEffectStack && !acceleratedEffectStack())
+        return;
+
+    auto* layer = primaryLayer();
+    ASSERT(layer);
+
+    auto hasEffectsTargetingPrimaryLayer = false;
+    auto hasEffectsTargetingBackdropLayer = false;
+
+    if (auto* effectsStack = acceleratedEffectStack()) {
+        auto& primaryLayerEffects = effectsStack->primaryLayerEffects();
+        hasEffectsTargetingPrimaryLayer = !primaryLayerEffects.isEmpty();
+        layer->setAcceleratedEffectsAndBaseValues(primaryLayerEffects, baseValues);
+
+        auto& backdropLayerEffects = effectsStack->backdropLayerEffects();
+        hasEffectsTargetingBackdropLayer = !backdropLayerEffects.isEmpty();
+        if (m_backdropLayer)
+            m_backdropLayer->setAcceleratedEffectsAndBaseValues(backdropLayerEffects, baseValues);
+    }
+
+    if (!hasEffectsTargetingPrimaryLayer)
+        layer->clearAcceleratedEffectsAndBaseValues();
+    if (!hasEffectsTargetingBackdropLayer && m_backdropLayer)
+        m_backdropLayer->clearAcceleratedEffectsAndBaseValues();
+
+    // After clearing animations, ensure that any property that could have
+    // been animated is reset to match the current non-animated values.
+    if (!hasEffectsTargetingPrimaryLayer && !hasEffectsTargetingBackdropLayer)
+        noteLayerPropertyChanged(TransformChanged | FiltersChanged | OpacityChanged | BackdropFiltersChanged | DebugIndicatorsChanged);
+
+    noteLayerPropertyChanged(AnimationChanged | CoverageRectChanged);
+}
+#endif
+
+void GraphicsLayerCA::purgeFrontBufferForTesting()
+{
+    if (RefPtr layer = primaryLayer())
+        layer->purgeFrontBufferForTesting();
+}
+
+void GraphicsLayerCA::purgeBackBufferForTesting()
+{
+    if (RefPtr layer = primaryLayer())
+        layer->purgeBackBufferForTesting();
+}
+
+void GraphicsLayerCA::markFrontBufferVolatileForTesting()
+{
+    if (RefPtr layer = primaryLayer())
+        layer->markFrontBufferVolatileForTesting();
 }
 
 } // namespace WebCore

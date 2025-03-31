@@ -26,11 +26,18 @@
 #include "DOMHighResTimeStamp.h"
 #include "EventInit.h"
 #include "EventInterfaces.h"
+#include "EventOptions.h"
 #include "ExceptionOr.h"
 #include "ScriptWrappable.h"
 #include <wtf/MonotonicTime.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/TypeCasts.h>
+#include <wtf/WeakPtr.h>
 #include <wtf/text/AtomString.h>
+
+namespace WTF {
+class TextStream;
+}
 
 namespace WebCore {
 
@@ -38,13 +45,13 @@ class EventPath;
 class EventTarget;
 class ScriptExecutionContext;
 
-class Event : public ScriptWrappable, public RefCounted<Event> {
-    WTF_MAKE_ISO_ALLOCATED(Event);
+class Event : public ScriptWrappable, public RefCountedAndCanMakeWeakPtr<Event> {
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(Event);
 public:
-    enum class IsTrusted : uint8_t { No, Yes };
-    enum class CanBubble : uint8_t { No, Yes };
-    enum class IsCancelable : uint8_t { No, Yes };
-    enum class IsComposed : uint8_t { No, Yes };
+    using IsTrusted = EventIsTrusted;
+    using CanBubble = EventCanBubble;
+    using IsCancelable = EventIsCancelable;
+    using IsComposed = EventIsComposed;
 
     enum PhaseType : uint8_t {
         NONE = 0,
@@ -65,12 +72,16 @@ public:
 
     const AtomString& type() const { return m_type; }
     void setType(const AtomString& type) { m_type = type; }
-    
+
+    enum EventInterfaceType interfaceType() const { return static_cast<enum EventInterfaceType>(m_eventInterface); }
+
     EventTarget* target() const { return m_target.get(); }
     void setTarget(RefPtr<EventTarget>&&);
 
     EventTarget* currentTarget() const { return m_currentTarget.get(); }
-    void setCurrentTarget(EventTarget*);
+    RefPtr<EventTarget> protectedCurrentTarget() const;
+    void setCurrentTarget(RefPtr<EventTarget>&&, std::optional<bool> isInShadowTree = std::nullopt);
+    bool currentTargetIsInShadowTree() const { return m_currentTargetIsInShadowTree; }
 
     unsigned short eventPhase() const { return m_eventPhase; }
     void setEventPhase(PhaseType phase) { m_eventPhase = phase; }
@@ -82,8 +93,8 @@ public:
     DOMHighResTimeStamp timeStampForBindings(ScriptExecutionContext&) const;
     MonotonicTime timeStamp() const { return m_createTime; }
 
-    void setEventPath(const EventPath& path) { m_eventPath = &path; }
-    Vector<EventTarget*> composedPath() const;
+    void setEventPath(const EventPath&);
+    Vector<Ref<EventTarget>> composedPath() const;
 
     void stopPropagation() { m_propagationStopped = true; }
     void stopImmediatePropagation() { m_immediatePropagationStopped = true; }
@@ -94,11 +105,10 @@ public:
     bool legacyReturnValue() const { return !m_wasCanceled; }
     void setLegacyReturnValue(bool);
 
-    virtual EventInterface eventInterface() const { return EventInterfaceType; }
-
     virtual bool isBeforeTextInsertedEvent() const { return false; }
     virtual bool isBeforeUnloadEvent() const { return false; }
     virtual bool isClipboardEvent() const { return false; }
+    virtual bool isCommandEvent() const { return false; }
     virtual bool isCompositionEvent() const { return false; }
     virtual bool isErrorEvent() const { return false; }
     virtual bool isFocusEvent() const { return false; }
@@ -107,6 +117,7 @@ public:
     virtual bool isMouseEvent() const { return false; }
     virtual bool isPointerEvent() const { return false; }
     virtual bool isTextEvent() const { return false; }
+    virtual bool isToggleEvent() const { return false; }
     virtual bool isTouchEvent() const { return false; }
     virtual bool isUIEvent() const { return false; }
     virtual bool isVersionChangeEvent() const { return false; }
@@ -140,18 +151,25 @@ public:
     bool isBeingDispatched() const { return eventPhase(); }
 
     virtual EventTarget* relatedTarget() const { return nullptr; }
-    virtual void setRelatedTarget(EventTarget&) { }
+    virtual void setRelatedTarget(RefPtr<EventTarget>&&) { }
+
+    virtual String debugDescription() const;
+
+    bool isAutofillEvent() { return m_isAutofillEvent; }
+    void setIsAutofillEvent() { m_isAutofillEvent = true; }
 
 protected:
-    explicit Event(IsTrusted = IsTrusted::No);
-    Event(const AtomString& type, CanBubble, IsCancelable, IsComposed = IsComposed::No);
-    Event(const AtomString& type, CanBubble, IsCancelable, IsComposed, MonotonicTime timestamp, IsTrusted isTrusted = IsTrusted::Yes);
-    Event(const AtomString& type, const EventInit&, IsTrusted);
+    explicit Event(enum EventInterfaceType, IsTrusted = IsTrusted::No);
+    Event(enum EventInterfaceType, const AtomString& type, CanBubble, IsCancelable, IsComposed = IsComposed::No);
+    Event(enum EventInterfaceType, const AtomString& type, CanBubble, IsCancelable, IsComposed, MonotonicTime timestamp, IsTrusted isTrusted = IsTrusted::Yes);
+    Event(enum EventInterfaceType, const AtomString& type, const EventInit&, IsTrusted);
 
     virtual void receivedTarget() { }
 
+    bool isConstructedFromInitializer() const { return m_isConstructedFromInitializer; }
+
 private:
-    explicit Event(MonotonicTime createTime, const AtomString& type, IsTrusted, CanBubble, IsCancelable, IsComposed);
+    explicit Event(MonotonicTime createTime, enum EventInterfaceType, const AtomString& type, IsTrusted, CanBubble, IsCancelable, IsComposed);
 
     void setCanceledFlagIfPossible();
 
@@ -167,13 +185,23 @@ private:
     unsigned m_isDefaultEventHandlerIgnored : 1;
     unsigned m_isTrusted : 1;
     unsigned m_isExecutingPassiveEventListener : 1;
+    unsigned m_currentTargetIsInShadowTree : 1;
+    unsigned m_isAutofillEvent : 1;
 
     unsigned m_eventPhase : 2;
+
+    // We consult this flag since the EventInit dictionary takes priority in initializing event attribute values.
+    // See step 4 of https://dom.spec.whatwg.org/#inner-event-creation-steps
+    unsigned m_isConstructedFromInitializer : 1 { false };
+
+    unsigned m_eventInterface : 7 { 0 };
+
+    // 9-bits left.
 
     AtomString m_type;
 
     RefPtr<EventTarget> m_currentTarget;
-    const EventPath* m_eventPath { nullptr };
+    SingleThreadWeakPtr<const EventPath> m_eventPath;
     RefPtr<EventTarget> m_target;
     MonotonicTime m_createTime;
 
@@ -205,6 +233,8 @@ inline void Event::setCancelBubble(bool cancel)
     if (cancel)
         m_propagationStopped = true;
 }
+
+WTF::TextStream& operator<<(WTF::TextStream&, const Event&);
 
 } // namespace WebCore
 

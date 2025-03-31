@@ -10,18 +10,29 @@
 
 #include "api/audio_codecs/g711/audio_encoder_g711.h"
 
+#include <stddef.h>
+
+#include <initializer_list>
+#include <map>
 #include <memory>
+#include <optional>
+#include <utility>
 #include <vector>
 
 #include "absl/strings/match.h"
+#include "api/audio_codecs/audio_codec_pair_id.h"
+#include "api/audio_codecs/audio_encoder.h"
+#include "api/audio_codecs/audio_format.h"
+#include "api/field_trials_view.h"
 #include "modules/audio_coding/codecs/g711/audio_encoder_pcm.h"
+#include "rtc_base/checks.h"
 #include "rtc_base/numerics/safe_conversions.h"
 #include "rtc_base/numerics/safe_minmax.h"
 #include "rtc_base/string_to_number.h"
 
 namespace webrtc {
 
-absl::optional<AudioEncoderG711::Config> AudioEncoderG711::SdpToConfig(
+std::optional<AudioEncoderG711::Config> AudioEncoderG711::SdpToConfig(
     const SdpAudioFormat& format) {
   const bool is_pcmu = absl::EqualsIgnoreCase(format.name, "PCMU");
   const bool is_pcma = absl::EqualsIgnoreCase(format.name, "PCMA");
@@ -38,10 +49,13 @@ absl::optional<AudioEncoderG711::Config> AudioEncoderG711::SdpToConfig(
         config.frame_size_ms = rtc::SafeClamp(10 * (*ptime / 10), 10, 60);
       }
     }
-    RTC_DCHECK(config.IsOk());
+    if (!config.IsOk()) {
+      RTC_DCHECK_NOTREACHED();
+      return std::nullopt;
+    }
     return config;
   } else {
-    return absl::nullopt;
+    return std::nullopt;
   }
 }
 
@@ -61,8 +75,12 @@ AudioCodecInfo AudioEncoderG711::QueryAudioEncoder(const Config& config) {
 std::unique_ptr<AudioEncoder> AudioEncoderG711::MakeAudioEncoder(
     const Config& config,
     int payload_type,
-    absl::optional<AudioCodecPairId> /*codec_pair_id*/) {
-  RTC_DCHECK(config.IsOk());
+    std::optional<AudioCodecPairId> /*codec_pair_id*/,
+    const FieldTrialsView* /* field_trials */) {
+  if (!config.IsOk()) {
+    RTC_DCHECK_NOTREACHED();
+    return nullptr;
+  }
   switch (config.type) {
     case Config::Type::kPcmU: {
       AudioEncoderPcmU::Config impl_config;
@@ -79,6 +97,7 @@ std::unique_ptr<AudioEncoder> AudioEncoderG711::MakeAudioEncoder(
       return std::make_unique<AudioEncoderPcmA>(impl_config);
     }
     default: {
+      RTC_DCHECK_NOTREACHED();
       return nullptr;
     }
   }

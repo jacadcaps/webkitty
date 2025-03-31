@@ -46,13 +46,19 @@
 
 #include "RenderMarquee.h"
 
-#include "FrameView.h"
 #include "HTMLMarqueeElement.h"
 #include "HTMLNames.h"
+#include "LocalFrameView.h"
+#include "RenderBoxModelObjectInlines.h"
 #include "RenderLayer.h"
+#include "RenderLayerScrollableArea.h"
+#include "RenderStyleInlines.h"
 #include "RenderView.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderMarquee);
 
 using namespace HTMLNames;
 
@@ -60,7 +66,9 @@ RenderMarquee::RenderMarquee(RenderLayer* layer)
     : m_layer(layer)
     , m_timer(*this, &RenderMarquee::timerFired)
 {
-    layer->setConstrainsScrollingToContentEdge(false);
+    ASSERT(layer);
+    ASSERT(layer->scrollableArea());
+    layer->scrollableArea()->setScrollClamping(ScrollClamping::Unclamped);
 }
 
 RenderMarquee::~RenderMarquee() = default;
@@ -68,9 +76,8 @@ RenderMarquee::~RenderMarquee() = default;
 int RenderMarquee::marqueeSpeed() const
 {
     int result = m_layer->renderer().style().marqueeSpeed();
-    Element* element = m_layer->renderer().element();
-    if (is<HTMLMarqueeElement>(element))
-        result = std::max(result, downcast<HTMLMarqueeElement>(*element).minimumDelay());
+    if (auto* marquee = dynamicDowncast<HTMLMarqueeElement>(m_layer->renderer().element()))
+        result = std::max(result, marquee->minimumDelay());
     return result;
 }
 
@@ -100,14 +107,14 @@ MarqueeDirection RenderMarquee::direction() const
     // FIXME: Support the CSS3 "auto" value for determining the direction of the marquee.
     // For now just map MarqueeDirection::Auto to MarqueeDirection::Backward
     MarqueeDirection result = m_layer->renderer().style().marqueeDirection();
-    TextDirection dir = m_layer->renderer().style().direction();
+    WritingMode writingMode = m_layer->renderer().writingMode();
     if (result == MarqueeDirection::Auto)
         result = MarqueeDirection::Backward;
     if (result == MarqueeDirection::Forward)
-        result = (dir == TextDirection::LTR) ? MarqueeDirection::Right : MarqueeDirection::Left;
+        result = (writingMode.isBidiLTR()) ? MarqueeDirection::Right : MarqueeDirection::Left;
     if (result == MarqueeDirection::Backward)
-        result = (dir == TextDirection::LTR) ? MarqueeDirection::Left : MarqueeDirection::Right;
-    
+        result = (writingMode.isBidiLTR()) ? MarqueeDirection::Left : MarqueeDirection::Right;
+
     // Now we have the real direction.  Next we check to see if the increment is negative.
     // If so, then we reverse the direction.
     Length increment = m_layer->renderer().style().marqueeIncrement();
@@ -171,11 +178,15 @@ void RenderMarquee::start()
     if (m_timer.isActive() || m_layer->renderer().style().marqueeIncrement().isZero())
         return;
 
+    auto* scrollableArea = m_layer->scrollableArea();
+    ASSERT(scrollableArea);
+
+    auto details = ScrollPositionChangeOptions::createProgrammaticUnclamped();
     if (!m_suspended && !m_stopped) {
         if (isHorizontal())
-            m_layer->scrollToOffset(ScrollOffset(m_start, 0), ScrollType::Programmatic, ScrollClamping::Unclamped);
+            scrollableArea->scrollToOffset(ScrollOffset(m_start, 0), details);
         else
-            m_layer->scrollToOffset(ScrollOffset(0, m_start), ScrollType::Programmatic, ScrollClamping::Unclamped);
+            scrollableArea->scrollToOffset(ScrollOffset(0, m_start), details);
     } else {
         m_suspended = false;
         m_stopped = false;
@@ -243,13 +254,16 @@ void RenderMarquee::timerFired()
 {
     if (m_layer->renderer().view().needsLayout())
         return;
-    
+
+    auto* scrollableArea = m_layer->scrollableArea();
+    ASSERT(scrollableArea);
+
     if (m_reset) {
         m_reset = false;
         if (isHorizontal())
-            m_layer->scrollToXOffset(m_start);
+            scrollableArea->scrollToXOffset(m_start);
         else
-            m_layer->scrollToYOffset(m_start);
+            scrollableArea->scrollToYOffset(m_start);
         return;
     }
     
@@ -271,8 +285,8 @@ void RenderMarquee::timerFired()
         }
         bool positive = range > 0;
         int clientSize = (isHorizontal() ? roundToInt(m_layer->renderBox()->clientWidth()) : roundToInt(m_layer->renderBox()->clientHeight()));
-        int increment = abs(intValueForLength(m_layer->renderer().style().marqueeIncrement(), clientSize));
-        int currentPos = (isHorizontal() ? m_layer->scrollOffset().x() : m_layer->scrollOffset().y());
+        int increment = std::abs(intValueForLength(m_layer->renderer().style().marqueeIncrement(), clientSize));
+        int currentPos = (isHorizontal() ? scrollableArea->scrollOffset().x() : scrollableArea->scrollOffset().y());
         newPos =  currentPos + (addIncrement ? increment : -increment);
         if (positive)
             newPos = std::min(newPos, endPoint);
@@ -289,9 +303,9 @@ void RenderMarquee::timerFired()
     }
     
     if (isHorizontal())
-        m_layer->scrollToXOffset(newPos);
+        scrollableArea->scrollToXOffset(newPos);
     else
-        m_layer->scrollToYOffset(newPos);
+        scrollableArea->scrollToYOffset(newPos);
 }
 
 } // namespace WebCore

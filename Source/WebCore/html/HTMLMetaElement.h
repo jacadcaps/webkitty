@@ -22,12 +22,15 @@
 
 #pragma once
 
+#include "Color.h"
 #include "HTMLElement.h"
+#include "MediaQuery.h"
 
 namespace WebCore {
 
 class HTMLMetaElement final : public HTMLElement {
-    WTF_MAKE_ISO_ALLOCATED(HTMLMetaElement);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(HTMLMetaElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HTMLMetaElement);
 public:
     static Ref<HTMLMetaElement> create(Document&);
     static Ref<HTMLMetaElement> create(const QualifiedName&, Document&);
@@ -36,14 +39,23 @@ public:
     const AtomString& httpEquiv() const;
     const AtomString& name() const;
 
+    bool mediaAttributeMatches();
+
+    const Color& contentColor();
+
 private:
     HTMLMetaElement(const QualifiedName&, Document&);
 
-    void parseAttribute(const QualifiedName&, const AtomString&) final;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason = AttributeModificationReason::Directly) final;
     InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
     void didFinishInsertingNode();
+    void removedFromAncestor(RemovalType, ContainerNode&) final;
 
-    void process();
+    void process(const AtomString& oldValue = nullAtom());
+
+    std::optional<MQ::MediaQueryList> m_mediaQueryList;
+
+    std::optional<Color> m_contentColor;
 };
 
 } // namespace WebCore

@@ -20,7 +20,6 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import webkitpy.thirdparty.autoinstalled.requests
 from webkitpy.port.config import apple_additions
 
 import math
@@ -85,12 +84,8 @@ class Upload(object):
             results = {}
 
             # FIXME: Python 2 removal, this dictionary is large enough that Python 2 can't just use items
-            if sys.version_info > (3, 0):
-                for test, data in obj.results.items():
-                    unpack_test(results, test.split('/'), data)
-            else:
-                for test, data in obj.results.iteritems():
-                    unpack_test(results, test.split('/'), data)
+            for test, data in obj.results.items():
+                unpack_test(results, test.split('/'), data)
 
             result = dict(
                 version=obj.VERSION,

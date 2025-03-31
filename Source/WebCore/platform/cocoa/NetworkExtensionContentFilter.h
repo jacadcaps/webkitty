@@ -25,11 +25,14 @@
 
 #pragma once
 
+#if ENABLE(CONTENT_FILTERING)
+
 #include "PlatformContentFilter.h"
 #include <objc/NSObjCRuntime.h>
 #include <wtf/Compiler.h>
 #include <wtf/OSObjectPtr.h>
 #include <wtf/RetainPtr.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/UniqueRef.h>
 
 enum NEFilterSourceStatus : NSInteger;
@@ -40,6 +43,7 @@ OBJC_CLASS NSData;
 namespace WebCore {
 
 class NetworkExtensionContentFilter final : public PlatformContentFilter {
+    WTF_MAKE_TZONE_ALLOCATED(NetworkExtensionContentFilter);
     friend UniqueRef<NetworkExtensionContentFilter> WTF::makeUniqueRefWithoutFastMallocCheck<NetworkExtensionContentFilter>();
 
 public:
@@ -47,14 +51,12 @@ public:
 
     void willSendRequest(ResourceRequest&, const ResourceResponse&) override;
     void responseReceived(const ResourceResponse&) override;
-    void addData(const char* data, int length) override;
+    void addData(const SharedBuffer&) override;
     void finishedAddingData() override;
-    Ref<SharedBuffer> replacementData() const override;
-#if ENABLE(CONTENT_FILTERING)
+    Ref<FragmentedSharedBuffer> replacementData() const override;
     ContentFilterUnblockHandler unblockHandler() const override;
-#endif
 
-    WEBCORE_EXPORT static void setHasConsumedSandboxExtensions(bool);
+    WEBCORE_EXPORT static bool isRequired();
 
 private:
     static bool enabled();
@@ -63,17 +65,11 @@ private:
     void initialize(const URL* = nullptr);
     void handleDecision(NEFilterSourceStatus, NSData *replacementData);
 
-    enum class SandboxExtensionsState : uint8_t {
-        Consumed,
-        NotConsumed,
-        NotSet
-    };
-
-    WEBCORE_EXPORT static SandboxExtensionsState m_sandboxExtensionsState;
-
     OSObjectPtr<dispatch_queue_t> m_queue;
     RetainPtr<NSData> m_replacementData;
     RetainPtr<NEFilterSource> m_neFilterSource;
 };
 
 } // namespace WebCore
+
+#endif // ENABLE(CONTENT_FILTERING)

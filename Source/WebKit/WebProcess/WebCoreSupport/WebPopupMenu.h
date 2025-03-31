@@ -42,16 +42,16 @@ public:
     static Ref<WebPopupMenu> create(WebPage*, WebCore::PopupMenuClient*);
     ~WebPopupMenu();
 
-    WebPage* page() { return m_page; }
+    WebPage* page();
 
-    void disconnectFromPage() { m_page = 0; }
+    void disconnectFromPage() { m_page = nullptr; }
     void didChangeSelectedIndex(int newIndex);
     void setTextForIndex(int newIndex);
 #if PLATFORM(GTK)
-    WebCore::PopupMenuClient* client() const { return m_popupClient; }
+    WebCore::PopupMenuClient* client() const { return m_popupClient.get(); }
 #endif
 
-    void show(const WebCore::IntRect&, WebCore::FrameView*, int selectedIndex) override;
+    void show(const WebCore::IntRect&, WebCore::LocalFrameView&, int selectedIndex) override;
     void hide() override;
     void updateFromElement() override;
     void disconnectClient() override;
@@ -62,8 +62,8 @@ private:
     Vector<WebPopupItem> populateItems();
     void setUpPlatformData(const WebCore::IntRect& pageCoordinates, PlatformPopupMenuData&);
 
-    WebCore::PopupMenuClient* m_popupClient;
-    WebPage* m_page;
+    CheckedPtr<WebCore::PopupMenuClient> m_popupClient;
+    WeakPtr<WebPage> m_page;
 };
 
 } // namespace WebKit

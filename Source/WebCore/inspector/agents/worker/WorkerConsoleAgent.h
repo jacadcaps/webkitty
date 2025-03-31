@@ -27,15 +27,16 @@
 
 #include "InspectorWebAgentBase.h"
 #include "WebConsoleAgent.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class WorkerConsoleAgent final : public WebConsoleAgent {
     WTF_MAKE_NONCOPYABLE(WorkerConsoleAgent);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(WorkerConsoleAgent);
 public:
     WorkerConsoleAgent(WorkerAgentContext&);
-    ~WorkerConsoleAgent() override;
+    ~WorkerConsoleAgent();
 };
 
 } // namespace WebCore

@@ -1,5 +1,6 @@
 /*
- * Copyright (C) 2006, 2014, 2020 Apple Inc.
+ * Copyright (C) 2006-2023 Apple Inc.
+ * Copyright (C) 2014 Google Inc.
  * Copyright (C) 2012 Nokia Corporation and/or its subsidiary(-ies)
  *
  * This library is free software; you can redistribute it and/or
@@ -25,20 +26,22 @@
 #include "HitTestRequest.h"
 #include <wtf/Forward.h>
 #include <wtf/ListHashSet.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class Element;
-class Frame;
+class HTMLImageElement;
 class HTMLMediaElement;
 class Image;
+class LocalFrame;
 class Node;
 class Scrollbar;
 
 enum class HitTestProgress { Stop, Continue };
 
 class HitTestResult {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(HitTestResult, WEBCORE_EXPORT);
 public:
     using NodeSet = ListHashSet<Ref<Node>>;
 
@@ -46,8 +49,6 @@ public:
     WEBCORE_EXPORT explicit HitTestResult(const LayoutPoint&);
 
     WEBCORE_EXPORT explicit HitTestResult(const LayoutRect&);
-    WEBCORE_EXPORT HitTestResult(const LayoutPoint& centerPoint, unsigned topPadding, unsigned rightPadding, unsigned bottomPadding, unsigned leftPadding);
-
     WEBCORE_EXPORT explicit HitTestResult(const HitTestLocation&);
     WEBCORE_EXPORT HitTestResult(const HitTestResult&);
     WEBCORE_EXPORT ~HitTestResult();
@@ -65,7 +66,7 @@ public:
     void setURLElement(Element*);
     Element* URLElement() const { return m_innerURLElement.get(); }
 
-    void setScrollbar(Scrollbar*);
+    void setScrollbar(RefPtr<Scrollbar>&&);
     Scrollbar* scrollbar() const { return m_scrollbar.get(); }
 
     bool isOverWidget() const { return m_isOverWidget; }
@@ -83,44 +84,52 @@ public:
     // The hit-tested point in the coordinates of the innerNode frame, the frame containing innerNode.
     const LayoutPoint& pointInInnerNodeFrame() const { return m_pointInInnerNodeFrame; }
     IntPoint roundedPointInInnerNodeFrame() const { return roundedIntPoint(pointInInnerNodeFrame()); }
-    WEBCORE_EXPORT Frame* innerNodeFrame() const;
+    WEBCORE_EXPORT LocalFrame* innerNodeFrame() const;
 
     // The hit-tested point in the coordinates of the inner node.
     const LayoutPoint& localPoint() const { return m_localPoint; }
     void setLocalPoint(const LayoutPoint& p) { m_localPoint = p; }
 
-    void setToNonUserAgentShadowAncestor();
+    WEBCORE_EXPORT void setToNonUserAgentShadowAncestor();
 
     const HitTestLocation& hitTestLocation() const { return m_hitTestLocation; }
 
-    WEBCORE_EXPORT Frame* targetFrame() const;
+    WEBCORE_EXPORT LocalFrame* frame() const;
+    WEBCORE_EXPORT LocalFrame* targetFrame() const;
     WEBCORE_EXPORT bool isSelected() const;
     WEBCORE_EXPORT String selectedText() const;
     WEBCORE_EXPORT String spellingToolTip(TextDirection&) const;
     String replacedString() const;
     WEBCORE_EXPORT String title(TextDirection&) const;
-    String innerTextIfTruncated(TextDirection&) const;
+    WEBCORE_EXPORT String innerTextIfTruncated(TextDirection&) const;
     WEBCORE_EXPORT String altDisplayString() const;
     WEBCORE_EXPORT String titleDisplayString() const;
     WEBCORE_EXPORT Image* image() const;
     WEBCORE_EXPORT IntRect imageRect() const;
+    WEBCORE_EXPORT bool hasEntireImage() const;
     WEBCORE_EXPORT URL absoluteImageURL() const;
     WEBCORE_EXPORT URL absolutePDFURL() const;
     WEBCORE_EXPORT URL absoluteMediaURL() const;
     WEBCORE_EXPORT URL absoluteLinkURL() const;
+    WEBCORE_EXPORT bool hasLocalDataForLinkURL() const;
     WEBCORE_EXPORT String textContent() const;
     bool isOverLink() const;
     WEBCORE_EXPORT bool isContentEditable() const;
     void toggleMediaControlsDisplay() const;
     void toggleMediaLoopPlayback() const;
+    void toggleShowMediaStats() const;
     WEBCORE_EXPORT bool mediaIsInFullscreen() const;
+    bool mediaIsInVideoViewer() const;
+    void toggleVideoViewer() const;
     void toggleMediaFullscreenState() const;
     void enterFullscreenForVideo() const;
     bool mediaControlsEnabled() const;
     bool mediaLoopEnabled() const;
+    bool mediaStatsShowing() const;
     bool mediaPlaying() const;
     bool mediaSupportsFullscreen() const;
     void toggleMediaPlayState() const;
+    WEBCORE_EXPORT bool hasMediaElement() const;
     WEBCORE_EXPORT bool mediaHasAudio() const;
     WEBCORE_EXPORT bool mediaIsVideo() const;
     bool mediaMuted() const;
@@ -128,6 +137,12 @@ public:
     bool mediaSupportsEnhancedFullscreen() const;
     bool mediaIsInEnhancedFullscreen() const;
     void toggleEnhancedFullscreenForVideo() const;
+
+#if ENABLE(ACCESSIBILITY_ANIMATION_CONTROL)
+    void pauseAnimation() const;
+    void playAnimation() const;
+    bool isAnimating() const;
+#endif
 
     WEBCORE_EXPORT bool isDownloadableMedia() const;
     WEBCORE_EXPORT bool isOverTextInsideFormControlElement() const;
@@ -143,13 +158,22 @@ public:
 
     Vector<String> dictationAlternatives() const;
 
-    WEBCORE_EXPORT Node* targetNode() const;
+    Node* targetNode() const { return innerNode(); }
+    WEBCORE_EXPORT RefPtr<Node> protectedTargetNode() const;
     WEBCORE_EXPORT Element* targetElement() const;
+    RefPtr<Element> protectedTargetElement() const;
 
 private:
     NodeSet& mutableListBasedTestResult(); // See above.
 
     template<typename RectType> HitTestProgress addNodeToListBasedTestResultCommon(Node*, const HitTestRequest&, const HitTestLocation&, const RectType&);
+
+    RefPtr<Node> nodeForImageData() const;
+
+#if ENABLE(ACCESSIBILITY_ANIMATION_CONTROL)
+    void setAllowsAnimation(bool /* allowAnimation */) const;
+    HTMLImageElement* imageElement() const;
+#endif
 
 #if ENABLE(VIDEO)
     HTMLMediaElement* mediaElement() const;

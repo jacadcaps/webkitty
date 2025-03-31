@@ -33,6 +33,7 @@
 
 #include "AudioBus.h"
 #include "AudioProcessor.h"
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 
 namespace WebCore {
@@ -46,9 +47,11 @@ class AudioProcessor;
 // Despite this limitation it turns out to be a very common and useful type of processor.
 
 class AudioDSPKernelProcessor : public AudioProcessor {
+    WTF_MAKE_TZONE_ALLOCATED(AudioDSPKernelProcessor);
 public:
     // numberOfChannels may be later changed if object is not yet in an "initialized" state
     AudioDSPKernelProcessor(float sampleRate, unsigned numberOfChannels);
+    virtual ~AudioDSPKernelProcessor();
 
     // Subclasses create the appropriate type of processing kernel here.
     // We'll call this to create a kernel for each channel.
@@ -58,16 +61,18 @@ public:
     void initialize() override;
     void uninitialize() override;
     void process(const AudioBus* source, AudioBus* destination, size_t framesToProcess) override;
+    void processOnlyAudioParams(size_t framesToProcess) override;
     void reset() override;
     void setNumberOfChannels(unsigned) override;
     unsigned numberOfChannels() const override { return m_numberOfChannels; }
 
     double tailTime() const override;
     double latencyTime() const override;
+    bool requiresTailProcessing() const override;
 
 protected:
     Vector<std::unique_ptr<AudioDSPKernel>> m_kernels;
-    bool m_hasJustReset;
+    bool m_hasJustReset { true };
 };
 
 } // namespace WebCore

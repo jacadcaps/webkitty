@@ -36,30 +36,19 @@
 #include "DenormalDisabler.h"
 #include <algorithm>
 #include <wtf/MathExtras.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(DynamicsCompressorKernel);
 
 using namespace AudioUtilities;
 
 // Metering hits peaks instantly, but releases this fast (in seconds).
-const float meteringReleaseTimeConstant = 0.325f;
-
-const float uninitializedValue = -1;
+constexpr float meteringReleaseTimeConstant = 0.325f;
 
 DynamicsCompressorKernel::DynamicsCompressorKernel(float sampleRate, unsigned numberOfChannels)
     : m_sampleRate(sampleRate)
-    , m_lastPreDelayFrames(DefaultPreDelayFrames)
-    , m_preDelayReadIndex(0)
-    , m_preDelayWriteIndex(DefaultPreDelayFrames)
-    , m_ratio(uninitializedValue)
-    , m_slope(uninitializedValue)
-    , m_linearThreshold(uninitializedValue)
-    , m_dbThreshold(uninitializedValue)
-    , m_dbKnee(uninitializedValue)
-    , m_kneeThreshold(uninitializedValue)
-    , m_kneeThresholdDb(uninitializedValue)
-    , m_ykneeThresholdDb(uninitializedValue)
-    , m_K(uninitializedValue)
 {
     setNumberOfChannels(numberOfChannels);
 
@@ -74,9 +63,9 @@ void DynamicsCompressorKernel::setNumberOfChannels(unsigned numberOfChannels)
     if (m_preDelayBuffers.size() == numberOfChannels)
         return;
 
-    m_preDelayBuffers.clear();
-    for (unsigned i = 0; i < numberOfChannels; ++i)
-        m_preDelayBuffers.append(makeUnique<AudioFloatArray>(MaxPreDelayFrames));
+    m_preDelayBuffers = Vector<std::unique_ptr<AudioFloatArray>>(numberOfChannels, [](size_t) {
+        return makeUnique<AudioFloatArray>(MaxPreDelayFrames);
+    });
 }
 
 void DynamicsCompressorKernel::setPreDelayTime(float preDelayTime)
@@ -199,11 +188,9 @@ float DynamicsCompressorKernel::updateStaticCurveParameters(float dbThreshold, f
     return m_K;
 }
 
-void DynamicsCompressorKernel::process(float* sourceChannels[],
-                                       float* destinationChannels[],
-                                       unsigned numberOfChannels,
+void DynamicsCompressorKernel::process(std::span<std::span<const float>> sourceChannels,
+                                       std::span<std::span<float>> destinationChannels,
                                        unsigned framesToProcess,
-
                                        float dbThreshold,
                                        float dbKnee,
                                        float ratio,
@@ -219,7 +206,7 @@ void DynamicsCompressorKernel::process(float* sourceChannels[],
                                        float releaseZone4
                                        )
 {
-    ASSERT(m_preDelayBuffers.size() == numberOfChannels);
+    ASSERT(m_preDelayBuffers.size() == sourceChannels.size());
 
     float sampleRate = this->sampleRate();
 
@@ -371,8 +358,8 @@ void DynamicsCompressorKernel::process(float* sourceChannels[],
                 float compressorInput = 0;
 
                 // Predelay signal, computing compression amount from un-delayed version.
-                for (unsigned i = 0; i < numberOfChannels; ++i) {
-                    float* delayBuffer = m_preDelayBuffers[i]->data();
+                for (unsigned i = 0; i < sourceChannels.size(); ++i) {
+                    auto delayBuffer = m_preDelayBuffers[i]->span();
                     float undelayedSource = sourceChannels[i][frameIndex];
                     delayBuffer[preDelayWriteIndex] = undelayedSource;
 
@@ -437,8 +424,8 @@ void DynamicsCompressorKernel::process(float* sourceChannels[],
                     m_meteringGain += (dbRealGain - m_meteringGain) * m_meteringReleaseK;
 
                 // Apply final gain.
-                for (unsigned i = 0; i < numberOfChannels; ++i) {
-                    float* delayBuffer = m_preDelayBuffers[i]->data();
+                for (unsigned i = 0; i < destinationChannels.size(); ++i) {
+                    auto delayBuffer = m_preDelayBuffers[i]->span();
                     destinationChannels[i][frameIndex] = delayBuffer[preDelayReadIndex] * totalGain;
                 }
 
@@ -470,6 +457,16 @@ void DynamicsCompressorKernel::reset()
     m_preDelayWriteIndex = DefaultPreDelayFrames;
 
     m_maxAttackCompressionDiffDb = -1; // uninitialized state
+}
+
+double DynamicsCompressorKernel::tailTime() const
+{
+    // The reduction value of the compressor is computed from the gain using an exponential filter
+    // with a time constant of |meteringReleaseTimeConstant|. We need to keep he compressor running
+    // for some time after the inputs go away so that the reduction value approaches 0. This is a
+    // tradeoff between how long we keep the node alive and how close we approach the final value.
+    // A value of 5 to 10 times the time constant is a reasonable trade-off.
+    return 5 * meteringReleaseTimeConstant;
 }
 
 } // namespace WebCore

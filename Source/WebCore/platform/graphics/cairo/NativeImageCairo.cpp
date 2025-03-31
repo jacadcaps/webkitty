@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc.  All rights reserved.
+ * Copyright (C) 2016-2020 Apple Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,41 +30,62 @@
 
 #include "CairoOperations.h"
 #include "CairoUtilities.h"
-#include "PlatformContextCairo.h"
+#include "NotImplemented.h"
 #include <cairo.h>
 
 namespace WebCore {
 
-IntSize nativeImageSize(const NativeImagePtr& image)
+IntSize PlatformImageNativeImageBackend::size() const
 {
-    return image ? cairoSurfaceSize(image.get()) : IntSize();
+    return cairoSurfaceSize(m_platformImage.get());
 }
 
-bool nativeImageHasAlpha(const NativeImagePtr& image)
+bool PlatformImageNativeImageBackend::hasAlpha() const
 {
-    return !image || cairo_surface_get_content(image.get()) != CAIRO_CONTENT_COLOR;
+    return cairo_surface_get_content(m_platformImage.get()) != CAIRO_CONTENT_COLOR;
 }
 
-Color nativeImageSinglePixelSolidColor(const NativeImagePtr& image)
+DestinationColorSpace PlatformImageNativeImageBackend::colorSpace() const
 {
-    if (!image || nativeImageSize(image) != IntSize(1, 1))
-        return Color();
-
-    if (cairo_surface_get_type(image.get()) != CAIRO_SURFACE_TYPE_IMAGE)
-        return Color();
-
-    unsigned* pixel = reinterpret_cast_ptr<unsigned*>(cairo_image_surface_get_data(image.get()));
-    return unpremultiplied(asSRGBA(Packed::ARGB { *pixel }));
+    notImplemented();
+    return DestinationColorSpace::SRGB();
 }
 
-void drawNativeImage(const NativeImagePtr& image, GraphicsContext& context, const FloatRect& destRect, const FloatRect& srcRect, const IntSize& imageSize, const ImagePaintingOptions& options)
+Headroom PlatformImageNativeImageBackend::headroom() const
 {
-    context.drawNativeImage(image, imageSize, destRect, srcRect, options);
+    return Headroom::None;
 }
 
-void clearNativeImageSubimages(const NativeImagePtr&)
+std::optional<Color> NativeImage::singlePixelSolidColor() const
+{
+    if (size() != IntSize(1, 1))
+        return std::nullopt;
+
+    auto platformImage = this->platformImage().get();
+    if (cairo_surface_get_type(platformImage) != CAIRO_SURFACE_TYPE_IMAGE)
+        return std::nullopt;
+
+    unsigned* pixel = reinterpret_cast_ptr<unsigned*>(cairo_image_surface_get_data(platformImage));
+    return unpremultiplied(asSRGBA(PackedColor::ARGB { *pixel }));
+}
+
+void NativeImage::draw(GraphicsContext& context, const FloatRect& destinationRect, const FloatRect& sourceRect, ImagePaintingOptions options)
+{
+    context.drawNativeImageInternal(*this, destinationRect, sourceRect, options);
+}
+
+void NativeImage::clearSubimages()
 {
 }
+
+#if USE(COORDINATED_GRAPHICS)
+uint64_t NativeImage::uniqueID() const
+{
+    if (auto& image = platformImage())
+        return getSurfaceUniqueID(image.get());
+    return 0;
+}
+#endif
 
 } // namespace WebCore
 

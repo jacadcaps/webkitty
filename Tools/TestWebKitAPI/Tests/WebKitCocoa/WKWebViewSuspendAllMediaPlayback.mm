@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,7 +26,9 @@
 #import "config.h"
 
 #import "PlatformUtilities.h"
+#import "Test.h"
 #import "TestWKWebView.h"
+#import <WebKit/WKPreferencesPrivate.h>
 #import <WebKit/WKWebViewConfiguration.h>
 #import <WebKit/WKWebViewPrivate.h>
 
@@ -46,8 +48,12 @@ TEST(WKWebViewSuspendAllMediaPlayback, BeforeLoading)
     TestWebKitAPI::Util::run(&notPlaying);
 }
 
-
+// rdar://137236225
+#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 140000
+TEST(WKWebViewSuspendAllMediaPlayback, DISABLED_AfterLoading)
+#else
 TEST(WKWebViewSuspendAllMediaPlayback, AfterLoading)
+#endif
 {
     auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
     configuration.get().mediaTypesRequiringUserActionForPlayback = WKAudiovisualMediaTypeNone;
@@ -76,4 +82,58 @@ TEST(WKWebViewSuspendAllMediaPlayback, AfterLoading)
     [webView _resumeAllMediaPlayback];
 
     TestWebKitAPI::Util::run(&isPlaying);
+}
+
+TEST(WKWebViewSuspendAllMediaPlayback, PauseWhenResume)
+{
+    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    configuration.get().mediaTypesRequiringUserActionForPlayback = WKAudiovisualMediaTypeNone;
+#if TARGET_OS_IPHONE
+    configuration.get().allowsInlineMediaPlayback = YES;
+#endif
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 100, 100) configuration:configuration.get() addToWindow:YES]);
+
+    [webView synchronouslyLoadTestPageNamed:@"video-with-audio"];
+
+    __block bool completionHandlerCalled = false;
+    auto completionHandler = ^{
+        completionHandlerCalled = true;
+    };
+
+    [webView suspendAllMediaPlayback:completionHandler];
+    TestWebKitAPI::Util::run(&completionHandlerCalled);
+
+    completionHandlerCalled = false;
+    [webView pauseAllMediaPlaybackWithCompletionHandler:completionHandler];
+    TestWebKitAPI::Util::run(&completionHandlerCalled);
+
+    completionHandlerCalled = false;
+    [webView resumeAllMediaPlayback:completionHandler];
+    TestWebKitAPI::Util::run(&completionHandlerCalled);
+
+    EXPECT_TRUE([[webView objectByEvaluatingJavaScript:@"document.querySelector('video').paused"] boolValue]);
+
+}
+
+TEST(WKWebViewSuspendAllMediaPlayback, FullscreenWhileSuspended)
+{
+    auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    [configuration preferences].elementFullscreenEnabled = YES;
+
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 100, 100) configuration:configuration.get() addToWindow:YES]);
+
+    [webView synchronouslyLoadTestPageNamed:@"video-with-audio"];
+
+    __block bool completionHandlerCalled = false;
+    auto completionHandler = ^{
+        completionHandlerCalled = true;
+    };
+
+    [webView suspendAllMediaPlayback:completionHandler];
+    TestWebKitAPI::Util::run(&completionHandlerCalled);
+
+    NSError *error = nil;
+    EXPECT_NULL([webView objectByCallingAsyncFunction:@"return document.getElementsByTagName('video')[0].webkitEnterFullscreen()" withArguments:@{ } error:&error]);
+    EXPECT_NULL(error);
+    EXPECT_FALSE([[webView objectByEvaluatingJavaScript:@"document.webkitIsFullScreen"] boolValue]);
 }

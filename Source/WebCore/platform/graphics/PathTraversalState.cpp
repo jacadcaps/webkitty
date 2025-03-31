@@ -21,6 +21,7 @@
 #include "config.h"
 #include "PathTraversalState.h"
 
+#include "GeometryUtilities.h"
 #include <wtf/MathExtras.h>
 #include <wtf/Vector.h>
 
@@ -28,18 +29,13 @@ namespace WebCore {
 
 static const float kPathSegmentLengthTolerance = 0.00001f;
 
-static inline FloatPoint midPoint(const FloatPoint& first, const FloatPoint& second)
-{
-    return FloatPoint((first.x() + second.x()) / 2.0f, (first.y() + second.y()) / 2.0f);
-}
-
 static inline float distanceLine(const FloatPoint& start, const FloatPoint& end)
 {
     return std::hypot(end.x() - start.x(), end.y() - start.y());
 }
 
 struct QuadraticBezier {
-    QuadraticBezier() { }
+    QuadraticBezier() = default;
     QuadraticBezier(const FloatPoint& s, const FloatPoint& c, const FloatPoint& e)
         : start(s)
         , control(c)
@@ -47,12 +43,7 @@ struct QuadraticBezier {
     {
     }
 
-    bool operator==(const QuadraticBezier& rhs) const
-    {
-        return start == rhs.start
-            && control == rhs.control
-            && end == rhs.end;
-    }
+    friend bool operator==(const QuadraticBezier&, const QuadraticBezier&) = default;
     
     float approximateDistance() const
     {
@@ -80,7 +71,7 @@ struct QuadraticBezier {
 };
 
 struct CubicBezier {
-    CubicBezier() { }
+    CubicBezier() = default;
     CubicBezier(const FloatPoint& s, const FloatPoint& c1, const FloatPoint& c2, const FloatPoint& e)
         : start(s)
         , control1(c1)
@@ -89,13 +80,7 @@ struct CubicBezier {
     {
     }
 
-    bool operator==(const CubicBezier& rhs) const
-    {
-        return start == rhs.start
-            && control1 == rhs.control1
-            && control2 == rhs.control2
-            && end == rhs.end;
-    }
+    friend bool operator==(const CubicBezier&, const CubicBezier&) = default;
 
     float approximateDistance() const
     {
@@ -241,7 +226,7 @@ bool PathTraversalState::finalizeAppendPathElement()
     return m_success;
 }
 
-bool PathTraversalState::appendPathElement(PathElement::Type type, const FloatPoint* points)
+bool PathTraversalState::appendPathElement(PathElement::Type type, std::span<const FloatPoint> points)
 {
     switch (type) {
     case PathElement::Type::MoveToPoint:
@@ -264,7 +249,7 @@ bool PathTraversalState::appendPathElement(PathElement::Type type, const FloatPo
     return finalizeAppendPathElement();
 }
 
-bool PathTraversalState::processPathElement(PathElement::Type type, const FloatPoint* points)
+bool PathTraversalState::processPathElement(PathElement::Type type, std::span<const FloatPoint> points)
 {
     if (m_success)
         return true;
@@ -280,4 +265,3 @@ bool PathTraversalState::processPathElement(PathElement::Type type, const FloatP
 }
 
 }
-

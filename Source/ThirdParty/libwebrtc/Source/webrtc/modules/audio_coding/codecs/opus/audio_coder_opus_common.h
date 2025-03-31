@@ -11,30 +11,31 @@
 #ifndef MODULES_AUDIO_CODING_CODECS_OPUS_AUDIO_CODER_OPUS_COMMON_H_
 #define MODULES_AUDIO_CODING_CODECS_OPUS_AUDIO_CODER_OPUS_COMMON_H_
 
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include "absl/types/optional.h"
+#include "absl/strings/string_view.h"
 #include "api/audio_codecs/audio_decoder.h"
 #include "api/audio_codecs/audio_format.h"
 #include "rtc_base/string_to_number.h"
 
 namespace webrtc {
 
-absl::optional<std::string> GetFormatParameter(const SdpAudioFormat& format,
-                                               const std::string& param);
+std::optional<std::string> GetFormatParameter(const SdpAudioFormat& format,
+                                              absl::string_view param);
 
 template <typename T>
-absl::optional<T> GetFormatParameter(const SdpAudioFormat& format,
-                                     const std::string& param) {
+std::optional<T> GetFormatParameter(const SdpAudioFormat& format,
+                                    absl::string_view param) {
   return rtc::StringToNumber<T>(GetFormatParameter(format, param).value_or(""));
 }
 
 template <>
-absl::optional<std::vector<unsigned char>> GetFormatParameter(
+std::optional<std::vector<unsigned char>> GetFormatParameter(
     const SdpAudioFormat& format,
-    const std::string& param);
+    absl::string_view param);
 
 class OpusFrame : public AudioDecoder::EncodedAudioFrame {
  public:
@@ -57,7 +58,7 @@ class OpusFrame : public AudioDecoder::EncodedAudioFrame {
 
   bool IsDtxPacket() const override { return payload_.size() <= 2; }
 
-  absl::optional<DecodeResult> Decode(
+  std::optional<DecodeResult> Decode(
       rtc::ArrayView<int16_t> decoded) const override {
     AudioDecoder::SpeechType speech_type = AudioDecoder::kSpeech;
     int ret;
@@ -72,7 +73,7 @@ class OpusFrame : public AudioDecoder::EncodedAudioFrame {
     }
 
     if (ret < 0)
-      return absl::nullopt;
+      return std::nullopt;
 
     return DecodeResult{static_cast<size_t>(ret), speech_type};
   }

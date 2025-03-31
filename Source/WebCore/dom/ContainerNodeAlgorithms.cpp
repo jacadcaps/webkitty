@@ -26,12 +26,14 @@
 #include "config.h"
 #include "ContainerNodeAlgorithms.h"
 
+#include "ElementChildIteratorInlines.h"
+#include "ElementRareData.h"
 #include "HTMLFrameOwnerElement.h"
 #include "HTMLTextAreaElement.h"
 #include "InspectorInstrumentation.h"
 #include "ScriptDisallowedScope.h"
 #include "ShadowRoot.h"
-#include "TypedElementDescendantIterator.h"
+#include "TypedElementDescendantIteratorInlines.h"
 
 namespace WebCore {
 
@@ -45,111 +47,107 @@ static void notifyNodeInsertedIntoDocument(ContainerNode& parentOfInsertedTree, 
 {
     ASSERT(parentOfInsertedTree.isConnected());
     ASSERT(!node.isConnected());
-    if (node.insertedIntoAncestor(Node::InsertionType { /* connectedToDocument */ true, treeScopeChange == TreeScopeChange::Changed }, parentOfInsertedTree) == Node::InsertedIntoAncestorResult::NeedsPostInsertionCallback)
-        postInsertionNotificationTargets.append(node);
 
-    if (!is<ContainerNode>(node))
-        return;
-
-    for (RefPtr<Node> child = downcast<ContainerNode>(node).firstChild(); child; child = child->nextSibling()) {
-        RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(node.isConnected() && child->parentNode() == &node);
-        notifyNodeInsertedIntoDocument(parentOfInsertedTree, *child, treeScopeChange, postInsertionNotificationTargets);
-    }
-
-    if (!is<Element>(node))
-        return;
-
-    if (RefPtr<ShadowRoot> root = downcast<Element>(node).shadowRoot()) {
-        RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(node.isConnected() && root->host() == &node);
-        notifyNodeInsertedIntoDocument(parentOfInsertedTree, *root, TreeScopeChange::DidNotChange, postInsertionNotificationTargets);
+    for (RefPtr currentNode = &node; currentNode; currentNode = NodeTraversal::next(*currentNode, &node)) {
+        auto result = currentNode->insertedIntoAncestor(Node::InsertionType { /* connectedToDocument */ true, treeScopeChange == TreeScopeChange::Changed }, parentOfInsertedTree);
+        if (result == Node::InsertedIntoAncestorResult::NeedsPostInsertionCallback)
+            postInsertionNotificationTargets.append(*currentNode);
+        if (RefPtr root = currentNode->shadowRoot())
+            notifyNodeInsertedIntoDocument(parentOfInsertedTree, *root, TreeScopeChange::DidNotChange, postInsertionNotificationTargets);
     }
 }
 
-static void notifyNodeInsertedIntoTree(ContainerNode& parentOfInsertedTree, Node& node, TreeScopeChange treeScopeChange, NodeVector& postInsertionNotificationTargets)
+static void notifyNodeInsertedIntoTree(ContainerNode& parentOfInsertedTree, Node& node, TreeScopeChange treeScopeChange)
 {
     ASSERT(!parentOfInsertedTree.isConnected());
     ASSERT(!node.isConnected());
 
-    if (node.insertedIntoAncestor(Node::InsertionType { /* connectedToDocument */ false, treeScopeChange == TreeScopeChange::Changed }, parentOfInsertedTree) == Node::InsertedIntoAncestorResult::NeedsPostInsertionCallback)
-        postInsertionNotificationTargets.append(node);
-
-    if (!is<ContainerNode>(node))
-        return;
-
-    for (RefPtr<Node> child = downcast<ContainerNode>(node).firstChild(); child; child = child->nextSibling())
-        notifyNodeInsertedIntoTree(parentOfInsertedTree, *child, treeScopeChange, postInsertionNotificationTargets);
-
-    if (!is<Element>(node))
-        return;
-
-    if (RefPtr<ShadowRoot> root = downcast<Element>(node).shadowRoot())
-        notifyNodeInsertedIntoTree(parentOfInsertedTree, *root, TreeScopeChange::DidNotChange, postInsertionNotificationTargets);
+    for (RefPtr currentNode = &node; currentNode; currentNode = NodeTraversal::next(*currentNode, &node)) {
+        auto result = currentNode->insertedIntoAncestor(Node::InsertionType { /* connectedToDocument */ false, treeScopeChange == TreeScopeChange::Changed }, parentOfInsertedTree);
+        UNUSED_PARAM(result);
+        if (RefPtr root = currentNode->shadowRoot())
+            notifyNodeInsertedIntoTree(parentOfInsertedTree, *root, TreeScopeChange::DidNotChange);
+    }
 }
 
-NodeVector notifyChildNodeInserted(ContainerNode& parentOfInsertedTree, Node& node)
+// We intentionally use an out-parameter for postInsertionNotificationTargets instead of returning the vector. This is because
+// NodeVector has a large inline buffer and is thus not cheap to move.
+void notifyChildNodeInserted(ContainerNode& parentOfInsertedTree, Node& node, NodeVector& postInsertionNotificationTargets)
 {
     ASSERT(ScriptDisallowedScope::InMainThread::hasDisallowedScope());
 
     InspectorInstrumentation::didInsertDOMNode(node.document(), node);
 
-    Ref<Document> protectDocument(node.document());
-    Ref<Node> protectNode(node);
-
-    NodeVector postInsertionNotificationTargets;
+    Ref protectDocument { node.document() };
+    Ref protectNode { node };
 
     // Tree scope has changed if the container node into which "node" is inserted is in a document or a shadow root.
     auto treeScopeChange = parentOfInsertedTree.isInTreeScope() ? TreeScopeChange::Changed : TreeScopeChange::DidNotChange;
     if (parentOfInsertedTree.isConnected())
         notifyNodeInsertedIntoDocument(parentOfInsertedTree, node, treeScopeChange, postInsertionNotificationTargets);
     else
-        notifyNodeInsertedIntoTree(parentOfInsertedTree, node, treeScopeChange, postInsertionNotificationTargets);
-
-    return postInsertionNotificationTargets;
+        notifyNodeInsertedIntoTree(parentOfInsertedTree, node, treeScopeChange);
 }
 
-static void notifyNodeRemovedFromDocument(ContainerNode& oldParentOfRemovedTree, TreeScopeChange treeScopeChange, Node& node)
+inline RemovedSubtreeObservability observabilityOfRemovedNode(Node& node)
 {
+    bool isRootOfRemovedTree = !node.parentNode();
+    return node.refCount() > 1 && !isRootOfRemovedTree ? RemovedSubtreeObservability::MaybeObservableByRefPtr : RemovedSubtreeObservability::NotObservable;
+}
+
+inline void updateObservability(RemovedSubtreeObservability& currentObservability, RemovedSubtreeObservability newStatus)
+{
+    if (newStatus == RemovedSubtreeObservability::MaybeObservableByRefPtr)
+        currentObservability = newStatus;
+}
+
+static RemovedSubtreeResult notifyNodeRemovedFromDocument(ContainerNode& oldParentOfRemovedTree, TreeScopeChange treeScopeChange, Node& node)
+{
+    ASSERT(!node.parentNode());
     ASSERT(oldParentOfRemovedTree.isConnected());
     ASSERT(node.isConnected());
-    node.removedFromAncestor(Node::RemovalType { /* disconnectedFromDocument */ true, treeScopeChange == TreeScopeChange::Changed }, oldParentOfRemovedTree);
 
-    if (!is<ContainerNode>(node))
-        return;
-
-    for (RefPtr<Node> child = downcast<ContainerNode>(node).firstChild(); child; child = child->nextSibling()) {
-        RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(!node.isConnected() && child->parentNode() == &node);
-        notifyNodeRemovedFromDocument(oldParentOfRemovedTree, treeScopeChange, *child.get());
+    RemovedSubtreeObservability observability = RemovedSubtreeObservability::NotObservable;
+    auto canDelayNodeDeletion = ContainerNode::CanDelayNodeDeletion::Yes;
+    unsigned subTreeSize = 0;
+    for (RefPtr currentNode = &node; currentNode; currentNode = NodeTraversal::next(*currentNode)) {
+        ++subTreeSize;
+        currentNode->removedFromAncestor(Node::RemovalType { /* disconnectedFromDocument */ true, treeScopeChange == TreeScopeChange::Changed }, oldParentOfRemovedTree);
+        updateCanDelayNodeDeletion(canDelayNodeDeletion, AsyncNodeDeletionQueue::canNodeBeDeletedAsync(node));
+        updateObservability(observability, observabilityOfRemovedNode(*currentNode));
+        if (RefPtr root = currentNode->shadowRoot()) {
+            auto [shadowTreeSize, newObservability, canBeDelayed] = notifyNodeRemovedFromDocument(oldParentOfRemovedTree, TreeScopeChange::DidNotChange, *root);
+            subTreeSize += shadowTreeSize;
+            updateCanDelayNodeDeletion(canDelayNodeDeletion, canBeDelayed);
+            updateObservability(observability, newObservability);
+        }
     }
-
-    if (!is<Element>(node))
-        return;
-
-    if (RefPtr<ShadowRoot> root = downcast<Element>(node).shadowRoot()) {
-        RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(!node.isConnected() && root->host() == &node);
-        notifyNodeRemovedFromDocument(oldParentOfRemovedTree, TreeScopeChange::DidNotChange, *root.get());
-    }
+    return { subTreeSize, observability, canDelayNodeDeletion };
 }
 
-static void notifyNodeRemovedFromTree(ContainerNode& oldParentOfRemovedTree, TreeScopeChange treeScopeChange, Node& node)
+static RemovedSubtreeResult notifyNodeRemovedFromTree(ContainerNode& oldParentOfRemovedTree, TreeScopeChange treeScopeChange, Node& node)
 {
+    ASSERT(!node.parentNode());
     ASSERT(!oldParentOfRemovedTree.isConnected());
-
-    node.removedFromAncestor(Node::RemovalType { /* disconnectedFromDocument */ false, treeScopeChange == TreeScopeChange::Changed }, oldParentOfRemovedTree);
-
-    if (!is<ContainerNode>(node))
-        return;
-
-    for (RefPtr<Node> child = downcast<ContainerNode>(node).firstChild(); child; child = child->nextSibling())
-        notifyNodeRemovedFromTree(oldParentOfRemovedTree, treeScopeChange, *child);
-
-    if (!is<Element>(node))
-        return;
-
-    if (RefPtr<ShadowRoot> root = downcast<Element>(node).shadowRoot())
-        notifyNodeRemovedFromTree(oldParentOfRemovedTree, TreeScopeChange::DidNotChange, *root);
+    unsigned subTreeSize = 0;
+    auto canDelayNodeDeletion = ContainerNode::CanDelayNodeDeletion::Yes;
+    RemovedSubtreeObservability observability = RemovedSubtreeObservability::NotObservable;
+    for (RefPtr currentNode = &node; currentNode; currentNode = NodeTraversal::next(*currentNode)) {
+        ++subTreeSize;
+        currentNode->removedFromAncestor(Node::RemovalType { /* disconnectedFromDocument */ false, treeScopeChange == TreeScopeChange::Changed }, oldParentOfRemovedTree);
+        updateCanDelayNodeDeletion(canDelayNodeDeletion, AsyncNodeDeletionQueue::canNodeBeDeletedAsync(node));
+        updateObservability(observability, observabilityOfRemovedNode(*currentNode));
+        if (RefPtr root = currentNode->shadowRoot()) {
+            auto [shadowTreeSize, newObservability, canBeDelayed] = notifyNodeRemovedFromTree(oldParentOfRemovedTree, TreeScopeChange::DidNotChange, *root);
+            subTreeSize += shadowTreeSize;
+            updateCanDelayNodeDeletion(canDelayNodeDeletion, canBeDelayed);
+            updateObservability(observability, newObservability);
+        }
+    }
+    return { subTreeSize, observability, canDelayNodeDeletion };
 }
 
-void notifyChildNodeRemoved(ContainerNode& oldParentOfRemovedTree, Node& child)
+RemovedSubtreeResult notifyChildNodeRemoved(ContainerNode& oldParentOfRemovedTree, Node& child)
 {
     // Assert that the caller of this function has an instance of ScriptDisallowedScope.
     ASSERT(!isMainThread() || ScriptDisallowedScope::InMainThread::hasDisallowedScope());
@@ -158,17 +156,17 @@ void notifyChildNodeRemoved(ContainerNode& oldParentOfRemovedTree, Node& child)
     // Tree scope has changed if the container node from which "node" is removed is in a document or a shadow root.
     auto treeScopeChange = oldParentOfRemovedTree.isInTreeScope() ? TreeScopeChange::Changed : TreeScopeChange::DidNotChange;
     if (child.isConnected())
-        notifyNodeRemovedFromDocument(oldParentOfRemovedTree, treeScopeChange, child);
-    else
-        notifyNodeRemovedFromTree(oldParentOfRemovedTree, treeScopeChange, child);
+        return notifyNodeRemovedFromDocument(oldParentOfRemovedTree, treeScopeChange, child);
+    return notifyNodeRemovedFromTree(oldParentOfRemovedTree, treeScopeChange, child);
 }
 
-void addChildNodesToDeletionQueue(Node*& head, Node*& tail, ContainerNode& container)
+void removeDetachedChildrenInContainer(ContainerNode& container)
 {
-    // We have to tell all children that their parent has died.
-    RefPtr<Node> next = nullptr;
-    for (RefPtr<Node> node = container.firstChild(); node; node = next) {
-        ASSERT(!node->m_deletionHasBegun);
+    container.setLastChild(nullptr);
+
+    RefPtr<Node> next;
+    for (RefPtr node = container.firstChild(); node; node = WTFMove(next)) {
+        ASSERT(!node->deletionHasBegun());
 
         next = node->nextSibling();
         node->setNextSibling(nullptr);
@@ -177,53 +175,10 @@ void addChildNodesToDeletionQueue(Node*& head, Node*& tail, ContainerNode& conta
         if (next)
             next->setPreviousSibling(nullptr);
 
-        if (!node->refCount()) {
-#ifndef NDEBUG
-            node->m_deletionHasBegun = true;
-#endif
-            // Add the node to the list of nodes to be deleted.
-            // Reuse the nextSibling pointer for this purpose.
-            if (tail)
-                tail->setNextSibling(node.get());
-            else
-                head = node.get();
-
-            tail = node.get();
-        } else {
-            node->setTreeScopeRecursively(container.document());
-            if (node->isInTreeScope())
-                notifyChildNodeRemoved(container, *node);
-            ASSERT_WITH_SECURITY_IMPLICATION(!node->isInTreeScope());
-        }
-    }
-
-    container.setLastChild(nullptr);
-}
-
-void removeDetachedChildrenInContainer(ContainerNode& container)
-{
-    // List of nodes to be deleted.
-    Node* head = nullptr;
-    Node* tail = nullptr;
-
-    addChildNodesToDeletionQueue(head, tail, container);
-
-    Node* node;
-    Node* next;
-    while ((node = head)) {
-        ASSERT(node->m_deletionHasBegun);
-
-        next = node->nextSibling();
-        node->setNextSibling(nullptr);
-
-        head = next;
-        if (!next)
-            tail = nullptr;
-
-        if (is<ContainerNode>(*node))
-            addChildNodesToDeletionQueue(head, tail, downcast<ContainerNode>(*node));
-        
-        delete node;
+        node->setTreeScopeRecursively(Ref<Document> { container.document() });
+        if (node->isInTreeScope())
+            notifyChildNodeRemoved(container, *node);
+        ASSERT_WITH_SECURITY_IMPLICATION(!node->isInTreeScope());
     }
 }
 
@@ -232,11 +187,12 @@ static unsigned assertConnectedSubrameCountIsConsistent(ContainerNode& node)
 {
     unsigned count = 0;
 
-    if (is<Element>(node)) {
-        if (is<HTMLFrameOwnerElement>(node) && downcast<HTMLFrameOwnerElement>(node).contentFrame())
+    if (auto* element = dynamicDowncast<Element>(node)) {
+        auto* frameOwnerElement = dynamicDowncast<HTMLFrameOwnerElement>(*element);
+        if (frameOwnerElement && frameOwnerElement->contentFrame())
             ++count;
 
-        if (ShadowRoot* root = downcast<Element>(node).shadowRoot())
+        if (RefPtr root = element->shadowRoot())
             count += assertConnectedSubrameCountIsConsistent(*root);
     }
 
@@ -268,10 +224,10 @@ static void collectFrameOwners(Vector<Ref<HTMLFrameOwnerElement>>& frameOwners, 
             continue;
         }
 
-        if (is<HTMLFrameOwnerElement>(element))
-            frameOwners.append(downcast<HTMLFrameOwnerElement>(element));
+        if (RefPtr frameOwnerElement = dynamicDowncast<HTMLFrameOwnerElement>(element))
+            frameOwners.append(frameOwnerElement.releaseNonNull());
 
-        if (ShadowRoot* shadowRoot = element.shadowRoot())
+        if (RefPtr shadowRoot = element.shadowRoot())
             collectFrameOwners(frameOwners, *shadowRoot);
         ++it;
     }
@@ -286,14 +242,14 @@ void disconnectSubframes(ContainerNode& root, SubframeDisconnectPolicy policy)
 
     Vector<Ref<HTMLFrameOwnerElement>> frameOwners;
 
-    if (policy == RootAndDescendants) {
-        if (is<HTMLFrameOwnerElement>(root))
-            frameOwners.append(downcast<HTMLFrameOwnerElement>(root));
+    if (policy == SubframeDisconnectPolicy::RootAndDescendants) {
+        if (RefPtr rootElement = dynamicDowncast<HTMLFrameOwnerElement>(root))
+            frameOwners.append(rootElement.releaseNonNull());
     }
 
     collectFrameOwners(frameOwners, root);
 
-    if (auto* shadowRoot = root.shadowRoot())
+    if (RefPtr shadowRoot = root.shadowRoot())
         collectFrameOwners(frameOwners, *shadowRoot);
 
     // Must disable frame loading in the subtree so an unload handler cannot

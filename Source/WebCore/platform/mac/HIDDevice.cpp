@@ -33,21 +33,29 @@
 #include <IOKit/hid/IOHIDElement.h>
 #include <wtf/Deque.h>
 #include <wtf/HashSet.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/cf/TypeCastsCF.h>
 
 WTF_DECLARE_CF_TYPE_TRAIT(IOHIDElement);
 
 namespace WebCore {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(HIDDevice);
+
+static int getDevicePropertyAsInt(IOHIDDeviceRef device, CFStringRef key)
+{
+    CFNumberRef cfPropertyValue = checked_cf_cast<CFNumberRef>(IOHIDDeviceGetProperty(device, key));
+    int propertyValue = -1;
+    if (cfPropertyValue)
+        CFNumberGetValue(cfPropertyValue, kCFNumberIntType, &propertyValue);
+    return propertyValue;
+}
+
 HIDDevice::HIDDevice(IOHIDDeviceRef device)
     : m_rawDevice(device)
 {
-    CFNumberRef cfVendorID = checked_cf_cast<CFNumberRef>(IOHIDDeviceGetProperty(device, CFSTR(kIOHIDVendorIDKey)));
-    CFNumberRef cfProductID = checked_cf_cast<CFNumberRef>(IOHIDDeviceGetProperty(device, CFSTR(kIOHIDProductIDKey)));
-
-    int vendorID, productID;
-    CFNumberGetValue(cfVendorID, kCFNumberIntType, &vendorID);
-    CFNumberGetValue(cfProductID, kCFNumberIntType, &productID);
+    int vendorID = getDevicePropertyAsInt(device, CFSTR(kIOHIDVendorIDKey));
+    int productID = getDevicePropertyAsInt(device, CFSTR(kIOHIDProductIDKey));
 
     if (vendorID < 0 || vendorID > std::numeric_limits<uint16_t>::max()) {
         LOG(HID, "Device attached with malformed vendor ID 0x%x. Resetting to 0.", vendorID);
@@ -67,11 +75,12 @@ HIDDevice::HIDDevice(IOHIDDeviceRef device)
 
 Vector<HIDElement> HIDDevice::uniqueInputElementsInDeviceTreeOrder() const
 {
-    HashSet<IOHIDElementCookie> encounteredCookies;
+    UncheckedKeyHashSet<IOHIDElementCookie> encounteredCookies;
     Deque<IOHIDElementRef> elementQueue;
 
     RetainPtr<CFArrayRef> elements = adoptCF(IOHIDDeviceCopyMatchingElements(m_rawDevice.get(), NULL, kIOHIDOptionsTypeNone));
-    for (CFIndex i = 0; i < CFArrayGetCount(elements.get()); ++i)
+    CFIndex count = elements ? CFArrayGetCount(elements.get()) : 0;
+    for (CFIndex i = 0; i < count; ++i)
         elementQueue.append(checked_cf_cast<IOHIDElementRef>(CFArrayGetValueAtIndex(elements.get(), i)));
 
     Vector<HIDElement> result;

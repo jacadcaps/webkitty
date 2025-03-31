@@ -23,14 +23,18 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#import "config.h"
-#import "ScrollingTreeScrollingNodeDelegate.h"
+#include "config.h"
+#include "ScrollingTreeScrollingNodeDelegate.h"
+
+#include <wtf/TZoneMallocInlines.h>
 
 #if ENABLE(ASYNC_SCROLLING)
 
-#import "ScrollingTreeScrollingNode.h"
+#include "ScrollingTreeScrollingNode.h"
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ScrollingTreeScrollingNodeDelegate);
 
 ScrollingTreeScrollingNodeDelegate::ScrollingTreeScrollingNodeDelegate(ScrollingTreeScrollingNode& scrollingNode)
     : m_scrollingNode(scrollingNode)
@@ -39,9 +43,9 @@ ScrollingTreeScrollingNodeDelegate::ScrollingTreeScrollingNodeDelegate(Scrolling
 
 ScrollingTreeScrollingNodeDelegate::~ScrollingTreeScrollingNodeDelegate() = default;
 
-ScrollingTree& ScrollingTreeScrollingNodeDelegate::scrollingTree() const
+RefPtr<ScrollingTree> ScrollingTreeScrollingNodeDelegate::scrollingTree() const
 {
-    return m_scrollingNode.scrollingTree();
+    return protectedScrollingNode()->scrollingTree();
 }
 
 FloatPoint ScrollingTreeScrollingNodeDelegate::lastCommittedScrollPosition() const
@@ -49,17 +53,17 @@ FloatPoint ScrollingTreeScrollingNodeDelegate::lastCommittedScrollPosition() con
     return m_scrollingNode.lastCommittedScrollPosition();
 }
 
-const FloatSize& ScrollingTreeScrollingNodeDelegate::totalContentsSize()
+FloatSize ScrollingTreeScrollingNodeDelegate::totalContentsSize()
 {
     return m_scrollingNode.totalContentsSize();
 }
 
-const FloatSize& ScrollingTreeScrollingNodeDelegate::reachableContentsSize()
+FloatSize ScrollingTreeScrollingNodeDelegate::reachableContentsSize()
 {
     return m_scrollingNode.reachableContentsSize();
 }
 
-const IntPoint& ScrollingTreeScrollingNodeDelegate::scrollOrigin() const
+IntPoint ScrollingTreeScrollingNodeDelegate::scrollOrigin() const
 {
     return m_scrollingNode.scrollOrigin();
 }

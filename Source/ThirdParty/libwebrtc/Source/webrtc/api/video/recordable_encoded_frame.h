@@ -11,13 +11,13 @@
 #ifndef API_VIDEO_RECORDABLE_ENCODED_FRAME_H_
 #define API_VIDEO_RECORDABLE_ENCODED_FRAME_H_
 
-#include "api/array_view.h"
+#include <optional>
+
 #include "api/scoped_refptr.h"
 #include "api/units/timestamp.h"
 #include "api/video/color_space.h"
 #include "api/video/encoded_image.h"
 #include "api/video/video_codec_type.h"
-#include "rtc_base/ref_count.h"
 
 namespace webrtc {
 
@@ -25,9 +25,12 @@ namespace webrtc {
 class RecordableEncodedFrame {
  public:
   // Encoded resolution in pixels
+  // TODO(bugs.webrtc.org/12114) : remove in favor of Resolution.
   struct EncodedResolution {
-    unsigned width;
-    unsigned height;
+    bool empty() const { return width == 0 && height == 0; }
+
+    unsigned width = 0;
+    unsigned height = 0;
   };
 
   virtual ~RecordableEncodedFrame() = default;
@@ -38,7 +41,7 @@ class RecordableEncodedFrame {
 
   // Optionally returns the colorspace of the encoded frame. This can differ
   // from the eventually decoded frame's colorspace.
-  virtual absl::optional<webrtc::ColorSpace> color_space() const = 0;
+  virtual std::optional<webrtc::ColorSpace> color_space() const = 0;
 
   // Returns the codec of the encoded frame
   virtual VideoCodecType codec() const = 0;

@@ -24,74 +24,113 @@
 
 #pragma once
 
-#include "Color.h"
 #include "FloatRect.h"
 #include "LayoutRect.h"
+#include "Length.h"
+#include "LengthBox.h"
+#include "LengthPoint.h"
+#include "StyleColor.h"
+#include "StylePrimitiveNumericTypes.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
-enum class ShadowStyle : uint8_t { Normal, Inset };
+namespace Style {
+struct BoxShadow;
+struct TextShadow;
+}
+
+enum class ShadowStyle : bool { Normal, Inset };
 
 // This class holds information about shadows for the text-shadow and box-shadow properties.
 
 class ShadowData {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(ShadowData);
 public:
-    ShadowData() = default;
+    ShadowData(Style::BoxShadow&&);
+    ShadowData(Style::TextShadow&&);
 
-    ShadowData(const LayoutPoint& location, int radius, LayoutUnit spread, ShadowStyle style, bool isWebkitBoxShadow, const Color& color)
-        : m_location(location)
-        , m_spread(spread)
-        , m_radius(radius)
-        , m_color(color)
-        , m_style(style)
-        , m_isWebkitBoxShadow(isWebkitBoxShadow)
-    {
-    }
+    ~ShadowData();
 
     ShadowData(const ShadowData&);
-    static Optional<ShadowData> clone(const ShadowData*);
+    static std::optional<ShadowData> clone(const ShadowData*);
 
     ShadowData& operator=(ShadowData&&) = default;
 
-    bool operator==(const ShadowData& o) const;
-    bool operator!=(const ShadowData& o) const
-    {
-        return !(*this == o);
-    }
-    
-    LayoutUnit x() const { return m_location.x(); }
-    LayoutUnit y() const { return m_location.y(); }
-    LayoutPoint location() const { return m_location; }
-    int radius() const { return m_radius; }
+    bool operator==(const ShadowData&) const;
+
+    Style::BoxShadow asBoxShadow() const;
+    Style::TextShadow asTextShadow() const;
+
+    const Style::Length<>& x() const { return m_location.x(); }
+    const Style::Length<>& y() const { return m_location.y(); }
+    const SpaceSeparatedPoint<Style::Length<>>& location() const { return m_location; }
+    const Style::Length<CSS::Nonnegative>& radius() const { return m_blur; }
+    const Style::Length<>& spread() const { return m_spread; }
+
     LayoutUnit paintingExtent() const
     {
         // Blurring uses a Gaussian function whose std. deviation is m_radius/2, and which in theory
         // extends to infinity. In 8-bit contexts, however, rounding causes the effect to become
         // undetectable at around 1.4x the radius.
         const float radiusExtentMultiplier = 1.4;
-        return LayoutUnit(ceilf(m_radius * radiusExtentMultiplier));
+        return LayoutUnit(ceilf(m_blur.value * radiusExtentMultiplier));
     }
-    LayoutUnit spread() const { return m_spread; }
+
     ShadowStyle style() const { return m_style; }
-    const Color& color() const { return m_color; }
+
+    void setColor(const Style::Color& color) { m_color = color; }
+    const Style::Color& color() const { return m_color; }
+
     bool isWebkitBoxShadow() const { return m_isWebkitBoxShadow; }
 
     const ShadowData* next() const { return m_next.get(); }
-    void setNext(std::unique_ptr<ShadowData> shadow) { m_next = WTFMove(shadow); }
+    void setNext(std::unique_ptr<ShadowData>&& next) { m_next = WTFMove(next); }
 
-    void adjustRectForShadow(LayoutRect&, int additionalOutlineSize = 0) const;
-    void adjustRectForShadow(FloatRect&, int additionalOutlineSize = 0) const;
+    void adjustRectForShadow(LayoutRect&) const;
+    void adjustRectForShadow(FloatRect&) const;
+
+    LayoutBoxExtent shadowOutsetExtent() const;
+    LayoutBoxExtent shadowInsetExtent() const;
+
+    static LayoutBoxExtent shadowOutsetExtent(const ShadowData*);
+    static LayoutBoxExtent shadowInsetExtent(const ShadowData*);
 
 private:
-    LayoutPoint m_location;
-    LayoutUnit m_spread;
-    int m_radius { 0 }; // This is the "blur radius", or twice the standard deviation of the Gaussian blur.
-    Color m_color;
-    ShadowStyle m_style { ShadowStyle::Normal };
-    bool m_isWebkitBoxShadow { false };
+    void deleteNextLinkedListWithoutRecursion();
+
+    Style::Color m_color;
+    SpaceSeparatedPoint<Style::Length<>> m_location;
+    Style::Length<CSS::Nonnegative> m_blur;
+    Style::Length<> m_spread;
+    ShadowStyle m_style;
+    bool m_isWebkitBoxShadow;
+
     std::unique_ptr<ShadowData> m_next;
 };
+
+inline ShadowData::~ShadowData()
+{
+    if (m_next)
+        deleteNextLinkedListWithoutRecursion();
+}
+
+
+inline LayoutBoxExtent ShadowData::shadowOutsetExtent(const ShadowData* shadow)
+{
+    if (!shadow)
+        return { };
+
+    return shadow->shadowOutsetExtent();
+}
+
+inline LayoutBoxExtent ShadowData::shadowInsetExtent(const ShadowData* shadow)
+{
+    if (!shadow)
+        return { };
+
+    return shadow->shadowInsetExtent();
+}
 
 WTF::TextStream& operator<<(WTF::TextStream&, const ShadowData&);
 

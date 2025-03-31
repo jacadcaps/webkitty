@@ -45,6 +45,13 @@ class StartSupport extends MediaControllerSupport
         super.enable();
 
         this._updateShowsStartButton();
+        this.mediaController.shadowRoot.addEventListener("fullscreenchange", this, true);
+    }
+
+    disable()
+    {
+        super.disable();
+        this.mediaController.shadowRoot.removeEventListener("fullscreenchange", this, true);
     }
 
     buttonWasPressed(control)
@@ -74,7 +81,7 @@ class StartSupport extends MediaControllerSupport
         if (host && host.shouldForceControlsDisplay)
             return true;
 
-        if (this.mediaController.hasPlayed || media.played.length)
+        if (this.mediaController.hasPlayed)
             return false;
 
         if (!media.paused)

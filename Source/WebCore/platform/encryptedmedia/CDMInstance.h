@@ -31,12 +31,11 @@
 #include "CDMMessageType.h"
 #include "CDMSessionType.h"
 #include <utility>
+#include <wtf/AbstractRefCountedAndCanMakeWeakPtr.h>
 #include <wtf/CompletionHandler.h>
 #include <wtf/Forward.h>
 #include <wtf/RefCounted.h>
-#include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/TypeCasts.h>
-#include <wtf/WeakPtr.h>
 
 #if !RELEASE_LOG_DISABLED
 namespace WTF {
@@ -46,15 +45,20 @@ class Logger;
 
 namespace WebCore {
 
-class SharedBuffer;
 class CDMInstanceSession;
 struct CDMKeySystemConfiguration;
+class SharedBuffer;
 
-class CDMInstanceClient : public CanMakeWeakPtr<CDMInstanceClient> {
+class CDMInstanceClient : public AbstractRefCountedAndCanMakeWeakPtr<CDMInstanceClient> {
 public:
     virtual ~CDMInstanceClient() = default;
 
     virtual void unrequestedInitializationDataReceived(const String&, Ref<SharedBuffer>&&) = 0;
+
+#if !RELEASE_LOG_DISABLED
+    virtual const Logger& logger() const = 0;
+    virtual uint64_t logIdentifier() const = 0;
+#endif
 };
 
 // JavaScript's handle to a CDMInstance, must be used from the
@@ -67,7 +71,7 @@ public:
     virtual void clearClient() { }
 
 #if !RELEASE_LOG_DISABLED
-    virtual void setLogger(WTF::Logger&, const void*) { }
+    virtual void setLogIdentifier(uint64_t) { }
 #endif
 
     enum class ImplementationType {

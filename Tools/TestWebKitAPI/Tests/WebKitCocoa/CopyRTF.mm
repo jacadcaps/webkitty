@@ -31,6 +31,8 @@
 #import "PlatformUtilities.h"
 #import "Test.h"
 #import "TestWKWebView.h"
+#import <WebKit/WKPreferencesPrivate.h>
+#import <WebKit/WKPreferencesRefPrivate.h>
 #import <wtf/RetainPtr.h>
 
 #if PLATFORM(IOS_FAMILY)
@@ -61,6 +63,9 @@ static RetainPtr<NSAttributedString> copyAttributedStringFromHTML(NSString *html
 {
     auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 400, 400)]);
 
+    auto preferences = (__bridge WKPreferencesRef)[[webView configuration] preferences];
+    WKPreferencesSetWriteRichTextDataWhenCopyingOrDragging(preferences, true);
+
     if (forceDarkMode)
         [webView forceDarkMode];
 
@@ -89,12 +94,11 @@ static void checkColor(PlatformColor *color, CGFloat red, CGFloat green, CGFloat
     [color getRed:&observedRed green:&observedGreen blue:&observedBlue alpha:&observedAlpha];
 
     EXPECT_EQ(red, observedRed);
-    EXPECT_EQ(green, observedRed);
+    EXPECT_EQ(green, observedGreen);
     EXPECT_EQ(blue, observedBlue);
     EXPECT_EQ(alpha, observedAlpha);
 }
 
-#if HAVE(OS_DARK_MODE_SUPPORT)
 TEST(CopyRTF, StripsDefaultTextColorOfDarkContent)
 {
     auto attributedString = copyAttributedStringFromHTML(@"<style>:root { color-scheme: dark }</style> Default <span style=\"color: black\">Black</span> <span style=\"color: white\">White</span>", true);
@@ -116,7 +120,6 @@ TEST(CopyRTF, StripsDefaultTextColorOfDarkContent)
 
     EXPECT_EQ(i, 3UL);
 }
-#endif
 
 TEST(CopyRTF, StripsDefaultTextColorOfLightContent)
 {
@@ -138,6 +141,48 @@ TEST(CopyRTF, StripsDefaultTextColorOfLightContent)
     }];
 
     EXPECT_EQ(i, 3UL);
+}
+
+#if ENABLE(DATA_DETECTION)
+
+TEST(CopyRTF, StripsDataDetectorsLinks)
+{
+    auto attributedString = copyAttributedStringFromHTML(@"<a href=\"https://www.apple.com\">Apple</a> <a href=\"x-apple-data-detectors://0\" dir=\"ltr\" x-apple-data-detectors=\"true\" x-apple-data-detectors-type=\"calendar-event\" x-apple-data-detectors-result=\"0\" style=\"color: currentcolor; text-decoration-color: rgba(128, 128, 128, 0.38);\">on Friday 11/6 at 4pm</a>", false);
+
+    __block size_t i = 0;
+    [attributedString enumerateAttribute:NSLinkAttributeName inRange:NSMakeRange(0, [attributedString length]) options:0 usingBlock:^(id value, NSRange attributeRange, BOOL *stop) {
+        if (!i)
+            EXPECT_NOT_NULL(value);
+        else if (i == 1)
+            EXPECT_NULL(value);
+        else
+            FAIL();
+
+        ++i;
+    }];
+
+    EXPECT_EQ(i, 2UL);
+}
+
+#endif // ENABLE(DATA_DETECTION)
+
+TEST(CopyRTF, StripsUserSelectNone)
+{
+    auto attributedString = copyAttributedStringFromHTML(@"hello <span style='-webkit-user-select: none; user-select: none;'>world "
+        "<span style='-webkit-user-select: initial; user-select: initial;'>WebKit </span></span>"
+        "<div style='-webkit-user-select: none; user-select: none;'>some<br>user-select-none<br>content</div><span inert>foo </span>bar", false);
+
+    EXPECT_WK_STREQ([attributedString string].UTF8String, "hello WebKit bar");
+}
+
+TEST(CopyRTF, StripsUserSelectNoneQuirks)
+{
+    auto attributedString = copyAttributedStringFromHTML(@"<meta name='confluence-request-time' content='1689029750234'>"
+        "hello <span style='-webkit-user-select: none; user-select: none;'>world "
+        "<span style='-webkit-user-select: initial; user-select: initial;'>WebKit </span></span>"
+        "<div style='-webkit-user-select: none; user-select: none;'>some<br>user-select-none<br>content</div><span inert>foo </span>bar", false);
+
+    EXPECT_WK_STREQ([attributedString string].UTF8String, "hello world WebKit\nsome\nuser-select-none\ncontent\nfoo bar");
 }
 
 #endif // PLATFORM(COCOA)

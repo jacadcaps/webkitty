@@ -29,15 +29,18 @@
 
 #include "ContentSecurityPolicy.h"
 #include "ContentSecurityPolicyDirectiveList.h"
-#include "ParsingUtilities.h"
+#include <wtf/TZoneMallocInlines.h>
+#include <wtf/text/ParsingUtilities.h>
 #include <wtf/text/StringHash.h>
 #include <wtf/text/StringParsingBuffer.h>
 
 namespace WebCore {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ContentSecurityPolicyMediaListDirective);
+
 template<typename CharacterType> static bool isMediaTypeCharacter(CharacterType c)
 {
-    return !isASCIISpace(c) && c != '/';
+    return !isUnicodeCompatibleASCIIWhitespace(c) && c != '/';
 }
 
 ContentSecurityPolicyMediaListDirective::ContentSecurityPolicyMediaListDirective(const ContentSecurityPolicyDirectiveList& directiveList, const String& name, const String& value)
@@ -63,7 +66,7 @@ void ContentSecurityPolicyMediaListDirective::parse(const String& value)
         while (buffer.hasCharactersRemaining()) {
             // _____ OR _____mime1/mime1
             // ^        ^
-            skipWhile<isASCIISpace>(buffer);
+            skipWhile<isUnicodeCompatibleASCIIWhitespace>(buffer);
             if (buffer.atEnd())
                 return;
 
@@ -72,7 +75,7 @@ void ContentSecurityPolicyMediaListDirective::parse(const String& value)
             auto begin = buffer.position();
             if (!skipExactly<isMediaTypeCharacter>(buffer)) {
                 skipWhile<isNotASCIISpace>(buffer);
-                directiveList().policy().reportInvalidPluginTypes(String(begin, buffer.position() - begin));
+                directiveList().policy().reportInvalidPluginTypes(String({ begin, buffer.position() }));
                 continue;
             }
             skipWhile<isMediaTypeCharacter>(buffer);
@@ -81,7 +84,7 @@ void ContentSecurityPolicyMediaListDirective::parse(const String& value)
             //      ^
             if (!skipExactly(buffer, '/')) {
                 skipWhile<isNotASCIISpace>(buffer);
-                directiveList().policy().reportInvalidPluginTypes(String(begin, buffer.position() - begin));
+                directiveList().policy().reportInvalidPluginTypes(String({ begin, buffer.position() }));
                 continue;
             }
 
@@ -89,7 +92,7 @@ void ContentSecurityPolicyMediaListDirective::parse(const String& value)
             //       ^
             if (!skipExactly<isMediaTypeCharacter>(buffer)) {
                 skipWhile<isNotASCIISpace>(buffer);
-                directiveList().policy().reportInvalidPluginTypes(String(begin, buffer.position() - begin));
+                directiveList().policy().reportInvalidPluginTypes(String({ begin, buffer.position() }));
                 continue;
             }
             skipWhile<isMediaTypeCharacter>(buffer);
@@ -98,12 +101,12 @@ void ContentSecurityPolicyMediaListDirective::parse(const String& value)
             //            ^                          ^               ^
             if (buffer.hasCharactersRemaining() && isNotASCIISpace(*buffer)) {
                 skipWhile<isNotASCIISpace>(buffer);
-                directiveList().policy().reportInvalidPluginTypes(String(begin, buffer.position() - begin));
+                directiveList().policy().reportInvalidPluginTypes(String({ begin, buffer.position() }));
                 continue;
             }
-            m_pluginTypes.add(String(begin, buffer.position() - begin));
+            m_pluginTypes.add(String({ begin, buffer.position() }));
 
-            ASSERT(buffer.atEnd() || isASCIISpace(*buffer));
+            ASSERT(buffer.atEnd() || isUnicodeCompatibleASCIIWhitespace(*buffer));
         }
     });
 }

@@ -26,6 +26,7 @@
 #include "config.h"
 #include "RemoveNodeCommand.h"
 
+#include "CompositeEditCommand.h"
 #include "Editing.h"
 #include "RenderElement.h"
 #include <wtf/Assertions.h>
@@ -42,16 +43,17 @@ RemoveNodeCommand::RemoveNodeCommand(Ref<Node>&& node, ShouldAssumeContentIsAlwa
 
 void RemoveNodeCommand::doApply()
 {
-    ContainerNode* parent = m_node->parentNode();
+    auto node = protectedNode();
+    RefPtr parent = node->parentNode();
     if (!parent || (m_shouldAssumeContentIsAlwaysEditable == DoNotAssumeContentIsAlwaysEditable
         && !isEditableNode(*parent) && parent->renderer()))
         return;
     ASSERT(isEditableNode(*parent) || !parent->renderer());
 
-    m_parent = parent;
-    m_refChild = m_node->nextSibling();
+    m_parent = WTFMove(parent);
+    m_refChild = node->nextSibling();
 
-    m_node->remove();
+    node->remove();
 }
 
 void RemoveNodeCommand::doUnapply()
@@ -61,11 +63,11 @@ void RemoveNodeCommand::doUnapply()
     if (!parent || !parent->hasEditableStyle())
         return;
 
-    parent->insertBefore(m_node, refChild.get());
+    parent->insertBefore(protectedNode(), WTFMove(refChild));
 }
 
 #ifndef NDEBUG
-void RemoveNodeCommand::getNodesInCommand(HashSet<Node*>& nodes)
+void RemoveNodeCommand::getNodesInCommand(NodeSet& nodes)
 {
     addNodeAndDescendants(m_parent.get(), nodes);
     addNodeAndDescendants(m_refChild.get(), nodes);

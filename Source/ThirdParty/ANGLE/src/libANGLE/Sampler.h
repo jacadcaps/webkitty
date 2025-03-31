@@ -32,7 +32,7 @@ class Sampler final : public RefCountObject<SamplerID>, public LabeledObject, pu
 
     void onDestroy(const Context *context) override;
 
-    void setLabel(const Context *context, const std::string &label) override;
+    angle::Result setLabel(const Context *context, const std::string &label) override;
     const std::string &getLabel() const override;
 
     void setMinFilter(const Context *context, GLenum minFilter);
@@ -71,7 +71,7 @@ class Sampler final : public RefCountObject<SamplerID>, public LabeledObject, pu
     void setBorderColor(const Context *context, const ColorGeneric &color);
     const ColorGeneric &getBorderColor() const;
 
-    const SamplerState &getSamplerState() const;
+    const SamplerState &getSamplerState() const { return mState; }
 
     rx::SamplerImpl *getImplementation() const;
 

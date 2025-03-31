@@ -23,10 +23,15 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#import "WKPreferencesPrivate.h"
+#import <WebKit/WKPreferencesPrivate.h>
+
+#import <wtf/Platform.h>
+
+#ifdef __cplusplus
 
 #import "WKObject.h"
 #import "WebPreferences.h"
+#import <wtf/AlignedStorage.h>
 
 namespace WebKit {
 
@@ -38,7 +43,19 @@ template<> struct WrapperTraits<WebPreferences> {
 
 @interface WKPreferences () <WKObject> {
 @package
-    API::ObjectStorage<WebKit::WebPreferences> _preferences;
+    AlignedStorage<WebKit::WebPreferences> _preferences;
 }
+
+@end
+
+#endif
+
+@interface WKPreferences ()
+
+#if PLATFORM(IOS_FAMILY)
+@property (nonatomic) BOOL tabFocusesLinks;
+#endif
+
+@property (nonatomic, setter=_setUseSystemAppearance:) BOOL _useSystemAppearance;
 
 @end

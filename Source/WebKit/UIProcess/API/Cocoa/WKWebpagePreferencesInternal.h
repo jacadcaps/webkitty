@@ -25,8 +25,8 @@
 
 #import "APIWebsitePolicies.h"
 #import "WKObject.h"
-#import "WKWebpagePreferencesPrivate.h"
-#import "_WKWebsitePolicies.h"
+#import <WebKit/WKWebpagePreferencesPrivate.h>
+#import <wtf/AlignedStorage.h>
 
 namespace WebKit {
 
@@ -39,12 +39,15 @@ WKContentMode contentMode(WebContentMode);
 WebContentMode webContentMode(WKContentMode);
 #endif
 
+WKWebpagePreferencesUpgradeToHTTPSPolicy upgradeToHTTPSPolicy(WebCore::HTTPSByDefaultMode);
+WebCore::HTTPSByDefaultMode httpsByDefaultMode(WKWebpagePreferencesUpgradeToHTTPSPolicy);
 }
 
 @interface WKWebpagePreferences () <WKObject> {
 @package
-    API::ObjectStorage<API::WebsitePolicies> _websitePolicies;
+    AlignedStorage<API::WebsitePolicies> _websitePolicies;
 }
 
 @property (class, nonatomic, readonly) WKWebpagePreferences *defaultPreferences;
+
 @end

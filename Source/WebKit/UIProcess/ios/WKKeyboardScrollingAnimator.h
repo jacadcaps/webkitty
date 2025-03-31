@@ -23,37 +23,24 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#import <WebCore/ScrollTypes.h>
+
 #if PLATFORM(IOS_FAMILY)
 
 namespace WebCore {
 class FloatPoint;
 }
 
-namespace WebKit {
 
-enum class ScrollingIncrement : uint8_t {
-    Document,
-    Page,
-    Line
-};
-
-enum class ScrollingDirection : uint8_t {
-    Up,
-    Down,
-    Left,
-    Right
-};
-
-}
-
-@class UIScrollView;
+@class WKVelocityTrackingScrollView;
 @class WebEvent;
+
 @protocol WKKeyboardScrollViewAnimatorDelegate;
 
 @interface WKKeyboardScrollViewAnimator : NSObject
 
 - (instancetype)init NS_UNAVAILABLE;
-- (instancetype)initWithScrollView:(UIScrollView *)scrollView;
+- (instancetype)initWithScrollView:(WKVelocityTrackingScrollView *)scrollView;
 
 - (void)invalidate;
 
@@ -64,6 +51,8 @@ enum class ScrollingDirection : uint8_t {
 
 - (BOOL)scrollTriggeringKeyIsPressed;
 
+- (void)stopScrollingImmediately;
+
 @property (nonatomic, weak) id <WKKeyboardScrollViewAnimatorDelegate> delegate;
 
 @end
@@ -71,7 +60,7 @@ enum class ScrollingDirection : uint8_t {
 @protocol WKKeyboardScrollViewAnimatorDelegate <NSObject>
 @optional
 - (BOOL)isScrollableForKeyboardScrollViewAnimator:(WKKeyboardScrollViewAnimator *)animator;
-- (CGFloat)keyboardScrollViewAnimator:(WKKeyboardScrollViewAnimator *)animator distanceForIncrement:(WebKit::ScrollingIncrement)increment inDirection:(WebKit::ScrollingDirection)direction;
+- (CGFloat)keyboardScrollViewAnimator:(WKKeyboardScrollViewAnimator *)animator distanceForIncrement:(WebCore::ScrollGranularity)increment inDirection:(WebCore::ScrollDirection)direction;
 - (void)keyboardScrollViewAnimatorWillScroll:(WKKeyboardScrollViewAnimator *)animator;
 - (void)keyboardScrollViewAnimatorDidFinishScrolling:(WKKeyboardScrollViewAnimator *)animator;
 

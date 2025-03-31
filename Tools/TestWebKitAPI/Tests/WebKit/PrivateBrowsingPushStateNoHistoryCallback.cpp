@@ -32,6 +32,7 @@
 #include "Test.h"
 #include <WebKit/WKPreferencesRefPrivate.h>
 #include <WebKit/WKRetainPtr.h>
+#include <WebKit/WKWebsiteDataStoreConfigurationRef.h>
 #include <WebKit/WKWebsiteDataStoreRef.h>
 
 namespace TestWebKitAPI {
@@ -61,7 +62,7 @@ TEST(WebKit, PrivateBrowsingPushStateNoHistoryCallback)
     WKPageConfigurationSetWebsiteDataStore(pageConfiguration.get(), ephemeralStore.get());
 
     WKContextHistoryClientV0 historyClient;
-    memset(&historyClient, 0, sizeof(historyClient));
+    zeroBytes(historyClient);
 
     historyClient.base.version = 0;
     historyClient.didNavigateWithNavigationData = didNavigateWithoutNavigationData;
@@ -71,7 +72,7 @@ TEST(WebKit, PrivateBrowsingPushStateNoHistoryCallback)
     PlatformWebView webView(pageConfiguration.get());
 
     WKPageNavigationClientV0 pageLoaderClient;
-    memset(&pageLoaderClient, 0, sizeof(pageLoaderClient));
+    zeroBytes(pageLoaderClient);
 
     pageLoaderClient.base.version = 0;
     pageLoaderClient.didSameDocumentNavigation = [] (WKPageRef, WKNavigationRef, WKSameDocumentNavigationType, WKTypeRef, const void *) {
@@ -80,18 +81,19 @@ TEST(WebKit, PrivateBrowsingPushStateNoHistoryCallback)
 
     WKPageSetPageNavigationClient(webView.page(), &pageLoaderClient.base);
 
-    WKRetainPtr<WKPreferencesRef> preferences = adoptWK(WKPreferencesCreate());
-    WKPreferencesSetUniversalAccessFromFileURLsAllowed(preferences.get(), true);
-
-    WKPageGroupRef pageGroup = WKPageGetPageGroup(webView.page());
-    WKPageGroupSetPreferences(pageGroup, preferences.get());
+    auto configuration = adoptWK(WKPageCopyPageConfiguration(webView.page()));
+    auto preferences = WKPageConfigurationGetPreferences(configuration.get());
+    WKPreferencesSetUniversalAccessFromFileURLsAllowed(preferences, true);
 
     WKRetainPtr<WKURLRef> url = adoptWK(Util::createURLForResource("push-state", "html"));
     WKPageLoadURL(webView.page(), url.get());
 
     Util::run(&didSameDocumentNavigation);
 
-    WKPageConfigurationSetWebsiteDataStore(pageConfiguration.get(), WKWebsiteDataStoreGetDefaultDataStore());
+    WKRetainPtr<WKWebsiteDataStoreConfigurationRef> dataStoreConfiguration = adoptWK(WKWebsiteDataStoreConfigurationCreate());
+    WKRetainPtr<WKWebsiteDataStoreRef> dataStore = adoptWK(WKWebsiteDataStoreCreateWithConfiguration(dataStoreConfiguration.get()));
+    WKPageConfigurationSetWebsiteDataStore(pageConfiguration.get(), dataStore.get());
+
     PlatformWebView webView2(pageConfiguration.get());
 
     historyClient.didNavigateWithNavigationData = didNavigateWithNavigationData;

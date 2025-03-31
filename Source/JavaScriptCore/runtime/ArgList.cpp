@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2003-2017 Apple Inc. All rights reserved.
+ *  Copyright (C) 2003-2023 Apple Inc. All rights reserved.
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Library General Public
@@ -22,12 +22,17 @@
 #include "ArgList.h"
 
 #include "JSCJSValueInlines.h"
+#include <wtf/TZoneMallocInlines.h>
 
 using std::min;
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
 
-void MarkedArgumentBuffer::addMarkSet(JSValue v)
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ArgList);
+
+void MarkedVectorBase::addMarkSet(JSValue v)
 {
     if (m_markSet)
         return;
@@ -42,7 +47,7 @@ void MarkedArgumentBuffer::addMarkSet(JSValue v)
 
 void ArgList::getSlice(int startIndex, ArgList& result) const
 {
-    if (startIndex <= 0 || startIndex >= m_argCount) {
+    if (startIndex <= 0 || static_cast<unsigned>(startIndex) >= m_argCount) {
         result = ArgList();
         return;
     }
@@ -51,67 +56,77 @@ void ArgList::getSlice(int startIndex, ArgList& result) const
     result.m_argCount =  m_argCount - startIndex;
 }
 
-void MarkedArgumentBuffer::markLists(SlotVisitor& visitor, ListSet& markSet)
+template<typename Visitor>
+void MarkedVectorBase::markLists(Visitor& visitor, ListSet& markSet)
 {
     ListSet::iterator end = markSet.end();
     for (ListSet::iterator it = markSet.begin(); it != end; ++it) {
-        MarkedArgumentBuffer* list = *it;
-        for (int i = 0; i < list->m_size; ++i)
+        MarkedVectorBase* list = *it;
+        for (unsigned i = 0; i < list->m_size; ++i)
             visitor.appendUnbarriered(JSValue::decode(list->slotFor(i)));
     }
 }
 
-void MarkedArgumentBuffer::slowEnsureCapacity(size_t requestedCapacity)
+template void MarkedVectorBase::markLists(AbstractSlotVisitor&, ListSet&);
+template void MarkedVectorBase::markLists(SlotVisitor&, ListSet&);
+
+auto MarkedVectorBase::slowEnsureCapacity(size_t requestedCapacity) -> Status
 {
     setNeedsOverflowCheck();
-    auto checkedNewCapacity = Checked<int, RecordOverflow>(requestedCapacity);
+    auto checkedNewCapacity = CheckedInt32(requestedCapacity);
     if (UNLIKELY(checkedNewCapacity.hasOverflowed()))
-        return this->overflowed();
-    expandCapacity(checkedNewCapacity.unsafeGet());
+        return Status::Overflowed;
+    return expandCapacity(checkedNewCapacity);
 }
 
-void MarkedArgumentBuffer::expandCapacity()
+auto MarkedVectorBase::expandCapacity() -> Status
 {
     setNeedsOverflowCheck();
-    auto checkedNewCapacity = Checked<int, RecordOverflow>(m_capacity) * 2;
+    auto checkedNewCapacity = CheckedInt32(m_capacity) * 2;
     if (UNLIKELY(checkedNewCapacity.hasOverflowed()))
-        return this->overflowed();
-    expandCapacity(checkedNewCapacity.unsafeGet());
+        return Status::Overflowed;
+    return expandCapacity(checkedNewCapacity);
 }
 
-void MarkedArgumentBuffer::expandCapacity(int newCapacity)
+auto MarkedVectorBase::expandCapacity(unsigned newCapacity) -> Status
 {
     setNeedsOverflowCheck();
     ASSERT(m_capacity < newCapacity);
     auto checkedSize = CheckedSize(newCapacity) * sizeof(EncodedJSValue);
     if (UNLIKELY(checkedSize.hasOverflowed()))
-        return this->overflowed();
-    EncodedJSValue* newBuffer = static_cast<EncodedJSValue*>(Gigacage::malloc(Gigacage::JSValue, checkedSize.unsafeGet()));
-    for (int i = 0; i < m_size; ++i) {
+        return Status::Overflowed;
+    EncodedJSValue* newBuffer = static_cast<EncodedJSValue*>(FastMalloc::tryMalloc(checkedSize));
+    if (!newBuffer)
+        return Status::Overflowed;
+    for (unsigned i = 0; i < m_size; ++i) {
         newBuffer[i] = m_buffer[i];
         addMarkSet(JSValue::decode(m_buffer[i]));
     }
 
     if (EncodedJSValue* base = mallocBase())
-        Gigacage::free(Gigacage::JSValue, base);
+        FastMalloc::free(base);
 
     m_buffer = newBuffer;
     m_capacity = newCapacity;
+    return Status::Success;
 }
 
-void MarkedArgumentBuffer::slowAppend(JSValue v)
+auto MarkedVectorBase::slowAppend(JSValue v) -> Status
 {
     ASSERT(m_size <= m_capacity);
-    if (m_size == m_capacity)
-        expandCapacity();
-    if (UNLIKELY(Base::hasOverflowed())) {
-        ASSERT(m_needsOverflowCheck);
-        return;
+    if (m_size == m_capacity) {
+        auto status = expandCapacity();
+        if (status == Status::Overflowed) {
+            ASSERT(m_needsOverflowCheck);
+            return status;
+        }
     }
-
     slotFor(m_size) = JSValue::encode(v);
     ++m_size;
     addMarkSet(v);
+    return Status::Success;
 }
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

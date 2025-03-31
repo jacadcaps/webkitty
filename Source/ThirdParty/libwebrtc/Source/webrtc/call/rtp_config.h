@@ -14,6 +14,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -26,6 +27,7 @@ struct RtpPayloadState {
   int16_t picture_id = -1;
   uint8_t tl0_pic_idx = 0;
   int64_t shared_frame_id = 0;
+  int64_t frame_id = 0;
 };
 
 // Settings for LNTF (LossNotification). Still highly experimental.
@@ -66,6 +68,25 @@ struct UlpfecConfig {
   int red_rtx_payload_type;
 };
 
+struct RtpStreamConfig {
+  std::string ToString() const;
+
+  uint32_t ssrc = 0;
+  std::string rid;
+  std::string payload_name;
+  int payload_type = -1;
+  bool raw_payload = false;
+  struct Rtx {
+    std::string ToString() const;
+    // SSRC to use for the RTX stream.
+    uint32_t ssrc = 0;
+
+    // Payload type to use for the RTX stream.
+    int payload_type = -1;
+  };
+  std::optional<Rtx> rtx;
+};
+
 static const size_t kDefaultMaxPacketSize = 1500 - 40;  // TCP over IPv4.
 struct RtpConfig {
   RtpConfig();
@@ -77,10 +98,10 @@ struct RtpConfig {
 
   // The Rtp Stream Ids (aka RIDs) to send in the RID RTP header extension
   // if the extension is included in the list of extensions.
-  // If rids are specified, they should correspond to the |ssrcs| vector.
+  // If rids are specified, they should correspond to the `ssrcs` vector.
   // This means that:
   // 1. rids.size() == 0 || rids.size() == ssrcs.size().
-  // 2. If rids is not empty, then |rids[i]| should use |ssrcs[i]|.
+  // 2. If rids is not empty, then `rids[i]` should use `ssrcs[i]`.
   std::vector<std::string> rids;
 
   // The value to send in the MID RTP header extension if the extension is
@@ -103,7 +124,7 @@ struct RtpConfig {
   // changing codec without recreating the VideoSendStream. Then these
   // fields must be removed, and association between payload type and codec
   // must move above the per-stream level. Ownership could be with
-  // RtpTransportControllerSend, with a reference from PayloadRouter, where
+  // RtpTransportControllerSend, with a reference from RtpVideoSender, where
   // the latter would be responsible for mapping the codec type of encoded
   // images to the right payload type.
   std::string payload_name;
@@ -112,6 +133,9 @@ struct RtpConfig {
   // not be added, additional meta data is expected to be present in generic
   // frame descriptor RTP header extension).
   bool raw_payload = false;
+
+  // Configurations for each RTP stream
+  std::vector<RtpStreamConfig> stream_configs;
 
   // See LntfConfig for description.
   LntfConfig lntf;
@@ -157,6 +181,18 @@ struct RtpConfig {
 
   // RTCP CNAME, see RFC 3550.
   std::string c_name;
+
+  // Enables send packet batching from the egress RTP sender.
+  bool enable_send_packet_batching = false;
+
+  bool IsMediaSsrc(uint32_t ssrc) const;
+  bool IsRtxSsrc(uint32_t ssrc) const;
+  bool IsFlexfecSsrc(uint32_t ssrc) const;
+  std::optional<uint32_t> GetRtxSsrcAssociatedWithMediaSsrc(
+      uint32_t media_ssrc) const;
+  uint32_t GetMediaSsrcAssociatedWithRtxSsrc(uint32_t rtx_ssrc) const;
+  uint32_t GetMediaSsrcAssociatedWithFlexfecSsrc(uint32_t flexfec_ssrc) const;
+  std::optional<std::string> GetRidForSsrc(uint32_t ssrc) const;
 };
 }  // namespace webrtc
 #endif  // CALL_RTP_CONFIG_H_

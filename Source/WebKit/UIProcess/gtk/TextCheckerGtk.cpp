@@ -39,19 +39,13 @@
 namespace WebKit {
 using namespace WebCore;
 
-TextCheckerState& checkerState()
+OptionSet<TextCheckerState>& checkerState()
 {
-    static TextCheckerState textCheckerState;
-    static std::once_flag onceFlag;
-    std::call_once(onceFlag, [] {
-        textCheckerState.isContinuousSpellCheckingEnabled = false;
-        textCheckerState.isGrammarCheckingEnabled = false;
-    });
-
+    static OptionSet<TextCheckerState> textCheckerState;
     return textCheckerState;
 }
 
-const TextCheckerState& TextChecker::state()
+OptionSet<TextCheckerState> TextChecker::state()
 {
     return checkerState();
 }
@@ -88,9 +82,9 @@ bool TextChecker::isContinuousSpellCheckingAllowed()
 bool TextChecker::setContinuousSpellCheckingEnabled(bool isContinuousSpellCheckingEnabled)
 {
 #if ENABLE(SPELLCHECK)
-    if (checkerState().isContinuousSpellCheckingEnabled == isContinuousSpellCheckingEnabled)
+    if (checkerState().contains(TextCheckerState::ContinuousSpellCheckingEnabled) == isContinuousSpellCheckingEnabled)
         return false;
-    checkerState().isContinuousSpellCheckingEnabled = isContinuousSpellCheckingEnabled;
+    checkerState().set(TextCheckerState::ContinuousSpellCheckingEnabled, isContinuousSpellCheckingEnabled);
     updateStateForAllProcessPools();
 #else
     UNUSED_PARAM(isContinuousSpellCheckingEnabled);
@@ -101,9 +95,9 @@ bool TextChecker::setContinuousSpellCheckingEnabled(bool isContinuousSpellChecki
 void TextChecker::setGrammarCheckingEnabled(bool isGrammarCheckingEnabled)
 {
 #if ENABLE(SPELLCHECK)
-    if (checkerState().isGrammarCheckingEnabled == isGrammarCheckingEnabled)
+    if (checkerState().contains(TextCheckerState::GrammarCheckingEnabled) == isGrammarCheckingEnabled)
         return;
-    checkerState().isGrammarCheckingEnabled = isGrammarCheckingEnabled;
+    checkerState().set(TextCheckerState::GrammarCheckingEnabled, isGrammarCheckingEnabled);
     updateStateForAllProcessPools();
 #else
     UNUSED_PARAM(isGrammarCheckingEnabled);
@@ -113,7 +107,7 @@ void TextChecker::setGrammarCheckingEnabled(bool isGrammarCheckingEnabled)
 void TextChecker::continuousSpellCheckingEnabledStateChanged(bool enabled)
 {
 #if ENABLE(SPELLCHECK)
-    checkerState().isContinuousSpellCheckingEnabled = enabled;
+    checkerState().set(TextCheckerState::ContinuousSpellCheckingEnabled, enabled);
 #else
     UNUSED_PARAM(enabled);
 #endif
@@ -122,7 +116,7 @@ void TextChecker::continuousSpellCheckingEnabledStateChanged(bool enabled)
 void TextChecker::grammarCheckingEnabledStateChanged(bool enabled)
 {
 #if ENABLE(SPELLCHECK)
-    checkerState().isGrammarCheckingEnabled = enabled;
+    checkerState().set(TextCheckerState::GrammarCheckingEnabled, enabled);
 #else
     UNUSED_PARAM(enabled);
 #endif
@@ -273,7 +267,7 @@ Vector<TextCheckingResult> TextChecker::checkTextOfParagraph(SpellDocumentTag sp
         paragraphCheckingResult.append(misspellingResult);
         offset += misspellingLocation + misspellingLength;
         // Generally, we end up checking at the word separator, move to the adjacent word.
-        offset = nextWordOffset(text.substring(0, lengthStrip), offset);
+        offset = nextWordOffset(text.left(lengthStrip), offset);
     }
     return paragraphCheckingResult;
 #else

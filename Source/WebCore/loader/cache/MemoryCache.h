@@ -24,7 +24,7 @@
 
 #pragma once
 
-#include "NativeImage.h"
+#include "LoaderMalloc.h"
 #include "SecurityOriginHash.h"
 #include "Timer.h"
 #include <pal/SessionID.h>
@@ -32,9 +32,9 @@
 #include <wtf/Function.h>
 #include <wtf/HashMap.h>
 #include <wtf/HashSet.h>
-#include <wtf/ListHashSet.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/Vector.h>
+#include <wtf/WeakListHashSet.h>
 #include <wtf/text/StringHash.h>
 #include <wtf/text/WTFString.h>
 
@@ -46,6 +46,7 @@ class ResourceRequest;
 class ResourceResponse;
 class ScriptExecutionContext;
 class SecurityOrigin;
+struct ClientOrigin;
 
 // This cache holds subresources used by Web pages: images, scripts, stylesheets, etc.
 
@@ -61,7 +62,7 @@ class SecurityOrigin;
 // -------|-----+++++++++++++++|+++++
 
 class MemoryCache {
-    WTF_MAKE_NONCOPYABLE(MemoryCache); WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_NONCOPYABLE(MemoryCache); WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(Loader);
     friend NeverDestroyed<MemoryCache>;
     friend class Internals;
 public:
@@ -92,19 +93,23 @@ public:
 
     WEBCORE_EXPORT static MemoryCache& singleton();
 
+    // Do nothing since this is a singleton.
+    void ref() const { }
+    void deref() const { }
+
     WEBCORE_EXPORT CachedResource* resourceForRequest(const ResourceRequest&, PAL::SessionID);
 
     bool add(CachedResource&);
     void remove(CachedResource&);
 
     static bool shouldRemoveFragmentIdentifier(const URL&);
-    static URL removeFragmentIdentifierIfNeeded(const URL&);
+    WEBCORE_EXPORT static URL removeFragmentIdentifierIfNeeded(const URL&);
 
     void revalidationSucceeded(CachedResource& revalidatingResource, const ResourceResponse&);
     void revalidationFailed(CachedResource& revalidatingResource);
 
-    void forEachResource(const WTF::Function<void(CachedResource&)>&);
-    void forEachSessionResource(PAL::SessionID, const WTF::Function<void(CachedResource&)>&);
+    void forEachResource(NOESCAPE const Function<void(CachedResource&)>&);
+    void forEachSessionResource(PAL::SessionID, NOESCAPE const Function<void(CachedResource&)>&);
     WEBCORE_EXPORT void destroyDecodedDataForAllImages();
 
     // Sets the cache's memory capacities, in bytes. These will hold only approximately,
@@ -139,6 +144,7 @@ public:
     // Track decoded resources that are in the cache and referenced by a Web page.
     void insertInLiveDecodedResourcesList(CachedResource&);
     void removeFromLiveDecodedResourcesList(CachedResource&);
+    void moveToEndOfLiveDecodedResourcesListIfPresent(CachedResource&);
 
     void addToLiveResourcesSize(CachedResource&);
     void removeFromLiveResourcesSize(CachedResource&);
@@ -149,13 +155,15 @@ public:
     WEBCORE_EXPORT Statistics getStatistics();
     
     void resourceAccessed(CachedResource&);
-    bool inLiveDecodedResourcesList(CachedResource& resource) const { return m_liveDecodedResources.contains(&resource); }
+    bool inLiveDecodedResourcesList(CachedResource&) const;
 
-    typedef HashSet<RefPtr<SecurityOrigin>> SecurityOriginSet;
-    WEBCORE_EXPORT void removeResourcesWithOrigin(SecurityOrigin&);
+    typedef UncheckedKeyHashSet<RefPtr<SecurityOrigin>> SecurityOriginSet;
+    WEBCORE_EXPORT void removeResourcesWithOrigin(const SecurityOrigin&);
+    void removeResourcesWithOrigin(const SecurityOrigin&, const String& cachePartition);
+    WEBCORE_EXPORT void removeResourcesWithOrigin(const ClientOrigin&);
     WEBCORE_EXPORT void removeResourcesWithOrigins(PAL::SessionID, const HashSet<RefPtr<SecurityOrigin>>&);
     WEBCORE_EXPORT void getOriginsWithCache(SecurityOriginSet& origins);
-    WEBCORE_EXPORT HashSet<RefPtr<SecurityOrigin>> originsWithCache(PAL::SessionID) const;
+    WEBCORE_EXPORT UncheckedKeyHashSet<RefPtr<SecurityOrigin>> originsWithCache(PAL::SessionID) const;
 
     // pruneDead*() - Flush decoded and encoded data from resources not referenced by Web pages.
     // pruneLive*() - Flush decoded data from resources still referenced by Web pages.
@@ -166,8 +174,8 @@ public:
     WEBCORE_EXPORT void pruneLiveResourcesToSize(unsigned targetSize, bool shouldDestroyDecodedDataForAllLiveResources = false);
 
 private:
-    typedef HashMap<std::pair<URL, String /* partitionName */>, CachedResource*> CachedResourceMap;
-    typedef ListHashSet<CachedResource*> LRUList;
+    using CachedResourceMap = HashMap<std::pair<URL, String /* partitionName */>, WeakPtr<CachedResource>>;
+    using LRUList = WeakListHashSet<CachedResource>;
 
     MemoryCache();
     ~MemoryCache(); // Not implemented to make sure nobody accidentally calls delete -- WebCore does not delete singletons.

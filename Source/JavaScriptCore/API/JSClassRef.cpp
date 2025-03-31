@@ -33,6 +33,8 @@
 
 using namespace JSC;
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 const JSClassDefinition kJSClassDefinitionEmpty = { 0, 0, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr };
 
 OpaqueJSClass::OpaqueJSClass(const JSClassDefinition* definition, OpaqueJSClass* protoClass) 
@@ -144,7 +146,7 @@ OpaqueJSClassContextData::OpaqueJSClassContextData(JSC::VM&, OpaqueJSClass* jsCl
 
 OpaqueJSClassContextData& OpaqueJSClass::contextData(JSGlobalObject* globalObject)
 {
-    std::unique_ptr<OpaqueJSClassContextData>& contextData = globalObject->opaqueJSClassData().add(this, nullptr).iterator->value;
+    auto& contextData = globalObject->contextData(this);
     if (!contextData)
         contextData = makeUnique<OpaqueJSClassContextData>(globalObject->vm(), this);
     return *contextData;
@@ -194,3 +196,5 @@ JSObject* OpaqueJSClass::prototype(JSGlobalObject* globalObject)
     jsClassData.cachedPrototype = Weak<JSObject>(prototype);
     return prototype;
 }
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

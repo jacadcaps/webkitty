@@ -29,8 +29,9 @@
 
 #include "ActiveDOMObject.h"
 #include "EventTarget.h"
-#include "GenericEventQueue.h"
+#include "WebCoreOpaqueRoot.h"
 #include <wtf/HashMap.h>
+#include <wtf/LoggerHelper.h>
 #include <wtf/Ref.h>
 #include <wtf/RefCounted.h>
 
@@ -39,16 +40,24 @@ namespace WebCore {
 class DeferredPromise;
 class HTMLMediaElement;
 class MediaPlaybackTarget;
+class Node;
 class RemotePlaybackAvailabilityCallback;
 
-class RemotePlayback final : public RefCounted<RemotePlayback>, public ActiveDOMObject, public EventTargetWithInlineData {
-    WTF_MAKE_ISO_ALLOCATED(RemotePlayback);
+class RemotePlayback final
+    : public RefCounted<RemotePlayback>
+    , public ActiveDOMObject
+    , public EventTarget
+{
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(RemotePlayback);
 public:
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     static Ref<RemotePlayback> create(HTMLMediaElement&);
     ~RemotePlayback();
 
     void watchAvailability(Ref<RemotePlaybackAvailabilityCallback>&&, Ref<DeferredPromise>&&);
-    void cancelWatchAvailability(Optional<int32_t> id, Ref<DeferredPromise>&&);
+    void cancelWatchAvailability(std::optional<int32_t> id, Ref<DeferredPromise>&&);
     void prompt(Ref<DeferredPromise>&&);
 
     bool hasAvailabilityCallbacks() const;
@@ -66,26 +75,34 @@ public:
 
     void invalidate();
 
-    using RefCounted::ref;
-    using RefCounted::deref;
+    WebCoreOpaqueRoot opaqueRootConcurrently() const;
+    Node* ownerNode() const;
 
 private:
     explicit RemotePlayback(HTMLMediaElement&);
-
-    void refEventTarget() final { ref(); }
-    void derefEventTarget() final { deref(); }
 
     void setState(State);
     void establishConnection();
     void disconnect();
 
-    // ActiveDOMObject.
-    const char* activeDOMObjectName() const final;
+    // EventTarget.
+    enum EventTargetInterfaceType eventTargetInterface() const final { return EventTargetInterfaceType::RemotePlayback; }
+    ScriptExecutionContext* scriptExecutionContext() const final { return ActiveDOMObject::scriptExecutionContext(); }
+    void refEventTarget() final { ref(); }
+    void derefEventTarget() final { deref(); }
+
+    // ActiveDOMObject
     void stop() final;
 
-    // EventTargetWithInlineData.
-    EventTargetInterface eventTargetInterface() const final { return RemotePlaybackEventTargetInterfaceType; }
-    ScriptExecutionContext* scriptExecutionContext() const final { return ActiveDOMObject::scriptExecutionContext(); }
+#if !RELEASE_LOG_DISABLED
+    const Logger& logger() const { return m_logger.get(); }
+    uint64_t logIdentifier() const { return m_logIdentifier; }
+    WTFLogChannel& logChannel() const;
+    ASCIILiteral logClassName() const { return "RemotePlayback"_s; }
+
+    Ref<const Logger> m_logger;
+    uint64_t m_logIdentifier { 0 };
+#endif
 
     WeakPtr<HTMLMediaElement> m_mediaElement;
     uint32_t m_nextId { 0 };
@@ -99,9 +116,6 @@ private:
     PromiseVector m_promptPromises;
     State m_state { State::Disconnected };
     bool m_available { false };
-
-    UniqueRef<MainThreadGenericEventQueue> m_eventQueue;
-    GenericTaskQueue<Timer> m_taskQueue;
 };
 
 }

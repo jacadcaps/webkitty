@@ -36,14 +36,14 @@ namespace JSC { namespace B3 { namespace Air {
 
 void handleCalleeSaves(Code& code)
 {
-    RegisterSet usedCalleeSaves;
+    RegisterSetBuilder usedCalleeSaves;
 
     for (BasicBlock* block : code) {
         for (Inst& inst : *block) {
             inst.forEachTmpFast(
                 [&] (Tmp& tmp) {
                     // At first we just record all used regs.
-                    usedCalleeSaves.set(tmp.reg());
+                    usedCalleeSaves.add(tmp.reg(), IgnoreVectors);
                 });
 
             if (inst.kind.opcode == Patch) {
@@ -56,21 +56,31 @@ void handleCalleeSaves(Code& code)
     handleCalleeSaves(code, WTFMove(usedCalleeSaves));
 }
 
-void handleCalleeSaves(Code& code, RegisterSet usedCalleeSaves)
+void handleCalleeSaves(Code& code, RegisterSetBuilder usedCalleeSaves)
 {
     // We filter to really get the callee saves.
-    usedCalleeSaves.filter(RegisterSet::calleeSaveRegisters());
+    usedCalleeSaves.filter(RegisterSetBuilder::calleeSaveRegisters());
     usedCalleeSaves.filter(code.mutableRegs());
-    usedCalleeSaves.exclude(RegisterSet::stackRegisters()); // We don't need to save FP here.
+    usedCalleeSaves.exclude(RegisterSetBuilder::stackRegisters()); // We don't need to save FP here.
 
-    if (!usedCalleeSaves.numberOfSetRegisters())
+#if CPU(ARM)
+    // See AirCode for a similar comment about why ARMv7 acts weird here.
+    // Essentially, we might at any point clobber this, and it is a callee-save.
+    // This should be fixed.
+    usedCalleeSaves.add(MacroAssembler::addressTempRegister, IgnoreVectors);
+#endif
+
+    auto calleSavesToSave = usedCalleeSaves.buildAndValidate();
+
+    if (!calleSavesToSave.numberOfSetRegisters())
         return;
 
-    RegisterAtOffsetList calleeSaveRegisters = RegisterAtOffsetList(usedCalleeSaves);
+    RegisterAtOffsetList calleeSaveRegisters = RegisterAtOffsetList(calleSavesToSave);
 
     size_t byteSize = 0;
     for (const RegisterAtOffset& entry : calleeSaveRegisters)
         byteSize = std::max(static_cast<size_t>(-entry.offset()), byteSize);
+    ASSERT(calleeSaveRegisters.sizeOfAreaInBytes() == byteSize);
 
     code.setCalleeSaveRegisterAtOffsetList(
         WTFMove(calleeSaveRegisters),

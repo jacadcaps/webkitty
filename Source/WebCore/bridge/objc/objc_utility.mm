@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2004-2019 Apple Inc.  All rights reserved.
+ * Copyright (C) 2004-2022 Apple Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,6 +33,7 @@
 #import <JavaScriptCore/JSGlobalObjectInlines.h>
 #import <JavaScriptCore/JSLock.h>
 #import <wtf/Assertions.h>
+#import <wtf/cocoa/TypeCastsCocoa.h>
 
 #if !defined(_C_LNG_LNG)
 #define _C_LNG_LNG 'q'
@@ -76,6 +77,16 @@ namespace Bindings {
     [], other       exception
 
 */
+
+static long long convertDoubleToLongLong(double d)
+{
+    // Ensure that non-x86_64 ports will match x86_64 semantics which allows for overflow.
+    long long potentiallyOverflowed = (unsigned long long)d;
+    if (potentiallyOverflowed < (long long)d)
+        return potentiallyOverflowed;
+    return (long long)d;
+}
+
 ObjcValue convertValueToObjcValue(JSGlobalObject* lexicalGlobalObject, JSValue value, ObjcValueType type)
 {
     ObjcValue result;
@@ -129,7 +140,7 @@ ObjcValue convertValueToObjcValue(JSGlobalObject* lexicalGlobalObject, JSValue v
             break;
         case ObjcLongLongType:
         case ObjcUnsignedLongLongType:
-            result.longLongValue = (long long)d;
+            result.longLongValue = convertDoubleToLongLong(d);
             break;
         case ObjcFloatType:
             result.floatValue = (float)d;
@@ -138,7 +149,7 @@ ObjcValue convertValueToObjcValue(JSGlobalObject* lexicalGlobalObject, JSValue v
             result.doubleValue = (double)d;
             break;
         case ObjcVoidType:
-            bzero(&result, sizeof(ObjcValue));
+            zeroBytes(result);
             break;
 
         case ObjcInvalidType:
@@ -183,8 +194,8 @@ JSValue convertObjcValueToValue(JSGlobalObject* lexicalGlobalObject, void* buffe
     switch (type) {
         case ObjcObjectType: {
             id obj = *(const id*)buffer;
-            if ([obj isKindOfClass:[NSString class]])
-                return convertNSStringToString(lexicalGlobalObject, (NSString *)obj);
+            if (auto *str = dynamic_objc_cast<NSString>(obj))
+                return convertNSStringToString(lexicalGlobalObject, str);
             if ([obj isKindOfClass:webUndefinedClass()])
                 return jsUndefined();
             if ((__bridge CFBooleanRef)obj == kCFBooleanTrue)
@@ -228,9 +239,9 @@ JSValue convertObjcValueToValue(JSGlobalObject* lexicalGlobalObject, void* buffe
         case ObjcUnsignedLongLongType:
             return jsNumber(*(unsigned long long*)buffer);
         case ObjcFloatType:
-            return jsNumber(*(float*)buffer);
+            return jsNumber(purifyNaN(*(float*)buffer));
         case ObjcDoubleType:
-            return jsNumber(*(double*)buffer);
+            return jsNumber(purifyNaN(*(double*)buffer));
         default:
             // Should never get here. Argument types are filtered.
             fprintf(stderr, "%s: invalid type (%d)\n", __PRETTY_FUNCTION__, (int)type);
@@ -240,13 +251,11 @@ JSValue convertObjcValueToValue(JSGlobalObject* lexicalGlobalObject, void* buffe
     return jsUndefined();
 }
 
-ObjcValueType objcValueTypeForType(const char *type)
+ObjcValueType objcValueTypeForType(const char* rawType)
 {
-    int typeLength = strlen(type);
     ObjcValueType objcValueType = ObjcInvalidType;
 
-    for (int i = 0; i < typeLength; ++i) {
-        char typeChar = type[i];
+    for (char typeChar : unsafeSpan(rawType)) {
         switch (typeChar) {
             case _C_CONST:
             case _C_BYCOPY:

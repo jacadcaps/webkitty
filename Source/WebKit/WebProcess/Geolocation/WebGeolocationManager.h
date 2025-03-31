@@ -28,10 +28,13 @@
 #include "MessageReceiver.h"
 #include "WebGeolocationPosition.h"
 #include "WebProcessSupplement.h"
+#include <WebCore/RegistrableDomain.h>
+#include <wtf/CheckedRef.h>
 #include <wtf/Forward.h>
-#include <wtf/HashMap.h>
-#include <wtf/HashSet.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/WeakHashMap.h>
+#include <wtf/WeakHashSet.h>
 
 namespace WebCore {
 class Geolocation;
@@ -44,35 +47,41 @@ class WebProcess;
 class WebPage;
 
 class WebGeolocationManager : public WebProcessSupplement, public IPC::MessageReceiver {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(WebGeolocationManager);
     WTF_MAKE_NONCOPYABLE(WebGeolocationManager);
 public:
     explicit WebGeolocationManager(WebProcess&);
+    ~WebGeolocationManager();
 
-    static const char* supplementName();
+    void ref() const final;
+    void deref() const final;
 
-    void registerWebPage(WebPage&, const String& authorizationToken);
+    static ASCIILiteral supplementName();
+
+    void registerWebPage(WebPage&, const String& authorizationToken, bool needsHighAccuracy);
     void unregisterWebPage(WebPage&);
     void setEnableHighAccuracyForPage(WebPage&, bool);
-
-    void requestPermission(WebCore::Geolocation&);
 
 private:
     // IPC::MessageReceiver
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) override;
 
-    bool isUpdating() const { return !m_pageSet.isEmpty(); }
-    bool isHighAccuracyEnabled() const { return !m_highAccuracyPageSet.isEmpty(); }
-
-    void didChangePosition(const WebCore::GeolocationPositionData&);
-    void didFailToDeterminePosition(const String& errorMessage);
+    void didChangePosition(const WebCore::RegistrableDomain&, const WebCore::GeolocationPositionData&);
+    void didFailToDeterminePosition(const WebCore::RegistrableDomain&, const String& errorMessage);
 #if PLATFORM(IOS_FAMILY)
-    void resetPermissions();
+    void resetPermissions(const WebCore::RegistrableDomain&);
 #endif // PLATFORM(IOS_FAMILY)
 
-    WebProcess& m_process;
-    HashSet<WebPage*> m_pageSet;
-    HashSet<WebPage*> m_highAccuracyPageSet;
+    struct PageSets {
+        WeakHashSet<WebPage> pageSet;
+        WeakHashSet<WebPage> highAccuracyPageSet;
+    };
+    bool isUpdating(const PageSets&) const;
+    bool isHighAccuracyEnabled(const PageSets&) const;
+
+    CheckedRef<WebProcess> m_process;
+    HashMap<WebCore::RegistrableDomain, PageSets> m_pageSets;
+    WeakHashMap<WebPage, WebCore::RegistrableDomain> m_pageToRegistrableDomain;
 };
 
 } // namespace WebKit

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2020 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,6 +33,8 @@ namespace WebCore {
 
 class TextDecorationThickness {
 public:
+    TextDecorationThickness() = default;
+
     static TextDecorationThickness createWithAuto()
     {
         return TextDecorationThickness(Type::Auto);
@@ -41,35 +43,27 @@ public:
     {
         return TextDecorationThickness(Type::FromFont);
     }
-    static TextDecorationThickness createWithLength(float length)
+    static TextDecorationThickness createWithLength(Length&& length)
     {
-        TextDecorationThickness result(Type::Length);
-        result.setLengthValue(length);
-        return result;
+        return { Type::Length, WTFMove(length) };
     }
 
-    bool isAuto() const
+    constexpr bool isAuto() const
     {
         return m_type == Type::Auto;
     }
 
-    bool isFromFont() const
+    constexpr bool isFromFont() const
     {
         return m_type == Type::FromFont;
     }
 
-    bool isLength() const
+    constexpr bool isLength() const
     {
         return m_type == Type::Length;
     }
 
-    void setLengthValue(float length)
-    {
-        ASSERT(isLength());
-        m_length = length;
-    }
-
-    float lengthValue() const
+    const Length& length() const
     {
         ASSERT(isLength());
         return m_length;
@@ -82,12 +76,17 @@ public:
             return fontSize / textDecorationBaseFontSize;
         }
         if (isFromFont())
-            return metrics.underlineThickness();
+            return metrics.underlineThickness().value_or(0);
+
         ASSERT(isLength());
-        return m_length;
+        if (m_length.isPercent())
+            return fontSize * (m_length.percent() / 100.0f);
+        if (m_length.isCalculated())
+            return m_length.nonNanCalculatedValue(fontSize);
+        return m_length.value();
     }
 
-    bool operator==(const TextDecorationThickness& other) const
+    constexpr bool operator==(const TextDecorationThickness& other) const
     {
         switch (m_type) {
         case Type::Auto:
@@ -101,11 +100,6 @@ public:
         }
     }
 
-    bool operator!=(const TextDecorationThickness& other) const
-    {
-        return !(*this == other);
-    }
-
 private:
     enum class Type : uint8_t {
         Auto,
@@ -114,12 +108,18 @@ private:
     };
 
     TextDecorationThickness(Type type)
-        : m_type { type }
+        : m_type(type)
     {
     }
 
-    Type m_type;
-    float m_length;
+    TextDecorationThickness(Type type, Length&& length)
+        : m_type(type)
+        , m_length(WTFMove(length))
+    {
+    }
+
+    Type m_type { };
+    Length m_length { };
 };
 
 inline TextStream& operator<<(TextStream& ts, const TextDecorationThickness& thickness)
@@ -129,7 +129,7 @@ inline TextStream& operator<<(TextStream& ts, const TextDecorationThickness& thi
     else if (thickness.isFromFont())
         ts << "from-font";
     else
-        ts << TextStream::FormatNumberRespectingIntegers(thickness.lengthValue());
+        ts << thickness.length();
     return ts;
 }
 

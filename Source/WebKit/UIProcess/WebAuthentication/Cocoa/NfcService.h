@@ -38,7 +38,7 @@ class NfcConnection;
 
 class NfcService : public FidoService {
 public:
-    explicit NfcService(Observer&);
+    static Ref<NfcService> create(AuthenticatorTransportServiceObserver&);
     ~NfcService();
 
     static bool isAvailable();
@@ -47,8 +47,10 @@ public:
     void didConnectTag();
     void didDetectMultipleTags() const;
 
-#if HAVE(NEAR_FIELD)
 protected:
+    explicit NfcService(AuthenticatorTransportServiceObserver&);
+
+#if HAVE(NEAR_FIELD)
     void setConnection(Ref<NfcConnection>&&); // For MockNfcConnection
 #endif
 
@@ -64,7 +66,7 @@ private:
     // Keep the reader session alive here when it tries to connect to a tag.
     RefPtr<NfcConnection> m_connection;
 #endif
-    RunLoop::Timer<NfcService> m_restartTimer;
+    RunLoop::Timer m_restartTimer;
 };
 
 } // namespace WebKit

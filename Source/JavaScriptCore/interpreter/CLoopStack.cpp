@@ -38,6 +38,8 @@
 #include "Options.h"
 #include <wtf/Lock.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
 
 static size_t committedBytesCount = 0;
@@ -139,7 +141,7 @@ void CLoopStack::releaseExcessCapacity()
 
 void CLoopStack::addToCommittedByteCount(long byteCount)
 {
-    LockHolder locker(stackStatisticsMutex);
+    Locker locker { stackStatisticsMutex };
     ASSERT(static_cast<long>(committedBytesCount) + byteCount > -1);
     committedBytesCount += byteCount;
 }
@@ -159,10 +161,12 @@ bool CLoopStack::isSafeToRecurse() const
 
 size_t CLoopStack::committedByteCount()
 {
-    LockHolder locker(stackStatisticsMutex);
+    Locker locker { stackStatisticsMutex };
     return committedBytesCount;
 }
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif // ENABLE(C_LOOP)

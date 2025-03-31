@@ -28,11 +28,14 @@
 #include "IntPointHash.h"
 #include "IntRect.h"
 #include "PlatformCALayerClient.h"
+#include "TileGridIdentifier.h"
 #include "Timer.h"
+#include <wtf/CheckedPtr.h>
 #include <wtf/Deque.h>
+#include <wtf/HashCountedSet.h>
 #include <wtf/HashMap.h>
-#include <wtf/Noncopyable.h>
 #include <wtf/Ref.h>
+#include <wtf/TZoneMalloc.h>
 
 #if USE(CG)
 typedef struct CGContext *CGContextRef;
@@ -44,11 +47,17 @@ class GraphicsContext;
 class PlatformCALayer;
 class TileController;
 
-class TileGrid : public PlatformCALayerClient {
-    WTF_MAKE_NONCOPYABLE(TileGrid); WTF_MAKE_FAST_ALLOCATED;
+using TileIndex = IntPoint;
+
+class TileGrid final : public PlatformCALayerClient, public CanMakeCheckedPtr<TileGrid> {
+    WTF_MAKE_TZONE_ALLOCATED(TileGrid);
+    WTF_MAKE_NONCOPYABLE(TileGrid);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(TileGrid);
 public:
-    TileGrid(TileController&);
+    explicit TileGrid(TileController&);
     ~TileGrid();
+
+    TileGridIdentifier identifier() const { return m_identifier; }
 
 #if USE(CA)
     PlatformCALayer& containerLayer() { return m_containerLayer; }
@@ -67,12 +76,11 @@ public:
 
     bool prepopulateRect(const FloatRect&);
 
-    enum TileValidationPolicyFlags {
+    enum ValidationPolicyFlag : uint8_t {
         PruneSecondaryTiles = 1 << 0,
         UnparentAllTiles    = 1 << 1
     };
-    typedef unsigned TileValidationPolicy;
-    void revalidateTiles(TileValidationPolicy = 0);
+    void revalidateTiles(OptionSet<ValidationPolicyFlag> = { });
 
     bool tilesWouldChangeForCoverageRect(const FloatRect&) const;
 
@@ -80,6 +88,7 @@ public:
     IntRect extent() const;
     
     IntSize tileSize() const { return m_tileSize; }
+    FloatRect rectForTile(TileIndex) const;
 
     double retainedTileBackingStoreMemory() const;
     unsigned blankPixelCount() const;
@@ -93,20 +102,13 @@ public:
     void removeUnparentedTilesNow();
 #endif
 
-    typedef IntPoint TileIndex;
-
-    typedef unsigned TileCohort;
-    static const TileCohort VisibleTileCohort = UINT_MAX;
+    using TileCohort = unsigned;
+    static constexpr TileCohort visibleTileCohort = std::numeric_limits<TileCohort>::max();
 
     struct TileInfo {
         RefPtr<PlatformCALayer> layer;
-        TileCohort cohort; // VisibleTileCohort is visible.
-        bool hasStaleContent;
-
-        TileInfo()
-            : cohort(VisibleTileCohort)
-            , hasStaleContent(false)
-        { }
+        TileCohort cohort { visibleTileCohort };
+        bool hasStaleContent { false };
     };
 
 private:
@@ -116,7 +118,7 @@ private:
     bool getTileIndexRangeForRect(const IntRect&, TileIndex& topLeft, TileIndex& bottomRight) const;
 
     enum class CoverageType { PrimaryTiles, SecondaryTiles };
-    IntRect ensureTilesForRect(const FloatRect&, CoverageType);
+    IntRect ensureTilesForRect(const FloatRect&, HashSet<TileIndex>& tilesNeedingDisplay, CoverageType);
 
     struct TileCohortInfo {
         TileCohort cohort;
@@ -140,10 +142,11 @@ private:
     TileCohort newestTileCohort() const;
     TileCohort oldestTileCohort() const;
 
-    void removeTiles(Vector<TileGrid::TileIndex>& toRemove);
+    void removeTiles(const Vector<TileIndex>& toRemove);
 
     // PlatformCALayerClient
-    void platformCALayerPaintContents(PlatformCALayer*, GraphicsContext&, const FloatRect&, GraphicsLayerPaintBehavior) override;
+    PlatformLayerIdentifier platformCALayerIdentifier() const override;
+    void platformCALayerPaintContents(PlatformCALayer*, GraphicsContext&, const FloatRect&, OptionSet<GraphicsLayerPaintBehavior>) override;
     bool platformCALayerShowDebugBorders() const override;
     bool platformCALayerShowRepaintCounter(PlatformCALayer*) const override;
     int platformCALayerRepaintCount(PlatformCALayer*) const override;
@@ -152,30 +155,29 @@ private:
     bool platformCALayerDrawsContent() const override { return true; }
     float platformCALayerDeviceScaleFactor() const override;
     bool isUsingDisplayListDrawing(PlatformCALayer*) const override;
+    bool platformCALayerNeedsPlatformContext(const PlatformCALayer*) const override;
 
-    TileController& m_controller;
+    TileGridIdentifier m_identifier;
+    CheckedRef<TileController> m_controller;
 #if USE(CA)
     Ref<PlatformCALayer> m_containerLayer;
 #endif
 
-    typedef HashMap<TileIndex, TileInfo> TileMap;
-    TileMap m_tiles;
+    UncheckedKeyHashMap<TileIndex, TileInfo> m_tiles;
 
     IntRect m_primaryTileCoverageRect;
     Vector<FloatRect> m_secondaryTileCoverageRects;
 
-    typedef Deque<TileCohortInfo> TileCohortList;
-    TileCohortList m_cohortList;
+    Deque<TileCohortInfo> m_cohortList;
 
     Timer m_cohortRemovalTimer;
 
-    typedef HashMap<PlatformCALayer*, int> RepaintCountMap;
-    RepaintCountMap m_tileRepaintCounts;
+    HashCountedSet<PlatformCALayer*> m_tileRepaintCounts;
     
     IntSize m_tileSize;
 
     float m_scale { 1 };
+    std::optional<float> m_scaleAtLastRevalidation;
 };
 
 }
-

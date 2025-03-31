@@ -45,6 +45,20 @@ ThreadSpecificAssemblerData& threadSpecificAssemblerData()
     return *threadSpecificAssemblerDataPtr;
 }
 
+#if ENABLE(JIT_SIGN_ASSEMBLER_BUFFER)
+static ThreadSpecificAssemblerHashes* threadSpecificAssemblerHashesPtr;
+ThreadSpecificAssemblerHashes& threadSpecificAssemblerHashes()
+{
+    static std::once_flag flag;
+    std::call_once(
+        flag,
+        [] () {
+            threadSpecificAssemblerHashesPtr = new ThreadSpecificAssemblerHashes();
+        });
+    return *threadSpecificAssemblerHashesPtr;
+}
+#endif // ENABLE(JIT_SIGN_ASSEMBLER_BUFFER)
+
 #endif // ENABLE(ASSEMBLER)
 
 } // namespace JSC

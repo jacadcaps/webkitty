@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,8 +29,11 @@
 #include "RenderMultiColumnFlow.h"
 #include "RenderTreeBuilderBlock.h"
 #include "RenderTreeBuilderMultiColumn.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderTreeBuilder::BlockFlow);
 
 RenderTreeBuilder::BlockFlow::BlockFlow(RenderTreeBuilder& builder)
     : m_builder(builder)
@@ -39,11 +42,18 @@ RenderTreeBuilder::BlockFlow::BlockFlow(RenderTreeBuilder& builder)
 
 void RenderTreeBuilder::BlockFlow::attach(RenderBlockFlow& parent, RenderPtr<RenderObject> child, RenderObject* beforeChild)
 {
-    if (parent.multiColumnFlow() && (!parent.isFieldset() || !child->isLegend())) {
-        if (parent.isFieldset() && beforeChild && beforeChild->isLegend())
-            return m_builder.blockBuilder().attach(*parent.multiColumnFlow(), WTFMove(child), nullptr);
+    if (auto* multicolumnFlow = parent.multiColumnFlow()) {
+        auto legendAvoidsMulticolumn = parent.isFieldset() && child->isLegend();
+        if (legendAvoidsMulticolumn)
+            return m_builder.blockBuilder().attach(parent, WTFMove(child), nullptr);
 
-        return m_builder.attach(*parent.multiColumnFlow(), WTFMove(child), beforeChild);
+        auto legendBeforeChildIsIncorrect = parent.isFieldset() && beforeChild && beforeChild->isLegend();
+        if (legendBeforeChildIsIncorrect)
+            return m_builder.blockBuilder().attach(*multicolumnFlow, WTFMove(child), nullptr);
+
+        // When the before child is set to be the first child of the RenderBlockFlow, we need to readjust it to be the first
+        // child of the multicol conainter.
+        return m_builder.attach(*multicolumnFlow, WTFMove(child), beforeChild == multicolumnFlow ? multicolumnFlow->firstChild() : beforeChild);
     }
 
     auto* beforeChildOrPlaceholder = beforeChild;

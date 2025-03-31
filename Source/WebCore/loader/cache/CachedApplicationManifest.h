@@ -29,27 +29,27 @@
 
 #include "ApplicationManifest.h"
 #include "CachedResource.h"
-#include <wtf/Optional.h>
 
 namespace WebCore {
 
-class ScriptExecutionContext;
+class Document;
 class TextResourceDecoder;
 
 class CachedApplicationManifest final : public CachedResource {
 public:
-    CachedApplicationManifest(CachedResourceRequest&&, const PAL::SessionID&, const CookieJar*);
+    CachedApplicationManifest(CachedResourceRequest&&, PAL::SessionID, const CookieJar*);
 
-    Optional<struct ApplicationManifest> process(const URL& manifestURL, const URL& documentURL, RefPtr<ScriptExecutionContext> = nullptr);
+    std::optional<struct ApplicationManifest> process(const URL& manifestURL, const URL& documentURL, Document* = nullptr);
 
 private:
-    void finishLoading(SharedBuffer*, const NetworkLoadMetrics&) override;
-    const TextResourceDecoder* textResourceDecoder() const override { return m_decoder.ptr(); }
-    void setEncoding(const String&) override;
-    String encoding() const override;
+    void finishLoading(const FragmentedSharedBuffer*, const NetworkLoadMetrics&) final;
+    const TextResourceDecoder* textResourceDecoder() const final { return m_decoder.ptr(); }
+    Ref<TextResourceDecoder> protectedDecoder() const;
+    void setEncoding(const String&) final;
+    ASCIILiteral encoding() const final;
 
     Ref<TextResourceDecoder> m_decoder;
-    Optional<String> m_text;
+    std::optional<String> m_text;
 };
 
 } // namespace WebCore

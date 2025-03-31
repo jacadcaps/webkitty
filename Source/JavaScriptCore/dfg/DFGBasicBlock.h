@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011, 2013-2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -34,6 +34,7 @@
 #include "DFGNodeAbstractValuePair.h"
 #include "DFGStructureClobberState.h"
 #include "Operands.h"
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 
 namespace JSC { namespace DFG {
@@ -46,8 +47,11 @@ typedef Vector<Node*, 8> BlockNodeList;
 
 DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(BasicBlock);
 
-struct BasicBlock : RefCounted<BasicBlock> {
-    WTF_MAKE_STRUCT_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(BasicBlock);
+class BasicBlock {
+    WTF_MAKE_NONCOPYABLE(BasicBlock);
+    WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(BasicBlock);
+public:
+
     BasicBlock(
         BytecodeIndex bytecodeBegin, unsigned numArguments, unsigned numLocals, unsigned numTmps,
         float executionCount);
@@ -162,6 +166,8 @@ struct BasicBlock : RefCounted<BasicBlock> {
     void removePredecessor(BasicBlock* block);
     void replacePredecessor(BasicBlock* from, BasicBlock* to);
 
+    inline Node* cloneAndAppend(Graph&, const Node*);
+
     template<typename... Params>
     Node* appendNode(Graph&, SpeculatedType, Params...);
     
@@ -191,7 +197,6 @@ struct BasicBlock : RefCounted<BasicBlock> {
     BranchDirection cfaBranchDirection;
     bool cfaHasVisited;
     bool cfaShouldRevisit;
-    bool cfaThinksShouldTryConstantFolding { false };
     bool cfaDidFinish;
     bool intersectionOfCFAHasVisited;
     bool isOSRTarget;
@@ -233,7 +238,7 @@ struct BasicBlock : RefCounted<BasicBlock> {
     float executionCount;
     
     struct SSAData {
-        WTF_MAKE_FAST_ALLOCATED;
+        WTF_MAKE_TZONE_ALLOCATED(SSAData);
     public:
         void invalidate()
         {
@@ -274,5 +279,9 @@ static inline BasicBlock* blockForBytecodeIndex(Vector<BasicBlock*>& linkingTarg
 }
 
 } } // namespace JSC::DFG
+
+namespace WTF {
+void printInternal(PrintStream&, JSC::DFG::BasicBlock*);
+}
 
 #endif // ENABLE(DFG_JIT)

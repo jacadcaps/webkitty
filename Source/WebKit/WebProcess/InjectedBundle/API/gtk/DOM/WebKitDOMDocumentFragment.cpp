@@ -21,6 +21,7 @@
 #include "WebKitDOMDocumentFragment.h"
 
 #include <WebCore/CSSImportRule.h>
+#include <WebCore/CustomElementRegistry.h>
 #include "DOMObjectCache.h"
 #include <WebCore/DOMException.h>
 #include <WebCore/Document.h>
@@ -187,8 +188,7 @@ WebKitDOMElement* webkit_dom_document_fragment_get_element_by_id(WebKitDOMDocume
     g_return_val_if_fail(WEBKIT_DOM_IS_DOCUMENT_FRAGMENT(self), 0);
     g_return_val_if_fail(elementId, 0);
     WebCore::DocumentFragment* item = WebKit::core(self);
-    WTF::String convertedElementId = WTF::String::fromUTF8(elementId);
-    RefPtr<WebCore::Element> gobjectResult = WTF::getPtr(item->getElementById(convertedElementId));
+    RefPtr<WebCore::Element> gobjectResult = WTF::getPtr(item->getElementById(WTF::AtomString::fromUTF8(elementId)));
     return WebKit::kit(gobjectResult.get());
 }
 

@@ -67,7 +67,7 @@ static void waitUntilAudioSessionCategoryIsEqualTo(NSString *expectedValue)
     do {
         if ([[[getAVAudioSessionClass() sharedInstance] category] isEqualToString:expectedValue])
             return;
-        Util::sleep(0.1);
+        Util::runFor(0.1_s);
     } while (++tries <= 100);
 }
 
@@ -80,7 +80,12 @@ static AVAudioSessionRouteSharingPolicy routeSharingPolicyLongFormAudio()
 #endif
 }
 
+// FIXME Re-enable when https://bugs.webkit.org/show_bug.cgi?id=237125 is resovled 
+#if PLATFORM(IOS) || PLATFORM(VISION)
+TEST(WebKitLegacy, DISABLED_AudioSessionCategoryIOS)
+#else
 TEST(WebKitLegacy, AudioSessionCategoryIOS)
+#endif
 {
     WebCore::DeprecatedGlobalSettings::setShouldManageAudioSessionCategory(true);
     RetainPtr<UIWindow> uiWindow = adoptNS([[UIWindow alloc] initWithFrame:NSMakeRect(0, 0, 800, 600)]);
@@ -95,7 +100,7 @@ TEST(WebKitLegacy, AudioSessionCategoryIOS)
 
     EXPECT_EQ([[getAVAudioSessionClass() sharedInstance] routeSharingPolicy], AVAudioSessionRouteSharingPolicyDefault);
 
-    [uiWebView loadRequest:[NSURLRequest requestWithURL:[[NSBundle mainBundle] URLForResource:@"video-with-audio" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"]]];
+    [uiWebView loadRequest:[NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"video-with-audio" withExtension:@"html"]]];
 
     Util::run(&didBeginPlaying);
 
@@ -108,7 +113,7 @@ TEST(WebKitLegacy, AudioSessionCategoryIOS)
 
     didBeginPlaying = false;
 
-    [uiWebView loadRequest:[NSURLRequest requestWithURL:[[NSBundle mainBundle] URLForResource:@"video-without-audio" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"]]];
+    [uiWebView loadRequest:[NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"video-without-audio" withExtension:@"html"]]];
 
     Util::run(&didBeginPlaying);
 
@@ -118,7 +123,7 @@ TEST(WebKitLegacy, AudioSessionCategoryIOS)
 
     didBeginPlaying = false;
 
-    [uiWebView loadRequest:[NSURLRequest requestWithURL:[[NSBundle mainBundle] URLForResource:@"video-with-muted-audio" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"]]];
+    [uiWebView loadRequest:[NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"video-with-muted-audio" withExtension:@"html"]]];
 
     Util::run(&didBeginPlaying);
 
@@ -128,7 +133,7 @@ TEST(WebKitLegacy, AudioSessionCategoryIOS)
 
     didBeginPlaying = false;
 
-    [uiWebView loadRequest:[NSURLRequest requestWithURL:[[NSBundle mainBundle] URLForResource:@"video-with-muted-audio-and-webaudio" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"]]];
+    [uiWebView loadRequest:[NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"video-with-muted-audio-and-webaudio" withExtension:@"html"]]];
 
     Util::run(&didBeginPlaying);
 
@@ -138,7 +143,7 @@ TEST(WebKitLegacy, AudioSessionCategoryIOS)
 
     didBeginPlaying = false;
 
-    [uiWebView loadRequest:[NSURLRequest requestWithURL:[[NSBundle mainBundle] URLForResource:@"video-with-paused-audio-and-playing-muted" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"]]];
+    [uiWebView loadRequest:[NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"video-with-paused-audio-and-playing-muted" withExtension:@"html"]]];
 
     Util::run(&didBeginPlaying);
 
@@ -151,7 +156,7 @@ TEST(WebKitLegacy, AudioSessionCategoryIOS)
 
     didBeginPlaying = false;
 
-    [uiWebView loadRequest:[NSURLRequest requestWithURL:[[NSBundle mainBundle] URLForResource:@"audio-only" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"]]];
+    [uiWebView loadRequest:[NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"audio-only" withExtension:@"html"]]];
 
     Util::run(&didBeginPlaying);
 

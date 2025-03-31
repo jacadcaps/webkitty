@@ -58,9 +58,7 @@ WI.InspectorObserver = class InspectorObserver extends InspectorBackend.Dispatch
             return;
         }
 
-        if (hints.databaseId)
-            WI.databaseManager.inspectDatabase(hints.databaseId);
-        else if (hints.domStorageId)
+        if (hints.domStorageId)
             WI.domStorageManager.inspectDOMStorage(hints.domStorageId);
 
         remoteObject.release();
@@ -68,6 +66,8 @@ WI.InspectorObserver = class InspectorObserver extends InspectorBackend.Dispatch
 
     activateExtraDomains(domains)
     {
+        // COMPATIBILITY (iOS 14.0): Inspector.activateExtraDomains was removed in favor of a declared debuggable type
+
         WI.sharedApp.activateExtraDomains(domains);
     }
 };

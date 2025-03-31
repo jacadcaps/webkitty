@@ -31,9 +31,12 @@
 #import <wtf/BlockPtr.h>
 
 #if PLATFORM(IOS_FAMILY)
-#import "UIKitSPI.h"
+#import "UIKitSPIForTesting.h"
 #import <UIKit/NSItemProvider+UIKitAdditions.h>
 #endif
+
+@class BEDragInteraction;
+@protocol BEDragInteractionDelegate;
 
 #if PLATFORM(IOS_FAMILY)
 
@@ -68,10 +71,15 @@ typedef NSDictionary<NSNumber *, NSValue *> *ProgressToCGPointValueMap;
 @end
 
 @interface WKWebView (DragAndDropTesting)
-- (id <UIDropInteractionDelegate>)dropInteractionDelegate;
-- (id <UIDragInteractionDelegate>)dragInteractionDelegate;
+- (id<UIDropInteractionDelegate>)dropInteractionDelegate;
 - (UIDropInteraction *)dropInteraction;
+#if USE(BROWSERENGINEKIT)
+- (id<BEDragInteractionDelegate>)dragInteractionDelegate;
+- (id)dragInteraction;
+#else
+- (id<UIDragInteractionDelegate>)dragInteractionDelegate;
 - (UIDragInteraction *)dragInteraction;
+#endif
 @end
 
 #endif // PLATFORM(IOS_FAMILY)
@@ -104,6 +112,7 @@ typedef NSDictionary<NSNumber *, NSValue *> *ProgressToCGPointValueMap;
 @property (nonatomic, strong) NSArray *externalItemProviders;
 @property (nonatomic, readonly) UIDropProposal *lastKnownDropProposal;
 
+@property (nonatomic, copy) void(^dragProgressMidPointReachedBlock)(void);
 @property (nonatomic, copy) BOOL(^showCustomActionSheetBlock)(_WKActivatedElementInfo *);
 @property (nonatomic, copy) NSArray *(^convertItemProvidersBlock)(NSItemProvider *, NSArray *, NSDictionary *);
 @property (nonatomic, copy) NSArray *(^overridePerformDropBlock)(id <UIDropSession>);
@@ -125,12 +134,15 @@ typedef NSDictionary<NSNumber *, NSValue *> *ProgressToCGPointValueMap;
 
 #if PLATFORM(MAC)
 
+- (void)writePromisedWebLoc:(NSURL *)url;
+
 @property (nonatomic, readonly) id <NSDraggingInfo> draggingInfo;
 @property (nonatomic, readonly) NSPoint initialDragImageLocationInView;
 @property (nonatomic, readonly) NSDragOperation currentDragOperation;
 @property (nonatomic, strong) NSPasteboard *externalDragPasteboard;
 @property (nonatomic, strong) NSImage *externalDragImage;
 @property (nonatomic, readonly) NSArray<NSURL *> *externalPromisedFiles;
+@property (nonatomic, copy) dispatch_block_t willBeginDraggingHandler;
 @property (nonatomic, copy) dispatch_block_t willEndDraggingHandler;
 
 - (void)writePromisedFiles:(NSArray<NSURL *> *)fileURLs;
@@ -139,6 +151,18 @@ typedef NSDictionary<NSNumber *, NSValue *> *ProgressToCGPointValueMap;
 
 #endif // PLATFORM(MAC)
 
+- (BOOL)containsDraggedType:(NSString *)type;
+
 @end
+
+#if !PLATFORM(MACCATALYST)
+
+@interface DragAndDropSimulator (DOMElementDrag)
+
+- (void)runFromElement:(NSString *)startSelector toElement:(NSString *)endSelector;
+
+@end
+
+#endif // !PLATFORM(MACCATALYST)
 
 #endif // ENABLE(DRAG_SUPPORT)

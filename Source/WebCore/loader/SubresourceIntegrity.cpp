@@ -27,10 +27,14 @@
 #include "SubresourceIntegrity.h"
 
 #include "CachedResource.h"
-#include "HTMLParserIdioms.h"
-#include "ParsingUtilities.h"
+#include "LocalFrame.h"
 #include "ResourceCryptographicDigest.h"
 #include "SharedBuffer.h"
+#include "SubresourceLoader.h"
+#include "ViolationReportType.h"
+#include <wtf/text/Base64.h>
+#include <wtf/text/MakeString.h>
+#include <wtf/text/ParsingUtilities.h>
 #include <wtf/text/StringParsingBuffer.h>
 
 namespace WebCore {
@@ -46,14 +50,14 @@ static bool isVCHAR(CharacterType c)
 template<typename CharacterType>
 struct IntegrityMetadataParser {
 public:
-    IntegrityMetadataParser(Optional<Vector<EncodedResourceCryptographicDigest>>& digests)
+    IntegrityMetadataParser(std::optional<Vector<EncodedResourceCryptographicDigest>>& digests)
         : m_digests(digests)
     {
     }
 
     bool operator()(StringParsingBuffer<CharacterType>& buffer)
     {
-        // Initialize hashes to be something other WTF::nullopt, to indicate
+        // Initialize hashes to be something other std::nullopt, to indicate
         // that at least one token was seen, and thus setting the empty flag
         // from section 3.3.3 Parse metadata, to false.
         if (!m_digests)
@@ -71,7 +75,7 @@ public:
 
         // After the base64 value and options, the current character pointed to by position
         // should either be the end or a space.
-        if (!buffer.atEnd() && !isHTMLSpace(*buffer))
+        if (!buffer.atEnd() && !isASCIIWhitespace(*buffer))
             return false;
 
         m_digests->append(WTFMove(*digest));
@@ -79,7 +83,7 @@ public:
     }
 
 private:
-    Optional<Vector<EncodedResourceCryptographicDigest>>& m_digests;
+    std::optional<Vector<EncodedResourceCryptographicDigest>>& m_digests;
 };
 
 }
@@ -87,24 +91,23 @@ private:
 template <typename CharacterType, typename Functor>
 static inline void splitOnSpaces(StringParsingBuffer<CharacterType> buffer, Functor&& functor)
 {
-    skipWhile<isHTMLSpace>(buffer);
+    skipWhile<isASCIIWhitespace>(buffer);
 
     while (buffer.hasCharactersRemaining()) {
         if (!functor(buffer))
-            skipWhile<isNotHTMLSpace>(buffer);
-        skipWhile<isHTMLSpace>(buffer);
+            skipWhile<isNotASCIIWhitespace>(buffer);
+        skipWhile<isASCIIWhitespace>(buffer);
     }
 }
 
-static Optional<Vector<EncodedResourceCryptographicDigest>> parseIntegrityMetadata(const String& integrityMetadata)
+std::optional<Vector<EncodedResourceCryptographicDigest>> parseIntegrityMetadata(const String& integrityMetadata)
 {
     if (integrityMetadata.isEmpty())
-        return WTF::nullopt;
+        return std::nullopt;
 
-    Optional<Vector<EncodedResourceCryptographicDigest>> result;
+    std::optional<Vector<EncodedResourceCryptographicDigest>> result;
     
-    readCharactersForParsing(integrityMetadata, [&result] (auto buffer) {
-        using CharacterType = typename decltype(buffer)::CharacterType;
+    readCharactersForParsing(integrityMetadata, [&result]<typename CharacterType> (StringParsingBuffer<CharacterType> buffer) {
         splitOnSpaces(buffer, IntegrityMetadataParser<CharacterType> { result });
     });
 
@@ -117,10 +120,10 @@ static bool isResponseEligible(const CachedResource& resource)
     return resource.isCORSSameOrigin();
 }
 
-static Optional<EncodedResourceCryptographicDigest::Algorithm> prioritizedHashFunction(EncodedResourceCryptographicDigest::Algorithm a, EncodedResourceCryptographicDigest::Algorithm b)
+static std::optional<EncodedResourceCryptographicDigest::Algorithm> prioritizedHashFunction(EncodedResourceCryptographicDigest::Algorithm a, EncodedResourceCryptographicDigest::Algorithm b)
 {
     if (a == b)
-        return WTF::nullopt;
+        return std::nullopt;
     return (a > b) ? a : b;
 }
 
@@ -162,10 +165,97 @@ static Vector<EncodedResourceCryptographicDigest> strongestMetadataFromSet(Vecto
     return result;
 }
 
-bool matchIntegrityMetadata(const CachedResource& resource, const String& integrityMetadataList)
+static Ref<FormData> createReportFormData(const String& type, const URL& url, const String& userAgent, NOESCAPE const Function<void(JSON::Object&)>& populateBody)
 {
-    // FIXME: Consider caching digests on the CachedResource rather than always recomputing it.
+    auto body = JSON::Object::create();
+    populateBody(body);
 
+    // https://www.w3.org/TR/reporting-1/#queue-report, step 2.3.1.
+    auto reportObject = JSON::Object::create();
+    reportObject->setObject("body"_s, WTFMove(body));
+    reportObject->setString("type"_s, type);
+    reportObject->setString("user_agent"_s, userAgent);
+    // The spec allows user agents to delay report sending, in order to reduce impact on the user and potential overhead. See https://www.w3.org/TR/reporting-1/#delivery
+    // Currently we're not taking advantage of that, so setting the `age` to 0 to indicate immediate delivery.
+    reportObject->setInteger("age"_s, 0);
+    reportObject->setInteger("attempts"_s, 0);
+    if (url.isValid())
+        reportObject->setString("url"_s, url.strippedForUseAsReferrer().string);
+
+    auto reportList = JSON::Array::create();
+    reportList->pushObject(reportObject);
+
+    return FormData::create(reportList->toJSONString().utf8());
+}
+
+static String addHashPrefix(ResourceCryptographicDigest::Algorithm algorithm, StringView hash)
+{
+    switch (algorithm) {
+    case ResourceCryptographicDigest::Algorithm::SHA256:
+        return makeString("sha256-"_s, hash);
+    case ResourceCryptographicDigest::Algorithm::SHA384:
+        return makeString("sha384-"_s, hash);
+    case ResourceCryptographicDigest::Algorithm::SHA512:
+        return makeString("sha512-"_s, hash);
+    }
+    ASSERT_NOT_REACHED();
+    return String();
+}
+
+static std::optional<ResourceCryptographicDigest::Algorithm> findStrongestAlgorithm(HashAlgorithmSet algorithmSet)
+{
+    for (int i = ResourceCryptographicDigest::algorithmCount - 1; i >= 0; --i) {
+        uint8_t algorithm = (1 << i);
+        if (algorithmSet & algorithm)
+            return static_cast<ResourceCryptographicDigest::Algorithm>(algorithm);
+    }
+    return std::nullopt;
+}
+
+void reportHashesIfNeeded(const CachedResource& resource)
+{
+    RefPtr loader = resource.loader();
+    if (!loader)
+        return;
+    RefPtr frame = loader->frame();
+    if (!frame)
+        return;
+    RefPtr document = frame->document();
+    if (!document)
+        return;
+
+    auto csp = document->checkedContentSecurityPolicy();
+    URL documentURL = document->url();
+
+    auto& hashesToReport = csp->hashesToReport();
+    if (hashesToReport.isEmpty())
+        return;
+
+    bool canExposeHashes = isResponseEligible(resource);
+    for (auto& [algorithmSet, fixedEndpoints] : hashesToReport) {
+        auto hashAlgorithm = findStrongestAlgorithm(algorithmSet);
+        if (!hashAlgorithm)
+            return;
+
+        String hash = ""_s;
+        if (canExposeHashes)
+            hash = addHashPrefix(hashAlgorithm.value(), base64EncodeToString(resource.cryptographicDigest(hashAlgorithm.value()).value));
+        Ref report = createReportFormData("csp-hash"_s, documentURL, document->httpUserAgent(), [&](auto& body) {
+            body.setString("documentURL"_s, documentURL.strippedForUseAsReferrer().string);
+            body.setString("subresourceURL"_s, resource.url().strippedForUseAsReferrer().string);
+            body.setString("hash"_s, hash);
+            body.setString("type"_s, "subresource"_s);
+            body.setString("destination"_s, "script"_s);
+        });
+        Vector<String> endpoints;
+        for (auto endpoint : fixedEndpoints)
+            endpoints.append(endpoint);
+        document->sendReportToEndpoints(documentURL, { }, WTFMove(endpoints), WTFMove(report), ViolationReportType::CSPHashReport);
+    }
+}
+
+bool matchIntegrityMetadataSlow(const CachedResource& resource, const String& integrityMetadataList)
+{
     // 1. Let parsedMetadata be the result of parsing metadataList.
     auto parsedMetadata = parseIntegrityMetadata(integrityMetadataList);
     
@@ -183,8 +273,6 @@ bool matchIntegrityMetadata(const CachedResource& resource, const String& integr
 
     // 5. Let metadata be the result of getting the strongest metadata from parsedMetadata.
     auto metadata = strongestMetadataFromSet(WTFMove(*parsedMetadata));
-
-    const auto* sharedBuffer = resource.resourceBuffer();
     
     // 6. For each item in metadata:
     for (auto& item : metadata) {
@@ -195,7 +283,7 @@ bool matchIntegrityMetadata(const CachedResource& resource, const String& integr
         auto expectedValue = decodeEncodedResourceCryptographicDigest(item);
 
         // 3. Let actualValue be the result of applying algorithm to response.
-        auto actualValue = cryptographicDigestForBytes(algorithm, sharedBuffer ? sharedBuffer->data() : nullptr, sharedBuffer ? sharedBuffer->size() : 0);
+        auto actualValue = resource.cryptographicDigest(algorithm);
 
         // 4. If actualValue is a case-sensitive match for expectedValue, return true.
         if (expectedValue && actualValue.value == expectedValue->value)
@@ -207,21 +295,13 @@ bool matchIntegrityMetadata(const CachedResource& resource, const String& integr
 
 String integrityMismatchDescription(const CachedResource& resource, const String& integrityMetadata)
 {
-    StringBuilder builder;
-
-    builder.append(resource.url().stringCenterEllipsizedToLength());
-    builder.append(". Failed integrity metadata check. ");
-    builder.append("Content length: ");
-    if (auto* resourceBuffer = resource.resourceBuffer())
-        builder.appendNumber(resourceBuffer->size());
-    else
-        builder.append("(no content)");
-    builder.append(", Expected content length: ");
-    builder.appendNumber(resource.response().expectedContentLength());
-    builder.append(", Expected metadata: ");
-    builder.append(integrityMetadata);
-
-    return builder.toString();
+    auto resourceURL = resource.url().stringCenterEllipsizedToLength();
+    if (RefPtr resourceBuffer = resource.resourceBuffer()) {
+        return makeString(resourceURL, ". Failed integrity metadata check. Content length: "_s, resourceBuffer->size(), ", Expected content length: "_s,
+            resource.response().expectedContentLength(), ", Expected metadata: "_s, integrityMetadata);
+    }
+    return makeString(resourceURL, ". Failed integrity metadata check. Content length: (no content), Expected content length: "_s,
+        resource.response().expectedContentLength(), ", Expected metadata: "_s, integrityMetadata);
 }
 
 }

@@ -37,16 +37,16 @@ namespace WebKit {
 
 void installMemoryPressureHandler()
 {
-    auto& memoryPressureHandler = MemoryPressureHandler::singleton();
-    memoryPressureHandler.setLowMemoryHandler([] (Critical critical, Synchronous) {
+    Ref memoryPressureHandler = MemoryPressureHandler::singleton();
+    memoryPressureHandler->setLowMemoryHandler([] (Critical critical, Synchronous) {
 #if PLATFORM(COCOA) || PLATFORM(GTK)
         ViewSnapshotStore::singleton().discardSnapshotImages();
 #endif
 
-        for (auto* processPool : WebProcessPool::allProcessPools())
+        for (auto& processPool : WebProcessPool::allProcessPools())
             processPool->handleMemoryPressureWarning(critical);
     });
-    memoryPressureHandler.install();
+    memoryPressureHandler->install();
 }
 
 } // namespace WebKit

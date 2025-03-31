@@ -37,11 +37,15 @@ namespace WebKit {
 
 class RemoteCDM final : public WebCore::CDMPrivate {
 public:
-    static std::unique_ptr<RemoteCDM> create(WeakPtr<RemoteCDMFactory>&&, RemoteCDMIdentifier&&, RemoteCDMConfiguration&&);
+    static std::unique_ptr<RemoteCDM> create(WeakPtr<RemoteCDMFactory>&&, RemoteCDMIdentifier&&, RemoteCDMConfiguration&&, const String& mediaKeysHashSalt);
     virtual ~RemoteCDM() = default;
 
 private:
-    RemoteCDM(WeakPtr<RemoteCDMFactory>&&, RemoteCDMIdentifier&&, RemoteCDMConfiguration&&);
+    RemoteCDM(WeakPtr<RemoteCDMFactory>&&, RemoteCDMIdentifier&&, RemoteCDMConfiguration&&, const String& mediaKeysHashSalt);
+
+#if !RELEASE_LOG_DISABLED
+    void setLogIdentifier(uint64_t) final;
+#endif
 
     void getSupportedConfiguration(WebCore::CDMKeySystemConfiguration&& candidateConfiguration, LocalStorageAccess, SupportedConfigurationCallback&&) final;
 
@@ -55,7 +59,7 @@ private:
     RefPtr<WebCore::CDMInstance> createInstance() final;
     void loadAndInitialize() final;
     RefPtr<WebCore::SharedBuffer> sanitizeResponse(const WebCore::SharedBuffer&) const final;
-    Optional<String> sanitizeSessionId(const String&) const final;
+    std::optional<String> sanitizeSessionId(const String&) const final;
 
     Vector<AtomString> supportedInitDataTypes() const final { return m_configuration.supportedInitDataTypes; }
     Vector<AtomString> supportedRobustnesses() const final { return m_configuration.supportedRobustnesses; }
@@ -65,6 +69,7 @@ private:
     WeakPtr<RemoteCDMFactory> m_factory;
     RemoteCDMIdentifier m_identifier;
     RemoteCDMConfiguration m_configuration;
+    String m_mediaKeysHashSalt;
 };
 
 }

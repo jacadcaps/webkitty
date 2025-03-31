@@ -25,9 +25,9 @@
 
 #import "config.h"
 
+#import "DeprecatedGlobalValues.h"
 #import "PlatformUtilities.h"
 #import "Test.h"
-
 #import <WebKit/WKProcessPoolPrivate.h>
 #import <WebKit/WKUserContentControllerPrivate.h>
 #import <WebKit/WKWebViewConfigurationPrivate.h>
@@ -37,10 +37,6 @@
 #import <WebKit/_WKUserStyleSheet.h>
 #import <WebKit/_WKWebsiteDataStoreConfiguration.h>
 #import <wtf/RetainPtr.h>
-
-static bool readyToContinue;
-static bool receivedScriptMessage;
-static RetainPtr<WKScriptMessage> lastScriptMessage;
 
 @interface IndexedDBUserDeleteMessageHandler : NSObject <WKScriptMessageHandler>
 @end
@@ -63,7 +59,7 @@ TEST(IndexedDB, IndexedDBUserDelete)
 
     auto webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
 
-    NSURLRequest *request = [NSURLRequest requestWithURL:[[NSBundle mainBundle] URLForResource:@"IndexedDBUserDelete" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"]];
+    NSURLRequest *request = [NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"IndexedDBUserDelete" withExtension:@"html"]];
     [webView loadRequest:request];
 
     receivedScriptMessage = false;
@@ -81,9 +77,9 @@ TEST(IndexedDB, IndexedDBUserDelete)
 
 TEST(IndexedDB, IndexedDBUserDeleteBeforeLoading)
 {
-    NSURL *idbURL = [[WKWebsiteDataStore defaultDataStore] _indexedDBDatabaseDirectory];
+    NSURL *idbURL = [[[WKWebsiteDataStore defaultDataStore] _configuration] _indexedDBDatabaseDirectory];
     NSURL *fileIDBURL = [[idbURL URLByAppendingPathComponent:@"file__0"] URLByAppendingPathComponent:@"IndexedDBUserDeleteBeforeLoading"];
-    NSURL *fileURL = [[NSBundle mainBundle] URLForResource:@"IndexedDB" withExtension:@"sqlite3" subdirectory:@"TestWebKitAPI.resources"];
+    NSURL *fileURL = [NSBundle.test_resourcesBundle URLForResource:@"IndexedDB" withExtension:@"sqlite3"];
     [[NSFileManager defaultManager] createDirectoryAtURL:fileIDBURL withIntermediateDirectories:YES attributes:nil error:nil];
     [[NSFileManager defaultManager] copyItemAtURL:fileURL toURL:[fileIDBURL URLByAppendingPathComponent:@"IndexedDB.sqlite3"] error:nil];
     EXPECT_TRUE([[NSFileManager defaultManager] fileExistsAtPath:fileIDBURL.path]);

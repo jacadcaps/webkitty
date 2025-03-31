@@ -45,7 +45,9 @@ union Data {
     Data()
     {
         const intptr_t uninitialized = 0xdeadb0d0;
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
         memcpy(&buffer, &uninitialized, sizeof(uninitialized));
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
     }
     Data(uintptr_t value)
         : Data(&value, sizeof(value))
@@ -56,7 +58,9 @@ union Data {
     Data(void* src, size_t size)
     {
         RELEASE_ASSERT(size <= sizeof(buffer));
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
         memcpy(&buffer, src, size);
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
     }
 
     template<typename T, typename = typename std::enable_if<std::is_integral<T>::value>::type>
@@ -182,18 +186,15 @@ struct Printer<RawPointer> : public PrintRecord {
     { }
 };
 
-template<typename T, typename = typename std::enable_if_t<std::is_integral<T>::value && std::numeric_limits<T>::is_signed>>
-void setPrinter(PrintRecord& record, T value, intptr_t = 0)
+template<typename T>
+std::enable_if_t<std::is_integral_v<T>>
+setPrinter(PrintRecord& record, T value, intptr_t = 0)
 {
     record.data.value = static_cast<uintptr_t>(value);
-    record.printer = printIntptr;
-}
-
-template<typename T, typename = typename std::enable_if_t<std::is_integral<T>::value && !std::numeric_limits<T>::is_signed>>
-void setPrinter(PrintRecord& record, T value, uintptr_t = 0)
-{
-    record.data.value = static_cast<uintptr_t>(value);
-    record.printer = printUintptr;
+    if constexpr (std::numeric_limits<T>::is_signed)
+        record.printer = printIntptr;
+    else
+        record.printer = printUintptr;
 }
 
 template<typename T>

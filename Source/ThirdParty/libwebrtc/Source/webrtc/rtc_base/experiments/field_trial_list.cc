@@ -9,9 +9,11 @@
  */
 #include "rtc_base/experiments/field_trial_list.h"
 
+#include "absl/strings/string_view.h"
+
 namespace webrtc {
 
-FieldTrialListBase::FieldTrialListBase(std::string key)
+FieldTrialListBase::FieldTrialListBase(absl::string_view key)
     : FieldTrialParameterInterface(key),
       failed_(false),
       parse_got_called_(false) {}
@@ -33,8 +35,8 @@ bool FieldTrialListWrapper::Used() {
   return GetList()->Used();
 }
 
-bool FieldTrialStructListBase::Parse(absl::optional<std::string> str_value) {
-  RTC_NOTREACHED();
+bool FieldTrialStructListBase::Parse(std::optional<std::string> str_value) {
+  RTC_DCHECK_NOTREACHED();
   return true;
 }
 

@@ -10,7 +10,13 @@
 
 #include "rtc_base/checks.h"
 
+#include "test/gmock.h"
 #include "test/gtest.h"
+
+namespace {
+
+using ::testing::HasSubstr;
+using ::testing::Not;
 
 TEST(ChecksTest, ExpressionNotEvaluatedWhenCheckPassing) {
   int i = 0;
@@ -19,9 +25,17 @@ TEST(ChecksTest, ExpressionNotEvaluatedWhenCheckPassing) {
 }
 
 #if GTEST_HAS_DEATH_TEST && !defined(WEBRTC_ANDROID)
-TEST(ChecksTest, Checks) {
+
+struct StructWithStringfy {
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const StructWithStringfy& /*self*/) {
+    sink.Append("absl-stringify");
+  }
+};
+
+TEST(ChecksDeathTest, Checks) {
 #if RTC_CHECK_MSG_ENABLED
-  EXPECT_DEATH(FATAL() << "message",
+  EXPECT_DEATH(RTC_FATAL() << "message",
                "\n\n#\n"
                "# Fatal error in: \\S+, line \\w+\n"
                "# last system error: \\w+\n"
@@ -44,8 +58,11 @@ TEST(ChecksTest, Checks) {
                "# last system error: \\w+\n"
                "# Check failed: false\n"
                "# Hi there!");
+
+  StructWithStringfy t;
+  EXPECT_DEATH(RTC_CHECK(false) << t, HasSubstr("absl-stringify"));
 #else
-  EXPECT_DEATH(FATAL() << "message",
+  EXPECT_DEATH(RTC_FATAL() << "message",
                "\n\n#\n"
                "# Fatal error in: \\S+, line \\w+\n"
                "# last system error: \\w+\n"
@@ -68,6 +85,12 @@ TEST(ChecksTest, Checks) {
                "# last system error: \\w+\n"
                "# Check failed.\n"
                "# ");
+
+  // Should compile, but shouldn't try to stringify 't'
+  StructWithStringfy t;
+  EXPECT_DEATH(RTC_CHECK(false) << t, Not(HasSubstr("absl-stringify")));
 #endif  // RTC_CHECK_MSG_ENABLED
 }
 #endif  // GTEST_HAS_DEATH_TEST && !defined(WEBRTC_ANDROID)
+
+}  // namespace

@@ -36,6 +36,7 @@
 #include <wtf/RetainPtr.h>
 #include <wtf/text/WTFString.h>
 
+OBJC_CLASS AVAssetTrack;
 OBJC_CLASS AVPlayerItem;
 OBJC_CLASS AVMediaSelectionGroup;
 OBJC_CLASS AVMediaSelectionOption;
@@ -54,6 +55,8 @@ public:
     int index() const;
 
     AVMediaSelectionOption *avMediaSelectionOption() const { return m_mediaSelectionOption.get(); }
+    AVAssetTrack *assetTrack() const;
+    AVPlayerItem *playerItem() const;
 
 private:
     friend class MediaSelectionGroupAVFObjC;
@@ -75,10 +78,11 @@ public:
 
     void updateOptions(const Vector<String>& characteristics);
 
-    using OptionContainer = HashMap<CFTypeRef, RefPtr<MediaSelectionOptionAVFObjC>>;
+    using OptionContainer = UncheckedKeyHashMap<CFTypeRef, RefPtr<MediaSelectionOptionAVFObjC>>;
     typename OptionContainer::ValuesIteratorRange options() { return m_options.values(); }
 
     AVMediaSelectionGroup *avMediaSelectionGroup() const { return m_mediaSelectionGroup.get(); }
+    AVPlayerItem *playerItem() const { return m_playerItem.get(); }
 
 private:
     MediaSelectionGroupAVFObjC(AVPlayerItem*, AVMediaSelectionGroup*, const Vector<String>& characteristics);

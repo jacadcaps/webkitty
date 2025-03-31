@@ -31,9 +31,9 @@
 import math
 import optparse
 
-from webkitpy.tool import grammar
+from webkitcorepy.string_utils import pluralize
+
 from webkitpy.layout_tests.models import test_expectations
-from webkitpy.layout_tests.models.test_expectations import TestExpectations, TestExpectationParser
 from webkitpy.layout_tests.views.metered_stream import MeteredStream
 
 
@@ -82,6 +82,8 @@ class Printer(object):
             self._print_default("Placing new baselines in %s" % self._port.baseline_path())
 
         self._print_default("Using %s build" % self._options.configuration)
+        if self._options.additional_header:
+            self._print_default("Using additional header: '%s'" % self._options.additional_header)
         if self._options.pixel_tests:
             self._print_default("Pixel tests enabled")
         else:
@@ -96,6 +98,7 @@ class Printer(object):
     def print_baseline_search_path(self, device_type=None):
         fs = self._port.host.filesystem
         full_baseline_search_path = self._port.baseline_search_path(device_type=device_type)
+        full_expectations_files = self._port.expectations_files(device_type=device_type)
         normalize_baseline = lambda baseline_search_path: [
             fs.relpath(x, self._port.layout_tests_dir()).replace("../", "") for x in baseline_search_path]
 
@@ -107,10 +110,18 @@ class Printer(object):
             u' -> '.join(normalize_baseline([path for path in full_baseline_search_path if fs.exists(path)]))))
         self._print_default('')
 
+        self._print_default(u'Verbose test expectations: {}'.format(
+            u' -> '.join(normalize_baseline(reversed(full_expectations_files)))))
+
+        self._print_default('')
+        self._print_default(u'Test expectations: {}'.format(
+            u' -> '.join(normalize_baseline([path for path in reversed(full_expectations_files) if fs.exists(path)]))))
+        self._print_default('')
+
     def print_found(self, num_all_test_files, num_to_run, repeat_each, iterations):
-        found_str = 'Found %s; running %d' % (grammar.pluralize(num_all_test_files, "test"), num_to_run)
+        found_str = 'Found %s; running %d' % (pluralize(num_all_test_files, "test"), num_to_run)
         if repeat_each * iterations > 1:
-            found_str += ' (%s each: --repeat-each=%d --iterations=%d)' % (grammar.pluralize(repeat_each * iterations, "time"), repeat_each, iterations)
+            found_str += ' (%s each: --repeat-each=%d --iterations=%d)' % (pluralize(repeat_each * iterations, "time"), repeat_each, iterations)
         found_str += ', skipping %d' % (num_all_test_files - num_to_run)
         self._print_default(found_str + '.')
 
@@ -125,9 +136,9 @@ class Printer(object):
 
         if num_workers == 1:
             self._print_default('Running 1 {}.'.format(driver_name))
-            self._print_debug('({}).'.format(grammar.pluralize(num_shards, "shard")))
+            self._print_debug('({}).'.format(pluralize(num_shards, "shard")))
         else:
-            self._print_default('Running {} in parallel.'.format(grammar.pluralize(num_workers, driver_name)))
+            self._print_default('Running {} in parallel.'.format(pluralize(num_workers, driver_name)))
             self._print_debug('({} shards).'.format(num_shards))
         self._print_default('')
 
@@ -291,9 +302,9 @@ class Printer(object):
                 else:
                     summary = "The test ran as expected."
             else:
-                summary = "%s ran as expected%s." % (grammar.pluralize(expected, "test"), incomplete_str)
+                summary = "%s ran as expected%s." % (pluralize(expected, "test"), incomplete_str)
         else:
-            summary = "%s ran as expected, %d didn't%s:" % (grammar.pluralize(expected, "test"), unexpected, incomplete_str)
+            summary = "%s ran as expected, %d didn't%s:" % (pluralize(expected, "test"), unexpected, incomplete_str)
 
         self._print_quiet(summary)
         self._print_quiet("")

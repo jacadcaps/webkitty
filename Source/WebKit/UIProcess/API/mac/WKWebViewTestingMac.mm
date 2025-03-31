@@ -29,11 +29,14 @@
 #if PLATFORM(MAC)
 
 #import "AudioSessionRoutingArbitratorProxy.h"
+#import "WKNSData.h"
 #import "WKWebViewMac.h"
-#import "_WKFrameHandleInternal.h"
+#import "WebColorPicker.h"
 #import "WebPageProxy.h"
 #import "WebProcessProxy.h"
 #import "WebViewImpl.h"
+#import "_WKFrameHandleInternal.h"
+#import <WebCore/ColorCocoa.h>
 
 @implementation WKWebView (WKTestingMac)
 
@@ -73,6 +76,15 @@
     return _impl->shouldRequestCandidates();
 }
 
+- (BOOL)_allowsInlinePredictions
+{
+#if HAVE(INLINE_PREDICTIONS)
+    return _impl->allowsInlinePredictions();
+#else
+    return NO;
+#endif
+}
+
 - (void)_insertText:(id)string replacementRange:(NSRange)replacementRange
 {
     [self insertText:string replacementRange:replacementRange];
@@ -80,7 +92,9 @@
 
 - (NSRect)_candidateRect
 {
-    return _page->editorState().postLayoutData().focusedElementRect;
+    if (!_page->editorState().postLayoutData)
+        return NSZeroRect;
+    return _page->editorState().postLayoutData->selectionBoundingRect;
 }
 
 - (void)viewDidChangeEffectiveAppearance
@@ -93,21 +107,45 @@
     _impl->effectiveAppearanceDidChange();
 }
 
-- (void)_setHeaderBannerHeight:(int)height
+- (NSSet<NSView *> *)_pdfHUDs
 {
-    _page->setHeaderBannerHeightForTesting(height);
-}
-
-- (void)_setFooterBannerHeight:(int)height
-{
-    _page->setFooterBannerHeightForTesting(height);
+    return _impl->pdfHUDs();
 }
 
 - (NSMenu *)_activeMenu
 {
-    // FIXME: Only the DOM paste access menu is supported for now. In the future, it could be
-    // extended to recognize the regular context menu as well.
-    return _impl->domPasteMenu();
+    if (NSMenu *contextMenu = _page->activeContextMenu())
+        return contextMenu;
+    if (NSMenu *domPasteMenu = _impl->domPasteMenu())
+        return domPasteMenu;
+    return nil;
+}
+
+- (void)_retrieveAccessibilityTreeData:(void (^)(NSData *, NSError *))completionHandler
+{
+    _page->getAccessibilityTreeData([completionHandler = makeBlockPtr(completionHandler)] (API::Data* data) {
+        completionHandler(wrapper(data), nil);
+    });
+}
+
+- (BOOL)_secureEventInputEnabledForTesting
+{
+    return _impl->inSecureInputState();
+}
+
+- (void)_setSelectedColorForColorPicker:(NSColor *)color
+{
+    _page->colorPickerClient().didChooseColor(WebCore::colorFromCocoaColor(color));
+}
+
+- (void)_createFlagsChangedEventMonitorForTesting
+{
+    _impl->createFlagsChangedEventMonitor();
+}
+
+- (BOOL)_hasFlagsChangedEventMonitorForTesting
+{
+    return _impl->hasFlagsChangedEventMonitor();
 }
 
 @end

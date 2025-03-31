@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,108 +30,143 @@
 
 #include "JSCInlines.h"
 #include "JSWebAssemblyGlobal.h"
+#include "JSWebAssemblyHelpers.h"
+#include "JSWebAssemblyRuntimeError.h"
+#include "WasmFormat.h"
 #include "WebAssemblyGlobalPrototype.h"
-
-#include "WebAssemblyGlobalConstructor.lut.h"
 
 namespace JSC {
 
-const ClassInfo WebAssemblyGlobalConstructor::s_info = { "Function", &Base::s_info, &constructorGlobalWebAssemblyGlobal, nullptr, CREATE_METHOD_TABLE(WebAssemblyGlobalConstructor) };
+const ClassInfo WebAssemblyGlobalConstructor::s_info = { "Function"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(WebAssemblyGlobalConstructor) };
 
-/* Source for WebAssemblyGlobalConstructor.lut.h
- @begin constructorGlobalWebAssemblyGlobal
- @end
- */
+static JSC_DECLARE_HOST_FUNCTION(constructJSWebAssemblyGlobal);
+static JSC_DECLARE_HOST_FUNCTION(callJSWebAssemblyGlobal);
 
-static EncodedJSValue JSC_HOST_CALL constructJSWebAssemblyGlobal(JSGlobalObject* globalObject, CallFrame* callFrame)
+JSC_DEFINE_HOST_FUNCTION(constructJSWebAssemblyGlobal, (JSGlobalObject* globalObject, CallFrame* callFrame))
 {
     VM& vm = globalObject->vm();
     auto throwScope = DECLARE_THROW_SCOPE(vm);
+
+    JSObject* newTarget = asObject(callFrame->newTarget());
+    Structure* webAssemblyGlobalStructure = JSC_GET_DERIVED_STRUCTURE(vm, webAssemblyGlobalStructure, newTarget, callFrame->jsCallee());
+    RETURN_IF_EXCEPTION(throwScope, { });
 
     JSObject* globalDescriptor;
     {
         JSValue argument = callFrame->argument(0);
         if (!argument.isObject())
-            return JSValue::encode(throwException(globalObject, throwScope, createTypeError(globalObject, "WebAssembly.Global expects its first argument to be an object"_s)));
+            return throwVMTypeError(globalObject, throwScope, "WebAssembly.Global expects its first argument to be an object"_s);
         globalDescriptor = jsCast<JSObject*>(argument);
     }
 
-    Wasm::GlobalInformation::Mutability mutability;
+    Wasm::Mutability mutability;
     {
-        Identifier mutableIdent = Identifier::fromString(vm, "mutable");
+        Identifier mutableIdent = Identifier::fromString(vm, "mutable"_s);
         JSValue mutableValue = globalDescriptor->get(globalObject, mutableIdent);
         RETURN_IF_EXCEPTION(throwScope, encodedJSValue());
         bool mutableBoolean = mutableValue.toBoolean(globalObject);
         RETURN_IF_EXCEPTION(throwScope, encodedJSValue());
         if (mutableBoolean)
-            mutability = Wasm::GlobalInformation::Mutable;
+            mutability = Wasm::Mutable;
         else
-            mutability = Wasm::GlobalInformation::Immutable;
+            mutability = Wasm::Immutable;
     }
 
     Wasm::Type type;
     {
-        Identifier valueIdent = Identifier::fromString(vm, "value");
+        Identifier valueIdent = Identifier::fromString(vm, "value"_s);
         JSValue valueValue = globalDescriptor->get(globalObject, valueIdent);
         RETURN_IF_EXCEPTION(throwScope, encodedJSValue());
         String valueString = valueValue.toWTFString(globalObject);
         RETURN_IF_EXCEPTION(throwScope, encodedJSValue());
-        if (valueString == "i32")
-            type = Wasm::Type::I32;
-        else if (valueString == "i64")
-            type = Wasm::Type::I64;
-        else if (valueString == "f32")
-            type = Wasm::Type::F32;
-        else if (valueString == "f64")
-            type = Wasm::Type::F64;
+        if (valueString == "i32"_s)
+            type = Wasm::Types::I32;
+        else if (valueString == "i64"_s)
+            type = Wasm::Types::I64;
+        else if (valueString == "f32"_s)
+            type = Wasm::Types::F32;
+        else if (valueString == "f64"_s)
+            type = Wasm::Types::F64;
+        else if (valueString == "anyfunc"_s || valueString == "funcref"_s)
+            type = Wasm::funcrefType();
+        else if (valueString == "externref"_s)
+            type = Wasm::externrefType();
         else
-            return JSValue::encode(throwException(globalObject, throwScope, createTypeError(globalObject, "WebAssembly.Global expects its 'value' field to be the string 'i32', 'i64', 'f32', or 'f64'"_s)));
+            return throwVMTypeError(globalObject, throwScope, "WebAssembly.Global expects its 'value' field to be the string 'i32', 'i64', 'f32', 'f64', 'anyfunc', 'funcref', or 'externref'"_s);
     }
 
     uint64_t initialValue = 0;
     JSValue argument = callFrame->argument(1);
-    if (!argument.isUndefined()) {
-        switch (type) {
-        case Wasm::Type::I32: {
+    switch (type.kind) {
+    case Wasm::TypeKind::I32: {
+        if (!argument.isUndefined()) {
             int32_t value = argument.toInt32(globalObject);
             RETURN_IF_EXCEPTION(throwScope, encodedJSValue());
-            initialValue = static_cast<uint64_t>(bitwise_cast<uint32_t>(value));
-            break;
+            initialValue = static_cast<uint64_t>(std::bit_cast<uint32_t>(value));
         }
-        case Wasm::Type::I64: {
-            return JSValue::encode(throwException(globalObject, throwScope, createTypeError(globalObject, "WebAssembly.Global does not accept i64 initial value"_s)));
+        break;
+    }
+    case Wasm::TypeKind::I64: {
+        if (!argument.isUndefined()) {
+            int64_t value = argument.toBigInt64(globalObject);
+            RETURN_IF_EXCEPTION(throwScope, encodedJSValue());
+            initialValue = static_cast<uint64_t>(value);
         }
-        case Wasm::Type::F32: {
+        break;
+    }
+    case Wasm::TypeKind::F32: {
+        if (!argument.isUndefined()) {
             float value = argument.toFloat(globalObject);
             RETURN_IF_EXCEPTION(throwScope, encodedJSValue());
-            initialValue = static_cast<uint64_t>(bitwise_cast<uint32_t>(value));
-            break;
+            initialValue = static_cast<uint64_t>(std::bit_cast<uint32_t>(value));
         }
-        case Wasm::Type::F64: {
+        break;
+    }
+    case Wasm::TypeKind::F64: {
+        if (!argument.isUndefined()) {
             double value = argument.toNumber(globalObject);
             RETURN_IF_EXCEPTION(throwScope, encodedJSValue());
-            initialValue = bitwise_cast<uint64_t>(value);
-            break;
+            initialValue = std::bit_cast<uint64_t>(value);
         }
-        default:
+        break;
+    }
+    case Wasm::TypeKind::V128:
+        RELEASE_ASSERT_NOT_REACHED();
+        break;
+    default: {
+        if (Wasm::isFuncref(type)) {
+            if (argument.isUndefined())
+                argument = defaultValueForReferenceType(type);
+            if (!isWebAssemblyHostFunction(argument) && !argument.isNull())
+                return throwVMTypeError(globalObject, throwScope, "Argument value did not match the reference type"_s);
+            initialValue = JSValue::encode(argument);
+        } else if (Wasm::isExternref(type)) {
+            if (argument.isUndefined())
+                argument = defaultValueForReferenceType(type);
+            initialValue = JSValue::encode(argument);
+        } else if (Wasm::isExternref(type))
+            return throwVMTypeError(globalObject, throwScope, "I31ref import from JS currently unsupported"_s);
+        else
             RELEASE_ASSERT_NOT_REACHED();
-        }
+    }
     }
 
     Ref<Wasm::Global> wasmGlobal = Wasm::Global::create(type, mutability, initialValue);
-    RELEASE_AND_RETURN(throwScope, JSValue::encode(JSWebAssemblyGlobal::tryCreate(globalObject, vm, globalObject->webAssemblyGlobalStructure(), WTFMove(wasmGlobal))));
+    JSWebAssemblyGlobal* jsWebAssemblyGlobal = JSWebAssemblyGlobal::create(vm, webAssemblyGlobalStructure, WTFMove(wasmGlobal));
+    ensureStillAliveHere(initialValue); // Ensure this is kept alive while creating JSWebAssemblyGlobal.
+    return JSValue::encode(jsWebAssemblyGlobal);
 }
 
-static EncodedJSValue JSC_HOST_CALL callJSWebAssemblyGlobal(JSGlobalObject* globalObject, CallFrame*)
+JSC_DEFINE_HOST_FUNCTION(callJSWebAssemblyGlobal, (JSGlobalObject* globalObject, CallFrame*))
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
-    return JSValue::encode(throwConstructorCannotBeCalledAsFunctionTypeError(globalObject, scope, "WebAssembly.Global"));
+    return JSValue::encode(throwConstructorCannotBeCalledAsFunctionTypeError(globalObject, scope, "WebAssembly.Global"_s));
 }
 
 WebAssemblyGlobalConstructor* WebAssemblyGlobalConstructor::create(VM& vm, Structure* structure, WebAssemblyGlobalPrototype* thisPrototype)
 {
-    auto* constructor = new (NotNull, allocateCell<WebAssemblyGlobalConstructor>(vm.heap)) WebAssemblyGlobalConstructor(vm, structure);
+    auto* constructor = new (NotNull, allocateCell<WebAssemblyGlobalConstructor>(vm)) WebAssemblyGlobalConstructor(vm, structure);
     constructor->finishCreation(vm, thisPrototype);
     return constructor;
 }
@@ -143,9 +178,8 @@ Structure* WebAssemblyGlobalConstructor::createStructure(VM& vm, JSGlobalObject*
 
 void WebAssemblyGlobalConstructor::finishCreation(VM& vm, WebAssemblyGlobalPrototype* prototype)
 {
-    Base::finishCreation(vm, "Global"_s, NameAdditionMode::WithoutStructureTransition);
+    Base::finishCreation(vm, 1, "Global"_s, PropertyAdditionMode::WithoutStructureTransition);
     putDirectWithoutTransition(vm, vm.propertyNames->prototype, prototype, PropertyAttribute::DontEnum | PropertyAttribute::DontDelete | PropertyAttribute::ReadOnly);
-    putDirectWithoutTransition(vm, vm.propertyNames->length, jsNumber(1), PropertyAttribute::ReadOnly | PropertyAttribute::DontEnum);
 }
 
 WebAssemblyGlobalConstructor::WebAssemblyGlobalConstructor(VM& vm, Structure* structure)

@@ -26,6 +26,8 @@
 #pragma once
 
 #include "RenderStyleConstants.h"
+#include "TextSizeAdjustment.h"
+#include <wtf/CheckedRef.h>
 #include <wtf/OptionSet.h>
 
 namespace WebCore {
@@ -37,42 +39,49 @@ class RenderStyle;
 class SVGElement;
 class Settings;
 
-enum class AnimationImpact;
+enum class AnimationImpact : uint8_t;
 
 namespace Style {
 
+class Update;
+
 class Adjuster {
 public:
-    Adjuster(const Document&, const RenderStyle& parentStyle, const RenderStyle* parentBoxStyle, const Element*);
+    Adjuster(const Document&, const RenderStyle& parentStyle, const RenderStyle* parentBoxStyle, Element*);
 
     void adjust(RenderStyle&, const RenderStyle* userAgentAppearanceStyle) const;
+    void adjustAnimatedStyle(RenderStyle&, OptionSet<AnimationImpact>) const;
 
+    static void adjustVisibilityForPseudoElement(RenderStyle&, const Element& host);
     static void adjustSVGElementStyle(RenderStyle&, const SVGElement&);
-    static void adjustAnimatedStyle(RenderStyle&, const RenderStyle* parentBoxStyle, OptionSet<AnimationImpact>);
-    
-    static void adjustEventListenerRegionTypesForRootStyle(RenderStyle&, const Document&);
+    static bool adjustEventListenerRegionTypesForRootStyle(RenderStyle&, const Document&);
+    static void propagateToDocumentElementAndInitialContainingBlock(Update&, const Document&);
+    static std::unique_ptr<RenderStyle> restoreUsedDocumentElementStyleToComputed(const RenderStyle&);
 
 #if ENABLE(TEXT_AUTOSIZING)
     struct AdjustmentForTextAutosizing {
-        Optional<float> newFontSize;
-        Optional<float> newLineHeight;
-        Optional<AutosizeStatus> newStatus;
+        std::optional<float> newFontSize;
+        std::optional<float> newLineHeight;
+        std::optional<AutosizeStatus> newStatus;
         explicit operator bool() const { return newFontSize || newLineHeight || newStatus; }
     };
     static AdjustmentForTextAutosizing adjustmentForTextAutosizing(const RenderStyle&, const Element&);
-    static bool adjustForTextAutosizing(RenderStyle&, const Element&, AdjustmentForTextAutosizing);
+    static bool adjustForTextAutosizing(RenderStyle&, AdjustmentForTextAutosizing);
     static bool adjustForTextAutosizing(RenderStyle&, const Element&);
 #endif
 
 private:
     void adjustDisplayContentsStyle(RenderStyle&) const;
     void adjustForSiteSpecificQuirks(RenderStyle&) const;
-    static OptionSet<EventListenerRegionType> computeEventListenerRegionTypes(const EventTarget&, OptionSet<EventListenerRegionType>);
 
-    const Document& m_document;
+    void adjustThemeStyle(RenderStyle&, const RenderStyle* userAgentAppearanceStyle) const;
+
+    static OptionSet<EventListenerRegionType> computeEventListenerRegionTypes(const Document&, const RenderStyle&, const EventTarget&, OptionSet<EventListenerRegionType>);
+
+    CheckedRef<const Document> m_document;
     const RenderStyle& m_parentStyle;
     const RenderStyle& m_parentBoxStyle;
-    const Element* m_element;
+    RefPtr<Element> m_element;
 };
 
 }

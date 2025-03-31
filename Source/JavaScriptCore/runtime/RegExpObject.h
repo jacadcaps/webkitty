@@ -1,6 +1,6 @@
 /*
  *  Copyright (C) 1999-2000 Harri Porten (porten@kde.org)
- *  Copyright (C) 2003-2019 Apple Inc. All Rights Reserved.
+ *  Copyright (C) 2003-2023 Apple Inc. All Rights Reserved.
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -30,41 +30,45 @@ namespace JSC {
 class RegExpObject final : public JSNonFinalObject {
 public:
     using Base = JSNonFinalObject;
-    static constexpr unsigned StructureFlags = Base::StructureFlags | OverridesGetOwnPropertySlot | OverridesGetPropertyNames | OverridesAnyFormOfGetPropertyNames;
+    static constexpr unsigned StructureFlags = Base::StructureFlags | OverridesGetOwnPropertySlot | OverridesGetOwnSpecialPropertyNames | OverridesPut;
 
     template<typename CellType, SubspaceAccess mode>
-    static IsoSubspace* subspaceFor(VM& vm)
+    static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
-        static_assert(!CellType::needsDestruction, "");
-        return &vm.regExpObjectSpace;
+        static_assert(CellType::needsDestruction == DoesNotNeedDestruction);
+        return &vm.regExpObjectSpace();
     }
 
-    static constexpr uintptr_t lastIndexIsNotWritableFlag = 1;
+    static constexpr uintptr_t lastIndexIsNotWritableFlag = 0b01;
+    static constexpr uintptr_t legacyFeaturesDisabledFlag = 0b10;
+    static constexpr uintptr_t flagsMask = lastIndexIsNotWritableFlag | legacyFeaturesDisabledFlag;
+    static constexpr uintptr_t regExpMask = ~flagsMask;
 
-    static RegExpObject* create(VM& vm, Structure* structure, RegExp* regExp)
+    static RegExpObject* create(VM& vm, Structure* structure, RegExp* regExp, bool areLegacyFeaturesEnabled = true)
     {
-        RegExpObject* object = new (NotNull, allocateCell<RegExpObject>(vm.heap)) RegExpObject(vm, structure, regExp);
+        RegExpObject* object = new (NotNull, allocateCell<RegExpObject>(vm)) RegExpObject(vm, structure, regExp, areLegacyFeaturesEnabled);
         object->finishCreation(vm);
         return object;
     }
 
     static RegExpObject* create(VM& vm, Structure* structure, RegExp* regExp, JSValue lastIndex)
     {
-        auto* object = create(vm, structure, regExp);
+        static constexpr bool areLegacyFeaturesEnabled = true;
+        auto* object = create(vm, structure, regExp, areLegacyFeaturesEnabled);
         object->m_lastIndex.set(vm, object, lastIndex);
         return object;
     }
 
     void setRegExp(VM& vm, RegExp* regExp)
     {
-        uintptr_t result = (m_regExpAndLastIndexIsNotWritableFlag & lastIndexIsNotWritableFlag) | bitwise_cast<uintptr_t>(regExp);
-        m_regExpAndLastIndexIsNotWritableFlag = result;
-        vm.heap.writeBarrier(this, regExp);
+        uintptr_t result = (m_regExpAndFlags & flagsMask) | std::bit_cast<uintptr_t>(regExp);
+        m_regExpAndFlags = result;
+        vm.writeBarrier(this, regExp);
     }
 
     RegExp* regExp() const
     {
-        return bitwise_cast<RegExp*>(m_regExpAndLastIndexIsNotWritableFlag & (~lastIndexIsNotWritableFlag));
+        return std::bit_cast<RegExp*>(m_regExpAndFlags & regExpMask);
     }
 
     bool setLastIndex(JSGlobalObject* globalObject, size_t lastIndex)
@@ -97,28 +101,24 @@ public:
 
     bool test(JSGlobalObject* globalObject, JSString* string) { return !!match(globalObject, string); }
     bool testInline(JSGlobalObject* globalObject, JSString* string) { return !!matchInline(globalObject, string); }
-    JSValue exec(JSGlobalObject*, JSString*);
+    JS_EXPORT_PRIVATE JSValue exec(JSGlobalObject*, JSString*);
     JSValue execInline(JSGlobalObject*, JSString*);
     MatchResult match(JSGlobalObject*, JSString*);
     JSValue matchGlobal(JSGlobalObject*, JSString*);
 
     static bool getOwnPropertySlot(JSObject*, JSGlobalObject*, PropertyName, PropertySlot&);
     static bool put(JSCell*, JSGlobalObject*, PropertyName, JSValue, PutPropertySlot&);
-    static String toStringName(const JSObject*, JSGlobalObject*);
 
     DECLARE_EXPORT_INFO;
 
-    static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
+    inline static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
+
+    static constexpr ptrdiff_t offsetOfRegExpAndFlags()
     {
-        return Structure::create(vm, globalObject, prototype, TypeInfo(RegExpObjectType, StructureFlags), info());
+        return OBJECT_OFFSETOF(RegExpObject, m_regExpAndFlags);
     }
 
-    static ptrdiff_t offsetOfRegExpAndLastIndexIsNotWritableFlag()
-    {
-        return OBJECT_OFFSETOF(RegExpObject, m_regExpAndLastIndexIsNotWritableFlag);
-    }
-
-    static ptrdiff_t offsetOfLastIndex()
+    static constexpr ptrdiff_t offsetOfLastIndex()
     {
         return OBJECT_OFFSETOF(RegExpObject, m_lastIndex);
     }
@@ -129,31 +129,33 @@ public:
         return sizeof(RegExpObject);
     }
 
-private:
-    JS_EXPORT_PRIVATE RegExpObject(VM&, Structure*, RegExp*);
-    JS_EXPORT_PRIVATE void finishCreation(VM&);
+    bool areLegacyFeaturesEnabled() const { return !(m_regExpAndFlags & legacyFeaturesDisabledFlag); }
 
-    static void visitChildren(JSCell*, SlotVisitor&);
+private:
+    JS_EXPORT_PRIVATE RegExpObject(VM&, Structure*, RegExp*, bool areLegacyFeaturesEnabled);
+#if ASSERT_ENABLED
+    JS_EXPORT_PRIVATE void finishCreation(VM&);
+#endif
+
+    DECLARE_VISIT_CHILDREN;
 
     bool lastIndexIsWritable() const
     {
-        return !(m_regExpAndLastIndexIsNotWritableFlag & lastIndexIsNotWritableFlag);
+        return !(m_regExpAndFlags & lastIndexIsNotWritableFlag);
     }
 
     void setLastIndexIsNotWritable()
     {
-        m_regExpAndLastIndexIsNotWritableFlag = (m_regExpAndLastIndexIsNotWritableFlag | lastIndexIsNotWritableFlag);
+        m_regExpAndFlags = (m_regExpAndFlags | lastIndexIsNotWritableFlag);
     }
 
     JS_EXPORT_PRIVATE static bool deleteProperty(JSCell*, JSGlobalObject*, PropertyName, DeletePropertySlot&);
-    JS_EXPORT_PRIVATE static void getOwnNonIndexPropertyNames(JSObject*, JSGlobalObject*, PropertyNameArray&, EnumerationMode);
-    JS_EXPORT_PRIVATE static void getPropertyNames(JSObject*, JSGlobalObject*, PropertyNameArray&, EnumerationMode);
-    JS_EXPORT_PRIVATE static void getGenericPropertyNames(JSObject*, JSGlobalObject*, PropertyNameArray&, EnumerationMode);
+    JS_EXPORT_PRIVATE static void getOwnSpecialPropertyNames(JSObject*, JSGlobalObject*, PropertyNameArray&, DontEnumPropertiesMode);
     JS_EXPORT_PRIVATE static bool defineOwnProperty(JSObject*, JSGlobalObject*, PropertyName, const PropertyDescriptor&, bool shouldThrow);
 
     MatchResult matchInline(JSGlobalObject*, JSString*);
 
-    uintptr_t m_regExpAndLastIndexIsNotWritableFlag { 0 };
+    uintptr_t m_regExpAndFlags { 0 };
     WriteBarrier<Unknown> m_lastIndex;
 };
 

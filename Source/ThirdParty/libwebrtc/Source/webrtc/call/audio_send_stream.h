@@ -11,11 +11,12 @@
 #ifndef CALL_AUDIO_SEND_STREAM_H_
 #define CALL_AUDIO_SEND_STREAM_H_
 
-#include <memory>
+#include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
-#include "absl/types/optional.h"
+#include "api/audio/audio_processing_statistics.h"
 #include "api/audio_codecs/audio_codec_pair_id.h"
 #include "api/audio_codecs/audio_encoder.h"
 #include "api/audio_codecs/audio_encoder_factory.h"
@@ -23,11 +24,13 @@
 #include "api/call/transport.h"
 #include "api/crypto/crypto_options.h"
 #include "api/crypto/frame_encryptor_interface.h"
+#include "api/frame_transformer_interface.h"
+#include "api/rtp_headers.h"
 #include "api/rtp_parameters.h"
+#include "api/rtp_sender_interface.h"
 #include "api/scoped_refptr.h"
+#include "api/units/time_delta.h"
 #include "call/audio_sender.h"
-#include "call/rtp_config.h"
-#include "modules/audio_processing/include/audio_processing_statistics.h"
 #include "modules/rtp_rtcp/include/report_block_data.h"
 
 namespace webrtc {
@@ -45,12 +48,14 @@ class AudioSendStream : public AudioSender {
     // https://w3c.github.io/webrtc-stats/#dom-rtcoutboundrtpstreamstats-retransmittedbytessent
     uint64_t retransmitted_bytes_sent = 0;
     int32_t packets_sent = 0;
+    // https://w3c.github.io/webrtc-stats/#dom-rtcoutboundrtpstreamstats-totalpacketsenddelay
+    TimeDelta total_packet_send_delay = TimeDelta::Zero();
     // https://w3c.github.io/webrtc-stats/#dom-rtcoutboundrtpstreamstats-retransmittedpacketssent
     uint64_t retransmitted_packets_sent = 0;
     int32_t packets_lost = -1;
     float fraction_lost = -1.0f;
     std::string codec_name;
-    absl::optional<int> codec_payload_type;
+    std::optional<int> codec_payload_type;
     int32_t jitter_ms = -1;
     int64_t rtt_ms = -1;
     int16_t audio_level = 0;
@@ -58,7 +63,6 @@ class AudioSendStream : public AudioSender {
     // https://w3c.github.io/webrtc-stats/#dom-rtcmediastreamtrackstats-totalaudioenergy
     double total_input_energy = 0.0;
     double total_input_duration = 0.0;
-    bool typing_noise_detected = false;
 
     ANAStats ana_statistics;
     AudioProcessingStats apm_statistics;
@@ -69,6 +73,7 @@ class AudioSendStream : public AudioSender {
     // per-pair the ReportBlockData represents the latest Report Block that was
     // received for that pair.
     std::vector<ReportBlockData> report_block_datas;
+    uint32_t nacks_received = 0;
   };
 
   struct Config {
@@ -102,6 +107,9 @@ class AudioSendStream : public AudioSender {
 
       // RTCP CNAME, see RFC 3550.
       std::string c_name;
+
+      // Compound or reduced size RTCP.
+      RtcpMode rtcp_mode = RtcpMode::kCompound;
     } rtp;
 
     // Time interval between RTCP report for audio
@@ -122,7 +130,7 @@ class AudioSendStream : public AudioSender {
 
     // Defines whether to turn on audio network adaptor, and defines its config
     // string.
-    absl::optional<std::string> audio_network_adaptor_config;
+    std::optional<std::string> audio_network_adaptor_config;
 
     struct SendCodecSpec {
       SendCodecSpec(int payload_type, const SdpAudioFormat& format);
@@ -138,14 +146,16 @@ class AudioSendStream : public AudioSender {
       SdpAudioFormat format;
       bool nack_enabled = false;
       bool transport_cc_enabled = false;
-      absl::optional<int> cng_payload_type;
+      bool enable_non_sender_rtt = false;
+      std::optional<int> cng_payload_type;
+      std::optional<int> red_payload_type;
       // If unset, use the encoder's default target bitrate.
-      absl::optional<int> target_bitrate_bps;
+      std::optional<int> target_bitrate_bps;
     };
 
-    absl::optional<SendCodecSpec> send_codec_spec;
+    std::optional<SendCodecSpec> send_codec_spec;
     rtc::scoped_refptr<AudioEncoderFactory> encoder_factory;
-    absl::optional<AudioCodecPairId> codec_pair_id;
+    std::optional<AudioCodecPairId> codec_pair_id;
 
     // Track ID as specified during track creation.
     std::string track_id;
@@ -157,6 +167,10 @@ class AudioSendStream : public AudioSender {
     // encryptor in whatever way the caller choses. This is not required by
     // default.
     rtc::scoped_refptr<webrtc::FrameEncryptorInterface> frame_encryptor;
+
+    // An optional frame transformer used by insertable streams to transform
+    // encoded frames.
+    rtc::scoped_refptr<webrtc::FrameTransformerInterface> frame_transformer;
   };
 
   virtual ~AudioSendStream() = default;
@@ -164,7 +178,8 @@ class AudioSendStream : public AudioSender {
   virtual const webrtc::AudioSendStream::Config& GetConfig() const = 0;
 
   // Reconfigure the stream according to the Configuration.
-  virtual void Reconfigure(const Config& config) = 0;
+  virtual void Reconfigure(const Config& config,
+                           SetParametersCallback callback) = 0;
 
   // Starts stream activity.
   // When a stream is active, it can receive, process and deliver packets.

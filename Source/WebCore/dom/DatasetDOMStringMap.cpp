@@ -26,19 +26,19 @@
 #include "config.h"
 #include "DatasetDOMStringMap.h"
 
-#include "Element.h"
+#include "ElementInlines.h"
 #include <wtf/ASCIICType.h>
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/AtomString.h>
 #include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(DatasetDOMStringMap);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(DatasetDOMStringMap);
 
 static bool isValidAttributeName(const String& name)
 {
-    if (!name.startsWith("data-"))
+    if (!name.startsWith("data-"_s))
         return false;
 
     unsigned length = name.length();
@@ -71,33 +71,6 @@ static String convertAttributeNameToPropertyName(const String& name)
     return stringBuilder.toString();
 }
 
-static bool propertyNameMatchesAttributeName(const String& propertyName, const String& attributeName)
-{
-    if (!attributeName.startsWith("data-"))
-        return false;
-
-    unsigned propertyLength = propertyName.length();
-    unsigned attributeLength = attributeName.length();
-
-    unsigned a = 5;
-    unsigned p = 0;
-    bool wordBoundary = false;
-    while (a < attributeLength && p < propertyLength) {
-        const UChar currentAttributeNameChar = attributeName[a];
-        if (currentAttributeNameChar == '-' && a + 1 < attributeLength && attributeName[a + 1] != '-')
-            wordBoundary = true;
-        else {
-            if ((wordBoundary ? toASCIIUpper(currentAttributeNameChar) : currentAttributeNameChar) != propertyName[p])
-                return false;
-            p++;
-            wordBoundary = false;
-        }
-        a++;
-    }
-
-    return (a == attributeLength && p == propertyLength);
-}
-
 static bool isValidPropertyName(const String& name)
 {
     unsigned length = name.length();
@@ -116,20 +89,19 @@ static inline AtomString convertPropertyNameToAttributeName(const StringImpl& na
     Vector<CharacterType, 32> buffer;
 
     unsigned length = name.length();
-    buffer.reserveInitialCapacity(WTF_ARRAY_LENGTH(dataPrefix) + length);
+    buffer.reserveInitialCapacity(std::size(dataPrefix) + length);
 
-    buffer.append(dataPrefix, WTF_ARRAY_LENGTH(dataPrefix));
+    buffer.append(std::span { dataPrefix });
 
-    const CharacterType* characters = name.characters<CharacterType>();
-    for (unsigned i = 0; i < length; ++i) {
-        CharacterType character = characters[i];
+    auto characters = name.span<CharacterType>();
+    for (auto character : characters) {
         if (isASCIIUpper(character)) {
             buffer.append('-');
             buffer.append(toASCIILower(character));
         } else
             buffer.append(character);
     }
-    return AtomString(buffer.data(), buffer.size());
+    return buffer.span();
 }
 
 static AtomString convertPropertyNameToAttributeName(const String& name)
@@ -145,29 +117,29 @@ static AtomString convertPropertyNameToAttributeName(const String& name)
 
 void DatasetDOMStringMap::ref()
 {
-    m_element.ref();
+    m_element->ref();
 }
 
 void DatasetDOMStringMap::deref()
 {
-    m_element.deref();
+    m_element->deref();
 }
 
 bool DatasetDOMStringMap::isSupportedPropertyName(const String& propertyName) const
 {
-    if (!m_element.hasAttributes())
+    Ref element = m_element.get();
+    if (!element->hasAttributes())
         return false;
 
-    auto attributeIteratorAccessor = m_element.attributesIterator();
-    if (attributeIteratorAccessor.attributeCount() == 1) {
-        // If the node has a single attribute, it is the dataset member accessed in most cases.
-        // Building a new AtomString in that case is overkill so we do a direct character comparison.
-        const auto& attribute = *attributeIteratorAccessor.begin();
-        if (propertyNameMatchesAttributeName(propertyName, attribute.localName()))
+    auto attributes = element->attributes();
+    if (attributes.size() == 1) {
+        // Avoid creating AtomString when there is only one attribute.
+        auto& attribute = attributes[0];
+        if (convertAttributeNameToPropertyName(attribute.localName()) == propertyName)
             return true;
     } else {
         auto attributeName = convertPropertyNameToAttributeName(propertyName);
-        for (const Attribute& attribute : attributeIteratorAccessor) {
+        for (auto& attribute : attributes) {
             if (attribute.localName() == attributeName)
                 return true;
         }
@@ -180,10 +152,11 @@ Vector<String> DatasetDOMStringMap::supportedPropertyNames() const
 {
     Vector<String> names;
 
-    if (!m_element.hasAttributes())
+    Ref element = m_element.get();
+    if (!element->hasAttributes())
         return names;
 
-    for (auto& attribute : m_element.attributesIterator()) {
+    for (auto& attribute : element->attributes()) {
         if (isValidAttributeName(attribute.localName()))
             names.append(convertAttributeNameToPropertyName(attribute.localName()));
     }
@@ -193,18 +166,18 @@ Vector<String> DatasetDOMStringMap::supportedPropertyNames() const
 
 const AtomString* DatasetDOMStringMap::item(const String& propertyName) const
 {
-    if (m_element.hasAttributes()) {
-        AttributeIteratorAccessor attributeIteratorAccessor = m_element.attributesIterator();
+    Ref element = m_element.get();
+    if (element->hasAttributes()) {
+        auto attributes = element->attributes();
 
-        if (attributeIteratorAccessor.attributeCount() == 1) {
-            // If the node has a single attribute, it is the dataset member accessed in most cases.
-            // Building a new AtomString in that case is overkill so we do a direct character comparison.
-            const Attribute& attribute = *attributeIteratorAccessor.begin();
-            if (propertyNameMatchesAttributeName(propertyName, attribute.localName()))
+        if (attributes.size() == 1) {
+            // Avoid creating AtomString when there is only one attribute.
+            auto& attribute = attributes[0];
+            if (convertAttributeNameToPropertyName(attribute.localName()) == propertyName)
                 return &attribute.value();
         } else {
             AtomString attributeName = convertPropertyNameToAttributeName(propertyName);
-            for (const Attribute& attribute : attributeIteratorAccessor) {
+            for (auto& attribute : attributes) {
                 if (attribute.localName() == attributeName)
                     return &attribute.value();
             }
@@ -221,16 +194,21 @@ String DatasetDOMStringMap::namedItem(const AtomString& name) const
     return String { };
 }
 
-ExceptionOr<void> DatasetDOMStringMap::setNamedItem(const String& name, const String& value)
+ExceptionOr<void> DatasetDOMStringMap::setNamedItem(const String& name, const AtomString& value)
 {
     if (!isValidPropertyName(name))
-        return Exception { SyntaxError };
-    return m_element.setAttribute(convertPropertyNameToAttributeName(name), value);
+        return Exception { ExceptionCode::SyntaxError };
+    return protectedElement()->setAttribute(convertPropertyNameToAttributeName(name), value);
 }
 
 bool DatasetDOMStringMap::deleteNamedProperty(const String& name)
 {
-    return m_element.removeAttribute(convertPropertyNameToAttributeName(name));
+    return protectedElement()->removeAttribute(convertPropertyNameToAttributeName(name));
+}
+
+Ref<Element> DatasetDOMStringMap::protectedElement() const
+{
+    return m_element.get();
 }
 
 } // namespace WebCore

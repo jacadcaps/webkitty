@@ -27,43 +27,61 @@
 #import "FrameSelection.h"
 
 #import "AXObjectCache.h"
-#import "Frame.h"
+#import "Chrome.h"
+#import "ChromeClient.h"
+#import "DocumentInlines.h"
+#import "LocalFrame.h"
 #import "RenderView.h"
 
 namespace WebCore {
 
 void FrameSelection::notifyAccessibilityForSelectionChange(const AXTextStateChangeIntent& intent)
 {
-    if (m_selection.start().isNotNull() && m_selection.end().isNotNull()) {
-        if (AXObjectCache* cache = m_document->existingAXObjectCache())
+    if (!AXObjectCache::accessibilityEnabled())
+        return;
+
+    if (CheckedPtr cache = m_document->existingAXObjectCache()) {
+        if (m_selection.start().isNotNull() && m_selection.end().isNotNull())
             cache->postTextStateChangeNotification(m_selection.start(), intent, m_selection);
+        else {
+            // The selection was cleared, so use `onSelectedTextChanged` with an empty selection range to update the isolated tree.
+            // FIXME: https://bugs.webkit.org/show_bug.cgi?id=279524: In the future, we should consider actually doing
+            // `postTextStateChangeNotification`, since right now, VoiceOver does not announce when text becomes unselected
+            // (because we don't post a notification), unless new text becomes selected at the same time. However, even if we
+            // did post this notification, changes would be needed in VoiceOver too, so just do onSelectedTextChanged for now.
+            // Handling selection removals should also not be platform-specific (as it is here with ENABLE(ACCESSIBILITY_ISOLATED_TREE)).
+#if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
+            cache->onSelectedTextChanged(m_selection);
+#endif
+        }
     }
 
 #if !PLATFORM(IOS_FAMILY)
     // if zoom feature is enabled, insertion point changes should update the zoom
-    if (!UAZoomEnabled() || !m_selection.isCaret())
+    if (!m_selection.isCaret())
         return;
 
-    RenderView* renderView = m_document->renderView();
+    auto* renderView = m_document->renderView();
     if (!renderView)
         return;
-    FrameView* frameView = m_document->view();
+    auto* frameView = m_document->view();
     if (!frameView)
         return;
 
     IntRect selectionRect = absoluteCaretBounds();
     IntRect viewRect = snappedIntRect(renderView->viewRect());
 
+    auto remoteFrameOffset = frameView->frame().loader().client().accessibilityRemoteFrameOffset();
+    selectionRect.moveBy({ remoteFrameOffset });
+    viewRect.moveBy({ remoteFrameOffset });
+
     selectionRect = frameView->contentsToScreen(selectionRect);
     viewRect = frameView->contentsToScreen(viewRect);
-    NSRect nsCaretRect = NSMakeRect(selectionRect.x(), selectionRect.y(), selectionRect.width(), selectionRect.height());
-    NSRect nsViewRect = NSMakeRect(viewRect.x(), viewRect.y(), viewRect.width(), viewRect.height());
-    nsCaretRect = toUserSpaceForPrimaryScreen(nsCaretRect);
-    nsViewRect = toUserSpaceForPrimaryScreen(nsViewRect);
-    CGRect cgCaretRect = NSRectToCGRect(nsCaretRect);
-    CGRect cgViewRect = NSRectToCGRect(nsViewRect);
 
-    UAZoomChangeFocus(&cgViewRect, &cgCaretRect, kUAZoomFocusTypeInsertionPoint);
+    if (!m_document->page())
+        return;
+    
+    m_document->page()->chrome().client().changeUniversalAccessZoomFocus(viewRect, selectionRect);
 #endif // !PLATFORM(IOS_FAMILY)
 }
 

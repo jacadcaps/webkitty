@@ -28,7 +28,7 @@
 
 #import "APIArray.h"
 #import "APIData.h"
-#import "ObjCObjectGraph.h"
+#import "WKBrowsingContextHandle.h"
 #import "WKBundleAPICast.h"
 #import "WKBundleInitialize.h"
 #import "WKWebProcessBundleParameters.h"
@@ -51,8 +51,7 @@
 namespace WebKit {
 using namespace WebCore;
 
-#if ENABLE(WEBPROCESS_WINDOWSERVER_BLOCKING)
-
+#if PLATFORM(MAC)
 static NSEventModifierFlags currentModifierFlags(id self, SEL _cmd)
 {
     auto currentModifiers = PlatformKeyboardEvent::currentStateOfModifierKeys();
@@ -71,25 +70,19 @@ static NSEventModifierFlags currentModifierFlags(id self, SEL _cmd)
     
     return modifiers;
 }
-
 #endif
 
-static RetainPtr<NSKeyedUnarchiver> createUnarchiver(const unsigned char* bytes, NSUInteger length)
+static RetainPtr<NSKeyedUnarchiver> createUnarchiver(std::span<const uint8_t> span)
 {
-    auto data = adoptNS([[NSData alloc] initWithBytesNoCopy:const_cast<unsigned char*>(bytes) length:length freeWhenDone:NO]);
-    auto unarchiver = adoptNS([[NSKeyedUnarchiver alloc] initForReadingFromData:data.get() error:nullptr]);
+    RetainPtr data = adoptNS([[NSData alloc] initWithBytesNoCopy:const_cast<uint8_t*>(span.data()) length:span.size() freeWhenDone:NO]);
+    RetainPtr unarchiver = adoptNS([[NSKeyedUnarchiver alloc] initForReadingFromData:data.get() error:nullptr]);
     unarchiver.get().decodingFailurePolicy = NSDecodingFailurePolicyRaiseException;
     return unarchiver;
 }
 
 static RetainPtr<NSKeyedUnarchiver> createUnarchiver(const API::Data& data)
 {
-    return createUnarchiver(data.bytes(), data.size());
-}
-
-static RetainPtr<NSKeyedUnarchiver> createUnarchiver(const IPC::DataReference& data)
-{
-    return createUnarchiver(data.data(), data.size());
+    return createUnarchiver(data.span());
 }
 
 bool InjectedBundle::decodeBundleParameters(API::Data* bundleParameterDataPtr)
@@ -116,30 +109,16 @@ bool InjectedBundle::decodeBundleParameters(API::Data* bundleParameterDataPtr)
     return true;
 }
 
-bool InjectedBundle::initialize(const WebProcessCreationParameters& parameters, API::Object* initializationUserData)
+bool InjectedBundle::initialize(const WebProcessCreationParameters& parameters, RefPtr<API::Object>&& initializationUserData)
 {
-    if (m_sandboxExtension) {
-        if (!m_sandboxExtension->consumePermanently()) {
+    if (auto sandboxExtension = std::exchange(m_sandboxExtension, nullptr)) {
+        if (!sandboxExtension->consumePermanently()) {
             WTFLogAlways("InjectedBundle::load failed - Could not consume bundle sandbox extension for [%s].\n", m_path.utf8().data());
             return false;
         }
-
-        m_sandboxExtension = nullptr;
-    }
-    
-    RetainPtr<CFStringRef> injectedBundlePathStr = m_path.createCFString();
-    if (!injectedBundlePathStr) {
-        WTFLogAlways("InjectedBundle::load failed - Could not create the path string.\n");
-        return false;
-    }
-    
-    RetainPtr<CFURLRef> bundleURL = adoptCF(CFURLCreateWithFileSystemPath(0, injectedBundlePathStr.get(), kCFURLPOSIXPathStyle, false));
-    if (!bundleURL) {
-        WTFLogAlways("InjectedBundle::load failed - Could not create the url from the path string.\n");
-        return false;
     }
 
-    m_platformBundle = [[NSBundle alloc] initWithURL:(__bridge NSURL *)bundleURL.get()];
+    m_platformBundle = [[NSBundle alloc] initWithPath:m_path];
     if (!m_platformBundle) {
         WTFLogAlways("InjectedBundle::load failed - Could not create the bundle.\n");
         return false;
@@ -147,36 +126,37 @@ bool InjectedBundle::initialize(const WebProcessCreationParameters& parameters, 
 
     WKBundleAdditionalClassesForParameterCoderFunctionPtr additionalClassesForParameterCoderFunction = nullptr;
     WKBundleInitializeFunctionPtr initializeFunction = nullptr;
-    if (RetainPtr<CFURLRef> executableURL = adoptCF(CFBundleCopyExecutableURL([m_platformBundle _cfBundle]))) {
-        static constexpr size_t maxPathSize = 4096;
-        char pathToExecutable[maxPathSize];
-        if (CFURLGetFileSystemRepresentation(executableURL.get(), true, bitwise_cast<uint8_t*>(pathToExecutable), maxPathSize)) {
-            // We don't hold onto this handle anywhere more permanent since we never dlcose.
-            if (void* handle = dlopen(pathToExecutable, RTLD_LAZY | RTLD_GLOBAL | RTLD_FIRST)) {
-                additionalClassesForParameterCoderFunction = bitwise_cast<WKBundleAdditionalClassesForParameterCoderFunctionPtr>(dlsym(handle, "WKBundleAdditionalClassesForParameterCoder"));
-                initializeFunction = bitwise_cast<WKBundleInitializeFunctionPtr>(dlsym(handle, "WKBundleInitialize"));
+    if (NSString *executablePath = m_platformBundle.executablePath) {
+        if (dlopen_preflight(executablePath.fileSystemRepresentation)) {
+            // We don't hold onto this handle anywhere more permanent since we never dlclose.
+            if (void* handle = dlopen(executablePath.fileSystemRepresentation, RTLD_LAZY | RTLD_GLOBAL | RTLD_FIRST)) {
+                additionalClassesForParameterCoderFunction = std::bit_cast<WKBundleAdditionalClassesForParameterCoderFunctionPtr>(dlsym(handle, "WKBundleAdditionalClassesForParameterCoder"));
+                initializeFunction = std::bit_cast<WKBundleInitializeFunctionPtr>(dlsym(handle, "WKBundleInitialize"));
             }
         }
     }
         
     if (!initializeFunction) {
-        if (![m_platformBundle load]) {
-            WTFLogAlways("InjectedBundle::load failed - Could not load the executable from the bundle.\n");
+        NSError *error;
+        if (![m_platformBundle preflightAndReturnError:&error]) {
+            NSLog(@"InjectedBundle::load failed - preflightAndReturnError failed, error: %@", error);
             return false;
         }
+        if (![m_platformBundle loadAndReturnError:&error]) {
+            NSLog(@"InjectedBundle::load failed - loadAndReturnError failed, error: %@", error);
+            return false;
+        }
+        initializeFunction = std::bit_cast<WKBundleInitializeFunctionPtr>(CFBundleGetFunctionPointerForName([m_platformBundle _cfBundle], CFSTR("WKBundleInitialize")));
     }
 
-    if (!initializeFunction)
-        initializeFunction = bitwise_cast<WKBundleInitializeFunctionPtr>(CFBundleGetFunctionPointerForName([m_platformBundle _cfBundle], CFSTR("WKBundleInitialize")));
-
     if (!additionalClassesForParameterCoderFunction)
-        additionalClassesForParameterCoderFunction = bitwise_cast<WKBundleAdditionalClassesForParameterCoderFunctionPtr>(CFBundleGetFunctionPointerForName([m_platformBundle _cfBundle], CFSTR("WKBundleAdditionalClassesForParameterCoder")));
+        additionalClassesForParameterCoderFunction = std::bit_cast<WKBundleAdditionalClassesForParameterCoderFunctionPtr>(CFBundleGetFunctionPointerForName([m_platformBundle _cfBundle], CFSTR("WKBundleAdditionalClassesForParameterCoder")));
 
     // Update list of valid classes for the parameter coder
     if (additionalClassesForParameterCoderFunction)
-        additionalClassesForParameterCoderFunction(toAPI(this), toAPI(initializationUserData));
+        additionalClassesForParameterCoderFunction(toAPI(this), toAPI(initializationUserData.get()));
 
-#if ENABLE(WEBPROCESS_WINDOWSERVER_BLOCKING)
+#if PLATFORM(MAC)
     // Swizzle [NSEvent modiferFlags], since it always returns 0 when the WindowServer is blocked.
     Method method = class_getClassMethod([NSEvent class], @selector(modifierFlags));
     method_setImplementation(method, reinterpret_cast<IMP>(currentModifierFlags));
@@ -186,7 +166,7 @@ bool InjectedBundle::initialize(const WebProcessCreationParameters& parameters, 
     if (initializeFunction) {
         if (!decodeBundleParameters(parameters.bundleParameterData.get()))
             return false;
-        initializeFunction(toAPI(this), toAPI(initializationUserData));
+        initializeFunction(toAPI(this), toAPI(initializationUserData.get()));
         return true;
     }
 
@@ -202,14 +182,14 @@ bool InjectedBundle::initialize(const WebProcessCreationParameters& parameters, 
         return false;
     }
 
-    id <WKWebProcessPlugIn> instance = (id <WKWebProcessPlugIn>)[(NSObject *)[principalClass alloc] init];
+    auto instance = adoptNS((id <WKWebProcessPlugIn>)[(NSObject *)[principalClass alloc] init]);
     if (!instance) {
         WTFLogAlways("InjectedBundle::load failed - Could not initialize an instance of the principal class.\n");
         return false;
     }
 
     WKWebProcessPlugInController* plugInController = WebKit::wrapper(*this);
-    [plugInController _setPrincipalClassInstance:instance];
+    [plugInController _setPrincipalClassInstance:instance.get()];
 
     if ([instance respondsToSelector:@selector(additionalClassesForParameterCoder)])
         [plugInController extendClassesForParameterCoder:[instance additionalClassesForParameterCoder]];
@@ -217,12 +197,8 @@ bool InjectedBundle::initialize(const WebProcessCreationParameters& parameters, 
     if (!decodeBundleParameters(parameters.bundleParameterData.get()))
         return false;
 
-    if ([instance respondsToSelector:@selector(webProcessPlugIn:initializeWithObject:)]) {
-        RetainPtr<id> objCInitializationUserData;
-        if (initializationUserData && initializationUserData->type() == API::Object::Type::ObjCObjectGraph)
-            objCInitializationUserData = static_cast<ObjCObjectGraph*>(initializationUserData)->rootObject();
-        [instance webProcessPlugIn:plugInController initializeWithObject:objCInitializationUserData.get()];
-    }
+    if ([instance respondsToSelector:@selector(webProcessPlugIn:initializeWithObject:)])
+        [instance webProcessPlugIn:plugInController initializeWithObject:nil];
 
     return true;
 }
@@ -266,12 +242,12 @@ void InjectedBundle::extendClassesForParameterCoder(API::Array& classes)
 NSSet* InjectedBundle::classesForCoder()
 {
     if (!m_classesForCoder)
-        m_classesForCoder = [NSSet setWithObjects:[NSArray class], [NSData class], [NSDate class], [NSDictionary class], [NSNull class], [NSNumber class], [NSSet class], [NSString class], [NSTimeZone class], [NSURL class], [NSUUID class], nil];
+        m_classesForCoder = [NSSet setWithObjects:[NSArray class], [NSData class], [NSDate class], [NSDictionary class], [NSNull class], [NSNumber class], [NSSet class], [NSString class], [NSTimeZone class], [NSURL class], [NSUUID class], [WKBrowsingContextHandle class], nil];
 
     return m_classesForCoder.get();
 }
 
-void InjectedBundle::setBundleParameter(const String& key, const IPC::DataReference& value)
+void InjectedBundle::setBundleParameter(const String& key, std::span<const uint8_t> value)
 {
     id parameter = nil;
     auto unarchiver = createUnarchiver(value);
@@ -288,7 +264,7 @@ void InjectedBundle::setBundleParameter(const String& key, const IPC::DataRefere
     [m_bundleParameters setParameter:parameter forKey:key];
 }
 
-void InjectedBundle::setBundleParameters(const IPC::DataReference& value)
+void InjectedBundle::setBundleParameters(std::span<const uint8_t> value)
 {
     NSDictionary *parameters = nil;
     auto unarchiver = createUnarchiver(value);

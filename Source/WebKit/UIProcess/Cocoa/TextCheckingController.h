@@ -28,16 +28,18 @@
 #if ENABLE(PLATFORM_DRIVEN_TEXT_CHECKING)
 
 #import "EditingRange.h"
-#import "WebPageProxy.h"
 #import <WebCore/FloatRect.h>
 #import <wtf/CompletionHandler.h>
+#import <wtf/TZoneMalloc.h>
 
 OBJC_CLASS NSAttributedString;
 
 namespace WebKit {
 
+class WebPageProxy;
+
 class TextCheckingController final {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(TextCheckingController);
     WTF_MAKE_NONCOPYABLE(TextCheckingController);
 public:
     explicit TextCheckingController(WebPageProxy&);
@@ -47,7 +49,7 @@ public:
     void removeAnnotationRelativeToSelection(NSString *annotationName, int64_t selectionOffset, uint64_t length);
 
 private:
-    WebPageProxy& m_page;
+    WeakRef<WebPageProxy> m_page;
 };
 
 } // namespace WebKit

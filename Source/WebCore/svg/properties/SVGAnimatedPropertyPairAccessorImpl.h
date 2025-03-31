@@ -31,6 +31,7 @@
 #include "SVGAnimatedPropertyPairAccessor.h"
 #include "SVGAnimatedPropertyPairAnimatorImpl.h"
 #include "SVGNames.h"
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
@@ -58,12 +59,12 @@ private:
         animatedProperty.setDirty();
     }
 
-    Optional<String> synchronize(const OwnerType& owner) const final
+    std::optional<String> synchronize(const OwnerType& owner) const final
     {
         bool dirty1 = property1(owner)->isDirty();
         bool dirty2 = property2(owner)->isDirty();
         if (!(dirty1 || dirty2))
-            return WTF::nullopt;
+            return std::nullopt;
 
         auto type = property2(owner)->baseVal();
 
@@ -95,16 +96,16 @@ public:
     constexpr static const SVGMemberAccessor<OwnerType>& singleton() { return Base::template singleton<SVGAnimatedIntegerPairAccessor, property1, property2>(); }
 
 private:
-    Optional<String> synchronize(const OwnerType& owner) const final
+    std::optional<String> synchronize(const OwnerType& owner) const final
     {
         bool dirty1 = property1(owner)->isDirty();
         bool dirty2 = property2(owner)->isDirty();
         if (!(dirty1 || dirty2))
-            return WTF::nullopt;
+            return std::nullopt;
 
         String string1 = dirty1 ? *property1(owner)->synchronize() : property1(owner)->baseValAsString();
         String string2 = dirty2 ? *property2(owner)->synchronize() : property2(owner)->baseValAsString();
-        return string1 == string2 ? string1 : string1 + ", " + string2;
+        return string1 == string2 ? string1 : makeString(string1, ", "_s, string2);
     }
 
     RefPtr<SVGAttributeAnimator> createAnimator(OwnerType& owner, const QualifiedName& attributeName, AnimationMode animationMode, CalcMode calcMode, bool isAccumulated, bool isAdditive) const final
@@ -130,16 +131,16 @@ public:
     constexpr static const SVGMemberAccessor<OwnerType>& singleton() { return Base::template singleton<SVGAnimatedNumberPairAccessor, property1, property2>(); }
 
 private:
-    Optional<String> synchronize(const OwnerType& owner) const final
+    std::optional<String> synchronize(const OwnerType& owner) const final
     {
         bool dirty1 = property1(owner)->isDirty();
         bool dirty2 = property2(owner)->isDirty();
         if (!(dirty1 || dirty2))
-            return WTF::nullopt;
+            return std::nullopt;
 
         String string1 = dirty1 ? *property1(owner)->synchronize() : property1(owner)->baseValAsString();
         String string2 = dirty2 ? *property2(owner)->synchronize() : property2(owner)->baseValAsString();
-        return string1 == string2 ? string1 : string1 + ", " + string2;
+        return string1 == string2 ? string1 : makeString(string1, ", "_s, string2);
     }
 
     RefPtr<SVGAttributeAnimator> createAnimator(OwnerType& owner, const QualifiedName& attributeName, AnimationMode animationMode, CalcMode calcMode, bool isAccumulated, bool isAdditive) const final

@@ -36,8 +36,10 @@ typedef NS_OPTIONS(NSUInteger, NFFeature) {
 };
 
 typedef NS_ENUM(uint32_t, NFTagType) {
-    NFTagTypeUnknown    = 0,
-    NFTagTypeGeneric4A  = 3,
+    NFTagTypeUnknown        = 0,
+    NFTagTypeGeneric4A      = 3,
+    NFTagTypeGeneric4B      = 6,
+    NFTagTypeMiFareDESFire  = 16,
 };
 
 typedef NS_OPTIONS(uint32_t, NFTechnology) {
@@ -88,9 +90,14 @@ typedef NS_ENUM(uint32_t, NFNdefAvailability) {
 
 @protocol NFReaderSessionDelegate;
 
+typedef NS_ENUM(NSInteger, NFReaderSessionUI) {
+    NFReaderSessionUINone
+};
+
 @interface NFReaderSession : NFSession
 @property (assign) id<NFReaderSessionDelegate> delegate;
 
+- (instancetype)initWithUIType:(NFReaderSessionUI)uiType;
 - (BOOL)startPollingWithError:(NSError **)outError;
 - (BOOL)stopPolling;
 - (BOOL)connectTag:(NFTag*)tag;

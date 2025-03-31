@@ -25,9 +25,13 @@
 
 #pragma once
 
+#if !BUSE(TZONE)
+
 #include "IsoPageTrigger.h"
 #include "Mutex.h"
 #include <mutex>
+
+#if !BUSE(LIBPAS)
 
 namespace bmalloc {
 
@@ -50,3 +54,5 @@ private:
 
 } // namespace bmalloc
 
+#endif
+#endif // !BUSE(TZONE)

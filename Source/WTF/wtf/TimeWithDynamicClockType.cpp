@@ -40,6 +40,12 @@ TimeWithDynamicClockType TimeWithDynamicClockType::now(ClockType type)
         return WallTime::now();
     case ClockType::Monotonic:
         return MonotonicTime::now();
+    case ClockType::Approximate:
+        return ApproximateTime::now();
+    case ClockType::Continuous:
+        return ContinuousTime::now();
+    case ClockType::ContinuousApproximate:
+        return ContinuousApproximateTime::now();
     }
     RELEASE_ASSERT_NOT_REACHED();
     return TimeWithDynamicClockType();
@@ -62,6 +68,24 @@ MonotonicTime TimeWithDynamicClockType::monotonicTime() const
     return MonotonicTime::fromRawSeconds(m_value);
 }
 
+ApproximateTime TimeWithDynamicClockType::approximateTime() const
+{
+    RELEASE_ASSERT(m_type == ClockType::Approximate);
+    return ApproximateTime::fromRawSeconds(m_value);
+}
+
+ContinuousTime TimeWithDynamicClockType::continuousTime() const
+{
+    RELEASE_ASSERT(m_type == ClockType::Continuous);
+    return ContinuousTime::fromRawSeconds(m_value);
+}
+
+ContinuousApproximateTime TimeWithDynamicClockType::continuousApproximateTime() const
+{
+    RELEASE_ASSERT(m_type == ClockType::ContinuousApproximate);
+    return ContinuousApproximateTime::fromRawSeconds(m_value);
+}
+
 WallTime TimeWithDynamicClockType::approximateWallTime() const
 {
     switch (m_type) {
@@ -69,6 +93,12 @@ WallTime TimeWithDynamicClockType::approximateWallTime() const
         return wallTime();
     case ClockType::Monotonic:
         return monotonicTime().approximateWallTime();
+    case ClockType::Approximate:
+        return approximateTime().approximateWallTime();
+    case ClockType::Continuous:
+        return continuousTime().approximateWallTime();
+    case ClockType::ContinuousApproximate:
+        return ContinuousApproximateTime().approximateWallTime();
     }
     RELEASE_ASSERT_NOT_REACHED();
     return WallTime();
@@ -81,6 +111,12 @@ MonotonicTime TimeWithDynamicClockType::approximateMonotonicTime() const
         return wallTime().approximateMonotonicTime();
     case ClockType::Monotonic:
         return monotonicTime();
+    case ClockType::Approximate:
+        return approximateTime().approximateMonotonicTime();
+    case ClockType::Continuous:
+        return continuousTime().approximateMonotonicTime();
+    case ClockType::ContinuousApproximate:
+        return ContinuousApproximateTime().approximateMonotonicTime();
     }
     RELEASE_ASSERT_NOT_REACHED();
     return MonotonicTime();
@@ -125,7 +161,7 @@ void sleep(const TimeWithDynamicClockType& time)
 {
     Lock fakeLock;
     Condition fakeCondition;
-    LockHolder fakeLocker(fakeLock);
+    Locker fakeLocker { fakeLock };
     fakeCondition.waitUntil(fakeLock, time);
 }
 
@@ -134,7 +170,7 @@ bool hasElapsed(const TimeWithDynamicClockType& time)
     // Avoid doing now().
     if (!(time > time.withSameClockAndRawSeconds(0)))
         return true;
-    if (std::isinf(time.secondsSinceEpoch().value()))
+    if (time.secondsSinceEpoch().isInfinity())
         return false;
     
     return time <= time.nowWithSameClock();

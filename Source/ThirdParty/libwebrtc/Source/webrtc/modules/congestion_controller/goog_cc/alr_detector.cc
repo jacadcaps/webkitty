@@ -13,21 +13,22 @@
 #include <cstdint>
 #include <cstdio>
 #include <memory>
+#include <optional>
 
-#include "api/rtc_event_log/rtc_event.h"
+#include "api/field_trials_view.h"
 #include "api/rtc_event_log/rtc_event_log.h"
 #include "logging/rtc_event_log/events/rtc_event_alr_state.h"
 #include "rtc_base/checks.h"
-#include "rtc_base/numerics/safe_conversions.h"
+#include "rtc_base/experiments/alr_experiment.h"
+#include "rtc_base/experiments/struct_parameters_parser.h"
 #include "rtc_base/time_utils.h"
 
 namespace webrtc {
 
 namespace {
-AlrDetectorConfig GetConfigFromTrials(
-    const WebRtcKeyValueConfig* key_value_config) {
+AlrDetectorConfig GetConfigFromTrials(const FieldTrialsView* key_value_config) {
   RTC_CHECK(AlrExperimentSettings::MaxOneFieldTrialEnabled(*key_value_config));
-  absl::optional<AlrExperimentSettings> experiment_settings =
+  std::optional<AlrExperimentSettings> experiment_settings =
       AlrExperimentSettings::CreateFromFieldTrial(
           *key_value_config,
           AlrExperimentSettings::kScreenshareProbingBweExperimentName);
@@ -61,10 +62,10 @@ std::unique_ptr<StructParametersParser> AlrDetectorConfig::Parser() {
 AlrDetector::AlrDetector(AlrDetectorConfig config, RtcEventLog* event_log)
     : conf_(config), alr_budget_(0, true), event_log_(event_log) {}
 
-AlrDetector::AlrDetector(const WebRtcKeyValueConfig* key_value_config)
+AlrDetector::AlrDetector(const FieldTrialsView* key_value_config)
     : AlrDetector(GetConfigFromTrials(key_value_config), nullptr) {}
 
-AlrDetector::AlrDetector(const WebRtcKeyValueConfig* key_value_config,
+AlrDetector::AlrDetector(const FieldTrialsView* key_value_config,
                          RtcEventLog* event_log)
     : AlrDetector(GetConfigFromTrials(key_value_config), event_log) {}
 AlrDetector::~AlrDetector() {}
@@ -104,7 +105,7 @@ void AlrDetector::SetEstimatedBitrate(int bitrate_bps) {
   alr_budget_.set_target_rate_kbps(target_rate_kbps);
 }
 
-absl::optional<int64_t> AlrDetector::GetApplicationLimitedRegionStartTime()
+std::optional<int64_t> AlrDetector::GetApplicationLimitedRegionStartTime()
     const {
   return alr_started_time_ms_;
 }

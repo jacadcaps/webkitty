@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006, 2007, 2009, 2010, 2011, 2012 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,10 +26,6 @@
 #pragma once
 
 #include "CanvasRenderingContext2DBase.h"
-#include "CanvasTextAlign.h"
-#include "CanvasTextBaseline.h"
-#include "FontCascade.h"
-#include "FontSelectorClient.h"
 #include "HTMLCanvasElement.h"
 #include <memory>
 
@@ -38,9 +34,9 @@ namespace WebCore {
 class TextMetrics;
 
 class CanvasRenderingContext2D final : public CanvasRenderingContext2DBase {
-    WTF_MAKE_ISO_ALLOCATED(CanvasRenderingContext2D);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(CanvasRenderingContext2D);
 public:
-    static std::unique_ptr<CanvasRenderingContext2D> create(CanvasBase&, bool usesCSSCompatibilityParseMode);
+    static std::unique_ptr<CanvasRenderingContext2D> create(CanvasBase&, CanvasRenderingContext2DSettings&&, bool usesCSSCompatibilityParseMode);
 
     virtual ~CanvasRenderingContext2D();
 
@@ -49,40 +45,30 @@ public:
     void drawFocusIfNeeded(Element&);
     void drawFocusIfNeeded(Path2D&, Element&);
 
-    float webkitBackingStorePixelRatio() const { return 1; }
-
-    String font() const;
     void setFont(const String&);
 
-    CanvasTextAlign textAlign() const;
-    void setTextAlign(CanvasTextAlign);
-
-    CanvasTextBaseline textBaseline() const;
-    void setTextBaseline(CanvasTextBaseline);
-
     CanvasDirection direction() const;
-    void setDirection(CanvasDirection);
 
-    void fillText(const String& text, float x, float y, Optional<float> maxWidth = WTF::nullopt);
-    void strokeText(const String& text, float x, float y, Optional<float> maxWidth = WTF::nullopt);
+    void fillText(const String& text, double x, double y, std::optional<double> maxWidth = std::nullopt);
+    void strokeText(const String& text, double x, double y, std::optional<double> maxWidth = std::nullopt);
     Ref<TextMetrics> measureText(const String& text);
 
-    bool is2d() const override { return true; }
-
 private:
-    CanvasRenderingContext2D(CanvasBase&, bool usesCSSCompatibilityParseMode);
+    CanvasRenderingContext2D(CanvasBase&, CanvasRenderingContext2DSettings&&, bool usesCSSCompatibilityParseMode);
 
-    // The relationship between FontCascade and CanvasRenderingContext2D::FontProxy must hold certain invariants.
-    // Therefore, all font operations must pass through the State.
-    const FontProxy& fontProxy();
+    const FontProxy* fontProxy() final;
 
-    void drawTextInternal(const String& text, float x, float y, bool fill, Optional<float> maxWidth = WTF::nullopt);
+    std::optional<FilterOperations> setFilterStringWithoutUpdatingStyle(const String&) override;
+    RefPtr<Filter> createFilter(const FloatRect& bounds) const override;
+    IntOutsets calculateFilterOutsets(const FloatRect& bounds) const override;
+
+    void setFontWithoutUpdatingStyle(const String&);
+
+    void drawTextInternal(const String& text, double x, double y, bool fill, std::optional<double> maxWidth = std::nullopt);
 
     void drawFocusIfNeededInternal(const Path&, Element&);
 
     TextDirection toTextDirection(CanvasRenderingContext2DBase::Direction, const RenderStyle** computedStyle = nullptr) const;
-
-    FloatPoint textOffset(float width, TextDirection);
 };
 
 } // namespace WebCore

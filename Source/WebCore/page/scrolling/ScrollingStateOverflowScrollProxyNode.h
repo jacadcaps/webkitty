@@ -32,30 +32,27 @@
 namespace WebCore {
 
 class ScrollingStateOverflowScrollProxyNode : public ScrollingStateNode {
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(ScrollingStateOverflowScrollProxyNode, WEBCORE_EXPORT);
 public:
-    static Ref<ScrollingStateOverflowScrollProxyNode> create(ScrollingStateTree&, ScrollingNodeID);
+    template<typename... Args> static Ref<ScrollingStateOverflowScrollProxyNode> create(Args&&... args) { return adoptRef(*new ScrollingStateOverflowScrollProxyNode(std::forward<Args>(args)...)); }
 
     Ref<ScrollingStateNode> clone(ScrollingStateTree&) override;
 
     virtual ~ScrollingStateOverflowScrollProxyNode();
 
-    enum {
-        OverflowScrollingNode = NumStateNodeBits
-    };
-
     // This is the node we get our scroll position from.
-    ScrollingNodeID overflowScrollingNode() const { return m_overflowScrollingNodeID; }
-    WEBCORE_EXPORT void setOverflowScrollingNode(ScrollingNodeID);
-
-    void dumpProperties(WTF::TextStream&, ScrollingStateTreeAsTextBehavior) const override;
+    std::optional<ScrollingNodeID> overflowScrollingNode() const { return m_overflowScrollingNodeID; }
+    WEBCORE_EXPORT void setOverflowScrollingNode(std::optional<ScrollingNodeID>);
 
 private:
+    WEBCORE_EXPORT ScrollingStateOverflowScrollProxyNode(ScrollingNodeID, Vector<Ref<ScrollingStateNode>>&&, OptionSet<ScrollingStateNodeProperty>, std::optional<PlatformLayerIdentifier>, std::optional<ScrollingNodeID> overflowScrollingNode);
     ScrollingStateOverflowScrollProxyNode(ScrollingStateTree&, ScrollingNodeID);
     ScrollingStateOverflowScrollProxyNode(const ScrollingStateOverflowScrollProxyNode&, ScrollingStateTree&);
 
-    void setPropertyChangedBitsAfterReattach() override;
-    
-    ScrollingNodeID m_overflowScrollingNodeID { 0 };
+    void dumpProperties(WTF::TextStream&, OptionSet<ScrollingStateTreeAsTextBehavior>) const final;
+    OptionSet<ScrollingStateNode::Property> applicableProperties() const final;
+
+    Markable<ScrollingNodeID> m_overflowScrollingNodeID;
 };
 
 } // namespace WebCore

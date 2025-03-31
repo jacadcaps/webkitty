@@ -27,33 +27,34 @@
 
 #if ENABLE(ROUTING_ARBITRATION)
 
-#include "WebProcessSupplement.h"
 #include <WebCore/AudioSession.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebKit {
 
 class WebProcess;
 
-class AudioSessionRoutingArbitrator final
-    : public WebProcessSupplement
-    , public WebCore::AudioSessionRoutingArbitrationClient
-    , public CanMakeWeakPtr<AudioSessionRoutingArbitrator> {
-    WTF_MAKE_FAST_ALLOCATED;
+class AudioSessionRoutingArbitrator final : public WebCore::AudioSessionRoutingArbitrationClient {
+    WTF_MAKE_TZONE_ALLOCATED(AudioSessionRoutingArbitrator);
 public:
+    USING_CAN_MAKE_WEAKPTR(WebCore::AudioSessionRoutingArbitrationClient);
+
     explicit AudioSessionRoutingArbitrator(WebProcess&);
     virtual ~AudioSessionRoutingArbitrator();
 
-    static const char* supplementName();
+    static ASCIILiteral supplementName();
 
-    using WeakValueType = WebCore::AudioSessionRoutingArbitrationClient;
-
-private:
     // AudioSessionRoutingAbritrator
     void beginRoutingArbitrationWithCategory(WebCore::AudioSession::CategoryType, CompletionHandler<void(RoutingArbitrationError, DefaultRouteChanged)>&&) final;
     void leaveRoutingAbritration() final;
 
-    WebProcess& m_process;
+private:
+    uint64_t logIdentifier() const final { return m_logIdentifier; }
+    bool canLog() const final;
+
+    WebCore::AudioSession::ChangedObserver m_observer;
+    const uint64_t m_logIdentifier;
 };
 
 }

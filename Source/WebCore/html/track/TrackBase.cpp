@@ -26,31 +26,47 @@
 #include "config.h"
 #include "TrackBase.h"
 
+#include "ContextDestructionObserverInlines.h"
+#include "Document.h"
 #include "Logging.h"
+#include "TrackListBase.h"
+#include "TrackPrivateBase.h"
+#include "TrackPrivateBaseClient.h"
 #include <wtf/Language.h>
+#include <wtf/TZoneMallocInlines.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuilder.h>
+#include <wtf/text/StringToIntegerConversion.h>
 
 #if ENABLE(VIDEO)
 
-#include "HTMLMediaElement.h"
-
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(TrackBase);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(MediaTrackBase);
 
 static int s_uniqueId = 0;
 
 static bool isValidBCP47LanguageTag(const String&);
 
 #if !RELEASE_LOG_DISABLED
-static RefPtr<Logger>& nullLogger()
+static Ref<Logger> nullLogger(TrackBase& track)
 {
-    static NeverDestroyed<RefPtr<Logger>> logger;
-    return logger;
+    static std::once_flag onceKey;
+    static LazyNeverDestroyed<Ref<Logger>> logger;
+    std::call_once(onceKey, [&] {
+        logger.construct(Logger::create(&track));
+        logger.get()->setEnabled(&track, false);
+    });
+    return logger.get();
 }
 #endif
 
-TrackBase::TrackBase(Type type, const AtomString& id, const AtomString& label, const AtomString& language)
-    : m_uniqueId(++s_uniqueId)
-    , m_id(id)
+TrackBase::TrackBase(ScriptExecutionContext* context, Type type, const std::optional<AtomString>& id, TrackID trackId, const AtomString& label, const AtomString& language)
+    : ContextDestructionObserver(context)
+    , m_uniqueId(++s_uniqueId)
+    , m_id(id ? *id : AtomString::number(trackId))
+    , m_trackId(trackId)
     , m_label(label)
     , m_language(language)
 {
@@ -61,23 +77,37 @@ TrackBase::TrackBase(Type type, const AtomString& id, const AtomString& label, c
     m_type = type;
 
 #if !RELEASE_LOG_DISABLED
-    if (!nullLogger().get()) {
-        nullLogger() = Logger::create(this);
-        nullLogger()->setEnabled(this, false);
-    }
-
-    m_logger = nullLogger().get();
+    m_logger = nullLogger(*this);
 #endif
 }
 
-Element* TrackBase::element()
+TrackBase::~TrackBase() = default;
+
+void TrackBase::didMoveToNewDocument(Document& newDocument)
 {
-    return m_mediaElement.get();
+    observeContext(&newDocument.contextDocument());
 }
 
-void TrackBase::setMediaElement(WeakPtr<HTMLMediaElement> element)
+void TrackBase::setTrackList(TrackListBase& trackList)
 {
-    m_mediaElement = element;
+    m_trackList = trackList;
+}
+
+void TrackBase::clearTrackList()
+{
+    m_trackList = nullptr;
+}
+
+TrackListBase* TrackBase::trackList() const
+{
+    return m_trackList.get();
+}
+
+WebCoreOpaqueRoot TrackBase::opaqueRoot()
+{
+    if (auto trackList = this->trackList())
+        return trackList->opaqueRoot();
+    return WebCoreOpaqueRoot { this };
 }
 
 // See: https://tools.ietf.org/html/bcp47#section-2.1
@@ -141,21 +171,21 @@ void TrackBase::setLanguage(const AtomString& language)
 
     m_validBCP47Language = emptyAtom();
 
-    auto element = this->element();
-    if (!element)
+    auto context = scriptExecutionContext();
+    if (!context)
         return;
 
     String message;
     if (language.contains((UChar)'\0'))
         message = "The language contains a null character and is not a valid BCP 47 language tag."_s;
     else
-        message = makeString("The language '", language, "' is not a valid BCP 47 language tag.");
+        message = makeString("The language '"_s, language, "' is not a valid BCP 47 language tag."_s);
 
-    element->document().addConsoleMessage(MessageSource::Rendering, MessageLevel::Warning, message);
+    context->addConsoleMessage(MessageSource::Rendering, MessageLevel::Warning, message);
 }
 
 #if !RELEASE_LOG_DISABLED
-void TrackBase::setLogger(const Logger& logger, const void* logIdentifier)
+void TrackBase::setLogger(const Logger& logger, uint64_t logIdentifier)
 {
     m_logger = &logger;
     m_logIdentifier = childLogIdentifier(logIdentifier, m_uniqueId);
@@ -167,8 +197,22 @@ WTFLogChannel& TrackBase::logChannel() const
 }
 #endif
 
-MediaTrackBase::MediaTrackBase(Type type, const AtomString& id, const AtomString& label, const AtomString& language)
-    : TrackBase(type, id, label, language)
+void TrackBase::addClientToTrackPrivateBase(TrackPrivateBaseClient& client, TrackPrivateBase& track)
+{
+    if (auto context = scriptExecutionContext()) {
+        m_clientRegistrationId = track.addClient([contextIdentifier = context->identifier()](auto&& task) {
+            ScriptExecutionContext::ensureOnContextThread(contextIdentifier, WTFMove(task));
+        }, client);
+    }
+}
+
+void TrackBase::removeClientFromTrackPrivateBase(TrackPrivateBase& track)
+{
+    track.removeClient(m_clientRegistrationId);
+}
+
+MediaTrackBase::MediaTrackBase(ScriptExecutionContext* context, Type type, const std::optional<AtomString>& id, TrackID trackId, const AtomString& label, const AtomString& language)
+    : TrackBase(context, type, id, trackId, label, language)
 {
 }
 

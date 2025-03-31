@@ -10,9 +10,29 @@
 
 #include "libANGLE/Display.h"
 #include "libANGLE/Surface.h"
+#include "libANGLE/renderer/DeviceImpl.h"
 
 namespace rx
 {
+namespace
+{
+// For back-ends that do not implement EGLDevice.
+class MockDevice : public DeviceImpl
+{
+  public:
+    MockDevice() = default;
+    egl::Error initialize() override { return egl::NoError(); }
+    egl::Error getAttribute(const egl::Display *display, EGLint attribute, void **outValue) override
+    {
+        UNREACHABLE();
+        return egl::EglBadAttribute();
+    }
+    void generateExtensions(egl::DeviceExtensions *outExtensions) const override
+    {
+        *outExtensions = egl::DeviceExtensions();
+    }
+};
+}  // anonymous namespace
 
 DisplayImpl::DisplayImpl(const egl::DisplayState &state)
     : mState(state), mExtensionsInitialized(false), mCapsInitialized(false), mBlobCache(nullptr)
@@ -20,7 +40,17 @@ DisplayImpl::DisplayImpl(const egl::DisplayState &state)
 
 DisplayImpl::~DisplayImpl()
 {
-    ASSERT(mState.surfaceSet.empty());
+    ASSERT(mState.surfaceMap.empty());
+}
+
+egl::Error DisplayImpl::prepareForCall()
+{
+    return egl::NoError();
+}
+
+egl::Error DisplayImpl::releaseThread()
+{
+    return egl::NoError();
 }
 
 const egl::DisplayExtensions &DisplayImpl::getExtensions() const
@@ -35,6 +65,16 @@ const egl::DisplayExtensions &DisplayImpl::getExtensions() const
 }
 
 egl::Error DisplayImpl::handleGPUSwitch()
+{
+    return egl::NoError();
+}
+
+egl::Error DisplayImpl::forceGPUSwitch(EGLint gpuIDHigh, EGLint gpuIDLow)
+{
+    return egl::NoError();
+}
+
+egl::Error DisplayImpl::waitUntilWorkScheduled()
 {
     return egl::NoError();
 }
@@ -57,7 +97,7 @@ egl::Error DisplayImpl::validateImageClientBuffer(const gl::Context *context,
     return egl::EglBadDisplay() << "DisplayImpl::validateImageClientBuffer unimplemented.";
 }
 
-egl::Error DisplayImpl::validatePixmap(egl::Config *config,
+egl::Error DisplayImpl::validatePixmap(const egl::Config *config,
                                        EGLNativePixmapType pixmap,
                                        const egl::AttributeMap &attributes) const
 {
@@ -76,4 +116,45 @@ const egl::Caps &DisplayImpl::getCaps() const
     return mCaps;
 }
 
+DeviceImpl *DisplayImpl::createDevice()
+{
+    return new MockDevice();
+}
+
+angle::NativeWindowSystem DisplayImpl::getWindowSystem() const
+{
+    return angle::NativeWindowSystem::Other;
+}
+
+bool DisplayImpl::supportsDmaBufFormat(EGLint format) const
+{
+    UNREACHABLE();
+    return false;
+}
+
+egl::Error DisplayImpl::queryDmaBufFormats(EGLint max_formats, EGLint *formats, EGLint *num_formats)
+{
+    UNREACHABLE();
+    return egl::NoError();
+}
+
+egl::Error DisplayImpl::queryDmaBufModifiers(EGLint format,
+                                             EGLint max_modifiers,
+                                             EGLuint64KHR *modifiers,
+                                             EGLBoolean *external_only,
+                                             EGLint *num_modifiers)
+{
+    UNREACHABLE();
+    return egl::NoError();
+}
+
+egl::Error DisplayImpl::querySupportedCompressionRates(const egl::Config *configuration,
+                                                       const egl::AttributeMap &attributes,
+                                                       EGLint *rates,
+                                                       EGLint rate_size,
+                                                       EGLint *num_rates) const
+{
+    UNREACHABLE();
+    return egl::NoError();
+}
 }  // namespace rx

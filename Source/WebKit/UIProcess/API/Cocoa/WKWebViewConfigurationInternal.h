@@ -23,20 +23,46 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#import <WebKit/WKWebViewConfigurationPrivate.h>
+
+#ifdef __cplusplus
+
 #import "APIPageConfiguration.h"
-#import "WKWebViewConfigurationPrivate.h"
+#import "WKObject.h"
+#import <wtf/AlignedStorage.h>
 #import <wtf/Ref.h>
 
-@class WKWebView;
-@class WKWebViewContentProviderRegistry;
+namespace WebKit {
+
+template<> struct WrapperTraits<API::PageConfiguration> {
+    using WrapperClass = WKWebViewConfiguration;
+};
+
+}
+
+@interface WKWebViewConfiguration () <WKObject> {
+@package
+    AlignedStorage<API::PageConfiguration> _pageConfiguration;
+}
+
+@property (nonatomic, readonly, nullable) NSString *_applicationNameForDesktopUserAgent;
+
+@end
+
+#if PLATFORM(IOS_FAMILY)
+_WKDragLiftDelay toDragLiftDelay(NSUInteger);
+_WKDragLiftDelay toWKDragLiftDelay(WebKit::DragLiftDelay);
+WebKit::DragLiftDelay fromWKDragLiftDelay(_WKDragLiftDelay);
+#endif
+
+#endif // __cplusplus
+
+NS_ASSUME_NONNULL_BEGIN
 
 @interface WKWebViewConfiguration ()
 
-#if PLATFORM(IOS_FAMILY)
-@property (nonatomic, setter=_setContentProviderRegistry:) WKWebViewContentProviderRegistry *_contentProviderRegistry;
-#endif
-@property (nonatomic, readonly) NSString *_applicationNameForDesktopUserAgent;
-
-- (Ref<API::PageConfiguration>)copyPageConfiguration;
++ (BOOL)_isValidCustomScheme:(NSString *)urlScheme;
 
 @end
+
+NS_ASSUME_NONNULL_END

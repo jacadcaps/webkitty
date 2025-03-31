@@ -25,13 +25,19 @@
 
 #if PLATFORM(IOS_FAMILY) && ENABLE(ASYNC_SCROLLING)
 
+#import "WKBrowserEngineDefinitions.h"
 #import <UIKit/UIScrollView.h>
 #import <WebCore/ScrollingCoordinator.h>
 #import <WebCore/ScrollingTreeScrollingNode.h>
 #import <WebCore/ScrollingTreeScrollingNodeDelegate.h>
+#import <wtf/TZoneMalloc.h>
+#import <wtf/WeakPtr.h>
 
 @class CALayer;
 @class UIScrollView;
+@class WKBaseScrollView;
+@class WKBEScrollViewScrollUpdate;
+@class WKBEScrollView;
 @class WKScrollingNodeScrollViewDelegate;
 
 namespace WebCore {
@@ -45,9 +51,13 @@ class ScrollingTreeScrollingNode;
 
 namespace WebKit {
 
-class ScrollingTreeScrollingNodeDelegateIOS : public WebCore::ScrollingTreeScrollingNodeDelegate {
-    WTF_MAKE_FAST_ALLOCATED;
+class ScrollingTreeScrollingNodeDelegateIOS final : public WebCore::ScrollingTreeScrollingNodeDelegate, public CanMakeWeakPtr<ScrollingTreeScrollingNodeDelegateIOS>, public CanMakeCheckedPtr<ScrollingTreeScrollingNodeDelegateIOS> {
+    WTF_MAKE_TZONE_ALLOCATED(ScrollingTreeScrollingNodeDelegateIOS);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(ScrollingTreeScrollingNodeDelegateIOS);
 public:
+    
+    enum class AllowOverscrollToPreventScrollPropagation : bool { No, Yes };
+    
     explicit ScrollingTreeScrollingNodeDelegateIOS(WebCore::ScrollingTreeScrollingNode&);
     ~ScrollingTreeScrollingNodeDelegateIOS() final;
 
@@ -56,7 +66,7 @@ public:
     void scrollViewWillStartPanGesture() const;
     void scrollViewDidScroll(const WebCore::FloatPoint& scrollOffset, bool inUserInteraction);
 
-    void currentSnapPointIndicesDidChange(unsigned horizontal, unsigned vertical) const;
+    void currentSnapPointIndicesDidChange(std::optional<unsigned> horizontal, std::optional<unsigned> vertical) const;
     CALayer *scrollLayer() const { return m_scrollLayer.get(); }
 
     void resetScrollViewDelegate();
@@ -65,16 +75,31 @@ public:
 
     void repositionScrollingLayers();
 
+#if HAVE(UISCROLLVIEW_ASYNCHRONOUS_SCROLL_EVENT_HANDLING)
+    void handleAsynchronousCancelableScrollEvent(WKBaseScrollView *, WKBEScrollViewScrollUpdate *, void (^completion)(BOOL handled));
+#endif
+
     OptionSet<WebCore::TouchAction> activeTouchActions() const { return m_activeTouchActions; }
     void computeActiveTouchActionsForGestureRecognizer(UIGestureRecognizer*);
     void clearActiveTouchActions() { m_activeTouchActions = { }; }
     void cancelPointersForGestureRecognizer(UIGestureRecognizer*);
+    bool shouldAllowPanGestureRecognizerToReceiveTouches() const;
 
     UIScrollView *findActingScrollParent(UIScrollView *);
-    UIScrollView *scrollView() const;
+    WKBaseScrollView *scrollView() const;
+
+    bool startAnimatedScrollToPosition(WebCore::FloatPoint) final;
+    void stopAnimatedScroll() final;
+
+    void serviceScrollAnimation(MonotonicTime) final { }
+    
+    static void updateScrollViewForOverscrollBehavior(UIScrollView *, const WebCore::OverscrollBehavior, const WebCore::OverscrollBehavior, AllowOverscrollToPreventScrollPropagation);
 
 private:
     RetainPtr<CALayer> m_scrollLayer;
+#if ENABLE(INTERACTION_REGIONS_IN_EVENT_REGION)
+    RetainPtr<CALayer> m_interactionRegionsLayer;
+#endif
     RetainPtr<CALayer> m_scrolledContentsLayer;
     RetainPtr<WKScrollingNodeScrollViewDelegate> m_scrollViewDelegate;
     OptionSet<WebCore::TouchAction> m_activeTouchActions { };
@@ -83,13 +108,13 @@ private:
 
 } // namespace WebKit
 
-@interface WKScrollingNodeScrollViewDelegate : NSObject <UIScrollViewDelegate> {
-    WebKit::ScrollingTreeScrollingNodeDelegateIOS* _scrollingTreeNodeDelegate;
+@interface WKScrollingNodeScrollViewDelegate : NSObject <WKBEScrollViewDelegate> {
+    WeakPtr<WebKit::ScrollingTreeScrollingNodeDelegateIOS> _scrollingTreeNodeDelegate;
 }
 
 @property (nonatomic, getter=_isInUserInteraction) BOOL inUserInteraction;
 
-- (instancetype)initWithScrollingTreeNodeDelegate:(WebKit::ScrollingTreeScrollingNodeDelegateIOS*)delegate;
+- (instancetype)initWithScrollingTreeNodeDelegate:(WebKit::ScrollingTreeScrollingNodeDelegateIOS&)delegate;
 
 @end
 

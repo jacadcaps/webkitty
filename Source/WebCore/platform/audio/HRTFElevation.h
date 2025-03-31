@@ -33,6 +33,7 @@
 #include <memory>
 #include <wtf/Noncopyable.h>
 #include <wtf/RefPtr.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
@@ -40,7 +41,7 @@ namespace WebCore {
 // HRTFElevation contains all of the HRTFKernels (one left ear and one right ear per azimuth angle) for a particular elevation.
 
 class HRTFElevation final {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(HRTFElevation);
     WTF_MAKE_NONCOPYABLE(HRTFElevation);
 public:
     HRTFElevation(std::unique_ptr<HRTFKernelList> kernelListL, std::unique_ptr<HRTFKernelList> kernelListR, int elevation, float sampleRate)
@@ -56,6 +57,8 @@ public:
     // Interpolated azimuths will be generated based on InterpolationFactor.
     // Valid values for elevation are -45 -> +90 in 15 degree increments.
     static std::unique_ptr<HRTFElevation> createForSubject(const String& subjectName, int elevation, float sampleRate);
+
+    static void clearCache();
 
     // Given two HRTFElevations, and an interpolation factor x: 0 -> 1, returns an interpolated HRTFElevation.
     static std::unique_ptr<HRTFElevation> createByInterpolatingSlices(HRTFElevation* hrtfElevation1, HRTFElevation* hrtfElevation2, float x, float sampleRate);
@@ -73,16 +76,16 @@ public:
     void getKernelsFromAzimuth(double azimuthBlend, unsigned azimuthIndex, HRTFKernel* &kernelL, HRTFKernel* &kernelR, double& frameDelayL, double& frameDelayR);
     
     // Spacing, in degrees, between every azimuth loaded from resource.
-    static const unsigned AzimuthSpacing;
+    static constexpr unsigned AzimuthSpacing { 15 };
     
     // Number of azimuths loaded from resource.
-    static const unsigned NumberOfRawAzimuths;
+    static constexpr unsigned NumberOfRawAzimuths { 360 / AzimuthSpacing };
 
     // Interpolates by this factor to get the total number of azimuths from every azimuth loaded from resource.
-    static const unsigned InterpolationFactor;
+    static constexpr unsigned InterpolationFactor { 8 };
     
     // Total number of azimuths after interpolation.
-    static const unsigned NumberOfTotalAzimuths;
+    static constexpr unsigned NumberOfTotalAzimuths { NumberOfRawAzimuths * InterpolationFactor };
 
     // Given a specific azimuth and elevation angle, returns the left and right HRTFKernel.
     // Valid values for azimuth are 0 -> 345 in 15 degree increments.
@@ -90,12 +93,6 @@ public:
     // Returns true on success.
     static bool calculateKernelsForAzimuthElevation(int azimuth, int elevation, float sampleRate, const String& subjectName,
                                                     RefPtr<HRTFKernel>& kernelL, RefPtr<HRTFKernel>& kernelR);
-
-    // Given a specific azimuth and elevation angle, returns the left and right HRTFKernel in kernelL and kernelR.
-    // This method averages the measured response using symmetry of azimuth (for example by averaging the -30.0 and +30.0 azimuth responses).
-    // Returns true on success.
-    static bool calculateSymmetricKernelsForAzimuthElevation(int azimuth, int elevation, float sampleRate, const String& subjectName,
-                                                             RefPtr<HRTFKernel>& kernelL, RefPtr<HRTFKernel>& kernelR);
 
 private:
     std::unique_ptr<HRTFKernelList> m_kernelListL;

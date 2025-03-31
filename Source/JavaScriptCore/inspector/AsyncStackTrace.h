@@ -31,9 +31,10 @@
 
 namespace Inspector {
 
+class ScriptCallFrame;
 class ScriptCallStack;
 
-class JS_EXPORT_PRIVATE AsyncStackTrace : public RefCounted<AsyncStackTrace> {
+class AsyncStackTrace : public RefCounted<AsyncStackTrace> {
 public:
     enum class State : uint8_t {
         Pending,
@@ -47,13 +48,20 @@ public:
     bool isPending() const;
     bool isLocked() const;
 
+    JS_EXPORT_PRIVATE const ScriptCallFrame& at(size_t) const;
+    JS_EXPORT_PRIVATE size_t size() const;
+    JS_EXPORT_PRIVATE bool topCallFrameIsBoundary() const;
+    bool truncated() const { return m_truncated; }
+
+    const RefPtr<AsyncStackTrace>& parentStackTrace() const { return m_parent; }
+
     void willDispatchAsyncCall(size_t maxDepth);
     void didDispatchAsyncCall();
     void didCancelAsyncCall();
 
-    RefPtr<Protocol::Console::StackTrace> buildInspectorObject() const;
+    Ref<Protocol::Console::StackTrace> buildInspectorObject() const;
 
-    ~AsyncStackTrace();
+    JS_EXPORT_PRIVATE ~AsyncStackTrace();
 
 private:
     AsyncStackTrace(Ref<ScriptCallStack>&&, bool, RefPtr<AsyncStackTrace>);

@@ -34,9 +34,13 @@
 namespace WebCore {
 
 MediaStreamAudioSource::MediaStreamAudioSource(float sampleRate)
-    : RealtimeMediaSource(RealtimeMediaSource::Type::Audio, "MediaStreamAudioDestinationNode"_s)
+    : RealtimeMediaSource(CaptureDevice { { }, CaptureDevice::DeviceType::Microphone, "MediaStreamAudioDestinationNode"_s })
 {
     m_currentSettings.setSampleRate(sampleRate);
+
+#if USE(GSTREAMER)
+    gst_audio_info_init(&m_info);
+#endif
 }
 
 MediaStreamAudioSource::~MediaStreamAudioSource() = default;
@@ -57,7 +61,7 @@ const RealtimeMediaSourceSettings& MediaStreamAudioSource::settings()
     return m_currentSettings;
 }
 
-#if !PLATFORM(COCOA)
+#if !PLATFORM(COCOA) && !USE(GSTREAMER)
 void MediaStreamAudioSource::consumeAudio(AudioBus&, size_t)
 {
 }

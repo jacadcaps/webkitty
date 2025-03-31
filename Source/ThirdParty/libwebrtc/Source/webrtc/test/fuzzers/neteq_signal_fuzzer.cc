@@ -89,12 +89,16 @@ class FuzzSignalInput : public NetEqInput {
     output_event_period_ms_ = fuzz_data_.SelectOneOf(output_event_periods);
   }
 
-  absl::optional<int64_t> NextPacketTime() const override {
+  std::optional<int64_t> NextPacketTime() const override {
     return packet_->time_ms;
   }
 
-  absl::optional<int64_t> NextOutputEventTime() const override {
+  std::optional<int64_t> NextOutputEventTime() const override {
     return next_output_event_ms_;
+  }
+
+  std::optional<SetMinimumDelayInfo> NextSetMinimumDelayInfo() const override {
+    return input_->NextSetMinimumDelayInfo();
   }
 
   std::unique_ptr<PacketData> PopPacket() override {
@@ -123,9 +127,13 @@ class FuzzSignalInput : public NetEqInput {
     next_output_event_ms_ += output_event_period_ms_;
   }
 
+  void AdvanceSetMinimumDelay() override {
+    return input_->AdvanceSetMinimumDelay();
+  }
+
   bool ended() const override { return ended_; }
 
-  absl::optional<RTPHeader> NextHeader() const override {
+  std::optional<RTPHeader> NextHeader() const override {
     RTC_DCHECK(packet_);
     return packet_->header;
   }
@@ -171,7 +179,6 @@ void FuzzOneInputTest(const uint8_t* data, size_t size) {
   // Configure NetEq and the NetEqTest object.
   NetEqTest::Callbacks callbacks;
   NetEq::Config config;
-  config.enable_post_decode_vad = true;
   config.enable_fast_accelerate = true;
   auto codecs = NetEqTest::StandardDecoderMap();
   // rate_types contains the payload types that will be used for encoding.

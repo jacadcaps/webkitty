@@ -23,7 +23,8 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-function all(iterable)
+@linkTimeConstant
+function promiseAllSlow(iterable)
 {
     "use strict";
 
@@ -31,51 +32,148 @@ function all(iterable)
         @throwTypeError("|this| is not an object");
 
     var promiseCapability = @newPromiseCapability(this);
+    var resolve = promiseCapability.resolve;
+    var reject = promiseCapability.reject;
+    var promise = promiseCapability.promise;
 
     var values = [];
     var index = 0;
     var remainingElementsCount = 1;
 
-    function newResolveElement(index)
-    {
-        var alreadyCalled = false;
-        return (argument) => {
-            if (alreadyCalled)
-                return @undefined;
-            alreadyCalled = true;
-
-            @putByValDirect(values, index, argument);
-
-            --remainingElementsCount;
-            if (remainingElementsCount === 0)
-                return promiseCapability.@resolve.@call(@undefined, values);
-
-            return @undefined;
-        };
-    }
-
     try {
         var promiseResolve = this.resolve;
-        if (typeof promiseResolve !== "function")
+        if (!@isCallable(promiseResolve))
             @throwTypeError("Promise resolve is not a function");
 
         for (var value of iterable) {
             @putByValDirect(values, index, @undefined);
             var nextPromise = promiseResolve.@call(this, value);
-            var resolveElement = newResolveElement(index);
+            let currentIndex = index++;
             ++remainingElementsCount;
-            nextPromise.then(resolveElement, promiseCapability.@reject);
-            ++index;
+            nextPromise.then((argument) => {
+                if (currentIndex < 0)
+                    return @undefined;
+
+                @putByValDirect(values, currentIndex, argument);
+                currentIndex = -1;
+
+                --remainingElementsCount;
+                if (remainingElementsCount === 0)
+                    return resolve.@call(@undefined, values);
+
+                return @undefined;
+            }, reject);
         }
 
         --remainingElementsCount;
         if (remainingElementsCount === 0)
-            promiseCapability.@resolve.@call(@undefined, values);
+            resolve.@call(@undefined, values);
     } catch (error) {
-        promiseCapability.@reject.@call(@undefined, error);
+        reject.@call(@undefined, error);
     }
 
-    return promiseCapability.@promise;
+    return promise;
+}
+
+@linkTimeConstant
+function promiseOnRejectedWithContext(argument, context)
+{
+    "use strict";
+
+    return @rejectPromiseWithFirstResolvingFunctionCallCheck(context.globalContext.promise, argument);
+}
+
+@linkTimeConstant
+function promiseAllOnFulfilled(argument, context)
+{
+    "use strict";
+
+    var globalContext = context.globalContext;
+    var values = globalContext.values;
+
+    @putByValDirect(values, context.index, argument);
+
+    if (!--globalContext.remainingElementsCount)
+        return @resolvePromiseWithFirstResolvingFunctionCallCheck(globalContext.promise, values);
+}
+
+@linkTimeConstant
+function promiseNewOnRejected(promise)
+{
+    "use strict";
+
+    return function @reject(reason) {
+        return @rejectPromiseWithFirstResolvingFunctionCallCheck(promise, reason);
+    };
+}
+
+@linkTimeConstant
+function promiseAllNewResolveElement(globalContext, index)
+{
+    "use strict";
+
+    var alreadyCalled = false;
+    return (argument) => {
+        if (alreadyCalled)
+            return @undefined;
+        alreadyCalled = true;
+
+        var values = globalContext.values;
+        @putByValDirect(values, index, argument);
+
+        if (!--globalContext.remainingElementsCount)
+            return @resolvePromiseWithFirstResolvingFunctionCallCheck(globalContext.promise, values);
+    };
+}
+
+function all(iterable)
+{
+    "use strict";
+
+    if (this !== @Promise)
+        return @tailCallForwardArguments(@promiseAllSlow, this);
+
+    var promise = @newPromise();
+    var values = [];
+    var globalContext = {
+        promise,
+        values,
+        remainingElementsCount: 1,
+    };
+    var index = 0;
+    var onRejected;
+
+    try {
+        var promiseResolve = this.resolve;
+        if (!@isCallable(promiseResolve))
+            @throwTypeError("Promise resolve is not a function");
+
+        for (var value of iterable) {
+            @putByValDirect(values, index, @undefined);
+            var nextPromise = promiseResolve.@call(this, value);
+            ++globalContext.remainingElementsCount;
+            var then = nextPromise.then;
+            if (@isPromise(nextPromise) && then === @defaultPromiseThen) {
+                var constructor = @speciesConstructor(nextPromise, @Promise);
+                var promiseOrCapability;
+                if (constructor !== @Promise)
+                    promiseOrCapability = @newPromiseCapabilitySlow(constructor);
+                @performPromiseThen(nextPromise, @promiseAllOnFulfilled, @promiseOnRejectedWithContext, promiseOrCapability, { globalContext, index });
+            } else {
+                if (!onRejected)
+                    onRejected = @promiseNewOnRejected(promise);
+                then.@call(nextPromise, @promiseAllNewResolveElement(globalContext, index), onRejected);
+            }
+            ++index;
+        }
+
+        if (!--globalContext.remainingElementsCount)
+            @resolvePromiseWithFirstResolvingFunctionCallCheck(promise, values);
+    } catch (error) {
+        @rejectPromiseWithFirstResolvingFunctionCallCheck(promise, error);
+    }
+
+    return promise;
 }
 
 function allSettled(iterable)
@@ -86,78 +184,66 @@ function allSettled(iterable)
         @throwTypeError("|this| is not an object");
 
     var promiseCapability = @newPromiseCapability(this);
+    var resolve = promiseCapability.resolve;
+    var reject = promiseCapability.reject;
+    var promise = promiseCapability.promise;
 
     var values = [];
     var remainingElementsCount = 1;
     var index = 0;
 
-    function newResolveRejectElements(index)
-    {
-        var alreadyCalled = false;
-
-        return [
-            (value) => {
-                if (alreadyCalled)
-                    return @undefined;
-                alreadyCalled = true;
-
-                var obj = {
-                    status: "fulfilled",
-                    value
-                };
-
-                @putByValDirect(values, index, obj);
-
-                --remainingElementsCount;
-                if (remainingElementsCount === 0)
-                    return promiseCapability.@resolve.@call(@undefined, values);
-
-                return @undefined;
-            },
-
-            (reason) => {
-                if (alreadyCalled)
-                    return @undefined;
-                alreadyCalled = true;
-
-                var obj = {
-                    status: "rejected",
-                    reason
-                };
-
-                @putByValDirect(values, index, obj);
-
-                --remainingElementsCount;
-                if (remainingElementsCount === 0)
-                    return promiseCapability.@resolve.@call(@undefined, values);
-
-                return @undefined;
-            }
-        ];
-    }
-
     try {
         var promiseResolve = this.resolve;
-        if (typeof promiseResolve !== "function")
+        if (!@isCallable(promiseResolve))
             @throwTypeError("Promise resolve is not a function");
 
         for (var value of iterable) {
             @putByValDirect(values, index, @undefined);
             var nextPromise = promiseResolve.@call(this, value);
-            var [resolveElement, rejectElement] = newResolveRejectElements(index);
             ++remainingElementsCount;
-            nextPromise.then(resolveElement, rejectElement);
-            ++index;
+            let currentIndex = index++;
+            nextPromise.then(
+                (value) => {
+                    if (currentIndex < 0)
+                        return @undefined;
+
+                    @putByValDirect(values, currentIndex, {
+                        status: "fulfilled",
+                        value
+                    });
+                    currentIndex = -1;
+
+                    --remainingElementsCount;
+                    if (remainingElementsCount === 0)
+                        return resolve.@call(@undefined, values);
+                    return @undefined;
+                },
+                (reason) => {
+                    if (currentIndex < 0)
+                        return @undefined;
+
+                    @putByValDirect(values, currentIndex, {
+                        status: "rejected",
+                        reason
+                    });
+                    currentIndex = -1;
+
+                    --remainingElementsCount;
+                    if (remainingElementsCount === 0)
+                        return resolve.@call(@undefined, values);
+                    return @undefined;
+                }
+            );
         }
 
         --remainingElementsCount;
         if (remainingElementsCount === 0)
-            promiseCapability.@resolve.@call(@undefined, values);
+            resolve.@call(@undefined, values);
     } catch (error) {
-        promiseCapability.@reject.@call(@undefined, error);
+        reject.@call(@undefined, error);
     }
 
-    return promiseCapability.@promise;
+    return promise;
 }
 
 function any(iterable)
@@ -168,51 +254,47 @@ function any(iterable)
         @throwTypeError("|this| is not an object");
 
     var promiseCapability = @newPromiseCapability(this);
+    var resolve = promiseCapability.resolve;
+    var reject = promiseCapability.reject;
+    var promise = promiseCapability.promise;
 
     var errors = [];
     var remainingElementsCount = 1;
     var index = 0;
 
-    function newRejectElement(index)
-    {
-        var alreadyCalled = false;
-        return (reason) => {
-            if (alreadyCalled)
-                return @undefined;
-            alreadyCalled = true;
-
-            @putByValDirect(errors, index, reason);
-
-            --remainingElementsCount;
-            if (remainingElementsCount === 0)
-                return promiseCapability.@reject.@call(@undefined, new @AggregateError(errors));
-
-            return @undefined;
-        };
-    }
-
     try {
         var promiseResolve = this.resolve;
-        if (typeof promiseResolve !== "function")
+        if (!@isCallable(promiseResolve))
             @throwTypeError("Promise resolve is not a function");
 
         for (var value of iterable) {
             @putByValDirect(errors, index, @undefined);
             var nextPromise = promiseResolve.@call(this, value);
-            var rejectElement = newRejectElement(index);
+            let currentIndex = index++;
             ++remainingElementsCount;
-            nextPromise.then(promiseCapability.@resolve, rejectElement);
-            ++index;
+            nextPromise.then(resolve, (reason) => {
+                if (currentIndex < 0)
+                    return @undefined;
+
+                @putByValDirect(errors, currentIndex, reason);
+                currentIndex = -1;
+
+                --remainingElementsCount;
+                if (remainingElementsCount === 0)
+                    return reject.@call(@undefined, new @AggregateError(errors));
+
+                return @undefined;
+            });
         }
 
         --remainingElementsCount;
         if (remainingElementsCount === 0)
             throw new @AggregateError(errors);
     } catch (error) {
-        promiseCapability.@reject.@call(@undefined, error);
+        reject.@call(@undefined, error);
     }
 
-    return promiseCapability.@promise;
+    return promise;
 }
 
 function race(iterable)
@@ -223,21 +305,24 @@ function race(iterable)
         @throwTypeError("|this| is not an object");
 
     var promiseCapability = @newPromiseCapability(this);
+    var resolve = promiseCapability.resolve;
+    var reject = promiseCapability.reject;
+    var promise = promiseCapability.promise;
 
     try {
         var promiseResolve = this.resolve;
-        if (typeof promiseResolve !== "function")
+        if (!@isCallable(promiseResolve))
             @throwTypeError("Promise resolve is not a function");
 
         for (var value of iterable) {
             var nextPromise = promiseResolve.@call(this, value);
-            nextPromise.then(promiseCapability.@resolve, promiseCapability.@reject);
+            nextPromise.then(resolve, reject);
         }
     } catch (error) {
-        promiseCapability.@reject.@call(@undefined, error);
+        reject.@call(@undefined, error);
     }
 
-    return promiseCapability.@promise;
+    return promise;
 }
 
 function reject(reason)
@@ -263,19 +348,36 @@ function resolve(value)
     if (!@isObject(this))
         @throwTypeError("|this| is not an object");
 
-    if (@isPromise(value)) {
-        var valueConstructor = value.constructor;
-        if (valueConstructor === this)
-            return value;
+    return @promiseResolve(this, value);
+}
+
+function try(callback /*, ...args */)
+{
+    "use strict";
+
+    if (!@isObject(this))
+        @throwTypeError("|this| is not an object");
+
+    var args = [];
+    for (var i = 1; i < @argumentCount(); i++)
+        @putByValDirect(args, i - 1, arguments[i]);
+
+    var promiseCapability = @newPromiseCapability(this);
+    try {
+        var value = callback.@apply(@undefined, args);
+        promiseCapability.resolve.@call(@undefined, value);
+    } catch (error) {
+        promiseCapability.reject.@call(@undefined, error);
     }
 
-    if (this === @Promise) {
-        var promise = @newPromise();
-        @resolvePromiseWithFirstResolvingFunctionCallCheck(promise, value);
-        return promise;
-    }
+    return promiseCapability.promise;
+}
 
-    return @promiseResolveSlow(this, value);
+function withResolvers()
+{
+    "use strict";
+
+    return @newPromiseCapability(this);
 }
 
 @nakedConstructor
@@ -283,7 +385,7 @@ function Promise(executor)
 {
     "use strict";
 
-    if (typeof executor !== "function")
+    if (!@isCallable(executor))
         @throwTypeError("Promise constructor takes a function argument");
 
     var promise = @createPromise(this, /* isInternalPromise */ false);
@@ -309,7 +411,7 @@ function InternalPromise(executor)
 {
     "use strict";
 
-    if (typeof executor !== "function")
+    if (!@isCallable(executor))
         @throwTypeError("InternalPromise constructor takes a function argument");
 
     var promise = @createPromise(this, /* isInternalPromise */ true);

@@ -20,13 +20,15 @@
 
 #pragma once
 
+#include "CSSProperty.h"
 #include "CSSPropertyNames.h"
 #include "ExceptionOr.h"
 #include "ScriptWrappable.h"
+#include <wtf/AbstractRefCountedAndCanMakeWeakPtr.h>
+#include <wtf/CheckedRef.h>
 
 namespace WebCore {
 
-class CSSProperty;
 class CSSRule;
 class CSSStyleSheet;
 class CSSValue;
@@ -35,21 +37,20 @@ class MutableStyleProperties;
 class StyleProperties;
 class StyledElement;
 
-class CSSStyleDeclaration : public ScriptWrappable {
+class CSSStyleDeclaration : public ScriptWrappable, public AbstractRefCountedAndCanMakeSingleThreadWeakPtr<CSSStyleDeclaration> {
     WTF_MAKE_NONCOPYABLE(CSSStyleDeclaration);
-    WTF_MAKE_ISO_ALLOCATED(CSSStyleDeclaration);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(CSSStyleDeclaration);
 public:
     virtual ~CSSStyleDeclaration() = default;
 
-    virtual void ref() = 0;
-    virtual void deref() = 0;
-
     virtual StyledElement* parentElement() const { return nullptr; }
     virtual CSSRule* parentRule() const = 0;
+    virtual CSSRule* cssRules() const = 0;
     virtual String cssText() const = 0;
     virtual ExceptionOr<void> setCssText(const String&) = 0;
     virtual unsigned length() const = 0;
     virtual String item(unsigned index) const = 0;
+    bool isSupportedPropertyIndex(unsigned index) const { return index < length(); }
     virtual RefPtr<DeprecatedCSSOMValue> getPropertyCSSValue(const String& propertyName) = 0;
     virtual String getPropertyValue(const String& propertyName) = 0;
     virtual String getPropertyPriority(const String& propertyName) = 0;
@@ -63,21 +64,38 @@ public:
 
     // CSSPropertyID versions of the CSSOM functions to support bindings and editing.
     // Use the non-virtual methods in the concrete subclasses when possible.
-    // The CSSValue returned by this function should not be exposed to the web as it may be used by multiple documents at the same time.
-    virtual RefPtr<CSSValue> getPropertyCSSValueInternal(CSSPropertyID) = 0;
     virtual String getPropertyValueInternal(CSSPropertyID) = 0;
-    virtual ExceptionOr<bool> setPropertyInternal(CSSPropertyID, const String& value, bool important) = 0;
+    virtual ExceptionOr<void> setPropertyInternal(CSSPropertyID, const String& value, IsImportant) = 0;
 
     virtual Ref<MutableStyleProperties> copyProperties() const = 0;
 
     virtual CSSStyleSheet* parentStyleSheet() const { return nullptr; }
 
-    // Bindings support.
-    Optional<Variant<String, double>> namedItem(const AtomString&);
-    ExceptionOr<void> setNamedItem(const AtomString& name, String value, bool& propertySupported);
-    Vector<AtomString> supportedPropertyNames() const;
+    virtual const Settings* settings() const;
 
+    // FIXME: It would be more efficient, by virtue of avoiding the text transformation and hash lookup currently
+    // required in the implementation, if we could could smuggle the CSSPropertyID through the bindings, perhaps
+    // by encoding it into the HashTableValue and then passing it together with the PropertyName.
+
+    // Shared implementation for all properties that match https://drafts.csswg.org/cssom/#dom-cssstyledeclaration-camel_cased_attribute.
+    String propertyValueForCamelCasedIDLAttribute(const AtomString&);
+    ExceptionOr<void> setPropertyValueForCamelCasedIDLAttribute(const AtomString&, const String&);
+
+    // Shared implementation for all properties that match https://drafts.csswg.org/cssom/#dom-cssstyledeclaration-webkit_cased_attribute.
+    String propertyValueForWebKitCasedIDLAttribute(const AtomString&);
+    ExceptionOr<void> setPropertyValueForWebKitCasedIDLAttribute(const AtomString&, const String&);
+
+    // Shared implementation for all properties that match https://drafts.csswg.org/cssom/#dom-cssstyledeclaration-dashed_attribute.
+    String propertyValueForDashedIDLAttribute(const AtomString&);
+    ExceptionOr<void> setPropertyValueForDashedIDLAttribute(const AtomString&, const String&);
+
+    // Shared implementation for all properties that match non-standard Epub-cased.
+    String propertyValueForEpubCasedIDLAttribute(const AtomString&);
+    ExceptionOr<void> setPropertyValueForEpubCasedIDLAttribute(const AtomString&, const String&);
+
+    // FIXME: This needs to pass in a Settings& to work correctly.
     static CSSPropertyID getCSSPropertyIDFromJavaScriptPropertyName(const AtomString&);
+
 protected:
     CSSStyleDeclaration() = default;
 };

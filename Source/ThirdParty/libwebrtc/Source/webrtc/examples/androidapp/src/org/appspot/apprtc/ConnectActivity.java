@@ -22,7 +22,6 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.preference.PreferenceManager;
-import android.support.annotation.Nullable;
 import android.util.Log;
 import android.view.ContextMenu;
 import android.view.KeyEvent;
@@ -38,6 +37,7 @@ import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.ListView;
 import android.widget.TextView;
+import androidx.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.Random;
 import org.json.JSONArray;
@@ -360,7 +360,7 @@ public class ConnectActivity extends Activity {
 
     // roomId is random for loopback.
     if (loopback) {
-      roomId = Integer.toString((new Random()).nextInt(100000000));
+      roomId = Integer.toString(new Random().nextInt(100000000));
     }
 
     String roomUrl = sharedPref.getString(

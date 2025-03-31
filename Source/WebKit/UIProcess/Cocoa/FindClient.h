@@ -23,12 +23,12 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef FindClient_h
-#define FindClient_h
+#pragma once
 
 #import "WKFoundation.h"
 
 #import "APIFindClient.h"
+#import <wtf/TZoneMalloc.h>
 #import <wtf/WeakObjCPtr.h>
 
 @class WKWebView;
@@ -37,7 +37,7 @@
 namespace WebKit {
 
 class FindClient final : public API::FindClient {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(FindClient);
 public:
     explicit FindClient(WKWebView *);
     
@@ -49,6 +49,11 @@ private:
     virtual void didCountStringMatches(WebPageProxy*, const String&, uint32_t matchCount);
     virtual void didFindString(WebPageProxy*, const String&, const Vector<WebCore::IntRect>&, uint32_t matchCount, int32_t matchIndex, bool didWrapAround);
     virtual void didFailToFindString(WebPageProxy*, const String&);
+
+    virtual void didAddLayerForFindOverlay(WebKit::WebPageProxy*, CALayer *);
+    virtual void didRemoveLayerForFindOverlay(WebKit::WebPageProxy*);
+
+    bool isWebKitFindClient() const final { return true; }
     
     WKWebView *m_webView;
     WeakObjCPtr<id <_WKFindDelegate>> m_delegate;
@@ -57,9 +62,13 @@ private:
         bool webviewDidCountStringMatches : 1;
         bool webviewDidFindString : 1;
         bool webviewDidFailToFindString : 1;
+        bool webviewDidAddLayerForFindOverlay : 1;
+        bool webviewDidRemoveLayerForFindOverlay : 1;
     } m_delegateMethods;
 };
     
 } // namespace WebKit
 
-#endif // FindClient_h
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::FindClient) \
+    static bool isType(const API::FindClient& client) { return client.isWebKitFindClient(); } \
+SPECIALIZE_TYPE_TRAITS_END()

@@ -28,9 +28,12 @@
 
 #include "SharedBuffer.h"
 #include <CoreFoundation/CoreFoundation.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(KeyedEncoderCF);
 
 std::unique_ptr<KeyedEncoder> KeyedEncoder::encoder()
 {
@@ -55,9 +58,9 @@ KeyedEncoderCF::~KeyedEncoderCF()
     ASSERT(m_arrayStack.isEmpty());
 }
 
-void KeyedEncoderCF::encodeBytes(const String& key, const uint8_t* bytes, size_t size)
+void KeyedEncoderCF::encodeBytes(const String& key, std::span<const uint8_t> bytes)
 {
-    auto data = adoptCF(CFDataCreateWithBytesNoCopy(kCFAllocatorDefault, bytes, size, kCFAllocatorNull));
+    RetainPtr data = adoptCF(CFDataCreateWithBytesNoCopy(kCFAllocatorDefault, bytes.data(), bytes.size(), kCFAllocatorNull));
     CFDictionarySetValue(m_dictionaryStack.last(), key.createCFString().get(), data.get());
 }
 

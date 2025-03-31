@@ -26,7 +26,7 @@
 #import <WebKit/WKFoundation.h>
 
 #if TARGET_OS_IPHONE
-#import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
 #else
 #import <AppKit/AppKit.h>
 #endif
@@ -37,7 +37,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 /*! @enum WKNavigationType
  @abstract The type of action triggering a navigation.
- @constant WKNavigationTypeLinkActivated    A link with an href attribute was activated by the user.
+ @constant WKNavigationTypeLinkActivated    A link with an href attribute was activated.
  @constant WKNavigationTypeFormSubmitted    A form was submitted.
  @constant WKNavigationTypeBackForward      An item from the back-forward list was requested.
  @constant WKNavigationTypeReload           The webpage was reloaded.
@@ -56,6 +56,7 @@ typedef NS_ENUM(NSInteger, WKNavigationType) {
 /*! 
 A WKNavigationAction object contains information about an action that may cause a navigation, used for making policy decisions.
  */
+WK_SWIFT_UI_ACTOR
 WK_CLASS_AVAILABLE(macos(10.10), ios(8.0))
 @interface WKNavigationAction : NSObject
 
@@ -76,7 +77,21 @@ WK_CLASS_AVAILABLE(macos(10.10), ios(8.0))
  */
 @property (nonatomic, readonly, copy) NSURLRequest *request;
 
-#if !TARGET_OS_IPHONE
+/*! @abstract A value indicating whether the web content used a download attribute to indicate that this should be downloaded.
+*/
+@property (nonatomic, readonly) BOOL shouldPerformDownload WK_API_AVAILABLE(macos(11.3), ios(14.5));
+
+#if TARGET_OS_IPHONE
+
+/*! @abstract The modifier keys that were in effect when the navigation was requested.
+ */
+@property (nonatomic, readonly) UIKeyModifierFlags modifierFlags WK_API_AVAILABLE(ios(WK_IOS_TBA), visionos(WK_XROS_TBA));
+
+/*! @abstract The button mask of the index of the mouse button causing the navigation to be requested.
+ */
+@property (nonatomic, readonly) UIEventButtonMask buttonNumber WK_API_AVAILABLE(ios(WK_IOS_TBA), visionos(WK_XROS_TBA));
+
+#else
 
 /*! @abstract The modifier keys that were in effect when the navigation was requested.
  */

@@ -36,7 +36,7 @@ IGNORE_RETURN_TYPE_WARNINGS_BEGIN
 
 namespace JSC { namespace B3 {
 
-Optional<Opcode> invertedCompare(Opcode opcode, Type type)
+std::optional<Opcode> invertedCompare(Opcode opcode, Type type)
 {
     switch (opcode) {
     case Equal:
@@ -46,19 +46,19 @@ Optional<Opcode> invertedCompare(Opcode opcode, Type type)
     case LessThan:
         if (type.isInt())
             return GreaterEqual;
-        return WTF::nullopt;
+        return std::nullopt;
     case GreaterThan:
         if (type.isInt())
             return LessEqual;
-        return WTF::nullopt;
+        return std::nullopt;
     case LessEqual:
         if (type.isInt())
             return GreaterThan;
-        return WTF::nullopt;
+        return std::nullopt;
     case GreaterEqual:
         if (type.isInt())
             return LessThan;
-        return WTF::nullopt;
+        return std::nullopt;
     case Above:
         return BelowEqual;
     case Below:
@@ -68,7 +68,7 @@ Optional<Opcode> invertedCompare(Opcode opcode, Type type)
     case BelowEqual:
         return Above;
     default:
-        return WTF::nullopt;
+        return std::nullopt;
     }
 }
 
@@ -113,6 +113,9 @@ void printInternal(PrintStream& out, Opcode opcode)
         return;
     case Const64:
         out.print("Const64");
+        return;
+    case Const128:
+        out.print("Const128");
         return;
     case ConstDouble:
         out.print("ConstDouble");
@@ -159,8 +162,17 @@ void printInternal(PrintStream& out, Opcode opcode)
     case UMod:
         out.print("UMod");
         return;
+    case FMin:
+        out.print("FMin");
+        return;
+    case FMax:
+        out.print("FMax");
+        return;
     case Neg:
         out.print("Neg");
+        return;
+    case PurifyNaN:
+        out.print("PurifyNaN");
         return;
     case BitAnd:
         out.print("BitAnd");
@@ -198,6 +210,9 @@ void printInternal(PrintStream& out, Opcode opcode)
     case Floor:
         out.print("Floor");
         return;
+    case FTrunc:
+        out.print("FTrunc");
+        return;
     case Sqrt:
         out.print("Sqrt");
         return;
@@ -210,6 +225,12 @@ void printInternal(PrintStream& out, Opcode opcode)
     case SExt16:
         out.print("SExt16");
         return;
+    case SExt8To64:
+        out.print("SExt8To64");
+        return;
+    case SExt16To64:
+        out.print("SExt16To64");
+        return;
     case SExt32:
         out.print("SExt32");
         return;
@@ -218,6 +239,12 @@ void printInternal(PrintStream& out, Opcode opcode)
         return;
     case Trunc:
         out.print("Trunc");
+        return;
+    case TruncHigh:
+        out.print("TruncHigh");
+        return;
+    case Stitch:
+        out.print("Stitch");
         return;
     case IToD:
         out.print("IToD");
@@ -347,6 +374,195 @@ void printInternal(PrintStream& out, Opcode opcode)
         return;
     case WasmBoundsCheck:
         out.print("WasmBoundsCheck");
+        return;
+    case VectorExtractLane:
+        out.print("VectorExtractLane");
+        return;
+    case VectorReplaceLane:
+        out.print("VectorReplaceLane");
+        return;
+    case VectorDupElement:
+        out.print("VectorDupElement");
+        return;
+    case VectorEqual:
+        out.print("VectorEqual");
+        return;
+    case VectorNotEqual:
+        out.print("VectorNotEqual");
+        return;
+    case VectorLessThan:
+        out.print("VectorLessThan");
+        return;
+    case VectorLessThanOrEqual:
+        out.print("VectorLessThanOrEqual");
+        return;
+    case VectorBelow:
+        out.print("VectorBelow");
+        return;
+    case VectorBelowOrEqual:
+        out.print("VectorBelowOrEqual");
+        return;
+    case VectorGreaterThan:
+        out.print("VectorGreaterThan");
+        return;
+    case VectorGreaterThanOrEqual:
+        out.print("VectorGreaterThanOrEqual");
+        return;
+    case VectorAbove:
+        out.print("VectorAbove");
+        return;
+    case VectorAboveOrEqual:
+        out.print("VectorAboveOrEqual");
+        return;
+    case VectorAdd:
+        out.print("VectorAdd");
+        return;
+    case VectorSub:
+        out.print("VectorSub");
+        return;
+    case VectorAddSat:
+        out.print("VectorAddSat");
+        return;
+    case VectorSubSat:
+        out.print("VectorSubSat");
+        return;
+    case VectorMul:
+        out.print("VectorMul");
+        return;
+    case VectorDotProduct:
+        out.print("VectorDotProduct");
+        return;
+    case VectorDiv:
+        out.print("VectorDiv");
+        return;
+    case VectorMin:
+        out.print("VectorMin");
+        return;
+    case VectorMax:
+        out.print("VectorMax");
+        return;
+    case VectorPmin:
+        out.print("VectorPmin");
+        return;
+    case VectorPmax:
+        out.print("VectorPmax");
+        return;
+    case VectorNarrow:
+        out.print("VectorNarrow");
+        return;
+    case VectorNot:
+        out.print("VectorNot");
+        return;
+    case VectorAnd:
+        out.print("VectorAnd");
+        return;
+    case VectorAndnot:
+        out.print("VectorAndnot");
+        return;
+    case VectorOr:
+        out.print("VectorOr");
+        return;
+    case VectorXor:
+        out.print("VectorXor");
+        return;
+    case VectorShl:
+        out.print("VectorShl");
+        return;
+    case VectorShr:
+        out.print("VectorShr");
+        return;
+    case VectorAbs:
+        out.print("VectorAbs");
+        return;
+    case VectorNeg:
+        out.print("VectorNeg");
+        return;
+    case VectorPopcnt:
+        out.print("VectorPopcnt");
+        return;
+    case VectorCeil:
+        out.print("VectorCeil");
+        return;
+    case VectorFloor:
+        out.print("VectorFloor");
+        return;
+    case VectorTrunc:
+        out.print("VectorTrunc");
+        return;
+    case VectorTruncSat:
+        out.print("VectorTruncSat");
+        return;
+    case VectorConvert:
+        out.print("VectorConvert");
+        return;
+    case VectorConvertLow:
+        out.print("VectorConvertLow");
+        return;
+    case VectorNearest:
+        out.print("VectorNearest");
+        return;
+    case VectorSqrt:
+        out.print("VectorSqrt");
+        return;
+    case VectorExtendLow:
+        out.print("VectorExtendLow");
+        return;
+    case VectorExtendHigh:
+        out.print("VectorExtendHigh");
+        return;
+    case VectorPromote:
+        out.print("VectorPromote");
+        return;
+    case VectorDemote:
+        out.print("VectorDemote");
+        return;
+    case VectorSplat:
+        out.print("VectorSplat");
+        return;
+    case VectorAnyTrue:
+        out.print("VectorAnyTrue");
+        return;
+    case VectorAllTrue:
+        out.print("VectorAllTrue");
+        return;
+    case VectorAvgRound:
+        out.print("VectorAvgRound");
+        return;
+    case VectorBitmask:
+        out.print("VectorBitmask");
+        return;
+    case VectorBitwiseSelect:
+        out.print("VectorBitwiseSelect");
+        return;
+    case VectorExtaddPairwise:
+        out.print("VectorExtaddPairwise");
+        return;
+    case VectorMulSat:
+        out.print("VectorMulSat");
+        return;
+    case VectorSwizzle:
+        out.print("VectorSwizzle");
+        return;
+    case VectorMulByElement:
+        out.print("VectorMulByElement");
+        return;
+    case VectorShiftByVector:
+        out.print("VectorShiftByVector");
+        return;
+    case VectorRelaxedSwizzle:
+        out.print("VectorRelaxedSwizzle");
+        return;
+    case VectorRelaxedTruncSat:
+        out.print("VectorRelaxedTruncSat");
+        return;
+    case VectorRelaxedMAdd:
+        out.print("VectorRelaxedMAdd");
+        return;
+    case VectorRelaxedNMAdd:
+        out.print("VectorRelaxedNMAdd");
+        return;
+    case VectorRelaxedLaneSelect:
+        out.print("VectorRelaxedLaneSelect");
         return;
     case Upsilon:
         out.print("Upsilon");

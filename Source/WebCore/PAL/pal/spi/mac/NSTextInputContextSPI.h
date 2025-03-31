@@ -28,16 +28,32 @@
 #if USE(APPLE_INTERNAL_SDK)
 
 #import <AppKit/NSTextInputContext_Private.h>
+#import <AppKit/NSTextPlaceholder_Private.h>
 
-#else
+#else // !USE(APPLE_INTERNAL_SDK)
+
+@interface NSTextSelectionRect : NSObject
+@property (nonatomic, readonly) NSRect rect;
+@property (nonatomic, readonly) NSWritingDirection writingDirection;
+@property (nonatomic, readonly) BOOL isVertical;
+@property (nonatomic, readonly) NSAffineTransform *transform;
+@end
+
+@interface NSTextPlaceholder : NSObject
+@property (nonatomic, readonly) NSArray<NSTextSelectionRect *> *rects;
+@end
 
 @interface NSTextInputContext ()
 - (void)handleEvent:(NSEvent *)event completionHandler:(void(^)(BOOL handled))completionHandler;
 - (void)handleEventByInputMethod:(NSEvent *)event completionHandler:(void(^)(BOOL handled))completionHandler;
 - (BOOL)handleEventByKeyboardLayout:(NSEvent *)event;
+
+#if HAVE(REDESIGNED_TEXT_CURSOR)
+@property BOOL showsCursorAccessories;
+#endif
 @end
 
-#endif
+#endif // USE(APPLE_INTERNAL_SDK)
 
 APPKIT_EXTERN NSString *NSTextInsertionUndoableAttributeName;
 APPKIT_EXTERN NSString *NSTextInputReplacementRangeAttributeName;

@@ -39,6 +39,8 @@
 #include <wtf/IndexSet.h>
 #include <wtf/Vector.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC { namespace B3 { namespace Air {
 
 namespace {
@@ -58,6 +60,8 @@ bool hasPartialXmmRegUpdate(const Inst& inst)
     case CeilFloat:
     case FloorDouble:
     case FloorFloat:
+    case TruncDouble:
+    case TruncFloat:
         return true;
     default:
         break;
@@ -135,7 +139,7 @@ void fixPartialRegisterStalls(Code& code)
     if (!isX86())
         return;
 
-    PhaseScope phaseScope(code, "fixPartialRegisterStalls");
+    PhaseScope phaseScope(code, "fixPartialRegisterStalls"_s);
 
     Vector<BasicBlock*> candidates;
 
@@ -208,21 +212,21 @@ void fixPartialRegisterStalls(Code& code)
             Inst& inst = block->at(i);
 
             if (hasPartialXmmRegUpdate(inst)) {
-                RegisterSet defs;
-                RegisterSet uses;
-                inst.forEachTmp([&] (Tmp& tmp, Arg::Role role, Bank, Width) {
-                    if (tmp.isFPR()) {
+                RegisterSetBuilder defs;
+                RegisterSetBuilder uses;
+                inst.forEachTmp([&] (Tmp& tmp, Arg::Role role, Bank, Width width) {
+                    if (tmp.isFPR() && width <= Width64) {
                         if (Arg::isAnyDef(role))
-                            defs.set(tmp.fpr());
+                            defs.add(tmp.fpr(), IgnoreVectors);
                         if (Arg::isAnyUse(role))
-                            uses.set(tmp.fpr());
+                            uses.add(tmp.fpr(), IgnoreVectors);
                     }
                 });
                 // We only care about values we define but not use. Otherwise we have to wait
                 // for the value to be resolved anyway.
                 defs.exclude(uses);
 
-                defs.forEach([&] (Reg reg) {
+                defs.buildWithLowerBits().forEach([&] (Reg reg) {
                     if (localDistance.distance[MacroAssembler::fpRegisterIndex(reg.fpr())] < minimumSafeDistance)
                         insertionSet.insert(i, MoveZeroToDouble, inst.origin, Tmp(reg));
                 });
@@ -235,5 +239,7 @@ void fixPartialRegisterStalls(Code& code)
 }
 
 } } } // namespace JSC::B3::Air
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif // ENABLE(B3_JIT)

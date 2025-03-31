@@ -27,16 +27,18 @@
 #include "AudioDSPKernel.h"
 #include "AudioDSPKernelProcessor.h"
 #include "AudioNode.h"
-#include <JavaScriptCore/Float32Array.h>
+#include <JavaScriptCore/Forward.h>
 #include <memory>
 #include <wtf/Lock.h>
 #include <wtf/RefPtr.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 // WaveShaperProcessor is an AudioDSPKernelProcessor which uses WaveShaperDSPKernel objects to implement non-linear distortion effects.
 
 class WaveShaperProcessor final : public AudioDSPKernelProcessor {
+    WTF_MAKE_TZONE_ALLOCATED(WaveShaperProcessor);
 public:
     enum OverSampleType {
         OverSampleNone,
@@ -48,24 +50,34 @@ public:
 
     virtual ~WaveShaperProcessor();
 
-    std::unique_ptr<AudioDSPKernel> createKernel() override;
+    std::unique_ptr<AudioDSPKernel> createKernel() final;
 
-    void process(const AudioBus* source, AudioBus* destination, size_t framesToProcess) override;
+    void process(const AudioBus* source, AudioBus* destination, size_t framesToProcess) final;
 
-    void setCurve(Float32Array*);
-    Float32Array* curve() { return m_curve.get(); }
+    void setCurveForBindings(Float32Array*);
+    Float32Array* curveForBindings() WTF_IGNORES_THREAD_SAFETY_ANALYSIS { ASSERT(isMainThread()); return m_curve.get(); } // Doesn't grab the lock, only safe to call on the main thread.
+    Float32Array* curve() const WTF_REQUIRES_LOCK(m_processLock) { return m_curve.get(); }
 
-    void setOversample(OverSampleType);
-    OverSampleType oversample() const { return m_oversample; }
+    void setOversampleForBindings(OverSampleType);
+    OverSampleType oversampleForBindings() const WTF_IGNORES_THREAD_SAFETY_ANALYSIS { ASSERT(isMainThread()); return m_oversample; } // Doesn't grab the lock, only safe to call on the main thread.
+    OverSampleType oversample() const WTF_REQUIRES_LOCK(m_processLock) { return m_oversample; }
+
+    Lock& processLock() const WTF_RETURNS_LOCK(m_processLock) { return m_processLock; }
 
 private:
-    // m_curve represents the non-linear shaping curve.
-    RefPtr<Float32Array> m_curve;
+    Type processorType() const final { return Type::WaveShaper; }
 
-    OverSampleType m_oversample;
+    // m_curve represents the non-linear shaping curve.
+    RefPtr<Float32Array> m_curve WTF_GUARDED_BY_LOCK(m_processLock);
+
+    OverSampleType m_oversample WTF_GUARDED_BY_LOCK(m_processLock) { OverSampleNone };
 
     // This synchronizes process() with setCurve().
-    mutable Lock m_processMutex;
+    mutable Lock m_processLock;
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::WaveShaperProcessor) \
+    static bool isType(const WebCore::AudioProcessor& processor) { return processor.processorType() == WebCore::AudioProcessor::Type::WaveShaper; } \
+SPECIALIZE_TYPE_TRAITS_END()

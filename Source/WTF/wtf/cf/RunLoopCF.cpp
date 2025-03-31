@@ -101,8 +101,8 @@ void RunLoop::dispatch(const SchedulePairHashSet& schedulePairs, Function<void()
 
 // RunLoop::Timer
 
-RunLoop::TimerBase::TimerBase(RunLoop& runLoop)
-    : m_runLoop(runLoop)
+RunLoop::TimerBase::TimerBase(Ref<RunLoop>&& runLoop)
+    : m_runLoop(WTFMove(runLoop))
 {
 }
 
@@ -113,8 +113,15 @@ RunLoop::TimerBase::~TimerBase()
 
 void RunLoop::TimerBase::start(Seconds interval, bool repeat)
 {
-    if (m_timer)
+    if (m_timer) {
+        bool canReschedule = !repeat && !CFRunLoopTimerDoesRepeat(m_timer.get()) && CFRunLoopTimerIsValid(m_timer.get());
+        if (canReschedule) {
+            CFRunLoopTimerSetNextFireDate(m_timer.get(), CFAbsoluteTimeGetCurrent() + interval.seconds());
+            return;
+        }
+
         stop();
+    }
 
     m_timer = createTimer(interval, repeat, [] (CFRunLoopTimerRef cfTimer, void* context) {
         AutodrainedPool pool;
@@ -125,6 +132,7 @@ void RunLoop::TimerBase::start(Seconds interval, bool repeat)
 
         timer->fired();
     }, this);
+
     CFRunLoopAddTimer(m_runLoop->m_runLoop.get(), m_timer.get(), kCFRunLoopCommonModes);
 }
 

@@ -27,6 +27,9 @@
 
 #pragma once
 
+#include "BackForwardFrameItemIdentifier.h"
+#include "BackForwardItemIdentifier.h"
+#include "FrameIdentifier.h"
 #include <wtf/Forward.h>
 #include <wtf/RefCounted.h>
 
@@ -41,12 +44,16 @@ public:
     }
 
     virtual void addItem(Ref<HistoryItem>&&) = 0;
+    virtual void setChildItem(BackForwardFrameItemIdentifier, Ref<HistoryItem>&&) = 0;
 
     virtual void goToItem(HistoryItem&) = 0;
-        
-    virtual RefPtr<HistoryItem> itemAtIndex(int) = 0;
+    virtual void goToProvisionalItem(const HistoryItem&) = 0;
+    virtual void clearProvisionalItem(const HistoryItem&) = 0;
+
+    virtual RefPtr<HistoryItem> itemAtIndex(int, FrameIdentifier) = 0;
     virtual unsigned backListCount() const = 0;
     virtual unsigned forwardListCount() const = 0;
+    virtual bool containsItem(const HistoryItem&) const = 0;
 
     virtual void close() = 0;
 };

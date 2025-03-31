@@ -26,25 +26,31 @@
 #include "EmailInputType.h"
 
 #include "HTMLInputElement.h"
+#include "HTMLNames.h"
 #include "HTMLParserIdioms.h"
 #include "InputTypeNames.h"
 #include "LocalizedStrings.h"
 #include <JavaScriptCore/RegularExpression.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
 
-// From https://html.spec.whatwg.org/#valid-e-mail-address.
-static const char emailPattern[] = "^[a-zA-Z0-9.!#$%&'*+\\/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$";
+WTF_MAKE_TZONE_ALLOCATED_IMPL(EmailInputType);
 
-static bool isValidEmailAddress(const String& address)
+using namespace HTMLNames;
+
+// From https://html.spec.whatwg.org/#valid-e-mail-address.
+static constexpr ASCIILiteral emailPattern = "^[a-zA-Z0-9.!#$%&'*+\\/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$"_s;
+
+static bool isValidEmailAddress(StringView address)
 {
     int addressLength = address.length();
     if (!addressLength)
         return false;
 
-    static NeverDestroyed<const JSC::Yarr::RegularExpression> regExp(emailPattern, JSC::Yarr::TextCaseInsensitive);
+    static NeverDestroyed<const JSC::Yarr::RegularExpression> regExp(StringView { emailPattern }, OptionSet<JSC::Yarr::Flags> { JSC::Yarr::Flags::IgnoreCase });
 
     int matchLength;
     int matchOffset = regExp.get().match(address, 0, &matchLength);
@@ -65,7 +71,7 @@ bool EmailInputType::typeMismatchFor(const String& value) const
     if (!element()->multiple())
         return !isValidEmailAddress(value);
     for (auto& address : value.splitAllowingEmptyEntries(',')) {
-        if (!isValidEmailAddress(stripLeadingAndTrailingHTMLSpaces(address)))
+        if (!isValidEmailAddress(StringView(address).trim(isASCIIWhitespace<UChar>)))
             return true;
     }
     return false;
@@ -83,28 +89,38 @@ String EmailInputType::typeMismatchText() const
     return element()->multiple() ? validationMessageTypeMismatchForMultipleEmailText() : validationMessageTypeMismatchForEmailText();
 }
 
-bool EmailInputType::isEmailField() const
-{
-    return true;
-}
-
 bool EmailInputType::supportsSelectionAPI() const
 {
     return false;
 }
 
+void EmailInputType::attributeChanged(const QualifiedName& name)
+{
+    if (name == multipleAttr)
+        element()->setValueInternal(sanitizeValue(element()->value()), TextFieldEventBehavior::DispatchNoEvent);
+
+    BaseTextInputType::attributeChanged(name);
+}
+
 String EmailInputType::sanitizeValue(const String& proposedValue) const
 {
-    String noLineBreakValue = proposedValue.removeCharacters(isHTMLLineBreak);
+    // Passing a lambda instead of a function name helps the compiler inline isHTMLLineBreak.
+    String noLineBreakValue = proposedValue;
+    if (UNLIKELY(containsHTMLLineBreak(proposedValue))) {
+        noLineBreakValue = proposedValue.removeCharacters([](auto character) {
+            return isHTMLLineBreak(character);
+        });
+    }
+
     ASSERT(element());
     if (!element()->multiple())
-        return stripLeadingAndTrailingHTMLSpaces(noLineBreakValue);
+        return noLineBreakValue.trim(isASCIIWhitespace);
     Vector<String> addresses = noLineBreakValue.splitAllowingEmptyEntries(',');
     StringBuilder strippedValue;
     for (unsigned i = 0; i < addresses.size(); ++i) {
         if (i > 0)
             strippedValue.append(',');
-        strippedValue.append(stripLeadingAndTrailingHTMLSpaces(addresses[i]));
+        strippedValue.append(addresses[i].trim(isASCIIWhitespace));
     }
     return strippedValue.toString();
 }

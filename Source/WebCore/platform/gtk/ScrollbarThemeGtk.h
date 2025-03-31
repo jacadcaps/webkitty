@@ -25,7 +25,7 @@
 
 #pragma once
 
-#if !USE(GTK4)
+#if !USE(GTK4) && USE(CAIRO)
 
 #include "ScrollbarThemeAdwaita.h"
 
@@ -34,7 +34,6 @@ namespace WebCore {
 class ScrollbarThemeGtk final : public ScrollbarThemeAdwaita {
 public:
     ScrollbarThemeGtk();
-    virtual ~ScrollbarThemeGtk();
 
     void setUseSystemAppearance(bool);
 
@@ -46,7 +45,7 @@ private:
 
     bool paint(Scrollbar&, GraphicsContext&, const IntRect& damageRect) override;
     ScrollbarButtonPressAction handleMousePressEvent(Scrollbar&, const PlatformMouseEvent&, ScrollbarPart) override;
-    int scrollbarThickness(ScrollbarControlSize, ScrollbarExpansionState = ScrollbarExpansionState::Expanded) override;
+    int scrollbarThickness(ScrollbarWidth = ScrollbarWidth::Auto, ScrollbarExpansionState = ScrollbarExpansionState::Expanded, OverlayScrollbarSizeRelevancy = OverlayScrollbarSizeRelevancy::IncludeOverlayScrollbarSize) override;
     int minimumThumbLength(Scrollbar&) override;
 
     void themeChanged() override;
@@ -61,4 +60,4 @@ private:
 
 } // namespace WebCore
 
-#endif // !USE(GTK4)
+#endif // !USE(GTK4) && USE(CAIRO)

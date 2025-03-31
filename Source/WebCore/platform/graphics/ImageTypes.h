@@ -68,7 +68,7 @@ enum class GammaAndColorProfileOption {
     Ignored
 };
 
-enum class ImageAnimatingState { Yes, No };
+enum class ImageAnimatingState : bool { No, Yes };
 
 enum class EncodedDataStatus {
     Error,
@@ -91,5 +91,41 @@ enum class ImageDrawResult {
     DidRecord,
     DidDraw
 };
+
+enum class ShowDebugBackground : bool {
+    No,
+    Yes
+};
+
+enum class AllowImageSubsampling : bool {
+    No,
+    Yes
+};
+
+struct Headroom {
+    constexpr Headroom(float headroom)
+    {
+        this->headroom = headroom;
+    }
+
+    constexpr operator float() const { return headroom; }
+
+    friend constexpr bool operator==(const Headroom&, const Headroom&) = default;
+
+    static const Headroom FromImage;
+    static const Headroom None;
+
+    float headroom;
+};
+
+constexpr const Headroom Headroom::FromImage = { 0 };
+constexpr const Headroom Headroom::None = { 1 };
+
+#if USE(SKIA)
+enum class StrictImageClamping : bool {
+    No,
+    Yes
+};
+#endif
 
 }

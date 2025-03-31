@@ -20,14 +20,14 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef MediaSourcePrivateAVFObjC_h
-#define MediaSourcePrivateAVFObjC_h
+#pragma once
 
 #if ENABLE(MEDIA_SOURCE) && USE(AVFOUNDATION)
 
+#include "ProcessIdentity.h"
 #include "MediaSourcePrivate.h"
 #include "MediaSourcePrivateClient.h"
 #include <wtf/Deque.h>
@@ -37,10 +37,10 @@
 #include <wtf/Vector.h>
 
 OBJC_CLASS AVAsset;
-OBJC_CLASS AVSampleBufferDisplayLayer;
 OBJC_CLASS AVStreamDataParser;
 OBJC_CLASS NSError;
 OBJC_CLASS NSObject;
+OBJC_PROTOCOL(WebSampleBufferVideoRendering);
 typedef struct opaqueCMSampleBuffer *CMSampleBufferRef;
 
 namespace WebCore {
@@ -52,6 +52,8 @@ class MediaSourcePrivateClient;
 class SourceBufferPrivateAVFObjC;
 class TimeRanges;
 class WebCoreDecompressionSession;
+class VideoMediaSampleRenderer;
+struct MediaSourceConfiguration;
 
 class MediaSourcePrivateAVFObjC final
     : public MediaSourcePrivate
@@ -60,94 +62,101 @@ class MediaSourcePrivateAVFObjC final
 #endif
 {
 public:
-    static Ref<MediaSourcePrivateAVFObjC> create(MediaPlayerPrivateMediaSourceAVFObjC*, MediaSourcePrivateClient*);
+    static Ref<MediaSourcePrivateAVFObjC> create(MediaPlayerPrivateMediaSourceAVFObjC&, MediaSourcePrivateClient&);
     virtual ~MediaSourcePrivateAVFObjC();
 
-    MediaPlayerPrivateMediaSourceAVFObjC* player() const { return m_player; }
-    const Vector<RefPtr<SourceBufferPrivateAVFObjC>>& sourceBuffers() const { return m_sourceBuffers; }
-    const Vector<SourceBufferPrivateAVFObjC*>& activeSourceBuffers() const { return m_activeSourceBuffers; }
+    constexpr MediaPlatformType platformType() const final { return MediaPlatformType::AVFObjC; }
 
-    AddStatus addSourceBuffer(const ContentType&, RefPtr<SourceBufferPrivate>&) override;
-    void durationChanged() override;
-    void markEndOfStream(EndOfStreamStatus) override;
-    void unmarkEndOfStream() override;
-    MediaPlayer::ReadyState readyState() const override;
-    void setReadyState(MediaPlayer::ReadyState) override;
-    void waitForSeekCompleted() override;
-    void seekCompleted() override;
+    RefPtr<MediaPlayerPrivateInterface> player() const final;
+    void setPlayer(MediaPlayerPrivateInterface*) final;
 
-    MediaTime duration();
-    std::unique_ptr<PlatformTimeRanges> buffered();
+    AddStatus addSourceBuffer(const ContentType&, const MediaSourceConfiguration&, RefPtr<SourceBufferPrivate>&) final;
+    void durationChanged(const MediaTime&) final;
+    void markEndOfStream(EndOfStreamStatus) final;
 
-    bool hasAudio() const;
-    bool hasVideo() const;
+    MediaPlayer::ReadyState mediaPlayerReadyState() const final;
+    void setMediaPlayerReadyState(MediaPlayer::ReadyState) final;
+
     bool hasSelectedVideo() const;
 
     void willSeek();
-    void seekToTime(const MediaTime&);
-    MediaTime fastSeekTimeForMediaTime(const MediaTime&, const MediaTime& negativeThreshold, const MediaTime& positiveThreshold);
+
     FloatSize naturalSize() const;
 
     void hasSelectedVideoChanged(SourceBufferPrivateAVFObjC&);
-    void setVideoLayer(AVSampleBufferDisplayLayer*);
-    void setDecompressionSession(WebCoreDecompressionSession*);
+    void setVideoRenderer(VideoMediaSampleRenderer*);
+    void stageVideoRenderer(VideoMediaSampleRenderer*);
+    void videoRendererWillReconfigure(VideoMediaSampleRenderer&);
+    void videoRendererDidReconfigure(VideoMediaSampleRenderer&);
+
+    void flushActiveSourceBuffersIfNeeded();
 
 #if ENABLE(ENCRYPTED_MEDIA)
     void cdmInstanceAttached(CDMInstance&);
     void cdmInstanceDetached(CDMInstance&);
     void attemptToDecryptWithInstance(CDMInstance&);
     bool waitingForKey() const;
-    
+
     CDMInstance* cdmInstance() const { return m_cdmInstance.get(); }
     void outputObscuredDueToInsufficientExternalProtectionChanged(bool);
 #endif
 
 #if !RELEASE_LOG_DISABLED
     const Logger& logger() const final { return m_logger.get(); }
-    const char* logClassName() const override { return "MediaSourcePrivateAVFObjC"; }
-    const void* logIdentifier() const final { return m_logIdentifier; }
+    ASCIILiteral logClassName() const final { return "MediaSourcePrivateAVFObjC"_s; }
+    uint64_t logIdentifier() const final { return m_logIdentifier; }
     WTFLogChannel& logChannel() const final;
 
-    const void* nextSourceBufferLogIdentifier() { return childLogIdentifier(m_logIdentifier, ++m_nextSourceBufferID); }
+    uint64_t nextSourceBufferLogIdentifier() { return childLogIdentifier(m_logIdentifier, ++m_nextSourceBufferID); }
 #endif
 
     using RendererType = MediaSourcePrivateClient::RendererType;
     void failedToCreateRenderer(RendererType);
+    bool needsVideoLayer() const;
+
+    void setResourceOwner(const ProcessIdentity& resourceOwner) { m_resourceOwner = resourceOwner; }
+
+#if ENABLE(LEGACY_ENCRYPTED_MEDIA)
+    void keyAdded();
+#endif
 
 private:
-    MediaSourcePrivateAVFObjC(MediaPlayerPrivateMediaSourceAVFObjC*, MediaSourcePrivateClient*);
+    friend class SourceBufferPrivateAVFObjC;
 
-    void sourceBufferPrivateDidChangeActiveState(SourceBufferPrivateAVFObjC*, bool active);
-    void sourceBufferPrivateDidReceiveInitializationSegment(SourceBufferPrivateAVFObjC*);
+    MediaSourcePrivateAVFObjC(MediaPlayerPrivateMediaSourceAVFObjC&, MediaSourcePrivateClient&);
+    MediaPlayerPrivateMediaSourceAVFObjC* platformPlayer() const { return m_player.get(); }
+
+    void notifyActiveSourceBuffersChanged() final;
 #if ENABLE(LEGACY_ENCRYPTED_MEDIA)
-    void sourceBufferKeyNeeded(SourceBufferPrivateAVFObjC*, Uint8Array*);
+    void sourceBufferKeyNeeded(SourceBufferPrivateAVFObjC*, const SharedBuffer&);
 #endif
-    void monitorSourceBuffers();
-    void removeSourceBuffer(SourceBufferPrivate*);
+    void removeSourceBuffer(SourceBufferPrivate&) final;
 
     void setSourceBufferWithSelectedVideo(SourceBufferPrivateAVFObjC*);
 
-    friend class SourceBufferPrivateAVFObjC;
+    void bufferedChanged(const PlatformTimeRanges&) final;
+    void trackBufferedChanged(SourceBufferPrivate&, Vector<PlatformTimeRanges>&&) final;
 
-    MediaPlayerPrivateMediaSourceAVFObjC* m_player;
-    RefPtr<MediaSourcePrivateClient> m_client;
-    Vector<RefPtr<SourceBufferPrivateAVFObjC>> m_sourceBuffers;
-    Vector<SourceBufferPrivateAVFObjC*> m_activeSourceBuffers;
+    WeakPtr<MediaPlayerPrivateMediaSourceAVFObjC> m_player;
     Deque<SourceBufferPrivateAVFObjC*> m_sourceBuffersNeedingSessions;
     SourceBufferPrivateAVFObjC* m_sourceBufferWithSelectedVideo { nullptr };
-    bool m_isEnded;
 #if ENABLE(ENCRYPTED_MEDIA)
     RefPtr<CDMInstance> m_cdmInstance;
 #endif
 #if !RELEASE_LOG_DISABLED
     Ref<const Logger> m_logger;
-    const void* m_logIdentifier;
+    const uint64_t m_logIdentifier;
     uint64_t m_nextSourceBufferID { 0 };
 #endif
+
+    UncheckedKeyHashMap<SourceBufferPrivate*, Vector<PlatformTimeRanges>> m_bufferedRanges;
+    ProcessIdentity m_resourceOwner;
 };
 
-}
+} // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::MediaSourcePrivateAVFObjC)
+static bool isType(const WebCore::MediaSourcePrivate& mediaSource) { return mediaSource.platformType() == WebCore::MediaPlatformType::AVFObjC; }
+SPECIALIZE_TYPE_TRAITS_END()
 
 #endif // ENABLE(MEDIA_SOURCE) && USE(AVFOUNDATION)
-
-#endif

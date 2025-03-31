@@ -58,25 +58,19 @@ enum RunLoopSourcePriority {
     ReleaseUnusedResourcesTimer = 200,
 
     // Rendering timer in the threaded compositor.
-    CompositingThreadUpdateTimer = 110,
+    CompositingThreadUpdateTimer = 100,
 
     // Layer flush.
-    LayerFlushTimer = 110,
+    LayerFlushTimer = 100,
 
     // DisplayRefreshMonitor timer, should have the same value as the LayerFlushTimer.
-    DisplayRefreshMonitorTimer = 110,
+    DisplayRefreshMonitorTimer = 100,
 
     // Rendering timer in the main thread when accelerated compositing is not used.
     NonAcceleratedDrawingTimer = 100,
 
     // Async IO network callbacks.
     AsyncIONetwork = 100,
-
-    // Disk cache read callbacks.
-    DiskCacheRead = 100,
-
-    // Disk cache write callbacks.
-    DiskCacheWrite = 200,
 };
 
 #else
@@ -98,8 +92,6 @@ enum RunLoopSourcePriority {
     ReleaseUnusedResourcesTimer = 0,
 
     AsyncIONetwork = 10,
-    DiskCacheRead = 10,
-    DiskCacheWrite = 20
 };
 
 #endif

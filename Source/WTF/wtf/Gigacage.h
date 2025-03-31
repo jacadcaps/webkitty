@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,18 +27,21 @@
 
 #include <wtf/FastMalloc.h>
 #include <wtf/StdLibExtras.h>
+#include <wtf/text/ASCIILiteral.h>
 
-#if defined(USE_SYSTEM_MALLOC) && USE_SYSTEM_MALLOC
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
+#if USE(SYSTEM_MALLOC)
 #define GIGACAGE_ENABLED 0
 
 namespace Gigacage {
 
+constexpr bool hasCapacityToUseLargeGigacage = OS_CONSTANT(EFFECTIVE_ADDRESS_WIDTH) > 36;
+
 const size_t primitiveGigacageMask = 0;
-const size_t jsValueGigacageMask = 0;
 
 enum Kind {
     Primitive,
-    JSValue,
     NumberOfKinds
 };
 
@@ -50,20 +53,6 @@ inline void addPrimitiveDisableCallback(void (*)(void*), void*) { }
 inline void removePrimitiveDisableCallback(void (*)(void*), void*) { }
 
 inline void forbidDisablingPrimitiveGigacage() { }
-
-ALWAYS_INLINE const char* name(Kind kind)
-{
-    switch (kind) {
-    case Primitive:
-        return "Primitive";
-    case JSValue:
-        return "JSValue";
-    case NumberOfKinds:
-        break;
-    }
-    RELEASE_ASSERT_NOT_REACHED();
-    return nullptr;
-}
 
 ALWAYS_INLINE bool contains(const void*) { return false; }
 ALWAYS_INLINE bool disablingPrimitiveGigacageIsForbidden() { return false; }
@@ -84,6 +73,7 @@ inline bool isCaged(Kind, const void*) { return false; }
 inline void* tryAlignedMalloc(Kind, size_t alignment, size_t size) { return tryFastAlignedMalloc(alignment, size); }
 inline void alignedFree(Kind, void* p) { fastAlignedFree(p); }
 WTF_EXPORT_PRIVATE void* tryMalloc(Kind, size_t size);
+WTF_EXPORT_PRIVATE void* tryZeroedMalloc(Kind, size_t);
 WTF_EXPORT_PRIVATE void* tryRealloc(Kind, void*, size_t);
 inline void free(Kind, void* p) { fastFree(p); }
 
@@ -99,6 +89,7 @@ namespace Gigacage {
 WTF_EXPORT_PRIVATE void* tryAlignedMalloc(Kind, size_t alignment, size_t size);
 WTF_EXPORT_PRIVATE void alignedFree(Kind, void*);
 WTF_EXPORT_PRIVATE void* tryMalloc(Kind, size_t);
+WTF_EXPORT_PRIVATE void* tryZeroedMalloc(Kind, size_t);
 WTF_EXPORT_PRIVATE void* tryRealloc(Kind, void*, size_t);
 WTF_EXPORT_PRIVATE void free(Kind, void*);
 
@@ -113,8 +104,9 @@ namespace Gigacage {
 WTF_EXPORT_PRIVATE void* tryMallocArray(Kind, size_t numElements, size_t elementSize);
 
 WTF_EXPORT_PRIVATE void* malloc(Kind, size_t);
+WTF_EXPORT_PRIVATE void* zeroedMalloc(Kind, size_t);
 WTF_EXPORT_PRIVATE void* mallocArray(Kind, size_t numElements, size_t elementSize);
 
 } // namespace Gigacage
 
-
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

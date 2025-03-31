@@ -10,17 +10,20 @@
 
 #include "rtc_base/ssl_adapter.h"
 
+#include <memory>
+
 #include "rtc_base/openssl_adapter.h"
+#include "rtc_base/socket.h"
 
 ///////////////////////////////////////////////////////////////////////////////
 
 namespace rtc {
 
-SSLAdapterFactory* SSLAdapterFactory::Create() {
-  return new OpenSSLAdapterFactory();
+std::unique_ptr<SSLAdapterFactory> SSLAdapterFactory::Create() {
+  return std::make_unique<OpenSSLAdapterFactory>();
 }
 
-SSLAdapter* SSLAdapter::Create(AsyncSocket* socket) {
+SSLAdapter* SSLAdapter::Create(Socket* socket) {
   return new OpenSSLAdapter(socket);
 }
 

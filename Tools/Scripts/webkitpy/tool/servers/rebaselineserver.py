@@ -29,16 +29,12 @@
 import fnmatch
 import os
 import os.path
-import sys
 
 from webkitpy.common.system.executive import ScriptError
 from webkitpy.port.base import Port
 from webkitpy.tool.servers.reflectionhandler import ReflectionHandler
 
-if sys.version_info > (3, 0):
-    from http.server import HTTPServer
-else:
-    from BaseHTTPServer import HTTPServer
+from http.server import ThreadingHTTPServer
 
 
 STATE_NEEDS_REBASELINE = 'needs_rebaseline'
@@ -71,7 +67,6 @@ def _rebaseline_test(test_file, baseline_target, baseline_move_to, test_config, 
     filesystem = test_config.filesystem
     scm = test_config.scm
     layout_tests_directory = test_config.layout_tests_directory
-    results_directory = test_config.results_directory
     target_expectations_directory = filesystem.join(
         layout_tests_directory, 'platform', baseline_target, test_directory)
     test_results_directory = test_config.filesystem.join(
@@ -179,8 +174,6 @@ def get_test_baselines(test_file, test_config):
         def platform_from_directory(self, directory):
             return self._platforms_by_directory[directory]
 
-    test_path = test_config.filesystem.join(test_config.layout_tests_directory, test_file)
-
     host = test_config.host
     host.initialize_scm()
     all_platforms_port = AllPlatformsPort(host)
@@ -203,10 +196,10 @@ def get_test_baselines(test_file, test_config):
     return all_test_baselines
 
 
-class RebaselineHTTPServer(HTTPServer):
+class RebaselineHTTPServer(ThreadingHTTPServer):
     def __init__(self, httpd_port, config):
         server_name = ""
-        HTTPServer.__init__(self, (server_name, httpd_port), RebaselineHTTPRequestHandler)
+        super().__init__((server_name, httpd_port), RebaselineHTTPRequestHandler)
         self.test_config = config['test_config']
         self.results_json = config['results_json']
         self.platforms_json = config['platforms_json']
@@ -260,7 +253,7 @@ class RebaselineHTTPRequestHandler(ReflectionHandler):
 
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write('\n'.join(log))
+        self.wfile.write('\n'.join(log).encode())
 
     def test_result(self):
         test_name, _ = os.path.splitext(self.query['test'][0])

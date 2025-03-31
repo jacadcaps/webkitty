@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,56 +26,26 @@
 #pragma once
 
 #include "CSSValueList.h"
-#include "CachedResourceHandle.h"
-#include "ResourceLoaderOptions.h"
-#include <wtf/Function.h>
-#include <wtf/RefPtr.h>
 
 namespace WebCore {
 
-class CachedImage;
-class CachedResourceLoader;
-class CSSImageValue;
-class Document;
+class StyleImage;
 
 namespace Style {
 class BuilderState;
 }
 
-struct ImageWithScale {
-    RefPtr<CSSValue> value;
-    float scaleFactor { 1 };
-};
-
-class CSSImageSetValue final : public CSSValueList {
+class CSSImageSetValue final : public CSSValueContainingVector {
 public:
-    static Ref<CSSImageSetValue> create();
-    ~CSSImageSetValue();
+    static Ref<CSSImageSetValue> create(CSSValueListBuilder);
 
-    ImageWithScale selectBestFitImage(const Document&);
-    CachedImage* cachedImage() const;
+    String customCSSText(const CSS::SerializationContext&) const;
+    bool equals(const CSSImageSetValue& other) const { return itemsEqual(other); }
 
-    String customCSSText() const;
-
-    bool traverseSubresources(const WTF::Function<bool (const CachedResource&)>& handler) const;
-
-    void updateDeviceScaleFactor(const Document&);
-
-    Ref<CSSImageSetValue> imageSetWithStylesResolved(Style::BuilderState&);
+    RefPtr<StyleImage> createStyleImage(const Style::BuilderState&) const;
 
 private:
-    CSSImageSetValue();
-
-    ImageWithScale bestImageForScaleFactor();
-
-    void fillImageSet();
-    static inline bool compareByScaleFactor(ImageWithScale first, ImageWithScale second) { return first.scaleFactor < second.scaleFactor; }
-
-    RefPtr<CSSValue> m_selectedImageValue;
-    bool m_accessedBestFitImage { false };
-    ImageWithScale m_bestFitImage;
-    float m_deviceScaleFactor { 1 };
-    Vector<ImageWithScale> m_imagesInSet;
+    explicit CSSImageSetValue(CSSValueListBuilder);
 };
 
 } // namespace WebCore

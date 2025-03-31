@@ -28,14 +28,21 @@
 #import "WKWebpagePreferencesInternal.h"
 
 #import "APINavigation.h"
+#import <WebCore/WebCoreObjCExtras.h>
+#import <wtf/AlignedStorage.h>
 
 @implementation WKNavigation {
-    API::ObjectStorage<API::Navigation> _navigation;
+    AlignedStorage<API::Navigation> _navigation;
 }
+
+WK_OBJECT_DISABLE_DISABLE_KVC_IVAR_ACCESS;
 
 - (void)dealloc
 {
-    _navigation->~Navigation();
+    if (WebCoreObjCScheduleDeallocateOnMainRunLoop(WKNavigation.class, self))
+        return;
+
+    Ref { *_navigation }->~Navigation();
 
     [super dealloc];
 }
@@ -43,6 +50,11 @@
 - (NSURLRequest *)_request
 {
     return _navigation->originalRequest().nsURLRequest(WebCore::HTTPBodyUpdatePolicy::DoNotUpdateHTTPBody);
+}
+
+- (BOOL)_isUserInitiated
+{
+    return _navigation->wasUserInitiated();
 }
 
 #if PLATFORM(IOS_FAMILY)

@@ -23,7 +23,7 @@
 #include <memory>
 
 #include "rtc_base/checks.h"
-#include "rtc_base/helpers.h"
+#include "rtc_base/crypto_random.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/message_digest.h"
 #include "rtc_base/openssl_digest.h"
@@ -56,30 +56,34 @@ static void PrintCert(X509* x509) {
 // Generate a self-signed certificate, with the public key from the
 // given key pair. Caller is responsible for freeing the returned object.
 static X509* MakeCertificate(EVP_PKEY* pkey, const SSLIdentityParams& params) {
+  RTC_DCHECK(pkey != nullptr);
   RTC_LOG(LS_INFO) << "Making certificate for " << params.common_name;
 
   ASN1_INTEGER* asn1_serial_number = nullptr;
-  BIGNUM* serial_number = nullptr;
-  X509* x509 = nullptr;
-  X509_NAME* name = nullptr;
+  std::unique_ptr<BIGNUM, decltype(&::BN_free)> serial_number{nullptr,
+                                                              ::BN_free};
+  std::unique_ptr<X509, decltype(&::X509_free)> x509{nullptr, ::X509_free};
+  std::unique_ptr<X509_NAME, decltype(&::X509_NAME_free)> name{
+      nullptr, ::X509_NAME_free};
   time_t epoch_off = 0;  // Time offset since epoch.
-
-  if ((x509 = X509_new()) == nullptr) {
-    goto error;
+  x509.reset(X509_new());
+  if (x509 == nullptr) {
+    return nullptr;
   }
-  if (!X509_set_pubkey(x509, pkey)) {
-    goto error;
+  if (!X509_set_pubkey(x509.get(), pkey)) {
+    return nullptr;
   }
   // serial number - temporary reference to serial number inside x509 struct
-  if ((serial_number = BN_new()) == nullptr ||
-      !BN_pseudo_rand(serial_number, SERIAL_RAND_BITS, 0, 0) ||
-      (asn1_serial_number = X509_get_serialNumber(x509)) == nullptr ||
-      !BN_to_ASN1_INTEGER(serial_number, asn1_serial_number)) {
-    goto error;
+  serial_number.reset(BN_new());
+  if (serial_number == nullptr ||
+      !BN_pseudo_rand(serial_number.get(), SERIAL_RAND_BITS, 0, 0) ||
+      (asn1_serial_number = X509_get_serialNumber(x509.get())) == nullptr ||
+      !BN_to_ASN1_INTEGER(serial_number.get(), asn1_serial_number)) {
+    return nullptr;
   }
   // Set version to X509.V3
-  if (!X509_set_version(x509, 2L)) {
-    goto error;
+  if (!X509_set_version(x509.get(), 2L)) {
+    return nullptr;
   }
 
   // There are a lot of possible components for the name entries. In
@@ -89,31 +93,27 @@ static X509* MakeCertificate(EVP_PKEY* pkey, const SSLIdentityParams& params) {
   // arbitrary common_name. Note that this certificate goes out in
   // clear during SSL negotiation, so there may be a privacy issue in
   // putting anything recognizable here.
-  if ((name = X509_NAME_new()) == nullptr ||
-      !X509_NAME_add_entry_by_NID(name, NID_commonName, MBSTRING_UTF8,
-                                  (unsigned char*)params.common_name.c_str(),
-                                  -1, -1, 0) ||
-      !X509_set_subject_name(x509, name) || !X509_set_issuer_name(x509, name)) {
-    goto error;
+  name.reset(X509_NAME_new());
+  if (name == nullptr ||
+      !X509_NAME_add_entry_by_NID(name.get(), NID_commonName, MBSTRING_UTF8,
+                                  (unsigned char*)params.common_name.data(), -1,
+                                  -1, 0) ||
+      !X509_set_subject_name(x509.get(), name.get()) ||
+      !X509_set_issuer_name(x509.get(), name.get())) {
+    return nullptr;
   }
-  if (!X509_time_adj(X509_get_notBefore(x509), params.not_before, &epoch_off) ||
-      !X509_time_adj(X509_get_notAfter(x509), params.not_after, &epoch_off)) {
-    goto error;
+  if (!X509_time_adj(X509_get_notBefore(x509.get()), params.not_before,
+                     &epoch_off) ||
+      !X509_time_adj(X509_get_notAfter(x509.get()), params.not_after,
+                     &epoch_off)) {
+    return nullptr;
   }
-  if (!X509_sign(x509, pkey, EVP_sha256())) {
-    goto error;
+  if (!X509_sign(x509.get(), pkey, EVP_sha256())) {
+    return nullptr;
   }
 
-  BN_free(serial_number);
-  X509_NAME_free(name);
   RTC_LOG(LS_INFO) << "Returning certificate";
-  return x509;
-
-error:
-  BN_free(serial_number);
-  X509_NAME_free(name);
-  X509_free(x509);
-  return nullptr;
+  return x509.release();
 }
 
 }  // namespace
@@ -145,8 +145,8 @@ std::unique_ptr<OpenSSLCertificate> OpenSSLCertificate::Generate(
 }
 
 std::unique_ptr<OpenSSLCertificate> OpenSSLCertificate::FromPEMString(
-    const std::string& pem_string) {
-  BIO* bio = BIO_new_mem_buf(const_cast<char*>(pem_string.c_str()), -1);
+    absl::string_view pem_string) {
+  BIO* bio = BIO_new_mem_buf(const_cast<char*>(pem_string.data()), -1);
   if (!bio) {
     return nullptr;
   }
@@ -209,7 +209,7 @@ bool OpenSSLCertificate::GetSignatureDigestAlgorithm(
   return true;
 }
 
-bool OpenSSLCertificate::ComputeDigest(const std::string& algorithm,
+bool OpenSSLCertificate::ComputeDigest(absl::string_view algorithm,
                                        unsigned char* digest,
                                        size_t size,
                                        size_t* length) const {
@@ -217,7 +217,7 @@ bool OpenSSLCertificate::ComputeDigest(const std::string& algorithm,
 }
 
 bool OpenSSLCertificate::ComputeDigest(const X509* x509,
-                                       const std::string& algorithm,
+                                       absl::string_view algorithm,
                                        unsigned char* digest,
                                        size_t size,
                                        size_t* length) {
@@ -244,13 +244,8 @@ std::unique_ptr<SSLCertificate> OpenSSLCertificate::Clone() const {
 
 std::string OpenSSLCertificate::ToPEMString() const {
   BIO* bio = BIO_new(BIO_s_mem());
-  if (!bio) {
-    RTC_FATAL() << "Unreachable code.";
-  }
-  if (!PEM_write_bio_X509(bio, x509_)) {
-    BIO_free(bio);
-    RTC_FATAL() << "Unreachable code.";
-  }
+  RTC_CHECK(bio);
+  RTC_CHECK(PEM_write_bio_X509(bio, x509_));
   BIO_write(bio, "\0", 1);
   char* buffer;
   BIO_get_mem_data(bio, &buffer);
@@ -264,13 +259,8 @@ void OpenSSLCertificate::ToDER(Buffer* der_buffer) const {
   der_buffer->SetSize(0);
   // Calculates the DER representation of the certificate, from scratch.
   BIO* bio = BIO_new(BIO_s_mem());
-  if (!bio) {
-    RTC_FATAL() << "Unreachable code.";
-  }
-  if (!i2d_X509_bio(bio, x509_)) {
-    BIO_free(bio);
-    RTC_FATAL() << "Unreachable code.";
-  }
+  RTC_CHECK(bio);
+  RTC_CHECK(i2d_X509_bio(bio, x509_));
   char* data = nullptr;
   size_t length = BIO_get_mem_data(bio, &data);
   der_buffer->SetData(data, length);

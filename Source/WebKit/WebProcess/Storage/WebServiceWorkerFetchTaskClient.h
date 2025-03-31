@@ -25,14 +25,16 @@
 
 #pragma once
 
-#if ENABLE(SERVICE_WORKER)
-
 #include "Connection.h"
-#include <WebCore/FetchIdentifier.h>
 #include <WebCore/FetchLoader.h>
 #include <WebCore/FetchLoaderClient.h>
+#include <WebCore/NetworkLoadMetrics.h>
+#include <WebCore/ResourceResponse.h>
 #include <WebCore/ServiceWorkerFetch.h>
 #include <WebCore/ServiceWorkerTypes.h>
+#include <WebCore/SharedBuffer.h>
+#include <wtf/Lock.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/UniqueRef.h>
 
 namespace WebKit {
@@ -44,48 +46,68 @@ public:
         return adoptRef(*new WebServiceWorkerFetchTaskClient(WTFMove(connection), serviceWorkerIdentifier, serverConnectionIdentifier, fetchTaskIdentifier, needsContinueDidReceiveResponseMessage));
     }
 
+    virtual ~WebServiceWorkerFetchTaskClient();
+
+    void continueDidReceiveResponse();
+    void convertFetchToDownload();
+
 private:
     WebServiceWorkerFetchTaskClient(Ref<IPC::Connection>&&, WebCore::ServiceWorkerIdentifier, WebCore::SWServerConnectionIdentifier, WebCore::FetchIdentifier, bool needsContinueDidReceiveResponseMessage);
 
     void didReceiveResponse(const WebCore::ResourceResponse&) final;
     void didReceiveRedirection(const WebCore::ResourceResponse&) final;
-    void didReceiveData(Ref<WebCore::SharedBuffer>&&) final;
+    void didReceiveData(const WebCore::SharedBuffer&) final;
     void didReceiveFormDataAndFinish(Ref<WebCore::FormData>&&) final;
     void didFail(const WebCore::ResourceError&) final;
-    void didFinish() final;
+    void didFinish(const WebCore::NetworkLoadMetrics&) final;
     void didNotHandle() final;
-    void cancel() final;
-    void continueDidReceiveResponse() final;
+    void doCancel() final;
+    void setCancelledCallback(Function<void()>&&) final;
+    void usePreload() final;
+    void contextIsStopping() final;
 
-    void cleanup();
-    
-    void didReceiveBlobChunk(const char* data, size_t size);
+    void didReceiveDataInternal(const WebCore::SharedBuffer&) WTF_REQUIRES_LOCK(m_connectionLock);
+    void didReceiveFormDataAndFinishInternal(Ref<WebCore::FormData>&&) WTF_REQUIRES_LOCK(m_connectionLock);
+    void didFailInternal(const WebCore::ResourceError&) WTF_REQUIRES_LOCK(m_connectionLock);
+    void didFinishInternal(const WebCore::NetworkLoadMetrics&) WTF_REQUIRES_LOCK(m_connectionLock);
+    void didNotHandleInternal() WTF_REQUIRES_LOCK(m_connectionLock);
+
+    void cleanup() WTF_REQUIRES_LOCK(m_connectionLock);
+
+    void didReceiveBlobChunk(const WebCore::SharedBuffer&);
     void didFinishBlobLoading();
 
     struct BlobLoader final : WebCore::FetchLoaderClient {
+        WTF_MAKE_TZONE_ALLOCATED(BlobLoader);
+        WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(BlobLoader);
+    public:
+
         explicit BlobLoader(WebServiceWorkerFetchTaskClient& client) : client(client) { }
 
         // FetchLoaderClient API
         void didReceiveResponse(const WebCore::ResourceResponse&) final { }
-        void didReceiveData(const char* data, size_t size) final { client->didReceiveBlobChunk(data, size); }
+        void didReceiveData(const WebCore::SharedBuffer& data) final { client->didReceiveBlobChunk(data); }
         void didFail(const WebCore::ResourceError& error) final { client->didFail(error); }
-        void didSucceed() final { client->didFinishBlobLoading(); }
+        void didSucceed(const WebCore::NetworkLoadMetrics&) final { client->didFinishBlobLoading(); }
 
-        Ref<WebServiceWorkerFetchTaskClient> client;
+        const Ref<WebServiceWorkerFetchTaskClient> client;
         std::unique_ptr<WebCore::FetchLoader> loader;
     };
 
-    RefPtr<IPC::Connection> m_connection;
+    Lock m_connectionLock;
+    RefPtr<IPC::Connection> m_connection WTF_GUARDED_BY_LOCK(m_connectionLock);
     WebCore::SWServerConnectionIdentifier m_serverConnectionIdentifier;
     WebCore::ServiceWorkerIdentifier m_serviceWorkerIdentifier;
     WebCore::FetchIdentifier m_fetchIdentifier;
-    Optional<BlobLoader> m_blobLoader;
+    std::unique_ptr<BlobLoader> m_blobLoader;
     bool m_needsContinueDidReceiveResponseMessage { false };
     bool m_waitingForContinueDidReceiveResponseMessage { false };
-    Variant<std::nullptr_t, Ref<WebCore::SharedBuffer>, Ref<WebCore::FormData>, UniqueRef<WebCore::ResourceError>> m_responseData;
+    std::variant<std::nullptr_t, WebCore::SharedBufferBuilder, Ref<WebCore::FormData>, UniqueRef<WebCore::ResourceError>> m_responseData;
+    WebCore::NetworkLoadMetrics m_networkLoadMetrics;
     bool m_didFinish { false };
+    bool m_isDownload { false };
+    bool m_didSendResponse { false };
+    Function<void()> m_cancelledCallback;
 };
 
 } // namespace WebKit
-
-#endif // ENABLE(SERVICE_WORKER)

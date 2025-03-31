@@ -25,7 +25,11 @@
 
 #pragma once
 
+#if !BUSE(TZONE)
+
 #include "FreeList.h"
+
+#if !BUSE(LIBPAS)
 
 namespace bmalloc {
 
@@ -66,3 +70,5 @@ void FreeList::forEach(const Func& func) const
 
 } // namespace bmalloc
 
+#endif
+#endif // !BUSE(TZONE)

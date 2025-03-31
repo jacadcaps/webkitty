@@ -26,6 +26,7 @@
 #include "SVGNames.h"
 #include "SVGPathByteStream.h"
 #include "SVGPathSegImpl.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
@@ -33,10 +34,11 @@ class SVGPathSegList;
 class SVGPoint;
 
 class SVGPathElement final : public SVGGeometryElement {
-    WTF_MAKE_ISO_ALLOCATED(SVGPathElement);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(SVGPathElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SVGPathElement);
 public:
     static Ref<SVGPathElement> create(const QualifiedName&, Document&);
-    
+
     static Ref<SVGPathSegClosePath> createSVGPathSegClosePath() { return SVGPathSegClosePath::create(); }
     static Ref<SVGPathSegMovetoAbs> createSVGPathSegMovetoAbs(float x, float y) { return SVGPathSegMovetoAbs::create(x, y); }
     static Ref<SVGPathSegMovetoRel> createSVGPathSegMovetoRel(float x, float y) { return SVGPathSegMovetoRel::create(x, y); }
@@ -96,21 +98,20 @@ public:
     Ref<SVGPathSegList>& pathSegList() { return m_pathSegList->baseVal(); }
     RefPtr<SVGPathSegList>& animatedPathSegList() { return m_pathSegList->animVal(); }
 
-    // FIXME: https://bugs.webkit.org/show_bug.cgi?id=15412 - Implement normalized path segment lists!
-    RefPtr<SVGPathSegList> normalizedPathSegList() { return nullptr; }
-    RefPtr<SVGPathSegList> animatedNormalizedPathSegList() { return nullptr; }
-
-    const SVGPathByteStream& pathByteStream() const { return m_pathSegList->currentPathByteStream(); }
-    Path path() const { return m_pathSegList->currentPath(); }
+    const SVGPathByteStream& pathByteStream() const;
+    Path path() const;
     size_t approximateMemoryCost() const final { return m_pathSegList->approximateMemoryCost(); }
+
+    void pathDidChange();
+
+    static void clearCache();
+
+    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGPathElement, SVGGeometryElement>;
 
 private:
     SVGPathElement(const QualifiedName&, Document&);
 
-    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGPathElement, SVGGeometryElement>;
-    const SVGPropertyRegistry& propertyRegistry() const final { return m_propertyRegistry; }
-    
-    void parseAttribute(const QualifiedName&, const AtomString&) final;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
     void svgAttributeChanged(const QualifiedName&) final;
 
     bool isValid() const final { return SVGTests::isValid(); }
@@ -123,8 +124,10 @@ private:
 
     void invalidateMPathDependencies();
 
-private:
-    PropertyRegistry m_propertyRegistry { *this };
+    void collectPresentationalHintsForAttribute(const QualifiedName&, const AtomString&, MutableStyleProperties&) final;
+    void collectExtraStyleForPresentationalHints(MutableStyleProperties&) override;
+    void collectDPresentationalHint(MutableStyleProperties&);
+
     Ref<SVGAnimatedPathSegList> m_pathSegList { SVGAnimatedPathSegList::create(this) };
 };
 

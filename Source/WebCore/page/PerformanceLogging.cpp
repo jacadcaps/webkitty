@@ -28,57 +28,60 @@
 
 #include "BackForwardCache.h"
 #include "CommonVM.h"
-#include "DOMWindow.h"
 #include "Document.h"
-#include "Frame.h"
 #include "FrameLoader.h"
-#include "FrameLoaderClient.h"
-#include "JSDOMWindow.h"
+#include "LocalDOMWindow.h"
+#include "LocalFrame.h"
+#include "LocalFrameLoaderClient.h"
 #include "Logging.h"
 #include "Page.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(PerformanceLogging);
+
 #if !RELEASE_LOG_DISABLED
-static const char* toString(PerformanceLogging::PointOfInterest poi)
+static ASCIILiteral toString(PerformanceLogging::PointOfInterest poi)
 {
     switch (poi) {
     case PerformanceLogging::MainFrameLoadStarted:
-        return "MainFrameLoadStarted";
+        return "MainFrameLoadStarted"_s;
     case PerformanceLogging::MainFrameLoadCompleted:
-        return "MainFrameLoadCompleted";
+        return "MainFrameLoadCompleted"_s;
     }
     RELEASE_ASSERT_NOT_REACHED();
-    return "";
+    return ""_s;
 }
 #endif
 
-HashMap<const char*, size_t> PerformanceLogging::memoryUsageStatistics(ShouldIncludeExpensiveComputations includeExpensive)
+Vector<std::pair<ASCIILiteral, size_t>> PerformanceLogging::memoryUsageStatistics(ShouldIncludeExpensiveComputations includeExpensive)
 {
-    HashMap<const char*, size_t> stats;
+    Vector<std::pair<ASCIILiteral, size_t>> stats;
+    stats.reserveInitialCapacity(32);
 
-    auto& vm = commonVM();
+    stats.append(std::pair { "page_count"_s, Page::nonUtilityPageCount() });
+    stats.append(std::pair { "backforward_cache_page_count"_s, BackForwardCache::singleton().pageCount() });
+    stats.append(std::pair { "document_count"_s, Document::allDocuments().size() });
+
+    Ref vm = commonVM();
     JSC::JSLockHolder locker(vm);
-    stats.add("javascript_gc_heap_capacity", vm.heap.capacity());
-    stats.add("javascript_gc_heap_extra_memory_size", vm.heap.extraMemorySize());
-
-    auto& backForwardCache = BackForwardCache::singleton();
-    stats.add("backforward_cache_page_count", backForwardCache.pageCount());
-
-    stats.add("document_count", Document::allDocuments().size());
+    stats.append(std::pair { "javascript_gc_heap_capacity_mb"_s, vm->heap.capacity() >> 20 });
+    stats.append(std::pair { "javascript_gc_heap_extra_memory_size_mb"_s, vm->heap.extraMemorySize() >> 20 });
 
     if (includeExpensive == ShouldIncludeExpensiveComputations::Yes) {
-        stats.add("javascript_gc_heap_size", vm.heap.size());
-        stats.add("javascript_gc_object_count", vm.heap.objectCount());
-        stats.add("javascript_gc_protected_object_count", vm.heap.protectedObjectCount());
-        stats.add("javascript_gc_global_object_count", vm.heap.globalObjectCount());
-        stats.add("javascript_gc_protected_global_object_count", vm.heap.protectedGlobalObjectCount());
+        stats.append(std::pair { "javascript_gc_heap_size_mb"_s, vm->heap.size() >> 20 });
+        stats.append(std::pair { "javascript_gc_object_count"_s, vm->heap.objectCount() });
+        stats.append(std::pair { "javascript_gc_protected_object_count"_s, vm->heap.protectedObjectCount() });
+        stats.append(std::pair { "javascript_gc_protected_global_object_count"_s, vm->heap.protectedGlobalObjectCount() });
     }
+
+    getPlatformMemoryUsageStatistics(stats);
 
     return stats;
 }
 
-HashCountedSet<const char*> PerformanceLogging::javaScriptObjectCounts()
+HashCountedSet<ASCIILiteral> PerformanceLogging::javaScriptObjectCounts()
 {
     return WTFMove(*commonVM().heap.objectTypeCounts());
 }
@@ -92,23 +95,23 @@ void PerformanceLogging::didReachPointOfInterest(PointOfInterest poi)
 {
 #if RELEASE_LOG_DISABLED
     UNUSED_PARAM(poi);
+    UNUSED_VARIABLE(m_page);
 #else
     // Ignore synthetic main frames used internally by SVG and web inspector.
-    if (m_page.mainFrame().loader().client().isEmptyFrameLoaderClient())
-        return;
+    if (auto* localMainFrame = dynamicDowncast<LocalFrame>(m_page.mainFrame())) {
+        if (localMainFrame->loader().client().isEmptyFrameLoaderClient())
+            return;
+    }
 
-    auto stats = memoryUsageStatistics(ShouldIncludeExpensiveComputations::No);
-    getPlatformMemoryUsageStatistics(stats);
-
-    RELEASE_LOG(PerformanceLogging, "Memory usage info dump at %s:", toString(poi));
-    for (auto& it : stats)
-        RELEASE_LOG(PerformanceLogging, "  %s: %zu", it.key, it.value);
+    RELEASE_LOG_FORWARDABLE(PerformanceLogging, PERFORMANCELOGGING_MEMORY_USAGE_INFO, toString(poi).characters());
+    for (auto& [key, value] : memoryUsageStatistics(ShouldIncludeExpensiveComputations::No))
+        RELEASE_LOG_FORWARDABLE(PerformanceLogging, PERFORMANCELOGGING_MEMORY_USAGE_FOR_KEY, key.characters(), value);
 #endif
 }
 
 #if !PLATFORM(COCOA)
-void PerformanceLogging::getPlatformMemoryUsageStatistics(HashMap<const char*, size_t>&) { }
-Optional<uint64_t> PerformanceLogging::physicalFootprint() { return WTF::nullopt; }
+void PerformanceLogging::getPlatformMemoryUsageStatistics(Vector<std::pair<ASCIILiteral, size_t>>&) { }
+std::optional<uint64_t> PerformanceLogging::physicalFootprint() { return std::nullopt; }
 #endif
 
 }

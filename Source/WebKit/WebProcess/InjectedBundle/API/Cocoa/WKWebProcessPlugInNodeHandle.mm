@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,16 +29,21 @@
 #import "CocoaImage.h"
 #import "WKSharedAPICast.h"
 #import "WKWebProcessPlugInFrameInternal.h"
+#import "WebImage.h"
 #import <WebCore/HTMLTextFormControlElement.h>
 #import <WebCore/IntRect.h>
-#import <WebKit/WebImage.h>
+#import <WebCore/NativeImage.h>
+#import <WebCore/WebCoreObjCExtras.h>
+#import <wtf/AlignedStorage.h>
 
 @implementation WKWebProcessPlugInNodeHandle {
-    API::ObjectStorage<WebKit::InjectedBundleNodeHandle> _nodeHandle;
+    AlignedStorage<WebKit::InjectedBundleNodeHandle> _nodeHandle;
 }
 
 - (void)dealloc
 {
+    if (WebCoreObjCScheduleDeallocateOnMainRunLoop(WKWebProcessPlugInNodeHandle.class, self))
+        return;
     _nodeHandle->~InjectedBundleNodeHandle();
     [super dealloc];
 }
@@ -47,12 +52,12 @@
 {
     JSContextRef contextRef = [context JSGlobalContextRef];
     JSObjectRef objectRef = JSValueToObject(contextRef, [value JSValueRef], nullptr);
-    return WebKit::wrapper(WebKit::InjectedBundleNodeHandle::getOrCreate(contextRef, objectRef));
+    return WebKit::wrapper(WebKit::InjectedBundleNodeHandle::getOrCreate(contextRef, objectRef)).autorelease();
 }
 
 - (WKWebProcessPlugInFrame *)htmlIFrameElementContentFrame
 {
-    return WebKit::wrapper(_nodeHandle->htmlIFrameElementContentFrame());
+    return WebKit::wrapper(_nodeHandle->htmlIFrameElementContentFrame()).autorelease();
 }
 
 - (CocoaImage *)renderedImageWithOptions:(WKSnapshotOptions)options
@@ -62,18 +67,22 @@
 
 - (CocoaImage *)renderedImageWithOptions:(WKSnapshotOptions)options width:(NSNumber *)width
 {
-    Optional<float> optionalWidth;
+    std::optional<float> optionalWidth;
     if (width)
         optionalWidth = width.floatValue;
 
-    RefPtr<WebKit::WebImage> image = _nodeHandle->renderedImage(WebKit::toSnapshotOptions(options), options & kWKSnapshotOptionsExcludeOverflow, optionalWidth);
+    auto image = _nodeHandle->renderedImage(WebKit::toSnapshotOptions(options), options & kWKSnapshotOptionsExcludeOverflow, optionalWidth);
     if (!image)
         return nil;
 
+    auto nativeImage = image->copyNativeImage(WebCore::DontCopyBackingStore);
+    if (!nativeImage)
+        return nil;
+
 #if USE(APPKIT)
-    return [[[NSImage alloc] initWithCGImage:image->bitmap().makeCGImage().get() size:NSZeroSize] autorelease];
+    return adoptNS([[NSImage alloc] initWithCGImage:nativeImage->platformImage().get() size:NSZeroSize]).autorelease();
 #else
-    return [[[UIImage alloc] initWithCGImage:image->bitmap().makeCGImage().get()] autorelease];
+    return adoptNS([[UIImage alloc] initWithCGImage:nativeImage->platformImage().get()]).autorelease();
 #endif
 }
 
@@ -92,6 +101,11 @@
     return _nodeHandle->isHTMLInputElementAutoFilledAndViewable();
 }
 
+- (BOOL)HTMLInputElementIsAutoFilledAndObscured
+{
+    return _nodeHandle->isHTMLInputElementAutoFilledAndObscured();
+}
+
 - (void)setHTMLInputElementIsAutoFilled:(BOOL)isAutoFilled
 {
     _nodeHandle->setHTMLInputElementAutoFilled(isAutoFilled);
@@ -100,6 +114,11 @@
 - (void)setHTMLInputElementIsAutoFilledAndViewable:(BOOL)isAutoFilledAndViewable
 {
     _nodeHandle->setHTMLInputElementAutoFilledAndViewable(isAutoFilledAndViewable);
+}
+
+- (void)setHTMLInputElementIsAutoFilledAndObscured:(BOOL)isAutoFilledAndObscured
+{
+    _nodeHandle->setHTMLInputElementAutoFilledAndObscured(isAutoFilledAndObscured);
 }
 
 - (BOOL)isHTMLInputElementAutoFillButtonEnabled
@@ -120,6 +139,8 @@ static WebCore::AutoFillButtonType toAutoFillButtonType(_WKAutoFillButtonType au
         return WebCore::AutoFillButtonType::StrongPassword;
     case _WKAutoFillButtonTypeCreditCard:
         return WebCore::AutoFillButtonType::CreditCard;
+    case _WKAutoFillButtonTypeLoading:
+        return WebCore::AutoFillButtonType::Loading;
     }
     ASSERT_NOT_REACHED();
     return WebCore::AutoFillButtonType::None;
@@ -138,6 +159,8 @@ static _WKAutoFillButtonType toWKAutoFillButtonType(WebCore::AutoFillButtonType 
         return _WKAutoFillButtonTypeStrongPassword;
     case WebCore::AutoFillButtonType::CreditCard:
         return _WKAutoFillButtonTypeCreditCard;
+    case WebCore::AutoFillButtonType::Loading:
+        return _WKAutoFillButtonTypeLoading;
     }
     ASSERT_NOT_REACHED();
     return _WKAutoFillButtonTypeNone;
@@ -174,6 +197,11 @@ static _WKAutoFillButtonType toWKAutoFillButtonType(WebCore::AutoFillButtonType 
     return _nodeHandle->isSelectElement();
 }
 
+- (BOOL)isSelectableTextNode
+{
+    return _nodeHandle->isSelectableTextNode();
+}
+
 - (BOOL)isTextField
 {
     return _nodeHandle->isTextField();
@@ -181,12 +209,12 @@ static _WKAutoFillButtonType toWKAutoFillButtonType(WebCore::AutoFillButtonType 
 
 - (WKWebProcessPlugInNodeHandle *)HTMLTableCellElementCellAbove
 {
-    return WebKit::wrapper(_nodeHandle->htmlTableCellElementCellAbove());
+    return WebKit::wrapper(_nodeHandle->htmlTableCellElementCellAbove()).autorelease();
 }
 
 - (WKWebProcessPlugInFrame *)frame
 {
-    return WebKit::wrapper(_nodeHandle->document()->documentFrame());
+    return WebKit::wrapper(_nodeHandle->document()->documentFrame()).autorelease();
 }
 
 - (WebKit::InjectedBundleNodeHandle&)_nodeHandle

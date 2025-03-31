@@ -30,6 +30,9 @@
 #import "WebScriptObjectProtocol.h"
 #import "objc_instance.h"
 #import <JavaScriptCore/JSGlobalObjectInlines.h>
+#import <wtf/NeverDestroyed.h>
+#import <wtf/ObjCRuntimeExtras.h>
+#import <wtf/RetainPtr.h>
 
 namespace JSC {
 namespace Bindings {
@@ -39,22 +42,26 @@ ObjcClass::ObjcClass(ClassStructPtr aClass)
 {
 }
 
-static CFMutableDictionaryRef classesByIsA = 0;
+static RetainPtr<CFMutableDictionaryRef>& classesByIsA()
+{
+    static NeverDestroyed<RetainPtr<CFMutableDictionaryRef>> classesByIsA;
+    return classesByIsA;
+}
 
 static void _createClassesByIsAIfNecessary()
 {
-    if (!classesByIsA)
-        classesByIsA = CFDictionaryCreateMutable(NULL, 0, NULL, NULL);
+    if (!classesByIsA())
+        classesByIsA() = adoptCF(CFDictionaryCreateMutable(NULL, 0, NULL, NULL));
 }
 
 ObjcClass* ObjcClass::classForIsA(ClassStructPtr isa)
 {
     _createClassesByIsAIfNecessary();
 
-    auto aClass = reinterpret_cast<ObjcClass*>(const_cast<void*>(CFDictionaryGetValue(classesByIsA, (__bridge CFTypeRef)isa)));
+    auto aClass = reinterpret_cast<ObjcClass*>(const_cast<void*>(CFDictionaryGetValue(classesByIsA().get(), (__bridge CFTypeRef)isa)));
     if (!aClass) {
         aClass = new ObjcClass(isa);
-        CFDictionaryAddValue(classesByIsA, (__bridge CFTypeRef)isa, aClass);
+        CFDictionaryAddValue(classesByIsA().get(), (__bridge CFTypeRef)isa, aClass);
     }
 
     return aClass;
@@ -78,22 +85,16 @@ ObjcClass* ObjcClass::classForIsA(ClassStructPtr isa)
 typedef Vector<char, 256> JSNameConversionBuffer;
 static inline void convertJSMethodNameToObjc(const CString& jsName, JSNameConversionBuffer& buffer)
 {
-    buffer.reserveInitialCapacity(jsName.length() + 1);
-
-    const char* source = jsName.data();
-    while (true) {
-        if (*source == '$') {
-            ++source;
-            buffer.uncheckedAppend(*source);
-        } else if (*source == '_')
-            buffer.uncheckedAppend(':');
+    auto characters = jsName.spanIncludingNullTerminator();
+    buffer.reserveInitialCapacity(characters.size());
+    for (size_t i = 0; i < characters.size(); ++i) {
+        if (characters[i] == '$') {
+            ++i;
+            buffer.append(characters[i]);
+        } else if (characters[i] == '_')
+            buffer.append(':');
         else
-            buffer.uncheckedAppend(*source);
-
-        if (!*source)
-            return;
-
-        ++source;
+            buffer.append(characters[i]);
     }
 }
 
@@ -109,18 +110,16 @@ Method* ObjcClass::methodNamed(PropertyName propertyName, Instance*) const
     CString jsName = name.ascii();
     JSNameConversionBuffer buffer;
     convertJSMethodNameToObjc(jsName, buffer);
-    RetainPtr<CFStringRef> methodName = adoptCF(CFStringCreateWithCString(NULL, buffer.data(), kCFStringEncodingASCII));
+    RetainPtr<NSString> methodName = adoptNS([[NSString alloc] initWithCString:buffer.data() encoding:NSASCIIStringEncoding]);
 
     Method* methodPtr = 0;
     ClassStructPtr thisClass = _isa;
     
     while (thisClass && !methodPtr) {
-        unsigned numMethodsInClass = 0;
-        MethodStructPtr* objcMethodList = class_copyMethodList(thisClass, &numMethodsInClass);
-        for (unsigned i = 0; i < numMethodsInClass; i++) {
-            MethodStructPtr objcMethod = objcMethodList[i];
+        auto objcMethodList = class_copyMethodListSpan(thisClass);
+        for (auto& objcMethod : objcMethodList.span()) {
             SEL objcMethodSelector = method_getName(objcMethod);
-            const char* objcMethodSelectorName = sel_getName(objcMethodSelector);
+            auto objcMethodSelectorName = unsafeSpan(sel_getName(objcMethodSelector));
             NSString* mappedName = nil;
 
             // See if the class wants to exclude the selector from visibility in JavaScript.
@@ -134,7 +133,7 @@ Method* ObjcClass::methodNamed(PropertyName propertyName, Instance*) const
             if ([thisClass respondsToSelector:@selector(webScriptNameForSelector:)])
                 mappedName = [thisClass webScriptNameForSelector:objcMethodSelector];
 
-            if ((mappedName && [mappedName isEqual:(__bridge NSString*)methodName.get()]) || !strcmp(objcMethodSelectorName, buffer.data())) {
+            if ((mappedName && [mappedName isEqual:methodName.get()]) || equalSpans(objcMethodSelectorName, unsafeSpan(buffer.data()))) {
                 auto method = makeUnique<ObjcMethod>(thisClass, objcMethodSelector);
                 methodPtr = method.get();
                 m_methodCache.add(name.impl(), WTFMove(method));
@@ -142,7 +141,6 @@ Method* ObjcClass::methodNamed(PropertyName propertyName, Instance*) const
             }
         }
         thisClass = class_getSuperclass(thisClass);
-        free(objcMethodList);
     }
 
     return methodPtr;
@@ -161,7 +159,7 @@ Field* ObjcClass::fieldNamed(PropertyName propertyName, Instance* instance) cons
     ClassStructPtr thisClass = _isa;
 
     CString jsName = name.ascii();
-    RetainPtr<CFStringRef> fieldName = adoptCF(CFStringCreateWithCString(NULL, jsName.data(), kCFStringEncodingASCII));
+    RetainPtr<NSString> fieldName = adoptNS([[NSString alloc] initWithCString:jsName.data() encoding:NSASCIIStringEncoding]);
     id targetObject = (static_cast<ObjcInstance*>(instance))->getObject();
 #if PLATFORM(IOS_FAMILY)
     IGNORE_WARNINGS_BEGIN("undeclared-selector")
@@ -172,9 +170,7 @@ Field* ObjcClass::fieldNamed(PropertyName propertyName, Instance* instance) cons
 #endif
     if (attributes) {
         // Class overrides attributeKeys, use that array of key names.
-        unsigned count = [attributes count];
-        for (unsigned i = 0; i < count; i++) {
-            NSString* keyName = [attributes objectAtIndex:i];
+        for (NSString* keyName in attributes) {
             const char* UTF8KeyName = [keyName UTF8String]; // ObjC actually only supports ASCII names.
 
             // See if the class wants to exclude the selector from visibility in JavaScript.
@@ -189,7 +185,7 @@ Field* ObjcClass::fieldNamed(PropertyName propertyName, Instance* instance) cons
             if ([thisClass respondsToSelector:@selector(webScriptNameForKey:)])
                 mappedName = [thisClass webScriptNameForKey:UTF8KeyName];
 
-            if ((mappedName && [mappedName isEqual:(__bridge NSString *)fieldName.get()]) || [keyName isEqual:(__bridge NSString *)fieldName.get()]) {
+            if ((mappedName && [mappedName isEqual:fieldName.get()]) || [keyName isEqual:fieldName.get()]) {
                 auto newField = makeUnique<ObjcField>((__bridge CFStringRef)keyName);
                 field = newField.get();
                 m_fieldCache.add(name.impl(), WTFMove(newField));
@@ -201,13 +197,10 @@ Field* ObjcClass::fieldNamed(PropertyName propertyName, Instance* instance) cons
         // introspection.
 
         while (thisClass) {
-            unsigned numFieldsInClass = 0;
-            IvarStructPtr* ivarsInClass = class_copyIvarList(thisClass, &numFieldsInClass);
-
-            for (unsigned i = 0; i < numFieldsInClass; i++) {
-                IvarStructPtr objcIVar = ivarsInClass[i];
+            auto ivarsInClass = class_copyIvarListSpan(thisClass);
+            for (auto& objcIVar : ivarsInClass.span()) {
                 const char* objcIvarName = ivar_getName(objcIVar);
-                NSString* mappedName = 0;
+                NSString *mappedName = nullptr;
 
                 // See if the class wants to exclude the selector from visibility in JavaScript.
                 if ([thisClass respondsToSelector:@selector(isKeyExcludedFromWebScript:)])
@@ -220,7 +213,7 @@ Field* ObjcClass::fieldNamed(PropertyName propertyName, Instance* instance) cons
                 if ([thisClass respondsToSelector:@selector(webScriptNameForKey:)])
                     mappedName = [thisClass webScriptNameForKey:objcIvarName];
 
-                if ((mappedName && [mappedName isEqual:(__bridge NSString *)fieldName.get()]) || !strcmp(objcIvarName, jsName.data())) {
+                if ((mappedName && [mappedName isEqual:fieldName.get()]) || equalSpans(unsafeSpan(objcIvarName), jsName.span())) {
                     auto newField = makeUnique<ObjcField>(objcIVar);
                     field = newField.get();
                     m_fieldCache.add(name.impl(), WTFMove(newField));
@@ -229,7 +222,6 @@ Field* ObjcClass::fieldNamed(PropertyName propertyName, Instance* instance) cons
             }
 
             thisClass = class_getSuperclass(thisClass);
-            free(ivarsInClass);
         }
     }
 

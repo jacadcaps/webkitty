@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include "NowPlayingManager.h"
 #include <wtf/Forward.h>
 
 namespace WebCore {
@@ -32,22 +33,34 @@ namespace WebCore {
 class AudioDestination;
 class AudioIOCallback;
 class CDMFactory;
-struct NowPlayingInfo;
+class MediaRecorderPrivateWriter;
+class MediaRecorderPrivateWriterListener;
+class NowPlayingManager;
 
 class WEBCORE_EXPORT MediaStrategy {
 public:
 #if ENABLE(WEB_AUDIO)
-    virtual std::unique_ptr<AudioDestination> createAudioDestination(
+    virtual Ref<AudioDestination> createAudioDestination(
         AudioIOCallback&, const String& inputDeviceId, unsigned numberOfInputChannels, unsigned numberOfOutputChannels, float sampleRate) = 0;
 #endif
-#if PLATFORM(COCOA)
-    virtual void clearNowPlayingInfo() = 0;
-    virtual void setNowPlayingInfo(bool setAsNowPlayingApplication, const NowPlayingInfo&) = 0;
+    virtual std::unique_ptr<NowPlayingManager> createNowPlayingManager() const;
+    void resetMediaEngines();
+    virtual bool hasThreadSafeMediaSourceSupport() const;
+#if ENABLE(MEDIA_SOURCE)
+    virtual void enableMockMediaSource();
+    bool mockMediaSourceEnabled() const;
+    static void addMockMediaSourceEngine();
 #endif
+#if PLATFORM(COCOA) && ENABLE(MEDIA_RECORDER)
+    virtual std::unique_ptr<MediaRecorderPrivateWriter> createMediaRecorderPrivateWriter(const String&, MediaRecorderPrivateWriterListener&) const;
+#endif
+
+    virtual bool isWebMediaStrategy() const { return false; }
 
 protected:
     MediaStrategy();
     virtual ~MediaStrategy();
+    bool m_mockMediaSourceEnabled { false };
 };
 
 } // namespace WebCore

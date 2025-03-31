@@ -30,8 +30,12 @@
 
 #pragma once
 
-#include "InlineBox.h"
+#include "BoundaryPoint.h"
+#include "CaretRectComputation.h"
+#include "InlineIteratorBox.h"
+#include "InlineIteratorLineBox.h"
 #include "TextAffinity.h"
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
@@ -44,16 +48,18 @@ class RenderedPosition {
 public:
     RenderedPosition();
     explicit RenderedPosition(const VisiblePosition&);
-    explicit RenderedPosition(const Position&, EAffinity);
+    explicit RenderedPosition(const Position&, Affinity);
     bool isEquivalent(const RenderedPosition&) const;
 
     bool isNull() const { return !m_renderer; }
-    RootInlineBox* rootBox() { return m_inlineBox ? &m_inlineBox->root() : 0; }
+    InlineIterator::LineBoxIterator lineBox() const { return m_box ? m_box->lineBox() : InlineIterator::LineBoxIterator(); }
+    InlineIterator::LeafBoxIterator box() const { return m_box; }
+    unsigned offset() const { return m_offset; }
 
     unsigned char bidiLevelOnLeft() const;
     unsigned char bidiLevelOnRight() const;
-    RenderedPosition leftBoundaryOfBidiRun(unsigned char bidiLevelOfRun);
-    RenderedPosition rightBoundaryOfBidiRun(unsigned char bidiLevelOfRun);
+    RenderedPosition leftBoundaryOfBidiRun(unsigned char bidiLevelOfRun) const;
+    RenderedPosition rightBoundaryOfBidiRun(unsigned char bidiLevelOfRun) const;
 
     enum ShouldMatchBidiLevel { MatchBidiLevel, IgnoreBidiLevel };
     bool atLeftBoundaryOfBidiRun() const { return atLeftBoundaryOfBidiRun(IgnoreBidiLevel, 0); }
@@ -66,46 +72,30 @@ public:
     Position positionAtLeftBoundaryOfBiDiRun() const;
     Position positionAtRightBoundaryOfBiDiRun() const;
 
-    IntRect absoluteRect(LayoutUnit* extraWidthToEndOfLine = nullptr) const;
+    bool atLeftmostOffsetInBox() const { return m_box && m_offset == m_box->leftmostCaretOffset(); }
+    bool atRightmostOffsetInBox() const { return m_box && m_offset == m_box->rightmostCaretOffset(); }
+
+    IntRect absoluteRect(CaretRectMode = CaretRectMode::Normal) const;
+
+    std::optional<BoundaryPoint> boundaryPoint() const;
 
 private:
     bool operator==(const RenderedPosition&) const { return false; }
-    explicit RenderedPosition(RenderObject*, InlineBox*, int offset);
+    explicit RenderedPosition(const RenderObject*, InlineIterator::LeafBoxIterator, unsigned offset);
 
-    InlineBox* previousLeafOnLine() const;
-    InlineBox* nextLeafOnLine() const;
-    bool atLeftmostOffsetInBox() const { return m_inlineBox && m_offset == m_inlineBox->caretLeftmostOffset(); }
-    bool atRightmostOffsetInBox() const { return m_inlineBox && m_offset == m_inlineBox->caretRightmostOffset(); }
+    InlineIterator::LeafBoxIterator previousLeafOnLine() const;
+    InlineIterator::LeafBoxIterator nextLeafOnLine() const;
     bool atLeftBoundaryOfBidiRun(ShouldMatchBidiLevel, unsigned char bidiLevelOfRun) const;
     bool atRightBoundaryOfBidiRun(ShouldMatchBidiLevel, unsigned char bidiLevelOfRun) const;
 
-    RenderObject* m_renderer { nullptr };
-    InlineBox* m_inlineBox { nullptr };
-    int m_offset;
+    SingleThreadWeakPtr<const RenderObject> m_renderer;
+    InlineIterator::LeafBoxIterator m_box;
+    unsigned m_offset { 0 };
 
-    static InlineBox* uncachedInlineBox() { return reinterpret_cast<InlineBox*>(1); }
-    // Needs to be different form 0 so pick 1 because it's also on the null page.
-
-    mutable InlineBox* m_previousLeafOnLine;
-    mutable InlineBox* m_nextLeafOnLine;
+    mutable std::optional<InlineIterator::LeafBoxIterator> m_previousLeafOnLine;
+    mutable std::optional<InlineIterator::LeafBoxIterator> m_nextLeafOnLine;
 };
 
-inline RenderedPosition::RenderedPosition()
-    : m_offset(0)
-    , m_previousLeafOnLine(uncachedInlineBox())
-    , m_nextLeafOnLine(uncachedInlineBox())
-{
-}
-
-inline RenderedPosition::RenderedPosition(RenderObject* renderer, InlineBox* box, int offset)
-    : m_renderer(renderer)
-    , m_inlineBox(box)
-    , m_offset(offset)
-    , m_previousLeafOnLine(uncachedInlineBox())
-    , m_nextLeafOnLine(uncachedInlineBox())
-{
-}
-
-bool renderObjectContainsPosition(RenderObject*, const Position&);
+bool renderObjectContainsPosition(const RenderObject*, const Position&);
 
 } // namespace WebCore

@@ -26,13 +26,11 @@
 #include "config.h"
 #include "IDBResourceIdentifier.h"
 
-#if ENABLE(INDEXED_DATABASE)
-
 #include "IDBConnectionToClient.h"
 #include "IDBConnectionToServer.h"
 #include "IDBRequest.h"
 #include <wtf/MainThread.h>
-#include <wtf/text/StringConcatenateNumbers.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
@@ -48,11 +46,9 @@ static uint64_t nextServerResourceNumber()
     return currentNumber += 2;
 }
 
-IDBResourceIdentifier::IDBResourceIdentifier()
-{
-}
+IDBResourceIdentifier::IDBResourceIdentifier() = default;
 
-IDBResourceIdentifier::IDBResourceIdentifier(IDBConnectionIdentifier connectionIdentifier, uint64_t resourceIdentifier)
+IDBResourceIdentifier::IDBResourceIdentifier(std::optional<IDBConnectionIdentifier> connectionIdentifier, uint64_t resourceIdentifier)
     : m_idbConnectionIdentifier(connectionIdentifier)
     , m_resourceNumber(resourceIdentifier)
 {
@@ -81,30 +77,13 @@ IDBResourceIdentifier IDBResourceIdentifier::isolatedCopy() const
     return IDBResourceIdentifier(m_idbConnectionIdentifier, m_resourceNumber);
 }
 
-IDBResourceIdentifier IDBResourceIdentifier::emptyValue()
-{
-    return IDBResourceIdentifier({ }, 0);
-}
-
-IDBResourceIdentifier IDBResourceIdentifier::deletedValue()
-{
-    return IDBResourceIdentifier(IDBConnectionIdentifier { WTF::HashTableDeletedValue }, std::numeric_limits<uint64_t>::max());
-}
-
-bool IDBResourceIdentifier::isHashTableDeletedValue() const
-{
-    return m_idbConnectionIdentifier.isHashTableDeletedValue() && m_resourceNumber == std::numeric_limits<uint64_t>::max();
-}
-
 #if !LOG_DISABLED
 
 String IDBResourceIdentifier::loggingString() const
 {
-    return makeString('<', m_idbConnectionIdentifier.toUInt64(), ", ", m_resourceNumber, '>');
+    return makeString('<', m_idbConnectionIdentifier ? m_idbConnectionIdentifier->toUInt64() : 0, ", "_s, m_resourceNumber, '>');
 }
 
 #endif
 
 } // namespace WebCore
-
-#endif // ENABLE(INDEXED_DATABASE)

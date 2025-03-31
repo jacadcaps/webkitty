@@ -21,7 +21,6 @@
 #pragma once
 
 #include "SVGPropertyOwner.h"
-#include <wtf/Optional.h>
 #include <wtf/RefCounted.h>
 #include <wtf/text/WTFString.h>
 
@@ -79,10 +78,10 @@ public:
     // Synchronizing the SVG attribute and its reflection here.
     bool isDirty() const { return m_state == SVGPropertyState::Dirty; }
     void setDirty() { m_state = SVGPropertyState::Dirty; }
-    Optional<String> synchronize()
+    std::optional<String> synchronize()
     {
         if (m_state == SVGPropertyState::Clean)
-            return WTF::nullopt;
+            return std::nullopt;
         m_state = SVGPropertyState::Clean;
         return valueAsString();
     }
@@ -90,11 +89,7 @@ public:
     // This is used when calling setAttribute().
     virtual String valueAsString() const { return emptyString(); }
 
-    // Visual Studio doesn't seem to see these private constructors from subclasses.
-    // FIXME: See what it takes to remove this hack.
-#if !COMPILER(MSVC)
 protected:
-#endif
     SVGProperty(SVGPropertyOwner* owner = nullptr, SVGPropertyAccess access = SVGPropertyAccess::ReadWrite)
         : m_owner(owner)
         , m_access(access)

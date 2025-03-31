@@ -25,12 +25,11 @@
 
 #import "config.h"
 
+#import "DeprecatedGlobalValues.h"
 #import "PlatformUtilities.h"
 #import "Test.h"
 #import <WebKit/WebKit.h>
 #import <wtf/RetainPtr.h>
-
-static bool done;
 
 @interface LoadFileThenReloadDelegate : NSObject <WKNavigationDelegate>
 @end
@@ -61,7 +60,7 @@ TEST(WKWebView, LoadFileThenReload)
     auto delegate = adoptNS([[LoadFileThenReloadDelegate alloc] init]);
     [webView setNavigationDelegate:delegate.get()];
 
-    NSURL *file = [[NSBundle mainBundle] URLForResource:@"simple" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"];
+    NSURL *file = [NSBundle.test_resourcesBundle URLForResource:@"simple" withExtension:@"html"];
     [webView loadFileURL:file allowingReadAccessToURL:file.URLByDeletingLastPathComponent];
     [webView reload];
 

@@ -39,21 +39,26 @@ void InjectedBundlePage::platformDidStartProvisionalLoadForFrame(WKBundleFrameRe
 {
     if (!WKBundleFrameIsMainFrame(frame))
         return;
+    RefPtr testRunner = InjectedBundle::singleton().testRunner();
+    if (!testRunner) {
+        ASSERT_NOT_REACHED();
+        return;
+    }
 
     // FIXME: We should not be changing test URL every time the test navigates. The current URL could be
     // aditional information, but it shouldn't replace the initial test URL.
-    setCrashReportApplicationSpecificInformationToURL(InjectedBundle::singleton().testRunner()->testURL());
+    setCrashReportApplicationSpecificInformationToURL(testRunner->testURL());
 }
 
 String InjectedBundlePage::platformResponseMimeType(WKURLResponseRef response)
 {
-    RetainPtr<NSURLResponse> nsURLResponse = adoptNS(WKURLResponseCopyNSURLResponse(response));
+    auto nsURLResponse = adoptNS(WKURLResponseCopyNSURLResponse(response));
     return [nsURLResponse.get() MIMEType];
 }
 
 uint64_t InjectedBundlePage::responseHeaderCount(WKURLResponseRef response)
 {
-    RetainPtr<NSURLResponse> nsURLResponse = adoptNS(WKURLResponseCopyNSURLResponse(response));
+    auto nsURLResponse = adoptNS(WKURLResponseCopyNSURLResponse(response));
     if (![nsURLResponse isKindOfClass:[NSHTTPURLResponse class]])
         return { };
 

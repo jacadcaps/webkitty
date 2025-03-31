@@ -141,6 +141,12 @@ WI.SourceCode = class SourceCode extends WI.Object
         return contentIdentifier && !isWebKitInjectedScript(contentIdentifier);
     }
 
+    get localResourceOverride()
+    {
+        // Overridden by subclasses if needed.
+        return null;
+    }
+
     get sourceMaps()
     {
         return this._sourceMaps || [];
@@ -155,7 +161,7 @@ WI.SourceCode = class SourceCode extends WI.Object
 
         this._sourceMaps.push(sourceMap);
 
-        this.dispatchEventToListeners(WI.SourceCode.Event.SourceMapAdded);
+        this.dispatchEventToListeners(WI.SourceCode.Event.SourceMapAdded, {sourceMap});
     }
 
     get formatterSourceMap()

@@ -31,28 +31,37 @@
 #pragma once
 
 #include "InputType.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class HiddenInputType final : public InputType {
+    WTF_MAKE_TZONE_ALLOCATED(HiddenInputType);
 public:
-    explicit HiddenInputType(HTMLInputElement& element) : InputType(element) { }
+    static Ref<HiddenInputType> create(HTMLInputElement& element)
+    {
+        return adoptRef(*new HiddenInputType(element));
+    }
 
 private:
-    const AtomString& formControlType() const override;
-    FormControlState saveFormControlState() const override;
-    void restoreFormControlState(const FormControlState&) override;
-    bool supportsValidation() const override;
-    RenderPtr<RenderElement> createInputRenderer(RenderStyle&&) override;
-    bool accessKeyAction(bool sendMouseEvents) override;
-    bool rendererIsNeeded() override;
-    bool storesValueSeparateFromAttribute() override;
-    bool isHiddenType() const override;
-    bool supportLabels() const override { return false; }
-    bool isInteractiveContent() const final { return false; }
-    bool shouldRespectHeightAndWidthAttributes() override;
-    void setValue(const String&, bool, TextFieldEventBehavior) override;
-    bool appendFormData(DOMFormData&, bool) const override;
+    explicit HiddenInputType(HTMLInputElement& element)
+        : InputType(Type::Hidden, element)
+    {
+    }
+
+    const AtomString& formControlType() const final;
+    FormControlState saveFormControlState() const final;
+    void restoreFormControlState(const FormControlState&) final;
+    RenderPtr<RenderElement> createInputRenderer(RenderStyle&&) final;
+    bool accessKeyAction(bool sendMouseEvents) final;
+    bool rendererIsNeeded() final;
+    bool storesValueSeparateFromAttribute() final;
+    bool shouldRespectHeightAndWidthAttributes() final;
+    void setValue(const String&, bool, TextFieldEventBehavior, TextControlSetValueSelection) final;
+    bool appendFormData(DOMFormData&) const final;
+    bool dirAutoUsesValue() const final;
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_INPUT_TYPE(HiddenInputType, Type::Hidden)

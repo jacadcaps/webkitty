@@ -29,44 +29,64 @@
 
 #include "ActiveDOMObject.h"
 #include "EventTarget.h"
-#include "GenericEventQueue.h"
+#include "WebCoreOpaqueRoot.h"
+#include <wtf/Observer.h>
 #include <wtf/RefCounted.h>
 #include <wtf/Vector.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
+class TrackListBase;
+}
 
-class HTMLMediaElement;
-class Element;
+namespace WTF {
+template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
+// FIXME: TrackListBase inherits from RefCounted, what gives?
+template<> struct IsDeprecatedWeakRefSmartPointerException<WebCore::TrackListBase> : std::true_type { };
+}
+
+namespace WebCore {
+
 class TrackBase;
+using TrackID = uint64_t;
 
-class TrackListBase : public RefCounted<TrackListBase>, public EventTargetWithInlineData, public ActiveDOMObject {
-    WTF_MAKE_ISO_ALLOCATED(TrackListBase);
+class TrackListBase : public RefCounted<TrackListBase>, public EventTarget, public ActiveDOMObject {
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(TrackListBase);
 public:
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     virtual ~TrackListBase();
+
+    enum Type { BaseTrackList, TextTrackList, AudioTrackList, VideoTrackList };
+    Type type() const { return m_type; }
 
     virtual unsigned length() const;
     virtual bool contains(TrackBase&) const;
+    virtual bool contains(TrackID) const;
     virtual void remove(TrackBase&, bool scheduleEvent = true);
+    virtual void remove(TrackID, bool scheduleEvent = true);
+    virtual RefPtr<TrackBase> find(TrackID) const;
 
     // EventTarget
-    EventTargetInterface eventTargetInterface() const override = 0;
-    using RefCounted<TrackListBase>::ref;
-    using RefCounted<TrackListBase>::deref;
+    enum EventTargetInterfaceType eventTargetInterface() const override = 0;
     ScriptExecutionContext* scriptExecutionContext() const final { return ContextDestructionObserver::scriptExecutionContext(); }
 
-    virtual void clearElement();
-    Element* element() const;
-    WeakPtr<HTMLMediaElement> mediaElement() const { return m_element; }
+    void didMoveToNewDocument(Document&);
+
+    WebCoreOpaqueRoot opaqueRoot();
+
+    using OpaqueRootObserver = WTF::Observer<WebCoreOpaqueRoot()>;
+    void setOpaqueRootObserver(const OpaqueRootObserver& observer) { m_opaqueRootObserver = observer; };
 
     // Needs to be public so tracks can call it
     void scheduleChangeEvent();
-    bool isChangeEventScheduled() const;
+    bool isChangeEventScheduled() const { return m_isChangeEventScheduled; }
 
     bool isAnyTrackEnabled() const;
 
 protected:
-    TrackListBase(WeakPtr<HTMLMediaElement>, ScriptExecutionContext*);
+    TrackListBase(ScriptExecutionContext*, Type);
 
     void scheduleAddTrackEvent(Ref<TrackBase>&&);
     void scheduleRemoveTrackEvent(Ref<TrackBase>&&);
@@ -76,17 +96,19 @@ protected:
 private:
     void scheduleTrackEvent(const AtomString& eventName, Ref<TrackBase>&&);
 
-    // ActiveDOMObject.
-    bool virtualHasPendingActivity() const override;
-
     // EventTarget
     void refEventTarget() final { ref(); }
     void derefEventTarget() final { deref(); }
 
-    WeakPtr<HTMLMediaElement> m_element;
-
-    UniqueRef<MainThreadGenericEventQueue> m_asyncEventQueue;
+    Type m_type;
+    WeakPtr<OpaqueRootObserver> m_opaqueRootObserver;
+    bool m_isChangeEventScheduled { false };
 };
+
+inline WebCoreOpaqueRoot root(TrackListBase* trackList)
+{
+    return trackList->opaqueRoot();
+}
 
 } // namespace WebCore
 

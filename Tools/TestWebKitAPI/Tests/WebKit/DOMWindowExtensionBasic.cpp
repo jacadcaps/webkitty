@@ -82,12 +82,10 @@ static void didReceiveMessageFromInjectedBundle(WKContextRef, WKStringRef messag
 
 TEST(WebKit, DISABLED_DOMWindowExtensionBasic)
 {
-    WKRetainPtr<WKPageGroupRef> pageGroup = adoptWK(WKPageGroupCreateWithIdentifier(WKStringCreateWithUTF8CString("DOMWindowExtensionBasicPageGroup"))); 
-
-    WKRetainPtr<WKContextRef> context = adoptWK(Util::createContextForInjectedBundleTest("DOMWindowExtensionBasic", pageGroup.get()));
+    WKRetainPtr<WKContextRef> context = adoptWK(Util::createContextForInjectedBundleTest("DOMWindowExtensionBasic"));
 
     WKContextInjectedBundleClientV0 injectedBundleClient;
-    memset(&injectedBundleClient, 0, sizeof(injectedBundleClient));
+    zeroBytes(injectedBundleClient);
 
     injectedBundleClient.base.version = 0;
     injectedBundleClient.didReceiveMessageFromInjectedBundle = didReceiveMessageFromInjectedBundle;
@@ -98,7 +96,7 @@ TEST(WebKit, DISABLED_DOMWindowExtensionBasic)
     // model that actually allows for a back/forward cache.
     WKContextSetCacheModel(context.get(), kWKCacheModelDocumentBrowser);
 
-    PlatformWebView webView(context.get(), pageGroup.get());
+    PlatformWebView webView(context.get());
     
     // Make sure the extensions for each frame are installed in each world.
     WKRetainPtr<WKURLRef> url1 = adoptWK(Util::createURLForResource("simple-iframe", "html"));
@@ -137,12 +135,10 @@ TEST(WebKit, DISABLED_DOMWindowExtensionBasic)
 
 TEST(WebKit, DOMWindowExtensionCrashOnReload)
 {
-    WKRetainPtr<WKPageGroupRef> pageGroup = adoptWK(WKPageGroupCreateWithIdentifier(WKStringCreateWithUTF8CString("DOMWindowExtensionBasicPageGroup")));
-
-    WKRetainPtr<WKContextRef> context = adoptWK(Util::createContextForInjectedBundleTest("DOMWindowExtensionBasic", pageGroup.get()));
+    WKRetainPtr<WKContextRef> context = adoptWK(Util::createContextForInjectedBundleTest("DOMWindowExtensionBasic"));
 
     WKContextInjectedBundleClientV0 injectedBundleClient;
-    memset(&injectedBundleClient, 0, sizeof(injectedBundleClient));
+    zeroBytes(injectedBundleClient);
 
     injectedBundleClient.base.version = 0;
     injectedBundleClient.didReceiveMessageFromInjectedBundle = didReceiveMessageFromInjectedBundle;
@@ -153,7 +149,7 @@ TEST(WebKit, DOMWindowExtensionCrashOnReload)
     // model that actually allows for a back/forward cache.
     WKContextSetCacheModel(context.get(), kWKCacheModelDocumentBrowser);
 
-    PlatformWebView webView(context.get(), pageGroup.get());
+    PlatformWebView webView(context.get());
 
     finished = false;
 

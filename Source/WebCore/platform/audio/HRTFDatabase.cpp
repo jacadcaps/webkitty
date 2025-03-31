@@ -33,23 +33,18 @@
 #include "HRTFDatabase.h"
 
 #include "HRTFElevation.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-const int HRTFDatabase::MinElevation = -45;
-const int HRTFDatabase::MaxElevation = 90;
-const unsigned HRTFDatabase::RawElevationAngleSpacing = 15;
-const unsigned HRTFDatabase::NumberOfRawElevations = 10; // -45 -> +90 (each 15 degrees)
-const unsigned HRTFDatabase::InterpolationFactor = 1;
-const unsigned HRTFDatabase::NumberOfTotalElevations = NumberOfRawElevations * InterpolationFactor;
+WTF_MAKE_TZONE_ALLOCATED_IMPL(HRTFDatabase);
 
 HRTFDatabase::HRTFDatabase(float sampleRate)
-    : m_elevations(NumberOfTotalElevations)
-    , m_sampleRate(sampleRate)
+    : m_sampleRate(sampleRate)
 {
     unsigned elevationIndex = 0;
     for (int elevation = MinElevation; elevation <= MaxElevation; elevation += RawElevationAngleSpacing) {
-        std::unique_ptr<HRTFElevation> hrtfElevation = HRTFElevation::createForSubject("Composite", elevation, sampleRate);
+        std::unique_ptr<HRTFElevation> hrtfElevation = HRTFElevation::createForSubject("Composite"_s, elevation, sampleRate);
         ASSERT(hrtfElevation.get());
         if (!hrtfElevation.get())
             return;

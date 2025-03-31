@@ -26,37 +26,29 @@
 #pragma once
 
 #include "VM.h"
+#include <variant>
 #include <wtf/FileSystem.h>
-#include <wtf/MallocPtr.h>
+#include <wtf/MallocSpan.h>
 
 namespace JSC {
 
 class CachePayload {
 public:
     JS_EXPORT_PRIVATE static CachePayload makeMappedPayload(FileSystem::MappedFileData&&);
-    JS_EXPORT_PRIVATE static CachePayload makeMallocPayload(MallocPtr<uint8_t, VMMalloc>&&, size_t);
+    JS_EXPORT_PRIVATE static CachePayload makeMallocPayload(MallocSpan<uint8_t, VMMalloc>&&);
     JS_EXPORT_PRIVATE static CachePayload makeEmptyPayload();
 
     JS_EXPORT_PRIVATE CachePayload(CachePayload&&);
     JS_EXPORT_PRIVATE ~CachePayload();
-    JS_EXPORT_PRIVATE CachePayload& operator=(CachePayload&& other);
 
-    const uint8_t* data() const { return m_data; }
-    size_t size() const { return m_size; }
+    size_t size() const { return span().size(); }
+    JS_EXPORT_PRIVATE std::span<const uint8_t> span() const;
 
 private:
-    CachePayload(bool mapped, void* data, size_t size)
-        : m_mapped(mapped)
-        , m_size(size)
-        , m_data(static_cast<uint8_t*>(data))
-    {
-    }
+    using DataType = std::variant<MallocSpan<uint8_t, VMMalloc>, FileSystem::MappedFileData>;
+    explicit CachePayload(DataType&&);
 
-    void freeData();
-
-    bool m_mapped;
-    size_t m_size;
-    uint8_t* m_data;
+    DataType m_data;
 };
 
 } // namespace JSC

@@ -25,22 +25,16 @@
 
 #pragma once
 
-#if ENABLE(GPU_PROCESS)
+#if ENABLE(GPU_PROCESS) && ENABLE(VIDEO)
 
 #include "GPUProcessConnection.h"
-#include "MediaPlayerPrivateRemoteIdentifier.h"
-#include "MessageReceiver.h"
-#include "RemoteMediaPlayerState.h"
-#include "RemoteMediaResourceIdentifier.h"
-#include "SharedMemory.h"
-#include "TrackPrivateRemoteIdentifier.h"
-#include "WebProcessSupplement.h"
 #include <WebCore/MediaPlayer.h>
+#include <WebCore/MediaPlayerIdentifier.h>
 #include <wtf/HashMap.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 class MediaPlayerPrivateInterface;
-class Settings;
 }
 
 namespace WebKit {
@@ -48,50 +42,51 @@ namespace WebKit {
 class MediaPlayerPrivateRemote;
 class RemoteMediaPlayerMIMETypeCache;
 class WebProcess;
+struct PlatformTextTrackData;
 struct TrackPrivateRemoteConfiguration;
+struct WebProcessCreationParameters;
 
 class RemoteMediaPlayerManager
-    : public WebProcessSupplement
-    , public CanMakeWeakPtr<RemoteMediaPlayerManager> {
-    WTF_MAKE_FAST_ALLOCATED;
+    : public GPUProcessConnection::Client
+    , public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<RemoteMediaPlayerManager> {
+    WTF_MAKE_TZONE_ALLOCATED(RemoteMediaPlayerManager);
 public:
-    explicit RemoteMediaPlayerManager(WebProcess&);
+    static Ref<RemoteMediaPlayerManager> create();
     ~RemoteMediaPlayerManager();
 
-    static const char* supplementName();
-    WebProcess& parentProcess() const { return m_process; }
+    void setUseGPUProcess(bool);
 
-    void updatePreferences(const WebCore::Settings&);
-
-    GPUProcessConnection& gpuProcessConnection() const;
+    GPUProcessConnection& gpuProcessConnection();
+    Ref<GPUProcessConnection> protectedGPUProcessConnection();
 
     void didReceivePlayerMessage(IPC::Connection&, IPC::Decoder&);
 
-    void deleteRemoteMediaPlayer(MediaPlayerPrivateRemoteIdentifier);
+    void deleteRemoteMediaPlayer(WebCore::MediaPlayerIdentifier);
 
-    MediaPlayerPrivateRemoteIdentifier findRemotePlayerId(const WebCore::MediaPlayerPrivateInterface*);
-
-private:
-    std::unique_ptr<WebCore::MediaPlayerPrivateInterface> createRemoteMediaPlayer(WebCore::MediaPlayer*, WebCore::MediaPlayerEnums::MediaEngineIdentifier);
-
-    // WebProcessSupplement
-    void initialize(const WebProcessCreationParameters&) final;
-
-    friend class MediaPlayerRemoteFactory;
-    void getSupportedTypes(WebCore::MediaPlayerEnums::MediaEngineIdentifier, HashSet<String, ASCIICaseInsensitiveHash>&);
-    WebCore::MediaPlayer::SupportsType supportsTypeAndCodecs(WebCore::MediaPlayerEnums::MediaEngineIdentifier, const WebCore::MediaEngineSupportParameters&);
-    bool supportsKeySystem(WebCore::MediaPlayerEnums::MediaEngineIdentifier, const String& keySystem, const String& mimeType);
-    HashSet<RefPtr<WebCore::SecurityOrigin>> originsInMediaCache(WebCore::MediaPlayerEnums::MediaEngineIdentifier, const String&);
-    void clearMediaCache(WebCore::MediaPlayerEnums::MediaEngineIdentifier, const String&, WallTime modifiedSince);
-    void clearMediaCacheForOrigins(WebCore::MediaPlayerEnums::MediaEngineIdentifier, const String&, const HashSet<RefPtr<WebCore::SecurityOrigin>>&);
+    std::optional<WebCore::MediaPlayerIdentifier> findRemotePlayerId(const WebCore::MediaPlayerPrivateInterface*);
 
     RemoteMediaPlayerMIMETypeCache& typeCache(WebCore::MediaPlayerEnums::MediaEngineIdentifier);
 
-    HashMap<MediaPlayerPrivateRemoteIdentifier, WeakPtr<MediaPlayerPrivateRemote>> m_players;
-    WebProcess& m_process;
-    mutable GPUProcessConnection* m_gpuProcessConnection { nullptr };
+    WTF_ABSTRACT_THREAD_SAFE_REF_COUNTED_AND_CAN_MAKE_WEAK_PTR_IMPL;
+
+    void initialize(const WebProcessCreationParameters&);
+
+private:
+    RemoteMediaPlayerManager();
+    Ref<WebCore::MediaPlayerPrivateInterface> createRemoteMediaPlayer(WebCore::MediaPlayer*, WebCore::MediaPlayerEnums::MediaEngineIdentifier);
+
+    // GPUProcessConnection::Client
+    void gpuProcessConnectionDidClose(GPUProcessConnection&) final;
+
+    friend class MediaPlayerRemoteFactory;
+    void getSupportedTypes(WebCore::MediaPlayerEnums::MediaEngineIdentifier, HashSet<String>&);
+    WebCore::MediaPlayer::SupportsType supportsTypeAndCodecs(WebCore::MediaPlayerEnums::MediaEngineIdentifier, const WebCore::MediaEngineSupportParameters&);
+    bool supportsKeySystem(WebCore::MediaPlayerEnums::MediaEngineIdentifier, const String& keySystem, const String& mimeType);
+
+    HashMap<WebCore::MediaPlayerIdentifier, ThreadSafeWeakPtr<MediaPlayerPrivateRemote>> m_players;
+    ThreadSafeWeakPtr<GPUProcessConnection> m_gpuProcessConnection;
 };
 
 } // namespace WebKit
 
-#endif
+#endif // ENABLE(GPU_PROCESS) && ENABLE(VIDEO)

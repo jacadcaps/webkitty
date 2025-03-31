@@ -23,10 +23,10 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef RemoteObjectInvocation_h
-#define RemoteObjectInvocation_h
+#pragma once
 
 #include "APIDictionary.h"
+#include <wtf/TZoneMalloc.h>
 #include <wtf/text/WTFString.h>
 
 namespace IPC {
@@ -37,10 +37,11 @@ class Decoder;
 namespace WebKit {
 
 class RemoteObjectInvocation {
+    WTF_MAKE_TZONE_ALLOCATED(RemoteObjectInvocation);
 public:
     struct ReplyInfo {
-        WTF_MAKE_FAST_ALLOCATED;
-    public:
+        WTF_MAKE_STRUCT_TZONE_ALLOCATED(ReplyInfo);
+
         ReplyInfo(uint64_t replyID, String&& blockSignature)
             : replyID(replyID)
             , blockSignature(WTFMove(blockSignature))
@@ -54,11 +55,8 @@ public:
     RemoteObjectInvocation(const String& interfaceIdentifier, RefPtr<API::Dictionary>&& encodedInvocation, std::unique_ptr<ReplyInfo>&&);
 
     const String& interfaceIdentifier() const { return m_interfaceIdentifier; }
-    const API::Dictionary* encodedInvocation() const { return m_encodedInvocation.get(); }
-    const ReplyInfo* replyInfo() const { return m_replyInfo.get(); }
-
-    void encode(IPC::Encoder&) const;
-    static WARN_UNUSED_RETURN bool decode(IPC::Decoder&, RemoteObjectInvocation&);
+    const RefPtr<API::Dictionary>& encodedInvocation() const { return m_encodedInvocation; }
+    const std::unique_ptr<ReplyInfo>& replyInfo() const { return m_replyInfo; }
 
 private:
     String m_interfaceIdentifier;
@@ -67,5 +65,3 @@ private:
 };
 
 }
-
-#endif // RemoteObjectInvocation_h

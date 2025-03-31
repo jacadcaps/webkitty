@@ -27,26 +27,46 @@
 #import "WKContentWorldInternal.h"
 
 #import "_WKUserContentWorldInternal.h"
+#import <WebCore/WebCoreObjCExtras.h>
+
+static void checkContentWorldOptions(API::ContentWorld& world, _WKContentWorldConfiguration *configuration)
+{
+    if (world.allowAccessToClosedShadowRoots() != (configuration && configuration.allowAccessToClosedShadowRoots))
+        [NSException raise:NSInternalInconsistencyException format:@"The value of allowAccessToClosedShadowRoots does not match the existing world"];
+    if (world.allowAutofill() != (configuration && configuration.allowAutofill))
+        [NSException raise:NSInternalInconsistencyException format:@"The value of allowAutofill does not match the existing world"];
+    if (world.allowElementUserInfo() != (configuration && configuration.allowElementUserInfo))
+        [NSException raise:NSInternalInconsistencyException format:@"The value of allowElementUserInfo does not match the existing world"];
+    if (world.disableLegacyBuiltinOverrides() != (configuration && configuration.disableLegacyBuiltinOverrides))
+        [NSException raise:NSInternalInconsistencyException format:@"The value of disableLegacyBuiltinOverrides does not match the existing world"];
+}
 
 @implementation WKContentWorld
 
+WK_OBJECT_DISABLE_DISABLE_KVC_IVAR_ACCESS;
+
 + (WKContentWorld *)pageWorld
 {
-    return wrapper(API::ContentWorld::pageContentWorld());
+    return wrapper(API::ContentWorld::pageContentWorldSingleton());
 }
 
 + (WKContentWorld *)defaultClientWorld
 {
-    return wrapper(API::ContentWorld::defaultClientWorld());
+    return wrapper(API::ContentWorld::defaultClientWorldSingleton());
 }
 
 + (WKContentWorld *)worldWithName:(NSString *)name
 {
-    return wrapper(API::ContentWorld::sharedWorldWithName(name));
+    Ref world = API::ContentWorld::sharedWorldWithName(name);
+    checkContentWorldOptions(world, nil);
+    return wrapper(WTFMove(world)).autorelease();
 }
 
 - (void)dealloc
 {
+    if (WebCoreObjCScheduleDeallocateOnMainRunLoop(WKContentWorld.class, self))
+        return;
+
     _contentWorld->~ContentWorld();
 
     [super dealloc];
@@ -74,8 +94,24 @@
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
 - (_WKUserContentWorld *)_userContentWorld
 {
-    return [[[_WKUserContentWorld alloc] _initWithContentWorld:self] autorelease];
+    return adoptNS([[_WKUserContentWorld alloc] _initWithContentWorld:self]).autorelease();
 }
 ALLOW_DEPRECATED_DECLARATIONS_END
+
++ (WKContentWorld *)_worldWithConfiguration:(_WKContentWorldConfiguration *)configuration
+{
+    OptionSet<WebKit::ContentWorldOption> optionSet;
+    if (configuration.allowAccessToClosedShadowRoots)
+        optionSet.add(WebKit::ContentWorldOption::AllowAccessToClosedShadowRoots);
+    if (configuration.allowAutofill)
+        optionSet.add(WebKit::ContentWorldOption::AllowAutofill);
+    if (configuration.allowElementUserInfo)
+        optionSet.add(WebKit::ContentWorldOption::AllowElementUserInfo);
+    if (configuration.disableLegacyBuiltinOverrides)
+        optionSet.add(WebKit::ContentWorldOption::DisableLegacyBuiltinOverrides);
+    Ref world = API::ContentWorld::sharedWorldWithName(configuration.name, optionSet);
+    checkContentWorldOptions(world, configuration);
+    return wrapper(WTFMove(world)).autorelease();
+}
 
 @end

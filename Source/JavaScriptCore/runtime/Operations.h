@@ -24,17 +24,59 @@
 #include "CallFrame.h"
 #include "ExceptionHelpers.h"
 #include "JSBigInt.h"
-#include "JSCJSValueInlines.h"
+#include "JSGlobalObject.h"
+#include <wtf/text/MakeString.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
 #define InvalidPrototypeChain (std::numeric_limits<size_t>::max())
 
 NEVER_INLINE JSValue jsAddSlowCase(JSGlobalObject*, JSValue, JSValue);
-JSValue jsTypeStringForValue(JSGlobalObject*, JSValue);
-JSValue jsTypeStringForValue(VM&, JSGlobalObject*, JSValue);
-bool jsIsObjectTypeOrNull(JSGlobalObject*, JSValue);
+JSString* jsTypeStringForValueWithConcurrency(VM&, JSGlobalObject*, JSValue, Concurrency);
 size_t normalizePrototypeChain(JSGlobalObject*, JSCell*, bool& sawPolyProto);
+
+template<Concurrency concurrency>
+ALWAYS_INLINE TriState jsTypeofIsObjectWithConcurrency(JSGlobalObject* globalObject, JSValue value)
+{
+    if (!value.isObject())
+        return triState(value.isNull());
+    JSObject* object = asObject(value);
+    if (object->structure()->masqueradesAsUndefined(globalObject))
+        return TriState::False;
+    return invert(object->isCallableWithConcurrency<concurrency>());
+}
+
+template<Concurrency concurrency>
+ALWAYS_INLINE TriState jsTypeofIsFunctionWithConcurrency(JSGlobalObject* globalObject, JSValue value)
+{
+    if (!value.isObject())
+        return TriState::False;
+    JSObject* object = asObject(value);
+    if (object->structure()->masqueradesAsUndefined(globalObject))
+        return TriState::False;
+    return object->isCallableWithConcurrency<concurrency>();
+}
+
+inline JSString* jsTypeStringForValue(JSGlobalObject* globalObject, JSValue value)
+{
+    return jsTypeStringForValueWithConcurrency(getVM(globalObject), globalObject, value, Concurrency::MainThread);
+}
+
+ALWAYS_INLINE bool jsTypeofIsObject(JSGlobalObject* globalObject, JSValue value)
+{
+    auto result = jsTypeofIsObjectWithConcurrency<Concurrency::MainThread>(globalObject, value);
+    ASSERT(result != TriState::Indeterminate);
+    return result == TriState::True;
+}
+
+ALWAYS_INLINE bool jsTypeofIsFunction(JSGlobalObject* globalObject, JSValue value)
+{
+    auto result = jsTypeofIsFunctionWithConcurrency<Concurrency::MainThread>(globalObject, value);
+    ASSERT(result != TriState::Indeterminate);
+    return result == TriState::True;
+}
 
 ALWAYS_INLINE JSString* jsString(JSGlobalObject* globalObject, const String& u1, JSString* s2)
 {
@@ -47,7 +89,7 @@ ALWAYS_INLINE JSString* jsString(JSGlobalObject* globalObject, const String& u1,
     unsigned length2 = s2->length();
     if (!length2)
         return jsString(vm, u1);
-    static_assert(JSString::MaxLength == std::numeric_limits<int32_t>::max(), "");
+    static_assert(JSString::MaxLength == std::numeric_limits<int32_t>::max());
     if (sumOverflows<int32_t>(length1, length2)) {
         throwOutOfMemoryError(globalObject, scope);
         return nullptr;
@@ -62,9 +104,9 @@ ALWAYS_INLINE JSString* jsString(JSGlobalObject* globalObject, const String& u1,
         return JSRopeString::create(vm, jsString(vm, u1), s2);
 
     ASSERT(!s2->isRope());
-    const String& u2 = s2->value(globalObject);
+    auto u2 = s2->value(globalObject);
     scope.assertNoException();
-    String newString = tryMakeString(u1, u2);
+    String newString = tryMakeString(u1, u2.data);
     if (!newString) {
         throwOutOfMemoryError(globalObject, scope);
         return nullptr;
@@ -83,7 +125,7 @@ ALWAYS_INLINE JSString* jsString(JSGlobalObject* globalObject, JSString* s1, con
     unsigned length2 = u2.length();
     if (!length2)
         return s1;
-    static_assert(JSString::MaxLength == std::numeric_limits<int32_t>::max(), "");
+    static_assert(JSString::MaxLength == std::numeric_limits<int32_t>::max());
     if (sumOverflows<int32_t>(length1, length2)) {
         throwOutOfMemoryError(globalObject, scope);
         return nullptr;
@@ -95,9 +137,9 @@ ALWAYS_INLINE JSString* jsString(JSGlobalObject* globalObject, JSString* s1, con
         return JSRopeString::create(vm, s1, jsString(vm, u2));
 
     ASSERT(!s1->isRope());
-    const String& u1 = s1->value(globalObject);
+    auto u1 = s1->value(globalObject);
     scope.assertNoException();
-    String newString = tryMakeString(u1, u2);
+    String newString = tryMakeString(u1.data, u2);
     if (!newString) {
         throwOutOfMemoryError(globalObject, scope);
         return nullptr;
@@ -110,13 +152,13 @@ ALWAYS_INLINE JSString* jsString(JSGlobalObject* globalObject, JSString* s1, JSS
     VM& vm = getVM(globalObject);
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    unsigned length1 = s1->length();
+    unsigned length1 = s1 ? s1->length() : 0;
     if (!length1)
         return s2;
-    unsigned length2 = s2->length();
+    unsigned length2 = s2 ? s2->length() : 0;
     if (!length2)
         return s1;
-    static_assert(JSString::MaxLength == std::numeric_limits<int32_t>::max(), "");
+    static_assert(JSString::MaxLength == std::numeric_limits<int32_t>::max());
     if (sumOverflows<int32_t>(length1, length2)) {
         throwOutOfMemoryError(globalObject, scope);
         return nullptr;
@@ -130,19 +172,19 @@ ALWAYS_INLINE JSString* jsString(JSGlobalObject* globalObject, JSString* s1, JSS
     VM& vm = getVM(globalObject);
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    unsigned length1 = s1->length();
+    unsigned length1 = s1 ? s1->length() : 0;
     if (!length1)
         RELEASE_AND_RETURN(scope, jsString(globalObject, s2, s3));
 
-    unsigned length2 = s2->length();
+    unsigned length2 = s2 ? s2->length() : 0;
     if (!length2)
         RELEASE_AND_RETURN(scope, jsString(globalObject, s1, s3));
 
-    unsigned length3 = s3->length();
+    unsigned length3 = s3 ? s3->length() : 0;
     if (!length3)
         RELEASE_AND_RETURN(scope, jsString(globalObject, s1, s2));
 
-    static_assert(JSString::MaxLength == std::numeric_limits<int32_t>::max(), "");
+    static_assert(JSString::MaxLength == std::numeric_limits<int32_t>::max());
     if (sumOverflows<int32_t>(length1, length2, length3)) {
         throwOutOfMemoryError(globalObject, scope);
         return nullptr;
@@ -162,7 +204,7 @@ ALWAYS_INLINE JSString* jsString(JSGlobalObject* globalObject, const String& u1,
     unsigned length2 = u2.length();
     if (!length2)
         return jsString(vm, u1);
-    static_assert(JSString::MaxLength == std::numeric_limits<int32_t>::max(), "");
+    static_assert(JSString::MaxLength == std::numeric_limits<int32_t>::max());
     if (sumOverflows<int32_t>(length1, length2)) {
         throwOutOfMemoryError(globalObject, scope);
         return nullptr;
@@ -202,7 +244,7 @@ ALWAYS_INLINE JSString* jsString(JSGlobalObject* globalObject, const String& u1,
     if (!length3)
         RELEASE_AND_RETURN(scope, jsString(globalObject, u1, u2));
 
-    static_assert(JSString::MaxLength == std::numeric_limits<int32_t>::max(), "");
+    static_assert(JSString::MaxLength == std::numeric_limits<int32_t>::max());
     if (sumOverflows<int32_t>(length1, length2, length3)) {
         throwOutOfMemoryError(globalObject, scope);
         return nullptr;
@@ -266,9 +308,9 @@ ALWAYS_INLINE JSBigInt::ComparisonResult compareBigIntToOtherPrimitive(JSGlobalO
     ASSERT(!primValue.isBigInt());
 
     if (primValue.isString()) {
-        String string = asString(primValue)->value(globalObject);
+        auto string = asString(primValue)->value(globalObject);
         RETURN_IF_EXCEPTION(scope, JSBigInt::ComparisonResult::Undefined);
-        JSValue bigIntValue = JSBigInt::stringToBigInt(globalObject, string);
+        JSValue bigIntValue = JSBigInt::stringToBigInt(globalObject, WTFMove(string));
         RETURN_IF_EXCEPTION(scope, JSBigInt::ComparisonResult::Undefined);
         if (!bigIntValue)
             return JSBigInt::ComparisonResult::Undefined;
@@ -306,9 +348,9 @@ ALWAYS_INLINE JSBigInt::ComparisonResult compareBigInt32ToOtherPrimitive(JSGloba
     };
 
     if (primValue.isString()) {
-        String string = asString(primValue)->value(globalObject);
+        auto string = asString(primValue)->value(globalObject);
         RETURN_IF_EXCEPTION(scope, JSBigInt::ComparisonResult::Undefined);
-        JSValue bigIntValue = JSBigInt::stringToBigInt(globalObject, string);
+        JSValue bigIntValue = JSBigInt::stringToBigInt(globalObject, WTFMove(string));
         RETURN_IF_EXCEPTION(scope, JSBigInt::ComparisonResult::Undefined);
         if (!bigIntValue)
             return JSBigInt::ComparisonResult::Undefined;
@@ -412,9 +454,9 @@ ALWAYS_INLINE bool jsLess(JSGlobalObject* globalObject, JSValue v1, JSValue v2)
         return v1.asNumber() < v2.asNumber();
 
     if (isJSString(v1) && isJSString(v2)) {
-        String s1 = asString(v1)->value(globalObject);
+        auto s1 = asString(v1)->value(globalObject);
         RETURN_IF_EXCEPTION(scope, false);
-        String s2 = asString(v2)->value(globalObject);
+        auto s2 = asString(v2)->value(globalObject);
         RETURN_IF_EXCEPTION(scope, false);
         return codePointCompareLessThan(s1, s2);
     }
@@ -462,9 +504,9 @@ ALWAYS_INLINE bool jsLessEq(JSGlobalObject* globalObject, JSValue v1, JSValue v2
         return v1.asNumber() <= v2.asNumber();
 
     if (isJSString(v1) && isJSString(v2)) {
-        String s1 = asString(v1)->value(globalObject);
+        auto s1 = asString(v1)->value(globalObject);
         RETURN_IF_EXCEPTION(scope, false);
-        String s2 = asString(v2)->value(globalObject);
+        auto s2 = asString(v2)->value(globalObject);
         RETURN_IF_EXCEPTION(scope, false);
         return !codePointCompareLessThan(s2, s1);
     }
@@ -532,7 +574,7 @@ ALWAYS_INLINE JSValue jsAdd(JSGlobalObject* globalObject, JSValue v1, JSValue v2
 }
 
 template<typename DoubleOperation, typename BigIntOp>
-ALWAYS_INLINE JSValue arithmeticBinaryOp(JSGlobalObject* globalObject, JSValue v1, JSValue v2, DoubleOperation&& doubleOp, BigIntOp&& bigIntOp, const char* errorMessage)
+ALWAYS_INLINE JSValue arithmeticBinaryOp(JSGlobalObject* globalObject, JSValue v1, JSValue v2, DoubleOperation&& doubleOp, BigIntOp&& bigIntOp, ASCIILiteral errorMessage)
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
@@ -607,7 +649,7 @@ ALWAYS_INLINE JSValue jsDiv(JSGlobalObject* globalObject, JSValue v1, JSValue v2
 ALWAYS_INLINE JSValue jsRemainder(JSGlobalObject* globalObject, JSValue v1, JSValue v2)
 {
     auto doubleOp = [] (double left, double right) -> double {
-        return jsMod(left, right);
+        return Math::fmodDouble(left, right);
     };
 
     auto bigIntOp = [] (JSGlobalObject* globalObject, auto left, auto right) {
@@ -739,7 +781,7 @@ ALWAYS_INLINE JSValue shift(JSGlobalObject* globalObject, JSValue v1, JSValue v2
     }
 #endif
 
-    auto errorMessage = isLeft ? "Invalid mix of BigInt and other type in left shift operation." : "Invalid mix of BigInt and other type in signed right shift operation.";
+    auto errorMessage = isLeft ? "Invalid mix of BigInt and other type in left shift operation."_s : "Invalid mix of BigInt and other type in signed right shift operation."_s;
     return throwTypeError(globalObject, scope, errorMessage);
 }
 
@@ -760,9 +802,9 @@ ALWAYS_INLINE JSValue jsURShift(JSGlobalObject* globalObject, JSValue left, JSVa
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    Optional<uint32_t> leftUint32 = left.toUInt32AfterToNumeric(globalObject);
+    std::optional<uint32_t> leftUint32 = left.toUInt32AfterToNumeric(globalObject);
     RETURN_IF_EXCEPTION(scope, { });
-    Optional<uint32_t> rightUint32 = right.toUInt32AfterToNumeric(globalObject);
+    std::optional<uint32_t> rightUint32 = right.toUInt32AfterToNumeric(globalObject);
     RETURN_IF_EXCEPTION(scope, { });
 
     if (UNLIKELY(!leftUint32 || !rightUint32)) {
@@ -774,7 +816,7 @@ ALWAYS_INLINE JSValue jsURShift(JSGlobalObject* globalObject, JSValue left, JSVa
 }
 
 template<typename Int32Operation, typename BigIntOp>
-ALWAYS_INLINE JSValue bitwiseBinaryOp(JSGlobalObject* globalObject, JSValue v1, JSValue v2, Int32Operation&& int32Op, BigIntOp&& bigIntOp, const char* errorMessage)
+ALWAYS_INLINE JSValue bitwiseBinaryOp(JSGlobalObject* globalObject, JSValue v1, JSValue v2, Int32Operation&& int32Op, BigIntOp&& bigIntOp, ASCIILiteral errorMessage)
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
@@ -853,18 +895,25 @@ ALWAYS_INLINE JSValue jsBitwiseXor(JSGlobalObject* globalObject, JSValue v1, JSV
     return bitwiseBinaryOp(globalObject, v1, v2, int32Op, bigIntOp, "Invalid mix of BigInt and other type in bitwise 'xor' operation."_s);
 }
 
-ALWAYS_INLINE EncodedJSValue getByValWithIndex(JSGlobalObject* globalObject, JSCell* base, uint32_t index)
+ALWAYS_INLINE EncodedJSValue getByValWithIndexAndThis(JSGlobalObject* globalObject, JSCell* base, uint32_t index, JSValue thisValue)
 {
     if (base->isObject()) {
-        JSObject* object = asObject(base);
-        if (object->canGetIndexQuickly(index))
-            return JSValue::encode(object->getIndexQuickly(index));
+        if (JSValue result = asObject(base)->tryGetIndexQuickly(index))
+            return JSValue::encode(result);
+    } if (isJSString(base)) {
+        if (asString(base)->canGetIndex(index))
+            return JSValue::encode(asString(base)->getIndex(globalObject, index));
     }
 
-    if (isJSString(base) && asString(base)->canGetIndex(index))
-        return JSValue::encode(asString(base)->getIndex(globalObject, index));
+    PropertySlot slot(thisValue, PropertySlot::PropertySlot::InternalMethodType::Get);
+    return JSValue::encode(JSValue(base).get(globalObject, index, slot));
+}
 
-    return JSValue::encode(JSValue(base).get(globalObject, index));
+ALWAYS_INLINE EncodedJSValue getByValWithIndex(JSGlobalObject* globalObject, JSCell* base, uint32_t index)
+{
+    return getByValWithIndexAndThis(globalObject, base, index, base);
 }
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

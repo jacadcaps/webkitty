@@ -30,24 +30,33 @@
 
 #import "AVTrackPrivateAVFObjCImpl.h"
 #import "MediaSelectionGroupAVFObjC.h"
+#import "PlatformVideoTrackConfiguration.h"
+#import <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(VideoTrackPrivateAVFObjC);
+
 VideoTrackPrivateAVFObjC::VideoTrackPrivateAVFObjC(AVPlayerItemTrack* track)
-    : m_impl(makeUnique<AVTrackPrivateAVFObjCImpl>(track))
+    : VideoTrackPrivateAVFObjC(makeUnique<AVTrackPrivateAVFObjCImpl>(track))
 {
-    resetPropertiesFromTrack();
 }
 
 VideoTrackPrivateAVFObjC::VideoTrackPrivateAVFObjC(AVAssetTrack* track)
-    : m_impl(makeUnique<AVTrackPrivateAVFObjCImpl>(track))
+    : VideoTrackPrivateAVFObjC(makeUnique<AVTrackPrivateAVFObjCImpl>(track))
 {
-    resetPropertiesFromTrack();
 }
 
 VideoTrackPrivateAVFObjC::VideoTrackPrivateAVFObjC(MediaSelectionOptionAVFObjC& option)
-    : m_impl(makeUnique<AVTrackPrivateAVFObjCImpl>(option))
+    : VideoTrackPrivateAVFObjC(makeUnique<AVTrackPrivateAVFObjCImpl>(option))
 {
+}
+
+VideoTrackPrivateAVFObjC::VideoTrackPrivateAVFObjC(std::unique_ptr<AVTrackPrivateAVFObjCImpl>&& impl)
+    : m_impl(WTFMove(impl))
+    , m_videoTrackConfigurationObserver([this] { videoTrackConfigurationChanged(); })
+{
+    m_impl->setVideoTrackConfigurationObserver(m_videoTrackConfigurationObserver);
     resetPropertiesFromTrack();
 }
 
@@ -57,17 +66,17 @@ void VideoTrackPrivateAVFObjC::resetPropertiesFromTrack()
     // AVPlayerItemTrack
     VideoTrackPrivateAVF::setSelected(m_impl->enabled());
 
-    setTrackIndex(m_impl->trackID());
+    setTrackIndex(m_impl->id());
     setKind(m_impl->videoKind());
     setId(m_impl->id());
     setLabel(m_impl->label());
     setLanguage(m_impl->language());
+    setConfiguration(m_impl->videoTrackConfiguration());
 }
 
-void VideoTrackPrivateAVFObjC::setPlayerItemTrack(AVPlayerItemTrack *track)
+void VideoTrackPrivateAVFObjC::videoTrackConfigurationChanged()
 {
-    m_impl = makeUnique<AVTrackPrivateAVFObjCImpl>(track);
-    resetPropertiesFromTrack();
+    setConfiguration(m_impl->videoTrackConfiguration());
 }
 
 AVPlayerItemTrack* VideoTrackPrivateAVFObjC::playerItemTrack()
@@ -75,21 +84,9 @@ AVPlayerItemTrack* VideoTrackPrivateAVFObjC::playerItemTrack()
     return m_impl->playerItemTrack();
 }
 
-void VideoTrackPrivateAVFObjC::setAssetTrack(AVAssetTrack *track)
-{
-    m_impl = makeUnique<AVTrackPrivateAVFObjCImpl>(track);
-    resetPropertiesFromTrack();
-}
-
 AVAssetTrack* VideoTrackPrivateAVFObjC::assetTrack()
 {
     return m_impl->assetTrack();
-}
-
-void VideoTrackPrivateAVFObjC::setMediaSelectonOption(MediaSelectionOptionAVFObjC& option)
-{
-    m_impl = makeUnique<AVTrackPrivateAVFObjCImpl>(option);
-    resetPropertiesFromTrack();
 }
 
 MediaSelectionOptionAVFObjC* VideoTrackPrivateAVFObjC::mediaSelectionOption()

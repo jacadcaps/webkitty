@@ -54,7 +54,7 @@ void CalculateConstantBufferParams(GLintptr offset,
 
     // The GL size is not required to be aligned to a 256 bytes boundary.
     // Round the size up to a 256 bytes boundary then express the results in constants of 16-bytes.
-    *outNumConstants = static_cast<UINT>(rx::roundUp(size, static_cast<GLsizeiptr>(256)) / 16);
+    *outNumConstants = static_cast<UINT>(rx::roundUpPow2(size, static_cast<GLsizeiptr>(256)) / 16);
 
     // Since the size is rounded up, firstConstant + numConstants may be bigger than the actual size
     // of the buffer. This behaviour is explictly allowed according to the documentation on
@@ -222,47 +222,6 @@ class Buffer11::StructuredBufferStorage : public Buffer11::NativeStorage
     d3d11::ShaderResourceView mStructuredBufferResourceView;
 };
 
-// A emulated indexed buffer storage represents an underlying D3D11 buffer for data
-// that has been expanded to match the indices list used. This storage is only
-// used for FL9_3 pointsprite rendering emulation.
-class Buffer11::EmulatedIndexedStorage : public Buffer11::BufferStorage
-{
-  public:
-    EmulatedIndexedStorage(Renderer11 *renderer);
-    ~EmulatedIndexedStorage() override;
-
-    bool isCPUAccessible(GLbitfield access) const override { return true; }
-
-    bool isGPUAccessible() const override { return false; }
-
-    angle::Result getBuffer(const gl::Context *context,
-                            SourceIndexData *indexInfo,
-                            const TranslatedAttribute &attribute,
-                            GLint startVertex,
-                            const d3d11::Buffer **bufferOut);
-
-    angle::Result copyFromStorage(const gl::Context *context,
-                                  BufferStorage *source,
-                                  size_t sourceOffset,
-                                  size_t size,
-                                  size_t destOffset,
-                                  CopyResult *resultOut) override;
-
-    angle::Result resize(const gl::Context *context, size_t size, bool preserveData) override;
-
-    angle::Result map(const gl::Context *context,
-                      size_t offset,
-                      size_t length,
-                      GLbitfield access,
-                      uint8_t **mapPointerOut) override;
-    void unmap() override;
-
-  private:
-    d3d11::Buffer mBuffer;                     // contains expanded data for use by D3D
-    angle::MemoryBuffer mMemoryBuffer;         // original data (not expanded)
-    angle::MemoryBuffer mIndicesMemoryBuffer;  // indices data
-};
-
 // Pack storage represents internal storage for pack buffers. We implement pack buffers
 // as CPU memory, tied to a staging texture, for asynchronous texture readback.
 class Buffer11::PackStorage : public Buffer11::BufferStorage
@@ -387,7 +346,7 @@ angle::Result Buffer11::getData(const gl::Context *context, const uint8_t **outD
 {
     if (mSize == 0)
     {
-        // TODO(http://anglebug.com/2840): This ensures that we don't crash or assert in robust
+        // TODO(http://anglebug.com/42261543): This ensures that we don't crash or assert in robust
         // buffer access behavior mode if there are buffers without any data. However, technically
         // it should still be possible to draw, with fetches from this buffer returning zero.
         return angle::Result::Stop;
@@ -700,24 +659,6 @@ angle::Result Buffer11::getBuffer(const gl::Context *context,
     return angle::Result::Continue;
 }
 
-angle::Result Buffer11::getEmulatedIndexedBuffer(const gl::Context *context,
-                                                 SourceIndexData *indexInfo,
-                                                 const TranslatedAttribute &attribute,
-                                                 GLint startVertex,
-                                                 ID3D11Buffer **bufferOut)
-{
-    ASSERT(indexInfo);
-
-    EmulatedIndexedStorage *emulatedStorage = nullptr;
-    ANGLE_TRY(getBufferStorage(context, BUFFER_USAGE_EMULATED_INDEXED_VERTEX, &emulatedStorage));
-
-    const d3d11::Buffer *nativeBuffer = nullptr;
-    ANGLE_TRY(
-        emulatedStorage->getBuffer(context, indexInfo, attribute, startVertex, &nativeBuffer));
-    *bufferOut = nativeBuffer->get();
-    return angle::Result::Continue;
-}
-
 angle::Result Buffer11::getConstantBufferRange(const gl::Context *context,
                                                GLintptr offset,
                                                GLsizeiptr size,
@@ -747,6 +688,12 @@ angle::Result Buffer11::getConstantBufferRange(const gl::Context *context,
 angle::Result Buffer11::markRawBufferUsage(const gl::Context *context)
 {
     ANGLE_TRY(markBufferUsage(context, BUFFER_USAGE_RAW_UAV));
+    return angle::Result::Continue;
+}
+
+angle::Result Buffer11::markTypedBufferUsage(const gl::Context *context)
+{
+    ANGLE_TRY(markBufferUsage(context, BUFFER_USAGE_TYPED_UAV));
     return angle::Result::Continue;
 }
 
@@ -837,8 +784,6 @@ Buffer11::BufferStorage *Buffer11::allocateStorage(BufferUsage usage)
             return new PackStorage(mRenderer);
         case BUFFER_USAGE_SYSTEM_MEMORY:
             return new SystemMemoryStorage(mRenderer);
-        case BUFFER_USAGE_EMULATED_INDEXED_VERTEX:
-            return new EmulatedIndexedStorage(mRenderer);
         case BUFFER_USAGE_INDEX:
         case BUFFER_USAGE_VERTEX_OR_TRANSFORM_FEEDBACK:
             return new NativeStorage(mRenderer, usage, this);
@@ -995,6 +940,11 @@ angle::Result Buffer11::updateBufferStorage(const gl::Context *context,
     }
 
     if (latestBuffer->getDataRevision() <= storage->getDataRevision())
+    {
+        return angle::Result::Continue;
+    }
+
+    if (latestBuffer->getSize() == 0 || storage->getSize() == 0)
     {
         return angle::Result::Continue;
     }
@@ -1230,7 +1180,7 @@ angle::Result Buffer11::NativeStorage::resize(const gl::Context *context,
     d3d11::Buffer newBuffer;
     ANGLE_TRY(
         mRenderer->allocateResource(SafeGetImplAs<Context11>(context), bufferDesc, &newBuffer));
-    newBuffer.setDebugName("Buffer11::NativeStorage");
+    newBuffer.setInternalName("Buffer11::NativeStorage");
 
     if (mBuffer.valid() && preserveData)
     {
@@ -1326,7 +1276,7 @@ void Buffer11::NativeStorage::FillBufferDesc(D3D11_BUFFER_DESC *bufferDesc,
 
             // Constant buffers must be of a limited size, and aligned to 16 byte boundaries
             // For our purposes we ignore any buffer data past the maximum constant buffer size
-            bufferDesc->ByteWidth = roundUp(bufferDesc->ByteWidth, 16u);
+            bufferDesc->ByteWidth = roundUpPow2(bufferDesc->ByteWidth, 16u);
 
             // Note: it seems that D3D11 allows larger buffers on some platforms, but not all.
             // (Windows 10 seems to allow larger constant buffers, but not Windows 7)
@@ -1344,6 +1294,12 @@ void Buffer11::NativeStorage::FillBufferDesc(D3D11_BUFFER_DESC *bufferDesc,
             bufferDesc->Usage          = D3D11_USAGE_DEFAULT;
             bufferDesc->CPUAccessFlags = 0;
             break;
+        case BUFFER_USAGE_TYPED_UAV:
+            bufferDesc->BindFlags      = D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE;
+            bufferDesc->Usage          = D3D11_USAGE_DEFAULT;
+            bufferDesc->CPUAccessFlags = 0;
+            bufferDesc->MiscFlags      = 0;
+            break;
 
         default:
             UNREACHABLE();
@@ -1360,10 +1316,8 @@ angle::Result Buffer11::NativeStorage::map(const gl::Context *context,
 
     D3D11_MAPPED_SUBRESOURCE mappedResource;
     D3D11_MAP d3dMapType = gl_d3d11::GetD3DMapTypeFromBits(mUsage, access);
-    UINT d3dMapFlag = ((access & GL_MAP_UNSYNCHRONIZED_BIT) != 0 ? D3D11_MAP_FLAG_DO_NOT_WAIT : 0);
 
-    ANGLE_TRY(
-        mRenderer->mapResource(context, mBuffer.get(), 0, d3dMapType, d3dMapFlag, &mappedResource));
+    ANGLE_TRY(mRenderer->mapResource(context, mBuffer.get(), 0, d3dMapType, 0, &mappedResource));
     ASSERT(mappedResource.pData);
     *mapPointerOut = static_cast<uint8_t *>(mappedResource.pData) + offset;
     return angle::Result::Continue;
@@ -1478,7 +1432,7 @@ angle::Result Buffer11::StructuredBufferStorage::resizeStructuredBuffer(
     d3d11::Buffer newBuffer;
     ANGLE_TRY(
         mRenderer->allocateResource(SafeGetImplAs<Context11>(context), bufferDesc, &newBuffer));
-    newBuffer.setDebugName("Buffer11::StructuredBufferStorage");
+    newBuffer.setInternalName("Buffer11::StructuredBufferStorage");
 
     // No longer need the old buffer
     mBuffer = std::move(newBuffer);
@@ -1521,169 +1475,6 @@ angle::Result Buffer11::StructuredBufferStorage::getStructuredBufferRangeSRV(
 
     *srvOut = &mStructuredBufferResourceView;
     return angle::Result::Continue;
-}
-
-// Buffer11::EmulatedIndexStorage implementation
-Buffer11::EmulatedIndexedStorage::EmulatedIndexedStorage(Renderer11 *renderer)
-    : BufferStorage(renderer, BUFFER_USAGE_EMULATED_INDEXED_VERTEX), mBuffer()
-{}
-
-Buffer11::EmulatedIndexedStorage::~EmulatedIndexedStorage() {}
-
-angle::Result Buffer11::EmulatedIndexedStorage::getBuffer(const gl::Context *context,
-                                                          SourceIndexData *indexInfo,
-                                                          const TranslatedAttribute &attribute,
-                                                          GLint startVertex,
-                                                          const d3d11::Buffer **bufferOut)
-{
-    Context11 *context11 = GetImplAs<Context11>(context);
-
-    // If a change in the indices applied from the last draw call is detected, then the emulated
-    // indexed buffer needs to be invalidated.  After invalidation, the change detected flag should
-    // be cleared to avoid unnecessary recreation of the buffer.
-    if (!mBuffer.valid() || indexInfo->srcIndicesChanged)
-    {
-        mBuffer.reset();
-
-        // Copy the source index data. This ensures that the lifetime of the indices pointer
-        // stays with this storage until the next time we invalidate.
-        size_t indicesDataSize = 0;
-        switch (indexInfo->srcIndexType)
-        {
-            case gl::DrawElementsType::UnsignedInt:
-                indicesDataSize = sizeof(GLuint) * indexInfo->srcCount;
-                break;
-            case gl::DrawElementsType::UnsignedShort:
-                indicesDataSize = sizeof(GLushort) * indexInfo->srcCount;
-                break;
-            case gl::DrawElementsType::UnsignedByte:
-                indicesDataSize = sizeof(GLubyte) * indexInfo->srcCount;
-                break;
-            default:
-                indicesDataSize = sizeof(GLushort) * indexInfo->srcCount;
-                break;
-        }
-
-        ANGLE_CHECK_GL_ALLOC(context11, mIndicesMemoryBuffer.resize(indicesDataSize));
-
-        memcpy(mIndicesMemoryBuffer.data(), indexInfo->srcIndices, indicesDataSize);
-
-        indexInfo->srcIndicesChanged = false;
-    }
-
-    if (!mBuffer.valid())
-    {
-        unsigned int offset = 0;
-        ANGLE_TRY(attribute.computeOffset(context, startVertex, &offset));
-
-        // Expand the memory storage upon request and cache the results.
-        unsigned int expandedDataSize =
-            static_cast<unsigned int>((indexInfo->srcCount * attribute.stride) + offset);
-        angle::MemoryBuffer expandedData;
-        ANGLE_CHECK_GL_ALLOC(context11, expandedData.resize(expandedDataSize));
-
-        // Clear the contents of the allocated buffer
-        ZeroMemory(expandedData.data(), expandedDataSize);
-
-        uint8_t *curr      = expandedData.data();
-        const uint8_t *ptr = static_cast<const uint8_t *>(indexInfo->srcIndices);
-
-        // Ensure that we start in the correct place for the emulated data copy operation to
-        // maintain offset behaviors.
-        curr += offset;
-
-        ReadIndexValueFunction readIndexValue = ReadIndexValueFromIndices<GLushort>;
-
-        switch (indexInfo->srcIndexType)
-        {
-            case gl::DrawElementsType::UnsignedInt:
-                readIndexValue = ReadIndexValueFromIndices<GLuint>;
-                break;
-            case gl::DrawElementsType::UnsignedShort:
-                readIndexValue = ReadIndexValueFromIndices<GLushort>;
-                break;
-            case gl::DrawElementsType::UnsignedByte:
-                readIndexValue = ReadIndexValueFromIndices<GLubyte>;
-                break;
-            default:
-                UNREACHABLE();
-                return angle::Result::Stop;
-        }
-
-        // Iterate over the cached index data and copy entries indicated into the emulated buffer.
-        for (GLuint i = 0; i < indexInfo->srcCount; i++)
-        {
-            GLuint idx = readIndexValue(ptr, i);
-            memcpy(curr, mMemoryBuffer.data() + (attribute.stride * idx), attribute.stride);
-            curr += attribute.stride;
-        }
-
-        // Finally, initialize the emulated indexed native storage object with the newly copied data
-        // and free the temporary buffers used.
-        D3D11_BUFFER_DESC bufferDesc;
-        bufferDesc.ByteWidth           = expandedDataSize;
-        bufferDesc.MiscFlags           = 0;
-        bufferDesc.StructureByteStride = 0;
-        bufferDesc.Usage               = D3D11_USAGE_DEFAULT;
-        bufferDesc.BindFlags           = D3D11_BIND_VERTEX_BUFFER;
-        bufferDesc.CPUAccessFlags      = 0;
-
-        D3D11_SUBRESOURCE_DATA subResourceData = {expandedData.data(), 0, 0};
-
-        ANGLE_TRY(mRenderer->allocateResource(GetImplAs<Context11>(context), bufferDesc,
-                                              &subResourceData, &mBuffer));
-        mBuffer.setDebugName("Buffer11::EmulatedIndexedStorage");
-    }
-
-    *bufferOut = &mBuffer;
-    return angle::Result::Continue;
-}
-
-angle::Result Buffer11::EmulatedIndexedStorage::copyFromStorage(const gl::Context *context,
-                                                                BufferStorage *source,
-                                                                size_t sourceOffset,
-                                                                size_t size,
-                                                                size_t destOffset,
-                                                                CopyResult *resultOut)
-{
-    ASSERT(source->isCPUAccessible(GL_MAP_READ_BIT));
-    uint8_t *sourceData = nullptr;
-    ANGLE_TRY(source->map(context, sourceOffset, size, GL_MAP_READ_BIT, &sourceData));
-    ASSERT(destOffset + size <= mMemoryBuffer.size());
-    memcpy(mMemoryBuffer.data() + destOffset, sourceData, size);
-    source->unmap();
-    *resultOut = CopyResult::RECREATED;
-    return angle::Result::Continue;
-}
-
-angle::Result Buffer11::EmulatedIndexedStorage::resize(const gl::Context *context,
-                                                       size_t size,
-                                                       bool preserveData)
-{
-    if (mMemoryBuffer.size() < size)
-    {
-        Context11 *context11 = GetImplAs<Context11>(context);
-        ANGLE_CHECK_GL_ALLOC(context11, mMemoryBuffer.resize(size));
-        mBufferSize = size;
-    }
-
-    return angle::Result::Continue;
-}
-
-angle::Result Buffer11::EmulatedIndexedStorage::map(const gl::Context *context,
-                                                    size_t offset,
-                                                    size_t length,
-                                                    GLbitfield access,
-                                                    uint8_t **mapPointerOut)
-{
-    ASSERT(!mMemoryBuffer.empty() && offset + length <= mMemoryBuffer.size());
-    *mapPointerOut = mMemoryBuffer.data() + offset;
-    return angle::Result::Continue;
-}
-
-void Buffer11::EmulatedIndexedStorage::unmap()
-{
-    // No-op
 }
 
 // Buffer11::PackStorage implementation

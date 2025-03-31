@@ -26,6 +26,7 @@
 #import "_WKUserStyleSheet.h"
 
 #import "APIUserStyleSheet.h"
+#import <wtf/AlignedStorage.h>
 
 namespace WebKit {
 
@@ -41,19 +42,19 @@ inline WebCore::UserStyleLevel toWebCoreUserStyleLevel(_WKUserStyleLevel level)
 {
     switch (level) {
     case _WKUserStyleUserLevel:
-        return WebCore::UserStyleUserLevel;
+        return WebCore::UserStyleLevel::User;
     case _WKUserStyleAuthorLevel:
-        return WebCore::UserStyleAuthorLevel;
+        return WebCore::UserStyleLevel::Author;
     }
 
     ASSERT_NOT_REACHED();
-    return WebCore::UserStyleUserLevel;
+    return WebCore::UserStyleLevel::User;
 }
 
 }
 
 @interface _WKUserStyleSheet () <WKObject> {
 @package
-    API::ObjectStorage<API::UserStyleSheet> _userStyleSheet;
+    AlignedStorage<API::UserStyleSheet> _userStyleSheet;
 }
 @end

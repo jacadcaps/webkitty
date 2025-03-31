@@ -38,23 +38,18 @@ NSString * const DOMXPathException = @"DOMXPathException";
 
 static NO_RETURN void raiseDOMErrorException(WebCore::ExceptionCode ec)
 {
-    ASSERT(ec);
+    ASSERT(static_cast<bool>(ec));
 
     auto description = WebCore::DOMException::description(ec);
 
-    NSString *reason;
+    RetainPtr<NSString> reason;
     if (description.name)
-        reason = [[NSString alloc] initWithFormat:@"*** %s: %@ %d", description.name.characters(), DOMException, description.legacyCode];
+        reason = adoptNS([[NSString alloc] initWithFormat:@"*** %s: %@ %d", description.name.characters(), DOMException, description.legacyCode]);
     else
-        reason = [[NSString alloc] initWithFormat:@"*** %@ %d", DOMException, description.legacyCode];
+        reason = adoptNS([[NSString alloc] initWithFormat:@"*** %@ %d", DOMException, description.legacyCode]);
 
-    NSDictionary *userInfo = [[NSDictionary alloc] initWithObjectsAndKeys:@(description.legacyCode), DOMException, nil];
-
-    NSException *exception = [NSException exceptionWithName:DOMException reason:reason userInfo:userInfo];
-
-    [reason release];
-    [userInfo release];
-
+    auto userInfo = @{ DOMException: @(description.legacyCode) };
+    auto exception = [NSException exceptionWithName:DOMException reason:reason.get() userInfo:userInfo];
     [exception raise];
 
     RELEASE_ASSERT_NOT_REACHED();
@@ -62,12 +57,12 @@ static NO_RETURN void raiseDOMErrorException(WebCore::ExceptionCode ec)
 
 void raiseTypeErrorException()
 {
-    raiseDOMErrorException(WebCore::TypeError);
+    raiseDOMErrorException(WebCore::ExceptionCode::TypeError);
 }
 
 void raiseNotSupportedErrorException()
 {
-    raiseDOMErrorException(WebCore::NotSupportedError);
+    raiseDOMErrorException(WebCore::ExceptionCode::NotSupportedError);
 }
 
 void raiseDOMErrorException(WebCore::Exception&& exception)

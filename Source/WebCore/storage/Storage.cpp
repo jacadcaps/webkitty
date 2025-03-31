@@ -27,26 +27,27 @@
 #include "Storage.h"
 
 #include "Document.h"
-#include "Frame.h"
 #include "LegacySchemeRegistry.h"
+#include "LocalFrame.h"
 #include "Page.h"
+#include "ScriptTelemetryCategory.h"
 #include "SecurityOrigin.h"
 #include "StorageArea.h"
 #include "StorageType.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(Storage);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(Storage);
 
-Ref<Storage> Storage::create(DOMWindow& window, Ref<StorageArea>&& storageArea)
+Ref<Storage> Storage::create(LocalDOMWindow& window, Ref<StorageArea>&& storageArea)
 {
     return adoptRef(*new Storage(window, WTFMove(storageArea)));
 }
 
-Storage::Storage(DOMWindow& window, Ref<StorageArea>&& storageArea)
-    : DOMWindowProperty(&window)
+Storage::Storage(LocalDOMWindow& window, Ref<StorageArea>&& storageArea)
+    : LocalDOMWindowProperty(&window)
     , m_storageArea(WTFMove(storageArea))
 {
     ASSERT(frame());
@@ -61,16 +62,25 @@ Storage::~Storage()
 
 unsigned Storage::length() const
 {
+    if (requiresScriptExecutionTelemetry())
+        return 0;
+
     return m_storageArea->length();
 }
 
 String Storage::key(unsigned index) const
 {
+    if (requiresScriptExecutionTelemetry())
+        return { };
+
     return m_storageArea->key(index);
 }
 
 String Storage::getItem(const String& key) const
 {
+    if (requiresScriptExecutionTelemetry())
+        return { };
+
     return m_storageArea->item(key);
 }
 
@@ -78,12 +88,15 @@ ExceptionOr<void> Storage::setItem(const String& key, const String& value)
 {
     auto* frame = this->frame();
     if (!frame)
-        return Exception { InvalidAccessError };
+        return Exception { ExceptionCode::InvalidAccessError };
+
+    if (requiresScriptExecutionTelemetry())
+        return { };
 
     bool quotaException = false;
-    m_storageArea->setItem(frame, key, value, quotaException);
+    m_storageArea->setItem(*frame, key, value, quotaException);
     if (quotaException)
-        return Exception { QuotaExceededError };
+        return Exception { ExceptionCode::QuotaExceededError };
     return { };
 }
 
@@ -91,9 +104,12 @@ ExceptionOr<void> Storage::removeItem(const String& key)
 {
     auto* frame = this->frame();
     if (!frame)
-        return Exception { InvalidAccessError };
+        return Exception { ExceptionCode::InvalidAccessError };
 
-    m_storageArea->removeItem(frame, key);
+    if (requiresScriptExecutionTelemetry())
+        return { };
+
+    m_storageArea->removeItem(*frame, key);
     return { };
 }
 
@@ -101,9 +117,9 @@ ExceptionOr<void> Storage::clear()
 {
     auto* frame = this->frame();
     if (!frame)
-        return Exception { InvalidAccessError };
+        return Exception { ExceptionCode::InvalidAccessError };
 
-    m_storageArea->clear(frame);
+    m_storageArea->clear(*frame);
     return { };
 }
 
@@ -120,14 +136,20 @@ bool Storage::isSupportedPropertyName(const String& propertyName) const
 Vector<AtomString> Storage::supportedPropertyNames() const
 {
     unsigned length = m_storageArea->length();
+    return Vector<AtomString>(length, [this](size_t i) {
+        return m_storageArea->key(i);
+    });
+}
 
-    Vector<AtomString> result;
-    result.reserveInitialCapacity(length);
+Ref<StorageArea> Storage::protectedArea() const
+{
+    return m_storageArea;
+}
 
-    for (unsigned i = 0; i < length; ++i)
-        result.uncheckedAppend(m_storageArea->key(i));
-
-    return result;
+bool Storage::requiresScriptExecutionTelemetry() const
+{
+    RefPtr document = window() ? window()->document() : nullptr;
+    return document && document->requiresScriptExecutionTelemetry(ScriptTelemetryCategory::LocalStorage);
 }
 
 } // namespace WebCore

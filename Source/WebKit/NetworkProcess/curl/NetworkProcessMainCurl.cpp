@@ -28,29 +28,26 @@
 
 #include "AuxiliaryProcessMain.h"
 #include "NetworkProcess.h"
+#include "NetworkSession.h"
 
 namespace WebKit {
 
-static RefPtr<NetworkProcess> globalNetworkProcess;
-
-class NetworkProcessMainCurl final: public AuxiliaryProcessMainBase {
+class NetworkProcessMainCurl final: public AuxiliaryProcessMainBaseNoSingleton<NetworkProcess> {
 public:
     void platformFinalize() override
     {
-        globalNetworkProcess->destroySession(PAL::SessionID::defaultSessionID());
+        Vector<PAL::SessionID> sessionIDs;
+        process().forEachNetworkSession([&sessionIDs](auto& session) {
+            sessionIDs.append(session.sessionID());
+        });
+        for (auto& sessionID : sessionIDs)
+            process().destroySession(sessionID);
     }
 };
 
-template<>
-void initializeAuxiliaryProcess<NetworkProcess>(AuxiliaryProcessInitializationParameters&& parameters)
-{
-    static NeverDestroyed<NetworkProcess> networkProcess(WTFMove(parameters));
-    globalNetworkProcess = &networkProcess.get();
-}
-
 int NetworkProcessMain(int argc, char** argv)
 {
-    return AuxiliaryProcessMain<NetworkProcess, NetworkProcessMainCurl>(argc, argv);
+    return AuxiliaryProcessMain<NetworkProcessMainCurl>(argc, argv);
 }
 
 } // namespace WebKit

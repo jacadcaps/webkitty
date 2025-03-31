@@ -26,22 +26,25 @@
 #include "config.h"
 #include "Connection.h"
 
-#include "DataReference.h"
+#include "Decoder.h"
+#include "Encoder.h"
+#include "IPCUtilities.h"
+#include <wtf/ArgumentCoder.h>
+#include <wtf/CryptographicallyRandomNumber.h>
 #include <wtf/HexNumber.h>
-#include <wtf/RandomNumber.h>
+#include <wtf/text/MakeString.h>
 
 namespace IPC {
 
 // FIXME: Rename this or use a different constant on windows.
 static const size_t inlineMessageMaxSize = 4096;
 
-bool Connection::createServerAndClientIdentifiers(HANDLE& serverIdentifier, HANDLE& clientIdentifier)
+bool createServerAndClientIdentifiers(HANDLE& serverIdentifier, HANDLE& clientIdentifier)
 {
     String pipeName;
 
     do {
-        unsigned uniqueID = randomNumber() * std::numeric_limits<unsigned>::max();
-        pipeName = makeString("\\\\.\\pipe\\com.apple.WebKit.", hex(uniqueID));
+        pipeName = makeString("\\\\.\\pipe\\com.apple.WebKit."_s, hex(cryptographicallyRandomNumber<unsigned>()));
 
         serverIdentifier = ::CreateNamedPipe(pipeName.wideCharacters().data(),
             PIPE_ACCESS_DUPLEX | FILE_FLAG_FIRST_PIPE_INSTANCE | FILE_FLAG_OVERLAPPED,
@@ -68,9 +71,9 @@ bool Connection::createServerAndClientIdentifiers(HANDLE& serverIdentifier, HAND
     return true;
 }
 
-void Connection::platformInitialize(Identifier identifier)
+void Connection::platformInitialize(Identifier&& identifier)
 {
-    m_connectionPipe = identifier;
+    m_connectionPipe = identifier.handle;
 }
 
 void Connection::platformInvalidate()
@@ -139,9 +142,11 @@ void Connection::readEventHandler()
 
         if (!m_readBuffer.isEmpty()) {
             // We have a message, let's dispatch it.
-            Vector<Attachment> attachments(0);
-            auto decoder = makeUnique<Decoder>(m_readBuffer.data(), m_readBuffer.size(), nullptr, WTFMove(attachments));
-            processIncomingMessage(WTFMove(decoder));
+            auto decoder = Decoder::create(m_readBuffer.span(), { });
+            ASSERT(decoder);
+            if (!decoder)
+                return;
+            processIncomingMessage(makeUniqueRefFromNonNullUniquePtr(WTFMove(decoder)));
         }
 
         // Find out the size of the next message in the pipe (if there is one) so that we can read
@@ -192,8 +197,10 @@ void Connection::readEventHandler()
             continue;
         }
 
-        if (error == ERROR_BROKEN_PIPE)
+        if (error == ERROR_BROKEN_PIPE) {
+            connectionDidClose();
             return;
+        }
 
         // FIXME: We need to handle other errors here.
         ASSERT_NOT_REACHED();
@@ -230,19 +237,19 @@ void Connection::writeEventHandler()
 
 void Connection::invokeReadEventHandler()
 {
-    m_connectionQueue->dispatch([this, protectedThis = makeRef(*this)] {
+    m_connectionQueue->dispatch([this, protectedThis = Ref { *this }] {
         readEventHandler();
     });
 }
 
 void Connection::invokeWriteEventHandler()
 {
-    m_connectionQueue->dispatch([this, protectedThis = makeRef(*this)] {
+    m_connectionQueue->dispatch([this, protectedThis = Ref { *this }] {
         writeEventHandler();
     });
 }
 
-bool Connection::open()
+void Connection::platformOpen()
 {
     // We connected the two ends of the pipe in createServerAndClientIdentifiers.
     m_isConnected = true;
@@ -258,7 +265,6 @@ bool Connection::open()
 
     // Schedule a read.
     invokeReadEventHandler();
-    return true;
 }
 
 bool Connection::platformCanSendOutgoingMessages() const
@@ -269,7 +275,7 @@ bool Connection::platformCanSendOutgoingMessages() const
     return !m_pendingWriteEncoder;
 }
 
-bool Connection::sendOutgoingMessage(std::unique_ptr<Encoder> encoder)
+bool Connection::sendOutgoingMessage(UniqueRef<Encoder>&& encoder)
 {
     ASSERT(!m_pendingWriteEncoder);
 
@@ -278,11 +284,12 @@ bool Connection::sendOutgoingMessage(std::unique_ptr<Encoder> encoder)
         return false;
 
     // We put the message ID last.
-    *encoder << 0;
+    encoder.get() << 0;
 
     // Write the outgoing message.
 
-    if (::WriteFile(m_connectionPipe, encoder->buffer(), encoder->bufferSize(), 0, &m_writeListener.state())) {
+    auto buffer = encoder->span();
+    if (::WriteFile(m_connectionPipe, buffer.data(), buffer.size(), 0, &m_writeListener.state())) {
         // We successfully sent this message.
         return true;
     }
@@ -302,18 +309,10 @@ bool Connection::sendOutgoingMessage(std::unique_ptr<Encoder> encoder)
 
     // The message will be sent soon. Hold onto the encoder so that it won't be destroyed
     // before the write completes.
-    m_pendingWriteEncoder = WTFMove(encoder);
+    m_pendingWriteEncoder = encoder.moveToUniquePtr();
 
     // We can only send one asynchronous message at a time (see comment in platformCanSendOutgoingMessages).
     return false;
-}
-
-void Connection::willSendSyncMessage(OptionSet<SendSyncOption>)
-{
-}
-
-void Connection::didReceiveSyncReply(OptionSet<SendSyncOption>)
-{
 }
 
 void Connection::EventListener::open(Function<void()>&& handler)
@@ -325,7 +324,7 @@ void Connection::EventListener::open(Function<void()>&& handler)
 
     BOOL result;
     result = ::RegisterWaitForSingleObject(&m_waitHandle, m_state.hEvent, callback, this, INFINITE, WT_EXECUTEDEFAULT);
-    ASSERT(result);
+    ASSERT_UNUSED(result, result);
 }
 
 void Connection::EventListener::callback(void* data, BOOLEAN timerOrWaitFired)
@@ -355,6 +354,17 @@ void Connection::EventListener::close()
     m_state.hEvent = 0;
 
     m_handler = Function<void()>();
+}
+
+std::optional<Connection::ConnectionIdentifierPair> Connection::createConnectionIdentifierPair()
+{
+    HANDLE serverIdentifier;
+    HANDLE clientIdentifier;
+    if (!createServerAndClientIdentifiers(serverIdentifier, clientIdentifier)) {
+        LOG_ERROR("Failed to create server and client identifiers");
+        return std::nullopt;
+    }
+    return ConnectionIdentifierPair { Identifier { Win32Handle::adopt(serverIdentifier) }, Win32Handle::adopt(clientIdentifier) };
 }
 
 } // namespace IPC

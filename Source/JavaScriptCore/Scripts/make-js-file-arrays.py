@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # Copyright (C) 2014 Apple Inc. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -25,9 +25,7 @@ from __future__ import print_function
 import io
 import os
 from optparse import OptionParser
-import sys
 from jsmin import jsmin
-is_3 = sys.version_info >= (3, 0)
 
 
 def stringifyCodepoint(code):
@@ -45,6 +43,7 @@ def chunk(list, chunkSize):
 def main():
     parser = OptionParser(usage="usage: %prog [options] header source [input [input...]]")
     parser.add_option('--no-minify', action='store_true', help='Do not run the input files through jsmin')
+    parser.add_option('--fail-if-non-ascii', action='store_true', help='Fail if the input files include non-ASCII characters')
     parser.add_option('-n', '--namespace', help='Namespace to use')
     (options, arguments) = parser.parse_args()
     if not options.namespace:
@@ -69,29 +68,28 @@ def main():
     print('namespace {0:s} {{'.format(namespace), file=sourceFile)
 
     for inputFileName in inputPaths:
+        variableName = os.path.splitext(os.path.basename(inputFileName))[0]
+        sourceURLDirective = "//# sourceURL=__InjectedScript_" + variableName + ".js\n"
 
-        if is_3:
-            inputStream = io.open(inputFileName, encoding='utf-8')
-        else:
-            inputStream = io.FileIO(inputFileName)
+        inputStream = io.open(inputFileName, encoding='utf-8')
 
         data = inputStream.read()
 
         if not options.no_minify:
-            characters = jsmin(data)
+            characters = sourceURLDirective + jsmin(data)
         else:
-            characters = data
+            characters = sourceURLDirective + data
 
-        if is_3:
-            codepoints = bytearray(characters, encoding='utf-8')
-        else:
-            codepoints = list(map(ord, characters))
+        if options.fail_if_non_ascii:
+            for character in characters:
+                if ord(character) >= 128:
+                    raise Exception("%s is not ASCII" % character)
+
+        codepoints = bytearray(characters, encoding='utf-8')
 
         # Use the size of codepoints instead of the characters
         # because UTF-8 characters may need more than one byte.
         size = len(codepoints)
-
-        variableName = os.path.splitext(os.path.basename(inputFileName))[0]
 
         print('extern const char {0:s}JavaScript[{1:d}];'.format(variableName, size), file=headerFile)
         print('const char {0:s}JavaScript[{1:d}] = {{'.format(variableName, size), file=sourceFile)

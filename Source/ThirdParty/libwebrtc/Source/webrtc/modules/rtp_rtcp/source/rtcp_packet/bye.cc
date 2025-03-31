@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <utility>
 
+#include "absl/strings/string_view.h"
 #include "modules/rtp_rtcp/source/byte_io.h"
 #include "modules/rtp_rtcp/source/rtcp_packet/common_header.h"
 #include "rtc_base/checks.h"
@@ -22,7 +23,6 @@
 
 namespace webrtc {
 namespace rtcp {
-constexpr uint8_t Bye::kPacketType;
 // Bye packet (BYE) (RFC 3550).
 //
 //        0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
@@ -125,9 +125,9 @@ bool Bye::SetCsrcs(std::vector<uint32_t> csrcs) {
   return true;
 }
 
-void Bye::SetReason(std::string reason) {
+void Bye::SetReason(absl::string_view reason) {
   RTC_DCHECK_LE(reason.size(), 0xffu);
-  reason_ = std::move(reason);
+  reason_ = std::string(reason);
 }
 
 size_t Bye::BlockLength() const {

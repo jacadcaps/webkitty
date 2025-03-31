@@ -10,40 +10,23 @@
 
 #include "modules/remote_bitrate_estimator/overuse_estimator.h"
 
-#include <assert.h>
 #include <math.h>
 #include <string.h>
 
 #include <algorithm>
 
-#include "modules/remote_bitrate_estimator/include/bwe_defines.h"
-#include "modules/remote_bitrate_estimator/test/bwe_test_logging.h"
+#include "api/transport/bandwidth_usage.h"
 #include "rtc_base/logging.h"
 
 namespace webrtc {
+namespace {
 
-enum { kMinFramePeriodHistoryLength = 60 };
-enum { kDeltaCounterMax = 1000 };
+constexpr int kMinFramePeriodHistoryLength = 60;
+constexpr int kDeltaCounterMax = 1000;
 
-OveruseEstimator::OveruseEstimator(const OverUseDetectorOptions& options)
-    : options_(options),
-      num_of_deltas_(0),
-      slope_(options_.initial_slope),
-      offset_(options_.initial_offset),
-      prev_offset_(options_.initial_offset),
-      E_(),
-      process_noise_(),
-      avg_noise_(options_.initial_avg_noise),
-      var_noise_(options_.initial_var_noise),
-      ts_delta_hist_() {
-  memcpy(E_, options_.initial_e, sizeof(E_));
-  memcpy(process_noise_, options_.initial_process_noise,
-         sizeof(process_noise_));
-}
+}  // namespace
 
-OveruseEstimator::~OveruseEstimator() {
-  ts_delta_hist_.clear();
-}
+OveruseEstimator::OveruseEstimator() = default;
 
 void OveruseEstimator::Update(int64_t t_delta,
                               double ts_delta,
@@ -52,7 +35,6 @@ void OveruseEstimator::Update(int64_t t_delta,
                               int64_t now_ms) {
   const double min_frame_period = UpdateMinFramePeriod(ts_delta);
   const double t_ts_delta = t_delta - ts_delta;
-  BWE_TEST_LOGGING_PLOT(1, "dm_ms", now_ms, t_ts_delta);
   double fs_delta = size_delta;
 
   ++num_of_deltas_;
@@ -74,8 +56,6 @@ void OveruseEstimator::Update(int64_t t_delta,
   const double h[2] = {fs_delta, 1.0};
   const double Eh[2] = {E_[0][0] * h[0] + E_[0][1] * h[1],
                         E_[1][0] * h[0] + E_[1][1] * h[1]};
-
-  BWE_TEST_LOGGING_PLOT(1, "d_ms", now_ms, slope_ * h[0] - offset_);
 
   const double residual = t_ts_delta - slope_ * h[0] - offset_;
 
@@ -110,7 +90,7 @@ void OveruseEstimator::Update(int64_t t_delta,
   bool positive_semi_definite =
       E_[0][0] + E_[1][1] >= 0 &&
       E_[0][0] * E_[1][1] - E_[0][1] * E_[1][0] >= 0 && E_[0][0] >= 0;
-  assert(positive_semi_definite);
+  RTC_DCHECK(positive_semi_definite);
   if (!positive_semi_definite) {
     RTC_LOG(LS_ERROR)
         << "The over-use estimator's covariance matrix is no longer "
@@ -120,11 +100,6 @@ void OveruseEstimator::Update(int64_t t_delta,
   slope_ = slope_ + K[0] * residual;
   prev_offset_ = offset_;
   offset_ = offset_ + K[1] * residual;
-
-  BWE_TEST_LOGGING_PLOT(1, "kc", now_ms, K[0]);
-  BWE_TEST_LOGGING_PLOT(1, "km", now_ms, K[1]);
-  BWE_TEST_LOGGING_PLOT(1, "slope_1/bps", now_ms, slope_);
-  BWE_TEST_LOGGING_PLOT(1, "var_noise", now_ms, var_noise_);
 }
 
 double OveruseEstimator::UpdateMinFramePeriod(double ts_delta) {
@@ -146,13 +121,13 @@ void OveruseEstimator::UpdateNoiseEstimate(double residual,
     return;
   }
   // Faster filter during startup to faster adapt to the jitter level
-  // of the network. |alpha| is tuned for 30 frames per second, but is scaled
-  // according to |ts_delta|.
+  // of the network. `alpha` is tuned for 30 frames per second, but is scaled
+  // according to `ts_delta`.
   double alpha = 0.01;
   if (num_of_deltas_ > 10 * 30) {
     alpha = 0.002;
   }
-  // Only update the noise estimate if we're not over-using. |beta| is a
+  // Only update the noise estimate if we're not over-using. `beta` is a
   // function of alpha and the time delta since the previous update.
   const double beta = pow(1 - alpha, ts_delta * 30.0 / 1000.0);
   avg_noise_ = beta * avg_noise_ + (1 - beta) * residual;

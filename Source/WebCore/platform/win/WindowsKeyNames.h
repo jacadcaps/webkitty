@@ -38,11 +38,11 @@ namespace WebCore {
 
 class WindowsKeyNames {
 public:
-    WindowsKeyNames();
+    WEBCORE_EXPORT WindowsKeyNames();
 
-    String domKeyFromLParam(LPARAM);
-    String domKeyFromChar(UChar);
-    String domCodeFromLParam(LPARAM);
+    WEBCORE_EXPORT String domKeyFromParams(WPARAM, LPARAM);
+    WEBCORE_EXPORT String domKeyFromChar(UChar);
+    WEBCORE_EXPORT String domCodeFromLParam(LPARAM);
 
     enum class KeyModifier : uint8_t;
     using KeyModifierSet = OptionSet<KeyModifier>;
@@ -54,7 +54,7 @@ private:
     bool m_hasAltGraph = false;
 
     using VirtualKeyModifierSetPair = std::pair<unsigned, KeyModifierSet>;
-    using VirtualKeyToKeyMap = HashMap<VirtualKeyModifierSetPair, String, DefaultHash<VirtualKeyModifierSetPair>, PairHashTraits<WTF::UnsignedWithZeroKeyHashTraits<unsigned>, HashTraits<KeyModifierSet>>>;
+    using VirtualKeyToKeyMap = UncheckedKeyHashMap<VirtualKeyModifierSetPair, String, DefaultHash<VirtualKeyModifierSetPair>, PairHashTraits<WTF::UnsignedWithZeroKeyHashTraits<unsigned>, HashTraits<KeyModifierSet>>>;
     VirtualKeyToKeyMap m_printableKeyCodeToKey;
 };
 

@@ -35,7 +35,7 @@ using namespace WebCore;
 
 @interface WebCoreAuthenticationClientAsChallengeSender : NSObject <NSURLAuthenticationChallengeSender>
 {
-    AuthenticationClient* m_client;
+    WeakPtr<AuthenticationClient> m_client;
 }
 - (id)initWithAuthenticationClient:(AuthenticationClient*)client;
 - (AuthenticationClient*)client;
@@ -55,42 +55,42 @@ using namespace WebCore;
 
 - (AuthenticationClient*)client
 {
-    return m_client;
+    return m_client.get();
 }
 
 - (void)detachClient
 {
-    m_client = 0;
+    m_client = nullptr;
 }
 
 - (void)performDefaultHandlingForAuthenticationChallenge:(NSURLAuthenticationChallenge *)challenge
 {
-    if (m_client)
-        m_client->receivedRequestToPerformDefaultHandling(core(challenge));
+    if (RefPtr client = m_client.get())
+        client->receivedRequestToPerformDefaultHandling(core(challenge));
 }
 
 - (void)rejectProtectionSpaceAndContinueWithChallenge:(NSURLAuthenticationChallenge *)challenge
 {
-    if (m_client)
-        m_client->receivedChallengeRejection(core(challenge));
+    if (RefPtr client = m_client.get())
+        client->receivedChallengeRejection(core(challenge));
 }
 
 - (void)useCredential:(NSURLCredential *)credential forAuthenticationChallenge:(NSURLAuthenticationChallenge *)challenge
 {
-    if (m_client)
-        m_client->receivedCredential(core(challenge), Credential(credential));
+    if (RefPtr client = m_client.get())
+        client->receivedCredential(core(challenge), Credential(credential));
 }
 
 - (void)continueWithoutCredentialForAuthenticationChallenge:(NSURLAuthenticationChallenge *)challenge
 {
-    if (m_client)
-        m_client->receivedRequestToContinueWithoutCredential(core(challenge));
+    if (RefPtr client = m_client.get())
+        client->receivedRequestToContinueWithoutCredential(core(challenge));
 }
 
 - (void)cancelAuthenticationChallenge:(NSURLAuthenticationChallenge *)challenge
 {
-    if (m_client)
-        m_client->receivedCancellation(core(challenge));
+    if (RefPtr client = m_client.get())
+        client->receivedCancellation(core(challenge));
 }
 
 @end
@@ -128,14 +128,14 @@ void AuthenticationChallenge::setAuthenticationClient(AuthenticationClient* clie
         if (m_nsChallenge)
             m_nsChallenge = adoptNS([[NSURLAuthenticationChallenge alloc] initWithAuthenticationChallenge:m_nsChallenge.get() sender:m_sender.get()]);
     } else {
-        if ([m_sender.get() isMemberOfClass:[WebCoreAuthenticationClientAsChallengeSender class]])
+        if ([m_sender isMemberOfClass:[WebCoreAuthenticationClientAsChallengeSender class]])
             [(WebCoreAuthenticationClientAsChallengeSender *)m_sender.get() detachClient];
     }
 }
 
 AuthenticationClient* AuthenticationChallenge::authenticationClient() const
 {
-    if ([m_sender.get() isMemberOfClass:[WebCoreAuthenticationClientAsChallengeSender class]])
+    if ([m_sender isMemberOfClass:[WebCoreAuthenticationClientAsChallengeSender class]])
         return [static_cast<WebCoreAuthenticationClientAsChallengeSender*>(m_sender.get()) client];
     
     return nullptr;
@@ -157,7 +157,7 @@ NSURLAuthenticationChallenge *mac(const AuthenticationChallenge& coreChallenge)
     if (coreChallenge.nsURLAuthenticationChallenge())
         return coreChallenge.nsURLAuthenticationChallenge();
         
-    return [[[NSURLAuthenticationChallenge alloc] initWithProtectionSpace:coreChallenge.protectionSpace().nsSpace() proposedCredential:coreChallenge.proposedCredential().nsCredential() previousFailureCount:coreChallenge.previousFailureCount() failureResponse:coreChallenge.failureResponse().nsURLResponse() error:coreChallenge.error() sender:coreChallenge.sender()] autorelease];
+    return adoptNS([[NSURLAuthenticationChallenge alloc] initWithProtectionSpace:coreChallenge.protectionSpace().nsSpace() proposedCredential:coreChallenge.proposedCredential().nsCredential() previousFailureCount:coreChallenge.previousFailureCount() failureResponse:coreChallenge.failureResponse().nsURLResponse() error:coreChallenge.error() sender:coreChallenge.sender()]).autorelease();
 }
 
 AuthenticationChallenge core(NSURLAuthenticationChallenge *macChallenge)

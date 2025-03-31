@@ -50,10 +50,10 @@ Ref<MathMLStyle> MathMLStyle::create()
 const MathMLStyle* MathMLStyle::getMathMLStyle(RenderObject* renderer)
 {
     // FIXME: Should we make RenderMathMLTable derive from RenderMathMLBlock in order to simplify this?
-    if (is<RenderMathMLTable>(renderer))
-        return &downcast<RenderMathMLTable>(*renderer).mathMLStyle();
-    if (is<RenderMathMLBlock>(renderer))
-        return &downcast<RenderMathMLBlock>(*renderer).mathMLStyle();
+    if (auto* mathMLTable = dynamicDowncast<RenderMathMLTable>(renderer))
+        return &mathMLTable->mathMLStyle();
+    if (auto* mathMLBlock = dynamicDowncast<RenderMathMLBlock>(renderer))
+        return &mathMLBlock->mathMLStyle();
     return nullptr;
 }
 
@@ -61,10 +61,10 @@ void MathMLStyle::resolveMathMLStyleTree(RenderObject* renderer)
 {
     for (auto* child = renderer; child; child = child->nextInPreOrder(renderer)) {
         // FIXME: Should we make RenderMathMLTable derive from RenderMathMLBlock in order to simplify this?
-        if (is<RenderMathMLTable>(child))
-            downcast<RenderMathMLTable>(*child).mathMLStyle().resolveMathMLStyle(child);
-        else if (is<RenderMathMLBlock>(child))
-            downcast<RenderMathMLBlock>(*child).mathMLStyle().resolveMathMLStyle(child);
+        if (auto* mathMLTable = dynamicDowncast<RenderMathMLTable>(child))
+            mathMLTable->mathMLStyle().resolveMathMLStyle(child);
+        else if (auto* mathMLBlock = dynamicDowncast<RenderMathMLBlock>(child))
+            mathMLBlock->mathMLStyle().resolveMathMLStyle(child);
     }
 }
 
@@ -78,22 +78,14 @@ RenderObject* MathMLStyle::getMathMLParentNode(RenderObject* renderer)
     return parentRenderer;
 }
 
-void MathMLStyle::updateStyleIfNeeded(RenderObject* renderer, bool oldDisplayStyle, MathMLElement::MathVariant oldMathVariant)
+void MathMLStyle::updateStyleIfNeeded(RenderObject* renderer, MathMLElement::MathVariant oldMathVariant)
 {
-    // RenderMathMLFencedOperator does not support mathvariant or displaystyle transforms.
+    // RenderMathMLFencedOperator does not support mathvariant transforms.
     // See https://bugs.webkit.org/show_bug.cgi?id=160509#c1.
-    bool isNonAnonymousTokenElement = is<RenderMathMLToken>(renderer) && !renderer->isAnonymous();
-
-    if (oldDisplayStyle != m_displayStyle) {
-        renderer->setNeedsLayoutAndPrefWidthsRecalc();
-        if (isNonAnonymousTokenElement)
-            downcast<RenderMathMLToken>(renderer)->updateTokenContent();
-        else if (is<RenderMathMLFraction>(renderer))
-            downcast<RenderMathMLFraction>(renderer)->updateFromElement();
-    }
     if (oldMathVariant != m_mathVariant) {
-        if (isNonAnonymousTokenElement)
-            downcast<RenderMathMLToken>(renderer)->updateTokenContent();
+        auto* mathMLToken = dynamicDowncast<RenderMathMLToken>(renderer);
+        if (mathMLToken && !mathMLToken->isAnonymous())
+            mathMLToken->updateTokenContent();
     }
 }
 
@@ -101,49 +93,29 @@ void MathMLStyle::resolveMathMLStyle(RenderObject* renderer)
 {
     ASSERT(renderer);
 
-    bool oldDisplayStyle = m_displayStyle;
     MathMLElement::MathVariant oldMathVariant = m_mathVariant;
     auto* parentRenderer = getMathMLParentNode(renderer);
     const MathMLStyle* parentStyle = getMathMLStyle(parentRenderer);
 
     // By default, we just inherit the style from our parent.
-    m_displayStyle = false;
     m_mathVariant = MathMLElement::MathVariant::None;
     if (parentStyle) {
-        setDisplayStyle(parentStyle->displayStyle());
         setMathVariant(parentStyle->mathVariant());
     }
 
     // Early return for anonymous renderers.
     if (renderer->isAnonymous()) {
-        updateStyleIfNeeded(renderer, oldDisplayStyle, oldMathVariant);
+        updateStyleIfNeeded(renderer, oldMathVariant);
         return;
     }
 
-    if (is<RenderMathMLMath>(renderer) || is<RenderMathMLTable>(renderer))
-        m_displayStyle = false; // The default displaystyle of <math> and <mtable> is false.
-    else if (parentRenderer) {
-        if (is<RenderMathMLFraction>(parentRenderer))
-            m_displayStyle = false; // <mfrac> sets displaystyle to false within its numerator and denominator.
-        else if ((is<RenderMathMLRoot>(parentRenderer) && !parentRenderer->isRenderMathMLSquareRoot()) || is<RenderMathMLScripts>(parentRenderer) || is<RenderMathMLUnderOver>(parentRenderer)) {
-            // <mroot>, <msub>, <msup>, <msubsup>, <mmultiscripts>, <munder>, <mover> and <munderover> elements set displaystyle to false within their scripts.
-            auto* base = downcast<RenderBox>(parentRenderer)->firstChildBox();
-            if (renderer != base)
-                m_displayStyle = false;
-        }
-    }
-
-    // The displaystyle and mathvariant attributes override the default behavior.
-    auto* element = downcast<RenderElement>(renderer)->element();
-    if (is<MathMLElement>(element)) {
-        Optional<bool> displayStyle = downcast<MathMLElement>(element)->specifiedDisplayStyle();
-        if (displayStyle)
-            m_displayStyle = displayStyle.value();
-        Optional<MathMLElement::MathVariant> mathVariant = downcast<MathMLElement>(element)->specifiedMathVariant();
+    // The mathvariant attributes override the default behavior.
+    if (auto* element = dynamicDowncast<MathMLElement>(downcast<RenderElement>(renderer)->element())) {
+        std::optional<MathMLElement::MathVariant> mathVariant = element->specifiedMathVariant();
         if (mathVariant)
             m_mathVariant = mathVariant.value();
     }
-    updateStyleIfNeeded(renderer, oldDisplayStyle, oldMathVariant);
+    updateStyleIfNeeded(renderer, oldMathVariant);
 }
 
 }

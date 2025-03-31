@@ -37,7 +37,8 @@ enum TabSizeValueType {
 };
 
 struct TabSize {
-    TabSize(float numOrLength, TabSizeValueType isSpaces = SpaceValueType)
+    TabSize() = default;
+    constexpr TabSize(float numOrLength, TabSizeValueType isSpaces = SpaceValueType)
         : m_value(numOrLength)
         , m_isSpaces(isSpaces)
     {
@@ -53,20 +54,17 @@ struct TabSize {
         return m_isSpaces ? m_value * spaceWidth : m_value;
     }
 
-    operator bool() const { return m_value; }
+    float value() const
+    {
+        return m_value;
+    }
 
-    float m_value;
-    bool m_isSpaces;
+    operator bool() const { return value(); }
+
+    friend bool operator==(const TabSize&, const TabSize&) = default;
+
+    float m_value { 0 };
+    bool m_isSpaces { false };
 };
-
-inline bool operator==(const TabSize& a, const TabSize& b)
-{
-    return (a.m_value == b.m_value) && (a.m_isSpaces == b.m_isSpaces);
-}
-
-inline bool operator!=(const TabSize& a, const TabSize& b)
-{
-    return !(a == b);
-}
 
 } // namespace WebCore

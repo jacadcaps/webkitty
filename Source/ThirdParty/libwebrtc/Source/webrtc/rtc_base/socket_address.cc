@@ -10,32 +10,26 @@
 
 #include "rtc_base/socket_address.h"
 
-#include "rtc_base/numerics/safe_conversions.h"
+#include <cstddef>
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
+#include <string>
 
 #if defined(WEBRTC_POSIX)
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <sys/types.h>
 #if defined(OPENBSD)
 #include <netinet/in_systm.h>
 #endif
 #if !defined(__native_client__)
-#include <netinet/ip.h>
 #endif
-#include <arpa/inet.h>
-#include <netdb.h>
-#include <unistd.h>
 #endif
 
+#include "absl/strings/string_view.h"
 #include "rtc_base/byte_order.h"
-#include "rtc_base/checks.h"
-#include "rtc_base/logging.h"
+#include "rtc_base/ip_address.h"
 #include "rtc_base/net_helpers.h"
+#include "rtc_base/numerics/safe_conversions.h"
 #include "rtc_base/strings/string_builder.h"
-
-#if defined(WEBRTC_WIN)
-#include "rtc_base/win32.h"
-#endif
 
 namespace rtc {
 
@@ -43,7 +37,7 @@ SocketAddress::SocketAddress() {
   Clear();
 }
 
-SocketAddress::SocketAddress(const std::string& hostname, int port) {
+SocketAddress::SocketAddress(absl::string_view hostname, int port) {
   SetIP(hostname);
   SetPort(port);
 }
@@ -101,8 +95,8 @@ void SocketAddress::SetIP(const IPAddress& ip) {
   scope_id_ = 0;
 }
 
-void SocketAddress::SetIP(const std::string& hostname) {
-  hostname_ = hostname;
+void SocketAddress::SetIP(absl::string_view hostname) {
+  hostname_ = std::string(hostname);
   literal_ = IPFromString(hostname, &ip_);
   if (!literal_) {
     ip_ = IPAddress();
@@ -178,23 +172,42 @@ std::string SocketAddress::ToSensitiveString() const {
   return sb.str();
 }
 
-bool SocketAddress::FromString(const std::string& str) {
+std::string SocketAddress::ToSensitiveNameAndAddressString() const {
+  if (IsUnresolvedIP() || literal_ || hostname_.empty()) {
+    return ToSensitiveString();
+  }
+  char buf[1024];
+  rtc::SimpleStringBuilder sb(buf);
+  sb << HostAsSensitiveURIString() << ":" << port();
+  sb << " (";
+  if (ip_.family() == AF_INET6) {
+    sb << "[" << ipaddr().ToSensitiveString() << "]";
+  } else {
+    sb << ipaddr().ToSensitiveString();
+  }
+  sb << ":" << port() << ")";
+
+  return sb.str();
+}
+
+bool SocketAddress::FromString(absl::string_view str) {
   if (str.at(0) == '[') {
-    std::string::size_type closebracket = str.rfind(']');
-    if (closebracket != std::string::npos) {
-      std::string::size_type colon = str.find(':', closebracket);
-      if (colon != std::string::npos && colon > closebracket) {
-        SetPort(strtoul(str.substr(colon + 1).c_str(), nullptr, 10));
+    absl::string_view::size_type closebracket = str.rfind(']');
+    if (closebracket != absl::string_view::npos) {
+      absl::string_view::size_type colon = str.find(':', closebracket);
+      if (colon != absl::string_view::npos && colon > closebracket) {
+        SetPort(
+            strtoul(std::string(str.substr(colon + 1)).c_str(), nullptr, 10));
         SetIP(str.substr(1, closebracket - 1));
       } else {
         return false;
       }
     }
   } else {
-    std::string::size_type pos = str.find(':');
-    if (std::string::npos == pos)
+    absl::string_view::size_type pos = str.find(':');
+    if (absl::string_view::npos == pos)
       return false;
-    SetPort(strtoul(str.substr(pos + 1).c_str(), nullptr, 10));
+    SetPort(strtoul(std::string(str.substr(pos + 1)).c_str(), nullptr, 10));
     SetIP(str.substr(0, pos));
   }
   return true;

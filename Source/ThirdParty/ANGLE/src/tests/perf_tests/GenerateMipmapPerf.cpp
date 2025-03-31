@@ -92,10 +92,8 @@ class GenerateMipmapBenchmarkBase : public ANGLERenderTest,
   protected:
     void initShaders();
 
-    GLuint mProgram    = 0;
-    GLint mPositionLoc = -1;
-    GLint mSamplerLoc  = -1;
-    GLuint mTexture    = 0;
+    GLuint mProgram = 0;
+    GLuint mTexture = 0;
 
     std::vector<uint8_t> mTextureData;
 };
@@ -126,17 +124,17 @@ GenerateMipmapBenchmarkBase::GenerateMipmapBenchmarkBase(const char *benchmarkNa
     setWebGLCompatibilityEnabled(GetParam().webgl);
     setRobustResourceInit(GetParam().webgl);
 
-    // Crashes on nvidia+d3d11. http://crbug.com/945415
     if (GetParam().getRenderer() == EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE)
     {
-        mSkipTest = true;
+        skipTest("http://crbug.com/945415 Crashes on nvidia+d3d11");
     }
 
-    // Fails on Windows7 NVIDIA Vulkan, presumably due to old drivers. http://crbug.com/1096510
     if (IsWindows7() && IsNVIDIA() &&
         GetParam().eglParameters.renderer == EGL_PLATFORM_ANGLE_TYPE_VULKAN_ANGLE)
     {
-        mSkipTest = true;
+        skipTest(
+            "http://crbug.com/1096510 Fails on Windows7 NVIDIA Vulkan, presumably due to old "
+            "drivers");
     }
 }
 
@@ -148,12 +146,6 @@ void GenerateMipmapBenchmarkBase::initializeBenchmark()
     glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
     glViewport(0, 0, getWindow()->getWidth(), getWindow()->getHeight());
 
-    if (params.webgl)
-    {
-        glRequestExtensionANGLE("GL_EXT_disjoint_timer_query");
-    }
-
-    glActiveTexture(GL_TEXTURE0);
     glGenTextures(1, &mTexture);
     glBindTexture(GL_TEXTURE_2D, mTexture);
 
@@ -178,26 +170,21 @@ void GenerateMipmapBenchmarkBase::initializeBenchmark()
 
 void GenerateMipmapBenchmarkBase::initShaders()
 {
-    constexpr char kVS[] = R"(attribute vec4 a_position;
-void main()
+    constexpr char kVS[] = R"(void main()
 {
-    gl_Position = a_position;
+    gl_Position = vec4(0, 0, 0, 1);
 })";
 
     constexpr char kFS[] = R"(precision mediump float;
-uniform sampler2D s_texture;
 void main()
 {
-    gl_FragColor = texture2D(s_texture, vec2(0, 0));
+    gl_FragColor = vec4(0);
 })";
 
     mProgram = CompileProgram(kVS, kFS);
     ASSERT_NE(0u, mProgram);
 
-    mPositionLoc = glGetAttribLocation(mProgram, "a_position");
-    mSamplerLoc  = glGetUniformLocation(mProgram, "s_texture");
     glUseProgram(mProgram);
-    glUniform1i(mSamplerLoc, 0);
 
     glDisable(GL_DEPTH_TEST);
 
@@ -299,6 +286,20 @@ GenerateMipmapParams D3D11Params(bool webglCompat, bool singleIteration)
     return params;
 }
 
+GenerateMipmapParams MetalParams(bool webglCompat, bool singleIteration)
+{
+    GenerateMipmapParams params;
+    params.eglParameters = egl_platform::METAL();
+    params.majorVersion  = 3;
+    params.minorVersion  = 0;
+    params.webgl         = webglCompat;
+    if (singleIteration)
+    {
+        params.iterationsPerStep = 1;
+    }
+    return params;
+}
+
 GenerateMipmapParams OpenGLOrGLESParams(bool webglCompat, bool singleIteration)
 {
     GenerateMipmapParams params;
@@ -348,6 +349,8 @@ using namespace params;
 ANGLE_INSTANTIATE_TEST(GenerateMipmapBenchmark,
                        D3D11Params(false, false),
                        D3D11Params(true, false),
+                       MetalParams(false, false),
+                       MetalParams(true, false),
                        OpenGLOrGLESParams(false, false),
                        OpenGLOrGLESParams(true, false),
                        VulkanParams(false, false, false),
@@ -358,6 +361,8 @@ ANGLE_INSTANTIATE_TEST(GenerateMipmapBenchmark,
 ANGLE_INSTANTIATE_TEST(GenerateMipmapWithRedefineBenchmark,
                        D3D11Params(false, true),
                        D3D11Params(true, true),
+                       MetalParams(false, true),
+                       MetalParams(true, true),
                        OpenGLOrGLESParams(false, true),
                        OpenGLOrGLESParams(true, true),
                        VulkanParams(false, true, false),

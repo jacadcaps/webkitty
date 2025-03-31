@@ -25,22 +25,23 @@
 
 #pragma once
 
-#if ENABLE(INDEXED_DATABASE)
-
+#include "IDBIndexIdentifier.h"
 #include "IDBKeyPath.h"
+#include "IDBObjectStoreIdentifier.h"
+#include <wtf/HashTraits.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
 class IDBIndexInfo {
 public:
-    WEBCORE_EXPORT IDBIndexInfo();
-    IDBIndexInfo(uint64_t identifier, uint64_t objectStoreIdentifier, const String& name, IDBKeyPath&&, bool unique, bool multiEntry);
+    WEBCORE_EXPORT IDBIndexInfo(IDBIndexIdentifier, IDBObjectStoreIdentifier, const String& name, IDBKeyPath&&, bool unique, bool multiEntry);
 
-    WEBCORE_EXPORT IDBIndexInfo isolatedCopy() const;
+    WEBCORE_EXPORT IDBIndexInfo isolatedCopy() const &;
+    WEBCORE_EXPORT IDBIndexInfo isolatedCopy() &&;
 
-    uint64_t identifier() const { return m_identifier; }
-    uint64_t objectStoreIdentifier() const { return m_objectStoreIdentifier; }
+    IDBIndexIdentifier identifier() const { return m_identifier; }
+    IDBObjectStoreIdentifier objectStoreIdentifier() const { return m_objectStoreIdentifier; }
     const String& name() const { return m_name; }
     const IDBKeyPath& keyPath() const { return m_keyPath; }
     bool unique() const { return m_unique; }
@@ -48,56 +49,32 @@ public:
 
     void rename(const String& newName) { m_name = newName; }
 
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static WARN_UNUSED_RETURN bool decode(Decoder&, IDBIndexInfo&);
-
 #if !LOG_DISABLED
     String loggingString(int indent = 0) const;
     String condensedLoggingString() const;
 #endif
 
-    // FIXME: Remove the need for this.
-    static const int64_t InvalidId = -1;
-
+    void setIdentifier(IDBIndexIdentifier identifier) { m_identifier = identifier; }
 private:
-    uint64_t m_identifier { 0 };
-    uint64_t m_objectStoreIdentifier { 0 };
+    IDBIndexIdentifier m_identifier;
+    IDBObjectStoreIdentifier m_objectStoreIdentifier;
     String m_name;
     IDBKeyPath m_keyPath;
     bool m_unique { true };
     bool m_multiEntry { false };
 };
 
-template<class Encoder>
-void IDBIndexInfo::encode(Encoder& encoder) const
-{
-    encoder << m_identifier << m_objectStoreIdentifier << m_name << m_keyPath << m_unique << m_multiEntry;
-}
-
-template<class Decoder>
-bool IDBIndexInfo::decode(Decoder& decoder, IDBIndexInfo& info)
-{
-    if (!decoder.decode(info.m_identifier))
-        return false;
-
-    if (!decoder.decode(info.m_objectStoreIdentifier))
-        return false;
-
-    if (!decoder.decode(info.m_name))
-        return false;
-
-    if (!decoder.decode(info.m_keyPath))
-        return false;
-
-    if (!decoder.decode(info.m_unique))
-        return false;
-
-    if (!decoder.decode(info.m_multiEntry))
-        return false;
-
-    return true;
-}
-
 } // namespace WebCore
 
-#endif // ENABLE(INDEXED_DATABASE)
+namespace WTF {
+
+template<> struct HashTraits<WebCore::IDBIndexInfo> : GenericHashTraits<WebCore::IDBIndexInfo> {
+    static constexpr bool emptyValueIsZero = false;
+    static WebCore::IDBIndexInfo emptyValue()
+    {
+        return WebCore::IDBIndexInfo { HashTraits<WebCore::IDBIndexIdentifier>::emptyValue(), HashTraits<WebCore::IDBObjectStoreIdentifier>::emptyValue(), { }, { }, false, false };
+    }
+    static bool isEmptyValue(const WebCore::IDBIndexInfo& value) { return value.objectStoreIdentifier().isHashTableEmptyValue(); }
+};
+
+} // namespace WTF

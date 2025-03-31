@@ -36,22 +36,21 @@ void Authenticator::handleRequest(const WebAuthenticationRequestData& data)
 {
     m_pendingRequestData = data;
     // Enforce asynchronous execution of makeCredential/getAssertion.
-    RunLoop::main().dispatch([weakThis = makeWeakPtr(*this), this] {
+    RunLoop::protectedMain()->dispatch([weakThis = WeakPtr { *this }, this] {
         if (!weakThis)
             return;
-        if (WTF::holds_alternative<WebCore::PublicKeyCredentialCreationOptions>(m_pendingRequestData.options))
+        if (std::holds_alternative<WebCore::PublicKeyCredentialCreationOptions>(m_pendingRequestData.options))
             makeCredential();
         else
             getAssertion();
     });
 }
 
-void Authenticator::receiveRespond(Respond&& respond) const
+void Authenticator::receiveRespond(AuthenticatorObserverRespond&& respond) const
 {
     ASSERT(RunLoop::isMain());
-    if (!m_observer)
-        return;
-    m_observer->respondReceived(WTFMove(respond));
+    if (RefPtr observer = m_observer.get())
+        observer->respondReceived(WTFMove(respond));
 }
 
 } // namespace WebKit

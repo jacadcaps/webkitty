@@ -26,16 +26,17 @@
 #include "HTMLTableColElement.h"
 
 #include "CSSPropertyNames.h"
+#include "ElementInlines.h"
 #include "HTMLNames.h"
 #include "HTMLParserIdioms.h"
 #include "HTMLTableElement.h"
 #include "RenderTableCol.h"
 #include "Text.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLTableColElement);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(HTMLTableColElement);
 
 const unsigned defaultSpan { 1 };
 const unsigned minSpan { 1 };
@@ -54,41 +55,43 @@ Ref<HTMLTableColElement> HTMLTableColElement::create(const QualifiedName& tagNam
     return adoptRef(*new HTMLTableColElement(tagName, document));
 }
 
-bool HTMLTableColElement::isPresentationAttribute(const QualifiedName& name) const
+bool HTMLTableColElement::hasPresentationalHintsForAttribute(const QualifiedName& name) const
 {
     if (name == widthAttr)
         return true;
-    return HTMLTablePartElement::isPresentationAttribute(name);
+    return HTMLTablePartElement::hasPresentationalHintsForAttribute(name);
 }
 
-void HTMLTableColElement::collectStyleForPresentationAttribute(const QualifiedName& name, const AtomString& value, MutableStyleProperties& style)
+void HTMLTableColElement::collectPresentationalHintsForAttribute(const QualifiedName& name, const AtomString& value, MutableStyleProperties& style)
 {
     if (name == widthAttr)
-        addHTMLLengthToStyle(style, CSSPropertyWidth, value);
+        addHTMLMultiLengthToStyle(style, CSSPropertyWidth, value);
+    else if (name == heightAttr)
+        addHTMLMultiLengthToStyle(style, CSSPropertyHeight, value);
     else
-        HTMLTablePartElement::collectStyleForPresentationAttribute(name, value, style);
+        HTMLTablePartElement::collectPresentationalHintsForAttribute(name, value, style);
 }
 
-void HTMLTableColElement::parseAttribute(const QualifiedName& name, const AtomString& value)
+void HTMLTableColElement::attributeChanged(const QualifiedName& name, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason attributeModificationReason)
 {
+    HTMLTablePartElement::attributeChanged(name, oldValue, newValue, attributeModificationReason);
+
     if (name == spanAttr) {
-        m_span = clampHTMLNonNegativeIntegerToRange(value, minSpan, maxSpan, defaultSpan);
-        if (is<RenderTableCol>(renderer()))
-            downcast<RenderTableCol>(*renderer()).updateFromElement();
+        m_span = clampHTMLNonNegativeIntegerToRange(newValue, minSpan, maxSpan, defaultSpan);
+        if (CheckedPtr col = dynamicDowncast<RenderTableCol>(renderer()))
+            col->updateFromElement();
     } else if (name == widthAttr) {
-        if (!value.isEmpty()) {
-            if (is<RenderTableCol>(renderer())) {
-                RenderTableCol& col = downcast<RenderTableCol>(*renderer());
-                int newWidth = width().toInt();
-                if (newWidth != col.width())
-                    col.setNeedsLayoutAndPrefWidthsRecalc();
+        if (!newValue.isEmpty()) {
+            if (CheckedPtr col = dynamicDowncast<RenderTableCol>(renderer())) {
+                int newWidth = parseHTMLInteger(newValue).value_or(0);
+                if (newWidth != col->width())
+                    col->setNeedsLayoutAndPrefWidthsRecalc();
             }
         }
-    } else
-        HTMLTablePartElement::parseAttribute(name, value);
+    }
 }
 
-const StyleProperties* HTMLTableColElement::additionalPresentationAttributeStyle() const
+const MutableStyleProperties* HTMLTableColElement::additionalPresentationalHintStyle() const
 {
     if (!hasTagName(colgroupTag))
         return nullptr;

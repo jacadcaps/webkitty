@@ -38,10 +38,10 @@ import unittest
 # that Tools/Scripts is in sys.path for the next imports to work correctly.
 script_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 if script_dir not in sys.path:
-    sys.path.append(script_dir)
+    sys.path.insert(0, script_dir)
 third_party_py = os.path.join(script_dir, "webkitpy", "thirdparty", "autoinstalled")
 if third_party_py not in sys.path:
-    sys.path.append(third_party_py)
+    sys.path.insert(0, third_party_py)
 
 from webkitpy.common.system.executive import Executive, ScriptError
 from webkitpy.common.system.filesystem_mock import MockFileSystem
@@ -107,8 +107,8 @@ class ExecutiveTest(unittest.TestCase):
     def test_run_command_with_bad_command(self):
         self.assertRaises(OSError, lambda: Executive().run_command(["foo_bar_command_blah"], ignore_errors=True, return_exit_code=True))
         self.assertRaises(OSError, lambda: Executive().run_and_throw_if_fail(["foo_bar_command_blah"], quiet=True))
-        self.assertRaises(ScriptError, lambda: Executive().run_command(['python', '-c', 'import sys; sys.exit(1)']))
-        self.assertRaises(ScriptError, lambda: Executive().run_and_throw_if_fail(['python', '-c', 'import sys; sys.exit(1)'], quiet=True))
+        self.assertRaises(ScriptError, lambda: Executive().run_command([sys.executable, '-c', 'import sys; sys.exit(1)']))
+        self.assertRaises(ScriptError, lambda: Executive().run_and_throw_if_fail([sys.executable, '-c', 'import sys; sys.exit(1)'], quiet=True))
 
     def test_run_command_args_type(self):
         executive = Executive()
@@ -149,25 +149,26 @@ class ExecutiveTest(unittest.TestCase):
 
         executive = Executive()
 
-        output = executive.run_command(command_line('cat'), input=unicode_tor_input)
+        output = executive.run_command(command_line('cat'), input=unicode_tor_input, return_stderr=False)
         self.assertEqual(output, unicode_tor_output)
 
-        output = executive.run_command(command_line('echo', unicode_tor_input))
+        output = executive.run_command(command_line('echo', unicode_tor_input), return_stderr=False)
         self.assertEqual(output, unicode_tor_output)
 
-        output = executive.run_command(command_line('echo', unicode_tor_input), decode_output=False)
+        output = executive.run_command(command_line('echo', unicode_tor_input), decode_output=False, return_stderr=False)
         self.assertEqual(output, encoded_tor)
 
         # Make sure that str() input also works.
-        output = executive.run_command(command_line('cat'), input=encoded_tor, decode_output=False)
+        output = executive.run_command(command_line('cat'), input=encoded_tor, decode_output=False, return_stderr=False)
         self.assertEqual(output, encoded_tor)
 
         # FIXME: We should only have one run* method to test
+        # These use assertIn as run_and_throw_if_fail always redirects stderr to stdout
         output = executive.run_and_throw_if_fail(command_line('echo', unicode_tor_input), quiet=True)
-        self.assertEqual(output, unicode_tor_output)
+        self.assertIn(unicode_tor_output, output)
 
         output = executive.run_and_throw_if_fail(command_line('echo', unicode_tor_input), quiet=True, decode_output=False)
-        self.assertEqual(output, encoded_tor)
+        self.assertIn(encoded_tor, output)
 
     def serial_test_kill_process(self):
         executive = Executive()
@@ -246,13 +247,23 @@ class ExecutiveTest(unittest.TestCase):
         import multiprocessing
 
         NUM_PROCESSES = 4
-        DELAY_SECS = 0.25
+        DELAY_SECS = 1.0  # make sure this is much greater than the VM spawn time
         cmd_line = [sys.executable, '-c', 'import time; time.sleep(%f); print("hello")' % DELAY_SECS]
         cwd = os.getcwd()
         commands = [tuple([cmd_line, cwd])] * NUM_PROCESSES
-        start = time.time()
-        command_outputs = Executive().run_in_parallel(commands, processes=NUM_PROCESSES)
-        done = time.time()
+
+        try:
+            # we overwrite __main__ to be this to avoid any issues with
+            # multiprocessing's spawning caused by multiple versions of pytest on
+            # sys.path
+            old_main = sys.modules["__main__"]
+            sys.modules["__main__"] = sys.modules[__name__]
+            start = time.time()
+            command_outputs = Executive().run_in_parallel(commands, processes=NUM_PROCESSES)
+            done = time.time()
+        finally:
+            sys.modules["__main__"] = old_main
+
         self.assertTrue(done - start < NUM_PROCESSES * DELAY_SECS)
         self.assertEqual([output[1] for output in command_outputs], [b'hello\n'] * NUM_PROCESSES)
         self.assertEqual([],  multiprocessing.active_children())

@@ -25,12 +25,12 @@
 
 #pragma once
 
-#if ENABLE(DATALIST_ELEMENT) && USE(APPKIT)
+#if USE(APPKIT)
 
 #import "WebDataListSuggestionsDropdown.h"
 #import <wtf/RetainPtr.h>
 
-OBJC_CLASS WKDataListSuggestionsView;
+OBJC_CLASS WKDataListSuggestionsController;
 
 namespace WebKit {
 
@@ -51,9 +51,9 @@ private:
     void selectOption();
 
     NSView *m_view;
-    RetainPtr<WKDataListSuggestionsView> m_dropdownUI;
+    RetainPtr<WKDataListSuggestionsController> m_dropdownUI;
 };
 
 } // namespace WebKit
 
-#endif // ENABLE(DATALIST_ELEMENT) && USE(APPKIT)
+#endif // USE(APPKIT)

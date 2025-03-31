@@ -32,22 +32,21 @@
 #include "config.h"
 #include "ResetInputType.h"
 
+#include "Document.h"
 #include "Event.h"
 #include "HTMLFormElement.h"
 #include "HTMLInputElement.h"
 #include "InputTypeNames.h"
 #include "LocalizedStrings.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ResetInputType);
 
 const AtomString& ResetInputType::formControlType() const
 {
     return InputTypeNames::reset();
-}
-
-bool ResetInputType::supportsValidation() const
-{
-    return false;
 }
 
 void ResetInputType::handleDOMActivateEvent(Event& event)
@@ -62,11 +61,6 @@ void ResetInputType::handleDOMActivateEvent(Event& event)
 String ResetInputType::defaultValue() const
 {
     return resetButtonDefaultLabel();
-}
-
-bool ResetInputType::isTextButton() const
-{
-    return true;
 }
 
 } // namespace WebCore

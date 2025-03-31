@@ -26,18 +26,15 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import sys
+import os
 
-from webkitpy.tool.steps.abstractstep import AbstractStep
-from webkitpy.tool.steps.options import Options
 from webkitpy.common.prettypatch import PrettyPatch
 from webkitpy.common.system import logutils
 from webkitpy.common.system.executive import ScriptError
+from webkitpy.tool.steps.abstractstep import AbstractStep
+from webkitpy.tool.steps.options import Options
 
-if sys.version_info > (3, 0):
-    from urllib.request import pathname2url
-else:
-    from urllib import pathname2url
+from urllib.request import pathname2url
 
 _log = logutils.get_logger(__file__)
 
@@ -50,7 +47,7 @@ class ConfirmDiff(AbstractStep):
         ]
 
     def _show_pretty_diff(self, diff):
-        if not self._tool.user.can_open_url():
+        if os.environ.get('WEBKIT_PATCH_PREFER_PAGER') or not self._tool.user.can_open_url():
             return None
 
         try:
@@ -62,9 +59,9 @@ class ConfirmDiff(AbstractStep):
             # We return the pretty_diff_file here because we need to keep the
             # file alive until the user has had a chance to confirm the diff.
             return pretty_diff_file
-        except ScriptError as e:
+        except ScriptError:
             _log.warning("PrettyPatch failed.  :(")
-        except OSError as e:
+        except OSError:
             _log.warning("PrettyPatch unavailable.")
 
     def run(self, state):

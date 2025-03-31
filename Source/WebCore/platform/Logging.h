@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2003-2020 Apple Inc.  All rights reserved.
+ * Copyright (C) 2003-2025 Apple Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,9 +25,52 @@
 
 #pragma once
 
-#include <pal/LogMacros.h>
 #include <wtf/Assertions.h>
 #include <wtf/Forward.h>
+
+#if __has_include("WebCoreLogDefinitions.h")
+#include "WebCoreLogDefinitions.h"
+#endif
+
+#define COMMA() ,
+#define OPTIONAL_ARGS(...) __VA_OPT__(COMMA()) __VA_ARGS__
+
+#if ENABLE(LOGD_BLOCKING_IN_WEBCONTENT)
+#include "LogClient.h"
+
+#define RELEASE_LOG_FORWARDABLE(category, logMessage, ...) do { \
+    if (auto& client = logClient()) \
+        client->logMessage(__VA_ARGS__); \
+    else \
+        RELEASE_LOG(category, MESSAGE_##logMessage OPTIONAL_ARGS(__VA_ARGS__)); \
+} while (0)
+
+#define RELEASE_LOG_INFO_FORWARDABLE(category, logMessage, ...) do { \
+    if (auto& client = logClient()) \
+        client->logMessage(__VA_ARGS__); \
+    else \
+        RELEASE_LOG_INFO(category, MESSAGE_##logMessage OPTIONAL_ARGS(__VA_ARGS__)); \
+} while (0)
+
+#define RELEASE_LOG_ERROR_FORWARDABLE(category, logMessage, ...) do { \
+    if (auto& client = logClient()) \
+        client->logMessage(__VA_ARGS__); \
+    else \
+        RELEASE_LOG_ERROR(category, MESSAGE_##logMessage OPTIONAL_ARGS(__VA_ARGS__)); \
+} while (0)
+
+#define RELEASE_LOG_FAULT_FORWARDABLE(category, logMessage, ...) do { \
+    if (auto& client = logClient()) \
+        client->logMessage(__VA_ARGS__); \
+    else \
+        RELEASE_LOG_FAULT(category, MESSAGE_##logMessage OPTIONAL_ARGS(__VA_ARGS__)); \
+} while (0)
+#else
+#define RELEASE_LOG_FORWARDABLE(category, logMessage, ...) RELEASE_LOG(category, MESSAGE_##logMessage OPTIONAL_ARGS(__VA_ARGS__))
+#define RELEASE_LOG_INFO_FORWARDABLE(category, logMessage, ...) RELEASE_LOG_INFO(category, MESSAGE_##logMessage OPTIONAL_ARGS(__VA_ARGS__))
+#define RELEASE_LOG_ERROR_FORWARDABLE(category, logMessage, ...) RELEASE_LOG_ERROR(category, MESSAGE_##logMessage OPTIONAL_ARGS(__VA_ARGS__))
+#define RELEASE_LOG_FAULT_FORWARDABLE(category, logMessage, ...) RELEASE_LOG_FAULT(category, MESSAGE_##logMessage OPTIONAL_ARGS(__VA_ARGS__))
+#endif // ENABLE(LOGD_BLOCKING_IN_WEBCONTENT)
 
 namespace WebCore {
 
@@ -39,8 +82,9 @@ namespace WebCore {
 
 #define WEBCORE_LOG_CHANNELS(M) \
     M(Accessibility) \
-    M(AdClickAttribution) \
+    M(ActivityState) \
     M(Animations) \
+    M(AppHighlights) \
     M(ApplePay) \
     M(Archives) \
     M(BackForwardCache) \
@@ -50,15 +94,21 @@ namespace WebCore {
     M(CompositingOverlap) \
     M(ContentFiltering) \
     M(ContentObservation) \
+    M(Crypto) \
     M(DatabaseTracker) \
+    M(DigitalCredentials) \
+    M(DisplayLink) \
     M(DisplayLists) \
+    M(DragAndDrop) \
     M(DOMTimers) \
     M(Editing) \
     M(EME) \
     M(Events) \
+    M(EventLoop) \
     M(EventRegions) \
     M(FileAPI) \
     M(Filters) \
+    M(FingerprintingMitigation) \
     M(Fonts) \
     M(Frames) \
     M(FTP) \
@@ -71,8 +121,11 @@ namespace WebCore {
     M(Images) \
     M(IndexedDB) \
     M(IndexedDBOperations) \
+    M(Inspector) \
+    M(IntersectionObserver) \
     M(Layers) \
     M(Layout) \
+    M(LazyLoading) \
     M(FormattingContextLayout) \
     M(Loading) \
     M(Media) \
@@ -83,6 +136,8 @@ namespace WebCore {
     M(MediaSourceSamples) \
     M(MemoryPressure) \
     M(MessagePorts) \
+    M(ModelElement) \
+    M(NativePromise) \
     M(Network) \
     M(NotYetImplemented) \
     M(OverlayScrollbars) \
@@ -90,12 +145,21 @@ namespace WebCore {
     M(PlatformLeaks) \
     M(Plugins) \
     M(PopupBlocking) \
+    M(Printing) \
+    M(PrivateClickMeasurement) \
+    M(Process) \
     M(Progress) \
+    M(Push) \
     M(RemoteInspector) \
+    M(RenderBlocking) \
     M(RequestAnimationFrame) \
+    M(ResizeObserver) \
     M(ResourceLoading) \
     M(ResourceLoadObserver) \
     M(ResourceLoadStatistics) \
+    M(ResourceMonitoring) \
+    M(ScrollAnimations) \
+    M(ScrollAnchoring) \
     M(ScrollSnap) \
     M(Scrolling) \
     M(ScrollingTree) \
@@ -103,21 +167,32 @@ namespace WebCore {
     M(Selection) \
     M(Services) \
     M(ServiceWorker) \
+    M(SharedWorker) \
+    M(SiteIsolation) \
     M(SpellingAndGrammar) \
     M(SQLDatabase) \
     M(Storage) \
     M(StorageAPI) \
+    M(Style) \
+    M(StyleSheets) \
     M(SVG) \
     M(TextAutosizing) \
+    M(TextDecoding) \
+    M(TextFragment) \
+    M(TextManipulation) \
+    M(TextShaping) \
     M(Tiling) \
     M(Threading) \
+    M(WritingTools) \
     M(URLParser) \
     M(Viewports) \
+    M(ViewTransitions) \
+    M(VirtualMemory) \
     M(WebAudio) \
     M(WebGL) \
-    M(WebGPU) \
     M(WebRTC) \
     M(WebRTCStats) \
+    M(Worker) \
     M(XR) \
     M(WheelEventTestMonitor) \
 
@@ -127,11 +202,6 @@ namespace WebCore {
 
 WEBCORE_LOG_CHANNELS(DECLARE_LOG_CHANNEL)
 
-String logLevelString();
-bool isLogChannelEnabled(const String& name);
-
 #endif // !LOG_DISABLED || !RELEASE_LOG_DISABLED
-
-WEBCORE_EXPORT WTFLogChannel* getLogChannel(const String& name);
 
 } // namespace WebCore

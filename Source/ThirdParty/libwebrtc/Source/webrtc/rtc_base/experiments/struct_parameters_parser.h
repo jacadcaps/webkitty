@@ -13,13 +13,13 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/memory/memory.h"
 #include "absl/strings/string_view.h"
-#include "absl/types/optional.h"
 #include "rtc_base/experiments/field_trial_parser.h"
 #include "rtc_base/experiments/field_trial_units.h"
 #include "rtc_base/string_encode.h"
@@ -28,7 +28,7 @@ namespace webrtc {
 namespace struct_parser_impl {
 struct TypedMemberParser {
  public:
-  bool (*parse)(const absl::string_view src, void* target);
+  bool (*parse)(absl::string_view src, void* target);
   void (*encode)(const void* src, std::string* target);
 };
 
@@ -54,16 +54,16 @@ extern template class TypedParser<bool>;
 extern template class TypedParser<double>;
 extern template class TypedParser<int>;
 extern template class TypedParser<unsigned>;
-extern template class TypedParser<absl::optional<double>>;
-extern template class TypedParser<absl::optional<int>>;
-extern template class TypedParser<absl::optional<unsigned>>;
+extern template class TypedParser<std::optional<double>>;
+extern template class TypedParser<std::optional<int>>;
+extern template class TypedParser<std::optional<unsigned>>;
 
 extern template class TypedParser<DataRate>;
 extern template class TypedParser<DataSize>;
 extern template class TypedParser<TimeDelta>;
-extern template class TypedParser<absl::optional<DataRate>>;
-extern template class TypedParser<absl::optional<DataSize>>;
-extern template class TypedParser<absl::optional<TimeDelta>>;
+extern template class TypedParser<std::optional<DataRate>>;
+extern template class TypedParser<std::optional<DataSize>>;
+extern template class TypedParser<std::optional<TimeDelta>>;
 
 template <typename T>
 void AddMembers(MemberParameter* out, const char* key, T* member) {

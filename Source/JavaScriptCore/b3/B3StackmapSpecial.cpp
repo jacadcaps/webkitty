@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,22 +31,21 @@
 #include "AirCode.h"
 #include "AirGenerationContext.h"
 #include "B3ValueInlines.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace JSC { namespace B3 {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(StackmapSpecial);
 
 using Arg = Air::Arg;
 using Inst = Air::Inst;
 using Tmp = Air::Tmp;
 
-StackmapSpecial::StackmapSpecial()
-{
-}
+StackmapSpecial::StackmapSpecial() = default;
 
-StackmapSpecial::~StackmapSpecial()
-{
-}
+StackmapSpecial::~StackmapSpecial() = default;
 
-void StackmapSpecial::reportUsedRegisters(Inst& inst, const RegisterSet& usedRegisters)
+void StackmapSpecial::reportUsedRegisters(Inst& inst, const RegisterSetBuilder& usedRegisters)
 {
     StackmapValue* value = inst.origin->as<StackmapValue>();
     ASSERT(value);
@@ -57,7 +56,7 @@ void StackmapSpecial::reportUsedRegisters(Inst& inst, const RegisterSet& usedReg
     value->m_usedRegisters.merge(usedRegisters);
 }
 
-RegisterSet StackmapSpecial::extraClobberedRegs(Inst& inst)
+RegisterSetBuilder StackmapSpecial::extraClobberedRegs(Inst& inst)
 {
     StackmapValue* value = inst.origin->as<StackmapValue>();
     ASSERT(value);
@@ -65,7 +64,7 @@ RegisterSet StackmapSpecial::extraClobberedRegs(Inst& inst)
     return value->lateClobbered();
 }
 
-RegisterSet StackmapSpecial::extraEarlyClobberedRegs(Inst& inst)
+RegisterSetBuilder StackmapSpecial::extraEarlyClobberedRegs(Inst& inst)
 {
     StackmapValue* value = inst.origin->as<StackmapValue>();
     ASSERT(value);
@@ -75,8 +74,8 @@ RegisterSet StackmapSpecial::extraEarlyClobberedRegs(Inst& inst)
 
 void StackmapSpecial::forEachArgImpl(
     unsigned numIgnoredB3Args, unsigned numIgnoredAirArgs,
-    Inst& inst, RoleMode roleMode, Optional<unsigned> firstRecoverableIndex,
-    const ScopedLambda<Inst::EachArgCallback>& callback, Optional<Width> optionalDefArgWidth)
+    Inst& inst, RoleMode roleMode, std::optional<unsigned> firstRecoverableIndex,
+    const ScopedLambda<Inst::EachArgCallback>& callback, std::optional<Width> optionalDefArgWidth)
 {
     StackmapValue* value = inst.origin->as<StackmapValue>();
     ASSERT(value);
@@ -90,6 +89,11 @@ void StackmapSpecial::forEachArgImpl(
     for (unsigned i = 0; i < value->numChildren() - numIgnoredB3Args; ++i) {
         Arg& arg = inst.args[i + numIgnoredAirArgs];
         ConstrainedValue child = value->constrainedChild(i + numIgnoredB3Args);
+
+#if USE(JSVALUE32_64)
+        // LowerInt64 should have lowered this argument already.
+        RELEASE_ASSERT(child.value()->type() != Int64 || child.rep().isStack() || child.rep().isStackArgument());
+#endif
 
         Arg::Role role;
         switch (roleMode) {
@@ -123,7 +127,10 @@ void StackmapSpecial::forEachArgImpl(
             case ValueRep::LateColdAny:
                 role = Arg::LateColdUse;
                 break;
-            default:
+#if USE(JSVALUE32_64)
+            case ValueRep::RegisterPair:
+#endif
+            case ValueRep::SomeEarlyRegister:
                 RELEASE_ASSERT_NOT_REACHED();
                 break;
             }
@@ -135,7 +142,6 @@ void StackmapSpecial::forEachArgImpl(
                 // The role can only be some kind of def if we did SomeRegisterWithClobber, which is
                 // only allowed for patchpoints. Patchpoints don't use the defArgWidth feature.
                 RELEASE_ASSERT(!Arg::isAnyDef(role));
-                
                 if (Arg::isWarmUse(role))
                     role = Arg::LateUse;
                 else
@@ -272,10 +278,15 @@ bool StackmapSpecial::isArgValidForRep(Air::Code& code, const Air::Arg& arg, con
                 return true;
         }
         return false;
-    default:
+#if USE(JSVALUE32_64)
+    case ValueRep::RegisterPair:
+#endif
+    case ValueRep::Stack:
+    case ValueRep::Constant:
         RELEASE_ASSERT_NOT_REACHED();
         return false;
     }
+    RELEASE_ASSERT_NOT_REACHED();
 }
 
 ValueRep StackmapSpecial::repForArg(Air::Code& code, const Arg& arg)

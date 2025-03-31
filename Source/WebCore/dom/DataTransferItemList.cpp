@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,19 +26,22 @@
 #include "config.h"
 #include "DataTransferItemList.h"
 
+#include "ContextDestructionObserver.h"
 #include "DataTransferItem.h"
+#include "DeprecatedGlobalSettings.h"
+#include "Document.h"
 #include "FileList.h"
 #include "Pasteboard.h"
-#include "RuntimeEnabledFeatures.h"
 #include "Settings.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(DataTransferItemList);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(DataTransferItemList);
 
-DataTransferItemList::DataTransferItemList(DataTransfer& dataTransfer)
-    : m_dataTransfer(dataTransfer)
+DataTransferItemList::DataTransferItemList(Document& document, DataTransfer& dataTransfer)
+    : ContextDestructionObserver(&document)
+    , m_dataTransfer(dataTransfer)
 {
 }
 
@@ -47,6 +50,11 @@ DataTransferItemList::~DataTransferItemList() = default;
 unsigned DataTransferItemList::length() const
 {
     return ensureItems().size();
+}
+
+bool DataTransferItemList::isSupportedPropertyIndex(unsigned index)
+{
+    return index < ensureItems().size();
 }
 
 RefPtr<DataTransferItem> DataTransferItemList::item(unsigned index)
@@ -59,17 +67,18 @@ RefPtr<DataTransferItem> DataTransferItemList::item(unsigned index)
 
 static bool shouldExposeTypeInItemList(const String& type)
 {
-    return RuntimeEnabledFeatures::sharedFeatures().customPasteboardDataEnabled() || Pasteboard::isSafeTypeForDOMToReadAndWrite(type);
+    return DeprecatedGlobalSettings::customPasteboardDataEnabled() || Pasteboard::isSafeTypeForDOMToReadAndWrite(type);
 }
 
-ExceptionOr<RefPtr<DataTransferItem>> DataTransferItemList::add(const String& data, const String& type)
+ExceptionOr<RefPtr<DataTransferItem>> DataTransferItemList::add(Document& document, const String& data, const String& type)
 {
-    if (!m_dataTransfer.canWriteData())
+    Ref dataTransfer = m_dataTransfer.get();
+    if (!dataTransfer->canWriteData())
         return nullptr;
 
     for (auto& item : ensureItems()) {
         if (!item->isFile() && equalIgnoringASCIICase(item->type(), type))
-            return Exception { NotSupportedError };
+            return Exception { ExceptionCode::NotSupportedError };
     }
 
     String lowercasedType = type.convertToASCIILowercase();
@@ -77,46 +86,49 @@ ExceptionOr<RefPtr<DataTransferItem>> DataTransferItemList::add(const String& da
     if (!shouldExposeTypeInItemList(lowercasedType))
         return nullptr;
 
-    m_dataTransfer.setDataFromItemList(lowercasedType, data);
+    dataTransfer->setDataFromItemList(document, lowercasedType, data);
     ASSERT(m_items);
-    m_items->append(DataTransferItem::create(makeWeakPtr(*this), lowercasedType));
+    m_items->append(DataTransferItem::create(*this, lowercasedType));
     return m_items->last().ptr();
 }
 
 RefPtr<DataTransferItem> DataTransferItemList::add(Ref<File>&& file)
 {
-    if (!m_dataTransfer.canWriteData())
+    Ref dataTransfer = m_dataTransfer.get();
+    if (!dataTransfer->canWriteData())
         return nullptr;
 
-    ensureItems().append(DataTransferItem::create(makeWeakPtr(*this), file->type(), file.copyRef()));
-    m_dataTransfer.didAddFileToItemList();
+    ensureItems().append(DataTransferItem::create(*this, file->type(), file.copyRef()));
+    dataTransfer->didAddFileToItemList();
     return m_items->last().ptr();
 }
 
 ExceptionOr<void> DataTransferItemList::remove(unsigned index)
 {
-    if (!m_dataTransfer.canWriteData())
-        return Exception { InvalidStateError };
+    Ref dataTransfer = m_dataTransfer.get();
+    if (!dataTransfer->canWriteData())
+        return Exception { ExceptionCode::InvalidStateError };
 
     auto& items = ensureItems();
     if (items.size() <= index)
-        return Exception { IndexSizeError }; // Matches Gecko. See https://github.com/whatwg/html/issues/2925
+        return { };
 
     // FIXME: Remove the file from the pasteboard object once we add support for it.
-    Ref<DataTransferItem> removedItem = items[index].copyRef();
+    Ref removedItem = items[index].copyRef();
     if (!removedItem->isFile())
-        m_dataTransfer.pasteboard().clear(removedItem->type());
+        dataTransfer->pasteboard().clear(removedItem->type());
     removedItem->clearListAndPutIntoDisabledMode();
     items.remove(index);
     if (removedItem->isFile())
-        m_dataTransfer.updateFileList();
+        dataTransfer->updateFileList(protectedScriptExecutionContext().get());
 
     return { };
 }
 
 void DataTransferItemList::clear()
 {
-    m_dataTransfer.pasteboard().clear();
+    Ref dataTransfer = m_dataTransfer.get();
+    dataTransfer->pasteboard().clear();
     bool removedItemContainingFile = false;
     if (m_items) {
         for (auto& item : *m_items) {
@@ -127,7 +139,7 @@ void DataTransferItemList::clear()
     }
 
     if (removedItemContainingFile)
-        m_dataTransfer.updateFileList();
+        dataTransfer->updateFileList(protectedScriptExecutionContext().get());
 }
 
 Vector<Ref<DataTransferItem>>& DataTransferItemList::ensureItems() const
@@ -135,15 +147,17 @@ Vector<Ref<DataTransferItem>>& DataTransferItemList::ensureItems() const
     if (m_items)
         return *m_items;
 
+    Ref document = *this->document();
+    Ref dataTransfer = m_dataTransfer.get();
     Vector<Ref<DataTransferItem>> items;
-    for (auto& type : m_dataTransfer.typesForItemList()) {
+    for (auto& type : dataTransfer->typesForItemList(document)) {
         auto lowercasedType = type.convertToASCIILowercase();
         if (shouldExposeTypeInItemList(lowercasedType))
-            items.append(DataTransferItem::create(makeWeakPtr(*const_cast<DataTransferItemList*>(this)), lowercasedType));
+            items.append(DataTransferItem::create(*this, lowercasedType));
     }
 
-    for (auto& file : m_dataTransfer.files().files())
-        items.append(DataTransferItem::create(makeWeakPtr(*const_cast<DataTransferItemList*>(this)), file->type(), file.copyRef()));
+    for (auto& file : dataTransfer->files(document).files())
+        items.append(DataTransferItem::create(*this, file->type(), file.copyRef()));
 
     m_items = WTFMove(items);
 
@@ -152,7 +166,7 @@ Vector<Ref<DataTransferItem>>& DataTransferItemList::ensureItems() const
 
 static void removeStringItemOfLowercasedType(Vector<Ref<DataTransferItem>>& items, const String& lowercasedType)
 {
-    auto index = items.findMatching([lowercasedType](auto& item) {
+    auto index = items.findIf([lowercasedType](auto& item) {
         return !item->isFile() && item->type() == lowercasedType;
     });
     if (index == notFound)
@@ -188,7 +202,12 @@ void DataTransferItemList::didSetStringData(const String& type)
     String lowercasedType = type.convertToASCIILowercase();
     removeStringItemOfLowercasedType(*m_items, type.convertToASCIILowercase());
 
-    m_items->append(DataTransferItem::create(makeWeakPtr(*this), lowercasedType));
+    m_items->append(DataTransferItem::create(*this, lowercasedType));
+}
+
+Document* DataTransferItemList::document() const
+{
+    return downcast<Document>(scriptExecutionContext());
 }
 
 }

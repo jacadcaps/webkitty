@@ -27,12 +27,22 @@
 
 #include <WebCore/IntRect.h>
 #include <WebCore/ValidationMessageClient.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/WeakPtr.h>
+
+namespace WebCore {
+
+class Element;
+class WeakPtrImplWithEventTargetData;
+
+}
 
 namespace WebKit {
 
 class WebPage;
 
 class WebValidationMessageClient final : public WebCore::ValidationMessageClient {
+    WTF_MAKE_TZONE_ALLOCATED(WebValidationMessageClient);
 public:
     explicit WebValidationMessageClient(WebPage&);
     ~WebValidationMessageClient();
@@ -46,8 +56,8 @@ public:
     void updateValidationBubbleStateIfNeeded() final;
 
 private:
-    WebPage& m_page;
-    const WebCore::Element* m_currentAnchor { nullptr };
+    WeakPtr<WebPage> m_page;
+    WeakPtr<const WebCore::Element, WebCore::WeakPtrImplWithEventTargetData> m_currentAnchor;
     WebCore::IntRect m_currentAnchorRect;
 };
 

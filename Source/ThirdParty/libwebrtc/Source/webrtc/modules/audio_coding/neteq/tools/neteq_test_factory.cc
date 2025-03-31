@@ -22,6 +22,7 @@
 #include <string>
 #include <utility>
 
+#include "absl/strings/string_view.h"
 #include "api/audio_codecs/builtin_audio_decoder_factory.h"
 #include "api/neteq/neteq.h"
 #include "modules/audio_coding/neteq/tools/audio_sink.h"
@@ -30,8 +31,8 @@
 #include "modules/audio_coding/neteq/tools/input_audio_file.h"
 #include "modules/audio_coding/neteq/tools/neteq_delay_analyzer.h"
 #include "modules/audio_coding/neteq/tools/neteq_event_log_input.h"
-#include "modules/audio_coding/neteq/tools/neteq_packet_source_input.h"
 #include "modules/audio_coding/neteq/tools/neteq_replacement_input.h"
+#include "modules/audio_coding/neteq/tools/neteq_rtp_dump_input.h"
 #include "modules/audio_coding/neteq/tools/neteq_stats_getter.h"
 #include "modules/audio_coding/neteq/tools/neteq_stats_plotter.h"
 #include "modules/audio_coding/neteq/tools/neteq_test.h"
@@ -39,7 +40,6 @@
 #include "modules/audio_coding/neteq/tools/output_wav_file.h"
 #include "modules/audio_coding/neteq/tools/rtp_file_source.h"
 #include "rtc_base/checks.h"
-#include "rtc_base/ref_counted_object.h"
 #include "test/function_audio_decoder_factory.h"
 #include "test/testsupport/file_utils.h"
 
@@ -47,12 +47,12 @@ namespace webrtc {
 namespace test {
 namespace {
 
-absl::optional<int> CodecSampleRate(
+std::optional<int> CodecSampleRate(
     uint8_t payload_type,
     webrtc::test::NetEqTestFactory::Config config) {
   if (payload_type == config.pcmu || payload_type == config.pcma ||
-      payload_type == config.ilbc || payload_type == config.pcm16b ||
-      payload_type == config.cn_nb || payload_type == config.avt)
+      payload_type == config.pcm16b || payload_type == config.cn_nb ||
+      payload_type == config.avt)
     return 8000;
   if (payload_type == config.isac || payload_type == config.pcm16b_wb ||
       payload_type == config.g722 || payload_type == config.cn_wb ||
@@ -66,7 +66,7 @@ absl::optional<int> CodecSampleRate(
     return 48000;
   if (payload_type == config.red)
     return 0;
-  return absl::nullopt;
+  return std::nullopt;
 }
 
 }  // namespace
@@ -98,7 +98,7 @@ class SsrcSwitchDetector : public NetEqPostInsertPacket {
 
  private:
   NetEqPostInsertPacket* other_callback_;
-  absl::optional<uint32_t> last_ssrc_;
+  std::optional<uint32_t> last_ssrc_;
 };
 
 NetEqTestFactory::NetEqTestFactory() = default;
@@ -109,11 +109,17 @@ NetEqTestFactory::Config::Config(const Config& other) = default;
 NetEqTestFactory::Config::~Config() = default;
 
 std::unique_ptr<NetEqTest> NetEqTestFactory::InitializeTestFromString(
-    const std::string& input_string,
+    absl::string_view input_string,
     NetEqFactory* factory,
     const Config& config) {
-  std::unique_ptr<NetEqInput> input(
-      NetEqEventLogInput::CreateFromString(input_string, config.ssrc_filter));
+  ParsedRtcEventLog parsed_log;
+  auto status = parsed_log.ParseString(input_string);
+  if (!status.ok()) {
+    std::cerr << "Failed to parse event log: " << status.message() << std::endl;
+    return nullptr;
+  }
+  std::unique_ptr<NetEqInput> input =
+      CreateNetEqEventLogInput(parsed_log, config.ssrc_filter);
   if (!input) {
     std::cerr << "Error: Cannot parse input string" << std::endl;
     return nullptr;
@@ -122,11 +128,11 @@ std::unique_ptr<NetEqTest> NetEqTestFactory::InitializeTestFromString(
 }
 
 std::unique_ptr<NetEqTest> NetEqTestFactory::InitializeTestFromFile(
-    const std::string& input_file_name,
+    absl::string_view input_file_name,
     NetEqFactory* factory,
     const Config& config) {
   // Gather RTP header extensions in a map.
-  NetEqPacketSourceInput::RtpHeaderExtensionMap rtp_ext_map = {
+  std::map<int, RTPExtensionType> rtp_ext_map = {
       {config.audio_level, kRtpExtensionAudioLevel},
       {config.abs_send_time, kRtpExtensionAbsoluteSendTime},
       {config.transport_seq_no, kRtpExtensionTransportSequenceNumber},
@@ -136,11 +142,17 @@ std::unique_ptr<NetEqTest> NetEqTestFactory::InitializeTestFromFile(
   std::unique_ptr<NetEqInput> input;
   if (RtpFileSource::ValidRtpDump(input_file_name) ||
       RtpFileSource::ValidPcap(input_file_name)) {
-    input.reset(new NetEqRtpDumpInput(input_file_name, rtp_ext_map,
-                                      config.ssrc_filter));
+    input = CreateNetEqRtpDumpInput(input_file_name, rtp_ext_map,
+                                    config.ssrc_filter);
   } else {
-    input.reset(NetEqEventLogInput::CreateFromFile(input_file_name,
-                                                   config.ssrc_filter));
+    ParsedRtcEventLog parsed_log;
+    auto status = parsed_log.ParseFile(input_file_name);
+    if (!status.ok()) {
+      std::cerr << "Failed to parse event log: " << status.message()
+                << std::endl;
+      return nullptr;
+    }
+    input = CreateNetEqEventLogInput(parsed_log, config.ssrc_filter);
   }
 
   std::cout << "Input file: " << input_file_name << std::endl;
@@ -158,11 +170,6 @@ std::unique_ptr<NetEqTest> NetEqTestFactory::InitializeTest(
   if (input->ended()) {
     std::cerr << "Error: Input is empty" << std::endl;
     return nullptr;
-  }
-
-  if (!config.field_trial_string.empty()) {
-    field_trials_ =
-        std::make_unique<ScopedFieldTrials>(config.field_trial_string);
   }
 
   // Skip some initial events/packets if requested.
@@ -190,9 +197,9 @@ std::unique_ptr<NetEqTest> NetEqTestFactory::InitializeTest(
   }
 
   // Check the sample rate.
-  absl::optional<int> sample_rate_hz;
+  std::optional<int> sample_rate_hz;
   std::set<std::pair<int, uint32_t>> discarded_pt_and_ssrc;
-  while (absl::optional<RTPHeader> first_rtp_header = input->NextHeader()) {
+  while (std::optional<RTPHeader> first_rtp_header = input->NextHeader()) {
     RTC_DCHECK(first_rtp_header);
     sample_rate_hz = CodecSampleRate(first_rtp_header->payloadType, config);
     if (sample_rate_hz) {
@@ -285,12 +292,12 @@ std::unique_ptr<NetEqTest> NetEqTestFactory::InitializeTest(
 
     // Note that capture-by-copy implies that the lambda captures the value of
     // decoder_factory before it's reassigned on the left-hand side.
-    decoder_factory = new rtc::RefCountedObject<FunctionAudioDecoderFactory>(
+    decoder_factory = rtc::make_ref_counted<FunctionAudioDecoderFactory>(
         [decoder_factory, config](
-            const SdpAudioFormat& format,
-            absl::optional<AudioCodecPairId> codec_pair_id) {
+            const Environment& env, const SdpAudioFormat& format,
+            std::optional<AudioCodecPairId> codec_pair_id) {
           std::unique_ptr<AudioDecoder> decoder =
-              decoder_factory->MakeAudioDecoder(format, codec_pair_id);
+              decoder_factory->Create(env, format, codec_pair_id);
           if (!decoder && format.name == "replacement") {
             decoder = std::make_unique<FakeDecodeFromFile>(
                 std::make_unique<InputAudioFile>(config.replacement_audio_file),
@@ -333,9 +340,10 @@ std::unique_ptr<NetEqTest> NetEqTestFactory::InitializeTest(
   neteq_config.sample_rate_hz = *sample_rate_hz;
   neteq_config.max_packets_in_buffer = config.max_nr_packets_in_buffer;
   neteq_config.enable_fast_accelerate = config.enable_fast_accelerate;
-  return std::make_unique<NetEqTest>(
-      neteq_config, decoder_factory, codecs, std::move(text_log), factory,
-      std::move(input), std::move(output), callbacks);
+  return std::make_unique<NetEqTest>(neteq_config, decoder_factory, codecs,
+                                     std::move(text_log), factory,
+                                     std::move(input), std::move(output),
+                                     callbacks, config.field_trial_string);
 }
 
 }  // namespace test

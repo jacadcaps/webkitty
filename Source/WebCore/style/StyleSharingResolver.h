@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include "Styleable.h"
 #include <wtf/HashMap.h>
 
 namespace WebCore {
@@ -33,7 +34,6 @@ class Document;
 class Element;
 class Node;
 class RenderStyle;
-class SelectorFilter;
 class SpaceSplitString;
 class StyledElement;
 
@@ -42,12 +42,13 @@ namespace Style {
 class RuleSet;
 class ScopeRuleSets;
 class Update;
+struct SelectorMatchingState;
 
 class SharingResolver {
 public:
-    SharingResolver(const Document&, const ScopeRuleSets&, const SelectorFilter&);
+    SharingResolver(const Document&, const ScopeRuleSets&, SelectorMatchingState&);
 
-    std::unique_ptr<RenderStyle> resolve(const Element&, const Update&);
+    std::unique_ptr<RenderStyle> resolve(const Styleable&, const Update&);
 
 private:
     struct Context;
@@ -59,11 +60,12 @@ private:
     bool sharingCandidateHasIdenticalStyleAffectingAttributes(const Context&, const StyledElement& sharingCandidate) const;
     bool classNamesAffectedByRules(const SpaceSplitString& classNames) const;
 
-    const Document& m_document;
+    CheckedRef<const Document> m_document;
     const ScopeRuleSets& m_ruleSets;
-    const SelectorFilter& m_selectorFilter;
+    SelectorMatchingState& m_selectorMatchingState;
 
-    HashMap<const Element*, const Element*> m_elementsSharingStyle;
+    // FIXME: Use WeakHashMap or UncheckedKeyHashMap<CheckedPtr, CheckedPtr>.
+    UncheckedKeyHashMap<const Element*, const Element*> m_elementsSharingStyle;
 };
 
 }

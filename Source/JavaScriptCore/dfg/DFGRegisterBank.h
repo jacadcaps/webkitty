@@ -31,6 +31,8 @@
 #include "FPRInfo.h"
 #include "GPRInfo.h"
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC { namespace DFG {
 
 // === RegisterBank ===
@@ -75,6 +77,14 @@ class RegisterBank {
     static constexpr SpillHint SpillHintInvalid = 0xffffffff;
 
 public:
+    static constexpr RegisterSetBuilder registersInBank()
+    {
+        RegisterSetBuilder result;
+        for (uint32_t i = 0; i < NUM_REGS; ++i)
+            result.add(BankInfo::toRegister(i), IgnoreVectors);
+        return result;
+    }
+
     RegisterBank()
     {
     }
@@ -269,10 +279,10 @@ public:
             return *this;
         }
 
-        bool operator!=(const iterator& other) const
+        bool operator==(const iterator& other) const
         {
             ASSERT(m_bank == other.m_bank);
-            return m_index != other.m_index;
+            return m_index == other.m_index;
         }
 
         unsigned index() const
@@ -371,5 +381,7 @@ typedef RegisterBank<GPRInfo>::iterator gpr_iterator;
 typedef RegisterBank<FPRInfo>::iterator fpr_iterator;
 
 } } // namespace JSC::DFG
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif

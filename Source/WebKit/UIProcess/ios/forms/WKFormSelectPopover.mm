@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -48,16 +48,15 @@ static NSString* WKPopoverTableViewCellReuseIdentifier  = @"WKPopoverTableViewCe
 - (CGRect)contentRectForBounds:(CGRect)bounds;
 @end
 
-ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-static NSString *stringWithWritingDirection(NSString *string, UITextWritingDirection writingDirection, bool override)
+static NSString *stringWithWritingDirection(NSString *string, NSWritingDirection writingDirection, bool override)
 {
-    if (![string length] || writingDirection == UITextWritingDirectionNatural)
+    if (![string length] || writingDirection == NSWritingDirectionNatural)
         return string;
     
     if (!override) {
         UCharDirection firstCharacterDirection = u_charDirection([string characterAtIndex:0]);
-        if ((firstCharacterDirection == U_LEFT_TO_RIGHT && writingDirection == UITextWritingDirectionLeftToRight)
-            || (firstCharacterDirection == U_RIGHT_TO_LEFT && writingDirection == UITextWritingDirectionRightToLeft))
+        if ((firstCharacterDirection == U_LEFT_TO_RIGHT && writingDirection == NSWritingDirectionLeftToRight)
+            || (firstCharacterDirection == U_RIGHT_TO_LEFT && writingDirection == NSWritingDirectionRightToLeft))
             return string;
     }
     
@@ -68,22 +67,17 @@ static NSString *stringWithWritingDirection(NSString *string, UITextWritingDirec
     const unichar rightToLeftOverride = 0x202E;
     
     unichar directionalFormattingCharacter;
-    if (writingDirection == UITextWritingDirectionLeftToRight)
+    if (writingDirection == NSWritingDirectionLeftToRight)
         directionalFormattingCharacter = (override ? leftToRightOverride : leftToRightEmbedding);
     else
         directionalFormattingCharacter = (override ? rightToLeftOverride : rightToLeftEmbedding);
     
     return [NSString stringWithFormat:@"%C%@%C", directionalFormattingCharacter, string, popDirectionalFormatting];
 }
-ALLOW_DEPRECATED_DECLARATIONS_END
 
 @class WKSelectPopover;
 
-#if USE(UIKIT_KEYBOARD_ADDITIONS)
 @interface WKSelectTableViewController : UITableViewController
-#else
-@interface WKSelectTableViewController : UITableViewController <UIKeyInput>
-#endif
 {
     NSUInteger _singleSelectionIndex;
     NSUInteger _singleSelectionSection;
@@ -131,18 +125,16 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         currentIndex++;
     }
 
-    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    UITextWritingDirection writingDirection = _contentView.focusedElementInformation.isRTL ? UITextWritingDirectionRightToLeft : UITextWritingDirectionLeftToRight;
+    NSWritingDirection writingDirection = _contentView.focusedElementInformation.isRTL ? NSWritingDirectionRightToLeft : NSWritingDirectionLeftToRight;
     BOOL override = NO;
-    _textAlignment = (writingDirection == UITextWritingDirectionLeftToRight) ? NSTextAlignmentLeft : NSTextAlignmentRight;
+    _textAlignment = (writingDirection == NSWritingDirectionLeftToRight) ? NSTextAlignmentLeft : NSTextAlignmentRight;
 
     // Typically UIKit apps have their writing direction follow the system
     // language. However WebKit wants to follow the content direction.
     // For that reason we have to override what the system thinks.
-    if (writingDirection == UITextWritingDirectionRightToLeft)
+    if (writingDirection == NSWritingDirectionRightToLeft)
         self.view.semanticContentAttribute = UISemanticContentAttributeForceRightToLeft;
     [self setTitle:stringWithWritingDirection(_contentView.focusedElementInformation.title, writingDirection, override)];
-    ALLOW_DEPRECATED_DECLARATIONS_END
 
     return self;
 }
@@ -209,8 +201,11 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (void)populateCell:(UITableViewCell *)cell withItem:(const OptionItem&)item
 {
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    // FIXME: <rdar://131638865> UITableViewCell.textLabel is deprecated.
     [cell.textLabel setText:item.text];
     [cell.textLabel setEnabled:!item.disabled];
+ALLOW_DEPRECATED_DECLARATIONS_END
     [cell setSelectionStyle:item.disabled ? UITableViewCellSelectionStyleNone : UITableViewCellSelectionStyleBlue];
     [cell setAccessoryType:item.isSelected ? UITableViewCellAccessoryCheckmark : UITableViewCellAccessoryNone];
 }
@@ -255,26 +250,26 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath
 {
-    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:WKPopoverTableViewCellReuseIdentifier];
+    auto cell = retainPtr([tableView dequeueReusableCellWithIdentifier:WKPopoverTableViewCellReuseIdentifier]);
     if (!cell)
-        cell = [[[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:WKPopoverTableViewCellReuseIdentifier] autorelease];
+        cell = adoptNS([[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:WKPopoverTableViewCellReuseIdentifier]);
     
-    cell.semanticContentAttribute = self.view.semanticContentAttribute;
-    cell.textLabel.textAlignment = _textAlignment;
+    [cell setSemanticContentAttribute:self.view.semanticContentAttribute];
+    [cell textLabel].textAlignment = _textAlignment;
     
     if (_contentView.focusedElementInformation.selectOptions.isEmpty()) {
-        cell.textLabel.enabled = NO;
-        cell.textLabel.text = WEB_UI_STRING_KEY("No Options", "No Options Select Popover", "Empty select list");
-        cell.accessoryType = UITableViewCellAccessoryNone;
-        cell.selectionStyle = UITableViewCellSelectionStyleNone;
-        return cell;
+        [cell textLabel].enabled = NO;
+        [cell textLabel].text = WEB_UI_STRING_KEY("No Options", "No Options Select Popover", "Empty select list");
+        [cell setAccessoryType:UITableViewCellAccessoryNone];
+        [cell setSelectionStyle:UITableViewCellSelectionStyleNone];
+        return cell.autorelease();
     }
     
     CGRect textRect = [cell textRectForContentRect:[cell contentRectForBounds:[cell bounds]]];
     ASSERT_IMPLIES(CGRectGetWidth(tableView.bounds) > 0, textRect.size.width > 0);
     
     // Assume all cells have the same available text width.
-    UIFont *font = cell.textLabel.font;
+    UIFont *font = [cell textLabel].font;
     CGFloat initialFontSize = font.pointSize;
     ASSERT(initialFontSize);
     if (textRect.size.width != _maximumTextWidth || _fontSize == 0) {
@@ -285,11 +280,11 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     const OptionItem* item = [self findItemAt:indexPath];
     ASSERT(item);
     
-    [self populateCell:cell withItem:*item];
-    [cell.textLabel setFont:[font fontWithSize:_fontSize]];
-    [cell.textLabel setLineBreakMode:NSLineBreakByWordWrapping];
-    [cell.textLabel setNumberOfLines:2];
-    return cell;
+    [self populateCell:cell.get() withItem:*item];
+    [[cell textLabel] setFont:[font fontWithSize:_fontSize]];
+    [[cell textLabel] setLineBreakMode:NSLineBreakByWordWrapping];
+    [[cell textLabel] setNumberOfLines:2];
+    return cell.autorelease();
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath
@@ -304,9 +299,12 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         [tableView deselectRowAtIndexPath:[tableView indexPathForSelectedRow] animated:NO];
         
         UITableViewCell *cell = [tableView cellForRowAtIndexPath:indexPath];
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+        // FIXME: <rdar://131638865> UITableViewCell.textLabel is deprecated.
         if (!cell.textLabel.enabled)
             return;
-        
+ALLOW_DEPRECATED_DECLARATIONS_END
+
         BOOL newStateIsSelected = (cell.accessoryType == UITableViewCellAccessoryNone);
         
         cell.accessoryType = newStateIsSelected ? UITableViewCellAccessoryCheckmark : UITableViewCellAccessoryNone;
@@ -316,8 +314,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         // To trigger onchange events programmatically we need to go through this
         // SPI which mimics a user action on the <select>. Normally programmatic
         // changes do not trigger "change" events on such selects.
-    
-        [_contentView page]->setFocusedElementSelectedIndex(itemIndex, true);
+        [_contentView updateFocusedElementSelectedIndex:itemIndex allowsMultipleSelection:true];
         OptionItem& item = [_contentView focusedSelectElementOptions][itemIndex];
         item.isSelected = newStateIsSelected;
     } else {
@@ -335,9 +332,12 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         
         UITableViewCell *newCell = [tableView cellForRowAtIndexPath:indexPath];
         
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+        // FIXME: <rdar://131638865> UITableViewCell.textLabel is deprecated.
         if (!newCell.textLabel.enabled)
             return;
-        
+ALLOW_DEPRECATED_DECLARATIONS_END
+
         if (oldIndexPath) {
             UITableViewCell *oldCell = [tableView cellForRowAtIndexPath:oldIndexPath];
             if (oldCell && oldCell.accessoryType == UITableViewCellAccessoryCheckmark)
@@ -349,8 +349,8 @@ ALLOW_DEPRECATED_DECLARATIONS_END
             
             _singleSelectionIndex = indexPath.row;
             _singleSelectionSection = indexPath.section;
- 
-            [_contentView page]->setFocusedElementSelectedIndex(itemIndex);
+
+            [_contentView updateFocusedElementSelectedIndex:itemIndex allowsMultipleSelection:false];
             OptionItem& newItem = [_contentView focusedSelectElementOptions][itemIndex];
             newItem.isSelected = true;
         }
@@ -370,24 +370,6 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     return _contentView._shouldUseLegacySelectPopoverDismissalBehavior;
 }
 
-#if !USE(UIKIT_KEYBOARD_ADDITIONS)
-#pragma mark UIKeyInput delegate methods
-
-- (BOOL)hasText
-{
-    return NO;
-}
-
-- (void)insertText:(NSString *)text
-{
-}
-
-- (void)deleteBackward
-{
-}
-
-#endif
-
 @end
 
 @implementation WKSelectPopover {
@@ -401,30 +383,21 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     _tableViewController = adoptNS([[WKSelectTableViewController alloc] initWithView:view hasGroups:hasGroups]);
     [_tableViewController setPopover:self];
-    UIViewController *popoverViewController = _tableViewController.get();
-    UINavigationController *navController = nil;
+    RetainPtr<UIViewController> popoverViewController = _tableViewController.get();
     BOOL needsNavigationController = !view.focusedElementInformation.title.isEmpty();
-    if (needsNavigationController) {
-        navController = [[UINavigationController alloc] initWithRootViewController:_tableViewController.get()];
-        popoverViewController = navController;
-    }
+    if (needsNavigationController)
+        popoverViewController = adoptNS([[UINavigationController alloc] initWithRootViewController:_tableViewController.get()]);
     
     CGSize popoverSize = [_tableViewController.get().tableView sizeThatFits:CGSizeMake(320, CGFLOAT_MAX)];
     if (needsNavigationController)
         [(UINavigationController *)popoverViewController topViewController].preferredContentSize = popoverSize;
     else
-        popoverViewController.preferredContentSize = popoverSize;
+        [popoverViewController setPreferredContentSize: popoverSize];
     
-    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    self.popoverController = [[[UIPopoverController alloc] initWithContentViewController:popoverViewController] autorelease];
-    ALLOW_DEPRECATED_DECLARATIONS_END
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    self.popoverController = adoptNS([[UIPopoverController alloc] initWithContentViewController:popoverViewController.get()]).get();
+ALLOW_DEPRECATED_DECLARATIONS_END
 
-    [navController release];
-
-#if !USE(UIKIT_KEYBOARD_ADDITIONS)
-    [[UIKeyboardImpl sharedInstance] setDelegate:_tableViewController.get()];
-#endif
-    
     return self;
 }
 
@@ -447,6 +420,11 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     [self presentPopoverAnimated:NO];
 }
 
+- (void)controlUpdateEditing
+{
+    [[_tableViewController tableView] reloadData];
+}
+
 - (void)controlEndEditing
 {
     [self dismissPopoverAnimated:[_tableViewController shouldDismissWithAnimation]];
@@ -464,7 +442,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 @end
 
-@implementation WKSelectPopover(WKTesting)
+@implementation WKSelectPopover (WKTesting)
 
 - (void)selectRow:(NSInteger)rowIndex inComponent:(NSInteger)componentIndex extendingSelection:(BOOL)extendingSelection
 {

@@ -26,8 +26,9 @@
 #include "config.h"
 #include "DeleteFromTextNodeCommand.h"
 
-#include "Editing.h"
+#include "CompositeEditCommand.h"
 #include "Document.h"
+#include "Editing.h"
 #include "Text.h"
 
 namespace WebCore {
@@ -44,29 +45,36 @@ DeleteFromTextNodeCommand::DeleteFromTextNodeCommand(Ref<Text>&& node, unsigned 
 
 void DeleteFromTextNodeCommand::doApply()
 {
-    if (!isEditableNode(m_node))
+    auto node = protectedNode();
+    if (!isEditableNode(node))
         return;
 
-    auto result = m_node->substringData(m_offset, m_count);
+    auto result = node->substringData(m_offset, m_count);
     if (result.hasException())
         return;
     m_text = result.releaseReturnValue();
-    m_node->deleteData(m_offset, m_count);
+    node->deleteData(m_offset, m_count);
 }
 
 void DeleteFromTextNodeCommand::doUnapply()
 {
-    if (!m_node->hasEditableStyle())
+    auto node = protectedNode();
+    if (!node->hasEditableStyle())
         return;
 
-    m_node->insertData(m_offset, m_text);
+    node->insertData(m_offset, m_text);
 }
 
 #ifndef NDEBUG
-void DeleteFromTextNodeCommand::getNodesInCommand(HashSet<Node*>& nodes)
+void DeleteFromTextNodeCommand::getNodesInCommand(NodeSet& nodes)
 {
-    addNodeAndDescendants(m_node.ptr(), nodes);
+    addNodeAndDescendants(protectedNode().ptr(), nodes);
 }
 #endif
+
+inline Ref<Text> DeleteFromTextNodeCommand::protectedNode() const
+{
+    return m_node;
+}
 
 } // namespace WebCore

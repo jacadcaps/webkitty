@@ -115,8 +115,7 @@ public:
     public:
         explicit operator bool() const { return !!m_value; }
         
-        bool operator==(const Count& other) const { return m_value == other.m_value; }
-        bool operator!=(const Count& other) const { return m_value != other.m_value; }
+        friend bool operator==(const Count&, const Count&) = default;
         
     private:
         friend class CountingLock;
@@ -133,7 +132,7 @@ public:
     //             if (m_lock.validate(count))
     //                 return value; // success!
     //         }
-    //         auto locker = holdLock(m_lock);
+    //         Locker locker { m_lock };
     //         int value = m_things;
     //         return value;
     //     }
@@ -203,7 +202,7 @@ public:
     //             if (m_lock.fencelessValidate(count, Dependency::fence(value)))
     //                 return value; // success!
     //         }
-    //         auto locker = holdLock(m_lock);
+    //         Locker locker { m_lock };
     //         int value = m_things;
     //         return value;
     //     }

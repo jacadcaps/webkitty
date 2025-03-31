@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -35,12 +35,12 @@ class Exception final : public JSCell {
 public:
     using Base = JSCell;
     static constexpr unsigned StructureFlags = Base::StructureFlags | StructureIsImmortal;
-    static constexpr bool needsDestruction = true;
+    static constexpr DestructionMode needsDestruction = NeedsDestruction;
 
     template<typename CellType, SubspaceAccess mode>
-    static IsoSubspace* subspaceFor(VM& vm)
+    static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
-        return &vm.exceptionSpace;
+        return &vm.exceptionSpace();
     }
 
     enum StackCaptureAction {
@@ -51,11 +51,11 @@ public:
 
     static Structure* createStructure(VM&, JSGlobalObject*, JSValue prototype);
 
-    static void visitChildren(JSCell*, SlotVisitor&);
+    DECLARE_VISIT_CHILDREN;
 
     DECLARE_EXPORT_INFO;
 
-    static ptrdiff_t valueOffset()
+    static constexpr ptrdiff_t valueOffset()
     {
         return OBJECT_OFFSETOF(Exception, m_value);
     }
@@ -66,11 +66,15 @@ public:
     bool didNotifyInspectorOfThrow() const { return m_didNotifyInspectorOfThrow; }
     void setDidNotifyInspectorOfThrow() { m_didNotifyInspectorOfThrow = true; }
 
+#if ENABLE(WEBASSEMBLY)
+    void wrapValueForJSTag(JSGlobalObject*);
+#endif
+
     ~Exception();
 
 private:
-    Exception(VM&);
-    void finishCreation(VM&, JSValue thrownValue, StackCaptureAction);
+    Exception(VM&, JSValue thrownValue);
+    void finishCreation(VM&, StackCaptureAction);
     static void destroy(JSCell*);
 
     WriteBarrier<Unknown> m_value;

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,7 +26,6 @@
 #pragma once
 
 #include "CallFrame.h"
-#include "JSGlobalObject.h"
 
 namespace JSC {
 
@@ -47,8 +46,11 @@ public:
         UNUSED_PARAM(mode);
         if (globalObject) {
             m_evalWasDisabled = !globalObject->evalEnabled();
+            m_trustedTypesWereRequired = globalObject->requiresTrustedTypes();
             if (m_evalWasDisabled)
                 globalObject->setEvalEnabled(true, globalObject->evalDisabledErrorMessage());
+            if (m_trustedTypesWereRequired)
+                globalObject->setRequiresTrustedTypes(false);
 #if ASSERT_ENABLED
             if (m_mode == Mode::EvalOnGlobalObjectAtDebuggerEntry)
                 globalObject->setGlobalObjectAtDebuggerEntry(globalObject);
@@ -62,6 +64,8 @@ public:
             JSGlobalObject* globalObject = m_globalObject;
             if (m_evalWasDisabled)
                 globalObject->setEvalEnabled(false, globalObject->evalDisabledErrorMessage());
+            if (m_trustedTypesWereRequired)
+                globalObject->setRequiresTrustedTypes(true);
 #if ASSERT_ENABLED
             if (m_mode == Mode::EvalOnGlobalObjectAtDebuggerEntry)
                 globalObject->setGlobalObjectAtDebuggerEntry(nullptr);
@@ -70,8 +74,9 @@ public:
     }
 
 private:
-    JSGlobalObject* m_globalObject;
+    JSGlobalObject* const m_globalObject;
     bool m_evalWasDisabled { false };
+    bool m_trustedTypesWereRequired { false };
 #if ASSERT_ENABLED
     DebuggerEvalEnabler::Mode m_mode;
 #endif

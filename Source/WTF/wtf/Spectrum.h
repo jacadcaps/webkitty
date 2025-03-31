@@ -35,8 +35,8 @@ template<typename T, typename CounterType = unsigned>
 class Spectrum {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    typedef typename HashMap<T, CounterType>::iterator iterator;
-    typedef typename HashMap<T, CounterType>::const_iterator const_iterator;
+    typedef typename UncheckedKeyHashMap<T, CounterType>::iterator iterator;
+    typedef typename UncheckedKeyHashMap<T, CounterType>::const_iterator const_iterator;
     
     Spectrum() { }
     
@@ -45,7 +45,7 @@ public:
         Locker locker(m_lock);
         if (!count)
             return;
-        typename HashMap<T, CounterType>::AddResult result = m_map.add(key, count);
+        typename UncheckedKeyHashMap<T, CounterType>::AddResult result = m_map.add(key, count);
         if (!result.isNewEntry)
             result.iterator->value += count;
     }
@@ -76,7 +76,7 @@ public:
         KeyAndCount() { }
         
         KeyAndCount(const T& key, CounterType count)
-            : key(key)
+            : key(&key)
             , count(count)
         {
         }
@@ -88,20 +88,21 @@ public:
             // This causes lower-ordered keys being returned first; this is really just
             // here to make sure that the order is somewhat deterministic rather than being
             // determined by hashing.
-            return key > other.key;
+            return *key > *other.key;
         }
 
-        T key;
+        const T* key;
         CounterType count;
     };
+
+    Lock& getLock() { return m_lock; }
     
     // Returns a list ordered from lowest-count to highest-count.
-    Vector<KeyAndCount> buildList() const
+    Vector<KeyAndCount> buildList(AbstractLocker&) const
     {
-        Locker locker(m_lock);
         Vector<KeyAndCount> list;
-        for (const_iterator iter = begin(); iter != end(); ++iter)
-            list.append(KeyAndCount(iter->key, iter->value));
+        for (const auto& entry : *this)
+            list.append(KeyAndCount(entry.key, entry.value));
         
         std::sort(list.begin(), list.end());
         return list;
@@ -117,14 +118,14 @@ public:
     void removeIf(const Functor& functor)
     {
         Locker locker(m_lock);
-        m_map.removeIf([&functor] (typename HashMap<T, CounterType>::KeyValuePairType& pair) {
+        m_map.removeIf([&functor] (typename UncheckedKeyHashMap<T, CounterType>::KeyValuePairType& pair) {
                 return functor(KeyAndCount(pair.key, pair.value));
             });
     }
     
 private:
     mutable Lock m_lock;
-    HashMap<T, CounterType> m_map;
+    UncheckedKeyHashMap<T, CounterType> m_map;
 };
 
 } // namespace WTF

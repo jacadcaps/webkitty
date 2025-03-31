@@ -39,19 +39,19 @@ static bool navigationFailed = false;
 
 @implementation TestAsyncNavigationDelegate
 
-- (void)webView:(WKWebView *)webView didFinishNavigation:(null_unspecified WKNavigation *)navigation
+- (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation
 {
     navigationComplete = true;
 }
 
-- (void)webView:(WKWebView *)webView didFailNavigation:(null_unspecified WKNavigation *)navigation withError:(NSError *)error
+- (void)webView:(WKWebView *)webView didFailNavigation:(WKNavigation *)navigation withError:(NSError *)error
 {
     navigationFailed = true;
     navigationComplete = true;
     webView.navigationDelegate = nil;
 }
 
-- (void)webView:(WKWebView *)webView didFailProvisionalNavigation:(null_unspecified WKNavigation *)navigation withError:(NSError *)error
+- (void)webView:(WKWebView *)webView didFailProvisionalNavigation:(WKNavigation *)navigation withError:(NSError *)error
 {
     navigationFailed = true;
     navigationComplete = true;
@@ -77,7 +77,7 @@ namespace TestWebKitAPI {
 
 TEST(WebKit, RespondToPolicyForNavigationResponseAsynchronously)
 {
-    RetainPtr<NSURL> testURL = [[NSBundle mainBundle] URLForResource:@"simple" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"];
+    RetainPtr<NSURL> testURL = [NSBundle.test_resourcesBundle URLForResource:@"simple" withExtension:@"html"];
 
     auto webView = adoptNS([[WKWebView alloc] init]);
     auto delegate = adoptNS([[TestAsyncNavigationDelegate alloc] init]);
@@ -95,7 +95,7 @@ TEST(WebKit, RespondToPolicyForNavigationResponseAsynchronously)
 
 TEST(WebKit, PolicyForNavigationResponseCancelAsynchronously)
 {
-    RetainPtr<NSURL> testURL = [[NSBundle mainBundle] URLForResource:@"simple" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"];
+    RetainPtr<NSURL> testURL = [NSBundle.test_resourcesBundle URLForResource:@"simple" withExtension:@"html"];
 
     auto webView = adoptNS([[WKWebView alloc] init]);
     auto delegate = adoptNS([[TestAsyncNavigationDelegate alloc] init]);

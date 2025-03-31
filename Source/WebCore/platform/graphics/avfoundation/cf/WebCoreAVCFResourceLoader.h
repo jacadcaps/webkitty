@@ -33,6 +33,7 @@
 #include <wtf/Ref.h>
 #include <wtf/RefCounted.h>
 #include <wtf/RetainPtr.h>
+#include <wtf/TZoneMalloc.h>
 
 typedef struct OpaqueAVCFAssetResourceLoadingRequest* AVCFAssetResourceLoadingRequestRef;
 
@@ -43,7 +44,8 @@ class CachedResourceLoader;
 class MediaPlayerPrivateAVFoundationCF;
 
 class WebCoreAVCFResourceLoader : public RefCounted<WebCoreAVCFResourceLoader>, CachedRawResourceClient {
-    WTF_MAKE_NONCOPYABLE(WebCoreAVCFResourceLoader); WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(WebCoreAVCFResourceLoader);
+    WTF_MAKE_NONCOPYABLE(WebCoreAVCFResourceLoader);
 public:
     static Ref<WebCoreAVCFResourceLoader> create(MediaPlayerPrivateAVFoundationCF* parent, AVCFAssetResourceLoadingRequestRef);
     virtual ~WebCoreAVCFResourceLoader();
@@ -57,7 +59,7 @@ public:
 private:
     // CachedRawResourceClient
     void responseReceived(CachedResource&, const ResourceResponse&, CompletionHandler<void()>&&) override;
-    void dataReceived(CachedResource&, const char*, int) override;
+    void dataReceived(CachedResource&, const SharedBuffer&) override;
     void notifyFinished(CachedResource&, const NetworkLoadMetrics&) override;
 
     void fulfillRequestWithResource(CachedResource&);

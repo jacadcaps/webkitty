@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,22 +29,17 @@
 #if ENABLE(WEBASSEMBLY)
 
 #include "JSCInlines.h"
+#include "JSWebAssemblyHelpers.h"
 #include "JSWebAssemblyInstance.h"
+#include "ObjectConstructor.h"
 
 namespace JSC {
 
-const ClassInfo JSWebAssemblyTable::s_info = { "WebAssembly.Table", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSWebAssemblyTable) };
+const ClassInfo JSWebAssemblyTable::s_info = { "WebAssembly.Table"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSWebAssemblyTable) };
 
-JSWebAssemblyTable* JSWebAssemblyTable::tryCreate(JSGlobalObject* globalObject, VM& vm, Structure* structure, Ref<Wasm::Table>&& table)
+JSWebAssemblyTable* JSWebAssemblyTable::create(VM& vm, Structure* structure, Ref<Wasm::Table>&& table)
 {
-    auto throwScope = DECLARE_THROW_SCOPE(vm);
-
-    if (!globalObject->webAssemblyEnabled()) {
-        throwException(globalObject, throwScope, createEvalError(globalObject, globalObject->webAssemblyDisabledErrorMessage()));
-        return nullptr;
-    }
-
-    auto* instance = new (NotNull, allocateCell<JSWebAssemblyTable>(vm.heap)) JSWebAssemblyTable(vm, structure, WTFMove(table));
+    auto* instance = new (NotNull, allocateCell<JSWebAssemblyTable>(vm)) JSWebAssemblyTable(vm, structure, WTFMove(table));
     instance->table()->setOwner(instance);
     instance->finishCreation(vm);
     return instance;
@@ -61,18 +56,13 @@ JSWebAssemblyTable::JSWebAssemblyTable(VM& vm, Structure* structure, Ref<Wasm::T
 {
 }
 
-void JSWebAssemblyTable::finishCreation(VM& vm)
-{
-    Base::finishCreation(vm);
-    ASSERT(inherits(vm, info()));
-}
-
 void JSWebAssemblyTable::destroy(JSCell* cell)
 {
     static_cast<JSWebAssemblyTable*>(cell)->JSWebAssemblyTable::~JSWebAssemblyTable();
 }
 
-void JSWebAssemblyTable::visitChildren(JSCell* cell, SlotVisitor& visitor)
+template<typename Visitor>
+void JSWebAssemblyTable::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
     JSWebAssemblyTable* thisObject = jsCast<JSWebAssemblyTable*>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
@@ -81,46 +71,106 @@ void JSWebAssemblyTable::visitChildren(JSCell* cell, SlotVisitor& visitor)
     thisObject->table()->visitAggregate(visitor);
 }
 
-bool JSWebAssemblyTable::grow(uint32_t delta)
+DEFINE_VISIT_CHILDREN(JSWebAssemblyTable);
+
+std::optional<uint32_t> JSWebAssemblyTable::grow(JSGlobalObject* globalObject, uint32_t delta, JSValue defaultValue)
 {
-    if (delta == 0)
-        return true;
-    return !!m_table->grow(delta);
+    VM& vm = globalObject->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    uint64_t wasmValue = 0;
+    if (UNLIKELY(isExnref(m_table->wasmType()))) {
+        if (!defaultValue.isNull()) {
+            throwTypeError(globalObject, scope, "Table.grow cannot handle exnref table"_s);
+            return { };
+        }
+        wasmValue = JSValue::encode(defaultValue);
+    } else {
+        wasmValue = toWebAssemblyValue(globalObject, m_table->wasmType(), defaultValue);
+        RETURN_IF_EXCEPTION(scope, false);
+    }
+
+    return m_table->grow(delta, JSValue::decode(wasmValue));
 }
 
-JSValue JSWebAssemblyTable::get(uint32_t index)
+JSValue JSWebAssemblyTable::get(JSGlobalObject* globalObject, uint32_t index)
 {
-    RELEASE_ASSERT(index < length());
+    VM& vm = globalObject->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    if (UNLIKELY(isExnref(m_table->wasmType()))) {
+        throwTypeError(globalObject, scope, "Table.get cannot handle exnref table"_s);
+        return { };
+    }
+
     return m_table->get(index);
+}
+
+void JSWebAssemblyTable::set(JSGlobalObject* globalObject, uint32_t index, JSValue value)
+{
+    VM& vm = globalObject->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    if (UNLIKELY(isExnref(m_table->wasmType()))) {
+        throwTypeError(globalObject, scope, "Table.set cannot handle exnref table"_s);
+        return;
+    }
+
+    uint64_t wasmValue = toWebAssemblyValue(globalObject, m_table->wasmType(), value);
+    RETURN_IF_EXCEPTION(scope, void());
+
+    if (index < length())
+        return m_table->set(index, JSValue::decode(wasmValue));
+
+    throwRangeError(globalObject, scope, "Table.set expects an index less than the length of the table"_s);
 }
 
 void JSWebAssemblyTable::set(uint32_t index, JSValue value)
 {
-    RELEASE_ASSERT(index < length());
-    RELEASE_ASSERT(m_table->isAnyrefTable());
     m_table->set(index, value);
-}
-
-void JSWebAssemblyTable::set(uint32_t index, WebAssemblyFunction* function)
-{
-    RELEASE_ASSERT(index < length());
-    RELEASE_ASSERT(m_table->asFuncrefTable());
-    auto& subThis = *static_cast<Wasm::FuncRefTable*>(&m_table.get());
-    subThis.setFunction(index, function, function->importableFunction(), &function->instance()->instance());
-}
-
-void JSWebAssemblyTable::set(uint32_t index, WebAssemblyWrapperFunction* function)
-{
-    RELEASE_ASSERT(index < length());
-    RELEASE_ASSERT(m_table->asFuncrefTable());
-    auto& subThis = *static_cast<Wasm::FuncRefTable*>(&m_table.get());
-    subThis.setFunction(index, function, function->importableFunction(), &function->instance()->instance());
 }
 
 void JSWebAssemblyTable::clear(uint32_t index)
 {
-    RELEASE_ASSERT(index < length());
+    ASSERT(index < length());
     m_table->clear(index);
+}
+
+JSObject* JSWebAssemblyTable::type(JSGlobalObject* globalObject)
+{
+    VM& vm = globalObject->vm();
+
+    Wasm::TableElementType element = m_table->type();
+    JSString* elementString = nullptr;
+    switch (element) {
+    case Wasm::TableElementType::Funcref:
+        if (m_table->wasmType().isNullable())
+            elementString = jsNontrivialString(vm, "funcref"_s);
+        else
+            return nullptr;
+        break;
+    case Wasm::TableElementType::Externref:
+        if (isExternref(m_table->wasmType()) && m_table->wasmType().isNullable())
+            elementString = jsNontrivialString(vm, "externref"_s);
+        else
+            return nullptr;
+        break;
+    default:
+        RELEASE_ASSERT_NOT_REACHED();
+    }
+
+    JSObject* result;
+    auto maximum = m_table->maximum();
+    if (maximum) {
+        result = constructEmptyObject(globalObject, globalObject->objectPrototype(), 3);
+        result->putDirect(vm, Identifier::fromString(vm, "maximum"_s), jsNumber(*maximum));
+    } else
+        result = constructEmptyObject(globalObject, globalObject->objectPrototype(), 2);
+
+    uint32_t minimum = m_table->length();
+    result->putDirect(vm, Identifier::fromString(vm, "minimum"_s), jsNumber(minimum));
+    result->putDirect(vm, Identifier::fromString(vm, "element"_s), elementString);
+    return result;
 }
 
 } // namespace JSC

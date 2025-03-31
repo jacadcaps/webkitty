@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,6 +29,9 @@
 #include <wtf/DoublyLinkedList.h>
 #include <wtf/Forward.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/TZoneMalloc.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
@@ -51,7 +54,7 @@ public:
 
     T* data()
     {
-        return bitwise_cast<T*>(this + 1);
+        return std::bit_cast<T*>(this + 1);
     }
 
     static constexpr size_t blockSize = 4 * KB;
@@ -67,7 +70,7 @@ template <typename T> class GCSegmentedArrayIterator;
 
 template <typename T>
 class GCSegmentedArray {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_TEMPLATE_EXPORT(GCSegmentedArray, JS_EXPORT_PRIVATE);
     WTF_MAKE_NONCOPYABLE(GCSegmentedArray);
     friend class GCSegmentedArrayIterator<T>;
     friend class GCSegmentedArrayIterator<const T>;
@@ -81,8 +84,8 @@ public:
     const T removeLast();
     bool refill();
     
-    size_t size();
-    bool isEmpty();
+    size_t size() const;
+    bool isEmpty() const;
 
     void fillVector(Vector<T>&);
     void clear();
@@ -113,6 +116,8 @@ protected:
     size_t m_numberOfSegments;
 };
 
+WTF_MAKE_TZONE_ALLOCATED_TEMPLATE_IMPL(template<typename T>, GCSegmentedArray<T>);
+
 template <typename T>
 class GCSegmentedArrayIterator {
     friend class GCSegmentedArray<T>;
@@ -127,14 +132,9 @@ public:
     T& operator*() { return get(); }
     T& operator->() { return get(); }
 
-    bool operator==(const GCSegmentedArrayIterator& other)
+    bool operator==(const GCSegmentedArrayIterator& other) const
     {
         return m_currentSegment == other.m_currentSegment && m_currentOffset == other.m_currentOffset;
-    }
-
-    bool operator!=(const GCSegmentedArrayIterator& other)
-    {
-        return !(*this == other);
     }
 
     GCSegmentedArrayIterator& operator++()
@@ -169,3 +169,4 @@ private:
 
 } // namespace JSC
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

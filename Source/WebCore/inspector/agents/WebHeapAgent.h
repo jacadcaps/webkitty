@@ -28,24 +28,28 @@
 #include "InspectorWebAgentBase.h"
 #include <JavaScriptCore/InspectorHeapAgent.h>
 #include <wtf/Forward.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class SendGarbageCollectionEventsTask;
 struct GarbageCollectionData;
-typedef String ErrorString;
 
 class WebHeapAgent : public Inspector::InspectorHeapAgent {
     WTF_MAKE_NONCOPYABLE(WebHeapAgent);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(WebHeapAgent);
     friend class SendGarbageCollectionEventsTask;
 public:
     WebHeapAgent(WebAgentContext&);
     ~WebHeapAgent() override;
 
+    // InspectorAgentBase
+    void didCreateFrontendAndBackend(Inspector::FrontendRouter*, Inspector::BackendDispatcher*) override;
+    void willDestroyFrontendAndBackend(Inspector::DisconnectReason) override;
+
     // HeapBackendDispatcherHandler
-    void enable(ErrorString&) override;
-    void disable(ErrorString&) override;
+    Inspector::Protocol::ErrorStringOr<void> enable() override;
+    Inspector::Protocol::ErrorStringOr<void> disable() override;
 
 protected:
     void dispatchGarbageCollectedEvent(Inspector::Protocol::Heap::GarbageCollection::Type, Seconds startTime, Seconds endTime) final;

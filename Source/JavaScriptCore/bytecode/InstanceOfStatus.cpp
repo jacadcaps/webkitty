@@ -27,9 +27,9 @@
 #include "InstanceOfStatus.h"
 
 #include "ICStatusUtils.h"
+#include "InlineCacheCompiler.h"
 #include "InstanceOfAccessCase.h"
 #include "JSCellInlines.h"
-#include "PolymorphicAccess.h"
 #include "StructureStubInfo.h"
 
 namespace JSC {
@@ -37,6 +37,11 @@ namespace JSC {
 void InstanceOfStatus::appendVariant(const InstanceOfVariant& variant)
 {
     appendICStatusVariant(m_variants, variant);
+}
+
+void InstanceOfStatus::shrinkToFit()
+{
+    m_variants.shrinkToFit();
 }
 
 InstanceOfStatus InstanceOfStatus::computeFor(
@@ -66,25 +71,25 @@ InstanceOfStatus InstanceOfStatus::computeFor(
 }
 
 #if ENABLE(DFG_JIT)
-InstanceOfStatus InstanceOfStatus::computeForStubInfo(const ConcurrentJSLocker&, VM& vm, StructureStubInfo* stubInfo)
+InstanceOfStatus InstanceOfStatus::computeForStubInfo(const ConcurrentJSLocker& locker, VM& vm, StructureStubInfo* stubInfo)
 {
     // FIXME: We wouldn't have to bail for nonCell if we taught MatchStructure how to handle non
     // cells. If we fixed that then we wouldn't be able to use summary();
     // https://bugs.webkit.org/show_bug.cgi?id=185784
-    StubInfoSummary summary = StructureStubInfo::summary(vm, stubInfo);
+    StubInfoSummary summary = StructureStubInfo::summary(locker, vm, stubInfo);
     if (!isInlineable(summary))
         return InstanceOfStatus(summary);
     
     if (stubInfo->cacheType() != CacheType::Stub)
         return TakesSlowPath; // This is conservative. It could be that we have no information.
     
-    PolymorphicAccess* list = stubInfo->u.stub;
     InstanceOfStatus result;
-    for (unsigned listIndex = 0; listIndex < list->size(); ++listIndex) {
-        const AccessCase& access = list->at(listIndex);
+    auto list = stubInfo->listedAccessCases(locker);
+    for (unsigned listIndex = 0; listIndex < list.size(); ++listIndex) {
+        const AccessCase& access = *list.at(listIndex);
         
-        if (access.type() == AccessCase::InstanceOfGeneric)
-            return TakesSlowPath;
+        if (access.type() == AccessCase::InstanceOfMegamorphic)
+            return Megamorphic;
         
         if (!access.conditionSet().structuresEnsureValidity())
             return TakesSlowPath;
@@ -96,6 +101,7 @@ InstanceOfStatus InstanceOfStatus::computeForStubInfo(const ConcurrentJSLocker&,
             access.type() == AccessCase::InstanceOfHit));
     }
     
+    result.shrinkToFit();
     return result;
 }
 #endif // ENABLE(DFG_JIT)

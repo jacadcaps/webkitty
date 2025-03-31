@@ -38,13 +38,9 @@ Ref<AutomaticThreadCondition> AutomaticThreadCondition::create()
     return adoptRef(*new AutomaticThreadCondition);
 }
 
-AutomaticThreadCondition::AutomaticThreadCondition()
-{
-}
+AutomaticThreadCondition::AutomaticThreadCondition() = default;
 
-AutomaticThreadCondition::~AutomaticThreadCondition()
-{
-}
+AutomaticThreadCondition::~AutomaticThreadCondition() = default;
 
 void AutomaticThreadCondition::notifyOne(const AbstractLocker& locker)
 {
@@ -124,7 +120,7 @@ AutomaticThread::~AutomaticThread()
 {
     if (verbose)
         dataLog(RawPointer(this), ": Deleting AutomaticThread.\n");
-    LockHolder locker(*m_lock);
+    Locker locker { *m_lock };
     
     // It's possible that we're in a waiting state with the thread shut down. This is a goofy way to
     // die, but it could happen.
@@ -155,7 +151,7 @@ bool AutomaticThread::notify(const AbstractLocker& locker)
 
 void AutomaticThread::join()
 {
-    LockHolder locker(*m_lock);
+    Locker locker { *m_lock };
     while (m_isRunning)
         m_isRunningCondition.wait(*m_lock);
 }
@@ -170,7 +166,7 @@ void AutomaticThread::start(const AbstractLocker&)
     
     Thread::create(
         name(),
-        [=] () {
+        [=, this] () {
             if (verbose)
                 dataLog(RawPointer(this), ": Running automatic thread!\n");
             
@@ -178,7 +174,7 @@ void AutomaticThread::start(const AbstractLocker&)
             thread->threadDidStart();
             
             if (ASSERT_ENABLED) {
-                LockHolder locker(*m_lock);
+                Locker locker { *m_lock };
                 ASSERT(m_condition->contains(locker, this));
             }
             
@@ -199,7 +195,7 @@ void AutomaticThread::start(const AbstractLocker&)
             
             for (;;) {
                 {
-                    LockHolder locker(*m_lock);
+                    Locker locker { *m_lock };
                     for (;;) {
                         PollResult result = poll(locker);
                         if (result == PollResult::Work)
@@ -228,7 +224,7 @@ void AutomaticThread::start(const AbstractLocker&)
                 
                 WorkResult result = work();
                 if (result == WorkResult::Stop) {
-                    LockHolder locker(*m_lock);
+                    Locker locker { *m_lock };
                     return stopPermanently(locker);
                 }
                 RELEASE_ASSERT(result == WorkResult::Continue);

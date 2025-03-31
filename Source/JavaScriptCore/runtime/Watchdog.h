@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,8 +28,8 @@
 #include <wtf/Lock.h>
 #include <wtf/MonotonicTime.h>
 #include <wtf/Ref.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/ThreadSafeRefCounted.h>
-#include <wtf/WorkQueue.h>
 
 namespace JSC {
 
@@ -37,8 +37,8 @@ class CallFrame;
 class JSGlobalObject;
 class VM;
 
-class Watchdog : public WTF::ThreadSafeRefCounted<Watchdog> {
-    WTF_MAKE_FAST_ALLOCATED;
+class Watchdog : public ThreadSafeRefCounted<Watchdog> {
+    WTF_MAKE_TZONE_ALLOCATED(Watchdog);
 public:
     class Scope;
 
@@ -49,6 +49,8 @@ public:
     void setTimeLimit(Seconds limit, ShouldTerminateCallback = nullptr, void* data1 = nullptr, void* data2 = nullptr);
 
     bool shouldTerminate(JSGlobalObject*);
+
+    bool isActive() const { return m_hasEnteredVM; }
 
     bool hasTimeLimit();
     void enteredVM();
@@ -63,20 +65,15 @@ private:
     bool m_hasEnteredVM { false };
 
     Lock m_lock; // Guards access to m_vm.
-    VM* m_vm;
+    VM* m_vm { nullptr };
 
-    Seconds m_timeLimit;
+    Seconds m_timeLimit { noTimeLimit };
+    Seconds m_cpuDeadline { noTimeLimit };
+    MonotonicTime m_deadline { MonotonicTime::infinity() };
 
-    Seconds m_cpuDeadline;
-    MonotonicTime m_deadline;
-
-    ShouldTerminateCallback m_callback;
-    void* m_callbackData1;
-    void* m_callbackData2;
-
-    Ref<WorkQueue> m_timerQueue;
-
-    friend class LLIntOffsetsExtractor;
+    ShouldTerminateCallback m_callback { nullptr };
+    void* m_callbackData1 { nullptr };
+    void* m_callbackData2 { nullptr };
 };
 
 } // namespace JSC

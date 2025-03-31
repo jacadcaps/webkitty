@@ -29,9 +29,21 @@
 
 #include "CachedResourceClient.h"
 #include "CachedResourceHandle.h"
+#include "LoaderMalloc.h"
 #include "Timer.h"
 #include "WebVTTParser.h"
 #include <memory>
+#include <wtf/CheckedPtr.h>
+#include <wtf/WeakPtr.h>
+
+namespace WebCore {
+class TextTrackLoaderClient;
+}
+
+namespace WTF {
+template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
+template<> struct IsDeprecatedWeakRefSmartPointerException<WebCore::TextTrackLoaderClient> : std::true_type { };
+}
 
 namespace WebCore {
 
@@ -41,7 +53,7 @@ class HTMLTrackElement;
 class TextTrackLoader;
 class VTTCue;
 
-class TextTrackLoaderClient {
+class TextTrackLoaderClient : public CanMakeWeakPtr<TextTrackLoaderClient> {
 public:
     virtual ~TextTrackLoaderClient() = default;
     
@@ -51,9 +63,10 @@ public:
     virtual void newStyleSheetsAvailable(TextTrackLoader&) = 0;
 };
 
-class TextTrackLoader final : public CachedResourceClient, private WebVTTParserClient {
+class TextTrackLoader final : public CachedResourceClient, private WebVTTParserClient, public CanMakeCheckedPtr<TextTrackLoader> {
     WTF_MAKE_NONCOPYABLE(TextTrackLoader); 
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(Loader);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(TextTrackLoader);
 public:
     TextTrackLoader(TextTrackLoaderClient&, Document&);
     virtual ~TextTrackLoader();
@@ -67,7 +80,7 @@ public:
 
 private:
     // CachedResourceClient
-    void notifyFinished(CachedResource&, const NetworkLoadMetrics&) final;
+    void notifyFinished(CachedResource&, const NetworkLoadMetrics&, LoadWillContinueInAnotherProcess) final;
     void deprecatedDidReceiveCachedResource(CachedResource&) final;
 
     // WebVTTParserClient
@@ -80,12 +93,15 @@ private:
     void cueLoadTimerFired();
     void corsPolicyPreventedLoad();
 
+    Ref<Document> protectedDocument() const;
+    CachedResourceHandle<CachedTextTrack> protectedResource() const;
+
     enum State { Idle, Loading, Finished, Failed };
 
-    TextTrackLoaderClient& m_client;
+    WeakRef<TextTrackLoaderClient> m_client;
     std::unique_ptr<WebVTTParser> m_cueParser;
     CachedResourceHandle<CachedTextTrack> m_resource;
-    Document& m_document;
+    WeakRef<Document, WeakPtrImplWithEventTargetData> m_document;
     Timer m_cueLoadTimer;
     State m_state { Idle };
     unsigned m_parseOffset { 0 };

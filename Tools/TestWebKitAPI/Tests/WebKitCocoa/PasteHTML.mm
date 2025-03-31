@@ -45,6 +45,9 @@
 @end
 
 #if PLATFORM(MAC)
+@interface WKWebView () <NSServicesMenuRequestor>
+@end
+
 void writeHTMLToPasteboard(NSString *html)
 {
     [[NSPasteboard generalPasteboard] declareTypes:@[WebCore::legacyHTMLPasteboardType()] owner:nil];
@@ -85,7 +88,12 @@ TEST(PasteHTML, ExposesHTMLTypeInDataTransfer)
     EXPECT_WK_STREQ("hello, world", [webView stringByEvaluatingJavaScript:@"editor.textContent"]);
 }
 
+// rdar://138144869
+#if PLATFORM(IOS) && !defined(NDEBUG)
+TEST(PasteHTML, DISABLED_SanitizesHTML)
+#else
 TEST(PasteHTML, SanitizesHTML)
+#endif
 {
     auto webView = createWebViewWithCustomPasteboardDataSetting(true);
     [webView synchronouslyLoadTestPageNamed:@"paste-rtfd"];
@@ -101,7 +109,12 @@ TEST(PasteHTML, SanitizesHTML)
     EXPECT_FALSE([webView stringByEvaluatingJavaScript:@"clipboardData.values[0].includes('dangerousCode')"].boolValue);
 }
 
+// rdar://138144869
+#if PLATFORM(IOS) && !defined(NDEBUG)
+TEST(PasteHTML, DISABLED_DoesNotSanitizeHTMLWhenCustomPasteboardDataIsDisabled)
+#else
 TEST(PasteHTML, DoesNotSanitizeHTMLWhenCustomPasteboardDataIsDisabled)
+#endif
 {
     auto webView = createWebViewWithCustomPasteboardDataSetting(false);
     [webView synchronouslyLoadTestPageNamed:@"paste-rtfd"];
@@ -117,21 +130,37 @@ TEST(PasteHTML, DoesNotSanitizeHTMLWhenCustomPasteboardDataIsDisabled)
     EXPECT_TRUE([webView stringByEvaluatingJavaScript:@"clipboardData.values[0].includes('dangerousCode')"].boolValue);
 }
 
-TEST(PasteHTML, StripsFileURLs)
+// rdar://138144869
+#if PLATFORM(IOS) && !defined(NDEBUG)
+TEST(PasteHTML, DISABLED_StripsFileAndJavaScriptURLs)
+#else
+TEST(PasteHTML, StripsFileAndJavaScriptURLs)
+#endif
 {
     auto webView = createWebViewWithCustomPasteboardDataSetting(true);
     [webView synchronouslyLoadTestPageNamed:@"paste-rtfd"];
 
-    writeHTMLToPasteboard(@"<!DOCTYPE html><html><body><a alt='hello' href='file:///private/var/folders/secret/files/'>world</a>");
+    writeHTMLToPasteboard(@"<!DOCTYPE html><html><body>"
+        "<a alt='hello' href='file:///private/var/folders/secret/files/'>world</a>"
+        "<a href='rdar://101878956'>Radar Link</a>"
+        "<a href='javascript:runCode()'>JavaScript Link</a>");
     [webView paste:nil];
 
     EXPECT_TRUE([webView stringByEvaluatingJavaScript:@"clipboardData.types.includes('text/html')"].boolValue);
     EXPECT_TRUE([webView stringByEvaluatingJavaScript:@"clipboardData.values[0].includes('hello')"].boolValue);
     EXPECT_TRUE([webView stringByEvaluatingJavaScript:@"clipboardData.values[0].includes('world')"].boolValue);
     EXPECT_FALSE([webView stringByEvaluatingJavaScript:@"clipboardData.values[0].includes('secret')"].boolValue);
+    EXPECT_TRUE([webView stringByEvaluatingJavaScript:@"clipboardData.values[0].includes('rdar://101878956')"].boolValue);
+    EXPECT_TRUE([webView stringByEvaluatingJavaScript:@"clipboardData.values[0].includes('Radar Link')"].boolValue);
+    EXPECT_FALSE([webView stringByEvaluatingJavaScript:@"clipboardData.values[0].includes('runCode()')"].boolValue);
 }
 
+// rdar://138144869
+#if PLATFORM(IOS) && !defined(NDEBUG)
+TEST(PasteHTML, DISABLED_DoesNotStripFileURLsWhenCustomPasteboardDataIsDisabled)
+#else
 TEST(PasteHTML, DoesNotStripFileURLsWhenCustomPasteboardDataIsDisabled)
+#endif
 {
     auto webView = createWebViewWithCustomPasteboardDataSetting(false);
     [webView synchronouslyLoadTestPageNamed:@"paste-rtfd"];
@@ -145,7 +174,12 @@ TEST(PasteHTML, DoesNotStripFileURLsWhenCustomPasteboardDataIsDisabled)
     EXPECT_TRUE([webView stringByEvaluatingJavaScript:@"clipboardData.values[0].includes('secret')"].boolValue);
 }
 
+// rdar://138144869
+#if PLATFORM(IOS) && !defined(NDEBUG)
+TEST(PasteHTML, DISABLED_KeepsHTTPURLs)
+#else
 TEST(PasteHTML, KeepsHTTPURLs)
+#endif
 {
     auto webView = createWebViewWithCustomPasteboardDataSetting(true);
     [webView synchronouslyLoadTestPageNamed:@"paste-rtfd"];
@@ -159,17 +193,22 @@ TEST(PasteHTML, KeepsHTTPURLs)
     EXPECT_TRUE([webView stringByEvaluatingJavaScript:@"clipboardData.values[0].includes('abe.png')"].boolValue);
 }
 
+// rdar://138144869
+#if PLATFORM(IOS) && !defined(NDEBUG)
+TEST(PasteHTML, DISABLED_PreservesMSOList)
+#else
 TEST(PasteHTML, PreservesMSOList)
+#endif
 {
-    writeHTMLToPasteboard([NSString stringWithContentsOfFile:[[NSBundle mainBundle] pathForResource:@"mso-list" ofType:@"html" inDirectory:@"TestWebKitAPI.resources"]
+    writeHTMLToPasteboard([NSString stringWithContentsOfFile:[NSBundle.test_resourcesBundle pathForResource:@"mso-list" ofType:@"html"]
         encoding:NSUTF8StringEncoding error:NULL]);
 
     auto webView = createWebViewWithCustomPasteboardDataSetting(true);
     [webView synchronouslyLoadTestPageNamed:@"paste-rtfd"];
     [webView paste:nil];
 
-    EXPECT_WK_STREQ("[\"text/html\"]", [webView stringByEvaluatingJavaScript:@"JSON.stringify(clipboardData.types)"]);
-    [webView stringByEvaluatingJavaScript:@"window.htmlInDataTransfer = clipboardData.values[0]"];
+    EXPECT_TRUE([webView stringByEvaluatingJavaScript:@"clipboardData.types.includes('text/html')"].boolValue);
+    [webView stringByEvaluatingJavaScript:@"window.htmlInDataTransfer = clipboardData.values[clipboardData.types.indexOf('text/html')]"];
     [webView stringByEvaluatingJavaScript:@"window.pastedHTML = editor.innerHTML"];
 
     EXPECT_FALSE([webView stringByEvaluatingJavaScript:@"pastedHTML.startsWith('<html xmlns:o=\"urn:schemas-microsoft-com:office:office\"')"].boolValue);
@@ -213,15 +252,15 @@ TEST(PasteHTML, PreservesMSOList)
 
 TEST(PasteHTML, PreservesMSOListInCompatibilityMode)
 {
-    writeHTMLToPasteboard([NSString stringWithContentsOfFile:[[NSBundle mainBundle] pathForResource:@"mso-list-compat-mode" ofType:@"html" inDirectory:@"TestWebKitAPI.resources"]
+    writeHTMLToPasteboard([NSString stringWithContentsOfFile:[NSBundle.test_resourcesBundle pathForResource:@"mso-list-compat-mode" ofType:@"html"]
         encoding:NSUTF8StringEncoding error:NULL]);
 
     auto webView = createWebViewWithCustomPasteboardDataSetting(true);
     [webView synchronouslyLoadTestPageNamed:@"paste-rtfd"];
     [webView paste:nil];
 
-    EXPECT_WK_STREQ("[\"text/html\"]", [webView stringByEvaluatingJavaScript:@"JSON.stringify(clipboardData.types)"]);
-    [webView stringByEvaluatingJavaScript:@"window.htmlInDataTransfer = clipboardData.values[0]"];
+    EXPECT_TRUE([webView stringByEvaluatingJavaScript:@"clipboardData.types.includes('text/html')"].boolValue);
+    [webView stringByEvaluatingJavaScript:@"window.htmlInDataTransfer = clipboardData.values[clipboardData.types.indexOf('text/html')]"];
     [webView stringByEvaluatingJavaScript:@"window.pastedHTML = editor.innerHTML"];
 
     EXPECT_FALSE([webView stringByEvaluatingJavaScript:@"pastedHTML.startsWith('<html xmlns:o=\"urn:schemas-microsoft-com:office:office\"')"].boolValue);
@@ -247,17 +286,22 @@ TEST(PasteHTML, PreservesMSOListInCompatibilityMode)
     EXPECT_FALSE([webView stringByEvaluatingJavaScript:@"htmlInDataTransfer.includes('/Users/webkitten/Library/')"].boolValue);
 }
 
+// rdar://138144869
+#if PLATFORM(IOS) && !defined(NDEBUG)
+TEST(PasteHTML, DISABLED_PreservesMSOListOnH4)
+#else
 TEST(PasteHTML, PreservesMSOListOnH4)
+#endif
 {
-    writeHTMLToPasteboard([NSString stringWithContentsOfFile:[[NSBundle mainBundle] pathForResource:@"mso-list-on-h4" ofType:@"html" inDirectory:@"TestWebKitAPI.resources"]
+    writeHTMLToPasteboard([NSString stringWithContentsOfFile:[NSBundle.test_resourcesBundle pathForResource:@"mso-list-on-h4" ofType:@"html"]
         encoding:NSUTF8StringEncoding error:NULL]);
 
     auto webView = createWebViewWithCustomPasteboardDataSetting(true);
     [webView synchronouslyLoadTestPageNamed:@"paste-rtfd"];
     [webView paste:nil];
 
-    EXPECT_WK_STREQ("[\"text/html\"]", [webView stringByEvaluatingJavaScript:@"JSON.stringify(clipboardData.types)"]);
-    [webView stringByEvaluatingJavaScript:@"window.htmlInDataTransfer = clipboardData.values[0]"];
+    EXPECT_TRUE([webView stringByEvaluatingJavaScript:@"clipboardData.types.includes('text/html')"].boolValue);
+    [webView stringByEvaluatingJavaScript:@"window.htmlInDataTransfer = clipboardData.values[clipboardData.types.indexOf('text/html')]"];
     [webView stringByEvaluatingJavaScript:@"window.pastedHTML = editor.innerHTML"];
 
     EXPECT_FALSE([webView stringByEvaluatingJavaScript:@"pastedHTML.startsWith('<html xmlns:o=\"urn:schemas-microsoft-com:office:office\"')"].boolValue);
@@ -283,9 +327,14 @@ TEST(PasteHTML, PreservesMSOListOnH4)
     EXPECT_FALSE([webView stringByEvaluatingJavaScript:@"htmlInDataTransfer.includes('/Users/webkitten/Library/')"].boolValue);
 }
 
+// rdar://138144869
+#if PLATFORM(IOS) && !defined(NDEBUG)
+TEST(PasteHTML, DISABLED_StripsMSOListWhenMissingMSOHTMLElement)
+#else
 TEST(PasteHTML, StripsMSOListWhenMissingMSOHTMLElement)
+#endif
 {
-    auto *markup = [NSString stringWithContentsOfFile:[[NSBundle mainBundle] pathForResource:@"mso-list" ofType:@"html" inDirectory:@"TestWebKitAPI.resources"] encoding:NSUTF8StringEncoding error:NULL];
+    auto *markup = [NSString stringWithContentsOfFile:[NSBundle.test_resourcesBundle pathForResource:@"mso-list" ofType:@"html"] encoding:NSUTF8StringEncoding error:NULL];
 
     writeHTMLToPasteboard([markup substringFromIndex:[markup rangeOfString:@">"].location + 1]);
 
@@ -293,8 +342,8 @@ TEST(PasteHTML, StripsMSOListWhenMissingMSOHTMLElement)
     [webView synchronouslyLoadTestPageNamed:@"paste-rtfd"];
     [webView paste:nil];
 
-    EXPECT_WK_STREQ("[\"text/html\"]", [webView stringByEvaluatingJavaScript:@"JSON.stringify(clipboardData.types)"]);
-    [webView stringByEvaluatingJavaScript:@"window.htmlInDataTransfer = clipboardData.values[0]"];
+    EXPECT_TRUE([webView stringByEvaluatingJavaScript:@"clipboardData.types.includes('text/html')"].boolValue);
+    [webView stringByEvaluatingJavaScript:@"window.htmlInDataTransfer = clipboardData.values[clipboardData.types.indexOf('text/html')]"];
     [webView stringByEvaluatingJavaScript:@"window.pastedHTML = editor.innerHTML"];
 
     EXPECT_FALSE([webView stringByEvaluatingJavaScript:@"pastedHTML.startsWith('<html xmlns:o=\"urn:schemas-microsoft-com:office:office\"')"].boolValue);
@@ -330,16 +379,21 @@ TEST(PasteHTML, StripsMSOListWhenMissingMSOHTMLElement)
     EXPECT_WK_STREQ("rgb(255, 0, 0)", [webView stringByEvaluatingJavaScript:@"document.queryCommandValue('foreColor')"]);
 }
 
+// rdar://138144869
+#if PLATFORM(IOS) && !defined(NDEBUG)
+TEST(PasteHTML, DISABLED_StripsSystemFontNames)
+#else
 TEST(PasteHTML, StripsSystemFontNames)
+#endif
 {
-    writeHTMLToPasteboard([NSString stringWithContentsOfFile:[[NSBundle mainBundle] pathForResource:@"cocoa-writer-markup-with-system-fonts" ofType:@"html" inDirectory:@"TestWebKitAPI.resources"] encoding:NSUTF8StringEncoding error:NULL]);
+    writeHTMLToPasteboard([NSString stringWithContentsOfFile:[NSBundle.test_resourcesBundle pathForResource:@"cocoa-writer-markup-with-system-fonts" ofType:@"html"] encoding:NSUTF8StringEncoding error:NULL]);
 
     auto webView = createWebViewWithCustomPasteboardDataSetting(true);
     [webView synchronouslyLoadTestPageNamed:@"paste-rtfd"];
     [webView paste:nil];
 
-    EXPECT_WK_STREQ("[\"text/html\"]", [webView stringByEvaluatingJavaScript:@"JSON.stringify(clipboardData.types)"]);
-    [webView stringByEvaluatingJavaScript:@"window.htmlInDataTransfer = clipboardData.values[0]"];
+    EXPECT_TRUE([webView stringByEvaluatingJavaScript:@"clipboardData.types.includes('text/html')"].boolValue);
+    [webView stringByEvaluatingJavaScript:@"window.htmlInDataTransfer = clipboardData.values[clipboardData.types.indexOf('text/html')]"];
     [webView stringByEvaluatingJavaScript:@"window.pastedHTML = editor.innerHTML"];
 
     EXPECT_TRUE([webView stringByEvaluatingJavaScript:@"pastedHTML.includes('Hello Cocoa')"].boolValue);
@@ -360,17 +414,22 @@ TEST(PasteHTML, StripsSystemFontNames)
         [webView stringByEvaluatingJavaScript:@"getComputedStyle(document.body).fontFamily"]);
 }
 
+// rdar://138144869
+#if PLATFORM(IOS) && !defined(NDEBUG)
+TEST(PasteHTML, DISABLED_DoesNotAddStandardFontFamily)
+#else
 TEST(PasteHTML, DoesNotAddStandardFontFamily)
+#endif
 {
-    writeHTMLToPasteboard([NSString stringWithContentsOfFile:[[NSBundle mainBundle] pathForResource:@"cocoa-writer-markup-with-lists" ofType:@"html" inDirectory:@"TestWebKitAPI.resources"] encoding:NSUTF8StringEncoding error:NULL]);
+    writeHTMLToPasteboard([NSString stringWithContentsOfFile:[NSBundle.test_resourcesBundle pathForResource:@"cocoa-writer-markup-with-lists" ofType:@"html"] encoding:NSUTF8StringEncoding error:NULL]);
 
     auto webView = createWebViewWithCustomPasteboardDataSetting(true);
     [webView synchronouslyLoadTestPageNamed:@"paste-rtfd"];
     [webView stringByEvaluatingJavaScript:@"document.body.style.fontFamily = 'Arial'"];
     [webView paste:nil];
 
-    EXPECT_WK_STREQ("[\"text/html\"]", [webView stringByEvaluatingJavaScript:@"JSON.stringify(clipboardData.types)"]);
-    [webView stringByEvaluatingJavaScript:@"window.htmlInDataTransfer = clipboardData.values[0]"];
+    EXPECT_TRUE([webView stringByEvaluatingJavaScript:@"clipboardData.types.includes('text/html')"].boolValue);
+    [webView stringByEvaluatingJavaScript:@"window.htmlInDataTransfer = clipboardData.values[clipboardData.types.indexOf('text/html')]"];
     [webView stringByEvaluatingJavaScript:@"window.pastedHTML = editor.innerHTML"];
 
     EXPECT_TRUE([webView stringByEvaluatingJavaScript:@"pastedHTML.includes('Hello')"].boolValue);
@@ -387,7 +446,26 @@ TEST(PasteHTML, DoesNotAddStandardFontFamily)
         [webView stringByEvaluatingJavaScript:@"getComputedStyle(document.body).fontFamily"]);
 }
 
-#if ENABLE(DARK_MODE_CSS) && HAVE(OS_DARK_MODE_SUPPORT)
+#if PLATFORM(MAC)
+
+TEST(PasteHTML, ReadSelectionFromPasteboard)
+{
+    auto generalPasteboard = NSPasteboard.generalPasteboard;
+    [generalPasteboard clearContents];
+    [generalPasteboard setString:@"Hello world" forType:NSPasteboardTypeString];
+
+    auto webView = createWebViewWithCustomPasteboardDataSetting(true);
+    [webView synchronouslyLoadHTMLString:@"<input>"];
+    [webView stringByEvaluatingJavaScript:@"document.querySelector('input').focus()"];
+    [webView readSelectionFromPasteboard:generalPasteboard];
+
+    NSString *inputValue = [webView stringByEvaluatingJavaScript:@"document.querySelector('input').value"];
+    EXPECT_WK_STREQ(inputValue, "Hello world");
+}
+
+#endif // PLATFORM(MAC)
+
+#if ENABLE(DARK_MODE_CSS)
 
 TEST(PasteHTML, TransformColorsOfDarkContent)
 {
@@ -456,6 +534,21 @@ TEST(PasteHTML, DoesNotTransformColorsOfLightContentDuringOutdent)
     EXPECT_WK_STREQ([webView stringByEvaluatingJavaScript:@"rich.innerHTML"], @"<ul><li>hello</li><li>world</li></ul>");
 }
 
-#endif // ENABLE(DARK_MODE_CSS) && HAVE(OS_DARK_MODE_SUPPORT)
+TEST(PasteHTML, TransformColorsDependsOnUsedInlineStyle)
+{
+    auto webView = createWebViewWithCustomPasteboardDataSetting(true, true);
+    [webView forceDarkMode];
+
+    [webView synchronouslyLoadTestPageNamed:@"rich-color-filtered"];
+
+    writeHTMLToPasteboard(@"<ul style='color: black'><li style='color: white'>Coffee</li><li style='color: white'>Milk</li><li style='color: white'>Tea</li></ul>");
+
+    [webView stringByEvaluatingJavaScript:@"selectRichText()"];
+    [webView paste:nil];
+
+    EXPECT_WK_STREQ([webView stringByEvaluatingJavaScript:@"rich.querySelector('li').style.color"], @"rgb(0, 0, 0)");
+}
+
+#endif // ENABLE(DARK_MODE_CSS)
 
 #endif // PLATFORM(COCOA)

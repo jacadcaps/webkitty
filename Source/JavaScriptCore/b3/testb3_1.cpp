@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,12 +26,20 @@
 #include "config.h"
 #include "testb3.h"
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 #if ENABLE(B3_JIT)
 
 Lock crashLock;
 
-bool shouldRun(const char* filter, const char* testName)
+bool shouldRun(const TestConfig* config, const char* testName)
 {
+    if (config->mode == TestConfig::Mode::ListTests) {
+        dataLogLn(testName);
+        return false;
+    }
+
+    const auto* filter = config->filter;
     // FIXME: These tests fail <https://bugs.webkit.org/show_bug.cgi?id=199330>.
     if (!filter && isARM64()) {
         for (auto& failingTest : {
@@ -44,6 +52,15 @@ bool shouldRun(const char* filter, const char* testName)
             }
         }
     }
+
+    if (!filter && isARM_THUMB2()) {
+        for (auto& failingTest : {
+#include "testb3_failingArmV7Tests.inc"
+        }) {
+            if (WTF::findIgnoringASCIICaseWithoutLength(testName, failingTest) != WTF::notFound)
+                return false;
+        }
+    }
     return !filter || WTF::findIgnoringASCIICaseWithoutLength(testName, filter) != WTF::notFound;
 }
 
@@ -52,16 +69,13 @@ void testRotR(T valueInt, int32_t shift)
 {
     Procedure proc;
     BasicBlock* root = proc.addBlock();
-    
-    Value* value = root->appendNew<ArgumentRegValue>(proc, Origin(), GPRInfo::argumentGPR0);
-    if (sizeof(T) == 4)
-        value = root->appendNew<Value>(proc, Trunc, Origin(), value);
-    
-    Value* ammount = root->appendNew<Value>(proc, Trunc, Origin(),
-        root->appendNew<ArgumentRegValue>(proc, Origin(), GPRInfo::argumentGPR1));
+    auto arguments = cCallArgumentValues<T, int32_t>(proc, root);
+
+    Value* value = arguments[0];
+    Value* amount = arguments[1];
     root->appendNewControlValue(proc, Return, Origin(),
-        root->appendNew<Value>(proc, RotR, Origin(), value, ammount));
-    
+        root->appendNew<Value>(proc, RotR, Origin(), value, amount));
+
     CHECK_EQ(compileAndRun<T>(proc, valueInt, shift), rotateRight(valueInt, shift));
 }
 
@@ -70,13 +84,10 @@ void testRotL(T valueInt, int32_t shift)
 {
     Procedure proc;
     BasicBlock* root = proc.addBlock();
+    auto arguments = cCallArgumentValues<T, int32_t>(proc, root);
     
-    Value* value = root->appendNew<ArgumentRegValue>(proc, Origin(), GPRInfo::argumentGPR0);
-    if (sizeof(T) == 4)
-        value = root->appendNew<Value>(proc, Trunc, Origin(), value);
-    
-    Value* ammount = root->appendNew<Value>(proc, Trunc, Origin(),
-        root->appendNew<ArgumentRegValue>(proc, Origin(), GPRInfo::argumentGPR1));
+    Value* value = arguments[0];
+    Value* ammount = arguments[1];
     root->appendNewControlValue(proc, Return, Origin(),
         root->appendNew<Value>(proc, RotL, Origin(), value, ammount));
     
@@ -89,11 +100,9 @@ void testRotRWithImmShift(T valueInt, int32_t shift)
 {
     Procedure proc;
     BasicBlock* root = proc.addBlock();
+    auto arguments = cCallArgumentValues<T>(proc, root);
     
-    Value* value = root->appendNew<ArgumentRegValue>(proc, Origin(), GPRInfo::argumentGPR0);
-    if (sizeof(T) == 4)
-        value = root->appendNew<Value>(proc, Trunc, Origin(), value);
-    
+    Value* value = arguments[0];
     Value* ammount = root->appendIntConstant(proc, Origin(), Int32, shift);
     root->appendNewControlValue(proc, Return, Origin(),
         root->appendNew<Value>(proc, RotR, Origin(), value, ammount));
@@ -106,11 +115,9 @@ void testRotLWithImmShift(T valueInt, int32_t shift)
 {
     Procedure proc;
     BasicBlock* root = proc.addBlock();
+    auto arguments = cCallArgumentValues<T>(proc, root);
     
-    Value* value = root->appendNew<ArgumentRegValue>(proc, Origin(), GPRInfo::argumentGPR0);
-    if (sizeof(T) == 4)
-        value = root->appendNew<Value>(proc, Trunc, Origin(), value);
-    
+    Value* value = arguments[0];
     Value* ammount = root->appendIntConstant(proc, Origin(), Int32, shift);
     root->appendNewControlValue(proc, Return, Origin(),
         root->appendNew<Value>(proc, RotL, Origin(), value, ammount));
@@ -122,11 +129,11 @@ template<typename T>
 void testComputeDivisionMagic(T value, T magicMultiplier, unsigned shift)
 {
     DivisionMagic<T> magic = computeDivisionMagic(value);
-    CHECK(magic.magicMultiplier == magicMultiplier);
-    CHECK(magic.shift == shift);
+    CHECK_EQ(magic.magicMultiplier, magicMultiplier);
+    CHECK_EQ(magic.shift, shift);
 }
 
-void run(const char* filter)
+void run(const TestConfig* config)
 {
     Deque<RefPtr<SharedTask<void()>>> tasks;
 
@@ -149,22 +156,25 @@ void run(const char* filter)
     RUN_UNARY(testAddTreeArg32, int32Operands());
     RUN_UNARY(testMulTreeArg32, int32Operands());
 
-    addArgTests(filter, tasks);
+    addArgTests(config, tasks);
 
     RUN_UNARY(testNegDouble, floatingPointOperands<double>());
     RUN_UNARY(testNegFloat, floatingPointOperands<float>());
     RUN_UNARY(testNegFloatWithUselessDoubleConversion, floatingPointOperands<float>());
+    RUN(testImpureNaN());
 
-    addBitTests(filter, tasks);
+    addBitTests(config, tasks);
 
     RUN(testShlArgs(1, 0));
     RUN(testShlArgs(1, 1));
+    RUN(testShlArgs(1, 32));
     RUN(testShlArgs(1, 62));
     RUN(testShlArgs(0xffffffffffffffff, 0));
     RUN(testShlArgs(0xffffffffffffffff, 1));
     RUN(testShlArgs(0xffffffffffffffff, 63));
     RUN(testShlImms(1, 0));
     RUN(testShlImms(1, 1));
+    RUN(testShlImms(1, 32));
     RUN(testShlImms(1, 62));
     RUN(testShlImms(1, 65));
     RUN(testShlImms(0xffffffffffffffff, 0));
@@ -172,6 +182,7 @@ void run(const char* filter)
     RUN(testShlImms(0xffffffffffffffff, 63));
     RUN(testShlArgImm(1, 0));
     RUN(testShlArgImm(1, 1));
+    RUN(testShlArgImm(1, 32));
     RUN(testShlArgImm(1, 62));
     RUN(testShlArgImm(1, 65));
     RUN(testShlArgImm(0xffffffffffffffff, 0));
@@ -214,7 +225,7 @@ void run(const char* filter)
     RUN(testShlZShrArgImm32(0xffffffff, 1));
     RUN(testShlZShrArgImm32(0xffffffff, 63));
 
-    addShrTests(filter, tasks);
+    addShrTests(config, tasks);
 
     RUN_UNARY(testClzArg64, int64Operands());
     RUN_UNARY(testClzMem64, int64Operands());
@@ -268,6 +279,13 @@ void run(const char* filter)
     RUN_UNARY(testFloorArgWithUselessDoubleConversion, floatingPointOperands<float>());
     RUN_UNARY(testFloorArgWithEffectfulDoubleConversion, floatingPointOperands<float>());
 
+    RUN_UNARY(testFTruncArg, floatingPointOperands<double>());
+    RUN_UNARY(testFTruncImm, floatingPointOperands<double>());
+    RUN_UNARY(testFTruncMem, floatingPointOperands<double>());
+    RUN_UNARY(testFTruncArg, floatingPointOperands<float>());
+    RUN_UNARY(testFTruncImm, floatingPointOperands<float>());
+    RUN_UNARY(testFTruncMem, floatingPointOperands<float>());
+
     RUN_UNARY(testSqrtArg, floatingPointOperands<double>());
     RUN_UNARY(testSqrtImm, floatingPointOperands<double>());
     RUN_UNARY(testSqrtMem, floatingPointOperands<double>());
@@ -276,6 +294,8 @@ void run(const char* filter)
     RUN_UNARY(testSqrtMem, floatingPointOperands<float>());
     RUN_UNARY(testSqrtArgWithUselessDoubleConversion, floatingPointOperands<float>());
     RUN_UNARY(testSqrtArgWithEffectfulDoubleConversion, floatingPointOperands<float>());
+
+    RUN(testPurifyNaN());
 
     RUN_BINARY(testCompareTwoFloatToDouble, floatingPointOperands<float>(), floatingPointOperands<float>());
     RUN_BINARY(testCompareOneFloatToDouble, floatingPointOperands<float>(), floatingPointOperands<double>());
@@ -309,8 +329,13 @@ void run(const char* filter)
     RUN_UNARY(testConvertFloatToDoubleArg, floatingPointOperands<float>());
     RUN_UNARY(testConvertFloatToDoubleImm, floatingPointOperands<float>());
     RUN_UNARY(testConvertFloatToDoubleMem, floatingPointOperands<float>());
+    RUN_UNARY(testConvertDoubleToFloatToDouble, floatingPointOperands<double>());
     RUN_UNARY(testConvertDoubleToFloatToDoubleToFloat, floatingPointOperands<double>());
+    RUN_UNARY(testConvertDoubleToFloatEqual, floatingPointOperands<double>());
+    RUN_UNARY(testStoreDouble, floatingPointOperands<double>());
+    RUN_UNARY(testStoreDoubleConstant, floatingPointOperands<double>());
     RUN_UNARY(testStoreFloat, floatingPointOperands<double>());
+    RUN_UNARY(testStoreFloatConstant, floatingPointOperands<double>());
     RUN_UNARY(testStoreDoubleConstantAsFloat, floatingPointOperands<double>());
     RUN_UNARY(testLoadFloatConvertDoubleConvertFloatStoreFloat, floatingPointOperands<float>());
     RUN_UNARY(testFroundArg, floatingPointOperands<double>());
@@ -330,12 +355,17 @@ void run(const char* filter)
     RUN_UNARY(testIToF32Imm, int32Operands());
     RUN(testIToDReducedToIToF64Arg());
     RUN(testIToDReducedToIToF32Arg());
+    RUN_UNARY(testInt52RoundTripUnary, int32Operands());
+    RUN(testInt52RoundTripBinary());
 
+#if !CPU(ARM)
     RUN_UNARY(testCheckAddRemoveCheckWithSExt8, int8Operands());
     RUN_UNARY(testCheckAddRemoveCheckWithSExt16, int16Operands());
     RUN_UNARY(testCheckAddRemoveCheckWithSExt32, int32Operands());
     RUN_UNARY(testCheckAddRemoveCheckWithZExt32, int32Operands());
+#endif
 
+    RUN(testStoreZeroReg());
     RUN(testStore32(44));
     RUN(testStoreConstant(49));
     RUN(testStoreConstantPtr(49));
@@ -455,8 +485,8 @@ void run(const char* filter)
 
     RUN(testSimplePatchpoint());
     RUN(testSimplePatchpointWithoutOuputClobbersGPArgs());
-    RUN(testSimplePatchpointWithOuputClobbersGPArgs());
     RUN(testSimplePatchpointWithoutOuputClobbersFPArgs());
+    RUN(testSimplePatchpointWithOuputClobbersGPArgs());
     RUN(testSimplePatchpointWithOuputClobbersFPArgs());
     RUN(testPatchpointWithEarlyClobber());
     RUN(testPatchpointCallArg());
@@ -469,8 +499,11 @@ void run(const char* filter)
     RUN(testPatchpointAnyImm(ValueRep::WarmAny));
     RUN(testPatchpointAnyImm(ValueRep::ColdAny));
     RUN(testPatchpointAnyImm(ValueRep::LateColdAny));
-    RUN(testPatchpointManyWarmAnyImms());
-    RUN(testPatchpointManyColdAnyImms());
+    if constexpr (!is32Bit()) {
+        // Can't handle ConstDoubleValue arguments to patchpoints on 32 bits.
+        RUN(testPatchpointManyWarmAnyImms());
+        RUN(testPatchpointManyColdAnyImms());
+    }
     RUN(testPatchpointWithRegisterResult());
     RUN(testPatchpointWithStackArgumentResult());
     RUN(testPatchpointWithAnyResult());
@@ -482,11 +515,13 @@ void run(const char* filter)
     RUN(testCheckTrickyMegaCombo());
     RUN(testCheckTwoMegaCombos());
     RUN(testCheckTwoNonRedundantMegaCombos());
+#if !CPU(ARM)
     RUN(testCheckAddImm());
     RUN(testCheckAddImmCommute());
     RUN(testCheckAddImmSomeRegister());
     RUN(testCheckAdd());
     RUN(testCheckAdd64());
+    RUN(testCheckAdd64Range());
     RUN(testCheckAddFold(100, 200));
     RUN(testCheckAddFoldFail(2147483647, 100));
     RUN(testCheckAddArgumentAliasing64());
@@ -496,6 +531,7 @@ void run(const char* filter)
     RUN(testCheckSubImm());
     RUN(testCheckSubBadImm());
     RUN(testCheckSub());
+    RUN(testCheckSubBitAnd());
     RUN(testCheckSub64());
     RUN(testCheckSubFold(100, 200));
     RUN(testCheckSubFoldFail(-2147483647, 100));
@@ -509,6 +545,7 @@ void run(const char* filter)
     RUN(testCheckMulFoldFail(2147483647, 100));
     RUN(testCheckMulArgumentAliasing64());
     RUN(testCheckMulArgumentAliasing32());
+#endif
 
     RUN_BINARY([](int32_t a, int32_t b) { testCompare(Equal, a, b); }, int64Operands(), int64Operands());
     RUN_BINARY([](int32_t a, int32_t b) { testCompare(NotEqual, a, b); }, int64Operands(), int64Operands());
@@ -529,18 +566,27 @@ void run(const char* filter)
     RUN(testEqualDouble(42, PNaN, false));
     RUN(testEqualDouble(PNaN, PNaN, false));
 
-    addLoadTests(filter, tasks);
-    addTupleTests(filter, tasks);
-
-    addCopyTests(filter, tasks);
+    addLoadTests(config, tasks);
+    addTupleTests(config, tasks);
 
     RUN(testSpillGP());
     RUN(testSpillFP());
 
+    RUN(testWasmAddressDoesNotCSE());
+    RUN(testStoreAfterClobberDifferentWidth());
+    RUN(testStoreAfterClobberExitsSideways());
+    RUN(testStoreAfterClobberDifferentWidthSuccessor());
+    RUN(testStoreAfterClobberExitsSidewaysSuccessor());
+    RUN(testNarrowLoad());
+    RUN(testNarrowLoadClobber());
+    RUN(testNarrowLoadClobberNarrow());
+    RUN(testNarrowLoadNotClobber());
+    RUN(testNarrowLoadUpper());
+
     RUN(testInt32ToDoublePartialRegisterStall());
     RUN(testInt32ToDoublePartialRegisterWithoutStall());
 
-    addCallTests(filter, tasks);
+    addCallTests(config, tasks);
 
     RUN(testLinearScanWithCalleeOnStack());
 
@@ -610,7 +656,7 @@ void run(const char* filter)
     RUN(testTruncFold(-1));
     RUN(testTruncFold(1000000000000ll));
     RUN(testTruncFold(-1000000000000ll));
-    
+
     RUN(testZExt32(0));
     RUN(testZExt32(1));
     RUN(testZExt32(-1));
@@ -644,7 +690,7 @@ void run(const char* filter)
     RUN(testTruncSExt32(1000000000ll));
     RUN(testTruncSExt32(-1000000000ll));
 
-    addSExtTests(filter, tasks);
+    addSExtTests(config, tasks);
 
     RUN(testBasicSelect());
     RUN(testSelectTest());
@@ -703,7 +749,7 @@ void run(const char* filter)
     RUN(testStore16Load16Z(12345678));
     RUN(testStore16Load16Z(-123));
 
-    addSShrShTests(filter, tasks);
+    addSShrShTests(config, tasks);
 
     RUN(testCheckMul64SShr());
 
@@ -720,7 +766,7 @@ void run(const char* filter)
     RUN(testComputeDivisionMagic<int32_t>(2, -2147483647, 0));
     RUN(testTrivialInfiniteLoop());
     RUN(testFoldPathEqual());
-    
+
     RUN(testRShiftSelf32());
     RUN(testURShiftSelf32());
     RUN(testLShiftSelf32());
@@ -735,7 +781,7 @@ void run(const char* filter)
     RUN(testInterpreter());
     RUN(testReduceStrengthCheckBottomUseInAnotherBlock());
     RUN(testResetReachabilityDanglingReference());
-    
+
     RUN(testEntrySwitchSimple());
     RUN(testEntrySwitchNoEntrySwitch());
     RUN(testEntrySwitchWithCommonPaths());
@@ -756,10 +802,15 @@ void run(const char* filter)
     RUN(testTrappingLoadDCE());
     RUN(testTrappingStoreElimination());
     RUN(testMoveConstants());
+    RUN(testMoveConstantsWithLargeOffsets());
+    if (Options::useWasmSIMD())
+        RUN(testMoveConstantsSIMD());
     RUN(testPCOriginMapDoesntInsertNops());
     RUN(testPinRegisters());
     RUN(testReduceStrengthReassociation(true));
     RUN(testReduceStrengthReassociation(false));
+    RUN_BINARY(testReduceStrengthTruncInt64Constant, int64Operands(), int32Operands());
+    RUN_BINARY(testReduceStrengthTruncDoubleConstant, floatingPointOperands<double>(), floatingPointOperands<float>());
     RUN(testAddShl32());
     RUN(testAddShl64());
     RUN(testAddShl65());
@@ -794,9 +845,12 @@ void run(const char* filter)
     RUN(testLICMReadsWritesOverlappingHeaps());
     RUN(testLICMDefaultCall());
 
-    addAtomicTests(filter, tasks);
+    addAtomicTests(config, tasks);
     RUN(testDepend32());
-    RUN(testDepend64());
+    if constexpr (!is32Bit()) {
+        // Test only applicable on 64-bits.
+        RUN(testDepend64());
+    }
 
     RUN(testWasmBoundsCheck(0));
     RUN(testWasmBoundsCheck(100));
@@ -804,25 +858,35 @@ void run(const char* filter)
     RUN(testWasmBoundsCheck(std::numeric_limits<unsigned>::max() - 5));
 
     RUN(testWasmAddress());
+    RUN(testWasmAddressWithOffset());
     
     RUN(testFastTLSLoad());
     RUN(testFastTLSStore());
 
-    RUN(testDoubleLiteralComparison(bitwise_cast<double>(0x8000000000000001ull), bitwise_cast<double>(0x0000000000000000ull)));
-    RUN(testDoubleLiteralComparison(bitwise_cast<double>(0x0000000000000000ull), bitwise_cast<double>(0x8000000000000001ull)));
+    RUN(testDoubleLiteralComparison(std::bit_cast<double>(0x8000000000000001ull), std::bit_cast<double>(0x0000000000000000ull)));
+    RUN(testDoubleLiteralComparison(std::bit_cast<double>(0x0000000000000000ull), std::bit_cast<double>(0x8000000000000001ull)));
     RUN(testDoubleLiteralComparison(125.3144446948241, 125.3144446948242));
     RUN(testDoubleLiteralComparison(125.3144446948242, 125.3144446948241));
 
     RUN(testFloatEqualOrUnorderedFolding());
     RUN(testFloatEqualOrUnorderedFoldingNaN());
     RUN(testFloatEqualOrUnorderedDontFold());
-    
+
     RUN(testShuffleDoesntTrashCalleeSaves());
     RUN(testDemotePatchpointTerminal());
 
     RUN(testLoopWithMultipleHeaderEdges());
 
     RUN(testInfiniteLoopDoesntCauseBadHoisting());
+
+    RUN(testFloatMaxMin());
+    RUN(testDoubleMaxMin());
+
+    RUN(testConstDoubleMove());
+    RUN(testConstFloatMove());
+
+    RUN_UNARY(testSShrCompare32, int32OperandsMore());
+    RUN_UNARY(testSShrCompare64, int64OperandsMore());
 
     if (isX86()) {
         RUN(testBranchBitAndImmFusion(Identity, Int64, 1, Air::BranchTest32, Air::Arg::Tmp));
@@ -850,21 +914,38 @@ void run(const char* filter)
 
     RUN(testReportUsedRegistersLateUseFollowedByEarlyDefDoesNotMarkUseAsDead());
 
-    if (tasks.isEmpty())
-        usage();
+    if (isARM64() || isX86()) {
+        RUN(testVectorXorOrAllOnesToVectorAndXor());
+        RUN(testVectorXorAndAllOnesToVectorOrXor());
+        RUN(testVectorOrSelf());
+        RUN(testVectorAndSelf());
+        RUN(testVectorXorSelf());
+        RUN(testVectorExtractLane0Float());
+        RUN(testVectorExtractLane0Double());
+        RUN_UNARY(testVectorXorOrAllOnesConstantToVectorAndXor, v128Operands());
+        RUN_UNARY(testVectorXorAndAllOnesConstantToVectorOrXor, v128Operands());
+        RUN_BINARY(testVectorOrConstants, v128Operands(), v128Operands());
+        RUN_BINARY(testVectorAndConstants, v128Operands(), v128Operands());
+        RUN_BINARY(testVectorXorConstants, v128Operands(), v128Operands());
+        RUN_BINARY(testVectorAndConstantConstant, v128Operands(), v128Operands());
+        if (isARM64()) {
+            RUN(testVectorFmulByElementFloat());
+            RUN(testVectorFmulByElementDouble());
+        }
+    }
 
     Lock lock;
 
     Vector<Ref<Thread>> threads;
-    for (unsigned i = filter ? 1 : WTF::numberOfProcessorCores(); i--;) {
+    for (unsigned i = config->workerThreadCount; i--;) {
         threads.append(
             Thread::create(
-                "testb3 thread",
+                "testb3 thread"_s,
                 [&] () {
                     for (;;) {
                         RefPtr<SharedTask<void()>> task;
                         {
-                            LockHolder locker(lock);
+                            Locker locker { lock };
                             if (tasks.isEmpty())
                                 return;
                             task = tasks.takeFirst();
@@ -881,37 +962,52 @@ void run(const char* filter)
     crashLock.unlock();
 }
 
-#else // ENABLE(B3_JIT)
+bool g_dumpB3AfterGeneration = false;
 
-static void run(const char*)
-{
-    dataLog("B3 JIT is not enabled.\n");
-}
-
-#endif // ENABLE(B3_JIT)
+#if ENABLE(JIT_OPERATION_VALIDATION) || ENABLE(JIT_OPERATION_DISASSEMBLY)
+extern const JSC::JITOperationAnnotation startOfJITOperationsInTestB3 __asm("section$start$__DATA_CONST$__jsc_ops");
+extern const JSC::JITOperationAnnotation endOfJITOperationsInTestB3 __asm("section$end$__DATA_CONST$__jsc_ops");
+#endif
 
 int main(int argc, char** argv)
 {
-    const char* filter = nullptr;
-    switch (argc) {
-    case 1:
-        break;
-    case 2:
-        filter = argv[1];
-        break;
-    default:
-        usage();
-        break;
+    TestConfig config;
+    for (int i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "-filter")) {
+            if (i + 1 < argc) {
+                config.filter = argv[i + 1];
+                i += 1;
+            } else
+                usage();
+        } else if (!strcmp(argv[i], "-list"))
+            config.mode = TestConfig::Mode::ListTests;
+        else if (!strcmp(argv[i], "-printir"))
+            g_dumpB3AfterGeneration = true;
+        else {
+            // for backwards compatibility
+            config.filter = argv[i];
+            break;
+        }
     }
+
+    config.workerThreadCount = config.filter ? 1 : WTF::numberOfProcessorCores();
 
     JSC::Config::configureForTesting();
 
     WTF::initializeMainThread();
     JSC::initialize();
-    
+
+#if ENABLE(JIT_OPERATION_VALIDATION)
+    JSC::JITOperationList::populatePointersInEmbedder(&startOfJITOperationsInTestB3, &endOfJITOperationsInTestB3);
+#endif
+#if ENABLE(JIT_OPERATION_DISASSEMBLY)
+    if (UNLIKELY(JSC::Options::needDisassemblySupport()))
+        JSC::JITOperationList::populateDisassemblyLabelsInEmbedder(&startOfJITOperationsInTestB3, &endOfJITOperationsInTestB3);
+#endif
+
     for (unsigned i = 0; i <= 2; ++i) {
         JSC::Options::defaultB3OptLevel() = i;
-        run(filter);
+        run(&config);
     }
 
     return 0;
@@ -923,3 +1019,15 @@ extern "C" __declspec(dllexport) int WINAPI dllLauncherEntryPoint(int argc, cons
     return main(argc, const_cast<char**>(argv));
 }
 #endif
+
+#else // ENABLE(B3_JIT)
+
+int main(int, char**)
+{
+    WTF::initializeMainThread();
+    dataLog("B3 JIT is not enabled.\n");
+}
+
+#endif // ENABLE(B3_JIT)
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

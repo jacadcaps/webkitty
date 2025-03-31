@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,31 +27,29 @@
 
 #if HAVE(APP_SSO)
 
+#include <variant>
 #include "FrameLoadState.h"
 #include "NavigationSOAuthorizationSession.h"
 #include <WebCore/FrameIdentifier.h>
 #include <wtf/Deque.h>
 
-namespace IPC {
-class DataReference;
-}
-
 namespace WebKit {
 
-class SubFrameSOAuthorizationSession final : public NavigationSOAuthorizationSession, public FrameLoadState::Observer {
+class SubFrameSOAuthorizationSession final : public NavigationSOAuthorizationSession, public FrameLoadStateObserver {
 public:
     using Callback = CompletionHandler<void(bool)>;
-    using SOAuthorizationSession::weakPtrFactory;
-    using WeakValueType = SOAuthorizationSession::WeakValueType;
 
-    static Ref<SOAuthorizationSession> create(SOAuthorization *, Ref<API::NavigationAction>&&, WebPageProxy&, Callback&&, WebCore::FrameIdentifier);
+    static Ref<SOAuthorizationSession> create(RetainPtr<WKSOAuthorizationDelegate>, Ref<API::NavigationAction>&&, WebPageProxy&, Callback&&, std::optional<WebCore::FrameIdentifier>);
 
     ~SubFrameSOAuthorizationSession();
 
-private:
-    using Supplement = Variant<Vector<uint8_t>, String>;
+    void ref() const final { ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr::ref(); }
+    void deref() const final { ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr::deref(); }
 
-    SubFrameSOAuthorizationSession(SOAuthorization *, Ref<API::NavigationAction>&&, WebPageProxy&, Callback&&, WebCore::FrameIdentifier);
+private:
+    using Supplement = std::variant<Vector<uint8_t>, String>;
+
+    SubFrameSOAuthorizationSession(RetainPtr<WKSOAuthorizationDelegate>, Ref<API::NavigationAction>&&, WebPageProxy&, Callback&&, std::optional<WebCore::FrameIdentifier>);
 
     // SOAuthorizationSession
     void fallBackToWebPathInternal() final;
@@ -61,13 +59,16 @@ private:
     // NavigationSOAuthorizationSession
     void beforeStart() final;
 
-    // FrameLoadState::Observer
-    void didFinishLoad() final;
+    // FrameLoadStateObserver
+    void didFinishLoad(IsMainFrame, const URL&) final;
 
     void appendRequestToLoad(URL&&, Supplement&&);
     void loadRequestToFrame();
 
-    WebCore::FrameIdentifier m_frameID;
+    bool shouldInterruptLoadForXFrameOptions(Vector<Ref<WebCore::SecurityOrigin>>&& frameAncestorOrigins, const String& xFrameOptions, const URL&);
+    bool shouldInterruptLoadForCSPFrameAncestorsOrXFrameOptions(const WebCore::ResourceResponse&) final;
+
+    Markable<WebCore::FrameIdentifier> m_frameID;
     Deque<std::pair<URL, Supplement>> m_requestsToLoad;
 };
 

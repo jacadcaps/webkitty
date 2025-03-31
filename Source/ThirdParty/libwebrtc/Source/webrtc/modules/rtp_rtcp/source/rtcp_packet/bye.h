@@ -15,6 +15,7 @@
 #include <string>
 #include <vector>
 
+#include "absl/strings/string_view.h"
 #include "modules/rtp_rtcp/source/rtcp_packet.h"
 
 namespace webrtc {
@@ -32,7 +33,7 @@ class Bye : public RtcpPacket {
   bool Parse(const CommonHeader& packet);
 
   bool SetCsrcs(std::vector<uint32_t> csrcs);
-  void SetReason(std::string reason);
+  void SetReason(absl::string_view reason);
 
   const std::vector<uint32_t>& csrcs() const { return csrcs_; }
   const std::string& reason() const { return reason_; }
@@ -45,7 +46,8 @@ class Bye : public RtcpPacket {
               PacketReadyCallback callback) const override;
 
  private:
-  static const int kMaxNumberOfCsrcs = 0x1f - 1;  // First item is sender SSRC.
+  static constexpr int kMaxNumberOfCsrcs =
+      0x1f - 1;  // First item is sender SSRC.
 
   std::vector<uint32_t> csrcs_;
   std::string reason_;

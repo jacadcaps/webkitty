@@ -29,8 +29,6 @@
 #include "config.h"
 #include "CryptoAlgorithmHMAC.h"
 
-#if ENABLE(WEB_CRYPTO)
-
 #include "CryptoKeyHMAC.h"
 #include <pal/crypto/gcrypt/Handle.h>
 #include <wtf/CryptographicUtilities.h>
@@ -42,8 +40,9 @@ static int getGCryptDigestAlgorithm(CryptoAlgorithmIdentifier hashFunction)
     switch (hashFunction) {
     case CryptoAlgorithmIdentifier::SHA_1:
         return GCRY_MAC_HMAC_SHA1;
-    case CryptoAlgorithmIdentifier::SHA_224:
-        return GCRY_MAC_HMAC_SHA224;
+    case CryptoAlgorithmIdentifier::DEPRECATED_SHA_224:
+        RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE(sha224DeprecationMessage);
+        return GCRY_MAC_HMAC_SHA256;
     case CryptoAlgorithmIdentifier::SHA_256:
         return GCRY_MAC_HMAC_SHA256;
     case CryptoAlgorithmIdentifier::SHA_384:
@@ -55,28 +54,28 @@ static int getGCryptDigestAlgorithm(CryptoAlgorithmIdentifier hashFunction)
     }
 }
 
-static Optional<Vector<uint8_t>> calculateSignature(int algorithm, const Vector<uint8_t>& key, const uint8_t* data, size_t dataLength)
+static std::optional<Vector<uint8_t>> calculateSignature(int algorithm, const Vector<uint8_t>& key, const uint8_t* data, size_t dataLength)
 {
     const void* keyData = key.data() ? key.data() : reinterpret_cast<const uint8_t*>("");
 
     PAL::GCrypt::Handle<gcry_mac_hd_t> hd;
     gcry_error_t err = gcry_mac_open(&hd, algorithm, 0, nullptr);
     if (err)
-        return WTF::nullopt;
+        return std::nullopt;
 
     err = gcry_mac_setkey(hd, keyData, key.size());
     if (err)
-        return WTF::nullopt;
+        return std::nullopt;
 
     err = gcry_mac_write(hd, data, dataLength);
     if (err)
-        return WTF::nullopt;
+        return std::nullopt;
 
     size_t digestLength = gcry_mac_get_algo_maclen(algorithm);
     Vector<uint8_t> signature(digestLength);
     err = gcry_mac_read(hd, signature.data(), &digestLength);
     if (err)
-        return WTF::nullopt;
+        return std::nullopt;
 
     signature.resize(digestLength);
     return signature;
@@ -86,11 +85,11 @@ ExceptionOr<Vector<uint8_t>> CryptoAlgorithmHMAC::platformSign(const CryptoKeyHM
 {
     auto algorithm = getGCryptDigestAlgorithm(key.hashAlgorithmIdentifier());
     if (algorithm == GCRY_MAC_NONE)
-        return Exception { OperationError };
+        return Exception { ExceptionCode::OperationError };
 
     auto result = calculateSignature(algorithm, key.key(), data.data(), data.size());
     if (!result)
-        return Exception { OperationError };
+        return Exception { ExceptionCode::OperationError };
     return WTFMove(*result);
 }
 
@@ -98,15 +97,13 @@ ExceptionOr<bool> CryptoAlgorithmHMAC::platformVerify(const CryptoKeyHMAC& key, 
 {
     auto algorithm = getGCryptDigestAlgorithm(key.hashAlgorithmIdentifier());
     if (algorithm == GCRY_MAC_NONE)
-        return Exception { OperationError };
+        return Exception { ExceptionCode::OperationError };
 
     auto expectedSignature = calculateSignature(algorithm, key.key(), data.data(), data.size());
     if (!expectedSignature)
-        return Exception { OperationError };
+        return Exception { ExceptionCode::OperationError };
     // Using a constant time comparison to prevent timing attacks.
-    return signature.size() == expectedSignature->size() && !constantTimeMemcmp(expectedSignature->data(), signature.data(), expectedSignature->size());
+    return signature.size() == expectedSignature->size() && !constantTimeMemcmp(expectedSignature->span(), signature.span());
 }
 
-}
-
-#endif // ENABLE(WEB_CRYPTO)
+} // namespace WebCore

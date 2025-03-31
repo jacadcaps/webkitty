@@ -44,16 +44,16 @@
 #import <JavaScriptCore/JSGlobalObjectInlines.h>
 #import <JavaScriptCore/JSLock.h>
 #import <WebCore/Document.h>
-#import <WebCore/Frame.h>
 #import <WebCore/FrameLoader.h>
 #import <WebCore/HTMLInputElement.h>
-#import <WebCore/HTMLParserIdioms.h>
 #import <WebCore/HTMLTextFormControlElement.h>
 #import <WebCore/JSElement.h>
 #import <WebCore/LegacyWebArchive.h>
+#import <WebCore/LocalFrame.h>
 #import <WebCore/PlatformWheelEvent.h>
 #import <WebCore/Range.h>
 #import <WebCore/RenderElement.h>
+#import <WebCore/RenderStyleInlines.h>
 #import <WebCore/RenderTreeAsText.h>
 #import <WebCore/ShadowRoot.h>
 #import <WebCore/SimpleRange.h>
@@ -62,6 +62,7 @@
 #import <WebKitLegacy/DOMExtensions.h>
 #import <WebKitLegacy/DOMHTML.h>
 #import <wtf/Assertions.h>
+#import <wtf/text/MakeString.h>
 
 using namespace WebCore;
 using namespace JSC;
@@ -87,16 +88,16 @@ using namespace JSC;
 
 - (WebArchive *)webArchive
 {
-    return [[[WebArchive alloc] _initWithCoreLegacyWebArchive:LegacyWebArchive::create(*core(self))] autorelease];
+    return adoptNS([[WebArchive alloc] _initWithCoreLegacyWebArchive:LegacyWebArchive::create(*core(self), { }, { }, { }, false)]).autorelease();
 }
 
 - (WebArchive *)webArchiveByFilteringSubframes:(WebArchiveSubframeFilter)webArchiveSubframeFilter
 {
-    WebArchive *webArchive = [[WebArchive alloc] _initWithCoreLegacyWebArchive:LegacyWebArchive::create(*core(self), [webArchiveSubframeFilter](Frame& subframe) -> bool {
+    auto webArchive = adoptNS([[WebArchive alloc] _initWithCoreLegacyWebArchive:LegacyWebArchive::create(*core(self), [webArchiveSubframeFilter](LocalFrame& subframe) -> bool {
         return webArchiveSubframeFilter(kit(&subframe));
-    })];
+    }, { }, { }, false)]);
 
-    return [webArchive autorelease];
+    return webArchive.autorelease();
 }
 
 #if PLATFORM(IOS_FAMILY)
@@ -111,7 +112,7 @@ using namespace JSC;
     if (!renderer)
         return YES;
     
-    return renderer->style().isHorizontalWritingMode();
+    return renderer->writingMode().isHorizontal();
 }
 
 - (void)hidePlaceholder
@@ -139,14 +140,14 @@ using namespace JSC;
     String markupString = serializeFragment(node, SerializedNodes::SubtreeIncludingNode);
     Node::NodeType nodeType = node.nodeType();
     if (nodeType != Node::DOCUMENT_NODE && nodeType != Node::DOCUMENT_TYPE_NODE)
-        markupString = documentTypeString(node.document()) + markupString;
+        markupString = makeString(documentTypeString(node.document()), markupString);
 
     return markupString;
 }
 
 - (NSRect)_renderRect:(bool *)isReplaced
 {
-    return NSRect(core(self)->pixelSnappedRenderRect(isReplaced));
+    return NSRect(core(self)->pixelSnappedAbsoluteBoundingRect(isReplaced));
 }
 
 @end
@@ -155,7 +156,7 @@ using namespace JSC;
 
 - (WebFrame *)webFrame
 {
-    Frame* frame = core(self)->frame();
+    auto* frame = core(self)->frame();
     if (!frame)
         return nil;
     return kit(frame);
@@ -163,7 +164,7 @@ using namespace JSC;
 
 - (NSURL *)URLWithAttributeString:(NSString *)string
 {
-    return core(self)->completeURL(stripLeadingAndTrailingHTMLSpaces(string));
+    return core(self)->completeURL(string);
 }
 
 @end
@@ -186,13 +187,13 @@ using namespace JSC;
 
 - (WebArchive *)webArchive
 {
-    return [[[WebArchive alloc] _initWithCoreLegacyWebArchive:LegacyWebArchive::create(makeSimpleRange(*core(self)))] autorelease];
+    return adoptNS([[WebArchive alloc] _initWithCoreLegacyWebArchive:LegacyWebArchive::create(makeSimpleRange(*core(self)), false)]).autorelease();
 }
 
 - (NSString *)markupString
 {
-    auto& range = *core(self);
-    return String { documentTypeString(range.ownerDocument()) + serializePreservingVisualAppearance(makeSimpleRange(range), nullptr, AnnotateForInterchange::Yes) };
+    auto range = makeSimpleRange(*core(self));
+    return makeString(documentTypeString(range.start.document()), serializePreservingVisualAppearance(range, nullptr, AnnotateForInterchange::Yes));
 }
 
 @end
@@ -219,22 +220,22 @@ using namespace JSC;
 
 - (BOOL)_isAutofilled
 {
-    return downcast<HTMLInputElement>(core((DOMElement *)self))->isAutoFilled();
+    return downcast<HTMLInputElement>(core((DOMElement *)self))->autofilled();
 }
 
 - (BOOL)_isAutoFilledAndViewable
 {
-    return downcast<HTMLInputElement>(core((DOMElement *)self))->isAutoFilledAndViewable();
+    return downcast<HTMLInputElement>(core((DOMElement *)self))->autofilledAndViewable();
 }
 
 - (void)_setAutofilled:(BOOL)autofilled
 {
-    downcast<HTMLInputElement>(core((DOMElement *)self))->setAutoFilled(autofilled);
+    downcast<HTMLInputElement>(core((DOMElement *)self))->setAutofilled(autofilled);
 }
 
 - (void)_setAutoFilledAndViewable:(BOOL)autoFilledAndViewable
 {
-    downcast<HTMLInputElement>(core((DOMElement *)self))->setAutoFilledAndViewable(autoFilledAndViewable);
+    downcast<HTMLInputElement>(core((DOMElement *)self))->setAutofilledAndViewable(autoFilledAndViewable);
 }
 
 @end
@@ -251,21 +252,24 @@ using namespace JSC;
 #if !PLATFORM(IOS_FAMILY)
 static NSEventPhase toNSEventPhase(PlatformWheelEventPhase platformPhase)
 {
-    uint32_t phase = PlatformWheelEventPhaseNone; 
-    if (platformPhase & PlatformWheelEventPhaseBegan)
-        phase |= NSEventPhaseBegan;
-    if (platformPhase & PlatformWheelEventPhaseStationary)
-        phase |= NSEventPhaseStationary;
-    if (platformPhase & PlatformWheelEventPhaseChanged)
-        phase |= NSEventPhaseChanged;
-    if (platformPhase & PlatformWheelEventPhaseEnded)
-        phase |= NSEventPhaseEnded;
-    if (platformPhase & PlatformWheelEventPhaseCancelled)
-        phase |= NSEventPhaseCancelled;
-    if (platformPhase & PlatformWheelEventPhaseMayBegin)
-        phase |= NSEventPhaseMayBegin;
+    switch (platformPhase) {
+    case PlatformWheelEventPhase::None:
+        return NSEventPhaseNone;
+    case PlatformWheelEventPhase::Began:
+        return NSEventPhaseBegan;
+    case PlatformWheelEventPhase::Stationary:
+        return NSEventPhaseStationary;
+    case PlatformWheelEventPhase::Changed:
+        return NSEventPhaseChanged;
+    case PlatformWheelEventPhase::Ended:
+        return NSEventPhaseEnded;
+    case PlatformWheelEventPhase::Cancelled:
+        return NSEventPhaseCancelled;
+    case PlatformWheelEventPhase::MayBegin:
+        return NSEventPhaseMayBegin;
+    }
 
-    return static_cast<NSEventPhase>(phase);
+    return NSEventPhaseNone;
 }
 
 @implementation DOMWheelEvent (WebDOMWheelEventOperationsPrivate)

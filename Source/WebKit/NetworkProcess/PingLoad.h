@@ -40,38 +40,60 @@ class NetworkLoadChecker;
 class NetworkProcess;
 class NetworkSchemeRegistry;
 
-class PingLoad final : public CanMakeWeakPtr<PingLoad>, private NetworkDataTaskClient {
+class PingLoad final : public RefCounted<PingLoad>, public NetworkDataTaskClient {
 public:
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
+    static void create(NetworkProcess& networkProcess, PAL::SessionID sessionID, NetworkResourceLoadParameters&& networkResourceLoadParameters, CompletionHandler<void(const WebCore::ResourceError&, const WebCore::ResourceResponse&)>&& completionHandler)
+    {
+        auto pingLoad = new PingLoad(networkProcess, sessionID, WTFMove(networkResourceLoadParameters), WTFMove(completionHandler));
+
+        // Keep the load alive until didFinish.
+        pingLoad->m_selfReference = adoptRef(pingLoad);
+    }
+
+    static void create(NetworkConnectionToWebProcess& networkConnectionToWebProcess, NetworkResourceLoadParameters&& networkResourceLoadParameters, CompletionHandler<void(const WebCore::ResourceError&, const WebCore::ResourceResponse&)>&& completionHandler)
+    {
+        auto pingLoad = adoptRef(*new PingLoad(networkConnectionToWebProcess, WTFMove(networkResourceLoadParameters), WTFMove(completionHandler)));
+
+        // Keep the load alive until didFinish.
+        pingLoad->m_selfReference = WTFMove(pingLoad);
+    }
+
+    ~PingLoad();
+
+private:
     PingLoad(NetworkProcess&, PAL::SessionID, NetworkResourceLoadParameters&&, CompletionHandler<void(const WebCore::ResourceError&, const WebCore::ResourceResponse&)>&&);
     PingLoad(NetworkConnectionToWebProcess&, NetworkResourceLoadParameters&&, CompletionHandler<void(const WebCore::ResourceError&, const WebCore::ResourceResponse&)>&&);
 
-private:
-    ~PingLoad();
     void initialize(NetworkProcess&);
 
     const URL& currentURL() const;
 
     void willPerformHTTPRedirection(WebCore::ResourceResponse&&, WebCore::ResourceRequest&&, RedirectCompletionHandler&&) final;
     void didReceiveChallenge(WebCore::AuthenticationChallenge&&, NegotiatedLegacyTLS, ChallengeCompletionHandler&&) final;
-    void didReceiveResponse(WebCore::ResourceResponse&&, NegotiatedLegacyTLS, ResponseCompletionHandler&&) final;
-    void didReceiveData(Ref<WebCore::SharedBuffer>&&) final;
+    void didReceiveResponse(WebCore::ResourceResponse&&, NegotiatedLegacyTLS, PrivateRelayed, ResponseCompletionHandler&&) final;
+    void didReceiveData(const WebCore::SharedBuffer&) final;
     void didCompleteWithError(const WebCore::ResourceError&, const WebCore::NetworkLoadMetrics&) final;
     void didSendData(uint64_t totalBytesSent, uint64_t totalBytesExpectedToSend) final;
     void wasBlocked() final;
     void cannotShowURL() final;
     void wasBlockedByRestrictions() final;
+    void wasBlockedByDisabledFTP() final;
     void timeoutTimerFired();
 
     void loadRequest(NetworkProcess&, WebCore::ResourceRequest&&);
 
     void didFinish(const WebCore::ResourceError& = { }, const WebCore::ResourceResponse& response = { });
     
+    RefPtr<PingLoad> m_selfReference;
     PAL::SessionID m_sessionID;
     NetworkResourceLoadParameters m_parameters;
     CompletionHandler<void(const WebCore::ResourceError&, const WebCore::ResourceResponse&)> m_completionHandler;
     RefPtr<NetworkDataTask> m_task;
     WebCore::Timer m_timeoutTimer;
-    UniqueRef<NetworkLoadChecker> m_networkLoadChecker;
+    Ref<NetworkLoadChecker> m_networkLoadChecker;
     Vector<RefPtr<WebCore::BlobDataFileReference>> m_blobFiles;
 };
 

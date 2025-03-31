@@ -36,8 +36,8 @@
 #include <sys/stat.h>
 #include <windows.h>
 #include <wtf/CryptographicallyRandomNumber.h>
-#include <wtf/FileMetadata.h>
 #include <wtf/HashMap.h>
+#include <wtf/NeverDestroyed.h>
 #include <wtf/text/CString.h>
 #include <wtf/text/StringBuilder.h>
 #include <wtf/text/win/WCharStringExtras.h>
@@ -58,33 +58,19 @@ static bool getFindData(String path, WIN32_FIND_DATAW& findData)
     return true;
 }
 
-static bool getFileSizeFromFindData(const WIN32_FIND_DATAW& findData, long long& size)
-{
-    ULARGE_INTEGER fileSize;
-    fileSize.HighPart = findData.nFileSizeHigh;
-    fileSize.LowPart = findData.nFileSizeLow;
-
-    if (fileSize.QuadPart > static_cast<ULONGLONG>(std::numeric_limits<long long>::max()))
-        return false;
-
-    size = fileSize.QuadPart;
-    return true;
-}
-
-static bool getFileSizeFromByHandleFileInformationStructure(const BY_HANDLE_FILE_INFORMATION& fileInformation, long long& size)
+static std::optional<uint64_t> getFileSizeFromByHandleFileInformationStructure(const BY_HANDLE_FILE_INFORMATION& fileInformation)
 {
     ULARGE_INTEGER fileSize;
     fileSize.HighPart = fileInformation.nFileSizeHigh;
     fileSize.LowPart = fileInformation.nFileSizeLow;
 
     if (fileSize.QuadPart > static_cast<ULONGLONG>(std::numeric_limits<long long>::max()))
-        return false;
+        return std::nullopt;
 
-    size = fileSize.QuadPart;
-    return true;
+    return fileSize.QuadPart;
 }
 
-static void getFileCreationTimeFromFindData(const WIN32_FIND_DATAW& findData, time_t& time)
+static void fileCreationTimeFromFindData(const WIN32_FIND_DATAW& findData, time_t& time)
 {
     ULARGE_INTEGER fileTime;
     fileTime.HighPart = findData.ftCreationTime.dwHighDateTime;
@@ -95,254 +81,49 @@ static void getFileCreationTimeFromFindData(const WIN32_FIND_DATAW& findData, ti
 }
 
 
-static void getFileModificationTimeFromFindData(const WIN32_FIND_DATAW& findData, time_t& time)
-{
-    ULARGE_INTEGER fileTime;
-    fileTime.HighPart = findData.ftLastWriteTime.dwHighDateTime;
-    fileTime.LowPart = findData.ftLastWriteTime.dwLowDateTime;
-
-    // Information about converting time_t to FileTime is available at http://msdn.microsoft.com/en-us/library/ms724228%28v=vs.85%29.aspx
-    time = fileTime.QuadPart / 10000000 - kSecondsFromFileTimeToTimet;
-}
-
-bool getFileSize(const String& path, long long& size)
-{
-    WIN32_FIND_DATAW findData;
-    if (!getFindData(path, findData))
-        return false;
-
-    return getFileSizeFromFindData(findData, size);
-}
-
-bool getFileSize(PlatformFileHandle fileHandle, long long& size)
+std::optional<uint64_t> fileSize(PlatformFileHandle fileHandle)
 {
     BY_HANDLE_FILE_INFORMATION fileInformation;
     if (!::GetFileInformationByHandle(fileHandle, &fileInformation))
-        return false;
+        return std::nullopt;
 
-    return getFileSizeFromByHandleFileInformationStructure(fileInformation, size);
+    return getFileSizeFromByHandleFileInformationStructure(fileInformation);
 }
 
-Optional<WallTime> getFileModificationTime(const String& path)
+std::optional<PlatformFileID> fileID(PlatformFileHandle)
 {
-    WIN32_FIND_DATAW findData;
-    if (!getFindData(path, findData))
-        return WTF::nullopt;
-
-    time_t time = 0;
-    getFileModificationTimeFromFindData(findData, time);
-    return WallTime::fromRawSeconds(time);
+    // FIXME (246118): Implement this function properly.
+    return std::nullopt;
 }
 
-Optional<WallTime> getFileCreationTime(const String& path)
+bool fileIDsAreEqual(std::optional<PlatformFileID>, std::optional<PlatformFileID>)
 {
-    WIN32_FIND_DATAW findData;
-    if (!getFindData(path, findData))
-        return WTF::nullopt;
-
-    time_t time = 0;
-    getFileCreationTimeFromFindData(findData, time);
-    return WallTime::fromRawSeconds(time);
-}
-
-static String getFinalPathName(const String& path)
-{
-    auto handle = openFile(path, FileOpenMode::Read);
-    if (!isHandleValid(handle))
-        return String();
-
-    // VOLUME_NAME_DOS can return a \\?\ prefixed path, so it can be longer than MAX_PATH
-    Vector<UChar> buffer(32768);
-    if (::GetFinalPathNameByHandleW(handle, wcharFrom(buffer.data()), buffer.size(), VOLUME_NAME_DOS) >= 32768) {
-        closeFile(handle);
-        return String();
-    }
-    closeFile(handle);
-
-    buffer.shrink(wcslen(wcharFrom(buffer.data())));
-    return String::adopt(WTFMove(buffer));
-}
-
-static inline bool isSymbolicLink(WIN32_FIND_DATAW findData)
-{
-    return findData.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT && findData.dwReserved0 == IO_REPARSE_TAG_SYMLINK;
-}
-
-static FileMetadata::Type toFileMetadataType(WIN32_FIND_DATAW findData)
-{
-    if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
-        return FileMetadata::Type::Directory;
-    if (isSymbolicLink(findData))
-        return FileMetadata::Type::SymbolicLink;
-    return FileMetadata::Type::File;
-}
-
-static Optional<FileMetadata> findDataToFileMetadata(WIN32_FIND_DATAW findData)
-{
-    long long length;
-    if (!getFileSizeFromFindData(findData, length))
-        return WTF::nullopt;
-
-    time_t modificationTime;
-    getFileModificationTimeFromFindData(findData, modificationTime);
-
-    return FileMetadata {
-        WallTime::fromRawSeconds(modificationTime),
-        length,
-        static_cast<bool>(findData.dwFileAttributes & FILE_ATTRIBUTE_HIDDEN),
-        toFileMetadataType(findData)
-    };
-}
-
-Optional<FileMetadata> fileMetadata(const String& path)
-{
-    WIN32_FIND_DATAW findData;
-    if (!getFindData(path, findData))
-        return WTF::nullopt;
-
-    return findDataToFileMetadata(findData);
-}
-
-Optional<FileMetadata> fileMetadataFollowingSymlinks(const String& path)
-{
-    WIN32_FIND_DATAW findData;
-    if (!getFindData(path, findData))
-        return WTF::nullopt;
-
-    if (isSymbolicLink(findData)) {
-        String targetPath = getFinalPathName(path);
-        if (targetPath.isNull())
-            return WTF::nullopt;
-        if (!getFindData(targetPath, findData))
-            return WTF::nullopt;
-    }
-
-    return findDataToFileMetadata(findData);
-}
-
-bool createSymbolicLink(const String& targetPath, const String& symbolicLinkPath)
-{
-    return ::CreateSymbolicLinkW(symbolicLinkPath.wideCharacters().data(), targetPath.wideCharacters().data(), 0);
-}
-
-bool fileExists(const String& path)
-{
-    WIN32_FIND_DATAW findData;
-    return getFindData(path, findData);
-}
-
-bool deleteFile(const String& path)
-{
-    String filename = path;
-    return !!DeleteFileW(filename.wideCharacters().data());
-}
-
-bool deleteEmptyDirectory(const String& path)
-{
-    String filename = path;
-    return !!RemoveDirectoryW(filename.wideCharacters().data());
-}
-
-bool moveFile(const String& oldPath, const String& newPath)
-{
-    String oldFilename = oldPath;
-    String newFilename = newPath;
-    return !!::MoveFileEx(oldFilename.wideCharacters().data(), newFilename.wideCharacters().data(), MOVEFILE_COPY_ALLOWED | MOVEFILE_REPLACE_EXISTING);
-}
-
-String pathByAppendingComponent(const String& path, const String& component)
-{
-    Vector<UChar> buffer(MAX_PATH);
-    if (path.length() + 1 > buffer.size())
-        return String();
-
-    StringView(path).getCharactersWithUpconvert(buffer.data());
-    buffer[path.length()] = '\0';
-
-    if (!PathAppendW(wcharFrom(buffer.data()), component.wideCharacters().data()))
-        return String();
-
-    buffer.shrink(wcslen(wcharFrom(buffer.data())));
-    return String::adopt(WTFMove(buffer));
-}
-
-String pathByAppendingComponents(StringView path, const Vector<StringView>& components)
-{
-    String result = path.toString();
-    for (auto& component : components)
-        result = pathByAppendingComponent(result, component.toString());
-    return result;
-}
-
-#if !USE(CF)
-
-CString fileSystemRepresentation(const String& path)
-{
-    auto characters = wcharFrom(StringView(path).upconvertedCharacters());
-    int size = WideCharToMultiByte(CP_ACP, 0, characters, path.length(), 0, 0, 0, 0) - 1;
-
-    char* buffer;
-    CString string = CString::newUninitialized(size, buffer);
-
-    WideCharToMultiByte(CP_ACP, 0, characters, path.length(), buffer, size, 0, 0);
-
-    return string;
-}
-
-#endif // !USE(CF)
-
-bool makeAllDirectories(const String& path)
-{
-    String fullPath = path;
-    if (SHCreateDirectoryEx(nullptr, fullPath.wideCharacters().data(), nullptr) != ERROR_SUCCESS) {
-        DWORD error = GetLastError();
-        if (error != ERROR_FILE_EXISTS && error != ERROR_ALREADY_EXISTS) {
-            LOG_ERROR("Failed to create path %s", path.ascii().data());
-            return false;
-        }
-    }
+    // FIXME (246118): Implement this function properly.
     return true;
 }
 
-String homeDirectoryPath()
+std::optional<WallTime> fileCreationTime(const String& path)
 {
-    return "";
+    WIN32_FIND_DATAW findData;
+    if (!getFindData(path, findData))
+        return std::nullopt;
+
+    time_t time = 0;
+    fileCreationTimeFromFindData(findData, time);
+    return WallTime::fromRawSeconds(time);
 }
 
-String pathGetFileName(const String& path)
+CString fileSystemRepresentation(const String& path)
 {
-    return String(::PathFindFileName(path.wideCharacters().data()));
-}
+    auto characters = StringView(path).upconvertedCharacters();
+    int size = WideCharToMultiByte(CP_ACP, 0, wcharFrom(characters), path.length(), 0, 0, 0, 0);
 
-String directoryName(const String& path)
-{
-    String name = path.left(path.length() - pathGetFileName(path).length());
-    if (name.characterStartingAt(name.length() - 1) == '\\'
-        || name.characterStartingAt(name.length() - 1) == '/') {
-        // Remove any trailing "\" or "/"
-        name.truncate(name.length() - 1);
-    }
-    return name;
-}
+    std::span<char> buffer;
+    CString string = CString::newUninitialized(size, buffer);
 
-static String bundleName()
-{
-    static const NeverDestroyed<String> name = [] {
-        String name { "WebKit"_s };
+    WideCharToMultiByte(CP_ACP, 0, wcharFrom(characters), path.length(), buffer.data(), buffer.size(), 0, 0);
 
-#if USE(CF)
-        if (CFBundleRef bundle = CFBundleGetMainBundle()) {
-            if (CFTypeRef bundleExecutable = CFBundleGetValueForInfoDictionaryKey(bundle, kCFBundleExecutableKey)) {
-                if (CFGetTypeID(bundleExecutable) == CFStringGetTypeID())
-                    name = reinterpret_cast<CFStringRef>(bundleExecutable);
-            }
-        }
-#endif
-
-        return name;
-    }();
-
-    return name;
+    return string;
 }
 
 static String storageDirectory(DWORD pathIdentifier)
@@ -354,7 +135,7 @@ static String storageDirectory(DWORD pathIdentifier)
     buffer.shrink(wcslen(wcharFrom(buffer.data())));
     String directory = String::adopt(WTFMove(buffer));
 
-    directory = pathByAppendingComponent(directory, "Apple Computer\\" + bundleName());
+    directory = pathByAppendingComponent(directory, "Apple Computer\\WebKit"_s);
     if (!makeAllDirectories(directory))
         return String();
 
@@ -378,15 +159,15 @@ static String cachedStorageDirectory(DWORD pathIdentifier)
 static String generateTemporaryPath(const Function<bool(const String&)>& action)
 {
     wchar_t tempPath[MAX_PATH];
-    int tempPathLength = ::GetTempPathW(WTF_ARRAY_LENGTH(tempPath), tempPath);
-    if (tempPathLength <= 0 || tempPathLength > WTF_ARRAY_LENGTH(tempPath))
+    int tempPathLength = ::GetTempPathW(std::size(tempPath), tempPath);
+    if (tempPathLength <= 0 || static_cast<size_t>(tempPathLength) >= std::size(tempPath))
         return String();
 
     String proposedPath;
     do {
         wchar_t tempFile[] = L"XXXXXXXX.tmp"; // Use 8.3 style name (more characters aren't helpful due to 8.3 short file names)
         const int randomPartLength = 8;
-        cryptographicallyRandomValues(tempFile, randomPartLength * sizeof(wchar_t));
+        cryptographicallyRandomValues({ reinterpret_cast<uint8_t*>(tempFile), randomPartLength * sizeof(wchar_t) });
 
         // Limit to valid filesystem characters, also excluding others that could be problematic, like punctuation.
         // don't include both upper and lowercase since Windows file systems are typically not case sensitive.
@@ -394,9 +175,9 @@ static String generateTemporaryPath(const Function<bool(const String&)>& action)
         for (int i = 0; i < randomPartLength; ++i)
             tempFile[i] = validChars[tempFile[i] % (sizeof(validChars) - 1)];
 
-        ASSERT(wcslen(tempFile) == WTF_ARRAY_LENGTH(tempFile) - 1);
+        ASSERT(wcslen(tempFile) == std::size(tempFile) - 1);
 
-        proposedPath = pathByAppendingComponent(tempPath, tempFile);
+        proposedPath = pathByAppendingComponent(String(tempPath), String(tempFile));
         if (proposedPath.isEmpty())
             break;
     } while (!action(proposedPath));
@@ -404,12 +185,12 @@ static String generateTemporaryPath(const Function<bool(const String&)>& action)
     return proposedPath;
 }
 
-String openTemporaryFile(const String&, PlatformFileHandle& handle, const String& suffix)
+std::pair<String, PlatformFileHandle> openTemporaryFile(StringView, StringView suffix)
 {
     // FIXME: Suffix is not supported, but OK for now since the code using it is macOS-port-only.
     ASSERT_UNUSED(suffix, suffix.isEmpty());
 
-    handle = INVALID_HANDLE_VALUE;
+    PlatformFileHandle handle = INVALID_HANDLE_VALUE;
 
     String proposedPath = generateTemporaryPath([&handle](const String& proposedPath) {
         // use CREATE_NEW to avoid overwriting an existing file with the same name
@@ -419,9 +200,9 @@ String openTemporaryFile(const String&, PlatformFileHandle& handle, const String
     });
 
     if (!isHandleValid(handle))
-        return String();
+        return { String(), handle };
 
-    return proposedPath;
+    return { proposedPath, handle };
 }
 
 PlatformFileHandle openFile(const String& path, FileOpenMode mode, FileAccessPermission, bool failIfFileExists)
@@ -435,7 +216,7 @@ PlatformFileHandle openFile(const String& path, FileOpenMode mode, FileAccessPer
         creationDisposition = OPEN_EXISTING;
         shareMode = FILE_SHARE_READ;
         break;
-    case FileOpenMode::Write:
+    case FileOpenMode::Truncate:
         desiredAccess = GENERIC_WRITE;
         creationDisposition = CREATE_ALWAYS;
         break;
@@ -488,44 +269,36 @@ bool truncateFile(PlatformFileHandle handle, long long offset)
     return SetFileInformationByHandle(handle, FileEndOfFileInfo, &eofInfo, sizeof(FILE_END_OF_FILE_INFO));
 }
 
-int writeToFile(PlatformFileHandle handle, const char* data, int length)
+bool flushFile(PlatformFileHandle)
+{
+    // Not implemented.
+    return false;
+}
+
+int64_t writeToFile(PlatformFileHandle handle, std::span<const uint8_t> data)
 {
     if (!isHandleValid(handle))
         return -1;
 
     DWORD bytesWritten;
-    bool success = WriteFile(handle, data, length, &bytesWritten, nullptr);
+    bool success = WriteFile(handle, data.data(), data.size(), &bytesWritten, nullptr);
 
     if (!success)
         return -1;
-    return static_cast<int>(bytesWritten);
+    return static_cast<int64_t>(bytesWritten);
 }
 
-int readFromFile(PlatformFileHandle handle, char* data, int length)
+int64_t readFromFile(PlatformFileHandle handle, std::span<uint8_t> data)
 {
     if (!isHandleValid(handle))
         return -1;
 
     DWORD bytesRead;
-    bool success = ::ReadFile(handle, data, length, &bytesRead, nullptr);
+    bool success = ::ReadFile(handle, data.data(), data.size(), &bytesRead, nullptr);
 
     if (!success)
         return -1;
-    return static_cast<int>(bytesRead);
-}
-
-bool hardLink(const String& source, const String& destination)
-{
-    return CreateHardLink(destination.wideCharacters().data(), source.wideCharacters().data(), nullptr);
-}
-
-bool hardLinkOrCopyFile(const String& source, const String& destination)
-{
-    if (hardLink(source, destination))
-        return true;
-
-    // Hard link failed. Perform a copy instead.
-    return !!::CopyFile(source.wideCharacters().data(), destination.wideCharacters().data(), TRUE);
+    return static_cast<int64_t>(bytesRead);
 }
 
 String localUserSpecificStorageDirectory()
@@ -538,55 +311,21 @@ String roamingUserSpecificStorageDirectory()
     return cachedStorageDirectory(CSIDL_APPDATA);
 }
 
-Vector<String> listDirectory(const String& directory, const String& filter)
+std::optional<int32_t> getFileDeviceId(const String& fsFile)
 {
-    Vector<String> entries;
-
-    PathWalker walker(directory, filter);
-    if (!walker.isValid())
-        return entries;
-
-    do {
-        if (walker.data().dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY
-            && (!wcscmp(walker.data().cFileName, L".") || !wcscmp(walker.data().cFileName, L"..")))
-            continue;
-
-        entries.append(directory + "\\" + reinterpret_cast<const UChar*>(walker.data().cFileName));
-    } while (walker.step());
-
-    return entries;
-}
-
-bool getVolumeFreeSpace(const String& path, uint64_t& freeSpace)
-{
-    ULARGE_INTEGER freeBytesAvailableToCaller;
-    if (!GetDiskFreeSpaceExW(path.wideCharacters().data(), &freeBytesAvailableToCaller, nullptr, nullptr))
-        return false;
-
-    freeSpace = freeBytesAvailableToCaller.QuadPart;
-    return true;
-}
-
-Optional<int32_t> getFileDeviceId(const CString& fsFile)
-{
-    auto handle = openFile(fsFile.data(), FileOpenMode::Read);
+    auto handle = openFile(fsFile, FileOpenMode::Read);
     if (!isHandleValid(handle))
-        return WTF::nullopt;
+        return std::nullopt;
 
     BY_HANDLE_FILE_INFORMATION fileInformation = { };
     if (!::GetFileInformationByHandle(handle, &fileInformation)) {
         closeFile(handle);
-        return WTF::nullopt;
+        return std::nullopt;
     }
 
     closeFile(handle);
 
     return fileInformation.dwVolumeSerialNumber;
-}
-
-String realPath(const String& filePath)
-{
-    return getFinalPathName(filePath);
 }
 
 String createTemporaryDirectory()
@@ -596,24 +335,19 @@ String createTemporaryDirectory()
     });
 }
 
-bool deleteNonEmptyDirectory(const String& directoryPath)
+std::optional<uint32_t> volumeFileBlockSize(const String& path)
 {
-    SHFILEOPSTRUCT deleteOperation = {
-        nullptr,
-        FO_DELETE,
-        directoryPath.wideCharacters().data(),
-        L"",
-        FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_SILENT,
-        false,
-        nullptr,
-        L""
-    };
-    return !SHFileOperation(&deleteOperation);
+    DWORD sectorsPerCluster, bytesPerSector, freeClusters, totalClusters;
+    if (!GetDiskFreeSpaceW(path.wideCharacters().data(), &sectorsPerCluster, &bytesPerSector, &freeClusters, &totalClusters))
+        return std::nullopt;
+
+    return sectorsPerCluster * bytesPerSector;
 }
 
-bool unmapViewOfFile(void* buffer, size_t)
+MappedFileData::~MappedFileData()
 {
-    return UnmapViewOfFile(buffer);
+    if (m_fileData.data())
+        UnmapViewOfFile(m_fileData.data());
 }
 
 bool MappedFileData::mapFileHandle(PlatformFileHandle handle, FileOpenMode openMode, MappedFileMode)
@@ -621,14 +355,12 @@ bool MappedFileData::mapFileHandle(PlatformFileHandle handle, FileOpenMode openM
     if (!isHandleValid(handle))
         return false;
 
-    long long size;
-    if (!getFileSize(handle, size) || size > std::numeric_limits<size_t>::max() || size > std::numeric_limits<decltype(m_fileSize)>::max()) {
+    auto size = fileSize(handle);
+    if (!size || *size > std::numeric_limits<size_t>::max())
         return false;
-    }
 
-    if (!size) {
+    if (!*size)
         return true;
-    }
 
     DWORD pageProtection = PAGE_READONLY;
     DWORD desiredAccess = FILE_MAP_READ;
@@ -637,7 +369,7 @@ bool MappedFileData::mapFileHandle(PlatformFileHandle handle, FileOpenMode openM
         pageProtection = PAGE_READONLY;
         desiredAccess = FILE_MAP_READ;
         break;
-    case FileOpenMode::Write:
+    case FileOpenMode::Truncate:
         pageProtection = PAGE_READWRITE;
         desiredAccess = FILE_MAP_WRITE;
         break;
@@ -647,15 +379,15 @@ bool MappedFileData::mapFileHandle(PlatformFileHandle handle, FileOpenMode openM
         break;
     }
 
-    auto mapping = CreateFileMapping(handle, nullptr, pageProtection, 0, 0, nullptr);
-    if (!mapping)
+    m_fileMapping = Win32Handle::adopt(CreateFileMapping(handle, nullptr, pageProtection, 0, 0, nullptr));
+    if (!m_fileMapping)
         return false;
 
-    m_fileData = MapViewOfFile(mapping, desiredAccess, 0, 0, size);
-    CloseHandle(mapping);
-    if (!m_fileData)
+    auto* data = MapViewOfFile(m_fileMapping.get(), desiredAccess, 0, 0, *size);
+    if (!data)
         return false;
-    m_fileSize = size;
+
+    m_fileData = { static_cast<uint8_t*>(data), static_cast<size_t>(*size) };
     return true;
 }
 

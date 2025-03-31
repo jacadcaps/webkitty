@@ -10,9 +10,18 @@
 
 #include "api/test/create_frame_generator.h"
 
+#include <cstdint>
 #include <cstdio>
-#include <utility>
+#include <memory>
+#include <optional>
+#include <string>
+#include <vector>
 
+#include "absl/base/nullability.h"
+#include "absl/strings/string_view.h"
+#include "api/environment/environment.h"
+#include "api/environment/environment_factory.h"
+#include "api/test/frame_generator_interface.h"
 #include "rtc_base/checks.h"
 #include "test/frame_generator.h"
 #include "test/testsupport/ivf_video_frame_generator.h"
@@ -23,8 +32,8 @@ namespace test {
 std::unique_ptr<FrameGeneratorInterface> CreateSquareFrameGenerator(
     int width,
     int height,
-    absl::optional<FrameGeneratorInterface::OutputType> type,
-    absl::optional<int> num_squares) {
+    std::optional<FrameGeneratorInterface::OutputType> type,
+    std::optional<int> num_squares) {
   return std::make_unique<SquareGenerator>(
       width, height, type.value_or(FrameGeneratorInterface::OutputType::kI420),
       num_squares.value_or(10));
@@ -47,9 +56,32 @@ std::unique_ptr<FrameGeneratorInterface> CreateFromYuvFileFrameGenerator(
                                             frame_repeat_count);
 }
 
+std::unique_ptr<FrameGeneratorInterface> CreateFromNV12FileFrameGenerator(
+    std::vector<std::string> filenames,
+    size_t width,
+    size_t height,
+    int frame_repeat_count) {
+  RTC_DCHECK(!filenames.empty());
+  std::vector<FILE*> files;
+  for (const std::string& filename : filenames) {
+    FILE* file = fopen(filename.c_str(), "rb");
+    RTC_DCHECK(file != nullptr) << "Failed to open: '" << filename << "'\n";
+    files.push_back(file);
+  }
+
+  return std::make_unique<NV12FileGenerator>(files, width, height,
+                                             frame_repeat_count);
+}
+
 std::unique_ptr<FrameGeneratorInterface> CreateFromIvfFileFrameGenerator(
     std::string filename) {
-  return std::make_unique<IvfVideoFrameGenerator>(std::move(filename));
+  return CreateFromIvfFileFrameGenerator(CreateEnvironment(), filename);
+}
+
+absl::Nonnull<std::unique_ptr<FrameGeneratorInterface>>
+CreateFromIvfFileFrameGenerator(const Environment& env,
+                                absl::string_view filename) {
+  return std::make_unique<IvfVideoFrameGenerator>(env, filename);
 }
 
 std::unique_ptr<FrameGeneratorInterface>

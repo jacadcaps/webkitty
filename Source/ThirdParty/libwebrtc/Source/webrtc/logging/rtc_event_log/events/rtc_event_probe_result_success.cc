@@ -10,7 +10,11 @@
 
 #include "logging/rtc_event_log/events/rtc_event_probe_result_success.h"
 
+#include <cstdint>
+#include <memory>
+
 #include "absl/memory/memory.h"
+#include "api/rtc_event_log/rtc_event.h"
 
 namespace webrtc {
 
@@ -23,14 +27,6 @@ RtcEventProbeResultSuccess::RtcEventProbeResultSuccess(
     : RtcEvent(other.timestamp_us_),
       id_(other.id_),
       bitrate_bps_(other.bitrate_bps_) {}
-
-RtcEvent::Type RtcEventProbeResultSuccess::GetType() const {
-  return RtcEvent::Type::ProbeResultSuccess;
-}
-
-bool RtcEventProbeResultSuccess::IsConfigEvent() const {
-  return false;
-}
 
 std::unique_ptr<RtcEventProbeResultSuccess> RtcEventProbeResultSuccess::Copy()
     const {

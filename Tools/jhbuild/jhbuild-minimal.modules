@@ -5,104 +5,270 @@
 
   <metamodule id="webkitgtk-minimal-dependencies">
     <dependencies>
-      <dep package="wpebackend-fdo"/>
+      <dep package="icu"/>
+      <dep package="harfbuzz"/>
+      <dep package="libxml2"/>
+      <dep package="glib"/>
+      <dep package="glib-networking"/>
+      <dep package="libavif"/>
+      <dep package="libdrm"/>
+      <dep package="libjxl"/>
       <dep package="libsoup"/>
+      <dep package="libvpx"/>
+      <dep package="wpebackend-fdo"/>
     </dependencies>
   </metamodule>
 
   <metamodule id="webkitwpe-minimal-dependencies">
     <dependencies>
-      <dep package="wpebackend-fdo"/>
+      <dep package="icu"/>
+      <dep package="harfbuzz"/>
+      <dep package="libxml2"/>
+      <dep package="glib"/>
+      <dep package="glib-networking"/>
+      <dep package="libavif"/>
+      <dep package="libdrm"/>
+      <dep package="libjxl"/>
       <dep package="libsoup"/>
+      <dep package="libvpx"/>
+      <dep package="wpebackend-fdo"/>
     </dependencies>
   </metamodule>
 
   <!-- Please use http/https to access repositories to be friendly to users stuck behind firewalls. -->
+  <!-- Git repositories. -->
+  <repository type="git" name="aomedia.googlesource.com"
+      href="https://aomedia.googlesource.com"/>
+  <repository type="git" name="chromium.googlesource.com"
+      href="https://chromium.googlesource.com"/>
+  <repository type="git" name="git.freedesktop.org"
+      href="https://gitlab.freedesktop.org"/>
   <repository type="git" name="github.com"
       href="https://github.com"/>
+  <!-- Tarball repositories. -->
   <repository type="tarball" name="github-tarball"
-      href="https://github.com/"/>
-  <repository type="tarball" name="sourceware.org-mirror"
-      href="http://mirrors.kernel.org/sources.redhat.com/"/>
+      href="https://github.com"/>
   <repository type="tarball" name="ftp.gnome.org"
       href="http://ftp.gnome.org"/>
-  <repository type="tarball" name="download.gnome.org"
-      href="https://download.gnome.org"/>
-  <repository type="git" name="git.gnome.org"
-      href="https://git.gnome.org/browse/"/>
-  <repository type="tarball" name="cairographics.org"
-      href="http://cairographics.org"/>
-  <repository type="tarball" name="freedesktop.org"
-      href="http://www.freedesktop.org"/>
-  <repository type="tarball" name="xorg"
-      href="http://xorg.freedesktop.org"/>
-  <repository type="tarball" name="xmlsoft.org"
-      href="http://xmlsoft.org"/>
-  <repository type="tarball" name="savannah.gnu.org"
-      href="http://download.savannah.gnu.org/releases/"/>
-  <repository type="git" name="freedesktop-git"
-      href="http://anongit.freedesktop.org/git"/>
- <repository type="tarball" name="dri.freedesktop.org"
-      href="https://dri.freedesktop.org"/>
-  <repository type="tarball" name="mesa.freedesktop.org"
-      href="https://mesa.freedesktop.org"/>
-  <repository type="tarball" name="wayland.freedesktop.org"
-      href="http://wayland.freedesktop.org"/>
-  <repository type="tarball" name="llvm.org"
-      href="http://llvm.org"/>
-  <repository type="tarball" name="webkitgtk-jhbuild-mirror"
-      href="http://webkitgtk.org/jhbuild_mirror/"/>
-  <repository type="tarball" name="gnupg.org"
-      href="https://www.gnupg.org/ftp/gcrypt/"/>
-  <repository type="tarball" name="wpewebkit"
-      href="https://wpewebkit.org/releases/"/>
 
+  <!-- meson 0.62.2 required to build gstreamer-1.22.7 -->
+  <if condition-set="require-meson">
+    <distutils id="meson" python3="1">
+      <branch module="mesonbuild/meson"
+              tag="0.62.2"
+              repo="github.com"/>
+    </distutils>
+  </if>
 
 <!-- This moduleset is used when the environment variable WEBKIT_JHBUILD_MODULESET=minimal is set -->
 <!-- Its intended to allow building WebKit using as much as libraries from your distribution as possible -->
 <!-- In order to ensure its minimal, all the modules should have a pkg-config declaration line -->
 
   <cmake id="libwpe">
-    <branch module="WebPlatformForEmbedded/libwpe/releases/download/1.6.0/libwpe-1.6.0.tar.xz" version="1.6.0"
-            repo="github-tarball"
-            hash="3587c6b8a807f4bb76b268ba74ca82c6b395b90235db41ad8252224456193c90"/>
+    <branch repo="github-tarball"
+            module="WebPlatformForEmbedded/libwpe/releases/download/${version}/libwpe-${version}.tar.xz"
+            version="1.14.1"
+            hash="sha256:b1d0cdcf0f8dbb494e65b0f7913e357106da9a0d57f4fbb7b9d1238a6dbe9ade"/>
   </cmake>
 
-  <cmake id="wpebackend-fdo">
+  <meson id="wpebackend-fdo">
     <dependencies>
       <dep package="libwpe"/>
     </dependencies>
-    <branch repo="github.com" module="Igalia/WPEBackend-fdo.git" checkoutdir="wpebackend-fdo" tag="1.3.1-54-g1f58ebdf632fdf90f691949d90c8338a8d7073c7"/>
+    <branch repo="github-tarball"
+            module="Igalia/WPEBackend-fdo/releases/download/${version}/wpebackend-fdo-${version}.tar.xz"
+            version="1.14.2"
+            hash="sha256:93c9766ae9864eeaeaee2b0a74f22cbca08df42c1a1bdb55b086f2528e380d38">
+    </branch>
+  </meson>
+
+  <autotools id="icu" autogen-sh="./source/configure" autogenargs="--disable-samples --disable-tests">
+     <pkg-config>icu-i18n.pc</pkg-config>
+     <branch module="/unicode-org/icu/releases/download/release-70-1/icu4c-70_1-src.tgz"
+             version="70.1"
+             checkoutdir="icu-${version}"
+             repo="github-tarball"
+             hash="sha256:8d205428c17bf13bb535300669ed28b338a157b1c01ae66d31d0d3e2d47c3fd5">
+       <patch file="icudata-stdlibs.patch" strip="1"/>
+     </branch>
+  </autotools>
+
+  <meson id="harfbuzz" mesonargs="-Dintrospection=enabled -Dgobject=enabled -Dtests=disabled -Ddocs=disabled">
+    <pkg-config>harfbuzz.pc</pkg-config>
+    <dependencies>
+      <dep package="freetype"/>
+      <dep package="glib"/>
+      <dep package="gobject-introspection"/>
+      <dep package="icu"/>
+    </dependencies>
+    <branch module="harfbuzz/harfbuzz"
+            repo="github.com"
+            tag="2.7.4"
+            version="2.7.4"
+            checkoutdir="harfbuzz-${version}">
+       <patch file="harfbuzz-disable-Wcast-function-type-strict.patch" strip="1"/>
+    </branch>
+  </meson>
+
+  <meson id="freetype" mesonargs="-Dbrotli=enabled -Dbzip2=enabled -Dharfbuzz=disabled -Dpng=enabled -Dzlib=enabled">
+    <pkg-config>freetype2.pc</pkg-config>
+    <branch module="freetype/freetype"
+            repo="git.freedesktop.org"
+            tag="VER-2-11-1"
+            version="2.11.1"
+            checkoutdir="libpsl-${version}"/>
+  </meson>
+
+  <meson id="gobject-introspection">
+    <pkg-config>gobject-introspection-1.0.pc</pkg-config>
+    <dependencies>
+      <dep package="glib"/>
+    </dependencies>
+    <branch module="GNOME/gobject-introspection"
+            repo="github.com"
+            tag="1.72.0"
+            version="1.72.0"
+            checkoutdir="gobject-introspection-${version}"/>
+  </meson>
+
+  <autotools id="libxml2">
+    <pkg-config>libxml-2.0.pc</pkg-config>
+    <dependencies>
+      <dep package="glib"/>
+      <dep package="icu"/>
+    </dependencies>
+    <branch module="GNOME/libxml2"
+            repo="github.com"
+            version="2.9.13"
+            tag="v2.9.13"
+            checkoutdir="libxml2-${version}"/>
+  </autotools>
+
+  <!-- Allows USE_AVIF support -->
+  <cmake id="libavif" cmakeargs="-DCMAKE_BUILD_TYPE=Release -DAVIF_ENABLE_WERROR=OFF">
+    <pkg-config>libavif.pc</pkg-config>
+    <dependencies>
+      <dep package="aom"/>
+      <dep package="libyuv"/>
+    </dependencies>
+    <branch module="AOMediaCodec/libavif"
+            repo="github.com"
+            version="0.9.3"
+            tag="v0.9.3"/>
   </cmake>
 
-  <!-- libsoup >= 2.69 required for SameSite cookie support -->
-  <meson id="libsoup" mesonargs="-Dintrospection=disabled -Dgssapi=disabled -Dvapi=disabled -Dtests=false">
-    <pkg-config>libsoup-2.4.pc</pkg-config>
+  <cmake id="libyuv">
+    <branch module="libyuv/libyuv"
+            repo="chromium.googlesource.com"
+            tag="stable"
+            checkoutdir="libyuv"/>
+  </cmake>
+
+  <cmake id="aom" cmakeargs="-DBUILD_SHARED_LIBS=1 -DENABLE_DOCS=OFF -DENABLE_EXAMPLES=OFF -DENABLE_TOOLS=OFF -DENABLE_TESTS=OFF">
+    <pkg-config>aom.pc</pkg-config>
+    <branch module="aom"
+            repo="aomedia.googlesource.com"
+            version="3.3.0"
+            tag="v3.3.0"
+            checkoutdir="libaom-${version}">
+       <patch file="fix-aom-build-arm32.patch" strip="1"/>
+    </branch>
+  </cmake>
+
+  <!-- libdrm required for function 'drmGetFormatName' (defined since 'libdrm-2.4.113') -->
+  <meson id="libdrm" mesonargs="-Dtegra=enabled -Dcairo-tests=disabled -Dman-pages=disabled -Dvalgrind=disabled -Dudev=false -Dtests=false">
+    <pkg-config>libdrm.pc</pkg-config>
+    <branch module="mesa/drm.git"
+            version="2.4.113"
+            tag="libdrm-2.4.113"
+            checkoutdir="libdrm-2.4.113"
+            repo="git.freedesktop.org" />
+  </meson>
+
+  <meson id="libsoup" mesonargs="-Dgssapi=disabled -Dvapi=disabled -Dntlm=disabled -Dsysprof=disabled -Dautobahn=disabled -Dpkcs11_tests=disabled">
+    <pkg-config>libsoup-3.0.pc</pkg-config>
     <dependencies>
+      <dep package="glib"/>
+      <dep package="glib-networking"/>
       <dep package="libpsl"/>
     </dependencies>
-    <branch module="/sources/libsoup/2.69/libsoup-${version}.tar.xz" version="2.69.90"
-            repo="download.gnome.org"
-            hash="sha256:8ed18092cfb27d870a7c7c45992f3a216bd22dd6fd6d2c9fbf1adc2d6957cab8">
-    <patch file="libsoup-lower-glib-dependency-to-2.38.patch" strip="1"/>
-    </branch>
+    <branch module="GNOME/libsoup.git"
+            repo="github.com"
+            tag="3.6.0"
+            version="3.6.0"
+            checkoutdir="libsoup-${version}"/>
   </meson>
 
   <autotools id="libpsl" autogenargs="--enable-runtime=libicu --enable-builtin=libicu">
     <pkg-config>libpsl.pc</pkg-config>
-    <branch module="rockdaboot/libpsl/releases/download/libpsl-${version}/libpsl-${version}.tar.gz"
-            version="0.20.2"
-            repo="github-tarball"
-            hash="sha256:f8fd0aeb66252dfcc638f14d9be1e2362fdaf2ca86bde0444ff4d5cc961b560f"/>
+    <dependencies>
+      <dep package="icu"/>
+    </dependencies>
+    <branch module="rockdaboot/libpsl"
+            repo="github.com"
+            version="0.21.0"
+            tag="libpsl-0.21.0"
+            checkoutdir="libpsl-${version}"/>
   </autotools>
 
-  <!-- meson 0.50.1 required to build libsoup 2.69 -->
-  <distutils id="meson" python3="1">
+  <!-- libvpx needed for libwebrtc -->
+  <autotools id="libvpx" autogen-template="%(srcdir)s/configure --prefix=%(prefix)s --extra-cflags=-fPIC --extra-cxxflags=-fPIC">
+    <pkg-config>vpx.pc</pkg-config>
     <branch repo="github-tarball"
-            version="0.50.1"
-            module="mesonbuild/meson/releases/download/${version}/meson-${version}.tar.gz"
-            checkoutdir="meson-${version}"
-            hash="sha256:f68f56d60c80a77df8fc08fa1016bc5831605d4717b622c96212573271e14ecc"/>
-  </distutils>
+            version="1.11.0"
+            module="webmproject/libvpx/archive/refs/tags/v${version}.tar.gz"
+            checkoutdir="libvpx-${version}"
+            hash="sha256:965e51c91ad9851e2337aebcc0f517440c637c506f3a03948062e3d5ea129a83"/>
+  </autotools>
+
+  <meson id="glib" mesonargs="-Dlibmount=disabled -Dselinux=disabled -Dgtk_doc=false -Dtests=false">
+    <pkg-config>glib-2.0.pc</pkg-config>
+    <branch module="GNOME/glib"
+            repo="github.com"
+            tag="2.72.4"
+            version="2.72.4"
+            checkoutdir="glib-${version}"/>
+  </meson>
+
+  <meson id="glib-networking">
+    <dependencies>
+      <dep package="glib"/>
+    </dependencies>
+    <branch module="GNOME/glib-networking"
+            repo="github.com"
+            tag="2.70.0"
+            version="2.70.0"
+            checkoutdir="glib-networking-${version}"/>
+  </meson>
+
+  <!-- libjxl required for JPEGXL support -->
+  <cmake id="libjxl"
+         cmakeargs="-DBUILD_TESTING=OFF
+                    -DPROVISION_DEPENDENCIES=ON
+                    -DJPEGXL_ENABLE_FUZZERS=OFF
+                    -DJPEGXL_ENABLE_DEVTOOLS=OFF
+                    -DJPEGXL_ENABLE_TOOLS=OFF
+                    -DJPEGXL_ENABLE_MANPAGES=OFF
+                    -DJPEGXL_ENABLE_BENCHMARK=OFF
+                    -DJPEGXL_ENABLE_EXAMPLES=OFF
+                    -DJPEGXL_ENABLE_JNI=OFF
+                    -DJPEGXL_ENABLE_VIEWERS=OFF
+                    -DJPEGXL_ENABLE_TCMALLOC=OFF
+                    -DJPEGXL_ENABLE_PLUGINS=OFF
+                    -DJPEGXL_ENABLE_COVERAGE=OFF
+                    -DJPEGXL_ENABLE_TRANSCODE_JPEG=OFF
+                    -DJPEGXL_ENABLE_SJPEG=OFF
+                    -DJPEGXL_STATIC=OFF
+                    -DJPEGXL_WARNINGS_AS_ERRORS=OFF
+                    -DJPEGXL_ENABLE_SKCMS=ON">
+    <pkg-config>libjxl.pc</pkg-config>
+    <branch module="libjxl/libjxl.git"
+            version="0.8.2"
+            tag="v0.8.2"
+            checkoutdir="libjxl-0.8.2"
+            repo="github.com">
+      <patch file="libjxl-add-cmake-flag-provision-dependencies.patch" strip="1"/>
+    </branch>
+  </cmake>
 
 </moduleset>

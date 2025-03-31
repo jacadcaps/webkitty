@@ -36,6 +36,7 @@
 #include <mutex>
 #include <unicode/ucol.h>
 #include <wtf/Lock.h>
+#include <wtf/NeverDestroyed.h>
 #include <wtf/text/StringView.h>
 
 #if OS(DARWIN) && USE(CF)
@@ -45,11 +46,10 @@
 
 namespace WTF {
 
-static UCollator* cachedCollator;
+static Lock cachedCollatorLock;
+static UCollator* cachedCollator WTF_GUARDED_BY_LOCK(cachedCollatorLock);
 static char* cachedCollatorLocale;
 static bool cachedCollatorShouldSortLowercaseFirst;
-
-static Lock cachedCollatorMutex;
 
 #if !(OS(DARWIN) && USE(CF))
 
@@ -60,16 +60,19 @@ static inline const char* resolveDefaultLocale(const char* locale)
 
 #else
 
-static inline char* copyShortASCIIString(CFStringRef string)
+static inline CString copyShortASCIIString(CFStringRef string)
 {
-    // OK to have a fixed size buffer and to only handle ASCII since we only use this for locale names.
-    char buffer[256];
-    if (!string || !CFStringGetCString(string, buffer, sizeof(buffer), kCFStringEncodingASCII))
-        return strdup("");
-    return strdup(buffer);
+    if (!string)
+        return CString(""_s);
+
+    std::span<char> buffer;
+    auto result = CString::newUninitialized(CFStringGetLength(string) + 1, buffer);
+    if (!CFStringGetCString(string, buffer.data(), buffer.size(), kCFStringEncodingASCII))
+        return CString(""_s);
+    return result;
 }
 
-static char* copyDefaultLocale()
+static CString copyDefaultLocale()
 {
 #if !PLATFORM(IOS_FAMILY)
     return copyShortASCIIString(static_cast<CFStringRef>(CFLocaleGetValue(adoptCF(CFLocaleCopyCurrent()).get(), kCFLocaleCollatorIdentifier)));
@@ -85,20 +88,22 @@ static inline const char* resolveDefaultLocale(const char* locale)
         return locale;
     // Since iOS and OS X don't set UNIX locale to match the user's selected locale, the ICU default locale is not the right one.
     // So, instead of passing null to ICU, we pass the name of the user's selected locale.
-    static char* defaultLocale;
+    static LazyNeverDestroyed<CString> defaultLocale;
     static std::once_flag initializeDefaultLocaleOnce;
     std::call_once(initializeDefaultLocaleOnce, []{
-        defaultLocale = copyDefaultLocale();
+        defaultLocale.construct(copyDefaultLocale());
     });
-    return defaultLocale;
+    return defaultLocale.get().data();
 }
 
 #endif
 
 static inline bool localesMatch(const char* a, const char* b)
 {
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
     // Two null locales are equal, other locales are compared with strcmp.
     return a == b || (a && b && !strcmp(a, b));
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 }
 
 Collator::Collator(const char* locale, bool shouldSortLowercaseFirst)
@@ -106,7 +111,7 @@ Collator::Collator(const char* locale, bool shouldSortLowercaseFirst)
     UErrorCode status = U_ZERO_ERROR;
 
     {
-        auto locker = holdLock(cachedCollatorMutex);
+        Locker locker { cachedCollatorLock };
         if (cachedCollator && localesMatch(cachedCollatorLocale, locale) && cachedCollatorShouldSortLowercaseFirst == shouldSortLowercaseFirst) {
             m_collator = cachedCollator;
             m_locale = cachedCollatorLocale;
@@ -136,7 +141,7 @@ Collator::Collator(const char* locale, bool shouldSortLowercaseFirst)
 
 Collator::~Collator()
 {
-    auto locker = holdLock(cachedCollatorMutex);
+    Locker locker { cachedCollatorLock };
     if (cachedCollator) {
         ucol_close(cachedCollator);
         fastFree(cachedCollatorLocale);
@@ -179,6 +184,7 @@ static UBool hasPreviousLatin1(UCharIterator* iterator)
     return iterator->index > iterator->start;
 }
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 static UChar32 currentLatin1(UCharIterator* iterator)
 {
     ASSERT(iterator->index >= iterator->start);
@@ -201,6 +207,7 @@ static UChar32 previousLatin1(UCharIterator* iterator)
         return U_SENTINEL;
     return static_cast<const LChar*>(iterator->context)[--iterator->index];
 }
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 static uint32_t getStateLatin1(const UCharIterator* iterator)
 {
@@ -212,14 +219,14 @@ static void setStateLatin1(UCharIterator* iterator, uint32_t state, UErrorCode*)
     iterator->index = state;
 }
 
-static UCharIterator createLatin1Iterator(const LChar* characters, int length)
+static UCharIterator createLatin1Iterator(std::span<const LChar> characters)
 {
     UCharIterator iterator;
-    iterator.context = characters;
-    iterator.length = length;
+    iterator.context = characters.data();
+    iterator.length = characters.size();
     iterator.start = 0;
     iterator.index = 0;
-    iterator.limit = length;
+    iterator.limit = characters.size();
     iterator.reservedField = 0;
     iterator.getIndex = getIndexLatin1;
     iterator.move = moveLatin1;
@@ -237,9 +244,10 @@ static UCharIterator createLatin1Iterator(const LChar* characters, int length)
 UCharIterator createIterator(StringView string)
 {
     if (string.is8Bit())
-        return createLatin1Iterator(string.characters8(), string.length());
+        return createLatin1Iterator(string.span8());
     UCharIterator iterator;
-    uiter_setString(&iterator, string.characters16(), string.length());
+    auto characters = string.span16();
+    uiter_setString(&iterator, characters.data(), characters.size());
     return iterator;
 }
 
@@ -253,17 +261,19 @@ int Collator::collate(StringView a, StringView b) const
     return result;
 }
 
-static UCharIterator createIteratorUTF8(const char* string)
+static UCharIterator createIterator(const char8_t* string)
 {
     UCharIterator iterator;
-    uiter_setUTF8(&iterator, string, strlen(string));
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+    uiter_setUTF8(&iterator, byteCast<char>(string), strlen(byteCast<char>(string)));
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
     return iterator;
 }
 
-int Collator::collateUTF8(const char* a, const char* b) const
+int Collator::collate(const char8_t* a, const char8_t* b) const
 {
-    UCharIterator iteratorA = createIteratorUTF8(a);
-    UCharIterator iteratorB = createIteratorUTF8(b);
+    UCharIterator iteratorA = createIterator(a);
+    UCharIterator iteratorB = createIterator(b);
     UErrorCode status = U_ZERO_ERROR;
     int result = ucol_strcollIter(m_collator, &iteratorA, &iteratorB, &status);
     ASSERT(U_SUCCESS(status));

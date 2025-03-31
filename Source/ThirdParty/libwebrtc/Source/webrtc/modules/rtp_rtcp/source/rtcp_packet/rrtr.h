@@ -22,9 +22,9 @@ namespace rtcp {
 
 class Rrtr {
  public:
-  static const uint8_t kBlockType = 4;
-  static const uint16_t kBlockLength = 2;
-  static const size_t kLength = 4 * (kBlockLength + 1);  // 12
+  static constexpr uint8_t kBlockType = 4;
+  static constexpr uint16_t kBlockLength = 2;
+  static constexpr size_t kLength = 4 * (kBlockLength + 1);  // 12
 
   Rrtr() {}
   Rrtr(const Rrtr&) = default;
@@ -45,6 +45,14 @@ class Rrtr {
  private:
   NtpTime ntp_;
 };
+
+inline bool operator==(const Rrtr& rrtr1, const Rrtr& rrtr2) {
+  return rrtr1.ntp() == rrtr2.ntp();
+}
+
+inline bool operator!=(const Rrtr& rrtr1, const Rrtr& rrtr2) {
+  return !(rrtr1 == rrtr2);
+}
 
 }  // namespace rtcp
 }  // namespace webrtc

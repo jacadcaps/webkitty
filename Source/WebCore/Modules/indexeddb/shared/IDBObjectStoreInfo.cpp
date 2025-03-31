@@ -25,25 +25,23 @@
 
 #include "config.h"
 #include "IDBObjectStoreInfo.h"
-#include <wtf/text/StringBuilder.h>
 
-#if ENABLE(INDEXED_DATABASE)
+#include <wtf/CrossThreadCopier.h>
+#include <wtf/text/MakeString.h>
+#include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
 
-IDBObjectStoreInfo::IDBObjectStoreInfo()
-{
-}
-
-IDBObjectStoreInfo::IDBObjectStoreInfo(uint64_t identifier, const String& name, Optional<IDBKeyPath>&& keyPath, bool autoIncrement)
+IDBObjectStoreInfo::IDBObjectStoreInfo(IDBObjectStoreIdentifier identifier, const String& name, std::optional<IDBKeyPath>&& keyPath, bool autoIncrement, HashMap<IDBIndexIdentifier, IDBIndexInfo>&& indexMap)
     : m_identifier(identifier)
     , m_name(name)
     , m_keyPath(WTFMove(keyPath))
     , m_autoIncrement(autoIncrement)
+    , m_indexMap(WTFMove(indexMap))
 {
 }
 
-IDBIndexInfo IDBObjectStoreInfo::createNewIndex(uint64_t indexID, const String& name, IDBKeyPath&& keyPath, bool unique, bool multiEntry)
+IDBIndexInfo IDBObjectStoreInfo::createNewIndex(IDBIndexIdentifier indexID, const String& name, IDBKeyPath&& keyPath, bool unique, bool multiEntry)
 {
     IDBIndexInfo info(indexID, m_identifier, name, WTFMove(keyPath), unique, multiEntry);
     m_indexMap.set(info.identifier(), info);
@@ -52,7 +50,8 @@ IDBIndexInfo IDBObjectStoreInfo::createNewIndex(uint64_t indexID, const String& 
 
 void IDBObjectStoreInfo::addExistingIndex(const IDBIndexInfo& info)
 {
-    ASSERT(!m_indexMap.contains(info.identifier()));
+    if (m_indexMap.contains(info.identifier()))
+        LOG_ERROR("Adding an index '%s' with existing Index ID", info.name().utf8().data());
 
     m_indexMap.set(info.identifier(), info);
 }
@@ -67,7 +66,7 @@ bool IDBObjectStoreInfo::hasIndex(const String& name) const
     return false;
 }
 
-bool IDBObjectStoreInfo::hasIndex(uint64_t indexIdentifier) const
+bool IDBObjectStoreInfo::hasIndex(IDBIndexIdentifier indexIdentifier) const
 {
     return m_indexMap.contains(indexIdentifier);
 }
@@ -82,7 +81,7 @@ IDBIndexInfo* IDBObjectStoreInfo::infoForExistingIndex(const String& name)
     return nullptr;
 }
 
-IDBIndexInfo* IDBObjectStoreInfo::infoForExistingIndex(uint64_t identifier)
+IDBIndexInfo* IDBObjectStoreInfo::infoForExistingIndex(IDBIndexIdentifier identifier)
 {
     auto iterator = m_indexMap.find(identifier);
     if (iterator == m_indexMap.end())
@@ -91,24 +90,25 @@ IDBIndexInfo* IDBObjectStoreInfo::infoForExistingIndex(uint64_t identifier)
     return &iterator->value;
 }
 
-IDBObjectStoreInfo IDBObjectStoreInfo::isolatedCopy() const
+IDBObjectStoreInfo IDBObjectStoreInfo::isolatedCopy() const &
 {
-    IDBObjectStoreInfo result = { m_identifier, m_name.isolatedCopy(), WebCore::isolatedCopy(m_keyPath), m_autoIncrement };
+    IDBObjectStoreInfo result = { m_identifier, m_name.isolatedCopy(), crossThreadCopy(m_keyPath), m_autoIncrement };
+    result.m_indexMap = crossThreadCopy(m_indexMap);
+    return result;
+}
 
-    for (auto& iterator : m_indexMap)
-        result.m_indexMap.set(iterator.key, iterator.value.isolatedCopy());
-
+IDBObjectStoreInfo IDBObjectStoreInfo::isolatedCopy() &&
+{
+    IDBObjectStoreInfo result = { m_identifier, WTFMove(m_name).isolatedCopy(), crossThreadCopy(WTFMove(m_keyPath)), m_autoIncrement };
+    result.m_indexMap = crossThreadCopy(WTFMove(m_indexMap));
     return result;
 }
 
 Vector<String> IDBObjectStoreInfo::indexNames() const
 {
-    Vector<String> names;
-    names.reserveCapacity(m_indexMap.size());
-    for (auto& index : m_indexMap.values())
-        names.uncheckedAppend(index.name());
-
-    return names;
+    return WTF::map(m_indexMap, [](auto& pair) -> String {
+        return pair.value.name();
+    });
 }
 
 void IDBObjectStoreInfo::deleteIndex(const String& indexName)
@@ -120,7 +120,7 @@ void IDBObjectStoreInfo::deleteIndex(const String& indexName)
     m_indexMap.remove(info->identifier());
 }
 
-void IDBObjectStoreInfo::deleteIndex(uint64_t indexIdentifier)
+void IDBObjectStoreInfo::deleteIndex(IDBIndexIdentifier indexIdentifier)
 {
     m_indexMap.remove(indexIdentifier);
 }
@@ -132,7 +132,7 @@ String IDBObjectStoreInfo::loggingString(int indent) const
     StringBuilder builder;
     for (int i = 0; i < indent; ++i)
         builder.append(' ');
-    builder.append("Object store: ", m_name, m_identifier);
+    builder.append("Object store: "_s, m_name, m_identifier);
     for (auto index : m_indexMap.values())
         builder.append(index.loggingString(indent + 1), '\n');
     return builder.toString();
@@ -140,11 +140,9 @@ String IDBObjectStoreInfo::loggingString(int indent) const
 
 String IDBObjectStoreInfo::condensedLoggingString() const
 {
-    return makeString("<OS: ", m_name, " (", m_identifier, ")>");
+    return makeString("<OS: "_s, m_name, " ("_s, m_identifier, ")>"_s);
 }
 
 #endif
 
 } // namespace WebCore
-
-#endif // ENABLE(INDEXED_DATABASE)

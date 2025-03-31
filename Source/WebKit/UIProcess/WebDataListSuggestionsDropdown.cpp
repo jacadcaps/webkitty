@@ -28,12 +28,10 @@
 
 #include "WebPageProxy.h"
 
-#if ENABLE(DATALIST_ELEMENT)
-
 namespace WebKit {
 
 WebDataListSuggestionsDropdown::WebDataListSuggestionsDropdown(WebPageProxy& page)
-    : m_page(makeWeakPtr(page))
+    : m_page(page)
 {
 }
 
@@ -48,5 +46,3 @@ void WebDataListSuggestionsDropdown::close()
 }
 
 } // namespace WebKit
-
-#endif // ENABLE(DATALIST_ELEMENT)

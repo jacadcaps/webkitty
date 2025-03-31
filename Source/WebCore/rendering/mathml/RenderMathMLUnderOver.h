@@ -35,22 +35,24 @@ namespace WebCore {
 class MathMLUnderOverElement;
 
 class RenderMathMLUnderOver final : public RenderMathMLScripts {
-    WTF_MAKE_ISO_ALLOCATED(RenderMathMLUnderOver);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(RenderMathMLUnderOver);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderMathMLUnderOver);
 public:
     RenderMathMLUnderOver(MathMLUnderOverElement&, RenderStyle&&);
+    virtual ~RenderMathMLUnderOver();
 
 private:
     bool isRenderMathMLScripts() const final { return false; }
-    bool isRenderMathMLUnderOver() const final { return true; }
-    const char* renderName() const final { return "RenderMathMLUnderOver"; }
+    bool isMathContentCentered() const final { return !shouldMoveLimits(); }
+    ASCIILiteral renderName() const final { return "RenderMathMLUnderOver"_s; }
     MathMLUnderOverElement& element() const;
 
     void computePreferredLogicalWidths() final;
-    void layoutBlock(bool relayoutChildren, LayoutUnit pageLogicalHeight = 0_lu) final;
+    void layoutBlock(RelayoutChildren, LayoutUnit pageLogicalHeight = 0_lu) final;
 
     void stretchHorizontalOperatorsAndLayoutChildren();
     bool isValid() const;
-    bool shouldMoveLimits();
+    bool shouldMoveLimits() const;
     RenderBox& base() const;
     RenderBox& under() const;
     RenderBox& over() const;

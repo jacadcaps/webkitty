@@ -35,8 +35,8 @@ namespace JSC {
 // is understood to be lossy, and it's OK if it turns out to be wrong sometimes.
 class StaticPropertyAnalyzer {
 public:
-    void createThis(RegisterID* dst, InstructionStream::MutableRef instructionRef);
-    void newObject(RegisterID* dst, InstructionStream::MutableRef instructionRef);
+    void createThis(RegisterID* dst, JSInstructionStream::MutableRef instructionRef);
+    void newObject(RegisterID* dst, JSInstructionStream::MutableRef instructionRef);
     void putById(RegisterID* dst, unsigned propertyIndex); // propertyIndex is an index into a uniqued set of strings.
     void mov(RegisterID* dst, RegisterID* src);
 
@@ -46,18 +46,18 @@ public:
 private:
     void kill(StaticPropertyAnalysis*);
 
-    typedef HashMap<int, RefPtr<StaticPropertyAnalysis>, WTF::IntHash<int>, WTF::UnsignedWithZeroKeyHashTraits<int>> AnalysisMap;
+    typedef UncheckedKeyHashMap<int, RefPtr<StaticPropertyAnalysis>, WTF::IntHash<int>, WTF::UnsignedWithZeroKeyHashTraits<int>> AnalysisMap;
     AnalysisMap m_analyses;
 };
 
-inline void StaticPropertyAnalyzer::createThis(RegisterID* dst, InstructionStream::MutableRef instructionRef)
+inline void StaticPropertyAnalyzer::createThis(RegisterID* dst, JSInstructionStream::MutableRef instructionRef)
 {
     AnalysisMap::AddResult addResult = m_analyses.add(
         dst->index(), StaticPropertyAnalysis::create(WTFMove(instructionRef)));
     ASSERT_UNUSED(addResult, addResult.isNewEntry); // Can't have two 'this' in the same constructor.
 }
 
-inline void StaticPropertyAnalyzer::newObject(RegisterID* dst, InstructionStream::MutableRef instructionRef)
+inline void StaticPropertyAnalyzer::newObject(RegisterID* dst, JSInstructionStream::MutableRef instructionRef)
 {
     auto analysis = StaticPropertyAnalysis::create(WTFMove(instructionRef));
     AnalysisMap::AddResult addResult = m_analyses.add(dst->index(), analysis.copyRef());

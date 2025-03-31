@@ -33,6 +33,8 @@
 #include "RegisterSet.h"
 #include <wtf/DataLog.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC { namespace FTL {
 
 using namespace B3;
@@ -93,16 +95,16 @@ FPRReg Location::fpr() const
 
 void Location::restoreInto(MacroAssembler& jit, char* savedRegisters, GPRReg result, unsigned numFramesToPop) const
 {
-    if (involvesGPR() && RegisterSet::stackRegisters().get(gpr())) {
+    if (involvesGPR() && RegisterSetBuilder::stackRegisters().contains(gpr(), IgnoreVectors)) {
         // Make the result GPR contain the appropriate stack register.
         if (numFramesToPop) {
             jit.move(MacroAssembler::framePointerRegister, result);
             
             for (unsigned i = numFramesToPop - 1; i--;)
-                jit.loadPtr(result, result);
+                jit.loadPtr(MacroAssembler::Address(result), result);
             
             if (gpr() == MacroAssembler::framePointerRegister)
-                jit.loadPtr(result, result);
+                jit.loadPtr(MacroAssembler::Address(result), result);
             else
                 jit.addPtr(MacroAssembler::TrustedImmPtr(sizeof(void*) * 2), result);
         } else
@@ -110,7 +112,7 @@ void Location::restoreInto(MacroAssembler& jit, char* savedRegisters, GPRReg res
     }
     
     if (isGPR()) {
-        if (RegisterSet::stackRegisters().get(gpr())) {
+        if (RegisterSetBuilder::stackRegisters().contains(gpr(), IgnoreVectors)) {
             // Already restored into result.
         } else
             jit.load64(savedRegisters + offsetOfGPR(gpr()), result);
@@ -129,12 +131,12 @@ void Location::restoreInto(MacroAssembler& jit, char* savedRegisters, GPRReg res
     switch (kind()) {
     case Register:
         // B3 used some register that we don't know about!
-        dataLog("Unrecognized location: ", *this, "\n");
+        dataLogLn("Unrecognized location: ", *this);
         RELEASE_ASSERT_NOT_REACHED();
         return;
         
     case Indirect:
-        if (RegisterSet::stackRegisters().get(gpr())) {
+        if (RegisterSetBuilder::stackRegisters().contains(gpr(), IgnoreVectors)) {
             // The stack register is already recovered into result.
             jit.load64(MacroAssembler::Address(result, offset()), result);
             return;
@@ -189,5 +191,6 @@ void printInternal(PrintStream& out, JSC::FTL::Location::Kind kind)
 
 } // namespace WTF
 
-#endif // ENABLE(FTL_JIT)
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
+#endif // ENABLE(FTL_JIT)

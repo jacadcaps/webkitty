@@ -54,7 +54,9 @@ static void didCommitNavigationCallback(WKPageRef page, WKNavigationRef, WKTypeR
     assert(WKGetTypeID(userData) == WKURLGetTypeID());
     EXPECT_TRUE(WKURLIsEqual(committedURL.get(), static_cast<WKURLRef>(userData)));
 
-    WKRetainPtr<WKURLRef> url = adoptWK(Util::createURLForResource("simple2", "html"));
+    auto previousURL = TestWebKitAPI::Util::toSTD(adoptWK(WKURLCopyString(adoptWK(Util::createURLForResource("simple", "html")).get())));
+    previousURL += "?query";
+    auto url = adoptWK(WKURLCreateWithUTF8CString(previousURL.c_str()));
     EXPECT_TRUE(WKURLIsEqual(committedURL.get(), url.get()));
 
     committedLoad = true;
@@ -65,14 +67,14 @@ TEST(WebKit2, ProvisionalURLAfterWillSendRequestCallback)
     WKRetainPtr<WKContextRef> context = adoptWK(Util::createContextForInjectedBundleTest("ProvisionalURLAfterWillSendRequestCallbackTest"));
 
     WKContextInjectedBundleClientV0 injectedBundleClient;
-    memset(&injectedBundleClient, 0, sizeof(injectedBundleClient));
+    zeroBytes(injectedBundleClient);
     injectedBundleClient.base.version = 0;
     WKContextSetInjectedBundleClient(context.get(), &injectedBundleClient.base);
 
     PlatformWebView webView(context.get());
 
     WKPageNavigationClientV0 navigationClient;
-    memset(&navigationClient, 0, sizeof(navigationClient));
+    zeroBytes(navigationClient);
 
     navigationClient.base.version = 0;
     navigationClient.didCommitNavigation = didCommitNavigationCallback;

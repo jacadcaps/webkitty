@@ -23,13 +23,12 @@
 #include <stddef.h>
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
-#include "absl/types/optional.h"
+#include "api/ref_count.h"
 #include "api/rtc_error.h"
-#include "rtc_base/deprecation.h"
-#include "rtc_base/ref_count.h"
 #include "rtc_base/system/rtc_export.h"
 
 namespace cricket {
@@ -74,7 +73,7 @@ class RTC_EXPORT IceCandidateInterface {
 
 // Creates a IceCandidateInterface based on SDP string.
 // Returns null if the sdp string can't be parsed.
-// |error| may be null.
+// `error` may be null.
 RTC_EXPORT IceCandidateInterface* CreateIceCandidate(const std::string& sdp_mid,
                                                      int sdp_mline_index,
                                                      const std::string& sdp,
@@ -92,7 +91,7 @@ class IceCandidateCollection {
  public:
   virtual ~IceCandidateCollection() {}
   virtual size_t count() const = 0;
-  // Returns true if an equivalent |candidate| exist in the collection.
+  // Returns true if an equivalent `candidate` exist in the collection.
   virtual bool HasCandidate(const IceCandidateInterface* candidate) const = 0;
   virtual const IceCandidateInterface* at(size_t index) const = 0;
 };
@@ -118,7 +117,8 @@ RTC_EXPORT const char* SdpTypeToString(SdpType type);
 // Returns the SdpType from its string form. The string form can be one of the
 // constants defined in SessionDescriptionInterface. Passing in any other string
 // results in nullopt.
-absl::optional<SdpType> SdpTypeFromString(const std::string& type_str);
+RTC_EXPORT std::optional<SdpType> SdpTypeFromString(
+    const std::string& type_str);
 
 // Class representation of an SDP session description.
 //
@@ -136,6 +136,13 @@ class RTC_EXPORT SessionDescriptionInterface {
 
   virtual ~SessionDescriptionInterface() {}
 
+  // Create a new SessionDescriptionInterface object
+  // with the same values as the old object.
+  // TODO(bugs.webrtc.org:12215): Remove default implementation
+  virtual std::unique_ptr<SessionDescriptionInterface> Clone() const {
+    return nullptr;
+  }
+
   // Only for use internally.
   virtual cricket::SessionDescription* description() = 0;
   virtual const cricket::SessionDescription* description() const = 0;
@@ -152,7 +159,7 @@ class RTC_EXPORT SessionDescriptionInterface {
   virtual SdpType GetType() const;
 
   // kOffer/kPrAnswer/kAnswer
-  // TODO(steveanton): Remove this in favor of |GetType| that returns SdpType.
+  // TODO(steveanton): Remove this in favor of `GetType` that returns SdpType.
   virtual std::string type() const = 0;
 
   // Adds the specified candidate to the description.
@@ -160,8 +167,8 @@ class RTC_EXPORT SessionDescriptionInterface {
   // Ownership is not transferred.
   //
   // Returns false if the session description does not have a media section
-  // that corresponds to |candidate.sdp_mid()| or
-  // |candidate.sdp_mline_index()|.
+  // that corresponds to `candidate.sdp_mid()` or
+  // `candidate.sdp_mline_index()`.
   virtual bool AddCandidate(const IceCandidateInterface* candidate) = 0;
 
   // Removes the candidates from the description, if found.
@@ -180,22 +187,37 @@ class RTC_EXPORT SessionDescriptionInterface {
 
   // Serializes the description to SDP.
   virtual bool ToString(std::string* out) const = 0;
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const SessionDescriptionInterface& p) {
+    sink.Append("\n--- BEGIN SDP ");
+    sink.Append(SdpTypeToString(p.GetType()));
+    sink.Append(" ---\n");
+    std::string temp;
+    if (p.ToString(&temp)) {
+      sink.Append(temp);
+    } else {
+      sink.Append("Error in ToString\n");
+    }
+    sink.Append("--- END SDP ---\n");
+  }
 };
 
 // Creates a SessionDescriptionInterface based on the SDP string and the type.
 // Returns null if the sdp string can't be parsed or the type is unsupported.
-// |error| may be null.
-// TODO(steveanton): This function is deprecated. Please use the functions below
-// which take an SdpType enum instead. Remove this once it is no longer used.
-RTC_EXPORT SessionDescriptionInterface* CreateSessionDescription(
-    const std::string& type,
-    const std::string& sdp,
-    SdpParseError* error);
+// `error` may be null.
+// TODO(https://issues.webrtc.org/360909068): This function is deprecated.
+// Please use the functions below which take an SdpType enum instead. Remove
+// this once it is no longer used.
+[[deprecated("Use version with SdpType argument")]] RTC_EXPORT
+    SessionDescriptionInterface*
+    CreateSessionDescription(const std::string& type,
+                             const std::string& sdp,
+                             SdpParseError* error);
 
 // Creates a SessionDescriptionInterface based on the SDP string and the type.
 // Returns null if the SDP string cannot be parsed.
-// If using the signature with |error_out|, details of the parsing error may be
-// written to |error_out| if it is not null.
+// If using the signature with `error_out`, details of the parsing error may be
+// written to `error_out` if it is not null.
 RTC_EXPORT std::unique_ptr<SessionDescriptionInterface>
 CreateSessionDescription(SdpType type, const std::string& sdp);
 RTC_EXPORT std::unique_ptr<SessionDescriptionInterface>
@@ -213,9 +235,9 @@ std::unique_ptr<SessionDescriptionInterface> CreateSessionDescription(
 
 // CreateOffer and CreateAnswer callback interface.
 class RTC_EXPORT CreateSessionDescriptionObserver
-    : public rtc::RefCountInterface {
+    : public webrtc::RefCountInterface {
  public:
-  // This callback transfers the ownership of the |desc|.
+  // This callback transfers the ownership of the `desc`.
   // TODO(deadbeef): Make this take an std::unique_ptr<> to avoid confusion
   // around ownership.
   virtual void OnSuccess(SessionDescriptionInterface* desc) = 0;
@@ -232,7 +254,8 @@ class RTC_EXPORT CreateSessionDescriptionObserver
 };
 
 // SetLocalDescription and SetRemoteDescription callback interface.
-class RTC_EXPORT SetSessionDescriptionObserver : public rtc::RefCountInterface {
+class RTC_EXPORT SetSessionDescriptionObserver
+    : public webrtc::RefCountInterface {
  public:
   virtual void OnSuccess() = 0;
   // See description in CreateSessionDescriptionObserver for OnFailure.

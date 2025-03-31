@@ -34,66 +34,56 @@ class TextUnderlineOffset {
 public:
     static TextUnderlineOffset createWithAuto()
     {
-        return TextUnderlineOffset(Type::Auto);
+        return TextUnderlineOffset();
     }
 
-    static TextUnderlineOffset createWithLength(float length)
+    static TextUnderlineOffset createWithLength(Length&& length)
     {
-        TextUnderlineOffset result(Type::Length);
-        result.setLengthValue(length);
-        return result;
+        return TextUnderlineOffset(WTFMove(length));
     }
 
     bool isAuto() const
     {
-        return !isLength();
+        return m_length.type() == LengthType::Auto;
     }
 
     bool isLength() const
     {
-        return static_cast<bool>(m_length);
+        return !isAuto();
     }
 
-    void setLengthValue(float length)
+    const Length& length() const
     {
         ASSERT(isLength());
-        m_length = length;
+        return m_length;
     }
 
-    float lengthValue() const
+    float resolve(float fontSize, float defaultValue = 0.f) const
     {
+        if (isAuto())
+            return defaultValue;
+
         ASSERT(isLength());
-        return *m_length;
+        if (m_length.isPercent())
+            return fontSize * (m_length.percent() / 100.0f);
+        if (m_length.isCalculated())
+            return m_length.nonNanCalculatedValue(fontSize);
+        return m_length.value();
     }
 
-    float lengthOr(float defaultValue) const
-    {
-        return m_length.valueOr(defaultValue);
-    }
-
-    bool operator==(const TextUnderlineOffset& other) const
-    {
-        return m_length == other.m_length;
-    }
-
-    bool operator!=(const TextUnderlineOffset& other) const
-    {
-        return !(*this == other);
-    }
-
+    bool operator==(const TextUnderlineOffset& other) const = default;
 private:
-    enum class Type {
-        Auto,
-        Length
-    };
+    Length m_length;
 
-    TextUnderlineOffset(Type type)
+    TextUnderlineOffset()
+        : m_length(Length(LengthType::Auto))
     {
-        if (type == Type::Length)
-            m_length = 0;
     }
 
-    Optional<float> m_length;
+    TextUnderlineOffset(Length&& lengthValue)
+        : m_length(WTFMove(lengthValue))
+    {
+    }
 };
 
 inline TextStream& operator<<(TextStream& ts, const TextUnderlineOffset& offset)
@@ -101,7 +91,7 @@ inline TextStream& operator<<(TextStream& ts, const TextUnderlineOffset& offset)
     if (offset.isAuto())
         ts << "auto";
     else
-        ts << TextStream::FormatNumberRespectingIntegers(offset.lengthValue());
+        ts << offset.length();
     return ts;
 }
 

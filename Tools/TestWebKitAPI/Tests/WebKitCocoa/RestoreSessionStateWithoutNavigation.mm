@@ -45,7 +45,7 @@
 - (WKPageRef)_pageForTesting;
 @end
 
-static bool didFinishLoad;
+static bool didFinishNavigationForSessionState;
 static bool didChangeBackForwardList;
     
 @interface SessionStateDelegate : NSObject <WKNavigationDelegate>
@@ -55,7 +55,7 @@ static bool didChangeBackForwardList;
 
 - (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation
 {
-    didFinishLoad = true;
+    didFinishNavigationForSessionState = true;
 }
 
 - (void)_webView:(WKWebView *)webView backForwardListItemAdded:(WKBackForwardListItem *)itemAdded removed:(NSArray<WKBackForwardListItem *> *)itemsRemoved
@@ -72,9 +72,9 @@ static WKRetainPtr<WKDataRef> createSessionStateData()
     auto delegate = adoptNS([SessionStateDelegate new]);
     auto view = adoptNS([WKWebView new]);
     [view setNavigationDelegate:delegate.get()];
-    [view loadRequest:[NSURLRequest requestWithURL:[[NSBundle mainBundle] URLForResource:@"simple" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"]]];
-    Util::run(&didFinishLoad);
-    didFinishLoad = false;
+    [view loadRequest:[NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"simple" withExtension:@"html"]]];
+    Util::run(&didFinishNavigationForSessionState);
+    didFinishNavigationForSessionState = false;
 
     NSData *data = [view _sessionStateData];
     return adoptWK(WKDataCreate(static_cast<const unsigned char*>(data.bytes), data.length));
@@ -98,7 +98,7 @@ TEST(WebKit, RestoreSessionStateWithoutNavigation)
     auto currentItem = WKBackForwardListGetCurrentItem(backForwardList);
     auto currentItemURL = adoptWK(WKBackForwardListItemCopyURL(currentItem));
     
-    auto expectedURL = adoptWK(WKURLCreateWithCFURL((__bridge CFURLRef)[[NSBundle mainBundle] URLForResource:@"simple" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"]));
+    auto expectedURL = adoptWK(WKURLCreateWithCFURL((__bridge CFURLRef)[NSBundle.test_resourcesBundle URLForResource:@"simple" withExtension:@"html"]));
     EXPECT_NOT_NULL(expectedURL);
     EXPECT_TRUE(WKURLIsEqual(currentItemURL.get(), expectedURL.get()));
 }

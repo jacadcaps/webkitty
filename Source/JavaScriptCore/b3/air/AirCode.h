@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -40,6 +40,8 @@
 #include "StackAlignment.h"
 #include <wtf/HashSet.h>
 #include <wtf/IndexMap.h>
+#include <wtf/SmallSet.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakRandom.h>
 
 namespace JSC {
@@ -49,6 +51,7 @@ class CCallHelpers;
 namespace B3 {
 
 class Procedure;
+class WasmBoundsCheckValue;
 
 #if !ASSERT_ENABLED
 IGNORE_RETURN_TYPE_WARNINGS_BEGIN
@@ -63,7 +66,7 @@ class CFG;
 class Code;
 class Disassembler;
 
-typedef void WasmBoundsCheckGeneratorFunction(CCallHelpers&, GPRReg);
+typedef void WasmBoundsCheckGeneratorFunction(CCallHelpers&, WasmBoundsCheckValue*, GPRReg);
 typedef SharedTask<WasmBoundsCheckGeneratorFunction> WasmBoundsCheckGenerator;
 
 typedef void PrologueGeneratorFunction(CCallHelpers&, Code&);
@@ -77,7 +80,7 @@ extern const char* const tierName;
 
 class Code {
     WTF_MAKE_NONCOPYABLE(Code);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(Code);
 public:
     ~Code();
 
@@ -96,11 +99,11 @@ public:
     
     // This is the set of registers that Air is allowed to emit code to mutate. It's derived from
     // regsInPriorityOrder. Any registers not in this set are said to be "pinned".
-    const RegisterSet& mutableRegs() const { return m_mutableRegs; }
-    
-    bool isPinned(Reg reg) const { return !mutableRegs().get(reg); }
-    void pinRegister(Reg);
-    
+    RegisterSet mutableRegs() const { return m_mutableRegs.toRegisterSet().includeWholeRegisterWidth(); }
+
+    bool isPinned(Reg reg) const { return !mutableRegs().contains(reg, IgnoreVectors); }
+    JS_EXPORT_PRIVATE void pinRegister(Reg);
+
     void setOptLevel(unsigned optLevel) { m_optLevel = optLevel; }
     unsigned optLevel() const { return m_optLevel; }
     
@@ -111,9 +114,7 @@ public:
     // Note that you can rely on stack slots always getting indices that are larger than the index
     // of any prior stack slot. In fact, all stack slots you create in the future will have an index
     // that is >= stackSlots().size().
-    JS_EXPORT_PRIVATE StackSlot* addStackSlot(
-        unsigned byteSize, StackSlotKind, B3::StackSlot* = nullptr);
-    StackSlot* addStackSlot(B3::StackSlot*);
+    JS_EXPORT_PRIVATE StackSlot* addStackSlot(uint64_t byteSize, StackSlotKind);
 
     JS_EXPORT_PRIVATE Special* addSpecial(std::unique_ptr<Special>);
 
@@ -153,6 +154,14 @@ public:
         }
     }
 
+    template<Bank bank, typename Func>
+    void forEachTmp(const Func& func)
+    {
+        unsigned numTmps = this->numTmps(bank);
+        for (unsigned i = 0; i < numTmps; ++i)
+            func(Tmp::tmpForIndex(bank, i));
+    }
+
     unsigned callArgAreaSizeInBytes() const { return m_callArgAreaSize; }
 
     // You can call this before code generation to force a minimum call arg area size.
@@ -160,15 +169,21 @@ public:
     {
         m_callArgAreaSize = std::max(
             m_callArgAreaSize,
-            static_cast<unsigned>(WTF::roundUpToMultipleOf(stackAlignmentBytes(), size)));
+            static_cast<unsigned>(WTF::roundUpToMultipleOf<stackAlignmentBytes()>(size)));
     }
 
-    unsigned frameSize() const { return m_frameSize; }
+    unsigned frameSize() const
+    {
+        ASSERT(!((m_frameSize + sizeof(CallerFrameAndPC)) % stackAlignmentBytes()));
+        return m_frameSize;
+    }
 
     // Only phases that do stack allocation are allowed to set this. Currently, only
     // Air::allocateStack() does this.
     void setFrameSize(unsigned frameSize)
     {
+        // 'aligned SP' + 'functionPrologue' + 'm_frameSize' should yield an aligned SP.
+        ASSERT(!((frameSize + sizeof(CallerFrameAndPC)) % stackAlignmentBytes()));
         m_frameSize = frameSize;
     }
 
@@ -179,7 +194,7 @@ public:
     const FrequentedBlock& entrypoint(unsigned index) const { return m_entrypoints[index]; }
     bool isEntrypoint(BasicBlock*) const;
     // Note: It is only valid to call this function after LowerEntrySwitch.
-    Optional<unsigned> entrypointIndex(BasicBlock*) const;
+    std::optional<unsigned> entrypointIndex(BasicBlock*) const;
 
     // Note: We allow this to be called even before we set m_entrypoints just for convenience to users of this API.
     // However, if you call this before setNumEntrypoints, setNumEntrypoints will overwrite this value.
@@ -229,7 +244,7 @@ public:
     RegisterAtOffsetList calleeSaveRegisterAtOffsetList() const;
     
     // This just tells you what the callee saves are.
-    RegisterSet calleeSaveRegisters() const { return m_calleeSaveRegisters; }
+    RegisterSetBuilder calleeSaveRegisters() const { return m_calleeSaveRegisters; }
 
     // Recomputes predecessors and deletes unreachable blocks.
     JS_EXPORT_PRIVATE void resetReachability();
@@ -282,11 +297,6 @@ public:
             return m_index == other.m_index;
         }
 
-        bool operator!=(const iterator& other) const
-        {
-            return !(*this == other);
-        }
-
     private:
         const Code* m_code;
         unsigned m_index;
@@ -311,7 +321,13 @@ public:
     }
 
     void addFastTmp(Tmp);
-    bool isFastTmp(Tmp tmp) const { return m_fastTmps.contains(tmp); }
+
+    template<typename Functor>
+    void forEachFastTmp(const Functor& functor) const
+    {
+        for (Tmp tmp : m_fastTmps)
+            functor(tmp);
+    }
     
     CFG& cfg() const { return *m_cfg; }
     
@@ -336,19 +352,28 @@ public:
     // it's mainly for validating the results from JSAir.
     unsigned jsHash() const;
 
-    void setDisassembler(std::unique_ptr<Disassembler>&& disassembler) { m_disassembler = WTFMove(disassembler); }
+    bool shouldPreserveB3Origins() const { return m_preserveB3Origins; }
+    void forcePreservationOfB3Origins() { m_preserveB3Origins = true; }
+
+    bool usesSIMD() const;
+
+    void setDisassembler(std::unique_ptr<Disassembler>&& disassembler)
+    {
+        m_disassembler = WTFMove(disassembler);
+        forcePreservationOfB3Origins();
+    }
     Disassembler* disassembler() { return m_disassembler.get(); }
 
     RegisterSet mutableGPRs();
-    RegisterSet mutableFPRs();
-    RegisterSet pinnedRegisters() const { return m_pinnedRegs; }
+    ScalarRegisterSet pinnedRegisters() const { return m_pinnedRegs; }
     
-    WeakRandom& weakRandom() { return m_weakRandom; }
-
     void emitDefaultPrologue(CCallHelpers&);
     void emitEpilogue(CCallHelpers&);
 
     std::unique_ptr<GenerateAndAllocateRegisters> m_generateAndAllocateRegisters;
+
+    void setForceIRCRegisterAllocation() { m_forceIRC = true; }
+    bool forceIRCRegisterAllocation() { return m_forceIRC; }
     
 private:
     friend class ::JSC::B3::Procedure;
@@ -369,25 +394,27 @@ private:
         ASSERT_NOT_REACHED();
     }
 
-    WeakRandom m_weakRandom;
     Procedure& m_proc; // Some meta-data, like byproducts, is stored in the Procedure.
     Vector<Reg> m_gpRegsInPriorityOrder;
     Vector<Reg> m_fpRegsInPriorityOrder;
-    RegisterSet m_mutableRegs;
-    RegisterSet m_pinnedRegs;
+    ScalarRegisterSet m_mutableRegs;
+    ScalarRegisterSet m_pinnedRegs;
     SparseCollection<StackSlot> m_stackSlots;
     Vector<std::unique_ptr<BasicBlock>> m_blocks;
     SparseCollection<Special> m_specials;
     std::unique_ptr<CFG> m_cfg;
-    HashSet<Tmp> m_fastTmps;
+    SmallSet<Tmp, TmpHash, 2> m_fastTmps;
     CCallSpecial* m_cCallSpecial { nullptr };
     unsigned m_numGPTmps { 0 };
     unsigned m_numFPTmps { 0 };
-    unsigned m_frameSize { 0 };
+    unsigned m_frameSize { stackAdjustmentForAlignment() };
     unsigned m_callArgAreaSize { 0 };
+    unsigned m_optLevel { defaultOptLevel() };
     bool m_stackIsAllocated { false };
+    bool m_preserveB3Origins { true };
+    bool m_forceIRC { false };
     RegisterAtOffsetList m_uncorrectedCalleeSaveRegisterAtOffsetList;
-    RegisterSet m_calleeSaveRegisters;
+    RegisterSetBuilder m_calleeSaveRegisters;
     StackSlot* m_calleeSaveStackSlot { nullptr };
     Vector<FrequentedBlock> m_entrypoints; // This is empty until after lowerEntrySwitch().
     Vector<MacroAssembler::Label> m_entrypointLabels; // This is empty until code generation.
@@ -395,7 +422,6 @@ private:
     RefPtr<WasmBoundsCheckGenerator> m_wasmBoundsCheckGenerator;
     const char* m_lastPhaseName;
     std::unique_ptr<Disassembler> m_disassembler;
-    unsigned m_optLevel { defaultOptLevel() };
     Ref<PrologueGenerator> m_defaultPrologueGenerator;
 };
 

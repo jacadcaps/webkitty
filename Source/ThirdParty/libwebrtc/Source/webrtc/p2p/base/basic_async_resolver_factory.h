@@ -11,14 +11,30 @@
 #ifndef P2P_BASE_BASIC_ASYNC_RESOLVER_FACTORY_H_
 #define P2P_BASE_BASIC_ASYNC_RESOLVER_FACTORY_H_
 
-#include "api/async_resolver_factory.h"
-#include "rtc_base/async_resolver_interface.h"
+#include <functional>
+#include <memory>
+#include <utility>
+
+#include "api/async_dns_resolver.h"
 
 namespace webrtc {
 
-class BasicAsyncResolverFactory : public AsyncResolverFactory {
+// A factory that vends AsyncDnsResolver instances.
+class BasicAsyncDnsResolverFactory final
+    : public AsyncDnsResolverFactoryInterface {
  public:
-  rtc::AsyncResolverInterface* Create() override;
+  BasicAsyncDnsResolverFactory() = default;
+
+  std::unique_ptr<webrtc::AsyncDnsResolverInterface> CreateAndResolve(
+      const rtc::SocketAddress& addr,
+      absl::AnyInvocable<void()> callback) override;
+
+  std::unique_ptr<webrtc::AsyncDnsResolverInterface> CreateAndResolve(
+      const rtc::SocketAddress& addr,
+      int family,
+      absl::AnyInvocable<void()> callback) override;
+
+  std::unique_ptr<webrtc::AsyncDnsResolverInterface> Create() override;
 };
 
 }  // namespace webrtc

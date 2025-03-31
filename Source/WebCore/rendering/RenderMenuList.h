@@ -40,12 +40,19 @@ class HTMLSelectElement;
 class RenderText;
 
 class RenderMenuList final : public RenderFlexibleBox, private PopupMenuClient {
-    WTF_MAKE_ISO_ALLOCATED(RenderMenuList);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(RenderMenuList);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderMenuList);
 public:
     RenderMenuList(HTMLSelectElement&, RenderStyle&&);
     virtual ~RenderMenuList();
 
     HTMLSelectElement& selectElement() const;
+
+    // CheckedPtr interface.
+    uint32_t checkedPtrCount() const final { return RenderFlexibleBox::checkedPtrCount(); }
+    uint32_t checkedPtrCountWithoutThreadCheck() const final { return RenderFlexibleBox::checkedPtrCountWithoutThreadCheck(); }
+    void incrementCheckedPtrCount() const final { RenderFlexibleBox::incrementCheckedPtrCount(); }
+    void decrementCheckedPtrCount() const final { RenderFlexibleBox::decrementCheckedPtrCount(); }
 
 #if !PLATFORM(IOS_FAMILY)
     bool popupIsVisible() const { return m_popupIsVisible; }
@@ -59,6 +66,10 @@ public:
 
     String text() const;
 
+#if PLATFORM(IOS_FAMILY)
+    void layout() override;
+#endif
+
     RenderBlock* innerRenderer() const { return m_innerBlock.get(); }
     void setInnerRenderer(RenderBlock&);
 
@@ -69,8 +80,6 @@ private:
 
     void element() const = delete;
 
-    bool isMenuList() const override { return true; }
-
     bool createsAnonymousWrapper() const override { return true; }
 
     void updateFromElement() override;
@@ -79,7 +88,7 @@ private:
     bool hasControlClip() const override { return true; }
     bool canHaveGeneratedChildren() const override { return false; }
 
-    const char* renderName() const override { return "RenderMenuList"; }
+    ASCIILiteral renderName() const override { return "RenderMenuList"_s; }
 
     void computeIntrinsicLogicalWidths(LayoutUnit& minLogicalWidth, LayoutUnit& maxLogicalWidth) const override;
     void computePreferredLogicalWidths() override;
@@ -109,24 +118,23 @@ private:
     bool itemIsLabel(unsigned listIndex) const override;
     bool itemIsSelected(unsigned listIndex) const override;
     bool shouldPopOver() const override { return !POPUP_MENU_PULLS_DOWN; }
-    bool valueShouldChangeOnHotTrack() const override { return true; }
     void setTextFromItem(unsigned listIndex) override;
     void listBoxSelectItem(int listIndex, bool allowMultiplySelections, bool shift, bool fireOnChangeNow = true) override;
     bool multiple() const override;
     FontSelector* fontSelector() const override;
     HostWindow* hostWindow() const override;
-    Ref<Scrollbar> createScrollbar(ScrollableArea&, ScrollbarOrientation, ScrollbarControlSize) override;
+    Ref<Scrollbar> createScrollbar(ScrollableArea&, ScrollbarOrientation, ScrollbarWidth) override;
 
     bool hasLineIfEmpty() const override { return true; }
 
     // Flexbox defines baselines differently than regular blocks.
     // For backwards compatibility, menulists need to do the regular block behavior.
-    int baselinePosition(FontBaseline baseline, bool firstLine, LineDirectionMode direction, LinePositionMode position) const override
+    LayoutUnit baselinePosition(FontBaseline baseline, bool firstLine, LineDirectionMode direction, LinePositionMode position) const override
     {
         return RenderBlock::baselinePosition(baseline, firstLine, direction, position);
     }
-    Optional<int> firstLineBaseline() const override { return RenderBlock::firstLineBaseline(); }
-    Optional<int> inlineBlockBaseline(LineDirectionMode direction) const override { return RenderBlock::inlineBlockBaseline(direction); }
+    std::optional<LayoutUnit> firstLineBaseline() const override { return RenderBlock::firstLineBaseline(); }
+    std::optional<LayoutUnit> inlineBlockBaseline(LineDirectionMode direction) const override { return RenderBlock::inlineBlockBaseline(direction); }
 
     void getItemBackgroundColor(unsigned listIndex, Color&, bool& itemHasCustomBackgroundColor) const;
 
@@ -139,13 +147,13 @@ private:
 
     bool isFlexibleBoxImpl() const override { return true; }
 
-    WeakPtr<RenderText> m_buttonText;
-    WeakPtr<RenderBlock> m_innerBlock;
+    SingleThreadWeakPtr<RenderText> m_buttonText;
+    SingleThreadWeakPtr<RenderBlock> m_innerBlock;
 
     bool m_needsOptionsWidthUpdate;
     int m_optionsWidth;
 
-    Optional<int> m_lastActiveIndex;
+    std::optional<int> m_lastActiveIndex;
 
     std::unique_ptr<RenderStyle> m_optionStyle;
 
@@ -157,4 +165,4 @@ private:
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderMenuList, isMenuList())
+SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderMenuList, isRenderMenuList())

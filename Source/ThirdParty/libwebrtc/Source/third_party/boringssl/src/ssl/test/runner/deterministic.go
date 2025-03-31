@@ -16,6 +16,8 @@ package runner
 
 import (
 	"encoding/binary"
+
+	"golang.org/x/crypto/chacha20"
 )
 
 // Use a different key from crypto/rand/deterministic.c.
@@ -26,12 +28,14 @@ type deterministicRand struct {
 }
 
 func (d *deterministicRand) Read(buf []byte) (int, error) {
-	for i := range buf {
-		buf[i] = 0
-	}
+	clear(buf)
 	var nonce [12]byte
 	binary.LittleEndian.PutUint64(nonce[:8], d.numCalls)
-	chaCha20(buf, buf, deterministicRandKey, nonce[:], 0)
+	cipher, err := chacha20.NewUnauthenticatedCipher(deterministicRandKey, nonce[:])
+	if err != nil {
+		return 0, err
+	}
+	cipher.XORKeyStream(buf, buf)
 	d.numCalls++
 	return len(buf), nil
 }

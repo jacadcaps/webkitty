@@ -27,19 +27,26 @@
 
 #import <wtf/RetainPtr.h>
 
+#if PLATFORM(IOS_FAMILY)
+@interface WKPreferences (TabFocusesLinks)
+
+@property (nonatomic) BOOL tabFocusesLinks;
+
+@end
+#endif
+
 TEST(Copying, WKPreferences)
 {
     // Change all defaults to something else.
     RetainPtr<WKPreferences> a = adoptNS([[WKPreferences alloc] init]);
     [a setMinimumFontSize:10];
     [a setJavaScriptEnabled:NO];
+    [a setShouldPrintBackgrounds:YES];
+    [a setTabFocusesLinks:YES];
 #if PLATFORM(IOS_FAMILY)
     [a setJavaScriptCanOpenWindowsAutomatically:YES];
 #else
     [a setJavaScriptCanOpenWindowsAutomatically:NO];
-    [a setJavaEnabled:YES];
-    [a setPlugInsEnabled:YES];
-    [a setTabFocusesLinks:YES];
 #endif
 
     // Check that values are equal in both instances.
@@ -47,32 +54,28 @@ TEST(Copying, WKPreferences)
     EXPECT_EQ([a minimumFontSize], [b minimumFontSize]);
     EXPECT_EQ([a javaScriptEnabled], [b javaScriptEnabled]);
     EXPECT_EQ([a javaScriptCanOpenWindowsAutomatically], [b javaScriptCanOpenWindowsAutomatically]);
+    EXPECT_EQ([a shouldPrintBackgrounds], [b shouldPrintBackgrounds]);
+    EXPECT_EQ([a tabFocusesLinks], [b tabFocusesLinks]);
 #if PLATFORM(MAC)
     EXPECT_EQ([a javaEnabled], [b javaEnabled]);
-    EXPECT_EQ([a plugInsEnabled], [b plugInsEnabled]);
-    EXPECT_EQ([a tabFocusesLinks], [b tabFocusesLinks]);
 #endif
 
     // Change all defaults on the copied instance.
     [b setMinimumFontSize:13];
     [b setJavaScriptEnabled:YES];
+    [b setShouldPrintBackgrounds:NO];
+    [b setTabFocusesLinks:NO];
 #if PLATFORM(IOS_FAMILY)
     [b setJavaScriptCanOpenWindowsAutomatically:NO];
 #else
     [b setJavaScriptCanOpenWindowsAutomatically:YES];
-    [b setJavaEnabled:NO];
-    [b setPlugInsEnabled:NO];
-    [b setTabFocusesLinks:NO];
 #endif
 
     // Check that the mutations of 'b' did not affect 'a'.
     EXPECT_NE([a minimumFontSize], [b minimumFontSize]);
     EXPECT_NE([a javaScriptEnabled], [b javaScriptEnabled]);
     EXPECT_NE([a javaScriptCanOpenWindowsAutomatically], [b javaScriptCanOpenWindowsAutomatically]);
-#if PLATFORM(MAC)
-    EXPECT_NE([a javaEnabled], [b javaEnabled]);
-    EXPECT_NE([a plugInsEnabled], [b plugInsEnabled]);
+    EXPECT_NE([a shouldPrintBackgrounds], [b shouldPrintBackgrounds]);
     EXPECT_NE([a tabFocusesLinks], [b tabFocusesLinks]);
-#endif
 
 }

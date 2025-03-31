@@ -9,6 +9,7 @@
 
 #include <math.h>
 #include <stdlib.h>
+#include "GLSLANG/ShaderLang.h"
 #include "compiler/translator/Common.h"
 #include "compiler/translator/Severity.h"
 
@@ -16,9 +17,13 @@ namespace sh
 {
 
 class ImmutableString;
+class TSymbol;
 class TType;
 
 // Returns the fractional part of the given floating-point number.
+#ifdef WK_WORKAROUND_RDAR_145268301_ASAN_STACK_USE_AFTER_SCOPE
+__attribute__((no_sanitize_address))
+#endif
 inline float fractionalPart(float f)
 {
     float intPart = 0.0f;
@@ -71,6 +76,7 @@ class TInfoSinkBase
     TInfoSinkBase &operator<<(const ImmutableString &str);
 
     TInfoSinkBase &operator<<(const TType &type);
+    TInfoSinkBase &operator<<(const TSymbol &symbol);
 
     // Make sure floats are written with correct precision.
     TInfoSinkBase &operator<<(float f)
@@ -89,7 +95,7 @@ class TInfoSinkBase
         {
             stream.unsetf(std::ios::fixed);
             stream.unsetf(std::ios::scientific);
-            stream.precision(8);
+            stream.precision(9);
             stream << f;
         }
         sink.append(stream.str());
@@ -103,17 +109,39 @@ class TInfoSinkBase
         return *this;
     }
 
-    void erase() { sink.clear(); }
-    int size() { return static_cast<int>(sink.size()); }
+    void erase()
+    {
+        sink.clear();
+        binarySink.clear();
+    }
+    int size() { return static_cast<int>(isBinary() ? binarySink.size() : sink.size()); }
 
-    const TPersistString &str() const { return sink; }
-    const char *c_str() const { return sink.c_str(); }
+    const TPersistString &str() const
+    {
+        ASSERT(!isBinary());
+        return sink;
+    }
+    const char *c_str() const
+    {
+        ASSERT(!isBinary());
+        return sink.c_str();
+    }
 
     void prefix(Severity severity);
     void location(int file, int line);
 
+    bool isBinary() const { return !binarySink.empty(); }
+    void setBinary(BinaryBlob &&binary) { binarySink = std::move(binary); }
+    const BinaryBlob &getBinary() const
+    {
+        ASSERT(isBinary());
+        return binarySink;
+    }
+
   private:
+    // The data in the info sink is either in human readable form (|sink|) or binary (|binarySink|).
     TPersistString sink;
+    BinaryBlob binarySink;
 };
 
 class TInfoSink

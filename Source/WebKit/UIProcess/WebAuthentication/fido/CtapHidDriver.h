@@ -30,9 +30,52 @@
 #include "CtapDriver.h"
 #include "HidConnection.h"
 #include <WebCore/FidoHidMessage.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/UniqueRef.h>
 
 namespace WebKit {
+
+class CtapHidDriver;
+
+// Worker is the helper that maintains the transaction.
+// https://fidoalliance.org/specs/fido-v2.0-ps-20170927/fido-client-to-authenticator-protocol-v2.0-ps-20170927.html#arbitration
+// FSM: Idle => Write => Read.
+class CtapHidDriverWorker : public CanMakeWeakPtr<CtapHidDriverWorker> {
+    WTF_MAKE_TZONE_ALLOCATED(CtapHidDriverWorker);
+    WTF_MAKE_NONCOPYABLE(CtapHidDriverWorker);
+public:
+    using MessageCallback = Function<void(std::optional<fido::FidoHidMessage>&&)>;
+
+    enum class State : uint8_t  {
+        Idle,
+        Write,
+        Read
+    };
+
+    CtapHidDriverWorker(CtapHidDriver&, Ref<HidConnection>&&);
+    ~CtapHidDriverWorker();
+
+    void transact(fido::FidoHidMessage&&, MessageCallback&&);
+    void cancel(fido::FidoHidMessage&&);
+
+    void ref() const;
+    void deref() const;
+
+private:
+    void write(HidConnection::DataSent);
+    void read(const Vector<uint8_t>&);
+    void returnMessage();
+    void reset();
+
+    Ref<HidConnection> protectedConnection() { return m_connection; }
+
+    WeakRef<CtapHidDriver> m_driver;
+    Ref<HidConnection> m_connection;
+    State m_state { State::Idle };
+    std::optional<fido::FidoHidMessage> m_requestMessage;
+    std::optional<fido::FidoHidMessage> m_responseMessage;
+    MessageCallback m_callback;
+};
 
 // The following implements the CTAP HID protocol:
 // https://fidoalliance.org/specs/fido-v2.0-ps-20170927/fido-client-to-authenticator-protocol-v2.0-ps-20170927.html#usb
@@ -47,52 +90,22 @@ public:
         Busy
     };
 
-    explicit CtapHidDriver(UniqueRef<HidConnection>&&);
+    static Ref<CtapHidDriver> create(Ref<HidConnection>&&);
 
     void transact(Vector<uint8_t>&& data, ResponseCallback&&) final;
     void cancel() final;
 
 private:
-    // Worker is the helper that maintains the transaction.
-    // https://fidoalliance.org/specs/fido-v2.0-ps-20170927/fido-client-to-authenticator-protocol-v2.0-ps-20170927.html#arbitration
-    // FSM: Idle => Write => Read.
-    class Worker : public CanMakeWeakPtr<Worker> {
-        WTF_MAKE_FAST_ALLOCATED;
-        WTF_MAKE_NONCOPYABLE(Worker);
-    public:
-        using MessageCallback = Function<void(Optional<fido::FidoHidMessage>&&)>;
+    explicit CtapHidDriver(Ref<HidConnection>&&);
 
-        enum class State : uint8_t  {
-            Idle,
-            Write,
-            Read
-        };
-
-        explicit Worker(UniqueRef<HidConnection>&&);
-        ~Worker();
-
-        void transact(fido::FidoHidMessage&&, MessageCallback&&);
-        void cancel(fido::FidoHidMessage&&);
-
-    private:
-        void write(HidConnection::DataSent);
-        void read(const Vector<uint8_t>&);
-        void returnMessage();
-        void reset();
-
-        UniqueRef<HidConnection> m_connection;
-        State m_state { State::Idle };
-        Optional<fido::FidoHidMessage> m_requestMessage;
-        Optional<fido::FidoHidMessage> m_responseMessage;
-        MessageCallback m_callback;
-    };
-
-    void continueAfterChannelAllocated(Optional<fido::FidoHidMessage>&&);
-    void continueAfterResponseReceived(Optional<fido::FidoHidMessage>&&);
+    void continueAfterChannelAllocated(std::optional<fido::FidoHidMessage>&&);
+    void continueAfterResponseReceived(std::optional<fido::FidoHidMessage>&&);
     void returnResponse(Vector<uint8_t>&&);
     void reset();
 
-    UniqueRef<Worker> m_worker;
+    Ref<CtapHidDriverWorker> protectedWorker() const { return m_worker.get(); }
+
+    const UniqueRef<CtapHidDriverWorker> m_worker;
     State m_state { State::Idle };
     uint32_t m_channelId { fido::kHidBroadcastChannel };
     // One request at a time.
@@ -100,6 +113,16 @@ private:
     ResponseCallback m_responseCallback;
     Vector<uint8_t> m_nonce;
 };
+
+inline void CtapHidDriverWorker::ref() const
+{
+    m_driver->ref();
+}
+
+inline void CtapHidDriverWorker::deref() const
+{
+    m_driver->deref();
+}
 
 } // namespace WebKit
 

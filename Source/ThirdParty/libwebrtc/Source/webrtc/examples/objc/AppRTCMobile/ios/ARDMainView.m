@@ -26,7 +26,8 @@ static CGFloat const kCallControlMargin = 8;
 }
 
 - (instancetype)initWithFrame:(CGRect)frame {
-  if (self = [super initWithFrame:frame]) {
+  self = [super initWithFrame:frame];
+  if (self) {
     _roomText = [[UITextField alloc] initWithFrame:CGRectZero];
     _roomText.borderStyle = UITextBorderStyleNone;
     _roomText.font = [UIFont systemFontOfSize:12];
@@ -64,7 +65,7 @@ static CGFloat const kCallControlMargin = 8;
 
 - (BOOL)textFieldShouldReturn:(UITextField *)textField {
   // There is no other control that can take focus, so manually resign focus
-  // when return (Join) is pressed to trigger |textFieldDidEndEditing|.
+  // when return (Join) is pressed to trigger `textFieldDidEndEditing`.
   [textField resignFirstResponder];
   return YES;
 }
@@ -82,7 +83,8 @@ static CGFloat const kCallControlMargin = 8;
 @synthesize isAudioLoopPlaying = _isAudioLoopPlaying;
 
 - (instancetype)initWithFrame:(CGRect)frame {
-  if (self = [super initWithFrame:frame]) {
+  self = [super initWithFrame:frame];
+  if (self) {
     _roomText = [[ARDRoomTextField alloc] initWithFrame:CGRectZero];
     [self addSubview:_roomText];
 

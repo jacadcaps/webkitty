@@ -24,13 +24,20 @@
 
 #if ENABLE(APPLE_PAY)
 
-messages -> WebPaymentCoordinator NotRefCounted {
+[
+    DispatchedFrom=UI,
+    DispatchedTo=WebContent
+]
+messages -> WebPaymentCoordinator {
 
     ValidateMerchant(String validationURLString)
     DidAuthorizePayment(WebCore::Payment payment)
-    DidSelectShippingMethod(WebCore::ApplePaySessionPaymentRequest::ShippingMethod shippingMethod)
+    DidSelectShippingMethod(struct WebCore::ApplePayShippingMethod shippingMethod)
     DidSelectShippingContact(WebCore::PaymentContact shippingContact)
     DidSelectPaymentMethod(WebCore::PaymentMethod paymentMethod)
+#if ENABLE(APPLE_PAY_COUPON_CODE)
+    DidChangeCouponCode(String couponCode)
+#endif
     DidCancelPaymentSession(WebCore::PaymentSessionError sessionError)
 }
 

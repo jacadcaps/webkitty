@@ -32,13 +32,14 @@
 #include "BiquadFilterType.h"
 #include <memory>
 #include <wtf/RefPtr.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 // BiquadProcessor is an AudioDSPKernelProcessor which uses Biquad objects to implement several common filters.
 
 class BiquadProcessor final : public AudioDSPKernelProcessor {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(BiquadProcessor);
 public:
     BiquadProcessor(BaseAudioContext&, float sampleRate, size_t numberOfChannels, bool autoInitialize);
 
@@ -47,13 +48,11 @@ public:
     std::unique_ptr<AudioDSPKernel> createKernel() override;
         
     void process(const AudioBus* source, AudioBus* destination, size_t framesToProcess) override;
+    void processOnlyAudioParams(size_t framesToProcess) final;
 
     // Get the magnitude and phase response of the filter at the given
     // set of frequencies (in Hz). The phase response is in radians.
-    void getFrequencyResponse(int nFrequencies,
-                              const float* frequencyHz,
-                              float* magResponse,
-                              float* phaseResponse);
+    void getFrequencyResponse(unsigned nFrequencies, std::span<const float> frequencyHz, std::span<float> magResponse, std::span<float> phaseResponse);
 
     void checkForDirtyCoefficients();
     
@@ -68,8 +67,12 @@ public:
     BiquadFilterType type() const { return m_type; }
     void setType(BiquadFilterType);
 
+    bool shouldUseARate() const { return m_shouldUseARate; }
+
 private:
-    BiquadFilterType m_type;
+    Type processorType() const final { return Type::Biquad; }
+
+    BiquadFilterType m_type { BiquadFilterType::Lowpass };
 
     Ref<AudioParam> m_parameter1;
     Ref<AudioParam> m_parameter2;
@@ -77,10 +80,16 @@ private:
     Ref<AudioParam> m_parameter4;
 
     // so DSP kernels know when to re-compute coefficients
-    bool m_filterCoefficientsDirty;
+    bool m_filterCoefficientsDirty { true };
 
     // Set to true if any of the filter parameters are sample-accurate.
-    bool m_hasSampleAccurateValues;
+    bool m_hasSampleAccurateValues { false };
+
+    bool m_shouldUseARate { true };
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::BiquadProcessor) \
+    static bool isType(const WebCore::AudioProcessor& processor) { return processor.processorType() == WebCore::AudioProcessor::Type::Biquad; } \
+SPECIALIZE_TYPE_TRAITS_END()

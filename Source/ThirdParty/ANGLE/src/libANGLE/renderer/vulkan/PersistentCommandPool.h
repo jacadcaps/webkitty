@@ -28,19 +28,21 @@ class PersistentCommandPool final
     ~PersistentCommandPool();
 
     void destroy(VkDevice device);
-    angle::Result init(vk::Context *context, uint32_t queueFamilyIndex);
+    angle::Result init(ErrorContext *context,
+                       ProtectionType protectionType,
+                       uint32_t queueFamilyIndex);
 
-    angle::Result allocate(vk::Context *context, vk::PrimaryCommandBuffer *commandBufferOut);
-    angle::Result collect(vk::Context *context, vk::PrimaryCommandBuffer &&buffer);
+    angle::Result allocate(ErrorContext *context, PrimaryCommandBuffer *commandBufferOut);
+    angle::Result collect(ErrorContext *context, PrimaryCommandBuffer &&buffer);
 
     bool valid() const { return mCommandPool.valid(); }
 
   private:
-    angle::Result allocateCommandBuffer(vk::Context *context);
+    angle::Result allocateCommandBuffer(ErrorContext *context);
 
-    std::vector<vk::PrimaryCommandBuffer> mFreeBuffers;
+    std::vector<PrimaryCommandBuffer> mFreeBuffers;
 
-    vk::CommandPool mCommandPool;
+    CommandPool mCommandPool;
 
     static const int kInitBufferNum = 2;
 };

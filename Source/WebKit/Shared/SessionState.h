@@ -26,13 +26,17 @@
 #pragma once
 
 #include "ViewSnapshotStore.h"
+#include <WebCore/BackForwardFrameItemIdentifier.h>
 #include <WebCore/BackForwardItemIdentifier.h>
 #include <WebCore/FloatRect.h>
+#include <WebCore/FrameIdentifier.h>
 #include <WebCore/FrameLoaderTypes.h>
 #include <WebCore/IntRect.h>
+#include <WebCore/PolicyContainer.h>
 #include <WebCore/SerializedScriptValue.h>
-#include <wtf/EnumTraits.h>
-#include <wtf/Optional.h>
+#include <wtf/ArgumentCoder.h>
+#include <wtf/RefCounted.h>
+#include <wtf/RunLoop.h>
 #include <wtf/URL.h>
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
@@ -44,53 +48,50 @@ class Encoder;
 
 namespace WebKit {
 
-bool isValidEnum(WebCore::ShouldOpenExternalURLsPolicy);
-
 struct HTTPBody {
     struct Element {
-        void encode(IPC::Encoder&) const;
-        static Optional<Element> decode(IPC::Decoder&);
-
-        enum class Type {
-            Data,
-            File,
-            Blob,
+        struct FileData {
+            String filePath;
+            int64_t fileStart;
+            std::optional<int64_t> fileLength;
+            std::optional<WallTime> expectedFileModificationTime;
         };
-
-        // FIXME: This should be a Variant. It's also unclear why we don't just use FormDataElement here.
-        Type type = Type::Data;
-
-        // Data.
-        Vector<char> data;
-
-        // File.
-        String filePath;
-        int64_t fileStart;
-        Optional<int64_t> fileLength;
-        Optional<WallTime> expectedFileModificationTime;
-
-        // Blob.
-        String blobURLString;
+        using BlobURLString = String;
+        using Data = std::variant<Vector<uint8_t>, FileData, BlobURLString>;
+        Data data;
     };
-
-    void encode(IPC::Encoder&) const;
-    static WARN_UNUSED_RETURN bool decode(IPC::Decoder&, HTTPBody&);
 
     String contentType;
     Vector<Element> elements;
 };
 
-struct FrameState {
-    void encode(IPC::Encoder&) const;
-    static Optional<FrameState> decode(IPC::Decoder&);
+class FrameState : public RefCounted<FrameState> {
+public:
+    template<typename... Args>
+    static Ref<FrameState> create(Args&&... args)
+    {
+        return adoptRef(*new FrameState(std::forward<Args>(args)...));
+    }
+
+    // These are used to help debug <rdar://problem/48634553>.
+    FrameState() { RELEASE_ASSERT(RunLoop::isMain()); }
+    ~FrameState() { RELEASE_ASSERT(RunLoop::isMain()); }
+
+    Ref<FrameState> copy();
+
+    const Vector<AtomString>& documentState() const { return m_documentState; }
+    enum class ShouldValidate : bool { No, Yes };
+    void setDocumentState(const Vector<AtomString>&, ShouldValidate = ShouldValidate::No);
+    static bool validateDocumentState(const Vector<AtomString>&);
+    void replaceChildFrameState(Ref<FrameState>&&);
 
     String urlString;
     String originalURLString;
     String referrer;
-    String target;
+    AtomString target;
+    std::optional<WebCore::FrameIdentifier> frameID;
 
-    Vector<String> documentState;
-    Optional<Vector<uint8_t>> stateObjectData;
+    std::optional<Vector<uint8_t>> stateObjectData;
 
     int64_t documentSequenceNumber { 0 };
     int64_t itemSequenceNumber { 0 };
@@ -99,7 +100,17 @@ struct FrameState {
     bool shouldRestoreScrollPosition { true };
     float pageScaleFactor { 0 };
 
-    Optional<HTTPBody> httpBody;
+    std::optional<HTTPBody> httpBody;
+
+    Markable<WebCore::BackForwardItemIdentifier> itemID;
+    Markable<WebCore::BackForwardFrameItemIdentifier> frameItemID;
+    bool hasCachedPage { false };
+    String title;
+    WebCore::ShouldOpenExternalURLsPolicy shouldOpenExternalURLsPolicy { WebCore::ShouldOpenExternalURLsPolicy::ShouldNotAllow };
+    RefPtr<WebCore::SerializedScriptValue> sessionStateObject;
+    bool wasCreatedByJSWithoutUserInteraction { false };
+    bool wasRestoredFromSession { false };
+    std::optional<WebCore::PolicyContainer> policyContainer;
 
     // FIXME: These should not be per frame.
 #if PLATFORM(IOS_FAMILY)
@@ -111,61 +122,29 @@ struct FrameState {
     WebCore::FloatBoxExtent obscuredInsets;
 #endif
 
-    Vector<FrameState> children;
+    Vector<Ref<FrameState>> children;
 
-    // This is only used to help debug <rdar://problem/48634553>.
-    bool isDestructed { false };
-    ~FrameState() { isDestructed = true; }
-};
-
-struct PageState {
-    void encode(IPC::Encoder&) const;
-    static WARN_UNUSED_RETURN bool decode(IPC::Decoder&, PageState&);
-
-    String title;
-    FrameState mainFrameState;
-    WebCore::ShouldOpenExternalURLsPolicy shouldOpenExternalURLsPolicy { WebCore::ShouldOpenExternalURLsPolicy::ShouldNotAllow };
-    RefPtr<WebCore::SerializedScriptValue> sessionStateObject;
-};
-
-struct BackForwardListItemState {
-    void encode(IPC::Encoder&) const;
-    static Optional<BackForwardListItemState> decode(IPC::Decoder&);
-
-    WebCore::BackForwardItemIdentifier identifier;
-
-    PageState pageState;
-#if PLATFORM(COCOA) || PLATFORM(GTK)
-    RefPtr<ViewSnapshot> snapshot;
+private:
+    FrameState(const String& urlString, const String& originalURLString, const String& referrer, const AtomString& target, std::optional<WebCore::FrameIdentifier>, std::optional<Vector<uint8_t>> stateObjectData, int64_t documentSequenceNumber, int64_t itemSequenceNumber, WebCore::IntPoint scrollPosition, bool shouldRestoreScrollPosition, float pageScaleFactor, const std::optional<HTTPBody>&, std::optional<WebCore::BackForwardItemIdentifier>, std::optional<WebCore::BackForwardFrameItemIdentifier>, bool hasCachedPage, const String& title, WebCore::ShouldOpenExternalURLsPolicy, RefPtr<WebCore::SerializedScriptValue>&& sessionStateObject, bool wasCreatedByJSWithoutUserInteraction, bool wasRestoredFromSession, const std::optional<WebCore::PolicyContainer>&,
+#if PLATFORM(IOS_FAMILY)
+        WebCore::FloatRect exposedContentRect, WebCore::IntRect unobscuredContentRect, WebCore::FloatSize minimumLayoutSizeInScrollViewCoordinates, WebCore::IntSize contentSize, bool scaleIsInitial, WebCore::FloatBoxExtent obscuredInsets,
 #endif
-    bool hasCachedPage { false };
+        const Vector<Ref<FrameState>>& children, const Vector<AtomString>& documentState
+    );
+
+    Vector<AtomString> m_documentState;
 };
 
 struct BackForwardListState {
-    void encode(IPC::Encoder&) const;
-    static Optional<BackForwardListState> decode(IPC::Decoder&);
-
-    Vector<BackForwardListItemState> items;
-    Optional<uint32_t> currentIndex;
+    Vector<Ref<FrameState>> items;
+    std::optional<uint32_t> currentIndex;
 };
 
 struct SessionState {
     BackForwardListState backForwardListState;
     uint64_t renderTreeSize;
     URL provisionalURL;
+    bool isAppInitiated { true };
 };
 
 } // namespace WebKit
-
-namespace WTF {
-
-template<> struct EnumTraits<WebKit::HTTPBody::Element::Type> {
-    using values = EnumValues<
-        WebKit::HTTPBody::Element::Type,
-        WebKit::HTTPBody::Element::Type::Data,
-        WebKit::HTTPBody::Element::Type::File,
-        WebKit::HTTPBody::Element::Type::Blob
-    >;
-};
-
-} // namespace WTF

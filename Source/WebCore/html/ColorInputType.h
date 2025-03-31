@@ -31,50 +31,67 @@
 
 #pragma once
 
-#if ENABLE(INPUT_TYPE_COLOR)
-
 #include "BaseClickableWithKeyInputType.h"
 #include "ColorChooser.h"
 #include "ColorChooserClient.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class ColorInputType final : public BaseClickableWithKeyInputType, private ColorChooserClient {
+    WTF_MAKE_TZONE_ALLOCATED(ColorInputType);
 public:
-    explicit ColorInputType(HTMLInputElement& element) : BaseClickableWithKeyInputType(element) { }
+    static Ref<ColorInputType> create(HTMLInputElement& element)
+    {
+        return adoptRef(*new ColorInputType(element));
+    }
+
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
+    bool supportsAlpha() const final;
+    Vector<Color> suggestedColors() const final;
+    Color valueAsColor() const;
+    void selectColor(StringView);
+
     virtual ~ColorInputType();
 
+    void detach() final;
+
 private:
+    explicit ColorInputType(HTMLInputElement& element)
+        : BaseClickableWithKeyInputType(Type::Color, element)
+    {
+        ASSERT(needsShadowSubtree());
+    }
+
     void didChooseColor(const Color&) final;
     void didEndChooser() final;
     IntRect elementRectRelativeToRootView() const final;
-    Vector<Color> suggestedColors() const final;
     bool isMouseFocusable() const final;
     bool isKeyboardFocusable(KeyboardEvent*) const final;
-    bool isColorControl() const final;
     bool isPresentingAttachedView() const final;
     const AtomString& formControlType() const final;
     bool supportsRequired() const final;
     String fallbackValue() const final;
     String sanitizeValue(const String&) const final;
     void createShadowSubtree() final;
-    void setValue(const String&, bool valueChanged, TextFieldEventBehavior) final;
+    void setValue(const String&, bool valueChanged, TextFieldEventBehavior, TextControlSetValueSelection) final;
+    void attributeChanged(const QualifiedName&) final;
     void handleDOMActivateEvent(Event&) final;
-    void detach() final;
+    void showPicker() final;
+    bool allowsShowPickerAcrossFrames() final;
     void elementDidBlur() final;
     bool shouldRespectListAttribute() final;
-    bool typeMismatchFor(const String&) const final;
     bool shouldResetOnDocumentActivation() final;
-    Color valueAsColor() const final;
-    void selectColor(StringView) final;
 
     void endColorChooser();
     void updateColorSwatch();
     HTMLElement* shadowColorSwatch() const;
 
-    std::unique_ptr<ColorChooser> m_chooser;
+    RefPtr<ColorChooser> m_chooser;
 };
 
 } // namespace WebCore
 
-#endif // ENABLE(INPUT_TYPE_COLOR)
+SPECIALIZE_TYPE_TRAITS_INPUT_TYPE(ColorInputType, Type::Color)

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,18 +26,20 @@
 #import "config.h"
 #import "LegacyCustomProtocolManagerClient.h"
 
-#import "DataReference.h"
+#import "CacheStoragePolicy.h"
 #import "LegacyCustomProtocolManagerProxy.h"
 #import <WebCore/ResourceError.h>
 #import <WebCore/ResourceRequest.h>
 #import <WebCore/ResourceResponse.h>
+#import <wtf/TZoneMallocInlines.h>
+#import <wtf/cocoa/SpanCocoa.h>
 
 @interface WKCustomProtocolLoader : NSObject <NSURLConnectionDelegate> {
 @private
     WeakPtr<WebKit::LegacyCustomProtocolManagerProxy> _customProtocolManagerProxy;
-    WebKit::LegacyCustomProtocolID _customProtocolID;
+    Markable<WebKit::LegacyCustomProtocolID> _customProtocolID;
     NSURLCacheStoragePolicy _storagePolicy;
-    NSURLConnection *_urlConnection;
+    RetainPtr<NSURLConnection> _urlConnection;
 }
 - (id)initWithLegacyCustomProtocolManagerProxy:(WebKit::LegacyCustomProtocolManagerProxy&)customProtocolManagerProxy customProtocolID:(WebKit::LegacyCustomProtocolID)customProtocolID request:(NSURLRequest *)request;
 - (void)cancel;
@@ -52,14 +54,14 @@
         return nil;
 
     ASSERT(request);
-    _customProtocolManagerProxy = makeWeakPtr(customProtocolManagerProxy);
+    _customProtocolManagerProxy = customProtocolManagerProxy;
     _customProtocolID = customProtocolID;
     _storagePolicy = NSURLCacheStorageNotAllowed;
-    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    _urlConnection = [[NSURLConnection alloc] initWithRequest:request delegate:self startImmediately:NO];
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    _urlConnection = adoptNS([[NSURLConnection alloc] initWithRequest:request delegate:self startImmediately:NO]);
     [_urlConnection scheduleInRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
     [_urlConnection start];
-    ALLOW_DEPRECATED_DECLARATIONS_END
+ALLOW_DEPRECATED_DECLARATIONS_END
 
     return self;
 }
@@ -67,7 +69,6 @@
 - (void)dealloc
 {
     [_urlConnection cancel];
-    [_urlConnection release];
     [super dealloc];
 }
 
@@ -80,12 +81,13 @@
 
 - (void)connection:(NSURLConnection *)connection didFailWithError:(NSError *)error
 {
-    if (!_customProtocolManagerProxy)
+    RefPtr customProtocolManagerProxy = _customProtocolManagerProxy.get();
+    if (!customProtocolManagerProxy)
         return;
 
     WebCore::ResourceError coreError(error);
-    _customProtocolManagerProxy->didFailWithError(_customProtocolID, coreError);
-    _customProtocolManagerProxy->stopLoading(_customProtocolID);
+    customProtocolManagerProxy->didFailWithError(*_customProtocolID, coreError);
+    customProtocolManagerProxy->stopLoading(*_customProtocolID);
 }
 
 - (NSCachedURLResponse *)connection:(NSURLConnection *)connection willCacheResponse:(NSCachedURLResponse *)cachedResponse
@@ -97,29 +99,31 @@
 
 - (void)connection:(NSURLConnection *)connection didReceiveResponse:(NSURLResponse *)response
 {
-    if (!_customProtocolManagerProxy)
+    RefPtr customProtocolManagerProxy = _customProtocolManagerProxy.get();
+    if (!customProtocolManagerProxy)
         return;
 
     WebCore::ResourceResponse coreResponse(response);
-    _customProtocolManagerProxy->didReceiveResponse(_customProtocolID, coreResponse, _storagePolicy);
+    customProtocolManagerProxy->didReceiveResponse(*_customProtocolID, coreResponse, WebKit::toCacheStoragePolicy(_storagePolicy));
 }
 
 - (void)connection:(NSURLConnection *)connection didReceiveData:(NSData *)data
 {
-    if (!_customProtocolManagerProxy)
+    RefPtr customProtocolManagerProxy = _customProtocolManagerProxy.get();
+    if (!customProtocolManagerProxy)
         return;
 
-    IPC::DataReference coreData(static_cast<const uint8_t*>([data bytes]), [data length]);
-    _customProtocolManagerProxy->didLoadData(_customProtocolID, coreData);
+    customProtocolManagerProxy->didLoadData(*_customProtocolID, span(data));
 }
 
 - (NSURLRequest *)connection:(NSURLConnection *)connection willSendRequest:(NSURLRequest *)request redirectResponse:(NSURLResponse *)redirectResponse
 {
-    if (!_customProtocolManagerProxy)
+    RefPtr customProtocolManagerProxy = _customProtocolManagerProxy.get();
+    if (!customProtocolManagerProxy)
         return nil;
 
     if (redirectResponse) {
-        _customProtocolManagerProxy->wasRedirectedToRequest(_customProtocolID, request, redirectResponse);
+        customProtocolManagerProxy->wasRedirectedToRequest(*_customProtocolID, request, redirectResponse);
         return nil;
     }
     return request;
@@ -127,16 +131,20 @@
 
 - (void)connectionDidFinishLoading:(NSURLConnection *)connection
 {
-    if (!_customProtocolManagerProxy)
+    RefPtr customProtocolManagerProxy = _customProtocolManagerProxy.get();
+    if (!customProtocolManagerProxy)
         return;
 
-    _customProtocolManagerProxy->didFinishLoading(_customProtocolID);
-    _customProtocolManagerProxy->stopLoading(_customProtocolID);
+    customProtocolManagerProxy->didFinishLoading(*_customProtocolID);
+    customProtocolManagerProxy->stopLoading(*_customProtocolID);
 }
 
 @end
 
 namespace WebKit {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(LegacyCustomProtocolManagerClient);
+
 using namespace WebCore;
 
 void LegacyCustomProtocolManagerClient::startLoading(LegacyCustomProtocolManagerProxy& manager, WebKit::LegacyCustomProtocolID customProtocolID, const ResourceRequest& coreRequest)
@@ -145,11 +153,10 @@ void LegacyCustomProtocolManagerClient::startLoading(LegacyCustomProtocolManager
     if (!request)
         return;
 
-    WKCustomProtocolLoader *loader = [[WKCustomProtocolLoader alloc] initWithLegacyCustomProtocolManagerProxy:manager customProtocolID:customProtocolID request:request];
+    auto loader = adoptNS([[WKCustomProtocolLoader alloc] initWithLegacyCustomProtocolManagerProxy:manager customProtocolID:customProtocolID request:request]);
     ASSERT(loader);
     ASSERT(!m_loaderMap.contains(customProtocolID));
-    m_loaderMap.add(customProtocolID, loader);
-    [loader release];
+    m_loaderMap.add(customProtocolID, WTFMove(loader));
 }
 
 void LegacyCustomProtocolManagerClient::stopLoading(LegacyCustomProtocolManagerProxy&, WebKit::LegacyCustomProtocolID customProtocolID)

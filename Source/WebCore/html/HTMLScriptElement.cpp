@@ -24,18 +24,23 @@
 #include "HTMLScriptElement.h"
 
 #include "Document.h"
+#include "ElementInlines.h"
 #include "Event.h"
 #include "EventNames.h"
 #include "HTMLNames.h"
 #include "HTMLParserIdioms.h"
-#include "RuntimeEnabledFeatures.h"
+#include "JSRequestPriority.h"
+#include "NodeName.h"
+#include "RequestPriority.h"
+#include "Settings.h"
 #include "Text.h"
-#include <wtf/IsoMallocInlines.h>
+#include "TrustedType.h"
 #include <wtf/Ref.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLScriptElement);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(HTMLScriptElement);
 
 using namespace HTMLNames;
 
@@ -62,14 +67,31 @@ void HTMLScriptElement::childrenChanged(const ChildChange& change)
     ScriptElement::childrenChanged(change);
 }
 
-void HTMLScriptElement::parseAttribute(const QualifiedName& name, const AtomString& value)
+void HTMLScriptElement::finishParsingChildren()
+{
+    HTMLElement::finishParsingChildren();
+    ScriptElement::finishParsingChildren();
+}
+
+void HTMLScriptElement::removedFromAncestor(RemovalType type, ContainerNode& container)
+{
+    HTMLElement::removedFromAncestor(type, container);
+    unblockRendering();
+}
+
+void HTMLScriptElement::attributeChanged(const QualifiedName& name, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason attributeModificationReason)
 {
     if (name == srcAttr)
-        handleSourceAttribute(value);
+        handleSourceAttribute(newValue);
     else if (name == asyncAttr)
         handleAsyncAttribute();
-    else
-        HTMLElement::parseAttribute(name, value);
+    else if (name == blockingAttr) {
+        Ref blocking = this->blocking();
+        blocking->associatedAttributeValueChanged();
+        if (!blocking->contains("render"_s))
+            unblockRendering();
+    } else
+        HTMLElement::attributeChanged(name, oldValue, newValue, attributeModificationReason);
 }
 
 Node::InsertedIntoAncestorResult HTMLScriptElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
@@ -83,10 +105,81 @@ void HTMLScriptElement::didFinishInsertingNode()
     ScriptElement::didFinishInsertingNode();
 }
 
-// https://html.spec.whatwg.org/multipage/scripting.html#dom-script-text
-void HTMLScriptElement::setText(const String& value)
+void HTMLScriptElement::setText(String&& value)
 {
-    setTextContent(value);
+    setTextContent(WTFMove(value));
+}
+
+DOMTokenList& HTMLScriptElement::blocking()
+{
+    if (!m_blockingList) {
+        lazyInitialize(m_blockingList, makeUniqueWithoutRefCountedCheck<DOMTokenList>(*this, HTMLNames::blockingAttr, [](Document&, StringView token) {
+            if (equalLettersIgnoringASCIICase(token, "render"_s))
+                return true;
+            return false;
+        }));
+    }
+    return *m_blockingList;
+}
+
+// https://html.spec.whatwg.org/multipage/scripting.html#script-processing-model:implicitly-potentially-render-blocking
+bool HTMLScriptElement::isImplicitlyPotentiallyRenderBlocking() const
+{
+    return scriptType() == ScriptType::Classic && isParserInserted() == ParserInserted::Yes && !hasDeferAttribute() && !hasAsyncAttribute();
+}
+
+// https://html.spec.whatwg.org/multipage/urls-and-fetching.html#potentially-render-blocking
+void HTMLScriptElement::potentiallyBlockRendering()
+{
+    bool explicitRenderBlocking = m_blockingList && m_blockingList->contains("render"_s);
+    if (explicitRenderBlocking || isImplicitlyPotentiallyRenderBlocking()) {
+        protectedDocument()->blockRenderingOn(*this, explicitRenderBlocking ? Document::ImplicitRenderBlocking::No : Document::ImplicitRenderBlocking::Yes);
+        m_isRenderBlocking = true;
+    }
+}
+
+void HTMLScriptElement::unblockRendering()
+{
+    if (m_isRenderBlocking) {
+        protectedDocument()->unblockRenderingOn(*this);
+        m_isRenderBlocking = false;
+    }
+}
+
+// https://html.spec.whatwg.org/multipage/scripting.html#dom-script-text
+ExceptionOr<void> HTMLScriptElement::setText(std::variant<RefPtr<TrustedScript>, String>&& value)
+{
+    return setTextContent(trustedTypeCompliantString(*protectedScriptExecutionContext(), WTFMove(value), "HTMLScriptElement text"_s));
+}
+
+ExceptionOr<void> HTMLScriptElement::setTextContent(std::optional<std::variant<RefPtr<TrustedScript>, String>>&& value)
+{
+    return setTextContent(trustedTypeCompliantString(*protectedScriptExecutionContext(), value ? WTFMove(*value) : emptyString(), "HTMLScriptElement textContent"_s));
+}
+
+ExceptionOr<void> HTMLScriptElement::setTextContent(ExceptionOr<String> value)
+{
+    if (value.hasException())
+        return value.releaseException();
+
+    auto newValue = value.releaseReturnValue();
+
+    setTrustedScriptText(newValue);
+    setTextContent(WTFMove(newValue));
+    return { };
+}
+
+ExceptionOr<void> HTMLScriptElement::setInnerText(std::variant<RefPtr<TrustedScript>, String>&& value)
+{
+    auto stringValueHolder = trustedTypeCompliantString(*protectedScriptExecutionContext(), WTFMove(value), "HTMLScriptElement innerText"_s);
+    if (stringValueHolder.hasException())
+        return stringValueHolder.releaseException();
+
+    auto newValue = stringValueHolder.releaseReturnValue();
+
+    setTrustedScriptText(newValue);
+    setInnerText(WTFMove(newValue));
+    return { };
 }
 
 void HTMLScriptElement::setAsync(bool async)
@@ -110,16 +203,26 @@ String HTMLScriptElement::crossOrigin() const
     return parseCORSSettingsAttribute(attributeWithoutSynchronization(crossoriginAttr));
 }
 
-URL HTMLScriptElement::src() const
+String HTMLScriptElement::src() const
 {
-    return document().completeURL(sourceAttributeValue());
+    return getURLAttributeForBindings(WebCore::HTMLNames::srcAttr).string();
+}
+
+ExceptionOr<void> HTMLScriptElement::setSrc(std::variant<RefPtr<TrustedScriptURL>, String>&& value)
+{
+    auto stringValueHolder = trustedTypeCompliantString(*protectedScriptExecutionContext(), WTFMove(value), "HTMLScriptElement src"_s);
+    if (stringValueHolder.hasException())
+        return stringValueHolder.releaseException();
+
+    setAttributeWithoutSynchronization(HTMLNames::srcAttr, AtomString { stringValueHolder.releaseReturnValue() });
+    return { };
 }
 
 void HTMLScriptElement::addSubresourceAttributeURLs(ListHashSet<URL>& urls) const
 {
     HTMLElement::addSubresourceAttributeURLs(urls);
 
-    addSubresourceURL(urls, src());
+    addSubresourceURL(urls, protectedDocument()->completeURL(sourceAttributeValue()));
 }
 
 String HTMLScriptElement::sourceAttributeValue() const
@@ -127,9 +230,9 @@ String HTMLScriptElement::sourceAttributeValue() const
     return attributeWithoutSynchronization(srcAttr).string();
 }
 
-String HTMLScriptElement::charsetAttributeValue() const
+AtomString HTMLScriptElement::charsetAttributeValue() const
 {
-    return attributeWithoutSynchronization(charsetAttr).string();
+    return attributeWithoutSynchronization(charsetAttr);
 }
 
 String HTMLScriptElement::typeAttributeValue() const
@@ -140,16 +243,6 @@ String HTMLScriptElement::typeAttributeValue() const
 String HTMLScriptElement::languageAttributeValue() const
 {
     return attributeWithoutSynchronization(languageAttr).string();
-}
-
-String HTMLScriptElement::forAttributeValue() const
-{
-    return attributeWithoutSynchronization(forAttr).string();
-}
-
-String HTMLScriptElement::eventAttributeValue() const
-{
-    return attributeWithoutSynchronization(eventAttr).string();
 }
 
 bool HTMLScriptElement::hasAsyncAttribute() const
@@ -180,9 +273,24 @@ void HTMLScriptElement::dispatchLoadEvent()
     dispatchEvent(Event::create(eventNames().loadEvent, Event::CanBubble::No, Event::IsCancelable::No));
 }
 
-Ref<Element> HTMLScriptElement::cloneElementWithoutAttributesAndChildren(Document& targetDocument)
+bool HTMLScriptElement::isScriptPreventedByAttributes() const
 {
-    return adoptRef(*new HTMLScriptElement(tagQName(), targetDocument, false, alreadyStarted()));
+    auto& eventAttribute = attributeWithoutSynchronization(eventAttr);
+    auto& forAttribute = attributeWithoutSynchronization(forAttr);
+    if (!eventAttribute.isNull() && !forAttribute.isNull()) {
+        if (!equalLettersIgnoringASCIICase(StringView(forAttribute).trim(isASCIIWhitespace<UChar>), "window"_s))
+            return true;
+
+        auto eventAttributeView = StringView(eventAttribute).trim(isASCIIWhitespace<UChar>);
+        if (!equalLettersIgnoringASCIICase(eventAttributeView, "onload"_s) && !equalLettersIgnoringASCIICase(eventAttributeView, "onload()"_s))
+            return true;
+    }
+    return false;
+}
+
+Ref<Element> HTMLScriptElement::cloneElementWithoutAttributesAndChildren(Document& document, CustomElementRegistry*)
+{
+    return adoptRef(*new HTMLScriptElement(tagQName(), document, false, alreadyStarted()));
 }
 
 void HTMLScriptElement::setReferrerPolicyForBindings(const AtomString& value)
@@ -197,9 +305,22 @@ String HTMLScriptElement::referrerPolicyForBindings() const
 
 ReferrerPolicy HTMLScriptElement::referrerPolicy() const
 {
-    if (RuntimeEnabledFeatures::sharedFeatures().referrerPolicyAttributeEnabled())
-        return parseReferrerPolicy(attributeWithoutSynchronization(referrerpolicyAttr), ReferrerPolicySource::ReferrerPolicyAttribute).valueOr(ReferrerPolicy::EmptyString);
-    return ReferrerPolicy::EmptyString;
+    return parseReferrerPolicy(attributeWithoutSynchronization(referrerpolicyAttr), ReferrerPolicySource::ReferrerPolicyAttribute).value_or(ReferrerPolicy::EmptyString);
+}
+
+void HTMLScriptElement::setFetchPriorityForBindings(const AtomString& value)
+{
+    setAttributeWithoutSynchronization(fetchpriorityAttr, value);
+}
+
+String HTMLScriptElement::fetchPriorityForBindings() const
+{
+    return convertEnumerationToString(fetchPriority());
+}
+
+RequestPriority HTMLScriptElement::fetchPriority() const
+{
+    return parseEnumerationFromString<RequestPriority>(attributeWithoutSynchronization(fetchpriorityAttr)).value_or(RequestPriority::Auto);
 }
 
 }

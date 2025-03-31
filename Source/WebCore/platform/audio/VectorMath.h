@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2010, Google Inc. All rights reserved.
+ * Copyright (C) 2020, Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -22,8 +23,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef VectorMath_h
-#define VectorMath_h
+#pragma once
 
 // Defines the interface for several vector math functions whose implementation will ideally be optimized.
 
@@ -31,29 +31,53 @@ namespace WebCore {
 
 namespace VectorMath {
 
-// Vector scalar multiply and then add.
-void vsma(const float* sourceP, int sourceStride, const float* scale, float* destP, int destStride, size_t framesToProcess);
+// Multiples inputVector by scalar then adds the result to outputVector (simplified vsma).
+// for (n = 0; n < numberOfElementsToProcess; ++n)
+//     outputVector[n] += inputVector[n] * scalar;
+void multiplyByScalarThenAddToOutput(std::span<const float> inputVector, float scalar, std::span<float> outputVector);
 
-void vsmul(const float* sourceP, int sourceStride, const float* scale, float* destP, int destStride, size_t framesToProcess);
-void vadd(const float* source1P, int sourceStride1, const float* source2P, int sourceStride2, float* destP, int destStride, size_t framesToProcess);
+// Adds a vector inputVector2 to the product of a scalar value and a single-precision vector inputVector1 (vsma).
+// for (n = 0; n < numberOfElementsToProcess; ++n)
+//     outputVector[n] = inputVector1[n] * scalar + inputVector2[n];
+void multiplyByScalarThenAddToVector(std::span<const float> inputVector1, float scalar, std::span<const float> inputVector2, std::span<float> outputVector);
+
+// Multiplies the sum of two vectors by a scalar value (vasm).
+void addVectorsThenMultiplyByScalar(std::span<const float> inputVector1, std::span<const float> inputVector2, float scalar, std::span<float> outputVector);
+
+void multiplyByScalar(std::span<const float> inputVector, float scalar, std::span<float> outputVector);
+void addScalar(std::span<const float> inputVector, float scalar, std::span<float> outputVector);
+void substract(std::span<const float> inputVector1, std::span<const float> inputVector2, std::span<float> outputVector);
+
+void add(std::span<const int> inputVector1, std::span<const int> inputVector2, std::span<int> outputVector);
+void add(std::span<const float> inputVector1, std::span<const float> inputVector2, std::span<float> outputVector);
+void add(std::span<const double> inputVector1, std::span<const double> inputVector2, std::span<double> outputVector);
+
+// result = sum(inputVector1[n] * inputVector2[n], 0 <= n < inputVector1.size());
+float dotProduct(std::span<const float> inputVector1, std::span<const float> inputVector2);
 
 // Finds the maximum magnitude of a float vector.
-void vmaxmgv(const float* sourceP, int sourceStride, float* maxP, size_t framesToProcess);
+float maximumMagnitude(std::span<const float> inputVector);
 
-// Sums the squares of a float vector's elements.
-void vsvesq(const float* sourceP, int sourceStride, float* sumP, size_t framesToProcess);
+// Sums the squares of a float vector's elements (svesq).
+float sumOfSquares(std::span<const float> inputVector);
 
 // For an element-by-element multiply of two float vectors.
-void vmul(const float* source1P, int sourceStride1, const float* source2P, int sourceStride2, float* destP, int destStride, size_t framesToProcess);
+void multiply(std::span<const float> inputVector1, std::span<const float> inputVector2, std::span<float> outputVector);
 
-// Multiplies two complex vectors.
-void zvmul(const float* real1P, const float* imag1P, const float* real2P, const float* imag2P, float* realDestP, float* imagDestP, size_t framesToProcess);
+// Multiplies two complex vectors (zvmul).
+void multiplyComplex(std::span<const float> realVector1, std::span<const float> imagVector1, std::span<const float> realVector2, std::span<const float> imagVector2, std::span<float> realOutputVector, std::span<float> imagOutputVector);
 
 // Copies elements while clipping values to the threshold inputs.
-void vclip(const float* sourceP, int sourceStride, const float* lowThresholdP, const float* highThresholdP, float* destP, int destStride, size_t framesToProcess);
+void clamp(std::span<const float> inputVector, float mininum, float maximum, std::span<float> outputVector);
+
+void linearToDecibels(std::span<const float> inputVector, std::span<float> outputVector);
+
+// Calculates the linear interpolation between the supplied single-precision vectors
+// for (n = 0; n < numberOfElementsToProcess; ++n)
+//     outputVector[n] = inputVector1[n] + interpolationFactor * (inputVector2[n] - inputVector1[n]);
+// NOTE: Internal implementation may modify inputVector2.
+void interpolate(std::span<const float> inputVector1, std::span<float> inputVector2, float interpolationFactor, std::span<float> outputVector);
 
 } // namespace VectorMath
 
 } // namespace WebCore
-
-#endif // VectorMath_h

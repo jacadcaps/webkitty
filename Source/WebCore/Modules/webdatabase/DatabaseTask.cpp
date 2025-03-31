@@ -32,6 +32,7 @@
 #include "Database.h"
 #include "Logging.h"
 #include "SQLTransaction.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
@@ -41,19 +42,19 @@ DatabaseTaskSynchronizer::DatabaseTaskSynchronizer()
 
 void DatabaseTaskSynchronizer::waitForTaskCompletion()
 {
-    m_synchronousMutex.lock();
+    Locker locker { m_synchronousLock };
     while (!m_taskCompleted)
-        m_synchronousCondition.wait(m_synchronousMutex);
-    m_synchronousMutex.unlock();
+        m_synchronousCondition.wait(m_synchronousLock);
 }
 
 void DatabaseTaskSynchronizer::taskCompleted()
 {
-    m_synchronousMutex.lock();
+    Locker locker { m_synchronousLock };
     m_taskCompleted = true;
     m_synchronousCondition.notifyOne();
-    m_synchronousMutex.unlock();
 }
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(DatabaseTask);
 
 DatabaseTask::DatabaseTask(Database& database, DatabaseTaskSynchronizer* synchronizer)
     : m_database(database)
@@ -71,7 +72,7 @@ void DatabaseTask::performTask()
     // Database tasks are meant to be used only once, so make sure this one hasn't been performed before.
     ASSERT(!m_complete);
 
-    LOG(StorageAPI, "Performing %s %p\n", debugTaskName(), this);
+    LOG(StorageAPI, "Performing %s %p\n", debugTaskName().characters(), this);
 
     m_database.resetAuthorizer();
 
@@ -97,14 +98,14 @@ DatabaseOpenTask::DatabaseOpenTask(Database& database, bool setVersionInNewDatab
 
 void DatabaseOpenTask::doPerformTask()
 {
-    m_result = isolatedCopy(database().performOpenAndVerify(m_setVersionInNewDatabase));
+    m_result = crossThreadCopy(database().performOpenAndVerify(m_setVersionInNewDatabase));
 }
 
 #if !LOG_DISABLED
 
-const char* DatabaseOpenTask::debugTaskName() const
+ASCIILiteral DatabaseOpenTask::debugTaskName() const
 {
-    return "DatabaseOpenTask";
+    return "DatabaseOpenTask"_s;
 }
 
 #endif
@@ -124,9 +125,9 @@ void DatabaseCloseTask::doPerformTask()
 
 #if !LOG_DISABLED
 
-const char* DatabaseCloseTask::debugTaskName() const
+ASCIILiteral DatabaseCloseTask::debugTaskName() const
 {
-    return "DatabaseCloseTask";
+    return "DatabaseCloseTask"_s;
 }
 
 #endif
@@ -163,9 +164,9 @@ void DatabaseTransactionTask::doPerformTask()
 
 #if !LOG_DISABLED
 
-const char* DatabaseTransactionTask::debugTaskName() const
+ASCIILiteral DatabaseTransactionTask::debugTaskName() const
 {
-    return "DatabaseTransactionTask";
+    return "DatabaseTransactionTask"_s;
 }
 
 #endif
@@ -187,9 +188,9 @@ void DatabaseTableNamesTask::doPerformTask()
 
 #if !LOG_DISABLED
 
-const char* DatabaseTableNamesTask::debugTaskName() const
+ASCIILiteral DatabaseTableNamesTask::debugTaskName() const
 {
-    return "DatabaseTableNamesTask";
+    return "DatabaseTableNamesTask"_s;
 }
 
 #endif

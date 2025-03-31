@@ -28,26 +28,29 @@
 #if ENABLE(ASYNC_SCROLLING) && PLATFORM(MAC)
 
 #include <WebCore/ScrollingTreeFrameScrollingNodeMac.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebKit {
 
 class ScrollerPairMac;
 
 class ScrollingTreeFrameScrollingNodeRemoteMac : public WebCore::ScrollingTreeFrameScrollingNodeMac {
+    WTF_MAKE_TZONE_ALLOCATED(ScrollingTreeFrameScrollingNodeRemoteMac);
 public:
     static Ref<ScrollingTreeFrameScrollingNodeRemoteMac> create(WebCore::ScrollingTree&, WebCore::ScrollingNodeType, WebCore::ScrollingNodeID);
     virtual ~ScrollingTreeFrameScrollingNodeRemoteMac();
 
-    bool handleMouseEvent(const WebCore::PlatformMouseEvent&);
-
 private:
     ScrollingTreeFrameScrollingNodeRemoteMac(WebCore::ScrollingTree&, WebCore::ScrollingNodeType, WebCore::ScrollingNodeID);
 
-    void commitStateBeforeChildren(const WebCore::ScrollingStateNode&) override;
-    WebCore::WheelEventHandlingResult handleWheelEvent(const WebCore::PlatformWheelEvent&) override;
-    void repositionRelatedLayers() override;
+    void handleWheelEventPhase(const WebCore::PlatformWheelEventPhase) override;
 
-    std::unique_ptr<ScrollerPairMac> m_scrollerPair;
+    void repositionRelatedLayers() override;
+    
+    void viewWillStartLiveResize() override;
+    void viewWillEndLiveResize() override;
+    void viewSizeDidChange() override;
+    String scrollbarStateForOrientation(WebCore::ScrollbarOrientation) const override;
 };
 
 }

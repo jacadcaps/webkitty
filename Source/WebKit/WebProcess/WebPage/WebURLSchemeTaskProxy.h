@@ -25,14 +25,16 @@
 
 #pragma once
 
+#include <WebCore/ResourceLoaderIdentifier.h>
 #include <WebCore/ResourceRequest.h>
 #include <wtf/Deque.h>
-#include <wtf/RefCounted.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 
 namespace WebCore {
 class ResourceError;
 class ResourceLoader;
 class ResourceResponse;
+class SharedBuffer;
 }
 
 namespace WebKit {
@@ -40,7 +42,7 @@ namespace WebKit {
 class WebFrame;
 class WebURLSchemeHandlerProxy;
 
-class WebURLSchemeTaskProxy : public RefCounted<WebURLSchemeTaskProxy> {
+class WebURLSchemeTaskProxy : public RefCountedAndCanMakeWeakPtr<WebURLSchemeTaskProxy> {
 public:
     static Ref<WebURLSchemeTaskProxy> create(WebURLSchemeHandlerProxy& handler, WebCore::ResourceLoader& loader, WebFrame& webFrame)
     {
@@ -52,12 +54,12 @@ public:
     void startLoading();
     void stopLoading();
 
-    void didPerformRedirection(WebCore::ResourceResponse&&, WebCore::ResourceRequest&&);
+    void didPerformRedirection(WebCore::ResourceResponse&&, WebCore::ResourceRequest&&, CompletionHandler<void(WebCore::ResourceRequest&&)>&&);
     void didReceiveResponse(const WebCore::ResourceResponse&);
-    void didReceiveData(size_t, const uint8_t* data);
+    void didReceiveData(const WebCore::SharedBuffer&);
     void didComplete(const WebCore::ResourceError&);
 
-    unsigned long identifier() const { return m_identifier; }
+    WebCore::ResourceLoaderIdentifier identifier() const { return m_identifier; }
 
 private:
     WebURLSchemeTaskProxy(WebURLSchemeHandlerProxy&, WebCore::ResourceLoader&, WebFrame&);
@@ -66,11 +68,11 @@ private:
     void queueTask(Function<void()>&& task) { m_queuedTasks.append(WTFMove(task)); }
     void processNextPendingTask();
 
-    WebURLSchemeHandlerProxy& m_urlSchemeHandler;
+    WeakRef<WebURLSchemeHandlerProxy> m_urlSchemeHandler;
     RefPtr<WebCore::ResourceLoader> m_coreLoader;
     RefPtr<WebFrame> m_frame;
     WebCore::ResourceRequest m_request;
-    unsigned long m_identifier;
+    WebCore::ResourceLoaderIdentifier m_identifier;
     bool m_waitingForCompletionHandler { false };
     Deque<Function<void()>> m_queuedTasks;
 };

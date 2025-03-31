@@ -28,6 +28,8 @@
 #include "CacheableIdentifier.h"
 #include "DFGRegisteredStructure.h"
 #include "HeapCell.h"
+#include "PrivateFieldPutKind.h"
+#include <wtf/OptionSet.h>
 #include <wtf/StdLibExtras.h>
 
 #if ENABLE(DFG_JIT)
@@ -44,10 +46,13 @@ struct OpInfo {
         typename Constraint = typename std::enable_if<(std::is_integral<IntegralType>::value || std::is_enum<IntegralType>::value) && sizeof(IntegralType) <= sizeof(uint64_t)>::type>
     explicit OpInfo(IntegralType value)
         : m_value(static_cast<uint64_t>(value)) { }
-    explicit OpInfo(RegisteredStructure structure) : m_value(static_cast<uint64_t>(bitwise_cast<uintptr_t>(structure))) { }
+    explicit OpInfo(RegisteredStructure structure) : m_value(static_cast<uint64_t>(std::bit_cast<uintptr_t>(structure))) { }
     explicit OpInfo(Operand op) : m_value(op.asBits()) { }
     explicit OpInfo(CacheableIdentifier identifier) : m_value(static_cast<uint64_t>(identifier.rawBits())) { }
     explicit OpInfo(ECMAMode ecmaMode) : m_value(ecmaMode.value()) { }
+    explicit OpInfo(PrivateFieldPutKind putKind) : m_value(putKind.value()) { }
+    template<typename EnumType>
+    explicit OpInfo(OptionSet<EnumType> optionSet) : m_value(optionSet.toRaw()) { }
 
     template <typename T>
     explicit OpInfo(T* ptr)

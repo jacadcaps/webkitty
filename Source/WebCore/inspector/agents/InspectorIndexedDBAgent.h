@@ -31,10 +31,9 @@
 
 #pragma once
 
-#if ENABLE(INDEXED_DATABASE)
-
 #include "InspectorWebAgentBase.h"
 #include <JavaScriptCore/InspectorBackendDispatchers.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/text/WTFString.h>
 
 namespace Inspector {
@@ -45,34 +44,30 @@ namespace WebCore {
 
 class Page;
 
-typedef String ErrorString;
-
 class InspectorIndexedDBAgent final : public InspectorAgentBase, public Inspector::IndexedDBBackendDispatcherHandler {
+    WTF_MAKE_TZONE_ALLOCATED(InspectorIndexedDBAgent);
     WTF_MAKE_NONCOPYABLE(InspectorIndexedDBAgent);
-    WTF_MAKE_FAST_ALLOCATED;
 public:
     InspectorIndexedDBAgent(PageAgentContext&);
-    ~InspectorIndexedDBAgent() override;
+    ~InspectorIndexedDBAgent();
 
     // InspectorAgentBase
-    void didCreateFrontendAndBackend(Inspector::FrontendRouter*, Inspector::BackendDispatcher*) override;
-    void willDestroyFrontendAndBackend(Inspector::DisconnectReason) override;
+    void didCreateFrontendAndBackend(Inspector::FrontendRouter*, Inspector::BackendDispatcher*);
+    void willDestroyFrontendAndBackend(Inspector::DisconnectReason);
 
     // IndexedDBBackendDispatcherHandler
-    void enable(ErrorString&) override;
-    void disable(ErrorString&) override;
-    void requestDatabaseNames(const String& securityOrigin, Ref<RequestDatabaseNamesCallback>&&) override;
-    void requestDatabase(const String& securityOrigin, const String& databaseName, Ref<RequestDatabaseCallback>&&) override;
-    void requestData(const String& securityOrigin, const String& databaseName, const String& objectStoreName, const String& indexName, int skipCount, int pageSize, const JSON::Object* keyRange, Ref<RequestDataCallback>&&) override;
-    void clearObjectStore(const String& securityOrigin, const String& databaseName, const String& objectStoreName, Ref<ClearObjectStoreCallback>&&) override;
+    Inspector::Protocol::ErrorStringOr<void> enable();
+    Inspector::Protocol::ErrorStringOr<void> disable();
+    void requestDatabaseNames(const String& securityOrigin, Ref<RequestDatabaseNamesCallback>&&);
+    void requestDatabase(const String& securityOrigin, const String& databaseName, Ref<RequestDatabaseCallback>&&);
+    void requestData(const String& securityOrigin, const String& databaseName, const String& objectStoreName, const String& indexName, int skipCount, int pageSize, RefPtr<JSON::Object>&& keyRange, Ref<RequestDataCallback>&&);
+    void clearObjectStore(const String& securityOrigin, const String& databaseName, const String& objectStoreName, Ref<ClearObjectStoreCallback>&&);
 
 private:
     Inspector::InjectedScriptManager& m_injectedScriptManager;
     RefPtr<Inspector::IndexedDBBackendDispatcher> m_backendDispatcher;
 
-    Page& m_inspectedPage;
+    WeakRef<Page> m_inspectedPage;
 };
 
 } // namespace WebCore
-
-#endif // ENABLE(INDEXED_DATABASE)

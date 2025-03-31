@@ -25,11 +25,14 @@
 
 #include "config.h"
 #include "PlatformSpeechSynthesizer.h"
+#include <wtf/TZoneMallocInlines.h>
 
 #if ENABLE(SPEECH_SYNTHESIS)
 
 namespace WebCore {
     
+WTF_MAKE_TZONE_ALLOCATED_IMPL(PlatformSpeechSynthesizer);
+
 const Vector<RefPtr<PlatformSpeechSynthesisVoice>>& PlatformSpeechSynthesizer::voiceList() const
 {
     if (!m_voiceListIsInitialized) {
@@ -38,6 +41,21 @@ const Vector<RefPtr<PlatformSpeechSynthesisVoice>>& PlatformSpeechSynthesizer::v
         const_cast<PlatformSpeechSynthesizer*>(this)->m_voiceListIsInitialized = true;
     }
     return m_voiceList;
+}
+
+void PlatformSpeechSynthesizer::resetVoiceList()
+{
+    if (!m_voiceListIsInitialized)
+        return;
+
+    m_voiceListIsInitialized = false;
+    m_voiceList.clear();
+}
+
+void PlatformSpeechSynthesizer::voicesDidChange()
+{
+    resetVoiceList();
+    m_speechSynthesizerClient.voicesDidChange();
 }
 
 } // namespace WebCore

@@ -33,8 +33,10 @@
 #include "FFTFrame.h"
 
 #include "Logging.h"
+#include "VectorMath.h"
 #include <complex>
 #include <wtf/MathExtras.h>
+#include <wtf/TZoneMallocInlines.h>
 
 #ifndef NDEBUG
 #include <stdio.h>
@@ -42,14 +44,16 @@
 
 namespace WebCore {
 
-void FFTFrame::doPaddedFFT(const float* data, size_t dataSize)
+WTF_MAKE_TZONE_ALLOCATED_IMPL(FFTFrame);
+
+void FFTFrame::doPaddedFFT(std::span<const float> data)
 {
     // Zero-pad the impulse response
     AudioFloatArray paddedResponse(fftSize()); // zero-initialized
-    paddedResponse.copyToRange(data, 0, dataSize);
+    paddedResponse.copyToRange(data, 0, data.size());
 
     // Get the frequency-domain version of padded response
-    doFFT(paddedResponse.data());
+    doFFT(paddedResponse.span());
 }
 
 std::unique_ptr<FFTFrame> FFTFrame::createInterpolatedFrame(const FFTFrame& frame1, const FFTFrame& frame2, double x)
@@ -61,11 +65,11 @@ std::unique_ptr<FFTFrame> FFTFrame::createInterpolatedFrame(const FFTFrame& fram
     // In the time-domain, the 2nd half of the response must be zero, to avoid circular convolution aliasing...
     int fftSize = newFrame->fftSize();
     AudioFloatArray buffer(fftSize);
-    newFrame->doInverseFFT(buffer.data());
+    newFrame->doInverseFFT(buffer.span());
     buffer.zeroRange(fftSize / 2, fftSize);
 
     // Put back into frequency domain.
-    newFrame->doFFT(buffer.data());
+    newFrame->doFFT(buffer.span());
 
     return newFrame;
 }
@@ -74,13 +78,13 @@ void FFTFrame::interpolateFrequencyComponents(const FFTFrame& frame1, const FFTF
 {
     // FIXME : with some work, this method could be optimized
 
-    float* realP = realData();
-    float* imagP = imagData();
+    auto& realP = realData();
+    auto& imagP = imagData();
 
-    const float* realP1 = frame1.realData();
-    const float* imagP1 = frame1.imagData();
-    const float* realP2 = frame2.realData();
-    const float* imagP2 = frame2.imagData();
+    const auto& realP1 = frame1.realData();
+    const auto& imagP1 = frame1.imagData();
+    const auto& realP2 = frame2.realData();
+    const auto& imagP2 = frame2.imagData();
 
     m_FFTSize = frame1.fftSize();
     m_log2FFTSize = frame1.log2FFTSize();
@@ -101,8 +105,8 @@ void FFTFrame::interpolateFrequencyComponents(const FFTFrame& frame1, const FFTF
         std::complex<double> c1(realP1[i], imagP1[i]);
         std::complex<double> c2(realP2[i], imagP2[i]);
 
-        double mag1 = abs(c1);
-        double mag2 = abs(c2);
+        double mag1 = std::abs(c1);
+        double mag2 = std::abs(c2);
 
         // Interpolate magnitudes in decibels
         double mag1db = 20.0 * log10(mag1);
@@ -172,10 +176,39 @@ void FFTFrame::interpolateFrequencyComponents(const FFTFrame& frame1, const FFTF
     }
 }
 
+void FFTFrame::scaleFFT(float factor)
+{
+    VectorMath::multiplyByScalar(realData().span(), factor, realData().span());
+    VectorMath::multiplyByScalar(imagData().span(), factor, imagData().span());
+}
+
+void FFTFrame::multiply(const FFTFrame& frame)
+{
+    FFTFrame& frame1 = *this;
+    const FFTFrame& frame2 = frame;
+
+    auto& realP1 = frame1.realData();
+    auto& imagP1 = frame1.imagData();
+    const auto& realP2 = frame2.realData();
+    const auto& imagP2 = frame2.imagData();
+
+    unsigned halfSize = m_FFTSize / 2;
+
+    float real0 = realP1[0];
+    float imag0 = imagP1[0];
+
+    // Complex multiply
+    VectorMath::multiplyComplex(realP1.span().first(halfSize), imagP1.span().first(halfSize), realP2.span().first(halfSize), imagP2.span().first(halfSize), realP1.span(), imagP1.span());
+
+    // Multiply the packed DC/nyquist component
+    realP1[0] = real0 * realP2[0];
+    imagP1[0] = imag0 * imagP2[0];
+}
+
 double FFTFrame::extractAverageGroupDelay()
 {
-    float* realP = realData();
-    float* imagP = imagData();
+    auto& realP = realData();
+    auto& imagP = imagData();
 
     double aveSum = 0.0;
     double weightSum = 0.0;
@@ -188,7 +221,7 @@ double FFTFrame::extractAverageGroupDelay()
     // Calculate weighted average group delay
     for (int i = 0; i < halfSize; i++) {
         std::complex<double> c(realP[i], imagP[i]);
-        double mag = abs(c);
+        double mag = std::abs(c);
         double phase = arg(c);
 
         double deltaPhase = phase - lastPhase;
@@ -225,8 +258,8 @@ void FFTFrame::addConstantGroupDelay(double sampleFrameDelay)
 {
     int halfSize = fftSize() / 2;
 
-    float* realP = realData();
-    float* imagP = imagData();
+    auto& realP = realData();
+    auto& imagP = imagData();
 
     const double kSamplePhaseDelay = (2.0 * piDouble) / double(fftSize());
 
@@ -235,7 +268,7 @@ void FFTFrame::addConstantGroupDelay(double sampleFrameDelay)
     // Add constant group delay
     for (int i = 1; i < halfSize; i++) {
         std::complex<double> c(realP[i], imagP[i]);
-        double mag = abs(c);
+        double mag = std::abs(c);
         double phase = arg(c);
 
         phase += i * phaseAdj;
@@ -247,12 +280,12 @@ void FFTFrame::addConstantGroupDelay(double sampleFrameDelay)
     }
 }
 
-#ifndef NDEBUG
+#if !defined(NDEBUG) && !LOG_DISABLED
 void FFTFrame::print()
 {
     FFTFrame& frame = *this;
-    float* realP = frame.realData();
-    float* imagP = frame.imagData();
+    auto& realP = frame.realData();
+    auto& imagP = frame.imagData();
     LOG(WebAudio, "**** \n");
     LOG(WebAudio, "DC = %f : nyquist = %f\n", realP[0], imagP[0]);
 
@@ -266,7 +299,7 @@ void FFTFrame::print()
     }
     LOG(WebAudio, "****\n");
 }
-#endif // NDEBUG
+#endif // NDEBUG && !LOG_DISABLED
 
 } // namespace WebCore
 

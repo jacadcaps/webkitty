@@ -27,7 +27,10 @@
 
 #include "NestingLevelIncrementer.h"
 #include "Timer.h"
+#include <wtf/CheckedPtr.h>
+#include <wtf/RefCounted.h>
 #include <wtf/RefPtr.h>
+#include <wtf/TZoneMalloc.h>
 
 #if PLATFORM(IOS_FAMILY)
 #include "WebCoreThread.h"
@@ -37,6 +40,7 @@ namespace WebCore {
 
 class Document;
 class HTMLDocumentParser;
+class ScriptElement;
 
 class ActiveParserSession {
 public:
@@ -52,16 +56,21 @@ public:
     PumpSession(unsigned& nestingLevel, Document*);
     ~PumpSession();
 
-    unsigned processedTokens;
-    MonotonicTime startTime;
-    bool didSeeScript;
+    unsigned processedTokens { 0 };
+    unsigned processedTokensOnLastCheck { 0 };
+    unsigned processedTokensOnLastYieldBeforeScript { 0 };
+    MonotonicTime startTime { MonotonicTime::now() };
+    bool didSeeScript { false };
 };
 
-class HTMLParserScheduler {
-    WTF_MAKE_NONCOPYABLE(HTMLParserScheduler); WTF_MAKE_FAST_ALLOCATED;
+class HTMLParserScheduler final : public RefCounted<HTMLParserScheduler> {
+    WTF_MAKE_TZONE_ALLOCATED(HTMLParserScheduler);
+    WTF_MAKE_NONCOPYABLE(HTMLParserScheduler);
 public:
-    explicit HTMLParserScheduler(HTMLDocumentParser&);
+    static Ref<HTMLParserScheduler> create(HTMLDocumentParser&);
     ~HTMLParserScheduler();
+
+    void detach();
 
     bool shouldYieldBeforeToken(PumpSession& session)
     {
@@ -72,13 +81,13 @@ public:
         if (UNLIKELY(m_documentHasActiveParserYieldTokens))
             return true;
 
-        if (UNLIKELY(session.processedTokens > numberOfTokensBeforeCheckingForYield || session.didSeeScript))
+        if (UNLIKELY(session.processedTokens > session.processedTokensOnLastCheck + numberOfTokensBeforeCheckingForYield || session.didSeeScript))
             return checkForYield(session);
 
         ++session.processedTokens;
         return false;
     }
-    bool shouldYieldBeforeExecutingScript(PumpSession&);
+    bool shouldYieldBeforeExecutingScript(const ScriptElement*, PumpSession&);
 
     void scheduleForResume();
     bool isScheduledForResume() const { return m_isSuspendedWithActiveTimer || m_continueNextChunkTimer.isActive() || m_documentHasActiveParserYieldTokens; }
@@ -102,27 +111,22 @@ public:
     }
 
 private:
+    explicit HTMLParserScheduler(HTMLDocumentParser&);
+
     static const unsigned numberOfTokensBeforeCheckingForYield = 4096; // Performance optimization
 
     void continueNextChunkTimerFired();
 
     bool checkForYield(PumpSession& session)
     {
-        session.processedTokens = 1;
+        session.processedTokensOnLastCheck = session.processedTokens;
         session.didSeeScript = false;
-
-        // MonotonicTime::now() can be expensive. By delaying, we avoided calling
-        // MonotonicTime::now() when constructing non-yielding PumpSessions.
-        if (!session.startTime) {
-            session.startTime = MonotonicTime::now();
-            return false;
-        }
 
         Seconds elapsedTime = MonotonicTime::now() - session.startTime;
         return elapsedTime > m_parserTimeLimit;
     }
 
-    HTMLDocumentParser& m_parser;
+    CheckedPtr<HTMLDocumentParser> m_parser;
 
     Seconds m_parserTimeLimit;
     Timer m_continueNextChunkTimer;

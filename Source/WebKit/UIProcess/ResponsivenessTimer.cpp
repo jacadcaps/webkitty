@@ -28,11 +28,15 @@
 
 namespace WebKit {
 
-static const Seconds responsivenessTimeout { 3_s };
+Ref<ResponsivenessTimer> ResponsivenessTimer::create(ResponsivenessTimer::Client& client, Seconds responsivenessTimeout)
+{
+    return adoptRef(*new ResponsivenessTimer(client, responsivenessTimeout));
+}
 
-ResponsivenessTimer::ResponsivenessTimer(ResponsivenessTimer::Client& client)
+ResponsivenessTimer::ResponsivenessTimer(ResponsivenessTimer::Client& client, Seconds responsivenessTimeout)
     : m_client(client)
     , m_timer(RunLoop::main(), this, &ResponsivenessTimer::timerFired)
+    , m_responsivenessTimeout(responsivenessTimeout)
 {
 }
 
@@ -49,6 +53,10 @@ void ResponsivenessTimer::invalidate()
 void ResponsivenessTimer::timerFired()
 {
     if (!m_waitingForTimer)
+        return;
+
+    RefPtr client = m_client.get();
+    if (!client)
         return;
 
     if (m_restartFireTime) {
@@ -68,19 +76,17 @@ void ResponsivenessTimer::timerFired()
     if (!m_isResponsive)
         return;
 
-    auto protectedClient = makeRef(m_client);
-
-    if (!m_client.mayBecomeUnresponsive()) {
+    if (!mayBecomeUnresponsive()) {
         m_waitingForTimer = true;
-        m_timer.startOneShot(responsivenessTimeout);
+        m_timer.startOneShot(m_responsivenessTimeout);
         return;
     }
 
-    m_client.willChangeIsResponsive();
+    client->willChangeIsResponsive();
     m_isResponsive = false;
-    m_client.didChangeIsResponsive();
+    client->didChangeIsResponsive();
 
-    m_client.didBecomeUnresponsive();
+    client->didBecomeUnresponsive();
 }
     
 void ResponsivenessTimer::start()
@@ -97,11 +103,32 @@ void ResponsivenessTimer::start()
         //
         // In most cases, stop is called before we get to schedule the second timer, saving us
         // the scheduling of the timer entirely.
-        m_restartFireTime = MonotonicTime::now() + responsivenessTimeout;
+        m_restartFireTime = MonotonicTime::now() + m_responsivenessTimeout;
     } else {
         m_restartFireTime = MonotonicTime();
-        m_timer.startOneShot(responsivenessTimeout);
+        m_timer.startOneShot(m_responsivenessTimeout);
     }
+}
+
+bool ResponsivenessTimer::mayBecomeUnresponsive() const
+{
+#if !defined(NDEBUG) || ASAN_ENABLED
+    return false;
+#else
+    static bool isLibgmallocEnabled = [] {
+        char* variable = getenv("DYLD_INSERT_LIBRARIES");
+        if (!variable)
+            return false;
+        if (!contains(unsafeSpan(variable), "libgmalloc"_span))
+            return false;
+        return true;
+    }();
+    if (isLibgmallocEnabled)
+        return false;
+
+    RefPtr client = m_client.get();
+    return client && client->mayBecomeUnresponsive();
+#endif
 }
 
 void ResponsivenessTimer::startWithLazyStop()
@@ -115,14 +142,14 @@ void ResponsivenessTimer::startWithLazyStop()
 void ResponsivenessTimer::stop()
 {
     if (!m_isResponsive) {
-        auto protectedClient = makeRef(m_client);
+        if (RefPtr client = m_client.get()) {
+            // We got a life sign from the web process.
+            client->willChangeIsResponsive();
+            m_isResponsive = true;
+            client->didChangeIsResponsive();
 
-        // We got a life sign from the web process.
-        m_client.willChangeIsResponsive();
-        m_isResponsive = true;
-        m_client.didChangeIsResponsive();
-
-        m_client.didBecomeResponsive();
+            client->didBecomeResponsive();
+        }
     }
 
     m_waitingForTimer = false;

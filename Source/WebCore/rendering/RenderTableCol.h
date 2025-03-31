@@ -33,10 +33,12 @@ class RenderTable;
 class RenderTableCell;
 
 class RenderTableCol final : public RenderBox {
-    WTF_MAKE_ISO_ALLOCATED(RenderTableCol);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(RenderTableCol);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderTableCol);
 public:
     RenderTableCol(Element&, RenderStyle&&);
     RenderTableCol(Document&, RenderStyle&&);
+    virtual ~RenderTableCol();
 
     void clearPreferredLogicalWidthsDirtyBits();
 
@@ -66,9 +68,9 @@ public:
     void updateFromElement() override;
 
 private:
-    const char* renderName() const override { return "RenderTableCol"; }
-    bool isRenderTableCol() const override { return true; }
+    ASCIILiteral renderName() const override { return "RenderTableCol"_s; }
     void computePreferredLogicalWidths() override { ASSERT_NOT_REACHED(); }
+    void computeIntrinsicLogicalWidths(LayoutUnit&, LayoutUnit&) const override { ASSERT_NOT_REACHED(); }
 
     void insertedIntoTree() override;
     void willBeRemovedFromTree() override;
@@ -77,7 +79,9 @@ private:
     bool canHaveChildren() const override;
     bool requiresLayer() const override { return false; }
 
-    LayoutRect clippedOverflowRectForRepaint(const RenderLayerModelObject* repaintContainer) const override;
+    LayoutRect clippedOverflowRect(const RenderLayerModelObject* repaintContainer, VisibleRectContext) const override;
+    RepaintRects rectsForRepaintingAfterLayout(const RenderLayerModelObject* repaintContainer, RepaintOutlineBounds) const override;
+
     void imageChanged(WrappedImagePtr, const IntRect* = 0) override;
 
     void styleDidChange(StyleDifference, const RenderStyle* oldStyle) override;

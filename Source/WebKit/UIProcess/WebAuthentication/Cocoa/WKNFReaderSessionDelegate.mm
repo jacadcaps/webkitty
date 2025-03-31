@@ -41,7 +41,7 @@
 - (instancetype)initWithConnection:(WebKit::NfcConnection&)connection
 {
     if ((self = [super init]))
-        _connection = makeWeakPtr(connection);
+        _connection = connection;
     return self;
 }
 
@@ -50,7 +50,7 @@
 {
     ASSERT(!RunLoop::isMain());
 
-    RunLoop::main().dispatch([connection = _connection, tags = retainPtr(tags)] {
+    RunLoop::protectedMain()->dispatch([connection = _connection, tags = retainPtr(tags)] {
         if (!connection)
             return;
         connection->didDetectTags(tags.get());

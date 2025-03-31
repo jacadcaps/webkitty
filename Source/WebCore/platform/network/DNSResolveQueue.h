@@ -24,8 +24,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef DNSResolveQueue_h
-#define DNSResolveQueue_h
+#pragma once
 
 #include "DNS.h"
 #include "Timer.h"
@@ -40,10 +39,13 @@ class DNSResolveQueue {
     friend NeverDestroyed<DNSResolveQueue>;
 
 public:
-    DNSResolveQueue();
     virtual ~DNSResolveQueue() = default;
 
     static DNSResolveQueue& singleton();
+
+    // Do nothing since this is a singleton.
+    void ref() const { }
+    void deref() const { }
 
     virtual void resolve(const String& hostname, uint64_t identifier, DNSCompletionHandler&&) = 0;
     virtual void stopResolve(uint64_t identifier) = 0;
@@ -54,6 +56,7 @@ public:
     }
 
 protected:
+    DNSResolveQueue();
     bool isUsingProxy();
 
     bool m_isUsingProxy { true };
@@ -65,11 +68,9 @@ private:
 
     Timer m_timer;
 
-    HashSet<String> m_names;
+    UncheckedKeyHashSet<String> m_names;
     std::atomic<int> m_requestsInFlight;
     MonotonicTime m_lastProxyEnabledStatusCheckTime;
 };
 
 }
-
-#endif // DNSResolveQueue_h

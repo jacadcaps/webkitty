@@ -26,6 +26,7 @@
 #pragma once
 
 #include "Position.h"
+#include "TextIteratorBehavior.h"
 #include <wtf/Forward.h>
 #include <wtf/HashSet.h>
 #include <wtf/unicode/CharacterNames.h>
@@ -43,26 +44,29 @@ class VisibleSelection;
 
 struct SimpleRange;
 
+enum class TextDirection : bool;
+
 // -------------------------------------------------------------------------
 // Node
 // -------------------------------------------------------------------------
 
-ContainerNode* highestEditableRoot(const Position&, EditableType = ContentIsEditable);
+RefPtr<ContainerNode> highestEditableRoot(const Position&, EditableType = ContentIsEditable);
 
-Node* highestEnclosingNodeOfType(const Position&, bool (*nodeIsOfType)(const Node*), EditingBoundaryCrossingRule = CannotCrossEditingBoundary, Node* stayWithin = nullptr);
-Node* highestNodeToRemoveInPruning(Node*);
+RefPtr<Node> highestEnclosingNodeOfType(const Position&, bool (*nodeIsOfType)(const Node&), EditingBoundaryCrossingRule = CannotCrossEditingBoundary, Node* stayWithin = nullptr);
+RefPtr<Node> highestNodeToRemoveInPruning(Node*);
 Element* lowestEditableAncestor(Node*);
 
 Element* deprecatedEnclosingBlockFlowElement(Node*); // Use enclosingBlock instead.
-Element* enclosingBlock(Node*, EditingBoundaryCrossingRule = CannotCrossEditingBoundary);
-Element* enclosingTableCell(const Position&);
-Node* enclosingEmptyListItem(const VisiblePosition&);
-Element* enclosingAnchorElement(const Position&);
+RefPtr<Element> enclosingBlock(RefPtr<Node>, EditingBoundaryCrossingRule = CannotCrossEditingBoundary);
+RefPtr<Element> enclosingTableCell(const Position&);
+RefPtr<Node> enclosingEmptyListItem(const VisiblePosition&);
+RefPtr<Element> enclosingAnchorElement(const Position&);
 Element* enclosingElementWithTag(const Position&, const QualifiedName&);
-Node* enclosingNodeOfType(const Position&, bool (*nodeIsOfType)(const Node*), EditingBoundaryCrossingRule = CannotCrossEditingBoundary);
-HTMLSpanElement* tabSpanNode(const Node*);
-Element* isLastPositionBeforeTable(const VisiblePosition&); // FIXME: Strange to name this isXXX, but return an element.
-Element* isFirstPositionAfterTable(const VisiblePosition&); // FIXME: Strange to name this isXXX, but return an element.
+RefPtr<Node> enclosingNodeOfType(const Position&, bool (*nodeIsOfType)(const Node&), EditingBoundaryCrossingRule = CannotCrossEditingBoundary);
+HTMLSpanElement* tabSpanNode(Node*);
+HTMLSpanElement* parentTabSpanNode(Node*);
+RefPtr<Element> isLastPositionBeforeTable(const VisiblePosition&); // FIXME: Strange to name this isXXX, but return an element.
+RefPtr<Element> isFirstPositionAfterTable(const VisiblePosition&); // FIXME: Strange to name this isXXX, but return an element.
 
 // These two deliver leaf nodes as if the whole DOM tree were a linear chain of its leaf nodes.
 Node* nextLeafNode(const Node*);
@@ -84,29 +88,33 @@ bool editingIgnoresContent(const Node&);
 bool canHaveChildrenForEditing(const Node&);
 bool isAtomicNode(const Node*);
 
-bool isBlock(const Node*);
+bool isBlock(const Node&);
 bool isBlockFlowElement(const Node&);
-bool isInline(const Node*);
-bool isTabSpanNode(const Node*);
-bool isTabSpanTextNode(const Node*);
-bool isMailBlockquote(const Node*);
+bool isInline(const Node&);
+bool isMailBlockquote(const Node&);
 bool isRenderedTable(const Node*);
-bool isTableCell(const Node*);
+bool isTableCell(const Node&);
 bool isEmptyTableCell(const Node*);
-bool isTableStructureNode(const Node*);
+bool isTableStructureNode(const Node&);
 bool isListHTMLElement(Node*);
-bool isListItem(const Node*);
+bool isListItem(const Node&);
 bool isNodeRendered(const Node&);
 bool isRenderedAsNonInlineTableImageOrHR(const Node*);
 bool isNonTableCellHTMLBlockElement(const Node*);
 
 bool isNodeVisiblyContainedWithin(Node&, const SimpleRange&);
 
-bool areIdenticalElements(const Node&, const Node&);
+Element* elementIfEquivalent(const Element&, Node&);
 
 bool positionBeforeOrAfterNodeIsCandidate(Node&);
 
+// -------------------------------------------------------------------------
+// SimpleRange
+// -------------------------------------------------------------------------
+
+PositionRange positionsForRange(const SimpleRange&);
 WEBCORE_EXPORT HashSet<RefPtr<HTMLImageElement>> visibleImageElementsInRangeWithNonLoadedImages(const SimpleRange&);
+WEBCORE_EXPORT SimpleRange adjustToVisuallyContiguousRange(const SimpleRange&);
 
 // -------------------------------------------------------------------------
 // Position
@@ -115,19 +123,15 @@ WEBCORE_EXPORT HashSet<RefPtr<HTMLImageElement>> visibleImageElementsInRangeWith
 Position nextCandidate(const Position&);
 Position previousCandidate(const Position&);
 
-Position nextVisuallyDistinctCandidate(const Position&);
+enum class SkipDisplayContents : bool { No, Yes };
+Position nextVisuallyDistinctCandidate(const Position&, SkipDisplayContents = SkipDisplayContents::Yes);
 Position previousVisuallyDistinctCandidate(const Position&);
-
-Position positionBeforeContainingSpecialElement(const Position&, HTMLElement** containingSpecialElement = nullptr);
-Position positionAfterContainingSpecialElement(const Position&, HTMLElement** containingSpecialElement = nullptr);
 
 Position firstPositionInOrBeforeNode(Node*);
 Position lastPositionInOrAfterNode(Node*);
 
 Position firstEditablePositionAfterPositionInRoot(const Position&, ContainerNode* root);
 Position lastEditablePositionBeforePositionInRoot(const Position&, ContainerNode* root);
-
-WEBCORE_EXPORT int comparePositions(const Position&, const Position&);
 
 WEBCORE_EXPORT bool isEditablePosition(const Position&, EditableType = ContentIsEditable);
 bool isRichlyEditablePosition(const Position&);
@@ -138,6 +142,7 @@ unsigned numEnclosingMailBlockquotes(const Position&);
 void updatePositionForNodeRemoval(Position&, Node&);
 
 WEBCORE_EXPORT TextDirection directionOfEnclosingBlock(const Position&);
+TextDirection primaryDirectionForSingleLineRange(const Position& start, const Position& end);
 
 // -------------------------------------------------------------------------
 // VisiblePosition
@@ -148,15 +153,21 @@ VisiblePosition visiblePositionAfterNode(Node&);
 
 bool lineBreakExistsAtVisiblePosition(const VisiblePosition&);
 
-WEBCORE_EXPORT int comparePositions(const VisiblePosition&, const VisiblePosition&);
-
 WEBCORE_EXPORT int indexForVisiblePosition(const VisiblePosition&, RefPtr<ContainerNode>& scope);
-int indexForVisiblePosition(Node&, const VisiblePosition&, bool forSelectionPreservation);
+int indexForVisiblePosition(Node&, const VisiblePosition&, TextIteratorBehaviors);
 WEBCORE_EXPORT VisiblePosition visiblePositionForPositionWithOffset(const VisiblePosition&, int offset);
-WEBCORE_EXPORT VisiblePosition visiblePositionForIndex(int index, ContainerNode* scope);
+WEBCORE_EXPORT VisiblePosition visiblePositionForIndex(int index, Node* scope, TextIteratorBehaviors = TextIteratorBehavior::EmitsCharactersBetweenAllVisiblePositions);
 VisiblePosition visiblePositionForIndexUsingCharacterIterator(Node&, int index); // FIXME: Why do we need this version?
 
 WEBCORE_EXPORT VisiblePosition closestEditablePositionInElementForAbsolutePoint(const Element&, const IntPoint&);
+
+enum class SelectionExtentMovement : uint8_t {
+    Closest,
+    Left,
+    Right,
+};
+void adjustVisibleExtentPreservingVisualContiguity(const VisiblePosition& base, VisiblePosition& extent, SelectionExtentMovement);
+WEBCORE_EXPORT bool crossesBidiTextBoundaryInSameLine(const VisiblePosition&, const VisiblePosition& other);
 
 // -------------------------------------------------------------------------
 // HTMLElement
@@ -166,16 +177,16 @@ WEBCORE_EXPORT Ref<HTMLElement> createDefaultParagraphElement(Document&);
 Ref<HTMLElement> createHTMLElement(Document&, const QualifiedName&);
 Ref<HTMLElement> createHTMLElement(Document&, const AtomString&);
 
-WEBCORE_EXPORT HTMLElement* enclosingList(Node*);
-HTMLElement* outermostEnclosingList(Node*, Node* rootList = nullptr);
-Node* enclosingListChild(Node*);
+WEBCORE_EXPORT RefPtr<HTMLElement> enclosingList(Node*);
+RefPtr<HTMLElement> outermostEnclosingList(Node*, Node* rootList = nullptr);
+RefPtr<Node> enclosingListChild(Node*);
 
 // -------------------------------------------------------------------------
 // Element
 // -------------------------------------------------------------------------
 
 Ref<Element> createTabSpanElement(Document&);
-Ref<Element> createTabSpanElement(Document&, const String& tabText);
+Ref<Element> createTabSpanElement(Document&, String&& tabText);
 Ref<Element> createBlockPlaceholderElement(Document&);
 
 Element* editableRootForPosition(const Position&, EditableType = ContentIsEditable);
@@ -200,7 +211,7 @@ bool deprecatedIsCollapsibleWhitespace(UChar);
 
 bool isAmbiguousBoundaryCharacter(UChar);
 
-String stringWithRebalancedWhitespace(const String&, bool startIsStartOfParagraph, bool endIsEndOfParagraph);
+String stringWithRebalancedWhitespace(const String&, bool startIsStartOfParagraph, bool shouldEmitNBSPbeforeEnd);
 const String& nonBreakingSpaceString();
 
 // Miscellaneous functions for caret rendering.

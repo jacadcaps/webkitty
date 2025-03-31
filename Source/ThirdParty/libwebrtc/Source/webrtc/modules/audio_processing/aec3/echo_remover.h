@@ -11,11 +11,12 @@
 #ifndef MODULES_AUDIO_PROCESSING_AEC3_ECHO_REMOVER_H_
 #define MODULES_AUDIO_PROCESSING_AEC3_ECHO_REMOVER_H_
 
+#include <optional>
 #include <vector>
 
-#include "absl/types/optional.h"
 #include "api/audio/echo_canceller3_config.h"
 #include "api/audio/echo_control.h"
+#include "modules/audio_processing/aec3/block.h"
 #include "modules/audio_processing/aec3/delay_estimate.h"
 #include "modules/audio_processing/aec3/echo_path_variability.h"
 #include "modules/audio_processing/aec3/render_buffer.h"
@@ -40,14 +41,20 @@ class EchoRemover {
   virtual void ProcessCapture(
       EchoPathVariability echo_path_variability,
       bool capture_signal_saturation,
-      const absl::optional<DelayEstimate>& external_delay,
+      const std::optional<DelayEstimate>& external_delay,
       RenderBuffer* render_buffer,
-      std::vector<std::vector<std::vector<float>>>* linear_output,
-      std::vector<std::vector<std::vector<float>>>* capture) = 0;
+      Block* linear_output,
+      Block* capture) = 0;
 
   // Updates the status on whether echo leakage is detected in the output of the
   // echo remover.
   virtual void UpdateEchoLeakageStatus(bool leakage_detected) = 0;
+
+  // Specifies whether the capture output will be used. The purpose of this is
+  // to allow the echo remover to deactivate some of the processing when the
+  // resulting output is anyway not used, for instance when the endpoint is
+  // muted.
+  virtual void SetCaptureOutputUsage(bool capture_output_used) = 0;
 };
 
 }  // namespace webrtc

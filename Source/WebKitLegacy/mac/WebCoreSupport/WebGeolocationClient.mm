@@ -34,11 +34,11 @@
 #import "WebUIDelegatePrivate.h"
 #import "WebViewInternal.h"
 #import <WebCore/Document.h>
-#import <WebCore/Frame.h>
 #import <WebCore/Geolocation.h>
+#import <WebCore/LocalFrame.h>
 #import <wtf/BlockObjCExceptions.h>
 #import <wtf/NakedPtr.h>
-#import <wtf/NakedRef.h>
+#import <wtf/TZoneMallocInlines.h>
 
 #if PLATFORM(IOS_FAMILY)
 #import <WebCore/WAKResponder.h>
@@ -52,7 +52,7 @@ using namespace WebCore;
 {
     RefPtr<Geolocation> _geolocation;
 }
-- (id)initWithGeolocation:(NakedRef<Geolocation>)geolocation;
+- (id)initWithGeolocation:(std::reference_wrapper<Geolocation>)geolocation;
 @end
 #else
 @interface WebGeolocationPolicyListener : NSObject <WebAllowDenyPolicyListener>
@@ -69,9 +69,11 @@ using namespace WebCore;
 @private
     RefPtr<Geolocation> m_geolocation;
 }
-- (id)initWithGeolocation:(NakedRef<Geolocation>)geolocation;
+- (id)initWithGeolocation:(std::reference_wrapper<Geolocation>)geolocation;
 @end
 #endif
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WebGeolocationClient);
 
 WebGeolocationClient::WebGeolocationClient(WebView *webView)
     : m_webView(webView)
@@ -83,9 +85,16 @@ void WebGeolocationClient::geolocationDestroyed()
     delete this;
 }
 
-void WebGeolocationClient::startUpdating(const String& authorizationToken)
+void WebGeolocationClient::startUpdating(const String& authorizationToken, bool enableHighAccuracy)
 {
     UNUSED_PARAM(authorizationToken);
+#if PLATFORM(IOS_FAMILY)
+    if (enableHighAccuracy)
+        setEnableHighAccuracy(true);
+#else
+    UNUSED_PARAM(enableHighAccuracy);
+#endif
+
     [[m_webView _geolocationProvider] registerWebView:m_webView];
 }
 
@@ -114,20 +123,17 @@ void WebGeolocationClient::requestPermission(Geolocation& geolocation)
     }
 
 #if !PLATFORM(IOS_FAMILY)
-    Frame *frame = geolocation.frame();
+    auto* frame = geolocation.frame();
 
     if (!frame) {
         geolocation.setIsAllowed(false, { });
         return;
     }
 
-    WebSecurityOrigin *webOrigin = [[WebSecurityOrigin alloc] _initWithWebCoreSecurityOrigin:&frame->document()->securityOrigin()];
-    WebGeolocationPolicyListener* listener = [[WebGeolocationPolicyListener alloc] initWithGeolocation:geolocation];
+    auto webOrigin = adoptNS([[WebSecurityOrigin alloc] _initWithWebCoreSecurityOrigin:&frame->document()->securityOrigin()]);
+    auto listener = adoptNS([[WebGeolocationPolicyListener alloc] initWithGeolocation:geolocation]);
 
-    CallUIDelegate(m_webView, selector, webOrigin, kit(frame), listener);
-
-    [webOrigin release];
-    [listener release];
+    CallUIDelegate(m_webView, selector, webOrigin.get(), kit(frame), listener.get());
 #else
     RetainPtr<WebGeolocationProviderInitializationListener> listener = adoptNS([[WebGeolocationProviderInitializationListener alloc] initWithGeolocation:geolocation]);
     [[m_webView _geolocationProvider] initializeGeolocationForWebView:m_webView listener:listener.get()];
@@ -135,7 +141,7 @@ void WebGeolocationClient::requestPermission(Geolocation& geolocation)
     END_BLOCK_OBJC_EXCEPTIONS
 }
 
-Optional<GeolocationPositionData> WebGeolocationClient::lastPosition()
+std::optional<GeolocationPositionData> WebGeolocationClient::lastPosition()
 {
     return core([[m_webView _geolocationProvider] lastPosition]);
 }
@@ -143,11 +149,11 @@ Optional<GeolocationPositionData> WebGeolocationClient::lastPosition()
 #if !PLATFORM(IOS_FAMILY)
 @implementation WebGeolocationPolicyListener
 
-- (id)initWithGeolocation:(NakedRef<Geolocation>)geolocation
+- (id)initWithGeolocation:(std::reference_wrapper<Geolocation>)geolocation
 {
     if (!(self = [super init]))
         return nil;
-    _geolocation = geolocation.ptr();
+    _geolocation = &geolocation.get();
     return self;
 }
 
@@ -209,11 +215,11 @@ Optional<GeolocationPositionData> WebGeolocationClient::lastPosition()
 @end
 
 @implementation WebGeolocationProviderInitializationListener
-- (id)initWithGeolocation:(NakedRef<Geolocation>)geolocation
+- (id)initWithGeolocation:(std::reference_wrapper<Geolocation>)geolocation
 {
     self = [super init];
     if (self)
-        m_geolocation = geolocation.ptr();
+        m_geolocation = &geolocation.get();
     return self;
 }
 
@@ -221,15 +227,13 @@ Optional<GeolocationPositionData> WebGeolocationClient::lastPosition()
 {
     BEGIN_BLOCK_OBJC_EXCEPTIONS
 
-    Frame* frame = m_geolocation->frame();
+    auto* frame = m_geolocation->frame();
     if (!frame)
         return;
-    WebSecurityOrigin *webOrigin = [[WebSecurityOrigin alloc] _initWithWebCoreSecurityOrigin:&frame->document()->securityOrigin()];
-    WebGeolocationPolicyListener *listener = [[WebGeolocationPolicyListener alloc] initWithGeolocation:m_geolocation.get() forWebView:webView];
+    auto webOrigin = adoptNS([[WebSecurityOrigin alloc] _initWithWebCoreSecurityOrigin:&frame->document()->securityOrigin()]);
+    auto listener = adoptNS([[WebGeolocationPolicyListener alloc] initWithGeolocation:m_geolocation.get() forWebView:webView]);
     SEL selector = @selector(webView:decidePolicyForGeolocationRequestFromOrigin:frame:listener:);
-    CallUIDelegate(webView, selector, webOrigin, kit(frame), listener);
-    [webOrigin release];
-    [listener release];
+    CallUIDelegate(webView, selector, webOrigin.get(), kit(frame), listener.get());
 
     END_BLOCK_OBJC_EXCEPTIONS
 }

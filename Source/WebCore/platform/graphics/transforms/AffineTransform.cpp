@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2005, 2006 Apple Inc.  All rights reserved.
+ * Copyright (C) 2014 Google Inc.  All rights reserved.
  *               2010 Dirk Schulze <krit@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
@@ -34,32 +35,32 @@
 #include "Region.h"
 #include "TransformationMatrix.h"
 #include <wtf/MathExtras.h>
-#include <wtf/Optional.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/TextStream.h>
 
 namespace WebCore {
 
-#if COMPILER(MSVC)
-AffineTransform::AffineTransform()
+WTF_MAKE_TZONE_ALLOCATED_IMPL(AffineTransform);
+
+AffineTransform AffineTransform::makeRotation(double angleInDegrees, FloatPoint center)
 {
-    m_transform = { 1, 0, 0, 1, 0, 0 };
+    if (center.isZero())
+        return makeRotation(angleInDegrees);
+
+    auto centerSize = toFloatSize(center);
+    auto matrix = makeTranslation(centerSize);
+    matrix.rotate(angleInDegrees);
+    matrix.translate(-centerSize);
+    return matrix;
 }
 
-AffineTransform::AffineTransform(double a, double b, double c, double d, double e, double f)
+AffineTransform AffineTransform::makeRotation(double angleInDegrees)
 {
-    m_transform = { a, b, c, d, e, f };
+    auto angleInRadians = deg2rad(angleInDegrees);
+    double cosAngle = cos(angleInRadians);
+    double sinAngle = sin(angleInRadians);
+    return AffineTransform { cosAngle, sinAngle, -sinAngle, cosAngle, 0, 0 };
 }
-#else
-AffineTransform::AffineTransform()
-    : m_transform { { 1, 0, 0, 1, 0, 0 } }
-{
-}
-
-AffineTransform::AffineTransform(double a, double b, double c, double d, double e, double f)
-    : m_transform{ { a, b, c, d, e, f } }
-{
-}
-#endif
 
 void AffineTransform::makeIdentity()
 {
@@ -105,11 +106,11 @@ bool AffineTransform::isInvertible() const
     return std::isfinite(determinant) && determinant != 0;
 }
 
-Optional<AffineTransform> AffineTransform::inverse() const
+std::optional<AffineTransform> AffineTransform::inverse() const
 {
     double determinant = det(m_transform);
     if (!std::isfinite(determinant) || determinant == 0)
-        return WTF::nullopt;
+        return std::nullopt;
 
     AffineTransform result;
     if (isIdentityOrTranslation()) {
@@ -151,7 +152,11 @@ AffineTransform& AffineTransform::multiply(const AffineTransform& other)
 AffineTransform& AffineTransform::rotate(double a)
 {
     // angle is in degree. Switch to radian
-    a = deg2rad(a);
+    return rotateRadians(deg2rad(a));
+}
+
+AffineTransform& AffineTransform::rotateRadians(double a)
+{
     double cosAngle = cos(a);
     double sinAngle = sin(a);
     AffineTransform rot(cosAngle, sinAngle, -sinAngle, cosAngle, 0, 0);
@@ -210,7 +215,7 @@ AffineTransform& AffineTransform::translate(const FloatSize& t)
 
 AffineTransform& AffineTransform::rotateFromVector(double x, double y)
 {
-    return rotate(rad2deg(atan2(y, x)));
+    return rotateRadians(atan2(y, x));
 }
 
 AffineTransform& AffineTransform::flipX()
@@ -350,7 +355,7 @@ Region AffineTransform::mapRegion(const Region& region) const
     return mappedRegion;
 }
 
-void AffineTransform::blend(const AffineTransform& from, double progress)
+void AffineTransform::blend(const AffineTransform& from, double progress, CompositeOperation compositeOperation)
 {
     DecomposedType srA, srB;
 
@@ -368,7 +373,7 @@ void AffineTransform::blend(const AffineTransform& from, double progress)
     srA.angle = fmod(srA.angle, 2 * piDouble);
     srB.angle = fmod(srB.angle, 2 * piDouble);
 
-    if (fabs(srA.angle - srB.angle) > piDouble) {
+    if (std::abs(srA.angle - srB.angle) > piDouble) {
         if (srA.angle > srB.angle)
             srA.angle -= piDouble * 2;
         else
@@ -384,6 +389,18 @@ void AffineTransform::blend(const AffineTransform& from, double progress)
     srA.remainderD += progress * (srB.remainderD - srA.remainderD);
     srA.translateX += progress * (srB.translateX - srA.translateX);
     srA.translateY += progress * (srB.translateY - srA.translateY);
+
+    if (compositeOperation != CompositeOperation::Replace) {
+        srA.scaleX += srA.scaleX;
+        srA.scaleY += srA.scaleY;
+        srA.angle += srA.angle;
+        srA.remainderA += srA.remainderA;
+        srA.remainderB += srA.remainderB;
+        srA.remainderC += srA.remainderC;
+        srA.remainderD += srA.remainderD;
+        srA.translateX += srA.translateX;
+        srA.translateY += srA.translateY;
+    }
 
     this->recompose(srA);
 }
@@ -419,7 +436,7 @@ bool AffineTransform::decompose(DecomposedType& decomp) const
     double angle = atan2(m.b(), m.a());
     
     // Remove rotation from matrix
-    m.rotate(rad2deg(-angle));
+    m.rotateRadians(-angle);
     
     // Return results    
     decomp.scaleX = sx;
@@ -443,7 +460,7 @@ void AffineTransform::recompose(const DecomposedType& decomp)
     this->setD(decomp.remainderD);
     this->setE(decomp.translateX);
     this->setF(decomp.translateY);
-    this->rotate(rad2deg(decomp.angle));
+    this->rotateRadians(decomp.angle);
     this->scale(decomp.scaleX, decomp.scaleY);
 }
 

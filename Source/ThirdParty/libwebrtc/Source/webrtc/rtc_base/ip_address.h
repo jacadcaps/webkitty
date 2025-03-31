@@ -11,14 +11,15 @@
 #ifndef RTC_BASE_IP_ADDRESS_H_
 #define RTC_BASE_IP_ADDRESS_H_
 
+#include <cstdint>
 #if defined(WEBRTC_POSIX)
 #include <arpa/inet.h>
 #include <netdb.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
+#include <netinet/in.h>  // IWYU pragma: export
+
+#include "absl/strings/string_view.h"
 #endif
 #if defined(WEBRTC_WIN)
-#include <winsock2.h>
 #include <ws2tcpip.h>
 #endif
 #include <string.h>
@@ -29,8 +30,9 @@
 #if defined(WEBRTC_WIN)
 #include "rtc_base/win32.h"
 #endif
+#include "absl/strings/string_view.h"
+#include "rtc_base/net_helpers.h"
 #include "rtc_base/system/rtc_export.h"
-
 namespace rtc {
 
 enum IPv6AddressFlag {
@@ -79,13 +81,6 @@ class RTC_EXPORT IPAddress {
   bool operator!=(const IPAddress& other) const;
   bool operator<(const IPAddress& other) const;
   bool operator>(const IPAddress& other) const;
-
-#ifdef UNIT_TEST
-  inline std::ostream& operator<<(  // no-presubmit-check TODO(webrtc:8982)
-      std::ostream& os) {           // no-presubmit-check TODO(webrtc:8982)
-    return os << ToString();
-  }
-#endif  // UNIT_TEST
 
   int family() const { return family_; }
   in_addr ipv4_address() const;
@@ -155,13 +150,13 @@ class RTC_EXPORT InterfaceAddress : public IPAddress {
 };
 
 bool IPFromAddrInfo(struct addrinfo* info, IPAddress* out);
-RTC_EXPORT bool IPFromString(const std::string& str, IPAddress* out);
-RTC_EXPORT bool IPFromString(const std::string& str,
+RTC_EXPORT bool IPFromString(absl::string_view str, IPAddress* out);
+RTC_EXPORT bool IPFromString(absl::string_view str,
                              int flags,
                              InterfaceAddress* out);
 bool IPIsAny(const IPAddress& ip);
-bool IPIsLoopback(const IPAddress& ip);
-bool IPIsLinkLocal(const IPAddress& ip);
+RTC_EXPORT bool IPIsLoopback(const IPAddress& ip);
+RTC_EXPORT bool IPIsLinkLocal(const IPAddress& ip);
 // Identify a private network address like "192.168.111.222"
 // (see https://en.wikipedia.org/wiki/Private_network )
 bool IPIsPrivateNetwork(const IPAddress& ip);
@@ -172,7 +167,7 @@ bool IPIsSharedNetwork(const IPAddress& ip);
 // or an address belonging to a link-local, a private network or a shared
 // network.
 RTC_EXPORT bool IPIsPrivate(const IPAddress& ip);
-bool IPIsUnspec(const IPAddress& ip);
+RTC_EXPORT bool IPIsUnspec(const IPAddress& ip);
 size_t HashIP(const IPAddress& ip);
 
 // These are only really applicable for IPv6 addresses.

@@ -45,7 +45,7 @@ public:
 
 private:
     struct TermPointerHash {
-        static unsigned hash(const Term* key) { return key->hash(); }
+        static unsigned hash(const Term* key) { return computeHash(*key); }
         static inline bool equal(const Term* a, const Term* b)
         {
             return *a == *b;
@@ -53,7 +53,7 @@ private:
         static const bool safeToCompareToEmptyOrDeleted = false;
     };
 
-    HashSet<const Term*, TermPointerHash> m_uniqueTerms;
+    UncheckedKeyHashSet<const Term*, TermPointerHash> m_uniqueTerms;
     Vector<std::unique_ptr<Term>> m_internedTermsStorage;
 };
 

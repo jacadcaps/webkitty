@@ -9,6 +9,7 @@
  */
 #include "rtc_base/experiments/field_trial_parser.h"
 
+#include "absl/strings/string_view.h"
 #include "rtc_base/experiments/field_trial_list.h"
 #include "rtc_base/gunit.h"
 #include "system_wrappers/include/field_trial.h"
@@ -17,7 +18,8 @@
 
 namespace webrtc {
 namespace {
-const char kDummyExperiment[] = "WebRTC-DummyExperiment";
+
+constexpr char kDummyExperiment[] = "WebRTC-DummyExperiment";
 
 struct DummyExperiment {
   FieldTrialFlag enabled = FieldTrialFlag("Enabled");
@@ -28,14 +30,16 @@ struct DummyExperiment {
   FieldTrialParameter<std::string> hash =
       FieldTrialParameter<std::string>("h", "a80");
 
-  explicit DummyExperiment(std::string field_trial) {
+  DummyExperiment()
+      : DummyExperiment([] {
+          field_trial::FieldTrialsAllowedInScopeForTesting k{
+              {kDummyExperiment}};
+          return field_trial::FindFullName(kDummyExperiment);
+        }()) {}
+
+  explicit DummyExperiment(absl::string_view field_trial) {
     ParseFieldTrial({&enabled, &factor, &retries, &size, &ping, &hash},
                     field_trial);
-  }
-  DummyExperiment() {
-    std::string trial_string = field_trial::FindFullName(kDummyExperiment);
-    ParseFieldTrial({&enabled, &factor, &retries, &size, &ping, &hash},
-                    trial_string);
   }
 };
 
@@ -112,8 +116,8 @@ TEST(FieldTrialParserTest, IgnoresInvalid) {
   EXPECT_EQ(exp.hash.Get(), "a80");
 }
 TEST(FieldTrialParserTest, IgnoresOutOfRange) {
-  FieldTrialConstrained<double> low("low", 10, absl::nullopt, 100);
-  FieldTrialConstrained<double> high("high", 10, 5, absl::nullopt);
+  FieldTrialConstrained<double> low("low", 10, std::nullopt, 100);
+  FieldTrialConstrained<double> high("high", 10, 5, std::nullopt);
   ParseFieldTrial({&low, &high}, "low:1000,high:0");
   EXPECT_EQ(low.Get(), 10);
   EXPECT_EQ(high.Get(), 10);
@@ -137,7 +141,7 @@ TEST(FieldTrialParserTest, ReadsValuesFromFieldWithoutKey) {
   EXPECT_EQ(req.Get(), 30);
 }
 TEST(FieldTrialParserTest, ParsesOptionalParameters) {
-  FieldTrialOptional<int> max_count("c", absl::nullopt);
+  FieldTrialOptional<int> max_count("c", std::nullopt);
   ParseFieldTrial({&max_count}, "");
   EXPECT_FALSE(max_count.GetOptional().has_value());
   ParseFieldTrial({&max_count}, "c:10");
@@ -149,7 +153,7 @@ TEST(FieldTrialParserTest, ParsesOptionalParameters) {
   ParseFieldTrial({&max_count}, "c:");
   EXPECT_EQ(max_count.GetOptional().value(), 20);
 
-  FieldTrialOptional<unsigned> max_size("c", absl::nullopt);
+  FieldTrialOptional<unsigned> max_size("c", std::nullopt);
   ParseFieldTrial({&max_size}, "");
   EXPECT_FALSE(max_size.GetOptional().has_value());
   ParseFieldTrial({&max_size}, "c:10");

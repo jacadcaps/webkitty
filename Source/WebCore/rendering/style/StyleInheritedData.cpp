@@ -22,7 +22,9 @@
 #include "config.h"
 #include "StyleInheritedData.h"
 
-#include "RenderStyle.h"
+#include "RenderStyleInlines.h"
+#include "RenderStyleDifference.h"
+#include "StyleFontData.h"
 
 namespace WebCore {
 
@@ -35,6 +37,7 @@ StyleInheritedData::StyleInheritedData()
 #if ENABLE(TEXT_AUTOSIZING)
     , specifiedLineHeight(RenderStyle::initialLineHeight())
 #endif
+    , fontData(StyleFontData::create())
     , color(RenderStyle::initialColor())
     , visitedLinkColor(RenderStyle::initialColor())
 {
@@ -48,10 +51,11 @@ inline StyleInheritedData::StyleInheritedData(const StyleInheritedData& o)
 #if ENABLE(TEXT_AUTOSIZING)
     , specifiedLineHeight(o.specifiedLineHeight)
 #endif
-    , fontCascade(o.fontCascade)
+    , fontData(o.fontData)
     , color(o.color)
     , visitedLinkColor(o.visitedLinkColor)
 {
+    ASSERT(o == *this, "StyleInheritedData should be properly copied.");
 }
 
 Ref<StyleInheritedData> StyleInheritedData::copy() const
@@ -59,17 +63,52 @@ Ref<StyleInheritedData> StyleInheritedData::copy() const
     return adoptRef(*new StyleInheritedData(*this));
 }
 
-bool StyleInheritedData::operator==(const StyleInheritedData& o) const
+bool StyleInheritedData::operator==(const StyleInheritedData& other) const
 {
-    return lineHeight == o.lineHeight
-#if ENABLE(TEXT_AUTOSIZING)
-        && specifiedLineHeight == o.specifiedLineHeight
-#endif
-        && fontCascade == o.fontCascade
-        && color == o.color
-        && visitedLinkColor == o.visitedLinkColor
-        && horizontalBorderSpacing == o.horizontalBorderSpacing
-        && verticalBorderSpacing == o.verticalBorderSpacing;
+    return fastPathInheritedEqual(other) && nonFastPathInheritedEqual(other);
 }
+
+bool StyleInheritedData::fastPathInheritedEqual(const StyleInheritedData& other) const
+{
+    // These properties also need to have "fast-path-inherited" codegen property set.
+    // Cases where other properties depend on these values need to disallow the fast path (via RenderStyle::setDisallowsFastPathInheritance).
+    return color == other.color
+        && visitedLinkColor == other.visitedLinkColor;
+}
+
+bool StyleInheritedData::nonFastPathInheritedEqual(const StyleInheritedData& other) const
+{
+    return lineHeight == other.lineHeight
+#if ENABLE(TEXT_AUTOSIZING)
+        && specifiedLineHeight == other.specifiedLineHeight
+#endif
+        && fontData == other.fontData
+        && horizontalBorderSpacing == other.horizontalBorderSpacing
+        && verticalBorderSpacing == other.verticalBorderSpacing;
+}
+
+void StyleInheritedData::fastPathInheritFrom(const StyleInheritedData& inheritParent)
+{
+    color = inheritParent.color;
+    visitedLinkColor = inheritParent.visitedLinkColor;
+}
+
+#if !LOG_DISABLED
+void StyleInheritedData::dumpDifferences(TextStream& ts, const StyleInheritedData& other) const
+{
+    fontData->dumpDifferences(ts, *other.fontData);
+
+    LOG_IF_DIFFERENT(horizontalBorderSpacing);
+    LOG_IF_DIFFERENT(verticalBorderSpacing);
+    LOG_IF_DIFFERENT(lineHeight);
+
+#if ENABLE(TEXT_AUTOSIZING)
+    LOG_IF_DIFFERENT(specifiedLineHeight);
+#endif
+
+    LOG_IF_DIFFERENT(color);
+    LOG_IF_DIFFERENT(visitedLinkColor);
+}
+#endif
 
 } // namespace WebCore

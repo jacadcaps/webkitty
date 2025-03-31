@@ -1,6 +1,6 @@
 /*
  * Copyright 2005 Frerich Raabe <raabe@kde.org>
- * Copyright (C) 2006, 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2024 Apple Inc. All rights reserved.
  * Copyright (C) 2007 Alexey Proskuryakov <ap@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
@@ -32,10 +32,20 @@
 #include "XPathUtil.h"
 #include <math.h>
 #include <wtf/MathExtras.h>
+#include <wtf/SetForScope.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 namespace XPath {
-        
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(Number);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(StringExpression);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(Negative);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(NumericOp);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(EqTestOp);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(LogicalOp);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(Union);
+
 Number::Number(double value)
     : m_value(value)
 {
@@ -75,19 +85,26 @@ NumericOp::NumericOp(Opcode opcode, std::unique_ptr<Expression> lhs, std::unique
 
 Value NumericOp::evaluate() const
 {
+    EvaluationContext clonedContext(Expression::evaluationContext());
+
     double leftVal = subexpression(0).evaluate().toNumber();
-    double rightVal = subexpression(1).evaluate().toNumber();
+    double rightVal;
+
+    {
+        SetForScope contextForScope(Expression::evaluationContext(), clonedContext);
+        rightVal = subexpression(1).evaluate().toNumber();
+    }
 
     switch (m_opcode) {
-        case OP_Add:
+    case Opcode::Add:
             return leftVal + rightVal;
-        case OP_Sub:
+    case Opcode::Sub:
             return leftVal - rightVal;
-        case OP_Mul:
+    case Opcode::Mul:
             return leftVal * rightVal;
-        case OP_Div:
+    case Opcode::Div:
             return leftVal / rightVal;
-        case OP_Mod:
+    case Opcode::Mod:
             return fmod(leftVal, rightVal);
     }
 
@@ -170,8 +187,8 @@ bool EqTestOp::compare(const Value& lhs, const Value& rhs) const
     
     // Neither side is a NodeSet.
     switch (m_opcode) {
-        case OP_EQ:
-        case OP_NE:
+    case Opcode::Eq:
+    case Opcode::Ne:
             bool equal;
             if (lhs.isBoolean() || rhs.isBoolean())
                 equal = lhs.toBoolean() == rhs.toBoolean();
@@ -180,16 +197,16 @@ bool EqTestOp::compare(const Value& lhs, const Value& rhs) const
             else
                 equal = lhs.toString() == rhs.toString();
 
-            if (m_opcode == OP_EQ)
+            if (m_opcode == Opcode::Eq)
                 return equal;
             return !equal;
-        case OP_GT:
+    case Opcode::Gt:
             return lhs.toNumber() > rhs.toNumber();
-        case OP_GE:
+    case Opcode::Ge:
             return lhs.toNumber() >= rhs.toNumber();
-        case OP_LT:
+    case Opcode::Lt:
             return lhs.toNumber() < rhs.toNumber();
-        case OP_LE:
+    case Opcode::Le:
             return lhs.toNumber() <= rhs.toNumber();
     }
 
@@ -199,8 +216,14 @@ bool EqTestOp::compare(const Value& lhs, const Value& rhs) const
 
 Value EqTestOp::evaluate() const
 {
+    EvaluationContext clonedContext(Expression::evaluationContext());
+
     Value lhs(subexpression(0).evaluate());
-    Value rhs(subexpression(1).evaluate());
+    Value rhs = [&] {
+        SetForScope contextForScope(Expression::evaluationContext(), clonedContext);
+        return subexpression(1).evaluate();
+    }();
+
     return compare(lhs, rhs);
 }
 
@@ -213,17 +236,20 @@ LogicalOp::LogicalOp(Opcode opcode, std::unique_ptr<Expression> lhs, std::unique
 
 inline bool LogicalOp::shortCircuitOn() const
 {
-    return m_opcode != OP_And;
+    return m_opcode != Opcode::And;
 }
 
 Value LogicalOp::evaluate() const
 {
+    EvaluationContext clonedContext(Expression::evaluationContext());
+
     // This is not only an optimization, http://www.w3.org/TR/xpath
     // dictates that we must do short-circuit evaluation
     bool lhsBool = subexpression(0).evaluate().toBoolean();
     if (lhsBool == shortCircuitOn())
         return lhsBool;
 
+    SetForScope contextForScope(Expression::evaluationContext(), clonedContext);
     return subexpression(1).evaluate().toBoolean();
 }
 
@@ -235,13 +261,18 @@ Union::Union(std::unique_ptr<Expression> lhs, std::unique_ptr<Expression> rhs)
 
 Value Union::evaluate() const
 {
+    EvaluationContext clonedContext(Expression::evaluationContext());
     Value lhsResult = subexpression(0).evaluate();
-    Value rhs = subexpression(1).evaluate();
+    Value rhsResult = [&] {
+        SetForScope contextForScope(Expression::evaluationContext(), clonedContext);
+        return subexpression(1).evaluate();
+    }();
+    Expression::evaluationContext().hadTypeConversionError |= clonedContext.hadTypeConversionError;
 
     NodeSet& resultSet = lhsResult.modifiableNodeSet();
-    const NodeSet& rhsNodes = rhs.toNodeSet();
+    const NodeSet& rhsNodes = rhsResult.toNodeSet();
 
-    HashSet<Node*> nodes;
+    HashSet<RefPtr<Node>> nodes;
     for (auto& result : resultSet)
         nodes.add(result.get());
 
@@ -259,19 +290,24 @@ Value Union::evaluate() const
 
 bool evaluatePredicate(const Expression& expression)
 {
-    Value result(expression.evaluate());
+    EvaluationContext clonedContext(Expression::evaluationContext());
+    Value result = [&] {
+        SetForScope contextForScope(Expression::evaluationContext(), clonedContext);
+        return expression.evaluate();
+    }();
+    Expression::evaluationContext().hadTypeConversionError |= clonedContext.hadTypeConversionError;
 
     // foo[3] means foo[position()=3]
     if (result.isNumber())
-        return EqTestOp(EqTestOp::OP_EQ, Function::create("position"_s), makeUnique<Number>(result.toNumber())).evaluate().toBoolean();
+        return EqTestOp(EqTestOp::Opcode::Eq, Function::create("position"_s), makeUnique<Number>(result.toNumber())).evaluate().toBoolean();
 
     return result.toBoolean();
 }
 
 bool predicateIsContextPositionSensitive(const Expression& expression)
 {
-    return expression.isContextPositionSensitive() || expression.resultType() == Value::NumberValue;
+    return expression.isContextPositionSensitive() || expression.resultType() == Value::Type::Number;
 }
 
-}
-}
+} // namespace XPath
+} // namespace WebCore

@@ -10,27 +10,13 @@
 
 #include "modules/remote_bitrate_estimator/include/bwe_defines.h"
 
-#include "system_wrappers/include/field_trial.h"
-
 namespace webrtc {
 
 const char kBweTypeHistogram[] = "WebRTC.BWE.Types";
 
-namespace congestion_controller {
-int GetMinBitrateBps() {
-  constexpr int kMinBitrateBps = 5000;
-  return kMinBitrateBps;
-}
-
-DataRate GetMinBitrate() {
-  return DataRate::BitsPerSec(GetMinBitrateBps());
-}
-
-}  // namespace congestion_controller
-
 RateControlInput::RateControlInput(
     BandwidthUsage bw_state,
-    const absl::optional<DataRate>& estimated_throughput)
+    const std::optional<DataRate>& estimated_throughput)
     : bw_state(bw_state), estimated_throughput(estimated_throughput) {}
 
 RateControlInput::~RateControlInput() = default;

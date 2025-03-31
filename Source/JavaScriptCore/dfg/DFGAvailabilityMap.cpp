@@ -55,7 +55,7 @@ void AvailabilityMap::pruneHeap()
             return possibleNodes.add(node).isNewEntry;
         });
     
-    HashMap<PromotedHeapLocation, Availability> newHeap;
+    UncheckedKeyHashMap<PromotedHeapLocation, Availability> newHeap;
     for (auto pair : m_heap) {
         if (possibleNodes.contains(pair.key.base()))
             newHeap.add(pair.key, pair.value);
@@ -84,12 +84,6 @@ void AvailabilityMap::clear()
 void AvailabilityMap::dump(PrintStream& out) const
 {
     out.print("{locals = ", m_locals, "; heap = ", mapDump(m_heap), "}");
-}
-
-bool AvailabilityMap::operator==(const AvailabilityMap& other) const
-{
-    return m_locals == other.m_locals
-        && m_heap == other.m_heap;
 }
 
 void AvailabilityMap::merge(const AvailabilityMap& other)

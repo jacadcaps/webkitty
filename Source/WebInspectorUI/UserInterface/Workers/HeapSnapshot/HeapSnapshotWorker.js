@@ -47,13 +47,13 @@ HeapSnapshotWorker = class HeapSnapshotWorker
         this._snapshots = [];
     }
 
-    createSnapshot(snapshotString, title, imported)
+    createSnapshot(targetId, snapshotString, title, imported)
     {
         let objectId = this._nextObjectId++;
-        let snapshot = new HeapSnapshot(objectId, snapshotString, title, imported);
+        let snapshot = new HeapSnapshot(targetId, objectId, snapshotString, title);
         this._objects.set(objectId, snapshot);
 
-        if (!imported) {
+        if (!snapshot.imported) {
             this._snapshots.push(snapshot);
 
             if (this._snapshots.length > 1) {
@@ -61,7 +61,7 @@ HeapSnapshotWorker = class HeapSnapshotWorker
                     let collectionData = snapshot.updateDeadNodesAndGatherCollectionData(this._snapshots);
                     if (!collectionData || !collectionData.affectedSnapshots.length)
                         return;
-                    this.sendEvent("HeapSnapshot.CollectionEvent", collectionData);
+                    this.sendEvent(HeapSnapshotWorker.Event.Collection, collectionData);
                 }, 0);
             }
         }
@@ -118,6 +118,10 @@ HeapSnapshotWorker = class HeapSnapshotWorker
 
         console.error("Unexpected HeapSnapshotWorker message", data);
     }
+};
+
+HeapSnapshotWorker.Event = {
+    Collection: "heap-snapshot-collection",
 };
 
 self.heapSnapshotWorker = new HeapSnapshotWorker;

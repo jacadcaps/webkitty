@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2020 Igalia S.L. All rights reserved.
+ * Copyright (C) 2023 Apple, Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,35 +28,38 @@
 
 #if ENABLE(WEBXR)
 
+#include "CanvasObserver.h"
 #include "ExceptionOr.h"
+#include "FloatRect.h"
+#include "GraphicsTypesGL.h"
+#include "PlatformXR.h"
 #include "WebXRLayer.h"
-#include <wtf/IsoMalloc.h>
+#include <variant>
 #include <wtf/Ref.h>
 #include <wtf/RefPtr.h>
-#include <wtf/Variant.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
+class HTMLCanvasElement;
 class IntSize;
 class WebGLFramebuffer;
 class WebGLRenderingContext;
-#if ENABLE(WEBGL2)
+class WebGLRenderingContextBase;
 class WebGL2RenderingContext;
-#endif
+class WebXROpaqueFramebuffer;
 class WebXRSession;
 class WebXRView;
 class WebXRViewport;
 struct XRWebGLLayerInit;
 
-class WebXRWebGLLayer : public WebXRLayer {
-    WTF_MAKE_ISO_ALLOCATED(WebXRWebGLLayer);
+class WebXRWebGLLayer : public WebXRLayer, private CanvasObserver {
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(WebXRWebGLLayer);
 public:
 
-    using WebXRRenderingContext = WTF::Variant<
-        RefPtr<WebGLRenderingContext>
-#if ENABLE(WEBGL2)
-        , RefPtr<WebGL2RenderingContext>
-#endif
+    using WebXRRenderingContext = std::variant<
+        RefPtr<WebGLRenderingContext>,
+        RefPtr<WebGL2RenderingContext>
     >;
 
     static ExceptionOr<Ref<WebXRWebGLLayer>> create(Ref<WebXRSession>&&, WebXRRenderingContext&&, const XRWebGLLayerInit&);
@@ -64,31 +68,50 @@ public:
     bool antialias() const;
     bool ignoreDepthValues() const;
 
-    WebGLFramebuffer* framebuffer() const;
+    const WebGLFramebuffer* framebuffer() const;
     unsigned framebufferWidth() const;
     unsigned framebufferHeight() const;
 
-    RefPtr<WebXRViewport> getViewport(const WebXRView&);
+    ExceptionOr<RefPtr<WebXRViewport>> getViewport(WebXRView&);
 
     static double getNativeFramebufferScaleFactor(const WebXRSession&);
 
-private:
-    WebXRWebGLLayer(Ref<WebXRSession>&&, WebXRRenderingContext&&, const XRWebGLLayerInit&);
+    const WebXRSession* session() { return m_session.get(); }
 
+    bool isCompositionEnabled() const { return m_isCompositionEnabled; }
+
+    HTMLCanvasElement* canvas() const;
+
+    void sessionEnded();
+
+    // WebXRLayer
+    void startFrame(PlatformXR::FrameData&) final;
+    PlatformXR::Device::Layer endFrame() final;
+
+private:
+    WebXRWebGLLayer(Ref<WebXRSession>&&, WebXRRenderingContext&&, std::unique_ptr<WebXROpaqueFramebuffer>&&, bool antialias, bool ignoreDepthValues, bool isCompositionEnabled);
+
+    void computeViewports();
     static IntSize computeNativeWebGLFramebufferResolution();
     static IntSize computeRecommendedWebGLFramebufferResolution();
 
-    Ref<WebXRSession> m_session;
+    void canvasChanged(CanvasBase&, const FloatRect&) final { };
+    void canvasResized(CanvasBase&) final;
+    void canvasDestroyed(CanvasBase&) final { };
+    RefPtr<WebXRSession> m_session;
     WebXRRenderingContext m_context;
+
+    struct ViewportData {
+        Ref<WebXRViewport> viewport;
+        double currentScale { 1.0 };
+    };
+
+    ViewportData m_leftViewportData;
+    ViewportData m_rightViewportData;
+    std::unique_ptr<WebXROpaqueFramebuffer> m_framebuffer;
     bool m_antialias { false };
     bool m_ignoreDepthValues { false };
-    bool m_isCompositionDisabled { false };
-
-    struct {
-        RefPtr<WebGLFramebuffer> object;
-        unsigned width { 0 };
-        unsigned height { 0 };
-    } m_framebuffer;
+    bool m_isCompositionEnabled { true };
 };
 
 } // namespace WebCore

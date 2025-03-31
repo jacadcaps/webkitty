@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2003 - 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2023 Apple Inc. All rights reserved.
  * Copyright (C) 2008 Holger Hans Peter Freyther
  *
  * This library is free software; you can redistribute it and/or
@@ -23,25 +23,30 @@
 #define WidthIterator_h
 
 #include "GlyphBuffer.h"
+#include "WritingMode.h"
 #include <unicode/umachine.h>
 #include <wtf/HashSet.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 
 namespace WebCore {
 
 class FontCascade;
+class FontCascadeDescription;
 class Font;
 class TextRun;
 struct GlyphData;
 struct GlyphIndexRange;
 struct OriginalAdvancesForCharacterTreatedAsSpace;
+struct AdvanceInternalState;
+struct SmallCapsState;
 
 using CharactersTreatedAsSpace = Vector<OriginalAdvancesForCharacterTreatedAsSpace, 64>;
 
 struct WidthIterator {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(WidthIterator);
 public:
-    WidthIterator(const FontCascade&, const TextRun&, HashSet<const Font*>* fallbackFonts = 0, bool accountForGlyphBounds = false, bool forTextEmphasis = false);
+    WidthIterator(const FontCascade&, const TextRun&, SingleThreadWeakHashSet<const Font>* fallbackFonts = 0, bool accountForGlyphBounds = false, bool forTextEmphasis = false);
 
     void advance(unsigned to, GlyphBuffer&);
     bool advanceOneCharacter(float& width, GlyphBuffer&);
@@ -56,18 +61,28 @@ public:
     float runWidthSoFar() const { return m_runWidthSoFar; }
     unsigned currentCharacterIndex() const { return m_currentCharacterIndex; }
 
+    WEBCORE_EXPORT static bool characterCanUseSimplifiedTextMeasuring(char32_t, bool whitespaceIsCollapsed);
+
 private:
-    GlyphData glyphDataForCharacter(UChar32, bool mirror);
+    GlyphData glyphDataForCharacter(char32_t, bool mirror);
     template <typename TextIterator>
     inline void advanceInternal(TextIterator&, GlyphBuffer&);
 
     enum class TransformsType { None, Forced, NotForced };
     TransformsType shouldApplyFontTransforms(const GlyphBuffer&, unsigned lastGlyphCount, unsigned currentCharacterIndex) const;
-    float applyFontTransforms(GlyphBuffer&, unsigned lastGlyphCount, unsigned currentCharacterIndex, const Font&, bool force, CharactersTreatedAsSpace&);
-    void commitCurrentFontRange(GlyphBuffer&, unsigned lastGlyphCount, unsigned currentCharacterIndex, const Font&, const Font& primaryFont, UChar32 character, float widthOfCurrentFontRange, CharactersTreatedAsSpace&);
+    struct ApplyFontTransformsResult {
+        float additionalAdvance;
+        GlyphBufferAdvance initialAdvance;
+    };
+    ApplyFontTransformsResult applyFontTransforms(GlyphBuffer&, unsigned lastGlyphCount, const Font&, CharactersTreatedAsSpace&);
+    void commitCurrentFontRange(AdvanceInternalState&);
+    void startNewFontRangeIfNeeded(AdvanceInternalState&, SmallCapsState&, const FontCascadeDescription&);
+    void applyInitialAdvance(GlyphBuffer&, GlyphBufferAdvance initialAdvance, unsigned lastGlyphCount);
 
     bool hasExtraSpacing() const;
     void applyExtraSpacingAfterShaping(GlyphBuffer&, unsigned characterStartIndex, unsigned glyphBufferStartIndex, unsigned characterDestinationIndex, float startingRunWidth);
+    void applyCSSVisibilityRules(GlyphBuffer&, unsigned glyphBufferStartIndex);
+
     struct AdditionalWidth {
         float left;
         float right;
@@ -77,20 +92,26 @@ private:
     AdditionalWidth calculateAdditionalWidth(GlyphBuffer&, GlyphBufferStringOffset currentCharacterIndex, unsigned leadingGlyphIndex, unsigned trailingGlyphIndex, float position) const;
     void applyAdditionalWidth(GlyphBuffer&, GlyphIndexRange, float leftAdditionalWidth, float rightAdditionalWidth, float leftExpansionAdditionalWidth, float rightExpansionAdditionalWidth);
 
-    const FontCascade& m_font;
-    const TextRun& m_run;
-    HashSet<const Font*>* m_fallbackFonts { nullptr };
+    TextDirection direction() const { return m_direction; }
+    bool rtl() const { return m_direction == TextDirection::RTL; }
+    bool ltr() const { return m_direction == TextDirection::LTR; }
 
-    Optional<unsigned> m_lastCharacterIndex;
+    CheckedRef<const FontCascade> m_font;
+    CheckedRef<const TextRun> m_run;
+    SingleThreadWeakHashSet<const Font>* m_fallbackFonts { nullptr };
+
+    std::optional<unsigned> m_lastCharacterIndex;
+    GlyphBufferAdvance m_leftoverInitialAdvance { makeGlyphBufferAdvance() };
     unsigned m_currentCharacterIndex { 0 };
     float m_leftoverJustificationWidth { 0 };
     float m_runWidthSoFar { 0 };
     float m_expansion { 0 };
     float m_expansionPerOpportunity { 0 };
-    float m_maxGlyphBoundingBoxY { std::numeric_limits<float>::min() };
+    float m_maxGlyphBoundingBoxY { std::numeric_limits<float>::lowest() };
     float m_minGlyphBoundingBoxY { std::numeric_limits<float>::max() };
     float m_firstGlyphOverflow { 0 };
     float m_lastGlyphOverflow { 0 };
+    TextDirection m_direction { TextDirection::LTR };
     bool m_containsTabs { false };
     bool m_isAfterExpansion { false };
     bool m_accountForGlyphBounds { false };
@@ -99,6 +120,6 @@ private:
     bool m_forTextEmphasis { false };
 };
 
-}
+} // namespace WebCore
 
 #endif

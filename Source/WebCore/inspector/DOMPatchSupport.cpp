@@ -35,6 +35,7 @@
 #include "DOMEditor.h"
 #include "Document.h"
 #include "DocumentFragment.h"
+#include "ElementInlines.h"
 #include "HTMLDocument.h"
 #include "HTMLDocumentParser.h"
 #include "HTMLElement.h"
@@ -48,6 +49,7 @@
 #include <wtf/HashTraits.h>
 #include <wtf/RefPtr.h>
 #include <wtf/SHA1.h>
+#include <wtf/StdLibExtras.h>
 #include <wtf/text/Base64.h>
 #include <wtf/text/CString.h>
 
@@ -75,35 +77,36 @@ DOMPatchSupport::DOMPatchSupport(DOMEditor& domEditor, Document& document)
 void DOMPatchSupport::patchDocument(const String& markup)
 {
     RefPtr<Document> newDocument;
-    if (m_document.isHTMLDocument())
-        newDocument = HTMLDocument::create(nullptr, URL());
-    else if (m_document.isXHTMLDocument())
-        newDocument = XMLDocument::createXHTML(nullptr, URL());
-    else if (m_document.isSVGDocument())
-        newDocument = XMLDocument::create(nullptr, URL());
+    if (m_document->isHTMLDocument())
+        newDocument = HTMLDocument::create(nullptr, m_document->settings(), URL(), { });
+    else if (m_document->isXHTMLDocument())
+        newDocument = XMLDocument::createXHTML(nullptr, m_document->settings(), URL());
+    else if (m_document->isSVGDocument())
+        newDocument = XMLDocument::create(nullptr, m_document->settings(), URL());
 
     ASSERT(newDocument);
     RefPtr<DocumentParser> parser;
-    if (newDocument->isHTMLDocument())
-        parser = HTMLDocumentParser::create(static_cast<HTMLDocument&>(*newDocument));
+    if (auto* htmlDocument = dynamicDowncast<HTMLDocument>(newDocument.get()))
+        parser = HTMLDocumentParser::create(*htmlDocument);
     else
-        parser = XMLDocumentParser::create(*newDocument, nullptr);
+        parser = XMLDocumentParser::create(*newDocument, XMLDocumentParser::IsInFrameView::No);
     parser->insert(markup); // Use insert() so that the parser will not yield.
     parser->finish();
     parser->detach();
 
-    if (!m_document.documentElement())
+    if (!m_document->documentElement())
         return;
     if (!newDocument->documentElement())
         return;
 
-    std::unique_ptr<Digest> oldInfo = createDigest(*m_document.documentElement(), nullptr);
+    std::unique_ptr<Digest> oldInfo = createDigest(*m_document->documentElement(), nullptr);
     std::unique_ptr<Digest> newInfo = createDigest(*newDocument->documentElement(), &m_unusedNodesMap);
 
     if (innerPatchNode(*oldInfo, *newInfo).hasException()) {
+        Ref document { m_document.get() };
         // Fall back to rewrite.
-        m_document.write(nullptr, markup);
-        m_document.close();
+        document->write(nullptr, markup);
+        document->close();
     }
 }
 
@@ -118,10 +121,10 @@ ExceptionOr<Node*> DOMPatchSupport::patchNode(Node& node, const String& markup)
     Node* previousSibling = node.previousSibling();
     // FIXME: This code should use one of createFragment* in markup.h
     auto fragment = DocumentFragment::create(m_document);
-    if (m_document.isHTMLDocument())
-        fragment->parseHTML(markup, node.parentElement() ? node.parentElement() : m_document.documentElement());
+    if (m_document->isHTMLDocument())
+        fragment->parseHTML(markup, node.parentElement() ? *node.parentElement() : *m_document->documentElement());
     else
-        fragment->parseXML(markup, node.parentElement() ? node.parentElement() : m_document.documentElement());
+        fragment->parseXML(markup, node.parentElement() ? node.parentElement() : m_document->documentElement());
 
     // Compose the old list.
     auto* parentNode = node.parentNode();
@@ -134,9 +137,9 @@ ExceptionOr<Node*> DOMPatchSupport::patchNode(Node& node, const String& markup)
     for (Node* child = parentNode->firstChild(); child != &node; child = child->nextSibling())
         newList.append(createDigest(*child, nullptr));
     for (Node* child = fragment->firstChild(); child; child = child->nextSibling()) {
-        if (child->hasTagName(headTag) && !child->firstChild() && !markup.containsIgnoringASCIICase("</head>"))
+        if (child->hasTagName(headTag) && !child->firstChild() && !markup.containsIgnoringASCIICase("</head>"_s))
             continue; // HTML5 parser inserts empty <head> tag whenever it parses <body>
-        if (child->hasTagName(bodyTag) && !child->firstChild() && !markup.containsIgnoringASCIICase("</body>"))
+        if (child->hasTagName(bodyTag) && !child->firstChild() && !markup.containsIgnoringASCIICase("</body>"_s))
             continue; // HTML5 parser inserts empty <body> tag whenever it parses </head>
         newList.append(createDigest(*child, &m_unusedNodesMap));
     }
@@ -187,7 +190,7 @@ ExceptionOr<void> DOMPatchSupport::innerPatchNode(Digest& oldDigest, Digest& new
 
         // FIXME: Create a function in Element for copying properties. cloneDataFromElement() is close but not enough for this case.
         if (newElement.hasAttributesWithoutUpdate()) {
-            for (auto& attribute : newElement.attributesIterator()) {
+            for (auto& attribute : newElement.attributes()) {
                 auto result = m_domEditor.setAttribute(oldElement, attribute.name().localName(), attribute.value());
                 if (result.hasException())
                     return result.releaseException();
@@ -232,7 +235,7 @@ DOMPatchSupport::diff(const Vector<std::unique_ptr<Digest>>& oldList, const Vect
         newMap[newIndex].second = oldIndex;
     }
 
-    typedef HashMap<String, Vector<size_t>> DiffTable;
+    using DiffTable = HashMap<String, Vector<size_t>>;
     DiffTable newTable;
     DiffTable oldTable;
 
@@ -295,7 +298,7 @@ ExceptionOr<void> DOMPatchSupport::innerPatchChildren(ContainerNode& parentNode,
 
     // 1. First strip everything except for the nodes that retain. Collect pending merges.
     HashMap<Digest*, Digest*> merges;
-    HashSet<size_t, WTF::IntHash<size_t>, WTF::UnsignedWithZeroKeyHashTraits<size_t>> usedNewOrdinals;
+    HashSet<size_t, IntHash<size_t>, WTF::UnsignedWithZeroKeyHashTraits<size_t>> usedNewOrdinals;
     for (size_t i = 0; i < oldList.size(); ++i) {
         if (oldMap[i].first) {
             if (!usedNewOrdinals.contains(oldMap[i].second)) {
@@ -336,7 +339,7 @@ ExceptionOr<void> DOMPatchSupport::innerPatchChildren(ContainerNode& parentNode,
     }
 
     // Mark retained nodes as used, do not reuse node more than once.
-    HashSet<size_t, WTF::IntHash<size_t>, WTF::UnsignedWithZeroKeyHashTraits<size_t>> usedOldOrdinals;
+    HashSet<size_t, IntHash<size_t>, WTF::UnsignedWithZeroKeyHashTraits<size_t>> usedOldOrdinals;
     for (size_t i = 0; i < newList.size(); ++i) {
         if (!newMap[i].first)
             continue;
@@ -396,8 +399,7 @@ ExceptionOr<void> DOMPatchSupport::innerPatchChildren(ContainerNode& parentNode,
 
 static void addStringToSHA1(SHA1& sha1, const String& string)
 {
-    CString cString = string.utf8();
-    sha1.addBytes(reinterpret_cast<const uint8_t*>(cString.data()), cString.length());
+    sha1.addUTF8Bytes(string);
 }
 
 std::unique_ptr<DOMPatchSupport::Digest> DOMPatchSupport::createDigest(Node& node, UnusedNodesMap* unusedNodesMap)
@@ -406,8 +408,7 @@ std::unique_ptr<DOMPatchSupport::Digest> DOMPatchSupport::createDigest(Node& nod
     digest->node = &node;
     SHA1 sha1;
 
-    auto nodeType = node.nodeType();
-    sha1.addBytes(reinterpret_cast<const uint8_t*>(&nodeType), sizeof(nodeType));
+    sha1.addBytes(asByteSpan(node.nodeType()));
     addStringToSHA1(sha1, node.nodeName());
     addStringToSHA1(sha1, node.nodeValue());
 
@@ -423,20 +424,20 @@ std::unique_ptr<DOMPatchSupport::Digest> DOMPatchSupport::createDigest(Node& nod
 
         if (element.hasAttributesWithoutUpdate()) {
             SHA1 attrsSHA1;
-            for (auto& attribute : element.attributesIterator()) {
+            for (auto& attribute : element.attributes()) {
                 addStringToSHA1(attrsSHA1, attribute.name().toString());
                 addStringToSHA1(attrsSHA1, attribute.value());
             }
             SHA1::Digest attrsHash;
             attrsSHA1.computeHash(attrsHash);
-            digest->attrsSHA1 = base64Encode(attrsHash.data(), 10);
+            digest->attrsSHA1 = base64EncodeToString(std::span { attrsHash }.first(10));
             addStringToSHA1(sha1, digest->attrsSHA1);
         }
     }
 
     SHA1::Digest hash;
     sha1.computeHash(hash);
-    digest->sha1 = base64Encode(hash.data(), 10);
+    digest->sha1 = base64EncodeToString(std::span { hash }.first(10));
     if (unusedNodesMap)
         unusedNodesMap->add(digest->sha1, digest.get());
 

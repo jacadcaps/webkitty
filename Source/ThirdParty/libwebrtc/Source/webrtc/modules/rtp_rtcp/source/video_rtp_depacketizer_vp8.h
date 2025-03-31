@@ -12,8 +12,8 @@
 #define MODULES_RTP_RTCP_SOURCE_VIDEO_RTP_DEPACKETIZER_VP8_H_
 
 #include <cstdint>
+#include <optional>
 
-#include "absl/types/optional.h"
 #include "api/array_view.h"
 #include "modules/rtp_rtcp/source/rtp_video_header.h"
 #include "modules/rtp_rtcp/source/video_rtp_depacketizer.h"
@@ -25,7 +25,7 @@ class VideoRtpDepacketizerVp8 : public VideoRtpDepacketizer {
  public:
   VideoRtpDepacketizerVp8() = default;
   VideoRtpDepacketizerVp8(const VideoRtpDepacketizerVp8&) = delete;
-  VideoRtpDepacketizerVp8& operator=(VideoRtpDepacketizerVp8&) = delete;
+  VideoRtpDepacketizerVp8& operator=(const VideoRtpDepacketizerVp8&) = delete;
   ~VideoRtpDepacketizerVp8() override = default;
 
   // Parses vp8 rtp payload descriptor.
@@ -33,7 +33,7 @@ class VideoRtpDepacketizerVp8 : public VideoRtpDepacketizer {
   static int ParseRtpPayload(rtc::ArrayView<const uint8_t> rtp_payload,
                              RTPVideoHeader* video_header);
 
-  absl::optional<ParsedRtpPayload> Parse(
+  std::optional<ParsedRtpPayload> Parse(
       rtc::CopyOnWriteBuffer rtp_payload) override;
 };
 

@@ -29,14 +29,17 @@
 #include "RemoteObjectRegistryMessages.h"
 #include "WebPage.h"
 #include "WebProcess.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WebRemoteObjectRegistry);
 
 WebRemoteObjectRegistry::WebRemoteObjectRegistry(_WKRemoteObjectRegistry *remoteObjectRegistry, WebPage& page)
     : RemoteObjectRegistry(remoteObjectRegistry)
     , m_page(page)
 {
-    WebProcess::singleton().addMessageReceiver(Messages::RemoteObjectRegistry::messageReceiverName(), m_page.identifier(), *this);
+    WebProcess::singleton().addMessageReceiver(Messages::RemoteObjectRegistry::messageReceiverName(), page.identifier(), *this);
     page.setRemoteObjectRegistry(this);
 }
 
@@ -47,20 +50,28 @@ WebRemoteObjectRegistry::~WebRemoteObjectRegistry()
 
 void WebRemoteObjectRegistry::close()
 {
-    if (m_page.remoteObjectRegistry() == this) {
-        WebProcess::singleton().removeMessageReceiver(Messages::RemoteObjectRegistry::messageReceiverName(), m_page.identifier());
-        m_page.setRemoteObjectRegistry(nullptr);
+    RefPtr page = m_page.get();
+    if (!page)
+        return;
+
+    if (page->remoteObjectRegistry() == this) {
+        WebProcess::singleton().removeMessageReceiver(Messages::RemoteObjectRegistry::messageReceiverName(), page->identifier());
+        page->setRemoteObjectRegistry(nullptr);
     }
 }
 
-IPC::MessageSender& WebRemoteObjectRegistry::messageSender()
+auto WebRemoteObjectRegistry::messageSender() -> std::optional<MessageSender>
 {
-    return m_page;
+    if (m_page)
+        return *m_page;
+    return std::nullopt;
 }
 
-uint64_t WebRemoteObjectRegistry::messageDestinationID()
+std::optional<uint64_t> WebRemoteObjectRegistry::messageDestinationID()
 {
-    return m_page.webPageProxyIdentifier().toUInt64();
+    if (m_page)
+        return m_page->webPageProxyIdentifier().toUInt64();
+    return std::nullopt;
 }
 
 } // namespace WebKit

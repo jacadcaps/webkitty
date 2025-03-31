@@ -35,37 +35,40 @@
 #include "MathMLOperatorElement.h"
 #include "PaintInfo.h"
 #include "RenderBlockFlow.h"
+#include "RenderBoxInlines.h"
+#include "RenderBoxModelObjectInlines.h"
+#include "RenderStyleInlines.h"
 #include "RenderText.h"
-#include "ScaleTransformOperation.h"
-#include "TransformOperations.h"
 #include <cmath>
-#include <wtf/IsoMallocInlines.h>
 #include <wtf/MathExtras.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/unicode/CharacterNames.h>
 
 namespace WebCore {
 
 using namespace MathMLNames;
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(RenderMathMLOperator);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(RenderMathMLOperator);
 
-RenderMathMLOperator::RenderMathMLOperator(MathMLOperatorElement& element, RenderStyle&& style)
-    : RenderMathMLToken(element, WTFMove(style))
+RenderMathMLOperator::RenderMathMLOperator(Type type, MathMLOperatorElement& element, RenderStyle&& style)
+    : RenderMathMLToken(type, element, WTFMove(style))
 {
     updateTokenContent();
 }
 
-RenderMathMLOperator::RenderMathMLOperator(Document& document, RenderStyle&& style)
-    : RenderMathMLToken(document, WTFMove(style))
+RenderMathMLOperator::RenderMathMLOperator(Type type, Document& document, RenderStyle&& style)
+    : RenderMathMLToken(type, document, WTFMove(style))
 {
 }
+
+RenderMathMLOperator::~RenderMathMLOperator() = default;
 
 MathMLOperatorElement& RenderMathMLOperator::element() const
 {
     return static_cast<MathMLOperatorElement&>(nodeForNonAnonymous());
 }
 
-UChar32 RenderMathMLOperator::textContent() const
+char32_t RenderMathMLOperator::textContent() const
 {
     return element().operatorChar().character;
 }
@@ -73,7 +76,7 @@ UChar32 RenderMathMLOperator::textContent() const
 bool RenderMathMLOperator::isInvisibleOperator() const
 {
     // The following operators are invisible: U+2061 FUNCTION APPLICATION, U+2062 INVISIBLE TIMES, U+2063 INVISIBLE SEPARATOR, U+2064 INVISIBLE PLUS.
-    UChar32 character = textContent();
+    char32_t character = textContent();
     return 0x2061 <= character && character <= 0x2064;
 }
 
@@ -156,7 +159,7 @@ void RenderMathMLOperator::stretchTo(LayoutUnit heightAboveBaseline, LayoutUnit 
 
     m_mathOperator.stretchTo(style(), m_stretchHeightAboveBaseline + m_stretchDepthBelowBaseline);
 
-    setLogicalHeight(m_mathOperator.ascent() + m_mathOperator.descent());
+    setLogicalHeight(m_mathOperator.ascent() + m_mathOperator.descent() + borderAndPaddingLogicalHeight());
 }
 
 void RenderMathMLOperator::stretchTo(LayoutUnit width)
@@ -171,8 +174,8 @@ void RenderMathMLOperator::stretchTo(LayoutUnit width)
     m_stretchWidth = width;
     m_mathOperator.stretchTo(style(), width);
 
-    setLogicalWidth(leadingSpace() + width + trailingSpace());
-    setLogicalHeight(m_mathOperator.ascent() + m_mathOperator.descent());
+    setLogicalWidth(leadingSpace() + width + trailingSpace() + borderAndPaddingLogicalWidth());
+    setLogicalHeight(m_mathOperator.ascent() + m_mathOperator.descent() + borderAndPaddingLogicalHeight());
 }
 
 void RenderMathMLOperator::resetStretchSize()
@@ -193,17 +196,17 @@ void RenderMathMLOperator::computePreferredLogicalWidths()
     LayoutUnit preferredWidth;
 
     if (!useMathOperator()) {
+        // No need to include padding/border/margin here, RenderMathMLToken::computePreferredLogicalWidths takes care of them.
         RenderMathMLToken::computePreferredLogicalWidths();
         preferredWidth = m_maxPreferredLogicalWidth;
         if (isInvisibleOperator()) {
             // In some fonts, glyphs for invisible operators have nonzero width. Consequently, we subtract that width here to avoid wide gaps.
             GlyphData data = style().fontCascade().glyphDataForCharacter(textContent(), false);
             float glyphWidth = data.font ? data.font->widthForGlyph(data.glyph) : 0;
-            ASSERT(glyphWidth <= preferredWidth);
-            preferredWidth -= glyphWidth;
+            preferredWidth -= std::min(LayoutUnit(glyphWidth), preferredWidth);
         }
     } else
-        preferredWidth = m_mathOperator.maxPreferredWidth();
+        preferredWidth = m_mathOperator.maxPreferredWidth() + borderAndPaddingLogicalWidth();
 
     // FIXME: The spacing should be added to the whole embellished operator (https://webkit.org/b/124831).
     // FIXME: The spacing should only be added inside (perhaps inferred) mrow (http://www.w3.org/TR/MathML/chapter3.html#presm.opspacing).
@@ -214,23 +217,31 @@ void RenderMathMLOperator::computePreferredLogicalWidths()
     setPreferredLogicalWidthsDirty(false);
 }
 
-void RenderMathMLOperator::layoutBlock(bool relayoutChildren, LayoutUnit pageLogicalHeight)
+void RenderMathMLOperator::layoutBlock(RelayoutChildren relayoutChildren, LayoutUnit pageLogicalHeight)
 {
     ASSERT(needsLayout());
 
-    if (!relayoutChildren && simplifiedLayout())
+    insertPositionedChildrenIntoContainingBlock();
+
+    if (relayoutChildren == RelayoutChildren::No && simplifiedLayout())
         return;
+
+    layoutFloatingChildren();
 
     LayoutUnit leadingSpaceValue = leadingSpace();
     LayoutUnit trailingSpaceValue = trailingSpace();
 
     if (useMathOperator()) {
-        for (auto child = firstChildBox(); child; child = child->nextSiblingBox())
+        recomputeLogicalWidth();
+        for (auto child = firstInFlowChildBox(); child; child = child->nextInFlowSiblingBox())
             child->layoutIfNeeded();
-        setLogicalWidth(leadingSpaceValue + m_mathOperator.width() + trailingSpaceValue);
-        setLogicalHeight(m_mathOperator.ascent() + m_mathOperator.descent());
+        setLogicalWidth(leadingSpaceValue + m_mathOperator.width() + trailingSpaceValue + borderAndPaddingLogicalWidth());
+        setLogicalHeight(m_mathOperator.ascent() + m_mathOperator.descent() + borderAndPaddingLogicalHeight());
+
+        layoutPositionedObjects(relayoutChildren);
     } else {
         // We first do the normal layout without spacing.
+        // No need to handle padding/border/margin here, RenderMathMLToken::layoutBlock takes care of them.
         recomputeLogicalWidth();
         LayoutUnit width = logicalWidth();
         setLogicalWidth(width - leadingSpaceValue - trailingSpaceValue);
@@ -238,9 +249,7 @@ void RenderMathMLOperator::layoutBlock(bool relayoutChildren, LayoutUnit pageLog
         setLogicalWidth(width);
 
         // We then move the children to take spacing into account.
-        LayoutPoint horizontalShift(style().direction() == TextDirection::LTR ? leadingSpaceValue : -leadingSpaceValue, 0_lu);
-        for (auto* child = firstChildBox(); child; child = child->nextSiblingBox())
-            child->setLocation(child->location() + horizontalShift);
+        shiftInFlowChildren(writingMode().isBidiLTR() ? leadingSpaceValue : -leadingSpaceValue, 0_lu);
     }
 
     updateScrollInfoAfterLayout();
@@ -287,6 +296,11 @@ void RenderMathMLOperator::styleDidChange(StyleDifference diff, const RenderStyl
 {
     RenderMathMLBlock::styleDidChange(diff, oldStyle);
     m_mathOperator.reset(style());
+    resetStretchSize();
+
+    // MathML displaystyle can affect isLargeOperatorInDisplayStyle()
+    if (oldStyle && style().mathStyle() != oldStyle->mathStyle() && !isAnonymous())
+        updateTokenContent();
 }
 
 LayoutUnit RenderMathMLOperator::verticalStretchedOperatorShift() const
@@ -297,10 +311,10 @@ LayoutUnit RenderMathMLOperator::verticalStretchedOperatorShift() const
     return (m_stretchDepthBelowBaseline - m_stretchHeightAboveBaseline - m_mathOperator.descent() + m_mathOperator.ascent()) / 2;
 }
 
-Optional<int> RenderMathMLOperator::firstLineBaseline() const
+std::optional<LayoutUnit> RenderMathMLOperator::firstLineBaseline() const
 {
     if (useMathOperator())
-        return Optional<int>(std::lround(static_cast<float>(m_mathOperator.ascent() - verticalStretchedOperatorShift())));
+        return LayoutUnit { static_cast<int>(lround(static_cast<float>(m_mathOperator.ascent() - verticalStretchedOperatorShift()))) } + borderAndPaddingBefore();
     return RenderMathMLToken::firstLineBaseline();
 }
 
@@ -311,7 +325,7 @@ void RenderMathMLOperator::paint(PaintInfo& info, const LayoutPoint& paintOffset
         return;
 
     LayoutPoint operatorTopLeft = paintOffset + location();
-    operatorTopLeft.move(style().isLeftToRightDirection() ? leadingSpace() : trailingSpace(), 0_lu);
+    operatorTopLeft.move((writingMode().isBidiLTR() ? leadingSpace() : trailingSpace()) + borderLeft() + paddingLeft(), borderAndPaddingBefore());
 
     m_mathOperator.paint(style(), info, operatorTopLeft);
 }

@@ -35,7 +35,6 @@ public:
 
 private:
     void initializeLocaleData() final;
-#if ENABLE(DATE_AND_TIME_INPUT_TYPES)
     String dateFormat() override;
     String monthFormat() override;
     String shortMonthFormat() override;
@@ -52,7 +51,6 @@ private:
     Vector<String> m_timeAMPMLabels;
     Vector<String> m_shortMonthLabels;
     Vector<String> m_monthLabels;
-#endif
 };
 
 std::unique_ptr<Locale> Locale::create(const AtomString&)
@@ -66,14 +64,11 @@ void LocaleNone::initializeLocaleData()
 {
 }
 
-#if ENABLE(DATE_AND_TIME_INPUT_TYPES)
 const Vector<String>& LocaleNone::monthLabels()
 {
     if (!m_monthLabels.isEmpty())
         return m_monthLabels;
-    m_monthLabels.reserveCapacity(WTF_ARRAY_LENGTH(WTF::monthFullName));
-    for (unsigned i = 0; i < WTF_ARRAY_LENGTH(WTF::monthFullName); ++i)
-        m_monthLabels.append(WTF::monthFullName[i]);
+    m_monthLabels = { WTF::monthFullName, std::size(WTF::monthFullName) };
     return m_monthLabels;
 }
 
@@ -116,9 +111,7 @@ const Vector<String>& LocaleNone::shortMonthLabels()
 {
     if (!m_shortMonthLabels.isEmpty())
         return m_shortMonthLabels;
-    m_shortMonthLabels.reserveCapacity(WTF_ARRAY_LENGTH(WTF::monthName));
-    for (unsigned i = 0; i < WTF_ARRAY_LENGTH(WTF::monthName); ++i)
-        m_shortMonthLabels.append(WTF::monthName[i]);
+    m_shortMonthLabels = { WTF::monthName, std::size(WTF::monthName) };
     return m_shortMonthLabels;
 }
 
@@ -136,12 +129,8 @@ const Vector<String>& LocaleNone::timeAMPMLabels()
 {
     if (!m_timeAMPMLabels.isEmpty())
         return m_timeAMPMLabels;
-    m_timeAMPMLabels.reserveCapacity(2);
-    m_timeAMPMLabels.append("AM");
-    m_timeAMPMLabels.append("PM");
+    m_timeAMPMLabels.appendList({ "AM"_s, "PM"_s });
     return m_timeAMPMLabels;
 }
-
-#endif
 
 } // namespace WebCore

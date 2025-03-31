@@ -20,33 +20,31 @@
 
 #pragma once
 
-#include "InlineFlowBox.h"
+#include "LegacyInlineFlowBox.h"
 #include "RenderSVGInline.h"
 
 namespace WebCore {
 
 class RenderSVGInlineText;
 
-class SVGInlineFlowBox final : public InlineFlowBox {
-    WTF_MAKE_ISO_ALLOCATED(SVGInlineFlowBox);
+class SVGInlineFlowBox final : public LegacyInlineFlowBox {
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(SVGInlineFlowBox);
 public:
     SVGInlineFlowBox(RenderSVGInline& renderer)
-        : InlineFlowBox(renderer)
+        : LegacyInlineFlowBox(renderer)
         , m_logicalHeight(0)
     {
     }
 
-    RenderSVGInline& renderer() { return static_cast<RenderSVGInline&>(InlineFlowBox::renderer()); }
+    RenderSVGInline& renderer() { return static_cast<RenderSVGInline&>(LegacyInlineFlowBox::renderer()); }
 
-    FloatRect calculateBoundaries() const override;
+    FloatRect calculateBoundaries() const;
 
     void setLogicalHeight(float h) { m_logicalHeight = h; }
-    void paintSelectionBackground(PaintInfo&);
 
 private:
     bool isSVGInlineFlowBox() const override { return true; }
     float virtualLogicalHeight() const override { return m_logicalHeight; }
-    void paint(PaintInfo&, const LayoutPoint&, LayoutUnit lineTop, LayoutUnit lineBottom) override;
 
     float m_logicalHeight;
 };

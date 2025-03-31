@@ -24,36 +24,34 @@
 
 #pragma once
 
+#include "ListStyleType.h"
 #include "RenderStyleConstants.h"
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/AtomString.h>
 
 namespace WebCore {
 
 class CounterContent {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(CounterContent);
 public:
     CounterContent(const AtomString& identifier, ListStyleType style, const AtomString& separator)
         : m_identifier(identifier)
         , m_listStyle(style)
         , m_separator(separator)
     {
+        ASSERT(style.type != ListStyleType::Type::String);
     }
 
     const AtomString& identifier() const { return m_identifier; }
-    ListStyleType listStyle() const { return m_listStyle; }
+    ListStyleType listStyleType() const { return m_listStyle; }
     const AtomString& separator() const { return m_separator; }
+
+    friend bool operator==(const CounterContent&, const CounterContent&) = default;
 
 private:
     AtomString m_identifier;
     ListStyleType m_listStyle;
     AtomString m_separator;
 };
-
-static inline bool operator==(const CounterContent& a, const CounterContent& b)
-{
-    return a.identifier() == b.identifier()
-        && a.listStyle() == b.listStyle()
-        && a.separator() == b.separator();
-}
 
 } // namespace WebCore

@@ -25,86 +25,88 @@
 #include "WebSocketFrame.h"
 #include <wtf/CryptographicallyRandomNumber.h>
 #include <wtf/MathExtras.h>
-#include <wtf/text/StringConcatenateNumbers.h>
+#include <wtf/text/MakeString.h>
+#include <wtf/text/ParsingUtilities.h>
 
 namespace WebCore {
 
 // Constants for hybi-10 frame format.
-const unsigned char finalBit = 0x80;
-const unsigned char compressBit = 0x40;
-const unsigned char reserved2Bit = 0x20;
-const unsigned char reserved3Bit = 0x10;
-const unsigned char opCodeMask = 0xF;
-const unsigned char maskBit = 0x80;
-const unsigned char payloadLengthMask = 0x7F;
-const size_t maxPayloadLengthWithoutExtendedLengthField = 125;
-const size_t payloadLengthWithTwoByteExtendedLengthField = 126;
-const size_t payloadLengthWithEightByteExtendedLengthField = 127;
-const size_t maskingKeyWidthInBytes = 4;
+constexpr uint8_t finalBit = 0x80;
+constexpr uint8_t compressBit = 0x40;
+constexpr uint8_t reserved2Bit = 0x20;
+constexpr uint8_t reserved3Bit = 0x10;
+constexpr uint8_t opCodeMask = 0xF;
+constexpr uint8_t maskBit = 0x80;
+constexpr uint8_t payloadLengthMask = 0x7F;
+constexpr size_t maxPayloadLengthWithoutExtendedLengthField = 125;
+constexpr size_t payloadLengthWithTwoByteExtendedLengthField = 126;
+constexpr size_t payloadLengthWithEightByteExtendedLengthField = 127;
+constexpr size_t maskingKeyWidthInBytes = 4;
 
 bool WebSocketFrame::needsExtendedLengthField(size_t payloadLength)
 {
     return payloadLength > maxPayloadLengthWithoutExtendedLengthField;
 }
 
-WebSocketFrame::ParseFrameResult WebSocketFrame::parseFrame(char* data, size_t dataLength, WebSocketFrame& frame, const char*& frameEnd, String& errorString)
+WebSocketFrame::ParseFrameResult WebSocketFrame::parseFrame(std::span<uint8_t> data, WebSocketFrame& frame, const uint8_t*& frameEnd, String& errorString)
 {
-    char* p = data;
-    const char* bufferEnd = data + dataLength;
-
-    if (dataLength < 2)
+    if (data.size() < 2)
         return FrameIncomplete;
 
-    unsigned char firstByte = *p++;
-    unsigned char secondByte = *p++;
+    auto firstByte = data[0];
+    auto secondByte = data[1];
+
+    skip(data, 2);
 
     bool final = firstByte & finalBit;
     bool compress = firstByte & compressBit;
     bool reserved2 = firstByte & reserved2Bit;
     bool reserved3 = firstByte & reserved3Bit;
-    unsigned char opCode = firstByte & opCodeMask;
+    auto opCode = firstByte & opCodeMask;
 
     bool masked = secondByte & maskBit;
     uint64_t payloadLength64 = secondByte & payloadLengthMask;
     if (payloadLength64 > maxPayloadLengthWithoutExtendedLengthField) {
-        int extendedPayloadLengthSize;
+        size_t extendedPayloadLengthSize;
         if (payloadLength64 == payloadLengthWithTwoByteExtendedLengthField)
             extendedPayloadLengthSize = 2;
         else {
             ASSERT(payloadLength64 == payloadLengthWithEightByteExtendedLengthField);
             extendedPayloadLengthSize = 8;
         }
-        if (bufferEnd - p < extendedPayloadLengthSize)
+        if (data.size() < extendedPayloadLengthSize)
             return FrameIncomplete;
         payloadLength64 = 0;
-        for (int i = 0; i < extendedPayloadLengthSize; ++i) {
+        for (size_t i = 0; i < extendedPayloadLengthSize; ++i) {
             payloadLength64 <<= 8;
-            payloadLength64 |= static_cast<unsigned char>(*p++);
+            payloadLength64 |= data[i];
         }
+        skip(data, extendedPayloadLengthSize);
+
         if (extendedPayloadLengthSize == 2 && payloadLength64 <= maxPayloadLengthWithoutExtendedLengthField) {
-            errorString = "The minimal number of bytes MUST be used to encode the length";
+            errorString = "The minimal number of bytes MUST be used to encode the length"_s;
             return FrameError;
         }
         if (extendedPayloadLengthSize == 8 && payloadLength64 <= 0xFFFF) {
-            errorString = "The minimal number of bytes MUST be used to encode the length";
+            errorString = "The minimal number of bytes MUST be used to encode the length"_s;
             return FrameError;
         }
     }
 
-    static const uint64_t maxPayloadLength = UINT64_C(0x7FFFFFFFFFFFFFFF);
+    constexpr uint64_t maxPayloadLength = UINT64_C(0x7FFFFFFFFFFFFFFF);
     size_t maskingKeyLength = masked ? maskingKeyWidthInBytes : 0;
     if (payloadLength64 > maxPayloadLength || payloadLength64 + maskingKeyLength > std::numeric_limits<size_t>::max()) {
-        errorString = makeString("WebSocket frame length too large: ", payloadLength64, " bytes");
+        errorString = makeString("WebSocket frame length too large: "_s, payloadLength64, " bytes"_s);
         return FrameError;
     }
     size_t payloadLength = static_cast<size_t>(payloadLength64);
 
-    if (static_cast<size_t>(bufferEnd - p) < maskingKeyLength + payloadLength)
+    if (data.size() < maskingKeyLength + payloadLength)
         return FrameIncomplete;
 
     if (masked) {
-        const char* maskingKey = p;
-        char* payload = p + maskingKeyWidthInBytes;
+        auto maskingKey = data;
+        auto payload = data.subspan(maskingKeyWidthInBytes);
         for (size_t i = 0; i < payloadLength; ++i)
             payload[i] ^= maskingKey[i % maskingKeyWidthInBytes]; // Unmask the payload.
     }
@@ -115,13 +117,12 @@ WebSocketFrame::ParseFrameResult WebSocketFrame::parseFrame(char* data, size_t d
     frame.reserved2 = reserved2;
     frame.reserved3 = reserved3;
     frame.masked = masked;
-    frame.payload = p + maskingKeyLength;
-    frame.payloadLength = payloadLength;
-    frameEnd = p + maskingKeyLength + payloadLength;
+    frame.payload = data.subspan(maskingKeyLength, payloadLength);
+    frameEnd = data.subspan(maskingKeyLength + payloadLength).data();
     return FrameOK;
 }
 
-static void appendFramePayload(const WebSocketFrame& frame, Vector<char>& frameData)
+static void appendFramePayload(const WebSocketFrame& frame, Vector<uint8_t>& frameData)
 {
     size_t maskingKeyStart = 0;
     if (frame.masked) {
@@ -130,16 +131,16 @@ static void appendFramePayload(const WebSocketFrame& frame, Vector<char>& frameD
     }
 
     size_t payloadStart = frameData.size();
-    frameData.append(frame.payload, frame.payloadLength);
+    frameData.append(frame.payload);
 
     if (frame.masked) {
-        cryptographicallyRandomValues(frameData.data() + maskingKeyStart, maskingKeyWidthInBytes);
-        for (size_t i = 0; i < frame.payloadLength; ++i)
+        cryptographicallyRandomValues(frameData.mutableSpan().subspan(maskingKeyStart, maskingKeyWidthInBytes));
+        for (size_t i = 0; i < frame.payload.size(); ++i)
             frameData[payloadStart + i] ^= frameData[maskingKeyStart + i % maskingKeyWidthInBytes];
     }
 }
 
-void WebSocketFrame::makeFrameData(Vector<char>& frameData)
+void WebSocketFrame::makeFrameData(Vector<uint8_t>& frameData)
 {
     ASSERT(!(opCode & ~opCodeMask)); // Checks whether "opCode" fits in the range of opCodes.
 
@@ -147,29 +148,29 @@ void WebSocketFrame::makeFrameData(Vector<char>& frameData)
     frameData.at(0) = (final ? finalBit : 0) | (compress ? compressBit : 0) | opCode;
     frameData.at(1) = masked ? maskBit : 0;
 
-    if (payloadLength <= maxPayloadLengthWithoutExtendedLengthField)
-        frameData.at(1) |= payloadLength;
-    else if (payloadLength <= 0xFFFF) {
+    if (payload.size() <= maxPayloadLengthWithoutExtendedLengthField)
+        frameData.at(1) |= payload.size();
+    else if (payload.size() <= 0xFFFF) {
         frameData.at(1) |= payloadLengthWithTwoByteExtendedLengthField;
-        frameData.append((payloadLength & 0xFF00) >> 8);
-        frameData.append(payloadLength & 0xFF);
+        frameData.append((payload.size() & 0xFF00) >> 8);
+        frameData.append(payload.size() & 0xFF);
     } else {
         frameData.at(1) |= payloadLengthWithEightByteExtendedLengthField;
-        char extendedPayloadLength[8];
-        size_t remaining = payloadLength;
+        std::array<uint8_t, 8> extendedPayloadLength;
+        size_t remaining = payload.size();
         // Fill the length into extendedPayloadLength in the network byte order.
         for (int i = 0; i < 8; ++i) {
             extendedPayloadLength[7 - i] = remaining & 0xFF;
             remaining >>= 8;
         }
         ASSERT(!remaining);
-        frameData.append(extendedPayloadLength, 8);
+        frameData.append(std::span { extendedPayloadLength });
     }
 
     appendFramePayload(*this, frameData);
 }
 
-WebSocketFrame::WebSocketFrame(OpCode opCode, bool final, bool compress, bool masked, const char* payload, size_t payloadLength)
+WebSocketFrame::WebSocketFrame(OpCode opCode, bool final, bool compress, bool masked, std::span<const uint8_t> payload)
     : opCode(opCode)
     , final(final)
     , compress(compress)
@@ -177,7 +178,6 @@ WebSocketFrame::WebSocketFrame(OpCode opCode, bool final, bool compress, bool ma
     , reserved3(false)
     , masked(masked)
     , payload(payload)
-    , payloadLength(payloadLength)
 {
 }
 

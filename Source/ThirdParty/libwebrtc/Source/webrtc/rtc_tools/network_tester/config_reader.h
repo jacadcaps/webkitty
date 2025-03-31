@@ -12,16 +12,11 @@
 #define RTC_TOOLS_NETWORK_TESTER_CONFIG_READER_H_
 
 #include <fstream>
+#include <optional>
 #include <string>
 
-#include "absl/types/optional.h"
-#include "rtc_base/constructor_magic.h"
-#include "rtc_base/ignore_wundef.h"
-
 #ifdef WEBRTC_NETWORK_TESTER_PROTO
-RTC_PUSH_IGNORING_WUNDEF()
 #include "rtc_tools/network_tester/network_tester_config.pb.h"
-RTC_POP_IGNORING_WUNDEF()
 using webrtc::network_tester::config::NetworkTesterAllConfigs;
 #else
 class NetworkTesterConfigs;
@@ -39,12 +34,14 @@ class ConfigReader {
   explicit ConfigReader(const std::string& config_file_path);
   ~ConfigReader();
 
-  absl::optional<Config> GetNextConfig();
+  ConfigReader(const ConfigReader&) = delete;
+  ConfigReader& operator=(const ConfigReader&) = delete;
+
+  std::optional<Config> GetNextConfig();
 
  private:
   NetworkTesterAllConfigs proto_all_configs_;
   int proto_config_index_;
-  RTC_DISALLOW_COPY_AND_ASSIGN(ConfigReader);
 };
 
 }  // namespace webrtc

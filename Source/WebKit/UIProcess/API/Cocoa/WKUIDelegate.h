@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -39,15 +39,41 @@ NS_ASSUME_NONNULL_BEGIN
 @class WKWebViewConfiguration;
 @class WKWindowFeatures;
 
-#if TARGET_OS_IOS
+#if TARGET_OS_IOS || (defined(TARGET_OS_VISION) && TARGET_OS_VISION)
 @class WKContextMenuElementInfo;
 @class UIContextMenuConfiguration;
 @protocol UIContextMenuInteractionCommitAnimating;
+@protocol UIEditMenuInteractionAnimating;
 #endif
+
+typedef NS_ENUM(NSInteger, WKPermissionDecision) {
+    WKPermissionDecisionPrompt,
+    WKPermissionDecisionGrant,
+    WKPermissionDecisionDeny,
+} WK_API_AVAILABLE(macos(12.0), ios(15.0));
+
+typedef NS_ENUM(NSInteger, WKMediaCaptureType) {
+    WKMediaCaptureTypeCamera,
+    WKMediaCaptureTypeMicrophone,
+    WKMediaCaptureTypeCameraAndMicrophone,
+} WK_API_AVAILABLE(macos(12.0), ios(15.0));
+
+/*! @enum WKDialogResult
+@abstract Constants returned by showLockdownModeFirstUseMessage to indicate how WebKit should treat first use.
+@constant WKDialogResultShowDefault Indicates that the client did not display a first use message. WebKit should show the default.
+@constant WKDialogResultAskAgain Indicates the client handled the message, but wants to be checked if other WKWebViews are used.
+@constant WKDialogResultHandled Indicates the client handled the message and no further checks are needed.
+*/
+typedef NS_ENUM(NSInteger, WKDialogResult) {
+    WKDialogResultShowDefault = 1,
+    WKDialogResultAskAgain,
+    WKDialogResultHandled
+} WK_API_AVAILABLE(ios(16.0));
 
 /*! A class conforming to the WKUIDelegate protocol provides methods for
  presenting native UI on behalf of a webpage.
  */
+WK_SWIFT_UI_ACTOR
 @protocol WKUIDelegate <NSObject>
 
 @optional
@@ -87,7 +113,7 @@ NS_ASSUME_NONNULL_BEGIN
 
  If you do not implement this method, the web view will behave as if the user selected the OK button.
  */
-- (void)webView:(WKWebView *)webView runJavaScriptAlertPanelWithMessage:(NSString *)message initiatedByFrame:(WKFrameInfo *)frame completionHandler:(void (^)(void))completionHandler;
+- (void)webView:(WKWebView *)webView runJavaScriptAlertPanelWithMessage:(NSString *)message initiatedByFrame:(WKFrameInfo *)frame completionHandler:(WK_SWIFT_UI_ACTOR void (^)(void))completionHandler;
 
 /*! @abstract Displays a JavaScript confirm panel.
  @param webView The web view invoking the delegate method.
@@ -103,7 +129,7 @@ NS_ASSUME_NONNULL_BEGIN
 
  If you do not implement this method, the web view will behave as if the user selected the Cancel button.
  */
-- (void)webView:(WKWebView *)webView runJavaScriptConfirmPanelWithMessage:(NSString *)message initiatedByFrame:(WKFrameInfo *)frame completionHandler:(void (^)(BOOL result))completionHandler;
+- (void)webView:(WKWebView *)webView runJavaScriptConfirmPanelWithMessage:(NSString *)message initiatedByFrame:(WKFrameInfo *)frame completionHandler:(WK_SWIFT_UI_ACTOR void (^)(BOOL result))completionHandler;
 
 /*! @abstract Displays a JavaScript text input panel.
  @param webView The web view invoking the delegate method.
@@ -121,7 +147,25 @@ NS_ASSUME_NONNULL_BEGIN
 
  If you do not implement this method, the web view will behave as if the user selected the Cancel button.
  */
-- (void)webView:(WKWebView *)webView runJavaScriptTextInputPanelWithPrompt:(NSString *)prompt defaultText:(nullable NSString *)defaultText initiatedByFrame:(WKFrameInfo *)frame completionHandler:(void (^)(NSString * _Nullable result))completionHandler;
+- (void)webView:(WKWebView *)webView runJavaScriptTextInputPanelWithPrompt:(NSString *)prompt defaultText:(nullable NSString *)defaultText initiatedByFrame:(WKFrameInfo *)frame completionHandler:(WK_SWIFT_UI_ACTOR void (^)(NSString * _Nullable result))completionHandler;
+
+
+/*! @abstract A delegate to request permission for microphone audio and camera video access.
+ @param webView The web view invoking the delegate method.
+ @param origin The origin of the page.
+ @param frame Information about the frame whose JavaScript initiated this call.
+ @param type The type of capture (camera, microphone).
+ @param decisionHandler The completion handler to call once the decision is made
+ @discussion If not implemented, the result is the same as calling the decisionHandler with WKPermissionDecisionPrompt.
+ */
+- (void)webView:(WKWebView *)webView requestMediaCapturePermissionForOrigin:(WKSecurityOrigin *)origin initiatedByFrame:(WKFrameInfo *)frame type:(WKMediaCaptureType)type decisionHandler:(WK_SWIFT_UI_ACTOR void (^)(WKPermissionDecision decision))decisionHandler WK_SWIFT_ASYNC_NAME(webView(_:decideMediaCapturePermissionsFor:initiatedBy:type:)) WK_SWIFT_ASYNC(5) WK_API_AVAILABLE(macos(12.0), ios(15.0));
+
+/*! @abstract Allows your app to determine whether or not the given security origin should have access to the device's orientation and motion.
+ @param securityOrigin The security origin which requested access to the device's orientation and motion.
+ @param frame The frame that initiated the request.
+ @param decisionHandler The decision handler to call once the app has made its decision.
+ */
+- (void)webView:(WKWebView *)webView requestDeviceOrientationAndMotionPermissionForOrigin:(WKSecurityOrigin *)origin initiatedByFrame:(WKFrameInfo *)frame decisionHandler:(WK_SWIFT_UI_ACTOR void (^)(WKPermissionDecision decision))decisionHandler WK_API_AVAILABLE(ios(15.0)) WK_API_UNAVAILABLE(macos);
 
 #if TARGET_OS_IPHONE
 
@@ -157,10 +201,9 @@ NS_ASSUME_NONNULL_BEGIN
  @param previewingViewController The view controller that is being popped.
  */
 - (void)webView:(WKWebView *)webView commitPreviewingViewController:(UIViewController *)previewingViewController WK_API_DEPRECATED_WITH_REPLACEMENT("webView:contextMenuForElement:willCommitWithAnimator:", ios(10.0, 13.0));
-
 #endif // TARGET_OS_IPHONE
 
-#if TARGET_OS_IOS
+#if TARGET_OS_IOS || (defined(TARGET_OS_VISION) && TARGET_OS_VISION)
 
 /**
  * @abstract Called when a context menu interaction begins.
@@ -171,7 +214,7 @@ NS_ASSUME_NONNULL_BEGIN
  * Pass a valid UIContextMenuConfiguration to show a context menu, or pass nil to not show a context menu.
  */
 
-- (void)webView:(WKWebView *)webView contextMenuConfigurationForElement:(WKContextMenuElementInfo *)elementInfo completionHandler:(void (^)(UIContextMenuConfiguration * _Nullable configuration))completionHandler WK_API_AVAILABLE(ios(13.0));
+- (void)webView:(WKWebView *)webView contextMenuConfigurationForElement:(WKContextMenuElementInfo *)elementInfo completionHandler:(WK_SWIFT_UI_ACTOR void (^)(UIContextMenuConfiguration * _Nullable configuration))completionHandler WK_SWIFT_ASYNC_NAME(webView(_:contextMenuConfigurationFor:)) WK_API_AVAILABLE(ios(13.0));
 
 /**
  * @abstract Called when the context menu will be presented.
@@ -203,9 +246,37 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)webView:(WKWebView *)webView contextMenuDidEndForElement:(WKContextMenuElementInfo *)elementInfo WK_API_AVAILABLE(ios(13.0));
 
-#endif // TARGET_OS_IOS
+/*! @abstract Displays a Lockdown Mode warning panel.
+ @param webView The web view invoking the delegate method.
+ @param message The message WebKit would display if this delegate were not invoked.
+ @param completionHandler The completion handler you must invoke to resume after the first use message is displayed.
+ @discussion The panel should have a single OK button.
 
-#if !TARGET_OS_IPHONE
+ If you do not implement this method, the web view will display the default Lockdown Mode message.
+ */
+- (void)webView:(WKWebView *)webView showLockdownModeFirstUseMessage:(NSString *)message completionHandler:(WK_SWIFT_UI_ACTOR void (^)(WKDialogResult))completionHandler WK_API_AVAILABLE(ios(16.0));
+
+#endif // TARGET_OS_IOS || (defined(TARGET_OS_VISION) && TARGET_OS_VISION)
+
+#if TARGET_OS_IOS || (defined(TARGET_OS_VISION) && TARGET_OS_VISION) || (defined(TARGET_OS_TV) && TARGET_OS_TV)
+
+/**
+ * @abstract Called when the web view is about to present its edit menu.
+ *
+ * @param webView The web view displaying the menu.
+ * @param animator Appearance animator. Add animations to this object to run them alongside the appearance transition.
+ */
+- (void)webView:(WKWebView *)webView willPresentEditMenuWithAnimator:(id<UIEditMenuInteractionAnimating>)animator WK_API_AVAILABLE(ios(16.4));
+
+/**
+ * @abstract Called when the web view is about to dismiss its edit menu.
+ *
+ * @param webView The web view displaying the menu.
+ * @param animator Dismissal animator. Add animations to this object to run them alongside the dismissal transition.
+ */
+- (void)webView:(WKWebView *)webView willDismissEditMenuWithAnimator:(id<UIEditMenuInteractionAnimating>)animator WK_API_AVAILABLE(ios(16.4));
+
+#endif // TARGET_OS_IOS || (defined(TARGET_OS_VISION) && TARGET_OS_VISION) || (defined(TARGET_OS_TV) && TARGET_OS_TV)
 
 /*! @abstract Displays a file upload panel.
  @param webView The web view invoking the delegate method.
@@ -213,11 +284,11 @@ NS_ASSUME_NONNULL_BEGIN
  @param frame Information about the frame whose file upload control initiated this call.
  @param completionHandler The completion handler to call after open panel has been dismissed. Pass the selected URLs if the user chose OK, otherwise nil.
 
- If you do not implement this method, the web view will behave as if the user selected the Cancel button.
+ If you do not implement this method on macOS, the web view will behave as if the user selected the Cancel button.
+ If you do not implement this method on iOS, the web view will match the file upload behavior of Safari. If you desire
+ the web view to act as if the user selected the Cancel button on iOS, immediately call the completion handler with nil.
  */
-- (void)webView:(WKWebView *)webView runOpenPanelWithParameters:(WKOpenPanelParameters *)parameters initiatedByFrame:(WKFrameInfo *)frame completionHandler:(void (^)(NSArray<NSURL *> * _Nullable URLs))completionHandler WK_API_AVAILABLE(macos(10.12));
-
-#endif
+- (void)webView:(WKWebView *)webView runOpenPanelWithParameters:(WKOpenPanelParameters *)parameters initiatedByFrame:(WKFrameInfo *)frame completionHandler:(WK_SWIFT_UI_ACTOR void (^)(NSArray<NSURL *> * _Nullable URLs))completionHandler WK_API_AVAILABLE(macos(10.12), ios(WK_IOS_TBA));
 
 @end
 

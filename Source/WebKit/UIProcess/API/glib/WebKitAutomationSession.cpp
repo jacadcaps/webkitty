@@ -23,18 +23,26 @@
 #include "APIAutomationSessionClient.h"
 #include "WebKitApplicationInfo.h"
 #include "WebKitAutomationSessionPrivate.h"
+#include "WebKitNetworkProxySettingsPrivate.h"
 #include "WebKitWebContextPrivate.h"
 #include "WebKitWebViewPrivate.h"
+#include "WebKitWebsiteDataManagerPrivate.h"
 #include <glib/gi18n-lib.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/glib/WTFGType.h>
 #include <wtf/text/CString.h>
+#include <wtf/text/MakeString.h>
+
+#if ENABLE(2022_GLIB_API)
+#include "WebKitNetworkSession.h"
+#endif
 
 using namespace WebKit;
 
 /**
- * SECTION: WebKitAutomationSession
- * @Short_description: Automation Session
- * @Title: WebKitAutomationSession
+ * WebKitAutomationSession:
+ *
+ * Automation Session.
  *
  * WebKitAutomationSession represents an automation session of a WebKitWebContext.
  * When a new session is requested, a WebKitAutomationSession is created and the signal
@@ -54,6 +62,7 @@ enum {
 
 enum {
     CREATE_WEB_VIEW,
+    WILL_CLOSE,
 
     LAST_SIGNAL
 };
@@ -65,12 +74,12 @@ struct _WebKitAutomationSessionPrivate {
     CString id;
 };
 
-static guint signals[LAST_SIGNAL] = { 0, };
+static std::array<unsigned, LAST_SIGNAL> signals;
 
-WEBKIT_DEFINE_TYPE(WebKitAutomationSession, webkit_automation_session, G_TYPE_OBJECT)
+WEBKIT_DEFINE_FINAL_TYPE(WebKitAutomationSession, webkit_automation_session, G_TYPE_OBJECT, GObject)
 
 class AutomationSessionClient final : public API::AutomationSessionClient {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(AutomationSessionClient);
 public:
     explicit AutomationSessionClient(WebKitAutomationSession* session)
         : m_session(session)
@@ -165,14 +174,14 @@ private:
         webkitWebViewSetCurrentScriptDialogUserInput(webView, userInput);
     }
 
-    Optional<API::AutomationSessionClient::JavaScriptDialogType> typeOfCurrentJavaScriptDialogOnPage(WebAutomationSession&, WebPageProxy& page) override
+    std::optional<API::AutomationSessionClient::JavaScriptDialogType> typeOfCurrentJavaScriptDialogOnPage(WebAutomationSession&, WebPageProxy& page) override
     {
         auto* webView = webkitWebContextGetWebViewForPage(m_session->priv->webContext, &page);
         if (!webView)
-            return WTF::nullopt;
+            return std::nullopt;
         auto dialogType = webkitWebViewGetCurrentScriptDialogType(webView);
         if (!dialogType)
-            return WTF::nullopt;
+            return std::nullopt;
         switch (dialogType.value()) {
         case WEBKIT_SCRIPT_DIALOG_ALERT:
             return API::AutomationSessionClient::JavaScriptDialogType::Alert;
@@ -185,7 +194,7 @@ private:
         }
 
         ASSERT_NOT_REACHED();
-        return WTF::nullopt;
+        return std::nullopt;
     }
 
     API::AutomationSessionClient::BrowsingContextPresentation currentPresentationOfPage(WebAutomationSession&, WebPageProxy& page) override
@@ -278,8 +287,7 @@ static void webkit_automation_session_class_init(WebKitAutomationSessionClass* s
         PROP_ID,
         g_param_spec_string(
             "id",
-            _("Identifier"),
-            _("The automation session identifier"),
+            nullptr, nullptr,
             nullptr,
             static_cast<GParamFlags>(WEBKIT_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY)));
 
@@ -313,23 +321,43 @@ static void webkit_automation_session_class_init(WebKitAutomationSessionClass* s
         g_cclosure_marshal_generic,
         WEBKIT_TYPE_WEB_VIEW, 0,
         G_TYPE_NONE);
+
+
+    /**
+     * WebKitAutomationSession::will-close:
+     * @session: a #WebKitAutomationSession
+     *
+     * This signal is emitted when the given automation session is about to finish.
+     * It allows clients to perform any cleanup tasks before the session is destroyed.
+     *
+     * Since: 2.46
+     */
+    signals[WILL_CLOSE] = g_signal_new(
+        "will-close",
+        G_TYPE_FROM_CLASS(gObjectClass),
+        G_SIGNAL_RUN_LAST,
+        0,
+        nullptr, nullptr,
+        g_cclosure_marshal_generic,
+        G_TYPE_NONE, 0,
+        G_TYPE_NONE);
 }
 
 #if ENABLE(REMOTE_INSPECTOR)
 static WebKitNetworkProxyMode parseProxyCapabilities(const Inspector::RemoteInspector::Client::SessionCapabilities::Proxy& proxy, WebKitNetworkProxySettings** settings)
 {
-    if (proxy.type == "system")
+    if (proxy.type == "system"_s || proxy.type == "autodetect"_s)
         return WEBKIT_NETWORK_PROXY_MODE_DEFAULT;
 
-    if (proxy.type == "direct")
+    if (proxy.type == "direct"_s)
         return WEBKIT_NETWORK_PROXY_MODE_NO_PROXY;
 
     if (!proxy.ignoreAddressList.isEmpty()) {
-        GUniquePtr<char*> ignoreAddressList(static_cast<char**>(g_new0(char*, proxy.ignoreAddressList.size() + 1)));
+        Vector<const char*> ignoreAddressList(proxy.ignoreAddressList.size() + 1);
         unsigned i = 0;
         for (const auto& ignoreAddress : proxy.ignoreAddressList)
-            ignoreAddressList.get()[i++] = g_strdup(ignoreAddress.utf8().data());
-        *settings = webkit_network_proxy_settings_new(nullptr, ignoreAddressList.get());
+            ignoreAddressList[i++] = ignoreAddress.utf8().data();
+        *settings = webkit_network_proxy_settings_new(nullptr, ignoreAddressList.data());
     } else
         *settings = webkit_network_proxy_settings_new(nullptr, nullptr);
 
@@ -349,19 +377,53 @@ WebKitAutomationSession* webkitAutomationSessionCreate(WebKitWebContext* webCont
 {
     auto* session = WEBKIT_AUTOMATION_SESSION(g_object_new(WEBKIT_TYPE_AUTOMATION_SESSION, "id", sessionID, nullptr));
     session->priv->webContext = webContext;
-    if (capabilities.acceptInsecureCertificates)
-        webkit_web_context_set_tls_errors_policy(webContext, WEBKIT_TLS_ERRORS_POLICY_IGNORE);
+#if ENABLE(2022_GLIB_API)
+    WebKitNetworkSession* networkSession = webkit_web_context_get_network_session_for_automation(webContext);
+#endif
+
+    if (capabilities.acceptInsecureCertificates) {
+#if ENABLE(2022_GLIB_API)
+        webkit_network_session_set_tls_errors_policy(networkSession, WEBKIT_TLS_ERRORS_POLICY_IGNORE);
+#else
+        webkit_website_data_manager_set_tls_errors_policy(webkit_web_context_get_website_data_manager(webContext), WEBKIT_TLS_ERRORS_POLICY_IGNORE);
+#endif
+    }
+
     for (auto& certificate : capabilities.certificates) {
         GRefPtr<GTlsCertificate> tlsCertificate = adoptGRef(g_tls_certificate_new_from_file(certificate.second.utf8().data(), nullptr));
-        if (tlsCertificate)
+        if (tlsCertificate) {
+#if ENABLE(2022_GLIB_API)
+            webkit_network_session_allow_tls_certificate_for_host(networkSession, tlsCertificate.get(), certificate.first.utf8().data());
+#else
             webkit_web_context_allow_tls_certificate_for_host(webContext, tlsCertificate.get(), certificate.first.utf8().data());
+#endif
+        }
     }
     if (capabilities.proxy) {
-        WebKitNetworkProxySettings* proxySettings = nullptr;
-        auto proxyMode = parseProxyCapabilities(*capabilities.proxy, &proxySettings);
-        webkit_web_context_set_network_proxy_settings(webContext, proxyMode, proxySettings);
-        if (proxySettings)
-            webkit_network_proxy_settings_free(proxySettings);
+        if (capabilities.proxy->type == "pac"_s) {
+            // FIXME: expose pac proxy in public API.
+            auto settings = WebCore::SoupNetworkProxySettings(WebCore::SoupNetworkProxySettings::Mode::Auto);
+            if (capabilities.proxy->autoconfigURL)
+                settings.defaultProxyURL = capabilities.proxy->autoconfigURL->utf8();
+            if (!settings.isEmpty()) {
+#if ENABLE(2022_GLIB_API)
+                Ref dataStore = webkitWebsiteDataManagerGetDataStore(webkit_network_session_get_website_data_manager(networkSession));
+#else
+                Ref dataStore = webkitWebsiteDataManagerGetDataStore(webkit_web_context_get_website_data_manager(webContext));
+#endif
+                dataStore->setNetworkProxySettings(WTFMove(settings));
+            }
+        } else {
+            WebKitNetworkProxySettings* proxySettings = nullptr;
+            auto proxyMode = parseProxyCapabilities(*capabilities.proxy, &proxySettings);
+#if ENABLE(2022_GLIB_API)
+            webkit_network_session_set_proxy_settings(networkSession, proxyMode, proxySettings);
+#else
+            webkit_website_data_manager_set_network_proxy_settings(webkit_web_context_get_website_data_manager(webContext), proxyMode, proxySettings);
+#endif
+            if (proxySettings)
+                webkit_network_proxy_settings_free(proxySettings);
+        }
     }
     return session;
 }
@@ -377,7 +439,7 @@ String webkitAutomationSessionGetBrowserName(WebKitAutomationSession* session)
     if (session->priv->applicationInfo)
         return String::fromUTF8(webkit_application_info_get_name(session->priv->applicationInfo));
 
-    return g_get_prgname();
+    return String::fromUTF8(g_get_prgname());
 }
 
 String webkitAutomationSessionGetBrowserVersion(WebKitAutomationSession* session)
@@ -392,9 +454,9 @@ String webkitAutomationSessionGetBrowserVersion(WebKitAutomationSession* session
         return String::number(major);
 
     if (!micro)
-        return makeString(String::number(major), ".", String::number(minor));
+        return makeString(major, '.', minor);
 
-    return makeString(String::number(major), ".", String::number(minor), ".", String::number(micro));
+    return makeString(major, '.', minor, '.', micro);
 }
 
 /**
@@ -418,7 +480,9 @@ const char* webkit_automation_session_get_id(WebKitAutomationSession* session)
  * @session: a #WebKitAutomationSession
  * @info: a #WebKitApplicationInfo
  *
- * Set the application information to @session. This information will be used by the driver service
+ * Set the application information to @session.
+ *
+ * This information will be used by the driver service
  * to match the requested capabilities with the actual application information. If this information
  * is not provided to the session when a new automation session is requested, the creation might fail
  * if the client requested a specific browser name or version. This will not have any effect when called
@@ -443,6 +507,8 @@ void webkit_automation_session_set_application_info(WebKitAutomationSession* ses
 /**
  * webkit_automation_session_get_application_info:
  * @session: a #WebKitAutomationSession
+ *
+ * Get the the previously set #WebKitAutomationSession.
  *
  * Get the #WebKitAutomationSession previously set with webkit_automation_session_set_application_info().
  *

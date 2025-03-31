@@ -25,8 +25,9 @@
 
 #pragma once
 
+#include <optional>
+#include <wtf/CheckedPtr.h>
 #include <wtf/Forward.h>
-#include <wtf/Optional.h>
 
 namespace WebCore {
 
@@ -34,11 +35,13 @@ class Geolocation;
 class GeolocationPositionData;
 class Page;
 
-class GeolocationClient {
+class GeolocationClient : public CanMakeCheckedPtr<GeolocationClient> {
+    WTF_MAKE_FAST_ALLOCATED;
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(GeolocationClient);
 public:
     virtual void geolocationDestroyed() = 0;
 
-    virtual void startUpdating(const String& authorizationToken) = 0;
+    virtual void startUpdating(const String& authorizationToken, bool needsHighAccuracy) = 0;
     virtual void stopUpdating() = 0;
     virtual void revokeAuthorizationToken(const String&) { }
 
@@ -47,7 +50,7 @@ public:
     // We should update WebKit to reflect this if and when the V2 specification
     // is published.
     virtual void setEnableHighAccuracy(bool) = 0;
-    virtual Optional<GeolocationPositionData> lastPosition() = 0;
+    virtual std::optional<GeolocationPositionData> lastPosition() = 0;
 
     virtual void requestPermission(Geolocation&) = 0;
     virtual void cancelPermissionRequest(Geolocation&) = 0;

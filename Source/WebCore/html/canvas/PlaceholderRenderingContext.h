@@ -25,19 +25,59 @@
 
 #pragma once
 
+#if ENABLE(OFFSCREEN_CANVAS)
+
 #include "CanvasRenderingContext.h"
+#include <wtf/TZoneMalloc.h>
+#include <wtf/ThreadSafeRefCounted.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
-class PlaceholderRenderingContext final : public CanvasRenderingContext {
-    WTF_MAKE_ISO_ALLOCATED(PlaceholderRenderingContext);
+class PlaceholderRenderingContext;
+
+// Thread-safe interface to submit frames from worker to the placeholder rendering context.
+class PlaceholderRenderingContextSource : public ThreadSafeRefCounted<PlaceholderRenderingContextSource> {
+    WTF_MAKE_TZONE_ALLOCATED(PlaceholderRenderingContextSource);
+    WTF_MAKE_NONCOPYABLE(PlaceholderRenderingContextSource);
 public:
-    PlaceholderRenderingContext(CanvasBase&);
+    static Ref<PlaceholderRenderingContextSource> create(PlaceholderRenderingContext&);
+    virtual ~PlaceholderRenderingContextSource() = default;
+
+    // Called by the offscreen context to submit the frame.
+    void setPlaceholderBuffer(ImageBuffer&);
+
+    // Called by the placeholder context to attach to compositor layer.
+    void setContentsToLayer(GraphicsLayer&);
 
 private:
-    bool isPlaceholder() const final { return true; }
+    explicit PlaceholderRenderingContextSource(PlaceholderRenderingContext&);
+
+    WeakPtr<PlaceholderRenderingContext> m_placeholder; // For main thread use.
+    Lock m_lock;
+    RefPtr<GraphicsLayerAsyncContentsDisplayDelegate> m_delegate WTF_GUARDED_BY_LOCK(m_lock);
+};
+
+class PlaceholderRenderingContext final : public CanvasRenderingContext {
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(PlaceholderRenderingContext);
+public:
+    static std::unique_ptr<PlaceholderRenderingContext> create(HTMLCanvasElement&);
+
+    HTMLCanvasElement& canvas() const;
+    IntSize size() const;
+    void setPlaceholderBuffer(Ref<ImageBuffer>&&);
+
+    Ref<PlaceholderRenderingContextSource> source() const { return m_source; }
+
+private:
+    PlaceholderRenderingContext(HTMLCanvasElement&);
+    void setContentsToLayer(GraphicsLayer&) final;
+
+    Ref<PlaceholderRenderingContextSource> m_source;
 };
 
 }
 
 SPECIALIZE_TYPE_TRAITS_CANVASRENDERINGCONTEXT(WebCore::PlaceholderRenderingContext, isPlaceholder())
+
+#endif

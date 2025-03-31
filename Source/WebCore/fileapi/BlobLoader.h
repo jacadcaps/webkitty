@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,22 +30,29 @@
 #include "ExceptionCode.h"
 #include "FileReaderLoader.h"
 #include "FileReaderLoaderClient.h"
+#include "Logging.h"
 #include "SharedBuffer.h"
 #include <JavaScriptCore/ArrayBuffer.h>
 #include <wtf/CompletionHandler.h>
-#include <wtf/Optional.h>
 
 namespace WebCore {
 
 class BlobLoader final : public FileReaderLoaderClient {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(BlobLoader);
 public:
-    BlobLoader(Document*, Blob&, Function<void()>&&);
+    // CompleteCallback is always called except if BlobLoader is cancelled/deallocated.
+    using CompleteCallback = Function<void(BlobLoader&)>;
+    explicit BlobLoader(CompleteCallback&&);
     ~BlobLoader();
 
-    bool isLoading() const { return !!m_loader; }
-    const RefPtr<JSC::ArrayBuffer>& result() const { return m_buffer; }
-    Optional<ExceptionCode> errorCode() const { return m_errorCode; }
+    void start(Blob&, ScriptExecutionContext*, FileReaderLoader::ReadType);
+    void start(const URL&, ScriptExecutionContext*, FileReaderLoader::ReadType);
+
+    void cancel();
+    bool isLoading() const { return m_loader && m_completeCallback; }
+    String stringResult() const { return m_loader ? m_loader->stringResult() : String(); }
+    RefPtr<JSC::ArrayBuffer> arrayBufferResult() const { return m_loader ? m_loader->arrayBufferResult() : nullptr; }
+    std::optional<ExceptionCode> errorCode() const { return m_loader ? m_loader->errorCode() : std::nullopt; }
 
 private:
     void didStartLoading() final { }
@@ -56,41 +63,49 @@ private:
     void complete();
 
     std::unique_ptr<FileReaderLoader> m_loader;
-    RefPtr<JSC::ArrayBuffer> m_buffer;
-    Optional<ExceptionCode> m_errorCode;
-    Function<void()> m_completionHandler;
+    CompleteCallback m_completeCallback;
 };
 
-inline BlobLoader::BlobLoader(WebCore::Document* document, Blob& blob, Function<void()>&& completionHandler)
-    : m_loader(makeUnique<FileReaderLoader>(FileReaderLoader::ReadAsArrayBuffer, this))
-    , m_completionHandler(WTFMove(completionHandler))
+inline BlobLoader::BlobLoader(CompleteCallback&& completeCallback)
+    : m_completeCallback(WTFMove(completeCallback))
 {
-    m_loader->start(document, blob);
 }
 
 inline BlobLoader::~BlobLoader()
 {
+    if (isLoading())
+        cancel();
+}
+
+inline void BlobLoader::cancel()
+{
+    RELEASE_LOG_INFO_IF(m_completeCallback, Loading, "Cancelling ongoing blob loader");
     if (m_loader)
         m_loader->cancel();
-    // FIXME: Call m_completionHandler to migrate it from a Function to a CompletionHandler.
+}
+
+inline void BlobLoader::start(Blob& blob, ScriptExecutionContext* context, FileReaderLoader::ReadType readType)
+{
+    ASSERT(!m_loader);
+    m_loader = makeUnique<FileReaderLoader>(readType, this);
+    m_loader->start(context, blob);
+}
+
+inline void BlobLoader::start(const URL& blobURL, ScriptExecutionContext* context, FileReaderLoader::ReadType readType)
+{
+    ASSERT(!m_loader);
+    m_loader = makeUnique<FileReaderLoader>(readType, this);
+    m_loader->start(context, blobURL);
 }
 
 inline void BlobLoader::didFinishLoading()
 {
-    m_buffer = m_loader->arrayBufferResult();
-    complete();
+    std::exchange(m_completeCallback, { })(*this);
 }
 
-inline void BlobLoader::didFail(ExceptionCode errorCode)
+inline void BlobLoader::didFail(ExceptionCode)
 {
-    m_errorCode = errorCode;
-    complete();
-}
-
-inline void BlobLoader::complete()
-{
-    m_loader = nullptr;
-    m_completionHandler();
+    std::exchange(m_completeCallback, { })(*this);
 }
 
 } // namespace WebCore

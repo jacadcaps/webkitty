@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,25 +28,26 @@
 
 #include "GCSegmentedArrayInlines.h"
 #include "JSCInlines.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace JSC {
 
-MarkStackMergingConstraint::MarkStackMergingConstraint(Heap& heap)
-    : MarkingConstraint("Msm", "Mark Stack Merging", ConstraintVolatility::GreyedByExecution)
+WTF_MAKE_TZONE_ALLOCATED_IMPL(MarkStackMergingConstraint);
+
+MarkStackMergingConstraint::MarkStackMergingConstraint(JSC::Heap& heap)
+    : MarkingConstraint("Msm"_s, "Mark Stack Merging"_s, ConstraintVolatility::GreyedByExecution)
     , m_heap(heap)
 {
 }
 
-MarkStackMergingConstraint::~MarkStackMergingConstraint()
-{
-}
+MarkStackMergingConstraint::~MarkStackMergingConstraint() = default;
 
 double MarkStackMergingConstraint::quickWorkEstimate(SlotVisitor&)
 {
     return m_heap.m_mutatorMarkStack->size() + m_heap.m_raceMarkStack->size();
 }
 
-void MarkStackMergingConstraint::prepareToExecuteImpl(const AbstractLocker&, SlotVisitor& visitor)
+void MarkStackMergingConstraint::prepareToExecuteImpl(const AbstractLocker&, AbstractSlotVisitor& visitor)
 {
     // Logging the work here ensures that the constraint solver knows that it doesn't need to produce
     // anymore work.
@@ -56,11 +57,24 @@ void MarkStackMergingConstraint::prepareToExecuteImpl(const AbstractLocker&, Slo
     dataLogIf(Options::logGC(), "(", size, ")");
 }
 
-void MarkStackMergingConstraint::executeImpl(SlotVisitor& visitor)
+template<typename Visitor>
+void MarkStackMergingConstraint::executeImplImpl(Visitor& visitor)
 {
+    // We want to skip this constraint for the GC verifier because:
+    // 1. There should be no mutator marking action between the End phase and verifyGC().
+    //    Hence, we can ignore these stacks.
+    // 2. The End phase explicitly calls iterateExecutingAndCompilingCodeBlocks()
+    //    to add executing CodeBlocks to m_heap.m_mutatorMarkStack. We want to
+    //    leave those unperturbed.
+    if (m_heap.m_isMarkingForGCVerifier)
+        return;
+
     m_heap.m_mutatorMarkStack->transferTo(visitor.mutatorMarkStack());
     m_heap.m_raceMarkStack->transferTo(visitor.mutatorMarkStack());
 }
+
+void MarkStackMergingConstraint::executeImpl(AbstractSlotVisitor& visitor) { executeImplImpl(visitor); }
+void MarkStackMergingConstraint::executeImpl(SlotVisitor& visitor) { executeImplImpl(visitor); }
 
 } // namespace JSC
 

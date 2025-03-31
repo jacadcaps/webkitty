@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2023 Apple Inc. All rights reserved.
  * Copyright (C) 2011 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,13 +29,18 @@
 #include "ConsoleMessage.h"
 #include "InjectedScriptManager.h"
 #include "InspectorHeapAgent.h"
+#include "ScriptArguments.h"
 #include "ScriptCallStackFactory.h"
-#include <wtf/text/StringConcatenateNumbers.h>
+#include <wtf/SetForScope.h>
+#include <wtf/TZoneMallocInlines.h>
+#include <wtf/text/MakeString.h>
 
 namespace Inspector {
 
 static constexpr unsigned maximumConsoleMessages = 100;
 static constexpr int expireConsoleMessagesStep = 10;
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(InspectorConsoleAgent);
 
 InspectorConsoleAgent::InspectorConsoleAgent(AgentContext& context)
     : InspectorAgentBase("Console"_s)
@@ -53,8 +58,7 @@ void InspectorConsoleAgent::didCreateFrontendAndBackend(FrontendRouter*, Backend
 
 void InspectorConsoleAgent::willDestroyFrontendAndBackend(DisconnectReason)
 {
-    String errorString;
-    disable(errorString);
+    disable();
 }
 
 void InspectorConsoleAgent::discardValues()
@@ -63,42 +67,44 @@ void InspectorConsoleAgent::discardValues()
     m_expiredConsoleMessageCount = 0;
 }
 
-void InspectorConsoleAgent::enable(ErrorString&)
+Protocol::ErrorStringOr<void> InspectorConsoleAgent::enable()
 {
     if (m_enabled)
-        return;
+        return { };
 
     m_enabled = true;
 
     if (m_expiredConsoleMessageCount) {
-        ConsoleMessage expiredMessage(MessageSource::Other, MessageType::Log, MessageLevel::Warning, makeString(m_expiredConsoleMessageCount, " console messages are not shown."));
+        ConsoleMessage expiredMessage(MessageSource::Other, MessageType::Log, MessageLevel::Warning, makeString(m_expiredConsoleMessageCount, " console messages are not shown."_s));
         expiredMessage.addToFrontend(*m_frontendDispatcher, m_injectedScriptManager, false);
     }
 
-    Vector<std::unique_ptr<ConsoleMessage>> messages;
-    m_consoleMessages.swap(messages);
+    for (auto& message : m_consoleMessages)
+        message->addToFrontend(*m_frontendDispatcher, m_injectedScriptManager, false);
 
-    for (size_t i = 0; i < messages.size(); ++i)
-        messages[i]->addToFrontend(*m_frontendDispatcher, m_injectedScriptManager, false);
+    return { };
 }
 
-void InspectorConsoleAgent::disable(ErrorString&)
+Protocol::ErrorStringOr<void> InspectorConsoleAgent::disable()
 {
     if (!m_enabled)
-        return;
+        return { };
 
     m_enabled = false;
+
+    return { };
 }
 
-void InspectorConsoleAgent::clearMessages(ErrorString&)
+Protocol::ErrorStringOr<void> InspectorConsoleAgent::clearMessages()
 {
-    m_consoleMessages.clear();
-    m_expiredConsoleMessageCount = 0;
+    clearMessages(Inspector::Protocol::Console::ClearReason::Frontend);
+    return { };
+}
 
-    m_injectedScriptManager.releaseObjectGroup("console"_s);
-
-    if (m_enabled)
-        m_frontendDispatcher->messagesCleared();
+Protocol::ErrorStringOr<void> InspectorConsoleAgent::setConsoleClearAPIEnabled(bool enabled)
+{
+    m_consoleClearAPIEnabled = enabled;
+    return { };
 }
 
 bool InspectorConsoleAgent::developerExtrasEnabled() const
@@ -106,21 +112,32 @@ bool InspectorConsoleAgent::developerExtrasEnabled() const
     return m_injectedScriptManager.inspectorEnvironment().developerExtrasEnabled();
 }
 
-void InspectorConsoleAgent::reset()
+void InspectorConsoleAgent::mainFrameNavigated()
 {
-    ErrorString ignored;
-    clearMessages(ignored);
+    clearMessages(Inspector::Protocol::Console::ClearReason::MainFrameNavigation);
 
     m_times.clear();
     m_counts.clear();
 }
 
+void InspectorConsoleAgent::clearMessages(Inspector::Protocol::Console::ClearReason reason)
+{
+    if (!m_consoleClearAPIEnabled && reason == Inspector::Protocol::Console::ClearReason::ConsoleAPI)
+        return;
+
+    m_consoleMessages.clear();
+    m_expiredConsoleMessageCount = 0;
+
+    m_injectedScriptManager.releaseObjectGroup("console"_s);
+
+    if (m_enabled)
+        m_frontendDispatcher->messagesCleared(reason);
+}
+
 void InspectorConsoleAgent::addMessageToConsole(std::unique_ptr<ConsoleMessage> message)
 {
-    if (message->type() == MessageType::Clear) {
-        ErrorString ignored;
-        clearMessages(ignored);
-    }
+    if (message->type() == MessageType::Clear)
+        clearMessages(Inspector::Protocol::Console::ClearReason::ConsoleAPI);
 
     addConsoleMessage(WTFMove(message));
 }
@@ -135,7 +152,7 @@ void InspectorConsoleAgent::startTiming(JSC::JSGlobalObject* globalObject, const
 
     if (!result.isNewEntry) {
         // FIXME: Send an enum to the frontend for localization?
-        String warning = makeString("Timer \"", label, "\" already exists");
+        auto warning = makeString("Timer \""_s, ScriptArguments::truncateStringForConsoleMessage(label), "\" already exists"_s);
         addMessageToConsole(makeUnique<ConsoleMessage>(MessageSource::ConsoleAPI, MessageType::Timing, MessageLevel::Warning, warning, createScriptCallStackForConsole(globalObject, 1)));
     }
 }
@@ -151,14 +168,14 @@ void InspectorConsoleAgent::logTiming(JSC::JSGlobalObject* globalObject, const S
     auto it = m_times.find(label);
     if (it == m_times.end()) {
         // FIXME: Send an enum to the frontend for localization?
-        String warning = makeString("Timer \"", label, "\" does not exist");
+        auto warning = makeString("Timer \""_s, ScriptArguments::truncateStringForConsoleMessage(label), "\" does not exist"_s);
         addMessageToConsole(makeUnique<ConsoleMessage>(MessageSource::ConsoleAPI, MessageType::Timing, MessageLevel::Warning, warning, WTFMove(callStack)));
         return;
     }
 
     MonotonicTime startTime = it->value;
     Seconds elapsed = MonotonicTime::now() - startTime;
-    String message = makeString(label, ": ", FormattedNumber::fixedWidth(elapsed.milliseconds(), 3), "ms");
+    auto message = makeString(ScriptArguments::truncateStringForConsoleMessage(label), ": "_s, FormattedNumber::fixedWidth(elapsed.milliseconds(), 3), "ms"_s);
     addMessageToConsole(makeUnique<ConsoleMessage>(MessageSource::ConsoleAPI, MessageType::Timing, MessageLevel::Debug, message, WTFMove(arguments), WTFMove(callStack)));
 }
 
@@ -173,14 +190,14 @@ void InspectorConsoleAgent::stopTiming(JSC::JSGlobalObject* globalObject, const 
     auto it = m_times.find(label);
     if (it == m_times.end()) {
         // FIXME: Send an enum to the frontend for localization?
-        String warning = makeString("Timer \"", label, "\" does not exist");
+        auto warning = makeString("Timer \""_s, ScriptArguments::truncateStringForConsoleMessage(label), "\" does not exist"_s);
         addMessageToConsole(makeUnique<ConsoleMessage>(MessageSource::ConsoleAPI, MessageType::Timing, MessageLevel::Warning, warning, WTFMove(callStack)));
         return;
     }
 
     MonotonicTime startTime = it->value;
     Seconds elapsed = MonotonicTime::now() - startTime;
-    String message = makeString(label, ": ", FormattedNumber::fixedWidth(elapsed.milliseconds(), 3), "ms");
+    auto message = makeString(ScriptArguments::truncateStringForConsoleMessage(label), ": "_s, FormattedNumber::fixedWidth(elapsed.milliseconds(), 3), "ms"_s);
     addMessageToConsole(makeUnique<ConsoleMessage>(MessageSource::ConsoleAPI, MessageType::Timing, MessageLevel::Debug, message, WTFMove(callStack)));
 
     m_times.remove(it);
@@ -191,12 +208,12 @@ void InspectorConsoleAgent::takeHeapSnapshot(const String& title)
     if (!m_heapAgent)
         return;
 
-    ErrorString ignored;
-    double timestamp;
-    String snapshotData;
-    m_heapAgent->snapshot(ignored, &timestamp, &snapshotData);
+    auto result = m_heapAgent->snapshot();
+    if (!result)
+        return;
 
-    m_frontendDispatcher->heapSnapshot(timestamp, snapshotData, title.isEmpty() ? nullptr : &title);
+    auto [timestamp, snapshotData] = WTFMove(result.value());
+    m_frontendDispatcher->heapSnapshot(timestamp, snapshotData, title);
 }
 
 void InspectorConsoleAgent::count(JSC::JSGlobalObject* globalObject, const String& label)
@@ -207,7 +224,7 @@ void InspectorConsoleAgent::count(JSC::JSGlobalObject* globalObject, const Strin
 
     // FIXME: Web Inspector should have a better UI for counters, but for now we just log an updated counter value.
 
-    String message = makeString(label, ": ", result.iterator->value);
+    auto message = makeString(ScriptArguments::truncateStringForConsoleMessage(label), ": "_s, result.iterator->value);
     addMessageToConsole(makeUnique<ConsoleMessage>(MessageSource::ConsoleAPI, MessageType::Log, MessageLevel::Debug, message, createScriptCallStackForConsole(globalObject, 1)));
 }
 
@@ -216,7 +233,7 @@ void InspectorConsoleAgent::countReset(JSC::JSGlobalObject* globalObject, const 
     auto it = m_counts.find(label);
     if (it == m_counts.end()) {
         // FIXME: Send an enum to the frontend for localization?
-        String warning = makeString("Counter \"", label, "\" does not exist");
+        auto warning = makeString("Counter \""_s, ScriptArguments::truncateStringForConsoleMessage(label), "\" does not exist"_s);
         addMessageToConsole(makeUnique<ConsoleMessage>(MessageSource::ConsoleAPI, MessageType::Log, MessageLevel::Warning, warning, createScriptCallStackForConsole(globalObject, 1)));
         return;
     }
@@ -226,29 +243,25 @@ void InspectorConsoleAgent::countReset(JSC::JSGlobalObject* globalObject, const 
     // FIXME: Web Inspector should have a better UI for counters, but for now we just log an updated counter value.
 }
 
-static bool isGroupMessage(MessageType type)
-{
-    return type == MessageType::StartGroup
-        || type == MessageType::StartGroupCollapsed
-        || type == MessageType::EndGroup;
-}
-
 void InspectorConsoleAgent::addConsoleMessage(std::unique_ptr<ConsoleMessage> consoleMessage)
 {
     ASSERT_ARG(consoleMessage, consoleMessage);
 
     ConsoleMessage* previousMessage = m_consoleMessages.isEmpty() ? nullptr : m_consoleMessages.last().get();
 
-    if (previousMessage && !isGroupMessage(previousMessage->type()) && previousMessage->isEqual(consoleMessage.get())) {
+    if (previousMessage && previousMessage->isEqual(consoleMessage.get())) {
         previousMessage->incrementCount();
         if (m_enabled)
             previousMessage->updateRepeatCountInConsole(*m_frontendDispatcher);
     } else {
-        ConsoleMessage* newMessage = consoleMessage.get();
-        m_consoleMessages.append(WTFMove(consoleMessage));
-        if (m_enabled)
-            newMessage->addToFrontend(*m_frontendDispatcher, m_injectedScriptManager, true);
+        if (m_enabled) {
+            auto generatePreview = !m_isAddingMessageToFrontend;
+            SetForScope isAddingMessageToFrontend(m_isAddingMessageToFrontend, true);
 
+            consoleMessage->addToFrontend(*m_frontendDispatcher, m_injectedScriptManager, generatePreview);
+        }
+
+        m_consoleMessages.append(WTFMove(consoleMessage));
         if (m_consoleMessages.size() >= maximumConsoleMessages) {
             m_expiredConsoleMessageCount += expireConsoleMessagesStep;
             m_consoleMessages.remove(0, expireConsoleMessagesStep);
@@ -256,15 +269,15 @@ void InspectorConsoleAgent::addConsoleMessage(std::unique_ptr<ConsoleMessage> co
     }
 }
 
-void InspectorConsoleAgent::getLoggingChannels(ErrorString&, RefPtr<JSON::ArrayOf<Protocol::Console::Channel>>& channels)
+Protocol::ErrorStringOr<Ref<JSON::ArrayOf<Protocol::Console::Channel>>> InspectorConsoleAgent::getLoggingChannels()
 {
     // Default implementation has no logging channels.
-    channels = JSON::ArrayOf<Protocol::Console::Channel>::create();
+    return JSON::ArrayOf<Protocol::Console::Channel>::create();
 }
 
-void InspectorConsoleAgent::setLoggingChannelLevel(ErrorString& errorString, const String&, const String&)
+Protocol::ErrorStringOr<void> InspectorConsoleAgent::setLoggingChannelLevel(Protocol::Console::ChannelSource, Protocol::Console::ChannelLevel)
 {
-    errorString = "Not supported"_s;
+    return makeUnexpected("Not supported"_s);
 }
 
 } // namespace Inspector

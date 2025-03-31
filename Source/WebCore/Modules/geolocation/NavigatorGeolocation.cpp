@@ -26,13 +26,16 @@
 
 #include "NavigatorGeolocation.h"
 
-#include "DOMWindow.h"
 #include "Document.h"
-#include "Frame.h"
 #include "Geolocation.h"
+#include "LocalDOMWindow.h"
+#include "LocalFrame.h"
 #include "Navigator.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(NavigatorGeolocation);
 
 NavigatorGeolocation::NavigatorGeolocation(Navigator& navigator)
     : m_navigator(navigator)
@@ -41,9 +44,9 @@ NavigatorGeolocation::NavigatorGeolocation(Navigator& navigator)
 
 NavigatorGeolocation::~NavigatorGeolocation() = default;
 
-const char* NavigatorGeolocation::supplementName()
+ASCIILiteral NavigatorGeolocation::supplementName()
 {
-    return "NavigatorGeolocation";
+    return "NavigatorGeolocation"_s;
 }
 
 NavigatorGeolocation* NavigatorGeolocation::from(Navigator& navigator)
@@ -73,7 +76,7 @@ Geolocation* NavigatorGeolocation::geolocation(Navigator& navigator)
 Geolocation* NavigatorGeolocation::geolocation() const
 {
     if (!m_geolocation)
-        m_geolocation = Geolocation::create(m_navigator);
+        m_geolocation = Geolocation::create(Ref { m_navigator.get() });
     return m_geolocation.get();
 }
 

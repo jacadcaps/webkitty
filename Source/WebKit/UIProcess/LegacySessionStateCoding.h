@@ -23,9 +23,9 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef LegacySessionStateCoding_h
-#define LegacySessionStateCoding_h
+#pragma once
 
+#include <span>
 #include <wtf/Forward.h>
 
 namespace API {
@@ -34,12 +34,9 @@ class Data;
 
 namespace WebKit {
 
-struct FrameState;
 struct SessionState;
 
 RefPtr<API::Data> encodeLegacySessionState(const SessionState&);
-WARN_UNUSED_RETURN bool decodeLegacySessionState(const uint8_t* data, size_t, SessionState&);
+WARN_UNUSED_RETURN bool decodeLegacySessionState(std::span<const uint8_t> data, SessionState&);
 
 } // namespace WebKit
-
-#endif // LegacySessionStateCoding_h

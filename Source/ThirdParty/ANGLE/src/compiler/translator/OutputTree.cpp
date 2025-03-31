@@ -13,12 +13,14 @@ namespace sh
 namespace
 {
 
-void OutputFunction(TInfoSinkBase &out, const char *str, const TFunction *func)
+void OutputFunction(TInfoSinkBase &out, const char *prefix, const TFunction *function)
 {
-    const char *internal =
-        (func->symbolType() == SymbolType::AngleInternal) ? " (internal function)" : "";
-    out << str << internal << ": " << func->name() << " (symbol id " << func->uniqueId().get()
-        << ")";
+    out << prefix << ": " << static_cast<const TSymbol &>(*function);
+}
+
+void OutputVariable(TInfoSinkBase &out, const TVariable &variable)
+{
+    out << static_cast<const TSymbol &>(variable) << " (" << variable.getType() << ")";
 }
 
 // Two purposes:
@@ -86,17 +88,7 @@ void OutputTreeText(TInfoSinkBase &out, TIntermNode *node, const int depth)
 void TOutputTraverser::visitSymbol(TIntermSymbol *node)
 {
     OutputTreeText(mOut, node, getCurrentIndentDepth());
-
-    if (node->variable().symbolType() == SymbolType::Empty)
-    {
-        mOut << "''";
-    }
-    else
-    {
-        mOut << "'" << node->getName() << "' ";
-    }
-    mOut << "(symbol id " << node->uniqueId().get() << ") ";
-    mOut << "(" << node->getType() << ")";
+    OutputVariable(mOut, node->variable());
     mOut << "\n";
 }
 
@@ -302,7 +294,9 @@ bool TOutputTraverser::visitUnary(Visit visit, TIntermUnary *node)
 {
     OutputTreeText(mOut, node, getCurrentIndentDepth());
 
-    switch (node->getOp())
+    const TOperator op = node->getOp();
+
+    switch (op)
     {
         // Give verbose names for ops that have special syntax and some built-in functions that are
         // easy to confuse with others, but mostly use GLSL names for functions.
@@ -336,12 +330,19 @@ bool TOutputTraverser::visitUnary(Visit visit, TIntermUnary *node)
             mOut << "Array length";
             break;
 
-        case EOpLogicalNotComponentWise:
+        case EOpNotComponentWise:
             mOut << "component-wise not";
             break;
 
         default:
-            mOut << GetOperatorString(node->getOp());
+            if (BuiltInGroup::IsBuiltIn(op))
+            {
+                OutputFunction(mOut, "Call a built-in function", node->getFunction());
+            }
+            else
+            {
+                mOut << GetOperatorString(node->getOp());
+            }
             break;
     }
 
@@ -385,7 +386,9 @@ void TOutputTraverser::visitFunctionPrototype(TIntermFunctionPrototype *node)
     {
         const TVariable *param = node->getFunction()->getParam(i);
         OutputTreeText(mOut, node, getCurrentIndentDepth() + 1);
-        mOut << "parameter: " << param->name() << " (" << param->getType() << ")\n";
+        mOut << "parameter: ";
+        OutputVariable(mOut, *param);
+        mOut << "\n";
     }
 }
 
@@ -393,7 +396,9 @@ bool TOutputTraverser::visitAggregate(Visit visit, TIntermAggregate *node)
 {
     OutputTreeText(mOut, node, getCurrentIndentDepth());
 
-    if (node->getOp() == EOpNull)
+    const TOperator op = node->getOp();
+
+    if (op == EOpNull)
     {
         mOut.prefix(SH_ERROR);
         mOut << "node is still EOpNull!\n";
@@ -402,17 +407,14 @@ bool TOutputTraverser::visitAggregate(Visit visit, TIntermAggregate *node)
 
     // Give verbose names for some built-in functions that are easy to confuse with others, but
     // mostly use GLSL names for functions.
-    switch (node->getOp())
+    switch (op)
     {
         case EOpCallFunctionInAST:
-            OutputFunction(mOut, "Call a user-defined function", node->getFunction());
+            OutputFunction(mOut, "Call a function", node->getFunction());
             break;
         case EOpCallInternalRawFunction:
             OutputFunction(mOut, "Call an internal function with raw implementation",
                            node->getFunction());
-            break;
-        case EOpCallBuiltInFunction:
-            OutputFunction(mOut, "Call a built-in function", node->getFunction());
             break;
 
         case EOpConstruct:
@@ -445,12 +447,19 @@ bool TOutputTraverser::visitAggregate(Visit visit, TIntermAggregate *node)
         case EOpCross:
             mOut << "cross product";
             break;
-        case EOpMulMatrixComponentWise:
+        case EOpMatrixCompMult:
             mOut << "component-wise multiply";
             break;
 
         default:
-            mOut << GetOperatorString(node->getOp());
+            if (BuiltInGroup::IsBuiltIn(op))
+            {
+                OutputFunction(mOut, "Call a built-in function", node->getFunction());
+            }
+            else
+            {
+                mOut << GetOperatorString(node->getOp());
+            }
             break;
     }
 
@@ -570,6 +579,9 @@ bool TOutputTraverser::visitCase(Visit visit, TIntermCase *node)
 
 void TOutputTraverser::visitConstantUnion(TIntermConstantUnion *node)
 {
+    OutputTreeText(mOut, node, getCurrentIndentDepth());
+    mOut << "Constant union" << " (" << node->getType() << ")" << "\n";
+    ++mIndentDepth;
     size_t size = node->getType().getObjectSize();
 
     for (size_t i = 0; i < size; i++)
@@ -583,9 +595,7 @@ void TOutputTraverser::visitConstantUnion(TIntermConstantUnion *node)
                 else
                     mOut << "false";
 
-                mOut << " ("
-                     << "const bool"
-                     << ")";
+                mOut << " (" << "const bool" << ")";
                 mOut << "\n";
                 break;
             case EbtFloat:
@@ -611,6 +621,7 @@ void TOutputTraverser::visitConstantUnion(TIntermConstantUnion *node)
                 break;
         }
     }
+    --mIndentDepth;
 }
 
 bool TOutputTraverser::visitLoop(Visit visit, TIntermLoop *node)
@@ -636,15 +647,8 @@ bool TOutputTraverser::visitLoop(Visit visit, TIntermLoop *node)
     }
 
     OutputTreeText(mOut, node, getCurrentIndentDepth());
-    if (node->getBody())
-    {
-        mOut << "Loop Body\n";
-        node->getBody()->traverse(this);
-    }
-    else
-    {
-        mOut << "No loop body\n";
-    }
+    mOut << "Loop Body\n";
+    node->getBody()->traverse(this);
 
     if (node->getExpression())
     {

@@ -25,6 +25,7 @@
 
 #include "config.h"
 #include "Dualshock3HIDGamepad.h"
+#include <wtf/TZoneMallocInlines.h>
 
 #if ENABLE(GAMEPAD) && PLATFORM(MAC)
 
@@ -36,6 +37,8 @@
 
 namespace WebCore {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(Dualshock3HIDGamepad);
+
 Dualshock3HIDGamepad::Dualshock3HIDGamepad(HIDDevice&& device, unsigned index)
     : HIDGamepad(WTFMove(device), index)
 {
@@ -43,12 +46,10 @@ Dualshock3HIDGamepad::Dualshock3HIDGamepad(HIDDevice&& device, unsigned index)
 
     m_mapping = standardGamepadMappingString();
 
-    for (size_t i = 0; i < numberOfStandardGamepadButtonsWithHomeButton; ++i)
-        m_buttonValues.append(0.0);
+    m_buttonValues = Vector(numberOfStandardGamepadButtonsWithHomeButton, SharedGamepadValue { 0.0 });
 
-    static const size_t axisCount = 4;
-    for (size_t i = 0; i < axisCount; ++i)
-        m_axisValues.append(0.0);
+    constexpr size_t axisCount = 4;
+    m_axisValues = Vector(axisCount, SharedGamepadValue { 0.0 });
 
     auto inputElements = hidDevice().uniqueInputElementsInDeviceTreeOrder();
 

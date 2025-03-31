@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,6 +27,7 @@
 
 #if PLATFORM(MAC)
 
+#import "DeprecatedGlobalValues.h"
 #import "PlatformUtilities.h"
 #import "PlatformWebView.h"
 #import "Test.h"
@@ -37,14 +38,11 @@
 #import <WebKit/WKSerializedScriptValue.h>
 #import <WebKit/WKUIDelegatePrivate.h>
 #import <WebKit/WKURLCF.h>
-#import <WebKit/WKView.h>
 #import <WebKit/WKWebViewConfigurationPrivate.h>
 #import <WebKit/WKWebViewPrivate.h>
 #import <WebKit/WKWebViewPrivateForTesting.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/Seconds.h>
-
-static bool receivedLoadedMessage;
 
 static bool hasVideoInPictureInPictureValue;
 static bool hasVideoInPictureInPictureCalled;
@@ -52,19 +50,13 @@ static bool hasVideoInPictureInPictureCalled;
 static bool onLoadCompleted = false;
 static bool fetchOnLoadedCompletedDone = false;
 
-static void onLoadedCompletedCallback(WKSerializedScriptValueRef serializedResultValue, WKErrorRef error, void*)
+static void onLoadedCompletedCallback(WKTypeRef result, WKErrorRef error, void*)
 {
     EXPECT_NULL(error);
-    
-    JSGlobalContextRef scriptContext = JSGlobalContextCreate(0);
-    
-    JSValueRef resultValue = WKSerializedScriptValueDeserialize(serializedResultValue, scriptContext, 0);
-    EXPECT_TRUE(JSValueIsBoolean(scriptContext, resultValue));
+    EXPECT_EQ(WKGetTypeID(result), WKBooleanGetTypeID());
     
     fetchOnLoadedCompletedDone = true;
-    onLoadCompleted = JSValueToBoolean(scriptContext, resultValue);
-    
-    JSGlobalContextRelease(scriptContext);
+    onLoadCompleted = WKBooleanGetValue((WKBooleanRef)result);
 }
 
 static void waitUntilOnLoadIsCompleted(WKPageRef page)
@@ -72,7 +64,7 @@ static void waitUntilOnLoadIsCompleted(WKPageRef page)
     onLoadCompleted = false;
     while (!onLoadCompleted) {
         fetchOnLoadedCompletedDone = false;
-        WKPageRunJavaScriptInMainFrame(page, TestWebKitAPI::Util::toWK("window.onloadcompleted !== undefined").get(), 0, onLoadedCompletedCallback);
+        WKPageEvaluateJavaScriptInMainFrame(page, TestWebKitAPI::Util::toWK("window.onloadcompleted !== undefined").get(), 0, onLoadedCompletedCallback);
         TestWebKitAPI::Util::run(&fetchOnLoadedCompletedDone);
     }
 }
@@ -112,7 +104,7 @@ namespace TestWebKitAPI {
 TEST(PictureInPicture, WKUIDelegate)
 {
     RetainPtr<WKWebViewConfiguration> configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
-    [configuration preferences]._fullScreenEnabled = YES;
+    [configuration preferences].elementFullscreenEnabled = YES;
     [configuration preferences]._allowsPictureInPictureMediaPlayback = YES;
     RetainPtr<PictureInPictureUIDelegate> handler = adoptNS([[PictureInPictureUIDelegate alloc] init]);
     [[configuration userContentController] addScriptMessageHandler:handler.get() name:@"pictureInPictureChangeHandler"];
@@ -128,7 +120,7 @@ TEST(PictureInPicture, WKUIDelegate)
     [[window contentView] addSubview:webView.get()];
     [window makeKeyAndOrderFront:nil];
 
-    NSURLRequest *request = [NSURLRequest requestWithURL:[[NSBundle mainBundle] URLForResource:@"PictureInPictureDelegate" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"]];
+    NSURLRequest *request = [NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"PictureInPictureDelegate" withExtension:@"html"]];
 
     receivedLoadedMessage = false;
     
@@ -178,7 +170,7 @@ TEST(PictureInPicture, AudioCannotTogglePictureInPicture)
 {
     RetainPtr<WKWebViewConfiguration> configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
     RetainPtr<TestWKWebView> webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 400, 54) configuration:configuration.get()]);
-    [configuration preferences]._fullScreenEnabled = YES;
+    [configuration preferences].elementFullscreenEnabled = YES;
     [configuration preferences]._allowsPictureInPictureMediaPlayback = YES;
     RetainPtr<PictureInPictureUIDelegate> handler = adoptNS([[PictureInPictureUIDelegate alloc] init]);
     [[configuration userContentController] addScriptMessageHandler:handler.get() name:@"pictureInPictureChangeHandler"];
@@ -201,22 +193,23 @@ TEST(PictureInPicture, AudioCannotTogglePictureInPicture)
 TEST(PictureInPicture, WKPageUIClient)
 {
     WKRetainPtr<WKContextRef> context = adoptWK(WKContextCreateWithConfiguration(nullptr));
-    WKRetainPtr<WKPageGroupRef> pageGroup = adoptWK(WKPageGroupCreateWithIdentifier(Util::toWK("PictureInPicture").get()));
-    WKPreferencesRef preferences = WKPageGroupGetPreferences(pageGroup.get());
+    
+    PlatformWebView webView(context.get());
+
+    auto configuration = adoptWK(WKPageCopyPageConfiguration(webView.page()));
+    auto* preferences = WKPageConfigurationGetPreferences(configuration.get());
     WKPreferencesSetFullScreenEnabled(preferences, true);
     WKPreferencesSetAllowsPictureInPictureMediaPlayback(preferences, true);
-    
-    PlatformWebView webView(context.get(), pageGroup.get());
-    
+
     WKPageUIClientV10 uiClient;
-    memset(&uiClient, 0, sizeof(uiClient));
+    zeroBytes(uiClient);
     uiClient.base.version = 10;
     uiClient.base.clientInfo = NULL;
     uiClient.hasVideoInPictureInPictureDidChange = hasVideoInPictureInPictureDidChange;
     WKPageSetPageUIClient(webView.page(), &uiClient.base);
     
     WKPageNavigationClientV0 loaderClient;
-    memset(&loaderClient, 0 , sizeof(loaderClient));
+    zeroBytes(loaderClient);
     loaderClient.base.version = 0;
     loaderClient.didFinishNavigation = didFinishNavigation;
     WKPageSetPageNavigationClient(webView.page(), &loaderClient.base);

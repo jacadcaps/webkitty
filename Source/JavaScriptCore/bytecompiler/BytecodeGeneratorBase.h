@@ -46,6 +46,9 @@ class BytecodeGeneratorBase {
     template<typename BytecodeGenerator>
     friend class GenericLabel;
 
+    using InstructionStreamWriterType = InstructionStreamWriter<typename Traits::InstructionType>;
+    using InstructionStreamType = InstructionStream<typename Traits::InstructionType>;
+
 public:
     BytecodeGeneratorBase(typename Traits::CodeBlock, uint32_t virtualRegisterCountForCalleeSaves);
 
@@ -61,6 +64,8 @@ public:
     // register with a refcount of 0 is considered "available", meaning that
     // the next instruction may overwrite it.
     RegisterID* newTemporary();
+    template<typename Functor>
+    void newTemporaries(size_t count, const Functor&);
 
     void emitLabel(GenericLabel<Traits>&);
     void recordOpcode(typename Traits::OpcodeID);
@@ -77,12 +82,12 @@ public:
 protected:
     void reclaimFreeRegisters();
 
-    InstructionStreamWriter m_writer;
+    InstructionStreamWriterType m_writer;
     typename Traits::CodeBlock m_codeBlock;
 
     bool m_outOfMemoryDuringConstruction { false };
     typename Traits::OpcodeID m_lastOpcodeID = Traits::opcodeForDisablingOptimizations;
-    InstructionStream::MutableRef m_lastInstruction { m_writer.ref() };
+    typename InstructionStreamType::MutableRef m_lastInstruction { m_writer.ref() };
 
     SegmentedVector<GenericLabel<Traits>, 32> m_labels;
     SegmentedVector<RegisterID, 32> m_calleeLocals;

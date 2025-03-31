@@ -26,7 +26,9 @@
 #include "config.h"
 #include <wtf/Seconds.h>
 
+#include <wtf/ApproximateTime.h>
 #include <wtf/Condition.h>
+#include <wtf/ContinuousTime.h>
 #include <wtf/Lock.h>
 #include <wtf/MonotonicTime.h>
 #include <wtf/PrintStream.h>
@@ -46,6 +48,21 @@ MonotonicTime Seconds::operator+(MonotonicTime other) const
     return other + *this;
 }
 
+ApproximateTime Seconds::operator+(ApproximateTime other) const
+{
+    return other + *this;
+}
+
+ContinuousTime Seconds::operator+(ContinuousTime other) const
+{
+    return other + *this;
+}
+
+ContinuousApproximateTime Seconds::operator+(ContinuousApproximateTime other) const
+{
+    return other + *this;
+}
+
 TimeWithDynamicClockType Seconds::operator+(const TimeWithDynamicClockType& other) const
 {
     return other + *this;
@@ -59,6 +76,21 @@ WallTime Seconds::operator-(WallTime other) const
 MonotonicTime Seconds::operator-(MonotonicTime other) const
 {
     return MonotonicTime::fromRawSeconds(value() - other.secondsSinceEpoch().value());
+}
+
+ApproximateTime Seconds::operator-(ApproximateTime other) const
+{
+    return ApproximateTime::fromRawSeconds(value() - other.secondsSinceEpoch().value());
+}
+
+ContinuousTime Seconds::operator-(ContinuousTime other) const
+{
+    return ContinuousTime::fromRawSeconds(value() - other.secondsSinceEpoch().value());
+}
+
+ContinuousApproximateTime Seconds::operator-(ContinuousApproximateTime other) const
+{
+    return ContinuousApproximateTime::fromRawSeconds(value() - other.secondsSinceEpoch().value());
 }
 
 TimeWithDynamicClockType Seconds::operator-(const TimeWithDynamicClockType& other) const
@@ -86,7 +118,7 @@ void sleep(Seconds value)
 
     Lock fakeLock;
     Condition fakeCondition;
-    LockHolder fakeLocker(fakeLock);
+    Locker fakeLocker { fakeLock };
     fakeCondition.waitFor(fakeLock, value);
 }
 

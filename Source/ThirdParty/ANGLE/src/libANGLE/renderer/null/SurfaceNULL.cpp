@@ -25,12 +25,6 @@ egl::Error SurfaceNULL::initialize(const egl::Display *display)
     return egl::NoError();
 }
 
-FramebufferImpl *SurfaceNULL::createDefaultFramebuffer(const gl::Context *context,
-                                                       const gl::FramebufferState &state)
-{
-    return new FramebufferNULL(state);
-}
-
 egl::Error SurfaceNULL::swap(const gl::Context *context)
 {
     return egl::NoError();
@@ -75,7 +69,7 @@ egl::Error SurfaceNULL::getMscRate(EGLint *numerator, EGLint *denominator)
     return egl::EglBadAccess();
 }
 
-void SurfaceNULL::setSwapInterval(EGLint interval) {}
+void SurfaceNULL::setSwapInterval(const egl::Display *display, EGLint interval) {}
 
 EGLint SurfaceNULL::getWidth() const
 {
@@ -100,9 +94,22 @@ EGLint SurfaceNULL::getSwapBehavior() const
 }
 
 angle::Result SurfaceNULL::initializeContents(const gl::Context *context,
+                                              GLenum binding,
                                               const gl::ImageIndex &imageIndex)
 {
     return angle::Result::Continue;
+}
+
+egl::Error SurfaceNULL::attachToFramebuffer(const gl::Context *context,
+                                            gl::Framebuffer *framebuffer)
+{
+    return egl::NoError();
+}
+
+egl::Error SurfaceNULL::detachFromFramebuffer(const gl::Context *context,
+                                              gl::Framebuffer *framebuffer)
+{
+    return egl::NoError();
 }
 
 }  // namespace rx

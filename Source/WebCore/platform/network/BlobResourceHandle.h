@@ -48,10 +48,10 @@ class BlobResourceHandle final : public FileStreamClient, public ResourceHandle 
 public:
     static Ref<BlobResourceHandle> createAsync(BlobData*, const ResourceRequest&, ResourceHandleClient*);
 
-    static void loadResourceSynchronously(BlobData*, const ResourceRequest&, ResourceError&, ResourceResponse&, Vector<char>& data);
+    static void loadResourceSynchronously(BlobData*, const ResourceRequest&, ResourceError&, ResourceResponse&, Vector<uint8_t>& data);
 
     void start();
-    int readSync(char*, int);
+    int readSync(std::span<uint8_t>);
 
     bool aborted() const { return m_aborted; }
 
@@ -78,21 +78,21 @@ private:
 
     void doStart();
     void getSizeForNext();
-    void seek();
-    void consumeData(const char* data, int bytesRead);
+    std::optional<Error> seek();
+    void consumeData(std::span<const uint8_t>);
     void failed(Error);
 
     void readAsync();
     void readDataAsync(const BlobDataItem&);
     void readFileAsync(const BlobDataItem&);
 
-    int readDataSync(const BlobDataItem&, char*, int);
-    int readFileSync(const BlobDataItem&, char*, int);
+    int readDataSync(const BlobDataItem&, std::span<uint8_t>);
+    int readFileSync(const BlobDataItem&, std::span<uint8_t>);
 
     void notifyResponse();
     void notifyResponseOnSuccess();
     void notifyResponseOnError();
-    void notifyReceiveData(const char*, int);
+    void notifyReceiveData(std::span<const uint8_t>);
     void notifyFail(Error);
     void notifyFinish();
 
@@ -104,13 +104,13 @@ private:
     bool m_async;
     std::unique_ptr<AsyncFileStream> m_asyncStream; // For asynchronous loading.
     std::unique_ptr<FileStream> m_stream; // For synchronous loading.
-    Vector<char> m_buffer;
+    Vector<uint8_t> m_buffer;
     Vector<long long> m_itemLengthList;
     Error m_errorCode { Error::NoError };
     bool m_aborted { false };
-    long long m_rangeOffset { kPositionNotSpecified };
+    bool m_isRangeRequest { false };
+    long long m_rangeStart { kPositionNotSpecified };
     long long m_rangeEnd { kPositionNotSpecified };
-    long long m_rangeSuffixLength { kPositionNotSpecified };
     long long m_totalSize { 0 };
     long long m_totalRemainingSize { 0 };
     long long m_currentItemReadSize { 0 };

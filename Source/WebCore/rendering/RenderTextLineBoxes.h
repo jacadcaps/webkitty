@@ -27,47 +27,27 @@
 
 #include "LayoutRect.h"
 #include "RenderObject.h"
-#include "VisiblePosition.h"
 
 namespace WebCore {
 
-class InlineTextBox;
-class RenderStyle;
-class RenderText;
+class LegacyInlineTextBox;
+class RenderSVGInlineText;
 
 class RenderTextLineBoxes {
 public:
     RenderTextLineBoxes();
 
-    InlineTextBox* first() const { return m_first; }
-    InlineTextBox* last() const { return m_last; }
+    LegacyInlineTextBox* first() const { return m_first; }
+    LegacyInlineTextBox* last() const { return m_last; }
 
-    InlineTextBox* createAndAppendLineBox(RenderText&);
+    LegacyInlineTextBox* createAndAppendLineBox(RenderSVGInlineText&);
 
-    void extract(InlineTextBox&);
-    void attach(InlineTextBox&);
-    void remove(InlineTextBox&);
+    void remove(LegacyInlineTextBox&);
 
-    void removeAllFromParent(RenderText&);
+    void removeAllFromParent(RenderSVGInlineText&);
     void deleteAll();
 
-    void dirtyAll();
-    bool dirtyRange(RenderText&, unsigned start, unsigned end, int lengthDelta);
-
-    InlineTextBox* findNext(int offset, int& position) const;
-
-    VisiblePosition positionForPoint(const RenderText&, const LayoutPoint&) const;
-
-    void setSelectionState(RenderText&, RenderObject::HighlightState);
-    LayoutRect selectionRectForRange(unsigned start, unsigned end);
-    void collectSelectionRectsForRange(unsigned start, unsigned end, Vector<LayoutRect>& rects);
-
-    LayoutRect visualOverflowBoundingBox(const RenderText&) const;
-
-    enum ClippingOption { NoClipping, ClipToEllipsis };
-    Vector<FloatQuad> absoluteQuads(const RenderText&, bool* wasFixed, ClippingOption) const;
-    Vector<FloatQuad> absoluteQuadsForRange(const RenderText&, unsigned start, unsigned end, bool useSelectionHeight, bool ignoreEmptyTextSelections, bool* wasFixed) const;
-    Vector<IntRect> absoluteRectsForRange(const RenderText&, unsigned start, unsigned end, bool useSelectionHeight, bool* wasFixed) const;
+    void dirtyForTextChange(RenderSVGInlineText&);
 
 #if ASSERT_ENABLED
     ~RenderTextLineBoxes();
@@ -80,8 +60,8 @@ public:
 private:
     void checkConsistency() const;
 
-    InlineTextBox* m_first;
-    InlineTextBox* m_last;
+    LegacyInlineTextBox* m_first { nullptr };
+    LegacyInlineTextBox* m_last { nullptr };
 };
 
 } // namespace WebCore

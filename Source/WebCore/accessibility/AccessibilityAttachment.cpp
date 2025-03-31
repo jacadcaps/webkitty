@@ -38,14 +38,14 @@ namespace WebCore {
     
 using namespace HTMLNames;
 
-AccessibilityAttachment::AccessibilityAttachment(RenderAttachment* renderer)
-    : AccessibilityRenderObject(renderer)
+AccessibilityAttachment::AccessibilityAttachment(AXID axID, RenderAttachment& renderer)
+    : AccessibilityRenderObject(axID, renderer)
 {
 }
 
-Ref<AccessibilityAttachment> AccessibilityAttachment::create(RenderAttachment* renderer)
+Ref<AccessibilityAttachment> AccessibilityAttachment::create(AXID axID, RenderAttachment& renderer)
 {
-    return adoptRef(*new AccessibilityAttachment(renderer));
+    return adoptRef(*new AccessibilityAttachment(axID, renderer));
 }
 
 bool AccessibilityAttachment::hasProgress(float* progress) const
@@ -68,10 +68,7 @@ float AccessibilityAttachment::valueForRange() const
 HTMLAttachmentElement* AccessibilityAttachment::attachmentElement() const
 {
     ASSERT(is<HTMLAttachmentElement>(node()));
-    if (!is<HTMLAttachmentElement>(node()))
-        return nullptr;
-    
-    return downcast<HTMLAttachmentElement>(node());
+    return dynamicDowncast<HTMLAttachmentElement>(node());
 }
     
 String AccessibilityAttachment::roleDescription() const
@@ -79,19 +76,19 @@ String AccessibilityAttachment::roleDescription() const
     return AXAttachmentRoleText();
 }
 
-bool AccessibilityAttachment::computeAccessibilityIsIgnored() const
+bool AccessibilityAttachment::computeIsIgnored() const
 {
     return false;
 }
     
 void AccessibilityAttachment::accessibilityText(Vector<AccessibilityText>& textOrder) const
 {
-    HTMLAttachmentElement* attachmentElement = this->attachmentElement();
+    RefPtr attachmentElement = this->attachmentElement();
     if (!attachmentElement)
         return;
     
     auto title = attachmentElement->attachmentTitle();
-    auto& subtitle = getAttribute(subtitleAttr);
+    auto& subtitle = attachmentElement->attachmentSubtitle();
     auto& action = getAttribute(actionAttr);
     
     if (action.length())

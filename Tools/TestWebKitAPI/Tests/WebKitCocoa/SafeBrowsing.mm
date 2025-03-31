@@ -29,6 +29,7 @@
 
 #import "ClassMethodSwizzler.h"
 #import "PlatformUtilities.h"
+#import "Test.h"
 #import "TestNavigationDelegate.h"
 #import "TestWKWebView.h"
 #import <WebKit/WKNavigationDelegate.h>
@@ -48,7 +49,7 @@ static bool didCloseCalled;
 
 @implementation SafeBrowsingNavigationDelegate
 
-- (void)webView:(WKWebView *)webView didCommitNavigation:(null_unspecified WKNavigation *)navigation
+- (void)webView:(WKWebView *)webView didCommitNavigation:(WKNavigation *)navigation
 {
     committedNavigation = true;
 }
@@ -77,7 +78,7 @@ static bool didCloseCalled;
 
 + (instancetype)resultWithProvider:(RetainPtr<NSString>&&)provider phishing:(BOOL)phishing malware:(BOOL)malware unwantedSoftware:(BOOL)unwantedSoftware
 {
-    TestServiceLookupResult *result = [[TestServiceLookupResult alloc] init];
+    auto result = adoptNS([[TestServiceLookupResult alloc] init]);
     if (!result)
         return nil;
 
@@ -86,7 +87,7 @@ static bool didCloseCalled;
     result->_isMalware = malware;
     result->_isUnwantedSoftware = unwantedSoftware;
 
-    return [result autorelease];
+    return result.autorelease();
 }
 
 - (NSString *)provider
@@ -109,6 +110,28 @@ static bool didCloseCalled;
     return _isUnwantedSoftware;
 }
 
+#if HAVE(SAFE_BROWSING_RESULT_DETAILS)
+- (NSString *)malwareDetailsBaseURLString
+{
+    return @"test://";
+}
+
+- (NSURL *)learnMoreURL
+{
+    return [NSURL URLWithString:@"test://"];
+}
+
+- (NSString *)reportAnErrorBaseURLString
+{
+    return @"test://";
+}
+
+- (NSString *)localizedProviderDisplayName
+{
+    return @"test display name";
+}
+#endif
+
 @end
 
 @interface TestLookupResult : NSObject {
@@ -120,13 +143,13 @@ static bool didCloseCalled;
 
 + (instancetype)resultWithResults:(RetainPtr<NSArray<TestServiceLookupResult *>>&&)results
 {
-    TestLookupResult *result = [[TestLookupResult alloc] init];
+    auto result = adoptNS([[TestLookupResult alloc] init]);
     if (!result)
         return nil;
     
     result->_results = WTFMove(results);
     
-    return [result autorelease];
+    return result.autorelease();
 }
 
 - (NSArray<TestServiceLookupResult *> *)serviceLookupResults
@@ -156,7 +179,7 @@ static bool didCloseCalled;
 
 static NSURL *resourceURL(NSString *resource)
 {
-    return [[NSBundle mainBundle] URLForResource:resource withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"];
+    return [NSBundle.test_resourcesBundle URLForResource:resource withExtension:@"html"];
 }
 
 TEST(SafeBrowsing, Preference)
@@ -242,7 +265,7 @@ TEST(SafeBrowsing, GoBack)
 TEST(SafeBrowsing, GoBackAfterRestoreFromSessionState)
 {
     auto webView1 = adoptNS([WKWebView new]);
-    [webView1 loadRequest:[NSURLRequest requestWithURL:[[NSBundle mainBundle] URLForResource:@"simple" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"]]];
+    [webView1 loadRequest:[NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"simple" withExtension:@"html"]]];
     [webView1 _test_waitForDidFinishNavigation];
     _WKSessionState *state = [webView1 _sessionState];
 
@@ -296,7 +319,7 @@ TEST(SafeBrowsing, NavigationClearsWarning)
 {
     auto webView = safeBrowsingView();
     EXPECT_NE([webView _safeBrowsingWarning], nil);
-    [webView loadRequest:[NSURLRequest requestWithURL:[[NSBundle mainBundle] URLForResource:@"simple2" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"]]];
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"simple2" withExtension:@"html"]]];
     while ([webView _safeBrowsingWarning])
         TestWebKitAPI::Util::spinRunLoop();
 }
@@ -308,7 +331,7 @@ TEST(SafeBrowsing, ShowWarningSPI)
     auto webView = adoptNS([WKWebView new]);
     auto showWarning = ^{
         completionHandlerCalled = false;
-        [webView _showSafeBrowsingWarningWithURL:nil title:@"test title" warning:@"test warning" details:[[[NSAttributedString alloc] initWithString:@"test details"] autorelease] completionHandler:^(BOOL shouldContinue) {
+        [webView _showSafeBrowsingWarningWithURL:nil title:@"test title" warning:@"test warning" details:adoptNS([[NSAttributedString alloc] initWithString:@"test details"]).get() completionHandler:^(BOOL shouldContinue) {
             shouldContinueValue = shouldContinue;
             completionHandlerCalled = true;
         }];
@@ -346,8 +369,8 @@ TEST(SafeBrowsing, URLObservation)
 {
     ClassMethodSwizzler swizzler(objc_getClass("SSBLookupContext"), @selector(sharedLookupContext), [TestLookupContext methodForSelector:@selector(sharedLookupContext)]);
 
-    RetainPtr<NSURL> simpleURL = [[NSBundle mainBundle] URLForResource:@"simple" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"];
-    RetainPtr<NSURL> simple2URL = [[NSBundle mainBundle] URLForResource:@"simple2" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"];
+    RetainPtr<NSURL> simpleURL = [NSBundle.test_resourcesBundle URLForResource:@"simple" withExtension:@"html"];
+    RetainPtr<NSURL> simple2URL = [NSBundle.test_resourcesBundle URLForResource:@"simple2" withExtension:@"html"];
     auto observer = adoptNS([SafeBrowsingObserver new]);
 
     auto webViewWithWarning = [&] () -> RetainPtr<WKWebView> {
@@ -434,7 +457,7 @@ static bool navigationFinished;
 
 @implementation WKWebViewGoBackNavigationDelegate
 
-- (void)webView:(WKWebView *)webView didFinishNavigation:(null_unspecified WKNavigation *)navigation
+- (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation
 {
     navigationFinished = true;
 }
@@ -471,23 +494,32 @@ TEST(SafeBrowsing, WKWebViewGoBackIFrame)
     phishingResourceName = @"simple";
     ClassMethodSwizzler swizzler(objc_getClass("SSBLookupContext"), @selector(sharedLookupContext), [SimpleLookupContext methodForSelector:@selector(sharedLookupContext)]);
     
-    auto delegate = adoptNS([WKWebViewGoBackNavigationDelegate new]);
+    auto delegate = adoptNS([TestNavigationDelegate new]);
     auto webView = adoptNS([WKWebView new]);
     [webView configuration].preferences._safeBrowsingEnabled = YES;
+
+    __block bool navigationFailed = false;
+    __block bool navigationFinished = false;
+    delegate.get().didFailProvisionalLoadInSubframeWithError = ^(WKWebView *, WKFrameInfo *frame, NSError *error) {
+        EXPECT_NOT_NULL(error);
+        auto failingURL = (NSString *)[error.userInfo valueForKey:@"NSErrorFailingURLStringKey"];
+        EXPECT_TRUE([failingURL hasSuffix:@"/simple.html"]);
+        navigationFailed = true;
+    };
+    delegate.get().didFinishNavigation = ^(WKWebView *, WKNavigation *navigation) {
+        navigationFinished = true;
+    };
+
     [webView setNavigationDelegate:delegate.get()];
     [webView loadRequest:[NSURLRequest requestWithURL:resourceURL(@"simple2")]];
     TestWebKitAPI::Util::run(&navigationFinished);
+    EXPECT_FALSE(navigationFailed);
+    navigationFinished = false;
+    navigationFailed = false;
 
     [webView loadRequest:[NSURLRequest requestWithURL:resourceURL(@"simple-iframe")]];
-    while (![webView _safeBrowsingWarning])
-        TestWebKitAPI::Util::spinRunLoop();
-#if !PLATFORM(MAC)
-    [[webView _safeBrowsingWarning] didMoveToWindow];
-#endif
-    navigationFinished = false;
-    goBack([webView _safeBrowsingWarning], false);
     TestWebKitAPI::Util::run(&navigationFinished);
-    EXPECT_TRUE([[webView URL] isEqual:resourceURL(@"simple2")]);
+    TestWebKitAPI::Util::run(&navigationFailed);
 }
 
 @interface NullLookupContext : NSObject

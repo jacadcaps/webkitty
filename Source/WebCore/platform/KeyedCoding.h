@@ -28,19 +28,20 @@
 #include <functional>
 #include <wtf/Deque.h>
 #include <wtf/Forward.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
 class SharedBuffer;
 
 class KeyedDecoder {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(KeyedDecoder);
 public:
-    WEBCORE_EXPORT static std::unique_ptr<KeyedDecoder> decoder(const uint8_t* data, size_t);
+    WEBCORE_EXPORT static std::unique_ptr<KeyedDecoder> decoder(std::span<const uint8_t> data);
 
     virtual ~KeyedDecoder() = default;
 
-    virtual WARN_UNUSED_RETURN bool decodeBytes(const String& key, const uint8_t*&, size_t&) = 0;
+    virtual WARN_UNUSED_RETURN bool decodeBytes(const String& key, std::span<const uint8_t>&) = 0;
     virtual WARN_UNUSED_RETURN bool decodeBool(const String& key, bool&) = 0;
     virtual WARN_UNUSED_RETURN bool decodeUInt32(const String& key, uint32_t&) = 0;
     virtual WARN_UNUSED_RETURN bool decodeUInt64(const String& key, uint64_t&) = 0;
@@ -53,15 +54,13 @@ public:
     template<typename T> WARN_UNUSED_RETURN
     bool decodeBytes(const String& key, Vector<T>& vector)
     {
-        static_assert(sizeof(T) == 1, "");
+        static_assert(sizeof(T) == 1);
 
-        size_t size;
-        const uint8_t* bytes;
-        if (!decodeBytes(key, bytes, size))
+        std::span<const uint8_t> bytes;
+        if (!decodeBytes(key, bytes))
             return false;
 
-        vector.resize(size);
-        std::copy(bytes, bytes + size, vector.data());
+        vector = bytes;
         return true;
     }
 
@@ -144,13 +143,13 @@ private:
 };
 
 class KeyedEncoder {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(KeyedEncoder);
 public:
     WEBCORE_EXPORT static std::unique_ptr<KeyedEncoder> encoder();
 
     virtual ~KeyedEncoder() = default;
 
-    virtual void encodeBytes(const String& key, const uint8_t*, size_t) = 0;
+    virtual void encodeBytes(const String& key, std::span<const uint8_t>) = 0;
     virtual void encodeBool(const String& key, bool) = 0;
     virtual void encodeUInt32(const String& key, uint32_t) = 0;
     virtual void encodeUInt64(const String& key, uint64_t) = 0;
@@ -187,13 +186,13 @@ public:
         encodeObject(key, *object, std::forward<F>(function));
     }
 
-    template<typename T, typename F>
-    void encodeObjects(const String& key, T begin, T end, F&& function)
+    template<typename CollectionType, typename F>
+    void encodeObjects(const String& key, const CollectionType& collection, F&& function)
     {
         beginArray(key);
-        for (T it = begin; it != end; ++it) {
+        for (auto& item : collection) {
             beginArrayElement();
-            function(*this, *it);
+            function(*this, item);
             endArrayElement();
         }
         endArray();

@@ -75,6 +75,7 @@ WI.HeapSnapshotClusterContentView = class HeapSnapshotClusterContentView extends
         case "Promise":
         case "Error":
         case "Window":
+        case "DedicatedWorkerGlobalScope":
         case "Map Iterator":
         case "Set Iterator":
         case "Math":
@@ -139,9 +140,9 @@ WI.HeapSnapshotClusterContentView = class HeapSnapshotClusterContentView extends
         return components.concat(currentContentView.selectionPathComponents);
     }
 
-    shown()
+    attached()
     {
-        super.shown();
+        super.attached();
 
         if (this._shownInitialContent)
             return;

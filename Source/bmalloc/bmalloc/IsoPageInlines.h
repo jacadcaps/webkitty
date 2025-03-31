@@ -25,12 +25,16 @@
 
 #pragma once
 
+#if !BUSE(TZONE)
+
 #include "CryptoRandom.h"
 #include "IsoDirectory.h"
 #include "IsoHeapImpl.h"
 #include "IsoPage.h"
-#include "StdLibExtras.h"
 #include "VMAllocate.h"
+#include <bit>
+
+#if !BUSE(LIBPAS)
 
 namespace bmalloc {
 
@@ -197,7 +201,7 @@ FreeList IsoPage<Config>::startAllocating(const LockHolder&)
         char* cellByte = reinterpret_cast<char*>(this) + index * Config::objectSize;
         if (verbose)
             fprintf(stderr, "%p: putting %p on free list.\n", this, cellByte);
-        FreeCell* cell = bitwise_cast<FreeCell*>(cellByte);
+        FreeCell* cell = std::bit_cast<FreeCell*>(cellByte);
         cell->setNext(head, secret);
         head = cell;
         bytes += Config::objectSize;
@@ -254,3 +258,5 @@ IsoHeapImpl<Config>& IsoPage<Config>::heap()
 
 } // namespace bmalloc
 
+#endif
+#endif // !BUSE(TZONE)

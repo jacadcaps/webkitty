@@ -46,6 +46,15 @@
 #include <wtf/StdLibExtras.h>
 #include <wtf/Threading.h>
 
+// X11 headers define a bunch of macros with common terms, interfering with WebCore and WTF enum values.
+// As a workaround, we explicitly undef them here.
+#if defined(False)
+#undef False
+#endif
+#if defined(True)
+#undef True
+#endif
+
 namespace WTF {
 
 enum class CanBeGCThread {
@@ -93,7 +102,9 @@ private:
 
         PointerType storagePointer() const { return const_cast<PointerType>(reinterpret_cast<const T*>(&m_storage)); }
 
+        ALLOW_DEPRECATED_DECLARATIONS_BEGIN
         typename std::aligned_storage<sizeof(T), std::alignment_of<T>::value>::type m_storage;
+        ALLOW_DEPRECATED_DECLARATIONS_END
         ThreadSpecific<T, canBeGCThread>* owner;
     };
 

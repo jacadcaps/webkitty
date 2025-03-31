@@ -37,6 +37,7 @@
 #include <WebCore/TextureMapperFPSCounter.h>
 #include <WebCore/Timer.h>
 #include <wtf/Forward.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 class GraphicsLayer;
@@ -44,7 +45,15 @@ class GraphicsLayerFactory;
 class IntRect;
 class IntSize;
 class Page;
-struct ViewportAttributes;
+}
+
+namespace WebKit {
+class LayerTreeHost;
+}
+
+namespace WTF {
+template<typename T> struct IsDeprecatedTimerSmartPointerException;
+template<> struct IsDeprecatedTimerSmartPointerException<WebKit::LayerTreeHost> : std::true_type { };
 }
 
 namespace WebKit {
@@ -52,13 +61,13 @@ namespace WebKit {
 class WebPage;
 
 class LayerTreeHost : public WebCore::GraphicsLayerClient {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(LayerTreeHost);
 public:
     explicit LayerTreeHost(WebPage&);
     ~LayerTreeHost();
 
     const LayerTreeContext& layerTreeContext() const { return m_layerTreeContext; }
-    void setLayerFlushSchedulingEnabled(bool);
+    void setLayerTreeStateIsFrozen(bool);
     void setShouldNotifyAfterNextScheduledLayerFlush(bool);
     void scheduleLayerFlush();
     void cancelPendingLayerFlush();
@@ -67,25 +76,24 @@ public:
     void setNonCompositedContentsNeedDisplay(const WebCore::IntRect&);
     void scrollNonCompositedContents(const WebCore::IntRect&);
     void forceRepaint();
-    bool forceRepaintAsync(CallbackID);
-    void sizeDidChange(const WebCore::IntSize& newSize);
+    void forceRepaintAsync(CompletionHandler<void()>&&);
+    void sizeDidChange();
     void pauseRendering();
     void resumeRendering();
     WebCore::GraphicsLayerFactory* graphicsLayerFactory();
     void contentsSizeChanged(const WebCore::IntSize&);
-    void didChangeViewportAttributes(WebCore::ViewportAttributes&&);
     void setIsDiscardable(bool);
-    void deviceOrPageScaleFactorChanged();
+    void backgroundColorDidChange();
     RefPtr<WebCore::DisplayRefreshMonitor> createDisplayRefreshMonitor(WebCore::PlatformDisplayID);
     WebCore::PlatformDisplayID displayID() const { return m_displayID; }
 
 private:
     // GraphicsLayerClient
-    void paintContents(const WebCore::GraphicsLayer*, WebCore::GraphicsContext&, const WebCore::FloatRect& rectToPaint, WebCore::GraphicsLayerPaintBehavior) override;
+    void paintContents(const WebCore::GraphicsLayer*, WebCore::GraphicsContext&, const WebCore::FloatRect& rectToPaint, OptionSet<WebCore::GraphicsLayerPaintBehavior>) override;
     float deviceScaleFactor() const override;
 
     void initialize();
-    HWND window();
+    GLNativeWindowType window();
     bool enabled();
     void compositeLayersToContext();
     void flushAndRenderLayers();
@@ -105,6 +113,7 @@ private:
     std::unique_ptr<WebCore::TextureMapper> m_textureMapper;
     WebCore::TextureMapperFPSCounter m_fpsCounter;
     WebCore::Timer m_layerFlushTimer;
+    bool m_isSuspended { false };
 };
 
 } // namespace WebKit

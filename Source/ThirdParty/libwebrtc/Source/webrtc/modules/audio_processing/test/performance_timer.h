@@ -11,9 +11,9 @@
 #ifndef MODULES_AUDIO_PROCESSING_TEST_PERFORMANCE_TIMER_H_
 #define MODULES_AUDIO_PROCESSING_TEST_PERFORMANCE_TIMER_H_
 
+#include <optional>
 #include <vector>
 
-#include "absl/types/optional.h"
 #include "system_wrappers/include/clock.h"
 
 namespace webrtc {
@@ -31,13 +31,13 @@ class PerformanceTimer {
   double GetDurationStandardDeviation() const;
 
   // These methods are the same as those above, but they ignore the first
-  // |number_of_warmup_samples| measurements.
+  // `number_of_warmup_samples` measurements.
   double GetDurationAverage(size_t number_of_warmup_samples) const;
   double GetDurationStandardDeviation(size_t number_of_warmup_samples) const;
 
  private:
   webrtc::Clock* clock_;
-  absl::optional<int64_t> start_timestamp_us_;
+  std::optional<int64_t> start_timestamp_us_;
   std::vector<int64_t> timestamps_us_;
 };
 

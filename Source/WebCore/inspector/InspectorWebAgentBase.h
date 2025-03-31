@@ -26,14 +26,14 @@
 
 #pragma once
 
+#include "Page.h"
+#include "WorkerOrWorkletGlobalScope.h"
 #include <JavaScriptCore/InspectorAgentBase.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
 class InstrumentingAgents;
-class Page;
-class WorkerGlobalScope;
 
 // FIXME: move this to Inspector namespace when remaining agents move.
 struct WebAgentContext : public Inspector::AgentContext {
@@ -53,17 +53,17 @@ struct PageAgentContext : public WebAgentContext {
     {
     }
 
-    Page& inspectedPage;
+    WeakRef<Page> inspectedPage;
 };
 
 struct WorkerAgentContext : public WebAgentContext {
-    WorkerAgentContext(WebAgentContext& context, WorkerGlobalScope& workerGlobalScope)
+    WorkerAgentContext(WebAgentContext& context, WorkerOrWorkletGlobalScope& globalScope)
         : WebAgentContext(context)
-        , workerGlobalScope(workerGlobalScope)
+        , globalScope(globalScope)
     {
     }
 
-    WorkerGlobalScope& workerGlobalScope;
+    WeakRef<WorkerOrWorkletGlobalScope> globalScope;
 };
 
 class InspectorAgentBase : public Inspector::InspectorAgentBase {

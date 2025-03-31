@@ -26,9 +26,12 @@
 #pragma once
 
 #include <array>
+#include <wtf/StdLibExtras.h>
 #include <wtf/text/AtomString.h>
 
 namespace WTF {
+
+DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(BloomFilter);
 
 // Bloom filter with k=2. Uses 2^keyBits/8 bytes of memory.
 // False positive rate is approximately (1-e^(-2n/m))^2, where n is the number of unique 
@@ -36,7 +39,7 @@ namespace WTF {
 // See http://en.wikipedia.org/wiki/Bloom_filter
 template <unsigned keyBits>
 class BloomFilter {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(BloomFilter);
 public:
     static constexpr size_t tableSize = 1 << keyBits;
 
@@ -100,9 +103,10 @@ inline std::pair<unsigned, unsigned> BloomFilter<keyBits>::keysFromHash(const st
 {
     // We could use larger k value than 2 for long hashes.
     static_assert(hashSize >= 2 * sizeof(unsigned), "Hash array too short");
+    std::span hashSpan { hash };
     return {
-        *reinterpret_cast<const unsigned*>(hash.data()),
-        *reinterpret_cast<const unsigned*>(hash.data() + sizeof(unsigned))
+        reinterpretCastSpanStartTo<unsigned>(hashSpan),
+        reinterpretCastSpanStartTo<unsigned>(hashSpan.subspan(sizeof(unsigned)))
     };
 }
 

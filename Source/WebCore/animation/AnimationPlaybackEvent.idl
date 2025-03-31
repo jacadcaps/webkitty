@@ -23,12 +23,13 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-[
-    EnabledAtRuntime=WebAnimations,
-    Exposed=Window,
-] interface AnimationPlaybackEvent : Event {
-    constructor(DOMString type, optional AnimationPlaybackEventInit eventInitDict);
+typedef (double or CSSNumericValue) CSSNumberish;
 
-    [ImplementedAs=bindingsCurrentTime] readonly attribute double? currentTime;
-    [ImplementedAs=bindingsTimelineTime] readonly attribute double? timelineTime;
+[
+    Exposed=Window
+] interface AnimationPlaybackEvent : Event {
+    constructor([AtomString] DOMString type, optional AnimationPlaybackEventInit eventInitDict);
+
+    readonly attribute CSSNumberish? currentTime;
+    readonly attribute CSSNumberish? timelineTime;
 };

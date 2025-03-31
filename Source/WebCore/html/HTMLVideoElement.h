@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007, 2008, 2009, 2010 Apple Inc. All rights reserved.
+ * Copyright (C) 2007-2020 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,19 +29,28 @@
 
 #include "HTMLMediaElement.h"
 #include "Supplementable.h"
+#include "VideoFrameRequestCallback.h"
 #include <memory>
 
 namespace WebCore {
 
+class DestinationColorSpace;
 class HTMLImageLoader;
+class ImageBuffer;
 class RenderVideo;
 class PictureInPictureObserver;
+class VideoFrameRequestCallback;
+
+enum class ImageBufferPixelFormat : uint8_t;
+enum class RenderingMode : uint8_t;
 
 class HTMLVideoElement final : public HTMLMediaElement, public Supplementable<HTMLVideoElement> {
-    WTF_MAKE_ISO_ALLOCATED(HTMLVideoElement);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(HTMLVideoElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HTMLVideoElement);
 public:
     WEBCORE_EXPORT static Ref<HTMLVideoElement> create(Document&);
     static Ref<HTMLVideoElement> create(const QualifiedName&, Document&, bool createdByParser);
+    ~HTMLVideoElement();
 
     WEBCORE_EXPORT unsigned videoWidth() const;
     WEBCORE_EXPORT unsigned videoHeight() const;
@@ -50,6 +59,7 @@ public:
     WEBCORE_EXPORT void webkitExitFullscreen();
     WEBCORE_EXPORT bool webkitSupportsFullscreen();
     WEBCORE_EXPORT bool webkitDisplayingFullscreen();
+    WEBCORE_EXPORT ExceptionOr<void> enterFullscreenIgnoringPermissionsPolicy();
 
     void ancestorWillEnterFullscreen() final;
 
@@ -64,34 +74,42 @@ public:
 #endif
 
 #if ENABLE(FULLSCREEN_API) && PLATFORM(IOS_FAMILY)
-    void webkitRequestFullscreen() override;
+    void requestFullscreen(FullscreenOptions&&, RefPtr<DeferredPromise>&&) override;
 #endif
+
+    RefPtr<ImageBuffer> createBufferForPainting(const FloatSize&, RenderingMode, const DestinationColorSpace&, ImageBufferPixelFormat) const;
+
+    // Used by render painting. Best effort, only paint if we already have an image generator or video output available.
+    void paint(GraphicsContext&, const FloatRect&);
 
     // Used by canvas to gain raw pixel access
     void paintCurrentFrameInContext(GraphicsContext&, const FloatRect&);
 
-    NativeImagePtr nativeImageForCurrentTime();
+    bool shouldGetNativeImageForCanvasDrawing() const;
+    WEBCORE_EXPORT RefPtr<NativeImage> nativeImageForCurrentTime();
+    std::optional<DestinationColorSpace> colorSpace() const;
 
-    // Used by WebGL to do GPU-GPU textures copy if possible.
-    // See more details at MediaPlayer::copyVideoTextureToPlatformTexture() defined in Source/WebCore/platform/graphics/MediaPlayer.h.
-    bool copyVideoTextureToPlatformTexture(GraphicsContextGLOpenGL*, PlatformGLObject texture, GCGLenum target, GCGLint level, GCGLenum internalFormat, GCGLenum format, GCGLenum type, bool premultiplyAlpha, bool flipY);
-
-    bool shouldDisplayPosterImage() const { return displayMode() == Poster || displayMode() == PosterWaitingForVideo; }
+    WEBCORE_EXPORT bool shouldDisplayPosterImage() const;
 
     URL posterImageURL() const;
     RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
+    bool isReplaced(const RenderStyle&) const final { return true; }
 
 #if ENABLE(VIDEO_PRESENTATION_MODE)
-    enum class VideoPresentationMode { Inline, Fullscreen, PictureInPicture};
+    enum class VideoPresentationMode { Inline, Fullscreen, PictureInPicture, InWindow };
+    static VideoPresentationMode toPresentationMode(HTMLMediaElementEnums::VideoFullscreenMode);
     WEBCORE_EXPORT bool webkitSupportsPresentationMode(VideoPresentationMode) const;
-    void webkitSetPresentationMode(VideoPresentationMode);
     VideoPresentationMode webkitPresentationMode() const;
-    void setFullscreenMode(VideoFullscreenMode);
-    void fullscreenModeChanged(VideoFullscreenMode) final;
+    VideoPresentationMode webkitPresentationModeForBindings() const;
+    void webkitSetPresentationMode(VideoPresentationMode);
 
-    WEBCORE_EXPORT void didBecomeFullscreenElement() final;
-    WEBCORE_EXPORT void didStopBeingFullscreenElement() final;
-    void setVideoFullscreenFrame(FloatRect) final;
+    WEBCORE_EXPORT void setPresentationMode(VideoPresentationMode);
+    WEBCORE_EXPORT void didEnterFullscreenOrPictureInPicture(const FloatSize&);
+    WEBCORE_EXPORT void didExitFullscreenOrPictureInPicture();
+    WEBCORE_EXPORT bool isChangingPresentationMode() const;
+    WEBCORE_EXPORT void setPresentationModeIgnoringPermissionsPolicy(VideoPresentationMode);
+
+    void setVideoFullscreenFrame(const FloatRect&) final;
 
 #if ENABLE(PICTURE_IN_PICTURE_API)
     void setPictureInPictureObserver(PictureInPictureObserver*);
@@ -103,54 +121,103 @@ public:
 #endif
 
     RenderVideo* renderer() const;
+    void acceleratedRenderingStateChanged();
+    bool supportsAcceleratedRendering() const;
+
+    bool shouldServiceRequestVideoFrameCallbacks() const { return !m_videoFrameRequests.isEmpty(); }
+    void serviceRequestVideoFrameCallbacks(ReducedResolutionSeconds);
+
+    unsigned requestVideoFrameCallback(Ref<VideoFrameRequestCallback>&&);
+    void cancelVideoFrameCallback(unsigned);
+
+    WEBCORE_EXPORT void setVideoFullscreenStandby(bool);
+
+#if USE(GSTREAMER)
+    void enableGStreamerHolePunching() { m_enableGStreamerHolePunching = true; }
+    bool isGStreamerHolePunchingEnabled() const final { return m_enableGStreamerHolePunching; }
+#endif
+
+    // ActiveDOMObject
+    void stop() final;
 
 private:
     HTMLVideoElement(const QualifiedName&, Document&, bool createdByParser);
 
-    void scheduleResizeEvent() final;
-    void scheduleResizeEventIfSizeChanged() final;
+    void scheduleResizeEvent(const FloatSize&) final;
+    void scheduleResizeEventIfSizeChanged(const FloatSize&) final;
     bool rendererIsNeeded(const RenderStyle&) final;
     void didAttachRenderers() final;
-    void parseAttribute(const QualifiedName&, const AtomString&) final;
-    bool isPresentationAttribute(const QualifiedName&) const final;
-    void collectStyleForPresentationAttribute(const QualifiedName&, const AtomString&, MutableStyleProperties&) final;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
+    bool hasPresentationalHintsForAttribute(const QualifiedName&) const final;
+    void collectPresentationalHintsForAttribute(const QualifiedName&, const AtomString&, MutableStyleProperties&) final;
     bool isVideo() const final { return true; }
-    bool hasVideo() const final { return player() && player()->hasVideo(); }
+    bool hasVideo() const final { return player() && protectedPlayer()->hasVideo(); }
     bool supportsFullscreen(HTMLMediaElementEnums::VideoFullscreenMode) const final;
     bool isURLAttribute(const Attribute&) const final;
     const AtomString& imageSourceURL() const final;
 
-    bool hasAvailableVideoFrame() const;
-    void updateDisplayState() final;
     void didMoveToNewDocument(Document& oldDocument, Document& newDocument) final;
-    void setDisplayMode(DisplayMode) final;
+
+    bool hasAvailableVideoFrame() const;
+    void mediaPlayerFirstVideoFrameAvailable() final;
 
     PlatformMediaSession::MediaType presentationType() const final { return PlatformMediaSession::MediaType::Video; }
+
+    bool mediaPlayerRenderingCanBeAccelerated() final { return m_renderingCanBeAccelerated; }
+    void mediaPlayerRenderingModeChanged() final;
+    void mediaPlayerEngineUpdated() final;
+
+    void computeAcceleratedRenderingStateAndUpdateMediaPlayer() final;
+#if PLATFORM(IOS_FAMILY)
+    bool canShowWhileLocked() const final;
+#endif
 
     std::unique_ptr<HTMLImageLoader> m_imageLoader;
 
     AtomString m_defaultPosterURL;
 
-    unsigned m_lastReportedVideoWidth { 0 };
-    unsigned m_lastReportedVideoHeight { 0 };
-    bool m_isChangingPresentationMode { false };
+    FloatSize m_lastReportedNaturalSize { };
+
+    bool m_renderingCanBeAccelerated { false };
 
 #if ENABLE(VIDEO_PRESENTATION_MODE)
-    bool m_isEnteringOrExitingPictureInPicture { false };
-    bool m_isWaitingForPictureInPictureWindowFrame { false };
+    bool m_enteringPictureInPicture { false };
+    bool m_exitingPictureInPicture { false };
 #endif
 
 #if ENABLE(PICTURE_IN_PICTURE_API)
-    PictureInPictureObserver* m_pictureInPictureObserver { nullptr };
+    WeakPtr<PictureInPictureObserver> m_pictureInPictureObserver;
+#endif
+
+    struct VideoFrameRequest {
+        WTF_MAKE_STRUCT_FAST_ALLOCATED;
+        VideoFrameRequest(unsigned identifier, Ref<VideoFrameRequestCallback>&& callback)
+            : identifier(identifier)
+            , callback(WTFMove(callback))
+        {
+        }
+
+        unsigned identifier { 0 };
+        RefPtr<VideoFrameRequestCallback> callback;
+    };
+    Vector<UniqueRef<VideoFrameRequest>> m_videoFrameRequests;
+    Vector<UniqueRef<VideoFrameRequest>> m_servicedVideoFrameRequests;
+    unsigned m_nextVideoFrameRequestIndex { 0 };
+
+#if USE(GSTREAMER)
+    bool m_enableGStreamerHolePunching { false };
 #endif
 };
 
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::HTMLVideoElement)
-    static bool isType(const WebCore::HTMLMediaElement& element) { return element.hasTagName(WebCore::HTMLNames::videoTag); }
-    static bool isType(const WebCore::Element& element) { return is<WebCore::HTMLMediaElement>(element) && isType(downcast<WebCore::HTMLMediaElement>(element)); }
-    static bool isType(const WebCore::Node& node) { return is<WebCore::HTMLMediaElement>(node) && isType(downcast<WebCore::HTMLMediaElement>(node)); }
+    static bool isType(const WebCore::HTMLElement& element) { return element.hasTagName(WebCore::HTMLNames::videoTag); }
+    static bool isType(const WebCore::Node& node)
+    {
+        auto* element = dynamicDowncast<WebCore::HTMLElement>(node);
+        return element && isType(*element);
+    }
 SPECIALIZE_TYPE_TRAITS_END()
 
 #endif // ENABLE(VIDEO)

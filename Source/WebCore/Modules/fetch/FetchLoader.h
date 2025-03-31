@@ -30,6 +30,8 @@
 
 #include "ThreadableLoader.h"
 #include "ThreadableLoaderClient.h"
+#include "URLKeepingBlobAlive.h"
+#include <wtf/CheckedPtr.h>
 #include <wtf/URL.h>
 
 namespace WebCore {
@@ -39,16 +41,18 @@ class FetchBodyConsumer;
 class FetchLoaderClient;
 class FetchRequest;
 class ScriptExecutionContext;
-class SharedBuffer;
+class FragmentedSharedBuffer;
 
-class FetchLoader final : public ThreadableLoaderClient {
+class WEBCORE_EXPORT FetchLoader final : public ThreadableLoaderClient {
+    WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(Loader);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(FetchLoader);
 public:
     FetchLoader(FetchLoaderClient&, FetchBodyConsumer*);
-    WEBCORE_EXPORT ~FetchLoader();
+    ~FetchLoader();
 
-    RefPtr<SharedBuffer> startStreaming();
+    RefPtr<FragmentedSharedBuffer> startStreaming();
 
-    void start(ScriptExecutionContext&, const FetchRequest&);
+    void start(ScriptExecutionContext&, const FetchRequest&, const String&);
     void start(ScriptExecutionContext&, const Blob&);
     void startLoadingBlobURL(ScriptExecutionContext&, const URL& blobURL);
     void stop();
@@ -57,17 +61,17 @@ public:
 
 private:
     // ThreadableLoaderClient API.
-    void didReceiveResponse(unsigned long, const ResourceResponse&) final;
-    void didReceiveData(const char*, int) final;
-    void didFinishLoading(unsigned long) final;
-    void didFail(const ResourceError&) final;
+    void didReceiveResponse(ScriptExecutionContextIdentifier, std::optional<ResourceLoaderIdentifier>, const ResourceResponse&) final;
+    void didReceiveData(const SharedBuffer&) final;
+    void didFinishLoading(ScriptExecutionContextIdentifier, std::optional<ResourceLoaderIdentifier>, const NetworkLoadMetrics&) final;
+    void didFail(std::optional<ScriptExecutionContextIdentifier>, const ResourceError&) final;
 
 private:
-    FetchLoaderClient& m_client;
+    CheckedRef<FetchLoaderClient> m_client;
     RefPtr<ThreadableLoader> m_loader;
-    FetchBodyConsumer* m_consumer;
+    CheckedPtr<FetchBodyConsumer> m_consumer;
     bool m_isStarted { false };
-    URL m_urlForReading;
+    URLKeepingBlobAlive m_urlForReading;
 };
 
 } // namespace WebCore

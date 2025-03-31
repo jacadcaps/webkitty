@@ -27,12 +27,9 @@
 
 #include "WebBackForwardListCounts.h"
 #include <WebCore/BackForwardClient.h>
+#include <WebCore/BackForwardItemIdentifier.h>
+#include <WebCore/FrameIdentifier.h>
 #include <WebCore/PageIdentifier.h>
-#include <wtf/HashSet.h>
-
-namespace WebCore {
-struct BackForwardItemIdentifier;
-}
 
 namespace WebKit {
 
@@ -42,34 +39,30 @@ class WebBackForwardListProxy : public WebCore::BackForwardClient {
 public: 
     static Ref<WebBackForwardListProxy> create(WebPage& page) { return adoptRef(*new WebBackForwardListProxy(page)); }
 
-    static WebCore::HistoryItem* itemForID(const WebCore::BackForwardItemIdentifier&);
-    static void removeItem(const WebCore::BackForwardItemIdentifier&);
+    static void removeItem(WebCore::BackForwardItemIdentifier);
 
-    enum class OverwriteExistingItem {
-        Yes,
-        No
-    };
-    void addItemFromUIProcess(const WebCore::BackForwardItemIdentifier&, Ref<WebCore::HistoryItem>&&, WebCore::PageIdentifier, OverwriteExistingItem);
-
-    void clear();
+    void clearCachedListCounts();
 
 private:
     WebBackForwardListProxy(WebPage&);
 
     void addItem(Ref<WebCore::HistoryItem>&&) override;
+    void setChildItem(WebCore::BackForwardFrameItemIdentifier, Ref<WebCore::HistoryItem>&&) final;
 
     void goToItem(WebCore::HistoryItem&) override;
-        
-    RefPtr<WebCore::HistoryItem> itemAtIndex(int) override;
+    void goToProvisionalItem(const WebCore::HistoryItem&) final;
+    void clearProvisionalItem(const WebCore::HistoryItem&) final;
+
+    RefPtr<WebCore::HistoryItem> itemAtIndex(int, WebCore::FrameIdentifier) override;
     unsigned backListCount() const override;
     unsigned forwardListCount() const override;
+    bool containsItem(const WebCore::HistoryItem&) const final;
     const WebBackForwardListCounts& cacheListCountsIfNecessary() const;
-    void clearCachedListCounts();
 
     void close() override;
 
-    WebPage* m_page;
-    mutable Optional<WebBackForwardListCounts> m_cachedBackForwardListCounts;
+    WeakPtr<WebPage> m_page;
+    mutable std::optional<WebBackForwardListCounts> m_cachedBackForwardListCounts;
 };
 
 } // namespace WebKit

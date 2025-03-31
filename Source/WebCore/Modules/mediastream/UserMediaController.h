@@ -27,17 +27,19 @@
 
 #if ENABLE(MEDIA_STREAM)
 
-#include "FeaturePolicy.h"
 #include "Page.h"
 #include "UserMediaClient.h"
 #include <wtf/CompletionHandler.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/WeakHashSet.h>
 
 namespace WebCore {
 
+class Exception;
 class UserMediaRequest;
 
 class UserMediaController : public Supplement<Page> {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(UserMediaController);
 public:
     explicit UserMediaController(UserMediaClient*);
     ~UserMediaController();
@@ -47,20 +49,29 @@ public:
     void requestUserMediaAccess(UserMediaRequest&);
     void cancelUserMediaAccessRequest(UserMediaRequest&);
 
-    void enumerateMediaDevices(Document&, CompletionHandler<void(const Vector<CaptureDevice>&, const String&)>&&);
+    void enumerateMediaDevices(Document&, UserMediaClient::EnumerateDevicesCallback&&);
 
-    UserMediaClient::DeviceChangeObserverToken addDeviceChangeObserver(WTF::Function<void()>&&);
+    UserMediaClient::DeviceChangeObserverToken addDeviceChangeObserver(Function<void()>&&);
     void removeDeviceChangeObserver(UserMediaClient::DeviceChangeObserverToken);
+
+    void updateCaptureState(const Document&, bool isActive, MediaProducerMediaCaptureKind, CompletionHandler<void(std::optional<Exception>&&)>&&);
 
     void logGetUserMediaDenial(Document&);
     void logGetDisplayMediaDenial(Document&);
     void logEnumerateDevicesDenial(Document&);
 
-    WEBCORE_EXPORT static const char* supplementName();
+    void setShouldListenToVoiceActivity(Document&, bool);
+    void checkDocumentForVoiceActivity(const Document*);
+    void voiceActivityDetected();
+
+    WEBCORE_EXPORT static ASCIILiteral supplementName();
     static UserMediaController* from(Page* page) { return static_cast<UserMediaController*>(Supplement<Page>::from(page, supplementName())); }
 
 private:
     UserMediaClient* m_client;
+
+    WeakHashSet<Document, WeakPtrImplWithEventTargetData> m_voiceActivityDocuments;
+    bool m_shouldListenToVoiceActivity { false };
 };
 
 inline void UserMediaController::requestUserMediaAccess(UserMediaRequest& request)
@@ -73,13 +84,13 @@ inline void UserMediaController::cancelUserMediaAccessRequest(UserMediaRequest& 
     m_client->cancelUserMediaAccessRequest(request);
 }
 
-inline void UserMediaController::enumerateMediaDevices(Document& document, CompletionHandler<void(const Vector<CaptureDevice>&, const String&)>&& completionHandler)
+inline void UserMediaController::enumerateMediaDevices(Document& document, UserMediaClient::EnumerateDevicesCallback&& completionHandler)
 {
     m_client->enumerateMediaDevices(document, WTFMove(completionHandler));
 }
 
 
-inline UserMediaClient::DeviceChangeObserverToken UserMediaController::addDeviceChangeObserver(WTF::Function<void()>&& observer)
+inline UserMediaClient::DeviceChangeObserverToken UserMediaController::addDeviceChangeObserver(Function<void()>&& observer)
 {
     return m_client->addDeviceChangeObserver(WTFMove(observer));
 }
@@ -87,6 +98,11 @@ inline UserMediaClient::DeviceChangeObserverToken UserMediaController::addDevice
 inline void UserMediaController::removeDeviceChangeObserver(UserMediaClient::DeviceChangeObserverToken token)
 {
     m_client->removeDeviceChangeObserver(token);
+}
+
+inline void UserMediaController::updateCaptureState(const Document& document, bool isActive, MediaProducerMediaCaptureKind kind, CompletionHandler<void(std::optional<Exception>&&)>&& completionHandler)
+{
+    m_client->updateCaptureState(document, isActive, kind, WTFMove(completionHandler));
 }
 
 } // namespace WebCore

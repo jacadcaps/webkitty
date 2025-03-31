@@ -1,7 +1,8 @@
 /*
  * Copyright (C) 2006 Rob Buis <buis@kde.org>
  *           (C) 2008 Nikolas Zimmermann <zimmermann@kde.org>
- * Copyright (C) 2008-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2008-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2024 Samuel Weinig <sam@webkit.org>
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -24,94 +25,70 @@
 
 #include "CSSImageSetValue.h"
 #include "CSSImageValue.h"
-#include "CachedImage.h"
-#include "CachedResourceLoader.h"
 #include "SVGCursorElement.h"
+#include "SVGElementTypeHelpers.h"
 #include "SVGLengthContext.h"
 #include "SVGURIReference.h"
+#include "StyleBuilderState.h"
+#include "StyleCursorImage.h"
 #include <wtf/MathExtras.h>
-#include <wtf/text/StringBuilder.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
-CSSCursorImageValue::CSSCursorImageValue(Ref<CSSValue>&& imageValue, bool hasHotSpot, const IntPoint& hotSpot, LoadedFromOpaqueSource loadedFromOpaqueSource)
-    : CSSValue(CursorImageClass)
+Ref<CSSCursorImageValue> CSSCursorImageValue::create(Ref<CSSValue>&& value, RefPtr<CSSValue>&& hotSpot, LoadedFromOpaqueSource loadedFromOpaqueSource)
+{
+    auto* imageValue = dynamicDowncast<CSSImageValue>(value.get());
+    auto originalURL = imageValue ? imageValue->imageURL() : URL();
+    return adoptRef(*new CSSCursorImageValue(WTFMove(value), WTFMove(hotSpot), WTFMove(originalURL), loadedFromOpaqueSource));
+}
+
+Ref<CSSCursorImageValue> CSSCursorImageValue::create(Ref<CSSValue>&& imageValue, RefPtr<CSSValue>&& hotSpot, URL originalURL, LoadedFromOpaqueSource loadedFromOpaqueSource)
+{
+    return adoptRef(*new CSSCursorImageValue(WTFMove(imageValue), WTFMove(hotSpot), WTFMove(originalURL), loadedFromOpaqueSource));
+}
+
+CSSCursorImageValue::CSSCursorImageValue(Ref<CSSValue>&& imageValue, RefPtr<CSSValue>&& hotSpot, URL originalURL, LoadedFromOpaqueSource loadedFromOpaqueSource)
+    : CSSValue(ClassType::CursorImage)
+    , m_originalURL(WTFMove(originalURL))
     , m_imageValue(WTFMove(imageValue))
-    , m_hasHotSpot(hasHotSpot)
-    , m_hotSpot(hotSpot)
+    , m_hotSpot(WTFMove(hotSpot))
     , m_loadedFromOpaqueSource(loadedFromOpaqueSource)
 {
-    if (is<CSSImageValue>(m_imageValue.get()))
-        m_originalURL = downcast<CSSImageValue>(m_imageValue.get()).url();
 }
 
-CSSCursorImageValue::~CSSCursorImageValue()
-{
-    for (auto* element : m_cursorElements)
-        element->removeClient(*this);
-}
+CSSCursorImageValue::~CSSCursorImageValue() = default;
 
-String CSSCursorImageValue::customCSSText() const
+String CSSCursorImageValue::customCSSText(const CSS::SerializationContext& context) const
 {
-    String text = m_imageValue.get().cssText();
-    if (!m_hasHotSpot)
+    auto text = m_imageValue->cssText(context);
+    if (!m_hotSpot)
         return text;
-    return makeString(text, ' ', m_hotSpot.x(), ' ', m_hotSpot.y());
-}
-
-// FIXME: Should this function take a TreeScope instead?
-SVGCursorElement* CSSCursorImageValue::updateCursorElement(const Document& document)
-{
-    if (!m_originalURL.hasFragmentIdentifier())
-        return nullptr;
-
-    auto element = SVGURIReference::targetElementFromIRIString(m_originalURL.string(), document).element;
-    if (!is<SVGCursorElement>(element))
-        return nullptr;
-
-    auto& cursorElement = downcast<SVGCursorElement>(*element);
-    if (m_cursorElements.add(&cursorElement).isNewEntry) {
-        cursorElementChanged(cursorElement);
-        cursorElement.addClient(*this);
-    }
-    return &cursorElement;
-}
-
-void CSSCursorImageValue::cursorElementRemoved(SVGCursorElement& cursorElement)
-{
-    m_cursorElements.remove(&cursorElement);
-}
-
-void CSSCursorImageValue::cursorElementChanged(SVGCursorElement& cursorElement)
-{
-    // FIXME: This will override hot spot specified in CSS, which is probably incorrect.
-    SVGLengthContext lengthContext(nullptr);
-    m_hasHotSpot = true;
-    float x = std::round(cursorElement.x().value(lengthContext));
-    m_hotSpot.setX(static_cast<int>(x));
-
-    float y = std::round(cursorElement.y().value(lengthContext));
-    m_hotSpot.setY(static_cast<int>(y));
-}
-
-ImageWithScale CSSCursorImageValue::selectBestFitImage(const Document& document)
-{
-    if (is<CSSImageSetValue>(m_imageValue.get()))
-        return downcast<CSSImageSetValue>(m_imageValue.get()).selectBestFitImage(document);
-
-    if (auto* cursorElement = updateCursorElement(document)) {
-        if (cursorElement->href() != downcast<CSSImageValue>(m_imageValue.get()).url())
-            m_imageValue = CSSImageValue::create(document.completeURL(cursorElement->href()), m_loadedFromOpaqueSource);
-    }
-
-    return { m_imageValue.ptr() , 1 };
+    return makeString(text, ' ', m_hotSpot->first().cssText(context), ' ', m_hotSpot->second().cssText(context));
 }
 
 bool CSSCursorImageValue::equals(const CSSCursorImageValue& other) const
 {
-    return m_hasHotSpot ? other.m_hasHotSpot && m_hotSpot == other.m_hotSpot : !other.m_hasHotSpot
-        && compareCSSValue(m_imageValue, other.m_imageValue);
+    return compareCSSValue(m_imageValue, other.m_imageValue)
+        && compareCSSValuePtr(m_hotSpot, other.m_hotSpot);
+}
+
+RefPtr<StyleCursorImage> CSSCursorImageValue::createStyleImage(const Style::BuilderState& state) const
+{
+    auto styleImage = state.createStyleImage(m_imageValue.get());
+    if (!styleImage)
+        return nullptr;
+
+    std::optional<IntPoint> hotSpot;
+    if (m_hotSpot) {
+        // FIXME: Should we clamp or round instead of just casting from double to int?
+        hotSpot = IntPoint {
+            static_cast<int>(downcast<CSSPrimitiveValue>(m_hotSpot->first()).resolveAsNumber(state.cssToLengthConversionData())),
+            static_cast<int>(downcast<CSSPrimitiveValue>(m_hotSpot->second()).resolveAsNumber(state.cssToLengthConversionData()))
+        };
+    }
+    return StyleCursorImage::create(styleImage.releaseNonNull(), hotSpot, m_originalURL, m_loadedFromOpaqueSource);
 }
 
 } // namespace WebCore

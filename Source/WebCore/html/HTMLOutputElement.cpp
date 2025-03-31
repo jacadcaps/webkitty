@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2010 Google Inc. All rights reserved.
+ * Copyright (c) 2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -31,33 +32,38 @@
 #include "config.h"
 #include "HTMLOutputElement.h"
 
+#include "DOMTokenList.h"
+#include "Document.h"
+#include "ElementInlines.h"
 #include "HTMLFormElement.h"
 #include "HTMLNames.h"
-#include <wtf/IsoMallocInlines.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLOutputElement);
-
-using namespace HTMLNames;
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(HTMLOutputElement);
 
 inline HTMLOutputElement::HTMLOutputElement(const QualifiedName& tagName, Document& document, HTMLFormElement* form)
     : HTMLFormControlElement(tagName, document, form)
-    , m_isDefaultValueMode(true)
-    , m_isSetTextContentInProgress(false)
-    , m_defaultValue(emptyString())
 {
 }
+
+HTMLOutputElement::~HTMLOutputElement() = default;
 
 Ref<HTMLOutputElement> HTMLOutputElement::create(const QualifiedName& tagName, Document& document, HTMLFormElement* form)
 {
     return adoptRef(*new HTMLOutputElement(tagName, document, form));
 }
 
+Ref<HTMLOutputElement> HTMLOutputElement::create(Document& document)
+{
+    return create(HTMLNames::outputTag, document, nullptr);
+}
+
 const AtomString& HTMLOutputElement::formControlType() const
 {
-    static MainThreadNeverDestroyed<const AtomString> output("output", AtomString::ConstructFromLiteral);
+    static MainThreadNeverDestroyed<const AtomString> output("output"_s);
     return output;
 }
 
@@ -66,37 +72,18 @@ bool HTMLOutputElement::supportsFocus() const
     return HTMLElement::supportsFocus();
 }
 
-void HTMLOutputElement::parseAttribute(const QualifiedName& name, const AtomString& value)
+void HTMLOutputElement::attributeChanged(const QualifiedName& name, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason attributeModificationReason)
 {
-    if (name == forAttr) {
-        if (m_tokens)
-            m_tokens->associatedAttributeValueChanged(value);
-    } else
-        HTMLFormControlElement::parseAttribute(name, value);
-}
-
-void HTMLOutputElement::childrenChanged(const ChildChange& change)
-{
-    HTMLFormControlElement::childrenChanged(change);
-
-    if (change.source == ChildChangeSource::Parser || m_isSetTextContentInProgress) {
-        m_isSetTextContentInProgress = false;
-        return;
-    }
-
-    if (m_isDefaultValueMode)
-        m_defaultValue = textContent();
+    if (name == HTMLNames::forAttr && m_forTokens)
+        m_forTokens->associatedAttributeValueChanged();
+    HTMLFormControlElement::attributeChanged(name, oldValue, newValue, attributeModificationReason);
 }
 
 void HTMLOutputElement::reset()
 {
-    // The reset algorithm for output elements is to set the element's
-    // value mode flag to "default" and then to set the element's textContent
-    // attribute to the default value.
-    m_isDefaultValueMode = true;
-    if (m_defaultValue == value())
-        return;
-    setTextContentInternal(m_defaultValue);
+    setInteractedWithSinceLastFormSubmitEvent(false);
+    stringReplaceAll(defaultValue());
+    m_defaultValueOverride = { };
 }
 
 String HTMLOutputElement::value() const
@@ -104,43 +91,30 @@ String HTMLOutputElement::value() const
     return textContent();
 }
 
-void HTMLOutputElement::setValue(const String& value)
+void HTMLOutputElement::setValue(String&& value)
 {
-    // The value mode flag set to "value" when the value attribute is set.
-    m_isDefaultValueMode = false;
-    if (value == this->value())
-        return;
-    setTextContentInternal(value);
+    m_defaultValueOverride = defaultValue();
+    stringReplaceAll(WTFMove(value));
 }
 
 String HTMLOutputElement::defaultValue() const
 {
-    return m_defaultValue;
+    return m_defaultValueOverride.isNull() ? textContent() : m_defaultValueOverride;
 }
 
-void HTMLOutputElement::setDefaultValue(const String& value)
+void HTMLOutputElement::setDefaultValue(String&& value)
 {
-    if (m_defaultValue == value)
-        return;
-    m_defaultValue = value;
-    // The spec requires the value attribute set to the default value
-    // when the element's value mode flag to "default".
-    if (m_isDefaultValueMode)
-        setTextContentInternal(value);
+    if (m_defaultValueOverride.isNull())
+        stringReplaceAll(WTFMove(value));
+    else
+        m_defaultValueOverride = WTFMove(value);
 }
 
 DOMTokenList& HTMLOutputElement::htmlFor()
 {
-    if (!m_tokens)
-        m_tokens = makeUnique<DOMTokenList>(*this, forAttr);
-    return *m_tokens;
-}
-
-void HTMLOutputElement::setTextContentInternal(const String& value)
-{
-    ASSERT(!m_isSetTextContentInProgress);
-    m_isSetTextContentInProgress = true;
-    setTextContent(value);
+    if (!m_forTokens)
+        m_forTokens = makeUniqueWithoutRefCountedCheck<DOMTokenList>(*this, HTMLNames::forAttr);
+    return *m_forTokens;
 }
 
 } // namespace

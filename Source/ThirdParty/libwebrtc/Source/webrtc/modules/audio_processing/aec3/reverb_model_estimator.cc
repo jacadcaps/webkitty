@@ -15,7 +15,10 @@ namespace webrtc {
 ReverbModelEstimator::ReverbModelEstimator(const EchoCanceller3Config& config,
                                            size_t num_capture_channels)
     : reverb_decay_estimators_(num_capture_channels),
-      reverb_frequency_responses_(num_capture_channels) {
+      reverb_frequency_responses_(
+          num_capture_channels,
+          ReverbFrequencyResponse(
+              config.ep_strength.use_conservative_tail_frequency_response)) {
   for (size_t ch = 0; ch < reverb_decay_estimators_.size(); ++ch) {
     reverb_decay_estimators_[ch] =
         std::make_unique<ReverbDecayEstimator>(config);
@@ -28,7 +31,7 @@ void ReverbModelEstimator::Update(
     rtc::ArrayView<const std::vector<float>> impulse_responses,
     rtc::ArrayView<const std::vector<std::array<float, kFftLengthBy2Plus1>>>
         frequency_responses,
-    rtc::ArrayView<const absl::optional<float>> linear_filter_qualities,
+    rtc::ArrayView<const std::optional<float>> linear_filter_qualities,
     rtc::ArrayView<const int> filter_delays_blocks,
     const std::vector<bool>& usable_linear_estimates,
     bool stationary_block) {

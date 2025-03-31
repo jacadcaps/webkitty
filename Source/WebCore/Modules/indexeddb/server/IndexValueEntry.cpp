@@ -26,12 +26,13 @@
 #include "config.h"
 #include "IndexValueEntry.h"
 
-#if ENABLE(INDEXED_DATABASE)
-
 #include "IDBCursorInfo.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 namespace IDBServer {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(IndexValueEntry);
 
 IndexValueEntry::IndexValueEntry(bool unique)
     : m_unique(unique)
@@ -228,5 +229,3 @@ IndexValueEntry::Iterator IndexValueEntry::reverseFind(const IDBKeyData& key, Cu
 
 } // namespace IDBServer
 } // namespace WebCore
-
-#endif // ENABLE(INDEXED_DATABASE)

@@ -28,29 +28,25 @@
 #if ENABLE(WEBGL)
 #include "WebGLCompressedTextureETC1.h"
 
-#include "ExtensionsGL.h"
-#include "WebGLRenderingContextBase.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WebGLCompressedTextureETC1::WebGLCompressedTextureETC1(WebGLRenderingContextBase& context)
-    : WebGLExtension(context)
-{
-    context.graphicsContextGL()->getExtensions().ensureEnabled("GL_OES_compressed_ETC1_RGB8_texture");
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(WebGLCompressedTextureETC1);
 
-    context.addCompressedTextureFormat(ExtensionsGL::ETC1_RGB8_OES);
+WebGLCompressedTextureETC1::WebGLCompressedTextureETC1(WebGLRenderingContextBase& context)
+    : WebGLExtension(context, WebGLExtensionName::WebGLCompressedTextureETC1)
+{
+    context.protectedGraphicsContextGL()->ensureExtensionEnabled("GL_OES_compressed_ETC1_RGB8_texture"_s);
+
+    context.addCompressedTextureFormat(GraphicsContextGL::ETC1_RGB8_OES);
 }
 
 WebGLCompressedTextureETC1::~WebGLCompressedTextureETC1() = default;
 
-WebGLExtension::ExtensionName WebGLCompressedTextureETC1::getName() const
+bool WebGLCompressedTextureETC1::supported(GraphicsContextGL& context)
 {
-    return WebGLCompressedTextureETC1Name;
-}
-
-bool WebGLCompressedTextureETC1::supported(WebGLRenderingContextBase& context)
-{
-    return context.graphicsContextGL()->getExtensions().supports("GL_OES_compressed_ETC1_RGB8_texture");
+    return context.supportsExtension("GL_OES_compressed_ETC1_RGB8_texture"_s);
 }
 
 } // namespace WebCore

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2019 Apple Inc.  All rights reserved.
+ * Copyright (C) 2018-2021 Apple Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -34,6 +34,7 @@ namespace WebCore {
 class SVGElement;
 
 class SVGAnimatedAngleOrientAnimator final : public SVGAnimatedPropertyPairAnimator<SVGAnimatedAngleAnimator, SVGAnimatedOrientTypeAnimator> {
+    WTF_MAKE_TZONE_ALLOCATED(SVGAnimatedAngleOrientAnimator);
     using Base = SVGAnimatedPropertyPairAnimator<SVGAnimatedAngleAnimator, SVGAnimatedOrientTypeAnimator>;
     using Base::Base;
 
@@ -44,7 +45,7 @@ public:
     }
 
 private:
-    void setFromAndToValues(SVGElement*, const String& from, const String& to) final
+    void setFromAndToValues(SVGElement&, const String& from, const String& to) final
     {
         auto pairFrom = SVGPropertyTraits<std::pair<SVGAngleValue, SVGMarkerOrientType>>::fromString(from);
         auto pairTo = SVGPropertyTraits<std::pair<SVGAngleValue, SVGMarkerOrientType>>::fromString(to);
@@ -56,7 +57,7 @@ private:
         m_animatedPropertyAnimator2->m_function.m_to = pairTo.second;
     }
 
-    void setFromAndByValues(SVGElement* targetElement, const String& from, const String& by) final
+    void setFromAndByValues(SVGElement& targetElement, const String& from, const String& by) final
     {
         setFromAndToValues(targetElement, from, by);
         if (m_animatedPropertyAnimator2->m_function.m_from != SVGMarkerOrientAngle || m_animatedPropertyAnimator2->m_function.m_to != SVGMarkerOrientAngle)
@@ -64,7 +65,7 @@ private:
         m_animatedPropertyAnimator1->m_function.addFromAndToValues(targetElement);
     }
 
-    void animate(SVGElement* targetElement, float progress, unsigned repeatCount) final
+    void animate(SVGElement& targetElement, float progress, unsigned repeatCount) final
     {
         if (m_animatedPropertyAnimator2->m_function.m_from != m_animatedPropertyAnimator2->m_function.m_to) {
             // Discrete animation - no linear interpolation possible between values (e.g. auto to angle).
@@ -97,7 +98,7 @@ private:
             m_animatedPropertyAnimator2->m_animated->setAnimVal(SVGMarkerOrientUnknown);
     }
 
-    void stop(SVGElement* targetElement) final
+    void stop(SVGElement& targetElement) final
     {
         if (!m_animatedPropertyAnimator1->m_animated->isAnimating())
             return;
@@ -107,6 +108,7 @@ private:
 };
 
 class SVGAnimatedIntegerPairAnimator final : public SVGAnimatedPropertyPairAnimator<SVGAnimatedIntegerAnimator, SVGAnimatedIntegerAnimator> {
+    WTF_MAKE_TZONE_ALLOCATED(SVGAnimatedIntegerPairAnimator);
     using Base = SVGAnimatedPropertyPairAnimator<SVGAnimatedIntegerAnimator, SVGAnimatedIntegerAnimator>;
     using Base::Base;
 
@@ -117,7 +119,7 @@ public:
     }
 
 private:
-    void setFromAndToValues(SVGElement*, const String& from, const String& to) final
+    void setFromAndToValues(SVGElement&, const String& from, const String& to) final
     {
         auto pairFrom = SVGPropertyTraits<std::pair<int, int>>::fromString(from);
         auto pairTo = SVGPropertyTraits<std::pair<int, int>>::fromString(to);
@@ -129,7 +131,7 @@ private:
         m_animatedPropertyAnimator2->m_function.m_to = pairTo.second;
     }
 
-    void setFromAndByValues(SVGElement*, const String& from, const String& by) final
+    void setFromAndByValues(SVGElement&, const String& from, const String& by) final
     {
         auto pairFrom = SVGPropertyTraits<std::pair<int, int>>::fromString(from);
         auto pairBy = SVGPropertyTraits<std::pair<int, int>>::fromString(by);
@@ -150,6 +152,7 @@ private:
 };
 
 class SVGAnimatedNumberPairAnimator final : public SVGAnimatedPropertyPairAnimator<SVGAnimatedNumberAnimator, SVGAnimatedNumberAnimator> {
+    WTF_MAKE_TZONE_ALLOCATED(SVGAnimatedNumberPairAnimator);
     using Base = SVGAnimatedPropertyPairAnimator<SVGAnimatedNumberAnimator, SVGAnimatedNumberAnimator>;
     using Base::Base;
 
@@ -160,7 +163,7 @@ public:
     }
 
 private:
-    void setFromAndToValues(SVGElement*, const String& from, const String& to) final
+    void setFromAndToValues(SVGElement&, const String& from, const String& to) final
     {
         auto pairFrom = SVGPropertyTraits<std::pair<float, float>>::fromString(from);
         auto pairTo = SVGPropertyTraits<std::pair<float, float>>::fromString(to);
@@ -172,7 +175,7 @@ private:
         m_animatedPropertyAnimator2->m_function.m_to = pairTo.second;
     }
 
-    void setFromAndByValues(SVGElement*, const String& from, const String& by) final
+    void setFromAndByValues(SVGElement&, const String& from, const String& by) final
     {
         auto pairFrom = SVGPropertyTraits<std::pair<float, float>>::fromString(from);
         auto pairBy = SVGPropertyTraits<std::pair<float, float>>::fromString(by);
@@ -192,4 +195,4 @@ private:
     }
 };
 
-}
+} // namespace WebCore

@@ -33,8 +33,14 @@
 #if ENABLE(WEB_AUTHN)
 
 #include <algorithm>
+#include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace fido {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(FidoHidPacket);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(FidoHidInitPacket);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(FidoHidContinuationPacket);
 
 FidoHidPacket::FidoHidPacket(Vector<uint8_t>&& data, uint32_t channelId)
     : m_data(WTFMove(data))
@@ -67,9 +73,7 @@ std::unique_ptr<FidoHidInitPacket> FidoHidInitPacket::createFromSerializedData(c
     // Update remaining size to determine the payload size of follow on packets.
     *remainingSize = payloadSize - dataSize;
 
-    auto data = Vector<uint8_t>();
-    data.append(serialized.begin() + index, dataSize);
-
+    auto data = serialized.subvector(index, dataSize);
     return makeUnique<FidoHidInitPacket>(channelId, command, WTFMove(data), payloadSize);
 }
 
@@ -98,10 +102,10 @@ Vector<uint8_t> FidoHidInitPacket::getSerializedData() const
     serialized.append(static_cast<uint8_t>(m_command) | 0x80);
     serialized.append((m_payloadLength >> 8) & 0xff);
     serialized.append(m_payloadLength & 0xff);
-    serialized.append(m_data.begin(), m_data.size());
+    serialized.appendVector(m_data);
     auto offset = serialized.size();
     serialized.grow(kHidPacketSize);
-    memset(serialized.data() + offset, 0, kHidPacketSize - offset);
+    zeroSpan(serialized.mutableSpan().subspan(offset, kHidPacketSize - offset));
 
     return serialized;
 }
@@ -122,9 +126,7 @@ std::unique_ptr<FidoHidContinuationPacket> FidoHidContinuationPacket::createFrom
     // Check to see if packet payload is less than maximum size and padded with 0s.
     size_t dataSize = std::min(*remainingSize, kHidPacketSize - index);
     *remainingSize -= dataSize;
-    auto data = Vector<uint8_t>();
-    data.append(serialized.begin() + index, dataSize);
-
+    auto data = serialized.subvector(index, dataSize);
     return makeUnique<FidoHidContinuationPacket>(channelId, sequence, WTFMove(data));
 }
 
@@ -148,10 +150,10 @@ Vector<uint8_t> FidoHidContinuationPacket::getSerializedData() const
     serialized.append((m_channelId >> 8) & 0xff);
     serialized.append(m_channelId & 0xff);
     serialized.append(m_sequence);
-    serialized.append(m_data.begin(), m_data.size());
+    serialized.appendVector(m_data);
     auto offset = serialized.size();
     serialized.grow(kHidPacketSize);
-    memset(serialized.data() + offset, 0, kHidPacketSize - offset);
+    zeroSpan(serialized.mutableSpan().subspan(offset, kHidPacketSize - offset));
 
     return serialized;
 }

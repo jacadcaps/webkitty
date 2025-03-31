@@ -28,14 +28,19 @@
 
 #include "WaveShaperDSPKernel.h"
 
+#include "AudioUtilities.h"
 #include "WaveShaperProcessor.h"
+#include <JavaScriptCore/Float32Array.h>
 #include <algorithm>
 #include <wtf/MainThread.h>
+#include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/Threading.h>
-
-const unsigned RenderingQuantum = 128;
+#include <wtf/ZippedRange.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WaveShaperDSPKernel);
 
 WaveShaperDSPKernel::WaveShaperDSPKernel(WaveShaperProcessor* processor)
     : AudioDSPKernel(processor)
@@ -49,26 +54,27 @@ void WaveShaperDSPKernel::lazyInitializeOversampling()
     ASSERT(isMainThread());
 
     if (!m_tempBuffer) {
-        m_tempBuffer = makeUnique<AudioFloatArray>(RenderingQuantum * 2);
-        m_tempBuffer2 = makeUnique<AudioFloatArray>(RenderingQuantum * 4);
-        m_upSampler = makeUnique<UpSampler>(RenderingQuantum);
-        m_downSampler = makeUnique<DownSampler>(RenderingQuantum * 2);
-        m_upSampler2 = makeUnique<UpSampler>(RenderingQuantum * 2);
-        m_downSampler2 = makeUnique<DownSampler>(RenderingQuantum * 4);
+        m_tempBuffer = makeUnique<AudioFloatArray>(AudioUtilities::renderQuantumSize * 2);
+        m_tempBuffer2 = makeUnique<AudioFloatArray>(AudioUtilities::renderQuantumSize * 4);
+        m_upSampler = makeUnique<UpSampler>(AudioUtilities::renderQuantumSize);
+        m_downSampler = makeUnique<DownSampler>(AudioUtilities::renderQuantumSize * 2);
+        m_upSampler2 = makeUnique<UpSampler>(AudioUtilities::renderQuantumSize * 2);
+        m_downSampler2 = makeUnique<DownSampler>(AudioUtilities::renderQuantumSize * 4);
     }
 }
 
-void WaveShaperDSPKernel::process(const float* source, float* destination, size_t framesToProcess)
+void WaveShaperDSPKernel::process(std::span<const float> source, std::span<float> destination)
 {
+    assertIsHeld(waveShaperProcessor()->processLock());
     switch (waveShaperProcessor()->oversample()) {
     case WaveShaperProcessor::OverSampleNone:
-        processCurve(source, destination, framesToProcess);
+        processCurve(source, destination);
         break;
     case WaveShaperProcessor::OverSample2x:
-        processCurve2x(source, destination, framesToProcess);
+        processCurve2x(source, destination);
         break;
     case WaveShaperProcessor::OverSample4x:
-        processCurve4x(source, destination, framesToProcess);
+        processCurve4x(source, destination);
         break;
 
     default:
@@ -76,80 +82,76 @@ void WaveShaperDSPKernel::process(const float* source, float* destination, size_
     }
 }
 
-void WaveShaperDSPKernel::processCurve(const float* source, float* destination, size_t framesToProcess)
+void WaveShaperDSPKernel::processCurve(std::span<const float> source, std::span<float> destination)
 {
-    ASSERT(source && destination && waveShaperProcessor());
+    ASSERT(source.data() && destination.data() && waveShaperProcessor());
 
+    assertIsHeld(waveShaperProcessor()->processLock());
     Float32Array* curve = waveShaperProcessor()->curve();
     if (!curve) {
         // Act as "straight wire" pass-through if no curve is set.
-        memcpy(destination, source, sizeof(float) * framesToProcess);
+        memcpySpan(destination, source);
         return;
     }
 
-    float* curveData = curve->data();
-    int curveLength = curve->length();
+    auto curveData = curve->typedMutableSpan();
 
-    ASSERT(curveData);
-
-    if (!curveData || !curveLength) {
-        memcpy(destination, source, sizeof(float) * framesToProcess);
+    if (curveData.empty()) {
+        memcpySpan(destination, source);
         return;
     }
 
     // Apply waveshaping curve.
-    for (unsigned i = 0; i < framesToProcess; ++i) {
-        const float input = source[i];
-
-        float v = (curveLength - 1) * 0.5f * (input + 1);
+    for (auto [input, output] : zippedRange(source, destination)) {
+        float v = (curveData.size() - 1) * 0.5f * (input + 1);
         if (v < 0)
-            destination[i] = curveData[0];
-        else if (v >= curveLength - 1)
-            destination[i] = curveData[curveLength - 1];
+            output = curveData[0];
+        else if (v >= curveData.size() - 1)
+            output = curveData.back();
         else {
-            float k = floorf(v);
+            float k = std::floor(v);
             float f = v - k;
             unsigned kIndex = k;
-            destination[i] = (1 - f) * curveData[kIndex] + f * curveData[kIndex + 1];
+            output = (1 - f) * curveData[kIndex] + f * curveData[kIndex + 1];
         }
     }
 }
 
-void WaveShaperDSPKernel::processCurve2x(const float* source, float* destination, size_t framesToProcess)
+void WaveShaperDSPKernel::processCurve2x(std::span<const float> source, std::span<float> destination)
 {
-    bool isSafe = framesToProcess == RenderingQuantum;
+    bool isSafe = source.size() == AudioUtilities::renderQuantumSize;
     ASSERT(isSafe);
     if (!isSafe)
         return;
 
-    float* tempP = m_tempBuffer->data();
+    auto tempP = m_tempBuffer->span().first(source.size() * 2);
 
-    m_upSampler->process(source, tempP, framesToProcess);
+    m_upSampler->process(source, tempP);
 
     // Process at 2x up-sampled rate.
-    processCurve(tempP, tempP, framesToProcess * 2);
+    processCurve(tempP, tempP);
 
-    m_downSampler->process(tempP, destination, framesToProcess * 2);
+    m_downSampler->process(tempP, destination);
 }
 
-void WaveShaperDSPKernel::processCurve4x(const float* source, float* destination, size_t framesToProcess)
+void WaveShaperDSPKernel::processCurve4x(std::span<const float> source, std::span<float> destination)
 {
-    bool isSafe = framesToProcess == RenderingQuantum;
+    bool isSafe = source.size() == AudioUtilities::renderQuantumSize;
     ASSERT(isSafe);
     if (!isSafe)
         return;
 
-    float* tempP = m_tempBuffer->data();
-    float* tempP2 = m_tempBuffer2->data();
+    auto tempP = m_tempBuffer->span().first(source.size() * 2);
+    auto tempP2 = m_tempBuffer2->span().first(source.size() * 4);
 
-    m_upSampler->process(source, tempP, framesToProcess);
-    m_upSampler2->process(tempP, tempP2, framesToProcess * 2);
+    m_upSampler->process(source, tempP);
+    m_upSampler2->process(tempP, tempP2);
 
     // Process at 4x up-sampled rate.
-    processCurve(tempP2, tempP2, framesToProcess * 4);
+    processCurve(tempP2, tempP2);
 
-    m_downSampler2->process(tempP2, tempP, framesToProcess * 4);
-    m_downSampler->process(tempP, destination, framesToProcess * 2);
+    m_downSampler2->process(tempP2, tempP);
+    m_downSampler->process(tempP, destination);
 }
 
 void WaveShaperDSPKernel::reset()
@@ -164,10 +166,13 @@ void WaveShaperDSPKernel::reset()
 
 double WaveShaperDSPKernel::latencyTime() const
 {
-    size_t latencyFrames = 0;
-    WaveShaperDSPKernel* kernel = const_cast<WaveShaperDSPKernel*>(this);
+    if (!waveShaperProcessor()->processLock().tryLock())
+        return std::numeric_limits<double>::infinity();
 
-    switch (kernel->waveShaperProcessor()->oversample()) {
+    Locker locker { AdoptLock, waveShaperProcessor()->processLock() };
+
+    size_t latencyFrames = 0;
+    switch (waveShaperProcessor()->oversample()) {
     case WaveShaperProcessor::OverSampleNone:
         break;
     case WaveShaperProcessor::OverSample2x:
@@ -191,6 +196,12 @@ double WaveShaperDSPKernel::latencyTime() const
     }
 
     return static_cast<double>(latencyFrames) / sampleRate();
+}
+
+bool WaveShaperDSPKernel::requiresTailProcessing() const
+{
+    // Always return true even if the tail time and latency might both be zero.
+    return true;
 }
 
 } // namespace WebCore

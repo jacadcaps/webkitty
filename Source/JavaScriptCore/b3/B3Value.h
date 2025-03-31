@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -37,21 +37,24 @@
 #include "B3ValueKey.h"
 #include "B3Width.h"
 #include <wtf/CommaPrinter.h>
-#include <wtf/FastMalloc.h>
 #include <wtf/IteratorRange.h>
 #include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/TriState.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC { namespace B3 {
 
 class BasicBlock;
 class CheckValue;
 class InsertionSet;
+class SIMDValue;
 class PhiChildren;
 class Procedure;
 
 class JS_EXPORT_PRIVATE Value {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(Value);
 public:
     static const char* const dumpPrefix;
 
@@ -218,6 +221,8 @@ public:
     virtual Value* uDivConstant(Procedure&, const Value* other) const;
     virtual Value* modConstant(Procedure&, const Value* other) const; // This chooses Mod<Chill> semantics.
     virtual Value* uModConstant(Procedure&, const Value* other) const;
+    virtual Value* fMinConstant(Procedure&, const Value* other) const;
+    virtual Value* fMaxConstant(Procedure&, const Value* other) const;
     virtual Value* bitAndConstant(Procedure&, const Value* other) const;
     virtual Value* bitOrConstant(Procedure&, const Value* other) const;
     virtual Value* bitXorConstant(Procedure&, const Value* other) const;
@@ -234,7 +239,13 @@ public:
     virtual Value* absConstant(Procedure&) const;
     virtual Value* ceilConstant(Procedure&) const;
     virtual Value* floorConstant(Procedure&) const;
+    virtual Value* fTruncConstant(Procedure&) const;
     virtual Value* sqrtConstant(Procedure&) const;
+    virtual Value* purifyNaNConstant(Procedure&) const;
+
+    virtual Value* vectorAndConstant(Procedure&, const Value* other) const;
+    virtual Value* vectorOrConstant(Procedure&, const Value* other) const;
+    virtual Value* vectorXorConstant(Procedure&, const Value* other) const;
 
     virtual TriState equalConstant(const Value* other) const;
     virtual TriState notEqualConstant(const Value* other) const;
@@ -247,7 +258,7 @@ public:
     virtual TriState aboveEqualConstant(const Value* other) const;
     virtual TriState belowEqualConstant(const Value* other) const;
     virtual TriState equalOrUnorderedConstant(const Value* other) const;
-    
+
     // If the value is a comparison then this returns the inverted form of that comparison, if
     // possible. It can be impossible for double comparisons, where for example LessThan and
     // GreaterEqual behave differently. If this returns a value, it is a new value, which must be
@@ -277,6 +288,10 @@ public:
     bool hasFloat() const;
     float asFloat() const;
 
+    bool hasV128() const;
+    v128_t asV128() const;
+    bool isV128(v128_t) const;
+
     bool hasNumber() const;
     template<typename T> bool isRepresentableAs() const;
     template<typename T> T asNumber() const;
@@ -292,6 +307,9 @@ public:
     TriState asTriState() const;
     bool isLikeZero() const { return asTriState() == TriState::False; }
     bool isLikeNonZero() const { return asTriState() == TriState::True; }
+
+    bool isSIMDValue() const;
+    SIMDValue* asSIMDValue();
 
     Effects effects() const;
 
@@ -352,27 +370,27 @@ protected:
     // The specific value of VarArgs does not matter, but the value of the others is assumed to match their meaning.
     enum NumChildren : uint8_t { Zero = 0, One = 1, Two = 2, Three = 3, VarArgs = 4};
 
-    char* childrenAlloc() { return bitwise_cast<char*>(this) + adjacencyListOffset(); }
-    const char* childrenAlloc() const { return bitwise_cast<const char*>(this) + adjacencyListOffset(); }
+    char* childrenAlloc() { return std::bit_cast<char*>(this) + m_adjacencyListOffset; }
+    const char* childrenAlloc() const { return std::bit_cast<const char*>(this) + m_adjacencyListOffset; }
     Vector<Value*, 3>& childrenVector()
     {
         ASSERT(m_numChildren == VarArgs);
-        return *bitwise_cast<Vector<Value*, 3>*>(childrenAlloc());
+        return *std::bit_cast<Vector<Value*, 3>*>(childrenAlloc());
     }
     const Vector<Value*, 3>& childrenVector() const
     {
         ASSERT(m_numChildren == VarArgs);
-        return *bitwise_cast<Vector<Value*, 3> const*>(childrenAlloc());
+        return *std::bit_cast<Vector<Value*, 3> const*>(childrenAlloc());
     }
     Value** childrenArray()
     {
         ASSERT(m_numChildren != VarArgs);
-        return bitwise_cast<Value**>(childrenAlloc());
+        return std::bit_cast<Value**>(childrenAlloc());
     }
     Value* const* childrenArray() const
     {
         ASSERT(m_numChildren != VarArgs);
-        return bitwise_cast<Value* const*>(childrenAlloc());
+        return std::bit_cast<Value* const*>(childrenAlloc());
     }
 
     template<typename... Arguments>
@@ -391,6 +409,7 @@ protected:
         case Const64:
         case ConstFloat:
         case ConstDouble:
+        case Const128:
         case BottomTuple:
         case Fence:
         case SlotBase:
@@ -400,14 +419,19 @@ protected:
         case Identity:
         case Opaque:
         case Neg:
+        case PurifyNaN:
         case Clz:
         case Abs:
         case Ceil:
         case Floor:
+        case FTrunc:
         case Sqrt:
         case SExt8:
         case SExt16:
         case Trunc:
+        case TruncHigh:
+        case SExt8To64:
+        case SExt16To64:
         case SExt32:
         case ZExt32:
         case FloatToDouble:
@@ -428,6 +452,30 @@ protected:
         case Set:
         case WasmAddress:
         case WasmBoundsCheck:
+        case VectorExtractLane:
+        case VectorSplat:
+        case VectorNot:
+        case VectorAbs:
+        case VectorNeg:
+        case VectorPopcnt:
+        case VectorCeil:
+        case VectorFloor:
+        case VectorTrunc:
+        case VectorTruncSat:
+        case VectorRelaxedTruncSat:
+        case VectorConvert:
+        case VectorConvertLow:
+        case VectorNearest:
+        case VectorSqrt:
+        case VectorExtendLow:
+        case VectorExtendHigh:
+        case VectorPromote:
+        case VectorDemote:
+        case VectorBitmask:
+        case VectorAnyTrue: 
+        case VectorAllTrue:
+        case VectorExtaddPairwise:
+        case VectorDupElement:
             return sizeof(Value*);
         case Add:
         case Sub:
@@ -436,6 +484,8 @@ protected:
         case UDiv:
         case Mod:
         case UMod:
+        case FMin:
+        case FMax:
         case BitAnd:
         case BitOr:
         case BitXor:
@@ -464,10 +514,49 @@ protected:
         case Store8:
         case Store16:
         case Store:
+        case VectorReplaceLane:
+        case VectorEqual:
+        case VectorNotEqual:
+        case VectorLessThan:
+        case VectorLessThanOrEqual:
+        case VectorBelow:
+        case VectorBelowOrEqual:
+        case VectorGreaterThan:
+        case VectorGreaterThanOrEqual:
+        case VectorAbove:
+        case VectorAboveOrEqual:
+        case VectorAdd:
+        case VectorSub:
+        case VectorAddSat:
+        case VectorSubSat:
+        case VectorMul:
+        case VectorDotProduct:
+        case VectorDiv:
+        case VectorMin:
+        case VectorMax:
+        case VectorPmin:
+        case VectorPmax:
+        case VectorNarrow:
+        case VectorAnd:
+        case VectorAndnot:
+        case VectorOr:
+        case VectorXor:
+        case VectorShl:
+        case VectorShr:
+        case VectorMulSat:
+        case VectorAvgRound:
+        case VectorMulByElement:
+        case VectorShiftByVector:
+        case VectorRelaxedSwizzle:
+        case Stitch:
             return 2 * sizeof(Value*);
         case Select:
         case AtomicWeakCAS:
         case AtomicStrongCAS:
+        case VectorBitwiseSelect:
+        case VectorRelaxedMAdd:
+        case VectorRelaxedNMAdd:
+        case VectorRelaxedLaneSelect:
             return 3 * sizeof(Value*);
         case CCall:
         case Check:
@@ -475,6 +564,7 @@ protected:
         case CheckSub:
         case CheckMul:
         case Patchpoint:
+        case VectorSwizzle:
             return sizeof(Vector<Value*, 3>);
 #ifdef NDEBUG
         default:
@@ -518,7 +608,7 @@ protected:
     Value& operator=(const Value&) = delete;
     Value& operator=(Value&&) = delete;
     
-    size_t adjacencyListOffset() const;
+    size_t computeAdjacencyListOffset() const;
 
     friend class Procedure;
     friend class SparseCollection<Value>;
@@ -527,6 +617,10 @@ private:
     template<typename... Arguments>
     void buildAdjacencyList(NumChildren numChildren, Arguments... arguments)
     {
+        size_t offset = computeAdjacencyListOffset();
+        RELEASE_ASSERT(offset == static_cast<uint16_t>(offset));
+        m_adjacencyListOffset = offset;
+
         if (numChildren == VarArgs) {
             new (childrenAlloc()) Vector<Value*, 3> { arguments... };
             return;
@@ -536,18 +630,21 @@ private:
     }
     void buildAdjacencyList(size_t offset, const Value& valueToClone)
     {
+        RELEASE_ASSERT(offset == static_cast<uint16_t>(offset));
+        m_adjacencyListOffset = offset;
+
         switch (valueToClone.m_numChildren) {
         case VarArgs:
-            new (bitwise_cast<char*>(this) + offset) Vector<Value*, 3> (valueToClone.childrenVector());
+            new (std::bit_cast<char*>(this) + offset) Vector<Value*, 3> (valueToClone.childrenVector());
             break;
         case Three:
-            bitwise_cast<Value**>(bitwise_cast<char*>(this) + offset)[2] = valueToClone.childrenArray()[2];
+            std::bit_cast<Value**>(std::bit_cast<char*>(this) + offset)[2] = valueToClone.childrenArray()[2];
             FALLTHROUGH;
         case Two:
-            bitwise_cast<Value**>(bitwise_cast<char*>(this) + offset)[1] = valueToClone.childrenArray()[1];
+            std::bit_cast<Value**>(std::bit_cast<char*>(this) + offset)[1] = valueToClone.childrenArray()[1];
             FALLTHROUGH;
         case One:
-            bitwise_cast<Value**>(bitwise_cast<char*>(this) + offset)[0] = valueToClone.childrenArray()[0];
+            std::bit_cast<Value**>(std::bit_cast<char*>(this) + offset)[0] = valueToClone.childrenArray()[0];
             break;
         case Zero:
             break;
@@ -574,14 +671,19 @@ private:
         case Identity:
         case Opaque:
         case Neg:
+        case PurifyNaN:
         case Clz:
         case Abs:
         case Ceil:
         case Floor:
+        case FTrunc:
         case Sqrt:
         case SExt8:
         case SExt16:
         case Trunc:
+        case TruncHigh:
+        case SExt8To64:
+        case SExt16To64:
         case SExt32:
         case ZExt32:
         case FloatToDouble:
@@ -591,6 +693,30 @@ private:
         case BitwiseCast:
         case Branch:
         case Depend:
+        case VectorExtractLane:
+        case VectorNot:
+        case VectorSplat:
+        case VectorAbs:
+        case VectorNeg:
+        case VectorPopcnt:
+        case VectorCeil:
+        case VectorFloor:
+        case VectorTrunc:
+        case VectorTruncSat:
+        case VectorConvert:
+        case VectorConvertLow:
+        case VectorNearest:
+        case VectorSqrt:
+        case VectorExtendLow:
+        case VectorExtendHigh:
+        case VectorPromote:
+        case VectorDemote:
+        case VectorBitmask:
+        case VectorAnyTrue:
+        case VectorAllTrue:
+        case VectorExtaddPairwise:
+        case VectorDupElement:
+        case VectorRelaxedTruncSat:
             if (UNLIKELY(numArgs != 1))
                 badKind(kind, numArgs);
             return One;
@@ -601,6 +727,8 @@ private:
         case UDiv:
         case Mod:
         case UMod:
+        case FMin:
+        case FMax:
         case BitAnd:
         case BitOr:
         case BitXor:
@@ -620,10 +748,49 @@ private:
         case AboveEqual:
         case BelowEqual:
         case EqualOrUnordered:
+        case VectorReplaceLane:
+        case VectorEqual:
+        case VectorNotEqual:
+        case VectorLessThan:
+        case VectorLessThanOrEqual:
+        case VectorBelow:
+        case VectorBelowOrEqual:
+        case VectorGreaterThan:
+        case VectorGreaterThanOrEqual:
+        case VectorAbove:
+        case VectorAboveOrEqual:
+        case VectorAdd:
+        case VectorSub:
+        case VectorAddSat:
+        case VectorSubSat:
+        case VectorMul:
+        case VectorDotProduct:
+        case VectorDiv:
+        case VectorMin:
+        case VectorMax:
+        case VectorPmin:
+        case VectorPmax:
+        case VectorNarrow:
+        case VectorAnd:
+        case VectorAndnot:
+        case VectorOr:
+        case VectorXor:
+        case VectorShl:
+        case VectorShr:
+        case VectorMulSat:
+        case VectorAvgRound:
+        case VectorMulByElement:
+        case VectorShiftByVector:
+        case VectorRelaxedSwizzle:
+        case Stitch:
             if (UNLIKELY(numArgs != 2))
                 badKind(kind, numArgs);
             return Two;
         case Select:
+        case VectorBitwiseSelect:
+        case VectorRelaxedMAdd:
+        case VectorRelaxedNMAdd:
+        case VectorRelaxedLaneSelect:
             if (UNLIKELY(numArgs != 3))
                 badKind(kind, numArgs);
             return Three;
@@ -716,6 +883,7 @@ protected:
     unsigned m_index { UINT_MAX };
 private:
     Kind m_kind;
+    uint16_t m_adjacencyListOffset;
     Type m_type;
 protected:
     NumChildren m_numChildren;
@@ -724,7 +892,22 @@ private:
 
     NO_RETURN_DUE_TO_CRASH static void badKind(Kind, unsigned);
 
+#if ASSERT_ENABLED
+    String m_compilerConstructionSite { emptyString() };
+
 public:
+    static String generateCompilerConstructionSite();
+#endif
+
+public:
+    String compilerConstructionSite() const
+    {
+#if ASSERT_ENABLED
+        return m_compilerConstructionSite;
+#endif
+        return nullString();
+    }
+
     BasicBlock* owner { nullptr }; // computed by Procedure::resetValueOwners().
 };
 
@@ -843,11 +1026,11 @@ public: \
 private: \
     Value** childrenArray() \
     { \
-        return bitwise_cast<Value**>(bitwise_cast<char*>(this) + sizeof(*this)); \
+        return std::bit_cast<Value**>(std::bit_cast<char*>(this) + sizeof(*this)); \
     } \
     Value* const* childrenArray() const \
     { \
-        return bitwise_cast<Value* const*>(bitwise_cast<char const*>(this) + sizeof(*this)); \
+        return std::bit_cast<Value* const*>(std::bit_cast<char const*>(this) + sizeof(*this)); \
     }
 
 // Only use this for classes with no subclass that add new fields (as it uses sizeof(*this))
@@ -855,13 +1038,15 @@ private: \
 private: \
     Vector<Value*, 3>& childrenVector() \
     { \
-        return *bitwise_cast<Vector<Value*, 3>*>(bitwise_cast<char*>(this) + sizeof(*this)); \
+        return *std::bit_cast<Vector<Value*, 3>*>(std::bit_cast<char*>(this) + sizeof(*this)); \
     } \
     const Vector<Value*, 3>& childrenVector() const \
     { \
-        return *bitwise_cast<Vector<Value*, 3> const*>(bitwise_cast<char const*>(this) + sizeof(*this)); \
+        return *std::bit_cast<Vector<Value*, 3> const*>(std::bit_cast<char const*>(this) + sizeof(*this)); \
     } \
 
 } } // namespace JSC::B3
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif // ENABLE(B3_JIT)

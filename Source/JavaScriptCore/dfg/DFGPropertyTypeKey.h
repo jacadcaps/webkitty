@@ -59,16 +59,7 @@ public:
     Structure* structure() const { return m_structure; }
     UniquedStringImpl* uid() const { return m_uid; }
 
-    bool operator==(const PropertyTypeKey& other) const
-    {
-        return m_structure == other.m_structure
-            && m_uid == other.m_uid;
-    }
-
-    bool operator!=(const PropertyTypeKey& other) const
-    {
-        return !(*this == other);
-    }
+    friend bool operator==(const PropertyTypeKey&, const PropertyTypeKey&) = default;
 
     unsigned hash() const
     {
@@ -93,7 +84,7 @@ public:
 private:
     static UniquedStringImpl* deletedUID()
     {
-        return bitwise_cast<UniquedStringImpl*>(static_cast<intptr_t>(1));
+        return std::bit_cast<UniquedStringImpl*>(static_cast<intptr_t>(1));
     }
     
     Structure* m_structure;

@@ -23,8 +23,6 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// Events dispatched on this class: "HeapSnapshot.CollectionEvent"
-
 WI.HeapSnapshotWorkerProxy = class HeapSnapshotWorkerProxy extends WI.Object
 {
     constructor()
@@ -56,7 +54,7 @@ WI.HeapSnapshotWorkerProxy = class HeapSnapshotWorkerProxy extends WI.Object
         this.performAction("clearSnapshots", callback);
     }
 
-    createSnapshot(snapshotStringData, callback)
+    createSnapshot(targetId, snapshotStringData, callback)
     {
         this.performAction("createSnapshot", ...arguments);
     }
@@ -68,8 +66,9 @@ WI.HeapSnapshotWorkerProxy = class HeapSnapshotWorkerProxy extends WI.Object
 
     createImportedSnapshot(snapshotStringData, title, callback)
     {
-        const imported = true;
-        this.performAction("createSnapshot", snapshotStringData, title, imported, callback);
+        // FIXME: <https://webkit.org/b/287738> support exporting and importing data from worker targets
+        const targetId = null;
+        this.performAction("createSnapshot", targetId, snapshotStringData, title, callback);
     }
 
     // Public
@@ -145,4 +144,8 @@ WI.HeapSnapshotWorkerProxy = class HeapSnapshotWorkerProxy extends WI.Object
 
         console.error("Unexpected HeapSnapshotWorker message", data);
     }
+};
+
+WI.HeapSnapshotWorkerProxy.Event = {
+    Collection: "heap-snapshot-collection",
 };

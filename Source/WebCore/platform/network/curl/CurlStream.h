@@ -9,7 +9,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRIBUTORS ``AS IS''
  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
  * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
@@ -26,6 +26,7 @@
 #pragma once
 
 #include "CurlContext.h"
+#include <wtf/TZoneMalloc.h>
 #include <wtf/URL.h>
 #include <wtf/UniqueArray.h>
 #include <wtf/Vector.h>
@@ -33,29 +34,34 @@
 namespace WebCore {
 
 class CurlStreamScheduler;
+class SharedBuffer;
 class SocketStreamError;
 
 using CurlStreamID = uint16_t;
 const CurlStreamID invalidCurlStreamID = 0;
 
 class CurlStream {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(CurlStream);
     WTF_MAKE_NONCOPYABLE(CurlStream);
 public:
+    using LocalhostAlias = CurlHandle::LocalhostAlias;
+
+    enum class ServerTrustEvaluation : bool { Disable, Enable };
+
     class Client {
     public:
         virtual void didOpen(CurlStreamID) = 0;
         virtual void didSendData(CurlStreamID, size_t) = 0;
-        virtual void didReceiveData(CurlStreamID, const char*, size_t) = 0;
-        virtual void didFail(CurlStreamID, CURLcode) = 0;
+        virtual void didReceiveData(CurlStreamID, const SharedBuffer&) = 0;
+        virtual void didFail(CurlStreamID, CURLcode, CertificateInfo&&) = 0;
     };
 
-    static std::unique_ptr<CurlStream> create(CurlStreamScheduler& scheduler, CurlStreamID streamID, URL&& url)
+    static std::unique_ptr<CurlStream> create(CurlStreamScheduler& scheduler, CurlStreamID streamID, URL&& url, ServerTrustEvaluation serverTrustEvaluation, LocalhostAlias localhostAlias)
     {
-        return WTF::makeUnique<CurlStream>(scheduler, streamID, WTFMove(url));
+        return makeUnique<CurlStream>(scheduler, streamID, WTFMove(url), serverTrustEvaluation, localhostAlias);
     }
 
-    CurlStream(CurlStreamScheduler&, CurlStreamID, URL&&);
+    CurlStream(CurlStreamScheduler&, CurlStreamID, URL&&, ServerTrustEvaluation, LocalhostAlias);
     virtual ~CurlStream();
 
     void send(UniqueArray<uint8_t>&&, size_t);
@@ -78,7 +84,7 @@ private:
 
     std::unique_ptr<CurlHandle> m_curlHandle;
 
-    WTF::Vector<std::pair<UniqueArray<uint8_t>, size_t>> m_sendBuffers;
+    Vector<std::pair<UniqueArray<uint8_t>, size_t>> m_sendBuffers;
     size_t m_sendBufferOffset { 0 };
 };
 

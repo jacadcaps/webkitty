@@ -26,22 +26,19 @@
 #pragma once
 
 #include "InspectorDOMDebuggerAgent.h"
+#include <JavaScriptCore/Breakpoint.h>
+#include <wtf/RefPtr.h>
 
 namespace WebCore {
-
-typedef String ErrorString;
 
 class WorkerDOMDebuggerAgent final : public InspectorDOMDebuggerAgent {
 public:
     WorkerDOMDebuggerAgent(WorkerAgentContext&, Inspector::InspectorDebuggerAgent*);
-    ~WorkerDOMDebuggerAgent() override;
+    ~WorkerDOMDebuggerAgent();
 
     // DOMDebuggerBackendDispatcherHandler
-    void setDOMBreakpoint(ErrorString&, int nodeId, const String& type) override;
-    void removeDOMBreakpoint(ErrorString&, int nodeId, const String& type) override;
-
-private:
-    void setAnimationFrameBreakpoint(ErrorString&, bool enabled) override;
+    Inspector::Protocol::ErrorStringOr<void> setDOMBreakpoint(Inspector::Protocol::DOM::NodeId, Inspector::Protocol::DOMDebugger::DOMBreakpointType, RefPtr<JSON::Object>&& options);
+    Inspector::Protocol::ErrorStringOr<void> removeDOMBreakpoint(Inspector::Protocol::DOM::NodeId, Inspector::Protocol::DOMDebugger::DOMBreakpointType);
 };
 
 } // namespace WebCore

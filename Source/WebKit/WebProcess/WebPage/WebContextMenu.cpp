@@ -20,27 +20,28 @@
  */
 
 #include "config.h"
+#include "WebContextMenu.h"
 
 #if ENABLE(CONTEXT_MENUS)
 
-#include "WebContextMenu.h"
-
+#include "APIInjectedBundlePageContextMenuClient.h"
 #include "ContextMenuContextData.h"
+#include "MessageSenderInlines.h"
 #include "UserData.h"
-#include "WebCoreArgumentCoders.h"
+#include "WebFrame.h"
 #include "WebPage.h"
 #include "WebPageProxyMessages.h"
 #include "WebProcess.h"
 #include <WebCore/ContextMenu.h>
 #include <WebCore/ContextMenuController.h>
-#include <WebCore/Frame.h>
-#include <WebCore/FrameView.h>
+#include <WebCore/LocalFrame.h>
+#include <WebCore/LocalFrameView.h>
 #include <WebCore/Page.h>
 
 namespace WebKit {
 using namespace WebCore;
 
-WebContextMenu::WebContextMenu(WebPage* page)
+WebContextMenu::WebContextMenu(WebPage& page)
     : m_page(page)
 {
 }
@@ -52,10 +53,13 @@ WebContextMenu::~WebContextMenu()
 void WebContextMenu::show()
 {
     ContextMenuController& controller = m_page->corePage()->contextMenuController();
-    Frame* frame = controller.hitTestResult().innerNodeFrame();
+    RefPtr frame = controller.hitTestResult().innerNodeFrame();
     if (!frame)
         return;
-    FrameView* view = frame->view();
+    RefPtr webFrame = WebFrame::fromCoreFrame(*frame);
+    if (!webFrame)
+        return;
+    RefPtr view = frame->view();
     if (!view)
         return;
 
@@ -67,10 +71,7 @@ void WebContextMenu::show()
 
     ContextMenuContextData contextMenuContextData(menuLocation, menuItems, controller.context());
 
-    // Mark the WebPage has having a shown context menu then notify the UIProcess.
-    m_page->contextMenuShowing();
-    m_page->flushPendingEditorStateUpdate();
-    m_page->send(Messages::WebPageProxy::ShowContextMenu(contextMenuContextData, UserData(WebProcess::singleton().transformObjectsToHandles(userData.get()).get())));
+    m_page->showContextMenuFromFrame(webFrame->info(), contextMenuContextData, UserData(WebProcess::singleton().transformObjectsToHandles(userData.get()).get()));
 }
 
 void WebContextMenu::itemSelected(const WebContextMenuItemData& item)
@@ -89,7 +90,8 @@ void WebContextMenu::menuItemsWithUserData(Vector<WebContextMenuItemData> &menuI
     // Give the bundle client a chance to process the menu.
     const Vector<ContextMenuItem>& coreItems = menu->items();
 
-    if (m_page->injectedBundleContextMenuClient().getCustomMenuFromDefaultItems(*m_page, controller.hitTestResult(), coreItems, menuItems, userData))
+    RefPtr page = m_page.get();
+    if (page->injectedBundleContextMenuClient().getCustomMenuFromDefaultItems(*page, controller.hitTestResult(), coreItems, menuItems, controller.context(), userData))
         return;
     menuItems = kitItems(coreItems);
 }

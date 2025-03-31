@@ -26,6 +26,7 @@
 #include "config.h"
 #include "InsertNodeBeforeCommand.h"
 
+#include "CompositeEditCommand.h"
 #include "Document.h"
 #include "Editing.h"
 #include "RenderElement.h"
@@ -47,24 +48,25 @@ InsertNodeBeforeCommand::InsertNodeBeforeCommand(Ref<Node>&& insertChild, Node& 
 
 void InsertNodeBeforeCommand::doApply()
 {
-    ContainerNode* parent = m_refChild->parentNode();
+    RefPtr parent = m_refChild->parentNode();
     if (!parent || (m_shouldAssumeContentIsAlwaysEditable == DoNotAssumeContentIsAlwaysEditable && !isEditableNode(*parent)))
         return;
     ASSERT(isEditableNode(*parent));
 
-    parent->insertBefore(m_insertChild, m_refChild.ptr());
+    parent->insertBefore(protectedInsertChild(), m_refChild.copyRef());
 }
 
 void InsertNodeBeforeCommand::doUnapply()
 {
-    if (!isEditableNode(m_insertChild))
+    auto insertChild = protectedInsertChild();
+    if (!isEditableNode(insertChild))
         return;
 
-    m_insertChild->remove();
+    insertChild->remove();
 }
 
 #ifndef NDEBUG
-void InsertNodeBeforeCommand::getNodesInCommand(HashSet<Node*>& nodes)
+void InsertNodeBeforeCommand::getNodesInCommand(NodeSet& nodes)
 {
     addNodeAndDescendants(m_insertChild.ptr(), nodes);
     addNodeAndDescendants(m_refChild.ptr(), nodes);

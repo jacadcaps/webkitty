@@ -31,6 +31,7 @@
 #include "FloatRect.h"
 #include "IntRect.h"
 #include <wtf/Forward.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WTF {
 class TextStream;
@@ -44,7 +45,7 @@ namespace WebCore {
 // mapping a rectangle through transforms. When initialized from a rect, the
 // points are in clockwise order from top left.
 class FloatQuad {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(FloatQuad);
 public:
     FloatQuad()
     {
@@ -76,9 +77,10 @@ public:
     void setP3(const FloatPoint& p) { m_p3 = p; }
     void setP4(const FloatPoint& p) { m_p4 = p; }
 
-    // isEmpty tests that the bounding box is empty. This will not identify
-    // "slanted" empty quads.
-    bool isEmpty() const { return boundingBox().isEmpty(); }
+    WEBCORE_EXPORT bool isEmpty() const;
+
+    // This method will not identify "slanted" empty quads.
+    bool boundingBoxIsEmpty() const { return boundingBox().isEmpty(); }
 
     // Tests whether this quad can be losslessly represented by a FloatRect,
     // that is, if two edges are parallel to the x-axis and the other two
@@ -149,6 +151,8 @@ public:
     // Note that output is undefined when all points are colinear.
     bool isCounterclockwise() const;
 
+    friend bool operator==(const FloatQuad&, const FloatQuad&) = default;
+
 private:
     FloatPoint m_p1;
     FloatPoint m_p2;
@@ -168,17 +172,7 @@ inline FloatQuad& operator-=(FloatQuad& a, const FloatSize& b)
     return a;
 }
 
-inline bool operator==(const FloatQuad& a, const FloatQuad& b)
-{
-    return a.p1() == b.p1() && a.p2() == b.p2() && a.p3() == b.p3() && a.p4() == b.p4();
-}
-
-inline bool operator!=(const FloatQuad& a, const FloatQuad& b)
-{
-    return !(a == b);
-}
-
-WTF::TextStream& operator<<(WTF::TextStream&, const FloatQuad&);
+WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, const FloatQuad&);
 
 Vector<FloatRect> boundingBoxes(const Vector<FloatQuad>&);
 WEBCORE_EXPORT FloatRect unitedBoundingBoxes(const Vector<FloatQuad>&);

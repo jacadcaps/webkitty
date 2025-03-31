@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2019 Apple Inc.  All rights reserved.
+ * Copyright (C) 2018-2024 Apple Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,6 +33,7 @@ class SVGElement;
 
 template<typename AnimatedProperty, typename AnimationFunction>
 class SVGAnimatedPropertyAnimator : public SVGAttributeAnimator {
+    WTF_MAKE_TZONE_ALLOCATED_TEMPLATE(SVGAnimatedPropertyAnimator);
 public:
     using AnimatorAnimatedProperty = AnimatedProperty;
 
@@ -51,12 +52,12 @@ public:
 
     bool isDiscrete() const override { return m_function.isDiscrete(); }
 
-    void setFromAndToValues(SVGElement* targetElement, const String& from, const String& to) override
+    void setFromAndToValues(SVGElement& targetElement, const String& from, const String& to) override
     {
         m_function.setFromAndToValues(targetElement, from, to);
     }
 
-    void setFromAndByValues(SVGElement* targetElement, const String& from, const String& by) override
+    void setFromAndByValues(SVGElement& targetElement, const String& from, const String& by) override
     {
         m_function.setFromAndByValues(targetElement, from, by);
     }
@@ -66,35 +67,35 @@ public:
         m_function.setToAtEndOfDurationValue(toAtEndOfDuration);
     }
 
-    void start(SVGElement*) override
+    void start(SVGElement&) override
     {
         m_animated->startAnimation(*this);
         for (auto& instance : m_animatedInstances)
             instance->instanceStartAnimation(*this, m_animated);
     }
 
-    void apply(SVGElement* targetElement) override
+    void apply(SVGElement& targetElement) override
     {
-        if (isAnimatedStylePropertyAniamtor(targetElement))
+        if (isAnimatedStylePropertyAnimator(targetElement))
             applyAnimatedStylePropertyChange(targetElement, m_animated->animValAsString());
         applyAnimatedPropertyChange(targetElement);
     }
 
-    void stop(SVGElement* targetElement) override
+    void stop(SVGElement& targetElement) override
     {
         if (!m_animated->isAnimating())
             return;
 
-        applyAnimatedPropertyChange(targetElement);
-        if (isAnimatedStylePropertyAniamtor(targetElement))
-            removeAnimatedStyleProperty(targetElement);
-
         m_animated->stopAnimation(*this);
         for (auto& instance : m_animatedInstances)
             instance->instanceStopAnimation(*this);
+
+        applyAnimatedPropertyChange(targetElement);
+        if (isAnimatedStylePropertyAnimator(targetElement))
+            removeAnimatedStyleProperty(targetElement);
     }
 
-    Optional<float> calculateDistance(SVGElement* targetElement, const String& from, const String& to) const override
+    std::optional<float> calculateDistance(SVGElement& targetElement, const String& from, const String& to) const override
     {
         return m_function.calculateDistance(targetElement, from, to);
     }
@@ -105,4 +106,12 @@ protected:
     AnimationFunction m_function;
 };
 
-}
+#define TZONE_TEMPLATE_PARAMS template<typename AnimatedProperty, typename AnimationFunction>
+#define TZONE_TYPE SVGAnimatedPropertyAnimator<AnimatedProperty, AnimationFunction>
+
+WTF_MAKE_TZONE_ALLOCATED_TEMPLATE_IMPL_WITH_MULTIPLE_OR_SPECIALIZED_PARAMETERS();
+
+#undef TZONE_TEMPLATE_PARAMS
+#undef TZONE_TYPE
+
+} // namespace WebCore

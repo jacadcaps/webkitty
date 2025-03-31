@@ -35,34 +35,43 @@
 #include "LibWebRTCMacros.h"
 #include "RealtimeMediaSource.h"
 
-ALLOW_UNUSED_PARAMETERS_BEGIN
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
 
 #include <webrtc/api/media_stream_interface.h>
 
-ALLOW_UNUSED_PARAMETERS_END
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 
 #include <wtf/RetainPtr.h>
 
 namespace WebCore {
 
 class CaptureDevice;
+class FrameRateMonitor;
 
 class RealtimeIncomingVideoSource
     : public RealtimeMediaSource
     , private rtc::VideoSinkInterface<webrtc::VideoFrame>
     , private webrtc::ObserverInterface
+    , public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<RealtimeIncomingVideoSource, WTF::DestructionThread::MainRunLoop>
 {
 public:
     static Ref<RealtimeIncomingVideoSource> create(rtc::scoped_refptr<webrtc::VideoTrackInterface>&&, String&&);
     ~RealtimeIncomingVideoSource();
+    WTF_ABSTRACT_THREAD_SAFE_REF_COUNTED_AND_CAN_MAKE_WEAK_PTR_IMPL;
+
+    void enableFrameRatedMonitoring();
 
 protected:
     RealtimeIncomingVideoSource(rtc::scoped_refptr<webrtc::VideoTrackInterface>&&, String&&);
 
 #if !RELEASE_LOG_DISABLED
-    const char* logClassName() const final { return "RealtimeIncomingVideoSource"; }
+    ASCIILiteral logClassName() const final { return "RealtimeIncomingVideoSource"_s; }
 #endif
-    
+
+    static VideoFrameTimeMetadata metadataFromVideoFrame(const webrtc::VideoFrame&);
+
+    void notifyNewFrame();
+
 private:
     // RealtimeMediaSource API
     void startProducingData() final;
@@ -77,12 +86,15 @@ private:
     // webrtc::ObserverInterface API
     void OnChanged() final;
 
-    Optional<RealtimeMediaSourceSettings> m_currentSettings;
+    std::optional<RealtimeMediaSourceSettings> m_currentSettings;
     rtc::scoped_refptr<webrtc::VideoTrackInterface> m_videoTrack;
 
+    double m_currentFrameRate { -1 };
+    std::unique_ptr<FrameRateMonitor> m_frameRateMonitor;
 #if !RELEASE_LOG_DISABLED
+    bool m_enableFrameRatedMonitoringLogging { false };
     mutable RefPtr<const Logger> m_logger;
-    const void* m_logIdentifier;
+    uint64_t m_logIdentifier { 0 };
 #endif
 };
 

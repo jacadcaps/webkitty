@@ -23,12 +23,10 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#import "WKOpenPanelParametersPrivate.h"
-
-#if PLATFORM(MAC)
-
 #import "APIOpenPanelParameters.h"
 #import "WKObject.h"
+#import "WKOpenPanelParametersPrivate.h"
+#import <wtf/AlignedStorage.h>
 
 namespace WebKit {
 
@@ -40,8 +38,6 @@ template<> struct WrapperTraits<API::OpenPanelParameters> {
 
 @interface WKOpenPanelParameters () <WKObject> {
 @package
-    API::ObjectStorage<API::OpenPanelParameters> _openPanelParameters;
+    AlignedStorage<API::OpenPanelParameters> _openPanelParameters;
 }
 @end
-
-#endif

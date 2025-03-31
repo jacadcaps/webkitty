@@ -26,13 +26,11 @@
 #include "config.h"
 #include "ServiceWorkerProvider.h"
 
-#if ENABLE(SERVICE_WORKER)
-
 #include "Document.h"
-#include "Frame.h"
 #include "FrameLoader.h"
-#include "FrameLoaderClient.h"
 #include "LegacySchemeRegistry.h"
+#include "LocalFrame.h"
+#include "LocalFrameLoaderClient.h"
 #include "Page.h"
 #include "SWClientConnection.h"
 
@@ -46,6 +44,7 @@ ServiceWorkerProvider::~ServiceWorkerProvider()
 
 ServiceWorkerProvider& ServiceWorkerProvider::singleton()
 {
+    ASSERT(isMainThread());
     RELEASE_ASSERT(sharedProvider);
     return *sharedProvider;
 }
@@ -55,6 +54,9 @@ void ServiceWorkerProvider::setSharedProvider(ServiceWorkerProvider& newProvider
     sharedProvider = &newProvider;
 }
 
-} // namespace WebCore
+Ref<SWClientConnection> ServiceWorkerProvider::protectedServiceWorkerConnection()
+{
+    return serviceWorkerConnection();
+}
 
-#endif // ENABLE(SERVICE_WORKER)
+} // namespace WebCore

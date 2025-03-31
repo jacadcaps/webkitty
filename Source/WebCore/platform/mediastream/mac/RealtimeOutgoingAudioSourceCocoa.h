@@ -29,6 +29,8 @@
 
 #include "AudioSampleDataSource.h"
 #include "RealtimeOutgoingAudioSource.h"
+#include <wtf/CheckedRef.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace webrtc {
 class AudioTrackInterface;
@@ -37,13 +39,21 @@ class AudioTrackSinkInterface;
 
 namespace WebCore {
 
-class RealtimeOutgoingAudioSourceCocoa final : public RealtimeOutgoingAudioSource {
+class RealtimeOutgoingAudioSourceCocoa final : public RealtimeOutgoingAudioSource, public CanMakeCheckedPtr<RealtimeOutgoingAudioSourceCocoa> {
+    WTF_MAKE_TZONE_ALLOCATED(RealtimeOutgoingAudioSourceCocoa);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RealtimeOutgoingAudioSourceCocoa);
 public:
     static Ref<RealtimeOutgoingAudioSourceCocoa> create(Ref<MediaStreamTrackPrivate>&& audioSource) { return adoptRef(*new RealtimeOutgoingAudioSourceCocoa(WTFMove(audioSource))); }
 
 private:
     explicit RealtimeOutgoingAudioSourceCocoa(Ref<MediaStreamTrackPrivate>&&);
     ~RealtimeOutgoingAudioSourceCocoa();
+
+    // CheckedPtr interface
+    uint32_t checkedPtrCount() const final { return CanMakeCheckedPtr::checkedPtrCount(); }
+    uint32_t checkedPtrCountWithoutThreadCheck() const final { return CanMakeCheckedPtr::checkedPtrCountWithoutThreadCheck(); }
+    void incrementCheckedPtrCount() const final { CanMakeCheckedPtr::incrementCheckedPtrCount(); }
+    void decrementCheckedPtrCount() const final { CanMakeCheckedPtr::decrementCheckedPtrCount(); }
 
     void audioSamplesAvailable(const MediaTime&, const PlatformAudioData&, const AudioStreamDescription&, size_t) final;
 
@@ -55,8 +65,8 @@ private:
     void pullAudioData();
 
     Ref<AudioSampleDataSource> m_sampleConverter;
-    CAAudioStreamDescription m_inputStreamDescription;
-    CAAudioStreamDescription m_outputStreamDescription;
+    std::optional<CAAudioStreamDescription> m_inputStreamDescription;
+    std::optional<CAAudioStreamDescription> m_outputStreamDescription;
 
     Vector<uint8_t> m_audioBuffer;
     uint64_t m_readCount { 0 };

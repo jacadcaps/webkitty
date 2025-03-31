@@ -30,25 +30,34 @@
 
 #pragma once
 
-#if ENABLE(INPUT_TYPE_DATE)
-
-#include "BaseChooserOnlyDateAndTimeInputType.h"
+#include "BaseDateAndTimeInputType.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
-class DateInputType final : public BaseChooserOnlyDateAndTimeInputType {
+class DateInputType final : public BaseDateAndTimeInputType {
+    WTF_MAKE_TZONE_ALLOCATED(DateInputType);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(DateInputType);
 public:
-    explicit DateInputType(HTMLInputElement&);
+    static Ref<DateInputType> create(HTMLInputElement& element)
+    {
+        return adoptRef(*new DateInputType(element));
+    }
 
 private:
-    const AtomString& formControlType() const override;
-    DateComponents::Type dateType() const override;
-    StepRange createStepRange(AnyStepHandling) const override;
-    Optional<DateComponents> parseToDateComponents(const StringView&) const override;
-    Optional<DateComponents> setMillisecondToDateComponents(double) const override;
-    bool isDateField() const override;
+    explicit DateInputType(HTMLInputElement&);
+
+    const AtomString& formControlType() const final;
+    DateComponentsType dateType() const final;
+    StepRange createStepRange(AnyStepHandling) const final;
+    std::optional<DateComponents> parseToDateComponents(StringView) const final;
+    std::optional<DateComponents> setMillisecondToDateComponents(double) const final;
+
+    bool isValidFormat(OptionSet<DateTimeFormatValidationResults>) const final;
+    String formatDateTimeFieldsState(const DateTimeFieldsState&) const final;
+    void setupLayoutParameters(DateTimeEditElement::LayoutParameters&, const DateComponents&) const final;
 };
 
 } // namespace WebCore
 
-#endif
+SPECIALIZE_TYPE_TRAITS_INPUT_TYPE(DateInputType, Type::Date)

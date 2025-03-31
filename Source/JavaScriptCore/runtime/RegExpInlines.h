@@ -27,6 +27,7 @@
 #include "Yarr.h"
 #include "YarrInterpreter.h"
 #include "YarrJIT.h"
+#include "YarrMatchingContextHolder.h"
 
 #define REGEXP_FUNC_TEST_DATA_GEN 0
 
@@ -35,6 +36,8 @@
 #include <stdlib.h>
 #include <string.h>
 #endif
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
@@ -49,7 +52,7 @@ public:
 
     ~RegExpFunctionalTestCollector();
 
-    void outputOneTest(RegExp*, String, int, int*, int);
+    void outputOneTest(RegExp*, StringView, int, int*, int);
     void clearRegExp(RegExp* regExp)
     {
         if (regExp == m_lastRegExp)
@@ -59,7 +62,7 @@ public:
 private:
     RegExpFunctionalTestCollector();
 
-    void outputEscapedString(const String&, bool escapeSlash = false);
+    void outputEscapedString(StringView, bool escapeSlash = false);
 
     static RegExpFunctionalTestCollector* s_instance;
     FILE* m_file;
@@ -67,16 +70,21 @@ private:
 };
 #endif // REGEXP_FUNC_TEST_DATA_GEN
 
-ALWAYS_INLINE bool RegExp::hasCodeFor(Yarr::YarrCharSize charSize)
+inline Structure* RegExp::createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
+{
+    return Structure::create(vm, globalObject, prototype, TypeInfo(CellType, StructureFlags), info());
+}
+
+ALWAYS_INLINE bool RegExp::hasCodeFor(Yarr::CharSize charSize)
 {
     if (hasCode()) {
 #if ENABLE(YARR_JIT)
         if (m_state != JITCode)
             return true;
         ASSERT(m_regExpJITCode);
-        if ((charSize == Yarr::Char8) && (m_regExpJITCode->has8BitCode()))
+        if ((charSize == Yarr::CharSize::Char8) && (m_regExpJITCode->has8BitCode()))
             return true;
-        if ((charSize == Yarr::Char16) && (m_regExpJITCode->has16BitCode()))
+        if ((charSize == Yarr::CharSize::Char16) && (m_regExpJITCode->has16BitCode()))
             return true;
 #else
         UNUSED_PARAM(charSize);
@@ -86,7 +94,7 @@ ALWAYS_INLINE bool RegExp::hasCodeFor(Yarr::YarrCharSize charSize)
     return false;
 }
 
-ALWAYS_INLINE void RegExp::compileIfNecessary(VM& vm, Yarr::YarrCharSize charSize)
+ALWAYS_INLINE void RegExp::compileIfNecessary(VM& vm, Yarr::CharSize charSize, std::optional<StringView> sampleString)
 {
     if (hasCodeFor(charSize))
         return;
@@ -94,18 +102,18 @@ ALWAYS_INLINE void RegExp::compileIfNecessary(VM& vm, Yarr::YarrCharSize charSiz
     if (m_state == ParseError)
         return;
 
-    compile(&vm, charSize);
+    compile(&vm, charSize, sampleString);
 }
 
 template<typename VectorType, Yarr::MatchFrom matchFrom>
-ALWAYS_INLINE int RegExp::matchInline(JSGlobalObject* nullOrGlobalObject, VM& vm, const String& s, unsigned startOffset, VectorType& ovector)
+ALWAYS_INLINE int RegExp::matchInline(JSGlobalObject* nullOrGlobalObject, VM& vm, StringView s, unsigned startOffset, VectorType& ovector)
 {
 #if ENABLE(REGEXP_TRACING)
     m_rtMatchCallCount++;
     m_rtMatchTotalSubjectStringLen += (double)(s.length() - startOffset);
 #endif
 
-    compileIfNecessary(vm, s.is8Bit() ? Yarr::Char8 : Yarr::Char16);
+    compileIfNecessary(vm, s.is8Bit() ? Yarr::CharSize::Char8 : Yarr::CharSize::Char16, s);
 
     auto throwError = [&] {
         if (matchFrom == Yarr::MatchFrom::CompilerThread)
@@ -122,29 +130,43 @@ ALWAYS_INLINE int RegExp::matchInline(JSGlobalObject* nullOrGlobalObject, VM& vm
     if (m_state == ParseError)
         return throwError();
 
-    int offsetVectorSize = (m_numSubpatterns + 1) * 2;
-    ovector.resize(offsetVectorSize);
+    ovector.resize(offsetVectorSize());
     int* offsetVector = ovector.data();
+
+    if constexpr (matchFrom == Yarr::MatchFrom::VMThread) {
+        if (hasValidAtom()) {
+            size_t found = s.find(vm.adaptiveStringSearcherTables(), atom(), startOffset);
+            if (found == notFound)
+                return -1;
+            offsetVector[0] = found;
+            offsetVector[1] = found + atom().length();
+            return found;
+        }
+    }
 
     int result;
 #if ENABLE(YARR_JIT)
     if (m_state == JITCode) {
         {
             ASSERT(m_regExpJITCode);
-            Yarr::MatchingContextHolder regExpContext(vm, m_regExpJITCode.get(), matchFrom);
+            Yarr::MatchingContextHolder regExpContext(vm, m_regExpJITCode->usesPatternContextBuffer(), this, matchFrom);
 
             if (s.is8Bit())
-                result = m_regExpJITCode->execute(s.characters8(), startOffset, s.length(), offsetVector, regExpContext).start;
+                result = m_regExpJITCode->execute(s.span8(), startOffset, offsetVector, &regExpContext).start;
             else
-                result = m_regExpJITCode->execute(s.characters16(), startOffset, s.length(), offsetVector, regExpContext).start;
+                result = m_regExpJITCode->execute(s.span16(), startOffset, offsetVector, &regExpContext).start;
         }
 
-        if (result == Yarr::JSRegExpJITCodeFailure) {
+        if (result == static_cast<int>(Yarr::JSRegExpResult::JITCodeFailure)) {
             // JIT'ed code couldn't handle expression, so punt back to the interpreter.
             byteCodeCompileIfNecessary(&vm);
             if (m_state == ParseError)
                 return throwError();
-            result = Yarr::interpret(m_regExpBytecode.get(), s, startOffset, reinterpret_cast<unsigned*>(offsetVector));
+            {
+                constexpr bool usesPatternContextBuffer = false;
+                Yarr::MatchingContextHolder regExpContext(vm, usesPatternContextBuffer, this, matchFrom);
+                result = Yarr::interpret(m_regExpBytecode.get(), s, startOffset, reinterpret_cast<unsigned*>(offsetVector));
+            }
         }
 
 #if ENABLE(YARR_JIT_DEBUG)
@@ -157,31 +179,10 @@ ALWAYS_INLINE int RegExp::matchInline(JSGlobalObject* nullOrGlobalObject, VM& vm
 #endif
     } else
 #endif
+    {
+        constexpr bool usesPatternContextBuffer = false;
+        Yarr::MatchingContextHolder regExpContext(vm, usesPatternContextBuffer, this, matchFrom);
         result = Yarr::interpret(m_regExpBytecode.get(), s, startOffset, reinterpret_cast<unsigned*>(offsetVector));
-
-    // FIXME: The YARR engine should handle unsigned or size_t length matches.
-    // The YARR Interpreter is "unsigned" clean, while the YARR JIT hasn't been addressed.
-    // The offset vector handling needs to change as well.
-    // Right now we convert a match where the offsets overflowed into match failure.
-    // There are two places in WebCore that call the interpreter directly that need to
-    // have their offsets changed to int as well. They are yarr/RegularExpression.cpp
-    // and inspector/ContentSearchUtilities.cpp
-    if (s.length() > INT_MAX) {
-        bool overflowed = false;
-
-        if (result < -1)
-            overflowed = true;
-
-        for (unsigned i = 0; i <= m_numSubpatterns; i++) {
-            if ((offsetVector[i*2] < -1) || ((offsetVector[i*2] >= 0) && (offsetVector[i*2+1] < -1))) {
-                overflowed = true;
-                offsetVector[i*2] = -1;
-                offsetVector[i*2+1] = -1;
-            }
-        }
-
-        if (overflowed)
-            result = -1;
     }
 
     ASSERT(result >= -1);
@@ -198,16 +199,16 @@ ALWAYS_INLINE int RegExp::matchInline(JSGlobalObject* nullOrGlobalObject, VM& vm
     return result;
 }
 
-ALWAYS_INLINE bool RegExp::hasMatchOnlyCodeFor(Yarr::YarrCharSize charSize)
+ALWAYS_INLINE bool RegExp::hasMatchOnlyCodeFor(Yarr::CharSize charSize)
 {
     if (hasCode()) {
 #if ENABLE(YARR_JIT)
         if (m_state != JITCode)
             return true;
         ASSERT(m_regExpJITCode);
-        if ((charSize == Yarr::Char8) && (m_regExpJITCode->has8BitCodeMatchOnly()))
+        if ((charSize == Yarr::CharSize::Char8) && (m_regExpJITCode->has8BitCodeMatchOnly()))
             return true;
-        if ((charSize == Yarr::Char16) && (m_regExpJITCode->has16BitCodeMatchOnly()))
+        if ((charSize == Yarr::CharSize::Char16) && (m_regExpJITCode->has16BitCodeMatchOnly()))
             return true;
 #else
         UNUSED_PARAM(charSize);
@@ -218,7 +219,7 @@ ALWAYS_INLINE bool RegExp::hasMatchOnlyCodeFor(Yarr::YarrCharSize charSize)
     return false;
 }
 
-ALWAYS_INLINE void RegExp::compileIfNecessaryMatchOnly(VM& vm, Yarr::YarrCharSize charSize)
+ALWAYS_INLINE void RegExp::compileIfNecessaryMatchOnly(VM& vm, Yarr::CharSize charSize, std::optional<StringView> sampleString)
 {
     if (hasMatchOnlyCodeFor(charSize))
         return;
@@ -226,18 +227,18 @@ ALWAYS_INLINE void RegExp::compileIfNecessaryMatchOnly(VM& vm, Yarr::YarrCharSiz
     if (m_state == ParseError)
         return;
 
-    compileMatchOnly(&vm, charSize);
+    compileMatchOnly(&vm, charSize, sampleString);
 }
 
 template<Yarr::MatchFrom matchFrom>
-ALWAYS_INLINE MatchResult RegExp::matchInline(JSGlobalObject* nullOrGlobalObject, VM& vm, const String& s, unsigned startOffset)
+ALWAYS_INLINE MatchResult RegExp::matchInline(JSGlobalObject* nullOrGlobalObject, VM& vm, StringView s, unsigned startOffset)
 {
 #if ENABLE(REGEXP_TRACING)
     m_rtMatchOnlyCallCount++;
     m_rtMatchOnlyTotalSubjectStringLen += (double)(s.length() - startOffset);
 #endif
 
-    compileIfNecessaryMatchOnly(vm, s.is8Bit() ? Yarr::Char8 : Yarr::Char16);
+    compileIfNecessaryMatchOnly(vm, s.is8Bit() ? Yarr::CharSize::Char8 : Yarr::CharSize::Char16, s);
 
     auto throwError = [&] {
         if (matchFrom == Yarr::MatchFrom::CompilerThread)
@@ -254,25 +255,33 @@ ALWAYS_INLINE MatchResult RegExp::matchInline(JSGlobalObject* nullOrGlobalObject
     if (m_state == ParseError)
         return throwError();
 
-#if ENABLE(YARR_JIT)
-    MatchResult result;
+    if constexpr (matchFrom == Yarr::MatchFrom::VMThread) {
+        if (hasValidAtom()) {
+            size_t found = StringView(s).find(vm.adaptiveStringSearcherTables(), atom(), startOffset);
+            if (found == notFound)
+                return MatchResult::failed();
+            return MatchResult { found, found + atom().length() };
+        }
+    }
 
+#if ENABLE(YARR_JIT)
     if (m_state == JITCode) {
+        MatchResult result;
         {
             ASSERT(m_regExpJITCode);
-            Yarr::MatchingContextHolder regExpContext(vm, m_regExpJITCode.get(), matchFrom);
+            Yarr::MatchingContextHolder regExpContext(vm, m_regExpJITCode->usesPatternContextBuffer(), this, matchFrom);
 
             if (s.is8Bit())
-                result = m_regExpJITCode->execute(s.characters8(), startOffset, s.length(), regExpContext);
+                result = m_regExpJITCode->execute(s.span8(), startOffset, &regExpContext);
             else
-                result = m_regExpJITCode->execute(s.characters16(), startOffset, s.length(), regExpContext);
+                result = m_regExpJITCode->execute(s.span16(), startOffset, &regExpContext);
         }
 
 #if ENABLE(REGEXP_TRACING)
         if (!result)
             m_rtMatchOnlyFoundCount++;
 #endif
-        if (result.start != static_cast<size_t>(Yarr::JSRegExpJITCodeFailure))
+        if (result.start != static_cast<size_t>(Yarr::JSRegExpResult::JITCodeFailure))
             return result;
 
         // JIT'ed code couldn't handle expression, so punt back to the interpreter.
@@ -282,24 +291,30 @@ ALWAYS_INLINE MatchResult RegExp::matchInline(JSGlobalObject* nullOrGlobalObject
     }
 #endif
 
-    int offsetVectorSize = (m_numSubpatterns + 1) * 2;
     int* offsetVector;
+    int result;
     Vector<int, 32> nonReturnedOvector;
-    nonReturnedOvector.grow(offsetVectorSize);
+    nonReturnedOvector.grow(offsetVectorSize());
     offsetVector = nonReturnedOvector.data();
-    int r = Yarr::interpret(m_regExpBytecode.get(), s, startOffset, reinterpret_cast<unsigned*>(offsetVector));
+    {
+        constexpr bool usesPatternContextBuffer = false;
+        Yarr::MatchingContextHolder regExpContext(vm, usesPatternContextBuffer, this, matchFrom);
+        result = Yarr::interpret(m_regExpBytecode.get(), s, startOffset, reinterpret_cast<unsigned*>(offsetVector));
+    }
 #if REGEXP_FUNC_TEST_DATA_GEN
     RegExpFunctionalTestCollector::get()->outputOneTest(this, s, startOffset, offsetVector, result);
 #endif
 
-    if (r >= 0) {
+    if (result >= 0) {
 #if ENABLE(REGEXP_TRACING)
         m_rtMatchOnlyFoundCount++;
 #endif
-        return MatchResult(r, reinterpret_cast<unsigned*>(offsetVector)[1]);
+        return MatchResult(result, reinterpret_cast<unsigned*>(offsetVector)[1]);
     }
 
     return MatchResult::failed();
 }
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

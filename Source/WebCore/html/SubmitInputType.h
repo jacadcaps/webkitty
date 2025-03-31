@@ -31,22 +31,32 @@
 #pragma once
 
 #include "BaseButtonInputType.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class SubmitInputType final : public BaseButtonInputType {
+    WTF_MAKE_TZONE_ALLOCATED(SubmitInputType);
 public:
-    explicit SubmitInputType(HTMLInputElement& element) : BaseButtonInputType(element) { }
+    static Ref<SubmitInputType> create(HTMLInputElement& element)
+    {
+        return adoptRef(*new SubmitInputType(element));
+    }
 
 private:
-    const AtomString& formControlType() const override;
-    bool appendFormData(DOMFormData&, bool) const override;
-    bool supportsRequired() const override;
-    void handleDOMActivateEvent(Event&) override;
-    bool canBeSuccessfulSubmitButton() override;
-    String defaultValue() const override;
-    bool isSubmitButton() const override;
-    bool isTextButton() const override;
+    explicit SubmitInputType(HTMLInputElement& element)
+        : BaseButtonInputType(Type::Submit, element)
+    {
+    }
+
+    const AtomString& formControlType() const final;
+    bool appendFormData(DOMFormData&) const final;
+    bool supportsRequired() const final;
+    void handleDOMActivateEvent(Event&) final;
+    bool canBeSuccessfulSubmitButton() final;
+    String defaultValue() const final;
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_INPUT_TYPE(SubmitInputType, Type::Submit)

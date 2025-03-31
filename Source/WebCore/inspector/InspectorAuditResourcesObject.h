@@ -36,6 +36,7 @@
 #include <wtf/Forward.h>
 #include <wtf/Ref.h>
 #include <wtf/RefCounted.h>
+#include <wtf/RobinHoodHashMap.h>
 
 namespace WebCore {
 
@@ -78,7 +79,10 @@ private:
     class InspectorAuditCachedFontClient : public CachedFontClient { };
     InspectorAuditCachedFontClient m_cachedFontClient;
 
-    class InspectorAuditCachedImageClient : public CachedImageClient { };
+    class InspectorAuditCachedImageClient final : public CachedImageClient {
+        WTF_MAKE_FAST_ALLOCATED;
+        WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(InspectorAuditCachedImageClient);
+    };
     InspectorAuditCachedImageClient m_cachedImageClient;
 
     class InspectorAuditCachedRawResourceClient : public CachedRawResourceClient { };
@@ -90,7 +94,7 @@ private:
     class InspectorAuditCachedStyleSheetClient : public CachedStyleSheetClient { };
     InspectorAuditCachedStyleSheetClient m_cachedStyleSheetClient;
 
-    HashMap<String, CachedResource*> m_resources;
+    MemoryCompactRobinHoodHashMap<String, CachedResource*> m_resources;
 };
 
 } // namespace WebCore

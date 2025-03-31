@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,24 +25,18 @@
 
 #pragma once
 
+#include "OSCheck.h"
+#include <optional>
+#include <wtf/Atomics.h>
+
 namespace JSC {
 
-ALWAYS_INLINE constexpr bool isDarwin()
+template<size_t bits, typename Type>
+ALWAYS_INLINE constexpr bool isInt(Type t)
 {
-#if OS(DARWIN)
-    return true;
-#else
-    return false;
-#endif
-}
-
-ALWAYS_INLINE constexpr bool isIOS()
-{
-#if PLATFORM(IOS_FAMILY)
-    return true;
-#else
-    return false;
-#endif
+    constexpr size_t shift = sizeof(Type) * CHAR_BIT - bits;
+    static_assert(sizeof(Type) * CHAR_BIT > shift, "shift is larger than the size of the value");
+    return ((t << shift) >> shift) == t;
 }
 
 ALWAYS_INLINE bool isInt9(int32_t value)
@@ -72,6 +66,15 @@ ALWAYS_INLINE bool isValidScaledUImm12(int32_t offset)
 ALWAYS_INLINE bool isValidSignedImm9(int32_t value)
 {
     return isInt9(value);
+}
+
+ALWAYS_INLINE bool isValidSignedImm7(int32_t value, int alignmentShiftAmount)
+{
+    constexpr int32_t disallowedHighBits = 32 - 7;
+    int32_t shiftedValue = value >> alignmentShiftAmount;
+    bool fitsIn7Bits = shiftedValue == ((shiftedValue << disallowedHighBits) >> disallowedHighBits);
+    bool hasCorrectAlignment = value == (shiftedValue << alignmentShiftAmount);
+    return fitsIn7Bits && hasCorrectAlignment;
 }
 
 class ARM64LogicalImmediate {
@@ -295,5 +298,114 @@ private:
 
     int m_value;
 };
+
+class ARM64FPImmediate {
+public:
+    static ARM64FPImmediate create64(uint64_t value)
+    {
+        uint8_t result = 0;
+        for (unsigned i = 0; i < sizeof(double); ++i) {
+            uint8_t slice = static_cast<uint8_t>(value >> (8 * i));
+            if (!slice)
+                continue;
+            if (slice == UINT8_MAX) {
+                result |= (1U << i);
+                continue;
+            }
+            return { };
+        }
+        return ARM64FPImmediate(result);
+    }
+
+    bool isValid() const { return m_value.has_value(); }
+    uint8_t value() const
+    {
+        ASSERT(isValid());
+        return m_value.value();
+    }
+
+private:
+    ARM64FPImmediate() = default;
+
+    ARM64FPImmediate(uint8_t value)
+        : m_value(value)
+    {
+    }
+
+    std::optional<uint8_t> m_value;
+};
+
+ALWAYS_INLINE bool isValidARMThumb2Immediate(int64_t value)
+{
+    if (value < 0)
+        return false;
+    if (value > UINT32_MAX)
+        return false;
+    if (value < 256)
+        return true;
+    // If it can be expressed as an 8-bit number, left sifted by a constant
+    const int64_t mask = (value ^ (value & (value - 1))) * 0xff;
+    if ((value & mask) == value)
+        return true;
+    // FIXME: there are a few more valid forms, see section 4.2 in the Thumb-2 Supplement
+    return false;
+}
+
+enum class MachineCodeCopyMode : uint8_t {
+    Memcpy,
+    JITMemcpy,
+};
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
+static ALWAYS_INLINE void* memcpyAtomicIfPossible(void* dst, const void* src, size_t n)
+{
+#if !CPU(NEEDS_ALIGNED_ACCESS)
+    // We would like to do atomic write here.
+    switch (n) {
+    case 1:
+        WTF::atomicStore(std::bit_cast<uint8_t*>(dst), *std::bit_cast<const uint8_t*>(src), std::memory_order_relaxed);
+        return dst;
+    case 2:
+        WTF::atomicStore(std::bit_cast<uint16_t*>(dst), *std::bit_cast<const uint16_t*>(src), std::memory_order_relaxed);
+        return dst;
+    case 4:
+        WTF::atomicStore(std::bit_cast<uint32_t*>(dst), *std::bit_cast<const uint32_t*>(src), std::memory_order_relaxed);
+        return dst;
+    case 8:
+        WTF::atomicStore(std::bit_cast<uint64_t*>(dst), *std::bit_cast<const uint64_t*>(src), std::memory_order_relaxed);
+        return dst;
+    default:
+        break;
+    }
+#endif
+    return memcpy(dst, src, n);
+}
+
+static void* performJITMemcpy(void* dst, const void* src, size_t n);
+
+template<MachineCodeCopyMode copy>
+ALWAYS_INLINE void* machineCodeCopy(void* dst, const void* src, size_t n)
+{
+#if CPU(ARM_THUMB2)
+    // For thumb instructions, we want to avoid the case where we have
+    // to repatch a 32-bit instruction that crosses 2 words.
+    bool isAligned = (dst == WTF::roundUpToMultipleOf<4>(dst));
+    if (n == 2 * sizeof(int16_t) && isAligned) {
+        *static_cast<uint32_t*>(dst) = *static_cast<const uint32_t*>(src);
+        return dst;
+    }
+    if (n == 1 * sizeof(int16_t)) {
+        *static_cast<uint16_t*>(dst) = *static_cast<const uint16_t*>(src);
+        return dst;
+    }
+#endif
+    if constexpr (copy == MachineCodeCopyMode::Memcpy)
+        return memcpyAtomicIfPossible(dst, src, n);
+    else
+        return performJITMemcpy(dst, src, n);
+}
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 } // namespace JSC.

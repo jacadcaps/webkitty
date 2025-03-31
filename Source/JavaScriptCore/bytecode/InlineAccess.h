@@ -32,6 +32,8 @@
 
 namespace JSC {
 
+class CodeBlock;
+class InlineCacheHandler;
 class JSArray;
 class Structure;
 class StructureStubInfo;
@@ -45,14 +47,12 @@ public:
     {
 #if CPU(X86_64)
         return 26;
-#elif CPU(X86)
-        return 27;
 #elif CPU(ARM64)
         return 40;
 #elif CPU(ARM_THUMB2)
         return 48;
-#elif CPU(MIPS)
-        return 72;
+#elif CPU(RISCV64)
+        return 44;
 #else
 #error "unsupported platform"
 #endif
@@ -63,35 +63,28 @@ public:
     {
 #if CPU(X86_64)
         return 26;
-#elif CPU(X86)
-        return 27;
 #elif CPU(ARM64)
         return 40;
 #elif CPU(ARM_THUMB2)
         return 48;
-#elif CPU(MIPS)
-        return 72;
+#elif CPU(RISCV64)
+        return 52;
 #else
 #error "unsupported platform"
 #endif
     }
 
-    // FIXME: Make this constexpr when GCC is able to compile std::max() inside a constexpr function.
-    // https://bugs.webkit.org/show_bug.cgi?id=159436
-    //
     // This is the maximum between array length, string length, and regular self access sizes.
-    ALWAYS_INLINE static size_t sizeForLengthAccess()
+    ALWAYS_INLINE static constexpr size_t sizeForLengthAccess()
     {
 #if CPU(X86_64)
         size_t size = 43;
-#elif CPU(X86)
-        size_t size = 27;
 #elif CPU(ARM64)
         size_t size = 44;
 #elif CPU(ARM_THUMB2)
         size_t size = 30;
-#elif CPU(MIPS)
-        size_t size = 56;
+#elif CPU(RISCV64)
+        size_t size = 60;
 #else
 #error "unsupported platform"
 #endif
@@ -104,7 +97,6 @@ public:
     static bool isCacheableArrayLength(StructureStubInfo&, JSArray*);
     static bool isCacheableStringLength(StructureStubInfo&);
     static bool generateArrayLength(StructureStubInfo&, JSArray*);
-    static void rewireStubAsJump(StructureStubInfo&, CodeLocationLabel<JITStubRoutinePtrTag>);
     static bool generateSelfInAccess(StructureStubInfo&, Structure*);
     static bool generateStringLength(StructureStubInfo&);
 

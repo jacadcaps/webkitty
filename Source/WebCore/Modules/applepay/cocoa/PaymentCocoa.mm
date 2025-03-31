@@ -32,6 +32,7 @@
 #import "PaymentContact.h"
 #import "PaymentMethod.h"
 #import <pal/spi/cocoa/PassKitSPI.h>
+#import <wtf/cocoa/SpanCocoa.h>
 
 namespace WebCore {
 
@@ -54,10 +55,10 @@ static ApplePayPayment::Token convert(PKPaymentToken *paymentToken)
 
     result.paymentMethod = PaymentMethod(paymentToken.paymentMethod).toApplePayPaymentMethod();
 
-    if (NSString *transactionIdentifier = paymentToken.transactionIdentifier)
-        result.transactionIdentifier = transactionIdentifier;
-    if (NSData *paymentData = paymentToken.paymentData)
-        result.paymentData = String::fromUTF8((const char*)paymentData.bytes, paymentData.length);
+    if (RetainPtr<NSString> transactionIdentifier = paymentToken.transactionIdentifier)
+        result.transactionIdentifier = transactionIdentifier.get();
+    if (RetainPtr<NSData> paymentData = paymentToken.paymentData)
+        result.paymentData = String::fromUTF8(span(paymentData.get()));
 
     return result;
 }
@@ -94,9 +95,9 @@ ApplePayPayment Payment::toApplePayPayment(unsigned version) const
     return convert(version, m_pkPayment.get());
 }
 
-PKPayment *Payment::pkPayment() const
+RetainPtr<PKPayment> Payment::pkPayment() const
 {
-    return m_pkPayment.get();
+    return m_pkPayment;
 }
 
 }

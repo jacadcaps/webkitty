@@ -27,11 +27,9 @@
 
 #if ENABLE(VIDEO) && USE(GSTREAMER)
 
-#include "GStreamerCommon.h"
 #include "InbandTextTrackPrivate.h"
 #include "TrackPrivateBaseGStreamer.h"
-#include <gst/gst.h>
-#include <wtf/Lock.h>
+#include <wtf/Forward.h>
 
 namespace WebCore {
 
@@ -39,38 +37,47 @@ class MediaPlayerPrivateGStreamer;
 
 class InbandTextTrackPrivateGStreamer : public InbandTextTrackPrivate, public TrackPrivateBaseGStreamer {
 public:
-    static Ref<InbandTextTrackPrivateGStreamer> create(gint index, GRefPtr<GstPad> pad)
+    static Ref<InbandTextTrackPrivateGStreamer> create(unsigned index, GRefPtr<GstPad>&& pad, bool shouldHandleStreamStartEvent = true)
     {
-        return adoptRef(*new InbandTextTrackPrivateGStreamer(index, pad));
+        return adoptRef(*new InbandTextTrackPrivateGStreamer(index, WTFMove(pad), shouldHandleStreamStartEvent));
     }
 
-    static Ref<InbandTextTrackPrivateGStreamer> create(gint index, GRefPtr<GstStream> stream)
+    static Ref<InbandTextTrackPrivateGStreamer> create(unsigned index, GRefPtr<GstPad>&& pad, TrackID trackId)
+    {
+        return adoptRef(*new InbandTextTrackPrivateGStreamer(index, WTFMove(pad), trackId));
+    }
+
+    static Ref<InbandTextTrackPrivateGStreamer> create(ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>&&, unsigned index, GRefPtr<GstPad> pad)
+    {
+        return create(index, WTFMove(pad));
+    }
+
+    static Ref<InbandTextTrackPrivateGStreamer> create(ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>&&, unsigned index, GstStream* stream)
     {
         return adoptRef(*new InbandTextTrackPrivateGStreamer(index, stream));
     }
 
-    void disconnect() override;
+    Kind kind() const final { return m_kind; }
+    TrackID id() const final { return m_trackID.value_or(m_id); }
+    std::optional<AtomString> trackUID() const final { return std::nullopt; }
+    AtomString label() const final { return m_label; }
+    AtomString language() const final { return m_language; }
+    int trackIndex() const final { return m_index; }
 
-    AtomString label() const override { return m_label; }
-    AtomString language() const override { return m_language; }
+    void handleSample(GRefPtr<GstSample>&&);
 
-    int trackIndex() const override { return m_index; }
-    String streamId() const { return m_streamId; }
-
-    void handleSample(GRefPtr<GstSample>);
+protected:
+    void tagsChanged(GRefPtr<GstTagList>&&) final;
 
 private:
-    InbandTextTrackPrivateGStreamer(gint index, GRefPtr<GstPad>);
-    InbandTextTrackPrivateGStreamer(gint index, GRefPtr<GstStream>);
-
-    void streamChanged();
+    InbandTextTrackPrivateGStreamer(unsigned index, GRefPtr<GstPad>&&, bool shouldHandleStreamStartEvent);
+    InbandTextTrackPrivateGStreamer(unsigned index, GRefPtr<GstPad>&&, TrackID);
+    InbandTextTrackPrivateGStreamer(unsigned index, GstStream*);
 
     void notifyTrackOfSample();
-    void notifyTrackOfStreamChanged();
 
-    gulong m_eventProbe;
-    Vector<GRefPtr<GstSample>> m_pendingSamples;
-    String m_streamId;
+    Vector<GRefPtr<GstSample>> m_pendingSamples WTF_GUARDED_BY_LOCK(m_sampleMutex);
+    Kind m_kind;
     Lock m_sampleMutex;
 };
 

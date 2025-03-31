@@ -29,6 +29,8 @@
 #include <wtf/HashMap.h>
 #include <wtf/Ref.h>
 #include <wtf/Seconds.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/WeakRef.h>
 #include <wtf/text/AtomString.h>
 #include <wtf/text/AtomStringHash.h>
 
@@ -37,6 +39,7 @@ namespace WebCore {
 class CSSCustomPropertyValue;
 class CSSVariableData;
 class Document;
+class WeakPtrImplWithEventTargetData;
 
 enum class ConstantProperty {
     SafeAreaInsetTop,
@@ -51,11 +54,11 @@ enum class ConstantProperty {
 };
 
 class ConstantPropertyMap {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(ConstantPropertyMap);
 public:
     explicit ConstantPropertyMap(Document&);
 
-    typedef HashMap<AtomString, Ref<CSSCustomPropertyValue>> Values;
+    typedef UncheckedKeyHashMap<AtomString, Ref<CSSCustomPropertyValue>> Values;
     const Values& values() const;
 
     void didChangeSafeAreaInsets();
@@ -71,9 +74,11 @@ private:
     void updateConstantsForSafeAreaInsets();
     void updateConstantsForFullscreen();
 
-    Optional<Values> m_values;
+    Ref<Document> protectedDocument() const;
 
-    Document& m_document;
+    std::optional<Values> m_values;
+
+    WeakRef<Document, WeakPtrImplWithEventTargetData> m_document;
 };
 
 } // namespace WebCore

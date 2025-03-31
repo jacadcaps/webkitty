@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2004, 2005, 2007 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2004, 2005, 2006 Rob Buis <buis@kde.org>
- * Copyright (C) 2018-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2022 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -23,34 +23,36 @@
 
 #include "FEComposite.h"
 #include "SVGFilterPrimitiveStandardAttributes.h"
+#include <wtf/SortedArrayMap.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 template<>
-inline unsigned SVGIDLEnumLimits<CompositeOperationType>::highestExposedEnumValue() { return FECOMPOSITE_OPERATOR_ARITHMETIC; }
+inline unsigned SVGIDLEnumLimits<CompositeOperationType>::highestExposedEnumValue() { return enumToUnderlyingType(CompositeOperationType::FECOMPOSITE_OPERATOR_ARITHMETIC); }
 
 template<>
 struct SVGPropertyTraits<CompositeOperationType> {
-    static unsigned highestEnumValue() { return FECOMPOSITE_OPERATOR_LIGHTER; }
+    static unsigned highestEnumValue() { return enumToUnderlyingType(CompositeOperationType::FECOMPOSITE_OPERATOR_LIGHTER); }
 
     static String toString(CompositeOperationType type)
     {
         switch (type) {
-        case FECOMPOSITE_OPERATOR_UNKNOWN:
+        case CompositeOperationType::FECOMPOSITE_OPERATOR_UNKNOWN:
             return emptyString();
-        case FECOMPOSITE_OPERATOR_OVER:
+        case CompositeOperationType::FECOMPOSITE_OPERATOR_OVER:
             return "over"_s;
-        case FECOMPOSITE_OPERATOR_IN:
+        case CompositeOperationType::FECOMPOSITE_OPERATOR_IN:
             return "in"_s;
-        case FECOMPOSITE_OPERATOR_OUT:
+        case CompositeOperationType::FECOMPOSITE_OPERATOR_OUT:
             return "out"_s;
-        case FECOMPOSITE_OPERATOR_ATOP:
+        case CompositeOperationType::FECOMPOSITE_OPERATOR_ATOP:
             return "atop"_s;
-        case FECOMPOSITE_OPERATOR_XOR:
+        case CompositeOperationType::FECOMPOSITE_OPERATOR_XOR:
             return "xor"_s;
-        case FECOMPOSITE_OPERATOR_ARITHMETIC:
+        case CompositeOperationType::FECOMPOSITE_OPERATOR_ARITHMETIC:
             return "arithmetic"_s;
-        case FECOMPOSITE_OPERATOR_LIGHTER:
+        case CompositeOperationType::FECOMPOSITE_OPERATOR_LIGHTER:
             return "lighter"_s;
         }
 
@@ -60,26 +62,23 @@ struct SVGPropertyTraits<CompositeOperationType> {
 
     static CompositeOperationType fromString(const String& value)
     {
-        if (value == "over")
-            return FECOMPOSITE_OPERATOR_OVER;
-        if (value == "in")
-            return FECOMPOSITE_OPERATOR_IN;
-        if (value == "out")
-            return FECOMPOSITE_OPERATOR_OUT;
-        if (value == "atop")
-            return FECOMPOSITE_OPERATOR_ATOP;
-        if (value == "xor")
-            return FECOMPOSITE_OPERATOR_XOR;
-        if (value == "arithmetic")
-            return FECOMPOSITE_OPERATOR_ARITHMETIC;
-        if (value == "lighter")
-            return FECOMPOSITE_OPERATOR_LIGHTER;
-        return FECOMPOSITE_OPERATOR_UNKNOWN;
+        static constexpr std::pair<ComparableASCIILiteral, CompositeOperationType> mappings[] = {
+            { "arithmetic"_s, CompositeOperationType::FECOMPOSITE_OPERATOR_ARITHMETIC },
+            { "atop"_s, CompositeOperationType::FECOMPOSITE_OPERATOR_ATOP },
+            { "in"_s, CompositeOperationType::FECOMPOSITE_OPERATOR_IN },
+            { "lighter"_s, CompositeOperationType::FECOMPOSITE_OPERATOR_LIGHTER },
+            { "out"_s, CompositeOperationType::FECOMPOSITE_OPERATOR_OUT },
+            { "over"_s, CompositeOperationType::FECOMPOSITE_OPERATOR_OVER },
+            { "xor"_s, CompositeOperationType::FECOMPOSITE_OPERATOR_XOR },
+        };
+        static constexpr SortedArrayMap map { mappings };
+        return map.get(value, CompositeOperationType::FECOMPOSITE_OPERATOR_UNKNOWN);
     }
 };
 
 class SVGFECompositeElement final : public SVGFilterPrimitiveStandardAttributes {
-    WTF_MAKE_ISO_ALLOCATED(SVGFECompositeElement);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(SVGFECompositeElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SVGFECompositeElement);
 public:
     static Ref<SVGFECompositeElement> create(const QualifiedName&, Document&);
 
@@ -99,22 +98,21 @@ public:
     SVGAnimatedNumber& k3Animated() { return m_k3; }
     SVGAnimatedNumber& k4Animated() { return m_k4; }
 
+    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGFECompositeElement, SVGFilterPrimitiveStandardAttributes>;
+
 private:
     SVGFECompositeElement(const QualifiedName&, Document&);
 
-    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGFECompositeElement, SVGFilterPrimitiveStandardAttributes>;
-    const SVGPropertyRegistry& propertyRegistry() const final { return m_propertyRegistry; }
-
-    void parseAttribute(const QualifiedName&, const AtomString&) override;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) override;
     void svgAttributeChanged(const QualifiedName&) override;
 
-    bool setFilterEffectAttribute(FilterEffect*, const QualifiedName&) override;
-    RefPtr<FilterEffect> build(SVGFilterBuilder*, Filter&) const override;
+    bool setFilterEffectAttribute(FilterEffect&, const QualifiedName&) override;
+    Vector<AtomString> filterEffectInputsNames() const override { return { AtomString { in1() }, AtomString { in2() } }; }
+    RefPtr<FilterEffect> createFilterEffect(const FilterEffectVector&, const GraphicsContext& destinationContext) const override;
 
-    PropertyRegistry m_propertyRegistry { *this };
     Ref<SVGAnimatedString> m_in1 { SVGAnimatedString::create(this) };
     Ref<SVGAnimatedString> m_in2 { SVGAnimatedString::create(this) };
-    Ref<SVGAnimatedEnumeration> m_svgOperator { SVGAnimatedEnumeration::create(this, FECOMPOSITE_OPERATOR_OVER) };
+    Ref<SVGAnimatedEnumeration> m_svgOperator { SVGAnimatedEnumeration::create(this, CompositeOperationType::FECOMPOSITE_OPERATOR_OVER) };
     Ref<SVGAnimatedNumber> m_k1 { SVGAnimatedNumber::create(this) };
     Ref<SVGAnimatedNumber> m_k2 { SVGAnimatedNumber::create(this) };
     Ref<SVGAnimatedNumber> m_k3 { SVGAnimatedNumber::create(this) };

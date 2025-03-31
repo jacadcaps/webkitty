@@ -33,19 +33,19 @@ const rtc::SocketAddress client_addr("1.2.3.4", 1234);
 
 class StunServerTest : public ::testing::Test {
  public:
-  StunServerTest() : ss_(new rtc::VirtualSocketServer()), network_(ss_.get()) {}
-  virtual void SetUp() {
+  StunServerTest() : ss_(new rtc::VirtualSocketServer()) {
+    ss_->SetMessageQueue(&main_thread);
     server_.reset(
         new StunServer(rtc::AsyncUDPSocket::Create(ss_.get(), server_addr)));
     client_.reset(new rtc::TestClient(
         absl::WrapUnique(rtc::AsyncUDPSocket::Create(ss_.get(), client_addr))));
-
-    network_.Start();
   }
+
   void Send(const StunMessage& msg) {
     rtc::ByteBufferWriter buf;
     msg.Write(&buf);
-    Send(buf.Data(), static_cast<int>(buf.Length()));
+    Send(reinterpret_cast<const char*>(buf.Data()),
+         static_cast<int>(buf.Length()));
   }
   void Send(const char* buf, int len) {
     client_->SendTo(buf, len, server_addr);
@@ -56,7 +56,7 @@ class StunServerTest : public ::testing::Test {
     std::unique_ptr<rtc::TestClient::Packet> packet =
         client_->NextPacket(rtc::TestClient::kTimeoutMs);
     if (packet) {
-      rtc::ByteBufferReader buf(packet->buf, packet->size);
+      rtc::ByteBufferReader buf(packet->buf);
       msg = new StunMessage();
       msg->Read(&buf);
     }
@@ -64,22 +64,16 @@ class StunServerTest : public ::testing::Test {
   }
 
  private:
+  rtc::AutoThread main_thread;
   std::unique_ptr<rtc::VirtualSocketServer> ss_;
-  rtc::Thread network_;
   std::unique_ptr<StunServer> server_;
   std::unique_ptr<rtc::TestClient> client_;
 };
 
-// Disable for TSan v2, see
-// https://code.google.com/p/webrtc/issues/detail?id=2517 for details.
-#if !defined(THREAD_SANITIZER)
-
 TEST_F(StunServerTest, TestGood) {
-  StunMessage req;
   // kStunLegacyTransactionIdLength = 16 for legacy RFC 3489 request
   std::string transaction_id = "0123456789abcdef";
-  req.SetType(STUN_BINDING_REQUEST);
-  req.SetTransactionID(transaction_id);
+  StunMessage req(STUN_BINDING_REQUEST, transaction_id);
   Send(req);
 
   StunMessage* msg = Receive();
@@ -97,12 +91,10 @@ TEST_F(StunServerTest, TestGood) {
 }
 
 TEST_F(StunServerTest, TestGoodXorMappedAddr) {
-  StunMessage req;
   // kStunTransactionIdLength = 12 for RFC 5389 request
   // StunMessage::Write will automatically insert magic cookie (0x2112A442)
   std::string transaction_id = "0123456789ab";
-  req.SetType(STUN_BINDING_REQUEST);
-  req.SetTransactionID(transaction_id);
+  StunMessage req(STUN_BINDING_REQUEST, transaction_id);
   Send(req);
 
   StunMessage* msg = Receive();
@@ -121,11 +113,9 @@ TEST_F(StunServerTest, TestGoodXorMappedAddr) {
 
 // Send legacy RFC 3489 request, should not get xor mapped addr
 TEST_F(StunServerTest, TestNoXorMappedAddr) {
-  StunMessage req;
   // kStunLegacyTransactionIdLength = 16 for legacy RFC 3489 request
   std::string transaction_id = "0123456789abcdef";
-  req.SetType(STUN_BINDING_REQUEST);
-  req.SetTransactionID(transaction_id);
+  StunMessage req(STUN_BINDING_REQUEST, transaction_id);
   Send(req);
 
   StunMessage* msg = Receive();
@@ -139,8 +129,6 @@ TEST_F(StunServerTest, TestNoXorMappedAddr) {
 
   delete msg;
 }
-
-#endif  // if !defined(THREAD_SANITIZER)
 
 TEST_F(StunServerTest, TestBad) {
   const char* bad =

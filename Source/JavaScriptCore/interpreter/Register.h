@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2008-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,6 +30,7 @@
 
 #include "JSCJSValue.h"
 #include <wtf/Assertions.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/VectorTraits.h>
 
 namespace JSC {
@@ -41,7 +42,7 @@ namespace JSC {
     class JSScope;
 
     class Register {
-        WTF_MAKE_FAST_ALLOCATED;
+        WTF_MAKE_TZONE_NON_HEAP_ALLOCATABLE(Register);
     public:
         Register();
 
@@ -53,7 +54,7 @@ namespace JSC {
         ALWAYS_INLINE Register& operator=(CallFrame*);
         ALWAYS_INLINE Register& operator=(CodeBlock*);
         ALWAYS_INLINE Register& operator=(JSScope*);
-        ALWAYS_INLINE Register& operator=(JSObject*);
+        ALWAYS_INLINE Register& operator=(JSCell*);
         ALWAYS_INLINE Register& operator=(EncodedJSValue);
 
         int32_t i() const;
@@ -63,12 +64,19 @@ namespace JSC {
         ALWAYS_INLINE JSObject* object() const;
         ALWAYS_INLINE JSScope* scope() const;
         int32_t unboxedInt32() const;
+        uint32_t unboxedUInt32() const;
         int32_t asanUnsafeUnboxedInt32() const;
         int64_t unboxedInt52() const;
         int64_t asanUnsafeUnboxedInt52() const;
         int64_t unboxedStrictInt52() const;
         int64_t asanUnsafeUnboxedStrictInt52() const;
+        int64_t unboxedInt64() const;
+        int64_t asanUnsafeUnboxedInt64() const;
         bool unboxedBoolean() const;
+#if ENABLE(WEBASSEMBLY) && USE(JSVALUE32_64)
+        float unboxedFloat() const;
+        float asanUnsafeUnboxedFloat() const;
+#endif
         double unboxedDouble() const;
         double asanUnsafeUnboxedDouble() const;
         JSCell* unboxedCell() const;
@@ -140,6 +148,11 @@ namespace JSC {
         return payload();
     }
 
+    ALWAYS_INLINE uint32_t Register::unboxedUInt32() const
+    {
+        return static_cast<uint32_t>(unboxedInt32());
+    }
+
     SUPPRESS_ASAN ALWAYS_INLINE int32_t Register::asanUnsafeUnboxedInt32() const
     {
         return unsafePayload();
@@ -165,10 +178,32 @@ namespace JSC {
         return u.integer;
     }
 
+    ALWAYS_INLINE int64_t Register::unboxedInt64() const
+    {
+        return u.integer;
+    }
+
+    SUPPRESS_ASAN ALWAYS_INLINE int64_t Register::asanUnsafeUnboxedInt64() const
+    {
+        return u.integer;
+    }
+
     ALWAYS_INLINE bool Register::unboxedBoolean() const
     {
         return !!payload();
     }
+
+#if ENABLE(WEBASSEMBLY) && USE(JSVALUE32_64)
+    ALWAYS_INLINE float Register::unboxedFloat() const
+    {
+        return std::bit_cast<float>(payload());
+    }
+
+    SUPPRESS_ASAN ALWAYS_INLINE float Register::asanUnsafeUnboxedFloat() const
+    {
+        return std::bit_cast<float>(payload());
+    }
+#endif
 
     ALWAYS_INLINE double Register::unboxedDouble() const
     {
@@ -185,7 +220,7 @@ namespace JSC {
 #if USE(JSVALUE64)
         return u.encodedValue.ptr;
 #else
-        return bitwise_cast<JSCell*>(payload());
+        return std::bit_cast<JSCell*>(payload());
 #endif
     }
 
@@ -194,7 +229,7 @@ namespace JSC {
 #if USE(JSVALUE64)
         return u.encodedValue.ptr;
 #else
-        return bitwise_cast<JSCell*>(payload());
+        return std::bit_cast<JSCell*>(payload());
 #endif
     }
 
@@ -203,7 +238,7 @@ namespace JSC {
 #if USE(JSVALUE64)
         return u.encodedValue.ptr;
 #else
-        return bitwise_cast<void*>(payload());
+        return std::bit_cast<void*>(payload());
 #endif
     }
 
@@ -212,7 +247,7 @@ namespace JSC {
 #if USE(JSVALUE64)
         return u.encodedValue.ptr;
 #else
-        return bitwise_cast<void*>(unsafePayload());
+        return std::bit_cast<void*>(unsafePayload());
 #endif
     }
 

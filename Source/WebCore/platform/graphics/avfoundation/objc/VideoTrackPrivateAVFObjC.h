@@ -29,6 +29,8 @@
 #if ENABLE(VIDEO)
 
 #include "VideoTrackPrivateAVF.h"
+#include <wtf/Observer.h>
+#include <wtf/TZoneMalloc.h>
 
 OBJC_CLASS AVAssetTrack;
 OBJC_CLASS AVPlayerItem;
@@ -42,6 +44,7 @@ class AVTrackPrivateAVFObjCImpl;
 class MediaSelectionOptionAVFObjC;
 
 class VideoTrackPrivateAVFObjC final : public VideoTrackPrivateAVF {
+    WTF_MAKE_TZONE_ALLOCATED(VideoTrackPrivateAVFObjC);
     WTF_MAKE_NONCOPYABLE(VideoTrackPrivateAVFObjC)
 public:
     static RefPtr<VideoTrackPrivateAVFObjC> create(AVPlayerItemTrack* track)
@@ -61,22 +64,25 @@ public:
 
     void setSelected(bool) override;
 
-    void setPlayerItemTrack(AVPlayerItemTrack*);
     AVPlayerItemTrack* playerItemTrack();
 
-    void setAssetTrack(AVAssetTrack*);
     AVAssetTrack* assetTrack();
 
-    void setMediaSelectonOption(MediaSelectionOptionAVFObjC&);
     MediaSelectionOptionAVFObjC* mediaSelectionOption();
 
 private:
+    friend class MediaPlayerPrivateAVFoundationObjC;
     explicit VideoTrackPrivateAVFObjC(AVPlayerItemTrack*);
     explicit VideoTrackPrivateAVFObjC(AVAssetTrack*);
     explicit VideoTrackPrivateAVFObjC(MediaSelectionOptionAVFObjC&);
+    explicit VideoTrackPrivateAVFObjC(std::unique_ptr<AVTrackPrivateAVFObjCImpl>&&);
 
     void resetPropertiesFromTrack();
+    void videoTrackConfigurationChanged();
     std::unique_ptr<AVTrackPrivateAVFObjCImpl> m_impl;
+
+    using VideoTrackConfigurationObserver = Observer<void()>;
+    VideoTrackConfigurationObserver m_videoTrackConfigurationObserver;
 };
 
 }

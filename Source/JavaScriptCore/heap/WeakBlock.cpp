@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,18 +32,20 @@
 #include "JSCInlines.h"
 #include "WeakHandleOwner.h"
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
 
 DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(WeakBlock);
 
-WeakBlock* WeakBlock::create(Heap& heap, CellContainer container)
+WeakBlock* WeakBlock::create(JSC::Heap& heap, CellContainer container)
 {
     heap.didAllocateBlock(WeakBlock::blockSize);
     return new (NotNull, WeakBlockMalloc::malloc(blockSize)) WeakBlock(container);
 
 }
 
-void WeakBlock::destroy(Heap& heap, WeakBlock* block)
+void WeakBlock::destroy(JSC::Heap& heap, WeakBlock* block)
 {
     block->~WeakBlock();
     WeakBlockMalloc::free(block);
@@ -98,12 +100,11 @@ void WeakBlock::sweep()
     ASSERT(!m_sweepResult.isNull());
 }
 
-template<typename ContainerType>
-void WeakBlock::specializedVisit(ContainerType& container, SlotVisitor& visitor)
+template<typename ContainerType, typename Visitor>
+void WeakBlock::specializedVisit(ContainerType& container, Visitor& visitor)
 {
-    HeapVersion markingVersion = visitor.markingVersion();
-
     size_t count = weakImplCount();
+    HeapAnalyzer* heapAnalyzer = visitor.vm().activeHeapAnalyzer();
     for (size_t i = 0; i < count; ++i) {
         WeakImpl* weakImpl = &weakImpls()[i];
         if (weakImpl->state() != WeakImpl::Live)
@@ -114,27 +115,30 @@ void WeakBlock::specializedVisit(ContainerType& container, SlotVisitor& visitor)
             continue;
 
         JSValue jsValue = weakImpl->jsValue();
-        if (container.isMarked(markingVersion, jsValue.asCell()))
+        if (visitor.isMarked(container, jsValue.asCell()))
             continue;
         
-        const char* reason = "";
-        const char** reasonPtr = nullptr;
-        if (UNLIKELY(visitor.isAnalyzingHeap()))
+        ASCIILiteral reason = ""_s;
+        ASCIILiteral* reasonPtr = nullptr;
+        if (UNLIKELY(heapAnalyzer))
             reasonPtr = &reason;
+
+        typename Visitor::ReferrerContext context(visitor, Visitor::OpaqueRoot);
 
         if (!weakHandleOwner->isReachableFromOpaqueRoots(Handle<Unknown>::wrapSlot(&const_cast<JSValue&>(jsValue)), weakImpl->context(), visitor, reasonPtr))
             continue;
 
         visitor.appendUnbarriered(jsValue);
 
-        if (UNLIKELY(visitor.isAnalyzingHeap())) {
+        if (UNLIKELY(heapAnalyzer)) {
             if (jsValue.isCell())
-                visitor.heapAnalyzer()->setOpaqueRootReachabilityReasonForCell(jsValue.asCell(), *reasonPtr);
+                heapAnalyzer->setOpaqueRootReachabilityReasonForCell(jsValue.asCell(), *reasonPtr);
         }
     }
 }
 
-void WeakBlock::visit(SlotVisitor& visitor)
+template<typename Visitor>
+ALWAYS_INLINE void WeakBlock::visitImpl(Visitor& visitor)
 {
     // If a block is completely empty, a visit won't have any effect.
     if (isEmpty())
@@ -148,6 +152,9 @@ void WeakBlock::visit(SlotVisitor& visitor)
     else
         specializedVisit(m_container.markedBlock(), visitor);
 }
+
+void WeakBlock::visit(AbstractSlotVisitor& visitor) { visitImpl(visitor); }
+void WeakBlock::visit(SlotVisitor& visitor) { visitImpl(visitor); }
 
 void WeakBlock::reap()
 {
@@ -175,3 +182,5 @@ void WeakBlock::reap()
 }
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

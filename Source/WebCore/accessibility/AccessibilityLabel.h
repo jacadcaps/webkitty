@@ -31,28 +31,29 @@
 #include "AccessibilityRenderObject.h"
 
 namespace WebCore {
-    
+
 class AccessibilityLabel final : public AccessibilityRenderObject {
 public:
-    static Ref<AccessibilityLabel> create(RenderObject*);
+    static Ref<AccessibilityLabel> create(AXID, RenderObject&);
     virtual ~AccessibilityLabel();
-    
-    bool containsOnlyStaticText() const;
-    bool containsUnrelatedControls() const;
 
+    bool containsOnlyStaticText() const;
 private:
-    explicit AccessibilityLabel(RenderObject*);
-    bool computeAccessibilityIsIgnored() const final;
-    AccessibilityRole roleValue() const final { return AccessibilityRole::Label; }
-    bool isLabel() const final { return true; }
+    explicit AccessibilityLabel(AXID, RenderObject&);
+    bool computeIsIgnored() const final { return isIgnoredByDefault(); }
+
+    AccessibilityRole determineAccessibilityRole() final { return AccessibilityRole::Label; }
+
+    bool isAccessibilityLabelInstance() const final { return true; }
     String stringValue() const final;
-    void updateChildrenIfNecessary() final;
+    void addChildren() final;
     void clearChildren() final;
-    void insertChild(AXCoreObject*, unsigned) final;
-    bool m_containsOnlyStaticTextDirty : 1;
-    bool m_containsOnlyStaticText : 1;
+    mutable bool m_containsOnlyStaticTextDirty : 1;
+    mutable bool m_containsOnlyStaticText : 1;
 };
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_ACCESSIBILITY(AccessibilityLabel, isLabel())
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::AccessibilityLabel) \
+    static bool isType(const WebCore::AccessibilityObject& object) { return object.isAccessibilityLabelInstance(); } \
+SPECIALIZE_TYPE_TRAITS_END()

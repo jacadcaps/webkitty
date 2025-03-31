@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,17 +28,27 @@
 #if ENABLE(WIRELESS_PLAYBACK_TARGET) && !PLATFORM(IOS_FAMILY)
 
 #include "AVPlaybackTargetPicker.h"
+#include <wtf/TZoneMalloc.h>
 
 OBJC_CLASS AVOutputDeviceMenuController;
 OBJC_CLASS WebAVOutputDeviceMenuControllerHelper;
 
 namespace WebCore {
+class AVOutputDeviceMenuControllerTargetPicker;
+}
+
+namespace WTF {
+template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
+template<> struct IsDeprecatedWeakRefSmartPointerException<WebCore::AVOutputDeviceMenuControllerTargetPicker> : std::true_type { };
+}
+
+namespace WebCore {
 
 class AVOutputDeviceMenuControllerTargetPicker final : public AVPlaybackTargetPicker {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(AVOutputDeviceMenuControllerTargetPicker);
     WTF_MAKE_NONCOPYABLE(AVOutputDeviceMenuControllerTargetPicker);
 public:
-    explicit AVOutputDeviceMenuControllerTargetPicker(AVPlaybackTargetPicker::Client&);
+    explicit AVOutputDeviceMenuControllerTargetPicker(AVPlaybackTargetPickerClient&);
     virtual ~AVOutputDeviceMenuControllerTargetPicker();
 
     void availableDevicesDidChange();

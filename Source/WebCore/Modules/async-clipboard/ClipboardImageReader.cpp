@@ -26,15 +26,17 @@
 #include "config.h"
 #include "ClipboardImageReader.h"
 
-#include "NotImplemented.h"
+#include "Document.h"
+#include "SharedBuffer.h"
 
 namespace WebCore {
 
 #if !PLATFORM(COCOA)
 
-void ClipboardImageReader::readBuffer(const String&, const String&, Ref<SharedBuffer>&&)
+void ClipboardImageReader::readBuffer(const String&, const String&, Ref<SharedBuffer>&& buffer)
 {
-    notImplemented();
+    if (m_mimeType == "image/png"_s)
+        m_result = Blob::create(m_document.get(), buffer->extractData(), m_mimeType);
 }
 
 #endif // !PLATFORM(COCOA)

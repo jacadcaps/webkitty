@@ -64,7 +64,7 @@ def fake_platform(mac_version_string='10.6.3', release_string='bar', win_version
 def fake_executive(output=None):
     if output:
         return MockExecutive2(output=output)
-    return MockExecutive2(exception=SystemError)
+    return MockExecutive2(output='10.15.0\n')
 
 
 class TestPlatformInfo(unittest.TestCase):
@@ -75,7 +75,7 @@ class TestPlatformInfo(unittest.TestCase):
     # yet run by default and there's no reason not to run this everywhere by default.
     def test_real_code(self):
         # This test makes sure the real (unmocked) code actually works.
-        info = PlatformInfo(sys, platform, Executive())
+        info = PlatformInfo(executive=Executive())
         self.assertNotEqual(info.os_name, '')
         if info.is_mac() or info.is_win():
             self.assertIsNotNone(info.os_version)

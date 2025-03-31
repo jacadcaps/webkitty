@@ -25,39 +25,13 @@
 
 #pragma once
 
-#include "ArgumentCoders.h"
 #include "FrameInfoData.h"
 
 namespace WebKit {
 
 struct FrameTreeNodeData {
-
     FrameInfoData info;
     Vector<FrameTreeNodeData> children;
-
-    void encode(IPC::Encoder& encoder) const
-    {
-        encoder << info;
-        encoder << children;
-    }
-
-    static Optional<FrameTreeNodeData> decode(IPC::Decoder& decoder)
-    {
-        Optional<FrameInfoData> info;
-        decoder >> info;
-        if (!info)
-            return WTF::nullopt;
-        
-        Optional<Vector<FrameTreeNodeData>> children;
-        decoder >> children;
-        if (!children)
-            return WTF::nullopt;
-        
-        return {{
-            WTFMove(*info),
-            WTFMove(*children)
-        }};
-    }
 };
 
 }

@@ -35,49 +35,34 @@
 #include "CommandLineAPIHost.h"
 #include "InspectorDOMAgent.h"
 #include "InstrumentingAgents.h"
+#include "LogInitialization.h"
 #include "Logging.h"
 #include "Node.h"
 #include "Page.h"
 #include "WebInjectedScriptManager.h"
 #include <JavaScriptCore/ConsoleMessage.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
 using namespace Inspector;
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(PageConsoleAgent);
+
 PageConsoleAgent::PageConsoleAgent(PageAgentContext& context)
     : WebConsoleAgent(context)
-    , m_instrumentingAgents(context.instrumentingAgents)
     , m_inspectedPage(context.inspectedPage)
 {
 }
 
 PageConsoleAgent::~PageConsoleAgent() = default;
 
-void PageConsoleAgent::clearMessages(ErrorString& errorString)
+Inspector::Protocol::ErrorStringOr<Ref<JSON::ArrayOf<Inspector::Protocol::Console::Channel>>> PageConsoleAgent::getLoggingChannels()
 {
-    if (auto* domAgent = m_instrumentingAgents.persistentDOMAgent())
-        domAgent->releaseDanglingNodes();
+    auto channels = JSON::ArrayOf<Inspector::Protocol::Console::Channel>::create();
 
-    WebConsoleAgent::clearMessages(errorString);
-}
-
-void PageConsoleAgent::getLoggingChannels(ErrorString&, RefPtr<JSON::ArrayOf<Inspector::Protocol::Console::Channel>>& channels)
-{
-    static const struct ChannelTable {
-        NeverDestroyed<String> name;
-        Inspector::Protocol::Console::ChannelSource source;
-    } channelTable[] = {
-        { MAKE_STATIC_STRING_IMPL("WebRTC"), Inspector::Protocol::Console::ChannelSource::WebRTC },
-        { MAKE_STATIC_STRING_IMPL("Media"), Inspector::Protocol::Console::ChannelSource::Media },
-        { MAKE_STATIC_STRING_IMPL("MediaSource"), Inspector::Protocol::Console::ChannelSource::MediaSource },
-    };
-
-    channels = JSON::ArrayOf<Inspector::Protocol::Console::Channel>::create();
-
-    size_t length = WTF_ARRAY_LENGTH(channelTable);
-    for (size_t i = 0; i < length; ++i) {
-        auto* logChannel = getLogChannel(channelTable[i].name);
+    auto addLogChannel = [&] (Inspector::Protocol::Console::ChannelSource source) {
+        auto* logChannel = getLogChannel(Inspector::Protocol::Helpers::getEnumConstantValue(source));
         if (!logChannel)
             return;
 
@@ -90,6 +75,7 @@ void PageConsoleAgent::getLoggingChannels(ErrorString&, RefPtr<JSON::ArrayOf<Ins
             case WTFLogLevel::Info:
                 level = Inspector::Protocol::Console::ChannelLevel::Basic;
                 break;
+
             case WTFLogLevel::Debug:
                 level = Inspector::Protocol::Console::ChannelLevel::Verbose;
                 break;
@@ -97,36 +83,50 @@ void PageConsoleAgent::getLoggingChannels(ErrorString&, RefPtr<JSON::ArrayOf<Ins
         }
 
         auto channel = Inspector::Protocol::Console::Channel::create()
-            .setSource(channelTable[i].source)
+            .setSource(source)
             .setLevel(level)
             .release();
         channels->addItem(WTFMove(channel));
-    }
+    };
+    addLogChannel(Inspector::Protocol::Console::ChannelSource::XML);
+    addLogChannel(Inspector::Protocol::Console::ChannelSource::JavaScript);
+    addLogChannel(Inspector::Protocol::Console::ChannelSource::Network);
+    addLogChannel(Inspector::Protocol::Console::ChannelSource::ConsoleAPI);
+    addLogChannel(Inspector::Protocol::Console::ChannelSource::Storage);
+    addLogChannel(Inspector::Protocol::Console::ChannelSource::Appcache);
+    addLogChannel(Inspector::Protocol::Console::ChannelSource::Rendering);
+    addLogChannel(Inspector::Protocol::Console::ChannelSource::CSS);
+    addLogChannel(Inspector::Protocol::Console::ChannelSource::Security);
+    addLogChannel(Inspector::Protocol::Console::ChannelSource::ContentBlocker);
+    addLogChannel(Inspector::Protocol::Console::ChannelSource::Media);
+    addLogChannel(Inspector::Protocol::Console::ChannelSource::MediaSource);
+    addLogChannel(Inspector::Protocol::Console::ChannelSource::WebRTC);
+    addLogChannel(Inspector::Protocol::Console::ChannelSource::ITPDebug);
+    addLogChannel(Inspector::Protocol::Console::ChannelSource::PrivateClickMeasurement);
+    addLogChannel(Inspector::Protocol::Console::ChannelSource::PaymentRequest);
+    addLogChannel(Inspector::Protocol::Console::ChannelSource::Other);
+
+    return channels;
 }
 
-static Optional<std::pair<WTFLogChannelState, WTFLogLevel>> channelConfigurationForString(const String& levelString)
+Inspector::Protocol::ErrorStringOr<void> PageConsoleAgent::setLoggingChannelLevel(Inspector::Protocol::Console::ChannelSource source, Inspector::Protocol::Console::ChannelLevel level)
 {
-    if (equalIgnoringASCIICase(levelString, "off"))
-        return { { WTFLogChannelState::Off, WTFLogLevel::Error } };
+    switch (level) {
+    case Inspector::Protocol::Console::ChannelLevel::Off:
+        m_inspectedPage->configureLoggingChannel(Inspector::Protocol::Helpers::getEnumConstantValue(source), WTFLogChannelState::Off, WTFLogLevel::Error);
+        return { };
 
-    if (equalIgnoringASCIICase(levelString, "basic"))
-        return { { WTFLogChannelState::On, WTFLogLevel::Info } };
+    case Inspector::Protocol::Console::ChannelLevel::Basic:
+        m_inspectedPage->configureLoggingChannel(Inspector::Protocol::Helpers::getEnumConstantValue(source), WTFLogChannelState::On, WTFLogLevel::Info);
+        return { };
 
-    if (equalIgnoringASCIICase(levelString, "verbose"))
-        return { { WTFLogChannelState::On, WTFLogLevel::Debug } };
-
-    return WTF::nullopt;
-}
-
-void PageConsoleAgent::setLoggingChannelLevel(ErrorString& errorString, const String& channelName, const String& channelLevel)
-{
-    auto configuration = channelConfigurationForString(channelLevel);
-    if (!configuration) {
-        errorString = makeString("Unknown channelLevel: "_s, channelLevel);
-        return;
+    case Inspector::Protocol::Console::ChannelLevel::Verbose:
+        m_inspectedPage->configureLoggingChannel(Inspector::Protocol::Helpers::getEnumConstantValue(source), WTFLogChannelState::On, WTFLogLevel::Debug);
+        return { };
     }
 
-    m_inspectedPage.configureLoggingChannel(channelName, configuration.value().first, configuration.value().second);
+    ASSERT_NOT_REACHED();
+    return { };
 }
 
 } // namespace WebCore

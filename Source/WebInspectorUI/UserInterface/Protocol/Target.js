@@ -82,6 +82,7 @@ WI.Target = class Target extends WI.Object
         // Intentionally defer ConsoleAgent initialization to the end. We do this so that any
         // previous initialization messages will have their responses arrive before a stream
         // of console message added events come in after enabling Console.
+        // See WI.ConsoleManager.prototype.initializeTarget.
         this.ConsoleAgent.enable();
 
         setTimeout(() => {
@@ -121,13 +122,14 @@ WI.Target = class Target extends WI.Object
 
     activateExtraDomain(domainName)
     {
+        // COMPATIBILITY (iOS 14.0): Inspector.activateExtraDomains was removed in favor of a declared debuggable type
+
         this._agents[domainName] = InspectorBackend._makeAgent(domainName, this);
     }
 
     // Agents
 
     get AnimationAgent() { return this._agents.Animation; }
-    get ApplicationCacheAgent() { return this._agents.ApplicationCache; }
     get AuditAgent() { return this._agents.Audit; }
     get BrowserAgent() { return this._agents.Browser; }
     get CPUProfilerAgent() { return this._agents.CPUProfiler; }
@@ -137,7 +139,6 @@ WI.Target = class Target extends WI.Object
     get DOMAgent() { return this._agents.DOM; }
     get DOMDebuggerAgent() { return this._agents.DOMDebugger; }
     get DOMStorageAgent() { return this._agents.DOMStorage; }
-    get DatabaseAgent() { return this._agents.Database; }
     get DebuggerAgent() { return this._agents.Debugger; }
     get HeapAgent() { return this._agents.Heap; }
     get IndexedDBAgent() { return this._agents.IndexedDB; }

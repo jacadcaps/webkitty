@@ -45,8 +45,10 @@ private:
     void doUnapply() override;
 
 #ifndef NDEBUG
-    void getNodesInCommand(HashSet<Node*>&) override;
+    void getNodesInCommand(NodeSet&) override;
 #endif
+
+    Ref<Node> protectedInsertChild() const { return m_insertChild; }
 
     Ref<Node> m_insertChild;
     Ref<Node> m_refChild;

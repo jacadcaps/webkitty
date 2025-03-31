@@ -12,11 +12,11 @@
 #define MODULES_AUDIO_CODING_NETEQ_TOOLS_NETEQ_TEST_FACTORY_H_
 
 #include <memory>
+#include <optional>
 #include <string>
 
-#include "absl/types/optional.h"
+#include "absl/strings/string_view.h"
 #include "modules/audio_coding/neteq/tools/neteq_test.h"
-#include "test/field_trial.h"
 
 namespace webrtc {
 namespace test {
@@ -41,9 +41,6 @@ class NetEqTestFactory {
     // RTP payload type for PCM-a.
     static constexpr int default_pcma() { return 8; }
     int pcma = default_pcma();
-    // RTP payload type for iLBC.
-    static constexpr int default_ilbc() { return 102; }
-    int ilbc = default_ilbc();
     // RTP payload type for iSAC.
     static constexpr int default_isac() { return 103; }
     int isac = default_isac();
@@ -98,7 +95,7 @@ class NetEqTestFactory {
     // A PCM file that will be used to populate dummy RTP packets.
     std::string replacement_audio_file;
     // Only use packets with this SSRC.
-    absl::optional<uint32_t> ssrc_filter;
+    std::optional<uint32_t> ssrc_filter;
     // Extension ID for audio level (RFC 6464).
     static constexpr int default_audio_level() { return 1; }
     int audio_level = default_audio_level();
@@ -121,7 +118,7 @@ class NetEqTestFactory {
     // Prints concealment events.
     bool concealment_events = false;
     // Maximum allowed number of packets in the buffer.
-    static constexpr int default_max_nr_packets_in_buffer() { return 50; }
+    static constexpr int default_max_nr_packets_in_buffer() { return 200; }
     int max_nr_packets_in_buffer = default_max_nr_packets_in_buffer();
     // Number of dummy packets to put in the packet buffer at the start of the
     // simulation.
@@ -134,23 +131,23 @@ class NetEqTestFactory {
     bool enable_fast_accelerate = false;
     // Dumps events that describes the simulation on a step-by-step basis.
     bool textlog = false;
-    // If specified and |textlog| is true, the output of |textlog| is written to
+    // If specified and `textlog` is true, the output of `textlog` is written to
     // the specified file name.
-    absl::optional<std::string> textlog_filename;
+    std::optional<std::string> textlog_filename;
     // Base name for the output script files for plotting the delay profile.
-    absl::optional<std::string> plot_scripts_basename;
+    std::optional<std::string> plot_scripts_basename;
     // Path to the output audio file.
-    absl::optional<std::string> output_audio_filename;
+    std::optional<std::string> output_audio_filename;
     // Field trials to use during the simulation.
     std::string field_trial_string;
   };
 
   std::unique_ptr<NetEqTest> InitializeTestFromFile(
-      const std::string& input_filename,
+      absl::string_view input_filename,
       NetEqFactory* neteq_factory,
       const Config& config);
   std::unique_ptr<NetEqTest> InitializeTestFromString(
-      const std::string& input_string,
+      absl::string_view input_string,
       NetEqFactory* neteq_factory,
       const Config& config);
 
@@ -160,9 +157,6 @@ class NetEqTestFactory {
                                             const Config& config);
   std::unique_ptr<SsrcSwitchDetector> ssrc_switch_detector_;
   std::unique_ptr<NetEqStatsPlotter> stats_plotter_;
-  // The field trials are stored in the test factory, because neteq_test is not
-  // in a testonly target, and therefore cannot use ScopedFieldTrials.
-  std::unique_ptr<ScopedFieldTrials> field_trials_;
 };
 
 }  // namespace test

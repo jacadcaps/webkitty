@@ -54,7 +54,7 @@ ALWAYS_INLINE PreciseAllocation& HeapCell::preciseAllocation() const
     return *PreciseAllocation::fromCell(const_cast<HeapCell*>(this));
 }
 
-ALWAYS_INLINE Heap* HeapCell::heap() const
+ALWAYS_INLINE JSC::Heap* HeapCell::heap() const
 {
     return &vm().heap;
 }
@@ -95,6 +95,13 @@ ALWAYS_INLINE Subspace* HeapCell::subspace() const
     if (isPreciseAllocation())
         return preciseAllocation().subspace();
     return markedBlock().subspace();
+}
+
+ALWAYS_INLINE void HeapCell::notifyNeedsDestruction() const
+{
+    ASSERT(!isPreciseAllocation());
+    ASSERT(destructionMode() == MayNeedDestruction);
+    markedBlock().handle().setIsDestructible(true);
 }
 
 } // namespace JSC

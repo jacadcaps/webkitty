@@ -24,9 +24,9 @@
  */
 
 #import "config.h"
+#import "DeprecatedGlobalValues.h"
 #import "PlatformUtilities.h"
-#import "WTFStringUtilities.h"
-
+#import "Test.h"
 #import <Carbon/Carbon.h>
 #import <WebKit/WebViewPrivate.h>
 #import <wtf/RetainPtr.h>
@@ -35,7 +35,6 @@ extern "C" void JSSynchronousGarbageCollectForDebugging(JSContextRef);
 
 #if JSC_OBJC_API_ENABLED
 
-static bool didFinishLoad = false;
 static bool didClose = false;
 static RetainPtr<WebView> webView;
 
@@ -70,8 +69,7 @@ namespace TestWebKitAPI {
 
 TEST(WebKitLegacy, DeallocWebViewInEventListener)
 {
-    {
-        NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
+    @autoreleasepool {
         webView = adoptNS([[WebView alloc] initWithFrame:NSMakeRect(0, 0, 400, 400) frameName:nil groupName:nil]);
         auto loadDelegate = adoptNS([[DeallocWebViewInEventListenerLoadDelegate alloc] init]);
         webView.get().frameLoadDelegate = loadDelegate.get();
@@ -84,7 +82,6 @@ TEST(WebKitLegacy, DeallocWebViewInEventListener)
         [[[webView mainFrameDocument] body] addEventListener:@"keypress" listener:nullptr useCapture:NO];
         listener = nullptr;
         [webView close];
-        [pool drain];
     }
     Util::run(&didClose);
 }

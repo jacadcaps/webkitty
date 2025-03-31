@@ -27,13 +27,14 @@
 #include "SVGNames.h"
 #include "SVGPreserveAspectRatio.h"
 #include "SVGPropertyOwnerRegistry.h"
-#include <wtf/HashSet.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class AffineTransform;
 
 class SVGFitToViewBox {
+    WTF_MAKE_TZONE_ALLOCATED(SVGFitToViewBox);
     WTF_MAKE_NONCOPYABLE(SVGFitToViewBox);
 public:
     static AffineTransform viewBoxToViewTransform(const FloatRect& viewBoxRect, const SVGPreserveAspectRatioValue&, float viewWidth, float viewHeight);
@@ -65,12 +66,12 @@ protected:
 
     void reset();
     bool parseAttribute(const QualifiedName&, const AtomString&);
-    Optional<FloatRect> parseViewBox(StringView);
-    Optional<FloatRect> parseViewBox(StringParsingBuffer<LChar>&, bool validate = true);
-    Optional<FloatRect> parseViewBox(StringParsingBuffer<UChar>&, bool validate = true);
+    std::optional<FloatRect> parseViewBox(StringView);
+    std::optional<FloatRect> parseViewBox(StringParsingBuffer<LChar>&, bool validate = true);
+    std::optional<FloatRect> parseViewBox(StringParsingBuffer<UChar>&, bool validate = true);
 
 private:
-    template<typename CharacterType> Optional<FloatRect> parseViewBoxGeneric(StringParsingBuffer<CharacterType>&, bool validate = true);
+    template<typename CharacterType> std::optional<FloatRect> parseViewBoxGeneric(StringParsingBuffer<CharacterType>&, bool validate = true);
 
     Ref<SVGAnimatedRect> m_viewBox;
     Ref<SVGAnimatedPreserveAspectRatio> m_preserveAspectRatio;

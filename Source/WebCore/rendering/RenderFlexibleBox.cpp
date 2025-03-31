@@ -31,76 +31,117 @@
 #include "config.h"
 #include "RenderFlexibleBox.h"
 
+#include "BaselineAlignment.h"
 #include "FlexibleBoxAlgorithm.h"
+#include "FontBaseline.h"
 #include "HitTestResult.h"
+#include "InspectorInstrumentation.h"
+#include "LayoutIntegrationCoverage.h"
+#include "LayoutIntegrationFlexLayout.h"
 #include "LayoutRepainter.h"
+#include "LayoutUnit.h"
+#include "RenderBlockInlines.h"
+#include "RenderBoxInlines.h"
+#include "RenderBoxModelObjectInlines.h"
 #include "RenderChildIterator.h"
+#include "RenderElementInlines.h"
 #include "RenderLayer.h"
 #include "RenderLayoutState.h"
+#include "RenderObjectEnums.h"
+#include "RenderObjectInlines.h"
+#include "RenderReplaced.h"
+#include "RenderSVGRoot.h"
+#include "RenderStyleConstants.h"
+#include "RenderTable.h"
 #include "RenderView.h"
+#include "WritingMode.h"
 #include <limits>
-#include <wtf/IsoMallocInlines.h>
 #include <wtf/MathExtras.h>
 #include <wtf/SetForScope.h>
+#include <wtf/TZoneMallocInlines.h>
+#include <wtf/TypeCasts.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(RenderFlexibleBox);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(RenderFlexibleBox);
 
-struct RenderFlexibleBox::LineContext {
-    LineContext(LayoutUnit crossAxisOffset, LayoutUnit crossAxisExtent, LayoutUnit maxAscent, Vector<FlexItem>&& flexItems)
+struct RenderFlexibleBox::LineState {
+    LineState(LayoutUnit crossAxisOffset, LayoutUnit crossAxisExtent, std::optional<BaselineAlignmentState> baselineAlignmentState, FlexLayoutItems&& flexLayoutItems)
         : crossAxisOffset(crossAxisOffset)
         , crossAxisExtent(crossAxisExtent)
-        , maxAscent(maxAscent)
-        , flexItems(flexItems)
+        , baselineAlignmentState(baselineAlignmentState)
+        , flexLayoutItems(flexLayoutItems)
     {
     }
     
     LayoutUnit crossAxisOffset;
     LayoutUnit crossAxisExtent;
-    LayoutUnit maxAscent;
-    Vector<FlexItem> flexItems;
+    std::optional<BaselineAlignmentState> baselineAlignmentState;
+    FlexLayoutItems flexLayoutItems;
 };
 
-RenderFlexibleBox::RenderFlexibleBox(Element& element, RenderStyle&& style)
-    : RenderBlock(element, WTFMove(style), 0)
+RenderFlexibleBox::RenderFlexibleBox(Type type, Element& element, RenderStyle&& style)
+    : RenderBlock(type, element, WTFMove(style), TypeFlag::IsFlexibleBox)
 {
+    ASSERT(isRenderFlexibleBox());
     setChildrenInline(false); // All of our children must be block-level.
 }
 
-RenderFlexibleBox::RenderFlexibleBox(Document& document, RenderStyle&& style)
-    : RenderBlock(document, WTFMove(style), 0)
+RenderFlexibleBox::RenderFlexibleBox(Type type, Document& document, RenderStyle&& style)
+    : RenderBlock(type, document, WTFMove(style), TypeFlag::IsFlexibleBox)
 {
+    ASSERT(isRenderFlexibleBox());
     setChildrenInline(false); // All of our children must be block-level.
 }
 
 RenderFlexibleBox::~RenderFlexibleBox() = default;
 
-const char* RenderFlexibleBox::renderName() const
+ASCIILiteral RenderFlexibleBox::renderName() const
 {
-    return "RenderFlexibleBox";
+    return "RenderFlexibleBox"_s;
 }
 
 void RenderFlexibleBox::computeIntrinsicLogicalWidths(LayoutUnit& minLogicalWidth, LayoutUnit& maxLogicalWidth) const
 {
-    LayoutUnit childMinWidth;
-    LayoutUnit childMaxWidth;
-    bool hadExcludedChildren = computePreferredWidthsForExcludedChildren(childMinWidth, childMaxWidth);
+    auto addScrollbarWidth = [&]() {
+        LayoutUnit scrollbarWidth(scrollbarLogicalWidth());
+        maxLogicalWidth += scrollbarWidth;
+        minLogicalWidth += scrollbarWidth;
+    };
+
+    if (shouldApplySizeOrInlineSizeContainment()) {
+        if (auto width = explicitIntrinsicInnerLogicalWidth()) {
+            minLogicalWidth = width.value();
+            maxLogicalWidth = width.value();
+        }
+        addScrollbarWidth();
+        return;
+    }
+
+    LayoutUnit flexItemMinWidth;
+    LayoutUnit flexItemMaxWidth;
+    bool hadExcludedChildren = computePreferredWidthsForExcludedChildren(flexItemMinWidth, flexItemMaxWidth);
 
     // FIXME: We're ignoring flex-basis here and we shouldn't. We can't start
     // honoring it though until the flex shorthand stops setting it to 0. See
     // https://bugs.webkit.org/show_bug.cgi?id=116117 and
     // https://crbug.com/240765.
-    for (RenderBox* child = firstChildBox(); child; child = child->nextSiblingBox()) {
-        if (child->isOutOfFlowPositioned() || child->isExcludedFromNormalLayout())
+    size_t numItemsWithNormalLayout = 0;
+    for (RenderBox* flexItem = firstChildBox(); flexItem; flexItem = flexItem->nextSiblingBox()) {
+        if (flexItem->isOutOfFlowPositioned() || flexItem->isExcludedFromNormalLayout())
             continue;
-        
-        LayoutUnit margin = marginIntrinsicLogicalWidthForChild(*child);
-        
+        ++numItemsWithNormalLayout;
+
+        // Pre-layout orthogonal children in order to get a valid value for the preferred width.
+        if (writingMode().isOrthogonal(flexItem->writingMode()))
+            flexItem->layoutIfNeeded();
+
+        LayoutUnit margin = marginIntrinsicLogicalWidthForChild(*flexItem);
+
         LayoutUnit minPreferredLogicalWidth;
         LayoutUnit maxPreferredLogicalWidth;
-        computeChildPreferredLogicalWidths(*child, minPreferredLogicalWidth, maxPreferredLogicalWidth);
-        
+        computeChildPreferredLogicalWidths(*flexItem, minPreferredLogicalWidth, maxPreferredLogicalWidth);
+
         minPreferredLogicalWidth += margin;
         maxPreferredLogicalWidth += margin;
 
@@ -117,7 +158,14 @@ void RenderFlexibleBox::computeIntrinsicLogicalWidths(LayoutUnit& minLogicalWidt
             maxLogicalWidth = std::max(maxPreferredLogicalWidth, maxLogicalWidth);
         }
     }
-    
+
+    if (!isColumnFlow() && numItemsWithNormalLayout > 1) {
+        LayoutUnit inlineGapSize = (numItemsWithNormalLayout - 1) * computeGap(GapType::BetweenItems);
+        maxLogicalWidth += inlineGapSize;
+        if (!isMultiline())
+            minLogicalWidth += inlineGapSize;
+    }
+
     maxLogicalWidth = std::max(minLogicalWidth, maxLogicalWidth);
     
     // Due to negative margins, it is possible that we calculated a negative
@@ -126,102 +174,156 @@ void RenderFlexibleBox::computeIntrinsicLogicalWidths(LayoutUnit& minLogicalWidt
     maxLogicalWidth = std::max(0_lu, maxLogicalWidth);
     
     if (hadExcludedChildren) {
-        minLogicalWidth = std::max(minLogicalWidth, childMinWidth);
-        maxLogicalWidth = std::max(maxLogicalWidth, childMaxWidth);
+        minLogicalWidth = std::max(minLogicalWidth, flexItemMinWidth);
+        maxLogicalWidth = std::max(maxLogicalWidth, flexItemMaxWidth);
     }
 
-    LayoutUnit scrollbarWidth(scrollbarLogicalWidth());
-    maxLogicalWidth += scrollbarWidth;
-    minLogicalWidth += scrollbarWidth;
+    addScrollbarWidth();
 }
 
-void RenderFlexibleBox::computePreferredLogicalWidths()
+#define SET_OR_CLEAR_OVERRIDING_SIZE(box, SizeType, size)       \
+    {                                                           \
+        if (size)                                               \
+            box.setOverridingBorderBoxLogical##SizeType(*size); \
+        else                                                    \
+            box.clearOverridingBorderBoxLogical##SizeType();    \
+    }
+
+// RAII class which defines a scope in which overriding sizes of a box are either:
+//   1) replaced by other size in one axis if size is specified
+//   2) cleared in both axis if size == std::nullopt
+//
+// In any case the previous overriding sizes are restored on destruction (in case of
+// not having a previous value it's simply cleared).
+class OverridingSizesScope {
+public:
+    enum class Axis {
+        Inline,
+        Block,
+        Both
+    };
+
+    OverridingSizesScope(RenderBox& box, Axis axis, std::optional<LayoutUnit> size = std::nullopt)
+        : m_box(box)
+        , m_axis(axis)
+    {
+        ASSERT(!size || (axis != Axis::Both));
+        if (axis == Axis::Both || axis == Axis::Inline) {
+            m_overridingWidth = box.overridingBorderBoxLogicalWidth();
+            SET_OR_CLEAR_OVERRIDING_SIZE(m_box, Width, size);
+        }
+        if (axis == Axis::Both || axis == Axis::Block) {
+            m_overridingHeight = box.overridingBorderBoxLogicalHeight();
+            SET_OR_CLEAR_OVERRIDING_SIZE(m_box, Height, size);
+        }
+    }
+    ~OverridingSizesScope()
+    {
+        if (m_axis == Axis::Inline || m_axis == Axis::Both)
+            SET_OR_CLEAR_OVERRIDING_SIZE(m_box, Width, m_overridingWidth);
+
+        if (m_axis == Axis::Block || m_axis == Axis::Both)
+            SET_OR_CLEAR_OVERRIDING_SIZE(m_box, Height, m_overridingHeight);
+    }
+
+private:
+    RenderBox& m_box;
+    Axis m_axis;
+    std::optional<LayoutUnit> m_overridingWidth;
+    std::optional<LayoutUnit> m_overridingHeight;
+};
+
+static void updateFlexItemDirtyBitsBeforeLayout(bool relayoutFlexItem, RenderBox& flexItem)
 {
-    ASSERT(preferredLogicalWidthsDirty());
+    if (flexItem.isOutOfFlowPositioned())
+        return;
 
-    m_minPreferredLogicalWidth = m_maxPreferredLogicalWidth = 0;
-
-    const RenderStyle& styleToUse = style();
-    // FIXME: This should probably be checking for isSpecified since you should be able to use percentage, calc or viewport relative values for width.
-    if (styleToUse.logicalWidth().isFixed() && styleToUse.logicalWidth().value() > 0)
-        m_minPreferredLogicalWidth = m_maxPreferredLogicalWidth = adjustContentBoxLogicalWidthForBoxSizing(styleToUse.logicalWidth().value());
-    else
-        computeIntrinsicLogicalWidths(m_minPreferredLogicalWidth, m_maxPreferredLogicalWidth);
-
-    // FIXME: This should probably be checking for isSpecified since you should be able to use percentage, calc or viewport relative values for min-width.
-    if (styleToUse.logicalMinWidth().isFixed() && styleToUse.logicalMinWidth().value() > 0) {
-        m_maxPreferredLogicalWidth = std::max(m_maxPreferredLogicalWidth, adjustContentBoxLogicalWidthForBoxSizing(styleToUse.logicalMinWidth().value()));
-        m_minPreferredLogicalWidth = std::max(m_minPreferredLogicalWidth, adjustContentBoxLogicalWidthForBoxSizing(styleToUse.logicalMinWidth().value()));
-    }
-
-    // FIXME: This should probably be checking for isSpecified since you should be able to use percentage, calc or viewport relative values for maxWidth.
-    if (styleToUse.logicalMaxWidth().isFixed()) {
-        m_maxPreferredLogicalWidth = std::min(m_maxPreferredLogicalWidth, adjustContentBoxLogicalWidthForBoxSizing(styleToUse.logicalMaxWidth().value()));
-        m_minPreferredLogicalWidth = std::min(m_minPreferredLogicalWidth, adjustContentBoxLogicalWidthForBoxSizing(styleToUse.logicalMaxWidth().value()));
-    }
-
-    LayoutUnit borderAndPadding = borderAndPaddingLogicalWidth();
-    m_minPreferredLogicalWidth += borderAndPadding;
-    m_maxPreferredLogicalWidth += borderAndPadding;
-
-    setPreferredLogicalWidthsDirty(false);
+    // FIXME: Technically percentage height objects only need a relayout if their percentage isn't going to be turned into
+    // an auto value. Add a method to determine this, so that we can avoid the relayout.
+    if (relayoutFlexItem || flexItem.hasRelativeLogicalHeight())
+        flexItem.setChildNeedsLayout(MarkOnlyThis);
 }
 
-static int synthesizedBaselineFromBorderBox(const RenderBox& box, LineDirectionMode direction)
+void RenderFlexibleBox::computeChildIntrinsicLogicalWidths(RenderBox& flexBoxChild, LayoutUnit& minPreferredLogicalWidth, LayoutUnit& maxPreferredLogicalWidth) const
 {
-    return (direction == HorizontalLine ? box.size().height() : box.size().width()).toInt();
+    // Children excluded from normal layout are handled here too (e.g. legend when fieldset is set to flex).
+    ASSERT(flexBoxChild.isFlexItem() || (flexBoxChild.parent() == this && flexBoxChild.isExcludedFromNormalLayout()));
+
+    // If the item cross size should use the definite container cross size then set the overriding size now so
+    // the intrinsic sizes are properly computed in the presence of aspect ratios. The only exception is when
+    // we are both a flex item&container, because our parent might have already set our overriding size.
+    if (flexItemCrossSizeShouldUseContainerCrossSize(flexBoxChild) && !isFlexItem()) {
+        auto axis = mainAxisIsFlexItemInlineAxis(flexBoxChild) ? OverridingSizesScope::Axis::Block : OverridingSizesScope::Axis::Inline;
+        OverridingSizesScope overridingSizeScope(flexBoxChild, axis, computeCrossSizeForFlexItemUsingContainerCrossSize(flexBoxChild));
+        auto flexItemIntrinsicSizeComputation = SetForScope(m_inFlexItemIntrinsicWidthComputation, true);
+        RenderBlock::computeChildIntrinsicLogicalWidths(flexBoxChild, minPreferredLogicalWidth, maxPreferredLogicalWidth);
+        return;
+    }
+
+    OverridingSizesScope cleanOverridingSizesScope(flexBoxChild, OverridingSizesScope::Axis::Both);
+    RenderBlock::computeChildIntrinsicLogicalWidths(flexBoxChild, minPreferredLogicalWidth, maxPreferredLogicalWidth);
 }
 
-int RenderFlexibleBox::baselinePosition(FontBaseline, bool, LineDirectionMode direction, LinePositionMode) const
+LayoutUnit RenderFlexibleBox::baselinePosition(FontBaseline, bool, LineDirectionMode direction, LinePositionMode) const
 {
     auto baseline = firstLineBaseline();
     if (!baseline)
-        return synthesizedBaselineFromBorderBox(*this, direction) + marginLogicalHeight();
+        return synthesizedBaseline(*this, *parentStyle(), direction, BorderBox) + marginLogicalHeight();
 
     return baseline.value() + (direction == HorizontalLine ? marginTop() : marginRight()).toInt();
 }
 
-Optional<int> RenderFlexibleBox::firstLineBaseline() const
+std::optional<LayoutUnit> RenderFlexibleBox::firstLineBaseline() const
 {
-    if (isWritingModeRoot() || m_numberOfInFlowChildrenOnFirstLine <= 0)
-        return Optional<int>();
-    RenderBox* baselineChild = nullptr;
-    int childNumber = 0;
-    for (RenderBox* child = m_orderIterator.first(); child; child = m_orderIterator.next()) {
-        if (m_orderIterator.shouldSkipChild(*child))
-            continue;
-        if (alignmentForChild(*child) == ItemPosition::Baseline && !hasAutoMarginsInCrossAxis(*child)) {
-            baselineChild = child;
-            break;
-        }
-        if (!baselineChild)
-            baselineChild = child;
+    if ((isWritingModeRoot() && !isFlexItem()) || !m_numberOfFlexItemsOnFirstLine || shouldApplyLayoutContainment())
+        return { };
 
-        ++childNumber;
-        if (childNumber == m_numberOfInFlowChildrenOnFirstLine)
-            break;
-    }
+    auto* baselineFlexItem = flexItemForFirstBaseline();
+    if (!baselineFlexItem)
+        return { };
 
-    if (!baselineChild)
-        return Optional<int>();
+    if (!isColumnFlow() && !mainAxisIsFlexItemInlineAxis(*baselineFlexItem))
+        return LayoutUnit { (crossAxisExtentForFlexItem(*baselineFlexItem) + baselineFlexItem->logicalTop()).toInt() };
+    if (isColumnFlow() && mainAxisIsFlexItemInlineAxis(*baselineFlexItem))
+        return LayoutUnit { (mainAxisExtentForFlexItem(*baselineFlexItem) + baselineFlexItem->logicalTop()).toInt() };
 
-    if (!isColumnFlow() && hasOrthogonalFlow(*baselineChild))
-        return Optional<int>(crossAxisExtentForChild(*baselineChild) + baselineChild->logicalTop());
-    if (isColumnFlow() && !hasOrthogonalFlow(*baselineChild))
-        return Optional<int>(mainAxisExtentForChild(*baselineChild) + baselineChild->logicalTop());
-
-    Optional<int> baseline = baselineChild->firstLineBaseline();
+    std::optional<LayoutUnit> baseline = baselineFlexItem->firstLineBaseline();
     if (!baseline) {
         // FIXME: We should pass |direction| into firstLineBoxBaseline and stop bailing out if we're a writing mode root.
         // This would also fix some cases where the flexbox is orthogonal to its container.
         LineDirectionMode direction = isHorizontalWritingMode() ? HorizontalLine : VerticalLine;
-        return Optional<int>(synthesizedBaselineFromBorderBox(*baselineChild, direction) + baselineChild->logicalTop());
+        return synthesizedBaseline(*baselineFlexItem, style(), direction, BorderBox) + baselineFlexItem->logicalTop();
     }
 
-    return Optional<int>(baseline.value() + baselineChild->logicalTop());
+    return LayoutUnit { (baseline.value() + baselineFlexItem->logicalTop()).toInt() };
 }
 
-Optional<int> RenderFlexibleBox::inlineBlockBaseline(LineDirectionMode) const
+std::optional <LayoutUnit> RenderFlexibleBox::lastLineBaseline() const
+{
+    if (isWritingModeRoot() || !m_numberOfFlexItemsOnLastLine || shouldApplyLayoutContainment())
+        return { };
+
+    auto* baselineFlexItem = flexItemForLastBaseline();
+    if (!baselineFlexItem)
+        return { };
+
+    if (!isColumnFlow() && !mainAxisIsFlexItemInlineAxis(*baselineFlexItem))
+        return LayoutUnit { (crossAxisExtentForFlexItem(*baselineFlexItem) + baselineFlexItem->logicalTop()).toInt() };
+    if (isColumnFlow() && mainAxisIsFlexItemInlineAxis(*baselineFlexItem))
+        return LayoutUnit { (mainAxisExtentForFlexItem(*baselineFlexItem) + baselineFlexItem->logicalTop()).toInt() };
+
+    auto baseline = baselineFlexItem->lastLineBaseline();
+    if (!baseline) {
+        // FIXME: We should pass |direction| into firstLineBoxBaseline and stop bailing out if we're a writing mode root.
+        // This would also fix some cases where the flexbox is orthogonal to its container.
+        LineDirectionMode direction = isHorizontalWritingMode() ? HorizontalLine : VerticalLine;
+        return synthesizedBaseline(*baselineFlexItem, style(), direction, BorderBox) + baselineFlexItem->logicalTop();
+    }
+
+    return LayoutUnit { (baseline.value() + baselineFlexItem->logicalTop()).toInt() };
+}
+
+std::optional<LayoutUnit> RenderFlexibleBox::inlineBlockBaseline(LineDirectionMode) const
 {
     return firstLineBaseline();
 }
@@ -242,15 +344,16 @@ void RenderFlexibleBox::styleDidChange(StyleDifference diff, const RenderStyle* 
     if (!oldStyle || diff != StyleDifference::Layout)
         return;
 
-    if (oldStyle->resolvedAlignItems(selfAlignmentNormalBehavior()).position() == ItemPosition::Stretch) {
+    auto oldStyleAlignItemsIsStretch = oldStyle->resolvedAlignItems(selfAlignmentNormalBehavior()).position() == ItemPosition::Stretch;
+    for (auto& flexItem : childrenOfType<RenderBox>(*this)) {
         // Flex items that were previously stretching need to be relayed out so we
         // can compute new available cross axis space. This is only necessary for
         // stretching since other alignment values don't change the size of the
         // box.
-        for (auto& child : childrenOfType<RenderBox>(*this)) {
-            ItemPosition previousAlignment = child.style().resolvedAlignSelf(oldStyle, selfAlignmentNormalBehavior()).position();
-            if (previousAlignment == ItemPosition::Stretch && previousAlignment != child.style().resolvedAlignSelf(&style(), selfAlignmentNormalBehavior()).position())
-                child.setChildNeedsLayout(MarkOnlyThis);
+        if (oldStyleAlignItemsIsStretch) {
+            ItemPosition previousAlignment = flexItem.style().resolvedAlignSelf(oldStyle, selfAlignmentNormalBehavior()).position();
+            if (previousAlignment == ItemPosition::Stretch && previousAlignment != flexItem.style().resolvedAlignSelf(&style(), selfAlignmentNormalBehavior()).position())
+                flexItem.setChildNeedsLayout(MarkOnlyThis);
         }
     }
 }
@@ -260,13 +363,22 @@ bool RenderFlexibleBox::hitTestChildren(const HitTestRequest& request, HitTestRe
     if (hitTestAction != HitTestForeground)
         return false;
 
-    LayoutPoint scrolledOffset = hasOverflowClip() ? adjustedLocation - toLayoutSize(scrollPosition()) : adjustedLocation;
+    LayoutPoint scrolledOffset = hasNonVisibleOverflow() ? adjustedLocation - toLayoutSize(scrollPosition()) : adjustedLocation;
 
-    for (auto* child : m_reversedOrderIteratorForHitTesting) {
-        if (child->hasSelfPaintingLayer())
+    // If collecting the children in reverse order is bad for performance, this Vector could be determined at layout time.
+    Vector<RenderBox*> reversedOrderIteratorForHitTesting;
+    for (auto* flexItem = m_orderIterator.first(); flexItem; flexItem = m_orderIterator.next()) {
+        if (flexItem->isOutOfFlowPositioned())
             continue;
-        auto childPoint = flipForWritingModeForChild(child, scrolledOffset);
-        if (child->hitTest(request, result, locationInContainer, childPoint)) {
+        reversedOrderIteratorForHitTesting.append(flexItem);
+    }
+    reversedOrderIteratorForHitTesting.reverse();
+
+    for (auto* flexItem : reversedOrderIteratorForHitTesting) {
+        if (flexItem->hasSelfPaintingLayer())
+            continue;
+        auto location = flipForWritingModeForChild(*flexItem, scrolledOffset);
+        if (flexItem->hitTest(request, result, locationInContainer, location)) {
             updateHitTestResult(result, flipForWritingMode(toLayoutPoint(locationInContainer.point() - adjustedLocation)));
             return true;
         }
@@ -275,32 +387,40 @@ bool RenderFlexibleBox::hitTestChildren(const HitTestRequest& request, HitTestRe
     return false;
 }
 
-void RenderFlexibleBox::layoutBlock(bool relayoutChildren, LayoutUnit)
+void RenderFlexibleBox::layoutBlock(RelayoutChildren relayoutChildren, LayoutUnit)
 {
     ASSERT(needsLayout());
 
-    if (!relayoutChildren && simplifiedLayout())
-        return;
+    if (relayoutChildren == RelayoutChildren::No) {
+        auto simplifiedLayoutScope = SetForScope(m_inSimplifiedLayout, true);
+        if (simplifiedLayout())
+            return;
+    }
 
-    LayoutRepainter repainter(*this, checkForRepaintDuringLayout());
+    LayoutRepainter repainter(*this);
 
     resetLogicalHeightBeforeLayoutIfNeeded();
-    m_relaidOutChildren.clear();
+    m_relaidOutFlexItems.clear();
     
     bool oldInLayout = m_inLayout;
     m_inLayout = true;
-    
+
+    if (!style().marginTrim().isEmpty())
+        initializeMarginTrimState();
+
     if (recomputeLogicalWidth())
-        relayoutChildren = true;
+        relayoutChildren = RelayoutChildren::Yes;
 
     LayoutUnit previousHeight = logicalHeight();
     setLogicalHeight(borderAndPaddingLogicalHeight() + scrollbarLogicalHeight());
     {
-        LayoutStateMaintainer statePusher(*this, locationOffset(), hasTransform() || hasReflection() || style().isFlippedBlocksWritingMode());
+        LayoutStateMaintainer statePusher(*this, locationOffset(), isTransformed() || hasReflection() || writingMode().isBlockFlipped());
 
         preparePaginationBeforeBlockLayout(relayoutChildren);
 
-        m_numberOfInFlowChildrenOnFirstLine = -1;
+        m_numberOfFlexItemsOnFirstLine = { };
+        m_numberOfFlexItemsOnLastLine = { };
+        m_justifyContentStartOverflow = 0;
 
         beginUpdateScrollInfoAfterLayoutTransaction();
 
@@ -311,28 +431,36 @@ void RenderFlexibleBox::layoutBlock(bool relayoutChildren, LayoutUnit)
         // It doesn't get included in the normal layout process but is instead skipped.
         layoutExcludedChildren(relayoutChildren);
 
-        ChildFrameRects oldChildRects;
-        appendChildFrameRects(oldChildRects);
+        FlexItemFrameRects oldFlexItemRects;
+        appendFlexItemFrameRects(oldFlexItemRects);
 
-        layoutFlexItems(relayoutChildren);
+        performFlexLayout(relayoutChildren);
 
-        endAndCommitUpdateScrollInfoAfterLayoutTransaction();
+        {
+            auto scrollbarLayout = SetForScope(m_inPostFlexUpdateScrollbarLayout, true);
+            endAndCommitUpdateScrollInfoAfterLayoutTransaction();
+        }
 
         if (logicalHeight() != previousHeight)
-            relayoutChildren = true;
+            relayoutChildren = RelayoutChildren::Yes;
 
-        layoutPositionedObjects(relayoutChildren || isDocumentElementRenderer());
+        if (isDocumentElementRenderer())
+            layoutPositionedObjects(RelayoutChildren::Yes);
+        else
+            layoutPositionedObjects(relayoutChildren);
 
-        repaintChildrenDuringLayoutIfMoved(oldChildRects);
+        repaintFlexItemsDuringLayoutIfMoved(oldFlexItemRects);
         // FIXME: css3/flexbox/repaint-rtl-column.html seems to repaint more overflow than it needs to.
-        computeOverflow(clientLogicalBottomAfterRepositioning());
+        computeOverflow(layoutOverflowLogicalBottom(*this));
+
+        updateDescendantTransformsAfterLayout();
     }
     updateLayerTransform();
 
     // We have to reset this, because changes to our ancestors' style can affect
     // this value. Also, this needs to be before we call updateAfterLayout, as
     // that function may re-enter this one.
-    m_hasDefiniteHeight = SizeDefiniteness::Unknown;
+    resetHasDefiniteHeight();
 
     // Update our scroll information if we're overflow:auto/scroll/hidden now that we know if we overflow or not.
     updateScrollInfoAfterLayout();
@@ -344,79 +472,73 @@ void RenderFlexibleBox::layoutBlock(bool relayoutChildren, LayoutUnit)
     m_inLayout = oldInLayout;
 }
 
-void RenderFlexibleBox::appendChildFrameRects(ChildFrameRects& childFrameRects)
+void RenderFlexibleBox::appendFlexItemFrameRects(FlexItemFrameRects& flexItemFrameRects)
 {
-    for (RenderBox* child = m_orderIterator.first(); child; child = m_orderIterator.next()) {
-        if (!child->isOutOfFlowPositioned())
-            childFrameRects.append(child->frameRect());
+    for (RenderBox* flexItem = m_orderIterator.first(); flexItem; flexItem = m_orderIterator.next()) {
+        if (!flexItem->isOutOfFlowPositioned())
+            flexItemFrameRects.append(flexItem->frameRect());
     }
 }
 
-void RenderFlexibleBox::repaintChildrenDuringLayoutIfMoved(const ChildFrameRects& oldChildRects)
+void RenderFlexibleBox::repaintFlexItemsDuringLayoutIfMoved(const FlexItemFrameRects& oldFlexItemRects)
 {
-    size_t childIndex = 0;
-    for (RenderBox* child = m_orderIterator.first(); child; child = m_orderIterator.next()) {
-        if (child->isOutOfFlowPositioned())
+    size_t index = 0;
+    for (RenderBox* flexItem = m_orderIterator.first(); flexItem; flexItem = m_orderIterator.next()) {
+        if (flexItem->isOutOfFlowPositioned())
             continue;
 
         // If the child moved, we have to repaint it as well as any floating/positioned
         // descendants. An exception is if we need a layout. In this case, we know we're going to
         // repaint ourselves (and the child) anyway.
-        if (!selfNeedsLayout() && child->checkForRepaintDuringLayout())
-            child->repaintDuringLayoutIfMoved(oldChildRects[childIndex]);
-        ++childIndex;
+        if (!selfNeedsLayout() && flexItem->checkForRepaintDuringLayout())
+            flexItem->repaintDuringLayoutIfMoved(oldFlexItemRects[index]);
+        ++index;
     }
-    ASSERT(childIndex == oldChildRects.size());
+    ASSERT(index == oldFlexItemRects.size());
 }
 
-void RenderFlexibleBox::paintChildren(PaintInfo& paintInfo, const LayoutPoint& paintOffset, PaintInfo& paintInfoForChild, bool usePrintRect)
+void RenderFlexibleBox::paintChildren(PaintInfo& paintInfo, const LayoutPoint& paintOffset, PaintInfo& paintInfoForFlexItem, bool usePrintRect)
 {
-    for (RenderBox* child = m_orderIterator.first(); child; child = m_orderIterator.next()) {
-        if (!paintChild(*child, paintInfo, paintOffset, paintInfoForChild, usePrintRect, PaintAsInlineBlock))
+    for (RenderBox* flexItem = m_orderIterator.first(); flexItem; flexItem = m_orderIterator.next()) {
+        if (!paintChild(*flexItem, paintInfo, paintOffset, paintInfoForFlexItem, usePrintRect, PaintAsInlineBlock))
             return;
     }
 }
 
-void RenderFlexibleBox::repositionLogicalHeightDependentFlexItems(Vector<LineContext>& lineContexts)
+void RenderFlexibleBox::repositionLogicalHeightDependentFlexItems(FlexLineStates& lineStates, LayoutUnit gapBetweenLines)
 {
-    LayoutUnit crossAxisStartEdge = lineContexts.isEmpty() ? 0_lu : lineContexts[0].crossAxisOffset;
+    auto flexLayoutScope = SetForScope(m_inCrossAxisLayout, true);
+    LayoutUnit crossAxisStartEdge = lineStates.isEmpty() ? 0_lu : lineStates[0].crossAxisOffset;
     // If we have a single line flexbox, the line height is all the available space. For flex-direction: row,
     // this means we need to use the height, so we do this after calling updateLogicalHeight.
-    if (!isMultiline() && !lineContexts.isEmpty())
-        lineContexts[0].crossAxisExtent = crossAxisContentExtent();
+    if (!isMultiline() && !lineStates.isEmpty())
+        lineStates[0].crossAxisExtent = crossAxisContentExtent();
 
-    alignFlexLines(lineContexts);
-    
-    alignChildren(lineContexts);
+    alignFlexLines(lineStates, gapBetweenLines);
+
+    alignFlexItems(lineStates);
     
     if (style().flexWrap() == FlexWrap::Reverse)
-        flipForWrapReverse(lineContexts, crossAxisStartEdge);
+        flipForWrapReverse(lineStates, crossAxisStartEdge);
     
     // direction:rtl + flex-direction:column means the cross-axis direction is
     // flipped.
-    flipForRightToLeftColumn(lineContexts);
+    flipForRightToLeftColumn(lineStates);
 }
 
-LayoutUnit RenderFlexibleBox::clientLogicalBottomAfterRepositioning()
+bool RenderFlexibleBox::mainAxisIsFlexItemInlineAxis(const RenderBox& flexItem) const
 {
-    LayoutUnit maxChildLogicalBottom;
-    for (RenderBox* child = firstChildBox(); child; child = child->nextSiblingBox()) {
-        if (child->isOutOfFlowPositioned())
-            continue;
-        LayoutUnit childLogicalBottom = logicalTopForChild(*child) + logicalHeightForChild(*child) + marginAfterForChild(*child);
-        maxChildLogicalBottom = std::max(maxChildLogicalBottom, childLogicalBottom);
-    }
-    return std::max(clientLogicalBottom(), maxChildLogicalBottom + paddingAfter());
-}
-
-bool RenderFlexibleBox::hasOrthogonalFlow(const RenderBox& child) const
-{
-    return isHorizontalFlow() != child.isHorizontalWritingMode();
+    return isHorizontalFlow() == flexItem.isHorizontalWritingMode();
 }
 
 bool RenderFlexibleBox::isColumnFlow() const
 {
     return style().isColumnFlexDirection();
+}
+
+bool RenderFlexibleBox::isColumnOrRowReverse() const
+{
+    return style().flexDirection() == FlexDirection::ColumnReverse || style().flexDirection() == FlexDirection::RowReverse;
 }
 
 bool RenderFlexibleBox::isHorizontalFlow() const
@@ -429,8 +551,8 @@ bool RenderFlexibleBox::isHorizontalFlow() const
 bool RenderFlexibleBox::isLeftToRightFlow() const
 {
     if (isColumnFlow())
-        return style().writingMode() == TopToBottomWritingMode || style().writingMode() == LeftToRightWritingMode;
-    return style().isLeftToRightDirection() ^ (style().flexDirection() == FlexDirection::RowReverse);
+        return writingMode().blockDirection() == FlowDirection::TopToBottom || writingMode().blockDirection() == FlowDirection::LeftToRight;
+    return writingMode().isLogicalLeftInlineStart() ^ (style().flexDirection() == FlexDirection::RowReverse);
 }
 
 bool RenderFlexibleBox::isMultiline() const
@@ -438,88 +560,99 @@ bool RenderFlexibleBox::isMultiline() const
     return style().flexWrap() != FlexWrap::NoWrap;
 }
 
-Length RenderFlexibleBox::flexBasisForChild(const RenderBox& child) const
+// https://drafts.csswg.org/css-flexbox/#min-size-auto
+bool RenderFlexibleBox::shouldApplyMinSizeAutoForFlexItem(const RenderBox& flexItem) const
 {
-    Length flexLength = child.style().flexBasis();
+    auto minSize = mainSizeLengthForFlexItem(RenderBox::SizeType::MinSize, flexItem);
+    // min, max and fit-content are equivalent to the automatic size for block sizes https://drafts.csswg.org/css-sizing-3/#valdef-width-min-content.
+    bool flexItemBlockSizeIsEquivalentToAutomaticSize  = !mainAxisIsFlexItemInlineAxis(flexItem) && (minSize.isMinContent() || minSize.isMaxContent() || minSize.isFitContent());
+
+    return (minSize.isAuto() || flexItemBlockSizeIsEquivalentToAutomaticSize) && (mainAxisOverflowForFlexItem(flexItem) == Overflow::Visible);
+}
+
+bool RenderFlexibleBox::shouldApplyMinBlockSizeAutoForFlexItem(const RenderBox& flexItem) const
+{
+    return !mainAxisIsFlexItemInlineAxis(flexItem) && shouldApplyMinSizeAutoForFlexItem(flexItem);
+}
+
+Length RenderFlexibleBox::flexBasisForFlexItem(const RenderBox& flexItem) const
+{
+    Length flexLength = flexItem.style().flexBasis();
     if (flexLength.isAuto())
-        flexLength = isHorizontalFlow() ? child.style().width() : child.style().height();
+        flexLength = mainSizeLengthForFlexItem(RenderBox::SizeType::MainOrPreferredSize, flexItem);
     return flexLength;
 }
 
-LayoutUnit RenderFlexibleBox::crossAxisExtentForChild(const RenderBox& child) const
+LayoutUnit RenderFlexibleBox::crossAxisExtentForFlexItem(const RenderBox& flexItem) const
 {
-    return isHorizontalFlow() ? child.height() : child.width();
+    return isHorizontalFlow() ? flexItem.height() : flexItem.width();
 }
 
-LayoutUnit RenderFlexibleBox::cachedChildIntrinsicContentLogicalHeight(const RenderBox& child) const
+LayoutUnit RenderFlexibleBox::cachedFlexItemIntrinsicContentLogicalHeight(const RenderBox& flexItem) const
 {
-    if (child.isRenderReplaced())
-        return downcast<RenderReplaced>(child).intrinsicLogicalHeight();
+    if (auto* renderReplaced = dynamicDowncast<RenderReplaced>(flexItem))
+        return renderReplaced->intrinsicLogicalHeight();
     
-    if (m_intrinsicContentLogicalHeights.contains(&child))
-        return m_intrinsicContentLogicalHeights.get(&child);
+    if (m_intrinsicContentLogicalHeights.contains(flexItem))
+        return m_intrinsicContentLogicalHeights.get(flexItem);
     
-    return child.contentLogicalHeight();
+    return flexItem.contentBoxLogicalHeight();
 }
 
-void RenderFlexibleBox::setCachedChildIntrinsicContentLogicalHeight(const RenderBox& child, LayoutUnit height)
+void RenderFlexibleBox::setCachedFlexItemIntrinsicContentLogicalHeight(const RenderBox& flexItem, LayoutUnit height)
 {
-    if (child.isRenderReplaced())
+    if (flexItem.isRenderReplaced())
         return; // Replaced elements know their intrinsic height already, so save space by not caching.
-    m_intrinsicContentLogicalHeights.set(&child, height);
+    m_intrinsicContentLogicalHeights.set(flexItem, height);
 }
 
-void RenderFlexibleBox::clearCachedChildIntrinsicContentLogicalHeight(const RenderBox& child)
+void RenderFlexibleBox::clearCachedFlexItemIntrinsicContentLogicalHeight(const RenderBox& flexItem)
 {
-    if (child.isRenderReplaced())
+    if (flexItem.isRenderReplaced())
         return; // Replaced elements know their intrinsic height already, so nothing to do.
-    m_intrinsicContentLogicalHeights.remove(&child);
+    m_intrinsicContentLogicalHeights.remove(flexItem);
 }
 
-LayoutUnit RenderFlexibleBox::childIntrinsicLogicalHeight(const RenderBox& child) const
+LayoutUnit RenderFlexibleBox::flexItemIntrinsicLogicalHeight(RenderBox& flexItem) const
 {
     // This should only be called if the logical height is the cross size
-    ASSERT(!hasOrthogonalFlow(child));
-    if (needToStretchChildLogicalHeight(child)) {
-        LayoutUnit childContentHeight = cachedChildIntrinsicContentLogicalHeight(child);
-        LayoutUnit childLogicalHeight = childContentHeight + child.scrollbarLogicalHeight() + child.borderAndPaddingLogicalHeight();
-        return child.constrainLogicalHeightByMinMax(childLogicalHeight, childContentHeight);
+    ASSERT(mainAxisIsFlexItemInlineAxis(flexItem));
+    if (needToStretchFlexItemLogicalHeight(flexItem)) {
+        LayoutUnit flexItemContentHeight = cachedFlexItemIntrinsicContentLogicalHeight(flexItem);
+        LayoutUnit flexItemLogicalHeight = flexItemContentHeight + flexItem.scrollbarLogicalHeight() + flexItem.borderAndPaddingLogicalHeight();
+        return flexItem.constrainLogicalHeightByMinMax(flexItemLogicalHeight, flexItemContentHeight);
     }
-    return child.logicalHeight();
+    return flexItem.logicalHeight();
 }
 
-LayoutUnit RenderFlexibleBox::childIntrinsicLogicalWidth(const RenderBox& child) const
+LayoutUnit RenderFlexibleBox::flexItemIntrinsicLogicalWidth(RenderBox& flexItem)
 {
     // This should only be called if the logical width is the cross size
-    ASSERT(hasOrthogonalFlow(child));
-    if (crossAxisLengthIsDefinite(child, child.style().logicalWidth()))
-        return child.logicalWidth();
+    ASSERT(!mainAxisIsFlexItemInlineAxis(flexItem));
+    if (flexItemCrossSizeIsDefinite(flexItem, flexItem.style().logicalWidth()))
+        return flexItem.logicalWidth();
 
-    // Temporarily clear potential overrides to compute the logical width otherwise it'll return the override size.
-    bool childHasOverrideWidth = child.hasOverrideContentLogicalWidth();
-    auto overrideWidth = childHasOverrideWidth ? child.overrideContentLogicalWidth() : -1_lu;
-    if (childHasOverrideWidth)
-        const_cast<RenderBox*>(&child)->clearOverrideContentLogicalWidth();
     LogicalExtentComputedValues values;
-    child.computeLogicalWidthInFragment(values);
-    if (childHasOverrideWidth)
-        const_cast<RenderBox*>(&child)->setOverrideContentLogicalWidth(overrideWidth);
+    {
+        OverridingSizesScope cleanOverridingWidthScope(flexItem, OverridingSizesScope::Axis::Inline);
+        flexItem.computeLogicalWidth(values);
+    }
     return values.m_extent;
 }
 
-LayoutUnit RenderFlexibleBox::crossAxisIntrinsicExtentForChild(const RenderBox& child) const
+LayoutUnit RenderFlexibleBox::crossAxisIntrinsicExtentForFlexItem(RenderBox& flexItem)
 {
-    return hasOrthogonalFlow(child) ? childIntrinsicLogicalWidth(child) : childIntrinsicLogicalHeight(child);
+    return mainAxisIsFlexItemInlineAxis(flexItem) ? flexItemIntrinsicLogicalHeight(flexItem) : flexItemIntrinsicLogicalWidth(flexItem);
 }
 
-LayoutUnit RenderFlexibleBox::mainAxisExtentForChild(const RenderBox& child) const
+LayoutUnit RenderFlexibleBox::mainAxisExtentForFlexItem(const RenderBox& flexItem) const
 {
-    return isHorizontalFlow() ? child.size().width() : child.size().height();
+    return isHorizontalFlow() ? flexItem.size().width() : flexItem.size().height();
 }
 
-LayoutUnit RenderFlexibleBox::mainAxisContentExtentForChildIncludingScrollbar(const RenderBox& child) const
+LayoutUnit RenderFlexibleBox::mainAxisContentExtentForFlexItemIncludingScrollbar(const RenderBox& flexItem) const
 {
-    return isHorizontalFlow() ? child.contentWidth() + child.verticalScrollbarWidth() : child.contentHeight() + child.horizontalScrollbarHeight();
+    return isHorizontalFlow() ? flexItem.contentBoxWidth() + flexItem.verticalScrollbarWidth() : flexItem.contentBoxHeight() + flexItem.horizontalScrollbarHeight();
 }
 
 LayoutUnit RenderFlexibleBox::crossAxisExtent() const
@@ -534,23 +667,40 @@ LayoutUnit RenderFlexibleBox::mainAxisExtent() const
 
 LayoutUnit RenderFlexibleBox::crossAxisContentExtent() const
 {
-    return isHorizontalFlow() ? contentHeight() : contentWidth();
+    return isHorizontalFlow() ? contentBoxHeight() : contentBoxWidth();
 }
 
 LayoutUnit RenderFlexibleBox::mainAxisContentExtent(LayoutUnit contentLogicalHeight)
 {
-    if (isColumnFlow()) {
-        LayoutUnit borderPaddingAndScrollbar = borderAndPaddingLogicalHeight() + scrollbarLogicalHeight();
-        LayoutUnit borderBoxLogicalHeight = contentLogicalHeight + borderPaddingAndScrollbar;
-        auto computedValues = computeLogicalHeight(borderBoxLogicalHeight, logicalTop());
-        if (computedValues.m_extent == LayoutUnit::max())
-            return computedValues.m_extent;
-        return std::max(0_lu, computedValues.m_extent - borderPaddingAndScrollbar);
-    }
-    return contentLogicalWidth();
+    if (!isColumnFlow())
+        return contentBoxLogicalWidth();
+
+    LayoutUnit borderPaddingAndScrollbar = borderAndPaddingLogicalHeight() + scrollbarLogicalHeight();
+    LayoutUnit borderBoxLogicalHeight = contentLogicalHeight + borderPaddingAndScrollbar;
+    auto computedValues = computeLogicalHeight(borderBoxLogicalHeight, logicalTop());
+    if (computedValues.m_extent == LayoutUnit::max())
+        return computedValues.m_extent;
+    return std::max(0_lu, computedValues.m_extent - borderPaddingAndScrollbar);
 }
 
-Optional<LayoutUnit> RenderFlexibleBox::computeMainAxisExtentForChild(const RenderBox& child, SizeType sizeType, const Length& size)
+// FIXME: consider adding this check to RenderBox::hasIntrinsicAspectRatio(). We could even make it
+// virtual returning false by default. RenderReplaced will overwrite it with the current implementation
+// plus this extra check. See wkb.ug/231955.
+static bool isSVGRootWithIntrinsicAspectRatio(const RenderBox& flexItem)
+{
+    if (!flexItem.isRenderOrLegacyRenderSVGRoot())
+        return false;
+    // It's common for some replaced elements, such as SVGs, to have intrinsic aspect ratios but no intrinsic sizes.
+    // That's why it isn't enough just to check for intrinsic sizes in those cases.
+    return downcast<RenderReplaced>(flexItem).computeIntrinsicAspectRatio() > 0;
+};
+
+static bool flexItemHasAspectRatio(const RenderBox& flexItem)
+{
+    return flexItem.hasIntrinsicAspectRatio() || flexItem.style().hasAspectRatio() || isSVGRootWithIntrinsicAspectRatio(flexItem);
+}
+
+std::optional<LayoutUnit> RenderFlexibleBox::computeMainAxisExtentForFlexItem(RenderBox& flexItem, RenderBox::SizeType sizeType, const Length& size)
 {
     // If we have a horizontal flow, that means the main size is the width.
     // That's the logical width for horizontal writing modes, and the logical
@@ -558,53 +708,51 @@ Optional<LayoutUnit> RenderFlexibleBox::computeMainAxisExtentForChild(const Rend
     // height, so it's the inverse. So we need the logical width if we have a
     // horizontal flow and horizontal writing mode, or vertical flow and vertical
     // writing mode. Otherwise we need the logical height.
-    if (isHorizontalFlow() != child.style().isHorizontalWritingMode()) {
+    if (!mainAxisIsFlexItemInlineAxis(flexItem)) {
         // We don't have to check for "auto" here - computeContentLogicalHeight
         // will just return a null Optional for that case anyway. It's safe to access
         // scrollbarLogicalHeight here because ComputeNextFlexLine will have
         // already forced layout on the child. We previously did a layout out the child
         // if necessary (see ComputeNextFlexLine and the call to
-        // childHasIntrinsicMainAxisSize) so we can be sure that the two height
+        // flexItemHasIntrinsicMainAxisSize) so we can be sure that the two height
         // calls here will return up-to-date data.
-        Optional<LayoutUnit> height = child.computeContentLogicalHeight(sizeType, size, cachedChildIntrinsicContentLogicalHeight(child));
+        std::optional<LayoutUnit> height = flexItem.computeContentLogicalHeight(sizeType, size, cachedFlexItemIntrinsicContentLogicalHeight(flexItem));
         if (!height)
             return height;
-        return height.value() + child.scrollbarLogicalHeight();
+        // Tables interpret overriding sizes as the size of captions + rows. However the specified height of a table
+        // only includes the size of the rows. That's why we need to add the size of the captions here so that the table
+        // layout algorithm behaves appropiately.
+        LayoutUnit captionsHeight;
+        if (CheckedPtr table = dynamicDowncast<RenderTable>(flexItem); table && flexItemMainSizeIsDefinite(flexItem, size))
+            captionsHeight = table->sumCaptionsLogicalHeight();
+        return *height + flexItem.scrollbarLogicalHeight() + captionsHeight;
     }
 
     // computeLogicalWidth always re-computes the intrinsic widths. However, when
     // our logical width is auto, we can just use our cached value. So let's do
-    // that here. (Compare code in LayoutBlock::computePreferredLogicalWidths)
-    LayoutUnit borderAndPadding = child.borderAndPaddingLogicalWidth();
-    if (child.style().logicalWidth().isAuto() && !child.hasAspectRatio()) {
-        if (size.type() == MinContent)
-            return child.minPreferredLogicalWidth() - borderAndPadding;
-        if (size.type() == MaxContent)
-            return child.maxPreferredLogicalWidth() - borderAndPadding;
+    // that here. (Compare code in RenderBlock::computePreferredLogicalWidths)
+    if (flexItem.style().logicalWidth().isAuto() && !flexItemHasAspectRatio(flexItem)) {
+        if (size.isMinContent()) {
+            if (flexItem.needsPreferredWidthsRecalculation())
+                flexItem.setPreferredLogicalWidthsDirty(true, MarkOnlyThis);
+            return flexItem.minPreferredLogicalWidth() - flexItem.borderAndPaddingLogicalWidth();
+        }
+        if (size.isMaxContent()) {
+            if (flexItem.needsPreferredWidthsRecalculation())
+                flexItem.setPreferredLogicalWidthsDirty(true, MarkOnlyThis);
+            return flexItem.maxPreferredLogicalWidth() - flexItem.borderAndPaddingLogicalWidth();
+        }
     }
-    
-    // FIXME: Figure out how this should work for regions and pass in the appropriate values.
-    RenderFragmentContainer* fragment = nullptr;
-    return child.computeLogicalWidthInFragmentUsing(sizeType, size, contentLogicalWidth(), *this, fragment) - borderAndPadding;
+
+    auto mainAxisWidth = isColumnFlow() ? availableLogicalHeight(AvailableLogicalHeightType::ExcludeMarginBorderPadding) : contentBoxLogicalWidth();
+    return flexItem.computeLogicalWidthUsing(sizeType, size, mainAxisWidth, *this) - flexItem.borderAndPaddingLogicalWidth();
 }
 
-    
-WritingMode RenderFlexibleBox::transformedWritingMode() const
+FlowDirection RenderFlexibleBox::transformedBlockFlowDirection() const
 {
-    WritingMode mode = style().writingMode();
     if (!isColumnFlow())
-        return mode;
-    
-    switch (mode) {
-    case TopToBottomWritingMode:
-    case BottomToTopWritingMode:
-        return style().isLeftToRightDirection() ? LeftToRightWritingMode : RightToLeftWritingMode;
-    case LeftToRightWritingMode:
-    case RightToLeftWritingMode:
-        return style().isLeftToRightDirection() ? TopToBottomWritingMode : BottomToTopWritingMode;
-    }
-    ASSERT_NOT_REACHED();
-    return TopToBottomWritingMode;
+        return writingMode().blockDirection();
+    return writingMode().inlineDirection();
 }
 
 LayoutUnit RenderFlexibleBox::flowAwareBorderStart() const
@@ -623,14 +771,14 @@ LayoutUnit RenderFlexibleBox::flowAwareBorderEnd() const
 
 LayoutUnit RenderFlexibleBox::flowAwareBorderBefore() const
 {
-    switch (transformedWritingMode()) {
-    case TopToBottomWritingMode:
+    switch (transformedBlockFlowDirection()) {
+    case FlowDirection::TopToBottom:
         return borderTop();
-    case BottomToTopWritingMode:
+    case FlowDirection::BottomToTop:
         return borderBottom();
-    case LeftToRightWritingMode:
+    case FlowDirection::LeftToRight:
         return borderLeft();
-    case RightToLeftWritingMode:
+    case FlowDirection::RightToLeft:
         return borderRight();
     }
     ASSERT_NOT_REACHED();
@@ -639,14 +787,14 @@ LayoutUnit RenderFlexibleBox::flowAwareBorderBefore() const
 
 LayoutUnit RenderFlexibleBox::flowAwareBorderAfter() const
 {
-    switch (transformedWritingMode()) {
-    case TopToBottomWritingMode:
+    switch (transformedBlockFlowDirection()) {
+    case FlowDirection::TopToBottom:
         return borderBottom();
-    case BottomToTopWritingMode:
+    case FlowDirection::BottomToTop:
         return borderTop();
-    case LeftToRightWritingMode:
+    case FlowDirection::LeftToRight:
         return borderRight();
-    case RightToLeftWritingMode:
+    case FlowDirection::RightToLeft:
         return borderLeft();
     }
     ASSERT_NOT_REACHED();
@@ -669,14 +817,14 @@ LayoutUnit RenderFlexibleBox::flowAwarePaddingEnd() const
 
 LayoutUnit RenderFlexibleBox::flowAwarePaddingBefore() const
 {
-    switch (transformedWritingMode()) {
-    case TopToBottomWritingMode:
+    switch (transformedBlockFlowDirection()) {
+    case FlowDirection::TopToBottom:
         return paddingTop();
-    case BottomToTopWritingMode:
+    case FlowDirection::BottomToTop:
         return paddingBottom();
-    case LeftToRightWritingMode:
+    case FlowDirection::LeftToRight:
         return paddingLeft();
-    case RightToLeftWritingMode:
+    case FlowDirection::RightToLeft:
         return paddingRight();
     }
     ASSERT_NOT_REACHED();
@@ -685,53 +833,175 @@ LayoutUnit RenderFlexibleBox::flowAwarePaddingBefore() const
 
 LayoutUnit RenderFlexibleBox::flowAwarePaddingAfter() const
 {
-    switch (transformedWritingMode()) {
-    case TopToBottomWritingMode:
+    switch (transformedBlockFlowDirection()) {
+    case FlowDirection::TopToBottom:
         return paddingBottom();
-    case BottomToTopWritingMode:
+    case FlowDirection::BottomToTop:
         return paddingTop();
-    case LeftToRightWritingMode:
+    case FlowDirection::LeftToRight:
         return paddingRight();
-    case RightToLeftWritingMode:
+    case FlowDirection::RightToLeft:
         return paddingLeft();
     }
     ASSERT_NOT_REACHED();
     return paddingTop();
 }
 
-LayoutUnit RenderFlexibleBox::flowAwareMarginStartForChild(const RenderBox& child) const
+LayoutUnit RenderFlexibleBox::flowAwareMarginStartForFlexItem(const RenderBox& flexItem) const
 {
     if (isHorizontalFlow())
-        return isLeftToRightFlow() ? child.marginLeft() : child.marginRight();
-    return isLeftToRightFlow() ? child.marginTop() : child.marginBottom();
+        return isLeftToRightFlow() ? flexItem.marginLeft() : flexItem.marginRight();
+    return isLeftToRightFlow() ? flexItem.marginTop() : flexItem.marginBottom();
 }
 
-LayoutUnit RenderFlexibleBox::flowAwareMarginEndForChild(const RenderBox& child) const
+LayoutUnit RenderFlexibleBox::flowAwareMarginEndForFlexItem(const RenderBox& flexItem) const
 {
     if (isHorizontalFlow())
-        return isLeftToRightFlow() ? child.marginRight() : child.marginLeft();
-    return isLeftToRightFlow() ? child.marginBottom() : child.marginTop();
+        return isLeftToRightFlow() ? flexItem.marginRight() : flexItem.marginLeft();
+    return isLeftToRightFlow() ? flexItem.marginBottom() : flexItem.marginTop();
 }
 
-LayoutUnit RenderFlexibleBox::flowAwareMarginBeforeForChild(const RenderBox& child) const
+LayoutUnit RenderFlexibleBox::flowAwareMarginBeforeForFlexItem(const RenderBox& flexItem) const
 {
-    switch (transformedWritingMode()) {
-    case TopToBottomWritingMode:
-        return child.marginTop();
-    case BottomToTopWritingMode:
-        return child.marginBottom();
-    case LeftToRightWritingMode:
-        return child.marginLeft();
-    case RightToLeftWritingMode:
-        return child.marginRight();
+    switch (transformedBlockFlowDirection()) {
+    case FlowDirection::TopToBottom:
+        return flexItem.marginTop();
+    case FlowDirection::BottomToTop:
+        return flexItem.marginBottom();
+    case FlowDirection::LeftToRight:
+        return flexItem.marginLeft();
+    case FlowDirection::RightToLeft:
+        return flexItem.marginRight();
     }
     ASSERT_NOT_REACHED();
     return marginTop();
 }
 
-LayoutUnit RenderFlexibleBox::crossAxisMarginExtentForChild(const RenderBox& child) const
+void RenderFlexibleBox::initializeMarginTrimState()
 {
-    return isHorizontalFlow() ? child.verticalMarginExtent() : child.horizontalMarginExtent();
+    // When computeIntrinsicLogicalWidth goes through each of the children, it
+    // will include the margins when computing the flexbox's min and max widths.
+    // We need to trim the margins of the first and last child early so that
+    // these margins do not incorrectly constribute to the box's min/max width
+    auto marginTrim = style().marginTrim();
+    auto isRowsFlexbox = isHorizontalFlow();
+    if (auto flexItem = firstInFlowChildBox(); flexItem && marginTrim.contains(MarginTrimType::InlineStart))
+        isRowsFlexbox ? m_marginTrimItems.m_itemsAtFlexLineStart.add(*flexItem) : m_marginTrimItems.m_itemsOnFirstFlexLine.add(*flexItem);
+    if (auto flexItem = lastInFlowChildBox(); flexItem && marginTrim.contains(MarginTrimType::InlineEnd))
+        isRowsFlexbox ? m_marginTrimItems.m_itemsAtFlexLineEnd.add(*flexItem) : m_marginTrimItems.m_itemsOnLastFlexLine.add(*flexItem);
+}
+
+LayoutUnit RenderFlexibleBox::mainAxisMarginExtentForFlexItem(const RenderBox& flexItem) const
+{
+    if (!flexItem.needsLayout())
+        return isHorizontalFlow() ? flexItem.horizontalMarginExtent() : flexItem.verticalMarginExtent();
+
+    LayoutUnit marginStart;
+    LayoutUnit marginEnd;
+    if (isHorizontalFlow())
+        flexItem.computeInlineDirectionMargins(*this, flexItem.containingBlockLogicalWidthForContent(), flexItem.logicalWidth(), { }, marginStart, marginEnd);
+    else
+        flexItem.computeBlockDirectionMargins(*this, marginStart, marginEnd);
+    return marginStart + marginEnd;
+}
+
+LayoutUnit RenderFlexibleBox::crossAxisMarginExtentForFlexItem(const RenderBox& flexItem) const
+{
+    if (!flexItem.needsLayout())
+        return isHorizontalFlow() ? flexItem.verticalMarginExtent() : flexItem.horizontalMarginExtent();
+
+    LayoutUnit marginStart;
+    LayoutUnit marginEnd;
+    if (isHorizontalFlow())
+        flexItem.computeBlockDirectionMargins(*this, marginStart, marginEnd);
+    else
+        flexItem.computeInlineDirectionMargins(*this, flexItem.containingBlockLogicalWidthForContent(), flexItem.logicalWidth(), { }, marginStart, marginEnd);
+    return marginStart + marginEnd;
+}
+
+bool RenderFlexibleBox::isChildEligibleForMarginTrim(MarginTrimType marginTrimType, const RenderBox& flexItem) const
+{
+    ASSERT(style().marginTrim().contains(marginTrimType));
+    auto isMarginParallelWithMainAxis = [this](MarginTrimType marginTrimType) {
+        if (isHorizontalFlow())
+            return marginTrimType == MarginTrimType::BlockStart || marginTrimType == MarginTrimType::BlockEnd;
+        return marginTrimType == MarginTrimType::InlineStart || marginTrimType == MarginTrimType::InlineEnd;
+    };
+    if (isMarginParallelWithMainAxis(marginTrimType))
+        return (marginTrimType == MarginTrimType::BlockStart || marginTrimType == MarginTrimType::InlineStart) ? m_marginTrimItems.m_itemsOnFirstFlexLine.contains(flexItem) : m_marginTrimItems.m_itemsOnLastFlexLine.contains(flexItem);
+    return (marginTrimType == MarginTrimType::BlockStart || marginTrimType == MarginTrimType::InlineStart) ? m_marginTrimItems.m_itemsAtFlexLineStart.contains(flexItem) : m_marginTrimItems.m_itemsAtFlexLineEnd.contains(flexItem);
+}
+
+bool RenderFlexibleBox::shouldTrimMainAxisMarginStart() const
+{
+    if (isHorizontalFlow())
+        return style().marginTrim().contains(MarginTrimType::InlineStart);
+    return style().marginTrim().contains(MarginTrimType::BlockStart);
+}
+
+bool RenderFlexibleBox::shouldTrimMainAxisMarginEnd() const
+{
+    if (isHorizontalFlow())
+        return style().marginTrim().contains(MarginTrimType::InlineEnd);
+    return style().marginTrim().contains(MarginTrimType::BlockEnd);
+}
+
+bool RenderFlexibleBox::shouldTrimCrossAxisMarginStart() const
+{
+    if (isHorizontalFlow())
+        return style().marginTrim().contains(MarginTrimType::BlockStart);
+    return style().marginTrim().contains(MarginTrimType::InlineStart);
+}
+
+bool RenderFlexibleBox::shouldTrimCrossAxisMarginEnd() const
+{
+    if (isHorizontalFlow())
+        return style().marginTrim().contains(MarginTrimType::BlockEnd);
+    return style().marginTrim().contains(MarginTrimType::InlineEnd);
+}
+
+void RenderFlexibleBox::trimMainAxisMarginStart(const FlexLayoutItem& flexLayoutItem)
+{
+    auto horizontalFlow = isHorizontalFlow();
+    flexLayoutItem.mainAxisMargin -= horizontalFlow
+        ? flexLayoutItem.renderer->marginStart(writingMode())
+        : flexLayoutItem.renderer->marginBefore(writingMode());
+    if (horizontalFlow)
+        setTrimmedMarginForChild(flexLayoutItem.renderer, MarginTrimType::InlineStart);
+    else
+        setTrimmedMarginForChild(flexLayoutItem.renderer, MarginTrimType::BlockStart);
+    m_marginTrimItems.m_itemsAtFlexLineStart.add(flexLayoutItem.renderer);
+}
+
+void RenderFlexibleBox::trimMainAxisMarginEnd(const FlexLayoutItem& flexLayoutItem)
+{
+    auto horizontalFlow = isHorizontalFlow();
+    flexLayoutItem.mainAxisMargin -= horizontalFlow
+        ? flexLayoutItem.renderer->marginEnd(writingMode())
+        : flexLayoutItem.renderer->marginAfter(writingMode());
+    if (horizontalFlow)
+        setTrimmedMarginForChild(flexLayoutItem.renderer, MarginTrimType::InlineEnd);
+    else
+        setTrimmedMarginForChild(flexLayoutItem.renderer, MarginTrimType::BlockEnd);
+    m_marginTrimItems.m_itemsAtFlexLineEnd.add(flexLayoutItem.renderer);
+}
+
+void RenderFlexibleBox::trimCrossAxisMarginStart(const FlexLayoutItem& flexLayoutItem)
+{
+    if (isHorizontalFlow())
+        setTrimmedMarginForChild(flexLayoutItem.renderer, MarginTrimType::BlockStart);
+    else
+        setTrimmedMarginForChild(flexLayoutItem.renderer, MarginTrimType::InlineStart);
+    m_marginTrimItems.m_itemsOnFirstFlexLine.add(flexLayoutItem.renderer);
+}
+
+void RenderFlexibleBox::trimCrossAxisMarginEnd(const FlexLayoutItem& flexLayoutItem)
+{
+    if (isHorizontalFlow())
+        setTrimmedMarginForChild(flexLayoutItem.renderer, MarginTrimType::BlockEnd);
+    else
+        setTrimmedMarginForChild(flexLayoutItem.renderer, MarginTrimType::InlineEnd);
+    m_marginTrimItems.m_itemsOnLastFlexLine.add(flexLayoutItem.renderer);
 }
 
 LayoutUnit RenderFlexibleBox::crossAxisScrollbarExtent() const
@@ -739,93 +1009,174 @@ LayoutUnit RenderFlexibleBox::crossAxisScrollbarExtent() const
     return isHorizontalFlow() ? horizontalScrollbarHeight() : verticalScrollbarWidth();
 }
 
-LayoutPoint RenderFlexibleBox::flowAwareLocationForChild(const RenderBox& child) const
+LayoutPoint RenderFlexibleBox::flowAwareLocationForFlexItem(const RenderBox& flexItem) const
 {
-    return isHorizontalFlow() ? child.location() : child.location().transposedPoint();
+    return isHorizontalFlow() ? flexItem.location() : flexItem.location().transposedPoint();
 }
 
-bool RenderFlexibleBox::useChildAspectRatio(const RenderBox& child) const
+Length RenderFlexibleBox::crossSizeLengthForFlexItem(RenderBox::SizeType sizeType, const RenderBox& flexItem) const
 {
-    if (!child.hasAspectRatio())
-        return false;
-    if (!child.intrinsicSize().height()) {
-        // We can't compute a ratio in this case.
-        return false;
+    switch (sizeType) {
+    case RenderBox::SizeType::MinSize:
+        return isHorizontalFlow() ? flexItem.style().minHeight() : flexItem.style().minWidth();
+    case RenderBox::SizeType::MainOrPreferredSize:
+        return isHorizontalFlow() ? flexItem.style().height() : flexItem.style().width();
+    case RenderBox::SizeType::MaxSize:
+        return isHorizontalFlow() ? flexItem.style().maxHeight() : flexItem.style().maxWidth();
     }
-    Length crossSize;
-    if (isHorizontalFlow())
-        crossSize = child.style().height();
-    else
-        crossSize = child.style().width();
-    return crossAxisLengthIsDefinite(child, crossSize);
+    ASSERT_NOT_REACHED();
+    return { };
 }
 
-    
-LayoutUnit RenderFlexibleBox::computeMainSizeFromAspectRatioUsing(const RenderBox& child, Length crossSizeLength) const
+Length RenderFlexibleBox::mainSizeLengthForFlexItem(RenderBox::SizeType sizeType, const RenderBox& flexItem) const
 {
-    ASSERT(child.hasAspectRatio());
-    ASSERT(child.intrinsicSize().height());
-    
-    Optional<LayoutUnit> crossSize;
+    switch (sizeType) {
+    case RenderBox::SizeType::MinSize:
+        return isHorizontalFlow() ? flexItem.style().minWidth() : flexItem.style().minHeight();
+    case RenderBox::SizeType::MainOrPreferredSize:
+        return isHorizontalFlow() ? flexItem.style().width() : flexItem.style().height();
+    case RenderBox::SizeType::MaxSize:
+        return isHorizontalFlow() ? flexItem.style().maxWidth() : flexItem.style().maxHeight();
+    }
+    ASSERT_NOT_REACHED();
+    return { };
+}
+
+// FIXME: computeMainSizeFromAspectRatioUsing may need to return an std::optional<LayoutUnit> in the future
+// rather than returning indefinite sizes as 0/-1.
+LayoutUnit RenderFlexibleBox::computeMainSizeFromAspectRatioUsing(const RenderBox& flexItem, Length crossSizeLength) const
+{
+    ASSERT(flexItemHasAspectRatio(flexItem));
+
+    auto adjustForBoxSizing = [this] (const RenderBox& box, LayoutUnit value) -> LayoutUnit {
+        // We need to substract the border and padding extent from the cross axis.
+        // Furthermore, the sizing calculations that floor the content box size at zero when applying box-sizing are also ignored.
+        // https://drafts.csswg.org/css-flexbox/#algo-main-item.
+        if (box.style().boxSizing() == BoxSizing::BorderBox)
+            value -= isHorizontalFlow() ? box.verticalBorderAndPaddingExtent() : box.horizontalBorderAndPaddingExtent();
+        return value;
+    };
+
+    LayoutUnit crossSize;
+    // crossSize is border-box size if box-sizing is border-box, and content-box otherwise.
     if (crossSizeLength.isFixed())
         crossSize = LayoutUnit(crossSizeLength.value());
-    else {
+    else if (crossSizeLength.isAuto()) {
+        ASSERT(flexItemCrossSizeShouldUseContainerCrossSize(flexItem));
+        crossSize = computeCrossSizeForFlexItemUsingContainerCrossSize(flexItem);
+    } else {
         ASSERT(crossSizeLength.isPercentOrCalculated());
-        crossSize = hasOrthogonalFlow(child) ? adjustBorderBoxLogicalWidthForBoxSizing(valueForLength(crossSizeLength, contentWidth())) : child.computePercentageLogicalHeight(crossSizeLength);
-        if (!crossSize)
+        auto flexItemSize = mainAxisIsFlexItemInlineAxis(flexItem) ? flexItem.computePercentageLogicalHeight(crossSizeLength) : adjustBorderBoxLogicalWidthForBoxSizing(valueForLength(crossSizeLength, contentBoxWidth()), crossSizeLength.type());
+        if (!flexItemSize)
             return 0_lu;
+        crossSize = flexItemSize.value();
     }
-    
-    const LayoutSize& childIntrinsicSize = child.intrinsicSize();
-    double ratio = childIntrinsicSize.width().toFloat() /
-    childIntrinsicSize.height().toFloat();
+
+    auto flexItemIntrinsicSize = flexItem.intrinsicSize();
+    auto preferredAspectRatio = [&] {
+        if (flexItem.isRenderOrLegacyRenderSVGRoot())
+            return downcast<RenderReplaced>(flexItem).computeIntrinsicAspectRatio();
+        if (flexItem.style().aspectRatioType() == AspectRatioType::Ratio || (flexItem.style().aspectRatioType() == AspectRatioType::AutoAndRatio && flexItemIntrinsicSize.isEmpty()))
+            return flexItem.style().aspectRatioWidth() / flexItem.style().aspectRatioHeight();
+        if (auto* replacedElement = dynamicDowncast<RenderReplaced>(flexItem))
+            return replacedElement->computeIntrinsicAspectRatio();
+
+        ASSERT(flexItemIntrinsicSize.height());
+        return flexItemIntrinsicSize.width().toDouble() / flexItemIntrinsicSize.height().toDouble();
+    };
+
+    LayoutUnit borderAndPadding;
+    if (flexItem.style().aspectRatioType() == AspectRatioType::Ratio || (flexItem.style().aspectRatioType() == AspectRatioType::AutoAndRatio && flexItemIntrinsicSize.isEmpty())) {
+        if (flexItem.style().boxSizingForAspectRatio() == BoxSizing::ContentBox)
+            crossSize -= isHorizontalFlow() ? flexItem.verticalBorderAndPaddingExtent() : flexItem.horizontalBorderAndPaddingExtent();
+        else
+            borderAndPadding = isHorizontalFlow() ? flexItem.horizontalBorderAndPaddingExtent() : flexItem.verticalBorderAndPaddingExtent();
+    } else
+        crossSize = adjustForBoxSizing(flexItem, crossSize);
+
     if (isHorizontalFlow())
-        return LayoutUnit(crossSize.value() * ratio);
-    return LayoutUnit(crossSize.value() / ratio);
+        return std::max(0_lu, LayoutUnit(crossSize * preferredAspectRatio()) - borderAndPadding);
+    return std::max(0_lu, LayoutUnit(crossSize / preferredAspectRatio()) - borderAndPadding);
 }
 
-void RenderFlexibleBox::setFlowAwareLocationForChild(RenderBox& child, const LayoutPoint& location)
+void RenderFlexibleBox::setFlowAwareLocationForFlexItem(RenderBox& flexItem, const LayoutPoint& location)
 {
     if (isHorizontalFlow())
-        child.setLocation(location);
+        flexItem.setLocation(location);
     else
-        child.setLocation(location.transposedPoint());
+        flexItem.setLocation(location.transposedPoint());
 }
-    
-bool RenderFlexibleBox::mainAxisLengthIsDefinite(const RenderBox& child, const Length& flexBasis) const
+
+bool RenderFlexibleBox::canComputePercentageFlexBasis(const RenderBox& flexItem, const Length& flexBasis, UpdatePercentageHeightDescendants updateDescendants)
 {
-    if (flexBasis.isAuto())
+    if (!isColumnFlow() || m_hasDefiniteHeight == SizeDefiniteness::Definite)
+        return true;
+    if (m_hasDefiniteHeight == SizeDefiniteness::Indefinite)
         return false;
-    if (flexBasis.isPercentOrCalculated()) {
-        if (!isColumnFlow() || m_hasDefiniteHeight == SizeDefiniteness::Definite)
-            return true;
-        if (m_hasDefiniteHeight == SizeDefiniteness::Indefinite)
-            return false;
-        // Do not cache the definite height state when the child is perpendicular.
-        // The height of a perpendicular child is resolved against the containing block's width which is not the main axis.
-        if (child.isHorizontalWritingMode() != isHorizontalWritingMode())
-            return false;
-        bool definite = child.computePercentageLogicalHeight(flexBasis) != WTF::nullopt;
-        if (m_inLayout) {
-            // We can reach this code even while we're not laying ourselves out, such
-            // as from mainSizeForPercentageResolution.
-            m_hasDefiniteHeight = definite ? SizeDefiniteness::Definite : SizeDefiniteness::Indefinite;
-        }
-        return definite;
+
+    auto isPercentResolveSuspended = view().frameView().layoutContext().isPercentHeightResolveDisabledFor(flexItem);
+    ASSERT(!isPercentResolveSuspended || is<RenderBlock>(flexItem));
+
+    bool definite = !isPercentResolveSuspended && flexItem.computePercentageLogicalHeight(flexBasis, updateDescendants).has_value();
+    if (m_inLayout && (isHorizontalWritingMode() == flexItem.isHorizontalWritingMode())) {
+        // We can reach this code even while we're not laying ourselves out, such
+        // as from mainSizeForPercentageResolution.
+        m_hasDefiniteHeight = definite ? SizeDefiniteness::Definite : SizeDefiniteness::Indefinite;
     }
+    return definite;
+}
+
+bool RenderFlexibleBox::flexItemMainSizeIsDefinite(const RenderBox& flexItem, const Length& flexBasis)
+{
+    if (flexBasis.isAuto() || flexBasis.isContent())
+        return false;
+    if (!mainAxisIsFlexItemInlineAxis(flexItem) && (flexBasis.isIntrinsic() || flexBasis.type() == LengthType::Intrinsic))
+        return false;
+    if (flexBasis.isPercentOrCalculated())
+        return canComputePercentageFlexBasis(flexItem, flexBasis, UpdatePercentageHeightDescendants::No);
     return true;
 }
 
-bool RenderFlexibleBox::crossAxisLengthIsDefinite(const RenderBox& child, const Length& length) const
+bool RenderFlexibleBox::flexItemHasComputableAspectRatio(const RenderBox& flexItem) const
+{
+    if (!flexItemHasAspectRatio(flexItem))
+        return false;
+    return flexItem.intrinsicSize().height() || flexItem.style().hasAspectRatio() || isSVGRootWithIntrinsicAspectRatio(flexItem);
+}
+
+bool RenderFlexibleBox::flexItemHasComputableAspectRatioAndCrossSizeIsConsideredDefinite(const RenderBox& flexItem)
+{
+    return flexItemHasComputableAspectRatio(flexItem)
+        && (flexItemCrossSizeIsDefinite(flexItem, crossSizeLengthForFlexItem(RenderBox::SizeType::MainOrPreferredSize, flexItem)) || flexItemCrossSizeShouldUseContainerCrossSize(flexItem));
+}
+
+bool RenderFlexibleBox::flexItemCrossSizeShouldUseContainerCrossSize(const RenderBox& flexItem) const
+{
+    // 9.8 https://drafts.csswg.org/css-flexbox/#definite-sizes
+    // 1. If a single-line flex container has a definite cross size, the automatic preferred outer cross size of any
+    // stretched flex items is the flex container's inner cross size (clamped to the flex item's min and max cross size)
+    // and is considered definite.
+    if (!isMultiline() && alignmentForFlexItem(flexItem) == ItemPosition::Stretch && !hasAutoMarginsInCrossAxis(flexItem) && crossSizeLengthForFlexItem(RenderBox::SizeType::MainOrPreferredSize, flexItem).isAuto()) {
+        if (isColumnFlow())
+            return true;
+        // This must be kept in sync with computeMainSizeFromAspectRatioUsing().
+        auto& crossSize = isHorizontalFlow() ? style().height() : style().width();
+        return crossSize.isFixed() || (crossSize.isPercent() && availableLogicalHeightForPercentageComputation());  
+    }
+    return false;
+}
+
+bool RenderFlexibleBox::flexItemCrossSizeIsDefinite(const RenderBox& flexItem, const Length& length)
 {
     if (length.isAuto())
         return false;
+
     if (length.isPercentOrCalculated()) {
-        if (hasOrthogonalFlow(child) || m_hasDefiniteHeight == SizeDefiniteness::Definite)
+        if (!mainAxisIsFlexItemInlineAxis(flexItem) || m_hasDefiniteHeight == SizeDefiniteness::Definite)
             return true;
         if (m_hasDefiniteHeight == SizeDefiniteness::Indefinite)
             return false;
-        bool definite = bool(child.computePercentageLogicalHeight(length));
+        bool definite = bool(flexItem.computePercentageLogicalHeight(length));
         m_hasDefiniteHeight = definite ? SizeDefiniteness::Definite : SizeDefiniteness::Indefinite;
         return definite;
     }
@@ -834,94 +1185,165 @@ bool RenderFlexibleBox::crossAxisLengthIsDefinite(const RenderBox& child, const 
     return length.isFixed();
 }
 
-void RenderFlexibleBox::cacheChildMainSize(const RenderBox& child)
+void RenderFlexibleBox::cacheFlexItemMainSize(const RenderBox& flexItem)
 {
-    ASSERT(!child.needsLayout());
-    LayoutUnit mainSize;
-    if (hasOrthogonalFlow(child))
-        mainSize = child.logicalHeight();
-    else
-        mainSize = child.maxPreferredLogicalWidth();
-    m_intrinsicSizeAlongMainAxis.set(&child, mainSize);
-    m_relaidOutChildren.add(&child);
+    ASSERT(!flexItem.needsLayout());
+    ASSERT(!mainAxisIsFlexItemInlineAxis(flexItem));
+
+    auto mainSize = [&] {
+        auto flexBasis = flexBasisForFlexItem(flexItem);
+        if (flexBasis.isPercentOrCalculated() && !flexItemMainSizeIsDefinite(flexItem, flexBasis))
+            return cachedFlexItemIntrinsicContentLogicalHeight(flexItem) + flexItem.borderAndPaddingLogicalHeight() + flexItem.scrollbarLogicalHeight();
+        return flexItem.logicalHeight();
+    };
+
+    m_intrinsicSizeAlongMainAxis.set(flexItem, mainSize());
+    m_relaidOutFlexItems.add(flexItem);
 }
 
-void RenderFlexibleBox::clearCachedMainSizeForChild(const RenderBox& child)
+void RenderFlexibleBox::clearCachedMainSizeForFlexItem(const RenderBox& flexItem)
 {
-    m_intrinsicSizeAlongMainAxis.remove(&child);
+    m_intrinsicSizeAlongMainAxis.remove(flexItem);
 }
 
-    
-LayoutUnit RenderFlexibleBox::computeInnerFlexBaseSizeForChild(RenderBox& child, LayoutUnit mainAxisBorderAndPadding, bool relayoutChildren)
-{
-    child.clearOverrideContentSize();
-    
-    Length flexBasis = flexBasisForChild(child);
-    if (mainAxisLengthIsDefinite(child, flexBasis))
-        return std::max(0_lu, computeMainAxisExtentForChild(child, MainOrPreferredSize, flexBasis).value());
+// This is a RAII class that is used to temporarily set the flex basis as the child size in the main axis.
+class ScopedFlexBasisAsFlexItemMainSize {
+public:
+    ScopedFlexBasisAsFlexItemMainSize(RenderBox& flexItem, Length flexBasis, bool mainAxisIsInlineAxis)
+        : m_flexItem(flexItem)
+        , m_mainAxisIsInlineAxis(mainAxisIsInlineAxis)
+    {
+        if (flexBasis.isAuto())
+            return;
 
-    // The flex basis is indefinite (=auto), so we need to compute the actual
-    // width of the child. For the logical width axis we just use the preferred
-    // width; for the height we need to lay out the child.
+        if (m_mainAxisIsInlineAxis)
+            m_flexItem.setOverridingBorderBoxLogicalWidthForFlexBasisComputation(flexBasis);
+        else
+            m_flexItem.setOverridingBorderBoxLogicalHeightForFlexBasisComputation(flexBasis);
+        m_didOverride = true;
+    }
+
+    ~ScopedFlexBasisAsFlexItemMainSize()
+    {
+        if (!m_didOverride)
+            return;
+
+        if (m_mainAxisIsInlineAxis)
+            m_flexItem.clearOverridingLogicalWidthForFlexBasisComputation();
+        else
+            m_flexItem.clearOverridingLogicalHeightForFlexBasisComputation();
+    }
+
+private:
+    RenderBox& m_flexItem;
+    bool m_mainAxisIsInlineAxis { true };
+    bool m_didOverride { false };
+};
+
+// https://drafts.csswg.org/css-flexbox/#algo-main-item
+LayoutUnit RenderFlexibleBox::computeFlexBaseSizeForFlexItem(RenderBox& flexItem, LayoutUnit mainAxisBorderAndPadding, RelayoutChildren relayoutChildren)
+{
+    Length flexBasis = flexBasisForFlexItem(flexItem);
+    ScopedFlexBasisAsFlexItemMainSize scoped(flexItem, flexBasis.isContent() ? Length(LengthType::MaxContent) : flexBasis, mainAxisIsFlexItemInlineAxis(flexItem));
+    // FIXME: While we are supposed to ignore min/max here, clients of maybeCacheFlexItemMainIntrinsicSize may expect min/max constrained size.
+    SetForScope<bool> computingBaseSizesScope(m_isComputingFlexBaseSizes, true);
+
+    maybeCacheFlexItemMainIntrinsicSize(flexItem, relayoutChildren);
+
+    // 9.2.3 A.
+    if (flexItemMainSizeIsDefinite(flexItem, flexBasis))
+        return std::max(0_lu, computeMainAxisExtentForFlexItem(flexItem, RenderBox::SizeType::MainOrPreferredSize, flexBasis).value());
+
+    // 9.2.3 B.
+    if (flexItemHasComputableAspectRatioAndCrossSizeIsConsideredDefinite(flexItem)) {
+        const Length& crossSizeLength = crossSizeLengthForFlexItem(RenderBox::SizeType::MainOrPreferredSize, flexItem);
+        return adjustFlexItemSizeForAspectRatioCrossAxisMinAndMax(flexItem, computeMainSizeFromAspectRatioUsing(flexItem, crossSizeLength));
+    }
+
+    // FIXME: 9.2.3 C.
+    // FIXME: 9.2.3 D.
+
+    // 9.2.3 E.
     LayoutUnit mainAxisExtent;
-    if (hasOrthogonalFlow(child)) {
-        updateBlockChildDirtyBitsBeforeLayout(relayoutChildren, child);
-        if (child.needsLayout() || relayoutChildren || !m_intrinsicSizeAlongMainAxis.contains(&child)) {
-            if (!child.needsLayout())
-                child.setChildNeedsLayout(MarkOnlyThis);
-            child.layoutIfNeeded();
-            cacheChildMainSize(child);
-        }
-        mainAxisExtent = m_intrinsicSizeAlongMainAxis.get(&child);
+    if (!mainAxisIsFlexItemInlineAxis(flexItem)) {
+        ASSERT(!flexItem.needsLayout());
+        ASSERT(m_intrinsicSizeAlongMainAxis.contains(flexItem));
+        mainAxisExtent = m_intrinsicSizeAlongMainAxis.get(flexItem);
     } else {
         // We don't need to add scrollbarLogicalWidth here because the preferred
         // width includes the scrollbar, even for overflow: auto.
-        mainAxisExtent = child.maxPreferredLogicalWidth();
+        mainAxisExtent = flexItem.maxPreferredLogicalWidth();
     }
     return mainAxisExtent - mainAxisBorderAndPadding;
 }
 
-void RenderFlexibleBox::layoutFlexItems(bool relayoutChildren)
+void RenderFlexibleBox::performFlexLayout(RelayoutChildren relayoutChildren)
 {
-    Vector<LineContext> lineContexts;
+    if (layoutUsingFlexFormattingContext())
+        return;
+
+    // Set up our master list of flex items. All of the rest of the algorithm
+    // should work off this list of a subset.
+    // FIXME: That second part is not yet true.
+    FlexLayoutItems allItems;
+    for (auto* flexItem = m_orderIterator.first(); flexItem; flexItem = m_orderIterator.next()) {
+        if (m_orderIterator.shouldSkipChild(*flexItem)) {
+            // Out-of-flow children are not flex items, so we skip them here.
+            if (flexItem->isOutOfFlowPositioned())
+                prepareFlexItemForPositionedLayout(*flexItem);
+            continue;
+        }
+        allItems.append(constructFlexLayoutItem(*flexItem, relayoutChildren));
+        // constructFlexItem() might set the override containing block height so any value cached for definiteness might be incorrect.
+        resetHasDefiniteHeight();
+    }
+
+    if (allItems.isEmpty()) {
+        if (hasLineIfEmpty()) {
+            auto minHeight = borderAndPaddingLogicalHeight() + lineHeight(true, isHorizontalWritingMode() ? HorizontalLine : VerticalLine, PositionOfInteriorLineBoxes) + scrollbarLogicalHeight();
+            if (height() < minHeight)
+                setLogicalHeight(minHeight);
+        }
+        updateLogicalHeight();
+        return;
+    }
+
+    FlexLineStates lineStates;
     LayoutUnit sumFlexBaseSize;
     double totalFlexGrow;
     double totalFlexShrink;
     double totalWeightedFlexShrink;
     LayoutUnit sumHypotheticalMainSize;
-    
-    // Set up our master list of flex items. All of the rest of the algorithm
-    // should work off this list of a subset.
-    // TODO(cbiesinger): That second part is not yet true.
-    // Also initialize the reversed order iterator that would be eventually used for hit testing.
-    Vector<FlexItem> allItems;
-    m_reversedOrderIteratorForHitTesting.clear();
-    m_orderIterator.first();
-    for (RenderBox* child = m_orderIterator.currentChild(); child; child = m_orderIterator.next()) {
-        if (m_orderIterator.shouldSkipChild(*child)) {
-            // Out-of-flow children are not flex items, so we skip them here.
-            if (child->isOutOfFlowPositioned())
-                prepareChildForPositionedLayout(*child);
-            continue;
-        }
-        m_reversedOrderIteratorForHitTesting.append(child);
-        allItems.append(constructFlexItem(*child, relayoutChildren));
-    }
-    m_reversedOrderIteratorForHitTesting.reverse();
-    
     const LayoutUnit lineBreakLength = mainAxisContentExtent(LayoutUnit::max());
-    FlexLayoutAlgorithm flexAlgorithm(style(), lineBreakLength, allItems);
+    LayoutUnit gapBetweenItems = computeGap(GapType::BetweenItems);
+    LayoutUnit gapBetweenLines = computeGap(GapType::BetweenLines);
+    FlexLayoutAlgorithm flexAlgorithm(*this, lineBreakLength, allItems, gapBetweenItems, gapBetweenLines);
     LayoutUnit crossAxisOffset = flowAwareBorderBefore() + flowAwarePaddingBefore();
-    Vector<FlexItem> lineItems;
+    FlexLayoutItems lineItems;
     size_t nextIndex = 0;
+    size_t numLines = 0;
+    InspectorInstrumentation::flexibleBoxRendererBeganLayout(*this);
     while (flexAlgorithm.computeNextFlexLine(nextIndex, lineItems, sumFlexBaseSize, totalFlexGrow, totalFlexShrink, totalWeightedFlexShrink, sumHypotheticalMainSize)) {
+        ++numLines;
+        InspectorInstrumentation::flexibleBoxRendererWrappedToNextLine(*this, nextIndex);
+        // Cross axis margins should only be trimmed if they are on the first/last flex line
+        auto shouldTrimCrossAxisStart = shouldTrimCrossAxisMarginStart() && !lineStates.size();
+        auto shouldTrimCrossAxisEnd = shouldTrimCrossAxisMarginEnd() && allItems.last().renderer.ptr() == lineItems.last().renderer.ptr();
+        if (shouldTrimCrossAxisStart || shouldTrimCrossAxisEnd) {
+            for (auto& flexLayoutItem : lineItems) {
+                if (shouldTrimCrossAxisStart)
+                    trimCrossAxisMarginStart(flexLayoutItem);
+                if (shouldTrimCrossAxisEnd)
+                    trimCrossAxisMarginEnd(flexLayoutItem);
+            }
+        }
         LayoutUnit containerMainInnerSize = mainAxisContentExtent(sumHypotheticalMainSize);
         // availableFreeSpace is the initial amount of free space in this flexbox.
         // remainingFreeSpace starts out at the same value but as we place and lay
         // out flex items we subtract from it. Note that both values can be
         // negative.
         LayoutUnit remainingFreeSpace = containerMainInnerSize - sumFlexBaseSize;
-        FlexSign flexSign = (sumHypotheticalMainSize < containerMainInnerSize) ? PositiveFlexibility : NegativeFlexibility;
+        FlexSign flexSign = (sumHypotheticalMainSize < containerMainInnerSize) ? FlexSign::PositiveFlexibility : FlexSign::NegativeFlexibility;
         freezeInflexibleItems(flexSign, lineItems, remainingFreeSpace, totalFlexGrow, totalFlexShrink, totalWeightedFlexShrink);
         // The initial free space gets calculated after freezing inflexible items.
         // https://drafts.csswg.org/css-flexbox/#resolve-flexible-lengths step 3
@@ -935,12 +1357,23 @@ void RenderFlexibleBox::layoutFlexItems(bool relayoutChildren)
         // between 0..1 means we can't just use remainingFreeSpace here.
         remainingFreeSpace = containerMainInnerSize;
         for (size_t i = 0; i < lineItems.size(); ++i) {
-            FlexItem& flexItem = lineItems[i];
-            ASSERT(!flexItem.box.isOutOfFlowPositioned());
-            remainingFreeSpace -= flexItem.flexedMarginBoxSize();
+            auto& flexLayoutItem = lineItems[i];
+            ASSERT(!flexLayoutItem.renderer->isOutOfFlowPositioned());
+            remainingFreeSpace -= flexLayoutItem.flexedMarginBoxSize();
         }
-        // This will std::move lineItems into a newly-created LineContext.
-        layoutAndPlaceChildren(crossAxisOffset, lineItems, remainingFreeSpace, relayoutChildren, lineContexts);
+        remainingFreeSpace -= (lineItems.size() - 1) * gapBetweenItems;
+
+        // This will std::move lineItems into a newly-created LineState.
+        layoutAndPlaceFlexItems(crossAxisOffset, lineItems, remainingFreeSpace, relayoutChildren, lineStates, gapBetweenItems);
+    }
+
+    if (!lineStates.isEmpty()) {
+        auto isWrapReverse = style().flexWrap() == FlexWrap::Reverse;
+        auto firstLineItemsCountInOriginalOrder = lineStates.first().flexLayoutItems.size();
+        auto lastLineItemsCountInOriginalOrder = lineStates.first().flexLayoutItems.size();
+
+        m_numberOfFlexItemsOnFirstLine = !isWrapReverse ? firstLineItemsCountInOriginalOrder : lastLineItemsCountInOriginalOrder;
+        m_numberOfFlexItemsOnLastLine = !isWrapReverse ? lastLineItemsCountInOriginalOrder : firstLineItemsCountInOriginalOrder;
     }
 
     if (hasLineIfEmpty()) {
@@ -952,30 +1385,33 @@ void RenderFlexibleBox::layoutFlexItems(bool relayoutChildren)
         if (size().height() < minHeight)
             setLogicalHeight(minHeight);
     }
-    
+
+    if (!isColumnFlow() && numLines > 1)
+        setLogicalHeight(logicalHeight() + computeGap(GapType::BetweenLines) * (numLines - 1));
+
     updateLogicalHeight();
-    repositionLogicalHeightDependentFlexItems(lineContexts);
+    repositionLogicalHeightDependentFlexItems(lineStates, gapBetweenLines);
 }
 
-LayoutUnit RenderFlexibleBox::autoMarginOffsetInMainAxis(const Vector<FlexItem>& children, LayoutUnit& availableFreeSpace)
+LayoutUnit RenderFlexibleBox::autoMarginOffsetInMainAxis(const FlexLayoutItems& flexLayoutItems, LayoutUnit& availableFreeSpace)
 {
     if (availableFreeSpace <= 0_lu)
         return 0_lu;
     
     int numberOfAutoMargins = 0;
     bool isHorizontal = isHorizontalFlow();
-    for (size_t i = 0; i < children.size(); ++i) {
-        const auto& child = children[i].box;
-        ASSERT(!child.isOutOfFlowPositioned());
+    for (auto& flexLayoutItem : flexLayoutItems) {
+        auto& flexItemStyle = flexLayoutItem.style();
+        ASSERT(!flexLayoutItem.renderer->isOutOfFlowPositioned());
         if (isHorizontal) {
-            if (child.style().marginLeft().isAuto())
+            if (flexItemStyle.marginLeft().isAuto())
                 ++numberOfAutoMargins;
-            if (child.style().marginRight().isAuto())
+            if (flexItemStyle.marginRight().isAuto())
                 ++numberOfAutoMargins;
         } else {
-            if (child.style().marginTop().isAuto())
+            if (flexItemStyle.marginTop().isAuto())
                 ++numberOfAutoMargins;
-            if (child.style().marginBottom().isAuto())
+            if (flexItemStyle.marginBottom().isAuto())
                 ++numberOfAutoMargins;
         }
     }
@@ -987,64 +1423,63 @@ LayoutUnit RenderFlexibleBox::autoMarginOffsetInMainAxis(const Vector<FlexItem>&
     return sizeOfAutoMargin;
 }
 
-void RenderFlexibleBox::updateAutoMarginsInMainAxis(RenderBox& child, LayoutUnit autoMarginOffset)
+void RenderFlexibleBox::updateAutoMarginsInMainAxis(RenderBox& flexItem, LayoutUnit autoMarginOffset)
 {
     ASSERT(autoMarginOffset >= 0_lu);
     
     if (isHorizontalFlow()) {
-        if (child.style().marginLeft().isAuto())
-            child.setMarginLeft(autoMarginOffset);
-        if (child.style().marginRight().isAuto())
-            child.setMarginRight(autoMarginOffset);
+        if (flexItem.style().marginLeft().isAuto())
+            flexItem.setMarginLeft(autoMarginOffset);
+        if (flexItem.style().marginRight().isAuto())
+            flexItem.setMarginRight(autoMarginOffset);
     } else {
-        if (child.style().marginTop().isAuto())
-            child.setMarginTop(autoMarginOffset);
-        if (child.style().marginBottom().isAuto())
-            child.setMarginBottom(autoMarginOffset);
+        if (flexItem.style().marginTop().isAuto())
+            flexItem.setMarginTop(autoMarginOffset);
+        if (flexItem.style().marginBottom().isAuto())
+            flexItem.setMarginBottom(autoMarginOffset);
     }
 }
 
-bool RenderFlexibleBox::hasAutoMarginsInCrossAxis(const RenderBox& child) const
+bool RenderFlexibleBox::hasAutoMarginsInCrossAxis(const RenderBox& flexItem) const
 {
     if (isHorizontalFlow())
-        return child.style().marginTop().isAuto() || child.style().marginBottom().isAuto();
-    return child.style().marginLeft().isAuto() || child.style().marginRight().isAuto();
+        return flexItem.style().marginTop().isAuto() || flexItem.style().marginBottom().isAuto();
+    return flexItem.style().marginLeft().isAuto() || flexItem.style().marginRight().isAuto();
 }
 
-LayoutUnit RenderFlexibleBox::availableAlignmentSpaceForChild(LayoutUnit lineCrossAxisExtent, const RenderBox& child)
+LayoutUnit RenderFlexibleBox::availableAlignmentSpaceForFlexItem(LayoutUnit lineCrossAxisExtent, const RenderBox& flexItem)
 {
-    ASSERT(!child.isOutOfFlowPositioned());
-    LayoutUnit childCrossExtent = crossAxisMarginExtentForChild(child) + crossAxisExtentForChild(child);
-    return lineCrossAxisExtent - childCrossExtent;
+    LayoutUnit flexItemCrossExtent = crossAxisMarginExtentForFlexItem(flexItem) + crossAxisExtentForFlexItem(flexItem);
+    return lineCrossAxisExtent - flexItemCrossExtent;
 }
 
-bool RenderFlexibleBox::updateAutoMarginsInCrossAxis(RenderBox& child, LayoutUnit availableAlignmentSpace)
+bool RenderFlexibleBox::updateAutoMarginsInCrossAxis(RenderBox& flexItem, LayoutUnit availableAlignmentSpace)
 {
-    ASSERT(!child.isOutOfFlowPositioned());
+    ASSERT(!flexItem.isOutOfFlowPositioned());
     ASSERT(availableAlignmentSpace >= 0_lu);
     
     bool isHorizontal = isHorizontalFlow();
-    Length topOrLeft = isHorizontal ? child.style().marginTop() : child.style().marginLeft();
-    Length bottomOrRight = isHorizontal ? child.style().marginBottom() : child.style().marginRight();
+    Length topOrLeft = isHorizontal ? flexItem.style().marginTop() : flexItem.style().marginLeft();
+    Length bottomOrRight = isHorizontal ? flexItem.style().marginBottom() : flexItem.style().marginRight();
     if (topOrLeft.isAuto() && bottomOrRight.isAuto()) {
-        adjustAlignmentForChild(child, availableAlignmentSpace / 2);
+        adjustAlignmentForFlexItem(flexItem, availableAlignmentSpace / 2);
         if (isHorizontal) {
-            child.setMarginTop(availableAlignmentSpace / 2);
-            child.setMarginBottom(availableAlignmentSpace / 2);
+            flexItem.setMarginTop(availableAlignmentSpace / 2);
+            flexItem.setMarginBottom(availableAlignmentSpace / 2);
         } else {
-            child.setMarginLeft(availableAlignmentSpace / 2);
-            child.setMarginRight(availableAlignmentSpace / 2);
+            flexItem.setMarginLeft(availableAlignmentSpace / 2);
+            flexItem.setMarginRight(availableAlignmentSpace / 2);
         }
         return true;
     }
     bool shouldAdjustTopOrLeft = true;
-    if (isColumnFlow() && !child.style().isLeftToRightDirection()) {
+    if (isColumnFlow() && flexItem.writingMode().isInlineFlipped()) {
         // For column flows, only make this adjustment if topOrLeft corresponds to
         // the "before" margin, so that flipForRightToLeftColumn will do the right
         // thing.
         shouldAdjustTopOrLeft = false;
     }
-    if (!isColumnFlow() && child.style().isFlippedBlocksWritingMode()) {
+    if (!isColumnFlow() && flexItem.writingMode().isBlockFlipped()) {
         // If we are a flipped writing mode, we need to adjust the opposite side.
         // This is only needed for row flows because this only affects the
         // block-direction axis.
@@ -1053,39 +1488,60 @@ bool RenderFlexibleBox::updateAutoMarginsInCrossAxis(RenderBox& child, LayoutUni
     
     if (topOrLeft.isAuto()) {
         if (shouldAdjustTopOrLeft)
-            adjustAlignmentForChild(child, availableAlignmentSpace);
+            adjustAlignmentForFlexItem(flexItem, availableAlignmentSpace);
         
         if (isHorizontal)
-            child.setMarginTop(availableAlignmentSpace);
+            flexItem.setMarginTop(availableAlignmentSpace);
         else
-            child.setMarginLeft(availableAlignmentSpace);
+            flexItem.setMarginLeft(availableAlignmentSpace);
         return true;
     }
 
     if (bottomOrRight.isAuto()) {
         if (!shouldAdjustTopOrLeft)
-            adjustAlignmentForChild(child, availableAlignmentSpace);
+            adjustAlignmentForFlexItem(flexItem, availableAlignmentSpace);
         
         if (isHorizontal)
-            child.setMarginBottom(availableAlignmentSpace);
+            flexItem.setMarginBottom(availableAlignmentSpace);
         else
-            child.setMarginRight(availableAlignmentSpace);
+            flexItem.setMarginRight(availableAlignmentSpace);
         return true;
     }
     return false;
 }
 
-LayoutUnit RenderFlexibleBox::marginBoxAscentForChild(const RenderBox& child)
+LayoutUnit RenderFlexibleBox::marginBoxAscentForFlexItem(const RenderBox& flexItem)
 {
-    LayoutUnit ascent = child.firstLineBaseline().valueOr(crossAxisExtentForChild(child));
-    return ascent + flowAwareMarginBeforeForChild(child);
+    auto isHorizontalFlow = this->isHorizontalFlow();
+    auto direction = isHorizontalFlow ? HorizontalLine : VerticalLine;
+
+    if (!mainAxisIsFlexItemInlineAxis(flexItem))
+        return synthesizedBaseline(flexItem, style(), direction, BorderBox) + flowAwareMarginBeforeForFlexItem(flexItem);
+    auto ascent = alignmentForFlexItem(flexItem) == ItemPosition::LastBaseline ? flexItem.lastLineBaseline() : flexItem.firstLineBaseline();
+    if (!ascent)
+        return synthesizedBaseline(flexItem, style(), direction, BorderBox) + flowAwareMarginBeforeForFlexItem(flexItem);
+
+    if (!flexItem.writingMode().isBlockMatchingAny(writingMode())) {
+        // Baseline from flex item with opposite block direction needs to be resolved as if flex item had the same block direction.
+        //  _____________________________ <- flex box top/left (e.g. writing-mode: vertical-rl)
+        // |        __________________   |
+        // |       |  20px |    80px  |<-- flex item with vertical-lr (top is at visual left)
+        // |       |<----->|<-------->|  |
+        // |       top     baseline   |  |
+        // where computed baseline is 20px and resolved (as if flex item shares the block direction with flex box) is 80px.
+        ascent = flexItem.logicalHeight() - *ascent;
+    }
+
+    if (isHorizontalFlow ? flexItem.isScrollContainerY() : flexItem.isScrollContainerX())
+        return std::max(0_lu, std::min(*ascent, crossAxisExtentForFlexItem(flexItem))) + flowAwareMarginBeforeForFlexItem(flexItem);
+    return *ascent + flowAwareMarginBeforeForFlexItem(flexItem);;
 }
 
-LayoutUnit RenderFlexibleBox::computeChildMarginValue(Length margin)
+LayoutUnit RenderFlexibleBox::computeFlexItemMarginValue(Length margin)
 {
     // When resolving the margins, we use the content size for resolving percent and calc (for percents in calc expressions) margins.
     // Fortunately, percent margins are always computed with respect to the block's width, even for margin-top and margin-bottom.
-    LayoutUnit availableSize = contentLogicalWidth();
+    LayoutUnit availableSize = contentBoxLogicalWidth();
     return minimumValueForLength(margin, availableSize);
 }
 
@@ -1093,169 +1549,197 @@ void RenderFlexibleBox::prepareOrderIteratorAndMargins()
 {
     OrderIteratorPopulator populator(m_orderIterator);
 
-    for (RenderBox* child = firstChildBox(); child; child = child->nextSiblingBox()) {
-        if (!populator.collectChild(*child))
+    for (RenderBox* flexItem = firstChildBox(); flexItem; flexItem = flexItem->nextSiblingBox()) {
+        if (!populator.collectChild(*flexItem))
             continue;
 
         // Before running the flex algorithm, 'auto' has a margin of 0.
         // Also, if we're not auto sizing, we don't do a layout that computes the start/end margins.
         if (isHorizontalFlow()) {
-            child->setMarginLeft(computeChildMarginValue(child->style().marginLeft()));
-            child->setMarginRight(computeChildMarginValue(child->style().marginRight()));
+            flexItem->setMarginLeft(computeFlexItemMarginValue(flexItem->style().marginLeft()));
+            flexItem->setMarginRight(computeFlexItemMarginValue(flexItem->style().marginRight()));
         } else {
-            child->setMarginTop(computeChildMarginValue(child->style().marginTop()));
-            child->setMarginBottom(computeChildMarginValue(child->style().marginBottom()));
+            flexItem->setMarginTop(computeFlexItemMarginValue(flexItem->style().marginTop()));
+            flexItem->setMarginBottom(computeFlexItemMarginValue(flexItem->style().marginBottom()));
         }
     }
 }
 
-LayoutUnit RenderFlexibleBox::adjustChildSizeForMinAndMax(const RenderBox& child, LayoutUnit childSize)
+std::pair<LayoutUnit, LayoutUnit> RenderFlexibleBox::computeFlexItemMinMaxSizes(RenderBox& flexItem)
 {
-    Length max = isHorizontalFlow() ? child.style().maxWidth() : child.style().maxHeight();
-    Optional<LayoutUnit> maxExtent = WTF::nullopt;
-    if (max.isSpecifiedOrIntrinsic()) {
-        maxExtent = computeMainAxisExtentForChild(child, MaxSize, max);
-        childSize = std::min(childSize, maxExtent.valueOr(childSize));
-    }
+    Length max = mainSizeLengthForFlexItem(RenderBox::SizeType::MaxSize, flexItem);
+    std::optional<LayoutUnit> maxExtent = std::nullopt;
+    if (max.isSpecifiedOrIntrinsic())
+        maxExtent = computeMainAxisExtentForFlexItem(flexItem, RenderBox::SizeType::MaxSize, max);
 
-    Length min = isHorizontalFlow() ? child.style().minWidth() : child.style().minHeight();
-    if (min.isSpecifiedOrIntrinsic())
-        return std::max(childSize, std::max(0_lu, computeMainAxisExtentForChild(child, MinSize, min).valueOr(childSize)));
+    Length min = mainSizeLengthForFlexItem(RenderBox::SizeType::MinSize, flexItem);
+    // Intrinsic sizes in child's block axis are handled by the min-size:auto code path.
+    if (min.isSpecified() || (min.isIntrinsic() && mainAxisIsFlexItemInlineAxis(flexItem))) {
+        auto minExtent = computeMainAxisExtentForFlexItem(flexItem, RenderBox::SizeType::MinSize, min).value_or(0_lu);
+        // We must never return a min size smaller than the min preferred size for tables.
+        if (flexItem.isRenderTable() && mainAxisIsFlexItemInlineAxis(flexItem))
+            minExtent = std::max(minExtent, flexItem.minPreferredLogicalWidth());
+        return { minExtent, maxExtent.value_or(LayoutUnit::max()) };
+    }
     
-    if (!isFlexibleBoxImpl() && min.isAuto() && mainAxisOverflowForChild(child) == Overflow::Visible && !(isColumnFlow() && is<RenderFlexibleBox>(child))) {
-        // FIXME: For now, we do not handle min-height: auto for nested
-        // column flexboxes. We need to implement
-        // https://drafts.csswg.org/css-flexbox/#intrinsic-sizes before that
-        // produces reasonable results. Tracking bug: https://crbug.com/581553
-        // css-flexbox section 4.5
-        // FIXME: If the min value is expected to be valid here, we need to come up with a non optional version of computeMainAxisExtentForChild and
+    if (shouldApplyMinSizeAutoForFlexItem(flexItem)) {
+        // FIXME: If the min value is expected to be valid here, we need to come up with a non optional version of computeMainAxisExtentForFlexItem and
         // ensure it's valid through the virtual calls of computeIntrinsicLogicalContentHeightUsing.
-        LayoutUnit contentSize = computeMainAxisExtentForChild(child, MinSize, Length(MinContent)).valueOr(0);
+        LayoutUnit contentSize;
+        Length flexItemCrossSizeLength = crossSizeLengthForFlexItem(RenderBox::SizeType::MainOrPreferredSize, flexItem);
+
+        bool canComputeSizeThroughAspectRatio = flexItem.isRenderReplaced() && flexItemHasComputableAspectRatio(flexItem) && flexItemCrossSizeIsDefinite(flexItem, flexItemCrossSizeLength);
+
+        if (canComputeSizeThroughAspectRatio)
+            contentSize = computeMainSizeFromAspectRatioUsing(flexItem, flexItemCrossSizeLength);
+        else
+            contentSize = computeMainAxisExtentForFlexItem(flexItem, RenderBox::SizeType::MinSize, Length(LengthType::MinContent)).value_or(0_lu);
+
+        if (flexItemHasAspectRatio(flexItem) && (!crossSizeLengthForFlexItem(RenderBox::SizeType::MinSize, flexItem).isAuto() || !crossSizeLengthForFlexItem(RenderBox::SizeType::MaxSize, flexItem).isAuto()))
+            contentSize = adjustFlexItemSizeForAspectRatioCrossAxisMinAndMax(flexItem, contentSize);
         ASSERT(contentSize >= 0);
-        if (child.hasAspectRatio() && child.intrinsicSize().height() > 0)
-            contentSize = adjustChildSizeForAspectRatioCrossAxisMinAndMax(child, contentSize);
-        contentSize = std::min(contentSize, maxExtent.valueOr(contentSize));
+        contentSize = std::min(contentSize, maxExtent.value_or(contentSize));
         
-        Length mainSize = isHorizontalFlow() ? child.style().width() : child.style().height();
-        if (mainAxisLengthIsDefinite(child, mainSize)) {
-            LayoutUnit resolvedMainSize = computeMainAxisExtentForChild(child, MainOrPreferredSize, mainSize).valueOr(0);
+        Length mainSize = mainSizeLengthForFlexItem(RenderBox::SizeType::MainOrPreferredSize, flexItem);
+        if (flexItemMainSizeIsDefinite(flexItem, mainSize)) {
+            LayoutUnit resolvedMainSize = computeMainAxisExtentForFlexItem(flexItem, RenderBox::SizeType::MainOrPreferredSize, mainSize).value_or(0);
             ASSERT(resolvedMainSize >= 0);
-            LayoutUnit specifiedSize = std::min(resolvedMainSize, maxExtent.valueOr(resolvedMainSize));
-            return std::max(childSize, std::min(specifiedSize, contentSize));
+            LayoutUnit specifiedSize = std::min(resolvedMainSize, maxExtent.value_or(resolvedMainSize));
+            return { std::min(specifiedSize, contentSize), maxExtent.value_or(LayoutUnit::max()) };
         }
 
-        if (useChildAspectRatio(child)) {
-            Length crossSizeLength = isHorizontalFlow() ? child.style().height() : child.style().width();
-            Optional<LayoutUnit> transferredSize = computeMainSizeFromAspectRatioUsing(child, crossSizeLength);
-            if (transferredSize) {
-                transferredSize = adjustChildSizeForAspectRatioCrossAxisMinAndMax(child, transferredSize.value());
-                return std::max(childSize, std::min(transferredSize.value(), contentSize));
-            }
+        if (flexItem.isRenderReplaced() && flexItemHasComputableAspectRatioAndCrossSizeIsConsideredDefinite(flexItem)) {
+            LayoutUnit transferredSize = computeMainSizeFromAspectRatioUsing(flexItem, flexItemCrossSizeLength);
+            transferredSize = adjustFlexItemSizeForAspectRatioCrossAxisMinAndMax(flexItem, transferredSize);
+            return { std::min(transferredSize, contentSize), maxExtent.value_or(LayoutUnit::max()) };
         }
-        
-        return std::max(childSize, contentSize);
+
+        return { contentSize, maxExtent.value_or(LayoutUnit::max()) };
     }
 
-    return std::max(0_lu, childSize);
-}
-    
-Optional<LayoutUnit> RenderFlexibleBox::crossSizeForPercentageResolution(const RenderBox& child)
-{
-    ASSERT(!hasOrthogonalFlow(child));
-    if (alignmentForChild(child) != ItemPosition::Stretch)
-        return WTF::nullopt;
-
-    // Here we implement https://drafts.csswg.org/css-flexbox/#algo-stretch
-    if (child.hasOverrideContentLogicalHeight())
-        return child.overrideContentLogicalHeight() - child.scrollbarLogicalHeight();
-    
-    // We don't currently implement the optimization from
-    // https://drafts.csswg.org/css-flexbox/#definite-sizes case 1. While that
-    // could speed up a specialized case, it requires determining if we have a
-    // definite size, which itself is not cheap. We can consider implementing it
-    // at a later time. (The correctness is ensured by redoing layout in
-    // applyStretchAlignmentToChild)
-    return WTF::nullopt;
+    return { 0_lu, maxExtent.value_or(LayoutUnit::max()) };
 }
 
-Optional<LayoutUnit> RenderFlexibleBox::mainSizeForPercentageResolution(const RenderBox& child)
+bool RenderFlexibleBox::canUseFlexItemForPercentageResolution(const RenderBox& flexItem)
 {
-    ASSERT(hasOrthogonalFlow(child));
-    // This function implements section 9.8. Definite and Indefinite Sizes, case
-    // 2) of the flexbox spec.
-    // We need to check for the flexbox to have a definite main size, and for the
-    // flex item to have a definite flex basis.
-    const Length& flexBasis = flexBasisForChild(child);
-    if (!mainAxisLengthIsDefinite(child, flexBasis))
-        return WTF::nullopt;
-    if (!flexBasis.isPercentOrCalculated()) {
-        // If flex basis had a percentage, our size is guaranteed to be definite or
-        // the flex item's size could not be definite. Otherwise, we make up a
-        // percentage to check whether we have a definite size.
-        if (!mainAxisLengthIsDefinite(child, Length(0, Percent)))
-            return WTF::nullopt;
+    ASSERT(flexItem.isFlexItem());
+
+    auto canUseByLayoutPhase = [&] {
+        if (m_inSimplifiedLayout) {
+            // While in simplified layout, we should only re-compute overflow and/or re-position out-of-flow boxes, some renderers (e.g. RenderReplaced and subclasses)
+            // currently ignore this optimization and run regular layout.
+            return true;
+        }
+
+        if (m_inPostFlexUpdateScrollbarLayout) {
+            // Unfortunately we run layout on flex content _after_ performing flex layout to ensure scrollbars are up to date (see endAndCommitUpdateScrollInfoAfterLayoutTransaction/updateScrollInfoAfterLayout).
+            // We need to let this content run percent resolution as if we were still in flex item layout.
+            return true;
+        }
+
+        if (m_inFlexItemLayout) {
+            // While running flex _item_ layout, we may only resolve percentage against the flex item when it is orthogonal to the flex container.
+            return !mainAxisIsFlexItemInlineAxis(flexItem);
+        }
+        if (m_inCrossAxisLayout || m_inFlexItemIntrinsicWidthComputation)
+            return true;
+        // Let's decide based on style when we are outside of layout (i.e. relative percent position).
+        return !m_inLayout;
+    };
+    if (!canUseByLayoutPhase())
+        return false;
+
+    auto canUseByStyle = [&] {
+        if (mainAxisIsFlexItemInlineAxis(flexItem))
+            return alignmentForFlexItem(flexItem) == ItemPosition::Stretch;
+
+        if (flexItem.style().flexGrow() == RenderStyle::initialFlexGrow() && flexItem.style().flexShrink() == 0.0f && flexItemMainSizeIsDefinite(flexItem, flexBasisForFlexItem(flexItem)))
+            return true;
+
+        return canComputePercentageFlexBasis(flexItem, Length(0, LengthType::Percent), UpdatePercentageHeightDescendants::Yes);
+    };
+    return canUseByStyle();
+}
+
+// This method is only called whenever a descendant of a flex item wants to resolve a percentage in its
+// block axis (logical height). The key here is that percentages should be generally resolved before the
+// flex item is flexed, meaning that they shouldn't be recomputed once the flex item has been flexed. There
+// are some exceptions though that are implemented here, like the case of fully inflexible items with
+// definite flex-basis, or whenever the flex container has a definite main size. See
+// https://drafts.csswg.org/css-flexbox/#definite-sizes for additional details.
+std::optional<LayoutUnit> RenderFlexibleBox::usedFlexItemOverridingLogicalHeightForPercentageResolution(const RenderBox& flexItem)
+{
+    return canUseFlexItemForPercentageResolution(flexItem) ? flexItem.overridingBorderBoxLogicalHeight() : std::nullopt;
+}
+
+LayoutUnit RenderFlexibleBox::adjustFlexItemSizeForAspectRatioCrossAxisMinAndMax(const RenderBox& flexItem, LayoutUnit flexItemSize)
+{
+    Length crossMin = crossSizeLengthForFlexItem(RenderBox::SizeType::MinSize, flexItem);
+    Length crossMax = crossSizeLengthForFlexItem(RenderBox::SizeType::MaxSize, flexItem);
+
+    if (flexItemCrossSizeIsDefinite(flexItem, crossMax)) {
+        LayoutUnit maxValue = computeMainSizeFromAspectRatioUsing(flexItem, crossMax);
+        flexItemSize = std::min(maxValue, flexItemSize);
     }
 
-    return child.hasOverrideContentLogicalHeight() ? Optional<LayoutUnit>(child.overrideContentLogicalHeight() - child.scrollbarLogicalHeight()) : WTF::nullopt;
-}
-
-Optional<LayoutUnit> RenderFlexibleBox::childLogicalHeightForPercentageResolution(const RenderBox& child)
-{
-    if (!hasOrthogonalFlow(child))
-        return crossSizeForPercentageResolution(child);
-    return mainSizeForPercentageResolution(child);
-}
-
-LayoutUnit RenderFlexibleBox::adjustChildSizeForAspectRatioCrossAxisMinAndMax(const RenderBox& child, LayoutUnit childSize)
-{
-    Length crossMin = isHorizontalFlow() ? child.style().minHeight() : child.style().minWidth();
-    Length crossMax = isHorizontalFlow() ? child.style().maxHeight() : child.style().maxWidth();
-    
-    if (crossAxisLengthIsDefinite(child, crossMax)) {
-        LayoutUnit maxValue = computeMainSizeFromAspectRatioUsing(child, crossMax);
-        childSize = std::min(maxValue, childSize);
+    if (flexItemCrossSizeIsDefinite(flexItem, crossMin)) {
+        LayoutUnit minValue = computeMainSizeFromAspectRatioUsing(flexItem, crossMin);
+        flexItemSize = std::max(minValue, flexItemSize);
     }
     
-    if (crossAxisLengthIsDefinite(child, crossMin)) {
-        LayoutUnit minValue = computeMainSizeFromAspectRatioUsing(child, crossMin);
-        childSize = std::max(minValue, childSize);
-    }
-    
-    return childSize;
+    return flexItemSize;
 }
 
-FlexItem RenderFlexibleBox::constructFlexItem(RenderBox& child, bool relayoutChildren)
+void RenderFlexibleBox::maybeCacheFlexItemMainIntrinsicSize(RenderBox& flexItem, RelayoutChildren relayoutChildren)
 {
-    // If this condition is true, then computeMainAxisExtentForChild will call
-    // child.intrinsicContentLogicalHeight() and
-    // child.scrollbarLogicalHeight(), so if the child has intrinsic
-    // min/max/preferred size, run layout on it now to make sure its logical
-    // height and scroll bars are up to date.
-    if (childHasIntrinsicMainAxisSize(child) && child.needsLayout()) {
-        child.clearOverrideContentSize();
-        child.setChildNeedsLayout(MarkOnlyThis);
-        child.layoutIfNeeded();
-        cacheChildMainSize(child);
-        relayoutChildren = false;
+    if (!flexItemHasIntrinsicMainAxisSize(flexItem))
+        return;
+
+    // If this condition is true, then computeMainAxisExtentForFlexItem will call
+    // flexItem.intrinsicContentLogicalHeight() and flexItem.scrollbarLogicalHeight(),
+    // so if the child has intrinsic min/max/preferred size, run layout on it now to make sure
+    // its logical height and scroll bars are up to date.
+    updateBlockChildDirtyBitsBeforeLayout(relayoutChildren, flexItem);
+    // Don't resolve percentages in children. This is especially important for the min-height calculation,
+    // where we want percentages to be treated as auto. For flex-basis itself, this is not a problem because
+    // by definition we have an indefinite flex basis here and thus percentages should not resolve.
+    if (flexItem.needsLayout() || !m_intrinsicSizeAlongMainAxis.contains(flexItem)) {
+        auto percentResolveDisableScope = FlexPercentResolveDisabler { view().frameView().layoutContext(), flexItem };
+        flexItem.setChildNeedsLayout(MarkOnlyThis);
+        flexItem.layoutIfNeeded();
+        cacheFlexItemMainSize(flexItem);
     }
+}
+
+FlexLayoutItem RenderFlexibleBox::constructFlexLayoutItem(RenderBox& flexItem, RelayoutChildren relayoutChildren)
+{
+    auto everHadLayout = flexItem.everHadLayout();
+    flexItem.clearOverridingSize();
+    if (CheckedPtr flexibleBox = dynamicDowncast<RenderFlexibleBox>(flexItem))
+        flexibleBox->resetHasDefiniteHeight();
+
+    if (everHadLayout && flexItem.hasTrimmedMargin(std::optional<MarginTrimType> { }))
+        flexItem.clearTrimmedMarginsMarkings();
     
-    LayoutUnit borderAndPadding = isHorizontalFlow() ? child.horizontalBorderAndPaddingExtent() : child.verticalBorderAndPaddingExtent();
-    LayoutUnit childInnerFlexBaseSize = computeInnerFlexBaseSizeForChild(child, borderAndPadding, relayoutChildren);
-    LayoutUnit childMinMaxAppliedMainAxisExtent = adjustChildSizeForMinAndMax(child, childInnerFlexBaseSize);
-    LayoutUnit margin = isHorizontalFlow() ? child.horizontalMarginExtent() : child.verticalMarginExtent();
-    return FlexItem(child, childInnerFlexBaseSize, childMinMaxAppliedMainAxisExtent, borderAndPadding, margin);
+    if (flexItem.needsPreferredWidthsRecalculation())
+        flexItem.setPreferredLogicalWidthsDirty(true, MarkingBehavior::MarkOnlyThis);
+
+    LayoutUnit borderAndPadding = isHorizontalFlow() ? flexItem.horizontalBorderAndPaddingExtent() : flexItem.verticalBorderAndPaddingExtent();
+    LayoutUnit innerFlexBaseSize = computeFlexBaseSizeForFlexItem(flexItem, borderAndPadding, relayoutChildren);
+    LayoutUnit margin = isHorizontalFlow() ? flexItem.horizontalMarginExtent() : flexItem.verticalMarginExtent();
+    return FlexLayoutItem(flexItem, innerFlexBaseSize, borderAndPadding, margin, computeFlexItemMinMaxSizes(flexItem), everHadLayout);
 }
     
-void RenderFlexibleBox::freezeViolations(Vector<FlexItem*>& violations, LayoutUnit& availableFreeSpace, double& totalFlexGrow, double& totalFlexShrink, double& totalWeightedFlexShrink)
+void RenderFlexibleBox::freezeViolations(Vector<FlexLayoutItem*>& violations, LayoutUnit& availableFreeSpace, double& totalFlexGrow, double& totalFlexShrink, double& totalWeightedFlexShrink)
 {
     for (size_t i = 0; i < violations.size(); ++i) {
         ASSERT(!violations[i]->frozen);
-        const auto& child = violations[i]->box;
-        LayoutUnit childSize = violations[i]->flexedContentSize;
-        availableFreeSpace -= childSize - violations[i]->flexBaseContentSize;
-        totalFlexGrow -= child.style().flexGrow();
-        totalFlexShrink -= child.style().flexShrink();
-        totalWeightedFlexShrink -= child.style().flexShrink() * violations[i]->flexBaseContentSize;
+        auto& flexItemStyle = violations[i]->style();
+        LayoutUnit flexItemSize = violations[i]->flexedContentSize;
+        availableFreeSpace -= flexItemSize - violations[i]->flexBaseContentSize;
+        totalFlexGrow -= flexItemStyle.flexGrow();
+        totalFlexShrink -= flexItemStyle.flexShrink();
+        totalWeightedFlexShrink -= flexItemStyle.flexShrink() * violations[i]->flexBaseContentSize;
         // totalWeightedFlexShrink can be negative when we exceed the precision of
         // a double when we initially calcuate totalWeightedFlexShrink. We then
         // subtract each child's weighted flex shrink with full precision, now
@@ -1266,68 +1750,64 @@ void RenderFlexibleBox::freezeViolations(Vector<FlexItem*>& violations, LayoutUn
     }
 }
     
-void RenderFlexibleBox::freezeInflexibleItems(FlexSign flexSign, Vector<FlexItem>& children, LayoutUnit& remainingFreeSpace, double& totalFlexGrow, double& totalFlexShrink, double& totalWeightedFlexShrink)
+void RenderFlexibleBox::freezeInflexibleItems(FlexSign flexSign, FlexLayoutItems& flexLayoutItems, LayoutUnit& remainingFreeSpace, double& totalFlexGrow, double& totalFlexShrink, double& totalWeightedFlexShrink)
 {
     // Per https://drafts.csswg.org/css-flexbox/#resolve-flexible-lengths step 2,
     // we freeze all items with a flex factor of 0 as well as those with a min/max
     // size violation.
-    Vector<FlexItem*> newInflexibleItems;
-    for (size_t i = 0; i < children.size(); ++i) {
-        FlexItem& flexItem = children[i];
-        const auto& child = flexItem.box;
-        ASSERT(!flexItem.box.isOutOfFlowPositioned());
-        ASSERT(!flexItem.frozen);
-        float flexFactor = (flexSign == PositiveFlexibility) ? child.style().flexGrow() : child.style().flexShrink();
-        if (!flexFactor || (flexSign == PositiveFlexibility && flexItem.flexBaseContentSize > flexItem.hypotheticalMainContentSize) || (flexSign == NegativeFlexibility && flexItem.flexBaseContentSize < flexItem.hypotheticalMainContentSize)) {
-            flexItem.flexedContentSize = flexItem.hypotheticalMainContentSize;
-            newInflexibleItems.append(&flexItem);
+    Vector<FlexLayoutItem*> newInflexibleItems;
+    for (auto& flexLayoutItem : flexLayoutItems) {
+        ASSERT(!flexLayoutItem.renderer->isOutOfFlowPositioned());
+        ASSERT(!flexLayoutItem.frozen);
+        float flexFactor = (flexSign == FlexSign::PositiveFlexibility) ? flexLayoutItem.style().flexGrow() : flexLayoutItem.style().flexShrink();
+        if (!flexFactor || (flexSign == FlexSign::PositiveFlexibility && flexLayoutItem.flexBaseContentSize > flexLayoutItem.hypotheticalMainContentSize) || (flexSign == FlexSign::NegativeFlexibility && flexLayoutItem.flexBaseContentSize < flexLayoutItem.hypotheticalMainContentSize)) {
+            flexLayoutItem.flexedContentSize = flexLayoutItem.hypotheticalMainContentSize;
+            newInflexibleItems.append(&flexLayoutItem);
         }
     }
     freezeViolations(newInflexibleItems, remainingFreeSpace, totalFlexGrow, totalFlexShrink, totalWeightedFlexShrink);
 }
 
 // Returns true if we successfully ran the algorithm and sized the flex items.
-bool RenderFlexibleBox::resolveFlexibleLengths(FlexSign flexSign, Vector<FlexItem>& children, LayoutUnit initialFreeSpace, LayoutUnit& remainingFreeSpace, double& totalFlexGrow, double& totalFlexShrink, double& totalWeightedFlexShrink)
+bool RenderFlexibleBox::resolveFlexibleLengths(FlexSign flexSign, FlexLayoutItems& flexLayoutItems, LayoutUnit initialFreeSpace, LayoutUnit& remainingFreeSpace, double& totalFlexGrow, double& totalFlexShrink, double& totalWeightedFlexShrink)
 {
     LayoutUnit totalViolation;
     LayoutUnit usedFreeSpace;
-    Vector<FlexItem*> minViolations;
-    Vector<FlexItem*> maxViolations;
+    Vector<FlexLayoutItem*> minViolations;
+    Vector<FlexLayoutItem*> maxViolations;
 
-    double sumFlexFactors = (flexSign == PositiveFlexibility) ? totalFlexGrow : totalFlexShrink;
+    double sumFlexFactors = (flexSign == FlexSign::PositiveFlexibility) ? totalFlexGrow : totalFlexShrink;
     if (sumFlexFactors > 0 && sumFlexFactors < 1) {
         LayoutUnit fractional(initialFreeSpace * sumFlexFactors);
         if (fractional.abs() < remainingFreeSpace.abs())
             remainingFreeSpace = fractional;
     }
 
-    for (size_t i = 0; i < children.size(); ++i) {
-        FlexItem& flexItem = children[i];
-        const auto& child = flexItem.box;
-        
+    for (auto& flexLayoutItem : flexLayoutItems) {
         // This check also covers out-of-flow children.
-        if (flexItem.frozen)
+        if (flexLayoutItem.frozen)
             continue;
         
-        LayoutUnit childSize = flexItem.flexBaseContentSize;
+        auto& flexItemStyle = flexLayoutItem.style();
+        LayoutUnit flexItemSize = flexLayoutItem.flexBaseContentSize;
         double extraSpace = 0;
-        if (remainingFreeSpace > 0 && totalFlexGrow > 0 && flexSign == PositiveFlexibility && std::isfinite(totalFlexGrow))
-            extraSpace = remainingFreeSpace * child.style().flexGrow() / totalFlexGrow;
-        else if (remainingFreeSpace < 0 && totalWeightedFlexShrink > 0 && flexSign == NegativeFlexibility && std::isfinite(totalWeightedFlexShrink) && child.style().flexShrink())
-            extraSpace = remainingFreeSpace * child.style().flexShrink() * flexItem.flexBaseContentSize / totalWeightedFlexShrink;
+        if (remainingFreeSpace > 0 && totalFlexGrow > 0 && flexSign == FlexSign::PositiveFlexibility && std::isfinite(totalFlexGrow))
+            extraSpace = remainingFreeSpace * flexItemStyle.flexGrow() / totalFlexGrow;
+        else if (remainingFreeSpace < 0 && totalWeightedFlexShrink > 0 && flexSign == FlexSign::NegativeFlexibility && std::isfinite(totalWeightedFlexShrink) && flexItemStyle.flexShrink())
+            extraSpace = remainingFreeSpace * flexItemStyle.flexShrink() * flexLayoutItem.flexBaseContentSize / totalWeightedFlexShrink;
         if (std::isfinite(extraSpace))
-            childSize += LayoutUnit::fromFloatRound(extraSpace);
+            flexItemSize += LayoutUnit::fromFloatRound(extraSpace);
+
+        LayoutUnit adjustedFlexItemSize = flexLayoutItem.constrainSizeByMinMax(flexItemSize);
+        ASSERT(adjustedFlexItemSize >= 0);
+        flexLayoutItem.flexedContentSize = adjustedFlexItemSize;
+        usedFreeSpace += adjustedFlexItemSize - flexLayoutItem.flexBaseContentSize;
         
-        LayoutUnit adjustedChildSize = adjustChildSizeForMinAndMax(child, childSize);
-        ASSERT(adjustedChildSize >= 0);
-        flexItem.flexedContentSize = adjustedChildSize;
-        usedFreeSpace += adjustedChildSize - flexItem.flexBaseContentSize;
-        
-        LayoutUnit violation = adjustedChildSize - childSize;
+        LayoutUnit violation = adjustedFlexItemSize - flexItemSize;
         if (violation > 0)
-            minViolations.append(&flexItem);
+            minViolations.append(&flexLayoutItem);
         else if (violation < 0)
-            maxViolations.append(&flexItem);
+            maxViolations.append(&flexLayoutItem);
         totalViolation += violation;
     }
     
@@ -1339,42 +1819,71 @@ bool RenderFlexibleBox::resolveFlexibleLengths(FlexSign flexSign, Vector<FlexIte
     return !totalViolation;
 }
 
-static LayoutUnit initialJustifyContentOffset(LayoutUnit availableFreeSpace, ContentPosition justifyContent, ContentDistribution justifyContentDistribution, unsigned numberOfChildren)
+inline ContentPosition resolveLeftRightAlignment(ContentPosition position, const RenderStyle& style, bool isReversed)
 {
-    if (justifyContent == ContentPosition::FlexEnd)
+    if (position == ContentPosition::Left || position == ContentPosition::Right) {
+        auto leftRightAxisDirection = RenderFlexibleBox::leftRightAxisDirectionFromStyle(style);
+        position = (style.justifyContent().isEndward(leftRightAxisDirection, isReversed))
+            ? ContentPosition::End : ContentPosition::Start;
+    }
+    return position;
+}
+
+static LayoutUnit initialJustifyContentOffset(const RenderStyle& style, LayoutUnit availableFreeSpace, unsigned numberOfFlexItems, bool isReversed)
+{
+    ContentPosition justifyContent = style.resolvedJustifyContentPosition(contentAlignmentNormalBehavior());
+    ContentDistribution justifyContentDistribution = style.resolvedJustifyContentDistribution(contentAlignmentNormalBehavior());
+
+    if (availableFreeSpace < 0 && style.justifyContent().overflow() == OverflowAlignment::Safe) {
+        ASSERT(justifyContent != ContentPosition::Normal);
+        justifyContent = ContentPosition::Start;
+    }
+
+    // First of all resolve Left and Right so we could convert it to their equivalent properties handled bellow.
+    // If the property's axis is not parallel with either left<->right axis, this value behaves as start. Currently,
+    // the only case where the property's axis is not parallel with either left<->right axis is in a column flexbox.
+    // https: //www.w3.org/TR/css-align-3/#valdef-justify-content-left
+    justifyContent = resolveLeftRightAlignment(justifyContent, style, isReversed);
+    ASSERT(justifyContent != ContentPosition::Left);
+    ASSERT(justifyContent != ContentPosition::Right);
+
+    if (justifyContent == ContentPosition::FlexEnd
+        || (justifyContent == ContentPosition::End && !isReversed)
+        || (justifyContent == ContentPosition::Start && isReversed))
         return availableFreeSpace;
     if (justifyContent == ContentPosition::Center)
         return availableFreeSpace / 2;
     if (justifyContentDistribution == ContentDistribution::SpaceAround) {
-        if (availableFreeSpace > 0 && numberOfChildren)
-            return availableFreeSpace / (2 * numberOfChildren);
-        else
+        if (!numberOfFlexItems)
             return availableFreeSpace / 2;
+        if (availableFreeSpace > 0)
+            return availableFreeSpace / (2 * numberOfFlexItems);
+        return { };
     }
     if (justifyContentDistribution == ContentDistribution::SpaceEvenly) {
-        if (availableFreeSpace > 0 && numberOfChildren)
-            return availableFreeSpace / (numberOfChildren + 1);
-        // Fallback to 'center'
-        return availableFreeSpace / 2;
+        if (!numberOfFlexItems)
+            return availableFreeSpace / 2;
+        if (availableFreeSpace > 0)
+            return availableFreeSpace / (numberOfFlexItems + 1);
+        return { };
     }
-    return 0;
+    return { };
 }
 
-static LayoutUnit justifyContentSpaceBetweenChildren(LayoutUnit availableFreeSpace, ContentDistribution justifyContentDistribution, unsigned numberOfChildren)
+static LayoutUnit justifyContentSpaceBetweenFlexItems(LayoutUnit availableFreeSpace, ContentDistribution justifyContentDistribution, unsigned numberOfFlexItems)
 {
-    if (availableFreeSpace > 0 && numberOfChildren > 1) {
+    if (availableFreeSpace > 0 && numberOfFlexItems > 1) {
         if (justifyContentDistribution == ContentDistribution::SpaceBetween)
-            return availableFreeSpace / (numberOfChildren - 1);
+            return availableFreeSpace / (numberOfFlexItems - 1);
         if (justifyContentDistribution == ContentDistribution::SpaceAround)
-            return availableFreeSpace / numberOfChildren;
+            return availableFreeSpace / numberOfFlexItems;
         if (justifyContentDistribution == ContentDistribution::SpaceEvenly)
-            return availableFreeSpace / (numberOfChildren + 1);
+            return availableFreeSpace / (numberOfFlexItems + 1);
     }
     return 0;
 }
 
-
-static LayoutUnit alignmentOffset(LayoutUnit availableFreeSpace, ItemPosition position, LayoutUnit ascent, LayoutUnit maxAscent, bool isWrapReverse)
+static LayoutUnit alignmentOffset(LayoutUnit availableFreeSpace, ItemPosition position, std::optional<LayoutUnit> ascent, std::optional<LayoutUnit> maxAscent, bool isWrapReverse)
 {
     switch (position) {
     case ItemPosition::Legacy:
@@ -1382,13 +1891,21 @@ static LayoutUnit alignmentOffset(LayoutUnit availableFreeSpace, ItemPosition po
     case ItemPosition::Normal:
         ASSERT_NOT_REACHED();
         break;
+    case ItemPosition::Start:
+    case ItemPosition::End:
+    case ItemPosition::SelfStart:
+    case ItemPosition::SelfEnd:
+    case ItemPosition::Left:
+    case ItemPosition::Right:
+        ASSERT_NOT_REACHED("%u alignmentForFlexItem should have transformed this position value to something we handle below.", static_cast<uint8_t>(position));
+        break;
     case ItemPosition::Stretch:
         // Actual stretching must be handled by the caller. Since wrap-reverse
         // flips cross start and cross end, stretch children should be aligned
         // with the cross end. This matters because applyStretchAlignment
         // doesn't always stretch or stretch fully (explicit cross size given, or
         // stretching constrained by max-height/max-width). For flex-start and
-        // flex-end this is handled by alignmentForChild().
+        // flex-end this is handled by alignmentForFlexItem().
         if (isWrapReverse)
             return availableFreeSpace;
         break;
@@ -1397,110 +1914,152 @@ static LayoutUnit alignmentOffset(LayoutUnit availableFreeSpace, ItemPosition po
     case ItemPosition::FlexEnd:
         return availableFreeSpace;
     case ItemPosition::Center:
+    case ItemPosition::AnchorCenter:
         return availableFreeSpace / 2;
     case ItemPosition::Baseline:
-        // FIXME: If we get here in columns, we want the use the descent, except
-        // we currently can't get the ascent/descent of orthogonal children.
-        // https://bugs.webkit.org/show_bug.cgi?id=98076
-        return maxAscent - ascent;
-    case ItemPosition::LastBaseline:
-    case ItemPosition::SelfStart:
-    case ItemPosition::SelfEnd:
-    case ItemPosition::Start:
-    case ItemPosition::End:
-    case ItemPosition::Left:
-    case ItemPosition::Right:
-        // FIXME: Implement the extended grammar, enabled when the Grid Layout
-        // feature was enabled by default.
-        break;
+    case ItemPosition::LastBaseline: 
+        return maxAscent.value_or(0_lu) - ascent.value_or(0_lu);
     }
     return 0;
 }
 
-void RenderFlexibleBox::setOverrideMainAxisContentSizeForChild(RenderBox& child, LayoutUnit childPreferredSize)
+void RenderFlexibleBox::setOverridingMainSizeForFlexItem(RenderBox& flexItem, LayoutUnit preferredSize)
 {
-    if (hasOrthogonalFlow(child))
-        child.setOverrideContentLogicalHeight(childPreferredSize);
+    if (mainAxisIsFlexItemInlineAxis(flexItem))
+        flexItem.setOverridingBorderBoxLogicalWidth(preferredSize + flexItem.borderAndPaddingLogicalWidth());
     else
-        child.setOverrideContentLogicalWidth(childPreferredSize);
+        flexItem.setOverridingBorderBoxLogicalHeight(preferredSize + flexItem.borderAndPaddingLogicalHeight());
 }
 
-LayoutUnit RenderFlexibleBox::staticMainAxisPositionForPositionedChild(const RenderBox& child)
+LayoutUnit RenderFlexibleBox::staticMainAxisPositionForPositionedFlexItem(const RenderBox& flexItem)
 {
-    const LayoutUnit availableSpace = mainAxisContentExtent(contentLogicalHeight()) - mainAxisExtentForChild(child);
-
-    ContentPosition position = style().resolvedJustifyContentPosition(contentAlignmentNormalBehavior());
-    ContentDistribution distribution = style().resolvedJustifyContentDistribution(contentAlignmentNormalBehavior());
-    LayoutUnit offset = initialJustifyContentOffset(availableSpace, position, distribution, 1);
-    if (style().flexDirection() == FlexDirection::RowReverse || style().flexDirection() == FlexDirection::ColumnReverse)
+    auto flexItemMainExtent = mainAxisMarginExtentForFlexItem(flexItem) + mainAxisExtentForFlexItem(flexItem);
+    auto availableSpace = mainAxisContentExtent(contentBoxLogicalHeight()) - flexItemMainExtent;
+    auto isReverse = isColumnOrRowReverse();
+    LayoutUnit offset = initialJustifyContentOffset(style(), availableSpace, { }, isReverse);
+    if (isReverse)
         offset = availableSpace - offset;
     return offset;
 }
 
-LayoutUnit RenderFlexibleBox::staticCrossAxisPositionForPositionedChild(const RenderBox& child)
+LayoutUnit RenderFlexibleBox::staticCrossAxisPositionForPositionedFlexItem(const RenderBox& flexItem)
 {
-    LayoutUnit availableSpace = crossAxisContentExtent() - crossAxisExtentForChild(child);
-    return alignmentOffset(availableSpace, alignmentForChild(child), 0_lu, 0_lu, style().flexWrap() == FlexWrap::Reverse);
+    auto availableSpace = availableAlignmentSpaceForFlexItem(crossAxisContentExtent(), flexItem);
+    auto safety = overflowAlignmentForFlexItem(flexItem);
+    auto align = alignmentForFlexItem(flexItem);
+    if (availableSpace < 0 && safety == OverflowAlignment::Safe)
+        align = ItemPosition::FlexStart;
+    return alignmentOffset(availableSpace, align, std::nullopt, std::nullopt, style().flexWrap() == FlexWrap::Reverse);
 }
 
-LayoutUnit RenderFlexibleBox::staticInlinePositionForPositionedChild(const RenderBox& child)
+LayoutUnit RenderFlexibleBox::staticInlinePositionForPositionedFlexItem(const RenderBox& flexItem)
 {
-    return startOffsetForContent() + (isColumnFlow() ? staticCrossAxisPositionForPositionedChild(child) : staticMainAxisPositionForPositionedChild(child));
+    return startOffsetForContent() + (isColumnFlow() ? staticCrossAxisPositionForPositionedFlexItem(flexItem) : staticMainAxisPositionForPositionedFlexItem(flexItem));
 }
 
-LayoutUnit RenderFlexibleBox::staticBlockPositionForPositionedChild(const RenderBox& child)
+LayoutUnit RenderFlexibleBox::staticBlockPositionForPositionedFlexItem(const RenderBox& flexItem)
 {
-    return borderAndPaddingBefore() + (isColumnFlow() ? staticMainAxisPositionForPositionedChild(child) : staticCrossAxisPositionForPositionedChild(child));
+    return borderAndPaddingBefore() + (isColumnFlow() ? staticMainAxisPositionForPositionedFlexItem(flexItem) : staticCrossAxisPositionForPositionedFlexItem(flexItem));
 }
 
-bool RenderFlexibleBox::setStaticPositionForPositionedLayout(const RenderBox& child)
+bool RenderFlexibleBox::setStaticPositionForPositionedLayout(const RenderBox& flexItem)
 {
     bool positionChanged = false;
-    auto* childLayer = child.layer();
-    if (child.style().hasStaticInlinePosition(style().isHorizontalWritingMode())) {
-        LayoutUnit inlinePosition = staticInlinePositionForPositionedChild(child);
-        if (childLayer->staticInlinePosition() != inlinePosition) {
-            childLayer->setStaticInlinePosition(inlinePosition);
+    auto* layer = flexItem.layer();
+    if (flexItem.style().hasStaticInlinePosition(writingMode().isHorizontal())) {
+        LayoutUnit inlinePosition = staticInlinePositionForPositionedFlexItem(flexItem);
+        if (layer->staticInlinePosition() != inlinePosition) {
+            layer->setStaticInlinePosition(inlinePosition);
             positionChanged = true;
         }
     }
-    if (child.style().hasStaticBlockPosition(style().isHorizontalWritingMode())) {
-        LayoutUnit blockPosition = staticBlockPositionForPositionedChild(child);
-        if (childLayer->staticBlockPosition() != blockPosition) {
-            childLayer->setStaticBlockPosition(blockPosition);
+    if (flexItem.style().hasStaticBlockPosition(writingMode().isHorizontal())) {
+        LayoutUnit blockPosition = staticBlockPositionForPositionedFlexItem(flexItem);
+        if (layer->staticBlockPosition() != blockPosition) {
+            layer->setStaticBlockPosition(blockPosition);
             positionChanged = true;
         }
     }
     return positionChanged;
 }
 
-void RenderFlexibleBox::prepareChildForPositionedLayout(RenderBox& child)
+// This refers to https://drafts.csswg.org/css-flexbox-1/#definite-sizes, section 1).
+LayoutUnit RenderFlexibleBox::computeCrossSizeForFlexItemUsingContainerCrossSize(const RenderBox& flexItem) const
 {
-    ASSERT(child.isOutOfFlowPositioned());
-    child.containingBlock()->insertPositionedObject(child);
-    auto* childLayer = child.layer();
+    if (isColumnFlow())
+        return contentBoxLogicalWidth();
+
+    // Keep this sync'ed with flexItemCrossSizeShouldUseContainerCrossSize().
+    auto definiteSizeValue = [&] {
+        // Let's compute the definite size value for the flex item (value that we can resolve without running layout).
+        auto isHorizontal = isHorizontalFlow();
+        auto size = isHorizontal ? style().height() : style().width();
+        ASSERT(size.isFixed() || (size.isPercent() && availableLogicalHeightForPercentageComputation()));
+        auto definiteValue = LayoutUnit { size.value() };
+        if (size.isPercent())
+            definiteValue = availableLogicalHeightForPercentageComputation().value_or(0_lu);
+
+        auto maximumSize = isHorizontal ? style().maxHeight() : style().maxWidth();
+        if (maximumSize.isFixed())
+            definiteValue = std::min(definiteValue, LayoutUnit { maximumSize.value() });
+
+        auto minimumSize = isHorizontal ? style().minHeight() : style().minWidth();
+        if (minimumSize.isFixed())
+            definiteValue = std::max(definiteValue, LayoutUnit { minimumSize.value() });
+
+        return definiteValue;
+    };
+    return std::max(0_lu, definiteSizeValue() - crossAxisMarginExtentForFlexItem(flexItem));
+}
+
+void RenderFlexibleBox::prepareFlexItemForPositionedLayout(RenderBox& flexItem)
+{
+    ASSERT(flexItem.isOutOfFlowPositioned());
+    flexItem.containingBlock()->insertPositionedObject(flexItem);
+    auto* layer = flexItem.layer();
     LayoutUnit staticInlinePosition = flowAwareBorderStart() + flowAwarePaddingStart();
-    if (childLayer->staticInlinePosition() != staticInlinePosition) {
-        childLayer->setStaticInlinePosition(staticInlinePosition);
-        if (child.style().hasStaticInlinePosition(style().isHorizontalWritingMode()))
-            child.setChildNeedsLayout(MarkOnlyThis);
+    if (layer->staticInlinePosition() != staticInlinePosition) {
+        layer->setStaticInlinePosition(staticInlinePosition);
+        if (flexItem.style().hasStaticInlinePosition(writingMode().isHorizontal()))
+            flexItem.setChildNeedsLayout(MarkOnlyThis);
     }
 
     LayoutUnit staticBlockPosition = flowAwareBorderBefore() + flowAwarePaddingBefore();
-    if (childLayer->staticBlockPosition() != staticBlockPosition) {
-        childLayer->setStaticBlockPosition(staticBlockPosition);
-        if (child.style().hasStaticBlockPosition(style().isHorizontalWritingMode()))
-            child.setChildNeedsLayout(MarkOnlyThis);
+    if (layer->staticBlockPosition() != staticBlockPosition) {
+        layer->setStaticBlockPosition(staticBlockPosition);
+        if (flexItem.style().hasStaticBlockPosition(writingMode().isHorizontal()))
+            flexItem.setChildNeedsLayout(MarkOnlyThis);
     }
 }
 
-ItemPosition RenderFlexibleBox::alignmentForChild(const RenderBox& child) const
+inline OverflowAlignment RenderFlexibleBox::overflowAlignmentForFlexItem(const RenderBox& flexItem) const
 {
-    ItemPosition align = child.style().resolvedAlignSelf(&style(), selfAlignmentNormalBehavior()).position();
-    ASSERT(align != ItemPosition::Auto && align != ItemPosition::Normal);
+    return flexItem.style().resolvedAlignSelf(&style(), selfAlignmentNormalBehavior()).overflow();
+}
 
-    if (align == ItemPosition::Baseline && hasOrthogonalFlow(child))
-        align = ItemPosition::FlexStart;
+ItemPosition RenderFlexibleBox::alignmentForFlexItem(const RenderBox& flexItem) const
+{
+    ItemPosition align = flexItem.style().resolvedAlignSelf(&style(), selfAlignmentNormalBehavior()).position();
+    ASSERT(align != ItemPosition::Auto && align != ItemPosition::Normal);
+    // Left and Right are only for justify-*.
+    ASSERT(align != ItemPosition::Left && align != ItemPosition::Right);
+
+    // We can safely return here because start/end are not affected by a reversed flex-wrap because the
+    // alignment container is the flex line, and in a wrap reversed flex container the start and end within
+    // a flex line are still the same. Contrary to this flex-start/flex-end depend on the flex container
+    // start/end edges which are flipped in the case of wrap-reverse.
+    if (align == ItemPosition::Start)
+        return ItemPosition::FlexStart;
+    if (align == ItemPosition::End)
+        return ItemPosition::FlexEnd;
+
+    if (align == ItemPosition::SelfStart || align == ItemPosition::SelfEnd) {
+        bool hasSameDirection = isHorizontalFlow()
+            ? writingMode().isAnyTopToBottom() == flexItem.writingMode().isAnyTopToBottom()
+            : writingMode().isAnyLeftToRight() == flexItem.writingMode().isAnyLeftToRight();
+        return hasSameDirection == (align == ItemPosition::SelfStart)
+            ? ItemPosition::FlexStart : ItemPosition::FlexEnd;
+    }
 
     if (style().flexWrap() == FlexWrap::Reverse) {
         if (align == ItemPosition::FlexStart)
@@ -1512,25 +2071,25 @@ ItemPosition RenderFlexibleBox::alignmentForChild(const RenderBox& child) const
     return align;
 }
 
-void RenderFlexibleBox::resetAutoMarginsAndLogicalTopInCrossAxis(RenderBox& child)
+void RenderFlexibleBox::resetAutoMarginsAndLogicalTopInCrossAxis(RenderBox& flexItem)
 {
-    if (hasAutoMarginsInCrossAxis(child)) {
-        child.updateLogicalHeight();
+    if (hasAutoMarginsInCrossAxis(flexItem)) {
+        flexItem.updateLogicalHeight();
         if (isHorizontalFlow()) {
-            if (child.style().marginTop().isAuto())
-                child.setMarginTop(0_lu);
-            if (child.style().marginBottom().isAuto())
-                child.setMarginBottom(0_lu);
+            if (flexItem.style().marginTop().isAuto())
+                flexItem.setMarginTop(0_lu);
+            if (flexItem.style().marginBottom().isAuto())
+                flexItem.setMarginBottom(0_lu);
         } else {
-            if (child.style().marginLeft().isAuto())
-                child.setMarginLeft(0_lu);
-            if (child.style().marginRight().isAuto())
-                child.setMarginRight(0_lu);
+            if (flexItem.style().marginLeft().isAuto())
+                flexItem.setMarginLeft(0_lu);
+            if (flexItem.style().marginRight().isAuto())
+                flexItem.setMarginRight(0_lu);
         }
     }
 }
 
-bool RenderFlexibleBox::needToStretchChildLogicalHeight(const RenderBox& child) const
+bool RenderFlexibleBox::needToStretchFlexItemLogicalHeight(const RenderBox& flexItem) const
 {
     // This function is a little bit magical. It relies on the fact that blocks
     // intrinsically "stretch" themselves in their inline axis, i.e. a <div> has
@@ -1539,58 +2098,83 @@ bool RenderFlexibleBox::needToStretchChildLogicalHeight(const RenderBox& child) 
     // - We are horizontal and the child is in vertical writing mode
     // - We are vertical and the child is in horizontal writing mode
     // Otherwise, we need to stretch if the cross axis size is auto.
-    if (alignmentForChild(child) != ItemPosition::Stretch)
+    if (alignmentForFlexItem(flexItem) != ItemPosition::Stretch)
         return false;
 
-    if (isHorizontalFlow() != child.style().isHorizontalWritingMode())
+    if (isHorizontalFlow() != flexItem.isHorizontalWritingMode())
         return false;
 
-    return child.style().logicalHeight().isAuto();
+    // Aspect ratio is properly handled by RenderReplaced during layout.
+    if (flexItem.isRenderReplaced() && flexItemHasAspectRatio(flexItem))
+        return false;
+
+    return flexItem.style().logicalHeight().isAuto();
 }
 
-bool RenderFlexibleBox::childHasIntrinsicMainAxisSize(const RenderBox& child) const
+bool RenderFlexibleBox::flexItemHasIntrinsicMainAxisSize(const RenderBox& flexItem)
 {
-    bool result = false;
-    if (isHorizontalFlow() != child.style().isHorizontalWritingMode()) {
-        Length childFlexBasis = flexBasisForChild(child);
-        Length childMinSize = isHorizontalFlow() ? child.style().minWidth() : child.style().minHeight();
-        Length childMaxSize = isHorizontalFlow() ? child.style().maxWidth() : child.style().maxHeight();
-        if (childFlexBasis.isIntrinsic() || childMinSize.isIntrinsicOrAuto() || childMaxSize.isIntrinsic())
-            result = true;
+    if (mainAxisIsFlexItemInlineAxis(flexItem))
+        return false;
+
+    Length flexBasis = flexBasisForFlexItem(flexItem);
+    Length minSize = mainSizeLengthForFlexItem(RenderBox::SizeType::MinSize, flexItem);
+    Length maxSize = mainSizeLengthForFlexItem(RenderBox::SizeType::MaxSize, flexItem);
+    // FIXME: we must run flexItemMainSizeIsDefinite() because it might end up calling computePercentageLogicalHeight()
+    // which has some side effects like calling addPercentHeightDescendant() for example so it is not possible to skip
+    // the call for example by moving it to the end of the conditional expression. This is error-prone and we should
+    // refactor computePercentageLogicalHeight() at some point so that it only computes stuff without those side effects.
+    if (!flexItemMainSizeIsDefinite(flexItem, flexBasis) || minSize.isIntrinsic() || maxSize.isIntrinsic())
+        return true;
+
+    if (shouldApplyMinSizeAutoForFlexItem(flexItem))
+        return true;
+
+    return false;
+}
+
+Overflow RenderFlexibleBox::mainAxisOverflowForFlexItem(const RenderBox& flexItem) const
+{
+    if (isHorizontalFlow())
+        return flexItem.style().overflowX();
+    return flexItem.style().overflowY();
+}
+
+Overflow RenderFlexibleBox::crossAxisOverflowForFlexItem(const RenderBox& flexItem) const
+{
+    if (isHorizontalFlow())
+        return flexItem.style().overflowY();
+    return flexItem.style().overflowX();
+}
+
+bool RenderFlexibleBox::flexItemHasPercentHeightDescendants(const RenderBox& renderer) const
+{
+    // FIXME: This function can be removed soon after webkit.org/b/204318 is fixed. Evaluate whether the
+    // skipContainingBlockForPercentHeightCalculation() check below should be moved to the caller in that case.
+    CheckedPtr renderBlock = dynamicDowncast<RenderBlock>(renderer);
+    if (!renderBlock)
+        return false;
+
+    // FlexibleBoxImpl's like RenderButton might wrap their children in anonymous blocks. Those anonymous blocks are
+    // skipped for percentage height calculations in RenderBox::computePercentageLogicalHeight() and thus
+    // addPercentHeightDescendant() is never called for them. This means that this method would always wrongly
+    // return false for a child of a <button> with a percentage height.
+    if (hasPercentHeightDescendants() && skipContainingBlockForPercentHeightCalculation(renderer, isHorizontalWritingMode() != renderer.isHorizontalWritingMode())) {
+        for (auto& descendant : *percentHeightDescendants()) {
+            if (renderBlock->isContainingBlockAncestorFor(descendant))
+                return true;
+        }
     }
-    return result;
-}
 
-Overflow RenderFlexibleBox::mainAxisOverflowForChild(const RenderBox& child) const
-{
-    if (isHorizontalFlow())
-        return child.style().overflowX();
-    return child.style().overflowY();
-}
-
-Overflow RenderFlexibleBox::crossAxisOverflowForChild(const RenderBox& child) const
-{
-    if (isHorizontalFlow())
-        return child.style().overflowY();
-    return child.style().overflowX();
-}
-
-bool RenderFlexibleBox::hasPercentHeightDescendants(const RenderBox& renderer) const
-{
-    // FIXME: This function can be removed soon after webkit.org/b/204318 is fixed. 
-    if (!is<RenderBlock>(renderer))
-        return false;
-    auto& renderBlock = downcast<RenderBlock>(renderer);
-    if (!renderBlock.hasPercentHeightDescendants())
+    if (!renderBlock->hasPercentHeightDescendants())
         return false;
 
-    auto* percentHeightDescendants = renderBlock.percentHeightDescendants();
+    auto* percentHeightDescendants = renderBlock->percentHeightDescendants();
     if (!percentHeightDescendants)
         return false;
 
-    for (auto it = percentHeightDescendants->begin(), end = percentHeightDescendants->end(); it != end; ++it) {
+    for (auto& descendant : *percentHeightDescendants) {
         bool hasOutOfFlowAncestor = false;
-        for (auto* ancestor = (*it)->containingBlock(); ancestor && ancestor != &renderBlock; ancestor = ancestor->containingBlock()) {
+        for (auto* ancestor = descendant.containingBlock(); ancestor && ancestor != renderBlock.get(); ancestor = ancestor->containingBlock()) {
             if (ancestor->isOutOfFlowPositioned()) {
                 hasOutOfFlowAncestor = true;
                 break;
@@ -1602,91 +2186,144 @@ bool RenderFlexibleBox::hasPercentHeightDescendants(const RenderBox& renderer) c
     return false;
 }
 
-void RenderFlexibleBox::layoutAndPlaceChildren(LayoutUnit& crossAxisOffset, Vector<FlexItem>& children, LayoutUnit availableFreeSpace, bool relayoutChildren, Vector<LineContext>& lineContexts)
+static LayoutUnit contentAlignmentStartOverflow(LayoutUnit availableFreeSpace, ContentPosition position, ContentDistribution distribution, OverflowAlignment safety, bool isReverse)
 {
-    ContentPosition position = style().resolvedJustifyContentPosition(contentAlignmentNormalBehavior());
-    ContentDistribution distribution = style().resolvedJustifyContentDistribution(contentAlignmentNormalBehavior());
+    if (availableFreeSpace >= 0 || safety == OverflowAlignment::Safe)
+        return 0_lu;
 
-    LayoutUnit autoMarginOffset = autoMarginOffsetInMainAxis(children, availableFreeSpace);
+    if (distribution == ContentDistribution::SpaceAround
+        || distribution == ContentDistribution::SpaceEvenly)
+        return -availableFreeSpace / 2;
+
+    switch (position) {
+    case ContentPosition::Start:
+    case ContentPosition::Baseline:
+    case ContentPosition::LastBaseline:
+        return 0_lu;
+    case ContentPosition::FlexStart:
+        return isReverse ? -availableFreeSpace : 0_lu;
+    case ContentPosition::Center:
+        return -availableFreeSpace / 2;
+    case ContentPosition::End:
+        return -availableFreeSpace;
+    case ContentPosition::FlexEnd:
+        return isReverse ? 0_lu : -availableFreeSpace;
+    default:
+        ASSERT((distribution == ContentDistribution::Default && position == ContentPosition::Normal) // Normal alignment.
+            || distribution == ContentDistribution::Stretch
+            || distribution == ContentDistribution::SpaceBetween);
+        return isReverse ? -availableFreeSpace : 0_lu;
+    }
+}
+
+void RenderFlexibleBox::layoutAndPlaceFlexItems(LayoutUnit& crossAxisOffset, FlexLayoutItems& flexLayoutItems, LayoutUnit availableFreeSpace, RelayoutChildren relayoutChildren, FlexLineStates& lineStates, LayoutUnit gapBetweenItems)
+{
+    LayoutUnit autoMarginOffset = autoMarginOffsetInMainAxis(flexLayoutItems, availableFreeSpace);
     LayoutUnit mainAxisOffset = flowAwareBorderStart() + flowAwarePaddingStart();
-    mainAxisOffset += initialJustifyContentOffset(availableFreeSpace, position, distribution, children.size());
+    mainAxisOffset += initialJustifyContentOffset(style(), availableFreeSpace, flexLayoutItems.size(), isColumnOrRowReverse());
     if (style().flexDirection() == FlexDirection::RowReverse)
         mainAxisOffset += isHorizontalFlow() ? verticalScrollbarWidth() : horizontalScrollbarHeight();
 
+    if (availableFreeSpace < 0) {
+        ContentPosition position = style().resolvedJustifyContentPosition(contentAlignmentNormalBehavior());
+        ContentDistribution distribution = style().resolvedJustifyContentDistribution(contentAlignmentNormalBehavior());
+        OverflowAlignment safety = style().justifyContent().overflow();
+        position = resolveLeftRightAlignment(position, style(), isColumnOrRowReverse());
+        LayoutUnit overflow = contentAlignmentStartOverflow(availableFreeSpace, position, distribution, safety, isColumnOrRowReverse());
+        m_justifyContentStartOverflow = std::max(m_justifyContentStartOverflow, overflow);
+    }
+
     LayoutUnit totalMainExtent = mainAxisExtent();
-    LayoutUnit maxAscent, maxDescent; // Used when align-items: baseline.
-    LayoutUnit maxChildCrossAxisExtent;
+    LayoutUnit maxFlexItemCrossAxisExtent;
+
+    LayoutUnit maxAscent;
+    LayoutUnit maxDescent;
+    LayoutUnit lastBaselineMaxAscent;
+    std::optional<BaselineAlignmentState> baselineAlignmentState;
+
+    ContentDistribution distribution = style().resolvedJustifyContentDistribution(contentAlignmentNormalBehavior());
     bool shouldFlipMainAxis = !isColumnFlow() && !isLeftToRightFlow();
-    for (size_t i = 0; i < children.size(); ++i) {
-        const auto& flexItem = children[i];
-        auto& child = flexItem.box;
-        bool childHadLayout = child.everHadLayout();
+    auto flexLayoutScope = SetForScope(m_inFlexItemLayout, true);
+    for (size_t i = 0; i < flexLayoutItems.size(); ++i) {
+        auto& flexLayoutItem = flexLayoutItems[i];
+        auto& flexItem = flexLayoutItem.renderer.get();
 
-        ASSERT(!flexItem.box.isOutOfFlowPositioned());
+        ASSERT(!flexLayoutItem.renderer->isOutOfFlowPositioned());
 
-        setOverrideMainAxisContentSizeForChild(child, flexItem.flexedContentSize);
+        setOverridingMainSizeForFlexItem(flexItem, flexLayoutItem.flexedContentSize);
         // The flexed content size and the override size include the scrollbar
         // width, so we need to compare to the size including the scrollbar.
-        // TODO(cbiesinger): Should it include the scrollbar?
-        if (flexItem.flexedContentSize != mainAxisContentExtentForChildIncludingScrollbar(child))
-            child.setChildNeedsLayout(MarkOnlyThis);
+        // FIXME: Should it include the scrollbar?
+        if (flexLayoutItem.flexedContentSize != mainAxisContentExtentForFlexItemIncludingScrollbar(flexItem))
+            flexItem.setChildNeedsLayout(MarkOnlyThis);
         else {
             // To avoid double applying margin changes in
             // updateAutoMarginsInCrossAxis, we reset the margins here.
-            resetAutoMarginsAndLogicalTopInCrossAxis(child);
+            resetAutoMarginsAndLogicalTopInCrossAxis(flexItem);
         }
         // We may have already forced relayout for orthogonal flowing children in
-        // computeInnerFlexBaseSizeForChild.
-        bool forceChildRelayout = relayoutChildren && !m_relaidOutChildren.contains(&child);
-        if (!forceChildRelayout && hasPercentHeightDescendants(child)) {
+        // computeInnerFlexBaseSizeForFlexItem.
+        bool forceFlexItemRelayout = relayoutChildren == RelayoutChildren::Yes && !m_relaidOutFlexItems.contains(flexItem);
+        if (!forceFlexItemRelayout && flexItemHasPercentHeightDescendants(flexItem)) {
             // Have to force another relayout even though the child is sized
             // correctly, because its descendants are not sized correctly yet. Our
             // previous layout of the child was done without an override height set.
             // So, redo it here.
-            forceChildRelayout = true;
+            forceFlexItemRelayout = true;
         }
-        updateBlockChildDirtyBitsBeforeLayout(forceChildRelayout, child);
-        if (!child.needsLayout())
-            child.markForPaginationRelayoutIfNeeded();
-        if (child.needsLayout())
-            m_relaidOutChildren.add(&child);
-        child.layoutIfNeeded();
-        if (!childHadLayout && child.checkForRepaintDuringLayout()) {
-            child.repaint();
-            child.repaintOverhangingFloats(true);
+        updateFlexItemDirtyBitsBeforeLayout(forceFlexItemRelayout, flexItem);
+        if (!flexItem.needsLayout())
+            flexItem.markForPaginationRelayoutIfNeeded();
+        if (flexItem.needsLayout())
+            m_relaidOutFlexItems.add(flexItem);
+        flexItem.layoutIfNeeded();
+        if (!flexLayoutItem.everHadLayout && flexItem.checkForRepaintDuringLayout()) {
+            flexItem.repaint();
+            flexItem.repaintOverhangingFloats(true);
         }
 
-        updateAutoMarginsInMainAxis(child, autoMarginOffset);
+        updateAutoMarginsInMainAxis(flexItem, autoMarginOffset);
 
-        LayoutUnit childCrossAxisMarginBoxExtent;
-        if (alignmentForChild(child) == ItemPosition::Baseline && !hasAutoMarginsInCrossAxis(child)) {
-            LayoutUnit ascent = marginBoxAscentForChild(child);
-            LayoutUnit descent = (crossAxisMarginExtentForChild(child) + crossAxisExtentForChild(child)) - ascent;
+        LayoutUnit flexItemCrossAxisMarginBoxExtent;
 
-            maxAscent = std::max(maxAscent, ascent);
+        auto alignment = alignmentForFlexItem(flexItem);
+        if ((alignment == ItemPosition::Baseline || alignment == ItemPosition::LastBaseline) && !hasAutoMarginsInCrossAxis(flexItem)) {
+            LayoutUnit ascent = marginBoxAscentForFlexItem(flexItem);
+            LayoutUnit descent = (crossAxisMarginExtentForFlexItem(flexItem) + crossAxisExtentForFlexItem(flexItem)) - ascent;
             maxDescent = std::max(maxDescent, descent);
 
-            // FIXME: Take scrollbar into account
-            childCrossAxisMarginBoxExtent = maxAscent + maxDescent;
+            if (baselineAlignmentState)
+                baselineAlignmentState->updateSharedGroup(flexItem, alignment, ascent);
+            else
+                baselineAlignmentState = { flexItem, alignment, ascent };
+
+            if (alignment == ItemPosition::Baseline) {
+                maxAscent =  std::max(maxAscent, ascent);
+                flexItemCrossAxisMarginBoxExtent = maxAscent + maxDescent;
+            } else {
+                lastBaselineMaxAscent = std::max(lastBaselineMaxAscent, ascent);
+                flexItemCrossAxisMarginBoxExtent = lastBaselineMaxAscent + maxDescent;
+            }
+
         } else
-            childCrossAxisMarginBoxExtent = crossAxisIntrinsicExtentForChild(child) + crossAxisMarginExtentForChild(child);
+            flexItemCrossAxisMarginBoxExtent = crossAxisIntrinsicExtentForFlexItem(flexItem) + crossAxisMarginExtentForFlexItem(flexItem);
 
         if (!isColumnFlow())
-            setLogicalHeight(std::max(logicalHeight(), crossAxisOffset + flowAwareBorderAfter() + flowAwarePaddingAfter() + childCrossAxisMarginBoxExtent + crossAxisScrollbarExtent()));
-        maxChildCrossAxisExtent = std::max(maxChildCrossAxisExtent, childCrossAxisMarginBoxExtent);
+            setLogicalHeight(std::max(logicalHeight(), crossAxisOffset + flowAwareBorderAfter() + flowAwarePaddingAfter() + flexItemCrossAxisMarginBoxExtent + crossAxisScrollbarExtent()));
+        maxFlexItemCrossAxisExtent = std::max(maxFlexItemCrossAxisExtent, flexItemCrossAxisMarginBoxExtent);
 
-        mainAxisOffset += flowAwareMarginStartForChild(child);
+        mainAxisOffset += flowAwareMarginStartForFlexItem(flexItem);
 
-        LayoutUnit childMainExtent = mainAxisExtentForChild(child);
+        LayoutUnit flexItemMainExtent = mainAxisExtentForFlexItem(flexItem);
         // In an RTL column situation, this will apply the margin-right/margin-end
         // on the left. This will be fixed later in flipForRightToLeftColumn.
-        LayoutPoint childLocation(shouldFlipMainAxis ? totalMainExtent - mainAxisOffset - childMainExtent : mainAxisOffset, crossAxisOffset + flowAwareMarginBeforeForChild(child));
-        setFlowAwareLocationForChild(child, childLocation);
-        mainAxisOffset += childMainExtent + flowAwareMarginEndForChild(child);
+        LayoutPoint location(shouldFlipMainAxis ? totalMainExtent - mainAxisOffset - flexItemMainExtent : mainAxisOffset, crossAxisOffset + flowAwareMarginBeforeForFlexItem(flexItem));
+        setFlowAwareLocationForFlexItem(flexItem, location);
+        mainAxisOffset += flexItemMainExtent + flowAwareMarginEndForFlexItem(flexItem);
 
-        if (i != children.size() - 1) {
+        if (i != flexLayoutItems.size() - 1) {
             // The last item does not get extra space added.
-            mainAxisOffset += justifyContentSpaceBetweenChildren(availableFreeSpace, distribution, children.size());
+            mainAxisOffset += justifyContentSpaceBetweenFlexItems(availableFreeSpace, distribution, flexLayoutItems.size()) + gapBetweenItems;
         }
 
         // FIXME: Deal with pagination.
@@ -1700,40 +2337,48 @@ void RenderFlexibleBox::layoutAndPlaceChildren(LayoutUnit& crossAxisOffset, Vect
         // items since the start depends on the height of the flexbox, which we
         // only know after we've positioned all the flex items.
         updateLogicalHeight();
-        layoutColumnReverse(children, crossAxisOffset, availableFreeSpace);
+        layoutColumnReverse(flexLayoutItems, crossAxisOffset, availableFreeSpace, gapBetweenItems);
     }
 
-    if (m_numberOfInFlowChildrenOnFirstLine == -1)
-        m_numberOfInFlowChildrenOnFirstLine = children.size();
-    lineContexts.append(LineContext(crossAxisOffset, maxChildCrossAxisExtent, maxAscent, WTFMove(children)));
-    crossAxisOffset += maxChildCrossAxisExtent;
+    lineStates.append(LineState(crossAxisOffset, maxFlexItemCrossAxisExtent, baselineAlignmentState, WTFMove(flexLayoutItems)));
+    crossAxisOffset += maxFlexItemCrossAxisExtent;
 }
 
-void RenderFlexibleBox::layoutColumnReverse(const Vector<FlexItem>& children, LayoutUnit crossAxisOffset, LayoutUnit availableFreeSpace)
+void RenderFlexibleBox::layoutColumnReverse(const FlexLayoutItems& flexLayoutItems, LayoutUnit crossAxisOffset, LayoutUnit availableFreeSpace, LayoutUnit gapBetweenItems)
 {
-    ContentPosition position = style().resolvedJustifyContentPosition(contentAlignmentNormalBehavior());
-    ContentDistribution distribution = style().resolvedJustifyContentDistribution(contentAlignmentNormalBehavior());
-    
-    // This is similar to the logic in layoutAndPlaceChildren, except we place
+    // This is similar to the logic in layoutAndPlaceFlexItems, except we place
     // the children starting from the end of the flexbox. We also don't need to
     // layout anything since we're just moving the children to a new position.
     LayoutUnit mainAxisOffset = logicalHeight() - flowAwareBorderEnd() - flowAwarePaddingEnd();
-    mainAxisOffset -= initialJustifyContentOffset(availableFreeSpace, position, distribution, children.size());
+    mainAxisOffset -= initialJustifyContentOffset(style(), availableFreeSpace, flexLayoutItems.size(), isColumnOrRowReverse());
     mainAxisOffset -= isHorizontalFlow() ? verticalScrollbarWidth() : horizontalScrollbarHeight();
-    
-    for (size_t i = 0; i < children.size(); ++i) {
-        auto& child = children[i].box;
-        ASSERT(!child.isOutOfFlowPositioned());
-        mainAxisOffset -= mainAxisExtentForChild(child) + flowAwareMarginEndForChild(child);
-        setFlowAwareLocationForChild(child, LayoutPoint(mainAxisOffset, crossAxisOffset + flowAwareMarginBeforeForChild(child)));
-        mainAxisOffset -= flowAwareMarginStartForChild(child);
-        mainAxisOffset -= justifyContentSpaceBetweenChildren(availableFreeSpace, distribution, children.size());
+
+    ContentDistribution distribution = style().resolvedJustifyContentDistribution(contentAlignmentNormalBehavior());
+
+    for (size_t i = 0; i < flexLayoutItems.size(); ++i) {
+        auto& flexItem = flexLayoutItems[i].renderer;
+        ASSERT(!flexItem->isOutOfFlowPositioned());
+        mainAxisOffset -= mainAxisExtentForFlexItem(flexItem) + flowAwareMarginEndForFlexItem(flexItem);
+        setFlowAwareLocationForFlexItem(flexItem, LayoutPoint(mainAxisOffset, crossAxisOffset + flowAwareMarginBeforeForFlexItem(flexItem)));
+        mainAxisOffset -= flowAwareMarginStartForFlexItem(flexItem);
+        
+        if (i != flexLayoutItems.size() - 1) {
+            // The last item does not get extra space added.
+            mainAxisOffset -= justifyContentSpaceBetweenFlexItems(availableFreeSpace, distribution, flexLayoutItems.size()) + gapBetweenItems;
+        }
     }
 }
-    
-static LayoutUnit initialAlignContentOffset(LayoutUnit availableFreeSpace, ContentPosition alignContent, ContentDistribution alignContentDistribution, unsigned numberOfLines)
+
+static LayoutUnit initialAlignContentOffset(LayoutUnit availableFreeSpace, ContentPosition alignContent, ContentDistribution alignContentDistribution, OverflowAlignment safety, unsigned numberOfLines, bool isReversed)
 {
-    if (alignContent == ContentPosition::FlexEnd)
+    if (availableFreeSpace < 0 && safety == OverflowAlignment::Safe) {
+        ASSERT(alignContent != ContentPosition::Normal);
+        alignContent = ContentPosition::Start;
+    }
+
+    if (alignContent == ContentPosition::FlexEnd
+        || (alignContent == ContentPosition::End && !isReversed)
+        || (alignContent == ContentPosition::Start && isReversed))
         return availableFreeSpace;
     if (alignContent == ContentPosition::Center)
         return availableFreeSpace / 2;
@@ -1752,7 +2397,7 @@ static LayoutUnit initialAlignContentOffset(LayoutUnit availableFreeSpace, Conte
     return 0_lu;
 }
 
-static LayoutUnit alignContentSpaceBetweenChildren(LayoutUnit availableFreeSpace, ContentDistribution alignContentDistribution, unsigned numberOfLines)
+static LayoutUnit alignContentSpaceBetweenFlexItems(LayoutUnit availableFreeSpace, ContentDistribution alignContentDistribution, unsigned numberOfLines)
 {
     if (availableFreeSpace > 0 && numberOfLines > 1) {
         if (alignContentDistribution == ContentDistribution::SpaceBetween)
@@ -1764,195 +2409,384 @@ static LayoutUnit alignContentSpaceBetweenChildren(LayoutUnit availableFreeSpace
     }
     return 0_lu;
 }
-    
-void RenderFlexibleBox::alignFlexLines(Vector<LineContext>& lineContexts)
+
+void RenderFlexibleBox::alignFlexLines(FlexLineStates& lineStates, LayoutUnit gapBetweenLines)
 {
-    if (lineContexts.isEmpty() || !isMultiline())
+    if (lineStates.isEmpty() || !isMultiline())
         return;
 
     ContentPosition position = style().resolvedAlignContentPosition(contentAlignmentNormalBehavior());
     ContentDistribution distribution = style().resolvedAlignContentDistribution(contentAlignmentNormalBehavior());
-    
-    if (position == ContentPosition::FlexStart)
+    OverflowAlignment safety = style().alignContent().overflow();
+    bool isWrapReverse = style().flexWrap() == FlexWrap::Reverse;
+
+    if (position == ContentPosition::FlexStart && !gapBetweenLines && safety != OverflowAlignment::Safe && !isWrapReverse)
         return;
-    
-    LayoutUnit availableCrossAxisSpace = crossAxisContentExtent();
-    for (size_t i = 0; i < lineContexts.size(); ++i)
-        availableCrossAxisSpace -= lineContexts[i].crossAxisExtent;
-    
-    LayoutUnit lineOffset = initialAlignContentOffset(availableCrossAxisSpace, position, distribution, lineContexts.size());
-    for (unsigned lineNumber = 0; lineNumber < lineContexts.size(); ++lineNumber) {
-        LineContext& lineContext = lineContexts[lineNumber];
-        lineContext.crossAxisOffset += lineOffset;
-        for (size_t childNumber = 0; childNumber < lineContext.flexItems.size(); ++childNumber) {
-            FlexItem& flexItem = lineContext.flexItems[childNumber];
-            adjustAlignmentForChild(flexItem.box, lineOffset);
-        }
+
+    size_t numLines = lineStates.size();
+    LayoutUnit availableCrossAxisSpace = crossAxisContentExtent() - (numLines - 1) * gapBetweenLines;
+    for (size_t i = 0; i < numLines; ++i)
+        availableCrossAxisSpace -= lineStates[i].crossAxisExtent;
+
+    m_alignContentStartOverflow = contentAlignmentStartOverflow(availableCrossAxisSpace, position, distribution, safety, isWrapReverse);
+    LayoutUnit lineOffset = initialAlignContentOffset(availableCrossAxisSpace, position, distribution, safety, numLines, isWrapReverse);
+    for (unsigned lineNumber = 0; lineNumber < numLines; ++lineNumber) {
+        LineState& lineState = lineStates[lineNumber];
+        lineState.crossAxisOffset += lineOffset;
+        for (auto& flexLayoutItem : lineState.flexLayoutItems)
+            adjustAlignmentForFlexItem(flexLayoutItem.renderer, lineOffset);
         
         if (distribution == ContentDistribution::Stretch && availableCrossAxisSpace > 0)
-            lineContexts[lineNumber].crossAxisExtent += availableCrossAxisSpace / static_cast<unsigned>(lineContexts.size());
-        
-        lineOffset += alignContentSpaceBetweenChildren(availableCrossAxisSpace, distribution, lineContexts.size());
+            lineStates[lineNumber].crossAxisExtent += availableCrossAxisSpace / static_cast<unsigned>(numLines);
+
+        lineOffset += alignContentSpaceBetweenFlexItems(availableCrossAxisSpace, distribution, numLines) + gapBetweenLines;
     }
 }
     
-void RenderFlexibleBox::adjustAlignmentForChild(RenderBox& child, LayoutUnit delta)
+void RenderFlexibleBox::adjustAlignmentForFlexItem(RenderBox& flexItem, LayoutUnit delta)
 {
-    ASSERT(!child.isOutOfFlowPositioned());
-    setFlowAwareLocationForChild(child, flowAwareLocationForChild(child) + LayoutSize(0_lu, delta));
+    ASSERT(!flexItem.isOutOfFlowPositioned());
+    setFlowAwareLocationForFlexItem(flexItem, flowAwareLocationForFlexItem(flexItem) + LayoutSize(0_lu, delta));
 }
     
-void RenderFlexibleBox::alignChildren(const Vector<LineContext>& lineContexts)
+void RenderFlexibleBox::alignFlexItems(FlexLineStates& lineStates)
 {
-    // Keep track of the space between the baseline edge and the after edge of
-    // the box for each line.
-    Vector<LayoutUnit> minMarginAfterBaselines;
-    
-    for (size_t lineNumber = 0; lineNumber < lineContexts.size(); ++lineNumber) {
-        const LineContext& lineContext = lineContexts[lineNumber];
-        
-        LayoutUnit minMarginAfterBaseline = LayoutUnit::max();
-        LayoutUnit lineCrossAxisExtent = lineContext.crossAxisExtent;
-        LayoutUnit maxAscent = lineContext.maxAscent;
-        
-        for (size_t childNumber = 0; childNumber < lineContext.flexItems.size(); ++childNumber) {
-            const auto& flexItem = lineContext.flexItems[childNumber];
-            ASSERT(!flexItem.box.isOutOfFlowPositioned());
-            
-            if (updateAutoMarginsInCrossAxis(flexItem.box, std::max(0_lu, availableAlignmentSpaceForChild(lineCrossAxisExtent, flexItem.box))))
+    for (LineState& lineState : lineStates) {
+        LayoutUnit lineCrossAxisExtent = lineState.crossAxisExtent;
+        auto baselineAlignmentState = lineState.baselineAlignmentState;
+
+        if (lineState.baselineAlignmentState)
+            performBaselineAlignment(lineState);
+
+        for (auto& flexLayoutItem : lineState.flexLayoutItems) {
+            ASSERT(!flexLayoutItem.renderer->isOutOfFlowPositioned());
+
+            auto safety = overflowAlignmentForFlexItem(flexLayoutItem.renderer);
+            auto position = alignmentForFlexItem(flexLayoutItem.renderer);
+            if (updateAutoMarginsInCrossAxis(flexLayoutItem.renderer, std::max(0_lu, availableAlignmentSpaceForFlexItem(lineCrossAxisExtent, flexLayoutItem.renderer))) || position == ItemPosition::Baseline || position == ItemPosition::LastBaseline)
                 continue;
             
-            ItemPosition position = alignmentForChild(flexItem.box);
             if (position == ItemPosition::Stretch)
-                applyStretchAlignmentToChild(flexItem.box, lineCrossAxisExtent);
-            LayoutUnit availableSpace =
-            availableAlignmentSpaceForChild(lineCrossAxisExtent, flexItem.box);
-            LayoutUnit offset = alignmentOffset(availableSpace, position, marginBoxAscentForChild(flexItem.box), maxAscent, style().flexWrap() == FlexWrap::Reverse);
-            adjustAlignmentForChild(flexItem.box, offset);
-            if (position == ItemPosition::Baseline && style().flexWrap() == FlexWrap::Reverse)
-                minMarginAfterBaseline = std::min(minMarginAfterBaseline, availableAlignmentSpaceForChild(lineCrossAxisExtent, flexItem.box) - offset);
-        }
-
-        minMarginAfterBaselines.append(minMarginAfterBaseline);
-    }
-    
-    if (style().flexWrap() != FlexWrap::Reverse)
-        return;
-    
-    // wrap-reverse flips the cross axis start and end. For baseline alignment,
-    // this means we need to align the after edge of baseline elements with the
-    // after edge of the flex line.
-    for (size_t lineNumber = 0; lineNumber < lineContexts.size(); ++lineNumber) {
-        const LineContext& lineContext = lineContexts[lineNumber];
-        LayoutUnit minMarginAfterBaseline = minMarginAfterBaselines[lineNumber];
-        for (size_t childNumber = 0; childNumber < lineContext.flexItems.size(); ++childNumber) {
-            const auto& flexItem = lineContext.flexItems[childNumber];
-            if (alignmentForChild(flexItem.box) == ItemPosition::Baseline && !hasAutoMarginsInCrossAxis(flexItem.box) && minMarginAfterBaseline)
-                adjustAlignmentForChild(flexItem.box, minMarginAfterBaseline);
+                applyStretchAlignmentToFlexItem(flexLayoutItem.renderer, lineCrossAxisExtent);
+            LayoutUnit availableSpace = availableAlignmentSpaceForFlexItem(lineCrossAxisExtent, flexLayoutItem.renderer);
+            if (availableSpace < 0 && safety == OverflowAlignment::Safe)
+                position = ItemPosition::FlexStart; // See Start == FlexStart assumption in alignmentForFlexItem().
+            LayoutUnit offset = alignmentOffset(availableSpace, position, std::nullopt, std::nullopt, style().flexWrap() == FlexWrap::Reverse);
+            adjustAlignmentForFlexItem(flexLayoutItem.renderer, offset);
         }
     }
 }
 
-void RenderFlexibleBox::applyStretchAlignmentToChild(RenderBox& child, LayoutUnit lineCrossAxisExtent)
+void RenderFlexibleBox::performBaselineAlignment(LineState& lineState)
 {
-    if (!hasOrthogonalFlow(child) && child.style().logicalHeight().isAuto()) {
-        LayoutUnit stretchedLogicalHeight = std::max(child.borderAndPaddingLogicalHeight(),
-        lineCrossAxisExtent - crossAxisMarginExtentForChild(child));
-        ASSERT(!child.needsLayout());
-        LayoutUnit desiredLogicalHeight = child.constrainLogicalHeightByMinMax(stretchedLogicalHeight, cachedChildIntrinsicContentLogicalHeight(child));
+    ASSERT(lineState.baselineAlignmentState);
+
+    auto lineCrossAxisExtent = lineState.crossAxisExtent;
+    bool containerHasWrapReverse = style().flexWrap() == FlexWrap::Reverse;
+
+    auto flexItemWritingModeForBaselineAlignment = [&](const RenderBox& flexItem) {
+        if (mainAxisIsFlexItemInlineAxis(flexItem))
+            return flexItem.style().writingMode();
+
+        // css-align-3: 9.1. Determining the Baselines of a Box
+        // In general, the writing mode of the box, shape, or other object being aligned is used to determine
+        // the line-under and line-over edges for synthesis. However, when that writing mode’s block flow direction
+        // is parallel to the axis of the alignment context, an axis-compatible writing mode must be assumed:
+
+        // If the box establishing the alignment context has a block flow direction that is orthogonal to the
+        // axis of the alignment context, use its writing mode.
+        if (style().isRowFlexDirection())
+            return style().writingMode();
+
+        //   Otherwise:
+        //
+        // If the box’s own writing mode is vertical, assume horizontal-tb.
+        // If the box’s own writing mode is horizontal, assume vertical-lr if
+        // direction is ltr and vertical-rl if direction is rtl.
+        WritingMode hypotheticalWritingMode;
+        if (!flexItem.isHorizontalWritingMode())
+            return hypotheticalWritingMode;
+        else
+            hypotheticalWritingMode.setWritingMode(writingMode().isBidiLTR() ? StyleWritingMode::VerticalLr : StyleWritingMode::VerticalRl);
+        return hypotheticalWritingMode;
+    };
+
+    auto shouldAdjustItemTowardsCrossAxisEnd = [&](const FlowDirection& flexItemBlockFlowDirection, ItemPosition alignment) {
+        ASSERT(alignment == ItemPosition::Baseline || alignment == ItemPosition::LastBaseline);
+
+        // The direction in which we are aligning (i.e. direction of the cross axis) must be parallel with the direction of the flex item's used writing mode
+        ASSERT_IMPLIES(crossAxisDirection() == RenderFlexibleBox::Direction::TopToBottom || crossAxisDirection() == RenderFlexibleBox::Direction::BottomToTop, flexItemBlockFlowDirection == RenderFlexibleBox::Direction::TopToBottom || flexItemBlockFlowDirection == RenderFlexibleBox::Direction::BottomToTop);
+        ASSERT_IMPLIES(crossAxisDirection() == RenderFlexibleBox::Direction::LeftToRight || crossAxisDirection() == RenderFlexibleBox::Direction::RightToLeft, flexItemBlockFlowDirection == RenderFlexibleBox::Direction::LeftToRight || flexItemBlockFlowDirection == RenderFlexibleBox::Direction::RightToLeft);
+
+        // For first baseline aligned items, if its block direction is the opposite of
+        // the cross axis direction, then that means its fallback alignment (safe self-start)
+        // is in the direction of the end of the cross axis
+        //
+        // For last baseline aligned items, if its block direction is in the same direction as
+        // the cross axis direction, then that means its fallback alignment (safe self-end) is
+        // in the direction of the end of the cross axis
+        if (alignment == ItemPosition::Baseline)
+            return crossAxisDirection() != flexItemBlockFlowDirection;
+        return crossAxisDirection() == flexItemBlockFlowDirection;
+    };
+
+    for (auto& baselineSharingGroup : lineState.baselineAlignmentState.value().sharedGroups()) {
+        LayoutUnit minMarginAfterBaseline = LayoutUnit::max();
+        for (auto& flexItem : baselineSharingGroup) {
+            auto position = alignmentForFlexItem(flexItem);
+            ASSERT(position == ItemPosition::Baseline || position == ItemPosition::LastBaseline);
+            auto offset = alignmentOffset(availableAlignmentSpaceForFlexItem(lineCrossAxisExtent, flexItem), position, marginBoxAscentForFlexItem(flexItem), baselineSharingGroup.maxAscent(), containerHasWrapReverse);
+            adjustAlignmentForFlexItem(flexItem, offset);
+
+            if (shouldAdjustItemTowardsCrossAxisEnd(flexItemWritingModeForBaselineAlignment(flexItem).blockDirection(), position))
+                minMarginAfterBaseline = std::min(minMarginAfterBaseline, availableAlignmentSpaceForFlexItem(lineCrossAxisExtent, flexItem) - offset);
+        }
+        // css-align-3 9.3 part 3:
+        // Position the aligned baseline-sharing group within the alignment container according to its
+        // fallback alignment. The fallback alignment of a baseline-sharing group is the fallback alignment
+        // of its items as resolved to physical directions.
+        if (minMarginAfterBaseline) {
+            for (auto& flexItem : baselineSharingGroup) {
+                if (shouldAdjustItemTowardsCrossAxisEnd(flexItemWritingModeForBaselineAlignment(flexItem).blockDirection(), alignmentForFlexItem(flexItem)) && !hasAutoMarginsInCrossAxis(flexItem))
+                    adjustAlignmentForFlexItem(flexItem, minMarginAfterBaseline);
+            }
+        }
+    }
+}
+
+void RenderFlexibleBox::applyStretchAlignmentToFlexItem(RenderBox& flexItem, LayoutUnit lineCrossAxisExtent)
+{
+    if (mainAxisIsFlexItemInlineAxis(flexItem) && flexItem.style().logicalHeight().isAuto()) {
+        LayoutUnit stretchedLogicalHeight = std::max(flexItem.borderAndPaddingLogicalHeight(),
+        lineCrossAxisExtent - crossAxisMarginExtentForFlexItem(flexItem));
+        ASSERT(!flexItem.needsLayout());
+        LayoutUnit desiredLogicalHeight = flexItem.constrainLogicalHeightByMinMax(stretchedLogicalHeight, cachedFlexItemIntrinsicContentLogicalHeight(flexItem));
         
         // FIXME: Can avoid laying out here in some cases. See https://webkit.org/b/87905.
-        bool childNeedsRelayout = desiredLogicalHeight != child.logicalHeight();
-        if (child.isRenderBlock() && downcast<RenderBlock>(child).hasPercentHeightDescendants() && m_relaidOutChildren.contains(&child)) {
+        bool flexItemNeedsRelayout = desiredLogicalHeight != flexItem.logicalHeight();
+        if (auto* block = dynamicDowncast<RenderBlock>(flexItem); block && block->hasPercentHeightDescendants() && m_relaidOutFlexItems.contains(flexItem)) {
             // Have to force another relayout even though the child is sized
             // correctly, because its descendants are not sized correctly yet. Our
             // previous layout of the child was done without an override height set.
             // So, redo it here.
-            childNeedsRelayout = true;
+            flexItemNeedsRelayout = true;
         }
-        if (childNeedsRelayout || !child.hasOverrideContentLogicalHeight())
-            child.setOverrideContentLogicalHeight(desiredLogicalHeight - child.borderAndPaddingLogicalHeight());
-        if (childNeedsRelayout) {
-            SetForScope<bool> resetChildLogicalHeight(m_shouldResetChildLogicalHeightBeforeLayout, true);
+        if (flexItemNeedsRelayout || !flexItem.overridingBorderBoxLogicalHeight())
+            flexItem.setOverridingBorderBoxLogicalHeight(desiredLogicalHeight);
+        if (flexItemNeedsRelayout) {
+            SetForScope resetFlexItemLogicalHeight(m_shouldResetFlexItemLogicalHeightBeforeLayout, true);
             // We cache the child's intrinsic content logical height to avoid it being
             // reset to the stretched height.
             // FIXME: This is fragile. RenderBoxes should be smart enough to
             // determine their intrinsic content logical height correctly even when
             // there's an overrideHeight.
-            LayoutUnit childIntrinsicContentLogicalHeight = cachedChildIntrinsicContentLogicalHeight(child);
-            child.setChildNeedsLayout(MarkOnlyThis);
+            LayoutUnit flexItemIntrinsicContentLogicalHeight = cachedFlexItemIntrinsicContentLogicalHeight(flexItem);
+            flexItem.setChildNeedsLayout(MarkOnlyThis);
             
             // Don't use layoutChildIfNeeded to avoid setting cross axis cached size twice.
-            child.layoutIfNeeded();
+            flexItem.layoutIfNeeded();
 
-            setCachedChildIntrinsicContentLogicalHeight(child, childIntrinsicContentLogicalHeight);
+            setCachedFlexItemIntrinsicContentLogicalHeight(flexItem, flexItemIntrinsicContentLogicalHeight);
         }
-    } else if (hasOrthogonalFlow(child) && child.style().logicalWidth().isAuto()) {
-        LayoutUnit childWidth = std::max(0_lu, lineCrossAxisExtent - crossAxisMarginExtentForChild(child));
-        childWidth = child.constrainLogicalWidthInFragmentByMinMax(childWidth, crossAxisContentExtent(), *this, nullptr);
+    } else if (!mainAxisIsFlexItemInlineAxis(flexItem) && flexItem.style().logicalWidth().isAuto()) {
+        LayoutUnit flexItemWidth = std::max(0_lu, lineCrossAxisExtent - crossAxisMarginExtentForFlexItem(flexItem));
+        flexItemWidth = flexItem.constrainLogicalWidthByMinMax(flexItemWidth, crossAxisContentExtent(), *this);
         
-        if (childWidth != child.logicalWidth()) {
-            child.setOverrideContentLogicalWidth(childWidth - child.borderAndPaddingLogicalWidth());
-            child.setChildNeedsLayout(MarkOnlyThis);
-            child.layoutIfNeeded();
+        if (flexItemWidth != flexItem.logicalWidth()) {
+            flexItem.setOverridingBorderBoxLogicalWidth(flexItemWidth);
+            flexItem.setChildNeedsLayout(MarkOnlyThis);
+            flexItem.layoutIfNeeded();
         }
     }
 }
 
-void RenderFlexibleBox::flipForRightToLeftColumn(const Vector<LineContext>& lineContexts)
+void RenderFlexibleBox::flipForRightToLeftColumn(const FlexLineStates& lineStates)
 {
-    if (style().isLeftToRightDirection() || !isColumnFlow())
+    if (writingMode().isLogicalLeftInlineStart() || !isColumnFlow())
         return;
     
     LayoutUnit crossExtent = crossAxisExtent();
-    for (size_t lineNumber = 0; lineNumber < lineContexts.size(); ++lineNumber) {
-        const LineContext& lineContext = lineContexts[lineNumber];
-        for (size_t childNumber = 0; childNumber < lineContext.flexItems.size(); ++childNumber) {
-            const auto& flexItem = lineContext.flexItems[childNumber];
-            ASSERT(!flexItem.box.isOutOfFlowPositioned());
+    for (size_t lineNumber = 0; lineNumber < lineStates.size(); ++lineNumber) {
+        const LineState& lineState = lineStates[lineNumber];
+        for (auto& flexLayoutItem : lineState.flexLayoutItems) {
+            ASSERT(!flexLayoutItem.renderer->isOutOfFlowPositioned());
             
-            LayoutPoint location = flowAwareLocationForChild(flexItem.box);
-            // For vertical flows, setFlowAwareLocationForChild will transpose x and
+            LayoutPoint location = flowAwareLocationForFlexItem(flexLayoutItem.renderer);
+            // For vertical flows, setFlowAwareLocationForFlexItem will transpose x and
             // y, so using the y axis for a column cross axis extent is correct.
-            location.setY(crossExtent - crossAxisExtentForChild(flexItem.box) - location.y());
+            location.setY(crossExtent - crossAxisExtentForFlexItem(flexLayoutItem.renderer) - location.y());
             if (!isHorizontalWritingMode())
                 location.move(LayoutSize(0, -horizontalScrollbarHeight()));
-            setFlowAwareLocationForChild(flexItem.box, location);
+            setFlowAwareLocationForFlexItem(flexLayoutItem.renderer, location);
         }
     }
 }
 
-void RenderFlexibleBox::flipForWrapReverse(const Vector<LineContext>& lineContexts, LayoutUnit crossAxisStartEdge)
+void RenderFlexibleBox::flipForWrapReverse(const FlexLineStates& lineStates, LayoutUnit crossAxisStartEdge)
 {
     LayoutUnit contentExtent = crossAxisContentExtent();
-    for (size_t lineNumber = 0; lineNumber < lineContexts.size(); ++lineNumber) {
-        const LineContext& lineContext = lineContexts[lineNumber];
-        for (size_t childNumber = 0; childNumber < lineContext.flexItems.size(); ++childNumber) {
-            const auto& flexItem = lineContext.flexItems[childNumber];
-            LayoutUnit lineCrossAxisExtent = lineContexts[lineNumber].crossAxisExtent;
-            LayoutUnit originalOffset = lineContexts[lineNumber].crossAxisOffset - crossAxisStartEdge;
+    for (size_t lineNumber = 0; lineNumber < lineStates.size(); ++lineNumber) {
+        const LineState& lineState = lineStates[lineNumber];
+        for (auto& flexLayoutItem : lineState.flexLayoutItems) {
+            LayoutUnit lineCrossAxisExtent = lineStates[lineNumber].crossAxisExtent;
+            LayoutUnit originalOffset = lineStates[lineNumber].crossAxisOffset - crossAxisStartEdge;
             LayoutUnit newOffset = contentExtent - originalOffset - lineCrossAxisExtent;
-            adjustAlignmentForChild(flexItem.box, newOffset - originalOffset);
+            adjustAlignmentForFlexItem(flexLayoutItem.renderer, newOffset - originalOffset);
         }
     }
 }
 
-bool RenderFlexibleBox::isTopLayoutOverflowAllowed() const
+std::optional<TextDirection> RenderFlexibleBox::leftRightAxisDirectionFromStyle(const RenderStyle& style)
 {
-    bool hasTopOverflow = RenderBlock::isTopLayoutOverflowAllowed();
-    if (hasTopOverflow || !style().isReverseFlexDirection())
-        return hasTopOverflow;
-    
-    return !isHorizontalFlow();
+    if (!style.isColumnFlexDirection()) // Prioritize text direction.
+        return style.writingMode().bidiDirection();
+
+    if (style.writingMode().isVertical()) { // Fall back to block direction if possible.
+        return style.writingMode().isBlockLeftToRight()
+            ? TextDirection::LTR
+            : TextDirection::RTL;
+    }
+
+    return std::nullopt;
 }
 
-bool RenderFlexibleBox::isLeftLayoutOverflowAllowed() const
+LayoutOptionalOutsets RenderFlexibleBox::allowedLayoutOverflow() const
 {
-    bool hasLeftOverflow = RenderBlock::isLeftLayoutOverflowAllowed();
-    if (hasLeftOverflow || !style().isReverseFlexDirection())
-        return hasLeftOverflow;
-    
-    return isHorizontalFlow();
+    LayoutOptionalOutsets allowance = RenderBox::allowedLayoutOverflow();
+
+    bool isColumnar = style().isColumnFlexDirection();
+    if (isHorizontalWritingMode()) {
+        allowance.top() = isColumnar ? m_justifyContentStartOverflow : m_alignContentStartOverflow;
+        if (writingMode().isInlineLeftToRight())
+            allowance.left() = isColumnar ? m_alignContentStartOverflow : m_justifyContentStartOverflow;
+        else
+            allowance.right() = isColumnar ? m_alignContentStartOverflow : m_justifyContentStartOverflow;
+    } else {
+        allowance.left() = isColumnar ? m_justifyContentStartOverflow : m_alignContentStartOverflow;
+        if (writingMode().isInlineTopToBottom())
+            allowance.top() = isColumnar ? m_alignContentStartOverflow : m_justifyContentStartOverflow;
+        else
+            allowance.bottom() = isColumnar ? m_alignContentStartOverflow : m_justifyContentStartOverflow;
+    }
+
+    return allowance;
+}
+
+LayoutUnit RenderFlexibleBox::computeGap(RenderFlexibleBox::GapType gapType) const
+{
+    // row-gap is used for gaps between flex items in column flows or for gaps between lines in row flows.
+    bool usesRowGap = (gapType == GapType::BetweenItems) == isColumnFlow();
+    auto& gapLength = usesRowGap ? style().rowGap() : style().columnGap();
+    if (LIKELY(gapLength.isNormal()))
+        return { };
+
+    auto availableSize = usesRowGap ? availableLogicalHeightForPercentageComputation().value_or(0_lu) : contentBoxLogicalWidth();
+    return minimumValueForLength(gapLength.length(), availableSize);
+}
+
+bool RenderFlexibleBox::layoutUsingFlexFormattingContext()
+{
+    if (m_hasFlexFormattingContextLayout && !*m_hasFlexFormattingContextLayout) {
+        // FIXME: Avoid continous content checking on (potentially) unsupported content. This ensures no pref impact on cases like resize etc.
+        // Remove when canUseForFlexLayout becomes less expensive.
+        return false;
+    }
+
+    m_hasFlexFormattingContextLayout = LayoutIntegration::canUseForFlexLayout(*this);
+    if (!*m_hasFlexFormattingContextLayout)
+        return false;
+
+    auto flexLayout = LayoutIntegration::FlexLayout { *this };
+    flexLayout.updateFormattingContexGeometries();
+
+    flexLayout.layout();
+    setLogicalHeight(std::max(logicalHeight(), borderAndPaddingLogicalHeight() + flexLayout.contentBoxLogicalHeight()));
+    updateLogicalHeight();
+    return true;
+}
+
+const RenderBox* RenderFlexibleBox::firstBaselineCandidateOnLine(OrderIterator flexItemIterator, ItemPosition baselinePosition, size_t numberOfItemsOnLine) const
+{
+    // Note that "first" here means in iterator order and not logical flex order (caller can pass in reversed order).
+    ASSERT(baselinePosition == ItemPosition::Baseline || baselinePosition == ItemPosition::LastBaseline);
+
+    size_t index = 0;
+    const RenderBox* baselineFlexItem = nullptr;
+    for (auto* flexItem = flexItemIterator.first(); flexItem; flexItem = flexItemIterator.next()) {
+        if (flexItemIterator.shouldSkipChild(*flexItem))
+            continue;
+        if (alignmentForFlexItem(*flexItem) == baselinePosition && mainAxisIsFlexItemInlineAxis(*flexItem) && !hasAutoMarginsInCrossAxis(*flexItem))
+            return flexItem;
+        if (!baselineFlexItem)
+            baselineFlexItem = flexItem;
+        if (++index == numberOfItemsOnLine)
+            return baselineFlexItem;
+    }
+    return nullptr;
+}
+
+const RenderBox* RenderFlexibleBox::lastBaselineCandidateOnLine(OrderIterator flexItemIterator, ItemPosition baselinePosition, size_t numberOfItemsOnLine) const
+{
+    // Note that "last" here means in iterator order and not logical flex order (caller can pass in reversed order).
+    ASSERT(baselinePosition == ItemPosition::Baseline || baselinePosition == ItemPosition::LastBaseline);
+
+    size_t index = 0;
+    RenderBox* baselineFlexItem = nullptr;
+    for (auto* flexItem = flexItemIterator.first(); flexItem; flexItem = flexItemIterator.next()) {
+        if (flexItemIterator.shouldSkipChild(*flexItem))
+            continue;
+        if (alignmentForFlexItem(*flexItem) == baselinePosition && mainAxisIsFlexItemInlineAxis(*flexItem) && !hasAutoMarginsInCrossAxis(*flexItem))
+            baselineFlexItem = flexItem;
+        if (++index == numberOfItemsOnLine)
+            return baselineFlexItem ? baselineFlexItem : flexItem;
+    }
+    return nullptr;
+}
+
+const RenderBox* RenderFlexibleBox::flexItemForFirstBaseline() const
+{
+    // Looking for baseline flex candidate on visually first line.
+    auto useLastLine = style().flexWrap() == FlexWrap::Reverse;
+    auto useLastItem = style().flexDirection() == FlexDirection::RowReverse || style().flexDirection() == FlexDirection::ColumnReverse;
+
+    if (!useLastLine) {
+        if (!useLastItem) {
+            // Logically (and visually) first item on logically (and visually) first line.
+            return firstBaselineCandidateOnLine(m_orderIterator, ItemPosition::Baseline, m_numberOfFlexItemsOnFirstLine);
+        }
+        // Logically last (but visually first) item on logically (and visually) first line.
+        return lastBaselineCandidateOnLine(m_orderIterator, ItemPosition::Baseline, m_numberOfFlexItemsOnFirstLine);
+    }
+
+    if (!useLastItem) {
+        // Logically (and visually) first item on logically last (but visually first) line.
+        return lastBaselineCandidateOnLine(m_orderIterator.reverse(), ItemPosition::Baseline, m_numberOfFlexItemsOnLastLine);
+    }
+    // Logically last (but visually first) item on logically last (but visually first) line.
+    return firstBaselineCandidateOnLine(m_orderIterator.reverse(), ItemPosition::Baseline, m_numberOfFlexItemsOnLastLine);
+}
+
+const RenderBox* RenderFlexibleBox::flexItemForLastBaseline() const
+{
+    // Looking for baseline flex candidate on visually last line.
+    auto useLastLine = style().flexWrap() == FlexWrap::Reverse;
+    auto useLastItem = style().flexDirection() == FlexDirection::RowReverse || style().flexDirection() == FlexDirection::ColumnReverse;
+
+    if (!useLastLine) {
+        if (!useLastItem) {
+            // Logically (and visually) last item on logically (and visually) last line.
+            return firstBaselineCandidateOnLine(m_orderIterator.reverse(), ItemPosition::LastBaseline, m_numberOfFlexItemsOnLastLine);
+        }
+        // Logically first (but visually last) item  on logically (and visually) last line.
+        return lastBaselineCandidateOnLine(m_orderIterator.reverse(), ItemPosition::LastBaseline, m_numberOfFlexItemsOnLastLine);
+    }
+
+    if (!useLastItem) {
+        // Logically (and visually) last item on logically first (but visually last) line.
+        return lastBaselineCandidateOnLine(m_orderIterator, ItemPosition::LastBaseline, m_numberOfFlexItemsOnFirstLine);
+    }
+    // Logically first (but visually last) item on logically last (but visually first) line.
+    return firstBaselineCandidateOnLine(m_orderIterator, ItemPosition::LastBaseline, m_numberOfFlexItemsOnFirstLine);
 }
 
 }

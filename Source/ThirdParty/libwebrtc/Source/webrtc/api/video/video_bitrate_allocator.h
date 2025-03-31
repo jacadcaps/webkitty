@@ -11,6 +11,8 @@
 #ifndef API_VIDEO_VIDEO_BITRATE_ALLOCATOR_H_
 #define API_VIDEO_VIDEO_BITRATE_ALLOCATOR_H_
 
+#include <cstdint>
+
 #include "api/units/data_rate.h"
 #include "api/video/video_bitrate_allocation.h"
 
@@ -40,6 +42,10 @@ class VideoBitrateAllocator {
 
   virtual VideoBitrateAllocation Allocate(
       VideoBitrateAllocationParameters parameters);
+
+  // Deprecated: Only used to work around issues with the legacy conference
+  // screenshare mode and shouldn't be needed by any subclasses.
+  virtual void SetLegacyConferenceMode(bool enabled);
 };
 
 class VideoBitrateAllocationObserver {

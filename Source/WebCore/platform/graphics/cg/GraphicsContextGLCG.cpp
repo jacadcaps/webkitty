@@ -26,13 +26,14 @@
 
 #include "config.h"
 
-#if ENABLE(GRAPHICS_CONTEXT_GL)
+#if ENABLE(WEBGL)
 
 #include "BitmapImage.h"
 #include "GraphicsContextCG.h"
-#include "GraphicsContextGLOpenGL.h"
+#include "GraphicsContextGLImageExtractor.h"
 #include "Image.h"
 #include "ImageBufferUtilitiesCG.h"
+#include "PixelBuffer.h"
 
 #if HAVE(ARM_NEON_INTRINSICS)
 #include "GraphicsContextGLNEON.h"
@@ -45,6 +46,7 @@
 
 #include <wtf/RetainPtr.h>
 #include <wtf/StdLibExtras.h>
+#include <wtf/cf/VectorCF.h>
 
 namespace WebCore {
 
@@ -69,22 +71,22 @@ enum AlphaFormat {
 // This returns SourceFormatNumFormats if the combination of input parameters is unsupported.
 static GraphicsContextGL::DataFormat getSourceDataFormat(unsigned componentsPerPixel, AlphaFormat alphaFormat, bool is16BitFormat, bool bigEndian)
 {
-    const static SourceDataFormatBase formatTableBase[4][AlphaFormatNumFormats] = { // componentsPerPixel x AlphaFormat
-        // AlphaFormatNone            AlphaFormatFirst            AlphaFormatLast
-        { SourceFormatBaseR,          SourceFormatBaseA,          SourceFormatBaseA          }, // 1 componentsPerPixel
-        { SourceFormatBaseNumFormats, SourceFormatBaseAR,         SourceFormatBaseRA         }, // 2 componentsPerPixel
-        { SourceFormatBaseRGB,        SourceFormatBaseNumFormats, SourceFormatBaseNumFormats }, // 3 componentsPerPixel
-        { SourceFormatBaseNumFormats, SourceFormatBaseARGB,       SourceFormatBaseRGBA        } // 4 componentsPerPixel
+    static const std::array formatTableBase = { // componentsPerPixel x AlphaFormat
+        //           AlphaFormatNone             AlphaFormatFirst            AlphaFormatLast
+        std::array { SourceFormatBaseR,          SourceFormatBaseA,          SourceFormatBaseA          }, // 1 componentsPerPixel
+        std::array { SourceFormatBaseNumFormats, SourceFormatBaseAR,         SourceFormatBaseRA         }, // 2 componentsPerPixel
+        std::array { SourceFormatBaseRGB,        SourceFormatBaseNumFormats, SourceFormatBaseNumFormats }, // 3 componentsPerPixel
+        std::array { SourceFormatBaseNumFormats, SourceFormatBaseARGB,       SourceFormatBaseRGBA       }, // 4 componentsPerPixel
     };
-    const static GraphicsContextGL::DataFormat formatTable[SourceFormatBaseNumFormats][4] = { // SourceDataFormat::Base x bitsPerComponent x endian
-        // 8bits, little endian                 8bits, big endian                     16bits, little endian                        16bits, big endian
-        { GraphicsContextGL::DataFormat::R8,    GraphicsContextGL::DataFormat::R8,    GraphicsContextGL::DataFormat::R16Little,    GraphicsContextGL::DataFormat::R16Big },
-        { GraphicsContextGL::DataFormat::A8,    GraphicsContextGL::DataFormat::A8,    GraphicsContextGL::DataFormat::A16Little,    GraphicsContextGL::DataFormat::A16Big },
-        { GraphicsContextGL::DataFormat::AR8,   GraphicsContextGL::DataFormat::RA8,   GraphicsContextGL::DataFormat::RA16Little,   GraphicsContextGL::DataFormat::RA16Big },
-        { GraphicsContextGL::DataFormat::RA8,   GraphicsContextGL::DataFormat::AR8,   GraphicsContextGL::DataFormat::AR16Little,   GraphicsContextGL::DataFormat::AR16Big },
-        { GraphicsContextGL::DataFormat::BGR8,  GraphicsContextGL::DataFormat::RGB8,  GraphicsContextGL::DataFormat::RGB16Little,  GraphicsContextGL::DataFormat::RGB16Big },
-        { GraphicsContextGL::DataFormat::ABGR8, GraphicsContextGL::DataFormat::RGBA8, GraphicsContextGL::DataFormat::RGBA16Little, GraphicsContextGL::DataFormat::RGBA16Big },
-        { GraphicsContextGL::DataFormat::BGRA8, GraphicsContextGL::DataFormat::ARGB8, GraphicsContextGL::DataFormat::ARGB16Little, GraphicsContextGL::DataFormat::ARGB16Big }
+    static const std::array formatTable = { // SourceDataFormat::Base x bitsPerComponent x endian
+        //           8bits, little endian                  8bits, big endian                     16bits, little endian                        16bits, big endian
+        std::array { GraphicsContextGL::DataFormat::R8,    GraphicsContextGL::DataFormat::R8,    GraphicsContextGL::DataFormat::R16Little,    GraphicsContextGL::DataFormat::R16Big },
+        std::array { GraphicsContextGL::DataFormat::A8,    GraphicsContextGL::DataFormat::A8,    GraphicsContextGL::DataFormat::A16Little,    GraphicsContextGL::DataFormat::A16Big },
+        std::array { GraphicsContextGL::DataFormat::AR8,   GraphicsContextGL::DataFormat::RA8,   GraphicsContextGL::DataFormat::RA16Little,   GraphicsContextGL::DataFormat::RA16Big },
+        std::array { GraphicsContextGL::DataFormat::RA8,   GraphicsContextGL::DataFormat::AR8,   GraphicsContextGL::DataFormat::AR16Little,   GraphicsContextGL::DataFormat::AR16Big },
+        std::array { GraphicsContextGL::DataFormat::BGR8,  GraphicsContextGL::DataFormat::RGB8,  GraphicsContextGL::DataFormat::RGB16Little,  GraphicsContextGL::DataFormat::RGB16Big },
+        std::array { GraphicsContextGL::DataFormat::ABGR8, GraphicsContextGL::DataFormat::RGBA8, GraphicsContextGL::DataFormat::RGBA16Little, GraphicsContextGL::DataFormat::RGBA16Big },
+        std::array { GraphicsContextGL::DataFormat::BGRA8, GraphicsContextGL::DataFormat::ARGB8, GraphicsContextGL::DataFormat::ARGB16Little, GraphicsContextGL::DataFormat::ARGB16Big },
     };
 
     ASSERT(componentsPerPixel <= 4 && componentsPerPixel > 0);
@@ -106,189 +108,189 @@ uint8_t convertColor16BigTo8(uint16_t value)
 }
 
 template<GraphicsContextGL::DataFormat format, typename SourceType, typename DstType>
-ALWAYS_INLINE void convert16BitFormatToRGBA8(const SourceType*, DstType*, unsigned)
+ALWAYS_INLINE void convert16BitFormatToRGBA8(std::span<const SourceType>, std::span<DstType>, unsigned)
 {
     ASSERT_NOT_REACHED();
 }
 
-template<> ALWAYS_INLINE void convert16BitFormatToRGBA8<GraphicsContextGL::DataFormat::RGBA16Little, uint16_t, uint8_t>(const uint16_t* source, uint8_t* destination, unsigned pixelsPerRow)
+template<> ALWAYS_INLINE void convert16BitFormatToRGBA8<GraphicsContextGL::DataFormat::RGBA16Little, uint16_t, uint8_t>(std::span<const uint16_t> source, std::span<uint8_t> destination, unsigned pixelsPerRow)
 {
 #if HAVE(ARM_NEON_INTRINSICS)
-    SIMD::unpackOneRowOfRGBA16LittleToRGBA8(source, destination, pixelsPerRow);
+    SIMD::unpackOneRowOfRGBA16LittleToRGBA8(source.data(), destination.data(), pixelsPerRow);
 #endif
     for (unsigned i = 0; i < pixelsPerRow; ++i) {
         destination[0] = convertColor16LittleTo8(source[0]);
         destination[1] = convertColor16LittleTo8(source[1]);
         destination[2] = convertColor16LittleTo8(source[2]);
         destination[3] = convertColor16LittleTo8(source[3]);
-        source += 4;
-        destination += 4;
+        skip(source, 4);
+        skip(destination, 4);
     }
 }
 
-template<> ALWAYS_INLINE void convert16BitFormatToRGBA8<GraphicsContextGL::DataFormat::RGBA16Big, uint16_t, uint8_t>(const uint16_t* source, uint8_t* destination, unsigned pixelsPerRow)
+template<> ALWAYS_INLINE void convert16BitFormatToRGBA8<GraphicsContextGL::DataFormat::RGBA16Big, uint16_t, uint8_t>(std::span<const uint16_t> source, std::span<uint8_t> destination, unsigned pixelsPerRow)
 {
     for (unsigned i = 0; i < pixelsPerRow; ++i) {
         destination[0] = convertColor16BigTo8(source[0]);
         destination[1] = convertColor16BigTo8(source[1]);
         destination[2] = convertColor16BigTo8(source[2]);
         destination[3] = convertColor16BigTo8(source[3]);
-        source += 4;
-        destination += 4;
+        skip(source, 4);
+        skip(destination, 4);
     }
 }
 
-template<> ALWAYS_INLINE void convert16BitFormatToRGBA8<GraphicsContextGL::DataFormat::RGB16Little, uint16_t, uint8_t>(const uint16_t* source, uint8_t* destination, unsigned pixelsPerRow)
+template<> ALWAYS_INLINE void convert16BitFormatToRGBA8<GraphicsContextGL::DataFormat::RGB16Little, uint16_t, uint8_t>(std::span<const uint16_t> source, std::span<uint8_t> destination, unsigned pixelsPerRow)
 {
 #if HAVE(ARM_NEON_INTRINSICS)
-    SIMD::unpackOneRowOfRGB16LittleToRGBA8(source, destination, pixelsPerRow);
+    SIMD::unpackOneRowOfRGB16LittleToRGBA8(source.data(), destination.data(), pixelsPerRow);
 #endif
     for (unsigned i = 0; i < pixelsPerRow; ++i) {
         destination[0] = convertColor16LittleTo8(source[0]);
         destination[1] = convertColor16LittleTo8(source[1]);
         destination[2] = convertColor16LittleTo8(source[2]);
         destination[3] = 0xFF;
-        source += 3;
-        destination += 4;
+        skip(source, 3);
+        skip(destination, 4);
     }
 }
 
-template<> ALWAYS_INLINE void convert16BitFormatToRGBA8<GraphicsContextGL::DataFormat::RGB16Big, uint16_t, uint8_t>(const uint16_t* source, uint8_t* destination, unsigned pixelsPerRow)
+template<> ALWAYS_INLINE void convert16BitFormatToRGBA8<GraphicsContextGL::DataFormat::RGB16Big, uint16_t, uint8_t>(std::span<const uint16_t> source, std::span<uint8_t> destination, unsigned pixelsPerRow)
 {
     for (unsigned i = 0; i < pixelsPerRow; ++i) {
         destination[0] = convertColor16BigTo8(source[0]);
         destination[1] = convertColor16BigTo8(source[1]);
         destination[2] = convertColor16BigTo8(source[2]);
         destination[3] = 0xFF;
-        source += 3;
-        destination += 4;
+        skip(source, 3);
+        skip(destination, 4);
     }
 }
 
-template<> ALWAYS_INLINE void convert16BitFormatToRGBA8<GraphicsContextGL::DataFormat::ARGB16Little, uint16_t, uint8_t>(const uint16_t* source, uint8_t* destination, unsigned pixelsPerRow)
+template<> ALWAYS_INLINE void convert16BitFormatToRGBA8<GraphicsContextGL::DataFormat::ARGB16Little, uint16_t, uint8_t>(std::span<const uint16_t> source, std::span<uint8_t> destination, unsigned pixelsPerRow)
 {
 #if HAVE(ARM_NEON_INTRINSICS)
-    SIMD::unpackOneRowOfARGB16LittleToRGBA8(source, destination, pixelsPerRow);
+    SIMD::unpackOneRowOfARGB16LittleToRGBA8(source.data(), destination.data(), pixelsPerRow);
 #endif
     for (unsigned i = 0; i < pixelsPerRow; ++i) {
         destination[0] = convertColor16LittleTo8(source[1]);
         destination[1] = convertColor16LittleTo8(source[2]);
         destination[2] = convertColor16LittleTo8(source[3]);
         destination[3] = convertColor16LittleTo8(source[0]);
-        source += 4;
-        destination += 4;
+        skip(source, 4);
+        skip(destination, 4);
     }
 }
 
-template<> ALWAYS_INLINE void convert16BitFormatToRGBA8<GraphicsContextGL::DataFormat::ARGB16Big, uint16_t, uint8_t>(const uint16_t* source, uint8_t* destination, unsigned pixelsPerRow)
+template<> ALWAYS_INLINE void convert16BitFormatToRGBA8<GraphicsContextGL::DataFormat::ARGB16Big, uint16_t, uint8_t>(std::span<const uint16_t> source, std::span<uint8_t> destination, unsigned pixelsPerRow)
 {
     for (unsigned i = 0; i < pixelsPerRow; ++i) {
         destination[0] = convertColor16BigTo8(source[1]);
         destination[1] = convertColor16BigTo8(source[2]);
         destination[2] = convertColor16BigTo8(source[3]);
         destination[3] = convertColor16BigTo8(source[0]);
-        source += 4;
-        destination += 4;
+        skip(source, 4);
+        skip(destination, 4);
     }
 }
 
-template<> ALWAYS_INLINE void convert16BitFormatToRGBA8<GraphicsContextGL::DataFormat::R16Little, uint16_t, uint8_t>(const uint16_t* source, uint8_t* destination, unsigned pixelsPerRow)
+template<> ALWAYS_INLINE void convert16BitFormatToRGBA8<GraphicsContextGL::DataFormat::R16Little, uint16_t, uint8_t>(std::span<const uint16_t> source, std::span<uint8_t> destination, unsigned pixelsPerRow)
 {
     for (unsigned i = 0; i < pixelsPerRow; ++i) {
         destination[0] = convertColor16LittleTo8(source[0]);
         destination[1] = convertColor16LittleTo8(source[0]);
         destination[2] = convertColor16LittleTo8(source[0]);
         destination[3] = 0xFF;
-        source += 1;
-        destination += 4;
+        skip(source, 1);
+        skip(destination, 4);
     }
 }
 
-template<> ALWAYS_INLINE void convert16BitFormatToRGBA8<GraphicsContextGL::DataFormat::R16Big, uint16_t, uint8_t>(const uint16_t* source, uint8_t* destination, unsigned pixelsPerRow)
+template<> ALWAYS_INLINE void convert16BitFormatToRGBA8<GraphicsContextGL::DataFormat::R16Big, uint16_t, uint8_t>(std::span<const uint16_t> source, std::span<uint8_t> destination, unsigned pixelsPerRow)
 {
     for (unsigned i = 0; i < pixelsPerRow; ++i) {
         destination[0] = convertColor16BigTo8(source[0]);
         destination[1] = convertColor16BigTo8(source[0]);
         destination[2] = convertColor16BigTo8(source[0]);
         destination[3] = 0xFF;
-        source += 1;
-        destination += 4;
+        skip(source, 1);
+        skip(destination, 4);
     }
 }
 
-template<> ALWAYS_INLINE void convert16BitFormatToRGBA8<GraphicsContextGL::DataFormat::RA16Little, uint16_t, uint8_t>(const uint16_t* source, uint8_t* destination, unsigned pixelsPerRow)
+template<> ALWAYS_INLINE void convert16BitFormatToRGBA8<GraphicsContextGL::DataFormat::RA16Little, uint16_t, uint8_t>(std::span<const uint16_t> source, std::span<uint8_t> destination, unsigned pixelsPerRow)
 {
     for (unsigned i = 0; i < pixelsPerRow; ++i) {
         destination[0] = convertColor16LittleTo8(source[0]);
         destination[1] = convertColor16LittleTo8(source[0]);
         destination[2] = convertColor16LittleTo8(source[0]);
         destination[3] = convertColor16LittleTo8(source[1]);
-        source += 2;
-        destination += 4;
+        skip(source, 2);
+        skip(destination, 4);
     }
 }
 
-template<> ALWAYS_INLINE void convert16BitFormatToRGBA8<GraphicsContextGL::DataFormat::RA16Big, uint16_t, uint8_t>(const uint16_t* source, uint8_t* destination, unsigned pixelsPerRow)
+template<> ALWAYS_INLINE void convert16BitFormatToRGBA8<GraphicsContextGL::DataFormat::RA16Big, uint16_t, uint8_t>(std::span<const uint16_t> source, std::span<uint8_t> destination, unsigned pixelsPerRow)
 {
     for (unsigned i = 0; i < pixelsPerRow; ++i) {
         destination[0] = convertColor16BigTo8(source[0]);
         destination[1] = convertColor16BigTo8(source[0]);
         destination[2] = convertColor16BigTo8(source[0]);
         destination[3] = convertColor16BigTo8(source[1]);
-        source += 2;
-        destination += 4;
+        skip(source, 2);
+        skip(destination, 4);
     }
 }
 
-template<> ALWAYS_INLINE void convert16BitFormatToRGBA8<GraphicsContextGL::DataFormat::AR16Little, uint16_t, uint8_t>(const uint16_t* source, uint8_t* destination, unsigned pixelsPerRow)
+template<> ALWAYS_INLINE void convert16BitFormatToRGBA8<GraphicsContextGL::DataFormat::AR16Little, uint16_t, uint8_t>(std::span<const uint16_t> source, std::span<uint8_t> destination, unsigned pixelsPerRow)
 {
     for (unsigned i = 0; i < pixelsPerRow; ++i) {
         destination[0] = convertColor16LittleTo8(source[1]);
         destination[1] = convertColor16LittleTo8(source[1]);
         destination[2] = convertColor16LittleTo8(source[1]);
         destination[3] = convertColor16LittleTo8(source[0]);
-        source += 2;
-        destination += 4;
+        skip(source, 2);
+        skip(destination, 4);
     }
 }
 
-template<> ALWAYS_INLINE void convert16BitFormatToRGBA8<GraphicsContextGL::DataFormat::AR16Big, uint16_t, uint8_t>(const uint16_t* source, uint8_t* destination, unsigned pixelsPerRow)
+template<> ALWAYS_INLINE void convert16BitFormatToRGBA8<GraphicsContextGL::DataFormat::AR16Big, uint16_t, uint8_t>(std::span<const uint16_t> source, std::span<uint8_t> destination, unsigned pixelsPerRow)
 {
     for (unsigned i = 0; i < pixelsPerRow; ++i) {
         destination[0] = convertColor16BigTo8(source[1]);
         destination[1] = convertColor16BigTo8(source[1]);
         destination[2] = convertColor16BigTo8(source[1]);
         destination[3] = convertColor16BigTo8(source[0]);
-        source += 2;
-        destination += 4;
+        skip(source, 2);
+        skip(destination, 4);
     }
 }
 
-template<> ALWAYS_INLINE void convert16BitFormatToRGBA8<GraphicsContextGL::DataFormat::A16Little, uint16_t, uint8_t>(const uint16_t* source, uint8_t* destination, unsigned pixelsPerRow)
+template<> ALWAYS_INLINE void convert16BitFormatToRGBA8<GraphicsContextGL::DataFormat::A16Little, uint16_t, uint8_t>(std::span<const uint16_t> source, std::span<uint8_t> destination, unsigned pixelsPerRow)
 {
     for (unsigned i = 0; i < pixelsPerRow; ++i) {
         destination[0] = 0x0;
         destination[1] = 0x0;
         destination[2] = 0x0;
         destination[3] = convertColor16LittleTo8(source[0]);
-        source += 1;
-        destination += 4;
+        skip(source, 1);
+        skip(destination, 4);
     }
 }
 
-template<> ALWAYS_INLINE void convert16BitFormatToRGBA8<GraphicsContextGL::DataFormat::A16Big, uint16_t, uint8_t>(const uint16_t* source, uint8_t* destination, unsigned pixelsPerRow)
+template<> ALWAYS_INLINE void convert16BitFormatToRGBA8<GraphicsContextGL::DataFormat::A16Big, uint16_t, uint8_t>(std::span<const uint16_t> source, std::span<uint8_t> destination, unsigned pixelsPerRow)
 {
     for (unsigned i = 0; i < pixelsPerRow; ++i) {
         destination[0] = 0x0;
         destination[1] = 0x0;
         destination[2] = 0x0;
         destination[3] = convertColor16BigTo8(source[0]);
-        source += 1;
-        destination += 4;
+        skip(source, 1);
+        skip(destination, 4);
     }
 }
 
-void convert16BitFormatToRGBA8(GraphicsContextGL::DataFormat srcFormat, const uint16_t* source, uint8_t* destination, unsigned pixelsPerRow)
+void convert16BitFormatToRGBA8(GraphicsContextGL::DataFormat srcFormat, std::span<const uint16_t> source, std::span<uint8_t> destination, unsigned pixelsPerRow)
 {
 #define CONVERT16BITFORMATTORGBA8(SrcFormat) \
     case SrcFormat: \
@@ -317,28 +319,25 @@ void convert16BitFormatToRGBA8(GraphicsContextGL::DataFormat srcFormat, const ui
 
 }
 
-GraphicsContextGLOpenGL::ImageExtractor::~ImageExtractor() = default;
+GraphicsContextGLImageExtractor::~GraphicsContextGLImageExtractor() = default;
 
-bool GraphicsContextGLOpenGL::ImageExtractor::extractImage(bool premultiplyAlpha, bool ignoreGammaAndColorProfile, bool ignoreNativeImageAlphaPremultiplication)
+bool GraphicsContextGLImageExtractor::extractImage(bool premultiplyAlpha, bool ignoreGammaAndColorProfile, bool ignoreNativeImageAlphaPremultiplication)
 {
-    if (!m_image)
-        return false;
+    RefPtr<NativeImage> decodedImage;
     bool hasAlpha = !m_image->currentFrameKnownToBeOpaque();
-    if ((ignoreGammaAndColorProfile || (hasAlpha && !premultiplyAlpha)) && m_image->data()) {
-        auto source = ImageSource::create(nullptr, AlphaOption::NotPremultiplied, ignoreGammaAndColorProfile ? GammaAndColorProfileOption::Ignored : GammaAndColorProfileOption::Applied);
-        source->setData(m_image->data(), true);
-        if (!source->frameCount())
-            return false;
 
-        m_decodedImage = source->createFrameImageAtIndex(0);
-        m_cgImage = m_decodedImage;
+    if ((ignoreGammaAndColorProfile || (hasAlpha && !premultiplyAlpha)) && m_image->data()) {
+        auto image = BitmapImage::create(nullptr, AlphaOption::NotPremultiplied, ignoreGammaAndColorProfile ? GammaAndColorProfileOption::Ignored : GammaAndColorProfileOption::Applied);
+        image->setData(m_image->data(), true);
+        decodedImage = image->primaryNativeImage();
     } else
-        m_cgImage = m_image->nativeImageForCurrentFrame();
-    if (!m_cgImage)
+        decodedImage = m_image->currentNativeImage();
+
+    if (!decodedImage)
         return false;
 
-    m_imageWidth = CGImageGetWidth(m_cgImage.get());
-    m_imageHeight = CGImageGetHeight(m_cgImage.get());
+    m_imageWidth = CGImageGetWidth(decodedImage->platformImage().get());
+    m_imageHeight = CGImageGetHeight(decodedImage->platformImage().get());
     if (!m_imageWidth || !m_imageHeight)
         return false;
 
@@ -346,7 +345,7 @@ bool GraphicsContextGLOpenGL::ImageExtractor::extractImage(bool premultiplyAlpha
     // so, re-render it into an RGB color space. The image re-packing
     // code requires color data, not color table indices, for the
     // image data.
-    CGColorSpaceRef colorSpace = CGImageGetColorSpace(m_cgImage.get());
+    CGColorSpaceRef colorSpace = CGImageGetColorSpace(decodedImage->platformImage().get());
     CGColorSpaceModel model = CGColorSpaceGetModel(colorSpace);
     if (model == kCGColorSpaceModelIndexed) {
         RetainPtr<CGContextRef> bitmapContext;
@@ -355,28 +354,30 @@ bool GraphicsContextGLOpenGL::ImageExtractor::extractImage(bool premultiplyAlpha
         // alpha channel. Creation of a bitmap context with an alpha channel
         // doesn't seem to work unless it's premultiplied.
         bitmapContext = adoptCF(CGBitmapContextCreate(0, m_imageWidth, m_imageHeight, 8, m_imageWidth * 4,
-            sRGBColorSpaceRef(), kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Host));
+            sRGBColorSpaceRef(), static_cast<uint32_t>(kCGImageAlphaPremultipliedFirst) | static_cast<uint32_t>(kCGBitmapByteOrder32Host)));
         if (!bitmapContext)
             return false;
 
         CGContextSetBlendMode(bitmapContext.get(), kCGBlendModeCopy);
         CGContextSetInterpolationQuality(bitmapContext.get(), kCGInterpolationNone);
-        CGContextDrawImage(bitmapContext.get(), CGRectMake(0, 0, m_imageWidth, m_imageHeight), m_cgImage.get());
+        CGContextDrawImage(bitmapContext.get(), CGRectMake(0, 0, m_imageWidth, m_imageHeight), decodedImage->platformImage().get());
 
         // Now discard the original CG image and replace it with a copy from the bitmap context.
-        m_decodedImage = adoptCF(CGBitmapContextCreateImage(bitmapContext.get()));
-        m_cgImage = m_decodedImage.get();
+        decodedImage = NativeImage::create(adoptCF(CGBitmapContextCreateImage(bitmapContext.get())));
     }
 
-    size_t bitsPerComponent = CGImageGetBitsPerComponent(m_cgImage.get());
-    size_t bitsPerPixel = CGImageGetBitsPerPixel(m_cgImage.get());
+    if (!decodedImage)
+        return false;
+
+    size_t bitsPerComponent = CGImageGetBitsPerComponent(decodedImage->platformImage().get());
+    size_t bitsPerPixel = CGImageGetBitsPerPixel(decodedImage->platformImage().get());
     if (bitsPerComponent != 8 && bitsPerComponent != 16)
         return false;
     if (bitsPerPixel % bitsPerComponent)
         return false;
     size_t componentsPerPixel = bitsPerPixel / bitsPerComponent;
 
-    CGBitmapInfo bitInfo = CGImageGetBitmapInfo(m_cgImage.get());
+    CGBitmapInfo bitInfo = CGImageGetBitmapInfo(decodedImage->platformImage().get());
     bool bigEndianSource = false;
     // These could technically be combined into one large switch
     // statement, but we prefer not to so that we fail fast if we
@@ -418,7 +419,7 @@ bool GraphicsContextGLOpenGL::ImageExtractor::extractImage(bool premultiplyAlpha
 
     m_alphaOp = AlphaOp::DoNothing;
     AlphaFormat alphaFormat = AlphaFormatNone;
-    switch (CGImageGetAlphaInfo(m_cgImage.get())) {
+    switch (CGImageGetAlphaInfo(decodedImage->platformImage().get())) {
     case kCGImageAlphaPremultipliedFirst:
         if (!premultiplyAlpha)
             m_alphaOp = AlphaOp::DoUnmultiply;
@@ -462,89 +463,69 @@ bool GraphicsContextGLOpenGL::ImageExtractor::extractImage(bool premultiplyAlpha
     if (m_imageSourceFormat == DataFormat::NumFormats)
         return false;
 
-    m_pixelData = adoptCF(CGDataProviderCopyData(CGImageGetDataProvider(m_cgImage.get())));
+    m_pixelData = adoptCF(CGDataProviderCopyData(CGImageGetDataProvider(decodedImage->platformImage().get())));
     if (!m_pixelData)
         return false;
 
-    m_imagePixelData = reinterpret_cast<const void*>(CFDataGetBytePtr(m_pixelData.get()));
+    m_imagePixelData = span(m_pixelData.get());
 
     unsigned srcUnpackAlignment = 0;
-    size_t bytesPerRow = CGImageGetBytesPerRow(m_cgImage.get());
+    size_t bytesPerRow = CGImageGetBytesPerRow(decodedImage->platformImage().get());
     unsigned padding = bytesPerRow - bitsPerPixel / 8 * m_imageWidth;
     if (padding) {
         srcUnpackAlignment = padding + 1;
         while (bytesPerRow % srcUnpackAlignment)
             ++srcUnpackAlignment;
     }
-
     m_imageSourceUnpackAlignment = srcUnpackAlignment;
+
     // Using a bitmap context created according to destination format and drawing the CGImage to the bitmap context can also do the format conversion,
     // but it would premultiply the alpha channel as a side effect.
     // Prefer to mannually Convert 16bit per-component formats to RGBA8 formats instead.
     if (bitsPerComponent == 16) {
-        m_formalizedRGBA8Data = makeUniqueArray<uint8_t>((Checked<size_t>(m_imageWidth) * m_imageHeight * 4U).unsafeGet());
-        const uint16_t* source = reinterpret_cast<const uint16_t*>(m_imagePixelData);
-        uint8_t* destination = m_formalizedRGBA8Data.get();
+        m_formalizedRGBA8Data = MallocSpan<uint8_t>::malloc(Checked<size_t>(m_imageWidth) * m_imageHeight * 4U);
+        auto source = spanReinterpretCast<const uint16_t>(m_imagePixelData);
+        auto destination = m_formalizedRGBA8Data.mutableSpan();
         const ptrdiff_t srcStrideInElements = bytesPerRow / sizeof(uint16_t);
         const ptrdiff_t dstStrideInElements = 4 * m_imageWidth;
-        for (unsigned i =0; i < m_imageHeight; i++) {
+        for (unsigned i = 0; i < m_imageHeight; i++) {
             convert16BitFormatToRGBA8(m_imageSourceFormat, source, destination, m_imageWidth);
-            source += srcStrideInElements;
-            destination += dstStrideInElements;
+            skip(source, srcStrideInElements);
+            skip(destination, dstStrideInElements);
         }
-        m_imagePixelData = reinterpret_cast<const void*>(m_formalizedRGBA8Data.get());
+        m_imagePixelData = m_formalizedRGBA8Data.span();
         m_imageSourceFormat = DataFormat::RGBA8;
         m_imageSourceUnpackAlignment = 1;
     }
     return true;
 }
 
-static void releaseImageData(void*, const void* data, size_t)
+RefPtr<NativeImage> GraphicsContextGL::createNativeImageFromPixelBuffer(const GraphicsContextGLAttributes& sourceContextAttributes, Ref<PixelBuffer>&& pixelBuffer)
 {
-    fastFree(const_cast<void*>(data));
-}
+    ASSERT(!pixelBuffer->size().isEmpty());
+    // Input is GL_RGBA == kCGBitmapByteOrder32Big | kCGImageAlpha*Last.
+    // GL_BGRA would be kCGBitmapByteOrder32Little | kCGImageAlpha*First.
+    CGBitmapInfo bitmapInfo = kCGBitmapByteOrder32Big;
+    if (!sourceContextAttributes.alpha)
+        bitmapInfo |= kCGImageAlphaNoneSkipLast;
+    else if (sourceContextAttributes.premultipliedAlpha)
+        bitmapInfo |= kCGImageAlphaPremultipliedLast;
+    else
+        bitmapInfo |= kCGImageAlphaLast;
 
-void GraphicsContextGLOpenGL::paintToCanvas(const unsigned char* imagePixels, const IntSize& imageSize, const IntSize& canvasSize, GraphicsContext& context)
-{
-    if (!imagePixels || imageSize.isEmpty() || canvasSize.isEmpty())
-        return;
-    int rowBytes = imageSize.width() * 4;
-    RetainPtr<CGDataProviderRef> dataProvider;
+    Ref protectedPixelBuffer = pixelBuffer;
+    auto data = pixelBuffer->bytes();
 
-    if (context.isAcceleratedContext()) {
-        unsigned char* copiedPixels;
+    verifyImageBufferIsBigEnough(data);
 
-        if (!tryFastCalloc(imageSize.height(), rowBytes).getValue(copiedPixels))
-            return;
+    auto dataProvider = adoptCF(CGDataProviderCreateWithData(&protectedPixelBuffer.leakRef(), data.data(), data.size(), [] (void* context, const void*, size_t) {
+        static_cast<PixelBuffer*>(context)->deref();
+    }));
 
-        memcpy(copiedPixels, imagePixels, rowBytes * imageSize.height());
-
-        size_t dataSize = rowBytes * imageSize.height();
-        verifyImageBufferIsBigEnough(copiedPixels, dataSize);
-        dataProvider = adoptCF(CGDataProviderCreateWithData(0, copiedPixels, dataSize, releaseImageData));
-    } else {
-        size_t dataSize = rowBytes * imageSize.height();
-        verifyImageBufferIsBigEnough(imagePixels, dataSize);
-        dataProvider = adoptCF(CGDataProviderCreateWithData(0, imagePixels, dataSize, 0));
-    }
-
-    RetainPtr<CGImageRef> cgImage = adoptCF(CGImageCreate(imageSize.width(), imageSize.height(), 8, 32, rowBytes, sRGBColorSpaceRef(), kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Host,
-        dataProvider.get(), 0, false, kCGRenderingIntentDefault));
-
-    // CSS styling may cause the canvas's content to be resized on
-    // the page. Go back to the Canvas to figure out the correct
-    // width and height to draw.
-    FloatRect canvasRect(FloatPoint(), canvasSize);
-    // We want to completely overwrite the previous frame's
-    // rendering results.
-
-    GraphicsContextStateSaver stateSaver(context);
-    context.scale(FloatSize(1, -1));
-    context.translate(0, -imageSize.height());
-    context.setImageInterpolationQuality(InterpolationQuality::DoNotInterpolate);
-    context.drawNativeImage(cgImage, imageSize, canvasRect, FloatRect(FloatPoint(), imageSize), { CompositeOperator::Copy });
+    auto imageSize = pixelBuffer->size();
+    return NativeImage::create(adoptCF(CGImageCreate(imageSize.width(), imageSize.height(), 8, 32, 4 * imageSize.width(), pixelBuffer->format().colorSpace.platformColorSpace(), bitmapInfo, dataProvider.get(), 0, false, kCGRenderingIntentDefault)));
 }
 
 } // namespace WebCore
 
-#endif // ENABLE(GRAPHICS_CONTEXT_GL)
+#endif // ENABLE(WEBGL)

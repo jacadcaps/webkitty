@@ -25,12 +25,16 @@
 
 #pragma once
 
+#if !BUSE(TZONE)
+
 #include "Bits.h"
 #include "DeferredTrigger.h"
 #include "FreeList.h"
 #include "Mutex.h"
 #include <climits>
 #include <mutex>
+
+#if !BUSE(LIBPAS)
 
 namespace bmalloc {
 
@@ -128,3 +132,5 @@ private:
 
 } // namespace bmalloc
 
+#endif
+#endif // !BUSE(TZONE)

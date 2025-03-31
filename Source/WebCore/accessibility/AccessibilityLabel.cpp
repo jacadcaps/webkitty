@@ -29,28 +29,20 @@
 #include "config.h"
 #include "AccessibilityLabel.h"
 
-#include "AXObjectCache.h"
-#include "HTMLNames.h"
-
 namespace WebCore {
     
 using namespace HTMLNames;
 
-AccessibilityLabel::AccessibilityLabel(RenderObject* renderer)
-    : AccessibilityRenderObject(renderer)
+AccessibilityLabel::AccessibilityLabel(AXID axID, RenderObject& renderer)
+    : AccessibilityRenderObject(axID, renderer)
 {
 }
 
 AccessibilityLabel::~AccessibilityLabel() = default;
 
-Ref<AccessibilityLabel> AccessibilityLabel::create(RenderObject* renderer)
+Ref<AccessibilityLabel> AccessibilityLabel::create(AXID axID, RenderObject& renderer)
 {
-    return adoptRef(*new AccessibilityLabel(renderer));
-}
-
-bool AccessibilityLabel::computeAccessibilityIsIgnored() const
-{
-    return accessibilityIsIgnoredByDefault();
+    return adoptRef(*new AccessibilityLabel(axID, renderer));
 }
 
 String AccessibilityLabel::stringValue() const
@@ -62,13 +54,13 @@ String AccessibilityLabel::stringValue() const
 
 static bool childrenContainOnlyStaticText(const AccessibilityObject::AccessibilityChildrenVector& children)
 {
-    if (!children.size())
+    if (children.isEmpty())
         return false;
     for (const auto& child : children) {
         if (child->roleValue() == AccessibilityRole::StaticText)
             continue;
-        if (child->roleValue() == AccessibilityRole::Group) {
-            if (!childrenContainOnlyStaticText(child->children()))
+        if (child->isGroup()) {
+            if (!childrenContainOnlyStaticText(child->unignoredChildren()))
                 return false;
         } else
             return false;
@@ -78,44 +70,19 @@ static bool childrenContainOnlyStaticText(const AccessibilityObject::Accessibili
 
 bool AccessibilityLabel::containsOnlyStaticText() const
 {
-    if (m_containsOnlyStaticTextDirty)
-        return childrenContainOnlyStaticText(m_children);
+    // m_containsOnlyStaticTextDirty is set (if necessary) by addChildren(), so update our children before checking the flag.
+    const_cast<AccessibilityLabel*>(this)->updateChildrenIfNecessary();
+    if (m_containsOnlyStaticTextDirty) {
+        m_containsOnlyStaticTextDirty = false;
+        m_containsOnlyStaticText = childrenContainOnlyStaticText(const_cast<AccessibilityLabel*>(this)->unignoredChildren());
+    }
     return m_containsOnlyStaticText;
 }
 
-static bool childrenContainUnrelatedControls(const AccessibilityObject::AccessibilityChildrenVector& children, AccessibilityObject* controlForLabel)
+void AccessibilityLabel::addChildren()
 {
-    if (!children.size())
-        return false;
-
-    for (const auto& child : children) {
-        if (child->isControl()) {
-            if (child == controlForLabel)
-                continue;
-            return true;
-        }
-
-        if (childrenContainUnrelatedControls(child->children(), controlForLabel))
-            return true;
-    }
-
-    return false;
-}
-
-bool AccessibilityLabel::containsUnrelatedControls() const
-{
-    if (containsOnlyStaticText())
-        return false;
-
-    return childrenContainUnrelatedControls(m_children, correspondingControlForLabelElement());
-}
-
-void AccessibilityLabel::updateChildrenIfNecessary()
-{
-    AccessibilityRenderObject::updateChildrenIfNecessary();
-    if (m_containsOnlyStaticTextDirty)
-        m_containsOnlyStaticText = childrenContainOnlyStaticText(m_children);
-    m_containsOnlyStaticTextDirty = false;
+    AccessibilityRenderObject::addChildren();
+    m_containsOnlyStaticTextDirty = true;
 }
 
 void AccessibilityLabel::clearChildren()
@@ -123,12 +90,6 @@ void AccessibilityLabel::clearChildren()
     AccessibilityRenderObject::clearChildren();
     m_containsOnlyStaticText = false;
     m_containsOnlyStaticTextDirty = false;
-}
-
-void AccessibilityLabel::insertChild(AXCoreObject* object, unsigned index)
-{
-    AccessibilityRenderObject::insertChild(object, index);
-    m_containsOnlyStaticTextDirty = true;
 }
 
 } // namespace WebCore

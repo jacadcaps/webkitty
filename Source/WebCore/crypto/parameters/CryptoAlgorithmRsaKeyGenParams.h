@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,11 +29,10 @@
 #include <JavaScriptCore/Uint8Array.h>
 #include <wtf/Vector.h>
 
-#if ENABLE(WEB_CRYPTO)
-
 namespace WebCore {
 
 class CryptoAlgorithmRsaKeyGenParams : public CryptoAlgorithmParameters {
+    WTF_MAKE_TZONE_ALLOCATED(CryptoAlgorithmRsaKeyGenParams);
 public:
     size_t modulusLength;
     RefPtr<Uint8Array> publicExponent;
@@ -45,7 +44,7 @@ public:
         if (!m_publicExponentVector.isEmpty() || !publicExponent->byteLength())
             return m_publicExponentVector;
 
-        m_publicExponentVector.append(publicExponent->data(), publicExponent->byteLength());
+        m_publicExponentVector.append(publicExponent->span());
         return m_publicExponentVector;
     }
 private:
@@ -55,5 +54,3 @@ private:
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_CRYPTO_ALGORITHM_PARAMETERS(RsaKeyGenParams)
-
-#endif // ENABLE(WEB_CRYPTO)

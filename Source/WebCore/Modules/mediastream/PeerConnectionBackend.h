@@ -34,12 +34,19 @@
 #if ENABLE(WEB_RTC)
 
 #include "IDLTypes.h"
-#include "LibWebRTCProvider.h"
+#include "RTCIceGatheringState.h"
+#include "RTCRtpCapabilities.h"
 #include "RTCRtpSendParameters.h"
+#include "RTCRtpTransceiverDirection.h"
 #include "RTCSessionDescription.h"
 #include "RTCSignalingState.h"
+#include <wtf/FixedVector.h>
 #include <wtf/LoggerHelper.h>
 #include <wtf/WeakPtr.h>
+
+namespace WebCore {
+class PeerConnectionBackend;
+}
 
 namespace WebCore {
 
@@ -50,14 +57,18 @@ class MediaStreamTrack;
 class PeerConnectionBackend;
 class RTCCertificate;
 class RTCDataChannelHandler;
+class RTCDtlsTransport;
+class RTCDtlsTransportBackend;
 class RTCIceCandidate;
 class RTCPeerConnection;
 class RTCRtpReceiver;
 class RTCRtpSender;
 class RTCRtpTransceiver;
+class RTCSctpTransportBackend;
 class RTCSessionDescription;
 class RTCStatsReport;
 class ScriptExecutionContext;
+class WeakPtrImplWithEventTargetData;
 
 struct MediaEndpointConfiguration;
 struct RTCAnswerOptions;
@@ -68,7 +79,7 @@ struct RTCRtpTransceiverInit;
 template<typename IDLType> class DOMPromiseDeferred;
 
 namespace PeerConnection {
-using SessionDescriptionPromise = DOMPromiseDeferred<IDLDictionary<RTCSessionDescription::Init>>;
+using SessionDescriptionPromise = DOMPromiseDeferred<IDLDictionary<RTCSessionDescriptionInit>>;
 using StatsPromise = DOMPromiseDeferred<IDLInterface<RTCStatsReport>>;
 }
 
@@ -78,22 +89,26 @@ class PeerConnectionBackend
     : public CanMakeWeakPtr<PeerConnectionBackend>
 #if !RELEASE_LOG_DISABLED
     , private LoggerHelper
+#if PLATFORM(WPE) || PLATFORM(GTK)
+    , public Logger::MessageHandlerObserver
+#endif
 #endif
 {
 public:
     WEBCORE_EXPORT static CreatePeerConnectionBackend create;
 
-    static Optional<RTCRtpCapabilities> receiverCapabilities(ScriptExecutionContext&, const String& kind);
-    static Optional<RTCRtpCapabilities> senderCapabilities(ScriptExecutionContext&, const String& kind);
+    static std::optional<RTCRtpCapabilities> receiverCapabilities(ScriptExecutionContext&, const String& kind);
+    static std::optional<RTCRtpCapabilities> senderCapabilities(ScriptExecutionContext&, const String& kind);
 
     explicit PeerConnectionBackend(RTCPeerConnection&);
     virtual ~PeerConnectionBackend();
 
-    void createOffer(RTCOfferOptions&&, PeerConnection::SessionDescriptionPromise&&);
-    void createAnswer(RTCAnswerOptions&&, PeerConnection::SessionDescriptionPromise&&);
-    void setLocalDescription(RTCSessionDescription&, DOMPromiseDeferred<void>&&);
-    void setRemoteDescription(RTCSessionDescription&, DOMPromiseDeferred<void>&&);
-    void addIceCandidate(RTCIceCandidate*, DOMPromiseDeferred<void>&&);
+    using CreateCallback = Function<void(ExceptionOr<RTCSessionDescriptionInit>&&)>;
+    void createOffer(RTCOfferOptions&&, CreateCallback&&);
+    void createAnswer(RTCAnswerOptions&&, CreateCallback&&);
+    void setLocalDescription(const RTCSessionDescription*, Function<void(ExceptionOr<void>&&)>&&);
+    void setRemoteDescription(const RTCSessionDescription&, Function<void(ExceptionOr<void>&&)>&&);
+    void addIceCandidate(RTCIceCandidate*, Function<void(ExceptionOr<void>&&)>&&);
 
     virtual std::unique_ptr<RTCDataChannelHandler> createDataChannelHandler(const String&, const RTCDataChannelInit&) = 0;
 
@@ -101,43 +116,64 @@ public:
 
     virtual void close() = 0;
 
-    virtual RefPtr<RTCSessionDescription> localDescription() const = 0;
-    virtual RefPtr<RTCSessionDescription> currentLocalDescription() const = 0;
-    virtual RefPtr<RTCSessionDescription> pendingLocalDescription() const = 0;
-
-    virtual RefPtr<RTCSessionDescription> remoteDescription() const = 0;
-    virtual RefPtr<RTCSessionDescription> currentRemoteDescription() const = 0;
-    virtual RefPtr<RTCSessionDescription> pendingRemoteDescription() const = 0;
-
+    virtual void restartIce() = 0;
     virtual bool setConfiguration(MediaEndpointConfiguration&&) = 0;
 
+    virtual void gatherDecoderImplementationName(Function<void(String&&)>&&) = 0;
     virtual void getStats(Ref<DeferredPromise>&&) = 0;
     virtual void getStats(RTCRtpSender&, Ref<DeferredPromise>&&) = 0;
     virtual void getStats(RTCRtpReceiver&, Ref<DeferredPromise>&&) = 0;
 
-    virtual ExceptionOr<Ref<RTCRtpSender>> addTrack(MediaStreamTrack&, Vector<String>&&);
+    virtual ExceptionOr<Ref<RTCRtpSender>> addTrack(MediaStreamTrack&, FixedVector<String>&&);
     virtual void removeTrack(RTCRtpSender&) { }
 
-    virtual ExceptionOr<Ref<RTCRtpTransceiver>> addTransceiver(const String&, const RTCRtpTransceiverInit&);
+    enum class IgnoreNegotiationNeededFlag : bool { No, Yes };
+    virtual ExceptionOr<Ref<RTCRtpTransceiver>> addTransceiver(const String&, const RTCRtpTransceiverInit&, IgnoreNegotiationNeededFlag);
     virtual ExceptionOr<Ref<RTCRtpTransceiver>> addTransceiver(Ref<MediaStreamTrack>&&, const RTCRtpTransceiverInit&);
 
-    void markAsNeedingNegotiation();
-    bool isNegotiationNeeded() const { return m_negotiationNeeded; };
-    void clearNegotiationNeededState() { m_negotiationNeeded = false; };
+    void markAsNeedingNegotiation(uint32_t);
+    virtual bool isNegotiationNeeded(uint32_t) const = 0;
 
     virtual void emulatePlatformEvent(const String& action) = 0;
 
-    void newICECandidate(String&& sdp, String&& mid, unsigned short sdpMLineIndex, String&& serverURL);
-    void disableICECandidateFiltering();
+    struct DescriptionStates {
+        std::optional<RTCSignalingState> signalingState;
+        std::optional<RTCSdpType> currentLocalDescriptionSdpType;
+        String currentLocalDescriptionSdp;
+        std::optional<RTCSdpType> pendingLocalDescriptionSdpType;
+        String pendingLocalDescriptionSdp;
+        std::optional<RTCSdpType> currentRemoteDescriptionSdpType;
+        String currentRemoteDescriptionSdp;
+        std::optional<RTCSdpType> pendingRemoteDescriptionSdpType;
+        String pendingRemoteDescriptionSdp;
+
+        DescriptionStates isolatedCopy() &&;
+    };
+    struct TransceiverState {
+        String mid;
+        Vector<Ref<MediaStream>> receiverStreams;
+        std::optional<RTCRtpTransceiverDirection> firedDirection;
+    };
+    using TransceiverStates = Vector<TransceiverState>;
+
+    void newICECandidate(String&& sdp, String&& mid, unsigned short sdpMLineIndex, String&& serverURL, std::optional<DescriptionStates>&&);
+    void newDataChannel(UniqueRef<RTCDataChannelHandler>&&, String&&, RTCDataChannelInit&&);
+
+    virtual void disableICECandidateFiltering();
     void enableICECandidateFiltering();
+
+    virtual std::optional<bool> canTrickleIceCandidates() const = 0;
 
     virtual void applyRotationForOutgoingVideoSources() { }
 
 #if !RELEASE_LOG_DISABLED
     const Logger& logger() const final { return m_logger.get(); }
-    const void* logIdentifier() const final { return m_logIdentifier; }
-    const char* logClassName() const override { return "PeerConnectionBackend"; }
+    uint64_t logIdentifier() const final { return m_logIdentifier; }
+    ASCIILiteral logClassName() const override { return "PeerConnectionBackend"_s; }
     WTFLogChannel& logChannel() const final;
+#if PLATFORM(WPE) || PLATFORM(GTK)
+    void handleLogMessage(const WTFLogChannel&, WTFLogLevel, Vector<JSONLogValue>&&) final;
+#endif
 #endif
 
     virtual bool isLocalDescriptionSet() const = 0;
@@ -167,25 +203,34 @@ public:
         }
 
         Type type;
-        Optional<double> expires;
+        std::optional<double> expires;
 
-        Optional<RSA> rsaParameters;
+        std::optional<RSA> rsaParameters;
     };
     static void generateCertificate(Document&, const CertificateInformation&, DOMPromiseDeferred<IDLInterface<RTCCertificate>>&&);
 
     virtual void collectTransceivers() { };
 
     ScriptExecutionContext* context() const;
-    RTCRtpTransceiver* transceiverFromSender(const RTCRtpSender&);
 
     virtual void suspend() { }
     virtual void resume() { }
 
-protected:
-    void fireICECandidateEvent(RefPtr<RTCIceCandidate>&&, String&& url);
-    void doneGatheringCandidates();
+    bool shouldFilterICECandidates() const { return m_shouldFilterICECandidates; };
 
-    void updateSignalingState(RTCSignalingState);
+    using AddIceCandidateCallbackFunction = void(ExceptionOr<std::optional<PeerConnectionBackend::DescriptionStates>>&&);
+    using AddIceCandidateCallback = Function<AddIceCandidateCallbackFunction>;
+
+    void iceGatheringStateChanged(RTCIceGatheringState);
+
+    virtual void startGatheringStatLogs(Function<void(String&&)>&&) { }
+    virtual void stopGatheringStatLogs() { }
+
+    WEBCORE_EXPORT void ref() const;
+    WEBCORE_EXPORT void deref() const;
+
+protected:
+    void doneGatheringCandidates();
 
     void createOfferSucceeded(String&&);
     void createOfferFailed(Exception&&);
@@ -193,66 +238,90 @@ protected:
     void createAnswerSucceeded(String&&);
     void createAnswerFailed(Exception&&);
 
-    void setLocalDescriptionSucceeded();
+    void setLocalDescriptionSucceeded(std::optional<DescriptionStates>&&, std::optional<TransceiverStates>&&, std::unique_ptr<RTCSctpTransportBackend>&&, std::optional<double>);
     void setLocalDescriptionFailed(Exception&&);
 
-    void setRemoteDescriptionSucceeded();
+    void setRemoteDescriptionSucceeded(std::optional<DescriptionStates>&&, std::optional<TransceiverStates>&&, std::unique_ptr<RTCSctpTransportBackend>&&, std::optional<double>);
     void setRemoteDescriptionFailed(Exception&&);
 
-    void addIceCandidateSucceeded();
-    void addIceCandidateFailed(Exception&&);
+    void validateSDP(const String&) const;
 
-    String filterSDP(String&&) const;
+#if PLATFORM(WPE) || PLATFORM(GTK)
+    bool isJSONLogStreamingEnabled() const { return !m_jsonFilePath.isEmpty(); }
+#endif
 
-    struct PendingTrackEvent {
-        Ref<RTCRtpReceiver> receiver;
-        Ref<MediaStreamTrack> track;
-        Vector<RefPtr<MediaStream>> streams;
-        RefPtr<RTCRtpTransceiver> transceiver;
+    struct MessageLogEvent {
+        String message;
+        std::optional<std::span<const uint8_t>> payload;
     };
-    void addPendingTrackEvent(PendingTrackEvent&&);
+    using StatsLogEvent = String;
+
+    using LogEvent = std::variant<MessageLogEvent, StatsLogEvent>;
+    String generateJSONLogEvent(LogEvent&&, bool isForGatherLogs);
+    void emitJSONLogEvent(String&&);
 
 private:
     virtual void doCreateOffer(RTCOfferOptions&&) = 0;
     virtual void doCreateAnswer(RTCAnswerOptions&&) = 0;
-    virtual void doSetLocalDescription(RTCSessionDescription&) = 0;
-    virtual void doSetRemoteDescription(RTCSessionDescription&) = 0;
-    virtual void doAddIceCandidate(RTCIceCandidate&) = 0;
-    virtual void endOfIceCandidates(DOMPromiseDeferred<void>&&);
+    virtual void doSetLocalDescription(const RTCSessionDescription*) = 0;
+    virtual void doSetRemoteDescription(const RTCSessionDescription&) = 0;
+    virtual void doAddIceCandidate(RTCIceCandidate&, AddIceCandidateCallback&&) = 0;
     virtual void doStop() = 0;
 
-    void registerMDNSName(const String& ipAddress);
-
 protected:
-    RTCPeerConnection& m_peerConnection;
+    Ref<RTCPeerConnection> protectedPeerConnection() const;
+    WeakRef<RTCPeerConnection, WeakPtrImplWithEventTargetData> m_peerConnection;
 
 private:
-    std::unique_ptr<PeerConnection::SessionDescriptionPromise> m_offerAnswerPromise;
-    std::unique_ptr<DOMPromiseDeferred<void>> m_setDescriptionPromise;
-    std::unique_ptr<DOMPromiseDeferred<void>> m_addIceCandidatePromise;
+    CreateCallback m_offerAnswerCallback;
+    Function<void(ExceptionOr<void>&&)> m_setDescriptionCallback;
 
     bool m_shouldFilterICECandidates { true };
-    struct PendingICECandidate {
-        // Fields described in https://www.w3.org/TR/webrtc/#idl-def-rtcicecandidateinit.
-        String sdp;
-        String mid;
-        unsigned short sdpMLineIndex;
-        String serverURL;
-    };
-    Vector<PendingICECandidate> m_pendingICECandidates;
 
-    Vector<PendingTrackEvent> m_pendingTrackEvents;
-
-    HashMap<String, String> m_ipAddressToMDNSNameMap;
 #if !RELEASE_LOG_DISABLED
     Ref<const Logger> m_logger;
-    const void* m_logIdentifier;
+    const uint64_t m_logIdentifier;
 #endif
-    bool m_negotiationNeeded { false };
+    String m_logIdentifierString;
     bool m_finishedGatheringCandidates { false };
-    uint64_t m_waitingForMDNSRegistration { 0 };
+    bool m_isProcessingLocalDescriptionAnswer { false };
+
+#if PLATFORM(WPE) || PLATFORM(GTK)
+    String m_jsonFilePath;
+#endif
 };
 
+inline PeerConnectionBackend::DescriptionStates PeerConnectionBackend::DescriptionStates::isolatedCopy() &&
+{
+    return DescriptionStates {
+        signalingState,
+        currentLocalDescriptionSdpType,
+        WTFMove(currentLocalDescriptionSdp).isolatedCopy(),
+        pendingLocalDescriptionSdpType,
+        WTFMove(pendingLocalDescriptionSdp).isolatedCopy(),
+        currentRemoteDescriptionSdpType,
+        WTFMove(currentRemoteDescriptionSdp).isolatedCopy(),
+        pendingRemoteDescriptionSdpType,
+        WTFMove(pendingRemoteDescriptionSdp).isolatedCopy()
+    };
+}
 } // namespace WebCore
+
+namespace WTF {
+
+template<typename>
+struct LogArgument;
+
+template <>
+struct LogArgument<WebCore::PeerConnectionBackend::TransceiverState> {
+    static String toString(const WebCore::PeerConnectionBackend::TransceiverState&);
+};
+
+template <>
+struct LogArgument<WebCore::PeerConnectionBackend::TransceiverStates> {
+    static String toString(const WebCore::PeerConnectionBackend::TransceiverStates&);
+};
+
+}
 
 #endif // ENABLE(WEB_RTC)

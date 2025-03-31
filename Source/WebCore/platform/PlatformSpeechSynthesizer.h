@@ -23,12 +23,14 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef PlatformSpeechSynthesizer_h
-#define PlatformSpeechSynthesizer_h
+#pragma once
 
 #if ENABLE(SPEECH_SYNTHESIS)
 
 #include "PlatformSpeechSynthesisVoice.h"
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
+#include <wtf/RefPtr.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 
 #if PLATFORM(COCOA)
@@ -38,11 +40,18 @@ OBJC_CLASS WebSpeechSynthesisWrapper;
 
 namespace WebCore {
 
+#if USE(SPIEL)
+class SpielSpeechWrapper;
+#endif
+
 enum class SpeechBoundary : uint8_t {
     SpeechWordBoundary,
     SpeechSentenceBoundary
 };
 
+#if USE(FLITE) && USE(GSTREAMER)
+class GstSpeechSynthesisWrapper;
+#endif
 class PlatformSpeechSynthesisUtterance;
 
 class PlatformSpeechSynthesizerClient {
@@ -52,16 +61,16 @@ public:
     virtual void didPauseSpeaking(PlatformSpeechSynthesisUtterance&) = 0;
     virtual void didResumeSpeaking(PlatformSpeechSynthesisUtterance&) = 0;
     virtual void speakingErrorOccurred(PlatformSpeechSynthesisUtterance&) = 0;
-    virtual void boundaryEventOccurred(PlatformSpeechSynthesisUtterance&, SpeechBoundary, unsigned charIndex) = 0;
+    virtual void boundaryEventOccurred(PlatformSpeechSynthesisUtterance&, SpeechBoundary, unsigned charIndex, unsigned charLength) = 0;
     virtual void voicesDidChange() = 0;
 protected:
     virtual ~PlatformSpeechSynthesizerClient() = default;
 };
 
-class WEBCORE_EXPORT PlatformSpeechSynthesizer {
-    WTF_MAKE_FAST_ALLOCATED;
+class WEBCORE_EXPORT PlatformSpeechSynthesizer : public RefCountedAndCanMakeWeakPtr<PlatformSpeechSynthesizer> {
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(PlatformSpeechSynthesizer, WEBCORE_EXPORT);
 public:
-    WEBCORE_EXPORT explicit PlatformSpeechSynthesizer(PlatformSpeechSynthesizerClient*);
+    WEBCORE_EXPORT static Ref<PlatformSpeechSynthesizer> create(PlatformSpeechSynthesizerClient&);
 
     // FIXME: We have multiple virtual functions just so we can support a mock for testing.
     // Seems wasteful. Would be nice to find a better way.
@@ -72,26 +81,31 @@ public:
     virtual void pause();
     virtual void resume();
     virtual void cancel();
+    virtual void resetState();
+    virtual void voicesDidChange();
 
-    void resetState();
-    PlatformSpeechSynthesizerClient* client() const { return m_speechSynthesizerClient; }
+    PlatformSpeechSynthesizerClient& client() const { return m_speechSynthesizerClient; }
 
 protected:
+    explicit PlatformSpeechSynthesizer(PlatformSpeechSynthesizerClient&);
     Vector<RefPtr<PlatformSpeechSynthesisVoice>> m_voiceList;
 
 private:
     virtual void initializeVoiceList();
+    virtual void resetVoiceList();
 
     bool m_voiceListIsInitialized { false };
-    PlatformSpeechSynthesizerClient* m_speechSynthesizerClient;
+    PlatformSpeechSynthesizerClient& m_speechSynthesizerClient;
 
 #if PLATFORM(COCOA)
     RetainPtr<WebSpeechSynthesisWrapper> m_platformSpeechWrapper;
+#elif USE(FLITE) && USE(GSTREAMER)
+    std::unique_ptr<GstSpeechSynthesisWrapper> m_platformSpeechWrapper;
+#elif USE(SPIEL)
+    std::unique_ptr<SpielSpeechWrapper> m_platformSpeechWrapper;
 #endif
 };
 
 } // namespace WebCore
 
 #endif // ENABLE(SPEECH_SYNTHESIS)
-
-#endif // PlatformSpeechSynthesizer_h

@@ -64,6 +64,7 @@ OPENSSL_MSVC_PRAGMA(warning(push, 3))
 OPENSSL_MSVC_PRAGMA(warning(pop))
 #endif
 
+#include "../../crypto/fipsmodule/cipher/internal.h"
 #include "../../crypto/internal.h"
 #include "internal.h"
 #include "../macros.h"
@@ -84,22 +85,16 @@ void CAST_ecb_encrypt(const uint8_t *in, uint8_t *out, const CAST_KEY *ks,
   l2n(d[1], out);
 }
 
-#if defined(OPENSSL_WINDOWS) && defined(_MSC_VER)
-#define ROTL(a, n) (_lrotl(a, n))
-#else
-#define ROTL(a, n) ((((a) << (n)) | ((a) >> ((-(n))&31))) & 0xffffffffL)
-#endif
-
-#define E_CAST(n, key, L, R, OP1, OP2, OP3)                                   \
-  {                                                                           \
-    uint32_t a, b, c, d;                                                      \
-    t = (key[n * 2] OP1 R) & 0xffffffff;                                      \
-    t = ROTL(t, (key[n * 2 + 1]));                                            \
-    a = CAST_S_table0[(t >> 8) & 0xff];                                       \
-    b = CAST_S_table1[(t)&0xff];                                              \
-    c = CAST_S_table2[(t >> 24) & 0xff];                                      \
-    d = CAST_S_table3[(t >> 16) & 0xff];                                      \
-    L ^= (((((a OP2 b)&0xffffffffL)OP3 c) & 0xffffffffL)OP1 d) & 0xffffffffL; \
+#define E_CAST(n, key, L, R, OP1, OP2, OP3)                                    \
+  {                                                                            \
+    uint32_t a, b, c, d;                                                       \
+    t = (key[n * 2] OP1 R) & 0xffffffff;                                       \
+    t = CRYPTO_rotl_u32(t, (key[n * 2 + 1]));                                  \
+    a = CAST_S_table0[(t >> 8) & 0xff];                                        \
+    b = CAST_S_table1[(t)&0xff];                                               \
+    c = CAST_S_table2[(t >> 24) & 0xff];                                       \
+    d = CAST_S_table3[(t >> 16) & 0xff];                                       \
+    L ^= (((((a OP2 b)&0xffffffffL)OP3 c) & 0xffffffffL) OP1 d) & 0xffffffffL; \
   }
 
 void CAST_encrypt(uint32_t *data, const CAST_KEY *key) {
@@ -442,21 +437,25 @@ static int cast_cbc_cipher(EVP_CIPHER_CTX *ctx, uint8_t *out, const uint8_t *in,
 }
 
 static const EVP_CIPHER cast5_ecb = {
-    NID_cast5_ecb,       CAST_BLOCK,
-    CAST_KEY_LENGTH,     CAST_BLOCK /* iv_len */,
-    sizeof(CAST_KEY),    EVP_CIPH_ECB_MODE | EVP_CIPH_VARIABLE_LENGTH,
-    NULL /* app_data */, cast_init_key,
-    cast_ecb_cipher,     NULL /* cleanup */,
-    NULL /* ctrl */,
+    .nid = NID_cast5_ecb,
+    .block_size = CAST_BLOCK,
+    .key_len = CAST_KEY_LENGTH,
+    .iv_len = CAST_BLOCK,
+    .ctx_size = sizeof(CAST_KEY),
+    .flags = EVP_CIPH_ECB_MODE | EVP_CIPH_VARIABLE_LENGTH,
+    .init = cast_init_key,
+    .cipher = cast_ecb_cipher,
 };
 
 static const EVP_CIPHER cast5_cbc = {
-    NID_cast5_cbc,       CAST_BLOCK,
-    CAST_KEY_LENGTH,     CAST_BLOCK /* iv_len */,
-    sizeof(CAST_KEY),    EVP_CIPH_CBC_MODE | EVP_CIPH_VARIABLE_LENGTH,
-    NULL /* app_data */, cast_init_key,
-    cast_cbc_cipher,     NULL /* cleanup */,
-    NULL /* ctrl */,
+    .nid = NID_cast5_cbc,
+    .block_size = CAST_BLOCK,
+    .key_len = CAST_KEY_LENGTH,
+    .iv_len = CAST_BLOCK,
+    .ctx_size = sizeof(CAST_KEY),
+    .flags = EVP_CIPH_CBC_MODE | EVP_CIPH_VARIABLE_LENGTH,
+    .init = cast_init_key,
+    .cipher = cast_cbc_cipher,
 };
 
 const EVP_CIPHER *EVP_cast5_ecb(void) { return &cast5_ecb; }

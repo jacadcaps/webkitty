@@ -32,6 +32,8 @@
 #include <stdio.h>
 #include <wtf/Assertions.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 extern "C" void JSSynchronousGarbageCollectForDebugging(JSContextRef);
 
 static void id(void*, void*) { }
@@ -49,7 +51,7 @@ static const unsigned lengths[numLengths] =
     10,
 };
 
-static const unsigned byteSizes[kJSTypedArrayTypeArrayBuffer] =
+static const unsigned byteSizes[] =
 {
     1, // kJSTypedArrayTypeInt8Array
     2, // kJSTypedArrayTypeInt16Array
@@ -60,9 +62,13 @@ static const unsigned byteSizes[kJSTypedArrayTypeArrayBuffer] =
     4, // kJSTypedArrayTypeUint32Array
     4, // kJSTypedArrayTypeFloat32Array
     8, // kJSTypedArrayTypeFloat64Array
+    0, // kJSTypedArrayTypeArrayBuffer
+    0, // kJSTypedArrayTypeNone
+    8, // kJSTypedArrayTypeBigInt64Array
+    8, // kJSTypedArrayTypeBigUint64Array
 };
 
-static const char* typeToString[kJSTypedArrayTypeArrayBuffer] =
+static const char* typeToString[] =
 {
     "kJSTypedArrayTypeInt8Array",
     "kJSTypedArrayTypeInt16Array",
@@ -73,6 +79,10 @@ static const char* typeToString[kJSTypedArrayTypeArrayBuffer] =
     "kJSTypedArrayTypeUint32Array",
     "kJSTypedArrayTypeFloat32Array",
     "kJSTypedArrayTypeFloat64Array",
+    "kJSTypedArrayTypeArrayBuffer",
+    "kJSTypedArrayTypeNone",
+    "kJSTypedArrayTypeBigInt64Array",
+    "kJSTypedArrayTypeBigUint64Array",
 };
 
 inline int unexpectedException(const char* name)
@@ -212,8 +222,10 @@ template <typename Functor>
 static int forEachTypedArrayType(const Functor& functor)
 {
     int failed = 0;
-    for (unsigned i = 0; i < kJSTypedArrayTypeArrayBuffer; i++)
-        failed = failed || functor(static_cast<JSTypedArrayType>(i));
+    for (unsigned i = 0; i < kJSTypedArrayTypeArrayBuffer; i++) {
+        if (i != kJSTypedArrayTypeNone && i != kJSTypedArrayTypeArrayBuffer)
+            failed = failed || functor(static_cast<JSTypedArrayType>(i));
+    }
     return failed;
 }
 
@@ -269,3 +281,5 @@ int testTypedArrayCAPI()
 
     return failed;
 }
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

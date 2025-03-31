@@ -29,6 +29,7 @@
 
 #if ENABLE(VIDEO) && USE(AVFOUNDATION)
 #include "InbandTextTrackPrivate.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
@@ -40,13 +41,14 @@ struct IncompleteMetaDataCue {
 #endif
 
 class InbandMetadataTextTrackPrivateAVF : public InbandTextTrackPrivate {
+    WTF_MAKE_TZONE_ALLOCATED(InbandMetadataTextTrackPrivateAVF);
 public:
-    static Ref<InbandMetadataTextTrackPrivateAVF> create(Kind, CueFormat, const AtomString& id = emptyAtom());
+    static Ref<InbandMetadataTextTrackPrivateAVF> create(Kind, TrackID, CueFormat);
 
     ~InbandMetadataTextTrackPrivateAVF();
 
     Kind kind() const override { return m_kind; }
-    AtomString id() const override { return m_id; }
+    TrackID id() const override { return m_id; }
     AtomString inBandMetadataTrackDispatchType() const override { return m_inBandMetadataTrackDispatchType; }
     void setInBandMetadataTrackDispatchType(const AtomString& value) { m_inBandMetadataTrackDispatchType = value; }
 
@@ -58,14 +60,14 @@ public:
     void flushPartialCues();
 
 private:
-    InbandMetadataTextTrackPrivateAVF(Kind, CueFormat, const AtomString&);
+    InbandMetadataTextTrackPrivateAVF(Kind, TrackID, CueFormat);
 
 #if !RELEASE_LOG_DISABLED
-    const char* logClassName() const final { return "InbandMetadataTextTrackPrivateAVF"; }
+    ASCIILiteral logClassName() const final { return "InbandMetadataTextTrackPrivateAVF"_s; }
 #endif
 
     Kind m_kind;
-    AtomString m_id;
+    TrackID m_id;
     AtomString m_inBandMetadataTrackDispatchType;
     MediaTime m_currentCueStartTime;
 #if ENABLE(DATACUE_VALUE)

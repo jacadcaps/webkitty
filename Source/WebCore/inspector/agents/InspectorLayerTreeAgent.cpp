@@ -41,10 +41,13 @@
 #include "RenderLayerCompositor.h"
 #include "RenderView.h"
 #include <JavaScriptCore/IdentifiersFactory.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
 using namespace Inspector;
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(InspectorLayerTreeAgent);
 
 InspectorLayerTreeAgent::InspectorLayerTreeAgent(WebAgentContext& context)
     : InspectorAgentBase("LayerTree"_s, context)
@@ -61,8 +64,7 @@ void InspectorLayerTreeAgent::didCreateFrontendAndBackend(Inspector::FrontendRou
 
 void InspectorLayerTreeAgent::willDestroyFrontendAndBackend(Inspector::DisconnectReason)
 {
-    ErrorString ignored;
-    disable(ignored);
+    disable();
 }
 
 void InspectorLayerTreeAgent::reset()
@@ -74,16 +76,20 @@ void InspectorLayerTreeAgent::reset()
     m_suppressLayerChangeEvents = false;
 }
 
-void InspectorLayerTreeAgent::enable(ErrorString&)
+Inspector::Protocol::ErrorStringOr<void> InspectorLayerTreeAgent::enable()
 {
     m_instrumentingAgents.setEnabledLayerTreeAgent(this);
+
+    return { };
 }
 
-void InspectorLayerTreeAgent::disable(ErrorString&)
+Inspector::Protocol::ErrorStringOr<void> InspectorLayerTreeAgent::disable()
 {
     m_instrumentingAgents.setEnabledLayerTreeAgent(nullptr);
 
     reset();
+
+    return { };
 }
 
 void InspectorLayerTreeAgent::layerTreeDidChange()
@@ -106,51 +112,49 @@ void InspectorLayerTreeAgent::pseudoElementDestroyed(PseudoElement& pseudoElemen
     unbindPseudoElement(&pseudoElement);
 }
 
-void InspectorLayerTreeAgent::layersForNode(ErrorString& errorString, int nodeId, RefPtr<JSON::ArrayOf<Inspector::Protocol::LayerTree::Layer>>& layers)
+Inspector::Protocol::ErrorStringOr<Ref<JSON::ArrayOf<Inspector::Protocol::LayerTree::Layer>>> InspectorLayerTreeAgent::layersForNode(Inspector::Protocol::DOM::NodeId nodeId)
 {
-    layers = JSON::ArrayOf<Inspector::Protocol::LayerTree::Layer>::create();
-
     auto* node = m_instrumentingAgents.persistentDOMAgent()->nodeForId(nodeId);
-    if (!node) {
-        errorString = "Missing node for given nodeId"_s;
-        return;
-    }
+    if (!node)
+        return makeUnexpected("Missing node for given nodeId"_s);
 
     auto* renderer = node->renderer();
-    if (!renderer) {
-        errorString = "Missing renderer of node for given nodeId"_s;
-        return;
-    }
+    if (!renderer)
+        return makeUnexpected("Missing renderer of node for given nodeId"_s);
 
     if (!is<RenderElement>(*renderer))
-        return;
+        return makeUnexpected("Missing renderer of element for given nodeId"_s);
 
-    gatherLayersUsingRenderObjectHierarchy(errorString, downcast<RenderElement>(*renderer), layers);
+    auto layers = JSON::ArrayOf<Inspector::Protocol::LayerTree::Layer>::create();
+
+    gatherLayersUsingRenderObjectHierarchy(downcast<RenderElement>(*renderer), layers);
 
     m_suppressLayerChangeEvents = false;
+
+    return layers;
 }
 
-void InspectorLayerTreeAgent::gatherLayersUsingRenderObjectHierarchy(ErrorString& errorString, RenderElement& renderer, RefPtr<JSON::ArrayOf<Inspector::Protocol::LayerTree::Layer>>& layers)
+void InspectorLayerTreeAgent::gatherLayersUsingRenderObjectHierarchy(RenderElement& renderer, JSON::ArrayOf<Inspector::Protocol::LayerTree::Layer>& layers)
 {
     if (renderer.hasLayer()) {
-        gatherLayersUsingRenderLayerHierarchy(errorString, downcast<RenderLayerModelObject>(renderer).layer(), layers);
+        gatherLayersUsingRenderLayerHierarchy(downcast<RenderLayerModelObject>(renderer).layer(), layers);
         return;
     }
 
     for (auto& child : childrenOfType<RenderElement>(renderer))
-        gatherLayersUsingRenderObjectHierarchy(errorString, child, layers);
+        gatherLayersUsingRenderObjectHierarchy(child, layers);
 }
 
-void InspectorLayerTreeAgent::gatherLayersUsingRenderLayerHierarchy(ErrorString& errorString, RenderLayer* renderLayer, RefPtr<JSON::ArrayOf<Inspector::Protocol::LayerTree::Layer>>& layers)
+void InspectorLayerTreeAgent::gatherLayersUsingRenderLayerHierarchy(RenderLayer* renderLayer, JSON::ArrayOf<Inspector::Protocol::LayerTree::Layer>& layers)
 {
     if (renderLayer->isComposited())
-        layers->addItem(buildObjectForLayer(errorString, renderLayer));
+        layers.addItem(buildObjectForLayer(renderLayer));
 
     for (renderLayer = renderLayer->firstChild(); renderLayer; renderLayer = renderLayer->nextSibling())
-        gatherLayersUsingRenderLayerHierarchy(errorString, renderLayer, layers);
+        gatherLayersUsingRenderLayerHierarchy(renderLayer, layers);
 }
 
-Ref<Inspector::Protocol::LayerTree::Layer> InspectorLayerTreeAgent::buildObjectForLayer(ErrorString& errorString, RenderLayer* renderLayer)
+Ref<Inspector::Protocol::LayerTree::Layer> InspectorLayerTreeAgent::buildObjectForLayer(RenderLayer* renderLayer)
 {
     RenderObject* renderer = &renderLayer->renderer();
     RenderLayerBacking* backing = renderLayer->backing();
@@ -172,7 +176,7 @@ Ref<Inspector::Protocol::LayerTree::Layer> InspectorLayerTreeAgent::buildObjectF
     // Basic set of properties.
     auto layerObject = Inspector::Protocol::LayerTree::Layer::create()
         .setLayerId(bind(renderLayer))
-        .setNodeId(idForNode(errorString, node))
+        .setNodeId(idForNode(node))
         .setBounds(buildObjectForIntRect(renderer->absoluteBoundingBoxRect()))
         .setMemory(backing->backingStoreMemoryEstimate())
         .setCompositedBounds(buildObjectForIntRect(enclosingIntRect(backing->compositedBounds())))
@@ -191,35 +195,35 @@ Ref<Inspector::Protocol::LayerTree::Layer> InspectorLayerTreeAgent::buildObjectF
         layerObject->setIsGeneratedContent(true);
         layerObject->setPseudoElementId(bindPseudoElement(downcast<PseudoElement>(renderer->node())));
         if (renderer->isBeforeContent())
-            layerObject->setPseudoElement("before");
+            layerObject->setPseudoElement("before"_s);
         else if (renderer->isAfterContent())
-            layerObject->setPseudoElement("after");
+            layerObject->setPseudoElement("after"_s);
     }
 
     // FIXME: RenderView is now really anonymous but don't tell about it to the frontend before making sure it can handle it.
     if (isAnonymous && !renderer->isRenderView()) {
         layerObject->setIsAnonymous(true);
         const RenderStyle& style = renderer->style();
-        if (style.styleType() == PseudoId::FirstLetter)
-            layerObject->setPseudoElement("first-letter");
-        else if (style.styleType() == PseudoId::FirstLine)
-            layerObject->setPseudoElement("first-line");
+        if (style.pseudoElementType() == PseudoId::FirstLetter)
+            layerObject->setPseudoElement("first-letter"_s);
+        else if (style.pseudoElementType() == PseudoId::FirstLine)
+            layerObject->setPseudoElement("first-line"_s);
     }
 
     return layerObject;
 }
 
-int InspectorLayerTreeAgent::idForNode(ErrorString& errorString, Node* node)
+Inspector::Protocol::DOM::NodeId InspectorLayerTreeAgent::idForNode(Node* node)
 {
     if (!node)
         return 0;
 
     InspectorDOMAgent* domAgent = m_instrumentingAgents.persistentDOMAgent();
     
-    int nodeId = domAgent->boundNodeId(node);
+    auto nodeId = domAgent->boundNodeId(node);
     if (!nodeId) {
         // FIXME: <https://webkit.org/b/213499> Web Inspector: allow DOM nodes to be instrumented at any point, regardless of whether the main document has also been instrumented
-        nodeId = domAgent->pushNodeToFrontend(errorString, domAgent->boundNodeId(&node->document()), node);
+        nodeId = domAgent->pushNodeToFrontend(node);
     }
 
     return nodeId;
@@ -235,14 +239,12 @@ Ref<Inspector::Protocol::LayerTree::IntRect> InspectorLayerTreeAgent::buildObjec
         .release();
 }
 
-void InspectorLayerTreeAgent::reasonsForCompositingLayer(ErrorString& errorString, const String& layerId, RefPtr<Inspector::Protocol::LayerTree::CompositingReasons>& compositingReasonsResult)
+Inspector::Protocol::ErrorStringOr<Ref<Inspector::Protocol::LayerTree::CompositingReasons>> InspectorLayerTreeAgent::reasonsForCompositingLayer(const Inspector::Protocol::LayerTree::LayerId& layerId)
 {
     const RenderLayer* renderLayer = m_idToLayer.get(layerId);
 
-    if (!renderLayer) {
-        errorString = "Missing render layer for given layerId"_s;
-        return;
-    }
+    if (!renderLayer)
+        return makeUnexpected("Missing render layer for given layerId"_s);
 
     OptionSet<CompositingReason> reasons = renderLayer->compositor().reasonsForCompositing(*renderLayer);
     auto compositingReasons = Inspector::Protocol::LayerTree::CompositingReasons::create().release();
@@ -258,6 +260,8 @@ void InspectorLayerTreeAgent::reasonsForCompositingLayer(ErrorString& errorStrin
         compositingReasons->setPlugin(true);
     else if (reasons.contains(CompositingReason::IFrame))
         compositingReasons->setIFrame(true);
+    else if (reasons.contains(CompositingReason::Model))
+        compositingReasons->setModel(true);
 
     if (reasons.contains(CompositingReason::BackfaceVisibilityHidden))
         compositingReasons->setBackfaceVisibilityHidden(true);
@@ -324,7 +328,10 @@ void InspectorLayerTreeAgent::reasonsForCompositingLayer(ErrorString& errorStrin
     if (reasons.contains(CompositingReason::Root))
         compositingReasons->setRoot(true);
 
-    compositingReasonsResult = WTFMove(compositingReasons);
+    if (reasons.contains(CompositingReason::BackdropRoot))
+        compositingReasons->setBackdropRoot(true);
+
+    return compositingReasons;
 }
 
 String InspectorLayerTreeAgent::bind(const RenderLayer* layer)
@@ -350,7 +357,7 @@ String InspectorLayerTreeAgent::bindPseudoElement(PseudoElement* pseudoElement)
 {
     if (!pseudoElement)
         return emptyString();
-    return m_pseudoElementToIdMap.ensure(pseudoElement, [this, pseudoElement] {
+    return m_pseudoElementToIdMap.ensure(*pseudoElement, [this, pseudoElement] {
         auto identifier = IdentifiersFactory::createIdentifier();
         m_idToPseudoElement.set(identifier, pseudoElement);
         return identifier;
@@ -359,7 +366,9 @@ String InspectorLayerTreeAgent::bindPseudoElement(PseudoElement* pseudoElement)
 
 void InspectorLayerTreeAgent::unbindPseudoElement(PseudoElement* pseudoElement)
 {
-    auto identifier = m_pseudoElementToIdMap.take(pseudoElement);
+    if (!pseudoElement)
+        return;
+    auto identifier = m_pseudoElementToIdMap.take(*pseudoElement);
     if (identifier.isNull())
         return;
     m_idToPseudoElement.remove(identifier);

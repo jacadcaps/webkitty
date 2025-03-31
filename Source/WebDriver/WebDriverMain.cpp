@@ -25,13 +25,19 @@
 
 #include "config.h"
 
+#include "LogInitialization.h"
 #include "WebDriverService.h"
 #include <wtf/MainThread.h>
 #include <wtf/Threading.h>
 
 int main(int argc, char** argv)
 {
+    WebDriver::WebDriverService::platformInit();
+
     WTF::initializeMainThread();
+#if !LOG_DISABLED || !RELEASE_LOG_DISABLED
+    WebDriver::logChannels().initializeLogChannelsIfNecessary(WebDriver::logLevelString());
+#endif
 
     WebDriver::WebDriverService service;
     return service.run(argc, argv);

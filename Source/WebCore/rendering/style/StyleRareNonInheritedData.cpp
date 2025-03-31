@@ -16,22 +16,19 @@
  * along with this library; see the file COPYING.LIB.  If not, write to
  * the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
  * Boston, MA 02110-1301, USA.
- *
  */
 
 #include "config.h"
 #include "StyleRareNonInheritedData.h"
 
-#include "ContentData.h"
 #include "RenderCounter.h"
-#include "RenderStyle.h"
+#include "RenderStyleDifference.h"
+#include "RenderStyleInlines.h"
 #include "ShadowData.h"
-#include "StyleCustomPropertyData.h"
-#include "StyleFilterData.h"
-#include "StyleTransformData.h"
 #include "StyleImage.h"
+#include "StyleReflection.h"
 #include "StyleResolver.h"
-#include "StyleScrollSnapPoints.h"
+#include "StyleTextEdge.h"
 #include <wtf/PointerComparison.h>
 #include <wtf/RefPtr.h>
 #include <wtf/text/TextStream.h>
@@ -41,169 +38,213 @@ namespace WebCore {
 DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(StyleRareNonInheritedData);
 
 StyleRareNonInheritedData::StyleRareNonInheritedData()
-    : opacity(RenderStyle::initialOpacity())
-    , aspectRatioDenominator(RenderStyle::initialAspectRatioDenominator())
-    , aspectRatioNumerator(RenderStyle::initialAspectRatioNumerator())
-    , perspective(RenderStyle::initialPerspective())
+    : containIntrinsicWidth(RenderStyle::initialContainIntrinsicWidth())
+    , containIntrinsicHeight(RenderStyle::initialContainIntrinsicHeight())
     , perspectiveOriginX(RenderStyle::initialPerspectiveOriginX())
     , perspectiveOriginY(RenderStyle::initialPerspectiveOriginY())
     , lineClamp(RenderStyle::initialLineClamp())
+    , zoom(RenderStyle::initialZoom())
+    , maxLines(RenderStyle::initialMaxLines())
+    , overflowContinue(RenderStyle::initialOverflowContinue())
+    , touchActions(RenderStyle::initialTouchActions())
+    , marginTrim(RenderStyle::initialMarginTrim())
+    , contain(RenderStyle::initialContainment())
     , initialLetter(RenderStyle::initialInitialLetter())
-    , deprecatedFlexibleBox(StyleDeprecatedFlexibleBoxData::create())
-    , flexibleBox(StyleFlexibleBoxData::create())
     , marquee(StyleMarqueeData::create())
-    , multiCol(StyleMultiColData::create())
-    , transform(StyleTransformData::create())
-    , filter(StyleFilterData::create())
-#if ENABLE(FILTERS_LEVEL_2)
     , backdropFilter(StyleFilterData::create())
-#endif
     , grid(StyleGridData::create())
     , gridItem(StyleGridItemData::create())
-#if ENABLE(CSS_SCROLL_SNAP)
-    , scrollSnapPort(StyleScrollSnapPort::create())
-    , scrollSnapArea(StyleScrollSnapArea::create())
-#endif
+    // clip
+    // scrollMargin
+    // scrollPadding
+    // counterDirectives
     , willChange(RenderStyle::initialWillChange())
-    , mask(FillLayerType::Mask)
-    , maskBoxImage(NinePieceImage::Type::Mask)
-    , objectPosition(RenderStyle::initialObjectPosition())
+    // boxReflect
+    , maskBorder(NinePieceImage::Type::Mask)
+    // pageSize
     , shapeOutside(RenderStyle::initialShapeOutside())
     , shapeMargin(RenderStyle::initialShapeMargin())
     , shapeImageThreshold(RenderStyle::initialShapeImageThreshold())
-    , order(RenderStyle::initialOrder())
+    , perspective(RenderStyle::initialPerspective())
     , clipPath(RenderStyle::initialClipPath())
-    , visitedLinkBackgroundColor(RenderStyle::initialBackgroundColor())
-    , alignContent(RenderStyle::initialContentAlignment())
-    , alignItems(RenderStyle::initialDefaultAlignment())
-    , alignSelf(RenderStyle::initialSelfAlignment())
-    , justifyContent(RenderStyle::initialContentAlignment())
-    , justifyItems(RenderStyle::initialJustifyItems())
-    , justifySelf(RenderStyle::initialSelfAlignment())
+    , textDecorationColor(RenderStyle::initialTextDecorationColor())
     , customProperties(StyleCustomPropertyData::create())
-    , touchActions(RenderStyle::initialTouchActions())
-    , pageSizeType(PAGE_SIZE_AUTO)
+    // customPaintWatchedProperties
+    , rotate(RenderStyle::initialRotate())
+    , scale(RenderStyle::initialScale())
+    , translate(RenderStyle::initialTranslate())
+    , offsetPath(RenderStyle::initialOffsetPath())
+    // containerNames
+    , viewTransitionClasses(RenderStyle::initialViewTransitionClasses())
+    , viewTransitionName(RenderStyle::initialViewTransitionName())
+    , columnGap(RenderStyle::initialColumnGap())
+    , rowGap(RenderStyle::initialRowGap())
+    , offsetDistance(RenderStyle::initialOffsetDistance())
+    , offsetPosition(RenderStyle::initialOffsetPosition())
+    , offsetAnchor(RenderStyle::initialOffsetAnchor())
+    , offsetRotate(RenderStyle::initialOffsetRotate())
+    , textDecorationThickness(RenderStyle::initialTextDecorationThickness())
+    // scrollTimelines
+    // scrollTimelineAxes
+    // scrollTimelineNames
+    // viewTimelines
+    // viewTimelineAxes
+    // viewTimelineInsets
+    // viewTimelineNames
+    // timelineScope
+    // scrollbarGutter
+    // scrollSnapType
+    // scrollSnapAlign
+    // scrollSnapStop
+    , pseudoElementNameArgument(nullAtom())
+    , anchorNames(RenderStyle::initialAnchorNames())
+    , anchorScope(RenderStyle::initialAnchorScope())
+    , positionAnchor(RenderStyle::initialPositionAnchor())
+    , positionArea(RenderStyle::initialPositionArea())
+    , positionTryFallbacks(RenderStyle::initialPositionTryFallbacks())
+    , blockStepSize(RenderStyle::initialBlockStepSize())
+    , blockStepAlign(static_cast<unsigned>(RenderStyle::initialBlockStepAlign()))
+    , blockStepInsert(static_cast<unsigned>(RenderStyle::initialBlockStepInsert()))
+    , blockStepRound(static_cast<unsigned>(RenderStyle::initialBlockStepRound()))
+    , overscrollBehaviorX(static_cast<unsigned>(RenderStyle::initialOverscrollBehaviorX()))
+    , overscrollBehaviorY(static_cast<unsigned>(RenderStyle::initialOverscrollBehaviorY()))
+    , pageSizeType(static_cast<unsigned>(PageSizeType::Auto))
     , transformStyle3D(static_cast<unsigned>(RenderStyle::initialTransformStyle3D()))
+    , transformStyleForcedToFlat(false)
     , backfaceVisibility(static_cast<unsigned>(RenderStyle::initialBackfaceVisibility()))
-    , userDrag(static_cast<unsigned>(RenderStyle::initialUserDrag()))
-    , textOverflow(static_cast<unsigned>(RenderStyle::initialTextOverflow()))
     , useSmoothScrolling(static_cast<unsigned>(RenderStyle::initialUseSmoothScrolling()))
-    , marginBeforeCollapse(static_cast<unsigned>(MarginCollapse::Collapse))
-    , marginAfterCollapse(static_cast<unsigned>(MarginCollapse::Collapse))
-    , appearance(static_cast<unsigned>(RenderStyle::initialAppearance()))
-    , borderFit(static_cast<unsigned>(RenderStyle::initialBorderFit()))
-    , textCombine(static_cast<unsigned>(RenderStyle::initialTextCombine()))
     , textDecorationStyle(static_cast<unsigned>(RenderStyle::initialTextDecorationStyle()))
-    , aspectRatioType(static_cast<unsigned>(RenderStyle::initialAspectRatioType()))
-#if ENABLE(CSS_COMPOSITING)
+    , textGroupAlign(static_cast<unsigned>(RenderStyle::initialTextGroupAlign()))
+    , contentVisibility(static_cast<unsigned>(RenderStyle::initialContentVisibility()))
     , effectiveBlendMode(static_cast<unsigned>(RenderStyle::initialBlendMode()))
     , isolation(static_cast<unsigned>(RenderStyle::initialIsolation()))
-#endif
+    , inputSecurity(static_cast<unsigned>(RenderStyle::initialInputSecurity()))
 #if ENABLE(APPLE_PAY)
     , applePayButtonStyle(static_cast<unsigned>(RenderStyle::initialApplePayButtonStyle()))
     , applePayButtonType(static_cast<unsigned>(RenderStyle::initialApplePayButtonType()))
 #endif
-    , objectFit(static_cast<unsigned>(RenderStyle::initialObjectFit()))
     , breakBefore(static_cast<unsigned>(RenderStyle::initialBreakBetween()))
     , breakAfter(static_cast<unsigned>(RenderStyle::initialBreakBetween()))
     , breakInside(static_cast<unsigned>(RenderStyle::initialBreakInside()))
-    , resize(static_cast<unsigned>(RenderStyle::initialResize()))
-    , hasAttrContent(false)
-    , isNotFinal(false)
-    , columnGap(RenderStyle::initialColumnGap())
-    , rowGap(RenderStyle::initialRowGap())
+    , containIntrinsicWidthType(static_cast<unsigned>(RenderStyle::initialContainIntrinsicWidthType()))
+    , containIntrinsicHeightType(static_cast<unsigned>(RenderStyle::initialContainIntrinsicHeightType()))
+    , containerType(static_cast<unsigned>(RenderStyle::initialContainerType()))
+    , textBoxTrim(static_cast<unsigned>(RenderStyle::initialTextBoxTrim()))
+    , overflowAnchor(static_cast<unsigned>(RenderStyle::initialOverflowAnchor()))
+    , hasClip(false)
+    , positionTryOrder(static_cast<unsigned>(RenderStyle::initialPositionTryOrder()))
+    , fieldSizing(static_cast<unsigned>(RenderStyle::initialFieldSizing()))
+    , nativeAppearanceDisabled(static_cast<unsigned>(RenderStyle::initialNativeAppearanceDisabled()))
+#if HAVE(CORE_MATERIAL)
+    , appleVisualEffect(static_cast<unsigned>(RenderStyle::initialAppleVisualEffect()))
+#endif
+    , scrollbarWidth(static_cast<unsigned>(RenderStyle::initialScrollbarWidth()))
 {
 }
 
 inline StyleRareNonInheritedData::StyleRareNonInheritedData(const StyleRareNonInheritedData& o)
     : RefCounted<StyleRareNonInheritedData>()
-    , opacity(o.opacity)
-    , aspectRatioDenominator(o.aspectRatioDenominator)
-    , aspectRatioNumerator(o.aspectRatioNumerator)
-    , perspective(o.perspective)
+    , containIntrinsicWidth(o.containIntrinsicWidth)
+    , containIntrinsicHeight(o.containIntrinsicHeight)
     , perspectiveOriginX(o.perspectiveOriginX)
     , perspectiveOriginY(o.perspectiveOriginY)
     , lineClamp(o.lineClamp)
+    , zoom(o.zoom)
+    , maxLines(o.maxLines)
+    , overflowContinue(o.overflowContinue)
+    , touchActions(o.touchActions)
+    , marginTrim(o.marginTrim)
+    , contain(o.contain)
     , initialLetter(o.initialLetter)
-    , deprecatedFlexibleBox(o.deprecatedFlexibleBox)
-    , flexibleBox(o.flexibleBox)
     , marquee(o.marquee)
-    , multiCol(o.multiCol)
-    , transform(o.transform)
-    , filter(o.filter)
-#if ENABLE(FILTERS_LEVEL_2)
     , backdropFilter(o.backdropFilter)
-#endif
     , grid(o.grid)
     , gridItem(o.gridItem)
-#if ENABLE(CSS_SCROLL_SNAP)
-    , scrollSnapPort(o.scrollSnapPort)
-    , scrollSnapArea(o.scrollSnapArea)
-#endif
-    , content(o.content ? o.content->clone() : nullptr)
-    , counterDirectives(o.counterDirectives ? makeUnique<CounterDirectiveMap>(*o.counterDirectives) : nullptr)
-    , altText(o.altText)
-    , boxShadow(o.boxShadow ? makeUnique<ShadowData>(*o.boxShadow) : nullptr)
+    , clip(o.clip)
+    , scrollMargin(o.scrollMargin)
+    , scrollPadding(o.scrollPadding)
+    , counterDirectives(o.counterDirectives)
     , willChange(o.willChange)
     , boxReflect(o.boxReflect)
-    , animations(o.animations ? o.animations->copy() : o.animations)
-    , transitions(o.transitions ? o.transitions->copy() : o.transitions)
-    , mask(o.mask)
-    , maskBoxImage(o.maskBoxImage)
+    , maskBorder(o.maskBorder)
     , pageSize(o.pageSize)
-    , objectPosition(o.objectPosition)
     , shapeOutside(o.shapeOutside)
     , shapeMargin(o.shapeMargin)
     , shapeImageThreshold(o.shapeImageThreshold)
-    , order(o.order)
+    , perspective(o.perspective)
     , clipPath(o.clipPath)
     , textDecorationColor(o.textDecorationColor)
-    , visitedLinkTextDecorationColor(o.visitedLinkTextDecorationColor)
-    , visitedLinkBackgroundColor(o.visitedLinkBackgroundColor)
-    , visitedLinkOutlineColor(o.visitedLinkOutlineColor)
-    , visitedLinkBorderLeftColor(o.visitedLinkBorderLeftColor)
-    , visitedLinkBorderRightColor(o.visitedLinkBorderRightColor)
-    , visitedLinkBorderTopColor(o.visitedLinkBorderTopColor)
-    , visitedLinkBorderBottomColor(o.visitedLinkBorderBottomColor)
-    , alignContent(o.alignContent)
-    , alignItems(o.alignItems)
-    , alignSelf(o.alignSelf)
-    , justifyContent(o.justifyContent)
-    , justifyItems(o.justifyItems)
-    , justifySelf(o.justifySelf)
     , customProperties(o.customProperties)
-    , customPaintWatchedProperties(o.customPaintWatchedProperties ? makeUnique<HashSet<String>>(*o.customPaintWatchedProperties) : nullptr)
-    , touchActions(o.touchActions)
+    , customPaintWatchedProperties(o.customPaintWatchedProperties)
+    , rotate(o.rotate)
+    , scale(o.scale)
+    , translate(o.translate)
+    , offsetPath(o.offsetPath)
+    , containerNames(o.containerNames)
+    , viewTransitionClasses(o.viewTransitionClasses)
+    , viewTransitionName(o.viewTransitionName)
+    , columnGap(o.columnGap)
+    , rowGap(o.rowGap)
+    , offsetDistance(o.offsetDistance)
+    , offsetPosition(o.offsetPosition)
+    , offsetAnchor(o.offsetAnchor)
+    , offsetRotate(o.offsetRotate)
+    , textDecorationThickness(o.textDecorationThickness)
+    , scrollTimelines(o.scrollTimelines)
+    , scrollTimelineAxes(o.scrollTimelineAxes)
+    , scrollTimelineNames(o.scrollTimelineNames)
+    , viewTimelines(o.viewTimelines)
+    , viewTimelineAxes(o.viewTimelineAxes)
+    , viewTimelineInsets(o.viewTimelineInsets)
+    , viewTimelineNames(o.viewTimelineNames)
+    , timelineScope(o.timelineScope)
+    , scrollbarGutter(o.scrollbarGutter)
+    , scrollSnapType(o.scrollSnapType)
+    , scrollSnapAlign(o.scrollSnapAlign)
+    , scrollSnapStop(o.scrollSnapStop)
+    , pseudoElementNameArgument(o.pseudoElementNameArgument)
+    , anchorNames(o.anchorNames)
+    , anchorScope(o.anchorScope)
+    , positionAnchor(o.positionAnchor)
+    , positionArea(o.positionArea)
+    , positionTryFallbacks(o.positionTryFallbacks)
+    , blockStepSize(o.blockStepSize)
+    , blockStepAlign(o.blockStepAlign)
+    , blockStepInsert(o.blockStepInsert)
+    , blockStepRound(o.blockStepRound)
+    , overscrollBehaviorX(o.overscrollBehaviorX)
+    , overscrollBehaviorY(o.overscrollBehaviorY)
     , pageSizeType(o.pageSizeType)
     , transformStyle3D(o.transformStyle3D)
+    , transformStyleForcedToFlat(o.transformStyleForcedToFlat)
     , backfaceVisibility(o.backfaceVisibility)
-    , userDrag(o.userDrag)
-    , textOverflow(o.textOverflow)
     , useSmoothScrolling(o.useSmoothScrolling)
-    , marginBeforeCollapse(o.marginBeforeCollapse)
-    , marginAfterCollapse(o.marginAfterCollapse)
-    , appearance(o.appearance)
-    , borderFit(o.borderFit)
-    , textCombine(o.textCombine)
     , textDecorationStyle(o.textDecorationStyle)
-    , aspectRatioType(o.aspectRatioType)
-#if ENABLE(CSS_COMPOSITING)
+    , textGroupAlign(o.textGroupAlign)
+    , contentVisibility(o.contentVisibility)
     , effectiveBlendMode(o.effectiveBlendMode)
     , isolation(o.isolation)
-#endif
+    , inputSecurity(o.inputSecurity)
 #if ENABLE(APPLE_PAY)
     , applePayButtonStyle(o.applePayButtonStyle)
     , applePayButtonType(o.applePayButtonType)
 #endif
-    , objectFit(o.objectFit)
     , breakBefore(o.breakBefore)
     , breakAfter(o.breakAfter)
     , breakInside(o.breakInside)
-    , resize(o.resize)
-    , hasAttrContent(o.hasAttrContent)
-    , isNotFinal(o.isNotFinal)
-    , columnGap(o.columnGap)
-    , rowGap(o.rowGap)
+    , containIntrinsicWidthType(o.containIntrinsicWidthType)
+    , containIntrinsicHeightType(o.containIntrinsicHeightType)
+    , containerType(o.containerType)
+    , textBoxTrim(o.textBoxTrim)
+    , overflowAnchor(o.overflowAnchor)
+    , hasClip(o.hasClip)
+    , positionTryOrder(o.positionTryOrder)
+    , fieldSizing(o.fieldSizing)
+    , nativeAppearanceDisabled(o.nativeAppearanceDisabled)
+#if HAVE(CORE_MATERIAL)
+    , appleVisualEffect(o.appleVisualEffect)
+#endif
+    , scrollbarWidth(o.scrollbarWidth)
 {
 }
 
@@ -216,119 +257,282 @@ StyleRareNonInheritedData::~StyleRareNonInheritedData() = default;
 
 bool StyleRareNonInheritedData::operator==(const StyleRareNonInheritedData& o) const
 {
-    return opacity == o.opacity
-        && aspectRatioDenominator == o.aspectRatioDenominator
-        && aspectRatioNumerator == o.aspectRatioNumerator
-        && perspective == o.perspective
+    return containIntrinsicWidth == o.containIntrinsicWidth
+        && containIntrinsicHeight == o.containIntrinsicHeight
         && perspectiveOriginX == o.perspectiveOriginX
         && perspectiveOriginY == o.perspectiveOriginY
         && lineClamp == o.lineClamp
+        && zoom == o.zoom
+        && maxLines == o.maxLines
+        && overflowContinue == o.overflowContinue
+        && touchActions == o.touchActions
+        && marginTrim == o.marginTrim
+        && contain == o.contain
         && initialLetter == o.initialLetter
-        && deprecatedFlexibleBox == o.deprecatedFlexibleBox
-        && flexibleBox == o.flexibleBox
         && marquee == o.marquee
-        && multiCol == o.multiCol
-        && transform == o.transform
-        && filter == o.filter
-#if ENABLE(FILTERS_LEVEL_2)
         && backdropFilter == o.backdropFilter
-#endif
         && grid == o.grid
         && gridItem == o.gridItem
-#if ENABLE(CSS_SCROLL_SNAP)
-        && scrollSnapPort == o.scrollSnapPort
-        && scrollSnapArea == o.scrollSnapArea
-#endif
-        && contentDataEquivalent(o)
-        && arePointingToEqualData(counterDirectives, o.counterDirectives)
-        && altText == o.altText
-        && arePointingToEqualData(boxShadow, o.boxShadow)
+        && clip == o.clip
+        && scrollMargin == o.scrollMargin
+        && scrollPadding == o.scrollPadding
+        && counterDirectives == o.counterDirectives
         && arePointingToEqualData(willChange, o.willChange)
         && arePointingToEqualData(boxReflect, o.boxReflect)
-        && arePointingToEqualData(animations, o.animations)
-        && arePointingToEqualData(transitions, o.transitions)
-        && mask == o.mask
-        && maskBoxImage == o.maskBoxImage
+        && maskBorder == o.maskBorder
         && pageSize == o.pageSize
-        && objectPosition == o.objectPosition
         && arePointingToEqualData(shapeOutside, o.shapeOutside)
         && shapeMargin == o.shapeMargin
         && shapeImageThreshold == o.shapeImageThreshold
-        && order == o.order
+        && perspective == o.perspective
         && arePointingToEqualData(clipPath, o.clipPath)
         && textDecorationColor == o.textDecorationColor
-        && visitedLinkTextDecorationColor == o.visitedLinkTextDecorationColor
-        && visitedLinkBackgroundColor == o.visitedLinkBackgroundColor
-        && visitedLinkOutlineColor == o.visitedLinkOutlineColor
-        && visitedLinkBorderLeftColor == o.visitedLinkBorderLeftColor
-        && visitedLinkBorderRightColor == o.visitedLinkBorderRightColor
-        && visitedLinkBorderTopColor == o.visitedLinkBorderTopColor
-        && visitedLinkBorderBottomColor == o.visitedLinkBorderBottomColor
-        && alignContent == o.alignContent
-        && alignItems == o.alignItems
-        && alignSelf == o.alignSelf
-        && justifyContent == o.justifyContent
-        && justifyItems == o.justifyItems
-        && justifySelf == o.justifySelf
         && customProperties == o.customProperties
-        && ((customPaintWatchedProperties && o.customPaintWatchedProperties && *customPaintWatchedProperties == *o.customPaintWatchedProperties)
-            || (!customPaintWatchedProperties && !o.customPaintWatchedProperties))
+        && customPaintWatchedProperties == o.customPaintWatchedProperties
+        && arePointingToEqualData(rotate, o.rotate)
+        && arePointingToEqualData(scale, o.scale)
+        && arePointingToEqualData(translate, o.translate)
+        && arePointingToEqualData(offsetPath, o.offsetPath)
+        && containerNames == o.containerNames
+        && columnGap == o.columnGap
+        && rowGap == o.rowGap
+        && offsetDistance == o.offsetDistance
+        && offsetPosition == o.offsetPosition
+        && offsetAnchor == o.offsetAnchor
+        && offsetRotate == o.offsetRotate
+        && textDecorationThickness == o.textDecorationThickness
+        && scrollTimelines == o.scrollTimelines
+        && scrollTimelineAxes == o.scrollTimelineAxes
+        && scrollTimelineNames == o.scrollTimelineNames
+        && viewTimelines == o.viewTimelines
+        && viewTimelineAxes == o.viewTimelineAxes
+        && viewTimelineInsets == o.viewTimelineInsets
+        && viewTimelineNames == o.viewTimelineNames
+        && timelineScope == o.timelineScope
+        && scrollbarGutter == o.scrollbarGutter
+        && scrollSnapType == o.scrollSnapType
+        && scrollSnapAlign == o.scrollSnapAlign
+        && scrollSnapStop == o.scrollSnapStop
+        && pseudoElementNameArgument == o.pseudoElementNameArgument
+        && anchorNames == o.anchorNames
+        && anchorScope == o.anchorScope
+        && positionAnchor == o.positionAnchor
+        && positionArea == o.positionArea
+        && positionTryFallbacks == o.positionTryFallbacks
+        && blockStepSize == o.blockStepSize
+        && blockStepAlign == o.blockStepAlign
+        && blockStepInsert == o.blockStepInsert
+        && blockStepRound == o.blockStepRound
+        && overscrollBehaviorX == o.overscrollBehaviorX
+        && overscrollBehaviorY == o.overscrollBehaviorY
         && pageSizeType == o.pageSizeType
         && transformStyle3D == o.transformStyle3D
+        && transformStyleForcedToFlat == o.transformStyleForcedToFlat
         && backfaceVisibility == o.backfaceVisibility
-        && userDrag == o.userDrag
-        && textOverflow == o.textOverflow
         && useSmoothScrolling == o.useSmoothScrolling
-        && marginBeforeCollapse == o.marginBeforeCollapse
-        && marginAfterCollapse == o.marginAfterCollapse
-        && appearance == o.appearance
-        && borderFit == o.borderFit
-        && textCombine == o.textCombine
         && textDecorationStyle == o.textDecorationStyle
-        && touchActions == o.touchActions
-#if ENABLE(CSS_COMPOSITING)
+        && textGroupAlign == o.textGroupAlign
         && effectiveBlendMode == o.effectiveBlendMode
         && isolation == o.isolation
-#endif
+        && inputSecurity == o.inputSecurity
 #if ENABLE(APPLE_PAY)
         && applePayButtonStyle == o.applePayButtonStyle
         && applePayButtonType == o.applePayButtonType
 #endif
-        && aspectRatioType == o.aspectRatioType
-        && objectFit == o.objectFit
+        && contentVisibility == o.contentVisibility
         && breakAfter == o.breakAfter
         && breakBefore == o.breakBefore
         && breakInside == o.breakInside
-        && resize == o.resize
-        && hasAttrContent == o.hasAttrContent
-        && isNotFinal == o.isNotFinal
-        && columnGap == o.columnGap
-        && rowGap == o.rowGap;
+        && containIntrinsicWidthType == o.containIntrinsicWidthType
+        && containIntrinsicHeightType == o.containIntrinsicHeightType
+        && containerType == o.containerType
+        && textBoxTrim == o.textBoxTrim
+        && overflowAnchor == o.overflowAnchor
+        && viewTransitionClasses == o.viewTransitionClasses
+        && viewTransitionName == o.viewTransitionName
+        && hasClip == o.hasClip
+        && positionTryOrder == o.positionTryOrder
+        && fieldSizing == o.fieldSizing
+        && nativeAppearanceDisabled == o.nativeAppearanceDisabled
+#if HAVE(CORE_MATERIAL)
+        && appleVisualEffect == o.appleVisualEffect
+#endif
+        && scrollbarWidth == o.scrollbarWidth;
 }
 
-bool StyleRareNonInheritedData::contentDataEquivalent(const StyleRareNonInheritedData& other) const
+OptionSet<Containment> StyleRareNonInheritedData::usedContain() const
 {
-    auto* a = content.get();
-    auto* b = other.content.get();
-    while (a && b && *a == *b) {
-        a = a->next();
-        b = b->next();
-    }
-    return !a && !b;
-}
+    auto containment = contain;
 
-bool StyleRareNonInheritedData::hasFilters() const
-{
-    return !filter->operations.isEmpty();
-}
+    switch (static_cast<ContainerType>(containerType)) {
+    case ContainerType::Normal:
+        break;
+    case ContainerType::Size:
+        containment.add({ Containment::Style, Containment::Size });
+        break;
+    case ContainerType::InlineSize:
+        containment.add({ Containment::Style, Containment::InlineSize });
+        break;
+    };
 
-#if ENABLE(FILTERS_LEVEL_2)
+    return containment;
+}
 
 bool StyleRareNonInheritedData::hasBackdropFilters() const
 {
     return !backdropFilter->operations.isEmpty();
 }
 
+#if !LOG_DISABLED
+void StyleRareNonInheritedData::dumpDifferences(TextStream& ts, const StyleRareNonInheritedData& other) const
+{
+    marquee->dumpDifferences(ts, other.marquee);
+    backdropFilter->dumpDifferences(ts, other.backdropFilter);
+    grid->dumpDifferences(ts, other.grid);
+    gridItem->dumpDifferences(ts, other.gridItem);
+
+    LOG_IF_DIFFERENT(containIntrinsicWidth);
+    LOG_IF_DIFFERENT(containIntrinsicHeight);
+
+    LOG_IF_DIFFERENT(perspectiveOriginX);
+    LOG_IF_DIFFERENT(perspectiveOriginY);
+
+    LOG_IF_DIFFERENT(lineClamp);
+
+    LOG_IF_DIFFERENT(zoom);
+
+    LOG_IF_DIFFERENT(maxLines);
+    LOG_IF_DIFFERENT(overflowContinue);
+
+    LOG_IF_DIFFERENT(touchActions);
+    LOG_IF_DIFFERENT(marginTrim);
+    LOG_IF_DIFFERENT(contain);
+
+    LOG_IF_DIFFERENT(initialLetter);
+
+    LOG_IF_DIFFERENT(clip);
+    LOG_IF_DIFFERENT(scrollMargin);
+    LOG_IF_DIFFERENT(scrollPadding);
+
+    LOG_IF_DIFFERENT(counterDirectives);
+
+    LOG_IF_DIFFERENT(willChange);
+    LOG_IF_DIFFERENT(boxReflect);
+
+    LOG_IF_DIFFERENT(maskBorder);
+    LOG_IF_DIFFERENT(pageSize);
+
+    LOG_IF_DIFFERENT(shapeOutside);
+
+    LOG_IF_DIFFERENT(shapeMargin);
+    LOG_IF_DIFFERENT(shapeImageThreshold);
+    LOG_IF_DIFFERENT(perspective);
+
+    LOG_IF_DIFFERENT(clipPath);
+
+    LOG_IF_DIFFERENT(textDecorationColor);
+
+    customProperties->dumpDifferences(ts, other.customProperties);
+    LOG_IF_DIFFERENT(customPaintWatchedProperties);
+
+    LOG_IF_DIFFERENT(rotate);
+    LOG_IF_DIFFERENT(scale);
+    LOG_IF_DIFFERENT(translate);
+    LOG_IF_DIFFERENT(offsetPath);
+
+    LOG_IF_DIFFERENT(containerNames);
+
+    LOG_IF_DIFFERENT(viewTransitionClasses);
+    LOG_IF_DIFFERENT(viewTransitionName);
+
+    LOG_IF_DIFFERENT(columnGap);
+    LOG_IF_DIFFERENT(rowGap);
+
+    LOG_IF_DIFFERENT(offsetDistance);
+    LOG_IF_DIFFERENT(offsetPosition);
+    LOG_IF_DIFFERENT(offsetAnchor);
+    LOG_IF_DIFFERENT(offsetRotate);
+
+    LOG_IF_DIFFERENT(textDecorationThickness);
+
+    LOG_IF_DIFFERENT(scrollTimelines);
+    LOG_IF_DIFFERENT(scrollTimelineAxes);
+    LOG_IF_DIFFERENT(scrollTimelineNames);
+
+    LOG_IF_DIFFERENT(viewTimelines);
+    LOG_IF_DIFFERENT(viewTimelineAxes);
+    LOG_IF_DIFFERENT(viewTimelineInsets);
+    LOG_IF_DIFFERENT(viewTimelineNames);
+
+    LOG_IF_DIFFERENT(timelineScope);
+
+    LOG_IF_DIFFERENT(scrollbarGutter);
+
+    LOG_IF_DIFFERENT(scrollSnapType);
+    LOG_IF_DIFFERENT(scrollSnapAlign);
+    LOG_IF_DIFFERENT(scrollSnapStop);
+
+    LOG_IF_DIFFERENT(pseudoElementNameArgument);
+
+    LOG_IF_DIFFERENT(anchorNames);
+    LOG_IF_DIFFERENT(anchorScope);
+    LOG_IF_DIFFERENT(positionAnchor);
+    LOG_IF_DIFFERENT(positionArea);
+    LOG_IF_DIFFERENT(positionTryFallbacks);
+
+    LOG_IF_DIFFERENT(blockStepSize);
+
+    LOG_IF_DIFFERENT_WITH_CAST(BlockStepAlign, blockStepAlign);
+    LOG_IF_DIFFERENT_WITH_CAST(BlockStepInsert, blockStepInsert);
+    LOG_IF_DIFFERENT_WITH_CAST(BlockStepRound, blockStepRound);
+
+    LOG_IF_DIFFERENT_WITH_CAST(OverscrollBehavior, overscrollBehaviorX);
+    LOG_IF_DIFFERENT_WITH_CAST(OverscrollBehavior, overscrollBehaviorY);
+
+    LOG_IF_DIFFERENT_WITH_CAST(PageSizeType, pageSizeType);
+
+    LOG_IF_DIFFERENT_WITH_CAST(TransformStyle3D, transformStyle3D);
+    LOG_IF_DIFFERENT_WITH_CAST(bool, transformStyleForcedToFlat);
+    LOG_IF_DIFFERENT_WITH_CAST(BackfaceVisibility, backfaceVisibility);
+
+    LOG_IF_DIFFERENT_WITH_CAST(ScrollBehavior, useSmoothScrolling);
+    LOG_IF_DIFFERENT_WITH_CAST(TextDecorationStyle, textDecorationStyle);
+    LOG_IF_DIFFERENT_WITH_CAST(TextGroupAlign, textGroupAlign);
+
+    LOG_IF_DIFFERENT_WITH_CAST(ContentVisibility, contentVisibility);
+    LOG_IF_DIFFERENT_WITH_CAST(BlendMode, effectiveBlendMode);
+
+    LOG_IF_DIFFERENT_WITH_CAST(Isolation, isolation);
+
+    LOG_IF_DIFFERENT_WITH_CAST(InputSecurity, inputSecurity);
+
+#if ENABLE(APPLE_PAY)
+    LOG_IF_DIFFERENT_WITH_CAST(ApplePayButtonStyle, applePayButtonStyle);
+    LOG_IF_DIFFERENT_WITH_CAST(ApplePayButtonType, applePayButtonType);
 #endif
+
+    LOG_IF_DIFFERENT_WITH_CAST(BreakBetween, breakBefore);
+    LOG_IF_DIFFERENT_WITH_CAST(BreakBetween, breakAfter);
+    LOG_IF_DIFFERENT_WITH_CAST(BreakInside, breakInside);
+
+    LOG_IF_DIFFERENT_WITH_CAST(ContainIntrinsicSizeType, containIntrinsicWidthType);
+    LOG_IF_DIFFERENT_WITH_CAST(ContainIntrinsicSizeType, containIntrinsicHeightType);
+
+    LOG_IF_DIFFERENT_WITH_CAST(ContainerType, containerType);
+    LOG_IF_DIFFERENT_WITH_CAST(TextBoxTrim, textBoxTrim);
+    LOG_IF_DIFFERENT_WITH_CAST(OverflowAnchor, overflowAnchor);
+    LOG_IF_DIFFERENT_WITH_CAST(bool, hasClip);
+    LOG_IF_DIFFERENT_WITH_CAST(Style::PositionTryOrder, positionTryOrder);
+    LOG_IF_DIFFERENT(fieldSizing);
+
+    LOG_IF_DIFFERENT(nativeAppearanceDisabled);
+
+#if HAVE(CORE_MATERIAL)
+    LOG_IF_DIFFERENT(appleVisualEffect);
+#endif
+
+    LOG_IF_DIFFERENT(scrollbarWidth);
+}
+#endif // !LOG_DISABLED
 
 } // namespace WebCore

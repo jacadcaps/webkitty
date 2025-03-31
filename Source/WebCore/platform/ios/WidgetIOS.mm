@@ -31,10 +31,10 @@
 #import "Cursor.h"
 #import "Document.h"
 #import "FontCascade.h"
-#import "Frame.h"
-#import "FrameView.h"
 #import "GraphicsContext.h"
 #import "HostWindow.h"
+#import "LocalFrame.h"
+#import "LocalFrameView.h"
 #import "PlatformMouseEvent.h"
 #import "ScrollView.h"
 #import "WAKScrollView.h"
@@ -43,6 +43,7 @@
 #import "WebCoreFrameView.h"
 #import "WebCoreView.h"
 #import <wtf/BlockObjCExceptions.h>
+#import <wtf/cocoa/TypeCastsCocoa.h>
 
 @interface NSView (WebSetSelectedMethods)
 - (void)setIsSelected:(BOOL)isSelected;
@@ -72,14 +73,6 @@ Widget::~Widget()
 void Widget::setFocus(bool focused)
 {
     UNUSED_PARAM(focused);
-}
-
-void Widget::setCursor(const Cursor& cursor)
-{
-    FrameView* view = root();
-    if (!view)
-        return;
-    view->hostWindow()->setCursor(cursor);
 }
 
 void Widget::show()
@@ -146,7 +139,7 @@ NSView* Widget::getOuterView() const
     return view;
 }
 
-void Widget::paint(GraphicsContext& p, const IntRect& r, SecurityOriginPaintPolicy, EventRegionContext*)
+void Widget::paint(GraphicsContext& p, const IntRect& r, SecurityOriginPaintPolicy, RegionContext*)
 {
     if (p.paintingDisabled())
         return;
@@ -202,8 +195,7 @@ IntRect Widget::convertFromRootToContainingWindow(const Widget* rootWidget, cons
         return rect;
 
     BEGIN_BLOCK_OBJC_EXCEPTIONS
-    ASSERT([rootWidget->platformWidget() isKindOfClass:[NSScrollView class]]);
-    WAKScrollView *view = static_cast<WAKScrollView *>(rootWidget->platformWidget());
+    WAKScrollView *view = checked_objc_cast<WAKScrollView>(rootWidget->platformWidget());
     if (WAKView *documentView = [view documentView])
         return enclosingIntRect([documentView convertRect:rect toView:nil]);
     return enclosingIntRect([view convertRect:rect toView:nil]);
@@ -218,8 +210,7 @@ IntRect Widget::convertFromContainingWindowToRoot(const Widget* rootWidget, cons
         return rect;
 
     BEGIN_BLOCK_OBJC_EXCEPTIONS
-    ASSERT([rootWidget->platformWidget() isKindOfClass:[NSScrollView class]]);
-    WAKScrollView *view = static_cast<WAKScrollView *>(rootWidget->platformWidget());
+    WAKScrollView *view = checked_objc_cast<WAKScrollView>(rootWidget->platformWidget());
     if (WAKView *documentView = [view documentView])
         return enclosingIntRect([documentView convertRect:rect fromView:nil]);
     return enclosingIntRect([view convertRect:rect fromView:nil]);
@@ -234,8 +225,7 @@ IntPoint Widget::convertFromRootToContainingWindow(const Widget* rootWidget, con
         return point;
 
     BEGIN_BLOCK_OBJC_EXCEPTIONS
-    ASSERT([rootWidget->platformWidget() isKindOfClass:[NSScrollView class]]);
-    WAKScrollView *view = static_cast<WAKScrollView *>(rootWidget->platformWidget());
+    WAKScrollView *view = checked_objc_cast<WAKScrollView>(rootWidget->platformWidget());
     NSPoint convertedPoint;
     if (WAKView *documentView = [view documentView])
         convertedPoint = [documentView convertPoint:point toView:nil];
@@ -253,8 +243,7 @@ IntPoint Widget::convertFromContainingWindowToRoot(const Widget* rootWidget, con
         return point;
 
     BEGIN_BLOCK_OBJC_EXCEPTIONS
-    ASSERT([rootWidget->platformWidget() isKindOfClass:[NSScrollView class]]);
-    WAKScrollView *view = static_cast<WAKScrollView *>(rootWidget->platformWidget());
+    WAKScrollView *view = checked_objc_cast<WAKScrollView>(rootWidget->platformWidget());
     NSPoint convertedPoint;
     if (WAKView *documentView = [view documentView])
         convertedPoint = IntPoint([documentView convertPoint:point fromView:nil]);

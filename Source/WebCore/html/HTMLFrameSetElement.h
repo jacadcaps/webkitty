@@ -28,8 +28,11 @@
 
 namespace WebCore {
 
+class WindowProxy;
+
 class HTMLFrameSetElement final : public HTMLElement {
-    WTF_MAKE_ISO_ALLOCATED(HTMLFrameSetElement);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(HTMLFrameSetElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HTMLFrameSetElement);
 public:
     static Ref<HTMLFrameSetElement> create(const QualifiedName&, Document&);
 
@@ -42,23 +45,23 @@ public:
 
     bool hasBorderColor() const { return m_borderColorSet; }
 
-    const Length* rowLengths() const { return m_rowLengths.get(); }
-    const Length* colLengths() const { return m_colLengths.get(); }
+    std::span<const Length> rowLengths() const { return m_rowLengths ? unsafeMakeSpan(m_rowLengths.get(), m_totalRows) : std::span<const Length> { }; }
+    std::span<const Length> colLengths() const { return m_colLengths ? unsafeMakeSpan(m_colLengths.get(), m_totalCols) : std::span<const Length> { }; }
 
     static RefPtr<HTMLFrameSetElement> findContaining(Element* descendant);
     
     Vector<AtomString> supportedPropertyNames() const;
     WindowProxy* namedItem(const AtomString&);
+    bool isSupportedPropertyName(const AtomString&);
 
 private:
     HTMLFrameSetElement(const QualifiedName&, Document&);
 
-    void parseAttribute(const QualifiedName&, const AtomString&) final;
-    bool isPresentationAttribute(const QualifiedName&) const final;
-    void collectStyleForPresentationAttribute(const QualifiedName&, const AtomString&, MutableStyleProperties&) final;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
+    bool hasPresentationalHintsForAttribute(const QualifiedName&) const final;
+    void collectPresentationalHintsForAttribute(const QualifiedName&, const AtomString&, MutableStyleProperties&) final;
 
     void willAttachRenderers() final;
-    bool rendererIsNeeded(const RenderStyle&) final;
     RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
     
     void defaultEventHandler(Event&) final;

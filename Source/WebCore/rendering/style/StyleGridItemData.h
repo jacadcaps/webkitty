@@ -36,7 +36,9 @@
 
 namespace WebCore {
 
+DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(StyleGridItemData);
 class StyleGridItemData : public RefCounted<StyleGridItemData> {
+    WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(StyleGridItemData);
 public:
     static Ref<StyleGridItemData> create() { return adoptRef(*new StyleGridItemData); }
     Ref<StyleGridItemData> copy() const;
@@ -47,10 +49,9 @@ public:
             && gridRowStart == o.gridRowStart && gridRowEnd == o.gridRowEnd;
     }
 
-    bool operator!=(const StyleGridItemData& o) const
-    {
-        return !(*this == o);
-    }
+#if !LOG_DISABLED
+    void dumpDifferences(TextStream&, const StyleGridItemData&) const;
+#endif
 
     GridPosition gridColumnStart;
     GridPosition gridColumnEnd;

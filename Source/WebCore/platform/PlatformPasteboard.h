@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012 Apple Inc.  All rights reserved.
+ * Copyright (C) 2012-2021 Apple Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,9 +23,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef PlatformPasteboard_h
-#define PlatformPasteboard_h
+#pragma once
 
+#include "DataOwnerType.h"
 #include <wtf/Forward.h>
 #include <wtf/Function.h>
 #include <wtf/RetainPtr.h>
@@ -38,6 +38,7 @@ OBJC_CLASS NSPasteboardItem;
 
 #if PLATFORM(IOS_FAMILY)
 OBJC_CLASS UIPasteboard;
+OBJC_PROTOCOL(AbstractPasteboard);
 #endif
 
 #if USE(LIBWPE)
@@ -47,13 +48,15 @@ struct wpe_pasteboard;
 namespace WebCore {
 
 class Color;
+class SharedBuffer;
 class PasteboardCustomData;
 class SelectionData;
-class SharedBuffer;
+struct PasteboardBuffer;
 struct PasteboardImage;
 struct PasteboardItemInfo;
 struct PasteboardURL;
 struct PasteboardWebContent;
+class FragmentedSharedBuffer;
 
 class PlatformPasteboard {
 public:
@@ -62,14 +65,16 @@ public:
     WEBCORE_EXPORT PlatformPasteboard();
     WEBCORE_EXPORT void updateSupportedTypeIdentifiers(const Vector<String>& types);
 #endif
-    WEBCORE_EXPORT Optional<PasteboardItemInfo> informationForItemAtIndex(size_t index, int64_t changeCount);
-    WEBCORE_EXPORT Optional<Vector<PasteboardItemInfo>> allPasteboardItemInfo(int64_t changeCount);
+    WEBCORE_EXPORT std::optional<PasteboardItemInfo> informationForItemAtIndex(size_t index, int64_t changeCount);
+    WEBCORE_EXPORT std::optional<Vector<PasteboardItemInfo>> allPasteboardItemInfo(int64_t changeCount);
+
+    WEBCORE_EXPORT static void performAsDataOwner(DataOwnerType, NOESCAPE Function<void()>&&);
 
     enum class IncludeImageTypes : bool { No, Yes };
     static String platformPasteboardTypeForSafeTypeForDOMToReadAndWrite(const String& domType, IncludeImageTypes = IncludeImageTypes::No);
 
-    WEBCORE_EXPORT void getTypes(Vector<String>& types);
-    WEBCORE_EXPORT RefPtr<SharedBuffer> bufferForType(const String& pasteboardType);
+    WEBCORE_EXPORT void getTypes(Vector<String>& types) const;
+    WEBCORE_EXPORT PasteboardBuffer bufferForType(const String& pasteboardType) const;
     WEBCORE_EXPORT void getPathnamesForType(Vector<String>& pathnames, const String& pasteboardType) const;
     WEBCORE_EXPORT String stringForType(const String& pasteboardType) const;
     WEBCORE_EXPORT Vector<String> allStringsForType(const String& pasteboardType) const;
@@ -91,7 +96,7 @@ public:
     WEBCORE_EXPORT void write(const PasteboardImage&);
     WEBCORE_EXPORT void write(const String& pasteboardType, const String&);
     WEBCORE_EXPORT void write(const PasteboardURL&);
-    WEBCORE_EXPORT RefPtr<SharedBuffer> readBuffer(size_t index, const String& pasteboardType) const;
+    WEBCORE_EXPORT RefPtr<SharedBuffer> readBuffer(std::optional<size_t> index, const String& pasteboardType) const;
     WEBCORE_EXPORT String readString(size_t index, const String& pasteboardType) const;
     WEBCORE_EXPORT URL readURL(size_t index, String& title) const;
     WEBCORE_EXPORT int count() const;
@@ -119,13 +124,11 @@ private:
     RetainPtr<NSPasteboard> m_pasteboard;
 #endif
 #if PLATFORM(IOS_FAMILY)
-    RetainPtr<id> m_pasteboard;
+    RetainPtr<AbstractPasteboard> m_pasteboard;
 #endif
 #if USE(LIBWPE)
     struct wpe_pasteboard* m_pasteboard;
 #endif
 };
 
-}
-
-#endif // !PlatformPasteboard_h
+} // namespace WebCore

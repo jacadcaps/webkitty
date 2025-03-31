@@ -14,9 +14,9 @@
 #include <stdint.h>
 
 #include <bitset>
+#include <optional>
 #include <vector>
 
-#include "absl/types/optional.h"
 #include "api/video/encoded_frame.h"
 
 namespace webrtc {
@@ -27,32 +27,24 @@ class DecodedFramesHistory {
   // window_size - how much frames back to the past are actually remembered.
   explicit DecodedFramesHistory(size_t window_size);
   ~DecodedFramesHistory();
-  // Called for each decoded frame. Assumes picture id's are non-decreasing.
-  void InsertDecoded(const VideoLayerFrameId& frameid, uint32_t timestamp);
-  // Query if the following (picture_id, spatial_id) pair was inserted before.
-  // Should be at most less by window_size-1 than the last inserted picture id.
-  bool WasDecoded(const VideoLayerFrameId& frameid);
+  // Called for each decoded frame. Assumes frame id's are non-decreasing.
+  void InsertDecoded(int64_t frame_id, uint32_t timestamp);
+  // Query if the following (frame_id, spatial_id) pair was inserted before.
+  // Should be at most less by window_size-1 than the last inserted frame id.
+  bool WasDecoded(int64_t frame_id) const;
 
   void Clear();
 
-  absl::optional<VideoLayerFrameId> GetLastDecodedFrameId();
-  absl::optional<uint32_t> GetLastDecodedFrameTimestamp();
+  std::optional<int64_t> GetLastDecodedFrameId() const;
+  std::optional<uint32_t> GetLastDecodedFrameTimestamp() const;
 
  private:
-  struct LayerHistory {
-    LayerHistory();
-    ~LayerHistory();
-    // Cyclic bitset buffer. Stores last known |window_size| bits.
-    std::vector<bool> buffer;
-    absl::optional<int64_t> last_picture_id;
-  };
+  int FrameIdToIndex(int64_t frame_id) const;
 
-  int PictureIdToIndex(int64_t frame_id) const;
-
-  const int window_size_;
-  std::vector<LayerHistory> layers_;
-  absl::optional<VideoLayerFrameId> last_decoded_frame_;
-  absl::optional<uint32_t> last_decoded_frame_timestamp_;
+  std::vector<bool> buffer_;
+  std::optional<int64_t> last_frame_id_;
+  std::optional<int64_t> last_decoded_frame_;
+  std::optional<uint32_t> last_decoded_frame_timestamp_;
 };
 
 }  // namespace video_coding

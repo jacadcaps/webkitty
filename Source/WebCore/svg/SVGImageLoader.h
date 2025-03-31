@@ -26,13 +26,14 @@ namespace WebCore {
 class SVGImageElement;
 
 class SVGImageLoader final : public ImageLoader {
+    WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(SVGImageLoader);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SVGImageLoader);
 public:
     explicit SVGImageLoader(SVGImageElement&);
     virtual ~SVGImageLoader();
 
 private:
     void dispatchLoadEvent() override;
-    String sourceURI(const AtomString&) const override;
 };
 
 } // namespace WebCore

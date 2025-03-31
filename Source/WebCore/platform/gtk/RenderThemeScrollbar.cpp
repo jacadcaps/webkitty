@@ -26,16 +26,20 @@
 #include "config.h"
 #include "RenderThemeScrollbar.h"
 
-#if !USE(GTK4)
+#if !USE(GTK4) && USE(CAIRO)
 
+#include "GtkUtilities.h"
 #include <wtf/HashMap.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-static HashMap<unsigned, std::unique_ptr<RenderThemeScrollbar>>& widgetMap()
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderThemeScrollbar);
+
+static UncheckedKeyHashMap<unsigned, std::unique_ptr<RenderThemeScrollbar>>& widgetMap()
 {
-    static NeverDestroyed<HashMap<unsigned, std::unique_ptr<RenderThemeScrollbar>>> map;
+    static NeverDestroyed<UncheckedKeyHashMap<unsigned, std::unique_ptr<RenderThemeScrollbar>>> map;
     return map;
 }
 
@@ -77,8 +81,7 @@ RenderThemeScrollbar::RenderThemeScrollbar(GtkOrientation orientation, Mode mode
         info.classList.append("horizontal");
         info.classList.append("bottom");
     }
-    static bool usesOverlayScrollbars = g_strcmp0(g_getenv("GTK_OVERLAY_SCROLLING"), "0");
-    if (usesOverlayScrollbars)
+    if (shouldUseOverlayScrollbars())
         info.classList.append("overlay-indicator");
     if (mode == Mode::Full)
         info.classList.append("hovering");
@@ -107,7 +110,7 @@ RenderThemeScrollbar::RenderThemeScrollbar(GtkOrientation orientation, Mode mode
     info.type = RenderThemeGadget::Type::Generic;
     info.name = "contents";
     info.classList.clear();
-    m_contents = makeUnique<RenderThemeBoxGadget>(info, GTK_ORIENTATION_VERTICAL, children, m_scrollbar.get());
+    m_contents = makeUnique<RenderThemeBoxGadget>(info, orientation, children, m_scrollbar.get());
     info.name = "slider";
     m_slider = RenderThemeGadget::create(info, m_contents->child(m_troughPosition));
 }
@@ -135,4 +138,4 @@ RenderThemeGadget* RenderThemeScrollbar::stepper(RenderThemeScrollbarGadget::Ste
 
 } // namespace WebCore
 
-#endif // !USE(GTK4)
+#endif // !USE(GTK4) && USE(CAIRO)

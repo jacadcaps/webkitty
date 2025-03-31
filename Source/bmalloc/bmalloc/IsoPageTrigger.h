@@ -25,6 +25,9 @@
 
 #pragma once
 
+#if !BUSE(TZONE)
+#if !BUSE(LIBPAS)
+
 namespace bmalloc {
 
 enum class IsoPageTrigger {
@@ -34,3 +37,5 @@ enum class IsoPageTrigger {
 
 } // namespace bmalloc
 
+#endif
+#endif // !BUSE(TZONE)

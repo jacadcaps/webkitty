@@ -30,30 +30,32 @@
 #if ENABLE(MATHML)
 
 #include "MathMLFractionElement.h"
-#include "RenderMathMLBlock.h"
+#include "RenderMathMLRow.h"
 
 namespace WebCore {
 
 class MathMLFractionElement;
 
-class RenderMathMLFraction final : public RenderMathMLBlock {
-    WTF_MAKE_ISO_ALLOCATED(RenderMathMLFraction);
+class RenderMathMLFraction final : public RenderMathMLRow {
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(RenderMathMLFraction);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderMathMLFraction);
 public:
     RenderMathMLFraction(MathMLFractionElement&, RenderStyle&&);
+    virtual ~RenderMathMLFraction();
 
     LayoutUnit defaultLineThickness() const;
     LayoutUnit lineThickness() const;
     float relativeLineThickness() const;
 
 private:
-    bool isRenderMathMLFraction() const final { return true; }
-    const char* renderName() const final { return "RenderMathMLFraction"; }
+    ASCIILiteral renderName() const final { return "RenderMathMLFraction"_s; }
 
     void computePreferredLogicalWidths() final;
-    void layoutBlock(bool relayoutChildren, LayoutUnit pageLogicalHeight = 0_lu) final;
-    Optional<int> firstLineBaseline() const final;
+    void layoutBlock(RelayoutChildren, LayoutUnit pageLogicalHeight = 0_lu) final;
+    std::optional<LayoutUnit> firstLineBaseline() const final;
     void paint(PaintInfo&, const LayoutPoint&) final;
     RenderMathMLOperator* unembellishedOperator() const final;
+    bool isMathContentCentered() const final { return true; }
 
     MathMLFractionElement& element() const { return static_cast<MathMLFractionElement&>(nodeForNonAnonymous()); }
 

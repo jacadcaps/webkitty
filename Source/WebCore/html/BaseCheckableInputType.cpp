@@ -32,30 +32,34 @@
 #include "config.h"
 #include "BaseCheckableInputType.h"
 
+#include "CommonAtomStrings.h"
 #include "DOMFormData.h"
 #include "FormController.h"
 #include "HTMLInputElement.h"
 #include "HTMLNames.h"
 #include "KeyboardEvent.h"
 #include <wtf/NeverDestroyed.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(BaseCheckableInputType);
 
 using namespace HTMLNames;
 
 FormControlState BaseCheckableInputType::saveFormControlState() const
 {
     ASSERT(element());
-    return { element()->checked() ? "on"_s : "off"_s };
+    return { element()->checked() ? onAtom() : offAtom() };
 }
 
 void BaseCheckableInputType::restoreFormControlState(const FormControlState& state)
 {
     ASSERT(element());
-    element()->setChecked(state[0] == "on");
+    element()->setChecked(state[0] == onAtom());
 }
 
-bool BaseCheckableInputType::appendFormData(DOMFormData& formData, bool) const
+bool BaseCheckableInputType::appendFormData(DOMFormData& formData) const
 {
     ASSERT(element());
     if (!element()->checked())
@@ -67,9 +71,9 @@ bool BaseCheckableInputType::appendFormData(DOMFormData& formData, bool) const
 auto BaseCheckableInputType::handleKeydownEvent(KeyboardEvent& event) -> ShouldCallBaseEventHandler
 {
     const String& key = event.keyIdentifier();
-    if (key == "U+0020") {
+    if (key == "U+0020"_s) {
         ASSERT(element());
-        element()->setActive(true, true);
+        element()->setActive(true);
         // No setDefaultHandled(), because IE dispatches a keypress in this case
         // and the caller will only dispatch a keypress if we don't call setDefaultHandled().
         return ShouldCallBaseEventHandler::No;
@@ -94,13 +98,12 @@ bool BaseCheckableInputType::canSetStringValue() const
 bool BaseCheckableInputType::accessKeyAction(bool sendMouseEvents)
 {
     ASSERT(element());
-    return InputType::accessKeyAction(sendMouseEvents) || element()->dispatchSimulatedClick(0, sendMouseEvents ? SendMouseUpDownEvents : SendNoEvents);
+    return InputType::accessKeyAction(sendMouseEvents) || protectedElement()->dispatchSimulatedClick(0, sendMouseEvents ? SendMouseUpDownEvents : SendNoEvents);
 }
 
 String BaseCheckableInputType::fallbackValue() const
 {
-    static MainThreadNeverDestroyed<const AtomString> on("on", AtomString::ConstructFromLiteral);
-    return on.get();
+    return onAtom();
 }
 
 bool BaseCheckableInputType::storesValueSeparateFromAttribute()
@@ -108,15 +111,10 @@ bool BaseCheckableInputType::storesValueSeparateFromAttribute()
     return false;
 }
 
-void BaseCheckableInputType::setValue(const String& sanitizedValue, bool, TextFieldEventBehavior)
+void BaseCheckableInputType::setValue(const String& sanitizedValue, bool, TextFieldEventBehavior, TextControlSetValueSelection)
 {
     ASSERT(element());
-    element()->setAttributeWithoutSynchronization(valueAttr, sanitizedValue);
-}
-
-bool BaseCheckableInputType::isCheckable()
-{
-    return true;
+    element()->setAttributeWithoutSynchronization(valueAttr, AtomString { sanitizedValue });
 }
 
 void BaseCheckableInputType::fireInputAndChangeEvents()
@@ -127,7 +125,7 @@ void BaseCheckableInputType::fireInputAndChangeEvents()
     if (!shouldSendChangeEventAfterCheckedChanged())
         return;
 
-    auto protectedThis = makeRef(*this);
+    Ref protectedThis { *this };
     element()->setTextAsOfLastFormControlChangeEvent(String());
     element()->dispatchInputEvent();
     if (auto* element = this->element())

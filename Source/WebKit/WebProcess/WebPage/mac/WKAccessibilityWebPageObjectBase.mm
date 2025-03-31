@@ -26,19 +26,22 @@
 #import "config.h"
 #import "WKAccessibilityWebPageObjectBase.h"
 
-#import "WebFrame.h"
-#import "WebPage.h"
 #import "WKArray.h"
 #import "WKNumber.h"
 #import "WKRetainPtr.h"
 #import "WKSharedAPICast.h"
 #import "WKString.h"
 #import "WKStringCF.h"
+#import "WebFrame.h"
+#import "WebPage.h"
+#import "WebProcess.h"
 #import <WebCore/AXObjectCache.h>
 #import <WebCore/Document.h>
-#import <WebCore/Frame.h>
-#import <WebCore/FrameView.h>
+#import <WebCore/FrameTree.h>
+#import <WebCore/LocalFrame.h>
+#import <WebCore/LocalFrameView.h>
 #import <WebCore/Page.h>
+#import <WebCore/RemoteFrame.h>
 #import <WebCore/ScrollView.h>
 #import <WebCore/Scrollbar.h>
 
@@ -48,7 +51,7 @@ namespace ax = WebCore::Accessibility;
 
 - (NakedPtr<WebCore::AXObjectCache>)axObjectCache
 {
-    ASSERT(isMainThread());
+    ASSERT(isMainRunLoop());
 
     if (!m_page)
         return nullptr;
@@ -57,47 +60,60 @@ namespace ax = WebCore::Accessibility;
     if (!page)
         return nullptr;
 
-    auto& core = page->mainFrame();
-    if (!core.document())
-        return nullptr;
+    return page->axObjectCache();
+}
 
-    return core.document()->axObjectCache();
+- (void)enableAccessibilityForAllProcesses
+{
+    // Immediately enable accessibility in the current web process, otherwise this
+    // will happen asynchronously and could break certain flows (e.g., attribute
+    // requests).
+    if (!WebCore::AXObjectCache::accessibilityEnabled())
+        WebCore::AXObjectCache::enableAccessibility();
+
+    if (m_page)
+        m_page->enableAccessibilityForAllProcesses();
 }
 
 - (id)accessibilityPluginObject
 {
-    ASSERT(isMainThread());
+    ASSERT(isMainRunLoop());
     auto retrieveBlock = [&self]() -> id {
         id axPlugin = nil;
-        auto dispatchBlock = [&axPlugin, &self] {
+        callOnMainRunLoopAndWait([&axPlugin, &self] {
             if (self->m_page)
                 axPlugin = self->m_page->accessibilityObjectForMainFramePlugin();
-        };
-
-        if (isMainThread())
-            dispatchBlock();
-        else {
-            callOnMainThreadAndWait([&dispatchBlock] {
-                dispatchBlock();
-            });
-        }
+        });
         return axPlugin;
     };
     
     return retrieveBlock();
 }
 
+// Called directly by Accessibility framework.
 - (id)accessibilityRootObjectWrapper
 {
-    return ax::retrieveAutoreleasedValueFromMainThread<id>([protectedSelf = retainPtr(self)] () -> RetainPtr<id> {
+    return [self accessibilityRootObjectWrapper:[self focusedLocalFrame]];
+}
+
+- (id)accessibilityRootObjectWrapper:(WebCore::LocalFrame*)frame
+{
+#if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
+    if (!isMainRunLoop()) {
+        if (RefPtr root = m_isolatedTreeRoot.get())
+            return root->wrapper();
+    }
+#endif
+
+    return ax::retrieveAutoreleasedValueFromMainThread<id>([protectedSelf = retainPtr(self), frame = RefPtr { frame }] () -> RetainPtr<id> {
         if (!WebCore::AXObjectCache::accessibilityEnabled())
-            WebCore::AXObjectCache::enableAccessibility();
+            [protectedSelf enableAccessibilityForAllProcesses];
 
         if (protectedSelf.get()->m_hasMainFramePlugin)
             return protectedSelf.get().accessibilityPluginObject;
 
         if (auto cache = protectedSelf.get().axObjectCache) {
-            if (auto* root = cache->rootObject())
+            if (auto* root = frame ? cache->rootObjectForFrame(*frame) : nullptr)
                 return root->wrapper();
         }
 
@@ -107,39 +123,115 @@ namespace ax = WebCore::Accessibility;
 
 - (void)setWebPage:(NakedPtr<WebKit::WebPage>)page
 {
-    ASSERT(isMainThread());
+    ASSERT(isMainRunLoop());
 
-    m_page = page;
+    m_page = page.get();
 
     if (page) {
         m_pageID = page->identifier();
-
-        auto* frame = page->mainFrame();
+#if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
+        [self setPosition:page->accessibilityPosition()];
+        [self setSize:page->size()];
+#endif
+        auto* frame = dynamicDowncast<WebCore::LocalFrame>(page->mainFrame());
         m_hasMainFramePlugin = frame && frame->document() ? frame->document()->isPluginDocument() : false;
     } else {
-        m_pageID = { };
+        m_pageID = std::nullopt;
         m_hasMainFramePlugin = false;
     }
 }
 
+#if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
+- (void)setPosition:(const WebCore::FloatPoint&)point
+{
+    ASSERT(isMainRunLoop());
+    Locker locker { m_cacheLock };
+    m_position = point;
+}
+
+- (void)setSize:(const WebCore::IntSize&)size
+{
+    ASSERT(isMainRunLoop());
+    Locker locker { m_cacheLock };
+    m_size = size;
+}
+
+- (void)setIsolatedTreeRoot:(NakedPtr<WebCore::AXCoreObject>)root
+{
+    ASSERT(isMainRunLoop());
+    m_isolatedTreeRoot = root.get();
+}
+
+- (void)setWindow:(id)window
+{
+    ASSERT(isMainRunLoop());
+#if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
+    Locker lock { m_windowLock };
+#endif // ENABLE(ACCESSIBILITY_ISOLATED_TREE)
+    m_window = window;
+}
+#endif
+
 - (void)setHasMainFramePlugin:(bool)hasPlugin
 {
-    ASSERT(isMainThread());
+    ASSERT(isMainRunLoop());
     m_hasMainFramePlugin = hasPlugin;
+}
+
+- (void)setRemoteFrameOffset:(WebCore::IntPoint)offset
+{
+    ASSERT(isMainRunLoop());
+    m_remoteFrameOffset = offset;
+}
+
+- (WebCore::IntPoint)accessibilityRemoteFrameOffset
+{
+    return m_remoteFrameOffset;
 }
 
 - (void)setRemoteParent:(id)parent
 {
-    ASSERT(isMainThread());
-    if (parent != m_parent) {
-        [m_parent release];
-        m_parent = [parent retain];
-    }
+    ASSERT(isMainRunLoop());
+
+#if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
+    Locker lock { m_parentLock };
+#endif // ENABLE(ACCESSIBILITY_ISOLATED_TREE)
+    m_parent = parent;
+}
+
+- (void)setFrameIdentifier:(const WebCore::FrameIdentifier&)frameID
+{
+    m_frameID = frameID;
 }
 
 - (id)accessibilityFocusedUIElement
 {
-    return [[self accessibilityRootObjectWrapper] accessibilityFocusedUIElement];
+    return [[self accessibilityRootObjectWrapper:[self focusedLocalFrame]] accessibilityFocusedUIElement];
+}
+
+- (WebCore::LocalFrame *)focusedLocalFrame
+{
+#if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
+    if (!isMainRunLoop())
+        return nullptr;
+#endif
+    if (!m_page)
+        return nullptr;
+
+    if (!m_frameID)
+        return dynamicDowncast<WebCore::LocalFrame>(m_page->mainFrame());
+
+    auto* page = m_page->corePage();
+    ASSERT(page);
+    ASSERT(page->settings().siteIsolationEnabled());
+
+    // FIXME: This needs to be made thread safe when the isolated accessibility tree is on.
+    for (auto& rootFrame : page->rootFrames()) {
+        if (rootFrame->frameID() == m_frameID)
+            return rootFrame.ptr();
+    }
+
+    return nullptr;
 }
 
 @end

@@ -33,7 +33,14 @@
 
 OBJC_CLASS LAContext;
 
+namespace WebCore {
+class AuthenticatorAttestationResponse;
+class AuthenticatorAssertionResponse;
+}
+
 namespace WebKit {
+
+BOOL shouldUseAlternateKeychainAttribute();
 
 class LocalAuthenticator final : public Authenticator {
 public:
@@ -49,7 +56,7 @@ public:
         PolicyDecided,
     };
 
-    static Ref<LocalAuthenticator> create(UniqueRef<LocalConnection>&& connection)
+    static Ref<LocalAuthenticator> create(Ref<LocalConnection>&& connection)
     {
         return adoptRef(*new LocalAuthenticator(WTFMove(connection)));
     }
@@ -57,12 +64,14 @@ public:
     static void clearAllCredentials();
 
 private:
-    explicit LocalAuthenticator(UniqueRef<LocalConnection>&&);
+    explicit LocalAuthenticator(Ref<LocalConnection>&&);
+
+    std::optional<WebCore::ExceptionData> processClientExtensions(std::variant<Ref<WebCore::AuthenticatorAttestationResponse>, Ref<WebCore::AuthenticatorAssertionResponse>>);
 
     void makeCredential() final;
-    void continueMakeCredentialAfterDecidePolicy(LocalAuthenticatorPolicy);
+    void continueMakeCredentialAfterReceivingLAContext(LAContext *);
     void continueMakeCredentialAfterUserVerification(SecAccessControlRef, LocalConnection::UserVerification, LAContext *);
-    void continueMakeCredentialAfterAttested(Vector<uint8_t>&& credentialId, Vector<uint8_t>&& authData, NSArray *certificates, NSError *);
+    void finishMakeCredential(Vector<uint8_t>&& credentialId, Vector<uint8_t>&& attestationObject, std::optional<WebCore::ExceptionData>);
 
     void getAssertion() final;
     void continueGetAssertionAfterResponseSelected(Ref<WebCore::AuthenticatorAssertionResponse>&&);
@@ -72,8 +81,15 @@ private:
     void deleteDuplicateCredential() const;
     bool validateUserVerification(LocalConnection::UserVerification) const;
 
+    std::optional<WebCore::ExceptionData> processLargeBlobExtension(const WebCore::PublicKeyCredentialCreationOptions&, WebCore::AuthenticationExtensionsClientOutputs& extensionOutputs);
+    std::optional<WebCore::ExceptionData> processLargeBlobExtension(const WebCore::PublicKeyCredentialRequestOptions&, WebCore::AuthenticationExtensionsClientOutputs& extensionOutputs, const Ref<WebCore::AuthenticatorAssertionResponse>&);
+
+    std::optional<Vector<Ref<WebCore::AuthenticatorAssertionResponse>>> getExistingCredentials(const String& rpId);
+
+    Ref<LocalConnection> protectedConnection() const { return m_connection; }
+
     State m_state { State::Init };
-    UniqueRef<LocalConnection> m_connection;
+    Ref<LocalConnection> m_connection;
     Vector<Ref<WebCore::AuthenticatorAssertionResponse>> m_existingCredentials;
     RetainPtr<NSData> m_provisionalCredentialId;
 };

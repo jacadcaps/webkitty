@@ -25,10 +25,21 @@
 
 #pragma once
 
+#include <span>
+#include <string>
+
 namespace WTF {
 
 // Returns zero if arrays are equal, and non-zero otherwise. Execution time does not depend on array contents.
-WTF_EXPORT_PRIVATE int constantTimeMemcmp(const void*, const void*, size_t length);
+#if HAVE(TIMINGSAFE_BCMP)
+inline int constantTimeMemcmp(std::span<const uint8_t> a, std::span<const uint8_t> b)
+{
+    RELEASE_ASSERT(a.size() == b.size());
+    return timingsafe_bcmp(a.data(), b.data(), b.size());
+}
+#else
+WTF_EXPORT_PRIVATE int constantTimeMemcmp(std::span<const uint8_t>, std::span<const uint8_t>);
+#endif
 
 }
 

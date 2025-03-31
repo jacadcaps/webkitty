@@ -30,34 +30,41 @@
 
 #import "LocalAuthenticator.h"
 #import "LocalConnection.h"
+#import <wtf/TZoneMallocInlines.h>
 
 #if USE(APPLE_INTERNAL_SDK)
 #import <WebKitAdditions/LocalServiceAdditions.h>
+#else
+#define LOCAL_SERVICE_ADDITIONS
 #endif
 
 #import "LocalAuthenticationSoftLink.h"
 
 namespace WebKit {
 
-LocalService::LocalService(Observer& observer)
+WTF_MAKE_TZONE_ALLOCATED_IMPL(LocalService);
+
+Ref<LocalService> LocalService::create(AuthenticatorTransportServiceObserver& observer)
+{
+    return adoptRef(*new LocalService(observer));
+}
+
+LocalService::LocalService(AuthenticatorTransportServiceObserver& observer)
     : AuthenticatorTransportService(observer)
 {
 }
 
 bool LocalService::isAvailable()
 {
+LOCAL_SERVICE_ADDITIONS
+
     auto context = adoptNS([allocLAContextInstance() init]);
     NSError *error = nil;
-    if (![context canEvaluatePolicy:LAPolicyDeviceOwnerAuthenticationWithBiometrics error:&error]) {
+    auto result = [context canEvaluatePolicy:LAPolicyDeviceOwnerAuthenticationWithBiometrics error:&error];
+    if ((!result || error) && error.code != LAErrorBiometryLockout) {
         LOG_ERROR("Couldn't find local authenticators: %@", error);
         return false;
     }
-
-#if defined(LOCALSERVICE_ADDITIONS)
-LOCALSERVICE_ADDITIONS
-#else
-    return false;
-#endif
 
     return true;
 }
@@ -74,9 +81,9 @@ bool LocalService::platformStartDiscovery() const
     return LocalService::isAvailable();
 }
 
-UniqueRef<LocalConnection> LocalService::createLocalConnection() const
+Ref<LocalConnection> LocalService::createLocalConnection() const
 {
-    return makeUniqueRef<LocalConnection>();
+    return LocalConnection::create();
 }
 
 } // namespace WebKit

@@ -33,12 +33,14 @@
 #include "DeviceOrientationUpdateProvider.h"
 #include "MotionManagerClient.h"
 #include <wtf/RefPtr.h>
+#include <wtf/TZoneMalloc.h>
 
 OBJC_CLASS WebCoreMotionManager;
 
 namespace WebCore {
 
 class DeviceMotionClientIOS : public DeviceMotionClient, public MotionManagerClient {
+    WTF_MAKE_TZONE_ALLOCATED(DeviceMotionClientIOS);
 public:
     DeviceMotionClientIOS(RefPtr<DeviceOrientationUpdateProvider>&&);
     ~DeviceMotionClientIOS() override;
@@ -48,7 +50,7 @@ public:
     DeviceMotionData* lastMotion() const override;
     void deviceMotionControllerDestroyed() override;
 
-    void motionChanged(double, double, double, double, double, double, Optional<double>, Optional<double>, Optional<double>) override;
+    void motionChanged(double, double, double, double, double, double, std::optional<double>, std::optional<double>, std::optional<double>) override;
 
 private:
     WebCoreMotionManager* m_motionManager { nullptr };

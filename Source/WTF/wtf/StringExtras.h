@@ -27,19 +27,24 @@
 #pragma once
 
 #include <string.h>
+#include <wtf/Compiler.h>
 
-#if !HAVE(STRNSTR)
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
-inline char* strnstr(const char* buffer, const char* target, size_t bufferLength)
+#if !HAVE(MEMMEM)
+
+inline const void* memmem(const void* haystack, size_t haystackLength, const void* needle, size_t needleLength)
 {
-    size_t targetLength = strlen(target);
-    if (targetLength == 0)
-        return const_cast<char*>(buffer);
-    for (const char* start = buffer; *start && start + targetLength <= buffer + bufferLength; start++) {
-        if (*start == *target && strncmp(start + 1, target + 1, targetLength - 1) == 0)
-            return const_cast<char*>(start);
+    const char* pointer = static_cast<const char*>(haystack);
+    while (haystackLength >= needleLength) {
+        if (!memcmp(pointer, needle, needleLength))
+            return pointer;
+        pointer++;
+        haystackLength--;
     }
     return nullptr;
 }
 
 #endif
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

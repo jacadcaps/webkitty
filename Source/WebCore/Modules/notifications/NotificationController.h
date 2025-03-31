@@ -29,18 +29,19 @@
 
 #include "Page.h"
 #include <wtf/Forward.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class NotificationClient;
 
 class NotificationController : public Supplement<Page> {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(NotificationController, WEBCORE_EXPORT);
 public:
     explicit NotificationController(NotificationClient*);
     ~NotificationController();
 
-    static const char* supplementName();
+    WEBCORE_EXPORT static ASCIILiteral supplementName();
     static NotificationController* from(Page* page) { return static_cast<NotificationController*>(Supplement<Page>::from(page, supplementName())); }
     WEBCORE_EXPORT static NotificationClient* clientFrom(Page&);
 

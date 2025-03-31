@@ -10,12 +10,17 @@
 
 #include "api/rtc_event_log_output_file.h"
 
+#include <cstddef>
+#include <cstdio>
 #include <limits>
+#include <string>
 #include <utility>
 
+#include "absl/strings/string_view.h"
 #include "api/rtc_event_log/rtc_event_log.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
+#include "rtc_base/system/file_wrapper.h"
 
 namespace webrtc {
 
@@ -54,15 +59,15 @@ bool RtcEventLogOutputFile::IsActive() const {
   return IsActiveInternal();
 }
 
-bool RtcEventLogOutputFile::Write(const std::string& output) {
+bool RtcEventLogOutputFile::Write(absl::string_view output) {
   RTC_DCHECK(IsActiveInternal());
   // No single write may be so big, that it would risk overflowing the
   // calculation of (written_bytes_ + output.length()).
-  RTC_DCHECK_LT(output.length(), kMaxReasonableFileSize);
+  RTC_DCHECK_LT(output.size(), kMaxReasonableFileSize);
 
   if (max_size_bytes_ == RtcEventLog::kUnlimitedOutput ||
-      written_bytes_ + output.length() <= max_size_bytes_) {
-    if (file_.Write(output.c_str(), output.size())) {
+      written_bytes_ + output.size() <= max_size_bytes_) {
+    if (file_.Write(output.data(), output.size())) {
       written_bytes_ += output.size();
       return true;
     } else {

@@ -28,11 +28,32 @@
 
 #include "CSSKeyframesRule.h"
 #include "CSSParser.h"
+#include "CSSSerializationContext.h"
+#include "MutableStyleProperties.h"
 #include "PropertySetCSSStyleDeclaration.h"
 #include "StyleProperties.h"
+#include "StylePropertiesInlines.h"
+#include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
+
+void StyleRuleKeyframe::Key::writeToString(StringBuilder& str) const
+{
+    if (rangeName == CSSValueContain)
+        str.append("contain "_s);
+    else if (rangeName == CSSValueCover)
+        str.append("cover "_s);
+    else if (rangeName == CSSValueEntry)
+        str.append("entry "_s);
+    else if (rangeName == CSSValueEntryCrossing)
+        str.append("entry-crossing "_s);
+    else if (rangeName == CSSValueExit)
+        str.append("exit "_s);
+    else if (rangeName == CSSValueExitCrossing)
+        str.append("exit-crossing "_s);
+    str.append(offset * 100, '%');
+}
 
 StyleRuleKeyframe::StyleRuleKeyframe(Ref<StyleProperties>&& properties)
     : StyleRuleBase(StyleRuleType::Keyframe)
@@ -40,7 +61,7 @@ StyleRuleKeyframe::StyleRuleKeyframe(Ref<StyleProperties>&& properties)
 {
 }
 
-StyleRuleKeyframe::StyleRuleKeyframe(Vector<double>&& keys, Ref<StyleProperties>&& properties)
+StyleRuleKeyframe::StyleRuleKeyframe(Vector<Key>&& keys, Ref<StyleProperties>&& properties)
     : StyleRuleBase(StyleRuleType::Keyframe)
     , m_properties(WTFMove(properties))
     , m_keys(WTFMove(keys))
@@ -52,18 +73,24 @@ Ref<StyleRuleKeyframe> StyleRuleKeyframe::create(Ref<StyleProperties>&& properti
     return adoptRef(*new StyleRuleKeyframe(WTFMove(properties)));
 }
 
-Ref<StyleRuleKeyframe> StyleRuleKeyframe::create(Vector<double>&& keys, Ref<StyleProperties>&& properties)
+Ref<StyleRuleKeyframe> StyleRuleKeyframe::create(Vector<std::pair<CSSValueID, double>>&& keys, Ref<StyleProperties>&& properties)
 {
-    return adoptRef(*new StyleRuleKeyframe(WTFMove(keys), WTFMove(properties)));
+    auto keyStructs = keys.map([](auto& pair) -> Key {
+        return { pair.first, pair.second };
+    });
+    return adoptRef(*new StyleRuleKeyframe(WTFMove(keyStructs), WTFMove(properties)));
 }
 
 StyleRuleKeyframe::~StyleRuleKeyframe() = default;
 
 MutableStyleProperties& StyleRuleKeyframe::mutableProperties()
 {
-    if (!is<MutableStyleProperties>(m_properties.get()))
-        m_properties = m_properties->mutableCopy();
-    return downcast<MutableStyleProperties>(m_properties.get());
+    if (auto* mutableProperties = dynamicDowncast<MutableStyleProperties>(m_properties.get()))
+        return *mutableProperties;
+    Ref mutableProperties = m_properties->mutableCopy();
+    auto& mutablePropertiesRef = mutableProperties.get();
+    m_properties = WTFMove(mutableProperties);
+    return mutablePropertiesRef;
 }
 
 String StyleRuleKeyframe::keyText() const
@@ -72,7 +99,7 @@ String StyleRuleKeyframe::keyText() const
     for (size_t i = 0; i < m_keys.size(); ++i) {
         if (i)
             keyText.append(',');
-        keyText.append(m_keys[i] * 100, '%');
+        m_keys[i].writeToString(keyText);
     }
     return keyText.toString();
 }
@@ -80,28 +107,24 @@ String StyleRuleKeyframe::keyText() const
 bool StyleRuleKeyframe::setKeyText(const String& keyText)
 {
     ASSERT(!keyText.isNull());
-    auto keys = CSSParser::parseKeyframeKeyList(keyText);
+    auto keys = CSSParser::parseKeyframeKeyList(keyText, strictCSSParserContext());
     if (keys.isEmpty())
         return false;
-    m_keys = WTFMove(keys);
+    m_keys = keys.map([](auto& pair) -> Key {
+        return { pair.first, pair.second };
+    });
     return true;
 }
 
 String StyleRuleKeyframe::cssText() const
 {
-    StringBuilder result;
-    result.append(keyText());
-    result.appendLiteral(" { ");
-    String decls = m_properties->asText();
-    result.append(decls);
-    if (!decls.isEmpty())
-        result.append(' ');
-    result.append('}');
-    return result.toString();
+    if (auto declarations = m_properties->asText(CSS::defaultSerializationContext()); !declarations.isEmpty())
+        return makeString(keyText(), " { "_s, declarations, " }"_s);
+    return makeString(keyText(), " { }"_s);
 }
 
 CSSKeyframeRule::CSSKeyframeRule(StyleRuleKeyframe& keyframe, CSSKeyframesRule* parent)
-    : CSSRule(0)
+    : CSSRule(nullptr)
     , m_keyframe(keyframe)
 {
     setParentRule(parent);

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Apple Inc. All rights reserved.
+ * Copyright (C) 2008-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -34,12 +34,18 @@
 namespace WebCore {
 
 class CSSFontSelector;
+class FontCreationContext;
 class FontDescription;
+class FontPaletteValues;
 class FontRanges;
 
-class CSSSegmentedFontFace final : public RefCounted<CSSSegmentedFontFace>, public CSSFontFace::Client {
-    WTF_MAKE_FAST_ALLOCATED;
+DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(CSSSegmentedFontFace);
+class CSSSegmentedFontFace final : public RefCounted<CSSSegmentedFontFace>, public CSSFontFaceClient {
+    WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(CSSSegmentedFontFace);
 public:
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     static Ref<CSSSegmentedFontFace> create()
     {
         return adoptRef(*new CSSSegmentedFontFace());
@@ -48,19 +54,16 @@ public:
 
     void appendFontFace(Ref<CSSFontFace>&&);
 
-    FontRanges fontRanges(const FontDescription&);
+    FontRanges fontRanges(const FontDescription&, const FontPaletteValues&, RefPtr<FontFeatureValues>);
 
     Vector<Ref<CSSFontFace>, 1>& constituentFaces() { return m_fontFaces; }
-
-    // CSSFontFace::Client needs to be able to be held in a RefPtr.
-    void ref() final { RefCounted<CSSSegmentedFontFace>::ref(); }
-    void deref() final { RefCounted<CSSSegmentedFontFace>::deref(); }
 
 private:
     CSSSegmentedFontFace();
     void fontLoaded(CSSFontFace&) final;
 
-    HashMap<FontDescriptionKey, FontRanges, FontDescriptionKeyHash, WTF::SimpleClassHashTraits<FontDescriptionKey>> m_cache;
+    // FIXME: Add support for font-feature-values in the key for this cache.
+    UncheckedKeyHashMap<std::tuple<FontDescriptionKey, FontPaletteValues>, FontRanges> m_cache;
     Vector<Ref<CSSFontFace>, 1> m_fontFaces;
 };
 

@@ -25,7 +25,11 @@
 
 #pragma once
 
+#if !BUSE(TZONE)
+
 #include "FreeList.h"
+
+#if !BUSE(LIBPAS)
 
 namespace bmalloc {
 
@@ -52,3 +56,5 @@ private:
 
 } // namespace bmalloc
 
+#endif
+#endif // !BUSE(TZONE)

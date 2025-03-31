@@ -1,6 +1,5 @@
-
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -50,27 +49,26 @@ static NSData *mainResourceData()
 
 static NSData *defaultFaviconData()
 {
-    NSURL *url = [[NSBundle mainBundle] URLForResource:@"icon" withExtension:@"png" subdirectory:@"TestWebKitAPI.resources"];
+    NSURL *url = [NSBundle.test_resourcesBundle URLForResource:@"icon" withExtension:@"png"];
     return [NSData dataWithContentsOfURL:url];
 }
 
 static NSData *customFaviconData()
 {
-    NSURL *url = [[NSBundle mainBundle] URLForResource:@"large-red-square" withExtension:@"png" subdirectory:@"TestWebKitAPI.resources"];
+    NSURL *url = [NSBundle.test_resourcesBundle URLForResource:@"large-red-square" withExtension:@"png"];
     return [NSData dataWithContentsOfURL:url];
 }
 
 static NSImage *imageFromData(NSData *data)
 {
-    auto *image = [[NSImage alloc] initWithData:data];
+    auto image = adoptNS([[NSImage alloc] initWithData:data]);
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     [image setScalesWhenResized:YES];
-#pragma clang diagnostic pop
+ALLOW_DEPRECATED_DECLARATIONS_END
     [image setSize:NSMakeSize(16, 16)];
 
-    return [image autorelease];
+    return image.autorelease();
 }
 
 @interface IconLoadingProtocol : NSURLProtocol

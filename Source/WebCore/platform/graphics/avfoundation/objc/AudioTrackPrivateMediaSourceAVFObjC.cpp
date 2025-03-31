@@ -25,13 +25,15 @@
 
 #include "config.h"
 #include "AudioTrackPrivateMediaSourceAVFObjC.h"
+#include <wtf/TZoneMallocInlines.h>
 
 #if ENABLE(MEDIA_SOURCE)
 
 #include "AVTrackPrivateAVFObjCImpl.h"
-#include "SourceBufferPrivateAVFObjC.h"
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(AudioTrackPrivateMediaSourceAVFObjC);
 
 AudioTrackPrivateMediaSourceAVFObjC::AudioTrackPrivateMediaSourceAVFObjC(AVAssetTrack* track)
     : m_impl(makeUnique<AVTrackPrivateAVFObjCImpl>(track))
@@ -39,20 +41,14 @@ AudioTrackPrivateMediaSourceAVFObjC::AudioTrackPrivateMediaSourceAVFObjC(AVAsset
     resetPropertiesFromTrack();
 }
 
+AudioTrackPrivateMediaSourceAVFObjC::~AudioTrackPrivateMediaSourceAVFObjC() = default;
+
 void AudioTrackPrivateMediaSourceAVFObjC::resetPropertiesFromTrack()
 {
-    m_trackID = m_impl->trackID();
-
     setKind(m_impl->audioKind());
     setId(m_impl->id());
     setLabel(m_impl->label());
     setLanguage(m_impl->language());
-}
-
-void AudioTrackPrivateMediaSourceAVFObjC::setAssetTrack(AVAssetTrack *track)
-{
-    m_impl = makeUnique<AVTrackPrivateAVFObjCImpl>(track);
-    resetPropertiesFromTrack();
 }
 
 AVAssetTrack* AudioTrackPrivateMediaSourceAVFObjC::assetTrack()

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,17 +29,18 @@
 #include "InspectorBackendDispatchers.h"
 #include "InspectorFrontendChannel.h"
 #include "InspectorFrontendDispatchers.h"
+#include <wtf/CheckedPtr.h>
 #include <wtf/Forward.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace Inspector {
 
 class InspectorTarget;
 
-typedef String ErrorString;
-
-class JS_EXPORT_PRIVATE InspectorTargetAgent final : public InspectorAgentBase, public TargetBackendDispatcherHandler {
+class JS_EXPORT_PRIVATE InspectorTargetAgent final : public InspectorAgentBase, public TargetBackendDispatcherHandler, public CanMakeCheckedPtr<InspectorTargetAgent> {
     WTF_MAKE_NONCOPYABLE(InspectorTargetAgent);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(InspectorTargetAgent);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(InspectorTargetAgent);
 public:
     InspectorTargetAgent(FrontendRouter&, BackendDispatcher&);
     ~InspectorTargetAgent() final;
@@ -49,9 +50,9 @@ public:
     void willDestroyFrontendAndBackend(DisconnectReason) final;
 
     // TargetBackendDispatcherHandler
-    void setPauseOnStart(ErrorString&, bool pauseOnStart) final;
-    void resume(ErrorString&, const String& targetId) final;
-    void sendMessageToTarget(ErrorString&, const String& targetId, const String& message) final;
+    Protocol::ErrorStringOr<void> setPauseOnStart(bool) final;
+    Protocol::ErrorStringOr<void> resume(const String& targetId) final;
+    Protocol::ErrorStringOr<void> sendMessageToTarget(const String& targetId, const String& message) final;
 
     // Target lifecycle.
     void targetCreated(InspectorTarget&);
@@ -70,7 +71,7 @@ private:
     Inspector::FrontendRouter& m_router;
     std::unique_ptr<TargetFrontendDispatcher> m_frontendDispatcher;
     Ref<TargetBackendDispatcher> m_backendDispatcher;
-    HashMap<String, InspectorTarget*> m_targets;
+    UncheckedKeyHashMap<String, InspectorTarget*> m_targets;
     bool m_isConnected { false };
     bool m_shouldPauseOnStart { false };
 };

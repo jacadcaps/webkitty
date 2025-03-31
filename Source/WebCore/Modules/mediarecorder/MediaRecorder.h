@@ -24,13 +24,16 @@
 
 #pragma once
 
-#if ENABLE(MEDIA_STREAM)
+#if ENABLE(MEDIA_RECORDER)
 
 #include "ActiveDOMObject.h"
 #include "EventTarget.h"
+#include "ExceptionOr.h"
+#include "MediaRecorderPrivateOptions.h"
 #include "MediaStream.h"
 #include "MediaStreamTrackPrivate.h"
 #include "Timer.h"
+#include <wtf/Deque.h>
 #include <wtf/UniqueRef.h>
 
 namespace WebCore {
@@ -42,61 +45,69 @@ class MediaRecorderPrivate;
 class MediaRecorder final
     : public ActiveDOMObject
     , public RefCounted<MediaRecorder>
-    , public EventTargetWithInlineData
-    , private MediaStreamPrivate::Observer
-    , private MediaStreamTrackPrivate::Observer {
-    WTF_MAKE_ISO_ALLOCATED(MediaRecorder);
+    , public EventTarget
+    , private MediaStreamPrivateObserver
+    , private MediaStreamTrackPrivateObserver {
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(MediaRecorder);
 public:
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     enum class RecordingState { Inactive, Recording, Paused };
-    
-    struct Options {
-        String mimeType;
-        unsigned audioBitsPerSecond;
-        unsigned videoBitsPerSecond;
-        unsigned bitsPerSecond;
-    };
     
     ~MediaRecorder();
     
+    static bool isTypeSupported(Document&, const String&);
+
+    using Options = MediaRecorderPrivateOptions;
     static ExceptionOr<Ref<MediaRecorder>> create(Document&, Ref<MediaStream>&&, Options&& = { });
-    
-    using CreatorFunction = std::unique_ptr<MediaRecorderPrivate>(*)(MediaStreamPrivate&);
+
+    using CreatorFunction = ExceptionOr<std::unique_ptr<MediaRecorderPrivate>> (*)(MediaStreamPrivate&, const Options&);
 
     WEBCORE_EXPORT static void setCustomPrivateRecorderCreator(CreatorFunction);
-    
+
     RecordingState state() const { return m_state; }
-    
-    using RefCounted::ref;
-    using RefCounted::deref;
-    
-    ExceptionOr<void> startRecording(Optional<unsigned>);
-    ExceptionOr<void> stopRecording();
+    const String& mimeType() const { return m_options.mimeType; }
+
+    ExceptionOr<void> startRecording(std::optional<unsigned>);
+    void stopRecording();
     ExceptionOr<void> requestData();
+    ExceptionOr<void> pauseRecording();
+    ExceptionOr<void> resumeRecording();
+
+    unsigned videoBitsPerSecond() const { return m_videoBitsPerSecond; }
+    unsigned audioBitsPerSecond() const { return m_audioBitsPerSecond; }
 
     MediaStream& stream() { return m_stream.get(); }
 
-private:
-    MediaRecorder(Document&, Ref<MediaStream>&&, Options&& = { });
+    USING_CAN_MAKE_WEAKPTR(EventTarget);
 
-    static std::unique_ptr<MediaRecorderPrivate> createMediaRecorderPrivate(Document&, MediaStreamPrivate&);
+private:
+    MediaRecorder(Document&, Ref<MediaStream>&&, Options&&);
+
+    static ExceptionOr<std::unique_ptr<MediaRecorderPrivate>> createMediaRecorderPrivate(MediaStreamPrivate&, const Options&);
     
     Document* document() const;
 
     // EventTarget
     void refEventTarget() final { ref(); }
     void derefEventTarget() final { deref(); }
-    EventTargetInterface eventTargetInterface() const final { return MediaRecorderEventTargetInterfaceType; }
+    enum EventTargetInterfaceType eventTargetInterface() const final { return EventTargetInterfaceType::MediaRecorder; }
     ScriptExecutionContext* scriptExecutionContext() const final { return ActiveDOMObject::scriptExecutionContext(); }
 
-    // ActiveDOMObject API.
+    // ActiveDOMObject.
     void suspend(ReasonForSuspension) final;
     void stop() final;
-    const char* activeDOMObjectName() const final;
     bool virtualHasPendingActivity() const final;
     
-    void stopRecordingInternal();
-
+    void stopRecordingInternal(CompletionHandler<void()>&& = [] { });
     void dispatchError(Exception&&);
+
+    enum class TakePrivateRecorder : bool { No, Yes };
+    using FetchDataCallback = Function<void(RefPtr<FragmentedSharedBuffer>&&, const String& mimeType, double)>;
+    void fetchData(FetchDataCallback&&, TakePrivateRecorder);
+    enum class ReturnDataIfEmpty : bool { No, Yes };
+    ExceptionOr<void> requestDataInternal(ReturnDataIfEmpty);
 
     // MediaStream::Observer
     void didAddTrack(MediaStreamTrackPrivate&) final { handleTrackChange(); }
@@ -104,25 +115,37 @@ private:
 
     void handleTrackChange();
 
-    // MediaStreamTrackPrivate::Observer
+    // MediaStreamTrackPrivateObserver
     void trackEnded(MediaStreamTrackPrivate&) final;
-    void trackMutedChanged(MediaStreamTrackPrivate&) final { };
+    void trackMutedChanged(MediaStreamTrackPrivate&) final;
+    void trackEnabledChanged(MediaStreamTrackPrivate&) final;
     void trackSettingsChanged(MediaStreamTrackPrivate&) final { };
-    void trackEnabledChanged(MediaStreamTrackPrivate&) final { };
+
+    void computeInitialBitRates() { computeBitRates(nullptr); }
+    void updateBitRates() { computeBitRates(&m_stream->privateStream()); }
+    void computeBitRates(const MediaStreamPrivate*);
 
     static CreatorFunction m_customCreator;
-    
+
     Options m_options;
     Ref<MediaStream> m_stream;
     std::unique_ptr<MediaRecorderPrivate> m_private;
     RecordingState m_state { RecordingState::Inactive };
     Vector<Ref<MediaStreamTrackPrivate>> m_tracks;
-    Optional<unsigned> m_timeSlice;
+    static constexpr unsigned m_mimimumTimeSlice { 100 };
+    std::optional<unsigned> m_timeSlice;
     Timer m_timeSliceTimer;
-    
+
     bool m_isActive { true };
+    bool m_isFetchingData { false };
+    Deque<FetchDataCallback> m_pendingFetchDataTasks;
+
+    unsigned m_audioBitsPerSecond { 0 };
+    unsigned m_videoBitsPerSecond { 0 };
+
+    std::optional<Seconds> m_nextFireInterval;
 };
 
 } // namespace WebCore
 
-#endif // ENABLE(MEDIA_STREAM)
+#endif // ENABLE(MEDIA_RECORDER)

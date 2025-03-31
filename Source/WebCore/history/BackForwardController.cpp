@@ -30,8 +30,11 @@
 #include "HistoryItem.h"
 #include "Page.h"
 #include "ShouldTreatAsContinuingLoad.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(BackForwardController);
 
 BackForwardController::BackForwardController(Page& page, Ref<BackForwardClient>&& client)
     : m_page(page)
@@ -41,19 +44,29 @@ BackForwardController::BackForwardController(Page& page, Ref<BackForwardClient>&
 
 BackForwardController::~BackForwardController() = default;
 
-RefPtr<HistoryItem> BackForwardController::backItem()
+RefPtr<HistoryItem> BackForwardController::backItem(std::optional<FrameIdentifier> frameID)
 {
-    return itemAtIndex(-1);
+    return itemAtIndex(-1, frameID);
 }
 
-RefPtr<HistoryItem> BackForwardController::currentItem()
+RefPtr<HistoryItem> BackForwardController::currentItem(std::optional<FrameIdentifier> frameID)
 {
-    return itemAtIndex(0);
+    return itemAtIndex(0, frameID);
 }
 
-RefPtr<HistoryItem> BackForwardController::forwardItem()
+RefPtr<HistoryItem> BackForwardController::forwardItem(std::optional<FrameIdentifier> frameID)
 {
-    return itemAtIndex(1);
+    return itemAtIndex(1, frameID);
+}
+
+Ref<Page> BackForwardController::protectedPage() const
+{
+    return m_page.get();
+}
+
+Ref<BackForwardClient> BackForwardController::protectedClient() const
+{
+    return m_client;
 }
 
 bool BackForwardController::canGoBackOrForward(int distance) const
@@ -72,7 +85,7 @@ void BackForwardController::goBackOrForward(int distance)
     if (!distance)
         return;
 
-    auto historyItem = itemAtIndex(distance);
+    RefPtr historyItem = itemAtIndex(distance);
     if (!historyItem) {
         if (distance > 0) {
             if (int forwardCount = this->forwardCount())
@@ -86,62 +99,109 @@ void BackForwardController::goBackOrForward(int distance)
     if (!historyItem)
         return;
 
-    m_page.goToItem(*historyItem, FrameLoadType::IndexedBackForward, ShouldTreatAsContinuingLoad::No);
+    Ref page { protectedPage() };
+    RefPtr localMainFrame = page->localMainFrame();
+    if (!localMainFrame)
+        return;
+
+    page->goToItem(*localMainFrame, *historyItem, FrameLoadType::IndexedBackForward, ShouldTreatAsContinuingLoad::No);
 }
 
 bool BackForwardController::goBack()
 {
-    auto historyItem = backItem();
+    RefPtr historyItem = backItem();
     if (!historyItem)
         return false;
 
-    m_page.goToItem(*historyItem, FrameLoadType::Back, ShouldTreatAsContinuingLoad::No);
+    Ref page { protectedPage() };
+    RefPtr localMainFrame = page->localMainFrame();
+    if (!localMainFrame)
+        return false;
+
+    page->goToItem(*localMainFrame, *historyItem, FrameLoadType::Back, ShouldTreatAsContinuingLoad::No);
     return true;
 }
 
 bool BackForwardController::goForward()
 {
-    auto historyItem = forwardItem();
+    RefPtr historyItem = forwardItem();
     if (!historyItem)
         return false;
 
-    m_page.goToItem(*historyItem, FrameLoadType::Forward, ShouldTreatAsContinuingLoad::No);
+    Ref page { protectedPage() };
+    RefPtr localMainFrame = page->localMainFrame();
+    if (!localMainFrame)
+        return false;
+
+    page->goToItem(*localMainFrame, *historyItem, FrameLoadType::Forward, ShouldTreatAsContinuingLoad::No);
     return true;
 }
 
 void BackForwardController::addItem(Ref<HistoryItem>&& item)
 {
-    m_client->addItem(WTFMove(item));
+    protectedClient()->addItem(WTFMove(item));
+}
+
+void BackForwardController::setChildItem(BackForwardFrameItemIdentifier frameItemID, Ref<HistoryItem>&& item)
+{
+    protectedClient()->setChildItem(frameItemID, WTFMove(item));
 }
 
 void BackForwardController::setCurrentItem(HistoryItem& item)
 {
-    m_client->goToItem(item);
+    protectedClient()->goToItem(item);
+}
+
+void BackForwardController::setProvisionalItem(const HistoryItem& item)
+{
+    protectedClient()->goToProvisionalItem(item);
+}
+
+void BackForwardController::clearProvisionalItem(const HistoryItem& item)
+{
+    protectedClient()->clearProvisionalItem(item);
+}
+
+bool BackForwardController::containsItem(const HistoryItem& item) const
+{
+    return protectedClient()->containsItem(item);
 }
 
 unsigned BackForwardController::count() const
 {
-    return m_client->backListCount() + 1 + m_client->forwardListCount();
+    Ref client = m_client;
+    return client->backListCount() + 1 + client->forwardListCount();
 }
 
 unsigned BackForwardController::backCount() const
 {
-    return m_client->backListCount();
+    return protectedClient()->backListCount();
 }
 
 unsigned BackForwardController::forwardCount() const
 {
-    return m_client->forwardListCount();
+    return protectedClient()->forwardListCount();
 }
 
-RefPtr<HistoryItem> BackForwardController::itemAtIndex(int i)
+RefPtr<HistoryItem> BackForwardController::itemAtIndex(int i, std::optional<FrameIdentifier> frameID)
 {
-    return m_client->itemAtIndex(i);
+    return protectedClient()->itemAtIndex(i, frameID.value_or(m_page->mainFrame().frameID()));
+}
+
+Vector<Ref<HistoryItem>> BackForwardController::allItems()
+{
+    Vector<Ref<HistoryItem>> historyItems;
+    for (int index = -1 * static_cast<int>(backCount()); index <= static_cast<int>(forwardCount()); index++) {
+        if (RefPtr item = itemAtIndex(index))
+            historyItems.append(item.releaseNonNull());
+    }
+
+    return historyItems;
 }
 
 void BackForwardController::close()
 {
-    m_client->close();
+    protectedClient()->close();
 }
 
 } // namespace WebCore

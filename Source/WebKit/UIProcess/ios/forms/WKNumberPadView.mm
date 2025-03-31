@@ -26,13 +26,13 @@
 #import "config.h"
 #import "WKNumberPadView.h"
 
-#if PLATFORM(WATCHOS)
+#if HAVE(PEPPER_UI_CORE)
 
 #import "PepperUICoreSPI.h"
 #import "WKNumberPadViewController.h"
 
 #import <WebCore/LocalizedStrings.h>
-#import <pal/spi/cocoa/CoreTextSPI.h>
+#import <pal/spi/cf/CoreTextSPI.h>
 #import <wtf/NeverDestroyed.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/WeakObjCPtr.h>
@@ -430,13 +430,13 @@ static WKNumberPadKey alternateKeyAtPosition(WKNumberPadButtonPosition position)
 
 - (WKNumberPadButton *)_buttonForPosition:(WKNumberPadButtonPosition)position
 {
-    WKNumberPadButton *button = [[[WKNumberPadButton alloc] init] autorelease];
-    button.defaultKey = defaultKeyAtPosition(position, [_controller inputMode]);
-    button.alternateKey = alternateKeyAtPosition(position);
-    button.buttonPosition = position;
-    button.titleLabel.font = [UIFont systemFontOfSize:numberPadLabelFontSize() weight:UIFontWeightSemibold design:(NSString *)kCTFontUIFontDesignRounded];
-    button.userInteractionEnabled = NO;
-    return button;
+    auto button = adoptNS([[WKNumberPadButton alloc] init]);
+    [button setDefaultKey:defaultKeyAtPosition(position, [_controller inputMode])];
+    [button setAlternateKey:alternateKeyAtPosition(position)];
+    [button setButtonPosition:position];
+    [button titleLabel].font = [UIFont systemFontOfSize:numberPadLabelFontSize() weight:UIFontWeightSemibold design:(NSString *)kCTFontUIFontDesignRounded];
+    [button setUserInteractionEnabled:NO];
+    return button.autorelease();
 }
 
 - (void)_initKeypad
@@ -445,8 +445,8 @@ static WKNumberPadKey alternateKeyAtPosition(WKNumberPadButtonPosition position)
     _keypad = adoptNS([[UIView alloc] init]);
     [_keypad setUserInteractionEnabled:YES];
 
-    CGFloat xAnchors[] = { 0.0, 0.5, 1.0 };
-    CGFloat yAnchors[] = { 0.0, 0.5, 0.5, 1.0 };
+    auto xAnchors = std::to_array<CGFloat>({ 0.0, 0.5, 1.0 });
+    auto yAnchors = std::to_array<CGFloat>({ 0.0, 0.5, 0.5, 1.0 });
 
     for (unsigned x = 0; x < 3; ++x) {
         for (unsigned y = 0; y < 4; ++y) {
@@ -567,4 +567,4 @@ static WKNumberPadKey alternateKeyAtPosition(WKNumberPadButtonPosition position)
 
 @end
 
-#endif // PLATFORM(WATCHOS)
+#endif // HAVE(PEPPER_UI_CORE)

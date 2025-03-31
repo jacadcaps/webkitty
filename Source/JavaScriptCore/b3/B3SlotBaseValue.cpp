@@ -28,13 +28,11 @@
 
 #if ENABLE(B3_JIT)
 
-#include "B3StackSlot.h"
+#include "AirStackSlot.h"
 
 namespace JSC { namespace B3 {
 
-SlotBaseValue::~SlotBaseValue()
-{
-}
+SlotBaseValue::~SlotBaseValue() = default;
 
 void SlotBaseValue::dumpMeta(CommaPrinter& comma, PrintStream& out) const
 {

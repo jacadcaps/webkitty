@@ -13,9 +13,13 @@
 
 #include <memory>
 
+#include "absl/strings/string_view.h"
 #include "api/audio_codecs/audio_decoder_factory.h"
 #include "api/audio_codecs/audio_encoder_factory.h"
+#include "api/environment/environment.h"
+#include "api/neteq/neteq.h"
 #include "common_audio/vad/include/vad.h"
+#include "modules/audio_coding/acm2/acm_resampler.h"
 #include "modules/audio_coding/include/audio_coding_module.h"
 #include "modules/audio_coding/include/audio_coding_module_typedefs.h"
 #include "modules/audio_coding/test/Channel.h"
@@ -23,7 +27,7 @@
 namespace webrtc {
 
 // This class records the frame type, and delegates actual sending to the
-// |next_| AudioPacketizationCallback.
+// `next_` AudioPacketizationCallback.
 class MonitoringAudioPacketizationCallback : public AudioPacketizationCallback {
  public:
   explicit MonitoringAudioPacketizationCallback(
@@ -61,29 +65,31 @@ class TestVadDtx {
  protected:
   // Returns true iff CN was added.
   bool RegisterCodec(const SdpAudioFormat& codec_format,
-                     absl::optional<Vad::Aggressiveness> vad_mode);
+                     std::optional<Vad::Aggressiveness> vad_mode);
 
   // Encoding a file and see if the numbers that various packets occur follow
   // the expectation. Saves result to a file.
   // expects[x] means
   // -1 : do not care,
-  // 0  : there have been no packets of type |x|,
-  // 1  : there have been packets of type |x|,
-  // with |x| indicates the following packet types
+  // 0  : there have been no packets of type `x`,
+  // 1  : there have been packets of type `x`,
+  // with `x` indicates the following packet types
   // 0 - kEmptyFrame
   // 1 - kAudioFrameSpeech
   // 2 - kAudioFrameCN
-  void Run(std::string in_filename,
+  void Run(absl::string_view in_filename,
            int frequency,
            int channels,
-           std::string out_filename,
+           absl::string_view out_filename,
            bool append,
            const int* expects);
 
+  const Environment env_;
   const rtc::scoped_refptr<AudioEncoderFactory> encoder_factory_;
   const rtc::scoped_refptr<AudioDecoderFactory> decoder_factory_;
   std::unique_ptr<AudioCodingModule> acm_send_;
-  std::unique_ptr<AudioCodingModule> acm_receive_;
+  std::unique_ptr<NetEq> neteq_;
+  acm2::ResamplerHelper resampler_helper_;
   std::unique_ptr<Channel> channel_;
   std::unique_ptr<MonitoringAudioPacketizationCallback> packetization_callback_;
   uint32_t time_stamp_ = 0x12345678;

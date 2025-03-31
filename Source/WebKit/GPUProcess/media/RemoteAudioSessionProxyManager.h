@@ -29,7 +29,9 @@
 
 #include <WebCore/AudioSession.h>
 #include <WebCore/ProcessIdentifier.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakHashSet.h>
+#include <wtf/WeakRef.h>
 
 namespace WebKit {
 
@@ -37,27 +39,54 @@ class GPUProcess;
 class RemoteAudioSessionProxy;
 
 class RemoteAudioSessionProxyManager
-    : public WebCore::AudioSession::InterruptionObserver {
-    WTF_MAKE_FAST_ALLOCATED;
+    : public RefCounted<RemoteAudioSessionProxyManager>
+    , public WebCore::AudioSessionInterruptionObserver
+    , private WebCore::AudioSessionConfigurationChangeObserver {
+    WTF_MAKE_TZONE_ALLOCATED(RemoteAudioSessionProxyManager);
 public:
-    RemoteAudioSessionProxyManager();
+    static Ref<RemoteAudioSessionProxyManager> create(GPUProcess& gpuProcess)
+    {
+        return adoptRef(*new RemoteAudioSessionProxyManager(gpuProcess));
+    }
+
     ~RemoteAudioSessionProxyManager();
 
-    void addProxy(RemoteAudioSessionProxy&);
+    void addProxy(RemoteAudioSessionProxy&, std::optional<audit_token_t>);
     void removeProxy(RemoteAudioSessionProxy&);
 
-    void setCategoryForProcess(RemoteAudioSessionProxy&, WebCore::AudioSession::CategoryType, WebCore::RouteSharingPolicy);
-    void setPreferredBufferSizeForProcess(RemoteAudioSessionProxy&, size_t);
+    void updateCategory();
+    void updatePreferredBufferSizeForProcess();
+    void updateSpatialExperience();
 
     bool tryToSetActiveForProcess(RemoteAudioSessionProxy&, bool);
 
-    const WebCore::AudioSession& session() const { return m_session; }
+    void beginInterruptionRemote();
+    void endInterruptionRemote(WebCore::AudioSession::MayResume);
+
+    WebCore::AudioSession& session() { return WebCore::AudioSession::sharedSession(); }
+    const WebCore::AudioSession& session() const { return WebCore::AudioSession::sharedSession(); }
+    Ref<WebCore::AudioSession> protectedSession() { return WebCore::AudioSession::sharedSession(); }
+    Ref<const WebCore::AudioSession> protectedSession() const { return WebCore::AudioSession::sharedSession(); }
+
+    void updatePresentingProcesses();
+
+    USING_CAN_MAKE_WEAKPTR(WebCore::AudioSessionInterruptionObserver);
 
 private:
+    RemoteAudioSessionProxyManager(GPUProcess&);
+
     void beginAudioSessionInterruption() final;
     void endAudioSessionInterruption(WebCore::AudioSession::MayResume) final;
 
-    UniqueRef<WebCore::AudioSession> m_session;
+    void hardwareMutedStateDidChange(const WebCore::AudioSession&) final;
+    void bufferSizeDidChange(const WebCore::AudioSession&) final;
+    void sampleRateDidChange(const WebCore::AudioSession&) final;
+    void configurationDidChange(const WebCore::AudioSession&);
+
+    bool hasOtherActiveProxyThan(RemoteAudioSessionProxy& proxyToExclude);
+    bool hasActiveNotInterruptedProxy();
+
+    WeakRef<GPUProcess> m_gpuProcess;
     WeakHashSet<RemoteAudioSessionProxy> m_proxies;
 };
 

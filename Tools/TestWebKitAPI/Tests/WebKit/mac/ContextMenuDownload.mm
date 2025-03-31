@@ -28,18 +28,23 @@
 #import "PlatformUtilities.h"
 #import "PlatformWebView.h"
 #import <WebKit/WKContextMenuItem.h>
-#import <WebKit/WKDownload.h>
+#import <WebKit/WKDownloadClient.h>
+#import <WebKit/WKDownloadRef.h>
 #import <WebKit/WKPage.h>
 #import <WebKit/WKPageContextMenuClient.h>
 #import <WebKit/WKPreferencesPrivate.h>
 #import <WebKit/WKRetainPtr.h>
+#import <WebKit/WKWebViewPrivate.h>
 #import <WebKit/_WKDownload.h>
+#import <WebKit/_WKFrameTreeNode.h>
+#import <wtf/StdLibExtras.h>
 
 namespace TestWebKitAPI {
 
 static bool didFinishLoad;
 static bool didDecideDownloadDestination;
 static WKPageRef expectedOriginatingPage;
+static WKFrameInfoRef mainFrameInfo;
 
 static void didFinishNavigation(WKPageRef, WKNavigationRef, WKTypeRef, const void*)
 {
@@ -54,7 +59,7 @@ static void getContextMenuFromProposedMenu(WKPageRef page, WKArrayRef proposedMe
         switch (WKContextMenuItemGetTag(contextMenuItem)) {
         case kWKContextMenuItemTagDownloadLinkToDisk:
             // Click "Download Linked File" context menu entry.
-            WKPageSelectContextMenuItem(page, contextMenuItem);
+            WKPageSelectContextMenuItem(page, contextMenuItem, mainFrameInfo);
             break;
         default:
             break;
@@ -62,12 +67,12 @@ static void getContextMenuFromProposedMenu(WKPageRef page, WKArrayRef proposedMe
     }
 }
 
-static WKStringRef decideDestinationWithSuggestedFilename(WKContextRef, WKDownloadRef download, WKStringRef suggestedFilename, bool*, const void*)
+static WKStringRef decideDestinationWithSuggestedFilename(WKDownloadRef download, WKURLResponseRef, WKStringRef suggestedFilename, const void*)
 {
     // Make sure the suggested filename is provided and matches the value of the download attribute in the HTML.
     EXPECT_WK_STREQ("downloadAttributeValue.txt", suggestedFilename);
 
-    WKDownloadCancel(download);
+    WKDownloadCancel(download, nullptr, nullptr);
     didDecideDownloadDestination = true;
 
     EXPECT_EQ(expectedOriginatingPage, WKDownloadGetOriginatingPage(download));
@@ -76,29 +81,32 @@ static WKStringRef decideDestinationWithSuggestedFilename(WKContextRef, WKDownlo
     return Util::toWK("/tmp/WebKitAPITest/ContextMenuDownload").leakRef();
 }
 
+static void contextMenuDidCreateDownload(WKPageRef page, WKDownloadRef download, const void* clientInfo)
+{
+    WKDownloadClientV0 client;
+    zeroBytes(client);
+    client.base.version = 0;
+    client.decideDestinationWithResponse = decideDestinationWithSuggestedFilename;
+    WKDownloadSetClient(download, &client.base);
+}
+
 // Checks that the HTML download attribute is used as suggested filename when selecting
 // the "Download Linked File" item in the context menu.
 TEST(WebKit, ContextMenuDownloadHTMLDownloadAttribute)
 {
     WKRetainPtr<WKContextRef> context = adoptWK(Util::createContextWithInjectedBundle());
 
-    WKContextDownloadClientV0 client;
-    memset(&client, 0, sizeof(client));
-    client.base.version = 0;
-    client.decideDestinationWithSuggestedFilename = decideDestinationWithSuggestedFilename;
-    WKContextSetDownloadClient(context.get(), &client.base);
+    PlatformWebView webView(context.get());
 
-    WKRetainPtr<WKPageGroupRef> pageGroup = adoptWK(WKPageGroupCreateWithIdentifier(Util::toWK("MyGroup").get()));
-    PlatformWebView webView(context.get(), pageGroup.get());
-
-    WKPageNavigationClientV0 loaderClient;
-    memset(&loaderClient, 0, sizeof(loaderClient));
-    loaderClient.base.version = 0;
+    WKPageNavigationClientV3 loaderClient;
+    zeroBytes(loaderClient);
+    loaderClient.base.version = 3;
     loaderClient.didFinishNavigation = didFinishNavigation;
+    loaderClient.contextMenuDidCreateDownload = contextMenuDidCreateDownload;
     WKPageSetPageNavigationClient(webView.page(), &loaderClient.base);
 
     WKPageContextMenuClientV3 contextMenuClient;
-    memset(&contextMenuClient, 0, sizeof(contextMenuClient));
+    zeroBytes(contextMenuClient);
     contextMenuClient.base.version = 3;
     contextMenuClient.getContextMenuFromProposedMenu = getContextMenuFromProposedMenu;
     WKPageSetPageContextMenuClient(webView.page(), &contextMenuClient.base);
@@ -109,43 +117,54 @@ TEST(WebKit, ContextMenuDownloadHTMLDownloadAttribute)
     WKPageLoadURL(webView.page(), url.get());
     Util::run(&didFinishLoad);
 
+    __block RetainPtr<WKFrameInfo> retainedFrameInfo;
+    [webView.platformView() _frames:^(_WKFrameTreeNode *mainFrame) {
+        retainedFrameInfo = mainFrame.info;
+        mainFrameInfo = (__bridge WKFrameInfoRef)retainedFrameInfo.get();
+    }];
+    while (!retainedFrameInfo)
+        Util::spinRunLoop();
+
     // Right click on link.
     webView.simulateButtonClick(kWKEventMouseButtonRightButton, 50, 50, 0);
     Util::run(&didDecideDownloadDestination);
 }
 
-static WKStringRef decideDestinationWithSuggestedFilenameContainingSlashes(WKContextRef, WKDownloadRef download, WKStringRef suggestedFilename, bool*, const void*)
+static WKStringRef decideDestinationWithSuggestedFilenameContainingSlashes(WKDownloadRef download, WKURLResponseRef, WKStringRef suggestedFilename, const void*)
 {
     // Make sure the suggested filename is provided and matches the value of the download attribute in the HTML, after sanitization.
     EXPECT_WK_STREQ("test1_test2_downloadAttributeValue.txt", suggestedFilename);
 
-    WKDownloadCancel(download);
+    WKDownloadCancel(download, nullptr, nullptr);
     didDecideDownloadDestination = true;
 
     return Util::toWK("/tmp/WebKitAPITest/ContextMenuDownload").leakRef();
+}
+
+static void contextMenuDidCreateDownloadWithSuggestedFilenameContainingSlashes(WKPageRef page, WKDownloadRef download, const void* clientInfo)
+{
+    WKDownloadClientV0 client;
+    zeroBytes(client);
+    client.base.version = 0;
+    client.decideDestinationWithResponse = decideDestinationWithSuggestedFilenameContainingSlashes;
+    WKDownloadSetClient(download, &client.base);
 }
 
 TEST(WebKit, ContextMenuDownloadHTMLDownloadAttributeWithSlashes)
 {
     WKRetainPtr<WKContextRef> context = adoptWK(Util::createContextWithInjectedBundle());
 
-    WKContextDownloadClientV0 client;
-    memset(&client, 0, sizeof(client));
-    client.base.version = 0;
-    client.decideDestinationWithSuggestedFilename = decideDestinationWithSuggestedFilenameContainingSlashes;
-    WKContextSetDownloadClient(context.get(), &client.base);
+    PlatformWebView webView(context.get());
 
-    WKRetainPtr<WKPageGroupRef> pageGroup = adoptWK(WKPageGroupCreateWithIdentifier(Util::toWK("MyGroup").get()));
-    PlatformWebView webView(context.get(), pageGroup.get());
-
-    WKPageNavigationClientV0 loaderClient;
-    memset(&loaderClient, 0, sizeof(loaderClient));
-    loaderClient.base.version = 0;
+    WKPageNavigationClientV3 loaderClient;
+    zeroBytes(loaderClient);
+    loaderClient.base.version = 3;
     loaderClient.didFinishNavigation = didFinishNavigation;
+    loaderClient.contextMenuDidCreateDownload = contextMenuDidCreateDownloadWithSuggestedFilenameContainingSlashes;
     WKPageSetPageNavigationClient(webView.page(), &loaderClient.base);
 
     WKPageContextMenuClientV3 contextMenuClient;
-    memset(&contextMenuClient, 0, sizeof(contextMenuClient));
+    zeroBytes(contextMenuClient);
     contextMenuClient.base.version = 3;
     contextMenuClient.getContextMenuFromProposedMenu = getContextMenuFromProposedMenu;
     WKPageSetPageContextMenuClient(webView.page(), &contextMenuClient.base);
@@ -155,6 +174,14 @@ TEST(WebKit, ContextMenuDownloadHTMLDownloadAttributeWithSlashes)
     expectedOriginatingPage = webView.page();
     WKPageLoadURL(webView.page(), url.get());
     Util::run(&didFinishLoad);
+
+    __block RetainPtr<WKFrameInfo> retainedFrameInfo;
+    [webView.platformView() _frames:^(_WKFrameTreeNode *mainFrame) {
+        retainedFrameInfo = mainFrame.info;
+        mainFrameInfo = (__bridge WKFrameInfoRef)retainedFrameInfo.get();
+    }];
+    while (!retainedFrameInfo)
+        Util::spinRunLoop();
 
     // Right click on link.
     webView.simulateButtonClick(kWKEventMouseButtonRightButton, 50, 50, 0);

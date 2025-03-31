@@ -14,7 +14,7 @@ using namespace angle;
 
 constexpr int kPixelColorThreshhold = 8;
 
-class ShaderInterpTest : public ANGLETest
+class ShaderInterpTest : public ANGLETest<>
 {
   protected:
     ShaderInterpTest() : ANGLETest()
@@ -91,7 +91,7 @@ void main()
 // Test that uninterpolated "Flat" interpolation works correctly
 TEST_P(ShaderInterpTest, Flat)
 {
-    // TODO: anglebug.com/4085
+    // TODO: anglebug.com/42262721
     // No vendors currently support VK_EXT_provoking_vertex, which is necessary for conformant flat
     // shading. SwiftShader does technically support this extension, but as it has not yet been
     // ratified by Khronos, the vulkan validation layers do not recognize the create info struct,
@@ -209,4 +209,5 @@ void main()
     EXPECT_PIXEL_COLOR_EQ(64, 64, smooth_reference);
 }
 
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ShaderInterpTest);
 ANGLE_INSTANTIATE_TEST_ES3(ShaderInterpTest);

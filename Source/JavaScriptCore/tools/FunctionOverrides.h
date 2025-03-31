@@ -41,8 +41,8 @@ struct FunctionOverrideInfo {
     unsigned startColumn;
     unsigned endColumn;
     unsigned parametersStartOffset;
-    unsigned typeProfilingStartOffset;
-    unsigned typeProfilingEndOffset;
+    unsigned functionStart;
+    unsigned functionEnd;
 };
 
 class FunctionOverrides {
@@ -57,10 +57,10 @@ public:
     JS_EXPORT_PRIVATE static void reinstallOverrides();
 
 private:
-    void parseOverridesInFile(const AbstractLocker&, const char* fileName);
-    void clear(const AbstractLocker&) { m_entries.clear(); }
+    void parseOverridesInFile(const char* fileName) WTF_REQUIRES_LOCK(m_lock);
+    void clear() WTF_REQUIRES_LOCK(m_lock) { m_entries.clear(); }
 
-    HashMap<String, String> m_entries;
+    UncheckedKeyHashMap<String, String> m_entries WTF_GUARDED_BY_LOCK(m_lock);
     Lock m_lock;
 };
 

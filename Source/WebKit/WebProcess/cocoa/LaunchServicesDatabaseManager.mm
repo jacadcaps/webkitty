@@ -27,6 +27,7 @@
 #import "LaunchServicesDatabaseManager.h"
 
 #import "LaunchServicesDatabaseXPCConstants.h"
+#import "Logging.h"
 #import "XPCEndpoint.h"
 #import <pal/spi/cocoa/LaunchServicesSPI.h>
 #import <wtf/cocoa/Entitlements.h>
@@ -37,25 +38,25 @@ namespace WebKit {
 
 LaunchServicesDatabaseManager& LaunchServicesDatabaseManager::singleton()
 {
-    static NeverDestroyed<LaunchServicesDatabaseManager> manager;
+    static LazyNeverDestroyed<LaunchServicesDatabaseManager> manager;
+    static std::once_flag onceKey;
+    std::call_once(onceKey, [] {
+        manager.construct();
+    });
     return manager.get();
 }
 
 void LaunchServicesDatabaseManager::handleEvent(xpc_object_t message)
 {
-    String messageName = xpc_dictionary_get_string(message, XPCEndpoint::xpcMessageNameKey);
-    if (messageName.isEmpty())
-        return;
+    String messageName = xpc_dictionary_get_wtfstring(message, XPCEndpoint::xpcMessageNameKey);
     if (messageName == LaunchServicesDatabaseXPCConstants::xpcUpdateLaunchServicesDatabaseMessageName) {
 #if HAVE(LSDATABASECONTEXT)
         auto database = xpc_dictionary_get_value(message, LaunchServicesDatabaseXPCConstants::xpcLaunchServicesDatabaseKey);
 
-        if (database) {
-            auto context = [NSClassFromString(@"LSDatabaseContext") sharedDatabaseContext];
-            if (![context respondsToSelector:@selector(observeDatabaseChange4WebKit:)])
-                return;
-            [context observeDatabaseChange4WebKit:database];
-        }
+        RELEASE_LOG_FORWARDABLE(Loading, RECEIVED_LAUNCH_SERVICES_DATABASE);
+
+        if (database)
+            [LSDatabaseContext.sharedDatabaseContext observeDatabaseChange4WebKit:database];
 #endif
         m_semaphore.signal();
         m_hasReceivedLaunchServicesDatabase = true;
@@ -79,6 +80,23 @@ bool LaunchServicesDatabaseManager::waitForDatabaseUpdate(Seconds timeout)
     if (m_hasReceivedLaunchServicesDatabase)
         return true;
     return m_semaphore.waitFor(timeout);
+}
+
+void LaunchServicesDatabaseManager::waitForDatabaseUpdate()
+{
+    auto startTime = MonotonicTime::now();
+#ifdef NDEBUG
+    constexpr auto waitTime = 5_s;
+#else
+    constexpr auto waitTime = 10_s;
+#endif
+    bool databaseUpdated = waitForDatabaseUpdate(waitTime);
+    auto elapsedTime = MonotonicTime::now() - startTime;
+    if (elapsedTime > 0.5_s)
+        RELEASE_LOG_ERROR_FORWARDABLE(Loading, WAITING_FOR_LAUNCH_SERVICES_DATABASE_UPDATE_TOOK_F_SECONDS, elapsedTime.value());
+
+    if (!databaseUpdated)
+        RELEASE_LOG_FAULT_FORWARDABLE(Loading, TIMED_OUT_WAITING_FOR_LAUNCH_SERVICES_DATABASE_UPDATE);
 }
 
 }

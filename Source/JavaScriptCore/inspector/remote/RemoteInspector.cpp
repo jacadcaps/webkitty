@@ -42,6 +42,10 @@ bool RemoteInspector::startEnabled = true;
 std::atomic<bool> RemoteInspector::needMachSandboxExtension = false;
 #endif
 
+#if !PLATFORM(COCOA)
+RemoteInspector::~RemoteInspector() = default;
+#endif
+
 void RemoteInspector::startDisabled()
 {
     RemoteInspector::startEnabled = false;
@@ -60,7 +64,7 @@ void RemoteInspector::registerTarget(RemoteControllableTarget* target)
 {
     ASSERT_ARG(target, target);
 
-    LockHolder lock(m_mutex);
+    Locker locker { m_mutex };
 
     auto targetIdentifier = nextAvailableTargetIdentifier();
     target->setTargetIdentifier(targetIdentifier);
@@ -83,7 +87,7 @@ void RemoteInspector::unregisterTarget(RemoteControllableTarget* target)
 {
     ASSERT_ARG(target, target);
 
-    LockHolder lock(m_mutex);
+    Locker locker { m_mutex };
 
     auto targetIdentifier = target->targetIdentifier();
     if (!targetIdentifier)
@@ -105,7 +109,7 @@ void RemoteInspector::updateTarget(RemoteControllableTarget* target)
 {
     ASSERT_ARG(target, target);
 
-    LockHolder lock(m_mutex);
+    Locker locker { m_mutex };
 
     if (!updateTargetMap(target))
         return;
@@ -146,10 +150,10 @@ void RemoteInspector::updateClientCapabilities()
 {
     ASSERT(isMainThread());
 
-    LockHolder lock(m_mutex);
+    Locker locker { m_mutex };
 
     if (!m_client)
-        m_clientCapabilities = WTF::nullopt;
+        m_clientCapabilities = std::nullopt;
     else {
         RemoteInspector::Client::Capabilities updatedCapabilities = {
             m_client->remoteAutomationAllowed(),
@@ -166,7 +170,7 @@ void RemoteInspector::setClient(RemoteInspector::Client* client)
     ASSERT((m_client && !client) || (!m_client && client));
 
     {
-        LockHolder lock(m_mutex);
+        Locker locker { m_mutex };
         m_client = client;
     }
 
@@ -177,12 +181,10 @@ void RemoteInspector::setClient(RemoteInspector::Client* client)
 
 void RemoteInspector::setupFailed(TargetID targetIdentifier)
 {
-    LockHolder lock(m_mutex);
+    Locker locker { m_mutex };
 
     m_targetConnectionMap.remove(targetIdentifier);
-
-    if (targetIdentifier == m_automaticInspectionCandidateTargetIdentifier)
-        m_automaticInspectionPaused = false;
+    m_pausedAutomaticInspectionCandidates.remove(targetIdentifier);
 
     updateHasActiveDebugSession();
     updateTargetListing(targetIdentifier);
@@ -191,16 +193,16 @@ void RemoteInspector::setupFailed(TargetID targetIdentifier)
 
 void RemoteInspector::setupCompleted(TargetID targetIdentifier)
 {
-    LockHolder lock(m_mutex);
+    Locker locker { m_mutex };
 
-    if (targetIdentifier == m_automaticInspectionCandidateTargetIdentifier)
-        m_automaticInspectionPaused = false;
+    m_pausedAutomaticInspectionCandidates.remove(targetIdentifier);
 }
 
-bool RemoteInspector::waitingForAutomaticInspection(TargetID)
+bool RemoteInspector::waitingForAutomaticInspection(TargetID targetIdentifier)
 {
-    // We don't take the lock to check this because we assume it will be checked repeatedly.
-    return m_automaticInspectionPaused;
+    Locker locker { m_mutex };
+
+    return m_pausedAutomaticInspectionCandidates.contains(targetIdentifier);
 }
 
 void RemoteInspector::clientCapabilitiesDidChange()
@@ -211,17 +213,17 @@ void RemoteInspector::clientCapabilitiesDidChange()
 
 void RemoteInspector::stop()
 {
-    LockHolder lock(m_mutex);
+    Locker locker { m_mutex };
 
     stopInternal(StopSource::API);
 }
 
 TargetListing RemoteInspector::listingForTarget(const RemoteControllableTarget& target) const
 {
-    if (is<RemoteInspectionTarget>(target))
-        return listingForInspectionTarget(downcast<RemoteInspectionTarget>(target));
-    if (is<RemoteAutomationTarget>(target))
-        return listingForAutomationTarget(downcast<RemoteAutomationTarget>(target));
+    if (auto* inspectionTarget = dynamicDowncast<RemoteInspectionTarget>(target))
+        return listingForInspectionTarget(*inspectionTarget);
+    if (auto* automationTarget = dynamicDowncast<RemoteAutomationTarget>(target))
+        return listingForAutomationTarget(*automationTarget);
 
     ASSERT_NOT_REACHED();
     return nullptr;
@@ -259,9 +261,8 @@ void RemoteInspector::updateHasActiveDebugSession()
     // Legacy iOS WebKit 1 had a notification. This will need to be smarter with WebKit2.
 }
 
-RemoteInspector::Client::~Client()
-{
-}
+RemoteInspector::Client::Client() = default;
+RemoteInspector::Client::~Client() = default;
 
 } // namespace Inspector
 

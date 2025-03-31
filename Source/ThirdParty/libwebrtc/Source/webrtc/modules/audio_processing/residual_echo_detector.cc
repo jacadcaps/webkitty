@@ -12,11 +12,9 @@
 
 #include <algorithm>
 #include <numeric>
+#include <optional>
 
-#include "absl/types/optional.h"
-#include "modules/audio_processing/audio_buffer.h"
 #include "modules/audio_processing/logging/apm_data_dumper.h"
-#include "rtc_base/atomic_ops.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
 #include "system_wrappers/include/metrics.h"
@@ -42,11 +40,10 @@ constexpr size_t kAggregationBufferSize = 10 * 100;
 
 namespace webrtc {
 
-int ResidualEchoDetector::instance_count_ = 0;
+std::atomic<int> ResidualEchoDetector::instance_count_(0);
 
 ResidualEchoDetector::ResidualEchoDetector()
-    : data_dumper_(
-          new ApmDataDumper(rtc::AtomicOps::Increment(&instance_count_))),
+    : data_dumper_(new ApmDataDumper(instance_count_.fetch_add(1) + 1)),
       render_buffer_(kRenderBufferSize),
       render_power_(kLookbackFrames),
       render_power_mean_(kLookbackFrames),
@@ -92,7 +89,7 @@ void ResidualEchoDetector::AnalyzeCaptureAudio(
   }
 
   // Get the next render value.
-  const absl::optional<float> buffered_render_power = render_buffer_.Pop();
+  const std::optional<float> buffered_render_power = render_buffer_.Pop();
   if (!buffered_render_power) {
     // This can happen in a few cases: at the start of a call, due to a glitch
     // or due to clock drift. The excess capture value will be ignored.
@@ -197,13 +194,6 @@ void ResidualEchoDetector::Initialize(int /*capture_sample_rate_hz*/,
   echo_likelihood_ = 0.f;
   next_insertion_index_ = 0;
   reliability_ = 0.f;
-}
-
-void EchoDetector::PackRenderAudioBuffer(AudioBuffer* audio,
-                                         std::vector<float>* packed_buffer) {
-  packed_buffer->clear();
-  packed_buffer->insert(packed_buffer->end(), audio->channels()[0],
-                        audio->channels()[0] + audio->num_frames());
 }
 
 EchoDetector::Metrics ResidualEchoDetector::GetMetrics() const {

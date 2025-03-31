@@ -23,99 +23,138 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef PlatformDisplay_h
-#define PlatformDisplay_h
+#pragma once
 
+#include "GLDisplay.h"
 #include <wtf/Noncopyable.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/TypeCasts.h>
+#include <wtf/text/WTFString.h>
 
-#if USE(EGL)
+typedef intptr_t EGLAttrib;
+typedef void *EGLClientBuffer;
+typedef void *EGLContext;
 typedef void *EGLDisplay;
-#endif
+typedef void *EGLImage;
+typedef unsigned EGLenum;
 
-#if ENABLE(VIDEO) && USE(GSTREAMER_GL)
+#if ENABLE(VIDEO) && USE(GSTREAMER)
 #include "GRefPtrGStreamer.h"
 
 typedef struct _GstGLContext GstGLContext;
 typedef struct _GstGLDisplay GstGLDisplay;
-#endif // ENABLE(VIDEO) && USE(GSTREAMER_GL)
+#endif // ENABLE(VIDEO) && USE(GSTREAMER)
+
+#if USE(SKIA)
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
+#include <skia/gpu/ganesh/GrDirectContext.h>
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
+#include <wtf/ThreadSafeWeakHashSet.h>
+#endif
 
 namespace WebCore {
 
 class GLContext;
+#if USE(SKIA)
+class SkiaGLContext;
+#endif
 
 class PlatformDisplay {
-    WTF_MAKE_NONCOPYABLE(PlatformDisplay); WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(PlatformDisplay);
+    WTF_MAKE_NONCOPYABLE(PlatformDisplay);
 public:
     WEBCORE_EXPORT static PlatformDisplay& sharedDisplay();
-    WEBCORE_EXPORT static PlatformDisplay& sharedDisplayForCompositing();
+#if !PLATFORM(WIN)
+    WEBCORE_EXPORT static void setSharedDisplay(std::unique_ptr<PlatformDisplay>&&);
+    WEBCORE_EXPORT static PlatformDisplay* sharedDisplayIfExists();
+#endif
     virtual ~PlatformDisplay();
 
     enum class Type {
-#if PLATFORM(X11)
-        X11,
-#endif
-#if PLATFORM(WAYLAND)
-        Wayland,
-#endif
 #if PLATFORM(WIN)
         Windows,
 #endif
 #if USE(WPE_RENDERER)
         WPE,
 #endif
+        Surfaceless,
+#if USE(GBM)
+        GBM,
+#endif
+#if PLATFORM(GTK)
+        Default,
+#endif
     };
 
     virtual Type type() const = 0;
 
-#if USE(EGL) || USE(GLX)
     WEBCORE_EXPORT GLContext* sharingGLContext();
-#endif
-
-#if USE(EGL)
+    void clearSharingGLContext();
     EGLDisplay eglDisplay() const;
     bool eglCheckVersion(int major, int minor) const;
+
+    const GLDisplay::Extensions& eglExtensions() const;
+
+    EGLImage createEGLImage(EGLContext, EGLenum target, EGLClientBuffer, const Vector<EGLAttrib>&) const;
+    bool destroyEGLImage(EGLImage) const;
+#if USE(GBM)
+    const Vector<GLDisplay::DMABufFormat>& dmabufFormats();
+#if USE(GSTREAMER)
+    const Vector<GLDisplay::DMABufFormat>& dmabufFormatsForVideo();
+#endif
 #endif
 
-#if ENABLE(VIDEO) && USE(GSTREAMER_GL)
+#if ENABLE(WEBGL)
+    EGLDisplay angleEGLDisplay() const;
+    EGLContext angleSharingGLContext();
+#endif
+
+#if ENABLE(VIDEO) && USE(GSTREAMER)
     GstGLDisplay* gstGLDisplay() const;
     GstGLContext* gstGLContext() const;
+    void clearGStreamerGLState();
+#endif
+
+#if USE(SKIA)
+    GLContext* skiaGLContext();
+    GrDirectContext* skiaGrContext();
+    unsigned msaaSampleCount() const;
 #endif
 
 protected:
-    enum class NativeDisplayOwned { No, Yes };
-    explicit PlatformDisplay(NativeDisplayOwned);
+    explicit PlatformDisplay(std::unique_ptr<GLDisplay>&&);
 
-    static void setSharedDisplayForCompositing(PlatformDisplay&);
-
-    NativeDisplayOwned m_nativeDisplayOwned { NativeDisplayOwned::No };
-
-#if USE(EGL)
-    virtual void initializeEGLDisplay();
-
-    EGLDisplay m_eglDisplay;
-#endif
-
-#if USE(EGL) || USE(GLX)
+    std::unique_ptr<GLDisplay> m_eglDisplay;
     std::unique_ptr<GLContext> m_sharingGLContext;
+
+#if ENABLE(WEBGL) && !PLATFORM(WIN)
+    std::optional<int> m_anglePlatform;
+    void* m_angleNativeDisplay { nullptr };
 #endif
 
 private:
-    static std::unique_ptr<PlatformDisplay> createPlatformDisplay();
-
-#if USE(EGL)
-    void terminateEGLDisplay();
-
-    bool m_eglDisplayInitialized { false };
-    int m_eglMajorVersion { 0 };
-    int m_eglMinorVersion { 0 };
+#if USE(SKIA)
+    void invalidateSkiaGLContexts();
 #endif
 
-#if ENABLE(VIDEO) && USE(GSTREAMER_GL)
-    bool tryEnsureGstGLContext() const;
+#if ENABLE(WEBGL) && !PLATFORM(WIN)
+    void clearANGLESharingGLContext();
+#endif
 
+    void terminateEGLDisplay();
+
+#if ENABLE(WEBGL) && !PLATFORM(WIN)
+    mutable EGLDisplay m_angleEGLDisplay { nullptr };
+    EGLContext m_angleSharingGLContext { nullptr };
+#endif
+
+#if ENABLE(VIDEO) && USE(GSTREAMER)
     mutable GRefPtr<GstGLDisplay> m_gstGLDisplay;
     mutable GRefPtr<GstGLContext> m_gstGLContext;
+#endif
+
+#if USE(SKIA)
+    ThreadSafeWeakHashSet<SkiaGLContext> m_skiaGLContexts;
 #endif
 };
 
@@ -125,5 +164,3 @@ private:
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::ToClassName) \
     static bool isType(const WebCore::PlatformDisplay& display) { return display.type() == WebCore::PlatformDisplay::Type::DisplayType; } \
 SPECIALIZE_TYPE_TRAITS_END()
-
-#endif // PltformDisplay_h

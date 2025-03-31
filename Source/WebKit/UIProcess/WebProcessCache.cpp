@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,20 +26,36 @@
 #include "config.h"
 #include "WebProcessCache.h"
 
+#include "APIPageConfiguration.h"
 #include "LegacyGlobalSettings.h"
 #include "Logging.h"
+#include "ProcessThrottler.h"
 #include "WebProcessPool.h"
-#include "WebProcessProxy.h"
 #include <wtf/RAMSize.h>
 #include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMallocInlines.h>
 
 #define WEBPROCESSCACHE_RELEASE_LOG(fmt, ...) RELEASE_LOG(ProcessSwapping, "%p - [PID=%d] WebProcessCache::" fmt, this, ##__VA_ARGS__)
 #define WEBPROCESSCACHE_RELEASE_LOG_ERROR(fmt, ...) RELEASE_LOG_ERROR(ProcessSwapping, "%p - [PID=%d] WebProcessCache::" fmt, this, ##__VA_ARGS__)
 
 namespace WebKit {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WebProcessCache);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WebProcessCache::CachedProcess);
+
+#if PLATFORM(COCOA)
 Seconds WebProcessCache::cachedProcessLifetime { 30_min };
 Seconds WebProcessCache::clearingDelayAfterApplicationResignsActive { 5_min };
+#else
+Seconds WebProcessCache::cachedProcessLifetime { 5_min };
+Seconds WebProcessCache::clearingDelayAfterApplicationResignsActive = cachedProcessLifetime;
+#endif
+static Seconds cachedProcessSuspensionDelay { 30_s };
+
+void WebProcessCache::setCachedProcessSuspensionDelayForTesting(Seconds delay)
+{
+    cachedProcessSuspensionDelay = delay;
+}
 
 static uint64_t generateAddRequestIdentifier()
 {
@@ -57,23 +73,30 @@ WebProcessCache::WebProcessCache(WebProcessPool& processPool)
 bool WebProcessCache::canCacheProcess(WebProcessProxy& process) const
 {
     if (!capacity()) {
-        WEBPROCESSCACHE_RELEASE_LOG("canCacheProcess: Not caching process because the cache has no capacity", process.processIdentifier());
+        WEBPROCESSCACHE_RELEASE_LOG("canCacheProcess: Not caching process because the cache has no capacity", process.processID());
         return false;
     }
 
-    if (process.registrableDomain().isEmpty()) {
-        WEBPROCESSCACHE_RELEASE_LOG("canCacheProcess: Not caching process because it does not have an associated registrable domain", process.processIdentifier());
+    if (!process.site() || process.site()->domain().isEmpty()) {
+        WEBPROCESSCACHE_RELEASE_LOG("canCacheProcess: Not caching process because it does not have an associated registrable domain", process.processID());
         return false;
+    }
+
+    if (RefPtr websiteDataStore = process.websiteDataStore()) {
+        // Network process might wait for this web process to exit before clearing data.
+        if (websiteDataStore->isRemovingData()) {
+            WEBPROCESSCACHE_RELEASE_LOG("canCacheProcess: Not caching process because its website data store is removing data", process.processID());
+            return false;
+        }
     }
 
     if (MemoryPressureHandler::singleton().isUnderMemoryPressure()) {
-        WEBPROCESSCACHE_RELEASE_LOG("canCacheProcess: Not caching process because we are under memory pressure", process.processIdentifier());
+        WEBPROCESSCACHE_RELEASE_LOG("canCacheProcess: Not caching process because we are under memory pressure", process.processID());
         return false;
     }
 
-    auto sessionID = process.websiteDataStore().sessionID();
-    if (sessionID.isEphemeral() && !process.processPool().hasPagesUsingWebsiteDataStore(process.websiteDataStore())) {
-        WEBPROCESSCACHE_RELEASE_LOG("canCacheProcess: Not caching process because this session has been destroyed", process.processIdentifier());
+    if (!process.websiteDataStore()) {
+        WEBPROCESSCACHE_RELEASE_LOG("canCacheProcess: Not caching process because this session has been destroyed", process.processID());
         return false;
     }
 
@@ -85,77 +108,96 @@ bool WebProcessCache::addProcessIfPossible(Ref<WebProcessProxy>&& process)
     ASSERT(!process->pageCount());
     ASSERT(!process->provisionalPageCount());
     ASSERT(!process->suspendedPageCount());
+    ASSERT(!process->isRunningServiceWorkers());
 
     if (!canCacheProcess(process))
         return false;
 
+    // CachedProcess can destroy the process pool (which owns the WebProcessCache), by making its reference weak in WebProcessProxy::setIsInProcessCache.
+    Ref protectedProcessPool = process->processPool();
     uint64_t requestIdentifier = generateAddRequestIdentifier();
-    m_pendingAddRequests.add(requestIdentifier, makeUnique<CachedProcess>(process.copyRef()));
+    m_pendingAddRequests.add(requestIdentifier, CachedProcess::create(process.copyRef()));
 
-    WEBPROCESSCACHE_RELEASE_LOG("addProcessIfPossible: Checking if process is responsive before caching it", process->processIdentifier());
-    process->isResponsive([this, processPool = makeRef(process->processPool()), requestIdentifier](bool isResponsive) {
+    WEBPROCESSCACHE_RELEASE_LOG("addProcessIfPossible: Checking if process is responsive before caching it", process->processID());
+    process->isResponsive([this, processPool = WTFMove(protectedProcessPool), process, requestIdentifier](bool isResponsive) {
         auto cachedProcess = m_pendingAddRequests.take(requestIdentifier);
         if (!cachedProcess)
             return;
 
         if (!isResponsive) {
-            WEBPROCESSCACHE_RELEASE_LOG_ERROR("addProcessIfPossible(): Not caching process because it is not responsive", cachedProcess->process().processIdentifier());
+            WEBPROCESSCACHE_RELEASE_LOG_ERROR("addProcessIfPossible(): Not caching process because it is not responsive", cachedProcess->process().processID());
             return;
         }
-        processPool->webProcessCache().addProcess(WTFMove(cachedProcess));
+        processPool->webProcessCache().addProcess(cachedProcess.releaseNonNull());
     });
     return true;
 }
 
-bool WebProcessCache::addProcess(std::unique_ptr<CachedProcess>&& cachedProcess)
+bool WebProcessCache::addProcess(Ref<CachedProcess>&& cachedProcess)
 {
     ASSERT(!cachedProcess->process().pageCount());
     ASSERT(!cachedProcess->process().provisionalPageCount());
     ASSERT(!cachedProcess->process().suspendedPageCount());
+    ASSERT(!cachedProcess->process().isRunningServiceWorkers());
 
-    if (!canCacheProcess(cachedProcess->process()))
+    Ref process = cachedProcess->process();
+    if (!canCacheProcess(process))
         return false;
 
-    auto registrableDomain = cachedProcess->process().registrableDomain();
-    RELEASE_ASSERT(!registrableDomain.isEmpty());
+    RELEASE_ASSERT(process->site());
+    RELEASE_ASSERT(!process->site()->isEmpty());
+    auto site = *process->site();
 
-    if (auto previousProcess = m_processesPerRegistrableDomain.take(registrableDomain))
-        WEBPROCESSCACHE_RELEASE_LOG("addProcess: Evicting process from WebProcess cache because a new process was added for the same domain", previousProcess->process().processIdentifier());
+    if (auto previousProcess = m_processesPerSite.take(site))
+        WEBPROCESSCACHE_RELEASE_LOG("addProcess: Evicting process from WebProcess cache because a new process was added for the same domain", previousProcess->process().processID());
 
-    while (m_processesPerRegistrableDomain.size() >= capacity()) {
-        auto it = m_processesPerRegistrableDomain.random();
-        WEBPROCESSCACHE_RELEASE_LOG("addProcess: Evicting process from WebProcess cache because capacity was reached", it->value->process().processIdentifier());
-        m_processesPerRegistrableDomain.remove(it);
+    while (m_processesPerSite.size() >= capacity()) {
+        auto it = m_processesPerSite.random();
+        WEBPROCESSCACHE_RELEASE_LOG("addProcess: Evicting process from WebProcess cache because capacity was reached", it->value->process().processID());
+        m_processesPerSite.remove(it);
     }
 
-    WEBPROCESSCACHE_RELEASE_LOG("addProcess: Added process to WebProcess cache (size=%u, capacity=%u)", cachedProcess->process().processIdentifier(), size() + 1, capacity());
-    m_processesPerRegistrableDomain.add(registrableDomain, WTFMove(cachedProcess));
+#if PLATFORM(MAC) || PLATFORM(GTK) || PLATFORM(WPE)
+    cachedProcess->startSuspensionTimer();
+#endif
+
+    WEBPROCESSCACHE_RELEASE_LOG("addProcess: Added process to WebProcess cache (size=%u, capacity=%u)", cachedProcess->process().processID(), size() + 1, capacity());
+    m_processesPerSite.add(site, WTFMove(cachedProcess));
 
     return true;
 }
 
-RefPtr<WebProcessProxy> WebProcessCache::takeProcess(const WebCore::RegistrableDomain& registrableDomain, WebsiteDataStore& dataStore)
+RefPtr<WebProcessProxy> WebProcessCache::takeProcess(const WebCore::Site& site, WebsiteDataStore& dataStore, WebProcessProxy::LockdownMode lockdownMode, const API::PageConfiguration& pageConfiguration)
 {
-    auto it = m_processesPerRegistrableDomain.find(registrableDomain);
-    if (it == m_processesPerRegistrableDomain.end())
+    auto it = m_processesPerSite.find(site);
+    if (it == m_processesPerSite.end())
         return nullptr;
 
-    if (&it->value->process().websiteDataStore() != &dataStore)
+    if (it->value->process().websiteDataStore() != &dataStore)
         return nullptr;
 
-    auto process = it->value->takeProcess();
-    m_processesPerRegistrableDomain.remove(it);
-    WEBPROCESSCACHE_RELEASE_LOG("takeProcess: Taking process from WebProcess cache (size=%u, capacity=%u)", process->processIdentifier(), size(), capacity());
+    if (it->value->process().lockdownMode() != lockdownMode)
+        return nullptr;
+
+    if (!Ref { it->value->process() }->hasSameGPUAndNetworkProcessPreferencesAs(pageConfiguration))
+        return nullptr;
+
+    Ref process = m_processesPerSite.take(it)->takeProcess();
+    WEBPROCESSCACHE_RELEASE_LOG("takeProcess: Taking process from WebProcess cache (size=%u, capacity=%u, processWasTerminated=%d)", process->processID(), size(), capacity(), process->wasTerminated());
 
     ASSERT(!process->pageCount());
     ASSERT(!process->provisionalPageCount());
     ASSERT(!process->suspendedPageCount());
+
+    if (process->wasTerminated())
+        return nullptr;
 
     return process;
 }
 
 void WebProcessCache::updateCapacity(WebProcessPool& processPool)
 {
+#if ENABLE(WEBPROCESS_CACHE)
     if (!processPool.configuration().processSwapsOnNavigation() || !processPool.configuration().usesWebProcessCache() || LegacyGlobalSettings::singleton().cacheModel() != CacheModel::PrimaryWebBrowser || processPool.configuration().usesSingleWebProcess()) {
         if (!processPool.configuration().processSwapsOnNavigation())
             WEBPROCESSCACHE_RELEASE_LOG("updateCapacity: Cache is disabled because process swap on navigation is disabled", 0);
@@ -167,47 +209,57 @@ void WebProcessCache::updateCapacity(WebProcessPool& processPool)
             WEBPROCESSCACHE_RELEASE_LOG("updateCapacity: Cache is disabled because cache model is not PrimaryWebBrowser", 0);
         m_capacity = 0;
     } else {
-        size_t memorySize = ramSize() / GB;
-        if (memorySize < 3) {
+#if PLATFORM(IOS_FAMILY)
+        constexpr unsigned maxProcesses = 10;
+        size_t memorySize = WTF::ramSizeDisregardingJetsamLimit();
+#else
+        constexpr unsigned maxProcesses = 30;
+        size_t memorySize = WTF::ramSize();
+#endif
+        WEBPROCESSCACHE_RELEASE_LOG("memory size %zu bytes", 0, memorySize);
+        if (memorySize < 2 * GB) {
             m_capacity = 0;
             WEBPROCESSCACHE_RELEASE_LOG("updateCapacity: Cache is disabled because device does not have enough RAM", 0);
         } else {
-            // Allow 4 processes in the cache per GB of RAM, up to 30 processes.
-            m_capacity = std::min<unsigned>(memorySize * 4, 30);
+            // Allow 4 processes in the cache per GB of RAM, up to maxProcesses.
+            m_capacity = std::min<unsigned>(memorySize / (256 * MB), maxProcesses);
             WEBPROCESSCACHE_RELEASE_LOG("updateCapacity: Cache has a capacity of %u processes", 0, capacity());
         }
     }
 
     if (!m_capacity)
         clear();
+#endif
 }
 
 void WebProcessCache::clear()
 {
-    if (m_pendingAddRequests.isEmpty() && m_processesPerRegistrableDomain.isEmpty())
+    if (m_pendingAddRequests.isEmpty() && m_processesPerSite.isEmpty())
         return;
 
-    WEBPROCESSCACHE_RELEASE_LOG("clear: Evicting %u processes", 0, m_pendingAddRequests.size() + m_processesPerRegistrableDomain.size());
+    WEBPROCESSCACHE_RELEASE_LOG("clear: Evicting %u processes", 0, m_pendingAddRequests.size() + m_processesPerSite.size());
     m_pendingAddRequests.clear();
-    m_processesPerRegistrableDomain.clear();
+    m_processesPerSite.clear();
 }
 
 void WebProcessCache::clearAllProcessesForSession(PAL::SessionID sessionID)
 {
-    Vector<WebCore::RegistrableDomain> keysToRemove;
-    for (auto& pair : m_processesPerRegistrableDomain) {
-        if (pair.value->process().websiteDataStore().sessionID() == sessionID) {
-            WEBPROCESSCACHE_RELEASE_LOG("clearAllProcessesForSession: Evicting process because its session was destroyed", pair.value->process().processIdentifier());
+    Vector<WebCore::Site> keysToRemove;
+    for (auto& pair : m_processesPerSite) {
+        RefPtr dataStore = pair.value->process().websiteDataStore();
+        if (!dataStore || dataStore->sessionID() == sessionID) {
+            WEBPROCESSCACHE_RELEASE_LOG("clearAllProcessesForSession: Evicting process because its session was destroyed", pair.value->process().processID());
             keysToRemove.append(pair.key);
         }
     }
     for (auto& key : keysToRemove)
-        m_processesPerRegistrableDomain.remove(key);
+        m_processesPerSite.remove(key);
 
     Vector<uint64_t> pendingRequestsToRemove;
     for (auto& pair : m_pendingAddRequests) {
-        if (pair.value->process().websiteDataStore().sessionID() == sessionID) {
-            WEBPROCESSCACHE_RELEASE_LOG("clearAllProcessesForSession: Evicting process because its session was destroyed", pair.value->process().processIdentifier());
+        auto* dataStore = pair.value->process().websiteDataStore();
+        if (!dataStore || dataStore->sessionID() == sessionID) {
+            WEBPROCESSCACHE_RELEASE_LOG("clearAllProcessesForSession: Evicting process because its session was destroyed", pair.value->process().processID());
             pendingRequestsToRemove.append(pair.key);
         }
     }
@@ -220,20 +272,20 @@ void WebProcessCache::setApplicationIsActive(bool isActive)
     WEBPROCESSCACHE_RELEASE_LOG("setApplicationIsActive: (isActive=%d)", 0, isActive);
     if (isActive)
         m_evictionTimer.stop();
-    else if (!m_processesPerRegistrableDomain.isEmpty())
+    else if (!m_processesPerSite.isEmpty())
         m_evictionTimer.startOneShot(clearingDelayAfterApplicationResignsActive);
 }
 
 void WebProcessCache::removeProcess(WebProcessProxy& process, ShouldShutDownProcess shouldShutDownProcess)
 {
-    RELEASE_ASSERT(!process.registrableDomain().isEmpty());
-    WEBPROCESSCACHE_RELEASE_LOG("removeProcess: Evicting process from WebProcess cache because it expired", process.processIdentifier());
+    RELEASE_ASSERT(process.site());
+    WEBPROCESSCACHE_RELEASE_LOG("removeProcess: Evicting process from WebProcess cache because it expired", process.processID());
 
-    std::unique_ptr<CachedProcess> cachedProcess;
-    auto it = m_processesPerRegistrableDomain.find(process.registrableDomain());
-    if (it != m_processesPerRegistrableDomain.end() && &it->value->process() == &process) {
+    RefPtr<CachedProcess> cachedProcess;
+    auto it = m_processesPerSite.find(*process.site());
+    if (it != m_processesPerSite.end() && &it->value->process() == &process) {
         cachedProcess = WTFMove(it->value);
-        m_processesPerRegistrableDomain.remove(it);
+        m_processesPerSite.remove(it);
     } else {
         for (auto& pair : m_pendingAddRequests) {
             if (&pair.value->process() == &process) {
@@ -252,13 +304,22 @@ void WebProcessCache::removeProcess(WebProcessProxy& process, ShouldShutDownProc
         cachedProcess->takeProcess();
 }
 
+Ref<WebProcessCache::CachedProcess> WebProcessCache::CachedProcess::create(Ref<WebProcessProxy>&& process)
+{
+    return adoptRef(*new WebProcessCache::CachedProcess(WTFMove(process)));
+}
+
 WebProcessCache::CachedProcess::CachedProcess(Ref<WebProcessProxy>&& process)
     : m_process(WTFMove(process))
     , m_evictionTimer(RunLoop::main(), this, &CachedProcess::evictionTimerFired)
+#if PLATFORM(MAC) || PLATFORM(GTK) || PLATFORM(WPE)
+    , m_suspensionTimer(RunLoop::main(), this, &CachedProcess::suspensionTimerFired)
+#endif
 {
     RELEASE_ASSERT(!m_process->pageCount());
-    RELEASE_ASSERT_WITH_MESSAGE(!m_process->websiteDataStore().processes().contains(*m_process), "Only processes with pages should be registered with the data store");
-    m_process->setIsInProcessCache(true);
+    RefPtr dataStore = m_process->websiteDataStore();
+    RELEASE_ASSERT_WITH_MESSAGE(dataStore && !dataStore->processes().contains(*m_process), "Only processes with pages should be registered with the data store");
+    protectedProcess()->setIsInProcessCache(true);
     m_evictionTimer.startOneShot(cachedProcessLifetime);
 }
 
@@ -271,23 +332,65 @@ WebProcessCache::CachedProcess::~CachedProcess()
     ASSERT(!m_process->provisionalPageCount());
     ASSERT(!m_process->suspendedPageCount());
 
-    m_process->setIsInProcessCache(false);
-    m_process->shutDown();
+    RefPtr process = m_process;
+#if PLATFORM(MAC) || PLATFORM(GTK) || PLATFORM(WPE)
+    if (isSuspended())
+        process->platformResumeProcess();
+#endif
+    process->setIsInProcessCache(false, WebProcessProxy::WillShutDown::Yes);
+    process->shutDown();
 }
 
 Ref<WebProcessProxy> WebProcessCache::CachedProcess::takeProcess()
 {
     ASSERT(m_process);
     m_evictionTimer.stop();
-    m_process->setIsInProcessCache(false);
+    RefPtr process = m_process;
+#if PLATFORM(MAC) || PLATFORM(GTK) || PLATFORM(WPE)
+    if (isSuspended())
+        process->platformResumeProcess();
+    else
+        m_suspensionTimer.stop();
+
+    // Dropping the background activity instantly might cause unnecessary process suspend/resume IPC
+    // churn. This is because the background activity might be the last activity associated with the
+    // process, so dropping it will cause a suspend IPC. Then we will almost always use the cached
+    // process very soon after this call, causing a resume IPC.
+    //
+    // To avoid this, let the background activity live until the next runloop turn.
+    if (m_backgroundActivity)
+        RunLoop::protectedCurrent()->dispatch([backgroundActivity = WTFMove(m_backgroundActivity)]() { });
+#endif
+    process->setIsInProcessCache(false);
     return m_process.releaseNonNull();
 }
 
 void WebProcessCache::CachedProcess::evictionTimerFired()
 {
     ASSERT(m_process);
-    m_process->processPool().webProcessCache().removeProcess(*m_process, ShouldShutDownProcess::Yes);
+    auto process = m_process.copyRef();
+    process->protectedProcessPool()->checkedWebProcessCache()->removeProcess(*process, ShouldShutDownProcess::Yes);
 }
+
+#if PLATFORM(MAC) || PLATFORM(GTK) || PLATFORM(WPE)
+void WebProcessCache::CachedProcess::startSuspensionTimer()
+{
+    ASSERT(m_process);
+
+    // Allow the cached process to run for a while before dropping all assertions. This is useful
+    // if the cached process will be reused fairly quickly after it goes into the cache, which
+    // occurs in some benchmarks like PLT5.
+    m_backgroundActivity = m_process->protectedThrottler()->backgroundActivity("Cached process near-suspended"_s);
+    m_suspensionTimer.startOneShot(cachedProcessSuspensionDelay);
+}
+
+void WebProcessCache::CachedProcess::suspensionTimerFired()
+{
+    ASSERT(m_process);
+    m_backgroundActivity = nullptr;
+    protectedProcess()->platformSuspendProcess();
+}
+#endif
 
 #if !PLATFORM(COCOA)
 void WebProcessCache::platformInitialize()

@@ -27,6 +27,7 @@
 
 #if HAVE(UIWEBVIEW)
 
+#import "DeprecatedGlobalValues.h"
 #import "PlatformUtilities.h"
 #import <JavaScriptCore/JSVirtualMachine.h>
 #import <JavaScriptCore/JSVirtualMachineInternal.h>
@@ -35,7 +36,6 @@
 #import <stdlib.h>
 #import <wtf/RetainPtr.h>
 
-static bool didFinishLoad = false;
 static bool didFinishPainting = false;
 static bool isReady = false;
 
@@ -79,12 +79,14 @@ TEST(WebKitLegacy, WebGLPrepareDisplayOnWebThread)
     RetainPtr<WebGLPrepareDisplayOnWebThreadDelegate> uiDelegate = adoptNS([[WebGLPrepareDisplayOnWebThreadDelegate alloc] init]);
     uiWebView.get().delegate = uiDelegate.get();
 
-    NSURL *url = [[NSBundle mainBundle] URLForResource:@"webgl" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"];
+    NSURL *url = [NSBundle.test_resourcesBundle URLForResource:@"webgl" withExtension:@"html"];
     NSLog(@"Loading %@", url);
     [uiWebView loadRequest:[NSURLRequest requestWithURL:url]];
 
     Util::run(&didFinishLoad);
     Util::run(&isReady);
+
+    WebThreadLock();
 
     RetainPtr<JSContext> jsContext = [uiWebView valueForKeyPath:@"documentView.webView.mainFrame.javaScriptContext"];
 

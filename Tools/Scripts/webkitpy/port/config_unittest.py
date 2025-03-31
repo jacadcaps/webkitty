@@ -1,4 +1,5 @@
 # Copyright (C) 2010 Google Inc. All rights reserved.
+# Copyright (C) 2020 Apple Inc. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are
@@ -26,7 +27,6 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import os
 import sys
 import unittest
 
@@ -34,19 +34,14 @@ from webkitpy.common.system.executive import Executive, ScriptError
 from webkitpy.common.system.executive_mock import MockExecutive2
 from webkitpy.common.system.filesystem import FileSystem
 from webkitpy.common.system.filesystem_mock import MockFileSystem
-from webkitpy.common.system.outputcapture import OutputCapture
 from webkitpy.common.webkit_finder import WebKitFinder
+
+from webkitcorepy import OutputCapture
 
 import webkitpy.port.config as config
 
 
 class ConfigTest(unittest.TestCase):
-    def setUp(self):
-        config.clear_cached_configuration()
-
-    def tearDown(self):
-        config.clear_cached_configuration()
-
     def make_config(self, output='', files=None, exit_code=0, exception=None, run_command_fn=None, stderr='', port_implementation=None):
         e = MockExecutive2(output=output, exit_code=exit_code, exception=exception, run_command_fn=run_command_fn, stderr=stderr)
         fs = MockFileSystem(files)
@@ -118,10 +113,8 @@ class ConfigTest(unittest.TestCase):
 
     def test_default_configuration__unknown(self):
         # Ignore the warning about an unknown configuration value.
-        oc = OutputCapture()
-        oc.capture_output()
-        self.assert_configuration('Unknown', 'Unknown')
-        oc.restore_output()
+        with OutputCapture():
+            self.assert_configuration('Unknown', 'Unknown')
 
     def test_default_configuration__standalone(self):
         # FIXME: This test runs a standalone python script to test
@@ -138,7 +131,7 @@ class ConfigTest(unittest.TestCase):
         expected = 'Debug'
 
         args = [sys.executable, script, '--mock', expected]
-        actual = e.run_command(args).rstrip()
+        actual = e.run_command(args, return_stderr=False).rstrip()
         self.assertEqual(actual, expected)
 
     def test_default_configuration__no_perl(self):

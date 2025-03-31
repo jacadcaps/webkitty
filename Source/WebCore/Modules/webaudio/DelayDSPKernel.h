@@ -27,17 +27,20 @@
 #include "AudioArray.h"
 #include "AudioDSPKernel.h"
 #include "DelayProcessor.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class DelayProcessor;
     
 class DelayDSPKernel final : public AudioDSPKernel {
-public:  
+    WTF_MAKE_TZONE_ALLOCATED(DelayDSPKernel);
+public:
     explicit DelayDSPKernel(DelayProcessor*);
     DelayDSPKernel(double maxDelayTime, float sampleRate);
     
-    void process(const float* source, float* destination, size_t framesToProcess) override;
+    void process(std::span<const float> source, std::span<float> destination) override;
+    void processOnlyAudioParams(size_t framesToProcess) final;
     void reset() override;
     
     double maxDelayTime() const { return m_maxDelayTime; }
@@ -46,20 +49,22 @@ public:
 
     double tailTime() const override;
     double latencyTime() const override;
+    bool requiresTailProcessing() const final;
 
 private:
+    void processARate(std::span<const float> source, std::span<float> destination);
+    void processKRate(std::span<const float> source, std::span<float> destination);
+
     AudioFloatArray m_buffer;
     double m_maxDelayTime;
-    int m_writeIndex;
-    double m_currentDelayTime;
-    double m_smoothingRate;
-    bool m_firstTime;
+    size_t m_writeIndex { 0 };
     double m_desiredDelayFrames;
 
     AudioFloatArray m_delayTimes;
+    // Temporary buffer used to hold the second sample for interpolation if needed.
+    AudioFloatArray m_tempBuffer;
 
-    DelayProcessor* delayProcessor() { return static_cast<DelayProcessor*>(processor()); }
-    size_t bufferLengthForDelay(double delayTime, double sampleRate) const;
+    DelayProcessor* delayProcessor() { return downcast<DelayProcessor>(processor()); }
 };
 
 } // namespace WebCore

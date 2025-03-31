@@ -31,19 +31,20 @@
 #pragma once
 
 #include <wtf/FileSystem.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 // All methods are synchronous.
 class FileStream {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(FileStream);
 public:
     FileStream();
     ~FileStream();
 
     // Gets the size of a file. Also validates if the file has been changed or not if the expected modification time is provided, i.e. non-zero.
     // Returns total number of bytes if successful. -1 otherwise.
-    long long getSize(const String& path, Optional<WallTime> expectedModificationTime);
+    long long getSize(const String& path, std::optional<WallTime> expectedModificationTime);
 
     // Opens a file for reading. The reading starts at the specified offset and lasts till the specified length.
     // Returns true on success. False otherwise.
@@ -55,7 +56,7 @@ public:
     // Reads a file into the provided data buffer.
     // Returns number of bytes being read on success. -1 otherwise.
     // If 0 is returned, it means that the reading is completed.
-    int read(char* buffer, int length);
+    int read(std::span<uint8_t> buffer);
 
 private:
     FileSystem::PlatformFileHandle m_handle;

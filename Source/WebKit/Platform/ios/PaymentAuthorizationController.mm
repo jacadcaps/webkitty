@@ -29,8 +29,10 @@
 #if USE(PASSKIT) && PLATFORM(IOS_FAMILY)
 
 #import "WKPaymentAuthorizationDelegate.h"
-#import <pal/cocoa/PassKitSoftLink.h>
 #import <wtf/CompletionHandler.h>
+#import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
+
+#import <pal/cocoa/PassKitSoftLink.h>
 
 @interface WKPaymentAuthorizationControllerDelegate : WKPaymentAuthorizationDelegate <PKPaymentAuthorizationControllerDelegate, PKPaymentAuthorizationControllerPrivateDelegate>
 
@@ -38,13 +40,20 @@
 
 @end
 
-@implementation WKPaymentAuthorizationControllerDelegate
+@implementation WKPaymentAuthorizationControllerDelegate {
+    __weak UIWindow *_presentingWindow;
+}
 
 - (instancetype)initWithRequest:(PKPaymentRequest *)request presenter:(WebKit::PaymentAuthorizationPresenter&)presenter
 {
     if (!(self = [super _initWithRequest:request presenter:presenter]))
         return nil;
 
+    RefPtr client = presenter.protectedClient();
+    if (!client)
+        return nil;
+
+    _presentingWindow = client->presentingWindowForPaymentAuthorization(presenter);
     return self;
 }
 
@@ -84,6 +93,20 @@
     [self _didSelectPaymentMethod:paymentMethod completion:completion];
 }
 
+- (UIWindow *)presentationWindowForPaymentAuthorizationController:(PKPaymentAuthorizationController *)controller
+{
+    return _presentingWindow;
+}
+
+#if HAVE(PASSKIT_COUPON_CODE)
+
+- (void)paymentAuthorizationController:(PKPaymentAuthorizationController *)controller didChangeCouponCode:(NSString *)couponCode handler:(void (^)(PKPaymentRequestCouponCodeUpdate *update))completion
+{
+    [self _didChangeCouponCode:couponCode completion:completion];
+}
+
+#endif // HAVE(PASSKIT_COUPON_CODE)
+
 #pragma mark PKPaymentAuthorizationControllerPrivateDelegate
 
 - (void)paymentAuthorizationController:(PKPaymentAuthorizationController *)controller willFinishWithError:(NSError *)error
@@ -96,9 +119,30 @@
     [self _didRequestMerchantSession:sessionBlock];
 }
 
+#if ENABLE(APPLE_PAY_REMOTE_UI_USES_SCENE)
+- (NSString *)presentationSceneIdentifierForPaymentAuthorizationController:(PKPaymentAuthorizationController *)controller
+{
+    if (!_presenter)
+        return nil;
+    return nsStringNilIfEmpty(_presenter->sceneIdentifier());
+}
+
+- (NSString *)presentationSceneBundleIdentifierForPaymentAuthorizationController:(PKPaymentAuthorizationController *)controller
+{
+    if (!_presenter)
+        return applicationBundleIdentifier();
+    return nsStringNilIfEmpty(_presenter->bundleIdentifier());
+}
+#endif
+
 @end
 
 namespace WebKit {
+
+Ref<PaymentAuthorizationController> PaymentAuthorizationController::create(PaymentAuthorizationPresenter::Client& client, PKPaymentRequest *request)
+{
+    return adoptRef(*new PaymentAuthorizationController(client, request));
+}
 
 PaymentAuthorizationController::PaymentAuthorizationController(PaymentAuthorizationPresenter::Client& client, PKPaymentRequest *request)
     : PaymentAuthorizationPresenter(client)
@@ -122,6 +166,9 @@ void PaymentAuthorizationController::dismiss()
     m_controller = nil;
     [m_delegate invalidate];
     m_delegate = nil;
+#if ENABLE(APPLE_PAY_REMOTE_UI_USES_SCENE)
+    m_sceneIdentifier = nullString();
+#endif
 }
 
 void PaymentAuthorizationController::present(UIViewController *, CompletionHandler<void(bool)>&& completionHandler)
@@ -133,6 +180,15 @@ void PaymentAuthorizationController::present(UIViewController *, CompletionHandl
         completionHandler(success);
     }).get()];
 }
+
+#if ENABLE(APPLE_PAY_REMOTE_UI_USES_SCENE)
+void PaymentAuthorizationController::presentInScene(const String& sceneIdentifier, const String& bundleIdentifier, CompletionHandler<void(bool)>&& completionHandler)
+{
+    m_sceneIdentifier = sceneIdentifier;
+    m_bundleIdentifier = bundleIdentifier;
+    present(nil, WTFMove(completionHandler));
+}
+#endif
 
 } // namespace WebKit
 

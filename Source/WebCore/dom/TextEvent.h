@@ -34,15 +34,15 @@ namespace WebCore {
 
     class DocumentFragment;
 
-    enum class MailBlockquoteHandling;
+    enum class MailBlockquoteHandling : bool;
 
     class TextEvent final : public UIEvent {
-        WTF_MAKE_ISO_ALLOCATED(TextEvent);
+        WTF_MAKE_TZONE_OR_ISO_ALLOCATED(TextEvent);
     public:
         static Ref<TextEvent> create(RefPtr<WindowProxy>&&, const String& data, TextEventInputType = TextEventInputKeyboard);
         static Ref<TextEvent> createForBindings();
         static Ref<TextEvent> createForPlainTextPaste(RefPtr<WindowProxy>&&, const String& data, bool shouldSmartReplace);
-        static Ref<TextEvent> createForFragmentPaste(RefPtr<WindowProxy>&&, RefPtr<DocumentFragment>&& data, bool shouldSmartReplace, bool shouldMatchStyle, MailBlockquoteHandling);
+        static Ref<TextEvent> createForFragmentPaste(RefPtr<WindowProxy>&&, RefPtr<DocumentFragment>&& data, TextEventInputType, bool shouldSmartReplace, bool shouldMatchStyle, MailBlockquoteHandling);
         static Ref<TextEvent> createForDrop(RefPtr<WindowProxy>&&, const String& data);
         static Ref<TextEvent> createForDictation(RefPtr<WindowProxy>&&, const String& data, const Vector<DictationAlternative>& dictationAlternatives);
 
@@ -52,8 +52,6 @@ namespace WebCore {
     
         String data() const { return m_data; }
 
-        EventInterface eventInterface() const override;
-
         bool isLineBreak() const { return m_inputType == TextEventInputLineBreak; }
         bool isComposition() const { return m_inputType == TextEventInputComposition; }
         bool isBackTab() const { return m_inputType == TextEventInputBackTab; }
@@ -62,9 +60,11 @@ namespace WebCore {
         bool isDictation() const { return m_inputType == TextEventInputDictation; }
         bool isAutocompletion() const { return m_inputType == TextEventInputAutocompletion; }
         bool isKeyboard() const { return m_inputType == TextEventInputKeyboard; }
+        bool isRemoveBackground() const { return m_inputType == TextEventInputRemoveBackground; }
 
         bool shouldSmartReplace() const { return m_shouldSmartReplace; }
         bool shouldMatchStyle() const { return m_shouldMatchStyle; }
+        bool createdFromBindings() const { return m_createdFromBindings; }
         MailBlockquoteHandling mailBlockquoteHandling() const { return m_mailBlockquoteHandling; }
         DocumentFragment* pastingFragment() const { return m_pastingFragment.get(); }
         const Vector<DictationAlternative>& dictationAlternatives() const { return m_dictationAlternatives; }
@@ -73,7 +73,7 @@ namespace WebCore {
         TextEvent();
 
         TextEvent(RefPtr<WindowProxy>&&, const String& data, TextEventInputType = TextEventInputKeyboard);
-        TextEvent(RefPtr<WindowProxy>&&, const String& data, RefPtr<DocumentFragment>&&, bool shouldSmartReplace, bool shouldMatchStyle, MailBlockquoteHandling);
+        TextEvent(RefPtr<WindowProxy>&&, const String& data, RefPtr<DocumentFragment>&&, TextEventInputType, bool shouldSmartReplace, bool shouldMatchStyle, MailBlockquoteHandling);
         TextEvent(RefPtr<WindowProxy>&&, const String& data, const Vector<DictationAlternative>& dictationAlternatives);
 
         bool isTextEvent() const override;
@@ -84,6 +84,7 @@ namespace WebCore {
         RefPtr<DocumentFragment> m_pastingFragment;
         bool m_shouldSmartReplace;
         bool m_shouldMatchStyle;
+        bool m_createdFromBindings { false };
         MailBlockquoteHandling m_mailBlockquoteHandling;
         Vector<DictationAlternative> m_dictationAlternatives;
     };

@@ -44,7 +44,7 @@ class LoggingHashSet final {
     typedef typename ValueTraits::TakeType TakeType;
     
 public:
-    typedef WTF::HashSet<ValueArg, HashArg, TraitsArg> HashSet;
+    typedef WTF::UncheckedKeyHashSet<ValueArg, HashArg, TraitsArg> HashSet;
     
     typedef typename HashSet::ValueType ValueType;
     typedef typename HashSet::iterator iterator;
@@ -233,12 +233,6 @@ public:
                 return false;
         }
         return true;
-    }
-    
-    template<typename OtherCollection>
-    bool operator!=(const OtherCollection& other) const
-    {
-        return !(*this == other);
     }
     
 private:

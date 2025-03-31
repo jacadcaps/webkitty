@@ -27,14 +27,15 @@
 namespace WebCore {
 
 class HTMLImageLoader final : public ImageLoader {
+    WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(HTMLImageLoader);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HTMLImageLoader);
 public:
     explicit HTMLImageLoader(Element&);
     virtual ~HTMLImageLoader();
 
     void dispatchLoadEvent() override;
-    String sourceURI(const AtomString&) const override;
 
-    void notifyFinished(CachedResource&, const NetworkLoadMetrics&) final;
+    void notifyFinished(CachedResource&, const NetworkLoadMetrics&, LoadWillContinueInAnotherProcess) final;
 };
 
 }

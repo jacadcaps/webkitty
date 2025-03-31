@@ -52,13 +52,14 @@ RealtimeOutgoingVideoSource::RealtimeOutgoingVideoSource(Ref<MediaStreamTrackPri
     , m_logIdentifier(m_videoSource->logIdentifier())
 #endif
 {
+    ALWAYS_LOG(LOGIDENTIFIER);
 }
 
 RealtimeOutgoingVideoSource::~RealtimeOutgoingVideoSource()
 {
 ASSERT(!m_videoSource->hasObserver(*this));
 #if ASSERT_ENABLED
-    auto locker = holdLock(m_sinksLock);
+    Locker locker { m_sinksLock };
 #endif
     ASSERT(m_sinks.isEmpty());
     stop();
@@ -74,7 +75,16 @@ void RealtimeOutgoingVideoSource::observeSource()
 void RealtimeOutgoingVideoSource::unobserveSource()
 {
     m_videoSource->removeObserver(*this);
-    m_videoSource->source().removeVideoSampleObserver(*this);
+    m_videoSource->source().removeVideoFrameObserver(*this);
+}
+
+void RealtimeOutgoingVideoSource::startObservingVideoFrames()
+{
+    if (m_maxFrameRate) {
+        m_videoSource->source().addVideoFrameObserver(*this, { }, *m_maxFrameRate);
+        return;
+    }
+    m_videoSource->source().addVideoFrameObserver(*this);
 }
 
 void RealtimeOutgoingVideoSource::setSource(Ref<MediaStreamTrackPrivate>&& newSource)
@@ -82,6 +92,8 @@ void RealtimeOutgoingVideoSource::setSource(Ref<MediaStreamTrackPrivate>&& newSo
     ASSERT(isMainThread());
     ASSERT(!m_videoSource->hasObserver(*this));
     m_videoSource = WTFMove(newSource);
+
+    ALWAYS_LOG(LOGIDENTIFIER, "track ", m_videoSource->logIdentifier());
 
     if (!m_areSinksAskingToApplyRotation)
         return;
@@ -91,18 +103,14 @@ void RealtimeOutgoingVideoSource::setSource(Ref<MediaStreamTrackPrivate>&& newSo
 
 void RealtimeOutgoingVideoSource::applyRotation()
 {
-    if (!isMainThread()) {
-        callOnMainThread([this, protectedThis = makeRef(*this)] {
-            applyRotation();
-        });
-        return;
-    }
-    if (m_areSinksAskingToApplyRotation)
-        return;
+    ensureOnMainThread([this, protectedThis = Ref { *this }] {
+        if (m_areSinksAskingToApplyRotation)
+            return;
 
-    m_areSinksAskingToApplyRotation = true;
-    if (!m_videoSource->source().setShouldApplyRotation(true))
-        m_shouldApplyRotation = true;
+        m_areSinksAskingToApplyRotation = true;
+        if (!m_videoSource->source().setShouldApplyRotation(true))
+            m_shouldApplyRotation = true;
+    });
 }
 
 void RealtimeOutgoingVideoSource::stop()
@@ -112,16 +120,36 @@ void RealtimeOutgoingVideoSource::stop()
     m_blackFrameTimer.stop();
 }
 
-void RealtimeOutgoingVideoSource::updateBlackFramesSending()
+void RealtimeOutgoingVideoSource::updateFramesSending()
 {
+    double videoFrameScaling = 1.0;
+    if (m_maxPixelCount && *m_maxPixelCount > 0) {
+        int counter = 0;
+        while (videoFrameScaling * m_width * m_height > *m_maxPixelCount) {
+            if (++counter % 2)
+                videoFrameScaling *= 3.0 / 4.0;
+            else
+                videoFrameScaling *= 2.0 / 3.0;
+        }
+        if (videoFrameScaling != 1)
+            videoFrameScaling = std::sqrt(videoFrameScaling);
+    }
+    m_videoFrameScaling = videoFrameScaling;
+
     if (!m_muted && m_enabled) {
-        m_videoSource->source().addVideoSampleObserver(*this);
+        if (!m_isObservingVideoFrames) {
+            m_isObservingVideoFrames = true;
+            startObservingVideoFrames();
+        }
         if (m_blackFrameTimer.isActive())
             m_blackFrameTimer.stop();
         return;
     }
 
-    m_videoSource->source().removeVideoSampleObserver(*this);
+    if (m_isObservingVideoFrames) {
+        m_isObservingVideoFrames = false;
+        m_videoSource->source().removeVideoFrameObserver(*this);
+    }
     sendBlackFramesIfNeeded();
 }
 
@@ -131,7 +159,7 @@ void RealtimeOutgoingVideoSource::sourceMutedChanged()
 
     m_muted = m_videoSource->muted();
 
-    updateBlackFramesSending();
+    updateFramesSending();
 }
 
 void RealtimeOutgoingVideoSource::sourceEnabledChanged()
@@ -140,7 +168,7 @@ void RealtimeOutgoingVideoSource::sourceEnabledChanged()
 
     m_enabled = m_videoSource->enabled();
 
-    updateBlackFramesSending();
+    updateFramesSending();
 }
 
 void RealtimeOutgoingVideoSource::initializeFromSource()
@@ -152,7 +180,7 @@ void RealtimeOutgoingVideoSource::initializeFromSource()
     m_muted = m_videoSource->muted();
     m_enabled = m_videoSource->enabled();
 
-    updateBlackFramesSending();
+    updateFramesSending();
 }
 
 void RealtimeOutgoingVideoSource::AddOrUpdateSink(rtc::VideoSinkInterface<webrtc::VideoFrame>* sink, const rtc::VideoSinkWants& sinkWants)
@@ -162,13 +190,31 @@ void RealtimeOutgoingVideoSource::AddOrUpdateSink(rtc::VideoSinkInterface<webrtc
     if (sinkWants.rotation_applied)
         applyRotation();
 
-    auto locker = holdLock(m_sinksLock);
+    std::optional<double> maxFrameRate;
+    if (sinkWants.max_framerate_fps != std::numeric_limits<int>::max())
+        maxFrameRate = sinkWants.max_framerate_fps;
+    std::optional<double> maxPixelCount;
+    if (sinkWants.max_pixel_count != std::numeric_limits<int>::max())
+        maxPixelCount = sinkWants.max_pixel_count;
+    ensureOnMainThread([this, protectedThis = Ref { *this }, maxFrameRate, maxPixelCount] {
+        if (m_maxFrameRate == maxFrameRate && m_maxPixelCount == maxPixelCount)
+            return;
+        m_maxFrameRate = maxFrameRate;
+        m_maxPixelCount = maxPixelCount;
+        if (!m_isObservingVideoFrames)
+            return;
+        m_videoSource->source().removeVideoFrameObserver(*this);
+        m_isObservingVideoFrames = false;
+        updateFramesSending();
+    });
+
+    Locker locker { m_sinksLock };
     m_sinks.add(sink);
 }
 
 void RealtimeOutgoingVideoSource::RemoveSink(rtc::VideoSinkInterface<webrtc::VideoFrame>* sink)
 {
-    auto locker = holdLock(m_sinksLock);
+    Locker locker { m_sinksLock };
     m_sinks.remove(sink);
 }
 
@@ -186,8 +232,9 @@ void RealtimeOutgoingVideoSource::sendBlackFramesIfNeeded()
     if (!m_blackFrame) {
         auto width = m_width;
         auto height = m_height;
-        if (m_shouldApplyRotation && (m_currentRotation == webrtc::kVideoRotation_270 || m_currentRotation == webrtc::kVideoRotation_90))
+        if (!m_shouldApplyRotation && (m_currentRotation == webrtc::kVideoRotation_270 || m_currentRotation == webrtc::kVideoRotation_90))
             std::swap(width, height);
+
         m_blackFrame = createBlackFrame(width, height);
         ASSERT(m_blackFrame);
         if (!m_blackFrame) {
@@ -223,7 +270,7 @@ void RealtimeOutgoingVideoSource::sendFrame(rtc::scoped_refptr<webrtc::VideoFram
     }
 #endif
 
-    auto locker = holdLock(m_sinksLock);
+    Locker locker { m_sinksLock };
     for (auto* sink : m_sinks)
         sink->OnFrame(frame);
 }

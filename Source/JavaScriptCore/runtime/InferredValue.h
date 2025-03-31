@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -51,7 +51,7 @@ public:
         uintptr_t data = m_data;
         if (isFat(data))
             return fat(data)->inferredValue();
-        return bitwise_cast<JSCellType*>(data & ValueMask);
+        return std::bit_cast<JSCellType*>(data & ValueMask);
     }
 
     explicit InferredValue()
@@ -67,23 +67,12 @@ public:
         freeFat();
     }
 
-    // Fast way of getting the state, which only works from the main thread.
-    WatchpointState stateOnJSThread() const
-    {
-        uintptr_t data = m_data;
-        if (isFat(data))
-            return fat(data)->stateOnJSThread();
-        return decodeState(data);
-    }
-
     // It is safe to call this from another thread. It may return a prior state,
     // but that should be fine since you should only perform actions based on the
     // state if you also add a watchpoint.
     WatchpointState state() const
     {
-        WTF::loadLoadFence();
         uintptr_t data = m_data;
-        WTF::loadLoadFence();
         if (isFat(data))
             return fat(data)->state();
         return decodeState(data);
@@ -122,19 +111,19 @@ public:
 
     void notifyWrite(VM& vm, JSCell* owner, JSCellType* value, const FireDetail& detail)
     {
-        if (LIKELY(stateOnJSThread() == IsInvalidated))
+        if (LIKELY(state() == IsInvalidated))
             return;
         notifyWriteSlow(vm, owner, value, detail);
     }
     
     void notifyWrite(VM& vm, JSCell* owner, JSCellType* value, const char* reason)
     {
-        if (LIKELY(stateOnJSThread() == IsInvalidated))
+        if (LIKELY(state() == IsInvalidated))
             return;
         notifyWriteSlow(vm, owner, value, reason);
     }
     
-    void finalizeUnconditionally(VM&);
+    void finalizeUnconditionally(VM&, CollectionScope);
 
 private:
     class InferredValueWatchpointSet final : public WatchpointSet {
@@ -183,7 +172,7 @@ private:
     
     static InferredValueWatchpointSet* fat(uintptr_t data)
     {
-        return bitwise_cast<InferredValueWatchpointSet*>(data);
+        return std::bit_cast<InferredValueWatchpointSet*>(data);
     }
     
     InferredValueWatchpointSet* fat()
@@ -220,7 +209,7 @@ void InferredValue<JSCellType>::InferredValueWatchpointSet::notifyWriteSlow(VM& 
     switch (state()) {
     case ClearWatchpoint:
         m_value = value;
-        vm.heap.writeBarrier(owner, value);
+        vm.writeBarrier(owner, value);
         startWatching();
         return;
 
@@ -251,8 +240,8 @@ void InferredValue<JSCellType>::notifyWriteSlow(VM& vm, JSCell* owner, JSCellTyp
     switch (state()) {
     case ClearWatchpoint:
         ASSERT(decodeState(m_data) != IsInvalidated);
-        m_data = (bitwise_cast<uintptr_t>(value) & ValueMask) | encodeState(IsWatched);
-        vm.heap.writeBarrier(owner, value);
+        m_data = (std::bit_cast<uintptr_t>(value) & ValueMask) | encodeState(IsWatched);
+        vm.writeBarrier(owner, value);
         return;
 
     case IsWatched:
@@ -288,9 +277,9 @@ auto InferredValue<JSCellType>::inflateSlow() -> InferredValueWatchpointSet*
     ASSERT(isThin());
     ASSERT(!isCompilationThread());
     uintptr_t data = m_data;
-    InferredValueWatchpointSet* fat = adoptRef(new InferredValueWatchpointSet(decodeState(m_data), bitwise_cast<JSCellType*>(data & ValueMask))).leakRef();
+    InferredValueWatchpointSet* fat = adoptRef(new InferredValueWatchpointSet(decodeState(m_data), std::bit_cast<JSCellType*>(data & ValueMask))).leakRef();
     WTF::storeStoreFence();
-    m_data = bitwise_cast<uintptr_t>(fat);
+    m_data = std::bit_cast<uintptr_t>(fat);
     return fat;
 }
 

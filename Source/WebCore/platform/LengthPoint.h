@@ -29,43 +29,28 @@
 
 namespace WebCore {
 
+struct BlendingContext;
+
 struct LengthPoint {
-public:
-    LengthPoint()
-    {
-    }
-    
+    LengthPoint() = default;
+
     LengthPoint(Length x, Length y)
-        : m_x(WTFMove(x))
-        , m_y(WTFMove(y))
+        : x(x)
+        , y(y)
     {
     }
 
-    bool operator==(const LengthPoint& o) const
-    {
-        return m_x == o.m_x && m_y == o.m_y;
-    }
-
-    bool operator!=(const LengthPoint& o) const
-    {
-        return !(*this == o);
-    }
-
-    void setX(Length x) { m_x = WTFMove(x); }
-    const Length& x() const { return m_x; }
-
-    void setY(Length y) { m_y = WTFMove(y); }
-    const Length& y() const { return m_y; }
-
-private:
     // FIXME: it would be nice to pack the two Lengths together better somehow (to avoid padding between them).
-    Length m_x;
-    Length m_y;
+    Length x;
+    Length y;
+    friend bool operator==(const LengthPoint&, const LengthPoint&) = default;
+
+    bool isZero() const { return x.isZero() && y.isZero(); }
 };
 
-inline LengthPoint blend(const LengthPoint& from, const LengthPoint& to, double progress)
+inline LengthPoint blend(const LengthPoint& from, const LengthPoint& to, const BlendingContext& context)
 {
-    return LengthPoint(blend(from.x(), to.x(), progress), blend(from.y(), to.y(), progress));
+    return LengthPoint(blend(from.x, to.x, context), blend(from.y, to.y, context));
 }
 
 WTF::TextStream& operator<<(WTF::TextStream&, const LengthPoint&);

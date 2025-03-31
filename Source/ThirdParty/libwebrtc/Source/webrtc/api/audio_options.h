@@ -11,11 +11,9 @@
 #ifndef API_AUDIO_OPTIONS_H_
 #define API_AUDIO_OPTIONS_H_
 
-#include <stdint.h>
-
+#include <optional>
 #include <string>
 
-#include "absl/types/optional.h"
 #include "rtc_base/system/rtc_export.h"
 
 namespace cricket {
@@ -36,48 +34,38 @@ struct RTC_EXPORT AudioOptions {
 
   // Audio processing that attempts to filter away the output signal from
   // later inbound pickup.
-  absl::optional<bool> echo_cancellation;
+  std::optional<bool> echo_cancellation;
 #if defined(WEBRTC_IOS)
   // Forces software echo cancellation on iOS. This is a temporary workaround
   // (until Apple fixes the bug) for a device with non-functioning AEC. May
   // improve performance on that particular device, but will cause unpredictable
   // behavior in all other cases. See http://bugs.webrtc.org/8682.
-  absl::optional<bool> ios_force_software_aec_HACK;
+  std::optional<bool> ios_force_software_aec_HACK;
 #endif
   // Audio processing to adjust the sensitivity of the local mic dynamically.
-  absl::optional<bool> auto_gain_control;
+  std::optional<bool> auto_gain_control;
   // Audio processing to filter out background noise.
-  absl::optional<bool> noise_suppression;
+  std::optional<bool> noise_suppression;
   // Audio processing to remove background noise of lower frequencies.
-  absl::optional<bool> highpass_filter;
+  std::optional<bool> highpass_filter;
   // Audio processing to swap the left and right channels.
-  absl::optional<bool> stereo_swapping;
+  std::optional<bool> stereo_swapping;
   // Audio receiver jitter buffer (NetEq) max capacity in number of packets.
-  absl::optional<int> audio_jitter_buffer_max_packets;
+  std::optional<int> audio_jitter_buffer_max_packets;
   // Audio receiver jitter buffer (NetEq) fast accelerate mode.
-  absl::optional<bool> audio_jitter_buffer_fast_accelerate;
+  std::optional<bool> audio_jitter_buffer_fast_accelerate;
   // Audio receiver jitter buffer (NetEq) minimum target delay in milliseconds.
-  absl::optional<int> audio_jitter_buffer_min_delay_ms;
-  // Audio receiver jitter buffer (NetEq) should handle retransmitted packets.
-  absl::optional<bool> audio_jitter_buffer_enable_rtx_handling;
-  // Audio processing to detect typing.
-  absl::optional<bool> typing_detection;
-  absl::optional<bool> experimental_agc;
-  absl::optional<bool> experimental_ns;
-  // Note that tx_agc_* only applies to non-experimental AGC.
-  absl::optional<bool> residual_echo_detector;
-  absl::optional<uint16_t> tx_agc_target_dbov;
-  absl::optional<uint16_t> tx_agc_digital_compression_gain;
-  absl::optional<bool> tx_agc_limiter;
-  // Enable combined audio+bandwidth BWE.
-  // TODO(pthatcher): This flag is set from the
-  // "googCombinedAudioVideoBwe", but not used anywhere. So delete it,
-  // and check if any other AudioOptions members are unused.
-  absl::optional<bool> combined_audio_video_bwe;
+  std::optional<int> audio_jitter_buffer_min_delay_ms;
   // Enable audio network adaptor.
-  absl::optional<bool> audio_network_adaptor;
+  // TODO(webrtc:11717): Remove this API in favor of adaptivePtime in
+  // RtpEncodingParameters.
+  std::optional<bool> audio_network_adaptor;
   // Config string for audio network adaptor.
-  absl::optional<std::string> audio_network_adaptor_config;
+  std::optional<std::string> audio_network_adaptor_config;
+  // Pre-initialize the ADM for recording when starting to send. Default to
+  // true.
+  // TODO(webrtc:13566): Remove this option. See issue for details.
+  std::optional<bool> init_recording_on_send;
 };
 
 }  // namespace cricket

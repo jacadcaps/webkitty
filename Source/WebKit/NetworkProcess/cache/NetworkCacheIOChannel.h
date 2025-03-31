@@ -23,8 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef NetworkCacheIOChannel_h
-#define NetworkCacheIOChannel_h
+#pragma once
 
 #include "NetworkCacheData.h"
 #include <wtf/Function.h>
@@ -32,8 +31,11 @@
 #include <wtf/WorkQueue.h>
 #include <wtf/text/WTFString.h>
 
-#if USE(SOUP)
+#if USE(GLIB)
 #include <wtf/glib/GRefPtr.h>
+
+typedef struct _GInputStream GInputStream;
+typedef struct _GOutputStream GOutputStream;
 #endif
 
 namespace WebKit {
@@ -42,49 +44,30 @@ namespace NetworkCache {
 class IOChannel : public ThreadSafeRefCounted<IOChannel> {
 public:
     enum class Type { Read, Write, Create };
-    static Ref<IOChannel> open(const String& file, Type type, Optional<WorkQueue::QOS> qos = { }) { return adoptRef(*new IOChannel(file, type, qos)); }
+    static Ref<IOChannel> open(const String& filePath, Type type, std::optional<WorkQueue::QOS> qos = { }) { return adoptRef(*new IOChannel(filePath, type, qos)); }
 
-    // Using nullptr as queue submits the result to the main queue.
-    // FIXME: We should add WorkQueue::main() instead.
-    void read(size_t offset, size_t, WorkQueue*, Function<void (Data&, int error)>&&);
-    void write(size_t offset, const Data&, WorkQueue*, Function<void (int error)>&&);
-
-    const String& path() const { return m_path; }
-    Type type() const { return m_type; }
-
-#if !USE(SOUP)
-    bool isOpened() const { return FileSystem::isHandleValid(m_fileDescriptor); }
-#else
-    bool isOpened() const { return true; }
-#endif
+    void read(size_t offset, size_t, Ref<WTF::WorkQueueBase>&&, Function<void(Data&&, int error)>&&);
+    void write(size_t offset, const Data&, Ref<WTF::WorkQueueBase>&&, Function<void(int error)>&&);
 
     ~IOChannel();
 
 private:
-    IOChannel(const String& filePath, IOChannel::Type, Optional<WorkQueue::QOS>);
+    IOChannel(const String& filePath, IOChannel::Type, std::optional<WorkQueue::QOS>);
 
-#if USE(SOUP)
-    void readSyncInThread(size_t offset, size_t, WorkQueue*, Function<void (Data&, int error)>&&);
-#endif
-
-    String m_path;
-    Type m_type;
-
-#if !USE(SOUP)
-    FileSystem::PlatformFileHandle m_fileDescriptor { FileSystem::invalidPlatformFileHandle };
+#if !PLATFORM(COCOA)
+    Lock m_lock;
 #endif
     std::atomic<bool> m_wasDeleted { false }; // Try to narrow down a crash, https://bugs.webkit.org/show_bug.cgi?id=165659
 #if PLATFORM(COCOA)
     OSObjectPtr<dispatch_io_t> m_dispatchIO;
-#endif
-#if USE(SOUP)
-    GRefPtr<GInputStream> m_inputStream;
-    GRefPtr<GOutputStream> m_outputStream;
-    GRefPtr<GFileIOStream> m_ioStream;
+#elif USE(GLIB)
+    GRefPtr<GInputStream> m_inputStream WTF_GUARDED_BY_LOCK(m_lock);
+    GRefPtr<GOutputStream> m_outputStream WTF_GUARDED_BY_LOCK(m_lock);
+    WorkQueue::QOS m_qos WTF_GUARDED_BY_LOCK(m_lock);
+#else // !PLATFORM(COCOA) && !USE(GLIB)
+    FileSystem::PlatformFileHandle m_fileDescriptor WTF_GUARDED_BY_LOCK(m_lock) { FileSystem::invalidPlatformFileHandle };
 #endif
 };
 
-}
-}
-
-#endif
+} // namespace NetworkCache
+} // namespace WebKit

@@ -27,8 +27,9 @@
 #pragma once
 
 #include <memory>
-#include <wtf/HashMap.h>
+#include <wtf/HashSet.h>
 #include <wtf/RefPtr.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/text/StringHash.h>
 
 namespace WebCore {
@@ -37,12 +38,13 @@ class Attribute;
 class ShareableElementData;
 
 class DocumentSharedObjectPool {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(DocumentSharedObjectPool);
 public:
-    Ref<ShareableElementData> cachedShareableElementDataWithAttributes(const Vector<Attribute>&);
+    Ref<ShareableElementData> cachedShareableElementDataWithAttributes(std::span<const Attribute>);
 
 private:
-    typedef HashMap<unsigned, RefPtr<ShareableElementData>, AlreadyHashed> ShareableElementDataCache;
+    struct ShareableElementDataHash;
+    using ShareableElementDataCache = UncheckedKeyHashSet<Ref<ShareableElementData>, ShareableElementDataHash>;
     ShareableElementDataCache m_shareableElementDataCache;
 };
 

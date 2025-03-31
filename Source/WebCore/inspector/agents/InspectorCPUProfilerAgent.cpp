@@ -32,10 +32,13 @@
 #include "ResourceUsageThread.h"
 #include <JavaScriptCore/InspectorEnvironment.h>
 #include <wtf/Stopwatch.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
 using namespace Inspector;
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(InspectorCPUProfilerAgent);
 
 InspectorCPUProfilerAgent::InspectorCPUProfilerAgent(PageAgentContext& context)
     : InspectorAgentBase("CPUProfiler"_s, context)
@@ -53,16 +56,15 @@ void InspectorCPUProfilerAgent::didCreateFrontendAndBackend(FrontendRouter*, Bac
 
 void InspectorCPUProfilerAgent::willDestroyFrontendAndBackend(DisconnectReason)
 {
-    ErrorString ignored;
-    stopTracking(ignored);
+    stopTracking();
 
     m_instrumentingAgents.setPersistentCPUProfilerAgent(nullptr);
 }
 
-void InspectorCPUProfilerAgent::startTracking(ErrorString&)
+Inspector::Protocol::ErrorStringOr<void> InspectorCPUProfilerAgent::startTracking()
 {
     if (m_tracking)
-        return;
+        return { };
 
     ResourceUsageThread::addObserver(this, CPU, [this] (const ResourceUsageData& data) {
         collectSample(data);
@@ -71,33 +73,37 @@ void InspectorCPUProfilerAgent::startTracking(ErrorString&)
     m_tracking = true;
 
     m_frontendDispatcher->trackingStart(m_environment.executionStopwatch().elapsedTime().seconds());
+
+    return { };
 }
 
-void InspectorCPUProfilerAgent::stopTracking(ErrorString&)
+Inspector::Protocol::ErrorStringOr<void> InspectorCPUProfilerAgent::stopTracking()
 {
     if (!m_tracking)
-        return;
+        return { };
 
     ResourceUsageThread::removeObserver(this);
 
     m_tracking = false;
 
     m_frontendDispatcher->trackingComplete(m_environment.executionStopwatch().elapsedTime().seconds());
+
+    return { };
 }
 
-static Ref<Protocol::CPUProfiler::ThreadInfo> buildThreadInfo(const ThreadCPUInfo& thread)
+static Ref<Inspector::Protocol::CPUProfiler::ThreadInfo> buildThreadInfo(const ThreadCPUInfo& thread)
 {
     ASSERT(thread.cpu <= 100);
 
-    auto threadInfo = Protocol::CPUProfiler::ThreadInfo::create()
+    auto threadInfo = Inspector::Protocol::CPUProfiler::ThreadInfo::create()
         .setName(thread.name)
         .setUsage(thread.cpu)
         .release();
 
     if (thread.type == ThreadCPUInfo::Type::Main)
-        threadInfo->setType(Protocol::CPUProfiler::ThreadInfo::Type::Main);
+        threadInfo->setType(Inspector::Protocol::CPUProfiler::ThreadInfo::Type::Main);
     else if (thread.type == ThreadCPUInfo::Type::WebKit)
-        threadInfo->setType(Protocol::CPUProfiler::ThreadInfo::Type::WebKit);
+        threadInfo->setType(Inspector::Protocol::CPUProfiler::ThreadInfo::Type::WebKit);
 
     if (!thread.identifier.isEmpty())
         threadInfo->setTargetId(thread.identifier);
@@ -107,13 +113,13 @@ static Ref<Protocol::CPUProfiler::ThreadInfo> buildThreadInfo(const ThreadCPUInf
 
 void InspectorCPUProfilerAgent::collectSample(const ResourceUsageData& data)
 {
-    auto event = Protocol::CPUProfiler::Event::create()
+    auto event = Inspector::Protocol::CPUProfiler::Event::create()
         .setTimestamp(m_environment.executionStopwatch().elapsedTimeSince(data.timestamp).seconds())
         .setUsage(data.cpuExcludingDebuggerThreads)
         .release();
 
     if (!data.cpuThreads.isEmpty()) {
-        RefPtr<JSON::ArrayOf<Protocol::CPUProfiler::ThreadInfo>> threads = JSON::ArrayOf<Protocol::CPUProfiler::ThreadInfo>::create();
+        auto threads = JSON::ArrayOf<Inspector::Protocol::CPUProfiler::ThreadInfo>::create();
         for (auto& threadInfo : data.cpuThreads)
             threads->addItem(buildThreadInfo(threadInfo));
         event->setThreads(WTFMove(threads));

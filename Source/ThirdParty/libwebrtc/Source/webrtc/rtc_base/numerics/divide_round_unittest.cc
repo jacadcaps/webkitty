@@ -10,7 +10,9 @@
 
 #include "rtc_base/numerics/divide_round.h"
 
+#include <cstdint>
 #include <limits>
+#include <type_traits>
 
 #include "test/gtest.h"
 
@@ -39,11 +41,18 @@ TEST(DivideRoundUpTest, WorksForMaxDividend) {
 TEST(DivideRoundToNearestTest, CanBeUsedAsConstexpr) {
   static constexpr int kOne = DivideRoundToNearest(5, 4);
   static constexpr int kTwo = DivideRoundToNearest(7, 4);
-  static_assert(kOne == 1, "");
-  static_assert(kTwo == 2, "");
+  static_assert(kOne == 1);
+  static_assert(kTwo == 2);
+  static_assert(DivideRoundToNearest(-5, 4) == -1);
+  static_assert(DivideRoundToNearest(-7, 4) == -2);
 }
 
 TEST(DivideRoundToNearestTest, DivideByOddNumber) {
+  EXPECT_EQ(DivideRoundToNearest(-5, 3), -2);
+  EXPECT_EQ(DivideRoundToNearest(-4, 3), -1);
+  EXPECT_EQ(DivideRoundToNearest(-3, 3), -1);
+  EXPECT_EQ(DivideRoundToNearest(-2, 3), -1);
+  EXPECT_EQ(DivideRoundToNearest(-1, 3), 0);
   EXPECT_EQ(DivideRoundToNearest(0, 3), 0);
   EXPECT_EQ(DivideRoundToNearest(1, 3), 0);
   EXPECT_EQ(DivideRoundToNearest(2, 3), 1);
@@ -54,6 +63,13 @@ TEST(DivideRoundToNearestTest, DivideByOddNumber) {
 }
 
 TEST(DivideRoundToNearestTest, DivideByEvenNumberTieRoundsUp) {
+  EXPECT_EQ(DivideRoundToNearest(-7, 4), -2);
+  EXPECT_EQ(DivideRoundToNearest(-6, 4), -1);
+  EXPECT_EQ(DivideRoundToNearest(-5, 4), -1);
+  EXPECT_EQ(DivideRoundToNearest(-4, 4), -1);
+  EXPECT_EQ(DivideRoundToNearest(-3, 4), -1);
+  EXPECT_EQ(DivideRoundToNearest(-2, 4), 0);
+  EXPECT_EQ(DivideRoundToNearest(-1, 4), 0);
   EXPECT_EQ(DivideRoundToNearest(0, 4), 0);
   EXPECT_EQ(DivideRoundToNearest(1, 4), 0);
   EXPECT_EQ(DivideRoundToNearest(2, 4), 1);
@@ -68,6 +84,9 @@ TEST(DivideRoundToNearestTest, LargeDivisor) {
   EXPECT_EQ(DivideRoundToNearest(std::numeric_limits<int>::max() - 1,
                                  std::numeric_limits<int>::max()),
             1);
+  EXPECT_EQ(DivideRoundToNearest(std::numeric_limits<int>::min(),
+                                 std::numeric_limits<int>::max()),
+            -1);
 }
 
 TEST(DivideRoundToNearestTest, DivideSmallTypeByLargeType) {

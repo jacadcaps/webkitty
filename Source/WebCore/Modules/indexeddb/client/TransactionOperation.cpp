@@ -26,13 +26,15 @@
 #include "config.h"
 #include "TransactionOperation.h"
 
-#if ENABLE(INDEXED_DATABASE)
-
 #include "IDBCursor.h"
 #include <JavaScriptCore/HeapInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 namespace IDBClient {
+
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(TransactionOperation);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(TransactionOperationImpl);
 
 TransactionOperation::TransactionOperation(IDBTransaction& transaction, IDBRequest& request)
     : TransactionOperation(transaction)
@@ -41,8 +43,8 @@ TransactionOperation::TransactionOperation(IDBTransaction& transaction, IDBReque
     m_indexIdentifier = request.sourceIndexIdentifier();
     if (m_indexIdentifier)
         m_indexRecordType = request.requestedIndexRecordType();
-    if (auto* cursor = request.pendingCursor())
-        m_cursorIdentifier = makeUnique<IDBResourceIdentifier>(cursor->info().identifier());
+    if (RefPtr cursor = request.pendingCursor())
+        m_cursorIdentifier = cursor->info().identifier();
 
     request.setTransactionOperationID(m_operationID);
     m_idbRequest = &request;
@@ -50,5 +52,3 @@ TransactionOperation::TransactionOperation(IDBTransaction& transaction, IDBReque
 
 } // namespace IDBClient
 } // namespace WebCore
-
-#endif // ENABLE(INDEXED_DATABASE)

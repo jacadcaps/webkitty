@@ -41,7 +41,7 @@ from webkitpy.common.system.filesystem import FileSystem
 from webkitpy.common.host import Host
 from webkitpy.test.finder import Finder
 from webkitpy.test.printer import Printer
-from webkitpy.test.runner import Runner, unit_test_name
+from webkitpy.test.runner import Runner
 from webkitpy.results.upload import Upload
 from webkitpy.results.options import upload_options
 
@@ -63,14 +63,56 @@ def main():
     tester = Tester()
     tester.add_tree(os.path.join(_webkit_root, 'Tools', 'Scripts'), 'webkitpy')
     tester.add_tree(os.path.join(_webkit_root, 'Tools', 'Scripts', 'libraries', 'webkitcorepy'), 'webkitcorepy')
-
-    # There is no WebKit2 on Windows, so we don't need to run WebKit2 unittests on it.
-    if not (sys.platform.startswith('win') or sys.platform == 'cygwin'):
-        tester.add_tree(os.path.join(_webkit_root, 'Source', 'WebKit', 'Scripts'), 'webkit')
+    tester.add_tree(os.path.join(_webkit_root, 'Tools', 'Scripts', 'libraries', 'webkitbugspy'), 'webkitbugspy')
+    tester.add_tree(os.path.join(_webkit_root, 'Tools', 'Scripts', 'libraries', 'webkitscmpy'), 'webkitscmpy')
+    tester.add_tree(os.path.join(_webkit_root, 'Tools', 'Scripts', 'libraries', 'webkitflaskpy'), 'webkitflaskpy')
+    tester.add_tree(os.path.join(_webkit_root, 'Tools', 'Scripts', 'libraries', 'reporelaypy'), 'reporelaypy')
+    tester.add_tree(os.path.join(_webkit_root, 'Source', 'WebKit', 'Scripts'), 'webkit')
 
     tester.skip(('webkitpy.common.checkout.scm.scm_unittest',), 'are really, really, slow', 31818)
     if sys.platform.startswith('win'):
-        tester.skip(('webkitpy.common.checkout', 'webkitpy.common.config', 'webkitpy.tool'), 'fail horribly on win32', 54526)
+        tester.skip(('webkitpy.common.checkout', 'webkitpy.tool'), 'fail horribly on win32', 54526)
+        tester.skip(('reporelaypy',), 'fail to install lupa and don\'t have to test on win32', 243316)
+        tester.skip(('webkitflaskpy',), 'fail to install lupa and don\'t have to test on win32', 253419)
+
+    if sys.version_info >= (3, 13):
+        tester.skip(('reporelaypy',), 'lupa wheel is not yet available for python 3.13', 285315)
+        tester.skip(('resultsdbpy',), 'lupa wheel is not yet available for python 3.13', 285315)
+        tester.skip(('webkitflaskpy',), 'lupa wheel is not yet available for python 3.13', 285315)
+
+    # Tests that are platform specific
+    mac_only_tests = (
+        'webkitpy.xcode',
+        'webkitpy.port.ios_device_unittest',
+        'webkitpy.port.ios_simulator_unittest',
+        'webkitpy.port.mac_unittest',
+        'webkitpy.port.watch_simulator_unittest',
+    )
+    linux_only_tests = (
+        'webkitpy.port.gtk_unittest',
+        'webkitpy.port.headlessdriver_unittest',
+        'webkitpy.port.linux_get_crash_log_unittest',
+        'webkitpy.port.waylanddriver_unittest',
+        'webkitpy.port.westondriver_unittest',
+        'webkitpy.port.wpe_unittest',
+        'webkitpy.port.xorgdriver_unittest',
+        'webkitpy.port.xvfbdriver_unittest',
+    )
+    windows_only_tests = ('webkitpy.port.win_unittest',)
+
+    # Skip platform specific tests on Windows and Linux
+    # The webkitpy EWS is run on Mac so only skip tests that won't run on it
+    if sys.platform.startswith('darwin'):
+        skip_tests = None
+    elif sys.platform.startswith('win'):
+        skip_tests = mac_only_tests + linux_only_tests + \
+            ('webkitpy.port.leakdetector_unittest', 'webkitpy.port.leakdetector_valgrind_unittest')
+    else:
+        skip_tests = mac_only_tests + windows_only_tests
+
+    if skip_tests is not None:
+        tester.skip(skip_tests, 'are not relevant for the platform running tests', 222066)
+
     return not tester.run()
 
 
@@ -92,12 +134,17 @@ class Tester(object):
         self.printer = Printer(sys.stderr)
         self._options = None
         self.upload_style = 'release'
+        self._expect_error_on_import_tests = []
 
-    def add_tree(self, top_directory, starting_subdirectory=None):
+    def add_tree(self, top_directory, starting_subdirectory):
         self.finder.add_tree(top_directory, starting_subdirectory)
 
     def skip(self, names, reason, bugid):
         self.finder.skip(names, reason, bugid)
+
+    def expect_error_on_import(self, names, reason, bugid):
+        self.finder.skip(names, reason, bugid)
+        self._expect_error_on_import_tests.extend(names)
 
     def _parse_args(self, argv=None):
         parser = optparse.OptionParser(usage='usage: %prog [options] [args...]')
@@ -133,8 +180,8 @@ class Tester(object):
 
         return parser.parse_args(argv)
 
-    def run(self):
-        self._options, args = self._parse_args()
+    def run(self, argv=None):
+        self._options, args = self._parse_args(argv)
         self.printer.configure(self._options)
 
         self.finder.clean_trees()
@@ -150,13 +197,14 @@ class Tester(object):
         # Make sure PYTHONPATH is set up properly.
         sys.path = self.finder.additional_paths(sys.path) + sys.path
 
-        # We autoinstall everything up so that we can run tests concurrently
-        # and not have to worry about autoinstalling packages concurrently.
-        self.printer.write_update("Checking autoinstalled packages ...")
-        from webkitpy.thirdparty import autoinstall_everything
-        autoinstall_everything()
-
         from webkitcorepy import AutoInstall
+
+        # Force registration of all autoinstalled packages.
+        if any([n.startswith('reporelaypy') for n in names]):
+            import reporelaypy
+        if any([n.startswith('webkitflaskpy') for n in names]):
+            import webkitflaskpy
+
         AutoInstall.install_everything()
 
         start_time = time.time()
@@ -165,17 +213,15 @@ class Tester(object):
             _log.warning("Checking code coverage, so running things serially")
             self._options.child_processes = 1
 
-            import webkitpy.thirdparty.autoinstalled.coverage as coverage
+            import coverage
             cov = coverage.coverage(omit=[
                 "/usr/*",
-                "*/webkitpy/thirdparty/autoinstalled/*",
-                "*/webkitpy/thirdparty/BeautifulSoup.py",
-                "*/webkitpy/thirdparty/BeautifulSoup_legacy.py",
+                "*/webkitpy/thirdparty/*",
             ])
             cov.start()
 
         self.printer.write_update("Checking imports ...")
-        if not self._check_imports(names):
+        if not self._check_imports(names, self._expect_error_on_import_tests):
             return False
 
         self.printer.write_update("Finding the individual test methods ...")
@@ -251,7 +297,7 @@ class Tester(object):
 
         return not self.printer.num_errors and not self.printer.num_failures and not failed_uploads
 
-    def _check_imports(self, names):
+    def _check_imports(self, names, non_importable_names):
         for name in names:
             if self.finder.is_module(name):
                 # if we failed to load a name and it looks like a module,
@@ -263,6 +309,26 @@ class Tester(object):
                     _log.fatal('Failed to import %s:' % name)
                     self._log_exception()
                     return False
+
+        for name in non_importable_names:
+            try:
+                __import__(name)
+            except (ImportError, SyntaxError):
+                pass
+            except Exception as e:
+                _log.fatal(
+                    "Importing %s expected to fail with (ImportError, SyntaxError)"
+                    % name
+                )
+                self._log_exception()
+                return False
+            else:
+                _log.fatal(
+                    "Importing %s expected to fail with (ImportError, SyntaxError), but did not raise"
+                    % name
+                )
+                return False
+
         return True
 
     def _test_names(self, loader, names):
@@ -295,7 +361,7 @@ class Tester(object):
             for t in suite._tests:
                 names.extend(self._all_test_names(t))
         else:
-            names.append(unit_test_name(suite))
+            names.append(suite.id())
         return names
 
     def _log_exception(self):

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,6 +33,7 @@
 #include <wtf/FastMalloc.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/PrintStream.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace JSC { namespace B3 {
 
@@ -42,7 +43,7 @@ namespace Air {
 
 class StackSlot {
     WTF_MAKE_NONCOPYABLE(StackSlot);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(StackSlot);
 public:
     unsigned byteSize() const { return m_byteSize; }
     StackSlotKind kind() const { return m_kind; }
@@ -50,10 +51,11 @@ public:
     bool isSpill() const { return m_kind == StackSlotKind::Spill; }
     unsigned index() const { return m_index; }
 
-    void ensureSize(unsigned requestedSize)
+    void ensureSize(uint64_t requestedSize)
     {
         ASSERT(!m_offsetFromFP);
-        m_byteSize = std::max(m_byteSize, requestedSize);
+        RELEASE_ASSERT(requestedSize <= std::numeric_limits<uint32_t>::max());
+        m_byteSize = std::max(m_byteSize, static_cast<uint32_t>(requestedSize));
     }
 
     unsigned alignment() const
@@ -66,8 +68,6 @@ public:
             return 4;
         return 8;
     }
-
-    B3::StackSlot* b3Slot() const { return m_b3Slot; }
 
     // Zero means that it's not yet assigned.
     intptr_t offsetFromFP() const { return m_offsetFromFP; }
@@ -86,13 +86,12 @@ private:
     friend class Code;
     friend class SparseCollection<StackSlot>;
 
-    StackSlot(unsigned byteSize, StackSlotKind, B3::StackSlot*);
+    StackSlot(uint64_t byteSize, StackSlotKind, intptr_t offsetFromFP = 0);
     
-    unsigned m_byteSize { 0 };
+    uint32_t m_byteSize { 0 };
+    StackSlotKind m_kind { StackSlotKind::Locked };
     unsigned m_index { UINT_MAX };
     intptr_t m_offsetFromFP { 0 };
-    StackSlotKind m_kind { StackSlotKind::Locked };
-    B3::StackSlot* m_b3Slot { nullptr };
 };
 
 class DeepStackSlotDump {

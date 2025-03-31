@@ -27,14 +27,15 @@
 #include <wtf/RunLoop.h>
 
 #include <wtf/NeverDestroyed.h>
+#include <wtf/Ref.h>
 #include <wtf/StdLibExtras.h>
-#include <wtf/ThreadSpecific.h>
+#include <wtf/threads/BinarySemaphore.h>
 
 namespace WTF {
 
-static RunLoop* s_mainRunLoop;
+SUPPRESS_UNCOUNTED_LOCAL static RunLoop* s_mainRunLoop;
 #if USE(WEB_THREAD)
-static RunLoop* s_webRunLoop;
+SUPPRESS_UNCOUNTED_LOCAL static RunLoop* s_webRunLoop;
 #endif
 
 // Helper class for ThreadSpecificData.
@@ -46,10 +47,15 @@ public:
     {
     }
 
+    ~Holder()
+    {
+        m_runLoop->threadWillExit();
+    }
+
     RunLoop& runLoop() { return m_runLoop; }
 
 private:
-    Ref<RunLoop> m_runLoop;
+    const Ref<RunLoop> m_runLoop;
 };
 
 void RunLoop::initializeMain()
@@ -58,10 +64,19 @@ void RunLoop::initializeMain()
     s_mainRunLoop = &RunLoop::current();
 }
 
+auto RunLoop::runLoopHolder() -> ThreadSpecific<Holder>&
+{
+    static LazyNeverDestroyed<ThreadSpecific<Holder>> runLoopHolder;
+    static std::once_flag onceKey;
+    std::call_once(onceKey, [&] {
+        runLoopHolder.construct();
+    });
+    return runLoopHolder;
+}
+
 RunLoop& RunLoop::current()
 {
-    static NeverDestroyed<ThreadSpecific<Holder>> runLoopHolder;
-    return runLoopHolder.get()->runLoop();
+    return runLoopHolder()->runLoop();
 }
 
 RunLoop& RunLoop::main()
@@ -89,10 +104,23 @@ RunLoop* RunLoop::webIfExists()
 }
 #endif
 
-bool RunLoop::isMain()
+Ref<RunLoop> RunLoop::create(ASCIILiteral threadName, ThreadType threadType, Thread::QOS qos)
 {
-    ASSERT(s_mainRunLoop);
-    return s_mainRunLoop == &RunLoop::current();
+    RefPtr<RunLoop> runLoop;
+    BinarySemaphore semaphore;
+    Thread::create(threadName, [&] SUPPRESS_UNCOUNTED_LAMBDA_CAPTURE {
+        runLoop = &RunLoop::current();
+        semaphore.signal();
+        runLoop->run();
+    }, threadType, qos)->detach();
+    semaphore.wait();
+    return runLoop.releaseNonNull();
+}
+
+bool RunLoop::isCurrent() const
+{
+    // Avoid constructing the RunLoop for the current thread if it has not been created yet.
+    return runLoopHolder().isSet() && this == &RunLoop::current();
 }
 
 void RunLoop::performWork()
@@ -100,7 +128,7 @@ void RunLoop::performWork()
     bool didSuspendFunctions = false;
 
     {
-        auto locker = holdLock(m_nextIterationLock);
+        Locker locker { m_nextIterationLock };
 
         // If the RunLoop re-enters or re-schedules, we're expected to execute all functions in order.
         while (!m_currentIteration.isEmpty())
@@ -127,12 +155,13 @@ void RunLoop::performWork()
         wakeUp();
 }
 
-void RunLoop::dispatch(Function<void ()>&& function)
+void RunLoop::dispatch(Function<void()>&& function)
 {
+    RELEASE_ASSERT(function);
     bool needsWakeup = false;
 
     {
-        auto locker = holdLock(m_nextIterationLock);
+        Locker locker { m_nextIterationLock };
         needsWakeup = m_nextIteration.isEmpty();
         m_nextIteration.append(WTFMove(function));
     }
@@ -141,14 +170,17 @@ void RunLoop::dispatch(Function<void ()>&& function)
         wakeUp();
 }
 
-void RunLoop::dispatchAfter(Seconds delay, Function<void()>&& function)
+Ref<RunLoop::DispatchTimer> RunLoop::dispatchAfter(Seconds delay, Function<void()>&& function)
 {
-    auto timer = new DispatchTimer(*this);
-    timer->setFunction([timer, function = WTFMove(function)] {
+    RELEASE_ASSERT(function);
+    Ref<DispatchTimer> timer = adoptRef(*new DispatchTimer(*this));
+    timer->setFunction([timer = timer.copyRef(), function = WTFMove(function)]() mutable {
+        Ref<DispatchTimer> protectedTimer { WTFMove(timer) };
         function();
-        delete timer;
+        protectedTimer->stop();
     });
     timer->startOneShot(delay);
+    return timer;
 }
 
 void RunLoop::suspendFunctionDispatchForCurrentCycle()
@@ -160,6 +192,15 @@ void RunLoop::suspendFunctionDispatchForCurrentCycle()
     m_isFunctionDispatchSuspended = true;
     // Wake up (even if there is nothing to do) to disable suspension.
     wakeUp();
+}
+
+void RunLoop::threadWillExit()
+{
+    m_currentIteration.clear();
+    {
+        Locker locker { m_nextIterationLock };
+        m_nextIteration.clear();
+    }
 }
 
 } // namespace WTF

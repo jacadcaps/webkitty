@@ -14,6 +14,7 @@
 
 #include <utility>
 
+#include "absl/strings/string_view.h"
 #include "modules/rtp_rtcp/source/byte_io.h"
 #include "modules/rtp_rtcp/source/rtcp_packet/common_header.h"
 #include "rtc_base/checks.h"
@@ -21,8 +22,6 @@
 
 namespace webrtc {
 namespace rtcp {
-constexpr uint8_t Sdes::kPacketType;
-constexpr size_t Sdes::kMaxNumberOfChunks;
 // Source Description (SDES) (RFC 3550).
 //
 //         0                   1                   2                   3
@@ -145,7 +144,7 @@ bool Sdes::Parse(const CommonHeader& packet) {
   return true;
 }
 
-bool Sdes::AddCName(uint32_t ssrc, std::string cname) {
+bool Sdes::AddCName(uint32_t ssrc, absl::string_view cname) {
   RTC_DCHECK_LE(cname.length(), 0xffu);
   if (chunks_.size() >= kMaxNumberOfChunks) {
     RTC_LOG(LS_WARNING) << "Max SDES chunks reached.";
@@ -153,7 +152,7 @@ bool Sdes::AddCName(uint32_t ssrc, std::string cname) {
   }
   Chunk chunk;
   chunk.ssrc = ssrc;
-  chunk.cname = std::move(cname);
+  chunk.cname = std::string(cname);
   chunks_.push_back(chunk);
   block_length_ += ChunkSize(chunk);
   return true;

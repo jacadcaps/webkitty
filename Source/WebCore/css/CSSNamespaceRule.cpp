@@ -52,12 +52,11 @@ AtomString CSSNamespaceRule::prefix() const
 
 String CSSNamespaceRule::cssText() const
 {
+    auto prefix = this->prefix();
     StringBuilder result;
-    result.appendLiteral("@namespace ");
-    serializeIdentifier(prefix(), result);
-    if (!prefix().isEmpty())
-        result.append(' ');
-    result.append("url(", serializeString(namespaceURI()), ");");
+    result.append("@namespace "_s);
+    serializeIdentifier(prefix, result);
+    result.append(prefix.isEmpty() ? ""_s : " "_s, "url("_s, serializeString(namespaceURI()), ");"_s);
     return result.toString();
 }
 

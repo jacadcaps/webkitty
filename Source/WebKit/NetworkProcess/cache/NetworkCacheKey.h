@@ -23,28 +23,31 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef NetworkCacheKey_h
-#define NetworkCacheKey_h
+#pragma once
 
 #include "NetworkCacheData.h"
+#include <wtf/CrossThreadCopier.h>
 #include <wtf/SHA1.h>
-#include <wtf/persistence/PersistentCoder.h>
+#include <wtf/StdLibExtras.h>
 #include <wtf/text/WTFString.h>
 
-namespace WebKit {
-namespace NetworkCache {
+namespace WTF::Persistence {
+template<typename> struct Coder;
+}
+
+namespace WebKit::NetworkCache {
 
 struct DataKey {
     String partition;
     String type;
     SHA1::Digest identifier;
 
-    template <class Encoder> void encode(Encoder& encoder) const
+    template <class Encoder> void encodeForPersistence(Encoder& encoder) const
     {
         encoder << partition << type << identifier;
     }
 
-    template <class Decoder> static WARN_UNUSED_RETURN bool decode(Decoder& decoder, DataKey& dataKey)
+    template <class Decoder> static WARN_UNUSED_RETURN bool decodeForPersistence(Decoder& decoder, DataKey& dataKey)
     {
         return decoder.decode(dataKey.partition) && decoder.decode(dataKey.type) && decoder.decode(dataKey.identifier);
     }
@@ -82,16 +85,41 @@ public:
     String hashAsString() const { return hashAsString(m_hash); }
     String partitionHashAsString() const { return hashAsString(m_partitionHash); }
 
-    void encode(WTF::Persistence::Encoder&) const;
-    static Optional<Key> decode(WTF::Persistence::Decoder&);
-
     bool operator==(const Key&) const;
-    bool operator!=(const Key& other) const { return !(*this == other); }
+
+    static String partitionToPartitionHashAsString(const String& partition, const Salt&);
+
+    Key isolatedCopy() && { return {
+        crossThreadCopy(WTFMove(m_partition)),
+        crossThreadCopy(WTFMove(m_type)),
+        crossThreadCopy(WTFMove(m_identifier)),
+        crossThreadCopy(WTFMove(m_range)),
+        m_hash,
+        m_partitionHash
+    }; }
+
+    Key isolatedCopy() const & { return {
+        crossThreadCopy(m_partition),
+        crossThreadCopy(m_type),
+        crossThreadCopy(m_identifier),
+        crossThreadCopy(m_range),
+        m_hash,
+        m_partitionHash
+    }; }
 
 private:
+    friend struct WTF::Persistence::Coder<Key>;
     static String hashAsString(const HashType&);
     HashType computeHash(const Salt&) const;
     HashType computePartitionHash(const Salt&) const;
+    static HashType partitionToPartitionHash(const String& partition, const Salt&);
+    Key(String&& partition, String&& type, String&& identifier, String&& range, HashType hash, HashType partitionHash)
+        : m_partition(WTFMove(partition))
+        , m_type(WTFMove(type))
+        , m_identifier(WTFMove(identifier))
+        , m_range(WTFMove(range))
+        , m_hash(hash)
+        , m_partitionHash(partitionHash) { }
 
     String m_partition;
     String m_type;
@@ -102,7 +130,6 @@ private:
 };
 
 }
-}
 
 namespace WTF {
 
@@ -110,7 +137,7 @@ struct NetworkCacheKeyHash {
     static unsigned hash(const WebKit::NetworkCache::Key& key)
     {
         static_assert(SHA1::hashSize >= sizeof(unsigned), "Hash size must be greater than sizeof(unsigned)");
-        return *reinterpret_cast<const unsigned*>(key.hash().data());
+        return reinterpretCastSpanStartTo<const unsigned>(std::span { key.hash() });
     }
 
     static bool equal(const WebKit::NetworkCache::Key& a, const WebKit::NetworkCache::Key& b)
@@ -132,5 +159,3 @@ template<> struct HashTraits<WebKit::NetworkCache::Key> : SimpleClassHashTraits<
 };
 
 } // namespace WTF
-
-#endif

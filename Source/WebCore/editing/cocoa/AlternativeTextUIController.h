@@ -24,6 +24,7 @@
  */
 
 #import "AlternativeTextContextController.h"
+#import <wtf/TZoneMalloc.h>
 
 @class NSView;
 
@@ -32,13 +33,14 @@ namespace WebCore {
 class FloatRect;
 
 class AlternativeTextUIController {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(AlternativeTextUIController, WEBCORE_EXPORT);
 public:
-    WEBCORE_EXPORT DictationContext addAlternatives(NSTextAlternatives *);
+    WEBCORE_EXPORT std::optional<DictationContext> addAlternatives(PlatformTextAlternatives *);
+    WEBCORE_EXPORT void replaceAlternatives(PlatformTextAlternatives *, DictationContext);
     WEBCORE_EXPORT void removeAlternatives(DictationContext);
     WEBCORE_EXPORT void clear();
 
-    WEBCORE_EXPORT Vector<String> alternativesForContext(DictationContext);
+    WEBCORE_EXPORT PlatformTextAlternatives *alternativesForContext(DictationContext);
 
 #if USE(APPKIT)
     using AcceptanceHandler = void (^)(NSString *);
@@ -47,7 +49,7 @@ public:
 
 private:
 #if USE(APPKIT)
-    void handleAcceptedAlternative(NSString *, DictationContext, NSTextAlternatives *);
+    void handleAcceptedAlternative(NSString *, DictationContext, PlatformTextAlternatives *);
     void dismissAlternatives();
 #endif
 

@@ -28,15 +28,16 @@
 
 #include <WebCore/DOMWrapperWorld.h>
 #include <WebCore/ScriptController.h>
+#include <wtf/CheckedPtr.h>
 #include <wtf/HashMap.h>
 #include <wtf/NeverDestroyed.h>
-#include <wtf/text/StringConcatenate.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebKit {
 using namespace WebCore;
 
-typedef HashMap<DOMWrapperWorld*, InjectedBundleScriptWorld*> WorldMap;
+using WorldMap = HashMap<SingleThreadWeakRef<DOMWrapperWorld>, WeakRef<InjectedBundleScriptWorld>>;
 
 static WorldMap& allWorlds()
 {
@@ -47,7 +48,7 @@ static WorldMap& allWorlds()
 static String uniqueWorldName()
 {
     static uint64_t uniqueWorldNameNumber = 0;
-    return makeString("UniqueWorld_", uniqueWorldNameNumber++);
+    return makeString("UniqueWorld_"_s, uniqueWorldNameNumber++);
 }
 
 Ref<InjectedBundleScriptWorld> InjectedBundleScriptWorld::create(Type type)
@@ -62,10 +63,10 @@ Ref<InjectedBundleScriptWorld> InjectedBundleScriptWorld::create(const String& n
 
 Ref<InjectedBundleScriptWorld> InjectedBundleScriptWorld::getOrCreate(DOMWrapperWorld& world)
 {
-    if (&world == &mainThreadNormalWorld())
-        return normalWorld();
+    if (&world == &mainThreadNormalWorldSingleton())
+        return normalWorldSingleton();
 
-    if (InjectedBundleScriptWorld* existingWorld = allWorlds().get(&world))
+    if (auto existingWorld = allWorlds().get(world))
         return *existingWorld;
 
     return adoptRef(*new InjectedBundleScriptWorld(world, uniqueWorldName()));
@@ -73,16 +74,16 @@ Ref<InjectedBundleScriptWorld> InjectedBundleScriptWorld::getOrCreate(DOMWrapper
 
 InjectedBundleScriptWorld* InjectedBundleScriptWorld::find(const String& name)
 {
-    for (auto* world : allWorlds().values()) {
+    for (auto& world : allWorlds().values()) {
         if (world->name() == name)
-            return world;
+            return world.ptr();
     }
     return nullptr;
 }
 
-InjectedBundleScriptWorld& InjectedBundleScriptWorld::normalWorld()
+InjectedBundleScriptWorld& InjectedBundleScriptWorld::normalWorldSingleton()
 {
-    static InjectedBundleScriptWorld& world = adoptRef(*new InjectedBundleScriptWorld(mainThreadNormalWorld(), String())).leakRef();
+    static InjectedBundleScriptWorld& world = adoptRef(*new InjectedBundleScriptWorld(mainThreadNormalWorldSingleton(), String())).leakRef();
     return world;
 }
 
@@ -90,14 +91,14 @@ InjectedBundleScriptWorld::InjectedBundleScriptWorld(DOMWrapperWorld& world, con
     : m_world(world)
     , m_name(name)
 {
-    ASSERT(!allWorlds().contains(m_world.ptr()));
-    allWorlds().add(m_world.ptr(), this);
+    ASSERT(!allWorlds().contains(world));
+    allWorlds().add(world, *this);
 }
 
 InjectedBundleScriptWorld::~InjectedBundleScriptWorld()
 {
-    ASSERT(allWorlds().contains(m_world.ptr()));
-    allWorlds().remove(m_world.ptr());
+    ASSERT(allWorlds().contains(m_world.get()));
+    allWorlds().remove(m_world.get());
 }
 
 const DOMWrapperWorld& InjectedBundleScriptWorld::coreWorld() const
@@ -115,6 +116,16 @@ void InjectedBundleScriptWorld::clearWrappers()
     m_world->clearWrappers();
 }
 
+void InjectedBundleScriptWorld::setAllowAutofill()
+{
+    m_world->setAllowAutofill();
+}
+
+void InjectedBundleScriptWorld::setAllowElementUserInfo()
+{
+    m_world->setAllowElementUserInfo();
+}
+
 void InjectedBundleScriptWorld::makeAllShadowRootsOpen()
 {
     m_world->setShadowRootIsAlwaysOpen();
@@ -122,7 +133,17 @@ void InjectedBundleScriptWorld::makeAllShadowRootsOpen()
 
 void InjectedBundleScriptWorld::disableOverrideBuiltinsBehavior()
 {
-    m_world->disableOverrideBuiltinsBehavior();
+    m_world->disableLegacyOverrideBuiltInsBehavior();
+}
+
+Ref<const WebCore::DOMWrapperWorld> InjectedBundleScriptWorld::protectedCoreWorld() const
+{
+    return m_world;
+}
+
+Ref<WebCore::DOMWrapperWorld> InjectedBundleScriptWorld::protectedCoreWorld()
+{
+    return m_world;
 }
 
 } // namespace WebKit

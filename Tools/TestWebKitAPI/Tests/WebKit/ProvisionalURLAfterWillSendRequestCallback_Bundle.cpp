@@ -51,7 +51,9 @@ public:
         }
 
         // Change the main frame URL.
-        WKRetainPtr<WKURLRef> url = adoptWK(Util::createURLForResource("simple2", "html"));
+        auto previousURL = TestWebKitAPI::Util::toSTD(adoptWK(WKURLCopyString(adoptWK(WKURLRequestCopyURL(request)).get())));
+        previousURL += "?query";
+        auto url = adoptWK(WKURLCreateWithUTF8CString(previousURL.c_str()));
         return WKURLRequestCreateWithWKURL(url.get());
     }
 
@@ -65,13 +67,13 @@ public:
     void didCreatePage(WKBundleRef bundle, WKBundlePageRef page) override
     {
         WKBundlePageResourceLoadClientV0 resourceLoadClient;
-        memset(&resourceLoadClient, 0, sizeof(resourceLoadClient));
+        zeroBytes(resourceLoadClient);
         resourceLoadClient.base.version = 0;
         resourceLoadClient.willSendRequestForFrame = willSendRequestForFrame;
         WKBundlePageSetResourceLoadClient(page, &resourceLoadClient.base);
 
         WKBundlePageLoaderClientV0 pageLoaderClient;
-        memset(&pageLoaderClient, 0, sizeof(pageLoaderClient));
+        zeroBytes(pageLoaderClient);
         pageLoaderClient.base.version = 0;
         pageLoaderClient.didCommitLoadForFrame = didCommitLoadForFrame;
         WKBundlePageSetPageLoaderClient(page, &pageLoaderClient.base);

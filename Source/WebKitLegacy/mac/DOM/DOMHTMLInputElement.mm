@@ -33,6 +33,7 @@
 #import "DOMInternal.h"
 #import "DOMPrivate.h"
 #import "ExceptionHandlers.h"
+#import <WebCore/ElementInlines.h>
 
 #if TARGET_OS_IPHONE
 #if __has_include(<UIKit/UITextAutofillSuggestion.h>)
@@ -60,7 +61,6 @@
 #import <WebCore/HTMLNames.h>
 #import <WebCore/HitTestResult.h>
 #import <WebCore/JSExecState.h>
-#import <WebCore/NameNodeList.h>
 #import <WebCore/NodeList.h>
 #import <WebCore/RenderElement.h>
 #import <WebCore/ThreadCheck.h>
@@ -272,13 +272,11 @@
     IMPL->setIndeterminate(newIndeterminate);
 }
 
-#if ENABLE(DATALIST_ELEMENT)
 - (DOMHTMLElement *)list
 {
     WebCore::JSMainThreadNullState state;
     return kit(WTF::getPtr(IMPL->list()));
 }
-#endif
 
 - (NSString *)max
 {
@@ -397,7 +395,7 @@
 - (void)setSize:(NSString *)newSize
 {
     WebCore::JSMainThreadNullState state;
-    IMPL->setSize(WTF::String(newSize).toInt());
+    IMPL->setSize(newSize.intValue);
 }
 
 - (NSString *)src
@@ -576,14 +574,11 @@
 
 - (BOOL)incremental
 {
-    WebCore::JSMainThreadNullState state;
-    return IMPL->hasAttributeWithoutSynchronization(WebCore::HTMLNames::incrementalAttr);
+    return NO;
 }
 
 - (void)setIncremental:(BOOL)newIncremental
 {
-    WebCore::JSMainThreadNullState state;
-    IMPL->setBooleanAttribute(WebCore::HTMLNames::incrementalAttr, newIncremental);
 }
 
 - (NSString *)accessKey
@@ -659,13 +654,13 @@
 - (void)setRangeText:(NSString *)replacement
 {
     WebCore::JSMainThreadNullState state;
-    raiseOnDOMError(IMPL->setRangeText(replacement));
+    raiseOnDOMError(IMPL->setRangeText(String { replacement }));
 }
 
 - (void)setRangeText:(NSString *)replacement start:(unsigned)start end:(unsigned)end selectionMode:(NSString *)selectionMode
 {
     WebCore::JSMainThreadNullState state;
-    raiseOnDOMError(IMPL->setRangeText(replacement, start, end, selectionMode));
+    raiseOnDOMError(IMPL->setRangeText(String { replacement }, start, end, selectionMode));
 }
 
 - (void)setSelectionRange:(int)start end:(int)end

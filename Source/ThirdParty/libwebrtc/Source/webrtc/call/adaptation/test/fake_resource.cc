@@ -10,22 +10,37 @@
 
 #include "call/adaptation/test/fake_resource.h"
 
+#include <algorithm>
 #include <utility>
+
+#include "absl/strings/string_view.h"
+#include "api/make_ref_counted.h"
 
 namespace webrtc {
 
-FakeResource::FakeResource(ResourceUsageState usage_state)
-    : FakeResource(usage_state, "FakeResource") {}
+// static
+rtc::scoped_refptr<FakeResource> FakeResource::Create(absl::string_view name) {
+  return rtc::make_ref_counted<FakeResource>(name);
+}
+
+FakeResource::FakeResource(absl::string_view name)
+    : Resource(), name_(name), listener_(nullptr) {}
 
 FakeResource::~FakeResource() {}
 
-void FakeResource::set_usage_state(ResourceUsageState usage_state) {
-  last_response_ = OnResourceUsageStateMeasured(usage_state);
+void FakeResource::SetUsageState(ResourceUsageState usage_state) {
+  if (listener_) {
+    listener_->OnResourceUsageStateMeasured(rtc::scoped_refptr<Resource>(this),
+                                            usage_state);
+  }
 }
-FakeResource::FakeResource(ResourceUsageState usage_state,
-                           const std::string& name)
-    : Resource(), name_(name) {
-  set_usage_state(usage_state);
+
+std::string FakeResource::Name() const {
+  return name_;
+}
+
+void FakeResource::SetResourceListener(ResourceListener* listener) {
+  listener_ = listener;
 }
 
 }  // namespace webrtc

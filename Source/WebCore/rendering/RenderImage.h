@@ -38,25 +38,27 @@ enum ImageSizeChangeType {
 };
 
 class RenderImage : public RenderReplaced {
-    WTF_MAKE_ISO_ALLOCATED(RenderImage);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(RenderImage);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderImage);
 public:
-    RenderImage(Element&, RenderStyle&&, StyleImage* = nullptr, const float = 1.0f);
-    RenderImage(Document&, RenderStyle&&, StyleImage* = nullptr);
+    RenderImage(Type, Element&, RenderStyle&&, StyleImage* = nullptr, const float imageDevicePixelRatio = 1.0f);
+    RenderImage(Type, Document&, RenderStyle&&, StyleImage* = nullptr);
     virtual ~RenderImage();
 
     RenderImageResource& imageResource() { return *m_imageResource; }
     const RenderImageResource& imageResource() const { return *m_imageResource; }
+    CheckedRef<RenderImageResource> checkedImageResource() const;
     CachedImage* cachedImage() const { return imageResource().cachedImage(); }
 
     ImageSizeChangeType setImageSizeForAltText(CachedImage* newImage = nullptr);
 
     void updateAltText();
 
-    HTMLMapElement* imageMap() const;
+    RefPtr<HTMLMapElement> imageMap() const;
     void areaElementFocusChanged(HTMLAreaElement*);
     
 #if PLATFORM(IOS_FAMILY)
-    void collectSelectionRects(Vector<SelectionRect>&, unsigned, unsigned) override;
+    void collectSelectionGeometries(Vector<SelectionGeometry>&, unsigned, unsigned) override;
 #endif
 
     void setIsGeneratedContent(bool generated = true) { m_isGeneratedContent = generated; }
@@ -70,22 +72,26 @@ public:
     float imageDevicePixelRatio() const { return m_imageDevicePixelRatio; }
 
     void setHasShadowControls(bool hasShadowControls) { m_hasShadowControls = hasShadowControls; }
+    void setHasImageOverlay() { m_hasImageOverlay = true; }
     
     bool isShowingMissingOrImageError() const;
     bool isShowingAltText() const;
 
     virtual bool shouldDisplayBrokenImageIcon() const;
 
-    bool hasNonBitmapImage() const;
+    String accessibilityDescription() const { return imageResource().image()->accessibilityDescription(); }
 
-    bool isEditableImage() const;
+#if ENABLE(MULTI_REPRESENTATION_HEIC)
+    bool isMultiRepresentationHEIC() const;
+#endif
 
 protected:
+    RenderImage(Type, Element&, RenderStyle&&, OptionSet<ReplacedFlag>, StyleImage* = nullptr, const float imageDevicePixelRatio = 1.0f);
     void willBeDestroyed() override;
 
     bool needsPreferredWidthsRecalculation() const final;
     RenderBox* embeddedContentBox() const final;
-    void computeIntrinsicRatioInformation(FloatSize& intrinsicSize, double& intrinsicRatio) const final;
+    void computeIntrinsicRatioInformation(FloatSize& intrinsicSize, FloatSize& intrinsicRatio) const final;
     bool foregroundIsKnownToBeOpaqueInRect(const LayoutRect& localRect, unsigned maxDepthToTest) const override;
 
     void styleWillChange(StyleDifference, const RenderStyle& newStyle) override;
@@ -103,14 +109,11 @@ protected:
     }
 
 private:
-    const char* renderName() const override { return "RenderImage"; }
+    ASCIILiteral renderName() const override { return "RenderImage"_s; }
 
     bool canHaveChildren() const override;
 
     bool isImage() const override { return true; }
-    bool isRenderImage() const final { return true; }
-    
-    bool requiresLayer() const override;
 
     void paintReplaced(PaintInfo&, const LayoutPoint&) override;
     void paintIncompleteImageOutline(PaintInfo&, LayoutPoint, LayoutUnit) const;
@@ -119,12 +122,8 @@ private:
 
     LayoutUnit minimumReplacedHeight() const override;
 
-    void notifyFinished(CachedResource&, const NetworkLoadMetrics&) final;
+    void notifyFinished(CachedResource&, const NetworkLoadMetrics&, LoadWillContinueInAnotherProcess) final;
     bool nodeAtPoint(const HitTestRequest&, HitTestResult&, const HitTestLocation& locationInContainer, const LayoutPoint& accumulatedOffset, HitTestAction) final;
-
-    bool boxShadowShouldBeAppliedToBackground(const LayoutPoint& paintOffset, BackgroundBleedAvoidance, InlineFlowBox*) const final;
-
-    virtual bool shadowControlsNeedCustomLayoutMetrics() const { return false; }
 
     IntSize imageSizeForError(CachedImage*) const;
     void repaintOrMarkForLayout(ImageSizeChangeType, const IntRect* = nullptr);
@@ -133,11 +132,13 @@ private:
     void updateInnerContentRect();
 
     void paintAreaElementFocusRing(PaintInfo&, const LayoutPoint& paintOffset);
-    
-    void layoutShadowControls(const LayoutSize& oldSize);
 
-    LayoutUnit computeReplacedLogicalWidth(ShouldComputePreferred = ComputeActual) const override;
-    LayoutUnit computeReplacedLogicalHeight(Optional<LayoutUnit> estimatedUsedWidth = WTF::nullopt) const override;
+    bool hasShadowContent() const { return m_hasShadowControls || m_hasImageOverlay; }
+
+    LayoutUnit computeReplacedLogicalWidth(ShouldComputePreferred = ShouldComputePreferred::ComputeActual) const override;
+    LayoutUnit computeReplacedLogicalHeight(std::optional<LayoutUnit> estimatedUsedWidth = std::nullopt) const override;
+
+    LayoutUnit baselinePosition(FontBaseline, bool firstLine, LineDirectionMode, LinePositionMode = PositionOnContainingLine) const override;
 
     bool shouldCollapseToEmpty() const;
 
@@ -147,6 +148,7 @@ private:
     bool m_needsToSetSizeForAltText { false };
     bool m_isGeneratedContent { false };
     bool m_hasShadowControls { false };
+    bool m_hasImageOverlay { false };
     float m_imageDevicePixelRatio { 1 };
 
     friend class RenderImageScaleObserver;

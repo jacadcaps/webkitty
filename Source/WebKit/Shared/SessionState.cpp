@@ -26,248 +26,121 @@
 #include "config.h"
 #include "SessionState.h"
 
-#include "WebCoreArgumentCoders.h"
+#include <WebCore/BackForwardFrameItemIdentifier.h>
 #include <WebCore/BackForwardItemIdentifier.h>
 
 namespace WebKit {
-using namespace WebCore;
 
-bool isValidEnum(WebCore::ShouldOpenExternalURLsPolicy policy)
+FrameState::FrameState(const String& urlString, const String& originalURLString, const String& referrer, const AtomString& target, std::optional<WebCore::FrameIdentifier> frameID, std::optional<Vector<uint8_t>> stateObjectData, int64_t documentSequenceNumber, int64_t itemSequenceNumber, WebCore::IntPoint scrollPosition, bool shouldRestoreScrollPosition, float pageScaleFactor, const std::optional<HTTPBody>& httpBody, std::optional<WebCore::BackForwardItemIdentifier> itemID, std::optional<WebCore::BackForwardFrameItemIdentifier> frameItemID, bool hasCachedPage, const String& title, WebCore::ShouldOpenExternalURLsPolicy shouldOpenExternalURLsPolicy, RefPtr<WebCore::SerializedScriptValue>&& sessionStateObject, bool wasCreatedByJSWithoutUserInteraction, bool wasRestoredFromSession, const std::optional<WebCore::PolicyContainer>& policyContainer,
+#if PLATFORM(IOS_FAMILY)
+    WebCore::FloatRect exposedContentRect, WebCore::IntRect unobscuredContentRect, WebCore::FloatSize minimumLayoutSizeInScrollViewCoordinates, WebCore::IntSize contentSize, bool scaleIsInitial, WebCore::FloatBoxExtent obscuredInsets,
+#endif
+    const Vector<Ref<FrameState>>& children, const Vector<AtomString>& documentState
+)
+    : urlString(urlString)
+    , originalURLString(originalURLString)
+    , referrer(referrer)
+    , target(target)
+    , frameID(frameID)
+    , stateObjectData(stateObjectData)
+    , documentSequenceNumber(documentSequenceNumber)
+    , itemSequenceNumber(itemSequenceNumber)
+    , scrollPosition(scrollPosition)
+    , shouldRestoreScrollPosition(shouldRestoreScrollPosition)
+    , pageScaleFactor(pageScaleFactor)
+    , httpBody(httpBody)
+    , itemID(itemID)
+    , frameItemID(frameItemID)
+    , hasCachedPage(hasCachedPage)
+    , title(title)
+    , shouldOpenExternalURLsPolicy(shouldOpenExternalURLsPolicy)
+    , sessionStateObject(WTFMove(sessionStateObject))
+    , wasCreatedByJSWithoutUserInteraction(wasCreatedByJSWithoutUserInteraction)
+    , wasRestoredFromSession(wasRestoredFromSession)
+    , policyContainer(policyContainer)
+#if PLATFORM(IOS_FAMILY)
+    , exposedContentRect(exposedContentRect)
+    , unobscuredContentRect(unobscuredContentRect)
+    , minimumLayoutSizeInScrollViewCoordinates(minimumLayoutSizeInScrollViewCoordinates)
+    , contentSize(contentSize)
+    , scaleIsInitial(scaleIsInitial)
+    , obscuredInsets(obscuredInsets)
+#endif
+    , children(children)
+    , m_documentState(documentState)
 {
-    switch (policy) {
-    case WebCore::ShouldOpenExternalURLsPolicy::ShouldAllow:
-    case WebCore::ShouldOpenExternalURLsPolicy::ShouldAllowExternalSchemes:
-    case WebCore::ShouldOpenExternalURLsPolicy::ShouldNotAllow:
-        return true;
+}
+
+Ref<FrameState> FrameState::copy()
+{
+    return adoptRef(*new FrameState(
+        urlString,
+        originalURLString,
+        referrer,
+        target,
+        frameID,
+        stateObjectData,
+        documentSequenceNumber,
+        itemSequenceNumber,
+        scrollPosition,
+        shouldRestoreScrollPosition,
+        pageScaleFactor,
+        httpBody,
+        itemID,
+        frameItemID,
+        hasCachedPage,
+        title,
+        shouldOpenExternalURLsPolicy,
+        sessionStateObject.copyRef(),
+        wasCreatedByJSWithoutUserInteraction,
+        wasRestoredFromSession,
+        policyContainer,
+#if PLATFORM(IOS_FAMILY)
+        exposedContentRect,
+        unobscuredContentRect,
+        minimumLayoutSizeInScrollViewCoordinates,
+        contentSize,
+        scaleIsInitial,
+        obscuredInsets,
+#endif
+        children.map([](auto& child) { return child->copy(); }),
+        m_documentState
+    ));
+}
+
+bool FrameState::validateDocumentState(const Vector<AtomString>& documentState)
+{
+    for (auto& stateString : documentState) {
+        if (stateString.isNull())
+            continue;
+
+        if (!stateString.is8Bit())
+            continue;
+
+        // rdar://48634553 indicates 8-bit string can be invalid.
+        for (auto character : stateString.span8())
+            RELEASE_ASSERT(isLatin1(character));
     }
-    return false;
-}
-
-void HTTPBody::Element::encode(IPC::Encoder& encoder) const
-{
-    encoder << type;
-    encoder << data;
-    encoder << filePath;
-    encoder << fileStart;
-    encoder << fileLength;
-    encoder << expectedFileModificationTime;
-    encoder << blobURLString;
-}
-
-static bool isValidEnum(HTTPBody::Element::Type type)
-{
-    switch (type) {
-    case HTTPBody::Element::Type::Data:
-    case HTTPBody::Element::Type::File:
-    case HTTPBody::Element::Type::Blob:
-        return true;
-    }
-
-    return false;
-}
-
-auto HTTPBody::Element::decode(IPC::Decoder& decoder) -> Optional<Element>
-{
-    Element result;
-    if (!decoder.decode(result.type) || !isValidEnum(result.type))
-        return WTF::nullopt;
-    if (!decoder.decode(result.data))
-        return WTF::nullopt;
-    if (!decoder.decode(result.filePath))
-        return WTF::nullopt;
-    if (!decoder.decode(result.fileStart))
-        return WTF::nullopt;
-    if (!decoder.decode(result.fileLength))
-        return WTF::nullopt;
-    if (!decoder.decode(result.expectedFileModificationTime))
-        return WTF::nullopt;
-    if (!decoder.decode(result.blobURLString))
-        return WTF::nullopt;
-
-    return result;
-}
-
-void HTTPBody::encode(IPC::Encoder& encoder) const
-{
-    encoder << contentType;
-    encoder << elements;
-}
-
-bool HTTPBody::decode(IPC::Decoder& decoder, HTTPBody& result)
-{
-    if (!decoder.decode(result.contentType))
-        return false;
-    if (!decoder.decode(result.elements))
-        return false;
-
     return true;
 }
 
-void FrameState::encode(IPC::Encoder& encoder) const
+void FrameState::setDocumentState(const Vector<AtomString>& documentState, ShouldValidate shouldValidate)
 {
-    encoder << urlString;
-    encoder << originalURLString;
-    encoder << referrer;
-    encoder << target;
+    m_documentState = documentState;
 
-    encoder << documentState;
-    encoder << stateObjectData;
-
-    encoder << documentSequenceNumber;
-    encoder << itemSequenceNumber;
-
-    encoder << scrollPosition;
-    encoder << shouldRestoreScrollPosition;
-    encoder << pageScaleFactor;
-
-    encoder << httpBody;
-
-#if PLATFORM(IOS_FAMILY)
-    encoder << exposedContentRect;
-    encoder << unobscuredContentRect;
-    encoder << minimumLayoutSizeInScrollViewCoordinates;
-    encoder << contentSize;
-    encoder << scaleIsInitial;
-    encoder << obscuredInsets;
-#endif
-
-    encoder << children;
+    if (shouldValidate == ShouldValidate::Yes)
+        validateDocumentState(m_documentState);
 }
 
-Optional<FrameState> FrameState::decode(IPC::Decoder& decoder)
+void FrameState::replaceChildFrameState(Ref<FrameState>&& frameState)
 {
-    FrameState result;
-    if (!decoder.decode(result.urlString))
-        return WTF::nullopt;
-    if (!decoder.decode(result.originalURLString))
-        return WTF::nullopt;
-    if (!decoder.decode(result.referrer))
-        return WTF::nullopt;
-    if (!decoder.decode(result.target))
-        return WTF::nullopt;
-
-    if (!decoder.decode(result.documentState))
-        return WTF::nullopt;
-    if (!decoder.decode(result.stateObjectData))
-        return WTF::nullopt;
-
-    if (!decoder.decode(result.documentSequenceNumber))
-        return WTF::nullopt;
-    if (!decoder.decode(result.itemSequenceNumber))
-        return WTF::nullopt;
-
-    if (!decoder.decode(result.scrollPosition))
-        return WTF::nullopt;
-    if (!decoder.decode(result.shouldRestoreScrollPosition))
-        return WTF::nullopt;
-    if (!decoder.decode(result.pageScaleFactor))
-        return WTF::nullopt;
-
-    if (!decoder.decode(result.httpBody))
-        return WTF::nullopt;
-
-#if PLATFORM(IOS_FAMILY)
-    if (!decoder.decode(result.exposedContentRect))
-        return WTF::nullopt;
-    if (!decoder.decode(result.unobscuredContentRect))
-        return WTF::nullopt;
-    if (!decoder.decode(result.minimumLayoutSizeInScrollViewCoordinates))
-        return WTF::nullopt;
-    if (!decoder.decode(result.contentSize))
-        return WTF::nullopt;
-    if (!decoder.decode(result.scaleIsInitial))
-        return WTF::nullopt;
-    if (!decoder.decode(result.obscuredInsets))
-        return WTF::nullopt;
-#endif
-
-    if (!decoder.decode(result.children))
-        return WTF::nullopt;
-
-    return result;
-}
-
-void PageState::encode(IPC::Encoder& encoder) const
-{
-    encoder << title << mainFrameState << !!sessionStateObject;
-
-    if (sessionStateObject)
-        encoder << sessionStateObject->toWireBytes();
-
-    encoder << shouldOpenExternalURLsPolicy;
-}
-
-bool PageState::decode(IPC::Decoder& decoder, PageState& result)
-{
-    if (!decoder.decode(result.title))
-        return false;
-    Optional<FrameState> mainFrameState;
-    decoder >> mainFrameState;
-    if (!mainFrameState)
-        return false;
-    result.mainFrameState = WTFMove(*mainFrameState);
-
-    bool hasSessionState;
-    if (!decoder.decode(hasSessionState))
-        return false;
-
-    if (hasSessionState) {
-        Vector<uint8_t> wireBytes;
-        if (!decoder.decode(wireBytes))
-            return false;
-
-        result.sessionStateObject = SerializedScriptValue::createFromWireBytes(WTFMove(wireBytes));
+    for (auto& child : children) {
+        if (child->frameID == frameState->frameID) {
+            child = WTFMove(frameState);
+            return;
+        }
+        child->replaceChildFrameState(frameState.copyRef());
     }
-
-    if (!decoder.decode(result.shouldOpenExternalURLsPolicy) || !isValidEnum(result.shouldOpenExternalURLsPolicy))
-        return false;
-
-    return true;
-}
-
-void BackForwardListItemState::encode(IPC::Encoder& encoder) const
-{
-    encoder << identifier;
-    encoder << pageState;
-    encoder << hasCachedPage;
-}
-
-Optional<BackForwardListItemState> BackForwardListItemState::decode(IPC::Decoder& decoder)
-{
-    BackForwardListItemState result;
-
-    auto identifier = BackForwardItemIdentifier::decode(decoder);
-    if (!identifier)
-        return WTF::nullopt;
-    result.identifier = *identifier;
-
-    if (!decoder.decode(result.pageState))
-        return WTF::nullopt;
-
-    if (!decoder.decode(result.hasCachedPage))
-        return WTF::nullopt;
-
-    return result;
-}
-
-void BackForwardListState::encode(IPC::Encoder& encoder) const
-{
-    encoder << items;
-    encoder << currentIndex;
-}
-
-Optional<BackForwardListState> BackForwardListState::decode(IPC::Decoder& decoder)
-{
-    Optional<Vector<BackForwardListItemState>> items;
-    decoder >> items;
-    if (!items)
-        return WTF::nullopt;
-
-    Optional<uint32_t> currentIndex;
-    if (!decoder.decode(currentIndex))
-        return WTF::nullopt;
-
-    return {{ WTFMove(*items), WTFMove(currentIndex) }};
 }
 
 } // namespace WebKit

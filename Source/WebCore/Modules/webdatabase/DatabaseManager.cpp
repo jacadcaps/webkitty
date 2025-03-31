@@ -32,8 +32,8 @@
 #include "DatabaseTask.h"
 #include "DatabaseTracker.h"
 #include "Document.h"
-#include "InspectorInstrumentation.h"
 #include "Logging.h"
+#include "Page.h"
 #include "PlatformStrategies.h"
 #include "ScriptController.h"
 #include "SecurityOrigin.h"
@@ -60,7 +60,7 @@ private:
 DatabaseManager::ProposedDatabase::ProposedDatabase(DatabaseManager& manager, SecurityOrigin& origin, const String& name, const String& displayName, unsigned long estimatedSize)
     : m_manager(manager)
     , m_origin(origin.isolatedCopy())
-    , m_details(name.isolatedCopy(), displayName.isolatedCopy(), estimatedSize, 0, WTF::nullopt, WTF::nullopt)
+    , m_details(name.isolatedCopy(), displayName.isolatedCopy(), estimatedSize, 0, std::nullopt, std::nullopt)
 {
     m_manager.addProposedDatabase(*this);
 }
@@ -102,7 +102,9 @@ Ref<DatabaseContext> DatabaseManager::databaseContext(Document& document)
 {
     if (auto databaseContext = document.databaseContext())
         return *databaseContext;
-    return adoptRef(*new DatabaseContext(document));
+    auto context = adoptRef(*new DatabaseContext(document));
+    context->suspendIfNeeded();
+    return context;
 }
 
 #if LOG_DISABLED
@@ -125,7 +127,7 @@ ExceptionOr<Ref<Database>> DatabaseManager::openDatabaseBackend(Document& docume
     auto backend = tryToOpenDatabaseBackend(document, name, expectedVersion, displayName, estimatedSize, setVersionInNewDatabase, FirstTryToOpenDatabase);
 
     if (backend.hasException()) {
-        if (backend.exception().code() == QuotaExceededError) {
+        if (backend.exception().code() == ExceptionCode::QuotaExceededError) {
             // Notify the client that we've exceeded the database quota.
             // The client may want to increase the quota, and we'll give it
             // one more try after if that is the case.
@@ -138,7 +140,7 @@ ExceptionOr<Ref<Database>> DatabaseManager::openDatabaseBackend(Document& docume
     }
 
     if (backend.hasException()) {
-        if (backend.exception().code() == InvalidStateError)
+        if (backend.exception().code() == ExceptionCode::InvalidStateError)
             logErrorMessage(document, backend.exception().message());
         else
             logOpenDatabaseError(document, name);
@@ -152,7 +154,7 @@ ExceptionOr<Ref<Database>> DatabaseManager::tryToOpenDatabaseBackend(Document& d
 {
     auto* page = document.page();
     if (!page || page->usesEphemeralSession())
-        return Exception { SecurityError };
+        return Exception { ExceptionCode::SecurityError };
 
     auto backendContext = this->databaseContext(document);
 
@@ -181,13 +183,13 @@ ExceptionOr<Ref<Database>> DatabaseManager::tryToOpenDatabaseBackend(Document& d
 
 void DatabaseManager::addProposedDatabase(ProposedDatabase& database)
 {
-    auto locker = holdLock(m_proposedDatabasesMutex);
+    Locker locker { m_proposedDatabasesLock };
     m_proposedDatabases.add(&database);
 }
 
 void DatabaseManager::removeProposedDatabase(ProposedDatabase& database)
 {
-    auto locker = holdLock(m_proposedDatabasesMutex);
+    Locker locker { m_proposedDatabasesLock };
     m_proposedDatabases.remove(&database);
 }
 
@@ -209,7 +211,6 @@ ExceptionOr<Ref<Database>> DatabaseManager::openDatabase(Document& document, con
 
     auto databaseContext = this->databaseContext(document);
     databaseContext->setHasOpenDatabases();
-    InspectorInstrumentation::didOpenDatabase(*database);
 
     if (database->isNew() && creationCallback.get()) {
         LOG(StorageAPI, "Scheduling DatabaseCreationCallbackTask for database %p\n", database.get());
@@ -241,9 +242,9 @@ void DatabaseManager::stopDatabases(Document& document, DatabaseTaskSynchronizer
 String DatabaseManager::fullPathForDatabase(SecurityOrigin& origin, const String& name, bool createIfDoesNotExist)
 {
     {
-        auto locker = holdLock(m_proposedDatabasesMutex);
+        Locker locker { m_proposedDatabasesLock };
         for (auto* proposedDatabase : m_proposedDatabases) {
-            if (proposedDatabase->details().name() == name && proposedDatabase->origin().equal(&origin))
+            if (proposedDatabase->details().name() == name && proposedDatabase->origin().equal(origin))
                 return String();
         }
     }
@@ -253,9 +254,9 @@ String DatabaseManager::fullPathForDatabase(SecurityOrigin& origin, const String
 DatabaseDetails DatabaseManager::detailsForNameAndOrigin(const String& name, SecurityOrigin& origin)
 {
     {
-        auto locker = holdLock(m_proposedDatabasesMutex);
+        Locker locker { m_proposedDatabasesLock };
         for (auto* proposedDatabase : m_proposedDatabases) {
-            if (proposedDatabase->details().name() == name && proposedDatabase->origin().equal(&origin)) {
+            if (proposedDatabase->details().name() == name && proposedDatabase->origin().equal(origin)) {
                 ASSERT(&proposedDatabase->details().thread() == &Thread::current() || isMainThread());
                 return proposedDatabase->details();
             }

@@ -81,8 +81,10 @@ static void emitSetupVarargsFrameFastCase(VM& vm, CCallHelpers& jit, GPRReg numU
     
     emitSetVarargsFrame(jit, scratchGPR1, true, numUsedSlotsGPR, scratchGPR2);
 
+#if !CPU(ADDRESS64)
     slowCase.append(jit.branchPtr(CCallHelpers::Above, scratchGPR2, GPRInfo::callFrameRegister));
-    slowCase.append(jit.branchPtr(CCallHelpers::Above, CCallHelpers::AbsoluteAddress(vm.addressOfSoftStackLimit()), scratchGPR2));
+#endif
+    slowCase.append(jit.branchPtr(CCallHelpers::GreaterThan, CCallHelpers::AbsoluteAddress(vm.addressOfSoftStackLimit()), scratchGPR2));
 
     // Before touching stack values, we should update the stack pointer to protect them from signal stack.
     jit.addPtr(CCallHelpers::TrustedImm32(sizeof(CallerFrameAndPC)), scratchGPR2, CCallHelpers::stackPointerRegister);
@@ -122,8 +124,8 @@ void emitSetupVarargsFrameFastCase(VM& vm, CCallHelpers& jit, GPRReg numUsedSlot
         } else {
             argumentCountRecovery = ValueRecovery::constant(jsNumber(inlineCallFrame->argumentCountIncludingThis));
         }
-        if (inlineCallFrame->argumentsWithFixup.size() > 1)
-            firstArgumentReg = inlineCallFrame->argumentsWithFixup[1].virtualRegister();
+        if (inlineCallFrame->m_argumentsWithFixup.size() > 1)
+            firstArgumentReg = inlineCallFrame->m_argumentsWithFixup[1].virtualRegister();
         else
             firstArgumentReg = VirtualRegister(0);
     } else {

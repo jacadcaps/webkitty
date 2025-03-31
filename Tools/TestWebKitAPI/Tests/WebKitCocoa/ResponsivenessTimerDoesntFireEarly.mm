@@ -27,13 +27,12 @@
 
 #if PLATFORM(MAC)
 
+#import "DeprecatedGlobalValues.h"
 #import "PlatformUtilities.h"
 #import "PlatformWebView.h"
 #import "TestWKWebView.h"
 #import <wtf/RetainPtr.h>
 
-static bool didFinishLoad;
-static bool didBecomeUnresponsive;
 static bool didBrieflyPause;
 
 static void didReceiveMessageFromInjectedBundle(WKContextRef, WKStringRef messageName, WKTypeRef, const void*)
@@ -45,7 +44,7 @@ static void didReceiveMessageFromInjectedBundle(WKContextRef, WKStringRef messag
 static void setInjectedBundleClient(WKContextRef context)
 {
     WKContextInjectedBundleClientV0 injectedBundleClient;
-    memset(&injectedBundleClient, 0, sizeof(injectedBundleClient));
+    zeroBytes(injectedBundleClient);
 
     injectedBundleClient.base.version = 0;
     injectedBundleClient.didReceiveMessageFromInjectedBundle = didReceiveMessageFromInjectedBundle;
@@ -83,7 +82,7 @@ TEST(WebKit, ResponsivenessTimerDoesntFireEarly)
     auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
     [webView setNavigationDelegate:delegate.get()];
 
-    [webView loadRequest:[NSURLRequest requestWithURL:[[NSBundle mainBundle] URLForResource:@"simple" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"]]];
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"simple" withExtension:@"html"]]];
     Util::run(&didFinishLoad);
 
     WKContextPostMessageToInjectedBundle(context.get(), Util::toWK("BrieflyPause").get(), 0);

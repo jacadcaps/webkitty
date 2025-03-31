@@ -30,8 +30,6 @@
 #include "config.h"
 #include "ApduCommand.h"
 
-#include <wtf/Optional.h>
-
 #if ENABLE(WEB_AUTHN)
 
 namespace apdu {
@@ -47,10 +45,10 @@ uint16_t parseMessageLength(const Vector<uint8_t>& message, size_t offset)
 
 } // namespace
 
-Optional<ApduCommand> ApduCommand::createFromMessage(const Vector<uint8_t>& message)
+std::optional<ApduCommand> ApduCommand::createFromMessage(const Vector<uint8_t>& message)
 {
     if (message.size() < kApduMinHeader || message.size() > kApduMaxLength)
-        return WTF::nullopt;
+        return std::nullopt;
 
     uint8_t cla = message[0];
     uint8_t ins = message[1];
@@ -67,12 +65,12 @@ Optional<ApduCommand> ApduCommand::createFromMessage(const Vector<uint8_t>& mess
     // Invalid encoding sizes.
     case kApduMinHeader + 1:
     case kApduMinHeader + 2:
-        return WTF::nullopt;
+        return std::nullopt;
     // No data present; response expected.
     case kApduMinHeader + 3:
         // Fifth byte must be 0.
         if (message[4])
-            return WTF::nullopt;
+            return std::nullopt;
         responseLength = parseMessageLength(message, kApduCommandLengthOffset);
         // Special case where response length of 0x0000 corresponds to 65536
         // as defined in ISO7816-4.
@@ -82,15 +80,15 @@ Optional<ApduCommand> ApduCommand::createFromMessage(const Vector<uint8_t>& mess
     default:
         // Fifth byte must be 0.
         if (message[4])
-            return WTF::nullopt;
+            return std::nullopt;
         auto dataLength = parseMessageLength(message, kApduCommandLengthOffset);
 
         if (message.size() == dataLength + kApduCommandDataOffset) {
             // No response expected.
-            data.appendRange(message.begin() + kApduCommandDataOffset, message.end());
+            data.append(message.subspan(kApduCommandDataOffset));
         } else if (message.size() == dataLength + kApduCommandDataOffset + 2) {
             // Maximum response size is stored in final 2 bytes.
-            data.appendRange(message.begin() + kApduCommandDataOffset, message.end() - 2);
+            data.append(message.subspan(kApduCommandDataOffset, message.size() - kApduCommandDataOffset - 2));
             auto responseLengthOffset = kApduCommandDataOffset + dataLength;
             responseLength = parseMessageLength(message, responseLengthOffset);
             // Special case where response length of 0x0000 corresponds to 65536
@@ -98,7 +96,7 @@ Optional<ApduCommand> ApduCommand::createFromMessage(const Vector<uint8_t>& mess
             if (!responseLength)
                 responseLength = kApduMaxResponseLength;
         } else
-            return WTF::nullopt;
+            return std::nullopt;
         break;
     }
 
@@ -124,14 +122,12 @@ Vector<uint8_t> ApduCommand::getEncodedCommand() const
     // representation of the request size. If data length is 0, response size (Le)
     // will be prepended with a null byte.
     if (!m_data.isEmpty()) {
-        size_t dataLength = m_data.size();
+        size_t dataLength = std::min(m_data.size(), kApduMaxDataLength);
 
         encoded.append(0x0);
-        if (dataLength > kApduMaxDataLength)
-            dataLength = kApduMaxDataLength;
         encoded.append((dataLength >> 8) & 0xff);
         encoded.append(dataLength & 0xff);
-        encoded.appendRange(m_data.begin(), m_data.begin() + dataLength);
+        encoded.append(m_data.span().first(dataLength));
     } else if (m_responseLength > 0)
         encoded.append(0x0);
 

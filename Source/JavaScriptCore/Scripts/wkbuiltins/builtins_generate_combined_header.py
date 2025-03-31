@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # Copyright (c) 2014-2016 Apple Inc. All rights reserved.
 # Copyright (c) 2014 University of Washington. All rights reserved.
@@ -80,6 +80,8 @@ class VM;
 
 enum class ConstructAbility : uint8_t;
 enum class ConstructorKind : uint8_t;
+enum class ImplementationVisibility : uint8_t;
+enum class InlineAttribute : uint8_t;
 }"""
 
     def generate_section_for_object(self, object):
@@ -98,10 +100,12 @@ enum class ConstructorKind : uint8_t;
                 'codeName': BuiltinsGenerator.mangledNameForFunction(function) + 'Code',
             }
 
-            lines.append("""extern const char* const s_%(codeName)s;
-extern const int s_%(codeName)sLength;
-extern const JSC::ConstructAbility s_%(codeName)sConstructAbility;
-extern const JSC::ConstructorKind s_%(codeName)sConstructorKind;""" % function_args)
+            lines.append("""extern constinit const char* const s_%(codeName)s;
+extern constinit const int s_%(codeName)sLength;
+extern constinit const JSC::ConstructAbility s_%(codeName)sConstructAbility;
+extern constinit const JSC::ConstructorKind s_%(codeName)sConstructorKind;
+extern constinit const JSC::ImplementationVisibility s_%(codeName)sImplementationVisibility;
+extern constinit const JSC::InlineAttribute s_%(codeName)sInlineAttribute;""" % function_args)
 
         return lines
 
@@ -167,8 +171,8 @@ extern const JSC::ConstructorKind s_%(codeName)sConstructorKind;""" % function_a
         }
 
         lines = []
-        lines.append("#define %(macroPrefix)s_FOREACH_BUILTIN_FUNCTION_PRIVATE_GLOBAL_NAME(macro) \\" % args)
-        functions = [function for function in self.model().all_functions() if function.is_global_private]
+        lines.append("#define %(macroPrefix)s_FOREACH_BUILTIN_LINK_TIME_CONSTANT(macro) \\" % args)
+        functions = [function for function in self.model().all_functions() if function.is_link_time_constant]
         functions.sort(key=lambda x: x.function_name)
         for function in functions:
             function_args = {

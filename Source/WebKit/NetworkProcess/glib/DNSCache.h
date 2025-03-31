@@ -28,7 +28,7 @@
 #include <wtf/HashMap.h>
 #include <wtf/Lock.h>
 #include <wtf/MonotonicTime.h>
-#include <wtf/Optional.h>
+#include <wtf/RefCounted.h>
 #include <wtf/RunLoop.h>
 #include <wtf/Vector.h>
 #include <wtf/glib/GRefPtr.h>
@@ -38,17 +38,19 @@ typedef struct _GInetAddress GInetAddress;
 
 namespace WebKit {
 
-class DNSCache {
+class DNSCache : public RefCounted<DNSCache> {
 public:
-    DNSCache();
+    static Ref<DNSCache> create();
     ~DNSCache() = default;
 
     enum class Type { Default, IPv4Only, IPv6Only };
-    Optional<Vector<GRefPtr<GInetAddress>>> lookup(const CString& host, Type = Type::Default);
+    std::optional<Vector<GRefPtr<GInetAddress>>> lookup(const CString& host, Type = Type::Default);
     void update(const CString& host, Vector<GRefPtr<GInetAddress>>&&, Type = Type::Default);
     void clear();
 
 private:
+    DNSCache();
+
     struct CachedResponse {
         Vector<GRefPtr<GInetAddress>> addressList;
         MonotonicTime expirationTime;
@@ -56,18 +58,16 @@ private:
 
     using DNSCacheMap = HashMap<CString, CachedResponse>;
 
-    DNSCacheMap& mapForType(Type);
+    DNSCacheMap& mapForType(Type) WTF_REQUIRES_LOCK(m_lock);
     void removeExpiredResponsesFired();
     void removeExpiredResponsesInMap(DNSCacheMap&);
     void pruneResponsesInMap(DNSCacheMap&);
 
     Lock m_lock;
-    DNSCacheMap m_dnsMap;
-#if GLIB_CHECK_VERSION(2, 59, 0)
+    DNSCacheMap m_dnsMap WTF_GUARDED_BY_LOCK(m_lock);
     DNSCacheMap m_ipv4Map;
     DNSCacheMap m_ipv6Map;
-#endif
-    RunLoop::Timer<DNSCache> m_expiredTimer;
+    RunLoop::Timer m_expiredTimer;
 };
 
 } // namespace WebKit

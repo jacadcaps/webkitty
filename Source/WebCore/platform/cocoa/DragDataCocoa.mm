@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2007-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,15 +27,17 @@
 #import "DragData.h"
 
 #if ENABLE(DRAG_SUPPORT)
+#import "DeprecatedGlobalSettings.h"
 #import "LegacyNSPasteboardTypes.h"
 #import "MIMETypeRegistry.h"
 #import "NotImplemented.h"
+#import "PagePasteboardContext.h"
 #import "Pasteboard.h"
 #import "PasteboardStrategy.h"
 #import "PlatformPasteboard.h"
 #import "PlatformStrategies.h"
-#import "RuntimeEnabledFeatures.h"
 #import "WebCoreNSURLExtras.h"
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <wtf/cocoa/NSURLExtras.h>
 
 #if PLATFORM(IOS_FAMILY)
@@ -47,7 +49,7 @@ namespace WebCore {
 static inline String rtfPasteboardType()
 {
 #if PLATFORM(IOS_FAMILY)
-    return String(kUTTypeRTF);
+    return String(UTTypeRTF.identifier);
 #else
     return String(legacyRTFPasteboardType());
 #endif
@@ -56,7 +58,7 @@ static inline String rtfPasteboardType()
 static inline String rtfdPasteboardType()
 {
 #if PLATFORM(IOS_FAMILY)
-    return String(kUTTypeFlatRTFD);
+    return String(UTTypeFlatRTFD.identifier);
 #else
     return String(legacyRTFDPasteboardType());
 #endif
@@ -65,7 +67,7 @@ static inline String rtfdPasteboardType()
 static inline String stringPasteboardType()
 {
 #if PLATFORM(IOS_FAMILY)
-    return String(kUTTypeText);
+    return String(UTTypeText.identifier);
 #else
     return String(legacyStringPasteboardType());
 #endif
@@ -74,7 +76,7 @@ static inline String stringPasteboardType()
 static inline String urlPasteboardType()
 {
 #if PLATFORM(IOS_FAMILY)
-    return String(kUTTypeURL);
+    return String(UTTypeURL.identifier);
 #else
     return String(legacyURLPasteboardType());
 #endif
@@ -83,7 +85,7 @@ static inline String urlPasteboardType()
 static inline String htmlPasteboardType()
 {
 #if PLATFORM(IOS_FAMILY)
-    return String(kUTTypeHTML);
+    return String(UTTypeHTML.identifier);
 #else
     return String(legacyHTMLPasteboardType());
 #endif
@@ -101,7 +103,7 @@ static inline String colorPasteboardType()
 static inline String pdfPasteboardType()
 {
 #if PLATFORM(IOS_FAMILY)
-    return String(kUTTypePDF);
+    return String(UTTypePDF.identifier);
 #else
     return String(legacyPDFPasteboardType());
 #endif
@@ -110,19 +112,20 @@ static inline String pdfPasteboardType()
 static inline String tiffPasteboardType()
 {
 #if PLATFORM(IOS_FAMILY)
-    return String(kUTTypeTIFF);
+    return String(UTTypeTIFF.identifier);
 #else
     return String(legacyTIFFPasteboardType());
 #endif
 }
 
-DragData::DragData(DragDataRef data, const IntPoint& clientPosition, const IntPoint& globalPosition, OptionSet<DragOperation> sourceOperationMask, OptionSet<DragApplicationFlags> flags, OptionSet<DragDestinationAction> destinationActionMask)
+DragData::DragData(DragDataRef data, const IntPoint& clientPosition, const IntPoint& globalPosition, OptionSet<DragOperation> sourceOperationMask, OptionSet<DragApplicationFlags> flags, OptionSet<DragDestinationAction> destinationActionMask, std::optional<PageIdentifier> pageID)
     : m_clientPosition(clientPosition)
     , m_globalPosition(globalPosition)
     , m_platformDragData(data)
     , m_draggingSourceOperationMask(sourceOperationMask)
     , m_applicationFlags(flags)
     , m_dragDestinationActionMask(destinationActionMask)
+    , m_pageID(pageID)
 #if PLATFORM(MAC)
     , m_pasteboardName([[m_platformDragData draggingPasteboard] name])
 #else
@@ -131,13 +134,26 @@ DragData::DragData(DragDataRef data, const IntPoint& clientPosition, const IntPo
 {
 }
 
-DragData::DragData(const String& dragStorageName, const IntPoint& clientPosition, const IntPoint& globalPosition, OptionSet<DragOperation> sourceOperationMask, OptionSet<DragApplicationFlags> flags, OptionSet<DragDestinationAction> destinationActionMask)
+DragData::DragData(const String& dragStorageName, const IntPoint& clientPosition, const IntPoint& globalPosition, OptionSet<DragOperation> sourceOperationMask, OptionSet<DragApplicationFlags> flags, OptionSet<DragDestinationAction> destinationActionMask, std::optional<PageIdentifier> pageID)
     : m_clientPosition(clientPosition)
     , m_globalPosition(globalPosition)
     , m_platformDragData(0)
     , m_draggingSourceOperationMask(sourceOperationMask)
     , m_applicationFlags(flags)
     , m_dragDestinationActionMask(destinationActionMask)
+    , m_pageID(pageID)
+    , m_pasteboardName(dragStorageName)
+{
+}
+
+DragData::DragData(const String& dragStorageName, const IntPoint& clientPosition, const IntPoint& globalPosition, const Vector<String>& fileNames, OptionSet<DragOperation> sourceOperationMask, OptionSet<DragApplicationFlags> flags, OptionSet<DragDestinationAction> destinationActionMask, std::optional<PageIdentifier> pageID)
+    : m_clientPosition(clientPosition)
+    , m_globalPosition(globalPosition)
+    , m_draggingSourceOperationMask(sourceOperationMask)
+    , m_applicationFlags(flags)
+    , m_fileNames(fileNames)
+    , m_dragDestinationActionMask(destinationActionMask)
+    , m_pageID(pageID)
     , m_pasteboardName(dragStorageName)
 {
 }
@@ -145,42 +161,62 @@ DragData::DragData(const String& dragStorageName, const IntPoint& clientPosition
 bool DragData::containsURLTypeIdentifier() const
 {
     Vector<String> types;
-    platformStrategies()->pasteboardStrategy()->getTypes(types, m_pasteboardName);
+    auto context = createPasteboardContext();
+    platformStrategies()->pasteboardStrategy()->getTypes(types, m_pasteboardName, context.get());
     return types.contains(urlPasteboardType());
 }
     
 bool DragData::canSmartReplace() const
 {
-    return Pasteboard(m_pasteboardName).canSmartReplace();
+    return Pasteboard(createPasteboardContext(), m_pasteboardName).canSmartReplace();
+}
+
+bool DragData::shouldMatchStyleOnDrop() const
+{
+#if ENABLE(MULTI_REPRESENTATION_HEIC)
+    Vector<String> types;
+    auto context = createPasteboardContext();
+    platformStrategies()->pasteboardStrategy()->getTypes(types, m_pasteboardName, context.get());
+    return types.contains("com.apple.sticker"_s);
+#else
+    return false;
+#endif
 }
 
 bool DragData::containsColor() const
 {
     Vector<String> types;
-    platformStrategies()->pasteboardStrategy()->getTypes(types, m_pasteboardName);
+    auto context = createPasteboardContext();
+    platformStrategies()->pasteboardStrategy()->getTypes(types, m_pasteboardName, context.get());
     return types.contains(colorPasteboardType());
 }
 
 bool DragData::containsFiles() const
 {
-    return numberOfFiles();
+    return !m_disallowFileAccess && numberOfFiles();
 }
 
 unsigned DragData::numberOfFiles() const
 {
-    return platformStrategies()->pasteboardStrategy()->getNumberOfFiles(m_pasteboardName);
+    if (m_disallowFileAccess)
+        return 0;
+    auto context = createPasteboardContext();
+    return platformStrategies()->pasteboardStrategy()->getNumberOfFiles(m_pasteboardName, context.get());
 }
 
 Vector<String> DragData::asFilenames() const
 {
+    if (m_disallowFileAccess)
+        return { };
+    auto context = createPasteboardContext();
 #if PLATFORM(MAC)
     Vector<String> types;
-    platformStrategies()->pasteboardStrategy()->getTypes(types, m_pasteboardName);
+    platformStrategies()->pasteboardStrategy()->getTypes(types, m_pasteboardName, context.get());
     if (types.contains(String(legacyFilesPromisePasteboardType())))
         return fileNames();
 
     Vector<String> results;
-    platformStrategies()->pasteboardStrategy()->getPathnamesForType(results, String(legacyFilenamesPasteboardType()), m_pasteboardName);
+    platformStrategies()->pasteboardStrategy()->getPathnamesForType(results, String(legacyFilenamesPasteboardType()), m_pasteboardName, context.get());
     return results;
 #else
     return fileNames();
@@ -189,8 +225,9 @@ Vector<String> DragData::asFilenames() const
 
 bool DragData::containsPlainText() const
 {
+    auto context = createPasteboardContext();
     Vector<String> types;
-    platformStrategies()->pasteboardStrategy()->getTypes(types, m_pasteboardName);
+    platformStrategies()->pasteboardStrategy()->getTypes(types, m_pasteboardName, context.get());
 
     return types.contains(stringPasteboardType())
         || types.contains(rtfdPasteboardType())
@@ -198,12 +235,12 @@ bool DragData::containsPlainText() const
 #if PLATFORM(MAC)
         || types.contains(String(legacyFilenamesPasteboardType()))
 #endif
-        || platformStrategies()->pasteboardStrategy()->containsStringSafeForDOMToReadForType(urlPasteboardType(), m_pasteboardName);
+        || platformStrategies()->pasteboardStrategy()->containsStringSafeForDOMToReadForType(urlPasteboardType(), m_pasteboardName, context.get());
 }
 
 String DragData::asPlainText() const
 {
-    Pasteboard pasteboard(m_pasteboardName);
+    Pasteboard pasteboard(createPasteboardContext(), m_pasteboardName);
     PasteboardPlainText text;
     pasteboard.read(text);
     String string = text.text;
@@ -219,7 +256,8 @@ String DragData::asPlainText() const
 
 Color DragData::asColor() const
 {
-    return platformStrategies()->pasteboardStrategy()->color(m_pasteboardName);
+    auto context = createPasteboardContext();
+    return platformStrategies()->pasteboardStrategy()->color(m_pasteboardName, context.get());
 }
 
 bool DragData::containsCompatibleContent(DraggingPurpose purpose) const
@@ -230,49 +268,54 @@ bool DragData::containsCompatibleContent(DraggingPurpose purpose) const
     if (purpose == DraggingPurpose::ForColorControl)
         return containsColor();
 
-    if (purpose == DraggingPurpose::ForEditing && RuntimeEnabledFeatures::sharedFeatures().attachmentElementEnabled() && containsFiles())
+    if (purpose == DraggingPurpose::ForEditing && DeprecatedGlobalSettings::attachmentElementEnabled() && containsFiles())
         return true;
 
+    auto context = createPasteboardContext();
     Vector<String> types;
-    platformStrategies()->pasteboardStrategy()->getTypes(types, m_pasteboardName);
+    platformStrategies()->pasteboardStrategy()->getTypes(types, m_pasteboardName, context.get());
     return types.contains(String(WebArchivePboardType))
         || types.contains(htmlPasteboardType())
-        || types.contains(String(kUTTypeWebArchive))
+        || types.contains(String(UTTypeWebArchive.identifier))
 #if PLATFORM(MAC)
-        || types.contains(String(legacyFilenamesPasteboardType()))
-        || types.contains(String(legacyFilesPromisePasteboardType()))
+        || (!m_disallowFileAccess && types.contains(String(legacyFilenamesPasteboardType())))
+        || (!m_disallowFileAccess && types.contains(String(legacyFilesPromisePasteboardType())))
 #endif
         || types.contains(tiffPasteboardType())
         || types.contains(pdfPasteboardType())
         || types.contains(urlPasteboardType())
         || types.contains(rtfdPasteboardType())
         || types.contains(rtfPasteboardType())
-        || types.contains(String(kUTTypeUTF8PlainText))
+        || types.contains(String(UTTypeUTF8PlainText.identifier))
         || types.contains(stringPasteboardType())
         || types.contains(colorPasteboardType())
-        || types.contains(String(kUTTypeJPEG))
-        || types.contains(String(kUTTypePNG));
+        || types.contains(String(UTTypeJPEG.identifier))
+        || types.contains(String(UTTypePNG.identifier));
 }
 
 bool DragData::containsPromise() const
 {
+    if (m_disallowFileAccess)
+        return false;
+    auto context = createPasteboardContext();
     // FIXME: legacyFilesPromisePasteboardType() contains UTIs, not path names. Also, why do we
     // think promises should only contain one file (or UTI)?
     Vector<String> files;
 #if PLATFORM(MAC)
-    platformStrategies()->pasteboardStrategy()->getPathnamesForType(files, String(legacyFilesPromisePasteboardType()), m_pasteboardName);
+    platformStrategies()->pasteboardStrategy()->getPathnamesForType(files, String(legacyFilesPromisePasteboardType()), m_pasteboardName, context.get());
 #endif
     return files.size() == 1;
 }
 
 bool DragData::containsURL(FilenameConversionPolicy) const
 {
-    if (platformStrategies()->pasteboardStrategy()->containsURLStringSuitableForLoading(m_pasteboardName))
+    auto context = createPasteboardContext();
+    if (platformStrategies()->pasteboardStrategy()->containsURLStringSuitableForLoading(m_pasteboardName, context.get()))
         return true;
 
 #if PLATFORM(MAC)
     Vector<String> types;
-    platformStrategies()->pasteboardStrategy()->getTypes(types, m_pasteboardName);
+    platformStrategies()->pasteboardStrategy()->getTypes(types, m_pasteboardName, context.get());
     if (types.contains(String(legacyFilesPromisePasteboardType())) && fileNames().size() == 1)
         return !![NSURL fileURLWithPath:fileNames().first()];
 #endif
@@ -282,10 +325,11 @@ bool DragData::containsURL(FilenameConversionPolicy) const
 
 String DragData::asURL(FilenameConversionPolicy, String* title) const
 {
+    auto context = createPasteboardContext();
     // FIXME: Use filenamePolicy.
 
     String urlTitle;
-    auto urlString = platformStrategies()->pasteboardStrategy()->urlStringSuitableForLoading(m_pasteboardName, urlTitle);
+    auto urlString = platformStrategies()->pasteboardStrategy()->urlStringSuitableForLoading(m_pasteboardName, urlTitle, context.get());
     if (title)
         *title = urlTitle;
 
@@ -294,7 +338,7 @@ String DragData::asURL(FilenameConversionPolicy, String* title) const
 
 #if PLATFORM(MAC)
     Vector<String> types;
-    platformStrategies()->pasteboardStrategy()->getTypes(types, m_pasteboardName);
+    platformStrategies()->pasteboardStrategy()->getTypes(types, m_pasteboardName, context.get());
     if (types.contains(String(legacyFilesPromisePasteboardType())) && fileNames().size() == 1)
         return [URLByCanonicalizingURL([NSURL fileURLWithPath:fileNames()[0]]) absoluteString];
 #endif

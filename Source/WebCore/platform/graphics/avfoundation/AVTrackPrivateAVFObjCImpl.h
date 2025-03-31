@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,9 +29,14 @@
 #if ENABLE(VIDEO)
 
 #include "AudioTrackPrivate.h"
+#include "InbandTextTrackPrivate.h"
+#include "PlatformVideoColorSpace.h"
+#include "SpatialVideoMetadata.h"
 #include "VideoTrackPrivate.h"
+#include <wtf/Observer.h>
 #include <wtf/Ref.h>
 #include <wtf/RetainPtr.h>
+#include <wtf/TZoneMalloc.h>
 
 OBJC_CLASS AVAssetTrack;
 OBJC_CLASS AVPlayerItem;
@@ -39,12 +44,25 @@ OBJC_CLASS AVPlayerItemTrack;
 OBJC_CLASS AVMediaSelectionGroup;
 OBJC_CLASS AVMediaSelectionOption;
 
+typedef const struct opaqueCMFormatDescription* CMFormatDescriptionRef;
+
+namespace WebCore {
+class AVTrackPrivateAVFObjCImpl;
+}
+
+namespace WTF {
+template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
+template<> struct IsDeprecatedWeakRefSmartPointerException<WebCore::AVTrackPrivateAVFObjCImpl> : std::true_type { };
+}
+
 namespace WebCore {
 
 class MediaSelectionOptionAVFObjC;
+struct PlatformVideoTrackConfiguration;
+struct PlatformAudioTrackConfiguration;
 
-class AVTrackPrivateAVFObjCImpl {
-    WTF_MAKE_FAST_ALLOCATED;
+class AVTrackPrivateAVFObjCImpl final : public CanMakeWeakPtr<AVTrackPrivateAVFObjCImpl> {
+    WTF_MAKE_TZONE_ALLOCATED(AVTrackPrivateAVFObjCImpl);
 public:
     explicit AVTrackPrivateAVFObjCImpl(AVPlayerItemTrack*);
     explicit AVTrackPrivateAVFObjCImpl(AVAssetTrack*);
@@ -60,22 +78,46 @@ public:
 
     AudioTrackPrivate::Kind audioKind() const;
     VideoTrackPrivate::Kind videoKind() const;
+    InbandTextTrackPrivate::Kind textKind() const;
+
+    static InbandTextTrackPrivate::Kind textKindForAVAssetTrack(const AVAssetTrack*);
+    static InbandTextTrackPrivate::Kind textKindForAVMediaSelectionOption(const AVMediaSelectionOption*);
 
     int index() const;
-    AtomString id() const;
+    TrackID id() const;
     AtomString label() const;
     AtomString language() const;
-
-    int trackID() const;
 
     static String languageForAVAssetTrack(AVAssetTrack*);
     static String languageForAVMediaSelectionOption(AVMediaSelectionOption *);
 
+    PlatformVideoTrackConfiguration videoTrackConfiguration() const;
+    using VideoTrackConfigurationObserver = Observer<void()>;
+    void setVideoTrackConfigurationObserver(VideoTrackConfigurationObserver& observer) { m_videoTrackConfigurationObserver = observer; }
+
+    PlatformAudioTrackConfiguration audioTrackConfiguration() const;
+    using AudioTrackConfigurationObserver = Observer<void()>;
+    void setAudioTrackConfigurationObserver(AudioTrackConfigurationObserver& observer) { m_audioTrackConfigurationObserver = observer; }
+
 private:
-    RetainPtr<AVPlayerItemTrack> m_playerItemTrack;
-    RetainPtr<AVAssetTrack> m_assetTrack;
-    RetainPtr<AVPlayerItem> m_playerItem;
-    RefPtr<MediaSelectionOptionAVFObjC> m_mediaSelectionOption;
+    void initializeAssetTrack();
+
+    String codec() const;
+    uint32_t width() const;
+    uint32_t height() const;
+    PlatformVideoColorSpace colorSpace() const;
+    double framerate() const;
+    uint64_t bitrate() const;
+    std::optional<SpatialVideoMetadata> spatialVideoMetadata() const;
+    bool isImmersiveVideo() const;
+    uint32_t sampleRate() const;
+    uint32_t numberOfChannels() const;
+
+    const RetainPtr<AVPlayerItemTrack> m_playerItemTrack;
+    const RefPtr<MediaSelectionOptionAVFObjC> m_mediaSelectionOption;
+    const RetainPtr<AVAssetTrack> m_assetTrack;
+    WeakPtr<VideoTrackConfigurationObserver> m_videoTrackConfigurationObserver;
+    WeakPtr<AudioTrackConfigurationObserver> m_audioTrackConfigurationObserver;
 };
 
 }

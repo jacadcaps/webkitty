@@ -23,13 +23,14 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef WebContextSupplement_h
-#define WebContextSupplement_h
+#pragma once
+
+#include "WebProcessPool.h"
+#include <wtf/WeakPtr.h>
 
 namespace WebKit {
 
 class NetworkProcessProxy;
-class WebProcessPool;
 class WebProcessProxy;
 
 class WebContextSupplement {
@@ -47,15 +48,9 @@ public:
     {
     }
 
-    virtual void processDidClose(WebProcessProxy*)
-    {
-    }
+    WebProcessPool* processPool() { return m_processPool.get(); }
+    RefPtr<WebProcessPool> protectedProcessPool() { return processPool(); }
 
-    virtual void processDidClose(NetworkProcessProxy*)
-    {
-    }
-
-    WebProcessPool* processPool() const { return m_processPool; }
     void clearProcessPool() { m_processPool = nullptr; }
 
     void ref() { refWebContextSupplement(); }
@@ -65,9 +60,7 @@ private:
     virtual void refWebContextSupplement() = 0;
     virtual void derefWebContextSupplement() = 0;
 
-    WebProcessPool* m_processPool;
+    WeakPtr<WebProcessPool> m_processPool;
 };
 
 } // namespace WebKit
-
-#endif // WebContextSupplement_h

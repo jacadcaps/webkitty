@@ -29,8 +29,11 @@
 #if ENABLE(NOTIFICATIONS)
 
 #include "NotificationClient.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(NotificationController);
 
 NotificationController::NotificationController(NotificationClient* client)
     : m_client(*client)
@@ -51,9 +54,9 @@ NotificationClient* NotificationController::clientFrom(Page& page)
     return &controller->client();
 }
 
-const char* NotificationController::supplementName()
+ASCIILiteral NotificationController::supplementName()
 {
-    return "NotificationController";
+    return "NotificationController"_s;
 }
 
 void provideNotification(Page* page, NotificationClient* client)

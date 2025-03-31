@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <wtf/AbstractRefCounted.h>
 #include <wtf/Ref.h>
 
 namespace WebCore {
@@ -36,14 +37,11 @@ class NetworkLoadMetrics;
 class ResourceError;
 class SharedBuffer;
 
-class CurlRequestClient {
+class CurlRequestClient : public AbstractRefCounted {
 public:
-    virtual void ref() = 0;
-    virtual void deref() = 0;
-
     virtual void curlDidSendData(CurlRequest&, unsigned long long bytesSent, unsigned long long totalBytesToBeSent) = 0;
     virtual void curlDidReceiveResponse(CurlRequest&, CurlResponse&&) = 0;
-    virtual void curlDidReceiveBuffer(CurlRequest&, Ref<SharedBuffer>&&) = 0;
+    virtual void curlDidReceiveData(CurlRequest&, Ref<SharedBuffer>&&) = 0;
     virtual void curlDidComplete(CurlRequest&, NetworkLoadMetrics&&) = 0;
     virtual void curlDidFailWithError(CurlRequest&, ResourceError&&, CertificateInfo&&) = 0;
 };

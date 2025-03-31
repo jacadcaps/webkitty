@@ -59,17 +59,19 @@
 #import <WebCore/CSSRuleList.h>
 #import <WebCore/CSSStyleDeclaration.h>
 #import <WebCore/Comment.h>
-#import <WebCore/DOMWindow.h>
-#import <WebCore/Document.h>
+#import <WebCore/CustomElementRegistry.h>
 #import <WebCore/DocumentFragment.h>
 #import <WebCore/DocumentFullscreen.h>
+#import <WebCore/DocumentInlines.h>
 #import <WebCore/DocumentType.h>
 #import <WebCore/Event.h>
 #import <WebCore/HTMLCollection.h>
 #import <WebCore/HTMLHeadElement.h>
 #import <WebCore/HTMLScriptElement.h>
+#import <WebCore/HitTestSource.h>
+#import <WebCore/ImportNodeOptions.h>
 #import <WebCore/JSExecState.h>
-#import <WebCore/NameNodeList.h>
+#import <WebCore/LocalDOMWindow.h>
 #import <WebCore/NativeNodeFilter.h>
 #import <WebCore/NodeIterator.h>
 #import <WebCore/NodeList.h>
@@ -82,6 +84,7 @@
 #import <WebCore/Text.h>
 #import <WebCore/ThreadCheck.h>
 #import <WebCore/TreeWalker.h>
+#import <WebCore/VisibilityState.h>
 #import <WebCore/WebScriptObjectPrivate.h>
 #import <WebCore/XPathExpression.h>
 #import <WebCore/XPathNSResolver.h>
@@ -113,7 +116,7 @@
 - (NSString *)inputEncoding
 {
     WebCore::JSMainThreadNullState state;
-    return IMPL->characterSetWithUTF8Fallback();
+    return IMPL->characterSetWithUTF8Fallback().createNSString().autorelease();
 }
 
 - (NSString *)xmlEncoding
@@ -287,7 +290,7 @@
 - (NSString *)charset
 {
     WebCore::JSMainThreadNullState state;
-    return IMPL->charset();
+    return IMPL->charset().createNSString().autorelease();
 }
 
 - (void)setCharset:(NSString *)newCharset
@@ -306,11 +309,11 @@
     WebCore::JSMainThreadNullState state;
     auto readyState = IMPL->readyState();
     switch (readyState) {
-    case WebCore::Document::Loading:
+    case WebCore::Document::ReadyState::Loading:
         return @"loading";
-    case WebCore::Document::Interactive:
+    case WebCore::Document::ReadyState::Interactive:
         return @"interactive";
-    case WebCore::Document::Complete:
+    case WebCore::Document::ReadyState::Complete:
         return @"complete";
     }
     ASSERT_NOT_REACHED();
@@ -320,7 +323,7 @@
 - (NSString *)characterSet
 {
     WebCore::JSMainThreadNullState state;
-    return IMPL->characterSetWithUTF8Fallback();
+    return IMPL->characterSetWithUTF8Fallback().createNSString().autorelease();
 }
 
 - (NSString *)preferredStylesheetSet
@@ -391,8 +394,6 @@
         return @"hidden";
     case WebCore::VisibilityState::Visible:
         return @"visible";
-    case WebCore::VisibilityState::Prerender:
-        return @"prerender";
     }
 }
 
@@ -509,7 +510,7 @@
     WebCore::JSMainThreadNullState state;
     if (!importedNode)
         raiseTypeErrorException();
-    return kit(raiseOnDOMError(IMPL->importNode(*core(importedNode), deep)).ptr());
+    return kit(raiseOnDOMError(IMPL->importNode(*core(importedNode), static_cast<bool>(deep))).ptr());
 }
 
 - (DOMElement *)createElementNS:(NSString *)namespaceURI qualifiedName:(NSString *)qualifiedName
@@ -615,7 +616,8 @@ static RefPtr<WebCore::XPathNSResolver> wrap(id <DOMXPathNSResolver> resolver)
 - (BOOL)execCommand:(NSString *)command userInterface:(BOOL)userInterface value:(NSString *)value
 {
     WebCore::JSMainThreadNullState state;
-    return IMPL->execCommand(command, userInterface, value);
+    auto result = IMPL->execCommand(command, userInterface, value);
+    return result.hasException() ? NO : result.returnValue();
 }
 
 - (BOOL)execCommand:(NSString *)command userInterface:(BOOL)userInterface
@@ -631,31 +633,36 @@ static RefPtr<WebCore::XPathNSResolver> wrap(id <DOMXPathNSResolver> resolver)
 - (BOOL)queryCommandEnabled:(NSString *)command
 {
     WebCore::JSMainThreadNullState state;
-    return IMPL->queryCommandEnabled(command);
+    auto result = IMPL->queryCommandEnabled(command);
+    return result.hasException() ? NO : result.returnValue();
 }
 
 - (BOOL)queryCommandIndeterm:(NSString *)command
 {
     WebCore::JSMainThreadNullState state;
-    return IMPL->queryCommandIndeterm(command);
+    auto result = IMPL->queryCommandIndeterm(command);
+    return result.hasException() ? NO : result.returnValue();
 }
 
 - (BOOL)queryCommandState:(NSString *)command
 {
     WebCore::JSMainThreadNullState state;
-    return IMPL->queryCommandState(command);
+    auto result = IMPL->queryCommandState(command);
+    return result.hasException() ? NO : result.returnValue();
 }
 
 - (BOOL)queryCommandSupported:(NSString *)command
 {
     WebCore::JSMainThreadNullState state;
-    return IMPL->queryCommandSupported(command);
+    auto result = IMPL->queryCommandSupported(command);
+    return result.hasException() ? NO : result.returnValue();
 }
 
 - (NSString *)queryCommandValue:(NSString *)command
 {
     WebCore::JSMainThreadNullState state;
-    return IMPL->queryCommandValue(command);
+    auto result = IMPL->queryCommandValue(command);
+    return result.hasException() ? String() : result.returnValue();
 }
 
 - (DOMNodeList *)getElementsByName:(NSString *)elementName
@@ -667,13 +674,13 @@ static RefPtr<WebCore::XPathNSResolver> wrap(id <DOMXPathNSResolver> resolver)
 - (DOMElement *)elementFromPoint:(int)x y:(int)y
 {
     WebCore::JSMainThreadNullState state;
-    return kit(WTF::getPtr(IMPL->elementFromPoint(x, y)));
+    return kit(WTF::getPtr(IMPL->elementFromPoint(x, y, WebCore::HitTestSource::User)));
 }
 
 - (DOMRange *)caretRangeFromPoint:(int)x y:(int)y
 {
     WebCore::JSMainThreadNullState state;
-    return kit(WTF::getPtr(IMPL->caretRangeFromPoint(x, y)));
+    return kit(WTF::getPtr(IMPL->caretRangeFromPoint(x, y, WebCore::HitTestSource::User)));
 }
 
 - (DOMCSSStyleDeclaration *)createCSSStyleDeclaration
@@ -687,7 +694,7 @@ static RefPtr<WebCore::XPathNSResolver> wrap(id <DOMXPathNSResolver> resolver)
     WebCore::JSMainThreadNullState state;
     if (!element)
         raiseTypeErrorException();
-    WebCore::DOMWindow* dv = IMPL->domWindow();
+    auto* dv = IMPL->domWindow();
     if (!dv)
         return nil;
     return kit(WTF::getPtr(dv->getComputedStyle(*core(element), pseudoElement)));
@@ -701,7 +708,7 @@ static RefPtr<WebCore::XPathNSResolver> wrap(id <DOMXPathNSResolver> resolver)
 - (DOMCSSRuleList *)getMatchedCSSRules:(DOMElement *)element pseudoElement:(NSString *)pseudoElement authorOnly:(BOOL)authorOnly
 {
     WebCore::JSMainThreadNullState state;
-    WebCore::DOMWindow* dv = IMPL->domWindow();
+    auto* dv = IMPL->domWindow();
     if (!dv)
         return nil;
     return kit(WTF::getPtr(dv->getMatchedCSSRules(core(element), pseudoElement, authorOnly)));

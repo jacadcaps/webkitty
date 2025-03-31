@@ -25,6 +25,7 @@
 
 #import "config.h"
 
+#import "DeprecatedGlobalValues.h"
 #import "PlatformUtilities.h"
 #import "Test.h"
 #import "TestWKWebView.h"
@@ -32,8 +33,6 @@
 #import <WebKit/WKWebsiteDataStorePrivate.h>
 #import <WebKit/_WKWebsiteDataStoreConfiguration.h>
 #import <wtf/RetainPtr.h>
-
-static bool done;
 
 @interface CrashDelegate : NSObject <WKNavigationDelegate>
 @end
@@ -59,8 +58,8 @@ static bool done;
 
 static void checkRecoveryAfterCrash(WKWebsiteDataStore *dataStore)
 {
-    NSURL *simple = [[NSBundle mainBundle] URLForResource:@"simple" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"];
-    NSURL *simple2 = [[NSBundle mainBundle] URLForResource:@"simple2" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"];
+    NSURL *simple = [NSBundle.test_resourcesBundle URLForResource:@"simple" withExtension:@"html"];
+    NSURL *simple2 = [NSBundle.test_resourcesBundle URLForResource:@"simple2" withExtension:@"html"];
     
     auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
     [configuration setWebsiteDataStore:dataStore];
@@ -72,7 +71,7 @@ static void checkRecoveryAfterCrash(WKWebsiteDataStore *dataStore)
     TestWebKitAPI::Util::run(&done);
     done = false;
 
-    [[webView configuration].processPool _terminateNetworkProcess];
+    [[webView configuration].websiteDataStore _terminateNetworkProcess];
     [webView loadRequest:[NSURLRequest requestWithURL:simple2]];
     TestWebKitAPI::Util::run(&done);
 }
@@ -84,5 +83,5 @@ TEST(WebKit, NetworkProcessCrashNonPersistentDataStore)
 
 TEST(WebKit, NetworkProcessCrashNonDefaultPersistentDataStore)
 {
-    checkRecoveryAfterCrash([[[WKWebsiteDataStore alloc] _initWithConfiguration:[[[_WKWebsiteDataStoreConfiguration alloc] init] autorelease]] autorelease]);
+    checkRecoveryAfterCrash(adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:adoptNS([[_WKWebsiteDataStoreConfiguration alloc] init]).get()]).get());
 }

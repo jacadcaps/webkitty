@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,16 +29,15 @@
 #include "CryptoAlgorithmParameters.h"
 #include <wtf/Vector.h>
 
-#if ENABLE(WEB_CRYPTO)
-
 namespace WebCore {
 
 class CryptoAlgorithmAesGcmParams final : public CryptoAlgorithmParameters {
+    WTF_MAKE_TZONE_ALLOCATED(CryptoAlgorithmAesGcmParams);
 public:
     BufferSource iv;
     // Use additionalDataVector() instead of additionalData. The label will be gone once additionalDataVector() is called.
-    mutable Optional<BufferSource::VariantType> additionalData;
-    mutable Optional<uint8_t> tagLength;
+    mutable std::optional<BufferSource::VariantType> additionalData;
+    mutable std::optional<uint8_t> tagLength;
 
     Class parametersClass() const final { return Class::AesGcmParams; }
 
@@ -47,7 +46,7 @@ public:
         if (!m_ivVector.isEmpty() || !iv.length())
             return m_ivVector;
 
-        m_ivVector.append(iv.data(), iv.length());
+        m_ivVector.append(iv.span());
         return m_ivVector;
     }
 
@@ -57,11 +56,11 @@ public:
             return m_additionalDataVector;
 
         BufferSource additionalDataBuffer = WTFMove(*additionalData);
-        additionalData = WTF::nullopt;
+        additionalData = std::nullopt;
         if (!additionalDataBuffer.length())
             return m_additionalDataVector;
 
-        m_additionalDataVector.append(additionalDataBuffer.data(), additionalDataBuffer.length());
+        m_additionalDataVector.append(additionalDataBuffer.span());
         return m_additionalDataVector;
     }
 
@@ -84,5 +83,3 @@ private:
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_CRYPTO_ALGORITHM_PARAMETERS(AesGcmParams)
-
-#endif // ENABLE(WEB_CRYPTO)

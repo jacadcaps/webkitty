@@ -26,12 +26,11 @@ TEST(AudioEncoderMultiOpusTest, CheckConfigValidity) {
                                     {{"channel_mapping", "3,0"},
                                      {"coupled_streams", "1"},
                                      {"num_streams", "2"}});
-    const absl::optional<AudioEncoderMultiChannelOpus::Config> encoder_config =
+    const std::optional<AudioEncoderMultiChannelOpus::Config> encoder_config =
         AudioEncoderMultiChannelOpus::SdpToConfig(sdp_format);
-    ASSERT_TRUE(encoder_config.has_value());
 
     // Maps input channel 0 to coded channel 3, which doesn't exist.
-    EXPECT_FALSE(encoder_config->IsOk());
+    EXPECT_FALSE(encoder_config.has_value());
   }
 
   {
@@ -39,31 +38,29 @@ TEST(AudioEncoderMultiOpusTest, CheckConfigValidity) {
                                     {{"channel_mapping", "0"},
                                      {"coupled_streams", "1"},
                                      {"num_streams", "2"}});
-    const absl::optional<AudioEncoderMultiChannelOpus::Config> encoder_config =
+    const std::optional<AudioEncoderMultiChannelOpus::Config> encoder_config =
         AudioEncoderMultiChannelOpus::SdpToConfig(sdp_format);
-    ASSERT_TRUE(encoder_config.has_value());
 
     // The mapping is too short.
-    EXPECT_FALSE(encoder_config->IsOk());
+    EXPECT_FALSE(encoder_config.has_value());
   }
   {
     const SdpAudioFormat sdp_format("multiopus", 48000, 3,
                                     {{"channel_mapping", "0,0,0"},
                                      {"coupled_streams", "0"},
                                      {"num_streams", "1"}});
-    const absl::optional<AudioEncoderMultiChannelOpus::Config> encoder_config =
+    const std::optional<AudioEncoderMultiChannelOpus::Config> encoder_config =
         AudioEncoderMultiChannelOpus::SdpToConfig(sdp_format);
-    ASSERT_TRUE(encoder_config.has_value());
 
     // Coded channel 0 comes from both input channels 0, 1 and 2.
-    EXPECT_FALSE(encoder_config->IsOk());
+    EXPECT_FALSE(encoder_config.has_value());
   }
   {
     const SdpAudioFormat sdp_format("multiopus", 48000, 3,
                                     {{"channel_mapping", "0,255,255"},
                                      {"coupled_streams", "0"},
                                      {"num_streams", "1"}});
-    const absl::optional<AudioEncoderMultiChannelOpus::Config> encoder_config =
+    const std::optional<AudioEncoderMultiChannelOpus::Config> encoder_config =
         AudioEncoderMultiChannelOpus::SdpToConfig(sdp_format);
     ASSERT_TRUE(encoder_config.has_value());
 
@@ -75,13 +72,12 @@ TEST(AudioEncoderMultiOpusTest, CheckConfigValidity) {
                                     {{"channel_mapping", "0,255,255"},
                                      {"coupled_streams", "0"},
                                      {"num_streams", "2"}});
-    const absl::optional<AudioEncoderMultiChannelOpus::Config> encoder_config =
+    const std::optional<AudioEncoderMultiChannelOpus::Config> encoder_config =
         AudioEncoderMultiChannelOpus::SdpToConfig(sdp_format);
-    ASSERT_TRUE(encoder_config.has_value());
 
     // This is NOT fine, because channels nothing says how coded channel 1
     // should be coded.
-    EXPECT_FALSE(encoder_config->IsOk());
+    EXPECT_FALSE(encoder_config.has_value());
   }
 }
 
@@ -94,7 +90,7 @@ TEST(AudioEncoderMultiOpusTest, ConfigValuesAreParsedCorrectly) {
                               {"channel_mapping", "0,4,1,2,3,5"},
                               {"num_streams", "4"},
                               {"coupled_streams", "2"}}});
-  const absl::optional<AudioEncoderMultiChannelOpus::Config> encoder_config =
+  const std::optional<AudioEncoderMultiChannelOpus::Config> encoder_config =
       AudioEncoderMultiChannelOpus::SdpToConfig(sdp_format);
   ASSERT_TRUE(encoder_config.has_value());
 
@@ -105,34 +101,22 @@ TEST(AudioEncoderMultiOpusTest, ConfigValuesAreParsedCorrectly) {
       testing::ContainerEq(std::vector<unsigned char>({0, 4, 1, 2, 3, 5})));
 }
 
-TEST(AudioEncoderMultiOpusTest, CreateFromValidOrInvalidConfig) {
+TEST(AudioEncoderMultiOpusTest, CreateFromValidConfig) {
   {
     const SdpAudioFormat sdp_format("multiopus", 48000, 3,
                                     {{"channel_mapping", "0,255,255"},
                                      {"coupled_streams", "0"},
                                      {"num_streams", "2"}});
-    const absl::optional<AudioEncoderMultiChannelOpus::Config> encoder_config =
+    const std::optional<AudioEncoderMultiChannelOpus::Config> encoder_config =
         AudioEncoderMultiChannelOpus::SdpToConfig(sdp_format);
-    ASSERT_TRUE(encoder_config.has_value());
-
-    // Invalid config from the ConfigValidity test. It's not allowed by our
-    // checks, but Opus is more forgiving.
-    EXPECT_FALSE(encoder_config->IsOk());
-
-    const std::unique_ptr<AudioEncoder> opus_encoder =
-        AudioEncoderMultiChannelOpus::MakeAudioEncoder(*encoder_config,
-                                                       kOpusPayloadType);
-
-    // Shouldn't be possible (but shouldn't result in a crash) to create an
-    // Encoder from an invalid config.
-    EXPECT_FALSE(opus_encoder);
+    ASSERT_FALSE(encoder_config.has_value());
   }
   {
     const SdpAudioFormat sdp_format("multiopus", 48000, 3,
                                     {{"channel_mapping", "1,255,0"},
                                      {"coupled_streams", "1"},
                                      {"num_streams", "1"}});
-    const absl::optional<AudioEncoderMultiChannelOpus::Config> encoder_config =
+    const std::optional<AudioEncoderMultiChannelOpus::Config> encoder_config =
         AudioEncoderMultiChannelOpus::SdpToConfig(sdp_format);
     ASSERT_TRUE(encoder_config.has_value());
 
@@ -157,7 +141,7 @@ TEST(AudioEncoderMultiOpusTest, AdvertisedCodecsCanBeCreated) {
   EXPECT_FALSE(specs.empty());
 
   for (const AudioCodecSpec& spec : specs) {
-    const absl::optional<AudioEncoderMultiChannelOpus::Config> encoder_config =
+    const std::optional<AudioEncoderMultiChannelOpus::Config> encoder_config =
         AudioEncoderMultiChannelOpus::SdpToConfig(spec.format);
     ASSERT_TRUE(encoder_config.has_value());
 

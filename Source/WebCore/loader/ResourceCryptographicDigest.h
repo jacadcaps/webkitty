@@ -34,12 +34,14 @@
 namespace WebCore {
 
 class CachedResource;
+class FragmentedSharedBuffer;
 
 struct ResourceCryptographicDigest {
-    enum class Algorithm {
+    static constexpr unsigned algorithmCount = 3;
+    enum class Algorithm : uint8_t {
         SHA256 = 1 << 0,
         SHA384 = 1 << 1,
-        SHA512 = 1 << 2,
+        SHA512 = 1 << (algorithmCount - 1),
     };
 
     // Number of bytes to hold SHA-512 digest
@@ -48,16 +50,13 @@ struct ResourceCryptographicDigest {
     Algorithm algorithm;
     Vector<uint8_t> value;
 
-    bool operator==(const ResourceCryptographicDigest& other) const
-    {
-        return algorithm == other.algorithm && value == other.value;
-    }
-
-    bool operator!=(const ResourceCryptographicDigest& other) const
-    {
-        return !(*this == other);
-    }
+    friend bool operator==(const ResourceCryptographicDigest&, const ResourceCryptographicDigest&) = default;
 };
+
+inline void add(Hasher& hasher, const ResourceCryptographicDigest& digest)
+{
+    add(hasher, digest.algorithm, digest.value);
+}
 
 struct EncodedResourceCryptographicDigest {
     using Algorithm = ResourceCryptographicDigest::Algorithm;
@@ -66,15 +65,16 @@ struct EncodedResourceCryptographicDigest {
     String digest;
 };
 
-Optional<ResourceCryptographicDigest> parseCryptographicDigest(StringParsingBuffer<UChar>&);
-Optional<ResourceCryptographicDigest> parseCryptographicDigest(StringParsingBuffer<LChar>&);
+std::optional<ResourceCryptographicDigest> parseCryptographicDigest(StringParsingBuffer<UChar>&);
+std::optional<ResourceCryptographicDigest> parseCryptographicDigest(StringParsingBuffer<LChar>&);
 
-Optional<EncodedResourceCryptographicDigest> parseEncodedCryptographicDigest(StringParsingBuffer<UChar>&);
-Optional<EncodedResourceCryptographicDigest> parseEncodedCryptographicDigest(StringParsingBuffer<LChar>&);
+std::optional<EncodedResourceCryptographicDigest> parseEncodedCryptographicDigest(StringParsingBuffer<UChar>&);
+std::optional<EncodedResourceCryptographicDigest> parseEncodedCryptographicDigest(StringParsingBuffer<LChar>&);
 
-Optional<ResourceCryptographicDigest> decodeEncodedResourceCryptographicDigest(const EncodedResourceCryptographicDigest&);
+std::optional<ResourceCryptographicDigest> decodeEncodedResourceCryptographicDigest(const EncodedResourceCryptographicDigest&);
 
-ResourceCryptographicDigest cryptographicDigestForBytes(ResourceCryptographicDigest::Algorithm, const void* bytes, size_t length);
+ResourceCryptographicDigest cryptographicDigestForSharedBuffer(ResourceCryptographicDigest::Algorithm, const FragmentedSharedBuffer*);
+ResourceCryptographicDigest cryptographicDigestForBytes(ResourceCryptographicDigest::Algorithm, std::span<const uint8_t> bytes);
 
 }
 
@@ -83,7 +83,7 @@ namespace WTF {
 template<> struct DefaultHash<WebCore::ResourceCryptographicDigest> {
     static unsigned hash(const WebCore::ResourceCryptographicDigest& digest)
     {
-        return pairIntHash(intHash(static_cast<unsigned>(digest.algorithm)), StringHasher::computeHash(digest.value.data(), digest.value.size()));
+        return computeHash(digest);
     }
     static bool equal(const WebCore::ResourceCryptographicDigest& a, const WebCore::ResourceCryptographicDigest& b)
     {
@@ -104,6 +104,8 @@ template<> struct HashTraits<WebCore::ResourceCryptographicDigest> : GenericHash
     {
         return { emptyAlgorithmValue, { } };
     }
+
+    static bool isEmptyValue(const WebCore::ResourceCryptographicDigest& value) { return value.algorithm == emptyAlgorithmValue; }
 
     static void constructDeletedValue(WebCore::ResourceCryptographicDigest& slot)
     {

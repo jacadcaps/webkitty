@@ -31,15 +31,15 @@
 #include "RemoteCDMConfiguration.h"
 #include "RemoteCDMInstanceConfiguration.h"
 #include "RemoteCDMInstanceProxy.h"
-#include "SharedBufferDataReference.h"
 #include <WebCore/CDMKeySystemConfiguration.h>
 #include <WebCore/CDMPrivate.h>
+#include <WebCore/SharedBuffer.h>
 
 namespace WebKit {
 
 using namespace WebCore;
 
-std::unique_ptr<RemoteCDMProxy> RemoteCDMProxy::create(WeakPtr<RemoteCDMFactoryProxy>&& factory, std::unique_ptr<WebCore::CDMPrivate>&& priv)
+RefPtr<RemoteCDMProxy> RemoteCDMProxy::create(RemoteCDMFactoryProxy& factory, std::unique_ptr<WebCore::CDMPrivate>&& priv)
 {
     if (!priv)
         return nullptr;
@@ -50,14 +50,17 @@ std::unique_ptr<RemoteCDMProxy> RemoteCDMProxy::create(WeakPtr<RemoteCDMFactoryP
         priv->supportsServerCertificates(),
         priv->supportsSessions()
     });
-    // Use new() to access CDMPrivate's private constructor.
-    return std::unique_ptr<RemoteCDMProxy>(new RemoteCDMProxy(WTFMove(factory), WTFMove(priv), WTFMove(configuration)));
+
+    return adoptRef(new RemoteCDMProxy(factory, WTFMove(priv), WTFMove(configuration)));
 }
 
-RemoteCDMProxy::RemoteCDMProxy(WeakPtr<RemoteCDMFactoryProxy>&& factory, std::unique_ptr<CDMPrivate>&& priv, UniqueRef<RemoteCDMConfiguration>&& configuration)
-    : m_factory(WTFMove(factory))
+RemoteCDMProxy::RemoteCDMProxy(RemoteCDMFactoryProxy& factory, std::unique_ptr<CDMPrivate>&& priv, UniqueRef<RemoteCDMConfiguration>&& configuration)
+    : m_factory(factory)
     , m_private(WTFMove(priv))
     , m_configuration(WTFMove(configuration))
+#if !RELEASE_LOG_DISABLED
+    , m_logger(factory.logger())
+#endif
 {
 }
 
@@ -73,33 +76,53 @@ RefPtr<SharedBuffer> RemoteCDMProxy::sanitizeResponse(const SharedBuffer& respon
     return m_private->sanitizeResponse(response);
 }
 
-Optional<String> RemoteCDMProxy::sanitizeSessionId(const String& sessionId)
+std::optional<String> RemoteCDMProxy::sanitizeSessionId(const String& sessionId)
 {
     return m_private->sanitizeSessionId(sessionId);
 }
 
-void RemoteCDMProxy::getSupportedConfiguration(WebCore::CDMKeySystemConfiguration&& configuration, WebCore::CDMPrivate::LocalStorageAccess access, WebCore::CDMPrivate::SupportedConfigurationCallback&& callback)
+void RemoteCDMProxy::getSupportedConfiguration(WebCore::CDMKeySystemConfiguration&& configuration, WebCore::CDMPrivate::LocalStorageAccess access, CompletionHandler<void(std::optional<WebCore::CDMKeySystemConfiguration>)>&& callback)
 {
     m_private->getSupportedConfiguration(WTFMove(configuration), access, WTFMove(callback));
 }
 
-void RemoteCDMProxy::createInstance(CompletionHandler<void(RemoteCDMInstanceIdentifier, RemoteCDMInstanceConfiguration&&)>&& completion)
+void RemoteCDMProxy::createInstance(CompletionHandler<void(std::optional<RemoteCDMInstanceIdentifier>, RemoteCDMInstanceConfiguration&&)>&& completion)
 {
     auto privateInstance = m_private->createInstance();
     if (!privateInstance || !m_factory) {
-        completion({ }, { });
+        completion(std::nullopt, { });
         return;
     }
-    auto instance = RemoteCDMInstanceProxy::create(makeWeakPtr(this), privateInstance.releaseNonNull());
     auto identifier = RemoteCDMInstanceIdentifier::generate();
+    auto instance = RemoteCDMInstanceProxy::create(*this, privateInstance.releaseNonNull(), identifier);
     RemoteCDMInstanceConfiguration configuration = instance->configuration();
-    m_factory->addInstance(identifier, WTFMove(instance));
+    protectedFactory()->addInstance(identifier, WTFMove(instance));
     completion(identifier, WTFMove(configuration));
 }
 
 void RemoteCDMProxy::loadAndInitialize()
 {
     m_private->loadAndInitialize();
+}
+
+void RemoteCDMProxy::setLogIdentifier(uint64_t logIdentifier)
+{
+#if !RELEASE_LOG_DISABLED
+    m_logIdentifier = logIdentifier;
+    if (m_factory)
+        m_private->setLogIdentifier(m_logIdentifier);
+#else
+    UNUSED_PARAM(logIdentifier);
+#endif
+}
+
+std::optional<SharedPreferencesForWebProcess> RemoteCDMProxy::sharedPreferencesForWebProcess() const
+{
+    RefPtr factory = m_factory.get();
+    if (!factory)
+        return std::nullopt;
+
+    return factory->sharedPreferencesForWebProcess();
 }
 
 }

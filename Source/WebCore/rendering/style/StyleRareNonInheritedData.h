@@ -2,7 +2,7 @@
  * Copyright (C) 2000 Lars Knoll (knoll@kde.org)
  *           (C) 2000 Antti Koivisto (koivisto@kde.org)
  *           (C) 2000 Dirk Mueller (mueller@kde.org)
- * Copyright (C) 2003-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2024 Apple Inc. All rights reserved.
  * Copyright (C) 2006 Graham Dennis (graham.dennis@gmail.com)
  *
  * This library is free software; you can redistribute it and/or
@@ -25,24 +25,53 @@
 #pragma once
 
 #include "CSSPropertyNames.h"
-#include "ClipPathOperation.h"
 #include "CounterDirectives.h"
 #include "FillLayer.h"
 #include "GapLength.h"
 #include "LengthPoint.h"
 #include "LineClampValue.h"
+#include "NameScope.h"
 #include "NinePieceImage.h"
+#include "OffsetRotation.h"
+#include "PathOperation.h"
+#include "PositionArea.h"
+#include "PositionTryFallback.h"
+#include "RotateTransformOperation.h"
+#include "ScaleTransformOperation.h"
+#include "ScopedName.h"
+#include "ScrollAxis.h"
+#include "ScrollTimeline.h"
+#include "ScrollTypes.h"
+#include "ScrollbarGutter.h"
 #include "ShapeValue.h"
+#include "StyleColor.h"
 #include "StyleContentAlignmentData.h"
+#include "StylePrimitiveNumericTypes.h"
+#include "StyleScrollMargin.h"
+#include "StyleScrollPadding.h"
+#include "StyleScrollSnapPoints.h"
 #include "StyleSelfAlignmentData.h"
+#include "StyleTextEdge.h"
+#include "TextDecorationThickness.h"
 #include "TouchAction.h"
+#include "TranslateTransformOperation.h"
+#include "ViewTimeline.h"
+#include "ViewTransitionName.h"
+#include "WebAnimationTypes.h"
 #include "WillChangeData.h"
 #include <memory>
 #include <wtf/DataRef.h>
+#include <wtf/Markable.h>
 #include <wtf/OptionSet.h>
 #include <wtf/Vector.h>
 
+namespace WTF {
+class TextStream;
+}
+
 namespace WebCore {
+
+using namespace CSS::Literals;
 
 class AnimationList;
 class ContentData;
@@ -53,24 +82,22 @@ class StyleFilterData;
 class StyleFlexibleBoxData;
 class StyleGridData;
 class StyleGridItemData;
-class StyleMarqueeData;
 class StyleMultiColData;
 class StyleReflection;
 class StyleResolver;
-class StyleScrollSnapArea;
-class StyleScrollSnapPort;
 class StyleTransformData;
 
 struct LengthSize;
+struct StyleMarqueeData;
 
 // Page size type.
 // StyleRareNonInheritedData::pageSize is meaningful only when
 // StyleRareNonInheritedData::pageSizeType is PAGE_SIZE_RESOLVED.
-enum PageSizeType {
-    PAGE_SIZE_AUTO, // size: auto
-    PAGE_SIZE_AUTO_LANDSCAPE, // size: landscape
-    PAGE_SIZE_AUTO_PORTRAIT, // size: portrait
-    PAGE_SIZE_RESOLVED // Size is fully resolved.
+enum class PageSizeType : uint8_t {
+    Auto, // size: auto
+    AutoLandscape, // size: landscape
+    AutoPortrait, // size: portrait
+    Resolved // Size is fully resolved.
 };
 
 // This struct is for rarely used non-inherited CSS3, CSS2, and WebKit-specific properties.
@@ -85,140 +112,175 @@ public:
     ~StyleRareNonInheritedData();
     
     bool operator==(const StyleRareNonInheritedData&) const;
-    bool operator!=(const StyleRareNonInheritedData& other) const { return !(*this == other); }
+
+#if !LOG_DISABLED
+    void dumpDifferences(TextStream&, const StyleRareNonInheritedData&) const;
+#endif
 
     LengthPoint perspectiveOrigin() const { return { perspectiveOriginX, perspectiveOriginY }; }
 
-    bool contentDataEquivalent(const StyleRareNonInheritedData&) const;
-
-    bool hasFilters() const;
-
-#if ENABLE(FILTERS_LEVEL_2)
     bool hasBackdropFilters() const;
-#endif
 
-    bool hasOpacity() const { return opacity < 1; }
+    OptionSet<Containment> usedContain() const;
 
-    float opacity;
+    Markable<Length> containIntrinsicWidth;
+    Markable<Length> containIntrinsicHeight;
 
-    float aspectRatioDenominator;
-    float aspectRatioNumerator;
-
-    float perspective;
     Length perspectiveOriginX;
     Length perspectiveOriginY;
 
     LineClampValue lineClamp; // An Apple extension.
-    
+
+    float zoom;
+
+    size_t maxLines { 0 };
+
+    OverflowContinue overflowContinue { OverflowContinue::Auto };
+
+    OptionSet<TouchAction> touchActions;
+    OptionSet<MarginTrimType> marginTrim;
+    OptionSet<Containment> contain;
+
     IntSize initialLetter;
 
-    DataRef<StyleDeprecatedFlexibleBoxData> deprecatedFlexibleBox; // Flexible box properties
-    DataRef<StyleFlexibleBoxData> flexibleBox;
     DataRef<StyleMarqueeData> marquee; // Marquee properties
-    DataRef<StyleMultiColData> multiCol; //  CSS3 multicol properties
-    DataRef<StyleTransformData> transform; // Transform properties (rotate, scale, skew, etc.)
-    DataRef<StyleFilterData> filter; // Filter operations (url, sepia, blur, etc.)
 
-#if ENABLE(FILTERS_LEVEL_2)
     DataRef<StyleFilterData> backdropFilter; // Filter operations (url, sepia, blur, etc.)
-#endif
 
     DataRef<StyleGridData> grid;
     DataRef<StyleGridItemData> gridItem;
 
-#if ENABLE(CSS_SCROLL_SNAP)
-    DataRef<StyleScrollSnapPort> scrollSnapPort;
-    DataRef<StyleScrollSnapArea> scrollSnapArea;
-#endif
+    // Only meaningful when `hasClip` is true.
+    LengthBox clip;
 
-    std::unique_ptr<ContentData> content;
-    std::unique_ptr<CounterDirectiveMap> counterDirectives;
-    String altText;
+    Style::ScrollMargin scrollMargin { 0_css_px };
+    Style::ScrollPadding scrollPadding { CSS::Keyword::Auto { } };
 
-    std::unique_ptr<ShadowData> boxShadow; // For box-shadow decorations.
+    CounterDirectiveMap counterDirectives;
 
     RefPtr<WillChangeData> willChange; // Null indicates 'auto'.
     
     RefPtr<StyleReflection> boxReflect;
 
-    RefPtr<AnimationList> animations;
-    RefPtr<AnimationList> transitions;
-
-    FillLayer mask;
-    NinePieceImage maskBoxImage;
+    NinePieceImage maskBorder;
 
     LengthSize pageSize;
-    LengthPoint objectPosition;
 
     RefPtr<ShapeValue> shapeOutside;
     Length shapeMargin;
     float shapeImageThreshold;
 
-    int order;
+    float perspective;
 
-    RefPtr<ClipPathOperation> clipPath;
+    RefPtr<PathOperation> clipPath;
 
-    Color textDecorationColor;
-    Color visitedLinkTextDecorationColor;
-    Color visitedLinkBackgroundColor;
-    Color visitedLinkOutlineColor;
-    Color visitedLinkBorderLeftColor;
-    Color visitedLinkBorderRightColor;
-    Color visitedLinkBorderTopColor;
-    Color visitedLinkBorderBottomColor;
-
-    StyleContentAlignmentData alignContent;
-    StyleSelfAlignmentData alignItems;
-    StyleSelfAlignmentData alignSelf;
-    StyleContentAlignmentData justifyContent;
-    StyleSelfAlignmentData justifyItems;
-    StyleSelfAlignmentData justifySelf;
+    Style::Color textDecorationColor;
 
     DataRef<StyleCustomPropertyData> customProperties;
-    std::unique_ptr<HashSet<String>> customPaintWatchedProperties;
+    UncheckedKeyHashSet<AtomString> customPaintWatchedProperties;
 
-    OptionSet<TouchAction> touchActions;
+    RefPtr<RotateTransformOperation> rotate;
+    RefPtr<ScaleTransformOperation> scale;
+    RefPtr<TranslateTransformOperation> translate;
+    RefPtr<PathOperation> offsetPath;
 
-    unsigned pageSizeType : 2; // PageSizeType
-    unsigned transformStyle3D : 1; // TransformStyle3D
-    unsigned backfaceVisibility : 1; // BackfaceVisibility
+    Vector<Style::ScopedName> containerNames;
 
-    unsigned userDrag : 2; // UserDrag
-    unsigned textOverflow : 1; // Whether or not lines that spill out should be truncated with "..."
-    unsigned useSmoothScrolling : 1; // ScrollBehavior
-    unsigned marginBeforeCollapse : 2; // MarginCollapse
-    unsigned marginAfterCollapse : 2; // MarginCollapse
-    unsigned appearance : 6; // EAppearance
-    unsigned borderFit : 1; // BorderFit
-    unsigned textCombine : 1; // CSS3 text-combine properties
-
-    unsigned textDecorationStyle : 3; // TextDecorationStyle
-
-    unsigned aspectRatioType : 2;
-
-#if ENABLE(CSS_COMPOSITING)
-    unsigned effectiveBlendMode: 5; // EBlendMode
-    unsigned isolation : 1; // Isolation
-#endif
-
-#if ENABLE(APPLE_PAY)
-    unsigned applePayButtonStyle : 2;
-    unsigned applePayButtonType : 4;
-#endif
-
-    unsigned objectFit : 3; // ObjectFit
-    
-    unsigned breakBefore : 4; // BreakBetween
-    unsigned breakAfter : 4;
-    unsigned breakInside : 3; // BreakInside
-    unsigned resize : 2; // Resize
-
-    unsigned hasAttrContent : 1;
-
-    unsigned isNotFinal : 1;
+    Vector<Style::ScopedName> viewTransitionClasses;
+    Style::ViewTransitionName viewTransitionName;
 
     GapLength columnGap;
     GapLength rowGap;
+
+    Length offsetDistance;
+    LengthPoint offsetPosition;
+    LengthPoint offsetAnchor;
+    OffsetRotation offsetRotate;
+
+    TextDecorationThickness textDecorationThickness;
+
+    Vector<Ref<ScrollTimeline>> scrollTimelines;
+    Vector<ScrollAxis> scrollTimelineAxes;
+    Vector<AtomString> scrollTimelineNames;
+
+    Vector<Ref<ViewTimeline>> viewTimelines;
+    Vector<ScrollAxis> viewTimelineAxes;
+    Vector<ViewTimelineInsets> viewTimelineInsets;
+    Vector<AtomString> viewTimelineNames;
+
+    NameScope timelineScope;
+
+    ScrollbarGutter scrollbarGutter;
+
+    ScrollSnapType scrollSnapType;
+    ScrollSnapAlign scrollSnapAlign;
+    ScrollSnapStop scrollSnapStop { ScrollSnapStop::Normal };
+
+    AtomString pseudoElementNameArgument;
+
+    Vector<Style::ScopedName> anchorNames;
+    NameScope anchorScope;
+    std::optional<Style::ScopedName> positionAnchor;
+    std::optional<PositionArea> positionArea;
+    Vector<PositionTryFallback> positionTryFallbacks;
+
+    std::optional<Length> blockStepSize;
+    unsigned blockStepAlign : 2; // BlockStepAlign
+    unsigned blockStepInsert : 2; // BlockStepInsert
+    unsigned blockStepRound : 2; // BlockStepRound
+
+    unsigned overscrollBehaviorX : 2; // OverscrollBehavior
+    unsigned overscrollBehaviorY : 2; // OverscrollBehavior
+
+    unsigned pageSizeType : 2; // PageSizeType
+    unsigned transformStyle3D : 2; // TransformStyle3D
+    unsigned transformStyleForcedToFlat : 1; // The used value for transform-style is forced to flat by a grouping property.
+    unsigned backfaceVisibility : 1; // BackfaceVisibility
+
+    unsigned useSmoothScrolling : 1; // ScrollBehavior
+
+    unsigned textDecorationStyle : 3; // TextDecorationStyle
+
+    unsigned textGroupAlign : 3; // TextGroupAlign
+
+    unsigned contentVisibility : 2; // ContentVisibility
+
+    unsigned effectiveBlendMode: 5; // BlendMode
+    unsigned isolation : 1; // Isolation
+
+    unsigned inputSecurity : 1; // InputSecurity
+
+#if ENABLE(APPLE_PAY)
+    unsigned applePayButtonStyle : 2; // ApplePayButtonStyle
+    unsigned applePayButtonType : 4; // ApplePayButtonType
+#endif
+
+    unsigned breakBefore : 4; // BreakBetween
+    unsigned breakAfter : 4; // BreakBetween
+    unsigned breakInside : 3; // BreakInside
+
+    unsigned containIntrinsicWidthType : 2; // ContainIntrinsicSizeType
+    unsigned containIntrinsicHeightType : 2; // ContainIntrinsicSizeType
+
+    unsigned containerType : 2; // ContainerType
+
+    unsigned textBoxTrim : 2; // TextBoxTrim
+
+    unsigned overflowAnchor : 1; // Scroll Anchoring - OverflowAnchor
+
+    bool hasClip : 1;
+
+    unsigned positionTryOrder : 3; // Style::PositionTryOrder; 5 values so 3 bits.
+
+    unsigned fieldSizing : 1; // FieldSizing
+
+    unsigned nativeAppearanceDisabled : 1;
+
+#if HAVE(CORE_MATERIAL)
+    unsigned appleVisualEffect : 4; // AppleVisualEffect
+#endif
+
+    unsigned scrollbarWidth : 2; // ScrollbarWidth
 
 private:
     StyleRareNonInheritedData();

@@ -25,8 +25,6 @@
 
 #pragma once
 
-#if ENABLE(INDEXED_DATABASE)
-
 #include "IDBCursorInfo.h"
 
 namespace WebCore {
@@ -38,7 +36,7 @@ class IDBResourceIdentifier;
 namespace IDBServer {
 
 class MemoryCursor {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(MemoryCursor);
 public:
     virtual ~MemoryCursor();
 
@@ -55,5 +53,3 @@ protected:
 
 } // namespace IDBServer
 } // namespace WebCore
-
-#endif // ENABLE(INDEXED_DATABASE)

@@ -28,67 +28,86 @@
 
 #if USE(LIBWEBRTC)
 
-#include "RuntimeEnabledFeatures.h"
+#include "DeprecatedGlobalSettings.h"
+#include "MediaCapabilitiesInfo.h"
+#include "VP9UtilitiesCocoa.h"
 
-ALLOW_UNUSED_PARAMETERS_BEGIN
-#include <webrtc/sdk/WebKit/WebKitUtilities.h>
-ALLOW_UNUSED_PARAMETERS_END
-#include <webrtc/sdk/WebKit/WebKitVP9Decoder.h>
+#include <webrtc/api/create_peerconnection_factory.h>
+
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
+
+#include <webrtc/webkit_sdk/WebKit/WebKitDecoder.h>
+#include <webrtc/webkit_sdk/WebKit/WebKitEncoder.h>
+
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
+
 #include <wtf/MainThread.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/darwin/WeakLinking.h>
 
-WTF_WEAK_LINK_FORCE_IMPORT(webrtc::setApplicationStatus);
+WTF_WEAK_LINK_FORCE_IMPORT(webrtc::CreatePeerConnectionFactory);
 
 namespace WebCore {
 
-UniqueRef<LibWebRTCProvider> LibWebRTCProvider::create()
+WTF_MAKE_TZONE_ALLOCATED_IMPL(LibWebRTCProviderCocoa);
+
+UniqueRef<WebRTCProvider> WebRTCProvider::create()
 {
     return makeUniqueRef<LibWebRTCProviderCocoa>();
+}
+
+void WebRTCProvider::setH264HardwareEncoderAllowed(bool allowed)
+{
+    if (webRTCAvailable())
+        webrtc::setH264HardwareEncoderAllowed(allowed);
 }
 
 LibWebRTCProviderCocoa::~LibWebRTCProviderCocoa()
 {
 }
 
-void LibWebRTCProviderCocoa::setH264HardwareEncoderAllowed(bool allowed)
-{
-    webrtc::setH264HardwareEncoderAllowed(allowed);
-}
-
 std::unique_ptr<webrtc::VideoDecoderFactory> LibWebRTCProviderCocoa::createDecoderFactory()
 {
     ASSERT(isMainThread());
 
-    return webrtc::createWebKitDecoderFactory(isSupportingH265() ? webrtc::WebKitH265::On : webrtc::WebKitH265::Off, isSupportingVP9() ? webrtc::WebKitVP9::On : webrtc::WebKitVP9::Off);
+    if (!webRTCAvailable())
+        return nullptr;
+
+    auto vp9Support = isSupportingVP9Profile2() ? webrtc::WebKitVP9::Profile0And2 : isSupportingVP9Profile0() ? webrtc::WebKitVP9::Profile0 : webrtc::WebKitVP9::Off;
+    return webrtc::createWebKitDecoderFactory(isSupportingH265() ? webrtc::WebKitH265::On : webrtc::WebKitH265::Off, vp9Support, vp9HardwareDecoderAvailable() ? webrtc::WebKitVP9VTB::On : webrtc::WebKitVP9VTB::Off, isSupportingAV1() ? webrtc::WebKitAv1::On : webrtc::WebKitAv1::Off);
 }
 
 std::unique_ptr<webrtc::VideoEncoderFactory> LibWebRTCProviderCocoa::createEncoderFactory()
 {
     ASSERT(isMainThread());
 
-    webrtc::setH264LowLatencyEncoderEnabled(RuntimeEnabledFeatures::sharedFeatures().webRTCH264LowLatencyEncoderEnabled());
-    return webrtc::createWebKitEncoderFactory(isSupportingH265() ? webrtc::WebKitH265::On : webrtc::WebKitH265::Off, isSupportingVP9() ? webrtc::WebKitVP9::On : webrtc::WebKitVP9::Off);
+    if (!webRTCAvailable())
+        return nullptr;
+
+    auto vp9Support = isSupportingVP9Profile2() ? webrtc::WebKitVP9::Profile0And2 : isSupportingVP9Profile0() ? webrtc::WebKitVP9::Profile0 : webrtc::WebKitVP9::Off;
+    return webrtc::createWebKitEncoderFactory(isSupportingH265() ? webrtc::WebKitH265::On : webrtc::WebKitH265::Off, vp9Support, isSupportingAV1() ? webrtc::WebKitAv1::On : webrtc::WebKitAv1::Off);
 }
 
-void LibWebRTCProviderCocoa::setActive(bool value)
+std::optional<MediaCapabilitiesInfo> LibWebRTCProviderCocoa::computeVPParameters(const VideoConfiguration& configuration)
 {
-    webrtc::setApplicationStatus(value);
+    return WebCore::computeVPParameters(configuration, isSupportingVP9HardwareDecoder());
 }
 
-bool LibWebRTCProvider::webRTCAvailable()
+bool LibWebRTCProviderCocoa::isVPSoftwareDecoderSmooth(const VideoConfiguration& configuration)
 {
-#if PLATFORM(IOS)
+    return WebCore::isVPSoftwareDecoderSmooth(configuration);
+}
+
+bool WebRTCProvider::webRTCAvailable()
+{
+#if PLATFORM(IOS) || PLATFORM(VISION)
+    ASSERT_WITH_MESSAGE(!!webrtc::CreatePeerConnectionFactory, "Failed to find or load libwebrtc");
     return true;
 #else
-    return !!webrtc::setApplicationStatus;
+    return !!webrtc::CreatePeerConnectionFactory;
 #endif
 }
 
-void LibWebRTCProvider::registerWebKitVP9Decoder()
-{
-    if (webRTCAvailable())
-        webrtc::registerWebKitVP9Decoder();
-}
 } // namespace WebCore
 
 #endif // USE(LIBWEBRTC)

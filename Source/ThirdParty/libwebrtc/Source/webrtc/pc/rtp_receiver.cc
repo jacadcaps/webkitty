@@ -12,22 +12,24 @@
 
 #include <stddef.h>
 
+#include <atomic>
+#include <string>
 #include <utility>
 #include <vector>
 
-#include "api/media_stream_proxy.h"
-#include "api/media_stream_track_proxy.h"
+#include "api/media_stream_interface.h"
+#include "api/scoped_refptr.h"
 #include "pc/media_stream.h"
-#include "rtc_base/checks.h"
-#include "rtc_base/location.h"
-#include "rtc_base/logging.h"
-#include "rtc_base/trace_event.h"
+#include "pc/media_stream_proxy.h"
+#include "rtc_base/thread.h"
 
 namespace webrtc {
 
 // This function is only expected to be called on the signalling thread.
+// On the other hand, some test or even production setups may use
+// several signaling threads.
 int RtpReceiverInternal::GenerateUniqueId() {
-  static int g_unique_id = 0;
+  static std::atomic<int> g_unique_id{0};
 
   return ++g_unique_id;
 }
@@ -41,22 +43,6 @@ RtpReceiverInternal::CreateStreamsFromIds(std::vector<std::string> stream_ids) {
         rtc::Thread::Current(), MediaStream::Create(std::move(stream_ids[i])));
   }
   return streams;
-}
-
-// Attempt to attach the frame decryptor to the current media channel on the
-// correct worker thread only if both the media channel exists and a ssrc has
-// been allocated to the stream.
-void RtpReceiverInternal::MaybeAttachFrameDecryptorToMediaChannel(
-    const absl::optional<uint32_t>& ssrc,
-    rtc::Thread* worker_thread,
-    rtc::scoped_refptr<webrtc::FrameDecryptorInterface> frame_decryptor,
-    cricket::MediaChannel* media_channel,
-    bool stopped) {
-  if (media_channel && frame_decryptor && ssrc.has_value() && !stopped) {
-    worker_thread->Invoke<void>(RTC_FROM_HERE, [&] {
-      media_channel->SetFrameDecryptor(*ssrc, frame_decryptor);
-    });
-  }
 }
 
 }  // namespace webrtc

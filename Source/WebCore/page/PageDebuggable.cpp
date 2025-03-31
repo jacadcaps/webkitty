@@ -29,70 +29,113 @@
 #if ENABLE(REMOTE_INSPECTOR)
 
 #include "Document.h"
-#include "Frame.h"
 #include "InspectorController.h"
+#include "LocalFrame.h"
 #include "Page.h"
 #include "Settings.h"
 #include <JavaScriptCore/InspectorAgentBase.h>
+#include <wtf/MainThread.h>
+#include <wtf/TZoneMallocInlines.h>
+
 
 namespace WebCore {
 
 using namespace Inspector;
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(PageDebuggable);
+Ref<PageDebuggable> PageDebuggable::create(Page& page)
+{
+    return adoptRef(*new PageDebuggable(page));
+}
+
 PageDebuggable::PageDebuggable(Page& page)
-    : m_page(page)
+    : m_page(&page)
 {
 }
 
 String PageDebuggable::name() const
 {
-    if (!m_nameOverride.isNull())
-        return m_nameOverride;
+    String name;
+    callOnMainThreadAndWait([this, protectedThis = Ref { *this }, &name] {
+        RefPtr page = m_page.get();
+        if (!page)
+            return;
 
-    if (!m_page.mainFrame().document())
-        return String();
+        RefPtr localTopDocument = page->localTopDocument();
+        if (!localTopDocument)
+            return;
 
-    return m_page.mainFrame().document()->title();
+        name = localTopDocument->title().isolatedCopy();
+    });
+    return name;
 }
 
 String PageDebuggable::url() const
 {
-    if (!m_page.mainFrame().document())
-        return String();
+    String url;
+    callOnMainThreadAndWait([this, protectedThis = Ref { *this }, &url] {
+        RefPtr page = m_page.get();
+        if (!page)
+            return;
 
-    String url = m_page.mainFrame().document()->url().string();
-    return url.isEmpty() ? "about:blank"_s : url;
+        url = page->mainFrameURL().string().isolatedCopy();
+        if (url.isEmpty())
+            url = "about:blank"_s;
+    });
+    return url;
 }
 
 bool PageDebuggable::hasLocalDebugger() const
 {
-    return m_page.inspectorController().hasLocalFrontend();
+    bool hasLocalDebugger = false;
+    callOnMainThreadAndWait([this, protectedThis = Ref { *this }, &hasLocalDebugger] {
+        if (RefPtr page = m_page.get())
+            hasLocalDebugger = page->protectedInspectorController()->hasLocalFrontend();
+    });
+    return hasLocalDebugger;
 }
 
 void PageDebuggable::connect(FrontendChannel& channel, bool isAutomaticConnection, bool immediatelyPause)
 {
-    m_page.inspectorController().connectFrontend(channel, isAutomaticConnection, immediatelyPause);
+    callOnMainThreadAndWait([this, protectedThis = Ref { *this }, &channel, isAutomaticConnection, immediatelyPause] {
+        if (RefPtr page = m_page.get())
+            page->protectedInspectorController()->connectFrontend(channel, isAutomaticConnection, immediatelyPause);
+    });
 }
 
 void PageDebuggable::disconnect(FrontendChannel& channel)
 {
-    m_page.inspectorController().disconnectFrontend(channel);
+    callOnMainThreadAndWait([this, protectedThis = Ref { *this }, &channel] {
+        if (RefPtr page = m_page.get())
+            page->protectedInspectorController()->disconnectFrontend(channel);
+    });
 }
 
-void PageDebuggable::dispatchMessageFromRemote(const String& message)
+void PageDebuggable::dispatchMessageFromRemote(String&& message)
 {
-    m_page.inspectorController().dispatchMessageFromFrontend(message);
+    callOnMainThreadAndWait([this, protectedThis = Ref { *this }, message = WTFMove(message).isolatedCopy()]() mutable {
+        if (RefPtr page = m_page.get())
+            page->protectedInspectorController()->dispatchMessageFromFrontend(WTFMove(message));
+    });
 }
 
 void PageDebuggable::setIndicating(bool indicating)
 {
-    m_page.inspectorController().setIndicating(indicating);
+    callOnMainThreadAndWait([this, protectedThis = Ref { *this }, indicating] {
+        if (RefPtr page = m_page.get())
+            page->protectedInspectorController()->setIndicating(indicating);
+    });
 }
 
 void PageDebuggable::setNameOverride(const String& name)
 {
     m_nameOverride = name;
     update();
+}
+
+void PageDebuggable::detachFromPage()
+{
+    m_page = nullptr;
 }
 
 } // namespace WebCore

@@ -26,10 +26,11 @@
 #pragma once
 
 #include <WebCore/MediaStrategy.h>
+#include <atomic>
 
 namespace WebKit {
 
-class WebMediaStrategy : public WebCore::MediaStrategy {
+class WebMediaStrategy final : public WebCore::MediaStrategy {
 public:
     virtual ~WebMediaStrategy();
 
@@ -38,21 +39,28 @@ public:
 #endif
 
 private:
+    bool isWebMediaStrategy() const final { return true; }
+
 #if ENABLE(WEB_AUDIO)
-    std::unique_ptr<WebCore::AudioDestination> createAudioDestination(WebCore::AudioIOCallback&,
+    Ref<WebCore::AudioDestination> createAudioDestination(WebCore::AudioIOCallback&,
         const String& inputDeviceId, unsigned numberOfInputChannels, unsigned numberOfOutputChannels, float sampleRate) override;
 #endif
-#if PLATFORM(COCOA)
-    void clearNowPlayingInfo() final;
-    void setNowPlayingInfo(bool setAsNowPlayingApplication, const WebCore::NowPlayingInfo&) final;
+    std::unique_ptr<WebCore::NowPlayingManager> createNowPlayingManager() const final;
+    bool hasThreadSafeMediaSourceSupport() const final;
+#if ENABLE(MEDIA_SOURCE)
+    void enableMockMediaSource() final;
+#endif
+#if PLATFORM(COCOA) && ENABLE(MEDIA_RECORDER)
+    std::unique_ptr<WebCore::MediaRecorderPrivateWriter> createMediaRecorderPrivateWriter(const String&, WebCore::MediaRecorderPrivateWriterListener&) const final;
 #endif
 
 #if ENABLE(GPU_PROCESS)
-    bool m_useGPUProcess { false };
+    std::atomic<bool> m_useGPUProcess { false };
 #endif
-
 };
 
 } // namespace WebKit
 
-
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::WebMediaStrategy) \
+    static bool isType(const WebCore::MediaStrategy& strategy) { return strategy.isWebMediaStrategy(); } \
+SPECIALIZE_TYPE_TRAITS_END()

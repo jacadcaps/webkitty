@@ -26,13 +26,14 @@
 #pragma once
 
 #include "ClipboardItemDataSource.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 struct PasteboardItemInfo;
 
 class ClipboardItemPasteboardDataSource : public ClipboardItemDataSource {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(ClipboardItemPasteboardDataSource);
 public:
     ClipboardItemPasteboardDataSource(ClipboardItem&, const PasteboardItemInfo&);
     ~ClipboardItemPasteboardDataSource();
@@ -40,7 +41,7 @@ public:
 private:
     Vector<String> types() const final;
     void getType(const String&, Ref<DeferredPromise>&&) final;
-    void collectDataForWriting(Clipboard& destination, CompletionHandler<void(Optional<PasteboardCustomData>)>&&) final;
+    void collectDataForWriting(Clipboard& destination, CompletionHandler<void(std::optional<PasteboardCustomData>)>&&) final;
 
     Vector<String> m_types;
 };

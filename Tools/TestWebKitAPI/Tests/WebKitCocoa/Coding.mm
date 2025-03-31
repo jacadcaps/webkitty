@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,6 +28,14 @@
 #import <WebKit/WKProcessPoolPrivate.h>
 #import <wtf/RetainPtr.h>
 
+#if PLATFORM(IOS_FAMILY)
+@interface WKPreferences (TabFocusesLinks)
+
+@property (nonatomic) BOOL tabFocusesLinks;
+
+@end
+#endif
+
 template<typename T>
 RetainPtr<T> encodeAndDecode(T* t)
 {
@@ -37,9 +45,9 @@ RetainPtr<T> encodeAndDecode(T* t)
     }
 
     NSData *data = [NSKeyedArchiver archivedDataWithRootObject:t requiringSecureCoding:NO error:nullptr];
-    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     return [NSKeyedUnarchiver unarchiveObjectWithData:data];
-    ALLOW_DEPRECATED_DECLARATIONS_END
+ALLOW_DEPRECATED_DECLARATIONS_END
 }
 
 TEST(Coding, WKPreferences)
@@ -49,13 +57,12 @@ TEST(Coding, WKPreferences)
     // Change all defaults to something else.
     [a setMinimumFontSize:10];
     [a setJavaScriptEnabled:NO];
+    [a setShouldPrintBackgrounds:YES];
+    [a setTabFocusesLinks:YES];
 #if PLATFORM(IOS_FAMILY)
     [a setJavaScriptCanOpenWindowsAutomatically:YES];
 #else
     [a setJavaScriptCanOpenWindowsAutomatically:NO];
-    [a setJavaEnabled:YES];
-    [a setPlugInsEnabled:YES];
-    [a setTabFocusesLinks:YES];
 #endif
 
     auto b = encodeAndDecode(a.get());
@@ -63,12 +70,8 @@ TEST(Coding, WKPreferences)
     EXPECT_EQ([a minimumFontSize], [b minimumFontSize]);
     EXPECT_EQ([a javaScriptEnabled], [b javaScriptEnabled]);
     EXPECT_EQ([a javaScriptCanOpenWindowsAutomatically], [b javaScriptCanOpenWindowsAutomatically]);
-
-#if PLATFORM(MAC)
-    EXPECT_EQ([a javaEnabled], [b javaEnabled]);
-    EXPECT_EQ([a plugInsEnabled], [b plugInsEnabled]);
+    EXPECT_EQ([a shouldPrintBackgrounds], [b shouldPrintBackgrounds]);
     EXPECT_EQ([a tabFocusesLinks], [b tabFocusesLinks]);
-#endif
 }
 
 TEST(Coding, WKProcessPool_Shared)
@@ -137,6 +140,9 @@ TEST(Coding, WKWebView)
 
 #if PLATFORM(IOS_FAMILY)
     [a setAllowsLinkPreview:YES];
+#if PLATFORM(IOS) || PLATFORM(MACCATALYST) || PLATFORM(VISION)
+    [a setFindInteractionEnabled:YES];
+#endif
 #else
     [a setAllowsLinkPreview:NO];
     [a setAllowsMagnification:YES];
@@ -152,6 +158,10 @@ TEST(Coding, WKWebView)
 #if PLATFORM(MAC)
     EXPECT_EQ([a allowsMagnification], [b allowsMagnification]);
     EXPECT_EQ([a magnification], [b magnification]);
+#endif
+
+#if PLATFORM(IOS) || PLATFORM(MACCATALYST) || PLATFORM(VISION)
+    EXPECT_EQ([a isFindInteractionEnabled], [b isFindInteractionEnabled]);
 #endif
 }
 

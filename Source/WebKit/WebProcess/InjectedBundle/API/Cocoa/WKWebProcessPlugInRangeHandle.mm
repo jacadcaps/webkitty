@@ -27,20 +27,21 @@
 #import "WKWebProcessPlugInRangeHandleInternal.h"
 
 #import "InjectedBundleNodeHandle.h"
+#import "WKDataDetectorTypesInternal.h"
 #import "WKWebProcessPlugInFrameInternal.h"
 #import <WebCore/DataDetection.h>
 #import <WebCore/Range.h>
-
-#if ENABLE(DATA_DETECTION)
-#import "WKDataDetectorTypesInternal.h"
-#endif
+#import <WebCore/WebCoreObjCExtras.h>
+#import <wtf/AlignedStorage.h>
 
 @implementation WKWebProcessPlugInRangeHandle {
-    API::ObjectStorage<WebKit::InjectedBundleRangeHandle> _rangeHandle;
+    AlignedStorage<WebKit::InjectedBundleRangeHandle> _rangeHandle;
 }
 
 - (void)dealloc
 {
+    if (WebCoreObjCScheduleDeallocateOnMainRunLoop(WKWebProcessPlugInRangeHandle.class, self))
+        return;
     _rangeHandle->~InjectedBundleRangeHandle();
     [super dealloc];
 }
@@ -49,12 +50,12 @@
 {
     JSContextRef contextRef = [context JSGlobalContextRef];
     JSObjectRef objectRef = JSValueToObject(contextRef, [value JSValueRef], nullptr);
-    return wrapper(WebKit::InjectedBundleRangeHandle::getOrCreate(contextRef, objectRef));
+    return wrapper(WebKit::InjectedBundleRangeHandle::getOrCreate(contextRef, objectRef)).autorelease();
 }
 
 - (WKWebProcessPlugInFrame *)frame
 {
-    return wrapper(_rangeHandle->document()->documentFrame());
+    return wrapper(_rangeHandle->document()->documentFrame()).autorelease();
 }
 
 - (NSString *)text
@@ -67,7 +68,7 @@
 - (NSArray *)detectDataWithTypes:(WKDataDetectorTypes)types context:(NSDictionary *)context
 {
 #if ENABLE(DATA_DETECTION)
-    return WebCore::DataDetection::detectContentInRange(makeSimpleRange(_rangeHandle->coreRange()), fromWKDataDetectorTypes(types), context);
+    return WebCore::DataDetection::detectContentInRange(makeSimpleRange(_rangeHandle->coreRange()), fromWKDataDetectorTypes(types), WebCore::DataDetection::extractReferenceDate(context));
 #else
     return nil;
 #endif

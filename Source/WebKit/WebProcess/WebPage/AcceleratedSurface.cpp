@@ -28,61 +28,84 @@
 
 #include "WebPage.h"
 #include <WebCore/PlatformDisplay.h>
-
-#if PLATFORM(WAYLAND)
-#include "AcceleratedSurfaceWayland.h"
-#endif
-
-#if PLATFORM(X11)
-#include "AcceleratedSurfaceX11.h"
-#endif
+#include <wtf/TZoneMallocInlines.h>
 
 #if USE(WPE_RENDERER)
 #include "AcceleratedSurfaceLibWPE.h"
 #endif
 
+#if (PLATFORM(GTK) || (PLATFORM(WPE) && ENABLE(WPE_PLATFORM)))
+#include "AcceleratedSurfaceDMABuf.h"
+#endif
+
+#if USE(LIBEPOXY)
+#include <epoxy/gl.h>
+#else
+#include <GLES2/gl2.h>
+#endif
+
 namespace WebKit {
 using namespace WebCore;
 
-std::unique_ptr<AcceleratedSurface> AcceleratedSurface::create(WebPage& webPage, Client& client)
+WTF_MAKE_TZONE_ALLOCATED_IMPL(AcceleratedSurface);
+
+std::unique_ptr<AcceleratedSurface> AcceleratedSurface::create(ThreadedCompositor& compositor, WebPage& webPage, Function<void()>&& frameCompleteHandler)
 {
-#if PLATFORM(WAYLAND)
-    if (PlatformDisplay::sharedDisplay().type() == PlatformDisplay::Type::Wayland)
-#if USE(WPE_RENDERER)
-        return AcceleratedSurfaceLibWPE::create(webPage, client);
-#else
-        return AcceleratedSurfaceWayland::create(webPage, client);
+#if (PLATFORM(GTK) || (PLATFORM(WPE) && ENABLE(WPE_PLATFORM)))
+#if USE(GBM)
+    if (PlatformDisplay::sharedDisplay().type() == PlatformDisplay::Type::GBM)
+        return AcceleratedSurfaceDMABuf::create(compositor, webPage, WTFMove(frameCompleteHandler));
 #endif
-#endif
-#if PLATFORM(X11)
-    if (PlatformDisplay::sharedDisplay().type() == PlatformDisplay::Type::X11)
-        return AcceleratedSurfaceX11::create(webPage, client);
+    if (PlatformDisplay::sharedDisplay().type() == PlatformDisplay::Type::Surfaceless)
+        return AcceleratedSurfaceDMABuf::create(compositor, webPage, WTFMove(frameCompleteHandler));
 #endif
 #if USE(WPE_RENDERER)
     if (PlatformDisplay::sharedDisplay().type() == PlatformDisplay::Type::WPE)
-        return AcceleratedSurfaceLibWPE::create(webPage, client);
+        return AcceleratedSurfaceLibWPE::create(webPage, WTFMove(frameCompleteHandler));
 #endif
     RELEASE_ASSERT_NOT_REACHED();
     return nullptr;
 }
 
-AcceleratedSurface::AcceleratedSurface(WebPage& webPage, Client& client)
+AcceleratedSurface::AcceleratedSurface(WebPage& webPage, Function<void()>&& frameCompleteHandler)
     : m_webPage(webPage)
-    , m_client(client)
-    , m_size(webPage.size())
+    , m_frameCompleteHandler(WTFMove(frameCompleteHandler))
+    , m_isOpaque(!webPage.backgroundColor().has_value() || webPage.backgroundColor()->isOpaque())
 {
-    m_size.scale(m_webPage.deviceScaleFactor());
 }
 
-bool AcceleratedSurface::hostResize(const IntSize& size)
+bool AcceleratedSurface::resize(const IntSize& size)
 {
-    IntSize scaledSize(size);
-    scaledSize.scale(m_webPage.deviceScaleFactor());
-    if (scaledSize == m_size)
+    if (m_size == size)
         return false;
 
-    m_size = scaledSize;
+    m_size = size;
     return true;
+}
+
+bool AcceleratedSurface::backgroundColorDidChange()
+{
+    const auto& color = m_webPage->backgroundColor();
+    auto isOpaque = !color.has_value() || color->isOpaque();
+    if (m_isOpaque == isOpaque)
+        return false;
+
+    m_isOpaque = isOpaque;
+    return true;
+}
+
+void AcceleratedSurface::clearIfNeeded()
+{
+    if (m_isOpaque)
+        return;
+
+    glClearColor(0, 0, 0, 0);
+    glClear(GL_COLOR_BUFFER_BIT);
+}
+
+void AcceleratedSurface::frameComplete() const
+{
+    m_frameCompleteHandler();
 }
 
 } // namespace WebKit

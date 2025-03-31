@@ -27,6 +27,7 @@
 
 #if HAVE(UIWEBVIEW)
 
+#import "DeprecatedGlobalValues.h"
 #import "PlatformUtilities.h"
 #import <UIKit/UIKit.h>
 #import <WebKit/DOMHTMLMediaElement.h>
@@ -35,7 +36,6 @@
 #import <wtf/MainThread.h>
 #import <wtf/RetainPtr.h>
 
-static bool didFinishLoad = false;
 static bool gotMainFrame = false;
 static RetainPtr<WebFrame> mainFrame;
 static int countOfVideoElementsCanPlay = 0;
@@ -82,7 +82,12 @@ IGNORE_WARNINGS_END
 
 namespace TestWebKitAPI {
 
+// FIXME Re-enable when https://bugs.webkit.org/show_bug.cgi?id=237125 is resovled 
+#if PLATFORM(IOS) || PLATFORM(VISION)
+TEST(WebKitLegacy, DISABLED_PreemptVideoFullscreen)
+#else
 TEST(WebKitLegacy, PreemptVideoFullscreen)
+#endif
 {
     RetainPtr<WebPreferences> preferences = [WebPreferences standardPreferences];
     preferences.get().mediaDataLoadsAutomatically = YES;
@@ -96,7 +101,7 @@ TEST(WebKitLegacy, PreemptVideoFullscreen)
     RetainPtr<PreemptVideoFullscreenUIWebViewDelegate> uiDelegate = adoptNS([[PreemptVideoFullscreenUIWebViewDelegate alloc] init]);
     uiWebView.get().delegate = uiDelegate.get();
 
-    [uiWebView loadRequest:[NSURLRequest requestWithURL:[[NSBundle mainBundle] URLForResource:@"two-videos" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"]]];
+    [uiWebView loadRequest:[NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"two-videos" withExtension:@"html"]]];
 
     Util::run(&didFinishLoad);
     Util::run(&gotMainFrame);

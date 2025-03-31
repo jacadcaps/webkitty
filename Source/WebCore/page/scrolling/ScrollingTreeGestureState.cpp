@@ -28,11 +28,12 @@
 
 #if ENABLE(ASYNC_SCROLLING)
 
+#include "Logging.h"
 #include "PlatformWheelEvent.h"
 #include "ScrollingTree.h"
+#include <wtf/text/TextStream.h>
 
 namespace WebCore {
-
 
 ScrollingTreeGestureState::ScrollingTreeGestureState(ScrollingTree& scrollingTree)
     : m_scrollingTree(scrollingTree)
@@ -41,7 +42,7 @@ ScrollingTreeGestureState::ScrollingTreeGestureState(ScrollingTree& scrollingTre
 
 void ScrollingTreeGestureState::receivedWheelEvent(const PlatformWheelEvent& event)
 {
-    if (event.isGestureBegin()) {
+    if (event.isGestureStart()) {
         clearAllNodes();
         return;
     }
@@ -51,7 +52,7 @@ bool ScrollingTreeGestureState::handleGestureCancel(const PlatformWheelEvent& ev
 {
     if (event.isGestureCancel()) {
         if (m_mayBeginNodeID)
-            m_scrollingTree.handleWheelEventPhase(*m_mayBeginNodeID, PlatformWheelEventPhaseCancelled);
+            m_scrollingTree.handleWheelEventPhase(*m_mayBeginNodeID, PlatformWheelEventPhase::Cancelled);
         return true;
     }
     
@@ -60,53 +61,54 @@ bool ScrollingTreeGestureState::handleGestureCancel(const PlatformWheelEvent& ev
 
 void ScrollingTreeGestureState::nodeDidHandleEvent(ScrollingNodeID nodeID, const PlatformWheelEvent& event)
 {
+    LOG_WITH_STREAM(OverlayScrollbars, stream << "ScrollingTreeGestureState::nodeDidHandleEvent " << nodeID << " " << event.phase());
     switch (event.phase()) {
-    case PlatformWheelEventPhaseMayBegin:
+    case PlatformWheelEventPhase::MayBegin:
         m_mayBeginNodeID = nodeID;
         m_scrollingTree.handleWheelEventPhase(nodeID, event.phase());
         break;
-    case PlatformWheelEventPhaseCancelled:
-        // handleGestureCancel() should have been called first.
-        ASSERT_NOT_REACHED();
+    case PlatformWheelEventPhase::Cancelled:
+        // We can get here for via handleWheelEventAfterMainThread(), in which case handleGestureCancel() was not called first.
+        handleGestureCancel(event);
         break;
-    case PlatformWheelEventPhaseBegan:
+    case PlatformWheelEventPhase::Began:
         m_activeNodeID = nodeID;
         m_scrollingTree.handleWheelEventPhase(nodeID, event.phase());
         break;
-    case PlatformWheelEventPhaseEnded:
+    case PlatformWheelEventPhase::Ended:
         if (m_activeNodeID)
             m_scrollingTree.handleWheelEventPhase(*m_activeNodeID, event.phase());
         break;
-    case PlatformWheelEventPhaseChanged:
-    case PlatformWheelEventPhaseStationary:
-    case PlatformWheelEventPhaseNone:
+    case PlatformWheelEventPhase::Changed:
+    case PlatformWheelEventPhase::Stationary:
+    case PlatformWheelEventPhase::None:
         break;
     }
 
     switch (event.momentumPhase()) {
-    case PlatformWheelEventPhaseMayBegin:
-    case PlatformWheelEventPhaseCancelled:
+    case PlatformWheelEventPhase::MayBegin:
+    case PlatformWheelEventPhase::Cancelled:
         ASSERT_NOT_REACHED();
         break;
-    case PlatformWheelEventPhaseBegan:
+    case PlatformWheelEventPhase::Began:
         m_activeNodeID = nodeID;
         m_scrollingTree.handleWheelEventPhase(nodeID, event.momentumPhase());
         break;
-    case PlatformWheelEventPhaseEnded:
+    case PlatformWheelEventPhase::Ended:
         if (m_activeNodeID)
             m_scrollingTree.handleWheelEventPhase(*m_activeNodeID, event.momentumPhase());
         break;
-    case PlatformWheelEventPhaseChanged:
-    case PlatformWheelEventPhaseStationary:
-    case PlatformWheelEventPhaseNone:
+    case PlatformWheelEventPhase::Changed:
+    case PlatformWheelEventPhase::Stationary:
+    case PlatformWheelEventPhase::None:
         break;
     }
 }
 
 void ScrollingTreeGestureState::clearAllNodes()
 {
-    m_mayBeginNodeID = 0;
-    m_activeNodeID = 0;
+    m_mayBeginNodeID = std::nullopt;
+    m_activeNodeID = std::nullopt;
 }
 
 };

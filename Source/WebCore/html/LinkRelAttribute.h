@@ -34,7 +34,6 @@
 
 #include <wtf/Forward.h>
 #include <wtf/Markable.h>
-#include <wtf/Optional.h>
 
 namespace WebCore {
 
@@ -43,18 +42,25 @@ enum class LinkIconType : uint8_t;
 
 struct LinkRelAttribute {
     Markable<LinkIconType, EnumMarkableTraits<LinkIconType>> iconType;
-    bool isStyleSheet : 1;
-    bool isAlternate : 1;
-    bool isDNSPrefetch : 1;
-    bool isLinkPreload : 1;
-    bool isLinkPreconnect : 1;
-    bool isLinkPrefetch : 1;
+    bool isStyleSheet : 1 { false };
+    bool isAlternate : 1 { false };
+    bool isDNSPrefetch : 1 { false };
+    bool isLinkModulePreload : 1 { false };
+    bool isLinkPreload : 1 { false };
+    bool isLinkPreconnect : 1 { false };
+    bool isLinkPrefetch : 1 { false };
 #if ENABLE(APPLICATION_MANIFEST)
-    bool isApplicationManifest : 1;
+    bool isApplicationManifest : 1 { false };
+#endif
+    bool isInternalResourceLink : 1 { false };
+#if ENABLE(WEB_PAGE_SPATIAL_BACKDROP)
+    bool isSpatialBackdrop : 1 { false };
 #endif
 
-    LinkRelAttribute();
-    LinkRelAttribute(Document&, const String&);
+    LinkRelAttribute() = default;
+    LinkRelAttribute(Document&, StringView);
+
+    friend bool operator==(const LinkRelAttribute&, const LinkRelAttribute&) = default;
 
     static bool isSupported(Document&, StringView);
 };

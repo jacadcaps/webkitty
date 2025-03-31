@@ -31,19 +31,17 @@
 #include "CachedRawResource.h"
 #include "CachedResourceLoader.h"
 #include "CachedResourceRequest.h"
-#include "MediaPlayerPrivateAVFoundationCF.h"
 #include "NotImplemented.h"
 #include "ResourceLoaderOptions.h"
 #include "SharedBuffer.h"
-#include <AVFoundationCF/AVCFAssetResourceLoader.h>
 #include <AVFoundationCF/AVFoundationCF.h>
 #include <wtf/SoftLinking.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/CString.h>
 
-// The softlink header files must be included after the AVCF and CoreMedia header files.
-#include "AVFoundationCFSoftLinking.h"
-
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WebCoreAVCFResourceLoader);
 
 Ref<WebCoreAVCFResourceLoader> WebCoreAVCFResourceLoader::create(MediaPlayerPrivateAVFoundationCF* parent, AVCFAssetResourceLoadingRequestRef avRequest)
 {
@@ -118,7 +116,7 @@ void WebCoreAVCFResourceLoader::invalidate()
 
     m_parent = nullptr;
 
-    callOnMainThread([protectedThis = makeRef(*this)] () mutable {
+    callOnMainThread([protectedThis = Ref { *this }] () mutable {
         protectedThis->stopLoading();
     });
 }
@@ -138,7 +136,7 @@ void WebCoreAVCFResourceLoader::responseReceived(CachedResource& resource, const
     notImplemented();
 }
 
-void WebCoreAVCFResourceLoader::dataReceived(CachedResource& resource, const char*, int)
+void WebCoreAVCFResourceLoader::dataReceived(CachedResource& resource, const SharedBuffer&)
 {
     fulfillRequestWithResource(resource);
 }

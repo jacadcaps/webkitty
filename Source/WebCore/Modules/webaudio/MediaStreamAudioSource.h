@@ -32,17 +32,22 @@
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
 
+#if USE(GSTREAMER)
+#include "GStreamerCommon.h"
+#endif
+
 namespace WebCore {
 
 class AudioBus;
 class PlatformAudioData;
 class RealtimeMediaSourceCapabilities;
 
-class MediaStreamAudioSource final : public RealtimeMediaSource {
+class MediaStreamAudioSource final : public RealtimeMediaSource, public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<MediaStreamAudioSource, WTF::DestructionThread::MainRunLoop> {
 public:
     static Ref<MediaStreamAudioSource> create(float sampleRate) { return adoptRef(*new MediaStreamAudioSource { sampleRate }); }
 
     ~MediaStreamAudioSource();
+    WTF_ABSTRACT_THREAD_SAFE_REF_COUNTED_AND_CAN_MAKE_WEAK_PTR_IMPL;
 
     const RealtimeMediaSourceCapabilities& capabilities() final;
     const RealtimeMediaSourceSettings& settings() final;
@@ -60,8 +65,12 @@ private:
     String m_deviceId;
     RealtimeMediaSourceSettings m_currentSettings;
     std::unique_ptr<PlatformAudioData> m_audioBuffer;
-#if USE(AVFOUNDATION)
+#if USE(AVFOUNDATION) || USE(GSTREAMER)
     size_t m_numberOfFrames { 0 };
+#endif
+#if USE(GSTREAMER)
+    GstAudioInfo m_info;
+    GRefPtr<GstCaps> m_caps;
 #endif
 };
 

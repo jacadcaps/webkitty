@@ -40,12 +40,19 @@ TEST(WebKit, GetPDFResourceData)
     auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
     auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 100, 100) configuration:configuration.get() addToWindow:YES]);
 
-    NSURLRequest *request = [NSURLRequest requestWithURL:[[NSBundle mainBundle] URLForResource:@"test" withExtension:@"pdf" subdirectory:@"TestWebKitAPI.resources"]];
+    __block bool isDone;
+    [webView _getMainResourceDataWithCompletionHandler:^(NSData *data, NSError *error) {
+        EXPECT_NULL(data);
+        isDone = true;
+    }];
+    TestWebKitAPI::Util::run(&isDone);
+    isDone = false;
+
+    NSURLRequest *request = [NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"test" withExtension:@"pdf"]];
     [webView loadRequest:request];
 
     [webView _test_waitForDidFinishNavigation];
 
-    __block bool isDone;
     [webView _getMainResourceDataWithCompletionHandler:^(NSData *data, NSError *error) {
         EXPECT_EQ(data.length, 10820UL);
         isDone = true;
@@ -59,7 +66,7 @@ TEST(WebKit, GetPDFResourceDataInUnparentedWebView)
     auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
     auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 100, 100) configuration:configuration.get() addToWindow:NO]);
 
-    NSURLRequest *request = [NSURLRequest requestWithURL:[[NSBundle mainBundle] URLForResource:@"test" withExtension:@"pdf" subdirectory:@"TestWebKitAPI.resources"]];
+    NSURLRequest *request = [NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"test" withExtension:@"pdf"]];
     [webView loadRequest:request];
 
     [webView _test_waitForDidFinishNavigation];

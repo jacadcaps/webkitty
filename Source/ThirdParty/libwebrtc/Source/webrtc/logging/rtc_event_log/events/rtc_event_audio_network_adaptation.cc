@@ -10,9 +10,11 @@
 
 #include "logging/rtc_event_log/events/rtc_event_audio_network_adaptation.h"
 
+#include <memory>
 #include <utility>
 
 #include "absl/memory/memory.h"
+#include "api/rtc_event_log/rtc_event.h"
 #include "modules/audio_coding/audio_network_adaptor/include/audio_network_adaptor_config.h"
 #include "rtc_base/checks.h"
 
@@ -30,14 +32,6 @@ RtcEventAudioNetworkAdaptation::RtcEventAudioNetworkAdaptation(
       config_(std::make_unique<AudioEncoderRuntimeConfig>(*other.config_)) {}
 
 RtcEventAudioNetworkAdaptation::~RtcEventAudioNetworkAdaptation() = default;
-
-RtcEvent::Type RtcEventAudioNetworkAdaptation::GetType() const {
-  return RtcEvent::Type::AudioNetworkAdaptation;
-}
-
-bool RtcEventAudioNetworkAdaptation::IsConfigEvent() const {
-  return false;
-}
 
 std::unique_ptr<RtcEventAudioNetworkAdaptation>
 RtcEventAudioNetworkAdaptation::Copy() const {

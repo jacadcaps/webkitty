@@ -21,8 +21,8 @@
 
 #pragma once
 
+#include "BoxExtents.h"
 #include "Length.h"
-#include "RectEdges.h"
 #include "WritingMode.h"
 
 namespace WebCore {
@@ -30,7 +30,7 @@ namespace WebCore {
 class LengthBox : public RectEdges<Length> {
 public:
     LengthBox()
-        : LengthBox(Auto)
+        : LengthBox(LengthType::Auto)
     {
     }
 
@@ -40,12 +40,12 @@ public:
     }
 
     explicit LengthBox(int v)
-        : RectEdges(Length(v, Fixed), Length(v, Fixed), Length(v, Fixed), Length(v, Fixed))
+        : RectEdges(Length(v, LengthType::Fixed), Length(v, LengthType::Fixed), Length(v, LengthType::Fixed), Length(v, LengthType::Fixed))
     {
     }
 
     LengthBox(int top, int right, int bottom, int left)
-        : RectEdges(Length(top, Fixed), Length(right, Fixed), Length(bottom, Fixed), Length(left, Fixed))
+        : RectEdges(Length(top, LengthType::Fixed), Length(right, LengthType::Fixed), Length(bottom, LengthType::Fixed), Length(left, LengthType::Fixed))
     {
     }
 
@@ -54,16 +54,35 @@ public:
     {
     }
 
+    LengthBox(const LengthBox&) = default;
+    LengthBox& operator=(const LengthBox&) = default;
+
     bool isZero() const
     {
         return top().isZero() && right().isZero() && bottom().isZero() && left().isZero();
     }
 };
 
-using LayoutBoxExtent = RectEdges<LayoutUnit>;
-using FloatBoxExtent = RectEdges<float>;
+using IntOutsets = IntBoxExtent;
+using LayoutOptionalOutsets = RectEdges<std::optional<LayoutUnit>>;
+
+inline LayoutBoxExtent toLayoutBoxExtent(const IntBoxExtent& extent)
+{
+    return { extent.top(), extent.right(), extent.bottom(), extent.left() };
+}
+
+inline FloatBoxExtent toFloatBoxExtent(const IntBoxExtent& extent)
+{
+    return {
+        static_cast<float>(extent.top()),
+        static_cast<float>(extent.right()),
+        static_cast<float>(extent.bottom()),
+        static_cast<float>(extent.left()),
+    };
+}
 
 WTF::TextStream& operator<<(WTF::TextStream&, const LengthBox&);
+WTF::TextStream& operator<<(WTF::TextStream&, const IntBoxExtent&);
 WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, const FloatBoxExtent&);
 
 } // namespace WebCore

@@ -60,8 +60,8 @@ static void didReceiveMessageFromInjectedBundle(WKContextRef context, WKStringRe
     // Attempt to set a parameter using the Objective C API:
     RetainPtr<WKWebViewConfiguration> configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
 
-    CustomBundleObject *customObject = [[CustomBundleObject alloc] initWithValue:1234];
-    [[configuration processPool] _setObject:customObject forBundleParameter:@"TestParameter1"];
+    auto customObject = adoptNS([[CustomBundleObject alloc] initWithValue:1234]);
+    [[configuration processPool] _setObject:customObject.get() forBundleParameter:@"TestParameter1"];
 
     if (loadDone)
         done = true;
@@ -79,7 +79,7 @@ TEST(WebKit, CustomBundleParameter)
     WKRetainPtr<WKContextRef> context = adoptWK(Util::createContextForInjectedBundleTest("CustomBundleParameterTest"));
     
     WKContextInjectedBundleClientV0 injectedBundleClient;
-    memset(&injectedBundleClient, 0, sizeof(injectedBundleClient));
+    zeroBytes(injectedBundleClient);
     
     injectedBundleClient.base.version = 0;
     injectedBundleClient.didReceiveMessageFromInjectedBundle = didReceiveMessageFromInjectedBundle;
@@ -89,7 +89,7 @@ TEST(WebKit, CustomBundleParameter)
     PlatformWebView webView(context.get());
     
     WKPageNavigationClientV0 loaderClient;
-    memset(&loaderClient, 0, sizeof(loaderClient));
+    zeroBytes(loaderClient);
     
     loaderClient.base.version = 0;
     loaderClient.didFinishNavigation = didFinishNavigation;

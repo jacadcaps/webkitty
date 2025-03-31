@@ -29,7 +29,7 @@
 #include "Color.h"
 #include "LayoutUnit.h"
 #include "RenderObject.h"
-#include "RenderStyle.h"
+#include "RenderStyleInlines.h"
 
 namespace WebCore {
 
@@ -46,19 +46,34 @@ BorderEdge::BorderEdge(float edgeWidth, Color edgeColor, BorderStyle edgeStyle, 
     m_flooredToDevicePixelWidth = floorf(edgeWidth * devicePixelRatio) / devicePixelRatio;
 }
 
-void BorderEdge::getBorderEdgeInfo(BorderEdge edges[], const RenderStyle& style, float deviceScaleFactor, bool includeLogicalLeftEdge, bool includeLogicalRightEdge)
+BorderEdges borderEdges(const RenderStyle& style, float deviceScaleFactor, RectEdges<bool> closedEdges, bool setColorsToBlack)
 {
-    bool horizontal = style.isHorizontalWritingMode();
+    auto constructBorderEdge = [&](float width, CSSPropertyID borderColorProperty, BorderStyle borderStyle, bool isTransparent, bool isPresent) {
+        auto color = setColorsToBlack ? Color::black : style.visitedDependentColorWithColorFilter(borderColorProperty);
+        return BorderEdge(width, color, borderStyle, !setColorsToBlack && isTransparent, isPresent, deviceScaleFactor);
+    };
 
-    edges[BSTop] = BorderEdge(style.borderTopWidth(), style.visitedDependentColorWithColorFilter(CSSPropertyBorderTopColor), style.borderTopStyle(), style.borderTopIsTransparent(),
-        horizontal || includeLogicalLeftEdge, deviceScaleFactor);
-    edges[BSRight] = BorderEdge(style.borderRightWidth(), style.visitedDependentColorWithColorFilter(CSSPropertyBorderRightColor), style.borderRightStyle(), style.borderRightIsTransparent(),
-        !horizontal || includeLogicalRightEdge, deviceScaleFactor);
-    edges[BSBottom] = BorderEdge(style.borderBottomWidth(), style.visitedDependentColorWithColorFilter(CSSPropertyBorderBottomColor), style.borderBottomStyle(), style.borderBottomIsTransparent(),
-        horizontal || includeLogicalRightEdge, deviceScaleFactor);
-    edges[BSLeft] = BorderEdge(style.borderLeftWidth(), style.visitedDependentColorWithColorFilter(CSSPropertyBorderLeftColor), style.borderLeftStyle(), style.borderLeftIsTransparent(),
-        !horizontal || includeLogicalLeftEdge, deviceScaleFactor);
-    }
+    return {
+        constructBorderEdge(style.borderTopWidth(), CSSPropertyBorderTopColor, style.borderTopStyle(), style.borderTopIsTransparent(), closedEdges.top()),
+        constructBorderEdge(style.borderRightWidth(), CSSPropertyBorderRightColor, style.borderRightStyle(), style.borderRightIsTransparent(), closedEdges.right()),
+        constructBorderEdge(style.borderBottomWidth(), CSSPropertyBorderBottomColor, style.borderBottomStyle(), style.borderBottomIsTransparent(), closedEdges.bottom()),
+        constructBorderEdge(style.borderLeftWidth(), CSSPropertyBorderLeftColor, style.borderLeftStyle(), style.borderLeftIsTransparent(), closedEdges.left())
+    };
+}
+
+BorderEdges borderEdgesForOutline(const RenderStyle& style, float deviceScaleFactor)
+{
+    auto color = style.visitedDependentColorWithColorFilter(CSSPropertyOutlineColor);
+    auto isTransparent = color.isValid() && !color.isVisible();
+    auto size = style.outlineWidth();
+    auto outlineStyle = style.outlineStyle();
+    return {
+        BorderEdge { size, color, outlineStyle, isTransparent, true, deviceScaleFactor },
+        BorderEdge { size, color, outlineStyle, isTransparent, true, deviceScaleFactor },
+        BorderEdge { size, color, outlineStyle, isTransparent, true, deviceScaleFactor },
+        BorderEdge { size, color, outlineStyle, isTransparent, true, deviceScaleFactor } 
+    };
+}
 
 bool BorderEdge::obscuresBackgroundEdge(float scale) const
 {

@@ -10,22 +10,24 @@
 
 #include "modules/audio_coding/codecs/opus/audio_coder_opus_common.h"
 
+#include "absl/strings/string_view.h"
+
 namespace webrtc {
 
-absl::optional<std::string> GetFormatParameter(const SdpAudioFormat& format,
-                                               const std::string& param) {
-  auto it = format.parameters.find(param);
+std::optional<std::string> GetFormatParameter(const SdpAudioFormat& format,
+                                              absl::string_view param) {
+  auto it = format.parameters.find(std::string(param));
   if (it == format.parameters.end())
-    return absl::nullopt;
+    return std::nullopt;
 
   return it->second;
 }
 
 // Parses a comma-separated string "1,2,0,6" into a std::vector<unsigned char>.
 template <>
-absl::optional<std::vector<unsigned char>> GetFormatParameter(
+std::optional<std::vector<unsigned char>> GetFormatParameter(
     const SdpAudioFormat& format,
-    const std::string& param) {
+    absl::string_view param) {
   std::vector<unsigned char> result;
   const std::string comma_separated_list =
       GetFormatParameter(format, param).value_or("");
@@ -39,7 +41,7 @@ absl::optional<std::vector<unsigned char>> GetFormatParameter(
         comma_separated_list.substr(pos, distance_to_next_comma);
     auto conv = rtc::StringToNumber<int>(substring_with_number);
     if (!conv.has_value()) {
-      return absl::nullopt;
+      return std::nullopt;
     }
     result.push_back(*conv);
     pos += substring_with_number.size() + 1;

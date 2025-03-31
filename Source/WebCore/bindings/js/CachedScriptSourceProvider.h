@@ -34,7 +34,7 @@
 namespace WebCore {
 
 class CachedScriptSourceProvider : public JSC::SourceProvider, public CachedResourceClient {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(CachedScriptSourceProvider);
 public:
     static Ref<CachedScriptSourceProvider> create(CachedScript* cachedScript, JSC::SourceProviderSourceType sourceType, Ref<CachedScriptFetcher>&& scriptFetcher) { return adoptRef(*new CachedScriptSourceProvider(cachedScript, sourceType, WTFMove(scriptFetcher))); }
 
@@ -43,12 +43,12 @@ public:
         m_cachedScript->removeClient(*this);
     }
 
-    unsigned hash() const override { return m_cachedScript->scriptHash(); }
-    StringView source() const override { return m_cachedScript->script(); }
+    unsigned hash() const override;
+    StringView source() const override;
 
 private:
     CachedScriptSourceProvider(CachedScript* cachedScript, JSC::SourceProviderSourceType sourceType, Ref<CachedScriptFetcher>&& scriptFetcher)
-        : SourceProvider(JSC::SourceOrigin { cachedScript->response().url(), WTFMove(scriptFetcher) }, String(cachedScript->response().url().string()), TextPosition(), sourceType)
+        : SourceProvider(JSC::SourceOrigin { cachedScript->response().url(), WTFMove(scriptFetcher) }, String(cachedScript->response().url().string()), cachedScript->response().isRedirected() ? String(cachedScript->url().string()) : String(), cachedScript->requiresTelemetry() ? JSC::SourceTaintedOrigin::KnownTainted : JSC::SourceTaintedOrigin::Untainted, TextPosition(), sourceType)
         , m_cachedScript(cachedScript)
     {
         m_cachedScript->addClient(*this);
@@ -56,5 +56,23 @@ private:
 
     CachedResourceHandle<CachedScript> m_cachedScript;
 };
+
+inline unsigned CachedScriptSourceProvider::hash() const
+{
+    // Modules should always be decoded as UTF-8.
+    // https://html.spec.whatwg.org/multipage/webappapis.html#fetch-a-single-module-script
+    if (sourceType() == JSC::SourceProviderSourceType::Module)
+        return m_cachedScript->scriptHash(CachedScript::ShouldDecodeAsUTF8Only::Yes);
+    return m_cachedScript->scriptHash();
+}
+
+inline StringView CachedScriptSourceProvider::source() const
+{
+    // Modules should always be decoded as UTF-8.
+    // https://html.spec.whatwg.org/multipage/webappapis.html#fetch-a-single-module-script
+    if (sourceType() == JSC::SourceProviderSourceType::Module)
+        return m_cachedScript->script(CachedScript::ShouldDecodeAsUTF8Only::Yes);
+    return m_cachedScript->script();
+}
 
 } // namespace WebCore

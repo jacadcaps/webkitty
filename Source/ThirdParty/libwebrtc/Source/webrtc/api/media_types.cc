@@ -10,6 +10,8 @@
 
 #include "api/media_types.h"
 
+#include <string>
+
 #include "rtc_base/checks.h"
 
 namespace cricket {
@@ -26,10 +28,12 @@ std::string MediaTypeToString(MediaType type) {
       return kMediaTypeVideo;
     case MEDIA_TYPE_DATA:
       return kMediaTypeData;
+    case MEDIA_TYPE_UNSUPPORTED:
+      // Unsupported media stores the m=<mediatype> differently.
+      RTC_DCHECK_NOTREACHED();
+      return "";
   }
-  RTC_FATAL();
-  // Not reachable; avoids compile warning.
-  return "";
+  RTC_CHECK_NOTREACHED();
 }
 
 }  // namespace cricket

@@ -24,15 +24,19 @@
  */
 
 #import "config.h"
-#import <WebKit/WKFoundation.h>
 
+#import "DeprecatedGlobalValues.h"
+#import "HTTPServer.h"
 #import "PlatformUtilities.h"
 #import "Test.h"
+#import "TestNavigationDelegate.h"
+#import "TestUIDelegate.h"
+#import <WebKit/WKFoundation.h>
 #import <WebKit/WKWebViewPrivate.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/cocoa/NSURLExtras.h>
+#import <wtf/cocoa/VectorCocoa.h>
 
-static bool isDone;
 static int provisionalLoadCount;
 
 @interface LoadAlternateHTMLStringFromProvisionalLoadErrorController : NSObject <WKNavigationDelegate>
@@ -51,7 +55,7 @@ static int provisionalLoadCount;
     isDone = true;
 }
 
-- (void)webView:(WKWebView *)webView didStartProvisionalNavigation:(null_unspecified WKNavigation *)navigation
+- (void)webView:(WKWebView *)webView didStartProvisionalNavigation:(WKNavigation *)navigation
 {
     provisionalLoadCount++;
 }
@@ -114,9 +118,8 @@ TEST(WKWebView, LoadAlternateHTMLStringFromProvisionalLoadErrorBackToBack)
 
         isDone = false;
         TestWebKitAPI::Util::run(&isDone);
-        // In success, we should only start 2 provisional loads: 1 for the second loadRequest, and 1 for the _loadAlternateHTMLString.
-        // The second loadRequest cancels the first one before its provisional load starts.
-        EXPECT_EQ(2, provisionalLoadCount);
+        // We should only start 1 provisional load for the _loadAlternateHTMLString.
+        EXPECT_EQ(1, provisionalLoadCount);
     }
 }
 
@@ -124,6 +127,19 @@ TEST(WKWebView, LoadAlternateHTMLStringNoFileSystemPath)
 {
     auto webView = adoptNS([[WKWebView alloc] init]);
     [webView loadHTMLString:@"<html>hi</html>" baseURL:[NSURL URLWithString:@"file:///.file/id="]];
+}
+
+TEST(WKWebView, LoadNilAlternateHTMLStringDoesNotCrash)
+{
+    auto webView = adoptNS([[WKWebView alloc] init]);
+    auto controller = adoptNS([LoadAlternateHTMLStringFromProvisionalLoadErrorController new]);
+    [webView setNavigationDelegate:controller.get()];
+
+    IGNORE_NULL_CHECK_WARNINGS_BEGIN
+    [webView _loadAlternateHTMLString:nil baseURL:nil forUnreachableURL:[NSURL URLWithString:@"https://www.example.com"]];
+    IGNORE_NULL_CHECK_WARNINGS_END
+
+    TestWebKitAPI::Util::run(&isDone);
 }
 
 TEST(WKWebView, LoadAlternateHTMLStringFromProvisionalLoadErrorReload)
@@ -151,4 +167,90 @@ TEST(WKWebView, LoadAlternateHTMLStringFromProvisionalLoadErrorReload)
 
     WKBackForwardList *list = [webView backForwardList];
     EXPECT_EQ((NSUInteger)0, list.backList.count);
+}
+
+TEST(WKWebView, LoadHTMLStringOrigin)
+{
+    using namespace TestWebKitAPI;
+    bool done = false;
+    HTTPServer server([&](Connection connection) {
+        connection.receiveHTTPRequest([&](Vector<char>&& request) {
+            EXPECT_TRUE(strnstr(request.data(), "Origin: custom-scheme://\r\n", request.size()));
+            done = true;
+        });
+    });
+    auto webView = adoptNS([WKWebView new]);
+    auto delegate = adoptNS([TestNavigationDelegate new]);
+    delegate.get().decidePolicyForNavigationAction = ^(WKNavigationAction *, void (^completionHandler)(WKNavigationActionPolicy)) {
+        completionHandler(WKNavigationActionPolicyAllow);
+    };
+    webView.get().navigationDelegate = delegate.get();
+    constexpr NSString *html = @"<script>var xhr = new XMLHttpRequest(); xhr.open('GET', 'http://127.0.0.1:%d/', true); xhr.send();</script>";
+    [webView loadHTMLString:[NSString stringWithFormat:html, server.port()] baseURL:[NSURL URLWithString:@"custom-scheme://"]];
+    Util::run(&done);
+}
+
+TEST(WebKit, LoadHTMLStringWithInvalidBaseURL)
+{
+    auto webView = adoptNS([[WKWebView alloc] initWithFrame:NSZeroRect]);
+
+    auto navigationDelegate = adoptNS([[TestNavigationDelegate alloc] init]);
+    [webView setNavigationDelegate:navigationDelegate.get()];
+
+    __block bool didCrash = false;
+    navigationDelegate.get().webContentProcessDidTerminate = ^(WKWebView *view, _WKProcessTerminationReason) {
+        didCrash = true;
+    };
+
+    __block bool didFinishNavigation = false;
+    navigationDelegate.get().didFinishNavigation = ^(WKWebView *view, WKNavigation *navigation) {
+        didFinishNavigation = true;
+    };
+
+    [webView loadHTMLString:@"test" baseURL:[NSURL URLWithString:@"invalid"]];
+    TestWebKitAPI::Util::run(&didFinishNavigation);
+    EXPECT_WK_STREQ([webView URL].absoluteString, "");
+
+    EXPECT_FALSE(didCrash);
+}
+
+#if !defined(NDEBUG)
+TEST(Webkit, DISABLED_LoadMoreThan4GB)
+#else
+TEST(WebKit, LoadMoreThan4GB)
+#endif
+{
+    constexpr auto html = "<script>"
+    "async function main() {"
+    "    const response = await fetch('/bigdata');"
+    "    await response.arrayBuffer();"
+    "}"
+    "main().catch(e => {"
+    "    alert('caught error ' + e);"
+    "}).finally(() => {"
+    "    alert('did not catch error');"
+    "});"
+    "</script>"_s;
+
+    using namespace TestWebKitAPI;
+    auto longData = makeDispatchData(Vector<uint8_t>(static_cast<size_t>(0x10000000), [] (size_t) {
+        return static_cast<uint8_t>('a');
+    }));
+
+    HTTPServer server(HTTPServer::UseCoroutines::Yes, [&] (Connection connection) -> Task { while (true) {
+        auto request = co_await connection.awaitableReceiveHTTPRequest();
+        auto path = HTTPServer::parsePath(request);
+        if (path == "/"_s)
+            co_await connection.awaitableSend(HTTPResponse(html).serialize());
+        else {
+            co_await connection.awaitableSend("HTTP/1.1 200 OK\r\nContent-type: application/octet-stream\r\n\r\n"_s);
+            for (size_t i = 0; i < 16; ++i)
+                co_await connection.awaitableSend(RetainPtr { longData.get() });
+            connection.terminate();
+        }
+    } });
+
+    RetainPtr webView = adoptNS([WKWebView new]);
+    [webView loadRequest:server.request()];
+    EXPECT_WK_STREQ([webView _test_waitForAlert], "caught error RangeError: Out of memory");
 }

@@ -28,6 +28,7 @@
 #if ENABLE(DFG_JIT)
 
 #include "CallFrame.h"
+#include "CodeOrigin.h"
 #include <wtf/ThreadSafeRefCounted.h>
 
 namespace JSC { namespace DFG {
@@ -50,6 +51,8 @@ public:
     unsigned size() const { return m_codeOrigins.size(); }
 
 private:
+    CodeOriginPool();
+
     Vector<CodeOrigin, 0, UnsafeVectorOverflow> m_codeOrigins;
     Vector<unsigned> m_callSiteIndexFreeList;
 };

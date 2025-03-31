@@ -12,8 +12,7 @@
 #define MEDIA_BASE_AUDIO_SOURCE_H_
 
 #include <cstddef>
-
-#include "absl/types/optional.h"
+#include <optional>
 
 namespace cricket {
 
@@ -31,10 +30,15 @@ class AudioSource {
         int sample_rate,
         size_t number_of_channels,
         size_t number_of_frames,
-        absl::optional<int64_t> absolute_capture_timestamp_ms) = 0;
+        std::optional<int64_t> absolute_capture_timestamp_ms) = 0;
 
     // Called when the AudioSource is going away.
     virtual void OnClose() = 0;
+
+    // Returns the number of channels encoded by the sink. This can be less than
+    // the number_of_channels if down-mixing occur. A value of -1 means an
+    // unknown number.
+    virtual int NumPreferredChannels() const = 0;
 
    protected:
     virtual ~Sink() {}

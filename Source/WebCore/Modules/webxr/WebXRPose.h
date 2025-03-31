@@ -26,31 +26,37 @@
 #pragma once
 
 #if ENABLE(WEBXR)
-
-#include <wtf/IsoMalloc.h>
 #include <wtf/Ref.h>
 #include <wtf/RefCounted.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class WebXRRigidTransform;
 
 class WebXRPose : public RefCounted<WebXRPose> {
-    WTF_MAKE_ISO_ALLOCATED(WebXRPose);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(WebXRPose);
 public:
-    static Ref<WebXRPose> create();
-    ~WebXRPose();
+    static Ref<WebXRPose> create(Ref<WebXRRigidTransform>&&, bool emulatedPosition);
+    virtual ~WebXRPose();
 
     const WebXRRigidTransform& transform() const;
     bool emulatedPosition() const;
 
+    virtual bool isViewerPose() const { return false; }
+
 protected:
-    WebXRPose();
+    WebXRPose(Ref<WebXRRigidTransform>&&, bool emulatedPosition);
 
     Ref<WebXRRigidTransform> m_transform;
     bool m_emulatedPosition { false };
 };
 
 } // namespace WebCore
+
+#define SPECIALIZE_TYPE_TRAITS_WEBXRPOSE(ToValueTypeName, predicate)                    \
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::ToValueTypeName)                               \
+    static bool isType(const WebCore::WebXRPose& context) { return context.predicate; } \
+SPECIALIZE_TYPE_TRAITS_END()
 
 #endif // ENABLE(WEBXR)

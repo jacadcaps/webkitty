@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,7 +33,7 @@
 
 namespace JSC {
 
-#define SWITCH_JMP(CASE_OP, SWITCH_CASE, SWITCH_DEFAULT_OFFSET) \
+#define SWITCH_JMP(CASE_OP, SWITCH_CASE) \
     switch (instruction->opcodeID()) { \
     CASE_OP(OpJmp) \
     \
@@ -43,6 +43,7 @@ namespace JSC {
     CASE_OP(OpJneqNull) \
     CASE_OP(OpJundefinedOrNull) \
     CASE_OP(OpJnundefinedOrNull) \
+    CASE_OP(OpJeqPtr) \
     CASE_OP(OpJneqPtr) \
     \
     CASE_OP(OpJless) \
@@ -61,28 +62,26 @@ namespace JSC {
     CASE_OP(OpJbeloweq) \
     case op_switch_imm: { \
         auto bytecode = instruction->as<OpSwitchImm>(); \
-        auto& table = codeBlock->switchJumpTable(bytecode.m_tableIndex); \
-        for (unsigned i = table.branchOffsets.size(); i--;) \
-            SWITCH_CASE(table.branchOffsets[i]); \
-        SWITCH_DEFAULT_OFFSET(OpSwitchImm); \
+        auto& table = codeBlock->unlinkedSwitchJumpTable(bytecode.m_tableIndex); \
+        for (unsigned i = table.m_branchOffsets.size(); i--;) \
+            SWITCH_CASE(table.m_branchOffsets[i]); \
+        SWITCH_CASE(table.m_defaultOffset); \
         break; \
     } \
     case op_switch_char: { \
         auto bytecode = instruction->as<OpSwitchChar>(); \
-        auto& table = codeBlock->switchJumpTable(bytecode.m_tableIndex); \
-        for (unsigned i = table.branchOffsets.size(); i--;) \
-            SWITCH_CASE(table.branchOffsets[i]); \
-        SWITCH_DEFAULT_OFFSET(OpSwitchChar); \
+        auto& table = codeBlock->unlinkedSwitchJumpTable(bytecode.m_tableIndex); \
+        for (unsigned i = table.m_branchOffsets.size(); i--;) \
+            SWITCH_CASE(table.m_branchOffsets[i]); \
+        SWITCH_CASE(table.m_defaultOffset); \
         break; \
     } \
     case op_switch_string: { \
         auto bytecode = instruction->as<OpSwitchString>(); \
-        auto& table = codeBlock->stringSwitchJumpTable(bytecode.m_tableIndex); \
-        auto iter = table.offsetTable.begin(); \
-        auto end = table.offsetTable.end(); \
-        for (; iter != end; ++iter) \
-            SWITCH_CASE(iter->value.branchOffset); \
-        SWITCH_DEFAULT_OFFSET(OpSwitchString); \
+        auto& table = codeBlock->unlinkedStringSwitchJumpTable(bytecode.m_tableIndex); \
+        for (auto& entry : table.m_offsetTable) \
+            SWITCH_CASE(entry.value.m_branchOffset); \
+        SWITCH_CASE(table.m_defaultOffset); \
         break; \
     } \
     default: \
@@ -91,15 +90,15 @@ namespace JSC {
 
 
 template<typename Block>
-inline int jumpTargetForInstruction(Block* codeBlock, const InstructionStream::Ref& instruction, unsigned target)
+inline int jumpTargetForInstruction(Block* codeBlock, const JSInstructionStream::Ref& instruction, unsigned target)
 {
     if (target)
         return target;
     return codeBlock->outOfLineJumpOffset(instruction);
 }
 
-template<typename HashMap>
-inline int jumpTargetForInstruction(HashMap& outOfLineJumpTargets, const InstructionStream::Ref& instruction, unsigned target)
+template<typename UncheckedKeyHashMap>
+inline int jumpTargetForInstruction(UncheckedKeyHashMap& outOfLineJumpTargets, const JSInstructionStream::Ref& instruction, unsigned target)
 {
     if (target)
         return target;
@@ -108,14 +107,14 @@ inline int jumpTargetForInstruction(HashMap& outOfLineJumpTargets, const Instruc
 }
 
 template<typename Op, typename Block>
-inline int jumpTargetForInstruction(Block&& codeBlock, const InstructionStream::Ref& instruction)
+inline int jumpTargetForInstruction(Block&& codeBlock, const JSInstructionStream::Ref& instruction)
 {
     auto bytecode = instruction->as<Op>();
     return jumpTargetForInstruction(codeBlock, instruction, bytecode.m_targetLabel);
 }
 
 template<typename Block, typename Function>
-inline void extractStoredJumpTargetsForInstruction(Block&& codeBlock, const InstructionStream::Ref& instruction, const Function& function)
+inline void extractStoredJumpTargetsForInstruction(Block&& codeBlock, const JSInstructionStream::Ref& instruction, NOESCAPE const Function& function)
 {
 #define CASE_OP(__op) \
     case __op::opcodeID: \
@@ -125,18 +124,14 @@ inline void extractStoredJumpTargetsForInstruction(Block&& codeBlock, const Inst
 #define SWITCH_CASE(__target) \
     function(__target)
 
-#define SWITCH_DEFAULT_OFFSET(__op) \
-    function(jumpTargetForInstruction(codeBlock, instruction, bytecode.m_defaultOffset)) \
-
-SWITCH_JMP(CASE_OP, SWITCH_CASE, SWITCH_DEFAULT_OFFSET)
+SWITCH_JMP(CASE_OP, SWITCH_CASE)
 
 #undef CASE_OP
 #undef SWITCH_CASE
-#undef SWITCH_DEFAULT_OFFSET
 }
 
 template<typename Block, typename Function, typename CodeBlockOrHashMap>
-inline void updateStoredJumpTargetsForInstruction(Block&& codeBlock, unsigned finalOffset, InstructionStream::MutableRef instruction, const Function& function, CodeBlockOrHashMap& codeBlockOrHashMap)
+inline void updateStoredJumpTargetsForInstruction(Block&& codeBlock, unsigned finalOffset, JSInstructionStream::MutableRef instruction, NOESCAPE const Function& function, CodeBlockOrHashMap& codeBlockOrHashMap)
 {
 #define CASE_OP(__op) \
     case __op::opcodeID: { \
@@ -155,24 +150,14 @@ inline void updateStoredJumpTargetsForInstruction(Block&& codeBlock, unsigned fi
         __target = function(target); \
     } while (false)
 
-#define SWITCH_DEFAULT_OFFSET(__op) \
-    do { \
-        int32_t target = jumpTargetForInstruction(codeBlockOrHashMap, instruction, bytecode.m_defaultOffset); \
-        int32_t newTarget = function(target); \
-        instruction->cast<__op>()->setDefaultOffset(BoundLabel(newTarget), [&]() { \
-            codeBlock->addOutOfLineJumpTarget(finalOffset + instruction.offset(), newTarget); \
-            return BoundLabel(); \
-        }); \
-    } while (false)
-
-SWITCH_JMP(CASE_OP, SWITCH_CASE, SWITCH_DEFAULT_OFFSET)
+SWITCH_JMP(CASE_OP, SWITCH_CASE)
 
 #undef CASE_OP
 #undef JMP_TARGET
 }
 
 template<typename Block, typename Function>
-inline void updateStoredJumpTargetsForInstruction(Block* codeBlock, unsigned finalOffset, InstructionStream::MutableRef instruction, Function function)
+inline void updateStoredJumpTargetsForInstruction(Block* codeBlock, unsigned finalOffset, JSInstructionStream::MutableRef instruction, Function function)
 {
     updateStoredJumpTargetsForInstruction(codeBlock, finalOffset, instruction, function, codeBlock);
 }

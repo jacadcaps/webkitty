@@ -27,12 +27,13 @@
 
 #if PLATFORM(MAC)
 
-#import "TCPServer.h"
+#import "HTTPServer.h"
 #import "Test.h"
 #import "TestNavigationDelegate.h"
 #import "TestWKWebView.h"
 #import "Utilities.h"
 #import <WebKit/WKFoundation.h>
+#import <wtf/text/StringCommon.h>
 
 static size_t putPDFBytesCallback(void* info, void* buffer, size_t count)
 {
@@ -40,7 +41,7 @@ static size_t putPDFBytesCallback(void* info, void* buffer, size_t count)
     return count;
 }
 
-static void emptyReleaseInfoCallback(void* __nullable)
+static void emptyReleaseInfoCallback(void*)
 {
 }
 
@@ -73,23 +74,21 @@ static RetainPtr<NSData> createPDFWithLinkToURL(NSURL *url)
 TEST(WebKit, PDFLinkReferrer)
 {
     using namespace TestWebKitAPI;
-    TCPServer server([] (int socket) {
-        // This assumes all the data from the HTTP request is available to be read at once,
-        // which is probably an okay assumption.
-        auto requestBytes = TCPServer::read(socket);
-
-        // Look for a referer header.
-        const auto* currentLine = reinterpret_cast<const char*>(requestBytes.data());
-        while (currentLine) {
-            EXPECT_NE(strncasecmp(currentLine, "referer:", 8), 0);
-            const char* nextLine = strchr(currentLine, '\n');
-            currentLine = nextLine ? nextLine + 1 : 0;
-        }
-
-        const char* responseHeader =
-        "HTTP/1.1 200 OK\r\n"
-        "Content-Length: 0\r\n\r\n";
-        TCPServer::write(socket, responseHeader, strlen(responseHeader));
+    HTTPServer server([] (Connection connection) {
+        connection.receiveHTTPRequest([=](Vector<char>&& requestBytes) {
+            requestBytes.append('\0');
+            // Look for a referer header.
+            auto currentLine = requestBytes.span();
+            while (!currentLine.empty()) {
+                EXPECT_FALSE(spanHasPrefixIgnoringASCIICase(currentLine, "referer:"_span));
+                size_t nextLineIndex = find(currentLine, '\n');
+                currentLine = nextLineIndex != notFound ? currentLine.subspan(nextLineIndex + 1) : std::span<const char> { };
+            }
+            constexpr auto responseHeader =
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Length: 0\r\n\r\n"_s;
+            connection.send(responseHeader);
+        });
     });
 
     RetainPtr<TestWKWebView> webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600)]);
@@ -107,6 +106,10 @@ TEST(WebKit, PDFLinkReferrer)
         EXPECT_NULL([action.request valueForHTTPHeaderField:@"Referer"]);
         decisionHandler(WKNavigationActionPolicyAllow);
     };
+
+    // We need to make sure the WKWebView's layout is up to date
+    // or the clicks might get eaten by the PDF's HUD.
+    [webView layoutSubtreeIfNeeded];
     
     [webView sendClicksAtPoint:NSMakePoint(75, 75) numberOfClicks:1];
     [navigationDelegate waitForDidFinishNavigation];

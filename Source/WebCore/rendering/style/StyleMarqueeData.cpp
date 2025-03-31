@@ -20,9 +20,11 @@
  */
 
 #include "config.h"
-#include "StyleBackgroundData.h"
+#include "StyleMarqueeData.h"
 
-#include "RenderStyle.h"
+#include "RenderStyleConstants.h"
+#include "RenderStyleDifference.h"
+#include "RenderStyleInlines.h"
 
 namespace WebCore {
 
@@ -45,6 +47,11 @@ inline StyleMarqueeData::StyleMarqueeData(const StyleMarqueeData& o)
 {
 }
 
+Ref<StyleMarqueeData> StyleMarqueeData::create()
+{
+    return adoptRef(*new StyleMarqueeData);
+}
+
 Ref<StyleMarqueeData> StyleMarqueeData::copy() const
 {
     return adoptRef(*new StyleMarqueeData(*this));
@@ -55,5 +62,15 @@ bool StyleMarqueeData::operator==(const StyleMarqueeData& o) const
     return increment == o.increment && speed == o.speed && direction == o.direction &&
            behavior == o.behavior && loops == o.loops;
 }
+
+#if !LOG_DISABLED
+void StyleMarqueeData::dumpDifferences(TextStream& ts, const StyleMarqueeData& other) const
+{
+    LOG_IF_DIFFERENT(increment);
+    LOG_IF_DIFFERENT(speed);
+    LOG_IF_DIFFERENT_WITH_CAST(MarqueeBehavior, behavior);
+    LOG_IF_DIFFERENT_WITH_CAST(MarqueeDirection, direction);
+}
+#endif // !LOG_DISABLED
 
 } // namespace WebCore

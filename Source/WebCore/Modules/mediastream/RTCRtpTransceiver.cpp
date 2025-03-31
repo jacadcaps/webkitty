@@ -34,21 +34,24 @@
 
 #if ENABLE(WEB_RTC)
 
-#include <wtf/IsoMallocInlines.h>
+#include "Logging.h"
+#include "RTCPeerConnection.h"
 #include <wtf/NeverDestroyed.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(RTCRtpTransceiver);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(RTCRtpTransceiver);
 
 RTCRtpTransceiver::RTCRtpTransceiver(Ref<RTCRtpSender>&& sender, Ref<RTCRtpReceiver>&& receiver, std::unique_ptr<RTCRtpTransceiverBackend>&& backend)
     : m_direction(RTCRtpTransceiverDirection::Sendrecv)
     , m_sender(WTFMove(sender))
     , m_receiver(WTFMove(receiver))
-    , m_iceTransport(RTCIceTransport::create())
     , m_backend(WTFMove(backend))
 {
 }
+
+RTCRtpTransceiver::~RTCRtpTransceiver() = default;
 
 String RTCRtpTransceiver::mid() const
 {
@@ -67,10 +70,10 @@ RTCRtpTransceiverDirection RTCRtpTransceiver::direction() const
     return m_backend->direction();
 }
 
-Optional<RTCRtpTransceiverDirection> RTCRtpTransceiver::currentDirection() const
+std::optional<RTCRtpTransceiverDirection> RTCRtpTransceiver::currentDirection() const
 {
     if (!m_backend)
-        return WTF::nullopt;
+        return std::nullopt;
     return m_backend->currentDirection();
 }
 
@@ -98,21 +101,36 @@ void RTCRtpTransceiver::disableSendingDirection()
         m_direction = RTCRtpTransceiverDirection::Inactive;
 }
 
-void RTCRtpTransceiver::stop()
+void RTCRtpTransceiver::setConnection(RTCPeerConnection& connection)
 {
+    ASSERT(!m_connection);
+    m_connection = connection;
+}
+
+ExceptionOr<void> RTCRtpTransceiver::stop()
+{
+    if (!m_connection || m_connection->isClosed())
+        return Exception { ExceptionCode::InvalidStateError, "RTCPeerConnection is closed"_s };
+
     if (m_stopped)
-        return;
+        return { };
+
     m_stopped = true;
     m_receiver->stop();
     m_sender->stop();
     if (m_backend)
         m_backend->stop();
+
+    // No need to call negotiation needed, it will be done by the backend itself.
+    return { };
 }
 
 ExceptionOr<void> RTCRtpTransceiver::setCodecPreferences(const Vector<RTCRtpCodecCapability>& codecs)
 {
     if (!m_backend)
         return { };
+
+    RELEASE_LOG_INFO(WebRTC, "RTCRtpTransceiver::setCodecPreferences");
     return m_backend->setCodecPreferences(codecs);
 }
 

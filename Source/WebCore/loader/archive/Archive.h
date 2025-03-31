@@ -45,6 +45,7 @@ public:
     ArchiveResource* mainResource() { return m_mainResource.get(); }
     const Vector<Ref<ArchiveResource>>& subresources() const { return m_subresources; }
     const Vector<Ref<Archive>>& subframeArchives() const { return m_subframeArchives; }
+    WEBCORE_EXPORT Expected<Vector<String>, ArchiveError> saveResourcesToDisk(const String& directory);
 
 protected:
     // These methods are meant for subclasses for different archive types to add resources in to the archive,
@@ -56,7 +57,7 @@ protected:
     void clearAllSubframeArchives();
 
 private:
-    void clearAllSubframeArchives(HashSet<Archive*>&);
+    void clearAllSubframeArchives(UncheckedKeyHashSet<Archive*>&);
 
     RefPtr<ArchiveResource> m_mainResource;
     Vector<Ref<ArchiveResource>> m_subresources;

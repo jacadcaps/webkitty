@@ -27,18 +27,21 @@
 #include "DisplayListDrawingContext.h"
 
 #include "AffineTransform.h"
-#include "DisplayListRecorder.h"
+#include "DisplayListRecorderImpl.h"
 #include "DisplayListReplayer.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 namespace DisplayList {
 
-DrawingContext::DrawingContext(const FloatSize& logicalSize, Recorder::Observer* observer)
-    : m_context([&](GraphicsContext& displayListContext) {
-        return makeUnique<Recorder>(displayListContext, m_displayList, GraphicsContextState(), FloatRect({ }, logicalSize), AffineTransform(), observer);
-    })
+WTF_MAKE_TZONE_ALLOCATED_IMPL(DrawingContext);
+
+DrawingContext::DrawingContext(const FloatSize& logicalSize, const AffineTransform& initialCTM, const DestinationColorSpace& colorSpace)
+    : m_context(m_displayList, GraphicsContextState(), FloatRect({ }, logicalSize), initialCTM, colorSpace)
 {
 }
+
+DrawingContext::~DrawingContext() = default;
 
 void DrawingContext::setTracksDisplayListReplay(bool tracksDisplayListReplay)
 {
@@ -46,24 +49,16 @@ void DrawingContext::setTracksDisplayListReplay(bool tracksDisplayListReplay)
     m_replayedDisplayList.reset();
 }
 
-Recorder& DrawingContext::recorder()
-{
-    auto* graphicsContextImpl = context().impl();
-    ASSERT(graphicsContextImpl);
-    return static_cast<Recorder&>(*graphicsContextImpl);
-}
-
 void DrawingContext::replayDisplayList(GraphicsContext& destContext)
 {
-    if (!m_displayList.itemCount())
+    if (m_displayList.isEmpty())
         return;
 
     Replayer replayer(destContext, m_displayList);
     if (m_tracksDisplayListReplay)
-        m_replayedDisplayList = replayer.replay({ }, m_tracksDisplayListReplay);
+        m_replayedDisplayList = replayer.replay({ }, m_tracksDisplayListReplay).trackedDisplayList;
     else
         replayer.replay();
-    m_displayList.clear();
 }
 
 } // DisplayList

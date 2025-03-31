@@ -32,15 +32,20 @@ class MockIceTransport : public IceTransportInternal {
     SignalWritableState(this);
   }
 
-  MOCK_METHOD4(SendPacket,
-               int(const char* data,
-                   size_t len,
-                   const rtc::PacketOptions& options,
-                   int flags));
-  MOCK_METHOD2(SetOption, int(rtc::Socket::Option opt, int value));
-  MOCK_METHOD0(GetError, int());
-  MOCK_CONST_METHOD0(GetIceRole, cricket::IceRole());
-  MOCK_METHOD1(GetStats, bool(cricket::IceTransportStats* ice_transport_stats));
+  MOCK_METHOD(int,
+              SendPacket,
+              (const char* data,
+               size_t len,
+               const rtc::PacketOptions& options,
+               int flags),
+              (override));
+  MOCK_METHOD(int, SetOption, (rtc::Socket::Option opt, int value), (override));
+  MOCK_METHOD(int, GetError, (), (override));
+  MOCK_METHOD(cricket::IceRole, GetIceRole, (), (const, override));
+  MOCK_METHOD(bool,
+              GetStats,
+              (cricket::IceTransportStats * ice_transport_stats),
+              (override));
 
   IceTransportState GetState() const override {
     return IceTransportState::STATE_INIT;
@@ -52,18 +57,16 @@ class MockIceTransport : public IceTransportInternal {
   const std::string& transport_name() const override { return transport_name_; }
   int component() const override { return 0; }
   void SetIceRole(IceRole role) override {}
-  void SetIceTiebreaker(uint64_t tiebreaker) override {}
-  // The ufrag and pwd in |ice_params| must be set
+  // The ufrag and pwd in `ice_params` must be set
   // before candidate gathering can start.
   void SetIceParameters(const IceParameters& ice_params) override {}
   void SetRemoteIceParameters(const IceParameters& ice_params) override {}
   void SetRemoteIceMode(IceMode mode) override {}
   void SetIceConfig(const IceConfig& config) override {}
-  absl::optional<int> GetRttEstimate() override { return absl::nullopt; }
+  std::optional<int> GetRttEstimate() override { return std::nullopt; }
   const Connection* selected_connection() const override { return nullptr; }
-  absl::optional<const CandidatePair> GetSelectedCandidatePair()
-      const override {
-    return absl::nullopt;
+  std::optional<const CandidatePair> GetSelectedCandidatePair() const override {
+    return std::nullopt;
   }
   void MaybeStartGathering() override {}
   void AddRemoteCandidate(const Candidate& candidate) override {}

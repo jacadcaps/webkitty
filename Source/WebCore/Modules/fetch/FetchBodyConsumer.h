@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc.
+ * Copyright (C) 2016-2024 Apple Inc.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted, provided that the following conditions
@@ -29,63 +29,79 @@
 #pragma once
 
 #include "FetchBodySource.h"
-#include "JSDOMPromiseDeferred.h"
+#include "FormDataConsumer.h"
+#include "JSDOMPromiseDeferredForward.h"
 #include "ReadableStreamSink.h"
+#include "ScriptExecutionContextIdentifier.h"
 #include "SharedBuffer.h"
 #include "UserGestureIndicator.h"
 
 namespace WebCore {
 
 class Blob;
+class DOMFormData;
+class FetchBodyOwner;
 class FetchBodySource;
+class FormData;
 class ReadableStream;
 
-class FetchBodyConsumer {
+class FetchBodyConsumer final : public CanMakeCheckedPtr<FetchBodyConsumer> {
+    WTF_MAKE_FAST_ALLOCATED;
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(FetchBodyConsumer);
 public:
-    enum class Type { None, ArrayBuffer, Blob, JSON, Text };
+    enum class Type { None, ArrayBuffer, Blob, Bytes, JSON, Text, FormData };
 
-    explicit FetchBodyConsumer(Type type) : m_type(type) { }
+    explicit FetchBodyConsumer(Type);
+    FetchBodyConsumer(FetchBodyConsumer&&);
+    ~FetchBodyConsumer();
+    FetchBodyConsumer& operator=(FetchBodyConsumer&&);
 
-    void append(const char* data, unsigned);
-    void append(const unsigned char* data, unsigned);
+    FetchBodyConsumer clone();
+
+    void append(const SharedBuffer&);
 
     bool hasData() const { return !!m_buffer; }
-    const SharedBuffer* data() const { return m_buffer.get(); }
-    void setData(Ref<SharedBuffer>&& data) { m_buffer = WTFMove(data); }
+    const FragmentedSharedBuffer* data() const { return m_buffer.get().get(); }
+    void setData(Ref<FragmentedSharedBuffer>&&);
 
-    RefPtr<SharedBuffer> takeData();
+    RefPtr<FragmentedSharedBuffer> takeData();
     RefPtr<JSC::ArrayBuffer> takeAsArrayBuffer();
     String takeAsText();
 
-    void setContentType(const String& contentType) { m_contentType = contentType; }
+    bool hasPendingActivity() const;
+
     void setType(Type type) { m_type = type; }
 
     void clean();
 
     void extract(ReadableStream&, ReadableStreamToSharedBufferSink::Callback&&);
-    void resolve(Ref<DeferredPromise>&&, ReadableStream*);
-    void resolveWithData(Ref<DeferredPromise>&&, const unsigned char*, unsigned);
+    void resolve(Ref<DeferredPromise>&&, const String& contentType, FetchBodyOwner*, ReadableStream*);
+    void resolveWithData(Ref<DeferredPromise>&&, const String& contentType, std::span<const uint8_t>);
+    void resolveWithFormData(Ref<DeferredPromise>&&, const String& contentType, const FormData&, ScriptExecutionContext*);
+    void consumeFormDataAsStream(const FormData&, FetchBodySource&, ScriptExecutionContext*);
 
     void loadingFailed(const Exception&);
-    void loadingSucceeded();
+    void loadingSucceeded(const String& contentType);
 
     void setConsumePromise(Ref<DeferredPromise>&&);
     void setSource(Ref<FetchBodySource>&&);
 
     void setAsLoading() { m_isLoading = true; }
 
+    static RefPtr<DOMFormData> packageFormData(ScriptExecutionContext*, const String& contentType, std::span<const uint8_t> data);
+
 private:
-    Ref<Blob> takeAsBlob();
+    Ref<Blob> takeAsBlob(ScriptExecutionContext*, const String& contentType);
     void resetConsumePromise();
 
     Type m_type;
-    String m_contentType;
-    RefPtr<SharedBuffer> m_buffer;
+    SharedBufferBuilder m_buffer;
     RefPtr<DeferredPromise> m_consumePromise;
     RefPtr<ReadableStreamToSharedBufferSink> m_sink;
     RefPtr<FetchBodySource> m_source;
     bool m_isLoading { false };
     RefPtr<UserGestureToken> m_userGestureToken;
+    RefPtr<FormDataConsumer> m_formDataConsumer;
 };
 
 } // namespace WebCore

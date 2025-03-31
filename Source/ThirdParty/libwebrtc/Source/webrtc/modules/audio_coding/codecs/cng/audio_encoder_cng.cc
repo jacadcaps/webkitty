@@ -12,8 +12,10 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <utility>
 
+#include "api/units/time_delta.h"
 #include "modules/audio_coding/codecs/cng/webrtc_cng.h"
 #include "rtc_base/checks.h"
 
@@ -52,9 +54,10 @@ class AudioEncoderCng final : public AudioEncoder {
       override;
   void OnReceivedUplinkPacketLossFraction(
       float uplink_packet_loss_fraction) override;
-  void OnReceivedUplinkBandwidth(
-      int target_audio_bitrate_bps,
-      absl::optional<int64_t> bwe_period_ms) override;
+  void OnReceivedUplinkBandwidth(int target_audio_bitrate_bps,
+                                 std::optional<int64_t> bwe_period_ms) override;
+  std::optional<std::pair<TimeDelta, TimeDelta>> GetFrameLengthRange()
+      const override;
 
  private:
   EncodedInfo EncodePassive(size_t frames_to_encode, rtc::Buffer* encoded);
@@ -85,7 +88,9 @@ AudioEncoderCng::AudioEncoderCng(AudioEncoderCngConfig&& config)
                       : CreateVad(config.vad_mode)),
       cng_encoder_(new ComfortNoiseEncoder(SampleRateHz(),
                                            sid_frame_interval_ms_,
-                                           num_cng_coefficients_)) {}
+                                           num_cng_coefficients_)) {
+  speech_encoder_->Reset();
+}
 
 AudioEncoderCng::~AudioEncoderCng() = default;
 
@@ -167,9 +172,8 @@ AudioEncoder::EncodedInfo AudioEncoderCng::EncodeImpl(
       last_frame_active_ = true;
       break;
     }
-    case Vad::kError: {
-      RTC_FATAL();  // Fails only if fed invalid data.
-      break;
+    default: {
+      RTC_CHECK_NOTREACHED();
     }
   }
 
@@ -220,9 +224,14 @@ void AudioEncoderCng::OnReceivedUplinkPacketLossFraction(
 
 void AudioEncoderCng::OnReceivedUplinkBandwidth(
     int target_audio_bitrate_bps,
-    absl::optional<int64_t> bwe_period_ms) {
+    std::optional<int64_t> bwe_period_ms) {
   speech_encoder_->OnReceivedUplinkBandwidth(target_audio_bitrate_bps,
                                              bwe_period_ms);
+}
+
+std::optional<std::pair<TimeDelta, TimeDelta>>
+AudioEncoderCng::GetFrameLengthRange() const {
+  return speech_encoder_->GetFrameLengthRange();
 }
 
 AudioEncoder::EncodedInfo AudioEncoderCng::EncodePassive(

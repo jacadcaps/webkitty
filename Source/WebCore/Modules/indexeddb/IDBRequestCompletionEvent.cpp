@@ -26,20 +26,16 @@
 #include "config.h"
 #include "IDBRequestCompletionEvent.h"
 
-#if ENABLE(INDEXED_DATABASE)
-
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(IDBRequestCompletionEvent);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(IDBRequestCompletionEvent);
 
 IDBRequestCompletionEvent::IDBRequestCompletionEvent(const AtomString& type, CanBubble canBubble, IsCancelable cancelable, IDBRequest& request)
-    : Event(type, canBubble, cancelable)
+    : Event(EventInterfaceType::Event, type, canBubble, cancelable)
     , m_request(request)
 {
 }
 
 } // namespace WebCore
-
-#endif // ENABLE(INDEXED_DATABASE)

@@ -48,7 +48,7 @@ class Button extends LayoutItem
 
         this._enabled = true;
 
-        if (GestureRecognizer.SupportsTouches)
+        if (this.layoutTraits.supportsTouches())
             this._tapGestureRecognizer = new TapGestureRecognizer(this.element, this);
         else
             this.element.addEventListener("click", this);
@@ -83,6 +83,7 @@ class Button extends LayoutItem
 
         this._loadImage(iconName);
         this.element.setAttribute("aria-label", iconName.label);
+        this.element.setAttribute("id", iconName.name);
     }
 
     get on()
@@ -129,6 +130,23 @@ class Button extends LayoutItem
         this._updateImageMetrics();
     }
 
+    get contextMenuOptions()
+    {
+        // Implemented by subclasses.
+        return {};
+    }
+
+    get circular()
+    {
+        return this.element.classList.contains("circular");
+    }
+
+    set circular(circular)
+    {
+        this.element.classList.toggle("circular", circular);
+        this._updateImageMetrics();
+    }
+
     // Protected
 
     handleEvent(event)
@@ -151,7 +169,7 @@ class Button extends LayoutItem
     commitProperty(propertyName)
     {
         if (propertyName === "maskImage")
-            this.image.element.style.webkitMaskImage = `url(${this._imageSource.src})`;
+            this.image.element.style.maskImage = `url(${this._imageSource.src})`;
         else
             super.commitProperty(propertyName);
     }
@@ -196,12 +214,20 @@ class Button extends LayoutItem
 
     _updateImageMetrics()
     {
+        if (!this._imageSource)
+            return;
+
         let width = this._imageSource.width * this._scaleFactor;
         let height = this._imageSource.height * this._scaleFactor;
 
         if (this._iconName.type === "png" || this._iconName.type === "pdf") {
             width /= window.devicePixelRatio;
             height /= window.devicePixelRatio;
+        }
+
+        if (this.circular) {
+            width = Math.max(width, height);
+            height = width;
         }
 
         if (this.image.width === width && this.image.height === height)
@@ -223,5 +249,6 @@ Button.Styles = {
     Bar: "bar",
     Corner: "corner",
     Center: "center",
+    Rounded: "rounded",
     SmallCenter: "small-center"
 };

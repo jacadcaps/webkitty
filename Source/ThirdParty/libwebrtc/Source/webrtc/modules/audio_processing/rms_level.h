@@ -14,7 +14,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "absl/types/optional.h"
+#include <optional>
+
 #include "api/array_view.h"
 
 namespace webrtc {
@@ -34,7 +35,7 @@ class RmsLevel {
     int peak;
   };
 
-  enum : int { kMinLevelDb = 127 };
+  enum : int { kMinLevelDb = 127, kInaudibleButNotMuted = 126 };
 
   RmsLevel();
   ~RmsLevel();
@@ -47,7 +48,7 @@ class RmsLevel {
   void Analyze(rtc::ArrayView<const int16_t> data);
   void Analyze(rtc::ArrayView<const float> data);
 
-  // If all samples with the given |length| have a magnitude of zero, this is
+  // If all samples with the given `length` have a magnitude of zero, this is
   // a shortcut to avoid some computation.
   void AnalyzeMuted(size_t length);
 
@@ -62,14 +63,14 @@ class RmsLevel {
   Levels AverageAndPeak();
 
  private:
-  // Compares |block_size| with |block_size_|. If they are different, calls
+  // Compares `block_size` with `block_size_`. If they are different, calls
   // Reset() and stores the new size.
   void CheckBlockSize(size_t block_size);
 
   float sum_square_;
   size_t sample_count_;
   float max_sum_square_;
-  absl::optional<size_t> block_size_;
+  std::optional<size_t> block_size_;
 };
 
 }  // namespace webrtc

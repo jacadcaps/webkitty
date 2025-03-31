@@ -27,8 +27,8 @@
 #include "config.h"
 #include "DNSResolveQueue.h"
 
-#if USE(SOUP)
-#include "DNSResolveQueueSoup.h"
+#if USE(GLIB)
+#include "DNSResolveQueueGLib.h"
 #elif USE(CURL)
 #include "DNSResolveQueueCurl.h"
 #elif USE(CF)
@@ -122,7 +122,7 @@ void DNSResolveQueue::timerFired()
 
     for (; !m_names.isEmpty() && requestsAllowed > 0; --requestsAllowed) {
         ++m_requestsInFlight;
-        HashSet<String>::iterator currentName = m_names.begin();
+        UncheckedKeyHashSet<String>::iterator currentName = m_names.begin();
         platformResolve(*currentName);
         m_names.remove(currentName);
     }

@@ -26,6 +26,7 @@
 #include "config.h"
 #include "SetNodeAttributeCommand.h"
 
+#include "CompositeEditCommand.h"
 #include "Element.h"
 #include <wtf/Assertions.h>
 
@@ -41,21 +42,21 @@ SetNodeAttributeCommand::SetNodeAttributeCommand(Ref<Element>&& element, const Q
 
 void SetNodeAttributeCommand::doApply()
 {
-    m_oldValue = m_element->getAttribute(m_attribute);
-    m_element->setAttribute(m_attribute, m_value);
+    auto element = protectedElement();
+    m_oldValue = element->getAttribute(m_attribute);
+    element->setAttribute(m_attribute, m_value);
 }
 
 void SetNodeAttributeCommand::doUnapply()
 {
-    m_element->setAttribute(m_attribute, m_oldValue);
-    AtomStringImpl* nullString = nullptr;
-    m_oldValue = nullString;
+    protectedElement()->setAttribute(m_attribute, m_oldValue);
+    m_oldValue = { };
 }
 
 #ifndef NDEBUG
-void SetNodeAttributeCommand::getNodesInCommand(HashSet<Node*>& nodes)
+void SetNodeAttributeCommand::getNodesInCommand(NodeSet& nodes)
 {
-    addNodeAndDescendants(m_element.ptr(), nodes);
+    addNodeAndDescendants(protectedElement().ptr(), nodes);
 }
 #endif
 

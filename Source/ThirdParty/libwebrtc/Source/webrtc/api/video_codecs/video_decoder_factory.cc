@@ -1,5 +1,5 @@
 /*
- *  Copyright (c) 2018 The WebRTC project authors. All Rights Reserved.
+ *  Copyright (c) 2024 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -10,14 +10,18 @@
 
 #include "api/video_codecs/video_decoder_factory.h"
 
-#include "api/video_codecs/video_decoder.h"
+#include "api/video_codecs/sdp_video_format.h"
 
 namespace webrtc {
 
-std::unique_ptr<VideoDecoder> VideoDecoderFactory::LegacyCreateVideoDecoder(
+VideoDecoderFactory::CodecSupport VideoDecoderFactory::QueryCodecSupport(
     const SdpVideoFormat& format,
-    const std::string& receive_stream_id) {
-  return CreateVideoDecoder(format);
+    bool reference_scaling) const {
+  // Default implementation, query for supported formats and check if the
+  // specified format is supported. Returns false if `reference_scaling` is
+  // true.
+  return {.is_supported = !reference_scaling &&
+                          format.IsCodecInList(GetSupportedFormats())};
 }
 
 }  // namespace webrtc

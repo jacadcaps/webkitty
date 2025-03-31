@@ -31,20 +31,27 @@
 #pragma once
 
 #include "TextFieldInputType.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 // Base of email, password, search, tel, text, and URL types.
 // They support maxlength, selection functions, and so on.
 class BaseTextInputType : public TextFieldInputType {
-protected:
-    explicit BaseTextInputType(HTMLInputElement& element) : TextFieldInputType(element) { }
+    WTF_MAKE_TZONE_ALLOCATED(BaseTextInputType);
+public:
+    bool patternMismatch(const String&) const final;
 
-private:
-    bool isTextType() const override;
-    bool patternMismatch(const String&) const override;
-    bool supportsPlaceholder() const override;
+protected:
+    explicit BaseTextInputType(Type type, HTMLInputElement& element)
+        : TextFieldInputType(type, element)
+    {
+    }
+
+    bool supportsPlaceholder() const final;
     bool supportsSelectionAPI() const override;
+
+    bool dirAutoUsesValue() const final;
 };
 
 } // namespace WebCore

@@ -20,23 +20,105 @@
 
 #include "tcuANGLEPlatform.h"
 
+#include "egluGLContextFactory.hpp"
+#include "gluPlatform.hpp"
+#include "tcuANGLENativeDisplayFactory.h"
+#include "tcuDefs.hpp"
+#include "tcuNullContextFactory.hpp"
+#include "tcuPlatform.hpp"
+#include "util/autogen/angle_features_autogen.h"
+#include "util/test_utils.h"
+
+#ifndef _EGLUPLATFORM_HPP
+#    include "egluPlatform.hpp"
+#endif
+
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 
-#include "egluGLContextFactory.hpp"
-#include "tcuANGLENativeDisplayFactory.h"
-#include "tcuNullContextFactory.hpp"
-#include "util/test_utils.h"
+#include "angle_deqp_libtester.h"
+
+#if (DE_OS == DE_OS_WIN32)
+#    include "tcuWGLContextFactory.hpp"
+#    include "tcuWin32EGLNativeDisplayFactory.hpp"
+#endif  // (DE_OS == DE_OS_WIN32)
+
+#if (DE_OS == DE_OS_UNIX)
+#    include "tcuLnxX11EglDisplayFactory.hpp"
+#endif  // (DE_OKS == DE_OS_UNIX)
 
 static_assert(EGL_DONT_CARE == -1, "Unexpected value for EGL_DONT_CARE");
 
 namespace tcu
 {
-ANGLEPlatform::ANGLEPlatform(angle::LogErrorFunc logErrorFunc)
+class ANGLEPlatform : public tcu::Platform, private glu::Platform, private eglu::Platform
+{
+  public:
+    ANGLEPlatform(angle::LogErrorFunc logErrorFunc,
+                  uint32_t preRotation,
+                  dEQPDriverOption driverOption);
+    ~ANGLEPlatform();
+
+    bool processEvents() override;
+
+    const glu::Platform &getGLPlatform() const override
+    {
+        return static_cast<const glu::Platform &>(*this);
+    }
+    const eglu::Platform &getEGLPlatform() const override
+    {
+        return static_cast<const eglu::Platform &>(*this);
+    }
+
+  private:
+    // Note: -1 represents EGL_DONT_CARE, but we don't have the EGL headers here.
+    std::vector<eglw::EGLAttrib> initAttribs(eglw::EGLAttrib type,
+                                             eglw::EGLAttrib deviceType   = -1,
+                                             eglw::EGLAttrib majorVersion = -1,
+                                             eglw::EGLAttrib minorVersion = -1);
+
+    EventState mEvents;
+    angle::PlatformMethods mPlatformMethods;
+    std::vector<const char *> mEnableFeatureOverrides;
+
+#if (DE_OS == DE_OS_UNIX)
+    lnx::EventState mLnxEventState;
+#endif
+};
+
+ANGLEPlatform::ANGLEPlatform(angle::LogErrorFunc logErrorFunc,
+                             uint32_t preRotation,
+                             dEQPDriverOption driverOption)
 {
     angle::SetLowPriorityProcess();
 
     mPlatformMethods.logError = logErrorFunc;
+
+    // Enable non-conformant ES versions and extensions for testing.  Our test expectations would
+    // suppress failing tests, but allowing continuous testing of the pieces that are implemented.
+    mEnableFeatureOverrides.push_back(
+        angle::GetFeatureName(angle::Feature::ExposeNonConformantExtensionsAndVersions));
+
+    // Create pre-rotation attributes.
+    switch (preRotation)
+    {
+        case 90:
+            mEnableFeatureOverrides.push_back(
+                angle::GetFeatureName(angle::Feature::EmulatedPrerotation90));
+            break;
+        case 180:
+            mEnableFeatureOverrides.push_back(
+                angle::GetFeatureName(angle::Feature::EmulatedPrerotation180));
+            break;
+        case 270:
+            mEnableFeatureOverrides.push_back(
+                angle::GetFeatureName(angle::Feature::EmulatedPrerotation270));
+            break;
+        default:
+            break;
+    }
+
+    mEnableFeatureOverrides.push_back(nullptr);
 
 #if (DE_OS == DE_OS_WIN32)
     {
@@ -49,6 +131,16 @@ ANGLEPlatform::ANGLEPlatform(angle::LogErrorFunc logErrorFunc)
     }
 
     {
+        std::vector<eglw::EGLAttrib> d3d11Attribs =
+            initAttribs(EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE,
+                        EGL_PLATFORM_ANGLE_DEVICE_TYPE_D3D_REFERENCE_ANGLE);
+
+        auto *d3d11Factory = new ANGLENativeDisplayFactory(
+            "angle-d3d11-ref", "ANGLE D3D11 Reference Display", d3d11Attribs, &mEvents);
+        m_nativeDisplayFactoryRegistry.registerFactory(d3d11Factory);
+    }
+
+    {
         std::vector<eglw::EGLAttrib> d3d9Attribs = initAttribs(
             EGL_PLATFORM_ANGLE_TYPE_D3D9_ANGLE, EGL_PLATFORM_ANGLE_DEVICE_TYPE_HARDWARE_ANGLE);
 
@@ -57,15 +149,8 @@ ANGLEPlatform::ANGLEPlatform(angle::LogErrorFunc logErrorFunc)
         m_nativeDisplayFactoryRegistry.registerFactory(d3d9Factory);
     }
 
-    {
-        std::vector<eglw::EGLAttrib> d3d1193Attribs =
-            initAttribs(EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE,
-                        EGL_PLATFORM_ANGLE_DEVICE_TYPE_HARDWARE_ANGLE, 9, 3);
-
-        auto *d3d1193Factory = new ANGLENativeDisplayFactory(
-            "angle-d3d11-fl93", "ANGLE D3D11 FL9_3 Display", d3d1193Attribs, &mEvents);
-        m_nativeDisplayFactoryRegistry.registerFactory(d3d1193Factory);
-    }
+    m_nativeDisplayFactoryRegistry.registerFactory(
+        new win32::EGLNativeDisplayFactory(GetModuleHandle(nullptr)));
 #endif  // (DE_OS == DE_OS_WIN32)
 
 #if defined(ANGLE_USE_GBM) || (DE_OS == DE_OS_ANDROID) || (DE_OS == DE_OS_WIN32)
@@ -87,7 +172,29 @@ ANGLEPlatform::ANGLEPlatform(angle::LogErrorFunc logErrorFunc)
         m_nativeDisplayFactoryRegistry.registerFactory(glFactory);
     }
 
-#if (DE_OS == DE_OS_ANDROID) || (DE_OS == DE_OS_WIN32) || (DE_OS == DE_OS_UNIX)
+#if (DE_OS == DE_OS_ANDROID)
+    {
+        if (driverOption == dEQPDriverOption::ANGLE)
+        {
+            std::vector<eglw::EGLAttrib> vkAttribs =
+                initAttribs(EGL_PLATFORM_ANGLE_TYPE_VULKAN_ANGLE);
+            auto *vkFactory =
+                new ANGLENativeDisplayFactory("angle-vulkan", "ANGLE Vulkan Display", vkAttribs,
+                                              &mEvents, EGL_PLATFORM_ANGLE_ANGLE);
+            m_nativeDisplayFactoryRegistry.registerFactory(vkFactory);
+        }
+        else
+        {
+            std::vector<eglw::EGLAttrib> nativeGlesAttribs = {EGL_NONE};
+            auto *nativeGLESFactory                        = new ANGLENativeDisplayFactory(
+                "native-gles", "Native GLES Display", nativeGlesAttribs, &mEvents,
+                EGL_PLATFORM_ANDROID_KHR);
+            m_nativeDisplayFactoryRegistry.registerFactory(nativeGLESFactory);
+        }
+    }
+#endif
+
+#if ((DE_OS == DE_OS_WIN32) || (DE_OS == DE_OS_UNIX))
     {
         std::vector<eglw::EGLAttrib> vkAttribs = initAttribs(EGL_PLATFORM_ANGLE_TYPE_VULKAN_ANGLE);
 
@@ -103,6 +210,17 @@ ANGLEPlatform::ANGLEPlatform(angle::LogErrorFunc logErrorFunc)
             EGL_PLATFORM_ANGLE_TYPE_VULKAN_ANGLE, EGL_PLATFORM_ANGLE_DEVICE_TYPE_SWIFTSHADER_ANGLE);
         m_nativeDisplayFactoryRegistry.registerFactory(new ANGLENativeDisplayFactory(
             "angle-swiftshader", "ANGLE SwiftShader Display", swsAttribs, &mEvents));
+    }
+#endif
+
+#if (DE_OS == DE_OS_WIN32) || (DE_OS == DE_OS_UNIX) || (DE_OS == DE_OS_OSX)
+    {
+        std::vector<eglw::EGLAttrib> webgpuAttribs =
+            initAttribs(EGL_PLATFORM_ANGLE_TYPE_WEBGPU_ANGLE);
+
+        auto *webgpuFactory = new ANGLENativeDisplayFactory("angle-webgpu", "ANGLE WebGPU Display",
+                                                            webgpuAttribs, &mEvents);
+        m_nativeDisplayFactoryRegistry.registerFactory(webgpuFactory);
     }
 #endif
 
@@ -124,11 +242,27 @@ ANGLEPlatform::ANGLEPlatform(angle::LogErrorFunc logErrorFunc)
         m_nativeDisplayFactoryRegistry.registerFactory(nullFactory);
     }
 
+#if (DE_OS == DE_OS_UNIX)
+    m_nativeDisplayFactoryRegistry.registerFactory(
+        lnx::x11::egl::createDisplayFactory(mLnxEventState));
+#endif
+
     m_contextFactoryRegistry.registerFactory(
         new eglu::GLContextFactory(m_nativeDisplayFactoryRegistry));
 
     // Add Null context type for use in generating case lists
     m_contextFactoryRegistry.registerFactory(new null::NullGLContextFactory());
+
+#if (DE_OS == DE_OS_WIN32)
+    // The wgl::ContextFactory can throw an exception when it fails to load WGL extension functions.
+    // Fail gracefully by catching the exception, which prevents adding the factory to the registry.
+    try
+    {
+        m_contextFactoryRegistry.registerFactory(new wgl::ContextFactory(GetModuleHandle(nullptr)));
+    }
+    catch (tcu::Exception e)
+    {}
+#endif
 }
 
 ANGLEPlatform::~ANGLEPlatform() {}
@@ -174,18 +308,26 @@ std::vector<eglw::EGLAttrib> ANGLEPlatform::initAttribs(eglw::EGLAttrib type,
         attribs.push_back(reinterpret_cast<eglw::EGLAttrib>(&mPlatformMethods));
     }
 
+    if (!mEnableFeatureOverrides.empty())
+    {
+        attribs.push_back(EGL_FEATURE_OVERRIDES_ENABLED_ANGLE);
+        attribs.push_back(reinterpret_cast<EGLAttrib>(mEnableFeatureOverrides.data()));
+    }
+
     attribs.push_back(EGL_NONE);
     return attribs;
 }
 }  // namespace tcu
 
 // Create platform
-tcu::Platform *CreateANGLEPlatform(angle::LogErrorFunc logErrorFunc)
+tcu::Platform *CreateANGLEPlatform(angle::LogErrorFunc logErrorFunc,
+                                   uint32_t preRotation,
+                                   dEQPDriverOption driverOption)
 {
-    return new tcu::ANGLEPlatform(logErrorFunc);
+    return new tcu::ANGLEPlatform(logErrorFunc, preRotation, driverOption);
 }
 
 tcu::Platform *createPlatform()
 {
-    return CreateANGLEPlatform(nullptr);
+    return CreateANGLEPlatform(nullptr, 0, dEQPDriverOption::ANGLE);
 }

@@ -27,10 +27,11 @@
 #include <wtf/NumberOfCores.h>
 
 #include <cstdio>
+#include <mutex>
 
 #if OS(DARWIN)
 #include <sys/sysctl.h>
-#elif OS(LINUX) || OS(AIX) || OS(OPENBSD) || OS(NETBSD) || OS(FREEBSD)
+#elif OS(LINUX) || OS(AIX) || OS(OPENBSD) || OS(NETBSD) || OS(FREEBSD) || OS(HAIKU)
 #include <unistd.h>
 #elif OS(WINDOWS)
 #include <windows.h>
@@ -46,6 +47,7 @@ int numberOfProcessorCores()
     if (s_numberOfCores > 0)
         return s_numberOfCores;
     
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
     if (const char* coresEnv = getenv("WTF_numberOfProcessorCores")) {
         unsigned numberOfCores;
         if (sscanf(coresEnv, "%u", &numberOfCores) == 1) {
@@ -54,6 +56,7 @@ int numberOfProcessorCores()
         } else
             fprintf(stderr, "WARNING: failed to parse WTF_numberOfProcessorCores=%s\n", coresEnv);
     }
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #if OS(DARWIN)
     unsigned result;
@@ -65,7 +68,7 @@ int numberOfProcessorCores()
     int sysctlResult = sysctl(name, sizeof(name) / sizeof(int), &result, &length, 0, 0);
 
     s_numberOfCores = sysctlResult < 0 ? defaultIfUnavailable : result;
-#elif OS(LINUX) || OS(AIX) || OS(OPENBSD) || OS(NETBSD) || OS(FREEBSD)
+#elif OS(LINUX) || OS(AIX) || OS(OPENBSD) || OS(NETBSD) || OS(FREEBSD) || OS(HAIKU)
     long sysconfResult = sysconf(_SC_NPROCESSORS_ONLN);
 
     s_numberOfCores = sysconfResult < 0 ? defaultIfUnavailable : static_cast<int>(sysconfResult);
@@ -80,5 +83,23 @@ int numberOfProcessorCores()
 #endif
     return s_numberOfCores;
 }
+
+#if OS(DARWIN)
+int numberOfPhysicalProcessorCores()
+{
+    const int32_t defaultIfUnavailable = 1;
+
+    static int32_t numCores = 0;
+    static std::once_flag onceKey;
+    std::call_once(onceKey, [&] {
+        size_t valueSize = sizeof(numCores);
+        int result = sysctlbyname("hw.physicalcpu_max", &numCores, &valueSize, nullptr, 0);
+        if (result < 0)
+            numCores = defaultIfUnavailable;
+    });
+
+    return numCores;
+}
+#endif
 
 }

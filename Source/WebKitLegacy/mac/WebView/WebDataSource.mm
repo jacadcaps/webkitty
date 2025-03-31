@@ -49,12 +49,12 @@
 #import "WebResourceLoadDelegate.h"
 #import "WebViewInternal.h"
 #import <JavaScriptCore/InitializeThreading.h>
-#import <WebCore/ApplicationCacheStorage.h>
 #import <WebCore/FrameLoader.h>
 #import <WebCore/LegacyWebArchive.h>
 #import <WebCore/MIMETypeRegistry.h>
 #import <WebCore/ResourceRequest.h>
 #import <WebCore/SharedBuffer.h>
+#import <WebCore/WebCoreJITOperations.h>
 #import <WebCore/WebCoreObjCExtras.h>
 #import <WebCore/WebCoreURLResponse.h>
 #import <WebKitLegacy/DOMHTML.h>
@@ -66,6 +66,7 @@
 #import <wtf/RetainPtr.h>
 #import <wtf/RunLoop.h>
 #import <wtf/URL.h>
+#import <wtf/cocoa/VectorCocoa.h>
 
 #if PLATFORM(IOS_FAMILY)
 #import "WebPDFViewIOS.h"
@@ -155,6 +156,7 @@ void addTypesFromClass(NSMutableDictionary *allTypes, Class objCClass, NSArray *
 #if !PLATFORM(IOS_FAMILY)
         JSC::initialize();
         WTF::initializeMainThread();
+        WebCore::populateJITOperations();
 #endif
     }
 }
@@ -176,15 +178,15 @@ void addTypesFromClass(NSMutableDictionary *allTypes, Class objCClass, NSArray *
 - (NSFileWrapper *)_fileWrapperForURL:(NSURL *)URL
 {
     if ([URL isFileURL])
-        return [[[NSFileWrapper alloc] initWithURL:[URL URLByResolvingSymlinksInPath] options:0 error:nullptr] autorelease];
+        return adoptNS([[NSFileWrapper alloc] initWithURL:[URL URLByResolvingSymlinksInPath] options:0 error:nullptr]).autorelease();
 
     if (auto resource = [self subresourceForURL:URL])
         return [resource _fileWrapperRepresentation];
 
     if (auto cachedResponse = [[self _webView] _cachedResponseForURL:URL]) {
-        NSFileWrapper *wrapper = [[[NSFileWrapper alloc] initRegularFileWithContents:[cachedResponse data]] autorelease];
+        auto wrapper = adoptNS([[NSFileWrapper alloc] initRegularFileWithContents:[cachedResponse data]]);
         [wrapper setPreferredFilename:[[cachedResponse response] suggestedFilename]];
-        return wrapper;
+        return wrapper.autorelease();
     }
     
     return nil;
@@ -205,7 +207,7 @@ void addTypesFromClass(NSMutableDictionary *allTypes, Class objCClass, NSArray *
 #if PLATFORM(IOS_FAMILY)
 - (void)_setOverrideTextEncodingName:(NSString *)encoding
 {
-    toPrivate(_private)->loader->setOverrideEncoding([encoding UTF8String]);
+    toPrivate(_private)->loader->setOverrideEncoding(encoding);
 }
 #endif
 
@@ -267,32 +269,31 @@ void addTypesFromClass(NSMutableDictionary *allTypes, Class objCClass, NSArray *
 
 + (NSMutableDictionary *)_repTypesAllowImageTypeOmission:(BOOL)allowImageTypeOmission
 {
-    static NSMutableDictionary *repTypes = nil;
-    static BOOL addedImageTypes = NO;
-    
-    if (!repTypes) {
-        repTypes = [[NSMutableDictionary alloc] init];
-        addTypesFromClass(repTypes, [WebHTMLRepresentation class], [WebHTMLRepresentation supportedNonImageMIMETypes]);
-        addTypesFromClass(repTypes, [WebHTMLRepresentation class], [WebHTMLRepresentation supportedMediaMIMETypes]);
-        
+    static NeverDestroyed repTypes = [] {
+        auto types = adoptNS([[NSMutableDictionary alloc] init]);
+        addTypesFromClass(types.get(), [WebHTMLRepresentation class], [WebHTMLRepresentation supportedNonImageMIMETypes]);
+        addTypesFromClass(types.get(), [WebHTMLRepresentation class], [WebHTMLRepresentation supportedMediaMIMETypes]);
+
         // Since this is a "secret default" we don't both registering it.
         BOOL omitPDFSupport = [[NSUserDefaults standardUserDefaults] boolForKey:@"WebKitOmitPDFSupport"];
-        if (!omitPDFSupport)
+        if (!omitPDFSupport) {
 #if PLATFORM(IOS_FAMILY)
 #define WebPDFRepresentation ([WebView _getPDFRepresentationClass])
 #endif
-            addTypesFromClass(repTypes, [WebPDFRepresentation class], [WebPDFRepresentation supportedMIMETypes]);
+            addTypesFromClass(types.get(), [WebPDFRepresentation class], [WebPDFRepresentation supportedMIMETypes]);
 #if PLATFORM(IOS_FAMILY)
 #undef WebPDFRepresentation
 #endif
-    }
-    
+        }
+        return types;
+    }();
+    static BOOL addedImageTypes = NO;
     if (!addedImageTypes && !allowImageTypeOmission) {
-        addTypesFromClass(repTypes, [WebHTMLRepresentation class], [WebHTMLRepresentation supportedImageMIMETypes]);
+        addTypesFromClass(repTypes.get().get(), [WebHTMLRepresentation class], [WebHTMLRepresentation supportedImageMIMETypes]);
         addedImageTypes = YES;
     }
     
-    return repTypes;
+    return repTypes.get().get();
 }
 
 - (void)_replaceSelectionWithArchive:(WebArchive *)archive selectReplacement:(BOOL)selectReplacement
@@ -310,18 +311,14 @@ void addTypesFromClass(NSMutableDictionary *allTypes, Class objCClass, NSArray *
     if (mainResource) {
         NSString *MIMEType = [mainResource MIMEType];
         if ([WebView canShowMIMETypeAsHTML:MIMEType]) {
-            NSString *markupString = [[NSString alloc] initWithData:[mainResource data] encoding:NSUTF8StringEncoding];
+            auto markupString = adoptNS([[NSString alloc] initWithData:[mainResource data] encoding:NSUTF8StringEncoding]);
 
             // FIXME: seems poor form to do this as a side effect of getting a document fragment
             toPrivate(_private)->loader->addAllArchiveResources(*[archive _coreLegacyWebArchive]);
 
-            DOMDocumentFragment *fragment = [[self webFrame] _documentFragmentWithMarkupString:markupString baseURLString:[[mainResource URL] _web_originalDataAsString]];
-            [markupString release];
-            return fragment;
-        } else if (WebCore::MIMETypeRegistry::isSupportedImageMIMEType(MIMEType)) {
+            return [[self webFrame] _documentFragmentWithMarkupString:markupString.get() baseURLString:[[mainResource URL] _web_originalDataAsString]];
+        } else if (WebCore::MIMETypeRegistry::isSupportedImageMIMEType(MIMEType))
             return [self _documentFragmentWithImageResource:mainResource];
-            
-        }
     }
     return nil;
 }
@@ -374,18 +371,17 @@ void addTypesFromClass(NSMutableDictionary *allTypes, Class objCClass, NSArray *
 
 - (void)_makeRepresentation
 {
-    Class repClass = [[self class] _representationClassForMIMEType:[self _responseMIMEType] allowingPlugins:[[[self _webView] preferences] arePlugInsEnabled]];
+    Class repClass = [[self class] _representationClassForMIMEType:[self _responseMIMEType] allowingPlugins:NO];
 
 #if PLATFORM(IOS_FAMILY)
     if ([repClass respondsToSelector:@selector(_representationClassForWebFrame:)])
-        repClass = [repClass performSelector:@selector(_representationClassForWebFrame:) withObject:[self webFrame]];
+        repClass = [repClass _representationClassForWebFrame:[self webFrame]];
 #endif
 
     // Check if the data source was already bound?
     if (![[self representation] isKindOfClass:repClass]) {
-        id newRep = repClass != nil ? [(NSObject *)[repClass alloc] init] : nil;
-        [self _setRepresentation:(id <WebDocumentRepresentation>)newRep];
-        [newRep release];
+        RetainPtr<id> newRep = repClass ? adoptNS([[repClass alloc] init]) : nil;
+        [self _setRepresentation:(id <WebDocumentRepresentation>)newRep.get()];
     }
 
     id<WebDocumentRepresentation> representation = toPrivate(_private)->representation.get();
@@ -463,10 +459,10 @@ void addTypesFromClass(NSMutableDictionary *allTypes, Class objCClass, NSArray *
 
 - (NSData *)data
 {
-    RefPtr<WebCore::SharedBuffer> mainResourceData = toPrivate(_private)->loader->mainResourceData();
+    RefPtr<WebCore::FragmentedSharedBuffer> mainResourceData = toPrivate(_private)->loader->mainResourceData();
     if (!mainResourceData)
         return nil;
-    return mainResourceData->createNSData().autorelease();
+    return mainResourceData->makeContiguous()->createNSData().autorelease();
 }
 
 - (id <WebDocumentRepresentation>)representation
@@ -535,7 +531,7 @@ void addTypesFromClass(NSMutableDictionary *allTypes, Class objCClass, NSArray *
     if (!toPrivate(_private)->loader->isCommitted())
         return nil;
         
-    return [[[WebArchive alloc] _initWithCoreLegacyWebArchive:WebCore::LegacyWebArchive::create(*core([self webFrame]))] autorelease];
+    return adoptNS([[WebArchive alloc] _initWithCoreLegacyWebArchive:WebCore::LegacyWebArchive::create(*core([self webFrame]))]).autorelease();
 }
 
 - (WebResource *)mainResource
@@ -543,20 +539,20 @@ void addTypesFromClass(NSMutableDictionary *allTypes, Class objCClass, NSArray *
     auto coreResource = toPrivate(_private)->loader->mainResource();
     if (!coreResource)
         return nil;
-    return [[[WebResource alloc] _initWithCoreResource:coreResource.releaseNonNull()] autorelease];
+    return adoptNS([[WebResource alloc] _initWithCoreResource:coreResource.releaseNonNull()]).autorelease();
 }
 
 - (NSArray *)subresources
 {
-    return createNSArray(toPrivate(_private)->loader->subresources(), [] (auto& resource) {
-        return adoptNS([[WebResource alloc] _initWithCoreResource:resource.copyRef()]);
+    return createNSArray(toPrivate(_private)->loader->subresources(), [] (auto&& resource) {
+        return adoptNS([[WebResource alloc] _initWithCoreResource:WTFMove(resource)]);
     }).autorelease();
 }
 
 - (WebResource *)subresourceForURL:(NSURL *)URL
 {
     auto subresource = toPrivate(_private)->loader->subresource(URL);
-    return subresource ? [[[WebResource alloc] _initWithCoreResource:subresource.releaseNonNull()] autorelease] : nil;
+    return subresource ? adoptNS([[WebResource alloc] _initWithCoreResource:subresource.releaseNonNull()]).autorelease() : nil;
 }
 
 - (void)addSubresource:(WebResource *)subresource

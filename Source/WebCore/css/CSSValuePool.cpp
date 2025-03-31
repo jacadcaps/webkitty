@@ -30,30 +30,26 @@
 #include "CSSPrimitiveValueMappings.h"
 #include "CSSValueKeywords.h"
 #include "CSSValueList.h"
-#include <wtf/text/StringConcatenateNumbers.h>
 
 namespace WebCore {
+DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(CSSValuePool);
 
 LazyNeverDestroyed<StaticCSSValuePool> staticCSSValuePool;
 
 StaticCSSValuePool::StaticCSSValuePool()
 {
-    m_inheritedValue.construct(CSSValue::StaticCSSValue);
-    m_implicitInitialValue.construct(CSSValue::StaticCSSValue, true);
-    m_explicitInitialValue.construct(CSSValue::StaticCSSValue, false);
-    m_unsetValue.construct(CSSValue::StaticCSSValue);
-    m_revertValue.construct(CSSValue::StaticCSSValue);
+    m_implicitInitialValue.construct(CSSValue::StaticCSSValue, CSSPrimitiveValue::ImplicitInitialValue);
+    
+    m_transparentColor.construct(CSSValue::StaticCSSValue, WebCore::Color::transparentBlack);
+    m_whiteColor.construct(CSSValue::StaticCSSValue, WebCore::Color::white);
+    m_blackColor.construct(CSSValue::StaticCSSValue, WebCore::Color::black);
 
-    m_transparentColor.construct(CSSValue::StaticCSSValue, Color::transparentBlack);
-    m_whiteColor.construct(CSSValue::StaticCSSValue, Color::white);
-    m_blackColor.construct(CSSValue::StaticCSSValue, Color::black);
+    for (auto keyword : allCSSValueKeywords())
+        m_identifierValues[enumToUnderlyingType(keyword)].construct(CSSValue::StaticCSSValue, keyword);
 
-    for (unsigned i = firstCSSValueKeyword; i <= lastCSSValueKeyword; ++i)
-        m_identifierValues[i].construct(CSSValue::StaticCSSValue, static_cast<CSSValueID>(i));
-
-    for (unsigned i = 0; i < (maximumCacheableIntegerValue + 1); ++i) {
+    for (unsigned i = 0; i <= maximumCacheableIntegerValue; ++i) {
         m_pixelValues[i].construct(CSSValue::StaticCSSValue, i, CSSUnitType::CSS_PX);
-        m_percentValues[i].construct(CSSValue::StaticCSSValue, i, CSSUnitType::CSS_PERCENTAGE);
+        m_percentageValues[i].construct(CSSValue::StaticCSSValue, i, CSSUnitType::CSS_PERCENTAGE);
         m_numberValues[i].construct(CSSValue::StaticCSSValue, i, CSSUnitType::CSS_NUMBER);
     }
 }
@@ -66,38 +62,25 @@ void StaticCSSValuePool::init()
     });
 }
 
-CSSValuePool::CSSValuePool()
-{
-    StaticCSSValuePool::init();
-}
+CSSValuePool::CSSValuePool() = default;
 
+// FIXME: This function needs a name that make it clear that this is not the one and only CSSValuePool, rather the one that can be used only on the main thread.
+// FIXME: Consider a design where the value pool thread-local storage so callers don't have to deal directly with the value pool at all.
 CSSValuePool& CSSValuePool::singleton()
 {
-    ASSERT(isMainThread());
-    static NeverDestroyed<CSSValuePool> pool;
+    static MainThreadNeverDestroyed<CSSValuePool> pool;
     return pool;
 }
 
-Ref<CSSPrimitiveValue> CSSValuePool::createIdentifierValue(CSSValueID ident)
-{
-    RELEASE_ASSERT(ident >= firstCSSValueKeyword && ident <= lastCSSValueKeyword);
-    return staticCSSValuePool->m_identifierValues[ident].get();
-}
-
-Ref<CSSPrimitiveValue> CSSValuePool::createIdentifierValue(CSSPropertyID ident)
-{
-    return CSSPrimitiveValue::createIdentifier(ident);
-}
-
-Ref<CSSPrimitiveValue> CSSValuePool::createColorValue(const Color& color)
+Ref<CSSColorValue> CSSValuePool::createColorValue(const WebCore::Color& color)
 {
     // These are the empty and deleted values of the hash table.
-    if (color == Color::transparentBlack)
+    if (color == WebCore::Color::transparentBlack)
         return staticCSSValuePool->m_transparentColor.get();
-    if (color == Color::white)
+    if (color == WebCore::Color::white)
         return staticCSSValuePool->m_whiteColor.get();
     // Just because it is common.
-    if (color == Color::black)
+    if (color == WebCore::Color::black)
         return staticCSSValuePool->m_blackColor.get();
 
     // Remove one entry at random if the cache grows too large.
@@ -106,35 +89,12 @@ Ref<CSSPrimitiveValue> CSSValuePool::createColorValue(const Color& color)
     if (m_colorValueCache.size() >= maximumColorCacheSize)
         m_colorValueCache.remove(m_colorValueCache.random());
 
-    return *m_colorValueCache.ensure(color, [&color] {
-        return CSSPrimitiveValue::create(color);
+    return m_colorValueCache.ensure(color, [&color] {
+        return CSSColorValue::create(color);
     }).iterator->value;
 }
 
-Ref<CSSPrimitiveValue> CSSValuePool::createValue(double value, CSSUnitType type)
-{
-    ASSERT(std::isfinite(value));
-
-    if (value < 0 || value > StaticCSSValuePool::maximumCacheableIntegerValue)
-        return CSSPrimitiveValue::create(value, type);
-
-    int intValue = static_cast<int>(value);
-    if (value != intValue)
-        return CSSPrimitiveValue::create(value, type);
-
-    switch (type) {
-    case CSSUnitType::CSS_PX:
-        return staticCSSValuePool->m_pixelValues[intValue].get();
-    case CSSUnitType::CSS_PERCENTAGE:
-        return staticCSSValuePool->m_percentValues[intValue].get();
-    case CSSUnitType::CSS_NUMBER:
-        return staticCSSValuePool->m_numberValues[intValue].get();
-    default:
-        return CSSPrimitiveValue::create(value, type);
-    }
-}
-
-Ref<CSSPrimitiveValue> CSSValuePool::createFontFamilyValue(const String& familyName, FromSystemFontID fromSystemFontID)
+Ref<CSSPrimitiveValue> CSSValuePool::createFontFamilyValue(const AtomString& familyName)
 {
     // Remove one entry at random if the cache grows too large.
     // FIXME: Use TinyLRUCache instead?
@@ -142,9 +102,8 @@ Ref<CSSPrimitiveValue> CSSValuePool::createFontFamilyValue(const String& familyN
     if (m_fontFamilyValueCache.size() >= maximumFontFamilyCacheSize)
         m_fontFamilyValueCache.remove(m_fontFamilyValueCache.random());
 
-    bool isFromSystemID = fromSystemFontID == FromSystemFontID::Yes;
-    return *m_fontFamilyValueCache.ensure({ familyName, isFromSystemID }, [&familyName, isFromSystemID] {
-        return CSSPrimitiveValue::create(CSSFontFamily { familyName, isFromSystemID });
+    return m_fontFamilyValueCache.ensure(familyName, [&familyName] {
+        return CSSPrimitiveValue::createFontFamily(familyName);
     }).iterator->value;
 }
 
@@ -156,12 +115,9 @@ RefPtr<CSSValueList> CSSValuePool::createFontFaceValue(const AtomString& string)
     if (m_fontFaceValueCache.size() >= maximumFontFaceCacheSize)
         m_fontFaceValueCache.remove(m_fontFaceValueCache.random());
 
-    return m_fontFaceValueCache.ensure(string, [&string] () -> RefPtr<CSSValueList> {
-        auto result = CSSParser::parseSingleValue(CSSPropertyFontFamily, string);
-        if (!is<CSSValueList>(result))
-            return nullptr;
-        // FIXME: Make downcast work on RefPtr, remove the get() below, and save one reference count churn.
-        return downcast<CSSValueList>(result.get());
+    return m_fontFaceValueCache.ensure(string, [&string]() -> RefPtr<CSSValueList> {
+        auto value = CSSParser::parseSingleValue(CSSPropertyFontFamily, string);
+        return dynamicDowncast<CSSValueList>(value.get());
     }).iterator->value;
 }
 

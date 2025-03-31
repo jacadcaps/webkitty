@@ -35,15 +35,17 @@ namespace WebCore {
 class ResourceError;
 class ResourceResponse;
 
-class FetchLoaderClient {
+class FetchLoaderClient : public CanMakeCheckedPtr<FetchLoaderClient> {
+    WTF_MAKE_TZONE_ALLOCATED(FetchLoaderClient);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(FetchLoaderClient);
 public:
     virtual ~FetchLoaderClient() = default;
 
     virtual void didReceiveResponse(const ResourceResponse&) { }
 
-    virtual void didReceiveData(const char*, size_t) { }
+    virtual void didReceiveData(const SharedBuffer&) { }
 
-    virtual void didSucceed() = 0;
+    virtual void didSucceed(const NetworkLoadMetrics&) = 0;
     virtual void didFail(const ResourceError&) = 0;
 };
 

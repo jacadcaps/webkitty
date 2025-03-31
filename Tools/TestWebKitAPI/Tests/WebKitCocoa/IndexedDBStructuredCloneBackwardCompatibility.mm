@@ -25,9 +25,9 @@
 
 #import "config.h"
 
+#import "DeprecatedGlobalValues.h"
 #import "PlatformUtilities.h"
 #import "Test.h"
-
 #import <WebKit/WKUserContentControllerPrivate.h>
 #import <WebKit/WKWebViewConfigurationPrivate.h>
 #import <WebKit/WKWebViewPrivate.h>
@@ -36,9 +36,6 @@
 #import <WebKit/_WKWebsiteDataStoreConfiguration.h>
 #import <wtf/Deque.h>
 #import <wtf/RetainPtr.h>
-
-static bool receivedScriptMessage;
-static Deque<RetainPtr<WKScriptMessage>> scriptMessages;
 
 @interface IndexedDBStructuredCloneBackwardCompatibilityMessageHandler : NSObject <WKScriptMessageHandler>
 @end
@@ -65,16 +62,6 @@ static Deque<RetainPtr<WKScriptMessage>> scriptMessages;
 
 @end
 
-static WKScriptMessage *getNextMessage()
-{
-    if (scriptMessages.isEmpty()) {
-        receivedScriptMessage = false;
-        TestWebKitAPI::Util::run(&receivedScriptMessage);
-    }
-
-    return [[scriptMessages.takeFirst() retain] autorelease];
-}
-
 TEST(IndexedDB, StructuredCloneBackwardCompatibility)
 {
     RetainPtr<IndexedDBStructuredCloneBackwardCompatibilityMessageHandler> handler
@@ -83,9 +70,9 @@ TEST(IndexedDB, StructuredCloneBackwardCompatibility)
     [[configuration userContentController] addScriptMessageHandler:handler.get() name:@"testHandler"];
 
     // Copy the baked database files to the database directory
-    NSURL *url1 = [[NSBundle mainBundle] URLForResource:@"IndexedDBStructuredCloneBackwardCompatibility" withExtension:@"sqlite3" subdirectory:@"TestWebKitAPI.resources"];
-    NSURL *url2 = [[NSBundle mainBundle] URLForResource:@"IndexedDBStructuredCloneBackwardCompatibility" withExtension:@"sqlite3-shm" subdirectory:@"TestWebKitAPI.resources"];
-    NSURL *url3 = [[NSBundle mainBundle] URLForResource:@"IndexedDBStructuredCloneBackwardCompatibility" withExtension:@"sqlite3-wal" subdirectory:@"TestWebKitAPI.resources"];
+    NSURL *url1 = [NSBundle.test_resourcesBundle URLForResource:@"IndexedDBStructuredCloneBackwardCompatibility" withExtension:@"sqlite3"];
+    NSURL *url2 = [NSBundle.test_resourcesBundle URLForResource:@"IndexedDBStructuredCloneBackwardCompatibility" withExtension:@"sqlite3-shm"];
+    NSURL *url3 = [NSBundle.test_resourcesBundle URLForResource:@"IndexedDBStructuredCloneBackwardCompatibility" withExtension:@"sqlite3-wal"];
 
     NSURL *idbPath = [NSURL fileURLWithPath:[@"~/Library/WebKit/com.apple.WebKit.TestWebKitAPI/CustomWebsiteData/IndexedDB/" stringByExpandingTildeInPath]];
     [[NSFileManager defaultManager] removeItemAtURL:idbPath error:nil];
@@ -93,7 +80,7 @@ TEST(IndexedDB, StructuredCloneBackwardCompatibility)
 
     RetainPtr<_WKWebsiteDataStoreConfiguration> websiteDataStoreConfiguration = adoptNS([[_WKWebsiteDataStoreConfiguration alloc] init]);
     websiteDataStoreConfiguration.get()._indexedDBDatabaseDirectory = idbPath;
-    configuration.get().websiteDataStore = [[[WKWebsiteDataStore alloc] _initWithConfiguration:websiteDataStoreConfiguration.get()] autorelease];
+    configuration.get().websiteDataStore = adoptNS([[WKWebsiteDataStore alloc] _initWithConfiguration:websiteDataStoreConfiguration.get()]).get();
 
     idbPath = [idbPath URLByAppendingPathComponent:@"file__0"];
     idbPath = [idbPath URLByAppendingPathComponent:@"backward_compatibility"];
@@ -106,7 +93,7 @@ TEST(IndexedDB, StructuredCloneBackwardCompatibility)
     RetainPtr<WKWebView> webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
     auto delegate = adoptNS([[StructuredCloneBackwardCompatibilityNavigationDelegate alloc] init]);
     [webView setNavigationDelegate:delegate.get()];
-    NSURLRequest *request = [NSURLRequest requestWithURL:[[NSBundle mainBundle] URLForResource:@"IndexedDBStructuredCloneBackwardCompatibilityRead" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"]];
+    NSURLRequest *request = [NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"IndexedDBStructuredCloneBackwardCompatibilityRead" withExtension:@"html"]];
     [webView loadRequest:request];
 
     EXPECT_STREQ([getNextMessage().body UTF8String], "Pass");

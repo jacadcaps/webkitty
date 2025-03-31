@@ -29,18 +29,31 @@ enum DeviceType {
     "tvout"
 };
 
+[Conditional=VIDEO] enum SourceType {
+    "file",
+    "hls",
+    "media-source",
+    "managed-media-source",
+    "media-stream",
+    "live-stream",
+    "stored-stream",
+};
+
 [
-    Conditional=MEDIA_CONTROLS_SCRIPT,
-    ImplementationLacksVTable,
-    NoInterfaceObject,
+    Conditional=VIDEO,
+    LegacyNoInterfaceObject,
 ] interface MediaControlsHost {
+    readonly attribute DOMString layoutTraitsClassName;
+    readonly attribute DOMString mediaControlsContainerClassName;
+    attribute double brightness;
+
     sequence<TextTrack> sortedTrackListForMenu(TextTrackList trackList);
     sequence<AudioTrack> sortedTrackListForMenu(AudioTrackList trackList);
     DOMString displayNameForTrack((TextTrack or AudioTrack)? track);
     readonly attribute TextTrack captionMenuOffItem;
     readonly attribute TextTrack captionMenuAutomaticItem;
     readonly attribute DOMString captionDisplayMode;
-    void setSelectedTextTrack(TextTrack? track);
+    undefined setSelectedTextTrack(TextTrack? track);
     readonly attribute HTMLElement textTrackContainer;
     readonly attribute boolean allowsInlineMediaPlayback;
     readonly attribute boolean supportsFullscreen;
@@ -48,20 +61,29 @@ enum DeviceType {
     readonly attribute boolean userGestureRequired;
     readonly attribute boolean isInMediaDocument;
     readonly attribute boolean shouldForceControlsDisplay;
-    readonly attribute boolean compactMode;
+    readonly attribute boolean supportsSeeking;
+    readonly attribute boolean inWindowFullscreen;
+    readonly attribute boolean supportsRewind;
+    readonly attribute boolean needsChromeMediaControlsPseudoElement;
 
     readonly attribute DOMString externalDeviceDisplayName;
     readonly attribute DeviceType externalDeviceType;
 
     attribute boolean controlsDependOnPageScaleFactor;
-    
-    void updateTextTrackContainer();
-    void enteredFullscreen();
-    void exitedFullscreen();
+
+    undefined updateTextTrackContainer();
+    undefined enteredFullscreen();
+    undefined exitedFullscreen();
+    undefined presentationModeChanged();
 
     DOMString generateUUID();
 
-    [EnabledAtRuntime=ModernMediaControls] readonly attribute DOMString shadowRootCSSText;
-    [EnabledAtRuntime=ModernMediaControls] DOMString base64StringForIconNameAndType(DOMString iconName, DOMString iconType);
-    [EnabledAtRuntime=ModernMediaControls] DOMString formattedStringForDuration(unrestricted double durationInSeconds);
+    readonly attribute SourceType? sourceType;
+
+    readonly attribute DOMString shadowRootCSSText;
+    DOMString base64StringForIconNameAndType(DOMString iconName, DOMString iconType);
+    DOMString formattedStringForDuration(unrestricted double durationInSeconds);
+    [Conditional=MEDIA_CONTROLS_CONTEXT_MENUS, EnabledBySetting=MediaControlsContextMenusEnabled] boolean showMediaControlsContextMenu(HTMLElement target, JSON options, VoidCallback callback);
+
+    [Conditional=MEDIA_SESSION] undefined ensureMediaSessionObserver();
 };

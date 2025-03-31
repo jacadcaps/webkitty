@@ -25,9 +25,9 @@
 
 #import "config.h"
 
+#import "DeprecatedGlobalValues.h"
 #import "PlatformUtilities.h"
 #import "Test.h"
-
 #import <WebKit/WKProcessPoolPrivate.h>
 #import <WebKit/WKUserContentControllerPrivate.h>
 #import <WebKit/WKWebViewConfigurationPrivate.h>
@@ -37,9 +37,6 @@
 #import <WebKit/_WKUserStyleSheet.h>
 #import <WebKit/_WKWebsiteDataStoreConfiguration.h>
 #import <wtf/RetainPtr.h>
-
-static bool receivedScriptMessage;
-static RetainPtr<WKScriptMessage> lastScriptMessage;
 
 @interface IndexedDBInPageCacheMessageHandler : NSObject <WKScriptMessageHandler>
 @end
@@ -63,7 +60,7 @@ TEST(IndexedDB, IndexedDBInPageCache)
     auto webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
 
     // Load page that holds open database connection.
-    NSURLRequest *request = [NSURLRequest requestWithURL:[[NSBundle mainBundle] URLForResource:@"IndexedDBInPageCache" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"]];
+    NSURLRequest *request = [NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"IndexedDBInPageCache" withExtension:@"html"]];
     [webView loadRequest:request];
 
     receivedScriptMessage = false;
@@ -72,7 +69,7 @@ TEST(IndexedDB, IndexedDBInPageCache)
     EXPECT_WK_STREQ(@"First Database Connection Opened", string1.get());
 
     // Load another page that deletes database.
-    NSURLRequest *request2 = [NSURLRequest requestWithURL:[[NSBundle mainBundle] URLForResource:@"IndexedDBNotInPageCache" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"]];
+    NSURLRequest *request2 = [NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"IndexedDBNotInPageCache" withExtension:@"html"]];
     [webView loadRequest:request2];
 
     receivedScriptMessage = false;

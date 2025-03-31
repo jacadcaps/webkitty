@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,29 +26,41 @@
 #import "config.h"
 #import "RemoteLayerTreeNode.h"
 
+#import "RemoteLayerTreeLayers.h"
 #import <QuartzCore/CALayer.h>
 #import <WebCore/WebActionDisablingCALayerDelegate.h>
+#import <wtf/TZoneMallocInlines.h>
 
 #if PLATFORM(IOS_FAMILY)
 #import <UIKit/UIView.h>
 #endif
 
-@interface WKPlainRemoteLayer : CALayer
-@end
+#if PLATFORM(VISION)
+#import <pal/spi/cocoa/QuartzCoreSPI.h>
+#endif
 
-@implementation WKPlainRemoteLayer
-- (NSString *)description
-{
-    return WebKit::RemoteLayerTreeNode::appendLayerDescription(super.description, self);
-}
-@end
+#if ENABLE(THREADED_ANIMATION_RESOLUTION)
+#import "RemoteLayerTreeHost.h"
+#import <WebCore/AcceleratedEffectStack.h>
+#endif
 
 namespace WebKit {
 
 static NSString *const WKRemoteLayerTreeNodePropertyKey = @"WKRemoteLayerTreeNode";
+#if ENABLE(GAZE_GLOW_FOR_INTERACTION_REGIONS)
+static NSString *const WKInteractionRegionContainerKey = @"WKInteractionRegionContainer";
+#endif
 
-RemoteLayerTreeNode::RemoteLayerTreeNode(WebCore::GraphicsLayer::PlatformLayerID layerID, RetainPtr<CALayer> layer)
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RemoteLayerTreeNode);
+
+Ref<RemoteLayerTreeNode> RemoteLayerTreeNode::create(WebCore::PlatformLayerIdentifier layerID, Markable<WebCore::LayerHostingContextIdentifier> hostIdentifier, RetainPtr<CALayer> layer)
+{
+    return adoptRef(*new RemoteLayerTreeNode(layerID, hostIdentifier, WTFMove(layer)));
+}
+
+RemoteLayerTreeNode::RemoteLayerTreeNode(WebCore::PlatformLayerIdentifier layerID, Markable<WebCore::LayerHostingContextIdentifier> hostIdentifier, RetainPtr<CALayer> layer)
     : m_layerID(layerID)
+    , m_remoteContextHostingIdentifier(hostIdentifier)
     , m_layer(WTFMove(layer))
 {
     initializeLayer();
@@ -56,8 +68,15 @@ RemoteLayerTreeNode::RemoteLayerTreeNode(WebCore::GraphicsLayer::PlatformLayerID
 }
 
 #if PLATFORM(IOS_FAMILY)
-RemoteLayerTreeNode::RemoteLayerTreeNode(WebCore::GraphicsLayer::PlatformLayerID layerID, RetainPtr<UIView> uiView)
+
+Ref<RemoteLayerTreeNode> RemoteLayerTreeNode::create(WebCore::PlatformLayerIdentifier layerID, Markable<WebCore::LayerHostingContextIdentifier> hostIdentifier, RetainPtr<UIView> uiView)
+{
+    return adoptRef(*new RemoteLayerTreeNode(layerID, hostIdentifier, WTFMove(uiView)));
+}
+
+RemoteLayerTreeNode::RemoteLayerTreeNode(WebCore::PlatformLayerIdentifier layerID, Markable<WebCore::LayerHostingContextIdentifier> hostIdentifier, RetainPtr<UIView> uiView)
     : m_layerID(layerID)
+    , m_remoteContextHostingIdentifier(hostIdentifier)
     , m_layer([uiView.get() layer])
     , m_uiView(WTFMove(uiView))
 {
@@ -67,17 +86,27 @@ RemoteLayerTreeNode::RemoteLayerTreeNode(WebCore::GraphicsLayer::PlatformLayerID
 
 RemoteLayerTreeNode::~RemoteLayerTreeNode()
 {
+#if ENABLE(THREADED_ANIMATION_RESOLUTION)
+    if (RefPtr effectStack = m_effectStack)
+        effectStack->clear(layer());
+#endif
     [layer() setValue:nil forKey:WKRemoteLayerTreeNodePropertyKey];
+#if ENABLE(GAZE_GLOW_FOR_INTERACTION_REGIONS)
+    removeInteractionRegionsContainer();
+#endif
 }
 
-std::unique_ptr<RemoteLayerTreeNode> RemoteLayerTreeNode::createWithPlainLayer(WebCore::GraphicsLayer::PlatformLayerID layerID)
+Ref<RemoteLayerTreeNode> RemoteLayerTreeNode::createWithPlainLayer(WebCore::PlatformLayerIdentifier layerID)
 {
-    RetainPtr<CALayer> layer = adoptNS([[WKPlainRemoteLayer alloc] init]);
-    return makeUnique<RemoteLayerTreeNode>(layerID, WTFMove(layer));
+    RetainPtr<CALayer> layer = adoptNS([[WKCompositingLayer alloc] init]);
+    return RemoteLayerTreeNode::create(layerID, std::nullopt, WTFMove(layer));
 }
 
 void RemoteLayerTreeNode::detachFromParent()
 {
+#if ENABLE(GAZE_GLOW_FOR_INTERACTION_REGIONS)
+    removeInteractionRegionsContainer();
+#endif
 #if PLATFORM(IOS_FAMILY)
     if (auto view = uiView()) {
         [view removeFromSuperview];
@@ -95,12 +124,132 @@ void RemoteLayerTreeNode::setEventRegion(const WebCore::EventRegion& eventRegion
 void RemoteLayerTreeNode::initializeLayer()
 {
     [layer() setValue:[NSValue valueWithPointer:this] forKey:WKRemoteLayerTreeNodePropertyKey];
+#if ENABLE(GAZE_GLOW_FOR_INTERACTION_REGIONS)
+    if (![layer() isKindOfClass:[CATransformLayer class]])
+        [layer() setHitTestsContentsAlphaChannel:YES];
+#endif
 }
 
-WebCore::GraphicsLayer::PlatformLayerID RemoteLayerTreeNode::layerID(CALayer *layer)
+#if ENABLE(GAZE_GLOW_FOR_INTERACTION_REGIONS)
+CALayer* RemoteLayerTreeNode::ensureInteractionRegionsContainer()
 {
-    auto* node = forCALayer(layer);
-    return node ? node->layerID() : 0;
+    if (m_interactionRegionsContainer)
+        return [m_interactionRegionsContainer layer];
+
+    m_interactionRegionsContainer = adoptNS([[UIView alloc] init]);
+    [[m_interactionRegionsContainer layer] setName:@"InteractionRegions Container"];
+    [[m_interactionRegionsContainer layer] setValue:@YES forKey:WKInteractionRegionContainerKey];
+
+    repositionInteractionRegionsContainerIfNeeded();
+    propagateInteractionRegionsChangeInHierarchy(InteractionRegionsInSubtree::Yes);
+
+    return [m_interactionRegionsContainer layer];
+}
+
+void RemoteLayerTreeNode::removeInteractionRegionsContainer()
+{
+    if (!m_interactionRegionsContainer)
+        return;
+
+    [m_interactionRegionsContainer removeFromSuperview];
+    m_interactionRegionsContainer = nullptr;
+
+    propagateInteractionRegionsChangeInHierarchy(InteractionRegionsInSubtree::Unknown);
+}
+
+void RemoteLayerTreeNode::updateInteractionRegionAfterHierarchyChange()
+{
+    repositionInteractionRegionsContainerIfNeeded();
+
+    bool hasInteractionRegionsDescendant = false;
+    for (CALayer *sublayer in layer().sublayers) {
+        if (auto *subnode = forCALayer(sublayer)) {
+            if (subnode->hasInteractionRegions()) {
+                hasInteractionRegionsDescendant = true;
+                break;
+            }
+        }
+    }
+
+    if (m_hasInteractionRegionsDescendant == hasInteractionRegionsDescendant)
+        return;
+
+    setHasInteractionRegionsDescendant(hasInteractionRegionsDescendant);
+    propagateInteractionRegionsChangeInHierarchy(hasInteractionRegionsDescendant ? InteractionRegionsInSubtree::Yes : InteractionRegionsInSubtree::Unknown);
+}
+
+bool RemoteLayerTreeNode::hasInteractionRegions() const
+{
+    return m_hasInteractionRegionsDescendant || m_interactionRegionsContainer;
+}
+
+void RemoteLayerTreeNode::repositionInteractionRegionsContainerIfNeeded()
+{
+    if (!m_interactionRegionsContainer)
+        return;
+    ASSERT(uiView());
+
+    NSUInteger insertionPoint = 0;
+    for (UIView *subview in uiView().subviews) {
+        if ([subview.layer valueForKey:WKInteractionRegionContainerKey])
+            continue;
+
+        if (auto *subnode = forCALayer(subview.layer)) {
+            if (subnode->hasInteractionRegions())
+                break;
+        }
+
+        insertionPoint++;
+    }
+
+    // We searched through the subviews, so insertionPoint is always <= subviews.count.
+    ASSERT(insertionPoint <= uiView().subviews.count);
+    bool shouldAppendView = insertionPoint == uiView().subviews.count;
+    if (shouldAppendView || [uiView().subviews objectAtIndex:insertionPoint] != m_interactionRegionsContainer) {
+        [m_interactionRegionsContainer removeFromSuperview];
+        [uiView() insertSubview:m_interactionRegionsContainer.get() atIndex:insertionPoint];
+    }
+}
+
+void RemoteLayerTreeNode::propagateInteractionRegionsChangeInHierarchy(InteractionRegionsInSubtree interactionRegionsInSubtree)
+{
+    for (auto* parentNode = forCALayer(layer().superlayer); parentNode; parentNode = forCALayer(parentNode->layer().superlayer)) {
+        parentNode->repositionInteractionRegionsContainerIfNeeded();
+
+        bool originalFlag = parentNode->hasInteractionRegionsDescendant();
+
+        if (originalFlag && interactionRegionsInSubtree == InteractionRegionsInSubtree::Yes)
+            break;
+
+        if (interactionRegionsInSubtree == InteractionRegionsInSubtree::Yes) {
+            parentNode->setHasInteractionRegionsDescendant(true);
+            continue;
+        }
+
+        bool hasInteractionRegionsDescendant = false;
+        for (CALayer *sublayer in parentNode->layer().sublayers) {
+            if (auto *subnode = forCALayer(sublayer)) {
+                if (subnode->hasInteractionRegions()) {
+                    hasInteractionRegionsDescendant = true;
+                    break;
+                }
+            }
+        }
+
+        if (originalFlag == hasInteractionRegionsDescendant)
+            break;
+
+        parentNode->setHasInteractionRegionsDescendant(hasInteractionRegionsDescendant);
+        if (hasInteractionRegionsDescendant)
+            interactionRegionsInSubtree = InteractionRegionsInSubtree::Yes;
+    }
+}
+#endif
+
+std::optional<WebCore::PlatformLayerIdentifier> RemoteLayerTreeNode::layerID(CALayer *layer)
+{
+    RefPtr node = forCALayer(layer);
+    return node ? std::optional { node->layerID() } : std::nullopt;
 }
 
 RemoteLayerTreeNode* RemoteLayerTreeNode::forCALayer(CALayer *layer)
@@ -110,8 +259,58 @@ RemoteLayerTreeNode* RemoteLayerTreeNode::forCALayer(CALayer *layer)
 
 NSString *RemoteLayerTreeNode::appendLayerDescription(NSString *description, CALayer *layer)
 {
-    NSString *layerDescription = [NSString stringWithFormat:@" layerID = %llu \"%@\"", WebKit::RemoteLayerTreeNode::layerID(layer), layer.name ? layer.name : @""];
+    auto layerID = WebKit::RemoteLayerTreeNode::layerID(layer);
+    NSString *layerDescription = [NSString stringWithFormat:@" layerID = %llu \"%@\"", layerID ? layerID->object().toUInt64() : 0, layer.name ? layer.name : @""];
     return [description stringByAppendingString:layerDescription];
 }
+
+void RemoteLayerTreeNode::addToHostingNode(RemoteLayerTreeNode& hostingNode)
+{
+#if PLATFORM(IOS_FAMILY)
+    [hostingNode.uiView() addSubview:uiView()];
+#else
+    [hostingNode.layer() addSublayer:layer()];
+#endif
+}
+
+void RemoteLayerTreeNode::removeFromHostingNode()
+{
+#if PLATFORM(IOS_FAMILY)
+    [uiView() removeFromSuperview];
+#else
+    [layer() removeFromSuperlayer];
+#endif
+}
+
+#if ENABLE(THREADED_ANIMATION_RESOLUTION)
+void RemoteLayerTreeNode::setAcceleratedEffectsAndBaseValues(const WebCore::AcceleratedEffects& effects, const WebCore::AcceleratedEffectValues& baseValues, RemoteLayerTreeHost& host)
+{
+    ASSERT(isUIThread());
+
+    if (RefPtr effectStack = m_effectStack)
+        effectStack->clear(layer());
+    host.animationsWereRemovedFromNode(*this);
+
+    if (effects.isEmpty())
+        return;
+
+    Ref effectStack = RemoteAcceleratedEffectStack::create(layer().bounds, host.acceleratedTimelineTimeOrigin(m_layerID.processIdentifier()));
+    m_effectStack = effectStack.copyRef();
+
+    auto clonedEffects = effects;
+    auto clonedBaseValues = baseValues.clone();
+
+    effectStack->setEffects(WTFMove(clonedEffects));
+    effectStack->setBaseValues(WTFMove(clonedBaseValues));
+
+#if PLATFORM(IOS_FAMILY)
+    effectStack->applyEffectsFromMainThread(layer(), host.animationCurrentTime(m_layerID.processIdentifier()), backdropRootIsOpaque());
+#else
+    effectStack->initEffectsFromMainThread(layer(), host.animationCurrentTime(m_layerID.processIdentifier()));
+#endif
+
+    host.animationsWereAddedToNode(*this);
+}
+#endif
 
 }

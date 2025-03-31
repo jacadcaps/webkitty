@@ -31,21 +31,34 @@
 #pragma once
 
 #include "BaseTextInputType.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class EmailInputType final : public BaseTextInputType {
+    WTF_MAKE_TZONE_ALLOCATED(EmailInputType);
 public:
-    explicit EmailInputType(HTMLInputElement& element) : BaseTextInputType(element) { }
+    static Ref<EmailInputType> create(HTMLInputElement& element)
+    {
+        return adoptRef(*new EmailInputType(element));
+    }
+
+    bool typeMismatchFor(const String&) const final;
+    bool typeMismatch() const final;
 
 private:
-    const AtomString& formControlType() const override;
-    bool typeMismatchFor(const String&) const override;
-    bool typeMismatch() const override;
-    String typeMismatchText() const override;
-    bool isEmailField() const override;
-    bool supportsSelectionAPI() const override;
-    String sanitizeValue(const String&) const override;
+    explicit EmailInputType(HTMLInputElement& element)
+        : BaseTextInputType(Type::Email, element)
+    {
+    }
+
+    const AtomString& formControlType() const final;
+    String typeMismatchText() const final;
+    bool supportsSelectionAPI() const final;
+    String sanitizeValue(const String&) const final;
+    void attributeChanged(const QualifiedName&) final;
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_INPUT_TYPE(EmailInputType, Type::Email)

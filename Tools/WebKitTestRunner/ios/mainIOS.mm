@@ -27,7 +27,8 @@
 
 #import "HIDEventGenerator.h"
 #import "TestController.h"
-#import "UIKitSPI.h"
+#import "UIKitSPIForTesting.h"
+#import <WebKit/WKProcessPoolPrivate.h>
 
 static int _argc;
 static const char **_argv;
@@ -68,9 +69,8 @@ int main(int argc, const char* argv[])
     _argc = argc;
     _argv = argv;
 
-    @autoreleasepool {
-        [[NSUserDefaults standardUserDefaults] setBool:YES forKey:@"WebKitLinkedOnOrAfterEverything"];
-    }
+    [WKProcessPool _setLinkedOnOrAfterEverythingForTesting];
+    [WKProcessPool _crashOnMessageCheckFailureForTesting];
 
     UIApplicationMain(argc, (char**)argv, @"WebKitTestRunnerApp", @"WebKitTestRunnerApp");
     return 0;

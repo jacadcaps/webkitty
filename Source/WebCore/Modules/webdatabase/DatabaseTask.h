@@ -32,6 +32,7 @@
 #include <wtf/Condition.h>
 #include <wtf/Forward.h>
 #include <wtf/Lock.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
@@ -57,8 +58,8 @@ public:
 #endif
 
 private:
-    bool m_taskCompleted { false };
-    Lock m_synchronousMutex;
+    bool m_taskCompleted WTF_GUARDED_BY_LOCK(m_synchronousLock) { false };
+    Lock m_synchronousLock;
     Condition m_synchronousCondition;
 #if ASSERT_ENABLED
     bool m_hasCheckedForTermination { false };
@@ -66,7 +67,7 @@ private:
 };
 
 class DatabaseTask {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(DatabaseTask);
 public:
     virtual ~DatabaseTask();
 
@@ -89,7 +90,7 @@ private:
     DatabaseTaskSynchronizer* m_synchronizer;
 
 #if !LOG_DISABLED
-    virtual const char* debugTaskName() const = 0;
+    virtual ASCIILiteral debugTaskName() const = 0;
 #endif
 
 #if ASSERT_ENABLED
@@ -105,7 +106,7 @@ private:
     void doPerformTask() final;
 
 #if !LOG_DISABLED
-    const char* debugTaskName() const final;
+    ASCIILiteral debugTaskName() const final;
 #endif
 
     bool m_setVersionInNewDatabase;
@@ -120,7 +121,7 @@ private:
     void doPerformTask() final;
 
 #if !LOG_DISABLED
-    const char* debugTaskName() const final;
+    ASCIILiteral debugTaskName() const final;
 #endif
 };
 
@@ -135,7 +136,7 @@ private:
     void doPerformTask() final;
 
 #if !LOG_DISABLED
-    const char* debugTaskName() const final;
+    ASCIILiteral debugTaskName() const final;
 #endif
 
     RefPtr<SQLTransaction> m_transaction;
@@ -150,7 +151,7 @@ private:
     void doPerformTask() final;
 
 #if !LOG_DISABLED
-    const char* debugTaskName() const override;
+    ASCIILiteral debugTaskName() const override;
 #endif
 
     Vector<String>& m_result;

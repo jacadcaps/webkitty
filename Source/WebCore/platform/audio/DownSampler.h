@@ -31,18 +31,19 @@
 
 #include "AudioArray.h"
 #include "DirectConvolver.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 // DownSampler down-samples the source stream by a factor of 2x.
 
 class DownSampler final {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(DownSampler);
 public:
     explicit DownSampler(size_t inputBlockSize);
 
-    // The destination buffer |destP| is of size sourceFramesToProcess / 2.
-    void process(const float* sourceP, float* destP, size_t sourceFramesToProcess);
+    // The destination buffer |destination| is of size source.size() / 2.
+    void process(std::span<const float> source, std::span<float> destination);
 
     void reset();
 
@@ -57,7 +58,7 @@ private:
     // Computes ideal band-limited half-band filter coefficients.
     // In other words, filter out all frequencies higher than 0.25 * Nyquist.
     void initializeKernel();
-    AudioFloatArray m_reducedKernel;
+    AudioFloatArray m_reducedKernel { DefaultKernelSize / 2 };
 
     // Half-band filter.
     DirectConvolver m_convolver;

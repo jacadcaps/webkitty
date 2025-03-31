@@ -25,6 +25,9 @@
 
 #pragma once
 
+#if !BUSE(TZONE)
+#if !BUSE(LIBPAS)
+
 namespace bmalloc {
 
 template<typename Config>
@@ -51,3 +54,5 @@ void IsoTLSDeallocatorEntry<Config>::scavenge(void* entry)
 
 } // namespace bmalloc
 
+#endif
+#endif // !BUSE(TZONE)

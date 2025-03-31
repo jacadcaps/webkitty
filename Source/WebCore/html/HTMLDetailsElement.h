@@ -26,37 +26,39 @@
 namespace WebCore {
 
 class HTMLSlotElement;
-
-template<typename T> class EventSender;
-typedef EventSender<HTMLDetailsElement> DetailEventSender;
+class ToggleEventTask;
 
 class HTMLDetailsElement final : public HTMLElement {
-    WTF_MAKE_ISO_ALLOCATED(HTMLDetailsElement);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(HTMLDetailsElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HTMLDetailsElement);
 public:
     static Ref<HTMLDetailsElement> create(const QualifiedName& tagName, Document&);
     ~HTMLDetailsElement();
 
-    void toggleOpen();
+    void toggleOpen() { setBooleanAttribute(HTMLNames::openAttr, !hasAttribute(HTMLNames::openAttr)); }
 
-    bool isOpen() const { return m_isOpen; }
     bool isActiveSummary(const HTMLSummaryElement&) const;
 
-    void dispatchPendingEvent(DetailEventSender*);
-    
+    void queueDetailsToggleEventTask(ToggleState oldState, ToggleState newState);
+
 private:
     HTMLDetailsElement(const QualifiedName&, Document&);
 
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
-    void parseAttribute(const QualifiedName&, const AtomString&) final;
+    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
+    void didFinishInsertingNode() final;
+
+    Vector<RefPtr<HTMLDetailsElement>> otherElementsInNameGroup();
+    void ensureDetailsExclusivityAfterMutation();
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
 
     void didAddUserAgentShadowRoot(ShadowRoot&) final;
-    bool hasCustomFocusLogic() const final { return true; }
     bool isInteractiveContent() const final { return true; }
 
-    bool m_isOpen { false };
-    HTMLSlotElement* m_summarySlot { nullptr };
-    HTMLSummaryElement* m_defaultSummary { nullptr };
+    WeakPtr<HTMLSlotElement, WeakPtrImplWithEventTargetData> m_summarySlot;
+    WeakPtr<HTMLSummaryElement, WeakPtrImplWithEventTargetData> m_defaultSummary;
     RefPtr<HTMLSlotElement> m_defaultSlot;
+
+    RefPtr<ToggleEventTask> m_toggleEventTask;
 };
 
 } // namespace WebCore

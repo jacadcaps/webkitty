@@ -14,6 +14,7 @@
  */
 #include <assert.h>
 #include <limits.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include "vp8/common/blockd.h"
@@ -54,6 +55,10 @@ vpx_codec_err_t vpx_codec_enc_init_ver(vpx_codec_ctx_t *ctx,
     res = ctx->iface->init(ctx, NULL);
 
     if (res) {
+      // IMPORTANT: ctx->priv->err_detail must be null or point to a string
+      // that remains valid after ctx->priv is destroyed, such as a C string
+      // literal. This makes it safe to call vpx_codec_error_detail() after
+      // vpx_codec_enc_init_ver() failed.
       ctx->err_detail = ctx->priv ? ctx->priv->err_detail : NULL;
       vpx_codec_destroy(ctx);
     }
@@ -152,22 +157,15 @@ vpx_codec_err_t vpx_codec_enc_config_default(vpx_codec_iface_t *iface,
                                              vpx_codec_enc_cfg_t *cfg,
                                              unsigned int usage) {
   vpx_codec_err_t res;
-  vpx_codec_enc_cfg_map_t *map;
-  int i;
 
   if (!iface || !cfg || usage != 0)
     res = VPX_CODEC_INVALID_PARAM;
   else if (!(iface->caps & VPX_CODEC_CAP_ENCODER))
     res = VPX_CODEC_INCAPABLE;
   else {
-    res = VPX_CODEC_INVALID_PARAM;
-
-    for (i = 0; i < iface->enc.cfg_map_count; ++i) {
-      map = iface->enc.cfg_maps + i;
-      *cfg = map->cfg;
-      res = VPX_CODEC_OK;
-      break;
-    }
+    assert(iface->enc.cfg_map_count == 1);
+    *cfg = iface->enc.cfg_maps->cfg;
+    res = VPX_CODEC_OK;
   }
 
   return res;
@@ -180,21 +178,21 @@ vpx_codec_err_t vpx_codec_enc_config_default(vpx_codec_iface_t *iface,
 #include "vpx_ports/x86.h"
 #define FLOATING_POINT_INIT() \
   do {                        \
-    unsigned short x87_orig_mode = x87_set_double_precision();
+  unsigned short x87_orig_mode = x87_set_double_precision()
 #define FLOATING_POINT_RESTORE()       \
   x87_set_control_word(x87_orig_mode); \
   }                                    \
   while (0)
 
 #else
-static void FLOATING_POINT_INIT() {}
-static void FLOATING_POINT_RESTORE() {}
+static void FLOATING_POINT_INIT(void) {}
+static void FLOATING_POINT_RESTORE(void) {}
 #endif
 
 vpx_codec_err_t vpx_codec_encode(vpx_codec_ctx_t *ctx, const vpx_image_t *img,
                                  vpx_codec_pts_t pts, unsigned long duration,
                                  vpx_enc_frame_flags_t flags,
-                                 unsigned long deadline) {
+                                 vpx_enc_deadline_t deadline) {
   vpx_codec_err_t res = VPX_CODEC_OK;
 
   if (!ctx || (img && !duration))
@@ -203,6 +201,10 @@ vpx_codec_err_t vpx_codec_encode(vpx_codec_ctx_t *ctx, const vpx_image_t *img,
     res = VPX_CODEC_ERROR;
   else if (!(ctx->iface->caps & VPX_CODEC_CAP_ENCODER))
     res = VPX_CODEC_INCAPABLE;
+#if ULONG_MAX > UINT32_MAX
+  else if (duration > UINT32_MAX || deadline > UINT32_MAX)
+    res = VPX_CODEC_INVALID_PARAM;
+#endif
   else {
     unsigned int num_enc = ctx->priv->enc.total_encoders;
 

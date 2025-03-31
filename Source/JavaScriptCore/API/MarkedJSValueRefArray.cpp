@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,13 +28,15 @@
 
 #include "JSCJSValue.h"
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
 
 MarkedJSValueRefArray::MarkedJSValueRefArray(JSGlobalContextRef context, unsigned size)
     : m_size(size)
 {
     if (m_size > MarkedArgumentBuffer::inlineCapacity) {
-        m_buffer = BufferUniquePtr::create(m_size);
+        m_buffer = makeUniqueArray<JSValueRef>(m_size);
         toJS(context)->vm().heap.addMarkedJSValueRefArray(this);
         ASSERT(isOnList());
     }
@@ -46,7 +48,8 @@ MarkedJSValueRefArray::~MarkedJSValueRefArray()
         remove();
 }
 
-void MarkedJSValueRefArray::visitAggregate(SlotVisitor& visitor)
+template<typename Visitor>
+void MarkedJSValueRefArray::visitAggregate(Visitor& visitor)
 {
     JSValueRef* buffer = data();
     for (unsigned index = 0; index < m_size; ++index) {
@@ -57,9 +60,14 @@ void MarkedJSValueRefArray::visitAggregate(SlotVisitor& visitor)
             continue;
         visitor.appendUnbarriered(jsCell); // We should mark the wrapper itself to keep JSValueRef live.
 #else
-        visitor.appendUnbarriered(bitwise_cast<JSValue>(value));
+        visitor.appendUnbarriered(std::bit_cast<JSValue>(value));
 #endif
     }
 }
 
+template void MarkedJSValueRefArray::visitAggregate(AbstractSlotVisitor&);
+template void MarkedJSValueRefArray::visitAggregate(SlotVisitor&);
+
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

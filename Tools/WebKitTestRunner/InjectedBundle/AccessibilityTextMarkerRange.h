@@ -68,7 +68,9 @@ inline bool AccessibilityTextMarkerRange::isEqual(AccessibilityTextMarkerRange*)
 #endif
     
 #ifdef __OBJC__
-inline Optional<RefPtr<AccessibilityTextMarkerRange>> makeVectorElement(const RefPtr<AccessibilityTextMarkerRange>*, id range) { return { { AccessibilityTextMarkerRange::create(range) } }; }
+inline std::optional<RefPtr<AccessibilityTextMarkerRange>> makeVectorElement(const RefPtr<AccessibilityTextMarkerRange>*, id range) { return { { AccessibilityTextMarkerRange::create(range) } }; }
 #endif
+
+AccessibilityTextMarkerRange* toTextMarkerRange(JSObjectRef);
 
 } // namespace WTR

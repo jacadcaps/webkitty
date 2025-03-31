@@ -15,9 +15,9 @@
 
 #include <array>
 #include <memory>
+#include <optional>
 #include <vector>
 
-#include "absl/types/optional.h"
 #include "api/array_view.h"
 #include "api/audio/echo_canceller3_config.h"
 #include "modules/audio_processing/aec3/aec3_common.h"
@@ -55,17 +55,30 @@ class ErleEstimator {
       const std::vector<bool>& converged_filters);
 
   // Returns the most recent subband ERLE estimates.
-  rtc::ArrayView<const std::array<float, kFftLengthBy2Plus1>> Erle() const {
+  rtc::ArrayView<const std::array<float, kFftLengthBy2Plus1>> Erle(
+      bool onset_compensated) const {
     return signal_dependent_erle_estimator_
-               ? signal_dependent_erle_estimator_->Erle()
-               : subband_erle_estimator_.Erle();
+               ? signal_dependent_erle_estimator_->Erle(onset_compensated)
+               : subband_erle_estimator_.Erle(onset_compensated);
+  }
+
+  // Returns the non-capped subband ERLE.
+  rtc::ArrayView<const std::array<float, kFftLengthBy2Plus1>> ErleUnbounded()
+      const {
+    // Unbounded ERLE is only used with the subband erle estimator where the
+    // ERLE is often capped at low values. When the signal dependent ERLE
+    // estimator is used the capped ERLE is returned.
+    return !signal_dependent_erle_estimator_
+               ? subband_erle_estimator_.ErleUnbounded()
+               : signal_dependent_erle_estimator_->Erle(
+                     /*onset_compensated=*/false);
   }
 
   // Returns the subband ERLE that are estimated during onsets (only used for
   // testing).
-  rtc::ArrayView<const std::array<float, kFftLengthBy2Plus1>> ErleOnsets()
+  rtc::ArrayView<const std::array<float, kFftLengthBy2Plus1>> ErleDuringOnsets()
       const {
-    return subband_erle_estimator_.ErleOnsets();
+    return subband_erle_estimator_.ErleDuringOnsets();
   }
 
   // Returns the fullband ERLE estimate.
@@ -78,7 +91,7 @@ class ErleEstimator {
   // vector with content between 0 and 1 where 1 indicates that, at this current
   // time instant, the linear filter is reaching its maximum subtraction
   // performance.
-  rtc::ArrayView<const absl::optional<float>> GetInstLinearQualityEstimates()
+  rtc::ArrayView<const std::optional<float>> GetInstLinearQualityEstimates()
       const {
     return fullband_erle_estimator_.GetInstLinearQualityEstimates();
   }

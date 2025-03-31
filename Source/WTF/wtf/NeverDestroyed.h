@@ -27,6 +27,7 @@
 
 #include <type_traits>
 #include <utility>
+#include <wtf/AlignedStorage.h>
 #include <wtf/ForbidHeapAllocation.h>
 #include <wtf/MainThread.h>
 #include <wtf/RefCounted.h>
@@ -89,7 +90,7 @@ private:
     PointerType storagePointer() const
     {
         AccessTraits::assertAccess();
-        return const_cast<PointerType>(reinterpret_cast<const T*>(&m_storage));
+        return const_cast<PointerType>(m_storage.get());
     }
 
     template<typename PtrType, bool ShouldRelax = std::is_base_of<RefCountedBase, PtrType>::value> struct MaybeRelax {
@@ -101,10 +102,8 @@ private:
 
     // FIXME: Investigate whether we should allocate a hunk of virtual memory
     // and hand out chunks of it to NeverDestroyed instead, to reduce fragmentation.
-    typename std::aligned_storage<sizeof(T), std::alignment_of<T>::value>::type m_storage;
+    AlignedStorage<T> m_storage;
 };
-
-template<typename T, typename AccessTraits = AnyThreadsAccessTraits> NeverDestroyed<T, AccessTraits> makeNeverDestroyed(T&&);
 
 // FIXME: It's messy to have to repeat the whole class just to make this "lazy" version.
 // Should revisit clients to see if we really need this, and perhaps use templates to
@@ -152,7 +151,7 @@ private:
     PointerType storagePointerWithoutAccessCheck() const
     {
         ASSERT(m_isConstructed);
-        return const_cast<PointerType>(reinterpret_cast<const T*>(&m_storage));
+        return const_cast<PointerType>(m_storage.get());
     }
 
     PointerType storagePointer() const
@@ -176,25 +175,19 @@ private:
 
     // FIXME: Investigate whether we should allocate a hunk of virtual memory
     // and hand out chunks of it to NeverDestroyed instead, to reduce fragmentation.
-    typename std::aligned_storage<sizeof(T), std::alignment_of<T>::value>::type m_storage;
+    AlignedStorage<T> m_storage;
 };
 
-template<typename T, typename AccessTraits> inline NeverDestroyed<T, AccessTraits> makeNeverDestroyed(T&& argument)
-{
-    return WTFMove(argument);
-}
+template<typename T> NeverDestroyed(T) -> NeverDestroyed<T>;
 
-template<typename T>
-using MainThreadNeverDestroyed = NeverDestroyed<T, MainThreadAccessTraits>;
+template<typename T> using MainThreadNeverDestroyed = NeverDestroyed<T, MainThreadAccessTraits>;
 
-template<typename T>
-using MainThreadLazyNeverDestroyed = LazyNeverDestroyed<T, MainThreadAccessTraits>;
+template<typename T> using MainThreadLazyNeverDestroyed = LazyNeverDestroyed<T, MainThreadAccessTraits>;
 
 } // namespace WTF;
 
 using WTF::LazyNeverDestroyed;
 using WTF::NeverDestroyed;
-using WTF::makeNeverDestroyed;
 using WTF::MainThreadNeverDestroyed;
 using WTF::MainThreadLazyNeverDestroyed;
 using WTF::AnyThreadsAccessTraits;

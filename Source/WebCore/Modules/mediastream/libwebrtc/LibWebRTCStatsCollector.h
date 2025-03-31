@@ -24,17 +24,20 @@
 
 #pragma once
 
-#if USE(LIBWEBRTC)
+#if ENABLE(WEB_RTC) && USE(LIBWEBRTC)
 
 #include "LibWebRTCMacros.h"
 #include <wtf/CompletionHandler.h>
 #include <wtf/RefPtr.h>
 
-ALLOW_UNUSED_PARAMETERS_BEGIN
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
 
+// See Bug 274508: Disable thread-safety-reference-return warnings in libwebrtc
+IGNORE_CLANG_WARNINGS_BEGIN("thread-safety-reference-return")
 #include <webrtc/pc/rtc_stats_collector.h>
+IGNORE_CLANG_WARNINGS_END
 
-ALLOW_UNUSED_PARAMETERS_END
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 
 namespace WebCore {
 
@@ -45,8 +48,10 @@ void initializeRTCStatsReportBackingMap(RTCStatsReport&);
 
 class LibWebRTCStatsCollector : public webrtc::RTCStatsCollectorCallback {
 public:
-    using CollectorCallback = CompletionHandler<void(RefPtr<RTCStatsReport>&&)>;
-    static rtc::scoped_refptr<LibWebRTCStatsCollector> create(CollectorCallback&& callback) { return new rtc::RefCountedObject<LibWebRTCStatsCollector>(WTFMove(callback)); }
+    using CollectorCallback = CompletionHandler<void(const rtc::scoped_refptr<const webrtc::RTCStatsReport>&)>;
+    static rtc::scoped_refptr<LibWebRTCStatsCollector> create(CollectorCallback&& callback) { return rtc::make_ref_counted<LibWebRTCStatsCollector>(WTFMove(callback)); }
+
+    static Ref<RTCStatsReport> createReport(const rtc::scoped_refptr<const webrtc::RTCStatsReport>&);
 
     explicit LibWebRTCStatsCollector(CollectorCallback&&);
     ~LibWebRTCStatsCollector();
@@ -59,4 +64,4 @@ private:
 
 } // namespace WebCore
 
-#endif // USE(LIBWEBRTC)
+#endif // ENABLE(WEB_RTC) && USE(LIBWEBRTC)

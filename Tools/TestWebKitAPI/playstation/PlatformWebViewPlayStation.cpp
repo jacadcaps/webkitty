@@ -34,11 +34,10 @@
 #include <WebKit/WebKit2_C.h>
 
 namespace TestWebKitAPI {
-PlatformWebView::PlatformWebView(WKContextRef contextRef, WKPageGroupRef pageGroupRef)
+PlatformWebView::PlatformWebView(WKContextRef contextRef)
 {
     WKRetainPtr<WKPageConfigurationRef> configuration = adoptWK(WKPageConfigurationCreate());
     WKPageConfigurationSetContext(configuration.get(), contextRef);
-    WKPageConfigurationSetPageGroup(configuration.get(), pageGroupRef);
 
     initialize(configuration.get());
 }
@@ -52,9 +51,9 @@ PlatformWebView::PlatformWebView(WKPageRef relatedPage)
 {
     WKRetainPtr<WKPageConfigurationRef> configuration = adoptWK(WKPageConfigurationCreate());
     WKPageConfigurationSetContext(configuration.get(), WKPageGetContext(relatedPage));
-    WKPageConfigurationSetPageGroup(configuration.get(), WKPageGetPageGroup(relatedPage));
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     WKPageConfigurationSetRelatedPage(configuration.get(), relatedPage);
-
+    ALLOW_DEPRECATED_DECLARATIONS_END
     initialize(configuration.get());
 }
 
@@ -72,7 +71,7 @@ void PlatformWebView::initialize(WKPageConfigurationRef configuration)
 
 void PlatformWebView::resizeTo(unsigned width, unsigned height)
 {
-    // Not implemented.
+    WKViewSetSize(m_view, WKSizeMake(width, height));
 }
 
 WKPageRef PlatformWebView::page() const

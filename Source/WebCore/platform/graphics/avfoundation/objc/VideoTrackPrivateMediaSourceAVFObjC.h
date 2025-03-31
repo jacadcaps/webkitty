@@ -28,6 +28,7 @@
 
 #include "IntSize.h"
 #include "VideoTrackPrivateAVF.h"
+#include <wtf/TZoneMalloc.h>
 
 #if ENABLE(MEDIA_SOURCE)
 
@@ -40,6 +41,7 @@ class AVTrackPrivateAVFObjCImpl;
 class SourceBufferPrivateAVFObjC;
 
 class VideoTrackPrivateMediaSourceAVFObjC final : public VideoTrackPrivateAVF {
+    WTF_MAKE_TZONE_ALLOCATED(VideoTrackPrivateMediaSourceAVFObjC);
     WTF_MAKE_NONCOPYABLE(VideoTrackPrivateMediaSourceAVFObjC)
 public:
     static Ref<VideoTrackPrivateMediaSourceAVFObjC> create(AVAssetTrack* track)
@@ -47,10 +49,9 @@ public:
         return adoptRef(*new VideoTrackPrivateMediaSourceAVFObjC(track));
     }
 
-    void setAssetTrack(AVAssetTrack*);
-    AVAssetTrack* assetTrack() const;
+    virtual ~VideoTrackPrivateMediaSourceAVFObjC();
 
-    int trackID() { return m_trackID; }
+    AVAssetTrack* assetTrack() const;
 
     FloatSize naturalSize() const;
 
@@ -60,7 +61,6 @@ private:
     void resetPropertiesFromTrack();
 
     std::unique_ptr<AVTrackPrivateAVFObjCImpl> m_impl;
-    int m_trackID;
 };
 
 }

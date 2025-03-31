@@ -28,10 +28,12 @@
 
 #if ENABLE(WEB_AUTHN)
 
+#import <JavaScriptCore/ArrayBuffer.h>
 #import <Security/SecItem.h>
 #import <WebCore/AuthenticatorAssertionResponse.h>
 #import <WebCore/ExceptionData.h>
 #import <wtf/RunLoop.h>
+#import <wtf/TZoneMallocInlines.h>
 #import <wtf/spi/cocoa/SecuritySPI.h>
 #import <wtf/text/Base64.h>
 #import <wtf/text/WTFString.h>
@@ -41,15 +43,22 @@
 namespace WebKit {
 using namespace WebCore;
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(MockLocalConnection);
+
+Ref<MockLocalConnection> MockLocalConnection::create(const WebCore::MockWebAuthenticationConfiguration& configuration)
+{
+    return adoptRef(*new MockLocalConnection(configuration));
+}
+
 MockLocalConnection::MockLocalConnection(const MockWebAuthenticationConfiguration& configuration)
     : m_configuration(configuration)
 {
 }
 
-void MockLocalConnection::verifyUser(const String&, ClientDataType, SecAccessControlRef, UserVerificationCallback&& callback)
+void MockLocalConnection::verifyUser(const String&, ClientDataType, SecAccessControlRef, WebCore::UserVerificationRequirement, UserVerificationCallback&& callback)
 {
     // Mock async operations.
-    RunLoop::main().dispatch([configuration = m_configuration, callback = WTFMove(callback)]() mutable {
+    RunLoop::protectedMain()->dispatch([configuration = m_configuration, callback = WTFMove(callback)]() mutable {
         ASSERT(configuration.local);
 
         UserVerification userVerification = UserVerification::No;
@@ -61,9 +70,38 @@ void MockLocalConnection::verifyUser(const String&, ClientDataType, SecAccessCon
             break;
         case MockWebAuthenticationConfiguration::UserVerification::Cancel:
             userVerification = UserVerification::Cancel;
+            break;
+        case MockWebAuthenticationConfiguration::UserVerification::Presence:
+            userVerification = UserVerification::Presence;
+            break;
         }
 
         callback(userVerification, adoptNS([allocLAContextInstance() init]).get());
+    });
+}
+
+void MockLocalConnection::verifyUser(SecAccessControlRef, LAContext *, CompletionHandler<void(UserVerification)>&& callback)
+{
+    // Mock async operations.
+    RunLoop::protectedMain()->dispatch([configuration = m_configuration, callback = WTFMove(callback)]() mutable {
+        ASSERT(configuration.local);
+
+        UserVerification userVerification = UserVerification::No;
+        switch (configuration.local->userVerification) {
+        case MockWebAuthenticationConfiguration::UserVerification::No:
+            break;
+        case MockWebAuthenticationConfiguration::UserVerification::Yes:
+            userVerification = UserVerification::Yes;
+            break;
+        case MockWebAuthenticationConfiguration::UserVerification::Cancel:
+            userVerification = UserVerification::Cancel;
+            break;
+        case MockWebAuthenticationConfiguration::UserVerification::Presence:
+            userVerification = UserVerification::Presence;
+            break;
+        }
+
+        callback(userVerification);
     });
 }
 
@@ -92,11 +130,7 @@ RetainPtr<SecKeyRef> MockLocalConnection::createCredentialPrivateKey(LAContext *
         (id)kSecAttrLabel: secAttrLabel,
         (id)kSecAttrApplicationTag: secAttrApplicationTag,
         (id)kSecAttrAccessible: (id)kSecAttrAccessibleAfterFirstUnlock,
-#if HAVE(DATA_PROTECTION_KEYCHAIN)
         (id)kSecUseDataProtectionKeychain: @YES
-#else
-        (id)kSecAttrNoLegacy: @YES
-#endif
     };
     OSStatus status = SecItemAdd((__bridge CFDictionaryRef)addQuery, NULL);
     if (status) {
@@ -107,39 +141,48 @@ RetainPtr<SecKeyRef> MockLocalConnection::createCredentialPrivateKey(LAContext *
     return key;
 }
 
-void MockLocalConnection::getAttestation(SecKeyRef, NSData *, NSData *, AttestationCallback&& callback) const
-{
-    // Mock async operations.
-    RunLoop::main().dispatch([configuration = m_configuration, callback = WTFMove(callback)]() mutable {
-        ASSERT(configuration.local);
-        if (!configuration.local->acceptAttestation) {
-            callback(NULL, [NSError errorWithDomain:@"WebAuthentication" code:-1 userInfo:@{ NSLocalizedDescriptionKey: @"The operation couldn't complete." }]);
-            return;
-        }
-
-        auto attestationCertificate = adoptCF(SecCertificateCreateWithData(NULL, (__bridge CFDataRef)adoptNS([[NSData alloc] initWithBase64EncodedString:configuration.local->userCertificateBase64 options:NSDataBase64DecodingIgnoreUnknownCharacters]).get()));
-        auto attestationIssuingCACertificate = adoptCF(SecCertificateCreateWithData(NULL, (__bridge CFDataRef)adoptNS([[NSData alloc] initWithBase64EncodedString:configuration.local->intermediateCACertificateBase64 options:NSDataBase64DecodingIgnoreUnknownCharacters]).get()));
-        callback(@[ (__bridge id)attestationCertificate.get(), (__bridge id)attestationIssuingCACertificate.get()], NULL);
-    });
-}
-
 void MockLocalConnection::filterResponses(Vector<Ref<AuthenticatorAssertionResponse>>& responses) const
 {
     const auto& preferredCredentialIdBase64 = m_configuration.local->preferredCredentialIdBase64;
     if (preferredCredentialIdBase64.isEmpty())
         return;
 
-    auto itr = responses.begin();
-    for (; itr != responses.end(); ++itr) {
-        auto* rawId = itr->get().rawId();
+    RefPtr<AuthenticatorAssertionResponse> matchingResponse;
+    for (auto& response : responses) {
+        auto* rawId = response->rawId();
         ASSERT(rawId);
-        auto rawIdBase64 = base64Encode(rawId->data(), rawId->byteLength());
-        if (rawIdBase64 == preferredCredentialIdBase64)
+        auto rawIdBase64 = base64EncodeToString(rawId->span());
+        if (rawIdBase64 == preferredCredentialIdBase64) {
+            matchingResponse = response.copyRef();
             break;
+        }
     }
-    auto response = itr->copyRef();
     responses.clear();
-    responses.append(WTFMove(response));
+    responses.append(matchingResponse.releaseNonNull());
+}
+
+RetainPtr<NSArray> MockLocalConnection::getExistingCredentials(const String& rpId)
+{
+    // Search Keychain for existing credential matched the RP ID.
+    NSDictionary *query = @{
+        (id)kSecClass: (id)kSecClassKey,
+        (id)kSecAttrKeyClass: (id)kSecAttrKeyClassPrivate,
+        (id)kSecAttrSynchronizable: (id)kSecAttrSynchronizableAny,
+        (id)kSecAttrLabel: rpId,
+        (id)kSecReturnAttributes: @YES,
+        (id)kSecMatchLimit: (id)kSecMatchLimitAll,
+        (id)kSecUseDataProtectionKeychain: @YES
+    };
+
+    CFTypeRef attributesArrayRef = nullptr;
+    OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef)query, &attributesArrayRef);
+    if (status && status != errSecItemNotFound)
+        return nullptr;
+    auto retainAttributesArray = adoptCF(attributesArrayRef);
+    NSArray *sortedAttributesArray = [(NSArray *)attributesArrayRef sortedArrayUsingComparator:^(NSDictionary *a, NSDictionary *b) {
+        return [b[(id)kSecAttrModificationDate] compare:a[(id)kSecAttrModificationDate]];
+    }];
+    return retainPtr(sortedAttributesArray);
 }
 
 } // namespace WebKit

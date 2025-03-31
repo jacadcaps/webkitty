@@ -25,11 +25,12 @@
 
 #pragma once
 
-#if ENABLE(WEBASSEMBLY)
+#if ENABLE(WEBASSEMBLY_OMGJIT)
 
 #include "WasmContext.h"
 #include "WasmModule.h"
 #include "WasmPlan.h"
+#include "tools/FunctionAllowlist.h"
 
 namespace JSC {
 
@@ -42,29 +43,32 @@ public:
     using Base = Plan;
 
     bool hasWork() const final { return !m_completed; }
-    void work(CompilationEffort) final;
+    void work() final;
     bool multiThreaded() const final { return false; }
+    static FunctionAllowlist& ensureGlobalOMGAllowlist();
 
     // Note: CompletionTask should not hold a reference to the Plan otherwise there will be a reference cycle.
-    OMGPlan(Context*, Ref<Module>&&, uint32_t functionIndex, MemoryMode, CompletionTask&&);
+    OMGPlan(VM&, Ref<Module>&&, FunctionCodeIndex functionIndex, std::optional<bool> hasExceptionHandlers, MemoryMode, CompletionTask&&);
 
 private:
     // For some reason friendship doesn't extend to parent classes...
     using Base::m_lock;
 
+    void dumpDisassembly(CompilationContext&, LinkBuffer&, FunctionCodeIndex functionIndex, const TypeDefinition&, FunctionSpaceIndex functionIndexSpace);
     bool isComplete() const final { return m_completed; }
-    void complete(const AbstractLocker& locker) final
+    void complete() WTF_REQUIRES_LOCK(m_lock) final
     {
         m_completed = true;
-        runCompletionTasks(locker);
+        runCompletionTasks();
     }
     
     Ref<Module> m_module;
-    Ref<CodeBlock> m_codeBlock;
+    Ref<CalleeGroup> m_calleeGroup;
     bool m_completed { false };
-    uint32_t m_functionIndex;
+    std::optional<bool> m_hasExceptionHandlers;
+    FunctionCodeIndex m_functionIndex;
 };
 
 } } // namespace JSC::Wasm
 
-#endif // ENABLE(WEBASSEMBLY)
+#endif // ENABLE(WEBASSEMBLY_OMGJIT)

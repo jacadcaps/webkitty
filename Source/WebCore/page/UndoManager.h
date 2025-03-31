@@ -25,20 +25,20 @@
 
 #pragma once
 
+#include "Document.h"
 #include "ExceptionOr.h"
-#include <wtf/IsoMalloc.h>
 #include <wtf/Ref.h>
-#include <wtf/RefCounted.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/RefPtr.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
-class Document;
 class UndoItem;
 
-class UndoManager : public RefCounted<UndoManager>, public CanMakeWeakPtr<UndoManager> {
-    WTF_MAKE_ISO_ALLOCATED(UndoManager);
+class UndoManager : public RefCountedAndCanMakeWeakPtr<UndoManager> {
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(UndoManager);
 public:
     static Ref<UndoManager> create(Document& document)
     {
@@ -56,7 +56,7 @@ private:
     UndoManager(Document&);
 
     Document& m_document;
-    HashSet<RefPtr<UndoItem>> m_items;
+    UncheckedKeyHashSet<RefPtr<UndoItem>> m_items;
 };
 
 } // namespace WebCore

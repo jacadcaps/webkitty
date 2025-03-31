@@ -52,6 +52,11 @@ FileHandle::FileHandle(const String& path, FileSystem::FileOpenMode mode, Option
 {
 }
 
+FileHandle::FileHandle(FileSystem::PlatformFileHandle handle)
+    : m_fileHandle(handle)
+{
+}
+
 FileHandle::~FileHandle()
 {
     close();
@@ -63,6 +68,9 @@ FileHandle& FileHandle::operator=(FileHandle&& other)
     m_path = WTFMove(other.m_path);
     m_mode = WTFMove(other.m_mode);
     m_fileHandle = std::exchange(other.m_fileHandle, FileSystem::invalidPlatformFileHandle);
+    m_shouldLock = other.m_shouldLock;
+    m_lockMode = other.m_lockMode;
+
     return *this;
 }
 
@@ -84,24 +92,32 @@ bool FileHandle::open(const String& path, FileSystem::FileOpenMode mode)
 
 bool FileHandle::open()
 {
+    if (m_path.isEmpty())
+        return false;
+
     if (!*this)
         m_fileHandle = m_shouldLock ? FileSystem::openAndLockFile(m_path, m_mode, m_lockMode) :  FileSystem::openFile(m_path, m_mode);
+
     return static_cast<bool>(*this);
 }
 
-int FileHandle::read(void* data, int length)
+int FileHandle::read(std::span<uint8_t> data)
 {
     if (!open())
         return -1;
-    return FileSystem::readFromFile(m_fileHandle, static_cast<char*>(data), length);
+
+    return FileSystem::readFromFile(m_fileHandle, data);
 }
 
-int FileHandle::write(const void* data, int length)
+int FileHandle::write(std::span<const uint8_t> data)
 {
     if (!open())
         return -1;
-    return FileSystem::writeToFile(m_fileHandle, static_cast<const char*>(data), length);
+
+    return FileSystem::writeToFile(m_fileHandle, data);
 }
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 bool FileHandle::printf(const char* format, ...)
 {
@@ -118,16 +134,30 @@ bool FileHandle::printf(const char* format, ...)
 
     va_end(args);
 
-    return write(buffer.data(), stringLength) >= 0;
+    return write(byteCast<uint8_t>(buffer.mutableSpan()).first(stringLength)) >= 0;
 }
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 void FileHandle::close()
 {
     if (m_shouldLock && *this) {
         // FileSystem::unlockAndCloseFile requires the file handle to be valid while closeFile does not
         FileSystem::unlockAndCloseFile(m_fileHandle);
-    } else
-        FileSystem::closeFile(m_fileHandle);
+        return;
+    }
+
+    FileSystem::closeFile(m_fileHandle);
+}
+
+FileSystem::PlatformFileHandle FileHandle::handle() const
+{
+    return m_fileHandle;
+}
+
+String FileHandle::path() const
+{
+    return m_path;
 }
 
 } // namespace WebCore

@@ -24,31 +24,31 @@
  */
 
 typedef USVString CSSOMString;
+typedef (double? or TimelineRangeOffset or DOMString) KeyframeOffset;
 
 [
-    EnabledAtRuntime=WebAnimations,
     Exposed=Window,
     JSGenerateToNativeObject,
 ] interface KeyframeEffect : AnimationEffect {
-    [CallWith=GlobalObject, MayThrowException] constructor(Element? target, object? keyframes, optional (unrestricted double or KeyframeEffectOptions) options);
-    [CallWith=GlobalObject, MayThrowException] constructor(KeyframeEffect source);
+    [CallWith=CurrentGlobalObject&CurrentDocument] constructor(Element? target, object? keyframes, optional (unrestricted double or KeyframeEffectOptions) options);
+    constructor(KeyframeEffect source);
 
     attribute Element? target;
-    [MayThrowException] attribute CSSOMString? pseudoElement;
-    [EnabledAtRuntime=WebAnimationsCompositeOperations] attribute IterationCompositeOperation iterationComposite;
-    [EnabledAtRuntime=WebAnimationsCompositeOperations] attribute CompositeOperation composite;
-    [CallWith=GlobalObject, ImplementedAs=getBindingsKeyframes] sequence<object> getKeyframes();
-    [MayThrowException, CallWith=GlobalObject, ImplementedAs=setBindingsKeyframes] void setKeyframes(object? keyframes);
+    attribute CSSOMString? pseudoElement;
+    attribute IterationCompositeOperation iterationComposite;
+    [ImplementedAs=bindingsComposite] attribute CompositeOperation composite;
+    [Custom] sequence<object> getKeyframes();
+    [CallWith=CurrentGlobalObject&CurrentDocument, ImplementedAs=setBindingsKeyframes] undefined setKeyframes(object? keyframes);
 };
 
 dictionary BasePropertyIndexedKeyframe {
-    (sequence<double?> or double?) offset = [];
+    (sequence<KeyframeOffset> or KeyframeOffset) offset = [];
     (sequence<DOMString> or DOMString) easing = [];
     (sequence<CompositeOperationOrAuto> or CompositeOperationOrAuto) composite = [];
 };
 
 dictionary BaseKeyframe {
-    double? offset = null;
+    KeyframeOffset offset = null;
     DOMString easing = "linear";
     CompositeOperationOrAuto composite = "auto";
 };
@@ -56,8 +56,8 @@ dictionary BaseKeyframe {
 [
     JSGenerateToJSObject
 ] dictionary BaseComputedKeyframe {
-     double? offset = null;
-     double computedOffset;
+     KeyframeOffset offset = null;
+     unrestricted double computedOffset;
      DOMString easing = "linear";
      CompositeOperationOrAuto composite = "auto";
 };

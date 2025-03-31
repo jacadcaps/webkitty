@@ -27,8 +27,8 @@
 
 #import "APIApplicationManifest.h"
 #import "_WKApplicationManifest.h"
-
-#if ENABLE(APPLICATION_MANIFEST)
+#import <wtf/AlignedStorage.h>
+#import <wtf/cocoa/VectorCocoa.h>
 
 namespace WebKit {
 
@@ -40,9 +40,7 @@ template<> struct WrapperTraits<API::ApplicationManifest> {
 
 @interface _WKApplicationManifest () <WKObject> {
 @package
-    API::ObjectStorage<API::ApplicationManifest> _applicationManifest;
+    AlignedStorage<API::ApplicationManifest> _applicationManifest;
 }
 
 @end
-
-#endif // ENABLE(APPLICATION_MANIFEST)

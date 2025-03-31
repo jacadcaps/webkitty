@@ -26,18 +26,35 @@
 #import "AppDelegate.h"
 
 #import "WebViewController.h"
+#import <WebKit/WKWebsiteDataStorePrivate.h>
+#import <WebKit/_WKWebsiteDataStoreDelegate.h>
 
-@interface AppDelegate ()
+#import <WebKit/WebKit.h>
+
+@interface AppDelegate () <_WKWebsiteDataStoreDelegate>
 @end
 
 @implementation AppDelegate
 
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions
 {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
     UIStoryboard *frameworkMainStoryboard = [UIStoryboard storyboardWithName:@"Main" bundle:[NSBundle bundleForClass:[AppDelegate class]]];
     WebViewController *viewController = [frameworkMainStoryboard instantiateInitialViewController];
+#pragma clang diagnostic pop
     if (!viewController)
         return NO;
+
+    WKWebsiteDataStore *dataStore = viewController.dataStore;
+    [WKWebsiteDataStore _setWebPushActionHandler:^(_WKWebPushAction *action) {
+        return dataStore;
+    }];
+    dataStore._delegate = self;
+
+    NSURL *url = launchOptions[UIApplicationLaunchOptionsURLKey];
+    if (url)
+        viewController.initialURL = url;
 
     if (!self.window)
         self.window = [[UIWindow alloc] init];
@@ -47,6 +64,12 @@
     return YES;
 }
 
+- (BOOL)application:(UIApplication *)app openURL:(NSURL *)url options:(NSDictionary<UIApplicationOpenURLOptionsKey, id> *)options
+{
+    WebViewController *controller = (WebViewController *)self.window.rootViewController;
+    [controller.currentWebView loadRequest:[NSURLRequest requestWithURL:url]];
+    return YES;
+}
 
 - (void)applicationWillResignActive:(UIApplication *)application
 {
@@ -79,5 +102,12 @@
     // Called when the application is about to terminate. Save data if appropriate. See also applicationDidEnterBackground:.
 }
 
+- (void)websiteDataStore:(WKWebsiteDataStore *)dataStore openWindow:(NSURL *)url fromServiceWorkerOrigin:(WKSecurityOrigin *)serviceWorkerOrigin completionHandler:(void (^)(WKWebView *newWebView))completionHandler
+{
+    WebViewController *controller = (WebViewController *)self.window.rootViewController;
+    [controller addWebView];
+    [controller.currentWebView loadRequest:[NSURLRequest requestWithURL:url]];
+    completionHandler(controller.currentWebView);
+}
 
 @end

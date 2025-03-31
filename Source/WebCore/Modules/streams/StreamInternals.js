@@ -26,8 +26,18 @@
 
 // @internal
 
+function markPromiseAsHandled(promise)
+{
+    "use strict";
+
+    @assert(@isPromise(promise));
+    @putPromiseInternalField(promise, @promiseFieldFlags, @getPromiseInternalField(promise, @promiseFieldFlags) | @promiseFlagsIsHandled);
+}
+
 function shieldingPromiseResolve(result)
 {
+    "use strict";
+
     const promise = @Promise.@resolve(result);
     if (promise.@then === @undefined)
         promise.@then = @Promise.prototype.@then;
@@ -96,15 +106,12 @@ function validateAndNormalizeQueuingStrategy(size, highWaterMark)
     if (size !== @undefined && typeof size !== "function")
         @throwTypeError("size parameter must be a function");
 
-    const normalizedStrategy = {
-        size: size,
-        highWaterMark: @toNumber(highWaterMark)
-    };
+    highWaterMark = @toNumber(highWaterMark);
 
-    if (@isNaN(normalizedStrategy.highWaterMark) || normalizedStrategy.highWaterMark < 0)
+    if (highWaterMark !== highWaterMark || highWaterMark < 0)
         @throwRangeError("highWaterMark value is negative or not a number");
 
-    return normalizedStrategy;
+    return { size, highWaterMark };
 }
 
 function newQueue()
@@ -133,7 +140,7 @@ function enqueueValueWithSize(queue, value, size)
     size = @toNumber(size);
     if (!@isFinite(size) || size < 0)
         @throwRangeError("size has an incorrect value");
-    queue.content.@push({ value: value, size: size });
+    @arrayPush(queue.content, { value, size });
     queue.size += size;
 }
 
@@ -144,4 +151,74 @@ function peekQueueValue(queue)
     @assert(queue.content.length > 0);
 
     return queue.content[0].value;
+}
+
+function resetQueue(queue)
+{
+    "use strict";
+
+    @assert("content" in queue);
+    @assert("size" in queue);
+    queue.content = [];
+    queue.size = 0;
+}
+
+function extractSizeAlgorithm(strategy)
+{
+    if (!("size" in strategy))
+        return () => 1;
+
+    const sizeAlgorithm = strategy["size"];
+    if (sizeAlgorithm === @undefined)
+        return () => 1;
+
+    if (typeof sizeAlgorithm !== "function")
+        @throwTypeError("strategy.size must be a function");
+
+    return (chunk) => { return sizeAlgorithm(chunk); };
+}
+
+function extractHighWaterMark(strategy, defaultHWM)
+{
+    if (!("highWaterMark" in strategy))
+        return defaultHWM;
+
+    const highWaterMark = strategy["highWaterMark"];
+    if (highWaterMark === @undefined)
+        return defaultHWM;
+
+    const result = @toNumber(highWaterMark);
+    if (result !== result || result < 0)
+        @throwRangeError("highWaterMark value is negative or not a number");
+
+    return result;
+}
+
+function extractHighWaterMarkFromQueuingStrategyInit(init)
+{
+    "use strict";
+
+    if (!@isObject(init))
+        @throwTypeError("QueuingStrategyInit argument must be an object.");
+    const {highWaterMark} = init;
+    if (highWaterMark === @undefined)
+        @throwTypeError("QueuingStrategyInit.highWaterMark member is required.");
+
+    return @toNumber(highWaterMark);
+}
+
+function createFulfilledPromise(value)
+{
+    const promise = @newPromise();
+    @fulfillPromise(promise, value);
+    return promise;
+}
+
+function toDictionary(value, defaultValue, errorMessage)
+{
+    if (value === @undefined || value === null)
+        return defaultValue;
+    if (!@isObject(value))
+        @throwTypeError(errorMessage);
+    return value;
 }

@@ -11,9 +11,9 @@
 #ifndef API_VIDEO_VIDEO_STREAM_ENCODER_SETTINGS_H_
 #define API_VIDEO_VIDEO_STREAM_ENCODER_SETTINGS_H_
 
-#include <string>
 
 #include "api/video/video_bitrate_allocator_factory.h"
+#include "api/video_codecs/sdp_video_format.h"
 #include "api/video_codecs/video_encoder.h"
 #include "api/video_codecs/video_encoder_factory.h"
 
@@ -23,19 +23,13 @@ class EncoderSwitchRequestCallback {
  public:
   virtual ~EncoderSwitchRequestCallback() {}
 
-  struct Config {
-    std::string codec_name;
-    absl::optional<std::string> param;
-    absl::optional<std::string> value;
-  };
-
-  // Requests that encoder fallback is performed.
+  // Requests switch to next negotiated encoder.
   virtual void RequestEncoderFallback() = 0;
 
-  // Requests that a switch to a specific encoder is performed.
-  virtual void RequestEncoderSwitch(const Config& conf) = 0;
-
-  virtual void RequestEncoderSwitch(const SdpVideoFormat& format) = 0;
+  // Requests switch to a specific encoder. If the encoder is not available and
+  // `allow_default_fallback` is `true` the default fallback is invoked.
+  virtual void RequestEncoderSwitch(const SdpVideoFormat& format,
+                                    bool allow_default_fallback) = 0;
 };
 
 struct VideoStreamEncoderSettings {
@@ -59,6 +53,10 @@ struct VideoStreamEncoderSettings {
   // Negotiated capabilities which the VideoEncoder may expect the other
   // side to use.
   VideoEncoder::Capabilities capabilities;
+
+  // Enables the frame instrumentation generator that is required for automatic
+  // corruption detection.
+  bool enable_frame_instrumentation_generator = false;
 };
 
 }  // namespace webrtc

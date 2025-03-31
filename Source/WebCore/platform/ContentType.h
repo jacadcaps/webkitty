@@ -24,10 +24,13 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef ContentType_h
-#define ContentType_h
+#pragma once
 
 #include <wtf/text/WTFString.h>
+
+namespace WTF {
+class URL;
+}
 
 namespace WebCore {
 
@@ -35,7 +38,10 @@ class ContentType {
 public:
     WEBCORE_EXPORT explicit ContentType(String&& type);
     WEBCORE_EXPORT explicit ContentType(const String& type);
+    WEBCORE_EXPORT ContentType(const String& type, bool); // Use by the IPC serializer.
     ContentType() = default;
+
+    WEBCORE_EXPORT static ContentType fromURL(const WTF::URL&);
 
     WEBCORE_EXPORT static const String& codecsParameter();
     static const String& profilesParameter();
@@ -47,27 +53,18 @@ public:
     const String& raw() const { return m_type; }
     bool isEmpty() const { return m_type.isEmpty(); }
 
-    String toJSONString() const;
+    bool typeWasInferredFromExtension() const { return m_typeWasInferredFromExtension; }
 
-    template<class Encoder>
-    void encode(Encoder& encoder) const
-    {
-        encoder << m_type;
-    }
+    WEBCORE_EXPORT String toJSONString() const;
+    bool operator==(const ContentType& other) const { return raw() == other.raw(); }
+    bool operator!=(const ContentType& other) const { return !(*this == other); }
 
-    template <class Decoder>
-    static Optional<ContentType> decode(Decoder& decoder)
-    {
-        Optional<String> type;
-        decoder >> type;
-        if (!type)
-            return WTF::nullopt;
-
-        return { ContentType(WTFMove(*type)) };
-    }
+    ContentType isolatedCopy() const & { return { m_type.isolatedCopy(), m_typeWasInferredFromExtension }; }
+    ContentType isolatedCopy() && { return { WTFMove(m_type).isolatedCopy(), m_typeWasInferredFromExtension }; }
 
 private:
     String m_type;
+    bool m_typeWasInferredFromExtension { false };
 };
 
 } // namespace WebCore
@@ -84,5 +81,3 @@ struct LogArgument<WebCore::ContentType> {
 };
 
 } // namespace WTF
-
-#endif // ContentType_h

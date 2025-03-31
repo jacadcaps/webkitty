@@ -34,7 +34,8 @@
 namespace WebCore {
 
 class HTMLUnknownElement final : public HTMLElement {
-    WTF_MAKE_ISO_ALLOCATED(HTMLUnknownElement);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(HTMLUnknownElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HTMLUnknownElement);
 public:
     static Ref<HTMLUnknownElement> create(const QualifiedName& tagName, Document& document)
     {
@@ -43,11 +44,9 @@ public:
 
 private:
     HTMLUnknownElement(const QualifiedName& tagName, Document& document)
-        : HTMLElement(tagName, document, CreateHTMLElement)
+        : HTMLElement(tagName, document, TypeFlag::IsUnknownElement)
     {
     }
-
-    bool isHTMLUnknownElement() const final { return true; }
 };
 
 } // namespace WebCore

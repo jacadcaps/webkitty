@@ -32,55 +32,55 @@
 
 #include "PeriodicWave.h"
 
+#include <JavaScriptCore/TypedArrays.h>
 #include "BaseAudioContext.h"
 #include "FFTFrame.h"
 #include "VectorMath.h"
 #include <algorithm>
+#include <wtf/StdLibExtras.h>
 
-const unsigned PeriodicWaveSize = 4096; // This must be a power of two.
-const unsigned NumberOfRanges = 36; // There should be 3 * log2(PeriodicWaveSize) 1/3 octave ranges.
-const float CentsPerRange = 1200 / 3; // 1/3 Octave.
+// The number of bands per octave. Each octave will have this many entries in the wave tables.
+constexpr unsigned NumberOfOctaveBands = 3;
+
+// The max length of a periodic wave. This must be a power of two greater than
+// or equal to 2048 and must be supported by the FFT routines.
+constexpr unsigned MaxPeriodicWaveSize = 16384;
+
+constexpr float CentsPerRange = 1200 / NumberOfOctaveBands;
 
 namespace WebCore {
-    
-using namespace VectorMath;
 
 Ref<PeriodicWave> PeriodicWave::create(float sampleRate, Float32Array& real, Float32Array& imaginary)
 {
     ASSERT(real.length() == imaginary.length());
 
     auto waveTable = adoptRef(*new PeriodicWave(sampleRate));
-    waveTable->createBandLimitedTables(real.data(), imaginary.data(), real.length());
+    waveTable->createBandLimitedTables(real.typedSpan(), imaginary.typedSpan());
     return waveTable;
 }
 
 ExceptionOr<Ref<PeriodicWave>> PeriodicWave::create(BaseAudioContext& context, PeriodicWaveOptions&& options)
 {
-    if (context.isStopped())
-        return Exception { InvalidStateError };
-
-    context.lazyInitialize();
-
     Vector<float> real;
     Vector<float> imag;
     
     if (options.real && options.imag) {
         if (options.real->size() != options.imag->size())
-            return Exception { IndexSizeError, "real and imag have different lengths"_s };
+            return Exception { ExceptionCode::IndexSizeError, "real and imag have different lengths"_s };
         if (options.real->size() < 2)
-            return Exception { IndexSizeError, "real's length cannot be less than 2"_s };
+            return Exception { ExceptionCode::IndexSizeError, "real's length cannot be less than 2"_s };
         if (options.imag->size() < 2)
-            return Exception { IndexSizeError, "imag's length cannot be less than 2"_s };
+            return Exception { ExceptionCode::IndexSizeError, "imag's length cannot be less than 2"_s };
         real = WTFMove(*options.real);
         imag = WTFMove(*options.imag);
     } else if (options.real) {
         if (options.real->size() < 2)
-            return Exception { IndexSizeError, "real's length cannot be less than 2"_s };
+            return Exception { ExceptionCode::IndexSizeError, "real's length cannot be less than 2"_s };
         real = WTFMove(*options.real);
         imag.fill(0, real.size());
     } else if (options.imag) {
         if (options.imag->size() < 2)
-            return Exception { IndexSizeError, "imag's length cannot be less than 2"_s };
+            return Exception { ExceptionCode::IndexSizeError, "imag's length cannot be less than 2"_s };
         imag = WTFMove(*options.imag);
         real.fill(0, imag.size());
     } else {
@@ -93,7 +93,7 @@ ExceptionOr<Ref<PeriodicWave>> PeriodicWave::create(BaseAudioContext& context, P
     imag[0] = 0;
     
     auto waveTable = adoptRef(*new PeriodicWave(context.sampleRate()));
-    waveTable->createBandLimitedTables(real.data(), imag.data(), real.size(), options.disableNormalization ? ShouldDisableNormalization::Yes : ShouldDisableNormalization::No);
+    waveTable->createBandLimitedTables(real, imag, options.disableNormalization ? ShouldDisableNormalization::Yes : ShouldDisableNormalization::No);
     return waveTable;
 }
 
@@ -127,26 +127,24 @@ Ref<PeriodicWave> PeriodicWave::createTriangle(float sampleRate)
 
 PeriodicWave::PeriodicWave(float sampleRate)
     : m_sampleRate(sampleRate)
-    , m_periodicWaveSize(PeriodicWaveSize)
-    , m_numberOfRanges(NumberOfRanges)
-    , m_centsPerRange(CentsPerRange)
+    , m_numberOfRanges(0.5 + NumberOfOctaveBands * log2f(periodicWaveSize()))
 {
     float nyquist = 0.5 * m_sampleRate;
     m_lowestFundamentalFrequency = nyquist / maxNumberOfPartials();
-    m_rateScale = m_periodicWaveSize / m_sampleRate;
+    m_rateScale = periodicWaveSize() / m_sampleRate;
 }
 
-void PeriodicWave::waveDataForFundamentalFrequency(float fundamentalFrequency, float* &lowerWaveData, float* &higherWaveData, float& tableInterpolationFactor)
+void PeriodicWave::waveDataForFundamentalFrequency(float fundamentalFrequency, std::span<float>& lowerWaveData, std::span<float>& higherWaveData, float& tableInterpolationFactor)
 {
     // Negative frequencies are allowed, in which case we alias to the positive frequency.
-    fundamentalFrequency = fabsf(fundamentalFrequency);
+    fundamentalFrequency = std::abs(fundamentalFrequency);
 
     // Calculate the pitch range.
     float ratio = fundamentalFrequency > 0 ? fundamentalFrequency / m_lowestFundamentalFrequency : 0.5;
     float centsAboveLowestFrequency = log2f(ratio) * 1200;
 
     // Add one to round-up to the next range just in time to truncate partials before aliasing occurs.
-    float pitchRange = 1 + centsAboveLowestFrequency / m_centsPerRange;
+    float pitchRange = 1 + centsAboveLowestFrequency / CentsPerRange;
 
     pitchRange = std::max(pitchRange, 0.0f);
     pitchRange = std::min(pitchRange, static_cast<float>(m_numberOfRanges - 1));
@@ -157,8 +155,8 @@ void PeriodicWave::waveDataForFundamentalFrequency(float fundamentalFrequency, f
     unsigned rangeIndex1 = static_cast<unsigned>(pitchRange);
     unsigned rangeIndex2 = rangeIndex1 < m_numberOfRanges - 1 ? rangeIndex1 + 1 : rangeIndex1;
 
-    lowerWaveData = m_bandLimitedTables[rangeIndex2]->data();
-    higherWaveData = m_bandLimitedTables[rangeIndex1]->data();
+    lowerWaveData = m_bandLimitedTables[rangeIndex2]->span();
+    higherWaveData = m_bandLimitedTables[rangeIndex1]->span();
     
     // Ranges from 0 -> 1 to interpolate between lower -> higher.
     tableInterpolationFactor = pitchRange - rangeIndex1;
@@ -166,13 +164,13 @@ void PeriodicWave::waveDataForFundamentalFrequency(float fundamentalFrequency, f
 
 unsigned PeriodicWave::maxNumberOfPartials() const
 {
-    return m_periodicWaveSize / 2;
+    return periodicWaveSize() / 2;
 }
 
 unsigned PeriodicWave::numberOfPartialsForRange(unsigned rangeIndex) const
 {
     // Number of cents below nyquist where we cull partials.
-    float centsToCull = rangeIndex * m_centsPerRange;
+    float centsToCull = rangeIndex * CentsPerRange;
 
     // A value from 0 -> 1 representing what fraction of the partials to keep.
     float cullingScale = pow(2, -centsToCull / 1200);
@@ -186,14 +184,14 @@ unsigned PeriodicWave::numberOfPartialsForRange(unsigned rangeIndex) const
 // Convert into time-domain wave tables.
 // One table is created for each range for non-aliasing playback at different playback rates.
 // Thus, higher ranges have more high-frequency partials culled out.
-void PeriodicWave::createBandLimitedTables(const float* realData, const float* imagData, unsigned numberOfComponents, ShouldDisableNormalization disableNormalization)
+void PeriodicWave::createBandLimitedTables(std::span<const float> realData, std::span<const float> imagData, ShouldDisableNormalization disableNormalization)
 {
-    float normalizationScale = 1;
+    float normalizationScale = 0.5;
 
-    unsigned fftSize = m_periodicWaveSize;
-    unsigned halfSize = fftSize / 2;
-    unsigned i;
+    size_t fftSize = periodicWaveSize();
+    size_t halfSize = fftSize / 2;
     
+    size_t numberOfComponents = realData.size();
     numberOfComponents = std::min(numberOfComponents, halfSize);
 
     m_bandLimitedTables.reserveCapacity(m_numberOfRanges);
@@ -201,52 +199,45 @@ void PeriodicWave::createBandLimitedTables(const float* realData, const float* i
     for (unsigned rangeIndex = 0; rangeIndex < m_numberOfRanges; ++rangeIndex) {
         // This FFTFrame is used to cull partials (represented by frequency bins).
         FFTFrame frame(fftSize);
-        float* realP = frame.realData();
-        float* imagP = frame.imagData();
+        auto& realP = frame.realData();
+        auto& imagP = frame.imagData();
+
+        RELEASE_ASSERT(realP.size() >= numberOfComponents);
+        RELEASE_ASSERT(imagP.size() >= numberOfComponents);
 
         // Copy from loaded frequency data and scale.
-        float scale = fftSize;
-        vsmul(realData, 1, &scale, realP, 1, numberOfComponents);
-        vsmul(imagData, 1, &scale, imagP, 1, numberOfComponents);
-
-        // If fewer components were provided than 1/2 FFT size, then clear the remaining bins.
-        for (i = numberOfComponents; i < halfSize; ++i) {
-            realP[i] = 0;
-            imagP[i] = 0;
-        }
-        
-        // Generate complex conjugate because of the way the inverse FFT is defined.
-        float minusOne = -1;
-        vsmul(imagP, 1, &minusOne, imagP, 1, halfSize);
+        VectorMath::multiplyByScalar(realData.first(numberOfComponents), fftSize, realP.span());
+        VectorMath::multiplyByScalar(imagData.first(numberOfComponents), -static_cast<float>(fftSize), imagP.span());
 
         // Find the starting bin where we should start culling.
         // We need to clear out the highest frequencies to band-limit the waveform.
-        unsigned numberOfPartials = numberOfPartialsForRange(rangeIndex);
+        size_t numberOfPartials = numberOfPartialsForRange(rangeIndex);
 
-        // Cull the aliasing partials for this pitch range.
-        for (i = numberOfPartials + 1; i < halfSize; ++i) {
-            realP[i] = 0;
-            imagP[i] = 0;
+        // If fewer components were provided than 1/2 FFT size, then clear the
+        // remaining bins. We also need to cull the aliasing partials for this
+        // pitch range.
+        size_t clampedNumberOfComponents = std::min(numberOfComponents, numberOfPartials + 1);
+        if (clampedNumberOfComponents < halfSize) {
+            size_t numValues = halfSize - clampedNumberOfComponents;
+            zeroSpan(realP.span().subspan(clampedNumberOfComponents, numValues));
+            zeroSpan(imagP.span().subspan(clampedNumberOfComponents, numValues));
         }
-        // Clear packed-nyquist if necessary.
-        if (numberOfPartials < halfSize)
-            imagP[0] = 0;
 
-        // Clear any DC-offset.
+        // Clear packed-nyquist and any DC-offset.
         realP[0] = 0;
+        imagP[0] = 0;
 
         // Create the band-limited table.
-        m_bandLimitedTables.append(makeUnique<AudioFloatArray>(m_periodicWaveSize));
+        m_bandLimitedTables.append(makeUnique<AudioFloatArray>(fftSize));
 
         // Apply an inverse FFT to generate the time-domain table data.
-        float* data = m_bandLimitedTables[rangeIndex]->data();
+        auto data = m_bandLimitedTables[rangeIndex]->span();
         frame.doInverseFFT(data);
 
         // For the first range (which has the highest power), calculate its peak value then compute normalization scale.
         if (disableNormalization == ShouldDisableNormalization::No) {
             if (!rangeIndex) {
-                float maxValue;
-                vmaxmgv(data, 1, &maxValue, m_periodicWaveSize);
+                float maxValue = VectorMath::maximumMagnitude(data);
 
                 if (maxValue)
                     normalizationScale = 1.0f / maxValue;
@@ -254,7 +245,7 @@ void PeriodicWave::createBandLimitedTables(const float* realData, const float* i
         }
 
         // Apply normalization scale.
-        vsmul(data, 1, &normalizationScale, data, 1, m_periodicWaveSize);          
+        VectorMath::multiplyByScalar(data, normalizationScale, data);
     }
 }
 
@@ -265,19 +256,24 @@ void PeriodicWave::generateBasicWaveform(Type shape)
 
     AudioFloatArray real(halfSize);
     AudioFloatArray imag(halfSize);
-    float* realP = real.data();
-    float* imagP = imag.data();
+    auto realP = real.span();
+    auto imagP = imag.span();
 
     // Clear DC and Nyquist.
     realP[0] = 0;
     imagP[0] = 0;
 
     for (unsigned n = 1; n < halfSize; ++n) {
-        float omega = 2 * piFloat * n;
-        float invOmega = 1 / omega;
+        float piFactor = 2 / (n * piFloat);
 
-        // Fourier coefficients according to standard definition.
-        float a; // Coefficient for cos().
+        // All waveforms are odd functions with a positive slope at time 0. Hence
+        // the coefficients for cos() are always 0.
+
+        // Fourier coefficients according to standard definition:
+        // b = 1/pi*integrate(f(x)*sin(n*x), x, -pi, pi)
+        //   = 2/pi*integrate(f(x)*sin(n*x), x, 0, pi)
+        // since f(x) is an odd function.
+
         float b; // Coefficient for sin().
 
         // Calculate Fourier coefficients depending on the shape.
@@ -285,31 +281,63 @@ void PeriodicWave::generateBasicWaveform(Type shape)
         switch (shape) {
         case Type::Sine:
             // Standard sine wave function.
-            a = 0;
             b = (n == 1) ? 1 : 0;
             break;
         case Type::Square:
-            // Square-shaped waveform with the first half its maximum value and the second half its minimum value.
-            a = 0;
-            b = invOmega * ((n & 1) ? 2 : 0);
+            // Square-shaped waveform with the first half its maximum value and the
+            // second half its minimum value.
+            //
+            // See http://mathworld.wolfram.com/FourierSeriesSquareWave.html
+            //
+            // b[n] = 2/n/pi*(1-(-1)^n)
+            //      = 4/n/pi for n odd and 0 otherwise.
+            //      = 2*(2/(n*pi)) for n odd
+            b = (n & 1) ? 2 * piFactor : 0;
             break;
         case Type::Sawtooth:
-            // Sawtooth-shaped waveform with the first half ramping from zero to maximum and the second half from minimum to zero.
-            a = 0;
-            b = -invOmega * cos(0.5 * omega);
+            // Sawtooth-shaped waveform with the first half ramping from zero to
+            // maximum and the second half from minimum to zero.
+            //
+            // b[n] = -2*(-1)^n/pi/n
+            //      = (2/(n*pi))*(-1)^(n+1)
+            b = piFactor * ((n & 1) ? 1 : -1);
             break;
         case Type::Triangle:
-            // Triangle-shaped waveform going from its maximum value to its minimum value then back to the maximum value.
-            a = (4 - 4 * cos(0.5 * omega)) / (n * n * piFloat * piFloat);
-            b = 0;
+            // Triangle-shaped waveform going from 0 at time 0 to 1 at time pi/2 and
+            // back to 0 at time pi.
+            //
+            // See http://mathworld.wolfram.com/FourierSeriesTriangleWave.html
+            //
+            // b[n] = 8*sin(pi*k/2)/(pi*k)^2
+            //      = 8/pi^2/n^2*(-1)^((n-1)/2) for n odd and 0 otherwise
+            //      = 2*(2/(n*pi))^2 * (-1)^((n-1)/2)
+            if (n & 1)
+                b = 2 * (piFactor * piFactor) * ((((n - 1) >> 1) & 1) ? -1 : 1);
+            else
+                b = 0;
             break;
         }
 
-        realP[n] = a;
+        realP[n] = 0;
         imagP[n] = b;
     }
 
-    createBandLimitedTables(realP, imagP, halfSize);
+    createBandLimitedTables(realP, imagP);
+}
+
+unsigned PeriodicWave::periodicWaveSize() const
+{
+    // Choose an appropriate wave size for the given sample rate. This allows us
+    // to use shorter FFTs when possible to limit the complexity. The breakpoints
+    // here are somewhat arbitrary, but we want sample rates around 44.1 kHz or so
+    // to have a size of 4096 to preserve backward compatibility.
+    if (m_sampleRate <= 24000)
+        return 2048;
+
+    if (m_sampleRate <= 88200)
+        return 4096;
+
+    return MaxPeriodicWaveSize;
 }
 
 } // namespace WebCore

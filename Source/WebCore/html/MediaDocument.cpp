@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008-2022 Apple Inc. All Rights Reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,9 +32,7 @@
 #include "ChromeClient.h"
 #include "DocumentLoader.h"
 #include "EventNames.h"
-#include "Frame.h"
 #include "FrameLoader.h"
-#include "FrameLoaderClient.h"
 #include "HTMLBodyElement.h"
 #include "HTMLEmbedElement.h"
 #include "HTMLHeadElement.h"
@@ -44,19 +42,21 @@
 #include "HTMLSourceElement.h"
 #include "HTMLVideoElement.h"
 #include "KeyboardEvent.h"
+#include "LocalFrame.h"
+#include "LocalFrameLoaderClient.h"
+#include "MouseEvent.h"
 #include "NodeList.h"
 #include "Page.h"
 #include "RawDataDocumentParser.h"
-#include "RuntimeEnabledFeatures.h"
 #include "ScriptController.h"
 #include "ShadowRoot.h"
-#include "TypedElementDescendantIterator.h"
-#include <wtf/IsoMallocInlines.h>
+#include "TypedElementDescendantIteratorInlines.h"
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(MediaDocument);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(MediaDocument);
 
 using namespace HTMLNames;
 
@@ -75,67 +75,57 @@ private:
     {
     }
 
-    void appendBytes(DocumentWriter&, const char*, size_t) final;
+    void appendBytes(DocumentWriter&, std::span<const uint8_t>) final;
     void createDocumentStructure();
 
-    HTMLMediaElement* m_mediaElement { nullptr };
+    WeakPtr<HTMLMediaElement> m_mediaElement;
     String m_outgoingReferrer;
 };
     
 void MediaDocumentParser::createDocumentStructure()
 {
-    auto& document = *this->document();
+    Ref document = *this->document();
 
-    auto rootElement = HTMLHtmlElement::create(document);
-    document.appendChild(rootElement);
-    document.setCSSTarget(rootElement.ptr());
-    rootElement->insertedByParser();
+    Ref rootElement = HTMLHtmlElement::create(document);
+    document->appendChild(rootElement);
+    document->setCSSTarget(rootElement.ptr());
 
-    if (document.frame())
-        document.frame()->injectUserScripts(UserScriptInjectionTime::DocumentStart);
+    if (RefPtr frame = document->frame())
+        frame->injectUserScripts(UserScriptInjectionTime::DocumentStart);
 
 #if PLATFORM(IOS_FAMILY)
-    auto headElement = HTMLHeadElement::create(document);
+    Ref headElement = HTMLHeadElement::create(document);
     rootElement->appendChild(headElement);
 
-    auto metaElement = HTMLMetaElement::create(document);
-    metaElement->setAttributeWithoutSynchronization(nameAttr, AtomString("viewport", AtomString::ConstructFromLiteral));
-    metaElement->setAttributeWithoutSynchronization(contentAttr, AtomString("width=device-width,initial-scale=1", AtomString::ConstructFromLiteral));
+    Ref metaElement = HTMLMetaElement::create(document);
+    metaElement->setAttributeWithoutSynchronization(nameAttr, "viewport"_s);
+    metaElement->setAttributeWithoutSynchronization(contentAttr, "width=device-width,initial-scale=1"_s);
     headElement->appendChild(metaElement);
 #endif
 
-    auto body = HTMLBodyElement::create(document);
+    Ref body = HTMLBodyElement::create(document);
     rootElement->appendChild(body);
 
-    auto videoElement = HTMLVideoElement::create(document);
-    m_mediaElement = videoElement.ptr();
+    Ref videoElement = HTMLVideoElement::create(document);
+    m_mediaElement = videoElement.get();
     videoElement->setAttributeWithoutSynchronization(controlsAttr, emptyAtom());
     videoElement->setAttributeWithoutSynchronization(autoplayAttr, emptyAtom());
-    videoElement->setAttributeWithoutSynchronization(srcAttr, document.url().string());
-    if (auto loader = makeRefPtr(document.loader()))
-        videoElement->setAttributeWithoutSynchronization(typeAttr, loader->responseMIMEType());
-
-    if (!RuntimeEnabledFeatures::sharedFeatures().modernMediaControlsEnabled()) {
-        StringBuilder elementStyle;
-        elementStyle.appendLiteral("max-width: 100%; max-height: 100%;");
-#if PLATFORM(IOS_FAMILY)
-        elementStyle.appendLiteral("width: 100%; height: auto;");
-#endif
-        videoElement->setAttribute(styleAttr, elementStyle.toString());
-    }
+    videoElement->setAttributeWithoutSynchronization(srcAttr, AtomString { document->url().string() });
+    if (RefPtr loader = document->loader())
+        videoElement->setAttributeWithoutSynchronization(typeAttr, AtomString { loader->responseMIMEType() });
 
     body->appendChild(videoElement);
-    document.setHasVisuallyNonEmptyCustomContent();
+    document->setHasVisuallyNonEmptyCustomContent();
 
-    RefPtr<Frame> frame = document.frame();
+    RefPtr frame = document->frame();
     if (!frame)
         return;
 
-    frame->loader().activeDocumentLoader()->setMainResourceDataBufferingPolicy(DataBufferingPolicy::DoNotBufferData);
-    frame->loader().setOutgoingReferrer(document.completeURL(m_outgoingReferrer));
+    frame->loader().protectedActiveDocumentLoader()->setMainResourceDataBufferingPolicy(DataBufferingPolicy::DoNotBufferData);
+    frame->protectedLoader()->setOutgoingReferrer(document->completeURL(m_outgoingReferrer));
 }
 
-void MediaDocumentParser::appendBytes(DocumentWriter&, const char*, size_t)
+void MediaDocumentParser::appendBytes(DocumentWriter&, std::span<const uint8_t>)
 {
     if (m_mediaElement)
         return;
@@ -144,18 +134,16 @@ void MediaDocumentParser::appendBytes(DocumentWriter&, const char*, size_t)
     finish();
 }
     
-MediaDocument::MediaDocument(Frame* frame, const URL& url)
-    : HTMLDocument(frame, url, MediaDocumentClass)
+MediaDocument::MediaDocument(LocalFrame* frame, const Settings& settings, const URL& url)
+    : HTMLDocument(frame, settings, url, { }, { DocumentClass::Media })
 {
-    setCompatibilityMode(DocumentCompatibilityMode::QuirksMode);
+    setCompatibilityMode(DocumentCompatibilityMode::NoQuirksMode);
     lockCompatibilityMode();
     if (frame)
         m_outgoingReferrer = frame->loader().outgoingReferrer();
 }
 
-MediaDocument::~MediaDocument()
-{
-}
+MediaDocument::~MediaDocument() = default;
 
 Ref<DocumentParser> MediaDocument::createParser()
 {
@@ -164,89 +152,33 @@ Ref<DocumentParser> MediaDocument::createParser()
 
 static inline HTMLVideoElement* descendantVideoElement(ContainerNode& node)
 {
-    if (is<HTMLVideoElement>(node))
-        return downcast<HTMLVideoElement>(&node);
+    if (auto* video = dynamicDowncast<HTMLVideoElement>(node))
+        return video;
 
     return descendantsOfType<HTMLVideoElement>(node).first();
 }
 
-static inline HTMLVideoElement* ancestorVideoElement(Node* node)
-{
-    while (node && !is<HTMLVideoElement>(*node))
-        node = node->parentOrShadowHostNode();
-
-    return downcast<HTMLVideoElement>(node);
-}
-
-void MediaDocument::defaultEventHandler(Event& event)
-{
-    // Modern media controls have their own event handling to determine when to
-    // pause or resume playback.
-    if (RuntimeEnabledFeatures::sharedFeatures().modernMediaControlsEnabled())
-        return;
-    
-    // Match the default Quicktime plugin behavior to allow
-    // clicking and double-clicking to pause and play the media.
-    if (!is<Node>(event.target()))
-        return;
-    auto& targetNode = downcast<Node>(*event.target());
-
-    if (auto video = makeRefPtr(ancestorVideoElement(&targetNode))) {
-        if (event.type() == eventNames().clickEvent) {
-            if (!video->canPlay()) {
-                video->pause();
-                event.setDefaultHandled();
-            }
-        } else if (event.type() == eventNames().dblclickEvent) {
-            if (video->canPlay()) {
-                video->play();
-                event.setDefaultHandled();
-            }
-        }
-    }
-
-    if (!is<ContainerNode>(targetNode))
-        return;
-    auto& targetContainer = downcast<ContainerNode>(targetNode);
-
-    if (event.type() == eventNames().keydownEvent && is<KeyboardEvent>(event)) {
-        auto video = makeRefPtr(descendantVideoElement(targetContainer));
-        if (!video)
-            return;
-
-        auto& keyboardEvent = downcast<KeyboardEvent>(event);
-        if (keyboardEvent.keyIdentifier() == "U+0020") { // space
-            if (video->paused()) {
-                if (video->canPlay())
-                    video->play();
-            } else
-                video->pause();
-            keyboardEvent.setDefaultHandled();
-        }
-    }
-}
-
 void MediaDocument::replaceMediaElementTimerFired()
 {
-    auto htmlBody = makeRefPtr(bodyOrFrameset());
+    RefPtr htmlBody = bodyOrFrameset();
     if (!htmlBody)
         return;
 
     // Set body margin width and height to 0 as that is what a PluginDocument uses.
-    htmlBody->setAttributeWithoutSynchronization(marginwidthAttr, AtomString("0", AtomString::ConstructFromLiteral));
-    htmlBody->setAttributeWithoutSynchronization(marginheightAttr, AtomString("0", AtomString::ConstructFromLiteral));
+    htmlBody->setAttributeWithoutSynchronization(marginwidthAttr, "0"_s);
+    htmlBody->setAttributeWithoutSynchronization(marginheightAttr, "0"_s);
 
-    if (auto videoElement = makeRefPtr(descendantVideoElement(*htmlBody))) {
+    if (RefPtr videoElement = descendantVideoElement(*htmlBody)) {
         auto embedElement = HTMLEmbedElement::create(*this);
 
-        embedElement->setAttributeWithoutSynchronization(widthAttr, AtomString("100%", AtomString::ConstructFromLiteral));
-        embedElement->setAttributeWithoutSynchronization(heightAttr, AtomString("100%", AtomString::ConstructFromLiteral));
-        embedElement->setAttributeWithoutSynchronization(nameAttr, AtomString("plugin", AtomString::ConstructFromLiteral));
-        embedElement->setAttributeWithoutSynchronization(srcAttr, url().string());
+        embedElement->setAttributeWithoutSynchronization(widthAttr, "100%"_s);
+        embedElement->setAttributeWithoutSynchronization(heightAttr, "100%"_s);
+        embedElement->setAttributeWithoutSynchronization(nameAttr, "plugin"_s);
+        embedElement->setAttributeWithoutSynchronization(srcAttr, AtomString { url().string() });
 
         ASSERT(loader());
-        if (auto loader = makeRefPtr(this->loader()))
-            embedElement->setAttributeWithoutSynchronization(typeAttr, loader->writer().mimeType());
+        if (RefPtr loader = this->loader())
+            embedElement->setAttributeWithoutSynchronization(typeAttr, AtomString { loader->writer().mimeType() });
 
         videoElement->parentNode()->replaceChild(embedElement, *videoElement);
     }

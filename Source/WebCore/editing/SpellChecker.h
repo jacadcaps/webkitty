@@ -31,9 +31,13 @@
 #include "TextChecking.h"
 #include "Timer.h"
 #include <wtf/Deque.h>
+#include <wtf/Markable.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
+class Editor;
 class SpellChecker;
 class TextCheckerClient;
 
@@ -49,7 +53,6 @@ public:
 
     void setCheckerAndIdentifier(SpellChecker*, TextCheckingRequestIdentifier);
     void requesterDestroyed();
-    bool isStarted() const { return m_checker; }
 
     const TextCheckingRequestData& data() const final;
 
@@ -59,7 +62,7 @@ private:
 
     SpellCheckRequest(const SimpleRange& checkingRange, const SimpleRange& automaticReplacementRange, const SimpleRange& paragraphRange, const String&, OptionSet<TextCheckingType>, TextCheckingProcessType);
 
-    SpellChecker* m_checker { nullptr };
+    SingleThreadWeakPtr<SpellChecker> m_checker;
     SimpleRange m_checkingRange;
     SimpleRange m_automaticReplacementRange;
     SimpleRange m_paragraphRange;
@@ -67,21 +70,24 @@ private:
     TextCheckingRequestData m_requestData;
 };
 
-class SpellChecker {
-    WTF_MAKE_FAST_ALLOCATED;
+class SpellChecker : public CanMakeSingleThreadWeakPtr<SpellChecker> {
+    WTF_MAKE_TZONE_ALLOCATED(SpellChecker);
 public:
     friend class SpellCheckRequest;
 
-    explicit SpellChecker(Document&);
+    explicit SpellChecker(Editor&);
     ~SpellChecker();
+
+    void ref() const;
+    void deref() const;
 
     bool isAsynchronousEnabled() const;
     bool isCheckable(const SimpleRange&) const;
 
     void requestCheckingFor(Ref<SpellCheckRequest>&&);
 
-    TextCheckingRequestIdentifier lastRequestIdentifier() const { return m_lastRequestIdentifier; }
-    TextCheckingRequestIdentifier lastProcessedIdentifier() const { return m_lastProcessedIdentifier; }
+    std::optional<TextCheckingRequestIdentifier> lastRequestIdentifier() const { return m_lastRequestIdentifier; }
+    std::optional<TextCheckingRequestIdentifier> lastProcessedIdentifier() const { return m_lastProcessedIdentifier; }
 
 private:
     bool canCheckAsynchronously(const SimpleRange&) const;
@@ -93,9 +99,12 @@ private:
     void didCheckCancel(TextCheckingRequestIdentifier);
     void didCheck(TextCheckingRequestIdentifier, const Vector<TextCheckingResult>&);
 
-    Document& m_document;
-    TextCheckingRequestIdentifier m_lastRequestIdentifier;
-    TextCheckingRequestIdentifier m_lastProcessedIdentifier;
+    Document& document() const;
+    Ref<Document> protectedDocument() const;
+
+    WeakRef<Editor> m_editor;
+    Markable<TextCheckingRequestIdentifier> m_lastRequestIdentifier;
+    Markable<TextCheckingRequestIdentifier> m_lastProcessedIdentifier;
 
     Timer m_timerToProcessQueuedRequest;
 

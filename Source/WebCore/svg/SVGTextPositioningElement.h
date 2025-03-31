@@ -22,11 +22,13 @@
 #pragma once
 
 #include "SVGTextContentElement.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class SVGTextPositioningElement : public SVGTextContentElement {
-    WTF_MAKE_ISO_ALLOCATED(SVGTextPositioningElement);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(SVGTextPositioningElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SVGTextPositioningElement);
 public:
     static SVGTextPositioningElement* elementFromRenderer(RenderBoxModelObject&);
 
@@ -45,18 +47,15 @@ public:
     SVGAnimatedNumberList& rotateAnimated() { return m_rotate; }
 
 protected:
-    SVGTextPositioningElement(const QualifiedName&, Document&);
+    SVGTextPositioningElement(const QualifiedName&, Document&, UniqueRef<SVGPropertyRegistry>&&);
 
-    void parseAttribute(const QualifiedName&, const AtomString&) override;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) override;
     void svgAttributeChanged(const QualifiedName&) override;
 
 private:
-    bool isPresentationAttribute(const QualifiedName&) const final;
-    void collectStyleForPresentationAttribute(const QualifiedName&, const AtomString&, MutableStyleProperties&) final;
+    bool hasPresentationalHintsForAttribute(const QualifiedName&) const final;
+    void collectPresentationalHintsForAttribute(const QualifiedName&, const AtomString&, MutableStyleProperties&) final;
 
-    const SVGPropertyRegistry& propertyRegistry() const override { return m_propertyRegistry; }
-
-    PropertyRegistry m_propertyRegistry { *this };
     Ref<SVGAnimatedLengthList> m_x { SVGAnimatedLengthList::create(this, SVGLengthMode::Width) };
     Ref<SVGAnimatedLengthList> m_y { SVGAnimatedLengthList::create(this, SVGLengthMode::Height) };
     Ref<SVGAnimatedLengthList> m_dx { SVGAnimatedLengthList::create(this, SVGLengthMode::Width) };

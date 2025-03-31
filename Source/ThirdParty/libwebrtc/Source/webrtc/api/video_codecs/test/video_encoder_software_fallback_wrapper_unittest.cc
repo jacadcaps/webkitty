@@ -14,37 +14,46 @@
 #include <stdint.h>
 
 #include <memory>
+#include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
-#include "absl/types/optional.h"
+#include "api/environment/environment.h"
+#include "api/environment/environment_factory.h"
 #include "api/fec_controller_override.h"
 #include "api/scoped_refptr.h"
 #include "api/test/mock_video_encoder.h"
+#include "api/units/timestamp.h"
 #include "api/video/encoded_image.h"
 #include "api/video/i420_buffer.h"
-#include "api/video/video_bitrate_allocation.h"
+#include "api/video/video_bitrate_allocator.h"
+#include "api/video/video_codec_type.h"
 #include "api/video/video_frame.h"
 #include "api/video/video_frame_buffer.h"
+#include "api/video/video_frame_type.h"
 #include "api/video/video_rotation.h"
 #include "api/video_codecs/video_codec.h"
 #include "api/video_codecs/video_encoder.h"
-#include "modules/include/module_common_types.h"
 #include "modules/video_coding/codecs/vp8/include/vp8.h"
 #include "modules/video_coding/include/video_codec_interface.h"
 #include "modules/video_coding/include/video_error_codes.h"
 #include "modules/video_coding/utility/simulcast_rate_allocator.h"
 #include "rtc_base/fake_clock.h"
+#include "test/explicit_key_value_config.h"
+#include "test/fake_encoder.h"
 #include "test/fake_texture_frame.h"
-#include "test/field_trial.h"
 #include "test/gmock.h"
 #include "test/gtest.h"
 
 namespace webrtc {
+namespace {
+
+using test::ExplicitKeyValueConfig;
 using ::testing::_;
 using ::testing::Return;
+using ::testing::ValuesIn;
 
-namespace {
 const int kWidth = 320;
 const int kHeight = 240;
 const int kNumCores = 2;
@@ -72,18 +81,11 @@ VideoEncoder::EncoderInfo GetEncoderInfoWithHardwareAccelerated(
   return info;
 }
 
-VideoEncoder::EncoderInfo GetEncoderInfoWithInternalSource(
-    bool internal_source) {
-  VideoEncoder::EncoderInfo info;
-  info.has_internal_source = internal_source;
-  return info;
-}
-
 class FakeEncodedImageCallback : public EncodedImageCallback {
  public:
-  Result OnEncodedImage(const EncodedImage& encoded_image,
-                        const CodecSpecificInfo* codec_specific_info,
-                        const RTPFragmentationHeader* fragmentation) override {
+  Result OnEncodedImage(
+      const EncodedImage& /* encoded_image */,
+      const CodecSpecificInfo* /* codec_specific_info */) override {
     ++callback_count_;
     return Result(Result::OK, callback_count_);
   }
@@ -94,12 +96,13 @@ class FakeEncodedImageCallback : public EncodedImageCallback {
 class VideoEncoderSoftwareFallbackWrapperTestBase : public ::testing::Test {
  protected:
   VideoEncoderSoftwareFallbackWrapperTestBase(
-      const std::string& field_trials,
+      const Environment& env,
       std::unique_ptr<VideoEncoder> sw_encoder)
-      : override_field_trials_(field_trials),
+      : env_(env),
         fake_encoder_(new CountingFakeEncoder()),
         wrapper_initialized_(false),
         fallback_wrapper_(CreateVideoEncoderSoftwareFallbackWrapper(
+            env_,
             std::move(sw_encoder),
             std::unique_ptr<VideoEncoder>(fake_encoder_),
             false)) {}
@@ -107,24 +110,24 @@ class VideoEncoderSoftwareFallbackWrapperTestBase : public ::testing::Test {
   class CountingFakeEncoder : public VideoEncoder {
    public:
     void SetFecControllerOverride(
-        FecControllerOverride* fec_controller_override) override {
+        FecControllerOverride* /* fec_controller_override */) override {
       // Ignored.
     }
 
-    int32_t InitEncode(const VideoCodec* codec_settings,
-                       const VideoEncoder::Settings& settings) override {
+    int32_t InitEncode(const VideoCodec* /* codec_settings */,
+                       const VideoEncoder::Settings& /* settings */) override {
       ++init_encode_count_;
       return init_encode_return_code_;
     }
 
-    int32_t Encode(const VideoFrame& frame,
-                   const std::vector<VideoFrameType>* frame_types) override {
+    int32_t Encode(
+        const VideoFrame& frame,
+        const std::vector<VideoFrameType>* /* frame_types */) override {
       ++encode_count_;
       last_video_frame_ = frame;
       if (encode_complete_callback_ &&
           encode_return_code_ == WEBRTC_VIDEO_CODEC_OK) {
-        encode_complete_callback_->OnEncodedImage(EncodedImage(), nullptr,
-                                                  nullptr);
+        encode_complete_callback_->OnEncodedImage(EncodedImage(), nullptr);
       }
       return encode_return_code_;
     }
@@ -140,7 +143,7 @@ class VideoEncoderSoftwareFallbackWrapperTestBase : public ::testing::Test {
       return WEBRTC_VIDEO_CODEC_OK;
     }
 
-    void SetRates(const RateControlParameters& parameters) override {}
+    void SetRates(const RateControlParameters& /* parameters */) override {}
 
     EncoderInfo GetEncoderInfo() const override {
       ++supports_native_handle_count_;
@@ -148,6 +151,8 @@ class VideoEncoderSoftwareFallbackWrapperTestBase : public ::testing::Test {
       info.scaling_settings = ScalingSettings(kLowThreshold, kHighThreshold);
       info.supports_native_handle = supports_native_handle_;
       info.implementation_name = implementation_name_;
+      if (is_qp_trusted_)
+        info.is_qp_trusted = is_qp_trusted_;
       return info;
     }
 
@@ -159,8 +164,9 @@ class VideoEncoderSoftwareFallbackWrapperTestBase : public ::testing::Test {
     int release_count_ = 0;
     mutable int supports_native_handle_count_ = 0;
     bool supports_native_handle_ = false;
+    bool is_qp_trusted_ = false;
     std::string implementation_name_ = "fake-encoder";
-    absl::optional<VideoFrame> last_video_frame_;
+    std::optional<VideoFrame> last_video_frame_;
   };
 
   void InitEncode();
@@ -173,9 +179,9 @@ class VideoEncoderSoftwareFallbackWrapperTestBase : public ::testing::Test {
               fallback_wrapper_->GetEncoderInfo().implementation_name);
   }
 
-  test::ScopedFieldTrials override_field_trials_;
+  const Environment env_;
   FakeEncodedImageCallback callback_;
-  // |fake_encoder_| is owned and released by |fallback_wrapper_|.
+  // `fake_encoder_` is owned and released by `fallback_wrapper_`.
   CountingFakeEncoder* fake_encoder_;
   CountingFakeEncoder* fake_sw_encoder_;
   bool wrapper_initialized_;
@@ -193,7 +199,7 @@ class VideoEncoderSoftwareFallbackWrapperTest
   explicit VideoEncoderSoftwareFallbackWrapperTest(
       CountingFakeEncoder* fake_sw_encoder)
       : VideoEncoderSoftwareFallbackWrapperTestBase(
-            "",
+            CreateEnvironment(),
             std::unique_ptr<VideoEncoder>(fake_sw_encoder)),
         fake_sw_encoder_(fake_sw_encoder) {
     fake_sw_encoder_->implementation_name_ = "fake_sw_encoder";
@@ -210,7 +216,7 @@ void VideoEncoderSoftwareFallbackWrapperTestBase::EncodeFrame(
     int expected_ret) {
   rtc::scoped_refptr<I420Buffer> buffer =
       I420Buffer::Create(codec_.width, codec_.height);
-  I420Buffer::SetBlack(buffer);
+  I420Buffer::SetBlack(buffer.get());
   std::vector<VideoFrameType> types(1, VideoFrameType::kVideoFrameKey);
 
   frame_ =
@@ -234,7 +240,7 @@ void VideoEncoderSoftwareFallbackWrapperTestBase::InitEncode() {
   codec_.width = kWidth;
   codec_.height = kHeight;
   codec_.VP8()->numberOfTemporalLayers = 1;
-  rate_allocator_.reset(new SimulcastRateAllocator(codec_));
+  rate_allocator_ = std::make_unique<SimulcastRateAllocator>(env_, codec_);
 
   if (wrapper_initialized_) {
     fallback_wrapper_->Release();
@@ -265,7 +271,7 @@ void VideoEncoderSoftwareFallbackWrapperTestBase::UtilizeFallbackEncoder() {
   codec_.width = kWidth;
   codec_.height = kHeight;
   codec_.VP8()->numberOfTemporalLayers = 1;
-  rate_allocator_.reset(new SimulcastRateAllocator(codec_));
+  rate_allocator_ = std::make_unique<SimulcastRateAllocator>(env_, codec_);
 
   if (wrapper_initialized_) {
     fallback_wrapper_->Release();
@@ -293,7 +299,7 @@ void VideoEncoderSoftwareFallbackWrapperTestBase::FallbackFromEncodeRequest() {
   codec_.width = kWidth;
   codec_.height = kHeight;
   codec_.VP8()->numberOfTemporalLayers = 1;
-  rate_allocator_.reset(new SimulcastRateAllocator(codec_));
+  rate_allocator_ = std::make_unique<SimulcastRateAllocator>(env_, codec_);
   if (wrapper_initialized_) {
     fallback_wrapper_->Release();
   }
@@ -381,7 +387,7 @@ TEST_F(VideoEncoderSoftwareFallbackWrapperTest,
 
   // Encoding a frame using the fallback should arrive at the new callback.
   std::vector<VideoFrameType> types(1, VideoFrameType::kVideoFrameKey);
-  frame_->set_timestamp(frame_->timestamp() + 1000);
+  frame_->set_rtp_timestamp(frame_->rtp_timestamp() + 1000);
   EXPECT_EQ(WEBRTC_VIDEO_CODEC_OK, fallback_wrapper_->Encode(*frame_, &types));
   EXPECT_EQ(callback2.callback_count_, 1);
 
@@ -389,7 +395,7 @@ TEST_F(VideoEncoderSoftwareFallbackWrapperTest,
   InitEncode();
   EXPECT_EQ(&callback2, fake_encoder_->encode_complete_callback_);
 
-  frame_->set_timestamp(frame_->timestamp() + 2000);
+  frame_->set_rtp_timestamp(frame_->rtp_timestamp() + 2000);
   EXPECT_EQ(WEBRTC_VIDEO_CODEC_OK, fallback_wrapper_->Encode(*frame_, &types));
   EXPECT_EQ(callback2.callback_count_, 2);
 }
@@ -419,6 +425,16 @@ TEST_F(VideoEncoderSoftwareFallbackWrapperTest, ReportsImplementationName) {
   fallback_wrapper_->InitEncode(&codec_, kSettings);
   EncodeFrame();
   CheckLastEncoderName("fake-encoder");
+}
+
+TEST_F(VideoEncoderSoftwareFallbackWrapperTest,
+       IsQpTrustedNotForwardedDuringFallback) {
+  // Fake encoder signals trusted QP, default (libvpx) does not.
+  fake_encoder_->is_qp_trusted_ = true;
+  EXPECT_TRUE(fake_encoder_->GetEncoderInfo().is_qp_trusted.value_or(false));
+  UtilizeFallbackEncoder();
+  EXPECT_FALSE(fallback_wrapper_->GetEncoderInfo().is_qp_trusted.has_value());
+  EXPECT_EQ(WEBRTC_VIDEO_CODEC_OK, fallback_wrapper_->Release());
 }
 
 TEST_F(VideoEncoderSoftwareFallbackWrapperTest,
@@ -480,9 +496,9 @@ const char kFieldTrial[] = "WebRTC-VP8-Forced-Fallback-Encoder-v2";
 
 class ForcedFallbackTest : public VideoEncoderSoftwareFallbackWrapperTestBase {
  public:
-  explicit ForcedFallbackTest(const std::string& field_trials)
-      : VideoEncoderSoftwareFallbackWrapperTestBase(field_trials,
-                                                    VP8Encoder::Create()) {}
+  explicit ForcedFallbackTest(const Environment& env)
+      : VideoEncoderSoftwareFallbackWrapperTestBase(env,
+                                                    CreateVp8Encoder(env)) {}
 
   ~ForcedFallbackTest() override {}
 
@@ -505,8 +521,8 @@ class ForcedFallbackTest : public VideoEncoderSoftwareFallbackWrapperTestBase {
     codec_.height = kHeight;
     codec_.VP8()->numberOfTemporalLayers = 1;
     codec_.VP8()->automaticResizeOn = true;
-    codec_.VP8()->frameDroppingOn = true;
-    rate_allocator_.reset(new SimulcastRateAllocator(codec_));
+    codec_.SetFrameDropEnabled(true);
+    rate_allocator_ = std::make_unique<SimulcastRateAllocator>(env_, codec_);
   }
 
   void InitEncode(int width, int height) {
@@ -545,15 +561,19 @@ class ForcedFallbackTest : public VideoEncoderSoftwareFallbackWrapperTestBase {
 class ForcedFallbackTestEnabled : public ForcedFallbackTest {
  public:
   ForcedFallbackTestEnabled()
-      : ForcedFallbackTest(std::string(kFieldTrial) + "/Enabled-" +
-                           std::to_string(kMinPixelsPerFrame) + "," +
-                           std::to_string(kWidth * kHeight) + ",30000/") {}
+      : ForcedFallbackTest(
+            CreateEnvironment(std::make_unique<ExplicitKeyValueConfig>(
+                std::string(kFieldTrial) + "/Enabled-" +
+                std::to_string(kMinPixelsPerFrame) + "," +
+                std::to_string(kWidth * kHeight) + ",30000/"))) {}
 };
 
 class ForcedFallbackTestDisabled : public ForcedFallbackTest {
  public:
   ForcedFallbackTestDisabled()
-      : ForcedFallbackTest(std::string(kFieldTrial) + "/Disabled/") {}
+      : ForcedFallbackTest(
+            CreateEnvironment(std::make_unique<ExplicitKeyValueConfig>(
+                std::string(kFieldTrial) + "/Disabled/"))) {}
 };
 
 TEST_F(ForcedFallbackTestDisabled, NoFallbackWithoutFieldTrial) {
@@ -616,13 +636,13 @@ TEST_F(ForcedFallbackTestEnabled, FallbackIsEndedForNonValidSettings) {
   EncodeFrameAndVerifyLastName("libvpx");
 
   // Re-initialize encoder with invalid setting, expect no fallback.
-  codec_.VP8()->numberOfTemporalLayers = 2;
+  codec_.numberOfSimulcastStreams = 2;
   InitEncode(kWidth, kHeight);
   EXPECT_EQ(1, fake_encoder_->init_encode_count_);
   EncodeFrameAndVerifyLastName("fake-encoder");
 
   // Re-initialize encoder with valid setting.
-  codec_.VP8()->numberOfTemporalLayers = 1;
+  codec_.numberOfSimulcastStreams = 1;
   InitEncode(kWidth, kHeight);
   EXPECT_EQ(1, fake_encoder_->init_encode_count_);
   EncodeFrameAndVerifyLastName("libvpx");
@@ -699,8 +719,9 @@ TEST(SoftwareFallbackEncoderTest, BothRateControllersNotTrusted) {
 
   std::unique_ptr<VideoEncoder> wrapper =
       CreateVideoEncoderSoftwareFallbackWrapper(
-          std::unique_ptr<VideoEncoder>(sw_encoder),
-          std::unique_ptr<VideoEncoder>(hw_encoder));
+          CreateEnvironment(), std::unique_ptr<VideoEncoder>(sw_encoder),
+          std::unique_ptr<VideoEncoder>(hw_encoder),
+          /*prefer_temporal_support=*/false);
   EXPECT_FALSE(wrapper->GetEncoderInfo().has_trusted_rate_controller);
 }
 
@@ -714,8 +735,9 @@ TEST(SoftwareFallbackEncoderTest, SwRateControllerTrusted) {
 
   std::unique_ptr<VideoEncoder> wrapper =
       CreateVideoEncoderSoftwareFallbackWrapper(
-          std::unique_ptr<VideoEncoder>(sw_encoder),
-          std::unique_ptr<VideoEncoder>(hw_encoder));
+          CreateEnvironment(), std::unique_ptr<VideoEncoder>(sw_encoder),
+          std::unique_ptr<VideoEncoder>(hw_encoder),
+          /*prefer_temporal_support=*/false);
   EXPECT_FALSE(wrapper->GetEncoderInfo().has_trusted_rate_controller);
 }
 
@@ -729,8 +751,9 @@ TEST(SoftwareFallbackEncoderTest, HwRateControllerTrusted) {
 
   std::unique_ptr<VideoEncoder> wrapper =
       CreateVideoEncoderSoftwareFallbackWrapper(
-          std::unique_ptr<VideoEncoder>(sw_encoder),
-          std::unique_ptr<VideoEncoder>(hw_encoder));
+          CreateEnvironment(), std::unique_ptr<VideoEncoder>(sw_encoder),
+          std::unique_ptr<VideoEncoder>(hw_encoder),
+          /*prefer_temporal_support=*/false);
   EXPECT_TRUE(wrapper->GetEncoderInfo().has_trusted_rate_controller);
 
   VideoCodec codec_ = {};
@@ -759,8 +782,9 @@ TEST(SoftwareFallbackEncoderTest, BothRateControllersTrusted) {
 
   std::unique_ptr<VideoEncoder> wrapper =
       CreateVideoEncoderSoftwareFallbackWrapper(
-          std::unique_ptr<VideoEncoder>(sw_encoder),
-          std::unique_ptr<VideoEncoder>(hw_encoder));
+          CreateEnvironment(), std::unique_ptr<VideoEncoder>(sw_encoder),
+          std::unique_ptr<VideoEncoder>(hw_encoder),
+          /*prefer_temporal_support=*/false);
   EXPECT_TRUE(wrapper->GetEncoderInfo().has_trusted_rate_controller);
 }
 
@@ -774,8 +798,9 @@ TEST(SoftwareFallbackEncoderTest, ReportsHardwareAccelerated) {
 
   std::unique_ptr<VideoEncoder> wrapper =
       CreateVideoEncoderSoftwareFallbackWrapper(
-          std::unique_ptr<VideoEncoder>(sw_encoder),
-          std::unique_ptr<VideoEncoder>(hw_encoder));
+          CreateEnvironment(), std::unique_ptr<VideoEncoder>(sw_encoder),
+          std::unique_ptr<VideoEncoder>(hw_encoder),
+          /*prefer_temporal_support=*/false);
   EXPECT_TRUE(wrapper->GetEncoderInfo().is_hardware_accelerated);
 
   VideoCodec codec_ = {};
@@ -793,33 +818,36 @@ TEST(SoftwareFallbackEncoderTest, ReportsHardwareAccelerated) {
   EXPECT_FALSE(wrapper->GetEncoderInfo().is_hardware_accelerated);
 }
 
-TEST(SoftwareFallbackEncoderTest, ReportsInternalSource) {
+TEST(SoftwareFallbackEncoderTest, ConfigureHardwareOnSecondAttempt) {
   auto* sw_encoder = new ::testing::NiceMock<MockVideoEncoder>();
   auto* hw_encoder = new ::testing::NiceMock<MockVideoEncoder>();
   EXPECT_CALL(*sw_encoder, GetEncoderInfo())
-      .WillRepeatedly(Return(GetEncoderInfoWithInternalSource(false)));
+      .WillRepeatedly(Return(GetEncoderInfoWithHardwareAccelerated(false)));
   EXPECT_CALL(*hw_encoder, GetEncoderInfo())
-      .WillRepeatedly(Return(GetEncoderInfoWithInternalSource(true)));
+      .WillRepeatedly(Return(GetEncoderInfoWithHardwareAccelerated(true)));
 
   std::unique_ptr<VideoEncoder> wrapper =
       CreateVideoEncoderSoftwareFallbackWrapper(
-          std::unique_ptr<VideoEncoder>(sw_encoder),
-          std::unique_ptr<VideoEncoder>(hw_encoder));
-  EXPECT_TRUE(wrapper->GetEncoderInfo().has_internal_source);
+          CreateEnvironment(), std::unique_ptr<VideoEncoder>(sw_encoder),
+          std::unique_ptr<VideoEncoder>(hw_encoder),
+          /*prefer_temporal_support=*/false);
+  EXPECT_TRUE(wrapper->GetEncoderInfo().is_hardware_accelerated);
 
+  // Initialize the encoder. When HW attempt fails we fallback to SW.
   VideoCodec codec_ = {};
   codec_.width = 100;
   codec_.height = 100;
+  EXPECT_CALL(*hw_encoder, InitEncode(_, _))
+      .WillOnce(Return(WEBRTC_VIDEO_CODEC_ERR_PARAMETER));
+  EXPECT_CALL(*sw_encoder, InitEncode(_, _))
+      .WillOnce(Return(WEBRTC_VIDEO_CODEC_OK));
   wrapper->InitEncode(&codec_, kSettings);
 
-  // Trigger fallback to software.
-  EXPECT_CALL(*hw_encoder, Encode)
-      .WillOnce(Return(WEBRTC_VIDEO_CODEC_FALLBACK_SOFTWARE));
-  VideoFrame frame = VideoFrame::Builder()
-                         .set_video_frame_buffer(I420Buffer::Create(100, 100))
-                         .build();
-  wrapper->Encode(frame, nullptr);
-  EXPECT_FALSE(wrapper->GetEncoderInfo().has_internal_source);
+  // When reconfiguring (Release+InitEncode) we should re-attempt HW.
+  wrapper->Release();
+  EXPECT_CALL(*hw_encoder, InitEncode(_, _))
+      .WillOnce(Return(WEBRTC_VIDEO_CODEC_OK));
+  wrapper->InitEncode(&codec_, kSettings);
 }
 
 class PreferTemporalLayersFallbackTest : public ::testing::Test {
@@ -843,7 +871,8 @@ class PreferTemporalLayersFallbackTest : public ::testing::Test {
         .WillRepeatedly(Return(WEBRTC_VIDEO_CODEC_OK));
 
     wrapper_ = CreateVideoEncoderSoftwareFallbackWrapper(
-        std::unique_ptr<VideoEncoder>(sw_), std::unique_ptr<VideoEncoder>(hw_),
+        CreateEnvironment(), std::unique_ptr<VideoEncoder>(sw_),
+        std::unique_ptr<VideoEncoder>(hw_),
         /*prefer_temporal_support=*/true);
 
     codec_settings.codecType = kVideoCodecVP8;
@@ -856,11 +885,15 @@ class PreferTemporalLayersFallbackTest : public ::testing::Test {
 
  protected:
   void SetSupportsLayers(VideoEncoder::EncoderInfo* info, bool tl_enabled) {
-    info->fps_allocation[0].clear();
     int num_layers = 1;
     if (tl_enabled) {
       num_layers = codec_settings.VP8()->numberOfTemporalLayers;
     }
+    SetNumLayers(info, num_layers);
+  }
+
+  void SetNumLayers(VideoEncoder::EncoderInfo* info, int num_layers) {
+    info->fps_allocation[0].clear();
     for (int i = 0; i < num_layers; ++i) {
       info->fps_allocation[0].push_back(
           VideoEncoder::EncoderInfo::kMaxFramerateFraction >>
@@ -913,6 +946,15 @@ TEST_F(PreferTemporalLayersFallbackTest, UsesMainWhenNeitherSupportsTemporal) {
   EXPECT_EQ(wrapper_->GetEncoderInfo().implementation_name, "hw");
 }
 
+TEST_F(PreferTemporalLayersFallbackTest, UsesFallbackWhenLayersAreUndefined) {
+  codec_settings.VP8()->numberOfTemporalLayers = 2;
+  SetNumLayers(&hw_info_, 1);
+  SetNumLayers(&sw_info_, 0);
+  EXPECT_EQ(WEBRTC_VIDEO_CODEC_OK,
+            wrapper_->InitEncode(&codec_settings, kSettings));
+  EXPECT_EQ(wrapper_->GetEncoderInfo().implementation_name, "sw");
+}
+
 TEST_F(PreferTemporalLayersFallbackTest, PrimesEncoderOnSwitch) {
   codec_settings.VP8()->numberOfTemporalLayers = 2;
   // Both support temporal layers, will use main one.
@@ -946,7 +988,7 @@ TEST_F(PreferTemporalLayersFallbackTest, PrimesEncoderOnSwitch) {
   FakeEncodedImageCallback callback1;
   class DummyFecControllerOverride : public FecControllerOverride {
    public:
-    void SetFecAllowed(bool fec_allowed) override {}
+    void SetFecAllowed(bool /* fec_allowed */) override {}
   };
   DummyFecControllerOverride fec_controller_override1;
   VideoEncoder::RateControlParameters rate_params1;
@@ -959,7 +1001,7 @@ TEST_F(PreferTemporalLayersFallbackTest, PrimesEncoderOnSwitch) {
   wrapper_->RegisterEncodeCompleteCallback(&callback1);
 
   EXPECT_CALL(*hw_, SetFecControllerOverride(&fec_controller_override1));
-  EXPECT_CALL(*sw_, SetFecControllerOverride).Times(0);
+  EXPECT_CALL(*sw_, SetFecControllerOverride).Times(1);
   wrapper_->SetFecControllerOverride(&fec_controller_override1);
 
   EXPECT_CALL(*hw_, SetRates(rate_params1));
@@ -984,7 +1026,7 @@ TEST_F(PreferTemporalLayersFallbackTest, PrimesEncoderOnSwitch) {
   EXPECT_CALL(*sw_, RegisterEncodeCompleteCallback(&callback1));
   EXPECT_CALL(*hw_, RegisterEncodeCompleteCallback).Times(0);
 
-  EXPECT_CALL(*sw_, SetFecControllerOverride(&fec_controller_override1));
+  EXPECT_CALL(*sw_, SetFecControllerOverride).Times(0);
   EXPECT_CALL(*hw_, SetFecControllerOverride).Times(0);
 
   // Rate control parameters are cleared on InitEncode.
@@ -1018,7 +1060,7 @@ TEST_F(PreferTemporalLayersFallbackTest, PrimesEncoderOnSwitch) {
   wrapper_->RegisterEncodeCompleteCallback(&callback2);
 
   EXPECT_CALL(*sw_, SetFecControllerOverride(&fec_controller_override2));
-  EXPECT_CALL(*hw_, SetFecControllerOverride).Times(0);
+  EXPECT_CALL(*hw_, SetFecControllerOverride).Times(1);
   wrapper_->SetFecControllerOverride(&fec_controller_override2);
 
   EXPECT_CALL(*sw_, SetRates(rate_params2));
@@ -1043,7 +1085,7 @@ TEST_F(PreferTemporalLayersFallbackTest, PrimesEncoderOnSwitch) {
   EXPECT_CALL(*hw_, RegisterEncodeCompleteCallback(&callback2));
   EXPECT_CALL(*sw_, RegisterEncodeCompleteCallback).Times(0);
 
-  EXPECT_CALL(*hw_, SetFecControllerOverride(&fec_controller_override2));
+  EXPECT_CALL(*hw_, SetFecControllerOverride).Times(0);
   EXPECT_CALL(*sw_, SetFecControllerOverride).Times(0);
 
   // Rate control parameters are cleared on InitEncode.
@@ -1063,6 +1105,62 @@ TEST_F(PreferTemporalLayersFallbackTest, PrimesEncoderOnSwitch) {
   EXPECT_EQ(WEBRTC_VIDEO_CODEC_OK,
             wrapper_->InitEncode(&codec_settings, kSettings));
   EXPECT_EQ(wrapper_->GetEncoderInfo().implementation_name, "hw");
+}
+
+struct ResolutionBasedFallbackTestParams {
+  std::string test_name;
+  std::string field_trials = "";
+  VideoCodecType codec_type = kVideoCodecGeneric;
+  int width = 16;
+  int height = 16;
+  std::string expect_implementation_name;
+};
+
+using ResolutionBasedFallbackTest =
+    ::testing::TestWithParam<ResolutionBasedFallbackTestParams>;
+
+INSTANTIATE_TEST_SUITE_P(
+    VideoEncoderFallbackTest,
+    ResolutionBasedFallbackTest,
+    ValuesIn<ResolutionBasedFallbackTestParams>(
+        {{.test_name = "FallbackNotConfigured",
+          .expect_implementation_name = "primary"},
+         {.test_name = "ResolutionAboveFallbackThreshold",
+          .field_trials = "WebRTC-Video-EncoderFallbackSettings/"
+                          "resolution_threshold_px:255/",
+          .expect_implementation_name = "primary"},
+         {.test_name = "ResolutionEqualFallbackThreshold",
+          .field_trials = "WebRTC-Video-EncoderFallbackSettings/"
+                          "resolution_threshold_px:256/",
+          .expect_implementation_name = "fallback"},
+         {.test_name = "GenericFallbackSettingsTakePrecedence",
+          .field_trials =
+              "WebRTC-Video-EncoderFallbackSettings/"
+              "resolution_threshold_px:255/"
+              "WebRTC-VP8-Forced-Fallback-Encoder-v2/Enabled-1,256,1/",
+          .codec_type = kVideoCodecVP8,
+          .expect_implementation_name = "primary"}}),
+    [](const testing::TestParamInfo<ResolutionBasedFallbackTest::ParamType>&
+           info) { return info.param.test_name; });
+
+TEST_P(ResolutionBasedFallbackTest, VerifyForcedEncoderFallback) {
+  const ResolutionBasedFallbackTestParams& params = GetParam();
+  const Environment env = CreateEnvironment(
+      std::make_unique<ExplicitKeyValueConfig>(params.field_trials));
+  auto primary = std::make_unique<test::FakeEncoder>(env);
+  primary->SetImplementationName("primary");
+  auto fallback = std::make_unique<test::FakeEncoder>(env);
+  fallback->SetImplementationName("fallback");
+  auto encoder = CreateVideoEncoderSoftwareFallbackWrapper(
+      env, std::move(fallback), std::move(primary),
+      /*prefer_temporal_support=*/false);
+  VideoCodec codec;
+  codec.codecType = params.codec_type;
+  codec.width = params.width;
+  codec.height = params.height;
+  encoder->InitEncode(&codec, kSettings);
+  EXPECT_EQ(encoder->GetEncoderInfo().implementation_name,
+            params.expect_implementation_name);
 }
 
 }  // namespace webrtc

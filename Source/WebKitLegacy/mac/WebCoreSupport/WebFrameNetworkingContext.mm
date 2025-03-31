@@ -27,9 +27,10 @@
 
 #import "NetworkStorageSessionMap.h"
 #import "WebFrameInternal.h"
+#import "WebResourceLoadScheduler.h"
 #import "WebViewPrivate.h"
 #import <WebCore/FrameLoader.h>
-#import <WebCore/FrameLoaderClient.h>
+#import <WebCore/LocalFrameLoaderClient.h>
 #import <WebCore/NetworkStorageSession.h>
 #import <WebCore/Page.h>
 #import <WebCore/ResourceError.h>
@@ -88,7 +89,7 @@ String WebFrameNetworkingContext::sourceApplicationIdentifier() const
 
 ResourceError WebFrameNetworkingContext::blockedError(const ResourceRequest& request) const
 {
-    return frame()->loader().client().blockedError(request);
+    return WebResourceLoadScheduler::blockedErrorFromRequest(request);
 }
 
 NetworkStorageSession* WebFrameNetworkingContext::storageSession() const

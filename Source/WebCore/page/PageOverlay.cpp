@@ -26,18 +26,22 @@
 #include "config.h"
 #include "PageOverlay.h"
 
-#include "Frame.h"
-#include "FrameView.h"
 #include "GraphicsContext.h"
+#include "LocalFrame.h"
+#include "LocalFrameView.h"
+#include "Logging.h"
 #include "Page.h"
 #include "PageOverlayController.h"
 #include "PlatformMouseEvent.h"
 #include "ScrollbarTheme.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
 static const Seconds fadeAnimationDuration { 200_ms };
 static const double fadeAnimationFrameRate = 30;
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(PageOverlay);
 
 static PageOverlay::PageOverlayID generatePageOverlayID()
 {
@@ -45,22 +49,28 @@ static PageOverlay::PageOverlayID generatePageOverlayID()
     return ++pageOverlayID;
 }
 
-Ref<PageOverlay> PageOverlay::create(Client& client, OverlayType overlayType)
+Ref<PageOverlay> PageOverlay::create(PageOverlayClient& client, OverlayType overlayType, AlwaysTileOverlayLayer alwaysTileOverlayLayer)
 {
-    return adoptRef(*new PageOverlay(client, overlayType));
+    return adoptRef(*new PageOverlay(client, overlayType, alwaysTileOverlayLayer));
 }
 
-PageOverlay::PageOverlay(Client& client, OverlayType overlayType)
+PageOverlay::PageOverlay(PageOverlayClient& client, OverlayType overlayType, AlwaysTileOverlayLayer alwaysTileOverlayLayer)
     : m_client(client)
     , m_fadeAnimationTimer(*this, &PageOverlay::fadeAnimationTimerFired)
     , m_fadeAnimationDuration(fadeAnimationDuration)
     , m_needsSynchronousScrolling(overlayType == OverlayType::View)
     , m_overlayType(overlayType)
+    , m_alwaysTileOverlayLayer(alwaysTileOverlayLayer)
     , m_pageOverlayID(generatePageOverlayID())
 {
 }
 
 PageOverlay::~PageOverlay() = default;
+
+Page* PageOverlay::page() const
+{
+    return m_page.get();
+}
 
 PageOverlayController* PageOverlay::controller() const
 {
@@ -74,8 +84,7 @@ IntRect PageOverlay::bounds() const
     if (!m_overrideFrame.isEmpty())
         return { { }, m_overrideFrame.size() };
 
-    FrameView* frameView = m_page->mainFrame().view();
-
+    RefPtr frameView = m_page->mainFrame().virtualView();
     if (!frameView)
         return IntRect();
 
@@ -126,7 +135,7 @@ IntSize PageOverlay::viewToOverlayOffset() const
         return IntSize();
 
     case OverlayType::Document: {
-        FrameView* frameView = m_page->mainFrame().view();
+        RefPtr frameView = m_page->mainFrame().virtualView();
         return frameView ? toIntSize(frameView->viewToContents(IntPoint())) : IntSize();
     }
     }
@@ -177,7 +186,7 @@ void PageOverlay::drawRect(GraphicsContext& graphicsContext, const IntRect& dirt
     GraphicsContextStateSaver stateSaver(graphicsContext);
 
     if (m_overlayType == PageOverlay::OverlayType::Document) {
-        if (FrameView* frameView = m_page->mainFrame().view()) {
+        if (auto* frameView = m_page->mainFrame().virtualView()) {
             auto offset = frameView->scrollOrigin();
             graphicsContext.translate(toFloatSize(offset));
             paintRect.moveBy(-offset);
@@ -192,7 +201,7 @@ bool PageOverlay::mouseEvent(const PlatformMouseEvent& mouseEvent)
     IntPoint mousePositionInOverlayCoordinates(mouseEvent.position());
 
     if (m_overlayType == PageOverlay::OverlayType::Document)
-        mousePositionInOverlayCoordinates = m_page->mainFrame().view()->windowToContents(mousePositionInOverlayCoordinates);
+        mousePositionInOverlayCoordinates = m_page->mainFrame().virtualView()->windowToContents(mousePositionInOverlayCoordinates);
     mousePositionInOverlayCoordinates.moveBy(-frame().location());
 
     // Ignore events outside the bounds.
@@ -202,7 +211,7 @@ bool PageOverlay::mouseEvent(const PlatformMouseEvent& mouseEvent)
     return m_client.mouseEvent(*this, mouseEvent);
 }
 
-void PageOverlay::didScrollFrame(Frame& frame)
+void PageOverlay::didScrollFrame(LocalFrame& frame)
 {
     m_client.didScrollFrame(*this, frame);
 }
@@ -252,12 +261,18 @@ void PageOverlay::stopFadeOutAnimation()
 
 void PageOverlay::startFadeAnimation()
 {
+    ASSERT(m_page);
+    if (!m_page)
+        RELEASE_LOG_FAULT(Animations, "PageOverlay::startFadeAnimation() was called on a PageOverlay without a page");
     m_fadeAnimationStartTime = WallTime::now();
     m_fadeAnimationTimer.startRepeating(1_s / fadeAnimationFrameRate);
 }
 
 void PageOverlay::fadeAnimationTimerFired()
 {
+    auto controller = this->controller();
+    ASSERT(controller);
+
     float animationProgress = (WallTime::now() - m_fadeAnimationStartTime) / m_fadeAnimationDuration;
 
     if (animationProgress >= 1.0)
@@ -267,7 +282,9 @@ void PageOverlay::fadeAnimationTimerFired()
     float fadeAnimationValue = sine * sine;
 
     m_fractionFadedIn = (m_fadeAnimationType == FadeInAnimation) ? fadeAnimationValue : 1 - fadeAnimationValue;
-    controller()->setPageOverlayOpacity(*this, m_fractionFadedIn);
+
+    if (controller)
+        controller->setPageOverlayOpacity(*this, m_fractionFadedIn);
 
     if (animationProgress == 1.0) {
         m_fadeAnimationTimer.stop();
@@ -276,8 +293,8 @@ void PageOverlay::fadeAnimationTimerFired()
         m_fadeAnimationType = NoAnimation;
 
         // If this was a fade out, uninstall the page overlay.
-        if (wasFadingOut)
-            controller()->uninstallPageOverlay(*this, PageOverlay::FadeMode::DoNotFade);
+        if (wasFadingOut && controller)
+            controller->uninstallPageOverlay(*this, PageOverlay::FadeMode::DoNotFade);
     }
 }
 

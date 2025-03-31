@@ -32,6 +32,7 @@
 #include "DynamicsCompressorKernel.h"
 #include "ZeroPole.h"
 #include <memory>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/UniqueArray.h>
 
 namespace WebCore {
@@ -44,7 +45,7 @@ class AudioBus;
 // making the sound richer, fuller, and more controlled.
 
 class DynamicsCompressor final {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(DynamicsCompressor);
     WTF_MAKE_NONCOPYABLE(DynamicsCompressor);
 public:
     enum {
@@ -59,9 +60,6 @@ public:
         ParamReleaseZone3,
         ParamReleaseZone4,
         ParamPostGain,
-        ParamFilterStageGain,
-        ParamFilterStageRatio,
-        ParamFilterAnchor,
         ParamEffectBlend,
         ParamReduction,
         ParamLast
@@ -79,37 +77,28 @@ public:
     float sampleRate() const { return m_sampleRate; }
     float nyquist() const { return m_sampleRate / 2; }
 
-    double tailTime() const { return 0; }
+    double tailTime() const { return m_compressor.tailTime(); }
     double latencyTime() const { return m_compressor.latencyFrames() / static_cast<double>(sampleRate()); }
+    bool requiresTailProcessing() const
+    {
+        // Always return true even if the tail time and latency might both be zero.
+        return true;
+    }
 
 protected:
     unsigned m_numberOfChannels;
 
     // m_parameters holds the tweakable compressor parameters.
-    float m_parameters[ParamLast];
+    std::array<float, ParamLast> m_parameters;
     void initializeParameters();
+
+    std::span<std::span<const float>> sourceChannels() const { return unsafeMakeSpan(m_sourceChannels.get(), m_numberOfChannels); }
+    std::span<std::span<float>> destinationChannels() const { return unsafeMakeSpan(m_destinationChannels.get(), m_numberOfChannels); }
 
     float m_sampleRate;
 
-    // Emphasis filter controls.
-    float m_lastFilterStageRatio;
-    float m_lastAnchor;
-    float m_lastFilterStageGain;
-
-    struct ZeroPoleFilterPack4 {
-        WTF_MAKE_STRUCT_FAST_ALLOCATED;
-        ZeroPole filters[4];
-    };
-
-    // Per-channel emphasis filters.
-    Vector<std::unique_ptr<ZeroPoleFilterPack4>> m_preFilterPacks;
-    Vector<std::unique_ptr<ZeroPoleFilterPack4>> m_postFilterPacks;
-
-    UniqueArray<const float*> m_sourceChannels;
-    UniqueArray<float*> m_destinationChannels;
-
-    void setEmphasisStageParameters(unsigned stageIndex, float gain, float normalizedFrequency /* 0 -> 1 */);
-    void setEmphasisParameters(float gain, float anchorFreq, float filterStageRatio);
+    UniqueArray<std::span<const float>> m_sourceChannels;
+    UniqueArray<std::span<float>> m_destinationChannels;
 
     // The core compressor.
     DynamicsCompressorKernel m_compressor;

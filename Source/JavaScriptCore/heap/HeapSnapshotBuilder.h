@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,6 +30,8 @@
 #include <wtf/HashMap.h>
 #include <wtf/HashSet.h>
 #include <wtf/Lock.h>
+#include <wtf/OverflowPolicy.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 
 namespace JSC {
@@ -103,11 +105,11 @@ struct HeapSnapshotEdge {
 };
 
 class JS_EXPORT_PRIVATE HeapSnapshotBuilder final : public HeapAnalyzer {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(HeapSnapshotBuilder);
 public:
     enum SnapshotType { InspectorSnapshot, GCDebuggingSnapshot };
 
-    HeapSnapshotBuilder(HeapProfiler&, SnapshotType = SnapshotType::InspectorSnapshot);
+    HeapSnapshotBuilder(HeapProfiler&, SnapshotType = SnapshotType::InspectorSnapshot, OverflowPolicy = OverflowPolicy::CrashOnOverflow);
     ~HeapSnapshotBuilder() final;
 
     static void resetNextAvailableObjectIdentifier();
@@ -119,17 +121,19 @@ public:
     void analyzeNode(JSCell*) final;
 
     // A reference from one cell to another.
-    void analyzeEdge(JSCell* from, JSCell* to, SlotVisitor::RootMarkReason) final;
+    void analyzeEdge(JSCell* from, JSCell* to, RootMarkReason) final;
     void analyzePropertyNameEdge(JSCell* from, JSCell* to, UniquedStringImpl* propertyName) final;
     void analyzeVariableNameEdge(JSCell* from, JSCell* to, UniquedStringImpl* variableName) final;
     void analyzeIndexEdge(JSCell* from, JSCell* to, uint32_t index) final;
 
-    void setOpaqueRootReachabilityReasonForCell(JSCell*, const char*) final;
+    void setOpaqueRootReachabilityReasonForCell(JSCell*, ASCIILiteral) final;
     void setWrappedObjectForCell(JSCell*, void*) final;
     void setLabelForCell(JSCell*, const String&) final;
 
     String json();
     String json(Function<bool (const HeapSnapshotNode&)> allowNodeCallback);
+
+    bool hasOverflowed() const { return m_hasOverflowed; }
 
 private:
     static NodeIdentifier nextAvailableObjectIdentifier;
@@ -142,21 +146,23 @@ private:
     String descriptionForCell(JSCell*) const;
     
     struct RootData {
-        const char* reachabilityFromOpaqueRootReasons { nullptr };
-        SlotVisitor::RootMarkReason markReason { SlotVisitor::RootMarkReason::None };
+        ASCIILiteral reachabilityFromOpaqueRootReasons;
+        RootMarkReason markReason { RootMarkReason::None };
     };
     
     HeapProfiler& m_profiler;
+    OverflowPolicy m_overflowPolicy;
+    bool m_hasOverflowed { false };
 
     // SlotVisitors run in parallel.
     Lock m_buildingNodeMutex;
     std::unique_ptr<HeapSnapshot> m_snapshot;
     Lock m_buildingEdgeMutex;
     Vector<HeapSnapshotEdge> m_edges;
-    HashMap<JSCell*, RootData> m_rootData;
-    HashMap<JSCell*, void*> m_wrappedObjectPointers;
-    HashMap<JSCell*, String> m_cellLabels;
-    HashSet<JSCell*> m_appendedCells;
+    UncheckedKeyHashMap<JSCell*, RootData> m_rootData;
+    UncheckedKeyHashMap<JSCell*, void*> m_wrappedObjectPointers;
+    UncheckedKeyHashMap<JSCell*, String> m_cellLabels;
+    UncheckedKeyHashSet<JSCell*> m_appendedCells;
     SnapshotType m_snapshotType;
 };
 

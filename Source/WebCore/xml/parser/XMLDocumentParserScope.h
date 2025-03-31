@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009 Apple Inc. All rights reserved.
+ * Copyright (C) 2009-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,36 +25,51 @@
 
 #pragma once
 
+// FIXME (286277): Stop ignoring -Wundef and -Wdeprecated-declarations in code that imports libxml and libxslt headers
+IGNORE_WARNINGS_BEGIN("deprecated-declarations")
+IGNORE_WARNINGS_BEGIN("undef")
+#include <libxml/parser.h>
+IGNORE_WARNINGS_END
+IGNORE_WARNINGS_END
 #include <wtf/Noncopyable.h>
+#include <wtf/WeakPtr.h>
 
 #if ENABLE(XSLT)
+// FIXME (286277): Stop ignoring -Wundef and -Wdeprecated-declarations in code that imports libxml and libxslt headers
+IGNORE_WARNINGS_BEGIN("deprecated-declarations")
+IGNORE_WARNINGS_BEGIN("undef")
 #include <libxml/xmlerror.h>
+IGNORE_WARNINGS_END
+IGNORE_WARNINGS_END
 #endif
 
 namespace WebCore {
 
-    class CachedResourceLoader;
+class CachedResourceLoader;
 
-    class XMLDocumentParserScope {
-        WTF_MAKE_NONCOPYABLE(XMLDocumentParserScope);
-    public:
-        explicit XMLDocumentParserScope(CachedResourceLoader*);
-        ~XMLDocumentParserScope();
+class XMLDocumentParserScope {
+    WTF_MAKE_NONCOPYABLE(XMLDocumentParserScope);
+public:
+    XMLDocumentParserScope() = delete;
+    explicit XMLDocumentParserScope(CachedResourceLoader*);
+    ~XMLDocumentParserScope();
 
-        static CachedResourceLoader* currentCachedResourceLoader;
-
-#if ENABLE(XSLT)
-        XMLDocumentParserScope(CachedResourceLoader*, xmlGenericErrorFunc, xmlStructuredErrorFunc structuredErrorFunc = 0, void* errorContext = nullptr);
-#endif
-
-    private:
-        CachedResourceLoader* m_oldCachedResourceLoader;
+    static WeakPtr<CachedResourceLoader>& currentCachedResourceLoader();
 
 #if ENABLE(XSLT)
-        xmlGenericErrorFunc m_oldGenericErrorFunc;
-        xmlStructuredErrorFunc m_oldStructuredErrorFunc;
-        void* m_oldErrorContext;
+    XMLDocumentParserScope(CachedResourceLoader*, xmlGenericErrorFunc, xmlStructuredErrorFunc = nullptr, void* genericErrorContext = nullptr, void* structuredErrorContext = nullptr);
 #endif
-    };
+
+private:
+    WeakPtr<CachedResourceLoader> m_oldCachedResourceLoader;
+    xmlExternalEntityLoader m_oldEntityLoader { nullptr };
+
+#if ENABLE(XSLT)
+    xmlGenericErrorFunc m_oldGenericErrorFunc { nullptr };
+    xmlStructuredErrorFunc m_oldStructuredErrorFunc { nullptr };
+    void* m_oldGenericErrorContext { nullptr };
+    void* m_oldStructuredErrorContext { nullptr };
+#endif
+};
 
 } // namespace WebCore

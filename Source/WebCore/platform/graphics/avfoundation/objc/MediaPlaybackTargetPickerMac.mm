@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,13 +29,14 @@
 #if ENABLE(WIRELESS_PLAYBACK_TARGET) && !PLATFORM(IOS_FAMILY)
 
 #import "AVOutputDeviceMenuControllerTargetPicker.h"
+#import "FloatRect.h"
 #import "Logging.h"
-#import <WebCore/FloatRect.h>
-#import <WebCore/MediaPlaybackTargetCocoa.h>
+#import "MediaPlaybackTargetCocoa.h"
 #import <objc/runtime.h>
 #import <pal/spi/cocoa/AVFoundationSPI.h>
 #import <pal/spi/cocoa/AVKitSPI.h>
 #import <wtf/MainThread.h>
+#include <wtf/TZoneMallocInlines.h>
 
 #if HAVE(AVROUTEPICKERVIEW)
 #import "AVRoutePickerViewTargetPicker.h"
@@ -47,9 +48,9 @@
 SOFTLINK_AVKIT_FRAMEWORK()
 SOFT_LINK_CLASS_OPTIONAL(AVKit, AVOutputDeviceMenuController)
 
-using namespace WebCore;
-
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(MediaPlaybackTargetPickerMac);
 
 MediaPlaybackTargetPickerMac::MediaPlaybackTargetPickerMac(MediaPlaybackTargetPicker::Client& client)
     : MediaPlaybackTargetPicker(client)
@@ -68,7 +69,7 @@ bool MediaPlaybackTargetPickerMac::externalOutputDeviceAvailable()
 
 Ref<MediaPlaybackTarget> MediaPlaybackTargetPickerMac::playbackTarget()
 {
-    return WebCore::MediaPlaybackTargetCocoa::create(routePicker().outputContext());
+    return WebCore::MediaPlaybackTargetCocoa::create(MediaPlaybackTargetContextCocoa(routePicker().outputContext()));
 }
 
 AVPlaybackTargetPicker& MediaPlaybackTargetPickerMac::routePicker()

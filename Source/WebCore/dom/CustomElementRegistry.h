@@ -26,23 +26,33 @@
 #pragma once
 
 #include "ContextDestructionObserver.h"
+#include "Element.h"
+#include "EventTarget.h"
 #include "QualifiedName.h"
-#include <wtf/HashMap.h>
+#include "TreeScope.h"
+#include <wtf/Lock.h>
+#include <wtf/RobinHoodHashMap.h>
+#include <wtf/RobinHoodHashSet.h>
+#include <wtf/WeakHashMap.h>
+#include <wtf/WeakListHashSet.h>
+#include <wtf/WeakPtr.h>
 #include <wtf/text/AtomString.h>
 #include <wtf/text/AtomStringHash.h>
 
 namespace JSC {
 
+class JSGlobalObject;
 class JSObject;
 class JSValue;
-    
+
 }
 
 namespace WebCore {
 
 class CustomElementRegistry;
-class DOMWindow;
+class LocalDOMWindow;
 class DeferredPromise;
+class Document;
 class Element;
 class JSCustomElementInterface;
 class Node;
@@ -50,33 +60,73 @@ class QualifiedName;
 
 class CustomElementRegistry : public RefCounted<CustomElementRegistry>, public ContextDestructionObserver {
 public:
-    static Ref<CustomElementRegistry> create(DOMWindow&, ScriptExecutionContext*);
+    static Ref<CustomElementRegistry> create(ScriptExecutionContext&, LocalDOMWindow&);
+    static Ref<CustomElementRegistry> create(ScriptExecutionContext&);
     ~CustomElementRegistry();
 
-    void addElementDefinition(Ref<JSCustomElementInterface>&&);
+    bool isScoped() const { return !m_window; }
+    Document* document() const;
+
+    static CustomElementRegistry* registryForElement(const Element& element)
+    {
+        if (element.usesNullCustomElementRegistry())
+            return nullptr;
+        if (UNLIKELY(element.usesScopedCustomElementRegistryMap()))
+            return scopedCustomElementRegistryMap().get(element);
+        return element.treeScope().customElementRegistry();
+    }
+
+    static CustomElementRegistry* registryForNodeOrTreeScope(const Node& node, const TreeScope& treeScope)
+    {
+        if (node.usesNullCustomElementRegistry()) {
+            ASSERT(is<Element>(node));
+            return nullptr;
+        }
+        if (auto* element = dynamicDowncast<Element>(node); UNLIKELY(element && element->usesScopedCustomElementRegistryMap()))
+            return scopedCustomElementRegistryMap().get(*element);
+        return treeScope.customElementRegistry();
+    }
+
+    static void addToScopedCustomElementRegistryMap(Element&, CustomElementRegistry&);
+    static void removeFromScopedCustomElementRegistryMap(Element&);
+
+    void didAssociateWithDocument(Document&);
+
+    RefPtr<DeferredPromise> addElementDefinition(Ref<JSCustomElementInterface>&&);
 
     bool& elementDefinitionIsRunning() { return m_elementDefinitionIsRunning; }
 
     JSCustomElementInterface* findInterface(const Element&) const;
     JSCustomElementInterface* findInterface(const QualifiedName&) const;
     JSCustomElementInterface* findInterface(const AtomString&) const;
-    JSCustomElementInterface* findInterface(const JSC::JSObject*) const;
+    RefPtr<JSCustomElementInterface> findInterface(const JSC::JSObject*) const;
     bool containsConstructor(const JSC::JSObject*) const;
 
     JSC::JSValue get(const AtomString&);
+    String getName(JSC::JSValue);
     void upgrade(Node& root);
+    void initialize(Node& root);
 
-    HashMap<AtomString, Ref<DeferredPromise>>& promiseMap() { return m_promiseMap; }
+    MemoryCompactRobinHoodHashMap<AtomString, Ref<DeferredPromise>>& promiseMap() { return m_promiseMap; }
+    bool isShadowDisabled(const AtomString& name) const { return m_disabledShadowSet.contains(name); }
+
+    template<typename Visitor> void visitJSCustomElementInterfaces(Visitor&) const;
 
 private:
-    CustomElementRegistry(DOMWindow&, ScriptExecutionContext*);
+    CustomElementRegistry(ScriptExecutionContext&, LocalDOMWindow&);
+    CustomElementRegistry(ScriptExecutionContext&);
 
-    DOMWindow& m_window;
-    HashMap<AtomString, Ref<JSCustomElementInterface>> m_nameMap;
-    HashMap<const JSC::JSObject*, JSCustomElementInterface*> m_constructorMap;
-    HashMap<AtomString, Ref<DeferredPromise>> m_promiseMap;
+    static WeakHashMap<Element, Ref<CustomElementRegistry>, WeakPtrImplWithEventTargetData>& scopedCustomElementRegistryMap();
+
+    WeakPtr<LocalDOMWindow, WeakPtrImplWithEventTargetData> m_window;
+    UncheckedKeyHashMap<AtomString, Ref<JSCustomElementInterface>> m_nameMap;
+    UncheckedKeyHashMap<const JSC::JSObject*, JSCustomElementInterface*> m_constructorMap WTF_GUARDED_BY_LOCK(m_constructorMapLock);
+    MemoryCompactRobinHoodHashMap<AtomString, Ref<DeferredPromise>> m_promiseMap;
+    MemoryCompactRobinHoodHashSet<AtomString> m_disabledShadowSet;
+    WeakListHashSet<Document, WeakPtrImplWithEventTargetData> m_associatedDocuments;
 
     bool m_elementDefinitionIsRunning { false };
+    mutable Lock m_constructorMapLock;
 
     friend class ElementDefinitionIsRunningSetForScope;
 };

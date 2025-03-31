@@ -28,6 +28,7 @@
 #include "CallFrame.h"
 #include "VirtualRegister.h"
 
+#include <wtf/FixedVector.h>
 #include <wtf/PrintStream.h>
 #include <wtf/Vector.h>
 
@@ -67,6 +68,8 @@ public:
     }
     static Operand tmp(uint32_t index) { return Operand(OperandKind::Tmp, index); }
 
+    Operand& operator=(const Operand&) = default;
+
     OperandKind kind() const { return m_kind; }
     int value() const { return m_operand; }
     VirtualRegister virtualRegister() const
@@ -76,7 +79,7 @@ public:
     }
     uint64_t asBits() const
     {
-        uint64_t bits = bitwise_cast<uint64_t>(*this);
+        uint64_t bits = std::bit_cast<uint64_t>(*this);
         ASSERT(bits < (1ULL << maxBits));
         return bits;
     }
@@ -125,7 +128,7 @@ inline bool Operand::isValid() const
 
 inline Operand Operand::fromBits(uint64_t value)
 {
-    Operand result = bitwise_cast<Operand>(value);
+    Operand result = std::bit_cast<Operand>(value);
     ASSERT(result.isValid());
     return result;
 }
@@ -134,40 +137,47 @@ static_assert(sizeof(Operand) == sizeof(uint64_t), "Operand::asBits() relies on 
 
 enum OperandsLikeTag { OperandsLike };
 
-template<typename T>
+template<typename T, typename StorageArg = std::conditional_t<std::is_same_v<T, bool>, FastBitVector, Vector<T, 0, UnsafeVectorOverflow>>>
 class Operands {
 public:
-    using Storage = std::conditional_t<std::is_same_v<T, bool>, FastBitVector, Vector<T, 0, UnsafeVectorOverflow>>;
+    template<typename, typename> friend class Operands;
+
+    using Storage = StorageArg;
     using RefType = std::conditional_t<std::is_same_v<T, bool>, FastBitReference, T&>;
     using ConstRefType = std::conditional_t<std::is_same_v<T, bool>, bool, const T&>;
 
     Operands() = default;
 
     explicit Operands(size_t numArguments, size_t numLocals, size_t numTmps)
-        : m_numArguments(numArguments)
+        : m_values(numArguments + numLocals + numTmps)
+        , m_numArguments(numArguments)
         , m_numLocals(numLocals)
     {
-        size_t size = numArguments + numLocals + numTmps;
-        m_values.grow(size);
         if (!WTF::VectorTraits<T>::needsInitialization)
             m_values.fill(T());
     }
 
     explicit Operands(size_t numArguments, size_t numLocals, size_t numTmps, const T& initialValue)
-        : m_numArguments(numArguments)
+        : m_values(numArguments + numLocals + numTmps, initialValue)
+        , m_numArguments(numArguments)
         , m_numLocals(numLocals)
     {
-        m_values.grow(numArguments + numLocals + numTmps);
-        m_values.fill(initialValue);
     }
     
-    template<typename U>
-    explicit Operands(OperandsLikeTag, const Operands<U>& other, const T& initialValue = T())
-        : m_numArguments(other.numberOfArguments())
+    template<typename U, typename V>
+    explicit Operands(OperandsLikeTag, const Operands<U, V>& other, const T& initialValue = T())
+        : m_values(other.size(), initialValue)
+        , m_numArguments(other.numberOfArguments())
         , m_numLocals(other.numberOfLocals())
     {
-        m_values.grow(other.size());
-        m_values.fill(initialValue);
+    }
+
+    template<typename U>
+    explicit Operands(const Operands<T, U>& other)
+        : m_values(other.m_values)
+        , m_numArguments(other.m_numArguments)
+        , m_numLocals(other.m_numLocals)
+    {
     }
 
     size_t numberOfArguments() const { return m_numArguments; }
@@ -388,7 +398,7 @@ public:
         
         return m_values == other.m_values;
     }
-    
+
     void dumpInContext(PrintStream& out, DumpContext* context) const;
     void dump(PrintStream& out) const;
     
@@ -398,5 +408,8 @@ private:
     unsigned m_numArguments { 0 };
     unsigned m_numLocals { 0 };
 };
+
+template<typename T>
+using FixedOperands = Operands<T, std::conditional_t<std::is_same_v<T, bool>, FastBitVector, FixedVector<T>>>;
 
 } // namespace JSC

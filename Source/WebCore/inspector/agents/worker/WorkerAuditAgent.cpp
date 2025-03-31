@@ -26,37 +26,39 @@
 #include "config.h"
 #include "WorkerAuditAgent.h"
 
-#include "ScriptState.h"
-#include "WorkerGlobalScope.h"
+#include "JSDOMGlobalObject.h"
+#include "WorkerOrWorkletGlobalScope.h"
+#include "WorkerOrWorkletScriptController.h"
 #include <JavaScriptCore/InjectedScript.h>
 #include <JavaScriptCore/InjectedScriptManager.h>
 #include <JavaScriptCore/JSCInlines.h>
-#include <wtf/Ref.h>
-#include <wtf/RefPtr.h>
-#include <wtf/text/WTFString.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
 using namespace Inspector;
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WorkerAuditAgent);
+
 WorkerAuditAgent::WorkerAuditAgent(WorkerAgentContext& context)
     : InspectorAuditAgent(context)
-    , m_workerGlobalScope(context.workerGlobalScope)
+    , m_globalScope(context.globalScope)
 {
-    ASSERT(context.workerGlobalScope.isContextThread());
+    ASSERT(context.globalScope->isContextThread());
 }
 
 WorkerAuditAgent::~WorkerAuditAgent() = default;
 
-InjectedScript WorkerAuditAgent::injectedScriptForEval(ErrorString& errorString, const int* executionContextId)
+InjectedScript WorkerAuditAgent::injectedScriptForEval(Inspector::Protocol::ErrorString& errorString, std::optional<Inspector::Protocol::Runtime::ExecutionContextId>&& executionContextId)
 {
     if (executionContextId) {
         errorString = "executionContextId is not supported for workers as there is only one execution context"_s;
         return InjectedScript();
     }
 
-    JSC::JSGlobalObject* scriptState = execStateFromWorkerGlobalScope(m_workerGlobalScope);
-    return injectedScriptManager().injectedScriptFor(scriptState);
+    // FIXME: What guarantees m_globalScope.script() is non-null?
+    // FIXME: What guarantees globalScopeWrapper() is non-null?
+    return injectedScriptManager().injectedScriptFor(m_globalScope.script()->globalScopeWrapper());
 }
 
 } // namespace WebCore

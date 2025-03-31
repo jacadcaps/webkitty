@@ -26,10 +26,11 @@
 #include "config.h"
 #include "InsertIntoTextNodeCommand.h"
 
+#include "CompositeEditCommand.h"
 #include "Document.h"
 #include "Editor.h"
 #include "EditorClient.h"
-#include "Frame.h"
+#include "LocalFrame.h"
 #include "RenderText.h"
 #include "Settings.h"
 #include "Text.h"
@@ -55,40 +56,44 @@ void InsertIntoTextNodeCommand::doApply()
     bool passwordEchoEnabled = document().settings().passwordEchoEnabled() && !document().editor().client()->shouldSuppressPasswordEcho();
 
     if (passwordEchoEnabled)
-        document().updateLayoutIgnorePendingStylesheets();
+        protectedDocument()->updateLayoutIgnorePendingStylesheets();
 
-    if (!m_node->hasEditableStyle())
+    auto node = protectedNode();
+    if (!node->hasEditableStyle())
         return;
 
     if (passwordEchoEnabled) {
-        if (RenderText* renderText = m_node->renderer())
+        if (CheckedPtr renderText = node->renderer())
             renderText->momentarilyRevealLastTypedCharacter(m_offset + m_text.length());
     }
     
-    m_node->insertData(m_offset, m_text);
+    node->insertData(m_offset, m_text);
 }
 
 void InsertIntoTextNodeCommand::doReapply()
 {
-    if (!m_node->hasEditableStyle())
+    auto node = protectedNode();
+    if (!node->hasEditableStyle())
         return;
 
-    m_node->insertData(m_offset, m_text);
+    node->insertData(m_offset, m_text);
 }
 
 void InsertIntoTextNodeCommand::doUnapply()
 {
-    if (!m_node->hasEditableStyle())
+    auto node = protectedNode();
+    if (!node->hasEditableStyle())
         return;
 
-    m_node->deleteData(m_offset, m_text.length());
+    node->deleteData(m_offset, m_text.length());
 }
 
 #ifndef NDEBUG
 
-void InsertIntoTextNodeCommand::getNodesInCommand(HashSet<Node*>& nodes)
+void InsertIntoTextNodeCommand::getNodesInCommand(NodeSet& nodes)
 {
-    addNodeAndDescendants(m_node.ptr(), nodes);
+    auto node = protectedNode();
+    addNodeAndDescendants(node.ptr(), nodes);
 }
 
 #endif

@@ -10,12 +10,16 @@ import (
 	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"math/big"
-	"strings"
+	"os"
 	"sync"
 	"time"
+
+	"boringssl.googlesource.com/boringssl/ssl/test/runner/hpke"
 )
 
 const (
@@ -27,8 +31,9 @@ const (
 )
 
 const (
-	VersionDTLS10 = 0xfeff
-	VersionDTLS12 = 0xfefd
+	VersionDTLS10              = 0xfeff
+	VersionDTLS12              = 0xfefd
+	VersionDTLS125Experimental = 0xfc25
 )
 
 var allTLSWireVersions = []uint16{
@@ -40,16 +45,17 @@ var allTLSWireVersions = []uint16{
 }
 
 var allDTLSWireVersions = []uint16{
+	VersionDTLS125Experimental,
 	VersionDTLS12,
 	VersionDTLS10,
 }
 
 const (
-	maxPlaintext        = 16384        // maximum plaintext payload length
-	maxCiphertext       = 16384 + 2048 // maximum ciphertext payload length
-	tlsRecordHeaderLen  = 5            // record header length
-	dtlsRecordHeaderLen = 13
-	maxHandshake        = 65536 // maximum handshake we support (protocol max is 16 MB)
+	maxPlaintext           = 16384        // maximum plaintext payload length
+	maxCiphertext          = 16384 + 2048 // maximum ciphertext payload length
+	tlsRecordHeaderLen     = 5            // record header length
+	dtlsMaxRecordHeaderLen = 13
+	maxHandshake           = 65536 // maximum handshake we support (protocol max is 16 MB)
 
 	minVersion = VersionSSL30
 	maxVersion = VersionTLS13
@@ -64,6 +70,7 @@ const (
 	recordTypeHandshake          recordType = 22
 	recordTypeApplicationData    recordType = 23
 	recordTypePlaintextHandshake recordType = 24
+	recordTypeACK                recordType = 26
 )
 
 // TLS handshake message types.
@@ -74,7 +81,6 @@ const (
 	typeHelloVerifyRequest    uint8 = 3
 	typeNewSessionTicket      uint8 = 4
 	typeEndOfEarlyData        uint8 = 5
-	typeHelloRetryRequest     uint8 = 6
 	typeEncryptedExtensions   uint8 = 8
 	typeCertificate           uint8 = 11
 	typeServerKeyExchange     uint8 = 12
@@ -108,8 +114,8 @@ const (
 	extensionSignedCertificateTimestamp uint16 = 18
 	extensionPadding                    uint16 = 21
 	extensionExtendedMasterSecret       uint16 = 23
-	extensionTokenBinding               uint16 = 24
 	extensionCompressedCertAlgs         uint16 = 27
+	extensionDelegatedCredential        uint16 = 34
 	extensionSessionTicket              uint16 = 35
 	extensionPreSharedKey               uint16 = 41
 	extensionEarlyData                  uint16 = 42
@@ -119,12 +125,17 @@ const (
 	extensionCertificateAuthorities     uint16 = 47
 	extensionSignatureAlgorithmsCert    uint16 = 50
 	extensionKeyShare                   uint16 = 51
+	extensionQUICTransportParams        uint16 = 57
 	extensionCustom                     uint16 = 1234  // not IANA assigned
 	extensionNextProtoNeg               uint16 = 13172 // not IANA assigned
+	extensionApplicationSettingsOld     uint16 = 17513 // not IANA assigned
+	extensionApplicationSettings        uint16 = 17613 // not IANA assigned
 	extensionRenegotiationInfo          uint16 = 0xff01
-	extensionQUICTransportParams        uint16 = 0xffa5 // draft-ietf-quic-tls-13
+	extensionQUICTransportParamsLegacy  uint16 = 0xffa5 // draft-ietf-quic-tls-32 and earlier
 	extensionChannelID                  uint16 = 30032  // not IANA assigned
-	extensionDelegatedCredentials       uint16 = 0xff02 // not IANA assigned
+	extensionDuplicate                  uint16 = 0xffff // not IANA assigned
+	extensionEncryptedClientHello       uint16 = 0xfe0d // not IANA assigned
+	extensionECHOuterExtensions         uint16 = 0xfd00 // not IANA assigned
 )
 
 // TLS signaling cipher suite values
@@ -143,12 +154,13 @@ var tls13HelloRetryRequest = []uint8{
 type CurveID uint16
 
 const (
-	CurveP224   CurveID = 21
-	CurveP256   CurveID = 23
-	CurveP384   CurveID = 24
-	CurveP521   CurveID = 25
-	CurveX25519 CurveID = 29
-	CurveCECPQ2 CurveID = 16696
+	CurveP224           CurveID = 21
+	CurveP256           CurveID = 23
+	CurveP384           CurveID = 24
+	CurveP521           CurveID = 25
+	CurveX25519         CurveID = 29
+	CurveX25519MLKEM768 CurveID = 0x11ec
+	CurveX25519Kyber768 CurveID = 0x6399
 )
 
 // TLS Elliptic Curve Point Formats
@@ -170,7 +182,7 @@ const (
 	CertTypeRSAFixedDH = 3 // A certificate containing a static DH key
 	CertTypeDSSFixedDH = 4 // A certificate containing a static DH key
 
-	// See RFC4492 sections 3 and 5.5.
+	// See RFC 4492 sections 3 and 5.5.
 	CertTypeECDSASign      = 64 // A certificate containing an ECDSA-capable public key, signed with ECDSA.
 	CertTypeRSAFixedECDH   = 65 // A certificate containing an ECDH-capable public key, signed with RSA.
 	CertTypeECDSAFixedECDH = 66 // A certificate containing an ECDH-capable public key, signed with ECDSA.
@@ -206,15 +218,27 @@ const (
 	// EdDSA algorithms
 	signatureEd25519 signatureAlgorithm = 0x0807
 	signatureEd448   signatureAlgorithm = 0x0808
+
+	// draft-ietf-tls-tls13-pkcs1-00
+	signatureRSAPKCS1WithSHA256Legacy signatureAlgorithm = 0x0420
+
+	// signatureRSAPKCS1WithMD5AndSHA1 is the internal value BoringSSL uses to
+	// represent the TLS 1.0/1.1 RSA MD5/SHA1 concatenation. We define the
+	// constant here to test that this doesn't leak into the protocol.
+	signatureRSAPKCS1WithMD5AndSHA1 signatureAlgorithm = 0xff01
 )
 
 // supportedSignatureAlgorithms contains the default supported signature
 // algorithms.
 var supportedSignatureAlgorithms = []signatureAlgorithm{
 	signatureRSAPSSWithSHA256,
+	signatureRSAPSSWithSHA384,
 	signatureRSAPKCS1WithSHA256,
 	signatureECDSAWithP256AndSHA256,
+	signatureECDSAWithP384AndSHA384,
 	signatureRSAPKCS1WithSHA1,
+	signatureRSAPKCS1WithSHA256,
+	signatureRSAPKCS1WithSHA384,
 	signatureECDSAWithSHA1,
 	signatureEd25519,
 }
@@ -237,6 +261,9 @@ const (
 	keyUpdateRequested    = 1
 )
 
+// draft-ietf-tls-esni-13, sections 7.2 and 7.2.1.
+const echAcceptConfirmationLength = 8
+
 // ConnectionState records basic TLS details about the connection.
 type ConnectionState struct {
 	Version                    uint16                // TLS version used by the connection (e.g. VersionTLS12)
@@ -248,16 +275,22 @@ type ConnectionState struct {
 	NegotiatedProtocolFromALPN bool                  // protocol negotiated with ALPN
 	ServerName                 string                // server name requested by client, if any (server side only)
 	PeerCertificates           []*x509.Certificate   // certificate chain presented by remote peer
+	PeerDelegatedCredential    []byte                // delegated credential presented by remote peer
 	VerifiedChains             [][]*x509.Certificate // verified chains built from PeerCertificates
+	OCSPResponse               []byte                // stapled OCSP response from the peer, if any
 	ChannelID                  *ecdsa.PublicKey      // the channel ID for this connection
-	TokenBindingNegotiated     bool                  // whether Token Binding was negotiated
-	TokenBindingParam          uint8                 // the negotiated Token Binding key parameter
 	SRTPProtectionProfile      uint16                // the negotiated DTLS-SRTP protection profile
 	TLSUnique                  []byte                // the tls-unique channel binding
 	SCTList                    []byte                // signed certificate timestamp list
 	PeerSignatureAlgorithm     signatureAlgorithm    // algorithm used by the peer in the handshake
 	CurveID                    CurveID               // the curve used in ECDHE
 	QUICTransportParams        []byte                // the QUIC transport params received from the peer
+	QUICTransportParamsLegacy  []byte                // the legacy QUIC transport params received from the peer
+	HasApplicationSettings     bool                  // whether ALPS was negotiated
+	PeerApplicationSettings    []byte                // application settings received from the peer
+	HasApplicationSettingsOld  bool                  // whether ALPS old codepoint was negotiated
+	PeerApplicationSettingsOld []byte                // the old application settings received from the peer
+	ECHAccepted                bool                  // whether ECH was accepted on this connection
 }
 
 // ClientAuthType declares the policy the server will follow for
@@ -275,22 +308,29 @@ const (
 // ClientSessionState contains the state needed by clients to resume TLS
 // sessions.
 type ClientSessionState struct {
-	sessionId            []uint8             // Session ID supplied by the server. nil if the session has a ticket.
-	sessionTicket        []uint8             // Encrypted ticket used for session resumption with server
-	vers                 uint16              // SSL/TLS version negotiated for the session
-	wireVersion          uint16              // Wire SSL/TLS version negotiated for the session
-	cipherSuite          uint16              // Ciphersuite negotiated for the session
-	masterSecret         []byte              // MasterSecret generated by client on a full handshake
-	handshakeHash        []byte              // Handshake hash for Channel ID purposes.
-	serverCertificates   []*x509.Certificate // Certificate chain presented by the server
-	extendedMasterSecret bool                // Whether an extended master secret was used to generate the session
-	sctList              []byte
-	ocspResponse         []byte
-	earlyALPN            string
-	ticketCreationTime   time.Time
-	ticketExpiration     time.Time
-	ticketAgeAdd         uint32
-	maxEarlyDataSize     uint32
+	sessionID                   []uint8             // Session ID supplied by the server. nil if the session has a ticket.
+	sessionTicket               []uint8             // Encrypted ticket used for session resumption with server
+	vers                        uint16              // SSL/TLS version negotiated for the session
+	wireVersion                 uint16              // Wire SSL/TLS version negotiated for the session
+	cipherSuite                 *cipherSuite        // Ciphersuite negotiated for the session
+	secret                      []byte              // Secret associated with the session
+	handshakeHash               []byte              // Handshake hash for Channel ID purposes.
+	serverCertificates          []*x509.Certificate // Certificate chain presented by the server
+	serverDelegatedCredential   []byte
+	extendedMasterSecret        bool // Whether an extended master secret was used to generate the session
+	sctList                     []byte
+	ocspResponse                []byte
+	earlyALPN                   string
+	ticketCreationTime          time.Time
+	ticketExpiration            time.Time
+	ticketAgeAdd                uint32
+	maxEarlyDataSize            uint32
+	hasApplicationSettings      bool
+	localApplicationSettings    []byte
+	peerApplicationSettings     []byte
+	hasApplicationSettingsOld   bool
+	localApplicationSettingsOld []byte
+	peerApplicationSettingsOld  []byte
 }
 
 // ClientSessionCache is a cache of ClientSessionState objects that can be used
@@ -313,10 +353,10 @@ type ClientSessionCache interface {
 type ServerSessionCache interface {
 	// Get searches for a sessionState associated with the given session
 	// ID. On return, ok is true if one was found.
-	Get(sessionId string) (session *sessionState, ok bool)
+	Get(sessionID string) (session *sessionState, ok bool)
 
 	// Put adds the sessionState to the cache with the given session ID.
-	Put(sessionId string, session *sessionState)
+	Put(sessionID string, session *sessionState)
 }
 
 // CertCompressionAlg is a certificate compression algorithm, specified as a
@@ -327,6 +367,72 @@ type CertCompressionAlg struct {
 	// Decompress depresses the contents of in and writes the result to out, which
 	// will be the correct size. It returns true on success and false otherwise.
 	Decompress func(out, in []byte) bool
+}
+
+// QUICUseCodepoint controls which TLS extension codepoint is used to convey the
+// QUIC transport parameters. QUICUseCodepointStandard means use 57,
+// QUICUseCodepointLegacy means use legacy value 0xff5a, QUICUseCodepointBoth
+// means use both. QUICUseCodepointNeither means do not send transport
+// parameters.
+type QUICUseCodepoint int
+
+const (
+	QUICUseCodepointStandard QUICUseCodepoint = iota
+	QUICUseCodepointLegacy
+	QUICUseCodepointBoth
+	QUICUseCodepointNeither
+	NumQUICUseCodepoints
+)
+
+func (c QUICUseCodepoint) IncludeStandard() bool {
+	return c == QUICUseCodepointStandard || c == QUICUseCodepointBoth
+}
+
+func (c QUICUseCodepoint) IncludeLegacy() bool {
+	return c == QUICUseCodepointLegacy || c == QUICUseCodepointBoth
+}
+
+func (c QUICUseCodepoint) String() string {
+	switch c {
+	case QUICUseCodepointStandard:
+		return "Standard"
+	case QUICUseCodepointLegacy:
+		return "Legacy"
+	case QUICUseCodepointBoth:
+		return "Both"
+	case QUICUseCodepointNeither:
+		return "Neither"
+	}
+	panic("unknown value")
+}
+
+// ALPSUseCodepoint controls which TLS extension codepoint is used to convey the
+// ApplicationSettings. ALPSUseCodepointNew means use 17613,
+// ALPSUseCodepointOld means use old value 17513.
+type ALPSUseCodepoint int
+
+const (
+	ALPSUseCodepointNew ALPSUseCodepoint = iota
+	ALPSUseCodepointOld
+	NumALPSUseCodepoints
+)
+
+func (c ALPSUseCodepoint) IncludeNew() bool {
+	return c == ALPSUseCodepointNew
+}
+
+func (c ALPSUseCodepoint) IncludeOld() bool {
+	return c == ALPSUseCodepointOld
+}
+
+func (c ALPSUseCodepoint) String() string {
+	switch c {
+	case ALPSUseCodepointNew:
+		return "New"
+	case ALPSUseCodepointOld:
+		return "Old"
+	}
+	panic("unknown value")
 }
 
 // A Config structure is used to configure a TLS client or server.
@@ -344,18 +450,9 @@ type Config struct {
 	// If Time is nil, TLS uses time.Now.
 	Time func() time.Time
 
-	// Certificates contains one or more certificate chains
-	// to present to the other side of the connection.
-	// Server configurations must include at least one certificate.
-	Certificates []Certificate
-
-	// NameToCertificate maps from a certificate name to an element of
-	// Certificates. Note that a certificate name can be of the form
-	// '*.example.com' and so doesn't have to be a domain name as such.
-	// See Config.BuildNameToCertificate
-	// The nil value causes the first element of Certificates to be used
-	// for all connections.
-	NameToCertificate map[string]*Certificate
+	// Credential contains the credential to present to the other side of
+	// the connection. Server configurations must include this field.
+	Credential *Credential
 
 	// RootCAs defines the set of root certificate authorities
 	// that clients use when verifying server certificates.
@@ -365,10 +462,43 @@ type Config struct {
 	// NextProtos is a list of supported, application level protocols.
 	NextProtos []string
 
+	// NoFallbackNextProto, if true, causes the client to decline to pick an NPN
+	// protocol, instead of picking an opportunistic, fallback protocol.
+	NoFallbackNextProto bool
+
+	// NegotiateNPNWithNoProtos, if true, causes the server to negotiate NPN
+	// despite having no protocols configured.
+	NegotiateNPNWithNoProtos bool
+
+	// ApplicationSettings is a set of application settings to use which each
+	// application protocol.
+	ApplicationSettings map[string][]byte
+
+	// ALPSUseNewCodepoint controls which TLS extension codepoint is used to
+	// convey the ApplicationSettings.
+	ALPSUseNewCodepoint ALPSUseCodepoint
+
 	// ServerName is used to verify the hostname on the returned
 	// certificates unless InsecureSkipVerify is given. It is also included
 	// in the client's handshake to support virtual hosting.
 	ServerName string
+
+	// ClientECHConfig, when non-nil, is the ECHConfig the client will use to
+	// attempt ECH.
+	ClientECHConfig *ECHConfig
+
+	// ECHCipherSuites, for the client, is the list of HPKE cipher suites in
+	// decreasing order of preference. If empty, the default will be used.
+	ECHCipherSuites []HPKECipherSuite
+
+	// ServerECHConfigs is the server's list of ECHConfig values with
+	// corresponding secret keys.
+	ServerECHConfigs []ServerECHConfig
+
+	// ECHOuterExtensions is the list of extensions that the client will
+	// compress with the ech_outer_extensions extension. If empty, no extensions
+	// will be compressed.
+	ECHOuterExtensions []uint16
 
 	// ClientAuth determines the server's policy for
 	// TLS Client Authentication. The default is NoClientCert.
@@ -452,20 +582,6 @@ type Config struct {
 	// returned in the ConnectionState.
 	RequestChannelID bool
 
-	// TokenBindingParams contains a list of TokenBindingKeyParameters
-	// (draft-ietf-tokbind-protocol-16) to attempt to negotiate. If
-	// nil, Token Binding will not be negotiated.
-	TokenBindingParams []byte
-
-	// TokenBindingVersion contains the serialized ProtocolVersion to
-	// use when negotiating Token Binding.
-	TokenBindingVersion uint16
-
-	// ExpectTokenBindingParams is checked by a server that the client
-	// sent ExpectTokenBindingParams as its list of Token Binding
-	// paramters.
-	ExpectTokenBindingParams []byte
-
 	// PreSharedKey, if not nil, is the pre-shared key to use with
 	// the PSK cipher suites.
 	PreSharedKey []byte
@@ -484,19 +600,34 @@ type Config struct {
 	// protection profiles to offer in DTLS-SRTP.
 	SRTPProtectionProfiles []uint16
 
-	// SignSignatureAlgorithms, if not nil, overrides the default set of
-	// supported signature algorithms to sign with.
-	SignSignatureAlgorithms []signatureAlgorithm
-
 	// VerifySignatureAlgorithms, if not nil, overrides the default set of
 	// supported signature algorithms that are accepted.
 	VerifySignatureAlgorithms []signatureAlgorithm
+
+	// DelegatedCredentialAlgorithms, if not empty, is the set of signature
+	// algorithms allowed for the delegated credential key. If empty, delegated
+	// credentials are disabled.
+	DelegatedCredentialAlgorithms []signatureAlgorithm
 
 	// QUICTransportParams, if not empty, will be sent in the QUIC
 	// transport parameters extension.
 	QUICTransportParams []byte
 
+	// QUICTransportParamsUseLegacyCodepoint controls which TLS extension
+	// codepoint is used to convey the QUIC transport parameters.
+	QUICTransportParamsUseLegacyCodepoint QUICUseCodepoint
+
 	CertCompressionAlgs map[uint16]CertCompressionAlg
+
+	// DTLSUseShortSeqNums specifies whether the DTLS 1.3 record header
+	// should use short (8-bit) or long (16-bit) sequence numbers. The
+	// default is to use long sequence numbers.
+	DTLSUseShortSeqNums bool
+
+	// DTLSRecordHeaderOmitLength specified whether the DTLS 1.3 record
+	// header includes a length field. The default is to include the length
+	// field.
+	DTLSRecordHeaderOmitLength bool
 
 	// Bugs specifies optional misbehaviour to be used for testing other
 	// implementations.
@@ -541,9 +672,15 @@ type ProtocolBugs struct {
 	// than the negotiated one.
 	SendCurve CurveID
 
-	// InvalidECDHPoint, if true, causes the ECC points in
-	// ServerKeyExchange or ClientKeyExchange messages to be invalid.
-	InvalidECDHPoint bool
+	// ECDHPointNotOnCurve, if true, causes the ECDH points to not be on the
+	// curve.
+	ECDHPointNotOnCurve bool
+
+	// TruncateKeyShare, if true, causes key shares to be truncated by one byte.
+	TruncateKeyShare bool
+
+	// PadKeyShare, if true, causes key shares to be truncated to one byte.
+	PadKeyShare bool
 
 	// BadECDSAR controls ways in which the 'r' value of an ECDSA signature
 	// can be invalid.
@@ -576,6 +713,19 @@ type ProtocolBugs struct {
 	// SkipHelloVerifyRequest causes a DTLS server to skip the
 	// HelloVerifyRequest message.
 	SkipHelloVerifyRequest bool
+
+	// ForceHelloVerifyRequest causes a DTLS server to send a
+	// HelloVerifyRequest message in DTLS 1.3 or other cases where it
+	// otherwise wouldn't.
+	ForceHelloVerifyRequest bool
+
+	// HelloVerifyRequestCookieLength, if non-zero, is the length of the cookie
+	// to request in HelloVerifyRequest.
+	HelloVerifyRequestCookieLength int
+
+	// EmptyHelloVerifyRequestCookie, if true, causes a DTLS server to request
+	// an empty cookie in HelloVerifyRequest.
+	EmptyHelloVerifyRequestCookie bool
 
 	// SkipCertificateStatus, if true, causes the server to skip the
 	// CertificateStatus message. This is legal because CertificateStatus is
@@ -615,6 +765,10 @@ type ProtocolBugs struct {
 	// EndOfEarlyData.
 	NonEmptyEndOfEarlyData bool
 
+	// SendEndOfEarlyDataInQUICAndDTLS causes the implementation to send
+	// EndOfEarlyData even in QUIC and DTLS, which do not use the message.
+	SendEndOfEarlyDataInQUICAndDTLS bool
+
 	// SkipCertificateVerify, if true causes peer to skip sending a
 	// CertificateVerify message after the Certificate message.
 	SkipCertificateVerify bool
@@ -629,11 +783,6 @@ type ProtocolBugs struct {
 	// message in DTLS to be prefaced by stray ChangeCipherSpec record. This
 	// may be used to test DTLS's handling of reordered ChangeCipherSpec.
 	StrayChangeCipherSpec bool
-
-	// ReorderChangeCipherSpec causes the ChangeCipherSpec message to be
-	// sent at start of each flight in DTLS. Unlike EarlyChangeCipherSpec,
-	// the cipher change happens at the usual time.
-	ReorderChangeCipherSpec bool
 
 	// FragmentAcrossChangeCipherSpec causes the implementation to fragment
 	// the Finished (or NextProto) message around the ChangeCipherSpec
@@ -703,6 +852,10 @@ type ProtocolBugs struct {
 	// SendV2ClientHello causes the client to send a V2ClientHello
 	// instead of a normal ClientHello.
 	SendV2ClientHello bool
+
+	// V2ClientHelloChallengeLength is the length of the challenge field to send
+	// in V2ClientHello.
+	V2ClientHelloChallengeLength int
 
 	// SendFallbackSCSV causes the client to include
 	// TLS_FALLBACK_SCSV in the ClientHello.
@@ -779,8 +932,131 @@ type ProtocolBugs struct {
 	AlertBeforeFalseStartTest alert
 
 	// ExpectServerName, if not empty, is the hostname the client
-	// must specify in the server_name extension.
+	// must specify in the selected ClientHello's server_name extension.
 	ExpectServerName string
+
+	// ExpectServerName, if not empty, is the hostname the client
+	// must specify in the ClientHelloOuter's server_name extension.
+	ExpectOuterServerName string
+
+	// ExpectClientECH causes the server to require that the client offer ECH.
+	ExpectClientECH bool
+
+	// ExpectNoClientECH causes the server to require that the client not offer ECH.
+	ExpectNoClientECH bool
+
+	// IgnoreECHConfigCipherPreferences, when true, causes the client to ignore
+	// the cipher preferences in the ECHConfig and select the most preferred ECH
+	// cipher suite unconditionally.
+	IgnoreECHConfigCipherPreferences bool
+
+	// ExpectECHRetryConfigs, when non-nil, contains the expected bytes of the
+	// server's retry configs.
+	ExpectECHRetryConfigs []byte
+
+	// SendECHRetryConfigs, if not empty, contains the ECH server's serialized
+	// retry configs.
+	SendECHRetryConfigs []byte
+
+	// AlwaysSendECHRetryConfigs, if true, causes the ECH server to send retry
+	// configs unconditionally, including in the TLS 1.2 ServerHello.
+	AlwaysSendECHRetryConfigs bool
+
+	// AlwaysSendECHHelloRetryRequest, if true, causes the ECH server to send
+	// the ECH HelloRetryRequest extension unconditionally.
+	AlwaysSendECHHelloRetryRequest bool
+
+	// SendInvalidECHInner, if not empty, causes the client to send the
+	// specified byte string after the type field in ClientHelloInner
+	// encrypted_client_hello extension.
+	SendInvalidECHInner []byte
+
+	// OmitECHInner, if true, causes the client to omit the encrypted_client_hello
+	// extension on the ClientHelloInner message.
+	OmitECHInner bool
+
+	// OmitSecondECHInner, if true, causes the client to omit the
+	// encrypted_client_hello extension on the second ClientHelloInner message.
+	OmitSecondECHInner bool
+
+	// OmitServerHelloECHConfirmation, if true, causes the server to omit the
+	// ECH confirmation in the ServerHello.
+	OmitServerHelloECHConfirmation bool
+
+	// AlwaysSendECHInner, if true, causes the client to send an inner
+	// encrypted_client_hello extension on all ClientHello messages. The server
+	// is then expected to unconditionally confirm the extension when
+	// negotiating TLS 1.3 or later.
+	AlwaysSendECHInner bool
+
+	// TruncateClientECHEnc, if true, causes the client to send a shortened
+	// ClientECH.enc value in its encrypted_client_hello extension.
+	TruncateClientECHEnc bool
+
+	// ClientECHPadding is the number of bytes of padding to add to the client
+	// ECH payload.
+	ClientECHPadding int
+
+	// BadClientECHPadding, if true, causes the client ECH padding to contain a
+	// non-zero byte.
+	BadClientECHPadding bool
+
+	// OfferSessionInClientHelloOuter, if true, causes the client to offer
+	// sessions in ClientHelloOuter.
+	OfferSessionInClientHelloOuter bool
+
+	// OnlyCompressSecondClientHelloInner, if true, causes the client to
+	// only apply outer_extensions to the second ClientHello.
+	OnlyCompressSecondClientHelloInner bool
+
+	// OmitSecondEncryptedClientHello, if true, causes the client to omit the
+	// second encrypted_client_hello extension.
+	OmitSecondEncryptedClientHello bool
+
+	// CorruptEncryptedClientHello, if true, causes the client to incorrectly
+	// encrypt the encrypted_client_hello extension.
+	CorruptEncryptedClientHello bool
+
+	// CorruptSecondEncryptedClientHello, if true, causes the client to
+	// incorrectly encrypt the second encrypted_client_hello extension.
+	CorruptSecondEncryptedClientHello bool
+
+	// CorruptSecondEncryptedClientHelloConfigID, if true, causes the client to
+	// incorrectly set the second ClientHello's ECH config ID.
+	CorruptSecondEncryptedClientHelloConfigID bool
+
+	// AllowTLS12InClientHelloInner, if true, causes the client to include
+	// TLS 1.2 and earlier in ClientHelloInner.
+	AllowTLS12InClientHelloInner bool
+
+	// MinimalClientHelloOuter, if true, causes the client to omit most fields
+	// in ClientHelloOuter. Note this will make handshake attempts with the
+	// ClientHelloOuter fail and should only be used in tests that expect
+	// success.
+	MinimalClientHelloOuter bool
+
+	// ExpectECHOuterExtensions is a list of extension IDs which the server
+	// will require to be present in ech_outer_extensions.
+	ExpectECHOuterExtensions []uint16
+
+	// ExpectECHOuterExtensions is a list of extension IDs which the server
+	// will require to be omitted in ech_outer_extensions.
+	ExpectECHUncompressedExtensions []uint16
+
+	// ECHOuterExtensionOrder, if not nil, is an extension order to apply to
+	// ClientHelloOuter, instead of ordering the |ECHOuterExtensions| to match
+	// in both ClientHellos.
+	ECHOuterExtensionOrder []uint16
+
+	// UseInnerSessionWithClientHelloOuter, if true, causes the server to
+	// handshake with ClientHelloOuter, but resume the session from
+	// ClientHelloInner.
+	UseInnerSessionWithClientHelloOuter bool
+
+	// RecordClientHelloInner, when non-nil, is called whenever the client
+	// generates an encrypted ClientHello. The byte strings do not include the
+	// ClientHello header.
+	RecordClientHelloInner func(encodedInner, outer []byte) error
 
 	// SwapNPNAndALPN switches the relative order between NPN and ALPN in
 	// both ClientHello and ServerHello.
@@ -789,6 +1065,43 @@ type ProtocolBugs struct {
 	// ALPNProtocol, if not nil, sets the ALPN protocol that a server will
 	// return.
 	ALPNProtocol *string
+
+	// AlwaysNegotiateApplicationSettingsBoth, if true, causes the server to
+	// negotiate ALPS using both codepoint for a protocol even if the client did
+	// not support it or the version is wrong.
+	AlwaysNegotiateApplicationSettingsBoth bool
+
+	// AlwaysNegotiateApplicationSettingsNew, if true, causes the server to
+	// negotiate ALPS using new codepoint for a protocol even if the client did
+	// not support it or the version is wrong.
+	AlwaysNegotiateApplicationSettingsNew bool
+
+	// AlwaysNegotiateApplicationSettingsOld, if true, causes the server to
+	// negotiate ALPS using old codepoint for a protocol even if the client did
+	// not support it or the version is wrong.
+	AlwaysNegotiateApplicationSettingsOld bool
+
+	// SendApplicationSettingsWithEarlyData, if true, causes the client and
+	// server to send the application_settings extension with early data,
+	// rather than letting them implicitly carry over.
+	SendApplicationSettingsWithEarlyData bool
+
+	// AlwaysSendClientEncryptedExtension, if true, causes the client to always
+	// send a, possibly empty, client EncryptedExtensions message.
+	AlwaysSendClientEncryptedExtensions bool
+
+	// OmitClientEncryptedExtensions, if true, causes the client to omit the
+	// client EncryptedExtensions message.
+	OmitClientEncryptedExtensions bool
+
+	// OmitClientApplicationSettings, if true, causes the client to omit the
+	// application_settings extension but still send EncryptedExtensions.
+	OmitClientApplicationSettings bool
+
+	// SendExtraClientEncryptedExtension, if true, causes the client to
+	// include an unsolicited extension in the client EncryptedExtensions
+	// message.
+	SendExtraClientEncryptedExtension bool
 
 	// AcceptAnySession causes the server to resume sessions regardless of
 	// the version associated with the session or cipher suite. It also
@@ -815,6 +1128,10 @@ type ProtocolBugs struct {
 	// normally expected to look ahead for ChangeCipherSpec.)
 	EmptyTicketSessionID bool
 
+	// NewSessionIDLength, if non-zero is the length of the session ID to use
+	// when issung new sessions.
+	NewSessionIDLength int
+
 	// SendClientHelloSessionID, if not nil, is the session ID sent in the
 	// ClientHello.
 	SendClientHelloSessionID []byte
@@ -827,8 +1144,14 @@ type ProtocolBugs struct {
 	// ClientHello session ID, even in TLS 1.2 full handshakes.
 	EchoSessionIDInFullHandshake bool
 
+	// ExpectNoSessionID, if true, causes the server to fail the connection if
+	// the session ID field is present.
+	ExpectNoSessionID bool
+
 	// ExpectNoTLS12Session, if true, causes the server to fail the
-	// connection if either a session ID or TLS 1.2 ticket is offered.
+	// connection if the server offered a TLS 1.2 session. TLS 1.3 clients
+	// always offer session IDs for compatibility, so the session ID check
+	// checks for sessions the server issued.
 	ExpectNoTLS12Session bool
 
 	// ExpectNoTLS13PSK, if true, causes the server to fail the connection
@@ -892,10 +1215,10 @@ type ProtocolBugs struct {
 	// RSA_EXPORT) in the plain RSA key exchange.
 	RSAEphemeralKey bool
 
-	// SRTPMasterKeyIdentifer, if not empty, is the SRTP MKI value that the
+	// SRTPMasterKeyIdentifier, if not empty, is the SRTP MKI value that the
 	// client offers when negotiating SRTP. MKI support is still missing so
 	// the peer must still send none.
-	SRTPMasterKeyIdentifer string
+	SRTPMasterKeyIdentifier string
 
 	// SendSRTPProtectionProfile, if non-zero, is the SRTP profile that the
 	// server sends in the ServerHello instead of the negotiated one.
@@ -931,7 +1254,8 @@ type ProtocolBugs struct {
 	SendInitialRecordVersion uint16
 
 	// MaxPacketLength, if non-zero, is the maximum acceptable size for a
-	// packet.
+	// packet. The shim will also be expected to maximally fill packets in the
+	// handshake up to this limit.
 	MaxPacketLength int
 
 	// SendCipherSuite, if non-zero, is the cipher suite value that the
@@ -956,12 +1280,25 @@ type ProtocolBugs struct {
 	// immediately after ChangeCipherSpec.
 	AlertAfterChangeCipherSpec alert
 
-	// TimeoutSchedule is the schedule of packet drops and simulated
-	// timeouts for before each handshake leg from the peer.
-	TimeoutSchedule []time.Duration
+	// AppDataBeforeTLS13KeyChange, if not nil, causes application data to
+	// be sent immediately before the final key change in (D)TLS 1.3.
+	AppDataBeforeTLS13KeyChange []byte
+
+	// UnencryptedEncryptedExtensions, if true, causes the server to send
+	// EncryptedExtensions unencrypted, delaying the first key change.
+	UnencryptedEncryptedExtensions bool
 
 	// PacketAdaptor is the packetAdaptor to use to simulate timeouts.
 	PacketAdaptor *packetAdaptor
+
+	// WriteFlightDTLS, if not nil, overrides the default behavior for writing
+	// the flight in DTLS. See DTLSController for details.
+	WriteFlightDTLS func(c *DTLSController, prev, received, next []DTLSMessage)
+
+	// ACKFlightDTLS, if not nil, overrides the default behavior for
+	// acknowledging the final flight (of either the handshake or a
+	// post-handshake transaction) in DTLS. See DTLSController for details.
+	ACKFlightDTLS func(c *DTLSController, prev, received []DTLSMessage)
 
 	// MockQUICTransport is the mockQUICTransport used when testing
 	// QUIC interfaces.
@@ -1134,8 +1471,8 @@ type ProtocolBugs struct {
 	// session ticket.
 	SendEmptySessionTicket bool
 
-	// SendPSKKeyExchangeModes, if present, determines the PSK key exchange modes
-	// to send.
+	// SendPSKKeyExchangeModes, if not nil, determines the PSK key exchange
+	// modes to send. If a non-nil empty slice, no extension will be sent.
 	SendPSKKeyExchangeModes []byte
 
 	// ExpectNoNewSessionTicket, if present, means that the client will fail upon
@@ -1157,11 +1494,6 @@ type ProtocolBugs struct {
 	// SendTicketAge, if non-zero, is the ticket age to be sent by the
 	// client.
 	SendTicketAge time.Duration
-
-	// FailIfSessionOffered, if true, causes the server to fail any
-	// connections where the client offers a non-empty session ID or session
-	// ticket.
-	FailIfSessionOffered bool
 
 	// SendHelloRequestBeforeEveryAppDataRecord, if true, causes a
 	// HelloRequest handshake message to be sent before each application
@@ -1480,8 +1812,12 @@ type ProtocolBugs struct {
 	// invalid Channel ID signature.
 	InvalidChannelIDSignature bool
 
+	// AlwaysNegotiateChannelID, if true, causes the server to negotiate Channel
+	// ID, even whenn the client does not offer it.
+	AlwaysNegotiateChannelID bool
+
 	// ExpectGREASE, if true, causes messages without GREASE values to be
-	// rejected. See draft-davidben-tls-grease-01.
+	// rejected. See RFC 8701.
 	ExpectGREASE bool
 
 	// OmitPSKsOnSecondClientHello, if true, causes the client to omit the
@@ -1535,8 +1871,10 @@ type ProtocolBugs struct {
 	MaxReceivePlaintext int
 
 	// ExpectPackedEncryptedHandshake, if non-zero, requires that the peer maximally
-	// pack their encrypted handshake messages, fitting at most the
-	// specified number of plaintext bytes per record.
+	// pack their encrypted handshake messages, fitting at most the specified number
+	// of bytes per record. In TLS, the limit counts plaintext bytes. In DTLS, it
+	// counts packet size and checks both that fragments are packed into records and
+	// records are packed into packets.
 	ExpectPackedEncryptedHandshake int
 
 	// SendTicketLifetime, if non-zero, is the ticket lifetime to send in
@@ -1553,20 +1891,21 @@ type ProtocolBugs struct {
 
 	// RenegotiationCertificate, if not nil, is the certificate to use on
 	// renegotiation handshakes.
-	RenegotiationCertificate *Certificate
+	RenegotiationCertificate *Credential
 
 	// ExpectNoCertificateAuthoritiesExtension, if true, causes the client to
 	// reject CertificateRequest with the CertificateAuthorities extension.
 	ExpectNoCertificateAuthoritiesExtension bool
 
-	// UseLegacySigningAlgorithm, if non-zero, is the signature algorithm
+	// SigningAlgorithmForLegacyVersions, if non-zero, is the signature algorithm
 	// to use when signing in TLS 1.1 and earlier where algorithms are not
 	// negotiated.
-	UseLegacySigningAlgorithm signatureAlgorithm
+	SigningAlgorithmForLegacyVersions signatureAlgorithm
 
-	// SendServerHelloAsHelloRetryRequest, if true, causes the server to
-	// send ServerHello messages with a HelloRetryRequest type field.
-	SendServerHelloAsHelloRetryRequest bool
+	// AlwaysSignAsLegacyVersion, if true, causes all TLS versions to sign as if
+	// they were TLS 1.1 and earlier. This can be paired with
+	// SendSignatureAlgorithm to send a given signature algorithm enum.
+	AlwaysSignAsLegacyVersion bool
 
 	// RejectUnsolicitedKeyUpdate, if true, causes all unsolicited
 	// KeyUpdates from the peer to be rejected.
@@ -1596,10 +1935,6 @@ type ProtocolBugs struct {
 	// TLS 1.3 anti-downgrade signal.
 	SendTLS13DowngradeRandom bool
 
-	// CheckTLS13DowngradeRandom, if true, causes the client to check the
-	// TLS 1.3 anti-downgrade signal regardless of its variant.
-	CheckTLS13DowngradeRandom bool
-
 	// IgnoreTLS13DowngradeRandom, if true, causes the client to ignore the
 	// TLS 1.3 anti-downgrade signal.
 	IgnoreTLS13DowngradeRandom bool
@@ -1612,6 +1947,14 @@ type ProtocolBugs struct {
 	// high-order bit.
 	SetX25519HighBit bool
 
+	// LowOrderX25519Point, if true, causes X25519 key shares to be a low
+	// order point.
+	LowOrderX25519Point bool
+
+	// MLKEMEncapKeyNotReduced, if true, causes the ML-KEM encapsulation key
+	// to not be fully reduced.
+	MLKEMEncapKeyNotReduced bool
+
 	// DuplicateCompressedCertAlgs, if true, causes two, equal, certificate
 	// compression algorithm IDs to be sent.
 	DuplicateCompressedCertAlgs bool
@@ -1620,9 +1963,13 @@ type ProtocolBugs struct {
 	// used on this connection, or zero if there are no special requirements.
 	ExpectedCompressedCert uint16
 
-	// SendCertCompressionAlgId, if not zero, sets the algorithm ID that will be
+	// ExpectUncompressedCert, if true, specifies that certificate compression
+	// should not be used on this connection.
+	ExpectUncompressedCert bool
+
+	// SendCertCompressionAlgID, if not zero, sets the algorithm ID that will be
 	// sent in the compressed certificate message.
-	SendCertCompressionAlgId uint16
+	SendCertCompressionAlgID uint16
 
 	// SendCertUncompressedLength, if not zero, sets the uncompressed length that
 	// will be sent in the compressed certificate message.
@@ -1651,25 +1998,41 @@ type ProtocolBugs struct {
 	// hello retry.
 	FailIfHelloRetryRequested bool
 
-	// FailedIfCECPQ2Offered will cause a server to reject a ClientHello if CECPQ2
-	// is supported.
-	FailIfCECPQ2Offered bool
+	// FailIfPostQuantumOffered will cause a server to reject a ClientHello if
+	// post-quantum curves are supported.
+	FailIfPostQuantumOffered bool
 
 	// ExpectKeyShares, if not nil, lists (in order) the curves that a ClientHello
 	// should have key shares for.
 	ExpectedKeyShares []CurveID
 
-	// ExpectDelegatedCredentials, if true, requires that the handshake present
-	// delegated credentials.
-	ExpectDelegatedCredentials bool
+	// CompatModeWithQUIC, if true, enables TLS 1.3 compatibility mode
+	// when running over QUIC.
+	CompatModeWithQUIC bool
 
-	// FailIfDelegatedCredentials, if true, causes a handshake failure if the
-	// server returns delegated credentials.
-	FailIfDelegatedCredentials bool
+	// DTLS13EchoSessionID, if true, has DTLS 1.3 servers echo the client's
+	// session ID in the ServerHello.
+	DTLS13EchoSessionID bool
 
-	// DisableDelegatedCredentials, if true, disables client support for delegated
-	// credentials.
-	DisableDelegatedCredentials bool
+	// DTLSUsePlaintextRecord header, if true, has DTLS 1.3 connections to use
+	// the DTLS 1.2 record header once the handshake completes. The bug is not
+	// activated during the handshake so that the handshake can complete first.
+	DTLSUsePlaintextRecordHeader bool
+
+	// DTLS13RecordHeaderSetCIDBit, if true, sets the Connection ID bit in
+	// the DTLS 1.3 record header.
+	DTLS13RecordHeaderSetCIDBit bool
+
+	// ACKEveryRecord sends an ACK record immediately on response to each
+	// handshake record received.
+	ACKEveryRecord bool
+
+	// EncryptSessionTicketKey, if non-nil, is the ticket key to use when
+	// encrypting tickets.
+	EncryptSessionTicketKey *[32]byte
+
+	// OmitPublicName omits the server name extension from ClientHelloOuter.
+	OmitPublicName bool
 }
 
 func (c *Config) serverInit() {
@@ -1737,10 +2100,6 @@ func (c *Config) maxVersion(isDTLS bool) uint16 {
 		ret = c.MaxVersion
 	}
 	if isDTLS {
-		// We only implement up to DTLS 1.2.
-		if ret > VersionTLS12 {
-			return VersionTLS12
-		}
 		// There is no such thing as DTLS 1.1.
 		if ret == VersionTLS11 {
 			return VersionTLS10
@@ -1749,7 +2108,7 @@ func (c *Config) maxVersion(isDTLS bool) uint16 {
 	return ret
 }
 
-var defaultCurvePreferences = []CurveID{CurveCECPQ2, CurveX25519, CurveP256, CurveP384, CurveP521}
+var defaultCurvePreferences = []CurveID{CurveX25519MLKEM768, CurveX25519Kyber768, CurveX25519, CurveP256, CurveP384, CurveP521}
 
 func (c *Config) curvePreferences() []CurveID {
 	if c == nil || len(c.CurvePreferences) == 0 {
@@ -1770,9 +2129,24 @@ func (c *Config) defaultCurves() map[CurveID]bool {
 	return defaultCurves
 }
 
+var defaultECHCipherSuitePreferences = []HPKECipherSuite{
+	{KDF: hpke.HKDFSHA256, AEAD: hpke.AES128GCM},
+	{KDF: hpke.HKDFSHA256, AEAD: hpke.AES256GCM},
+	{KDF: hpke.HKDFSHA256, AEAD: hpke.ChaCha20Poly1305},
+}
+
+func (c *Config) echCipherSuitePreferences() []HPKECipherSuite {
+	if c == nil || len(c.ECHCipherSuites) == 0 {
+		return defaultECHCipherSuitePreferences
+	}
+	return c.ECHCipherSuites
+}
+
 func wireToVersion(vers uint16, isDTLS bool) (uint16, bool) {
 	if isDTLS {
 		switch vers {
+		case VersionDTLS125Experimental:
+			return VersionTLS13, true
 		case VersionDTLS12:
 			return VersionTLS12, true
 		case VersionDTLS10:
@@ -1799,58 +2173,23 @@ func (c *Config) isSupportedVersion(wireVers uint16, isDTLS bool) (uint16, bool)
 	return vers, true
 }
 
-func (c *Config) supportedVersions(isDTLS bool) []uint16 {
+func (c *Config) supportedVersions(isDTLS, requireTLS13 bool) []uint16 {
 	versions := allTLSWireVersions
 	if isDTLS {
 		versions = allDTLSWireVersions
 	}
 	var ret []uint16
-	for _, vers := range versions {
-		if _, ok := c.isSupportedVersion(vers, isDTLS); ok {
-			ret = append(ret, vers)
+	for _, wireVers := range versions {
+		vers, ok := c.isSupportedVersion(wireVers, isDTLS)
+		if !ok {
+			continue
 		}
+		if requireTLS13 && vers < VersionTLS13 {
+			continue
+		}
+		ret = append(ret, wireVers)
 	}
 	return ret
-}
-
-// getCertificateForName returns the best certificate for the given name,
-// defaulting to the first element of c.Certificates if there are no good
-// options.
-func (c *Config) getCertificateForName(name string) *Certificate {
-	if len(c.Certificates) == 1 || c.NameToCertificate == nil {
-		// There's only one choice, so no point doing any work.
-		return &c.Certificates[0]
-	}
-
-	name = strings.ToLower(name)
-	for len(name) > 0 && name[len(name)-1] == '.' {
-		name = name[:len(name)-1]
-	}
-
-	if cert, ok := c.NameToCertificate[name]; ok {
-		return cert
-	}
-
-	// try replacing labels in the name with wildcards until we get a
-	// match.
-	labels := strings.Split(name, ".")
-	for i := range labels {
-		labels[i] = "*"
-		candidate := strings.Join(labels, ".")
-		if cert, ok := c.NameToCertificate[candidate]; ok {
-			return cert
-		}
-	}
-
-	// If nothing matches, return the first certificate.
-	return &c.Certificates[0]
-}
-
-func (c *Config) signSignatureAlgorithms() []signatureAlgorithm {
-	if c != nil && c.SignSignatureAlgorithms != nil {
-		return c.SignSignatureAlgorithms
-	}
-	return supportedSignatureAlgorithms
 }
 
 func (c *Config) verifySignatureAlgorithms() []signatureAlgorithm {
@@ -1860,28 +2199,18 @@ func (c *Config) verifySignatureAlgorithms() []signatureAlgorithm {
 	return supportedSignatureAlgorithms
 }
 
-// BuildNameToCertificate parses c.Certificates and builds c.NameToCertificate
-// from the CommonName and SubjectAlternateName fields of each of the leaf
-// certificates.
-func (c *Config) BuildNameToCertificate() {
-	c.NameToCertificate = make(map[string]*Certificate)
-	for i := range c.Certificates {
-		cert := &c.Certificates[i]
-		x509Cert, err := x509.ParseCertificate(cert.Certificate[0])
-		if err != nil {
-			continue
-		}
-		if len(x509Cert.Subject.CommonName) > 0 {
-			c.NameToCertificate[x509Cert.Subject.CommonName] = cert
-		}
-		for _, san := range x509Cert.DNSNames {
-			c.NameToCertificate[san] = cert
-		}
-	}
-}
+type CredentialType int
 
-// A Certificate is a chain of one or more certificates, leaf first.
-type Certificate struct {
+const (
+	CredentialTypeX509 CredentialType = iota
+	CredentialTypeDelegated
+)
+
+// A Credential is a certificate chain and private key that a TLS endpoint may
+// use to authenticate.
+type Credential struct {
+	Type CredentialType
+	// Certificate is a chain of one or more certificates, leaf first.
 	Certificate [][]byte
 	PrivateKey  crypto.PrivateKey // supported types: *rsa.PrivateKey, *ecdsa.PrivateKey
 	// OCSPStaple contains an optional OCSP response which will be served
@@ -1891,18 +2220,54 @@ type Certificate struct {
 	// SignedCertificateTimestampList structure which will be
 	// served to clients that request it.
 	SignedCertificateTimestampList []byte
+	// SignatureAlgorithms, if not nil, overrides the default set of
+	// supported signature algorithms to sign with.
+	SignatureAlgorithms []signatureAlgorithm
 	// Leaf is the parsed form of the leaf certificate, which may be
 	// initialized using x509.ParseCertificate to reduce per-handshake
 	// processing for TLS clients doing client authentication. If nil, the
 	// leaf certificate will be parsed as needed.
 	Leaf *x509.Certificate
+	// DelegatedCredential is the delegated credential to use
+	// with the certificate.
+	DelegatedCredential []byte
+	// ChainPath is the path to the temporary on disk copy of the certificate
+	// chain.
+	ChainPath string
+	// KeyPath is the path to the temporary on disk copy of the key.
+	KeyPath string
+	// RootPath is the path to the temporary on disk copy of the root of the
+	// certificate chain. If the chain only contains one certificate ChainPath
+	// and RootPath will be the same.
+	RootPath string
+	// SignSignatureAlgorithms, if not nil, overrides the default set of
+	// supported signature algorithms to sign with.
+	SignSignatureAlgorithms []signatureAlgorithm
 }
 
-// A TLS record.
-type record struct {
-	contentType  recordType
-	major, minor uint8
-	payload      []byte
+func (c *Credential) WithSignatureAlgorithms(sigAlgs ...signatureAlgorithm) *Credential {
+	ret := *c
+	ret.SignatureAlgorithms = sigAlgs
+	return &ret
+}
+
+func (c *Credential) WithOCSP(ocsp []byte) *Credential {
+	ret := *c
+	ret.OCSPStaple = ocsp
+	return &ret
+}
+
+func (c *Credential) WithSCTList(sctList []byte) *Credential {
+	ret := *c
+	ret.SignedCertificateTimestampList = sctList
+	return &ret
+}
+
+func (c *Credential) signatureAlgorithms() []signatureAlgorithm {
+	if c != nil && c.SignatureAlgorithms != nil {
+		return c.SignatureAlgorithms
+	}
+	return supportedSignatureAlgorithms
 }
 
 type handshakeMessage interface {
@@ -1922,11 +2287,11 @@ type lruSessionCache struct {
 
 type lruSessionCacheEntry struct {
 	sessionKey string
-	state      interface{}
+	state      any
 }
 
 // Put adds the provided (sessionKey, cs) pair to the cache.
-func (c *lruSessionCache) Put(sessionKey string, cs interface{}) {
+func (c *lruSessionCache) Put(sessionKey string, cs any) {
 	c.Lock()
 	defer c.Unlock()
 
@@ -1954,7 +2319,7 @@ func (c *lruSessionCache) Put(sessionKey string, cs interface{}) {
 
 // Get returns the value associated with a given key. It returns (nil,
 // false) if no value is found.
-func (c *lruSessionCache) Get(sessionKey string) (interface{}, bool) {
+func (c *lruSessionCache) Get(sessionKey string) (any, bool) {
 	c.Lock()
 	defer c.Unlock()
 
@@ -1989,12 +2354,12 @@ type lruServerSessionCache struct {
 	lruSessionCache
 }
 
-func (c *lruServerSessionCache) Put(sessionId string, session *sessionState) {
-	c.lruSessionCache.Put(sessionId, session)
+func (c *lruServerSessionCache) Put(sessionID string, session *sessionState) {
+	c.lruSessionCache.Put(sessionID, session)
 }
 
-func (c *lruServerSessionCache) Get(sessionId string) (*sessionState, bool) {
-	cs, ok := c.lruSessionCache.Get(sessionId)
+func (c *lruServerSessionCache) Get(sessionID string) (*sessionState, bool) {
+	cs, ok := c.lruSessionCache.Get(sessionID)
 	if !ok {
 		return nil, false
 	}
@@ -2068,17 +2433,8 @@ func initDefaultCipherSuites() {
 	}
 }
 
-func unexpectedMessageError(wanted, got interface{}) error {
+func unexpectedMessageError(wanted, got any) error {
 	return fmt.Errorf("tls: received unexpected handshake message of type %T when waiting for %T", got, wanted)
-}
-
-func isSupportedSignatureAlgorithm(sigAlg signatureAlgorithm, sigAlgs []signatureAlgorithm) bool {
-	for _, s := range sigAlgs {
-		if s == sigAlg {
-			return true
-		}
-	}
-	return false
 }
 
 var (
@@ -2097,4 +2453,98 @@ func containsGREASE(values []uint16) bool {
 		}
 	}
 	return false
+}
+
+func isAllZero(v []byte) bool {
+	for _, b := range v {
+		if b != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+var baseCertTemplate = &x509.Certificate{
+	SerialNumber: big.NewInt(57005),
+	Subject: pkix.Name{
+		CommonName:   "test cert",
+		Country:      []string{"US"},
+		Province:     []string{"Some-State"},
+		Organization: []string{"Internet Widgits Pty Ltd"},
+	},
+	NotBefore:             time.Now().Add(-time.Hour),
+	NotAfter:              time.Now().Add(time.Hour),
+	DNSNames:              []string{"test"},
+	IsCA:                  true,
+	BasicConstraintsValid: true,
+}
+
+var tmpDir string
+
+func generateSingleCertChain(template *x509.Certificate, key crypto.Signer) Credential {
+	cert := generateTestCert(template, nil, key)
+	tmpCertPath, tmpKeyPath := writeTempCertFile([]*x509.Certificate{cert}), writeTempKeyFile(key)
+	return Credential{
+		Certificate: [][]byte{cert.Raw},
+		PrivateKey:  key,
+		Leaf:        cert,
+		ChainPath:   tmpCertPath,
+		KeyPath:     tmpKeyPath,
+		RootPath:    tmpCertPath,
+	}
+}
+
+func writeTempCertFile(certs []*x509.Certificate) string {
+	f, err := os.CreateTemp(tmpDir, "test-cert")
+	if err != nil {
+		panic(fmt.Sprintf("failed to create temp file: %s", err))
+	}
+	for _, cert := range certs {
+		if _, err := f.Write(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw})); err != nil {
+			panic(fmt.Sprintf("failed to write test certificate: %s", err))
+		}
+	}
+	tmpCertPath := f.Name()
+	if err := f.Close(); err != nil {
+		panic(fmt.Sprintf("failed to close test certificate temp file: %s", err))
+	}
+	return tmpCertPath
+}
+
+func writeTempKeyFile(privKey crypto.Signer) string {
+	f, err := os.CreateTemp(tmpDir, "test-key")
+	if err != nil {
+		panic(fmt.Sprintf("failed to create temp file: %s", err))
+	}
+	keyDER, err := x509.MarshalPKCS8PrivateKey(privKey)
+	if err != nil {
+		panic(fmt.Sprintf("failed to marshal test key: %s", err))
+	}
+	if _, err := f.Write(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})); err != nil {
+		panic(fmt.Sprintf("failed to write test key: %s", err))
+	}
+	tmpKeyPath := f.Name()
+	if err := f.Close(); err != nil {
+		panic(fmt.Sprintf("failed to close test key temp file: %s", err))
+	}
+	return tmpKeyPath
+}
+
+func generateTestCert(template, issuer *x509.Certificate, key crypto.Signer) *x509.Certificate {
+	if template == nil {
+		template = baseCertTemplate
+	}
+	if issuer == nil {
+		issuer = template
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, issuer, key.Public(), key)
+	if err != nil {
+		panic(fmt.Sprintf("failed to create test certificate: %s", err))
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		panic(fmt.Sprintf("failed to parse test certificate: %s", err))
+	}
+
+	return cert
 }

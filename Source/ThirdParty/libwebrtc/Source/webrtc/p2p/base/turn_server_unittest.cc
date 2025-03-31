@@ -10,7 +10,13 @@
 
 #include "p2p/base/turn_server.h"
 
+#include <memory>
+
 #include "p2p/base/basic_packet_socket_factory.h"
+#include "p2p/base/port_interface.h"
+#include "rtc_base/async_packet_socket.h"
+#include "rtc_base/socket_address.h"
+#include "rtc_base/thread.h"
 #include "rtc_base/virtual_socket_server.h"
 #include "test/gtest.h"
 
@@ -21,7 +27,7 @@ namespace cricket {
 
 class TurnServerConnectionTest : public ::testing::Test {
  public:
-  TurnServerConnectionTest() : thread_(&vss_) {}
+  TurnServerConnectionTest() : thread_(&vss_), socket_factory_(&vss_) {}
 
   void ExpectEqual(const TurnServerConnection& a,
                    const TurnServerConnection& b) {
@@ -41,8 +47,6 @@ class TurnServerConnectionTest : public ::testing::Test {
  protected:
   rtc::VirtualSocketServer vss_;
   rtc::AutoSocketServerThread thread_;
-  // Since this is constructed after |thread_|, it will pick up |threads_|'s
-  // socket server.
   rtc::BasicPacketSocketFactory socket_factory_;
 };
 

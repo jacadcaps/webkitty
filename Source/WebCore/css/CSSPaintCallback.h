@@ -25,13 +25,11 @@
 
 #pragma once
 
-#if ENABLE(CSS_PAINTING_API)
-
 #include "ActiveDOMCallback.h"
 #include "CSSPaintSize.h"
 #include "CallbackResult.h"
 #include "StylePropertyMapReadOnly.h"
-#include <wtf/RefCounted.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/WeakPtr.h>
 
 namespace JSC {
@@ -41,16 +39,19 @@ class JSValue;
 namespace WebCore {
 class PaintRenderingContext2D;
 
-class CSSPaintCallback : public RefCounted<CSSPaintCallback>, public CanMakeWeakPtr<CSSPaintCallback>, public ActiveDOMCallback {
+class CSSPaintCallback : public RefCountedAndCanMakeWeakPtr<CSSPaintCallback>, public ActiveDOMCallback {
 public:
     using ActiveDOMCallback::ActiveDOMCallback;
 
     virtual CallbackResult<void> handleEvent(JSC::JSValue, PaintRenderingContext2D&, CSSPaintSize&, StylePropertyMapReadOnly&, const Vector<String>&) = 0;
+    virtual CallbackResult<void> handleEventRethrowingException(JSC::JSValue, PaintRenderingContext2D&, CSSPaintSize&, StylePropertyMapReadOnly&, const Vector<String>&) = 0;
 
     virtual ~CSSPaintCallback()
     {
     }
+
+private:
+    virtual bool hasCallback() const = 0;
 };
 
 } // namespace WebCore
-#endif

@@ -26,18 +26,20 @@
 #pragma once
 
 #include "RenderTreeUpdater.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class RenderElement;
 class RenderObject;
 class RenderTable;
+class RenderTableCell;
 class RenderTableSection;
 class RenderTableRow;
 class RenderTreeBuilder;
 
 class RenderTreeBuilder::Table {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(Table);
 public:
     Table(RenderTreeBuilder&);
 
@@ -51,9 +53,13 @@ public:
 
     bool childRequiresTable(const RenderElement& parent, const RenderObject& child);
 
-    void collapseAndDestroyAnonymousSiblingRows(RenderTableRow&);
+    void collapseAndDestroyAnonymousSiblingCells(const RenderTableCell& willBeDestroyed);
+    void collapseAndDestroyAnonymousSiblingRows(const RenderTableRow& willBeDestroyed);
 
 private:
+    template <typename Parent, typename Child>
+    RenderPtr<RenderObject> collapseAndDetachAnonymousNextSibling(Parent*, Child* previousChild, Child* nextChild);
+
     RenderTreeBuilder& m_builder;
 };
 

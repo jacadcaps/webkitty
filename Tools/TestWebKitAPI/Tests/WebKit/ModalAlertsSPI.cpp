@@ -76,21 +76,22 @@ static void analyzeDialogArguments(WKPageRef page, WKFrameRef frame, WKSecurityO
         done = true;
 }
 
-static void runJavaScriptAlert(WKPageRef page, WKStringRef, WKFrameRef frame, WKSecurityOriginRef securityOrigin, const void*)
+static void runJavaScriptAlert(WKPageRef page, WKStringRef alertText, WKFrameRef frame, WKSecurityOriginRef securityOrigin, WKPageRunJavaScriptAlertResultListenerRef listener, const void *clientInfo)
 {
     analyzeDialogArguments(page, frame, securityOrigin);
+    WKPageRunJavaScriptAlertResultListenerCall(listener);
 }
 
-static bool runJavaScriptConfirm(WKPageRef page, WKStringRef, WKFrameRef frame, WKSecurityOriginRef securityOrigin, const void*)
+static void runJavaScriptConfirm(WKPageRef page, WKStringRef, WKFrameRef frame, WKSecurityOriginRef securityOrigin, WKPageRunJavaScriptConfirmResultListenerRef listener, const void*)
 {
     analyzeDialogArguments(page, frame, securityOrigin);
-    return false;
+    WKPageRunJavaScriptConfirmResultListenerCall(listener, false);
 }
 
-static WKStringRef runJavaScriptPrompt(WKPageRef page, WKStringRef, WKStringRef, WKFrameRef frame, WKSecurityOriginRef securityOrigin, const void*)
+static void runJavaScriptPrompt(WKPageRef page, WKStringRef, WKStringRef, WKFrameRef frame, WKSecurityOriginRef securityOrigin, WKPageRunJavaScriptPromptResultListenerRef listener, const void*)
 {
     analyzeDialogArguments(page, frame, securityOrigin);
-    return nullptr;
+    WKPageRunJavaScriptPromptResultListenerCall(listener, nullptr);
 }
 
 static bool runBeforeUnloadConfirmPanel(WKPageRef page, WKStringRef, WKFrameRef frame, const void*)
@@ -99,16 +100,16 @@ static bool runBeforeUnloadConfirmPanel(WKPageRef page, WKStringRef, WKFrameRef 
     return false;
 }
 
-static WKPageRef createNewPage(WKPageRef page, WKURLRequestRef urlRequest, WKDictionaryRef features, WKEventModifiers modifiers, WKEventMouseButton mouseButton, const void *clientInfo)
+static WKPageRef createNewPage(WKPageRef page, WKPageConfigurationRef configuration, WKNavigationActionRef navigationAction, WKWindowFeaturesRef windowFeatures, const void *clientInfo)
 {
     EXPECT_TRUE(openedWebView == nullptr);
 
-    openedWebView = makeUnique<PlatformWebView>(page);
+    openedWebView = makeUnique<PlatformWebView>(configuration);
 
-    WKPageUIClientV5 uiClient;
-    memset(&uiClient, 0, sizeof(uiClient));
+    WKPageUIClientV6 uiClient;
+    zeroBytes(uiClient);
 
-    uiClient.base.version = 5;
+    uiClient.base.version = 6;
     uiClient.runJavaScriptAlert = runJavaScriptAlert;
     uiClient.runJavaScriptConfirm = runJavaScriptConfirm;
     uiClient.runJavaScriptPrompt = runJavaScriptPrompt;
@@ -125,10 +126,10 @@ TEST(WebKit, ModalAlertsSPI)
     WKRetainPtr<WKContextRef> context = adoptWK(WKContextCreateWithConfiguration(nullptr));
     PlatformWebView webView(context.get());
 
-    WKPageUIClientV5 uiClient;
-    memset(&uiClient, 0, sizeof(uiClient));
+    WKPageUIClientV6 uiClient;
+    zeroBytes(uiClient);
 
-    uiClient.base.version = 5;
+    uiClient.base.version = 6;
     uiClient.createNewPage = createNewPage;
 
     WKPageSetPageUIClient(webView.page(), &uiClient.base);
@@ -137,6 +138,36 @@ TEST(WebKit, ModalAlertsSPI)
     WKPageLoadURL(webView.page(), url.get());
 
     Util::run(&done);
+    openedWebView = nil;
+}
+
+static WKPageRef checkFrameLoadStateAndCreateNewPage(WKPageRef page, WKPageConfigurationRef configuration, WKNavigationActionRef navigationAction, WKWindowFeaturesRef windowFeatures, const void *clientInfo)
+{
+    auto mainFrame = WKPageGetMainFrame(page);
+    ASSERT(mainFrame);
+    EXPECT_EQ(kWKFrameLoadStateCommitted, WKFrameGetFrameLoadState(mainFrame));
+    done = true;
+    return createNewPage(page, configuration, navigationAction, windowFeatures, clientInfo);
+}
+
+TEST(WebKit, CreateNewPageDelegateFrameLoadState)
+{
+    for (unsigned i = 0; i < 25; ++i) {
+        done = false;
+        auto context = adoptWK(WKContextCreateWithConfiguration(nullptr));
+        PlatformWebView webView(context.get());
+
+        WKPageUIClientV6 uiClient;
+        zeroBytes(uiClient);
+        uiClient.base.version = 6;
+        uiClient.createNewPage = checkFrameLoadStateAndCreateNewPage;
+        WKPageSetPageUIClient(webView.page(), &uiClient.base);
+
+        auto htmlString = Util::toWK("<script>open('about:blank', '_blank')</script>");
+        WKPageLoadHTMLString(webView.page(), htmlString.get(), nullptr);
+        Util::run(&done);
+        openedWebView = nil;
+    }
 }
 
 } // namespace TestWebKitAPI

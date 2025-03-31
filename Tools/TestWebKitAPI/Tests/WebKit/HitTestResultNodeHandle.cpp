@@ -27,6 +27,8 @@
 
 #if WK_HAVE_C_SPI
 
+#if ENABLE(CONTEXT_MENUS)
+
 #include "PlatformUtilities.h"
 #include "PlatformWebView.h"
 #include <WebKit/WKRetainPtr.h>
@@ -52,7 +54,7 @@ static void didReceiveMessageFromInjectedBundle(WKContextRef context, WKStringRe
 static void setPageLoaderClient(WKPageRef page)
 {
     WKPageNavigationClientV0 loaderClient;
-    memset(&loaderClient, 0, sizeof(loaderClient));
+    zeroBytes(loaderClient);
 
     loaderClient.base.version = 0;
     loaderClient.didFinishNavigation = didFinishNavigation;
@@ -63,7 +65,7 @@ static void setPageLoaderClient(WKPageRef page)
 static void setInjectedBundleClient(WKContextRef context)
 {
     WKContextInjectedBundleClientV0 injectedBundleClient;
-    memset(&injectedBundleClient, 0, sizeof(injectedBundleClient));
+    zeroBytes(injectedBundleClient);
 
     injectedBundleClient.base.version = 0;
     injectedBundleClient.didReceiveMessageFromInjectedBundle = didReceiveMessageFromInjectedBundle;
@@ -89,5 +91,6 @@ TEST(WebKit, HitTestResultNodeHandle)
 }
 
 } // namespace TestWebKitAPI
+#endif
 
 #endif

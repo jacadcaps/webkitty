@@ -11,7 +11,8 @@
 #ifndef MODULES_AUDIO_PROCESSING_AEC3_MOCK_MOCK_RENDER_DELAY_CONTROLLER_H_
 #define MODULES_AUDIO_PROCESSING_AEC3_MOCK_MOCK_RENDER_DELAY_CONTROLLER_H_
 
-#include "absl/types/optional.h"
+#include <optional>
+
 #include "api/array_view.h"
 #include "modules/audio_processing/aec3/downsampled_render_buffer.h"
 #include "modules/audio_processing/aec3/render_delay_controller.h"
@@ -25,14 +26,15 @@ class MockRenderDelayController : public RenderDelayController {
   MockRenderDelayController();
   virtual ~MockRenderDelayController();
 
-  MOCK_METHOD1(Reset, void(bool reset_delay_statistics));
-  MOCK_METHOD0(LogRenderCall, void());
-  MOCK_METHOD3(GetDelay,
-               absl::optional<DelayEstimate>(
-                   const DownsampledRenderBuffer& render_buffer,
-                   size_t render_delay_buffer_delay,
-                   const std::vector<std::vector<float>>& capture));
-  MOCK_CONST_METHOD0(HasClockdrift, bool());
+  MOCK_METHOD(void, Reset, (bool reset_delay_statistics), (override));
+  MOCK_METHOD(void, LogRenderCall, (), (override));
+  MOCK_METHOD(std::optional<DelayEstimate>,
+              GetDelay,
+              (const DownsampledRenderBuffer& render_buffer,
+               size_t render_delay_buffer_delay,
+               const Block& capture),
+              (override));
+  MOCK_METHOD(bool, HasClockdrift, (), (const, override));
 };
 
 }  // namespace test

@@ -56,6 +56,8 @@ const char *getBasicString(TBasicType t)
             return "sampler2DMSArray";
         case EbtSamplerCubeArray:
             return "samplerCubeArray";
+        case EbtSamplerBuffer:
+            return "samplerBuffer";
         case EbtISampler2D:
             return "isampler2D";
         case EbtISampler3D:
@@ -70,6 +72,8 @@ const char *getBasicString(TBasicType t)
             return "isampler2DMSArray";
         case EbtISamplerCubeArray:
             return "isamplerCubeArray";
+        case EbtISamplerBuffer:
+            return "isamplerBuffer";
         case EbtUSampler2D:
             return "usampler2D";
         case EbtUSampler3D:
@@ -84,6 +88,8 @@ const char *getBasicString(TBasicType t)
             return "usampler2DMSArray";
         case EbtUSamplerCubeArray:
             return "usamplerCubeArray";
+        case EbtUSamplerBuffer:
+            return "usamplerBuffer";
         case EbtSampler2DShadow:
             return "sampler2DShadow";
         case EbtSamplerCubeShadow:
@@ -126,10 +132,28 @@ const char *getBasicString(TBasicType t)
             return "iimageCubeArray";
         case EbtUImageCubeArray:
             return "uimageCubeArray";
+        case EbtImageBuffer:
+            return "imageBuffer";
+        case EbtIImageBuffer:
+            return "iimageBuffer";
+        case EbtUImageBuffer:
+            return "uimageBuffer";
         case EbtAtomicCounter:
             return "atomic_uint";
         case EbtSamplerVideoWEBGL:
             return "samplerVideoWEBGL";
+        case EbtPixelLocalANGLE:
+            return "pixelLocalANGLE";
+        case EbtIPixelLocalANGLE:
+            return "ipixelLocalANGLE";
+        case EbtUPixelLocalANGLE:
+            return "upixelLocalANGLE";
+        case EbtSubpassInput:
+            return "subpassInput";
+        case EbtISubpassInput:
+            return "isubpassInput";
+        case EbtUSubpassInput:
+            return "usubpassInput";
         default:
             UNREACHABLE();
             return "unknown type";
@@ -139,12 +163,10 @@ const char *getBasicString(TBasicType t)
 // TType implementation.
 TType::TType() : TType(EbtVoid, 0, 0) {}
 
-TType::TType(TBasicType t, unsigned char ps, unsigned char ss)
-    : TType(t, EbpUndefined, EvqGlobal, ps, ss)
-{}
+TType::TType(TBasicType t, uint8_t ps, uint8_t ss) : TType(t, EbpUndefined, EvqGlobal, ps, ss) {}
 
-TType::TType(TBasicType t, TPrecision p, TQualifier q, unsigned char ps, unsigned char ss)
-    : TType(t, p, q, ps, ss, TSpan<const unsigned int>(), nullptr)
+TType::TType(TBasicType t, TPrecision p, TQualifier q, uint8_t ps, uint8_t ss)
+    : TType(t, p, q, ps, ss, angle::Span<const unsigned int>(), nullptr)
 {}
 
 TType::TType(const TPublicType &p)
@@ -153,6 +175,7 @@ TType::TType(const TPublicType &p)
       qualifier(p.qualifier),
       invariant(p.invariant),
       precise(p.precise),
+      interpolant(false),
       memoryQualifier(p.memoryQualifier),
       layoutQualifier(p.layoutQualifier),
       primarySize(p.getPrimarySize()),
@@ -161,6 +184,7 @@ TType::TType(const TPublicType &p)
       mInterfaceBlock(nullptr),
       mStructure(nullptr),
       mIsStructSpecifier(false),
+      mInterfaceBlockFieldIndex(0),
       mMangledName(nullptr)
 {
     ASSERT(primarySize <= 4);
@@ -199,20 +223,22 @@ TType::TType(const TType &t)
 
 TType &TType::operator=(const TType &t)
 {
-    type               = t.type;
-    precision          = t.precision;
-    qualifier          = t.qualifier;
-    invariant          = t.invariant;
-    precise            = t.precise;
-    memoryQualifier    = t.memoryQualifier;
-    layoutQualifier    = t.layoutQualifier;
-    primarySize        = t.primarySize;
-    secondarySize      = t.secondarySize;
-    mArraySizesStorage = nullptr;
-    mInterfaceBlock    = t.mInterfaceBlock;
-    mStructure         = t.mStructure;
-    mIsStructSpecifier = t.mIsStructSpecifier;
-    mMangledName       = t.mMangledName;
+    type                      = t.type;
+    precision                 = t.precision;
+    qualifier                 = t.qualifier;
+    invariant                 = t.invariant;
+    precise                   = t.precise;
+    interpolant               = t.interpolant;
+    memoryQualifier           = t.memoryQualifier;
+    layoutQualifier           = t.layoutQualifier;
+    primarySize               = t.primarySize;
+    secondarySize             = t.secondarySize;
+    mArraySizesStorage        = nullptr;
+    mInterfaceBlock           = t.mInterfaceBlock;
+    mStructure                = t.mStructure;
+    mIsStructSpecifier        = t.mIsStructSpecifier;
+    mInterfaceBlockFieldIndex = t.mInterfaceBlockFieldIndex;
+    mMangledName              = t.mMangledName;
 
     if (t.mArraySizesStorage)
     {
@@ -390,6 +416,11 @@ bool TType::isStructureContainingSamplers() const
     return mStructure ? mStructure->containsSamplers() : false;
 }
 
+bool TType::isInterfaceBlockContainingType(TBasicType t) const
+{
+    return isInterfaceBlock() ? mInterfaceBlock->containsType(t) : false;
+}
+
 bool TType::canReplaceWithConstantUnion() const
 {
     if (isArray())
@@ -565,7 +596,7 @@ bool TType::isElementTypeOf(const TType &arrayType) const
     return true;
 }
 
-void TType::sizeUnsizedArrays(const TSpan<const unsigned int> &newArraySizes)
+void TType::sizeUnsizedArrays(const angle::Span<const unsigned int> &newArraySizes)
 {
     ASSERT(!isArray() || mArraySizesStorage != nullptr);
     for (size_t i = 0u; i < getNumArraySizes(); ++i)
@@ -601,7 +632,7 @@ void TType::setBasicType(TBasicType t)
     }
 }
 
-void TType::setPrimarySize(unsigned char ps)
+void TType::setPrimarySize(uint8_t ps)
 {
     if (primarySize != ps)
     {
@@ -611,7 +642,7 @@ void TType::setPrimarySize(unsigned char ps)
     }
 }
 
-void TType::setSecondarySize(unsigned char ss)
+void TType::setSecondarySize(uint8_t ss)
 {
     if (secondarySize != ss)
     {
@@ -632,7 +663,7 @@ void TType::makeArray(unsigned int s)
     onArrayDimensionsChange(*mArraySizesStorage);
 }
 
-void TType::makeArrays(const TSpan<const unsigned int> &sizes)
+void TType::makeArrays(const angle::Span<const unsigned int> &sizes)
 {
     if (mArraySizesStorage == nullptr)
     {
@@ -671,7 +702,22 @@ void TType::toArrayBaseType()
     {
         mArraySizesStorage->clear();
     }
-    onArrayDimensionsChange(TSpan<const unsigned int>());
+    onArrayDimensionsChange(angle::Span<const unsigned int>());
+}
+
+void TType::toMatrixColumnType()
+{
+    ASSERT(isMatrix());
+    primarySize   = secondarySize;
+    secondarySize = 1;
+    invalidateMangledName();
+}
+
+void TType::toComponentType()
+{
+    primarySize   = 1;
+    secondarySize = 1;
+    invalidateMangledName();
 }
 
 void TType::setInterfaceBlock(const TInterfaceBlock *interfaceBlockIn)
@@ -681,6 +727,12 @@ void TType::setInterfaceBlock(const TInterfaceBlock *interfaceBlockIn)
         mInterfaceBlock = interfaceBlockIn;
         invalidateMangledName();
     }
+}
+
+void TType::setInterfaceBlockField(const TInterfaceBlock *interfaceBlockIn, size_t fieldIndex)
+{
+    setInterfaceBlock(interfaceBlockIn);
+    mInterfaceBlockFieldIndex = fieldIndex;
 }
 
 const char *TType::getMangledName() const
@@ -923,6 +975,56 @@ void TPublicType::clearArrayness()
 bool TPublicType::isAggregate() const
 {
     return isArray() || typeSpecifierNonArray.isMatrix() || typeSpecifierNonArray.isVector();
+}
+
+bool TPublicType::isUnsizedArray() const
+{
+    if (!arraySizes)
+    {
+        return false;
+    }
+    for (unsigned int arraySize : *arraySizes)
+    {
+        if (arraySize == 0u)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+void TPublicType::sizeUnsizedArrays()
+{
+    auto *sizes = new TVector<unsigned int>(arraySizes->size(), 1);
+    for (size_t i = 0; i < arraySizes->size(); ++i)
+    {
+        auto value = (*arraySizes)[i];
+        if (value != 0)
+        {
+            (*sizes)[i] = value;
+        }
+    }
+    arraySizes = sizes;
+}
+
+void TPublicType::makeArrays(TVector<unsigned int> *sizes)
+{
+    if (arraySizes == nullptr)
+    {
+        arraySizes = sizes;
+        return;
+    }
+    auto *newSizes = new TVector<unsigned int>(arraySizes->size() + sizes->size());
+    size_t i       = 0;
+    for (; i < arraySizes->size(); ++i)
+    {
+        (*newSizes)[i] = (*arraySizes)[i];
+    }
+    for (size_t j = 0; j < sizes->size(); ++j, ++i)
+    {
+        (*newSizes)[i] = (*sizes)[j];
+    }
+    arraySizes = newSizes;
 }
 
 }  // namespace sh

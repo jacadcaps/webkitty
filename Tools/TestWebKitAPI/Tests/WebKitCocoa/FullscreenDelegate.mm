@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,26 +27,20 @@
 
 #if PLATFORM(MAC)
 
+#import "DeprecatedGlobalValues.h"
 #import "PlatformUtilities.h"
-#import "PlatformWebView.h"
 #import <WebKit/WKPagePrivateMac.h>
 #import <WebKit/WKPreferencesPrivate.h>
-#import <WebKit/WKView.h>
 #import <WebKit/WKWebViewConfigurationPrivate.h>
 #import <WebKit/WKWebViewPrivate.h>
 #import <WebKit/_WKFullscreenDelegate.h>
 #import <wtf/RetainPtr.h>
 
-static bool receivedLoadedMessage;
 static bool receivedWillEnterFullscreenMessage;
 static bool receivedDidEnterFullscreenMessage;
 static bool receivedWillExitFullscreenMessage;
 static bool receivedDidExitFullscreenMessage;
-
-static void didFinishNavigation(WKPageRef, WKNavigationRef, WKTypeRef, const void*)
-{
-    receivedLoadedMessage = true;
-}
+static bool receivedVisibilityChangeMessage;
 
 @interface FullscreenDelegateMessageHandler : NSObject <WKScriptMessageHandler, _WKFullscreenDelegate>
 @end
@@ -55,8 +49,11 @@ static void didFinishNavigation(WKPageRef, WKNavigationRef, WKTypeRef, const voi
 - (void)userContentController:(WKUserContentController *)userContentController didReceiveScriptMessage:(WKScriptMessage *)message
 {
     NSString *bodyString = (NSString *)[message body];
-    if ([bodyString isEqualToString:@"load"])
+    if ([bodyString isEqualToString:@"load"]) {
         receivedLoadedMessage = true;
+        receivedVisibilityChangeMessage = false;
+    } else if ([bodyString isEqualToString:@"visibilitychange"])
+        receivedVisibilityChangeMessage = true;
 }
 
 - (void)_webViewWillEnterFullscreen:(WKWebView *)view
@@ -82,10 +79,15 @@ static void didFinishNavigation(WKPageRef, WKNavigationRef, WKTypeRef, const voi
 
 namespace TestWebKitAPI {
 
+// rdar://137235446
+#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 150000
+TEST(Fullscreen, DISABLED_Delegate)
+#else
 TEST(Fullscreen, Delegate)
+#endif
 {
     RetainPtr<WKWebViewConfiguration> configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
-    [configuration preferences]._fullScreenEnabled = YES;
+    [configuration preferences].elementFullscreenEnabled = YES;
     RetainPtr<WKWebView> webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 100, 100) configuration:configuration.get()]);
     RetainPtr<FullscreenDelegateMessageHandler> handler = adoptNS([[FullscreenDelegateMessageHandler alloc] init]);
     [[configuration userContentController] addScriptMessageHandler:handler.get() name:@"fullscreenChangeHandler"];
@@ -95,7 +97,7 @@ TEST(Fullscreen, Delegate)
     [[window contentView] addSubview:webView.get()];
     [window makeKeyAndOrderFront:nil];
 
-    NSURLRequest *request = [NSURLRequest requestWithURL:[[NSBundle mainBundle] URLForResource:@"FullscreenDelegate" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"]];
+    NSURLRequest *request = [NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"FullscreenDelegate" withExtension:@"html"]];
     [webView loadRequest:request];
     TestWebKitAPI::Util::run(&receivedLoadedMessage);
 
@@ -112,40 +114,43 @@ TEST(Fullscreen, Delegate)
     TestWebKitAPI::Util::run(&receivedDidExitFullscreenMessage);
 
     ASSERT_FALSE([webView _isInFullscreen]);
+
+    ASSERT_FALSE(receivedVisibilityChangeMessage);
 }
 
-TEST(Fullscreen, WKViewDelegate)
+#ifdef NDEBUG
+// FIXME (webkit.org/b/278669): Fullscreen.VisibilityChangeNotDispatched times out in Release builds
+TEST(Fullscreen, DISABLED_VisibilityChangeNotDispatched)
+#else
+TEST(Fullscreen, VisibilityChangeNotDispatched)
+#endif
 {
-    WKRetainPtr<WKContextRef> context = adoptWK(WKContextCreateWithConfiguration(nullptr));
-    WKRetainPtr<WKPageGroupRef> pageGroup = adoptWK(WKPageGroupCreateWithIdentifier(Util::toWK("FullscreenDelegate").get()));
-    WKPreferencesRef preferences = WKPageGroupGetPreferences(pageGroup.get());
-    WKPreferencesSetFullScreenEnabled(preferences, true);
-
-    PlatformWebView webView(context.get(), pageGroup.get());
-
+    RetainPtr<WKWebViewConfiguration> configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
+    [configuration preferences].elementFullscreenEnabled = YES;
+    RetainPtr<WKWebView> webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 100, 100) configuration:configuration.get()]);
     RetainPtr<FullscreenDelegateMessageHandler> handler = adoptNS([[FullscreenDelegateMessageHandler alloc] init]);
-    WKPageSetFullscreenDelegate(webView.page(), handler.get());
+    [[configuration userContentController] addScriptMessageHandler:handler.get() name:@"fullscreenChangeHandler"];
+    [webView _setFullscreenDelegate:handler.get()];
 
-    WKPageNavigationClientV0 loaderClient;
-    memset(&loaderClient, 0 , sizeof(loaderClient));
+    RetainPtr<NSWindow> window = adoptNS([[NSWindow alloc] initWithContentRect:[webView frame] styleMask:NSWindowStyleMaskBorderless backing:NSBackingStoreBuffered defer:NO]);
+    [[window contentView] addSubview:webView.get()];
+    [window makeKeyAndOrderFront:nil];
 
-    loaderClient.base.version = 0;
-    loaderClient.didFinishNavigation = didFinishNavigation;
-    WKPageSetPageNavigationClient(webView.page(), &loaderClient.base);
-
-    receivedLoadedMessage = false;
-    WKRetainPtr<WKURLRef> url = adoptWK(Util::createURLForResource("FullscreenDelegate", "html"));
-    WKPageLoadURL(webView.page(), url.get());
-
+    NSURLRequest *request = [NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"FullscreenDelegate" withExtension:@"html"]];
+    [webView loadRequest:request];
     TestWebKitAPI::Util::run(&receivedLoadedMessage);
 
-    webView.simulateButtonClick(kWKEventMouseButtonLeftButton, 5, 5, 0);
+    NSEvent *event = [NSEvent mouseEventWithType:NSEventTypeLeftMouseDown location:NSMakePoint(5, 5) modifierFlags:0 timestamp:0 windowNumber:window.get().windowNumber context:0 eventNumber:0 clickCount:0 pressure:0];
+
+    [webView mouseDown:event];
     TestWebKitAPI::Util::run(&receivedWillEnterFullscreenMessage);
     TestWebKitAPI::Util::run(&receivedDidEnterFullscreenMessage);
 
-    webView.simulateButtonClick(kWKEventMouseButtonLeftButton, 5, 5, 0);
+    [webView mouseDown:event];
     TestWebKitAPI::Util::run(&receivedWillExitFullscreenMessage);
     TestWebKitAPI::Util::run(&receivedDidExitFullscreenMessage);
+
+    ASSERT_FALSE(receivedVisibilityChangeMessage);
 }
 
 } // namespace TestWebKitAPI

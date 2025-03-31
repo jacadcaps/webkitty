@@ -13,15 +13,19 @@
 
 #include <stdint.h>
 
+#include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
-#include "absl/types/optional.h"
+#include "absl/strings/string_view.h"
 #include "api/candidate.h"
+#include "api/rtc_error.h"
 #include "api/transport/enums.h"
 #include "p2p/base/connection.h"
 #include "p2p/base/packet_transport_internal.h"
 #include "p2p/base/port.h"
+#include "p2p/base/stun_dictionary.h"
 #include "p2p/base/transport_description.h"
 #include "rtc_base/network_constants.h"
 #include "rtc_base/system/rtc_export.h"
@@ -37,6 +41,19 @@ struct IceTransportStats {
   // Initially 0 and 1 once the first candidate pair has been selected.
   // The counter is increase also when "unselecting" a connection.
   uint32_t selected_candidate_pair_changes = 0;
+
+  // Bytes/packets sent/received.
+  // note: Is not the same as sum(connection_infos.bytes_sent)
+  // as connections are created and destroyed while the ICE transport
+  // is alive.
+  uint64_t bytes_sent = 0;
+  uint64_t bytes_received = 0;
+  uint64_t packets_sent = 0;
+  uint64_t packets_received = 0;
+
+  IceRole ice_role = ICEROLE_UNKNOWN;
+  std::string ice_local_username_fragment;
+  webrtc::IceTransportState ice_state = webrtc::IceTransportState::kNew;
 };
 
 typedef std::vector<Candidate> Candidates;
@@ -74,15 +91,28 @@ enum class NominationMode {
                    // The details are described in P2PTransportChannel.
 };
 
+// Utility method that checks if various required Candidate fields are filled in
+// and contain valid values. If conditions are not met, an RTCError with the
+// appropriated error number and description is returned. If the configuration
+// is valid RTCError::OK() is returned.
+webrtc::RTCError VerifyCandidate(const Candidate& cand);
+
+// Runs through a list of cricket::Candidate instances and calls VerifyCandidate
+// for each one, stopping on the first error encounted and returning that error
+// value if so. On success returns RTCError::OK().
+webrtc::RTCError VerifyCandidates(const Candidates& candidates);
+
 // Information about ICE configuration.
-// TODO(deadbeef): Use absl::optional to represent unset values, instead of
+// TODO(deadbeef): Use std::optional to represent unset values, instead of
 // -1.
-struct IceConfig {
+//
+// TODO(bugs.webrtc.org/15609): Define a public API for this.
+struct RTC_EXPORT IceConfig {
   // The ICE connection receiving timeout value in milliseconds.
-  absl::optional<int> receiving_timeout;
+  std::optional<int> receiving_timeout;
   // Time interval in milliseconds to ping a backup connection when the ICE
   // channel is strongly connected.
-  absl::optional<int> backup_connection_ping_interval;
+  std::optional<int> backup_connection_ping_interval;
 
   ContinualGatheringPolicy continual_gathering_policy = GATHER_ONCE;
 
@@ -95,7 +125,7 @@ struct IceConfig {
   bool prioritize_most_likely_candidate_pairs = false;
 
   // Writable connections are pinged at a slower rate once stablized.
-  absl::optional<int> stable_writable_connection_ping_interval;
+  std::optional<int> stable_writable_connection_ping_interval;
 
   // If set to true, this means the ICE transport should presume TURN-to-TURN
   // candidate pairs will succeed, even before a binding response is received.
@@ -110,12 +140,12 @@ struct IceConfig {
 
   // Interval to check on all networks and to perform ICE regathering on any
   // active network having no connection on it.
-  absl::optional<int> regather_on_failed_networks_interval;
+  std::optional<int> regather_on_failed_networks_interval;
 
   // The time period in which we will not switch the selected connection
   // when a new connection becomes receiving but the selected connection is not
   // in case that the selected connection may become receiving soon.
-  absl::optional<int> receiving_switching_delay;
+  std::optional<int> receiving_switching_delay;
 
   // TODO(honghaiz): Change the default to regular nomination.
   // Default nomination mode if the remote does not support renomination.
@@ -124,13 +154,13 @@ struct IceConfig {
   // The interval in milliseconds at which ICE checks (STUN pings) will be sent
   // for a candidate pair when it is both writable and receiving (strong
   // connectivity). This parameter overrides the default value given by
-  // |STRONG_PING_INTERVAL| in p2ptransport.h if set.
-  absl::optional<int> ice_check_interval_strong_connectivity;
+  // `STRONG_PING_INTERVAL` in p2ptransport.h if set.
+  std::optional<int> ice_check_interval_strong_connectivity;
   // The interval in milliseconds at which ICE checks (STUN pings) will be sent
   // for a candidate pair when it is either not writable or not receiving (weak
   // connectivity). This parameter overrides the default value given by
-  // |WEAK_PING_INTERVAL| in p2ptransport.h if set.
-  absl::optional<int> ice_check_interval_weak_connectivity;
+  // `WEAK_PING_INTERVAL` in p2ptransport.h if set.
+  std::optional<int> ice_check_interval_weak_connectivity;
   // ICE checks (STUN pings) will not be sent at higher rate (lower interval)
   // than this, no matter what other settings there are.
   // Measure in milliseconds.
@@ -138,30 +168,32 @@ struct IceConfig {
   // Note that this parameter overrides both the above check intervals for
   // candidate pairs with strong or weak connectivity, if either of the above
   // interval is shorter than the min interval.
-  absl::optional<int> ice_check_min_interval;
+  std::optional<int> ice_check_min_interval;
   // The min time period for which a candidate pair must wait for response to
   // connectivity checks before it becomes unwritable. This parameter
-  // overrides the default value given by |CONNECTION_WRITE_CONNECT_TIMEOUT|
+  // overrides the default value given by `CONNECTION_WRITE_CONNECT_TIMEOUT`
   // in port.h if set, when determining the writability of a candidate pair.
-  absl::optional<int> ice_unwritable_timeout;
+  std::optional<int> ice_unwritable_timeout;
 
   // The min number of connectivity checks that a candidate pair must sent
   // without receiving response before it becomes unwritable. This parameter
-  // overrides the default value given by |CONNECTION_WRITE_CONNECT_FAILURES| in
+  // overrides the default value given by `CONNECTION_WRITE_CONNECT_FAILURES` in
   // port.h if set, when determining the writability of a candidate pair.
-  absl::optional<int> ice_unwritable_min_checks;
+  std::optional<int> ice_unwritable_min_checks;
 
   // The min time period for which a candidate pair must wait for response to
   // connectivity checks it becomes inactive. This parameter overrides the
-  // default value given by |CONNECTION_WRITE_TIMEOUT| in port.h if set, when
+  // default value given by `CONNECTION_WRITE_TIMEOUT` in port.h if set, when
   // determining the writability of a candidate pair.
-  absl::optional<int> ice_inactive_timeout;
+  std::optional<int> ice_inactive_timeout;
 
   // The interval in milliseconds at which STUN candidates will resend STUN
   // binding requests to keep NAT bindings open.
-  absl::optional<int> stun_keepalive_interval;
+  std::optional<int> stun_keepalive_interval;
 
-  absl::optional<rtc::AdapterType> network_preference;
+  std::optional<rtc::AdapterType> network_preference;
+
+  webrtc::VpnPreference vpn_preference = webrtc::VpnPreference::kDefault;
 
   IceConfig();
   IceConfig(int receiving_timeout_ms,
@@ -176,7 +208,7 @@ struct IceConfig {
 
   // Helper getters for parameters with implementation-specific default value.
   // By convention, parameters with default value are represented by
-  // absl::optional and setting a parameter to null restores its default value.
+  // std::optional and setting a parameter to null restores its default value.
   int receiving_timeout_or_default() const;
   int backup_connection_ping_interval_or_default() const;
   int stable_writable_connection_ping_interval_or_default() const;
@@ -200,16 +232,12 @@ enum class IceTransportState {
   STATE_FAILED
 };
 
-// TODO(zhihuang): Remove this once it's no longer used in
-// remoting/protocol/libjingle_transport_factory.cc
-enum IceProtocolType {
-  ICEPROTO_RFC5245  // Standard RFC 5245 version of ICE.
-};
-
 // IceTransportInternal is an internal abstract class that does ICE.
 // Once the public interface is supported,
 // (https://www.w3.org/TR/webrtc/#rtcicetransport)
 // the IceTransportInterface will be split from this class.
+//
+// TODO(bugs.webrtc.org/15609): Define a public API for this.
 class RTC_EXPORT IceTransportInternal : public rtc::PacketTransportInternal {
  public:
   IceTransportInternal();
@@ -226,19 +254,18 @@ class RTC_EXPORT IceTransportInternal : public rtc::PacketTransportInternal {
 
   virtual void SetIceRole(IceRole role) = 0;
 
-  virtual void SetIceTiebreaker(uint64_t tiebreaker) = 0;
+  // Default implementation in order to allow downstream usage deletion.
+  // TODO: bugs.webrtc.org/42224914 - Remove when all downstream overrides are
+  // gone.
+  virtual void SetIceTiebreaker(uint64_t tiebreaker) { RTC_CHECK_NOTREACHED(); }
 
-  // TODO(zhihuang): Remove this once it's no longer called in
-  // remoting/protocol/libjingle_transport_factory.cc
-  virtual void SetIceProtocolType(IceProtocolType type) {}
+  virtual void SetIceCredentials(absl::string_view ice_ufrag,
+                                 absl::string_view ice_pwd);
 
-  virtual void SetIceCredentials(const std::string& ice_ufrag,
-                                 const std::string& ice_pwd);
+  virtual void SetRemoteIceCredentials(absl::string_view ice_ufrag,
+                                       absl::string_view ice_pwd);
 
-  virtual void SetRemoteIceCredentials(const std::string& ice_ufrag,
-                                       const std::string& ice_pwd);
-
-  // The ufrag and pwd in |ice_params| must be set
+  // The ufrag and pwd in `ice_params` must be set
   // before candidate gathering can start.
   virtual void SetIceParameters(const IceParameters& ice_params) = 0;
 
@@ -264,28 +291,44 @@ class RTC_EXPORT IceTransportInternal : public rtc::PacketTransportInternal {
   virtual bool GetStats(IceTransportStats* ice_transport_stats) = 0;
 
   // Returns RTT estimate over the currently active connection, or an empty
-  // absl::optional if there is none.
-  virtual absl::optional<int> GetRttEstimate() = 0;
+  // std::optional if there is none.
+  virtual std::optional<int> GetRttEstimate() = 0;
 
   // TODO(qingsi): Remove this method once Chrome does not depend on it anymore.
   virtual const Connection* selected_connection() const = 0;
 
-  // Returns the selected candidate pair, or an empty absl::optional if there is
+  // Returns the selected candidate pair, or an empty std::optional if there is
   // none.
-  virtual absl::optional<const CandidatePair> GetSelectedCandidatePair()
+  virtual std::optional<const CandidatePair> GetSelectedCandidatePair()
       const = 0;
 
-  sigslot::signal1<IceTransportInternal*> SignalGatheringState;
+  virtual std::optional<std::reference_wrapper<StunDictionaryWriter>>
+  GetDictionaryWriter() {
+    return std::nullopt;
+  }
+
+  void AddGatheringStateCallback(
+      const void* removal_tag,
+      absl::AnyInvocable<void(IceTransportInternal*)> callback);
+  void RemoveGatheringStateCallback(const void* removal_tag);
 
   // Handles sending and receiving of candidates.
   sigslot::signal2<IceTransportInternal*, const Candidate&>
       SignalCandidateGathered;
 
-  sigslot::signal2<IceTransportInternal*, const IceCandidateErrorEvent&>
-      SignalCandidateError;
+  void SetCandidateErrorCallback(
+      absl::AnyInvocable<void(IceTransportInternal*,
+                              const IceCandidateErrorEvent&)> callback) {
+    RTC_DCHECK(!candidate_error_callback_);
+    candidate_error_callback_ = std::move(callback);
+  }
 
-  sigslot::signal2<IceTransportInternal*, const Candidates&>
-      SignalCandidatesRemoved;
+  void SetCandidatesRemovedCallback(
+      absl::AnyInvocable<void(IceTransportInternal*, const Candidates&)>
+          callback) {
+    RTC_DCHECK(!candidates_removed_callback_);
+    candidates_removed_callback_ = std::move(callback);
+  }
 
   // Deprecated by PacketTransportInternal::SignalNetworkRouteChanged.
   // This signal occurs when there is a change in the way that packets are
@@ -295,8 +338,12 @@ class RTC_EXPORT IceTransportInternal : public rtc::PacketTransportInternal {
   // SignalNetworkRouteChanged.
   sigslot::signal2<IceTransportInternal*, const Candidate&> SignalRouteChange;
 
-  sigslot::signal1<const cricket::CandidatePairChangeEvent&>
-      SignalCandidatePairChanged;
+  void SetCandidatePairChangeCallback(
+      absl::AnyInvocable<void(const cricket::CandidatePairChangeEvent&)>
+          callback) {
+    RTC_DCHECK(!candidate_pair_change_callback_);
+    candidate_pair_change_callback_ = std::move(callback);
+  }
 
   // Invoked when there is conflict in the ICE role between local and remote
   // agents.
@@ -312,6 +359,52 @@ class RTC_EXPORT IceTransportInternal : public rtc::PacketTransportInternal {
 
   // Invoked when the transport is being destroyed.
   sigslot::signal1<IceTransportInternal*> SignalDestroyed;
+
+  // Invoked when remote dictionary has been updated,
+  // i.e. modifications to attributes from remote ice agent has
+  // reflected in our StunDictionaryView.
+  template <typename F>
+  void AddDictionaryViewUpdatedCallback(const void* tag, F&& callback) {
+    dictionary_view_updated_callback_list_.AddReceiver(
+        tag, std::forward<F>(callback));
+  }
+  void RemoveDictionaryViewUpdatedCallback(const void* tag) {
+    dictionary_view_updated_callback_list_.RemoveReceivers(tag);
+  }
+
+  // Invoked when local dictionary has been synchronized,
+  // i.e. remote ice agent has reported acknowledged updates from us.
+  template <typename F>
+  void AddDictionaryWriterSyncedCallback(const void* tag, F&& callback) {
+    dictionary_writer_synced_callback_list_.AddReceiver(
+        tag, std::forward<F>(callback));
+  }
+  void RemoveDictionaryWriterSyncedCallback(const void* tag) {
+    dictionary_writer_synced_callback_list_.RemoveReceivers(tag);
+  }
+
+ protected:
+  void SendGatheringStateEvent() {
+    gathering_state_callback_list_.Send(this);
+  }
+
+  webrtc::CallbackList<IceTransportInternal*,
+                       const StunDictionaryView&,
+                       rtc::ArrayView<uint16_t>>
+      dictionary_view_updated_callback_list_;
+  webrtc::CallbackList<IceTransportInternal*, const StunDictionaryWriter&>
+      dictionary_writer_synced_callback_list_;
+
+  webrtc::CallbackList<IceTransportInternal*> gathering_state_callback_list_;
+
+  absl::AnyInvocable<void(IceTransportInternal*, const IceCandidateErrorEvent&)>
+      candidate_error_callback_;
+
+  absl::AnyInvocable<void(IceTransportInternal*, const Candidates&)>
+      candidates_removed_callback_;
+
+  absl::AnyInvocable<void(const cricket::CandidatePairChangeEvent&)>
+      candidate_pair_change_callback_;
 };
 
 }  // namespace cricket

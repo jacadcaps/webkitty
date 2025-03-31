@@ -85,13 +85,11 @@ static void runJavaScriptAlert(WKPageRef page, WKStringRef alertText, WKFrameRef
 
 TEST(WebKit, InjectedBundleMakeAllShadowRootOpenTest)
 {
-    WKRetainPtr<WKPageGroupRef> pageGroup = adoptWK(WKPageGroupCreateWithIdentifier(WKStringCreateWithUTF8CString("InjectedBundleMakeAllShadowRootOpenTestPageGroup")));
-
-    WKRetainPtr<WKContextRef> context = adoptWK(Util::createContextForInjectedBundleTest("InjectedBundleMakeAllShadowRootOpenTest", pageGroup.get()));
-    PlatformWebView webView(context.get(), pageGroup.get());
+    WKRetainPtr<WKContextRef> context = adoptWK(Util::createContextForInjectedBundleTest("InjectedBundleMakeAllShadowRootOpenTest"));
+    PlatformWebView webView(context.get());
 
     WKPageUIClientV0 uiClient;
-    memset(&uiClient, 0, sizeof(uiClient));
+    zeroBytes(uiClient);
 
     uiClient.base.version = 0;
     uiClient.runJavaScriptAlert = runJavaScriptAlert;

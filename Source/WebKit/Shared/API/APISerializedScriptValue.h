@@ -23,14 +23,23 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef APISerializedScriptValue_h
-#define APISerializedScriptValue_h
+#pragma once
 
 #include "APIObject.h"
-
-#include "DataReference.h"
+#include "WKRetainPtr.h"
+#include <WebCore/CryptoKey.h>
 #include <WebCore/SerializedScriptValue.h>
 #include <wtf/RefPtr.h>
+
+#if USE(GLIB)
+#include <wtf/glib/GRefPtr.h>
+
+typedef struct _GVariant GVariant;
+typedef struct _JSCContext JSCContext;
+typedef struct _JSCValue JSCValue;
+#endif
+
+typedef const void* WKTypeRef;
 
 namespace API {
 
@@ -49,22 +58,32 @@ public:
         return adoptRef(*new SerializedScriptValue(serializedValue.releaseNonNull()));
     }
     
-    static Ref<SerializedScriptValue> adopt(Vector<uint8_t>&& buffer)
+    static Ref<SerializedScriptValue> createFromWireBytes(std::span<const uint8_t> buffer)
     {
-        return adoptRef(*new SerializedScriptValue(WebCore::SerializedScriptValue::adopt(WTFMove(buffer))));
+        return adoptRef(*new SerializedScriptValue(WebCore::SerializedScriptValue::createFromWireBytes(Vector<uint8_t>(buffer))));
     }
     
     JSValueRef deserialize(JSContextRef context, JSValueRef* exception)
     {
         return m_serializedScriptValue->deserialize(context, exception);
     }
-    
+
+    static WKRetainPtr<WKTypeRef> deserializeWK(WebCore::SerializedScriptValue&);
+    static Vector<uint8_t> serializeCryptoKey(const WebCore::CryptoKey&);
+
 #if PLATFORM(COCOA) && defined(__OBJC__)
-    static id deserialize(WebCore::SerializedScriptValue&, JSValueRef* exception);
+    static id deserialize(WebCore::SerializedScriptValue&);
     static RefPtr<SerializedScriptValue> createFromNSObject(id);
 #endif
 
-    IPC::DataReference dataReference() const { return m_serializedScriptValue->data(); }
+#if USE(GLIB)
+    static JSCContext* sharedJSCContext();
+    static GRefPtr<JSCValue> deserialize(WebCore::SerializedScriptValue&);
+    static RefPtr<SerializedScriptValue> createFromGVariant(GVariant*);
+    static RefPtr<SerializedScriptValue> createFromJSCValue(JSCValue*);
+#endif
+
+    std::span<const uint8_t> dataReference() const { return m_serializedScriptValue->wireBytes(); }
 
     WebCore::SerializedScriptValue& internalRepresentation() { return m_serializedScriptValue.get(); }
 
@@ -74,9 +93,9 @@ private:
     {
     }
 
-    Ref<WebCore::SerializedScriptValue> m_serializedScriptValue;
+    const Ref<WebCore::SerializedScriptValue> m_serializedScriptValue;
 };
     
 }
 
-#endif
+SPECIALIZE_TYPE_TRAITS_API_OBJECT(SerializedScriptValue);

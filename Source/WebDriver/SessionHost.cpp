@@ -26,34 +26,50 @@
 #include "config.h"
 #include "SessionHost.h"
 
+#include <wtf/NeverDestroyed.h>
+#include <wtf/Observer.h>
+#include <wtf/WeakHashSet.h>
 #include <wtf/text/StringBuilder.h>
 
 namespace WebDriver {
 
+#if ENABLE(WEBDRIVER_BIDI)
+static WeakHashSet<SessionHost::BrowserTerminatedObserver>& browserTerminatedObservers()
+{
+    static NeverDestroyed<WeakHashSet<SessionHost::BrowserTerminatedObserver>> observers;
+    return observers;
+}
+#endif
+
 void SessionHost::inspectorDisconnected()
 {
+    Ref<SessionHost> protectedThis(*this);
     // Browser closed or crashed, finish all pending commands with error.
     for (auto messageID : copyToVector(m_commandRequests.keys())) {
         auto responseHandler = m_commandRequests.take(messageID);
         responseHandler({ nullptr, true });
     }
+
+#if ENABLE(WEBDRIVER_BIDI)
+    for (auto& observer : browserTerminatedObservers())
+        observer(m_sessionID);
+#endif
 }
 
 long SessionHost::sendCommandToBackend(const String& command, RefPtr<JSON::Object>&& parameters, Function<void (CommandResponse&&)>&& responseHandler)
 {
+    if (!isConnected()) {
+        responseHandler({ nullptr, true });
+        return 0;
+    }
+
     static long lastSequenceID = 0;
     long sequenceID = ++lastSequenceID;
     m_commandRequests.add(sequenceID, WTFMove(responseHandler));
     StringBuilder messageBuilder;
-    messageBuilder.appendLiteral("{\"id\":");
-    messageBuilder.appendNumber(sequenceID);
-    messageBuilder.appendLiteral(",\"method\":\"Automation.");
-    messageBuilder.append(command);
-    messageBuilder.append('"');
-    if (parameters) {
-        messageBuilder.appendLiteral(",\"params\":");
-        messageBuilder.append(parameters->toJSONString());
-    }
+    messageBuilder.append("{\"id\":"_s, sequenceID, ",\"method\":\"Automation."_s, command, '"');
+    if (parameters)
+        messageBuilder.append(",\"params\":"_s, parameters->toJSONString());
     messageBuilder.append('}');
     sendMessageToBackend(messageBuilder.toString());
 
@@ -62,33 +78,59 @@ long SessionHost::sendCommandToBackend(const String& command, RefPtr<JSON::Objec
 
 void SessionHost::dispatchMessage(const String& message)
 {
-    RefPtr<JSON::Value> messageValue;
-    if (!JSON::Value::parseJSON(message, messageValue))
+    auto messageValue = JSON::Value::parseJSON(message);
+    if (!messageValue)
         return;
 
-    RefPtr<JSON::Object> messageObject;
-    if (!messageValue->asObject(messageObject))
+    auto messageObject = messageValue->asObject();
+    if (!messageObject)
         return;
 
-    long sequenceID;
-    if (!messageObject->getInteger("id"_s, sequenceID))
+    auto sequenceID = messageObject->getInteger("id"_s);
+    if (!sequenceID) {
+#if ENABLE(WEBDRIVER_BIDI)
+        dispatchEvent(WTFMove(messageObject));
+#endif
         return;
+    }
 
-    auto responseHandler = m_commandRequests.take(sequenceID);
+    auto responseHandler = m_commandRequests.take(*sequenceID);
     ASSERT(responseHandler);
 
     CommandResponse response;
-    RefPtr<JSON::Object> errorObject;
-    if (messageObject->getObject("error"_s, errorObject)) {
+    if (auto errorObject = messageObject->getObject("error"_s)) {
         response.responseObject = WTFMove(errorObject);
         response.isError = true;
-    } else {
-        RefPtr<JSON::Object> resultObject;
-        if (messageObject->getObject("result"_s, resultObject) && resultObject->size())
+    } else if (auto resultObject = messageObject->getObject("result"_s)) {
+        if (resultObject->size())
             response.responseObject = WTFMove(resultObject);
     }
 
     responseHandler(WTFMove(response));
 }
+
+bool SessionHost::isRemoteBrowser() const
+{
+    return m_isRemoteBrowser;
+}
+
+#if ENABLE(WEBDRIVER_BIDI)
+void SessionHost::addBrowserTerminatedObserver(const BrowserTerminatedObserver& observer)
+{
+    ASSERT(!browserTerminatedObservers().contains(observer));
+    browserTerminatedObservers().add(observer);
+}
+
+void SessionHost::removeBrowserTerminatedObserver(const BrowserTerminatedObserver& observer)
+{
+    browserTerminatedObservers().remove(observer);
+}
+
+void SessionHost::dispatchEvent(RefPtr<JSON::Object>&& event)
+{
+    if (m_eventHandler)
+        m_eventHandler->dispatchEvent(WTFMove(event));
+}
+#endif
 
 } // namespace WebDriver

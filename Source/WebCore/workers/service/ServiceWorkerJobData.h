@@ -25,10 +25,8 @@
 
 #pragma once
 
-#if ENABLE(SERVICE_WORKER)
-
+#include "ScriptExecutionContextIdentifier.h"
 #include "SecurityOriginData.h"
-#include "ServiceWorkerClientIdentifier.h"
 #include "ServiceWorkerJobDataIdentifier.h"
 #include "ServiceWorkerJobType.h"
 #include "ServiceWorkerRegistrationKey.h"
@@ -40,96 +38,33 @@ namespace WebCore {
 
 struct ServiceWorkerJobData {
     using Identifier = ServiceWorkerJobDataIdentifier;
-    ServiceWorkerJobData(SWServerConnectionIdentifier, const DocumentOrWorkerIdentifier& sourceContext);
-    ServiceWorkerJobData(Identifier, const DocumentOrWorkerIdentifier& sourceContext);
+    ServiceWorkerJobData(SWServerConnectionIdentifier, const ServiceWorkerOrClientIdentifier& sourceContext);
+    ServiceWorkerJobData(Identifier, const ServiceWorkerOrClientIdentifier& sourceContext);
+    WEBCORE_EXPORT ServiceWorkerJobData(WebCore::ServiceWorkerJobDataIdentifier&&, URL&& scriptURL, URL&& clientCreationURL, WebCore::SecurityOriginData&& topOrigin, URL&& scopeURL, WebCore::ServiceWorkerOrClientIdentifier&& sourceContext, WebCore::WorkerType, WebCore::ServiceWorkerJobType, String&& domainForCachePartition, bool isFromServiceWorkerPage, std::optional<WebCore::ServiceWorkerRegistrationOptions>&&);
 
     SWServerConnectionIdentifier connectionIdentifier() const { return m_identifier.connectionIdentifier; }
 
     bool isEquivalent(const ServiceWorkerJobData&) const;
+    std::optional<ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier() const;
 
     URL scriptURL;
     URL clientCreationURL;
     SecurityOriginData topOrigin;
     URL scopeURL;
     ServiceWorkerOrClientIdentifier sourceContext;
+    WorkerType workerType;
     ServiceWorkerJobType type;
+    String domainForCachePartition;
+    bool isFromServiceWorkerPage { false };
 
-    ServiceWorkerRegistrationOptions registrationOptions;
+    std::optional<ServiceWorkerRegistrationOptions> registrationOptions;
 
     Identifier identifier() const { return m_identifier; }
     WEBCORE_EXPORT ServiceWorkerRegistrationKey registrationKey() const;
     ServiceWorkerJobData isolatedCopy() const;
 
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static Optional<ServiceWorkerJobData> decode(Decoder&);
-
 private:
-    ServiceWorkerJobData() = default;
-
     Identifier m_identifier;
 };
 
-template<class Encoder>
-void ServiceWorkerJobData::encode(Encoder& encoder) const
-{
-    encoder << identifier() << scriptURL << clientCreationURL << topOrigin << scopeURL << sourceContext;
-    encoder << type;
-    switch (type) {
-    case ServiceWorkerJobType::Register:
-        encoder << registrationOptions;
-        break;
-    case ServiceWorkerJobType::Unregister:
-    case ServiceWorkerJobType::Update:
-        break;
-    }
-}
-
-template<class Decoder>
-Optional<ServiceWorkerJobData> ServiceWorkerJobData::decode(Decoder& decoder)
-{
-    Optional<ServiceWorkerJobDataIdentifier> identifier;
-    decoder >> identifier;
-    if (!identifier)
-        return WTF::nullopt;
-
-    ServiceWorkerJobData jobData;
-    jobData.m_identifier = *identifier;
-
-    if (!decoder.decode(jobData.scriptURL))
-        return WTF::nullopt;
-    if (!decoder.decode(jobData.clientCreationURL))
-        return WTF::nullopt;
-
-    Optional<SecurityOriginData> topOrigin;
-    decoder >> topOrigin;
-    if (!topOrigin)
-        return WTF::nullopt;
-    jobData.topOrigin = WTFMove(*topOrigin);
-
-    if (!decoder.decode(jobData.scopeURL))
-        return WTF::nullopt;
-    if (!decoder.decode(jobData.sourceContext))
-        return WTF::nullopt;
-    if (!decoder.decode(jobData.type))
-        return WTF::nullopt;
-
-    switch (jobData.type) {
-    case ServiceWorkerJobType::Register: {
-        Optional<ServiceWorkerRegistrationOptions> registrationOptions;
-        decoder >> registrationOptions;
-        if (!registrationOptions)
-            return WTF::nullopt;
-        jobData.registrationOptions = WTFMove(*registrationOptions);
-        break;
-    }
-    case ServiceWorkerJobType::Unregister:
-    case ServiceWorkerJobType::Update:
-        break;
-    }
-
-    return jobData;
-}
-
 } // namespace WebCore
-
-#endif // ENABLE(SERVICE_WORKER)

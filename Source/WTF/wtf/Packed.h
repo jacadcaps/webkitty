@@ -33,6 +33,10 @@
 #include <wtf/StdLibExtras.h>
 #include <wtf/UnalignedAccess.h>
 
+#if OS(DARWIN)
+#include <mach/vm_param.h>
+#endif
+
 namespace WTF {
 
 template<typename T>
@@ -106,6 +110,7 @@ template<typename T, size_t passedAlignment>
 class PackedAlignedPtr {
     WTF_MAKE_FAST_ALLOCATED;
 public:
+    static_assert(::allowCompactPointers<T*>());
     static_assert(hasOneBitSet(passedAlignment), "Alignment needs to be power-of-two");
     static constexpr size_t alignment = passedAlignment;
     static constexpr bool isPackedType = true;
@@ -115,6 +120,7 @@ public:
     static constexpr bool isAlignmentShiftProfitable = storageSizeWithoutAlignmentShift > storageSizeWithAlignmentShift;
     static constexpr unsigned alignmentShiftSize = isAlignmentShiftProfitable ? alignmentShiftSizeIfProfitable : 0;
     static constexpr unsigned storageSize = storageSizeWithAlignmentShift;
+    static_assert(storageSize <= sizeof(uintptr_t));
 
     constexpr PackedAlignedPtr()
         : m_storage()
@@ -136,11 +142,13 @@ public:
         // FIXME: PackedPtr<> can load memory with one mov by checking page boundary.
         // https://bugs.webkit.org/show_bug.cgi?id=197754
         uintptr_t value = 0;
+
 #if CPU(LITTLE_ENDIAN)
-        memcpy(&value, m_storage.data(), storageSize);
+        memcpySpan(asMutableByteSpan(value), std::span { m_storage });
 #else
-        memcpy(bitwise_cast<uint8_t*>(&value) + (sizeof(void*) - storageSize), m_storage.data(), storageSize);
+        memcpySpan(asMutableByteSpan(value).last(storageSize), std::span { m_storage });
 #endif
+
         if (isAlignmentShiftProfitable)
             value <<= alignmentShiftSize;
 
@@ -154,23 +162,23 @@ public:
         //
         // Reference: https://en.wikipedia.org/wiki/X86-64#Virtual_address_space_details
         constexpr unsigned shiftBits = countOfBits<uintptr_t> - OS_CONSTANT(EFFECTIVE_ADDRESS_WIDTH);
-        value = (bitwise_cast<intptr_t>(value) << shiftBits) >> shiftBits;
+        value = (std::bit_cast<intptr_t>(value) << shiftBits) >> shiftBits;
 #endif
 
-        return bitwise_cast<T*>(value);
+        return std::bit_cast<T*>(value);
     }
 
     void set(T* passedValue)
     {
-        uintptr_t value = bitwise_cast<uintptr_t>(passedValue);
+        uintptr_t value = std::bit_cast<uintptr_t>(passedValue);
         if (isAlignmentShiftProfitable)
             value >>= alignmentShiftSize;
 #if CPU(LITTLE_ENDIAN)
-        memcpy(m_storage.data(), &value, storageSize);
+        memcpySpan(std::span { m_storage }, asByteSpan(value).first(storageSize));
 #else
-        memcpy(m_storage.data(), bitwise_cast<uint8_t*>(&value) + (sizeof(void*) - storageSize), storageSize);
+        memcpySpan(std::span { m_storage }, asByteSpan(value).last(storageSize));
 #endif
-        ASSERT(bitwise_cast<uintptr_t>(get()) == value);
+        ASSERT(std::bit_cast<uintptr_t>(get()) == value);
     }
 
     void clear()
@@ -179,7 +187,10 @@ public:
     }
 
     T* operator->() const { return get(); }
-    T& operator*() const { return *get(); }
+
+    template <typename U = T>
+    typename std::enable_if<!std::is_void_v<U>, U&>::type operator*() const { return *get(); }
+
     bool operator!() const { return !get(); }
 
     // This conversion operator allows implicit conversion to bool but not to other integer types.
@@ -231,12 +242,13 @@ private:
 template<typename T>
 class Packed<T*> : public PackedAlignedPtr<T, 1> {
 public:
+    static_assert(::allowCompactPointers<T*>());
     using Base = PackedAlignedPtr<T, 1>;
     using Base::Base;
 
     // Hash table deleted values, which are only constructed and never copied or destroyed.
-    Packed(HashTableDeletedValueType) : Base(bitwise_cast<T*>(static_cast<uintptr_t>(Base::alignment))) { }
-    bool isHashTableDeletedValue() const { return Base::get() == bitwise_cast<T*>(static_cast<uintptr_t>(Base::alignment)); }
+    Packed(HashTableDeletedValueType) : Base(std::bit_cast<T*>(static_cast<uintptr_t>(Base::alignment))) { }
+    bool isHashTableDeletedValue() const { return Base::get() == std::bit_cast<T*>(static_cast<uintptr_t>(Base::alignment)); }
 };
 
 template<typename T>
@@ -245,13 +257,33 @@ using PackedPtr = Packed<T*>;
 template <typename T>
 struct GetPtrHelper<PackedPtr<T>> {
     using PtrType = T*;
+    using UnderlyingType = T;
     static T* getPtr(const PackedPtr<T>& p) { return const_cast<T*>(p.get()); }
 };
 
 template <typename T>
 struct IsSmartPtr<PackedPtr<T>> {
     static constexpr bool value = true;
+    static constexpr bool isNullable = true;
 };
+
+template<typename T, typename U>
+inline bool operator==(const PackedPtr<T>& a, const PackedPtr<U>& b)
+{
+    return a.get() == b.get();
+}
+
+template<typename T, typename U>
+inline bool operator==(const PackedPtr<T>& a, U* b)
+{
+    return a.get() == b;
+}
+
+template<typename T, typename U>
+inline bool operator==(T* a, const PackedPtr<U>& b)
+{
+    return a == b.get();
+}
 
 template<typename T>
 struct PackedPtrTraits {
@@ -268,8 +300,8 @@ struct PackedPtrTraits {
     // We assume that,
     // 1. The alignment is < 4KB. (It is tested by HashTraits).
     // 2. The first page (including nullptr) is never mapped.
-    static StorageType hashTableDeletedValue() { return StorageType { bitwise_cast<T*>(static_cast<uintptr_t>(StorageType::alignment)) }; }
-    static ALWAYS_INLINE bool isHashTableDeletedValue(const StorageType& ptr) { return ptr.get() == bitwise_cast<T*>(static_cast<uintptr_t>(StorageType::alignment)); }
+    static StorageType hashTableDeletedValue() { return StorageType { std::bit_cast<T*>(static_cast<uintptr_t>(StorageType::alignment)) }; }
+    static ALWAYS_INLINE bool isHashTableDeletedValue(const StorageType& ptr) { return ptr.get() == std::bit_cast<T*>(static_cast<uintptr_t>(StorageType::alignment)); }
 };
 
 template<typename P> struct DefaultHash<PackedPtr<P>> : PtrHash<PackedPtr<P>> { };

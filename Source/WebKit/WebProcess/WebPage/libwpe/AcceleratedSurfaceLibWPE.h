@@ -28,6 +28,8 @@
 #if USE(WPE_RENDERER)
 
 #include "AcceleratedSurface.h"
+#include <wtf/TZoneMalloc.h>
+#include <wtf/unix/UnixFileDescriptor.h>
 
 struct wpe_renderer_backend_egl_target;
 
@@ -36,31 +38,26 @@ namespace WebKit {
 class WebPage;
 
 class AcceleratedSurfaceLibWPE final : public AcceleratedSurface {
-    WTF_MAKE_NONCOPYABLE(AcceleratedSurfaceLibWPE); WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_NONCOPYABLE(AcceleratedSurfaceLibWPE);
+    WTF_MAKE_TZONE_ALLOCATED(AcceleratedSurfaceLibWPE);
 public:
-    static std::unique_ptr<AcceleratedSurfaceLibWPE> create(WebPage&, Client&);
+    static std::unique_ptr<AcceleratedSurfaceLibWPE> create(WebPage&, Function<void()>&& frameCompleteHandler);
     ~AcceleratedSurfaceLibWPE();
 
     uint64_t window() const override;
     uint64_t surfaceID() const override;
-    void clientResize(const WebCore::IntSize&) override;
-    bool shouldPaintMirrored() const override
-    {
-#if PLATFORM(GTK)
-        return true;
-#else
-        return false;
-#endif
-    }
-
-    void initialize() override;
+    bool resize(const WebCore::IntSize&) override;
     void finalize() override;
     void willRenderFrame() override;
     void didRenderFrame() override;
 
 private:
-    AcceleratedSurfaceLibWPE(WebPage&, Client&);
+    AcceleratedSurfaceLibWPE(WebPage&, Function<void()>&& frameCompleteHandler);
 
+    void initialize();
+
+    UnixFileDescriptor m_hostFD;
+    WebCore::IntSize m_initialSize;
     struct wpe_renderer_backend_egl_target* m_backend { nullptr };
 };
 

@@ -25,12 +25,10 @@
 
 #pragma once
 
-#if ENABLE(INDEXED_DATABASE)
-
 #include "IDBCursorInfo.h"
 #include "IDBKeyData.h"
 #include "MemoryCursor.h"
-#include <wtf/Optional.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 namespace IDBServer {
@@ -38,6 +36,7 @@ namespace IDBServer {
 class MemoryObjectStore;
 
 class MemoryObjectStoreCursor : public MemoryCursor {
+    WTF_MAKE_TZONE_ALLOCATED(MemoryObjectStoreCursor);
 public:
     MemoryObjectStoreCursor(MemoryObjectStore&, const IDBCursorInfo&);
 
@@ -58,16 +57,14 @@ private:
 
     bool hasValidPosition() const;
 
-    MemoryObjectStore& m_objectStore;
+    WeakRef<MemoryObjectStore> m_objectStore;
 
     IDBKeyRangeData m_remainingRange;
 
-    Optional<IDBKeyDataSet::iterator> m_iterator;
+    std::optional<IDBKeyDataSet::iterator> m_iterator;
 
     IDBKeyData m_currentPositionKey;
 };
 
 } // namespace IDBServer
 } // namespace WebCore
-
-#endif // ENABLE(INDEXED_DATABASE)

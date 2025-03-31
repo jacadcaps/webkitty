@@ -25,10 +25,14 @@
 
 #pragma once
 
+#if !BUSE(TZONE)
+
 #include "IsoSharedHeap.h"
 
 #include "IsoSharedPage.h"
-#include "StdLibExtras.h"
+#include <bit>
+
+#if !BUSE(LIBPAS)
 
 namespace bmalloc {
 
@@ -63,7 +67,6 @@ template<unsigned passedObjectSize>
 BNO_INLINE void* IsoSharedHeap::allocateSlow(const LockHolder& locker, bool abortOnFailure)
 {
     Scavenger& scavenger = *Scavenger::get();
-    scavenger.didStartGrowing();
     scavenger.scheduleIfUnderMemoryPressure(IsoSharedPage::pageSize);
 
     IsoSharedPage* page = IsoSharedPage::tryCreate();
@@ -83,3 +86,6 @@ BNO_INLINE void* IsoSharedHeap::allocateSlow(const LockHolder& locker, bool abor
 }
 
 } // namespace bmalloc
+
+#endif
+#endif // !BUSE(TZONE)

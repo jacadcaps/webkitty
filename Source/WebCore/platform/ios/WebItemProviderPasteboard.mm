@@ -28,13 +28,15 @@
 
 #if PLATFORM(IOS_FAMILY) && ENABLE(DRAG_SUPPORT)
 
+#import "Logging.h"
+#import "Pasteboard.h"
 #import <Foundation/NSItemProvider.h>
 #import <Foundation/NSProgress.h>
 #import <MobileCoreServices/MobileCoreServices.h>
 #import <UIKit/NSItemProvider+UIKitAdditions.h>
 #import <UIKit/UIColor.h>
 #import <UIKit/UIImage.h>
-#import <WebCore/Pasteboard.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <pal/ios/UIKitSoftLink.h>
 #import <pal/spi/ios/UIKitSPI.h>
 #import <wtf/BlockPtr.h>
@@ -52,8 +54,10 @@ using WebCore::PasteboardCustomData;
 static BOOL typeConformsToTypes(NSString *type, NSArray *conformsToTypes)
 {
     for (NSString *conformsToType in conformsToTypes) {
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
         if (UTTypeConformsTo((__bridge CFStringRef)type, (__bridge CFStringRef)conformsToType))
             return YES;
+ALLOW_DEPRECATED_DECLARATIONS_END
     }
     return NO;
 }
@@ -63,8 +67,10 @@ static BOOL typeConformsToTypes(NSString *type, NSArray *conformsToTypes)
 - (BOOL)web_containsFileURLAndFileUploadContent
 {
     for (NSString *identifier in self.registeredTypeIdentifiers) {
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
         if (UTTypeConformsTo((__bridge CFStringRef)identifier, kUTTypeFileURL))
             return self.web_fileUploadContentTypes.count;
+ALLOW_DEPRECATED_DECLARATIONS_END
     }
     return NO;
 }
@@ -73,8 +79,10 @@ static BOOL typeConformsToTypes(NSString *type, NSArray *conformsToTypes)
 {
     auto types = adoptNS([NSMutableArray new]);
     for (NSString *identifier in self.registeredTypeIdentifiers) {
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
         if (UTTypeConformsTo((__bridge CFStringRef)identifier, kUTTypeURL))
             continue;
+ALLOW_DEPRECATED_DECLARATIONS_END
 
         if ([identifier isEqualToString:@"com.apple.mapkit.map-item"]) {
             // This type conforms to "public.content", yet the corresponding data is only a serialization of MKMapItem and isn't suitable for file uploads.
@@ -363,7 +371,7 @@ static UIPreferredPresentationStyle uiPreferredPresentationStyle(WebPreferredPre
 
 + (instancetype)loadResultWithItemProvider:(NSItemProvider *)itemProvider typesToLoad:(NSArray<NSString *> *)typesToLoad
 {
-    return [[[self alloc] initWithItemProvider:itemProvider typesToLoad:typesToLoad] autorelease];
+    return adoptNS([[self alloc] initWithItemProvider:itemProvider typesToLoad:typesToLoad]).autorelease();
 }
 
 - (instancetype)initWithItemProvider:(NSItemProvider *)itemProvider typesToLoad:(NSArray<NSString *> *)typesToLoad
@@ -465,16 +473,17 @@ static UIPreferredPresentationStyle uiPreferredPresentationStyle(WebPreferredPre
     RetainPtr<NSArray<WebItemProviderRegistrationInfoList *>> _stagedRegistrationInfoLists;
 
     Vector<RetainPtr<WebItemProviderLoadResult>> _loadResults;
+    __weak id<UIDropSession> _dropSession;
 }
 
 + (instancetype)sharedInstance
 {
-    static WebItemProviderPasteboard *sharedPasteboard = nil;
+    static NeverDestroyed<RetainPtr<WebItemProviderPasteboard>> sharedPasteboard;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^() {
-        sharedPasteboard = [[WebItemProviderPasteboard alloc] init];
+        sharedPasteboard.get() = adoptNS([[WebItemProviderPasteboard alloc] init]);
     });
-    return sharedPasteboard;
+    return sharedPasteboard.get().get();
 }
 
 - (instancetype)init
@@ -516,17 +525,25 @@ static UIPreferredPresentationStyle uiPreferredPresentationStyle(WebPreferredPre
     return _itemProviders.get();
 }
 
-- (void)setItemProviders:(NSArray<__kindof NSItemProvider *> *)itemProviders
+- (void)setItemProviders:(NSArray<__kindof NSItemProvider *> *)itemProviders dropSession:(id<UIDropSession>)dropSession
 {
     itemProviders = itemProviders ?: @[ ];
     if (_itemProviders == itemProviders || [_itemProviders isEqualToArray:itemProviders])
         return;
 
-    _itemProviders = itemProviders;
-    _changeCount++;
+    if (dropSession != _dropSession || !dropSession)
+        _changeCount++;
+
+    _dropSession = dropSession;
+    _itemProviders = adoptNS(itemProviders.copy);
 
     if (!itemProviders.count)
         _loadResults = { };
+}
+
+- (void)setItemProviders:(NSArray<__kindof NSItemProvider *> *)itemProviders
+{
+    [self setItemProviders:itemProviders dropSession:nil];
 }
 
 - (NSInteger)numberOfItems
@@ -543,8 +560,10 @@ static UIPreferredPresentationStyle uiPreferredPresentationStyle(WebPreferredPre
 
     WebItemProviderLoadResult *loadResult = _loadResults[index].get();
     for (NSString *loadedType in loadResult.loadedTypeIdentifiers) {
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
         if (!UTTypeConformsTo((CFStringRef)loadedType, (CFStringRef)typeIdentifier))
             continue;
+ALLOW_DEPRECATED_DECLARATIONS_END
 
         // We've already loaded data relevant for this UTI type onto disk, so there's no need to ask the NSItemProvider for the same data again.
         if (NSData *result = [NSData dataWithContentsOfURL:[loadResult fileURLForType:loadedType] options:NSDataReadingMappedIfSafe error:nil])
@@ -593,11 +612,13 @@ static Class classForTypeIdentifier(NSString *typeIdentifier, NSString *&outType
 
     // If we were unable to load any object, check if the given type identifier is still something
     // WebKit knows how to handle.
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     if ([typeIdentifier isEqualToString:(NSString *)kUTTypeHTML]) {
         // Load kUTTypeHTML as a plain text HTML string.
         outTypeIdentifierToLoad = (NSString *)kUTTypePlainText;
         return [NSString class];
     }
+ALLOW_DEPRECATED_DECLARATIONS_END
 
     return nil;
 }
@@ -691,6 +712,8 @@ static Class classForTypeIdentifier(NSString *typeIdentifier, NSString *&outType
 
 static NSURL *linkTemporaryItemProviderFilesToDropStagingDirectory(NSURL *url, NSString *suggestedName, NSString *typeIdentifier)
 {
+    using WebCore::LogDragAndDrop;
+
     static NSString *defaultDropFolderName = @"folder";
     static NSString *defaultDropFileName = @"file";
     static NSString *droppedDataDirectoryPrefix = @"dropped-data";
@@ -702,14 +725,29 @@ static NSURL *linkTemporaryItemProviderFilesToDropStagingDirectory(NSURL *url, N
         return nil;
 
     NSURL *destination = nil;
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     BOOL isFolder = UTTypeConformsTo((CFStringRef)typeIdentifier, kUTTypeFolder);
+ALLOW_DEPRECATED_DECLARATIONS_END
     NSFileManager *fileManager = [NSFileManager defaultManager];
 
-    if (!suggestedName)
-        suggestedName = url.lastPathComponent ?: (isFolder ? defaultDropFolderName : defaultDropFileName);
+    if (!suggestedName.length)
+        suggestedName = url.lastPathComponent;
 
-    if ([suggestedName.pathExtension caseInsensitiveCompare:url.pathExtension] != NSOrderedSame && !isFolder)
-        suggestedName = [suggestedName stringByAppendingPathExtension:url.pathExtension];
+    auto fallbackName = isFolder ? defaultDropFolderName : defaultDropFileName;
+    if (!suggestedName.length)
+        suggestedName = fallbackName;
+
+    auto urlExtension = url.pathExtension;
+    if (!urlExtension.length)
+        urlExtension = [UTType typeWithIdentifier:typeIdentifier].preferredFilenameExtension;
+
+    if (urlExtension.length && [suggestedName.pathExtension caseInsensitiveCompare:urlExtension] != NSOrderedSame && !isFolder)
+        suggestedName = [suggestedName stringByAppendingPathExtension:urlExtension];
+
+    if (!suggestedName.length) {
+        RELEASE_LOG_FAULT(DragAndDrop, "Unable to append appropriate file extension to suggested name");
+        suggestedName = fallbackName;
+    }
 
     destination = [NSURL fileURLWithPath:[temporaryDropDataDirectory stringByAppendingPathComponent:suggestedName]];
     return [fileManager linkItemAtURL:url toURL:destination error:nil] ? destination : nil;
@@ -717,6 +755,7 @@ static NSURL *linkTemporaryItemProviderFilesToDropStagingDirectory(NSURL *url, N
 
 - (NSArray<NSString *> *)typeIdentifiersToLoad:(NSItemProvider *)itemProvider
 {
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     auto typesToLoad = adoptNS([[NSMutableOrderedSet alloc] init]);
     NSString *highestFidelitySupportedType = nil;
     NSString *highestFidelityContentType = nil;
@@ -748,7 +787,7 @@ static NSURL *linkTemporaryItemProviderFilesToDropStagingDirectory(NSURL *url, N
 
     // For compatibility with DataTransfer APIs, additionally load web-exposed types. Since this is the only chance to
     // fault in any data at all, we need to load up front any information that the page may ask for later down the line.
-    NSString *customPasteboardDataUTI = @(PasteboardCustomData::cocoaType());
+    NSString *customPasteboardDataUTI = @(PasteboardCustomData::cocoaType().characters());
     for (NSString *registeredTypeIdentifier in registeredTypeIdentifiers) {
         if ([registeredTypeIdentifier isEqualToString:highestFidelityContentType]
             || [registeredTypeIdentifier isEqualToString:highestFidelitySupportedType]
@@ -758,6 +797,7 @@ static NSURL *linkTemporaryItemProviderFilesToDropStagingDirectory(NSURL *url, N
             || UTTypeConformsTo((__bridge CFStringRef)registeredTypeIdentifier, kUTTypePlainText))
             [typesToLoad addObject:registeredTypeIdentifier];
     }
+ALLOW_DEPRECATED_DECLARATIONS_END
 
     return [typesToLoad array];
 }

@@ -30,11 +30,13 @@ class TextControlInnerTextElement;
 class HTMLTextFormControlElement;
 
 class RenderTextControl : public RenderBlockFlow {
-    WTF_MAKE_ISO_ALLOCATED(RenderTextControl);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(RenderTextControl);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderTextControl);
 public:
     virtual ~RenderTextControl();
 
     WEBCORE_EXPORT HTMLTextFormControlElement& textFormControlElement() const;
+    WEBCORE_EXPORT Ref<HTMLTextFormControlElement> protectedTextFormControlElement() const;
 
 #if PLATFORM(IOS_FAMILY)
     bool canScroll() const;
@@ -44,7 +46,7 @@ public:
 #endif
 
 protected:
-    RenderTextControl(HTMLTextFormControlElement&, RenderStyle&&);
+    RenderTextControl(Type, HTMLTextFormControlElement&, RenderStyle&&);
 
     // This convenience function should not be made public because innerTextElement may outlive the render tree.
     RefPtr<TextControlInnerTextElement> innerTextElement() const;
@@ -55,9 +57,6 @@ protected:
 
     void hitInnerTextElement(HitTestResult&, const LayoutPoint& pointInContainer, const LayoutPoint& accumulatedOffset);
 
-    int textBlockLogicalWidth() const;
-    int textBlockLogicalHeight() const;
-
     float scaleEmToUnits(int x) const;
 
     virtual float getAverageCharWidth();
@@ -65,19 +64,17 @@ protected:
     virtual LayoutUnit computeControlLogicalHeight(LayoutUnit lineHeight, LayoutUnit nonContentHeight) const = 0;
 
     LogicalExtentComputedValues computeLogicalHeight(LayoutUnit logicalHeight, LayoutUnit logicalTop) const override;
-    void layoutExcludedChildren(bool relayoutChildren) override;
+    void layoutExcludedChildren(RelayoutChildren) override;
 
 private:
     void element() const = delete;
 
-    const char* renderName() const override { return "RenderTextControl"; }
-    bool isTextControl() const final { return true; }
+    ASCIILiteral renderName() const override { return "RenderTextControl"_s; }
     void computeIntrinsicLogicalWidths(LayoutUnit& minLogicalWidth, LayoutUnit& maxLogicalWidth) const override;
     void computePreferredLogicalWidths() override;
-    bool avoidsFloats() const override { return true; }
     bool canHaveGeneratedChildren() const override { return false; }
     
-    void addFocusRingRects(Vector<LayoutRect>&, const LayoutPoint& additionalOffset, const RenderLayerModelObject* paintContainer = 0) override;
+    void addFocusRingRects(Vector<LayoutRect>&, const LayoutPoint& additionalOffset, const RenderLayerModelObject* paintContainer = 0) const override;
 
     bool canBeProgramaticallyScrolled() const override { return true; }
 };
@@ -87,19 +84,18 @@ private:
 // baseline definition, and then inputs of different types wouldn't line up
 // anymore.
 class RenderTextControlInnerContainer final : public RenderFlexibleBox {
-    WTF_MAKE_ISO_ALLOCATED(RenderTextControlInnerContainer);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(RenderTextControlInnerContainer);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderTextControlInnerContainer);
 public:
-    explicit RenderTextControlInnerContainer(Element& element, RenderStyle&& style)
-        : RenderFlexibleBox(element, WTFMove(style))
-    { }
-    virtual ~RenderTextControlInnerContainer() = default;
+    RenderTextControlInnerContainer(Element&, RenderStyle&&);
+    virtual ~RenderTextControlInnerContainer();
 
-    int baselinePosition(FontBaseline baseline, bool firstLine, LineDirectionMode direction, LinePositionMode position) const override
+    LayoutUnit baselinePosition(FontBaseline baseline, bool firstLine, LineDirectionMode direction, LinePositionMode position) const override
     {
         return RenderBlock::baselinePosition(baseline, firstLine, direction, position);
     }
-    Optional<int> firstLineBaseline() const override { return RenderBlock::firstLineBaseline(); }
-    Optional<int> inlineBlockBaseline(LineDirectionMode direction) const override { return RenderBlock::inlineBlockBaseline(direction); }
+    std::optional<LayoutUnit> firstLineBaseline() const override { return RenderBlock::firstLineBaseline(); }
+    std::optional<LayoutUnit> inlineBlockBaseline(LineDirectionMode direction) const override { return RenderBlock::inlineBlockBaseline(direction); }
 
 private:
     bool isFlexibleBoxImpl() const override { return true; }
@@ -107,4 +103,5 @@ private:
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderTextControl, isTextControl())
+SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderTextControl, isRenderTextControl())
+SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderTextControlInnerContainer, isRenderTextControlInnerContainer())

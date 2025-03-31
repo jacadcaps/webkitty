@@ -31,8 +31,11 @@
 #include "JSDOMPromiseDeferred.h"
 #include "PasteboardCustomData.h"
 #include "PasteboardItemInfo.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ClipboardItemPasteboardDataSource);
 
 ClipboardItemPasteboardDataSource::ClipboardItemPasteboardDataSource(ClipboardItem& item, const PasteboardItemInfo& info)
     : ClipboardItemDataSource(item)
@@ -49,17 +52,17 @@ Vector<String> ClipboardItemPasteboardDataSource::types() const
 
 void ClipboardItemPasteboardDataSource::getType(const String& type, Ref<DeferredPromise>&& promise)
 {
-    if (auto clipboard = makeRefPtr(m_item.clipboard()))
-        clipboard->getType(m_item, type, WTFMove(promise));
+    if (RefPtr clipboard = m_item->clipboard())
+        clipboard->getType(Ref { m_item.get() }, type, WTFMove(promise));
     else
-        promise->reject(NotAllowedError);
+        promise->reject(ExceptionCode::NotAllowedError);
 }
 
-void ClipboardItemPasteboardDataSource::collectDataForWriting(Clipboard&, CompletionHandler<void(Optional<PasteboardCustomData>)>&& completion)
+void ClipboardItemPasteboardDataSource::collectDataForWriting(Clipboard&, CompletionHandler<void(std::optional<PasteboardCustomData>)>&& completion)
 {
     // FIXME: Not implemented. This is needed to support writing platform-backed ClipboardItems
     // back to the pasteboard using Clipboard.write().
-    completion(WTF::nullopt);
+    completion(std::nullopt);
 }
 
 } // namespace WebCore

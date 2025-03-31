@@ -30,7 +30,6 @@
 @class WKDOMDocument;
 @class WKDOMRange;
 @class WKWebProcessPlugInFrame;
-@class WKWebProcessPlugInPageGroup;
 @protocol WKWebProcessPlugInLoadDelegate;
 
 WK_CLASS_AVAILABLE(macos(10.10), ios(8.0))
@@ -40,9 +39,7 @@ WK_CLASS_AVAILABLE(macos(10.10), ios(8.0))
 
 @property (readonly) WKDOMRange *selectedRange;
 
-@property (readonly) WKWebProcessPlugInFrame *mainFrame;
-
-@property (readonly) WKWebProcessPlugInPageGroup *pageGroup;
+@property (readonly) WKWebProcessPlugInFrame *mainFrame WK_API_DEPRECATED("With site isolation, the main frame is not necessarily local to the current bundle process.", macos(10.10, 15.2), ios(8.0, 18.2));
 
 @property (weak) id <WKWebProcessPlugInLoadDelegate> loadDelegate;
 

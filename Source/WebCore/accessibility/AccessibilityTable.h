@@ -29,79 +29,94 @@
 #pragma once
 
 #include "AccessibilityRenderObject.h"
-#include "AccessibilityTableCell.h"
 #include <wtf/Forward.h>
 
 namespace WebCore {
 
+class AccessibilityTableRow;
 class HTMLTableElement;
-class RenderTableSection;
-    
+
 class AccessibilityTable : public AccessibilityRenderObject {
 public:
-    static Ref<AccessibilityTable> create(RenderObject*);
+    static Ref<AccessibilityTable> create(AXID, RenderObject&);
+    static Ref<AccessibilityTable> create(AXID, Node&);
     virtual ~AccessibilityTable();
 
     void init() final;
 
-    AccessibilityRole roleValue() const final;
     virtual bool isAriaTable() const { return false; }
 
-    void addChildren() override;
+    void addChildren() final;
     void clearChildren() final;
+    void updateChildrenRoles();
 
-    AccessibilityChildrenVector columns() override;
-    AccessibilityChildrenVector rows() override;
+    AccessibilityChildrenVector columns() final;
+    AccessibilityChildrenVector rows() final;
 
-    unsigned columnCount() override;
-    unsigned rowCount() override;
-    int tableLevel() const final;
+    unsigned columnCount() final;
+    unsigned rowCount() final;
 
     String title() const final;
 
     // all the cells in the table
-    AccessibilityChildrenVector cells() override;
-    AXCoreObject* cellForColumnAndRow(unsigned column, unsigned row) override;
+    AccessibilityChildrenVector cells() final;
+    AccessibilityObject* cellForColumnAndRow(unsigned column, unsigned row) final;
 
-    AccessibilityChildrenVector columnHeaders() override;
-    AccessibilityChildrenVector rowHeaders() override;
-    AccessibilityChildrenVector visibleRows() override;
+    AccessibilityChildrenVector rowHeaders() final;
+    AccessibilityChildrenVector visibleRows() final;
 
     // Returns an object that contains, as children, all the objects that act as headers.
-    AXCoreObject* headerContainer() override;
+    AccessibilityObject* headerContainer() final;
 
-    bool isTable() const override { return true; }
+    bool isTable() const final { return true; }
     // Returns whether it is exposed as an AccessibilityTable to the platform.
-    bool isExposable() const override;
+    bool isExposable() const final { return m_isExposable; }
+    void recomputeIsExposable();
 
-    int axColumnCount() const override;
-    int axRowCount() const override;
+    int axColumnCount() const final;
+    int axRowCount() const final;
+
+    // Cell indexes are assigned during child creation, so make sure children are up-to-date.
+    void ensureCellIndexesUpToDate() { updateChildrenIfNecessary(); }
+    Vector<Vector<Markable<AXID>>> cellSlots() final;
+    void setCellSlotsDirty();
 
 protected:
-    explicit AccessibilityTable(RenderObject*);
+    explicit AccessibilityTable(AXID, RenderObject&);
+    explicit AccessibilityTable(AXID, Node&);
 
     AccessibilityChildrenVector m_rows;
     AccessibilityChildrenVector m_columns;
+    // 2D matrix of the cells assigned to each "slot" in this table.
+    // ("Slot" as defined here: https://html.spec.whatwg.org/multipage/tables.html#concept-slots)
+    Vector<Vector<Markable<AXID>>> m_cellSlots;
 
     RefPtr<AccessibilityObject> m_headerContainer;
     bool m_isExposable;
 
-    bool hasARIARole() const;
-
     // Used in type checking function is<AccessibilityTable>.
     bool isAccessibilityTableInstance() const final { return true; }
 
-    // isDataTable is whether it is exposed as an AccessibilityTable because the heuristic
-    // think this "looks" like a data-based table (instead of a table used for layout).
-    bool isDataTable() const final;
-    bool computeAccessibilityIsIgnored() const final;
+    bool computeIsIgnored() const final;
+
+    void addRow(AccessibilityTableRow&, unsigned, unsigned& maxColumnCount);
 
 private:
-    virtual bool computeIsTableExposableThroughAccessibility() const;
-    void titleElementText(Vector<AccessibilityText>&) const final;
+    AccessibilityRole determineAccessibilityRole() final;
+    virtual bool computeIsTableExposableThroughAccessibility() const { return isDataTable(); }
+    void labelText(Vector<AccessibilityText>&) const final;
     HTMLTableElement* tableElement() const;
-    void addChildrenFromSection(RenderTableSection*, unsigned& maxColumnCount);
-    void addTableCellChild(AccessibilityObject*, HashSet<AccessibilityObject*>& appendedRows, unsigned& columnCount);
+
+    // Returns the number of columns the table should have.
+    unsigned computeCellSlots();
+
+    void ensureRow(unsigned);
+    void ensureRowAndColumn(unsigned /* rowIndex */, unsigned /* columnIndex */);
+
+    bool hasNonTableARIARole() const;
+    // isDataTable is whether it is exposed as an AccessibilityTable because the heuristic
+    // think this "looks" like a data-based table (instead of a table used for layout).
+    bool isDataTable() const;
 };
 
 } // namespace WebCore 

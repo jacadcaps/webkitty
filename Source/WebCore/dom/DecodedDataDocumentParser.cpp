@@ -26,6 +26,7 @@
 #include "config.h"
 #include "DecodedDataDocumentParser.h"
 
+#include "Document.h"
 #include "DocumentWriter.h"
 #include "SegmentedString.h"
 #include "TextResourceDecoder.h"
@@ -37,12 +38,12 @@ DecodedDataDocumentParser::DecodedDataDocumentParser(Document& document)
 {
 }
 
-void DecodedDataDocumentParser::appendBytes(DocumentWriter& writer, const char* data, size_t length)
+void DecodedDataDocumentParser::appendBytes(DocumentWriter& writer, std::span<const uint8_t> data)
 {
-    if (!length)
+    if (data.empty())
         return;
 
-    String decoded = writer.decoder().decode(data, length);
+    String decoded = writer.protectedDecoder()->decode(data);
     if (decoded.isEmpty())
         return;
 
@@ -52,7 +53,7 @@ void DecodedDataDocumentParser::appendBytes(DocumentWriter& writer, const char* 
 
 void DecodedDataDocumentParser::flush(DocumentWriter& writer)
 {
-    String remainingData = writer.decoder().flush();
+    String remainingData = writer.protectedDecoder()->flush();
     if (remainingData.isEmpty())
         return;
 

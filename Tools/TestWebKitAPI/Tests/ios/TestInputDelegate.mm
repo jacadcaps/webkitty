@@ -31,11 +31,22 @@
 #import <wtf/BlockPtr.h>
 
 @implementation TestInputDelegate {
-    BlockPtr<_WKFocusStartsInputSessionPolicy(WKWebView *, id <_WKFocusedElementInfo>)> _focusStartsInputSessionPolicyHandler;
-    BlockPtr<void(WKWebView *, id <_WKFormInputSession>)> _willStartInputSessionHandler;
-    BlockPtr<void(WKWebView *, id <_WKFormInputSession>)> _didStartInputSessionHandler;
+    BlockPtr<_WKFocusStartsInputSessionPolicy(WKWebView *, id<_WKFocusedElementInfo>)> _focusStartsInputSessionPolicyHandler;
+    BlockPtr<void(WKWebView *, id<_WKFormInputSession>)> _willStartInputSessionHandler;
+    BlockPtr<void(WKWebView *, id<_WKFormInputSession>)> _didStartInputSessionHandler;
     BlockPtr<NSDictionary<id, NSString *> *(WKWebView *)> _webViewAdditionalContextForStrongPasswordAssistanceHandler;
-    BlockPtr<BOOL(WKWebView *, id <_WKFocusedElementInfo>)> _focusRequiresStrongPasswordAssistanceHandler;
+    BlockPtr<void(WKWebView *, id<_WKFocusedElementInfo>, void(^)(BOOL))> _focusRequiresStrongPasswordAssistanceHandler;
+    BlockPtr<void(WKWebView *, UITextSuggestion *, id<_WKFormInputSession>)> _insertTextSuggestionHandler;
+}
+
+- (void)setInsertTextSuggestionHandler:(void (^)(WKWebView *, UITextSuggestion *, id<_WKFormInputSession>))insertTextSuggestionHandler
+{
+    _insertTextSuggestionHandler = makeBlockPtr(insertTextSuggestionHandler);
+}
+
+- (void(^)(WKWebView *, UITextSuggestion *, id<_WKFormInputSession>))insertTextSuggestionHandler
+{
+    return _insertTextSuggestionHandler.get();
 }
 
 - (void)setFocusStartsInputSessionPolicyHandler:(_WKFocusStartsInputSessionPolicy (^)(WKWebView *, id <_WKFocusedElementInfo>))handler
@@ -102,21 +113,27 @@
     return @{ };
 }
 
-- (void)setFocusRequiresStrongPasswordAssistanceHandler:(BOOL (^)(WKWebView *, id <_WKFocusedElementInfo>))handler
+- (void)setFocusRequiresStrongPasswordAssistanceHandler:(void(^)(WKWebView *, id<_WKFocusedElementInfo>, void(^)(BOOL)))handler
 {
     _focusRequiresStrongPasswordAssistanceHandler = makeBlockPtr(handler);
 }
 
-- (BOOL (^)(WKWebView *, id <_WKFocusedElementInfo>))focusRequiresStrongPasswordAssistanceHandler
+- (void(^)(WKWebView *, id<_WKFocusedElementInfo>, void(^)(BOOL)))focusRequiresStrongPasswordAssistanceHandler
 {
     return _focusRequiresStrongPasswordAssistanceHandler.get();
 }
 
-- (BOOL)_webView:(WKWebView *)webView focusRequiresStrongPasswordAssistance:(id <_WKFocusedElementInfo>)info
+- (void)_webView:(WKWebView *)webView focusRequiresStrongPasswordAssistance:(id<_WKFocusedElementInfo>)info completionHandler:(void(^)(BOOL))completionHandler
 {
     if (_focusRequiresStrongPasswordAssistanceHandler)
-        return _focusRequiresStrongPasswordAssistanceHandler(webView, info);
-    return NO;
+        return _focusRequiresStrongPasswordAssistanceHandler(webView, info, completionHandler);
+    return completionHandler(NO);
+}
+
+- (void)_webView:(WKWebView *)webView insertTextSuggestion:(UITextSuggestion *)suggestion inInputSession:(id<_WKFormInputSession>)inputSession
+{
+    if (_insertTextSuggestionHandler)
+        _insertTextSuggestionHandler(webView, suggestion, inputSession);
 }
 
 @end

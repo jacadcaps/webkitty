@@ -35,7 +35,7 @@ namespace WTF {
 // This is a collection that is meant to be used for building up lists in a certain order. It's
 // not an efficient data structure for storing lists, but if you need to build a list by doing
 // operations like insertBefore(existingValue, newValue), then this class is a good intermediate
-// helper. Note that the type it operates on must be usable as a HashMap key.
+// helper. Note that the type it operates on must be usable as a UncheckedKeyHashMap key.
 template<typename T>
 class OrderMaker {
     WTF_MAKE_FAST_ALLOCATED;
@@ -88,34 +88,26 @@ public:
         {
         }
 
-        iterator(Node* node)
-            : m_node(node)
+        iterator(typename SentinelLinkedList<Node>::iterator iter)
+            : m_iter(iter)
         {
         }
 
         const T& operator*()
         {
-            return m_node->payload;
+            return m_iter->payload;
         }
 
         iterator& operator++()
         {
-            m_node = m_node->next();
+            ++m_iter;
             return *this;
         }
 
-        bool operator==(const iterator& other) const
-        {
-            return m_node == other.m_node;
-        }
+        friend bool operator==(const iterator&, const iterator&) = default;
 
-        bool operator!=(const iterator& other) const
-        {
-            return !(*this == other);
-        }
-        
     private:
-        Node* m_node { nullptr };
+        typename SentinelLinkedList<Node>::iterator m_iter;
     };
 
     iterator begin() const { return iterator(const_cast<SentinelLinkedList<Node>&>(m_list).begin()); }
@@ -130,7 +122,7 @@ private:
         return result;
     }
     
-    HashMap<T, Node*> m_map;
+    UncheckedKeyHashMap<T, Node*> m_map;
     Bag<Node> m_nodes; // FIXME: We could just manually free the contents of the linked list.
     SentinelLinkedList<Node> m_list;
 };

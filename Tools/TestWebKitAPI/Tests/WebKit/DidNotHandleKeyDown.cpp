@@ -26,6 +26,7 @@
 #include "config.h"
 
 #if WK_HAVE_C_SPI
+#if PLATFORM(COCOA) || PLATFORM(WIN)
 
 #include "JavaScriptTest.h"
 #include "PlatformUtilities.h"
@@ -50,7 +51,7 @@ TEST(WebKit, DidNotHandleKeyDown)
     PlatformWebView webView(context.get());
 
     WKPageUIClientV0 uiClient;
-    memset(&uiClient, 0, sizeof(uiClient));
+    zeroBytes(uiClient);
 
     uiClient.base.version = 0;
     uiClient.didNotHandleKeyEvent = didNotHandleKeyEventCallback;
@@ -68,4 +69,5 @@ TEST(WebKit, DidNotHandleKeyDown)
 
 } // namespace TestWebKitAPI
 
+#endif // PLATFORM(COCOA) || PLATFORM(WIN)
 #endif

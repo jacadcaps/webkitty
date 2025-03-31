@@ -26,17 +26,22 @@
 #include "config.h"
 #include "RemoteMediaResourceLoader.h"
 
-#if ENABLE(GPU_PROCESS)
+#if ENABLE(GPU_PROCESS) && ENABLE(VIDEO)
 
 #include "RemoteMediaPlayerProxy.h"
+#include <WebCore/ResourceError.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RemoteMediaResourceLoader);
 
 using namespace WebCore;
 
 RemoteMediaResourceLoader::RemoteMediaResourceLoader(RemoteMediaPlayerProxy& remoteMediaPlayerProxy)
-    : m_remoteMediaPlayerProxy(makeWeakPtr(remoteMediaPlayerProxy))
+    : m_remoteMediaPlayerProxy(remoteMediaPlayerProxy)
 {
+    ASSERT(isMainRunLoop());
 }
 
 RemoteMediaResourceLoader::~RemoteMediaResourceLoader()
@@ -45,20 +50,24 @@ RemoteMediaResourceLoader::~RemoteMediaResourceLoader()
 
 RefPtr<PlatformMediaResource> RemoteMediaResourceLoader::requestResource(ResourceRequest&& request, LoadOptions options)
 {
-    if (!m_remoteMediaPlayerProxy)
+    ASSERT(isMainRunLoop());
+    RefPtr remoteMediaPlayerProxy = m_remoteMediaPlayerProxy.get();
+    if (!remoteMediaPlayerProxy)
         return nullptr;
 
-    return m_remoteMediaPlayerProxy->requestResource(WTFMove(request), options);
+    return remoteMediaPlayerProxy->requestResource(WTFMove(request), options);
 }
 
 void RemoteMediaResourceLoader::sendH2Ping(const URL& url, CompletionHandler<void(Expected<Seconds, ResourceError>&&)>&& completionHandler)
 {
-    if (!m_remoteMediaPlayerProxy)
+    ASSERT(isMainRunLoop());
+    RefPtr remoteMediaPlayerProxy = m_remoteMediaPlayerProxy.get();
+    if (!remoteMediaPlayerProxy)
         return completionHandler(makeUnexpected(internalError(url)));
     
-    m_remoteMediaPlayerProxy->sendH2Ping(url, WTFMove(completionHandler));
+    remoteMediaPlayerProxy->sendH2Ping(url, WTFMove(completionHandler));
 }
 
 } // namespace WebKit
 
-#endif
+#endif // ENABLE(GPU_PROCESS) && ENABLE(VIDEO)

@@ -31,39 +31,44 @@
 #include "FileSystemFileEntry.h"
 #include "ScriptExecutionContext.h"
 #include <wtf/CrossThreadCopier.h>
-#include <wtf/FileMetadata.h>
 #include <wtf/FileSystem.h>
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/UUID.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(DOMFileSystem);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(DOMFileSystem);
 
 struct ListedChild {
     String filename;
-    FileMetadata::Type type;
+    FileSystem::FileType type;
 
-    ListedChild isolatedCopy() const { return { filename.isolatedCopy(), type }; }
+    ListedChild isolatedCopy() const & { return { filename.isolatedCopy(), type }; }
+    ListedChild isolatedCopy() && { return { WTFMove(filename).isolatedCopy(), type }; }
 };
+
+static std::optional<FileSystem::FileType> fileTypeIgnoringHiddenFiles(const String& fullPath)
+{
+    if (FileSystem::isHiddenFile(fullPath))
+        return std::nullopt;
+    return FileSystem::fileType(fullPath);
+}
 
 static ExceptionOr<Vector<ListedChild>> listDirectoryWithMetadata(const String& fullPath)
 {
     ASSERT(!isMainThread());
-    if (!FileSystem::fileIsDirectory(fullPath, FileSystem::ShouldFollowSymbolicLinks::No))
-        return Exception { NotFoundError, "Path no longer exists or is no longer a directory" };
+    if (FileSystem::fileType(fullPath) != FileSystem::FileType::Directory)
+        return Exception { ExceptionCode::NotFoundError, "Path no longer exists or is no longer a directory"_s };
 
-    auto childPaths = FileSystem::listDirectory(fullPath, "*");
-    Vector<ListedChild> listedChildren;
-    listedChildren.reserveInitialCapacity(childPaths.size());
-    for (auto& childPath : childPaths) {
-        auto metadata = FileSystem::fileMetadata(childPath);
-        if (!metadata || metadata.value().isHidden)
-            continue;
-        listedChildren.uncheckedAppend(ListedChild { FileSystem::pathGetFileName(childPath), metadata.value().type });
-    }
-    return listedChildren;
+    auto childNames = FileSystem::listDirectory(fullPath);
+    return WTF::compactMap(WTFMove(childNames), [&](auto&& childName) -> std::optional<ListedChild> {
+        auto childPath = FileSystem::pathByAppendingComponent(fullPath, childName);
+        if (auto fileType = fileTypeIgnoringHiddenFiles(childPath))
+            return ListedChild { WTFMove(childName), *fileType };
+        return std::nullopt;
+    });
 }
 
 static ExceptionOr<Vector<Ref<FileSystemEntry>>> toFileSystemEntries(ScriptExecutionContext& context, DOMFileSystem& fileSystem, ExceptionOr<Vector<ListedChild>>&& listedChildren, const String& parentVirtualPath)
@@ -72,22 +77,18 @@ static ExceptionOr<Vector<Ref<FileSystemEntry>>> toFileSystemEntries(ScriptExecu
     if (listedChildren.hasException())
         return listedChildren.releaseException();
 
-    Vector<Ref<FileSystemEntry>> entries;
-    entries.reserveInitialCapacity(listedChildren.returnValue().size());
-    for (auto& child : listedChildren.returnValue()) {
-        String virtualPath = parentVirtualPath + "/" + child.filename;
+    return WTF::compactMap(listedChildren.returnValue(), [&](auto& child) -> RefPtr<FileSystemEntry> {
+        auto virtualPath = makeString(parentVirtualPath, '/', child.filename);
         switch (child.type) {
-        case FileMetadata::Type::File:
-            entries.uncheckedAppend(FileSystemFileEntry::create(context, fileSystem, virtualPath));
-            break;
-        case FileMetadata::Type::Directory:
-            entries.uncheckedAppend(FileSystemDirectoryEntry::create(context, fileSystem, virtualPath));
-            break;
+        case FileSystem::FileType::Regular:
+            return FileSystemFileEntry::create(context, fileSystem, virtualPath);
+        case FileSystem::FileType::Directory:
+            return FileSystemDirectoryEntry::create(context, fileSystem, virtualPath);
         default:
             break;
         }
-    }
-    return entries;
+        return nullptr;
+    });
 }
 
 // https://wicg.github.io/entries-api/#name
@@ -99,7 +100,7 @@ static bool isValidPathNameCharacter(UChar c)
 // https://wicg.github.io/entries-api/#path-segment
 static bool isValidPathSegment(StringView segment)
 {
-    if (segment.isEmpty() || segment == "." || segment == "..")
+    if (segment.isEmpty() || segment == "."_s || segment == ".."_s)
         return true;
 
     for (unsigned i = 0; i < segment.length(); ++i) {
@@ -144,10 +145,10 @@ static bool isValidVirtualPath(StringView virtualPath)
 }
 
 DOMFileSystem::DOMFileSystem(Ref<File>&& file)
-    : m_name(createCanonicalUUIDString())
+    : m_name(createVersion4UUIDString())
     , m_file(WTFMove(file))
-    , m_rootPath(FileSystem::directoryName(m_file->path()))
-    , m_workQueue(WorkQueue::create("DOMFileSystem work queue"))
+    , m_rootPath(FileSystem::parentPath(m_file->path()))
+    , m_workQueue(WorkQueue::create("DOMFileSystem work queue"_s))
 {
     ASSERT(!m_rootPath.endsWith('/'));
 }
@@ -162,30 +163,22 @@ Ref<FileSystemDirectoryEntry> DOMFileSystem::root(ScriptExecutionContext& contex
 Ref<FileSystemEntry> DOMFileSystem::fileAsEntry(ScriptExecutionContext& context)
 {
     if (m_file->isDirectory())
-        return FileSystemDirectoryEntry::create(context, *this, "/" + m_file->name());
-    return FileSystemFileEntry::create(context, *this, "/" + m_file->name());
+        return FileSystemDirectoryEntry::create(context, *this, makeString('/', m_file->name()));
+    return FileSystemFileEntry::create(context, *this, makeString('/', m_file->name()));
 }
 
-static ExceptionOr<String> validatePathIsExpectedType(const String& fullPath, String&& virtualPath, FileMetadata::Type expectedType)
+static ExceptionOr<String> validatePathIsExpectedType(const String& fullPath, String&& virtualPath, FileSystem::FileType expectedType)
 {
     ASSERT(!isMainThread());
 
-    auto metadata = FileSystem::fileMetadata(fullPath);
-    if (!metadata || metadata.value().isHidden)
-        return Exception { NotFoundError, "Path does not exist"_s };
+    auto fileType = fileTypeIgnoringHiddenFiles(fullPath);
+    if (!fileType)
+        return Exception { ExceptionCode::NotFoundError, "Path does not exist"_s };
 
-    if (metadata.value().type != expectedType)
-        return Exception { TypeMismatchError, "Entry at path does not have expected type" };
+    if (*fileType != expectedType)
+        return Exception { ExceptionCode::TypeMismatchError, "Entry at path does not have expected type"_s };
 
     return WTFMove(virtualPath);
-}
-
-static Optional<FileMetadata::Type> fileType(const String& fullPath)
-{
-    auto metadata = FileSystem::fileMetadata(fullPath);
-    if (!metadata || metadata.value().isHidden)
-        return WTF::nullopt;
-    return metadata.value().type;
 }
 
 // https://wicg.github.io/entries-api/#resolve-a-relative-path
@@ -193,7 +186,7 @@ static String resolveRelativeVirtualPath(StringView baseVirtualPath, StringView 
 {
     ASSERT(baseVirtualPath[0] == '/');
     if (!relativeVirtualPath.isEmpty() && relativeVirtualPath[0] == '/')
-        return relativeVirtualPath.length() == 1 ? relativeVirtualPath.toString() : resolveRelativeVirtualPath("/", relativeVirtualPath.substring(1));
+        return relativeVirtualPath.length() == 1 ? relativeVirtualPath.toString() : resolveRelativeVirtualPath("/"_s, relativeVirtualPath.substring(1));
 
     Vector<StringView> virtualPathSegments;
     for (auto segment : baseVirtualPath.split('/'))
@@ -201,9 +194,9 @@ static String resolveRelativeVirtualPath(StringView baseVirtualPath, StringView 
 
     for (auto segment : relativeVirtualPath.split('/')) {
         ASSERT(!segment.isEmpty());
-        if (segment == ".")
+        if (segment == "."_s)
             continue;
-        if (segment == "..") {
+        if (segment == ".."_s) {
             if (!virtualPathSegments.isEmpty())
                 virtualPathSegments.removeLast();
             continue;
@@ -215,10 +208,8 @@ static String resolveRelativeVirtualPath(StringView baseVirtualPath, StringView 
         return "/"_s;
 
     StringBuilder builder;
-    for (auto& segment : virtualPathSegments) {
-        builder.append('/');
-        builder.append(segment);
-    }
+    for (auto& segment : virtualPathSegments)
+        builder.append('/', segment);
     return builder.toString();
 }
 
@@ -229,9 +220,9 @@ String DOMFileSystem::evaluatePath(StringView virtualPath)
 
     Vector<StringView> resolvedComponents;
     for (auto component : virtualPath.split('/')) {
-        if (component == ".")
+        if (component == "."_s)
             continue;
-        if (component == "..") {
+        if (component == ".."_s) {
             if (!resolvedComponents.isEmpty())
                 resolvedComponents.removeLast();
             continue;
@@ -255,10 +246,13 @@ void DOMFileSystem::listDirectory(ScriptExecutionContext& context, FileSystemDir
         return;
     }
 
-    m_workQueue->dispatch([this, context = makeRef(context), completionHandler = WTFMove(completionHandler), fullPath = crossThreadCopy(fullPath), directoryVirtualPath = crossThreadCopy(directoryVirtualPath)]() mutable {
+    if (m_rootPath.isEmpty())
+        return completionHandler(Exception { ExceptionCode::NotFoundError, "Path does not exist"_s });
+
+    m_workQueue->dispatch([protectedThis = Ref { *this }, context = Ref { context }, completionHandler = WTFMove(completionHandler), fullPath = crossThreadCopy(WTFMove(fullPath)), directoryVirtualPath = crossThreadCopy(WTFMove(directoryVirtualPath))]() mutable {
         auto listedChildren = listDirectoryWithMetadata(fullPath);
-        callOnMainThread([this, context = WTFMove(context), completionHandler = WTFMove(completionHandler), listedChildren = crossThreadCopy(listedChildren), directoryVirtualPath = directoryVirtualPath.isolatedCopy()]() mutable {
-            completionHandler(toFileSystemEntries(context, *this, WTFMove(listedChildren), directoryVirtualPath));
+        callOnMainThread([protectedThis = WTFMove(protectedThis), context = WTFMove(context), completionHandler = WTFMove(completionHandler), listedChildren = crossThreadCopy(WTFMove(listedChildren)), directoryVirtualPath = WTFMove(directoryVirtualPath).isolatedCopy()]() mutable {
+            completionHandler(toFileSystemEntries(context, protectedThis, WTFMove(listedChildren), directoryVirtualPath));
         });
     });
 }
@@ -267,16 +261,20 @@ void DOMFileSystem::getParent(ScriptExecutionContext& context, FileSystemEntry& 
 {
     ASSERT(&entry.filesystem() == this);
 
-    auto virtualPath = resolveRelativeVirtualPath(entry.virtualPath(), "..");
+    auto virtualPath = resolveRelativeVirtualPath(entry.virtualPath(), ".."_s);
     ASSERT(virtualPath[0] == '/');
     auto fullPath = evaluatePath(virtualPath);
-    m_workQueue->dispatch([this, context = makeRef(context), fullPath = crossThreadCopy(fullPath), virtualPath = crossThreadCopy(virtualPath), completionCallback = WTFMove(completionCallback)]() mutable {
-        auto validatedVirtualPath = validatePathIsExpectedType(fullPath, WTFMove(virtualPath), FileMetadata::Type::Directory);
-        callOnMainThread([this, context = WTFMove(context), validatedVirtualPath = crossThreadCopy(validatedVirtualPath), completionCallback = WTFMove(completionCallback)]() mutable {
+
+    if (m_rootPath.isEmpty())
+        return completionCallback(Exception { ExceptionCode::NotFoundError, "Path does not exist"_s });
+
+    m_workQueue->dispatch([protectedThis = Ref { *this }, context = Ref { context }, fullPath = crossThreadCopy(WTFMove(fullPath)), virtualPath = crossThreadCopy(WTFMove(virtualPath)), completionCallback = WTFMove(completionCallback)]() mutable {
+        auto validatedVirtualPath = validatePathIsExpectedType(fullPath, WTFMove(virtualPath), FileSystem::FileType::Directory);
+        callOnMainThread([protectedThis = WTFMove(protectedThis), context = WTFMove(context), validatedVirtualPath = crossThreadCopy(WTFMove(validatedVirtualPath)), completionCallback = WTFMove(completionCallback)]() mutable {
             if (validatedVirtualPath.hasException())
                 completionCallback(validatedVirtualPath.releaseException());
             else
-                completionCallback(FileSystemDirectoryEntry::create(context, *this, validatedVirtualPath.releaseReturnValue()));
+                completionCallback(FileSystemDirectoryEntry::create(context, protectedThis.get(), validatedVirtualPath.releaseReturnValue()));
         });
     });
 }
@@ -289,14 +287,14 @@ void DOMFileSystem::getEntry(ScriptExecutionContext& context, FileSystemDirector
 
     if (!isValidVirtualPath(virtualPath)) {
         callOnMainThread([completionCallback = WTFMove(completionCallback)] {
-            completionCallback(Exception { TypeMismatchError, "Path is invalid"_s });
+            completionCallback(Exception { ExceptionCode::TypeMismatchError, "Path is invalid"_s });
         });
         return;
     }
 
     if (flags.create) {
         callOnMainThread([completionCallback = WTFMove(completionCallback)] {
-            completionCallback(Exception { SecurityError, "create flag cannot be true"_s });
+            completionCallback(Exception { ExceptionCode::SecurityError, "create flag cannot be true"_s });
         });
         return;
     }
@@ -305,45 +303,50 @@ void DOMFileSystem::getEntry(ScriptExecutionContext& context, FileSystemDirector
     ASSERT(resolvedVirtualPath[0] == '/');
     auto fullPath = evaluatePath(resolvedVirtualPath);
     if (fullPath == m_rootPath) {
-        callOnMainThread([this, context = makeRef(context), completionCallback = WTFMove(completionCallback)]() mutable {
+        callOnMainThread([this, context = Ref { context }, completionCallback = WTFMove(completionCallback)]() mutable {
             completionCallback(Ref<FileSystemEntry> { root(context) });
         });
         return;
     }
 
-    m_workQueue->dispatch([this, context = makeRef(context), fullPath = crossThreadCopy(fullPath), resolvedVirtualPath = crossThreadCopy(resolvedVirtualPath), completionCallback = WTFMove(completionCallback)]() mutable {
-        auto entryType = fileType(fullPath);
-        callOnMainThread([this, context = WTFMove(context), resolvedVirtualPath = crossThreadCopy(resolvedVirtualPath), entryType, completionCallback = WTFMove(completionCallback)]() mutable {
+    if (m_rootPath.isEmpty())
+        return completionCallback(Exception { ExceptionCode::NotFoundError, "Path does not exist"_s });
+
+    m_workQueue->dispatch([protectedThis = Ref { *this }, context = Ref { context }, fullPath = crossThreadCopy(WTFMove(fullPath)), resolvedVirtualPath = crossThreadCopy(WTFMove(resolvedVirtualPath)), completionCallback = WTFMove(completionCallback)]() mutable {
+        auto entryType = fileTypeIgnoringHiddenFiles(fullPath);
+        callOnMainThread([protectedThis = WTFMove(protectedThis), context = WTFMove(context), resolvedVirtualPath = crossThreadCopy(WTFMove(resolvedVirtualPath)), entryType, completionCallback = WTFMove(completionCallback)]() mutable {
             if (!entryType) {
-                completionCallback(Exception { NotFoundError, "Cannot find entry at given path"_s });
+                completionCallback(Exception { ExceptionCode::NotFoundError, "Cannot find entry at given path"_s });
                 return;
             }
             switch (entryType.value()) {
-            case FileMetadata::Type::Directory:
-                completionCallback(Ref<FileSystemEntry> { FileSystemDirectoryEntry::create(context, *this, resolvedVirtualPath) });
+            case FileSystem::FileType::Directory:
+                completionCallback(Ref<FileSystemEntry> { FileSystemDirectoryEntry::create(context, protectedThis.get(), resolvedVirtualPath) });
                 break;
-            case FileMetadata::Type::File:
-                completionCallback(Ref<FileSystemEntry> { FileSystemFileEntry::create(context, *this, resolvedVirtualPath) });
+            case FileSystem::FileType::Regular:
+                completionCallback(Ref<FileSystemEntry> { FileSystemFileEntry::create(context, protectedThis.get(), resolvedVirtualPath) });
                 break;
             default:
-                completionCallback(Exception { NotFoundError, "Cannot find entry at given path"_s });
+                completionCallback(Exception { ExceptionCode::NotFoundError, "Cannot find entry at given path"_s });
                 break;
             }
         });
     });
 }
 
-void DOMFileSystem::getFile(FileSystemFileEntry& fileEntry, GetFileCallback&& completionCallback)
+void DOMFileSystem::getFile(ScriptExecutionContext& context, FileSystemFileEntry& fileEntry, GetFileCallback&& completionCallback)
 {
+    if (m_rootPath.isEmpty())
+        return completionCallback(Exception { ExceptionCode::NotFoundError, "Path does not exist"_s });
     auto virtualPath = fileEntry.virtualPath();
     auto fullPath = evaluatePath(virtualPath);
-    m_workQueue->dispatch([fullPath = crossThreadCopy(fullPath), virtualPath = crossThreadCopy(virtualPath), completionCallback = WTFMove(completionCallback)]() mutable {
-        auto validatedVirtualPath = validatePathIsExpectedType(fullPath, WTFMove(virtualPath), FileMetadata::Type::File);
-        callOnMainThread([fullPath = crossThreadCopy(fullPath), validatedVirtualPath = crossThreadCopy(validatedVirtualPath), completionCallback = WTFMove(completionCallback)]() mutable {
+    m_workQueue->dispatch([fullPath = crossThreadCopy(WTFMove(fullPath)), virtualPath = crossThreadCopy(WTFMove(virtualPath)), context = Ref { context }, completionCallback = WTFMove(completionCallback)]() mutable {
+        auto validatedVirtualPath = validatePathIsExpectedType(fullPath, WTFMove(virtualPath), FileSystem::FileType::Regular);
+        callOnMainThread([fullPath = crossThreadCopy(WTFMove(fullPath)), validatedVirtualPath = crossThreadCopy(WTFMove(validatedVirtualPath)), context = WTFMove(context), completionCallback = WTFMove(completionCallback)]() mutable {
             if (validatedVirtualPath.hasException())
                 completionCallback(validatedVirtualPath.releaseException());
             else
-                completionCallback(File::create(fullPath));
+                completionCallback(File::create(context.ptr(), fullPath));
         });
     });
 }

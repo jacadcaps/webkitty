@@ -40,15 +40,15 @@ public:
     
     CString getID(const T* value)
     {
-        typename HashMap<const T*, CString>::iterator iter = m_forwardMap.find(value);
+        typename UncheckedKeyHashMap<const T*, CString>::iterator iter = m_forwardMap.find(value);
         if (iter != m_forwardMap.end())
             return iter->value;
         
         for (unsigned hashValue = toCString(*value).hash(); ; hashValue++) {
-            CString fullHash = integerToSixCharacterHashString(hashValue).data();
+            CString fullHash = std::span<const char> { integerToSixCharacterHashString(hashValue) };
             
             for (unsigned length = 2; length < 6; ++length) {
-                CString shortHash = CString(fullHash.data(), length);
+                CString shortHash { fullHash.span().first(length) };
                 if (!m_backwardMap.contains(shortHash)) {
                     m_forwardMap.add(value, shortHash);
                     m_backwardMap.add(shortHash, value);
@@ -76,12 +76,12 @@ public:
     {
         out.print(prefix);
         T::dumpContextHeader(out);
-        out.print("\n");
+        out.print("\n"_s);
         
         Vector<CString> keys;
         unsigned maxKeySize = 0;
         for (
-            typename HashMap<CString, const T*>::const_iterator iter = m_backwardMap.begin();
+            typename UncheckedKeyHashMap<CString, const T*>::const_iterator iter = m_backwardMap.begin();
             iter != m_backwardMap.end();
             ++iter) {
             keys.append(iter->key);
@@ -92,12 +92,12 @@ public:
         
         for (unsigned i = 0; i < keys.size(); ++i) {
             const T* value = m_backwardMap.get(keys[i]);
-            out.print(prefix, "    ");
+            out.print(prefix, "    "_s);
             CString briefString = brief(value, keys[i]);
             out.print(briefString);
             for (unsigned n = briefString.length(); n < maxKeySize; ++n)
-                out.print(" ");
-            out.print(" = ", *value, "\n");
+                out.print(" "_s);
+            out.print(" = "_s, *value, "\n"_s);
         }
     }
     
@@ -109,8 +109,8 @@ public:
         return out.toCString();
     }
     
-    HashMap<const T*, CString> m_forwardMap;
-    HashMap<CString, const T*> m_backwardMap;
+    UncheckedKeyHashMap<const T*, CString> m_forwardMap;
+    UncheckedKeyHashMap<CString, const T*> m_backwardMap;
 };
 
 } // namespace WTF

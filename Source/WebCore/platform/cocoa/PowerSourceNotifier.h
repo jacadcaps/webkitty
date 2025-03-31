@@ -26,23 +26,31 @@
 #pragma once
 
 #include <wtf/Function.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
+
+namespace WebCore {
+class PowerSourceNotifier;
+}
+
+namespace WTF {
+template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
+template<> struct IsDeprecatedWeakRefSmartPointerException<WebCore::PowerSourceNotifier> : std::true_type { };
+}
 
 namespace WebCore {
 
 class PowerSourceNotifier : public CanMakeWeakPtr<PowerSourceNotifier> {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(PowerSourceNotifier, WEBCORE_EXPORT);
 public:
-    using PowerSourceNotifierCallback = WTF::Function<void(bool hasAC)>;
+    using PowerSourceNotifierCallback = Function<void(bool hasAC)>;
     WEBCORE_EXPORT explicit PowerSourceNotifier(PowerSourceNotifierCallback&&);
     WEBCORE_EXPORT ~PowerSourceNotifier();
-
-    WEBCORE_EXPORT bool isLowPowerModeEnabled() const;
 
 private:
     void notifyPowerSourceChanged();
 
-    Optional<int> m_tokenID;
+    std::optional<int> m_tokenID;
     PowerSourceNotifierCallback m_callback;
 };
 

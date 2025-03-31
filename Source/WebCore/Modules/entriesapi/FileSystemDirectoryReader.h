@@ -39,13 +39,12 @@ class FileSystemEntriesCallback;
 class ScriptExecutionContext;
 
 class FileSystemDirectoryReader final : public ScriptWrappable, public ActiveDOMObject, public RefCounted<FileSystemDirectoryReader> {
-    WTF_MAKE_ISO_ALLOCATED(FileSystemDirectoryReader);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(FileSystemDirectoryReader);
 public:
-    static Ref<FileSystemDirectoryReader> create(ScriptExecutionContext& context, FileSystemDirectoryEntry& directory)
-    {
-        return adoptRef(*new FileSystemDirectoryReader(context, directory));
-    }
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
 
+    static Ref<FileSystemDirectoryReader> create(ScriptExecutionContext&, FileSystemDirectoryEntry&);
     ~FileSystemDirectoryReader();
 
     void readEntries(ScriptExecutionContext&, Ref<FileSystemEntriesCallback>&&, RefPtr<ErrorCallback>&&);
@@ -53,11 +52,10 @@ public:
 private:
     FileSystemDirectoryReader(ScriptExecutionContext&, FileSystemDirectoryEntry&);
 
-    const char* activeDOMObjectName() const final;
     Document* document() const;
 
     Ref<FileSystemDirectoryEntry> m_directory;
-    Optional<Exception> m_error;
+    std::optional<Exception> m_error;
     bool m_isReading { false };
     bool m_isDone { false };
 };

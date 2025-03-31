@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,7 +26,11 @@
 #include "config.h"
 #include "ICStats.h"
 
+#include <wtf/TZoneMallocInlines.h>
+
 namespace JSC {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ICStats);
 
 bool ICEvent::operator<(const ICEvent& other) const
 {
@@ -35,7 +39,9 @@ bool ICEvent::operator<(const ICEvent& other) const
             return true;
         if (!other.m_classInfo)
             return false;
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
         return strcmp(m_classInfo->className, other.m_classInfo->className) < 0;
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
     }
     
     if (m_propertyName != other.m_propertyName)
@@ -56,7 +62,7 @@ void ICEvent::dump(PrintStream& out) const
 
 void ICEvent::log() const
 {
-    ICStats::instance().add(*this);
+    ICStats::singleton().add(*this);
 }
 
 Atomic<ICStats*> ICStats::s_instance;
@@ -64,9 +70,9 @@ Atomic<ICStats*> ICStats::s_instance;
 ICStats::ICStats()
 {
     m_thread = Thread::create(
-        "JSC ICStats",
+        "JSC ICStats"_s,
         [this] () {
-            LockHolder locker(m_lock);
+            Locker locker { m_lock };
             for (;;) {
                 m_condition.waitFor(
                     m_lock, Seconds(1), [this] () -> bool { return m_shouldStop; });
@@ -74,9 +80,12 @@ ICStats::ICStats()
                     break;
                 
                 dataLog("ICStats:\n");
-                auto list = m_spectrum.buildList();
-                for (unsigned i = list.size(); i--;)
-                    dataLog("    ", list[i].key, ": ", list[i].count, "\n");
+                {
+                    Locker spectrumLocker { m_spectrum.getLock() };
+                    auto list = m_spectrum.buildList(spectrumLocker);
+                    for (unsigned i = list.size(); i--;)
+                        dataLog("    ", *list[i].key, ": ", list[i].count, "\n");
+                }
             }
         });
 }
@@ -84,7 +93,7 @@ ICStats::ICStats()
 ICStats::~ICStats()
 {
     {
-        LockHolder locker(m_lock);
+        Locker locker { m_lock };
         m_shouldStop = true;
         m_condition.notifyAll();
     }
@@ -97,7 +106,7 @@ void ICStats::add(const ICEvent& event)
     m_spectrum.add(event);
 }
 
-ICStats& ICStats::instance()
+ICStats& ICStats::singleton()
 {
     for (;;) {
         ICStats* result = s_instance.load();

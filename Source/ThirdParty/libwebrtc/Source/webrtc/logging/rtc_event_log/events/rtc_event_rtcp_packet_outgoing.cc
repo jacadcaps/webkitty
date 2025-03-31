@@ -10,7 +10,12 @@
 
 #include "logging/rtc_event_log/events/rtc_event_rtcp_packet_outgoing.h"
 
+#include <cstdint>
+#include <memory>
+
 #include "absl/memory/memory.h"
+#include "api/array_view.h"
+#include "api/rtc_event_log/rtc_event.h"
 
 namespace webrtc {
 
@@ -24,14 +29,6 @@ RtcEventRtcpPacketOutgoing::RtcEventRtcpPacketOutgoing(
       packet_(other.packet_.data(), other.packet_.size()) {}
 
 RtcEventRtcpPacketOutgoing::~RtcEventRtcpPacketOutgoing() = default;
-
-RtcEvent::Type RtcEventRtcpPacketOutgoing::GetType() const {
-  return RtcEvent::Type::RtcpPacketOutgoing;
-}
-
-bool RtcEventRtcpPacketOutgoing::IsConfigEvent() const {
-  return false;
-}
 
 std::unique_ptr<RtcEventRtcpPacketOutgoing> RtcEventRtcpPacketOutgoing::Copy()
     const {

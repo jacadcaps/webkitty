@@ -50,25 +50,23 @@ void AXObjectCache::detachWrapper(AXCoreObject* obj, AccessibilityDetachmentType
         wrapper->detach();
 }
 
-void AXObjectCache::attachWrapper(AXCoreObject*)
+void AXObjectCache::attachWrapper(AccessibilityObject&)
 {
     // On Windows, AccessibilityObjects are wrapped when the accessibility
     // software requests them via get_accChild.
 }
 
-void AXObjectCache::handleScrolledToAnchor(const Node* anchorNode)
+void AXObjectCache::handleScrolledToAnchor(const Node& anchorNode)
 {
     // The anchor node may not be accessible. Post the notification for the
     // first accessible object.
-    postPlatformNotification(AccessibilityObject::firstAccessibleObjectFromNode(anchorNode), AXScrolledToAnchor);
+    if (RefPtr object = AccessibilityObject::firstAccessibleObjectFromNode(&anchorNode))
+        postPlatformNotification(*object, AXNotification::ScrolledToAnchor);
 }
 
-void AXObjectCache::postPlatformNotification(AXCoreObject* obj, AXNotification notification)
+void AXObjectCache::postPlatformNotification(AccessibilityObject& object, AXNotification notification)
 {
-    if (!obj)
-        return;
-
-    Document* document = obj->document();
+    Document* document = object.document();
     if (!document)
         return;
 
@@ -78,38 +76,38 @@ void AXObjectCache::postPlatformNotification(AXCoreObject* obj, AXNotification n
 
     DWORD msaaEvent;
     switch (notification) {
-        case AXCheckedStateChanged:
-            msaaEvent = EVENT_OBJECT_STATECHANGE;
-            break;
+    case AXNotification::CheckedStateChanged:
+        msaaEvent = EVENT_OBJECT_STATECHANGE;
+        break;
 
-        case AXFocusedUIElementChanged:
-        case AXActiveDescendantChanged:
-            msaaEvent = EVENT_OBJECT_FOCUS;
-            break;
+    case AXNotification::FocusedUIElementChanged:
+    case AXNotification::ActiveDescendantChanged:
+        msaaEvent = EVENT_OBJECT_FOCUS;
+        break;
 
-        case AXScrolledToAnchor:
-            msaaEvent = EVENT_SYSTEM_SCROLLINGSTART;
-            break;
+    case AXNotification::ScrolledToAnchor:
+        msaaEvent = EVENT_SYSTEM_SCROLLINGSTART;
+        break;
 
-        case AXLayoutComplete:
-            msaaEvent = EVENT_OBJECT_REORDER;
-            break;
+    case AXNotification::LayoutComplete:
+        msaaEvent = EVENT_OBJECT_REORDER;
+        break;
 
-        case AXLoadComplete:
-            msaaEvent = IA2_EVENT_DOCUMENT_LOAD_COMPLETE;
-            break;
+    case AXNotification::LoadComplete:
+        msaaEvent = IA2_EVENT_DOCUMENT_LOAD_COMPLETE;
+        break;
 
-        case AXValueChanged:
-        case AXMenuListValueChanged:
-            msaaEvent = EVENT_OBJECT_VALUECHANGE;
-            break;
+    case AXNotification::ValueChanged:
+    case AXNotification::MenuListValueChanged:
+        msaaEvent = EVENT_OBJECT_VALUECHANGE;
+        break;
 
-        case AXMenuListItemSelected:
-            msaaEvent = EVENT_OBJECT_SELECTION;
-            break;
+    case AXNotification::MenuListItemSelected:
+        msaaEvent = EVENT_OBJECT_SELECTION;
+        break;
 
-        default:
-            return;
+    default:
+        return;
     }
 
     // Windows will end up calling get_accChild() on the root accessible
@@ -117,10 +115,11 @@ void AXObjectCache::postPlatformNotification(AXCoreObject* obj, AXNotification n
     // negate the AXID so we know that the caller is passing the ID of an
     // element, not the index of a child element.
 
-    ASSERT(obj->objectID() >= 1);
-    ASSERT(obj->objectID() <= std::numeric_limits<LONG>::max());
+    ASSERT(object.objectID().toUInt64() >= 1);
+    ASSERT(object.objectID().toUInt64() <= std::numeric_limits<LONG>::max());
 
-    NotifyWinEvent(msaaEvent, page->chrome().platformPageClient(), OBJID_CLIENT, -static_cast<LONG>(obj->objectID()));
+    auto objectID = object.objectID();
+    NotifyWinEvent(msaaEvent, page->chrome().platformPageClient(), OBJID_CLIENT, -static_cast<LONG>(objectID.toUInt64()));
 }
 
 void AXObjectCache::nodeTextChangePlatformNotification(AccessibilityObject*, AXTextChange, unsigned, const String&)
@@ -140,47 +139,25 @@ void AXObjectCache::frameLoadingEventPlatformNotification(AccessibilityObject* o
     if (!page)
         return;
 
-    if (notification == AXLoadingStarted)
+    if (notification == AXLoadingEvent::Started)
         page->chrome().client().AXStartFrameLoad();
-    else if (notification == AXLoadingFinished)
+    else if (notification == AXLoadingEvent::Finished)
         page->chrome().client().AXFinishFrameLoad();
 }
 
-AXID AXObjectCache::platformGenerateAXID() const
+void AXObjectCache::platformHandleFocusedUIElementChanged(Element*, Element* newFocus)
 {
-    static AXID lastUsedID = 0;
-
-    // Generate a new ID. Windows accessibility relies on a positive AXID,
-    // ranging from 1 to LONG_MAX.
-    AXID objID = lastUsedID;
-    do {
-        ++objID;
-        objID %= std::numeric_limits<LONG>::max();
-    } while (objID == 0 || HashTraits<AXID>::isDeletedValue(objID) || m_idsInUse.contains(objID));
-
-    ASSERT(objID >= 1 && objID <= std::numeric_limits<LONG>::max());
-
-    lastUsedID = objID;
-
-    return objID;
-}
-
-void AXObjectCache::platformHandleFocusedUIElementChanged(Node*, Node* newFocusedNode)
-{
-    if (!newFocusedNode)
+    if (!newFocus)
         return;
 
-    Page* page = newFocusedNode->document().page();
+    Page* page = newFocus->document().page();
     if (!page || !page->chrome().platformPageClient())
         return;
 
-    AXCoreObject* focusedObject = focusedUIElementForPage(page);
-    if (!focusedObject)
-        return;
-
-    ASSERT(!focusedObject->accessibilityIsIgnored());
-
-    postPlatformNotification(focusedObject, AXFocusedUIElementChanged);
+    if (RefPtr focusedObject = focusedObjectForPage(page)) {
+        ASSERT(!focusedObject->isIgnored());
+        postPlatformNotification(*focusedObject, AXNotification::FocusedUIElementChanged);
+    }
 }
 
 void AXObjectCache::platformPerformDeferredCacheUpdate()

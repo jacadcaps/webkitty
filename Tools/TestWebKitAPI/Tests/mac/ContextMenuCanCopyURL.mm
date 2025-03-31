@@ -24,10 +24,10 @@
  */
 
 #import "config.h"
+
 #import "PlatformUtilities.h"
 #import "PlatformWebView.h"
-#import "WTFStringUtilities.h"
-
+#import "Test.h"
 #import <WebKit/WebViewPrivate.h>
 #import <WebKit/WebURLsWithTitles.h>
 #import <WebKit/DOM.h>
@@ -94,14 +94,14 @@ TEST(WebKitLegacy, ContextMenuCanCopyURL)
     [window.get().contentView addSubview:webView.get()];
     webView.get().frameLoadDelegate = delegate.get();
 
-    [webView.get().mainFrame loadRequest:[NSURLRequest requestWithURL:[[NSBundle mainBundle] URLForResource:@"ContextMenuCanCopyURL" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"]]];
+    [webView.get().mainFrame loadRequest:[NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"ContextMenuCanCopyURL" withExtension:@"html"]]];
     
     Util::run(&didFinishLoad);
 
     contextMenuCopyLink(webView.get(), 0);
     
     NSURL *url = [NSURL URLFromPasteboard:[NSPasteboard generalPasteboard]];
-    EXPECT_EQ(String("http://www.webkit.org/"), String([url absoluteString]));
+    EXPECT_EQ(String([url absoluteString]), "http://www.webkit.org/"_s);
 
     contextMenuCopyLink(webView.get(), 1);
     

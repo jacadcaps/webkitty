@@ -27,43 +27,38 @@
 
 #if ENABLE(WEB_AUTHN)
 
+#include "BufferSource.h"
+#include <wtf/KeyValuePair.h>
+#include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
 struct AuthenticationExtensionsClientInputs {
+    struct LargeBlobInputs {
+        String support;
+        std::optional<bool> read;
+        std::optional<BufferSource> write;
+    };
+
+    struct PRFValues {
+        BufferSource first;
+        std::optional<BufferSource> second;
+    };
+
+    struct PRFInputs {
+        std::optional<AuthenticationExtensionsClientInputs::PRFValues> eval;
+        std::optional<Vector<KeyValuePair<String, AuthenticationExtensionsClientInputs::PRFValues>>> evalByCredential;
+    };
+
     String appid;
-    bool googleLegacyAppidSupport;
+    std::optional<bool> credProps;
+    std::optional<AuthenticationExtensionsClientInputs::LargeBlobInputs> largeBlob;
+    std::optional<AuthenticationExtensionsClientInputs::PRFInputs> prf;
 
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static Optional<AuthenticationExtensionsClientInputs> decode(Decoder&);
+    WEBCORE_EXPORT Vector<uint8_t> toCBOR() const;
+    WEBCORE_EXPORT static std::optional<AuthenticationExtensionsClientInputs> fromCBOR(std::span<const uint8_t>);
 };
-
-template<class Encoder>
-void AuthenticationExtensionsClientInputs::encode(Encoder& encoder) const
-{
-    encoder << appid << googleLegacyAppidSupport;
-}
-
-template<class Decoder>
-Optional<AuthenticationExtensionsClientInputs> AuthenticationExtensionsClientInputs::decode(Decoder& decoder)
-{
-    AuthenticationExtensionsClientInputs result;
-
-    Optional<String> appid;
-    decoder >> appid;
-    if (!appid)
-        return WTF::nullopt;
-    result.appid = WTFMove(*appid);
-
-    Optional<bool> googleLegacyAppidSupport;
-    decoder >> googleLegacyAppidSupport;
-    if (!googleLegacyAppidSupport)
-        return WTF::nullopt;
-    result.googleLegacyAppidSupport = WTFMove(*googleLegacyAppidSupport);
-
-    return result;
-}
 
 } // namespace WebCore
 

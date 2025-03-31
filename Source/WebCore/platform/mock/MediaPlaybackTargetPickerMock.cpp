@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,8 +32,11 @@
 #include "Logging.h"
 #include "MediaPlaybackTargetMock.h"
 #include "WebMediaSessionManager.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(MediaPlaybackTargetPickerMock);
 
 static const Seconds timerInterval { 100_ms };
 
@@ -52,13 +55,13 @@ MediaPlaybackTargetPickerMock::~MediaPlaybackTargetPickerMock()
 bool MediaPlaybackTargetPickerMock::externalOutputDeviceAvailable()
 {
     LOG(Media, "MediaPlaybackTargetPickerMock::externalOutputDeviceAvailable");
-    return m_state == MediaPlaybackTargetContext::OutputDeviceAvailable;
+    return m_state == MediaPlaybackTargetContext::MockState::OutputDeviceAvailable;
 }
 
 Ref<MediaPlaybackTarget> MediaPlaybackTargetPickerMock::playbackTarget()
 {
     LOG(Media, "MediaPlaybackTargetPickerMock::playbackTarget");
-    return WebCore::MediaPlaybackTargetMock::create(m_deviceName, m_state);
+    return WebCore::MediaPlaybackTargetMock::create(MediaPlaybackTargetContextMock { m_deviceName, m_state });
 }
 
 void MediaPlaybackTargetPickerMock::showPlaybackTargetPicker(PlatformView*, const FloatRect&, bool checkActiveRoute, bool useDarkAppearance)
@@ -74,7 +77,10 @@ void MediaPlaybackTargetPickerMock::showPlaybackTargetPicker(PlatformView*, cons
     LOG(Media, "MediaPlaybackTargetPickerMock::showPlaybackTargetPicker - checkActiveRoute = %i, useDarkAppearance = %i", (int)checkActiveRoute, (int)useDarkAppearance);
 
     m_showingMenu = true;
-    m_taskQueue.enqueueTask([this] {
+    callOnMainThread([this, weakThis = WeakPtr { *this }] {
+        if (!weakThis)
+            return;
+
         m_showingMenu = false;
         currentDeviceDidChange();
     });
@@ -84,11 +90,14 @@ void MediaPlaybackTargetPickerMock::startingMonitoringPlaybackTargets()
 {
     LOG(Media, "MediaPlaybackTargetPickerMock::startingMonitoringPlaybackTargets");
 
-    m_taskQueue.enqueueTask([this] {
-        if (m_state == MediaPlaybackTargetContext::OutputDeviceAvailable)
+    callOnMainThread([this, weakThis = WeakPtr { *this }] {
+        if (!weakThis)
+            return;
+
+        if (m_state == MediaPlaybackTargetContext::MockState::OutputDeviceAvailable)
             availableDevicesDidChange();
 
-        if (!m_deviceName.isEmpty() && m_state != MediaPlaybackTargetContext::Unknown)
+        if (!m_deviceName.isEmpty() && m_state != MediaPlaybackTargetContext::MockState::Unknown)
             currentDeviceDidChange();
     });
 }
@@ -101,15 +110,18 @@ void MediaPlaybackTargetPickerMock::stopMonitoringPlaybackTargets()
 void MediaPlaybackTargetPickerMock::invalidatePlaybackTargets()
 {
     LOG(Media, "MediaPlaybackTargetPickerMock::invalidatePlaybackTargets");
-    setState(emptyString(), MediaPlaybackTargetContext::Unknown);
+    setState(emptyString(), MediaPlaybackTargetContext::MockState::Unknown);
 }
 
-void MediaPlaybackTargetPickerMock::setState(const String& deviceName, MediaPlaybackTargetContext::State state)
+void MediaPlaybackTargetPickerMock::setState(const String& deviceName, MediaPlaybackTargetContext::MockState state)
 {
     LOG(Media, "MediaPlaybackTargetPickerMock::setState - name = %s, state = 0x%x", deviceName.utf8().data(), (unsigned)state);
 
-    m_taskQueue.enqueueTask([this, state, deviceName] {
-        if (deviceName != m_deviceName && state != MediaPlaybackTargetContext::Unknown) {
+    callOnMainThread([this, weakThis = WeakPtr { *this }, state, deviceName] {
+        if (!weakThis)
+            return;
+
+        if (deviceName != m_deviceName && state != MediaPlaybackTargetContext::MockState::Unknown) {
             m_deviceName = deviceName;
             currentDeviceDidChange();
         }

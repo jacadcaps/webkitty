@@ -25,8 +25,12 @@
 
 #pragma once
 
+#if !BUSE(TZONE)
+
 #include "BAssert.h"
 #include "DeferredTrigger.h"
+
+#if !BUSE(LIBPAS)
 
 namespace bmalloc {
 
@@ -54,3 +58,5 @@ void DeferredTrigger<trigger>::handleDeferral(const LockHolder& locker, IsoPage<
 
 } // namespace bmalloc
 
+#endif
+#endif // !BUSE(TZONE)

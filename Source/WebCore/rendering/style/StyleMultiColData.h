@@ -29,17 +29,26 @@
 #include "RenderStyleConstants.h"
 #include <wtf/RefCounted.h>
 
+namespace WTF {
+class TextStream;
+}
+
 namespace WebCore {
 
 // CSS3 Multi Column Layout
 
+DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(StyleMultiColData);
 class StyleMultiColData : public RefCounted<StyleMultiColData> {
+    WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(StyleMultiColData);
 public:
     static Ref<StyleMultiColData> create() { return adoptRef(*new StyleMultiColData); }
     Ref<StyleMultiColData> copy() const;
     
     bool operator==(const StyleMultiColData&) const;
-    bool operator!=(const StyleMultiColData& other) const { return !(*this == other); }
+
+#if !LOG_DISABLED
+    void dumpDifferences(TextStream&, const StyleMultiColData&) const;
+#endif
 
     unsigned short ruleWidth() const
     {
@@ -51,7 +60,7 @@ public:
     float width { 0 };
     unsigned short count;
     BorderValue rule;
-    Color visitedLinkColumnRuleColor;
+    Style::Color visitedLinkColumnRuleColor;
 
     bool autoWidth : 1;
     bool autoCount : 1;

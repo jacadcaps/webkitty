@@ -28,21 +28,26 @@
 
 #include "Document.h"
 #include "InstrumentingAgents.h"
-
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
 using namespace Inspector;
 
-InspectorWorkerAgent::InspectorWorkerAgent(PageAgentContext& context)
+WTF_MAKE_TZONE_ALLOCATED_IMPL(InspectorWorkerAgent);
+
+InspectorWorkerAgent::InspectorWorkerAgent(WebAgentContext& context)
     : InspectorAgentBase("Worker"_s, context)
-    , m_frontendDispatcher(makeUnique<Inspector::WorkerFrontendDispatcher>(context.frontendRouter))
+    , m_pageChannel(PageChannel::create(*this))
+    , m_frontendDispatcher(makeUniqueRef<Inspector::WorkerFrontendDispatcher>(context.frontendRouter))
     , m_backendDispatcher(Inspector::WorkerBackendDispatcher::create(context.backendDispatcher, this))
-    , m_page(context.inspectedPage)
 {
 }
 
-InspectorWorkerAgent::~InspectorWorkerAgent() = default;
+InspectorWorkerAgent::~InspectorWorkerAgent()
+{
+    m_pageChannel->detachFromParentAgent();
+}
 
 void InspectorWorkerAgent::didCreateFrontendAndBackend(FrontendRouter*, BackendDispatcher*)
 {
@@ -53,60 +58,56 @@ void InspectorWorkerAgent::willDestroyFrontendAndBackend(DisconnectReason)
 {
     m_instrumentingAgents.setPersistentWorkerAgent(nullptr);
 
-    ErrorString ignored;
-    disable(ignored);
+    disable();
 }
 
-void InspectorWorkerAgent::enable(ErrorString&)
+Inspector::Protocol::ErrorStringOr<void> InspectorWorkerAgent::enable()
 {
     if (m_enabled)
-        return;
+        return { };
 
     m_enabled = true;
 
-    connectToAllWorkerInspectorProxiesForPage();
+    connectToAllWorkerInspectorProxies();
+
+    return { };
 }
 
-void InspectorWorkerAgent::disable(ErrorString&)
+Inspector::Protocol::ErrorStringOr<void> InspectorWorkerAgent::disable()
 {
     if (!m_enabled)
-        return;
+        return { };
 
     m_enabled = false;
 
     disconnectFromAllWorkerInspectorProxies();
+
+    return { };
 }
 
-void InspectorWorkerAgent::initialized(ErrorString& errorString, const String& workerId)
+Inspector::Protocol::ErrorStringOr<void> InspectorWorkerAgent::initialized(const String& workerId)
 {
-    WorkerInspectorProxy* proxy = m_connectedProxies.get(workerId);
-    if (!proxy) {
-        errorString = "Missing worker for given workerId"_s;
-        return;
-    }
+    RefPtr proxy = m_connectedProxies.get(workerId).get();
+    if (!proxy)
+        return makeUnexpected("Missing worker for given workerId"_s);
 
     proxy->resumeWorkerIfPaused();
+
+    return { };
 }
 
-void InspectorWorkerAgent::sendMessageToWorker(ErrorString& errorString, const String& workerId, const String& message)
+Inspector::Protocol::ErrorStringOr<void> InspectorWorkerAgent::sendMessageToWorker(const String& workerId, const String& message)
 {
-    if (!m_enabled) {
-        errorString = "Worker domain must be enabled"_s;
-        return;
-    }
+    if (!m_enabled)
+        return makeUnexpected("Worker domain must be enabled"_s);
 
-    WorkerInspectorProxy* proxy = m_connectedProxies.get(workerId);
-    if (!proxy) {
-        errorString = "Missing worker for given workerId"_s;
-        return;
-    }
+    RefPtr proxy = m_connectedProxies.get(workerId).get();
+    if (!proxy)
+        return makeUnexpected("Missing worker for given workerId"_s);
 
     proxy->sendMessageToWorkerInspectorController(message);
-}
 
-void InspectorWorkerAgent::sendMessageFromWorkerToFrontend(WorkerInspectorProxy& proxy, const String& message)
-{
-    m_frontendDispatcher->dispatchMessageFromWorker(proxy.identifier(), message);
+    return { };
 }
 
 bool InspectorWorkerAgent::shouldWaitForDebuggerOnStart() const
@@ -130,35 +131,24 @@ void InspectorWorkerAgent::workerTerminated(WorkerInspectorProxy& proxy)
     disconnectFromWorkerInspectorProxy(proxy);
 }
 
-void InspectorWorkerAgent::connectToAllWorkerInspectorProxiesForPage()
-{
-    ASSERT(m_connectedProxies.isEmpty());
-
-    for (auto* proxy : WorkerInspectorProxy::allWorkerInspectorProxies()) {
-        if (!is<Document>(proxy->scriptExecutionContext()))
-            continue;
-
-        Document& document = downcast<Document>(*proxy->scriptExecutionContext());
-        if (document.page() != &m_page)
-            continue;
-
-        connectToWorkerInspectorProxy(*proxy);
-    }
-}
-
 void InspectorWorkerAgent::disconnectFromAllWorkerInspectorProxies()
 {
-    for (auto* proxy : copyToVector(m_connectedProxies.values()))
+    for (auto& proxyWeakPtr : copyToVector(m_connectedProxies.values())) {
+        RefPtr proxy = proxyWeakPtr.get();
+        if (!proxy)
+            continue;
+
         proxy->disconnectFromWorkerInspectorController();
+    }
 
     m_connectedProxies.clear();
 }
 
 void InspectorWorkerAgent::connectToWorkerInspectorProxy(WorkerInspectorProxy& proxy)
 {
-    proxy.connectToWorkerInspectorController(*this);
+    proxy.connectToWorkerInspectorController(m_pageChannel);
 
-    m_connectedProxies.set(proxy.identifier(), &proxy);
+    m_connectedProxies.set(proxy.identifier(), proxy);
 
     m_frontendDispatcher->workerCreated(proxy.identifier(), proxy.url().string(), proxy.name());
 }
@@ -170,6 +160,31 @@ void InspectorWorkerAgent::disconnectFromWorkerInspectorProxy(WorkerInspectorPro
     m_connectedProxies.remove(proxy.identifier());
 
     proxy.disconnectFromWorkerInspectorController();
+}
+
+Ref<InspectorWorkerAgent::PageChannel> InspectorWorkerAgent::PageChannel::create(InspectorWorkerAgent& parentAgent)
+{
+    return adoptRef(*new PageChannel(parentAgent));
+}
+
+InspectorWorkerAgent::PageChannel::PageChannel(InspectorWorkerAgent& parentAgent)
+    : m_parentAgent(&parentAgent)
+{
+}
+
+void InspectorWorkerAgent::PageChannel::detachFromParentAgent()
+{
+    Locker locker { m_parentAgentLock };
+
+    m_parentAgent = nullptr;
+}
+
+void InspectorWorkerAgent::PageChannel::sendMessageFromWorkerToFrontend(WorkerInspectorProxy& proxy, String&& message)
+{
+    Locker locker { m_parentAgentLock };
+
+    if (CheckedPtr parentAgent = m_parentAgent)
+        parentAgent->frontendDispatcher().dispatchMessageFromWorker(proxy.identifier(), WTFMove(message));
 }
 
 } // namespace Inspector

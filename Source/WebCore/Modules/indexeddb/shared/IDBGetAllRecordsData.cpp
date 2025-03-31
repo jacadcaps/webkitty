@@ -26,10 +26,8 @@
 #include "config.h"
 #include "IDBGetAllRecordsData.h"
 
-#if ENABLE(INDEXED_DATABASE)
-
 #include "IDBKeyRangeData.h"
-#include <wtf/text/StringConcatenateNumbers.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
@@ -43,12 +41,10 @@ IDBGetAllRecordsData IDBGetAllRecordsData::isolatedCopy() const
 String IDBGetAllRecordsData::loggingString() const
 {
     if (indexIdentifier)
-        return makeString("<GetAllRecords: Idx ", indexIdentifier, ", OS ", objectStoreIdentifier, ", ", getAllType == IndexedDB::GetAllType::Keys ? "Keys" : "Values", ", range ", keyRangeData.loggingString(), '>');
-    return makeString("<GetAllRecords: OS ", objectStoreIdentifier, ", ", getAllType == IndexedDB::GetAllType::Keys ? "Keys" : "Values", ", range ", keyRangeData.loggingString(), '>');
+        return makeString("<GetAllRecords: Idx "_s, *indexIdentifier, ", OS "_s, objectStoreIdentifier, ", "_s, getAllType == IndexedDB::GetAllType::Keys ? "Keys"_s : "Values"_s, ", range "_s, keyRangeData.loggingString(), '>');
+    return makeString("<GetAllRecords: OS "_s, objectStoreIdentifier, ", "_s, getAllType == IndexedDB::GetAllType::Keys ? "Keys"_s : "Values"_s, ", range "_s, keyRangeData.loggingString(), '>');
 }
 
 #endif
 
 } // namespace WebCore
-
-#endif // ENABLE(INDEXED_DATABASE)

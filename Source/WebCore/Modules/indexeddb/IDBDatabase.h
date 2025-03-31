@@ -25,14 +25,14 @@
 
 #pragma once
 
-#if ENABLE(INDEXED_DATABASE)
-
 #include "EventTarget.h"
 #include "IDBActiveDOMObject.h"
 #include "IDBConnectionProxy.h"
+#include "IDBDatabaseConnectionIdentifier.h"
 #include "IDBDatabaseInfo.h"
 #include "IDBKeyPath.h"
 #include "IDBTransactionMode.h"
+#include <wtf/ThreadSafeWeakPtr.h>
 
 namespace WebCore {
 
@@ -45,8 +45,8 @@ class IDBTransactionInfo;
 
 struct EventNames;
 
-class IDBDatabase final : public ThreadSafeRefCounted<IDBDatabase>, public EventTargetWithInlineData, public IDBActiveDOMObject {
-    WTF_MAKE_ISO_ALLOCATED(IDBDatabase);
+class IDBDatabase final : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<IDBDatabase>, public EventTarget, public IDBActiveDOMObject {
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(IDBDatabase);
 public:
     static Ref<IDBDatabase> create(ScriptExecutionContext&, IDBClient::IDBConnectionProxy&, const IDBResultData&);
 
@@ -58,14 +58,17 @@ public:
     Ref<DOMStringList> objectStoreNames() const;
 
     struct ObjectStoreParameters {
-        Optional<IDBKeyPath> keyPath;
+        std::optional<IDBKeyPath> keyPath;
         bool autoIncrement;
     };
 
     ExceptionOr<Ref<IDBObjectStore>> createObjectStore(const String& name, ObjectStoreParameters&&);
 
-    using StringOrVectorOfStrings = WTF::Variant<String, Vector<String>>;
-    ExceptionOr<Ref<IDBTransaction>> transaction(StringOrVectorOfStrings&& storeNames, IDBTransactionMode);
+    using StringOrVectorOfStrings = std::variant<String, Vector<String>>;
+    struct TransactionOptions {
+        std::optional<IDBTransactionDurability> durability;
+    };
+    ExceptionOr<Ref<IDBTransaction>> transaction(StringOrVectorOfStrings&& storeNames, IDBTransactionMode, TransactionOptions = { });
     ExceptionOr<void> deleteObjectStore(const String& name);
     void close();
 
@@ -73,16 +76,17 @@ public:
     void renameIndex(IDBIndex&, const String& newName);
 
     // EventTarget
-    EventTargetInterface eventTargetInterface() const final { return IDBDatabaseEventTargetInterfaceType; }
+    enum EventTargetInterfaceType eventTargetInterface() const final { return EventTargetInterfaceType::IDBDatabase; }
     ScriptExecutionContext* scriptExecutionContext() const final { return ActiveDOMObject::scriptExecutionContext(); }
-    void refEventTarget() final { ThreadSafeRefCounted<IDBDatabase>::ref(); }
-    void derefEventTarget() final { ThreadSafeRefCounted<IDBDatabase>::deref(); }
+    void refEventTarget() final { ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr::ref(); }
+    void derefEventTarget() final { ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr::deref(); }
 
-    using ThreadSafeRefCounted<IDBDatabase>::ref;
-    using ThreadSafeRefCounted<IDBDatabase>::deref;
+    // ActiveDOMObject.
+    void ref() const final { ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr::ref(); }
+    void deref() const final { ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr::deref(); }
 
     IDBDatabaseInfo& info() { return m_info; }
-    uint64_t databaseConnectionIdentifier() const { return m_databaseConnectionIdentifier; }
+    IDBDatabaseConnectionIdentifier databaseConnectionIdentifier() const { return m_databaseConnectionIdentifier; }
 
     Ref<IDBTransaction> startVersionChangeTransaction(const IDBTransactionInfo&, IDBOpenDBRequest&);
     void didStartTransaction(IDBTransaction&);
@@ -115,14 +119,13 @@ private:
 
     // ActiveDOMObject.
     bool virtualHasPendingActivity() const final;
-    const char* activeDOMObjectName() const final;
     void stop() final;
 
     void maybeCloseInServer();
 
     Ref<IDBClient::IDBConnectionProxy> m_connectionProxy;
     IDBDatabaseInfo m_info;
-    uint64_t m_databaseConnectionIdentifier { 0 };
+    IDBDatabaseConnectionIdentifier m_databaseConnectionIdentifier;
 
     bool m_closePending { false };
     bool m_closedInServer { false };
@@ -133,10 +136,7 @@ private:
     HashMap<IDBResourceIdentifier, RefPtr<IDBTransaction>> m_abortingTransactions;
     
     const EventNames& m_eventNames; // Need to cache this so we can use it from GC threads.
-
-    bool m_isContextSuspended { false };
+    std::atomic<bool> m_isContextSuspended { false };
 };
 
 } // namespace WebCore
-
-#endif // ENABLE(INDEXED_DATABASE)

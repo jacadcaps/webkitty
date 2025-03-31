@@ -27,8 +27,11 @@
 
 #include <WebCore/BackForwardItemIdentifier.h>
 #include <WebCore/ProcessIdentifier.h>
+#include <wtf/CheckedRef.h>
 #include <wtf/Forward.h>
+#include <wtf/RefCounted.h>
 #include <wtf/RunLoop.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebKit {
 
@@ -36,27 +39,29 @@ class SuspendedPageProxy;
 class WebBackForwardCache;
 class WebProcessProxy;
 
-class WebBackForwardCacheEntry {
-    WTF_MAKE_FAST_ALLOCATED;
+class WebBackForwardCacheEntry : public RefCounted<WebBackForwardCacheEntry> {
+    WTF_MAKE_TZONE_ALLOCATED(WebBackForwardCacheEntry);
 public:
-    WebBackForwardCacheEntry(WebBackForwardCache&, WebCore::BackForwardItemIdentifier, WebCore::ProcessIdentifier, std::unique_ptr<SuspendedPageProxy>&& = nullptr);
+    static Ref<WebBackForwardCacheEntry> create(WebBackForwardCache&, WebCore::BackForwardItemIdentifier, WebCore::ProcessIdentifier, RefPtr<SuspendedPageProxy>&&);
     ~WebBackForwardCacheEntry();
 
-    WebBackForwardCache& backForwardCache() const { return m_backForwardCache; }
+    WebBackForwardCache* backForwardCache() const;
 
     SuspendedPageProxy* suspendedPage() const { return m_suspendedPage.get(); }
-    std::unique_ptr<SuspendedPageProxy> takeSuspendedPage();
+    Ref<SuspendedPageProxy> takeSuspendedPage();
     WebCore::ProcessIdentifier processIdentifier() const { return m_processIdentifier; }
-    WebProcessProxy& process() const;
+    RefPtr<WebProcessProxy> process() const;
 
 private:
+    WebBackForwardCacheEntry(WebBackForwardCache&, WebCore::BackForwardItemIdentifier, WebCore::ProcessIdentifier, RefPtr<SuspendedPageProxy>&&);
+
     void expirationTimerFired();
 
-    WebBackForwardCache& m_backForwardCache;
+    WeakPtr<WebBackForwardCache> m_backForwardCache;
     WebCore::ProcessIdentifier m_processIdentifier;
-    WebCore::BackForwardItemIdentifier m_backForwardItemID;
-    std::unique_ptr<SuspendedPageProxy> m_suspendedPage;
-    RunLoop::Timer<WebBackForwardCacheEntry> m_expirationTimer;
+    Markable<WebCore::BackForwardItemIdentifier> m_backForwardItemID;
+    RefPtr<SuspendedPageProxy> m_suspendedPage;
+    RunLoop::Timer m_expirationTimer;
 };
 
 } // namespace WebKit

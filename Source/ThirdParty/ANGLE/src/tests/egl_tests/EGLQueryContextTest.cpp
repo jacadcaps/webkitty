@@ -10,7 +10,7 @@
 
 using namespace angle;
 
-class EGLQueryContextTest : public ANGLETest
+class EGLQueryContextTest : public ANGLETest<>
 {
   public:
     void testSetUp() override
@@ -95,6 +95,24 @@ TEST_P(EGLQueryContextTest, GetClientVersion)
     EXPECT_GE(clientVersion, GetParam().majorVersion);
 }
 
+// Tests querying the client major version from the context.
+TEST_P(EGLQueryContextTest, GetClientMajorVersion)
+{
+    EGLint majorVersion;
+    EXPECT_TRUE(eglQueryContext(mDisplay, mContext, EGL_CONTEXT_MAJOR_VERSION, &majorVersion) !=
+                EGL_FALSE);
+    EXPECT_GE(majorVersion, GetParam().majorVersion);
+}
+
+// Tests querying the client minor version from the context.
+TEST_P(EGLQueryContextTest, GetClientMinorVersion)
+{
+    EGLint minorVersion;
+    EXPECT_TRUE(eglQueryContext(mDisplay, mContext, EGL_CONTEXT_MINOR_VERSION, &minorVersion) !=
+                EGL_FALSE);
+    EXPECT_GE(minorVersion, GetParam().minorVersion);
+}
+
 TEST_P(EGLQueryContextTest, GetRenderBufferNoSurface)
 {
     EGLint renderBuffer;
@@ -150,6 +168,7 @@ TEST_P(EGLQueryContextTest, BadAttribute)
     EXPECT_TRUE(eglGetError() == EGL_BAD_ATTRIBUTE);
 }
 
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(EGLQueryContextTest);
 ANGLE_INSTANTIATE_TEST(EGLQueryContextTest,
                        WithNoFixture(ES2_D3D9()),
                        WithNoFixture(ES2_D3D11()),

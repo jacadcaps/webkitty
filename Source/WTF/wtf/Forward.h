@@ -1,5 +1,5 @@
-/*
- *  Copyright (C) 2006-2020 Apple Inc. All rights reserved.
+/**
+ *  Copyright (C) 2006-2023 Apple Inc. All rights reserved.
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Library General Public
@@ -23,60 +23,108 @@
 #include <stddef.h>
 #include <wtf/Platform.h>
 
+#if defined(__has_feature)
+#if __has_feature(objc_arc)
+#define OSObjectPtr OSObjectPtrArc
+#define RetainPtr RetainPtrArc
+#endif
+#endif
+
 namespace WTF {
 
+class ASCIILiteral;
+class AbstractLocker;
 class AtomString;
 class AtomStringImpl;
 class BinarySemaphore;
 class CString;
 class CrashOnOverflow;
+class DefaultWeakPtrImpl;
 class FunctionDispatcher;
 class Hasher;
+class Lock;
+class Logger;
+class MachSendRight;
+class MainThreadDispatcher;
 class MonotonicTime;
 class OrdinalNumber;
 class PrintStream;
 class SHA1;
 class Seconds;
+class SerialFunctionDispatcher;
+class GuaranteedSerialFunctionDispatcher;
 class String;
 class StringBuilder;
 class StringImpl;
 class StringView;
+class SuspendableWorkQueue;
 class TextPosition;
 class TextStream;
-class UniquedStringImpl;
 class URL;
+class UUID;
+class UniquedStringImpl;
 class WallTime;
 
 struct AnyThreadsAccessTraits;
-struct EmptyCounter;
 struct FastMalloc;
 struct MainThreadAccessTraits;
+template<typename> struct ObjectIdentifierMainThreadAccessTraits;
+template<typename> struct ObjectIdentifierThreadSafeAccessTraits;
+
+namespace JSONImpl {
+class Array;
+class Object;
+template<typename> class ArrayOf;
+}
 
 #if ENABLE(MALLOC_HEAP_BREAKDOWN)
-struct VectorMalloc;
+struct VectorBufferMalloc;
+struct EmbeddedFixedVectorMalloc;
 #else
-using VectorMalloc = FastMalloc;
+using VectorBufferMalloc = FastMalloc;
+using EmbeddedFixedVectorMalloc = FastMalloc;
 #endif
 
-template<typename> struct DumbPtrTraits;
+template<typename> struct DefaultRefDerefTraits;
 
+template<typename> class CompactPtr;
 template<typename> class CompletionHandler;
+template<typename, size_t = 0> class Deque;
+template<typename Key, typename, Key> class EnumeratedArray;
+template<typename, typename = WTF::EmbeddedFixedVectorMalloc> class FixedVector;
 template<typename> class Function;
+template<typename> struct FlatteningVariantTraits;
+template<typename> struct IsSmartPtr;
 template<typename, typename = AnyThreadsAccessTraits> class LazyNeverDestroyed;
+template<typename T, typename Traits = typename T::MarkableTraits> class Markable;
 template<typename, typename = AnyThreadsAccessTraits> class NeverDestroyed;
+template<typename> class OSObjectPtr;
+template<typename, typename, typename> class ObjectIdentifierGeneric;
+template<typename T, typename RawValue = uint64_t> using ObjectIdentifier = ObjectIdentifierGeneric<T, ObjectIdentifierMainThreadAccessTraits<RawValue>, RawValue>;
+template<typename T, typename RawValue = uint64_t> using AtomicObjectIdentifier = ObjectIdentifierGeneric<T, ObjectIdentifierThreadSafeAccessTraits<RawValue>, RawValue>;
+template<typename> class Observer;
 template<typename> class OptionSet;
-template<typename> class Optional;
 template<typename> class Packed;
 template<typename T, size_t = alignof(T)> class PackedAlignedPtr;
-template<typename T, typename = DumbPtrTraits<T>> class Ref;
-template<typename T, typename = DumbPtrTraits<T>> class RefPtr;
+template<typename> struct RawPtrTraits;
+template<typename T, typename = RawPtrTraits<T>> class CheckedRef;
+template<typename T, typename = RawPtrTraits<T>> class CheckedPtr;
+template<typename T, typename = RawPtrTraits<T>, typename = DefaultRefDerefTraits<T>> class Ref;
+template<typename T, typename = RawPtrTraits<T>, typename = DefaultRefDerefTraits<T>> class RefPtr;
+template<typename> class RetainPtr;
+template<typename> class ScopedLambda;
 template<typename> class StringBuffer;
 template<typename> class StringParsingBuffer;
 template<typename, typename = void> class StringTypeAdapter;
 template<typename> class UniqueRef;
-template<typename...> class Variant;
-template<typename, size_t = 0, typename = CrashOnOverflow, size_t = 16, typename Malloc = VectorMalloc> class Vector;
-template<typename, typename = EmptyCounter> class WeakPtr;
+template<typename T, class... Args> UniqueRef<T> makeUniqueRef(Args&&...);
+template<typename, size_t = 0> class VariantList;
+template<typename, size_t = 0> struct VariantListConstIterator;
+template<typename> struct VariantListProxy;
+template<typename> struct VariantListSizer;
+template<typename, size_t = 0, typename = CrashOnOverflow, size_t = 16, typename = VectorBufferMalloc> class Vector;
+template<typename, typename WeakPtrImpl = DefaultWeakPtrImpl, typename = RawPtrTraits<WeakPtrImpl>> class WeakPtr;
+template<typename, typename = DefaultWeakPtrImpl> class WeakRef;
 
 template<typename> struct DefaultHash;
 template<> struct DefaultHash<AtomString>;
@@ -86,15 +134,34 @@ template<> struct DefaultHash<StringImpl*>;
 template<> struct DefaultHash<URL>;
 template<typename T, size_t inlineCapacity> struct DefaultHash<Vector<T, inlineCapacity>>;
 
-template<typename> struct DumbValueTraits;
+template<typename> struct RawValueTraits;
 template<typename> struct EnumTraits;
+template<typename> struct EnumTraitsForPersistence;
 template<typename E, E...> struct EnumValues;
 template<typename> struct HashTraits;
 
+struct HashTableTraits;
+struct IdentityExtractor;
+template<typename T> struct KeyValuePairKeyExtractor;
+template<typename KeyTraits, typename MappedTraits> struct KeyValuePairTraits;
+template<typename KeyTypeArg, typename ValueTypeArg> struct KeyValuePair;
+enum class ShouldValidateKey : bool { No, Yes };
+template<typename Key, typename Value, typename Extractor, typename HashFunctions, typename Traits, typename KeyTraits, ShouldValidateKey shouldValidateKey = ShouldValidateKey::Yes> class HashTable;
 template<typename Value, typename = DefaultHash<Value>, typename = HashTraits<Value>> class HashCountedSet;
-template<typename KeyArg, typename MappedArg, typename = DefaultHash<KeyArg>, typename = HashTraits<KeyArg>, typename = HashTraits<MappedArg>> class HashMap;
-template<typename ValueArg, typename = DefaultHash<ValueArg>, typename = HashTraits<ValueArg>> class HashSet;
+template<typename KeyArg, typename MappedArg, typename = DefaultHash<KeyArg>, typename = HashTraits<KeyArg>, typename = HashTraits<MappedArg>, typename = HashTableTraits, ShouldValidateKey = ShouldValidateKey::Yes> class HashMap;
+template<typename KeyArg, typename MappedArg, typename KeyHash = DefaultHash<KeyArg>, typename KeyTraits = HashTraits<KeyArg>, typename MappedTraits = HashTraits<MappedArg>, typename HashTraits = HashTableTraits>
+using UncheckedKeyHashMap = HashMap<KeyArg, MappedArg, KeyHash, KeyTraits, MappedTraits, HashTraits, ShouldValidateKey::No>;
+template<typename ValueArg, typename = DefaultHash<ValueArg>, typename = HashTraits<ValueArg>, typename = HashTableTraits, ShouldValidateKey = ShouldValidateKey::Yes> class HashSet;
+template<typename ValueArg, typename HashArg = DefaultHash<ValueArg>, typename TraitsArg = HashTraits<ValueArg>, typename TableTraitsArg = HashTableTraits>
+using UncheckedKeyHashSet = HashSet<ValueArg, HashArg, TraitsArg, TableTraitsArg, ShouldValidateKey::No>;
+template<typename ResolveValueT, typename RejectValueT, unsigned options = 0> class NativePromise;
+using GenericPromise = NativePromise<void, void>;
+using GenericNonExclusivePromise = NativePromise<void, void, 1>;
+class NativePromiseRequest;
+}
 
+namespace JSON {
+using namespace WTF::JSONImpl;
 }
 
 namespace std {
@@ -104,40 +171,66 @@ template<class, class> class expected;
 template<class> class unexpected;
 }}} // namespace std::experimental::fundamentals_v3
 
+using WTF::ASCIILiteral;
+using WTF::AbstractLocker;
 using WTF::AtomString;
 using WTF::AtomStringImpl;
+using WTF::AtomicObjectIdentifier;
 using WTF::BinarySemaphore;
 using WTF::CString;
 using WTF::CompletionHandler;
-using WTF::DumbPtrTraits;
-using WTF::DumbValueTraits;
+using WTF::Deque;
+using WTF::EnumeratedArray;
+using WTF::FixedVector;
 using WTF::Function;
 using WTF::FunctionDispatcher;
+using WTF::GenericPromise;
 using WTF::HashCountedSet;
 using WTF::HashMap;
 using WTF::HashSet;
 using WTF::Hasher;
 using WTF::LazyNeverDestroyed;
+using WTF::Lock;
+using WTF::Logger;
+using WTF::MachSendRight;
+using WTF::MainThreadDispatcher;
+using WTF::makeUniqueRef;
+using WTF::MonotonicTime;
+using WTF::NativePromise;
+using WTF::NativePromiseRequest;
 using WTF::NeverDestroyed;
+using WTF::OSObjectPtr;
+using WTF::ObjectIdentifier;
+using WTF::ObjectIdentifierGeneric;
+using WTF::Observer;
 using WTF::OptionSet;
-using WTF::Optional;
 using WTF::OrdinalNumber;
 using WTF::PrintStream;
+using WTF::RawPtrTraits;
+using WTF::RawValueTraits;
 using WTF::Ref;
+using WTF::GuaranteedSerialFunctionDispatcher;
 using WTF::RefPtr;
+using WTF::RetainPtr;
 using WTF::SHA1;
+using WTF::ScopedLambda;
+using WTF::SerialFunctionDispatcher;
 using WTF::String;
 using WTF::StringBuffer;
 using WTF::StringBuilder;
 using WTF::StringImpl;
 using WTF::StringParsingBuffer;
 using WTF::StringView;
+using WTF::SuspendableWorkQueue;
 using WTF::TextPosition;
 using WTF::TextStream;
 using WTF::URL;
+using WTF::UncheckedKeyHashMap;
+using WTF::UncheckedKeyHashSet;
 using WTF::UniqueRef;
-using WTF::Variant;
 using WTF::Vector;
+using WTF::WeakPtr;
+using WTF::WeakRef;
 
 template<class T, class E> using Expected = std::experimental::expected<T, E>;
 template<class E> using Unexpected = std::experimental::unexpected<E>;

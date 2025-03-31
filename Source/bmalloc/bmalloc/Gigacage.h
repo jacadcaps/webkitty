@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,15 +25,20 @@
 
 #pragma once
 
+#include "Algorithm.h"
 #include "BAssert.h"
 #include "BExport.h"
 #include "BInline.h"
 #include "BPlatform.h"
 #include "GigacageConfig.h"
 #include "Sizes.h"
-#include "StdLibExtras.h"
+#include <bit>
 #include <cstddef>
 #include <inttypes.h>
+
+#if BOS(DARWIN)
+#include <mach/vm_param.h>
+#endif
 
 #if ((BOS(DARWIN) || BOS(LINUX)) && \
     (BCPU(X86_64) || (BCPU(ARM64) && !defined(__ILP32__) && (!BPLATFORM(IOS_FAMILY) || BPLATFORM(IOS)))))
@@ -50,8 +55,6 @@ BINLINE const char* name(Kind kind)
     switch (kind) {
     case Primitive:
         return "Primitive";
-    case JSValue:
-        return "JSValue";
     case NumberOfKinds:
         break;
     }
@@ -59,17 +62,13 @@ BINLINE const char* name(Kind kind)
     return nullptr;
 }
 
+constexpr bool hasCapacityToUseLargeGigacage = BOS_EFFECTIVE_ADDRESS_WIDTH > 36;
+
 #if GIGACAGE_ENABLED
 
-#if BOS_EFFECTIVE_ADDRESS_WIDTH < 48
-constexpr size_t primitiveGigacageSize = 2 * bmalloc::Sizes::GB;
-constexpr size_t jsValueGigacageSize = 2 * bmalloc::Sizes::GB;
-constexpr size_t maximumCageSizeReductionForSlide = bmalloc::Sizes::GB / 4;
-#else
-constexpr size_t primitiveGigacageSize = 32 * bmalloc::Sizes::GB;
-constexpr size_t jsValueGigacageSize = 16 * bmalloc::Sizes::GB;
-constexpr size_t maximumCageSizeReductionForSlide = 4 * bmalloc::Sizes::GB;
-#endif
+constexpr size_t primitiveGigacageSize = (hasCapacityToUseLargeGigacage ? 64 : 16) * bmalloc::Sizes::GB;
+constexpr size_t maximumCageSizeReductionForSlide = hasCapacityToUseLargeGigacage ? 4 * bmalloc::Sizes::GB : bmalloc::Sizes::GB / 4;
+
 
 // In Linux, if `vm.overcommit_memory = 2` is specified, mmap with large size can fail if it exceeds the size of RAM.
 // So we specify GIGACAGE_ALLOCATION_CAN_FAIL = 1.
@@ -80,19 +79,15 @@ constexpr size_t maximumCageSizeReductionForSlide = 4 * bmalloc::Sizes::GB;
 #endif
 
 
-static_assert(bmalloc::isPowerOfTwo(primitiveGigacageSize), "");
-static_assert(bmalloc::isPowerOfTwo(jsValueGigacageSize), "");
-static_assert(primitiveGigacageSize > maximumCageSizeReductionForSlide, "");
-static_assert(jsValueGigacageSize > maximumCageSizeReductionForSlide, "");
+static_assert(bmalloc::isPowerOfTwo(primitiveGigacageSize));
+static_assert(primitiveGigacageSize > maximumCageSizeReductionForSlide);
 
 constexpr size_t gigacageSizeToMask(size_t size) { return size - 1; }
 
 constexpr size_t primitiveGigacageMask = gigacageSizeToMask(primitiveGigacageSize);
-constexpr size_t jsValueGigacageMask = gigacageSizeToMask(jsValueGigacageSize);
 
 // These constants are needed by the LLInt.
-constexpr ptrdiff_t offsetOfPrimitiveGigacageBasePtr = Kind::Primitive * sizeof(void*);
-constexpr ptrdiff_t offsetOfJSValueGigacageBasePtr = Kind::JSValue * sizeof(void*);
+constexpr ptrdiff_t offsetOfPrimitiveGigacageBasePtr = static_cast<ptrdiff_t>(Primitive) * sizeof(void*);
 
 extern "C" BEXPORT bool disablePrimitiveGigacageRequested;
 
@@ -134,16 +129,14 @@ BINLINE void* basePtr(Kind kind)
 BINLINE void* addressOfBasePtr(Kind kind)
 {
     RELEASE_BASSERT(kind < NumberOfKinds);
-    return &g_gigacageConfig.basePtrs[kind];
+    return &g_gigacageConfig.basePtrs[static_cast<size_t>(kind)];
 }
 
-BINLINE size_t maxSize(Kind kind)
+BINLINE constexpr size_t maxSize(Kind kind)
 {
     switch (kind) {
     case Primitive:
         return static_cast<size_t>(primitiveGigacageSize);
-    case JSValue:
-        return static_cast<size_t>(jsValueGigacageSize);
     case NumberOfKinds:
         break;
     }
@@ -156,11 +149,12 @@ BINLINE size_t alignment(Kind kind)
     return maxSize(kind);
 }
 
-BINLINE size_t mask(Kind kind)
+BINLINE constexpr size_t mask(Kind kind)
 {
     return gigacageSizeToMask(maxSize(kind));
 }
 
+BEXPORT void* allocBase(Kind);
 BEXPORT size_t size(Kind);
 BEXPORT size_t footprint(Kind);
 
@@ -168,7 +162,6 @@ template<typename Func>
 void forEachKind(const Func& func)
 {
     func(Primitive);
-    func(JSValue);
 }
 
 template<typename T>
@@ -232,6 +225,3 @@ BINLINE void removePrimitiveDisableCallback(void (*)(void*), void*) { }
 #endif // GIGACAGE_ENABLED
 
 } // namespace Gigacage
-
-
-

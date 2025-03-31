@@ -29,29 +29,34 @@
 #include "APIObject.h"
 #include <wtf/Ref.h>
 #include <wtf/RefPtr.h>
+#include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
-    class DOMWrapperWorld;
+class DOMWrapperWorld;
 }
 
 namespace WebKit {
 
-class InjectedBundleScriptWorld : public API::ObjectImpl<API::Object::Type::BundleScriptWorld> {
+class InjectedBundleScriptWorld : public API::ObjectImpl<API::Object::Type::BundleScriptWorld>, public CanMakeWeakPtr<InjectedBundleScriptWorld> {
 public:
     enum class Type { User, Internal };
     static Ref<InjectedBundleScriptWorld> create(Type = Type::Internal);
     static Ref<InjectedBundleScriptWorld> create(const String& name, Type = Type::Internal);
     static Ref<InjectedBundleScriptWorld> getOrCreate(WebCore::DOMWrapperWorld&);
     static InjectedBundleScriptWorld* find(const String&);
-    static InjectedBundleScriptWorld& normalWorld();
+    static InjectedBundleScriptWorld& normalWorldSingleton();
 
     virtual ~InjectedBundleScriptWorld();
 
     const WebCore::DOMWrapperWorld& coreWorld() const;
     WebCore::DOMWrapperWorld& coreWorld();
+    Ref<const WebCore::DOMWrapperWorld> protectedCoreWorld() const;
+    Ref<WebCore::DOMWrapperWorld> protectedCoreWorld();
 
     void clearWrappers();
+    void setAllowAutofill();
+    void setAllowElementUserInfo();
     void makeAllShadowRootsOpen();
     void disableOverrideBuiltinsBehavior();
 
@@ -60,7 +65,7 @@ public:
 private:
     InjectedBundleScriptWorld(WebCore::DOMWrapperWorld&, const String&);
 
-    Ref<WebCore::DOMWrapperWorld> m_world;
+    const Ref<WebCore::DOMWrapperWorld> m_world;
     String m_name;
 };
 

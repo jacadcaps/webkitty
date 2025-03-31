@@ -24,26 +24,36 @@
 
 #pragma once
 
-#include "Color.h"
 #include "FillLayer.h"
 #include "OutlineValue.h"
+#include "StyleColor.h"
+#include <wtf/DataRef.h>
 #include <wtf/RefCounted.h>
 #include <wtf/Ref.h>
 
+namespace WTF {
+class TextStream;
+}
+
 namespace WebCore {
 
+DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(StyleBackgroundData);
 class StyleBackgroundData : public RefCounted<StyleBackgroundData> {
+    WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(StyleBackgroundData);
 public:
     static Ref<StyleBackgroundData> create() { return adoptRef(*new StyleBackgroundData); }
     Ref<StyleBackgroundData> copy() const;
 
     bool operator==(const StyleBackgroundData&) const;
-    bool operator!=(const StyleBackgroundData& other) const { return !(*this == other); }
 
-    bool isEquivalentForPainting(const StyleBackgroundData&) const;
+#if !LOG_DISABLED
+    void dumpDifferences(TextStream&, const StyleBackgroundData&) const;
+#endif
 
-    FillLayer background;
-    Color color;
+    bool isEquivalentForPainting(const StyleBackgroundData&, bool currentColorDiffers) const;
+
+    DataRef<FillLayer> background;
+    Style::Color color;
     OutlineValue outline;
 
     void dump(TextStream&, DumpStyleValues = DumpStyleValues::All) const;

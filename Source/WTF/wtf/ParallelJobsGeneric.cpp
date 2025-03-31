@@ -66,7 +66,9 @@ ParallelEnvironment::ParallelEnvironment(ThreadFunction threadFunction, size_t s
 
 void ParallelEnvironment::execute(void* parameters)
 {
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
     unsigned char* currentParameter = static_cast<unsigned char*>(parameters);
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
     size_t i;
     for (i = 0; i < m_threads.size(); ++i) {
         m_threads[i]->execute(m_threadFunction, currentParameter);
@@ -83,19 +85,19 @@ void ParallelEnvironment::execute(void* parameters)
 
 bool ParallelEnvironment::ThreadPrivate::tryLockFor(ParallelEnvironment* parent)
 {
-    bool locked = m_mutex.tryLock();
+    bool locked = m_lock.tryLock();
 
     if (!locked)
         return false;
 
     if (m_parent) {
-        m_mutex.unlock();
+        m_lock.unlock();
         return false;
     }
 
     if (!m_thread) {
-        m_thread = Thread::create("Parallel worker", [this] {
-            LockHolder lock(m_mutex);
+        m_thread = Thread::create("Parallel worker"_s, [this] {
+            Locker lock { m_lock };
 
             while (true) {
                 if (m_running) {
@@ -105,19 +107,19 @@ bool ParallelEnvironment::ThreadPrivate::tryLockFor(ParallelEnvironment* parent)
                     m_threadCondition.notifyOne();
                 }
 
-                m_threadCondition.wait(m_mutex);
+                m_threadCondition.wait(m_lock);
             }
         });
     }
     m_parent = parent;
 
-    m_mutex.unlock();
+    m_lock.unlock();
     return true;
 }
 
 void ParallelEnvironment::ThreadPrivate::execute(ThreadFunction threadFunction, void* parameters)
 {
-    LockHolder lock(m_mutex);
+    Locker lock { m_lock };
 
     m_threadFunction = threadFunction;
     m_parameters = parameters;
@@ -127,10 +129,10 @@ void ParallelEnvironment::ThreadPrivate::execute(ThreadFunction threadFunction, 
 
 void ParallelEnvironment::ThreadPrivate::waitForFinish()
 {
-    LockHolder lock(m_mutex);
+    Locker lock { m_lock };
 
     while (m_running)
-        m_threadCondition.wait(m_mutex);
+        m_threadCondition.wait(m_lock);
 }
 
 } // namespace WTF

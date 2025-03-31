@@ -47,15 +47,15 @@ public:
     void registerClass(JSCClass*);
     JSCClass* registeredClass(JSClassRef) const;
 
-    JSObject* createJSWrappper(JSGlobalContextRef, JSClassRef, JSValueRef prototype, gpointer, GDestroyNotify);
-    JSGlobalContextRef createContextWithJSWrappper(JSContextGroupRef, JSClassRef, JSValueRef prototype, gpointer, GDestroyNotify);
+    JSObject* createJSWrapper(JSGlobalContextRef, JSClassRef, JSValueRef prototype, gpointer, GDestroyNotify);
+    JSGlobalContextRef createContextWithJSWrapper(JSContextGroupRef, JSClassRef, JSValueRef prototype, gpointer, GDestroyNotify);
     JSObject* jsWrapper(gpointer wrappedObject) const;
     gpointer wrappedObject(JSGlobalContextRef, JSObjectRef) const;
 
 private:
-    HashMap<JSValueRef, JSCValue*> m_cachedGObjectWrappers;
+    UncheckedKeyHashMap<JSValueRef, JSCValue*> m_cachedGObjectWrappers;
     std::unique_ptr<JSC::WeakGCMap<gpointer, JSC::JSObject>> m_cachedJSWrappers;
-    HashMap<JSClassRef, GRefPtr<JSCClass>> m_classMap;
+    UncheckedKeyHashMap<JSClassRef, GRefPtr<JSCClass>> m_classMap;
 };
 
 } // namespace JSC

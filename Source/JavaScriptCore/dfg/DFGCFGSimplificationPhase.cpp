@@ -38,7 +38,7 @@ namespace JSC { namespace DFG {
 class CFGSimplificationPhase : public Phase {
 public:
     CFGSimplificationPhase(Graph& graph)
-        : Phase(graph, "CFG simplification")
+        : Phase(graph, "CFG simplification"_s)
     {
     }
 
@@ -49,9 +49,6 @@ public:
     
     bool run()
     {
-        // FIXME: We should make this work in SSA. https://bugs.webkit.org/show_bug.cgi?id=148260
-        DFG_ASSERT(m_graph, nullptr, m_graph.m_form != SSA);
-        
         const bool extremeLogging = false;
 
         bool outerChanged = false;
@@ -74,8 +71,7 @@ public:
                     // Successor with one predecessor -> merge.
                     if (canMergeWithBlock(block->successor(0))) {
                         ASSERT(block->successor(0)->predecessors[0] == block);
-                        if (extremeLogging)
-                            m_graph.dump();
+                        dataLogLnIf(extremeLogging, m_graph);
                         m_graph.dethread();
                         mergeBlocks(block, block->successor(0), noBlocks());
                         innerChanged = outerChanged = true;
@@ -101,16 +97,14 @@ public:
                         BasicBlock* targetBlock = block->successorForCondition(condition);
                         BasicBlock* jettisonedBlock = block->successorForCondition(!condition);
                         if (canMergeWithBlock(targetBlock)) {
-                            if (extremeLogging)
-                                m_graph.dump();
+                            dataLogLnIf(extremeLogging, m_graph);
                             m_graph.dethread();
                             if (targetBlock == jettisonedBlock)
                                 mergeBlocks(block, targetBlock, noBlocks());
                             else
                                 mergeBlocks(block, targetBlock, oneBlock(jettisonedBlock));
                         } else {
-                            if (extremeLogging)
-                                m_graph.dump();
+                            dataLogLnIf(extremeLogging, m_graph);
                             m_graph.dethread();
                             
                             Node* terminal = block->terminal();
@@ -189,14 +183,12 @@ public:
                         }
                         
                         if (canMergeWithBlock(targetBlock)) {
-                            if (extremeLogging)
-                                m_graph.dump();
+                            dataLogLnIf(extremeLogging, m_graph);
                             m_graph.dethread();
                             
                             mergeBlocks(block, targetBlock, jettisonedBlocks);
                         } else {
-                            if (extremeLogging)
-                                m_graph.dump();
+                            dataLogLnIf(extremeLogging, m_graph);
                             m_graph.dethread();
                             
                             NodeOrigin boundaryNodeOrigin = terminal->origin;

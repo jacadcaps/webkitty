@@ -28,17 +28,20 @@
 
 #if ENABLE(MEDIA_STREAM)
 
-#include "DOMWindow.h"
 #include "Document.h"
-#include "Frame.h"
-#include "HTMLIFrameElement.h"
+#include "LocalDOMWindow.h"
+#include "PermissionsPolicy.h"
+#include "RealtimeMediaSourceCenter.h"
 #include "UserMediaRequest.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-const char* UserMediaController::supplementName()
+WTF_MAKE_TZONE_ALLOCATED_IMPL(UserMediaController);
+
+ASCIILiteral UserMediaController::supplementName()
 {
-    return "UserMediaController";
+    return "UserMediaController"_s;
 }
 
 UserMediaController::UserMediaController(UserMediaClient* client)
@@ -58,23 +61,60 @@ void provideUserMediaTo(Page* page, UserMediaClient* client)
 
 void UserMediaController::logGetUserMediaDenial(Document& document)
 {
-    if (auto* window = document.domWindow())
-        window->printErrorMessage(makeString("Not allowed to call getUserMedia."));
+    if (RefPtr window = document.domWindow())
+        window->printErrorMessage("Not allowed to call getUserMedia."_s);
 }
 
 void UserMediaController::logGetDisplayMediaDenial(Document& document)
 {
-    if (auto* window = document.domWindow())
-        window->printErrorMessage(makeString("Not allowed to call getDisplayMedia."));
+    if (RefPtr window = document.domWindow())
+        window->printErrorMessage("Not allowed to call getDisplayMedia."_s);
 }
 
 void UserMediaController::logEnumerateDevicesDenial(Document& document)
 {
     // We redo the check to print to the console log.
-    isFeaturePolicyAllowedByDocumentAndAllOwners(FeaturePolicy::Type::Camera, document, LogFeaturePolicyFailure::Yes);
-    isFeaturePolicyAllowedByDocumentAndAllOwners(FeaturePolicy::Type::Microphone, document, LogFeaturePolicyFailure::Yes);
-    if (auto* window = document.domWindow())
-        window->printErrorMessage(makeString("Not allowed to call enumerateDevices."));
+    PermissionsPolicy::isFeatureEnabled(PermissionsPolicy::Feature::Camera, document);
+    PermissionsPolicy::isFeatureEnabled(PermissionsPolicy::Feature::Microphone, document);
+    if (RefPtr window = document.domWindow())
+        window->printErrorMessage("Not allowed to call enumerateDevices."_s);
+}
+
+void UserMediaController::setShouldListenToVoiceActivity(Document& document, bool shouldListen)
+{
+    if (shouldListen) {
+        ASSERT(!m_voiceActivityDocuments.contains(document));
+        m_voiceActivityDocuments.add(document);
+    } else {
+        ASSERT(m_voiceActivityDocuments.contains(document));
+        m_voiceActivityDocuments.remove(document);
+    }
+    checkDocumentForVoiceActivity(nullptr);
+}
+
+void UserMediaController::checkDocumentForVoiceActivity(const Document* document)
+{
+    if (document) {
+        if (m_shouldListenToVoiceActivity == document->mediaState().containsAny(MediaProducer::IsCapturingAudioMask))
+            return;
+    }
+
+    bool shouldListenToVoiceActivity = anyOf(m_voiceActivityDocuments, [] (auto& document) {
+        return document.mediaState().containsAny(MediaProducer::IsCapturingAudioMask);
+    });
+    if (m_shouldListenToVoiceActivity == shouldListenToVoiceActivity)
+        return;
+
+    m_shouldListenToVoiceActivity = shouldListenToVoiceActivity;
+    m_client->setShouldListenToVoiceActivity(m_shouldListenToVoiceActivity);
+}
+
+void UserMediaController::voiceActivityDetected()
+{
+#if ENABLE(MEDIA_SESSION)
+    for (auto& document : m_voiceActivityDocuments)
+        Ref(document)->voiceActivityDetected();
+#endif
 }
 
 } // namespace WebCore

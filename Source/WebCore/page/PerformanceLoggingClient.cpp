@@ -26,30 +26,26 @@
 #include "config.h"
 #include "PerformanceLoggingClient.h"
 
-#include <wtf/text/StringBuilder.h>
+#include <wtf/TZoneMallocInlines.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
-String PerformanceLoggingClient::synchronousScrollingReasonsAsString(OptionSet<SynchronousScrollingReason> synchronousScrollingReasons)
+WTF_MAKE_TZONE_ALLOCATED_IMPL(PerformanceLoggingClient);
+
+String PerformanceLoggingClient::synchronousScrollingReasonsAsString(OptionSet<SynchronousScrollingReason> reasons)
 {
-    if (synchronousScrollingReasons.isEmpty())
+    if (reasons.isEmpty())
         return emptyString();
 
-    StringBuilder reasons;
-
-    if (synchronousScrollingReasons & SynchronousScrollingReason::ForcedOnMainThread)
-        reasons.appendLiteral("forced,");
-    if (synchronousScrollingReasons & SynchronousScrollingReason::HasSlowRepaintObjects)
-        reasons.appendLiteral("slow-repaint objects,");
-    if (synchronousScrollingReasons & SynchronousScrollingReason::HasViewportConstrainedObjectsWithoutSupportingFixedLayers)
-        reasons.appendLiteral("viewport-constrained objects,");
-    if (synchronousScrollingReasons & SynchronousScrollingReason::HasNonLayerViewportConstrainedObjects)
-        reasons.appendLiteral("non-layer viewport-constrained objects,");
-    if (synchronousScrollingReasons & SynchronousScrollingReason::IsImageDocument)
-        reasons.appendLiteral("image document,");
+    auto string = makeString(reasons.contains(SynchronousScrollingReason::ForcedOnMainThread) ? "forced,"_s : ""_s,
+        reasons.contains(SynchronousScrollingReason::HasSlowRepaintObjects) ? "slow-repaint objects,"_s : ""_s,
+        reasons.contains(SynchronousScrollingReason::HasViewportConstrainedObjectsWithoutSupportingFixedLayers) ? "viewport-constrained objects,"_s : ""_s,
+        reasons.contains(SynchronousScrollingReason::HasNonLayerViewportConstrainedObjects) ? "non-layer viewport-constrained objects,"_s : ""_s,
+        reasons.contains(SynchronousScrollingReason::IsImageDocument) ? "image document,"_s : ""_s);
 
     // Strip the trailing comma.
-    return reasons.toString().left(reasons.length() - 1);
+    return string.left(string.length() - 1);
 }
 
 } // namespace WebCore

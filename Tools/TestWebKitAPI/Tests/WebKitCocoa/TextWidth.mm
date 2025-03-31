@@ -25,6 +25,7 @@
 
 #import "config.h"
 
+#import "PlatformUtilities.h"
 #import "TestNavigationDelegate.h"
 #import "Utilities.h"
 #import <CoreText/CoreText.h>
@@ -36,7 +37,7 @@ TEST(WebKit, TextWidth)
     auto configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
     auto webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
 
-    [webView loadRequest:[NSURLRequest requestWithURL:[[NSBundle mainBundle] URLForResource:@"TextWidth" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"]]];
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"TextWidth" withExtension:@"html"]]];
     [webView _test_waitForDidFinishNavigation];
     
     __block bool didEvaluateJavaScript = false;
@@ -47,11 +48,11 @@ TEST(WebKit, TextWidth)
     }];
     TestWebKitAPI::Util::run(&didEvaluateJavaScript);
 
-    auto font = adoptCF(CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, 24, static_cast<CFStringRef>(@"en-US")));
+    auto font = adoptCF(CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, 24, CFSTR("en-US")));
     // Use CFAttributedString so we don't have to deal with NSFont / UIFont and have this code be platform-dependent.
     CFTypeRef keys[] = { kCTFontAttributeName };
     CFTypeRef values[] = { font.get() };
-    auto attributes = adoptCF(CFDictionaryCreate(kCFAllocatorDefault, keys, values, WTF_ARRAY_LENGTH(keys), &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
+    auto attributes = adoptCF(CFDictionaryCreate(kCFAllocatorDefault, keys, values, std::size(keys), &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
     auto attributedString = adoptCF(CFAttributedStringCreate(kCFAllocatorDefault, CFSTR("This is a test string"), attributes.get()));
     auto line = adoptCF(CTLineCreateWithAttributedString(static_cast<CFAttributedStringRef>(attributedString)));
     double coreTextWidth = CTLineGetTypographicBounds(line.get(), nullptr, nullptr, nullptr);

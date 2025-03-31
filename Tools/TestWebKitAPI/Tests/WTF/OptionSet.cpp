@@ -89,6 +89,20 @@ TEST(WTF_OptionSet, Or)
     EXPECT_TRUE(((set | set2) == OptionSet<ExampleFlags> { ExampleFlags::A, ExampleFlags::B, ExampleFlags::C, ExampleFlags::D }));
 }
 
+TEST(WTF_OptionSet, OrAssignment)
+{
+    OptionSet<ExampleFlags> set { ExampleFlags::A, ExampleFlags::B, ExampleFlags::C };
+
+    set |= { };
+    EXPECT_TRUE((set == OptionSet<ExampleFlags> { ExampleFlags::A, ExampleFlags::B, ExampleFlags::C }));
+
+    set |= { ExampleFlags::A };
+    EXPECT_TRUE((set == OptionSet<ExampleFlags> { ExampleFlags::A, ExampleFlags::B, ExampleFlags::C }));
+
+    set |= { ExampleFlags::C, ExampleFlags::D };
+    EXPECT_TRUE((set == OptionSet<ExampleFlags> { ExampleFlags::A, ExampleFlags::B, ExampleFlags::C, ExampleFlags::D }));
+}
+
 TEST(WTF_OptionSet, Minus)
 {
     OptionSet<ExampleFlags> set { ExampleFlags::A, ExampleFlags::B, ExampleFlags::C };
@@ -118,6 +132,31 @@ TEST(WTF_OptionSet, AddAndRemove)
     EXPECT_TRUE(set.contains(ExampleFlags::C));
 
     set.remove({ ExampleFlags::A, ExampleFlags::C });
+    EXPECT_FALSE(set.contains(ExampleFlags::A));
+    EXPECT_FALSE(set.contains(ExampleFlags::B));
+    EXPECT_FALSE(set.contains(ExampleFlags::C));
+}
+
+TEST(WTF_OptionSet, Set)
+{
+    OptionSet<ExampleFlags> set;
+
+    set.set(ExampleFlags::A, true);
+    EXPECT_TRUE(set.contains(ExampleFlags::A));
+    EXPECT_FALSE(set.contains(ExampleFlags::B));
+    EXPECT_FALSE(set.contains(ExampleFlags::C));
+
+    set.set({ ExampleFlags::B, ExampleFlags::C }, true);
+    EXPECT_TRUE(set.contains(ExampleFlags::A));
+    EXPECT_TRUE(set.contains(ExampleFlags::B));
+    EXPECT_TRUE(set.contains(ExampleFlags::C));
+
+    set.set(ExampleFlags::B, false);
+    EXPECT_TRUE(set.contains(ExampleFlags::A));
+    EXPECT_FALSE(set.contains(ExampleFlags::B));
+    EXPECT_TRUE(set.contains(ExampleFlags::C));
+
+    set.set({ ExampleFlags::A, ExampleFlags::C }, false);
     EXPECT_FALSE(set.contains(ExampleFlags::A));
     EXPECT_FALSE(set.contains(ExampleFlags::B));
     EXPECT_FALSE(set.contains(ExampleFlags::C));

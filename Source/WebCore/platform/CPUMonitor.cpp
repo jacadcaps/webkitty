@@ -25,8 +25,11 @@
 
 #include "config.h"
 #include "CPUMonitor.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(CPUMonitor);
 
 CPUMonitor::CPUMonitor(Seconds checkInterval, ExceededCPULimitHandler&& exceededCPULimitHandler)
     : m_checkInterval(checkInterval)
@@ -35,7 +38,7 @@ CPUMonitor::CPUMonitor(Seconds checkInterval, ExceededCPULimitHandler&& exceeded
 {
 }
 
-void CPUMonitor::setCPULimit(const Optional<double>& cpuLimit)
+void CPUMonitor::setCPULimit(const std::optional<double>& cpuLimit)
 {
     if (m_cpuLimit == cpuLimit)
         return;

@@ -49,7 +49,9 @@ WI.HeapAllocationsTimelineRecord = class HeapAllocationsTimelineRecord extends W
         return await new Promise((resolve, reject) => {
             let workerProxy = WI.HeapSnapshotWorkerProxy.singleton();
             workerProxy.createImportedSnapshot(snapshotStringData, title, ({objectId, snapshot: serializedSnapshot}) => {
-                let snapshot = WI.HeapSnapshotProxy.deserialize(objectId, serializedSnapshot);
+                // FIXME: <https://webkit.org/b/287738> support exporting and importing data from worker targets
+                const target = null;
+                let snapshot = WI.HeapSnapshotProxy.deserialize(target, objectId, serializedSnapshot);
                 snapshot.snapshotStringData = snapshotStringData;
                 resolve(new WI.HeapAllocationsTimelineRecord(timestamp, snapshot));
             });
@@ -58,6 +60,8 @@ WI.HeapAllocationsTimelineRecord = class HeapAllocationsTimelineRecord extends W
 
     toJSON()
     {
+        // FIXME: <https://webkit.org/b/287738> support exporting and importing data from worker targets
+
         return {
             type: this.type,
             timestamp: this._timestamp,

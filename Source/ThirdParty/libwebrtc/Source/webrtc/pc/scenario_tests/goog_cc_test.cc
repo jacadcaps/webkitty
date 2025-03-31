@@ -10,6 +10,7 @@
 
 #include "api/stats/rtc_stats_collector_callback.h"
 #include "api/stats/rtcstats_objects.h"
+#include "api/units/data_rate.h"
 #include "pc/test/mock_peer_connection_observers.h"
 #include "test/field_trial.h"
 #include "test/gtest.h"
@@ -32,10 +33,7 @@ TEST(GoogCcPeerScenarioTest, MAYBE_NoBweChangeFromVideoUnmute) {
   // packets sizes. This will create a change in propagation time which might be
   // detected as an overuse. Using separate overuse detectors for audio and
   // video avoids the issue.
-  std::string audio_twcc_trials(
-      "WebRTC-Audio-SendSideBwe/Enabled/"         //
-      "WebRTC-SendSideBwe-WithOverhead/Enabled/"  //
-      "WebRTC-Audio-AlrProbing/Disabled/");
+  std::string audio_twcc_trials("WebRTC-Audio-AlrProbing/Disabled/");
   std::string separate_audio_video(
       "WebRTC-Bwe-SeparateAudioPackets/"
       "enabled:true,packet_threshold:15,time_threshold:1000ms/");
@@ -45,7 +43,7 @@ TEST(GoogCcPeerScenarioTest, MAYBE_NoBweChangeFromVideoUnmute) {
   auto* callee = s.CreateClient(PeerScenarioClient::Config());
 
   BuiltInNetworkBehaviorConfig net_conf;
-  net_conf.link_capacity_kbps = 350;
+  net_conf.link_capacity = DataRate::KilobitsPerSec(350);
   net_conf.queue_delay_ms = 50;
   auto send_node = s.net()->CreateEmulatedNode(net_conf);
   auto ret_node = s.net()->CreateEmulatedNode(net_conf);
@@ -76,9 +74,9 @@ TEST(GoogCcPeerScenarioTest, MAYBE_NoBweChangeFromVideoUnmute) {
   ASSERT_EQ(num_video_streams, 1);  // Exactly 1 video stream.
 
   auto get_bwe = [&] {
-    rtc::scoped_refptr<webrtc::MockRTCStatsCollectorCallback> callback(
-        new rtc::RefCountedObject<webrtc::MockRTCStatsCollectorCallback>());
-    caller->pc()->GetStats(callback);
+    auto callback =
+        rtc::make_ref_counted<webrtc::MockRTCStatsCollectorCallback>();
+    caller->pc()->GetStats(callback.get());
     s.net()->time_controller()->Wait([&] { return callback->called(); });
     auto stats =
         callback->report()->GetStatsOfType<RTCIceCandidatePairStats>()[0];
@@ -96,13 +94,16 @@ TEST(GoogCcPeerScenarioTest, MAYBE_NoBweChangeFromVideoUnmute) {
 
   // Resume video but stop audio. Bandwidth should not drop.
   video.capturer->Start();
-  RTCError status = caller->pc()->RemoveTrackNew(audio.sender);
+  RTCError status = caller->pc()->RemoveTrackOrError(audio.sender);
   ASSERT_TRUE(status.ok());
   audio.track->set_enabled(false);
   for (int i = 0; i < 10; i++) {
     s.ProcessMessages(TimeDelta::Seconds(1));
     EXPECT_GE(get_bwe(), initial_bwe);
   }
+
+  caller->pc()->Close();
+  callee->pc()->Close();
 }
 
 }  // namespace test

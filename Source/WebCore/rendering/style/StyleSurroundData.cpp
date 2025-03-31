@@ -22,18 +22,28 @@
 #include "config.h"
 #include "StyleSurroundData.h"
 
+#include "RenderStyleDifference.h"
+
 namespace WebCore {
 
 DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(StyleSurroundData);
 
 StyleSurroundData::StyleSurroundData()
-    : margin(Fixed)
-    , padding(Fixed)
+    : hasExplicitlySetBorderBottomLeftRadius(false)
+    , hasExplicitlySetBorderBottomRightRadius(false)
+    , hasExplicitlySetBorderTopLeftRadius(false)
+    , hasExplicitlySetBorderTopRightRadius(false)
+    , margin(LengthType::Fixed)
+    , padding(LengthType::Fixed)
 {
 }
 
 inline StyleSurroundData::StyleSurroundData(const StyleSurroundData& o)
     : RefCounted<StyleSurroundData>()
+    , hasExplicitlySetBorderBottomLeftRadius(o.hasExplicitlySetBorderBottomLeftRadius)
+    , hasExplicitlySetBorderBottomRightRadius(o.hasExplicitlySetBorderBottomRightRadius)
+    , hasExplicitlySetBorderTopLeftRadius(o.hasExplicitlySetBorderTopLeftRadius)
+    , hasExplicitlySetBorderTopRightRadius(o.hasExplicitlySetBorderTopRightRadius)
     , offset(o.offset)
     , margin(o.margin)
     , padding(o.padding)
@@ -48,7 +58,26 @@ Ref<StyleSurroundData> StyleSurroundData::copy() const
 
 bool StyleSurroundData::operator==(const StyleSurroundData& o) const
 {
-    return offset == o.offset && margin == o.margin && padding == o.padding && border == o.border;
+    return offset == o.offset && margin == o.margin && padding == o.padding && border == o.border
+        && hasExplicitlySetBorderBottomLeftRadius == o.hasExplicitlySetBorderBottomLeftRadius
+        && hasExplicitlySetBorderBottomRightRadius == o.hasExplicitlySetBorderBottomRightRadius
+        && hasExplicitlySetBorderTopLeftRadius == o.hasExplicitlySetBorderTopLeftRadius
+        && hasExplicitlySetBorderTopRightRadius == o.hasExplicitlySetBorderTopRightRadius;
 }
+
+#if !LOG_DISABLED
+void StyleSurroundData::dumpDifferences(TextStream& ts, const StyleSurroundData& other) const
+{
+    LOG_IF_DIFFERENT(hasExplicitlySetBorderBottomLeftRadius);
+    LOG_IF_DIFFERENT(hasExplicitlySetBorderBottomRightRadius);
+    LOG_IF_DIFFERENT(hasExplicitlySetBorderTopLeftRadius);
+    LOG_IF_DIFFERENT(hasExplicitlySetBorderTopRightRadius);
+
+    LOG_IF_DIFFERENT(offset);
+    LOG_IF_DIFFERENT(margin);
+    LOG_IF_DIFFERENT(padding);
+    LOG_IF_DIFFERENT(border);
+}
+#endif
 
 } // namespace WebCore

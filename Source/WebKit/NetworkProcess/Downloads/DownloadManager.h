@@ -31,7 +31,11 @@
 #include "PendingDownload.h"
 #include "PolicyDecision.h"
 #include "SandboxExtension.h"
+#include "UseDownloadPlaceholder.h"
+#include <WebCore/LocalFrameLoaderClient.h>
 #include <WebCore/NotImplemented.h>
+#include <wtf/AbstractRefCounted.h>
+#include <wtf/CheckedRef.h>
 #include <wtf/Forward.h>
 #include <wtf/HashMap.h>
 #include <wtf/Noncopyable.h>
@@ -42,14 +46,14 @@ class SessionID;
 
 namespace WebCore {
 class BlobDataFileReference;
-class ResourceHandle;
 class ResourceRequest;
 class ResourceResponse;
+
+enum class FromDownloadAttribute : bool;
 }
 
 namespace IPC {
 class Connection;
-class DataReference;
 }
 
 namespace WebKit {
@@ -60,42 +64,51 @@ class NetworkConnectionToWebProcess;
 class NetworkLoad;
 class PendingDownload;
 
-class DownloadManager {
-    WTF_MAKE_NONCOPYABLE(DownloadManager);
+enum class CallDownloadDidStart : bool { No, Yes };
 
+class DownloadManager : public CanMakeCheckedPtr<DownloadManager> {
+    WTF_MAKE_NONCOPYABLE(DownloadManager);
+    WTF_MAKE_FAST_ALLOCATED;
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(DownloadManager);
 public:
-    class Client {
+    class Client : public AbstractRefCounted {
     public:
         virtual ~Client() { }
+
+        // CheckedPtr interface
+        virtual uint32_t checkedPtrCount() const = 0;
+        virtual uint32_t checkedPtrCountWithoutThreadCheck() const = 0;
+        virtual void incrementCheckedPtrCount() const = 0;
+        virtual void decrementCheckedPtrCount() const = 0;
 
         virtual void didCreateDownload() = 0;
         virtual void didDestroyDownload() = 0;
         virtual IPC::Connection* downloadProxyConnection() = 0;
         virtual IPC::Connection* parentProcessConnectionForDownloads() = 0;
         virtual AuthenticationManager& downloadsAuthenticationManager() = 0;
-        virtual void pendingDownloadCanceled(DownloadID) = 0;
         virtual NetworkSession* networkSession(PAL::SessionID) const = 0;
-        virtual void ref() const = 0;
-        virtual void deref() const = 0;
     };
 
     explicit DownloadManager(Client&);
+    ~DownloadManager();
 
-    void startDownload(PAL::SessionID, DownloadID, const WebCore::ResourceRequest&, Optional<NavigatingToAppBoundDomain>, const String& suggestedName = { });
-    void dataTaskBecameDownloadTask(DownloadID, std::unique_ptr<Download>&&);
-    void continueWillSendRequest(DownloadID, WebCore::ResourceRequest&&);
-    void willDecidePendingDownloadDestination(NetworkDataTask&, ResponseCompletionHandler&&);
-    void convertNetworkLoadToDownload(DownloadID, std::unique_ptr<NetworkLoad>&&, ResponseCompletionHandler&&,  Vector<RefPtr<WebCore::BlobDataFileReference>>&&, const WebCore::ResourceRequest&, const WebCore::ResourceResponse&);
-    void continueDecidePendingDownloadDestination(DownloadID, String destination, SandboxExtension::Handle&&, bool allowOverwrite);
+    void startDownload(PAL::SessionID, DownloadID, const WebCore::ResourceRequest&, const std::optional<WebCore::SecurityOriginData>& topOrigin, std::optional<NavigatingToAppBoundDomain>, const String& suggestedName = { }, WebCore::FromDownloadAttribute = WebCore::FromDownloadAttribute::No, std::optional<WebCore::FrameIdentifier> frameID = std::nullopt, std::optional<WebCore::PageIdentifier> = std::nullopt, std::optional<WebCore::ProcessIdentifier> = std::nullopt);
+    void dataTaskBecameDownloadTask(DownloadID, Ref<Download>&&);
+    void convertNetworkLoadToDownload(DownloadID, Ref<NetworkLoad>&&, ResponseCompletionHandler&&,  Vector<RefPtr<WebCore::BlobDataFileReference>>&&, const WebCore::ResourceRequest&, const WebCore::ResourceResponse&);
+    void downloadDestinationDecided(DownloadID, Ref<NetworkDataTask>&&);
 
-    void resumeDownload(PAL::SessionID, DownloadID, const IPC::DataReference& resumeData, const String& path, SandboxExtension::Handle&&);
+    void resumeDownload(PAL::SessionID, DownloadID, std::span<const uint8_t> resumeData, const String& path, SandboxExtension::Handle&&, CallDownloadDidStart, std::span<const uint8_t> activityAccessToken);
 
-    void cancelDownload(DownloadID);
+    void cancelDownload(DownloadID, CompletionHandler<void(std::span<const uint8_t>)>&&);
 #if PLATFORM(COCOA)
+#if HAVE(MODERN_DOWNLOADPROGRESS)
+    void publishDownloadProgress(DownloadID, const URL&, std::span<const uint8_t> bookmarkData, WebKit::UseDownloadPlaceholder, std::span<const uint8_t> activityAccessToken);
+#else
     void publishDownloadProgress(DownloadID, const URL&, SandboxExtension::Handle&&);
 #endif
+#endif
     
-    Download* download(DownloadID downloadID) { return m_downloads.get(downloadID); }
+    Download* download(DownloadID);
 
     void downloadFinished(Download&);
     bool isDownloading() const { return !m_downloads.isEmpty(); }
@@ -112,9 +125,8 @@ public:
     Client& client() { return m_client; }
 
 private:
-    Client& m_client;
-    HashMap<DownloadID, std::unique_ptr<PendingDownload>> m_pendingDownloads;
-    HashMap<DownloadID, std::pair<RefPtr<NetworkDataTask>, ResponseCompletionHandler>> m_downloadsWaitingForDestination;
+    CheckedRef<Client> m_client;
+    HashMap<DownloadID, Ref<PendingDownload>> m_pendingDownloads;
     HashMap<DownloadID, RefPtr<NetworkDataTask>> m_downloadsAfterDestinationDecided;
     DownloadMap m_downloads;
 };

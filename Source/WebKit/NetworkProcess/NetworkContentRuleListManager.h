@@ -30,6 +30,7 @@
 #include "UserContentControllerIdentifier.h"
 #include "WebCompiledContentRuleListData.h"
 #include <WebCore/ContentExtensionsBackend.h>
+#include <wtf/WeakRef.h>
 
 namespace IPC {
 class Connection;
@@ -50,15 +51,20 @@ public:
     using BackendCallback = CompletionHandler<void(WebCore::ContentExtensions::ContentExtensionsBackend&)>;
     void contentExtensionsBackend(UserContentControllerIdentifier, BackendCallback&&);
 
+    void ref() const;
+    void deref() const;
+
 private:
-    void addContentRuleLists(UserContentControllerIdentifier, Vector<std::pair<String, WebCompiledContentRuleListData>>&&);
+    void addContentRuleLists(UserContentControllerIdentifier, Vector<std::pair<WebCompiledContentRuleListData, URL>>&&);
     void removeContentRuleList(UserContentControllerIdentifier, const String& name);
     void removeAllContentRuleLists(UserContentControllerIdentifier);
     void remove(UserContentControllerIdentifier);
 
+    Ref<NetworkProcess> protectedNetworkProcess() const;
+
     HashMap<UserContentControllerIdentifier, std::unique_ptr<WebCore::ContentExtensions::ContentExtensionsBackend>> m_contentExtensionBackends;
     HashMap<UserContentControllerIdentifier, Vector<BackendCallback>> m_pendingCallbacks;
-    NetworkProcess& m_networkProcess;
+    WeakRef<NetworkProcess> m_networkProcess;
 };
 
 } // namespace WebKit

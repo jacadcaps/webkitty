@@ -31,7 +31,7 @@
 namespace WebCore {
 
 class AnalyserNode final : public AudioBasicInspectorNode {
-    WTF_MAKE_ISO_ALLOCATED(AnalyserNode);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(AnalyserNode);
 public:
     static ExceptionOr<Ref<AnalyserNode>> create(BaseAudioContext&, const AnalyserOptions& = { });
 
@@ -62,10 +62,12 @@ private:
     AnalyserNode(BaseAudioContext&);
 
     void process(size_t framesToProcess) final;
-    void reset() final;
+    void updatePullStatus() final;
 
-    double tailTime() const final { return 0; }
+    double tailTime() const final;
     double latencyTime() const final { return 0; }
+    bool requiresTailProcessing() const final;
+    bool propagatesSilence() const final;
 
     RealtimeAnalyser m_analyser;
 };

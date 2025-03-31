@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,12 +31,14 @@
 #include "AVPlaybackTargetPicker.h"
 #include "MediaPlaybackTargetPicker.h"
 #include <wtf/RetainPtr.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
-class MediaPlaybackTargetPickerMac final : public MediaPlaybackTargetPicker, public AVPlaybackTargetPicker::Client {
-    WTF_MAKE_FAST_ALLOCATED;
+class MediaPlaybackTargetPickerMac final : public MediaPlaybackTargetPicker, public AVPlaybackTargetPickerClient {
+    WTF_MAKE_TZONE_ALLOCATED(MediaPlaybackTargetPickerMac);
     WTF_MAKE_NONCOPYABLE(MediaPlaybackTargetPickerMac);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(MediaPlaybackTargetPickerMac);
 public:
     explicit MediaPlaybackTargetPickerMac(MediaPlaybackTargetPicker::Client&);
     virtual ~MediaPlaybackTargetPickerMac();
@@ -50,7 +52,7 @@ private:
     bool externalOutputDeviceAvailable() final;
     Ref<MediaPlaybackTarget> playbackTarget() final;
 
-    // AVPlaybackTargetPicker::Client
+    // AVPlaybackTargetPickerClient
     void pickerWasDismissed() final;
     void availableDevicesChanged() final;
     void currentDeviceChanged() final;

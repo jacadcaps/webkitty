@@ -25,10 +25,13 @@
 
 #include "config.h"
 #include "LowPowerModeNotifier.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-#if !PLATFORM(IOS_FAMILY) && !USE(GLIB)
+WTF_MAKE_TZONE_ALLOCATED_IMPL(LowPowerModeNotifier);
+
+#if !HAVE(APPLE_LOW_POWER_MODE_SUPPORT) && !USE(GLIB)
 
 LowPowerModeNotifier::LowPowerModeNotifier(LowPowerModeChangeCallback&&)
 {

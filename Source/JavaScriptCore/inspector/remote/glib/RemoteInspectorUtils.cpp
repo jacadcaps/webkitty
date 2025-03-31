@@ -31,6 +31,7 @@
 #include <gio/gio.h>
 #include <mutex>
 #include <wtf/SHA1.h>
+#include <wtf/glib/GSpanExtras.h>
 
 #define INSPECTOR_BACKEND_COMMANDS_PATH "/org/webkit/inspector/UserInterface/Protocol/InspectorBackendCommands.js"
 
@@ -41,13 +42,19 @@ GRefPtr<GBytes> backendCommands()
 #if PLATFORM(WPE)
     static std::once_flag flag;
     std::call_once(flag, [] {
-        GModule* resourcesModule = g_module_open(PKGLIBDIR G_DIR_SEPARATOR_S "libWPEWebInspectorResources.so", G_MODULE_BIND_LAZY);
-        if (!resourcesModule) {
-            WTFLogAlways("Error loading libWPEWebInspectorResources.so: %s", g_module_error());
-            return;
-        }
+        const char* dataDir = PKGDATADIR;
+        GUniqueOutPtr<GError> error;
 
-        g_module_make_resident(resourcesModule);
+        const char* path = g_getenv("WEBKIT_INSPECTOR_RESOURCES_PATH");
+        if (path && g_file_test(path, G_FILE_TEST_IS_DIR))
+            dataDir = path;
+
+        GUniquePtr<char> gResourceFilename(g_build_filename(dataDir, "inspector.gresource", nullptr));
+        GRefPtr<GResource> gresource = adoptGRef(g_resource_load(gResourceFilename.get(), &error.outPtr()));
+        if (!gresource) {
+            g_error("Error loading inspector.gresource: %s", error->message);
+        }
+        g_resources_register(gresource.get());
     });
 #endif
     GRefPtr<GBytes> bytes = adoptGRef(g_resources_lookup_data(INSPECTOR_BACKEND_COMMANDS_PATH, G_RESOURCE_LOOKUP_FLAGS_NONE, nullptr));
@@ -60,11 +67,10 @@ const CString& backendCommandsHash()
     static CString hexDigest;
     if (hexDigest.isNull()) {
         auto bytes = backendCommands();
-        size_t dataSize;
-        gconstpointer data = g_bytes_get_data(bytes.get(), &dataSize);
-        ASSERT(dataSize);
+        auto bytesSpan = span(bytes);
+        ASSERT(bytesSpan.size());
         SHA1 sha1;
-        sha1.addBytes(static_cast<const uint8_t*>(data), dataSize);
+        sha1.addBytes(bytesSpan);
         hexDigest = sha1.computeHexDigest();
     }
     return hexDigest;

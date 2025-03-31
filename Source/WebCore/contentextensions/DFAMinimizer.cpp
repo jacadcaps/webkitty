@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -41,7 +41,7 @@ namespace ContentExtensions {
 namespace {
 
 template<typename VectorType, typename Iterable, typename Function>
-static inline void iterateIntersections(const VectorType& singularTransitionsFirsts, const Iterable& iterableTransitionList, const Function& intersectionHandler)
+static inline void iterateIntersections(const VectorType& singularTransitionsFirsts, const Iterable& iterableTransitionList, NOESCAPE const Function& intersectionHandler)
 {
     ASSERT(!singularTransitionsFirsts.isEmpty());
     auto otherIterator = iterableTransitionList.begin();
@@ -87,7 +87,7 @@ public:
             m_elementPositionInPartitionedNodes[i] = i;
             m_elementToSetMap[i] = 0;
         }
-        m_sets.uncheckedAppend(SetDescriptor { 0, size, 0 });
+        m_sets.append(SetDescriptor { 0, size, 0 });
     }
 
     void reserveUninitializedCapacity(unsigned elementCount)
@@ -147,7 +147,7 @@ public:
 
     // The function passed as argument MUST not modify the partition.
     template<typename Function>
-    void refineGeneration(const Function& function)
+    void refineGeneration(NOESCAPE const Function& function)
     {
         for (unsigned setIndex : m_setsMarkedInCurrentGeneration) {
             SetDescriptor& setDescriptor = m_sets[setIndex];
@@ -181,7 +181,7 @@ public:
 
     // Call Function() on every node of a given subset.
     template<typename Function>
-    void iterateSet(unsigned setIndex, const Function& function)
+    void iterateSet(unsigned setIndex, NOESCAPE const Function& function)
     {
         SetDescriptor& setDescriptor = m_sets[setIndex];
         for (unsigned i = setDescriptor.start; i < setDescriptor.end(); ++i)
@@ -258,12 +258,11 @@ public:
 
         // Count the number of incoming transitions per node.
         m_flattenedTransitionsStartOffsetPerNode.resize(dfa.nodes.size());
-        memset(m_flattenedTransitionsStartOffsetPerNode.data(), 0, m_flattenedTransitionsStartOffsetPerNode.size() * sizeof(unsigned));
+        m_flattenedTransitionsStartOffsetPerNode.fill(0);
 
-        Vector<char, 0, ContentExtensionsOverflowHandler> singularTransitionsFirsts;
-        singularTransitionsFirsts.reserveInitialCapacity(singularTransitions.m_ranges.size());
-        for (const auto& transition : singularTransitions)
-            singularTransitionsFirsts.uncheckedAppend(transition.first);
+        auto singularTransitionsFirsts = WTF::map<0, ContentExtensionsOverflowHandler>(singularTransitions, [&](auto& transition) {
+            return transition.first;
+        });
 
         for (const DFANode& node : dfa.nodes) {
             if (node.isKilled())
@@ -293,8 +292,7 @@ public:
             counter = 0;
         m_flattenedTransitions.resize(flattenedTransitionsSize);
 
-        Vector<uint32_t> transitionPerRangeOffset(m_transitionPartition.size());
-        memset(transitionPerRangeOffset.data(), 0, transitionPerRangeOffset.size() * sizeof(uint32_t));
+        Vector<uint32_t> transitionPerRangeOffset(m_transitionPartition.size(), 0);
 
         for (unsigned i = 0; i < dfa.nodes.size(); ++i) {
             const DFANode& node = dfa.nodes[i];
@@ -401,7 +399,7 @@ struct ActionKey {
         , actionsLength(actionsLength)
         , state(Valid)
     {
-        StringHasher hasher;
+        SuperFastHash hasher;
         hasher.addCharactersAssumingAligned(reinterpret_cast<const UChar*>(&dfa->actions[actionsStart]), actionsLength * sizeof(uint64_t) / sizeof(UChar));
         hash = hasher.hash();
     }
@@ -456,7 +454,7 @@ void DFAMinimizer::minimize(DFA& dfa)
     // Unlike traditional minimization final states can be differentiated by their action.
     // Instead of creating a single set for the final state, we partition by actions from
     // the start.
-    HashMap<ActionKey, Vector<unsigned>, ActionKeyHash, ActionKeyHashTraits> finalStates;
+    UncheckedKeyHashMap<ActionKey, Vector<unsigned>, ActionKeyHash, ActionKeyHashTraits> finalStates;
     for (unsigned i = 0; i < dfa.nodes.size(); ++i) {
         const DFANode& node = dfa.nodes[i];
         if (node.hasActions()) {
@@ -475,10 +473,7 @@ void DFAMinimizer::minimize(DFA& dfa)
     // Use every splitter to refine the node partitions.
     fullGraphPartition.splitByUniqueTransitions();
 
-    Vector<unsigned> relocationVector;
-    relocationVector.reserveInitialCapacity(dfa.nodes.size());
-    for (unsigned i = 0; i < dfa.nodes.size(); ++i)
-        relocationVector.uncheckedAppend(i);
+    Vector<unsigned> relocationVector(dfa.nodes.size(), [](size_t i) { return i; });
 
     // Update all the transitions.
     for (unsigned i = 0; i < dfa.nodes.size(); ++i) {

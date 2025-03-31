@@ -29,13 +29,14 @@
 #include <wtf/FastMalloc.h>
 #include <wtf/MainThread.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/RefCounted.h>
 
 namespace WTF {
 
-#if defined(NDEBUG) && !ENABLE(SECURITY_ASSERTIONS)
-#define CHECK_THREAD_SAFE_REF_COUNTED_LIFECYCLE 0
-#else
+#if ASSERT_ENABLED || ENABLE(SECURITY_ASSERTIONS)
 #define CHECK_THREAD_SAFE_REF_COUNTED_LIFECYCLE 1
+#else
+#define CHECK_THREAD_SAFE_REF_COUNTED_LIFECYCLE 0
 #endif
 
 class ThreadSafeRefCountedBase {
@@ -45,26 +46,18 @@ public:
     ThreadSafeRefCountedBase() = default;
 
 #if CHECK_THREAD_SAFE_REF_COUNTED_LIFECYCLE
-    ~ThreadSafeRefCountedBase()
-    {
-        // When this ThreadSafeRefCounted object is a part of another object, derefBase() is never called on this object.
-        m_deletionHasBegun = true;
-    }
+    ~ThreadSafeRefCountedBase();
 #endif
 
     void ref() const
     {
-#if CHECK_THREAD_SAFE_REF_COUNTED_LIFECYCLE
-        ASSERT_WITH_SECURITY_IMPLICATION(!m_deletionHasBegun);
-#endif
+        applyRefDuringDestructionCheck();
+
         ++m_refCount;
     }
 
     bool hasOneRef() const
     {
-#if CHECK_THREAD_SAFE_REF_COUNTED_LIFECYCLE
-        ASSERT(!m_deletionHasBegun);
-#endif
         return refCount() == 1;
     }
 
@@ -75,13 +68,9 @@ public:
 
 protected:
     // Returns whether the pointer should be freed or not.
-    bool derefBase() const
+    bool derefBaseWithoutDeletionCheck() const
     {
         ASSERT(m_refCount);
-
-#if CHECK_THREAD_SAFE_REF_COUNTED_LIFECYCLE
-        ASSERT_WITH_SECURITY_IMPLICATION(!m_deletionHasBegun);
-#endif
 
         if (UNLIKELY(!--m_refCount)) {
             // Setting m_refCount to 1 here prevents double delete within the destructor but not from another thread
@@ -96,15 +85,48 @@ protected:
         return false;
     }
 
+    // Returns whether the pointer should be freed or not.
+    bool derefBase() const
+    {
+        return derefBaseWithoutDeletionCheck();
+    }
+
+    void applyRefDuringDestructionCheck() const
+    {
+#if CHECK_THREAD_SAFE_REF_COUNTED_LIFECYCLE
+        if (!m_deletionHasBegun)
+            return;
+        RefCountedBase::logRefDuringDestruction(this);
+#endif
+    }
+
 private:
     mutable std::atomic<unsigned> m_refCount { 1 };
 
+#if ASSERT_ENABLED
+    // Match the layout of RefCounted, which has flag bits for threading checks.
+    UNUSED_MEMBER_VARIABLE bool m_unused1;
+    UNUSED_MEMBER_VARIABLE bool m_unused2;
+#endif
+
 #if CHECK_THREAD_SAFE_REF_COUNTED_LIFECYCLE
     mutable std::atomic<bool> m_deletionHasBegun { false };
+    // Match the layout of RefCounted.
+    UNUSED_MEMBER_VARIABLE bool m_unused3;
 #endif
 };
 
-enum class DestructionThread { Any, Main, MainRunLoop };
+#if CHECK_THREAD_SAFE_REF_COUNTED_LIFECYCLE
+inline ThreadSafeRefCountedBase::~ThreadSafeRefCountedBase()
+{
+    // When this ThreadSafeRefCounted object is a part of another object, derefBase() is never called on this object.
+    m_deletionHasBegun = true;
+
+    // FIXME: Test performance, then add a RELEASE_ASSERT for this too.
+    if (m_refCount != 1)
+        RefCountedBase::printRefDuringDestructionLogAndCrash(this);
+}
+#endif
 
 template<class T, DestructionThread destructionThread = DestructionThread::Any> class ThreadSafeRefCounted : public ThreadSafeRefCountedBase {
 public:
@@ -113,26 +135,19 @@ public:
         if (!derefBase())
             return;
 
-        auto deleteThis = [this] {
+        if constexpr (destructionThread == DestructionThread::Any) {
             delete static_cast<const T*>(this);
-        };
-        switch (destructionThread) {
-        case DestructionThread::Any:
-            break;
-        case DestructionThread::Main:
-            if (!isMainThread()) {
-                callOnMainThread(WTFMove(deleteThis));
-                return;
-            }
-            break;
-        case DestructionThread::MainRunLoop:
-            if (!isMainRunLoop()) {
-                callOnMainRunLoop(WTFMove(deleteThis));
-                return;
-            }
-            break;
+        } else if constexpr (destructionThread == DestructionThread::Main) {
+            ensureOnMainThread([this] {
+                delete static_cast<const T*>(this);
+            });
+        } else if constexpr (destructionThread == DestructionThread::MainRunLoop) {
+            ensureOnMainRunLoop([this] {
+                delete static_cast<const T*>(this);
+            });
+        } else {
+            STATIC_ASSERT_NOT_REACHED_FOR_VALUE(destructionThread, "Unexpected destructionThread enumerator value");
         }
-        deleteThis();
     }
 
 protected:

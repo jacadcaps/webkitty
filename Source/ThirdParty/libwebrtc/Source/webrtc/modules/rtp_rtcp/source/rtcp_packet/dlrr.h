@@ -24,15 +24,25 @@ struct ReceiveTimeInfo {
   ReceiveTimeInfo() : ssrc(0), last_rr(0), delay_since_last_rr(0) {}
   ReceiveTimeInfo(uint32_t ssrc, uint32_t last_rr, uint32_t delay)
       : ssrc(ssrc), last_rr(last_rr), delay_since_last_rr(delay) {}
+
   uint32_t ssrc;
   uint32_t last_rr;
   uint32_t delay_since_last_rr;
 };
 
+inline bool operator==(const ReceiveTimeInfo& lhs, const ReceiveTimeInfo& rhs) {
+  return lhs.ssrc == rhs.ssrc && lhs.last_rr == rhs.last_rr &&
+         lhs.delay_since_last_rr == rhs.delay_since_last_rr;
+}
+
+inline bool operator!=(const ReceiveTimeInfo& lhs, const ReceiveTimeInfo& rhs) {
+  return !(lhs == rhs);
+}
+
 // DLRR Report Block: Delay since the Last Receiver Report (RFC 3611).
 class Dlrr {
  public:
-  static const uint8_t kBlockType = 5;
+  static constexpr uint8_t kBlockType = 5;
 
   Dlrr();
   Dlrr(const Dlrr& other);
@@ -60,8 +70,8 @@ class Dlrr {
   const std::vector<ReceiveTimeInfo>& sub_blocks() const { return sub_blocks_; }
 
  private:
-  static const size_t kBlockHeaderLength = 4;
-  static const size_t kSubBlockLength = 12;
+  static constexpr size_t kBlockHeaderLength = 4;
+  static constexpr size_t kSubBlockLength = 12;
 
   std::vector<ReceiveTimeInfo> sub_blocks_;
 };

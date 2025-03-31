@@ -35,13 +35,22 @@
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
+class ApplicationCacheGroup;
+}
+
+namespace WTF {
+template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
+template<> struct IsDeprecatedWeakRefSmartPointerException<WebCore::ApplicationCacheGroup> : std::true_type { };
+}
+
+namespace WebCore {
 
 class ApplicationCache;
 class ApplicationCacheResource;
 class ApplicationCacheStorage;
 class Document;
 class DocumentLoader;
-class Frame;
+class LocalFrame;
 class SecurityOrigin;
 
 enum ApplicationCacheUpdateOption {
@@ -51,7 +60,7 @@ enum ApplicationCacheUpdateOption {
 
 class ApplicationCacheGroup : public CanMakeWeakPtr<ApplicationCacheGroup> {
     WTF_MAKE_NONCOPYABLE(ApplicationCacheGroup);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(Loader);
 public:
     explicit ApplicationCacheGroup(Ref<ApplicationCacheStorage>&&, const URL& manifestURL);
     virtual ~ApplicationCacheGroup();
@@ -61,8 +70,8 @@ public:
     static ApplicationCache* cacheForMainRequest(const ResourceRequest&, DocumentLoader*);
     static ApplicationCache* fallbackCacheForMainRequest(const ResourceRequest&, DocumentLoader*);
     
-    static void selectCache(Frame&, const URL& manifestURL);
-    static void selectCacheWithoutManifestURL(Frame&);
+    static void selectCache(LocalFrame&, const URL& manifestURL);
+    static void selectCacheWithoutManifestURL(LocalFrame&);
 
     ApplicationCacheStorage& storage() { return m_storage; }
     const URL& manifestURL() const { return m_manifestURL; }
@@ -74,14 +83,14 @@ public:
     unsigned storageID() const { return m_storageID; }
     void clearStorageID();
     
-    void update(Frame&, ApplicationCacheUpdateOption); // FIXME: Frame should not be needed when updating without browsing context.
+    void update(LocalFrame&, ApplicationCacheUpdateOption); // FIXME: Frame should not be needed when updating without browsing context.
     void cacheDestroyed(ApplicationCache&);
     
-    void abort(Frame&);
+    void abort(LocalFrame&);
 
     bool cacheIsComplete(ApplicationCache& cache) { return m_caches.contains(&cache); }
 
-    void stopLoadingInFrame(Frame&);
+    void stopLoadingInFrame(LocalFrame&);
 
     ApplicationCache* newestCache() const { return m_newestCache.get(); }
     void setNewestCache(Ref<ApplicationCache>&&);
@@ -95,9 +104,9 @@ public:
     void disassociateDocumentLoader(DocumentLoader&);
 
 private:
-    static void postListenerTask(const AtomString& eventType, const HashSet<DocumentLoader*>& set) { postListenerTask(eventType, 0, 0, set); }
+    static void postListenerTask(const AtomString& eventType, const UncheckedKeyHashSet<DocumentLoader*>& set) { postListenerTask(eventType, 0, 0, set); }
     static void postListenerTask(const AtomString& eventType, DocumentLoader& loader)  { postListenerTask(eventType, 0, 0, loader); }
-    static void postListenerTask(const AtomString& eventType, int progressTotal, int progressDone, const HashSet<DocumentLoader*>&);
+    static void postListenerTask(const AtomString& eventType, int progressTotal, int progressDone, const UncheckedKeyHashSet<DocumentLoader*>&);
     static void postListenerTask(const AtomString& eventType, int progressTotal, int progressDone, DocumentLoader&);
 
     void scheduleReachedMaxAppCacheSizeCallback();
@@ -136,19 +145,19 @@ private:
     RefPtr<ApplicationCache> m_newestCache;
     
     // All complete caches in this cache group.
-    HashSet<ApplicationCache*> m_caches;
+    UncheckedKeyHashSet<ApplicationCache*> m_caches;
     
     // The cache being updated (if any). Note that cache updating does not immediately create a new
     // ApplicationCache object, so this may be null even when update status is not Idle.
     RefPtr<ApplicationCache> m_cacheBeingUpdated;
 
     // List of pending master entries, used during the update process to ensure that new master entries are cached.
-    HashSet<DocumentLoader*> m_pendingMasterResourceLoaders;
+    UncheckedKeyHashSet<DocumentLoader*> m_pendingMasterResourceLoaders;
     // How many of the above pending master entries have not yet finished downloading.
     int m_downloadingPendingMasterResourceLoadersCount { 0 };
     
     // These are all the document loaders that are associated with a cache in this group.
-    HashSet<DocumentLoader*> m_associatedDocumentLoaders;
+    UncheckedKeyHashSet<DocumentLoader*> m_associatedDocumentLoaders;
 
     // The URLs and types of pending cache entries.
     HashMap<String, unsigned> m_pendingEntries;
@@ -159,7 +168,7 @@ private:
 
     // Frame used for fetching resources when updating.
     // FIXME: An update started by a particular frame should not stop if it is destroyed, but there are other frames associated with the same cache group.
-    Frame* m_frame { nullptr };
+    WeakPtr<LocalFrame> m_frame;
   
     // An obsolete cache group is never stored, but the opposite is not true - storing may fail for multiple reasons, such as exceeding disk quota.
     unsigned m_storageID { 0 };
@@ -181,7 +190,7 @@ private:
     
     RefPtr<ApplicationCacheResource> m_currentResource;
     RefPtr<ApplicationCacheResourceLoader> m_entryLoader;
-    unsigned long m_currentResourceIdentifier;
+    Markable<ResourceLoaderIdentifier> m_currentResourceIdentifier;
 
     RefPtr<ApplicationCacheResource> m_manifestResource;
     RefPtr<ApplicationCacheResourceLoader> m_manifestLoader;

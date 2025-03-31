@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013, 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -37,21 +37,24 @@ class BytecodeGraph;
 class CodeBlock;
 class UnlinkedCodeBlock;
 class UnlinkedCodeBlockGenerator;
-struct Instruction;
+template<typename> struct Instruction;
 
 DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(BytecodeBasicBlock);
 
+template<typename OpcodeTraits>
 class BytecodeBasicBlock {
-    WTF_MAKE_FAST_ALLOCATED(BytecodeBasicBlock);
+    WTF_MAKE_TZONE_ALLOCATED_TEMPLATE(BytecodeBasicBlock);
     WTF_MAKE_NONCOPYABLE(BytecodeBasicBlock);
     friend class BytecodeGraph;
 public:
     using BasicBlockVector = Vector<BytecodeBasicBlock, 0, UnsafeVectorOverflow, 16, BytecodeBasicBlockMalloc>;
-    static_assert(maxOpcodeLength <= UINT8_MAX);
+    using InstructionType = BaseInstruction<OpcodeTraits>;
+    using InstructionStreamType = InstructionStream<InstructionType>;
+    static_assert(maxBytecodeStructLength <= UINT8_MAX);
     enum SpecialBlockType { EntryBlock, ExitBlock };
-    inline BytecodeBasicBlock(const InstructionStream::Ref&, unsigned blockIndex);
+    inline BytecodeBasicBlock(const typename InstructionStreamType::Ref&, unsigned blockIndex);
     inline BytecodeBasicBlock(SpecialBlockType, unsigned blockIndex);
-    BytecodeBasicBlock(BytecodeBasicBlock&&) = default;
+    BytecodeBasicBlock(BytecodeBasicBlock<OpcodeTraits>&&) = default;
 
 
     bool isEntryBlock() { return !m_leaderOffset && !m_totalLength; }
@@ -72,12 +75,12 @@ public:
 
 private:
     // Only called from BytecodeGraph.
-    static BasicBlockVector compute(CodeBlock*, const InstructionStream& instructions);
-    static BasicBlockVector compute(UnlinkedCodeBlockGenerator*, const InstructionStream& instructions);
-    template<typename Block> static BasicBlockVector computeImpl(Block* codeBlock, const InstructionStream& instructions);
+    static BasicBlockVector compute(CodeBlock*, const InstructionStreamType& instructions);
+    static BasicBlockVector compute(UnlinkedCodeBlockGenerator*, const InstructionStreamType& instructions);
+    template<typename Block> static BasicBlockVector computeImpl(Block* codeBlock, const InstructionStreamType& instructions);
     void shrinkToFit();
 
-    void addSuccessor(BytecodeBasicBlock& block)
+    void addSuccessor(BytecodeBasicBlock<OpcodeTraits>& block)
     {
         if (!m_successors.contains(block.index()))
             m_successors.append(block.index());
@@ -85,7 +88,7 @@ private:
 
     inline void addLength(unsigned);
 
-    InstructionStream::Offset m_leaderOffset;
+    typename InstructionStreamType::Offset m_leaderOffset;
     unsigned m_totalLength;
     unsigned m_index;
 
@@ -95,5 +98,10 @@ private:
     FastBitVector m_in;
     FastBitVector m_out;
 };
+
+WTF_MAKE_TZONE_ALLOCATED_TEMPLATE_IMPL(template<typename OpcodeTraits>, BytecodeBasicBlock<OpcodeTraits>);
+
+using JSBytecodeBasicBlock = BytecodeBasicBlock<JSOpcodeTraits>;
+using WasmBytecodeBasicBlock = BytecodeBasicBlock<WasmOpcodeTraits>;
 
 } // namespace JSC

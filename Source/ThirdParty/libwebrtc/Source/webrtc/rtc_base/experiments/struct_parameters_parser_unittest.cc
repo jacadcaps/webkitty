@@ -8,6 +8,7 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 #include "rtc_base/experiments/struct_parameters_parser.h"
+
 #include "rtc_base/gunit.h"
 
 namespace webrtc {
@@ -18,8 +19,8 @@ struct DummyConfig {
   int retries = 5;
   unsigned size = 3;
   bool ping = 0;
-  absl::optional<TimeDelta> duration;
-  absl::optional<TimeDelta> latency = TimeDelta::Millis(100);
+  std::optional<TimeDelta> duration;
+  std::optional<TimeDelta> latency = TimeDelta::Millis(100);
   std::unique_ptr<StructParametersParser> Parser();
 };
 

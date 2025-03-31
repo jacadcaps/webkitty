@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,9 +25,12 @@
 
 #pragma once
 
+#include "AbstractSlotVisitorInlines.h"
+#include "MarkedBlock.h"
+#include "PreciseAllocation.h"
 #include "SlotVisitor.h"
-#include "Weak.h"
-#include "WeakInlines.h"
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
@@ -53,7 +56,7 @@ ALWAYS_INLINE void SlotVisitor::appendUnbarriered(JSCell* cell)
         }
     } else {
         MarkedBlock& block = cell->markedBlock();
-        dependency = block.aboutToMark(m_markingVersion);
+        dependency = block.aboutToMark(m_markingVersion, cell);
         if (LIKELY(block.isMarked(cell, dependency))) {
             if (LIKELY(!m_heapAnalyzer))
                 return;
@@ -89,7 +92,7 @@ ALWAYS_INLINE void SlotVisitor::appendHiddenUnbarriered(JSCell* cell)
             return;
     } else {
         MarkedBlock& block = cell->markedBlock();
-        dependency = block.aboutToMark(m_markingVersion);
+        dependency = block.aboutToMark(m_markingVersion, cell);
         if (LIKELY(block.isMarked(cell, dependency)))
             return;
     }
@@ -115,11 +118,27 @@ ALWAYS_INLINE void SlotVisitor::appendHidden(const WriteBarrierBase<T, Traits>& 
     appendHiddenUnbarriered(slot.get());
 }
 
+ALWAYS_INLINE void SlotVisitor::append(const WriteBarrierStructureID& slot)
+{
+    appendUnbarriered(reinterpret_cast<JSCell*>(slot.get()));
+}
+
+ALWAYS_INLINE void SlotVisitor::appendHidden(const WriteBarrierStructureID& slot)
+{
+    appendHiddenUnbarriered(reinterpret_cast<JSCell*>(slot.get()));
+}
+
 template<typename Iterator>
 ALWAYS_INLINE void SlotVisitor::append(Iterator begin, Iterator end)
 {
     for (auto it = begin; it != end; ++it)
         append(*it);
+}
+
+ALWAYS_INLINE void SlotVisitor::appendValues(std::span<const WriteBarrier<Unknown>> barriers)
+{
+    for (auto& barrier : barriers)
+        append(barrier);
 }
 
 ALWAYS_INLINE void SlotVisitor::appendValues(const WriteBarrierBase<Unknown>* barriers, size_t count)
@@ -134,21 +153,19 @@ ALWAYS_INLINE void SlotVisitor::appendValuesHidden(const WriteBarrierBase<Unknow
         appendHidden(barriers[i]);
 }
 
-inline bool SlotVisitor::addOpaqueRoot(void* ptr)
+ALWAYS_INLINE bool SlotVisitor::isMarked(const void* p) const
 {
-    if (!ptr)
-        return false;
-    if (m_ignoreNewOpaqueRoots)
-        return false;
-    if (!heap()->m_opaqueRoots.add(ptr))
-        return false;
-    m_visitCount++;
-    return true;
+    return heap()->isMarked(p);
 }
 
-inline bool SlotVisitor::containsOpaqueRoot(void* ptr) const
+ALWAYS_INLINE bool SlotVisitor::isMarked(MarkedBlock& container, HeapCell* cell) const
 {
-    return heap()->m_opaqueRoots.contains(ptr);
+    return container.isMarked(markingVersion(), cell);
+}
+
+ALWAYS_INLINE bool SlotVisitor::isMarked(PreciseAllocation& container, HeapCell* cell) const
+{
+    return container.isMarked(markingVersion(), cell);
 }
 
 inline void SlotVisitor::reportExtraMemoryVisited(size_t size)
@@ -169,21 +186,6 @@ inline void SlotVisitor::reportExternalMemoryVisited(size_t size)
 }
 #endif
 
-inline Heap* SlotVisitor::heap() const
-{
-    return &m_heap;
-}
-
-inline VM& SlotVisitor::vm()
-{
-    return m_heap.vm();
-}
-
-inline const VM& SlotVisitor::vm() const
-{
-    return m_heap.vm();
-}
-
 template<typename Func>
 IterationStatus SlotVisitor::forEachMarkStack(const Func& func)
 {
@@ -195,3 +197,5 @@ IterationStatus SlotVisitor::forEachMarkStack(const Func& func)
 }
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

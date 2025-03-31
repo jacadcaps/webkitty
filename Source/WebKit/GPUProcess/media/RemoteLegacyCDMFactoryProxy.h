@@ -28,55 +28,78 @@
 #if ENABLE(GPU_PROCESS) && ENABLE(LEGACY_ENCRYPTED_MEDIA)
 
 #include "Connection.h"
-#include "MediaPlayerPrivateRemoteIdentifier.h"
+#include "GPUConnectionToWebProcess.h"
 #include "MessageReceiver.h"
 #include "RemoteLegacyCDMIdentifier.h"
 #include "RemoteLegacyCDMSessionIdentifier.h"
+#include <WebCore/MediaPlayerIdentifier.h>
+#include <wtf/ThreadSafeWeakPtr.h>
 #include <wtf/UniqueRef.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebKit {
 
-class GPUConnectionToWebProcess;
 class RemoteLegacyCDMSessionProxy;
 class RemoteLegacyCDMProxy;
 struct RemoteLegacyCDMConfiguration;
 
-class RemoteLegacyCDMFactoryProxy final : private IPC::MessageReceiver, public CanMakeWeakPtr<RemoteLegacyCDMFactoryProxy> {
-    WTF_MAKE_FAST_ALLOCATED;
+class RemoteLegacyCDMFactoryProxy final : public RefCounted<RemoteLegacyCDMFactoryProxy>, public IPC::MessageReceiver {
+    WTF_MAKE_TZONE_ALLOCATED(RemoteLegacyCDMFactoryProxy);
 public:
-    RemoteLegacyCDMFactoryProxy(GPUConnectionToWebProcess&);
+    static Ref<RemoteLegacyCDMFactoryProxy> create(GPUConnectionToWebProcess& gpuConnectionToWebProcess)
+    {
+        return adoptRef(*new RemoteLegacyCDMFactoryProxy(gpuConnectionToWebProcess));
+    }
+
     virtual ~RemoteLegacyCDMFactoryProxy();
 
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
+    void clear();
+
     void didReceiveMessageFromWebProcess(IPC::Connection& connection, IPC::Decoder& decoder) { didReceiveMessage(connection, decoder); }
-    void didReceiveSyncMessageFromWebProcess(IPC::Connection& connection, IPC::Decoder& decoder, std::unique_ptr<IPC::Encoder>& encoder) { didReceiveSyncMessage(connection, decoder, encoder); }
+    bool didReceiveSyncMessageFromWebProcess(IPC::Connection& connection, IPC::Decoder& decoder, UniqueRef<IPC::Encoder>& encoder) { return didReceiveSyncMessage(connection, decoder, encoder); }
     void didReceiveCDMMessage(IPC::Connection&, IPC::Decoder&);
     void didReceiveCDMSessionMessage(IPC::Connection&, IPC::Decoder&);
-    void didReceiveSyncCDMMessage(IPC::Connection&, IPC::Decoder&, std::unique_ptr<IPC::Encoder>&);
-    void didReceiveSyncCDMSessionMessage(IPC::Connection&, IPC::Decoder&, std::unique_ptr<IPC::Encoder>&);
+    bool didReceiveSyncCDMMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&);
+    bool didReceiveSyncCDMSessionMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&);
 
-    void addProxy(RemoteLegacyCDMIdentifier, std::unique_ptr<RemoteLegacyCDMProxy>&&);
+    void addProxy(RemoteLegacyCDMIdentifier, Ref<RemoteLegacyCDMProxy>&&);
     void removeProxy(RemoteLegacyCDMIdentifier);
 
-    void addSession(RemoteLegacyCDMSessionIdentifier, std::unique_ptr<RemoteLegacyCDMSessionProxy>&&);
-    void removeSession(RemoteLegacyCDMSessionIdentifier);
+    void addSession(RemoteLegacyCDMSessionIdentifier, Ref<RemoteLegacyCDMSessionProxy>&&);
+    void removeSession(RemoteLegacyCDMSessionIdentifier, CompletionHandler<void()>&&);
     RemoteLegacyCDMSessionProxy* getSession(const RemoteLegacyCDMSessionIdentifier&) const;
 
-    GPUConnectionToWebProcess& gpuConnectionToWebProcess() const { return m_gpuConnectionToWebProcess; }
+    RefPtr<GPUConnectionToWebProcess> gpuConnectionToWebProcess() { return m_gpuConnectionToWebProcess.get(); }
+
+    bool allowsExitUnderMemoryPressure() const;
+    std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess() const;
+
+#if !RELEASE_LOG_DISABLED
+    const Logger& logger() const;
+#endif
 
 private:
+    RemoteLegacyCDMFactoryProxy(GPUConnectionToWebProcess&);
+
     friend class GPUProcessConnection;
     // IPC::MessageReceiver
-    void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final { }
-    void didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, std::unique_ptr<IPC::Encoder>&) final;
+    void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
+    bool didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&) final;
 
     // Messages
-    void createCDM(const String& keySystem, Optional<MediaPlayerPrivateRemoteIdentifier>&&, CompletionHandler<void(RemoteLegacyCDMIdentifier&&)>&&);
-    void supportsKeySystem(const String& keySystem, Optional<String> mimeType, CompletionHandler<void(bool)>&&);
+    void createCDM(const String& keySystem, std::optional<WebCore::MediaPlayerIdentifier>&&, CompletionHandler<void(std::optional<RemoteLegacyCDMIdentifier>&&)>&&);
+    void supportsKeySystem(const String& keySystem, std::optional<String> mimeType, CompletionHandler<void(bool)>&&);
 
-    GPUConnectionToWebProcess& m_gpuConnectionToWebProcess;
-    HashMap<RemoteLegacyCDMIdentifier, std::unique_ptr<RemoteLegacyCDMProxy>> m_proxies;
-    HashMap<RemoteLegacyCDMSessionIdentifier, std::unique_ptr<RemoteLegacyCDMSessionProxy>> m_sessions;
+    WeakPtr<GPUConnectionToWebProcess> m_gpuConnectionToWebProcess;
+    HashMap<RemoteLegacyCDMIdentifier, Ref<RemoteLegacyCDMProxy>> m_proxies;
+    HashMap<RemoteLegacyCDMSessionIdentifier, Ref<RemoteLegacyCDMSessionProxy>> m_sessions;
+
+#if !RELEASE_LOG_DISABLED
+    mutable RefPtr<Logger> m_logger;
+#endif
 };
 
 }

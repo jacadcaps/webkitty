@@ -35,19 +35,22 @@
 #if USE(PTHREADS)
 
 #include <errno.h>
+#include <wtf/MonotonicTime.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/SafeStrerror.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/ThreadingPrimitives.h>
+#include <wtf/WTFConfig.h>
 #include <wtf/WordLock.h>
 
 #if OS(LINUX)
-#include <sys/prctl.h>
-#endif
-
-#if !COMPILER(MSVC)
-#include <limits.h>
 #include <sched.h>
-#include <sys/time.h>
+#include <sys/prctl.h>
+#include <sys/syscall.h>
+#include <wtf/linux/RealTimeThreads.h>
+#ifndef SCHED_RESET_ON_FORK
+#define SCHED_RESET_ON_FORK 0x40000000
+#endif
 #endif
 
 #if !OS(DARWIN) && OS(UNIX)
@@ -68,17 +71,13 @@
 #include <mach/thread_switch.h>
 #endif
 
-#if OS(LINUX)
-#include <sys/syscall.h>
+#if OS(QNX)
+#define SA_RESTART 0
 #endif
 
 namespace WTF {
 
-static Lock globalSuspendLock;
-
-Thread::~Thread()
-{
-}
+Thread::~Thread() = default;
 
 #if !OS(DARWIN)
 class Semaphore final {
@@ -158,11 +157,11 @@ void Thread::signalHandlerSuspendResume(int, siginfo_t*, void* ucontext)
     // http://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap04.html#tag_04_11
     globalSemaphoreForSuspendResume->post();
 
-    // Reaching here, SigThreadSuspendResume is blocked in this handler (this is configured by sigaction's sa_mask).
-    // So before calling sigsuspend, SigThreadSuspendResume to this thread is deferred. This ensures that the handler is not executed recursively.
+    // Reaching here, sigThreadSuspendResume is blocked in this handler (this is configured by sigaction's sa_mask).
+    // So before calling sigsuspend, sigThreadSuspendResume to this thread is deferred. This ensures that the handler is not executed recursively.
     sigset_t blockedSignalSet;
     sigfillset(&blockedSignalSet);
-    sigdelset(&blockedSignalSet, SigThreadSuspendResume);
+    sigdelset(&blockedSignalSet, g_wtfConfig.sigThreadSuspendResume);
     sigsuspend(&blockedSignalSet);
 
     thread->m_platformRegisters = nullptr;
@@ -175,19 +174,47 @@ void Thread::signalHandlerSuspendResume(int, siginfo_t*, void* ucontext)
 
 void Thread::initializePlatformThreading()
 {
+    if (!g_wtfConfig.isUserSpecifiedThreadSuspendResumeSignalConfigured) {
+        g_wtfConfig.sigThreadSuspendResume = SIGUSR1;
+        if (const char* string = getenv("JSC_SIGNAL_FOR_GC")) {
+            int32_t value = 0;
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+            if (sscanf(string, "%d", &value) == 1)
+                g_wtfConfig.sigThreadSuspendResume = value;
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+        }
+    }
+    g_wtfConfig.isThreadSuspendResumeSignalConfigured = true;
+
 #if !OS(DARWIN)
     globalSemaphoreForSuspendResume.construct(0);
 
     // Signal handlers are process global configuration.
-    // Intentionally block SigThreadSuspendResume in the handler.
-    // SigThreadSuspendResume will be allowed in the handler by sigsuspend.
-    struct sigaction action;
-    sigemptyset(&action.sa_mask);
-    sigaddset(&action.sa_mask, SigThreadSuspendResume);
+    // Intentionally block sigThreadSuspendResume in the handler.
+    // sigThreadSuspendResume will be allowed in the handler by sigsuspend.
+    auto attemptToSetSignal = [](int signal) -> bool {
+        struct sigaction action;
+        sigemptyset(&action.sa_mask);
+        sigaddset(&action.sa_mask, signal);
 
-    action.sa_sigaction = &signalHandlerSuspendResume;
-    action.sa_flags = SA_RESTART | SA_SIGINFO;
-    sigaction(SigThreadSuspendResume, &action, 0);
+        action.sa_sigaction = &signalHandlerSuspendResume;
+        action.sa_flags = SA_RESTART | SA_SIGINFO;
+
+        // Theoretically, this can have race conditions but currently, there is no way to deal with it,
+        // plus, we do not expect that this initialization is executed concurrently with the other
+        // initialization which also installs specific signals. If this is the problem, applications should
+        // change how to initialize things.
+        struct sigaction oldAction;
+        if (sigaction(signal, nullptr, &oldAction))
+            return false;
+        // It has signal already.
+        if (oldAction.sa_handler != SIG_DFL || std::bit_cast<void*>(oldAction.sa_sigaction) != std::bit_cast<void*>(SIG_DFL))
+            WTFLogAlways("Overriding existing handler for signal %d. Set JSC_SIGNAL_FOR_GC if you want WebKit to use a different signal", signal);
+        return !sigaction(signal, &action, 0);
+    };
+
+    bool signalIsInstalled = attemptToSetSignal(g_wtfConfig.sigThreadSuspendResume);
+    RELEASE_ASSERT(signalIsInstalled);
 #endif
 }
 
@@ -201,9 +228,10 @@ ThreadIdentifier Thread::currentID()
 void Thread::initializeCurrentThreadEvenIfNonWTFCreated()
 {
 #if !OS(DARWIN)
+    RELEASE_ASSERT(g_wtfConfig.isThreadSuspendResumeSignalConfigured);
     sigset_t mask;
     sigemptyset(&mask);
-    sigaddset(&mask, SigThreadSuspendResume);
+    sigaddset(&mask, g_wtfConfig.sigThreadSuspendResume);
     pthread_sigmask(SIG_UNBLOCK, &mask, 0);
 #endif
 }
@@ -214,13 +242,73 @@ static void* wtfThreadEntryPoint(void* context)
     return nullptr;
 }
 
-bool Thread::establishHandle(NewThreadContext* context, Optional<size_t> stackSize)
+#if HAVE(QOS_CLASSES)
+dispatch_qos_class_t Thread::dispatchQOSClass(QOS qos)
+{
+    switch (qos) {
+    case QOS::UserInteractive:
+        return adjustedQOSClass(QOS_CLASS_USER_INTERACTIVE);
+    case QOS::UserInitiated:
+        return adjustedQOSClass(QOS_CLASS_USER_INITIATED);
+    case QOS::Default:
+        return adjustedQOSClass(QOS_CLASS_DEFAULT);
+    case QOS::Utility:
+        return adjustedQOSClass(QOS_CLASS_UTILITY);
+    case QOS::Background:
+        return adjustedQOSClass(QOS_CLASS_BACKGROUND);
+    }
+}
+#endif
+
+#if HAVE(SCHEDULING_POLICIES) || OS(LINUX)
+static int schedPolicy(Thread::SchedulingPolicy schedulingPolicy)
+{
+    switch (schedulingPolicy) {
+    case Thread::SchedulingPolicy::FIFO:
+        return SCHED_FIFO;
+    case Thread::SchedulingPolicy::Realtime:
+        return SCHED_RR;
+    case Thread::SchedulingPolicy::Other:
+        return SCHED_OTHER;
+    }
+    ASSERT_NOT_REACHED();
+    return SCHED_OTHER;
+}
+#endif
+
+#if OS(LINUX)
+static int schedPolicy(Thread::QOS qos, Thread::SchedulingPolicy schedulingPolicy)
+{
+    // A specific scheduling policy can override the implied policy from QOS
+    auto policy = schedPolicy(schedulingPolicy);
+    if (policy != SCHED_OTHER)
+        return policy;
+
+    switch (qos) {
+    case Thread::QOS::UserInteractive:
+        return SCHED_RR;
+    case Thread::QOS::UserInitiated:
+    case Thread::QOS::Default:
+        return SCHED_OTHER;
+    case Thread::QOS::Utility:
+        return SCHED_BATCH;
+    case Thread::QOS::Background:
+        return SCHED_IDLE;
+    }
+    RELEASE_ASSERT_NOT_REACHED();
+}
+#endif
+
+bool Thread::establishHandle(NewThreadContext* context, std::optional<size_t> stackSize, QOS qos, SchedulingPolicy schedulingPolicy)
 {
     pthread_t threadHandle;
     pthread_attr_t attr;
     pthread_attr_init(&attr);
 #if HAVE(QOS_CLASSES)
-    pthread_attr_set_qos_class_np(&attr, adjustedQOSClass(QOS_CLASS_USER_INITIATED), 0);
+    pthread_attr_set_qos_class_np(&attr, dispatchQOSClass(qos), 0);
+#endif
+#if HAVE(SCHEDULING_POLICIES)
+    pthread_attr_setschedpolicy(&attr, schedPolicy(schedulingPolicy));
 #endif
     if (stackSize)
         pthread_attr_setstacksize(&attr, stackSize.value());
@@ -230,6 +318,26 @@ bool Thread::establishHandle(NewThreadContext* context, Optional<size_t> stackSi
         LOG_ERROR("Failed to create pthread at entry point %p with context %p", wtfThreadEntryPoint, context);
         return false;
     }
+
+#if OS(LINUX)
+    int policy = schedPolicy(qos, schedulingPolicy);
+    if (policy == SCHED_RR)
+        RealTimeThreads::singleton().registerThread(*this);
+    else {
+        struct sched_param param = { };
+        error = pthread_setschedparam(threadHandle, policy | SCHED_RESET_ON_FORK, &param);
+        if (error)
+            LOG_ERROR("Failed to set sched policy %d for thread %ld: %s", policy, threadHandle, safeStrerror(error).data());
+    }
+#else
+#if !HAVE(QOS_CLASSES)
+    UNUSED_PARAM(qos);
+#endif
+#if !HAVE(SCHEDULING_POLICIES)
+    UNUSED_PARAM(schedulingPolicy);
+#endif
+#endif
+
     establishPlatformSpecificHandle(threadHandle);
     return true;
 }
@@ -249,7 +357,7 @@ void Thread::initializeCurrentThreadInternal(const char* threadName)
 void Thread::changePriority(int delta)
 {
 #if HAVE(PTHREAD_SETSCHEDPARAM)
-    auto locker = holdLock(m_mutex);
+    Locker locker { m_mutex };
 
     int policy;
     struct sched_param param;
@@ -263,11 +371,30 @@ void Thread::changePriority(int delta)
 #endif
 }
 
+#if HAVE(THREAD_TIME_CONSTRAINTS)
+void Thread::setThreadTimeConstraints(MonotonicTime period, MonotonicTime nominalComputation, MonotonicTime constraint, bool isPremptable)
+{
+#if OS(DARWIN)
+    thread_time_constraint_policy policy { };
+    policy.period = period.toMachAbsoluteTime();
+    policy.computation = nominalComputation.toMachAbsoluteTime();
+    policy.constraint = constraint.toMachAbsoluteTime();
+    policy.preemptible = isPremptable;
+    if (auto error = thread_policy_set(machThread(), THREAD_TIME_CONSTRAINT_POLICY, (thread_policy_t)&policy, THREAD_TIME_CONSTRAINT_POLICY_COUNT)) {
+        UNUSED_VARIABLE(error);
+        LOG_ERROR("Thread %p failed to set time constraints with error %d", this, error);
+    }
+#else
+    ASSERT_NOT_REACHED();
+#endif
+}
+#endif
+
 int Thread::waitForCompletion()
 {
     pthread_t handle;
     {
-        auto locker = holdLock(m_mutex);
+        Locker locker { m_mutex };
         handle = m_handle;
     }
 
@@ -278,7 +405,7 @@ int Thread::waitForCompletion()
     else if (joinResult)
         LOG_ERROR("Thread %p was unable to be joined.\n", this);
 
-    auto locker = holdLock(m_mutex);
+    Locker locker { m_mutex };
     ASSERT(joinableState() == Joinable);
 
     // If the thread has already exited, then do nothing. If the thread hasn't exited yet, then just signal that we've already joined on it.
@@ -291,7 +418,7 @@ int Thread::waitForCompletion()
 
 void Thread::detach()
 {
-    auto locker = holdLock(m_mutex);
+    Locker locker { m_mutex };
     int detachResult = pthread_detach(m_handle);
     if (detachResult)
         LOG_ERROR("Thread %p was unable to be detached\n", this);
@@ -303,6 +430,7 @@ void Thread::detach()
 Thread& Thread::initializeCurrentTLS()
 {
     // Not a WTF-created thread, Thread is not established yet.
+    WTF::initialize();
     Ref<Thread> thread = adoptRef(*new Thread());
     thread->establishPlatformSpecificHandle(pthread_self());
     thread->initializeInThread();
@@ -313,28 +441,16 @@ Thread& Thread::initializeCurrentTLS()
 
 bool Thread::signal(int signalNumber)
 {
-    auto locker = holdLock(m_mutex);
+    Locker locker { m_mutex };
     if (hasExited())
         return false;
     int errNo = pthread_kill(m_handle, signalNumber);
     return !errNo; // A 0 errNo means success.
 }
 
-auto Thread::suspend() -> Expected<void, PlatformSuspendError>
+auto Thread::suspend(const ThreadSuspendLocker&) -> Expected<void, PlatformSuspendError>
 {
     RELEASE_ASSERT_WITH_MESSAGE(this != &Thread::current(), "We do not support suspending the current thread itself.");
-    // During suspend, suspend or resume should not be executed from the other threads.
-    // We use global lock instead of per thread lock.
-    // Consider the following case, there are threads A and B.
-    // And A attempt to suspend B and B attempt to suspend A.
-    // A and B send signals. And later, signals are delivered to A and B.
-    // In that case, both will be suspended.
-    //
-    // And it is important to use a global lock to suspend and resume. Let's consider using per-thread lock.
-    // Your issuing thread (A) attempts to suspend the target thread (B). Then, you will suspend the thread (C) additionally.
-    // This case frequently happens if you stop threads to perform stack scanning. But thread (B) may hold the lock of thread (C).
-    // In that case, dead lock happens. Using global lock here avoids this dead lock.
-    LockHolder locker(globalSuspendLock);
 #if OS(DARWIN)
     kern_return_t result = thread_suspend(m_platformThread);
     if (result != KERN_SUCCESS)
@@ -342,13 +458,11 @@ auto Thread::suspend() -> Expected<void, PlatformSuspendError>
     return { };
 #else
     if (!m_suspendCount) {
-        // Ideally, we would like to use pthread_sigqueue. It allows us to pass the argument to the signal handler.
-        // But it can be used in a few platforms, like Linux.
-        // Instead, we use Thread* stored in a global variable to pass it to the signal handler.
         targetThread.store(this);
 
         while (true) {
-            int result = pthread_kill(m_handle, SigThreadSuspendResume);
+            // We must use pthread_kill to avoid queue-overflow problem with real-time signals.
+            int result = pthread_kill(m_handle, g_wtfConfig.sigThreadSuspendResume);
             if (result)
                 return makeUnexpected(result);
             globalSemaphoreForSuspendResume->wait();
@@ -364,23 +478,22 @@ auto Thread::suspend() -> Expected<void, PlatformSuspendError>
 #endif
 }
 
-void Thread::resume()
+void Thread::resume(const ThreadSuspendLocker&)
 {
-    // During resume, suspend or resume should not be executed from the other threads.
-    LockHolder locker(globalSuspendLock);
 #if OS(DARWIN)
     thread_resume(m_platformThread);
 #else
     if (m_suspendCount == 1) {
-        // When allowing SigThreadSuspendResume interrupt in the signal handler by sigsuspend and SigThreadSuspendResume is actually issued,
+        // When allowing sigThreadSuspendResume interrupt in the signal handler by sigsuspend and SigThreadSuspendResume is actually issued,
         // the signal handler itself will be called once again.
         // There are several ways to distinguish the handler invocation for suspend and resume.
         // 1. Use different signal numbers. And check the signal number in the handler.
-        // 2. Use some arguments to distinguish suspend and resume in the handler. If pthread_sigqueue can be used, we can take this.
+        // 2. Use some arguments to distinguish suspend and resume in the handler.
         // 3. Use thread's flag.
         // In this implementaiton, we take (3). m_suspendCount is used to distinguish it.
+        // Note that we must use pthread_kill to avoid queue-overflow problem with real-time signals.
         targetThread.store(this);
-        if (pthread_kill(m_handle, SigThreadSuspendResume) == ESRCH)
+        if (pthread_kill(m_handle, g_wtfConfig.sigThreadSuspendResume) == ESRCH)
             return;
         globalSemaphoreForSuspendResume->wait();
     }
@@ -422,9 +535,8 @@ static ThreadStateMetadata threadStateMetadata()
 }
 #endif // OS(DARWIN)
 
-size_t Thread::getRegisters(PlatformRegisters& registers)
+size_t Thread::getRegisters(const ThreadSuspendLocker&, PlatformRegisters& registers)
 {
-    LockHolder locker(globalSuspendLock);
 #if OS(DARWIN)
     auto metadata = threadStateMetadata();
     kern_return_t result = thread_get_state(m_platformThread, metadata.flavor, (thread_state_t)&registers, &metadata.userCount);
@@ -443,7 +555,7 @@ size_t Thread::getRegisters(PlatformRegisters& registers)
 
 void Thread::establishPlatformSpecificHandle(pthread_t handle)
 {
-    auto locker = holdLock(m_mutex);
+    Locker locker { m_mutex };
     m_handle = handle;
 #if OS(DARWIN)
     m_platformThread = pthread_mach_thread_np(handle);
@@ -460,7 +572,7 @@ void Thread::initializeTLSKey()
 Thread& Thread::initializeTLS(Ref<Thread>&& thread)
 {
     // We leak the ref to keep the Thread alive while it is held in TLS. destructTLS will deref it later at thread destruction time.
-    auto& threadInTLS = thread.leakRef();
+    SUPPRESS_UNCOUNTED_LOCAL auto& threadInTLS = thread.leakRef();
 #if !HAVE(FAST_TLS)
     ASSERT(s_key != InvalidThreadSpecificKey);
     threadSpecificSet(s_key, &threadInTLS);
@@ -491,6 +603,10 @@ void Thread::destructTLS(void* data)
     _pthread_setspecific_direct(WTF_THREAD_DATA_KEY, thread);
     pthread_key_init_np(WTF_THREAD_DATA_KEY, &destructTLS);
 #endif
+    // Destructor of ClientData can rely on Thread::current() (e.g. AtomStringTable).
+    // We destroy it after re-setting Thread::current() so that we can ensure destruction
+    // can still access to it.
+    thread->m_clientData = nullptr;
 }
 
 Mutex::~Mutex()
@@ -537,18 +653,25 @@ void ThreadCondition::wait(Mutex& mutex)
 
 bool ThreadCondition::timedWait(Mutex& mutex, WallTime absoluteTime)
 {
+    if (absoluteTime.isInfinity()) {
+        if (absoluteTime == -WallTime::infinity())
+            return false;
+        wait(mutex);
+        return true;
+    }
+
     if (absoluteTime < WallTime::now())
         return false;
 
-    if (absoluteTime > WallTime::fromRawSeconds(INT_MAX)) {
+    if (absoluteTime > WallTime::fromRawSeconds(static_cast<double>(std::numeric_limits<time_t>::max()))) {
         wait(mutex);
         return true;
     }
 
     double rawSeconds = absoluteTime.secondsSinceEpoch().value();
 
-    int timeSeconds = static_cast<int>(rawSeconds);
-    int timeNanoseconds = static_cast<int>((rawSeconds - timeSeconds) * 1E9);
+    time_t timeSeconds = static_cast<time_t>(rawSeconds);
+    long timeNanoseconds = static_cast<long>((rawSeconds - timeSeconds) * 1E9);
 
     timespec targetTime;
     targetTime.tv_sec = timeSeconds;

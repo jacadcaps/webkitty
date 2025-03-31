@@ -15,16 +15,15 @@
 #include <stdint.h>
 
 #include <map>
+#include <optional>
 #include <vector>
 
-#include "absl/types/optional.h"
-
 namespace rtc {
-// Calculates percentiles on the stream of data. Use |Add| methods to add new
-// values. Use |GetPercentile| to get percentile of the currently added values.
+// Calculates percentiles on the stream of data. Use `Add` methods to add new
+// values. Use `GetPercentile` to get percentile of the currently added values.
 class HistogramPercentileCounter {
  public:
-  // Values below |long_tail_boundary| are stored as the histogram in an array.
+  // Values below `long_tail_boundary` are stored as the histogram in an array.
   // Values above - in a map.
   explicit HistogramPercentileCounter(uint32_t long_tail_boundary);
   ~HistogramPercentileCounter();
@@ -32,7 +31,7 @@ class HistogramPercentileCounter {
   void Add(uint32_t value, size_t count);
   void Add(const HistogramPercentileCounter& other);
   // Argument should be from 0 to 1.
-  absl::optional<uint32_t> GetPercentile(float fraction);
+  std::optional<uint32_t> GetPercentile(float fraction);
 
  private:
   std::vector<size_t> histogram_low_;

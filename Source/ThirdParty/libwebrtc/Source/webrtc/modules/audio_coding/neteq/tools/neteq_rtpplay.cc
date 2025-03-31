@@ -9,12 +9,12 @@
  */
 
 #include <iostream>
+#include <optional>
 #include <string>
 
 #include "absl/flags/flag.h"
 #include "absl/flags/parse.h"
 #include "absl/strings/string_view.h"
-#include "absl/types/optional.h"
 #include "modules/audio_coding/neteq/tools/neteq_test.h"
 #include "modules/audio_coding/neteq/tools/neteq_test_factory.h"
 #include "rtc_base/strings/string_builder.h"
@@ -36,7 +36,6 @@ ABSL_FLAG(std::string,
           " will assign the group Enable to field trial WebRTC-FooFeature.");
 ABSL_FLAG(int, pcmu, TestConfig::default_pcmu(), "RTP payload type for PCM-u");
 ABSL_FLAG(int, pcma, TestConfig::default_pcma(), "RTP payload type for PCM-a");
-ABSL_FLAG(int, ilbc, TestConfig::default_ilbc(), "RTP payload type for iLBC");
 ABSL_FLAG(int, isac, TestConfig::default_isac(), "RTP payload type for iSAC");
 ABSL_FLAG(int,
           isac_swb,
@@ -157,9 +156,9 @@ ABSL_FLAG(bool,
 namespace {
 
 // Parses the input string for a valid SSRC (at the start of the string). If a
-// valid SSRC is found, it is written to the output variable |ssrc|, and true is
+// valid SSRC is found, it is written to the output variable `ssrc`, and true is
 // returned. Otherwise, false is returned.
-bool ParseSsrc(const std::string& str, uint32_t* ssrc) {
+bool ParseSsrc(absl::string_view str, uint32_t* ssrc) {
   if (str.empty())
     return true;
   int base = 10;
@@ -168,12 +167,13 @@ bool ParseSsrc(const std::string& str, uint32_t* ssrc) {
     base = 16;
   errno = 0;
   char* end_ptr;
-  unsigned long value = strtoul(str.c_str(), &end_ptr, base);  // NOLINT
+  std::string str_str = std::string(str);
+  unsigned long value = strtoul(str_str.c_str(), &end_ptr, base);  // NOLINT
   if (value == ULONG_MAX && errno == ERANGE)
     return false;  // Value out of range for unsigned long.
   if (sizeof(unsigned long) > sizeof(uint32_t) && value > 0xFFFFFFFF)  // NOLINT
     return false;  // Value out of range for uint32_t.
-  if (end_ptr - str.c_str() < static_cast<ptrdiff_t>(str.length()))
+  if (end_ptr - str_str.c_str() < static_cast<ptrdiff_t>(str.length()))
     return false;  // Part of the string was not parsed.
   *ssrc = static_cast<uint32_t>(value);
   return true;
@@ -196,22 +196,21 @@ bool ValidatePayloadType(int value) {
   return false;
 }
 
-bool ValidateSsrcValue(const std::string& str) {
+bool ValidateSsrcValue(absl::string_view str) {
   uint32_t dummy_ssrc;
   if (ParseSsrc(str, &dummy_ssrc))  // Value is ok.
     return true;
-  printf("Invalid SSRC: %s\n", str.c_str());
+  printf("Invalid SSRC: %.*s\n", static_cast<int>(str.size()), str.data());
   return false;
 }
 
-void PrintCodecMappingEntry(const char* codec, int flag) {
+void PrintCodecMappingEntry(absl::string_view codec, int flag) {
   std::cout << codec << ": " << flag << std::endl;
 }
 
 void PrintCodecMapping() {
   PrintCodecMappingEntry("PCM-u", absl::GetFlag(FLAGS_pcmu));
   PrintCodecMappingEntry("PCM-a", absl::GetFlag(FLAGS_pcma));
-  PrintCodecMappingEntry("iLBC", absl::GetFlag(FLAGS_ilbc));
   PrintCodecMappingEntry("iSAC", absl::GetFlag(FLAGS_isac));
   PrintCodecMappingEntry("iSAC-swb (32 kHz)", absl::GetFlag(FLAGS_isac_swb));
   PrintCodecMappingEntry("Opus", absl::GetFlag(FLAGS_opus));
@@ -247,7 +246,7 @@ bool ValidateOutputFilesOptions(bool textlog,
               << std::endl;
     return false;
   }
-  // Without |output_audio_filename|, |output_files_base_name| is required when
+  // Without `output_audio_filename`, `output_files_base_name` is required when
   // plotting output files must be generated (in order to form a valid output
   // file name).
   if (output_audio_filename.empty() && plotting &&
@@ -261,13 +260,13 @@ bool ValidateOutputFilesOptions(bool textlog,
   return true;
 }
 
-absl::optional<std::string> CreateOptionalOutputFileName(
+std::optional<std::string> CreateOptionalOutputFileName(
     bool output_requested,
     absl::string_view basename,
     absl::string_view output_audio_filename,
     absl::string_view suffix) {
   if (!output_requested) {
-    return absl::nullopt;
+    return std::nullopt;
   }
   if (!basename.empty()) {
     // Override the automatic assignment.
@@ -282,7 +281,7 @@ absl::optional<std::string> CreateOptionalOutputFileName(
     return sb.str();
   }
   std::cout << "Error: invalid text log file parameters.";
-  return absl::nullopt;
+  return std::nullopt;
 }
 
 }  // namespace
@@ -313,7 +312,6 @@ int main(int argc, char* argv[]) {
       output_files_base_name, output_audio_filename));
   RTC_CHECK(ValidatePayloadType(absl::GetFlag(FLAGS_pcmu)));
   RTC_CHECK(ValidatePayloadType(absl::GetFlag(FLAGS_pcma)));
-  RTC_CHECK(ValidatePayloadType(absl::GetFlag(FLAGS_ilbc)));
   RTC_CHECK(ValidatePayloadType(absl::GetFlag(FLAGS_isac)));
   RTC_CHECK(ValidatePayloadType(absl::GetFlag(FLAGS_isac_swb)));
   RTC_CHECK(ValidatePayloadType(absl::GetFlag(FLAGS_opus)));
@@ -347,7 +345,6 @@ int main(int argc, char* argv[]) {
   webrtc::test::NetEqTestFactory::Config config;
   config.pcmu = absl::GetFlag(FLAGS_pcmu);
   config.pcma = absl::GetFlag(FLAGS_pcma);
-  config.ilbc = absl::GetFlag(FLAGS_ilbc);
   config.isac = absl::GetFlag(FLAGS_isac);
   config.isac_swb = absl::GetFlag(FLAGS_isac_swb);
   config.opus = absl::GetFlag(FLAGS_opus);
@@ -393,7 +390,7 @@ int main(int argc, char* argv[]) {
     uint32_t ssrc;
     RTC_CHECK(ParseSsrc(absl::GetFlag(FLAGS_ssrc), &ssrc))
         << "Flag verification has failed.";
-    config.ssrc_filter = absl::make_optional(ssrc);
+    config.ssrc_filter = std::make_optional(ssrc);
   }
 
   std::unique_ptr<webrtc::test::NetEqTest> test =

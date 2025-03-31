@@ -28,15 +28,16 @@
 #include "AnimationFrameRate.h"
 #include "DisplayRefreshMonitorClient.h"
 #include <wtf/Seconds.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class Page;
 class Timer;
 
-class RenderingUpdateScheduler : public DisplayRefreshMonitorClient
-{
-    WTF_MAKE_FAST_ALLOCATED;
+class RenderingUpdateScheduler final : public DisplayRefreshMonitorClient {
+    WTF_MAKE_TZONE_ALLOCATED(RenderingUpdateScheduler);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderingUpdateScheduler);
 public:
     static std::unique_ptr<RenderingUpdateScheduler> create(Page& page)
     {
@@ -44,28 +45,29 @@ public:
     }
 
     RenderingUpdateScheduler(Page&);
+    ~RenderingUpdateScheduler();
     
     void adjustRenderingUpdateFrequency();
-    void scheduleTimedRenderingUpdate();
-    void scheduleImmediateRenderingUpdate();
     void scheduleRenderingUpdate();
 
     void windowScreenDidChange(PlatformDisplayID);
 
 private:
-    void setPreferredFramesPerSecond(FramesPerSecond);
-    bool scheduleAnimation(FramesPerSecond);
-    RefPtr<DisplayRefreshMonitor> createDisplayRefreshMonitor(PlatformDisplayID) const final;
+    bool scheduleAnimation();
+
     void displayRefreshFired() final;
+    DisplayRefreshMonitorFactory* displayRefreshMonitorFactory() const final;
 
     bool isScheduled() const;
     void startTimer(Seconds);
     void clearScheduled();
 
+    void triggerRenderingUpdate();
+
     Page& m_page;
-    bool m_scheduled { false };
     std::unique_ptr<Timer> m_refreshTimer;
-    FramesPerSecond m_preferredFramesPerSecond { FullSpeedFramesPerSecond };
+    unsigned m_rescheduledRenderingUpdateCount { 0 };
+    bool m_useTimer { false };
 };
 
 }

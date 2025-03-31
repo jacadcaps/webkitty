@@ -32,27 +32,26 @@
 #include <JavaScriptCore/InspectorBackendDispatchers.h>
 #include <JavaScriptCore/InspectorFrontendDispatchers.h>
 #include <wtf/MemoryPressureHandler.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
-typedef String ErrorString;
-
 class InspectorMemoryAgent final : public InspectorAgentBase, public Inspector::MemoryBackendDispatcherHandler {
     WTF_MAKE_NONCOPYABLE(InspectorMemoryAgent);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(InspectorMemoryAgent);
 public:
     InspectorMemoryAgent(PageAgentContext&);
-    ~InspectorMemoryAgent() override;
+    ~InspectorMemoryAgent();
 
     // InspectorAgentBase
-    void didCreateFrontendAndBackend(Inspector::FrontendRouter*, Inspector::BackendDispatcher*) override;
-    void willDestroyFrontendAndBackend(Inspector::DisconnectReason) override;
+    void didCreateFrontendAndBackend(Inspector::FrontendRouter*, Inspector::BackendDispatcher*);
+    void willDestroyFrontendAndBackend(Inspector::DisconnectReason);
 
     // MemoryBackendDispatcherHandler
-    void enable(ErrorString&) override;
-    void disable(ErrorString&) override;
-    void startTracking(ErrorString&) override;
-    void stopTracking(ErrorString&) override;
+    Inspector::Protocol::ErrorStringOr<void> enable();
+    Inspector::Protocol::ErrorStringOr<void> disable();
+    Inspector::Protocol::ErrorStringOr<void> startTracking();
+    Inspector::Protocol::ErrorStringOr<void> stopTracking();
 
     // InspectorInstrumentation
     void didHandleMemoryPressure(Critical);

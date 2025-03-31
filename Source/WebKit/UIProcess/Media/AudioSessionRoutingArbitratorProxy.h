@@ -29,18 +29,25 @@
 
 #include "MessageReceiver.h"
 #include <WebCore/AudioSession.h>
+#include <wtf/CheckedRef.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/WallTime.h>
 #include <wtf/WeakPtr.h>
+
+#if HAVE(AVAUDIO_ROUTING_ARBITER)
+#import <WebCore/SharedRoutingArbitrator.h>
+#endif
 
 namespace WebKit {
 
 class WebProcessProxy;
+struct SharedPreferencesForWebProcess;
 
 class AudioSessionRoutingArbitratorProxy
-    : public IPC::MessageReceiver
-    , public CanMakeWeakPtr<AudioSessionRoutingArbitratorProxy> {
-    WTF_MAKE_FAST_ALLOCATED;
+    : public IPC::MessageReceiver {
+    WTF_MAKE_TZONE_ALLOCATED(AudioSessionRoutingArbitratorProxy);
 public:
-    AudioSessionRoutingArbitratorProxy(WebProcessProxy&);
+    explicit AudioSessionRoutingArbitratorProxy(WebProcessProxy&);
     virtual ~AudioSessionRoutingArbitratorProxy();
 
     void processDidTerminate();
@@ -50,7 +57,7 @@ public:
 
     using RoutingArbitrationError = WebCore::AudioSessionRoutingArbitrationClient::RoutingArbitrationError;
     using DefaultRouteChanged = WebCore::AudioSessionRoutingArbitrationClient::DefaultRouteChanged;
-    using ArbitrationCallback = CompletionHandler<void(RoutingArbitrationError, DefaultRouteChanged)>;
+    using ArbitrationCallback = WebCore::AudioSessionRoutingArbitrationClient::ArbitrationCallback;
 
     enum class ArbitrationStatus : uint8_t {
         None,
@@ -59,8 +66,21 @@ public:
     };
 
     ArbitrationStatus arbitrationStatus() const { return m_arbitrationStatus; }
+    WallTime arbitrationUpdateTime() const { return m_arbitrationUpdateTime; }
+    std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess() const;
+
+    void ref() const final;
+    void deref() const final;
+
+protected:
+    Logger& logger();
+    uint64_t logIdentifier() const { return m_logIdentifier; }
+    ASCIILiteral logClassName() const { return "AudioSessionRoutingArbitrator"_s; }
+    WTFLogChannel& logChannel() const;
 
 private:
+    Ref<WebProcessProxy> protectedProcess();
+
     // IPC::MessageReceiver
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
 
@@ -68,9 +88,15 @@ private:
     void beginRoutingArbitrationWithCategory(WebCore::AudioSession::CategoryType, ArbitrationCallback&&);
     void endRoutingArbitration();
 
-    WebProcessProxy& m_process;
-    WebCore::AudioSession::CategoryType m_category { WebCore::AudioSession::None };
+    WeakRef<WebProcessProxy> m_process;
+    WebCore::AudioSession::CategoryType m_category { WebCore::AudioSession::CategoryType::None };
     ArbitrationStatus m_arbitrationStatus { ArbitrationStatus::None };
+    WallTime m_arbitrationUpdateTime;
+    uint64_t m_logIdentifier { 0 };
+
+#if HAVE(AVAUDIO_ROUTING_ARBITER)
+    UniqueRef<WebCore::SharedRoutingArbitratorToken> m_token;
+#endif
 };
 
 }

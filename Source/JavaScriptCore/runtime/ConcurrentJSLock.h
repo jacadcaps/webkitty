@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013, 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,12 +28,11 @@
 #include "DeferGC.h"
 #include <wtf/Lock.h>
 #include <wtf/NoLock.h>
-#include <wtf/Optional.h>
 
 namespace JSC {
 
 using ConcurrentJSLock = Lock;
-using ConcurrentJSLockerImpl = LockHolder;
+using ConcurrentJSLockerImpl = Locker<Lock>;
 
 static_assert(sizeof(ConcurrentJSLock) == 1, "Regardless of status of concurrent JS flag, size of ConurrentJSLock is always one byte.");
 
@@ -41,16 +40,16 @@ class ConcurrentJSLockerBase : public AbstractLocker {
     WTF_MAKE_NONCOPYABLE(ConcurrentJSLockerBase);
 public:
     explicit ConcurrentJSLockerBase(ConcurrentJSLock& lockable)
-        : m_locker(&lockable)
     {
+        m_locker.emplace(lockable);
     }
     explicit ConcurrentJSLockerBase(ConcurrentJSLock* lockable)
-        : m_locker(lockable)
     {
+        if (lockable)
+            m_locker.emplace(*lockable);
     }
 
     explicit ConcurrentJSLockerBase(NoLockingNecessaryTag)
-        : m_locker(NoLockingNecessary)
     {
     }
 
@@ -58,26 +57,27 @@ public:
     {
     }
     
-    void unlockEarly()
+    void unlockEarly() WTF_IGNORES_THREAD_SAFETY_ANALYSIS
     {
-        m_locker.unlockEarly();
+        if (m_locker)
+            m_locker->unlockEarly();
     }
 
 private:
-    ConcurrentJSLockerImpl m_locker;
+    std::optional<ConcurrentJSLockerImpl> m_locker;
 };
 
 class GCSafeConcurrentJSLocker : public ConcurrentJSLockerBase {
 public:
-    GCSafeConcurrentJSLocker(ConcurrentJSLock& lockable, Heap& heap)
+    GCSafeConcurrentJSLocker(ConcurrentJSLock& lockable, VM& vm)
         : ConcurrentJSLockerBase(lockable)
-        , m_deferGC(heap)
+        , m_deferGC(vm)
     {
     }
 
-    GCSafeConcurrentJSLocker(ConcurrentJSLock* lockable, Heap& heap)
+    GCSafeConcurrentJSLocker(ConcurrentJSLock* lockable, VM& vm)
         : ConcurrentJSLockerBase(lockable)
-        , m_deferGC(heap)
+        , m_deferGC(vm)
     {
     }
 
@@ -99,7 +99,7 @@ public:
     ConcurrentJSLocker(ConcurrentJSLock& lockable)
         : ConcurrentJSLockerBase(lockable)
 #if !defined(NDEBUG)
-        , m_disallowGC(std::in_place)
+        , m_assertNoGC(std::in_place)
 #endif
     {
     }
@@ -107,7 +107,7 @@ public:
     ConcurrentJSLocker(ConcurrentJSLock* lockable)
         : ConcurrentJSLockerBase(lockable)
 #if !defined(NDEBUG)
-        , m_disallowGC(std::in_place)
+        , m_assertNoGC(std::in_place)
 #endif
     {
     }
@@ -115,7 +115,7 @@ public:
     ConcurrentJSLocker(NoLockingNecessaryTag)
         : ConcurrentJSLockerBase(NoLockingNecessary)
 #if !defined(NDEBUG)
-        , m_disallowGC(WTF::nullopt)
+        , m_assertNoGC(std::nullopt)
 #endif
     {
     }
@@ -124,7 +124,7 @@ public:
 
 #if !defined(NDEBUG)
 private:
-    Optional<DisallowGC> m_disallowGC;
+    std::optional<AssertNoGC> m_assertNoGC;
 #endif
 };
 

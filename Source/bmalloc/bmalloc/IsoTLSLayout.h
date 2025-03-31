@@ -25,9 +25,13 @@
 
 #pragma once
 
+#if !BUSE(TZONE)
+
 #include "Mutex.h"
 #include "StaticPerProcess.h"
 #include <mutex>
+
+#if !BUSE(LIBPAS)
 
 namespace bmalloc {
 
@@ -45,7 +49,12 @@ private:
     IsoTLSEntry* m_head { nullptr };
     IsoTLSEntry* m_tail { nullptr };
 };
+BALLOW_DEPRECATED_DECLARATIONS_BEGIN
 DECLARE_STATIC_PER_PROCESS_STORAGE(IsoTLSLayout);
+BALLOW_DEPRECATED_DECLARATIONS_END
 
 } // namespace bmalloc
+
+#endif
+#endif // !BUSE(TZONE)
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2004, 2005, 2006, 2016 Apple Inc.  All rights reserved.
+ * Copyright (C) 2004-2023 Apple Inc.  All rights reserved.
  * Copyright (C) 2007-2008 Torch Mobile, Inc.
  * Copyright (C) 2012 Company 100 Inc.
  *
@@ -27,52 +27,115 @@
 
 #pragma once
 
+#include "Color.h"
 #include "ImagePaintingOptions.h"
-
-#if USE(CG)
-#include <wtf/RetainPtr.h>
-typedef struct CGImage* CGImageRef;
-#elif USE(CAIRO)
-#include "RefPtrCairo.h"
-#elif USE(WINGDI)
-#include "SharedBitmap.h"
-#endif
-
-#if USE(DIRECT2D)
-#include "COMPtr.h"
-#include <d2d1.h>
-#include <wincodec.h>
-#endif
+#include "IntSize.h"
+#include "PlatformImage.h"
+#include "RenderingResource.h"
+#include <wtf/Lock.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/UniqueRef.h>
 
 namespace WebCore {
 
-class Color;
-class FloatRect;
-class IntSize;
-class GraphicsContext;
-
-#if USE(CG)
-typedef RetainPtr<CGImageRef> NativeImagePtr;
-#elif USE(DIRECT2D)
-typedef COMPtr<ID2D1Bitmap> NativeImagePtr;
-#elif USE(CAIRO)
-typedef RefPtr<cairo_surface_t> NativeImagePtr;
-#elif USE(WINGDI)
-typedef RefPtr<SharedBitmap> NativeImagePtr;
+#if USE(SKIA)
+class GLFence;
 #endif
 
-WEBCORE_EXPORT IntSize nativeImageSize(const NativeImagePtr&);
-bool nativeImageHasAlpha(const NativeImagePtr&);
-Color nativeImageSinglePixelSolidColor(const NativeImagePtr&);
+class GraphicsContext;
+class NativeImageBackend;
 
-void drawNativeImage(const NativeImagePtr&, GraphicsContext&, const FloatRect&, const FloatRect&, const IntSize&, const ImagePaintingOptions&);
-WEBCORE_EXPORT void drawNativeImage(const NativeImagePtr&, GraphicsContext&, float scaleFactor, const IntPoint& destination, const IntRect& source);
-
-void clearNativeImageSubimages(const NativeImagePtr&);
-
-class NativeImageHandle {
+class NativeImage final : public RenderingResource {
+    WTF_MAKE_TZONE_ALLOCATED(NativeImage);
 public:
-    NativeImagePtr image;
+    static WEBCORE_EXPORT RefPtr<NativeImage> create(PlatformImagePtr&&, RenderingResourceIdentifier = RenderingResourceIdentifier::generate());
+    // Creates a NativeImage that is intended to be drawn once or only few times. Signals the platform to avoid generating any caches for the image.
+    static WEBCORE_EXPORT RefPtr<NativeImage> createTransient(PlatformImagePtr&&, RenderingResourceIdentifier = RenderingResourceIdentifier::generate());
+
+    virtual ~NativeImage();
+
+    WEBCORE_EXPORT const PlatformImagePtr& platformImage() const;
+
+    WEBCORE_EXPORT IntSize size() const;
+    bool hasAlpha() const;
+    std::optional<Color> singlePixelSolidColor() const;
+    WEBCORE_EXPORT DestinationColorSpace colorSpace() const;
+    Headroom headroom() const;
+
+    void draw(GraphicsContext&, const FloatRect& destRect, const FloatRect& srcRect, ImagePaintingOptions);
+    void clearSubimages();
+
+    WEBCORE_EXPORT void replaceBackend(UniqueRef<NativeImageBackend>);
+    NativeImageBackend& backend() { return m_backend.get(); }
+    const NativeImageBackend& backend() const { return m_backend.get(); }
+
+#if USE(COORDINATED_GRAPHICS)
+    uint64_t uniqueID() const;
+#endif
+protected:
+    NativeImage(UniqueRef<NativeImageBackend>, RenderingResourceIdentifier);
+
+    bool isNativeImage() const final { return true; }
+
+    UniqueRef<NativeImageBackend> m_backend;
 };
-    
-}
+
+class NativeImageBackend {
+public:
+    WEBCORE_EXPORT NativeImageBackend();
+    WEBCORE_EXPORT virtual ~NativeImageBackend();
+    virtual const PlatformImagePtr& platformImage() const = 0;
+    virtual IntSize size() const = 0;
+    virtual bool hasAlpha() const = 0;
+    virtual DestinationColorSpace colorSpace() const = 0;
+    virtual Headroom headroom() const = 0;
+    WEBCORE_EXPORT virtual bool isRemoteNativeImageBackendProxy() const;
+
+#if USE(SKIA)
+    // During DisplayList recording a fence is created, so that we can wait until the SkImage finished rendering
+    // before we attempt to access the GPU resource from a secondary thread during replay (in threaded GPU painting mode).
+    virtual void finishAcceleratedRenderingAndCreateFence() { }
+    virtual void waitForAcceleratedRenderingFenceCompletion() { }
+
+    virtual const GrDirectContext* skiaGrContext() const { return nullptr; }
+
+    // Use to copy an accelerated NativeImage, cloning the PlatformImageNativeImageBackend, creating
+    // a new SkImage tied to the current thread (and thus the thread-local GrDirectContext), but re-using
+    // the existing backend texture, of this NativeImage. This avoids any GPU->GPU copies and has the
+    // sole purpose to abe able to access an accelerated NativeImage from another thread, that is not
+    // the creation thread.
+    virtual RefPtr<NativeImage> copyAcceleratedNativeImageBorrowingBackendTexture() const { return nullptr; }
+#endif
+};
+
+class PlatformImageNativeImageBackend final : public NativeImageBackend {
+public:
+    WEBCORE_EXPORT PlatformImageNativeImageBackend(PlatformImagePtr);
+    WEBCORE_EXPORT ~PlatformImageNativeImageBackend() final;
+    WEBCORE_EXPORT const PlatformImagePtr& platformImage() const final;
+    WEBCORE_EXPORT IntSize size() const final;
+    WEBCORE_EXPORT bool hasAlpha() const final;
+    WEBCORE_EXPORT DestinationColorSpace colorSpace() const final;
+    WEBCORE_EXPORT Headroom headroom() const final;
+
+#if USE(SKIA)
+    void finishAcceleratedRenderingAndCreateFence() final;
+    void waitForAcceleratedRenderingFenceCompletion() final;
+
+    const GrDirectContext* skiaGrContext() const final;
+
+    RefPtr<NativeImage> copyAcceleratedNativeImageBorrowingBackendTexture() const final;
+#endif
+private:
+    PlatformImagePtr m_platformImage;
+#if USE(SKIA)
+    std::unique_ptr<GLFence> m_fence WTF_GUARDED_BY_LOCK(m_fenceLock);
+    Lock m_fenceLock;
+#endif
+};
+
+} // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::NativeImage)
+    static bool isType(const WebCore::RenderingResource& renderingResource) { return renderingResource.isNativeImage(); }
+SPECIALIZE_TYPE_TRAITS_END()

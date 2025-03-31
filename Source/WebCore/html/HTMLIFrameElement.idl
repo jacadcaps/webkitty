@@ -18,29 +18,34 @@
  * Boston, MA 02110-1301, USA.
  */
 
-interface HTMLIFrameElement : HTMLElement {
-    [Reflect, CEReactions=NotNeeded] attribute DOMString align;
-    [Reflect, CEReactions=NotNeeded] attribute DOMString frameBorder;
-    [Reflect, CEReactions=NotNeeded] attribute DOMString height;
-    [Reflect, URL, CEReactions=NotNeeded] attribute USVString longDesc;
-    [Reflect, CEReactions=NotNeeded] attribute [TreatNullAs=EmptyString] DOMString marginHeight;
-    [Reflect, CEReactions=NotNeeded] attribute [TreatNullAs=EmptyString] DOMString marginWidth;
-    [Reflect, CEReactions=NotNeeded] attribute DOMString name;
+// https://html.spec.whatwg.org/multipage/iframe-embed-object.html#htmliframeelement
 
-    [PutForwards=value] readonly attribute DOMTokenList sandbox;
-    [Reflect, CEReactions=NotNeeded] attribute boolean allowFullscreen;
-    [Reflect, CEReactions=NotNeeded] attribute DOMString allow;
-
-    [Reflect, CEReactions=NotNeeded] attribute DOMString scrolling;
+[
+    Exposed=Window,
+    JSGenerateToNativeObject
+] interface HTMLIFrameElement : HTMLElement {
     [Reflect, URL, CEReactions=NotNeeded] attribute USVString src;
-    [Reflect, CEReactions=NotNeeded] attribute DOMString srcdoc;
+    [CEReactions=NotNeeded] attribute (TrustedHTML or DOMString) srcdoc;
+    [Reflect, CEReactions=NotNeeded] attribute DOMString name;
+    [SameObject, PutForwards=value] readonly attribute DOMTokenList sandbox;
+    [Reflect, CEReactions=NotNeeded] attribute DOMString allow;
+    [Reflect, CEReactions=NotNeeded] attribute boolean allowFullscreen;
     [Reflect, CEReactions=NotNeeded] attribute DOMString width;
+    [Reflect, CEReactions=NotNeeded] attribute DOMString height;
+    [CEReactions=NotNeeded, ImplementedAs=referrerPolicyForBindings] attribute [AtomString] DOMString referrerPolicy;
+    [CEReactions=NotNeeded, EnabledBySetting=LazyIframeLoadingEnabled] attribute [AtomString] DOMString loading;
+    [CheckSecurityForNode] readonly attribute Document? contentDocument;
+    readonly attribute WindowProxy? contentWindow;
+    [CheckSecurityForNode] Document? getSVGDocument();
 
-    [CheckSecurityForNode] readonly attribute Document contentDocument;
+    // also has obsolete members
+    // https://html.spec.whatwg.org/multipage/obsolete.html#HTMLIFrameElement-partial
+    [Reflect, CEReactions=NotNeeded] attribute DOMString align;
+    [Reflect, CEReactions=NotNeeded] attribute DOMString scrolling;
+    [Reflect, CEReactions=NotNeeded] attribute DOMString frameBorder;
+    [Reflect, URL, CEReactions=NotNeeded] attribute USVString longDesc;
 
-    readonly attribute WindowProxy contentWindow;
+    [Reflect, CEReactions=NotNeeded] attribute [LegacyNullToEmptyString] DOMString marginHeight;
+    [Reflect, CEReactions=NotNeeded] attribute [LegacyNullToEmptyString] DOMString marginWidth;
 
-    [CheckSecurityForNode, MayThrowException] Document getSVGDocument();
-
-    [EnabledAtRuntime=ReferrerPolicyAttribute, ImplementedAs=referrerPolicyForBindings, CEReactions=NotNeeded] attribute DOMString referrerPolicy;
 };

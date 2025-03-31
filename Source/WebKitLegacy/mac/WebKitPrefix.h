@@ -28,10 +28,9 @@
 
 #if defined(HAVE_CONFIG_H) && HAVE_CONFIG_H && defined(BUILDING_WITH_CMAKE)
 #include "cmakeconfig.h"
-#ifndef JSC_API_AVAILABLE
-#define JSC_API_AVAILABLE(...)
 #endif
-#endif
+
+#include <wtf/Platform.h>
 
 #include <TargetConditionals.h>
 
@@ -95,6 +94,5 @@ typedef float CGFloat;
 
 #ifdef __cplusplus
 #include <wtf/FastMalloc.h>
+#include <wtf/TZoneMalloc.h>
 #endif
-
-#include <wtf/DisallowCType.h>

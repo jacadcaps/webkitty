@@ -35,8 +35,11 @@
 #include "HTMLInputElement.h"
 #include "HTMLNames.h"
 #include "RenderButton.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(BaseButtonInputType);
 
 using namespace HTMLNames;
 
@@ -45,7 +48,7 @@ bool BaseButtonInputType::shouldSaveAndRestoreFormControlState() const
     return false;
 }
 
-bool BaseButtonInputType::appendFormData(DOMFormData&, bool) const
+bool BaseButtonInputType::appendFormData(DOMFormData&) const
 {
     // Buttons except overridden types are never successful.
     return false;
@@ -62,10 +65,15 @@ bool BaseButtonInputType::storesValueSeparateFromAttribute()
     return false;
 }
 
-void BaseButtonInputType::setValue(const String& sanitizedValue, bool, TextFieldEventBehavior)
+void BaseButtonInputType::setValue(const String& sanitizedValue, bool, TextFieldEventBehavior, TextControlSetValueSelection)
 {
     ASSERT(element());
-    element()->setAttributeWithoutSynchronization(valueAttr, sanitizedValue);
+    element()->setAttributeWithoutSynchronization(valueAttr, AtomString { sanitizedValue });
+}
+
+bool BaseButtonInputType::dirAutoUsesValue() const
+{
+    return true;
 }
 
 } // namespace WebCore

@@ -27,18 +27,24 @@
 #include <wtf/RefCounted.h>
 #include <wtf/Ref.h>
 
+namespace WTF {
+class TextStream;
+}
+
 namespace WebCore {
 
+DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(StyleDeprecatedFlexibleBoxData);
 class StyleDeprecatedFlexibleBoxData : public RefCounted<StyleDeprecatedFlexibleBoxData> {
+    WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(StyleDeprecatedFlexibleBoxData);
 public:
     static Ref<StyleDeprecatedFlexibleBoxData> create() { return adoptRef(*new StyleDeprecatedFlexibleBoxData); }
     Ref<StyleDeprecatedFlexibleBoxData> copy() const;
 
     bool operator==(const StyleDeprecatedFlexibleBoxData&) const;
-    bool operator!=(const StyleDeprecatedFlexibleBoxData& other) const
-    {
-        return !(*this == other);
-    }
+
+#if !LOG_DISABLED
+    void dumpDifferences(TextStream&, const StyleDeprecatedFlexibleBoxData&) const;
+#endif
 
     float flex;
     unsigned flexGroup;

@@ -10,6 +10,13 @@
 
 #include "api/units/data_rate.h"
 
+#include <cstdint>
+#include <limits>
+
+#include "api/units/data_size.h"
+#include "api/units/frequency.h"
+#include "api/units/time_delta.h"
+#include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
 #include "test/gtest.h"
 
@@ -175,7 +182,7 @@ TEST(UnitConversionTest, DataRateAndDataSizeAndFrequency) {
   EXPECT_EQ((rate_b / freq_a).bytes(), kBitsPerSecond / kHertz / 8);
 }
 
-TEST(UnitConversionTest, DivisionFailsOnLargeSize) {
+TEST(UnitConversionDeathTest, DivisionFailsOnLargeSize) {
   // Note that the failure is expected since the current implementation  is
   // implementated in a way that does not support division of large sizes. If
   // the implementation is changed, this test can safely be removed.

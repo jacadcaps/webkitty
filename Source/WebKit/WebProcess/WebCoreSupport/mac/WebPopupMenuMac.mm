@@ -27,8 +27,8 @@
 #import "WebPopupMenu.h"
 
 #import "PlatformPopupMenuData.h"
-#import <WebCore/Frame.h>
-#import <WebCore/FrameView.h>
+#import <WebCore/LocalFrame.h>
+#import <WebCore/LocalFrameView.h>
 #import <WebCore/PopupMenuClient.h>
 
 namespace WebKit {
@@ -38,7 +38,7 @@ void WebPopupMenu::setUpPlatformData(const IntRect&, PlatformPopupMenuData& data
 {
 #if USE(APPKIT)
     // FIXME: font will be nil here for custom fonts, we should fix that.
-    CTFontRef font = m_popupClient->menuStyle().font().primaryFont().getCTFont();
+    CTFontRef font = m_popupClient->menuStyle().font().primaryFont()->getCTFont();
     if (!font)
         return;
 

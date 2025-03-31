@@ -1,6 +1,6 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
-# Copyright (c) 2014, 2016 Apple Inc. All rights reserved.
+# Copyright (c) 2014-2025 Apple Inc. All rights reserved.
 # Copyright (c) 2014 University of Washington. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -34,6 +34,7 @@ import string
 from string import Template
 import optparse
 import logging
+import subprocess
 
 try:
     import json
@@ -160,6 +161,7 @@ def generate_from_specification(primary_specification_filepath=None,
         generators.append(ObjCProtocolTypesImplementationGenerator(*generator_arguments))
 
     elif protocol.framework is Frameworks.JavaScriptCore:
+        generators.append(JSBackendCommandsGenerator(*generator_arguments))
         generators.append(CppAlternateBackendDispatcherHeaderGenerator(*generator_arguments))
         generators.append(CppBackendDispatcherHeaderGenerator(*generator_arguments))
         generators.append(CppBackendDispatcherImplementationGenerator(*generator_arguments))
@@ -168,7 +170,7 @@ def generate_from_specification(primary_specification_filepath=None,
         generators.append(CppProtocolTypesHeaderGenerator(*generator_arguments))
         generators.append(CppProtocolTypesImplementationGenerator(*generator_arguments))
 
-    elif protocol.framework is Frameworks.WebKit and generate_backend:
+    elif generate_backend and protocol.framework in [Frameworks.WebKit, Frameworks.WebDriverBidi]:
         generators.append(CppBackendDispatcherHeaderGenerator(*generator_arguments))
         generators.append(CppBackendDispatcherImplementationGenerator(*generator_arguments))
         generators.append(CppFrontendDispatcherHeaderGenerator(*generator_arguments))
@@ -207,13 +209,49 @@ def generate_from_specification(primary_specification_filepath=None,
             generator.set_generator_setting('generate_frontend', True)
 
         output = generator.generate_output()
-        if concatenate_output:
-            single_output_file_contents.append('### Begin File: %s' % generator.output_filename())
+
+        output_filename = generator.output_filename()
+        output_filepath = os.path.join(output_dirpath, output_filename)
+
+        if generator.needs_preprocess():
+            temporary_input_filename = output_filename + ".in"
+            temporary_input_filepath = os.path.join(output_dirpath, temporary_input_filename)
+
+            temporary_output_filename = output_filename + ".out"
+            temporary_output_filepath = os.path.join(output_dirpath, temporary_output_filename)
+
+            if concatenate_output:
+                single_output_file_contents.append('### Begin File: %s' % temporary_input_filename)
+                single_output_file_contents.append(output)
+                single_output_file_contents.append('### End File: %s' % temporary_input_filename)
+                single_output_file_contents.append('')
+
+            temporary_input_file = open(temporary_input_filepath, "w")
+            temporary_input_file.write(output)
+            temporary_input_file.close()
+
+            subprocess.check_call(["perl", os.path.join(os.path.dirname(__file__), "codegen", "preprocess.pl"), "--input", temporary_input_filepath, "--defines", protocol.condition_flags, "--output", temporary_output_filepath])
+
+            temporary_output_file = open(temporary_output_filepath, "r")
+            output = temporary_output_file.read()
+            temporary_output_file.close()
+
+            if concatenate_output:
+                single_output_file_contents.append('### Begin File: %s' % temporary_output_filename)
+                single_output_file_contents.append(output)
+                single_output_file_contents.append('### End File: %s' % temporary_output_filename)
+                single_output_file_contents.append('')
+
+            os.remove(temporary_input_filepath)
+            os.remove(temporary_output_filepath)
+        elif concatenate_output:
+            single_output_file_contents.append('### Begin File: %s' % output_filename)
             single_output_file_contents.append(output)
-            single_output_file_contents.append('### End File: %s' % generator.output_filename())
+            single_output_file_contents.append('### End File: %s' % output_filename)
             single_output_file_contents.append('')
-        else:
-            output_file = IncrementalFileWriter(os.path.join(output_dirpath, generator.output_filename()), force_output)
+
+        if not concatenate_output:
+            output_file = IncrementalFileWriter(output_filepath, force_output)
             output_file.write(output)
             output_file.close()
 
@@ -225,7 +263,7 @@ def generate_from_specification(primary_specification_filepath=None,
 
 
 if __name__ == '__main__':
-    allowed_framework_names = ['JavaScriptCore', 'WebInspector', 'WebInspectorUI', 'WebKit', 'Test']
+    allowed_framework_names = ['JavaScriptCore', 'WebInspector', 'WebInspectorUI', 'WebKit', 'WebDriverBidi', 'Test']
     cli_parser = optparse.OptionParser(usage="usage: %prog [options] PrimaryProtocol.json [SupplementalProtocol.json ...]")
     cli_parser.add_option("-o", "--outputDir", help="Directory where generated files should be written.")
     cli_parser.add_option("--framework", type="choice", choices=allowed_framework_names, help="The framework that the primary specification belongs to.")
@@ -268,6 +306,6 @@ if __name__ == '__main__':
         generate_from_specification(**options)
     except (ParseException, TypecheckException) as e:
         if arg_options.test:
-            log.error(e.message)
+            log.error(str(e))
         else:
             raise  # Force the build to fail.

@@ -25,8 +25,6 @@
 
 #include "config.h"
 
-#if ENABLE(ACCESSIBILITY)
-
 #include "AccessibilityTextMarker.h"
 
 #include "AccessibilityUIElement.h"
@@ -72,7 +70,10 @@ JSClassRef AccessibilityTextMarkerRange::wrapperClass()
 {
     return JSAccessibilityTextMarkerRange::accessibilityTextMarkerRangeClass();
 }
-    
-} // namespace WTR
-#endif // ENABLE(ACCESSIBILITY)
 
+AccessibilityTextMarkerRange* toTextMarkerRange(JSObjectRef object)
+{
+    return static_cast<AccessibilityTextMarkerRange*>(JSObjectGetPrivate(object));
+}
+
+} // namespace WTR

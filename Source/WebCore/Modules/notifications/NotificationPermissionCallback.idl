@@ -25,4 +25,6 @@
 
 [
     Conditional=NOTIFICATIONS,
-] callback NotificationPermissionCallback = void (NotificationPermission permission);
+    EnabledBySetting=NotificationsEnabled,
+    GenerateIsReachable=ImplScriptExecutionContext
+] callback NotificationPermissionCallback = undefined (NotificationPermission permission);

@@ -25,15 +25,17 @@
 
 #pragma once
 
-#include "SharedMemory.h"
 #include "SharedStringHashTable.h"
+#include <WebCore/SharedMemory.h>
 #include <WebCore/SharedStringHash.h>
-#include <wtf/HashSet.h>
+#include <wtf/CheckedPtr.h>
 #include <wtf/RunLoop.h>
 
 namespace WebKit {
 
-class SharedStringHashStore {
+class SharedStringHashStore : public CanMakeCheckedPtr<SharedStringHashStore> {
+    WTF_MAKE_FAST_ALLOCATED;
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SharedStringHashStore);
 public:
     class Client {
     public:
@@ -45,7 +47,7 @@ public:
 
     SharedStringHashStore(Client&);
 
-    bool createSharedMemoryHandle(SharedMemory::Handle&);
+    std::optional<WebCore::SharedMemory::Handle> createSharedMemoryHandle();
 
     void scheduleAddition(WebCore::SharedStringHash);
     void scheduleRemoval(WebCore::SharedStringHash);
@@ -58,7 +60,7 @@ public:
     void flushPendingChanges();
 
 private:
-    void resizeTable(unsigned newTableSize);
+    void resizeTable(unsigned newTableLength);
     void processPendingOperations();
 
     struct Operation {
@@ -69,10 +71,10 @@ private:
 
     Client& m_client;
     unsigned m_keyCount { 0 };
-    unsigned m_tableSize { 0 };
+    unsigned m_tableLength { 0 };
     SharedStringHashTable m_table;
     Vector<Operation> m_pendingOperations;
-    RunLoop::Timer<SharedStringHashStore> m_pendingOperationsTimer;
+    RunLoop::Timer m_pendingOperationsTimer;
 };
 
 } // namespace WebKit

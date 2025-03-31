@@ -24,11 +24,12 @@
  */
 
 #import "config.h"
+
 #import "JavaScriptTest.h"
 #import "Test.h"
 #import "WebKitAgnosticTest.h"
+#import <WebKit/WKWebViewPrivate.h>
 #import <WebKit/WebViewPrivate.h>
-#import <WebKit/WKViewPrivate.h>
 #import <wtf/RetainPtr.h>
 
 static bool isWaitingForPageSignalToContinue = false;
@@ -68,15 +69,15 @@ public:
     template <typename View> void runTest(View);
 
     // WebKitAgnosticTest
-    NSURL *url() const override { return [[NSBundle mainBundle] URLForResource:@"PageVisibilityStateWithWindowChanges" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"]; }
+    NSURL *url() const override { return [NSBundle.test_resourcesBundle URLForResource:@"PageVisibilityStateWithWindowChanges" withExtension:@"html"]; }
     void didLoadURL(WebView *webView) override { runTest(webView); }
-    void didLoadURL(WKView *wkView) override { runTest(wkView); }
+    void didLoadURL(WKWebView *wkView) override { runTest(wkView); }
 
     // Setup and teardown the UIDelegate which gets alert() signals from the page.
     void initializeView(WebView *) override;
-    void initializeView(WKView *) override;
+    void initializeView(WKWebView *) override;
     void teardownView(WebView *) override;
-    void teardownView(WKView *) override;
+    void teardownView(WKWebView *) override;
 
 private:
     RetainPtr<id <WebUIDelegate>> m_delegate;
@@ -97,18 +98,18 @@ void PageVisibilityStateWithWindowChanges::teardownView(WebView *webView)
     m_delegate = nil;
 }
 
-void PageVisibilityStateWithWindowChanges::initializeView(WKView *wkView)
+void PageVisibilityStateWithWindowChanges::initializeView(WKWebView *wkView)
 {
     WKPageUIClientV0 uiClient;
-    memset(&uiClient, 0, sizeof(uiClient));
+    zeroBytes(uiClient);
 
     uiClient.base.version = 0;
     uiClient.runJavaScriptAlert = runJavaScriptAlert;
 
-    WKPageSetPageUIClient(wkView.pageRef, &uiClient.base);
+    WKPageSetPageUIClient(wkView._pageRefForTransitionToWKWebView, &uiClient.base);
 }
 
-void PageVisibilityStateWithWindowChanges::teardownView(WKView *wkView)
+void PageVisibilityStateWithWindowChanges::teardownView(WKWebView *wkView)
 {
     // We do not need to teardown the WKPageUIClient.
 }
@@ -120,16 +121,16 @@ void PageVisibilityStateWithWindowChanges::runTest(View view)
     // This WebView does not have a window and superview. PageVisibility should be "hidden".
     EXPECT_NULL([view window]);
     EXPECT_NULL([view superview]);
-    EXPECT_JS_EQ(view, "document.visibilityState", "prerender");
+    EXPECT_JS_EQ(view, "document.visibilityState", "hidden");
     EXPECT_JS_EQ(view, "document.hidden", "true");
 
-    // Add it to a non-visible window. PageVisibility should still be "prerender".
+    // Add it to a non-visible window. PageVisibility should still be "hidden".
     RetainPtr<NSWindow> window = adoptNS([[NSWindow alloc] initWithContentRect:view.frame styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskMiniaturizable backing:NSBackingStoreBuffered defer:NO]);
     [window.get().contentView addSubview:view];
     EXPECT_NOT_NULL([view window]);
     EXPECT_NOT_NULL([view superview]);
     EXPECT_FALSE([window.get() isVisible]);
-    EXPECT_JS_EQ(view, "document.visibilityState", "prerender");
+    EXPECT_JS_EQ(view, "document.visibilityState", "hidden");
     EXPECT_JS_EQ(view, "document.hidden", "true");
 
     // Make the window visible. PageVisibility should become "visible".

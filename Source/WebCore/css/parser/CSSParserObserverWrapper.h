@@ -30,10 +30,21 @@
 #pragma once
 
 #include "CSSParserObserver.h"
+#include <wtf/Vector.h>
+#include <wtf/WeakPtr.h>
+
+namespace WebCore {
+class CSSParserObserverWrapper;
+}
+
+namespace WTF {
+template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
+template<> struct IsDeprecatedWeakRefSmartPointerException<WebCore::CSSParserObserverWrapper> : std::true_type { };
+}
 
 namespace WebCore {
 
-class CSSParserObserverWrapper {
+class CSSParserObserverWrapper : public CanMakeWeakPtr<CSSParserObserverWrapper> {
 public:
     explicit CSSParserObserverWrapper(CSSParserObserver& observer)
         : m_observer(observer)
@@ -56,7 +67,7 @@ public:
     void finalizeConstruction(CSSParserToken* firstParserToken)
     {
         m_firstParserToken = firstParserToken;
-        m_commentIterator = m_commentOffsets.begin();
+        ASSERT(!m_commentIndex);
     }
 
 private:
@@ -71,7 +82,7 @@ private:
     };
 
     Vector<CommentPosition> m_commentOffsets;
-    Vector<CommentPosition>::iterator m_commentIterator;
+    size_t m_commentIndex { 0 };
 };
 
 } // namespace WebCore

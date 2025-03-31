@@ -14,9 +14,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <deque>
 #include <memory>
+#include <optional>
 
-#include "absl/types/optional.h"
 #include "rtc_base/system/rtc_export.h"
 
 namespace webrtc {
@@ -27,6 +28,10 @@ namespace webrtc {
 // This class uses int64 for all its numbers because some rates can be very
 // high; for instance, a 20 Mbit/sec video stream can wrap a 32-bit byte
 // counter in 14 minutes.
+
+// Note that timestamps used in Update(), Rate() and SetWindowSize() must never
+// decrease for two consecutive calls.
+// TODO(bugs.webrtc.org/11600): Migrate from int64_t to Timestamp.
 
 class RTC_EXPORT RateStatistics {
  public:
@@ -57,7 +62,7 @@ class RTC_EXPORT RateStatistics {
   // from a monotonic clock. Ie, it doesn't matter if this call moves the
   // window, since any subsequent call to Update or Rate would still have moved
   // the window as much or more.
-  absl::optional<int64_t> Rate(int64_t now_ms) const;
+  std::optional<int64_t> Rate(int64_t now_ms) const;
 
   // Update the size of the averaging window. The maximum allowed value for
   // window_size_ms is max_window_size_ms as supplied in the constructor.
@@ -65,18 +70,21 @@ class RTC_EXPORT RateStatistics {
 
  private:
   void EraseOld(int64_t now_ms);
-  bool IsInitialized() const;
 
-  // Counters are kept in buckets (circular buffer), with one bucket
-  // per millisecond.
   struct Bucket {
-    int64_t sum;  // Sum of all samples in this bucket.
-    int samples;  // Number of samples in this bucket.
+    explicit Bucket(int64_t timestamp);
+    int64_t sum;              // Sum of all samples in this bucket.
+    int num_samples;          // Number of samples in this bucket.
+    const int64_t timestamp;  // Timestamp this bucket corresponds to.
   };
-  std::unique_ptr<Bucket[]> buckets_;
+  // All buckets within the time window, ordered by time.
+  std::deque<Bucket> buckets_;
 
-  // Total count recorded in buckets.
+  // Total count recorded in all buckets.
   int64_t accumulated_count_;
+
+  // Timestamp of the first data point seen, or -1 of none seen.
+  int64_t first_timestamp_;
 
   // True if accumulated_count_ has ever grown too large to be
   // contained in its integer type.
@@ -84,12 +92,6 @@ class RTC_EXPORT RateStatistics {
 
   // The total number of samples in the buckets.
   int num_samples_;
-
-  // Oldest time recorded in buckets.
-  int64_t oldest_time_;
-
-  // Bucket index of oldest counter recorded in buckets.
-  int64_t oldest_index_;
 
   // To convert counts/ms to desired units
   const float scale_;

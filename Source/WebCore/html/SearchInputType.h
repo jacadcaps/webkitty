@@ -33,42 +33,42 @@
 
 #include "BaseTextInputType.h"
 #include "Timer.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class SearchFieldResultsButtonElement;
 
 class SearchInputType final : public BaseTextInputType {
+    WTF_MAKE_TZONE_ALLOCATED(SearchInputType);
 public:
-    explicit SearchInputType(HTMLInputElement&);
-
-    void stopSearchEventTimer();
+    static Ref<SearchInputType> create(HTMLInputElement& element)
+    {
+        return adoptRef(*new SearchInputType(element));
+    }
 
 private:
+    explicit SearchInputType(HTMLInputElement&);
+
     void addSearchResult() final;
     void attributeChanged(const QualifiedName&) final;
     RenderPtr<RenderElement> createInputRenderer(RenderStyle&&) final;
     const AtomString& formControlType() const final;
-    bool isSearchField() const final;
     bool needsContainer() const final;
     void createShadowSubtree() final;
-    void destroyShadowSubtree() final;
+    void removeShadowSubtree() final;
     HTMLElement* resultsButtonElement() const final;
     HTMLElement* cancelButtonElement() const final;
     ShouldCallBaseEventHandler handleKeydownEvent(KeyboardEvent&) final;
     void didSetValueByUserEdit() final;
     bool sizeShouldIncludeDecoration(int defaultSize, int& preferredSize) const final;
     float decorationWidth() const final;
-
-    void searchEventTimerFired();
-    bool searchEventsShouldBeDispatched() const;
-    void startSearchEventTimer();
+    void setValue(const String&, bool valueChanged, TextFieldEventBehavior, TextControlSetValueSelection) final;
 
     RefPtr<SearchFieldResultsButtonElement> m_resultsButton;
     RefPtr<HTMLElement> m_cancelButton;
-    Timer m_searchEventTimer;
 };
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_INPUT_TYPE(SearchInputType, isSearchField())
+SPECIALIZE_TYPE_TRAITS_INPUT_TYPE(SearchInputType, Type::Search)

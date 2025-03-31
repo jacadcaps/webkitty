@@ -1,6 +1,6 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
-# Copyright (c) 2014 Apple Inc. All rights reserved.
+# Copyright (c) 2014-2025 Apple Inc. All rights reserved.
 # Copyright (c) 2014 University of Washington. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -72,6 +72,11 @@ _FRAMEWORK_CONFIG_MAP = {
         "objc_protocol_group": "WD",
         "objc_prefix": "WD",
     },
+    "WebDriverBidi": {
+        "cpp_protocol_group": "WebDriverBidi",
+        "objc_protocol_group": "WD",
+        "objc_prefix": "WD",
+    },
     "WebInspector": {
         "objc_protocol_group": "RWI",
         "objc_prefix": "RWI",
@@ -87,8 +92,8 @@ _FRAMEWORK_CONFIG_MAP = {
     }
 }
 
-_ALLOWED_DEBUGGABLE_TYPE_STRINGS = frozenset(['itml', 'javascript', 'page', 'service-worker', 'web-page'])
-_ALLOWED_TARGET_TYPE_STRINGS = frozenset(['itml', 'javascript', 'page', 'service-worker', 'web-page', 'worker'])
+_ALLOWED_DEBUGGABLE_TYPE_STRINGS = ['itml', 'javascript', 'page', 'service-worker', 'web-page']
+_ALLOWED_TARGET_TYPE_STRINGS = ['itml', 'javascript', 'page', 'service-worker', 'web-page', 'worker']
 
 
 class ParseException(Exception):
@@ -118,6 +123,9 @@ class Framework:
         if frameworkString == "WebKit":
             return Frameworks.WebKit
 
+        if frameworkString == "WebDriverBidi":
+            return Frameworks.WebDriverBidi
+
         if frameworkString == "WebInspector":
             return Frameworks.WebInspector
 
@@ -134,6 +142,7 @@ class Frameworks:
     Global = Framework("Global")
     JavaScriptCore = Framework("JavaScriptCore")
     WebKit = Framework("WebKit")
+    WebDriverBidi = Framework("WebDriverBidi")
     WebInspector = Framework("WebInspector")
     WebInspectorUI = Framework("WebInspectorUI")
     Test = Framework("Test")
@@ -339,19 +348,30 @@ def check_for_required_properties(props, obj, what):
 class Protocol:
     def __init__(self, framework_name):
         self.domains = []
+        self.condition_flags = ""
         self.types_by_name = {}
         self.framework = Framework.fromString(framework_name)
 
     def parse_specification(self, json, isSupplemental):
         log.debug("parse toplevel")
 
-        if isinstance(json, dict) and 'domains' in json:
-            json = json['domains']
-        if not isinstance(json, list):
-            json = [json]
+        domains = json  # Tests don't have a "domains".
+        condition_flags = ""
 
-        for domain in json:
+        if isinstance(json, dict):
+            if 'domains' in json:
+                domains = json['domains']
+            if 'conditionFlags' in json:
+                condition_flags = json['conditionFlags']
+
+        if not isinstance(domains, list):
+            domains = [domains]
+
+        for domain in domains:
             self.parse_domain(domain, isSupplemental)
+
+        if isinstance(condition_flags, str):
+            self.condition_flags = condition_flags
 
     def parse_domain(self, json, isSupplemental):
         check_for_required_properties(['domain'], json, "domain")

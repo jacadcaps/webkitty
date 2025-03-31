@@ -14,15 +14,14 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
-
-#include "absl/types/optional.h"
+#include <optional>
 
 namespace webrtc {
 
 // Records the association of RTP sequence numbers to timestamps and to whether
 // the packet was first and/or last in the frame.
 //
-// 1. Limits number of entries. Whenever |max_entries| is about to be exceeded,
+// 1. Limits number of entries. Whenever `max_entries` is about to be exceeded,
 //    the size is reduced by approximately 25%.
 // 2. RTP sequence numbers wrap around relatively infrequently.
 //    This class therefore only remembers at most the last 2^15 RTP packets,
@@ -57,7 +56,7 @@ class RtpSequenceNumberMap final {
                    size_t packet_count,
                    uint32_t timestamp);
 
-  absl::optional<Info> Get(uint16_t sequence_number) const;
+  std::optional<Info> Get(uint16_t sequence_number) const;
 
   size_t AssociationCountForTesting() const;
 

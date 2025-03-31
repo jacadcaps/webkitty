@@ -23,10 +23,17 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "BPlatform.h"
 #include "IsoSharedHeap.h"
+
+#if !BUSE(TZONE)
+#if !BUSE(LIBPAS)
 
 namespace bmalloc {
 
 DEFINE_STATIC_PER_PROCESS_STORAGE(IsoSharedHeap);
 
 } // namespace bmalloc
+
+#endif
+#endif // !BUSE(TZONE)

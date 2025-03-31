@@ -30,16 +30,18 @@ function forEach(callback /*, thisArg */)
     if (!@isMap(this))
         @throwTypeError("Map operation called on non-Map object");
 
-    if (typeof callback !== 'function')
+    if (!@isCallable(callback))
         @throwTypeError("Map.prototype.forEach callback must be a function");
 
     var thisArg = @argument(1);
-    var bucket = @mapBucketHead(this);
+    var storage = @mapStorage(this);
+    var entry = 0;
 
     do {
-        bucket = @mapBucketNext(bucket);
-        if (bucket === @sentinelMapBucket)
-            break;
-        callback.@call(thisArg, @mapBucketValue(bucket), @mapBucketKey(bucket), this);
+        storage = @mapIterationNext(storage, entry);
+        if (storage == @orderedHashTableSentinel)
+            return;
+        entry = @mapIterationEntry(storage) + 1;
+        callback.@call(thisArg, @mapIterationEntryValue(storage), @mapIterationEntryKey(storage), this);
     } while (true);
 }

@@ -10,6 +10,10 @@
 
 #include "logging/rtc_event_log/events/rtc_event_generic_packet_sent.h"
 
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+
 #include "absl/memory/memory.h"
 
 namespace webrtc {
@@ -31,14 +35,6 @@ RtcEventGenericPacketSent::~RtcEventGenericPacketSent() = default;
 std::unique_ptr<RtcEventGenericPacketSent> RtcEventGenericPacketSent::Copy()
     const {
   return absl::WrapUnique(new RtcEventGenericPacketSent(*this));
-}
-
-RtcEvent::Type RtcEventGenericPacketSent::GetType() const {
-  return RtcEvent::Type::GenericPacketSent;
-}
-
-bool RtcEventGenericPacketSent::IsConfigEvent() const {
-  return false;
 }
 
 }  // namespace webrtc

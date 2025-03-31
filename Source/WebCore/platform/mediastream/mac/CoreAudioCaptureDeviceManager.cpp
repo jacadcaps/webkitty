@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -38,6 +38,7 @@
 #include <wtf/Assertions.h>
 #include <wtf/MainThread.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/StdLibExtras.h>
 
 #import <pal/cf/CoreMediaSoftLink.h>
 
@@ -49,53 +50,93 @@ CoreAudioCaptureDeviceManager& CoreAudioCaptureDeviceManager::singleton()
     return manager;
 }
 
+CoreAudioCaptureDeviceManager::~CoreAudioCaptureDeviceManager() = default;
+
 const Vector<CaptureDevice>& CoreAudioCaptureDeviceManager::captureDevices()
 {
     coreAudioCaptureDevices();
-    return m_devices;
+    return m_captureDevices;
 }
 
-Optional<CaptureDevice> CoreAudioCaptureDeviceManager::captureDeviceWithPersistentID(CaptureDevice::DeviceType type, const String& deviceID)
+std::optional<CaptureDevice> CoreAudioCaptureDeviceManager::captureDeviceWithPersistentID(CaptureDevice::DeviceType type, const String& deviceID)
 {
     ASSERT_UNUSED(type, type == CaptureDevice::DeviceType::Microphone);
     for (auto& device : captureDevices()) {
         if (device.persistentId() == deviceID)
             return device;
     }
-    return WTF::nullopt;
+    return std::nullopt;
 }
 
-static bool deviceHasInputStreams(AudioObjectID deviceID)
+static bool deviceHasStreams(AudioObjectID deviceID, const AudioObjectPropertyAddress& address)
 {
     UInt32 dataSize = 0;
-    AudioObjectPropertyAddress address = { kAudioDevicePropertyStreamConfiguration, kAudioDevicePropertyScopeInput, kAudioObjectPropertyElementMaster };
     auto err = AudioObjectGetPropertyDataSize(deviceID, &address, 0, nullptr, &dataSize);
     if (err || !dataSize)
         return false;
 
     auto bufferList = std::unique_ptr<AudioBufferList>((AudioBufferList*) ::operator new (dataSize));
-    memset(bufferList.get(), 0, dataSize);
+    zeroSpan(unsafeMakeSpan(reinterpret_cast<uint8_t*>(bufferList.get()), dataSize));
     err = AudioObjectGetPropertyData(deviceID, &address, 0, nullptr, &dataSize, bufferList.get());
 
     return !err && bufferList->mNumberBuffers;
 }
 
-static bool isValidCaptureDevice(const CoreAudioCaptureDevice& device)
+static bool deviceHasInputStreams(AudioObjectID deviceID)
 {
-    // Ignore output devices that have input only for echo cancellation.
-    AudioObjectPropertyAddress address = { kAudioDevicePropertyTapEnabled, kAudioDevicePropertyScopeOutput, kAudioObjectPropertyElementMaster };
-    if (AudioObjectHasProperty(device.deviceID(), &address)) {
-        RELEASE_LOG(WebRTC, "Ignoring output device that have input only for echo cancellation");
-        return false;
+    AudioObjectPropertyAddress address = {
+        kAudioDevicePropertyStreamConfiguration,
+        kAudioDevicePropertyScopeInput,
+        kAudioObjectPropertyElementMain
+    };
+    return deviceHasStreams(deviceID, address);
+}
+
+static bool deviceHasOutputStreams(AudioObjectID deviceID)
+{
+    AudioObjectPropertyAddress address = {
+        kAudioDevicePropertyStreamConfiguration,
+        kAudioDevicePropertyScopeOutput,
+        kAudioObjectPropertyElementMain
+    };
+    return deviceHasStreams(deviceID, address);
+}
+
+static bool isVirtualDeviceFromLabel(const String& label)
+{
+    return label.contains("WebexMediaAudioDevice"_s) || label.contains("Microsoft Teams Audio"_s);
+}
+
+static bool isValidMicrophoneDevice(const CoreAudioCaptureDevice& device, bool filterTapEnabledDevices)
+{
+    if (filterTapEnabledDevices) {
+        // Ignore output devices that have input only for echo cancellation.
+        AudioObjectPropertyAddress address = {
+#if HAVE(AUDIO_DEVICE_PROPERTY_REFERENCE_STREAM_ENABLED)
+            kAudioDevicePropertyReferenceStreamEnabled,
+#else
+            kAudioDevicePropertyTapEnabled,
+#endif
+            kAudioDevicePropertyScopeOutput,
+            kAudioObjectPropertyElementMain
+        };
+        if (AudioObjectHasProperty(device.deviceID(), &address)) {
+            RELEASE_LOG(WebRTC, "Ignoring output device that have input only for echo cancellation");
+            return false;
+        }
     }
 
     // Ignore non-aggregable devices.
     UInt32 dataSize = 0;
-    address = { kAudioObjectPropertyCreator, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMaster };
+    AudioObjectPropertyAddress address = {
+        kAudioObjectPropertyCreator,
+        kAudioObjectPropertyScopeGlobal,
+        kAudioObjectPropertyElementMain
+    };
     CFStringRef name = nullptr;
     dataSize = sizeof(name);
     AudioObjectGetPropertyData(device.deviceID(), &address, 0, nullptr, &dataSize, &name);
-    bool isNonAggregable = !name || !String(name).startsWith("com.apple.audio.CoreAudio");
+    bool isNonAggregable = !name || !String(name).startsWith("com.apple.audio.CoreAudio"_s);
     if (name)
         CFRelease(name);
     if (isNonAggregable) {
@@ -109,24 +150,40 @@ static bool isValidCaptureDevice(const CoreAudioCaptureDevice& device)
         return false;
     }
 
-    if (device.label().startsWith("VPAUAggregateAudioDevice")) {
+    if (device.label().startsWith("VPAUAggregateAudioDevice"_s)) {
         RELEASE_LOG(WebRTC, "Ignoring output VPAUAggregateAudioDevice device");
+        return false;
+    }
+
+    // FIXME: We might want to use properties like whether a device can be selected as default once we move device enumeration to GPUProcess.
+    if (isVirtualDeviceFromLabel(device.label())) {
+        RELEASE_LOG(WebRTC, "Ignoring virtual microphone device '%s'", device.label().utf8().data());
         return false;
     }
 
     return true;
 }
 
-static inline Optional<CoreAudioCaptureDevice> getDefaultCaptureInputDevice()
+static bool isValidSpeakerDevice(const CoreAudioCaptureDevice& device)
 {
-    AudioObjectPropertyAddress address { kAudioHardwarePropertyDefaultInputDevice, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMaster };
-    UInt32 propertySize = sizeof(AudioDeviceID);
-    AudioDeviceID deviceID = kAudioDeviceUnknown;
-    auto err = AudioObjectGetPropertyData(kAudioObjectSystemObject, &address, 0, nullptr, &propertySize, &deviceID);
+    if (isVirtualDeviceFromLabel(device.label())) {
+        RELEASE_LOG(WebRTC, "Ignoring virtual speaker device");
+        return false;
+    }
 
-    if (err != noErr || deviceID == kAudioDeviceUnknown)
-        return { };
-    return CoreAudioCaptureDevice::create(deviceID);
+    return true;
+}
+
+void CoreAudioCaptureDeviceManager::scheduleUpdateCaptureDevices()
+{
+    if (m_wasRefreshAudioCaptureDevicesScheduled)
+        return;
+
+    m_wasRefreshAudioCaptureDevicesScheduled = true;
+    callOnMainThread([this] {
+        refreshAudioCaptureDevices(NotifyIfDevicesHaveChanged::Notify);
+        m_wasRefreshAudioCaptureDevicesScheduled = false;
+    });
 }
 
 Vector<CoreAudioCaptureDevice>& CoreAudioCaptureDeviceManager::coreAudioCaptureDevices()
@@ -136,104 +193,167 @@ Vector<CoreAudioCaptureDevice>& CoreAudioCaptureDeviceManager::coreAudioCaptureD
         initialized = true;
         refreshAudioCaptureDevices(NotifyIfDevicesHaveChanged::DoNotNotify);
 
-        auto listener = ^(UInt32 count, const AudioObjectPropertyAddress properties[]) {
+        auto listener = ^(UInt32 count, const AudioObjectPropertyAddress rawProperties[]) {
+            auto properties = unsafeMakeSpan(rawProperties, count);
             bool notify = false;
-            for (UInt32 i = 0; i < count; ++i)
-                notify |= (properties[i].mSelector == kAudioHardwarePropertyDevices || properties[i].mSelector == kAudioHardwarePropertyDefaultInputDevice);
+            for (auto& property : properties)
+                notify |= (property.mSelector == kAudioHardwarePropertyDevices || property.mSelector == kAudioHardwarePropertyDefaultInputDevice || property.mSelector == kAudioHardwarePropertyDefaultOutputDevice);
 
             if (notify)
-                CoreAudioCaptureDeviceManager::singleton().refreshAudioCaptureDevices(NotifyIfDevicesHaveChanged::Notify);
+                CoreAudioCaptureDeviceManager::singleton().scheduleUpdateCaptureDevices();
         };
 
-        AudioObjectPropertyAddress address = { kAudioHardwarePropertyDevices, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMaster };
+        AudioObjectPropertyAddress address = {
+            kAudioHardwarePropertyDevices,
+            kAudioObjectPropertyScopeGlobal,
+            kAudioObjectPropertyElementMain
+        };
         auto err = AudioObjectAddPropertyListenerBlock(kAudioObjectSystemObject, &address, dispatch_get_main_queue(), listener);
         if (err)
             LOG_ERROR("CoreAudioCaptureDeviceManager::devices(%p) AudioObjectAddPropertyListener for kAudioHardwarePropertyDevices returned error %d (%.4s)", this, (int)err, (char*)&err);
 
-        address = { kAudioHardwarePropertyDefaultInputDevice, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMaster };
+        address = {
+            kAudioHardwarePropertyDefaultInputDevice,
+            kAudioObjectPropertyScopeGlobal,
+            kAudioObjectPropertyElementMain
+        };
         err = AudioObjectAddPropertyListenerBlock(kAudioObjectSystemObject, &address, dispatch_get_main_queue(), listener);
         if (err)
             LOG_ERROR("CoreAudioCaptureDeviceManager::devices(%p) AudioObjectAddPropertyListener for kAudioHardwarePropertyDefaultInputDevice returned error %d (%.4s)", this, (int)err, (char*)&err);
+
+        address = {
+            kAudioHardwarePropertyDefaultOutputDevice,
+            kAudioObjectPropertyScopeGlobal,
+            kAudioObjectPropertyElementMain
+        };
+        err = AudioObjectAddPropertyListenerBlock(kAudioObjectSystemObject, &address, dispatch_get_main_queue(), listener);
+        if (err)
+            LOG_ERROR("CoreAudioCaptureDeviceManager::devices(%p) AudioObjectAddPropertyListener for kAudioHardwarePropertyDefaultOutputDevice returned error %d (%.4s)", this, (int)err, (char*)&err);
     }
 
     return m_coreAudioCaptureDevices;
 }
 
-Optional<CoreAudioCaptureDevice> CoreAudioCaptureDeviceManager::coreAudioDeviceWithUID(const String& deviceID)
+std::optional<CoreAudioCaptureDevice> CoreAudioCaptureDeviceManager::coreAudioDeviceWithUID(const String& deviceID)
 {
     for (auto& device : coreAudioCaptureDevices()) {
         if (device.persistentId() == deviceID && device.enabled())
             return device;
     }
-    return WTF::nullopt;
+    return std::nullopt;
 }
 
-void CoreAudioCaptureDeviceManager::refreshAudioCaptureDevices(NotifyIfDevicesHaveChanged notify)
+static inline bool hasDevice(const Vector<CoreAudioCaptureDevice>& devices, uint32_t deviceID, CaptureDevice::DeviceType deviceType)
 {
-    ASSERT(isMainThread());
+    return std::any_of(devices.begin(), devices.end(), [&deviceID, deviceType](auto& device) {
+        return device.deviceID() == deviceID && device.type() == deviceType;
+    });
+}
 
-    AudioObjectPropertyAddress address = { kAudioHardwarePropertyDevices, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMaster };
+static inline Vector<CoreAudioCaptureDevice> computeAudioDeviceList(bool filterTapEnabledDevices)
+{
+    AudioObjectPropertyAddress address = {
+        kAudioHardwarePropertyDevices,
+        kAudioObjectPropertyScopeGlobal,
+        kAudioObjectPropertyElementMain
+    };
     UInt32 dataSize = 0;
     auto err = AudioObjectGetPropertyDataSize(kAudioObjectSystemObject, &address, 0, nullptr, &dataSize);
     if (err) {
-        LOG(Media, "CoreAudioCaptureDeviceManager::refreshAudioCaptureDevices(%p) failed to get size of device list %d (%.4s)", this, (int)err, (char*)&err);
-        return;
+        RELEASE_LOG(WebRTC, "computeAudioDeviceList failed to get size of device list %d (%.4s)", (int)err, (char*)&err);
+        return { };
     }
 
     size_t deviceCount = dataSize / sizeof(AudioObjectID);
     Vector<AudioObjectID> deviceIDs(deviceCount);
     err = AudioObjectGetPropertyData(kAudioObjectSystemObject, &address, 0, nullptr, &dataSize, deviceIDs.data());
     if (err) {
-        LOG(Media, "CoreAudioCaptureDeviceManager::refreshAudioCaptureDevices(%p) failed to get device list %d (%.4s)", this, (int)err, (char*)&err);
-        return;
+        RELEASE_LOG(WebRTC, "computeAudioDeviceList failed to get device list %d (%.4s)", (int)err, (char*)&err);
+        return { };
     }
 
-    auto defaultInputDevice = getDefaultCaptureInputDevice();
-    bool haveDeviceChanges = false;
-    if (defaultInputDevice && !m_coreAudioCaptureDevices.isEmpty() && m_coreAudioCaptureDevices.first().deviceID() != defaultInputDevice->deviceID()) {
-        m_coreAudioCaptureDevices = Vector<CoreAudioCaptureDevice>::from(WTFMove(*defaultInputDevice));
-        haveDeviceChanges = true;
-    }
+    Vector<CoreAudioCaptureDevice> audioDevices;
 
+    // Microphones
     for (size_t i = 0; i < deviceCount; i++) {
         AudioObjectID deviceID = deviceIDs[i];
-        if (!deviceHasInputStreams(deviceID))
+
+        if (!deviceHasInputStreams(deviceID) || hasDevice(audioDevices, deviceID, CaptureDevice::DeviceType::Microphone))
             continue;
 
-        if (std::any_of(m_coreAudioCaptureDevices.begin(), m_coreAudioCaptureDevices.end(), [deviceID](auto& device) { return device.deviceID() == deviceID; }))
-            continue;
-
-        auto device = CoreAudioCaptureDevice::create(deviceID);
-        if (!device || !isValidCaptureDevice(device.value()))
-            continue;
-
-        m_coreAudioCaptureDevices.append(WTFMove(device.value()));
-        haveDeviceChanges = true;
+        auto microphoneDevice = CoreAudioCaptureDevice::create(deviceID, CaptureDevice::DeviceType::Microphone, { });
+        if (microphoneDevice && isValidMicrophoneDevice(microphoneDevice.value(), filterTapEnabledDevices))
+            audioDevices.append(WTFMove(microphoneDevice.value()));
     }
 
-    for (auto& device : m_coreAudioCaptureDevices) {
-        bool isAlive = device.isAlive();
-        if (device.enabled() != isAlive) {
-            device.setEnabled(isAlive);
-            haveDeviceChanges = true;
+    // Speakers
+    for (size_t i = 0; i < deviceCount; i++) {
+        AudioObjectID deviceID = deviceIDs[i];
+
+        if (!deviceHasOutputStreams(deviceID) || hasDevice(audioDevices, deviceID, CaptureDevice::DeviceType::Speaker))
+            continue;
+
+        String groupID;
+        for (auto relatedDeviceID : CoreAudioCaptureDevice::relatedAudioDeviceIDs(deviceID)) {
+            for (auto& device : audioDevices) {
+                if (device.deviceID() == relatedDeviceID && device.type() == CaptureDevice::DeviceType::Microphone) {
+                    groupID = device.persistentId();
+                    break;
+                }
+            }
+        }
+
+        auto device = CoreAudioCaptureDevice::create(deviceID, CaptureDevice::DeviceType::Speaker, groupID);
+        if (device) {
+            // If there is no groupID, relate devices if the label is matching.
+            if (groupID.isNull()) {
+                for (auto& existingDevice : audioDevices) {
+                    if (existingDevice.label() == device->label() && existingDevice.type() == CaptureDevice::DeviceType::Microphone) {
+                        device->setGroupId(existingDevice.persistentId());
+                        break;
+                    }
+                }
+            }
+            if (isValidSpeakerDevice(*device))
+                audioDevices.append(WTFMove(*device));
         }
     }
+    return audioDevices;
+}
 
+void CoreAudioCaptureDeviceManager::refreshAudioCaptureDevices(NotifyIfDevicesHaveChanged notify)
+{
+    ASSERT(isMainThread());
+
+    auto audioDevices = computeAudioDeviceList(m_filterTapEnabledDevices);
+    bool haveDeviceChanges = audioDevices.size() != m_coreAudioCaptureDevices.size();
+    if (!haveDeviceChanges) {
+        for (size_t cptr = 0; cptr < audioDevices.size(); ++cptr) {
+            auto& oldDevice = m_coreAudioCaptureDevices[cptr];
+            auto& newDevice = audioDevices[cptr];
+            if (newDevice.type() != oldDevice.type() || newDevice.deviceID() != oldDevice.deviceID() || newDevice.isDefault() != oldDevice.isDefault() || newDevice.enabled() != oldDevice.enabled() || newDevice.isDefault() != oldDevice.isDefault())
+                haveDeviceChanges = true;
+        }
+    }
     if (!haveDeviceChanges)
         return;
 
-    m_devices = Vector<CaptureDevice>();
+    std::sort(audioDevices.begin(), audioDevices.end(), [] (auto& first, auto& second) -> bool {
+        return first.isDefault() && !second.isDefault();
+    });
+    m_coreAudioCaptureDevices = WTFMove(audioDevices);
 
-    for (auto &device : m_coreAudioCaptureDevices) {
-        CaptureDevice captureDevice(device.persistentId(), CaptureDevice::DeviceType::Microphone, device.label());
-        captureDevice.setEnabled(device.enabled());
-        m_devices.append(captureDevice);
+    m_captureDevices.clear();
+    m_speakerDevices.clear();
+    for (auto& device : m_coreAudioCaptureDevices) {
+        if (device.type() == CaptureDevice::DeviceType::Microphone)
+            m_captureDevices.append(device);
+        else
+            m_speakerDevices.append(device);
     }
 
-    if (notify == NotifyIfDevicesHaveChanged::Notify) {
+    if (notify == NotifyIfDevicesHaveChanged::Notify)
         deviceChanged();
-        CoreAudioCaptureSourceFactory::singleton().devicesChanged(m_devices);
-    }
 }
 
 } // namespace WebCore

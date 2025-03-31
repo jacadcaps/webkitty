@@ -27,6 +27,7 @@
 
 #if PLATFORM(COCOA)
 
+#import "PasteboardUtilities.h"
 #import "PlatformUtilities.h"
 #import "TestWKWebView.h"
 #import <WebKit/WKPreferencesPrivate.h>
@@ -81,18 +82,6 @@ void writeRTFDToPasteboard(NSData *data)
     [[UIPasteboard generalPasteboard] setItems:@[@{ (__bridge NSString *)kUTTypeFlatRTFD : data}]];
 }
 #endif
-
-static RetainPtr<TestWKWebView> createWebViewWithCustomPasteboardDataEnabled(bool colorFilterEnabled = false)
-{
-    auto webViewConfiguration = adoptNS([[WKWebViewConfiguration alloc] init]);
-    [webViewConfiguration _setColorFilterEnabled:colorFilterEnabled];
-
-    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 400, 400) configuration:webViewConfiguration.get()]);
-    auto preferences = (__bridge WKPreferencesRef)[[webView configuration] preferences];
-    WKPreferencesSetDataTransferItemsEnabled(preferences, true);
-    WKPreferencesSetCustomPasteboardDataEnabled(preferences, true);
-    return webView;
-}
 
 static RetainPtr<NSAttributedString> createHelloWorldString()
 {
@@ -153,7 +142,7 @@ TEST(PasteRTFD, ImageElementUsesBlobURL)
     auto webView = createWebViewWithCustomPasteboardDataEnabled();
     [webView synchronouslyLoadTestPageNamed:@"paste-rtfd"];
 
-    auto *pngData = [NSData dataWithContentsOfFile:[[NSBundle mainBundle] pathForResource:@"sunset-in-cupertino-200px" ofType:@"png" inDirectory:@"TestWebKitAPI.resources"]];
+    auto *pngData = [NSData dataWithContentsOfFile:[NSBundle.test_resourcesBundle pathForResource:@"sunset-in-cupertino-200px" ofType:@"png"]];
     auto attachment = adoptNS([[NSTextAttachment alloc] initWithData:pngData ofType:(__bridge NSString *)kUTTypePNG]);
     NSAttributedString *string = [NSAttributedString attributedStringWithAttachment:attachment.get()];
     NSData *RTFDData = [string RTFDFromRange:NSMakeRange(0, [string length]) documentAttributes:@{ }];
@@ -171,7 +160,7 @@ TEST(PasteRTFD, ImageElementUsesBlobURLInHTML)
     auto webView = createWebViewWithCustomPasteboardDataEnabled();
     [webView synchronouslyLoadTestPageNamed:@"paste-rtfd"];
 
-    auto *pngData = [NSData dataWithContentsOfFile:[[NSBundle mainBundle] pathForResource:@"sunset-in-cupertino-200px" ofType:@"png" inDirectory:@"TestWebKitAPI.resources"]];
+    auto *pngData = [NSData dataWithContentsOfFile:[NSBundle.test_resourcesBundle pathForResource:@"sunset-in-cupertino-200px" ofType:@"png"]];
     auto attachment = adoptNS([[NSTextAttachment alloc] initWithData:pngData ofType:(__bridge NSString *)kUTTypePNG]);
     NSAttributedString *string = [NSAttributedString attributedStringWithAttachment:attachment.get()];
     NSData *RTFDData = [string RTFDFromRange:NSMakeRange(0, [string length]) documentAttributes:@{ }];
@@ -181,11 +170,14 @@ TEST(PasteRTFD, ImageElementUsesBlobURLInHTML)
 
     [webView waitForMessage:@"loaded"];
     EXPECT_WK_STREQ("[\"text/html\"]", [webView stringByEvaluatingJavaScript:@"JSON.stringify(clipboardData.types)"]);
+    RetainPtr rawMarkup = [webView stringByEvaluatingJavaScript:@"clipboardData.values[0]"];
+    EXPECT_FALSE([rawMarkup containsString:@"<p"]);
+    EXPECT_FALSE([rawMarkup containsString:@"<br"]);
     EXPECT_TRUE([webView stringByEvaluatingJavaScript:@"imageElement = (new DOMParser).parseFromString(clipboardData.values[0], 'text/html').querySelector('img'); !!imageElement"].boolValue);
     EXPECT_WK_STREQ("blob:", [webView stringByEvaluatingJavaScript:@"new URL(imageElement.src).protocol"]);
 }
 
-#if ENABLE(DARK_MODE_CSS) && HAVE(OS_DARK_MODE_SUPPORT)
+#if ENABLE(DARK_MODE_CSS)
 
 TEST(PasteRTFD, TransformColorsOfDarkContent)
 {
@@ -247,6 +239,6 @@ TEST(PasteRTFD, DoesNotTransformColorsOfLightContent)
 #endif
 }
 
-#endif // ENABLE(DARK_MODE_CSS) && HAVE(OS_DARK_MODE_SUPPORT)
+#endif // ENABLE(DARK_MODE_CSS)
 
 #endif // PLATFORM(COCOA)

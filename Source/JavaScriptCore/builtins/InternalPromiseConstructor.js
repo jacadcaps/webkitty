@@ -36,51 +36,43 @@ function internalAll(array)
 
     "use strict";
 
-    var promiseCapability = @newPromiseCapability(@InternalPromise);
+    var constructor = @InternalPromise;
+    var promise = @createPromise(constructor, /* isInternalPromise */ true);
+    var reject = (reason) => {
+        return @rejectPromiseWithFirstResolvingFunctionCallCheck(promise, reason);
+    };
 
     var values = [];
     var index = 0;
     var remainingElementsCount = 0;
 
-    function newResolveElement(index)
-    {
-        var alreadyCalled = false;
-        return function (argument)
-        {
-            if (alreadyCalled)
-                return @undefined;
-            alreadyCalled = true;
-
-            @putByValDirect(values, index, argument);
-
-            --remainingElementsCount;
-            if (remainingElementsCount === 0)
-                return promiseCapability.@resolve.@call(@undefined, values);
-
-            return @undefined;
-        }
-    }
-
     try {
         if (array.length === 0)
-            promiseCapability.@resolve.@call(@undefined, values);
+            @fulfillPromiseWithFirstResolvingFunctionCallCheck(promise, values);
         else {
             for (var index = 0, length = array.length; index < length; ++index) {
                 var value = array[index];
                 @putByValDirect(values, index, @undefined);
-
-                var nextPromiseCapability = @newPromiseCapability(@InternalPromise);
-                nextPromiseCapability.@resolve.@call(@undefined, value);
-                var nextPromise = nextPromiseCapability.@promise;
-
-                var resolveElement = newResolveElement(index);
+                let currentIndex = index;
                 ++remainingElementsCount;
-                nextPromise.then(resolveElement, promiseCapability.@reject);
+                @resolveWithoutPromise(value, (argument) => {
+                    if (currentIndex < 0)
+                        return @undefined;
+
+                    @putByValDirect(values, currentIndex, argument);
+                    currentIndex = -1;
+
+                    --remainingElementsCount;
+                    if (remainingElementsCount === 0)
+                        return @fulfillPromiseWithFirstResolvingFunctionCallCheck(promise, values);
+
+                    return @undefined;
+                }, reject, @undefined);
             }
         }
     } catch (error) {
-        promiseCapability.@reject.@call(@undefined, error);
+        reject(error);
     }
 
-    return promiseCapability.@promise;
+    return promise;
 }

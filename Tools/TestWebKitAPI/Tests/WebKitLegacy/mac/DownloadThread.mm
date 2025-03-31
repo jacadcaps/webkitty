@@ -25,13 +25,13 @@
 
 #import "config.h"
 
+#import "DeprecatedGlobalValues.h"
 #import "PlatformUtilities.h"
 #import <WebKit/WebView.h>
 #import <wtf/RetainPtr.h>
 
 #if PLATFORM(MAC)
 
-static bool done;
 static RetainPtr<NSString> destination;
 
 @interface DownloadThreadChecker : NSObject <WebDownloadDelegate, WebPolicyDelegate>
@@ -83,7 +83,7 @@ TEST(WebKitLegacy, DownloadThread)
     [webView setPolicyDelegate:delegate.get()];
     [webView setDownloadDelegate:delegate.get()];
 
-    [[webView mainFrame] loadRequest:[NSURLRequest requestWithURL:[[NSBundle mainBundle] URLForResource:@"simple" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"]]];
+    [[webView mainFrame] loadRequest:[NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"simple" withExtension:@"html"]]];
     Util::run(&done);
 
     EXPECT_TRUE([[NSFileManager defaultManager] fileExistsAtPath:destination.get()]);

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,11 +28,14 @@
 #if ENABLE(WEBASSEMBLY)
 
 #include "JSFunction.h"
+#include "WasmFormat.h"
 
 namespace JSC {
 
 class JSGlobalObject;
 class JSWebAssemblyInstance;
+using Wasm::WasmToWasmImportableFunction;
+using Wasm::WasmOrJSImportableFunctionCallLinkInfo;
 
 class WebAssemblyFunctionBase : public JSFunction {
 public:
@@ -43,13 +46,35 @@ public:
     DECLARE_INFO;
 
     JSWebAssemblyInstance* instance() const { return m_instance.get(); }
-    static ptrdiff_t offsetOfInstance() { return OBJECT_OFFSETOF(WebAssemblyFunctionBase, m_instance); }
+
+    Wasm::TypeIndex typeIndex() const { return m_importableFunction.typeIndex; }
+    Wasm::Type type() const { return { Wasm::TypeKind::Ref, typeIndex() }; }
+    WasmToWasmImportableFunction::LoadLocation entrypointLoadLocation() const { return m_importableFunction.entrypointLoadLocation; }
+    const uintptr_t* boxedWasmCalleeLoadLocation() const { return m_importableFunction.boxedWasmCalleeLoadLocation; }
+    const Wasm::WasmOrJSImportableFunction& importableFunction() const { return m_importableFunction; }
+    const Wasm::RTT* rtt() const { return m_importableFunction.rtt; }
+    const Wasm::FunctionSignature& signature() const;
+    WasmOrJSImportableFunctionCallLinkInfo* callLinkInfo() const { return m_callLinkInfo; }
+
+    static constexpr ptrdiff_t offsetOfInstance() { return OBJECT_OFFSETOF(WebAssemblyFunctionBase, m_instance); }
+
+    static constexpr ptrdiff_t offsetOfSignatureIndex() { return OBJECT_OFFSETOF(WebAssemblyFunctionBase, m_importableFunction) + WasmToWasmImportableFunction::offsetOfSignatureIndex(); }
+
+    static constexpr ptrdiff_t offsetOfEntrypointLoadLocation() { return OBJECT_OFFSETOF(WebAssemblyFunctionBase, m_importableFunction) + WasmToWasmImportableFunction::offsetOfEntrypointLoadLocation(); }
+    static constexpr ptrdiff_t offsetOfBoxedWasmCalleeLoadLocation() { return OBJECT_OFFSETOF(WebAssemblyFunctionBase, m_importableFunction) + WasmToWasmImportableFunction::offsetOfBoxedWasmCalleeLoadLocation(); }
+
+    static constexpr ptrdiff_t offsetOfRTT() { return OBJECT_OFFSETOF(WebAssemblyFunctionBase, m_importableFunction) + WasmToWasmImportableFunction::offsetOfRTT(); }
 
 protected:
-    static void visitChildren(JSCell*, SlotVisitor&);
-    void finishCreation(VM&, NativeExecutable*, unsigned length, const String& name, JSWebAssemblyInstance*);
-    WebAssemblyFunctionBase(VM&, NativeExecutable*, JSGlobalObject*, Structure*);
+    DECLARE_VISIT_CHILDREN;
+    void finishCreation(VM&, NativeExecutable*, unsigned length, const String& name);
+    WebAssemblyFunctionBase(VM&, NativeExecutable*, JSGlobalObject*, Structure*, JSWebAssemblyInstance*, Wasm::WasmOrJSImportableFunction&&, Wasm::WasmOrJSImportableFunctionCallLinkInfo*);
 
+    Wasm::WasmOrJSImportableFunction m_importableFunction;
+    // It's safe to just hold the raw WasmToWasmImportableFunctionCallLinkInfo because we have a reference
+    // to our Instance, which points to the CodeBlock, which points to the Module
+    // that exported us, which ensures that the actual Signature/RTT/code doesn't get deallocated.
+    Wasm::WasmOrJSImportableFunctionCallLinkInfo* m_callLinkInfo;
     WriteBarrier<JSWebAssemblyInstance> m_instance;
 };
 

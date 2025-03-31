@@ -27,15 +27,16 @@
 namespace WebCore {
 
 class HTMLPreElement final : public HTMLElement {
-    WTF_MAKE_ISO_ALLOCATED(HTMLPreElement);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(HTMLPreElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HTMLPreElement);
 public:
     static Ref<HTMLPreElement> create(const QualifiedName&, Document&);
 
 private:
     HTMLPreElement(const QualifiedName&, Document&);
 
-    bool isPresentationAttribute(const QualifiedName&) const final;
-    void collectStyleForPresentationAttribute(const QualifiedName&, const AtomString&, MutableStyleProperties&) final;
+    bool hasPresentationalHintsForAttribute(const QualifiedName&) const final;
+    void collectPresentationalHintsForAttribute(const QualifiedName&, const AtomString&, MutableStyleProperties&) final;
 };
 
 } // namespace WebCore

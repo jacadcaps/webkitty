@@ -25,6 +25,7 @@
 
 #import "config.h"
 
+#import "DeprecatedGlobalValues.h"
 #import "PlatformUtilities.h"
 #import "Test.h"
 #import <WebKit/WebKit.h>
@@ -32,13 +33,11 @@
 #import <WebKit/WKUserContentControllerPrivate.h>
 #import <WebKit/WKWebViewConfigurationPrivate.h>
 #import <WebKit/WKWebViewPrivate.h>
+#import <WebKit/WKWebsiteDataStorePrivate.h>
 #import <WebKit/_WKProcessPoolConfiguration.h>
 #import <WebKit/_WKUserStyleSheet.h>
 #import <wtf/Deque.h>
 #import <wtf/RetainPtr.h>
-
-static bool receivedScriptMessage;
-static Deque<RetainPtr<WKScriptMessage>> scriptMessages;
 
 @interface IndexedDBMPMessageHandler : NSObject <WKScriptMessageHandler>
 @end
@@ -53,27 +52,17 @@ static Deque<RetainPtr<WKScriptMessage>> scriptMessages;
 
 @end
 
-static WKScriptMessage *getNextMessage()
-{
-    if (scriptMessages.isEmpty()) {
-        receivedScriptMessage = false;
-        TestWebKitAPI::Util::run(&receivedScriptMessage);
-    }
-
-    return [[scriptMessages.takeFirst() retain] autorelease];
-}
-
 TEST(IndexedDB, IndexedDBMultiProcess)
 {
     RetainPtr<IndexedDBMPMessageHandler> handler = adoptNS([[IndexedDBMPMessageHandler alloc] init]);
     RetainPtr<WKWebViewConfiguration> configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
     [[configuration userContentController] addScriptMessageHandler:handler.get() name:@"testHandler"];
 
-    [configuration.get().processPool _terminateNetworkProcess];
+    [configuration.get().websiteDataStore _terminateNetworkProcess];
 
     RetainPtr<WKWebView> webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
 
-    NSURLRequest *request = [NSURLRequest requestWithURL:[[NSBundle mainBundle] URLForResource:@"IndexedDBMultiProcess-1" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"]];
+    NSURLRequest *request = [NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"IndexedDBMultiProcess-1" withExtension:@"html"]];
     [webView loadRequest:request];
 
     RetainPtr<NSString> string1 = (NSString *)[getNextMessage() body];
@@ -83,7 +72,7 @@ TEST(IndexedDB, IndexedDBMultiProcess)
     // Make a new web view with a new web process to continue the test
     RetainPtr<WKWebView> webView2 = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
 
-    request = [NSURLRequest requestWithURL:[[NSBundle mainBundle] URLForResource:@"IndexedDBMultiProcess-2" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"]];
+    request = [NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"IndexedDBMultiProcess-2" withExtension:@"html"]];
     [webView2 loadRequest:request];
 
     RetainPtr<NSString> string4 = (NSString *)[getNextMessage() body];
@@ -98,7 +87,7 @@ TEST(IndexedDB, IndexedDBMultiProcess)
 
     // Make a new web view with a new web process to continue the test
     RetainPtr<WKWebView> webView3 = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
-    request = [NSURLRequest requestWithURL:[[NSBundle mainBundle] URLForResource:@"IndexedDBMultiProcess-3" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"]];
+    request = [NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"IndexedDBMultiProcess-3" withExtension:@"html"]];
     [webView3 loadRequest:request];
 
     RetainPtr<NSString> string6 = (NSString *)[getNextMessage() body];

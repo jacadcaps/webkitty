@@ -25,15 +25,13 @@
 
 #pragma once
 
-#if ENABLE(INDEXED_DATABASE)
-
 #include "IDBActiveDOMObject.h"
 #include "IDBDatabaseNameAndVersion.h"
 #include "IDBResourceIdentifier.h"
 #include <wtf/Forward.h>
 #include <wtf/Function.h>
-#include <wtf/IsoMalloc.h>
 #include <wtf/Ref.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/ThreadSafeRefCounted.h>
 
 namespace WebCore {
@@ -45,9 +43,9 @@ class IDBConnectionProxy;
 }
 
 class WEBCORE_EXPORT IDBDatabaseNameAndVersionRequest final : public ThreadSafeRefCounted<IDBDatabaseNameAndVersionRequest>, public IDBActiveDOMObject {
-    WTF_MAKE_ISO_ALLOCATED(IDBDatabaseNameAndVersionRequest);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED_EXPORT(IDBDatabaseNameAndVersionRequest, WEBCORE_EXPORT);
 public:
-    using InfoCallback = Function<void(Optional<Vector<IDBDatabaseNameAndVersion>>&&)>;
+    using InfoCallback = Function<void(std::optional<Vector<IDBDatabaseNameAndVersion>>&&)>;
 
     static Ref<IDBDatabaseNameAndVersionRequest> create(ScriptExecutionContext&, IDBClient::IDBConnectionProxy&, InfoCallback&&);
 
@@ -55,17 +53,17 @@ public:
 
     const IDBResourceIdentifier& resourceIdentifier() const;
 
-    using ThreadSafeRefCounted<IDBDatabaseNameAndVersionRequest>::ref;
-    using ThreadSafeRefCounted<IDBDatabaseNameAndVersionRequest>::deref;
+    // ActiveDOMObject.
+    void ref() const final { ThreadSafeRefCounted::ref(); }
+    void deref() const final { ThreadSafeRefCounted::deref(); }
 
-    void complete(Optional<Vector<IDBDatabaseNameAndVersion>>&&);
+    void complete(std::optional<Vector<IDBDatabaseNameAndVersion>>&&);
 
 private:
     IDBDatabaseNameAndVersionRequest(ScriptExecutionContext&, IDBClient::IDBConnectionProxy&, InfoCallback&&);
 
     // ActiveDOMObject.
     bool virtualHasPendingActivity() const final;
-    const char* activeDOMObjectName() const final;
     void stop() final;
 
     Ref<IDBClient::IDBConnectionProxy> m_connectionProxy;
@@ -84,5 +82,3 @@ inline IDBDatabaseNameAndVersionRequest::~IDBDatabaseNameAndVersionRequest()
 }
 
 } // namespace WebCore
-
-#endif // ENABLE(INDEXED_DATABASE)

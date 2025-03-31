@@ -27,15 +27,23 @@
 
 #include "FontRanges.h"
 #include <wtf/Forward.h>
-#include <wtf/RefCounted.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
+
+namespace WTF {
+class TextStream;
+}
 
 namespace WebCore {
 
+class FontCache;
 class FontCascadeDescription;
 class FontDescription;
 class FontSelectorClient;
 
+DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(FontAccessor);
+
 class FontAccessor : public RefCounted<FontAccessor> {
+    WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(FontAccessor);
 public:
     virtual ~FontAccessor() = default;
 
@@ -43,7 +51,7 @@ public:
     virtual bool isLoading() const = 0;
 };
 
-class FontSelector : public RefCounted<FontSelector> {
+class FontSelector : public RefCountedAndCanMakeWeakPtr<FontSelector> {
 public:
     virtual ~FontSelector() = default;
 
@@ -62,5 +70,7 @@ public:
     virtual unsigned uniqueId() const = 0;
     virtual unsigned version() const = 0;
 };
+
+WTF::TextStream& operator<<(WTF::TextStream&, const FontSelector&);
 
 }

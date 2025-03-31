@@ -21,16 +21,16 @@
 
 namespace webrtc {
 
-// Parses the URLs for each server in |servers| to build |stun_servers| and
-// |turn_servers|. Can return SYNTAX_ERROR if the URL is malformed, or
-// INVALID_PARAMETER if a TURN server is missing |username| or |password|.
+// Parses the URLs for each server in `servers` to build `stun_servers` and
+// `turn_servers`. Can return SYNTAX_ERROR if the URL is malformed, or
+// INVALID_PARAMETER if a TURN server is missing `username` or `password`.
 //
 // Intended to be used to convert/validate the servers passed into a
 // PeerConnection through RTCConfiguration.
-RTC_EXPORT RTCErrorType
-ParseIceServers(const PeerConnectionInterface::IceServers& servers,
-                cricket::ServerAddresses* stun_servers,
-                std::vector<cricket::RelayServerConfig>* turn_servers);
+RTC_EXPORT RTCError
+ParseIceServersOrError(const PeerConnectionInterface::IceServers& servers,
+                       cricket::ServerAddresses* stun_servers,
+                       std::vector<cricket::RelayServerConfig>* turn_servers);
 
 }  // namespace webrtc
 

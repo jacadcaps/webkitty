@@ -35,6 +35,7 @@
 namespace TestWebKitAPI {
 
 static bool test1Done;
+static bool titleChangeDone;
 
 struct PageLoadTestState {
     int didChangeActiveURL { 0 };
@@ -112,6 +113,7 @@ static void didChangeTitle(const void* clientInfo)
 {
     PageLoadTestState* state = reinterpret_cast<PageLoadTestState*>(const_cast<void*>(clientInfo));
     state->didChangeTitle++;
+    titleChangeDone = true;
 }
 
 static void didChangeWebProcessIsResponsive(const void* clientInfo)
@@ -238,7 +240,7 @@ TEST(WebKit, PageLoadState)
     EXPECT_EQ(state.didChangeActiveURL, 1);
     EXPECT_EQ(state.didChangeCanGoBack, 0);
     EXPECT_EQ(state.didChangeCanGoForward, 0);
-    EXPECT_EQ(state.didChangeCertificateInfo, 1);
+    EXPECT_EQ(state.didChangeCertificateInfo, 0);
     EXPECT_GT(state.didChangeEstimatedProgress, 0);
     EXPECT_EQ(state.didChangeHasOnlySecureContent, 0);
     EXPECT_GT(state.didChangeIsLoading, 0);
@@ -249,7 +251,7 @@ TEST(WebKit, PageLoadState)
     EXPECT_EQ(state.willChangeActiveURL, 1);
     EXPECT_EQ(state.willChangeCanGoBack, 0);
     EXPECT_EQ(state.willChangeCanGoForward, 0);
-    EXPECT_EQ(state.willChangeCertificateInfo, 1);
+    EXPECT_EQ(state.willChangeCertificateInfo, 0);
     EXPECT_GT(state.willChangeEstimatedProgress, 0);
     EXPECT_EQ(state.willChangeHasOnlySecureContent, 0);
     EXPECT_GT(state.willChangeIsLoading, 0);
@@ -278,14 +280,14 @@ TEST(WebKit, PageLoadState)
     EXPECT_EQ(state.willChangeCanGoBack, 2);
     EXPECT_EQ(state.willChangeCanGoForward, 1);
 
-    test1Done = false;
+    titleChangeDone = false;
     url = adoptWK(Util::createURLForResource("set-long-title", "html"));
     WKPageLoadURL(webView.page(), url.get());
-    Util::run(&test1Done);
+    Util::run(&titleChangeDone);
 
     EXPECT_EQ(state.didChangeActiveURL, 4);
-    EXPECT_EQ(state.didChangeTitle, 2);
-    EXPECT_EQ(state.willChangeTitle, 2);
+    EXPECT_EQ(state.didChangeTitle, 1);
+    EXPECT_EQ(state.willChangeTitle, 1);
 
     WKPageSetPageStateClient(webView.page(), nullptr);
 

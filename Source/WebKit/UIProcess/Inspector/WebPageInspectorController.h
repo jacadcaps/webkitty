@@ -29,8 +29,10 @@
 #include <JavaScriptCore/InspectorAgentRegistry.h>
 #include <JavaScriptCore/InspectorTargetAgent.h>
 #include <WebCore/PageIdentifier.h>
+#include <wtf/CheckedRef.h>
 #include <wtf/Forward.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/text/WTFString.h>
 
 namespace Inspector {
@@ -45,10 +47,11 @@ class InspectorBrowserAgent;
 struct WebPageAgentContext;
 
 class WebPageInspectorController {
+    WTF_MAKE_TZONE_ALLOCATED(WebPageInspectorController);
     WTF_MAKE_NONCOPYABLE(WebPageInspectorController);
-    WTF_MAKE_FAST_ALLOCATED;
 public:
     WebPageInspectorController(WebPageProxy&);
+    ~WebPageInspectorController();
 
     void init();
     void pageClosed();
@@ -76,10 +79,14 @@ public:
     void willDestroyProvisionalPage(const ProvisionalPageProxy&);
     void didCommitProvisionalPage(WebCore::PageIdentifier oldWebPageID, WebCore::PageIdentifier newWebPageID);
 
-    InspectorBrowserAgent* enabledBrowserAgent() const { return m_enabledBrowserAgent; }
-    void setEnabledBrowserAgent(InspectorBrowserAgent* agent) { m_enabledBrowserAgent = agent; }
+    InspectorBrowserAgent* enabledBrowserAgent() const;
+    void setEnabledBrowserAgent(InspectorBrowserAgent*);
+
+    void browserExtensionsEnabled(HashMap<String, String>&&);
+    void browserExtensionsDisabled(HashSet<String>&&);
 
 private:
+    Ref<WebPageProxy> protectedInspectedPage();
     WebPageAgentContext webPageAgentContext();
     void createLazyAgents();
 
@@ -89,12 +96,12 @@ private:
     Ref<Inspector::BackendDispatcher> m_backendDispatcher;
     Inspector::AgentRegistry m_agents;
 
-    WebPageProxy& m_page;
+    WeakRef<WebPageProxy> m_inspectedPage;
 
-    Inspector::InspectorTargetAgent* m_targetAgent { nullptr };
+    CheckedPtr<Inspector::InspectorTargetAgent> m_targetAgent;
     HashMap<String, std::unique_ptr<InspectorTargetProxy>> m_targets;
 
-    InspectorBrowserAgent* m_enabledBrowserAgent;
+    CheckedPtr<InspectorBrowserAgent> m_enabledBrowserAgent;
 
     bool m_didCreateLazyAgents { false };
 };

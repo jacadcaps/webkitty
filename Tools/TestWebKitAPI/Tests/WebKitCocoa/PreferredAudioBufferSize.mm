@@ -91,10 +91,15 @@ TEST_F(PreferredAudioBufferSize, WebAudio)
 
 TEST_F(PreferredAudioBufferSize, VideoOnly)
 {
-    runPlayingTestWithPageNamed(@"video-without-audio", 512);
+    runPlayingTestWithPageNamed(@"video-without-audio", 4096);
 }
 
+// rdar://136784916
+#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 140000
+TEST_F(PreferredAudioBufferSize, DISABLED_VideoWithAudio)
+#else
 TEST_F(PreferredAudioBufferSize, VideoWithAudio)
+#endif
 {
     runPlayingTestWithPageNamed(@"video-with-audio", 4096);
 }

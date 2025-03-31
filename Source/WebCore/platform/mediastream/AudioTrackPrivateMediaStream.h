@@ -29,6 +29,8 @@
 
 #include "AudioTrackPrivate.h"
 #include "MediaStreamTrackPrivate.h"
+#include <wtf/CheckedRef.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
@@ -36,9 +38,12 @@ class AudioMediaStreamTrackRenderer;
 
 class AudioTrackPrivateMediaStream final
     : public AudioTrackPrivate
-    , private MediaStreamTrackPrivate::Observer
-    , private RealtimeMediaSource::AudioSampleObserver {
+    , public MediaStreamTrackPrivateObserver
+    , private RealtimeMediaSource::AudioSampleObserver
+    , public CanMakeCheckedPtr<AudioTrackPrivateMediaStream> {
+    WTF_MAKE_TZONE_ALLOCATED(AudioTrackPrivateMediaStream);
     WTF_MAKE_NONCOPYABLE(AudioTrackPrivateMediaStream)
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(AudioTrackPrivateMediaStream);
 public:
     static Ref<AudioTrackPrivateMediaStream> create(MediaStreamTrackPrivate& streamTrack)
     {
@@ -47,8 +52,10 @@ public:
     ~AudioTrackPrivateMediaStream();
 
     void setTrackIndex(int index) { m_index = index; }
+    void setAudioOutputDevice(const String&);
 
     MediaStreamTrackPrivate& streamTrack() { return m_streamTrack.get(); }
+    Ref<MediaStreamTrackPrivate> protectedStreamTrack() { return m_streamTrack; }
 
     void clear();
 
@@ -64,21 +71,28 @@ public:
     bool muted() const { return m_muted; }
 
 #if !RELEASE_LOG_DISABLED
-    void setLogger(const Logger&, const void*) final;
-    const char* logClassName() const final { return "AudioTrackPrivateMediaStream"; }
+    ASCIILiteral logClassName() const final { return "AudioTrackPrivateMediaStream"_s; }
 #endif
 
-protected:
+private:
     explicit AudioTrackPrivateMediaStream(MediaStreamTrackPrivate&);
+
+    // CheckedPtr interface
+    uint32_t checkedPtrCount() const final { return CanMakeCheckedPtr::checkedPtrCount(); }
+    uint32_t checkedPtrCountWithoutThreadCheck() const final { return CanMakeCheckedPtr::checkedPtrCountWithoutThreadCheck(); }
+    void incrementCheckedPtrCount() const final { CanMakeCheckedPtr::incrementCheckedPtrCount(); }
+    void decrementCheckedPtrCount() const final { CanMakeCheckedPtr::decrementCheckedPtrCount(); }
+
+    static RefPtr<AudioMediaStreamTrackRenderer> createRenderer(AudioTrackPrivateMediaStream&);
 
     // AudioTrackPrivate
     Kind kind() const final { return Kind::Main; }
-    AtomString id() const final { return m_id; }
-    AtomString label() const final { return m_label; }
+    std::optional<AtomString> trackUID() const { return AtomString { m_streamTrack->id() }; }
+    AtomString label() const final { return AtomString { m_streamTrack->label() }; }
     int trackIndex() const final { return m_index; }
     bool isBackedByMediaStreamTrack() const final { return true; }
 
-    // MediaStreamTrackPrivate::Observer
+    // MediaStreamTrackPrivateObserver
     void trackEnded(MediaStreamTrackPrivate&) final;
     void trackMutedChanged(MediaStreamTrackPrivate&)  final;
     void trackEnabledChanged(MediaStreamTrackPrivate&)  final;
@@ -90,6 +104,7 @@ protected:
     void startRenderer();
     void stopRenderer();
     void updateRenderer();
+    void createNewRenderer();
 
     // Main thread writable members
     bool m_isPlaying { false };
@@ -97,14 +112,12 @@ protected:
     bool m_muted { false };
     bool m_isCleared { false };
 
-    Ref<MediaStreamTrackPrivate> m_streamTrack;
-    Ref<RealtimeMediaSource> m_audioSource;
-    AtomString m_id;
-    AtomString m_label;
+    const Ref<MediaStreamTrackPrivate> m_streamTrack;
+    const Ref<RealtimeMediaSource> m_audioSource;
     int m_index { 0 };
 
     // Audio thread members
-    std::unique_ptr<AudioMediaStreamTrackRenderer> m_renderer;
+    RefPtr<AudioMediaStreamTrackRenderer> m_renderer;
 };
 
 }

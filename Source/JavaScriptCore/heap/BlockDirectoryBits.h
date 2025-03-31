@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,18 +27,22 @@
 
 #include <array>
 #include <wtf/FastBitVector.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
 #define FOR_EACH_BLOCK_DIRECTORY_BIT(macro) \
     macro(live, Live) /* The set of block indices that have actual blocks. */\
-    macro(empty, Empty) /* The set of all blocks that have no live objects. */ \
+    macro(empty, Empty) /* The set of all blocks that have no live objects and are not free listed. */ \
     macro(allocated, Allocated) /* The set of all blocks that are full of live objects. */\
     macro(canAllocateButNotEmpty, CanAllocateButNotEmpty) /* The set of all blocks are neither empty nor retired (i.e. are more than minMarkedBlockUtilization full). */ \
     macro(destructible, Destructible) /* The set of all blocks that may have destructors to run. */\
     macro(eden, Eden) /* The set of all blocks that have new objects since the last GC. */\
     macro(unswept, Unswept) /* The set of all blocks that could be swept by the incremental sweeper. */\
+    macro(inUse, InUse) /* This tells us if a block is currently being allocated from or swept. This acts like a lock bit. */\
     \
     /* These are computed during marking. */\
     macro(markingNotEmpty, MarkingNotEmpty) /* The set of all blocks that are not empty. */ \
@@ -59,7 +63,7 @@ namespace JSC {
 // https://bugs.webkit.org/show_bug.cgi?id=162121
 
 class BlockDirectoryBits {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(BlockDirectoryBits);
 public:
     static constexpr unsigned bitsPerSegment = 32;
     static constexpr unsigned segmentShift = 5;
@@ -85,7 +89,7 @@ public:
 
     template<Kind kind>
     class BlockDirectoryBitVectorWordView {
-        WTF_MAKE_FAST_ALLOCATED;
+        WTF_MAKE_TZONE_ALLOCATED_TEMPLATE(BlockDirectoryBitVectorWordView);
     public:
         using ViewType = BlockDirectoryBitVectorWordView;
 
@@ -222,8 +226,12 @@ public:
     }
 
 private:
-    Vector<Segment> m_segments;
+    Vector<Segment, 0, CrashOnOverflow, 2> m_segments;
     unsigned m_numBits { 0 };
 };
 
+WTF_MAKE_TZONE_ALLOCATED_TEMPLATE_IMPL(template<BlockDirectoryBits::Kind kind>, BlockDirectoryBits::BlockDirectoryBitVectorWordView<kind>);
+
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

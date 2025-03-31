@@ -47,20 +47,20 @@ CertificateInfo CertificateInfo::isolatedCopy() const
 
 String CertificateInfo::verificationErrorDescription() const
 {
-    return X509_verify_cert_error_string(m_verificationError);
+    return String::fromLatin1(X509_verify_cert_error_string(m_verificationError));
 }
 
-CertificateInfo::Certificate CertificateInfo::makeCertificate(const uint8_t* buffer, size_t size)
+CertificateInfo::Certificate CertificateInfo::makeCertificate(std::span<const uint8_t> buffer)
 {
     Certificate certificate;
-    certificate.append(buffer, size);
+    certificate.append(buffer);
     return certificate;
 }
 
-Optional<CertificateSummary> CertificateInfo::summary() const
+std::optional<CertificateSummary> CertificateInfo::summary() const
 {
     if (!m_certificateChain.size())
-        return WTF::nullopt;
+        return std::nullopt;
 
     return OpenSSL::createSummaryInfo(m_certificateChain.at(0));
 }

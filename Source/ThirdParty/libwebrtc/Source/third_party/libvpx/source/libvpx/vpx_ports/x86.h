@@ -42,12 +42,12 @@ typedef enum {
   VPX_CPU_LAST
 } vpx_cpu_t;
 
-#if defined(__GNUC__) && __GNUC__ || defined(__ANDROID__)
+#if defined(__GNUC__) || defined(__ANDROID__)
 #if VPX_ARCH_X86_64
 #define cpuid(func, func2, ax, bx, cx, dx)                      \
   __asm__ __volatile__("cpuid           \n\t"                   \
                        : "=a"(ax), "=b"(bx), "=c"(cx), "=d"(dx) \
-                       : "a"(func), "c"(func2));
+                       : "a"(func), "c"(func2))
 #else
 #define cpuid(func, func2, ax, bx, cx, dx)     \
   __asm__ __volatile__(                        \
@@ -55,7 +55,7 @@ typedef enum {
       "cpuid              \n\t"                \
       "xchg %%edi, %%ebx  \n\t"                \
       : "=a"(ax), "=D"(bx), "=c"(cx), "=d"(dx) \
-      : "a"(func), "c"(func2));
+      : "a"(func), "c"(func2))
 #endif
 #elif defined(__SUNPRO_C) || \
     defined(__SUNPRO_CC) /* end __GNUC__ or __ANDROID__*/
@@ -67,7 +67,7 @@ typedef enum {
       "movl %ebx, %edi \n\t"                   \
       "xchg %rsi, %rbx \n\t"                   \
       : "=a"(ax), "=D"(bx), "=c"(cx), "=d"(dx) \
-      : "a"(func), "c"(func2));
+      : "a"(func), "c"(func2))
 #else
 #define cpuid(func, func2, ax, bx, cx, dx)     \
   asm volatile(                                \
@@ -76,7 +76,7 @@ typedef enum {
       "movl %ebx, %edi  \n\t"                  \
       "popl %ebx        \n\t"                  \
       : "=a"(ax), "=D"(bx), "=c"(cx), "=d"(dx) \
-      : "a"(func), "c"(func2));
+      : "a"(func), "c"(func2))
 #endif
 #else /* end __SUNPRO__ */
 #if VPX_ARCH_X86_64
@@ -223,6 +223,8 @@ static INLINE int x86_simd_caps(void) {
     }
   }
 
+  (void)reg_eax;  // Avoid compiler warning on unused-but-set variable.
+
   return flags & mask;
 }
 
@@ -240,14 +242,14 @@ static INLINE int x86_simd_caps(void) {
 // x86_readtsc directly, but prevent the CPU's out-of-order execution from
 // affecting the measurement (by having earlier/later instructions be evaluated
 // in the time interval). See the white paper, "How to Benchmark Code
-// Execution Times on Intel® IA-32 and IA-64 Instruction Set Architectures" by
+// Execution Times on Intel(R) IA-32 and IA-64 Instruction Set Architectures" by
 // Gabriele Paoloni for more information.
 //
 // If you are timing a large function (CPU time > a couple of seconds), use
 // x86_readtsc64 to read the timestamp counter in a 64-bit integer. The
 // out-of-order leakage that can occur is minimal compared to total runtime.
 static INLINE unsigned int x86_readtsc(void) {
-#if defined(__GNUC__) && __GNUC__
+#if defined(__GNUC__)
   unsigned int tsc;
   __asm__ __volatile__("rdtsc\n\t" : "=a"(tsc) :);
   return tsc;
@@ -265,7 +267,7 @@ static INLINE unsigned int x86_readtsc(void) {
 }
 // 64-bit CPU cycle counter
 static INLINE uint64_t x86_readtsc64(void) {
-#if defined(__GNUC__) && __GNUC__
+#if defined(__GNUC__)
   uint32_t hi, lo;
   __asm__ __volatile__("rdtsc" : "=a"(lo), "=d"(hi));
   return ((uint64_t)hi << 32) | lo;
@@ -284,7 +286,7 @@ static INLINE uint64_t x86_readtsc64(void) {
 
 // 32-bit CPU cycle counter with a partial fence against out-of-order execution.
 static INLINE unsigned int x86_readtscp(void) {
-#if defined(__GNUC__) && __GNUC__
+#if defined(__GNUC__)
   unsigned int tscp;
   __asm__ __volatile__("rdtscp\n\t" : "=a"(tscp) :);
   return tscp;
@@ -306,18 +308,30 @@ static INLINE unsigned int x86_readtscp(void) {
 
 static INLINE unsigned int x86_tsc_start(void) {
   unsigned int reg_eax, reg_ebx, reg_ecx, reg_edx;
+  // This call should not be removed. See function notes above.
   cpuid(0, 0, reg_eax, reg_ebx, reg_ecx, reg_edx);
+  // Avoid compiler warnings on unused-but-set variables.
+  (void)reg_eax;
+  (void)reg_ebx;
+  (void)reg_ecx;
+  (void)reg_edx;
   return x86_readtsc();
 }
 
 static INLINE unsigned int x86_tsc_end(void) {
   uint32_t v = x86_readtscp();
   unsigned int reg_eax, reg_ebx, reg_ecx, reg_edx;
+  // This call should not be removed. See function notes above.
   cpuid(0, 0, reg_eax, reg_ebx, reg_ecx, reg_edx);
+  // Avoid compiler warnings on unused-but-set variables.
+  (void)reg_eax;
+  (void)reg_ebx;
+  (void)reg_ecx;
+  (void)reg_edx;
   return v;
 }
 
-#if defined(__GNUC__) && __GNUC__
+#if defined(__GNUC__)
 #define x86_pause_hint() __asm__ __volatile__("pause \n\t")
 #elif defined(__SUNPRO_C) || defined(__SUNPRO_CC)
 #define x86_pause_hint() asm volatile("pause \n\t")
@@ -329,7 +343,7 @@ static INLINE unsigned int x86_tsc_end(void) {
 #endif
 #endif
 
-#if defined(__GNUC__) && __GNUC__
+#if defined(__GNUC__)
 static void x87_set_control_word(unsigned short mode) {
   __asm__ __volatile__("fldcw %0" : : "m"(*&mode));
 }
@@ -377,7 +391,7 @@ static INLINE unsigned int x87_set_double_precision(void) {
   // Reserved                      01B
   // Double Precision (53-Bits)    10B
   // Extended Precision (64-Bits)  11B
-  x87_set_control_word((mode & ~0x300) | 0x200);
+  x87_set_control_word((mode & ~0x300u) | 0x200u);
   return mode;
 }
 

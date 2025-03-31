@@ -25,6 +25,8 @@
 
 #pragma once
 
+#include <wtf/CheckedRef.h>
+
 namespace WebCore {
 
 class PendingScript;
@@ -32,6 +34,12 @@ class PendingScript;
 class PendingScriptClient {
 public:
     virtual ~PendingScriptClient() = default;
+
+    // CheckedPtr interface
+    virtual uint32_t checkedPtrCount() const = 0;
+    virtual uint32_t checkedPtrCountWithoutThreadCheck() const = 0;
+    virtual void incrementCheckedPtrCount() const = 0;
+    virtual void decrementCheckedPtrCount() const = 0;
 
     virtual void notifyFinished(PendingScript&) = 0;
 };

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,21 +28,24 @@
 #if PLATFORM(COCOA)
 
 #include "AudioHardwareListener.h"
-#include "GenericTaskQueue.h"
+#include "AudioSession.h"
+#include "NowPlayingManager.h"
 #include "PlatformMediaSessionManager.h"
 #include "RemoteCommandListener.h"
-#include <pal/system/SystemSleepListener.h>
+#include <wtf/RunLoop.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 struct NowPlayingInfo;
 
+enum class MediaPlayerPitchCorrectionAlgorithm : uint8_t;
+
 class MediaSessionManagerCocoa
     : public PlatformMediaSessionManager
-    , private RemoteCommandListenerClient
-    , private PAL::SystemSleepListener::Client
+    , private NowPlayingManagerClient
     , private AudioHardwareListener::Client {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(MediaSessionManagerCocoa);
 public:
     MediaSessionManagerCocoa();
     
@@ -53,20 +56,29 @@ public:
     String lastUpdatedNowPlayingTitle() const final { return m_lastUpdatedNowPlayingTitle; }
     double lastUpdatedNowPlayingDuration() const final { return m_lastUpdatedNowPlayingDuration; }
     double lastUpdatedNowPlayingElapsedTime() const final { return m_lastUpdatedNowPlayingElapsedTime; }
-    MediaSessionIdentifier lastUpdatedNowPlayingInfoUniqueIdentifier() const final { return m_lastUpdatedNowPlayingInfoUniqueIdentifier; }
+    std::optional<MediaUniqueIdentifier> lastUpdatedNowPlayingInfoUniqueIdentifier() const final { return m_lastUpdatedNowPlayingInfoUniqueIdentifier; }
     bool registeredAsNowPlayingApplication() const final { return m_registeredAsNowPlayingApplication; }
     bool haveEverRegisteredAsNowPlayingApplication() const final { return m_haveEverRegisteredAsNowPlayingApplication; }
 
-    void prepareToSendUserMediaPermissionRequest() final;
+    void prepareToSendUserMediaPermissionRequestForPage(Page&) final;
 
+    std::optional<NowPlayingInfo> nowPlayingInfo() const final { return m_nowPlayingInfo; }
     static WEBCORE_EXPORT void clearNowPlayingInfo();
-    static WEBCORE_EXPORT void setNowPlayingInfo(bool setAsNowPlayingApplication, const NowPlayingInfo&);
+    static WEBCORE_EXPORT void setNowPlayingInfo(bool setAsNowPlayingApplication, bool shouldUpdateNowPlayingSuppression, const NowPlayingInfo&);
 
     static WEBCORE_EXPORT void updateMediaUsage(PlatformMediaSession&);
+
+    static void ensureCodecsRegistered();
+
+    static WEBCORE_EXPORT void setShouldUseModernAVContentKeySession(bool);
+    static WEBCORE_EXPORT bool shouldUseModernAVContentKeySession();
+
+    static String audioTimePitchAlgorithmForMediaPlayerPitchCorrectionAlgorithm(MediaPlayerPitchCorrectionAlgorithm, bool preservesPitch, double rate);
 
 protected:
     void scheduleSessionStatusUpdate() final;
     void updateNowPlayingInfo();
+    void updateActiveNowPlayingSession(CheckedPtr<PlatformMediaSession>);
 
     void removeSession(PlatformMediaSession&) final;
     void addSession(PlatformMediaSession&) final;
@@ -75,32 +87,40 @@ protected:
     bool sessionWillBeginPlayback(PlatformMediaSession&) override;
     void sessionWillEndPlayback(PlatformMediaSession&, DelayCallingUpdateNowPlaying) override;
     void sessionDidEndRemoteScrubbing(PlatformMediaSession&) final;
-    void clientCharacteristicsChanged(PlatformMediaSession&) final;
+    void clientCharacteristicsChanged(PlatformMediaSession&, bool) final;
     void sessionCanProduceAudioChanged() final;
 
-    virtual void providePresentingApplicationPIDIfNecessary() { }
+    virtual void providePresentingApplicationPIDIfNecessary(ProcessID) { }
 
-    PlatformMediaSession* nowPlayingEligibleSession();
+    WeakPtr<PlatformMediaSession> nowPlayingEligibleSession();
 
-    GenericTaskQueue<Timer>& taskQueue() { return m_taskQueue; }
+    void addSupportedCommand(PlatformMediaSession::RemoteControlCommandType) final;
+    void removeSupportedCommand(PlatformMediaSession::RemoteControlCommandType) final;
+    RemoteCommandListener::RemoteCommandsSet supportedCommands() const final;
+
+    void resetHaveEverRegisteredAsNowPlayingApplicationForTesting() final { m_haveEverRegisteredAsNowPlayingApplication = false; };
+    void resetSessionState() final;
 
 private:
 #if !RELEASE_LOG_DISABLED
-    const char* logClassName() const override { return "MediaSessionManagerCocoa"; }
+    ASCIILiteral logClassName() const override { return "MediaSessionManagerCocoa"_s; }
 #endif
 
-    // RemoteCommandListenerClient
-    void didReceiveRemoteControlCommand(PlatformMediaSession::RemoteControlCommandType type, const PlatformMediaSession::RemoteCommandArgument* argument) final { processDidReceiveRemoteControlCommand(type, argument); }
-    bool supportsSeeking() const final { return computeSupportsSeeking(); }
+    // NowPlayingManagerClient
+    void didReceiveRemoteControlCommand(PlatformMediaSession::RemoteControlCommandType type, const PlatformMediaSession::RemoteCommandArgument& argument) final { processDidReceiveRemoteControlCommand(type, argument); }
 
     // AudioHardwareListenerClient
     void audioHardwareDidBecomeActive() final { }
     void audioHardwareDidBecomeInactive() final { }
-    void audioOutputDeviceChanged() final { updateSessionState(); }
+    void audioOutputDeviceChanged() final;
 
-    // PAL::SystemSleepListener
-    void systemWillSleep() final { processSystemWillSleep(); }
-    void systemDidWake() final { processSystemDidWake(); }
+    void possiblyChangeAudioCategory();
+
+    std::optional<bool> supportsSpatialAudioPlaybackForConfiguration(const MediaConfiguration&) final;
+
+#if USE(NOW_PLAYING_ACTIVITY_SUPPRESSION)
+    static void updateNowPlayingSuppression(const NowPlayingInfo*);
+#endif
 
     bool m_nowPlayingActive { false };
     bool m_registeredAsNowPlayingApplication { false };
@@ -110,15 +130,20 @@ private:
     String m_lastUpdatedNowPlayingTitle;
     double m_lastUpdatedNowPlayingDuration { NAN };
     double m_lastUpdatedNowPlayingElapsedTime { NAN };
-    MediaSessionIdentifier m_lastUpdatedNowPlayingInfoUniqueIdentifier;
+    Markable<MediaUniqueIdentifier> m_lastUpdatedNowPlayingInfoUniqueIdentifier;
+    std::optional<NowPlayingInfo> m_nowPlayingInfo;
 
-    GenericTaskQueue<Timer> m_taskQueue;
-
-    std::unique_ptr<RemoteCommandListener> m_remoteCommandListener;
-    std::unique_ptr<PAL::SystemSleepListener> m_systemSleepListener;
+    const std::unique_ptr<NowPlayingManager> m_nowPlayingManager;
     RefPtr<AudioHardwareListener> m_audioHardwareListener;
+
+    AudioHardwareListener::BufferSizeRange m_supportedAudioHardwareBufferSizes;
+    size_t m_defaultBufferSize;
+
+    RunLoop::Timer m_delayCategoryChangeTimer;
+    AudioSession::CategoryType m_previousCategory { AudioSession::CategoryType::None };
+    bool m_previousHadAudibleAudioOrVideoMediaType { false };
 };
 
-}
+} // namespace WebCore
 
 #endif // PLATFORM(COCOA)

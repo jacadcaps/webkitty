@@ -29,17 +29,17 @@
  */
 
 #include "config.h"
-
 #include "BlobURL.h"
 
-#include <wtf/URL.h>
+#include "DocumentInlines.h"
 #include "SecurityOrigin.h"
+#include "ThreadableBlobRegistry.h"
+#include <wtf/URL.h>
 #include <wtf/UUID.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
-
-const char* kBlobProtocol = "blob";
 
 URL BlobURL::createPublicURL(SecurityOrigin* securityOrigin)
 {
@@ -49,23 +49,52 @@ URL BlobURL::createPublicURL(SecurityOrigin* securityOrigin)
 
 URL BlobURL::createInternalURL()
 {
-    return createBlobURL("blobinternal://");
+    return createBlobURL("blobinternal://"_s);
 }
 
-String BlobURL::getOrigin(const URL& url)
+static const Document* blobOwner(const SecurityOrigin& blobOrigin)
 {
-    ASSERT(url.protocolIs(kBlobProtocol));
+    if (!isMainThread())
+        return nullptr;
 
-    unsigned startIndex = url.pathStart();
-    unsigned endIndex = url.pathAfterLastSlash();
-    return url.string().substring(startIndex, endIndex - startIndex - 1);
+    for (auto& document : Document::allDocuments()) {
+        if (document->protectedSecurityOrigin()->isSameOriginAs(blobOrigin))
+            return document.ptr();
+    }
+    return nullptr;
 }
 
-URL BlobURL::createBlobURL(const String& originString)
+URL BlobURL::getOriginURL(const URL& url)
+{
+    ASSERT(url.protocolIsBlob());
+
+    return URL(SecurityOrigin::createForBlobURL(url)->toString());
+}
+
+bool BlobURL::isSecureBlobURL(const URL& url)
+{
+    ASSERT(url.protocolIsBlob());
+
+    // As per https://github.com/w3c/webappsec-mixed-content/issues/41, Blob URL is secure if the document that created it is secure.
+    if (auto origin = ThreadableBlobRegistry::getCachedOrigin(url)) {
+        if (auto* document = blobOwner(*origin))
+            return document->isSecureContext();
+    }
+    return SecurityOrigin::isSecure(getOriginURL(url));
+}
+
+URL BlobURL::createBlobURL(StringView originString)
 {
     ASSERT(!originString.isEmpty());
-    String urlString = "blob:" + originString + '/' + createCanonicalUUIDString();
+    String urlString = makeString("blob:"_s, originString, '/', WTF::UUID::createVersion4());
     return URL({ }, urlString);
 }
+
+#if ASSERT_ENABLED
+bool BlobURL::isInternalURL(const URL& url)
+{
+    return url.string().startsWith("blob:blobinternal://"_s);
+}
+#endif
 
 } // namespace WebCore

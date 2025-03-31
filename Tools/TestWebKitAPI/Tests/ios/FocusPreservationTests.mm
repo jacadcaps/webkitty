@@ -24,14 +24,14 @@
  */
 
 #import "config.h"
-#import "Test.h"
 
 #if PLATFORM(IOS_FAMILY)
 
 #import "PlatformUtilities.h"
+#import "Test.h"
 #import "TestInputDelegate.h"
 #import "TestWKWebView.h"
-#import "UIKitSPI.h"
+#import "UIKitSPIForTesting.h"
 #import <WebKit/WKWebViewPrivate.h>
 #import <WebKit/WKWebViewPrivateForTesting.h>
 #import <WebKit/_WKInputDelegate.h>
@@ -72,6 +72,30 @@ TEST(FocusPreservationTests, PreserveAndRestoreFocus)
 
     [webView.textInputContentView _restoreFocusWithToken:focusToken];
     EXPECT_TRUE([webView becomeFirstResponder]);
+}
+
+TEST(FocusPreservationTests, UserCanDismissInputViewRegardlessOfFocusPreservationCount)
+{
+    bool inputFocused = false;
+    auto [webView, delegate] = webViewForTestingFocusPreservation([&inputFocused] (id<_WKFocusedElementInfo>) {
+        inputFocused = true;
+    });
+
+    [webView evaluateJavaScript:@"document.querySelector('input').focus()" completionHandler:nil];
+    Util::run(&inputFocused);
+
+    [[webView textInputContentView] _preserveFocusWithToken:NSUUID.UUID destructively:YES];
+    // Simulates a user tapping on the Done button above the keyboard.
+    [webView dismissFormAccessoryView];
+    [webView waitForNextPresentationUpdate];
+
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    // FIXME: https://bugs.webkit.org/show_bug.cgi?id=281518 Test is broken on iPad
+    if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPhone)
+        EXPECT_FALSE([[webView objectByEvaluatingJavaScript:@"document.activeElement == document.querySelector('input')"] boolValue]);
+    else
+        EXPECT_TRUE([[webView objectByEvaluatingJavaScript:@"document.activeElement == document.querySelector('input')"] boolValue]);
+ALLOW_DEPRECATED_DECLARATIONS_END
 }
 
 // FIXME: Re-enable this test once rdar://60644908 is resolved

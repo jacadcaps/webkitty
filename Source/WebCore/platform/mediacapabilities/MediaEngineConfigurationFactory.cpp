@@ -53,95 +53,110 @@ static bool& mockEnabled()
     return enabled;
 }
 
-struct MediaEngineFactory {
-    void(*createDecodingConfiguration)(MediaDecodingConfiguration&&, MediaEngineConfigurationFactory::DecodingConfigurationCallback&&);
-    void(*createEncodingConfiguration)(MediaEncodingConfiguration&&, MediaEngineConfigurationFactory::EncodingConfigurationCallback&&);
-};
-
-using FactoryVector = Vector<MediaEngineFactory>;
-static const FactoryVector& factories()
+using FactoryVector = Vector<MediaEngineConfigurationFactory::MediaEngineFactory>;
+static FactoryVector defaultFactories()
 {
-    static NeverDestroyed<FactoryVector> factories = makeNeverDestroyed(FactoryVector({
+    FactoryVector factories;
 #if PLATFORM(COCOA)
-        { &createMediaPlayerDecodingConfigurationCocoa, nullptr },
+    factories.append({ &createMediaPlayerDecodingConfigurationCocoa, nullptr });
 #endif
 #if USE(GSTREAMER)
-        { &createMediaPlayerDecodingConfigurationGStreamer, nullptr },
+    factories.append({ &createMediaPlayerDecodingConfigurationGStreamer, &createMediaPlayerEncodingConfigurationGStreamer });
 #endif
-    }));
     return factories;
+}
+
+static FactoryVector& factories()
+{
+    static NeverDestroyed factories = defaultFactories();
+    return factories;
+}
+
+void MediaEngineConfigurationFactory::clearFactories()
+{
+    factories().clear();
+}
+
+void MediaEngineConfigurationFactory::resetFactories()
+{
+    factories() = defaultFactories();
+}
+
+void MediaEngineConfigurationFactory::installFactory(MediaEngineFactory&& factory)
+{
+    factories().append(WTFMove(factory));
 }
 
 bool MediaEngineConfigurationFactory::hasDecodingConfigurationFactory()
 {
-    return mockEnabled() || WTF::anyOf(factories(), [] (auto& factory) { return factory.createDecodingConfiguration; });
+    return mockEnabled() || WTF::anyOf(factories(), [] (auto& factory) { return (bool)factory.createDecodingConfiguration; });
 }
 
 bool MediaEngineConfigurationFactory::hasEncodingConfigurationFactory()
 {
-    return mockEnabled() || WTF::anyOf(factories(), [] (auto& factory) { return factory.createEncodingConfiguration; });
+    return mockEnabled() || WTF::anyOf(factories(), [] (auto& factory) { return (bool)factory.createEncodingConfiguration; });
 }
 
-void MediaEngineConfigurationFactory::createDecodingConfiguration(MediaDecodingConfiguration&& config, MediaEngineConfigurationFactory::DecodingConfigurationCallback&& callback)
+void MediaEngineConfigurationFactory::createDecodingConfiguration(MediaDecodingConfiguration&& config, DecodingConfigurationCallback&& callback)
 {
     if (mockEnabled()) {
         MediaEngineConfigurationFactoryMock::createDecodingConfiguration(WTFMove(config), WTFMove(callback));
         return;
     }
 
-    auto factoryCallback = [] (auto factoryCallback, auto nextFactory, auto&& config, auto&& callback) mutable {
-        if (nextFactory == factories().end()) {
-            callback({{ }, WTFMove(config)});
+    auto factoryCallback = [] (auto factoryCallback, std::span<const MediaEngineFactory> nextFactories, MediaDecodingConfiguration&& config, DecodingConfigurationCallback&& callback) mutable {
+        if (nextFactories.empty()) {
+            callback({ { }, WTFMove(config) });
             return;
         }
 
-        auto& factory = *nextFactory;
+        auto& factory = nextFactories[0];
         if (!factory.createDecodingConfiguration) {
-            callback({{ }, WTFMove(config)});
+            callback({ { }, WTFMove(config) });
             return;
         }
 
-        factory.createDecodingConfiguration(WTFMove(config), [factoryCallback, nextFactory, config, callback = WTFMove(callback)] (auto&& info) mutable {
+        factory.createDecodingConfiguration(WTFMove(config), [factoryCallback, nextFactories, config, callback = WTFMove(callback)] (MediaCapabilitiesDecodingInfo&& info) mutable {
             if (info.supported) {
                 callback(WTFMove(info));
                 return;
             }
 
-            factoryCallback(factoryCallback, ++nextFactory, WTFMove(info.supportedConfiguration), WTFMove(callback));
+            factoryCallback(factoryCallback, nextFactories.subspan(1), WTFMove(info.supportedConfiguration), WTFMove(callback));
         });
     };
-    factoryCallback(factoryCallback, factories().begin(), config, WTFMove(callback));
+    factoryCallback(factoryCallback, factories().span(), WTFMove(config), WTFMove(callback));
 }
 
-void MediaEngineConfigurationFactory::createEncodingConfiguration(MediaEncodingConfiguration&& config, MediaEngineConfigurationFactory::EncodingConfigurationCallback&& callback)
+void MediaEngineConfigurationFactory::createEncodingConfiguration(MediaEncodingConfiguration&& config, EncodingConfigurationCallback&& callback)
 {
     if (mockEnabled()) {
         MediaEngineConfigurationFactoryMock::createEncodingConfiguration(WTFMove(config), WTFMove(callback));
         return;
     }
 
-    auto factoryCallback = [] (auto factoryCallback, auto nextFactory, auto&& config, auto&& callback) mutable {
-        if (nextFactory == factories().end()) {
+    auto factoryCallback = [] (auto factoryCallback, std::span<const MediaEngineFactory> nextFactories, MediaEncodingConfiguration&& config, EncodingConfigurationCallback&& callback) mutable {
+        if (nextFactories.empty()) {
             callback({ });
             return;
         }
 
-        auto& factory = *nextFactory;
+        auto& factory = nextFactories[0];
         if (!factory.createEncodingConfiguration) {
             callback({ });
             return;
         }
 
-        factory.createEncodingConfiguration(WTFMove(config), [factoryCallback, nextFactory, callback = WTFMove(callback)] (auto&& info) mutable {
+        factory.createEncodingConfiguration(WTFMove(config), [factoryCallback, nextFactories, callback = WTFMove(callback)] (auto&& info) mutable {
             if (info.supported) {
                 callback(WTFMove(info));
                 return;
             }
 
-            factoryCallback(factoryCallback, ++nextFactory, WTFMove(info.supportedConfiguration), WTFMove(callback));
+            factoryCallback(factoryCallback, nextFactories.subspan(1), WTFMove(info.supportedConfiguration), WTFMove(callback));
         });
     };
-    factoryCallback(factoryCallback, factories().begin(), WTFMove(config), WTFMove(callback));
+    factoryCallback(factoryCallback, factories().span(), WTFMove(config), WTFMove(callback));
 }
 
 void MediaEngineConfigurationFactory::enableMock()

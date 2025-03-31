@@ -25,17 +25,21 @@
 
 #pragma once
 
-#if PLATFORM(IOS_FAMILY)
+#if ENABLE(CONTENT_CHANGE_OBSERVER)
 
 #include "Timer.h"
+#include <wtf/CheckedPtr.h>
 #include <wtf/Forward.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/WeakHashSet.h>
 
 namespace WebCore {
 
 class DOMTimer;
 
-class DOMTimerHoldingTank {
-    WTF_MAKE_FAST_ALLOCATED;
+class DOMTimerHoldingTank final : public CanMakeCheckedPtr<DOMTimerHoldingTank> {
+    WTF_MAKE_TZONE_ALLOCATED(DOMTimerHoldingTank);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(DOMTimerHoldingTank);
 public:
     DOMTimerHoldingTank();
     ~DOMTimerHoldingTank();
@@ -48,7 +52,7 @@ public:
 private:
     void stopExceededMaximumHoldTimer();
 
-    HashSet<const DOMTimer*> m_timers;
+    WeakHashSet<DOMTimer> m_timers;
     Timer m_exceededMaximumHoldTimer;
 };
 
@@ -72,4 +76,4 @@ private:
 
 } // namespace WebCore
 
-#endif // PLATFORM(IOS_FAMILY)
+#endif // ENABLE(CONTENT_CHANGE_OBSERVER)

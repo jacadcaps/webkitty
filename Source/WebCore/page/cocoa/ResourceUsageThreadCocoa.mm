@@ -38,7 +38,6 @@
 #import <wtf/MachSendRight.h>
 #import <wtf/ResourceUsage.h>
 #import <wtf/spi/cocoa/MachVMSPI.h>
-#import <wtf/text/StringConcatenateNumbers.h>
 
 namespace WebCore {
 
@@ -78,7 +77,7 @@ struct ThreadInfo {
     String dispatchQueueName;
 };
 
-static Vector<ThreadInfo> threadInfos()
+static std::span<const thread_t> task_threads_span()
 {
     thread_array_t threadList = nullptr;
     mach_msg_type_number_t threadCount = 0;
@@ -86,16 +85,24 @@ static Vector<ThreadInfo> threadInfos()
     ASSERT(kr == KERN_SUCCESS);
     if (kr != KERN_SUCCESS)
         return { };
+    return unsafeMakeSpan(threadList, threadCount);
+}
+
+static Vector<ThreadInfo> threadInfos()
+{
+    auto threadList = task_threads_span();
+    if (threadList.empty())
+        return { };
 
     // Since we collect thread usage without suspending threads, threads retrieved by task_threads can have gone while iterating
     // them to get usage information. If a thread has gone, a system call returns non KERN_SUCCESS, and we just ignore these threads.
     Vector<ThreadInfo> infos;
-    for (mach_msg_type_number_t i = 0; i < threadCount; ++i) {
-        MachSendRight sendRight = MachSendRight::adopt(threadList[i]);
+    for (auto thread : threadList) {
+        MachSendRight sendRight = MachSendRight::adopt(thread);
 
         thread_info_data_t threadInfo;
         mach_msg_type_number_t threadInfoCount = THREAD_INFO_MAX;
-        kr = thread_info(sendRight.sendRight(), THREAD_BASIC_INFO, reinterpret_cast<thread_info_t>(&threadInfo), &threadInfoCount);
+        auto kr = thread_info(sendRight.sendRight(), THREAD_BASIC_INFO, reinterpret_cast<thread_info_t>(&threadInfo), &threadInfoCount);
         if (kr != KERN_SUCCESS)
             continue;
 
@@ -117,18 +124,18 @@ static Vector<ThreadInfo> threadInfos()
             usage = threadBasicInfo->cpu_usage / static_cast<float>(TH_USAGE_SCALE) * 100.0;
 
         // FIXME: dispatch_queue_t can be destroyed concurrently while we are accessing to it here. We should not use it.
-        String threadName = String(threadExtendedInfo.pth_name);
+        auto threadName = String::fromLatin1(threadExtendedInfo.pth_name);
         String dispatchQueueName;
         if (threadIdentifierInfo.dispatch_qaddr) {
             dispatch_queue_t queue = *reinterpret_cast<dispatch_queue_t*>(threadIdentifierInfo.dispatch_qaddr);
-            dispatchQueueName = String(dispatch_queue_get_label(queue));
+            dispatchQueueName = String::fromLatin1(dispatch_queue_get_label(queue));
         }
 
         infos.append(ThreadInfo { WTFMove(sendRight), usage, threadName, dispatchQueueName });
     }
 
-    kr = vm_deallocate(mach_task_self(), (vm_offset_t)threadList, threadCount * sizeof(thread_t));
-    ASSERT(kr == KERN_SUCCESS);
+    auto kr = vm_deallocate(mach_task_self(), (vm_offset_t)threadList.data(), threadList.size() * sizeof(thread_t));
+    ASSERT_UNUSED(kr, kr == KERN_SUCCESS);
 
     return infos;
 }
@@ -154,31 +161,30 @@ void ResourceUsageThread::platformCollectCPUData(JSC::VM*, ResourceUsageData& da
     }
 
     // Main thread is always first.
-    ASSERT(threads[0].dispatchQueueName == "com.apple.main-thread");
+    ASSERT(threads[0].dispatchQueueName == "com.apple.main-thread"_s);
 
     mach_port_t resourceUsageMachThread = mach_thread_self();
     mach_port_t mainThreadMachThread = threads[0].sendRight.sendRight();
 
-    HashSet<mach_port_t> knownWebKitThreads;
+    UncheckedKeyHashSet<mach_port_t> knownWebKitThreads;
     {
-        auto locker = holdLock(Thread::allThreadsMutex());
-        for (auto* thread : Thread::allThreads(locker)) {
+        Locker locker { Thread::allThreadsLock() };
+        for (auto* thread : Thread::allThreads()) {
             mach_port_t machThread = thread->machThread();
-            if (machThread != MACH_PORT_NULL)
+            if (MACH_PORT_VALID(machThread))
                 knownWebKitThreads.add(machThread);
         }
     }
 
-    HashMap<mach_port_t, String> knownWorkerThreads;
+    UncheckedKeyHashMap<mach_port_t, String> knownWorkerThreads;
     {
-        LockHolder lock(WorkerThread::workerThreadsMutex());
-        for (auto* thread : WorkerThread::workerThreads(lock)) {
+        for (auto& thread : WorkerOrWorkletThread::workerOrWorkletThreads()) {
             // Ignore worker threads that have not been fully started yet.
-            if (!thread->thread())
+            if (!thread.thread())
                 continue;
-            mach_port_t machThread = thread->thread()->machThread();
-            if (machThread != MACH_PORT_NULL)
-                knownWorkerThreads.set(machThread, thread->identifier().isolatedCopy());
+            mach_port_t machThread = thread.thread()->machThread();
+            if (MACH_PORT_VALID(machThread))
+                knownWorkerThreads.set(machThread, thread.inspectorIdentifier().isolatedCopy());
         }
     }
 
@@ -199,13 +205,13 @@ void ResourceUsageThread::platformCollectCPUData(JSC::VM*, ResourceUsageData& da
             return true;
 
         // The bmalloc scavenger thread is below WTF. Detect it by its name.
-        if (thread.threadName == "JavaScriptCore bmalloc scavenger")
+        if (thread.threadName == "JavaScriptCore bmalloc scavenger"_s)
             return true;
 
         // WebKit uses many WorkQueues with common prefixes.
-        if (thread.dispatchQueueName.startsWith("com.apple.IPC.")
-            || thread.dispatchQueueName.startsWith("com.apple.WebKit.")
-            || thread.dispatchQueueName.startsWith("org.webkit."))
+        if (thread.dispatchQueueName.startsWith("com.apple.IPC."_s)
+            || thread.dispatchQueueName.startsWith("com.apple.WebKit."_s)
+            || thread.dispatchQueueName.startsWith("org.webkit."_s))
             return true;
 
         return false;
@@ -272,8 +278,8 @@ void ResourceUsageThread::platformCollectMemoryData(JSC::VM* vm, ResourceUsageDa
 
     data.totalExternalSize = currentGCOwnedExternal;
 
-    data.timeOfNextEdenCollection = data.timestamp + vm->heap.edenActivityCallback()->timeUntilFire().valueOr(Seconds(std::numeric_limits<double>::infinity()));
-    data.timeOfNextFullCollection = data.timestamp + vm->heap.fullActivityCallback()->timeUntilFire().valueOr(Seconds(std::numeric_limits<double>::infinity()));
+    data.timeOfNextEdenCollection = data.timestamp + vm->heap.edenActivityCallback()->timeUntilFire().value_or(Seconds(std::numeric_limits<double>::infinity()));
+    data.timeOfNextFullCollection = data.timestamp + vm->heap.fullActivityCallback()->timeUntilFire().value_or(Seconds(std::numeric_limits<double>::infinity()));
 }
 
 }

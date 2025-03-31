@@ -30,7 +30,7 @@
 namespace WebCore {
 
 class OverflowEvent final : public Event {
-    WTF_MAKE_ISO_ALLOCATED(OverflowEvent);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(OverflowEvent);
 public:
     enum orientType {
         HORIZONTAL = 0,
@@ -64,8 +64,6 @@ public:
     unsigned short orient() const { return m_orient; }
     bool horizontalOverflow() const { return m_horizontalOverflow; }
     bool verticalOverflow() const { return m_verticalOverflow; }
-
-    EventInterface eventInterface() const override;
 
 private:
     OverflowEvent();

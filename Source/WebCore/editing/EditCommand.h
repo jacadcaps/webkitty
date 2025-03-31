@@ -28,6 +28,7 @@
 #include "AXTextStateChangeIntent.h"
 #include "EditAction.h"
 #include "VisibleSelection.h"
+#include <wtf/WeakPtr.h>
 
 #ifndef NDEBUG
 #include <wtf/HashSet.h>
@@ -39,13 +40,16 @@ class CompositeEditCommand;
 class Document;
 class Element;
 
-String inputTypeNameForEditingAction(EditAction);
+ASCIILiteral inputTypeNameForEditingAction(EditAction);
+bool isInputMethodComposingForEditingAction(EditAction);
+
+using NodeSet = UncheckedKeyHashSet<Ref<Node>>;
 
 class EditCommand : public RefCounted<EditCommand> {
 public:
     virtual ~EditCommand();
 
-    void setParent(CompositeEditCommand*);
+    void setParent(RefPtr<CompositeEditCommand>&&);
 
     virtual EditAction editingAction() const;
 
@@ -60,12 +64,13 @@ public:
     virtual void doApply() = 0;
 
 protected:
-    explicit EditCommand(Document&, EditAction = EditAction::Unspecified);
-    EditCommand(Document&, const VisibleSelection&, const VisibleSelection&);
+    explicit EditCommand(Ref<Document>&&, EditAction = EditAction::Unspecified);
+    EditCommand(Ref<Document>&&, const VisibleSelection&, const VisibleSelection&);
 
+    Ref<Document> protectedDocument() const { return m_document.copyRef(); }
     const Document& document() const { return m_document; }
     Document& document() { return m_document; }
-    CompositeEditCommand* parent() const { return m_parent; }
+    CompositeEditCommand* parent() const { return m_parent.get(); }
     void setStartingSelection(const VisibleSelection&);
     WEBCORE_EXPORT void setEndingSelection(const VisibleSelection&);
 
@@ -78,7 +83,7 @@ private:
     Ref<Document> m_document;
     VisibleSelection m_startingSelection;
     VisibleSelection m_endingSelection;
-    CompositeEditCommand* m_parent { nullptr };
+    WeakPtr<CompositeEditCommand> m_parent;
     EditAction m_editingAction { EditAction::Unspecified };
 };
 
@@ -93,25 +98,22 @@ public:
     virtual void doReapply(); // calls doApply()
 
 #ifndef NDEBUG
-    virtual void getNodesInCommand(HashSet<Node*>&) = 0;
+    virtual void getNodesInCommand(NodeSet&) = 0;
 #endif
 
 protected:
-    explicit SimpleEditCommand(Document&, EditAction = EditAction::Unspecified);
+    explicit SimpleEditCommand(Ref<Document>&&, EditAction = EditAction::Unspecified);
 
 #ifndef NDEBUG
-    void addNodeAndDescendants(Node*, HashSet<Node*>&);
+    void addNodeAndDescendants(Node*, NodeSet&);
 #endif
 
 private:
     bool isSimpleEditCommand() const override { return true; }
 };
 
-inline SimpleEditCommand* toSimpleEditCommand(EditCommand* command)
-{
-    ASSERT(command);
-    ASSERT_WITH_SECURITY_IMPLICATION(command->isSimpleEditCommand());
-    return static_cast<SimpleEditCommand*>(command);
-}
-
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::SimpleEditCommand)
+    static bool isType(const WebCore::EditCommand& command) { return command.isSimpleEditCommand(); }
+SPECIALIZE_TYPE_TRAITS_END()

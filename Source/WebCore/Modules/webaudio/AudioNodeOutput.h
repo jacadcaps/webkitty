@@ -29,6 +29,8 @@
 #include "AudioParam.h"
 #include <wtf/HashSet.h>
 #include <wtf/RefPtr.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
@@ -39,14 +41,14 @@ class AudioNodeInput;
 // It may be connected to one or more AudioNodeInputs.
 
 class AudioNodeOutput {
+    WTF_MAKE_TZONE_ALLOCATED(AudioNodeOutput);
     WTF_MAKE_NONCOPYABLE(AudioNodeOutput);
-    WTF_MAKE_FAST_ALLOCATED;
 public:
     // It's OK to pass 0 for numberOfChannels in which case setNumberOfChannels() must be called later on.
     AudioNodeOutput(AudioNode*, unsigned numberOfChannels);
 
     // Can be called from any thread.
-    AudioNode* node() const { return m_node; }
+    AudioNode* node() const { return m_node.get(); }
     BaseAudioContext& context() { return m_node->context(); }
     
     // Causes our AudioNode to process if it hasn't already for this render quantum.
@@ -68,6 +70,7 @@ public:
 
     // Must be called with the context's graph lock.
     void disconnectAll();
+    void forEachInputNode(Function<void(AudioNode&)>&&) const;
 
     void setNumberOfChannels(unsigned);
     unsigned numberOfChannels() const { return m_numberOfChannels; }
@@ -75,18 +78,23 @@ public:
 
     bool isConnected() { return fanOutCount() > 0 || paramFanOutCount() > 0; }
 
+    bool isConnectedTo(AudioNodeInput& input) const { return m_inputs.contains(&input); }
+    bool isConnectedTo(AudioParam& param) const { return m_params.contains(&param); }
+
     // Disable/Enable happens when there are still JavaScript references to a node, but it has otherwise "finished" its work.
     // For example, when a note has finished playing.  It is kept around, because it may be played again at a later time.
     // They must be called with the context's graph lock.
     void disable();
     void enable();
 
+    bool isEnabled() const { return m_isEnabled; }
+
     // updateRenderingState() is called in the audio thread at the start or end of the render quantum to handle any recent changes to the graph state.
     // It must be called with the context's graph lock.
     void updateRenderingState();
     
 private:
-    AudioNode* m_node;
+    WeakPtr<AudioNode, WeakPtrImplWithEventTargetData> m_node;
 
     friend class AudioNodeInput;
     friend class AudioParam;
@@ -133,16 +141,17 @@ private:
     RefPtr<AudioBus> m_internalBus;
     RefPtr<AudioBus> m_inPlaceBus;
     // If m_isInPlace is true, use m_inPlaceBus as the valid AudioBus; If false, use the default m_internalBus.
-    bool m_isInPlace;
+    bool m_isInPlace { false };
 
-    HashSet<AudioNodeInput*> m_inputs;
-    typedef HashSet<AudioNodeInput*>::iterator InputsIterator;
-    bool m_isEnabled;
+    using InputsMap = HashMap<AudioNodeInput*, AudioConnectionRefPtr<AudioNode>>;
+    InputsMap m_inputs;
+    typedef InputsMap::iterator InputsIterator;
+    bool m_isEnabled { true };
 
     // For the purposes of rendering, keeps track of the number of inputs and AudioParams we're connected to.
     // These value should only be changed at the very start or end of the rendering quantum.
-    unsigned m_renderingFanOutCount;
-    unsigned m_renderingParamFanOutCount;
+    unsigned m_renderingFanOutCount { 0 };
+    unsigned m_renderingParamFanOutCount { 0 };
 
     HashSet<RefPtr<AudioParam>> m_params;
     typedef HashSet<RefPtr<AudioParam>>::iterator ParamsIterator;

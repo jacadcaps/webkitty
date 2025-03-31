@@ -26,22 +26,43 @@
 #if ENABLE(FULLSCREEN_API) && PLATFORM(IOS_FAMILY)
 
 #import <UIKit/UIViewControllerTransitioning.h>
+#import <wtf/CompletionHandler.h>
 
+@class WKFullScreenViewController;
 @class WKWebView;
 
 @interface WKFullScreenWindowController : NSObject <UIViewControllerTransitioningDelegate>
 @property (readonly, retain, nonatomic) UIView *webViewPlaceholder;
+@property (readonly, retain, nonatomic) WKFullScreenViewController *fullScreenViewController;
 @property (readonly, assign, nonatomic) BOOL isFullScreen;
+#if PLATFORM(VISION)
+@property (readonly, assign, nonatomic) BOOL prefersSceneDimming;
+#endif
+#if ENABLE(QUICKLOOK_FULLSCREEN)
+@property (readonly, assign, nonatomic) BOOL isUsingQuickLook;
+@property (readonly, assign, nonatomic) CGSize imageDimensions;
+#endif
 
 - (id)initWithWebView:(WKWebView *)webView;
-- (void)enterFullScreen;
-- (void)beganEnterFullScreenWithInitialFrame:(CGRect)initialFrame finalFrame:(CGRect)finalFrame;
+- (void)enterFullScreen:(CGSize)mediaDimensions completionHandler:(CompletionHandler<void(bool)>&&)completionHandler;
+#if ENABLE(QUICKLOOK_FULLSCREEN)
+- (void)updateImageSource;
+#endif
+- (void)beganEnterFullScreenWithInitialFrame:(CGRect)initialFrame finalFrame:(CGRect)finalFrame completionHandler:(CompletionHandler<void(bool)>&&)completionHandler;
+- (void)requestRestoreFullScreen:(CompletionHandler<void(bool)>&&)completionHandler;
 - (void)requestExitFullScreen;
-- (void)exitFullScreen;
-- (void)beganExitFullScreenWithInitialFrame:(CGRect)initialFrame finalFrame:(CGRect)finalFrame;
+- (void)exitFullScreen:(CompletionHandler<void()>&&)completionHandler;
+- (void)beganExitFullScreenWithInitialFrame:(CGRect)initialFrame finalFrame:(CGRect)finalFrame completionHandler:(CompletionHandler<void()>&&)completionHandler;
+- (void)setSupportedOrientations:(UIInterfaceOrientationMask)orientations;
+- (void)resetSupportedOrientations;
 - (void)close;
 - (void)webViewDidRemoveFromSuperviewWhileInFullscreen;
 - (void)videoControlsManagerDidChange;
+- (void)didCleanupFullscreen;
+
+#if PLATFORM(VISION)
+- (void)toggleSceneDimming;
+#endif
 
 @end
 

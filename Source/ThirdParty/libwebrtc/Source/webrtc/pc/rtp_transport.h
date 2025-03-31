@@ -11,12 +11,27 @@
 #ifndef PC_RTP_TRANSPORT_H_
 #define PC_RTP_TRANSPORT_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include <optional>
 #include <string>
 
+#include "api/field_trials_view.h"
+#include "api/task_queue/pending_task_safety_flag.h"
+#include "api/units/timestamp.h"
 #include "call/rtp_demuxer.h"
+#include "call/video_receive_stream.h"
 #include "modules/rtp_rtcp/include/rtp_header_extension_map.h"
+#include "p2p/base/packet_transport_internal.h"
 #include "pc/rtp_transport_internal.h"
-#include "rtc_base/third_party/sigslot/sigslot.h"
+#include "pc/session_description.h"
+#include "rtc_base/async_packet_socket.h"
+#include "rtc_base/copy_on_write_buffer.h"
+#include "rtc_base/network/received_packet.h"
+#include "rtc_base/network/sent_packet.h"
+#include "rtc_base/network_route.h"
+#include "rtc_base/socket.h"
 
 namespace rtc {
 
@@ -33,8 +48,10 @@ class RtpTransport : public RtpTransportInternal {
   RtpTransport(const RtpTransport&) = delete;
   RtpTransport& operator=(const RtpTransport&) = delete;
 
-  explicit RtpTransport(bool rtcp_mux_enabled)
-      : rtcp_mux_enabled_(rtcp_mux_enabled) {}
+  RtpTransport(bool rtcp_mux_enabled, const FieldTrialsView& field_trials)
+      : set_ready_to_send_false_if_send_fail_(
+            field_trials.IsEnabled("WebRTC-SetReadyToSendFalseIfSendFail")),
+        rtcp_mux_enabled_(rtcp_mux_enabled) {}
 
   bool rtcp_mux_enabled() const override { return rtcp_mux_enabled_; }
   void SetRtcpMuxEnabled(bool enable) override;
@@ -78,20 +95,21 @@ class RtpTransport : public RtpTransportInternal {
 
  protected:
   // These methods will be used in the subclasses.
-  void DemuxPacket(rtc::CopyOnWriteBuffer packet, int64_t packet_time_us);
+  void DemuxPacket(rtc::CopyOnWriteBuffer packet,
+                   Timestamp arrival_time,
+                   rtc::EcnMarking ecn);
 
   bool SendPacket(bool rtcp,
                   rtc::CopyOnWriteBuffer* packet,
                   const rtc::PacketOptions& options,
                   int flags);
+  flat_set<uint32_t> GetSsrcsForSink(RtpPacketSinkInterface* sink);
 
   // Overridden by SrtpTransport.
   virtual void OnNetworkRouteChanged(
-      absl::optional<rtc::NetworkRoute> network_route);
-  virtual void OnRtpPacketReceived(rtc::CopyOnWriteBuffer packet,
-                                   int64_t packet_time_us);
-  virtual void OnRtcpPacketReceived(rtc::CopyOnWriteBuffer packet,
-                                    int64_t packet_time_us);
+      std::optional<rtc::NetworkRoute> network_route);
+  virtual void OnRtpPacketReceived(const rtc::ReceivedPacket& packet);
+  virtual void OnRtcpPacketReceived(const rtc::ReceivedPacket& packet);
   // Overridden by SrtpTransport and DtlsSrtpTransport.
   virtual void OnWritableState(rtc::PacketTransportInternal* packet_transport);
 
@@ -100,10 +118,7 @@ class RtpTransport : public RtpTransportInternal {
   void OnSentPacket(rtc::PacketTransportInternal* packet_transport,
                     const rtc::SentPacket& sent_packet);
   void OnReadPacket(rtc::PacketTransportInternal* transport,
-                    const char* data,
-                    size_t len,
-                    const int64_t& packet_time_us,
-                    int flags);
+                    const rtc::ReceivedPacket& received_packet);
 
   // Updates "ready to send" for an individual channel and fires
   // SignalReadyToSend.
@@ -113,6 +128,7 @@ class RtpTransport : public RtpTransportInternal {
 
   bool IsTransportWritable();
 
+  const bool set_ready_to_send_false_if_send_fail_;
   bool rtcp_mux_enabled_;
 
   rtc::PacketTransportInternal* rtp_packet_transport_ = nullptr;
@@ -126,6 +142,10 @@ class RtpTransport : public RtpTransportInternal {
 
   // Used for identifying the MID for RtpDemuxer.
   RtpHeaderExtensionMap header_extension_map_;
+  // Guard against recursive "ready to send" signals
+  bool processing_ready_to_send_ = false;
+  bool processing_sent_packet_ = false;
+  ScopedTaskSafety safety_;
 };
 
 }  // namespace webrtc

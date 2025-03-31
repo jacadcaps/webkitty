@@ -2,7 +2,7 @@
  * Copyright (C) 2000 Lars Knoll (knoll@kde.org)
  *           (C) 2000 Antti Koivisto (koivisto@kde.org)
  *           (C) 2000 Dirk Mueller (mueller@kde.org)
- * Copyright (C) 2003, 2005-2008, 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2021 Apple Inc. All rights reserved.
  * Copyright (C) 2020 Noam Rosenthal (noam@webkit.org)
  *
 * This library is free software; you can redistribute it and/or
@@ -25,22 +25,35 @@
 #pragma once
 
 #include "StyleImage.h"
+#include "StyleInvalidImage.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class Document;
 
-struct ImageWithScale;
+struct ImageWithScale {
+    RefPtr<StyleImage> image { StyleInvalidImage::create() };
+    float scaleFactor { 1 };
+    String mimeType { String() };
+};
+
+inline bool operator==(const ImageWithScale& a, const ImageWithScale& b)
+{
+    return a.image == b.image && a.scaleFactor == b.scaleFactor;
+}
 
 class StyleMultiImage : public StyleImage {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(StyleMultiImage);
 public:
     virtual ~StyleMultiImage();
 
 protected:
-    StyleMultiImage();
+    StyleMultiImage(Type);
+
     bool equals(const StyleMultiImage& other) const;
-    virtual ImageWithScale selectBestFitImage(const Document&) const = 0;
+
+    virtual ImageWithScale selectBestFitImage(const Document&) = 0;
     CachedImage* cachedImage() const final;
 
 private:
@@ -49,7 +62,7 @@ private:
     bool canRender(const RenderElement*, float multiplier) const final;
     bool isPending() const final;
     void load(CachedResourceLoader&, const ResourceLoaderOptions&) final;
-    bool isLoaded() const final;
+    bool isLoaded(const RenderElement*) const final;
     bool errorOccurred() const final;
     FloatSize imageSize(const RenderElement*, float multiplier) const final;
     bool imageHasRelativeWidth() const final;
@@ -57,11 +70,12 @@ private:
     void computeIntrinsicDimensions(const RenderElement*, Length& intrinsicWidth, Length& intrinsicHeight, FloatSize& intrinsicRatio) final;
     bool usesImageContainerSize() const final;
     void setContainerContextForRenderer(const RenderElement&, const FloatSize&, float);
-    void addClient(RenderElement*) final;
-    void removeClient(RenderElement*) final;
-    RefPtr<Image> image(RenderElement*, const FloatSize&) const final;
+    void addClient(RenderElement&) final;
+    void removeClient(RenderElement&) final;
+    bool hasClient(RenderElement&) const final;
+    RefPtr<Image> image(const RenderElement*, const FloatSize&, bool isForFirstLine) const final;
     float imageScaleFactor() const final;
-    bool knownToBeOpaque(const RenderElement*) const final;
+    bool knownToBeOpaque(const RenderElement&) const final;
     const StyleImage* selectedImage() const final { return m_selectedImage.get(); }
     StyleImage* selectedImage() final { return m_selectedImage.get(); }
 

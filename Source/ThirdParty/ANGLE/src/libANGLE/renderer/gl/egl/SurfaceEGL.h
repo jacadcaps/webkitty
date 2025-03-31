@@ -25,7 +25,9 @@ class SurfaceEGL : public SurfaceGL
 
     egl::Error makeCurrent(const gl::Context *context) override;
     egl::Error swap(const gl::Context *context) override;
-    egl::Error swapWithDamage(const gl::Context *context, EGLint *rects, EGLint n_rects) override;
+    egl::Error swapWithDamage(const gl::Context *context,
+                              const EGLint *rects,
+                              EGLint n_rects) override;
     egl::Error postSubBuffer(const gl::Context *context,
                              EGLint x,
                              EGLint y,
@@ -37,7 +39,7 @@ class SurfaceEGL : public SurfaceGL
                             gl::Texture *texture,
                             EGLint buffer) override;
     egl::Error releaseTexImage(const gl::Context *context, EGLint buffer) override;
-    void setSwapInterval(EGLint interval) override;
+    void setSwapInterval(const egl::Display *display, EGLint interval) override;
     EGLint getWidth() const override;
     EGLint getHeight() const override;
     EGLint isPostSubBufferSupported() const override;
@@ -56,6 +58,7 @@ class SurfaceEGL : public SurfaceGL
                                   EGLnsecsANDROID *values) const override;
 
     EGLSurface getSurface() const;
+    virtual bool isExternal() const;
 
   protected:
     const FunctionsEGL *mEGL;

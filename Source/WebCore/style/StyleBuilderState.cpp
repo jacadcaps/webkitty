@@ -2,7 +2,7 @@
  * Copyright (C) 1999 Lars Knoll (knoll@kde.org)
  * Copyright (C) 2004-2005 Allan Sandfeld Jensen (kde@carewolf.com)
  * Copyright (C) 2006, 2007 Nicholas Shanks (webkit@nickshanks.com)
- * Copyright (C) 2005-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2005-2022 Apple Inc. All rights reserved.
  * Copyright (C) 2007 Alexey Proskuryakov <ap@webkit.org>
  * Copyright (C) 2007, 2008 Eric Seidel <eric@webkit.org>
  * Copyright (C) 2008, 2009 Torch Mobile Inc. All rights reserved. (http://www.torchmobile.com/)
@@ -30,27 +30,47 @@
 #include "config.h"
 #include "StyleBuilderState.h"
 
+#include "CSSAppleColorFilterPropertyValue.h"
+#include "CSSCanvasValue.h"
+#include "CSSColorValue.h"
+#include "CSSCrossfadeValue.h"
 #include "CSSCursorImageValue.h"
 #include "CSSFilterImageValue.h"
+#include "CSSFilterPropertyValue.h"
 #include "CSSFontSelector.h"
 #include "CSSFunctionValue.h"
 #include "CSSGradientValue.h"
 #include "CSSImageSetValue.h"
 #include "CSSImageValue.h"
-#include "CSSShadowValue.h"
+#include "CSSNamedImageValue.h"
+#include "CSSPaintImageValue.h"
+#include "CalculationRandomKeyMap.h"
+#include "Document.h"
+#include "DocumentInlines.h"
+#include "ElementInlines.h"
 #include "FontCache.h"
 #include "HTMLElement.h"
+#include "RenderStyleSetters.h"
 #include "RenderTheme.h"
-#include "SVGElement.h"
+#include "SVGElementTypeHelpers.h"
 #include "SVGSVGElement.h"
 #include "Settings.h"
+#include "StyleAppleColorFilterProperty.h"
 #include "StyleBuilder.h"
 #include "StyleCachedImage.h"
+#include "StyleCanvasImage.h"
+#include "StyleColor.h"
+#include "StyleCrossfadeImage.h"
 #include "StyleCursorImage.h"
+#include "StyleFilterImage.h"
+#include "StyleFilterProperty.h"
 #include "StyleFontSizeFunctions.h"
 #include "StyleGeneratedImage.h"
+#include "StyleGradientImage.h"
 #include "StyleImageSet.h"
-#include "TransformFunctions.h"
+#include "StyleNamedImage.h"
+#include "StylePaintImage.h"
+#include "TransformOperationsBuilder.h"
 
 namespace WebCore {
 namespace Style {
@@ -60,15 +80,15 @@ BuilderState::BuilderState(Builder& builder, RenderStyle& style, BuilderContext&
     , m_styleMap(*this)
     , m_style(style)
     , m_context(WTFMove(context))
-    , m_cssToLengthConversionData(&style, rootElementStyle(), &parentStyle(), document().renderView())
+    , m_cssToLengthConversionData(style, *this)
 {
 }
 
 // SVG handles zooming in a different way compared to CSS. The whole document is scaled instead
-// of each individual length value in the render style / tree. CSSPrimitiveValue::computeLength*()
+// of each individual length value in the render style / tree. CSSPrimitiveValue::resolveAsLength*()
 // multiplies each resolved length with the zoom multiplier - so for SVG we need to disable that.
 // Though all CSS values that can be applied to outermost <svg> elements (width/height/border/padding...)
-// need to respect the scaling. RenderBox (the parent class of RenderSVGRoot) grabs values like
+// need to respect the scaling. RenderBox (the parent class of LegacyRenderSVGRoot) grabs values like
 // width/height/border/padding/... from the RenderStyle -> for SVG these values would never scale,
 // if we'd pass a 1.0 zoom factor everyhwere. So we only pass a zoom factor of 1.0 for specific
 // properties that are NOT allowed to scale within a zoomed SVG document (letter/word-spacing/font-size).
@@ -82,264 +102,85 @@ bool BuilderState::useSVGZoomRulesForLength() const
     return is<SVGElement>(element()) && !(is<SVGSVGElement>(*element()) && element()->parentNode());
 }
 
-Ref<CSSValue> BuilderState::resolveImageStyles(CSSValue& value)
+RefPtr<StyleImage> BuilderState::createStyleImage(const CSSValue& value) const
 {
-    if (is<CSSGradientValue>(value))
-        return downcast<CSSGradientValue>(value).gradientWithStylesResolved(*this);
-
-    if (is<CSSImageSetValue>(value))
-        return downcast<CSSImageSetValue>(value).imageSetWithStylesResolved(*this);
-
-    // Creating filter operations doesn't create a new CSSValue reference.
-    if (is<CSSFilterImageValue>(value))
-        downcast<CSSFilterImageValue>(value).createFilterOperations(*this);
-
-    return makeRef(value);
-}
-
-RefPtr<StyleImage> BuilderState::createStyleImage(CSSValue& value)
-{
-    if (is<CSSImageValue>(value))
-        return StyleCachedImage::create(downcast<CSSImageValue>(value));
-
-    if (is<CSSCursorImageValue>(value))
-        return StyleCursorImage::create(downcast<CSSCursorImageValue>(value));
-
-    if (is<CSSImageGeneratorValue>(value))
-        return StyleGeneratedImage::create(downcast<CSSImageGeneratorValue>(resolveImageStyles(value).get()));
-    
-    if (is<CSSImageSetValue>(value))
-        return StyleImageSet::create(downcast<CSSImageSetValue>(resolveImageStyles(value).get()));
-
+    if (auto* imageValue = dynamicDowncast<CSSImageValue>(value))
+        return imageValue->createStyleImage(*this);
+    if (auto* imageSetValue = dynamicDowncast<CSSImageSetValue>(value))
+        return imageSetValue->createStyleImage(*this);
+    if (auto* imageValue = dynamicDowncast<CSSCursorImageValue>(value))
+        return imageValue->createStyleImage(*this);
+    if (auto* imageValue = dynamicDowncast<CSSNamedImageValue>(value))
+        return imageValue->createStyleImage(*this);
+    if (auto* cssCanvasValue = dynamicDowncast<CSSCanvasValue>(value))
+        return cssCanvasValue->createStyleImage(*this);
+    if (auto* crossfadeValue = dynamicDowncast<CSSCrossfadeValue>(value))
+        return crossfadeValue->createStyleImage(*this);
+    if (auto* filterImageValue = dynamicDowncast<CSSFilterImageValue>(value))
+        return filterImageValue->createStyleImage(*this);
+    if (auto* gradientValue = dynamicDowncast<CSSGradientValue>(value))
+        return gradientValue->createStyleImage(*this);
+    if (auto* paintImageValue = dynamicDowncast<CSSPaintImageValue>(value))
+        return paintImageValue->createStyleImage(*this);
     return nullptr;
 }
 
-static FilterOperation::OperationType filterOperationForType(CSSValueID type)
+FilterOperations BuilderState::createFilterOperations(const CSS::FilterProperty& value) const
 {
-    switch (type) {
-    case CSSValueUrl:
-        return FilterOperation::REFERENCE;
-    case CSSValueGrayscale:
-        return FilterOperation::GRAYSCALE;
-    case CSSValueSepia:
-        return FilterOperation::SEPIA;
-    case CSSValueSaturate:
-        return FilterOperation::SATURATE;
-    case CSSValueHueRotate:
-        return FilterOperation::HUE_ROTATE;
-    case CSSValueInvert:
-        return FilterOperation::INVERT;
-    case CSSValueAppleInvertLightness:
-        return FilterOperation::APPLE_INVERT_LIGHTNESS;
-    case CSSValueOpacity:
-        return FilterOperation::OPACITY;
-    case CSSValueBrightness:
-        return FilterOperation::BRIGHTNESS;
-    case CSSValueContrast:
-        return FilterOperation::CONTRAST;
-    case CSSValueBlur:
-        return FilterOperation::BLUR;
-    case CSSValueDropShadow:
-        return FilterOperation::DROP_SHADOW;
-    default:
-        break;
-    }
-    ASSERT_NOT_REACHED();
-    return FilterOperation::NONE;
+    return WebCore::Style::createFilterOperations(value, document(), m_style, m_cssToLengthConversionData);
 }
 
-bool BuilderState::createFilterOperations(const CSSValue& inValue, FilterOperations& outOperations)
+FilterOperations BuilderState::createFilterOperations(const CSSValue& value) const
 {
-    // FIXME: Move this code somewhere else.
-
-    ASSERT(outOperations.isEmpty());
-
-    if (is<CSSPrimitiveValue>(inValue)) {
-        auto& primitiveValue = downcast<CSSPrimitiveValue>(inValue);
-        if (primitiveValue.valueID() == CSSValueNone)
-            return true;
+    if (RefPtr primitive = dynamicDowncast<CSSPrimitiveValue>(value)) {
+        ASSERT(primitive->valueID() == CSSValueNone);
+        return { };
     }
 
-    if (!is<CSSValueList>(inValue))
-        return false;
-
-    FilterOperations operations;
-    for (auto& currentValue : downcast<CSSValueList>(inValue)) {
-        if (is<CSSPrimitiveValue>(currentValue)) {
-            auto& primitiveValue = downcast<CSSPrimitiveValue>(currentValue.get());
-            if (!primitiveValue.isURI())
-                continue;
-
-            auto filterURL = primitiveValue.stringValue();
-            auto fragment = document().completeURL(filterURL).fragmentIdentifier().toString();
-            operations.operations().append(ReferenceFilterOperation::create(filterURL, fragment));
-            continue;
-        }
-
-        if (!is<CSSFunctionValue>(currentValue))
-            continue;
-
-        auto& filterValue = downcast<CSSFunctionValue>(currentValue.get());
-        FilterOperation::OperationType operationType = filterOperationForType(filterValue.name());
-
-        // Check that all parameters are primitive values, with the
-        // exception of drop shadow which has a CSSShadowValue parameter.
-        const CSSPrimitiveValue* firstValue = nullptr;
-        if (operationType != FilterOperation::DROP_SHADOW) {
-            bool haveNonPrimitiveValue = false;
-            for (unsigned j = 0; j < filterValue.length(); ++j) {
-                if (!is<CSSPrimitiveValue>(*filterValue.itemWithoutBoundsCheck(j))) {
-                    haveNonPrimitiveValue = true;
-                    break;
-                }
-            }
-            if (haveNonPrimitiveValue)
-                continue;
-            if (filterValue.length())
-                firstValue = downcast<CSSPrimitiveValue>(filterValue.itemWithoutBoundsCheck(0));
-        }
-
-        switch (operationType) {
-        case FilterOperation::GRAYSCALE:
-        case FilterOperation::SEPIA:
-        case FilterOperation::SATURATE: {
-            double amount = 1;
-            if (filterValue.length() == 1) {
-                amount = firstValue->doubleValue();
-                if (firstValue->isPercentage())
-                    amount /= 100;
-            }
-
-            operations.operations().append(BasicColorMatrixFilterOperation::create(amount, operationType));
-            break;
-        }
-        case FilterOperation::HUE_ROTATE: {
-            double angle = 0;
-            if (filterValue.length() == 1)
-                angle = firstValue->computeDegrees();
-
-            operations.operations().append(BasicColorMatrixFilterOperation::create(angle, operationType));
-            break;
-        }
-        case FilterOperation::INVERT:
-        case FilterOperation::BRIGHTNESS:
-        case FilterOperation::CONTRAST:
-        case FilterOperation::OPACITY: {
-            double amount = 1;
-            if (filterValue.length() == 1) {
-                amount = firstValue->doubleValue();
-                if (firstValue->isPercentage())
-                    amount /= 100;
-            }
-
-            operations.operations().append(BasicComponentTransferFilterOperation::create(amount, operationType));
-            break;
-        }
-        case FilterOperation::APPLE_INVERT_LIGHTNESS: {
-            operations.operations().append(InvertLightnessFilterOperation::create());
-            break;
-        }
-        case FilterOperation::BLUR: {
-            Length stdDeviation = Length(0, Fixed);
-            if (filterValue.length() >= 1)
-                stdDeviation = convertToFloatLength(firstValue, cssToLengthConversionData());
-            if (stdDeviation.isUndefined())
-                return false;
-
-            operations.operations().append(BlurFilterOperation::create(stdDeviation));
-            break;
-        }
-        case FilterOperation::DROP_SHADOW: {
-            if (filterValue.length() != 1)
-                return false;
-
-            const auto* cssValue = filterValue.itemWithoutBoundsCheck(0);
-            if (!is<CSSShadowValue>(cssValue))
-                continue;
-
-            const auto& item = downcast<CSSShadowValue>(*cssValue);
-            int x = item.x->computeLength<int>(cssToLengthConversionData());
-            int y = item.y->computeLength<int>(cssToLengthConversionData());
-            IntPoint location(x, y);
-            int blur = item.blur ? item.blur->computeLength<int>(cssToLengthConversionData()) : 0;
-            Color color;
-            if (item.color)
-                color = colorFromPrimitiveValueWithResolvedCurrentColor(*item.color);
-
-            operations.operations().append(DropShadowFilterOperation::create(location, blur, color.isValid() ? color : Color::transparentBlack));
-            break;
-        }
-        default:
-            ASSERT_NOT_REACHED();
-            break;
-        }
-    }
-
-    outOperations = operations;
-    return true;
+    Ref filterValue = downcast<CSSFilterPropertyValue>(value);
+    return createFilterOperations(filterValue->filter());
 }
 
-bool BuilderState::isColorFromPrimitiveValueDerivedFromElement(const CSSPrimitiveValue& value)
+FilterOperations BuilderState::createAppleColorFilterOperations(const CSS::AppleColorFilterProperty& value) const
 {
-    switch (value.valueID()) {
-    case CSSValueWebkitText:
-    case CSSValueWebkitLink:
-    case CSSValueWebkitActivelink:
-    case CSSValueCurrentcolor:
-        return true;
-    default:
-        return false;
-    }
+    return WebCore::Style::createAppleColorFilterOperations(value, document(), m_style, m_cssToLengthConversionData);
 }
 
-Color BuilderState::colorFromPrimitiveValue(const CSSPrimitiveValue& value, bool forVisitedLink) const
+FilterOperations BuilderState::createAppleColorFilterOperations(const CSSValue& value) const
 {
-    if (value.isRGBColor())
-        return value.color();
-
-    auto identifier = value.valueID();
-    switch (identifier) {
-    case CSSValueWebkitText:
-        return document().textColor();
-    case CSSValueWebkitLink:
-        return (element() && element()->isLink() && forVisitedLink) ? document().visitedLinkColor() : document().linkColor();
-    case CSSValueWebkitActivelink:
-        return document().activeLinkColor();
-    case CSSValueWebkitFocusRingColor:
-        return RenderTheme::singleton().focusRingColor(document().styleColorOptions(&m_style));
-    case CSSValueCurrentcolor:
-        return RenderStyle::currentColor();
-    default:
-        return StyleColor::colorFromKeyword(identifier, document().styleColorOptions(&m_style));
+    if (RefPtr primitive = dynamicDowncast<CSSPrimitiveValue>(value)) {
+        ASSERT(primitive->valueID() == CSSValueNone);
+        return { };
     }
+
+    Ref filterValue = downcast<CSSAppleColorFilterPropertyValue>(value);
+    return createAppleColorFilterOperations(filterValue->filter());
 }
 
-Color BuilderState::colorFromPrimitiveValueWithResolvedCurrentColor(const CSSPrimitiveValue& value) const
+Color BuilderState::createStyleColor(const CSSValue& value, ForVisitedLink forVisitedLink) const
 {
-    // FIXME: 'currentcolor' should be resolved at use time to make it inherit correctly. https://bugs.webkit.org/show_bug.cgi?id=210005
-    if (value.valueID() == CSSValueCurrentcolor) {
-        // Color is an inherited property so depending on it effectively makes the property inherited.
-        m_style.setHasExplicitlyInheritedProperties();
-        return m_style.color();
-    }
+    if (!element() || !element()->isLink())
+        forVisitedLink = ForVisitedLink::No;
 
-    return colorFromPrimitiveValue(value);
+    if (RefPtr color = dynamicDowncast<CSSColorValue>(value))
+        return toStyle(color->color(), *this, forVisitedLink);
+    return toStyle(CSS::Color { CSS::KeywordColor { value.valueID() } }, *this, forVisitedLink);
 }
 
 void BuilderState::registerContentAttribute(const AtomString& attributeLocalName)
 {
-    if (style().styleType() == PseudoId::Before || style().styleType() == PseudoId::After)
+    if (style().pseudoElementType() == PseudoId::Before || style().pseudoElementType() == PseudoId::After)
         m_registeredContentAttributes.append(attributeLocalName);
 }
 
 void BuilderState::adjustStyleForInterCharacterRuby()
 {
-    if (m_style.rubyPosition() != RubyPosition::InterCharacter || !element() || !element()->hasTagName(HTMLNames::rtTag))
+    if (!m_style.isInterCharacterRubyPosition() || !element() || !element()->hasTagName(HTMLNames::rtTag))
         return;
 
     m_style.setTextAlign(TextAlignMode::Center);
-    if (m_style.isHorizontalWritingMode())
-        m_style.setWritingMode(LeftToRightWritingMode);
+    if (!m_style.writingMode().isVerticalTypographic())
+        m_style.setWritingMode(StyleWritingMode::VerticalLr);
 }
 
 void BuilderState::updateFont()
@@ -386,20 +227,20 @@ void BuilderState::updateFontForTextSizeAdjust()
     else
         newFontDescription.setComputedSize(newFontDescription.specifiedSize());
 
-    m_style.setFontDescription(WTFMove(newFontDescription));
+    m_style.setFontDescriptionWithoutUpdate(WTFMove(newFontDescription));
 }
 #endif
 
 void BuilderState::updateFontForZoomChange()
 {
-    if (m_style.effectiveZoom() == parentStyle().effectiveZoom() && m_style.textZoom() == parentStyle().textZoom())
+    if (m_style.usedZoom() == parentStyle().usedZoom() && m_style.textZoom() == parentStyle().textZoom())
         return;
 
     const auto& childFont = m_style.fontDescription();
     auto newFontDescription = childFont;
     setFontSize(newFontDescription, childFont.specifiedSize());
 
-    m_style.setFontDescription(WTFMove(newFontDescription));
+    m_style.setFontDescriptionWithoutUpdate(WTFMove(newFontDescription));
 }
 
 void BuilderState::updateFontForGenericFamilyChange()
@@ -429,7 +270,7 @@ void BuilderState::updateFontForGenericFamilyChange()
 
     auto newFontDescription = childFont;
     setFontSize(newFontDescription, size);
-    m_style.setFontDescription(WTFMove(newFontDescription));
+    m_style.setFontDescriptionWithoutUpdate(WTFMove(newFontDescription));
 }
 
 void BuilderState::updateFontForOrientationChange()
@@ -443,7 +284,7 @@ void BuilderState::updateFontForOrientationChange()
     auto newFontDescription = fontDescription;
     newFontDescription.setNonCJKGlyphOrientation(glyphOrientation);
     newFontDescription.setOrientation(fontOrientation);
-    m_style.setFontDescription(WTFMove(newFontDescription));
+    m_style.setFontDescriptionWithoutUpdate(WTFMove(newFontDescription));
 }
 
 void BuilderState::setFontSize(FontCascadeDescription& fontDescription, float size)
@@ -452,5 +293,34 @@ void BuilderState::setFontSize(FontCascadeDescription& fontDescription, float si
     fontDescription.setComputedSize(Style::computedFontSizeFromSpecifiedSize(size, fontDescription.isAbsoluteSize(), useSVGZoomRules(), &style(), document()));
 }
 
+CSSPropertyID BuilderState::cssPropertyID() const
+{
+    return m_currentProperty ? m_currentProperty->id : CSSPropertyInvalid;
 }
+
+bool BuilderState::isCurrentPropertyInvalidAtComputedValueTime() const
+{
+    return m_invalidAtComputedValueTimeProperties.get(cssPropertyID());
 }
+
+void BuilderState::setCurrentPropertyInvalidAtComputedValueTime()
+{
+    m_invalidAtComputedValueTimeProperties.set(cssPropertyID());
+}
+
+Ref<Calculation::RandomKeyMap> BuilderState::randomKeyMap(bool perElement) const
+{
+    if (perElement) {
+        ASSERT(element());
+
+        std::optional<Style::PseudoElementIdentifier> pseudoElementIdentifier;
+        if (style().pseudoElementType() != PseudoId::None)
+            pseudoElementIdentifier = Style::PseudoElementIdentifier { style().pseudoElementType(), style().pseudoElementNameArgument() };
+
+        return element()->randomKeyMap(pseudoElementIdentifier);
+    }
+    return document().randomKeyMap();
+}
+
+} // namespace Style
+} // namespace WebCore

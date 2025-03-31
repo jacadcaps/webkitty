@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,13 +26,13 @@
 #import "config.h"
 #import "WebDataListSuggestionsDropdownMac.h"
 
-#if ENABLE(DATALIST_ELEMENT) && USE(APPKIT)
+#if USE(APPKIT)
 
 #import "AppKitSPI.h"
 #import "WebPageProxy.h"
 #import <WebCore/IntRect.h>
 #import <WebCore/LocalizedStrings.h>
-#import <pal/spi/cocoa/NSColorSPI.h>
+#import <pal/spi/mac/NSColorSPI.h>
 
 constexpr CGFloat dropdownTopMargin = 3;
 constexpr CGFloat dropdownVerticalPadding = 4;
@@ -115,9 +115,9 @@ void WebDataListSuggestionsDropdownMac::selectOption()
 
 void WebDataListSuggestionsDropdownMac::handleKeydownWithIdentifier(const String& key)
 {
-    if (key == "Enter")
+    if (key == "Enter"_s)
         selectOption();
-    else if (key == "Up" || key == "Down")
+    else if (key == "Up"_s || key == "Down"_s)
         [m_dropdownUI moveSelectionByDirection:key];
 }
 
@@ -142,7 +142,7 @@ void WebDataListSuggestionsDropdownMac::close()
 
     self.hasShadow = YES;
 
-    _backdropView = [[NSVisualEffectView alloc] initWithFrame:contentRect];
+    _backdropView = adoptNS([[NSVisualEffectView alloc] initWithFrame:contentRect]);
     [_backdropView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
     [_backdropView setMaterial:NSVisualEffectMaterialMenu];
     [_backdropView setState:NSVisualEffectStateActive];
@@ -307,7 +307,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 static BOOL shouldShowDividersBetweenCells(const Vector<WebCore::DataListSuggestion>& suggestions)
 {
-    return notFound != suggestions.findMatching([](auto& suggestion) {
+    return notFound != suggestions.findIf([](auto& suggestion) {
         return !suggestion.label.isEmpty();
     });
 }
@@ -398,15 +398,17 @@ static BOOL shouldShowDividersBetweenCells(const Vector<WebCore::DataListSuggest
 {
     size_t size = _suggestions.size();
     NSInteger oldSelection = [_table selectedRow];
+    NSInteger newSelection = -1;
 
-    size_t newSelection;
-    if (oldSelection != -1) {
-        if (direction == "Up")
-            newSelection = oldSelection ? (oldSelection - 1) : (size - 1);
-        else
-            newSelection = (oldSelection + 1) % size;
-    } else
-        newSelection = (direction == "Up") ? (size - 1) : 0;
+    if (oldSelection == -1)
+        newSelection = (direction == "Up"_s) ? (size - 1) : 0;
+    else {
+        NSInteger adjustment = (direction == "Up"_s) ? -1 : 1;
+        newSelection = std::clamp<NSInteger>(oldSelection + adjustment, 0, size);
+    }
+
+    if (oldSelection == newSelection)
+        return;
 
     [_table selectRowIndexes:[NSIndexSet indexSetWithIndex:newSelection] byExtendingSelection:NO];
     [_table scrollRowToVisible:newSelection];
@@ -439,7 +441,13 @@ static BOOL shouldShowDividersBetweenCells(const Vector<WebCore::DataListSuggest
 
 - (NSRect)dropdownRectForElementRect:(const WebCore::IntRect&)rect
 {
-    NSRect windowRect = [[_presentingView window] convertRectToScreen:[_presentingView convertRect:rect toView:nil]];
+    NSWindow *presentingWindow = [_presentingView window];
+    NSRect screenRect = presentingWindow.screen.visibleFrame;
+    NSRect windowRect = [presentingWindow convertRectToScreen:[_presentingView convertRect:rect toView:nil]];
+
+    windowRect = CGRectIntersection(windowRect, screenRect);
+    if (CGRectIsNull(windowRect))
+        return NSZeroRect;
 
     CGFloat totalCellHeight = 0;
     for (auto& suggestion : _suggestions)
@@ -449,13 +457,17 @@ static BOOL shouldShowDividersBetweenCells(const Vector<WebCore::DataListSuggest
     if (_suggestions.size() > 1)
         totalIntercellSpacingAndPadding += (_suggestions.size() - 1) * [_table intercellSpacing].height;
 
-    CGFloat height = totalIntercellSpacingAndPadding + std::min(totalCellHeight, maximumTotalHeightForDropdownCells);
-    return NSMakeRect(NSMinX(windowRect), NSMinY(windowRect) - height - dropdownTopMargin, rect.width(), height);
+    CGFloat width = std::min<CGFloat>(std::max(rect.width(), rect.height()), screenRect.size.width);
+    CGFloat height = std::min<CGFloat>(totalIntercellSpacingAndPadding + std::min(totalCellHeight, maximumTotalHeightForDropdownCells), screenRect.size.height);
+    CGFloat originX = std::max<CGFloat>(NSMinX(windowRect), 0);
+    CGFloat originY = std::max<CGFloat>(NSMinY(windowRect) - height - dropdownTopMargin, 0);
+
+    return NSMakeRect(originX, originY, width, height);
 }
 
 - (void)showSuggestionsDropdown:(WebKit::WebDataListSuggestionsDropdownMac&)dropdown
 {
-    _dropdown = makeWeakPtr(dropdown);
+    _dropdown = dropdown;
     [[_enclosingWindow contentView] addSubview:_scrollView.get()];
     [_table reload];
     [[_presentingView window] addChildWindow:_enclosingWindow.get() ordered:NSWindowAbove];
@@ -463,7 +475,7 @@ static BOOL shouldShowDividersBetweenCells(const Vector<WebCore::DataListSuggest
 
     // Notify accessibility clients of datalist becoming visible.
     NSString *currentSelectedString = [self currentSelectedString];
-    NSString *info = [NSString stringWithFormat:WEB_UI_STRING("Suggestions list visible, %@", "Accessibility announcement that the suggestions list became visible. The format argument is for the first option in the list."), currentSelectedString];
+    NSString *info = [NSString stringWithFormat:WEB_UI_NSSTRING(@"Suggestions list visible, %@", "Accessibility announcement that the suggestions list became visible. The format argument is for the first option in the list."), currentSelectedString];
     [self notifyAccessibilityClients:info];
 }
 
@@ -494,25 +506,25 @@ static BOOL shouldShowDividersBetweenCells(const Vector<WebCore::DataListSuggest
 
 - (NSTableRowView *)tableView:(NSTableView *)tableView rowViewForRow:(NSInteger)row
 {
-    return [[[WKDataListSuggestionTableRowView alloc] init] autorelease];
+    return adoptNS([[WKDataListSuggestionTableRowView alloc] init]).autorelease();
 }
 
 - (NSView *)tableView:(NSTableView *)tableView viewForTableColumn:(NSTableColumn *)tableColumn row:(NSInteger)row
 {
-    WKDataListSuggestionView *result = [tableView makeViewWithIdentifier:suggestionCellReuseIdentifier owner:self];
+    auto result = retainPtr([tableView makeViewWithIdentifier:suggestionCellReuseIdentifier owner:self]);
 
     if (!result) {
-        result = [[[WKDataListSuggestionView alloc] init] autorelease];
+        result = adoptNS([[WKDataListSuggestionView alloc] init]);
         [result setIdentifier:suggestionCellReuseIdentifier];
     }
 
     auto& suggestion = _suggestions.at(row);
-    result.shouldShowBottomDivider = _showDividersBetweenCells && row < static_cast<NSInteger>(_suggestions.size() - 1);
+    [result setShouldShowBottomDivider:_showDividersBetweenCells && row < static_cast<NSInteger>(_suggestions.size() - 1)];
     [result setValue:suggestion.value label:suggestion.label];
 
-    return result;
+    return result.autorelease();
 }
 
 @end
 
-#endif // ENABLE(DATALIST_ELEMENT) && USE(APPKIT)
+#endif // USE(APPKIT)

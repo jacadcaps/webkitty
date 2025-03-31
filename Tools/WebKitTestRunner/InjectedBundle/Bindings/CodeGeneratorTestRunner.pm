@@ -249,8 +249,49 @@ EOF
     push(@contents, <<EOF);
 #include <JavaScriptCore/JSRetainPtr.h>
 #include <wtf/GetPtr.h>
+#include <wtf/MathExtras.h>
 
 namespace WTR {
+
+template<typename MessageArgumentTypesTuple, typename MethodArgumentTypesTuple> struct MethodSignatureValidationImpl { };
+
+template<typename... MessageArgumentTypes, typename MethodArgumentType, typename... MethodArgumentTypes>
+struct MethodSignatureValidationImpl<std::tuple<MessageArgumentTypes...>, std::tuple<MethodArgumentType, MethodArgumentTypes...>>
+    : MethodSignatureValidationImpl<std::tuple<MessageArgumentTypes..., MethodArgumentType>, std::tuple<MethodArgumentTypes...>> { };
+
+template<typename... MessageArgumentTypes>
+struct MethodSignatureValidationImpl<std::tuple<JSContextRef, MessageArgumentTypes...>, std::tuple<>>
+    : MethodSignatureValidationImpl<std::tuple<MessageArgumentTypes...>, std::tuple<>> {
+    static constexpr bool expectsContextArgument = true;
+};
+
+template<typename... MessageArgumentTypes>
+struct MethodSignatureValidationImpl<std::tuple<MessageArgumentTypes...>, std::tuple<>> {
+    static constexpr bool expectsContextArgument = false;
+    using MessageArguments = std::tuple<std::remove_cvref_t<MessageArgumentTypes>...>;
+};
+
+template<typename FunctionType> struct MethodSignatureValidation { 
+    static constexpr bool expectsContextArgument = false;
+};
+
+template<typename R, typename... MethodArgumentTypes>
+struct MethodSignatureValidation<R(MethodArgumentTypes...)>
+    : MethodSignatureValidationImpl<std::tuple<>, std::tuple<MethodArgumentTypes...>> { };
+
+template<typename T, typename U, typename MF, typename... Args>
+decltype(auto) callFunction(JSContextRef context, T* object, MF U::* function, Args... args)
+{
+    if constexpr (MethodSignatureValidation<MF>::expectsContextArgument) {
+        return std::apply([&](auto&&... args) {
+            return (object->*function)(std::forward<decltype(args)>(args)...);
+        }, std::tuple_cat(std::make_tuple(context), std::make_tuple(args...)));
+    } else {
+        return std::apply([&](auto&&... args) {
+            return (object->*function)(std::forward<decltype(args)>(args)...);
+        }, std::make_tuple(args...));
+    }
+}
 
 ${implementationClassName}* to${implementationClassName}(JSContextRef context, JSValueRef value)
 {
@@ -261,8 +302,7 @@ ${implementationClassName}* to${implementationClassName}(JSContextRef context, J
 
 JSClassRef ${className}::${classRefGetter}()
 {
-    static JSClassRef jsClass;
-    if (!jsClass) {
+    static const JSClassRef jsClass = [] {
         JSClassDefinition definition = kJSClassDefinitionEmpty;
         definition.className = "@{[$type->name]}";
         definition.parentClass = @{[$self->_parentClassRefGetterExpression($interface)]};
@@ -274,8 +314,8 @@ EOF
     push(@contents, "        definition.finalize = finalize;\n") unless _parentInterface($interface);
 
     push(@contents, <<EOF);
-        jsClass = JSClassCreate(&definition);
-    }
+        return JSClassCreate(&definition);
+    }();
     return jsClass;
 }
 
@@ -288,7 +328,7 @@ EOF
             $self->_includeHeaders(\%contentsIncludes, $constant->type);
 
             my $getterName = _constantGetterFunctionName($self->_getterName($constant));
-            my $getterExpression = "impl->${getterName}()";
+            my $getterExpression = "callFunction(context, impl, &${implementationClassName}::${getterName})";
             my $value = $constant->value;
 
             push(@contents, <<EOF);
@@ -325,10 +365,8 @@ EOF
                 my @arguments = ();
                 my @specifiedArguments = @{$operation->arguments};
 
-                $self->_includeHeaders(\%contentsIncludes, $operation->type);
-
-                if ($operation->extendedAttributes->{"PassContext"}) {
-                    push(@arguments, "context");
+                if (not $operation->type->name eq "Promise") {
+                    $self->_includeHeaders(\%contentsIncludes, $operation->type);
                 }
 
                 foreach my $i (0..$#specifiedArguments) {
@@ -341,10 +379,16 @@ EOF
                     push(@arguments, $self->_argumentExpression($argument));
                 }
 
-                $functionCall = "impl->" . $operation->name . "(" . join(", ", @arguments) . ")";
+                if ($operation->type->name eq "Promise") {
+                    push(@contents, "    JSObjectRef resolveFunction = nullptr;\n");
+                    push(@contents, "    JSObjectRef promise = JSObjectMakeDeferredPromise(context, &resolveFunction, nullptr, nullptr);\n\n");
+                    push(@arguments, "resolveFunction");
+                }
+
+                $functionCall = "callFunction(context, impl, &${implementationClassName}::" . $operation->name . (@arguments ? (", " . join(", ", @arguments)) : "") . ")";
             }
             
-            push(@contents, "    ${functionCall};\n\n") if $operation->type->name eq "void";
+            push(@contents, "    ${functionCall};\n\n") if $operation->type->name eq "undefined" or $operation->type->name eq "Promise";
             push(@contents, "    return " . $self->_returnExpression($operation->type, $functionCall) . ";\n}\n");
         }
     }
@@ -355,7 +399,7 @@ EOF
             $self->_includeHeaders(\%contentsIncludes, $attribute->type);
 
             my $getterName = $self->_getterName($attribute);
-            my $getterExpression = "impl->${getterName}()";
+            my $getterExpression = "callFunction(context, impl, &${implementationClassName}::${getterName})";
 
             push(@contents, <<EOF);
 
@@ -460,6 +504,27 @@ sub _parentInterface
     return $interface->parentType;
 }
 
+sub _nativeNumericType
+{
+    my ($self, $type) = @_;
+    my %numericTypeHash = (
+        "byte" => "int8_t",
+        "long long" => "int64_t",
+        "long" => "int32_t",
+        "octet" => "uint8_t",
+        "short" => "int16_t",
+        "unsigned long long" => "uint64_t",
+        "unsigned long" => "uint32_t",
+        "unsigned short" => "uint16_t",
+        "float" => "float",
+        "unrestricted float" => "float",
+        "double" => "double",
+        "unrestricted double" => "double",
+    );
+    my $result = $numericTypeHash{$type->name};
+    return ($result) ? $result : "double";
+}
+
 sub _platformType
 {
     my ($self, $type) = @_;
@@ -469,7 +534,7 @@ sub _platformType
     return "bool" if $type->name eq "boolean";
     return "JSValueRef" if $type->name eq "object";
     return "JSRetainPtr<JSStringRef>" if $$self{codeGenerator}->IsStringType($type);
-    return "double" if $$self{codeGenerator}->IsPrimitiveType($type);
+    return $self->_nativeNumericType($type) if $$self{codeGenerator}->IsPrimitiveType($type);
     return _implementationClassName($type);
 }
 
@@ -477,11 +542,17 @@ sub _platformTypeConstructor
 {
     my ($self, $type, $argumentName) = @_;
 
-    return "JSValueToNullableBoolean(context, $argumentName)" if $type->name eq "boolean" && $type->isNullable;
+    return "toOptionalBool(context, $argumentName)" if $type->name eq "boolean" && $type->isNullable;
     return "JSValueToBoolean(context, $argumentName)" if $type->name eq "boolean";
     return "$argumentName" if $type->name eq "object";
-    return "adopt(JSValueToStringCopy(context, $argumentName, nullptr))" if $$self{codeGenerator}->IsStringType($type);
-    return "JSValueToNumber(context, $argumentName, nullptr)" if $$self{codeGenerator}->IsPrimitiveType($type);
+    return "createJSString(context, $argumentName)" if $$self{codeGenerator}->IsStringType($type);
+    return "toOptionalDouble(context, $argumentName)" if $$self{codeGenerator}->IsPrimitiveType($type) && $type->isNullable;
+    if ($$self{codeGenerator}->IsPrimitiveType($type)) {
+        my $convertToDouble = "JSValueToNumber(context, $argumentName, nullptr)";
+        my $nativeNumericType = $self->_nativeNumericType($type);
+        return "clampTo<$nativeNumericType>($convertToDouble)" if $nativeNumericType ne "double";
+        return $convertToDouble;
+    }
     return "to" . _implementationClassName($type) . "(context, $argumentName)";
 }
 
@@ -494,35 +565,33 @@ sub _platformTypeVariableDeclaration
 
     my %nonPointerTypes = (
         "bool" => 1,
-        "double" => 1,
         "JSRetainPtr<JSStringRef>" => 1,
         "JSValueRef" => 1,
     );
 
-    my $nullValue = "0";
+    my $nullValue = "nullptr";
     if ($platformType eq "JSValueRef") {
         $nullValue = "JSValueMakeUndefined(context)";
-    } elsif (defined $nonPointerTypes{$platformType} && $platformType ne "double") {
-        $nullValue = "$platformType()";
+    } elsif (defined $nonPointerTypes{$platformType} || $$self{codeGenerator}->IsNumericType($type)) {
+        $nullValue = $type->isNullable ? "std::nullopt" : "$platformType()";
     }
 
-    $platformType .= "*" unless defined $nonPointerTypes{$platformType};
-
-    return "$platformType $variableName = $condition && $constructor;" if $condition && $platformType eq "bool";
-    return "$platformType $variableName = $condition ? $constructor : $nullValue;" if $condition;
-    return "$platformType $variableName = $constructor;";
+    return "bool $variableName = $condition && $constructor;" if $condition && $platformType eq "bool";
+    return "auto $variableName = $condition ? $constructor : $nullValue;" if $condition;
+    return "auto $variableName = $constructor;";
 }
 
 sub _returnExpression
 {
     my ($self, $returnType, $expression) = @_;
 
-    return "JSValueMakeUndefined(context)" if $returnType->name eq "void";
-    return "JSValueMakeBooleanOrNull(context, ${expression})" if $returnType->name eq "boolean" && $returnType->isNullable;
+    return "promise" if $returnType->name eq "Promise";
+    return "JSValueMakeUndefined(context)" if $returnType->name eq "undefined";
+    return "makeValue(context, ${expression})" if $returnType->name eq "boolean" && $returnType->isNullable;
     return "JSValueMakeBoolean(context, ${expression})" if $returnType->name eq "boolean";
     return "${expression}" if $returnType->name eq "object";
     return "JSValueMakeNumber(context, ${expression})" if $$self{codeGenerator}->IsPrimitiveType($returnType);
-    return "JSValueMakeStringOrNull(context, ${expression}.get())" if $$self{codeGenerator}->IsStringType($returnType);
+    return "makeValue(context, ${expression}.get())" if $$self{codeGenerator}->IsStringType($returnType);
     return "toJS(context, WTF::getPtr(${expression}))";
 }
 

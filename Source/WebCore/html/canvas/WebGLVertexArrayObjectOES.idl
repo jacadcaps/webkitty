@@ -24,7 +24,10 @@
  */
 
 [
-    NoInterfaceObject,
-    Conditional=WEBGL
+    LegacyNoInterfaceObject,
+    Conditional=WEBGL,
+    EnabledBySetting=WebGLEnabled,
+    GenerateIsReachable=Impl,
+    Exposed=(Window,Worker)
 ] interface WebGLVertexArrayObjectOES {
 };

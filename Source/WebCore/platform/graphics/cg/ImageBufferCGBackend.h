@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc.  All rights reserved.
+ * Copyright (C) 2020-2024 Apple Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,35 +27,26 @@
 
 #if USE(CG)
 
+#include "GraphicsContextCG.h"
 #include "ImageBufferBackend.h"
+#include <wtf/Forward.h>
 
 namespace WebCore {
 
 class WEBCORE_EXPORT ImageBufferCGBackend : public ImageBufferBackend {
 public:
-    RefPtr<Image> copyImage(BackingStoreCopy = CopyBackingStore, PreserveResolution = PreserveResolution::No) const override;
-    RefPtr<Image> sinkIntoImage(PreserveResolution) override;
-
-    void draw(GraphicsContext&, const FloatRect& destRect, const FloatRect& srcRect, const ImagePaintingOptions&) override;
-    void drawPattern(GraphicsContext&, const FloatRect& destRect, const FloatRect& srcRect, const AffineTransform& patternTransform, const FloatPoint& phase, const FloatSize& spacing, const ImagePaintingOptions&) override;
-
-    AffineTransform baseTransform() const override;
-
-    String toDataURL(const String& mimeType, Optional<double> quality, PreserveResolution) const override;
-    Vector<uint8_t> toData(const String& mimeType, Optional<double> quality) const override;
+    ~ImageBufferCGBackend() override;
+    static unsigned calculateBytesPerRow(const IntSize& backendSize);
 
 protected:
-    using ImageBufferBackend::ImageBufferBackend;
+    ImageBufferCGBackend(const Parameters&, std::unique_ptr<GraphicsContextCG>&& = nullptr);
+    void applyBaseTransform(GraphicsContextCG&) const;
 
-    static RetainPtr<CGColorSpaceRef> contextColorSpace(const GraphicsContext&);
-    void setupContext();
-    virtual RetainPtr<CFDataRef> toCFData(const String& mimeType, Optional<double> quality, PreserveResolution) const;
+    std::unique_ptr<ThreadSafeImageBufferFlusher> createFlusher() override;
 
-#if USE(ACCELERATE)
-    void copyImagePixels(
-        AlphaPremultiplication srcAlphaFormat, ColorFormat srcColorFormat, unsigned srcBytesPerRow, uint8_t* srcRows,
-        AlphaPremultiplication destAlphaFormat, ColorFormat destColorFormat, unsigned destBytesPerRow, uint8_t* destRows, const IntSize&) const override;
-#endif
+    String debugDescription() const override;
+
+    std::unique_ptr<GraphicsContextCG> m_context;
 };
 
 } // namespace WebCore

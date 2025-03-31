@@ -29,11 +29,21 @@
 
 #include <windows.h>
 
-#elif OS(UNIX)
+#elif OS(UNIX) || OS(HAIKU)
 
 #include <pthread.h>
 #if HAVE(PTHREAD_NP_H)
 #include <pthread_np.h>
+#endif
+
+#if OS(LINUX)
+#include <sys/resource.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+#endif
+
+#if OS(QNX)
+#include <sys/storage.h>
 #endif
 
 #endif
@@ -46,7 +56,9 @@ StackBounds StackBounds::newThreadStackBounds(PlatformThreadHandle thread)
 {
     void* origin = pthread_get_stackaddr_np(thread);
     rlim_t size = pthread_get_stacksize_np(thread);
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
     void* bound = static_cast<char*>(origin) - size;
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
     return StackBounds { origin, bound };
 }
 
@@ -59,13 +71,17 @@ StackBounds StackBounds::currentThreadStackBoundsInternal()
         rlimit limit;
         getrlimit(RLIMIT_STACK, &limit);
         rlim_t size = limit.rlim_cur;
+        if (size == RLIM_INFINITY)
+            size = 8 * MB;
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
         void* bound = static_cast<char*>(origin) - size;
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
         return StackBounds { origin, bound };
     }
     return newThreadStackBounds(pthread_self());
 }
 
-#elif OS(UNIX)
+#elif OS(UNIX) || OS(HAIKU)
 
 #if OS(OPENBSD)
 
@@ -74,7 +90,21 @@ StackBounds StackBounds::newThreadStackBounds(PlatformThreadHandle thread)
     stack_t stack;
     pthread_stackseg_np(thread, &stack);
     void* origin = stack.ss_sp;
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
     void* bound = static_cast<char*>(origin) - stack.ss_size;
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+    return StackBounds { origin, bound };
+}
+
+#elif OS(QNX)
+
+StackBounds StackBounds::newThreadStackBounds(PlatformThreadHandle thread)
+{
+    struct _thread_local_storage* tls = __tls();
+    void* bound = tls->__stackaddr;
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+    void* origin = static_cast<char*>(bound) + tls->__stacksize;
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
     return StackBounds { origin, bound };
 }
 
@@ -98,7 +128,9 @@ StackBounds StackBounds::newThreadStackBounds(PlatformThreadHandle thread)
     UNUSED_PARAM(rc);
     ASSERT(bound);
     pthread_attr_destroy(&sattr);
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
     void* origin = static_cast<char*>(bound) + stackSize;
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
     // pthread_attr_getstack's bound is the lowest accessible pointer of the stack.
     return StackBounds { origin, bound };
 }
@@ -107,7 +139,29 @@ StackBounds StackBounds::newThreadStackBounds(PlatformThreadHandle thread)
 
 StackBounds StackBounds::currentThreadStackBoundsInternal()
 {
-    return newThreadStackBounds(pthread_self());
+    auto ret = newThreadStackBounds(pthread_self());
+#if OS(LINUX)
+    // on glibc, pthread_attr_getstack will generally return the limit size (minus a guard page)
+    // for the main thread; this is however not necessarily always true on every libc - for example
+    // on musl, it will return the currently reserved size - since the stack bounds are expected to
+    // be constant (and they are for every thread except main, which is allowed to grow), check
+    // resource limits and use that as the boundary instead (and prevent stack overflows in JSC)
+    if (getpid() == static_cast<pid_t>(syscall(SYS_gettid))) {
+        void* origin = ret.origin();
+        rlimit limit;
+        getrlimit(RLIMIT_STACK, &limit);
+        rlim_t size = limit.rlim_cur;
+        if (size == RLIM_INFINITY)
+            size = 8 * MB;
+        // account for a guard page
+        size -= static_cast<rlim_t>(sysconf(_SC_PAGESIZE));
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+        void* bound = static_cast<char*>(origin) - size;
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+        return StackBounds { origin, bound };
+    }
+#endif
+    return ret;
 }
 
 #elif OS(WINDOWS)

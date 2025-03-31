@@ -25,15 +25,30 @@
 
 #pragma once
 
+namespace WTF {
+class TextStream;
+}
+
 namespace WebCore {
 
 class RenderStyle;
 
 namespace Style {
 
-enum Change { NoChange, NoInherit, Inherit, Detach };
+enum class Change : uint8_t {
+    None,
+    NonInherited,
+    FastPathInherited,
+    NonInheritedAndFastPathInherited,
+    Inherited,
+    Descendants,
+    Renderer
+};
 
-Change determineChange(const RenderStyle&, const RenderStyle&);
+WEBCORE_EXPORT Change determineChange(const RenderStyle&, const RenderStyle&);
+
+WTF::TextStream& operator<<(WTF::TextStream&, Change);
 
 }
+
 }

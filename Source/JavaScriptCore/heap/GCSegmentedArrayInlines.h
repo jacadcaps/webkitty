@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,6 +26,8 @@
 #pragma once
 
 #include "GCSegmentedArray.h"
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
@@ -177,9 +179,6 @@ template <typename T>
 #if ASSERT_ENABLED
 inline void GCSegmentedArray<T>::validatePrevious()
 {
-    unsigned count = 0;
-    for (GCArraySegment<T>* current = m_segments.head(); current; current = current->next())
-        count++;
     ASSERT(m_segments.size() == m_numberOfSegments);
 }
 #else
@@ -207,7 +206,7 @@ inline const T GCSegmentedArray<T>::removeLast()
 }
 
 template <typename T>
-inline bool GCSegmentedArray<T>::isEmpty()
+inline bool GCSegmentedArray<T>::isEmpty() const
 {
     // This happens to be safe to call concurrently. It's important to preserve that capability.
     if (m_top)
@@ -218,9 +217,11 @@ inline bool GCSegmentedArray<T>::isEmpty()
 }
 
 template <typename T>
-inline size_t GCSegmentedArray<T>::size()
+inline size_t GCSegmentedArray<T>::size() const
 {
     return m_top + s_segmentCapacity * (m_numberOfSegments - 1);
 }
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

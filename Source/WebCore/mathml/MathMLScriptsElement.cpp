@@ -30,34 +30,34 @@
 #if ENABLE(MATHML)
 
 #include "RenderMathMLScripts.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(MathMLScriptsElement);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(MathMLScriptsElement);
 
 using namespace MathMLNames;
 
 static MathMLScriptsElement::ScriptType scriptTypeOf(const QualifiedName& tagName)
 {
-    if (tagName == msubTag)
+    if (tagName.matches(msubTag))
         return MathMLScriptsElement::ScriptType::Sub;
-    if (tagName == msupTag)
+    if (tagName.matches(msupTag))
         return MathMLScriptsElement::ScriptType::Super;
-    if (tagName == msubsupTag)
+    if (tagName.matches(msubsupTag))
         return MathMLScriptsElement::ScriptType::SubSup;
-    if (tagName == munderTag)
+    if (tagName.matches(munderTag))
         return MathMLScriptsElement::ScriptType::Under;
-    if (tagName == moverTag)
+    if (tagName.matches(moverTag))
         return MathMLScriptsElement::ScriptType::Over;
-    if (tagName == munderoverTag)
+    if (tagName.matches(munderoverTag))
         return MathMLScriptsElement::ScriptType::UnderOver;
-    ASSERT(tagName == mmultiscriptsTag);
+    ASSERT(tagName.matches(mmultiscriptsTag));
     return MathMLScriptsElement::ScriptType::Multiscripts;
 }
 
 MathMLScriptsElement::MathMLScriptsElement(const QualifiedName& tagName, Document& document)
-    : MathMLPresentationElement(tagName, document)
+    : MathMLRowElement(tagName, document)
     , m_scriptType(scriptTypeOf(tagName))
 {
 }
@@ -77,20 +77,20 @@ const MathMLElement::Length& MathMLScriptsElement::superscriptShift()
     return cachedMathMLLength(superscriptshiftAttr, m_superscriptShift);
 }
 
-void MathMLScriptsElement::parseAttribute(const QualifiedName& name, const AtomString& value)
+void MathMLScriptsElement::attributeChanged(const QualifiedName& name, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason attributeModificationReason)
 {
     if (name == subscriptshiftAttr)
-        m_subscriptShift = WTF::nullopt;
+        m_subscriptShift = std::nullopt;
     else if (name == superscriptshiftAttr)
-        m_superscriptShift = WTF::nullopt;
+        m_superscriptShift = std::nullopt;
 
-    MathMLElement::parseAttribute(name, value);
+    MathMLElement::attributeChanged(name, oldValue, newValue, attributeModificationReason);
 }
 
 RenderPtr<RenderElement> MathMLScriptsElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
 {
     ASSERT(hasTagName(msubTag) || hasTagName(msupTag) || hasTagName(msubsupTag) || hasTagName(mmultiscriptsTag));
-    return createRenderer<RenderMathMLScripts>(*this, WTFMove(style));
+    return createRenderer<RenderMathMLScripts>(RenderObject::Type::MathMLScripts, *this, WTFMove(style));
 }
 
 }

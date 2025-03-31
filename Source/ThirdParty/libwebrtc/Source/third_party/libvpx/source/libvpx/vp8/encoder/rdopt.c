@@ -1021,7 +1021,7 @@ static void rd_check_segment(VP8_COMP *cpi, MACROBLOCK *x, BEST_SEG_INFO *bsi,
         BLOCK *c;
         BLOCKD *e;
 
-        /* Is the best so far sufficiently good that we cant justify
+        /* Is the best so far sufficiently good that we can't justify
          * doing a new motion search.
          */
         if (best_label_rd < label_mv_thresh) break;
@@ -1097,8 +1097,8 @@ static void rd_check_segment(VP8_COMP *cpi, MACROBLOCK *x, BEST_SEG_INFO *bsi,
             vp8_clamp_mv(&mvp_full, x->mv_col_min, x->mv_col_max, x->mv_row_min,
                          x->mv_row_max);
 
-            thissme = cpi->full_search_sad(x, c, e, &mvp_full, sadpb, 16,
-                                           v_fn_ptr, x->mvcost, bsi->ref_mv);
+            thissme = vp8_full_search_sad(x, c, e, &mvp_full, sadpb, 16,
+                                          v_fn_ptr, x->mvcost, bsi->ref_mv);
 
             if (thissme < bestsme) {
               bestsme = thissme;
@@ -1564,21 +1564,34 @@ static void rd_update_mvcount(MACROBLOCK *x, int_mv *best_ref_mv) {
 
     for (i = 0; i < x->partition_info->count; ++i) {
       if (x->partition_info->bmi[i].mode == NEW4X4) {
-        x->MVcount[0][mv_max + ((x->partition_info->bmi[i].mv.as_mv.row -
-                                 best_ref_mv->as_mv.row) >>
-                                1)]++;
-        x->MVcount[1][mv_max + ((x->partition_info->bmi[i].mv.as_mv.col -
-                                 best_ref_mv->as_mv.col) >>
-                                1)]++;
+        const int row_val = ((x->partition_info->bmi[i].mv.as_mv.row -
+                              best_ref_mv->as_mv.row) >>
+                             1);
+        const int row_idx = mv_max + row_val;
+        const int col_val = ((x->partition_info->bmi[i].mv.as_mv.col -
+                              best_ref_mv->as_mv.col) >>
+                             1);
+        const int col_idx = mv_max + col_val;
+        if (row_idx >= 0 && row_idx < MVvals && col_idx >= 0 &&
+            col_idx < MVvals) {
+          x->MVcount[0][row_idx]++;
+          x->MVcount[1][col_idx]++;
+        }
       }
     }
   } else if (x->e_mbd.mode_info_context->mbmi.mode == NEWMV) {
-    x->MVcount[0][mv_max + ((x->e_mbd.mode_info_context->mbmi.mv.as_mv.row -
-                             best_ref_mv->as_mv.row) >>
-                            1)]++;
-    x->MVcount[1][mv_max + ((x->e_mbd.mode_info_context->mbmi.mv.as_mv.col -
-                             best_ref_mv->as_mv.col) >>
-                            1)]++;
+    const int row_val = ((x->e_mbd.mode_info_context->mbmi.mv.as_mv.row -
+                          best_ref_mv->as_mv.row) >>
+                         1);
+    const int row_idx = mv_max + row_val;
+    const int col_val = ((x->e_mbd.mode_info_context->mbmi.mv.as_mv.col -
+                          best_ref_mv->as_mv.col) >>
+                         1);
+    const int col_idx = mv_max + col_val;
+    if (row_idx >= 0 && row_idx < MVvals && col_idx >= 0 && col_idx < MVvals) {
+      x->MVcount[0][row_idx]++;
+      x->MVcount[1][col_idx]++;
+    }
   }
 }
 
@@ -1608,7 +1621,7 @@ static int evaluate_inter_mode_rd(int mdcounts[4], RATE_DISTORTION *rd,
       unsigned int q2dc = xd->block[24].dequant[0];
       /* If theres is no codeable 2nd order dc
          or a very small uniform pixel change change */
-      if ((sse - var<q2dc * q2dc>> 4) || (sse / 2 > var && sse - var < 64)) {
+      if ((sse - var < q2dc * q2dc >> 4) || (sse / 2 > var && sse - var < 64)) {
         /* Check u and v to make sure skip is ok */
         unsigned int sse2 = VP8_UVSSE(x);
         if (sse2 * 2 < threshold) {
@@ -1979,7 +1992,7 @@ void vp8_rd_pick_inter_mode(VP8_COMP *cpi, MACROBLOCK *x, int recon_yoffset,
         rd.distortion2 += distortion;
 
         /* If even the 'Y' rd value of split is higher than best so far
-         * then dont bother looking at UV
+         * then don't bother looking at UV
          */
         if (tmp_rd < best_mode.yrd) {
           /* Now work out UV cost and add it in */

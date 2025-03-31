@@ -23,12 +23,13 @@ rtc_library("audio_frame_operations") {
   ]
 
   deps = [
+    "../../api:array_view",
     "../../api/audio:audio_frame_api",
     "../../common_audio",
     "../../rtc_base:checks",
-    "../../rtc_base:deprecation",
-    "../../rtc_base:rtc_base_approved",
-    "../../system_wrappers:field_trial",
+    "../../rtc_base:logging",
+    "../../rtc_base:safe_conversions",
+    "//third_party/abseil-cpp/absl/base:core_headers",
   ]
 }
 
@@ -44,8 +45,9 @@ if (rtc_include_tests) {
       ":audio_frame_operations",
       "../../api/audio:audio_frame_api",
       "../../rtc_base:checks",
-      "../../rtc_base:rtc_base_approved",
-      "../../test:field_trial",
+      "../../rtc_base:logging",
+      "../../rtc_base:macromagic",
+      "../../rtc_base:stringutils",
       "../../test:test_support",
       "//testing/gtest",
     ]

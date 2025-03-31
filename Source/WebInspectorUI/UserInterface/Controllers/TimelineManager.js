@@ -36,6 +36,8 @@ WI.TimelineManager = class TimelineManager extends WI.Object
         WI.Frame.addEventListener(WI.Frame.Event.ProvisionalLoadStarted, this._provisionalLoadStarted, this);
         WI.Frame.addEventListener(WI.Frame.Event.MainResourceDidChange, this._mainResourceDidChange, this);
 
+        WI.consoleManager.addEventListener(WI.ConsoleManager.Event.MessageAdded, this._handleMessageAdded, this);
+
         this._enabledTimelineTypesSetting = new WI.Setting("enabled-instrument-types", WI.TimelineManager.defaultTimelineTypes());
 
         this._capturingState = TimelineManager.CapturingState.Inactive;
@@ -52,15 +54,13 @@ WI.TimelineManager = class TimelineManager extends WI.Object
         this._shouldSetAutoCapturingMainResource = false;
         this._transitioningPageTarget = false;
 
-        this._webTimelineScriptRecordsExpectingScriptProfilerEvents = null;
-        this._scriptProfilerRecords = null;
+        this._webTimelineScriptRecordsExpectingScriptProfilerEventsForTarget = new Map;
+        this._scriptProfilerRecordsForTarget = new Map;
 
         this._boundStopCapturing = this.stopCapturing.bind(this);
         this._stopCapturingTimeout = undefined;
         this._deadTimeTimeout = undefined;
         this._lastDeadTimeTickle = 0;
-
-        this.reset();
     }
 
     // Agent
@@ -69,6 +69,8 @@ WI.TimelineManager = class TimelineManager extends WI.Object
 
     activateExtraDomain(domain)
     {
+        // COMPATIBILITY (iOS 14.0): Inspector.activateExtraDomains was removed in favor of a declared debuggable type
+
         console.assert(domain === "Timeline");
 
         for (let target of WI.targets)
@@ -89,7 +91,8 @@ WI.TimelineManager = class TimelineManager extends WI.Object
 
             this._updateAutoCaptureInstruments([target]);
 
-            target.TimelineAgent.setAutoCaptureEnabled(this._autoCaptureOnPageLoad);
+            if (target.hasCommand("Timeline.setAutoCaptureEnabled"))
+                target.TimelineAgent.setAutoCaptureEnabled(this._autoCaptureOnPageLoad);
         }
     }
 
@@ -117,15 +120,16 @@ WI.TimelineManager = class TimelineManager extends WI.Object
             ];
         }
 
-        let defaultTypes = [
-            WI.TimelineRecord.Type.Network,
-            WI.TimelineRecord.Type.Layout,
-            WI.TimelineRecord.Type.Script,
-            WI.TimelineRecord.Type.RenderingFrame,
-        ];
+        let defaultTypes = [];
 
-        if (WI.CPUInstrument.supported())
-            defaultTypes.push(WI.TimelineRecord.Type.CPU);
+        if (WI.ScreenshotsInstrument.supported())
+            defaultTypes.push(WI.TimelineRecord.Type.Screenshots);
+
+        defaultTypes.push(WI.TimelineRecord.Type.Network);
+        defaultTypes.push(WI.TimelineRecord.Type.Layout);
+        defaultTypes.push(WI.TimelineRecord.Type.Script);
+        defaultTypes.push(WI.TimelineRecord.Type.RenderingFrame);
+        defaultTypes.push(WI.TimelineRecord.Type.CPU);
 
         return defaultTypes;
     }
@@ -139,10 +143,7 @@ WI.TimelineManager = class TimelineManager extends WI.Object
         types.push(WI.TimelineRecord.Type.Memory);
         types.push(WI.TimelineRecord.Type.HeapAllocations);
 
-        if (WI.MediaInstrument.supported()) {
-            let insertionIndex = types.indexOf(WI.TimelineRecord.Type.Layout) + 1;
-            types.insertAtIndex(WI.TimelineRecord.Type.Media, insertionIndex || types.length);
-        }
+        types.insertAtIndex(WI.TimelineRecord.Type.Media, types.indexOf(WI.TimelineRecord.Type.Layout) + 1);
 
         return types;
     }
@@ -183,11 +184,6 @@ WI.TimelineManager = class TimelineManager extends WI.Object
     {
         console.assert(this._activeRecording || !this.isCapturing());
         return this._activeRecording;
-    }
-
-    get recordings()
-    {
-        return this._recordings.slice();
     }
 
     get autoCaptureOnPageLoad()
@@ -369,7 +365,7 @@ WI.TimelineManager = class TimelineManager extends WI.Object
 
     scriptProfilerIsTracking()
     {
-        return this._scriptProfilerRecords !== null;
+        return this._scriptProfilerRecordsForTarget.size;
     }
 
     // ConsoleObserver
@@ -410,7 +406,7 @@ WI.TimelineManager = class TimelineManager extends WI.Object
 
         this._lastDeadTimeTickle = 0;
 
-        this._webTimelineScriptRecordsExpectingScriptProfilerEvents = [];
+        this._webTimelineScriptRecordsExpectingScriptProfilerEventsForTarget.clear();
 
         this._activeRecording.capturingStarted(this._capturingStartTime);
 
@@ -450,12 +446,17 @@ WI.TimelineManager = class TimelineManager extends WI.Object
         if (this._capturingState === TimelineManager.CapturingState.Inactive)
             return;
 
-        WI.DOMNode.removeEventListener(null, null, this);
-        WI.memoryManager.removeEventListener(null, null, this);
-        WI.heapManager.removeEventListener(null, null, this);
+        WI.DOMNode.removeEventListener(WI.DOMNode.Event.DidFireEvent, this._handleDOMNodeDidFireEvent, this);
+        WI.DOMNode.removeEventListener(WI.DOMNode.Event.PowerEfficientPlaybackStateChanged, this._handleDOMNodePowerEfficientPlaybackStateChanged, this);
+
+        WI.heapManager.removeEventListener(WI.HeapManager.Event.GarbageCollected, this._garbageCollected, this);
+
+        WI.memoryManager.removeEventListener(WI.MemoryManager.Event.MemoryPressure, this._memoryPressure, this);
+
         WI.Target.removeEventListener(WI.Target.Event.ResourceAdded, this._resourceWasAdded, this);
         WI.Frame.removeEventListener(WI.Frame.Event.ResourceWasAdded, this._resourceWasAdded, this);
-        WI.settings.timelinesAutoStop.removeEventListener(null, null, this);
+
+        WI.settings.timelinesAutoStop.removeEventListener(WI.Setting.Event.Changed, this._handleTimelinesAutoStopSettingChanged, this);
 
         this._activeRecording.capturingStopped(this._capturingEndTime);
 
@@ -492,7 +493,7 @@ WI.TimelineManager = class TimelineManager extends WI.Object
         this._shouldSetAutoCapturingMainResource = true;
     }
 
-    eventRecorded(recordPayload)
+    eventRecorded(target, recordPayload)
     {
         if (!this._enabled)
             return;
@@ -512,7 +513,7 @@ WI.TimelineManager = class TimelineManager extends WI.Object
 
             if (entry.index < recordPayloads.length) {
                 var recordPayload = recordPayloads[entry.index];
-                var record = this._processEvent(recordPayload, entry.parent);
+                var record = this._processEvent(target, recordPayload, entry.parent);
                 if (record) {
                     record.parent = entry.parentRecord;
                     records.push(record);
@@ -600,23 +601,27 @@ WI.TimelineManager = class TimelineManager extends WI.Object
 
     // ScriptProfilerObserver
 
-    scriptProfilerTrackingStarted(timestamp)
+    scriptProfilerTrackingStarted(target, timestamp)
     {
-        this._scriptProfilerRecords = [];
+        console.assert(!this._scriptProfilerRecordsForTarget.has(target), this._scriptProfilerRecordsForTarget, target);
+        this._scriptProfilerRecordsForTarget.set(target, []);
 
         this.capturingStarted(timestamp);
     }
 
-    scriptProfilerTrackingUpdated(event)
+    scriptProfilerTrackingUpdated(target, event)
     {
         if (!this._enabled)
             return;
 
         let {startTime, endTime, type} = event;
         let scriptRecordType = this._scriptProfilerTypeToScriptTimelineRecordType(type);
-        let record = new WI.ScriptTimelineRecord(scriptRecordType, startTime, endTime, null, null, null, null);
+        let record = new WI.ScriptTimelineRecord(target, scriptRecordType, startTime, endTime);
         record.__scriptProfilerType = type;
-        this._scriptProfilerRecords.push(record);
+
+        let scriptProfilerRecords = this._scriptProfilerRecordsForTarget.get(target);
+        console.assert(scriptProfilerRecords, this._scriptProfilerRecordsForTarget, target);
+        scriptProfilerRecords.push(record);
 
         // "Other" events, generated by Web content, will have wrapping Timeline records
         // and need to be merged. Non-Other events, generated purely by the JavaScript
@@ -626,14 +631,19 @@ WI.TimelineManager = class TimelineManager extends WI.Object
             this._addRecord(record);
     }
 
-    scriptProfilerTrackingCompleted(timestamp, samples)
+    scriptProfilerTrackingCompleted(target, timestamp, samples)
     {
         if (this._enabled) {
-            console.assert(!this._webTimelineScriptRecordsExpectingScriptProfilerEvents || this._scriptProfilerRecords.length >= this._webTimelineScriptRecordsExpectingScriptProfilerEvents.length);
+            let scriptTimeline = this._activeRecording.timelineForRecordType(WI.TimelineRecord.Type.Script);
+
+            let scriptProfilerRecords = this._scriptProfilerRecordsForTarget.get(target);
+            console.assert(scriptProfilerRecords, this._scriptProfilerRecordsForTarget, target);
+
+            let webTimelineScriptRecordsExpectingScriptProfilerEvents = this._webTimelineScriptRecordsExpectingScriptProfilerEventsForTarget.get(target);
+            console.assert(!webTimelineScriptRecordsExpectingScriptProfilerEvents || scriptProfilerRecords.length >= webTimelineScriptRecordsExpectingScriptProfilerEvents.length);
 
             if (samples) {
                 let {stackTraces} = samples;
-                let topDownCallingContextTree = this._activeRecording.topDownCallingContextTree;
 
                 // Calculate a per-sample duration.
                 let timestampIndex = 0;
@@ -641,8 +651,8 @@ WI.TimelineManager = class TimelineManager extends WI.Object
                 let sampleDurations = new Array(timestampCount);
                 let sampleDurationIndex = 0;
                 const defaultDuration = 1 / 1000; // 1ms.
-                for (let i = 0; i < this._scriptProfilerRecords.length; ++i) {
-                    let record = this._scriptProfilerRecords[i];
+                for (let i = 0; i < scriptProfilerRecords.length; ++i) {
+                    let record = scriptProfilerRecords[i];
 
                     // Use a default duration for timestamps recorded outside of ScriptProfiler events.
                     while (timestampIndex < timestampCount && stackTraces[timestampIndex].timestamp < record.startTime) {
@@ -667,13 +677,14 @@ WI.TimelineManager = class TimelineManager extends WI.Object
                 if (timestampIndex < timestampCount)
                     sampleDurations.fill(defaultDuration, sampleDurationIndex);
 
-                this._activeRecording.initializeCallingContextTrees(stackTraces, sampleDurations);
+                this._activeRecording.updateCallingContextTrees(target, stackTraces, sampleDurations);
 
                 // FIXME: This transformation should not be needed after introducing ProfileView.
                 // Once we eliminate ProfileNodeTreeElements and ProfileNodeDataGridNodes.
                 // <https://webkit.org/b/154973> Web Inspector: Timelines UI redesign: Remove TimelineSidebarPanel
-                for (let i = 0; i < this._scriptProfilerRecords.length; ++i) {
-                    let record = this._scriptProfilerRecords[i];
+                let topDownCallingContextTree = scriptTimeline.callingContextTree(target, WI.CallingContextTree.Type.TopDown);
+                for (let i = 0; i < scriptProfilerRecords.length; ++i) {
+                    let record = scriptProfilerRecords[i];
                     record.profilePayload = topDownCallingContextTree.toCPUProfilePayload(record.startTime, record.endTime);
                 }
             }
@@ -681,14 +692,15 @@ WI.TimelineManager = class TimelineManager extends WI.Object
             // Associate the ScriptProfiler created records with Web Timeline records.
             // Filter out the already added ScriptProfiler events which should not have been wrapped.
             if (WI.sharedApp.debuggableType !== WI.DebuggableType.JavaScript && WI.sharedApp.debuggableType !== WI.DebuggableType.ITML) {
-                this._scriptProfilerRecords = this._scriptProfilerRecords.filter((x) => x.__scriptProfilerType === InspectorBackend.Enum.ScriptProfiler.EventType.Other);
-                this._mergeScriptProfileRecords();
+                scriptProfilerRecords = scriptProfilerRecords.filter((x) => x.__scriptProfilerType === InspectorBackend.Enum.ScriptProfiler.EventType.Other);
+                this._scriptProfilerRecordsForTarget.set(target, scriptProfilerRecords);
+
+                this._mergeScriptProfileRecords(scriptProfilerRecords, webTimelineScriptRecordsExpectingScriptProfilerEvents || []);
             }
 
-            this._scriptProfilerRecords = null;
+            this._scriptProfilerRecordsForTarget.delete(target);
 
-            let timeline = this._activeRecording.timelineForRecordType(WI.TimelineRecord.Type.Script);
-            timeline.refresh();
+            scriptTimeline.refresh();
         }
 
         this.capturingStopped(timestamp);
@@ -800,20 +812,20 @@ WI.TimelineManager = class TimelineManager extends WI.Object
         this.dispatchEventToListeners(TimelineManager.Event.CapturingStateChanged, data);
     }
 
-    _processRecord(recordPayload, parentRecordPayload)
+    _processRecord(target, recordPayload, parentRecordPayload)
     {
         console.assert(this.isCapturing());
 
         var startTime = this._activeRecording.computeElapsedTime(recordPayload.startTime);
         var endTime = this._activeRecording.computeElapsedTime(recordPayload.endTime);
-        var callFrames = this._callFramesFromPayload(recordPayload.stackTrace);
+        let stackTrace = this._stackTraceFromPayload(target, recordPayload.stackTrace);
 
         var significantCallFrame = null;
-        if (callFrames) {
-            for (var i = 0; i < callFrames.length; ++i) {
-                if (callFrames[i].nativeCode)
+        if (stackTrace) {
+            for (let callFrame of stackTrace.callFrames) {
+                if (callFrame.nativeCode)
                     continue;
-                significantCallFrame = callFrames[i];
+                significantCallFrame = callFrame;
                 break;
             }
         }
@@ -825,28 +837,28 @@ WI.TimelineManager = class TimelineManager extends WI.Object
             console.assert(isNaN(endTime));
 
             // Pass the startTime as the endTime since this record type has no duration.
-            return new WI.LayoutTimelineRecord(WI.LayoutTimelineRecord.EventType.InvalidateStyles, startTime, startTime, callFrames, sourceCodeLocation);
+            return new WI.LayoutTimelineRecord(WI.LayoutTimelineRecord.EventType.InvalidateStyles, startTime, startTime, stackTrace, sourceCodeLocation);
 
         case InspectorBackend.Enum.Timeline.EventType.RecalculateStyles:
-            return new WI.LayoutTimelineRecord(WI.LayoutTimelineRecord.EventType.RecalculateStyles, startTime, endTime, callFrames, sourceCodeLocation);
+            return new WI.LayoutTimelineRecord(WI.LayoutTimelineRecord.EventType.RecalculateStyles, startTime, endTime, stackTrace, sourceCodeLocation);
 
         case InspectorBackend.Enum.Timeline.EventType.InvalidateLayout:
             console.assert(isNaN(endTime));
 
             // Pass the startTime as the endTime since this record type has no duration.
-            return new WI.LayoutTimelineRecord(WI.LayoutTimelineRecord.EventType.InvalidateLayout, startTime, startTime, callFrames, sourceCodeLocation);
+            return new WI.LayoutTimelineRecord(WI.LayoutTimelineRecord.EventType.InvalidateLayout, startTime, startTime, stackTrace, sourceCodeLocation);
 
         case InspectorBackend.Enum.Timeline.EventType.Layout:
             var layoutRecordType = sourceCodeLocation ? WI.LayoutTimelineRecord.EventType.ForcedLayout : WI.LayoutTimelineRecord.EventType.Layout;
             var quad = new WI.Quad(recordPayload.data.root);
-            return new WI.LayoutTimelineRecord(layoutRecordType, startTime, endTime, callFrames, sourceCodeLocation, quad);
+            return new WI.LayoutTimelineRecord(layoutRecordType, startTime, endTime, stackTrace, sourceCodeLocation, quad);
 
         case InspectorBackend.Enum.Timeline.EventType.Paint:
             var quad = new WI.Quad(recordPayload.data.clip);
-            return new WI.LayoutTimelineRecord(WI.LayoutTimelineRecord.EventType.Paint, startTime, endTime, callFrames, sourceCodeLocation, quad);
+            return new WI.LayoutTimelineRecord(WI.LayoutTimelineRecord.EventType.Paint, startTime, endTime, stackTrace, sourceCodeLocation, quad);
 
         case InspectorBackend.Enum.Timeline.EventType.Composite:
-            return new WI.LayoutTimelineRecord(WI.LayoutTimelineRecord.EventType.Composite, startTime, endTime, callFrames, sourceCodeLocation);
+            return new WI.LayoutTimelineRecord(WI.LayoutTimelineRecord.EventType.Composite, startTime, endTime, stackTrace, sourceCodeLocation);
 
         case InspectorBackend.Enum.Timeline.EventType.RenderingFrame:
             if (!recordPayload.children || !recordPayload.children.length)
@@ -867,29 +879,50 @@ WI.TimelineManager = class TimelineManager extends WI.Object
                 }
             }
 
-            var profileData = recordPayload.data.profile;
-
             var record;
             switch (parentRecordPayload && parentRecordPayload.type) {
             case InspectorBackend.Enum.Timeline.EventType.TimerFire:
-                record = new WI.ScriptTimelineRecord(WI.ScriptTimelineRecord.EventType.TimerFired, startTime, endTime, callFrames, sourceCodeLocation, parentRecordPayload.data.timerId, profileData);
+                record = new WI.ScriptTimelineRecord(target, WI.ScriptTimelineRecord.EventType.TimerFired, startTime, endTime, {
+                    stackTrace,
+                    sourceCodeLocation,
+                    details: parentRecordPayload.data.timerId,
+                    profilePayload: recordPayload.data.profile,
+                });
                 break;
             case InspectorBackend.Enum.Timeline.EventType.ObserverCallback:
-                record = new WI.ScriptTimelineRecord(WI.ScriptTimelineRecord.EventType.ObserverCallback, startTime, endTime, callFrames, sourceCodeLocation, parentRecordPayload.data.type, profileData);
+                record = new WI.ScriptTimelineRecord(target, WI.ScriptTimelineRecord.EventType.ObserverCallback, startTime, endTime, {
+                    stackTrace,
+                    sourceCodeLocation,
+                    details: parentRecordPayload.data.type,
+                    profilePayload: recordPayload.data.profile,
+                });
                 break;
             case InspectorBackend.Enum.Timeline.EventType.FireAnimationFrame:
-                record = new WI.ScriptTimelineRecord(WI.ScriptTimelineRecord.EventType.AnimationFrameFired, startTime, endTime, callFrames, sourceCodeLocation, parentRecordPayload.data.id, profileData);
+                record = new WI.ScriptTimelineRecord(target, WI.ScriptTimelineRecord.EventType.AnimationFrameFired, startTime, endTime, {
+                    stackTrace,
+                    sourceCodeLocation,
+                    details: parentRecordPayload.data.id,
+                    profilePayload: recordPayload.data.profile,
+                });
                 break;
             default:
-                record = new WI.ScriptTimelineRecord(WI.ScriptTimelineRecord.EventType.ScriptEvaluated, startTime, endTime, callFrames, sourceCodeLocation, null, profileData);
+                record = new WI.ScriptTimelineRecord(target, WI.ScriptTimelineRecord.EventType.ScriptEvaluated, startTime, endTime, {
+                    stackTrace,
+                    sourceCodeLocation,
+                    profilePayload: recordPayload.data.profile,
+                });
                 break;
             }
 
-            this._webTimelineScriptRecordsExpectingScriptProfilerEvents.push(record);
+            this._webTimelineScriptRecordsExpectingScriptProfilerEventsForTarget.getOrInitialize(target, []).push(record);
             return record;
 
         case InspectorBackend.Enum.Timeline.EventType.ConsoleProfile:
-            return new WI.ScriptTimelineRecord(WI.ScriptTimelineRecord.EventType.ConsoleProfileRecorded, startTime, endTime, callFrames, sourceCodeLocation, recordPayload.data.title);
+            return new WI.ScriptTimelineRecord(target, WI.ScriptTimelineRecord.EventType.ConsoleProfileRecorded, startTime, endTime, {
+                stackTrace,
+                sourceCodeLocation,
+                details: recordPayload.data.title,
+            });
 
         case InspectorBackend.Enum.Timeline.EventType.TimerFire:
         case InspectorBackend.Enum.Timeline.EventType.EventDispatch:
@@ -918,27 +951,56 @@ WI.TimelineManager = class TimelineManager extends WI.Object
                 }
             }
 
-            var profileData = recordPayload.data.profile;
-
             var record;
             switch (parentRecordPayload.type) {
             case InspectorBackend.Enum.Timeline.EventType.TimerFire:
-                record = new WI.ScriptTimelineRecord(WI.ScriptTimelineRecord.EventType.TimerFired, startTime, endTime, callFrames, sourceCodeLocation, parentRecordPayload.data.timerId, profileData);
+                record = new WI.ScriptTimelineRecord(target, WI.ScriptTimelineRecord.EventType.TimerFired, startTime, endTime, {
+                    stackTrace,
+                    sourceCodeLocation,
+                    details: parentRecordPayload.data.timerId,
+                    profilePayload: recordPayload.data.profile,
+                });
                 break;
             case InspectorBackend.Enum.Timeline.EventType.EventDispatch:
-                record = new WI.ScriptTimelineRecord(WI.ScriptTimelineRecord.EventType.EventDispatched, startTime, endTime, callFrames, sourceCodeLocation, parentRecordPayload.data.type, profileData, parentRecordPayload.data);
+                record = new WI.ScriptTimelineRecord(target, WI.ScriptTimelineRecord.EventType.EventDispatched, startTime, endTime, {
+                    stackTrace,
+                    sourceCodeLocation,
+                    details: parentRecordPayload.data.type,
+                    profilePayload: recordPayload.data.profile,
+                    extraDetails: parentRecordPayload.data,
+                });
                 break;
             case InspectorBackend.Enum.Timeline.EventType.ObserverCallback:
-                record = new WI.ScriptTimelineRecord(WI.ScriptTimelineRecord.EventType.ObserverCallback, startTime, endTime, callFrames, sourceCodeLocation, parentRecordPayload.data.type, profileData);
+                record = new WI.ScriptTimelineRecord(target, WI.ScriptTimelineRecord.EventType.ObserverCallback, startTime, endTime, {
+                    stackTrace,
+                    sourceCodeLocation,
+                    details: parentRecordPayload.data.type,
+                    profilePayload: recordPayload.data.profile,
+                });
                 break;
             case InspectorBackend.Enum.Timeline.EventType.FireAnimationFrame:
-                record = new WI.ScriptTimelineRecord(WI.ScriptTimelineRecord.EventType.AnimationFrameFired, startTime, endTime, callFrames, sourceCodeLocation, parentRecordPayload.data.id, profileData);
+                record = new WI.ScriptTimelineRecord(target, WI.ScriptTimelineRecord.EventType.AnimationFrameFired, startTime, endTime, {
+                    stackTrace,
+                    sourceCodeLocation,
+                    details: parentRecordPayload.data.id,
+                    profilePayload: recordPayload.data.profile,
+                });
                 break;
             case InspectorBackend.Enum.Timeline.EventType.FunctionCall:
-                record = new WI.ScriptTimelineRecord(WI.ScriptTimelineRecord.EventType.ScriptEvaluated, startTime, endTime, callFrames, sourceCodeLocation, parentRecordPayload.data.id, profileData);
+                record = new WI.ScriptTimelineRecord(target, WI.ScriptTimelineRecord.EventType.ScriptEvaluated, startTime, endTime, {
+                    stackTrace,
+                    sourceCodeLocation,
+                    details: parentRecordPayload.data.id,
+                    profilePayload: recordPayload.data.profile,
+                });
                 break;
             case InspectorBackend.Enum.Timeline.EventType.RenderingFrame:
-                record = new WI.ScriptTimelineRecord(WI.ScriptTimelineRecord.EventType.ScriptEvaluated, startTime, endTime, callFrames, sourceCodeLocation, parentRecordPayload.data.id, profileData);
+                record = new WI.ScriptTimelineRecord(target, WI.ScriptTimelineRecord.EventType.ScriptEvaluated, startTime, endTime, {
+                    stackTrace,
+                    sourceCodeLocation,
+                    details: parentRecordPayload.data.id,
+                    profilePayload: recordPayload.data.profile,
+                });
                 break;
 
             default:
@@ -947,40 +1009,69 @@ WI.TimelineManager = class TimelineManager extends WI.Object
             }
 
             if (record) {
-                this._webTimelineScriptRecordsExpectingScriptProfilerEvents.push(record);
+                this._webTimelineScriptRecordsExpectingScriptProfilerEventsForTarget.getOrInitialize(target, []).push(record);
                 return record;
             }
             break;
 
-        case InspectorBackend.Enum.Timeline.EventType.ProbeSample:
+        case InspectorBackend.Enum.Timeline.EventType.ProbeSample: {
+            let probe = WI.debuggerManager.probeForIdentifier(recordPayload.data.probeId);
+            if (probe.breakpoint instanceof WI.JavaScriptBreakpoint)
+                sourceCodeLocation = probe.breakpoint.sourceCodeLocation;
+
             // Pass the startTime as the endTime since this record type has no duration.
-            sourceCodeLocation = WI.debuggerManager.probeForIdentifier(recordPayload.data.probeId).breakpoint.sourceCodeLocation;
-            return new WI.ScriptTimelineRecord(WI.ScriptTimelineRecord.EventType.ProbeSampleRecorded, startTime, startTime, callFrames, sourceCodeLocation, recordPayload.data.probeId);
+            return new WI.ScriptTimelineRecord(target, WI.ScriptTimelineRecord.EventType.ProbeSampleRecorded, startTime, startTime, {
+                stackTrace,
+                sourceCodeLocation,
+                details: recordPayload.data.probeId,
+            });
+        }
 
         case InspectorBackend.Enum.Timeline.EventType.TimerInstall:
             console.assert(isNaN(endTime));
 
             // Pass the startTime as the endTime since this record type has no duration.
             var timerDetails = {timerId: recordPayload.data.timerId, timeout: recordPayload.data.timeout, repeating: !recordPayload.data.singleShot};
-            return new WI.ScriptTimelineRecord(WI.ScriptTimelineRecord.EventType.TimerInstalled, startTime, startTime, callFrames, sourceCodeLocation, timerDetails);
+            return new WI.ScriptTimelineRecord(target, WI.ScriptTimelineRecord.EventType.TimerInstalled, startTime, startTime, {
+                stackTrace,
+                sourceCodeLocation,
+                details: timerDetails,
+            });
 
         case InspectorBackend.Enum.Timeline.EventType.TimerRemove:
             console.assert(isNaN(endTime));
 
             // Pass the startTime as the endTime since this record type has no duration.
-            return new WI.ScriptTimelineRecord(WI.ScriptTimelineRecord.EventType.TimerRemoved, startTime, startTime, callFrames, sourceCodeLocation, recordPayload.data.timerId);
+            return new WI.ScriptTimelineRecord(target, WI.ScriptTimelineRecord.EventType.TimerRemoved, startTime, startTime, {
+                stackTrace,
+                sourceCodeLocation,
+                details: recordPayload.data.timerId,
+            });
 
         case InspectorBackend.Enum.Timeline.EventType.RequestAnimationFrame:
             console.assert(isNaN(endTime));
 
             // Pass the startTime as the endTime since this record type has no duration.
-            return new WI.ScriptTimelineRecord(WI.ScriptTimelineRecord.EventType.AnimationFrameRequested, startTime, startTime, callFrames, sourceCodeLocation, recordPayload.data.id);
+            return new WI.ScriptTimelineRecord(target, WI.ScriptTimelineRecord.EventType.AnimationFrameRequested, startTime, startTime, {
+                stackTrace,
+                sourceCodeLocation,
+                details: recordPayload.data.id,
+            });
 
         case InspectorBackend.Enum.Timeline.EventType.CancelAnimationFrame:
             console.assert(isNaN(endTime));
 
             // Pass the startTime as the endTime since this record type has no duration.
-            return new WI.ScriptTimelineRecord(WI.ScriptTimelineRecord.EventType.AnimationFrameCanceled, startTime, startTime, callFrames, sourceCodeLocation, recordPayload.data.id);
+            return new WI.ScriptTimelineRecord(target, WI.ScriptTimelineRecord.EventType.AnimationFrameCanceled, startTime, startTime, {
+                stackTrace,
+                sourceCodeLocation,
+                details: recordPayload.data.id,
+            });
+
+        case InspectorBackend.Enum.Timeline.EventType.Screenshot:
+            console.assert(isNaN(endTime));
+
+            return new WI.ScreenshotsTimelineRecord(startTime, recordPayload.data.imageData);
 
         default:
             console.error("Missing handling of Timeline Event Type: " + recordPayload.type);
@@ -989,7 +1080,7 @@ WI.TimelineManager = class TimelineManager extends WI.Object
         return null;
     }
 
-    _processEvent(recordPayload, parentRecordPayload)
+    _processEvent(target, recordPayload, parentRecordPayload)
     {
         console.assert(this.isCapturing());
 
@@ -1007,7 +1098,7 @@ WI.TimelineManager = class TimelineManager extends WI.Object
             break;
 
         default:
-            return this._processRecord(recordPayload, parentRecordPayload);
+            return this._processRecord(target, recordPayload, parentRecordPayload);
         }
 
         return null;
@@ -1037,12 +1128,13 @@ WI.TimelineManager = class TimelineManager extends WI.Object
         this.dispatchEventToListeners(WI.TimelineManager.Event.RecordingLoaded, {oldRecording});
     }
 
-    _callFramesFromPayload(payload)
+    _stackTraceFromPayload(target, payload)
     {
-        if (!payload)
-            return null;
+        // COMPATIBILITY (macOS 13.0, iOS 16.0): `stackTrace` was an array of `Console.CallFrame`.
+        if (Array.isArray(payload))
+            payload = {callFrames: payload};
 
-        return payload.map((x) => WI.CallFrame.fromPayload(WI.assumingMainTarget(), x));
+        return WI.StackTrace.fromPayload(target, payload);
     }
 
     _addRecord(record)
@@ -1203,6 +1295,17 @@ WI.TimelineManager = class TimelineManager extends WI.Object
         this._addRecord(new WI.ResourceTimelineRecord(mainResource));
     }
 
+    _handleMessageAdded(event)
+    {
+        if (!this._enabled)
+            return;
+
+        let {message} = event.data;
+
+        if (WI.ScreenshotsInstrument.supported() && message.source === WI.ConsoleMessage.MessageSource.ConsoleAPI && message.type === WI.ConsoleMessage.MessageType.Image && message.level === WI.ConsoleMessage.MessageLevel.Log && message.messageText)
+            this._addRecord(new WI.ScreenshotsTimelineRecord(message.timestamp, message.messageText));
+    }
+
     _resourceWasAdded(event)
     {
         if (!this._enabled)
@@ -1221,8 +1324,10 @@ WI.TimelineManager = class TimelineManager extends WI.Object
         if (!this._enabled)
             return;
 
-        let {collection} = event.data;
-        this._addRecord(new WI.ScriptTimelineRecord(WI.ScriptTimelineRecord.EventType.GarbageCollected, collection.startTime, collection.endTime, null, null, collection));
+        let {target, collection} = event.data;
+        this._addRecord(new WI.ScriptTimelineRecord(target, WI.ScriptTimelineRecord.EventType.GarbageCollected, collection.startTime, collection.endTime, {
+            details: collection,
+        }));
     }
 
     _memoryPressure(event)
@@ -1257,11 +1362,11 @@ WI.TimelineManager = class TimelineManager extends WI.Object
         }
     }
 
-    _mergeScriptProfileRecords()
+    _mergeScriptProfileRecords(scriptProfilerRecords, webTimelineScriptRecordsExpectingScriptProfilerEvents)
     {
         let nextRecord = function(list) { return list.shift() || null; };
-        let nextWebTimelineRecord = nextRecord.bind(null, this._webTimelineScriptRecordsExpectingScriptProfilerEvents);
-        let nextScriptProfilerRecord = nextRecord.bind(null, this._scriptProfilerRecords);
+        let nextWebTimelineRecord = nextRecord.bind(null, webTimelineScriptRecordsExpectingScriptProfilerEvents);
+        let nextScriptProfilerRecord = nextRecord.bind(null, scriptProfilerRecords);
         let recordEnclosesRecord = function(record1, record2) {
             return record1.startTime <= record2.startTime && record1.endTime >= record2.endTime;
         };
@@ -1339,6 +1444,9 @@ WI.TimelineManager = class TimelineManager extends WI.Object
                     break;
                 case WI.TimelineRecord.Type.CPU:
                     instrumentSet.add(InspectorBackend.Enum.Timeline.Instrument.CPU);
+                    break;
+                case WI.TimelineRecord.Type.Screenshots:
+                    instrumentSet.add(InspectorBackend.Enum.Timeline.Instrument.Screenshot);
                     break;
                 case WI.TimelineRecord.Type.Memory:
                     instrumentSet.add(InspectorBackend.Enum.Timeline.Instrument.Memory);

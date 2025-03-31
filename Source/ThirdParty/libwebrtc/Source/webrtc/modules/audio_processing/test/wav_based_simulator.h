@@ -13,8 +13,11 @@
 
 #include <vector>
 
+#include "absl/base/nullability.h"
+#include "absl/strings/string_view.h"
+#include "api/audio/audio_processing.h"
+#include "api/scoped_refptr.h"
 #include "modules/audio_processing/test/audio_processing_simulator.h"
-#include "rtc_base/constructor_magic.h"
 
 namespace webrtc {
 namespace test {
@@ -22,12 +25,22 @@ namespace test {
 // Used to perform an audio processing simulation from wav files.
 class WavBasedSimulator final : public AudioProcessingSimulator {
  public:
-  WavBasedSimulator(const SimulationSettings& settings,
-                    std::unique_ptr<AudioProcessingBuilder> ap_builder);
+  WavBasedSimulator(
+      const SimulationSettings& settings,
+      absl::Nonnull<scoped_refptr<AudioProcessing>> audio_processing);
+
+  WavBasedSimulator() = delete;
+  WavBasedSimulator(const WavBasedSimulator&) = delete;
+  WavBasedSimulator& operator=(const WavBasedSimulator&) = delete;
+
   ~WavBasedSimulator() override;
 
   // Processes the WAV input.
   void Process() override;
+
+  // Only analyzes the data for the simulation, instead of perform any
+  // processing.
+  void Analyze() override;
 
  private:
   enum SimulationEventType {
@@ -42,11 +55,9 @@ class WavBasedSimulator final : public AudioProcessingSimulator {
   void PrepareReverseProcessStreamCall();
   static std::vector<SimulationEventType> GetDefaultEventChain();
   static std::vector<SimulationEventType> GetCustomEventChain(
-      const std::string& filename);
+      absl::string_view filename);
 
   std::vector<SimulationEventType> call_chain_;
-
-  RTC_DISALLOW_IMPLICIT_CONSTRUCTORS(WavBasedSimulator);
 };
 
 }  // namespace test

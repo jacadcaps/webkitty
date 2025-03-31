@@ -40,15 +40,18 @@ public:
     using ActiveDOMCallback::ActiveDOMCallback;
 
     virtual CallbackResult<void> handleEvent(double highResTimeMs, WebXRFrame&) = 0;
+    virtual CallbackResult<void> handleEventRethrowingException(double highResTimeMs, WebXRFrame&) = 0;
 
     unsigned callbackId() { ASSERT(m_id); return m_id; }
     void setCallbackId(unsigned id) { ASSERT(!m_id); m_id = id; }
-    void cancel() { m_cancelled = true; }
-    bool isCancelled() const { return m_cancelled; }
+    void setFiredOrCancelled() { m_firedOrCancelled = true; }
+    bool isFiredOrCancelled() const { return m_firedOrCancelled; }
 
 private:
+    virtual bool hasCallback() const = 0;
+
     unsigned m_id { 0 };
-    bool m_cancelled { false };
+    bool m_firedOrCancelled { false };
 };
 
 } // namespace WebCore

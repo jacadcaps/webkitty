@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,6 +30,7 @@
 #import "WebDatabaseManagerInternal.h"
 #import "WebLocalizableStringsInternal.h"
 #import "WebPlatformStrategies.h"
+#import "WebPreferencesDefinitions.h"
 #import "WebViewPrivate.h"
 #import <JavaScriptCore/InitializeThreading.h>
 #import <WebCore/BreakLines.h>
@@ -38,6 +39,7 @@
 #import <WebCore/Settings.h>
 #import <WebCore/WebBackgroundTaskController.h>
 #import <WebCore/WebCoreThreadSystemInterface.h>
+#import <wtf/ObjCRuntimeExtras.h>
 #import <wtf/spi/darwin/dyldSPI.h>
 
 using namespace WebCore;
@@ -54,9 +56,8 @@ static void LoadWebLocalizedStringsTimerCallback(CFRunLoopTimerRef timer, void *
 
 static void LoadWebLocalizedStrings()
 {
-    CFRunLoopTimerRef timer = CFRunLoopTimerCreate(kCFAllocatorDefault, CFAbsoluteTimeGetCurrent(), 0, 0, 0, &LoadWebLocalizedStringsTimerCallback, NULL);
-    CFRunLoopAddTimer(CFRunLoopGetCurrent(), timer, kCFRunLoopCommonModes);
-    CFRelease(timer);
+    auto timer = adoptCF(CFRunLoopTimerCreate(kCFAllocatorDefault, CFAbsoluteTimeGetCurrent(), 0, 0, 0, &LoadWebLocalizedStringsTimerCallback, NULL));
+    CFRunLoopAddTimer(CFRunLoopGetCurrent(), timer.get(), kCFRunLoopCommonModes);
 }
 
 void WebKitInitialize(void)
@@ -81,22 +82,17 @@ void WebKitInitialize(void)
     WebCore::initializeHTTPConnectionSettingsOnStartup();
 }
 
-void WebKitSetIsClassic(BOOL flag)
-{
-    // FIXME: Remove this once it stops being called.
-}
-
 float WebKitGetMinimumZoomFontSize(void)
 {
-    return WebCore::Settings::defaultMinimumZoomFontSize();
+    return DEFAULT_VALUE_FOR_MinimumZoomFontSize;
 }
 
 int WebKitGetLastLineBreakInBuffer(UChar *characters, int position, int length)
 {
     unsigned lastBreakPos = position;
     unsigned breakPos = 0;
-    LazyLineBreakIterator breakIterator(StringView(characters, length));
-    while (static_cast<int>(breakPos = nextBreakablePosition(breakIterator, breakPos)) < position)
+    CachedLineBreakIteratorFactory lineBreakIteratorFactory(StringView { std::span(characters, length) });
+    while (static_cast<int>(breakPos = BreakLines::nextBreakablePosition(lineBreakIteratorFactory, breakPos)) < position)
         lastBreakPos = breakPos++;
     return static_cast<int>(lastBreakPos) < position ? lastBreakPos : INT_MAX;
 }
@@ -140,13 +136,11 @@ CGPathRef WebKitCreatePathWithShrinkWrappedRects(NSArray* cgRects, CGFloat radiu
     Vector<FloatRect> rects;
     rects.reserveInitialCapacity([cgRects count]);
 
-    const char* cgRectEncodedString = @encode(CGRect);
-
     for (NSValue *rectValue in cgRects) {
         CGRect cgRect;
         [rectValue getValue:&cgRect];
 
-        if (strcmp(cgRectEncodedString, rectValue.objCType))
+        if (!nsValueHasObjCType<CGRect>(rectValue))
             return nullptr;
         rects.append(cgRect);
     }

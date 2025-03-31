@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2019 Apple Inc.  All rights reserved.
+ * Copyright (C) 2018-2021 Apple Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,8 +27,9 @@
 
 #include "CSSPropertyNames.h"
 #include "QualifiedName.h"
-#include <wtf/RefCounted.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
@@ -52,8 +53,8 @@ enum class CalcMode : uint8_t {
     Spline
 };
 
-class SVGAttributeAnimator : public RefCounted<SVGAttributeAnimator>, public CanMakeWeakPtr<SVGAttributeAnimator> {
-    WTF_MAKE_FAST_ALLOCATED;
+class SVGAttributeAnimator : public RefCountedAndCanMakeWeakPtr<SVGAttributeAnimator> {
+    WTF_MAKE_TZONE_ALLOCATED(SVGAttributeAnimator);
 public:
     SVGAttributeAnimator(const QualifiedName& attributeName)
         : m_attributeName(attributeName)
@@ -64,30 +65,30 @@ public:
 
     virtual bool isDiscrete() const { return false; }
 
-    virtual void setFromAndToValues(SVGElement*, const String&, const String&) { }
-    virtual void setFromAndByValues(SVGElement*, const String&, const String&) { }
+    virtual void setFromAndToValues(SVGElement&, const String&, const String&) { }
+    virtual void setFromAndByValues(SVGElement&, const String&, const String&) { }
     virtual void setToAtEndOfDurationValue(const String&) { }
 
-    virtual void start(SVGElement*) = 0;
-    virtual void animate(SVGElement*, float progress, unsigned repeatCount) = 0;
-    virtual void apply(SVGElement*) = 0;
-    virtual void stop(SVGElement* targetElement) = 0;
+    virtual void start(SVGElement&) = 0;
+    virtual void animate(SVGElement&, float progress, unsigned repeatCount) = 0;
+    virtual void apply(SVGElement&) = 0;
+    virtual void stop(SVGElement& targetElement) = 0;
 
-    virtual Optional<float> calculateDistance(SVGElement*, const String&, const String&) const { return { }; }
+    virtual std::optional<float> calculateDistance(SVGElement&, const String&, const String&) const { return { }; }
 
 protected:
-    bool isAnimatedStylePropertyAniamtor(const SVGElement*) const;
+    bool isAnimatedStylePropertyAnimator(const SVGElement&) const;
 
-    static void invalidateStyle(SVGElement*);
-    static void applyAnimatedStylePropertyChange(SVGElement*, CSSPropertyID, const String& value);
-    static void removeAnimatedStyleProperty(SVGElement*, CSSPropertyID);
-    static void applyAnimatedPropertyChange(SVGElement*, const QualifiedName&);
+    static void invalidateStyle(SVGElement&);
+    static void applyAnimatedStylePropertyChange(SVGElement&, CSSPropertyID, const String& value);
+    static void removeAnimatedStyleProperty(SVGElement&, CSSPropertyID);
+    static void applyAnimatedPropertyChange(SVGElement&, const QualifiedName&);
 
-    void applyAnimatedStylePropertyChange(SVGElement*, const String& value);
-    void removeAnimatedStyleProperty(SVGElement*);
-    void applyAnimatedPropertyChange(SVGElement*);
+    void applyAnimatedStylePropertyChange(SVGElement&, const String& value);
+    void removeAnimatedStyleProperty(SVGElement&);
+    void applyAnimatedPropertyChange(SVGElement&);
 
     const QualifiedName& m_attributeName;
 };
 
-}
+} // namespace WebCore

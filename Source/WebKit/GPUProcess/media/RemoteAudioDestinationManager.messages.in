@@ -23,15 +23,20 @@
 
 #if ENABLE(GPU_PROCESS) && ENABLE(WEB_AUDIO)
 
-messages -> RemoteAudioDestinationManager NotRefCounted {
+[
+    DispatchedFrom=WebContent,
+    DispatchedTo=GPU,
+    EnabledBy=WebAudioEnabled
+]
+messages -> RemoteAudioDestinationManager {
+    CreateAudioDestination(WebKit::RemoteAudioDestinationIdentifier identifier, String inputDeviceId, uint32_t numberOfInputChannels, uint32_t numberOfOutputChannels, float sampleRate, float hardwareSampleRate, IPC::Semaphore renderSemaphore, WebCore::SharedMemory::Handle frameCount) -> (size_t audioUnitLatency)
+    DeleteAudioDestination(WebKit::RemoteAudioDestinationIdentifier identifier)
 
-    CreateAudioDestination(String inputDeviceId, uint32_t numberOfInputChannels, uint32_t numberOfOutputChannels, float sampleRate) -> (WebKit::RemoteAudioDestinationIdentifier id, unsigned framesPerBuffer) Synchronous
-
-    DeleteAudioDestination(WebKit::RemoteAudioDestinationIdentifier id) -> () Async
-
-    StartAudioDestination(WebKit::RemoteAudioDestinationIdentifier id) -> (bool isPlaying) Synchronous
-    StopAudioDestination(WebKit::RemoteAudioDestinationIdentifier id) -> (bool isPlaying) Synchronous
-
+    StartAudioDestination(WebKit::RemoteAudioDestinationIdentifier identifier) -> (bool isPlaying, size_t audioUnitLatency)
+    StopAudioDestination(WebKit::RemoteAudioDestinationIdentifier identifier) -> (bool isPlaying)
+#if PLATFORM(COCOA)
+    AudioSamplesStorageChanged(WebKit::RemoteAudioDestinationIdentifier identifier, struct WebKit::ConsumerSharedCARingBufferHandle storageHandle)
+#endif
 }
 
 #endif

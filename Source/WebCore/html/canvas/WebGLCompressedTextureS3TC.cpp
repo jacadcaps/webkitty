@@ -26,46 +26,35 @@
 #include "config.h"
 
 #if ENABLE(WEBGL)
-
 #include "WebGLCompressedTextureS3TC.h"
 
-#include "ExtensionsGL.h"
-#include "WebGLRenderingContextBase.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WebGLCompressedTextureS3TC::WebGLCompressedTextureS3TC(WebGLRenderingContextBase& context)
-    : WebGLExtension(context)
-{
-    auto& extensions = context.graphicsContextGL()->getExtensions();
-    extensions.ensureEnabled("GL_EXT_texture_compression_dxt1");
-    extensions.ensureEnabled("GL_ANGLE_texture_compression_dxt3");
-    extensions.ensureEnabled("GL_ANGLE_texture_compression_dxt5");
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(WebGLCompressedTextureS3TC);
 
-    context.addCompressedTextureFormat(ExtensionsGL::COMPRESSED_RGB_S3TC_DXT1_EXT);
-    context.addCompressedTextureFormat(ExtensionsGL::COMPRESSED_RGBA_S3TC_DXT1_EXT);
-    context.addCompressedTextureFormat(ExtensionsGL::COMPRESSED_RGBA_S3TC_DXT3_EXT);
-    context.addCompressedTextureFormat(ExtensionsGL::COMPRESSED_RGBA_S3TC_DXT5_EXT);
+WebGLCompressedTextureS3TC::WebGLCompressedTextureS3TC(WebGLRenderingContextBase& context)
+    : WebGLExtension(context, WebGLExtensionName::WebGLCompressedTextureS3TC)
+{
+    RefPtr gcgl = context.graphicsContextGL();
+    gcgl->ensureExtensionEnabled("GL_EXT_texture_compression_dxt1"_s);
+    gcgl->ensureExtensionEnabled("GL_ANGLE_texture_compression_dxt3"_s);
+    gcgl->ensureExtensionEnabled("GL_ANGLE_texture_compression_dxt5"_s);
+
+    context.addCompressedTextureFormat(GraphicsContextGL::COMPRESSED_RGB_S3TC_DXT1_EXT);
+    context.addCompressedTextureFormat(GraphicsContextGL::COMPRESSED_RGBA_S3TC_DXT1_EXT);
+    context.addCompressedTextureFormat(GraphicsContextGL::COMPRESSED_RGBA_S3TC_DXT3_EXT);
+    context.addCompressedTextureFormat(GraphicsContextGL::COMPRESSED_RGBA_S3TC_DXT5_EXT);
 }
 
 WebGLCompressedTextureS3TC::~WebGLCompressedTextureS3TC() = default;
 
-WebGLExtension::ExtensionName WebGLCompressedTextureS3TC::getName() const
+bool WebGLCompressedTextureS3TC::supported(GraphicsContextGL& context)
 {
-    return WebGLCompressedTextureS3TCName;
-}
-
-bool WebGLCompressedTextureS3TC::supported(WebGLRenderingContextBase& context)
-{
-    auto& extensions = context.graphicsContextGL()->getExtensions();
-#if USE(ANGLE)
-    return extensions.supports("GL_EXT_texture_compression_dxt1")
-        && extensions.supports("GL_ANGLE_texture_compression_dxt3")
-        && extensions.supports("GL_ANGLE_texture_compression_dxt5");
-#else
-    return extensions.supports("GL_EXT_texture_compression_s3tc")
-        || extensions.supports("GL_EXT_texture_compression_dxt1");
-#endif
+    return context.supportsExtension("GL_EXT_texture_compression_dxt1"_s)
+        && context.supportsExtension("GL_ANGLE_texture_compression_dxt3"_s)
+        && context.supportsExtension("GL_ANGLE_texture_compression_dxt5"_s);
 }
 
 } // namespace WebCore

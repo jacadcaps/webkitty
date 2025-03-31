@@ -28,12 +28,17 @@
 
 #include "WebPageProxy.h"
 #include "WebProcessProxy.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
 
-std::unique_ptr<ProcessThrottler::BackgroundActivity> UIRemoteObjectRegistry::backgroundActivity(ASCIILiteral name)
+WTF_MAKE_TZONE_ALLOCATED_IMPL(UIRemoteObjectRegistry);
+
+RefPtr<ProcessThrottler::BackgroundActivity> UIRemoteObjectRegistry::backgroundActivity(ASCIILiteral name)
 {
-    return m_page.process().throttler().backgroundActivity(name).moveToUniquePtr();
+    if (RefPtr page = m_page.get())
+        return page->protectedLegacyMainFrameProcess()->protectedThrottler()->backgroundActivity(name);
+    return nullptr;
 }
 
 UIRemoteObjectRegistry::UIRemoteObjectRegistry(_WKRemoteObjectRegistry *remoteObjectRegistry, WebPageProxy& page)
@@ -42,22 +47,32 @@ UIRemoteObjectRegistry::UIRemoteObjectRegistry(_WKRemoteObjectRegistry *remoteOb
 {
 }
 
+UIRemoteObjectRegistry::~UIRemoteObjectRegistry() = default;
+
 void UIRemoteObjectRegistry::sendInvocation(const RemoteObjectInvocation& invocation)
 {
+    RefPtr page = m_page.get();
+    if (!page)
+        return;
+
     // For backward-compatibility, support invoking injected bundle methods before having done any load in the WebView.
-    m_page.launchInitialProcessIfNecessary();
+    page->launchInitialProcessIfNecessary();
 
     RemoteObjectRegistry::sendInvocation(invocation);
 }
 
-IPC::MessageSender& UIRemoteObjectRegistry::messageSender()
+auto UIRemoteObjectRegistry::messageSender() -> std::optional<MessageSender>
 {
-    return m_page;
+    if (RefPtr page = m_page.get())
+        return page->legacyMainFrameProcess();
+    return std::nullopt;
 }
 
-uint64_t UIRemoteObjectRegistry::messageDestinationID()
+std::optional<uint64_t> UIRemoteObjectRegistry::messageDestinationID()
 {
-    return m_page.webPageID().toUInt64();
+    if (RefPtr page = m_page.get())
+        return page->webPageIDInMainFrameProcess().toUInt64();
+    return std::nullopt;
 }
 
 } // namespace WebKit

@@ -11,29 +11,22 @@
 #ifndef RTC_BASE_EXPERIMENTS_STABLE_TARGET_RATE_EXPERIMENT_H_
 #define RTC_BASE_EXPERIMENTS_STABLE_TARGET_RATE_EXPERIMENT_H_
 
-#include "api/transport/webrtc_key_value_config.h"
+#include "api/field_trials_view.h"
 #include "rtc_base/experiments/field_trial_parser.h"
 
 namespace webrtc {
 
 class StableTargetRateExperiment {
  public:
+  explicit StableTargetRateExperiment(const FieldTrialsView& field_trials);
   StableTargetRateExperiment(const StableTargetRateExperiment&);
   StableTargetRateExperiment(StableTargetRateExperiment&&);
-  static StableTargetRateExperiment ParseFromFieldTrials();
-  static StableTargetRateExperiment ParseFromKeyValueConfig(
-      const WebRtcKeyValueConfig* const key_value_config);
 
   bool IsEnabled() const;
   double GetVideoHysteresisFactor() const;
   double GetScreenshareHysteresisFactor() const;
 
  private:
-  explicit StableTargetRateExperiment(
-      const WebRtcKeyValueConfig* const key_value_config,
-      double default_video_hysteresis,
-      double default_screenshare_hysteresis);
-
   FieldTrialParameter<bool> enabled_;
   FieldTrialParameter<double> video_hysteresis_factor_;
   FieldTrialParameter<double> screenshare_hysteresis_factor_;

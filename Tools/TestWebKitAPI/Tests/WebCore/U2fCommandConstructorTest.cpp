@@ -1,5 +1,5 @@
 // Copyright 2018 The Chromium Authors. All rights reserved.
-// Copyright (C) 2019 Apple Inc. All rights reserved.
+// Copyright (C) 2019-2021 Apple Inc. All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
 // modification, are permitted provided that the following conditions are
@@ -32,6 +32,7 @@
 #if ENABLE(WEB_AUTHN)
 
 #include "FidoTestData.h"
+#include <WebCore/AuthenticatorSelectionCriteria.h>
 #include <WebCore/FidoConstants.h>
 #include <WebCore/PublicKeyCredentialCreationOptions.h>
 #include <WebCore/PublicKeyCredentialRequestOptions.h>
@@ -45,22 +46,21 @@ using namespace fido;
 
 PublicKeyCredentialCreationOptions constructMakeCredentialRequest()
 {
-    PublicKeyCredentialCreationOptions::RpEntity rp;
-    rp.id = "acme.com";
-    rp.name = "acme.com";
+    PublicKeyCredentialRpEntity rp;
+    rp.id = "acme.com"_s;
+    rp.name = "acme.com"_s;
 
-    PublicKeyCredentialCreationOptions::UserEntity user;
-    user.idVector = convertBytesToVector(TestData::kUserId, sizeof(TestData::kUserId));
-    user.name = "johnpsmith@example.com";
-    user.displayName = "John P. Smith";
-    user.icon = "https://pics.acme.com/00/p/aBjjjpqPb.png";
+    PublicKeyCredentialUserEntity user;
+    user.id = WebCore::toBufferSource(TestData::kUserId);
+    user.name = "johnpsmith@example.com"_s;
+    user.displayName = "John P. Smith"_s;
+    user.icon = "https://pics.acme.com/00/p/aBjjjpqPb.png"_s;
 
-    PublicKeyCredentialCreationOptions::Parameters params;
+    PublicKeyCredentialParameters params;
     params.type = PublicKeyCredentialType::PublicKey;
     params.alg = COSE::ES256;
 
     AuthenticationExtensionsClientInputs extensions;
-    extensions.googleLegacyAppidSupport = false;
 
     PublicKeyCredentialCreationOptions options;
     options.rp = WTFMove(rp);
@@ -71,17 +71,10 @@ PublicKeyCredentialCreationOptions constructMakeCredentialRequest()
     return options;
 }
 
-PublicKeyCredentialCreationOptions constructMakeCredentialRequestWithGoogleLegacyAppidSupport()
-{
-    auto options = constructMakeCredentialRequest();
-    options.extensions->googleLegacyAppidSupport = true;
-    return options;
-}
-
 PublicKeyCredentialRequestOptions constructGetAssertionRequest()
 {
     PublicKeyCredentialRequestOptions options;
-    options.rpId = "acme.com";
+    options.rpId = "acme.com"_s;
     return options;
 }
 
@@ -91,20 +84,9 @@ TEST(U2fCommandConstructorTest, TestConvertCtapMakeCredentialToU2fRegister)
 
     EXPECT_TRUE(isConvertibleToU2fRegisterCommand(makeCredentialParam));
 
-    const auto u2fRegisterCommand = convertToU2fRegisterCommand(convertBytesToVector(TestData::kClientDataHash, sizeof(TestData::kClientDataHash)), makeCredentialParam);
+    const auto u2fRegisterCommand = convertToU2fRegisterCommand(std::span { TestData::kClientDataHash }, makeCredentialParam);
     ASSERT_TRUE(u2fRegisterCommand);
-    EXPECT_EQ(*u2fRegisterCommand, convertBytesToVector(TestData::kU2fRegisterCommandApdu, sizeof(TestData::kU2fRegisterCommandApdu)));
-}
-
-TEST(U2fCommandConstructorTest, TestConvertCtapMakeCredentialToU2fRegisterWithGoogleLegacyAppidSupport)
-{
-    const auto makeCredentialParam = constructMakeCredentialRequestWithGoogleLegacyAppidSupport();
-
-    EXPECT_TRUE(isConvertibleToU2fRegisterCommand(makeCredentialParam));
-
-    const auto u2fRegisterCommand = convertToU2fRegisterCommand(convertBytesToVector(TestData::kClientDataHash, sizeof(TestData::kClientDataHash)), makeCredentialParam);
-    ASSERT_TRUE(u2fRegisterCommand);
-    EXPECT_EQ(*u2fRegisterCommand, convertBytesToVector(TestData::kU2fRegisterCommandApduWithGoogleLegacyAppidSupport, sizeof(TestData::kU2fRegisterCommandApduWithGoogleLegacyAppidSupport)));
+    EXPECT_EQ(*u2fRegisterCommand, Vector<uint8_t>(TestData::kU2fRegisterCommandApdu));
 }
 
 TEST(U2fCommandConstructorTest, TestConvertCtapMakeCredentialToU2fCheckOnlySign)
@@ -112,15 +94,15 @@ TEST(U2fCommandConstructorTest, TestConvertCtapMakeCredentialToU2fCheckOnlySign)
     auto makeCredentialParam = constructMakeCredentialRequest();
     PublicKeyCredentialDescriptor credentialDescriptor;
     credentialDescriptor.type = PublicKeyCredentialType::PublicKey;
-    credentialDescriptor.idVector = convertBytesToVector(TestData::kU2fSignKeyHandle, sizeof(TestData::kU2fSignKeyHandle));
+    credentialDescriptor.id = WebCore::toBufferSource(TestData::kU2fSignKeyHandle).variant();
     Vector<PublicKeyCredentialDescriptor> excludeList;
     excludeList.append(credentialDescriptor);
     makeCredentialParam.excludeCredentials = WTFMove(excludeList);
     EXPECT_TRUE(isConvertibleToU2fRegisterCommand(makeCredentialParam));
 
-    const auto u2fCheckOnlySign = convertToU2fCheckOnlySignCommand(convertBytesToVector(TestData::kClientDataHash, sizeof(TestData::kClientDataHash)), makeCredentialParam, credentialDescriptor);
+    const auto u2fCheckOnlySign = convertToU2fCheckOnlySignCommand(std::array { TestData::kClientDataHash }, makeCredentialParam, credentialDescriptor);
     ASSERT_TRUE(u2fCheckOnlySign);
-    EXPECT_EQ(*u2fCheckOnlySign, convertBytesToVector(TestData::kU2fCheckOnlySignCommandApdu, sizeof(TestData::kU2fCheckOnlySignCommandApdu)));
+    EXPECT_EQ(*u2fCheckOnlySign, Vector<uint8_t> { TestData::kU2fCheckOnlySignCommandApdu });
 }
 
 TEST(U2fCommandConstructorTest, TestConvertCtapMakeCredentialToU2fCheckOnlySignWithInvalidCredentialType)
@@ -128,29 +110,29 @@ TEST(U2fCommandConstructorTest, TestConvertCtapMakeCredentialToU2fCheckOnlySignW
     auto makeCredentialParam = constructMakeCredentialRequest();
     PublicKeyCredentialDescriptor credentialDescriptor;
     credentialDescriptor.type = static_cast<PublicKeyCredentialType>(-1);
-    credentialDescriptor.idVector = convertBytesToVector(TestData::kU2fSignKeyHandle, sizeof(TestData::kU2fSignKeyHandle));
+    credentialDescriptor.id = WebCore::toBufferSource(TestData::kU2fSignKeyHandle).variant();
     Vector<PublicKeyCredentialDescriptor> excludeList;
     excludeList.append(credentialDescriptor);
     makeCredentialParam.excludeCredentials = WTFMove(excludeList);
     EXPECT_TRUE(isConvertibleToU2fRegisterCommand(makeCredentialParam));
 
-    const auto u2fCheckOnlySign = convertToU2fCheckOnlySignCommand(convertBytesToVector(TestData::kClientDataHash, sizeof(TestData::kClientDataHash)), makeCredentialParam, credentialDescriptor);
+    const auto u2fCheckOnlySign = convertToU2fCheckOnlySignCommand(std::span { TestData::kClientDataHash }, makeCredentialParam, credentialDescriptor);
     EXPECT_FALSE(u2fCheckOnlySign);
 }
 
 TEST(U2fCommandConstructorTest, TestU2fRegisterCredentialAlgorithmRequirement)
 {
-    PublicKeyCredentialCreationOptions::RpEntity rp;
-    rp.id = "acme.com";
-    rp.name = "acme.com";
+    PublicKeyCredentialRpEntity rp;
+    rp.id = "acme.com"_s;
+    rp.name = "acme.com"_s;
 
-    PublicKeyCredentialCreationOptions::UserEntity user;
-    user.idVector = convertBytesToVector(TestData::kUserId, sizeof(TestData::kUserId));
-    user.name = "johnpsmith@example.com";
-    user.displayName = "John P. Smith";
-    user.icon = "https://pics.acme.com/00/p/aBjjjpqPb.png";
+    PublicKeyCredentialUserEntity user;
+    user.id = WebCore::toBufferSource(TestData::kUserId);
+    user.name = "johnpsmith@example.com"_s;
+    user.displayName = "John P. Smith"_s;
+    user.icon = "https://pics.acme.com/00/p/aBjjjpqPb.png"_s;
 
-    PublicKeyCredentialCreationOptions::Parameters params;
+    PublicKeyCredentialParameters params;
     params.type = PublicKeyCredentialType::PublicKey;
     params.alg = -257;
 
@@ -165,7 +147,7 @@ TEST(U2fCommandConstructorTest, TestU2fRegisterCredentialAlgorithmRequirement)
 TEST(U2fCommandConstructorTest, TestU2fRegisterUserVerificationRequirement)
 {
     auto makeCredentialParam = constructMakeCredentialRequest();
-    PublicKeyCredentialCreationOptions::AuthenticatorSelectionCriteria selection;
+    AuthenticatorSelectionCriteria selection;
     selection.userVerification = UserVerificationRequirement::Required;
     makeCredentialParam.authenticatorSelection = WTFMove(selection);
 
@@ -175,7 +157,7 @@ TEST(U2fCommandConstructorTest, TestU2fRegisterUserVerificationRequirement)
 TEST(U2fCommandConstructorTest, TestU2fRegisterResidentKeyRequirement)
 {
     auto makeCredentialParam = constructMakeCredentialRequest();
-    PublicKeyCredentialCreationOptions::AuthenticatorSelectionCriteria selection;
+    AuthenticatorSelectionCriteria selection;
     selection.requireResidentKey = true;
     makeCredentialParam.authenticatorSelection = WTFMove(selection);
 
@@ -187,15 +169,15 @@ TEST(U2fCommandConstructorTest, TestConvertCtapGetAssertionToU2fSignRequest)
     auto getAssertionReq = constructGetAssertionRequest();
     PublicKeyCredentialDescriptor credentialDescriptor;
     credentialDescriptor.type = PublicKeyCredentialType::PublicKey;
-    credentialDescriptor.idVector = convertBytesToVector(TestData::kU2fSignKeyHandle, sizeof(TestData::kU2fSignKeyHandle));
+    credentialDescriptor.id = WebCore::toBufferSource(TestData::kU2fSignKeyHandle);
     Vector<PublicKeyCredentialDescriptor> allowedList;
     allowedList.append(WTFMove(credentialDescriptor));
     getAssertionReq.allowCredentials = WTFMove(allowedList);
     EXPECT_TRUE(isConvertibleToU2fSignCommand(getAssertionReq));
 
-    const auto u2fSignCommand = convertToU2fSignCommand(convertBytesToVector(TestData::kClientDataHash, sizeof(TestData::kClientDataHash)), getAssertionReq, convertBytesToVector(TestData::kU2fSignKeyHandle, sizeof(TestData::kU2fSignKeyHandle)));
+    const auto u2fSignCommand = convertToU2fSignCommand(std::span { TestData::kClientDataHash }, getAssertionReq, WebCore::toBufferSource(TestData::kU2fSignKeyHandle));
     ASSERT_TRUE(u2fSignCommand);
-    EXPECT_EQ(*u2fSignCommand, convertBytesToVector(TestData::kU2fSignCommandApdu, sizeof(TestData::kU2fSignCommandApdu)));
+    EXPECT_EQ(*u2fSignCommand, Vector<uint8_t> { TestData::kU2fSignCommandApdu });
 }
 
 TEST(U2fCommandConstructorTest, TestConvertCtapGetAssertionWithAppIDToU2fSignRequest)
@@ -203,7 +185,7 @@ TEST(U2fCommandConstructorTest, TestConvertCtapGetAssertionWithAppIDToU2fSignReq
     auto getAssertionReq = constructGetAssertionRequest();
     PublicKeyCredentialDescriptor credentialDescriptor;
     credentialDescriptor.type = PublicKeyCredentialType::PublicKey;
-    credentialDescriptor.idVector = convertBytesToVector(TestData::kU2fSignKeyHandle, sizeof(TestData::kU2fSignKeyHandle));
+    credentialDescriptor.id = WebCore::toBufferSource(TestData::kU2fSignKeyHandle);
     Vector<PublicKeyCredentialDescriptor> allowedList;
     allowedList.append(WTFMove(credentialDescriptor));
     getAssertionReq.allowCredentials = WTFMove(allowedList);
@@ -211,12 +193,12 @@ TEST(U2fCommandConstructorTest, TestConvertCtapGetAssertionWithAppIDToU2fSignReq
 
     // AppID
     WebCore::AuthenticationExtensionsClientInputs extensions;
-    extensions.appid = "https://www.example.com/appid";
+    extensions.appid = "https://www.example.com/appid"_s;
     getAssertionReq.extensions = WTFMove(extensions);
 
-    const auto u2fSignCommand = convertToU2fSignCommand(convertBytesToVector(TestData::kClientDataHash, sizeof(TestData::kClientDataHash)), getAssertionReq, convertBytesToVector(TestData::kU2fSignKeyHandle, sizeof(TestData::kU2fSignKeyHandle)), true);
+    const auto u2fSignCommand = convertToU2fSignCommand(std::span { TestData::kClientDataHash }, getAssertionReq, WebCore::toBufferSource(TestData::kU2fSignKeyHandle), true);
     ASSERT_TRUE(u2fSignCommand);
-    EXPECT_EQ(*u2fSignCommand, convertBytesToVector(TestData::kU2fAppIDSignCommandApdu, sizeof(TestData::kU2fAppIDSignCommandApdu)));
+    EXPECT_EQ(*u2fSignCommand, Vector<uint8_t> { TestData::kU2fAppIDSignCommandApdu });
 }
 
 TEST(U2fCommandConstructorTest, TestU2fSignAllowListRequirement)
@@ -230,7 +212,7 @@ TEST(U2fCommandConstructorTest, TestU2fSignUserVerificationRequirement)
     auto getAssertionReq = constructGetAssertionRequest();
     PublicKeyCredentialDescriptor credentialDescriptor;
     credentialDescriptor.type = PublicKeyCredentialType::PublicKey;
-    credentialDescriptor.idVector = convertBytesToVector(TestData::kU2fSignKeyHandle, sizeof(TestData::kU2fSignKeyHandle));
+    credentialDescriptor.id = WebCore::toBufferSource(TestData::kU2fSignKeyHandle);
     Vector<PublicKeyCredentialDescriptor> allowedList;
     allowedList.append(WTFMove(credentialDescriptor));
     getAssertionReq.allowCredentials = WTFMove(allowedList);
@@ -244,24 +226,24 @@ TEST(U2fCommandConstructorTest, TestCreateSignWithIncorrectKeyHandle)
     auto getAssertionReq = constructGetAssertionRequest();
     PublicKeyCredentialDescriptor credentialDescriptor;
     credentialDescriptor.type = PublicKeyCredentialType::PublicKey;
-    credentialDescriptor.idVector = convertBytesToVector(TestData::kU2fSignKeyHandle, sizeof(TestData::kU2fSignKeyHandle));
+    credentialDescriptor.id = WebCore::toBufferSource(TestData::kU2fSignKeyHandle);
     Vector<PublicKeyCredentialDescriptor> allowedList;
     allowedList.append(WTFMove(credentialDescriptor));
     getAssertionReq.allowCredentials = WTFMove(allowedList);
     ASSERT_TRUE(isConvertibleToU2fSignCommand(getAssertionReq));
 
     Vector<uint8_t> keyHandle(kMaxKeyHandleLength, 0xff);
-    const auto validSignCommand = convertToU2fSignCommand(convertBytesToVector(TestData::kClientDataHash, sizeof(TestData::kClientDataHash)), getAssertionReq, keyHandle);
+    const auto validSignCommand = convertToU2fSignCommand(std::span { TestData::kClientDataHash }, getAssertionReq, WebCore::toBufferSource(keyHandle.span()));
     EXPECT_TRUE(validSignCommand);
 
     keyHandle.append(0xff);
-    const auto invalidSignCommand = convertToU2fSignCommand(convertBytesToVector(TestData::kClientDataHash, sizeof(TestData::kClientDataHash)), getAssertionReq, keyHandle);
+    const auto invalidSignCommand = convertToU2fSignCommand(std::span { TestData::kClientDataHash }, getAssertionReq, WebCore::toBufferSource(keyHandle.span()));
     EXPECT_FALSE(invalidSignCommand);
 }
 
 TEST(U2fCommandConstructorTest, TestConstructBogusU2fRegistrationCommand)
 {
-    EXPECT_EQ(constructBogusU2fRegistrationCommand(), convertBytesToVector(TestData::kU2fFakeRegisterCommand, sizeof(TestData::kU2fFakeRegisterCommand)));
+    EXPECT_EQ(constructBogusU2fRegistrationCommand(), Vector<uint8_t> { TestData::kU2fFakeRegisterCommand });
 }
 
 } // namespace TestWebKitAPI

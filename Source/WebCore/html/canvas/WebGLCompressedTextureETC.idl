@@ -27,9 +27,8 @@
 
 [
     Conditional=WEBGL,
-    DoNotCheckConstants,
-    GenerateIsReachable=ImplWebGLRenderingContext,
-    NoInterfaceObject,
+    GenerateIsReachable,
+    LegacyNoInterfaceObject,
 ] interface WebGLCompressedTextureETC {
     /* Compressed Texture Format */
     const unsigned long COMPRESSED_R11_EAC                        = 0x9270;

@@ -32,11 +32,12 @@
 
 #include "BlobResourceHandle.h"
 #include "ExceptionCode.h"
-#include <wtf/URL.h>
-#include "TextEncoding.h"
 #include "ThreadableLoaderClient.h"
+#include "URLKeepingBlobAlive.h"
+#include <pal/text/TextEncoding.h>
 #include <wtf/Forward.h>
-#include <wtf/Optional.h>
+#include <wtf/URL.h>
+#include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
 
 namespace JSC {
@@ -51,14 +52,17 @@ class ScriptExecutionContext;
 class TextResourceDecoder;
 class ThreadableLoader;
 
-class FileReaderLoader : public ThreadableLoaderClient {
+class FileReaderLoader final : public ThreadableLoaderClient {
+    WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(Loader);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(FileReaderLoader);
 public:
     enum ReadType {
         ReadAsArrayBuffer,
         ReadAsBinaryString,
         ReadAsBlob,
         ReadAsText,
-        ReadAsDataURL
+        ReadAsDataURL,
+        ReadAsBinaryChunks
     };
 
     // If client is given, do the loading asynchronously. Otherwise, load synchronously.
@@ -66,24 +70,27 @@ public:
     ~FileReaderLoader();
 
     WEBCORE_EXPORT void start(ScriptExecutionContext*, Blob&);
+    void start(ScriptExecutionContext*, const URL&);
     WEBCORE_EXPORT void cancel();
 
     // ThreadableLoaderClient
-    void didReceiveResponse(unsigned long, const ResourceResponse&) override;
-    void didReceiveData(const char*, int) override;
-    void didFinishLoading(unsigned long) override;
-    void didFail(const ResourceError&) override;
+    void didReceiveResponse(ScriptExecutionContextIdentifier, std::optional<ResourceLoaderIdentifier>, const ResourceResponse&) override;
+    void didReceiveData(const SharedBuffer&) override;
+    void didFinishLoading(ScriptExecutionContextIdentifier, std::optional<ResourceLoaderIdentifier>, const NetworkLoadMetrics&) override;
+    void didFail(std::optional<ScriptExecutionContextIdentifier>, const ResourceError&) override;
 
     String stringResult();
     WEBCORE_EXPORT RefPtr<JSC::ArrayBuffer> arrayBufferResult() const;
     unsigned bytesLoaded() const { return m_bytesLoaded; }
     unsigned totalBytes() const { return m_totalBytes; }
-    Optional<ExceptionCode> errorCode() const { return m_errorCode; }
+    std::optional<ExceptionCode> errorCode() const { return m_errorCode; }
 
-    void setEncoding(const String&);
+    void setEncoding(StringView);
     void setDataType(const String& dataType) { m_dataType = dataType; }
 
     const URL& url() { return m_urlForReading; }
+
+    bool isCompleted() const;
 
 private:
     void terminate();
@@ -91,18 +98,17 @@ private:
     void failed(ExceptionCode);
     void convertToText();
     void convertToDataURL();
-
-    bool isCompleted() const;
+    bool processResponse(const ResourceResponse&);
 
     static ExceptionCode httpStatusCodeToErrorCode(int);
     static ExceptionCode toErrorCode(BlobResourceHandle::Error);
 
     ReadType m_readType;
-    FileReaderLoaderClient* m_client;
-    TextEncoding m_encoding;
+    WeakPtr<FileReaderLoaderClient> m_client;
+    PAL::TextEncoding m_encoding;
     String m_dataType;
 
-    URL m_urlForReading;
+    URLKeepingBlobAlive m_urlForReading;
     RefPtr<ThreadableLoader> m_loader;
 
     RefPtr<JSC::ArrayBuffer> m_rawData;
@@ -118,7 +124,7 @@ private:
     unsigned m_bytesLoaded;
     unsigned m_totalBytes;
 
-    Optional<ExceptionCode> m_errorCode;
+    std::optional<ExceptionCode> m_errorCode;
 };
 
 } // namespace WebCore

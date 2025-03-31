@@ -10,9 +10,12 @@
 
 #include "logging/rtc_event_log/events/rtc_event_video_receive_stream_config.h"
 
+#include <memory>
 #include <utility>
 
 #include "absl/memory/memory.h"
+#include "api/rtc_event_log/rtc_event.h"
+#include "logging/rtc_event_log/rtc_stream_config.h"
 #include "rtc_base/checks.h"
 
 namespace webrtc {
@@ -29,14 +32,6 @@ RtcEventVideoReceiveStreamConfig::RtcEventVideoReceiveStreamConfig(
       config_(std::make_unique<rtclog::StreamConfig>(*other.config_)) {}
 
 RtcEventVideoReceiveStreamConfig::~RtcEventVideoReceiveStreamConfig() = default;
-
-RtcEvent::Type RtcEventVideoReceiveStreamConfig::GetType() const {
-  return Type::VideoReceiveStreamConfig;
-}
-
-bool RtcEventVideoReceiveStreamConfig::IsConfigEvent() const {
-  return true;
-}
 
 std::unique_ptr<RtcEventVideoReceiveStreamConfig>
 RtcEventVideoReceiveStreamConfig::Copy() const {

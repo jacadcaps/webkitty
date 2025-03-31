@@ -32,16 +32,23 @@
 
 #include "FloatRect.h"
 #include "FloatSize.h"
+#include "Region.h"
 #include "RoundedRect.h"
+#include <wtf/TZoneMalloc.h>
+
+#if USE(SKIA)
+class SkRRect;
+#endif
 
 namespace WebCore {
 
 class FloatRoundedRect {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(FloatRoundedRect, WEBCORE_EXPORT);
 public:
     class Radii {
+        WTF_MAKE_TZONE_ALLOCATED(Radii);
     public:
-        Radii() { }
+        Radii() = default;
         Radii(const FloatSize& topLeft, const FloatSize& topRight, const FloatSize& bottomLeft, const FloatSize& bottomRight)
             : m_topLeft(topLeft)
             , m_topRight(topRight)
@@ -66,6 +73,14 @@ public:
         {
         }
 
+        explicit Radii(float uniformRadiusWidth, float uniformRadiusHeight)
+            : m_topLeft(uniformRadiusWidth, uniformRadiusHeight)
+            , m_topRight(uniformRadiusWidth, uniformRadiusHeight)
+            , m_bottomLeft(uniformRadiusWidth, uniformRadiusHeight)
+            , m_bottomRight(uniformRadiusWidth, uniformRadiusHeight)
+        {
+        }
+
         void setTopLeft(const FloatSize& size) { m_topLeft = size; }
         void setTopRight(const FloatSize& size) { m_topRight = size; }
         void setBottomLeft(const FloatSize& size) { m_bottomLeft = size; }
@@ -76,14 +91,18 @@ public:
         const FloatSize& bottomRight() const { return m_bottomRight; }
 
         bool isZero() const;
+        bool hasEvenCorners() const;
         bool isUniformCornerRadius() const; // Including no radius.
 
         void scale(float factor);
         void scale(float horizontalFactor, float verticalFactor);
+        void expandEvenIfZero(float size);
         void expand(float topWidth, float bottomWidth, float leftWidth, float rightWidth);
         void expand(float size) { expand(size, size, size, size); }
         void shrink(float topWidth, float bottomWidth, float leftWidth, float rightWidth) { expand(-topWidth, -bottomWidth, -leftWidth, -rightWidth); }
         void shrink(float size) { shrink(size, size, size, size); }
+
+        friend bool operator==(const Radii&, const Radii&) = default;
 
     private:
         FloatSize m_topLeft;
@@ -93,9 +112,9 @@ public:
     };
 
     WEBCORE_EXPORT explicit FloatRoundedRect(const FloatRect& = FloatRect(), const Radii& = Radii());
+    WEBCORE_EXPORT FloatRoundedRect(const FloatRect&, const FloatSize& topLeft, const FloatSize& topRight, const FloatSize& bottomLeft, const FloatSize& bottomRight);
     explicit FloatRoundedRect(const RoundedRect&);
     FloatRoundedRect(float x, float y, float width, float height);
-    FloatRoundedRect(const FloatRect&, const FloatSize& topLeft, const FloatSize& topRight, const FloatSize& bottomLeft, const FloatSize& bottomRight);
 
     const FloatRect& rect() const { return m_rect; }
     const Radii& radii() const { return m_radii; }
@@ -135,30 +154,17 @@ public:
 
     bool intersectionIsRectangular(const FloatRect&) const;
 
+    friend bool operator==(const FloatRoundedRect&, const FloatRoundedRect&) = default;
+
+#if USE(SKIA)
+    FloatRoundedRect(const SkRRect&);
+    operator SkRRect() const;
+#endif
+
 private:
     FloatRect m_rect;
     Radii m_radii;
 };
-
-inline bool operator==(const FloatRoundedRect::Radii& a, const FloatRoundedRect::Radii& b)
-{
-    return a.topLeft() == b.topLeft() && a.topRight() == b.topRight() && a.bottomLeft() == b.bottomLeft() && a.bottomRight() == b.bottomRight();
-}
-
-inline bool operator!=(const FloatRoundedRect::Radii& a, const FloatRoundedRect::Radii& b)
-{
-    return !(a == b);
-}
-
-inline bool operator==(const FloatRoundedRect& a, const FloatRoundedRect& b)
-{
-    return a.rect() == b.rect() && a.radii() == b.radii();
-}
-
-inline bool operator!=(const FloatRoundedRect& a, const FloatRoundedRect& b)
-{
-    return !(a == b);
-}
 
 inline float calcBorderRadiiConstraintScaleFor(const FloatRect& rect, const FloatRoundedRect::Radii& radii)
 {
@@ -193,6 +199,9 @@ inline float calcBorderRadiiConstraintScaleFor(const FloatRect& rect, const Floa
 }
 
 WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, const FloatRoundedRect&);
+
+// Snip away rectangles from corners, roughly one per step length of arc.
+WEBCORE_EXPORT Region approximateAsRegion(const FloatRoundedRect&, unsigned stepLength = 20);
 
 } // namespace WebCore
 

@@ -35,6 +35,7 @@
 #include <wtf/Assertions.h>
 #include <wtf/Lock.h>
 #include <wtf/RefPtr.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
 
@@ -44,7 +45,8 @@ namespace WebCore {
 // (e.g. JPEGImageDecoder). This base manages the ScalableImageDecoderFrame cache.
 
 class ScalableImageDecoder : public ImageDecoder {
-    WTF_MAKE_NONCOPYABLE(ScalableImageDecoder); WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(ScalableImageDecoder);
+    WTF_MAKE_NONCOPYABLE(ScalableImageDecoder);
 public:
     ScalableImageDecoder(AlphaOption alphaOption, GammaAndColorProfileOption gammaAndColorProfileOption)
         : m_premultiplyAlpha(alphaOption == AlphaOption::Premultiplied)
@@ -60,7 +62,7 @@ public:
 
     // Returns nullptr if we can't sniff a supported type from the provided data (possibly
     // because there isn't enough data yet).
-    static RefPtr<ScalableImageDecoder> create(SharedBuffer& data, AlphaOption, GammaAndColorProfileOption);
+    static RefPtr<ScalableImageDecoder> create(FragmentedSharedBuffer& data, AlphaOption, GammaAndColorProfileOption);
 
     bool premultiplyAlpha() const { return m_premultiplyAlpha; }
 
@@ -70,16 +72,14 @@ public:
         return m_encodedDataStatus == EncodedDataStatus::Complete;
     }
 
-    void setData(SharedBuffer& data, bool allDataReceived) override
+    void setData(const FragmentedSharedBuffer& data, bool allDataReceived) override
     {
-        LockHolder lockHolder(m_mutex);
+        Locker locker { m_lock };
         if (m_encodedDataStatus == EncodedDataStatus::Error)
             return;
 
-        if (data.data()) {
-            // SharedBuffer::data() combines all segments into one in case there's more than one.
-            m_data = data.begin()->segment.copyRef();
-        }
+        m_data = data.makeContiguous();
+
         if (m_encodedDataStatus == EncodedDataStatus::TypeAvailable) {
             m_decodingSizeFromSetData = true;
             tryDecodeSize(allDataReceived);
@@ -144,34 +144,19 @@ public:
 
     Seconds frameDurationAtIndex(size_t) const final;
 
-    NativeImagePtr createFrameImageAtIndex(size_t, SubsamplingLevel = SubsamplingLevel::Default, const DecodingOptions& = DecodingOptions(DecodingMode::Synchronous)) override;
+    PlatformImagePtr createFrameImageAtIndex(size_t, SubsamplingLevel = SubsamplingLevel::Default, const DecodingOptions& = DecodingOptions(DecodingMode::Synchronous)) override;
 
     void setIgnoreGammaAndColorProfile(bool flag) { m_ignoreGammaAndColorProfile = flag; }
     bool ignoresGammaAndColorProfile() const { return m_ignoreGammaAndColorProfile; }
 
-    ImageOrientation frameOrientationAtIndex(size_t) const override { return m_orientation; }
-
-    bool frameAllowSubsamplingAtIndex(size_t) const override { return false; }
+    ImageOrientation frameOrientationAtIndex(size_t) const final { return m_orientation; }
+    std::optional<IntSize> frameDensityCorrectedSizeAtIndex(size_t) const final { return m_densityCorrectedSize; }
 
     enum { ICCColorProfileHeaderLength = 128 };
-
-    static bool rgbColorProfile(const char* profileData, unsigned profileLength)
-    {
-        ASSERT_UNUSED(profileLength, profileLength >= ICCColorProfileHeaderLength);
-
-        return !memcmp(&profileData[16], "RGB ", 4);
-    }
 
     size_t bytesDecodedToDetermineProperties() const final { return 0; }
 
     static SubsamplingLevel subsamplingLevelForScale(float, SubsamplingLevel) { return SubsamplingLevel::Default; }
-
-    static bool inputDeviceColorProfile(const char* profileData, unsigned profileLength)
-    {
-        ASSERT_UNUSED(profileLength, profileLength >= ICCColorProfileHeaderLength);
-
-        return !memcmp(&profileData[12], "mntr", 4) || !memcmp(&profileData[12], "scnr", 4);
-    }
 
     // Sets the "decode failure" flag. For caller convenience (since so
     // many callers want to return false after calling this), returns false
@@ -192,22 +177,19 @@ public:
 
     // If the image has a cursor hot-spot, stores it in the argument
     // and returns true. Otherwise returns false.
-    Optional<IntPoint> hotSpot() const override { return WTF::nullopt; }
+    std::optional<IntPoint> hotSpot() const override { return std::nullopt; }
 
 protected:
-    RefPtr<SharedBuffer::DataSegment> m_data;
-    Vector<ScalableImageDecoderFrame, 1> m_frameBufferCache;
-    mutable Lock m_mutex;
+    RefPtr<const SharedBuffer> m_data;
+    Vector<ScalableImageDecoderFrame, 1> m_frameBufferCache WTF_GUARDED_BY_LOCK(m_lock);
+    mutable Lock m_lock;
     bool m_premultiplyAlpha;
     bool m_ignoreGammaAndColorProfile;
     ImageOrientation m_orientation;
+    std::optional<IntSize> m_densityCorrectedSize;
 
 private:
     virtual void tryDecodeSize(bool) = 0;
-
-#if USE(DIRECT2D)
-    void setTargetContext(ID2D1RenderTarget*) override;
-#endif
 
     IntSize m_size;
     EncodedDataStatus m_encodedDataStatus { EncodedDataStatus::TypeAvailable };

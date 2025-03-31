@@ -27,6 +27,7 @@
 #define WKNavigationActionRef_h
 
 #include <WebKit/WKBase.h>
+#include <WebKit/WKPageLoadTypes.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -34,7 +35,12 @@ extern "C" {
 
 WK_EXPORT WKTypeID WKNavigationActionGetTypeID();
 
-WK_EXPORT bool WKNavigationActionShouldPerformDownload(WKNavigationActionRef);
+WK_EXPORT bool WKNavigationActionShouldPerformDownload(WKNavigationActionRef action);
+WK_EXPORT WKURLRequestRef WKNavigationActionCopyRequest(WKNavigationActionRef action);
+WK_EXPORT bool WKNavigationActionGetShouldOpenExternalSchemes(WKNavigationActionRef action);
+WK_EXPORT WKFrameInfoRef WKNavigationActionCopyTargetFrameInfo(WKNavigationActionRef action);
+WK_EXPORT WKFrameNavigationType WKNavigationActionGetNavigationType(WKNavigationActionRef action);
+WK_EXPORT bool WKNavigationActionHasUnconsumedUserGesture(WKNavigationActionRef action);
 
 #ifdef __cplusplus
 }

@@ -1,4 +1,4 @@
-# Copyright (C) 2011-2020 Apple Inc. All rights reserved.
+# Copyright (C) 2011-2022 Apple Inc. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -26,7 +26,7 @@ require "arm"
 require "arm64"
 require "ast"
 require "x86"
-require "mips"
+require "riscv64"
 require "cloop"
 
 begin
@@ -36,16 +36,12 @@ end
 
 BACKENDS =
     [
-     "X86",
-     "X86_WIN",
      "X86_64",
-     "X86_64_WIN",
      "ARMv7",
      "ARM64",
      "ARM64E",
-     "MIPS",
-     "C_LOOP",
-     "C_LOOP_WIN"
+     "RISCV64",
+     "C_LOOP"
     ]
 
 # Keep the set of working backends separate from the set of backends that might be
@@ -55,16 +51,12 @@ BACKENDS =
 # the future while not actually supporting the backend yet.
 WORKING_BACKENDS =
     [
-     "X86",
-     "X86_WIN",
      "X86_64",
-     "X86_64_WIN",
      "ARMv7",
      "ARM64",
      "ARM64E",
-     "MIPS",
-     "C_LOOP",
-     "C_LOOP_WIN"
+     "RISCV64",
+     "C_LOOP"
     ]
 
 BACKEND_PATTERN = Regexp.new('\\A(' + BACKENDS.join(')|(') + ')\\Z')
@@ -143,13 +135,17 @@ end
 class Label
     def lower(name)
         $asm.debugAnnotation codeOrigin.debugDirective if $enableDebugAnnotations
-        $asm.putsLabel(self.name[1..-1], @global)
+        $asm.putsLabel(self.name[1..-1], @global, @export, @aligned, @alignTo)
     end
 end
 
 class LocalLabel
+    def labelString
+        "jsc_llint_#{name[1..-1]}_#{codeOrigin.labelStringExtension}"
+    end
+
     def lower(name)
-        $asm.putsLocalLabel "_offlineasm_#{self.name[1..-1]}"
+        $asm.putsLocalLabel(self.labelString)
     end
 end
 
@@ -169,11 +165,11 @@ end
 
 class LocalLabelReference
     def asmLabel
-        Assembler.localLabelReference("_offlineasm_"+name[1..-1])
+        Assembler.localLabelReference(@label.labelString)
     end
 
     def cLabel
-        Assembler.cLocalLabelReference("_offlineasm_"+name[1..-1])
+        Assembler.cLocalLabelReference(@label.labelString)
     end
 end
 

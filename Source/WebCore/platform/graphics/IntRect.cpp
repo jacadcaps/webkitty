@@ -30,9 +30,12 @@
 #include "LayoutRect.h"
 #include <algorithm>
 #include <wtf/CheckedArithmetic.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/TextStream.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(IntRect);
 
 IntRect::IntRect(const FloatRect& r)
     : m_location(clampToInteger(r.x()), clampToInteger(r.y()))
@@ -105,9 +108,9 @@ void IntRect::unite(const IntRect& other)
 void IntRect::uniteIfNonZero(const IntRect& other)
 {
     // Handle empty special cases first.
-    if (!other.width() && !other.height())
+    if (other.isZero())
         return;
-    if (!width() && !height()) {
+    if (isZero()) {
         *this = other;
         return;
     }
@@ -149,13 +152,25 @@ IntSize IntRect::differenceToPoint(const IntPoint& point) const
 
 bool IntRect::isValid() const
 {
-    Checked<int, RecordOverflow> max = m_location.x();
+    CheckedInt32 max = m_location.x();
     max += m_size.width();
     if (max.hasOverflowed())
         return false;
     max = m_location.y();
     max += m_size.height();
     return !max.hasOverflowed();
+}
+
+IntRect IntRect::toRectWithExtentsClippedToNumericLimits() const
+{
+    using T = int32_t;
+    IntRect clippedRect { *this };
+    constexpr auto max = std::numeric_limits<T>::max();
+    if (sumOverflows<T>(x(), width()))
+        clippedRect.setWidth(max - x());
+    if (sumOverflows<T>(y(), height()))
+        clippedRect.setHeight(max - y());
+    return clippedRect;
 }
 
 TextStream& operator<<(TextStream& ts, const IntRect& r)

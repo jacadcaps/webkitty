@@ -30,6 +30,7 @@
 #include <wtf/MonotonicTime.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/RefCounted.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/Vector.h>
 
@@ -44,9 +45,13 @@ typedef Vector<RefPtr<ThreadTimerHeapItem>> ThreadTimerHeap;
     
 // A collection of timers per thread. Kept in ThreadGlobalData.
 class ThreadTimers {
-    WTF_MAKE_NONCOPYABLE(ThreadTimers); WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(ThreadTimers);
+    WTF_MAKE_NONCOPYABLE(ThreadTimers);
 public:
     ThreadTimers();
+
+    // Fire timers for this length of time, and then quit to let the run loop process user input events.
+    static constexpr auto maxDurationOfFiringTimers { 16_ms };
 
     // On a thread different then main, we should set the thread's instance of the SharedTimer.
     void setSharedTimer(SharedTimer*);
@@ -72,6 +77,9 @@ private:
 };
 
 struct ThreadTimerHeapItem : ThreadSafeRefCounted<ThreadTimerHeapItem> {
+    WTF_MAKE_COMPACT_TZONE_OR_ISO_ALLOCATED(ThreadTimerHeapItem);
+
+public:
     static RefPtr<ThreadTimerHeapItem> create(TimerBase&, MonotonicTime, unsigned);
 
     bool hasTimer() const { return m_timer; }

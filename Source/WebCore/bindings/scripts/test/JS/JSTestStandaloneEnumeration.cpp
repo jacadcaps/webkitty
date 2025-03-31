@@ -27,6 +27,8 @@
 #include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/JSString.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/SortedArrayMap.h>
+
 
 
 namespace WebCore {
@@ -34,36 +36,53 @@ using namespace JSC;
 
 String convertEnumerationToString(TestStandaloneEnumeration enumerationValue)
 {
-    static const NeverDestroyed<String> values[] = {
+    static const std::array<NeverDestroyed<String>, 5> values {
         MAKE_STATIC_STRING_IMPL("enumValue1"),
         MAKE_STATIC_STRING_IMPL("enumValue2"),
+        MAKE_STATIC_STRING_IMPL("enum-value3"),
+        MAKE_STATIC_STRING_IMPL("enum.value.4"),
+        MAKE_STATIC_STRING_IMPL("enum-value.5"),
     };
     static_assert(static_cast<size_t>(TestStandaloneEnumeration::EnumValue1) == 0, "TestStandaloneEnumeration::EnumValue1 is not 0 as expected");
     static_assert(static_cast<size_t>(TestStandaloneEnumeration::EnumValue2) == 1, "TestStandaloneEnumeration::EnumValue2 is not 1 as expected");
-    ASSERT(static_cast<size_t>(enumerationValue) < WTF_ARRAY_LENGTH(values));
+    static_assert(static_cast<size_t>(TestStandaloneEnumeration::EnumValue3) == 2, "TestStandaloneEnumeration::EnumValue3 is not 2 as expected");
+    static_assert(static_cast<size_t>(TestStandaloneEnumeration::EnumValue4) == 3, "TestStandaloneEnumeration::EnumValue4 is not 3 as expected");
+    static_assert(static_cast<size_t>(TestStandaloneEnumeration::EnumValue5) == 4, "TestStandaloneEnumeration::EnumValue5 is not 4 as expected");
+    ASSERT(static_cast<size_t>(enumerationValue) < std::size(values));
     return values[static_cast<size_t>(enumerationValue)];
 }
 
-template<> JSString* convertEnumerationToJS(JSGlobalObject& lexicalGlobalObject, TestStandaloneEnumeration enumerationValue)
+template<> JSString* convertEnumerationToJS(VM& vm, TestStandaloneEnumeration enumerationValue)
 {
-    return jsStringWithCache(lexicalGlobalObject.vm(), convertEnumerationToString(enumerationValue));
+    return jsStringWithCache(vm, convertEnumerationToString(enumerationValue));
 }
 
-template<> Optional<TestStandaloneEnumeration> parseEnumeration<TestStandaloneEnumeration>(JSGlobalObject& lexicalGlobalObject, JSValue value)
+template<> std::optional<TestStandaloneEnumeration> parseEnumerationFromString<TestStandaloneEnumeration>(const String& stringValue)
 {
-    auto stringValue = value.toWTFString(&lexicalGlobalObject);
-    if (stringValue == "enumValue1")
-        return TestStandaloneEnumeration::EnumValue1;
-    if (stringValue == "enumValue2")
-        return TestStandaloneEnumeration::EnumValue2;
-    return WTF::nullopt;
+    static constexpr std::array<std::pair<ComparableASCIILiteral, TestStandaloneEnumeration>, 5> mappings {
+        std::pair<ComparableASCIILiteral, TestStandaloneEnumeration> { "enum-value.5"_s, TestStandaloneEnumeration::EnumValue5 },
+        std::pair<ComparableASCIILiteral, TestStandaloneEnumeration> { "enum-value3"_s, TestStandaloneEnumeration::EnumValue3 },
+        std::pair<ComparableASCIILiteral, TestStandaloneEnumeration> { "enum.value.4"_s, TestStandaloneEnumeration::EnumValue4 },
+        std::pair<ComparableASCIILiteral, TestStandaloneEnumeration> { "enumValue1"_s, TestStandaloneEnumeration::EnumValue1 },
+        std::pair<ComparableASCIILiteral, TestStandaloneEnumeration> { "enumValue2"_s, TestStandaloneEnumeration::EnumValue2 },
+    };
+    static constexpr SortedArrayMap enumerationMapping { mappings };
+    if (auto* enumerationValue = enumerationMapping.tryGet(stringValue); LIKELY(enumerationValue))
+        return *enumerationValue;
+    return std::nullopt;
 }
 
-template<> const char* expectedEnumerationValues<TestStandaloneEnumeration>()
+template<> std::optional<TestStandaloneEnumeration> parseEnumeration<TestStandaloneEnumeration>(JSGlobalObject& lexicalGlobalObject, JSValue value)
 {
-    return "\"enumValue1\", \"enumValue2\"";
+    return parseEnumerationFromString<TestStandaloneEnumeration>(value.toWTFString(&lexicalGlobalObject));
+}
+
+template<> ASCIILiteral expectedEnumerationValues<TestStandaloneEnumeration>()
+{
+    return "\"enumValue1\", \"enumValue2\", \"enum-value3\", \"enum.value.4\", \"enum-value.5\""_s;
 }
 
 } // namespace WebCore
+
 
 #endif // ENABLE(CONDITION)

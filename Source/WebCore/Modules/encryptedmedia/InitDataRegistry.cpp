@@ -36,6 +36,15 @@
 #include <wtf/NeverDestroyed.h>
 #include <wtf/text/Base64.h>
 
+#if USE(GSTREAMER)
+#include <libxml/parser.h>
+#include <libxml/parserInternals.h>
+#include <libxml/tree.h>
+#include <libxml/xpath.h>
+#include <libxml/xpathInternals.h>
+#include <wtf/Scope.h>
+#endif
+
 #if HAVE(FAIRPLAYSTREAMING_CENC_INITDATA)
 #include "CDMFairPlayStreaming.h"
 #include "ISOFairPlayStreamingPsshBox.h"
@@ -54,41 +63,40 @@ namespace {
     const uint32_t kKeyIdsMaxKeyIdSizeInBytes = 512;
 }
 
-static Optional<Vector<Ref<SharedBuffer>>> extractKeyIDsKeyids(const SharedBuffer& buffer)
+static std::optional<Vector<Ref<SharedBuffer>>> extractKeyIDsKeyids(const SharedBuffer& buffer)
 {
     // 1. Format
     // https://w3c.github.io/encrypted-media/format-registry/initdata/keyids.html#format
     if (buffer.size() > std::numeric_limits<unsigned>::max())
-        return WTF::nullopt;
-    String json { buffer.data(), static_cast<unsigned>(buffer.size()) };
+        return std::nullopt;
+    String json { buffer.span() };
 
-    RefPtr<JSON::Value> value;
-    if (!JSON::Value::parseJSON(json, value))
-        return WTF::nullopt;
+    auto value = JSON::Value::parseJSON(json);
+    if (!value)
+        return std::nullopt;
 
-    RefPtr<JSON::Object> object;
-    if (!value->asObject(object))
-        return WTF::nullopt;
+    auto object = value->asObject();
+    if (!object)
+        return std::nullopt;
 
-    RefPtr<JSON::Array> kidsArray;
-    if (!object->getArray("kids", kidsArray))
-        return WTF::nullopt;
+    auto kidsArray = object->getArray("kids"_s);
+    if (!kidsArray)
+        return std::nullopt;
 
     Vector<Ref<SharedBuffer>> keyIDs;
     for (auto& value : *kidsArray) {
-        String keyID;
-        if (!value->asString(keyID))
+        auto keyID = value->asString();
+        if (!keyID)
             continue;
 
-        Vector<char> keyIDData;
-        if (!WTF::base64URLDecode(keyID, { keyIDData }))
+        auto keyIDData = base64URLDecode(keyID);
+        if (!keyIDData)
             continue;
 
-        if (keyIDData.size() < kKeyIdsMinKeyIdSizeInBytes || keyIDData.size() > kKeyIdsMaxKeyIdSizeInBytes)
-            return WTF::nullopt;
+        if (keyIDData->size() < kKeyIdsMinKeyIdSizeInBytes || keyIDData->size() > kKeyIdsMaxKeyIdSizeInBytes)
+            return std::nullopt;
 
-        Ref<SharedBuffer> keyIDBuffer = SharedBuffer::create(WTFMove(keyIDData));
-        keyIDs.append(WTFMove(keyIDBuffer));
+        keyIDs.append(SharedBuffer::create(WTFMove(*keyIDData)));
     }
 
     return keyIDs;
@@ -105,19 +113,18 @@ static RefPtr<SharedBuffer> sanitizeKeyids(const SharedBuffer& buffer)
     auto object = JSON::Object::create();
     auto kidsArray = JSON::Array::create();
     for (auto& buffer : keyIDBuffer.value())
-        kidsArray->pushString(WTF::base64URLEncode(buffer->data(), buffer->size()));
-    object->setArray("kids", WTFMove(kidsArray));
+        kidsArray->pushString(base64URLEncodeToString(buffer->span()));
+    object->setArray("kids"_s, WTFMove(kidsArray));
 
-    CString jsonData = object->toJSONString().utf8();
-    return SharedBuffer::create(jsonData.data(), jsonData.length());
+    return SharedBuffer::create(object->toJSONString().utf8().span());
 }
 
-Optional<Vector<std::unique_ptr<ISOProtectionSystemSpecificHeaderBox>>> InitDataRegistry::extractPsshBoxesFromCenc(const SharedBuffer& buffer)
+std::optional<Vector<std::unique_ptr<ISOProtectionSystemSpecificHeaderBox>>> InitDataRegistry::extractPsshBoxesFromCenc(const SharedBuffer& buffer)
 {
     // 4. Common SystemID and PSSH Box Format
     // https://w3c.github.io/encrypted-media/format-registry/initdata/cenc.html#common-system
     if (buffer.size() >= kCencMaxBoxSize)
-        return WTF::nullopt;
+        return std::nullopt;
 
     unsigned offset = 0;
     Vector<std::unique_ptr<ISOProtectionSystemSpecificHeaderBox>> psshBoxes;
@@ -128,14 +135,14 @@ Optional<Vector<std::unique_ptr<ISOProtectionSystemSpecificHeaderBox>>> InitData
         auto& boxSize = optionalBoxType.value().second;
 
         if (boxTypeName != ISOProtectionSystemSpecificHeaderBox::boxTypeName() || boxSize > buffer.size())
-            return WTF::nullopt;
+            return std::nullopt;
 
         auto systemID = ISOProtectionSystemSpecificHeaderBox::peekSystemID(view, offset);
 #if HAVE(FAIRPLAYSTREAMING_CENC_INITDATA)
         if (systemID == ISOFairPlayStreamingPsshBox::fairPlaySystemID()) {
             auto fpsPssh = makeUnique<ISOFairPlayStreamingPsshBox>();
             if (!fpsPssh->read(view, offset))
-                return WTF::nullopt;
+                return std::nullopt;
             psshBoxes.append(WTFMove(fpsPssh));
             continue;
         }
@@ -144,7 +151,7 @@ Optional<Vector<std::unique_ptr<ISOProtectionSystemSpecificHeaderBox>>> InitData
 #endif
         auto psshBox = makeUnique<ISOProtectionSystemSpecificHeaderBox>();
         if (!psshBox->read(view, offset))
-            return WTF::nullopt;
+            return std::nullopt;
 
         psshBoxes.append(WTFMove(psshBox));
     }
@@ -152,28 +159,26 @@ Optional<Vector<std::unique_ptr<ISOProtectionSystemSpecificHeaderBox>>> InitData
     return psshBoxes;
 }
 
-Optional<Vector<Ref<SharedBuffer>>> InitDataRegistry::extractKeyIDsCenc(const SharedBuffer& buffer)
+std::optional<Vector<Ref<SharedBuffer>>> InitDataRegistry::extractKeyIDsCenc(const SharedBuffer& buffer)
 {
     Vector<Ref<SharedBuffer>> keyIDs;
 
     auto psshBoxes = extractPsshBoxesFromCenc(buffer);
     if (!psshBoxes)
-        return WTF::nullopt;
+        return std::nullopt;
 
     for (auto& psshBox : psshBoxes.value()) {
         ASSERT(psshBox);
         if (!psshBox)
-            return WTF::nullopt;
+            return std::nullopt;
 
 #if HAVE(FAIRPLAYSTREAMING_CENC_INITDATA)
-        if (is<ISOFairPlayStreamingPsshBox>(*psshBox)) {
-            ISOFairPlayStreamingPsshBox& fpsPssh = downcast<ISOFairPlayStreamingPsshBox>(*psshBox);
-
-            FourCC scheme = fpsPssh.initDataBox().info().scheme();
+        if (auto* fpsPssh = dynamicDowncast<ISOFairPlayStreamingPsshBox>(*psshBox)) {
+            FourCC scheme = fpsPssh->initDataBox().info().scheme();
             if (CDMPrivateFairPlayStreaming::validFairPlayStreamingSchemes().contains(scheme)) {
-                for (const auto& request : fpsPssh.initDataBox().requests()) {
+                for (const auto& request : fpsPssh->initDataBox().requests()) {
                     auto& keyID = request.requestInfo().keyID();
-                    keyIDs.append(SharedBuffer::create(keyID.data(), keyID.size()));
+                    keyIDs.append(SharedBuffer::create(keyID.span()));
                 }
             }
         }
@@ -186,14 +191,78 @@ Optional<Vector<Ref<SharedBuffer>>> InitDataRegistry::extractKeyIDsCenc(const Sh
     return keyIDs;
 }
 
+#if USE(GSTREAMER)
+bool isPlayReadySanitizedInitializationData(const SharedBuffer& buffer)
+{
+    // The protection data starts with a 10-byte PlayReady version
+    // header that needs to be skipped over to avoid XML parsing
+    // errors.
+    auto view = StringView::fromLatin1(byteCast<char>(buffer.span().data()));
+    auto startTag = view.find('<');
+    if (startTag == notFound)
+        return false;
+
+    auto xmlPayload = buffer.span().subspan(startTag);
+    xmlDocPtr protectionDataXML = xmlReadMemory(reinterpret_cast<const char*>(xmlPayload.data()), xmlPayload.size_bytes(), "protectionData", "utf-16", 0);
+    if (!protectionDataXML)
+        return false;
+
+    xmlXPathContextPtr xpathContext = nullptr;
+    xmlXPathObjectPtr xpathObject = nullptr;
+    auto exitFunction = makeScopeExit([&] {
+        if (xpathContext)
+            xmlXPathFreeContext(xpathContext);
+        if (xpathObject)
+            xmlXPathFreeObject(xpathObject);
+        xmlFreeDoc(protectionDataXML);
+    });
+
+    xmlNode* protectionDataRootElement = xmlDocGetRootElement(protectionDataXML);
+    if (!protectionDataRootElement || protectionDataRootElement->type != XML_ELEMENT_NODE
+        || xmlStrcmp(protectionDataRootElement->name, reinterpret_cast<const xmlChar*>("WRMHEADER"))
+        || !protectionDataRootElement->ns)
+        return false;
+
+    xpathContext = xmlXPathNewContext(protectionDataXML);
+    if (!xpathContext)
+        return false;
+
+    const xmlChar* protectionDataNamespace = protectionDataRootElement->ns->href;
+    if (xmlXPathRegisterNs(xpathContext, reinterpret_cast<const xmlChar*>("prhdr"), protectionDataNamespace) < 0)
+        return false;
+
+    xpathObject = xmlXPathEvalExpression(reinterpret_cast<const xmlChar*>("//prhdr:KID"), xpathContext);
+    if (!xpathObject)
+        return false;
+
+    xmlNodeSetPtr keyIDNode = xpathObject->nodesetval;
+    int numberOfKeyIDs = keyIDNode ? keyIDNode->nodeNr : 0;
+    if (!numberOfKeyIDs || keyIDNode->nodeTab[0]->type != XML_ELEMENT_NODE)
+        return false;
+
+    xmlChar* encodedKeyID = xmlNodeGetContent(keyIDNode->nodeTab[0]);
+    auto encodedKeyIDSpan = unsafeMakeSpan(reinterpret_cast<const uint8_t*>(encodedKeyID), static_cast<size_t>(xmlStrlen(encodedKeyID)));
+    std::optional<Vector<uint8_t>> decodedKeyID = base64Decode(encodedKeyIDSpan);
+    xmlFree(encodedKeyID);
+    if (!decodedKeyID)
+        return false;
+
+    return true;
+}
+#endif
+
 RefPtr<SharedBuffer> InitDataRegistry::sanitizeCenc(const SharedBuffer& buffer)
 {
     // 4. Common SystemID and PSSH Box Format
     // https://w3c.github.io/encrypted-media/format-registry/initdata/cenc.html#common-system
-    if (!extractKeyIDsCenc(buffer))
-        return nullptr;
+    if (!extractKeyIDsCenc(buffer)) {
+#if USE(GSTREAMER)
+        if (!isPlayReadySanitizedInitializationData(buffer))
+#endif
+            return nullptr;
+    }
 
-    return buffer.copy();
+    return buffer.makeContiguous();
 }
 
 static RefPtr<SharedBuffer> sanitizeWebM(const SharedBuffer& buffer)
@@ -203,15 +272,15 @@ static RefPtr<SharedBuffer> sanitizeWebM(const SharedBuffer& buffer)
     if (buffer.isEmpty() || buffer.size() > kWebMMaxContentEncKeyIDSize)
         return nullptr;
 
-    return buffer.copy();
+    return buffer.makeContiguous();
 }
 
-static Optional<Vector<Ref<SharedBuffer>>> extractKeyIDsWebM(const SharedBuffer& buffer)
+static std::optional<Vector<Ref<SharedBuffer>>> extractKeyIDsWebM(const SharedBuffer& buffer)
 {
     Vector<Ref<SharedBuffer>> keyIDs;
     RefPtr<SharedBuffer> sanitizedBuffer = sanitizeWebM(buffer);
     if (!sanitizedBuffer)
-        return WTF::nullopt;
+        return std::nullopt;
 
     // 1. Format
     // https://w3c.github.io/encrypted-media/format-registry/initdata/webm.html#format
@@ -227,9 +296,9 @@ InitDataRegistry& InitDataRegistry::shared()
 
 InitDataRegistry::InitDataRegistry()
 {
-    registerInitDataType("keyids", { sanitizeKeyids, extractKeyIDsKeyids });
-    registerInitDataType("cenc", { sanitizeCenc, extractKeyIDsCenc });
-    registerInitDataType("webm", { sanitizeWebM, extractKeyIDsWebM });
+    registerInitDataType("keyids"_s, { sanitizeKeyids, extractKeyIDsKeyids });
+    registerInitDataType("cenc"_s, { sanitizeCenc, extractKeyIDsCenc });
+    registerInitDataType("webm"_s, { sanitizeWebM, extractKeyIDsWebM });
 }
 
 InitDataRegistry::~InitDataRegistry() = default;
@@ -242,11 +311,11 @@ RefPtr<SharedBuffer> InitDataRegistry::sanitizeInitData(const AtomString& initDa
     return iter->value.sanitizeInitData(buffer);
 }
 
-Optional<Vector<Ref<SharedBuffer>>> InitDataRegistry::extractKeyIDs(const AtomString& initDataType, const SharedBuffer& buffer)
+std::optional<Vector<Ref<SharedBuffer>>> InitDataRegistry::extractKeyIDs(const AtomString& initDataType, const SharedBuffer& buffer)
 {
     auto iter = m_types.find(initDataType);
     if (iter == m_types.end() || !iter->value.sanitizeInitData)
-        return WTF::nullopt;
+        return std::nullopt;
     return iter->value.extractKeyIDs(buffer);
 }
 

@@ -38,6 +38,7 @@
 #include <WebKit/WKPageFindClient.h>
 #include <WebKit/WKPageFindMatchesClient.h>
 #include <WebKit/WKPageFormClient.h>
+#include <WebKit/WKPageFullScreenClient.h>
 #include <WebKit/WKPageInjectedBundleClient.h>
 #include <WebKit/WKPageLoadTypes.h>
 #include <WebKit/WKPageLoaderClient.h>
@@ -58,7 +59,7 @@ extern "C" {
 WK_EXPORT WKTypeID WKPageGetTypeID(void);
 
 WK_EXPORT WKContextRef WKPageGetContext(WKPageRef page);
-WK_EXPORT WKPageGroupRef WKPageGetPageGroup(WKPageRef page);
+WK_EXPORT WKPageGroupRef WKPageGetPageGroup(WKPageRef page) WK_C_API_DEPRECATED;
 
 WK_EXPORT WKPageConfigurationRef WKPageCopyPageConfiguration(WKPageRef page);
 
@@ -79,8 +80,8 @@ WK_EXPORT void WKPageLoadAlternateHTMLString(WKPageRef page, WKStringRef htmlStr
 WK_EXPORT void WKPageLoadAlternateHTMLStringWithUserData(WKPageRef page, WKStringRef htmlString, WKURLRef baseURL, WKURLRef unreachableURL, WKTypeRef userData);
 WK_EXPORT void WKPageLoadPlainTextString(WKPageRef page, WKStringRef plainTextString);
 WK_EXPORT void WKPageLoadPlainTextStringWithUserData(WKPageRef page, WKStringRef plainTextString, WKTypeRef userData);
-WK_EXPORT void WKPageLoadWebArchiveData(WKPageRef page, WKDataRef webArchiveData);
-WK_EXPORT void WKPageLoadWebArchiveDataWithUserData(WKPageRef page, WKDataRef webArchiveData, WKTypeRef userData);
+WK_EXPORT void WKPageLoadWebArchiveData(WKPageRef page, WKDataRef webArchiveData) WK_C_API_DEPRECATED;
+WK_EXPORT void WKPageLoadWebArchiveDataWithUserData(WKPageRef page, WKDataRef webArchiveData, WKTypeRef userData) WK_C_API_DEPRECATED;
 
 WK_EXPORT void WKPageStopLoading(WKPageRef page);
 WK_EXPORT void WKPageReload(WKPageRef page);
@@ -118,6 +119,8 @@ WK_EXPORT double WKPageGetEstimatedProgress(WKPageRef page);
 
 WK_EXPORT uint64_t WKPageGetRenderTreeSize(WKPageRef page);
 
+WK_EXPORT WKWebsiteDataStoreRef WKPageGetWebsiteDataStore(WKPageRef page);
+
 WK_EXPORT WKInspectorRef WKPageGetInspector(WKPageRef page);
 
 WK_EXPORT WKStringRef WKPageCopyUserAgent(WKPageRef page);
@@ -127,8 +130,6 @@ WK_EXPORT void WKPageSetApplicationNameForUserAgent(WKPageRef page, WKStringRef 
 
 WK_EXPORT WKStringRef WKPageCopyCustomUserAgent(WKPageRef page);
 WK_EXPORT void WKPageSetCustomUserAgent(WKPageRef page, WKStringRef userAgent);
-
-WK_EXPORT void WKPageSetUserContentExtensionsEnabled(WKPageRef, bool);
     
 WK_EXPORT bool WKPageSupportsTextEncoding(WKPageRef page);
 WK_EXPORT WKStringRef WKPageCopyCustomTextEncodingName(WKPageRef page);
@@ -150,7 +151,10 @@ WK_EXPORT WKTypeRef WKPageCopySessionState(WKPageRef page, void* context, WKPage
 WK_EXPORT void WKPageRestoreFromSessionState(WKPageRef page, WKTypeRef sessionState);
 
 WK_EXPORT double WKPageGetBackingScaleFactor(WKPageRef page);
+
 WK_EXPORT void WKPageSetCustomBackingScaleFactor(WKPageRef page, double customScaleFactor);
+typedef void (*WKPageSetCustomBackingScaleFactorFunction)(void* functionContext);
+WK_EXPORT void WKPageSetCustomBackingScaleFactorWithCallback(WKPageRef page, double customScaleFactor, void* context, WKPageSetCustomBackingScaleFactorFunction completionHandler);
 WK_EXPORT void WKPageClearWheelEventTestMonitor(WKPageRef page);
 
 WK_EXPORT bool WKPageSupportsTextZoom(WKPageRef page);
@@ -225,6 +229,9 @@ WK_EXPORT void WKPageSetPageFormClient(WKPageRef page, const WKPageFormClientBas
 WK_EXPORT void WKPageSetPageUIClient(WKPageRef page, const WKPageUIClientBase* client);
 WK_EXPORT void WKPageSetPageInjectedBundleClient(WKPageRef page, const WKPageInjectedBundleClientBase* client);
 
+WK_EXPORT void WKPageSetFullScreenClientForTesting(WKPageRef page, const WKPageFullScreenClientBase* client);
+WK_EXPORT void WKPageRequestExitFullScreen(WKPageRef pageRef);
+
 // A client can implement either a navigation client or loader and policy clients, but never both.
 WK_EXPORT void WKPageSetPageLoaderClient(WKPageRef page, const WKPageLoaderClientBase* client) WK_C_API_DEPRECATED_WITH_REPLACEMENT(WKPageSetPageNavigationClient, macos(10.14.4));
 WK_EXPORT void WKPageSetPagePolicyClient(WKPageRef page, const WKPagePolicyClientBase* client) WK_C_API_DEPRECATED_WITH_REPLACEMENT(WKPageSetPageNavigationClient, macos(10.14.4));
@@ -232,12 +239,8 @@ WK_EXPORT void WKPageSetPageNavigationClient(WKPageRef page, const WKPageNavigat
 
 WK_EXPORT void WKPageSetPageStateClient(WKPageRef page, WKPageStateClientBase* client);
 
-typedef void (*WKPageRunJavaScriptFunction)(WKSerializedScriptValueRef, WKErrorRef, void*);
-WK_EXPORT void WKPageRunJavaScriptInMainFrame(WKPageRef page, WKStringRef script, void* context, WKPageRunJavaScriptFunction function);
-#ifdef __BLOCKS__
-typedef void (^WKPageRunJavaScriptBlock)(WKSerializedScriptValueRef, WKErrorRef);
-WK_EXPORT void WKPageRunJavaScriptInMainFrame_b(WKPageRef page, WKStringRef script, WKPageRunJavaScriptBlock block);
-#endif
+typedef void (*WKPageEvaluateJavaScriptFunction)(WKTypeRef, WKErrorRef, void*);
+WK_EXPORT void WKPageEvaluateJavaScriptInMainFrame(WKPageRef page, WKStringRef script, void* context, WKPageEvaluateJavaScriptFunction function);
 
 typedef void (*WKPageGetSourceForFrameFunction)(WKStringRef, WKErrorRef, void*);
 WK_EXPORT void WKPageGetSourceForFrame(WKPageRef page, WKFrameRef frame, void* context, WKPageGetSourceForFrameFunction function);
@@ -272,7 +275,9 @@ WK_EXPORT void WKPageExecuteCommand(WKPageRef page, WKStringRef command);
 
 WK_EXPORT void WKPagePostMessageToInjectedBundle(WKPageRef page, WKStringRef messageName, WKTypeRef messageBody);
 
-WK_EXPORT void WKPageSelectContextMenuItem(WKPageRef page, WKContextMenuItemRef item);
+WK_EXPORT void WKPageSelectContextMenuItem(WKPageRef page, WKContextMenuItemRef item, WKFrameInfoRef frameInfo);
+
+WK_EXPORT void WKPageClearNotificationPermissionState(WKPageRef page);
 
 #ifdef __cplusplus
 }

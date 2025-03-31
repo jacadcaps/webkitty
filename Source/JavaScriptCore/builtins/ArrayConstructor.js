@@ -27,7 +27,7 @@ function of(/* items... */)
 {
     "use strict";
 
-    var length = arguments.length;
+    var length = @argumentCount();
     var array = this !== @Array && @isConstructor(this) ? new this(length) : @newArrayWithSize(length);
     for (var k = 0; k < length; ++k)
         @putByValDirect(array, k, arguments[k]);
@@ -44,7 +44,7 @@ function from(items /*, mapFn, thisArg */)
     var thisArg;
 
     if (mapFn !== @undefined) {
-        if (typeof mapFn !== "function")
+        if (!@isCallable(mapFn))
             @throwTypeError("Array.from requires that the second argument, when provided, be a function");
 
         thisArg = @argument(2);
@@ -52,9 +52,15 @@ function from(items /*, mapFn, thisArg */)
 
     var arrayLike = @toObject(items, "Array.from requires an array-like object - not null or undefined");
 
+    if (mapFn === @undefined) {
+        var fastResult = @arrayFromFastFillWithUndefined(this, arrayLike);
+        if (fastResult)
+            return fastResult;
+    }
+
     var iteratorMethod = items.@@iterator;
     if (!@isUndefinedOrNull(iteratorMethod)) {
-        if (typeof iteratorMethod !== "function")
+        if (!@isCallable(iteratorMethod))
             @throwTypeError("Array.from requires that the property of the first argument, items[Symbol.iterator], when exists, be a function");
 
         var result = this !== @Array && @isConstructor(this) ? new this() : [];
@@ -65,16 +71,17 @@ function from(items /*, mapFn, thisArg */)
         // Since for-of loop once more looks up the @@iterator property of a given iterable,
         // it could be observable if the user defines a getter for @@iterator.
         // To avoid this situation, we define a wrapper object that @@iterator just returns a given iterator.
-        var wrapper = {}
-        wrapper.@@iterator = function() { return iterator; };
+        var wrapper = {
+            @@iterator: function () { return iterator; }
+        };
 
         for (var value of wrapper) {
             if (k >= @MAX_SAFE_INTEGER)
                 @throwTypeError("Length exceeded the maximum array length");
-            if (mapFn)
-                @putByValDirect(result, k, thisArg === @undefined ? mapFn(value, k) : mapFn.@call(thisArg, value, k));
-            else
+            if (mapFn === @undefined)
                 @putByValDirect(result, k, value);
+            else
+                @putByValDirect(result, k, thisArg === @undefined ? mapFn(value, k) : mapFn.@call(thisArg, value, k));
             k += 1;
         }
 
@@ -89,10 +96,10 @@ function from(items /*, mapFn, thisArg */)
     var k = 0;
     while (k < arrayLikeLength) {
         var value = arrayLike[k];
-        if (mapFn)
-            @putByValDirect(result, k, thisArg === @undefined ? mapFn(value, k) : mapFn.@call(thisArg, value, k));
-        else
+        if (mapFn === @undefined)
             @putByValDirect(result, k, value);
+        else
+            @putByValDirect(result, k, thisArg === @undefined ? mapFn(value, k) : mapFn.@call(thisArg, value, k));
         k += 1;
     }
 
@@ -109,4 +116,106 @@ function isArray(array)
     if (!@isProxyObject(array))
         return false;
     return @isArraySlow(array);
+}
+
+@linkTimeConstant
+@visibility=PrivateRecursive
+async function defaultAsyncFromAsyncIterator(iterator, mapFn, thisArg)
+{
+    "use strict";
+
+    var result = this !== @Array && @isConstructor(this) ? new this() : [];
+
+    var k = 0;
+
+    // Since for-of loop once more looks up the @@iterator property of a given iterable,
+    // it could be observable if the user defines a getter for @@iterator.
+    // To avoid this situation, we define a wrapper object that @@iterator just returns a given iterator.
+    var wrapper = {
+        @@asyncIterator: function () { return iterator; }
+    };
+
+    for await (var value of wrapper) {
+        if (k >= @MAX_SAFE_INTEGER)
+            @throwTypeError("Length exceeded the maximum array length");
+        if (mapFn === @undefined)
+            @putByValDirect(result, k, value);
+        else
+            @putByValDirect(result, k, await (thisArg === @undefined ? mapFn(value, k) : mapFn.@call(thisArg, value, k)));
+        k += 1;
+    }
+
+    result.length = k;
+    return result;
+}
+
+@linkTimeConstant
+@visibility=PrivateRecursive
+async function defaultAsyncFromAsyncArrayLike(asyncItems, mapFn, thisArg)
+{
+    "use strict";
+
+    var arrayLike = @toObject(asyncItems, "Array.fromAsync requires an array-like object - not null or undefined");
+
+    var arrayLikeLength = @toLength(arrayLike.length);
+
+    var result = this !== @Array && @isConstructor(this) ? new this(arrayLikeLength) : @newArrayWithSize(arrayLikeLength);
+
+    var k = 0;
+    while (k < arrayLikeLength) {
+        var value = await arrayLike[k];
+        if (mapFn === @undefined)
+            @putByValDirect(result, k, value);
+        else
+            @putByValDirect(result, k, await (thisArg === @undefined ? mapFn(value, k) : mapFn.@call(thisArg, value, k)));
+        k += 1;
+    }
+
+    result.length = arrayLikeLength;
+    return result;
+}
+
+function fromAsync(asyncItems  /*, mapFn, thisArg */)
+{
+    "use strict";
+
+    try {
+        var mapFn = @argument(1);
+
+        var thisArg;
+
+        if (mapFn !== @undefined) {
+            if (!@isCallable(mapFn))
+                @throwTypeError("Array.fromAsync requires that the second argument, when provided, be a function");
+
+            thisArg = @argument(2);
+        }
+
+        var usingSyncIterator;
+        var usingAsyncIterator = asyncItems.@@asyncIterator;
+        if (!@isUndefinedOrNull(usingAsyncIterator)) {
+            if (!@isCallable(usingAsyncIterator))
+                @throwTypeError("Array.fromAsync requires that the property of the first argument, items[Symbol.asyncIterator], when exists, be a function");
+        } else {
+            usingSyncIterator = asyncItems.@@iterator;
+            if (!@isUndefinedOrNull(usingSyncIterator)) {
+                if (!@isCallable(usingSyncIterator))
+                    @throwTypeError("Array.fromAsync requires that the property of the first argument, items[Symbol.iterator], when exists, be a function");
+            }
+        }
+
+        if (!@isUndefinedOrNull(usingAsyncIterator))
+            return @defaultAsyncFromAsyncIterator.@call(this, usingAsyncIterator.@call(asyncItems), mapFn, thisArg);
+
+        if (!@isUndefinedOrNull(usingSyncIterator)) {
+            var iterator = usingSyncIterator.@call(asyncItems);
+            return @defaultAsyncFromAsyncIterator.@call(this, @createAsyncFromSyncIterator(iterator, iterator.next), mapFn, thisArg);
+        }
+
+        return @defaultAsyncFromAsyncArrayLike.@call(this, asyncItems, mapFn, thisArg);
+    } catch (reason) {
+        var promise = @newPromise();
+        @rejectPromiseWithFirstResolvingFunctionCallCheck(promise, reason);
+        return promise;
+    }
 }

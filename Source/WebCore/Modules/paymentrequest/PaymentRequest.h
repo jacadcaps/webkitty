@@ -35,8 +35,8 @@
 #include "PaymentMethodChangeEvent.h"
 #include "PaymentOptions.h"
 #include "PaymentResponse.h"
+#include <variant>
 #include <wtf/URL.h>
-#include <wtf/Variant.h>
 
 namespace WebCore {
 
@@ -44,6 +44,7 @@ class Document;
 class Event;
 class PaymentAddress;
 class PaymentHandler;
+class PaymentRequestUpdateEvent;
 class PaymentResponse;
 enum class PaymentComplete;
 enum class PaymentShippingType;
@@ -51,15 +52,17 @@ struct PaymentDetailsUpdate;
 struct PaymentMethodData;
 template<typename IDLType> class DOMPromiseDeferred;
 
-class PaymentRequest final : public ActiveDOMObject, public CanMakeWeakPtr<PaymentRequest>, public EventTargetWithInlineData, public RefCounted<PaymentRequest> {
-    WTF_MAKE_ISO_ALLOCATED(PaymentRequest);
+class PaymentRequest final : public ActiveDOMObject, public EventTarget, public RefCounted<PaymentRequest> {
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(PaymentRequest);
 public:
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     using AbortPromise = DOMPromiseDeferred<void>;
     using CanMakePaymentPromise = DOMPromiseDeferred<IDLBoolean>;
     using ShowPromise = DOMPromiseDeferred<IDLInterface<PaymentResponse>>;
 
     static ExceptionOr<Ref<PaymentRequest>> create(Document&, Vector<PaymentMethodData>&&, PaymentDetailsInit&&, PaymentOptions&&);
-    static bool enabledForContext(ScriptExecutionContext&);
     ~PaymentRequest();
 
     void show(Document&, RefPtr<DOMPromise>&& detailsPromise, ShowPromise&&);
@@ -69,7 +72,7 @@ public:
     const String& id() const;
     PaymentAddress* shippingAddress() const { return m_shippingAddress.get(); }
     const String& shippingOption() const { return m_shippingOption; }
-    Optional<PaymentShippingType> shippingType() const;
+    std::optional<PaymentShippingType> shippingType() const;
 
     enum class State {
         Created,
@@ -95,14 +98,14 @@ public:
     void paymentMethodChanged(const String& methodName, PaymentMethodChangeEvent::MethodDetailsFunction&&);
     ExceptionOr<void> updateWith(UpdateReason, Ref<DOMPromise>&&);
     ExceptionOr<void> completeMerchantValidation(Event&, Ref<DOMPromise>&&);
+    void accept(const String& methodName, PaymentResponse::DetailsFunction&&);
     void accept(const String& methodName, PaymentResponse::DetailsFunction&&, Ref<PaymentAddress>&& shippingAddress, const String& payerName, const String& payerEmail, const String& payerPhone);
-    ExceptionOr<void> complete(Optional<PaymentComplete>&&);
+    void reject(Exception&&);
+    ExceptionOr<void> complete(Document&, std::optional<PaymentComplete>&&, String&& serializedData);
     ExceptionOr<void> retry(PaymentValidationErrors&&);
     void cancel();
 
-    using MethodIdentifier = Variant<String, URL>;
-    using RefCounted<PaymentRequest>::ref;
-    using RefCounted<PaymentRequest>::deref;
+    using MethodIdentifier = std::variant<String, URL>;
 
 private:
     struct Method {
@@ -117,6 +120,7 @@ private:
 
     PaymentRequest(Document&, PaymentOptions&&, PaymentDetailsInit&&, Vector<String>&& serializedModifierData, Vector<Method>&& serializedMethodData, String&& selectedShippingOption);
 
+    void dispatchAndCheckUpdateEvent(Ref<PaymentRequestUpdateEvent>&&);
     void settleDetailsPromise(UpdateReason);
     void whenDetailsSettled(std::function<void()>&&);
     void abortWithException(Exception&&);
@@ -125,12 +129,11 @@ private:
     void closeActivePaymentHandler();
 
     // ActiveDOMObject
-    const char* activeDOMObjectName() const final { return "PaymentRequest"; }
     void stop() final;
     void suspend(ReasonForSuspension) final;
 
     // EventTarget
-    EventTargetInterface eventTargetInterface() const final { return PaymentRequestEventTargetInterfaceType; }
+    enum EventTargetInterfaceType eventTargetInterface() const final { return EventTargetInterfaceType::PaymentRequest; }
     ScriptExecutionContext* scriptExecutionContext() const final { return ActiveDOMObject::scriptExecutionContext(); }
     bool isPaymentRequest() const final { return true; }
     void refEventTarget() final { ref(); }
@@ -144,7 +147,7 @@ private:
     RefPtr<PaymentAddress> m_shippingAddress;
     State m_state { State::Created };
     std::unique_ptr<ShowPromise> m_showPromise;
-    Optional<PaymentHandlerWithPendingActivity> m_activePaymentHandler;
+    std::optional<PaymentHandlerWithPendingActivity> m_activePaymentHandler;
     RefPtr<DOMPromise> m_detailsPromise;
     RefPtr<DOMPromise> m_merchantSessionPromise;
     RefPtr<PaymentResponse> m_response;
@@ -152,7 +155,7 @@ private:
     bool m_isCancelPending { false };
 };
 
-Optional<PaymentRequest::MethodIdentifier> convertAndValidatePaymentMethodIdentifier(const String& identifier);
+std::optional<PaymentRequest::MethodIdentifier> convertAndValidatePaymentMethodIdentifier(const String& identifier);
 
 } // namespace WebCore
 

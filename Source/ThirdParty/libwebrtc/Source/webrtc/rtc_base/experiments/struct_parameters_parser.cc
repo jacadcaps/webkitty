@@ -11,13 +11,14 @@
 
 #include <algorithm>
 
+#include "absl/strings/string_view.h"
 #include "rtc_base/logging.h"
 
 namespace webrtc {
 namespace {
 size_t FindOrEnd(absl::string_view str, size_t start, char delimiter) {
   size_t pos = str.find(delimiter, start);
-  pos = (pos == std::string::npos) ? str.length() : pos;
+  pos = (pos == absl::string_view::npos) ? str.length() : pos;
   return pos;
 }
 }  // namespace
@@ -47,7 +48,7 @@ inline void StringEncode(std::string* target, TimeDelta val) {
 }
 
 template <typename T>
-inline void StringEncode(std::string* sb, absl::optional<T> val) {
+inline void StringEncode(std::string* sb, std::optional<T> val) {
   if (val)
     StringEncode(sb, *val);
 }
@@ -68,16 +69,16 @@ template class TypedParser<bool>;
 template class TypedParser<double>;
 template class TypedParser<int>;
 template class TypedParser<unsigned>;
-template class TypedParser<absl::optional<double>>;
-template class TypedParser<absl::optional<int>>;
-template class TypedParser<absl::optional<unsigned>>;
+template class TypedParser<std::optional<double>>;
+template class TypedParser<std::optional<int>>;
+template class TypedParser<std::optional<unsigned>>;
 
 template class TypedParser<DataRate>;
 template class TypedParser<DataSize>;
 template class TypedParser<TimeDelta>;
-template class TypedParser<absl::optional<DataRate>>;
-template class TypedParser<absl::optional<DataSize>>;
-template class TypedParser<absl::optional<TimeDelta>>;
+template class TypedParser<std::optional<DataRate>>;
+template class TypedParser<std::optional<DataSize>>;
+template class TypedParser<std::optional<TimeDelta>>;
 }  // namespace struct_parser_impl
 
 StructParametersParser::StructParametersParser(
@@ -107,7 +108,10 @@ void StructParametersParser::Parse(absl::string_view src) {
         break;
       }
     }
-    if (!found) {
+    // "_" is be used to prefix keys that are part of the string for
+    // debugging purposes but not neccessarily used.
+    // e.g. WebRTC-Experiment/param: value, _DebuggingString
+    if (!found && (key.empty() || key[0] != '_')) {
       RTC_LOG(LS_INFO) << "No field with key: '" << key
                        << "' (found in trial: \"" << src << "\")";
     }

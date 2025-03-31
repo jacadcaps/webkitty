@@ -19,12 +19,13 @@
 
 #pragma once
 
-#include "DOMWindowProperty.h"
+#include "LocalDOMWindowProperty.h"
 #include "NavigatorBase.h"
 #include "ScriptWrappable.h"
 #include "ShareData.h"
 #include "Supplementable.h"
-#include <wtf/IsoMalloc.h>
+#include <wtf/CheckedPtr.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
@@ -32,49 +33,68 @@ class Blob;
 class DeferredPromise;
 class DOMMimeTypeArray;
 class DOMPluginArray;
+class Page;
 class ShareDataReader;
 
-class Navigator final : public NavigatorBase, public ScriptWrappable, public DOMWindowProperty, public Supplementable<Navigator> {
-    WTF_MAKE_ISO_ALLOCATED(Navigator);
+class Navigator final
+    : public NavigatorBase
+    , public ScriptWrappable
+    , public LocalDOMWindowProperty
+    , public Supplementable<Navigator>
+{
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(Navigator);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(Navigator);
 public:
-    static Ref<Navigator> create(ScriptExecutionContext* context, DOMWindow& window) { return adoptRef(*new Navigator(context, window)); }
+    static Ref<Navigator> create(ScriptExecutionContext* context, LocalDOMWindow& window) { return adoptRef(*new Navigator(context, window)); }
     virtual ~Navigator();
 
     String appVersion() const;
     DOMPluginArray& plugins();
     DOMMimeTypeArray& mimeTypes();
+    bool pdfViewerEnabled();
     bool cookieEnabled() const;
-    bool javaEnabled() const;
+    bool javaEnabled() const { return false; }
     const String& userAgent() const final;
     String platform() const final;
     void userAgentChanged();
     bool onLine() const final;
-    bool canShare(ScriptExecutionContext&, const ShareData&);
-    void share(ScriptExecutionContext&, const ShareData&, Ref<DeferredPromise>&&);
+    bool canShare(Document&, const ShareData&);
+    void share(Document&, const ShareData&, Ref<DeferredPromise>&&);
     
-#if PLATFORM(IOS_FAMILY)
+#if ENABLE(NAVIGATOR_STANDALONE)
     bool standalone() const;
 #endif
 
-    void getStorageUpdates();
+    int maxTouchPoints() const;
 
-#if ENABLE(IOS_TOUCH_EVENTS) && !PLATFORM(MACCATALYST)
-    int maxTouchPoints() const { return 5; }
-#else
-    int maxTouchPoints() const { return 0; }
-#endif
+    GPU* gpu();
+
+    Page* page();
+    RefPtr<Page> protectedPage();
+
+    const Document* document() const;
+    Document* document();
+    RefPtr<Document> protectedDocument();
+
+    void setAppBadge(std::optional<unsigned long long>, Ref<DeferredPromise>&&);
+    void clearAppBadge(Ref<DeferredPromise>&&);
+
+    void setClientBadge(std::optional<unsigned long long>, Ref<DeferredPromise>&&);
+    void clearClientBadge(Ref<DeferredPromise>&&);
 
 private:
     void showShareData(ExceptionOr<ShareDataWithParsedURL&>, Ref<DeferredPromise>&&);
-    explicit Navigator(ScriptExecutionContext*, DOMWindow&);
+    explicit Navigator(ScriptExecutionContext*, LocalDOMWindow&);
 
     void initializePluginAndMimeTypeArrays();
 
     mutable RefPtr<ShareDataReader> m_loader;
     mutable bool m_hasPendingShare { false };
+    mutable bool m_pdfViewerEnabled { false };
     mutable RefPtr<DOMPluginArray> m_plugins;
     mutable RefPtr<DOMMimeTypeArray> m_mimeTypes;
     mutable String m_userAgent;
     mutable String m_platform;
+    RefPtr<GPU> m_gpuForWebGPU;
 };
 }

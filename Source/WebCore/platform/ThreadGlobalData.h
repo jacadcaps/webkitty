@@ -24,9 +24,10 @@
  *
  */
 
-#ifndef ThreadGlobalData_h
-#define ThreadGlobalData_h
+#pragma once
 
+#include <pal/ThreadGlobalData.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/text/StringHash.h>
 
@@ -37,32 +38,52 @@ class JSGlobalObject;
 
 namespace WebCore {
 
+class FontCache;
 class QualifiedNameCache;
 class ThreadTimers;
 
-struct CachedResourceRequestInitiators;
+struct CachedResourceRequestInitiatorTypes;
 struct EventNames;
-struct ICUConverterWrapper;
 struct MIMETypeRegistryThreadGlobalData;
 
-#if USE(WEB_THREAD)
-class ThreadGlobalData : public ThreadSafeRefCounted<ThreadGlobalData> {
-#else
-class ThreadGlobalData {
-#endif
+class ThreadGlobalData : public PAL::ThreadGlobalData {
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(ThreadGlobalData, WEBCORE_EXPORT);
     WTF_MAKE_NONCOPYABLE(ThreadGlobalData);
-    WTF_MAKE_FAST_ALLOCATED;
 public:
     WEBCORE_EXPORT ThreadGlobalData();
     WEBCORE_EXPORT ~ThreadGlobalData();
     void destroy(); // called on workers to clean up the ThreadGlobalData before the thread exits.
 
-    const CachedResourceRequestInitiators& cachedResourceRequestInitiators() { return *m_cachedResourceRequestInitiators; }
-    EventNames& eventNames() { return *m_eventNames; }
-    ThreadTimers& threadTimers() { return *m_threadTimers; }
-    QualifiedNameCache& qualifiedNameCache() { return *m_qualifiedNameCache; }
+    const CachedResourceRequestInitiatorTypes& cachedResourceRequestInitiatorTypes()
+    {
+        ASSERT(!m_destroyed);
+        if (UNLIKELY(!m_cachedResourceRequestInitiatorTypes))
+            initializeCachedResourceRequestInitiatorTypes();
+        return *m_cachedResourceRequestInitiatorTypes;
+    }
+    EventNames& eventNames()
+    {
+        ASSERT(!m_destroyed);
+        if (UNLIKELY(!m_eventNames))
+            initializeEventNames();
+        return *m_eventNames;
+    }
+    QualifiedNameCache& qualifiedNameCache()
+    {
+        ASSERT(!m_destroyed);
+        if (UNLIKELY(!m_qualifiedNameCache))
+            initializeQualifiedNameCache();
+        return *m_qualifiedNameCache;
+    }
+    const MIMETypeRegistryThreadGlobalData& mimeTypeRegistryThreadGlobalData()
+    {
+        ASSERT(!m_destroyed);
+        if (UNLIKELY(!m_MIMETypeRegistryThreadGlobalData))
+            initializeMimeTypeRegistryThreadGlobalData();
+        return *m_MIMETypeRegistryThreadGlobalData;
+    }
 
-    ICUConverterWrapper& cachedConverterICU() { return *m_cachedConverterICU; }
+    ThreadTimers& threadTimers() { return *m_threadTimers; }
 
     JSC::JSGlobalObject* currentState() const { return m_currentState; }
     void setCurrentState(JSC::JSGlobalObject* state) { m_currentState = state; }
@@ -74,14 +95,33 @@ public:
     bool isInRemoveAllEventListeners() const { return m_isInRemoveAllEventListeners; }
     void setIsInRemoveAllEventListeners(bool value) { m_isInRemoveAllEventListeners = value; }
 
-    const MIMETypeRegistryThreadGlobalData& mimeTypeRegistryThreadGlobalData();
+    FontCache& fontCache()
+    {
+        ASSERT(!m_destroyed);
+        if (UNLIKELY(!m_fontCache))
+            initializeFontCache();
+        return *m_fontCache;
+    }
+
+    FontCache* fontCacheIfExists() { return m_fontCache.get(); }
+    FontCache* fontCacheIfNotDestroyed() { return m_destroyed ? nullptr : &fontCache(); }
 
 private:
-    std::unique_ptr<CachedResourceRequestInitiators> m_cachedResourceRequestInitiators;
+    bool m_destroyed { false };
+
+    WEBCORE_EXPORT void initializeCachedResourceRequestInitiatorTypes();
+    WEBCORE_EXPORT void initializeEventNames();
+    WEBCORE_EXPORT void initializeQualifiedNameCache();
+    WEBCORE_EXPORT void initializeMimeTypeRegistryThreadGlobalData();
+    WEBCORE_EXPORT void initializeFontCache();
+
+    std::unique_ptr<CachedResourceRequestInitiatorTypes> m_cachedResourceRequestInitiatorTypes;
     std::unique_ptr<EventNames> m_eventNames;
     std::unique_ptr<ThreadTimers> m_threadTimers;
     std::unique_ptr<QualifiedNameCache> m_qualifiedNameCache;
     JSC::JSGlobalObject* m_currentState { nullptr };
+    std::unique_ptr<MIMETypeRegistryThreadGlobalData> m_MIMETypeRegistryThreadGlobalData;
+    std::unique_ptr<FontCache> m_fontCache;
 
 #ifndef NDEBUG
     bool m_isMainThread;
@@ -89,18 +129,34 @@ private:
 
     bool m_isInRemoveAllEventListeners { false };
 
-    std::unique_ptr<ICUConverterWrapper> m_cachedConverterICU;
-    std::unique_ptr<MIMETypeRegistryThreadGlobalData> m_MIMETypeRegistryThreadGlobalData;
-
-    WEBCORE_EXPORT friend ThreadGlobalData& threadGlobalData();
+    friend ThreadGlobalData& threadGlobalData();
 };
 
+
 #if USE(WEB_THREAD)
-WEBCORE_EXPORT ThreadGlobalData& threadGlobalData();
+WEBCORE_EXPORT ThreadGlobalData& threadGlobalDataSlow();
 #else
-WEBCORE_EXPORT ThreadGlobalData& threadGlobalData() PURE_FUNCTION;
+WEBCORE_EXPORT ThreadGlobalData& threadGlobalDataSlow() PURE_FUNCTION;
 #endif
 
-} // namespace WebCore
+#if USE(WEB_THREAD)
+inline ThreadGlobalData& threadGlobalData()
+#else
+inline PURE_FUNCTION ThreadGlobalData& threadGlobalData()
+#endif
+{
+#if HAVE(FAST_TLS)
+    if (auto* thread = Thread::currentMayBeNull(); LIKELY(thread)) {
+        if (auto* clientData = thread->m_clientData.get(); LIKELY(clientData))
+            return *static_cast<ThreadGlobalData*>(clientData);
+    }
+#else
+    auto& thread = Thread::current();
+    auto* clientData = thread.m_clientData.get();
+    if (LIKELY(clientData))
+        return *static_cast<ThreadGlobalData*>(clientData);
+#endif
+    return threadGlobalDataSlow();
+}
 
-#endif // ThreadGlobalData_h
+} // namespace WebCore

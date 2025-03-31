@@ -56,16 +56,16 @@ ViewSnapshotStore& ViewSnapshotStore::singleton()
 
 void ViewSnapshotStore::didAddImageToSnapshot(ViewSnapshot& snapshot)
 {
-    bool isNewEntry = m_snapshotsWithImages.add(&snapshot).isNewEntry;
+    bool isNewEntry = m_snapshotsWithImages.add(snapshot).isNewEntry;
     ASSERT_UNUSED(isNewEntry, isNewEntry);
-    m_snapshotCacheSize += snapshot.imageSizeInBytes();
+    m_snapshotCacheSize += snapshot.estimatedImageSizeInBytes();
 }
 
 void ViewSnapshotStore::willRemoveImageFromSnapshot(ViewSnapshot& snapshot)
 {
-    bool removed = m_snapshotsWithImages.remove(&snapshot);
+    bool removed = m_snapshotsWithImages.remove(snapshot);
     ASSERT_UNUSED(removed, removed);
-    m_snapshotCacheSize -= snapshot.imageSizeInBytes();
+    m_snapshotCacheSize -= snapshot.estimatedImageSizeInBytes();
 }
 
 void ViewSnapshotStore::pruneSnapshots(WebPageProxy& webPageProxy)
@@ -77,7 +77,7 @@ void ViewSnapshotStore::pruneSnapshots(WebPageProxy& webPageProxy)
 
     // FIXME: We have enough information to do smarter-than-LRU eviction (making use of the back-forward lists, etc.)
 
-    m_snapshotsWithImages.first()->clearImage();
+    Ref { m_snapshotsWithImages.first().get() }->clearImage();
 }
 
 void ViewSnapshotStore::recordSnapshot(WebPageProxy& webPageProxy, WebBackForwardListItem& item)
@@ -89,14 +89,18 @@ void ViewSnapshotStore::recordSnapshot(WebPageProxy& webPageProxy, WebBackForwar
 
     webPageProxy.willRecordNavigationSnapshot(item);
 
-    auto snapshot = webPageProxy.takeViewSnapshot(WTF::nullopt);
+    auto snapshot = webPageProxy.takeViewSnapshot(std::nullopt);
     if (!snapshot)
         return;
 
+#if PLATFORM(MAC)
+    snapshot->setVolatile(true);
+#endif
     snapshot->setRenderTreeSize(webPageProxy.renderTreeSize());
     snapshot->setDeviceScaleFactor(webPageProxy.deviceScaleFactor());
     snapshot->setBackgroundColor(webPageProxy.pageExtendedBackgroundColor());
     snapshot->setViewScrollPosition(WebCore::roundedIntPoint(webPageProxy.viewScrollPosition()));
+    snapshot->setOrigin(WebCore::SecurityOriginData::fromURL(URL(item.url())));
 
     item.setSnapshot(WTFMove(snapshot));
 }
@@ -104,7 +108,17 @@ void ViewSnapshotStore::recordSnapshot(WebPageProxy& webPageProxy, WebBackForwar
 void ViewSnapshotStore::discardSnapshotImages()
 {
     while (!m_snapshotsWithImages.isEmpty())
-        m_snapshotsWithImages.first()->clearImage();
+        Ref { m_snapshotsWithImages.first().get() }->clearImage();
+}
+
+void ViewSnapshotStore::discardSnapshotImagesForOrigin(const WebCore::SecurityOriginData& origin)
+{
+    for (auto it = m_snapshotsWithImages.begin(); it != m_snapshotsWithImages.end();) {
+        auto viewSnapshot = *it;
+        ++it;
+        if (viewSnapshot->origin() == origin)
+            viewSnapshot->clearImage();
+    }
 }
 
 ViewSnapshot::~ViewSnapshot()

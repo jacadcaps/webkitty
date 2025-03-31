@@ -44,7 +44,7 @@ private:
     void doUnapply() override;
 
 #ifndef NDEBUG
-    void getNodesInCommand(HashSet<Node*>&) override { }
+    void getNodesInCommand(NodeSet&) override { }
 #endif
 
     OptionSet<FrameSelection::SetSelectionOption> m_options;

@@ -26,6 +26,7 @@
 #include "WritingMode.h"
 #include <wtf/HashMap.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/Vector.h>
 
 namespace WebCore {
@@ -123,13 +124,8 @@ inline bool operator==(const BidiStatus& status1, const BidiStatus& status2)
     return status1.eor == status2.eor && status1.last == status2.last && status1.lastStrong == status2.lastStrong && *(status1.context) == *(status2.context);
 }
 
-inline bool operator!=(const BidiStatus& status1, const BidiStatus& status2)
-{
-    return !(status1 == status2);
-}
-
 struct BidiCharacterRun {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(BidiCharacterRun);
 public:
     BidiCharacterRun(unsigned start, unsigned stop, BidiContext* context, UCharDirection direction)
         : m_start(start)
@@ -179,7 +175,6 @@ public:
     unsigned m_stop;
     unsigned char m_level;
     bool m_override : 1;
-    bool m_hasHyphen : 1; // Used by BidiRun subclass which is a layering violation but enables us to save 8 bytes per object on 64-bit.
 };
 
 enum VisualDirectionOverride {
@@ -267,7 +262,7 @@ protected:
     WhitespaceCollapsingState<Iterator> m_whitespaceCollapsingState;
 
     unsigned m_nestedIsolateCount { 0 };
-    HashMap<Run*, unsigned> m_whitespaceCollapsingTransitionForIsolatedRun;
+    UncheckedKeyHashMap<Run*, unsigned> m_whitespaceCollapsingTransitionForIsolatedRun;
 
 private:
     void raiseExplicitEmbeddingLevel(UCharDirection from, UCharDirection to);

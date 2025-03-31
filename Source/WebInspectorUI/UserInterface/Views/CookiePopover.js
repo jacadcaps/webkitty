@@ -37,6 +37,8 @@ WI.CookiePopover = class CookiePopover extends WI.Popover
         this._expiresInputElement = null;
         this._httpOnlyCheckboxElement = null;
         this._secureCheckboxElement = null;
+        this._partitionedCheckboxElement = null;
+        this._partitionKeyInputElement = null;
         this._sameSiteSelectElement = null;
 
         this._serializedDataWhenShown = null;
@@ -85,6 +87,7 @@ WI.CookiePopover = class CookiePopover extends WI.Popover
             httpOnly: this._httpOnlyCheckboxElement.checked,
             secure: this._secureCheckboxElement.checked,
             sameSite: this._sameSiteSelectElement.value,
+            partitioned: this._partitionedCheckboxElement.checked,
         };
 
         if (session)
@@ -107,28 +110,50 @@ WI.CookiePopover = class CookiePopover extends WI.Popover
         this._targetElement = targetElement;
         this._preferredEdges = preferredEdges;
 
+        function formatDate(date) {
+            function pad(number) {
+                return String(number).padStart(2, "0");
+            }
+            return [
+                date.getFullYear(),
+                "-",
+                pad(date.getMonth() + 1),
+                "-",
+                pad(date.getDate()),
+                "T",
+                pad(date.getHours()),
+                ":",
+                pad(date.getMinutes()),
+                ":",
+                pad(date.getSeconds()),
+            ].join("");
+        }
+
         let data = {};
         if (cookie) {
             data.name = cookie.name;
             data.value = cookie.value;
             data.domain = cookie.domain;
             data.path = cookie.path;
-            data.expires = (cookie.expires || this._defaultExpires()).toLocaleString();
+            data.expires = formatDate(cookie.expires || this._defaultExpires());
             data.session = cookie.session;
             data.httpOnly = cookie.httpOnly;
             data.secure = cookie.secure;
             data.sameSite = cookie.sameSite;
+            data.partitioned = cookie.partitioned;
+            data.partitionKey = cookie.partitionKey;
         } else {
             let urlComponents = WI.networkManager.mainFrame.mainResource.urlComponents;
             data.name = "";
             data.value = "";
             data.domain = urlComponents.host;
             data.path = urlComponents.path;
-            data.expires = this._defaultExpires().toLocaleString();
+            data.expires = formatDate(this._defaultExpires());
             data.session = true;
             data.httpOnly = false;
             data.secure = false;
             data.sameSite = WI.Cookie.SameSiteType.None;
+            data.partitioned = false;
         }
 
         let popoverContentElement = document.createElement("div");
@@ -196,6 +221,7 @@ WI.CookiePopover = class CookiePopover extends WI.Popover
 
         let expiresInputRow = createInputRow("expires", WI.unlocalizedString("Expires"), "datetime-local", data.expires);
         this._expiresInputElement = expiresInputRow.inputElement;
+        this._expiresInputElement.step = 1; // Causes the seconds field to be shown.
         this._expiresInputElement.addEventListener("input", (event) => {
             this._expiresInputElement.classList.toggle("invalid", isNaN(this._parseExpires()));
         });
@@ -203,6 +229,13 @@ WI.CookiePopover = class CookiePopover extends WI.Popover
         this._httpOnlyCheckboxElement = createInputRow("http-only", WI.unlocalizedString("HttpOnly"), "checkbox", data.httpOnly).inputElement;
 
         this._secureCheckboxElement = createInputRow("secure", WI.unlocalizedString("Secure"), "checkbox", data.secure).inputElement;
+
+        this._partitionedCheckboxElement = createInputRow("partitioned", WI.unlocalizedString("Partitioned"), "checkbox", data.partitioned).inputElement;
+        let partitionKeyInputRow = null;
+        if (data.partitionKey) {
+            partitionKeyInputRow = createInputRow("partition-key", WI.UIString("Partition Key"), "text", data.partitionKey);
+            partitionKeyInputRow.inputElement.readOnly = true;
+        }
 
         this._sameSiteSelectElement = document.createElement("select");
         for (let sameSiteType of Object.values(WI.Cookie.SameSiteType)) {
@@ -224,6 +257,20 @@ WI.CookiePopover = class CookiePopover extends WI.Popover
         });
 
         toggleExpiresRow();
+
+        if (partitionKeyInputRow) {
+            let togglePartitionKeyInput = () => {
+                partitionKeyInputRow.rowElement.hidden = !this._partitionedCheckboxElement.checked;
+
+                this.update();
+            };
+
+            this._partitionedCheckboxElement.addEventListener("change", (event) => {
+                togglePartitionKeyInput();
+            });
+
+            togglePartitionKeyInput();
+        }
 
         this._serializedDataWhenShown = this.serializedData;
 

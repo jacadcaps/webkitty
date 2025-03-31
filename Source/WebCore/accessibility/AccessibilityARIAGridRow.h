@@ -36,22 +36,23 @@ class AccessibilityTable;
     
 class AccessibilityARIAGridRow final : public AccessibilityTableRow {
 public:
-    static Ref<AccessibilityARIAGridRow> create(RenderObject*);
+    static Ref<AccessibilityARIAGridRow> create(AXID, RenderObject&);
+    static Ref<AccessibilityARIAGridRow> create(AXID, Node&);
     virtual ~AccessibilityARIAGridRow();
 
-    AccessibilityChildrenVector disclosedRows() override;
-    AXCoreObject* disclosedByRow() const override;
+    AccessibilityChildrenVector disclosedRows() final;
+    AccessibilityObject* disclosedByRow() const final;
+    AccessibilityObject* rowHeader() final;
 
-    AXCoreObject* headerObject() override;
-    
 private:
-    explicit AccessibilityARIAGridRow(RenderObject*);
+    explicit AccessibilityARIAGridRow(AXID, RenderObject&);
+    explicit AccessibilityARIAGridRow(AXID, Node&);
+    bool isAccessibilityARIAGridRowInstance() const final { return true; }
 
-    bool isARIATreeGridRow() const override;
-    AccessibilityTable* parentTable() const override;
-    AccessibilityObject* parentObjectUnignored() const override;
+    bool isARIATreeGridRow() const final;
+    AccessibilityTable* parentTable() const final;
 };
 
 } // namespace WebCore 
 
-SPECIALIZE_TYPE_TRAITS_ACCESSIBILITY(AccessibilityARIAGridRow, isARIATreeGridRow())
+SPECIALIZE_TYPE_TRAITS_ACCESSIBILITY(AccessibilityARIAGridRow, isAccessibilityARIAGridRowInstance())

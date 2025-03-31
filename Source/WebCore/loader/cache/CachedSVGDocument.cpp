@@ -23,13 +23,21 @@
 #include "config.h"
 #include "CachedSVGDocument.h"
 
+#include "ParserContentPolicy.h"
+#include "Settings.h"
 #include "SharedBuffer.h"
 
 namespace WebCore {
 
-CachedSVGDocument::CachedSVGDocument(CachedResourceRequest&& request, const PAL::SessionID& sessionID, const CookieJar* cookieJar)
+CachedSVGDocument::CachedSVGDocument(CachedResourceRequest&& request, PAL::SessionID sessionID, const CookieJar* cookieJar, const Settings& settings)
     : CachedResource(WTFMove(request), Type::SVGDocumentResource, sessionID, cookieJar)
-    , m_decoder(TextResourceDecoder::create("application/xml"))
+    , m_decoder(TextResourceDecoder::create("application/xml"_s))
+    , m_settings(settings)
+{
+}
+
+CachedSVGDocument::CachedSVGDocument(CachedResourceRequest&& request, CachedSVGDocument& resource)
+    : CachedSVGDocument(WTFMove(request), resource.sessionID(), resource.cookieJar(), resource.m_settings)
 {
 }
 
@@ -37,20 +45,26 @@ CachedSVGDocument::~CachedSVGDocument() = default;
 
 void CachedSVGDocument::setEncoding(const String& chs)
 {
-    m_decoder->setEncoding(chs, TextResourceDecoder::EncodingFromHTTPHeader);
+    protectedDecoder()->setEncoding(chs, TextResourceDecoder::EncodingFromHTTPHeader);
 }
 
-String CachedSVGDocument::encoding() const
+ASCIILiteral CachedSVGDocument::encoding() const
 {
-    return m_decoder->encoding().name();
+    return protectedDecoder()->encoding().name();
 }
 
-void CachedSVGDocument::finishLoading(SharedBuffer* data, const NetworkLoadMetrics& metrics)
+RefPtr<TextResourceDecoder> CachedSVGDocument::protectedDecoder() const
+{
+    return m_decoder;
+}
+
+void CachedSVGDocument::finishLoading(const FragmentedSharedBuffer* data, const NetworkLoadMetrics& metrics)
 {
     if (data) {
         // We don't need to create a new frame because the new document belongs to the parent UseElement.
-        m_document = SVGDocument::create(nullptr, response().url());
-        m_document->setContent(m_decoder->decodeAndFlush(data->data(), data->size()));
+        Ref document = SVGDocument::create(nullptr, m_settings.copyRef(), response().url());
+        document->setMarkupUnsafe(protectedDecoder()->decodeAndFlush(data->makeContiguous()->span()), { ParserContentPolicy::AllowDeclarativeShadowRoots });
+        m_document = WTFMove(document);
     }
     CachedResource::finishLoading(data, metrics);
 }

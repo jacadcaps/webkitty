@@ -11,14 +11,15 @@
 #ifndef MODULES_PACING_RTP_PACKET_PACER_H_
 #define MODULES_PACING_RTP_PACKET_PACER_H_
 
-#include <stdint.h>
 
-#include "absl/types/optional.h"
+#include <optional>
+#include <vector>
+
+#include "api/transport/network_types.h"
 #include "api/units/data_rate.h"
 #include "api/units/data_size.h"
 #include "api/units/time_delta.h"
 #include "api/units/timestamp.h"
-#include "modules/rtp_rtcp/include/rtp_packet_sender.h"
 
 namespace webrtc {
 
@@ -26,7 +27,8 @@ class RtpPacketPacer {
  public:
   virtual ~RtpPacketPacer() = default;
 
-  virtual void CreateProbeCluster(DataRate bitrate, int cluster_id) = 0;
+  virtual void CreateProbeClusters(
+      std::vector<ProbeClusterConfig> probe_cluster_configs) = 0;
 
   // Temporarily pause all sending.
   virtual void Pause() = 0;
@@ -34,8 +36,7 @@ class RtpPacketPacer {
   // Resume sending packets.
   virtual void Resume() = 0;
 
-  virtual void SetCongestionWindow(DataSize congestion_window_size) = 0;
-  virtual void UpdateOutstandingData(DataSize outstanding_data) = 0;
+  virtual void SetCongested(bool congested) = 0;
 
   // Sets the pacing rates. Must be called once before packets can be sent.
   virtual void SetPacingRates(DataRate pacing_rate, DataRate padding_rate) = 0;
@@ -47,7 +48,7 @@ class RtpPacketPacer {
   virtual DataSize QueueSizeData() const = 0;
 
   // Returns the time when the first packet was sent.
-  virtual absl::optional<Timestamp> FirstSentPacketTime() const = 0;
+  virtual std::optional<Timestamp> FirstSentPacketTime() const = 0;
 
   // Returns the expected number of milliseconds it will take to send the
   // current packets in the queue, given the current size and bitrate, ignoring
@@ -56,7 +57,7 @@ class RtpPacketPacer {
 
   // Set the average upper bound on pacer queuing delay. The pacer may send at
   // a higher rate than what was configured via SetPacingRates() in order to
-  // keep ExpectedQueueTimeMs() below |limit_ms| on average.
+  // keep ExpectedQueueTimeMs() below `limit_ms` on average.
   virtual void SetQueueTimeLimit(TimeDelta limit) = 0;
 
   // Currently audio traffic is not accounted by pacer and passed through.

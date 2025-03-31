@@ -21,8 +21,10 @@
 namespace webrtc {
 
 RtpPacketReceived::RtpPacketReceived() = default;
-RtpPacketReceived::RtpPacketReceived(const ExtensionManager* extensions)
-    : RtpPacket(extensions) {}
+RtpPacketReceived::RtpPacketReceived(
+    const ExtensionManager* extensions,
+    webrtc::Timestamp arrival_time /*= webrtc::Timestamp::MinusInfinity()*/)
+    : RtpPacket(extensions), arrival_time_(arrival_time) {}
 RtpPacketReceived::RtpPacketReceived(const RtpPacketReceived& packet) = default;
 RtpPacketReceived::RtpPacketReceived(RtpPacketReceived&& packet) = default;
 
@@ -46,7 +48,6 @@ void RtpPacketReceived::GetHeader(RTPHeader* header) const {
   }
   header->paddingLength = padding_size();
   header->headerLength = headers_size();
-  header->payload_type_frequency = payload_type_frequency();
   header->extension.hasTransmissionTimeOffset =
       GetExtension<TransmissionOffset>(
           &header->extension.transmissionTimeOffset);
@@ -60,8 +61,7 @@ void RtpPacketReceived::GetHeader(RTPHeader* header) const {
           &header->extension.feedback_request) ||
       GetExtension<TransportSequenceNumber>(
           &header->extension.transportSequenceNumber);
-  header->extension.hasAudioLevel = GetExtension<AudioLevel>(
-      &header->extension.voiceActivity, &header->extension.audioLevel);
+  header->extension.set_audio_level(GetExtension<AudioLevelExtension>());
   header->extension.hasVideoRotation =
       GetExtension<VideoOrientation>(&header->extension.videoRotation);
   header->extension.hasVideoContentType =
@@ -69,8 +69,6 @@ void RtpPacketReceived::GetHeader(RTPHeader* header) const {
           &header->extension.videoContentType);
   header->extension.has_video_timing =
       GetExtension<VideoTimingExtension>(&header->extension.video_timing);
-  header->extension.has_frame_marking =
-      GetExtension<FrameMarkingExtension>(&header->extension.frame_marking);
   GetExtension<RtpStreamId>(&header->extension.stream_id);
   GetExtension<RepairedRtpStreamId>(&header->extension.repaired_stream_id);
   GetExtension<RtpMid>(&header->extension.mid);

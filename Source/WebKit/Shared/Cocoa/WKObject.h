@@ -23,22 +23,21 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+
+#import "Logging.h"
 #import "WKFoundation.h"
 
 #import <type_traits>
+#import <wtf/ObjCRuntimeExtras.h>
 #import <wtf/RefPtr.h>
+#import <wtf/RetainPtr.h>
+#import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
+#import <wtf/cocoa/TypeCastsCocoa.h>
+#import <wtf/spi/cocoa/objcSPI.h>
 
 namespace API {
 
 class Object;
-
-template<typename ObjectClass> struct ObjectStorage {
-    ObjectClass* get() { return reinterpret_cast<ObjectClass*>(&data); }
-    ObjectClass& operator*() { return *get(); }
-    ObjectClass* operator->() { return get(); }
-
-    typename std::aligned_storage<sizeof(ObjectClass), std::alignment_of<ObjectClass>::value>::type data;
-};
 
 API::Object* unwrap(void*);
 void* wrap(API::Object*);
@@ -51,8 +50,7 @@ template<typename WrappedObjectClass> struct WrapperTraits;
 
 template<typename DestinationClass, typename SourceClass> inline DestinationClass *checkedObjCCast(SourceClass *source)
 {
-    ASSERT([source isKindOfClass:[DestinationClass class]]);
-    return (DestinationClass *)source;
+    return checked_objc_cast<DestinationClass>(source);
 }
 
 template<typename ObjectClass> inline typename WrapperTraits<ObjectClass>::WrapperClass *wrapper(ObjectClass& object)
@@ -75,12 +73,12 @@ template<typename ObjectClass> inline typename WrapperTraits<ObjectClass>::Wrapp
     return wrapper(object.get());
 }
 
-template<typename ObjectClass> inline typename WrapperTraits<ObjectClass>::WrapperClass *wrapper(Ref<ObjectClass>&& object)
+template<typename ObjectClass> inline RetainPtr<typename WrapperTraits<ObjectClass>::WrapperClass> wrapper(Ref<ObjectClass>&& object)
 {
-    return [wrapper(object.leakRef()) autorelease];
+    return wrapper(object.get());
 }
 
-template<typename ObjectClass> inline typename WrapperTraits<ObjectClass>::WrapperClass *wrapper(RefPtr<ObjectClass>&& object)
+template<typename ObjectClass> inline RetainPtr<typename WrapperTraits<ObjectClass>::WrapperClass> wrapper(RefPtr<ObjectClass>&& object)
 {
     return object ? wrapper(object.releaseNonNull()) : nil;
 }
@@ -104,3 +102,62 @@ using WebKit::wrapper;
 - (NSObject *)_web_createTarget NS_RETURNS_RETAINED;
 
 @end
+
+#if HAVE(OBJC_CUSTOM_DEALLOC)
+
+// This macro ensures WebKit ObjC objects of a specified class are deallocated on the main thread.
+// Use this macro in the ObjC implementation file.
+
+#define WK_OBJECT_DEALLOC_ON_MAIN_THREAD(objcClass) \
++ (void)initialize \
+{ \
+    if (self == objcClass.class) \
+        _class_setCustomDeallocInitiation(self); \
+} \
+\
+- (void)_objc_initiateDealloc \
+{ \
+    if (isMainRunLoop()) \
+        _objc_deallocOnMainThreadHelper((__bridge void *)self); \
+    else \
+        dispatch_async_f(dispatch_get_main_queue(), (__bridge void *)self, _objc_deallocOnMainThreadHelper); \
+} \
+\
+using __thisIsHereToForceASemicolonAfterThisMacro UNUSED_TYPE_ALIAS = int
+
+// This macro ensures WebKit ObjC objects and their C++ implementation are safely deallocated on the main thread.
+// Use this macro in the ObjC implementation file if you don't require a custom dealloc method.
+
+#define WK_OBJECT_DEALLOC_IMPL_ON_MAIN_THREAD(objcClass, implClass, storageVar) \
+WK_OBJECT_DEALLOC_ON_MAIN_THREAD(objcClass); \
+\
+- (void)dealloc \
+{ \
+    ASSERT(isMainRunLoop()); \
+    SUPPRESS_UNCOUNTED_ARG storageVar->~implClass(); \
+} \
+\
+using __thisIsHereToForceASemicolonAfterThisMacro UNUSED_TYPE_ALIAS = int
+
+#else
+
+#define WK_OBJECT_DEALLOC_ON_MAIN_THREAD(objcClass) \
+using __thisIsHereToForceASemicolonAfterThisMacro UNUSED_TYPE_ALIAS = int
+
+#define WK_OBJECT_DEALLOC_IMPL_ON_MAIN_THREAD(objcClass, implClass, storageVar) \
+- (void)dealloc \
+{ \
+    ASSERT(isMainRunLoop()); \
+    storageVar->~implClass(); \
+} \
+\
+using __thisIsHereToForceASemicolonAfterThisMacro UNUSED_TYPE_ALIAS = int
+
+#endif // HAVE(OBJC_CUSTOM_DEALLOC)
+
+#define WK_OBJECT_DISABLE_DISABLE_KVC_IVAR_ACCESS \
++ (BOOL)accessInstanceVariablesDirectly \
+{ \
+    return !linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::ThrowOnKVCInstanceVariableAccess); \
+} \
+using __thisIsHereToForceASemicolonAfterThisMacro UNUSED_TYPE_ALIAS = int

@@ -32,13 +32,15 @@
 #import <WebCore/ArchiveResource.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/URL.h>
+#import <wtf/cf/VectorCF.h>
+#import <wtf/text/WTFString.h>
 
 namespace API {
 using namespace WebCore;
 
-Ref<WebArchiveResource> WebArchiveResource::create(API::Data* data, const String& URL, const String& MIMEType, const String& textEncoding)
+Ref<WebArchiveResource> WebArchiveResource::create(API::Data* data, const WTF::String& url, const WTF::String& mimeType, const WTF::String& textEncoding)
 {
-    return adoptRef(*new WebArchiveResource(data, URL, MIMEType, textEncoding));
+    return adoptRef(*new WebArchiveResource(data, url, mimeType, textEncoding));
 }
 
 Ref<WebArchiveResource> WebArchiveResource::create(RefPtr<ArchiveResource>&& archiveResource)
@@ -46,8 +48,8 @@ Ref<WebArchiveResource> WebArchiveResource::create(RefPtr<ArchiveResource>&& arc
     return adoptRef(*new WebArchiveResource(WTFMove(archiveResource)));
 }
 
-WebArchiveResource::WebArchiveResource(API::Data* data, const String& url, const String& MIMEType, const String& textEncoding)
-    : m_archiveResource(ArchiveResource::create(SharedBuffer::create(data->bytes(), data->size()), WTF::URL(WTF::URL(), url), MIMEType, textEncoding, String()))
+WebArchiveResource::WebArchiveResource(API::Data* data, const WTF::String& url, const WTF::String& mimeType, const WTF::String& textEncoding)
+    : m_archiveResource(ArchiveResource::create(SharedBuffer::create(data->span()), WTF::URL { url }, mimeType, textEncoding, WTF::String()))
 {
 }
 
@@ -56,37 +58,26 @@ WebArchiveResource::WebArchiveResource(RefPtr<ArchiveResource>&& archiveResource
 {
 }
 
-WebArchiveResource::~WebArchiveResource()
-{
-}
-
-static void releaseWebArchiveResourceData(unsigned char*, const void* data)
-{
-    // Balanced by CFRetain in WebArchiveResource::data().
-    CFRelease(data);
-}
+WebArchiveResource::~WebArchiveResource() = default;
 
 Ref<API::Data> WebArchiveResource::data()
 {
-    RetainPtr<CFDataRef> cfData = m_archiveResource->data().createCFData();
-
-    // Balanced by CFRelease in releaseWebArchiveResourceData.
-    CFRetain(cfData.get());
-
-    return API::Data::createWithoutCopying(CFDataGetBytePtr(cfData.get()), CFDataGetLength(cfData.get()), releaseWebArchiveResourceData, cfData.get());
+    RetainPtr cfData = m_archiveResource->data().makeContiguous()->createCFData();
+    auto cfDataSpan = span(cfData.get());
+    return API::Data::createWithoutCopying(cfDataSpan, [cfData = WTFMove(cfData)] { });
 }
 
-String WebArchiveResource::URL()
+WTF::String WebArchiveResource::url()
 {
     return m_archiveResource->url().string();
 }
 
-String WebArchiveResource::MIMEType()
+WTF::String WebArchiveResource::mimeType()
 {
     return m_archiveResource->mimeType();
 }
 
-String WebArchiveResource::textEncoding()
+WTF::String WebArchiveResource::textEncoding()
 {
     return m_archiveResource->textEncoding();
 }

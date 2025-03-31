@@ -32,11 +32,12 @@ import unittest
 from collections import OrderedDict
 
 from webkitpy.common.host_mock import MockHost
-from webkitpy.common.system.outputcapture import OutputCapture
 
 from webkitpy.layout_tests.models.test_configuration import *
 from webkitpy.layout_tests.models.test_expectations import *
 from webkitpy.layout_tests.models.test_configuration import *
+
+from webkitcorepy import OutputCapture
 
 
 class Base(unittest.TestCase):
@@ -196,13 +197,9 @@ class MiscTests(Base):
             self.assertEqual(str(e), warnings)
 
     def test_parse_warnings_are_logged_if_not_in_lint_mode(self):
-        oc = OutputCapture()
-        try:
-            oc.capture_output()
+        with OutputCapture() as captured:
             self.parse_exp('-- this should be a syntax error', is_lint_mode=False)
-        finally:
-            _, _, logs = oc.restore_output()
-            self.assertNotEquals(logs, '')
+        self.assertNotEqual(captured.root.log.getvalue(), '')
 
     def test_error_on_different_platform(self):
         # parse_exp uses a Windows port. Assert errors on Mac show up in lint mode.
@@ -293,7 +290,7 @@ class SkippedTests(Base):
         if overrides:
             expectations_dict['overrides'] = overrides
         port.expectations_dict = lambda **kwargs: expectations_dict
-        port.skipped_layout_tests = lambda tests, **kwargs: set(skips)
+        port.skipped_layout_tests = lambda **kwargs: set(skips)
         expectations_to_lint = expectations_dict if lint else None
         exp = TestExpectations(port, ['failures/expected/text.html'], expectations_to_lint=expectations_to_lint)
         exp.parse_all_expectations()
@@ -330,13 +327,14 @@ class SkippedTests(Base):
         expectations_dict = OrderedDict()
         expectations_dict['expectations'] = ''
         port.expectations_dict = lambda **kwargs: expectations_dict
-        port.skipped_layout_tests = lambda tests, **kwargs: set(['foo/bar/baz.html'])
-        capture = OutputCapture()
-        capture.capture_output()
-        exp = TestExpectations(port)
-        exp.parse_all_expectations()
-        _, _, logs = capture.restore_output()
-        self.assertEqual('The following test foo/bar/baz.html from the Skipped list doesn\'t exist\n', logs)
+        port.skipped_layout_tests = lambda **kwargs: {'foo/bar/baz.html'}
+        with OutputCapture() as captured:
+            exp = TestExpectations(port)
+            exp.parse_all_expectations()
+        self.assertEqual(
+            captured.root.log.getvalue(),
+            'The following test foo/bar/baz.html from the Skipped list doesn\'t exist\n',
+        )
 
 
 class ExpectationSyntaxTests(Base):
@@ -512,45 +510,47 @@ Bug(y) failures/expected/text.html [ Failure ]
                                      "Bug(test) [ XP ] passes/text.html [ Failure ]\n")
 
 
-class RemoveConfigurationsTest(Base):
-    def test_remove(self):
-        host = MockHost()
-        test_port = host.port_factory.get('test-win-xp', None)
-        test_port.test_exists = lambda test: True
-        test_port.test_isfile = lambda test: True
+class PrintExpectationsTests(Base):
+    def test_absent(self):
+        self.parse_exp('')
+        self.assertTrue(self._exp._model.get_expectation_line('some_unknown_file.html') is None)
+        self.assertTrue(self._exp._model.get_expectation_lines('some_unknown_file.html') is None)
 
-        test_config = test_port.test_configuration()
-        test_port.expectations_dict = lambda **kwargs: {"expectations": """Bug(x) [ Linux Win Release ] failures/expected/foo.html [ Failure ]
-Bug(y) [ Win Mac Debug ] failures/expected/foo.html [ Crash ]
-"""}
-        expectations = TestExpectations(test_port, self.get_basic_tests())
-        expectations.parse_all_expectations()
+    def test_single(self):
+        exp_str = 'Bug(test) failures/expected/text.html [ Failure ]'
+        self.parse_exp(exp_str)
+        main_line = self._exp._model.get_expectation_line('failures/expected/text.html')
+        lines = self._exp._model.get_expectation_lines('failures/expected/text.html')
+        self.assertEqual(str(main_line), exp_str)
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(lines[0], main_line)
 
-        actual_expectations = expectations.remove_configuration_from_test('failures/expected/foo.html', test_config)
+    def test_override_same_file(self):
+        exp_strs = ['Bug(exp) failures/expected/text.html [ Failure ]',
+                    'Bug(override) failures/expected/text.html [ ImageOnlyFailure ]']
+        exp_main = 0
+        self.parse_exp('\n'.join(exp_strs))
+        main_line = self._exp._model.get_expectation_line('failures/expected/text.html')
+        lines = self._exp._model.get_expectation_lines('failures/expected/text.html')
+        self.assertEqual(str(main_line), exp_strs[exp_main])
+        self.assertEqual(len(lines), len(exp_strs))
+        for index, exp_str in enumerate(exp_strs):
+            self.assertEqual(str(lines[index]), exp_str)
+        self.assertEqual(lines.count(main_line), 1)
 
-        self.assertEqual("""Bug(x) [ 7SP0 Linux Vista Release ] failures/expected/foo.html [ Failure ]
-Bug(y) [ Win Mac Debug ] failures/expected/foo.html [ Crash ]
-""", actual_expectations)
-
-    def test_remove_line(self):
-        host = MockHost()
-        test_port = host.port_factory.get('test-win-xp', None)
-        test_port.test_exists = lambda test: True
-        test_port.test_isfile = lambda test: True
-
-        test_config = test_port.test_configuration()
-        test_port.expectations_dict = lambda **kwargs: {'expectations': """Bug(x) [ Win Release ] failures/expected/foo.html [ Failure ]
-Bug(y) [ Win Debug ] failures/expected/foo.html [ Crash ]
-"""}
-        expectations = TestExpectations(test_port)
-        expectations.parse_all_expectations()
-
-        actual_expectations = expectations.remove_configuration_from_test('failures/expected/foo.html', test_config)
-        actual_expectations = expectations.remove_configuration_from_test('failures/expected/foo.html', host.port_factory.get('test-win-vista', None).test_configuration())
-        actual_expectations = expectations.remove_configuration_from_test('failures/expected/foo.html', host.port_factory.get('test-win-7sp0', None).test_configuration())
-
-        self.assertEqual("""Bug(y) [ Win Debug ] failures/expected/foo.html [ Crash ]
-""", actual_expectations)
+    def test_overrides_with_dir(self):
+        exp_strs = ['Bug(exp) failures/expected [ Failure ]',
+                    'Bug(override) failures/expected/text.html [ ImageOnlyFailure ]',
+                    'Bug(override2) failures [ ImageOnlyFailure ]']
+        exp_main = 1
+        self.parse_exp('\n'.join(exp_strs))
+        main_line = self._exp._model.get_expectation_line('failures/expected/text.html')
+        lines = self._exp._model.get_expectation_lines('failures/expected/text.html')
+        self.assertEqual(str(main_line), exp_strs[exp_main])
+        self.assertEqual(len(lines), len(exp_strs))
+        for line, exp_str in zip(lines, exp_strs):
+            self.assertEqual(str(line), exp_str)
+        self.assertEqual(lines.count(main_line), 1)
 
 
 class RebaseliningTest(Base):

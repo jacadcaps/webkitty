@@ -28,38 +28,57 @@
 #if ENABLE(GAMEPAD)
 
 #include "Supplementable.h"
+#include <wtf/CheckedRef.h>
+#include <wtf/MonotonicTime.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
+
+namespace WebCore {
+class NavigatorGamepad;
+}
 
 namespace WebCore {
 
 class Gamepad;
 class Navigator;
+class Page;
 class PlatformGamepad;
+template<typename> class ExceptionOr;
 
 class NavigatorGamepad : public Supplement<Navigator> {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(NavigatorGamepad);
 public:
-    NavigatorGamepad();
+    explicit NavigatorGamepad(Navigator&);
     virtual ~NavigatorGamepad();
 
-    static NavigatorGamepad* from(Navigator*);
+    static NavigatorGamepad& from(Navigator&);
+
+    Navigator& navigator() const;
 
     // The array of Gamepads might be sparse.
     // Null checking each entry is necessary.
-    static const Vector<RefPtr<Gamepad>>& getGamepads(Navigator&);
+    static ExceptionOr<const Vector<RefPtr<Gamepad>>&> getGamepads(Navigator&);
 
     void gamepadConnected(PlatformGamepad&);
     void gamepadDisconnected(PlatformGamepad&);
 
     Ref<Gamepad> gamepadFromPlatformGamepad(PlatformGamepad&);
 
+    WEBCORE_EXPORT static void setGamepadsRecentlyAccessedThreshold(Seconds);
+    static Seconds gamepadsRecentlyAccessedThreshold();
+
+    RefPtr<Page> protectedPage() const;
+
 private:
-    static const char* supplementName();
+    static ASCIILiteral supplementName();
+    Ref<Navigator> protectedNavigator() const;
 
     void gamepadsBecameVisible();
+    void maybeNotifyRecentAccess();
 
     const Vector<RefPtr<Gamepad>>& gamepads();
 
+    CheckedRef<Navigator> m_navigator;
     Vector<RefPtr<Gamepad>> m_gamepads;
 };
 

@@ -13,9 +13,9 @@
 
 #include <algorithm>
 #include <memory>
+#include <optional>
 #include <string>
 
-#include "absl/types/optional.h"
 #include "modules/audio_coding/neteq/tools/packet.h"
 #include "modules/audio_coding/neteq/tools/packet_source.h"
 #include "rtc_base/buffer.h"
@@ -36,26 +36,48 @@ class NetEqInput {
     int64_t time_ms;
   };
 
+  struct SetMinimumDelayInfo {
+    SetMinimumDelayInfo(int64_t timestamp_ms_in, int delay_ms_in)
+        : timestamp_ms(timestamp_ms_in), delay_ms(delay_ms_in) {}
+    int64_t timestamp_ms;
+    int delay_ms;
+  };
+
   virtual ~NetEqInput() = default;
 
   // Returns at what time (in ms) NetEq::InsertPacket should be called next, or
   // empty if the source is out of packets.
-  virtual absl::optional<int64_t> NextPacketTime() const = 0;
+  virtual std::optional<int64_t> NextPacketTime() const = 0;
 
   // Returns at what time (in ms) NetEq::GetAudio should be called next, or
   // empty if no more output events are available.
-  virtual absl::optional<int64_t> NextOutputEventTime() const = 0;
+  virtual std::optional<int64_t> NextOutputEventTime() const = 0;
 
-  // Returns the time (in ms) for the next event from either NextPacketTime()
-  // or NextOutputEventTime(), or empty if both are out of events.
-  absl::optional<int64_t> NextEventTime() const {
-    const auto a = NextPacketTime();
-    const auto b = NextOutputEventTime();
-    // Return the minimum of non-empty |a| and |b|, or empty if both are empty.
-    if (a) {
-      return b ? std::min(*a, *b) : a;
+  // Returns the information related to the next NetEq set minimum delay event
+  // if available.
+  virtual std::optional<SetMinimumDelayInfo> NextSetMinimumDelayInfo()
+      const = 0;
+
+  // Returns the time (in ms) for the next event (packet, output or set minimum
+  // delay event) or empty if there are no more events.
+  std::optional<int64_t> NextEventTime() const {
+    std::optional<int64_t> next_event_time = NextPacketTime();
+    const auto next_output_time = NextOutputEventTime();
+    // Return the minimum of non-empty `a` and `b`, or empty if both are empty.
+    if (next_output_time) {
+      next_event_time = next_event_time ? std::min(next_event_time.value(),
+                                                   next_output_time.value())
+                                        : next_output_time;
     }
-    return b ? b : absl::nullopt;
+    const auto next_neteq_minimum_delay = NextSetMinimumDelayInfo();
+    if (next_neteq_minimum_delay) {
+      next_event_time =
+          next_event_time
+              ? std::min(next_event_time.value(),
+                         next_neteq_minimum_delay.value().timestamp_ms)
+              : next_neteq_minimum_delay.value().timestamp_ms;
+    }
+    return next_event_time;
   }
 
   // Returns the next packet to be inserted into NetEq. The packet following the
@@ -69,6 +91,10 @@ class NetEqInput {
   // time).
   virtual void AdvanceOutputEvent() = 0;
 
+  // Move to the next NetEq set minimum delay. This will make
+  // `NextSetMinimumDelayInfo` return a new value.
+  virtual void AdvanceSetMinimumDelay() = 0;
+
   // Returns true if the source has come to an end. An implementation must
   // eventually return true from this method, or the test will end up in an
   // infinite loop.
@@ -76,7 +102,7 @@ class NetEqInput {
 
   // Returns the RTP header for the next packet, i.e., the packet that will be
   // delivered next by PopPacket().
-  virtual absl::optional<RTPHeader> NextHeader() const = 0;
+  virtual std::optional<RTPHeader> NextHeader() const = 0;
 };
 
 // Wrapper class to impose a time limit on a NetEqInput object, typically
@@ -86,18 +112,20 @@ class TimeLimitedNetEqInput : public NetEqInput {
  public:
   TimeLimitedNetEqInput(std::unique_ptr<NetEqInput> input, int64_t duration_ms);
   ~TimeLimitedNetEqInput() override;
-  absl::optional<int64_t> NextPacketTime() const override;
-  absl::optional<int64_t> NextOutputEventTime() const override;
+  std::optional<int64_t> NextPacketTime() const override;
+  std::optional<int64_t> NextOutputEventTime() const override;
+  std::optional<SetMinimumDelayInfo> NextSetMinimumDelayInfo() const override;
   std::unique_ptr<PacketData> PopPacket() override;
   void AdvanceOutputEvent() override;
+  void AdvanceSetMinimumDelay() override;
   bool ended() const override;
-  absl::optional<RTPHeader> NextHeader() const override;
+  std::optional<RTPHeader> NextHeader() const override;
 
  private:
   void MaybeSetEnded();
 
   std::unique_ptr<NetEqInput> input_;
-  const absl::optional<int64_t> start_time_ms_;
+  const std::optional<int64_t> start_time_ms_;
   const int64_t duration_ms_;
   bool ended_ = false;
 };

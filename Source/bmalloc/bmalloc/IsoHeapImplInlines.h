@@ -25,10 +25,14 @@
 
 #pragma once
 
+#if !BUSE(TZONE)
+
 #include "IsoHeapImpl.h"
 #include "IsoTLSDeallocatorEntry.h"
 #include "IsoSharedHeapInlines.h"
 #include "IsoSharedPageInlines.h"
+
+#if !BUSE(LIBPAS)
 
 namespace bmalloc {
 
@@ -38,6 +42,12 @@ IsoHeapImpl<Config>::IsoHeapImpl()
     , m_inlineDirectory(*this)
     , m_allocator(*this)
 {
+#if BUSE(LIBPAS) && BCOMPILER(CLANG)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wmissing-noreturn"
+    RELEASE_BASSERT(!"Should not be using IsoHeapImpl if BUSE(LIBPAS)");
+#pragma clang diagnostic pop
+#endif
 }
 
 template<typename Config>
@@ -120,21 +130,6 @@ void IsoHeapImpl<Config>::scavenge(Vector<DeferredDecommit>& decommits)
         });
     m_directoryHighWatermark = 0;
 }
-
-#if BUSE(PARTIAL_SCAVENGE)
-template<typename Config>
-void IsoHeapImpl<Config>::scavengeToHighWatermark(Vector<DeferredDecommit>& decommits)
-{
-    LockHolder locker(this->lock);
-    if (!m_directoryHighWatermark)
-        m_inlineDirectory.scavengeToHighWatermark(locker, decommits);
-    for (IsoDirectoryPage<Config>* page = m_headDirectory.get(); page; page = page->next) {
-        if (page->index() >= m_directoryHighWatermark)
-            page->payload.scavengeToHighWatermark(locker, decommits);
-    }
-    m_directoryHighWatermark = 0;
-}
-#endif
 
 inline size_t IsoHeapImplBase::freeableMemory()
 {
@@ -325,7 +320,7 @@ void* IsoHeapImpl<Config>::allocateFromShared(const LockHolder&, bool abortOnFai
             fprintf(stderr, "%p: allocated %p from shared of size %u\n", this, result, Config::objectSize);
         BASSERT(index < IsoHeapImplBase::maxAllocationFromShared);
         *indexSlotFor<Config>(result) = index;
-        m_sharedCells[index] = bitwise_cast<uint8_t*>(result);
+        m_sharedCells[index] = std::bit_cast<uint8_t*>(result);
     }
     BASSERT(result);
     m_availableShared &= ~(1U << index);
@@ -335,3 +330,5 @@ void* IsoHeapImpl<Config>::allocateFromShared(const LockHolder&, bool abortOnFai
 
 } // namespace bmalloc
 
+#endif
+#endif // !BUSE(TZONE)

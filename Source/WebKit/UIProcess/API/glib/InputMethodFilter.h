@@ -54,12 +54,16 @@ public:
     void setContext(WebKitInputMethodContext*);
     WebKitInputMethodContext* context() const { return m_context.get(); }
 
-    void setState(Optional<InputMethodState>&&);
+    void setState(std::optional<InputMethodState>&&);
 
 #if PLATFORM(GTK)
     using PlatformEventKey = GdkEvent;
 #elif PLATFORM(WPE)
-    using PlatformEventKey = struct wpe_input_keyboard_event;
+    using PlatformEventKey = void;
+
+#if ENABLE(WPE_PLATFORM)
+    void setUseWPEPlatformEvents(bool useWPEPlatformEvents) { m_useWPEPlatformEvents = useWPEPlatformEvents; }
+#endif
 #endif
     struct FilterResult {
         bool handled { false };
@@ -100,7 +104,7 @@ private:
     WebCore::IntRect platformTransformCursorRectToViewCoordinates(const WebCore::IntRect&);
     bool platformEventKeyIsKeyPress(PlatformEventKey*) const;
 
-    Optional<InputMethodState> m_state;
+    std::optional<InputMethodState> m_state;
     GRefPtr<WebKitInputMethodContext> m_context;
 
     struct {
@@ -125,6 +129,10 @@ private:
         uint64_t cursorPosition;
         uint64_t selectionPosition;
     } m_surrounding;
+
+#if ENABLE(WPE_PLATFORM)
+    bool m_useWPEPlatformEvents { false };
+#endif
 };
 
 } // namespace WebKit

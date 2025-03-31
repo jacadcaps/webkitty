@@ -29,37 +29,12 @@
 #if ENABLE(MAC_GESTURE_EVENTS)
 
 #include "ArgumentCoders.h"
-#include "WebCoreArgumentCoders.h"
 
 namespace WebKit {
 
-void WebGestureEvent::encode(IPC::Encoder& encoder) const
+bool WebGestureEvent::isGestureEventType(WebEventType type) const
 {
-    WebEvent::encode(encoder);
-
-    encoder << m_position;
-    encoder << m_gestureScale;
-    encoder << m_gestureRotation;
-}
-
-bool WebGestureEvent::decode(IPC::Decoder& decoder, WebGestureEvent& result)
-{
-    if (!WebEvent::decode(decoder, result))
-        return false;
-
-    if (!decoder.decode(result.m_position))
-        return false;
-    if (!decoder.decode(result.m_gestureScale))
-        return false;
-    if (!decoder.decode(result.m_gestureRotation))
-        return false;
-
-    return true;
-}
-
-bool WebGestureEvent::isGestureEventType(Type type) const
-{
-    return type == GestureStart || type == GestureChange || type == GestureEnd;
+    return type == WebEventType::GestureStart || type == WebEventType::GestureChange || type == WebEventType::GestureEnd;
 }
     
 } // namespace WebKit

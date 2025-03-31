@@ -13,11 +13,11 @@
 #include <stdint.h>
 
 #include <memory>
+#include <optional>
 #include <string>
 
-#include "absl/types/optional.h"
+#include "absl/strings/string_view.h"
 #include "api/neteq/tick_timer.h"
-#include "rtc_base/constructor_magic.h"
 
 namespace webrtc {
 
@@ -30,11 +30,14 @@ namespace webrtc {
 // object that outlives the one constructed.
 class ExpandUmaLogger {
  public:
-  ExpandUmaLogger(std::string uma_name,
+  ExpandUmaLogger(absl::string_view uma_name,
                   int logging_period_s,
                   const TickTimer* tick_timer);
 
   ~ExpandUmaLogger();
+
+  ExpandUmaLogger(const ExpandUmaLogger&) = delete;
+  ExpandUmaLogger& operator=(const ExpandUmaLogger&) = delete;
 
   // In this call, value should be an incremental sample counter. The sample
   // rate must be strictly positive.
@@ -45,11 +48,9 @@ class ExpandUmaLogger {
   const int logging_period_s_;
   const TickTimer& tick_timer_;
   std::unique_ptr<TickTimer::Countdown> timer_;
-  absl::optional<uint64_t> last_logged_value_;
+  std::optional<uint64_t> last_logged_value_;
   uint64_t last_value_ = 0;
   int sample_rate_hz_ = 0;
-
-  RTC_DISALLOW_COPY_AND_ASSIGN(ExpandUmaLogger);
 };
 
 }  // namespace webrtc

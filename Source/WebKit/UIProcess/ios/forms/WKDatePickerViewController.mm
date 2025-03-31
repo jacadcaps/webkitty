@@ -26,7 +26,7 @@
 #import "config.h"
 #import "WKDatePickerViewController.h"
 
-#if PLATFORM(WATCHOS)
+#if HAVE(PEPPER_UI_CORE)
 
 #import <WebCore/LocalizedStrings.h>
 #import <wtf/RetainPtr.h>
@@ -223,12 +223,15 @@ struct EraAndYear {
 
 - (instancetype)initWithDelegate:(id <WKQuickboardViewControllerDelegate>)delegate
 {
-    return [super initWithDelegate:delegate];
+    self = [super initWithDelegate:delegate];
+    return self;
 }
 
 - (void)viewDidLoad
 {
     [super viewDidLoad];
+
+    self.view.backgroundColor = UIColor.systemBackgroundColor;
 
     self.headerView.hidden = YES;
 
@@ -306,8 +309,6 @@ struct EraAndYear {
     _statusBarAssertion = [[PUICApplication sharedPUICApplication] _takeStatusBarGlobalContextAssertionAnimated:NO];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(_handleStatusBarNavigation) name:PUICStatusBarNavigationBackButtonPressedNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(_handleStatusBarNavigation) name:PUICStatusBarTitleTappedNotification object:nil];
-
-    configureStatusBarForController(self, self.delegate);
 }
 
 - (void)viewDidAppear:(BOOL)animated
@@ -326,7 +327,9 @@ struct EraAndYear {
 
 - (void)_handleStatusBarNavigation
 {
-    [self.delegate quickboardInputCancelled:self];
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    [self.delegate quickboardInputCancelled:static_cast<id<PUICQuickboardController>>(self)];
+    ALLOW_DEPRECATED_DECLARATIONS_END
 }
 
 - (void)viewWillLayoutSubviews
@@ -426,7 +429,9 @@ struct EraAndYear {
     [self _canonicalizeAndUpdateSelectedDate];
 
     auto attributedStringValue = adoptNS([[NSAttributedString alloc] initWithString:[self _valueForInput]]);
-    [self.delegate quickboard:self textEntered:attributedStringValue.get()];
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    [self.delegate quickboard:static_cast<id<PUICQuickboardController>>(self) textEntered:attributedStringValue.get()];
+    ALLOW_DEPRECATED_DECLARATIONS_END
 }
 
 - (void)_updateSelectedPickerViewIndices
@@ -512,13 +517,13 @@ struct EraAndYear {
 
 - (NSDateComponents *)_dateComponentForDay:(NSInteger)day month:(NSInteger)month year:(NSInteger)year era:(NSInteger)era
 {
-    NSDateComponents *dateComponents = [[[NSDateComponents alloc] init] autorelease];
-    dateComponents.day = day;
-    dateComponents.month = month;
-    dateComponents.year = year;
-    dateComponents.era = era;
-    dateComponents.calendar = _calendar.get();
-    return dateComponents;
+    auto dateComponents = adoptNS([[NSDateComponents alloc] init]);
+    [dateComponents setDay:day];
+    [dateComponents setMonth:month];
+    [dateComponents setYear:year];
+    [dateComponents setEra:era];
+    [dateComponents setCalendar:_calendar.get()];
+    return dateComponents.autorelease();
 }
 
 - (void)_adjustDateToValidDateIfNecessary
@@ -689,4 +694,4 @@ struct EraAndYear {
 @end
 
 
-#endif
+#endif // HAVE(PEPPER_UI_CORE)

@@ -50,7 +50,7 @@ static void didReceiveMessageFromInjectedBundle(WKContextRef context, WKStringRe
 static void setInjectedBundleClient(WKContextRef context)
 {
     WKContextInjectedBundleClientV0 injectedBundleClient;
-    memset(&injectedBundleClient, 0, sizeof(injectedBundleClient));
+    zeroBytes(injectedBundleClient);
 
     injectedBundleClient.base.version = 0;
     injectedBundleClient.didReceiveMessageFromInjectedBundle = didReceiveMessageFromInjectedBundle;
@@ -67,11 +67,9 @@ TEST(WebKit, PasteboardNotifications)
 
     PlatformWebView webView(context.get());
 
-    WKRetainPtr<WKPreferencesRef> preferences = adoptWK(WKPreferencesCreate());
-    WKPreferencesSetJavaScriptCanAccessClipboard(preferences.get(), true);
-
-    WKPageGroupRef pageGroup = WKPageGetPageGroup(webView.page());
-    WKPageGroupSetPreferences(pageGroup, preferences.get());
+    auto configuration = adoptWK(WKPageCopyPageConfiguration(webView.page()));
+    auto preferences = WKPageConfigurationGetPreferences(configuration.get());
+    WKPreferencesSetJavaScriptCanAccessClipboard(preferences, true);
 
     WKPageLoadURL(webView.page(), adoptWK(Util::createURLForResource("execCopy", "html")).get());
     Util::run(&finished);

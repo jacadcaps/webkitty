@@ -3,7 +3,7 @@
     Copyright (C) 2001 Dirk Mueller (mueller@kde.org)
     Copyright (C) 2002 Waldo Bastian (bastian@kde.org)
     Copyright (C) 2006 Samuel Weinig (sam.weinig@gmail.com)
-    Copyright (C) 2004, 2005, 2006, 2007, 2008 Apple Inc. All rights reserved.
+    Copyright (C) 2004-2025 Apple Inc. All rights reserved.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Library General Public
@@ -28,78 +28,103 @@
 #include "CachedScript.h"
 
 #include "CachedResourceClient.h"
-#include "CachedResourceClientWalker.h"
 #include "CachedResourceRequest.h"
-#include "RuntimeApplicationChecks.h"
 #include "SharedBuffer.h"
 #include "TextResourceDecoder.h"
 
+#if PLATFORM(MAC)
+#include <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
+#endif
+
 namespace WebCore {
 
-CachedScript::CachedScript(CachedResourceRequest&& request, const PAL::SessionID& sessionID, const CookieJar* cookieJar)
+CachedScript::CachedScript(CachedResourceRequest&& request, PAL::SessionID sessionID, const CookieJar* cookieJar, ScriptRequiresTelemetry requiresTelemetry)
     : CachedResource(WTFMove(request), Type::Script, sessionID, cookieJar)
+    , m_requiresTelemetry(requiresTelemetry == ScriptRequiresTelemetry::Yes)
     , m_decoder(TextResourceDecoder::create("text/javascript"_s, request.charset()))
 {
 }
 
 CachedScript::~CachedScript() = default;
 
+RefPtr<TextResourceDecoder> CachedScript::protectedDecoder() const
+{
+    return m_decoder;
+}
+
 void CachedScript::setEncoding(const String& chs)
 {
-    m_decoder->setEncoding(chs, TextResourceDecoder::EncodingFromHTTPHeader);
+    protectedDecoder()->setEncoding(chs, TextResourceDecoder::EncodingFromHTTPHeader);
 }
 
-String CachedScript::encoding() const
+ASCIILiteral CachedScript::encoding() const
 {
-    return m_decoder->encoding().name();
+    return protectedDecoder()->encoding().name();
 }
 
-StringView CachedScript::script()
+StringView CachedScript::script(ShouldDecodeAsUTF8Only shouldDecodeAsUTF8Only)
 {
     if (!m_data)
         return emptyString();
 
+    if (RefPtr data = m_data; !data->isContiguous())
+        m_data = data->makeContiguous();
+
+    Ref contiguousData = downcast<SharedBuffer>(*m_data);
     if (m_decodingState == NeverDecoded
-        && TextEncoding(encoding()).isByteBasedEncoding()
-        && m_data->size()
-        && charactersAreAllASCII(reinterpret_cast<const LChar*>(m_data->data()), m_data->size())) {
+        && PAL::TextEncoding(encoding()).isByteBasedEncoding()
+        && contiguousData->size()
+        && charactersAreAllASCII(contiguousData->span())) {
 
         m_decodingState = DataAndDecodedStringHaveSameBytes;
 
         // If the encoded and decoded data are the same, there is no decoded data cost!
         setDecodedSize(0);
-        m_decodedDataDeletionTimer.stop();
+        stopDecodedDataDeletionTimer();
 
-        m_scriptHash = StringHasher::computeHashAndMaskTop8Bits(reinterpret_cast<const LChar*>(m_data->data()), m_data->size());
+        m_scriptHash = StringHasher::computeHashAndMaskTop8Bits(contiguousData->span());
     }
 
     if (m_decodingState == DataAndDecodedStringHaveSameBytes)
-        return { reinterpret_cast<const LChar*>(m_data->data()), static_cast<unsigned>(m_data->size()) };
+        return { contiguousData->span() };
 
-    if (!m_script) {
-        m_script = m_decoder->decodeAndFlush(m_data->data(), encodedSize());
-        ASSERT(!m_scriptHash || m_scriptHash == m_script.impl()->hash());
-        if (m_decodingState == NeverDecoded)
-            m_scriptHash = m_script.impl()->hash();
+    bool shouldForceRedecoding = m_wasForceDecodedAsUTF8 != (shouldDecodeAsUTF8Only == ShouldDecodeAsUTF8Only::Yes);
+    if (!m_script || shouldForceRedecoding) {
+        ASSERT(contiguousData->span().size() == encodedSize());
+        if (shouldDecodeAsUTF8Only == ShouldDecodeAsUTF8Only::Yes) {
+            Ref forceUTF8Decoder = TextResourceDecoder::create("text/javascript"_s, PAL::UTF8Encoding());
+            forceUTF8Decoder->setAlwaysUseUTF8();
+            m_script = forceUTF8Decoder->decodeAndFlush(contiguousData->span());
+        } else
+            m_script = protectedDecoder()->decodeAndFlush(contiguousData->span());
+        if (m_decodingState == NeverDecoded || shouldForceRedecoding)
+            m_scriptHash = m_script.hash();
+        ASSERT(!m_scriptHash || m_scriptHash == m_script.hash());
         m_decodingState = DataAndDecodedStringHaveDifferentBytes;
+        m_wasForceDecodedAsUTF8 = shouldDecodeAsUTF8Only == ShouldDecodeAsUTF8Only::Yes;
         setDecodedSize(m_script.sizeInBytes());
     }
 
-    m_decodedDataDeletionTimer.restart();
+    restartDecodedDataDeletionTimer();
     return m_script;
 }
 
-unsigned CachedScript::scriptHash()
+unsigned CachedScript::scriptHash(ShouldDecodeAsUTF8Only shouldDecodeAsUTF8Only)
 {
-    if (m_decodingState == NeverDecoded)
-        script();
+    if (m_decodingState == NeverDecoded || (m_decodingState == DataAndDecodedStringHaveDifferentBytes && m_wasForceDecodedAsUTF8 != (shouldDecodeAsUTF8Only == ShouldDecodeAsUTF8Only::Yes)))
+        script(shouldDecodeAsUTF8Only);
     return m_scriptHash;
 }
 
-void CachedScript::finishLoading(SharedBuffer* data, const NetworkLoadMetrics& metrics)
+void CachedScript::finishLoading(const FragmentedSharedBuffer* data, const NetworkLoadMetrics& metrics)
 {
-    m_data = data;
-    setEncodedSize(data ? data->size() : 0);
+    if (data) {
+        m_data = data->makeContiguous();
+        setEncodedSize(data->size());
+    } else {
+        m_data = nullptr;
+        setEncodedSize(0);
+    }
     CachedResource::finishLoading(data, metrics);
 }
 
@@ -112,30 +137,15 @@ void CachedScript::destroyDecodedData()
 void CachedScript::setBodyDataFrom(const CachedResource& resource)
 {
     ASSERT(resource.type() == type());
-    auto& script = static_cast<const CachedScript&>(resource);
+    auto& script = downcast<const CachedScript>(resource);
 
     CachedResource::setBodyDataFrom(resource);
 
     m_script = script.m_script;
     m_scriptHash = script.m_scriptHash;
+    m_wasForceDecodedAsUTF8 = script.m_wasForceDecodedAsUTF8;
     m_decodingState = script.m_decodingState;
     m_decoder = script.m_decoder;
-}
-
-bool CachedScript::shouldIgnoreHTTPStatusCodeErrors() const
-{
-#if PLATFORM(MAC)
-    // This is a workaround for <rdar://problem/13916291>
-    // REGRESSION (r119759): Adobe Flash Player "smaller" installer relies on the incorrect firing
-    // of a load event and needs an app-specific hack for compatibility.
-    // The installer in question tries to load .js file that doesn't exist, causing the server to
-    // return a 404 response. Normally, this would trigger an error event to be dispatched, but the
-    // installer expects a load event instead so we work around it here.
-    if (MacApplication::isSolidStateNetworksDownloader())
-        return true;
-#endif
-
-    return CachedResource::shouldIgnoreHTTPStatusCodeErrors();
 }
 
 } // namespace WebCore

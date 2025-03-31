@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,21 +33,30 @@
 #include "NetworkCacheIOChannel.h"
 #include <mutex>
 #include <wtf/Condition.h>
+#include <wtf/CryptographicallyRandomNumber.h>
+#include <wtf/FileSystem.h>
 #include <wtf/Lock.h>
 #include <wtf/PageBlock.h>
-#include <wtf/RandomNumber.h>
 #include <wtf/RunLoop.h>
+#include <wtf/TZoneMallocInlines.h>
+#include <wtf/persistence/PersistentCoders.h>
+#include <wtf/persistence/PersistentDecoder.h>
+#include <wtf/persistence/PersistentEncoder.h>
 #include <wtf/text/CString.h>
-#include <wtf/text/StringConcatenateNumbers.h>
+#include <wtf/text/MakeString.h>
+#include <wtf/text/StringToIntegerConversion.h>
 
 namespace WebKit {
 namespace NetworkCache {
 
-static const char saltFileName[] = "salt";
-static const char versionDirectoryPrefix[] = "Version ";
-static const char recordsDirectoryName[] = "Records";
-static const char blobsDirectoryName[] = "Blobs";
-static const char blobSuffix[] = "-blob";
+static constexpr auto saltFileName = "salt"_s;
+static constexpr auto versionDirectoryPrefix = "Version "_s;
+static constexpr auto recordsDirectoryName = "Records"_s;
+static constexpr auto blobsDirectoryName = "Blobs"_s;
+static constexpr auto blobSuffix = "-blob"_s;
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(Storage::Record);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(Storage::Timings);
 
 static inline size_t maximumInlineBodySize()
 {
@@ -56,96 +65,239 @@ static inline size_t maximumInlineBodySize()
 
 static double computeRecordWorth(FileTimes);
 
-struct Storage::ReadOperation {
-    WTF_MAKE_FAST_ALLOCATED;
+class Storage::ReadOperation {
+    WTF_MAKE_TZONE_ALLOCATED(Storage::ReadOperation);
 public:
-    ReadOperation(Storage& storage, const Key& key, RetrieveCompletionHandler&& completionHandler)
-        : storage(storage)
-        , key(key)
-        , completionHandler(WTFMove(completionHandler))
-    { }
+    ReadOperation(const Key& key, unsigned priority, RetrieveCompletionHandler&& completionHandler)
+        : m_identifier(Storage::ReadOperationIdentifier::generate())
+        , m_key(key)
+        , m_priority(priority)
+        , m_completionHandler(WTFMove(completionHandler))
+    {
+        ASSERT(isMainRunLoop());
+        ASSERT(m_completionHandler);
+    }
 
+    Storage::ReadOperationIdentifier identifier() const { return m_identifier; }
+    const Key& key() const { return m_key; }
+    unsigned priority() const { return m_priority; }
+    bool isCanceled() const { return m_isCanceled; }
+    bool canFinish() const { return !m_waitsForRecord && !m_waitsForBlob; }
+
+    void updateForStart(size_t readOperationDispatchCount);
+    void updateForDispatch(bool synchronizationInProgress, bool shrinkInProgress, size_t readOperationDispatchCount);
+    void setWaitsForBlob() { m_waitsForBlob = true; }
+    void finishReadRecord(Record&&, MonotonicTime recordIOStartTime, MonotonicTime recordIOEndTime);
+    void finishReadBlob(BlobStorage::Blob&&, MonotonicTime blobIOStartTime, MonotonicTime blobIOEndTime);
     void cancel();
     bool finish();
 
-    Ref<Storage> storage;
+private:
+    Storage::ReadOperationIdentifier m_identifier;
+    const Key m_key;
+    unsigned m_priority;
+    RetrieveCompletionHandler m_completionHandler;
 
-    const Key key;
-    RetrieveCompletionHandler completionHandler;
-    
-    std::unique_ptr<Record> resultRecord;
-    SHA1::Digest expectedBodyHash;
-    BlobStorage::Blob resultBodyBlob;
-    std::atomic<unsigned> activeCount { 0 };
-    bool isCanceled { false };
-    Timings timings;
+    bool m_waitsForRecord { true };
+    bool m_waitsForBlob { false };
+    bool m_isCanceled { false };
+    Timings m_timings;
+    Record m_record;
+    std::optional<SHA1::Digest> m_blobBodyHash;
 };
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(Storage::ReadOperation);
+
+bool Storage::isHigherPriority(const std::unique_ptr<ReadOperation>& a, const std::unique_ptr<ReadOperation>& b)
+{
+    if (a->priority() == b->priority())
+        return a->identifier() < b->identifier();
+
+    return a->priority() > b->priority();
+}
+
+void Storage::ReadOperation::updateForStart(size_t readOperationDispatchCount)
+{
+    ASSERT(RunLoop::isMain());
+
+    m_timings.startTime = MonotonicTime::now();
+    m_timings.dispatchCountAtStart = readOperationDispatchCount;
+}
+
+void Storage::ReadOperation::updateForDispatch(bool synchronizationInProgress, bool shrinkInProgress, size_t readOperationDispatchCount)
+{
+    ASSERT(RunLoop::isMain());
+
+    m_timings.dispatchTime = MonotonicTime::now();
+    m_timings.synchronizationInProgressAtDispatch = synchronizationInProgress;
+    m_timings.shrinkInProgressAtDispatch = shrinkInProgress;
+    m_timings.dispatchCountAtDispatch = readOperationDispatchCount;
+}
 
 void Storage::ReadOperation::cancel()
 {
     ASSERT(RunLoop::isMain());
 
-    if (isCanceled)
+    if (m_isCanceled)
         return;
-    timings.completionTime = MonotonicTime::now();
-    timings.wasCanceled = true;
-    isCanceled = true;
-    completionHandler(nullptr, timings);
+
+    m_isCanceled = true;
+    m_timings.completionTime = MonotonicTime::now();
+    m_timings.wasCanceled = true;
+
+    if (m_completionHandler)
+        m_completionHandler({ }, m_timings);
 }
 
 bool Storage::ReadOperation::finish()
 {
     ASSERT(RunLoop::isMain());
+    ASSERT(canFinish());
 
-    if (isCanceled)
+    if (!m_completionHandler)
         return false;
-    if (resultRecord && resultRecord->body.isNull()) {
-        if (resultBodyBlob.hash == expectedBodyHash)
-            resultRecord->body = resultBodyBlob.data;
-        else
-            resultRecord = nullptr;
-    }
-    timings.completionTime = MonotonicTime::now();
-    return completionHandler(WTFMove(resultRecord), timings);
+
+    m_timings.completionTime = MonotonicTime::now();
+
+    if (m_record.key != m_key)
+        m_record = { };
+
+    // Blob and record are read separately, so we need to check if blob hash matches record hash.
+    if (m_blobBodyHash && m_blobBodyHash != m_record.bodyHash)
+        m_record = { };
+
+    // Failed to read body from both blob storage and record storage.
+    if (m_record.body.isNull())
+        m_record = { };
+
+    return m_completionHandler(WTFMove(m_record), m_timings);
 }
 
-struct Storage::WriteOperation {
-    WTF_MAKE_FAST_ALLOCATED;
+void Storage::ReadOperation::finishReadRecord(Record&& record, MonotonicTime recordIOStartTime, MonotonicTime recordIOEndTime)
+{
+    ASSERT(RunLoop::isMain());
+
+    m_waitsForRecord = false;
+    // Body is already read from blob storage, and it is not null.
+    if (m_blobBodyHash) {
+        // Body should not be stored in both blob storage and record storage.
+        ASSERT(record.body.isNull());
+        record.body = WTFMove(m_record.body);
+    }
+    m_record = WTFMove(record);
+    m_timings.recordIOStartTime = recordIOStartTime;
+    m_timings.recordIOEndTime = recordIOEndTime;
+}
+
+void Storage::ReadOperation::finishReadBlob(BlobStorage::Blob&& blob, MonotonicTime blobIOStartTime, MonotonicTime blobIOEndTime)
+{
+    ASSERT(RunLoop::isMain());
+
+    m_waitsForBlob = false;
+    if (blob.data.isNull())
+        return;
+
+    m_record.body = WTFMove(blob.data);
+    m_blobBodyHash = WTFMove(blob.hash);
+    m_timings.blobIOStartTime = blobIOStartTime;
+    m_timings.blobIOEndTime = blobIOEndTime;
+}
+
+class Storage::WriteOperation {
+    WTF_MAKE_TZONE_ALLOCATED(Storage::WriteOperation);
 public:
-    WriteOperation(Storage& storage, const Record& record, MappedBodyHandler&& mappedBodyHandler, CompletionHandler<void(int)>&& completionHandler)
-        : storage(storage)
-        , record(record)
-        , mappedBodyHandler(WTFMove(mappedBodyHandler))
-        , completionHandler(WTFMove(completionHandler))
-    { }
+    WriteOperation(const Record& record, MappedBodyHandler&& mappedBodyHandler, CompletionHandler<void(int)>&& completionHandler)
+        : m_identifier(Storage::WriteOperationIdentifier::generate())
+        , m_record(record)
+        , m_mappedBodyHandler(WTFMove(mappedBodyHandler))
+        , m_completionHandler(WTFMove(completionHandler))
+    {
+        ASSERT(isMainRunLoop());
+    }
 
-    Ref<Storage> storage;
+    ~WriteOperation()
+    {
+        ASSERT(isMainRunLoop());
+        if (m_completionHandler)
+            m_completionHandler(0);
+    }
 
-    const Record record;
-    const MappedBodyHandler mappedBodyHandler;
-    CompletionHandler<void(int)> completionHandler;
+    Storage::WriteOperationIdentifier identifier() const { return m_identifier; }
+    const Record& record() const WTF_REQUIRES_CAPABILITY(mainThread) { return m_record; }
+    void invokeMappedBodyHandler(const Data&);
+    void invokeCompletionHandler(int);
 
-    std::atomic<unsigned> activeCount { 0 };
+private:
+    Storage::WriteOperationIdentifier m_identifier;
+    const Record m_record;
+    const MappedBodyHandler m_mappedBodyHandler;
+    CompletionHandler<void(int)> m_completionHandler;
 };
 
-struct Storage::TraverseOperation {
-    WTF_MAKE_FAST_ALLOCATED;
+WTF_MAKE_TZONE_ALLOCATED_IMPL(Storage::WriteOperation);
+
+void Storage::WriteOperation::invokeMappedBodyHandler(const Data& data)
+{
+    if (m_mappedBodyHandler)
+        m_mappedBodyHandler(data);
+}
+
+void Storage::WriteOperation::invokeCompletionHandler(int result)
+{
+    if (m_completionHandler)
+        m_completionHandler(result);
+}
+
+class TraverseOperation final : public ThreadSafeRefCounted<TraverseOperation, WTF::DestructionThread::MainRunLoop> {
 public:
-    TraverseOperation(Ref<Storage>&& storage, const String& type, OptionSet<TraverseFlag> flags, TraverseHandler&& handler)
-        : storage(WTFMove(storage))
-        , type(type)
-        , flags(flags)
-        , handler(WTFMove(handler))
+    static Ref<TraverseOperation> create(Storage::TraverseHandler&& handler)
+    {
+        ASSERT(isMainRunLoop());
+        return adoptRef(*new TraverseOperation(WTFMove(handler)));
+    }
+
+    void invokeHandler(const Storage::Record* record, const Storage::RecordInfo& info)
+    {
+        ASSERT(isMainRunLoop());
+        m_handler(record, info);
+    }
+
+    static constexpr unsigned maxParallelActivityCount = 5;
+    void waitAndIncrementActivityCount()
+    {
+        Locker locker { m_lock };
+        m_activeCondition.wait(m_lock, [this] {
+            assertIsHeld(m_lock);
+            return m_activityCount < maxParallelActivityCount;
+        });
+        ++m_activityCount;
+    }
+
+    void decrementActivityCount()
+    {
+        Locker locker { m_lock };
+        --m_activityCount;
+        m_activeCondition.notifyOne();
+    }
+
+    void waitUntilActivitiesFinished()
+    {
+        Locker locker { m_lock };
+        m_activeCondition.wait(m_lock, [this] {
+            assertIsHeld(m_lock);
+            return !m_activityCount;
+        });
+    }
+
+private:
+    explicit TraverseOperation(Storage::TraverseHandler&& handler)
+        : m_handler(WTFMove(handler))
     { }
-    Ref<Storage> storage;
 
-    const String type;
-    const OptionSet<TraverseFlag> flags;
-    const TraverseHandler handler;
-
-    Lock activeMutex;
-    Condition activeCondition;
-    unsigned activeCount { 0 };
+    Storage::TraverseHandler m_handler;
+    Lock m_lock;
+    Condition m_activeCondition;
+    unsigned m_activityCount WTF_GUARDED_BY_LOCK(m_lock) { 0 };
 };
 
 static String makeCachePath(const String& baseCachePath)
@@ -160,8 +312,7 @@ static String makeCachePath(const String& baseCachePath)
 
 static String makeVersionedDirectoryPath(const String& baseDirectoryPath)
 {
-    String versionSubdirectory = makeString(versionDirectoryPrefix, Storage::version);
-    return FileSystem::pathByAppendingComponent(baseDirectoryPath, versionSubdirectory);
+    return FileSystem::pathByAppendingComponent(baseDirectoryPath, makeString(versionDirectoryPrefix, Storage::version));
 }
 
 static String makeRecordsDirectoryPath(const String& baseDirectoryPath)
@@ -185,11 +336,23 @@ RefPtr<Storage> Storage::open(const String& baseCachePath, Mode mode, size_t cap
     ASSERT(!baseCachePath.isNull());
 
     auto cachePath = makeCachePath(baseCachePath);
+    bool hasMarkedExcludedFromBackup = false;
+    if (cachePath != baseCachePath) {
+        if (!FileSystem::makeAllDirectories(cachePath))
+            return nullptr;
 
-    if (!FileSystem::makeAllDirectories(makeVersionedDirectoryPath(cachePath)))
+        FileSystem::setExcludedFromBackup(cachePath, true);
+        hasMarkedExcludedFromBackup = true;
+    }
+
+    auto versionedDirectoryPath = makeVersionedDirectoryPath(cachePath);
+    if (!FileSystem::makeAllDirectories(versionedDirectoryPath))
         return nullptr;
 
-    auto salt = readOrMakeSalt(makeSaltFilePath(cachePath));
+    if (!hasMarkedExcludedFromBackup)
+        FileSystem::setExcludedFromBackup(versionedDirectoryPath, true);
+
+    auto salt = FileSystem::readOrMakeSalt(makeSaltFilePath(cachePath));
     if (!salt)
         return nullptr;
 
@@ -197,7 +360,7 @@ RefPtr<Storage> Storage::open(const String& baseCachePath, Mode mode, size_t cap
 }
 
 using RecordFileTraverseFunction = Function<void (const String& fileName, const String& hashString, const String& type, bool isBlob, const String& recordDirectoryPath)>;
-static void traverseRecordsFiles(const String& recordsPath, const String& expectedType, const RecordFileTraverseFunction& function)
+static void traverseRecordsFiles(const String& recordsPath, const String& expectedType, NOESCAPE const RecordFileTraverseFunction& function)
 {
     traverseDirectory(recordsPath, [&](const String& partitionName, DirectoryEntryType entryType) {
         if (entryType != DirectoryEntryType::Directory)
@@ -213,7 +376,7 @@ static void traverseRecordsFiles(const String& recordsPath, const String& expect
                 if (entryType != DirectoryEntryType::File || fileName.length() < Key::hashStringLength())
                     return;
 
-                String hashString = fileName.substring(0, Key::hashStringLength());
+                String hashString = fileName.left(Key::hashStringLength());
                 auto isBlob = fileName.length() > Key::hashStringLength() && fileName.endsWith(blobSuffix);
                 function(fileName, hashString, actualType, isBlob, recordDirectoryPath);
             });
@@ -251,9 +414,9 @@ Storage::Storage(const String& baseDirectoryPath, Mode mode, Salt salt, size_t c
     , m_capacity(capacity)
     , m_readOperationTimeoutTimer(*this, &Storage::cancelAllReadOperations)
     , m_writeOperationDispatchTimer(*this, &Storage::dispatchPendingWriteOperations)
-    , m_ioQueue(WorkQueue::create("com.apple.WebKit.Cache.Storage", WorkQueue::Type::Concurrent))
-    , m_backgroundIOQueue(WorkQueue::create("com.apple.WebKit.Cache.Storage.background", WorkQueue::Type::Concurrent, WorkQueue::QOS::Background))
-    , m_serialBackgroundIOQueue(WorkQueue::create("com.apple.WebKit.Cache.Storage.serialBackground", WorkQueue::Type::Serial, WorkQueue::QOS::Background))
+    , m_ioQueue(ConcurrentWorkQueue::create("com.apple.WebKit.Cache.Storage"_s))
+    , m_backgroundIOQueue(ConcurrentWorkQueue::create("com.apple.WebKit.Cache.Storage.background"_s, WorkQueue::QOS::Background))
+    , m_serialBackgroundIOQueue(WorkQueue::create("com.apple.WebKit.Cache.Storage.serialBackground"_s, WorkQueue::QOS::Background))
     , m_blobStorage(makeBlobDirectoryPath(baseDirectoryPath), m_salt)
 {
     ASSERT(RunLoop::isMain());
@@ -267,7 +430,6 @@ Storage::~Storage()
     ASSERT(RunLoop::isMain());
     ASSERT(m_activeReadOperations.isEmpty());
     ASSERT(m_activeWriteOperations.isEmpty());
-    ASSERT(m_activeTraverseOperations.isEmpty());
     ASSERT(!m_synchronizationInProgress);
     ASSERT(!m_shrinkInProgress);
 }
@@ -292,10 +454,20 @@ size_t Storage::approximateSize() const
     return m_approximateRecordsSize + m_blobStorage.approximateSize();
 }
 
-static size_t estimateRecordsSize(unsigned recordCount, unsigned blobCount)
+uint32_t Storage::volumeBlockSize() const
+{
+    ASSERT(!RunLoop::isMain());
+
+    if (!m_volumeBlockSize)
+        m_volumeBlockSize = FileSystem::volumeFileBlockSize(m_basePath).value_or(4 * KB);
+
+    return *m_volumeBlockSize;
+}
+
+size_t Storage::estimateRecordsSize(unsigned recordCount, unsigned blobCount) const
 {
     auto inlineBodyCount = recordCount - std::min(blobCount, recordCount);
-    auto headerSizes = recordCount * 4096;
+    auto headerSizes = recordCount * volumeBlockSize();
     auto inlineBodySizes = (maximumInlineBodySize() / 2) * inlineBodyCount;
     return headerSizes + inlineBodySizes;
 }
@@ -310,7 +482,7 @@ void Storage::synchronize()
 
     LOG(NetworkCacheStorage, "(NetworkProcess) synchronizing cache");
 
-    backgroundIOQueue().dispatch([this, protectedThis = makeRef(*this)] () mutable {
+    backgroundIOQueue().dispatch([this, protectedThis = Ref { *this }] () mutable {
         auto recordFilter = makeUnique<ContentsFilter>();
         auto blobFilter = makeUnique<ContentsFilter>();
 
@@ -348,7 +520,7 @@ void Storage::synchronize()
 
         LOG(NetworkCacheStorage, "(NetworkProcess) cache synchronization completed size=%zu recordCount=%u", recordsSize, recordCount);
 
-        RunLoop::main().dispatch([this, protectedThis = WTFMove(protectedThis), recordFilter = WTFMove(recordFilter), blobFilter = WTFMove(blobFilter), recordsSize]() mutable {
+        RunLoop::protectedMain()->dispatch([this, protectedThis = WTFMove(protectedThis), recordFilter = WTFMove(recordFilter), blobFilter = WTFMove(blobFilter), recordsSize]() mutable {
             for (auto& recordFilterKey : m_recordFilterHashesAddedDuringSynchronization)
                 recordFilter->add(recordFilterKey);
             m_recordFilterHashesAddedDuringSynchronization.clear();
@@ -405,7 +577,7 @@ String Storage::recordPathForKey(const Key& key) const
 
 static String blobPathForRecordPath(const String& recordPath)
 {
-    return recordPath + blobSuffix;
+    return makeString(recordPath, blobSuffix);
 }
 
 String Storage::blobPathForKey(const Key& key) const
@@ -436,52 +608,52 @@ struct RecordMetaData {
 static WARN_UNUSED_RETURN bool decodeRecordMetaData(RecordMetaData& metaData, const Data& fileData)
 {
     bool success = false;
-    fileData.apply([&metaData, &success](const uint8_t* data, size_t size) {
-        WTF::Persistence::Decoder decoder(data, size);
+    fileData.apply([&metaData, &success](std::span<const uint8_t> span) {
+        WTF::Persistence::Decoder decoder(span);
         
-        Optional<unsigned> cacheStorageVersion;
+        std::optional<unsigned> cacheStorageVersion;
         decoder >> cacheStorageVersion;
         if (!cacheStorageVersion)
             return false;
         metaData.cacheStorageVersion = WTFMove(*cacheStorageVersion);
 
-        Optional<Key> key;
+        std::optional<Key> key;
         decoder >> key;
         if (!key)
             return false;
         metaData.key = WTFMove(*key);
 
-        Optional<WallTime> timeStamp;
+        std::optional<WallTime> timeStamp;
         decoder >> timeStamp;
         if (!timeStamp)
             return false;
         metaData.timeStamp = WTFMove(*timeStamp);
 
-        Optional<SHA1::Digest> headerHash;
+        std::optional<SHA1::Digest> headerHash;
         decoder >> headerHash;
         if (!headerHash)
             return false;
         metaData.headerHash = WTFMove(*headerHash);
 
-        Optional<uint64_t> headerSize;
+        std::optional<uint64_t> headerSize;
         decoder >> headerSize;
         if (!headerSize)
             return false;
         metaData.headerSize = WTFMove(*headerSize);
 
-        Optional<SHA1::Digest> bodyHash;
+        std::optional<SHA1::Digest> bodyHash;
         decoder >> bodyHash;
         if (!bodyHash)
             return false;
         metaData.bodyHash = WTFMove(*bodyHash);
 
-        Optional<uint64_t> bodySize;
+        std::optional<uint64_t> bodySize;
         decoder >> bodySize;
         if (!bodySize)
             return false;
         metaData.bodySize = WTFMove(*bodySize);
 
-        Optional<bool> isBodyInline;
+        std::optional<bool> isBodyInline;
         decoder >> isBodyInline;
         if (!isBodyInline)
             return false;
@@ -517,40 +689,36 @@ static WARN_UNUSED_RETURN bool decodeRecordHeader(const Data& fileData, RecordMe
     return true;
 }
 
-void Storage::readRecord(ReadOperation& readOperation, const Data& recordData)
+Storage::Record Storage::readRecord(const Data& recordData)
 {
     ASSERT(!RunLoop::isMain());
 
     RecordMetaData metaData;
     Data headerData;
     if (!decodeRecordHeader(recordData, metaData, headerData, m_salt))
-        return;
-
-    if (metaData.key != readOperation.key)
-        return;
+        return { };
 
     // Sanity check against time stamps in future.
     if (metaData.timeStamp > WallTime::now())
-        return;
+        return { };
 
     Data bodyData;
     if (metaData.isBodyInline) {
         size_t bodyOffset = metaData.headerOffset + headerData.size();
         if (bodyOffset + metaData.bodySize != recordData.size())
-            return;
+            return { };
         bodyData = recordData.subrange(bodyOffset, metaData.bodySize);
         if (metaData.bodyHash != computeSHA1(bodyData, m_salt))
-            return;
+            return { };
     }
 
-    readOperation.expectedBodyHash = metaData.bodyHash;
-    readOperation.resultRecord = makeUnique<Storage::Record>(Storage::Record {
-        metaData.key,
+    return Record {
+        WTFMove(metaData.key),
         metaData.timeStamp,
-        headerData,
-        bodyData,
+        WTFMove(headerData),
+        WTFMove(bodyData),
         metaData.bodyHash
-    });
+    };
 }
 
 static Data encodeRecordMetaData(const RecordMetaData& metaData)
@@ -568,35 +736,39 @@ static Data encodeRecordMetaData(const RecordMetaData& metaData)
 
     encoder.encodeChecksum();
 
-    return Data(encoder.buffer(), encoder.bufferSize());
+    return Data(encoder.span());
 }
 
-Optional<BlobStorage::Blob> Storage::storeBodyAsBlob(WriteOperation& writeOperation)
+std::optional<BlobStorage::Blob> Storage::storeBodyAsBlob(WriteOperationIdentifier identifier, const Storage::Record& record)
 {
-    auto blobPath = blobPathForKey(writeOperation.record.key);
+    auto blobPath = blobPathForKey(record.key);
 
     // Store the body.
-    auto blob = m_blobStorage.add(blobPath, writeOperation.record.body);
+    auto blob = m_blobStorage.add(blobPath, record.body);
     if (blob.data.isNull())
         return { };
 
-    ++writeOperation.activeCount;
+    addWriteOperationActivity(identifier);
 
-    RunLoop::main().dispatch([this, blob, &writeOperation] {
+    RunLoop::protectedMain()->dispatch([this, protectedThis = Ref { *this }, blob = WTFMove(blob), identifier] {
+        assertIsMainThread();
+
+        auto* writeOperation = m_activeWriteOperations.get(identifier);
+        RELEASE_ASSERT(writeOperation);
+
         if (m_blobFilter)
-            m_blobFilter->add(writeOperation.record.key.hash());
+            m_blobFilter->add(writeOperation->record().key.hash());
+
         if (m_synchronizationInProgress)
-            m_blobFilterHashesAddedDuringSynchronization.append(writeOperation.record.key.hash());
+            m_blobFilterHashesAddedDuringSynchronization.append(writeOperation->record().key.hash());
 
-        if (writeOperation.mappedBodyHandler)
-            writeOperation.mappedBodyHandler(blob.data);
-
-        finishWriteOperation(writeOperation);
+        writeOperation->invokeMappedBodyHandler(blob.data);
+        finishWriteOperationActivity(identifier);
     });
     return blob;
 }
 
-Data Storage::encodeRecord(const Record& record, Optional<BlobStorage::Blob> blob)
+Data Storage::encodeRecord(const Record& record, std::optional<BlobStorage::Blob> blob)
 {
     ASSERT(!blob || bytesEqual(blob.value().data, record.body));
 
@@ -621,7 +793,9 @@ void Storage::removeFromPendingWriteOperations(const Key& key)
 {
     while (true) {
         auto found = m_pendingWriteOperations.findIf([&key](auto& operation) {
-            return operation->record.key == key;
+            assertIsMainThread();
+
+            return operation->record().key == key;
         });
 
         if (found == m_pendingWriteOperations.end())
@@ -638,7 +812,7 @@ void Storage::remove(const Key& key)
     if (!mayContain(key))
         return;
 
-    auto protectedThis = makeRef(*this);
+    Ref protectedThis { *this };
 
     // We can't remove the key from the Bloom filter (but some false positives are expected anyway).
     // For simplicity we also don't reduce m_approximateSize on removals.
@@ -655,21 +829,18 @@ void Storage::remove(const Vector<Key>& keys, CompletionHandler<void()>&& comple
 {
     ASSERT(RunLoop::isMain());
 
-    Vector<Key> keysToRemove;
-    keysToRemove.reserveInitialCapacity(keys.size());
-
-    for (auto& key : keys) {
+    auto keysToRemove = WTF::compactMap(keys, [&](auto& key) -> std::optional<Key> {
         if (!mayContain(key))
-            continue;
+            return std::nullopt;
         removeFromPendingWriteOperations(key);
-        keysToRemove.uncheckedAppend(key);
-    }
+        return key;
+    });
 
-    serialBackgroundIOQueue().dispatch([this, protectedThis = makeRef(*this), keysToRemove = WTFMove(keysToRemove), completionHandler = WTFMove(completionHandler)] () mutable {
+    serialBackgroundIOQueue().dispatch([this, protectedThis = Ref { *this }, keysToRemove = WTFMove(keysToRemove), completionHandler = WTFMove(completionHandler)] () mutable {
         for (auto& key : keysToRemove)
             deleteFiles(key);
 
-        RunLoop::main().dispatch(WTFMove(completionHandler));
+        RunLoop::protectedMain()->dispatch(WTFMove(completionHandler));
     });
 }
 
@@ -681,9 +852,9 @@ void Storage::deleteFiles(const Key& key)
     m_blobStorage.remove(blobPathForKey(key));
 }
 
-void Storage::updateFileModificationTime(const String& path)
+void Storage::updateFileModificationTime(String&& path)
 {
-    serialBackgroundIOQueue().dispatch([path = path.isolatedCopy()] {
+    serialBackgroundIOQueue().dispatch([path = WTFMove(path).isolatedCopy()] {
         updateFileModificationTimeIfNeeded(path);
     });
 }
@@ -693,12 +864,15 @@ void Storage::dispatchReadOperation(std::unique_ptr<ReadOperation> readOperation
     ASSERT(RunLoop::isMain());
 
     auto& readOperation = *readOperationPtr;
-    m_activeReadOperations.add(WTFMove(readOperationPtr));
+    auto identifier = readOperation.identifier();
+    m_activeReadOperations.add(identifier, WTFMove(readOperationPtr));
+    auto key = readOperation.key();
+    auto recordPath = recordPathForKey(key);
+    auto blobPath = mayContainBlob(key) ? blobPathForKey(key) : String { };
 
-    readOperation.timings.dispatchTime = MonotonicTime::now();
-    readOperation.timings.synchronizationInProgressAtDispatch = m_synchronizationInProgress;
-    readOperation.timings.shrinkInProgressAtDispatch = m_shrinkInProgress;
-    readOperation.timings.dispatchCountAtDispatch = m_readOperationDispatchCount;
+    readOperation.updateForDispatch(m_synchronizationInProgress, m_shrinkInProgress, m_readOperationDispatchCount);
+    if (!blobPath.isEmpty())
+        readOperation.setWaitsForBlob();
 
     ++m_readOperationDispatchCount;
 
@@ -709,82 +883,85 @@ void Storage::dispatchReadOperation(std::unique_ptr<ReadOperation> readOperation
         m_readOperationTimeoutTimer.startOneShot(readTimeout);
     }
 
-    bool shouldGetBodyBlob = mayContainBlob(readOperation.key);
-
-    ioQueue().dispatch([this, &readOperation, shouldGetBodyBlob] {
-        auto recordPath = recordPathForKey(readOperation.key);
-
-        ++readOperation.activeCount;
-        if (shouldGetBodyBlob)
-            ++readOperation.activeCount;
-
-        readOperation.timings.recordIOStartTime = MonotonicTime::now();
-
+    protectedIOQueue()->dispatch([this, protectedThis = Ref { *this }, identifier, recordPath = crossThreadCopy(WTFMove(recordPath)), blobPath = crossThreadCopy(WTFMove(blobPath))]() mutable {
+        auto recordIOStartTime = MonotonicTime::now();
         auto channel = IOChannel::open(recordPath, IOChannel::Type::Read);
-        channel->read(0, std::numeric_limits<size_t>::max(), &ioQueue(), [this, &readOperation](const Data& fileData, int error) {
-            readOperation.timings.recordIOEndTime = MonotonicTime::now();
-            if (!error)
-                readRecord(readOperation, fileData);
-            finishReadOperation(readOperation);
+        channel->read(0, std::numeric_limits<size_t>::max(), protectedIOQueue(), [this, protectedThis = WTFMove(protectedThis), identifier, recordIOStartTime](auto fileData, int error) mutable {
+            readRecordFromData(identifier, recordIOStartTime, WTFMove(fileData), error);
         });
 
-        if (shouldGetBodyBlob) {
-            // Read the blob in parallel with the record read.
-            readOperation.timings.blobIOStartTime = MonotonicTime::now();
-
-            auto blobPath = blobPathForKey(readOperation.key);
-            readOperation.resultBodyBlob = m_blobStorage.get(blobPath);
-
-            readOperation.timings.blobIOEndTime = MonotonicTime::now();
-
-            finishReadOperation(readOperation);
-        }
+        readBlobIfNecessary(identifier, blobPath);
     });
 }
 
-void Storage::finishReadOperation(ReadOperation& readOperation)
+void Storage::readRecordFromData(Storage::ReadOperationIdentifier identifier, MonotonicTime recordIOStartTime, Data&& data, int error)
 {
-    ASSERT(readOperation.activeCount);
-    // Record and blob reads must finish.
-    if (--readOperation.activeCount)
+    Record record;
+    if (!error)
+        record = readRecord(data);
+
+    auto recordIOEndTime = MonotonicTime::now();
+    RunLoop::protectedMain()->dispatch([this, protectedThis = Ref { *this }, identifier, recordIOStartTime, recordIOEndTime, record = crossThreadCopy(WTFMove(record))]() mutable {
+        auto* readOperation = m_activeReadOperations.get(identifier);
+        RELEASE_ASSERT(readOperation);
+
+        readOperation->finishReadRecord(WTFMove(record), recordIOStartTime, recordIOEndTime);
+        if (readOperation->canFinish())
+            finishReadOperation(identifier);
+    });
+}
+
+void Storage::readBlobIfNecessary(Storage::ReadOperationIdentifier identifier, const String& blobPath)
+{
+    if (blobPath.isEmpty())
         return;
 
-    RunLoop::main().dispatch([this, &readOperation] {
-        bool success = readOperation.finish();
-        if (success)
-            updateFileModificationTime(recordPathForKey(readOperation.key));
-        else if (!readOperation.isCanceled)
-            remove(readOperation.key);
+    auto blobIOStartTime = MonotonicTime::now();
+    auto blob = m_blobStorage.get(blobPath);
+    auto blobIOEndTime = MonotonicTime::now();
+    RunLoop::protectedMain()->dispatch([this, protectedThis = Ref { *this }, identifier, blob = WTFMove(blob), blobIOStartTime, blobIOEndTime]() mutable {
+        auto* readOperation = m_activeReadOperations.get(identifier);
+        RELEASE_ASSERT(readOperation);
 
-        auto protectedThis = makeRef(*this);
-
-        ASSERT(m_activeReadOperations.contains(&readOperation));
-        m_activeReadOperations.remove(&readOperation);
-
-        if (m_activeReadOperations.isEmpty())
-            m_readOperationTimeoutTimer.stop();
-        
-        dispatchPendingReadOperations();
-
-        LOG(NetworkCacheStorage, "(NetworkProcess) read complete success=%d", success);
+        readOperation->finishReadBlob(WTFMove(blob), blobIOStartTime, blobIOEndTime);
+        if (readOperation->canFinish())
+            finishReadOperation(identifier);
     });
+}
+
+void Storage::finishReadOperation(Storage::ReadOperationIdentifier identifier)
+{
+    ASSERT(RunLoop::isMain());
+
+    auto readOperation = m_activeReadOperations.take(identifier);
+    RELEASE_ASSERT(readOperation);
+
+    bool success = readOperation->finish();
+    if (success)
+        updateFileModificationTime(recordPathForKey(readOperation->key()));
+    else if (!readOperation->isCanceled())
+        remove(readOperation->key());
+
+    if (m_activeReadOperations.isEmpty())
+        m_readOperationTimeoutTimer.stop();
+
+    dispatchPendingReadOperations();
+
+    LOG(NetworkCacheStorage, "(NetworkProcess) read complete success=%d", success);
 }
 
 void Storage::cancelAllReadOperations()
 {
     ASSERT(RunLoop::isMain());
 
-    for (auto& readOperation : m_activeReadOperations)
+    for (auto& readOperation : m_activeReadOperations.values())
         readOperation->cancel();
 
-    size_t pendingCount = 0;
-    for (int priority = maximumRetrievePriority; priority >= 0; --priority) {
-        auto& pendingRetrieveQueue = m_pendingReadOperationsByPriority[priority];
-        pendingCount += pendingRetrieveQueue.size();
-        for (auto it = pendingRetrieveQueue.rbegin(), end = pendingRetrieveQueue.rend(); it != end; ++it)
-            (*it)->cancel();
-        pendingRetrieveQueue.clear();
-    }
+    size_t pendingCount = m_pendingReadOperations.size();
+    UNUSED_PARAM(pendingCount);
+
+    while (!m_pendingReadOperations.isEmpty())
+        m_pendingReadOperations.dequeue()->cancel();
 
     LOG(NetworkCacheStorage, "(NetworkProcess) retrieve timeout, canceled %u active and %zu pending", m_activeReadOperations.size(), pendingCount);
 }
@@ -795,25 +972,24 @@ void Storage::dispatchPendingReadOperations()
 
     const int maximumActiveReadOperationCount = 5;
 
-    for (int priority = maximumRetrievePriority; priority >= 0; --priority) {
+    while (!m_pendingReadOperations.isEmpty()) {
         if (m_activeReadOperations.size() > maximumActiveReadOperationCount) {
             LOG(NetworkCacheStorage, "(NetworkProcess) limiting parallel retrieves");
             return;
         }
-        auto& pendingRetrieveQueue = m_pendingReadOperationsByPriority[priority];
-        if (pendingRetrieveQueue.isEmpty())
-            continue;
-        dispatchReadOperation(pendingRetrieveQueue.takeLast());
+        dispatchReadOperation(m_pendingReadOperations.dequeue());
     }
 }
 
 template <class T> bool retrieveFromMemory(const T& operations, const Key& key, Storage::RetrieveCompletionHandler& completionHandler)
 {
+    assertIsMainThread();
+
     for (auto& operation : operations) {
-        if (operation->record.key == key) {
+        if (operation->record().key == key) {
             LOG(NetworkCacheStorage, "(NetworkProcess) found write operation in progress");
-            RunLoop::main().dispatch([record = operation->record, completionHandler = WTFMove(completionHandler)] () mutable {
-                completionHandler(makeUnique<Storage::Record>(record), { });
+            RunLoop::protectedMain()->dispatch([record = operation->record(), completionHandler = WTFMove(completionHandler)] () mutable {
+                completionHandler(WTFMove(record), { });
             });
             return true;
         }
@@ -843,54 +1019,62 @@ bool Storage::shouldStoreBodyAsBlob(const Data& bodyData)
 
 void Storage::dispatchWriteOperation(std::unique_ptr<WriteOperation> writeOperationPtr)
 {
-    ASSERT(RunLoop::isMain());
+    assertIsMainThread();
 
     auto& writeOperation = *writeOperationPtr;
-    m_activeWriteOperations.add(WTFMove(writeOperationPtr));
+    auto identifier = writeOperation.identifier();
+    m_activeWriteOperations.add(identifier, WTFMove(writeOperationPtr));
 
+    auto record = writeOperation.record();
     // This was added already when starting the store but filter might have been wiped.
-    addToRecordFilter(writeOperation.record.key);
+    addToRecordFilter(record.key);
 
-    backgroundIOQueue().dispatch([this, &writeOperation] {
-        auto recordDirectorPath = recordDirectoryPathForKey(writeOperation.record.key);
-        auto recordPath = recordPathForKey(writeOperation.record.key);
+    backgroundIOQueue().dispatch([this, protectedThis = Ref { *this }, identifier, record = crossThreadCopy(WTFMove(record))]() mutable {
+        auto recordDirectoryPath = recordDirectoryPathForKey(record.key);
+        auto recordPath = recordPathForKey(record.key);
+        FileSystem::makeAllDirectories(recordDirectoryPath);
 
-        FileSystem::makeAllDirectories(recordDirectorPath);
+        addWriteOperationActivity(identifier);
 
-        ++writeOperation.activeCount;
+        bool shouldStoreAsBlob = shouldStoreBodyAsBlob(record.body);
+        auto blob = shouldStoreAsBlob ? storeBodyAsBlob(identifier, record) : std::nullopt;
+        auto recordData = encodeRecord(record, blob);
 
-        bool shouldStoreAsBlob = shouldStoreBodyAsBlob(writeOperation.record.body);
-        auto blob = shouldStoreAsBlob ? storeBodyAsBlob(writeOperation) : WTF::nullopt;
-
-        auto recordData = encodeRecord(writeOperation.record, blob);
-
-        auto channel = IOChannel::open(recordPath, IOChannel::Type::Create);
+        auto channel = IOChannel::open(WTFMove(recordPath), IOChannel::Type::Create);
         size_t recordSize = recordData.size();
-        channel->write(0, recordData, nullptr, [this, &writeOperation, recordSize](int error) {
+        channel->write(0, recordData, WorkQueue::main(), [this, protectedThis = WTFMove(protectedThis), identifier, recordSize](int error) {
             // On error the entry still stays in the contents filter until next synchronization.
             m_approximateRecordsSize += recordSize;
-            finishWriteOperation(writeOperation, error);
+            finishWriteOperationActivity(identifier, error);
 
             LOG(NetworkCacheStorage, "(NetworkProcess) write complete error=%d", error);
         });
     });
 }
 
-void Storage::finishWriteOperation(WriteOperation& writeOperation, int error)
+void Storage::addWriteOperationActivity(WriteOperationIdentifier identifier)
+{
+    Locker locker { m_activitiesLock };
+    m_writeOperationActivities.add(identifier);
+}
+
+bool Storage::removeWriteOperationActivity(WriteOperationIdentifier identifier)
+{
+    Locker locker { m_activitiesLock };
+    ASSERT(m_writeOperationActivities.contains(identifier));
+    return m_writeOperationActivities.remove(identifier);
+}
+
+void Storage::finishWriteOperationActivity(WriteOperationIdentifier identifier, int error)
 {
     ASSERT(RunLoop::isMain());
-    ASSERT(writeOperation.activeCount);
-    ASSERT(m_activeWriteOperations.contains(&writeOperation));
-
-    if (--writeOperation.activeCount)
+    if (!removeWriteOperationActivity(identifier))
         return;
 
-    auto protectedThis = makeRef(*this);
+    auto writeOperation = m_activeWriteOperations.take(identifier);
+    RELEASE_ASSERT(writeOperation);
+    writeOperation->invokeCompletionHandler(error);
 
-    if (writeOperation.completionHandler)
-        writeOperation.completionHandler(error);
-
-    m_activeWriteOperations.remove(&writeOperation);
     dispatchPendingWriteOperations();
 
     shrinkIfNeeded();
@@ -899,30 +1083,28 @@ void Storage::finishWriteOperation(WriteOperation& writeOperation, int error)
 void Storage::retrieve(const Key& key, unsigned priority, RetrieveCompletionHandler&& completionHandler)
 {
     ASSERT(RunLoop::isMain());
-    ASSERT(priority <= maximumRetrievePriority);
     ASSERT(!key.isNull());
 
     if (!m_capacity) {
-        completionHandler(nullptr, { });
+        completionHandler({ }, { });
         return;
     }
 
     if (!mayContain(key)) {
-        completionHandler(nullptr, { });
+        completionHandler({ }, { });
         return;
     }
 
     if (retrieveFromMemory(m_pendingWriteOperations, key, completionHandler))
         return;
-    if (retrieveFromMemory(m_activeWriteOperations, key, completionHandler))
+
+    if (retrieveFromMemory(m_activeWriteOperations.values(), key, completionHandler))
         return;
 
-    auto readOperation = makeUnique<ReadOperation>(*this, key, WTFMove(completionHandler));
+    auto readOperation = makeUnique<ReadOperation>(key, priority, WTFMove(completionHandler));
+    readOperation->updateForStart(m_readOperationDispatchCount);
 
-    readOperation->timings.startTime = MonotonicTime::now();
-    readOperation->timings.dispatchCountAtStart = m_readOperationDispatchCount;
-
-    m_pendingReadOperationsByPriority[priority].prepend(WTFMove(readOperation));
+    m_pendingReadOperations.enqueue(WTFMove(readOperation));
     dispatchPendingReadOperations();
 }
 
@@ -934,7 +1116,7 @@ void Storage::store(const Record& record, MappedBodyHandler&& mappedBodyHandler,
     if (!m_capacity)
         return;
 
-    auto writeOperation = makeUnique<WriteOperation>(*this, record, WTFMove(mappedBodyHandler), WTFMove(completionHandler));
+    auto writeOperation = makeUnique<WriteOperation>(record, WTFMove(mappedBodyHandler), WTFMove(completionHandler));
     m_pendingWriteOperations.prepend(WTFMove(writeOperation));
 
     // Add key to the filter already here as we do lookups from the pending operations too.
@@ -947,36 +1129,30 @@ void Storage::store(const Record& record, MappedBodyHandler&& mappedBodyHandler,
     m_writeOperationDispatchTimer.startOneShot(m_initialWriteDelay);
 }
 
-void Storage::traverse(const String& type, OptionSet<TraverseFlag> flags, TraverseHandler&& traverseHandler)
+void Storage::traverseWithinRootPath(const String& rootPath, const String& type, OptionSet<TraverseFlag> flags, TraverseHandler&& traverseHandler)
 {
     ASSERT(RunLoop::isMain());
     ASSERT(traverseHandler);
-    // Avoid non-thread safe Function copies.
 
-    auto traverseOperationPtr = makeUnique<TraverseOperation>(makeRef(*this), type, flags, WTFMove(traverseHandler));
-    auto& traverseOperation = *traverseOperationPtr;
-    m_activeTraverseOperations.add(WTFMove(traverseOperationPtr));
-
-    ioQueue().dispatch([this, &traverseOperation] {
-        traverseRecordsFiles(recordsPathIsolatedCopy(), traverseOperation.type, [this, &traverseOperation](const String& fileName, const String& hashString, const String& type, bool isBlob, const String& recordDirectoryPath) {
-            ASSERT(type == traverseOperation.type || traverseOperation.type.isEmpty());
+    auto traverseOperation = TraverseOperation::create(WTFMove(traverseHandler));
+    ioQueue().dispatch([this, protectedThis = Ref { *this }, traverseOperation = WTFMove(traverseOperation), flags, rootPath = crossThreadCopy(rootPath), type = crossThreadCopy(type)]() mutable {
+        traverseRecordsFiles(rootPath, type, [this, protectedThis, expectedType = type, flags, traverseOperation](const String& fileName, const String& hashString, const String& type, bool isBlob, const String& recordDirectoryPath) {
+            ASSERT(type == expectedType || expectedType.isEmpty());
             if (isBlob)
                 return;
 
             auto recordPath = FileSystem::pathByAppendingComponent(recordDirectoryPath, fileName);
-
             double worth = -1;
-            if (traverseOperation.flags & TraverseFlag::ComputeWorth)
+            if (flags & TraverseFlag::ComputeWorth)
                 worth = computeRecordWorth(fileTimes(recordPath));
+
             unsigned bodyShareCount = 0;
-            if (traverseOperation.flags & TraverseFlag::ShareCount)
+            if (flags & TraverseFlag::ShareCount)
                 bodyShareCount = m_blobStorage.shareCount(blobPathForRecordPath(recordPath));
 
-            std::unique_lock<Lock> lock(traverseOperation.activeMutex);
-            ++traverseOperation.activeCount;
-
-            auto channel = IOChannel::open(recordPath, IOChannel::Type::Read);
-            channel->read(0, std::numeric_limits<size_t>::max(), nullptr, [this, &traverseOperation, worth, bodyShareCount](Data& fileData, int) {
+            traverseOperation->waitAndIncrementActivityCount();
+            auto channel = IOChannel::open(WTFMove(recordPath), IOChannel::Type::Read);
+            channel->read(0, std::numeric_limits<size_t>::max(), WorkQueue::main(), [this, protectedThis, traverseOperation, worth, bodyShareCount](auto fileData, int) {
                 RecordMetaData metaData;
                 Data headerData;
                 if (decodeRecordHeader(fileData, metaData, headerData, m_salt)) {
@@ -991,36 +1167,32 @@ void Storage::traverse(const String& type, OptionSet<TraverseFlag> flags, Traver
                         static_cast<size_t>(metaData.bodySize),
                         worth,
                         bodyShareCount,
-                        String::fromUTF8(SHA1::hexDigest(metaData.bodyHash))
+                        String::fromUTF8(SHA1::hexDigest(metaData.bodyHash).span())
                     };
-                    traverseOperation.handler(&record, info);
+                    traverseOperation->invokeHandler(&record, info);
                 }
-
-                auto locker = holdLock(traverseOperation.activeMutex);
-                --traverseOperation.activeCount;
-                traverseOperation.activeCondition.notifyOne();
-            });
-
-            static const unsigned maximumParallelReadCount = 5;
-            traverseOperation.activeCondition.wait(lock, [&traverseOperation] {
-                return traverseOperation.activeCount <= maximumParallelReadCount;
+                traverseOperation->decrementActivityCount();
             });
         });
-        {
-            // Wait for all reads to finish.
-            std::unique_lock<Lock> lock(traverseOperation.activeMutex);
-            traverseOperation.activeCondition.wait(lock, [&traverseOperation] {
-                return !traverseOperation.activeCount;
-            });
-        }
-        RunLoop::main().dispatch([this, &traverseOperation] {
-            traverseOperation.handler(nullptr, { });
 
-            auto protectedThis = makeRef(*this);
-
-            m_activeTraverseOperations.remove(&traverseOperation);
+        traverseOperation->waitUntilActivitiesFinished();
+        RunLoop::protectedMain()->dispatch([traverseOperation = WTFMove(traverseOperation)]() mutable {
+            // Invoke with nullptr to indicate this is the last record.
+            traverseOperation->invokeHandler(nullptr, { });
         });
     });
+}
+
+void Storage::traverse(const String& type, OptionSet<TraverseFlag> flags, TraverseHandler&& traverseHandler)
+{
+    traverseWithinRootPath(recordsPathIsolatedCopy(), type, flags, WTFMove(traverseHandler));
+}
+
+void Storage::traverse(const String& type, const String& partition, OptionSet<TraverseFlag> flags, TraverseHandler&& traverseHandler)
+{
+    auto partitionHashAsString = Key::partitionToPartitionHashAsString(partition, salt());
+    auto rootPath = FileSystem::pathByAppendingComponent(recordsPathIsolatedCopy(), partitionHashAsString);
+    traverseWithinRootPath(rootPath, type, flags, WTFMove(traverseHandler));
 }
 
 void Storage::setCapacity(size_t capacity)
@@ -1043,7 +1215,7 @@ void Storage::setCapacity(size_t capacity)
     shrinkIfNeeded();
 }
 
-void Storage::clear(const String& type, WallTime modifiedSinceTime, CompletionHandler<void()>&& completionHandler)
+void Storage::clear(String&& type, WallTime modifiedSinceTime, CompletionHandler<void()>&& completionHandler)
 {
     ASSERT(RunLoop::isMain());
     LOG(NetworkCacheStorage, "(NetworkProcess) clearing cache");
@@ -1054,7 +1226,7 @@ void Storage::clear(const String& type, WallTime modifiedSinceTime, CompletionHa
         m_blobFilter->clear();
     m_approximateRecordsSize = 0;
 
-    ioQueue().dispatch([this, protectedThis = makeRef(*this), modifiedSinceTime, completionHandler = WTFMove(completionHandler), type = type.isolatedCopy()] () mutable {
+    ioQueue().dispatch([this, protectedThis = Ref { *this }, modifiedSinceTime, completionHandler = WTFMove(completionHandler), type = WTFMove(type).isolatedCopy()] () mutable {
         auto recordsPath = this->recordsPathIsolatedCopy();
         traverseRecordsFiles(recordsPath, type, [modifiedSinceTime](const String& fileName, const String& hashString, const String& type, bool isBlob, const String& recordDirectoryPath) {
             auto filePath = FileSystem::pathByAppendingComponent(recordDirectoryPath, fileName);
@@ -1071,7 +1243,7 @@ void Storage::clear(const String& type, WallTime modifiedSinceTime, CompletionHa
         // This cleans unreferenced blobs.
         m_blobStorage.synchronize();
 
-        RunLoop::main().dispatch(WTFMove(completionHandler));
+        RunLoop::protectedMain()->dispatch(WTFMove(completionHandler));
     });
 }
 
@@ -1130,7 +1302,7 @@ void Storage::shrink()
 
     LOG(NetworkCacheStorage, "(NetworkProcess) shrinking cache approximateSize=%zu capacity=%zu", approximateSize(), m_capacity);
 
-    backgroundIOQueue().dispatch([this, protectedThis = makeRef(*this)] () mutable {
+    backgroundIOQueue().dispatch([this, protectedThis = Ref { *this }] () mutable {
         auto recordsPath = this->recordsPathIsolatedCopy();
         String anyType;
         traverseRecordsFiles(recordsPath, anyType, [this](const String& fileName, const String& hashString, const String& type, bool isBlob, const String& recordDirectoryPath) {
@@ -1144,7 +1316,7 @@ void Storage::shrink()
             unsigned bodyShareCount = m_blobStorage.shareCount(blobPath);
             auto probability = deletionProbability(times, bodyShareCount);
 
-            bool shouldDelete = randomNumber() < probability;
+            bool shouldDelete = cryptographicallyRandomUnitInterval() < probability;
 
             LOG(NetworkCacheStorage, "Deletion probability=%f bodyLinkCount=%d shouldDelete=%d", probability, bodyShareCount, shouldDelete);
 
@@ -1154,7 +1326,7 @@ void Storage::shrink()
             }
         });
 
-        RunLoop::main().dispatch([this, protectedThis = WTFMove(protectedThis)] {
+        RunLoop::protectedMain()->dispatch([this, protectedThis = WTFMove(protectedThis)] {
             m_shrinkInProgress = false;
             // We could synchronize during the shrink traversal. However this is fast and it is better to have just one code path.
             synchronize();
@@ -1172,18 +1344,12 @@ void Storage::deleteOldVersions()
                 return;
             if (!subdirName.startsWith(versionDirectoryPrefix))
                 return;
-            auto versionString = subdirName.substring(strlen(versionDirectoryPrefix));
-            bool success;
-            unsigned directoryVersion = versionString.toUIntStrict(&success);
-            if (!success)
+            auto directoryVersion = parseInteger<unsigned>(StringView { subdirName }.substring(versionDirectoryPrefix.length()));
+            if (!directoryVersion || *directoryVersion >= version)
                 return;
-            if (directoryVersion >= version)
-                return;
-
             auto oldVersionPath = FileSystem::pathByAppendingComponent(cachePath, subdirName);
             LOG(NetworkCacheStorage, "(NetworkProcess) deleting old cache version, path %s", oldVersionPath.utf8().data());
-
-            deleteDirectoryRecursively(oldVersionPath);
+            FileSystem::deleteNonEmptyDirectory(oldVersionPath);
         });
     });
 }

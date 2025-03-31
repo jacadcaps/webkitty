@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 1999 Lars Knoll (knoll@kde.org)
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
- * Copyright (C) 2003, 2004, 2005, 2006, 2007, 2009 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2021 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -26,74 +26,86 @@
 
 namespace WebCore {
 
+class CSSCounterStyle;
 class RenderListItem;
+class StyleRuleCounterStyle;
 
-String listMarkerText(ListStyleType, int value);
+struct ListMarkerTextContent {
+    String textWithSuffix;
+    uint32_t textWithoutSuffixLength { 0 };
+    TextDirection textDirection { TextDirection::LTR };
+    bool isEmpty() const
+    {
+        return textWithSuffix.isEmpty();
+    }
+
+    StringView textWithoutSuffix() const LIFETIME_BOUND
+    {
+        return StringView { textWithSuffix }.left(textWithoutSuffixLength);
+    }
+
+    StringView suffix() const LIFETIME_BOUND
+    {
+        return StringView { textWithSuffix }.substring(textWithoutSuffixLength);
+    }
+};
 
 // Used to render the list item's marker.
 // The RenderListMarker always has to be a child of a RenderListItem.
 class RenderListMarker final : public RenderBox {
-    WTF_MAKE_ISO_ALLOCATED(RenderListMarker);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(RenderListMarker);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderListMarker);
 public:
     RenderListMarker(RenderListItem&, RenderStyle&&);
     virtual ~RenderListMarker();
 
-    const String& text() const { return m_text; }
-    String suffix() const;
+    String textWithoutSuffix() const { return m_textContent.textWithoutSuffix().toString(); };
+    String textWithSuffix() const { return m_textContent.textWithSuffix; };
 
     bool isInside() const;
 
-    LayoutUnit lineOffsetForListItem() const { return m_lineOffsetForListItem; }
+    void updateInlineMarginsAndContent();
 
-    void updateMarginsAndContent();
+    bool isImage() const final;
 
-    void addOverflowFromListMarker();
+    LayoutUnit lineLogicalOffsetForListItem() const { return m_lineLogicalOffsetForListItem; }
+    const RenderListItem* listItem() const;
 
 private:
-    void willBeDestroyed() override;
+    void willBeDestroyed() final;
+    ASCIILiteral renderName() const final { return "RenderListMarker"_s; }
+    void computePreferredLogicalWidths() final;
+    bool canHaveChildren() const final { return false; }
+    void paint(PaintInfo&, const LayoutPoint&) final;
+    void layout() final;
+    void imageChanged(WrappedImagePtr, const IntRect*) final;
+    LayoutUnit lineHeight(bool firstLine, LineDirectionMode, LinePositionMode) const final;
+    LayoutUnit baselinePosition(FontBaseline, bool firstLine, LineDirectionMode, LinePositionMode) const final;
+    LayoutRect selectionRectForRepaint(const RenderLayerModelObject* repaintContainer, bool clipToVisibleContent) final;
+    bool canBeSelectionLeaf() const final { return true; }
+    void styleWillChange(StyleDifference, const RenderStyle& newStyle) final;
+    void styleDidChange(StyleDifference, const RenderStyle* oldStyle) final;
+    void computeIntrinsicLogicalWidths(LayoutUnit&, LayoutUnit&) const override { ASSERT_NOT_REACHED(); }
 
     void element() const = delete;
 
-    const char* renderName() const override { return "RenderListMarker"; }
-    void computePreferredLogicalWidths() override;
-
-    bool isListMarker() const override { return true; }
-    bool canHaveChildren() const override { return false; }
-
-    void paint(PaintInfo&, const LayoutPoint&) override;
-
-    void layout() override;
-
-    void imageChanged(WrappedImagePtr, const IntRect* = 0) override;
-
-    std::unique_ptr<InlineElementBox> createInlineBox() override;
-
-    LayoutUnit lineHeight(bool firstLine, LineDirectionMode, LinePositionMode = PositionOnContainingLine) const override;
-    int baselinePosition(FontBaseline, bool firstLine, LineDirectionMode, LinePositionMode = PositionOnContainingLine) const override;
-
-    bool isImage() const override;
-    bool isText() const { return !isImage(); }
-
-    void setSelectionState(HighlightState) override;
-    LayoutRect selectionRectForRepaint(const RenderLayerModelObject* repaintContainer, bool clipToVisibleContent = true) override;
-    bool canBeSelectionLeaf() const override { return true; }
-
-    void updateMargins();
+    void updateInlineMargins();
     void updateContent();
-
-    void styleDidChange(StyleDifference, const RenderStyle* oldStyle) override;
-
     RenderBox* parentBox(RenderBox&);
-
-    FloatRect getRelativeMarkerRect();
+    FloatRect relativeMarkerRect();
     LayoutRect localSelectionRect();
 
-    String m_text;
+    RefPtr<CSSCounterStyle> counterStyle() const;
+    bool widthUsesMetricsOfPrimaryFont() const;
+
+    ListMarkerTextContent m_textContent;
     RefPtr<StyleImage> m_image;
-    WeakPtr<RenderListItem> m_listItem;
+
+    SingleThreadWeakPtr<RenderListItem> m_listItem;
     LayoutUnit m_lineOffsetForListItem;
+    LayoutUnit m_lineLogicalOffsetForListItem;
 };
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderListMarker, isListMarker())
+SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderListMarker, isRenderListMarker())

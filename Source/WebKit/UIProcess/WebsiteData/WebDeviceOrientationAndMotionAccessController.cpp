@@ -30,15 +30,22 @@
 
 #include "APIUIClient.h"
 #include "FrameInfoData.h"
+#include "PageLoadState.h"
 #include "WebPageProxy.h"
+#include "WebsiteDataStore.h"
 
 namespace WebKit {
 
 using namespace WebCore;
 
+WebDeviceOrientationAndMotionAccessController::WebDeviceOrientationAndMotionAccessController(WebsiteDataStore& websiteDataStore)
+    : m_websiteDataStore(websiteDataStore)
+{
+}
+
 void WebDeviceOrientationAndMotionAccessController::shouldAllowAccess(WebPageProxy& page, WebFrameProxy& frame, FrameInfoData&& frameInfo, bool mayPrompt, CompletionHandler<void(DeviceOrientationOrMotionPermissionState)>&& completionHandler)
 {
-    SecurityOriginData originData = frameInfo.securityOrigin;
+    auto originData = SecurityOrigin::createFromString(page.pageLoadState().activeURL())->data();
     auto currentPermission = cachedDeviceOrientationPermission(originData);
     if (currentPermission != DeviceOrientationOrMotionPermissionState::Prompt || !mayPrompt)
         return completionHandler(currentPermission);
@@ -50,7 +57,7 @@ void WebDeviceOrientationAndMotionAccessController::shouldAllowAccess(WebPagePro
     if (pendingRequests.size() > 1)
         return;
 
-    page.uiClient().shouldAllowDeviceOrientationAndMotionAccess(page, frame, WTFMove(frameInfo), [this, weakThis = makeWeakPtr(this), originData](bool granted) mutable {
+    page.uiClient().shouldAllowDeviceOrientationAndMotionAccess(page, frame, WTFMove(frameInfo), [this, weakThis = WeakPtr { *this }, originData](bool granted) mutable {
         if (!weakThis)
             return;
         m_deviceOrientationPermissionDecisions.set(originData, granted);
@@ -71,9 +78,14 @@ DeviceOrientationOrMotionPermissionState WebDeviceOrientationAndMotionAccessCont
     return it->value ? DeviceOrientationOrMotionPermissionState::Granted : DeviceOrientationOrMotionPermissionState::Denied;
 }
 
-void WebDeviceOrientationAndMotionAccessController::clearPermissions()
+void WebDeviceOrientationAndMotionAccessController::ref() const
 {
-    m_deviceOrientationPermissionDecisions.clear();
+    m_websiteDataStore->ref();
+}
+
+void WebDeviceOrientationAndMotionAccessController::deref() const
+{
+    m_websiteDataStore->deref();
 }
 
 } // namespace WebKit

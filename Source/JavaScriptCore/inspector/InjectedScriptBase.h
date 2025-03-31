@@ -34,7 +34,7 @@
 #include "Exception.h"
 #include "InspectorEnvironment.h"
 #include "InspectorProtocolObjects.h"
-#include "ScriptObject.h"
+#include "ScriptFunctionCall.h"
 #include <wtf/Expected.h>
 #include <wtf/Forward.h>
 #include <wtf/Function.h>
@@ -47,37 +47,42 @@ class ScriptFunctionCall;
 
 namespace Inspector {
 
-typedef String ErrorString;
-typedef WTF::Function<void(ErrorString&, RefPtr<Protocol::Runtime::RemoteObject>&&, Optional<bool>&, Optional<int>&)> AsyncCallCallback;
+using AsyncCallCallback = WTF::Function<void(Protocol::ErrorString&, RefPtr<Protocol::Runtime::RemoteObject>&&, std::optional<bool>&&, std::optional<int>&&)>;
 
-class JS_EXPORT_PRIVATE InjectedScriptBase {
+JS_EXPORT_PRIVATE RefPtr<JSON::Value> toInspectorValue(JSC::JSGlobalObject*, JSC::JSValue);
+
+class InjectedScriptBase {
 public:
-    virtual ~InjectedScriptBase();
+    JS_EXPORT_PRIVATE InjectedScriptBase(const InjectedScriptBase&);
+    JS_EXPORT_PRIVATE virtual ~InjectedScriptBase();
+
+    JS_EXPORT_PRIVATE InjectedScriptBase& operator=(const InjectedScriptBase&);
 
     const String& name() const { return m_name; }
-    bool hasNoValue() const { return m_injectedScriptObject.hasNoValue(); }
-    JSC::JSGlobalObject* globalObject() const { return m_injectedScriptObject.globalObject(); }
+    bool hasNoValue() const { return !m_injectedScriptObject.get(); }
+    JSC::JSGlobalObject* globalObject() const { return m_globalObject; }
 
 protected:
     InjectedScriptBase(const String& name);
-    InjectedScriptBase(const String& name, Deprecated::ScriptObject, InspectorEnvironment*);
+    InjectedScriptBase(const String& name, JSC::JSGlobalObject*, JSC::JSObject*, InspectorEnvironment*);
 
     InspectorEnvironment* inspectorEnvironment() const { return m_environment; }
 
     bool hasAccessToInspectedScriptState() const;
 
-    const Deprecated::ScriptObject& injectedScriptObject() const;
-    Expected<JSC::JSValue, NakedPtr<JSC::Exception>> callFunctionWithEvalEnabled(Deprecated::ScriptFunctionCall&) const;
-    Ref<JSON::Value> makeCall(Deprecated::ScriptFunctionCall&);
-    void makeEvalCall(ErrorString&, Deprecated::ScriptFunctionCall&, RefPtr<Protocol::Runtime::RemoteObject>& resultObject, Optional<bool>& wasThrown, Optional<int>& savedResultIndex);
-    void makeAsyncCall(Deprecated::ScriptFunctionCall&, AsyncCallCallback&&);
+    JSC::JSObject* injectedScriptObject() const;
+    Expected<JSC::JSValue, NakedPtr<JSC::Exception>> callFunctionWithEvalEnabled(ScriptFunctionCall&) const;
+    Ref<JSON::Value> makeCall(ScriptFunctionCall&);
+    void makeEvalCall(Protocol::ErrorString&, ScriptFunctionCall&, RefPtr<Protocol::Runtime::RemoteObject>& resultObject, std::optional<bool>& wasThrown, std::optional<int>& savedResultIndex);
+    void makeAsyncCall(ScriptFunctionCall&, AsyncCallCallback&&);
 
 private:
-    void checkCallResult(ErrorString&, RefPtr<JSON::Value> result, RefPtr<Protocol::Runtime::RemoteObject>& resultObject, Optional<bool>& wasThrown, Optional<int>& savedResultIndex);
+    void checkCallResult(Protocol::ErrorString&, RefPtr<JSON::Value> result, RefPtr<Protocol::Runtime::RemoteObject>& resultObject, std::optional<bool>& wasThrown, std::optional<int>& savedResultIndex);
     void checkAsyncCallResult(RefPtr<JSON::Value> result, const AsyncCallCallback&);
 
     String m_name;
-    Deprecated::ScriptObject m_injectedScriptObject;
+    JSC::JSGlobalObject* m_globalObject { nullptr };
+    JSC::Strong<JSC::JSObject> m_injectedScriptObject;
     InspectorEnvironment* m_environment { nullptr };
 };
 

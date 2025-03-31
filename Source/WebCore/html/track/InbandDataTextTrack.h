@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 Cable Television Labs Inc. All rights reserved.
- * Copyright (C) 2014-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -35,18 +35,20 @@ namespace WebCore {
 class DataCue;
 
 class InbandDataTextTrack final : public InbandTextTrack {
-    WTF_MAKE_ISO_ALLOCATED(InbandDataTextTrack);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(InbandDataTextTrack);
 public:
-    static Ref<InbandDataTextTrack> create(Document&, TextTrackClient&, InbandTextTrackPrivate&);
+    static Ref<InbandDataTextTrack> create(ScriptExecutionContext&, InbandTextTrackPrivate&);
     virtual ~InbandDataTextTrack();
 
 private:
-    InbandDataTextTrack(Document&, TextTrackClient&, InbandTextTrackPrivate&);
+    InbandDataTextTrack(ScriptExecutionContext&, InbandTextTrackPrivate&);
 
-    void addDataCue(const MediaTime& start, const MediaTime& end, const void*, unsigned) final;
+    void addDataCue(const MediaTime& start, const MediaTime& end, std::span<const uint8_t>) final;
+
+    bool shouldPurgeCuesFromUnbufferedRanges() const final { return true; }
 
 #if !RELEASE_LOG_DISABLED
-    const char* logClassName() const final { return "DataCue"; }
+    ASCIILiteral logClassName() const final { return "DataCue"_s; }
 #endif
 
 #if ENABLE(DATACUE_VALUE)

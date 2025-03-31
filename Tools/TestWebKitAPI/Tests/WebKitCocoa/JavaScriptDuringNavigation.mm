@@ -41,7 +41,7 @@ static RetainPtr<NSURL> secondURL;
 
 @implementation JSNavigationDelegate
 
-- (void)webView:(WKWebView *)webView didFinishNavigation:(null_unspecified WKNavigation *)navigation
+- (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation
 {
     navigationComplete = true;
 }
@@ -78,8 +78,8 @@ static RetainPtr<NSURL> secondURL;
 
 TEST(WebKit, JavaScriptDuringNavigation)
 {
-    firstURL = [[NSBundle mainBundle] URLForResource:@"simple" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"];
-    secondURL = [[NSBundle mainBundle] URLForResource:@"simple2" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"];
+    firstURL = [NSBundle.test_resourcesBundle URLForResource:@"simple" withExtension:@"html"];
+    secondURL = [NSBundle.test_resourcesBundle URLForResource:@"simple2" withExtension:@"html"];
     
     auto webView = adoptNS([[WKWebView alloc] init]);
     auto delegate = adoptNS([[JSNavigationDelegate alloc] init]);

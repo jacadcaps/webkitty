@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007, 2008 Apple Inc. All rights reserved.
+ * Copyright (C) 2007-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,60 +26,117 @@
 #include "config.h"
 #include "JSCSSRule.h"
 
+#include "CSSContainerRule.h"
+#include "CSSCounterStyleRule.h"
 #include "CSSFontFaceRule.h"
+#include "CSSFontFeatureValuesRule.h"
+#include "CSSFontPaletteValuesRule.h"
 #include "CSSImportRule.h"
 #include "CSSKeyframeRule.h"
 #include "CSSKeyframesRule.h"
+#include "CSSLayerBlockRule.h"
+#include "CSSLayerStatementRule.h"
 #include "CSSMediaRule.h"
 #include "CSSNamespaceRule.h"
+#include "CSSNestedDeclarations.h"
 #include "CSSPageRule.h"
+#include "CSSPositionTryRule.h"
+#include "CSSPropertyRule.h"
+#include "CSSScopeRule.h"
+#include "CSSStartingStyleRule.h"
 #include "CSSStyleRule.h"
 #include "CSSSupportsRule.h"
+#include "CSSViewTransitionRule.h"
+#include "JSCSSContainerRule.h"
+#include "JSCSSCounterStyleRule.h"
 #include "JSCSSFontFaceRule.h"
+#include "JSCSSFontFeatureValuesRule.h"
+#include "JSCSSFontPaletteValuesRule.h"
 #include "JSCSSImportRule.h"
 #include "JSCSSKeyframeRule.h"
 #include "JSCSSKeyframesRule.h"
+#include "JSCSSLayerBlockRule.h"
+#include "JSCSSLayerStatementRule.h"
 #include "JSCSSMediaRule.h"
 #include "JSCSSNamespaceRule.h"
+#include "JSCSSNestedDeclarations.h"
 #include "JSCSSPageRule.h"
+#include "JSCSSPositionTryRule.h"
+#include "JSCSSPropertyRule.h"
+#include "JSCSSScopeRule.h"
+#include "JSCSSStartingStyleRule.h"
 #include "JSCSSStyleRule.h"
 #include "JSCSSSupportsRule.h"
+#include "JSCSSViewTransitionRule.h"
 #include "JSNode.h"
 #include "JSStyleSheetCustom.h"
+#include "WebCoreOpaqueRootInlines.h"
 
 
 namespace WebCore {
 using namespace JSC;
 
-void JSCSSRule::visitAdditionalChildren(SlotVisitor& visitor)
+template<typename Visitor>
+void JSCSSRule::visitAdditionalChildren(Visitor& visitor)
 {
-    visitor.addOpaqueRoot(root(&wrapped()));
+    addWebCoreOpaqueRoot(visitor, wrapped());
 }
+
+DEFINE_VISIT_ADDITIONAL_CHILDREN(JSCSSRule);
 
 JSValue toJSNewlyCreated(JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<CSSRule>&& rule)
 {
-    switch (rule->type()) {
-    case CSSRule::STYLE_RULE:
+    switch (rule->styleRuleType()) {
+    case StyleRuleType::Style:
         return createWrapper<CSSStyleRule>(globalObject, WTFMove(rule));
-    case CSSRule::MEDIA_RULE:
+    case StyleRuleType::StyleWithNesting:
+        return createWrapper<CSSStyleRule>(globalObject, WTFMove(rule));
+    case StyleRuleType::NestedDeclarations:
+        return createWrapper<CSSNestedDeclarations>(globalObject, WTFMove(rule));
+    case StyleRuleType::Media:
         return createWrapper<CSSMediaRule>(globalObject, WTFMove(rule));
-    case CSSRule::FONT_FACE_RULE:
+    case StyleRuleType::FontFace:
         return createWrapper<CSSFontFaceRule>(globalObject, WTFMove(rule));
-    case CSSRule::PAGE_RULE:
+    case StyleRuleType::FontPaletteValues:
+        return createWrapper<CSSFontPaletteValuesRule>(globalObject, WTFMove(rule));
+    case StyleRuleType::FontFeatureValues:
+        return createWrapper<CSSFontFeatureValuesRule>(globalObject, WTFMove(rule));
+    case StyleRuleType::Page:
         return createWrapper<CSSPageRule>(globalObject, WTFMove(rule));
-    case CSSRule::IMPORT_RULE:
+    case StyleRuleType::Import:
         return createWrapper<CSSImportRule>(globalObject, WTFMove(rule));
-    case CSSRule::NAMESPACE_RULE:
+    case StyleRuleType::Namespace:
         return createWrapper<CSSNamespaceRule>(globalObject, WTFMove(rule));
-    case CSSRule::KEYFRAME_RULE:
+    case StyleRuleType::Keyframe:
         return createWrapper<CSSKeyframeRule>(globalObject, WTFMove(rule));
-    case CSSRule::KEYFRAMES_RULE:
+    case StyleRuleType::Keyframes:
         return createWrapper<CSSKeyframesRule>(globalObject, WTFMove(rule));
-    case CSSRule::SUPPORTS_RULE:
+    case StyleRuleType::Supports:
         return createWrapper<CSSSupportsRule>(globalObject, WTFMove(rule));
-    default:
+    case StyleRuleType::CounterStyle:
+        return createWrapper<CSSCounterStyleRule>(globalObject, WTFMove(rule));
+    case StyleRuleType::LayerBlock:
+        return createWrapper<CSSLayerBlockRule>(globalObject, WTFMove(rule));
+    case StyleRuleType::LayerStatement:
+        return createWrapper<CSSLayerStatementRule>(globalObject, WTFMove(rule));
+    case StyleRuleType::Container:
+        return createWrapper<CSSContainerRule>(globalObject, WTFMove(rule));
+    case StyleRuleType::Property:
+        return createWrapper<CSSPropertyRule>(globalObject, WTFMove(rule));
+    case StyleRuleType::Scope:
+        return createWrapper<CSSScopeRule>(globalObject, WTFMove(rule));
+    case StyleRuleType::StartingStyle:
+        return createWrapper<CSSStartingStyleRule>(globalObject, WTFMove(rule));
+    case StyleRuleType::ViewTransition:
+        return createWrapper<CSSViewTransitionRule>(globalObject, WTFMove(rule));
+    case StyleRuleType::PositionTry:
+        return createWrapper<CSSPositionTryRule>(globalObject, WTFMove(rule));
+    case StyleRuleType::Charset:
+    case StyleRuleType::Margin:
+    case StyleRuleType::FontFeatureValuesBlock:
         return createWrapper<CSSRule>(globalObject, WTFMove(rule));
     }
+    RELEASE_ASSERT_NOT_REACHED();
 }
 
 JSValue toJS(JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, CSSRule& object)

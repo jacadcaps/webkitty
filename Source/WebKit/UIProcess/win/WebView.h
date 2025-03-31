@@ -35,13 +35,6 @@
 #include <wtf/Forward.h>
 #include <wtf/RefPtr.h>
 
-#if USE(DIRECT2D)
-interface ID3D11Device1;
-interface ID3D11DeviceContext1;
-interface ID3D11RenderTargetView;
-interface IDXGISwapChain;
-#endif
-
 namespace WebCore {
 class IntSize;
 }
@@ -65,6 +58,7 @@ public:
     HWND window() const { return m_window; }
     void setParentWindow(HWND);
     void windowAncestryDidChange();
+    WebCore::IntSize viewSize() { return m_viewSize; }
     void setIsInWindow(bool);
     void setIsVisible(bool);
     bool isWindowActive();
@@ -76,6 +70,8 @@ public:
     void setScrollOffsetOnNextResize(const WebCore::IntSize&);
     void initialize();
     void setToolTip(const String&);
+    void setUsesOffscreenRendering(bool);
+    bool usesOffscreenRendering() const;
 
     void setViewNeedsDisplay(const WebCore::Region&);
 
@@ -83,10 +79,7 @@ public:
 
     DrawingAreaProxy* drawingArea() { return page() ? page()->drawingArea() : nullptr; }
 
-#if USE(DIRECT2D)
-    ID3D11Device1* d3dDevice() const { return m_d3dDevice.get(); }
-    ID3D11DeviceContext1* d3dImmediateContext() const { return m_immediateContext.get(); }
-#endif
+    void close();
 
 private:
     WebView(RECT, const API::PageConfiguration&, HWND parentWindow);
@@ -124,7 +117,7 @@ private:
 
     bool shouldInitializeTrackPointHack();
 
-    void close();
+    void closeInternal();
 
     HCURSOR cursorToShow() const;
     void updateNativeCursor();
@@ -132,7 +125,7 @@ private:
     void updateChildWindowGeometries();
 
     void didCommitLoadForMainFrame(bool useCustomRepresentation);
-    void didFinishLoadingDataForCustomRepresentation(const String& suggestedFilename, const IPC::DataReference&);
+    void didFinishLoadingDataForCustomRepresentation(const String& suggestedFilename, std::span<const uint8_t>);
     virtual double customRepresentationZoomFactor();
     virtual void setCustomRepresentationZoomFactor(double);
 
@@ -143,11 +136,6 @@ private:
 
     // WebCore::WindowMessageListener
     virtual void windowReceivedMessage(HWND, UINT message, WPARAM, LPARAM);
-
-#if USE(DIRECT2D)
-    void setupSwapChain(const WebCore::IntSize&);
-    void configureBackingStore(const WebCore::IntSize&);
-#endif
 
     HWND m_window { nullptr };
     HWND m_topLevelParentWindow { nullptr };
@@ -165,15 +153,11 @@ private:
     bool m_wasActivatedByMouseEvent { false };
     bool m_trackingMouseLeave { false };
     bool m_isBeingDestroyed { false };
+    bool m_usesOffscreenRendering { false };
 
     std::unique_ptr<WebKit::PageClientImpl> m_pageClient;
     RefPtr<WebPageProxy> m_page;
-#if USE(DIRECT2D)
-    COMPtr<ID3D11Device1> m_d3dDevice;
-    COMPtr<ID3D11DeviceContext1> m_immediateContext;
-    COMPtr<ID3D11RenderTargetView> m_renderTargetView; 
-    COMPtr<IDXGISwapChain> m_swapChain;
-#endif
+    WebCore::IntSize m_viewSize;
 };
 
 } // namespace WebKit

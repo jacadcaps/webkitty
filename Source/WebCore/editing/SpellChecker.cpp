@@ -32,7 +32,7 @@
 #include "Editing.h"
 #include "Editor.h"
 #include "EditorClient.h"
-#include "Frame.h"
+#include "LocalFrame.h"
 #include "Page.h"
 #include "PositionIterator.h"
 #include "Range.h"
@@ -40,15 +40,18 @@
 #include "Settings.h"
 #include "TextCheckerClient.h"
 #include "TextIterator.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(SpellChecker);
 
 SpellCheckRequest::SpellCheckRequest(const SimpleRange& checkingRange, const SimpleRange& automaticReplacementRange, const SimpleRange& paragraphRange, const String& text, OptionSet<TextCheckingType> options, TextCheckingProcessType type)
     : m_checkingRange(checkingRange)
     , m_automaticReplacementRange(automaticReplacementRange)
     , m_paragraphRange(paragraphRange)
     , m_rootEditableElement(m_checkingRange.start.container->rootEditableElement())
-    , m_requestData(WTF::nullopt, text, options, type)
+    , m_requestData(std::nullopt, text, options, type)
 {
 }
 
@@ -100,8 +103,8 @@ void SpellCheckRequest::requesterDestroyed()
     m_checker = nullptr;
 }
 
-SpellChecker::SpellChecker(Document& document)
-    : m_document(document)
+SpellChecker::SpellChecker(Editor& editor)
+    : m_editor(editor)
     , m_timerToProcessQueuedRequest(*this, &SpellChecker::timerFiredToProcessQueuedRequest)
 {
 }
@@ -114,9 +117,19 @@ SpellChecker::~SpellChecker()
         queue->requesterDestroyed();
 }
 
+void SpellChecker::ref() const
+{
+    m_editor->ref();
+}
+
+void SpellChecker::deref() const
+{
+    m_editor->deref();
+}
+
 TextCheckerClient* SpellChecker::client() const
 {
-    Page* page = m_document.page();
+    RefPtr page = document().page();
     if (!page)
         return nullptr;
     return page->editorClient().textChecker();
@@ -133,7 +146,7 @@ void SpellChecker::timerFiredToProcessQueuedRequest()
 
 bool SpellChecker::isAsynchronousEnabled() const
 {
-    return m_document.settings().asynchronousSpellCheckingEnabled();
+    return document().settings().asynchronousSpellCheckingEnabled();
 }
 
 bool SpellChecker::canCheckAsynchronously(const SimpleRange& range) const
@@ -144,16 +157,16 @@ bool SpellChecker::canCheckAsynchronously(const SimpleRange& range) const
 bool SpellChecker::isCheckable(const SimpleRange& range) const
 {
     bool foundRenderer = false;
-    for (auto& node : intersectingNodes(range)) {
-        if (node.renderer()) {
+    for (Ref node : intersectingNodes(range)) {
+        if (node->renderer()) {
             foundRenderer = true;
             break;
         }
     }
     if (!foundRenderer)
         return false;
-    auto& node = range.start.container.get();
-    return !is<Element>(node) || downcast<Element>(node).isSpellCheckingEnabled();
+    RefPtr element = dynamicDowncast<Element>(range.start.container.get());
+    return !element || element->isSpellCheckingEnabled();
 }
 
 void SpellChecker::requestCheckingFor(Ref<SpellCheckRequest>&& request)
@@ -181,7 +194,7 @@ void SpellChecker::invokeRequest(Ref<SpellCheckRequest>&& request)
     if (!client())
         return;
     m_processingRequest = WTFMove(request);
-    client()->requestCheckingOfString(*m_processingRequest, m_document.selection().selection());
+    client()->requestCheckingOfString(*m_processingRequest, protectedDocument()->selection().selection());
 }
 
 void SpellChecker::enqueueRequest(Ref<SpellCheckRequest>&& request)
@@ -206,9 +219,9 @@ void SpellChecker::didCheck(TextCheckingRequestIdentifier identifier, const Vect
         return;
     }
 
-    m_document.editor().markAndReplaceFor(*m_processingRequest, results);
+    protectedDocument()->editor().markAndReplaceFor(*m_processingRequest, results);
 
-    if (m_lastProcessedIdentifier.toUInt64() < identifier.toUInt64())
+    if (!m_lastProcessedIdentifier || *m_lastProcessedIdentifier < identifier)
         m_lastProcessedIdentifier = identifier;
 
     m_processingRequest = nullptr;
@@ -216,15 +229,25 @@ void SpellChecker::didCheck(TextCheckingRequestIdentifier identifier, const Vect
         m_timerToProcessQueuedRequest.startOneShot(0_s);
 }
 
+Document& SpellChecker::document() const
+{
+    return m_editor->document();
+}
+
+Ref<Document> SpellChecker::protectedDocument() const
+{
+    return m_editor->document();
+}
+
 void SpellChecker::didCheckSucceed(TextCheckingRequestIdentifier identifier, const Vector<TextCheckingResult>& results)
 {
     TextCheckingRequestData requestData = m_processingRequest->data();
     if (requestData.identifier() == identifier) {
-        OptionSet<DocumentMarker::MarkerType> markerTypes;
+        OptionSet<DocumentMarkerType> markerTypes;
         if (requestData.checkingTypes().contains(TextCheckingType::Spelling))
-            markerTypes.add(DocumentMarker::Spelling);
+            markerTypes.add(DocumentMarkerType::Spelling);
         if (requestData.checkingTypes().contains(TextCheckingType::Grammar))
-            markerTypes.add(DocumentMarker::Grammar);
+            markerTypes.add(DocumentMarkerType::Grammar);
         if (!markerTypes.isEmpty())
             removeMarkers(m_processingRequest->checkingRange(), markerTypes);
     }

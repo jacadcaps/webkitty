@@ -29,13 +29,14 @@
 #include "PlatformWebView.h"
 
 #include <WebCore/GtkVersioning.h>
-#include <WebKit/WKImageCairo.h>
 #include <WebKit/WKPageConfigurationRef.h>
 #include <WebKit/WKView.h>
 #include <WebKit/WKViewPrivate.h>
 #include <gtk/gtk.h>
+#include <webkit/WebKitWebViewBaseInternal.h>
 #include <wtf/Assertions.h>
 #include <wtf/glib/GRefPtr.h>
+#include <wtf/text/WTFString.h>
 
 namespace WTR {
 
@@ -169,6 +170,19 @@ void PlatformWebView::removeChromeInputField()
 {
 }
 
+void PlatformWebView::setTextInChromeInputField(const String&)
+{
+}
+
+void PlatformWebView::selectChromeInputField()
+{
+}
+
+String PlatformWebView::getSelectedTextInChromeInputField()
+{
+    return { };
+}
+
 void PlatformWebView::addToWindow()
 {
 #if USE(GTK4)
@@ -208,37 +222,9 @@ void PlatformWebView::changeWindowScaleIfNeeded(float)
 {
 }
 
-cairo_surface_t* PlatformWebView::windowSnapshotImage()
+PlatformImage PlatformWebView::windowSnapshotImage()
 {
-#if USE(GTK4)
-    int width = gtk_widget_get_width(GTK_WIDGET(m_view));
-    int height = gtk_widget_get_height(GTK_WIDGET(m_view));
-#else
-    int width = gtk_widget_get_allocated_width(GTK_WIDGET(m_view));
-    int height = gtk_widget_get_allocated_height(GTK_WIDGET(m_view));
-#endif
-
-    while (g_main_context_pending(nullptr))
-        g_main_context_iteration(nullptr, TRUE);
-
-    cairo_surface_t* imageSurface = cairo_image_surface_create(CAIRO_FORMAT_RGB24, width, height);
-    cairo_t* context = cairo_create(imageSurface);
-
-#if USE(GTK4)
-    GRefPtr<GdkPaintable> paintable = adoptGRef(gtk_widget_paintable_new(GTK_WIDGET(m_view)));
-    auto* snapshot = gtk_snapshot_new();
-    gdk_paintable_snapshot(paintable.get(), snapshot, width, height);
-    if (auto* node = gtk_snapshot_free_to_node(snapshot)) {
-        gsk_render_node_draw(node, context);
-        gsk_render_node_unref(node);
-    }
-#else
-    gtk_widget_draw(GTK_WIDGET(m_view), context);
-#endif
-
-    cairo_destroy(context);
-
-    return imageSurface;
+    return webkitWebViewBaseSnapshotForTesting(const_cast<WebKitWebViewBase*>(reinterpret_cast<const WebKitWebViewBase*>(m_view)));
 }
 
 void PlatformWebView::didInitializeClients()
@@ -248,9 +234,13 @@ void PlatformWebView::didInitializeClients()
 void PlatformWebView::dismissAllPopupMenus()
 {
 #if USE(GTK4)
-    for (auto* child = gtk_widget_get_first_child(GTK_WIDGET(m_view)); child; child = gtk_widget_get_next_sibling(child)) {
+    auto* child = gtk_widget_get_first_child(GTK_WIDGET(m_view));
+    while (child) {
+        auto* next = gtk_widget_get_next_sibling(child);
         if (GTK_IS_POPOVER(child))
-            gtk_widget_unparent(child);
+            gtk_widget_hide(child);
+
+        child = next;
     }
 #else
     // gtk_menu_popdown doesn't modify the GList of attached menus, so it should
@@ -279,6 +269,11 @@ void PlatformWebView::setDrawsBackground(bool)
 
 void PlatformWebView::setEditable(bool)
 {
+}
+
+bool PlatformWebView::isSecureEventInputEnabled() const
+{
+    return false;
 }
 
 } // namespace WTR

@@ -25,9 +25,13 @@
 
 #pragma once
 
+#if !BUSE(TZONE)
+
 #include "BExport.h"
 #include <cstddef>
 #include <cstdint>
+
+#if !BUSE(LIBPAS)
 
 namespace bmalloc {
 
@@ -94,3 +98,5 @@ private:
 
 } // namespace bmalloc
 
+#endif
+#endif // !BUSE(TZONE)

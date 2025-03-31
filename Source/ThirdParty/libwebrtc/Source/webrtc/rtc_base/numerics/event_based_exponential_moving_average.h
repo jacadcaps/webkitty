@@ -14,7 +14,7 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
-#include "absl/types/optional.h"
+#include <optional>
 
 namespace rtc {
 
@@ -26,11 +26,11 @@ namespace rtc {
  * https://en.wikipedia.org/wiki/Talk:Moving_average.
  *
  * A sample gets exponentially less weight so that it's 50%
- * after |half_time| time units.
+ * after `half_time` time units.
  */
 class EventBasedExponentialMovingAverage {
  public:
-  // |half_time| specifies how much weight will be given to old samples,
+  // `half_time` specifies how much weight will be given to old samples,
   // see example above.
   explicit EventBasedExponentialMovingAverage(int half_time);
 
@@ -62,7 +62,7 @@ class EventBasedExponentialMovingAverage {
   double sample_variance_ = std::numeric_limits<double>::infinity();
   // This is the ratio between variance of the estimate and variance of samples.
   double estimator_variance_ = 1;
-  absl::optional<int64_t> last_observation_timestamp_;
+  std::optional<int64_t> last_observation_timestamp_;
 };
 
 }  // namespace rtc

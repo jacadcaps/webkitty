@@ -50,6 +50,12 @@ const edgeToIdOffset = 1;
 const edgeTypeOffset = 2;
 const edgeDataOffset = 3;
 
+// roots
+// [<0:nodeId>, <1:rootReasonIndex>, <2:reachabilityReasonIndex>]
+const rootFieldCount = 3;
+const rootNodeIdOffset = 0;
+const rootReasonIndexOffset = 1;
+
 // Other constants.
 const rootNodeIndex = 0;
 const rootNodeOrdinal = 0;
@@ -78,21 +84,24 @@ const rootNodeIdentifier = 0;
 //   - nodeOrdinalToPostOrderIndex - `nodeOrdinal` to a `postOrderIndex`.
 //   - postOrderIndexToNodeOrdinal - `postOrderIndex` to a `nodeOrdinal`.
 
-let nextSnapshotIdentifier = 1;
+let lastSnapshotIdentifierForTarget = new Map;
 
 HeapSnapshot = class HeapSnapshot
 {
-    constructor(objectId, snapshotDataString, title = null, imported = false)
+    constructor(targetId, objectId, snapshotDataString, title = null)
     {
-        this._identifier = nextSnapshotIdentifier++;
+        let nextSnapshotIdentifier = (lastSnapshotIdentifierForTarget.get(targetId) ?? 0) + 1;
+        lastSnapshotIdentifierForTarget.set(targetId, nextSnapshotIdentifier);
+
+        this._identifier = nextSnapshotIdentifier;
+        this._targetId = targetId;
         this._objectId = objectId;
         this._title = title;
-        this._imported = imported;
 
         let json = JSON.parse(snapshotDataString);
         snapshotDataString = null;
 
-        let {version, type, nodes, nodeClassNames, edges, edgeTypes, edgeNames} = json;
+        let {version, type, nodes, nodeClassNames, edges, edgeTypes, edgeNames, roots, labels} = json;
         console.assert(version === 1 || version === 2, "Expect JavaScriptCore Heap Snapshot version 1 or 2");
         console.assert(!type || (type === "Inspector" || type === "GCDebugging"), "Expect an Inspector / GCDebugging Heap Snapshot");
 
@@ -103,6 +112,9 @@ HeapSnapshot = class HeapSnapshot
 
         this._edges = edges;
         this._edgeCount = edges.length / edgeFieldCount;
+
+        this._roots = roots || [];
+        this._labels = labels || [];
 
         this._edgeTypesTable = edgeTypes;
         this._edgeNamesTable = edgeNames;
@@ -298,8 +310,12 @@ HeapSnapshot = class HeapSnapshot
         console.assert("node" in shortestPath[shortestPath.length - 1], "Path should end with a node");
 
         return shortestPath.map((component) => {
-            if (component.node)
-                return this.serializeNode(component.node);
+            if (component.node) {
+                let node = this.serializeNode(component.node);
+                if (component.rootReason)
+                    node.rootReason = component.rootReason;
+                return node;
+            }
             return this.serializeEdge(component.edge);
         });
     }
@@ -361,8 +377,8 @@ HeapSnapshot = class HeapSnapshot
 
     updateDeadNodesAndGatherCollectionData(snapshots)
     {
-        console.assert(!this._imported, "Should never use an imported snapshot to modify snapshots");
-        console.assert(snapshots.every((x) => !x._imported), "Should never modify nodes of imported snapshots");
+        console.assert(this._targetId, "Should never use an imported snapshot to modify snapshots");
+        console.assert(snapshots.every((x) => x._targetId), "Should never modify nodes of imported snapshots");
 
         let previousSnapshotIndex = snapshots.indexOf(this) - 1;
         let previousSnapshot = snapshots[previousSnapshotIndex];
@@ -394,6 +410,8 @@ HeapSnapshot = class HeapSnapshot
         for (let snapshot of snapshots) {
             if (snapshot === this)
                 break;
+            if (snapshot._targetId !== this._targetId)
+                continue;
             if (snapshot._markDeadNodes(collectedNodesList))
                 affectedSnapshots.push(snapshot._identifier);
         }
@@ -420,7 +438,6 @@ HeapSnapshot = class HeapSnapshot
             totalObjectCount: this._nodeCount - 1, // <root>.
             liveSize: this._liveSize,
             categories: this._categories,
-            imported: this._imported,
         };
     }
 
@@ -461,6 +478,7 @@ HeapSnapshot = class HeapSnapshot
         switch (edgeType) {
         case "Internal":
             // edgeData can be ignored.
+            edgeData = "";
             break;
         case "Property":
         case "Variable":
@@ -731,6 +749,7 @@ HeapSnapshot = class HeapSnapshot
         let className = this._nodeClassNamesTable[this._nodes[nodeIndex + nodeClassNameOffset]];
         return className === "Window"
             || className === "JSWindowProxy"
+            || className === "DedicatedWorkerGlobalScope"
             || className === "GlobalObject";
     }
 
@@ -761,11 +780,26 @@ HeapSnapshot = class HeapSnapshot
             pathsBeingProcessed[i] = undefined;
 
             if (this._nodeOrdinalIsGCRoot[nodeOrdinal]) {
-                let fullPath = currentPath.slice();
                 let nodeIndex = nodeOrdinal * this._nodeFieldCount;
-                fullPath.push({node: nodeIndex});
-                gcRootPaths.push(fullPath);
-                continue;
+
+                let rootReason = "";
+
+                for (let rootIndex = 0; rootIndex < this._roots.length; rootIndex += rootFieldCount) {
+                    let nodeID = this._roots[rootIndex + rootNodeIdOffset];
+                    let reason = this._labels[this._roots[rootIndex + rootReasonIndexOffset]];
+                    if (this._nodeIdentifierToOrdinal.get(nodeID) !== nodeOrdinal)
+                        continue;
+                    rootReason = reason;
+                    break;
+                }
+
+                currentPath.push({node: nodeIndex, rootReason});
+
+                // These aren't really roots. They will only mark things that are already reachable.
+                if (rootReason !== "WeakHandles") {
+                    gcRootPaths.push(currentPath.slice());
+                    continue;
+                }
             }
 
             if (visited[nodeOrdinal])

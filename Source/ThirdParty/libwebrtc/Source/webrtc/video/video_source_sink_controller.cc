@@ -14,7 +14,9 @@
 #include <limits>
 #include <utility>
 
+#include "rtc_base/logging.h"
 #include "rtc_base/numerics/safe_conversions.h"
+#include "rtc_base/strings/string_builder.h"
 
 namespace webrtc {
 
@@ -25,100 +27,149 @@ VideoSourceSinkController::VideoSourceSinkController(
   RTC_DCHECK(sink_);
 }
 
+VideoSourceSinkController::~VideoSourceSinkController() {
+  RTC_DCHECK_RUN_ON(&sequence_checker_);
+}
+
 void VideoSourceSinkController::SetSource(
     rtc::VideoSourceInterface<VideoFrame>* source) {
-  rtc::VideoSourceInterface<VideoFrame>* old_source;
-  rtc::VideoSinkWants wants;
-  {
-    rtc::CritScope lock(&crit_);
-    old_source = source_;
-    source_ = source;
-    wants = CurrentSettingsToSinkWants();
-  }
+  RTC_DCHECK_RUN_ON(&sequence_checker_);
+
+  rtc::VideoSourceInterface<VideoFrame>* old_source = source_;
+  source_ = source;
+
   if (old_source != source && old_source)
     old_source->RemoveSink(sink_);
+
   if (!source)
     return;
-  source->AddOrUpdateSink(sink_, wants);
+
+  source->AddOrUpdateSink(sink_, CurrentSettingsToSinkWants());
+}
+
+bool VideoSourceSinkController::HasSource() const {
+  RTC_DCHECK_RUN_ON(&sequence_checker_);
+  return source_ != nullptr;
+}
+
+void VideoSourceSinkController::RequestRefreshFrame() {
+  RTC_DCHECK_RUN_ON(&sequence_checker_);
+  if (source_)
+    source_->RequestRefreshFrame();
 }
 
 void VideoSourceSinkController::PushSourceSinkSettings() {
-  rtc::CritScope lock(&crit_);
+  RTC_DCHECK_RUN_ON(&sequence_checker_);
   if (!source_)
     return;
-  source_->AddOrUpdateSink(sink_, CurrentSettingsToSinkWants());
+  rtc::VideoSinkWants wants = CurrentSettingsToSinkWants();
+  source_->AddOrUpdateSink(sink_, wants);
 }
 
 VideoSourceRestrictions VideoSourceSinkController::restrictions() const {
-  rtc::CritScope lock(&crit_);
+  RTC_DCHECK_RUN_ON(&sequence_checker_);
   return restrictions_;
 }
 
-absl::optional<size_t> VideoSourceSinkController::pixels_per_frame_upper_limit()
+std::optional<size_t> VideoSourceSinkController::pixels_per_frame_upper_limit()
     const {
-  rtc::CritScope lock(&crit_);
+  RTC_DCHECK_RUN_ON(&sequence_checker_);
   return pixels_per_frame_upper_limit_;
 }
 
-absl::optional<double> VideoSourceSinkController::frame_rate_upper_limit()
+std::optional<double> VideoSourceSinkController::frame_rate_upper_limit()
     const {
-  rtc::CritScope lock(&crit_);
+  RTC_DCHECK_RUN_ON(&sequence_checker_);
   return frame_rate_upper_limit_;
 }
 
 bool VideoSourceSinkController::rotation_applied() const {
-  rtc::CritScope lock(&crit_);
+  RTC_DCHECK_RUN_ON(&sequence_checker_);
   return rotation_applied_;
 }
 
 int VideoSourceSinkController::resolution_alignment() const {
-  rtc::CritScope lock(&crit_);
+  RTC_DCHECK_RUN_ON(&sequence_checker_);
   return resolution_alignment_;
+}
+
+const std::vector<rtc::VideoSinkWants::FrameSize>&
+VideoSourceSinkController::resolutions() const {
+  RTC_DCHECK_RUN_ON(&sequence_checker_);
+  return resolutions_;
+}
+
+bool VideoSourceSinkController::active() const {
+  RTC_DCHECK_RUN_ON(&sequence_checker_);
+  return active_;
+}
+
+std::optional<rtc::VideoSinkWants::FrameSize>
+VideoSourceSinkController::scale_resolution_down_to() const {
+  RTC_DCHECK_RUN_ON(&sequence_checker_);
+  return scale_resolution_down_to_;
 }
 
 void VideoSourceSinkController::SetRestrictions(
     VideoSourceRestrictions restrictions) {
-  rtc::CritScope lock(&crit_);
+  RTC_DCHECK_RUN_ON(&sequence_checker_);
   restrictions_ = std::move(restrictions);
 }
 
 void VideoSourceSinkController::SetPixelsPerFrameUpperLimit(
-    absl::optional<size_t> pixels_per_frame_upper_limit) {
-  rtc::CritScope lock(&crit_);
+    std::optional<size_t> pixels_per_frame_upper_limit) {
+  RTC_DCHECK_RUN_ON(&sequence_checker_);
   pixels_per_frame_upper_limit_ = std::move(pixels_per_frame_upper_limit);
 }
 
 void VideoSourceSinkController::SetFrameRateUpperLimit(
-    absl::optional<double> frame_rate_upper_limit) {
-  rtc::CritScope lock(&crit_);
+    std::optional<double> frame_rate_upper_limit) {
+  RTC_DCHECK_RUN_ON(&sequence_checker_);
   frame_rate_upper_limit_ = std::move(frame_rate_upper_limit);
 }
 
 void VideoSourceSinkController::SetRotationApplied(bool rotation_applied) {
-  rtc::CritScope lock(&crit_);
+  RTC_DCHECK_RUN_ON(&sequence_checker_);
   rotation_applied_ = rotation_applied;
 }
 
 void VideoSourceSinkController::SetResolutionAlignment(
     int resolution_alignment) {
-  rtc::CritScope lock(&crit_);
+  RTC_DCHECK_RUN_ON(&sequence_checker_);
   resolution_alignment_ = resolution_alignment;
 }
 
-// RTC_EXCLUSIVE_LOCKS_REQUIRED(crit_)
+void VideoSourceSinkController::SetResolutions(
+    std::vector<rtc::VideoSinkWants::FrameSize> resolutions) {
+  RTC_DCHECK_RUN_ON(&sequence_checker_);
+  resolutions_ = std::move(resolutions);
+}
+
+void VideoSourceSinkController::SetActive(bool active) {
+  RTC_DCHECK_RUN_ON(&sequence_checker_);
+  active_ = active;
+}
+
+void VideoSourceSinkController::SetScaleResolutionDownTo(
+    std::optional<rtc::VideoSinkWants::FrameSize> scale_resolution_down_to) {
+  RTC_DCHECK_RUN_ON(&sequence_checker_);
+  scale_resolution_down_to_ = std::move(scale_resolution_down_to);
+}
+
+// RTC_EXCLUSIVE_LOCKS_REQUIRED(sequence_checker_)
 rtc::VideoSinkWants VideoSourceSinkController::CurrentSettingsToSinkWants()
     const {
   rtc::VideoSinkWants wants;
   wants.rotation_applied = rotation_applied_;
-  // |wants.black_frames| is not used, it always has its default value false.
+  // `wants.black_frames` is not used, it always has its default value false.
   wants.max_pixel_count =
       rtc::dchecked_cast<int>(restrictions_.max_pixels_per_frame().value_or(
           std::numeric_limits<int>::max()));
   wants.target_pixel_count =
       restrictions_.target_pixels_per_frame().has_value()
-          ? absl::optional<int>(rtc::dchecked_cast<int>(
+          ? std::optional<int>(rtc::dchecked_cast<int>(
                 restrictions_.target_pixels_per_frame().value()))
-          : absl::nullopt;
+          : std::nullopt;
   wants.max_framerate_fps =
       restrictions_.max_frame_rate().has_value()
           ? static_cast<int>(restrictions_.max_frame_rate().value())
@@ -133,6 +184,9 @@ rtc::VideoSinkWants VideoSourceSinkController::CurrentSettingsToSinkWants()
                frame_rate_upper_limit_.has_value()
                    ? static_cast<int>(frame_rate_upper_limit_.value())
                    : std::numeric_limits<int>::max());
+  wants.resolutions = resolutions_;
+  wants.is_active = active_;
+  wants.requested_resolution = scale_resolution_down_to_;
   return wants;
 }
 

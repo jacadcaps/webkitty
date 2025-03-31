@@ -30,48 +30,47 @@
 #include "config.h"
 #include "SizesAttributeParser.h"
 
-#include "CSSPrimitiveValue.h"
+#include "CSSPrimitiveNumericUnits.h"
 #include "CSSToLengthConversionData.h"
 #include "CSSTokenizer.h"
 #include "FontCascade.h"
-#include "MediaList.h"
 #include "MediaQueryEvaluator.h"
 #include "MediaQueryParser.h"
 #include "MediaQueryParserContext.h"
 #include "RenderView.h"
 #include "SizesCalcParser.h"
+#include "StyleLengthResolution.h"
 #include "StyleScope.h"
 
 namespace WebCore {
 
-float SizesAttributeParser::computeLength(double value, CSSUnitType type, const Document& document)
+float SizesAttributeParser::computeLength(double value, CSS::LengthUnit unit, const Document& document)
 {
     auto* renderer = document.renderView();
     if (!renderer)
         return 0;
     auto& style = renderer->style();
 
-    CSSToLengthConversionData conversionData(&style, &style, renderer->parentStyle(), renderer);
+    CSSToLengthConversionData conversionData(style, &style, renderer->parentStyle(), renderer);
     // Because we evaluate "sizes" at parse time (before style has been resolved), the font metrics used for these specific units
     // are not available. The font selector's internal consistency isn't guaranteed just yet, so we can just temporarily clear
-    // the pointer to it for the duration of the unit evaluation. This is acceptible because the style always comes from the
+    // the pointer to it for the duration of the unit evaluation. This is acceptable because the style always comes from the
     // RenderView, which has its font information hardcoded in resolveForDocument() to be -webkit-standard, whose operations
     // don't require a font selector.
-    if (type == CSSUnitType::CSS_EXS || type == CSSUnitType::CSS_CHS) {
+    if (unit == CSS::LengthUnit::Ex || unit == CSS::LengthUnit::Cap || unit == CSS::LengthUnit::Ch || unit == CSS::LengthUnit::Ic) {
         RefPtr<FontSelector> fontSelector = style.fontCascade().fontSelector();
         style.fontCascade().update(nullptr);
-        float result = CSSPrimitiveValue::computeNonCalcLengthDouble(conversionData, type, value);
+        float result = clampTo<float>(Style::computeNonCalcLengthDouble(value, unit, conversionData));
         style.fontCascade().update(fontSelector.get());
         return result;
     }
-    return clampTo<float>(CSSPrimitiveValue::computeNonCalcLengthDouble(conversionData, type, value));
+    return clampTo<float>(Style::computeNonCalcLengthDouble(value, unit, conversionData));
 }
     
-SizesAttributeParser::SizesAttributeParser(const String& attribute, const Document& document, MediaQueryDynamicResults* mediaQueryDynamicResults)
+SizesAttributeParser::SizesAttributeParser(const String& attribute, const Document& document)
     : m_document(document)
-    , m_mediaQueryDynamicResults(mediaQueryDynamicResults)
 {
-    m_isValid = parse(CSSTokenizer(attribute).tokenRange());
+    m_isValid = parse(CSSTokenizer(attribute).tokenRange(), CSSParserContext(document));
 }
 
 float SizesAttributeParser::length()
@@ -81,63 +80,68 @@ float SizesAttributeParser::length()
     return effectiveSizeDefaultValue();
 }
 
-bool SizesAttributeParser::calculateLengthInPixels(CSSParserTokenRange range, float& result)
+std::optional<float> SizesAttributeParser::calculateLengthInPixels(CSSParserTokenRange range)
 {
     const CSSParserToken& startToken = range.peek();
     CSSParserTokenType type = startToken.type();
     if (type == DimensionToken) {
-        if (!CSSPrimitiveValue::isLength(startToken.unitType()))
-            return false;
-        result = computeLength(startToken.numericValue(), startToken.unitType(), m_document);
+        auto lengthUnit = CSS::toLengthUnit(startToken.unitType());
+        if (!lengthUnit)
+            return std::nullopt;
+        float result = computeLength(startToken.numericValue(), *lengthUnit, protectedDocument());
         if (result >= 0)
-            return true;
+            return result;
     } else if (type == FunctionToken) {
-        SizesCalcParser calcParser(range, m_document);
+        SizesCalcParser calcParser(range, protectedDocument());
         if (!calcParser.isValid())
-            return false;
-        result = calcParser.result();
-        return true;
-    } else if (type == NumberToken && !startToken.numericValue()) {
-        result = 0;
-        return true;
-    }
+            return std::nullopt;
+        return calcParser.result();
+    } else if (type == NumberToken && !startToken.numericValue())
+        return 0;
 
-    return false;
+    return std::nullopt;
 }
 
-bool SizesAttributeParser::mediaConditionMatches(const MediaQuerySet& mediaCondition)
+bool SizesAttributeParser::mediaConditionMatches(const MQ::MediaQuery& mediaCondition)
 {
     // A Media Condition cannot have a media type other than screen.
-    auto* renderer = m_document.renderView();
+    auto document = protectedDocument();
+    auto* renderer = document->renderView();
     if (!renderer)
         return false;
     auto& style = renderer->style();
-    return MediaQueryEvaluator { "screen", m_document, &style }.evaluate(mediaCondition, m_mediaQueryDynamicResults);
+    return MQ::MediaQueryEvaluator { screenAtom(), document, &style }.evaluate(mediaCondition);
 }
 
-bool SizesAttributeParser::parse(CSSParserTokenRange range)
+bool SizesAttributeParser::parse(CSSParserTokenRange range, const CSSParserContext& context)
 {
     // Split on a comma token and parse the result tokens as (media-condition, length) pairs
     while (!range.atEnd()) {
-        const CSSParserToken* mediaConditionStart = &range.peek();
+        auto mediaConditionStart = range;
         // The length is the last component value before the comma which isn't whitespace or a comment
-        const CSSParserToken* lengthTokenStart = &range.peek();
-        const CSSParserToken* lengthTokenEnd = &range.peek();
+        auto lengthTokenStart = range;
+        auto lengthTokenEnd = range;
         while (!range.atEnd() && range.peek().type() != CommaToken) {
-            lengthTokenStart = &range.peek();
+            lengthTokenStart = range;
             range.consumeComponentValue();
-            lengthTokenEnd = &range.peek();
+            lengthTokenEnd = range;
             range.consumeWhitespace();
         }
         range.consume();
 
-        float length;
-        if (!calculateLengthInPixels(range.makeSubRange(lengthTokenStart, lengthTokenEnd), length))
+        auto length = calculateLengthInPixels(lengthTokenStart.rangeUntil(lengthTokenEnd));
+        if (!length)
             continue;
-        RefPtr<MediaQuerySet> mediaCondition = MediaQueryParser::parseMediaCondition(range.makeSubRange(mediaConditionStart, lengthTokenStart), MediaQueryParserContext(m_document));
-        if (!mediaCondition || !mediaConditionMatches(*mediaCondition))
+        auto mediaCondition = MQ::MediaQueryParser::parseCondition(mediaConditionStart.rangeUntil(lengthTokenStart), MediaQueryParserContext(context));
+        if (!mediaCondition)
             continue;
-        m_length = length;
+        bool matches = mediaConditionMatches(*mediaCondition);
+        MQ::MediaQueryEvaluator evaluator { screenAtom() };
+        if (!evaluator.collectDynamicDependencies(*mediaCondition).isEmpty())
+            m_dynamicMediaQueryResults.append({ MQ::MediaQueryList { *mediaCondition }, matches });
+        if (!matches)
+            continue;
+        m_length = *length;
         m_lengthWasSet = true;
         return true;
     }
@@ -153,11 +157,16 @@ float SizesAttributeParser::effectiveSize()
 
 unsigned SizesAttributeParser::effectiveSizeDefaultValue()
 {
-    auto* renderer = m_document.renderView();
+    auto* renderer = protectedDocument()->renderView();
     if (!renderer)
         return 0;
     auto& style = renderer->style();
-    return clampTo<float>(CSSPrimitiveValue::computeNonCalcLengthDouble({ &style, &style, renderer->parentStyle(), renderer }, CSSUnitType::CSS_VW, 100.0));
+    return clampTo<float>(Style::computeNonCalcLengthDouble(100.0, CSS::LengthUnit::Vw, { style, &style, renderer->parentStyle(), renderer }));
+}
+
+Ref<const Document> SizesAttributeParser::protectedDocument() const
+{
+    return m_document.get();
 }
 
 } // namespace WebCore

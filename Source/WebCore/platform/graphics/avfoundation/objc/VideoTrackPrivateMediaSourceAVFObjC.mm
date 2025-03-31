@@ -31,31 +31,28 @@
 #import "AVTrackPrivateAVFObjCImpl.h"
 #import "SourceBufferPrivateAVFObjC.h"
 #import <AVFoundation/AVAssetTrack.h>
+#import <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(VideoTrackPrivateMediaSourceAVFObjC);
+
 VideoTrackPrivateMediaSourceAVFObjC::VideoTrackPrivateMediaSourceAVFObjC(AVAssetTrack* track)
     : m_impl(makeUnique<AVTrackPrivateAVFObjCImpl>(track))
-    , m_trackID(-1)
 {
     resetPropertiesFromTrack();
 }
 
+VideoTrackPrivateMediaSourceAVFObjC::~VideoTrackPrivateMediaSourceAVFObjC() = default;
+
 void VideoTrackPrivateMediaSourceAVFObjC::resetPropertiesFromTrack()
 {
-    m_trackID = m_impl->trackID();
-
     setTrackIndex(m_impl->index());
     setKind(m_impl->videoKind());
     setId(m_impl->id());
     setLabel(m_impl->label());
     setLanguage(m_impl->language());
-}
-
-void VideoTrackPrivateMediaSourceAVFObjC::setAssetTrack(AVAssetTrack *track)
-{
-    m_impl = makeUnique<AVTrackPrivateAVFObjCImpl>(track);
-    resetPropertiesFromTrack();
+    setConfiguration(m_impl->videoTrackConfiguration());
 }
 
 AVAssetTrack* VideoTrackPrivateMediaSourceAVFObjC::assetTrack() const

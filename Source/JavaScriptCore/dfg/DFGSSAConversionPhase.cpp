@@ -38,14 +38,6 @@
 #include "JSCJSValueInlines.h"
 #include "OperandsInlines.h"
 
-#undef RELEASE_ASSERT
-#define RELEASE_ASSERT(assertion) do { \
-    if (!(assertion)) { \
-        WTFReportAssertionFailure(__FILE__, __LINE__, WTF_PRETTY_FUNCTION, #assertion); \
-        CRASH(); \
-    } \
-} while (0)
-
 namespace JSC { namespace DFG {
 
 class SSAConversionPhase : public Phase {
@@ -53,7 +45,7 @@ class SSAConversionPhase : public Phase {
     
 public:
     SSAConversionPhase(Graph& graph)
-        : Phase(graph, "SSA conversion")
+        : Phase(graph, "SSA conversion"_s)
         , m_insertionSet(graph)
     {
     }
@@ -67,7 +59,7 @@ public:
         m_graph.clearReplacements();
         m_graph.clearCPSCFGData();
 
-        HashMap<unsigned, BasicBlock*, WTF::IntHash<unsigned>, WTF::UnsignedWithZeroKeyHashTraits<unsigned>> entrypointIndexToArgumentsBlock;
+        UncheckedKeyHashMap<unsigned, BasicBlock*, WTF::IntHash<unsigned>, WTF::UnsignedWithZeroKeyHashTraits<unsigned>> entrypointIndexToArgumentsBlock;
 
         m_graph.m_numberOfEntrypoints = m_graph.m_roots.size();
         m_graph.m_argumentFormats.resize(m_graph.m_numberOfEntrypoints);
@@ -119,10 +111,7 @@ public:
 
         m_graph.ensureSSADominators();
         
-        if (verbose) {
-            dataLog("Graph before SSA transformation:\n");
-            m_graph.dump();
-        }
+        dataLogIf(verbose, "Graph before SSA transformation:\n", m_graph);
 
         // Create a SSACalculator::Variable for every root VariableAccessData.
         for (VariableAccessData& variable : m_graph.m_variableAccessData) {
@@ -220,16 +209,18 @@ public:
             });
         
         if (verbose) {
-            dataLog("Computed Phis, about to transform the graph.\n");
-            dataLog("\n");
-            dataLog("Graph:\n");
-            m_graph.dump();
-            dataLog("\n");
-            dataLog("Mappings:\n");
-            for (unsigned i = 0; i < m_variableForSSAIndex.size(); ++i)
-                dataLog("    ", i, ": ", VariableAccessDataDump(m_graph, m_variableForSSAIndex[i]), "\n");
-            dataLog("\n");
-            dataLog("SSA calculator: ", calculator, "\n");
+            WTF::dataFile().atomically([&](auto&) {
+                dataLogLn("Computed Phis, about to transform the graph.");
+                dataLogLn();
+                dataLogLn("Graph:");
+                dataLog(m_graph);
+                dataLogLn();
+                dataLogLn("Mappings:");
+                for (unsigned i = 0; i < m_variableForSSAIndex.size(); ++i)
+                    dataLogLn("    ", i, ": ", VariableAccessDataDump(m_graph, m_variableForSSAIndex[i]));
+                dataLogLn();
+                dataLogLn("SSA calculator: ", calculator);
+            });
         }
         
         // Do the bulk of the SSA conversion. For each block, this tracks the operand->Node
@@ -280,8 +271,7 @@ public:
                     
                     VariableAccessData* variable = nodeAtHead->variableAccessData();
                     
-                    if (verbose)
-                        dataLog("Considering live variable ", VariableAccessDataDump(m_graph, variable), " at head of block ", *block, "\n");
+                    dataLogLnIf(verbose, "Considering live variable ", VariableAccessDataDump(m_graph, variable), " at head of block ", *block);
                     
                     SSACalculator::Variable* ssaVariable = m_ssaVariableForVariable.get(variable);
                     SSACalculator::Def* def = calculator.reachingDefAtHead(block, ssaVariable);
@@ -300,15 +290,14 @@ public:
                         node = node->replacement();
                         ASSERT(!node->replacement());
                     }
-                    if (verbose)
-                        dataLog("Mapping: ", valueForOperand.operandForIndex(i), " -> ", node, "\n");
+                    dataLogLnIf(verbose, "Mapping: ", valueForOperand.operandForIndex(i), " -> ", node);
                     valueForOperand[i] = node;
                 }
             }
             
             // Insert Phis by asking the calculator what phis there are in this block. Also update
-            // valueForOperand with those Phis. For Phis associated with variables that are not
-            // flushed, we also insert a MovHint.
+            // valueForOperand with those Phis. We also insert a MovHint/PutStack pair to communicate
+            // the phi value to future phases like PutStack sinking.
             size_t phiInsertionPoint = 0;
             for (SSACalculator::Def* phiDef : calculator.phisForBlock(block)) {
                 VariableAccessData* variable = m_variableForSSAIndex[phiDef->variable()->index()];
@@ -319,6 +308,10 @@ public:
                 m_insertionSet.insertNode(
                     phiInsertionPoint, SpecNone, MovHint, block->at(0)->origin.withInvalidExit(),
                     OpInfo(variable->operand()), phiDef->value()->defaultEdge());
+                auto format = variable->flushFormat();
+                m_insertionSet.insertNode(
+                    phiInsertionPoint, SpecNone, PutStack, block->at(0)->origin.withInvalidExit(),
+                    OpInfo(m_graph.m_stackAccessData.add(variable->operand(), format)), Edge(phiDef->value(), uncheckedUseKindFor(format)));
             }
 
             if (block->at(0)->origin.exitOK)
@@ -328,8 +321,10 @@ public:
                 Node* node = block->at(nodeIndex);
                 
                 if (verbose) {
-                    dataLog("Processing node ", node, ":\n");
-                    m_graph.dump(WTF::dataFile(), "    ", node);
+                    WTF::dataFile().atomically([&](auto& out) {
+                        dataLogLn("Processing node ", node, ":");
+                        m_graph.dump(out, "    ", node);
+                    });
                 }
                 
                 m_graph.performSubstitution(node);
@@ -354,8 +349,7 @@ public:
                     } else
                         node->remove(m_graph);
                     
-                    if (verbose)
-                        dataLog("Mapping: ", variable->operand(), " -> ", child, "\n");
+                    dataLogLnIf(verbose, "Mapping: ", variable->operand(), " -> ", child);
                     valueForOperand.operand(variable->operand()) = child;
                     break;
                 }
@@ -371,8 +365,7 @@ public:
                     node->children.reset();
                     
                     node->remove(m_graph);
-                    if (verbose)
-                        dataLog("Replacing node ", node, " with ", valueForOperand.operand(variable->operand()), "\n");
+                    dataLogLnIf(verbose, "Replacing node ", node, " with ", valueForOperand.operand(variable->operand()));
                     node->setReplacement(valueForOperand.operand(variable->operand()));
                     break;
                 }
@@ -458,13 +451,12 @@ public:
             unsigned entrypointIndex = pair.key;
             BasicBlock* oldRoot = pair.value;
             ArgumentsVector& arguments = m_graph.m_rootToArguments.find(oldRoot)->value;
-            Vector<FlushFormat> argumentFormats;
-            argumentFormats.reserveInitialCapacity(arguments.size());
-            for (unsigned i = 0; i < arguments.size(); ++i) {
-                Node* node = m_argumentMapping.get(arguments[i]);
+            auto argumentFormats = arguments.map([&](auto& argument) {
+                Node* node = m_argumentMapping.get(argument);
                 RELEASE_ASSERT(node);
-                argumentFormats.uncheckedAppend(node->stackAccessData()->format);
-            }
+                return node->stackAccessData()->format;
+            });
+
             m_graph.m_argumentFormats[entrypointIndex] = WTFMove(argumentFormats);
         }
 
@@ -475,19 +467,16 @@ public:
 
         m_graph.m_form = SSA;
 
-        if (verbose) {
-            dataLog("Graph after SSA transformation:\n");
-            m_graph.dump();
-        }
+        dataLogIf(verbose, "Graph after SSA transformation:\n", m_graph);
 
         return true;
     }
 
 private:
     InsertionSet m_insertionSet;
-    HashMap<VariableAccessData*, SSACalculator::Variable*> m_ssaVariableForVariable;
-    HashMap<Node*, Node*> m_argumentMapping;
-    HashSet<Node*> m_argumentGetters;
+    UncheckedKeyHashMap<VariableAccessData*, SSACalculator::Variable*> m_ssaVariableForVariable;
+    UncheckedKeyHashMap<Node*, Node*> m_argumentMapping;
+    UncheckedKeyHashSet<Node*> m_argumentGetters;
     Vector<VariableAccessData*> m_variableForSSAIndex;
 };
 

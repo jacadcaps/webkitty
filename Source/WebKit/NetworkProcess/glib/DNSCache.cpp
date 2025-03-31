@@ -33,6 +33,11 @@ namespace WebKit {
 static const Seconds expireInterval = 60_s;
 static const unsigned maxCacheSize = 400;
 
+Ref<DNSCache> DNSCache::create()
+{
+    return adoptRef(*new DNSCache);
+}
+
 DNSCache::DNSCache()
     : m_expiredTimer(RunLoop::main(), this, &DNSCache::removeExpiredResponsesFired)
 {
@@ -45,35 +50,27 @@ DNSCache::DNSCacheMap& DNSCache::mapForType(Type type)
     case Type::Default:
         return m_dnsMap;
     case Type::IPv4Only:
-#if GLIB_CHECK_VERSION(2, 59, 0)
         return m_ipv4Map;
-#else
-        return m_dnsMap;
-#endif
     case Type::IPv6Only:
-#if GLIB_CHECK_VERSION(2, 59, 0)
         return m_ipv6Map;
-#else
-        return m_dnsMap;
-#endif
     }
 
     RELEASE_ASSERT_NOT_REACHED();
     return m_dnsMap;
 }
 
-Optional<Vector<GRefPtr<GInetAddress>>> DNSCache::lookup(const CString& host, Type type)
+std::optional<Vector<GRefPtr<GInetAddress>>> DNSCache::lookup(const CString& host, Type type)
 {
-    LockHolder locker(m_lock);
+    Locker locker { m_lock };
     auto& map = mapForType(type);
     auto it = map.find(host);
     if (it == map.end())
-        return WTF::nullopt;
+        return std::nullopt;
 
     auto& response = it->value;
     if (response.expirationTime <= MonotonicTime::now()) {
         map.remove(it);
-        return WTF::nullopt;
+        return std::nullopt;
     }
 
     return response.addressList;
@@ -81,7 +78,7 @@ Optional<Vector<GRefPtr<GInetAddress>>> DNSCache::lookup(const CString& host, Ty
 
 void DNSCache::update(const CString& host, Vector<GRefPtr<GInetAddress>>&& addressList, Type type)
 {
-    LockHolder locker(m_lock);
+    Locker locker { m_lock };
     auto& map = mapForType(type);
     CachedResponse response = { WTFMove(addressList), MonotonicTime::now() + expireInterval };
     auto addResult = map.set(host, WTFMove(response));
@@ -119,22 +116,18 @@ void DNSCache::pruneResponsesInMap(DNSCacheMap& map)
 
 void DNSCache::removeExpiredResponsesFired()
 {
-    LockHolder locker(m_lock);
+    Locker locker { m_lock };
     removeExpiredResponsesInMap(m_dnsMap);
-#if GLIB_CHECK_VERSION(2, 59, 0)
     removeExpiredResponsesInMap(m_ipv4Map);
     removeExpiredResponsesInMap(m_ipv6Map);
-#endif
 }
 
 void DNSCache::clear()
 {
-    LockHolder locker(m_lock);
+    Locker locker { m_lock };
     m_dnsMap.clear();
-#if GLIB_CHECK_VERSION(2, 59, 0)
     m_ipv4Map.clear();
     m_ipv6Map.clear();
-#endif
 }
 
 } // namespace WebKit

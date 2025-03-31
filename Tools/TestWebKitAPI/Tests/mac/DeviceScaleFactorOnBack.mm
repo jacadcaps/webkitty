@@ -29,7 +29,7 @@
 #import "PlatformUtilities.h"
 #import "SyntheticBackingScaleFactorWindow.h"
 #import "WebKitAgnosticTest.h"
-#import <WebKit/WKViewPrivate.h>
+#import <WebKit/WKWebViewPrivate.h>
 #import <wtf/RetainPtr.h>
 
 namespace TestWebKitAPI {
@@ -41,11 +41,11 @@ public:
     template <typename View> void runTest(View);
 
     // WebKitAgnosticTest
-    virtual NSURL *url() const { return [[NSBundle mainBundle] URLForResource:@"devicePixelRatio" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"]; }
+    virtual NSURL *url() const { return [NSBundle.test_resourcesBundle URLForResource:@"devicePixelRatio" withExtension:@"html"]; }
     virtual void didLoadURL(WebView *webView) { runTest(webView); }
-    virtual void didLoadURL(WKView *wkView) { runTest(wkView); }
+    virtual void didLoadURL(WKWebView *wkView) { runTest(wkView); }
     virtual void initializeView(WebView *);
-    virtual void initializeView(WKView *);
+    virtual void initializeView(WKWebView *);
 };
 
 RetainPtr<SyntheticBackingScaleFactorWindow> DeviceScaleFactorOnBack::createWindow()
@@ -62,11 +62,11 @@ void DeviceScaleFactorOnBack::initializeView(WebView *view)
     [[view preferences] setCacheModel:WebCacheModelDocumentBrowser];
 }
 
-void DeviceScaleFactorOnBack::initializeView(WKView *view)
+void DeviceScaleFactorOnBack::initializeView(WKWebView *view)
 {
     // The default cache model has a capacity of 0, so it is necessary to switch to a cache
     // model that actuall caches things.
-    WKContextSetCacheModel(WKPageGetContext([view pageRef]), kWKCacheModelDocumentBrowser);
+    WKContextSetCacheModel(WKPageGetContext([view _pageRefForTransitionToWKWebView]), kWKCacheModelDocumentBrowser);
 }
 
 template <typename View>

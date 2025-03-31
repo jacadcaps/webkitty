@@ -24,18 +24,20 @@
 #pragma once
 
 #include "ContainerNode.h"
-#include "FragmentScriptingPermission.h"
+#include "ParserContentPolicy.h"
 
 namespace WebCore {
 
 class DocumentFragment : public ContainerNode {
-    WTF_MAKE_ISO_ALLOCATED(DocumentFragment);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(DocumentFragment);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(DocumentFragment);
 public:
-    static Ref<DocumentFragment> create(Document&);
+    WEBCORE_EXPORT static Ref<DocumentFragment> create(Document&);
+    static Ref<DocumentFragment> createForInnerOuterHTML(Document&);
 
-    void parseHTML(const String&, Element* contextElement, ParserContentPolicy = AllowScriptingContent);
-    bool parseXML(const String&, Element* contextElement, ParserContentPolicy = AllowScriptingContent);
-    
+    void parseHTML(const String&, Element& contextElement, OptionSet<ParserContentPolicy> = { ParserContentPolicy::AllowScriptingContent }, CustomElementRegistry* = nullptr);
+    WEBCORE_EXPORT bool parseXML(const String&, Element* contextElement, OptionSet<ParserContentPolicy> = { ParserContentPolicy::AllowScriptingContent });
+
     bool canContainRangeEndPoint() const final { return true; }
     virtual bool isTemplateContent() const { return false; }
 
@@ -43,12 +45,11 @@ public:
     WEBCORE_EXPORT Element* getElementById(const AtomString&) const;
 
 protected:
-    DocumentFragment(Document&, ConstructionType = CreateContainer);
+    DocumentFragment(Document&, OptionSet<TypeFlag> = { });
     String nodeName() const final;
 
 private:
-    NodeType nodeType() const final;
-    Ref<Node> cloneNodeInternal(Document&, CloningOperation) override;
+    Ref<Node> cloneNodeInternal(Document&, CloningOperation, CustomElementRegistry*) override;
     bool childTypeAllowed(NodeType) const override;
 };
 

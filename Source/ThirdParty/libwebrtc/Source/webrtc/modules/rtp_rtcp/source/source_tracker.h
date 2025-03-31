@@ -13,14 +13,15 @@
 
 #include <cstdint>
 #include <list>
+#include <optional>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
-#include "absl/types/optional.h"
 #include "api/rtp_packet_infos.h"
 #include "api/transport/rtp/rtp_source.h"
-#include "rtc_base/critical_section.h"
+#include "api/units/time_delta.h"
+#include "api/units/timestamp.h"
 #include "rtc_base/time_utils.h"
 #include "system_wrappers/include/clock.h"
 
@@ -31,11 +32,12 @@ namespace webrtc {
 //   - https://w3c.github.io/webrtc-pc/#dom-rtcrtpcontributingsource
 //   - https://w3c.github.io/webrtc-pc/#dom-rtcrtpsynchronizationsource
 //
+// This class is thread unsafe.
 class SourceTracker {
  public:
   // Amount of time before the entry associated with an update is removed. See:
   // https://w3c.github.io/webrtc-pc/#dom-rtcrtpreceiver-getcontributingsources
-  static constexpr int64_t kTimeoutMs = 10000;  // 10 seconds
+  static constexpr TimeDelta kTimeout = TimeDelta::Seconds(10);
 
   explicit SourceTracker(Clock* clock);
 
@@ -46,10 +48,11 @@ class SourceTracker {
 
   // Updates the source entries when a frame is delivered to the
   // RTCRtpReceiver's MediaStreamTrack.
-  void OnFrameDelivered(const RtpPacketInfos& packet_infos);
+  void OnFrameDelivered(const RtpPacketInfos& packet_infos,
+                        Timestamp delivery_time = Timestamp::MinusInfinity());
 
-  // Returns an |RtpSource| for each unique SSRC and CSRC identifier updated in
-  // the last |kTimeoutMs| milliseconds. Entries appear in reverse chronological
+  // Returns an `RtpSource` for each unique SSRC and CSRC identifier updated in
+  // the last `kTimeoutMs` milliseconds. Entries appear in reverse chronological
   // order (i.e. with the most recently updated entries appearing first).
   std::vector<RtpSource> GetSources() const;
 
@@ -58,7 +61,7 @@ class SourceTracker {
     SourceKey(RtpSourceType source_type, uint32_t source)
         : source_type(source_type), source(source) {}
 
-    // Type of |source|.
+    // Type of `source`.
     RtpSourceType source_type;
 
     // CSRC or SSRC identifier of the contributing or synchronization source.
@@ -81,23 +84,30 @@ class SourceTracker {
   struct SourceEntry {
     // Timestamp indicating the most recent time a frame from an RTP packet,
     // originating from this source, was delivered to the RTCRtpReceiver's
-    // MediaStreamTrack. Its reference clock is the outer class's |clock_|.
-    int64_t timestamp_ms;
+    // MediaStreamTrack. Its reference clock is the outer class's `clock_`.
+    Timestamp timestamp = Timestamp::MinusInfinity();
 
     // Audio level from an RFC 6464 or RFC 6465 header extension received with
     // the most recent packet used to assemble the frame associated with
-    // |timestamp_ms|. May be absent. Only relevant for audio receivers. See the
+    // `timestamp`. May be absent. Only relevant for audio receivers. See the
     // specs for `RTCRtpContributingSource` for more info.
-    absl::optional<uint8_t> audio_level;
+    std::optional<uint8_t> audio_level;
 
     // Absolute capture time header extension received or interpolated from the
     // most recent packet used to assemble the frame. For more info see
     // https://webrtc.org/experiments/rtp-hdrext/abs-capture-time/
-    absl::optional<AbsoluteCaptureTime> absolute_capture_time;
+    std::optional<AbsoluteCaptureTime> absolute_capture_time;
+
+    // Clock offset between the local clock and the capturer's clock.
+    // Do not confuse with `AbsoluteCaptureTime::estimated_capture_clock_offset`
+    // which instead represents the clock offset between a remote sender and the
+    // capturer. The following holds:
+    //   Capture's NTP Clock = Local NTP Clock + Local-Capture Clock Offset
+    std::optional<TimeDelta> local_capture_clock_offset;
 
     // RTP timestamp of the most recent packet used to assemble the frame
-    // associated with |timestamp_ms|.
-    uint32_t rtp_timestamp;
+    // associated with `timestamp`.
+    uint32_t rtp_timestamp = 0;
   };
 
   using SourceList = std::list<std::pair<const SourceKey, SourceEntry>>;
@@ -108,21 +118,19 @@ class SourceTracker {
 
   // Updates an entry by creating it (if it didn't previously exist) and moving
   // it to the front of the list. Returns a reference to the entry.
-  SourceEntry& UpdateEntry(const SourceKey& key)
-      RTC_EXCLUSIVE_LOCKS_REQUIRED(lock_);
+  SourceEntry& UpdateEntry(const SourceKey& key);
 
   // Removes entries that have timed out. Marked as "const" so that we can do
   // pruning in getters.
-  void PruneEntries(int64_t now_ms) const RTC_EXCLUSIVE_LOCKS_REQUIRED(lock_);
+  void PruneEntries(Timestamp now) const;
 
   Clock* const clock_;
-  rtc::CriticalSection lock_;
 
   // Entries are stored in reverse chronological order (i.e. with the most
   // recently updated entries appearing first). Mutability is needed for timeout
   // pruning in const functions.
-  mutable SourceList list_ RTC_GUARDED_BY(lock_);
-  mutable SourceMap map_ RTC_GUARDED_BY(lock_);
+  mutable SourceList list_;
+  mutable SourceMap map_;
 };
 
 }  // namespace webrtc

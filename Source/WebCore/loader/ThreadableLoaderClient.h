@@ -30,26 +30,37 @@
 
 #pragma once
 
+#include "LoaderMalloc.h"
+#include "ResourceLoaderIdentifier.h"
+#include "ScriptExecutionContextIdentifier.h"
+#include <wtf/CheckedRef.h>
+#include <wtf/WeakPtr.h>
+
 namespace WebCore {
 
-    class ResourceError;
-    class ResourceResponse;
-    class ResourceTiming;
+class NetworkLoadMetrics;
+class ResourceError;
+class ResourceResponse;
+class ResourceTiming;
+class SharedBuffer;
 
-    class ThreadableLoaderClient {
-        WTF_MAKE_NONCOPYABLE(ThreadableLoaderClient); WTF_MAKE_FAST_ALLOCATED;
-    public:
-        virtual void didSendData(unsigned long long /*bytesSent*/, unsigned long long /*totalBytesToBeSent*/) { }
+class ThreadableLoaderClient : public CanMakeWeakPtr<ThreadableLoaderClient>, public CanMakeThreadSafeCheckedPtr<ThreadableLoaderClient> {
+    WTF_MAKE_NONCOPYABLE(ThreadableLoaderClient);
+    WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(Loader);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(ThreadableLoaderClient);
+public:
+    virtual void didSendData(unsigned long long /*bytesSent*/, unsigned long long /*totalBytesToBeSent*/) { }
 
-        virtual void didReceiveResponse(unsigned long /*identifier*/, const ResourceResponse&) { }
-        virtual void didReceiveData(const char*, int /*dataLength*/) { }
-        virtual void didFinishLoading(unsigned long /*identifier*/) { }
-        virtual void didFail(const ResourceError&) { }
-        virtual void didFinishTiming(const ResourceTiming&) { }
+    virtual void didReceiveResponse(ScriptExecutionContextIdentifier, std::optional<ResourceLoaderIdentifier>, const ResourceResponse&) { }
+    virtual void didReceiveData(const SharedBuffer&) { }
+    virtual void didFinishLoading(ScriptExecutionContextIdentifier, std::optional<ResourceLoaderIdentifier>, const NetworkLoadMetrics&) { }
+    virtual void didFail(std::optional<ScriptExecutionContextIdentifier>, const ResourceError&) { }
+    virtual void didFinishTiming(const ResourceTiming&) { }
+    virtual void notifyIsDone(bool) { ASSERT_NOT_REACHED(); }
 
-    protected:
-        ThreadableLoaderClient() = default;
-        virtual ~ThreadableLoaderClient() = default;
-    };
+protected:
+    ThreadableLoaderClient() = default;
+    virtual ~ThreadableLoaderClient() = default;
+};
 
 } // namespace WebCore

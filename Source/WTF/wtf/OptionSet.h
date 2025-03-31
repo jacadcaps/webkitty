@@ -27,75 +27,17 @@
 
 #include <initializer_list>
 #include <iterator>
+#include <optional>
 #include <type_traits>
 #include <wtf/Assertions.h>
 #include <wtf/EnumTraits.h>
+#include <wtf/FastMalloc.h>
 #include <wtf/MathExtras.h>
-#include <wtf/Optional.h>
 #include <wtf/StdLibExtras.h>
 
 namespace WTF {
 
 template<typename E> class OptionSet;
-
-
-template<typename T, typename E> struct OptionSetValueChecker;
-
-template<typename T, typename E, E e, E... es>
-struct OptionSetValueChecker<T, EnumValues<E, e, es...>> {
-    static constexpr T allValidBits()
-    {
-        return static_cast<T>(e) | OptionSetValueChecker<T, EnumValues<E, es...>>::allValidBits();
-    }
-
-    static constexpr bool isValidOptionSetEnum(T t)
-    {
-        return (static_cast<T>(e) == t) ? true : OptionSetValueChecker<T, EnumValues<E, es...>>::isValidOptionSetEnum(t);
-    }
-};
-
-template<typename T, typename E>
-struct OptionSetValueChecker<T, EnumValues<E>> {
-    static constexpr T allValidBits()
-    {
-        return 0;
-    }
-
-    static constexpr bool isValidOptionSetEnum(T)
-    {
-        return false;
-    }
-};
-
-
-template<typename E, std::enable_if_t<std::is_enum<E>::value && IsTypeComplete<EnumTraits<E>>>* = nullptr>
-constexpr bool isValidOptionSetEnum(E e)
-{
-    return OptionSetValueChecker<std::underlying_type_t<E>, typename EnumTraits<E>::values>::isValidOptionSetEnum(static_cast<std::underlying_type_t<E>>(e));
-}
-
-template<typename E, std::enable_if_t<std::is_enum<E>::value && !IsTypeComplete<EnumTraits<E>>>* = nullptr>
-constexpr bool isValidOptionSetEnum(E e)
-{
-    // FIXME: Remove once all OptionSet<> enums have EnumTraits<> defined.
-    return hasOneBitSet(static_cast<typename OptionSet<E>::StorageType>(e));
-}
-
-
-template<typename E, std::enable_if_t<std::is_enum<E>::value && IsTypeComplete<EnumTraits<E>>>* = nullptr>
-constexpr typename OptionSet<E>::StorageType maskRawValue(typename OptionSet<E>::StorageType rawValue)
-{
-    auto allValidBitsValue = OptionSetValueChecker<std::underlying_type_t<E>, typename EnumTraits<E>::values>::allValidBits();
-    return rawValue & allValidBitsValue;
-}
-
-template<typename E, std::enable_if_t<std::is_enum<E>::value && !IsTypeComplete<EnumTraits<E>>>* = nullptr>
-constexpr typename OptionSet<E>::StorageType maskRawValue(typename OptionSet<E>::StorageType rawValue)
-{
-    // FIXME: Remove once all OptionSet<> enums have EnumTraits<> defined.
-    return rawValue;
-}
-
 
 // OptionSet is a class that represents a set of enumerators in a space-efficient manner. The enumerators
 // must be powers of two greater than 0. This class is useful as a replacement for passing a bitmask of
@@ -122,8 +64,7 @@ public:
 
         Iterator& operator++(int) = delete;
 
-        bool operator==(const Iterator& other) const { return m_value == other.m_value; }
-        bool operator!=(const Iterator& other) const { return m_value != other.m_value; }
+        friend bool operator==(const Iterator&, const Iterator&) = default;
 
     private:
         Iterator(StorageType value) : m_value(value) { }
@@ -131,11 +72,12 @@ public:
 
         StorageType m_value;
     };
+
     using iterator = Iterator<StorageType>;
 
     static constexpr OptionSet fromRaw(StorageType rawValue)
     {
-        return OptionSet(static_cast<E>(maskRawValue<E>(rawValue)), FromRawValue);
+        return OptionSet(static_cast<E>(rawValue), FromRawValue);
     }
 
     constexpr OptionSet() = default;
@@ -143,18 +85,18 @@ public:
     constexpr OptionSet(E e)
         : m_storage(static_cast<StorageType>(e))
     {
-        ASSERT(!m_storage || isValidOptionSetEnum(e));
+        ASSERT(!m_storage || hasOneBitSet(static_cast<StorageType>(e)));
     }
 
     constexpr OptionSet(std::initializer_list<E> initializerList)
     {
         for (auto& option : initializerList) {
-            ASSERT(isValidOptionSetEnum(option));
+            ASSERT(hasOneBitSet(static_cast<StorageType>(option)));
             m_storage |= static_cast<StorageType>(option);
         }
     }
 
-    constexpr OptionSet(Optional<E> optional)
+    constexpr OptionSet(std::optional<E> optional)
         : m_storage(optional ? static_cast<StorageType>(*optional) : 0)
     {
     }
@@ -166,7 +108,7 @@ public:
     constexpr iterator begin() const { return m_storage; }
     constexpr iterator end() const { return 0; }
 
-    constexpr explicit operator bool() { return !isEmpty(); }
+    constexpr explicit operator bool() const { return !isEmpty(); }
 
     constexpr bool contains(E option) const
     {
@@ -193,29 +135,35 @@ public:
         m_storage &= ~optionSet.m_storage;
     }
 
+    constexpr void set(OptionSet optionSet, bool value)
+    {
+        if (value)
+            add(optionSet);
+        else
+            remove(optionSet);
+    }
+
     constexpr bool hasExactlyOneBitSet() const
     {
         return m_storage && !(m_storage & (m_storage - 1));
     }
 
-    constexpr Optional<E> toSingleValue() const
+    constexpr std::optional<E> toSingleValue() const
     {
-        return hasExactlyOneBitSet() ? Optional<E>(static_cast<E>(m_storage)) : WTF::nullopt;
+        return hasExactlyOneBitSet() ? std::optional<E>(static_cast<E>(m_storage)) : std::nullopt;
     }
 
-    constexpr friend bool operator==(OptionSet lhs, OptionSet rhs)
-    {
-        return lhs.m_storage == rhs.m_storage;
-    }
-
-    constexpr friend bool operator!=(OptionSet lhs, OptionSet rhs)
-    {
-        return lhs.m_storage != rhs.m_storage;
-    }
+    friend constexpr bool operator==(const OptionSet&, const OptionSet&) = default;
 
     constexpr friend OptionSet operator|(OptionSet lhs, OptionSet rhs)
     {
         return fromRaw(lhs.m_storage | rhs.m_storage);
+    }
+
+    constexpr OptionSet& operator|=(const OptionSet& other)
+    {
+        add(other);
+        return *this;
     }
 
     constexpr friend OptionSet operator&(OptionSet lhs, OptionSet rhs)
@@ -233,6 +181,8 @@ public:
         return fromRaw(lhs.m_storage ^ rhs.m_storage);
     }
 
+    static OptionSet all() { return fromRaw(-1); }
+
 private:
     enum InitializationTag { FromRawValue };
     constexpr OptionSet(E e, InitializationTag)
@@ -242,10 +192,23 @@ private:
     StorageType m_storage { 0 };
 };
 
+namespace IsValidOptionSetHelper {
+template<typename T, typename E> struct OptionSetValueChecker;
+template<typename T, typename E, E e, E... es>
+struct OptionSetValueChecker<T, EnumValues<E, e, es...>> {
+    static constexpr T allValidBits() { return static_cast<T>(e) | OptionSetValueChecker<T, EnumValues<E, es...>>::allValidBits(); }
+};
+template<typename T, typename E>
+struct OptionSetValueChecker<T, EnumValues<E>> {
+    static constexpr T allValidBits() { return 0; }
+};
+}
+
 template<typename E>
 WARN_UNUSED_RETURN constexpr bool isValidOptionSet(OptionSet<E> optionSet)
 {
-    auto allValidBitsValue = OptionSetValueChecker<std::make_unsigned_t<std::underlying_type_t<E>>, typename EnumTraits<E>::values>::allValidBits();
+    // FIXME: Remove this when all OptionSet enums are migrated to generated serialization.
+    auto allValidBitsValue = IsValidOptionSetHelper::OptionSetValueChecker<std::make_unsigned_t<std::underlying_type_t<E>>, typename EnumTraits<E>::values>::allValidBits();
     return (optionSet.toRaw() | allValidBitsValue) == allValidBitsValue;
 }
 

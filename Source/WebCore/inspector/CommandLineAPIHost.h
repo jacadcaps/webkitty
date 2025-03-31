@@ -32,6 +32,7 @@
 #include "InstrumentingAgents.h"
 #include <JavaScriptCore/PerGlobalObjectWrapperWorld.h>
 #include <wtf/RefCounted.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
 
@@ -45,6 +46,10 @@ class Database;
 class EventTarget;
 class JSDOMGlobalObject;
 class Storage;
+
+#if ENABLE(WEB_RTC)
+class RTCLogsCallback;
+#endif
 
 struct EventListenerInfo;
 
@@ -60,11 +65,10 @@ public:
 
     void disconnect();
 
-    void clearConsoleMessages();
     void copyText(const String& text);
 
     class InspectableObject {
-        WTF_MAKE_FAST_ALLOCATED;
+        WTF_MAKE_TZONE_ALLOCATED(InspectableObject);
     public:
         virtual JSC::JSValue get(JSC::JSGlobalObject&);
         virtual ~InspectableObject() = default;
@@ -80,10 +84,13 @@ public:
         bool once;
     };
 
-    using EventListenersRecord = Vector<WTF::KeyValuePair<String, Vector<ListenerEntry>>>;
+    using EventListenersRecord = Vector<KeyValuePair<String, Vector<ListenerEntry>>>;
     EventListenersRecord getEventListeners(JSC::JSGlobalObject&, EventTarget&);
 
-    String databaseId(Database&);
+#if ENABLE(WEB_RTC)
+    void gatherRTCLogs(JSC::JSGlobalObject&, RefPtr<RTCLogsCallback>&&);
+#endif
+
     String storageId(Storage&);
 
     JSC::JSValue wrapper(JSC::JSGlobalObject*, JSDOMGlobalObject*);

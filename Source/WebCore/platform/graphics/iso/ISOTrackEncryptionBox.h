@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,20 +31,27 @@ namespace WebCore {
 
 class WEBCORE_EXPORT ISOTrackEncryptionBox final : public ISOFullBox {
 public:
-    static FourCC boxTypeName() { return "tenc"; }
+    ISOTrackEncryptionBox();
+    ~ISOTrackEncryptionBox();
 
-    Optional<int8_t> defaultCryptByteBlock() const { return m_defaultCryptByteBlock; }
-    Optional<int8_t> defaultSkipByteBlock() const { return m_defaultSkipByteBlock; }
+    static FourCC boxTypeName() { return std::span { "tenc" }; }
+
+    std::optional<int8_t> defaultCryptByteBlock() const { return m_defaultCryptByteBlock; }
+    std::optional<int8_t> defaultSkipByteBlock() const { return m_defaultSkipByteBlock; }
     int8_t defaultIsProtected() const { return m_defaultIsProtected; }
     int8_t defaultPerSampleIVSize() const { return m_defaultPerSampleIVSize; }
     Vector<uint8_t> defaultKID() const { return m_defaultKID; }
     Vector<uint8_t> defaultConstantIV() const { return m_defaultConstantIV; }
 
-private:
+    bool parseWithoutTypeAndSize(JSC::DataView&);
+
     bool parse(JSC::DataView&, unsigned& offset) override;
 
-    Optional<int8_t> m_defaultCryptByteBlock;
-    Optional<int8_t> m_defaultSkipByteBlock;
+private:
+    bool parsePayload(JSC::DataView&, unsigned& offset);
+
+    std::optional<int8_t> m_defaultCryptByteBlock;
+    std::optional<int8_t> m_defaultSkipByteBlock;
     int8_t m_defaultIsProtected { 0 };
     int8_t m_defaultPerSampleIVSize { 0 };
     Vector<uint8_t> m_defaultKID;

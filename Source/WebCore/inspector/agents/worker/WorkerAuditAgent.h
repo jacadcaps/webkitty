@@ -27,22 +27,23 @@
 
 #include "InspectorWebAgentBase.h"
 #include <JavaScriptCore/InspectorAuditAgent.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
-class WorkerGlobalScope;
+class WorkerOrWorkletGlobalScope;
 
 class WorkerAuditAgent final : public Inspector::InspectorAuditAgent {
     WTF_MAKE_NONCOPYABLE(WorkerAuditAgent);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(WorkerAuditAgent);
 public:
     WorkerAuditAgent(WorkerAgentContext&);
-    ~WorkerAuditAgent() override;
+    ~WorkerAuditAgent();
 
 private:
-    Inspector::InjectedScript injectedScriptForEval(Inspector::ErrorString&, const int* executionContextId) override;
+    Inspector::InjectedScript injectedScriptForEval(Inspector::Protocol::ErrorString&, std::optional<Inspector::Protocol::Runtime::ExecutionContextId>&&);
 
-    WorkerGlobalScope& m_workerGlobalScope;
+    WorkerOrWorkletGlobalScope& m_globalScope;
 };
 
 } // namespace WebCore

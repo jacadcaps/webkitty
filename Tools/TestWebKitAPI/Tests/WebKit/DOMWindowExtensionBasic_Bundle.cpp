@@ -31,7 +31,6 @@
 #include <WebKit/WKBundleDOMWindowExtension.h>
 #include <WebKit/WKBundleFrame.h>
 #include <WebKit/WKBundlePage.h>
-#include <WebKit/WKBundlePageGroup.h>
 #include <WebKit/WKBundlePagePrivate.h>
 #include <WebKit/WKBundlePrivate.h>
 #include <WebKit/WKBundleScriptWorld.h>
@@ -109,7 +108,9 @@ DOMWindowExtensionBasic::DOMWindowExtensionBasic(const std::string& identifier)
 
 void DOMWindowExtensionBasic::frameLoadFinished(WKBundleFrameRef frame)
 {
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     bool mainFrame = !WKBundleFrameGetParentFrame(frame);
+    ALLOW_DEPRECATED_DECLARATIONS_END
     if (mainFrame)
         m_finishedOneMainFrameLoad = true;
 
@@ -150,7 +151,7 @@ void DOMWindowExtensionBasic::didCreatePage(WKBundleRef bundle, WKBundlePageRef 
     WKBundlePageAddUserScriptInWorld(page, source.get(), WKBundleScriptWorldCreateWorld(), kWKInjectAtDocumentStart, kWKInjectInAllFrames);
     
     WKBundlePageLoaderClientV1 pageLoaderClient;
-    memset(&pageLoaderClient, 0, sizeof(pageLoaderClient));
+    zeroBytes(pageLoaderClient);
     
     pageLoaderClient.base.version = 1;
     pageLoaderClient.base.clientInfo = this;
@@ -198,10 +199,12 @@ void DOMWindowExtensionBasic::globalObjectIsAvailableForFrame(WKBundleFrameRef f
     bool standard;
     standard = world == WKBundleScriptWorldNormalWorld();
 
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     if (WKBundleFrameGetParentFrame(frame))
         index = standard ? 2 : 3;
     else
         index = m_finishedOneMainFrameLoad ? (standard ? 4 : 5) : (standard ? 0 : 1);
+    ALLOW_DEPRECATED_DECLARATIONS_END
 
     m_extensionToRecordMap.set(extension, index);
 

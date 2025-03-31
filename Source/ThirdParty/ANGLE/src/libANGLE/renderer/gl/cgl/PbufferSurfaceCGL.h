@@ -42,7 +42,7 @@ class PbufferSurfaceCGL : public SurfaceGL
                             gl::Texture *texture,
                             EGLint buffer) override;
     egl::Error releaseTexImage(const gl::Context *context, EGLint buffer) override;
-    void setSwapInterval(EGLint interval) override;
+    void setSwapInterval(const egl::Display *display, EGLint interval) override;
 
     EGLint getWidth() const override;
     EGLint getHeight() const override;
@@ -50,18 +50,21 @@ class PbufferSurfaceCGL : public SurfaceGL
     EGLint isPostSubBufferSupported() const override;
     EGLint getSwapBehavior() const override;
 
-    FramebufferImpl *createDefaultFramebuffer(const gl::Context *context,
-                                              const gl::FramebufferState &state) override;
+    egl::Error attachToFramebuffer(const gl::Context *context,
+                                   gl::Framebuffer *framebuffer) override;
+    egl::Error detachFromFramebuffer(const gl::Context *context,
+                                     gl::Framebuffer *framebuffer) override;
 
   private:
     unsigned mWidth;
     unsigned mHeight;
 
     // TODO(geofflang): Don't store these, they are potentially specific to a single GL context.
-    // http://anglebug.com/2464
+    // http://anglebug.com/40096492
     const FunctionsGL *mFunctions;
     StateManagerGL *mStateManager;
 
+    GLuint mFramebuffer;
     GLuint mColorRenderbuffer;
     GLuint mDSRenderbuffer;
 };

@@ -30,8 +30,11 @@
 
 #import <AppKit/AppKit.h>
 #import <wtf/MainThread.h>
+#import <wtf/TZoneMallocInlines.h>
 
 namespace PAL {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(SystemSleepListenerMac);
 
 std::unique_ptr<SystemSleepListener> SystemSleepListener::create(Client& client)
 {
@@ -46,7 +49,7 @@ SystemSleepListenerMac::SystemSleepListenerMac(Client& client)
     NSNotificationCenter *center = [[NSWorkspace sharedWorkspace] notificationCenter];
     NSOperationQueue *queue = [NSOperationQueue mainQueue];
 
-    auto weakThis = makeWeakPtr(*this);
+    WeakPtr weakThis { *this };
 
     m_sleepObserver = [center addObserverForName:NSWorkspaceWillSleepNotification object:nil queue:queue usingBlock:^(NSNotification *) {
         callOnMainThread([weakThis] {

@@ -27,16 +27,18 @@
 #import "WKWebProcessPlugInInternal.h"
 
 #import "APIArray.h"
-#import "WKConnectionInternal.h"
 #import "WKBundle.h"
 #import "WKBundleAPICast.h"
 #import "WKRetainPtr.h"
 #import "WKStringCF.h"
 #import "WKWebProcessPlugInBrowserContextControllerInternal.h"
+#import <WebCore/WebCoreObjCExtras.h>
+#import <wtf/AlignedStorage.h>
 #import <wtf/RetainPtr.h>
+#import <wtf/StdLibExtras.h>
 
 @interface WKWebProcessPlugInController () {
-    API::ObjectStorage<WebKit::InjectedBundle> _bundle;
+    AlignedStorage<WebKit::InjectedBundle> _bundle;
     RetainPtr<id <WKWebProcessPlugIn>> _principalClassInstance;
 }
 @end
@@ -45,6 +47,9 @@
 
 - (void)dealloc
 {
+    if (WebCoreObjCScheduleDeallocateOnMainRunLoop(WKWebProcessPlugInController.class, self))
+        return;
+
     _bundle->~InjectedBundle();
 
     [super dealloc];
@@ -71,7 +76,7 @@ static void willDestroyPage(WKBundleRef bundle, WKBundlePageRef page, const void
 static void setUpBundleClient(WKWebProcessPlugInController *plugInController, WebKit::InjectedBundle& bundle)
 {
     WKBundleClientV1 bundleClient;
-    memset(&bundleClient, 0, sizeof(bundleClient));
+    zeroBytes(bundleClient);
 
     bundleClient.base.version = 1;
     bundleClient.base.clientInfo = (__bridge void*)plugInController;
@@ -89,13 +94,6 @@ static void setUpBundleClient(WKWebProcessPlugInController *plugInController, We
     setUpBundleClient(self, *_bundle);
 }
 
-ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-- (WKConnection *)connection
-{
-    return wrapper(*_bundle->webConnectionToUIProcess());
-}
-ALLOW_DEPRECATED_DECLARATIONS_END
-
 - (id)parameters
 {
     return _bundle->bundleParameters();
@@ -109,7 +107,7 @@ static Ref<API::Array> createWKArray(NSArray *array)
     
     for (id entry in array) {
         if ([entry isKindOfClass:[NSString class]])
-            strings.uncheckedAppend(adoptRef(WebKit::toImpl(WKStringCreateWithCFString((__bridge CFStringRef)entry))));
+            strings.append(adoptRef(WebKit::toImpl(WKStringCreateWithCFString((__bridge CFStringRef)entry))));
     }
     
     return API::Array::create(WTFMove(strings));

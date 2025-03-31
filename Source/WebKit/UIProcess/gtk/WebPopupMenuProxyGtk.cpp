@@ -62,15 +62,15 @@ WebPopupMenuProxyGtk::~WebPopupMenuProxyGtk()
 
 void WebPopupMenuProxyGtk::selectItem(unsigned itemIndex)
 {
-    if (m_client)
-        m_client->setTextFromItemForPopupMenu(this, itemIndex);
+    if (CheckedPtr client = this->client())
+        client->setTextFromItemForPopupMenu(this, itemIndex);
     m_selectedItem = itemIndex;
 }
 
-void WebPopupMenuProxyGtk::activateItem(Optional<unsigned> itemIndex)
+void WebPopupMenuProxyGtk::activateItem(std::optional<unsigned> itemIndex)
 {
-    if (m_client)
-        m_client->valueChangedForPopupMenu(this, itemIndex.valueOr(m_selectedItem.valueOr(-1)));
+    if (CheckedPtr client = this->client())
+        client->valueChangedForPopupMenu(this, itemIndex.value_or(m_selectedItem.value_or(-1)));
 }
 
 bool WebPopupMenuProxyGtk::activateItemAtPath(GtkTreePath* path)
@@ -169,17 +169,17 @@ void WebPopupMenuProxyGtk::createPopupMenu(const Vector<WebPopupItem>& items, in
     for (const auto& item : items) {
         if (item.m_isLabel) {
             gtk_tree_store_insert_with_values(model.get(), &parentIter, nullptr, -1,
-                Columns::Label, item.m_text.stripWhiteSpace().utf8().data(),
+                Columns::Label, item.m_text.trim(deprecatedIsSpaceOrNewline).utf8().data(),
                 Columns::IsGroup, TRUE,
                 Columns::IsEnabled, TRUE,
                 -1);
             // We never need the path for group labels.
-            m_paths.uncheckedAppend(nullptr);
+            m_paths.append(nullptr);
         } else {
             GtkTreeIter iter;
             bool isSelected = selectedIndex && static_cast<unsigned>(selectedIndex) == index;
-            gtk_tree_store_insert_with_values(model.get(), &iter, item.m_text.startsWith("    ") ? &parentIter : nullptr, -1,
-                Columns::Label, item.m_text.stripWhiteSpace().utf8().data(),
+            gtk_tree_store_insert_with_values(model.get(), &iter, item.m_text.startsWith("    "_s) ? &parentIter : nullptr, -1,
+                Columns::Label, item.m_text.trim(deprecatedIsSpaceOrNewline).utf8().data(),
                 Columns::Tooltip, item.m_toolTip.isEmpty() ? nullptr : item.m_toolTip.utf8().data(),
                 Columns::IsGroup, FALSE,
                 Columns::IsSelected, isSelected,
@@ -190,7 +190,7 @@ void WebPopupMenuProxyGtk::createPopupMenu(const Vector<WebPopupItem>& items, in
                 ASSERT(!m_selectedItem);
                 m_selectedItem = index;
             }
-            m_paths.uncheckedAppend(GUniquePtr<GtkTreePath>(gtk_tree_model_get_path(GTK_TREE_MODEL(model.get()), &iter)));
+            m_paths.append(GUniquePtr<GtkTreePath>(gtk_tree_model_get_path(GTK_TREE_MODEL(model.get()), &iter)));
         }
         index++;
     }
@@ -255,7 +255,7 @@ void WebPopupMenuProxyGtk::createPopupMenu(const Vector<WebPopupItem>& items, in
     gtk_widget_set_parent(m_popup, m_webView);
 
     auto* controller = gtk_event_controller_key_new();
-    g_signal_connect_swapped(controller, "key-pressed", G_CALLBACK(+[](WebPopupMenuProxyGtk* popupMenu, unsigned keyval, unsigned, GdkModifierType, GtkEventController* controller) {
+    g_signal_connect_swapped(controller, "key-pressed", G_CALLBACK(+[](WebPopupMenuProxyGtk* popupMenu, unsigned keyval, unsigned, GdkModifierType, GtkEventController* controller) -> gboolean {
         auto* event = gtk_event_controller_get_current_event(controller);
         if (popupMenu->typeAheadFind(keyval, gdk_event_get_time(event)))
             return GDK_EVENT_STOP;
@@ -320,7 +320,7 @@ void WebPopupMenuProxyGtk::showPopupMenu(const IntRect& rect, TextDirection, dou
     auto* monitor = gdk_display_get_monitor_at_window(display, gtk_widget_get_window(m_webView));
 #endif
     GdkRectangle area;
-    gdk_monitor_get_workarea(monitor, &area);
+    monitorWorkArea(monitor, &area);
     int width = std::min(rect.width(), area.width);
     size_t itemCount = std::min<size_t>(items.size(), (area.height / 3) / itemHeight);
 
@@ -363,7 +363,7 @@ void WebPopupMenuProxyGtk::showPopupMenu(const IntRect& rect, TextDirection, dou
     gtk_window_move(GTK_WINDOW(m_popup), menuPosition.x(), menuPosition.y());
 #endif
 
-    const GdkEvent* event = m_client->currentlyProcessedMouseDownEvent() ? m_client->currentlyProcessedMouseDownEvent()->nativeEvent() : nullptr;
+    const GdkEvent* event = client()->currentlyProcessedMouseDownEvent() ? client()->currentlyProcessedMouseDownEvent()->nativeEvent() : nullptr;
     m_device = event ? gdk_event_get_device(event) : nullptr;
     if (!m_device)
         m_device = gtk_get_current_event_device();
@@ -383,8 +383,8 @@ void WebPopupMenuProxyGtk::showPopupMenu(const IntRect& rect, TextDirection, dou
     // PopupMenu can fail to open when there is no mouse grab.
     // Ensure WebCore does not go into some pesky state.
     if (grabResult != GDK_GRAB_SUCCESS) {
-       m_client->failedToShowPopupMenu();
-       return;
+        client()->failedToShowPopupMenu();
+        return;
     }
 #endif
 }
@@ -404,7 +404,7 @@ void WebPopupMenuProxyGtk::hidePopupMenu()
     }
 #endif
 
-    activateItem(WTF::nullopt);
+    activateItem(std::nullopt);
 
     if (m_currentSearchString) {
         g_string_free(m_currentSearchString, TRUE);
@@ -412,6 +412,7 @@ void WebPopupMenuProxyGtk::hidePopupMenu()
     }
 
 #if USE(GTK4)
+    gtk_popover_popdown(GTK_POPOVER(m_popup));
     g_clear_pointer(&m_popup, gtk_widget_unparent);
 #else
     gtk_widget_destroy(m_popup);
@@ -428,14 +429,14 @@ void WebPopupMenuProxyGtk::cancelTracking()
     hidePopupMenu();
 }
 
-Optional<unsigned> WebPopupMenuProxyGtk::typeAheadFindIndex(unsigned keyval, uint32_t time)
+std::optional<unsigned> WebPopupMenuProxyGtk::typeAheadFindIndex(unsigned keyval, uint32_t time)
 {
     gunichar keychar = gdk_keyval_to_unicode(keyval);
     if (!g_unichar_isprint(keychar))
-        return WTF::nullopt;
+        return std::nullopt;
 
     if (time < m_previousKeyEventTime)
-        return WTF::nullopt;
+        return std::nullopt;
 
     static const uint32_t typeaheadTimeoutMs = 1000;
     if (time - m_previousKeyEventTime > typeaheadTimeoutMs) {
@@ -469,7 +470,7 @@ Optional<unsigned> WebPopupMenuProxyGtk::typeAheadFindIndex(unsigned keyval, uin
     GUniquePtr<char> normalizedPrefix(g_utf8_normalize(m_currentSearchString->str, prefixLength, G_NORMALIZE_ALL));
     GUniquePtr<char> prefix(normalizedPrefix ? g_utf8_casefold(normalizedPrefix.get(), -1) : nullptr);
     if (!prefix)
-        return WTF::nullopt;
+        return std::nullopt;
 
     model = gtk_tree_view_get_model(GTK_TREE_VIEW(m_treeView));
     for (unsigned i = 0; i < itemCount; i++, index = (index + 1) % itemCount) {
@@ -492,7 +493,7 @@ Optional<unsigned> WebPopupMenuProxyGtk::typeAheadFindIndex(unsigned keyval, uin
             return index;
     }
 
-    return WTF::nullopt;
+    return std::nullopt;
 }
 
 bool WebPopupMenuProxyGtk::typeAheadFind(unsigned keyval, uint32_t timestamp)

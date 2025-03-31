@@ -29,6 +29,7 @@
 #if ENABLE(WEB_AUTHN)
 
 #include "APIData.h"
+#include <JavaScriptCore/ArrayBuffer.h>
 
 namespace API {
 using namespace WebCore;
@@ -48,11 +49,19 @@ WebAuthenticationAssertionResponse::~WebAuthenticationAssertionResponse() = defa
 RefPtr<Data> WebAuthenticationAssertionResponse::userHandle() const
 {
     RefPtr<API::Data> data;
-    if (auto* userHandle = m_response->userHandle()) {
-        userHandle->ref();
-        data = API::Data::createWithoutCopying(reinterpret_cast<unsigned char*>(userHandle->data()), userHandle->byteLength(), [] (unsigned char*, const void* data) {
-            static_cast<ArrayBuffer*>(const_cast<void*>(data))->deref();
-        }, userHandle);
+    if (RefPtr userHandle = m_response->userHandle()) {
+        auto userHandleSpan = userHandle->span();
+        data = API::Data::createWithoutCopying(userHandleSpan, [userHandle = WTFMove(userHandle)] { });
+    }
+    return data;
+}
+
+RefPtr<Data> WebAuthenticationAssertionResponse::credentialID() const
+{
+    RefPtr<API::Data> data;
+    if (RefPtr rawId = m_response->rawId()) {
+        auto rawIdSpan = rawId->span();
+        data = API::Data::createWithoutCopying(rawIdSpan, [rawId = WTFMove(rawId)] { });
     }
     return data;
 }

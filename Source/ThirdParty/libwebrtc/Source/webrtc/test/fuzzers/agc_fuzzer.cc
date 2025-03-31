@@ -10,9 +10,9 @@
 
 #include <memory>
 
+#include "api/audio/audio_processing.h"
 #include "modules/audio_processing/audio_buffer.h"
 #include "modules/audio_processing/gain_control_impl.h"
-#include "modules/audio_processing/include/audio_processing.h"
 #include "rtc_base/numerics/safe_minmax.h"
 #include "rtc_base/thread_annotations.h"
 #include "test/fuzzers/fuzz_data_helper.h"
@@ -92,8 +92,8 @@ void FuzzGainController(test::FuzzDataHelper* fuzz_data, GainControlImpl* gci) {
   FuzzGainControllerConfig(fuzz_data, gci);
 
   // The audio buffer is used for both capture and render.
-  AudioBuffer audio(samples_per_frame, num_channels, samples_per_frame,
-                    num_channels, samples_per_frame);
+  AudioBuffer audio(sample_rate_hz, num_channels, sample_rate_hz, num_channels,
+                    sample_rate_hz, num_channels);
 
   std::vector<int16_t> packed_render_audio(samples_per_frame);
 

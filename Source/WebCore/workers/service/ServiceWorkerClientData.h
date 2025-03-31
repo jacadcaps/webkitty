@@ -25,9 +25,10 @@
 
 #pragma once
 
-#if ENABLE(SERVICE_WORKER)
-
-#include "ServiceWorkerClientIdentifier.h"
+#include "FrameIdentifier.h"
+#include "PageIdentifier.h"
+#include "ProcessQualified.h"
+#include "ScriptExecutionContextIdentifier.h"
 #include "ServiceWorkerClientType.h"
 #include "ServiceWorkerTypes.h"
 #include <wtf/URL.h>
@@ -37,54 +38,32 @@ namespace WebCore {
 class SWClientConnection;
 class ScriptExecutionContext;
 
+enum class AdvancedPrivacyProtections : uint16_t;
+enum class LastNavigationWasAppInitiated : bool { No, Yes };
+
 struct ServiceWorkerClientData {
-    ServiceWorkerClientIdentifier identifier;
+    WTF_MAKE_STRUCT_FAST_ALLOCATED;
+
+    ScriptExecutionContextIdentifier identifier;
     ServiceWorkerClientType type;
     ServiceWorkerClientFrameType frameType;
     URL url;
+    URL ownerURL;
+    std::optional<PageIdentifier> pageIdentifier;
+    std::optional<FrameIdentifier> frameIdentifier;
+    LastNavigationWasAppInitiated lastNavigationWasAppInitiated;
+    OptionSet<WebCore::AdvancedPrivacyProtections> advancedPrivacyProtections;
+    bool isVisible { false };
+    bool isFocused { false };
+    uint64_t focusOrder { 0 };
+    Vector<String> ancestorOrigins;
 
-    ServiceWorkerClientData isolatedCopy() const;
+    WEBCORE_EXPORT ServiceWorkerClientData isolatedCopy() const &;
+    WEBCORE_EXPORT ServiceWorkerClientData isolatedCopy() &&;
 
-    static ServiceWorkerClientData from(ScriptExecutionContext&, SWClientConnection&);
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static Optional<ServiceWorkerClientData> decode(Decoder&);
+    WEBCORE_EXPORT static ServiceWorkerClientData from(ScriptExecutionContext&);
 };
 
-template<class Encoder>
-void ServiceWorkerClientData::encode(Encoder& encoder) const
-{
-    encoder << identifier << type << frameType << url;
-}
-
-template<class Decoder>
-Optional<ServiceWorkerClientData> ServiceWorkerClientData::decode(Decoder& decoder)
-{
-    Optional<ServiceWorkerClientIdentifier> identifier;
-    decoder >> identifier;
-    if (!identifier)
-        return WTF::nullopt;
-
-    Optional<ServiceWorkerClientType> type;
-    decoder >> type;
-    if (!type)
-        return WTF::nullopt;
-
-    Optional<ServiceWorkerClientFrameType> frameType;
-    decoder >> frameType;
-    if (!frameType)
-        return WTF::nullopt;
-
-    Optional<URL> url;
-    decoder >> url;
-    if (!url)
-        return WTF::nullopt;
-
-    return { { WTFMove(*identifier), WTFMove(*type), WTFMove(*frameType), WTFMove(*url) } };
-}
-
-using ServiceWorkerClientsMatchAllCallback = WTF::CompletionHandler<void(Vector<ServiceWorkerClientData>&&)>;
+using ServiceWorkerClientsMatchAllCallback = CompletionHandler<void(Vector<ServiceWorkerClientData>&&)>;
 
 } // namespace WebCore
-
-#endif // ENABLE(SERVICE_WORKER)

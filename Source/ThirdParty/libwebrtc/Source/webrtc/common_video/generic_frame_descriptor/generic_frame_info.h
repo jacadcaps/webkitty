@@ -11,12 +11,15 @@
 #ifndef COMMON_VIDEO_GENERIC_FRAME_DESCRIPTOR_GENERIC_FRAME_INFO_H_
 #define COMMON_VIDEO_GENERIC_FRAME_DESCRIPTOR_GENERIC_FRAME_INFO_H_
 
+#include <bitset>
 #include <initializer_list>
+#include <vector>
 
 #include "absl/container/inlined_vector.h"
 #include "absl/strings/string_view.h"
 #include "api/transport/rtp/dependency_descriptor.h"
 #include "api/video/video_codec_constants.h"
+#include "rtc_base/system/rtc_export.h"
 
 namespace webrtc {
 
@@ -30,18 +33,16 @@ struct CodecBufferUsage {
   bool updated = false;
 };
 
-struct GenericFrameInfo : public FrameDependencyTemplate {
-  static absl::InlinedVector<DecodeTargetIndication, 10> DecodeTargetInfo(
-      absl::string_view indication_symbols);
-
+struct RTC_EXPORT GenericFrameInfo : public FrameDependencyTemplate {
   class Builder;
 
   GenericFrameInfo();
   GenericFrameInfo(const GenericFrameInfo&);
   ~GenericFrameInfo();
 
-  int64_t frame_id = 0;
   absl::InlinedVector<CodecBufferUsage, kMaxEncoderBuffers> encoder_buffers;
+  std::vector<bool> part_of_chain;
+  std::bitset<32> active_decode_targets = ~uint32_t{0};
 };
 
 class GenericFrameInfo::Builder {
@@ -53,7 +54,6 @@ class GenericFrameInfo::Builder {
   Builder& T(int temporal_id);
   Builder& S(int spatial_id);
   Builder& Dtis(absl::string_view indication_symbols);
-  Builder& Fdiffs(std::initializer_list<int> frame_diffs);
 
  private:
   GenericFrameInfo info_;

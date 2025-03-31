@@ -20,22 +20,23 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import webkitpy.thirdparty.autoinstalled.requests
+from webkitcorepy import BytesIO
 
-import collections
 import json
 import requests
 import sys
 import time
 import unittest
 
-from webkitcorepy import BytesIO
+try:
+    from collections.abc import Iterable, Mapping
+except ImportError:
+    from collections import Iterable, Mapping
 
 from webkitpy.results.upload import Upload
 from webkitpy.thirdparty import mock
 
-if sys.version_info > (3, 0):
-    basestring = str
+basestring = str
 
 
 class UploadTest(unittest.TestCase):
@@ -57,9 +58,9 @@ class UploadTest(unittest.TestCase):
     def normalize(data):
         if isinstance(data, basestring):
             return str(data)
-        elif isinstance(data, collections.Mapping):
+        elif isinstance(data, Mapping):
             return dict(map(UploadTest.normalize, data.items()))
-        elif isinstance(data, collections.Iterable):
+        elif isinstance(data, Iterable):
             return type(data)(map(UploadTest.normalize, data))
         return data
 

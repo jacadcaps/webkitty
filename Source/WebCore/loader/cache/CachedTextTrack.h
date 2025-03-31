@@ -27,20 +27,24 @@
 
 #include "CachedResource.h"
 
+#if ENABLE(VIDEO)
+
 namespace WebCore {
 
 class CachedTextTrack final : public CachedResource {
 public:
-    CachedTextTrack(CachedResourceRequest&&, const PAL::SessionID&, const CookieJar*);
+    CachedTextTrack(CachedResourceRequest&&, PAL::SessionID, const CookieJar*);
 
 private:
     bool mayTryReplaceEncodedData() const override { return true; }
-    void updateBuffer(SharedBuffer&) override;
-    void finishLoading(SharedBuffer*, const NetworkLoadMetrics&) override;
+    void updateBuffer(const FragmentedSharedBuffer&) override;
+    void finishLoading(const FragmentedSharedBuffer*, const NetworkLoadMetrics&) override;
 
-    void doUpdateBuffer(SharedBuffer*);
+    void doUpdateBuffer(const FragmentedSharedBuffer*);
 };
 
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_CACHED_RESOURCE(CachedTextTrack, CachedResource::Type::TextTrackResource)
+
+#endif // ENABLE(VIDEO)

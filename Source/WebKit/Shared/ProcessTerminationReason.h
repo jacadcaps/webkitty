@@ -25,15 +25,27 @@
 
 #pragma once
 
+#include <wtf/Forward.h>
+
 namespace WebKit {
 
-enum class ProcessTerminationReason {
+enum class ProcessTerminationReason : uint8_t {
     ExceededMemoryLimit,
     ExceededCPULimit,
     RequestedByClient,
+    IdleExit,
+    Unresponsive,
     Crash,
+    ExceededProcessCountLimit,
     NavigationSwap,
     RequestedByNetworkProcess,
+    RequestedByGPUProcess,
+    RequestedByModelProcess,
+    GPUProcessCrashedTooManyTimes,
+    ModelProcessCrashedTooManyTimes,
+    NonMainFrameWebContentProcessCrash,
 };
+
+ASCIILiteral processTerminationReasonToString(ProcessTerminationReason);
 
 }

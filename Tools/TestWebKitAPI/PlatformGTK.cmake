@@ -1,5 +1,8 @@
 set(TESTWEBKITAPI_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/TestWebKitAPI")
 
+file(REMOVE_RECURSE ${TESTWEBKITAPI_RUNTIME_OUTPUT_DIRECTORY})
+file(MAKE_DIRECTORY ${TESTWEBKITAPI_RUNTIME_OUTPUT_DIRECTORY})
+
 add_custom_target(TestWebKitAPI-forwarding-headers
     COMMAND ${PERL_EXECUTABLE} ${WEBKIT_DIR}/Scripts/generate-forwarding-headers.pl --include-path ${TESTWEBKITAPI_DIR} --output ${FORWARDING_HEADERS_DIR} --platform gtk --platform soup
     DEPENDS WebKit-forwarding-headers
@@ -14,10 +17,10 @@ set(test_main_SOURCES gtk/main.cpp)
 list(APPEND TestWTF_SOURCES
     ${test_main_SOURCES}
 
+    Tests/WTF/glib/GRefPtr.cpp
     Tests/WTF/glib/GUniquePtr.cpp
+    Tests/WTF/glib/GWeakPtr.cpp
     Tests/WTF/glib/WorkQueueGLib.cpp
-
-    glib/UtilitiesGLib.cpp
 )
 
 list(APPEND TestWTF_SYSTEM_INCLUDE_DIRECTORIES
@@ -34,9 +37,8 @@ list(APPEND TestWebCore_SOURCES
 
     Tests/WebCore/UserAgentQuirks.cpp
     Tests/WebCore/gstreamer/GStreamerTest.cpp
+    Tests/WebCore/gstreamer/GstElementHarness.cpp
     Tests/WebCore/gstreamer/GstMappedBuffer.cpp
-
-    glib/UtilitiesGLib.cpp
 )
 
 list(APPEND TestWebCore_SYSTEM_INCLUDE_DIRECTORIES
@@ -51,13 +53,10 @@ list(APPEND TestWebCore_SYSTEM_INCLUDE_DIRECTORIES
 list(APPEND TestWebCore_LIBRARIES
     GTK::GTK
 )
-ADD_WHOLE_ARCHIVE_TO_LIBRARIES(TestWebCore_LIBRARIES)
 
 # TestWebKit
 list(APPEND TestWebKit_SOURCES
     ${test_main_SOURCES}
-
-    glib/UtilitiesGLib.cpp
 
     gtk/PlatformUtilitiesGtk.cpp
     gtk/PlatformWebViewGtk.cpp
@@ -65,6 +64,7 @@ list(APPEND TestWebKit_SOURCES
 
 list(APPEND TestWebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${CMAKE_SOURCE_DIR}/Source"
+    ${WebKitGTK_FRAMEWORK_HEADERS_DIR}
 )
 
 list(APPEND TestWebKit_SYSTEM_INCLUDE_DIRECTORIES
@@ -81,8 +81,6 @@ target_include_directories(TestWebKitAPIBase PRIVATE "${CMAKE_SOURCE_DIR}/Source
 
 # TestWebKitAPIInjectedBundle
 target_sources(TestWebKitAPIInjectedBundle PRIVATE
-    glib/UtilitiesGLib.cpp
-
     gtk/PlatformUtilitiesGtk.cpp
 )
 target_include_directories(TestWebKitAPIInjectedBundle PRIVATE
@@ -104,11 +102,7 @@ set(TestJSC_SYSTEM_INCLUDE_DIRECTORIES
 set(TestJSC_PRIVATE_INCLUDE_DIRECTORIES
     ${CMAKE_BINARY_DIR}
     ${TESTWEBKITAPI_DIR}
-    ${THIRDPARTY_DIR}/gtest/include
-    ${FORWARDING_HEADERS_DIR}
-    ${FORWARDING_HEADERS_DIR}/JavaScriptCore
-    ${FORWARDING_HEADERS_DIR}/JavaScriptCore/glib
-    ${DERIVED_SOURCES_JAVASCRIPCOREGTK_DIR}
+    "${JavaScriptCoreGLib_DERIVED_SOURCES_DIR}/jsc"
 )
 
 set(TestJSC_LIBRARIES
@@ -123,3 +117,8 @@ set(TestJSC_DEFINITIONS
 
 WEBKIT_EXECUTABLE_DECLARE(TestJSC)
 WEBKIT_TEST(TestJSC)
+
+# TestJavaScriptCore
+list(APPEND TestJavaScriptCore_SYSTEM_INCLUDE_DIRECTORIES
+    ${GLIB_INCLUDE_DIRS}
+)

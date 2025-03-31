@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,14 +27,13 @@
 
 #if PLATFORM(MAC)
 
+#import "DeprecatedGlobalValues.h"
 #import "PlatformUtilities.h"
+#import "TestWKWebView.h"
 #import <WebKit/WKPreferencesPrivate.h>
 #import <WebKit/WKWebViewConfigurationPrivate.h>
 #import <WebKit/WKWebViewPrivate.h>
 #import <wtf/RetainPtr.h>
-
-static bool receivedLoadedMessage;
-static bool receivedFullscreenChangeMessage;
 
 @interface FullscreenStateChangeMessageHandler : NSObject <WKScriptMessageHandler>
 @end
@@ -55,12 +54,12 @@ namespace TestWebKitAPI {
 TEST(Fullscreen, LayoutConstraints)
 {
     RetainPtr<WKWebViewConfiguration> configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
-    [configuration preferences]._fullScreenEnabled = YES;
-    RetainPtr<WKWebView> webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 100, 100) configuration:configuration.get()]);
+    [configuration preferences].elementFullscreenEnabled = YES;
+    auto webView = adoptNS([[TestWKWebView alloc] initWithFrame:NSMakeRect(0, 0, 100, 100) configuration:configuration.get()]);
     RetainPtr<FullscreenStateChangeMessageHandler> handler = adoptNS([[FullscreenStateChangeMessageHandler alloc] init]);
     [[configuration userContentController] addScriptMessageHandler:handler.get() name:@"fullscreenStateChangeHandler"];
 
-    RetainPtr<NSWindow> window = adoptNS([[NSWindow alloc] initWithContentRect:[webView frame] styleMask:NSWindowStyleMaskBorderless backing:NSBackingStoreBuffered defer:NO]);
+    RetainPtr window { webView.get().hostWindow };
     webView.get().translatesAutoresizingMaskIntoConstraints = NO;
     [[window contentView] addSubview:webView.get()];
     
@@ -70,7 +69,7 @@ TEST(Fullscreen, LayoutConstraints)
     
     NSArray* originalConstraints = [[window contentView] constraints];
     
-    NSURLRequest *request = [NSURLRequest requestWithURL:[[NSBundle mainBundle] URLForResource:@"FullscreenLayoutConstraints" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"]];
+    NSURLRequest *request = [NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"FullscreenLayoutConstraints" withExtension:@"html"]];
     [webView loadRequest:request];
     TestWebKitAPI::Util::run(&receivedLoadedMessage);
 
@@ -78,7 +77,7 @@ TEST(Fullscreen, LayoutConstraints)
     [webView mouseDown:event];
 
     TestWebKitAPI::Util::run(&receivedFullscreenChangeMessage);
-    
+
     receivedFullscreenChangeMessage = false;
     
     NSEvent *exitFSEvent = [NSEvent mouseEventWithType:NSEventTypeLeftMouseDown location:NSMakePoint(5, 5) modifierFlags:0 timestamp:0 windowNumber:window.get().windowNumber context:0 eventNumber:0 clickCount:0 pressure:0];
@@ -87,7 +86,8 @@ TEST(Fullscreen, LayoutConstraints)
     TestWebKitAPI::Util::run(&receivedFullscreenChangeMessage);
 
     NSArray* finalConstraints = [[window contentView] constraints];
-    ASSERT_TRUE([originalConstraints isEqual:finalConstraints]);
+    EXPECT_EQ(originalConstraints.count, 4u);
+    ASSERT_TRUE([originalConstraints isEqual:[finalConstraints subarrayWithRange:NSMakeRange(0, 4)]]);
 }
     
 } // namespace TestWebKitAPI

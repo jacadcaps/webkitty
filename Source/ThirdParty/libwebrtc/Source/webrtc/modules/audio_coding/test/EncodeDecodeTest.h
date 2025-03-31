@@ -14,6 +14,10 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "absl/strings/string_view.h"
+#include "api/environment/environment.h"
+#include "api/neteq/neteq.h"
+#include "modules/audio_coding/acm2/acm_resampler.h"
 #include "modules/audio_coding/include/audio_coding_module.h"
 #include "modules/audio_coding/test/PCMFile.h"
 #include "modules/audio_coding/test/RTPFile.h"
@@ -28,11 +32,11 @@ class TestPacketization : public AudioPacketizationCallback {
  public:
   TestPacketization(RTPStream* rtpStream, uint16_t frequency);
   ~TestPacketization();
-  int32_t SendData(const AudioFrameType frameType,
-                   const uint8_t payloadType,
-                   const uint32_t timeStamp,
+  int32_t SendData(AudioFrameType frameType,
+                   uint8_t payloadType,
+                   uint32_t timeStamp,
                    const uint8_t* payloadData,
-                   const size_t payloadSize,
+                   size_t payloadSize,
                    int64_t absolute_capture_timestamp_ms) override;
 
  private:
@@ -49,9 +53,10 @@ class TestPacketization : public AudioPacketizationCallback {
 class Sender {
  public:
   Sender();
-  void Setup(AudioCodingModule* acm,
+  void Setup(const Environment& env,
+             AudioCodingModule* acm,
              RTPStream* rtpStream,
-             std::string in_file_name,
+             absl::string_view in_file_name,
              int in_sample_rate,
              int payload_type,
              SdpAudioFormat format);
@@ -72,9 +77,9 @@ class Receiver {
  public:
   Receiver();
   virtual ~Receiver() {}
-  void Setup(AudioCodingModule* acm,
+  void Setup(NetEq* neteq,
              RTPStream* rtpStream,
-             std::string out_file_name,
+             absl::string_view out_file_name,
              size_t channels,
              int file_num);
   void Teardown();
@@ -90,7 +95,8 @@ class Receiver {
   bool _firstTime;
 
  protected:
-  AudioCodingModule* _acm;
+  NetEq* _neteq;
+  acm2::ResamplerHelper _resampler_helper;
   uint8_t _incomingPayload[MAX_INCOMING_PAYLOAD];
   RTPStream* _rtpStream;
   RTPHeader _rtpHeader;

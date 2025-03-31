@@ -27,11 +27,6 @@
 
 namespace WebCore {
 
-#if COMPILER(MSVC)
-#pragma warning(push)
-#pragma warning(disable: 4200) // Disable "zero-sized array in struct/union" warning
-#endif
-
 class QuotesData : public RefCounted<QuotesData> {
 public:
     static Ref<QuotesData> create(const Vector<std::pair<String, String>>& quotes);
@@ -42,20 +37,16 @@ public:
     const String& openQuote(unsigned index) const;
     const String& closeQuote(unsigned index) const;
 
+    unsigned size() const { return m_quoteCount; }
+
 private:
     explicit QuotesData(const Vector<std::pair<String, String>>& quotes);
+
+    std::span<const std::pair<String, String>> quotePairs() const;
+    std::span<std::pair<String, String>> quotePairs();
 
     unsigned m_quoteCount;
     std::pair<String, String> m_quotePairs[0];
 };
-
-#if COMPILER(MSVC)
-#pragma warning(pop)
-#endif
-
-inline bool operator!=(const QuotesData& a, const QuotesData& b)
-{
-    return !(a == b);
-}
 
 } // namespace WebCore

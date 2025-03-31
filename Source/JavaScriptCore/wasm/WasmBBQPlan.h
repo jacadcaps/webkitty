@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,13 +25,13 @@
 
 #pragma once
 
-#if ENABLE(WEBASSEMBLY)
+#if ENABLE(WEBASSEMBLY_BBQJIT)
 
 #include "CompilationResult.h"
-#include "WasmB3IRGenerator.h"
+#include "WasmCallee.h"
 #include "WasmEntryPlan.h"
 #include "WasmModuleInformation.h"
-#include "WasmTierUpCount.h"
+#include "tools/FunctionAllowlist.h"
 #include <wtf/Bag.h>
 #include <wtf/Function.h>
 #include <wtf/SharedTask.h>
@@ -45,53 +45,45 @@ class CallLinkInfo;
 namespace Wasm {
 
 class BBQCallee;
-class CodeBlock;
-class EmbedderEntrypointCallee;
+class CalleeGroup;
+class JSEntrypointCallee;
 
-class BBQPlan final : public EntryPlan {
+class BBQPlan final : public Plan {
 public:
-    using Base = EntryPlan;
+    using Base = Plan;
 
-    using Base::Base;
-
-    BBQPlan(Context*, Ref<ModuleInformation>, uint32_t functionIndex, CodeBlock*, CompletionTask&&);
-
-    bool hasWork() const final
+    static Ref<BBQPlan> create(VM& vm, Ref<ModuleInformation>&& info, FunctionCodeIndex functionIndex, std::optional<bool> hasExceptionHandlers, Ref<CalleeGroup>&& calleeGroup, CompletionTask&& completionTask)
     {
-        if (m_asyncWork == AsyncWork::Validation)
-            return m_state < State::Validated;
-        return m_state < State::Compiled;
+        return adoptRef(*new BBQPlan(vm, WTFMove(info), functionIndex, hasExceptionHandlers, WTFMove(calleeGroup), WTFMove(completionTask)));
     }
 
-    void work(CompilationEffort) final;
+    bool hasWork() const final { return !m_completed; }
+    void work() final;
+    bool multiThreaded() const final { return false; }
 
-    using CalleeInitializer = Function<void(uint32_t, RefPtr<EmbedderEntrypointCallee>&&, Ref<BBQCallee>&&)>;
-    void initializeCallees(const CalleeInitializer&);
+    static FunctionAllowlist& ensureGlobalBBQAllowlist();
 
-    bool didReceiveFunctionData(unsigned, const FunctionData&) final;
-
-    bool parseAndValidateModule()
-    {
-        return Base::parseAndValidateModule(m_source.data(), m_source.size());
-    }
 
 private:
-    bool prepareImpl() final;
-    void compileFunction(uint32_t functionIndex) final;
-    void didCompleteCompilation(const AbstractLocker&) final;
+    BBQPlan(VM&, Ref<ModuleInformation>&&, FunctionCodeIndex functionIndex, std::optional<bool> hasExceptionHandlers, Ref<CalleeGroup>&&, CompletionTask&&);
 
-    std::unique_ptr<InternalFunction> compileFunction(uint32_t functionIndex, CompilationContext&, Vector<UnlinkedWasmToWasmCall>&, TierUpCount*);
+    bool dumpDisassembly(CompilationContext&, LinkBuffer&, FunctionCodeIndex functionIndex, const TypeDefinition&, FunctionSpaceIndex functionIndexSpace);
 
-    Vector<std::unique_ptr<InternalFunction>> m_wasmInternalFunctions;
-    HashMap<uint32_t, std::unique_ptr<InternalFunction>, DefaultHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>> m_embedderToWasmInternalFunctions;
-    Vector<CompilationContext> m_compilationContexts;
-    Vector<std::unique_ptr<TierUpCount>> m_tierUpCounts;
+    std::unique_ptr<InternalFunction> compileFunction(FunctionCodeIndex functionIndex, BBQCallee&, CompilationContext&, Vector<UnlinkedWasmToWasmCall>&);
+    bool isComplete() const final { return m_completed; }
+    void complete() WTF_REQUIRES_LOCK(m_lock) final
+    {
+        m_completed = true;
+        runCompletionTasks();
+    }
 
-    RefPtr<CodeBlock> m_codeBlock { nullptr };
-    uint32_t m_functionIndex;
+    Ref<CalleeGroup> m_calleeGroup;
+    FunctionCodeIndex m_functionIndex;
+    bool m_completed { false };
+    std::optional<bool> m_hasExceptionHandlers;
 };
 
 
 } } // namespace JSC::Wasm
 
-#endif // ENABLE(WEBASSEMBLY)
+#endif // ENABLE(WEBASSEMBLY_BBQJIT)

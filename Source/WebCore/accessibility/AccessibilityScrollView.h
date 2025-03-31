@@ -25,64 +25,76 @@
 
 #pragma once
 
+#include "AXRemoteFrame.h"
 #include "AccessibilityObject.h"
+#include "ScrollView.h"
 
 namespace WebCore {
     
+class AXRemoteFrame;
 class AccessibilityScrollbar;
 class Scrollbar;
 class ScrollView;
     
 class AccessibilityScrollView final : public AccessibilityObject {
 public:
-    static Ref<AccessibilityScrollView> create(ScrollView*);
-    AccessibilityRole roleValue() const override { return AccessibilityRole::ScrollArea; }
-    ScrollView* scrollView() const override { return m_scrollView.get(); }
+    static Ref<AccessibilityScrollView> create(AXID, ScrollView&);
+    AccessibilityRole determineAccessibilityRole() final { return AccessibilityRole::ScrollArea; }
+    ScrollView* scrollView() const final { return currentScrollView(); }
 
     virtual ~AccessibilityScrollView();
 
-    AccessibilityObject* webAreaObject() const override;
+    AccessibilityObject* webAreaObject() const final;
+    void setNeedsToUpdateChildren() final { m_childrenDirty = true; }
+
+    RefPtr<AXRemoteFrame> remoteFrame() const { return m_remoteFrame; }
 
 private:
-    explicit AccessibilityScrollView(ScrollView*);
-    void detachRemoteParts(AccessibilityDetachmentType) override;
+    explicit AccessibilityScrollView(AXID, ScrollView&);
+    void detachRemoteParts(AccessibilityDetachmentType) final;
 
-    ScrollableArea* getScrollableAreaIfScrollable() const override;
-    void scrollTo(const IntPoint&) const override;
-    bool computeAccessibilityIsIgnored() const override;
-    bool isAccessibilityScrollViewInstance() const override { return true; }
-    bool isEnabled() const override { return true; }
-    
-    bool isAttachment() const override;
-    PlatformWidget platformWidget() const override;
-    Widget* widgetForAttachmentView() const override;
-    
-    AccessibilityObject* scrollBar(AccessibilityOrientation) override;
-    void addChildren() override;
-    void clearChildren() override;
-    AXCoreObject* accessibilityHitTest(const IntPoint&) const override;
-    void updateChildrenIfNecessary() override;
-    void setNeedsToUpdateChildren() override { m_childrenDirty = true; }
+    ScrollView* currentScrollView() const;
+    ScrollableArea* getScrollableAreaIfScrollable() const final { return currentScrollView(); }
+    void scrollTo(const IntPoint&) const final;
+    bool computeIsIgnored() const final;
+    bool isAccessibilityScrollViewInstance() const final { return true; }
+    bool isEnabled() const final { return true; }
+    bool hasRemoteFrameChild() const final { return m_remoteFrame; }
+
+    bool isAttachment() const final;
+    PlatformWidget platformWidget() const final;
+    Widget* widgetForAttachmentView() const final { return currentScrollView(); }
+
+    AccessibilityObject* scrollBar(AccessibilityOrientation) final;
+    void addChildren() final;
+    void clearChildren() final;
+    AccessibilityObject* accessibilityHitTest(const IntPoint&) const final;
+    void updateChildrenIfNecessary() final;
     void updateScrollbars();
-    void setFocused(bool) override;
-    bool canSetFocusAttribute() const override;
-    bool isFocused() const override;
-    
-    FrameView* documentFrameView() const override;
-    LayoutRect elementRect() const override;
-    AccessibilityObject* parentObject() const override;
-    AccessibilityObject* parentObjectIfExists() const override;
+    void setFocused(bool) final;
+    bool canSetFocusAttribute() const final;
+    bool isFocused() const final;
+    void addRemoteFrameChild();
 
-    AccessibilityObject* firstChild() const override { return webAreaObject(); }
+    Document* document() const final;
+    LocalFrameView* documentFrameView() const final;
+    LayoutRect elementRect() const final;
+    AccessibilityObject* parentObject() const final;
+
+    AccessibilityObject* firstChild() const final { return webAreaObject(); }
     AccessibilityScrollbar* addChildScrollbar(Scrollbar*);
     void removeChildScrollbar(AccessibilityObject*);
-    
-    WeakPtr<ScrollView> m_scrollView;
+
+    SingleThreadWeakPtr<ScrollView> m_scrollView;
+    WeakPtr<HTMLFrameOwnerElement, WeakPtrImplWithEventTargetData> m_frameOwnerElement;
     RefPtr<AccessibilityObject> m_horizontalScrollbar;
     RefPtr<AccessibilityObject> m_verticalScrollbar;
     bool m_childrenDirty;
+    RefPtr<AXRemoteFrame> m_remoteFrame;
 };
     
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_ACCESSIBILITY(AccessibilityScrollView, isAccessibilityScrollViewInstance())
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::AccessibilityScrollView) \
+    static bool isType(const WebCore::AccessibilityObject& object) { return object.isAccessibilityScrollViewInstance(); } \
+SPECIALIZE_TYPE_TRAITS_END()

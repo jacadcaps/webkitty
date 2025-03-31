@@ -25,7 +25,11 @@
 
 #pragma once
 
+#if !BUSE(TZONE)
+
 #include "IsoTLSEntry.h"
+
+#if !BUSE(LIBPAS)
 
 namespace bmalloc {
 
@@ -66,3 +70,5 @@ void DefaultIsoTLSEntry<EntryType>::destruct(void* passedEntry)
 
 } // namespace bmalloc
 
+#endif
+#endif // !BUSE(TZONE)

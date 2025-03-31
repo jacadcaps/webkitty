@@ -29,6 +29,8 @@
 #if USE(PASSKIT) && ENABLE(APPLE_PAY)
 
 #import "WKPaymentAuthorizationDelegate.h"
+#import <wtf/CompletionHandler.h>
+
 #import <pal/cocoa/PassKitSoftLink.h>
 
 @interface WKPaymentAuthorizationViewControllerDelegate : WKPaymentAuthorizationDelegate <PKPaymentAuthorizationViewControllerDelegate, PKPaymentAuthorizationViewControllerPrivateDelegate>
@@ -79,6 +81,15 @@
     [self _didSelectPaymentMethod:paymentMethod completion:completion];
 }
 
+#if HAVE(PASSKIT_COUPON_CODE)
+
+- (void)paymentAuthorizationViewController:(PKPaymentAuthorizationViewController *)controller didChangeCouponCode:(NSString *)couponCode handler:(void (^)(PKPaymentRequestCouponCodeUpdate *update))completion
+{
+    [self _didChangeCouponCode:couponCode completion:completion];
+}
+
+#endif // HAVE(PASSKIT_COUPON_CODE)
+
 #pragma mark PKPaymentAuthorizationViewControllerDelegatePrivate
 
 - (void)paymentAuthorizationViewController:(PKPaymentAuthorizationViewController *)controller willFinishWithError:(NSError *)error
@@ -105,6 +116,11 @@ static RetainPtr<PKPaymentAuthorizationViewController> platformViewController(PK
 #else
     return viewController;
 #endif
+}
+
+Ref<PaymentAuthorizationViewController> PaymentAuthorizationViewController::create(PaymentAuthorizationPresenter::Client& client, PKPaymentRequest *request, PKPaymentAuthorizationViewController *viewController)
+{
+    return adoptRef(*new PaymentAuthorizationViewController(client, request, viewController));
 }
 
 PaymentAuthorizationViewController::PaymentAuthorizationViewController(PaymentAuthorizationPresenter::Client& client, PKPaymentRequest *request, PKPaymentAuthorizationViewController *viewController)
@@ -143,6 +159,14 @@ void PaymentAuthorizationViewController::present(UIViewController *presentingVie
     [presentingViewController presentViewController:m_viewController.get() animated:YES completion:nullptr];
     completionHandler(true);
 }
+
+#if ENABLE(APPLE_PAY_REMOTE_UI_USES_SCENE)
+void PaymentAuthorizationViewController::presentInScene(const String&, const String&, CompletionHandler<void(bool)>&& completionHandler)
+{
+    ASSERT_NOT_REACHED();
+    completionHandler(false);
+}
+#endif
 
 #endif
 

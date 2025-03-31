@@ -26,47 +26,66 @@
 #include "config.h"
 #include "WorkerNetworkAgent.h"
 
+#include "SharedBuffer.h"
 #include "WorkerDebuggerProxy.h"
-#include "WorkerGlobalScope.h"
+#include "WorkerOrWorkletGlobalScope.h"
 #include "WorkerThread.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
 using namespace Inspector;
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WorkerNetworkAgent);
+
 WorkerNetworkAgent::WorkerNetworkAgent(WorkerAgentContext& context)
     : InspectorNetworkAgent(context)
-    , m_workerGlobalScope(context.workerGlobalScope)
+    , m_globalScope(context.globalScope)
 {
-    ASSERT(context.workerGlobalScope.isContextThread());
+    ASSERT(context.globalScope->isContextThread());
 }
 
 WorkerNetworkAgent::~WorkerNetworkAgent() = default;
 
-String WorkerNetworkAgent::loaderIdentifier(DocumentLoader*)
+Inspector::Protocol::Network::LoaderId WorkerNetworkAgent::loaderIdentifier(DocumentLoader*)
 {
     return { };
 }
 
-String WorkerNetworkAgent::frameIdentifier(DocumentLoader*)
+Inspector::Protocol::Network::FrameId WorkerNetworkAgent::frameIdentifier(DocumentLoader*)
 {
     return { };
 }
 
-Vector<WebSocket*> WorkerNetworkAgent::activeWebSockets(const LockHolder&)
+Vector<WebSocket*> WorkerNetworkAgent::activeWebSockets()
 {
     // FIXME: <https://webkit.org/b/168475> Web Inspector: Correctly display worker's WebSockets
     return { };
 }
 
-void WorkerNetworkAgent::setResourceCachingDisabled(bool disabled)
+void WorkerNetworkAgent::setResourceCachingDisabledInternal(bool disabled)
 {
-    m_workerGlobalScope.thread().workerDebuggerProxy().setResourceCachingDisabledByWebInspector(disabled);
+    if (auto* workerDebuggerProxy = m_globalScope->workerOrWorkletThread()->workerDebuggerProxy())
+        workerDebuggerProxy->setResourceCachingDisabledByWebInspector(disabled);
 }
 
-ScriptExecutionContext* WorkerNetworkAgent::scriptExecutionContext(ErrorString&, const String&)
+#if ENABLE(INSPECTOR_NETWORK_THROTTLING)
+
+bool WorkerNetworkAgent::setEmulatedConditionsInternal(std::optional<int>&& /* bytesPerSecondLimit */)
 {
-    return &m_workerGlobalScope;
+    return false;
+}
+
+#endif // ENABLE(INSPECTOR_NETWORK_THROTTLING)
+
+ScriptExecutionContext* WorkerNetworkAgent::scriptExecutionContext(Inspector::Protocol::ErrorString&, const Inspector::Protocol::Network::FrameId&)
+{
+    return m_globalScope.ptr();
+}
+
+void WorkerNetworkAgent::addConsoleMessage(std::unique_ptr<Inspector::ConsoleMessage>&& message)
+{
+    m_globalScope->addConsoleMessage(WTFMove(message));
 }
 
 } // namespace WebCore

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # Copyright (c) 2014-2018 Apple Inc. All rights reserved.
 # Copyright (c) 2014 University of Washington. All rights reserved.
@@ -35,7 +35,7 @@ try:
     from .cpp_generator_templates import CppGeneratorTemplates as CppTemplates
     from .generator import Generator, ucfirst
     from .models import AliasedType, ArrayType, EnumType, ObjectType
-except ValueError:
+except ImportError:
     from cpp_generator import CppGenerator
     from cpp_generator_templates import CppGeneratorTemplates as CppTemplates
     from generator import Generator, ucfirst
@@ -56,7 +56,7 @@ class CppProtocolTypesImplementationGenerator(CppGenerator):
         self.calculate_types_requiring_shape_assertions(domains)
 
         secondary_headers = [
-            '<wtf/Optional.h>',
+            '<optional>',
             '<wtf/text/CString.h>',
         ]
 
@@ -70,7 +70,6 @@ class CppProtocolTypesImplementationGenerator(CppGenerator):
         sections.append(Template(CppTemplates.ImplementationPrelude).substitute(None, **header_args))
         sections.append('namespace Protocol {')
         sections.extend(self._generate_enum_mapping_and_conversion_methods(domains))
-        sections.append(self._generate_open_field_names())
         builder_sections = list(map(self._generate_builders_for_domain, domains))
         sections.extend([section for section in builder_sections if len(section) > 0])
         sections.append('} // namespace Protocol')
@@ -82,10 +81,8 @@ class CppProtocolTypesImplementationGenerator(CppGenerator):
 
     def _generate_secondary_header_includes(self):
         header_includes = [
-            (["JavaScriptCore", "WebKit"], ("WTF", "wtf/Optional.h")),
-            (["JavaScriptCore", "WebKit"], ("WTF", "wtf/text/CString.h")),
+            (["JavaScriptCore", "WebKit"], ("WTF", "wtf/Assertions.h")),
         ]
-
         return '\n'.join(self.generate_includes_from_entries(header_includes))
 
     def _generate_enum_mapping(self):
@@ -93,9 +90,9 @@ class CppProtocolTypesImplementationGenerator(CppGenerator):
             return []
 
         lines = []
-        lines.append('static const char* const enum_constant_values[] = {')
-        lines.extend(['    "%s",' % enum_value for enum_value in self.assigned_enum_values()])
-        lines.append('};')
+        lines.append('static const auto enum_constant_values = std::to_array<ASCIILiteral>({')
+        lines.extend(['    "%s"_s,' % enum_value for enum_value in self.assigned_enum_values()])
+        lines.append('});')
         lines.append('')
         lines.append('String getEnumConstantValue(int code) {')
         lines.append('    return enum_constant_values[code];')
@@ -110,10 +107,9 @@ class CppProtocolTypesImplementationGenerator(CppGenerator):
         def generate_conversion_method_body(enum_type, cpp_protocol_type):
             body_lines = []
             body_lines.extend([
-                'template<>',
-                'Optional<%s> parseEnumValueFromString<%s>(const String& protocolString)' % (cpp_protocol_type, cpp_protocol_type),
+                'template<> std::optional<%s> parseEnumValueFromString<%s>(const String& protocolString)' % (cpp_protocol_type, cpp_protocol_type),
                 '{',
-                '    static const size_t constantValues[] = {',
+                '    static const auto constantValues = std::to_array<size_t>({',
             ])
 
             enum_values = enum_type.enum_values()
@@ -121,12 +117,12 @@ class CppProtocolTypesImplementationGenerator(CppGenerator):
                 body_lines.append('        (size_t)%s::%s,' % (cpp_protocol_type, Generator.stylized_name_for_enum_value(enum_value)))
 
             body_lines.extend([
-                '    };',
+                '    });',
                 '    for (size_t i = 0; i < %d; ++i)' % len(enum_values),
                 '        if (protocolString == enum_constant_values[constantValues[i]])',
                 '            return (%s)constantValues[i];' % cpp_protocol_type,
                 '',
-                '    return WTF::nullopt;',
+                '    return std::nullopt;',
                 '}',
             ])
             return '\n'.join(body_lines)
@@ -144,14 +140,14 @@ class CppProtocolTypesImplementationGenerator(CppGenerator):
         lines = []
         lines.append("// Enums in the '%s' Domain" % domain.domain_name)
         for enum_type in enum_types:
-            cpp_protocol_type = CppGenerator.cpp_protocol_type_for_type(enum_type)
+            cpp_protocol_type = CppGenerator.cpp_type_for_enum(enum_type, enum_type.raw_name())
             lines.append('')
             lines.append(self.wrap_with_guard_for_condition(enum_type.declaration().condition, generate_conversion_method_body(enum_type, cpp_protocol_type)))
 
         for object_type in object_types:
             object_lines = []
             for enum_member in filter(type_member_is_anonymous_enum_type, object_type.members):
-                cpp_protocol_type = CppGenerator.cpp_protocol_type_for_type_member(enum_member, object_type.declaration())
+                cpp_protocol_type = CppGenerator.cpp_type_for_enum(enum_member.type, '%s::%s' % (object_type.raw_name(), ucfirst(enum_member.member_name)))
                 object_lines.append(generate_conversion_method_body(enum_member.type, cpp_protocol_type))
             if len(object_lines):
                 if len(lines):
@@ -174,21 +170,6 @@ class CppProtocolTypesImplementationGenerator(CppGenerator):
 
         sections.append('} // namespace %s' % self.helpers_namespace())
         return sections
-
-    def _generate_open_field_names(self):
-        lines = []
-        for domain in self.domains_to_generate():
-            domain_lines = []
-            type_declarations = self.type_declarations_for_domain(domain)
-            for type_declaration in [decl for decl in type_declarations if Generator.type_has_open_fields(decl.type)]:
-                open_members = Generator.open_fields(type_declaration)
-                for type_member in sorted(open_members, key=lambda member: member.member_name):
-                    field_name = '::'.join(['Inspector', 'Protocol', domain.domain_name, ucfirst(type_declaration.type_name), ucfirst(type_member.member_name)])
-                    domain_lines.append('const char* %s = "%s";' % (field_name, type_member.member_name))
-            if len(domain_lines):
-                lines.append(self.wrap_with_guard_for_condition(domain.condition, '\n'.join(domain_lines)))
-
-        return '\n'.join(lines)
 
     def _generate_builders_for_domain(self, domain):
         sections = []
@@ -227,67 +208,76 @@ class CppProtocolTypesImplementationGenerator(CppGenerator):
 
         lines.append('void BindingTraits<%s>::assertValueHasExpectedType(JSON::Value* value)' % (CppGenerator.cpp_protocol_type_for_type(object_declaration.type)))
         lines.append("""{
+    ASSERT_UNUSED(value, value);
 #if ASSERT_ENABLED
-    ASSERT_ARG(value, value);
-    RefPtr<JSON::Object> object;
-    bool castSucceeded = value->asObject(object);
-    ASSERT_UNUSED(castSucceeded, castSucceeded);""")
+    auto object = value->asObject();
+    ASSERT(object);""")
         for type_member in required_members:
+            member_type = type_member.type
+            if isinstance(member_type, AliasedType):
+                member_type = member_type.aliased_type
+
+            if isinstance(member_type, EnumType):
+                member_type = CppGenerator.cpp_type_for_enum(member_type, '%s::%s' % (object_declaration.type_name, ucfirst(type_member.member_name)))
+            else:
+                member_type = CppGenerator.cpp_protocol_type_for_type(member_type)
+
             args = {
                 'memberName': type_member.member_name,
-                'assertMethod': CppGenerator.cpp_assertion_method_for_type_member(type_member, object_declaration)
+                'memberType': member_type
             }
 
             lines.append("""    {
         auto %(memberName)sPos = object->find("%(memberName)s"_s);
         ASSERT(%(memberName)sPos != object->end());
-        %(assertMethod)s(%(memberName)sPos->value.get());
+        BindingTraits<%(memberType)s>::assertValueHasExpectedType(%(memberName)sPos->value.ptr());
     }""" % args)
 
-        if should_count_properties:
-            lines.append('')
-            lines.append('    int foundPropertiesCount = %s;' % len(required_members))
+        lines.append('')
+        lines.append('    size_t foundPropertiesCount = %s;' % len(required_members))
 
         for type_member in optional_members:
+            member_type = type_member.type
+            if isinstance(member_type, AliasedType):
+                member_type = member_type.aliased_type
+
+            if isinstance(member_type, EnumType):
+                member_type = CppGenerator.cpp_type_for_enum(member_type, '%s::%s' % (object_declaration.type_name, ucfirst(type_member.member_name)))
+            else:
+                member_type = CppGenerator.cpp_protocol_type_for_type(member_type)
+
             args = {
                 'memberName': type_member.member_name,
-                'assertMethod': CppGenerator.cpp_assertion_method_for_type_member(type_member, object_declaration)
+                'memberType': member_type
             }
 
             lines.append("""    {
         auto %(memberName)sPos = object->find("%(memberName)s"_s);
         if (%(memberName)sPos != object->end()) {
-            %(assertMethod)s(%(memberName)sPos->value.get());""" % args)
+            BindingTraits<%(memberType)s>::assertValueHasExpectedType(%(memberName)sPos->value.ptr());""" % args)
 
-            if should_count_properties:
-                lines.append('            ++foundPropertiesCount;')
+            lines.append('            ++foundPropertiesCount;')
             lines.append('        }')
             lines.append('    }')
 
-        if should_count_properties:
-            lines.append('    if (foundPropertiesCount != object->size())')
-            lines.append('        FATAL("Unexpected properties in object: %s\\n", object->toJSONString().ascii().data());')
-        lines.append('#else // ASSERT_ENABLED')
-        lines.append('    UNUSED_PARAM(value);')
-        lines.append('#endif // ASSERT_ENABLED')
+        lines.append('    if (foundPropertiesCount %s object->size())' % ('!=' if should_count_properties else '>='))
+        lines.append('        FATAL("Unexpected properties in object: %s\\n", object->toJSONString().ascii().data());')
+        lines.append('#endif')
         lines.append('}')
         return '\n'.join(lines)
 
     def _generate_assertion_for_enum(self, enum_member, object_declaration):
         lines = []
-        lines.append('void %s(JSON::Value* value)' % CppGenerator.cpp_assertion_method_for_type_member(enum_member, object_declaration))
+        lines.append('void BindingTraits<%s>::assertValueHasExpectedType(JSON::Value* value)' % CppGenerator.cpp_type_for_enum(enum_member.type, '%s::%s' % (object_declaration.type_name, ucfirst(enum_member.member_name))))
         lines.append('{')
+        lines.append('    ASSERT_UNUSED(value, value);')
         lines.append('#if ASSERT_ENABLED')
-        lines.append('    ASSERT_ARG(value, value);')
-        lines.append('    String result;')
-        lines.append('    bool castSucceeded = value->asString(result);')
-        lines.append('    ASSERT(castSucceeded);')
+        lines.append('    auto result = value->asString();')
+        lines.append('    ASSERT(result);')
 
-        assert_condition = ' || '.join(['result == "%s"' % enum_value for enum_value in enum_member.type.enum_values()])
+        assert_condition = ' || '.join(['result == "%s"_s' % enum_value for enum_value in enum_member.type.enum_values()])
         lines.append('    ASSERT(%s);' % assert_condition)
-        lines.append('#else // ASSERT_ENABLED')
-        lines.append('    UNUSED_PARAM(value);')
-        lines.append('#endif // ASSERT_ENABLED')
+        lines.append('#endif')
         lines.append('}')
 
         return '\n'.join(lines)

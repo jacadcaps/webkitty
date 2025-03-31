@@ -36,11 +36,11 @@ using FallbackURLVector = Vector<std::pair<URL, URL>>;
 
 struct ApplicationCacheManifest {
     Vector<URL> onlineAllowedURLs;
-    HashSet<String> explicitURLs;
+    UncheckedKeyHashSet<String> explicitURLs;
     FallbackURLVector fallbackURLs;
     bool allowAllNetworkRequests { false }; // Wildcard found in NETWORK section.
 };
 
-Optional<ApplicationCacheManifest> parseApplicationCacheManifest(const URL& manifestURL, const String& manifestMIMEType, const char* data, int length);
+std::optional<ApplicationCacheManifest> parseApplicationCacheManifest(const URL& manifestURL, const String& manifestMIMEType, std::span<const uint8_t> data);
 
 } // namespace WebCore

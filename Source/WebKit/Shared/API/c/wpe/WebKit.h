@@ -57,7 +57,6 @@
 #include <WebKit/WKBundleFrame.h>
 #include <WebKit/WKBundleHitTestResult.h>
 #include <WebKit/WKBundleInitialize.h>
-#include <WebKit/WKBundleInspector.h>
 #include <WebKit/WKBundleNavigationAction.h>
 #include <WebKit/WKBundleNodeHandle.h>
 #include <WebKit/WKBundlePage.h>
@@ -65,8 +64,6 @@
 #include <WebKit/WKBundlePageContextMenuClient.h>
 #include <WebKit/WKBundlePageEditorClient.h>
 #include <WebKit/WKBundlePageFormClient.h>
-#include <WebKit/WKBundlePageFullScreenClient.h>
-#include <WebKit/WKBundlePageGroup.h>
 #include <WebKit/WKBundlePageLoaderClient.h>
 #include <WebKit/WKBundlePageOverlay.h>
 #include <WebKit/WKBundlePagePolicyClient.h>

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,13 +32,14 @@
 #include "DFGNode.h"
 #include "DFGNodeFlowProjection.h"
 #include "DFGPhiChildren.h"
+#include <wtf/TZoneMalloc.h>
 #include <wtf/TriState.h>
 
 namespace JSC { namespace DFG {
 
 template<typename AbstractStateType>
 class AbstractInterpreter {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_TEMPLATE(AbstractInterpreter);
 public:
     AbstractInterpreter(Graph&, AbstractStateType&);
     ~AbstractInterpreter();
@@ -46,6 +47,11 @@ public:
     ALWAYS_INLINE AbstractValue& forNode(NodeFlowProjection node)
     {
         return m_state.forNode(node);
+    }
+
+    ALWAYS_INLINE AbstractValue& forTupleNode(NodeFlowProjection node, unsigned index)
+    {
+        return m_state.forTupleNode(node, index);
     }
     
     ALWAYS_INLINE AbstractValue& forNode(Edge edge)
@@ -119,6 +125,11 @@ public:
         makeHeapTopForNode(edge.node());
     }
     
+    bool hasClearedAbstractState(NodeFlowProjection node)
+    {
+        return m_state.hasClearedAbstractState(node);
+    }
+
     bool needsTypeCheck(Node* node, SpeculatedType typesPassedThrough)
     {
         return !forNode(node).isType(typesPassedThrough);
@@ -248,20 +259,30 @@ private:
         m_state.setShouldTryConstantFolding(true);
     }
     
+    void setTupleConstant(Node* node, unsigned index, FrozenValue value)
+    {
+        AbstractValue& abstractValue = m_state.forTupleNode(node, index);
+        abstractValue.set(m_graph, value, m_state.structureClobberState());
+        abstractValue.fixTypeForRepresentation(m_graph, node);
+        m_state.setShouldTryConstantFolding(true);
+    }
+
     ALWAYS_INLINE void filterByType(Edge& edge, SpeculatedType type);
     
     void verifyEdge(Node*, Edge);
     void verifyEdges(Node*);
-    void executeDoubleUnaryOpEffects(Node*, double(*equivalentFunction)(double));
+    void executeDoubleUnaryOpEffects(Node*, const auto& functor);
     
     bool handleConstantDivOp(Node*);
 
-    CodeBlock* m_codeBlock;
+    CodeBlock* const m_codeBlock;
     Graph& m_graph;
     VM& m_vm;
     AbstractStateType& m_state;
     std::unique_ptr<PhiChildren> m_phiChildren;
 };
+
+WTF_MAKE_TZONE_ALLOCATED_TEMPLATE_IMPL(template<typename AbstractStateType>, AbstractInterpreter<AbstractStateType>);
 
 } } // namespace JSC::DFG
 

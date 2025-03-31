@@ -34,41 +34,43 @@
 
 #include "ActiveDOMObject.h"
 #include "EventTarget.h"
-#include "GenericEventQueue.h"
 #include <wtf/RefCounted.h>
 #include <wtf/Vector.h>
 
 namespace WebCore {
 
 class SourceBuffer;
+class WebCoreOpaqueRoot;
 
-class SourceBufferList final : public RefCounted<SourceBufferList>, public EventTargetWithInlineData, public ActiveDOMObject {
-    WTF_MAKE_ISO_ALLOCATED(SourceBufferList);
+class SourceBufferList final : public RefCounted<SourceBufferList>, public EventTarget, public ActiveDOMObject {
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(SourceBufferList);
 public:
-    static Ref<SourceBufferList> create(ScriptExecutionContext* context)
-    {
-        return adoptRef(*new SourceBufferList(context));
-    }
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
+    static Ref<SourceBufferList> create(ScriptExecutionContext*);
     virtual ~SourceBufferList();
 
-    unsigned long length() const { return m_list.size(); }
-    SourceBuffer* item(unsigned long index) const { return (index < m_list.size()) ? m_list[index].get() : nullptr; }
+    bool isSupportedPropertyIndex(unsigned index) const { return index < length(); }
+    unsigned length() const { return m_list.size(); }
+
+    RefPtr<SourceBuffer> item(unsigned index) const;
 
     void add(Ref<SourceBuffer>&&);
     void remove(SourceBuffer&);
-    bool contains(SourceBuffer& buffer) { return m_list.find(&buffer) != notFound; }
+    bool contains(SourceBuffer&) const;
     void clear();
-    void swap(Vector<RefPtr<SourceBuffer>>&);
+    void replaceWith(Vector<Ref<SourceBuffer>>&&);
 
-    Vector<RefPtr<SourceBuffer>>::iterator begin() { return m_list.begin(); }
-    Vector<RefPtr<SourceBuffer>>::iterator end() { return m_list.end(); }
+    auto begin() { return m_list.begin(); }
+    auto end() { return m_list.end(); }
+    auto begin() const { return m_list.begin(); }
+    auto end() const { return m_list.end(); }
+    size_t size() const { return m_list.size(); }
 
     // EventTarget interface
-    EventTargetInterface eventTargetInterface() const final { return SourceBufferListEventTargetInterfaceType; }
+    enum EventTargetInterfaceType eventTargetInterface() const final { return EventTargetInterfaceType::SourceBufferList; }
     ScriptExecutionContext* scriptExecutionContext() const final { return ContextDestructionObserver::scriptExecutionContext(); }
-
-    using RefCounted<SourceBufferList>::ref;
-    using RefCounted<SourceBufferList>::deref;
 
 private:
     explicit SourceBufferList(ScriptExecutionContext*);
@@ -78,12 +80,10 @@ private:
     void refEventTarget() override { ref(); }
     void derefEventTarget() override { deref(); }
 
-    const char* activeDOMObjectName() const final;
-
-    UniqueRef<MainThreadGenericEventQueue> m_asyncEventQueue;
-
-    Vector<RefPtr<SourceBuffer>> m_list;
+    Vector<Ref<SourceBuffer>> m_list;
 };
+
+WebCoreOpaqueRoot root(SourceBufferList*);
 
 } // namespace WebCore
 

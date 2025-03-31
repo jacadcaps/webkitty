@@ -23,13 +23,17 @@
 * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// https://drafts.css-houdini.org/css-typed-om/#cssstylepropertymapreadonly
 [
-    EnabledAtRuntime=CSSTypedOM,
-    Conditional=CSS_TYPED_OM,
     Exposed=(Window,Worker,PaintWorklet),
     SkipVTableValidation,
     JSGenerateToJSObject,
+    JSCustomMarkFunction
 ] interface StylePropertyMapReadOnly {
-    // FIXME: should be (undefined or TypedOMCSSStyleValue), not null
-    TypedOMCSSStyleValue? get(USVString property);
+    iterable<USVString, sequence<CSSStyleValue>>;
+    [CallWith=CurrentScriptExecutionContext] (undefined or CSSStyleValue) get([AtomString] USVString property);
+    [CallWith=CurrentScriptExecutionContext] sequence<CSSStyleValue> getAll([AtomString] USVString property);
+    [CallWith=CurrentScriptExecutionContext] boolean has([AtomString] USVString property);
+
+    readonly attribute unsigned long size;
 };

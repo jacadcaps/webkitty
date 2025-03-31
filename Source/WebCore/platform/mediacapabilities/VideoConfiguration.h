@@ -28,7 +28,6 @@
 #include "ColorGamut.h"
 #include "HdrMetadataType.h"
 #include "TransferFunction.h"
-#include <wtf/Optional.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
@@ -39,10 +38,23 @@ struct VideoConfiguration {
     uint32_t height;
     uint64_t bitrate;
     double framerate;
-    Optional<bool> alphaChannel;
-    Optional<ColorGamut> colorGamut;
-    Optional<HdrMetadataType> hdrMetadataType;
-    Optional<TransferFunction> transferFunction;
+    std::optional<bool> alphaChannel;
+    std::optional<ColorGamut> colorGamut;
+    std::optional<HdrMetadataType> hdrMetadataType;
+    std::optional<TransferFunction> transferFunction;
+
+    VideoConfiguration isolatedCopy() const &;
+    VideoConfiguration isolatedCopy() &&;
 };
 
+inline VideoConfiguration VideoConfiguration::isolatedCopy() const &
+{
+    return { contentType.isolatedCopy(), width, height, bitrate, framerate, alphaChannel, colorGamut, hdrMetadataType, transferFunction };
 }
+
+inline VideoConfiguration VideoConfiguration::isolatedCopy() &&
+{
+    return { WTFMove(contentType).isolatedCopy(), width, height, bitrate, framerate, alphaChannel, colorGamut, hdrMetadataType, transferFunction };
+}
+
+} // namespace WebCore

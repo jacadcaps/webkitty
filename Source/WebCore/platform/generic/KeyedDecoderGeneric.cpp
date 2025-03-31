@@ -27,42 +27,46 @@
 #include "KeyedDecoderGeneric.h"
 
 #include "KeyedEncoderGeneric.h"
+#include <variant>
 #include <wtf/HashMap.h>
-#include <wtf/Variant.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/Vector.h>
 #include <wtf/persistence/PersistentDecoder.h>
 #include <wtf/text/StringHash.h>
 
 namespace WebCore {
 
+typedef KeyedDecoderGeneric::Dictionary KeyedDecoderGenericDictionary;
 class KeyedDecoderGeneric::Dictionary {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(KeyedDecoderGenericDictionary);
 public:
-    using Node = Variant<Vector<uint8_t>, bool, uint32_t, uint64_t, int32_t, int64_t, float, double, String, std::unique_ptr<Dictionary>, std::unique_ptr<Array>>;
+    using Node = std::variant<Vector<uint8_t>, bool, uint32_t, uint64_t, int32_t, int64_t, float, double, String, std::unique_ptr<Dictionary>, std::unique_ptr<Array>>;
 
     template <typename T>
-    void add(const String& key, T&& value) { m_map.add(key, makeUnique<Node>(std::forward<T>(value))); }
+    void add(const String& key, T&& value) { m_map.add(key, makeUniqueWithoutFastMallocCheck<Node>(std::forward<T>(value))); }
     Node* get(const String& key) { return m_map.get(key); }
 
 private:
-    HashMap<String, std::unique_ptr<Node>> m_map;
+    UncheckedKeyHashMap<String, std::unique_ptr<Node>> m_map;
 };
 
-static Optional<String> readString(WTF::Persistence::Decoder& decoder)
+static std::optional<String> readString(WTF::Persistence::Decoder& decoder)
 {
-    Optional<size_t> size;
+    std::optional<size_t> size;
     decoder >> size;
     if (!size)
-        return WTF::nullopt;
+        return std::nullopt;
     if (!size.value())
         return emptyString();
 
+    if (!decoder.bufferIsLargeEnoughToContain<uint8_t>(*size))
+        return std::nullopt;
     Vector<uint8_t> buffer(size.value());
-    if (!decoder.decodeFixedLengthData(buffer.data(), size.value()))
-        return WTF::nullopt;
-    auto result = String::fromUTF8(buffer.data(), size.value());
+    if (!decoder.decodeFixedLengthData({ buffer.data(), size.value() }))
+        return std::nullopt;
+    auto result = String::fromUTF8(buffer.span());
     if (result.isNull())
-        return WTF::nullopt;
+        return std::nullopt;
 
     return result;
 }
@@ -73,7 +77,7 @@ static bool readSimpleValue(WTF::Persistence::Decoder& decoder, KeyedDecoderGene
     auto key = readString(decoder);
     if (!key)
         return false;
-    Optional<T> value;
+    std::optional<T> value;
     decoder >> value;
     if (!value)
         return false;
@@ -81,21 +85,21 @@ static bool readSimpleValue(WTF::Persistence::Decoder& decoder, KeyedDecoderGene
     return true;
 }
 
-std::unique_ptr<KeyedDecoder> KeyedDecoder::decoder(const uint8_t* data, size_t size)
+std::unique_ptr<KeyedDecoder> KeyedDecoder::decoder(std::span<const uint8_t> data)
 {
-    return makeUnique<KeyedDecoderGeneric>(data, size);
+    return makeUnique<KeyedDecoderGeneric>(data);
 }
 
-KeyedDecoderGeneric::KeyedDecoderGeneric(const uint8_t* data, size_t size)
+KeyedDecoderGeneric::KeyedDecoderGeneric(std::span<const uint8_t> data)
 {
-    WTF::Persistence::Decoder decoder(data, size);
+    WTF::Persistence::Decoder decoder(data);
 
     m_rootDictionary = makeUnique<Dictionary>();
     m_dictionaryStack.append(m_rootDictionary.get());
 
     bool ok = true;
     while (ok) {
-        Optional<KeyedEncoderGeneric::Type> type;
+        std::optional<KeyedEncoderGeneric::Type> type;
         decoder >> type;
         if (!type)
             break;
@@ -107,7 +111,7 @@ KeyedDecoderGeneric::KeyedDecoderGeneric(const uint8_t* data, size_t size)
                 ok = false;
             if (!ok)
                 break;
-            Optional<size_t> size;
+            std::optional<size_t> size;
             decoder >> size;
             if (!size)
                 ok = false;
@@ -117,7 +121,7 @@ KeyedDecoderGeneric::KeyedDecoderGeneric(const uint8_t* data, size_t size)
             if (!ok)
                 break;
             Vector<uint8_t> buffer(*size);
-            ok = decoder.decodeFixedLengthData(buffer.data(), *size);
+            ok = decoder.decodeFixedLengthData({ buffer.data(), *size });
             if (!ok)
                 break;
             m_dictionaryStack.last()->add(*key, WTFMove(buffer));
@@ -223,7 +227,7 @@ const T* KeyedDecoderGeneric::getPointerFromDictionaryStack(const String& key)
     if (!node)
         return nullptr;
 
-    return WTF::get_if<T>(*node);
+    return std::get_if<T>(node);
 }
 
 template<typename T>
@@ -237,14 +241,13 @@ bool KeyedDecoderGeneric::decodeSimpleValue(const String& key, T& result)
     return true;
 }
 
-bool KeyedDecoderGeneric::decodeBytes(const String& key, const uint8_t*& data, size_t& size)
+bool KeyedDecoderGeneric::decodeBytes(const String& key, std::span<const uint8_t>& data)
 {
     auto value = getPointerFromDictionaryStack<Vector<uint8_t>>(key);
     if (!value)
         return false;
 
-    data = value->data();
-    size = value->size();
+    data = value->span();
     return true;
 }
 

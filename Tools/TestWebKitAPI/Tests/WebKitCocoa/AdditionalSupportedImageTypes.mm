@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -41,7 +41,7 @@ static void runTest(NSArray<NSString *> *additionalSupportedImageTypes, NSString
 
     RetainPtr<WKWebView> webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
 
-    RetainPtr<NSURL> testURL = [[NSBundle mainBundle] URLForResource:imageURL withExtension:imageExtension subdirectory:@"TestWebKitAPI.resources"];
+    RetainPtr<NSURL> testURL = [NSBundle.test_resourcesBundle URLForResource:imageURL withExtension:imageExtension];
     [webView loadRequest:[NSURLRequest requestWithURL:testURL.get()]];
     [webView _test_waitForDidFinishNavigation];
 
@@ -71,9 +71,10 @@ TEST(WebKit, AddSupportedAndBogusImageTypesTwice)
     runTest(@[@"public.png", @"public.bogus", @"public.png", @"public.bogus"], @"400x400-green", @"png", 400);
 }
 
-TEST(WebKit, AddUnsupportedImageType)
+TEST(WebKit, AddUnsupportedImageTypes)
 {
-    runTest(@[@"com.truevision.tga-image"], @"100x100-red", @"tga", 100);
+    runTest(@[@"com.truevision.tga-image", @"public.jpeg-2000"], @"100x100-red", @"tga", 100);
+    runTest(@[@"com.truevision.tga-image", @"public.jpeg-2000"], @"100x100-red", @"jp2", 100);
 }
 
 TEST(WebKit, AddUnsupportedAndBogusImageTypes)

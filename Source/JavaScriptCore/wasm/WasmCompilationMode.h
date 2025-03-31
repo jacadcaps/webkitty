@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,17 +25,87 @@
 
 #pragma once
 
+#include <wtf/Forward.h>
+
 namespace JSC { namespace Wasm {
 
 enum class CompilationMode : uint8_t {
     LLIntMode,
+    IPIntMode,
     BBQMode,
     OMGMode,
     OMGForOSREntryMode,
-    EmbedderEntrypointMode,
+    JSToWasmEntrypointMode,
+    JSToWasmICMode,
+    WasmToJSMode,
 };
 
-const char* makeString(CompilationMode);
-bool wasmFunctionSizeCanBeOMGCompiled(size_t);
+constexpr inline bool isAnyInterpreter(CompilationMode compilationMode)
+{
+    switch (compilationMode) {
+    case CompilationMode::LLIntMode:
+    case CompilationMode::IPIntMode:
+        return true;
+    case CompilationMode::BBQMode:
+    case CompilationMode::OMGForOSREntryMode:
+    case CompilationMode::OMGMode:
+    case CompilationMode::JSToWasmEntrypointMode:
+    case CompilationMode::JSToWasmICMode:
+    case CompilationMode::WasmToJSMode:
+        return false;
+    }
+    RELEASE_ASSERT_NOT_REACHED_UNDER_CONSTEXPR_CONTEXT();
+}
+
+constexpr inline bool isAnyBBQ(CompilationMode compilationMode)
+{
+    switch (compilationMode) {
+    case CompilationMode::BBQMode:
+        return true;
+    case CompilationMode::OMGForOSREntryMode:
+    case CompilationMode::LLIntMode:
+    case CompilationMode::IPIntMode:
+    case CompilationMode::OMGMode:
+    case CompilationMode::JSToWasmEntrypointMode:
+    case CompilationMode::JSToWasmICMode:
+    case CompilationMode::WasmToJSMode:
+        return false;
+    }
+    RELEASE_ASSERT_NOT_REACHED_UNDER_CONSTEXPR_CONTEXT();
+}
+
+constexpr inline bool isAnyOMG(CompilationMode compilationMode)
+{
+    switch (compilationMode) {
+    case CompilationMode::OMGMode:
+    case CompilationMode::OMGForOSREntryMode:
+        return true;
+    case CompilationMode::BBQMode:
+    case CompilationMode::LLIntMode:
+    case CompilationMode::IPIntMode:
+    case CompilationMode::JSToWasmEntrypointMode:
+    case CompilationMode::JSToWasmICMode:
+    case CompilationMode::WasmToJSMode:
+        return false;
+    }
+    RELEASE_ASSERT_NOT_REACHED_UNDER_CONSTEXPR_CONTEXT();
+}
+
+constexpr inline bool isAnyWasmToJS(CompilationMode compilationMode)
+{
+    switch (compilationMode) {
+    case CompilationMode::WasmToJSMode:
+        return true;
+    case CompilationMode::OMGMode:
+    case CompilationMode::OMGForOSREntryMode:
+    case CompilationMode::BBQMode:
+    case CompilationMode::LLIntMode:
+    case CompilationMode::IPIntMode:
+    case CompilationMode::JSToWasmEntrypointMode:
+    case CompilationMode::JSToWasmICMode:
+        return false;
+    }
+    RELEASE_ASSERT_NOT_REACHED_UNDER_CONSTEXPR_CONTEXT();
+}
 
 } } // namespace JSC::Wasm

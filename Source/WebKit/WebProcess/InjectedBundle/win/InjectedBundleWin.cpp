@@ -31,25 +31,25 @@
 
 namespace WebKit {
 
-bool InjectedBundle::initialize(const WebProcessCreationParameters&, API::Object* initializationUserData)
+bool InjectedBundle::initialize(const WebProcessCreationParameters&, RefPtr<API::Object>&& initializationUserData)
 {
     HMODULE lib = ::LoadLibrary(m_path.wideCharacters().data());
     if (!lib)
         return false;
 
-    WKBundleInitializeFunctionPtr proc = reinterpret_cast<WKBundleInitializeFunctionPtr>(::GetProcAddress(lib, "WKBundleInitialize"));
+    WKBundleInitializeFunctionPtr proc = reinterpret_cast<WKBundleInitializeFunctionPtr>((void*)::GetProcAddress(lib, "WKBundleInitialize"));
     if (!proc)
         return false;
 
-    proc(toAPI(this), toAPI(initializationUserData));
+    proc(toAPI(this), toAPI(initializationUserData.get()));
     return true;
 }
 
-void InjectedBundle::setBundleParameter(WTF::String const&, IPC::DataReference const&)
+void InjectedBundle::setBundleParameter(WTF::String const&, std::span<const uint8_t>)
 {
 }
 
-void InjectedBundle::setBundleParameters(const IPC::DataReference&)
+void InjectedBundle::setBundleParameters(std::span<const uint8_t>)
 {
 }
 

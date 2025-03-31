@@ -13,9 +13,9 @@
 
 #include <stddef.h>
 
-#include "absl/types/optional.h"
+#include <optional>
+
 #include "modules/audio_processing/aec3/clockdrift_detector.h"
-#include "rtc_base/constructor_magic.h"
 
 namespace webrtc {
 
@@ -24,14 +24,14 @@ class RenderDelayControllerMetrics {
  public:
   RenderDelayControllerMetrics();
 
-  // Updates the metric with new data.
-  void Update(absl::optional<size_t> delay_samples,
-              size_t buffer_delay_blocks,
-              absl::optional<int> skew_shift_blocks,
-              ClockdriftDetector::Level clockdrift);
+  RenderDelayControllerMetrics(const RenderDelayControllerMetrics&) = delete;
+  RenderDelayControllerMetrics& operator=(const RenderDelayControllerMetrics&) =
+      delete;
 
-  // Returns true if the metrics have just been reported, otherwise false.
-  bool MetricsReported() { return metrics_reported_; }
+  // Updates the metric with new data.
+  void Update(std::optional<size_t> delay_samples,
+              std::optional<size_t> buffer_delay_blocks,
+              ClockdriftDetector::Level clockdrift);
 
  private:
   // Resets the metrics.
@@ -41,13 +41,8 @@ class RenderDelayControllerMetrics {
   int reliable_delay_estimate_counter_ = 0;
   int delay_change_counter_ = 0;
   int call_counter_ = 0;
-  int skew_report_timer_ = 0;
   int initial_call_counter_ = 0;
-  bool metrics_reported_ = false;
   bool initial_update = true;
-  int skew_shift_count_ = 0;
-
-  RTC_DISALLOW_COPY_AND_ASSIGN(RenderDelayControllerMetrics);
 };
 
 }  // namespace webrtc

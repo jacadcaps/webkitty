@@ -33,11 +33,19 @@
 #include "PlatformLocale.h"
 #include <wtf/Forward.h>
 #include <wtf/RetainPtr.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
 
+#if PLATFORM(MAC)
+#define PlatformNSParagraphStyle NSParagraphStyle.class
+#else
+#define PlatformNSParagraphStyle PAL::getNSParagraphStyleClass()
+#endif
+
 OBJC_CLASS NSCalendar;
 OBJC_CLASS NSDateFormatter;
+OBJC_CLASS NSParagraphStyle;
 OBJC_CLASS NSLocale;
 
 namespace WebCore {
@@ -45,11 +53,13 @@ namespace WebCore {
 class DateComponents;
 
 class LocaleCocoa final : public Locale {
+    WTF_MAKE_TZONE_ALLOCATED(LocaleCocoa);
 public:
-    explicit LocaleCocoa(NSLocale*);
+    explicit LocaleCocoa(const AtomString&);
     ~LocaleCocoa();
 
-#if ENABLE(DATE_AND_TIME_INPUT_TYPES)
+    Locale::WritingDirection defaultWritingDirection() const override;
+
     String formatDateTime(const DateComponents&, FormatType = FormatTypeUnspecified) override;
 
     String dateFormat() override;
@@ -64,9 +74,8 @@ public:
     const Vector<String>& standAloneMonthLabels() override;
     const Vector<String>& shortStandAloneMonthLabels() override;
     const Vector<String>& timeAMPMLabels() override;
-#endif
 
-    static AtomString canonicalLanguageIdentifierFromString(const AtomString&);
+    static RetainPtr<CFStringRef> canonicalLanguageIdentifierFromString(const AtomString&);
     static void releaseMemory();
 
 private:
@@ -75,7 +84,6 @@ private:
 
     RetainPtr<NSLocale> m_locale;
     RetainPtr<NSCalendar> m_gregorianCalendar;
-#if ENABLE(DATE_AND_TIME_INPUT_TYPES)
     Vector<String> m_monthLabels;
     RetainPtr<NSDateFormatter> timeFormatter();
     RetainPtr<NSDateFormatter> shortTimeFormatter();
@@ -93,7 +101,6 @@ private:
     Vector<String> m_standAloneMonthLabels;
     Vector<String> m_shortStandAloneMonthLabels;
     Vector<String> m_timeAMPMLabels;
-#endif
     bool m_didInitializeNumberData;
 };
 

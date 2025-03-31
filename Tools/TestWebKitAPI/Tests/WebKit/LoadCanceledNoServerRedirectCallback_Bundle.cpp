@@ -30,7 +30,6 @@
 #include "InjectedBundleTest.h"
 #include "PlatformUtilities.h"
 #include "Test.h"
-
 #include <WebKit/WKBundlePage.h>
 #include <WebKit/WKBundleFrame.h>
 #include <WebKit/WKRetainPtr.h>
@@ -60,7 +59,7 @@ public:
     virtual void didCreatePage(WKBundleRef bundle, WKBundlePageRef page)
     {
         WKBundlePageResourceLoadClientV0 resourceLoadClient;
-        memset(&resourceLoadClient, 0, sizeof(resourceLoadClient));
+        zeroBytes(resourceLoadClient);
         
         resourceLoadClient.base.version = 0;
         resourceLoadClient.willSendRequestForFrame = willSendRequestForFrame;

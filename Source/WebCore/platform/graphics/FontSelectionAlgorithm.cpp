@@ -28,7 +28,7 @@
 
 namespace WebCore {
 
-FontSelectionAlgorithm::FontSelectionAlgorithm(FontSelectionRequest request, const Vector<Capabilities>& capabilities, Optional<Capabilities> bounds)
+FontSelectionAlgorithm::FontSelectionAlgorithm(FontSelectionRequest request, const Vector<Capabilities>& capabilities, std::optional<Capabilities> bounds)
     : m_request(request)
     , m_capabilities(capabilities)
 {
@@ -41,14 +41,14 @@ FontSelectionAlgorithm::FontSelectionAlgorithm(FontSelectionRequest request, con
     }
 }
 
-auto FontSelectionAlgorithm::stretchDistance(Capabilities capabilities) const -> DistanceResult
+auto FontSelectionAlgorithm::widthDistance(Capabilities capabilities) const -> DistanceResult
 {
     auto width = capabilities.width;
     ASSERT(width.isValid());
     if (width.includes(m_request.width))
         return { FontSelectionValue(), m_request.width };
 
-    if (m_request.width > normalStretchValue()) {
+    if (m_request.width > normalWidthValue()) {
         if (width.minimum > m_request.width)
             return { width.minimum - m_request.width, width.minimum };
         ASSERT(width.maximum < m_request.width);
@@ -66,7 +66,7 @@ auto FontSelectionAlgorithm::stretchDistance(Capabilities capabilities) const ->
 auto FontSelectionAlgorithm::styleDistance(Capabilities capabilities) const -> DistanceResult
 {
     auto slope = capabilities.slope;
-    auto requestSlope = m_request.slope.valueOr(normalItalicValue());
+    auto requestSlope = m_request.slope.value_or(normalItalicValue());
     ASSERT(slope.isValid());
     if (slope.includes(requestSlope))
         return { FontSelectionValue(), requestSlope };
@@ -137,9 +137,9 @@ auto FontSelectionAlgorithm::weightDistance(Capabilities capabilities) const -> 
     return { threshold - weight.maximum, weight.maximum };
 }
 
-FontSelectionValue FontSelectionAlgorithm::bestValue(const bool eliminated[], DistanceFunction computeDistance) const
+FontSelectionValue FontSelectionAlgorithm::bestValue(std::span<const bool> eliminated, DistanceFunction computeDistance) const
 {
-    Optional<DistanceResult> smallestDistance;
+    std::optional<DistanceResult> smallestDistance;
     for (size_t i = 0, size = m_capabilities.size(); i < size; ++i) {
         if (eliminated[i])
             continue;
@@ -150,21 +150,19 @@ FontSelectionValue FontSelectionAlgorithm::bestValue(const bool eliminated[], Di
     return smallestDistance.value().value;
 }
 
-void FontSelectionAlgorithm::filterCapability(bool eliminated[], DistanceFunction computeDistance, CapabilitiesRange inclusionRange)
+void FontSelectionAlgorithm::filterCapability(std::span<bool> eliminated, DistanceFunction computeDistance, CapabilitiesRange inclusionRange)
 {
     auto value = bestValue(eliminated, computeDistance);
-    for (size_t i = 0, size = m_capabilities.size(); i < size; ++i) {
-        eliminated[i] = eliminated[i]
-            || !(m_capabilities[i].*inclusionRange).includes(value);
-    }
+    for (size_t i = 0, size = m_capabilities.size(); i < size; ++i)
+        eliminated[i] = eliminated[i] || !(m_capabilities[i].*inclusionRange).includes(value);
 }
 
 size_t FontSelectionAlgorithm::indexOfBestCapabilities()
 {
     Vector<bool, 256> eliminated(m_capabilities.size(), false);
-    filterCapability(eliminated.data(), &FontSelectionAlgorithm::stretchDistance, &Capabilities::width);
-    filterCapability(eliminated.data(), &FontSelectionAlgorithm::styleDistance, &Capabilities::slope);
-    filterCapability(eliminated.data(), &FontSelectionAlgorithm::weightDistance, &Capabilities::weight);
+    filterCapability(eliminated.mutableSpan(), &FontSelectionAlgorithm::widthDistance, &Capabilities::width);
+    filterCapability(eliminated.mutableSpan(), &FontSelectionAlgorithm::styleDistance, &Capabilities::slope);
+    filterCapability(eliminated.mutableSpan(), &FontSelectionAlgorithm::weightDistance, &Capabilities::weight);
     return eliminated.find(false);
 }
 

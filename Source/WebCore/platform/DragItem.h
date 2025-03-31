@@ -31,6 +31,7 @@
 #include "IntPoint.h"
 #include "IntRect.h"
 #include "PasteboardWriterData.h"
+#include "PlatformLayerIdentifier.h"
 #include "PromisedAttachmentInfo.h"
 
 namespace WebCore {
@@ -41,81 +42,22 @@ struct DragItem final {
     // Where the image should be positioned relative to the cursor.
     FloatPoint imageAnchorPoint;
 
-    Optional<DragSourceAction> sourceAction;
+    std::optional<DragSourceAction> sourceAction;
     IntPoint eventPositionInContentCoordinates;
     IntPoint dragLocationInContentCoordinates;
     IntPoint dragLocationInWindowCoordinates;
     String title;
     URL url;
     IntRect dragPreviewFrameInRootViewCoordinates;
+    bool containsSelection { false };
 
-    PasteboardWriterData data;
     PromisedAttachmentInfo promisedAttachmentInfo;
 
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static WARN_UNUSED_RETURN bool decode(Decoder&, DragItem&);
+#if ENABLE(MODEL_PROCESS)
+    Markable<PlatformLayerIdentifier> modelLayerID;
+#endif
+
+    PasteboardWriterData data { };
 };
-
-template<class Encoder>
-void DragItem::encode(Encoder& encoder) const
-{
-    // FIXME(173815): We should encode and decode PasteboardWriterData and platform drag image data
-    // here too, as part of moving off of the legacy dragging codepath.
-    encoder << sourceAction;
-    encoder << imageAnchorPoint << eventPositionInContentCoordinates << dragLocationInContentCoordinates << dragLocationInWindowCoordinates << title << url << dragPreviewFrameInRootViewCoordinates;
-    bool hasIndicatorData = image.hasIndicatorData();
-    encoder << hasIndicatorData;
-    if (hasIndicatorData)
-        encoder << image.indicatorData().value();
-    bool hasVisiblePath = image.hasVisiblePath();
-    encoder << hasVisiblePath;
-    if (hasVisiblePath)
-        encoder << image.visiblePath().value();
-    encoder << promisedAttachmentInfo;
-}
-
-template<class Decoder>
-bool DragItem::decode(Decoder& decoder, DragItem& result)
-{
-    if (!decoder.decode(result.sourceAction))
-        return false;
-    if (!decoder.decode(result.imageAnchorPoint))
-        return false;
-    if (!decoder.decode(result.eventPositionInContentCoordinates))
-        return false;
-    if (!decoder.decode(result.dragLocationInContentCoordinates))
-        return false;
-    if (!decoder.decode(result.dragLocationInWindowCoordinates))
-        return false;
-    if (!decoder.decode(result.title))
-        return false;
-    if (!decoder.decode(result.url))
-        return false;
-    if (!decoder.decode(result.dragPreviewFrameInRootViewCoordinates))
-        return false;
-    bool hasIndicatorData;
-    if (!decoder.decode(hasIndicatorData))
-        return false;
-    if (hasIndicatorData) {
-        Optional<TextIndicatorData> indicatorData;
-        decoder >> indicatorData;
-        if (!indicatorData)
-            return false;
-        result.image.setIndicatorData(*indicatorData);
-    }
-    bool hasVisiblePath;
-    if (!decoder.decode(hasVisiblePath))
-        return false;
-    if (hasVisiblePath) {
-        Optional<Path> visiblePath;
-        decoder >> visiblePath;
-        if (!visiblePath)
-            return false;
-        result.image.setVisiblePath(*visiblePath);
-    }
-    if (!decoder.decode(result.promisedAttachmentInfo))
-        return false;
-    return true;
-}
 
 }

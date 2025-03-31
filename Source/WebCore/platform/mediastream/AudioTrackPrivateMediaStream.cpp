@@ -30,15 +30,21 @@
 
 #include "AudioMediaStreamTrackRenderer.h"
 #include "Logging.h"
+#include "RealtimeIncomingAudioSource.h"
+#include <wtf/TZoneMallocInlines.h>
+
+#if USE(LIBWEBRTC)
+#include "LibWebRTCAudioModule.h"
+#endif
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(AudioTrackPrivateMediaStream);
 
 AudioTrackPrivateMediaStream::AudioTrackPrivateMediaStream(MediaStreamTrackPrivate& track)
     : m_streamTrack(track)
     , m_audioSource(track.source())
-    , m_id(track.id())
-    , m_label(track.label())
-    , m_renderer { AudioMediaStreamTrackRenderer::create() }
+    , m_renderer(createRenderer(*this))
 {
     track.addObserver(*this);
 }
@@ -48,13 +54,30 @@ AudioTrackPrivateMediaStream::~AudioTrackPrivateMediaStream()
     clear();
 }
 
-#if !RELEASE_LOG_DISABLED
-void AudioTrackPrivateMediaStream::setLogger(const Logger& logger, const void* identifier)
+#if USE(LIBWEBRTC)
+static RefPtr<LibWebRTCAudioModule> audioModuleFromSource(RealtimeMediaSource& source)
 {
-    TrackPrivateBase::setLogger(logger, identifier);
-    m_renderer->setLogger(logger, identifier);
+    RefPtr audioSource = dynamicDowncast<RealtimeIncomingAudioSource>(source);
+    return audioSource ? audioSource->audioModule() : nullptr;
 }
 #endif
+
+RefPtr<AudioMediaStreamTrackRenderer> AudioTrackPrivateMediaStream::createRenderer(AudioTrackPrivateMediaStream& stream)
+{
+    return AudioMediaStreamTrackRenderer::create(AudioMediaStreamTrackRenderer::Init {
+        [stream = WeakPtr { stream }] {
+            if (stream)
+                stream->createNewRenderer();
+        }
+#if USE(LIBWEBRTC)
+        , audioModuleFromSource(stream.m_audioSource.get())
+#endif
+#if !RELEASE_LOG_DISABLED
+        , stream.m_streamTrack->logger()
+        , stream.m_streamTrack->logIdentifier()
+#endif
+    });
+}
 
 void AudioTrackPrivateMediaStream::clear()
 {
@@ -66,8 +89,9 @@ void AudioTrackPrivateMediaStream::clear()
     if (m_isPlaying)
         m_audioSource->removeAudioSampleObserver(*this);
 
-    streamTrack().removeObserver(*this);
-    m_renderer->clear();
+    m_streamTrack->removeObserver(*this);
+    if (auto renderer = std::exchange(m_renderer, { }))
+        renderer->clear();
 }
 
 void AudioTrackPrivateMediaStream::play()
@@ -93,19 +117,29 @@ void AudioTrackPrivateMediaStream::setMuted(bool muted)
 
 void AudioTrackPrivateMediaStream::setVolume(float volume)
 {
-    m_renderer->setVolume(volume);
+    if (RefPtr renderer = m_renderer)
+        renderer->setVolume(volume);
     updateRenderer();
+}
+
+void AudioTrackPrivateMediaStream::setAudioOutputDevice(const String& deviceId)
+{
+    if (RefPtr renderer = m_renderer)
+        renderer->setAudioOutputDevice(deviceId);
 }
 
 float AudioTrackPrivateMediaStream::volume() const
 {
-    return m_renderer->volume();
+    if (RefPtr renderer = m_renderer)
+        return renderer->volume();
+    return 1;
 }
 
 // May get called on a background thread.
 void AudioTrackPrivateMediaStream::audioSamplesAvailable(const MediaTime& sampleTime, const PlatformAudioData& audioData, const AudioStreamDescription& description, size_t sampleCount)
 {
-    m_renderer->pushSamples(sampleTime, audioData, description, sampleCount);
+    if (RefPtr renderer = m_renderer)
+        renderer->pushSamples(sampleTime, audioData, description, sampleCount);
 }
 
 void AudioTrackPrivateMediaStream::trackMutedChanged(MediaStreamTrackPrivate&)
@@ -125,7 +159,7 @@ void AudioTrackPrivateMediaStream::trackEnded(MediaStreamTrackPrivate&)
 
 void AudioTrackPrivateMediaStream::updateRenderer()
 {
-    if (!m_shouldPlay || !volume() || m_muted || streamTrack().muted() || streamTrack().ended() || !streamTrack().enabled()) {
+    if (!m_shouldPlay || !volume() || m_muted || m_streamTrack->muted() || m_streamTrack->ended() || !m_streamTrack->enabled()) {
         stopRenderer();
         return;
     }
@@ -135,12 +169,15 @@ void AudioTrackPrivateMediaStream::updateRenderer()
 void AudioTrackPrivateMediaStream::startRenderer()
 {
     ASSERT(isMainThread());
-    if (m_isPlaying)
+    RefPtr renderer = m_renderer;
+    if (m_isPlaying || !renderer)
         return;
 
     m_isPlaying = true;
-    m_renderer->start();
-    m_audioSource->addAudioSampleObserver(*this);
+    renderer->start([protectedThis = Ref { *this }] {
+        if (protectedThis->m_isPlaying)
+            Ref { protectedThis->m_audioSource }->addAudioSampleObserver(protectedThis.get());
+    });
 }
 
 void AudioTrackPrivateMediaStream::stopRenderer()
@@ -151,7 +188,22 @@ void AudioTrackPrivateMediaStream::stopRenderer()
 
     m_isPlaying = false;
     m_audioSource->removeAudioSampleObserver(*this);
-    m_renderer->stop();
+    if (RefPtr renderer = m_renderer)
+        renderer->stop();
+}
+
+void AudioTrackPrivateMediaStream::createNewRenderer()
+{
+    bool isPlaying = m_isPlaying;
+    stopRenderer();
+
+    float volume = this->volume();
+    m_renderer = createRenderer(*this);
+    if (RefPtr renderer = m_renderer)
+        renderer->setVolume(volume);
+
+    if (isPlaying)
+        startRenderer();
 }
 
 } // namespace WebCore

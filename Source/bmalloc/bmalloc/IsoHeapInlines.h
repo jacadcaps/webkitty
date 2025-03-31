@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,6 +25,9 @@
 
 #pragma once
 
+#if !BUSE(TZONE)
+
+#include "BPlatform.h"
 #include "DeferredDecommitInlines.h"
 #include "DeferredTriggerInlines.h"
 #include "EligibilityResultInlines.h"
@@ -43,9 +46,11 @@
 
 namespace bmalloc { namespace api {
 
+#if !BUSE(LIBPAS)
+
 #if BENABLE_MALLOC_HEAP_BREAKDOWN
 template<typename Type>
-IsoHeap<Type>::IsoHeap(const char* heapClass)
+IsoHeapBase<Type>::IsoHeapBase(const char* heapClass)
     : m_zone(malloc_create_zone(0, 0))
 {
     if (heapClass)
@@ -54,40 +59,20 @@ IsoHeap<Type>::IsoHeap(const char* heapClass)
 #endif
 
 template<typename Type>
-void* IsoHeap<Type>::allocate()
-{
-    bool abortOnFailure = true;
-    return IsoTLS::allocate(*this, abortOnFailure);
-}
-
-template<typename Type>
-void* IsoHeap<Type>::tryAllocate()
-{
-    bool abortOnFailure = false;
-    return IsoTLS::allocate(*this, abortOnFailure);
-}
-
-template<typename Type>
-void IsoHeap<Type>::deallocate(void* p)
-{
-    IsoTLS::deallocate(*this, p);
-}
-
-template<typename Type>
-void IsoHeap<Type>::scavenge()
+void IsoHeapBase<Type>::scavenge()
 {
     IsoTLS::scavenge(*this);
 }
 
 template<typename Type>
-bool IsoHeap<Type>::isInitialized()
+bool IsoHeapBase<Type>::isInitialized()
 {
     auto* atomic = reinterpret_cast<std::atomic<IsoHeapImpl<Config>*>*>(&m_impl);
     return atomic->load(std::memory_order_acquire);
 }
 
 template<typename Type>
-void IsoHeap<Type>::initialize()
+void IsoHeapBase<Type>::initialize()
 {
     // We are using m_impl field as a guard variable of the initialization of IsoHeap.
     // IsoHeap::isInitialized gets m_impl with "acquire", and IsoHeap::initialize stores
@@ -103,16 +88,38 @@ void IsoHeap<Type>::initialize()
 }
 
 template<typename Type>
-auto IsoHeap<Type>::impl() -> IsoHeapImpl<Config>&
+auto IsoHeapBase<Type>::impl() -> IsoHeapImpl<Config>&
 {
     IsoTLS::ensureHeap(*this);
     return *m_impl;
 }
 
+template<typename Type>
+void* IsoHeapBase<Type>::allocate()
+{
+    bool abortOnFailure = true;
+    return IsoTLS::allocate(*this, abortOnFailure);
+}
+
+template<typename Type>
+void* IsoHeapBase<Type>::tryAllocate()
+{
+    bool abortOnFailure = false;
+    return IsoTLS::allocate(*this, abortOnFailure);
+}
+
+template<typename Type>
+void IsoHeapBase<Type>::deallocate(void* p)
+{
+    IsoTLS::deallocate(*this, p);
+}
+
+#endif // !BUSE(LIBPAS)
+
 // This is most appropraite for template classes.
-#define MAKE_BISO_MALLOCED_INLINE(isoType) \
+#define MAKE_BISO_MALLOCED_INLINE(isoType, heapType) \
 public: \
-    static ::bmalloc::api::IsoHeap<isoType>& bisoHeap() \
+    static ::bmalloc::api::heapType<isoType>& bisoHeap() \
     { \
         static ::bmalloc::api::IsoHeap<isoType> heap("WebKit_"#isoType); \
         return heap; \
@@ -134,14 +141,20 @@ public: \
     \
     void* operator new[](size_t size) = delete; \
     void operator delete[](void* p) = delete; \
-using webkitFastMalloced = int; \
+    \
+    static void freeAfterDestruction(void* p) \
+    { \
+        bisoHeap().deallocate(p); \
+    } \
+    \
+    using WTFIsFastMallocAllocated = int; \
 private: \
-using __makeBisoMallocedInlineMacroSemicolonifier = int
+    using __makeBisoMallocedInlineMacroSemicolonifier BUNUSED_TYPE_ALIAS = int
 
-#define MAKE_BISO_MALLOCED_IMPL(isoType) \
-::bmalloc::api::IsoHeap<isoType>& isoType::bisoHeap() \
+#define MAKE_BISO_MALLOCED_IMPL(isoType, heapType) \
+::bmalloc::api::heapType<isoType>& isoType::bisoHeap() \
 { \
-    static ::bmalloc::api::IsoHeap<isoType> heap("WebKit "#isoType); \
+    static ::bmalloc::api::heapType<isoType> heap("WebKit "#isoType); \
     return heap; \
 } \
 \
@@ -156,30 +169,13 @@ void isoType::operator delete(void* p) \
     bisoHeap().deallocate(p); \
 } \
 \
-struct MakeBisoMallocedImplMacroSemicolonifier##isoType { }
-
-#define MAKE_BISO_MALLOCED_IMPL_TEMPLATE(isoType) \
-template<> \
-::bmalloc::api::IsoHeap<isoType>& isoType::bisoHeap() \
-{ \
-    static ::bmalloc::api::IsoHeap<isoType> heap("WebKit_"#isoType); \
-    return heap; \
-} \
-\
-template<> \
-void* isoType::operator new(size_t size) \
-{ \
-    RELEASE_BASSERT(size == sizeof(isoType)); \
-    return bisoHeap().allocate(); \
-} \
-\
-template<> \
-void isoType::operator delete(void* p) \
+void isoType::freeAfterDestruction(void* p) \
 { \
     bisoHeap().deallocate(p); \
 } \
 \
-struct MakeBisoMallocedImplMacroSemicolonifier##isoType { }
+using __makeBisoMallocedInlineMacroSemicolonifier BUNUSED_TYPE_ALIAS = int
 
 } } // namespace bmalloc::api
 
+#endif // !BUSE(TZONE)

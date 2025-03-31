@@ -27,16 +27,26 @@
 #import "WKNSDictionary.h"
 
 #import "WKNSArray.h"
+#import <WebCore/WebCoreObjCExtras.h>
+#import <wtf/AlignedStorage.h>
 
 using namespace WebKit;
 
 @implementation WKNSDictionary {
-    API::ObjectStorage<API::Dictionary> _dictionary;
+    AlignedStorage<API::Dictionary> _dictionary;
+}
+
+- (Ref<API::Dictionary>)_protectedDictionary
+{
+    return *_dictionary;
 }
 
 - (void)dealloc
 {
-    _dictionary->~Dictionary();
+    if (WebCoreObjCScheduleDeallocateOnMainRunLoop(WKNSDictionary.class, self))
+        return;
+
+    self._protectedDictionary->~Dictionary();
 
     [super dealloc];
 }
@@ -46,7 +56,8 @@ using namespace WebKit;
 - (instancetype)initWithObjects:(const id [])objects forKeys:(const id <NSCopying> [])keys count:(NSUInteger)count
 {
     ASSERT_NOT_REACHED();
-    return [super initWithObjects:objects forKeys:keys count:count];
+    self = [super initWithObjects:objects forKeys:keys count:count];
+    return self;
 }
 
 - (NSUInteger)count
@@ -56,20 +67,21 @@ using namespace WebKit;
 
 - (id)objectForKey:(id)key
 {
-    if (![key isKindOfClass:[NSString class]])
+    auto *str = dynamic_objc_cast<NSString>(key);
+    if (!str)
         return nil;
 
     bool exists;
-    API::Object* value = _dictionary->get((NSString *)key, exists);
+    RefPtr value = self._protectedDictionary->get(str, exists);
     if (!exists)
         return nil;
 
-    return value ? value->wrapper() : [NSNull null];
+    return value ? (id)value->wrapper() : [NSNull null];
 }
 
 - (NSEnumerator *)keyEnumerator
 {
-    return [wrapper(_dictionary->keys()) objectEnumerator];
+    return [wrapper(self._protectedDictionary->keys()) objectEnumerator];
 }
 
 #pragma mark NSCopying protocol implementation

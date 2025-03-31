@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2024 Apple Inc. All rights reserved.
 
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,101 +26,105 @@
 
 #include "DOMWrapperWorld.h"
 #include "JSDOMWrapper.h"
-#include <JavaScriptCore/JSCJSValue.h>
+#include <JavaScriptCore/JSCJSValueInlines.h>
 #include <JavaScriptCore/SlotVisitor.h>
-#include <JavaScriptCore/Weak.h>
-#include <wtf/Variant.h>
+#include <JavaScriptCore/WeakInlines.h>
+#include <variant>
 
 namespace WebCore {
 
+// This class includes a lot of subtle GC related things, and changing this class can easily cause GC crashes.
+// Any changes to this class must be reviewed by JavaScriptCore reviewers too.
 class JSValueInWrappedObject {
+    // This must be neither copyable nor movable. Changing this will break concurrent GC.
+    WTF_MAKE_NONCOPYABLE(JSValueInWrappedObject);
+    WTF_MAKE_NONMOVABLE(JSValueInWrappedObject);
 public:
     JSValueInWrappedObject(JSC::JSValue = { });
-    JSValueInWrappedObject(const JSValueInWrappedObject&);
-    operator JSC::JSValue() const;
+
     explicit operator bool() const;
-    JSValueInWrappedObject& operator=(const JSValueInWrappedObject& other);
-    void visit(JSC::SlotVisitor&) const;
+    template<typename Visitor> void visit(Visitor&) const;
     void clear();
 
+    // If you expect the value you store to be returned by getValue and not cleared under you, you *MUST* use set not setWeakly.
+    // The owner parameter is typically the wrapper of the DOM node this class is embedded into but can be any GCed object that
+    // will visit this JSValueInWrappedObject via visitAdditionalChildren/isReachableFromOpaqueRoots.
+    void set(JSC::VM&, const JSC::JSCell* owner, JSC::JSValue);
+    // Only use this if you actually expect this value to be weakly held. If you call visit on this value *DONT* set using setWeakly
+    // use set instead. The GC might or might not keep your value around in that case.
+    void setWeakly(JSC::JSValue);
+    JSC::JSValue getValue(JSC::JSValue nullValue = JSC::jsUndefined()) const;
+
 private:
-    // Use a weak pointer here so that if this code or client code has a visiting mistake,
-    // we get null rather than a dangling pointer to a deleted object.
-    using Weak = JSC::Weak<JSC::JSCell>;
-    // FIXME: Would storing a separate JSValue alongside a Weak be better than using a Variant?
-    using Value = Variant<JSC::JSValue, Weak>;
-    static Value makeValue(JSC::JSValue);
-    Value m_value;
+    // Keep in mind that all of these fields are accessed concurrently without lock from concurrent GC thread.
+    JSC::JSValue m_nonCell { };
+    JSC::Weak<JSC::JSCell> m_cell { };
 };
 
-JSC::JSValue cachedPropertyValue(JSC::JSGlobalObject&, const JSDOMObject& owner, JSValueInWrappedObject& cacheSlot, const WTF::Function<JSC::JSValue()>&);
-
-inline auto JSValueInWrappedObject::makeValue(JSC::JSValue value) -> Value
-{
-    if (!value.isCell())
-        return value;
-    // FIXME: This is not quite right. It is possible that this value is being
-    // stored in a wrapped object that does not yet have a wrapper. If garbage
-    // collection occurs before the wrapped object gets a wrapper, it's possible
-    // the value object could be collected, and this will become null. A future
-    // version of this class should prevent the value from being collected in
-    // that case. Unclear if this can actually happen in practice.
-    return Weak { value.asCell() };
-}
+JSC::JSValue cachedPropertyValue(JSC::ThrowScope&, JSC::JSGlobalObject&, const JSDOMObject& owner, JSValueInWrappedObject& cacheSlot, const auto&);
 
 inline JSValueInWrappedObject::JSValueInWrappedObject(JSC::JSValue value)
-    : m_value(makeValue(JSC::JSValue(value)))
 {
+    setWeakly(value);
 }
 
-inline JSValueInWrappedObject::JSValueInWrappedObject(const JSValueInWrappedObject& value)
-    : m_value(makeValue(value))
+inline JSC::JSValue JSValueInWrappedObject::getValue(JSC::JSValue nullValue) const
 {
-}
-
-inline JSValueInWrappedObject::operator JSC::JSValue() const
-{
-    return WTF::switchOn(m_value, [] (JSC::JSValue value) {
-        return value;
-    }, [] (const Weak& value) {
-        return value.get();
-    });
+    if (m_nonCell)
+        return m_nonCell;
+    return m_cell ? m_cell.get() : nullValue;
 }
 
 inline JSValueInWrappedObject::operator bool() const
 {
-    return JSC::JSValue { *this }.operator bool();
+    return m_nonCell || m_cell;
 }
 
-inline JSValueInWrappedObject& JSValueInWrappedObject::operator=(const JSValueInWrappedObject& other)
+template<typename Visitor>
+inline void JSValueInWrappedObject::visit(Visitor& visitor) const
 {
-    m_value = makeValue(JSC::JSValue(other));
-    return *this;
+    visitor.append(m_cell);
 }
 
-inline void JSValueInWrappedObject::visit(JSC::SlotVisitor& visitor) const
+template void JSValueInWrappedObject::visit(JSC::AbstractSlotVisitor&) const;
+template void JSValueInWrappedObject::visit(JSC::SlotVisitor&) const;
+
+inline void JSValueInWrappedObject::setWeakly(JSC::JSValue value)
 {
-    return WTF::switchOn(m_value, [] (JSC::JSValue) {
-        // Nothing to visit.
-    }, [&visitor] (const Weak& value) {
-        visitor.append(value);
-    });
+    if (!value.isCell()) {
+        m_nonCell = value;
+        m_cell.clear();
+        return;
+    }
+    m_nonCell = { };
+    JSC::Weak weak { value.asCell() };
+    WTF::storeStoreFence();
+    m_cell = WTFMove(weak);
+}
+
+inline void JSValueInWrappedObject::set(JSC::VM& vm, const JSC::JSCell* owner, JSC::JSValue value)
+{
+    setWeakly(value);
+    vm.writeBarrier(owner, value);
 }
 
 inline void JSValueInWrappedObject::clear()
 {
-    WTF::switchOn(m_value, [] (Weak& value) {
-        value.clear();
-    }, [] (auto&) { });
+    m_nonCell = { };
+    m_cell.clear();
 }
 
-inline JSC::JSValue cachedPropertyValue(JSC::JSGlobalObject& lexicalGlobalObject, const JSDOMObject& owner, JSValueInWrappedObject& cachedValue, const WTF::Function<JSC::JSValue()>& function)
+inline JSC::JSValue cachedPropertyValue(JSC::ThrowScope& throwScope, JSC::JSGlobalObject& lexicalGlobalObject, const JSDOMObject& owner, JSValueInWrappedObject& cachedValue, const auto& function)
 {
-    if (cachedValue && isWorldCompatible(lexicalGlobalObject, cachedValue))
-        return cachedValue;
-    cachedValue = cloneAcrossWorlds(lexicalGlobalObject, owner, function());
-    ASSERT(isWorldCompatible(lexicalGlobalObject, cachedValue));
-    return cachedValue;
+    if (cachedValue && isWorldCompatible(lexicalGlobalObject, cachedValue.getValue()))
+        return cachedValue.getValue();
+
+    auto value = function(throwScope);
+    RETURN_IF_EXCEPTION(throwScope, { });
+
+    cachedValue.set(lexicalGlobalObject.vm(), &owner, cloneAcrossWorlds(lexicalGlobalObject, owner, value));
+    ASSERT(isWorldCompatible(lexicalGlobalObject, cachedValue.getValue()));
+    return cachedValue.getValue();
 }
 
 } // namespace WebCore

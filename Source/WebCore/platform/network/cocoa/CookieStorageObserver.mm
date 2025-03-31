@@ -29,6 +29,7 @@
 #import <pal/spi/cocoa/NSURLConnectionSPI.h>
 #import <wtf/MainThread.h>
 #import <wtf/ProcessPrivilege.h>
+#import <wtf/TZoneMallocInlines.h>
 
 @interface WebNSHTTPCookieStorageDummyForInternalAccess : NSObject {
 @public
@@ -73,6 +74,8 @@
 @end
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(CookieStorageObserver);
 
 CookieStorageObserver::CookieStorageObserver(NSHTTPCookieStorage *cookieStorage)
     : m_cookieStorage(cookieStorage)
@@ -129,7 +132,7 @@ void CookieStorageObserver::stopObserving()
 
 void CookieStorageObserver::cookiesDidChange()
 {
-    callOnMainThread([weakThis = makeWeakPtr(*this)] {
+    callOnMainThread([weakThis = WeakPtr { *this }] {
         if (weakThis && weakThis->m_cookieChangeCallback)
             weakThis->m_cookieChangeCallback();
     });

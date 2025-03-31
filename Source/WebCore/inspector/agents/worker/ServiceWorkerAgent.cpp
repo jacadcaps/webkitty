@@ -26,22 +26,23 @@
 #include "config.h"
 #include "ServiceWorkerAgent.h"
 
-#if ENABLE(SERVICE_WORKER)
-
 #include "SecurityOrigin.h"
 #include "ServiceWorkerGlobalScope.h"
 #include "ServiceWorkerThread.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
 using namespace Inspector;
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ServiceWorkerAgent);
+
 ServiceWorkerAgent::ServiceWorkerAgent(WorkerAgentContext& context)
     : InspectorAgentBase("ServiceWorker"_s, context)
-    , m_serviceWorkerGlobalScope(downcast<ServiceWorkerGlobalScope>(context.workerGlobalScope))
+    , m_serviceWorkerGlobalScope(downcast<ServiceWorkerGlobalScope>(context.globalScope.get()))
     , m_backendDispatcher(Inspector::ServiceWorkerBackendDispatcher::create(context.backendDispatcher, this))
 {
-    ASSERT(context.workerGlobalScope.isContextThread());
+    ASSERT(context.globalScope->isContextThread());
 }
 
 ServiceWorkerAgent::~ServiceWorkerAgent() = default;
@@ -54,16 +55,14 @@ void ServiceWorkerAgent::willDestroyFrontendAndBackend(Inspector::DisconnectReas
 {
 }
 
-void ServiceWorkerAgent::getInitializationInfo(ErrorString&, RefPtr<Inspector::Protocol::ServiceWorker::Configuration>& info)
+Inspector::Protocol::ErrorStringOr<Ref<Inspector::Protocol::ServiceWorker::Configuration>> ServiceWorkerAgent::getInitializationInfo()
 {
-    info = Inspector::Protocol::ServiceWorker::Configuration::create()
-        .setTargetId(m_serviceWorkerGlobalScope.identifier())
-        .setSecurityOrigin(m_serviceWorkerGlobalScope.securityOrigin()->toRawString())
-        .setUrl(m_serviceWorkerGlobalScope.thread().contextData().scriptURL.string())
-        .setContent(m_serviceWorkerGlobalScope.thread().contextData().script)
+    return Inspector::Protocol::ServiceWorker::Configuration::create()
+        .setTargetId(m_serviceWorkerGlobalScope->inspectorIdentifier())
+        .setSecurityOrigin(m_serviceWorkerGlobalScope->securityOrigin()->toRawString())
+        .setUrl(m_serviceWorkerGlobalScope->contextData().scriptURL.string())
+        .setContent(m_serviceWorkerGlobalScope->contextData().script.toString())
         .release();
 }
 
 } // namespace WebCore
-
-#endif // ENABLE(SERVICE_WORKER)

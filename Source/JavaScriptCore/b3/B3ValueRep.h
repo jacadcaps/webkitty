@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,7 +25,7 @@
 
 #pragma once
 
-#if ENABLE(B3_JIT)
+#if ENABLE(B3_JIT) || ENABLE(WEBASSEMBLY_BBQJIT)
 
 #include "FPRInfo.h"
 #include "GPRInfo.h"
@@ -34,6 +34,10 @@
 #include "RegisterSet.h"
 #include "ValueRecovery.h"
 #include <wtf/PrintStream.h>
+#include <wtf/TZoneMalloc.h>
+#if ENABLE(WEBASSEMBLY)
+#include "WasmValueLocation.h"
+#endif
 
 namespace JSC {
 
@@ -47,7 +51,7 @@ namespace B3 {
 // output.
 
 class ValueRep {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(ValueRep);
 public:
     enum Kind : uint8_t {
         // As an input representation, this means that B3 can pick any representation. As an output
@@ -84,6 +88,15 @@ public:
         // representation, this tells us what register B3 picked.
         Register,
 
+#if USE(JSVALUE32_64)
+        // This is only used for BBQ OSR on 32-bits.
+        // LLInt uses 64-bit stack values to represent I64s.
+        // BBQ uses register pairs.
+        // OMG treats I64 values as tuples, and tries to agressively de-structure them. It
+        // should never see this representation, except when tiering up from BBQ.
+        RegisterPair,
+#endif
+
         // As an input representation, this forces a particular register and states that
         // the register is used late. This means that the register is used after the result
         // is defined (i.e, the result will interfere with this as an input).
@@ -99,9 +112,9 @@ public:
         StackArgument,
 
         // As an output representation, this tells us that B3 constant-folded the value.
-        Constant
+        Constant,
     };
-    
+
     ValueRep()
         : m_kind(WarmAny)
     {
@@ -113,13 +126,55 @@ public:
         u.reg = reg;
     }
 
-    ValueRep(const ValueRep&) = default;
-
     ValueRep(Kind kind)
         : m_kind(kind)
     {
-        ASSERT(kind == WarmAny || kind == ColdAny || kind == LateColdAny || kind == SomeRegister || kind == SomeRegisterWithClobber || kind == SomeEarlyRegister || kind == SomeLateRegister);
+        ASSERT(kind == WarmAny
+            || kind == ColdAny
+            || kind == LateColdAny
+            || kind == SomeRegister
+            || kind == SomeRegisterWithClobber
+            || kind == SomeEarlyRegister
+            || kind == SomeLateRegister
+        );
     }
+
+#if ENABLE(WEBASSEMBLY)
+    ValueRep(Wasm::ValueLocation location)
+    {
+        switch (location.kind()) {
+        case Wasm::ValueLocation::Kind::GPRRegister:
+            m_kind = Register;
+            u.reg = location.jsr().payloadGPR();
+            break;
+        case Wasm::ValueLocation::Kind::FPRRegister:
+            m_kind = Register;
+            u.reg = location.fpr();
+            break;
+        case Wasm::ValueLocation::Kind::Stack:
+            m_kind = Stack;
+            u.offsetFromFP = location.offsetFromFP();
+            break;
+        case Wasm::ValueLocation::Kind::StackArgument:
+            m_kind = StackArgument;
+            u.offsetFromSP = location.offsetFromSP();
+            break;
+        default:
+            ASSERT_NOT_REACHED();
+        }
+    }
+
+#if USE(JSVALUE32_64)
+    // Only use this for OSR stackmaps.
+    enum OSRValueRepTag { OSRValueRep };
+    ValueRep(OSRValueRepTag, Reg lo, Reg hi)
+    {
+        m_kind = RegisterPair;
+        u.regPair.regLo = lo;
+        u.regPair.regHi = hi;
+    }
+#endif // USE(JSVALUE32_64)
+#endif // ENABLE(WEBASSEMBLY)
 
     static ValueRep reg(Reg reg)
     {
@@ -159,12 +214,12 @@ public:
 
     static ValueRep constantDouble(double value)
     {
-        return ValueRep::constant(bitwise_cast<int64_t>(value));
+        return ValueRep::constant(std::bit_cast<int64_t>(value));
     }
 
     static ValueRep constantFloat(float value)
     {
-        return ValueRep::constant(static_cast<uint64_t>(bitwise_cast<uint32_t>(value)));
+        return ValueRep::constant(static_cast<uint64_t>(std::bit_cast<uint32_t>(value)));
     }
 
     Kind kind() const { return m_kind; }
@@ -188,17 +243,28 @@ public:
         }
     }
 
-    bool operator!=(const ValueRep& other) const
-    {
-        return !(*this == other);
-    }
-
     explicit operator bool() const { return kind() != WarmAny; }
 
     bool isAny() const { return kind() == WarmAny || kind() == ColdAny || kind() == LateColdAny; }
 
     bool isReg() const { return kind() == Register || kind() == LateRegister || kind() == SomeLateRegister; }
-    
+
+#if USE(JSVALUE32_64)
+    bool isRegPair(OSRValueRepTag) const { return kind() == RegisterPair; }
+
+    GPRReg gprLo(OSRValueRepTag) const
+    {
+        ASSERT(isRegPair(OSRValueRep));
+        return u.regPair.regLo.gpr();
+    }
+
+    GPRReg gprHi(OSRValueRepTag) const
+    {
+        ASSERT(isRegPair(OSRValueRep));
+        return u.regPair.regHi.gpr();
+    }
+#endif
+
     Reg reg() const
     {
         ASSERT(isReg());
@@ -237,12 +303,12 @@ public:
 
     double doubleValue() const
     {
-        return bitwise_cast<double>(value());
+        return std::bit_cast<double>(value());
     }
 
     float floatValue() const
     {
-        return bitwise_cast<float>(static_cast<uint32_t>(static_cast<uint64_t>(value())));
+        return std::bit_cast<float>(static_cast<uint32_t>(static_cast<uint64_t>(value())));
     }
 
     ValueRep withOffset(intptr_t offset) const
@@ -257,17 +323,17 @@ public:
         }
     }
 
-    void addUsedRegistersTo(RegisterSet&) const;
+    void addUsedRegistersTo(bool isSIMDContext, RegisterSetBuilder&) const;
     
-    RegisterSet usedRegisters() const;
+    RegisterSetBuilder usedRegisters(bool isSIMDContext) const;
 
     // Get the used registers for a vector of ValueReps.
     template<typename VectorType>
-    static RegisterSet usedRegisters(const VectorType& vector)
+    static RegisterSetBuilder usedRegisters(bool isSIMDContext, const VectorType& vector)
     {
-        RegisterSet result;
+        RegisterSetBuilder result;
         for (const ValueRep& value : vector)
-            value.addUsedRegistersTo(result);
+            value.addUsedRegistersTo(isSIMDContext, result);
         return result;
     }
 
@@ -290,9 +356,17 @@ private:
         intptr_t offsetFromSP;
         int64_t value;
 
+        struct RegisterPair {
+            Reg regLo;
+            Reg regHi;
+        };
+        RegisterPair regPair;
+
         U()
         {
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
             memset(static_cast<void*>(this), 0, sizeof(*this));
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
         }
     } u;
     Kind m_kind;

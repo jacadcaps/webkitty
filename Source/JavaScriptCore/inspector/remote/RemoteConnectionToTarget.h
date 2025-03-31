@@ -31,9 +31,10 @@
 #include "RemoteControllableTarget.h"
 #include <wtf/Lock.h>
 #include <wtf/ThreadSafeRefCounted.h>
+#include <wtf/ThreadSafeWeakPtr.h>
 
 #if PLATFORM(COCOA)
-#include <wtf/BlockPtr.h>
+#include <wtf/Function.h>
 #include <wtf/RetainPtr.h>
 
 OBJC_CLASS NSString;
@@ -44,7 +45,7 @@ namespace Inspector {
 class RemoteControllableTarget;
 
 #if PLATFORM(COCOA)
-typedef Vector<BlockPtr<void ()>> RemoteTargetQueue;
+typedef Vector<Function<void ()>> RemoteTargetQueue;
 #endif
 
 class RemoteConnectionToTarget final : public ThreadSafeRefCounted<RemoteConnectionToTarget>, public FrontendChannel {
@@ -61,19 +62,19 @@ public:
 #if PLATFORM(COCOA)
     void sendMessageToTarget(NSString *);
 #else
-    void sendMessageToTarget(const String&);
+    void sendMessageToTarget(String&&);
 #endif
     void close();
     void targetClosed();
 
-    Optional<TargetID> targetIdentifier() const;
+    std::optional<TargetID> targetIdentifier() const WTF_REQUIRES_LOCK(m_targetMutex);
 #if PLATFORM(COCOA)
     NSString *connectionIdentifier() const;
     NSString *destination() const;
 
     Lock& queueMutex() { return m_queueMutex; }
     const RemoteTargetQueue& queue() const { return m_queue; }
-    void clearQueue() { m_queue.clear(); }
+    RemoteTargetQueue takeQueue();
 #endif
 
     // FrontendChannel overrides.
@@ -82,17 +83,17 @@ public:
 
 private:
 #if PLATFORM(COCOA)
-    void dispatchAsyncOnTarget(void (^block)());
+    void dispatchAsyncOnTarget(Function<void ()>&&);
 
     void setupRunLoop();
     void teardownRunLoop();
-    void queueTaskOnPrivateRunLoop(void (^block)());
+    void queueTaskOnPrivateRunLoop(Function<void ()>&&);
 #endif
 
     // This connection from the RemoteInspector singleton to the InspectionTarget
     // can be used on multiple threads. So any access to the target
     // itself must take this mutex to ensure m_target is valid.
-    Lock m_targetMutex;
+    mutable Lock m_targetMutex;
 
 #if PLATFORM(COCOA)
     // If a target has a specific run loop it wants to evaluate on
@@ -103,7 +104,7 @@ private:
     Lock m_queueMutex;
 #endif
 
-    RemoteControllableTarget* m_target { nullptr };
+    ThreadSafeWeakPtr<RemoteControllableTarget> m_target WTF_GUARDED_BY_LOCK(m_targetMutex);
     bool m_connected { false };
 
 #if PLATFORM(COCOA)

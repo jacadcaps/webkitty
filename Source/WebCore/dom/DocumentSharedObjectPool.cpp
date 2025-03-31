@@ -28,35 +28,54 @@
 #include "DocumentSharedObjectPool.h"
 
 #include "Element.h"
+#include "ElementData.h"
+#include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-inline unsigned attributeHash(const Vector<Attribute>& attributes)
+WTF_MAKE_TZONE_ALLOCATED_IMPL(DocumentSharedObjectPool);
+
+struct DocumentSharedObjectPool::ShareableElementDataHash {
+    static unsigned hash(const Ref<ShareableElementData>& data)
+    {
+        return computeHash(data->attributes());
+    }
+    static bool equal(const Ref<ShareableElementData>& a, const Ref<ShareableElementData>& b)
+    {
+        // We need to disable type checking because std::has_unique_object_representations_v<Attribute>
+        // return false. Attribute contains pointers but memcmp() is safe because those pointers were
+        // atomized.
+        return equalSpans<WTF::IgnoreTypeChecks::Yes>(a->attributes(), b->attributes());
+    }
+    static constexpr bool safeToCompareToEmptyOrDeleted = false;
+};
+
+struct AttributeSpanTranslator {
+    static unsigned hash(std::span<const Attribute> attributes)
+    {
+        return computeHash(attributes);
+    }
+
+    static bool equal(const Ref<ShareableElementData>& a, std::span<const Attribute> b)
+    {
+        // We need to disable type checking because std::has_unique_object_representations_v<Attribute>
+        // return false. Attribute contains pointers but memcmp() is safe because those pointers were
+        // atomized.
+        return equalSpans<WTF::IgnoreTypeChecks::Yes>(a->attributes(), b);
+    }
+
+    static void translate(Ref<ShareableElementData>& location, std::span<const Attribute> attributes, unsigned /*hash*/)
+    {
+        location = ShareableElementData::createWithAttributes(attributes);
+    }
+};
+
+Ref<ShareableElementData> DocumentSharedObjectPool::cachedShareableElementDataWithAttributes(std::span<const Attribute> attributes)
 {
-    return StringHasher::hashMemory(attributes.data(), attributes.size() * sizeof(Attribute));
+    ASSERT(!attributes.empty());
+
+    return m_shareableElementDataCache.add<AttributeSpanTranslator>(attributes).iterator->get();
 }
 
-inline bool hasSameAttributes(const Vector<Attribute>& attributes, ShareableElementData& elementData)
-{
-    if (attributes.size() != elementData.length())
-        return false;
-    return !memcmp(attributes.data(), elementData.m_attributeArray, attributes.size() * sizeof(Attribute));
-}
-
-Ref<ShareableElementData> DocumentSharedObjectPool::cachedShareableElementDataWithAttributes(const Vector<Attribute>& attributes)
-{
-    ASSERT(!attributes.isEmpty());
-
-    auto& cachedData = m_shareableElementDataCache.add(attributeHash(attributes), nullptr).iterator->value;
-
-    // FIXME: This prevents sharing when there's a hash collision.
-    if (cachedData && !hasSameAttributes(attributes, *cachedData))
-        return ShareableElementData::createWithAttributes(attributes);
-
-    if (!cachedData)
-        cachedData = ShareableElementData::createWithAttributes(attributes);
-
-    return *cachedData;
-}
-
-}
+} // namespace WebCore

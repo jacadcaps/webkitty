@@ -40,12 +40,12 @@ void RenderTreePosition::computeNextSibling(const Node& node)
     if (m_hasValidNextSibling) {
 #if ASSERT_ENABLED
         const unsigned oNSquaredAvoidanceLimit = 20;
-        bool skipAssert = m_parent.isRenderView() || ++m_assertionLimitCounter > oNSquaredAvoidanceLimit;
+        bool skipAssert = m_parent->isRenderView() || ++m_assertionLimitCounter > oNSquaredAvoidanceLimit;
         ASSERT(skipAssert || nextSiblingRenderer(node) == m_nextSibling);
 #endif
         return;
     }
-    m_nextSibling = makeWeakPtr(nextSiblingRenderer(node));
+    m_nextSibling = nextSiblingRenderer(node);
     m_hasValidNextSibling = true;
 }
 
@@ -61,7 +61,7 @@ RenderObject* RenderTreePosition::nextSiblingRenderer(const Node& node) const
 {
     ASSERT(!node.renderer());
 
-    auto* parentElement = m_parent.element();
+    auto* parentElement = m_parent->element();
     if (!parentElement)
         return nullptr;
     // FIXME: PlugingReplacement shadow trees are very wrong.
@@ -84,8 +84,8 @@ RenderObject* RenderTreePosition::nextSiblingRenderer(const Node& node) const
     auto composedDescendants = composedTreeDescendants(*parentElement);
 
     auto initializeIteratorConsideringPseudoElements = [&] {
-        if (is<PseudoElement>(node)) {
-            auto* host = downcast<PseudoElement>(node).hostElement();
+        if (auto* pseudoElement = dynamicDowncast<PseudoElement>(node)) {
+            auto* host = pseudoElement->hostElement();
             if (node.isBeforePseudoElement()) {
                 if (host != parentElement)
                     return composedDescendants.at(*host).traverseNext();
@@ -131,10 +131,9 @@ RenderObject* RenderTreePosition::nextSiblingRenderer(const Node& node) const
         if (auto* renderer = it->renderer())
             return renderer;
 
-        if (is<Element>(*it)) {
-            auto& element = downcast<Element>(*it);
-            if (element.hasDisplayContents()) {
-                if (auto* renderer = pushCheckingForAfterPseudoElementRenderer(element))
+        if (auto* element = dynamicDowncast<Element>(*it)) {
+            if (element->hasDisplayContents()) {
+                if (auto* renderer = pushCheckingForAfterPseudoElementRenderer(*element))
                     return renderer;
                 it.traverseNext();
                 continue;

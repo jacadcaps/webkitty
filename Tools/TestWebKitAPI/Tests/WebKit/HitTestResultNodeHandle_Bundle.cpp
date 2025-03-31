@@ -27,6 +27,8 @@
 
 #if WK_HAVE_C_SPI
 
+#if ENABLE(CONTEXT_MENUS)
+
 #include "InjectedBundleTest.h"
 #include "InjectedBundleController.h"
 #include "PlatformUtilities.h"
@@ -55,7 +57,7 @@ public:
     virtual void didCreatePage(WKBundleRef bundle, WKBundlePageRef page)
     {
         WKBundlePageContextMenuClientV0 contextMenuClient;
-        memset(&contextMenuClient, 0, sizeof(contextMenuClient));
+        zeroBytes(contextMenuClient);
 
         contextMenuClient.base.version = 0;
         contextMenuClient.getContextMenuFromDefaultMenu = getContextMenuFromDefaultMenu;
@@ -67,5 +69,7 @@ public:
 static InjectedBundleTest::Register<HitTestResultNodeHandleTest> registrar("HitTestResultNodeHandleTest");
 
 } // namespace TestWebKitAPI
+
+#endif
 
 #endif

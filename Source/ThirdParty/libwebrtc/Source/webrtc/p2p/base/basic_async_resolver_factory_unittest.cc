@@ -10,40 +10,16 @@
 
 #include "p2p/base/basic_async_resolver_factory.h"
 
+#include "api/test/mock_async_dns_resolver.h"
 #include "rtc_base/gunit.h"
 #include "rtc_base/socket_address.h"
 #include "rtc_base/third_party/sigslot/sigslot.h"
+#include "test/gmock.h"
 #include "test/gtest.h"
+#include "test/testsupport/rtc_expect_death.h"
 
 namespace webrtc {
 
-class BasicAsyncResolverFactoryTest : public ::testing::Test,
-                                      public sigslot::has_slots<> {
- public:
-  void TestCreate() {
-    BasicAsyncResolverFactory factory;
-    rtc::AsyncResolverInterface* resolver = factory.Create();
-    ASSERT_TRUE(resolver);
-    resolver->SignalDone.connect(
-        this, &BasicAsyncResolverFactoryTest::SetAddressResolved);
-
-    rtc::SocketAddress address("", 0);
-    resolver->Start(address);
-    ASSERT_TRUE_WAIT(address_resolved_, 10000 /*ms*/);
-  }
-
-  void SetAddressResolved(rtc::AsyncResolverInterface* resolver) {
-    address_resolved_ = true;
-  }
-
- private:
-  bool address_resolved_ = false;
-};
-
-// This test is primarily intended to let tools check that the created resolver
-// doesn't leak.
-TEST_F(BasicAsyncResolverFactoryTest, TestCreate) {
-  TestCreate();
-}
+// all tests were on deleted APIs
 
 }  // namespace webrtc

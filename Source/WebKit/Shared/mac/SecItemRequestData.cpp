@@ -26,9 +26,6 @@
 #include "config.h"
 #include "SecItemRequestData.h"
 
-#include "ArgumentCoders.h"
-#include "ArgumentCodersCF.h"
-
 namespace WebKit {
 
 SecItemRequestData::SecItemRequestData(Type type, CFDictionaryRef query)
@@ -44,39 +41,11 @@ SecItemRequestData::SecItemRequestData(Type type, CFDictionaryRef query, CFDicti
 {
 }
 
-void SecItemRequestData::encode(IPC::Encoder& encoder) const
+SecItemRequestData::SecItemRequestData(Type type, RetainPtr<CFDictionaryRef>&& query, RetainPtr<CFDictionaryRef>&& attributesToMatch)
+    : m_type(type)
+    , m_queryDictionary(WTFMove(query))
+    , m_attributesToMatch(WTFMove(attributesToMatch))
 {
-    encoder << m_type;
-
-    encoder << static_cast<bool>(m_queryDictionary);
-    if (m_queryDictionary)
-        IPC::encode(encoder, m_queryDictionary.get());
-
-    encoder << static_cast<bool>(m_attributesToMatch);
-    if (m_attributesToMatch)
-        IPC::encode(encoder, m_attributesToMatch.get());
-}
-
-bool SecItemRequestData::decode(IPC::Decoder& decoder, SecItemRequestData& secItemRequestData)
-{
-    if (!decoder.decode(secItemRequestData.m_type))
-        return false;
-
-    bool expectQuery;
-    if (!decoder.decode(expectQuery))
-        return false;
-
-    if (expectQuery && !IPC::decode(decoder, secItemRequestData.m_queryDictionary))
-        return false;
-    
-    bool expectAttributes;
-    if (!decoder.decode(expectAttributes))
-        return false;
-    
-    if (expectAttributes && !IPC::decode(decoder, secItemRequestData.m_attributesToMatch))
-        return false;
-    
-    return true;
 }
 
 } // namespace WebKit

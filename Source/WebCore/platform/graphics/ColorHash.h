@@ -31,7 +31,7 @@
 namespace WTF {
 
 struct ColorHash {
-    static unsigned hash(const WebCore::Color& key) { return key.hash(); }
+    static unsigned hash(const WebCore::Color& key) { return computeHash(key); }
     static bool equal(const WebCore::Color& a, const WebCore::Color& b) { return a == b; }
     static const bool safeToCompareToEmptyOrDeleted = true;
 };
@@ -41,6 +41,7 @@ template<> struct DefaultHash<WebCore::Color> : ColorHash { };
 template<> struct HashTraits<WebCore::Color> : GenericHashTraits<WebCore::Color> {
     static const bool emptyValueIsZero = false;
     static WebCore::Color emptyValue() { return WebCore::Color(HashTableEmptyValue); }
+    static bool isEmptyValue(const WebCore::Color& value) { return value.isHashTableEmptyValue(); }
 
     static void constructDeletedValue(WebCore::Color& slot) { new (NotNull, &slot) WebCore::Color(HashTableDeletedValue); }
     static bool isDeletedValue(const WebCore::Color& value) { return value.isHashTableDeletedValue(); }

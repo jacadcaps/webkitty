@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008-2024 Apple Inc. All Rights Reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,15 +28,19 @@
 #include "ActiveDOMObject.h"
 
 #include "Document.h"
+#include "Event.h"
 #include "EventLoop.h"
 #include "ScriptExecutionContext.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
 static inline ScriptExecutionContext* suitableScriptExecutionContext(ScriptExecutionContext* scriptExecutionContext)
 {
     // For detached documents, make sure we observe their context document instead.
-    return is<Document>(scriptExecutionContext) ? &downcast<Document>(*scriptExecutionContext).contextDocument() : scriptExecutionContext;
+    if (auto* document = dynamicDowncast<Document>(scriptExecutionContext))
+        return &document->contextDocument();
+    return scriptExecutionContext;
 }
 
 inline ActiveDOMObject::ActiveDOMObject(ScriptExecutionContext* context, CheckedScriptExecutionContextType)
@@ -75,12 +79,14 @@ ActiveDOMObject::~ActiveDOMObject()
     // ContextDestructionObserver::contextDestroyed() (which we implement /
     // inherit). Hence, we should ensure that this is not 0 before use it
     // here.
-    if (!m_scriptExecutionContext)
+
+    RefPtr<ScriptExecutionContext> context = scriptExecutionContext();
+    if (!context)
         return;
 
     ASSERT(m_suspendIfNeededWasCalled);
-    ASSERT(m_scriptExecutionContext->isContextThread());
-    m_scriptExecutionContext->willDestroyActiveDOMObject(*this);
+    ASSERT(context->isContextThread());
+    context->willDestroyActiveDOMObject(*this);
 }
 
 void ActiveDOMObject::suspendIfNeeded()
@@ -89,22 +95,27 @@ void ActiveDOMObject::suspendIfNeeded()
     ASSERT(!m_suspendIfNeededWasCalled);
     m_suspendIfNeededWasCalled = true;
 #endif
-    if (!m_scriptExecutionContext)
-        return;
-
-    m_scriptExecutionContext->suspendActiveDOMObjectIfNeeded(*this);
+    if (RefPtr<ScriptExecutionContext> context = scriptExecutionContext())
+        context->suspendActiveDOMObjectIfNeeded(*this);
 }
 
 #if ASSERT_ENABLED
 
 void ActiveDOMObject::assertSuspendIfNeededWasCalled() const
 {
-    if (!m_suspendIfNeededWasCalled)
-        WTFLogAlways("Failed to call suspendIfNeeded() for %s", activeDOMObjectName());
     ASSERT(m_suspendIfNeededWasCalled);
 }
 
 #endif // ASSERT_ENABLED
+
+void ActiveDOMObject::didMoveToNewDocument(Document& newDocument)
+{
+    if (RefPtr context = scriptExecutionContext())
+        context->willDestroyActiveDOMObject(*this);
+    Ref newScriptExecutionContext = newDocument.contextDocument();
+    observeContext(newScriptExecutionContext.ptr());
+    newScriptExecutionContext->didCreateActiveDOMObject(*this);
+}
 
 void ActiveDOMObject::suspend(ReasonForSuspension)
 {
@@ -130,45 +141,67 @@ bool ActiveDOMObject::isAllowedToRunScript() const
 
 void ActiveDOMObject::queueTaskInEventLoop(TaskSource source, Function<void ()>&& function)
 {
-    auto* context = scriptExecutionContext();
+    RefPtr<ScriptExecutionContext> context = scriptExecutionContext();
     if (!context)
         return;
     context->eventLoop().queueTask(source, WTFMove(function));
 }
 
 class ActiveDOMObjectEventDispatchTask : public EventLoopTask {
+    WTF_MAKE_TZONE_ALLOCATED(ActiveDOMObjectEventDispatchTask);
 public:
-    ActiveDOMObjectEventDispatchTask(TaskSource source, EventLoopTaskGroup& group, ActiveDOMObject& object, EventTarget& target, Ref<Event>&& event)
+    ActiveDOMObjectEventDispatchTask(TaskSource source, EventLoopTaskGroup& group, ActiveDOMObject& object, Function<void()>&& dispatchEvent)
         : EventLoopTask(source, group)
         , m_object(object)
-        , m_target(target)
-        , m_event(WTFMove(event))
+        , m_dispatchEvent(WTFMove(dispatchEvent))
     {
-        ++m_object.m_pendingActivityInstanceCount;
+        ++m_object->m_pendingActivityInstanceCount;
     }
 
     ~ActiveDOMObjectEventDispatchTask()
     {
-        ASSERT(m_object.m_pendingActivityInstanceCount);
-        --m_object.m_pendingActivityInstanceCount;
+        ASSERT(m_object->m_pendingActivityInstanceCount);
+        --m_object->m_pendingActivityInstanceCount;
     }
 
-    void execute() final { m_target->dispatchEvent(m_event.get()); }
+    void execute() final
+    {
+        // If this task executes after the script execution context has been stopped, don't
+        // actually dispatch the event.
+        if (m_object->isAllowedToRunScript())
+            m_dispatchEvent();
+    }
 
 private:
-    ActiveDOMObject& m_object;
-    Ref<EventTarget> m_target;
-    Ref<Event> m_event;
+    Ref<ActiveDOMObject> m_object;
+    Function<void()> m_dispatchEvent;
 };
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ActiveDOMObjectEventDispatchTask);
 
 void ActiveDOMObject::queueTaskToDispatchEventInternal(EventTarget& target, TaskSource source, Ref<Event>&& event)
 {
     ASSERT(!event->target() || &target == event->target());
-    auto* context = scriptExecutionContext();
+    RefPtr context = scriptExecutionContext();
     if (!context)
         return;
     auto& eventLoopTaskGroup = context->eventLoop();
-    auto task = makeUnique<ActiveDOMObjectEventDispatchTask>(source, eventLoopTaskGroup, *this, target, WTFMove(event));
+    auto task = makeUnique<ActiveDOMObjectEventDispatchTask>(source, eventLoopTaskGroup, *this, [target = Ref { target }, event = WTFMove(event)] {
+        target->dispatchEvent(event);
+    });
+    eventLoopTaskGroup.queueTask(WTFMove(task));
+}
+
+void ActiveDOMObject::queueCancellableTaskToDispatchEventInternal(EventTarget& target, TaskSource source, TaskCancellationGroup& cancellationGroup, Ref<Event>&& event)
+{
+    ASSERT(!event->target() || &target == event->target());
+    RefPtr context = scriptExecutionContext();
+    if (!context)
+        return;
+    auto& eventLoopTaskGroup = context->eventLoop();
+    auto task = makeUnique<ActiveDOMObjectEventDispatchTask>(source, eventLoopTaskGroup, *this, CancellableTask(cancellationGroup, [target = Ref { target }, event = WTFMove(event)] {
+        target->dispatchEvent(event);
+    }));
     eventLoopTaskGroup.queueTask(WTFMove(task));
 }
 

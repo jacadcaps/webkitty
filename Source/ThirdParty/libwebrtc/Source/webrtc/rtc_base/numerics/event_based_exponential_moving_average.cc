@@ -11,6 +11,8 @@
 #include "rtc_base/numerics/event_based_exponential_moving_average.h"
 
 #include <cmath>
+#include <cstdint>
+#include <limits>
 
 #include "rtc_base/checks.h"
 
@@ -24,9 +26,9 @@ constexpr double ninetyfive_percent_confidence = 1.96;
 
 namespace rtc {
 
-// |half_time| specifies how much weight will be given to old samples,
+// `half_time` specifies how much weight will be given to old samples,
 // a sample gets exponentially less weight so that it's 50%
-// after |half_time| time units has passed.
+// after `half_time` time units has passed.
 EventBasedExponentialMovingAverage::EventBasedExponentialMovingAverage(
     int half_time) {
   SetHalfTime(half_time);

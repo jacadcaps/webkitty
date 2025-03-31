@@ -32,11 +32,12 @@
 #pragma once
 
 #include "InspectorOverlay.h"
-#include "PageScriptDebugServer.h"
 #include <JavaScriptCore/InspectorAgentRegistry.h>
 #include <JavaScriptCore/InspectorEnvironment.h>
 #include <wtf/Forward.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/WeakRef.h>
 #include <wtf/text/WTFString.h>
 
 namespace Inspector {
@@ -49,7 +50,6 @@ class InspectorAgent;
 namespace WebCore {
 
 class DOMWrapperWorld;
-class Frame;
 class GraphicsContext;
 class InspectorClient;
 class InspectorDOMAgent;
@@ -57,28 +57,33 @@ class InspectorFrontendClient;
 class InspectorInstrumentation;
 class InspectorPageAgent;
 class InstrumentingAgents;
+class LocalFrame;
 class Node;
 class Page;
+class PageDebugger;
 class WebInjectedScriptManager;
 struct PageAgentContext;
 
-class InspectorController final : public Inspector::InspectorEnvironment {
+class InspectorController final : public Inspector::InspectorEnvironment, public CanMakeWeakPtr<InspectorController> {
     WTF_MAKE_NONCOPYABLE(InspectorController);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(InspectorController);
 public:
-    InspectorController(Page&, InspectorClient*);
+    InspectorController(Page&, std::unique_ptr<InspectorClient>&&);
     ~InspectorController() override;
+
+    WEBCORE_EXPORT void ref() const;
+    WEBCORE_EXPORT void deref() const;
 
     void inspectedPageDestroyed();
 
-    bool enabled() const;
+    WEBCORE_EXPORT bool enabled() const;
     Page& inspectedPage() const;
 
     WEBCORE_EXPORT void show();
 
     WEBCORE_EXPORT void setInspectorFrontendClient(InspectorFrontendClient*);
     unsigned inspectionLevel() const;
-    void didClearWindowObjectInWorld(Frame&, DOMWrapperWorld&);
+    void didClearWindowObjectInWorld(LocalFrame&, DOMWrapperWorld&);
 
     WEBCORE_EXPORT void dispatchMessageFromFrontend(const String& message);
 
@@ -92,20 +97,24 @@ public:
     void inspect(Node*);
     WEBCORE_EXPORT bool shouldShowOverlay() const;
     WEBCORE_EXPORT void drawHighlight(GraphicsContext&) const;
-    WEBCORE_EXPORT void getHighlight(Highlight&, InspectorOverlay::CoordinateSystem) const;
+    WEBCORE_EXPORT void getHighlight(InspectorOverlay::Highlight&, InspectorOverlay::CoordinateSystem) const;
     void hideHighlight();
     Node* highlightedNode() const;
 
     WEBCORE_EXPORT void setIndicating(bool);
 
-    WEBCORE_EXPORT void willComposite(Frame&);
-    WEBCORE_EXPORT void didComposite(Frame&);
+    WEBCORE_EXPORT void willComposite(LocalFrame&);
+    WEBCORE_EXPORT void didComposite(LocalFrame&);
 
+    // Testing support.
     bool isUnderTest() const { return m_isUnderTest; }
     void setIsUnderTest(bool isUnderTest) { m_isUnderTest = isUnderTest; }
     WEBCORE_EXPORT void evaluateForTestInFrontend(const String& script);
+    WEBCORE_EXPORT unsigned gridOverlayCount() const;
+    WEBCORE_EXPORT unsigned flexOverlayCount() const;
+    WEBCORE_EXPORT unsigned paintRectCount() const;
 
-    InspectorClient* inspectorClient() const { return m_inspectorClient; }
+    InspectorClient* inspectorClient() const { return m_inspectorClient.get(); }
     InspectorFrontendClient* inspectorFrontendClient() const { return m_inspectorFrontendClient; }
 
     Inspector::InspectorAgent& ensureInspectorAgent();
@@ -119,7 +128,7 @@ public:
     Inspector::InspectorEvaluateHandler evaluateHandler() const override;
     void frontendInitialized() override;
     WTF::Stopwatch& executionStopwatch() const final;
-    PageScriptDebugServer& scriptDebugServer() override;
+    JSC::Debugger* debugger() override;
     JSC::VM& vm() override;
 
 private:
@@ -128,17 +137,17 @@ private:
     PageAgentContext pageAgentContext();
     void createLazyAgents();
 
+    WeakRef<Page> m_page;
     Ref<InstrumentingAgents> m_instrumentingAgents;
     std::unique_ptr<WebInjectedScriptManager> m_injectedScriptManager;
     Ref<Inspector::FrontendRouter> m_frontendRouter;
     Ref<Inspector::BackendDispatcher> m_backendDispatcher;
-    std::unique_ptr<InspectorOverlay> m_overlay;
+    const UniqueRef<InspectorOverlay> m_overlay;
     Ref<WTF::Stopwatch> m_executionStopwatch;
-    PageScriptDebugServer m_scriptDebugServer;
+    std::unique_ptr<PageDebugger> m_debugger;
     Inspector::AgentRegistry m_agents;
 
-    Page& m_page;
-    InspectorClient* m_inspectorClient;
+    std::unique_ptr<InspectorClient> m_inspectorClient;
     InspectorFrontendClient* m_inspectorFrontendClient { nullptr };
 
     // Lazy, but also on-demand agents.

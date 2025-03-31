@@ -25,7 +25,12 @@
 
 #pragma once
 
+#if !BUSE(TZONE)
+
+#include "BPlatform.h"
 #include "IsoConfig.h"
+
+#if !BUSE(LIBPAS)
 
 namespace bmalloc {
 
@@ -33,3 +38,5 @@ static constexpr unsigned alignmentForIsoSharedAllocation = 16;
 
 } // namespace bmalloc
 
+#endif
+#endif // !BUSE(TZONE)

@@ -25,7 +25,8 @@ option(ENABLE_IWYU "Enables include-what-you-use support." OFF)
 option(ENABLE_WERROR "Enable warnings as errors." OFF)
 option(ENABLE_WEBM_PARSER "Enables new parser API." OFF)
 
-if(WIN32)
+if(WIN32 OR CYGWIN OR MSYS)
+  # Allow use of rand_r() / fdopen() and other POSIX functions.
   require_cxx_flag_nomsvc("-std=gnu++11")
 else()
   require_cxx_flag_nomsvc("-std=c++11")
@@ -72,8 +73,6 @@ set(mkvmuxer_sources
     "${LIBWEBM_SRC_DIR}/mkvmuxer/mkvmuxertypes.h"
     "${LIBWEBM_SRC_DIR}/mkvmuxer/mkvmuxerutil.cc"
     "${LIBWEBM_SRC_DIR}/mkvmuxer/mkvmuxerutil.h"
-    "${LIBWEBM_SRC_DIR}/mkvmuxer/mkvwriter.cc"
-    "${LIBWEBM_SRC_DIR}/mkvmuxer/mkvwriter.h"
     "${LIBWEBM_SRC_DIR}/common/webmids.h")
 
 set(mkvmuxer_sample_sources

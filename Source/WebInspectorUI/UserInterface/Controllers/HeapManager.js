@@ -40,6 +40,8 @@ WI.HeapManager = class HeapManager extends WI.Object
 
     activateExtraDomain(domain)
     {
+        // COMPATIBILITY (iOS 14.0): Inspector.activateExtraDomains was removed in favor of a declared debuggable type
+
         console.assert(domain === "Heap");
 
         for (let target of WI.targets)
@@ -83,11 +85,10 @@ WI.HeapManager = class HeapManager extends WI.Object
         this._enabled = false;
     }
 
-    snapshot(callback)
+    snapshot(target, callback)
     {
         console.assert(this._enabled);
 
-        let target = WI.assumingMainTarget();
         target.HeapAgent.snapshot((error, timestamp, snapshotStringData) => {
             if (error)
                 console.error(error);
@@ -100,8 +101,7 @@ WI.HeapManager = class HeapManager extends WI.Object
         console.assert(this._enabled);
         console.assert(node instanceof WI.HeapSnapshotNodeProxy);
 
-        let target = WI.assumingMainTarget();
-        target.HeapAgent.getPreview(node.id, (error, string, functionDetails, preview) => {
+        node.target.HeapAgent.getPreview(node.id, (error, string, functionDetails, preview) => {
             if (error)
                 console.error(error);
             callback(error, string, functionDetails, preview);
@@ -113,8 +113,7 @@ WI.HeapManager = class HeapManager extends WI.Object
         console.assert(this._enabled);
         console.assert(node instanceof WI.HeapSnapshotNodeProxy);
 
-        let target = WI.assumingMainTarget();
-        target.HeapAgent.getRemoteObject(node.id, objectGroup, (error, result) => {
+        node.target.HeapAgent.getRemoteObject(node.id, objectGroup, (error, result) => {
             if (error)
                 console.error(error);
             callback(error, result);
@@ -128,12 +127,8 @@ WI.HeapManager = class HeapManager extends WI.Object
         if (!this._enabled)
             return;
 
-        // FIXME: <https://webkit.org/b/167323> Web Inspector: Enable Memory profiling in Workers
-        if (target !== WI.mainTarget)
-            return;
-
         let collection = WI.GarbageCollection.fromPayload(payload);
-        this.dispatchEventToListeners(WI.HeapManager.Event.GarbageCollected, {collection});
+        this.dispatchEventToListeners(WI.HeapManager.Event.GarbageCollected, {target, collection});
     }
 };
 

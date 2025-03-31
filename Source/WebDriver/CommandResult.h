@@ -39,6 +39,7 @@ public:
         ElementClickIntercepted,
         ElementNotSelectable,
         ElementNotInteractable,
+        DetachedShadowRoot,
         InvalidArgument,
         InvalidElementState,
         InvalidSelector,
@@ -49,6 +50,7 @@ public:
         NoSuchCookie,
         NoSuchElement,
         NoSuchFrame,
+        NoSuchShadowRoot,
         NoSuchWindow,
         ScriptTimeout,
         SessionNotCreated,
@@ -71,27 +73,29 @@ public:
         return CommandResult(WTFMove(result), CommandResult::ErrorCode::UnknownError);
     }
 
-    static CommandResult fail(ErrorCode errorCode, Optional<String> errorMessage = WTF::nullopt)
+    static CommandResult fail(ErrorCode errorCode, std::optional<String> errorMessage = std::nullopt)
     {
         return CommandResult(errorCode, errorMessage);
     }
 
     unsigned httpStatusCode() const;
+    static unsigned errorCodeToHTTPStatusCode(ErrorCode);
+    static String errorCodeToString(ErrorCode);
     const RefPtr<JSON::Value>& result() const { return m_result; };
     void setAdditionalErrorData(RefPtr<JSON::Object>&& errorData) { m_errorAdditionalData = WTFMove(errorData); }
     bool isError() const { return !!m_errorCode; }
     ErrorCode errorCode() const { ASSERT(isError()); return m_errorCode.value(); }
     String errorString() const;
-    Optional<String> errorMessage() const { ASSERT(isError()); return m_errorMessage; }
+    std::optional<String> errorMessage() const { ASSERT(isError()); return m_errorMessage; }
     const RefPtr<JSON::Object>& additionalErrorData() const { return m_errorAdditionalData; }
 
 private:
-    explicit CommandResult(RefPtr<JSON::Value>&&, Optional<ErrorCode> = WTF::nullopt);
-    explicit CommandResult(ErrorCode, Optional<String> = WTF::nullopt);
+    explicit CommandResult(RefPtr<JSON::Value>&&, std::optional<ErrorCode> = std::nullopt);
+    explicit CommandResult(ErrorCode, std::optional<String> = std::nullopt);
 
     RefPtr<JSON::Value> m_result;
-    Optional<ErrorCode> m_errorCode;
-    Optional<String> m_errorMessage;
+    std::optional<ErrorCode> m_errorCode;
+    std::optional<String> m_errorMessage;
     RefPtr<JSON::Object> m_errorAdditionalData;
 };
 

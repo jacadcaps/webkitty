@@ -36,13 +36,12 @@ namespace WebCore {
     
 class AccessibilityMediaObject final : public AccessibilityRenderObject {
 public:
-    static Ref<AccessibilityMediaObject> create(RenderObject*);
+    static Ref<AccessibilityMediaObject> create(AXID, RenderObject&);
     virtual ~AccessibilityMediaObject();
     
     void enterFullscreen() const;
     void toggleMute();
     
-    bool hasControlsAttributeSet() const;
     String interactiveVideoDuration() const;
     bool isPlaying() const;
     bool isAutoplayEnabled() const;
@@ -50,16 +49,17 @@ public:
     bool isMuted() const;
 
 private:
-    enum AXSeekDirection { AXSeekForward, AXSeekBackward };
-    explicit AccessibilityMediaObject(RenderObject*);
-    bool computeAccessibilityIsIgnored() const final;
+    explicit AccessibilityMediaObject(AXID, RenderObject&);
+
+    enum class AXSeekDirection : bool { Backward, Forward };
+    bool computeIsIgnored() const final;
     bool isMediaObject() const final { return true; }
     
-    String stringValue() const override;
-    bool press() override;
-    void increment() override;
-    void decrement() override;
-    
+    String stringValue() const final;
+    bool press() final;
+    void increment() final;
+    void decrement() final;
+
     HTMLMediaElement* mediaElement() const;
     
     void mediaSeek(AXSeekDirection);
@@ -67,5 +67,7 @@ private:
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_ACCESSIBILITY(AccessibilityMediaObject, isMediaObject())
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::AccessibilityMediaObject) \
+    static bool isType(const WebCore::AccessibilityObject& object) { return object.isMediaObject(); } \
+SPECIALIZE_TYPE_TRAITS_END()
 #endif // PLATFORM(IOS_FAMILY)

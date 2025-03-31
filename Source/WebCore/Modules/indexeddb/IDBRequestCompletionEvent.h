@@ -25,15 +25,13 @@
 
 #pragma once
 
-#if ENABLE(INDEXED_DATABASE)
-
 #include "Event.h"
 #include "IDBRequest.h"
 
 namespace WebCore {
 
 class IDBRequestCompletionEvent final : public Event {
-    WTF_MAKE_ISO_ALLOCATED(IDBRequestCompletionEvent);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(IDBRequestCompletionEvent);
 public:
     static Ref<Event> create(const AtomString& type, CanBubble canBubble, IsCancelable cancelable, IDBRequest& request)
     {
@@ -47,5 +45,3 @@ private:
 };
 
 } // namespace WebCore
-
-#endif // ENABLE(INDEXED_DATABASE)

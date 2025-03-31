@@ -31,68 +31,71 @@
 
 #include "AudioArray.h"
 #include <memory>
+#include <span>
 #include <wtf/Noncopyable.h>
+#include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 // An AudioChannel represents a buffer of non-interleaved floating-point audio samples.
 // The PCM samples are normally assumed to be in a nominal range -1.0 -> +1.0
 class AudioChannel final {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(AudioChannel);
     WTF_MAKE_NONCOPYABLE(AudioChannel);
 public:
     // Memory can be externally referenced, or can be internally allocated with an AudioFloatArray.
 
     // Reference an external buffer.
-    explicit AudioChannel(float* storage, size_t length)
-        : m_length(length)
-        , m_rawPointer(storage)
+    AudioChannel(std::span<float> storage)
+        : m_span(storage)
         , m_silent(false)
     {
     }
 
     // Manage storage for us.
     explicit AudioChannel(size_t length)
-        : m_length(length)
-        , m_rawPointer(0)
-        , m_silent(true)
+        : m_memBuffer(makeUnique<AudioFloatArray>(length))
+        , m_span(m_memBuffer->span())
     {
-        m_memBuffer = makeUnique<AudioFloatArray>(length);
     }
 
     // A "blank" audio channel -- must call set() before it's useful...
-    AudioChannel()
-        : m_length(0)
-        , m_rawPointer(0)
-        , m_silent(true)
-    {
-    }
+    AudioChannel() = default;
 
     // Redefine the memory for this channel.
     // storage represents external memory not managed by this object.
-    void set(float* storage, size_t length)
+    void set(std::span<float> storage)
     {
         m_memBuffer = nullptr; // cleanup managed storage
-        m_rawPointer = storage;
-        m_length = length;
+        m_span = storage;
         m_silent = false;
     }
 
     // How many sample-frames do we contain?
-    size_t length() const { return m_length; }
+    size_t length() const { return m_span.size(); }
 
-    // resizeSmaller() can only be called with a new length <= the current length.
-    // The data stored in the bus will remain undisturbed.
-    void resizeSmaller(size_t newLength);
+    // Set new length. Can only be set to a value lower than the current length.
+    void setLength(size_t newLength)
+    {
+        m_span = m_span.first(newLength);
+    }
+
+    std::span<const float> span() const { return m_span; }
+    std::span<float> mutableSpan()
+    {
+        clearSilentFlag();
+        return m_span;
+    }
 
     // Direct access to PCM sample data. Non-const accessor clears silent flag.
     float* mutableData()
     {
         clearSilentFlag();
-        return m_rawPointer ? m_rawPointer : m_memBuffer->data(); 
+        return m_span.data();
     }
 
-    const float* data() const { return m_rawPointer ? m_rawPointer : m_memBuffer->data(); }
+    const float* data() const { return m_span.data(); }
 
     // Zeroes out all sample values in buffer.
     void zero()
@@ -101,11 +104,10 @@ public:
             return;
 
         m_silent = true;
-
-        if (m_memBuffer.get())
+        if (m_memBuffer)
             m_memBuffer->zero();
         else
-            memset(m_rawPointer, 0, sizeof(float) * m_length);
+            zeroSpan(m_span);
     }
 
     // Clears the silent flag.
@@ -116,7 +118,7 @@ public:
     // Scales all samples by the same amount.
     void scale(float scale);
 
-    // A simple memcpy() from the source channel
+    // A simple memcpySpan() from the source channel
     void copyFrom(const AudioChannel* sourceChannel);
 
     // Copies the given range from the source channel.
@@ -129,11 +131,9 @@ public:
     float maxAbsValue() const;
 
 private:
-    size_t m_length;
-
-    float* m_rawPointer;
     std::unique_ptr<AudioFloatArray> m_memBuffer;
-    bool m_silent;
+    std::span<float> m_span;
+    bool m_silent { true };
 };
 
 } // WebCore

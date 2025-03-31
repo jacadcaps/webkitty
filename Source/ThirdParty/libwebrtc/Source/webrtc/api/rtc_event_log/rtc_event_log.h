@@ -18,7 +18,6 @@
 
 #include "api/rtc_event_log/rtc_event.h"
 #include "api/rtc_event_log_output.h"
-#include "api/task_queue/task_queue_factory.h"
 
 namespace webrtc {
 
@@ -29,7 +28,7 @@ class RtcEventLog {
 
   // TODO(eladalon):  Get rid of the legacy encoding and this enum once all
   // clients have migrated to the new format.
-  enum class EncodingType { Legacy, NewFormat };
+  enum class EncodingType { Legacy, NewFormat, ProtoFree };
 
   virtual ~RtcEventLog() = default;
 
@@ -42,7 +41,7 @@ class RtcEventLog {
   // which it would be permissible to read and/or modify it.
   virtual void StopLogging() = 0;
 
-  // Stops logging to file and calls |callback| when the file has been closed.
+  // Stops logging to file and calls `callback` when the file has been closed.
   // Note that it is not safe to call any other members, including the
   // destructor, until the callback has been called.
   // TODO(srte): Remove default implementation when it's safe to do so.
@@ -61,7 +60,7 @@ class RtcEventLogNull final : public RtcEventLog {
   bool StartLogging(std::unique_ptr<RtcEventLogOutput> output,
                     int64_t output_period_ms) override;
   void StopLogging() override {}
-  void Log(std::unique_ptr<RtcEvent> event) override {}
+  void Log(std::unique_ptr<RtcEvent> /* event */) override {}
 };
 
 }  // namespace webrtc

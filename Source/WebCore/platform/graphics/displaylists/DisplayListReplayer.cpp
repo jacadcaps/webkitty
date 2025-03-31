@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,27 +26,30 @@
 #include "config.h"
 #include "DisplayListReplayer.h"
 
-#include "DisplayListItems.h"
-#include "GraphicsContext.h"
+#include "ControlFactory.h"
+#include "DisplayList.h"
 #include "Logging.h"
-#include <wtf/SystemTracing.h>
 #include <wtf/text/TextStream.h>
 
 namespace WebCore {
 namespace DisplayList {
 
-Replayer::Replayer(GraphicsContext& context, const DisplayList& displayList, Delegate* delegate)
-    : m_displayList(displayList)
-    , m_context(context)
-    , m_delegate(delegate)
+Replayer::Replayer(GraphicsContext& context, const DisplayList& displayList)
+    : Replayer(context, displayList.items(), displayList.resourceHeap(), ControlFactory::shared(), displayList.replayOptions())
 {
 }
 
-Replayer::~Replayer() = default;
-
-std::unique_ptr<DisplayList> Replayer::replay(const FloatRect& initialClip, bool trackReplayList)
+Replayer::Replayer(GraphicsContext& context, const Vector<Item>& items, const ResourceHeap& resourceHeap, ControlFactory& controlFactory, OptionSet<ReplayOption> options)
+    : m_context(context)
+    , m_items(items)
+    , m_resourceHeap(resourceHeap)
+    , m_controlFactory(controlFactory)
+    , m_options(options)
 {
-    TraceScope tracingScope(DisplayListReplayStart, DisplayListReplayEnd);
+}
+
+ReplayResult Replayer::replay(const FloatRect& initialClip, bool trackReplayList)
+{
     LOG_WITH_STREAM(DisplayLists, stream << "\nReplaying with clip " << initialClip);
     UNUSED_PARAM(initialClip);
 
@@ -54,27 +57,27 @@ std::unique_ptr<DisplayList> Replayer::replay(const FloatRect& initialClip, bool
     if (UNLIKELY(trackReplayList))
         replayList = makeUnique<DisplayList>();
 
-    size_t numItems = m_displayList.itemCount();
-    for (size_t i = 0; i < numItems; ++i) {
-        auto& item = m_displayList.list()[i].get();
+#if !LOG_DISABLED
+    size_t i = 0;
+#endif
+    ReplayResult result;
+    for (auto& item : m_items) {
+        LOG_WITH_STREAM(DisplayLists, stream << "applying " << i++ << " " << item);
 
-        if (!initialClip.isZero() && is<DrawingItem>(item)) {
-            const DrawingItem& drawingItem = downcast<DrawingItem>(item);
-            if (drawingItem.extentKnown() && !drawingItem.extent().intersects(initialClip)) {
-                LOG_WITH_STREAM(DisplayLists, stream << "skipping " << i << " " << item);
-                continue;
-            }
+        auto applyResult = applyItem(m_context, m_resourceHeap, m_controlFactory, item, m_options);
+        if (applyResult.stopReason) {
+            result.reasonForStopping = *applyResult.stopReason;
+            result.missingCachedResourceIdentifier = WTFMove(applyResult.resourceIdentifier);
+            LOG_WITH_STREAM(DisplayLists, stream << " failed to replay for reason " << result.reasonForStopping << ". Resource " << result.missingCachedResourceIdentifier << " is missing");
+            break;
         }
 
-        LOG_WITH_STREAM(DisplayLists, stream << "applying " << i << " " << item);
-        if (!m_delegate || !m_delegate->apply(item, m_context))
-            item.apply(m_context);
-
         if (UNLIKELY(trackReplayList))
-            replayList->appendItem(const_cast<Item&>(item));
+            replayList->items().append(item);
     }
-    
-    return replayList;
+
+    result.trackedDisplayList = WTFMove(replayList);
+    return result;
 }
 
 } // namespace DisplayList

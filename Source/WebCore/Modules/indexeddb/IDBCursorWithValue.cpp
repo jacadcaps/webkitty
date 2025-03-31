@@ -26,14 +26,12 @@
 #include "config.h"
 #include "IDBCursorWithValue.h"
 
-#if ENABLE(INDEXED_DATABASE)
-
 #include <JavaScriptCore/HeapInlines.h>
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(IDBCursorWithValue);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(IDBCursorWithValue);
 
 Ref<IDBCursorWithValue> IDBCursorWithValue::create(IDBObjectStore& objectStore, const IDBCursorInfo& info)
 {
@@ -58,5 +56,3 @@ IDBCursorWithValue::IDBCursorWithValue(IDBIndex& index, const IDBCursorInfo& inf
 IDBCursorWithValue::~IDBCursorWithValue() = default;
 
 } // namespace WebCore
-
-#endif // ENABLE(INDEXED_DATABASE)

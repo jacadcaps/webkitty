@@ -52,6 +52,8 @@ static void didSameDocumentNavigation(WKPageRef page, WKNavigationRef, WKSameDoc
 TEST(WebKit, EphemeralSessionPushStateNoHistoryCallback)
 {
     auto configuration = adoptWK(WKPageConfigurationCreate());
+    auto preferences = adoptWK(WKPreferencesCreate());
+    WKPageConfigurationSetPreferences(configuration.get(), preferences.get());
 
     auto context = adoptWK(WKContextCreateWithConfiguration(nullptr));
     WKPageConfigurationSetContext(configuration.get(), context.get());
@@ -60,7 +62,7 @@ TEST(WebKit, EphemeralSessionPushStateNoHistoryCallback)
     WKPageConfigurationSetWebsiteDataStore(configuration.get(), websiteDataStore.get());
 
     WKContextHistoryClientV0 historyClient;
-    memset(&historyClient, 0, sizeof(historyClient));
+    zeroBytes(historyClient);
 
     historyClient.base.version = 0;
     historyClient.didNavigateWithNavigationData = didNavigateWithNavigationData;
@@ -70,18 +72,14 @@ TEST(WebKit, EphemeralSessionPushStateNoHistoryCallback)
     PlatformWebView webView(configuration.get());
 
     WKPageNavigationClientV0 pageLoaderClient;
-    memset(&pageLoaderClient, 0, sizeof(pageLoaderClient));
+    zeroBytes(pageLoaderClient);
 
     pageLoaderClient.base.version = 0;
     pageLoaderClient.didSameDocumentNavigation = didSameDocumentNavigation;
 
     WKPageSetPageNavigationClient(webView.page(), &pageLoaderClient.base);
 
-    WKRetainPtr<WKPreferencesRef> preferences = adoptWK(WKPreferencesCreate());
     WKPreferencesSetUniversalAccessFromFileURLsAllowed(preferences.get(), true);
-
-    WKPageGroupRef pageGroup = WKPageGetPageGroup(webView.page());
-    WKPageGroupSetPreferences(pageGroup, preferences.get());
 
     WKRetainPtr<WKURLRef> url = adoptWK(Util::createURLForResource("push-state", "html"));
     WKPageLoadURL(webView.page(), url.get());

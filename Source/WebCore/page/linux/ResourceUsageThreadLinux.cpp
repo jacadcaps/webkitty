@@ -29,6 +29,7 @@
 
 #if ENABLE(RESOURCE_USAGE) && OS(LINUX)
 
+#include "MemoryCache.h"
 #include "WorkerThread.h"
 #include <JavaScriptCore/GCActivityCallback.h>
 #include <JavaScriptCore/SamplingProfiler.h>
@@ -42,6 +43,11 @@
 #include <unistd.h>
 #include <wtf/Threading.h>
 #include <wtf/linux/CurrentProcessMemoryStatus.h>
+#include <wtf/text/StringToIntegerConversion.h>
+
+#if USE(COORDINATED_GRAPHICS)
+#include "CoordinatedTileBuffer.h"
+#endif
 
 namespace WebCore {
 
@@ -53,7 +59,9 @@ static float cpuPeriod()
 
     static const unsigned statMaxLineLength = 512;
     char buffer[statMaxLineLength + 1];
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GLib port
     char* line = fgets(buffer, statMaxLineLength, file);
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
     if (!line) {
         fclose(file);
         return 0;
@@ -103,18 +111,21 @@ void ResourceUsageThread::platformSaveStateBeforeStarting()
             m_samplingProfilerThreadID = thread->id();
     }
 #endif
+#if USE(COORDINATED_GRAPHICS)
+    CoordinatedTileBuffer::resetMemoryUsage();
+#endif
 }
 
 struct ThreadInfo {
-    Optional<String> name;
-    Optional<float> cpuUsage;
+    std::optional<String> name;
+    std::optional<float> cpuUsage;
     unsigned long long previousUtime { 0 };
     unsigned long long previousStime { 0 };
 };
 
-static HashMap<pid_t, ThreadInfo>& threadInfoMap()
+static UncheckedKeyHashMap<pid_t, ThreadInfo>& threadInfoMap()
 {
-    static LazyNeverDestroyed<HashMap<pid_t, ThreadInfo>> map;
+    static LazyNeverDestroyed<UncheckedKeyHashMap<pid_t, ThreadInfo>> map;
     static std::once_flag flag;
     std::call_once(flag, [&] {
         map.construct();
@@ -124,13 +135,15 @@ static HashMap<pid_t, ThreadInfo>& threadInfoMap()
 
 static bool threadCPUUsage(pid_t id, float period, ThreadInfo& info)
 {
-    String path = makeString("/proc/self/task/", id, "/stat");
+    String path = makeString("/proc/self/task/"_s, id, "/stat"_s);
     int fd = open(path.utf8().data(), O_RDONLY);
     if (fd < 0)
         return false;
 
     static const ssize_t maxBufferLength = BUFSIZ - 1;
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GLib port
     char buffer[BUFSIZ];
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
     buffer[0] = '\0';
 
     ssize_t totalBytesRead = 0;
@@ -153,6 +166,8 @@ static bool threadCPUUsage(pid_t id, float period, ThreadInfo& info)
     buffer[totalBytesRead] = '\0';
 
     // Skip tid and name.
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GLib port
+    // FIXME: Use `find(std::span { buffer }, ')')` instead of `strchr()`.
     char* position = strchr(buffer, ')');
     if (!position)
         return false;
@@ -162,8 +177,9 @@ static bool threadCPUUsage(pid_t id, float period, ThreadInfo& info)
         if (!name)
             return false;
         name++;
-        info.name = String::fromUTF8(name, position - name);
+        info.name = String::fromUTF8({ name, position });
     }
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
     // Move after state.
     position += 4;
@@ -171,7 +187,7 @@ static bool threadCPUUsage(pid_t id, float period, ThreadInfo& info)
     // Skip ppid, pgrp, sid, tty_nr, tty_pgrp, flags, min_flt, cmin_flt, maj_flt, cmaj_flt.
     unsigned tokensToSkip = 10;
     while (tokensToSkip--) {
-        while (!isASCIISpace(position[0]))
+        while (!isUnicodeCompatibleASCIIWhitespace(position[0]))
             position++;
         position++;
     }
@@ -194,26 +210,21 @@ static void collectCPUUsage(float period)
         return;
     }
 
-    HashSet<pid_t> previousTasks;
+    UncheckedKeyHashSet<pid_t> previousTasks;
     for (const auto& key : threadInfoMap().keys())
         previousTasks.add(key);
 
     struct dirent* dp;
     while ((dp = readdir(dir))) {
-        String name = String::fromUTF8(dp->d_name);
-        if (name == "." || name == "..")
+        auto id = parseInteger<pid_t>(StringView::fromLatin1(dp->d_name));
+        if (!id)
             continue;
 
-        bool ok;
-        pid_t id = name.toIntStrict(&ok);
-        if (!ok)
-            continue;
+        auto& info = threadInfoMap().add(*id, ThreadInfo()).iterator->value;
+        if (!threadCPUUsage(*id, period, info))
+            threadInfoMap().remove(*id);
 
-        auto& info = threadInfoMap().add(id, ThreadInfo()).iterator->value;
-        if (!threadCPUUsage(id, period, info))
-            threadInfoMap().remove(id);
-
-        previousTasks.remove(id);
+        previousTasks.remove(*id);
     }
     closedir(dir);
 
@@ -235,25 +246,24 @@ void ResourceUsageThread::platformCollectCPUData(JSC::VM*, ResourceUsageData& da
 
     pid_t resourceUsageThreadID = Thread::currentID();
 
-    HashSet<pid_t> knownWebKitThreads;
+    UncheckedKeyHashSet<pid_t> knownWebKitThreads;
     {
-        auto locker = holdLock(Thread::allThreadsMutex());
-        for (auto* thread : Thread::allThreads(locker)) {
+        Locker locker { Thread::allThreadsLock() };
+        for (auto* thread : Thread::allThreads()) {
             if (auto id = thread->id())
                 knownWebKitThreads.add(id);
         }
     }
 
-    HashMap<pid_t, String> knownWorkerThreads;
+    UncheckedKeyHashMap<pid_t, String> knownWorkerThreads;
     {
-        LockHolder lock(WorkerThread::workerThreadsMutex());
-        for (auto* thread : WorkerThread::workerThreads(lock)) {
+        for (auto& thread : WorkerOrWorkletThread::workerOrWorkletThreads()) {
             // Ignore worker threads that have not been fully started yet.
-            if (!thread->thread())
+            if (!thread.thread())
                 continue;
 
-            if (auto id = thread->thread()->id())
-                knownWorkerThreads.set(id, thread->identifier().isolatedCopy());
+            if (auto id = thread.thread()->id())
+                knownWorkerThreads.set(id, thread.inspectorIdentifier().isolatedCopy());
         }
     }
 
@@ -272,7 +282,7 @@ void ResourceUsageThread::platformCollectCPUData(JSC::VM*, ResourceUsageData& da
             return true;
 
         // The bmalloc scavenger thread is below WTF. Detect it by its name.
-        if (name == "BMScavenger")
+        if (name == "BMScavenger"_s)
             return true;
 
         return false;
@@ -295,7 +305,7 @@ void ResourceUsageThread::platformCollectCPUData(JSC::VM*, ResourceUsageData& da
         else {
             String threadIdentifier = knownWorkerThreads.get(id);
             bool isWorkerThread = !threadIdentifier.isEmpty();
-            String name = it.value.name.valueOr(emptyString());
+            String name = it.value.name.value_or(emptyString());
             ThreadCPUInfo::Type type = (isWorkerThread || isWebKitThread(id, name)) ? ThreadCPUInfo::Type::WebKit : ThreadCPUInfo::Type::Unknown;
             data.cpuThreads.append(ThreadCPUInfo { name, threadIdentifier, cpuUsage, type });
         }
@@ -317,10 +327,25 @@ void ResourceUsageThread::platformCollectMemoryData(JSC::VM* vm, ResourceUsageDa
     data.categories[MemoryCategory::GCOwned].dirtySize = currentGCOwnedExtra - currentGCOwnedExternal;
     data.categories[MemoryCategory::GCOwned].externalSize = currentGCOwnedExternal;
 
+    int imagesDecodedSize = 0;
+    callOnMainThreadAndWait([&imagesDecodedSize] {
+        imagesDecodedSize = MemoryCache::singleton().getStatistics().images.decodedSize;
+    });
+    data.categories[MemoryCategory::Images].dirtySize = imagesDecodedSize;
+
+#if USE(COORDINATED_GRAPHICS)
+    data.categories[MemoryCategory::Layers].dirtySize = CoordinatedTileBuffer::getMemoryUsage();
+#endif
+
+    size_t categoriesTotalSize = 0;
+    for (auto& category : data.categories)
+        categoriesTotalSize += category.totalSize();
+    data.categories[MemoryCategory::Other].dirtySize = data.totalDirtySize - categoriesTotalSize;
+
     data.totalExternalSize = currentGCOwnedExternal;
 
-    data.timeOfNextEdenCollection = data.timestamp + vm->heap.edenActivityCallback()->timeUntilFire().valueOr(Seconds(std::numeric_limits<double>::infinity()));
-    data.timeOfNextFullCollection = data.timestamp + vm->heap.fullActivityCallback()->timeUntilFire().valueOr(Seconds(std::numeric_limits<double>::infinity()));
+    data.timeOfNextEdenCollection = data.timestamp + vm->heap.edenActivityCallback()->timeUntilFire().value_or(Seconds(std::numeric_limits<double>::infinity()));
+    data.timeOfNextFullCollection = data.timestamp + vm->heap.fullActivityCallback()->timeUntilFire().value_or(Seconds(std::numeric_limits<double>::infinity()));
 }
 
 } // namespace WebCore

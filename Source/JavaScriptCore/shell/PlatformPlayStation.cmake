@@ -20,7 +20,23 @@ endif ()
 set(PLAYSTATION_jsc_PROCESS_NAME "JSCShell")
 set(PLAYSTATION_jsc_MAIN_THREAD_NAME "JSCShell")
 
-# Set the debugger working directory for Visual Studio
 if (${CMAKE_GENERATOR} MATCHES "Visual Studio")
+    # Set the debugger working directory for Visual Studio
     set_target_properties(jsc PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+
+    # Set the startup target to JSC if WebCore disabled
+    if (NOT ENABLE_WEBCORE)
+        set_property(DIRECTORY ${PROJECT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT jsc)
+    endif ()
+endif ()
+
+list(APPEND jsc_LIBRARIES ${MEMORY_EXTRA_LIB})
+
+if (DEVELOPER_MODE)
+    list(APPEND testapi_LIBRARIES ${MEMORY_EXTRA_LIB})
+    list(APPEND testmasm_LIBRARIES ${MEMORY_EXTRA_LIB})
+    list(APPEND testRegExp_LIBRARIES ${MEMORY_EXTRA_LIB})
+    list(APPEND testb3_LIBRARIES ${MEMORY_EXTRA_LIB})
+    list(APPEND testair_LIBRARIES ${MEMORY_EXTRA_LIB})
+    list(APPEND testdfg_LIBRARIES ${MEMORY_EXTRA_LIB})
 endif ()

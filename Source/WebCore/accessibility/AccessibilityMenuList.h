@@ -29,28 +29,37 @@
 
 namespace WebCore {
 
+class AccessibilityMenuListPopup;
 class RenderMenuList;
 
 class AccessibilityMenuList final : public AccessibilityRenderObject {
 public:
-    static Ref<AccessibilityMenuList> create(RenderMenuList* renderer);
+    static Ref<AccessibilityMenuList> create(AXID, RenderMenuList&, AXObjectCache&);
 
-    bool isCollapsed() const override;
-    bool press() override;
+    bool isCollapsed() const final;
+    bool press() final;
 
     void didUpdateActiveOption(int optionIndex);
 
 private:
-    explicit AccessibilityMenuList(RenderMenuList*);
+    explicit AccessibilityMenuList(AXID, RenderMenuList&, AXObjectCache&);
 
-    bool isMenuList() const override { return true; }
-    AccessibilityRole roleValue() const override { return AccessibilityRole::PopUpButton; }
-    bool canSetFocusAttribute() const override;
+    bool isMenuList() const final { return true; }
+    AccessibilityRole determineAccessibilityRole() final { return AccessibilityRole::PopUpButton; }
 
-    void addChildren() override;
-    void childrenChanged() override;
+    bool canSetFocusAttribute() const final;
+    void addChildren() final;
+    void updateChildrenIfNecessary() final;
+    // This class' children are initialized once in the constructor with m_popup.
+    void clearChildren() final { };
+    void setNeedsToUpdateChildren() final { };
+
+    // FIXME: Nothing calls AXObjectCache::remove for m_popup.
+    Ref<AccessibilityMenuListPopup> m_popup;
 };
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_ACCESSIBILITY(AccessibilityMenuList, isMenuList())
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::AccessibilityMenuList) \
+    static bool isType(const WebCore::AccessibilityObject& object) { return object.isMenuList(); } \
+SPECIALIZE_TYPE_TRAITS_END()

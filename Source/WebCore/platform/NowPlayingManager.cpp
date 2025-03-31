@@ -25,6 +25,7 @@
 
 #include "config.h"
 #include "NowPlayingManager.h"
+#include <wtf/TZoneMallocInlines.h>
 
 #if PLATFORM(COCOA)
 #include "MediaSessionManagerCocoa.h"
@@ -32,28 +33,24 @@
 
 namespace WebCore {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(NowPlayingManager);
+
 NowPlayingManager::NowPlayingManager() = default;
 NowPlayingManager::~NowPlayingManager() = default;
 
-void NowPlayingManager::didReceiveRemoteControlCommand(PlatformMediaSession::RemoteControlCommandType type, const PlatformMediaSession::RemoteCommandArgument* argument)
+void NowPlayingManager::didReceiveRemoteControlCommand(PlatformMediaSession::RemoteControlCommandType type, const PlatformMediaSession::RemoteCommandArgument& argument)
 {
-    ASSERT(m_nowPlayingInfo);
-
-    if (!m_client)
-        return;
-
-    Optional<double> value;
-    if (argument)
-        value = argument->asDouble;
-    m_client->didReceiveRemoteControlCommand(type, value);
+    if (m_client)
+        m_client->didReceiveRemoteControlCommand(type, argument);
 }
 
-bool NowPlayingManager::supportsSeeking() const
+void NowPlayingManager::addClient(NowPlayingManagerClient& client)
 {
-    return m_nowPlayingInfo && m_nowPlayingInfo->supportsSeeking;
+    m_client = client;
+    ensureRemoteCommandListenerCreated();
 }
 
-void NowPlayingManager::clearNowPlayingInfoClient(Client& client)
+void NowPlayingManager::removeClient(NowPlayingManagerClient& client)
 {
     if (m_client.get() != &client)
         return;
@@ -62,22 +59,116 @@ void NowPlayingManager::clearNowPlayingInfoClient(Client& client)
     m_client.clear();
     m_nowPlayingInfo = { };
 
+    clearNowPlayingInfo();
+}
+
+void NowPlayingManager::clearNowPlayingInfo()
+{
+    clearNowPlayingInfoPrivate();
+    m_setAsNowPlayingApplication = false;
+}
+
+void NowPlayingManager::clearNowPlayingInfoPrivate()
+{
 #if PLATFORM(COCOA)
     MediaSessionManagerCocoa::clearNowPlayingInfo();
 #endif
 }
 
-void NowPlayingManager::setNowPlayingInfo(Client& client, NowPlayingInfo&& nowPlayingInfo)
+bool NowPlayingManager::setNowPlayingInfo(const NowPlayingInfo& nowPlayingInfo)
+{
+    if (m_nowPlayingInfo && *m_nowPlayingInfo == nowPlayingInfo)
+        return false;
+
+    bool shouldUpdateNowPlayingSuppression = [&] {
+#if USE(NOW_PLAYING_ACTIVITY_SUPPRESSION)
+        if (!m_nowPlayingInfo)
+            return true;
+
+        if (m_nowPlayingInfo->isVideo != nowPlayingInfo.isVideo)
+            return true;
+
+        if (m_nowPlayingInfo->metadata.sourceApplicationIdentifier != nowPlayingInfo.metadata.sourceApplicationIdentifier)
+            return true;
+#endif
+
+        return false;
+    }();
+
+    m_nowPlayingInfo = nowPlayingInfo;
+
+    // We do not want to send the artwork's image over each time nowPlayingInfo gets updated.
+    // So if present we store it once locally. On the receiving end, a null imageData indicates to use the cached image.
+    if (!nowPlayingInfo.metadata.artwork)
+        m_nowPlayingInfoArtwork = { };
+    else if (!m_nowPlayingInfoArtwork || nowPlayingInfo.metadata.artwork->src != m_nowPlayingInfoArtwork->src)
+        m_nowPlayingInfoArtwork = ArtworkCache { nowPlayingInfo.metadata.artwork->src, nowPlayingInfo.metadata.artwork->image };
+    else
+        m_nowPlayingInfo->metadata.artwork->image = nullptr;
+
+    setNowPlayingInfoPrivate(*m_nowPlayingInfo, shouldUpdateNowPlayingSuppression);
+    m_setAsNowPlayingApplication = true;
+    return true;
+}
+
+void NowPlayingManager::setNowPlayingInfoPrivate(const NowPlayingInfo& nowPlayingInfo, bool shouldUpdateNowPlayingSuppression)
+{
+    setSupportsSeeking(nowPlayingInfo.supportsSeeking);
+#if PLATFORM(COCOA)
+    if (nowPlayingInfo.metadata.artwork && !nowPlayingInfo.metadata.artwork->image) {
+        ASSERT(m_nowPlayingInfoArtwork, "cached value must have been initialized");
+        NowPlayingInfo nowPlayingInfoRebuilt = nowPlayingInfo;
+        nowPlayingInfoRebuilt.metadata.artwork->image = m_nowPlayingInfoArtwork->image;
+        MediaSessionManagerCocoa::setNowPlayingInfo(!m_setAsNowPlayingApplication, shouldUpdateNowPlayingSuppression, nowPlayingInfoRebuilt);
+        return;
+    }
+    MediaSessionManagerCocoa::setNowPlayingInfo(!m_setAsNowPlayingApplication, shouldUpdateNowPlayingSuppression, nowPlayingInfo);
+#else
+    UNUSED_PARAM(shouldUpdateNowPlayingSuppression);
+#endif
+}
+
+void NowPlayingManager::setSupportsSeeking(bool supports)
+{
+    if (RefPtr commandListener = m_remoteCommandListener)
+        commandListener->setSupportsSeeking(supports);
+}
+
+void NowPlayingManager::addSupportedCommand(PlatformMediaSession::RemoteControlCommandType command)
+{
+    if (RefPtr commandListener = m_remoteCommandListener)
+        commandListener->addSupportedCommand(command);
+}
+
+void NowPlayingManager::removeSupportedCommand(PlatformMediaSession::RemoteControlCommandType command)
+{
+    if (RefPtr commandListener = m_remoteCommandListener)
+        commandListener->removeSupportedCommand(command);
+}
+
+RemoteCommandListener::RemoteCommandsSet NowPlayingManager::supportedCommands() const
+{
+    if (RefPtr commandListener = m_remoteCommandListener)
+        return commandListener->supportedCommands();
+    return { };
+}
+
+void NowPlayingManager::setSupportedRemoteCommands(const RemoteCommandListener::RemoteCommandsSet& commands)
+{
+    if (RefPtr commandListener = m_remoteCommandListener)
+        commandListener->setSupportedCommands(commands);
+}
+
+void NowPlayingManager::updateSupportedCommands()
+{
+    if (RefPtr commandListener = m_remoteCommandListener)
+        commandListener->updateSupportedCommands();
+}
+
+void NowPlayingManager::ensureRemoteCommandListenerCreated()
 {
     if (!m_remoteCommandListener)
         m_remoteCommandListener = RemoteCommandListener::create(*this);
-
-    m_client = makeWeakPtr(client);
-    m_nowPlayingInfo = WTFMove(nowPlayingInfo);
-
-#if PLATFORM(COCOA)
-    MediaSessionManagerCocoa::setNowPlayingInfo(!m_nowPlayingInfo, *m_nowPlayingInfo);
-#endif
 }
 
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2003-2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2022 Apple Inc. All rights reserved.
  *           (C) 2006 Graham Dennis (graham.dennis@gmail.com)
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,160 +27,157 @@
 #pragma once
 
 #include <wtf/Forward.h>
+#include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
 class DeprecatedGlobalSettings {
 public:
-    DeprecatedGlobalSettings() = delete;
-
-#if PLATFORM(WIN)
-    static void setShouldUseHighResolutionTimers(bool);
-    static bool shouldUseHighResolutionTimers() { return gShouldUseHighResolutionTimers; }
-#endif
-
-    static bool isPostLoadCPUUsageMeasurementEnabled();
-    static bool isPostBackgroundingCPUUsageMeasurementEnabled();
-    static bool isPerActivityStateCPUUsageMeasurementEnabled();
-
-    static bool isPostLoadMemoryUsageMeasurementEnabled();
-    static bool isPostBackgroundingMemoryUsageMeasurementEnabled();
-
-    static bool globalConstRedeclarationShouldThrow();
-
 #if USE(AVFOUNDATION)
-    WEBCORE_EXPORT static void setAVFoundationEnabled(bool flag);
-    static bool isAVFoundationEnabled() { return gAVFoundationEnabled; }
-    WEBCORE_EXPORT static void setAVFoundationNSURLSessionEnabled(bool flag);
-    static bool isAVFoundationNSURLSessionEnabled() { return gAVFoundationNSURLSessionEnabled; }
+    WEBCORE_EXPORT static void setAVFoundationEnabled(bool);
+    static bool isAVFoundationEnabled() { return shared().m_AVFoundationEnabled; }
 #endif
 
 #if USE(GSTREAMER)
-    WEBCORE_EXPORT static void setGStreamerEnabled(bool flag);
-    static bool isGStreamerEnabled() { return gGStreamerEnabled; }
+    WEBCORE_EXPORT static void setGStreamerEnabled(bool);
+    static bool isGStreamerEnabled() { return shared().m_GStreamerEnabled; }
 #endif
 
-    WEBCORE_EXPORT static void setMockScrollbarsEnabled(bool flag);
-    WEBCORE_EXPORT static bool mockScrollbarsEnabled();
+    WEBCORE_EXPORT static void setMockScrollbarsEnabled(bool);
+    static bool mockScrollbarsEnabled() { return shared().m_mockScrollbarsEnabled; }
 
-    WEBCORE_EXPORT static void setUsesOverlayScrollbars(bool flag);
-    static bool usesOverlayScrollbars();
+    WEBCORE_EXPORT static void setUsesOverlayScrollbars(bool);
+    static bool usesOverlayScrollbars() { return shared().m_usesOverlayScrollbars; }
 
-    WEBCORE_EXPORT static void setUsesMockScrollAnimator(bool);
-    static bool usesMockScrollAnimator();
+    static bool lowPowerVideoAudioBufferSizeEnabled() { return shared().m_lowPowerVideoAudioBufferSizeEnabled; }
+    static void setLowPowerVideoAudioBufferSizeEnabled(bool flag) { shared().m_lowPowerVideoAudioBufferSizeEnabled = flag; }
 
-    WEBCORE_EXPORT static void setShouldRespectPriorityInCSSAttributeSetters(bool);
-    static bool shouldRespectPriorityInCSSAttributeSetters();
-
-    static bool lowPowerVideoAudioBufferSizeEnabled() { return gLowPowerVideoAudioBufferSizeEnabled; }
-    WEBCORE_EXPORT static void setLowPowerVideoAudioBufferSizeEnabled(bool);
-
-    static bool resourceLoadStatisticsEnabled() { return gResourceLoadStatisticsEnabledEnabled; }
-    WEBCORE_EXPORT static void setResourceLoadStatisticsEnabled(bool);
+    static bool trackingPreventionEnabled() { return shared().m_trackingPreventionEnabled; }
+    WEBCORE_EXPORT static void setTrackingPreventionEnabled(bool);
 
 #if PLATFORM(IOS_FAMILY)
     WEBCORE_EXPORT static void setAudioSessionCategoryOverride(unsigned);
     static unsigned audioSessionCategoryOverride();
 
-    WEBCORE_EXPORT static void setNetworkDataUsageTrackingEnabled(bool);
-    static bool networkDataUsageTrackingEnabled();
-
     WEBCORE_EXPORT static void setNetworkInterfaceName(const String&);
-    static const String& networkInterfaceName();
+    static const String& networkInterfaceName() { return shared().m_networkInterfaceName; }
 
-    static void setDisableScreenSizeOverride(bool flag) { gDisableScreenSizeOverride = flag; }
-    static bool disableScreenSizeOverride() { return gDisableScreenSizeOverride; }
-#if HAVE(AVKIT)
-    static void setAVKitEnabled(bool flag) { gAVKitEnabled = flag; }
-#endif
-    static bool avKitEnabled() { return gAVKitEnabled; }
+    static void setDisableScreenSizeOverride(bool flag) { shared().m_disableScreenSizeOverride = flag; }
+    static bool disableScreenSizeOverride() { return shared().m_disableScreenSizeOverride; }
 
-    static void setShouldOptOutOfNetworkStateObservation(bool flag) { gShouldOptOutOfNetworkStateObservation = flag; }
-    static bool shouldOptOutOfNetworkStateObservation() { return gShouldOptOutOfNetworkStateObservation; }
+    static void setShouldOptOutOfNetworkStateObservation(bool flag) { shared().m_shouldOptOutOfNetworkStateObservation = flag; }
+    static bool shouldOptOutOfNetworkStateObservation() { return shared().m_shouldOptOutOfNetworkStateObservation; }
 #endif
 
 #if USE(AUDIO_SESSION)
-    static void setShouldManageAudioSessionCategory(bool flag) { gManageAudioSession = flag; }
-    static bool shouldManageAudioSessionCategory() { return gManageAudioSession; }
+    WEBCORE_EXPORT static void setShouldManageAudioSessionCategory(bool);
+    WEBCORE_EXPORT static bool shouldManageAudioSessionCategory();
 #endif
 
     WEBCORE_EXPORT static void setAllowsAnySSLCertificate(bool);
-    static bool allowsAnySSLCertificate();
+    WEBCORE_EXPORT static bool allowsAnySSLCertificate();
+
+    static void setCustomPasteboardDataEnabled(bool isEnabled) { shared().m_isCustomPasteboardDataEnabled = isEnabled; }
+    static bool customPasteboardDataEnabled() { return shared().m_isCustomPasteboardDataEnabled; }
+
+    static void setAttrStyleEnabled(bool isEnabled) { shared().m_attrStyleEnabled = isEnabled; }
+    static bool attrStyleEnabled() { return shared().m_attrStyleEnabled; }
+
+    static void setWebSQLEnabled(bool isEnabled) { shared().m_webSQLEnabled = isEnabled; }
+    static bool webSQLEnabled() { return shared().m_webSQLEnabled; }
+
+#if ENABLE(ATTACHMENT_ELEMENT)
+    static void setAttachmentElementEnabled(bool areEnabled) { shared().m_isAttachmentElementEnabled = areEnabled; }
+    static bool attachmentElementEnabled() { return shared().m_isAttachmentElementEnabled; }
+#endif
+
+    static bool webRTCAudioLatencyAdaptationEnabled() { return shared().m_isWebRTCAudioLatencyAdaptationEnabled; }
+    static void setWebRTCAudioLatencyAdaptationEnabled(bool isEnabled) { shared().m_isWebRTCAudioLatencyAdaptationEnabled = isEnabled; }
+
+    static void setReadableByteStreamAPIEnabled(bool isEnabled) { shared().m_isReadableByteStreamAPIEnabled = isEnabled; }
+    static bool readableByteStreamAPIEnabled() { return shared().m_isReadableByteStreamAPIEnabled; }
+
+#if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
+    static void setIsAccessibilityIsolatedTreeEnabled(bool isEnabled) { shared().m_accessibilityIsolatedTree = isEnabled; }
+    static bool isAccessibilityIsolatedTreeEnabled() { return shared().m_accessibilityIsolatedTree; }
+#endif
+
+#if ENABLE(AX_THREAD_TEXT_APIS)
+    static void setAccessibilityThreadTextApisEnabled(bool isEnabled) { shared().m_accessibilityThreadTextApis = isEnabled; }
+    static bool accessibilityThreadTextApisEnabled() { return shared().m_accessibilityThreadTextApis; }
+#endif
+
+    static void setArePDFImagesEnabled(bool isEnabled) { shared().m_arePDFImagesEnabled = isEnabled; }
+    static bool arePDFImagesEnabled() { return shared().m_arePDFImagesEnabled; }
+
+#if ENABLE(WEB_PUSH_NOTIFICATIONS)
+    static void setBuiltInNotificationsEnabled(bool isEnabled) { shared().m_builtInNotificationsEnabled = isEnabled; }
+    WEBCORE_EXPORT static bool builtInNotificationsEnabled();
+#endif
+
+#if ENABLE(MODEL_ELEMENT)
+    static void setModelDocumentEnabled(bool isEnabled) { shared().m_modelDocumentEnabled = isEnabled; }
+    static bool modelDocumentEnabled() { return shared().m_modelDocumentEnabled; }
+#endif
+
 
 private:
+    WEBCORE_EXPORT static DeprecatedGlobalSettings& shared();
+    DeprecatedGlobalSettings() = default;
+    ~DeprecatedGlobalSettings() = default;
+
 #if USE(AVFOUNDATION)
-    WEBCORE_EXPORT static bool gAVFoundationEnabled;
-    WEBCORE_EXPORT static bool gAVFoundationNSURLSessionEnabled;
+    bool m_AVFoundationEnabled { true };
 #endif
 
 #if USE(GSTREAMER)
-    WEBCORE_EXPORT static bool gGStreamerEnabled;
+    bool m_GStreamerEnabled { true };
 #endif
 
-    static bool gMockScrollbarsEnabled;
-    static bool gUsesOverlayScrollbars;
-    static bool gMockScrollAnimatorEnabled;
+    bool m_mockScrollbarsEnabled { false };
+    bool m_usesOverlayScrollbars { false };
 
-#if PLATFORM(WIN)
-    static bool gShouldUseHighResolutionTimers;
-#endif
-    static bool gShouldRespectPriorityInCSSAttributeSetters;
 #if PLATFORM(IOS_FAMILY)
-    static bool gNetworkDataUsageTrackingEnabled;
-    WEBCORE_EXPORT static bool gAVKitEnabled;
-    WEBCORE_EXPORT static bool gShouldOptOutOfNetworkStateObservation;
-    WEBCORE_EXPORT static bool gDisableScreenSizeOverride;
+    String m_networkInterfaceName;
+    bool m_shouldOptOutOfNetworkStateObservation { false };
+    bool m_disableScreenSizeOverride { false };
 #endif
-    WEBCORE_EXPORT static bool gManageAudioSession;
 
-    static bool gLowPowerVideoAudioBufferSizeEnabled;
-    WEBCORE_EXPORT static bool gResourceLoadStatisticsEnabledEnabled;
-    static bool gAllowsAnySSLCertificate;
+    bool m_lowPowerVideoAudioBufferSizeEnabled { false };
+    bool m_trackingPreventionEnabled { false };
+    bool m_allowsAnySSLCertificate { false };
+
+    bool m_isCustomPasteboardDataEnabled { false };
+    bool m_attrStyleEnabled { false };
+    bool m_webSQLEnabled { false };
+
+#if ENABLE(ATTACHMENT_ELEMENT)
+    bool m_isAttachmentElementEnabled { false };
+#endif
+
+    bool m_isWebRTCAudioLatencyAdaptationEnabled { true };
+
+    bool m_isReadableByteStreamAPIEnabled { false };
+
+#if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
+    bool m_accessibilityIsolatedTree { false };
+#endif
+
+#if ENABLE(AX_THREAD_TEXT_APIS)
+    bool m_accessibilityThreadTextApis { false };
+#endif
+
+    bool m_arePDFImagesEnabled { true };
+
+#if ENABLE(WEB_PUSH_NOTIFICATIONS)
+    bool m_builtInNotificationsEnabled { false };
+#endif
+
+#if ENABLE(MODEL_ELEMENT)
+    bool m_modelDocumentEnabled { false };
+#endif
+
+    friend class NeverDestroyed<DeprecatedGlobalSettings>;
 };
-
-inline bool DeprecatedGlobalSettings::isPostLoadCPUUsageMeasurementEnabled()
-{
-#if PLATFORM(COCOA)
-    return true;
-#else
-    return false;
-#endif
-}
-
-inline bool DeprecatedGlobalSettings::isPostBackgroundingCPUUsageMeasurementEnabled()
-{
-#if PLATFORM(MAC)
-    return true;
-#else
-    return false;
-#endif
-}
-
-inline bool DeprecatedGlobalSettings::isPerActivityStateCPUUsageMeasurementEnabled()
-{
-#if PLATFORM(MAC)
-    return true;
-#else
-    return false;
-#endif
-}
-
-inline bool DeprecatedGlobalSettings::isPostLoadMemoryUsageMeasurementEnabled()
-{
-#if PLATFORM(COCOA)
-    return true;
-#else
-    return false;
-#endif
-}
-
-inline bool DeprecatedGlobalSettings::isPostBackgroundingMemoryUsageMeasurementEnabled()
-{
-#if PLATFORM(MAC)
-    return true;
-#else
-    return false;
-#endif
-}
 
 } // namespace WebCore

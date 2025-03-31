@@ -24,13 +24,14 @@
 
 #pragma once
 
-#if ENABLE(WEB_RTC)
+#if ENABLE(WEB_RTC) && USE(LIBWEBRTC)
 
 #include "LibWebRTCMacros.h"
 #include "LibWebRTCPeerConnectionBackend.h"
 #include "RTCRtpSenderBackend.h"
 #include "RealtimeOutgoingAudioSource.h"
 #include "RealtimeOutgoingVideoSource.h"
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
 
 ALLOW_UNUSED_PARAMETERS_BEGIN
@@ -41,20 +42,24 @@ ALLOW_UNUSED_PARAMETERS_BEGIN
 ALLOW_UNUSED_PARAMETERS_END
 
 namespace WebCore {
+class LibWebRTCRtpSenderBackend;
+}
+
+namespace WTF {
+template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
+template<> struct IsDeprecatedWeakRefSmartPointerException<WebCore::LibWebRTCRtpSenderBackend> : std::true_type { };
+}
+
+namespace WebCore {
 
 class LibWebRTCPeerConnectionBackend;
 
-class LibWebRTCRtpSenderBackend final : public RTCRtpSenderBackend {
-    WTF_MAKE_FAST_ALLOCATED;
+class LibWebRTCRtpSenderBackend final : public RTCRtpSenderBackend, public CanMakeWeakPtr<LibWebRTCRtpSenderBackend> {
+    WTF_MAKE_TZONE_ALLOCATED(LibWebRTCRtpSenderBackend);
 public:
-    LibWebRTCRtpSenderBackend(LibWebRTCPeerConnectionBackend& backend, rtc::scoped_refptr<webrtc::RtpSenderInterface>&& rtcSender)
-        : m_peerConnectionBackend(makeWeakPtr(&backend))
-        , m_rtcSender(WTFMove(rtcSender))
-    {
-    }
-
-    using Source = Variant<std::nullptr_t, Ref<RealtimeOutgoingAudioSource>, Ref<RealtimeOutgoingVideoSource>>;
+    using Source = std::variant<std::nullptr_t, Ref<RealtimeOutgoingAudioSource>, Ref<RealtimeOutgoingVideoSource>>;
     LibWebRTCRtpSenderBackend(LibWebRTCPeerConnectionBackend&, rtc::scoped_refptr<webrtc::RtpSenderInterface>&&, Source&&);
+    LibWebRTCRtpSenderBackend(LibWebRTCPeerConnectionBackend&, rtc::scoped_refptr<webrtc::RtpSenderInterface>&&);
     ~LibWebRTCRtpSenderBackend();
 
     void setRTCSender(rtc::scoped_refptr<webrtc::RtpSenderInterface>&& rtcSender) { m_rtcSender = WTFMove(rtcSender); }
@@ -66,21 +71,27 @@ public:
     void takeSource(LibWebRTCRtpSenderBackend&);
 
 private:
-    void replaceTrack(ScriptExecutionContext&, RTCRtpSender&, RefPtr<MediaStreamTrack>&&, DOMPromiseDeferred<void>&&) final;
+    bool replaceTrack(RTCRtpSender&, MediaStreamTrack*) final;
     RTCRtpSendParameters getParameters() const final;
     void setParameters(const RTCRtpSendParameters&, DOMPromiseDeferred<void>&&) final;
     std::unique_ptr<RTCDTMFSenderBackend> createDTMFBackend() final;
+    Ref<RTCRtpTransformBackend> rtcRtpTransformBackend() final;
+    std::unique_ptr<RTCDtlsTransportBackend> dtlsTransportBackend() final;
+    void setMediaStreamIds(const FixedVector<String>&) final;
 
     void startSource();
     void stopSource();
     bool hasSource() const;
 
+    RefPtr<LibWebRTCPeerConnectionBackend> protectedPeerConnectionBackend() const;
+
     WeakPtr<LibWebRTCPeerConnectionBackend> m_peerConnectionBackend;
     rtc::scoped_refptr<webrtc::RtpSenderInterface> m_rtcSender;
     Source m_source;
-    mutable Optional<webrtc::RtpParameters> m_currentParameters;
+    RefPtr<RTCRtpTransformBackend> m_transformBackend;
+    mutable std::optional<webrtc::RtpParameters> m_currentParameters;
 };
 
 } // namespace WebCore
 
-#endif // ENABLE(WEB_RTC)
+#endif // ENABLE(WEB_RTC) && USE(LIBWEBRTC)

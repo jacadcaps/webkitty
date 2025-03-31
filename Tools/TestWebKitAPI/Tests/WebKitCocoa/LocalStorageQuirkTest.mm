@@ -25,6 +25,7 @@
 
 #import "config.h"
 
+#import "DeprecatedGlobalValues.h"
 #import "PlatformUtilities.h"
 #import "Test.h"
 #import <WebKit/WKProcessPoolPrivate.h>
@@ -34,9 +35,6 @@
 #import <WebKit/_WKProcessPoolConfiguration.h>
 #import <WebKit/_WKUserStyleSheet.h>
 #import <wtf/RetainPtr.h>
-
-static bool readyToContinue;
-static RetainPtr<WKScriptMessage> lastScriptMessage;
 
 @interface LocalStorageQuirkMessageHandler : NSObject <WKScriptMessageHandler>
 @end
@@ -63,7 +61,7 @@ TEST(WKWebView, LocalStorageQuirkEnabled)
 
     RetainPtr<WKWebView> webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
 
-    NSURLRequest *request = [NSURLRequest requestWithURL:[[NSBundle mainBundle] URLForResource:@"LocalStorageQuirkEnabled" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"]];
+    NSURLRequest *request = [NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"LocalStorageQuirkEnabled" withExtension:@"html"]];
     [webView loadRequest:request];
 
     readyToContinue = false;
@@ -86,7 +84,7 @@ TEST(WKWebView, LocalStorageQuirkDisabledAccessPermitted)
     
     RetainPtr<WKWebView> webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
     
-    NSURLRequest *request = [NSURLRequest requestWithURL:[[NSBundle mainBundle] URLForResource:@"LocalStorageQuirkEnabled" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"]];
+    NSURLRequest *request = [NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"LocalStorageQuirkEnabled" withExtension:@"html"]];
     [webView loadRequest:request];
     
     readyToContinue = false;
@@ -109,7 +107,7 @@ TEST(WKWebView, LocalStorageQuirkDisabledAccessDenied)
     
     RetainPtr<WKWebView> webView = adoptNS([[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600) configuration:configuration.get()]);
     
-    NSURLRequest *request = [NSURLRequest requestWithURL:[[NSBundle mainBundle] URLForResource:@"LocalStorageQuirkEnabled" withExtension:@"html" subdirectory:@"TestWebKitAPI.resources"]];
+    NSURLRequest *request = [NSURLRequest requestWithURL:[NSBundle.test_resourcesBundle URLForResource:@"LocalStorageQuirkEnabled" withExtension:@"html"]];
     [webView loadRequest:request];
     
     readyToContinue = false;

@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2006 Rob Buis <buis@kde.org>
- * Copyright (C) 2008 Apple Inc. All right reserved.
+ * Copyright (C) 2008-2021 Apple Inc. All right reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -21,20 +21,15 @@
 #pragma once
 
 #include "CSSValue.h"
+#include "CSSValuePair.h"
 #include "IntPoint.h"
 #include "ResourceLoaderOptions.h"
-#include <wtf/HashSet.h>
+#include <wtf/WeakHashSet.h>
 
 namespace WebCore {
 
-class CachedImage;
-class CachedResourceLoader;
-class Document;
-class Element;
-class SVGCursorElement;
-class SVGElement;
-
-struct ImageWithScale;
+class StyleCursorImage;
+class StyleImage;
 
 namespace Style {
 class BuilderState;
@@ -42,46 +37,27 @@ class BuilderState;
 
 class CSSCursorImageValue final : public CSSValue {
 public:
-    static Ref<CSSCursorImageValue> create(Ref<CSSValue>&& imageValue, bool hasHotSpot, const IntPoint& hotSpot, LoadedFromOpaqueSource loadedFromOpaqueSource)
-    {
-        return adoptRef(*new CSSCursorImageValue(WTFMove(imageValue), hasHotSpot, hotSpot, loadedFromOpaqueSource));
-    }
-
+    static Ref<CSSCursorImageValue> create(Ref<CSSValue>&& imageValue, RefPtr<CSSValue>&& hotSpot, LoadedFromOpaqueSource);
+    static Ref<CSSCursorImageValue> create(Ref<CSSValue>&& imageValue, RefPtr<CSSValue>&& hotSpot, URL, LoadedFromOpaqueSource);
     ~CSSCursorImageValue();
 
-    bool hasHotSpot() const { return m_hasHotSpot; }
-
-    IntPoint hotSpot() const
-    {
-        if (m_hasHotSpot)
-            return m_hotSpot;
-        return IntPoint(-1, -1);
-    }
-
     const URL& imageURL() const { return m_originalURL; }
-
-    String customCSSText() const;
-
-    ImageWithScale selectBestFitImage(const Document&);
-
-    void removeReferencedElement(SVGElement*);
-
+    String customCSSText(const CSS::SerializationContext&) const;
     bool equals(const CSSCursorImageValue&) const;
 
-    void cursorElementRemoved(SVGCursorElement&);
-    void cursorElementChanged(SVGCursorElement&);
+    IterationStatus customVisitChildren(NOESCAPE const Function<IterationStatus(CSSValue&)>& func) const
+    {
+        return func(m_imageValue.get());
+    }
+
+    RefPtr<StyleCursorImage> createStyleImage(const Style::BuilderState&) const;
 
 private:
-    CSSCursorImageValue(Ref<CSSValue>&& imageValue, bool hasHotSpot, const IntPoint& hotSpot, LoadedFromOpaqueSource);
-
-    SVGCursorElement* updateCursorElement(const Document&);
+    CSSCursorImageValue(Ref<CSSValue>&& imageValue, RefPtr<CSSValue>&& hotSpot, URL, LoadedFromOpaqueSource);
 
     URL m_originalURL;
     Ref<CSSValue> m_imageValue;
-
-    bool m_hasHotSpot;
-    IntPoint m_hotSpot;
-    HashSet<SVGCursorElement*> m_cursorElements;
+    RefPtr<CSSValue> m_hotSpot;
     LoadedFromOpaqueSource m_loadedFromOpaqueSource { LoadedFromOpaqueSource::No };
 };
 

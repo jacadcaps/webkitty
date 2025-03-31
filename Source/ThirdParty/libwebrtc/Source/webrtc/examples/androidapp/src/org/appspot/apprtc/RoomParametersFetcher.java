@@ -98,7 +98,7 @@ public class RoomParametersFetcher {
       String clientId = roomJson.getString("client_id");
       String wssUrl = roomJson.getString("wss_url");
       String wssPostUrl = roomJson.getString("wss_post_url");
-      boolean initiator = (roomJson.getBoolean("is_initiator"));
+      boolean initiator = roomJson.getBoolean("is_initiator");
       if (!initiator) {
         iceCandidates = new ArrayList<>();
         String messagesString = roomJson.getString("messages");
@@ -159,6 +159,7 @@ public class RoomParametersFetcher {
 
   // Requests & returns a TURN ICE Server based on a request URL.  Must be run
   // off the main thread!
+  @SuppressWarnings("UseNetworkAnnotations")
   private List<PeerConnection.IceServer> requestTurnServers(String url)
       throws IOException, JSONException {
     List<PeerConnection.IceServer> turnServers = new ArrayList<>();

@@ -28,15 +28,28 @@
 
 #if ENABLE(WEB_AUTHN)
 
+#import "LocalAuthenticator.h"
 #import "MockLocalConnection.h"
 #import <wtf/RunLoop.h>
 
+#if USE(APPLE_INTERNAL_SDK)
+#import <WebKitAdditions/MockLocalServiceAdditions.h>
+#else
+#define MOCK_LOCAL_SERVICE_ADDITIONS
+#endif
+
 namespace WebKit {
 
-MockLocalService::MockLocalService(Observer& observer, const WebCore::MockWebAuthenticationConfiguration& configuration)
+Ref<MockLocalService> MockLocalService::create(AuthenticatorTransportServiceObserver& observer, const WebCore::MockWebAuthenticationConfiguration& configuration)
+{
+    return adoptRef(*new MockLocalService(observer, configuration));
+}
+
+MockLocalService::MockLocalService(AuthenticatorTransportServiceObserver& observer, const WebCore::MockWebAuthenticationConfiguration& configuration)
     : LocalService(observer)
     , m_configuration(configuration)
 {
+MOCK_LOCAL_SERVICE_ADDITIONS
 }
 
 bool MockLocalService::platformStartDiscovery() const
@@ -44,9 +57,9 @@ bool MockLocalService::platformStartDiscovery() const
     return !!m_configuration.local;
 }
 
-UniqueRef<LocalConnection> MockLocalService::createLocalConnection() const
+Ref<LocalConnection> MockLocalService::createLocalConnection() const
 {
-    return makeUniqueRef<MockLocalConnection>(m_configuration);
+    return MockLocalConnection::create(m_configuration);
 }
 
 } // namespace WebKit

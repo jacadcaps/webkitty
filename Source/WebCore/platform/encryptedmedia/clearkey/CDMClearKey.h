@@ -35,6 +35,7 @@
 #include "CDMPrivate.h"
 #include "CDMProxy.h"
 #include "SharedBuffer.h"
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
@@ -43,8 +44,7 @@ namespace ClearKey {
 
 // ClearKey CENC SystemID.
 // https://www.w3.org/TR/eme-initdata-cenc/#common-system
-const uint8_t cencSystemId[] = { 0x10, 0x77, 0xef, 0xec, 0xc0, 0xb2, 0x4d, 0x02, 0xac, 0xe3, 0x3c, 0x1e, 0x52, 0xe2, 0xfb, 0x4b };
-const unsigned cencSystemIdSize = sizeof(cencSystemId);
+constexpr std::array<uint8_t, 16> cencSystemId { 0x10, 0x77, 0xef, 0xec, 0xc0, 0xb2, 0x4d, 0x02, 0xac, 0xe3, 0x3c, 0x1e, 0x52, 0xe2, 0xfb, 0x4b };
 enum {
     AES128CTRBlockSizeInBytes = 16,
     KeyIDSizeInBytes = 16,
@@ -54,13 +54,13 @@ enum {
 } // namespace ClearKey
 
 class CDMFactoryClearKey final : public CDMFactory {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(CDMFactoryClearKey);
 public:
     static CDMFactoryClearKey& singleton();
 
     virtual ~CDMFactoryClearKey();
 
-    std::unique_ptr<CDMPrivate> createCDM(const String&) final;
+    std::unique_ptr<CDMPrivate> createCDM(const String& keySystem, const String& mediaKeysHashSalt, const CDMPrivateClient&) final;
     bool supportsKeySystem(const String&) final;
 
 private:
@@ -69,7 +69,7 @@ private:
 };
 
 class CDMPrivateClearKey final : public CDMPrivate {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(CDMPrivateClearKey);
 public:
     CDMPrivateClearKey();
     virtual ~CDMPrivateClearKey();
@@ -88,7 +88,7 @@ public:
     bool supportsSessions() const final;
     bool supportsInitData(const AtomString&, const SharedBuffer&) const final;
     RefPtr<SharedBuffer> sanitizeResponse(const SharedBuffer&) const final;
-    Optional<String> sanitizeSessionId(const String&) const final;
+    std::optional<String> sanitizeSessionId(const String&) const final;
 };
 
 class CDMInstanceClearKey final : public CDMInstanceProxy {
@@ -109,14 +109,14 @@ class CDMInstanceSessionClearKey final : public CDMInstanceSessionProxy {
 public:
     CDMInstanceSessionClearKey(CDMInstanceClearKey& parent)
         : CDMInstanceSessionProxy(parent) { }
-    void requestLicense(LicenseType, const AtomString& initDataType, Ref<SharedBuffer>&& initData, LicenseCallback&&) final;
+    void requestLicense(LicenseType, KeyGroupingStrategy, const AtomString& initDataType, Ref<SharedBuffer>&& initData, LicenseCallback&&) final;
     void updateLicense(const String&, LicenseType, Ref<SharedBuffer>&&, LicenseUpdateCallback&&) final;
     void loadSession(LicenseType, const String&, const String&, LoadSessionCallback&&) final;
     void closeSession(const String&, CloseSessionCallback&&) final;
     void removeSessionData(const String&, LicenseType, RemoveSessionDataCallback&&) final;
     void storeRecordOfKeyUsage(const String&) final;
 private:
-    CDMInstanceClearKey& parentInstance() const;
+    RefPtr<CDMInstanceClearKey> protectedParentInstance() const;
 
     String m_sessionID;
     KeyStore m_keyStore;

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007-2009, 2011, 2016, 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2007-2021 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -20,14 +20,17 @@
 #include "config.h"
 #include "JSDocument.h"
 
-#include "Frame.h"
+#include "FrameDestructionObserverInlines.h"
+#include "JSCSSStyleSheet.h"
+#include "JSDOMConvert.h"
+#include "JSDOMGlobalObjectInlines.h"
 #include "JSDOMWindowCustom.h"
 #include "JSHTMLDocument.h"
 #include "JSXMLDocument.h"
+#include "LocalFrame.h"
 #include "NodeTraversal.h"
-#include "SVGDocument.h"
+#include "WebCoreOpaqueRootInlines.h"
 #include <JavaScriptCore/HeapAnalyzer.h>
-
 
 namespace WebCore {
 using namespace JSC;
@@ -53,11 +56,11 @@ JSObject* cachedDocumentWrapper(JSGlobalObject& lexicalGlobalObject, JSDOMGlobal
     if (auto* wrapper = getCachedWrapper(globalObject.world(), document))
         return wrapper;
 
-    auto* window = document.domWindow();
+    RefPtr window = document.domWindow();
     if (!window)
         return nullptr;
 
-    auto* documentGlobalObject = toJSDOMWindow(lexicalGlobalObject.vm(), toJS(&lexicalGlobalObject, *window));
+    auto* documentGlobalObject = toJSDOMGlobalObject<JSDOMWindow>(lexicalGlobalObject.vm(), toJS(&lexicalGlobalObject, *window));
     if (!documentGlobalObject)
         return nullptr;
 
@@ -93,10 +96,32 @@ JSValue toJS(JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObjec
     return toJSNewlyCreated(lexicalGlobalObject, globalObject, Ref<Document>(document));
 }
 
-void JSDocument::visitAdditionalChildren(SlotVisitor& visitor)
+void setAdoptedStyleSheetsOnTreeScope(TreeScope& treeScope, JSC::JSGlobalObject& lexicalGlobalObject, JSC::JSValue value)
 {
-    visitor.addOpaqueRoot(static_cast<ScriptExecutionContext*>(&wrapped()));
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto throwScope = DECLARE_THROW_SCOPE(vm);
+
+    auto nativeValue = convert<IDLFrozenArray<IDLInterface<CSSStyleSheet>>>(lexicalGlobalObject, value);
+    if (UNLIKELY(nativeValue.hasException(throwScope)))
+        return;
+
+    auto result = treeScope.setAdoptedStyleSheets(nativeValue.releaseReturnValue());
+    if (UNLIKELY(result.hasException()))
+        propagateException(lexicalGlobalObject, throwScope, result.releaseException());
 }
+
+void JSDocument::setAdoptedStyleSheets(JSC::JSGlobalObject& lexicalGlobalObject, JSC::JSValue value)
+{
+    setAdoptedStyleSheetsOnTreeScope(wrapped(), lexicalGlobalObject, value);
+}
+
+template<typename Visitor>
+void JSDocument::visitAdditionalChildren(Visitor& visitor)
+{
+    addWebCoreOpaqueRoot(visitor, static_cast<ScriptExecutionContext&>(wrapped()));
+}
+
+DEFINE_VISIT_ADDITIONAL_CHILDREN(JSDocument);
 
 void JSDocument::analyzeHeap(JSCell* cell, HeapAnalyzer& analyzer)
 {

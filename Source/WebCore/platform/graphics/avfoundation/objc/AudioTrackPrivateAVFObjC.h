@@ -29,6 +29,8 @@
 #if ENABLE(VIDEO)
 
 #include "AudioTrackPrivateAVF.h"
+#include <wtf/Observer.h>
+#include <wtf/TZoneMalloc.h>
 
 OBJC_CLASS AVAssetTrack;
 OBJC_CLASS AVPlayerItem;
@@ -42,6 +44,7 @@ class AVTrackPrivateAVFObjCImpl;
 class MediaSelectionOptionAVFObjC;
 
 class AudioTrackPrivateAVFObjC : public AudioTrackPrivateAVF {
+    WTF_MAKE_TZONE_ALLOCATED(AudioTrackPrivateAVFObjC);
     WTF_MAKE_NONCOPYABLE(AudioTrackPrivateAVFObjC)
 public:
     static RefPtr<AudioTrackPrivateAVFObjC> create(AVPlayerItemTrack* track)
@@ -59,15 +62,14 @@ public:
         return adoptRef(new AudioTrackPrivateAVFObjC(option));
     }
 
+    virtual ~AudioTrackPrivateAVFObjC();
+
     virtual void setEnabled(bool);
 
-    void setPlayerItemTrack(AVPlayerItemTrack*);
     AVPlayerItemTrack* playerItemTrack();
 
-    void setAssetTrack(AVAssetTrack*);
     AVAssetTrack* assetTrack();
 
-    void setMediaSelectionOption(MediaSelectionOptionAVFObjC&);
     MediaSelectionOptionAVFObjC* mediaSelectionOption();
 
 private:
@@ -75,9 +77,14 @@ private:
     AudioTrackPrivateAVFObjC(AVPlayerItemTrack*);
     AudioTrackPrivateAVFObjC(AVAssetTrack*);
     AudioTrackPrivateAVFObjC(MediaSelectionOptionAVFObjC&);
+    AudioTrackPrivateAVFObjC(std::unique_ptr<AVTrackPrivateAVFObjCImpl>&&);
 
     void resetPropertiesFromTrack();
+    void audioTrackConfigurationChanged();
     std::unique_ptr<AVTrackPrivateAVFObjCImpl> m_impl;
+
+    using AudioTrackConfigurationObserver = Observer<void()>;
+    AudioTrackConfigurationObserver m_audioTrackConfigurationObserver;
 };
 
 }

@@ -38,13 +38,13 @@
 
 namespace WebCore {
 
-class Frame;
-class UserMessageHandler;
 class DOMWrapperWorld;
+class LocalFrame;
+class UserMessageHandler;
 
 class UserMessageHandlersNamespace : public RefCounted<UserMessageHandlersNamespace>, public FrameDestructionObserver, public UserContentProviderInvalidationClient {
 public:
-    static Ref<UserMessageHandlersNamespace> create(Frame& frame, UserContentProvider& userContentProvider)
+    static Ref<UserMessageHandlersNamespace> create(LocalFrame& frame, UserContentProvider& userContentProvider)
     {
         return adoptRef(*new UserMessageHandlersNamespace(frame, userContentProvider));
     }
@@ -53,15 +53,16 @@ public:
 
     Vector<AtomString> supportedPropertyNames() const;
     UserMessageHandler* namedItem(DOMWrapperWorld&, const AtomString&);
+    bool isSupportedPropertyName(const AtomString&);
 
 private:
-    explicit UserMessageHandlersNamespace(Frame&, UserContentProvider&);
+    explicit UserMessageHandlersNamespace(LocalFrame&, UserContentProvider&);
 
     // UserContentProviderInvalidationClient
     void didInvalidate(UserContentProvider&) override;
 
     Ref<UserContentProvider> m_userContentProvider;
-    HashMap<std::pair<AtomString, RefPtr<DOMWrapperWorld>>, RefPtr<UserMessageHandler>> m_messageHandlers;
+    UncheckedKeyHashMap<std::pair<AtomString, RefPtr<DOMWrapperWorld>>, RefPtr<UserMessageHandler>> m_messageHandlers;
 };
 
 } // namespace WebCore

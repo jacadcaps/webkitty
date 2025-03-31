@@ -12,7 +12,7 @@
 #include <Metal/Metal.h>
 #include <QuartzCore/CAMetalLayer.h>
 
-#include "libANGLE/renderer/vulkan/RendererVk.h"
+#include "libANGLE/renderer/vulkan/vk_renderer.h"
 #include "libANGLE/renderer/vulkan/vk_utils.h"
 
 namespace rx
@@ -29,7 +29,8 @@ WindowSurfaceVkMac::~WindowSurfaceVkMac()
     [mMetalLayer release];
 }
 
-angle::Result WindowSurfaceVkMac::createSurfaceVk(vk::Context *context, gl::Extents *extentsOut)
+angle::Result WindowSurfaceVkMac::createSurfaceVk(vk::ErrorContext *context,
+                                                  gl::Extents *extentsOut)
     API_AVAILABLE(macosx(10.11))
 {
     mMetalDevice = MTLCreateSystemDefaultDevice();
@@ -37,7 +38,7 @@ angle::Result WindowSurfaceVkMac::createSurfaceVk(vk::Context *context, gl::Exte
     CALayer *layer = reinterpret_cast<CALayer *>(mNativeWindowType);
 
     mMetalLayer        = [[CAMetalLayer alloc] init];
-    mMetalLayer.frame  = layer.frame;
+    mMetalLayer.frame  = CGRectMake(0, 0, layer.frame.size.width, layer.frame.size.height);
     mMetalLayer.device = mMetalDevice;
     mMetalLayer.drawableSize =
         CGSizeMake(mMetalLayer.bounds.size.width * mMetalLayer.contentsScale,
@@ -59,7 +60,7 @@ angle::Result WindowSurfaceVkMac::createSurfaceVk(vk::Context *context, gl::Exte
     return getCurrentWindowSize(context, extentsOut);
 }
 
-angle::Result WindowSurfaceVkMac::getCurrentWindowSize(vk::Context *context,
+angle::Result WindowSurfaceVkMac::getCurrentWindowSize(vk::ErrorContext *context,
                                                        gl::Extents *extentsOut)
     API_AVAILABLE(macosx(10.11))
 {

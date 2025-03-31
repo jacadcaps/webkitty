@@ -28,43 +28,63 @@
 #if ENABLE(GPU_PROCESS) && ENABLE(WEB_AUDIO)
 
 #include "Connection.h"
+#include "IPCSemaphore.h"
 #include "RemoteAudioDestinationIdentifier.h"
-#include "SharedMemory.h"
+#include <WebCore/SharedMemory.h>
 #include <memory>
 #include <wtf/CompletionHandler.h>
 #include <wtf/HashMap.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/ThreadSafeWeakPtr.h>
+#include <wtf/WeakRef.h>
+
+#if PLATFORM(COCOA)
+#include "SharedCARingBuffer.h"
+#endif
+
+namespace WebCore {
+#if PLATFORM(COCOA)
+class CAAudioStreamDescription;
+#endif
+class SharedMemoryHandle;
+}
 
 namespace WebKit {
 
 class GPUConnectionToWebProcess;
 class RemoteAudioDestination;
+struct SharedPreferencesForWebProcess;
 
 class RemoteAudioDestinationManager : private IPC::MessageReceiver {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(RemoteAudioDestinationManager);
     WTF_MAKE_NONCOPYABLE(RemoteAudioDestinationManager);
 public:
     RemoteAudioDestinationManager(GPUConnectionToWebProcess&);
     ~RemoteAudioDestinationManager();
 
-    void createAudioDestination(const String& inputDeviceId, uint32_t numberOfInputChannels, uint32_t numberOfOutputChannels, float sampleRate, CompletionHandler<void(RemoteAudioDestinationIdentifier, unsigned framesPerBuffer)>&&);
-    void deleteAudioDestination(RemoteAudioDestinationIdentifier, CompletionHandler<void()>&&);
-    void startAudioDestination(RemoteAudioDestinationIdentifier, CompletionHandler<void(bool)>&&);
-    void stopAudioDestination(RemoteAudioDestinationIdentifier, CompletionHandler<void(bool)>&&);
+    void ref() const final;
+    void deref() const final;
 
-    void didReceiveSyncMessageFromWebProcess(IPC::Connection& connection, IPC::Decoder& decoder, std::unique_ptr<IPC::Encoder>& encoder)
-    {
-        didReceiveSyncMessage(connection, decoder, encoder);
-    }
     void didReceiveMessageFromWebProcess(IPC::Connection& connection, IPC::Decoder& decoder) { didReceiveMessage(connection, decoder); }
+
+    bool allowsExitUnderMemoryPressure() const;
+    std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess() const;
 
 private:
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&);
-    void didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, std::unique_ptr<IPC::Encoder>&);
 
-    HashMap<RemoteAudioDestinationIdentifier, Ref<RemoteAudioDestination>> m_audioDestinations;
-    GPUConnectionToWebProcess& m_gpuConnectionToWebProcess;
+    void createAudioDestination(RemoteAudioDestinationIdentifier, const String& inputDeviceId, uint32_t numberOfInputChannels, uint32_t numberOfOutputChannels, float sampleRate, float hardwareSampleRate, IPC::Semaphore&& renderSemaphore, WebCore::SharedMemoryHandle&&, CompletionHandler<void(size_t)>&&);
+    void deleteAudioDestination(RemoteAudioDestinationIdentifier);
+    void startAudioDestination(RemoteAudioDestinationIdentifier, CompletionHandler<void(bool, size_t)>&&);
+    void stopAudioDestination(RemoteAudioDestinationIdentifier, CompletionHandler<void(bool)>&&);
+#if PLATFORM(COCOA)
+    void audioSamplesStorageChanged(RemoteAudioDestinationIdentifier, ConsumerSharedCARingBuffer::Handle&&);
+#endif
+
+    HashMap<RemoteAudioDestinationIdentifier, UniqueRef<RemoteAudioDestination>> m_audioDestinations;
+    ThreadSafeWeakPtr<GPUConnectionToWebProcess> m_gpuConnectionToWebProcess;
 };
 
-} // namespace WebCore;
+} // namespace WebKit;
 
 #endif // ENABLE(GPU_PROCESS) && ENABLE(WEB_AUDIO)

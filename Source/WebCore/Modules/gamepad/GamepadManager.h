@@ -30,13 +30,15 @@
 #include "GamepadProviderClient.h"
 #include <wtf/HashSet.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/WeakHashSet.h>
 #include <wtf/text/AtomString.h>
 
 namespace WebCore {
 
-class DOMWindow;
 class Gamepad;
-class NavigatorGamepad;
+class LocalDOMWindow;
+class Navigator;
+class WeakPtrImplWithEventTargetData;
 
 class GamepadManager : public GamepadProviderClient {
     WTF_MAKE_NONCOPYABLE(GamepadManager);
@@ -48,26 +50,39 @@ public:
     void platformGamepadDisconnected(PlatformGamepad&) final;
     void platformGamepadInputActivity(EventMakesGamepadsVisible) final;
 
-    void registerNavigator(NavigatorGamepad*);
-    void unregisterNavigator(NavigatorGamepad*);
-    void registerDOMWindow(DOMWindow*);
-    void unregisterDOMWindow(DOMWindow*);
+    void registerNavigator(Navigator&);
+    void unregisterNavigator(Navigator&);
+    void registerDOMWindow(LocalDOMWindow&);
+    void unregisterDOMWindow(LocalDOMWindow&);
+
+#if PLATFORM(VISION)
+    void updateQuarantineStatus();
+#endif
 
 private:
     GamepadManager();
 
-    void makeGamepadVisible(PlatformGamepad&, HashSet<NavigatorGamepad*>&, HashSet<DOMWindow*>&);
-    void dispatchGamepadEvent(const WTF::AtomString& eventName, PlatformGamepad&);
+    void makeGamepadVisible(PlatformGamepad&, WeakHashSet<Navigator>&, WeakHashSet<LocalDOMWindow, WeakPtrImplWithEventTargetData>&);
+    void dispatchGamepadEvent(const AtomString& eventName, PlatformGamepad&);
 
     void maybeStartMonitoringGamepads();
     void maybeStopMonitoringGamepads();
 
+#if PLATFORM(VISION)
+    void findUnquarantinedNavigatorsAndWindows(WeakHashSet<Navigator>&, WeakHashSet<LocalDOMWindow, WeakPtrImplWithEventTargetData>&);
+#endif
+
     bool m_isMonitoringGamepads;
 
-    HashSet<NavigatorGamepad*> m_navigators;
-    HashSet<NavigatorGamepad*> m_gamepadBlindNavigators;
-    HashSet<DOMWindow*> m_domWindows;
-    HashSet<DOMWindow*> m_gamepadBlindDOMWindows;
+    WeakHashSet<Navigator> m_navigators;
+    WeakHashSet<Navigator> m_gamepadBlindNavigators;
+    WeakHashSet<LocalDOMWindow, WeakPtrImplWithEventTargetData> m_domWindows;
+    WeakHashSet<LocalDOMWindow, WeakPtrImplWithEventTargetData> m_gamepadBlindDOMWindows;
+
+#if PLATFORM(VISION)
+    WeakHashSet<Navigator> m_gamepadQuarantinedNavigators;
+    WeakHashSet<LocalDOMWindow, WeakPtrImplWithEventTargetData> m_gamepadQuarantinedDOMWindows;
+#endif
 };
 
 } // namespace WebCore

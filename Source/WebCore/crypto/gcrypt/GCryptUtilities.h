@@ -39,6 +39,9 @@ namespace WebCore {
 
 namespace CryptoConstants {
 
+static const std::array<uint8_t, 12> s_ed25519Identifier { { "1.3.101.112" } };
+static const std::array<uint8_t, 12> s_x25519Identifier { { "1.3.101.110" } };
+
 static const std::array<uint8_t, 18> s_ecPublicKeyIdentifier { { "1.2.840.10045.2.1" } };
 static const std::array<uint8_t, 13> s_ecDHIdentifier { { "1.3.132.1.12" } };
 
@@ -55,6 +58,7 @@ static const std::array<uint8_t, 1> s_asn1Version0 { { 0x00 } };
 static const std::array<uint8_t, 1> s_asn1Version1 { { 0x01 } };
 
 static const std::array<uint8_t, 1> s_ecUncompressedFormatLeadingByte { { 0x04 } };
+static const std::array<uint8_t, 1> s_x25519UncompressedFormatLeadingByte { { 0x40 } };
 
 template<size_t N>
 static inline bool matches(const void* lhs, size_t size, const std::array<uint8_t, N>& rhs)
@@ -67,19 +71,19 @@ static inline bool matches(const void* lhs, size_t size, const std::array<uint8_
 
 } // namespace CryptoConstants
 
-Optional<const char*> hashAlgorithmName(CryptoAlgorithmIdentifier);
+ASCIILiteral hashAlgorithmName(CryptoAlgorithmIdentifier);
 
-Optional<int> hmacAlgorithm(CryptoAlgorithmIdentifier);
-Optional<int> digestAlgorithm(CryptoAlgorithmIdentifier);
-Optional<PAL::CryptoDigest::Algorithm> hashCryptoDigestAlgorithm(CryptoAlgorithmIdentifier);
+std::optional<int> hmacAlgorithm(CryptoAlgorithmIdentifier);
+std::optional<int> digestAlgorithm(CryptoAlgorithmIdentifier);
+std::optional<PAL::CryptoDigest::Algorithm> hashCryptoDigestAlgorithm(CryptoAlgorithmIdentifier);
 
-Optional<size_t> mpiLength(gcry_mpi_t);
-Optional<size_t> mpiLength(gcry_sexp_t);
-Optional<Vector<uint8_t>> mpiData(gcry_mpi_t);
-Optional<Vector<uint8_t>> mpiZeroPrefixedData(gcry_mpi_t, size_t targetLength);
-Optional<Vector<uint8_t>> mpiData(gcry_sexp_t);
-Optional<Vector<uint8_t>> mpiZeroPrefixedData(gcry_sexp_t, size_t targetLength);
-Optional<Vector<uint8_t>> mpiSignedData(gcry_mpi_t);
-Optional<Vector<uint8_t>> mpiSignedData(gcry_sexp_t);
+std::optional<size_t> mpiLength(gcry_mpi_t);
+std::optional<size_t> mpiLength(gcry_sexp_t);
+std::optional<Vector<uint8_t>> mpiData(gcry_mpi_t);
+std::optional<Vector<uint8_t>> mpiZeroPrefixedData(gcry_mpi_t, size_t targetLength);
+std::optional<Vector<uint8_t>> mpiData(gcry_sexp_t);
+std::optional<Vector<uint8_t>> mpiZeroPrefixedData(gcry_sexp_t, size_t targetLength);
+std::optional<Vector<uint8_t>> mpiSignedData(gcry_mpi_t);
+std::optional<Vector<uint8_t>> mpiSignedData(gcry_sexp_t);
 
 } // namespace WebCore

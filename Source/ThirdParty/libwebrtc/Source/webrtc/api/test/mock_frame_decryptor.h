@@ -11,27 +11,32 @@
 #ifndef API_TEST_MOCK_FRAME_DECRYPTOR_H_
 #define API_TEST_MOCK_FRAME_DECRYPTOR_H_
 
+#include <cstddef>
+#include <cstdint>
 #include <vector>
 
+#include "api/array_view.h"
 #include "api/crypto/frame_decryptor_interface.h"
+#include "api/media_types.h"
 #include "test/gmock.h"
 
 namespace webrtc {
 
 class MockFrameDecryptor : public FrameDecryptorInterface {
  public:
-  MockFrameDecryptor();
-  ~MockFrameDecryptor() override;
+  MOCK_METHOD(Result,
+              Decrypt,
+              (cricket::MediaType,
+               const std::vector<uint32_t>&,
+               rtc::ArrayView<const uint8_t>,
+               rtc::ArrayView<const uint8_t>,
+               rtc::ArrayView<uint8_t>),
+              (override));
 
-  MOCK_METHOD5(Decrypt,
-               Result(cricket::MediaType,
-                      const std::vector<uint32_t>&,
-                      rtc::ArrayView<const uint8_t>,
-                      rtc::ArrayView<const uint8_t>,
-                      rtc::ArrayView<uint8_t>));
-
-  MOCK_METHOD2(GetMaxPlaintextByteSize,
-               size_t(cricket::MediaType, size_t encrypted_frame_size));
+  MOCK_METHOD(size_t,
+              GetMaxPlaintextByteSize,
+              (cricket::MediaType, size_t encrypted_frame_size),
+              (override));
 };
 
 }  // namespace webrtc

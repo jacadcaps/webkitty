@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 # Copyright (C) 2017 Igalia S.L.
 #
@@ -53,6 +53,9 @@ option_parser.add_option('--display-server', choices=['xvfb', 'xorg', 'weston', 
                          help='"xvfb": Use a virtualized X11 server. "xorg": Use the current X11 session. '
                               '"weston": Use a virtualized Weston server. "wayland": Use the current wayland session.'
                               '"headless": Headless mode in current session')
+option_parser.add_option('--disable-webdriver-bidi', action='store_false',
+                         dest='enable_webdriver_bidi', default=True,
+                         help='Run Selenium tests with BiDi disabled')
 
 options, args = option_parser.parse_args()
 
@@ -60,7 +63,7 @@ configure_logging(logging.DEBUG if options.verbose else logging.INFO)
 
 try:
     port = Host().port_factory.get(options.platform, options)
-except NotImplementedError, e:
+except NotImplementedError as e:
     _log.error(str(e))
     sys.exit(-1)
 
@@ -76,10 +79,10 @@ if port.name() in ['gtk', 'wpe']:
         import jhbuildutils
 
         if not jhbuildutils.enter_jhbuild_environment_if_available(port.name()):
-            print '***'
-            print '*** Warning: jhbuild environment not present and not running in flatpak.'
-            print '*** Run update-webkitgtk-libs or update-webkit-flatpak before build-webkit to ensure proper testing..'
-            print '***'
+            print('***')
+            print('*** Warning: jhbuild environment not present and not running in flatpak.')
+            print('*** Run update-webkitgtk-libs or update-webkit-flatpak before build-webkit to ensure proper testing..')
+            print('***')
 
 runner = WebDriverTestRunner(port)
 runner.run(args)

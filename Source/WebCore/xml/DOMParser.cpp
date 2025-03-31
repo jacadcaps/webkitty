@@ -19,34 +19,56 @@
 #include "config.h"
 #include "DOMParser.h"
 
-#include "DOMImplementation.h"
+#include "CommonAtomStrings.h"
+#include "HTMLDocument.h"
+#include "SVGDocument.h"
 #include "SecurityOriginPolicy.h"
+#include "TrustedType.h"
+#include "XMLDocument.h"
 
 namespace WebCore {
 
 inline DOMParser::DOMParser(Document& contextDocument)
-    : m_contextDocument(makeWeakPtr(contextDocument))
+    : m_contextDocument(contextDocument)
+    , m_settings(contextDocument.settings())
 {
 }
+
+DOMParser::~DOMParser() = default;
 
 Ref<DOMParser> DOMParser::create(Document& contextDocument)
 {
     return adoptRef(*new DOMParser(contextDocument));
 }
 
-ExceptionOr<Ref<Document>> DOMParser::parseFromString(const String& string, const String& contentType)
+ExceptionOr<Ref<Document>> DOMParser::parseFromString(std::variant<RefPtr<TrustedHTML>, String>&& string, const AtomString& contentType)
 {
-    if (contentType != "text/html" && contentType != "text/xml" && contentType != "application/xml" && contentType != "application/xhtml+xml" && contentType != "image/svg+xml")
-        return Exception { TypeError };
-    auto document = DOMImplementation::createDocument(contentType, nullptr, URL { });
+    auto stringValueHolder = trustedTypeCompliantString(*m_contextDocument->scriptExecutionContext(), WTFMove(string), "DOMParser parseFromString"_s);
+
+    if (stringValueHolder.hasException())
+        return stringValueHolder.releaseException();
+
+    RefPtr<Document> document;
+    if (contentType == textHTMLContentTypeAtom())
+        document = HTMLDocument::create(nullptr, m_settings, URL { });
+    else if (contentType == applicationXHTMLContentTypeAtom())
+        document = XMLDocument::createXHTML(nullptr, m_settings, URL { });
+    else if (contentType == imageSVGContentTypeAtom())
+        document = SVGDocument::create(nullptr, m_settings, URL { });
+    else if (contentType == textXMLContentTypeAtom() || contentType == applicationXMLContentTypeAtom()) {
+        document = XMLDocument::create(nullptr, m_settings, URL { });
+        document->overrideMIMEType(contentType);
+    } else
+        return Exception { ExceptionCode::TypeError };
+
     if (m_contextDocument)
         document->setContextDocument(*m_contextDocument.get());
-    document->setContent(string);
+    document->setMarkupUnsafe(stringValueHolder.releaseReturnValue(), { });
     if (m_contextDocument) {
         document->setURL(m_contextDocument->url());
         document->setSecurityOriginPolicy(m_contextDocument->securityOriginPolicy());
     }
-    return document;
+    return document.releaseNonNull();
 }
 
 } // namespace WebCore

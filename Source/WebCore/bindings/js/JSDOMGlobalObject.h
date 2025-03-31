@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008-2021 Apple Inc. All Rights Reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,22 +26,28 @@
 
 #pragma once
 
-#include "WebCoreJSBuiltinInternals.h"
-#include <JavaScriptCore/HeapInlines.h>
 #include <JavaScriptCore/JSGlobalObject.h>
-#include <JavaScriptCore/JSObjectInlines.h>
-#include <JavaScriptCore/LockDuringMarking.h>
+#include <JavaScriptCore/WeakGCMap.h>
+#include <wtf/Compiler.h>
+#include <wtf/Forward.h>
+
+namespace JSC {
+
+enum class JSPromiseRejectionOperation : unsigned;
+
+}
 
 namespace WebCore {
 
+class DOMConstructors;
 class DOMGuardedObject;
+class JSBuiltinInternalFunctions;
 class Event;
 class DOMWrapperWorld;
 class ScriptExecutionContext;
 
-using JSDOMStructureMap = HashMap<const JSC::ClassInfo*, JSC::WriteBarrier<JSC::Structure>>;
-using JSDOMConstructorMap = HashMap<const JSC::ClassInfo*, JSC::WriteBarrier<JSC::JSObject>>;
-using DOMGuardedObjectSet = HashSet<DOMGuardedObject*>;
+using JSDOMStructureMap = UncheckedKeyHashMap<const JSC::ClassInfo*, JSC::WriteBarrier<JSC::Structure>>;
+using DOMGuardedObjectSet = UncheckedKeyHashSet<DOMGuardedObject*>;
 
 class WEBCORE_EXPORT JSDOMGlobalObject : public JSC::JSGlobalObject {
 public:
@@ -55,41 +61,61 @@ public:
     static void subspaceFor(JSC::VM&) { RELEASE_ASSERT_NOT_REACHED(); }
 
     static void destroy(JSC::JSCell*);
+
 public:
-    Lock& gcLock() { return m_gcLock; }
+    Lock& gcLock() WTF_RETURNS_LOCK(m_gcLock) { return m_gcLock; }
 
-    JSDOMStructureMap& structures(const AbstractLocker&) { return m_structures; }
-    JSDOMConstructorMap& constructors(const AbstractLocker&) { return m_constructors; }
+    JSDOMStructureMap& structures() WTF_REQUIRES_LOCK(m_gcLock) { return m_structures; }
+    DOMGuardedObjectSet& guardedObjects() WTF_REQUIRES_LOCK(m_gcLock) { return m_guardedObjects; }
+    DOMConstructors& constructors() { return *m_constructors; }
 
-    DOMGuardedObjectSet& guardedObjects(const AbstractLocker&) { return m_guardedObjects; }
+    // No locking is necessary for call sites that do not mutate the containers and are not on the GC thread.
+    const JSDOMStructureMap& structures() const WTF_IGNORES_THREAD_SAFETY_ANALYSIS { ASSERT(!Thread::mayBeGCThread()); return m_structures; }
+    const DOMGuardedObjectSet& guardedObjects() const WTF_IGNORES_THREAD_SAFETY_ANALYSIS { ASSERT(!Thread::mayBeGCThread()); return m_guardedObjects; }
+    const DOMConstructors& constructors() const { ASSERT(!Thread::mayBeGCThread()); return *m_constructors; }
 
+    // The following don't require grabbing the gcLock first and should only be called when the Heap says that mutators don't have to be fenced.
+    inline JSDOMStructureMap& structures(NoLockingNecessaryTag);
+    inline DOMGuardedObjectSet& guardedObjects(NoLockingNecessaryTag);
+
+    RefPtr<ScriptExecutionContext> protectedScriptExecutionContext() const;
     ScriptExecutionContext* scriptExecutionContext() const;
+
+    static String codeForEval(JSC::JSGlobalObject*, JSC::JSValue);
+    static bool canCompileStrings(JSC::JSGlobalObject*, JSC::CompilationType, String, const JSC::ArgList&);
+    static JSC::Structure* trustedScriptStructure(JSC::JSGlobalObject*);
+
+    // https://tc39.es/ecma262/#sec-agent-clusters
+    String agentClusterID() const;
+    static String defaultAgentClusterID();
 
     // Make binding code generation easier.
     JSDOMGlobalObject* globalObject() { return this; }
 
-    void setCurrentEvent(Event*);
-    Event* currentEvent() const;
-
-    static void visitChildren(JSC::JSCell*, JSC::SlotVisitor&);
+    DECLARE_VISIT_CHILDREN;
 
     DOMWrapperWorld& world() { return m_world.get(); }
     bool worldIsNormal() const { return m_worldIsNormal; }
-    static ptrdiff_t offsetOfWorldIsNormal() { return OBJECT_OFFSETOF(JSDOMGlobalObject, m_worldIsNormal); }
+    static constexpr ptrdiff_t offsetOfWorldIsNormal() { return OBJECT_OFFSETOF(JSDOMGlobalObject, m_worldIsNormal); }
 
     JSBuiltinInternalFunctions& builtinInternalFunctions() { return m_builtinInternalFunctions; }
 
     static void reportUncaughtExceptionAtEventLoop(JSGlobalObject*, JSC::Exception*);
+    static JSC::JSGlobalObject* deriveShadowRealmGlobalObject(JSC::JSGlobalObject*);
+
+    void clearDOMGuardedObjects() const;
+
+    JSC::JSGlobalProxy& proxy() const { ASSERT(m_proxy); return *m_proxy.get(); }
+
+    JSC::JSFunction* createCrossOriginFunction(JSC::JSGlobalObject*, JSC::PropertyName, JSC::NativeFunction, unsigned length);
+    JSC::GetterSetter* createCrossOriginGetterSetter(JSC::JSGlobalObject*, JSC::PropertyName, JSC::GetValueFunc, JSC::PutValueFunc);
 
 public:
     ~JSDOMGlobalObject();
 
     static constexpr const JSC::ClassInfo* info() { return &s_info; }
 
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, 0, prototype, JSC::TypeInfo(JSC::GlobalObjectType, StructureFlags), info());
-    }
+    inline static JSC::Structure* createStructure(JSC::VM&, JSC::JSValue);
 
 protected:
     JSDOMGlobalObject(JSC::VM&, JSC::Structure*, Ref<DOMWrapperWorld>&&, const JSC::GlobalObjectMethodTable* = nullptr);
@@ -98,39 +124,42 @@ protected:
 
     static void promiseRejectionTracker(JSC::JSGlobalObject*, JSC::JSPromise*, JSC::JSPromiseRejectionOperation);
 
-    JSDOMStructureMap m_structures;
-    JSDOMConstructorMap m_constructors;
-    DOMGuardedObjectSet m_guardedObjects;
+#if ENABLE(WEBASSEMBLY)
+    static JSC::JSPromise* compileStreaming(JSC::JSGlobalObject*, JSC::JSValue);
+    static JSC::JSPromise* instantiateStreaming(JSC::JSGlobalObject*, JSC::JSValue, JSC::JSObject*);
+#endif
+
+    static JSC::Identifier moduleLoaderResolve(JSC::JSGlobalObject*, JSC::JSModuleLoader*, JSC::JSValue, JSC::JSValue, JSC::JSValue);
+    static JSC::JSInternalPromise* moduleLoaderFetch(JSC::JSGlobalObject*, JSC::JSModuleLoader*, JSC::JSValue, JSC::JSValue, JSC::JSValue);
+    static JSC::JSValue moduleLoaderEvaluate(JSC::JSGlobalObject*, JSC::JSModuleLoader*, JSC::JSValue, JSC::JSValue, JSC::JSValue, JSC::JSValue, JSC::JSValue);
+    static JSC::JSInternalPromise* moduleLoaderImportModule(JSC::JSGlobalObject*, JSC::JSModuleLoader*, JSC::JSString*, JSC::JSValue, const JSC::SourceOrigin&);
+    static JSC::JSObject* moduleLoaderCreateImportMetaProperties(JSC::JSGlobalObject*, JSC::JSModuleLoader*, JSC::JSValue, JSC::JSModuleRecord*, JSC::JSValue);
+
+    JSDOMStructureMap m_structures WTF_GUARDED_BY_LOCK(m_gcLock);
+    DOMGuardedObjectSet m_guardedObjects WTF_GUARDED_BY_LOCK(m_gcLock);
+    std::unique_ptr<DOMConstructors> m_constructors;
 
     Ref<DOMWrapperWorld> m_world;
     uint8_t m_worldIsNormal;
     Lock m_gcLock;
+    JSC::WriteBarrier<JSC::JSGlobalProxy> m_proxy;
 
 private:
     void addBuiltinGlobals(JSC::VM&);
-    friend void JSBuiltinInternalFunctions::initialize(JSDOMGlobalObject&);
+    friend JSBuiltinInternalFunctions;
 
-    Event* m_currentEvent { nullptr };
+    using CrossOriginMapKey = std::pair<JSC::JSGlobalObject*, void*>;
 
-    JSBuiltinInternalFunctions m_builtinInternalFunctions;
+    UniqueRef<JSBuiltinInternalFunctions> m_builtinInternalFunctions;
+    JSC::WeakGCMap<CrossOriginMapKey, JSC::JSFunction> m_crossOriginFunctionMap;
+    JSC::WeakGCMap<CrossOriginMapKey, JSC::GetterSetter> m_crossOriginGetterSetterMap;
 };
 
-template<class ConstructorClass>
-inline JSC::JSObject* getDOMConstructor(JSC::VM& vm, const JSDOMGlobalObject& globalObject)
-{
-    if (JSC::JSObject* constructor = const_cast<JSDOMGlobalObject&>(globalObject).constructors(NoLockingNecessary).get(ConstructorClass::info()).get())
-        return constructor;
-    JSC::JSObject* constructor = ConstructorClass::create(vm, ConstructorClass::createStructure(vm, const_cast<JSDOMGlobalObject&>(globalObject), ConstructorClass::prototypeForStructure(vm, globalObject)), const_cast<JSDOMGlobalObject&>(globalObject));
-    ASSERT(!const_cast<JSDOMGlobalObject&>(globalObject).constructors(NoLockingNecessary).contains(ConstructorClass::info()));
-    JSC::WriteBarrier<JSC::JSObject> temp;
-    JSDOMGlobalObject& mutableGlobalObject = const_cast<JSDOMGlobalObject&>(globalObject);
-    auto locker = JSC::lockDuringMarking(vm.heap, mutableGlobalObject.gcLock());
-    mutableGlobalObject.constructors(locker).add(ConstructorClass::info(), temp).iterator->value.set(vm, &globalObject, constructor);
-    return constructor;
-}
-
-WEBCORE_EXPORT JSDOMGlobalObject& callerGlobalObject(JSC::JSGlobalObject&, JSC::CallFrame&);
-
 JSDOMGlobalObject* toJSDOMGlobalObject(ScriptExecutionContext&, DOMWrapperWorld&);
+WEBCORE_EXPORT JSDOMGlobalObject& callerGlobalObject(JSC::JSGlobalObject&, JSC::CallFrame*);
+JSDOMGlobalObject& legacyActiveGlobalObjectForAccessor(JSC::JSGlobalObject&, JSC::CallFrame*);
+
+template<class JSClass>
+inline JSClass* toJSDOMGlobalObject(JSC::VM&, JSC::JSValue);
 
 } // namespace WebCore

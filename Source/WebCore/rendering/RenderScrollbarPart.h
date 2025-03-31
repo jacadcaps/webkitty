@@ -33,13 +33,14 @@ namespace WebCore {
 class RenderScrollbar;
 
 class RenderScrollbarPart final : public RenderBlock {
-    WTF_MAKE_ISO_ALLOCATED(RenderScrollbarPart);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(RenderScrollbarPart);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderScrollbarPart);
 public:
     RenderScrollbarPart(Document&, RenderStyle&&, RenderScrollbar* = nullptr, ScrollbarPart = NoPart);
     
     virtual ~RenderScrollbarPart();
 
-    const char* renderName() const override { return "RenderScrollbarPart"; }
+    ASCIILiteral renderName() const override { return "RenderScrollbarPart"_s; }
     
     bool requiresLayer() const override { return false; }
 
@@ -59,16 +60,13 @@ private:
     void styleDidChange(StyleDifference, const RenderStyle* oldStyle) override;
     void imageChanged(WrappedImagePtr, const IntRect* = nullptr) override;
 
-    bool isRenderScrollbarPart() const override { return true; }
-    void computePreferredLogicalWidths() override;
-
     void layoutHorizontalPart();
     void layoutVerticalPart();
 
     void computeScrollbarWidth();
     void computeScrollbarHeight();
     
-    RenderScrollbar* m_scrollbar;
+    SingleThreadWeakPtr<RenderScrollbar> m_scrollbar;
     ScrollbarPart m_part;
 };
 

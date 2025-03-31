@@ -33,17 +33,15 @@
 
 #include "HTMLInputElement.h"
 #include "InputTypeNames.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(TelephoneInputType);
 
 const AtomString& TelephoneInputType::formControlType() const
 {
     return InputTypeNames::telephone();
-}
-
-bool TelephoneInputType::isTelephoneField() const
-{
-    return true;
 }
 
 } // namespace WebCore

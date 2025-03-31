@@ -25,6 +25,9 @@
 
 #pragma once
 
+#if !BUSE(TZONE)
+#if !BUSE(LIBPAS)
+
 namespace bmalloc {
 
 template<unsigned passedObjectSize>
@@ -34,3 +37,5 @@ struct IsoConfig {
 
 } // namespace bmalloc
 
+#endif
+#endif // !BUSE(TZONE)

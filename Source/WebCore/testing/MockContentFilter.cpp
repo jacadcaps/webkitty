@@ -35,9 +35,13 @@
 #include "ResourceResponse.h"
 #include "SharedBuffer.h"
 #include <mutex>
+#include <wtf/EnumTraits.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/CString.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(MockContentFilter);
 
 using Decision = MockContentFilterSettings::Decision;
 using DecisionPoint = MockContentFilterSettings::DecisionPoint;
@@ -50,14 +54,9 @@ void MockContentFilter::ensureInstalled()
     });
 }
 
-static inline MockContentFilterSettings& settings()
-{
-    return MockContentFilterSettings::singleton();
-}
-
 bool MockContentFilter::enabled()
 {
-    bool enabled = settings().enabled();
+    bool enabled = MockContentFilterSettings::singleton().enabled();
     LOG(ContentFiltering, "MockContentFilter is %s.\n", enabled ? "enabled" : "not enabled");
     return enabled;
 }
@@ -82,7 +81,7 @@ void MockContentFilter::willSendRequest(ResourceRequest& request, const Resource
     if (m_state == State::Filtering)
         return;
 
-    String modifiedRequestURLString { settings().modifiedRequestURL() };
+    String modifiedRequestURLString { MockContentFilterSettings::singleton().modifiedRequestURL() };
     if (modifiedRequestURLString.isEmpty())
         return;
 
@@ -100,7 +99,7 @@ void MockContentFilter::responseReceived(const ResourceResponse&)
     maybeDetermineStatus(DecisionPoint::AfterResponse);
 }
 
-void MockContentFilter::addData(const char*, int)
+void MockContentFilter::addData(const SharedBuffer&)
 {
     maybeDetermineStatus(DecisionPoint::AfterAddData);
 }
@@ -110,10 +109,10 @@ void MockContentFilter::finishedAddingData()
     maybeDetermineStatus(DecisionPoint::AfterFinishedAddingData);
 }
 
-Ref<SharedBuffer> MockContentFilter::replacementData() const
+Ref<FragmentedSharedBuffer> MockContentFilter::replacementData() const
 {
     ASSERT(didBlockData());
-    return SharedBuffer::create(m_replacementData.data(), m_replacementData.size());
+    return SharedBuffer::create(m_replacementData.span());
 }
 
 ContentFilterUnblockHandler MockContentFilter::unblockHandler() const
@@ -123,9 +122,9 @@ ContentFilterUnblockHandler MockContentFilter::unblockHandler() const
 
     return ContentFilterUnblockHandler {
         MockContentFilterSettings::unblockURLHost(), [](DecisionHandlerFunction decisionHandler) {
-            bool shouldAllow { settings().unblockRequestDecision() == Decision::Allow };
+            bool shouldAllow { MockContentFilterSettings::singleton().unblockRequestDecision() == Decision::Allow };
             if (shouldAllow)
-                settings().setDecision(Decision::Allow);
+                MockContentFilterSettings::singleton().setDecision(Decision::Allow);
             LOG(ContentFiltering, "MockContentFilter %s the unblock request.\n", shouldAllow ? "allowed" : "did not allow");
             decisionHandler(shouldAllow);
         }
@@ -139,18 +138,16 @@ String MockContentFilter::unblockRequestDeniedScript() const
 
 void MockContentFilter::maybeDetermineStatus(DecisionPoint decisionPoint)
 {
-    if (m_state != State::Filtering || decisionPoint != settings().decisionPoint())
+    if (m_state != State::Filtering || decisionPoint != MockContentFilterSettings::singleton().decisionPoint())
         return;
 
-    LOG(ContentFiltering, "MockContentFilter stopped buffering with state %u at decision point %u.\n", m_state, decisionPoint);
+    LOG(ContentFiltering, "MockContentFilter stopped buffering with state %u at decision point %hhu.\n", enumToUnderlyingType(m_state), enumToUnderlyingType(decisionPoint));
 
-    m_state = settings().decision() == Decision::Allow ? State::Allowed : State::Blocked;
+    m_state = MockContentFilterSettings::singleton().decision() == Decision::Allow ? State::Allowed : State::Blocked;
     if (m_state != State::Blocked)
         return;
 
-    m_replacementData.clear();
-    const CString utf8BlockedString = settings().blockedString().utf8();
-    m_replacementData.append(utf8BlockedString.data(), utf8BlockedString.length());
+    m_replacementData = MockContentFilterSettings::singleton().blockedString().utf8().span();
 }
 
 } // namespace WebCore

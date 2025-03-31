@@ -25,9 +25,8 @@
 
 #pragma once
 
-#if ENABLE(CSS_PAINTING_API)
-
 #include "Supplementable.h"
+#include "Worklet.h"
 
 #include <wtf/RefCounted.h>
 #include <wtf/RefPtr.h>
@@ -38,17 +37,36 @@ class Document;
 class Worklet;
 class DOMCSSNamespace;
 
+class PaintWorklet final : public Worklet {
+public:
+    static Ref<PaintWorklet> create(Document& document)
+    {
+        auto worklet = adoptRef(*new PaintWorklet(document));
+        worklet->suspendIfNeeded();
+        return worklet;
+    }
+
+    // Worklet.
+    void addModule(const String& moduleURL, WorkletOptions&&, DOMPromiseDeferred<void>&&) final;
+    Vector<Ref<WorkletGlobalScopeProxy>> createGlobalScopes() final;
+
+private:
+    explicit PaintWorklet(Document& document)
+        : Worklet(document)
+    { }
+};
+
+DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(DOMCSSPaintWorklet);
 class DOMCSSPaintWorklet final : public Supplement<DOMCSSNamespace> {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(DOMCSSPaintWorklet);
 public:
     explicit DOMCSSPaintWorklet(DOMCSSNamespace&) { }
 
-    static Worklet& ensurePaintWorklet(Document&);
+    static PaintWorklet& ensurePaintWorklet(Document&);
 
 private:
     static DOMCSSPaintWorklet* from(DOMCSSNamespace&);
-    static const char* supplementName();
+    static ASCIILiteral supplementName();
 };
 
 } // namespace WebCore
-#endif

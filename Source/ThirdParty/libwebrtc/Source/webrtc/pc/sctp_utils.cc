@@ -11,8 +11,11 @@
 #include "pc/sctp_utils.h"
 
 #include <stddef.h>
-#include <stdint.h>
 
+#include <cstdint>
+#include <optional>
+
+#include "api/priority.h"
 #include "rtc_base/byte_buffer.h"
 #include "rtc_base/copy_on_write_buffer.h"
 #include "rtc_base/logging.h"
@@ -34,11 +37,20 @@ enum DataChannelOpenMessageChannelType {
   DCOMCT_UNORDERED_PARTIAL_TIME = 0x82,
 };
 
+// Values of priority in the DC open protocol message.
+// These are compared against an integer, so are enum, not enum class.
+enum DataChannelPriority {
+  DCO_PRIORITY_VERY_LOW = 128,
+  DCO_PRIORITY_LOW = 256,
+  DCO_PRIORITY_MEDIUM = 512,
+  DCO_PRIORITY_HIGH = 1024,
+};
+
 bool IsOpenMessage(const rtc::CopyOnWriteBuffer& payload) {
   // Format defined at
-  // http://tools.ietf.org/html/draft-jesup-rtcweb-data-protocol-04
+  // https://www.rfc-editor.org/rfc/rfc8832#section-5.1
   if (payload.size() < 1) {
-    RTC_LOG(LS_WARNING) << "Could not read OPEN message type.";
+    RTC_DLOG(LS_WARNING) << "Could not read OPEN message type.";
     return false;
   }
 
@@ -52,7 +64,7 @@ bool ParseDataChannelOpenMessage(const rtc::CopyOnWriteBuffer& payload,
   // Format defined at
   // http://tools.ietf.org/html/draft-jesup-rtcweb-data-protocol-04
 
-  rtc::ByteBufferReader buffer(payload.data<char>(), payload.size());
+  rtc::ByteBufferReader buffer(payload);
   uint8_t message_type;
   if (!buffer.ReadUInt8(&message_type)) {
     RTC_LOG(LS_WARNING) << "Could not read OPEN message type.";
@@ -76,6 +88,8 @@ bool ParseDataChannelOpenMessage(const rtc::CopyOnWriteBuffer& payload,
         << "Could not read OPEN message reliabilility prioirty.";
     return false;
   }
+  config->priority = PriorityValue(priority);
+
   uint32_t reliability_param;
   if (!buffer.ReadUInt32(&reliability_param)) {
     RTC_LOG(LS_WARNING) << "Could not read OPEN message reliabilility param.";
@@ -108,8 +122,8 @@ bool ParseDataChannelOpenMessage(const rtc::CopyOnWriteBuffer& payload,
       config->ordered = false;
   }
 
-  config->maxRetransmits = absl::nullopt;
-  config->maxRetransmitTime = absl::nullopt;
+  config->maxRetransmits = std::nullopt;
+  config->maxRetransmitTime = std::nullopt;
   switch (channel_type) {
     case DCOMCT_ORDERED_PARTIAL_RTXS:
     case DCOMCT_UNORDERED_PARTIAL_RTXS:
@@ -141,44 +155,57 @@ bool ParseDataChannelOpenAckMessage(const rtc::CopyOnWriteBuffer& payload) {
 bool WriteDataChannelOpenMessage(const std::string& label,
                                  const DataChannelInit& config,
                                  rtc::CopyOnWriteBuffer* payload) {
+  return WriteDataChannelOpenMessage(label, config.protocol, config.priority,
+                                     config.ordered, config.maxRetransmits,
+                                     config.maxRetransmitTime, payload);
+}
+
+bool WriteDataChannelOpenMessage(const std::string& label,
+                                 const std::string& protocol,
+                                 std::optional<PriorityValue> opt_priority,
+                                 bool ordered,
+                                 std::optional<int> max_retransmits,
+                                 std::optional<int> max_retransmit_time,
+                                 rtc::CopyOnWriteBuffer* payload) {
   // Format defined at
   // http://tools.ietf.org/html/draft-ietf-rtcweb-data-protocol-09#section-5.1
   uint8_t channel_type = 0;
   uint32_t reliability_param = 0;
-  uint16_t priority = 0;
-  if (config.ordered) {
-    if (config.maxRetransmits) {
+  // Set priority according to
+  // https://tools.ietf.org/html/draft-ietf-rtcweb-data-channel-12#section-6.4
+  PriorityValue priority = opt_priority.value_or(PriorityValue(Priority::kLow));
+  if (ordered) {
+    if (max_retransmits) {
       channel_type = DCOMCT_ORDERED_PARTIAL_RTXS;
-      reliability_param = *config.maxRetransmits;
-    } else if (config.maxRetransmitTime) {
+      reliability_param = *max_retransmits;
+    } else if (max_retransmit_time) {
       channel_type = DCOMCT_ORDERED_PARTIAL_TIME;
-      reliability_param = *config.maxRetransmitTime;
+      reliability_param = *max_retransmit_time;
     } else {
       channel_type = DCOMCT_ORDERED_RELIABLE;
     }
   } else {
-    if (config.maxRetransmits) {
+    if (max_retransmits) {
       channel_type = DCOMCT_UNORDERED_PARTIAL_RTXS;
-      reliability_param = *config.maxRetransmits;
-    } else if (config.maxRetransmitTime) {
+      reliability_param = *max_retransmits;
+    } else if (max_retransmit_time) {
       channel_type = DCOMCT_UNORDERED_PARTIAL_TIME;
-      reliability_param = *config.maxRetransmitTime;
+      reliability_param = *max_retransmit_time;
     } else {
       channel_type = DCOMCT_UNORDERED_RELIABLE;
     }
   }
 
-  rtc::ByteBufferWriter buffer(NULL,
-                               20 + label.length() + config.protocol.length());
+  rtc::ByteBufferWriter buffer(NULL, 20 + label.length() + protocol.length());
   // TODO(tommi): Add error handling and check resulting length.
   buffer.WriteUInt8(DATA_CHANNEL_OPEN_MESSAGE_TYPE);
   buffer.WriteUInt8(channel_type);
-  buffer.WriteUInt16(priority);
+  buffer.WriteUInt16(priority.value());
   buffer.WriteUInt32(reliability_param);
   buffer.WriteUInt16(static_cast<uint16_t>(label.length()));
-  buffer.WriteUInt16(static_cast<uint16_t>(config.protocol.length()));
+  buffer.WriteUInt16(static_cast<uint16_t>(protocol.length()));
   buffer.WriteString(label);
-  buffer.WriteString(config.protocol);
+  buffer.WriteString(protocol);
   payload->SetData(buffer.Data(), buffer.Length());
   return true;
 }
@@ -186,35 +213,6 @@ bool WriteDataChannelOpenMessage(const std::string& label,
 void WriteDataChannelOpenAckMessage(rtc::CopyOnWriteBuffer* payload) {
   uint8_t data = DATA_CHANNEL_OPEN_ACK_MESSAGE_TYPE;
   payload->SetData(&data, sizeof(data));
-}
-
-cricket::DataMessageType ToCricketDataMessageType(DataMessageType type) {
-  switch (type) {
-    case DataMessageType::kText:
-      return cricket::DMT_TEXT;
-    case DataMessageType::kBinary:
-      return cricket::DMT_BINARY;
-    case DataMessageType::kControl:
-      return cricket::DMT_CONTROL;
-    default:
-      return cricket::DMT_NONE;
-  }
-  return cricket::DMT_NONE;
-}
-
-DataMessageType ToWebrtcDataMessageType(cricket::DataMessageType type) {
-  switch (type) {
-    case cricket::DMT_TEXT:
-      return DataMessageType::kText;
-    case cricket::DMT_BINARY:
-      return DataMessageType::kBinary;
-    case cricket::DMT_CONTROL:
-      return DataMessageType::kControl;
-    case cricket::DMT_NONE:
-    default:
-      RTC_NOTREACHED();
-  }
-  return DataMessageType::kControl;
 }
 
 }  // namespace webrtc

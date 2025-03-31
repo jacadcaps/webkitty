@@ -29,26 +29,26 @@
 #include "AudioResamplerKernel.h"
 
 #include "AudioResampler.h"
+#include "AudioUtilities.h"
 #include <algorithm>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
-    
-const size_t AudioResamplerKernel::MaxFramesToProcess = 128;
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(AudioResamplerKernel);
 
 AudioResamplerKernel::AudioResamplerKernel(AudioResampler* resampler)
     : m_resampler(resampler)
     // The buffer size must be large enough to hold up to two extra sample frames for the linear interpolation.
-    , m_sourceBuffer(2 + static_cast<int>(MaxFramesToProcess * AudioResampler::MaxRate))
-    , m_virtualReadIndex(0.0)
-    , m_fillIndex(0)
+    , m_sourceBuffer(2 + static_cast<int>(AudioUtilities::renderQuantumSize * AudioResampler::MaxRate))
 {
     m_lastValues[0] = 0.0f;
     m_lastValues[1] = 0.0f;
 }
 
-float* AudioResamplerKernel::getSourcePointer(size_t framesToProcess, size_t* numberOfSourceFramesNeededP)
+std::span<float> AudioResamplerKernel::getSourceSpan(size_t framesToProcess, size_t* numberOfSourceFramesNeededP)
 {
-    ASSERT(framesToProcess <= MaxFramesToProcess);
+    ASSERT(framesToProcess <= AudioUtilities::renderQuantumSize);
     
     // Calculate the next "virtual" index.  After process() is called, m_virtualReadIndex will equal this value.
     double nextFractionalIndex = m_virtualReadIndex + framesToProcess * rate();
@@ -66,16 +66,16 @@ float* AudioResamplerKernel::getSourcePointer(size_t framesToProcess, size_t* nu
     bool isGood = m_fillIndex < m_sourceBuffer.size() && m_fillIndex + framesNeeded <= m_sourceBuffer.size();
     ASSERT(isGood);
     if (!isGood)
-        return 0;
+        return { };
 
-    return m_sourceBuffer.data() + m_fillIndex;
+    return m_sourceBuffer.span().subspan(m_fillIndex);
 }
 
-void AudioResamplerKernel::process(float* destination, size_t framesToProcess)
+void AudioResamplerKernel::process(std::span<float> destination, size_t framesToProcess)
 {
-    ASSERT(framesToProcess <= MaxFramesToProcess);
+    ASSERT(framesToProcess <= AudioUtilities::renderQuantumSize);
 
-    float* source = m_sourceBuffer.data();
+    auto source = m_sourceBuffer.span();
     
     double rate = this->rate();
     rate = std::max(0.0, rate);
@@ -96,6 +96,7 @@ void AudioResamplerKernel::process(float* destination, size_t framesToProcess)
 
     // Do the linear interpolation.
     int n = framesToProcess;
+    size_t destinationIndex = 0;
     while (n--) {
         unsigned readIndex = static_cast<unsigned>(virtualReadIndex);
         double interpolationFactor = virtualReadIndex - readIndex;
@@ -105,10 +106,10 @@ void AudioResamplerKernel::process(float* destination, size_t framesToProcess)
 
         double sample = (1.0 - interpolationFactor) * sample1 + interpolationFactor * sample2;
 
-        *destination++ = static_cast<float>(sample);
+        destination[destinationIndex++] = static_cast<float>(sample);
 
         virtualReadIndex += rate;
-    }                        
+    }
 
     // Save the last two sample-frames which will later be used at the beginning of the source buffer the next time around.
     int readIndex = static_cast<int>(virtualReadIndex);

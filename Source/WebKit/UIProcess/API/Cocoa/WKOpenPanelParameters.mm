@@ -24,12 +24,9 @@
  */
 
 #import "config.h"
+#import "WKNSArray.h"
 #import "WKOpenPanelParametersInternal.h"
 #import <WebCore/MIMETypeRegistry.h>
-
-#if PLATFORM(MAC)
-
-#import "WKNSArray.h"
 
 @implementation WKOpenPanelParameters
 
@@ -56,19 +53,17 @@
 
 - (NSArray<NSString *> *)_acceptedMIMETypes
 {
-    return wrapper(_openPanelParameters->acceptMIMETypes());
+    return wrapper(_openPanelParameters->acceptMIMETypes()).autorelease();
 }
 
 - (NSArray<NSString *> *)_acceptedFileExtensions
 {
-    return wrapper(_openPanelParameters->acceptFileExtensions());
+    return wrapper(_openPanelParameters->acceptFileExtensions()).autorelease();
 }
 
 - (NSArray<NSString *> *)_allowedFileExtensions
 {
-    return wrapper(_openPanelParameters->allowedFileExtensions());
+    return wrapper(_openPanelParameters->allowedFileExtensions()).autorelease();
 }
 
 @end
-
-#endif

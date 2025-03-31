@@ -28,16 +28,20 @@
 
 #import "OffscreenWindow.h"
 #import <Carbon/Carbon.h>
+#import <WebKit/WKPagePrivateMac.h>
 #import <WebKit/WKRetainPtr.h>
-#import <WebKit/WKViewPrivate.h>
+#import <WebKit/WKWebViewConfigurationPrivate.h>
+#import <WebKit/WKWebViewPrivate.h>
+#import <wtf/RetainPtr.h>
 
 namespace TestWebKitAPI {
 
-void PlatformWebView::initialize(WKPageConfigurationRef configuration, Class wkViewSubclass)
+void PlatformWebView::initialize(WKPageConfigurationRef pageConfiguration)
 {
     NSRect rect = NSMakeRect(0, 0, 800, 600);
-    m_view = [[wkViewSubclass alloc] initWithFrame:rect configurationRef:configuration];
-    [m_view setWindowOcclusionDetectionEnabled:NO];
+
+    m_view = [[WKWebView alloc] initWithFrame:rect configuration:(__bridge WKWebViewConfiguration *)pageConfiguration];
+    [m_view _setWindowOcclusionDetectionEnabled:NO];
 
     m_window = [[OffscreenWindow alloc] initWithSize:NSSizeToCGSize(rect.size)];
     [[m_window contentView] addSubview:m_view];
@@ -45,17 +49,16 @@ void PlatformWebView::initialize(WKPageConfigurationRef configuration, Class wkV
 
 PlatformWebView::PlatformWebView(WKPageConfigurationRef configuration)
 {
-    initialize(configuration, [WKView class]);
+    initialize(configuration);
 }
 
-PlatformWebView::PlatformWebView(WKContextRef contextRef, WKPageGroupRef pageGroupRef)
+PlatformWebView::PlatformWebView(WKContextRef contextRef)
 {
     WKRetainPtr<WKPageConfigurationRef> configuration = adoptWK(WKPageConfigurationCreate());
     
     WKPageConfigurationSetContext(configuration.get(), contextRef);
-    WKPageConfigurationSetPageGroup(configuration.get(), pageGroupRef);
     
-    initialize(configuration.get(), [WKView class]);
+    initialize(configuration.get());
 }
 
 PlatformWebView::PlatformWebView(WKPageRef relatedPage)
@@ -63,20 +66,15 @@ PlatformWebView::PlatformWebView(WKPageRef relatedPage)
     WKRetainPtr<WKPageConfigurationRef> configuration = adoptWK(WKPageConfigurationCreate());
     
     WKPageConfigurationSetContext(configuration.get(), WKPageGetContext(relatedPage));
-    WKPageConfigurationSetPageGroup(configuration.get(), WKPageGetPageGroup(relatedPage));
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     WKPageConfigurationSetRelatedPage(configuration.get(), relatedPage);
+    ALLOW_DEPRECATED_DECLARATIONS_END
 
-    initialize(configuration.get(), [WKView class]);
-}
+    auto relatedConfiguration = adoptWK(WKPageCopyPageConfiguration(relatedPage));
+    if (auto* preferences = WKPageConfigurationGetPreferences(relatedConfiguration.get()))
+        WKPageConfigurationSetPreferences(configuration.get(), preferences);
 
-PlatformWebView::PlatformWebView(WKContextRef contextRef, WKPageGroupRef pageGroupRef, Class wkViewSubclass)
-{
-    WKRetainPtr<WKPageConfigurationRef> configuration = adoptWK(WKPageConfigurationCreate());
-    
-    WKPageConfigurationSetContext(configuration.get(), contextRef);
-    WKPageConfigurationSetPageGroup(configuration.get(), pageGroupRef);
-    
-    initialize(configuration.get(), wkViewSubclass);
+    initialize(configuration.get());
 }
 
 PlatformWebView::~PlatformWebView()
@@ -93,7 +91,7 @@ void PlatformWebView::resizeTo(unsigned width, unsigned height)
 
 WKPageRef PlatformWebView::page() const
 {
-    return [m_view pageRef];
+    return [m_view _pageRefForTransitionToWKWebView];
 }
 
 void PlatformWebView::focus()
@@ -195,7 +193,7 @@ static NSEventModifierFlags modifierFlagsForWKModifiers(WKEventModifiers modifie
 void PlatformWebView::simulateMouseMove(unsigned x, unsigned y, WKEventModifiers modifiers)
 {
     NSEvent *event = [NSEvent mouseEventWithType:NSEventTypeMouseMoved location:NSMakePoint(x, y) modifierFlags:modifierFlagsForWKModifiers(modifiers) timestamp:GetCurrentEventTime() windowNumber:[m_window windowNumber] context:[NSGraphicsContext currentContext] eventNumber:0 clickCount:0 pressure:0];
-    [m_view mouseMoved:event];
+    [m_view _simulateMouseMove:event];
 }
 
 void PlatformWebView::simulateButtonClick(WKEventMouseButton button, unsigned x, unsigned y, WKEventModifiers modifiers)

@@ -13,17 +13,20 @@
 
 #include <memory>
 
+#include "api/environment/environment.h"
 #include "modules/audio_coding/include/audio_coding_module.h"
 #include "modules/audio_coding/test/PCMFile.h"
 
 namespace webrtc {
+
+class NetEq;
 
 class TestPack : public AudioPacketizationCallback {
  public:
   TestPack();
   ~TestPack();
 
-  void RegisterReceiverACM(AudioCodingModule* acm);
+  void RegisterReceiverNetEq(NetEq* neteq);
 
   int32_t SendData(AudioFrameType frame_type,
                    uint8_t payload_type,
@@ -37,7 +40,7 @@ class TestPack : public AudioPacketizationCallback {
   void reset_payload_size();
 
  private:
-  AudioCodingModule* receiver_acm_;
+  NetEq* neteq_;
   uint16_t sequence_number_;
   uint8_t payload_data_[60 * 32 * 2 * 2];
   uint32_t timestamp_diff_;
@@ -58,8 +61,7 @@ class TestAllCodecs {
   // codec name, and a sampling frequency matching is not required.
   // This is useful for codecs which support several sampling frequency.
   // Note! Only mono mode is tested in this test.
-  void RegisterSendCodec(char side,
-                         char* codec_name,
+  void RegisterSendCodec(char* codec_name,
                          int32_t sampling_freq_hz,
                          int rate,
                          int packet_size,
@@ -68,8 +70,9 @@ class TestAllCodecs {
   void Run(TestPack* channel);
   void OpenOutFile(int test_number);
 
+  const Environment env_;
   std::unique_ptr<AudioCodingModule> acm_a_;
-  std::unique_ptr<AudioCodingModule> acm_b_;
+  std::unique_ptr<NetEq> neteq_;
   TestPack* channel_a_to_b_;
   PCMFile infile_a_;
   PCMFile outfile_b_;

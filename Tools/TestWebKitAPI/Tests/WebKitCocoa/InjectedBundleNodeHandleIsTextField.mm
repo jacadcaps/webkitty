@@ -60,9 +60,6 @@
 
     NSMutableArray <NSString *> *failedInputTypes = [NSMutableArray array];
 
-    [self verifyTextFieldForHTMLInputType:@"date" document:document jsContext:jsContext expectedResult:YES failedInputTypes:failedInputTypes];
-    [self verifyTextFieldForHTMLInputType:@"datetime" document:document jsContext:jsContext expectedResult:YES failedInputTypes:failedInputTypes];
-    [self verifyTextFieldForHTMLInputType:@"datetime-local" document:document jsContext:jsContext expectedResult:YES failedInputTypes:failedInputTypes];
     [self verifyTextFieldForHTMLInputType:@"email" document:document jsContext:jsContext expectedResult:YES failedInputTypes:failedInputTypes];
     [self verifyTextFieldForHTMLInputType:@"month" document:document jsContext:jsContext expectedResult:YES failedInputTypes:failedInputTypes];
     [self verifyTextFieldForHTMLInputType:@"number" document:document jsContext:jsContext expectedResult:YES failedInputTypes:failedInputTypes];
@@ -70,14 +67,13 @@
     [self verifyTextFieldForHTMLInputType:@"search" document:document jsContext:jsContext expectedResult:YES failedInputTypes:failedInputTypes];
     [self verifyTextFieldForHTMLInputType:@"tel" document:document jsContext:jsContext expectedResult:YES failedInputTypes:failedInputTypes];
     [self verifyTextFieldForHTMLInputType:@"text" document:document jsContext:jsContext expectedResult:YES failedInputTypes:failedInputTypes];
-    [self verifyTextFieldForHTMLInputType:@"time" document:document jsContext:jsContext expectedResult:YES failedInputTypes:failedInputTypes];
     [self verifyTextFieldForHTMLInputType:@"url" document:document jsContext:jsContext expectedResult:YES failedInputTypes:failedInputTypes];
     [self verifyTextFieldForHTMLInputType:@"week" document:document jsContext:jsContext expectedResult:YES failedInputTypes:failedInputTypes];
 
     [self verifyTextFieldForHTMLInputType:@"button" document:document jsContext:jsContext expectedResult:NO failedInputTypes:failedInputTypes];
-#if ENABLE_INPUT_TYPE_COLOR
     [self verifyTextFieldForHTMLInputType:@"color" document:document jsContext:jsContext expectedResult:NO failedInputTypes:failedInputTypes];
-#endif
+    [self verifyTextFieldForHTMLInputType:@"date" document:document jsContext:jsContext expectedResult:NO failedInputTypes:failedInputTypes];
+    [self verifyTextFieldForHTMLInputType:@"datetime-local" document:document jsContext:jsContext expectedResult:NO failedInputTypes:failedInputTypes];
     [self verifyTextFieldForHTMLInputType:@"file" document:document jsContext:jsContext expectedResult:NO failedInputTypes:failedInputTypes];
     [self verifyTextFieldForHTMLInputType:@"hidden" document:document jsContext:jsContext expectedResult:NO failedInputTypes:failedInputTypes];
     [self verifyTextFieldForHTMLInputType:@"image" document:document jsContext:jsContext expectedResult:NO failedInputTypes:failedInputTypes];
@@ -85,6 +81,7 @@
     [self verifyTextFieldForHTMLInputType:@"range" document:document jsContext:jsContext expectedResult:NO failedInputTypes:failedInputTypes];
     [self verifyTextFieldForHTMLInputType:@"reset" document:document jsContext:jsContext expectedResult:NO failedInputTypes:failedInputTypes];
     [self verifyTextFieldForHTMLInputType:@"submit" document:document jsContext:jsContext expectedResult:NO failedInputTypes:failedInputTypes];
+    [self verifyTextFieldForHTMLInputType:@"time" document:document jsContext:jsContext expectedResult:NO failedInputTypes:failedInputTypes];
 
     if (!failedInputTypes.count) {
         [[[browserContextController mainFrame] jsContextForWorld:[WKWebProcessPlugInScriptWorld normalWorld]] evaluateScript:@"alert('isTextField success')"];

@@ -28,10 +28,12 @@
 #if USE(LIBWEBRTC)
 
 #include "RTCNetwork.h"
-#include <WebCore/LibWebRTCMacros.h>
-#include <webrtc/rtc_base/network.h>
-#include <webrtc/rtc_base/thread.h>
+#include <wtf/CheckedRef.h>
 #include <wtf/WeakPtr.h>
+
+namespace WebKit {
+class NetworkRTCMonitor;
+}
 
 namespace IPC {
 class Connection;
@@ -44,21 +46,26 @@ class NetworkRTCProvider;
 
 class NetworkRTCMonitor final : public CanMakeWeakPtr<NetworkRTCMonitor> {
 public:
-    explicit NetworkRTCMonitor(NetworkRTCProvider& rtcProvider) : m_rtcProvider(rtcProvider) { }
+    explicit NetworkRTCMonitor(NetworkRTCProvider&);
     ~NetworkRTCMonitor();
 
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&);
     void stopUpdating();
     bool isStarted() const { return m_isStarted; }
-    NetworkRTCProvider& rtcProvider() { return m_rtcProvider; }
+    NetworkRTCProvider& rtcProvider();
 
     void onNetworksChanged(const Vector<RTCNetwork>&, const RTCNetwork::IPAddress&, const RTCNetwork::IPAddress&);
+
+    const RTCNetwork::IPAddress& ipv4() const;
+    const RTCNetwork::IPAddress& ipv6()  const;
+
+    void ref();
+    void deref();
 
 private:
     void startUpdatingIfNeeded();
 
-    NetworkRTCProvider& m_rtcProvider;
-    std::unique_ptr<rtc::BasicNetworkManager> m_manager;
+    CheckedRef<NetworkRTCProvider> m_rtcProvider;
     bool m_isStarted { false };
 };
 

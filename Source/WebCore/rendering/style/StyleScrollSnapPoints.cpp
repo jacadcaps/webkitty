@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,43 +26,44 @@
 #include "config.h"
 #include "StyleScrollSnapPoints.h"
 
-#if ENABLE(CSS_SCROLL_SNAP)
-
 namespace WebCore {
 
-Ref<StyleScrollSnapPort> StyleScrollSnapPort::copy() const
+WTF::TextStream& operator<<(WTF::TextStream& ts, ScrollSnapAlign align)
 {
-    return adoptRef(*new StyleScrollSnapPort(*this));
+    auto populateTextStreamForAlignType = [&](ScrollSnapAxisAlignType type) {
+        switch (type) {
+        case ScrollSnapAxisAlignType::None: ts << "none"; break;
+        case ScrollSnapAxisAlignType::Start: ts << "start"; break;
+        case ScrollSnapAxisAlignType::Center: ts << "center"; break;
+        case ScrollSnapAxisAlignType::End: ts << "end"; break;
+        }
+    };
+    populateTextStreamForAlignType(align.blockAlign);
+    if (align.blockAlign != align.inlineAlign) {
+        ts << ' ';
+        populateTextStreamForAlignType(align.inlineAlign);
+    }
+    return ts;
 }
 
-StyleScrollSnapPort::StyleScrollSnapPort()
+WTF::TextStream& operator<<(WTF::TextStream& ts, ScrollSnapType type)
 {
-}
-
-inline StyleScrollSnapPort::StyleScrollSnapPort(const StyleScrollSnapPort& other)
-    : RefCounted()
-    , type(other.type)
-    , scrollPadding(other.scrollPadding)
-{
-}
-
-Ref<StyleScrollSnapArea> StyleScrollSnapArea::copy() const
-{
-    return adoptRef(*new StyleScrollSnapArea(*this));
-}
-
-StyleScrollSnapArea::StyleScrollSnapArea()
-    : scrollSnapMargin(0, 0, 0, 0)
-{
-}
-
-inline StyleScrollSnapArea::StyleScrollSnapArea(const StyleScrollSnapArea& other)
-    : RefCounted()
-    , alignment(other.alignment)
-    , scrollSnapMargin(other.scrollSnapMargin)
-{
+    if (type.strictness != ScrollSnapStrictness::None) {
+        switch (type.axis) {
+        case ScrollSnapAxis::XAxis: ts << "x"; break;
+        case ScrollSnapAxis::YAxis: ts << "y"; break;
+        case ScrollSnapAxis::Block: ts << "block"; break;
+        case ScrollSnapAxis::Inline: ts << "inline"; break;
+        case ScrollSnapAxis::Both: ts << "both"; break;
+        }
+        ts << ' ';
+    }
+    switch (type.strictness) {
+    case ScrollSnapStrictness::None: ts << "none"; break;
+    case ScrollSnapStrictness::Proximity: ts << "proximity"; break;
+    case ScrollSnapStrictness::Mandatory: ts << "mandatory"; break;
+    }
+    return ts;
 }
 
 } // namespace WebCore
-
-#endif /* ENABLE(CSS_SCROLL_SNAP) */

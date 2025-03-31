@@ -25,8 +25,16 @@
 
 #pragma once
 
-#include <wtf/HashSet.h>
+#include "PageIdentifier.h"
+#include "ScriptExecutionContextIdentifier.h"
+#include <variant>
+#include <wtf/CheckedPtr.h>
+#include <wtf/CheckedRef.h>
+#include <wtf/FastMalloc.h>
+#include <wtf/Function.h>
+#include <wtf/RefCounted.h>
 #include <wtf/RefPtr.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/URL.h>
 #include <wtf/text/WTFString.h>
 
@@ -40,21 +48,32 @@ class WorkerThread;
 
 enum class WorkerThreadStartMode;
 
-class WorkerInspectorProxy {
+class WorkerInspectorProxy : public RefCounted<WorkerInspectorProxy>, public CanMakeWeakPtr<WorkerInspectorProxy, WeakPtrFactoryInitialization::Eager> {
+    WTF_MAKE_TZONE_ALLOCATED(WorkerInspectorProxy);
     WTF_MAKE_NONCOPYABLE(WorkerInspectorProxy);
-    WTF_MAKE_FAST_ALLOCATED;
 public:
-    WorkerInspectorProxy(const String& identifier);
+    static Ref<WorkerInspectorProxy> create(const String& identifier)
+    {
+        return adoptRef(*new WorkerInspectorProxy(identifier));
+    }
+
     ~WorkerInspectorProxy();
 
     // A Worker's inspector messages come in and go out through the Page's WorkerAgent.
-    class PageChannel {
+    class PageChannel : public CanMakeThreadSafeCheckedPtr<PageChannel> {
+        WTF_MAKE_TZONE_ALLOCATED(PageChannel);
+        WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(PageChannel);
+
     public:
         virtual ~PageChannel() = default;
-        virtual void sendMessageFromWorkerToFrontend(WorkerInspectorProxy&, const String&) = 0;
+
+        virtual void ref() const = 0;
+        virtual void deref() const = 0;
+        virtual void sendMessageFromWorkerToFrontend(WorkerInspectorProxy&, String&&) = 0;
     };
 
-    static HashSet<WorkerInspectorProxy*>& allWorkerInspectorProxies();
+    static Vector<Ref<WorkerInspectorProxy>> proxiesForPage(PageIdentifier);
+    static Vector<Ref<WorkerInspectorProxy>> proxiesForWorkerGlobalScope(ScriptExecutionContextIdentifier);
 
     const URL& url() const { return m_url; }
     const String& name() const { return m_name; }
@@ -62,22 +81,31 @@ public:
     ScriptExecutionContext* scriptExecutionContext() const { return m_scriptExecutionContext.get(); }
 
     WorkerThreadStartMode workerStartMode(ScriptExecutionContext&);
-    void workerStarted(ScriptExecutionContext*, WorkerThread*, const URL&, const String& name);
+    void workerStarted(ScriptExecutionContext&, WorkerThread*, const URL&, const String& name);
     void workerTerminated();
 
     void resumeWorkerIfPaused();
     void connectToWorkerInspectorController(PageChannel&);
     void disconnectFromWorkerInspectorController();
     void sendMessageToWorkerInspectorController(const String&);
-    void sendMessageFromWorkerToFrontend(const String&);
+    void sendMessageFromWorkerToFrontend(String&&);
 
 private:
+    explicit WorkerInspectorProxy(const String& identifier);
+
+    using PageOrWorkerGlobalScopeIdentifier = std::variant<PageIdentifier, ScriptExecutionContextIdentifier>;
+    static std::optional<PageOrWorkerGlobalScopeIdentifier> pageOrWorkerGlobalScopeIdentifier(ScriptExecutionContext&);
+
+    void addToProxyMap();
+    void removeFromProxyMap();
+
     RefPtr<ScriptExecutionContext> m_scriptExecutionContext;
+    std::optional<PageOrWorkerGlobalScopeIdentifier> m_contextIdentifier;
     RefPtr<WorkerThread> m_workerThread;
     String m_identifier;
     URL m_url;
     String m_name;
-    PageChannel* m_pageChannel { nullptr };
+    CheckedPtr<PageChannel> m_pageChannel;
 };
 
 } // namespace WebCore

@@ -32,12 +32,16 @@
 #include "ScrollingTreeFrameScrollingNode.h"
 #include "ScrollingTreeScrollingNodeDelegateMac.h"
 #include <wtf/RetainPtr.h>
+#include <wtf/TZoneMalloc.h>
 
 OBJC_CLASS CALayer;
 
 namespace WebCore {
 
+class ScrollingTreeScrollingNodeDelegateMac;
+
 class WEBCORE_EXPORT ScrollingTreeFrameScrollingNodeMac : public ScrollingTreeFrameScrollingNode {
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(ScrollingTreeFrameScrollingNodeMac, WEBCORE_EXPORT);
 public:
     static Ref<ScrollingTreeFrameScrollingNode> create(ScrollingTree&, ScrollingNodeType, ScrollingNodeID);
     virtual ~ScrollingTreeFrameScrollingNodeMac();
@@ -48,10 +52,10 @@ protected:
     ScrollingTreeFrameScrollingNodeMac(ScrollingTree&, ScrollingNodeType, ScrollingNodeID);
 
     // ScrollingTreeNode member functions.
-    void commitStateBeforeChildren(const ScrollingStateNode&) override;
-    void commitStateAfterChildren(const ScrollingStateNode&) override;
+    bool commitStateBeforeChildren(const ScrollingStateNode&) override;
+    bool commitStateAfterChildren(const ScrollingStateNode&) override;
 
-    WheelEventHandlingResult handleWheelEvent(const PlatformWheelEvent&) override;
+    WheelEventHandlingResult handleWheelEvent(const PlatformWheelEvent&, EventTargeting) override;
 
     WEBCORE_EXPORT void repositionRelatedLayers() override;
 
@@ -63,14 +67,14 @@ protected:
     unsigned exposedUnfilledArea() const;
 
 private:
+    ScrollingTreeScrollingNodeDelegateMac& delegate() const;
+
     void willBeDestroyed() final;
+    void willDoProgrammaticScroll(const FloatPoint&) final;
+    bool isScrollingTreeFrameScrollingNodeMac() const final { return true; };
 
-    FloatPoint adjustedScrollPosition(const FloatPoint&, ScrollClamping) const override;
-
-    void currentScrollPositionChanged(ScrollingLayerPositionAction) final;
-    void repositionScrollingLayers() final;
-
-    ScrollingTreeScrollingNodeDelegateMac m_delegate;
+    void currentScrollPositionChanged(ScrollType, ScrollingLayerPositionAction) final;
+    void repositionScrollingLayers() final WTF_REQUIRES_LOCK(scrollingTree()->treeLock());
 
     RetainPtr<CALayer> m_rootContentsLayer;
     RetainPtr<CALayer> m_counterScrollingLayer;
@@ -84,5 +88,9 @@ private:
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::ScrollingTreeFrameScrollingNodeMac) \
+    static bool isType(const WebCore::ScrollingTreeFrameScrollingNode& node) { return node.isScrollingTreeFrameScrollingNodeMac(); } \
+SPECIALIZE_TYPE_TRAITS_END()
 
 #endif // ENABLE(ASYNC_SCROLLING) && PLATFORM(MAC)

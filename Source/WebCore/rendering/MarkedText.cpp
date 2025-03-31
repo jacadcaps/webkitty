@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,12 +26,24 @@
 #include "config.h"
 #include "MarkedText.h"
 
+#include "Document.h"
+#include "DocumentInlines.h"
+#include "DocumentMarkerController.h"
+#include "Editor.h"
+#include "ElementRuleCollector.h"
+#include "HighlightRegistry.h"
+#include "RenderBoxModelObject.h"
+#include "RenderHighlight.h"
+#include "RenderStyleInlines.h"
+#include "RenderText.h"
+#include "RenderedDocumentMarker.h"
+#include "TextBoxSelectableRange.h"
 #include <algorithm>
 #include <wtf/HashSet.h>
 
 namespace WebCore {
 
-Vector<MarkedText> subdivide(const Vector<MarkedText>& markedTexts, OverlapStrategy overlapStrategy)
+Vector<MarkedText> MarkedText::subdivide(const Vector<MarkedText>& markedTexts, OverlapStrategy overlapStrategy)
 {
     if (markedTexts.isEmpty())
         return { };
@@ -40,7 +52,7 @@ Vector<MarkedText> subdivide(const Vector<MarkedText>& markedTexts, OverlapStrat
         enum Kind { Begin, End };
         Kind kind;
         unsigned value; // Copy of markedText.startOffset/endOffset to avoid the need to branch based on kind.
-        const MarkedText* markedText;
+        CheckedPtr<const MarkedText> markedText;
     };
 
     // 1. Build table of all offsets.
@@ -50,8 +62,8 @@ Vector<MarkedText> subdivide(const Vector<MarkedText>& markedTexts, OverlapStrat
     unsigned numberOfOffsets = 2 * numberOfMarkedTexts;
     offsets.reserveInitialCapacity(numberOfOffsets);
     for (auto& markedText : markedTexts) {
-        offsets.uncheckedAppend({ Offset::Begin, markedText.startOffset, &markedText });
-        offsets.uncheckedAppend({ Offset::End, markedText.endOffset, &markedText });
+        offsets.append({ Offset::Begin, markedText.startOffset, &markedText });
+        offsets.append({ Offset::End, markedText.endOffset, &markedText });
     }
 
     // 2. Sort offsets such that begin offsets are in paint order and end offsets are in reverse paint order.
@@ -63,12 +75,12 @@ Vector<MarkedText> subdivide(const Vector<MarkedText>& markedTexts, OverlapStrat
     // 3. Compute intersection.
     Vector<MarkedText> result;
     result.reserveInitialCapacity(numberOfMarkedTexts);
-    HashSet<const MarkedText*> processedMarkedTexts;
+    UncheckedKeyHashSet<CheckedPtr<const MarkedText>> processedMarkedTexts;
     unsigned offsetSoFar = offsets[0].value;
     for (unsigned i = 1; i < numberOfOffsets; ++i) {
         if (offsets[i].value > offsets[i - 1].value) {
             if (overlapStrategy == OverlapStrategy::Frontmost) {
-                Optional<unsigned> frontmost;
+                std::optional<unsigned> frontmost;
                 for (unsigned j = 0; j < i; ++j) {
                     if (!processedMarkedTexts.contains(offsets[j].markedText) && (!frontmost || offsets[j].markedText->type > offsets[*frontmost].markedText->type))
                         frontmost = j;
@@ -79,7 +91,7 @@ Vector<MarkedText> subdivide(const Vector<MarkedText>& markedTexts, OverlapStrat
                 // The appended marked texts may not be in paint order. We will fix this up at the end of this function.
                 for (unsigned j = 0; j < i; ++j) {
                     if (!processedMarkedTexts.contains(offsets[j].markedText))
-                        result.append({ offsetSoFar, offsets[i].value, offsets[j].markedText->type, offsets[j].markedText->marker, offsets[j].markedText->highlightName });
+                        result.append({ offsetSoFar, offsets[i].value, offsets[j].markedText->type, offsets[j].markedText->marker, offsets[j].markedText->highlightName, offsets[j].markedText->priority });
                 }
             }
             offsetSoFar = offsets[i].value;
@@ -93,6 +105,257 @@ Vector<MarkedText> subdivide(const Vector<MarkedText>& markedTexts, OverlapStrat
     return result;
 }
 
+Vector<MarkedText> MarkedText::collectForHighlights(const RenderText& renderer, const TextBoxSelectableRange& selectableRange, PaintPhase phase)
+{
+    Vector<MarkedText> markedTexts;
+    RenderHighlight renderHighlight;
+    auto& parentRenderer = *renderer.parent();
+    auto& parentStyle = parentRenderer.style();
+    if (auto highlightRegistry = renderer.document().highlightRegistryIfExists()) {
+        for (auto& highlightName : highlightRegistry->highlightNames()) {
+            auto renderStyle = parentRenderer.getUncachedPseudoStyle({ PseudoId::Highlight, highlightName }, &parentStyle);
+            if (!renderStyle)
+                continue;
+            if (renderStyle->textDecorationsInEffect().isEmpty() && phase == PaintPhase::Decoration)
+                continue;
+            for (auto& highlightRange : highlightRegistry->map().get(highlightName)->highlightRanges()) {
+                if (!renderHighlight.setRenderRange(highlightRange))
+                    continue;
+                if (auto* staticRange = dynamicDowncast<StaticRange>(highlightRange->range()); staticRange
+                    && (!staticRange->computeValidity() || staticRange->collapsed()))
+                    continue;
+                // FIXME: Potentially move this check elsewhere, to where we collect this range information.
+                auto hasRenderer = [&] {
+                    IntersectingNodeRange nodes(makeSimpleRange(highlightRange->range()));
+                    for (auto& iterator : nodes) {
+                        if (iterator.renderer())
+                            return true;
+                    }
+                    return false;
+                }();
+                if (!hasRenderer)
+                    continue;
+
+                auto [highlightStart, highlightEnd] = renderHighlight.rangeForTextBox(renderer, selectableRange);
+
+                if (highlightStart < highlightEnd) {
+                    int currentPriority = highlightRegistry->map().get(highlightName)->priority();
+                    // If we can just append it to the end, do that instead.
+                    if (markedTexts.isEmpty() || markedTexts.last().priority <= currentPriority)
+                        markedTexts.append({ highlightStart, highlightEnd, MarkedText::Type::Highlight, nullptr, highlightName, currentPriority });
+                    else {
+                        // Gets the first place such that it > currentPriority.
+                        auto it = std::upper_bound(markedTexts.begin(), markedTexts.end(), currentPriority, [](const auto targetMarkedTextPriority, const auto& markedText) {
+                            return targetMarkedTextPriority > markedText.priority;
+                        });
+
+                        unsigned insertIndex = (it == markedTexts.end() ? 0 : std::distance(markedTexts.begin(), it) - 1);
+
+                        markedTexts.insert(insertIndex, { highlightStart, highlightEnd, MarkedText::Type::Highlight, nullptr, highlightName, currentPriority });
+                    }
+                }
+            }
+        }
+    }
+    
+    if (renderer.document().settings().scrollToTextFragmentEnabled()) {
+        if (auto fragmentHighlightRegistry = renderer.document().fragmentHighlightRegistryIfExists()) {
+            for (auto& highlight : fragmentHighlightRegistry->map()) {
+                for (auto& highlightRange : highlight.value->highlightRanges()) {
+                    if (!renderHighlight.setRenderRange(highlightRange))
+                        continue;
+
+                    auto [highlightStart, highlightEnd] = renderHighlight.rangeForTextBox(renderer, selectableRange);
+                    if (highlightStart < highlightEnd)
+                        markedTexts.append({ highlightStart, highlightEnd, MarkedText::Type::FragmentHighlight });
+                }
+            }
+        }
+    }
+    
+#if ENABLE(APP_HIGHLIGHTS)
+    if (auto appHighlightRegistry = renderer.document().appHighlightRegistryIfExists()) {
+        if (appHighlightRegistry->highlightsVisibility() == HighlightVisibility::Visible) {
+            for (auto& highlight : appHighlightRegistry->map()) {
+                for (auto& highlightRange : highlight.value->highlightRanges()) {
+                    if (!renderHighlight.setRenderRange(highlightRange))
+                        continue;
+
+                    auto [highlightStart, highlightEnd] = renderHighlight.rangeForTextBox(renderer, selectableRange);
+                    if (highlightStart < highlightEnd)
+                        markedTexts.append({ highlightStart, highlightEnd, MarkedText::Type::AppHighlight });
+                }
+            }
+        }
+    }
+#endif
+    return markedTexts;
 }
 
+Vector<MarkedText> MarkedText::collectForDocumentMarkers(const RenderText& renderer, const TextBoxSelectableRange& selectableRange, PaintPhase phase)
+{
+    if (!renderer.textNode())
+        return { };
 
+    CheckedPtr markerController = renderer.document().markersIfExists();
+    if (!markerController)
+        return { };
+
+    auto markers = markerController->markersFor(*renderer.textNode());
+
+    auto markedTextTypeForMarkerType = [] (DocumentMarkerType type) {
+        switch (type) {
+        case DocumentMarkerType::Spelling:
+            return MarkedText::Type::SpellingError;
+        case DocumentMarkerType::Grammar:
+            return MarkedText::Type::GrammarError;
+        case DocumentMarkerType::CorrectionIndicator:
+            return MarkedText::Type::Correction;
+#if ENABLE(WRITING_TOOLS)
+        case DocumentMarkerType::WritingToolsTextSuggestion:
+            return MarkedText::Type::WritingToolsTextSuggestion;
+#endif
+        case DocumentMarkerType::TextMatch:
+            return MarkedText::Type::TextMatch;
+        case DocumentMarkerType::DictationAlternatives:
+            return MarkedText::Type::DictationAlternatives;
+#if PLATFORM(IOS_FAMILY)
+        case DocumentMarkerType::DictationPhraseWithAlternatives:
+            return MarkedText::Type::DictationPhraseWithAlternatives;
+#endif
+        default:
+            return MarkedText::Type::Unmarked;
+        }
+    };
+
+    Vector<MarkedText> markedTexts;
+    markedTexts.reserveInitialCapacity(markers.size());
+
+    // Give any document markers that touch this run a chance to draw before the text has been drawn.
+    // Note end() points at the last char, not one past it like endOffset and ranges do.
+    for (auto& marker : markers) {
+        // Collect either the background markers or the foreground markers, but not both
+        switch (marker->type()) {
+        case DocumentMarkerType::Grammar:
+        case DocumentMarkerType::Spelling:
+            break;
+        case DocumentMarkerType::CorrectionIndicator:
+#if ENABLE(WRITING_TOOLS)
+        case DocumentMarkerType::WritingToolsTextSuggestion:
+#endif
+        case DocumentMarkerType::Replacement:
+        case DocumentMarkerType::DictationAlternatives:
+#if PLATFORM(IOS_FAMILY)
+        // FIXME: Remove the PLATFORM(IOS_FAMILY)-guard.
+        case DocumentMarkerType::DictationPhraseWithAlternatives:
+#endif
+            if (phase != MarkedText::PaintPhase::Decoration)
+                continue;
+            break;
+        case DocumentMarkerType::TextMatch:
+            if (!renderer.frame().editor().markedTextMatchesAreHighlighted())
+                continue;
+            if (phase == MarkedText::PaintPhase::Decoration)
+                continue;
+            break;
+#if ENABLE(TELEPHONE_NUMBER_DETECTION)
+        case DocumentMarkerType::TelephoneNumber:
+            if (!renderer.frame().editor().markedTextMatchesAreHighlighted())
+                continue;
+            if (phase != MarkedText::PaintPhase::Background)
+                continue;
+            break;
+#endif
+        default:
+            continue;
+        }
+
+        if (marker->endOffset() <= selectableRange.start) {
+            // Marker is completely before this run. This might be a marker that sits before the
+            // first run we draw, or markers that were within runs we skipped due to truncation.
+            continue;
+        }
+
+        if (marker->startOffset() >= selectableRange.start + selectableRange.length) {
+            // Marker is completely after this run, bail. A later run will paint it.
+            break;
+        }
+
+        // Marker intersects this run. Collect it.
+        switch (marker->type()) {
+        case DocumentMarkerType::Spelling:
+        case DocumentMarkerType::CorrectionIndicator:
+#if ENABLE(WRITING_TOOLS)
+        case DocumentMarkerType::WritingToolsTextSuggestion: {
+            auto shouldPaintMarker = [&] {
+                if (marker->type() != DocumentMarkerType::WritingToolsTextSuggestion)
+                    return true;
+
+                auto data = std::get<DocumentMarker::WritingToolsTextSuggestionData>(marker->data());
+
+                if (data.state != DocumentMarker::WritingToolsTextSuggestionData::State::Accepted)
+                    return false;
+
+                if (data.decoration == DocumentMarker::WritingToolsTextSuggestionData::Decoration::None)
+                    return false;
+
+                return true;
+            }();
+
+            if (!shouldPaintMarker)
+                break;
+
+            BFALLTHROUGH;
+        }
+#endif
+        case DocumentMarkerType::DictationAlternatives:
+        case DocumentMarkerType::Grammar:
+#if PLATFORM(IOS_FAMILY)
+        // FIXME: See <rdar://problem/8933352>. Also, remove the PLATFORM(IOS_FAMILY)-guard.
+        case DocumentMarkerType::DictationPhraseWithAlternatives:
+#endif
+        case DocumentMarkerType::TextMatch: {
+            auto [clampedStart, clampedEnd] = selectableRange.clamp(marker->startOffset(), marker->endOffset());
+
+            auto markedTextType = markedTextTypeForMarkerType(marker->type());
+            markedTexts.append({ clampedStart, clampedEnd, markedTextType, marker.get() });
+            break;
+        }
+        case DocumentMarkerType::Replacement:
+            break;
+#if ENABLE(TELEPHONE_NUMBER_DETECTION)
+        case DocumentMarkerType::TelephoneNumber:
+            break;
+#endif
+        default:
+            ASSERT_NOT_REACHED();
+        }
+    }
+    return markedTexts;
+}
+
+Vector<MarkedText> MarkedText::collectForDraggedAndTransparentContent(const DocumentMarkerType type, const RenderText& renderer, const TextBoxSelectableRange& selectableRange)
+{
+    auto markerTypeForDocumentMarker = [] (DocumentMarkerType type) {
+        switch (type) {
+        case DocumentMarkerType::DraggedContent:
+            return MarkedText::Type::DraggedContent;
+        case DocumentMarkerType::TransparentContent:
+            return MarkedText::Type::TransparentContent;
+        default:
+            return MarkedText::Type::Unmarked;
+        }
+    };
+    Type markerType = markerTypeForDocumentMarker(type);
+    if (markerType == MarkedText::Type::Unmarked) {
+        ASSERT_NOT_REACHED();
+        return { };
+    }
+    auto contentRanges = renderer.contentRangesBetweenOffsetsForType(type, selectableRange.start, selectableRange.start + selectableRange.length);
+
+    return contentRanges.map([&](const auto& range) -> MarkedText {
+        return { selectableRange.clamp(range.first), selectableRange.clamp(range.second), markerType };
+    });
+}
+
+}

@@ -30,6 +30,7 @@
 
 #include <wtf/FastMalloc.h>
 #include <wtf/JSONValues.h>
+#include <wtf/Seconds.h>
 #include <wtf/text/WTFString.h>
 
 #include <cmath>
@@ -55,17 +56,19 @@ public:
 
     constexpr MediaTime();
     constexpr MediaTime(int64_t value, uint32_t scale, uint8_t flags = Valid);
-    MediaTime(const MediaTime& rhs);
+    MediaTime(const MediaTime&) = default;
 
     static MediaTime createWithFloat(float floatTime);
     static MediaTime createWithFloat(float floatTime, uint32_t timeScale);
     static MediaTime createWithDouble(double doubleTime);
     static MediaTime createWithDouble(double doubleTime, uint32_t timeScale);
+    static MediaTime createWithSeconds(Seconds seconds) { return createWithDouble(seconds.value()); }
 
     float toFloat() const;
     double toDouble() const;
+    int64_t toMicroseconds() const;
 
-    MediaTime& operator=(const MediaTime& rhs);
+    MediaTime& operator=(const MediaTime&) = default;
     MediaTime& operator+=(const MediaTime& rhs) { return *this = *this + rhs; }
     MediaTime& operator-=(const MediaTime& rhs) { return *this = *this - rhs; }
     MediaTime operator+(const MediaTime& rhs) const;
@@ -74,7 +77,6 @@ public:
     MediaTime operator*(int32_t) const;
     bool operator<(const MediaTime& rhs) const { return compare(rhs) == LessThan; }
     bool operator>(const MediaTime& rhs) const { return compare(rhs) == GreaterThan; }
-    bool operator!=(const MediaTime& rhs) const { return compare(rhs) != EqualTo; }
     bool operator==(const MediaTime& rhs) const { return compare(rhs) == EqualTo; }
     bool operator>=(const MediaTime& rhs) const { return compare(rhs) >= EqualTo; }
     bool operator<=(const MediaTime& rhs) const { return compare(rhs) <= EqualTo; }
@@ -96,6 +98,7 @@ public:
     bool isPositiveInfinite() const { return m_timeFlags & PositiveInfinite; }
     bool isNegativeInfinite() const { return m_timeFlags & NegativeInfinite; }
     bool isIndefinite() const { return m_timeFlags & Indefinite; }
+    bool isFinite() const { return !isInvalid() && !isIndefinite() && !isPositiveInfinite() && !isNegativeInfinite(); }
     bool hasDoubleValue() const { return m_timeFlags & DoubleValue; }
     uint8_t timeFlags() const { return m_timeFlags; }
 
@@ -133,9 +136,7 @@ public:
     };
 
     MediaTime toTimeScale(uint32_t, RoundingFlags = RoundingFlags::HalfAwayFromZero) const;
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static WARN_UNUSED_RETURN bool decode(Decoder&, MediaTime&);
+    MediaTime isolatedCopy() const;
 
 private:
     void setTimeScale(uint32_t, RoundingFlags = RoundingFlags::HalfAwayFromZero);
@@ -163,7 +164,17 @@ constexpr MediaTime::MediaTime(int64_t value, uint32_t scale, uint8_t flags)
     if (scale || !(flags & Valid))
         return;
 
-    *this = value < 0 ? negativeInfiniteTime() : positiveInfiniteTime();
+    if (value < 0) {
+        // Negative infinite time
+        m_timeValue = -1;
+        m_timeScale = 1;
+        m_timeFlags = NegativeInfinite | Valid;
+    } else {
+        // Positive infinite time
+        m_timeValue = 0;
+        m_timeScale = 1;
+        m_timeFlags = PositiveInfinite | Valid;
+    }
 }
 
 inline MediaTime operator*(int32_t lhs, const MediaTime& rhs) { return rhs.operator*(lhs); }
@@ -179,20 +190,6 @@ struct WTF_EXPORT_PRIVATE MediaTimeRange {
     const MediaTime end;
 };
 
-template<class Encoder>
-void MediaTime::encode(Encoder& encoder) const
-{
-    encoder << m_timeValue << m_timeScale << m_timeFlags;
-}
-
-template<class Decoder>
-bool MediaTime::decode(Decoder& decoder, MediaTime& time)
-{
-    return decoder.decode(time.m_timeValue)
-        && decoder.decode(time.m_timeScale)
-        && decoder.decode(time.m_timeFlags);
-}
-
 template<typename> struct LogArgument;
 
 template<> struct LogArgument<MediaTime> {
@@ -202,9 +199,7 @@ template<> struct LogArgument<MediaTimeRange> {
     static String toString(const MediaTimeRange& range) { return range.toJSONString(); }
 };
 
-#ifndef NDEBUG
 WTF_EXPORT_PRIVATE TextStream& operator<<(TextStream&, const MediaTime&);
-#endif
 
 }
 

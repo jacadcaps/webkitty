@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2011, Google Inc. All rights reserved.
+ * Copyright (C) 2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,19 +28,15 @@
 #if ENABLE(WEB_AUDIO)
 
 #include "BiquadFilterNode.h"
-#include <wtf/IsoMallocInlines.h>
+#include <JavaScriptCore/Float32Array.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(BiquadFilterNode);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(BiquadFilterNode);
 
 ExceptionOr<Ref<BiquadFilterNode>> BiquadFilterNode::create(BaseAudioContext& context, const BiquadFilterOptions& options)
 {
-    if (context.isStopped())
-        return Exception { InvalidStateError };
-
-    context.lazyInitialize();
-
     auto node = adoptRef(*new BiquadFilterNode(context));
 
     auto result = node->handleAudioNodeOptions(options, { 2, ChannelCountMode::Max, ChannelInterpretation::Speakers });
@@ -56,12 +53,13 @@ ExceptionOr<Ref<BiquadFilterNode>> BiquadFilterNode::create(BaseAudioContext& co
 }
 
 BiquadFilterNode::BiquadFilterNode(BaseAudioContext& context)
-    : AudioBasicProcessorNode(context)
+    : AudioBasicProcessorNode(context, NodeTypeBiquadFilter)
 {
-    setNodeType(NodeTypeBiquadFilter);
-
     // Initially setup as lowpass filter.
     m_processor = makeUnique<BiquadProcessor>(context, context.sampleRate(), 1, false);
+
+    // Initialize so that AudioParams can be processed.
+    initialize();
 }
 
 BiquadFilterType BiquadFilterNode::type() const
@@ -76,12 +74,12 @@ void BiquadFilterNode::setType(BiquadFilterType type)
 
 ExceptionOr<void> BiquadFilterNode::getFrequencyResponse(const Ref<Float32Array>& frequencyHz, const Ref<Float32Array>& magResponse, const Ref<Float32Array>& phaseResponse)
 {
-    auto length = frequencyHz->length();
+    unsigned length = frequencyHz->length();
     if (magResponse->length() != length || phaseResponse->length() != length)
-        return Exception { InvalidStateError, "The arrays passed as arguments must have the same length" };
+        return Exception { ExceptionCode::InvalidAccessError, "The arrays passed as arguments must have the same length"_s };
 
     if (length)
-        biquadProcessor()->getFrequencyResponse(length, frequencyHz->data(), magResponse->data(), phaseResponse->data());
+        biquadProcessor()->getFrequencyResponse(length, frequencyHz->typedSpan(), magResponse->typedMutableSpan(), phaseResponse->typedMutableSpan());
     return { };
 }
 

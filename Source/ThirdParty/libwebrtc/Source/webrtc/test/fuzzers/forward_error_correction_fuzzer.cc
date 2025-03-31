@@ -34,7 +34,7 @@ void FuzzOneInput(const uint8_t* data, size_t size) {
       ForwardErrorCorrection::CreateFlexfec(kFecSsrc, kMediaSsrc);
 
   // Entropy from fuzzer.
-  rtc::ByteBufferReader fuzz_buffer(reinterpret_cast<const char*>(data), size);
+  rtc::ByteBufferReader fuzz_buffer(rtc::MakeArrayView(data, size));
 
   // Initial stream state.
   uint16_t media_seqnum;
@@ -57,7 +57,7 @@ void FuzzOneInput(const uint8_t* data, size_t size) {
     recovered_packet->pkt = rtc::scoped_refptr<ForwardErrorCorrection::Packet>(
         new ForwardErrorCorrection::Packet());
     recovered_packet->pkt->data.SetSize(kPacketSize);
-    memset(recovered_packet->pkt->data.data(), 0, kPacketSize);
+    memset(recovered_packet->pkt->data.MutableData(), 0, kPacketSize);
     recovered_packet->ssrc = kMediaSsrc;
     recovered_packet->seq_num = media_seqnum++;
     recovered_packets.emplace_back(recovered_packet);
@@ -69,14 +69,14 @@ void FuzzOneInput(const uint8_t* data, size_t size) {
       new ForwardErrorCorrection::Packet());
   received_packet.pkt->data.SetSize(kPacketSize);
   received_packet.pkt->data.EnsureCapacity(IP_PACKET_SIZE);
-  uint8_t* packet_buffer = received_packet.pkt->data.data();
+  uint8_t* packet_buffer = received_packet.pkt->data.MutableData();
   uint8_t reordering;
   uint16_t seq_num_diff;
   uint8_t packet_type;
   uint8_t packet_loss;
   while (true) {
-    if (!fuzz_buffer.ReadBytes(reinterpret_cast<char*>(packet_buffer),
-                               kPacketSize)) {
+    if (!fuzz_buffer.ReadBytes(
+            rtc::ArrayView<uint8_t>(packet_buffer, kPacketSize))) {
       return;
     }
     if (!fuzz_buffer.ReadUInt8(&reordering))
