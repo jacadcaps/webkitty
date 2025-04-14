@@ -182,6 +182,9 @@ ExceptionOr<ServiceWorkerContainer&> NavigatorBase::serviceWorker(ScriptExecutio
 
 int NavigatorBase::hardwareConcurrency(ScriptExecutionContext& context)
 {
+#if OS(MORPHOS)
+    return 1;
+#else
     static int numberOfCores;
 
     if (context.requiresScriptExecutionTelemetry(ScriptTelemetryCategory::HardwareConcurrency)) {
@@ -203,6 +206,7 @@ int NavigatorBase::hardwareConcurrency(ScriptExecutionContext& context)
     });
 
     return numberOfCores;
+#endif
 }
 
 WebCoreOpaqueRoot root(NavigatorBase* navigator)

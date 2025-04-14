@@ -69,6 +69,8 @@ static MemoryPressureHandler* memoryPressureHandlerIfExists()
 MemoryPressureHandler::MemoryPressureHandler()
 #if OS(LINUX) || OS(FREEBSD) || OS(HAIKU) || OS(QNX)
     : m_holdOffTimer(RunLoop::main(), this, &MemoryPressureHandler::holdOffTimerFired)
+#elif OS(MORPHOS)
+    : m_morphosMeasurementTimer(RunLoop::main(), this, &MemoryPressureHandler::morphosMeasurementTimerFired)
 #elif OS(WINDOWS)
     : m_windowsMeasurementTimer(RunLoop::main(), this, &MemoryPressureHandler::windowsMeasurementTimerFired)
 #endif

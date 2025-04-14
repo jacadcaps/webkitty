@@ -19,6 +19,11 @@
  */
 
 #include "config.h"
+
+#if OS(MORPHOS)
+#define _GNU_SOURCE
+#endif
+
 #include <wtf/StackBounds.h>
 
 #if OS(DARWIN)
@@ -29,7 +34,7 @@
 
 #include <windows.h>
 
-#elif OS(UNIX) || OS(HAIKU)
+#elif OS(UNIX) || OS(HAIKU) || OS(MORPHOS)
 
 #include <pthread.h>
 #if HAVE(PTHREAD_NP_H)
@@ -215,6 +220,11 @@ StackBounds StackBounds::currentThreadStackBoundsInternal()
     return StackBounds { origin, bound };
 }
 
+#elif OS(MORPHOS)
+StackBounds StackBounds::currentThreadStackBoundsInternal()
+{
+    return { };
+}
 #else
 #error Need a way to get the stack bounds on this platform
 #endif

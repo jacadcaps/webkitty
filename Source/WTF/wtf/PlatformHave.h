@@ -193,7 +193,7 @@
 #define HAVE_RESOURCE_H 1
 #endif
 
-#if OS(UNIX) && !OS(FUCHSIA)
+#if (OS(UNIX) || OS(MORPHOS)) && !OS(FUCHSIA)
 #define HAVE_PTHREAD_SETSCHEDPARAM 1
 #endif
 
@@ -402,7 +402,7 @@
 #define HAVE_URL_FORMATTING 1
 #endif
 
-#if !OS(WINDOWS)
+#if !OS(WINDOWS) && !OS(MORPHOS)
 #define HAVE_STACK_BOUNDS_FOR_NEW_THREAD 1
 #endif
 

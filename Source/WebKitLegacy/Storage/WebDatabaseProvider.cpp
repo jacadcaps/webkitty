@@ -23,6 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "WebKit.h"
 #include "WebDatabaseProvider.h"
 
 #include <pal/SessionID.h>

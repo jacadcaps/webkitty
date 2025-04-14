@@ -51,6 +51,10 @@ public:
 
     void callOnWorkerThread(Function<void()>&&);
 
+#if OS(MORPHOS)
+	void stopCurlThread();
+#endif
+
 private:
     void startOrWakeUpThread();
     void wakeUpThreadIfPossible();
@@ -69,6 +73,9 @@ private:
     Lock m_mutex;
     RefPtr<Thread> m_thread;
     bool m_runThread { false };
+#if OS(MORPHOS)
+	bool m_stopped { false };
+#endif
 
     Vector<Function<void()>> m_taskQueue;
     UncheckedKeyHashSet<CurlRequestSchedulerClient*> m_activeJobs;

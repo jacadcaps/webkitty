@@ -437,6 +437,7 @@ static String computeHasChildSelector(Element& element)
         HTMLNames::buttonTag
     } };
 
+#if ENABLE(VIDEO)
     String selectorSuffix;
     for (auto& child : descendantsOfType<HTMLElement>(element)) {
         if (!tagsToCheckForUniqueAttributes->contains(child.tagQName()))
@@ -463,7 +464,7 @@ static String computeHasChildSelector(Element& element)
 
         selectorSuffix = makeString(" > "_s, WTFMove(selectorWithTag));
     }
-
+#endif
     return emptyString();
 }
 

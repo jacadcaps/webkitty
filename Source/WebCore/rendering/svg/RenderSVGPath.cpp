@@ -211,6 +211,7 @@ bool RenderSVGPath::shouldGenerateMarkerPositions() const
 
 void RenderSVGPath::drawMarkers(PaintInfo& paintInfo)
 {
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
     if (m_markerPositions.isEmpty())
         return;
 
@@ -238,6 +239,7 @@ void RenderSVGPath::drawMarkers(PaintInfo& paintInfo)
             marker->checkedLayer()->paintSVGResourceLayer(context, contentTransform);
         }
     }
+#endif
 }
 
 FloatRect RenderSVGPath::computeMarkerBoundingBox(const SVGBoundingBoxComputation::DecorationOptions& options) const
@@ -245,6 +247,7 @@ FloatRect RenderSVGPath::computeMarkerBoundingBox(const SVGBoundingBoxComputatio
     if (m_markerPositions.isEmpty())
         return { };
 
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
     static NeverDestroyed<SVGVisitedRendererTracking::VisitedSet> s_visitedSet;
 
     SVGVisitedRendererTracking recursionTracking(s_visitedSet);
@@ -260,18 +263,23 @@ FloatRect RenderSVGPath::computeMarkerBoundingBox(const SVGBoundingBoxComputatio
         return { };
 
     FloatRect boundaries;
+
     for (auto& markerPosition : m_markerPositions) {
         if (auto* marker = markerForType(markerPosition.type, markerStart.get(), markerMid.get(), markerEnd.get()))
             boundaries.unite(marker->computeMarkerBoundingBox(options, marker->markerTransformation(markerPosition.origin, markerPosition.angle, strokeWidth())));
     }
 
     return boundaries;
+#else
+    return { };
+#endif
 }
 
 void RenderSVGPath::updateMarkerPositions()
 {
     m_markerPositions.clear();
 
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
     if (!shouldGenerateMarkerPositions())
         return;
 
@@ -283,6 +291,7 @@ void RenderSVGPath::updateMarkerPositions()
         SVGMarkerData::updateFromPathElement(markerData, pathElement);
     });
     markerData.pathIsDone();
+#endif
 }
 
 bool RenderSVGPath::isRenderingDisabled() const

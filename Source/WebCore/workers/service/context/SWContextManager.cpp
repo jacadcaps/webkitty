@@ -35,6 +35,10 @@
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/WTFProcess.h>
 
+#if OS(MORPHOS)
+#include <proto/exec.h>
+#endif
+
 namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(SWContextManager::ServiceWorkerTerminationRequest);
@@ -248,7 +252,12 @@ void SWContextManager::serviceWorkerFailedToTerminate(ServiceWorkerIdentifier se
     UNUSED_PARAM(serviceWorkerIdentifier);
     RELEASE_LOG_ERROR(ServiceWorker, "Failed to terminate service worker with identifier %s, killing the service worker process", serviceWorkerIdentifier.loggingString().utf8().data());
     ASSERT_NOT_REACHED();
+#if OS(MORPHOS)
+    dprintf("Failed to terminate service worker with identifier %s, freezing the service worker process", serviceWorkerIdentifier.loggingString().utf8().data());
+    Wait(0);
+#else
     terminateProcess(EXIT_FAILURE);
+#endif
 }
 
 SWContextManager::ServiceWorkerTerminationRequest::ServiceWorkerTerminationRequest(SWContextManager& manager, ServiceWorkerIdentifier serviceWorkerIdentifier, Seconds timeout)

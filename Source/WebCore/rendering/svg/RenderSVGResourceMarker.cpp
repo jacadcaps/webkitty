@@ -41,6 +41,8 @@
 
 namespace WebCore {
 
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
+
 WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(RenderSVGResourceMarker);
 
 RenderSVGResourceMarker::RenderSVGResourceMarker(SVGMarkerElement& element, RenderStyle&& style)
@@ -163,5 +165,7 @@ FloatRect RenderSVGResourceMarker::computeMarkerBoundingBox(const SVGBoundingBox
     // Map repaint rect into parent coordinate space, in which the marker boundaries have to be evaluated
     return markerTransformation.mapRect(m_supplementalLayerTransform.mapRect(boundingBox));
 }
+
+#endif
 
 }

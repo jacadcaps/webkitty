@@ -1211,7 +1211,9 @@ bool MediaSource::isTypeSupported(ScriptExecutionContext& context, const String&
     parameters.type = contentType;
     parameters.isMediaSource = true;
     parameters.contentTypesRequiringHardwareSupport = WTFMove(contentTypesRequiringHardwareSupport);
-
+#if OS(MORPHOS)
+    parameters.page = context.isDocument() ? downcast<Document>(context).page() : nullptr;
+#endif
     if (document) {
         if (!contentTypeMeetsContainerAndCodecTypeRequirements(contentType, document->settings().allowedMediaContainerTypes(), document->settings().allowedMediaCodecTypes()))
             return false;

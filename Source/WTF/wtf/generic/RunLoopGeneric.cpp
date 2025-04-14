@@ -236,9 +236,26 @@ void RunLoop::run()
     RunLoop::current().runImpl(RunMode::Drain);
 }
 
+#if OS(MORPHOS)
+void RunLoop::iterate()
+{
+    RunLoop::current().runImpl(RunMode::Iterate);
+}
+#endif
+
 void RunLoop::setWakeUpCallback(WTF::Function<void()>&& function)
 {
     RunLoop::current().m_wakeUpCallback = WTFMove(function);
+}
+
+Seconds RunLoop::secondsUntilNextIterate()
+{
+	if (RunLoop::isMain() && !RunLoop::current().m_schedules.isEmpty()) {
+		RefPtr<TimerBase::ScheduledTask> earliest = RunLoop::current().m_schedules.first();
+		return std::max<Seconds>(earliest->scheduledTimePoint() - MonotonicTime::now(), 0_s);
+	}
+
+	return 10_s;
 }
 
 // RunLoop operations are thread-safe. These operations can be called from outside of the RunLoop's thread.

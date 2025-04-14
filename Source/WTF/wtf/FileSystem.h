@@ -182,6 +182,8 @@ WTF_EXPORT_PRIVATE bool flushFile(PlatformFileHandle);
 WTF_EXPORT_PRIVATE int64_t writeToFile(PlatformFileHandle, std::span<const uint8_t> data);
 // Returns number of bytes actually written if successful, -1 otherwise.
 WTF_EXPORT_PRIVATE int64_t readFromFile(PlatformFileHandle, std::span<uint8_t> data);
+WTF_EXPORT_PRIVATE String temporaryFilePathForPrefix(const String& prefix);
+WTF_EXPORT_PRIVATE void setTemporaryFilePathForPrefix(const char * tmpPath, const String& prefix);
 
 WTF_EXPORT_PRIVATE PlatformFileHandle openAndLockFile(const String&, FileOpenMode, OptionSet<FileLockMode> = FileLockMode::Exclusive);
 WTF_EXPORT_PRIVATE void unlockAndCloseFile(PlatformFileHandle);
@@ -232,6 +234,15 @@ WTF_EXPORT_PRIVATE String roamingUserSpecificStorageDirectory();
 WTF_EXPORT_PRIVATE String createTemporaryDirectory();
 #endif
 
+#if OS(MORPHOS)
+WTF_EXPORT_PRIVATE std::pair<String, PlatformFileHandle> openTemporaryFileAsync(StringView prefix);
+WTF_EXPORT_PRIVATE PlatformFileHandle openFileAsync(const String& path, FileOpenMode, FileAccessPermission = FileAccessPermission::All, bool failIfFileExists = false);
+WTF_EXPORT_PRIVATE void closeFileAsync(PlatformFileHandle&);
+// Returns the resulting offset from the beginning of the file if successful, -1 otherwise.
+WTF_EXPORT_PRIVATE long long seekFileAsync(PlatformFileHandle, long long offset, FileSeekOrigin);
+WTF_EXPORT_PRIVATE int writeToFileAsync(PlatformFileHandle, std::span<const uint8_t> data);
+#endif
+
 #if PLATFORM(COCOA)
 WTF_EXPORT_PRIVATE NSString *createTemporaryDirectory(NSString *directoryPrefix);
 WTF_EXPORT_PRIVATE NSString *systemDirectoryPath();
@@ -280,6 +291,11 @@ public:
     size_t size() const { return m_fileData.size(); }
     std::span<const uint8_t> span() const { return m_fileData; }
     std::span<uint8_t> mutableSpan() { return m_fileData; }
+#elif OS(MORPHOS)
+    explicit operator bool() const { return !!m_fileData; }
+    size_t size() const { return m_fileData.span().size(); }
+    std::span<const uint8_t> span() const { return m_fileData.span(); }
+    std::span<uint8_t> mutableSpan() { return m_fileData.mutableSpan(); }
 #endif
 
 private:
@@ -287,6 +303,8 @@ private:
 
 #if HAVE(MMAP)
     MallocSpan<uint8_t, Mmap> m_fileData;
+#elif OS(MORPHOS)
+    MallocSpan<uint8_t> m_fileData;
 #elif OS(WINDOWS)
     std::span<uint8_t> m_fileData;
     Win32Handle m_fileMapping;
@@ -338,6 +356,7 @@ inline MappedFileData::MappedFileData(MappedFileData&& other)
 #if OS(WINDOWS)
     , m_fileMapping(WTFMove(other.m_fileMapping))
 #endif
+
 {
 }
 
