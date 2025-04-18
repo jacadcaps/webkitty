@@ -1,5 +1,5 @@
 #include "WebKit.h"
-#import "LegacyHistoryItemClient.h"
+#include "LegacyHistoryItemClient.h"
 
 LegacyHistoryItemClient& LegacyHistoryItemClient::singleton()
 {
@@ -8,5 +8,9 @@ LegacyHistoryItemClient& LegacyHistoryItemClient::singleton()
 }
 
 void LegacyHistoryItemClient::historyItemChanged(const WebCore::HistoryItem&)
+{
+}
+
+void LegacyHistoryItemClient::clearChildren(const WebCore::HistoryItem&) const
 {
 }

@@ -781,10 +781,6 @@ void WebEditorClient::getGuessesForWord(const String& word, const String& contex
 #endif
 }
 
-void WebEditorClient::willSetInputMethodState()
-{
-}
-
 void WebEditorClient::setInputMethodState(WebCore::Element*)
 {
 }

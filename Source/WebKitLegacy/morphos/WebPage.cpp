@@ -64,7 +64,7 @@
 #include <WebCore/ResourceHandle.h>
 #include <WebCore/ResourceLoadObserver.h>
 #include <WebCore/ResourceRequest.h>
-#include <WebCore/RuntimeApplicationChecks.h>
+#include <wtf/RuntimeApplicationChecks.h>
 //#include <WebCore/SchemeRegistry.h>
 #include <WebCore/ScriptController.h>
 #include <WebCore/SecurityOrigin.h>
@@ -94,7 +94,6 @@
 #include <WebCore/WindowsKeyboardCodes.h>
 #include <WebCore/RenderLayerCompositor.h>
 #include <WebCore/ContextMenuController.h>
-#include <WebCore/MediaRecorderProvider.h>
 #include <WebCore/AutofillElements.h>
 #include <WebCore/DataTransfer.h>
 #include <WebCore/Pasteboard.h>
@@ -106,10 +105,13 @@
 #include <WebCore/WebLockRegistry.h>
 #include <WebCore/DummyStorageProvider.h>
 #include <WebCore/DummyModelPlayerProvider.h>
+#include <WebCore/WheelEvent.h>
+#include <WebCore/ScrollingCoordinatorTypes.h>
 #include <wtf/ASCIICType.h>
 #include <wtf/HexNumber.h>
 #include <WebCore/DummySpeechRecognitionProvider.h>
 #include <WebCore/EmptyBadgeClient.h>
+#include <WebCore/ProcessSyncClient.h>
 #include "LegacySocketProvider.h"
 
 #include <JavaScriptCore/APICast.h>
@@ -457,11 +459,6 @@ protected:
 };
 
 namespace WebKit {
-
-class MediaRecorderProvider final : public WebCore::MediaRecorderProvider {
-public:
-    MediaRecorderProvider() = default;
-};
 
 class WebViewDrawContext
 {
@@ -1174,13 +1171,6 @@ Ref<WebPage> WebPage::create(WebCore::PageIdentifier pageID, WebPageCreationPara
     return page;
 }
 
-static PageConfiguration::ClientCreatorForMainFrame clientCreatorForMainFrame(Ref<WebFrame>&& mainFrame)
-{
-    return CompletionHandler<UniqueRef<LocalFrameLoaderClient>(LocalFrame&)> { [mainFrame = WTFMove(mainFrame)] (auto& localFrame) mutable {
-        return makeUniqueRef<WebFrameLoaderClient>(WTFMove(mainFrame));
-    } };
-}
-
 WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& parameters)
 	: m_mainFrame(WebFrame::create())
 	, m_pageID(pageID)
@@ -1225,11 +1215,15 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
         BackForwardClientMorphOS::create(this),
         WebCore::CookieJar::create(storageProvider.copyRef()),
         makeUniqueRef<WebProgressTrackerClient>(*this),
-        clientCreatorForMainFrame(m_mainFrame.copyRef()),
+        WebCore::PageConfiguration::LocalMainFrameCreationParameters {
+            CompletionHandler<UniqueRef<WebCore::LocalFrameLoaderClient>(WebCore::LocalFrame&, WebCore::FrameLoader&)> { [](WebCore::LocalFrame& localFrame, WebCore::FrameLoader& frameLoader) {
+                return makeUniqueRefWithoutRefCountedCheck<WebFrameLoaderClient>(frameLoader, *WebFrame::fromCoreFrame(localFrame));
+            } },
+            WebCore::SandboxFlags { } // Set by updateSandboxFlags after instantiation.
+        },
         WebCore::FrameIdentifier::generate(),
         nullptr,
         makeUniqueRef<WebCore::DummySpeechRecognitionProvider>(),
-        makeUniqueRef<WebCore::MediaRecorderProvider>(),
         WebBroadcastChannelRegistry::getOrCreate(false),
         makeUniqueRef<WebCore::DummyStorageProvider>(),
         makeUniqueRef<WebCore::DummyModelPlayerProvider>(),
@@ -1237,7 +1231,8 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
         LegacyHistoryItemClient::singleton(),
         makeUniqueRef<WebContextMenuClient>(this),
         makeUniqueRef<WebChromeClient>(*this),
-        makeUniqueRef<WebCryptoClient>()
+        makeUniqueRef<WebCryptoClient>(),
+        makeUniqueRef<WebCore::ProcessSyncClient>()
     );
 
 	pageConfiguration.inspectorClient = makeUnique<WebInspectorClient>(this);
@@ -1288,7 +1283,7 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
 	settings.setAcceleratedDrawingEnabled(false);
     settings.setCanvasColorSpaceEnabled(true);
 	// settings.setAccelerated2dCanvasEnabled(false);
-	settings.setAcceleratedCompositedAnimationsEnabled(false);
+//	settings.setAcceleratedCompositedAnimationsEnabled(false);
 	settings.setAcceleratedCompositingForFixedPositionEnabled(false);
 
     settings.setHiddenPageDOMTimerThrottlingEnabled(true);
@@ -1370,7 +1365,7 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
     WebCore::provideNotification(m_page.get(), new WebNotificationClient(this));
 #endif
 
-	m_page->effectiveAppearanceDidChange(m_darkMode, false);
+	m_page->setUseColorAppearance(m_darkMode, false);
 
 	m_mainFrame->initWithCoreMainFrame(*this, m_page->mainFrame());
     m_page->layoutIfNeeded();
@@ -1520,7 +1515,7 @@ void *WebPage::evaluate(const char *js, WTF::Function<void *(const char *)>&& cb
 		return cb("");
 	}
 
-    JSC::JSGlobalObject* lexicalGlobalObject = coreFrame->script().globalObject(WebCore::mainThreadNormalWorld());
+    JSC::JSGlobalObject* lexicalGlobalObject = coreFrame->script().globalObject(WebCore::mainThreadNormalWorldSingleton());
     JSC::JSLockHolder lock(lexicalGlobalObject);
 	auto ustring = result.toWTFString(lexicalGlobalObject).utf8();
 	return cb(ustring.data());
@@ -1672,7 +1667,7 @@ void WebPage::setDarkModeEnabled(bool enabled)
 	if (enabled != m_darkMode)
 	{
 		m_darkMode = enabled;
-		m_page->effectiveAppearanceDidChange(m_darkMode, false);
+		m_page->setUseColorAppearance(m_darkMode, false);
 	}
 }
 
@@ -1814,8 +1809,7 @@ void WebPage::setFullscreenElement(WebCore::Element *element)
 	if (element)
 	{
 		m_fullscreenElement = Ref{*element};
-        m_fullscreenElement->document().fullscreenManager().willEnterFullscreen(*m_fullscreenElement);
-        m_fullscreenElement->document().fullscreenManager().didEnterFullscreen();
+        m_fullscreenElement->document().fullscreenManager().requestFullscreenForElement(*m_fullscreenElement, FullscreenManager::ExemptIFrameAllowFullscreenRequirement, [](ExceptionOr<void> result) {});
 
 		if (_fZoomChangedByWheel)
 			_fZoomChangedByWheel();
@@ -1832,8 +1826,7 @@ void WebPage::setFullscreenElement(WebCore::Element *element)
 	{
 		if (m_fullscreenElement)
 		{
-			m_fullscreenElement->document().fullscreenManager().willExitFullscreen();
-			m_fullscreenElement->document().fullscreenManager().didExitFullscreen();
+			m_fullscreenElement->document().fullscreenManager().exitFullscreen([](ExceptionOr<void> result) {});
 
             if (_fZoomChangedByWheel)
                 _fZoomChangedByWheel();
@@ -3466,8 +3459,8 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 					constexpr OptionSet<HitTestRequest::Type> hitType { WebCore::HitTestRequest::Type::ReadOnly, WebCore::HitTestRequest::Type::Active, WebCore::HitTestRequest::Type::DisallowUserAgentShadowContent, WebCore::HitTestRequest::Type::AllowChildFrameContent };
 					auto result = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, hitType);
 					auto targetFrame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : m_page->focusController().focusedOrMainFrame();
-					bool handled = eventHandler.handleWheelEvent(pke, { WheelEventProcessingSteps::SynchronousScrolling, WheelEventProcessingSteps::BlockingDOMEventDispatch }).wasHandled();
-					if (!handled)
+					auto [whResult, _] = eventHandler.handleWheelEvent(pke, { WheelEventProcessingSteps::SynchronousScrolling, WheelEventProcessingSteps::BlockingDOMEventDispatch });
+					if (!whResult.wasHandled())
 						wheelScrollOrZoomBy(0, (code == NM_WHEEL_UP) ? 1 : -1, imsg->Qualifier, targetFrame);
 
 					return true;
@@ -3495,8 +3488,8 @@ bool WebPage::handleIntuiMessage(IntuiMessage *imsg, const int mouseX, const int
 					constexpr OptionSet<HitTestRequest::Type> hitType { WebCore::HitTestRequest::Type::ReadOnly, WebCore::HitTestRequest::Type::Active, WebCore::HitTestRequest::Type::DisallowUserAgentShadowContent, WebCore::HitTestRequest::Type::AllowChildFrameContent };
 					auto result = m_mainFrame->coreFrame()->eventHandler().hitTestResultAtPoint(position, hitType);
 					auto targetFrame = result.innerNonSharedNode() ? result.innerNonSharedNode()->document().frame() : m_page->focusController().focusedOrMainFrame();
-					bool handled = eventHandler.handleWheelEvent(pke, { WheelEventProcessingSteps::SynchronousScrolling, WheelEventProcessingSteps::BlockingDOMEventDispatch }).wasHandled();
-					if (!handled)
+					auto [whResult, _] = eventHandler.handleWheelEvent(pke, { WheelEventProcessingSteps::SynchronousScrolling, WheelEventProcessingSteps::BlockingDOMEventDispatch });
+					if (!whResult.wasHandled())
 						wheelScrollOrZoomBy((code == NM_WHEEL_LEFT) ? 1 : -1, 0, imsg->Qualifier, targetFrame);
 
 					return true;

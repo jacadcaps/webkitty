@@ -64,7 +64,7 @@ protected:
     void focusedElementChanged(WebCore::Element*) final;
     void focusedFrameChanged(WebCore::Frame*) final { };
 
-    WebCore::Page* createWindow(WebCore::LocalFrame&, const WebCore::WindowFeatures&, const WebCore::NavigationAction&) final;
+    RefPtr<WebCore::Page> createWindow(WebCore::LocalFrame&, const String& openedMainFrameName, const WebCore::WindowFeatures&, const WebCore::NavigationAction&) final;
     void show() final;
 
     bool canRunModal() const final { return false; }
@@ -84,7 +84,7 @@ protected:
 
     void setResizable(bool) final;
 
-    void addMessageToConsole(JSC::MessageSource, JSC::MessageLevel, const WTF::String& message, unsigned lineNumber, unsigned columnNumber, const WTF::String& url) final { };
+    void addMessageToConsole(JSC::MessageSource, JSC::MessageLevel, const WTF::String&, unsigned, unsigned, const WTF::String& ) final { };
     void addMessageWithArgumentsToConsole(MessageSource, MessageLevel, const String&, std::span<const String>, unsigned, unsigned, const String&) final;
 
     bool canRunBeforeUnloadConfirmPanel() final;
@@ -98,7 +98,6 @@ protected:
     void runJavaScriptAlert(WebCore::LocalFrame&, const WTF::String&) final;
     bool runJavaScriptConfirm(WebCore::LocalFrame&, const WTF::String&) final;
     bool runJavaScriptPrompt(WebCore::LocalFrame&, const WTF::String& message, const WTF::String& defaultValue, WTF::String& result) final;
-    void setStatusbarText(const WTF::String&) final;
 
     WebCore::KeyboardUIMode keyboardUIMode() final;
 
@@ -108,6 +107,7 @@ protected:
     void scroll(const WebCore::IntSize& scrollDelta, const WebCore::IntRect& rectToScroll, const WebCore::IntRect& clipRect) final;
 
     WebCore::IntPoint screenToRootView(const WebCore::IntPoint&) const final;
+    WebCore::IntPoint rootViewToScreen(const WebCore::IntPoint&) const final;
     WebCore::IntRect rootViewToScreen(const WebCore::IntRect&) const final;
     WebCore::IntPoint accessibilityScreenToRootView(const WebCore::IntPoint&) const final;
     WebCore::IntRect rootViewToAccessibilityScreen(const WebCore::IntRect&) const final;
@@ -116,8 +116,8 @@ protected:
     void intrinsicContentsSizeChanged(const WebCore::IntSize&) const final;
 
     void mouseDidMoveOverElement(const WebCore::HitTestResult&, OptionSet<WebCore::PlatformEventModifier>, const String&, WebCore::TextDirection) final { };
-    bool shouldUnavailablePluginMessageBeButton(WebCore::RenderEmbeddedObject::PluginUnavailabilityReason) const final;
-    void unavailablePluginButtonClicked(WebCore::Element&, WebCore::RenderEmbeddedObject::PluginUnavailabilityReason) const final;
+    bool shouldUnavailablePluginMessageBeButton(WebCore::PluginUnavailabilityReason) const final;
+    void unavailablePluginButtonClicked(WebCore::Element&, WebCore::PluginUnavailabilityReason) const final;
 
     void print(WebCore::LocalFrame&, const WebCore::StringWithDirection&) final;
 
@@ -166,8 +166,8 @@ protected:
 
 #if ENABLE(FULLSCREEN_API)
     bool supportsFullScreenForElement(const WebCore::Element&, bool withKeyboard) final;
-    void enterFullScreenForElement(WebCore::Element&, WebCore::HTMLMediaElementEnums::VideoFullscreenMode = WebCore::HTMLMediaElementEnums::VideoFullscreenModeStandard) final;
-    void exitFullScreenForElement(WebCore::Element*) final;
+    void enterFullScreenForElement(WebCore::Element&, WebCore::HTMLMediaElementEnums::VideoFullscreenMode, CompletionHandler<void(WebCore::ExceptionOr<void>)>&&, CompletionHandler<bool(bool)>&&) final;
+    void exitFullScreenForElement(WebCore::Element*, CompletionHandler<void()>&&) final;
 #endif
 
 #if ENABLE(VIDEO)
@@ -177,6 +177,13 @@ protected:
     void enterVideoFullscreenForVideoElement(WebCore::HTMLVideoElement&, WebCore::HTMLMediaElementEnums::VideoFullscreenMode, bool standby) override;
     void exitVideoFullscreenForVideoElement(WebCore::HTMLVideoElement&, WTF::CompletionHandler<void(bool)>&& completionHandler = [](bool) { }) override;
 #endif
+
+    RefPtr<WebCore::ColorChooser> createColorChooser(WebCore::ColorChooserClient&, const WebCore::Color&) final;
+
+    RefPtr<WebCore::DataListSuggestionPicker> createDataListSuggestionPicker(WebCore::DataListSuggestionsClient&) final;
+    bool canShowDataListSuggestionLabels() const final { return false; }
+
+    RefPtr<WebCore::DateTimeChooser> createDateTimeChooser(WebCore::DateTimeChooserClient&) final;
 
     bool supportsVideoFullscreen(WebCore::HTMLMediaElementEnums::VideoFullscreenMode) override;
     void wheelEventHandlersChanged(bool) final { }

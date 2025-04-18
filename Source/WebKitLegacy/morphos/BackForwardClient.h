@@ -24,15 +24,18 @@ public:
         return WTF::adoptRef(*new BackForwardClientMorphOS(view));
     }
 	
-    void addItem(WebCore::FrameIdentifier, WTF::Ref<WebCore::HistoryItem>&&) override;
+    void addItem(WTF::Ref<WebCore::HistoryItem>&&) override;
+    void setChildItem(WebCore::BackForwardFrameItemIdentifier, Ref<WebCore::HistoryItem>&&) override;
     void goBack();
     void goForward();
     void goToItem(WebCore::HistoryItem&) override;
+    void goToProvisionalItem(const WebCore::HistoryItem&) override;
+    void clearProvisionalItem(const WebCore::HistoryItem&) override;
 	
     WTF::RefPtr<WebCore::HistoryItem> backItem();
     WTF::RefPtr<WebCore::HistoryItem> currentItem();
     WTF::RefPtr<WebCore::HistoryItem> forwardItem();
-    WTF::RefPtr<WebCore::HistoryItem> itemAtIndex(int) override;
+    WTF::RefPtr<WebCore::HistoryItem> itemAtIndex(int, WebCore::FrameIdentifier) override;
 
     void backListWithLimit(int, HistoryItemVector&);
     void forwardListWithLimit(int, HistoryItemVector&);
@@ -59,6 +62,7 @@ private:
     HistoryItemHashSet m_entryHash;
     unsigned m_current;
     unsigned m_capacity;
+    unsigned m_provisional;
     bool m_closed;
     bool m_enabled;
 };

@@ -41,6 +41,7 @@ class FragmentedSharedBuffer;
 class HistoryItem;
 class Frame;
 class LocalFrame;
+class FrameLoader;
 class ProtectionSpace;
 class ResourceLoader;
 class ResourceRequest;
@@ -53,9 +54,9 @@ namespace WebKit {
 class WebFrame;
 struct WebsitePoliciesData;
     
-class WebFrameLoaderClient final : public WebCore::LocalFrameLoaderClient {
+class WebFrameLoaderClient final : public WebCore::LocalFrameLoaderClient, public CanMakeWeakPtr<WebFrameLoaderClient> {
 public:
-    WebFrameLoaderClient(Ref<WebFrame>&&);
+    WebFrameLoaderClient(WebCore::FrameLoader&, WebFrame&);
     ~WebFrameLoaderClient();
 
     WebFrame& webFrame() const { return m_frame.get(); }
@@ -88,7 +89,7 @@ private:
     void detachedFromParent2() final;
     void detachedFromParent3() final;
 
-    void assignIdentifierToInitialRequest(WebCore::ResourceLoaderIdentifier, WebCore::DocumentLoader*, const WebCore::ResourceRequest&) final;
+    void assignIdentifierToInitialRequest(WebCore::ResourceLoaderIdentifier, WebCore::IsMainResourceLoad, WebCore::DocumentLoader*, const WebCore::ResourceRequest&) final;
     
     void dispatchWillSendRequest(WebCore::DocumentLoader*, WebCore::ResourceLoaderIdentifier identifier, WebCore::ResourceRequest&, const WebCore::ResourceResponse& redirectResponse) final;
     bool shouldUseCredentialStorage(WebCore::DocumentLoader*, WebCore::ResourceLoaderIdentifier identifier) final;
@@ -98,8 +99,8 @@ private:
 #endif
     void dispatchDidReceiveResponse(WebCore::DocumentLoader*, WebCore::ResourceLoaderIdentifier identifier, const WebCore::ResourceResponse&) final;
     void dispatchDidReceiveContentLength(WebCore::DocumentLoader*, WebCore::ResourceLoaderIdentifier identifier, int dataLength) final;
-    void dispatchDidFinishLoading(WebCore::DocumentLoader*, WebCore::ResourceLoaderIdentifier identifier) final;
-    void dispatchDidFailLoading(WebCore::DocumentLoader*, WebCore::ResourceLoaderIdentifier identifier, const WebCore::ResourceError&) final;
+    void dispatchDidFinishLoading(WebCore::DocumentLoader*, WebCore::IsMainResourceLoad, WebCore::ResourceLoaderIdentifier identifier) final;
+    void dispatchDidFailLoading(WebCore::DocumentLoader*, WebCore::IsMainResourceLoad, WebCore::ResourceLoaderIdentifier identifier, const WebCore::ResourceError&) final;
     bool dispatchDidLoadResourceFromMemoryCache(WebCore::DocumentLoader*, const WebCore::ResourceRequest&, const WebCore::ResourceResponse&, int length) final;
 #if ENABLE(DATA_DETECTION)
     void dispatchDidFinishDataDetection(NSArray *detectionResults) final;
@@ -134,10 +135,11 @@ private:
 
     void dispatchDecidePolicyForResponse(const WebCore::ResourceResponse&, const WebCore::ResourceRequest&, const String& downloadAttribute, WebCore::FramePolicyFunction&&) final;
     void dispatchDecidePolicyForNewWindowAction(const WebCore::NavigationAction&, const WebCore::ResourceRequest&, WebCore::FormState*, const String& frameName, std::optional<WebCore::HitTestResult>&&, WebCore::FramePolicyFunction&&) final;
-    void dispatchDecidePolicyForNavigationAction(const WebCore::NavigationAction&, const WebCore::ResourceRequest&, const WebCore::ResourceResponse& redirectResponse, WebCore::FormState*, const String&, std::optional<WebCore::NavigationIdentifier>, std::optional<WebCore::HitTestResult>&&, bool, WebCore::SandboxFlags, WebCore::PolicyDecisionMode, WebCore::FramePolicyFunction&&) final;
-    void broadcastMainFrameURLChangeToOtherProcesses(const URL&) final;
+    void dispatchDecidePolicyForNavigationAction(const WebCore::NavigationAction&, const WebCore::ResourceRequest&, const WebCore::ResourceResponse& redirectResponse, WebCore::FormState*, const String&, std::optional<WebCore::NavigationIdentifier>, std::optional<WebCore::HitTestResult>&&, bool, WebCore::IsPerformingHTTPFallback, WebCore::SandboxFlags, WebCore::PolicyDecisionMode, WebCore::FramePolicyFunction&&) final;
     void cancelPolicyCheck() final;
-    
+    void updateSandboxFlags(WebCore::SandboxFlags) { }
+    void updateOpener(const WebCore::Frame&) { }
+
     void dispatchUnableToImplementPolicy(const WebCore::ResourceError&) final;
     void dispatchLoadEventToOwnerElementInAnotherProcess() final { };
     
@@ -163,26 +165,14 @@ private:
     void updateGlobalHistory() final;
     void updateGlobalHistoryRedirectLinks() final;
     
-    bool shouldGoToHistoryItem(WebCore::HistoryItem&) const final;
+    bool shouldGoToHistoryItem(WebCore::HistoryItem&, WebCore::IsSameDocumentNavigation) const final;
+    bool supportsAsyncShouldGoToHistoryItem() const final;
+    void shouldGoToHistoryItemAsync(WebCore::HistoryItem&, CompletionHandler<void(bool)>&&) const final;
+    RefPtr<WebCore::HistoryItem> createHistoryItemTree(bool clipAtTarget, WebCore::BackForwardItemIdentifier) const final;
 
     void didDisplayInsecureContent() final;
     void didRunInsecureContent(WebCore::SecurityOrigin&) final;
 //    void didDetectXSS(const URL&, bool didBlockEntirePage) final;
-
-    WebCore::ResourceError cancelledError(const WebCore::ResourceRequest&) const final;
-    WebCore::ResourceError blockedError(const WebCore::ResourceRequest&) const final;
-    WebCore::ResourceError blockedByContentBlockerError(const WebCore::ResourceRequest&) const final;
-    WebCore::ResourceError cannotShowURLError(const WebCore::ResourceRequest&) const final;
-    WebCore::ResourceError interruptedForPolicyChangeError(const WebCore::ResourceRequest&) const final;
-#if ENABLE(CONTENT_FILTERING)
-    WebCore::ResourceError blockedByContentFilterError(const WebCore::ResourceRequest&) const final;
-#endif
-    
-    WebCore::ResourceError cannotShowMIMETypeError(const WebCore::ResourceResponse&) const final;
-    WebCore::ResourceError fileDoesNotExistError(const WebCore::ResourceResponse&) const final;
-    WebCore::ResourceError pluginWillHandleLoadError(const WebCore::ResourceResponse&) const final;
-    WebCore::ResourceError httpsUpgradeRedirectLoopError(const WebCore::ResourceRequest&) const final;
-    WebCore::ResourceError httpNavigationWithHTTPSOnlyError(const WebCore::ResourceRequest&) const final;
 
     bool shouldFallBack(const WebCore::ResourceError&) const final;
     void loadStorageAccessQuirksIfNeeded() final { };

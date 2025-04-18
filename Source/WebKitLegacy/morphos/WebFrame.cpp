@@ -43,6 +43,7 @@
 #include <WebCore/File.h>
 #include <WebCore/Frame.h>
 #include <WebCore/FrameSnapshotting.h>
+#include <WebCore/FrameLoader.h>
 #include <WebCore/FrameView.h>
 #include <WebCore/HTMLFormElement.h>
 #include <WebCore/HTMLFrameOwnerElement.h>
@@ -92,9 +93,14 @@ DEFINE_DEBUG_ONLY_GLOBAL(WTF::RefCountedLeakCounter, webFrameCounter, ("WebFrame
 Ref<WebFrame> WebFrame::createSubframe(WebPage* page, const WTF::AtomString& frameName, HTMLFrameOwnerElement* ownerElement)
 {
     auto frame = create();
-    auto coreFrame = WebCore::LocalFrame::createSubframe(*page->corePage(), [frame] (auto&) {
-        return makeUniqueRef<WebFrameLoaderClient>(frame.get());
-    }, WebCore::FrameIdentifier::generate(), *ownerElement);
+
+    auto effectiveSandboxFlags = ownerElement->sandboxFlags();
+    if (RefPtr parentLocalFrame = ownerElement->document().frame())
+        effectiveSandboxFlags.add(parentLocalFrame->effectiveSandboxFlags());
+
+    auto coreFrame = WebCore::LocalFrame::createSubframe(*page->corePage(), [frame] (auto&, auto& frameLoader) {
+        return makeUniqueRefWithoutRefCountedCheck<WebFrameLoaderClient>(frameLoader, frame.get());
+    }, WebCore::FrameIdentifier::generate(), effectiveSandboxFlags, *ownerElement);
     frame->m_coreFrame = coreFrame.ptr();
 
     coreFrame->tree().setSpecifiedName(frameName);
@@ -388,7 +394,7 @@ JSGlobalContextRef WebFrame::jsContext()
     if (!m_coreFrame)
         return nullptr;
 
-    return toGlobalRef(m_coreFrame->script().globalObject(mainThreadNormalWorld()));
+    return toGlobalRef(m_coreFrame->script().globalObject(mainThreadNormalWorldSingleton()));
 }
 
 #if 0

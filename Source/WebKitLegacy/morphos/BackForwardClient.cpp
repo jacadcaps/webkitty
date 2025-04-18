@@ -20,12 +20,13 @@ BackForwardClientMorphOS::BackForwardClientMorphOS(WebPage *page)
     : m_page(page)
     , m_current(NoCurrentItemIndex)
     , m_capacity(DefaultCapacity)
+    , m_provisional(NoCurrentItemIndex)
     , m_closed(true)
     , m_enabled(true)
 {
 }
 
-void BackForwardClientMorphOS::addItem(WebCore::FrameIdentifier, Ref<HistoryItem>&& newItem)
+void BackForwardClientMorphOS::addItem(Ref<HistoryItem>&& newItem)
 {
     if (!m_capacity || !m_enabled)
         return;
@@ -57,6 +58,23 @@ void BackForwardClientMorphOS::addItem(WebCore::FrameIdentifier, Ref<HistoryItem
     auto page = m_page.get();
 	if (page && page->_fHistoryChanged)
     	page->_fHistoryChanged();
+}
+
+void BackForwardClientMorphOS::setChildItem(WebCore::BackForwardFrameItemIdentifier, Ref<WebCore::HistoryItem>&&)
+{
+
+}
+
+void BackForwardClientMorphOS::goToProvisionalItem(const WebCore::HistoryItem& item)
+{
+    m_provisional = m_current;
+    goToItem(const_cast<HistoryItem&>(item));
+}
+
+void BackForwardClientMorphOS::clearProvisionalItem(const WebCore::HistoryItem&)
+{
+    if (m_provisional != NoCurrentItemIndex)
+        m_current = std::exchange(m_provisional, NoCurrentItemIndex);
 }
 
 void BackForwardClientMorphOS::goBack()
@@ -199,7 +217,7 @@ unsigned BackForwardClientMorphOS::forwardListCount() const
     return m_current == NoCurrentItemIndex ? 0 : m_entries.size() - m_current - 1;
 }
 
-RefPtr<HistoryItem> BackForwardClientMorphOS::itemAtIndex(int index)
+RefPtr<HistoryItem> BackForwardClientMorphOS::itemAtIndex(int index, WebCore::FrameIdentifier)
 {
     // Do range checks without doing math on index to avoid overflow.
     if (index < -static_cast<int>(m_current))

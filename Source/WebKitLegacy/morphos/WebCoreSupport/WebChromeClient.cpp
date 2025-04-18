@@ -292,6 +292,11 @@ IntRect WebChromeClient::rootViewToScreen(const IntRect& rect) const
 	return IntRect();
 }
 
+WebCore::IntPoint rootViewToScreen(const WebCore::IntPoint& point) const
+{
+    return IntPoint();
+}
+
 IntPoint WebChromeClient::screenToRootView(const IntPoint& point) const
 {
 	return IntPoint();
@@ -489,6 +494,16 @@ void WebChromeClient::requestCookieConsent(CompletionHandler<void(CookieConsentD
 {
 // TODO!
     completion(CookieConsentDecisionResult::NotSupported);
+}
+
+RefPtr<WebCore::ColorChooser> WebChromeClient::createColorChooser(WebCore::ColorChooserClient&, const WebCore::Color&)
+{
+    return nullptr;
+}
+
+RefPtr<WebCore::DataListSuggestionPicker> WebChromeClient::createDataListSuggestionPicker(WebCore::DataListSuggestionsClient&)
+{
+    return nullptr;
 }
 
 }

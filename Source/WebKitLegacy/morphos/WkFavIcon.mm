@@ -1,3 +1,4 @@
+#define __MORPHOS_DISABLE
 #undef __OBJC__
 #import "WebKit.h"
 #import <WebCore/SharedBuffer.h>
