@@ -35,13 +35,13 @@
 
 namespace WebCore {
 
+#if 0
 RenderTheme& RenderTheme::singleton()
 {
     static NeverDestroyed<RenderThemeMorphOS> theme;
     return theme;
 }
 
-#if 0
 void RenderThemeMorphOS::updateCachedSystemFontDescription(CSSValueID, FontCascadeDescription&) const
 {
     notImplemented();

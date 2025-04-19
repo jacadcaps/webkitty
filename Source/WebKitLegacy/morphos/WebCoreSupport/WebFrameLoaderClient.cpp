@@ -82,8 +82,9 @@
 namespace WebKit {
 using namespace WebCore;
 
-WebFrameLoaderClient::WebFrameLoaderClient(Ref<WebFrame>&& frame)
-    : m_frame(WTFMove(frame))
+WebFrameLoaderClient::WebFrameLoaderClient(WebCore::FrameLoader& loader, WebFrame& frame)
+    : WebCore::LocalFrameLoaderClient(loader)
+    , m_frame(frame)
     , m_didCompletePageTransition(false)
     , m_frameCameFromPageCache(false)
 {
@@ -152,7 +153,7 @@ void WebFrameLoaderClient::detachedFromParent3()
     notImplemented();
 }
 
-void WebFrameLoaderClient::assignIdentifierToInitialRequest(WebCore::ResourceLoaderIdentifier identifier, DocumentLoader* loader, const ResourceRequest& request)
+void WebFrameLoaderClient::assignIdentifierToInitialRequest(WebCore::ResourceLoaderIdentifier identifier, WebCore::IsMainResourceLoad, DocumentLoader* loader, const ResourceRequest& request)
 {
     WebPage* webPage = m_frame->page();
     if (!webPage)
@@ -205,7 +206,7 @@ void WebFrameLoaderClient::dispatchDidReceiveContentLength(DocumentLoader*, WebC
 {
 }
 
-void WebFrameLoaderClient::dispatchDidFinishLoading(DocumentLoader*, WebCore::ResourceLoaderIdentifier identifier)
+void WebFrameLoaderClient::dispatchDidFinishLoading(DocumentLoader*, WebCore::IsMainResourceLoad, WebCore::ResourceLoaderIdentifier identifier)
 {
     notImplemented();
     WebPage* webPage = m_frame->page();
@@ -217,7 +218,7 @@ void WebFrameLoaderClient::dispatchDidFinishLoading(DocumentLoader*, WebCore::Re
     webPage->removeResourceRequest(identifier);
 }
 
-void WebFrameLoaderClient::dispatchDidFailLoading(DocumentLoader*loader, WebCore::ResourceLoaderIdentifier identifier, const ResourceError& error)
+void WebFrameLoaderClient::dispatchDidFailLoading(DocumentLoader*loader, WebCore::IsMainResourceLoad, WebCore::ResourceLoaderIdentifier identifier, const ResourceError& error)
 {
     WebPage* webPage = m_frame->page();
     if (!webPage)
@@ -550,14 +551,16 @@ void WebFrameLoaderClient::dispatchDidLayout()
 #endif
 }
 
-LocalFrame* WebFrameLoaderClient::dispatchCreatePage(const NavigationAction& navigationAction, WebCore::NewFrameOpenerPolicy)
+LocalFrame* WebFrameLoaderClient::dispatchCreatePage(const NavigationAction& navigationAction, WebCore::NewFrameOpenerPolicy newFrameOpenerPolicy)
 {
     WebPage* webPage = m_frame->page();
     if (!webPage)
         return nullptr;
 
     // Just call through to the chrome client.
-    auto newPage = webPage->corePage()->chrome().createWindow(*m_frame->coreFrame(), { }, navigationAction);
+    WebCore::WindowFeatures windowFeatures;
+    windowFeatures.noopener = newFrameOpenerPolicy == WebCore::NewFrameOpenerPolicy::Suppress;
+    auto newPage = webPage->corePage()->chrome().createWindow(*m_frame->coreFrame(), { }, windowFeatures, navigationAction);
     if (!newPage)
         return nullptr;
 	
@@ -650,7 +653,7 @@ void WebFrameLoaderClient::applyToDocumentLoader(WebsitePoliciesData&& websitePo
 #endif
 }
 
-void WebFrameLoaderClient::dispatchDecidePolicyForNavigationAction(const WebCore::NavigationAction& navigationAction, const WebCore::ResourceRequest& request, const WebCore::ResourceResponse& redirectResponse, WebCore::FormState* formState, const String&, std::optional<WebCore::NavigationIdentifier> navigationIdentifier, std::optional<WebCore::HitTestResult>&&, bool, WebCore::SandboxFlags, WebCore::PolicyDecisionMode, WebCore::FramePolicyFunction&& function)
+void WebFrameLoaderClient::dispatchDecidePolicyForNavigationAction(const WebCore::NavigationAction& navigationAction, const WebCore::ResourceRequest& request, const WebCore::ResourceResponse& redirectResponse, WebCore::FormState* formState, const String&, std::optional<WebCore::NavigationIdentifier> navigationIdentifier, std::optional<WebCore::HitTestResult>&&, bool, WebCore::IsPerformingHTTPFallback, WebCore::SandboxFlags, WebCore::PolicyDecisionMode, WebCore::FramePolicyFunction&& function)
 {
     WebPage* webPage = m_frame->page();
     if (!webPage) {
@@ -701,11 +704,6 @@ void WebFrameLoaderClient::cancelPolicyCheck()
 {
 	notImplemented();
 //    m_frame->invalidatePolicyListener();
-}
-
-void WebFrameLoaderClient::broadcastMainFrameURLChangeToOtherProcesses(const URL&)
-{
-// todo!
 }
 
 void WebFrameLoaderClient::dispatchUnableToImplementPolicy(const ResourceError& error)
@@ -871,10 +869,12 @@ void WebFrameLoaderClient::committedLoad(DocumentLoader* loader, const WebCore::
 
     loader->commitData(data);
 
+#if 0
     // If the document is a stand-alone media document, now is the right time to cancel the WebKit load.
     // FIXME: This code should be shared across all ports. <http://webkit.org/b/48762>.
     if (m_frame->coreFrame()->document()->isMediaDocument())
-        loader->cancelMainResourceLoad(pluginWillHandleLoadError(loader->response()));
+        loader->cancelMainResourceLoad(loader->response());
+#endif
 }
 
 void WebFrameLoaderClient::finishedLoading(DocumentLoader* loader)
@@ -929,7 +929,7 @@ void WebFrameLoaderClient::updateGlobalHistoryRedirectLinks()
 #endif
 }
 
-bool WebFrameLoaderClient::shouldGoToHistoryItem(HistoryItem& item) const
+bool WebFrameLoaderClient::shouldGoToHistoryItem(HistoryItem& item, WebCore::IsSameDocumentNavigation) const
 {
     WebPage* webPage = m_frame->page();
     if (!webPage)
@@ -962,81 +962,19 @@ void WebFrameLoaderClient::didRunInsecureContent(SecurityOrigin&)
 		webPage->_fDidLoadInsecureContent();
 } */
 
-ResourceError WebFrameLoaderClient::cancelledError(const ResourceRequest& request) const
-{
-	notImplemented();
-    return ResourceError();//WebKit::cancelledError(request);
-}
-
-ResourceError WebFrameLoaderClient::httpNavigationWithHTTPSOnlyError(const ResourceRequest&) const
-{
-    return { };
-}
-
-ResourceError WebFrameLoaderClient::blockedError(const ResourceRequest& request) const
-{
-	notImplemented();
-    return ResourceError();//WebKit::blockedError(request);
-}
-
-ResourceError WebFrameLoaderClient::blockedByContentBlockerError(const ResourceRequest& request) const
-{
-	notImplemented();
-    return ResourceError();//WebKit::blockedByContentBlockerError(request);
-}
-
-ResourceError WebFrameLoaderClient::cannotShowURLError(const ResourceRequest& request) const
-{
-	notImplemented();
-    return ResourceError();//WebKit::cannotShowURLError(request);
-}
-
-ResourceError WebFrameLoaderClient::interruptedForPolicyChangeError(const ResourceRequest& request) const
-{
-	notImplemented();
-    return ResourceError();//WebKit::interruptedForPolicyChangeError(request);
-}
-
-#if ENABLE(CONTENT_FILTERING)
-ResourceError WebFrameLoaderClient::blockedByContentFilterError(const ResourceRequest& request) const
-{
-    return ResourceError();//WebKit::blockedByContentFilterError(request);
-}
-#endif
-
-ResourceError WebFrameLoaderClient::cannotShowMIMETypeError(const ResourceResponse& response) const
-{
-	notImplemented();
-    return ResourceError();//WebKit::cannotShowMIMETypeError(response);
-}
-
-ResourceError WebFrameLoaderClient::fileDoesNotExistError(const ResourceResponse& response) const
-{
-	notImplemented();
-    return ResourceError();//WebKit::fileDoesNotExistError(response);
-}
-
-ResourceError WebFrameLoaderClient::pluginWillHandleLoadError(const ResourceResponse& response) const
-{
-    return ResourceError();//WebKit::pluginWillHandleLoadError(response);
-}
-
-WebCore::ResourceError WebFrameLoaderClient::httpsUpgradeRedirectLoopError(const WebCore::ResourceRequest&) const
-{
-    return ResourceError();
-}
-
 bool WebFrameLoaderClient::shouldFallBack(const ResourceError& error) const
 {
-    static NeverDestroyed<const ResourceError> cancelledError(this->cancelledError(ResourceRequest()));
-    static NeverDestroyed<const ResourceError> pluginWillHandleLoadError(this->pluginWillHandleLoadError(ResourceResponse()));
+    dprintf("%s: fixme\n", __PRETTY_FUNCTION__);
+#if 0
+    static NeverDestroyed<const ResourceError> cancelledError(cancelledError(ResourceRequest()));
+    static NeverDestroyed<const ResourceError> pluginWillHandleLoadError(pluginWillHandleLoadError(ResourceResponse()));
 
     if (error.errorCode() == cancelledError.get().errorCode() && error.domain() == cancelledError.get().domain())
         return false;
 
     if (error.errorCode() == pluginWillHandleLoadError.get().errorCode() && error.domain() == pluginWillHandleLoadError.get().domain())
         return false;
-
+#endif
     return true;
 }
 
@@ -1097,6 +1035,15 @@ void WebFrameLoaderClient::frameLoadCompleted()
 }
 
 void WebFrameLoaderClient::saveViewStateToItem(HistoryItem& historyItem)
+{
+}
+
+bool WebFrameLoaderClient::supportsAsyncShouldGoToHistoryItem() const
+{
+    return false;
+}
+
+void WebFrameLoaderClient::shouldGoToHistoryItemAsync(WebCore::HistoryItem&, CompletionHandler<void(bool)>&&) const
 {
 }
 
@@ -1198,6 +1145,12 @@ void WebFrameLoaderClient::savePlatformDataToCachedFrame(CachedFrame* cachedFram
 //    cachedFrame->setHasInsecureContent(hasInsecureContent);
 }
 
+RefPtr<WebCore::HistoryItem> WebFrameLoaderClient::createHistoryItemTree(bool clipAtTarget, WebCore::BackForwardItemIdentifier itemID) const
+{
+    auto* coreFrame = m_frame->coreFrame();
+    return coreFrame->loader().history().createItemTree(*coreFrame, clipAtTarget, itemID);
+}
+
 void WebFrameLoaderClient::transitionToCommittedFromCachedFrame(CachedFrame*)
 {
 //    const ResourceResponse& response = m_frame->coreFrame()->loader().documentLoader()->response();
@@ -1236,7 +1189,7 @@ void WebFrameLoaderClient::transitionToCommittedForNewPage(InitializingIframe)
 //fixedVisibleContentRect.height(),shouldUseFixedLayout, isMainFrame, horizontalLock, verticalLock, int(verticalScrollbarMode));
 
     m_frame->coreFrame()->createView(psize, webPage->backgroundColor(),
-        psize, fixedVisibleContentRect, shouldUseFixedLayout,
+        psize, shouldUseFixedLayout,
         horizontalScrollbarMode, horizontalLock, verticalScrollbarMode, verticalLock);
 
 if (isMainFrame)

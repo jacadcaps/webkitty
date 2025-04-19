@@ -52,7 +52,6 @@
 #include <unicode/utf16.h>
 #include <unicode/uversion.h>
 #undef _NO_PPCINLINE
-hb_script_t hb_icu_script_to_script (UScriptCode script); // in ComplexTextControllerHarfbuzz
 #else
 #if USE(HARFBUZZ)
 #include <hb-icu.h>
@@ -62,6 +61,10 @@ hb_script_t hb_icu_script_to_script (UScriptCode script); // in ComplexTextContr
 
 namespace WebCore {
 using namespace icu;
+
+#if OS(MORPHOS)
+hb_script_t hb_icu_script_to_script (UScriptCode script); // in ComplexTextControllerHarfbuzz
+#endif
 
 std::unique_ptr<Locale> Locale::create(const AtomString& locale)
 {

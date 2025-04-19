@@ -1216,8 +1216,8 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
         WebCore::CookieJar::create(storageProvider.copyRef()),
         makeUniqueRef<WebProgressTrackerClient>(*this),
         WebCore::PageConfiguration::LocalMainFrameCreationParameters {
-            CompletionHandler<UniqueRef<WebCore::LocalFrameLoaderClient>(WebCore::LocalFrame&, WebCore::FrameLoader&)> { [](WebCore::LocalFrame& localFrame, WebCore::FrameLoader& frameLoader) {
-                return makeUniqueRefWithoutRefCountedCheck<WebFrameLoaderClient>(frameLoader, *WebFrame::fromCoreFrame(localFrame));
+            CompletionHandler<UniqueRef<WebCore::LocalFrameLoaderClient>(WebCore::LocalFrame&, WebCore::FrameLoader&)> { [mainFrame = m_mainFrame](WebCore::LocalFrame& localFrame, WebCore::FrameLoader& frameLoader) {
+                return makeUniqueRefWithoutRefCountedCheck<WebFrameLoaderClient>(frameLoader, mainFrame);
             } },
             WebCore::SandboxFlags { } // Set by updateSandboxFlags after instantiation.
         },

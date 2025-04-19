@@ -94,15 +94,23 @@ void ConservativeRoots::grow()
     m_roots = newRoots;
 }
 
+#if OS(MORPHOS)
+#pragma GCC diagnostic push
+#pragma GCC optimize ("O1")
+#endif
+
 // This function must be run after stopThePeriphery() is called and
 // before liveness data is cleared to be accurate.
 template<bool lookForWasmCallees, typename MarkHook>
 inline void ConservativeRoots::genericAddPointer(char* pointer, HeapVersion markingVersion, HeapVersion newlyAllocatedVersion, TinyBloomFilter<uintptr_t> jsGCFilter, TinyBloomFilter<uintptr_t> boxedWasmCalleeFilter, MarkHook& markHook)
 {
+dprintf("gap %d\n", __LINE__);
+
     ASSERT(m_heap.worldIsStopped());
     pointer = removeArrayPtrTag(pointer);
     markHook.mark(pointer);
 
+dprintf("gap %d\n", __LINE__);
     auto markFoundGCPointer = [&] (void* p, HeapCell::Kind cellKind) {
         if (isJSCellKind(cellKind))
             markHook.markKnownJSCell(static_cast<JSCell*>(p));
@@ -112,11 +120,13 @@ inline void ConservativeRoots::genericAddPointer(char* pointer, HeapVersion mark
 
         m_roots[m_size++] = std::bit_cast<HeapCell*>(p);
     };
+dprintf("gap %d\n", __LINE__);
 
     const UncheckedKeyHashSet<MarkedBlock*>& set = m_heap.objectSpace().blocks().set();
 
     ASSERT(m_heap.objectSpace().isMarking());
     static constexpr bool isMarking = true;
+dprintf("gap %d\n", __LINE__);
 
 #if ENABLE(WEBASSEMBLY) && USE(JSVALUE64)
     if constexpr (lookForWasmCallees) {
@@ -136,6 +146,7 @@ inline void ConservativeRoots::genericAddPointer(char* pointer, HeapVersion mark
 #else
     UNUSED_PARAM(boxedWasmCalleeFilter);
 #endif
+dprintf("gap %d\n", __LINE__);
 
     // It could point to a precise allocation.
     if (m_heap.objectSpace().preciseAllocationsForThisCollectionSize()) {
@@ -160,6 +171,7 @@ inline void ConservativeRoots::genericAddPointer(char* pointer, HeapVersion mark
             }
         }
     }
+dprintf("gap %d\n", __LINE__);
 
     MarkedBlock* candidate = MarkedBlock::blockFor(pointer);
     // It's possible for a butterfly pointer to point past the end of a butterfly. Check this now.
@@ -175,16 +187,19 @@ inline void ConservativeRoots::genericAddPointer(char* pointer, HeapVersion mark
                 markFoundGCPointer(previousPointer, previousCandidate->handle().cellKind());
         }
     }
+dprintf("gap %d\n", __LINE__);
 
     if (jsGCFilter.ruleOut(std::bit_cast<uintptr_t>(candidate))) {
         ASSERT(!candidate || !set.contains(candidate));
         return;
     }
+dprintf("gap %d\n", __LINE__);
 
     if (!set.contains(candidate))
         return;
 
     HeapCell::Kind cellKind = candidate->handle().cellKind();
+dprintf("gap %d\n", __LINE__);
 
     auto tryPointer = [&] (void* pointer) {
         bool isLive = candidate->handle().isLiveCell(markingVersion, newlyAllocatedVersion, isMarking, pointer);
@@ -195,6 +210,7 @@ inline void ConservativeRoots::genericAddPointer(char* pointer, HeapVersion mark
         // mark the former.
         return isLive && !mayHaveIndexingHeader(cellKind);
     };
+dprintf("gap %d\n", __LINE__);
 
     if (isJSCellKind(cellKind)) {
         if (LIKELY(MarkedBlock::isAtomAligned(pointer))) {
@@ -202,11 +218,13 @@ inline void ConservativeRoots::genericAddPointer(char* pointer, HeapVersion mark
                 return;
         }
     }
+dprintf("gap %d\n", __LINE__);
 
     // We could point into the middle of an object.
     char* alignedPointer = static_cast<char*>(candidate->handle().cellAlign(pointer));
     if (tryPointer(alignedPointer))
         return;
+dprintf("gap %d\n", __LINE__);
 
     // Also, a butterfly could point at the end of an object plus sizeof(IndexingHeader). In that
     // case, this is pointing to the object to the right of the one we should be marking.
@@ -239,10 +257,16 @@ void ConservativeRoots::genericAddSpan(void* begin, void* end, MarkHook& markHoo
     {
 #endif
         constexpr bool lookForWasmCallees = false;
-        for (char** it = static_cast<char**>(begin); it != static_cast<char**>(end); ++it)
+        for (char** it = static_cast<char**>(begin); it != static_cast<char**>(end); ++it) {
+dprintf("gap\n");
             genericAddPointer<lookForWasmCallees>(*it, markingVersion, newlyAllocatedVersion, jsGCFilter, boxedWasmCalleeFilter, markHook);
+        }
     }
 }
+
+#if OS(MORPHOS)
+#pragma GCC diagnostic pop
+#endif
 
 class DummyMarkHook {
 public:

@@ -58,7 +58,12 @@
 #include <WebCore/ApplicationCacheStorage.h>
 #include <WebCore/CookieConsentDecisionResult.h>
 #include <WebCore/ModalContainerTypes.h>
+#include <WebCore/ColorChooser.h>
+#include <WebCore/DataListSuggestionPicker.h>
+#include <WebCore/RenderEmbeddedObject.h>
+#include <WebCore/HTMLPlugInImageElement.h>
 #include <WebCore/Storage.h>
+#include <WebCore/DateTimeChooser.h>
 #include "PopupMenu.h"
 
 #pragma GCC diagnostic ignored "-Wunused-parameter"
@@ -138,7 +143,7 @@ void WebChromeClient::focusedElementChanged(Element* element)
 	m_webPage.setFocusedElement(element);
 }
 
-Page* WebChromeClient::createWindow(LocalFrame& frame, const WindowFeatures& features, const NavigationAction& navigationAction)
+RefPtr<WebCore::Page> WebChromeClient::createWindow(LocalFrame& frame, const String& openedMainFrameName, const WindowFeatures& features, const NavigationAction& navigationAction)
 {
 	if (!m_webPage._fCanOpenWindow || !m_webPage._fCanOpenWindow(navigationAction.url().string(), features))
 		return nullptr;
@@ -243,11 +248,6 @@ bool WebChromeClient::runJavaScriptPrompt(WebCore::LocalFrame&, const String& me
 	return false;
 }
 
-void WebChromeClient::setStatusbarText(const String& statusText)
-{
-	notImplemented();
-}
-
 KeyboardUIMode WebChromeClient::keyboardUIMode()
 {
 	bool enabled = false;
@@ -292,7 +292,7 @@ IntRect WebChromeClient::rootViewToScreen(const IntRect& rect) const
 	return IntRect();
 }
 
-WebCore::IntPoint rootViewToScreen(const WebCore::IntPoint& point) const
+WebCore::IntPoint WebChromeClient::rootViewToScreen(const WebCore::IntPoint& point) const
 {
     return IntPoint();
 }
@@ -319,12 +319,12 @@ void WebChromeClient::intrinsicContentsSizeChanged(const IntSize& size) const
 //    dprintf("%s: to %dx%d\n", __PRETTY_FUNCTION__, size.width(), size.height());
 }
 
-bool WebChromeClient::shouldUnavailablePluginMessageBeButton(RenderEmbeddedObject::PluginUnavailabilityReason pluginUnavailabilityReason) const
+bool WebChromeClient::shouldUnavailablePluginMessageBeButton(WebCore::PluginUnavailabilityReason pluginUnavailabilityReason) const
 {
 	return false;
 }
 
-void WebChromeClient::unavailablePluginButtonClicked(Element& element, RenderEmbeddedObject::PluginUnavailabilityReason pluginUnavailabilityReason) const
+void WebChromeClient::unavailablePluginButtonClicked(Element& element, WebCore::PluginUnavailabilityReason pluginUnavailabilityReason) const
 {
 	notImplemented();
 }
@@ -434,6 +434,11 @@ void WebChromeClient::localStorageCreatedForDocument(const LocalFrame& documentF
         m_webPage.localStorageCreated(storage);
 }
 
+RefPtr<DateTimeChooser> WebChromeClient::createDateTimeChooser(DateTimeChooserClient&)
+{
+    return nullptr;
+}
+
 #if ENABLE(FULLSCREEN_API)
 
 bool WebChromeClient::supportsFullScreenForElement(const Element& element, bool requestingKeyboardAccess)
@@ -443,12 +448,13 @@ bool WebChromeClient::supportsFullScreenForElement(const Element& element, bool 
 	return true;
 }
 
-void WebChromeClient::enterFullScreenForElement(Element& element, WebCore::HTMLMediaElementEnums::VideoFullscreenMode)
+void WebChromeClient::enterFullScreenForElement(Element& element, WebCore::HTMLMediaElementEnums::VideoFullscreenMode, CompletionHandler<void(WebCore::ExceptionOr<void>)>&&, CompletionHandler<bool(bool)>&& completionHandler)
 {
+//TODO
     m_webPage.setFullscreenElement(&element);
 }
 
-void WebChromeClient::exitFullScreenForElement(Element* element)
+void WebChromeClient::exitFullScreenForElement(Element* element, CompletionHandler<void()>&&)
 {
     m_webPage.setFullscreenElement(nullptr);
 }
