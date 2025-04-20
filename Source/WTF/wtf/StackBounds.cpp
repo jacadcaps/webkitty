@@ -51,6 +51,11 @@
 #include <sys/storage.h>
 #endif
 
+#if OS(MORPHOS)
+#include <proto/exec.h>
+#include <exec/tasks.h>
+#endif
+
 #endif
 
 namespace WTF {
@@ -223,7 +228,10 @@ StackBounds StackBounds::currentThreadStackBoundsInternal()
 #elif OS(MORPHOS)
 StackBounds StackBounds::currentThreadStackBoundsInternal()
 {
-    return { };
+    struct Task *me = FindTask(0);
+    void *origin = me->tc_ETask->PPCSPUpper;
+    void *bound = me->tc_ETask->PPCSPLower;
+    return { origin, bound };
 }
 #else
 #error Need a way to get the stack bounds on this platform

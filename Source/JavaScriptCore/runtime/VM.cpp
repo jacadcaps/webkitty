@@ -541,11 +541,9 @@ void VM::primitiveGigacageDisabled()
 
 void VM::setLastStackTop(const Thread& thread)
 {
-#if !OS(MORPHOS)
     m_lastStackTop = thread.savedLastStackTop();
     auto& stack = thread.stack();
     RELEASE_ASSERT(stack.contains(m_lastStackTop), 0x5510, m_lastStackTop, stack.origin(), stack.end());
-#endif
 }
 
 Ref<VM> VM::createContextGroup(HeapType heapType)
@@ -1371,7 +1369,6 @@ void VM::drainMicrotasks()
 
 void sanitizeStackForVM(VM& vm)
 {
-#if !OS(MORPHOS)
     Ref thread = Thread::current();
     auto& stack = thread->stack();
     if (!vm.currentThreadIsHoldingAPILock())
@@ -1386,7 +1383,6 @@ void sanitizeStackForVM(VM& vm)
     sanitizeStackForVMImpl(&vm);
 #endif
     RELEASE_ASSERT(stack.contains(vm.lastStackTop()), 0xaa20, vm.lastStackTop(), stack.origin(), stack.end());
-#endif
 }
 
 size_t VM::committedStackByteCount()
