@@ -84,7 +84,7 @@ typedef uint32_t socklen_t;
 #define USE_ADFILTER 1
 #endif
 
-#define YT_FILTERS 0
+#define YT_FILTERS 1
 
 extern "C" {
 	void dprintf(const char *, ...);
@@ -848,7 +848,7 @@ void WebProcess::signalMainThread()
 #if YT_FILTERS
 static bool ytFilters(const char *mainPageURL, const char *url)
 {
-    dprintf("%s: '%s' '%s'\n", __PRETTY_FUNCTION__, mainPageURL, url);
+    D(dprintf("%s: '%s' '%s'\n", __PRETTY_FUNCTION__, mainPageURL, url));
 
     if (0 == strncmp(mainPageURL, "https://m.youtube.", 18)) {
         if (0 == strcmp(url, "https://m.youtube.com/s/search/audio/failure.mp3"))
@@ -898,7 +898,7 @@ bool WebProcess::shouldAllowRequest(const char *url, const char *mainPageURL, We
 
 #if YT_FILTERS
     if (!ytFilters(mainPageURL, url)) {
-        dprintf("yt blocking %s\n", url);
+        D(dprintf("yt blocking %s\n", url));
         return false;
     }
 #endif

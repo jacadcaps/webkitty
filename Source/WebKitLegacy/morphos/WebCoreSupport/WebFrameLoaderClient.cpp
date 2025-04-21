@@ -964,17 +964,8 @@ void WebFrameLoaderClient::didRunInsecureContent(SecurityOrigin&)
 
 bool WebFrameLoaderClient::shouldFallBack(const ResourceError& error) const
 {
-    dprintf("%s: fixme\n", __PRETTY_FUNCTION__);
-#if 0
-    static NeverDestroyed<const ResourceError> cancelledError(cancelledError(ResourceRequest()));
-    static NeverDestroyed<const ResourceError> pluginWillHandleLoadError(pluginWillHandleLoadError(ResourceResponse()));
-
-    if (error.errorCode() == cancelledError.get().errorCode() && error.domain() == cancelledError.get().domain())
+    if (error.isCancellation())
         return false;
-
-    if (error.errorCode() == pluginWillHandleLoadError.get().errorCode() && error.domain() == pluginWillHandleLoadError.get().domain())
-        return false;
-#endif
     return true;
 }
 

@@ -383,7 +383,7 @@ void AcinerellaDecoder::terminate()
 
 void AcinerellaDecoder::threadEntryPoint()
 {
-	SetTaskPri(FindTask(0), isAudio() ? 3 : 0);
+	SetTaskPri(FindTask(0), isAudio() ? 3 : 1);
 
 	RefPtr<AcinerellaDecoder> refSelf = WTF::Ref{*this};
 

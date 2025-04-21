@@ -193,7 +193,7 @@ private:
 	void seekTimerFired();
 
 private:
-	MediaSourcePrivateMorphOS                    *m_mediaSource;
+	ThreadSafeWeakPtr<MediaSourcePrivateMorphOS>  m_mediaSource;
 	RefPtr<MediaSourceChunkReader>                m_reader;
 	RefPtr<Acinerella::AcinerellaMuxedBuffer>     m_muxer;
 	RefPtr<Acinerella::AcinerellaDecoder>         m_decoders[Acinerella::AcinerellaMuxedBuffer::maxDecoders];

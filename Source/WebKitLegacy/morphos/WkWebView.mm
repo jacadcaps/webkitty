@@ -199,7 +199,33 @@ namespace  {
 
 - (void)update:(WebCore::MediaPlayerMorphOSInfo &)info
 {
-	_info = info;
+    if (_info.m_audioCodec.length() == 0 && _info.m_videoCodec.length() == 0)
+    {
+        _info = info;
+        return;
+    }
+
+    // partial update / merge
+    if (info.m_duration > 0)
+        _info.m_duration = info.m_duration;
+
+    if (info.m_audioCodec.length())
+    {
+        _info.m_audioCodec = info.m_audioCodec;
+        _info.m_frequency = info.m_frequency;
+        _info.m_bits = info.m_bits;
+        _info.m_channels = info.m_channels;
+    }
+    
+    if (info.m_videoCodec.length())
+    {
+        _info.m_width = info.m_width;
+        _info.m_height = info.m_height;
+        _info.m_bitRate = info.m_bitRate;
+    }
+
+    _info.m_hlsStreams = info.m_hlsStreams;
+    _info.m_selectedHLSStreamURL = info.m_selectedHLSStreamURL;
 }
 
 - (void)invalidate
@@ -2989,14 +3015,22 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			validateObjCContext();
 			WkWebViewPrivate *privateObject = [self privateObject];
 			auto uurl = url.utf8();
-			WkMediaLoadResponseHandlerPrivate *handler = [[WkMediaLoadResponseHandlerPrivate alloc] initWithPlayer:player
-				url:[OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]] pageURL:[self URL]
-				info:info yieldCallback:WTFMove(yieldFunc)];
-			if (handler)
-			{
-				[privateObject playerAdded:handler withSettings:settings];
-				[handler release];
-			}
+			WkMediaLoadResponseHandlerPrivate *handler = [privateObject handlerForPlayer:player];
+            if (handler)
+            {
+                [privateObject playerUpdated:player info:info];
+            }
+            else
+            {
+                [[WkMediaLoadResponseHandlerPrivate alloc] initWithPlayer:player
+                    url:[OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]] pageURL:[self URL]
+                    info:info yieldCallback:WTFMove(yieldFunc)];
+                if (handler)
+                {
+                    [privateObject playerAdded:handler withSettings:settings];
+                    [handler release];
+                }
+            }
 		};
 		
 		webPage->_fMediaUpdated = [self](void *player, WebCore::MediaPlayerMorphOSInfo &info) {
@@ -3650,10 +3684,13 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 
 		[self drawRastPort:fsWindow->RPort atX:0 y:0 innerWidth:fsWindow->Width innerHeight:fsWindow->Height update:MADF_DRAWUPDATE == (MADF_DRAWUPDATE & flags)];
 		
-		[super drawBackground:[self left] top:[self top] width:[self innerWidth] height:[self innerHeight] xoffset:0 yoffset:0 flags:0];
-		OBString *info = @"Wayfarer is in fullscreen mode!\nDouble-click to show the fullscreen view. Esc to return to windowed mode.";
-		ULONG dim = [self textDim:info len:-1 preparse:0 flags:0];
-		[self text:[self left] + ((iw-DIM2WIDTH(dim))/2) top:([self top] + ih) - 2 - DIM2HEIGHT(dim) width:DIM2WIDTH(dim) height:DIM2HEIGHT(dim) text:info len:-1 preparse:0 flags:0];
+        if (MADF_DRAWOBJECT & flags)
+        {
+            [super drawBackground:[self left] top:[self top] width:[self innerWidth] height:[self innerHeight] xoffset:0 yoffset:0 flags:0];
+            OBString *info = @"Wayfarer is in fullscreen mode!\nDouble-click to show the fullscreen view. Esc to return to windowed mode.";
+            ULONG dim = [self textDim:info len:-1 preparse:0 flags:0];
+            [self text:[self left] + ((iw-DIM2WIDTH(dim))/2) top:([self top] + ih) - 2 - DIM2HEIGHT(dim) width:DIM2WIDTH(dim) height:DIM2HEIGHT(dim) text:info len:-1 preparse:0 flags:0];
+        }
 	}
 	else
 	{

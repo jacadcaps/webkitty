@@ -31,7 +31,7 @@
 #include <proto/graphics.h>
 
 #define D(x)
-#define DSYNC(x)
+#define DSYNC(x) x
 #define DOVL(x)
 #define DFRAME(x) 
 
@@ -61,6 +61,7 @@ AcinerellaVideoDecoder::AcinerellaVideoDecoder(AcinerellaDecoderClient* client, 
     m_cgxVideo = OpenLibrary("cgxvideo.library", 43);
  
 	m_pullThread = Thread::create("Acinerella Video Pump"_s, [this] {
+        SetTaskPri(FindTask(0), 1);
 		pullThreadEntryPoint();
 	});
 	
@@ -555,7 +556,7 @@ void AcinerellaVideoDecoder::blitFrameLocked()
 void AcinerellaVideoDecoder::pullThreadEntryPoint()
 {
 	D(dprintf("\033[36m[VD]%s: %p\033[0m\n", __func__, this));
-	SetTaskPri(FindTask(0), 0);
+	SetTaskPri(FindTask(0), 1);
 
 	while (!m_terminating)
 	{

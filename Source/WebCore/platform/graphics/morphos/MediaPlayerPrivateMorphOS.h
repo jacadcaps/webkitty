@@ -112,7 +112,7 @@ public:
 	void accSetFrameCounts(unsigned decoded, unsigned dropped) override;
 
 	void setLoadingProgresssed(bool flag) { m_didLoadingProgress = flag; }
-	void onActiveSourceBuffersChanged() { if (m_player) m_player->activeSourceBuffersChanged(); }
+	void onActiveSourceBuffersChanged();
 
 	const MediaPlayerMorphOSStreamSettings &streamSettings() { return m_streamSettings; }
 
@@ -124,7 +124,7 @@ public:
     
     String errorMessage() const final;
 protected:
-	MediaPlayer* m_player;
+	ThreadSafeWeakPtr<MediaPlayer> m_player;
 	RefPtr<Acinerella::Acinerella> m_acinerella;
 	MediaPlayer::NetworkState m_networkState = { MediaPlayer::NetworkState::Empty };
 	MediaPlayer::ReadyState m_readyState = { MediaPlayer::ReadyState::HaveNothing };

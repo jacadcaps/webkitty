@@ -64,6 +64,7 @@
 #include <WebCore/HTMLPlugInImageElement.h>
 #include <WebCore/Storage.h>
 #include <WebCore/DateTimeChooser.h>
+#include <WebCore/FullscreenManager.h>
 #include "PopupMenu.h"
 
 #pragma GCC diagnostic ignored "-Wunused-parameter"
@@ -448,15 +449,17 @@ bool WebChromeClient::supportsFullScreenForElement(const Element& element, bool 
 	return true;
 }
 
-void WebChromeClient::enterFullScreenForElement(Element& element, WebCore::HTMLMediaElementEnums::VideoFullscreenMode, CompletionHandler<void(WebCore::ExceptionOr<void>)>&&, CompletionHandler<bool(bool)>&& completionHandler)
+void WebChromeClient::enterFullScreenForElement(Element& element, WebCore::HTMLMediaElementEnums::VideoFullscreenMode, CompletionHandler<void(WebCore::ExceptionOr<void>)>&& willEnterFullscreen, CompletionHandler<bool(bool)>&& didEnterFullscreen)
 {
-//TODO
+    willEnterFullscreen(element.document().fullscreenManager().willEnterFullscreen(element, WebCore::HTMLMediaElementEnums::VideoFullscreenModeStandard));
     m_webPage.setFullscreenElement(&element);
+    didEnterFullscreen(true);
 }
 
-void WebChromeClient::exitFullScreenForElement(Element* element, CompletionHandler<void()>&&)
+void WebChromeClient::exitFullScreenForElement(Element* element, CompletionHandler<void()>&& didExitFullscreen)
 {
     m_webPage.setFullscreenElement(nullptr);
+    didExitFullscreen();
 }
 
 #endif
