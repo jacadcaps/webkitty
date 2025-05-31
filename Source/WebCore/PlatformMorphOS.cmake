@@ -99,6 +99,7 @@ if (NOT MORPHOS_MINIMAL)
 		platform/graphics/morphos/AcinerellaVideoDecoder.cpp
 		platform/graphics/morphos/AcinerellaContainer.cpp
 		platform/graphics/morphos/MediaPlayerPrivateMorphOS.cpp
+        platform/graphics/morphos/MediaSourceChunkReader.cpp
 		platform/graphics/morphos/MediaSourcePrivateMorphOS.cpp
 		platform/graphics/morphos/MediaSourceBufferPrivateMorphOS.cpp
 		platform/graphics/morphos/AudioTrackPrivateMorphOS.cpp

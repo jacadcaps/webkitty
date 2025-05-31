@@ -1164,10 +1164,6 @@ int Acinerella::read(uint8_t *buf, int size)
 	return AcinerellaNetworkBuffer::eRead_EOF;
 }
 
-#ifndef AVSEEK_SIZE
-#define AVSEEK_SIZE 0x10000
-#endif
-
 // callback from acinerella on acinerella's main thread!
 int64_t Acinerella::seek(int64_t pos, int whence)
 {

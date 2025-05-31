@@ -31,7 +31,7 @@
 #include <proto/graphics.h>
 
 #define D(x)
-#define DSYNC(x) x
+#define DSYNC(x) 
 #define DOVL(x)
 #define DFRAME(x) 
 

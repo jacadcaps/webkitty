@@ -13,13 +13,14 @@
 
 #define D(x)
 #define DLIFETIME(x)
-#define DDUMP(x) 
+#define DDUMP(x) x
 #define DSEEK(x) 
 #define DEOS(x)
-#define DPLAY(x) 
+#define DPLAY(x) x
 #define DBUFFER(x)
-#define DSOURCE(x)
-#define DRS(x) 
+#define DSOURCE(x) x
+#define DRS(x)
+#define DOVL(x) x
 // #pragma GCC optimize ("O0")
 
 namespace WebCore {
@@ -65,8 +66,8 @@ MediaSourcePrivate::AddStatus MediaSourcePrivateMorphOS::addSourceBuffer(const C
 	}
 
 	buffer = MediaSourceBufferPrivateMorphOS::create(this);
-	RefPtr<MediaSourceBufferPrivateMorphOS> sourceBufferPrivate = static_cast<MediaSourceBufferPrivateMorphOS*>(buffer.get());
-	m_sourceBuffers.add(sourceBufferPrivate);
+    auto sourceBufferPrivate = static_cast<MediaSourceBufferPrivateMorphOS*>(buffer.get());
+	m_sourceBuffers.add(*sourceBufferPrivate);
 
 	if (!m_paused)
 	{
@@ -78,15 +79,18 @@ MediaSourcePrivate::AddStatus MediaSourcePrivateMorphOS::addSourceBuffer(const C
 
 void MediaSourcePrivateMorphOS::onSourceBufferRemoved(RefPtr<MediaSourceBufferPrivateMorphOS>& buffer)
 {
-	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
-	if (m_paintingBuffer == buffer)
-		m_paintingBuffer = nullptr;
-	m_sourceBuffers.remove(buffer);
-	m_activeSourceBuffers.remove(buffer);
-	buffer->clearMediaSource();
     RefPtr player = platformPlayer();
     if (!player)
         return;
+	D(dprintf("%s: \n", __PRETTY_FUNCTION__));
+	if (m_paintingBuffer == buffer)
+    {
+        m_paintingBuffer = nullptr;
+        player->accNoFramesReady();
+    }
+	m_sourceBuffers.remove(buffer.get());
+	m_activeSourceBuffers.remove(buffer.get());
+	buffer->clearMediaSource();
     player->notifyActiveSourceBuffersChanged();
 }
 
@@ -416,6 +420,7 @@ void MediaSourcePrivateMorphOS::paint(GraphicsContext& gc, const FloatRect& rect
 
 void MediaSourcePrivateMorphOS::setOverlayWindowCoords(struct ::Window *w, int scrollx, int scrolly, int mleft, int mtop, int mright, int mbottom, int width, int height)
 {
+    DOVL(dprintf("%s: paintingb %p\n", __PRETTY_FUNCTION__, m_paintingBuffer.get()));
 	if (!!m_paintingBuffer)
 		m_paintingBuffer->setOverlayWindowCoords(w, scrollx, scrolly, mleft, mtop, mright, mbottom, width, height);
 }
@@ -492,6 +497,7 @@ void MediaSourcePrivateMorphOS::onSourceBufferReadyToPaint(RefPtr<MediaSourceBuf
     RefPtr player = platformPlayer();
     if (!player)
         return;
+    player->accNoFramesReady(); // force overlay re-do
     player->accNextFrameReady();
 }
 
@@ -576,14 +582,14 @@ bool MediaSourcePrivateMorphOS::areDecodersInitialized()
 
 void MediaSourcePrivateMorphOS::onSourceBufferDidChangeActiveState(RefPtr<MediaSourceBufferPrivateMorphOS>& buffer, bool active)
 {
-	DSOURCE(dprintf("%s: source %p active %d total active %d total %d paus %d\n", __PRETTY_FUNCTION__, buffer.get(), active, m_activeSourceBuffers.size(), m_sourceBuffers.size(), m_paused));
+	DSOURCE(dprintf("%s: source %p painting %p active %d total active %d total %d paus %d\n", __PRETTY_FUNCTION__, buffer.get(), m_paintingBuffer.get(), active, m_activeSourceBuffers.size(), m_sourceBuffers.size(), m_paused));
     RefPtr player = platformPlayer();
     if (!player)
         return;
 
-    if (active && !m_activeSourceBuffers.contains(buffer))
+    if (active && !m_activeSourceBuffers.contains(buffer.get()))
     {
-        m_activeSourceBuffers.add(buffer);
+        m_activeSourceBuffers.add(*buffer.get());
   		player->onActiveSourceBuffersChanged();
 //        durationChanged(duration());
         if (!m_paused)
@@ -598,17 +604,18 @@ void MediaSourcePrivateMorphOS::onSourceBufferDidChangeActiveState(RefPtr<MediaS
             DSOURCE(dprintf("%s: warmup...\n", __PRETTY_FUNCTION__));
 		}
     }
-    else if (!active && m_activeSourceBuffers.contains(buffer))
+    else if (!active && m_activeSourceBuffers.contains(*buffer.get()))
     {
 		if (m_paintingBuffer == buffer)
 		{
 			m_paintingBuffer->setOverlayWindowCoords(nullptr, 0, 0, 0, 0, 0, 0, 0, 0);
 			m_paintingBuffer = nullptr;
+            player->accNoFramesReady();
 		}
     
         buffer->coolDown();
     
-		m_activeSourceBuffers.remove(buffer);
+		m_activeSourceBuffers.remove(buffer.get());
         player->onActiveSourceBuffersChanged();
     }
 }

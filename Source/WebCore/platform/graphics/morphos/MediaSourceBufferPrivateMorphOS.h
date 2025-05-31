@@ -10,6 +10,7 @@
 
 #include "SourceBufferPrivate.h"
 #include "SourceBufferPrivateClient.h"
+#include "MediaSourceChunkReader.h"
 #include "MediaSample.h"
 
 #include <wtf/Function.h>
@@ -30,77 +31,8 @@ class GraphicsContext;
 class FloatRect;
 class MediaSourcePrivateMorphOS;
 class MediaPlayerPrivateMorphOS;
-class MediaSourceBufferPrivateMorphOS;
 
-class MediaSourceChunkReader : public WTF::ThreadSafeRefCounted<MediaSourceChunkReader>
-{
-public:
-	typedef Function<void(bool success, WebCore::SourceBufferPrivateClient::InitializationSegment& segment, MediaPlayerMorphOSInfo& info)> InitializationCallback;
-	typedef Function<void(bool)> ChunkDecodedCallback;
-protected:
-	MediaSourceChunkReader(MediaSourceBufferPrivateMorphOS *, InitializationCallback &&, ChunkDecodedCallback &&);
-public:
-	virtual ~MediaSourceChunkReader();
-
-	typedef WTF::StdList<WTF::RefPtr<WebCore::MediaSample>> MediaSamplesList;
-
-    static Ref<MediaSourceChunkReader> create(MediaSourceBufferPrivateMorphOS *source, InitializationCallback &&icb, ChunkDecodedCallback && ccb) {
-		return adoptRef(*new MediaSourceChunkReader(source, WTFMove(icb), WTFMove(ccb)));
-	}
-
-	void decode(Vector<unsigned char>&&, bool signalComplete = true);
-	void signalEOF();
-	void getSamples(MediaSamplesList& outSamples);
-	void terminate();
-
-	int numDecoders() const { return m_numDecoders; }
-	double highestPTS() const { return m_highestPTS; }
-
-	RefPtr<Acinerella::AcinerellaPointer>& acinerella() { return m_acinerella; }
-
-protected:
-	bool initialize();
-	void getMeta(WebCore::SourceBufferPrivateClient::InitializationSegment& segment, MediaPlayerMorphOSInfo& info);
-	void decodeAllMediaSamples();
-	void dispatch(Function<void ()>&& function);
-
-	bool keepDecoding();
-
-	int read(uint8_t *buf, int size);
-	static int acReadCallback(void *me, uint8_t *buf, int size);
-
-protected:
-	InitializationCallback                m_initializationCallback;
-	ChunkDecodedCallback                  m_chunkDecodedCallback;
-
-	RefPtr<Acinerella::AcinerellaPointer> m_acinerella;
-	uint32_t                              m_audioDecoderMask = 0;
-	uint32_t                              m_videoDecoderMask = 0;
-	MediaSourceBufferPrivateMorphOS      *m_source;
-	MediaSamplesList                      m_samples;
-
-    RefPtr<Thread>                        m_thread;
-    MessageQueue<Function<void ()>>       m_queue;
-	BinarySemaphore                       m_event;
-	Lock                                  m_lock;
-	bool                                  m_terminating = false;
-
-	Vector<unsigned char>                 m_buffer;
-	Vector<unsigned char>                 m_leftOver;
-	int                                   m_bufferPosition = 0;
-	bool                                  m_bufferEOF = false;
-	bool                                  m_readEOF = false;
-	double                                m_highestPTS = 0.0;
-
-	int                                   m_decodeCount = 0;
-	int                                   m_decodeAppendCount = 0;
-	int                                   m_numDecoders = 0;
-	bool                                  m_signalComplete = true;
-	
-	BPTR                                  m_debugFile = 0;
-};
-
-class MediaSourceBufferPrivateMorphOS final : public SourceBufferPrivate, public Acinerella::AcinerellaDecoderClient {
+class MediaSourceBufferPrivateMorphOS final : public SourceBufferPrivate, public Acinerella::AcinerellaDecoderClient, public MediaSourceChunkReaderTrackFactory {
 public:
     static Ref<MediaSourceBufferPrivateMorphOS> create(MediaSourcePrivateMorphOS*);
     virtual ~MediaSourceBufferPrivateMorphOS();
@@ -157,25 +89,23 @@ private:
     void notifyClientWhenReadyForMoreSamples(TrackID)  override;
     bool canSetMinimumUpcomingPresentationTime(TrackID) const override;
 
-//	bool isActive() const override { return m_isActive; }
 	bool isSeeking() const override;
 	bool isSeekingInternal() const { return m_seeking; }
-//	MediaTime currentMediaTime() const override;
-//	MediaTime duration() const override;
 
 	void flush();
 	void becomeReadyForMoreSamples(int decoderIndex);
 
-//    MediaPlayer::ReadyState readyState() const override;
-//    void setReadyState(MediaPlayer::ReadyState) override;
-
-	void initialize(bool success, WebCore::SourceBufferPrivateClient::InitializationSegment& segment, MediaPlayerMorphOSInfo& info);
-	void reinitialize(bool success, WebCore::SourceBufferPrivateClient::InitializationSegment& segment, MediaPlayerMorphOSInfo& info);
-	void appendComplete(bool success);
+    enum class InitializeMode { First, Next };
+    bool initialize(InitializeMode mode);
+    bool appendComplete();
+    bool createDecoders();
 
 	void threadEntryPoint();
 	void dispatch(Function<void ()>&& function);
 	void performTerminate();
+
+    RefPtr<VideoTrackPrivateMorphOS> videoTrack(int index) const;
+    RefPtr<AudioTrackPrivateMorphOS> audioTrack(int index) const;
 
 	// AcinerellaDecoderClient
 	const WebCore::MediaPlayerMorphOSStreamSettings& streamSettings() override;
@@ -199,6 +129,7 @@ private:
 	RefPtr<Acinerella::AcinerellaDecoder>         m_decoders[Acinerella::AcinerellaMuxedBuffer::maxDecoders];
 	RefPtr<Acinerella::AcinerellaDecoder>         m_paintingDecoder;
 	bool                                          m_decodersStarved[Acinerella::AcinerellaMuxedBuffer::maxDecoders];
+    bool                                          m_enabled[Acinerella::AcinerellaMuxedBuffer::maxDecoders];
 	uint32_t                                      m_maxBuffer[Acinerella::AcinerellaMuxedBuffer::maxDecoders];
 	int                                           m_numDecoders = 0;
     std::optional<MediaPromise::Producer>         m_appendPromise;
@@ -209,6 +140,7 @@ private:
 	Lock                                          m_lock;
 
     Vector<unsigned char>                         m_initializationBuffer;
+    bool                                          m_didReceiveFirstInitializationBuffer = false;
 
 	uint32_t                                      m_audioDecoderMask = 0;
 	bool                                          m_enableVideo = false;
@@ -222,7 +154,6 @@ private:
     MediaTime                                     m_durationAtAppend = MediaTime::invalidTime();
 
 	MediaPlayerMorphOSInfo                        m_info;
-    WebCore::SourceBufferPrivateClient::InitializationSegment m_segment;
 	bool                                          m_metaInitDone = false;
 
 	bool                                          m_readyForMoreSamples = true;

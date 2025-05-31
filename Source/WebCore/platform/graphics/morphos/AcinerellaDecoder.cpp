@@ -7,12 +7,12 @@
 #include "MediaPlayerMorphOS.h"
 #include <proto/exec.h>
 
-#define D(x) 
-#define DNF(x) // if (!isAudio()) {x;}
+#define D(x) //x
+#define DNF(x) //if (!isAudio()) {x;}
 #define DI(x)
 #define DBF(x)
 #define DPOS(x)
-#define DLIFETIME(x)
+#define DLIFETIME(x) x
 
 // #pragma GCC optimize ("O0")
 

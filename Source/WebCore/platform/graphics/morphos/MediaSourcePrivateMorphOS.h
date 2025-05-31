@@ -107,8 +107,8 @@ protected:
 private:
 	ThreadSafeWeakPtr<MediaPlayerPrivateMorphOS>     m_player;
     String                                           m_url;
-	HashSet<RefPtr<MediaSourceBufferPrivateMorphOS>> m_sourceBuffers;
-	HashSet<RefPtr<MediaSourceBufferPrivateMorphOS>> m_activeSourceBuffers;
+	HashSet<Ref<MediaSourceBufferPrivateMorphOS>>    m_sourceBuffers;
+	HashSet<Ref<MediaSourceBufferPrivateMorphOS>>    m_activeSourceBuffers;
 	RefPtr<MediaSourceBufferPrivateMorphOS>          m_paintingBuffer;
 	MediaPlayer::ReadyState                          m_readyState = MediaPlayer::ReadyState::HaveNothing;
 	RunLoop::Timer                                   m_watchdogTimer;

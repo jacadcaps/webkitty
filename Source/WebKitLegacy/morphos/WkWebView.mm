@@ -1613,7 +1613,8 @@ namespace  {
 	[self callOverlayCallback];
 
 	// Workaround some positioning issues
-	[[OBRunLoop mainRunLoop] performSelector:@selector(callOverlayCallback) target:self];
+    [OBScheduledTimer scheduledTimerWithInterval:.2 perform:[OBPerform performSelector:@selector(callOverlayCallback) target:self] repeats:NO];
+	//[[OBRunLoop mainRunLoop] performSelector:@selector(callOverlayCallback) target:self];
 }
 
 - (BOOL)supportsMediaType:(WebViewDelegate::mediaType) type

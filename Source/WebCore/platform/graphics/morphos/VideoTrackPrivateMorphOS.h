@@ -3,11 +3,12 @@
 #if ENABLE(VIDEO)
 
 #include "VideoTrackPrivate.h"
-#include "MediaPlayerPrivateMorphOS.h"
-#include "MediaSourceBufferPrivateMorphOS.h"
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
+
+class MediaPlayerPrivateMorphOS;
+class MediaSourceBufferPrivateMorphOS;
 
 class VideoTrackPrivateMorphOS : public VideoTrackPrivate
 {

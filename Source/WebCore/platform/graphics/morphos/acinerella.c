@@ -1348,17 +1348,26 @@ double CALL_CONVT ac_get_package_pts(lp_ac_instance pacInstance, lp_ac_package p
 	lp_ac_package_data self = (lp_ac_package_data)pPackage;
 	if (pPackage == ac_flush_packet())
 		return 0.0;
+    if (AV_NOPTS_VALUE == self->pPack->dts)
+        return 0.0;
 	AVRational tb = ((lp_ac_data)pacInstance)->pFormatCtx->streams[self->pPack->stream_index]->time_base;
-	return ((double)self->pPack->pts) / tb.den;
+	double out = ((double)self->pPack->pts) / tb.den;
+    if (out > 0)
+        return out;
+    return 0;
 }
 
 double CALL_CONVT ac_get_package_dts(lp_ac_instance pacInstance, lp_ac_package pPackage) {
 	lp_ac_package_data self = (lp_ac_package_data)pPackage;
 	if (pPackage == ac_flush_packet())
 		return 0.0;
-
+    if (AV_NOPTS_VALUE == self->pPack->dts)
+        return 0.0;
 	AVRational tb = ((lp_ac_data)pacInstance)->pFormatCtx->streams[self->pPack->stream_index]->time_base;
-	return ((double)self->pPack->dts) / tb.den;
+	double out = ((double)self->pPack->dts) / tb.den;
+    if (out > 0)
+        return out;
+    return 0;
 }
 
 double CALL_CONVT ac_get_package_duration(lp_ac_instance pacInstance, lp_ac_package pPackage) {

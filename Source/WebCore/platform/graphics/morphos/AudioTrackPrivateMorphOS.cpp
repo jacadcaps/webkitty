@@ -1,6 +1,7 @@
 #include "config.h"
 
 #include "AudioTrackPrivateMorphOS.h"
+#include "MediaPlayerPrivateMorphOS.h"
 
 #define D(x) 
 

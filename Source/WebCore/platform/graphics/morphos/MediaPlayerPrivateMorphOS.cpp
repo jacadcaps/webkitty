@@ -22,7 +22,8 @@
 #define D(x) 
 #define DM(x)
 #define DMHOST(x) 
-#define DSEEK(x) 
+#define DSEEK(x)
+#define DFRAMES(x) x
 
 namespace WebCore {
 
@@ -657,6 +658,7 @@ void MediaPlayerPrivateMorphOS::paint(GraphicsContext& gc, const FloatRect& rect
 
 void MediaPlayerPrivateMorphOS::accNextFrameReady()
 {
+    DFRAMES(dprintf("[MS]%s diddraw %d\n", __func__, m_didDrawFrame));
 	if (!m_didDrawFrame)
 	{
         RefPtr player = m_player.get();
@@ -693,6 +695,7 @@ void MediaPlayerPrivateMorphOS::accNextFrameReady()
 
 void MediaPlayerPrivateMorphOS::accNoFramesReady()
 {
+    DFRAMES(dprintf("[MS]%s\n", __func__));
 	// TODO: overlay shutdown?
 	m_didDrawFrame = false;
     RefPtr player = m_player.get();
@@ -702,6 +705,7 @@ void MediaPlayerPrivateMorphOS::accNoFramesReady()
 
 void MediaPlayerPrivateMorphOS::accSetVideoSize(int width, int height)
 {
+    DFRAMES(dprintf("[MS]%s\n", __func__));
 	m_width = width;
 	m_height = height;
     RefPtr player = m_player.get();
@@ -711,6 +715,7 @@ void MediaPlayerPrivateMorphOS::accSetVideoSize(int width, int height)
 
 void MediaPlayerPrivateMorphOS::accFrameUpdateNeeded() 
 {
+    DFRAMES(dprintf("[MS]%s\n", __func__));
     RefPtr player = m_player.get();
 	if (MediaPlayerMorphOSSettings::settings().m_overlayUpdate && player)
 		MediaPlayerMorphOSSettings::settings().m_overlayUpdate(player.get());

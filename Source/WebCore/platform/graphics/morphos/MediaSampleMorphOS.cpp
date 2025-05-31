@@ -2,9 +2,11 @@
 #include "MediaSampleMorphOS.h"
 #include "acinerella.h"
 
+#include <proto/exec.h>
+
 #if ENABLE(VIDEO)
 
-#define D(x) 
+#define D(x)
 
 namespace WebCore {
 
