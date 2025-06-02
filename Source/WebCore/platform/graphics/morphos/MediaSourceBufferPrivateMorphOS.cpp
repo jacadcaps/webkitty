@@ -20,20 +20,20 @@
 #include <proto/dos.h>
 #include <proto/exec.h>
 
-#define D(x)
+#define D(x) x
 #define DR(x) //do { if (m_audioDecoderMask != 0) x; } while (0);
 #define DIO(x) //do { if (m_audioDecoderMask != 0) x; } while (0);
 #define DM(x)
 #define DI(x)
-#define DN 1
-#define DNVIDEOONLY 1
-#define DNERR(x) x
-#define DAPPEND(x) // do { if (m_audioDecoderMask != 0) x; } while (0);
+#define DN 0
+#define DNVIDEOONLY 0
+#define DNERR(x)
+#define DAPPEND(x) x// do { if (m_audioDecoderMask != 0) x; } while (0);
 #define DBR(x)
 #define DRMS(x)
-#define DENABLED(x) x
+#define DENABLED(x)
 #define DLIFETIME(x)
-#define DSEEK(x) x
+#define DSEEK(x)
 #define DENQ(x) // do { if (m_audioDecoderMask != 0) x; } while (0);
 #define DRECEIVED(x) // do { if (m_audioDecoderMask != 0) x; } while (0);
 #define DENQDEBUGSTEPS 20
@@ -111,103 +111,6 @@ Ref<MediaPromise> MediaSourceBufferPrivateMorphOS::appendInternal(Ref<SharedBuff
     });
 
     return *m_appendPromise;
-
-#if 0
-	if (m_initializationBuffer.size() == 0 || isInitializationSegment(buffer))
-	{
-        m_didReceiveFirstInitializationBuffer = true;
-        m_initializationBuffer.resize(buffer->size());
-        if (m_initializationBuffer.size() == buffer->size())
-        {
-            buffer->copyTo(m_initializationBuffer.mutableSpan());
-        }
-	}
-	else
-	{
-		Vector<unsigned char> merged;
-		merged.reserveCapacity(m_initializationBuffer.size() + buffer->size());
-		merged.append(m_initializationBuffer.span());
-        merged.resize(m_initializationBuffer.size() + buffer->size());
-        unsigned char *dest = merged.mutableSpan().data();
-        dest += m_initializationBuffer.size();
-        buffer->copyTo(std::span(dest, buffer->size()));
-
-        m_reader = MediaSourceChunkReader::create(this,
-            [this](bool success, WebCore::SourceBufferPrivateClient::InitializationSegment& segment, MediaPlayerMorphOSInfo& info){
-                initialize(success, segment, info);
-            },
-            [this](bool success){
-                WTF::callOnMainThread([success, this, protect = Ref{*this}]() {
-                    appendComplete(success);
-                });
-            }
-        );
-
-		m_reader->decode(WTFMove(merged));
-		m_appendCount ++;
-        return *m_appendPromise;
-	}
-
-    RefPtr mediaSource = m_mediaSource.get();
-    if (!mediaSource)
-        return *m_appendPromise;
-
-    // youtube is a mess: we have to try and guess whether the stream is a live and only do ac_is_initialization_segment checks
-    // if it is not... and we only need those because youtube will randomly feed us data from different streams in order to
-    // change media quality (instead of doing this correctly...)
-    if (m_appendCount > 2 && !m_durationAtAppend.isValid())
-        m_durationAtAppend = mediaSource->duration();
-
-    if (m_appendCount > 3 && !m_isLive && mediaSource)
-    {
-        unsigned char tmp[1024];
-        buffer->copyTo(tmp, std::min(size_t(1024), buffer->size()));
-        int is_initialization = ac_is_initialization_segment(tmp, std::min(size_t(1024), buffer->size()), nullptr, 1);
-        DAPPEND(dprintf("[MS][%c]%s: %p appended chunk is initialization segment score %d; duration %f oldduration %f\n", m_audioDecoderMask == 0 ?'V':'A', __func__, this, is_initialization, mediaSource->duration().toFloat(), m_durationAtAppend.toFloat()));
-
-        if (mediaSource->duration() > m_durationAtAppend)
-        {
-            DAPPEND(dprintf("[MS][%c]%s: %p determined this is a live!\n", m_audioDecoderMask == 0 ?'V':'A', __func__, this));
-            m_isLive = true;
-            is_initialization = 0;
-        }
-
-        if (is_initialization == 1)
-        {
-            m_appendCompleteCount = 0;
-            m_appendCount = 0;
-            m_mustAppendInitializationSegment = false;
-
-            m_reader->signalEOF();
-            m_reader->terminate();
-            m_reader = MediaSourceChunkReader::create(this,
-                [this](bool success, WebCore::SourceBufferPrivateClient::InitializationSegment& segment, MediaPlayerMorphOSInfo& info) {
-                    reinitialize(success, segment, info);
-                },
-                [this](bool success) {
-                    appendComplete(success);
-                }
-            );
-            
-            m_initializationBuffer.resize(buffer->size());
-            if (m_initializationBuffer.size() == buffer->size())
-            {
-                buffer->copyTo(m_initializationBuffer.mutableSpan());
-            }
-        }
-    }
-
-    Vector<unsigned char> vector;
-    vector.resize(buffer->size());
-    if (vector.size() == buffer->size())
-    {
-        buffer->copyTo(vector.mutableSpan());
-        m_reader->decode(WTFMove(vector));
-    }
-	m_appendCount ++;
-
-    return *m_appendPromise;
-#endif
 }
 
 bool MediaSourceBufferPrivateMorphOS::appendComplete()
@@ -309,11 +212,6 @@ void MediaSourceBufferPrivateMorphOS::seekToTime(const MediaTime&mt)
 bool MediaSourceBufferPrivateMorphOS::isSeeking() const
 {
     return m_seeking;
-}
-
-void MediaSourceBufferPrivateMorphOS::signalEOF()
-{
-// ?
 }
 
 void MediaSourceBufferPrivateMorphOS::setVolume(double vol)
@@ -916,7 +814,6 @@ void MediaSourceBufferPrivateMorphOS::onDecoderEnded(RefPtr<Acinerella::Acinerel
 {
 	WTF::callOnMainThread([this, protect = Ref{*this}, decoder]() {
         RefPtr mediaSource = m_mediaSource.get();
-        if (mediaSource)
 		if (mediaSource && !m_terminating)
 		{
 			RefPtr<MediaSourceBufferPrivateMorphOS> me = Ref{*this};
@@ -949,6 +846,15 @@ void MediaSourceBufferPrivateMorphOS::setAudioPresentationTime(double apts)
 	{
 		Acinerella::AcinerellaVideoDecoder *decoder = static_cast<Acinerella::AcinerellaVideoDecoder *>(m_paintingDecoder.get());
 		decoder->setAudioPresentationTime(apts);
+	}
+}
+
+void MediaSourceBufferPrivateMorphOS::clearAudioPresentationTime()
+{
+	if (!!m_paintingDecoder)
+	{
+		Acinerella::AcinerellaVideoDecoder *decoder = static_cast<Acinerella::AcinerellaVideoDecoder *>(m_paintingDecoder.get());
+		decoder->clearAudioPresentationTime();
 	}
 }
 

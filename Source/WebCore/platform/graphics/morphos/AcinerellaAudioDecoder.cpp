@@ -571,11 +571,11 @@ void AcinerellaAudioDecoder::ahiThreadEntryPoint()
                     playing = false;
 
                     dispatch([this, protectedThis(Ref{*this})]() {
-                        stopPlaying();
+//                        stopPlaying();
                         if (!m_ahiThreadShuttingDown)
                         {
-                            m_position = m_duration;
-                            onPositionChanged();
+//                            m_position = m_duration;
+//                            onPositionChanged();
                             onEnded();
                         }
                     });

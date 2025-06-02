@@ -13,14 +13,14 @@
 
 #define D(x)
 #define DLIFETIME(x)
-#define DDUMP(x) x
+#define DDUMP(x)
 #define DSEEK(x) 
-#define DEOS(x)
-#define DPLAY(x) x
+#define DEOS(x) x
+#define DPLAY(x)
 #define DBUFFER(x)
-#define DSOURCE(x) x
+#define DSOURCE(x)
 #define DRS(x)
-#define DOVL(x) x
+#define DOVL(x) 
 // #pragma GCC optimize ("O0")
 
 namespace WebCore {
@@ -245,31 +245,35 @@ void MediaSourcePrivateMorphOS::watchdogTimerFired()
         player->accSetFrameCounts(decoded, dropped);
     }
 
-	if (!m_paused && !m_seeking)
-	{
-		bool allPlaying = true;
-		bool allReady = true;
+    if (!m_paused && !m_seeking)
+    {
+        bool allPlaying = true;
+        bool allReady = true;
+        bool ending = false;
 
-		for (auto& sourceBufferPrivate : m_activeSourceBuffers)
-		{
-			if (!sourceBufferPrivate->areDecodersPlaying())
-				allPlaying = false;
+        for (auto& sourceBufferPrivate : m_activeSourceBuffers)
+        {
+            if (sourceBufferPrivate->isEnded())
+                ending = true;
 
-			if (!sourceBufferPrivate->areDecodersReadyToPlay())
-			{
-				allReady = false;
-				break;
-			}
-		}
-		
-		if (allReady && !allPlaying)
-		{
-			for (auto& sourceBufferPrivate : m_activeSourceBuffers)
-			{
-				sourceBufferPrivate->play();
-			}
-		}
-	}
+            if (!sourceBufferPrivate->areDecodersPlaying())
+                allPlaying = false;
+
+            if (!sourceBufferPrivate->areDecodersReadyToPlay())
+            {
+                allReady = false;
+                break;
+            }
+        }
+        
+        if (allReady && !allPlaying && !ending)
+        {
+            for (auto& sourceBufferPrivate : m_activeSourceBuffers)
+            {
+                sourceBufferPrivate->play();
+            }
+        }
+    }
 
 	m_watchdogTimer.startOneShot(Seconds(0.5));
 }
@@ -282,6 +286,9 @@ void MediaSourcePrivateMorphOS::orphan()
 	m_player = nullptr;
     m_seekingWatchdogTimer.stop();
     m_watchdogTimer.stop();
+
+    for (auto& sourceBufferPrivate : m_sourceBuffers)
+        sourceBufferPrivate->clearMediaSource();
 }
 
 void MediaSourcePrivateMorphOS::warmUp()
@@ -556,6 +563,20 @@ void MediaSourcePrivateMorphOS::onVideoSourceBufferUpdatedPosition(RefPtr<MediaS
 			m_seeking = false;
 		}
 	}
+    else
+    {
+        bool othersEnded = true;
+        for (auto& sourceBufferPrivate : m_activeSourceBuffers)
+        {
+            if (&sourceBufferPrivate.get() != buffer.get() && !sourceBufferPrivate->isEnded())
+            {
+                othersEnded = false;
+                break;
+            }
+        }
+        if (othersEnded)
+            m_position = position;
+    }
 }
 
 bool MediaSourcePrivateMorphOS::areDecodersReadyToPlay()
@@ -620,15 +641,17 @@ void MediaSourcePrivateMorphOS::onSourceBufferDidChangeActiveState(RefPtr<MediaS
     }
 }
 
-void MediaSourcePrivateMorphOS::onSourceBufferEnded(RefPtr<MediaSourceBufferPrivateMorphOS>&)
+void MediaSourcePrivateMorphOS::onSourceBufferEnded(RefPtr<MediaSourceBufferPrivateMorphOS>& buffer)
 {
 	DEOS(dprintf("[MS]%s: input data ended? %d paused %d\n", __func__, m_ended, m_paused));
 	if (m_ended)
 	{
         bool allEnded = true;
+        bool paintingEnded = m_paintingBuffer == buffer;
+
         for (auto& sourceBufferPrivate : m_activeSourceBuffers)
         {
-            DEOS(dprintf("[MS]%s: source %p is ended %d\n", __func__, sourceBufferPrivate.get(), sourceBufferPrivate->isEnded()));
+            DEOS(dprintf("[MS]%s: source is ended %d\n", __func__, sourceBufferPrivate->isEnded()));
 
             if (!sourceBufferPrivate->isEnded())
             {
@@ -645,6 +668,10 @@ void MediaSourcePrivateMorphOS::onSourceBufferEnded(RefPtr<MediaSourceBufferPriv
             if (!player)
                 return;
             player->accEnded();
+        }
+        else if (!paintingEnded && !!m_paintingBuffer)
+        {
+            m_paintingBuffer->clearAudioPresentationTime();  // don't try to sync to audio anymore
         }
 	}
 }

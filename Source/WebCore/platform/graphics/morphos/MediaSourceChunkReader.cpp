@@ -29,10 +29,10 @@
 #define DM(x)
 #define DSAMPLES(x)
 #define DINIT(x)
-#define DNERR(x) 
-#define DN 1
+#define DNERR(x)
+#define DN 0
 #define DNVIDEOONLY 0
-#define DPROVIDER(x)
+#define DPROVIDER(x) 
 
 // #pragma GCC optimize ("O0")
 // #define DEBUG_FILE
@@ -271,18 +271,19 @@ Ref<MediaSourceChunkReader::DecodePromise> MediaSourceChunkReader::decodeAsync(R
                 m_numStreamInfo = std::min(tracks, int(Acinerella::AcinerellaMuxedBuffer::maxDecoders));
                 memcpy(m_streamInfo, streamInfo, m_numStreamInfo * sizeof(ac_initialization_segment_stream));
                 updateMetadata();
-                m_dataProvider.push(WTFMove(buffer), MediaSourceChunkReaderDataProvider::ChunkType::ReInitialization);
-                decodeAllMediaSamples(); // pull all the pending data until previous acinerella gets an EOF
-                return MediaSourceChunkReader::DecodePromise::createAndResolve(DecodeResult::Reinitialize);
+                if (m_acinerella)
+                {
+                    m_dataProvider.push(WTFMove(buffer), MediaSourceChunkReaderDataProvider::ChunkType::ReInitialization);
+                    decodeAllMediaSamples(); // pull all the pending data until previous acinerella gets an EOF
+                    return MediaSourceChunkReader::DecodePromise::createAndResolve(DecodeResult::Reinitialize);
+                }
             }
-            else
-            {
-                DSAMPLES(dprintf("%s: received buffer size %ld\n", __PRETTY_FUNCTION__, buffer->size()));
-                m_dataProvider.push(WTFMove(buffer));
-                if (initialize() && decodeAllMediaSamples())
-                    return MediaSourceChunkReader::DecodePromise::createAndResolve(DecodeResult::Samples);
-                return MediaSourceChunkReader::DecodePromise::createAndReject();
-            }
+
+            DSAMPLES(dprintf("%s: received buffer size %ld\n", __PRETTY_FUNCTION__, buffer->size()));
+            m_dataProvider.push(WTFMove(buffer));
+            if (initialize() && decodeAllMediaSamples())
+                return MediaSourceChunkReader::DecodePromise::createAndResolve(DecodeResult::Samples);
+            return MediaSourceChunkReader::DecodePromise::createAndReject();
         }
     });
 }
@@ -391,41 +392,38 @@ bool MediaSourceChunkReader::initialize()
 
 void MediaSourceChunkReader::updateMetadata()
 {
-	auto metaCinerella = m_acinerella;
     double duration = 0;
     m_info.m_width = 0;
     m_info.m_isLive = false;
     m_info.m_channels = 0;
     m_info.m_isDownloadable = false;
 
-    for (int i = 0; i < std::min(Acinerella::AcinerellaMuxedBuffer::maxDecoders, metaCinerella->instance()->stream_count); i++)
+    for (int i = 0; i < m_numStreamInfo; i++)
     {
-        ac_stream_info info;
-        ac_get_stream_info(metaCinerella->instance(), i, &info);
+        ac_initialization_segment_stream& info = m_streamInfo[i];
+        duration = std::max(duration, info.duration/1000.0);
 
         DM(dprintf("%s: index %d st %d\n", __func__, i, info.stream_type));
 
-        switch (info.stream_type)
+        switch (info.type)
         {
         case AC_STREAM_TYPE_VIDEO:
             {
-                duration = std::max(duration, std::max(double(ac_get_stream_duration(metaCinerella->instance(), i)), double(metaCinerella->instance()->info.duration)/1000.0));
-                DM(dprintf("%s: video %d %f codec %s\n", __func__, i, float(duration), ac_codec_name(metaCinerella->instance(), i)));
-                m_info.m_width = info.additional_info.video_info.frame_width;
-                m_info.m_height = info.additional_info.video_info.frame_height;
-                m_info.m_videoCodec = String::fromUTF8(ac_codec_name(metaCinerella->instance(), i));
-                m_info.m_bitRate = metaCinerella->instance()->info.bitrate;
+                DM(dprintf("%s: video %d %f codec %s\n", __func__, i, float(duration), info.codecName));
+                m_info.m_width = info.typeData.video.width;
+                m_info.m_height = info.typeData.video.height;
+                m_info.m_videoCodec = String::fromUTF8(info.codecName);
+                m_info.m_bitRate = info.bitrate;
             }
             break;
             
         case AC_STREAM_TYPE_AUDIO:
             {
-                duration = std::max(duration, std::max(double(ac_get_stream_duration(metaCinerella->instance(), i)), double(metaCinerella->instance()->info.duration)/1000.0));
-                DM(dprintf("%s: audio %d %f codec %s\n", __func__, i, float(duration), ac_codec_name(metaCinerella->instance(), i)));
-                m_info.m_channels = info.additional_info.audio_info.channel_count;
-                m_info.m_frequency = info.additional_info.audio_info.samples_per_second;
-                m_info.m_bits = info.additional_info.audio_info.bit_depth;
-                m_info.m_audioCodec = String::fromUTF8(ac_codec_name(metaCinerella->instance(), i));
+                DM(dprintf("%s: audio %d %f codec %s\n", __func__, i, float(duration), info.codecName));
+                m_info.m_channels = info.typeData.audio.channels;
+                m_info.m_frequency = info.typeData.audio.frequency;
+                m_info.m_bits = info.typeData.audio.bits;
+                m_info.m_audioCodec = String::fromUTF8(info.codecName);
             }
             break;
 

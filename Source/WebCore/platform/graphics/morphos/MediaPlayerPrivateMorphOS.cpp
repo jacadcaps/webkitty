@@ -19,11 +19,11 @@
 #include <proto/exec.h>
 #include <exec/exec.h>
 
-#define D(x) 
+#define D(x) x
 #define DM(x)
 #define DMHOST(x) 
 #define DSEEK(x)
-#define DFRAMES(x) x
+#define DFRAMES(x) 
 
 namespace WebCore {
 
@@ -320,15 +320,24 @@ void MediaPlayerPrivateMorphOS::load(const String& url)
 
 	cancelLoad();
 
-	if (startsWithLettersIgnoringASCIICase(url, "about:"_s))
-		return;
-
-	if (!canLoad(false))
-		return;
-
     RefPtr player = m_player.get();
     if (!player)
         return;
+
+    // note dailymotion first starts off with a blob, then sends a data: url...
+	if (startsWithLettersIgnoringASCIICase(url, "about:"_s) || startsWithLettersIgnoringASCIICase(url, "blob:"_s) || startsWithLettersIgnoringASCIICase(url, "data:"_s))
+    {
+        m_networkState = MediaPlayer::NetworkState::FormatError;
+        player->networkStateChanged();
+		return;
+    }
+
+	if (!canLoad(false))
+    {
+        m_networkState = MediaPlayer::NetworkState::FormatError;
+        player->networkStateChanged();
+		return;
+    }
 
 	m_networkState = MediaPlayer::NetworkState::Loading;
 	player->networkStateChanged();
@@ -344,15 +353,24 @@ void MediaPlayerPrivateMorphOS::load(const URL& url, const LoadOptions&, MediaSo
 	D(dprintf("%s: %s\n", __PRETTY_FUNCTION__, url.string().utf8().data()));
 	cancelLoad();
 
-	if (startsWithLettersIgnoringASCIICase(url.string(), "about:"_s))
-		return;
-		
-	if (!canLoad(true))
-		return;
-
     RefPtr player = m_player.get();
     if (!player)
         return;
+
+	if (startsWithLettersIgnoringASCIICase(url.string(), "about:"_s))
+    {
+        m_networkState = MediaPlayer::NetworkState::FormatError;
+        player->networkStateChanged();
+		return;
+    }
+		
+	if (!canLoad(true))
+    {
+        m_networkState = MediaPlayer::NetworkState::FormatError;
+        player->networkStateChanged();
+		return;
+    }
+
 
 	m_networkState = MediaPlayer::NetworkState::Loading;
 	player->networkStateChanged();
@@ -374,7 +392,7 @@ bool MediaPlayerPrivateMorphOS::canLoad(bool isMediaSource)
 		host = doc->url().host().toString();
 	}
 
-	D(dprintf("%s: page %p doc %p host %s\n", __PRETTY_FUNCTION__, page, doc, host.utf8().data()));
+	D(dprintf("%s: page %p doc %p host %s mse %d\n", __PRETTY_FUNCTION__, page, doc, host.utf8().data(), isMediaSource));
 
 	bool ok = false;
 
@@ -394,6 +412,7 @@ bool MediaPlayerPrivateMorphOS::canLoad(bool isMediaSource)
 
 	if (!ok)
 	{
+        D(dprintf("%s: not OK to load :(\n", __PRETTY_FUNCTION__));
 		m_networkState = WebCore::MediaPlayerEnums::NetworkState::FormatError;
 		m_readyState = WebCore::MediaPlayerEnums::ReadyState::HaveNothing;
         RefPtr player = m_player.get();
@@ -440,6 +459,12 @@ void MediaPlayerPrivateMorphOS::prepareToPlay()
 
 	if (m_acinerella && m_acInitialized)
 		m_acinerella->warmUp();
+}
+
+void MediaPlayerPrivateMorphOS::mediaPlayerWillBeDestroyed()
+{
+	D(dprintf("%s:\n", __PRETTY_FUNCTION__));
+    cancelLoad();
 }
 
 bool MediaPlayerPrivateMorphOS::canSaveMediaData() const
@@ -930,6 +955,7 @@ void MediaPlayerPrivateMorphOS::accSetDuration(double dur)
 
 void MediaPlayerPrivateMorphOS::accEnded()
 {
+    D(dprintf("%s: ended\n", __func__));
 	m_currentTime = m_duration;
     m_buffered = PlatformTimeRanges(MediaTime::createWithDouble(std::max(0.0, m_currentTime.toDouble() - 1.0 )),
 		MediaTime::createWithDouble(m_currentTime.toDouble()));

@@ -45,6 +45,7 @@ public:
 	int frameHeight() const { return m_frameHeight; }
 	
 	void setAudioPresentationTime(double apts);
+	void clearAudioPresentationTime();
 	void setCanDropKeyFrames(bool canDropKeyFrames) { m_canDropKeyFrames = canDropKeyFrames; }
 
 	void dumpStatus() override;

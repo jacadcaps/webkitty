@@ -47,6 +47,7 @@ public:
 	void load(MediaStreamPrivate&) final { };
 #endif
     void cancelLoad() final;
+    void mediaPlayerWillBeDestroyed() final;
     void prepareToPlay() final;
     bool canSaveMediaData() const final;
     bool canLoad(bool isMediaSource);

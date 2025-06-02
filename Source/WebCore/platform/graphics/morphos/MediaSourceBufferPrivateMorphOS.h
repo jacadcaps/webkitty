@@ -50,7 +50,6 @@ public:
 
 	void willSeek(double seekTo);
 	void seekToTime(const MediaTime&) override;
-	void signalEOF();
     bool isEnded() const { return m_ended; }
 
     void setVolume(double vol);
@@ -62,6 +61,7 @@ public:
 	void setOverlayWindowCoords(struct ::Window *w, int scrollx, int scrolly, int mleft, int mtop, int mright, int mbottom, int width, int height);
 
 	void setAudioPresentationTime(double apts);
+    void clearAudioPresentationTime();
 	bool areDecodersReadyToPlay();
 	bool areDecodersPlaying();
 	float decodersBufferedTime();

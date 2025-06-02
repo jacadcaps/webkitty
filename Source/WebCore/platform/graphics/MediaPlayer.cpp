@@ -521,6 +521,10 @@ MediaPlayer::~MediaPlayer()
 void MediaPlayer::invalidate()
 {
     m_client = nullMediaPlayerClient();
+#if OS(MORPHOS)
+    if (m_private)
+        m_private->cancelLoad(); // force cleanup - some sites will heavily leak otherwise
+#endif
 }
 
 bool MediaPlayer::load(const URL& url, const LoadOptions& options)

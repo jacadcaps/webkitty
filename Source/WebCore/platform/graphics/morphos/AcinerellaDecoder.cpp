@@ -12,7 +12,7 @@
 #define DI(x)
 #define DBF(x)
 #define DPOS(x)
-#define DLIFETIME(x) x
+#define DLIFETIME(x) 
 
 // #pragma GCC optimize ("O0")
 

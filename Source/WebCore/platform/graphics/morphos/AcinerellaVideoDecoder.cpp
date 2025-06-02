@@ -236,6 +236,16 @@ void AcinerellaVideoDecoder::setAudioPresentationTime(double apts)
     m_frameEvent.signal(); // abort a possible long sleep
 }
 
+void AcinerellaVideoDecoder::clearAudioPresentationTime()
+{
+	{
+		auto lock = Locker(m_audioLock);
+		m_hasAudioPosition = false;
+	}
+
+    m_frameEvent.signal(); // abort a possible long sleep
+}
+
 bool AcinerellaVideoDecoder::getAudioPresentationTime(double &time)
 {
 	auto lock = Locker(m_audioLock);
