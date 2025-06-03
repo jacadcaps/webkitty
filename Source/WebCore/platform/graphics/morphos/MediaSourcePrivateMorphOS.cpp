@@ -15,7 +15,7 @@
 #define DLIFETIME(x)
 #define DDUMP(x)
 #define DSEEK(x) 
-#define DEOS(x) x
+#define DEOS(x) 
 #define DPLAY(x)
 #define DBUFFER(x)
 #define DSOURCE(x)

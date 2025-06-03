@@ -19,7 +19,7 @@
 #include <proto/exec.h>
 #include <exec/exec.h>
 
-#define D(x) x
+#define D(x) 
 #define DM(x)
 #define DMHOST(x) 
 #define DSEEK(x)

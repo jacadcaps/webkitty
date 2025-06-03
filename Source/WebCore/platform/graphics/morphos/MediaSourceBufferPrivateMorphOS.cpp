@@ -20,7 +20,7 @@
 #include <proto/dos.h>
 #include <proto/exec.h>
 
-#define D(x) x
+#define D(x)
 #define DR(x) //do { if (m_audioDecoderMask != 0) x; } while (0);
 #define DIO(x) //do { if (m_audioDecoderMask != 0) x; } while (0);
 #define DM(x)
@@ -28,7 +28,7 @@
 #define DN 0
 #define DNVIDEOONLY 0
 #define DNERR(x)
-#define DAPPEND(x) x// do { if (m_audioDecoderMask != 0) x; } while (0);
+#define DAPPEND(x) // do { if (m_audioDecoderMask != 0) x; } while (0);
 #define DBR(x)
 #define DRMS(x)
 #define DENABLED(x)

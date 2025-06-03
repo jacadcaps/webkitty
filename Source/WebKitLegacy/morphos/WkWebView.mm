@@ -1606,7 +1606,7 @@ namespace  {
 	[_overlayTimer invalidate];
 	[_overlayTimer release];
 	if (element)
-		_overlayTimer = [[OBScheduledTimer scheduledTimerWithInterval:5.0 perform:[OBPerform performSelector:@selector(callOverlayCallback) target:self] repeats:YES] retain];
+		_overlayTimer = [[OBScheduledTimer scheduledTimerWithInterval:2.0 perform:[OBPerform performSelector:@selector(callOverlayCallback) target:self] repeats:YES] retain];
 	else
 		_overlayTimer = nil;
 

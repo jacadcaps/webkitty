@@ -22,7 +22,7 @@ namespace Acinerella {
 #define AHI_BASE_NAME m_ahiBase
 
 #define D(x)
-#define DTHREAD(x) 
+#define DTHREAD(x)
 #define DAAR(x)
 #define DFILL(x)
 #define DSPAM(x)
@@ -552,6 +552,7 @@ void AcinerellaAudioDecoder::ahiThreadEntryPoint()
     const ULONG mpSigBit = 1UL << requestA->sigBit();
     const ULONG comSigBit = 1UL << m_ahiThreadStateSignal;
     bool playing = false;
+    bool ended = false;
     double nextPositionToAnnounce = -1.0;
     double desiredPosition = -1.0;
 
@@ -568,17 +569,7 @@ void AcinerellaAudioDecoder::ahiThreadEntryPoint()
                 if (requestComplete->isEOF())
                 {
                     DTHREAD(dprintf("[AD]%s: ended!\n", __func__));
-                    playing = false;
-
-                    dispatch([this, protectedThis(Ref{*this})]() {
-//                        stopPlaying();
-                        if (!m_ahiThreadShuttingDown)
-                        {
-//                            m_position = m_duration;
-//                            onPositionChanged();
-                            onEnded();
-                        }
-                    });
+                    ended = true;
                 }
                 else
                 {
@@ -605,7 +596,16 @@ void AcinerellaAudioDecoder::ahiThreadEntryPoint()
                     }
                     else
                     {
+                        DTHREAD(dprintf("[AD]%s: fillbuffer failed, ended %d\n", __func__, ended));
                         playing = false;
+                        if (ended)
+                        {
+                            dispatch([this, protectedThis(Ref{*this})]() {
+                                stopPlaying();
+                                if (!m_ahiThreadShuttingDown)
+                                    onEnded();
+                            });
+                        }
                     }
                 }
             }
@@ -627,6 +627,7 @@ void AcinerellaAudioDecoder::ahiThreadEntryPoint()
             DTHREAD(dprintf("[AD]%s: >> playing\n", __func__));
             m_ahiThreadTransitionPlaying.store(false);
             playing = true;
+            ended = false;
             SetTaskPri(FindTask(0), 50);
 
             // if both are reporting they have data to play, 

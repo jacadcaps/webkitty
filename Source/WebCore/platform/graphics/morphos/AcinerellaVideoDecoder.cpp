@@ -48,6 +48,10 @@ AcinerellaVideoDecoder::AcinerellaVideoDecoder(AcinerellaDecoderClient* client, 
 {
 	m_fps = info.additional_info.video_info.frames_per_second;
 	m_frameDuration = 1.f / m_fps;
+    if (m_fps > 50)
+    {
+        m_otterFrames = true;
+    }
 	m_frameWidth = info.additional_info.video_info.frame_width;
 	m_frameHeight = info.additional_info.video_info.frame_height;
     m_ismjpeg = 0 == strcmp(ac_codec_name(acinerella->instance(), index), "mjpeg");
@@ -592,6 +596,9 @@ void AcinerellaVideoDecoder::pullThreadEntryPoint()
 
 				{
 					auto lock = Locker(m_lock);
+
+                    if (m_otterFrames && 1 == (m_frameCount & 1))
+                        dropFrame = true;
 
 					// Show previous frame
 					if (dropFrame)
