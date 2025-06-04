@@ -866,17 +866,31 @@ static bool ytFilters(const char *mainPageURL, const char *url)
     
     if (0 == strncmp(mainPageURL, "https://www.youtube.", 20))
     {
-        if (0 ==strcmp(url, "https://www.youtube.com/youtubei/v1/next?prettyPrint=false"))
-            return false;
-        if (0 == strcmp(url, "https://www.youtube.com/s/player/03dbdfab/player_ias.vflset/en_US/offline.js"))
-            return false;
-        if (0 == strcmp(url, "https://www.youtube.com/s/player/03dbdfab/player_ias.vflset/en_US/remote.js"))
-            return false;
+        static const char youtubei[] = "https://www.youtube.com/youtubei";
+        if (0 == strncmp(url, youtubei, sizeof(youtubei) - 1))
+        {
+            if (strstr(url + sizeof(youtubei) - 1, "/next")) {
+                return false;
+            }
+            if (strstr(url + sizeof(youtubei) - 1, "/ad_break")) {
+                return false;
+            }
+        }
+
+        static const char splayer[] = "https://www.youtube.com/s/player";
+        if (0 == strncmp(url, splayer, sizeof(splayer) - 1))
+        {
+            if (strstr(url + sizeof(splayer) - 1, "offline.js"))
+                return false;
+            if (strstr(url + sizeof(splayer) - 1, "remote.js"))
+                return false;
+            if (strstr(url + sizeof(splayer) - 1, "endscreen.js"))
+                return false;
+            if (strstr(url + sizeof(splayer) - 1, "annotations_module.js"))
+                return false;
+        }
+    
         if (0 == strcmp(url, "https://www.gstatic.com/external_hosted/lottie/lottie_light.js"))
-            return false;
-        if (0 == strcmp(url, "https://www.youtube.com/s/player/03dbdfab/player_ias.vflset/en_US/endscreen.js"))
-            return false;
-        if (0 == strcmp(url, "https://www.youtube.com/s/player/03dbdfab/player_ias.vflset/en_US/annotations_module.js"))
             return false;
     }
     
@@ -896,6 +910,12 @@ bool WebProcess::shouldAllowRequest(const char *url, const char *mainPageURL, We
 	if (LIKELY(page) && !page->adBlockingEnabled())
 		return true;
 
+	if (m_urlFilter.matches(url, ABP::FONoFilterOption, mainPageURL))
+	{
+        m_blockedRequests ++;
+		return false;
+	}
+
 #if YT_FILTERS
     if (!ytFilters(mainPageURL, url)) {
         D(dprintf("yt blocking %s\n", url));
@@ -903,11 +923,6 @@ bool WebProcess::shouldAllowRequest(const char *url, const char *mainPageURL, We
     }
 #endif
 
-	if (m_urlFilter.matches(url, ABP::FONoFilterOption, mainPageURL))
-	{
-        m_blockedRequests ++;
-		return false;
-	}
 #else
 	(void)url;
 	(void)mainPageURL;
