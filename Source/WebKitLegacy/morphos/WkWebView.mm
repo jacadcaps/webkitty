@@ -80,7 +80,8 @@ struct Library *FreetypeBase;
 extern "C" { void dprintf(const char *, ...); }
 extern "C" { void _oomCrash(); }
 
-#define D(x) 
+#define D(x)
+#define DMEDIA(x)
 
 // #define VALIDATE_ALLOCS 15.f
 #ifdef VALIDATE_ALLOCS
@@ -188,17 +189,20 @@ namespace  {
 {
 	if ((self = [super init]))
 	{
+        DMEDIA(dprintf("%s: %p\n", __PRETTY_FUNCTION__, self));
 		_yieldFunction = WTFMove(yield);
 		_url = [url retain];
 		_pageURL = [pageurl retain];
 		_playerRef = playerRef;
-		_info = info;
+        _info = info; // important
+		[self update:info];
 	}
 	return self;
 }
 
 - (void)update:(WebCore::MediaPlayerMorphOSInfo &)info
 {
+    DMEDIA(dprintf("%s: %p au %d vd %d\n", __PRETTY_FUNCTION__, self, _info.m_audioCodec.length(), _info.m_videoCodec.length()));
     if (_info.m_audioCodec.length() == 0 && _info.m_videoCodec.length() == 0)
     {
         _info = info;
@@ -271,12 +275,12 @@ namespace  {
 
 - (BOOL)hasAudio
 {
-	return _info.m_frequency != 0;
+	return _info.m_audioCodec.length() != 0;
 }
 
 - (BOOL)hasVideo
 {
-	return _info.m_width != 0;
+	return _info.m_videoCodec.length() != 0;
 }
 
 - (float)duration
@@ -441,10 +445,10 @@ namespace  {
 
 - (id<WkWebViewVideoTrack>)videoTrack
 {
-	if (_info.m_width)
+	if ([self hasVideo])
 	{
 		auto ucodec = _info.m_videoCodec.utf8();
-		return [[[WkWebViewVideoTrackPrivate alloc] initWithCodec:[OBString stringWithUTF8String:ucodec.data()] width:_info.m_width height:_info.m_height bitrate:_info.m_bitRate] autorelease];
+		return [[[WkWebViewVideoTrackPrivate alloc] initWithCodec:[OBString stringWithUTF8String:ucodec.data()] width:_info.m_width height:_info.m_height bitrate:_info.m_bitRate fps:_info.m_fps] autorelease];
 	}
 	
 	return nil;
@@ -452,7 +456,7 @@ namespace  {
 
 - (id<WkWebViewAudioTrack>)audioTrack
 {
-	if (_info.m_channels)
+	if ([self hasAudio])
 	{
 		auto ucodec = _info.m_audioCodec.utf8();
 		return [[[WkWebViewAudioTrackPrivate alloc] initWithCodec:[OBString stringWithUTF8String:ucodec.data()]  frequency:_info.m_frequency channels:_info.m_channels bits:_info.m_bits] autorelease];
@@ -1427,6 +1431,7 @@ namespace  {
 	
 - (void)playerAdded:(WkMediaLoadResponseHandlerPrivate *)handler withSettings:(WebCore::MediaPlayerMorphOSStreamSettings &)settings
 {
+    DMEDIA(dprintf("%s: handler %p tracks %p %p\n", __PRETTY_FUNCTION__, handler, [handler videoTrack], [handler audioTrack]));
 	if (handler)
 	{
 		OBNumber *ref = [OBNumber numberWithUnsignedLong:[handler playerRef]];
@@ -1493,7 +1498,6 @@ namespace  {
 		{
 			OBArray *tracks = [[[media allTracks] copy] autorelease];
 			id<WkWebViewMediaTrack> track;
-
 			OBEnumerator *e = [tracks objectEnumerator];
 			while ((track = [e nextObject]))
 				[media removeTrack:track];
@@ -3023,7 +3027,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
             }
             else
             {
-                [[WkMediaLoadResponseHandlerPrivate alloc] initWithPlayer:player
+                handler = [[WkMediaLoadResponseHandlerPrivate alloc] initWithPlayer:player
                     url:[OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]] pageURL:[self URL]
                     info:info yieldCallback:WTFMove(yieldFunc)];
                 if (handler)

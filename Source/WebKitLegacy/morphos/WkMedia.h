@@ -19,6 +19,7 @@ typedef enum {
 - (int)width;
 - (int)height;
 - (int)bitrate;
+- (float)fps;
 
 @end
 

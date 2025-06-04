@@ -11,7 +11,7 @@
 
 #define USE_WDG
 
-#define D(x)
+#define D(x) 
 #define DLIFETIME(x)
 #define DDUMP(x)
 #define DSEEK(x) 
@@ -444,7 +444,7 @@ const WebCore::MediaPlayerMorphOSStreamSettings& MediaSourcePrivateMorphOS::stre
 void MediaSourcePrivateMorphOS::onSourceBufferInitialized(RefPtr<MediaSourceBufferPrivateMorphOS> &sourceBufferPrivate)
 {
 	WTF::callOnMainThread([this, protect = Ref{*this}, source = sourceBufferPrivate]() {
-		D(dprintf("onSourceBufferInitialized: allinitialized %d seeking %d\n", areDecodersInitialized(), m_seeking));
+		D(dprintf("onSourceBufferInitialized: allinitialized %d seeking %d initialized %d wid %d ch %d\n", areDecodersInitialized(), m_seeking, m_initialized, source->info().m_width, source->info().m_channels));
 		if (areDecodersInitialized())
 		{
 			MediaPlayerMorphOSInfo info;
@@ -452,7 +452,7 @@ void MediaSourcePrivateMorphOS::onSourceBufferInitialized(RefPtr<MediaSourceBuff
 			for (auto& sourceBufferPrivate : m_activeSourceBuffers) {
 				auto &minfo = sourceBufferPrivate->info();
 
-				if (minfo.m_width) {
+				if (minfo.m_videoCodec.length()) {
 					info.m_width = minfo.m_width;
 					info.m_height = minfo.m_height;
 					info.m_bitRate = minfo.m_bitRate;
@@ -460,7 +460,7 @@ void MediaSourcePrivateMorphOS::onSourceBufferInitialized(RefPtr<MediaSourceBuff
 					m_hasVideo = true;
 				}
 				
-				if (minfo.m_channels) {
+				if (minfo.m_audioCodec.length()) {
 					info.m_channels = minfo.m_channels;
 					info.m_bits = minfo.m_bits;
 					info.m_frequency = minfo.m_frequency;
@@ -476,6 +476,8 @@ void MediaSourcePrivateMorphOS::onSourceBufferInitialized(RefPtr<MediaSourceBuff
             RefPtr player = platformPlayer();
             if (!player)
                 return;
+
+            D(dprintf("onSourceBufferInitialized: player %p. info width %d channels %d\n", player.get(), info.m_width, info.m_channels));
 
 			if (!m_initialized)
 			{

@@ -393,7 +393,7 @@ int CALL_CONVT ac_is_initialization_segment(uint8_t *buf, int bufsize,
             stccpy(streamInfo[i].codecName, avcodec_get_name(codec_ctx->codec_id), sizeof(streamInfo[i].codecName));
             streamInfo[i].bitrate = codec_ctx->bit_rate;
             streamInfo[i].duration = 0.0;
-       
+
             int64_t duration = stream->duration;
             if (duration != AV_NOPTS_VALUE) {
                 AVRational tb = stream->time_base;
@@ -411,6 +411,8 @@ int CALL_CONVT ac_is_initialization_segment(uint8_t *buf, int bufsize,
                 case AVMEDIA_TYPE_AUDIO:
                     streamInfo[i].type = AC_STREAM_TYPE_AUDIO;
                     streamInfo[i].typeData.audio.channels = codec_ctx->channels;
+                    if (0 == streamInfo[i].typeData.audio.channels)
+                        streamInfo[i].typeData.audio.channels = 2; // fallback
                     streamInfo[i].typeData.audio.frequency = codec_ctx->sample_rate;
 
                     switch (stream->codecpar->format) {

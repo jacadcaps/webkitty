@@ -25,6 +25,7 @@ struct MediaPlayerMorphOSInfo
 	WTF::String m_audioCodec;
 	WTF::String m_videoCodec;
 	float       m_duration = 0;
+    float       m_fps = 0;
 	int         m_frequency = 0;
 	int         m_bits;
 	int         m_channels = 0;

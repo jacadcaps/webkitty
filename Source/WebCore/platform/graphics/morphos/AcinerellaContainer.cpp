@@ -695,6 +695,7 @@ bool Acinerella::initialize()
 						minfo.m_height = video->frameHeight();
 						minfo.m_videoCodec = video->codec();
 						minfo.m_bitRate = video->bitRate();
+                        minfo.m_fps = video->framesPerSecond();
 					}
 					else
 					{

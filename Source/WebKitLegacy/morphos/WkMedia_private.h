@@ -8,9 +8,10 @@
 	int _width;
 	int _height;
 	int _bitrate;
+    float _fps;
 }
 
-- (id)initWithCodec:(OBString *)codec width:(int)width height:(int)height bitrate:(int)bitrate;
+- (id)initWithCodec:(OBString *)codec width:(int)width height:(int)height bitrate:(int)bitrate fps:(float)fps;
 
 @end
 

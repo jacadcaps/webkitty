@@ -383,7 +383,8 @@ void AcinerellaDecoder::terminate()
 
 void AcinerellaDecoder::threadEntryPoint()
 {
-	SetTaskPri(FindTask(0), isAudio() ? 3 : 1);
+    if (isAudio()) // don't set it for video - we'll cause issues with main thread when getting close to 100% cpu usage
+        SetTaskPri(FindTask(0), 3);
 
 	RefPtr<AcinerellaDecoder> refSelf = WTF::Ref{*this};
 

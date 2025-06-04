@@ -26,7 +26,7 @@
 
 #define DLIFETIME(x)
 #define DIO(x)
-#define DM(x)
+#define DM(x) 
 #define DSAMPLES(x)
 #define DINIT(x)
 #define DNERR(x)
@@ -253,6 +253,7 @@ Ref<MediaSourceChunkReader::DecodePromise> MediaSourceChunkReader::decodeAsync(R
                 m_dataProvider.push(WTFMove(buffer));
                 m_numStreamInfo = tracks;
                 m_initializationDone = true;
+                updateMetadata();
                 return MediaSourceChunkReader::DecodePromise::createAndResolve(DecodeResult::InitialInitialize);
             }
             else
@@ -403,7 +404,7 @@ void MediaSourceChunkReader::updateMetadata()
         ac_initialization_segment_stream& info = m_streamInfo[i];
         duration = std::max(duration, info.duration/1000.0);
 
-        DM(dprintf("%s: index %d st %d\n", __func__, i, info.stream_type));
+        DM(dprintf("%s: index %d st %d\n", __func__, i, info.type));
 
         switch (info.type)
         {
@@ -419,7 +420,7 @@ void MediaSourceChunkReader::updateMetadata()
             
         case AC_STREAM_TYPE_AUDIO:
             {
-                DM(dprintf("%s: audio %d %f codec %s\n", __func__, i, float(duration), info.codecName));
+                DM(dprintf("%s: audio %d %f codec %s channels %d\n", __func__, i, float(duration), info.codecName, info.typeData.audio.channels));
                 m_info.m_channels = info.typeData.audio.channels;
                 m_info.m_frequency = info.typeData.audio.frequency;
                 m_info.m_bits = info.typeData.audio.bits;

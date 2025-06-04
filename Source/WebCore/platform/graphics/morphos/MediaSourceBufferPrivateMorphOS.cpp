@@ -24,7 +24,7 @@
 #define DR(x) //do { if (m_audioDecoderMask != 0) x; } while (0);
 #define DIO(x) //do { if (m_audioDecoderMask != 0) x; } while (0);
 #define DM(x)
-#define DI(x)
+#define DI(x) 
 #define DN 0
 #define DNVIDEOONLY 0
 #define DNERR(x)
@@ -543,6 +543,9 @@ bool MediaSourceBufferPrivateMorphOS::initialize(InitializeMode mode)
 
     m_info = m_reader->getInfo();
 
+    DI(dprintf("[MS]%s: mode %d info width %d channels %d\n", __func__, int(mode), m_info.m_width, m_info.m_channels));
+    m_metaInitDone = true;
+
     if (InitializeMode::First == mode)
     {
         didReceiveInitializationSegment(m_reader->getInitializationSegment());
@@ -555,6 +558,29 @@ bool MediaSourceBufferPrivateMorphOS::initialize(InitializeMode mode)
     }
 
     return true;
+}
+
+static void toMorphOSInfo(MediaPlayerMorphOSInfo& mInfo, const ac_stream_info &info)
+{
+    auto& video = info.additional_info.video_info;
+    auto& audio = info.additional_info.audio_info;
+
+    switch (info.stream_type)
+    {
+    case AC_STREAM_TYPE_VIDEO:
+        mInfo.m_fps = video.frames_per_second;
+        mInfo.m_width = video.frame_width;
+        mInfo.m_height = video.frame_height;
+        break;
+    case AC_STREAM_TYPE_AUDIO:
+        mInfo.m_bits = audio.bit_depth;
+        mInfo.m_channels = audio.channel_count;
+        if (mInfo.m_channels == 0)
+            mInfo.m_channels = 2; // meh
+        mInfo.m_frequency = audio.samples_per_second;
+        break;
+    default: break;
+    }
 }
 
 bool MediaSourceBufferPrivateMorphOS::createDecoders()
@@ -572,6 +598,8 @@ bool MediaSourceBufferPrivateMorphOS::createDecoders()
     m_numDecoders = m_reader->numDecoders();
 
     RefPtr<Acinerella::AcinerellaPointer> acinerella = m_reader->acinerella();
+
+    MediaPlayerMorphOSInfo mInfo;
 
     for (int i = 0; i < m_numDecoders; i++)
     {
@@ -594,6 +622,9 @@ bool MediaSourceBufferPrivateMorphOS::createDecoders()
                 vdecoder->setCanDropKeyFrames(true); // needed for Media Source to function better on seek/catchup, we don't want this for single-file non-MS playback
                 if (m_enabled[i])
                     m_decoders[i]->setEnabled(true);
+                toMorphOSInfo(mInfo, info);
+                mInfo.m_videoCodec = m_decoders[i]->codec();
+                mInfo.m_bitRate = m_decoders[i]->bitRate();
             }
             break;
 
@@ -611,6 +642,8 @@ bool MediaSourceBufferPrivateMorphOS::createDecoders()
                 ac_decoder_fake_seek(acinerella->decoder(i));
                 if (m_enabled[i])
                     m_decoders[i]->setEnabled(true);
+                toMorphOSInfo(mInfo, info);
+                mInfo.m_audioCodec = m_decoders[i]->codec();
             }
             break;
             
@@ -632,6 +665,13 @@ bool MediaSourceBufferPrivateMorphOS::createDecoders()
                 becomeReadyForMoreSamples(decoderIndex);
             return false; // avoid blocking the pipeline!
         });
+
+        // force mediasource to update the metadata as it might have changed/become more complete
+        RefPtr mediaSource = m_mediaSource.get();
+		RefPtr<MediaSourceBufferPrivateMorphOS> me = Ref{*this};
+        m_info = mInfo;
+        if (mediaSource)
+            mediaSource->onSourceBufferInitialized(me);
 
         warmUp();
     }

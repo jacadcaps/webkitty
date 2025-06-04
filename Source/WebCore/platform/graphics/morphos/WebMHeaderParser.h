@@ -84,6 +84,7 @@ protected:
         size_t offset = 0;
         size_t infosCount = 0;
         double duration = 0;
+        memset(infos, 0, sizeof(ac_initialization_segment_stream) * infosMax);
 
         while (offset < size) {
             uint64_t id, length;

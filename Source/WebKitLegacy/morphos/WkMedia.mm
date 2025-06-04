@@ -224,7 +224,7 @@ extern "C" void dprintf(const char *,...);
 
 @implementation WkWebViewVideoTrackPrivate
 
-- (id)initWithCodec:(OBString *)codec width:(int)width height:(int)height bitrate:(int)bitrate
+- (id)initWithCodec:(OBString *)codec width:(int)width height:(int)height bitrate:(int)bitrate fps:(float)fps;
 {
 	if ((self = [super init]))
 	{
@@ -232,6 +232,7 @@ extern "C" void dprintf(const char *,...);
 		_width = width;
 		_height = height;
 		_bitrate = bitrate;
+        _fps = fps;
 	}
 	
 	return self;
@@ -261,6 +262,11 @@ extern "C" void dprintf(const char *,...);
 - (int)bitrate
 {
 	return _bitrate;
+}
+
+- (float)fps
+{
+    return _fps;
 }
 
 - (WkWebViewMediaTrackType)type
