@@ -82,6 +82,9 @@ Ref<MediaPromise> MediaSourceBufferPrivateMorphOS::appendInternal(Ref<SharedBuff
 
     m_reader->decodeAsync(std::move(buffer))->then(RunLoop::main(),[protectedThis = Ref { *this }, this](MediaSourceChunkReader::DecodeResult result) {
         DAPPEND(dprintf("[MS][%c]appendInternal result %d\n", m_audioDecoderMask == 0 ?'V':'A', int(result)));
+        if (!m_appendPromise)
+            return;
+
         switch (result)
         {
         case MediaSourceChunkReader::DecodeResult::InitialInitialize:
@@ -107,7 +110,8 @@ Ref<MediaPromise> MediaSourceBufferPrivateMorphOS::appendInternal(Ref<SharedBuff
         }
     }, [protectedThis = Ref { *this }, this](void) {
         DAPPEND(dprintf("[MS][%c]appendInternal error\n", m_audioDecoderMask == 0 ?'V':'A'));
-        m_appendPromise->reject(PlatformMediaError::AppendError);
+        if (m_appendPromise)
+            m_appendPromise->reject(PlatformMediaError::AppendError);
     });
 
     return *m_appendPromise;

@@ -24,7 +24,7 @@
 #include <proto/exec.h>
 #include <dos/dos.h>
 
-#define DLIFETIME(x)
+#define DLIFETIME(x) 
 #define DIO(x)
 #define DM(x) 
 #define DSAMPLES(x)
@@ -32,7 +32,7 @@
 #define DNERR(x)
 #define DN 0
 #define DNVIDEOONLY 0
-#define DPROVIDER(x) 
+#define DPROVIDER(x)
 
 // #pragma GCC optimize ("O0")
 // #define DEBUG_FILE
@@ -177,12 +177,13 @@ MediaSourceChunkReader::MediaSourceChunkReader(MediaSourceChunkReaderTrackFactor
 
 MediaSourceChunkReader::~MediaSourceChunkReader()
 {
-	DLIFETIME(dprintf("%s(%p): samples %d\n", __PRETTY_FUNCTION__, this, m_samples.size()));
+	DLIFETIME(dprintf("%s(%p): \n", __PRETTY_FUNCTION__, this));
 	terminate();
 }
 
 void MediaSourceChunkReader::terminate()
 {
+	DLIFETIME(dprintf("%s(%p): \n", __PRETTY_FUNCTION__, this));
 	if (m_terminating)
 		return;
 
@@ -224,6 +225,10 @@ int MediaSourceChunkReader::analyzeHeader(Ref<SharedBuffer>& buffer, ac_initiali
 Ref<MediaSourceChunkReader::DecodePromise> MediaSourceChunkReader::decodeAsync(Ref<SharedBuffer>&& buffer)
 {
     DSAMPLES(dprintf("%s:\n", __PRETTY_FUNCTION__));
+
+    if (m_terminating)
+        return MediaSourceChunkReader::DecodePromise::createAndReject();
+
     WorkQueue& q = *m_workQueue.get();
     return invokeAsync(q, [buffer = WTFMove(buffer), protectedThis = Ref{*this}, this] () mutable {
 
