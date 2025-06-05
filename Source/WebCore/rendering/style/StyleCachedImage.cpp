@@ -150,10 +150,12 @@ RenderSVGResourceContainer* StyleCachedImage::renderSVGResource(const RenderElem
         return nullptr;
 
     if (!m_cachedImage) {
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
         if (RefPtr referencedMaskElement = ReferencedSVGResources::referencedMaskElement(renderer->treeScopeForSVGReferences(), *this)) {
             if (auto* referencedMaskerRenderer = dynamicDowncast<RenderSVGResourceMasker>(referencedMaskElement->renderer()))
                 return referencedMaskerRenderer;
         }
+#endif
         return nullptr;
     }
 
@@ -168,11 +170,12 @@ RenderSVGResourceContainer* StyleCachedImage::renderSVGResource(const RenderElem
     Ref document = renderer->document();
     auto reresolvedURL = this->reresolvedURL(document);
     auto fragmentIdentifier = reresolvedURL.fragmentIdentifier();
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
     if (RefPtr referencedMaskElement = ReferencedSVGResources::referencedMaskElement(rootElement->treeScopeForSVGReferences(), fragmentIdentifier.toAtomString())) {
         if (auto* referencedMaskerRenderer = dynamicDowncast<RenderSVGResourceMasker>(referencedMaskElement->renderer()))
             return referencedMaskerRenderer;
     }
-
+#endif
     return nullptr;
 }
 

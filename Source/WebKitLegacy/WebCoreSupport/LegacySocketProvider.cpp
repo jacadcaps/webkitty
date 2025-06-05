@@ -23,11 +23,11 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#import "LegacySocketProvider.h"
+#include "LegacySocketProvider.h"
 
-#import "WebSocketChannel.h"
-#import <WebCore/WebTransportSession.h>
-#import <wtf/CompletionHandler.h>
+#include "WebSocketChannel.h"
+#include <WebCore/WebTransportSession.h>
+#include <wtf/CompletionHandler.h>
 
 RefPtr<WebCore::ThreadableWebSocketChannel> LegacySocketProvider::createWebSocketChannel(WebCore::Document& document, WebCore::WebSocketChannelClient& client)
 {

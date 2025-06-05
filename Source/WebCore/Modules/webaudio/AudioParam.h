@@ -44,9 +44,11 @@ class AudioNodeOutput;
 
 enum class AutomationRateMode : bool { Fixed, Variable };
 
+// jacek: changed the inheritance order, GCC miscompiles this badly otherwise
+// test with http://tdolphin.org/games/krecio.miecio/
 class AudioParam final
-    : public AudioSummingJunction
-    , public RefCounted<AudioParam>
+    : public RefCounted<AudioParam>
+    , public AudioSummingJunction
 #if !RELEASE_LOG_DISABLED
     , private LoggerHelper
 #endif

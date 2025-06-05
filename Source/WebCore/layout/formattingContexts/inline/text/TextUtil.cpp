@@ -529,6 +529,10 @@ bool TextUtil::containsStrongDirectionalityText(StringView text)
     if (text.is8Bit())
         return false;
 
+#if CPU(BIG_ENDIAN)
+    if (text.containsOnly<isNotBidiRTL>())
+        return false;
+#else
     if (![&](auto span) ALWAYS_INLINE_LAMBDA {
         using UnsignedType = std::make_unsigned_t<typename decltype(span)::value_type>;
         constexpr size_t stride = SIMD::stride<UnsignedType>;
@@ -571,6 +575,7 @@ bool TextUtil::containsStrongDirectionalityText(StringView text)
         return false;
     }(text.span16()))
         return false;
+#endif
 
     for (char32_t character : text.codePoints()) {
         if (isStrongDirectionalityCharacter(character))

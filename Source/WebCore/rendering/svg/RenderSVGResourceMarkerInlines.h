@@ -24,6 +24,8 @@
 
 namespace WebCore {
 
+#if ENABLE(LAYER_BASED_SVG_ENGINE)
+
 inline SVGMarkerElement& RenderSVGResourceMarker::markerElement() const
 {
     return downcast<SVGMarkerElement>(RenderSVGResourceContainer::element());
@@ -57,5 +59,7 @@ bool RenderSVGResourceMarker::hasReverseStart() const
 {
     return protectedMarkerElement()->orientType() == SVGMarkerOrientAutoStartReverse;
 }
+
+#endif
 
 }

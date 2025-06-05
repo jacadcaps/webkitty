@@ -36,6 +36,7 @@
 #include "TypedArrays.h"
 #include <wtf/CheckedArithmetic.h>
 #include <wtf/text/MakeString.h>
+#include <wtf/FlipBytes.h>
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
@@ -416,6 +417,7 @@ bool JSGenericTypedArrayView<Adaptor>::setFromArrayLike(JSGlobalObject* globalOb
     size_t safeUnadjustedLength = std::min(length, static_cast<size_t>(MAX_ARRAY_INDEX) + 1);
     size_t safeLength = objectOffset <= safeUnadjustedLength ? safeUnadjustedLength - objectOffset : 0;
 
+#if !CPU(BIG_ENDIAN)
     if constexpr (TypedArrayStorageType != TypeBigInt64 && TypedArrayStorageType != TypeBigUint64) {
         if (JSArray* array = jsDynamicCast<JSArray*>(object); LIKELY(array && isJSArray(array))) {
             if (safeLength == length && (safeLength + objectOffset) <= array->length() && array->isIteratorProtocolFastAndNonObservable()) {
@@ -431,7 +433,7 @@ bool JSGenericTypedArrayView<Adaptor>::setFromArrayLike(JSGlobalObject* globalOb
             }
         }
     }
-
+#endif
     for (size_t i = 0; i < safeLength; ++i) {
         ASSERT(i + objectOffset <= MAX_ARRAY_INDEX);
         JSValue value = object->get(globalObject, static_cast<unsigned>(i + objectOffset));
@@ -653,6 +655,10 @@ bool JSGenericTypedArrayView<Adaptor>::getOwnPropertySlotByIndex(
         value = thisObject->getIndexQuickly(propertyName);
     } else {
         auto nativeValue = thisObject->getIndexQuicklyAsNativeValue(propertyName);
+#if CPU(BIG_ENDIAN)
+        if constexpr (TypeFloat32 != Adaptor::typeValue && TypeFloat64 != Adaptor::typeValue && TypeFloat16 != Adaptor::typeValue)
+            nativeValue = flipBytes(nativeValue);
+#endif
         value = Adaptor::toJSValue(globalObject, nativeValue);
         RETURN_IF_EXCEPTION(scope, false);
     }
@@ -818,7 +824,17 @@ template<typename Adaptor> inline typename Adaptor::Type JSGenericTypedArrayView
 
 template<typename Adaptor> inline JSValue JSGenericTypedArrayView<Adaptor>::getIndexQuickly(size_t i) const
 {
+#if CPU(BIG_ENDIAN)
+    if constexpr (TypeFloat32 == Adaptor::typeValue || TypeFloat64 == Adaptor::typeValue || TypeFloat16 == Adaptor::typeValue) {
+        return Adaptor::toJSValue(nullptr, getIndexQuicklyAsNativeValue(i));
+    }
+    else {
+        // typed array views are commonly expected to be little endian views of the underlying data
+        return Adaptor::toJSValue(nullptr, flipBytes(getIndexQuicklyAsNativeValue(i)));
+    }
+#else
     return Adaptor::toJSValue(nullptr, getIndexQuicklyAsNativeValue(i));
+#endif
 }
 
 template<typename Adaptor> inline void JSGenericTypedArrayView<Adaptor>::setIndexQuicklyToNativeValue(size_t i, typename Adaptor::Type value)
@@ -829,8 +845,17 @@ template<typename Adaptor> inline void JSGenericTypedArrayView<Adaptor>::setInde
 
 template<typename Adaptor> inline void JSGenericTypedArrayView<Adaptor>::setIndexQuickly(size_t i, JSValue value)
 {
-    ASSERT(!value.isObject());
+#if CPU(BIG_ENDIAN)
+    if constexpr (TypeFloat32 == Adaptor::typeValue || TypeFloat64 == Adaptor::typeValue || TypeFloat16 == Adaptor::typeValue) {
+        setIndexQuicklyToNativeValue(i, toNativeFromValue<Adaptor>(value));
+    }
+    else {
+        // typed array views are commonly expected to be little endian views of the underlying data
+        setIndexQuicklyToNativeValue(i, flipBytes(toNativeFromValue<Adaptor>(value)));
+    }
+#else
     setIndexQuicklyToNativeValue(i, toNativeFromValue<Adaptor>(value));
+#endif
 }
 
 template<typename Adaptor> inline bool JSGenericTypedArrayView<Adaptor>::setIndex(JSGlobalObject* globalObject, size_t i, JSValue jsValue)
@@ -847,18 +872,47 @@ template<typename Adaptor> inline bool JSGenericTypedArrayView<Adaptor>::setInde
     if (!inBounds(i))
         return false;
 
-    setIndexQuicklyToNativeValue(i, value);
+#if CPU(BIG_ENDIAN)
+    if constexpr (TypeFloat32 == Adaptor::typeValue || TypeFloat64 == Adaptor::typeValue || TypeFloat16 == Adaptor::typeValue) {
+        setIndexQuicklyToNativeValue(i, value);
+    }
+    else {
+        setIndexQuicklyToNativeValue(i, flipBytes(value));
+    }
+#else
+     setIndexQuicklyToNativeValue(i, value);
+#endif
     return true;
 }
 
 template<typename Adaptor> inline auto JSGenericTypedArrayView<Adaptor>::toAdaptorNativeFromValue(JSGlobalObject* globalObject, JSValue jsValue) -> ElementType
 {
-    return toNativeFromValue<Adaptor>(globalObject, jsValue);
+#if CPU(BIG_ENDIAN)
+    if constexpr (TypeFloat32 == Adaptor::typeValue || TypeFloat64 == Adaptor::typeValue || TypeFloat16 == Adaptor::typeValue) {
+        return toNativeFromValue<Adaptor>(globalObject, jsValue);
+    }
+    else {
+        // typed array views are commonly expected to be little endian views of the underlying data
+        return flipBytes(toNativeFromValue<Adaptor>(globalObject, jsValue));
+    }
+#else
+     return toNativeFromValue<Adaptor>(globalObject, jsValue);
+#endif
 }
 
 template<typename Adaptor> inline auto JSGenericTypedArrayView<Adaptor>::toAdaptorNativeFromValueWithoutCoercion(JSValue jsValue) -> std::optional<ElementType>
 {
-    return toNativeFromValueWithoutCoercion<Adaptor>(jsValue);
+#if CPU(BIG_ENDIAN)
+    if constexpr (TypeFloat32 == Adaptor::typeValue || TypeFloat64 == Adaptor::typeValue || TypeFloat16 == Adaptor::typeValue) {
+        return toNativeFromValueWithoutCoercion<Adaptor>(jsValue);
+    }
+    else {
+        // typed array views are commonly expected to be little endian views of the underlying data
+        return flipBytes(toNativeFromValueWithoutCoercion<Adaptor>(jsValue));
+    }
+#else
+     return toNativeFromValueWithoutCoercion<Adaptor>(jsValue);
+#endif
 }
 
 template<typename Adaptor> inline auto JSGenericTypedArrayView<Adaptor>::sort() -> SortResult

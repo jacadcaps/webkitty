@@ -47,6 +47,10 @@
 #include <wtf/StdFilesystem.h>
 #endif
 
+#if OS(MORPHOS)
+#include <unistd.h>
+#endif
+
 namespace WTF::FileSystemImpl {
 
 #if HAVE(STD_FILESYSTEM) || HAVE(STD_EXPERIMENTAL_FILESYSTEM)
@@ -240,13 +244,26 @@ String lastComponentOfPathIgnoringTrailingSlash(const String& path)
 #endif
 
     auto position = path.reverseFind(pathSeparator);
+#if OS(MORPHOS)
+    if (position == notFound)
+        position = path.reverseFind(':');
+#endif
     if (position == notFound)
         return path;
 
     size_t endOfSubstring = path.length() - 1;
+#if OS(MORPHOS)
+    // If ending to a ':' just return an empty string.
+    if (position == endOfSubstring && path[position] != ':') {
+#else
     if (position == endOfSubstring) {
+#endif
         --endOfSubstring;
         position = path.reverseFind(pathSeparator, endOfSubstring);
+#if OS(MORPHOS)
+        if (position == notFound)
+            position = path.reverseFind(':');
+#endif
     }
 
     return path.substring(position + 1, endOfSubstring - position);
@@ -361,8 +378,47 @@ bool MappedFileData::mapFileHandle(PlatformFileHandle handle, FileOpenMode openM
     m_fileData = WTFMove(fileData);
     return true;
 }
-#endif
+#elif OS(MORPHOS)
 
+bool MappedFileData::mapFileHandle(PlatformFileHandle handle, FileOpenMode openMode, MappedFileMode mapMode)
+{
+    if (!isHandleValid(handle))
+        return false;
+
+    int fd;
+    fd = handle;
+
+    struct stat fileStat;
+    if (fstat(fd, &fileStat)) {
+        return false;
+    }
+
+    unsigned size;
+    if (!WTF::convertSafely(fileStat.st_size, size)) {
+        return false;
+    }
+
+    if (!size) {
+        return true;
+    }
+
+    m_fileData = MallocSpan<uint8_t>::malloc(size);
+    if (!m_fileData) {
+        return false;
+    }
+
+    if (size != read(fd, m_fileData.mutableSpan().data(), size)) {
+        return false;
+    }
+    return true;
+}
+
+MappedFileData::~MappedFileData()
+{
+}
+
+#endif
+ 
 PlatformFileHandle openAndLockFile(const String& path, FileOpenMode openMode, OptionSet<FileLockMode> lockMode)
 {
     auto handle = openFile(path, openMode);
@@ -459,6 +515,8 @@ MappedFileData createMappedFileData(const String& path, size_t bytesSize, Platfo
 
 void finalizeMappedFileData(MappedFileData& mappedFileData, size_t bytesSize)
 {
+#if OS(MORPHOS)
+#else
     auto* map = mappedFileData.mutableSpan().data();
 #if OS(WINDOWS)
     DWORD oldProtection;
@@ -471,10 +529,14 @@ void finalizeMappedFileData(MappedFileData& mappedFileData, size_t bytesSize)
     // Flush (asynchronously) to file, turning this into clean memory.
     msync(map, bytesSize, MS_ASYNC);
 #endif
+#endif
 }
 
 MappedFileData mapToFile(const String& path, size_t bytesSize, NOESCAPE const Function<void(const Function<bool(std::span<const uint8_t>)>&)>& apply, PlatformFileHandle* outputHandle)
 {
+#if OS(MORPHOS)
+    return { };
+#else
     auto mappedFile = createMappedFileData(path, bytesSize, outputHandle);
     if (!mappedFile)
         return { };
@@ -489,6 +551,7 @@ MappedFileData mapToFile(const String& path, size_t bytesSize, NOESCAPE const Fu
     finalizeMappedFileData(mappedFile, bytesSize);
 
     return mappedFile;
+#endif
 }
 
 static Salt makeSalt()
@@ -925,7 +988,7 @@ String pathByAppendingComponents(StringView path, const Vector<StringView>& comp
 
 #endif
 
-#if !OS(WINDOWS) && !PLATFORM(COCOA) && !PLATFORM(PLAYSTATION)
+#if !OS(WINDOWS) && !PLATFORM(COCOA) && !PLATFORM(PLAYSTATION) && !OS(MORPHOS)
 
 String createTemporaryDirectory()
 {

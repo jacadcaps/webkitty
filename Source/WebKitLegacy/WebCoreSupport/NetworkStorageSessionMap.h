@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include "WebKit.h"
 #include <wtf/text/WTFString.h>
 
 namespace PAL {
@@ -42,4 +43,5 @@ public:
     static void switchToNewTestingSession();
     static void ensureSession(PAL::SessionID, const String& identifierBase = String());
     static void destroySession(PAL::SessionID);
+    static void destroyAllSessions();
 };
