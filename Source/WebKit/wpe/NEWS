@@ -1,3 +1,48 @@
+=================
+WPE WebKit 2.48.2
+=================
+
+What's new in WPE WebKit 2.48.2?
+
+  - Enable CSS Overscroll Behavior by default.
+  - Change threaded rendering implementation to use Skia API instead of
+    WebCore display lists that were not thread safe.
+  - Fix rendering when device scale factor change comes before the web view
+    geometry update.
+  - Fix network process crash on exit.
+  - Fix the build with ENABLE_RESOURCE_USAGE=OFF.
+  - Fix several crashes and rendering issues.
+
+=================
+WPE WebKit 2.48.1
+=================
+
+What's new in WPE WebKit 2.48.1?
+
+  - Limit the data stored in session state.
+  - Remove the empty area below the title bar in Web Inspector when not docked.
+  - Improve the robustness of WebAudio and WebCodecs multimedia support.
+  - Fix the build with GST_DISABLE_GST_DEBUG.
+  - Fix the build with GStreamer versions older than 1.20.
+  - Fix the build with libc++ version 19 or newer.
+  - Fix the build with video support disabled (ENABLE_VIDEO=OFF).
+  - Fix the build with Clang 20.
+
+=================
+WPE WebKit 2.48.0
+=================
+
+What's new in WPE WebKit 2.48.0?
+
+  - Fix YouTube playback by using a different User-Agent quirk.
+  - Avoid adding redundant tracks to MediaPlayer.
+  - Propagate the font's computed locale to HarfBuzz.
+  - Fix missing default values for the key repeat delay, key repeat interval,
+    and drag threshold in WPESettings.
+  - Fix missing registration for the DRM scale setting in WPESettings.
+  - Fix the build on non-Linux platforms.
+  - Fix several crashes and rendering issues.
+
 ==================
 WPE WebKit 2.47.90
 ==================

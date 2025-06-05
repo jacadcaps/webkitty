@@ -80,7 +80,7 @@ public:
     void clearIndexValueStore();
     void replaceIndexValueStore(std::unique_ptr<IndexValueStore>&&);
 
-    MemoryIndexCursor* maybeOpenCursor(const IDBCursorInfo&);
+    MemoryIndexCursor* maybeOpenCursor(const IDBCursorInfo&, MemoryBackingStoreTransaction&);
 
     IndexValueStore* valueStore() { return m_records.get(); }
 
@@ -91,6 +91,7 @@ public:
     void cursorDidBecomeDirty(MemoryIndexCursor&);
 
     void notifyCursorsOfValueChange(const IDBKeyData& indexKey, const IDBKeyData& primaryKey);
+    void transactionFinished(MemoryBackingStoreTransaction&);
 
 private:
     MemoryIndex(const IDBIndexInfo&, MemoryObjectStore&);

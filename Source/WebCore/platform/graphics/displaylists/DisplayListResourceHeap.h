@@ -93,41 +93,23 @@ public:
         add<FontCustomPlatformData>(renderingResourceIdentifier, WTFMove(customPlatformData), m_customPlatformDataCount);
     }
 
-    ImageBuffer* getImageBuffer(RenderingResourceIdentifier renderingResourceIdentifier, OptionSet<ReplayOption> options = { }) const
+    ImageBuffer* getImageBuffer(RenderingResourceIdentifier renderingResourceIdentifier) const
     {
-        auto* imageBuffer = get<ImageBuffer>(renderingResourceIdentifier);
-
-#if USE(SKIA)
-        if (imageBuffer && options.contains(ReplayOption::FlushAcceleratedImagesAndWaitForCompletion))
-            imageBuffer->waitForAcceleratedRenderingFenceCompletion();
-#else
-        UNUSED_PARAM(options);
-#endif
-
-        return imageBuffer;
+        return get<ImageBuffer>(renderingResourceIdentifier);
     }
 
-    NativeImage* getNativeImage(RenderingResourceIdentifier renderingResourceIdentifier, OptionSet<ReplayOption> options = { }) const
+    NativeImage* getNativeImage(RenderingResourceIdentifier renderingResourceIdentifier) const
     {
         auto* renderingResource = get<RenderingResource>(renderingResourceIdentifier);
-        auto* nativeImage = dynamicDowncast<NativeImage>(renderingResource);
-
-#if USE(SKIA)
-        if (nativeImage && options.contains(ReplayOption::FlushAcceleratedImagesAndWaitForCompletion))
-            nativeImage->backend().waitForAcceleratedRenderingFenceCompletion();
-#else
-        UNUSED_PARAM(options);
-#endif
-
-        return nativeImage;
+        return dynamicDowncast<NativeImage>(renderingResource);
     }
 
-    std::optional<SourceImage> getSourceImage(RenderingResourceIdentifier renderingResourceIdentifier, OptionSet<ReplayOption> options = { }) const
+    std::optional<SourceImage> getSourceImage(RenderingResourceIdentifier renderingResourceIdentifier) const
     {
-        if (auto nativeImage = getNativeImage(renderingResourceIdentifier, options))
+        if (auto nativeImage = getNativeImage(renderingResourceIdentifier))
             return { { *nativeImage } };
 
-        if (auto imageBuffer = getImageBuffer(renderingResourceIdentifier, options))
+        if (auto imageBuffer = getImageBuffer(renderingResourceIdentifier))
             return { { *imageBuffer } };
 
         return std::nullopt;

@@ -51,7 +51,7 @@
 #endif
 
 #if USE(SKIA)
-class GrDirectContext;
+class SkSurface;
 #endif
 
 namespace WTF {
@@ -142,11 +142,7 @@ public:
 #endif
 
 #if USE(SKIA)
-    virtual void finishAcceleratedRenderingAndCreateFence() { }
-    virtual void waitForAcceleratedRenderingFenceCompletion() { }
-
-    virtual const GrDirectContext* skiaGrContext() const { return nullptr; }
-    WEBCORE_EXPORT virtual RefPtr<ImageBuffer> copyAcceleratedImageBufferBorrowingBackendRenderTarget(const ImageBuffer&) const;
+    virtual SkSurface* surface() const { return nullptr; }
 #endif
 
     virtual bool isInUse() const { return false; }

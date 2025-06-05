@@ -577,7 +577,7 @@ bool hasCapacityToUseLargeGigacage();
     v(Unsigned, allocationProfilingMode, 0, Normal, "Allows custom arguments to be passed to bmalloc/libPAS allocation profiling features at JSC launch."_s) \
     v(Bool, dumpBaselineJITSizeStatistics, false, Normal, nullptr) \
     v(Bool, dumpDFGJITSizeStatistics, false, Normal, nullptr) \
-    v(Bool, useLoopUnrolling, true, Normal, nullptr) \
+    v(Bool, useLoopUnrolling, false, Normal, nullptr) \
     v(Bool, verboseLoopUnrolling, false, Normal, nullptr) \
     v(Unsigned, maxLoopUnrollingCount, 2, Normal, nullptr) \
     v(Unsigned, maxLoopUnrollingBodyNodeSize, 200, Normal, nullptr) \

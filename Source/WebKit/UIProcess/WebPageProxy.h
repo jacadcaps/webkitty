@@ -227,6 +227,7 @@ enum class ScrollIsAnimated : bool;
 enum class ScrollPinningBehavior : uint8_t;
 enum class SelectionDirection : uint8_t;
 enum class SessionHistoryVisibility : bool;
+enum class ShouldGoToHistoryItem : uint8_t;
 enum class ShouldOpenExternalURLsPolicy : uint8_t;
 enum class ShouldSample : bool;
 enum class ShouldTreatAsContinuingLoad : uint8_t;
@@ -908,8 +909,8 @@ public:
     RefPtr<API::Navigation> goToBackForwardItem(WebBackForwardListItem&);
     void tryRestoreScrollPosition();
     void didChangeBackForwardList(WebBackForwardListItem* addedItem, Vector<Ref<WebBackForwardListItem>>&& removed);
-    void shouldGoToBackForwardListItem(WebCore::BackForwardItemIdentifier, bool inBackForwardCache, CompletionHandler<void(bool)>&&);
-    void shouldGoToBackForwardListItemSync(WebCore::BackForwardItemIdentifier, CompletionHandler<void(bool)>&&);
+    void shouldGoToBackForwardListItem(WebCore::BackForwardItemIdentifier, bool inBackForwardCache, CompletionHandler<void(WebCore::ShouldGoToHistoryItem)>&&);
+    void shouldGoToBackForwardListItemSync(WebCore::BackForwardItemIdentifier, CompletionHandler<void(WebCore::ShouldGoToHistoryItem)>&&);
 
     bool shouldKeepCurrentBackForwardListItemInList(WebBackForwardListItem&);
 
@@ -2722,6 +2723,8 @@ private:
     bool shouldForceForegroundPriorityForClientNavigation() const;
 
     bool canCreateFrame(WebCore::FrameIdentifier) const;
+    Ref<WebPageProxy> downloadOriginatingPage(const API::Navigation*);
+    Ref<WebPageProxy> navigationOriginatingPage(const std::optional<FrameInfoData>&);
 
     RefPtr<API::Navigation> goToBackForwardItem(WebBackForwardListFrameItem&, WebCore::FrameLoadType);
 
@@ -3386,6 +3389,8 @@ RefPtr<SpeechRecognitionPermissionManager> protectedSpeechRecognitionPermissionM
     UniqueRef<WebNavigationState> m_navigationState;
     String m_failingProvisionalLoadURL;
     bool m_isLoadingAlternateHTMLStringForFailingProvisionalLoad { false };
+
+    bool m_isCallingCreateNewPage { false };
 
     std::unique_ptr<WebPageLoadTiming> m_pageLoadTiming;
     HashSet<WebCore::FrameIdentifier> m_framesWithSubresourceLoadingForPageLoadTiming;

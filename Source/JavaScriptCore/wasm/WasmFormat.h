@@ -319,7 +319,7 @@ inline bool isSubtypeSlow(Type sub, Type parent)
             return TypeInformation::get(sub.index).expand().is<FunctionSignature>();
     }
 
-    if ((isExnref(sub) || isI31ref(sub) || isStructref(sub) || isArrayref(sub)) && (isAnyref(parent) || isEqref(parent)))
+    if ((isI31ref(sub) || isStructref(sub) || isArrayref(sub)) && (isAnyref(parent) || isEqref(parent)))
         return true;
 
     if (isEqref(sub) && isAnyref(parent))
@@ -802,6 +802,7 @@ struct alignas(8) WasmCallableFunction {
     static constexpr ptrdiff_t offsetOfEntrypointLoadLocation() { return OBJECT_OFFSETOF(WasmCallableFunction, entrypointLoadLocation); }
     static constexpr ptrdiff_t offsetOfBoxedWasmCalleeLoadLocation() { return OBJECT_OFFSETOF(WasmCallableFunction, boxedWasmCalleeLoadLocation); }
 
+    // FIXME: This always points to the interpreter callee anyway so there's no point in having the extra indirection.
     const uintptr_t* boxedWasmCalleeLoadLocation { &NullWasmCallee };
     // Target instance and entrypoint are only set for wasm->wasm calls, and are otherwise nullptr. The js-specific logic occurs through import function.
     WriteBarrier<JSWebAssemblyInstance> targetInstance { };

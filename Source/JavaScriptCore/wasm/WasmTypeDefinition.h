@@ -773,7 +773,9 @@ private:
     // Payload starts past end of this object.
     const RTT** payload() { return static_cast<const RTT**>(static_cast<void*>(this + 1)); }
 
+IGNORE_WARNINGS_BEGIN("unused-private-field")
     RTTKind m_kind;
+IGNORE_WARNINGS_END
     DisplayCount m_displaySize;
 };
 

@@ -287,7 +287,7 @@ JSWebAssemblyInstance* JSWebAssemblyInstance::tryCreate(VM& vm, Structure* insta
         // We create a memory when it's a memory definition.
         auto* jsMemory = JSWebAssemblyMemory::create(vm, globalObject->webAssemblyMemoryStructure());
 
-        RefPtr<Memory> memory = Memory::tryCreate(vm, moduleInformation.memory.initial(), moduleInformation.memory.maximum(), moduleInformation.memory.isShared() ? MemorySharingMode::Shared: MemorySharingMode::Default,
+        RefPtr<Memory> memory = Memory::tryCreate(vm, moduleInformation.memory.initial(), moduleInformation.memory.maximum(), moduleInformation.memory.isShared() ? MemorySharingMode::Shared: MemorySharingMode::Default, std::nullopt,
             [&vm, jsMemory](Memory::GrowSuccess, PageCount oldPageCount, PageCount newPageCount) { jsMemory->growSuccessCallback(vm, oldPageCount, newPageCount); }
         );
         if (!memory)
@@ -489,7 +489,8 @@ void JSWebAssemblyInstance::initElementSegment(uint32_t tableIndex, const Elemen
             }
 
             auto& jsEntrypointCallee = calleeGroup()->jsEntrypointCalleeFromFunctionIndexSpace(functionIndex);
-            auto* wasmCallee = calleeGroup()->wasmCalleeFromFunctionIndexSpace(functionIndex);
+            auto wasmCallee = calleeGroup()->wasmCalleeFromFunctionIndexSpace(functionIndex);
+            ASSERT(wasmCallee);
             WasmToWasmImportableFunction::LoadLocation entrypointLoadLocation = calleeGroup()->entrypointLoadLocationFromFunctionIndexSpace(functionIndex);
             const auto& signature = TypeInformation::getFunctionSignature(typeIndex);
             // FIXME: Say we export local function "foo" at function index 0.
@@ -504,7 +505,7 @@ void JSWebAssemblyInstance::initElementSegment(uint32_t tableIndex, const Elemen
                 WTF::makeString(functionIndex.rawIndex()),
                 this,
                 jsEntrypointCallee,
-                wasmCallee,
+                *wasmCallee,
                 entrypointLoadLocation,
                 typeIndex,
                 TypeInformation::getCanonicalRTT(typeIndex));

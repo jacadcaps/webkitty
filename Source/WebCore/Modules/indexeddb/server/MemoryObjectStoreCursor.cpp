@@ -36,8 +36,8 @@ namespace IDBServer {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(MemoryObjectStoreCursor);
 
-MemoryObjectStoreCursor::MemoryObjectStoreCursor(MemoryObjectStore& objectStore, const IDBCursorInfo& info)
-    : MemoryCursor(info)
+MemoryObjectStoreCursor::MemoryObjectStoreCursor(MemoryObjectStore& objectStore, const IDBCursorInfo& info, MemoryBackingStoreTransaction& transaction)
+    : MemoryCursor(info, transaction)
     , m_objectStore(objectStore)
     , m_remainingRange(info.range())
 {
@@ -325,12 +325,14 @@ void MemoryObjectStoreCursor::iterate(const IDBKeyData& key, const IDBKeyData& p
     Ref objectStore = m_objectStore.get();
     if (!objectStore->orderedKeys()) {
         m_currentPositionKey = { };
+        m_iterator = std::nullopt;
         outData = { };
         return;
     }
 
     if (key.isValid() && !m_info.range().containsKey(key)) {
         m_currentPositionKey = { };
+        m_iterator = std::nullopt;
         outData = { };
         return;
     }

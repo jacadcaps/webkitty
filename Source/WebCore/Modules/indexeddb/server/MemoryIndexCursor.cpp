@@ -40,8 +40,8 @@ namespace IDBServer {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(MemoryIndexCursor);
 
-MemoryIndexCursor::MemoryIndexCursor(MemoryIndex& index, const IDBCursorInfo& info)
-    : MemoryCursor(info)
+MemoryIndexCursor::MemoryIndexCursor(MemoryIndex& index, const IDBCursorInfo& info, MemoryBackingStoreTransaction& transaction)
+    : MemoryCursor(info, transaction)
     , m_index(index)
 {
     LOG(IndexedDB, "MemoryIndexCursor::MemoryIndexCursor %s", info.range().loggingString().utf8().data());

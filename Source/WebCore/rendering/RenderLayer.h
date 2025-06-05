@@ -1278,6 +1278,8 @@ private:
     void setIndirectCompositingReason(IndirectCompositingReason reason) { m_indirectCompositingReason = static_cast<unsigned>(reason); }
     bool mustCompositeForIndirectReasons() const { return m_indirectCompositingReason; }
 
+    void removeClipperClientIfNeeded() const;
+
     struct OverflowControlRects {
         IntRect horizontalScrollbar;
         IntRect verticalScrollbar;
@@ -1467,8 +1469,7 @@ inline void RenderLayer::setIsHiddenByOverflowTruncation(bool isHidden)
     if (m_isHiddenByOverflowTruncation == isHidden)
         return;
     m_isHiddenByOverflowTruncation = isHidden;
-    m_visibleContentStatusDirty = true;
-    setNeedsPositionUpdate();
+    dirtyVisibleContentStatus();
 }
 
 #if ASSERT_ENABLED
@@ -1513,4 +1514,3 @@ void showPaintOrderTree(const WebCore::RenderLayer*);
 void showPaintOrderTree(const WebCore::RenderObject*);
 void showLayerPositionTree(const WebCore::RenderLayer*);
 #endif
-

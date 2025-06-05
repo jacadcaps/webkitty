@@ -145,6 +145,18 @@ JSGenericTypedArrayView<Adaptor>* JSGenericTypedArrayView<Adaptor>::create(VM& v
 }
 
 template<typename Adaptor>
+JSGenericTypedArrayView<Adaptor>* JSGenericTypedArrayView<Adaptor>::tryCreate(JSGlobalObject* globalObject, Structure* structure, RefPtr<typename Adaptor::ViewType>&& impl)
+{
+    VM& vm = globalObject->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+    if (!impl->possiblySharedBuffer()) {
+        throwTypeError(globalObject, scope, typedArrayBufferHasBeenDetachedErrorMessage);
+        return nullptr;
+    }
+    return create(vm, structure, WTFMove(impl));
+}
+
+template<typename Adaptor>
 JSGenericTypedArrayView<Adaptor>* JSGenericTypedArrayView<Adaptor>::create(Structure* structure, JSGlobalObject* globalObject, RefPtr<typename Adaptor::ViewType>&& impl)
 {
     return create(globalObject->vm(), structure, WTFMove(impl));

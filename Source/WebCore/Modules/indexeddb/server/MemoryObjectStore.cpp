@@ -63,6 +63,19 @@ MemoryIndex* MemoryObjectStore::indexForIdentifier(IDBIndexIdentifier identifier
     return m_indexesByIdentifier.get(identifier);
 }
 
+void MemoryObjectStore::transactionFinished(MemoryBackingStoreTransaction& transaction)
+{
+    if (transaction.isWriting())
+        writeTransactionFinished(transaction);
+
+    m_cursors.removeIf([&](auto& pair) {
+        return pair.value->transaction() == &transaction;
+    });
+
+    for (auto& index : m_indexesByIdentifier.values())
+        index->transactionFinished(transaction);
+}
+
 void MemoryObjectStore::writeTransactionStarted(MemoryBackingStoreTransaction& transaction)
 {
     LOG(IndexedDB, "MemoryObjectStore::writeTransactionStarted");
@@ -92,8 +105,10 @@ IDBError MemoryObjectStore::createIndex(MemoryBackingStoreTransaction& transacti
         return IDBError(ExceptionCode::ConstraintError);
 
     ASSERT(!m_indexesByIdentifier.contains(info.identifier()));
-    auto index = MemoryIndex::create(info, *this);
+    if (m_indexesByIdentifier.contains(info.identifier()))
+        return IDBError { ExceptionCode::UnknownError, "Index with identifier already exists"_s };
 
+    auto index = MemoryIndex::create(info, *this);
     // If there was an error populating the new index, then the current records in the object store violate its contraints
     auto error = populateIndexWithExistingRecords(index.get());
     if (!error.isNull())
@@ -499,13 +514,16 @@ void MemoryObjectStore::unregisterIndex(MemoryIndex& index)
     m_indexesByIdentifier.remove(index.info().identifier());
 }
 
-MemoryObjectStoreCursor* MemoryObjectStore::maybeOpenCursor(const IDBCursorInfo& info)
+MemoryObjectStoreCursor* MemoryObjectStore::maybeOpenCursor(const IDBCursorInfo& info, MemoryBackingStoreTransaction& transaction)
 {
+    if (transaction.isWriting() && m_writeTransaction != &transaction)
+        return nullptr;
+
     auto result = m_cursors.add(info.identifier(), nullptr);
     if (!result.isNewEntry)
         return nullptr;
 
-    result.iterator->value = makeUnique<MemoryObjectStoreCursor>(*this, info);
+    result.iterator->value = makeUnique<MemoryObjectStoreCursor>(*this, info, transaction);
     return result.iterator->value.get();
 }
 

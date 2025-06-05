@@ -156,7 +156,6 @@ public:
     static constexpr ptrdiff_t offsetOfIdent() { return OBJECT_OFFSETOF(JSEntrypointCallee, m_ident); }
 #endif
     static constexpr ptrdiff_t offsetOfWasmCallee() { return OBJECT_OFFSETOF(JSEntrypointCallee, m_wasmCallee); }
-    static constexpr ptrdiff_t offsetOfWasmFunctionPrologue() { return OBJECT_OFFSETOF(JSEntrypointCallee, m_wasmFunctionPrologue); }
     static constexpr ptrdiff_t offsetOfFrameSize() { return OBJECT_OFFSETOF(JSEntrypointCallee, m_frameSize); }
 
     // Space for callee-saves; Not included in frameSize
@@ -177,11 +176,6 @@ public:
         m_wasmCallee = wasmCallee;
     }
 
-    void setReplacementTarget(CodePtr<WasmEntryPtrTag> replacement)
-    {
-        m_wasmFunctionPrologue = replacement;
-    }
-
 private:
     JSEntrypointCallee(TypeIndex, bool);
 
@@ -192,9 +186,6 @@ private:
     // This must be initialized after the callee is created unfortunately.
     EncodedJSValue m_wasmCallee;
     const TypeIndex m_typeIndex;
-    // In the JIT case, we want to always call the llint prologue from a jit function.
-    // In the no-jit case, we dont' care.
-    CodePtr<WasmEntryPtrTag> m_wasmFunctionPrologue;
 };
 
 class WasmToJSCallee final : public Callee {

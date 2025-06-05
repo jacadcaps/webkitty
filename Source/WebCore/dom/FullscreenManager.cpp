@@ -261,6 +261,11 @@ ExceptionOr<void> FullscreenManager::willEnterFullscreen(Element& element, HTMLM
         return Exception { ExceptionCode::TypeError };
     }
 
+    if (!element.isConnected()) {
+        ERROR_LOG(LOGIDENTIFIER, "Element to fullscreen is disconnected; bailing.");
+        return Exception { ExceptionCode::TypeError };
+    }
+
     // The element is an open popover.
     if (element.isPopoverShowing()) {
         ERROR_LOG(LOGIDENTIFIER, "Element to fullscreen is an open popover; bailing.");

@@ -1,4 +1,44 @@
 ================
+WebKitGTK 2.48.3
+================
+
+What's new in WebKitGTK 2.48.3?
+
+  - Fix a crash introduced by the new threaded rendering implementation using Skia API.
+  - Improve rendering performance by recording layers once and replaying every dirty
+    region in different worker threads.
+  - Fix a crash when setting WEBKIT_SKIA_GPU_PAINTING_THREADS=0.
+  - Fix a reference cycle in webkitmediastreamsrc preventing its disposal.
+
+================
+WebKitGTK 2.48.2
+================
+
+What's new in WebKitGTK 2.48.2?
+
+  - Enable CSS Overscroll Behavior by default.
+  - Change threaded rendering implementation to use Skia API instead of WebCore display
+    list that is not thread safe.
+  - Fix rendering when device scale factor change comes before the web view geometry
+    update.
+  - Fix network process crash on exit.
+  - Fix the build with ENABLE_RESOURCE_USAGE=OFF.
+  - Fix several crashes and rendering issues.
+
+================
+WebKitGTK 2.48.1
+================
+
+What's new in WebKitGTK 2.48.1?
+
+  - Limit the data stored in session state.
+  - Remove the empty area below the title bar in Web Inspector when not docked.
+  - Fix the build with GST_DISABLE_GST_DEBUG.
+  - Fix the build with GStreamer < 1.20.
+  - Fix the build with video disabled.
+  - Fix the build with clang 20.
+
+================
 WebKitGTK 2.48.0
 ================
 

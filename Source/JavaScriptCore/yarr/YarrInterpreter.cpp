@@ -115,9 +115,9 @@ public:
 
         static size_t allocationSize(unsigned numberOfFrames)
         {
-            static_assert(alignof(DisjunctionContext) <= sizeof(void*));
+            constexpr size_t alignment = std::max(alignof(DisjunctionContext), sizeof(uintptr_t));
             size_t rawSize = sizeof(DisjunctionContext) - sizeof(uintptr_t) + Checked<size_t>(numberOfFrames) * sizeof(uintptr_t);
-            size_t roundedSize = roundUpToMultipleOf<sizeof(void*)>(rawSize);
+            size_t roundedSize = roundUpToMultipleOf<alignment>(rawSize);
             RELEASE_ASSERT(roundedSize >= rawSize);
             return roundedSize;
         }
@@ -215,9 +215,9 @@ public:
 
         static size_t allocationSize(unsigned numBackupIds)
         {
-            static_assert(alignof(ParenthesesDisjunctionContext) <= sizeof(void*));
+            constexpr size_t alignment = std::max(alignof(ParenthesesDisjunctionContext), sizeof(unsigned));
             size_t rawSize = sizeof(ParenthesesDisjunctionContext) + Checked<size_t>(numBackupIds) * sizeof(unsigned);
-            size_t roundedSize = roundUpToMultipleOf<sizeof(void*)>(rawSize);
+            size_t roundedSize = roundUpToMultipleOf<alignment>(rawSize);
             RELEASE_ASSERT(roundedSize >= rawSize);
             return roundedSize;
         }
@@ -1870,6 +1870,11 @@ public:
 
             MATCH_NEXT();
         }
+
+        case ByteTerm::Type::PatternCasedCharacterNonGreedy:
+            // Case insensitive matching of unicode characters is handled as Type::CharacterClass.
+            ASSERT(!isEitherUnicodeCompilation() || U_IS_BMP(currentTerm().atom.patternCharacter));
+            FALLTHROUGH;
         case ByteTerm::Type::PatternCharacterNonGreedy: {
             DUMP_CURR_CHAR();
             BackTrackInfoPatternCharacter* backTrack = reinterpret_cast<BackTrackInfoPatternCharacter*>(context->frame + currentTerm().frameLocation);
@@ -1956,16 +1961,6 @@ public:
 
                 MATCH_NEXT();
             }
-        }
-        case ByteTerm::Type::PatternCasedCharacterNonGreedy: {
-            DUMP_CURR_CHAR();
-            BackTrackInfoPatternCharacter* backTrack = reinterpret_cast<BackTrackInfoPatternCharacter*>(context->frame + currentTerm().frameLocation);
-
-            // Case insensitive matching of unicode characters is handled as Type::CharacterClass.
-            ASSERT(!isEitherUnicodeCompilation() || U_IS_BMP(currentTerm().atom.patternCharacter));
-            
-            backTrack->matchAmount = 0;
-            MATCH_NEXT();
         }
 
         case ByteTerm::Type::CharacterClass:
