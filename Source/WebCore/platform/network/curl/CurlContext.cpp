@@ -611,13 +611,20 @@ void CurlHandle::enableRequestHeaders()
 
 void CurlHandle::enableHttp(bool post)
 {
-    if (m_url.protocolIs("https"_s) && CurlContext::singleton().isHttp2Enabled(post)) {
+    if (m_url.protocolIs("https"_s) && CurlContext::singleton().isHttp3Enabled()) {
+        curl_easy_setopt(m_handle, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_3);
+        curl_easy_setopt(m_handle, CURLOPT_PIPEWAIT, 1L);
+        curl_easy_setopt(m_handle, CURLOPT_SSL_ENABLE_ALPN, 1L);
+        curl_easy_setopt(m_handle, CURLOPT_SSL_ENABLE_NPN, 0L);
+    }
+    else if (m_url.protocolIs("https"_s) && CurlContext::singleton().isHttp2Enabled(post)) {
         curl_easy_setopt(m_handle, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2TLS);
         curl_easy_setopt(m_handle, CURLOPT_PIPEWAIT, 1L);
         curl_easy_setopt(m_handle, CURLOPT_SSL_ENABLE_ALPN, 1L);
         curl_easy_setopt(m_handle, CURLOPT_SSL_ENABLE_NPN, 0L);
-    } else
+    } else {
         curl_easy_setopt(m_handle, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
+    }
 }
 
 void CurlHandle::disableAcceptEncoding()

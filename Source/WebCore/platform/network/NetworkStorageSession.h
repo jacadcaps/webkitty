@@ -198,6 +198,10 @@ public:
         Disabled, Enabled, EnabledExceptPost
     };
     WEBCORE_EXPORT void setHTTP2Mode(CurlHTTP2Mode mode);
+    enum class CurlHTTP3Mode {
+        Disabled, Enabled
+    };
+    WEBCORE_EXPORT void setHTTP3Mode(CurlHTTP3Mode mode);
 #endif
 
     WEBCORE_EXPORT void clearAlternativeServices();

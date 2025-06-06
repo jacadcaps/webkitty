@@ -135,18 +135,24 @@ typedef enum
 
 typedef enum
 {
-    WkGlobalSettings_HTTP2_Disabled,
-    // Enabled is the default. Should not normally be changed unless to workaround server-side
-    // or cURL issues with HTTP/2
-    WkGlobalSettings_HTTP2_Enabled,
-    WkGlobalSettings_HTTP2_ExceptPOST
+	WkGlobalSettings_HTTP2_Disabled,
+	// Enabled is the default. Should not normally be changed unless to workaround server-side
+	// or cURL issues with HTTP/2
+	WkGlobalSettings_HTTP2_Enabled,
+	WkGlobalSettings_HTTP2_ExceptPOST
 } WkGlobalSettings_HTTP2;
 
 typedef enum
 {
-    WkGlobalSettings_FontCodePath_Auto,
-    WkGlobalSettings_FontCodePath_Simple,
-    WkGlobalSettings_FontCodePath_Complex
+	WkGlobalSettings_HTTP3_Disabled,
+	WkGlobalSettings_HTTP3_Enabled,
+} WkGlobalSettings_HTTP3;
+
+typedef enum
+{
+	WkGlobalSettings_FontCodePath_Auto,
+	WkGlobalSettings_FontCodePath_Simple,
+	WkGlobalSettings_FontCodePath_Complex
 } WkGlobalSettings_FontCodePath;
 
 @interface WkGlobalSettings : OBObject
@@ -197,6 +203,7 @@ typedef enum
 + (void)setCookieJarPath:(OBString *)path;
 
 + (void)setHTTP2Mode:(WkGlobalSettings_HTTP2)http2;
++ (void)setHTTP3Mode:(WkGlobalSettings_HTTP3)http3;
 
 + (void)setAdBlockBaseName:(OBString *)path;
 

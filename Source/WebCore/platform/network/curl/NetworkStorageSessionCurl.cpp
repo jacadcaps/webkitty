@@ -141,6 +141,11 @@ void NetworkStorageSession::setHTTP2Mode(NetworkStorageSession::CurlHTTP2Mode mo
         mode != NetworkStorageSession::CurlHTTP2Mode::EnabledExceptPost && mode != NetworkStorageSession::CurlHTTP2Mode::Disabled);
 }
 
+void NetworkStorageSession::setHTTP3Mode(NetworkStorageSession::CurlHTTP3Mode mode)
+{
+    CurlContext::singleton().setIsHttp3Enabled(mode != NetworkStorageSession::CurlHTTP3Mode::Disabled);
+}
+
 HTTPCookieAcceptPolicy NetworkStorageSession::cookieAcceptPolicy() const
 {
     switch (cookieDatabase().acceptPolicy()) {

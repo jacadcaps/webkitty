@@ -731,4 +731,9 @@ static cairo_antialias_t defaultAA;
     NetworkStorageSessionMap::defaultStorageSession().setHTTP2Mode(WebCore::NetworkStorageSession::CurlHTTP2Mode(http2));
 }
 
++ (void)setHTTP3Mode:(WkGlobalSettings_HTTP3)http3
+{
+    NetworkStorageSessionMap::defaultStorageSession().setHTTP3Mode(WebCore::NetworkStorageSession::CurlHTTP3Mode(http3));
+}
+
 @end

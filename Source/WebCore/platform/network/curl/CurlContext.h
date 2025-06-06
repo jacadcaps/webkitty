@@ -121,10 +121,12 @@ public:
     // SSL
     CurlSSLHandle& sslHandle() { return m_sslHandle; }
 
-    // HTTP/2
+    // HTTP/2-3
     bool isHttp2Enabled(bool forPost = false) const;
+    bool isHttp3Enabled() const { return m_http3Enabled; }
 
     void setIsHttp2Enabled(bool enabled, bool enabledForPost) { m_http2Enabled = enabled; m_http2POSTEnabled = enabledForPost; }
+    void setIsHttp3Enabled(bool enabled) { m_http3Enabled = enabled; }
 
     // Timeout
     Seconds dnsCacheTimeout() const { return m_dnsCacheTimeout; }
@@ -154,6 +156,7 @@ private:
     Seconds m_defaultTimeoutInterval { 60.0 };
 
     bool m_http2Enabled { true };
+    bool m_http3Enabled { true };
     bool m_http2POSTEnabled { true };
 
 #ifndef NDEBUG
