@@ -5467,12 +5467,14 @@ void Page::hasActiveNowPlayingSessionChanged()
 
 void Page::activeNowPlayingSessionUpdateTimerFired()
 {
+#if ENABLE(VIDEO)
     bool hasActiveNowPlayingSession = PlatformMediaSessionManager::singleton().hasActiveNowPlayingSessionInGroup(mediaSessionGroupIdentifier());
     if (hasActiveNowPlayingSession == m_hasActiveNowPlayingSession)
         return;
 
     m_hasActiveNowPlayingSession = hasActiveNowPlayingSession;
     chrome().client().hasActiveNowPlayingSessionChanged(hasActiveNowPlayingSession);
+#endif
 }
 
 void Page::setLastAuthentication(LoginStatus::AuthenticationType authType)

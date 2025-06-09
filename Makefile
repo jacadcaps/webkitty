@@ -2,7 +2,7 @@ ROOTPATH:=$(abspath ../../../)
 LIB:=$(ROOTPATH)/lib
 GEN:=$(ROOTPATH)/gen/host/libnix
 
-PKG_ICU:=$(LIB)/libicu67/instdir/lib/pkgconfig/
+PKG_ICU:=$(LIB)/libicu70/instdir/lib/pkgconfig/
 PKG_SQLITE:=$(LIB)/sqlite/instdir/lib/pkgconfig/
 PKG_FONTCONFIG:=$(ROOTPATH)/morphoswb/libs/fontconfig/MorphOS/
 PKG:=$(PKG_ICU):$(PKG_SQLITE)
@@ -39,10 +39,10 @@ configure: morphos.cmake link.sh CMakeLists.txt Dummy/libdummy.a ffmpeg/.buildst
 		-DCairo_LIBRARY="$(ROOTPATH)/morphoswb/libs/cairo/MorphOS/lib/libnix/libcairo.a" \
 		-DHarfBuzz_INCLUDE_DIR="$(realpath Dummy)"\
 		-DHarfBuzz_LIBRARY=$(GEN)/lib/libnghttp2.a \
-		-DICU_ROOT="$(LIB)/libicu67/instdir/" \
-		-DICU_UC_LIBRARY_RELEASE="$(LIB)/libicu67/instdir/lib/libicuuc.a" \
-		-DICU_DATA_LIBRARY_RELEASE="$(LIB)/libicu67/instdir/lib/libicudata.a" \
-		-DICU_I18N_LIBRARY_RELEASE="$(LIB)/libicu67/instdir/lib/libicui18n.a" \
+		-DICU_ROOT="$(LIB)/libicu70/instdir/" \
+		-DICU_UC_LIBRARY_RELEASE="$(LIB)/libicu70/instdir/lib/libicuuc.a" \
+		-DICU_DATA_LIBRARY_RELEASE="$(LIB)/libicu70/instdir/lib/libicudata.a" \
+		-DICU_I18N_LIBRARY_RELEASE="$(LIB)/libicu70/instdir/lib/libicui18n.a" \
 		-DHarfBuzz_ICU_LIBRARY="$(realpath Dummy)/libdummy.a" \
 		-DFREETYPE_INCLUDE_DIRS="$(ROOTPATH)/morphoswb/libs/freetype/include" \
 		-DFREETYPE_LIBRARY="$(ROOTPATH)/morphoswb/libs/freetype/library/lib/libfreetype.a" \
@@ -83,10 +83,10 @@ configure-mini: morphos.cmake link.sh CMakeLists.txt Dummy/libdummy.a ffmpeg/.bu
 		-DCairo_LIBRARY="$(ROOTPATH)/morphoswb/libs/cairo/MorphOS/lib/libnix/libcairo.a" \
 		-DHarfBuzz_INCLUDE_DIR="$(realpath Dummy)"\
 		-DHarfBuzz_LIBRARY=$(GEN)/lib/libnghttp2.a \
-		-DICU_ROOT="$(LIB)/libicu67/instdir/" \
-		-DICU_UC_LIBRARY_RELEASE="$(LIB)/libicu67/instdir/lib/libicuuc.a" \
-		-DICU_DATA_LIBRARY_RELEASE="$(LIB)/libicu67/instdir/lib/libicudata.a" \
-		-DICU_I18N_LIBRARY_RELEASE="$(LIB)/libicu67/instdir/lib/libicui18n.a" \
+		-DICU_ROOT="$(LIB)/libicu70/instdir/" \
+		-DICU_UC_LIBRARY_RELEASE="$(LIB)/libicu70/instdir/lib/libicuuc.a" \
+		-DICU_DATA_LIBRARY_RELEASE="$(LIB)/libicu70/instdir/lib/libicudata.a" \
+		-DICU_I18N_LIBRARY_RELEASE="$(LIB)/libicu70/instdir/lib/libicui18n.a" \
 		-DHarfBuzz_ICU_LIBRARY="$(realpath Dummy)/libdummy.a" \
 		-DFREETYPE_INCLUDE_DIRS="$(ROOTPATH)/morphoswb/libs/freetype/include" \
 		-DFREETYPE_LIBRARY="$(ROOTPATH)/morphoswb/libs/freetype/library/lib/libfreetype.a" \
@@ -198,9 +198,9 @@ LINKFILES := \
 	$(ROOTPATH)/gen/host/libnix/libpng16/lib/libpng16.a  \
 	$(ROOTPATH)/gen/host/libnix/lib/libhyphen.a \
 	$(ROOTPATH)/gen/host/libnix/lib/libcrypto.a \
-	$(ROOTPATH)/lib/libicu67/instdir/lib/libicui18n.a \
-	$(ROOTPATH)/lib/libicu67/instdir/lib/libicuuc.a \
-	$(ROOTPATH)/lib/libicu67/instdir/lib/libicudata.a \
+	$(ROOTPATH)/lib/libicu70/instdir/lib/libicui18n.a \
+	$(ROOTPATH)/lib/libicu70/instdir/lib/libicuuc.a \
+	$(ROOTPATH)/lib/libicu70/instdir/lib/libicudata.a \
 	$(ROOTPATH)/lib/libwebp/objects/host-libnix/tmpinstalldir/lib/libwebp.a \
 	$(ROOTPATH)/lib/libwebp/objects/host-libnix/tmpinstalldir/lib/libwebpdemux.a \
 	$(ROOTPATH)/gen/host/libnix/lib/libopenjp2.a \
