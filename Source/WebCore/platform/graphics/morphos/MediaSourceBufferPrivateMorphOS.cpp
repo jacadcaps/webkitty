@@ -24,7 +24,7 @@
 #define DR(x) //do { if (m_audioDecoderMask != 0) x; } while (0);
 #define DIO(x) //do { if (m_audioDecoderMask != 0) x; } while (0);
 #define DM(x)
-#define DI(x) 
+#define DI(x)
 #define DN 0
 #define DNVIDEOONLY 0
 #define DNERR(x)
@@ -32,10 +32,11 @@
 #define DBR(x)
 #define DRMS(x)
 #define DENABLED(x)
-#define DLIFETIME(x)
+#define DLIFETIME(x) 
 #define DSEEK(x)
 #define DENQ(x) // do { if (m_audioDecoderMask != 0) x; } while (0);
 #define DRECEIVED(x) // do { if (m_audioDecoderMask != 0) x; } while (0);
+#define DABORT(x) 
 #define DENQDEBUGSTEPS 20
 
 // #pragma GCC optimize ("O0")
@@ -233,32 +234,30 @@ void MediaSourceBufferPrivateMorphOS::clearMediaSource()
 {
 	DAPPEND(dprintf("[MS]%s %p main %d\n", __func__, this, isMainThread()));
 
-	terminate();
-	m_mediaSource = nullptr;
-
-    if (m_appendPromise)
+    if (isMainThread())
     {
-        if (isMainThread())
+        if (m_appendPromise)
         {
             m_appendPromise->reject(PlatformMediaError::BufferRemoved);
             m_appendPromise.reset();
         }
-        else
-        {
-            WTF::callOnMainThread([this, protect = Ref{*this}]() {
-                if (m_appendPromise) {
-                    m_appendPromise->reject(PlatformMediaError::BufferRemoved);
-                    m_appendPromise.reset();
-                }
-            });
-        }
+
+        terminate();
+        m_mediaSource = nullptr;
+    }
+    else
+    {
+        WTF::callOnMainThread([this, protect = Ref{*this}]() {
+            clearMediaSource();
+        });
     }
 }
 
 void MediaSourceBufferPrivateMorphOS::abort()
 {
-	DI(dprintf("[MS]%s %p\n", __func__, this));
-
+	// TODO: implement this
+	DABORT(dprintf("[MS]%s %p\n", __func__, this));
+	SourceBufferPrivate::abort();
 }
 
 void MediaSourceBufferPrivateMorphOS::terminate()
@@ -328,44 +327,45 @@ void MediaSourceBufferPrivateMorphOS::removedFromMediaSource()
 	terminate();
 	RefPtr<MediaSourceBufferPrivateMorphOS> me = Ref{*this};
     RefPtr mediaSource = m_mediaSource.get();
-    if (mediaSource)
+	if (mediaSource)
 		mediaSource->onSourceBufferRemoved(me);
+	SourceBufferPrivate::removedFromMediaSource();
 }
 
 void MediaSourceBufferPrivateMorphOS::onTrackEnabled(int index, bool enabled)
 {
 	DENABLED(dprintf("[MS]%s: %d enabled %d\n", __func__, index, enabled));
-    if (index >= Acinerella::AcinerellaMuxedBuffer::maxDecoders)
-        return;
+	if (index >= Acinerella::AcinerellaMuxedBuffer::maxDecoders)
+		return;
 
-    RefPtr mediaSource = m_mediaSource.get();
-    if (mediaSource)
-    {
-        m_enabled[index] = enabled;
-        if (enabled)
-        {
-            if (!!m_decoders[index])
-            {
-                m_decoders[index]->setEnabled(true);
-                if (mediaSource->paused())
-                {
-                    m_decoders[index]->warmUp();
-                }
-                else
-                {
-                    m_decoders[index]->prePlay();
-                }
-            }
-        }
-        else if (!enabled)
-        {
-            if (!!m_decoders[index])
-            {
-                m_decoders[index]->setEnabled(false);
-                m_decoders[index]->coolDown();
-            }
-        }
-    }
+	RefPtr mediaSource = m_mediaSource.get();
+	if (mediaSource)
+	{
+		m_enabled[index] = enabled;
+		if (enabled)
+		{
+			if (!!m_decoders[index])
+			{
+				m_decoders[index]->setEnabled(true);
+				if (mediaSource->paused())
+				{
+					m_decoders[index]->warmUp();
+				}
+				else
+				{
+					m_decoders[index]->prePlay();
+				}
+			}
+		}
+		else if (!enabled)
+		{
+			if (!!m_decoders[index])
+			{
+				m_decoders[index]->setEnabled(false);
+				m_decoders[index]->coolDown();
+			}
+		}
+	}
 }
 
 void MediaSourceBufferPrivateMorphOS::dumpStatus()
@@ -407,8 +407,12 @@ void MediaSourceBufferPrivateMorphOS::flush(TrackID trackID)
 	if (trackID < Acinerella::AcinerellaMuxedBuffer::maxDecoders)
 	{
 		m_muxer->flush(trackID);
-		RefPtr<Acinerella::AcinerellaPackage> package = Acinerella::AcinerellaPackage::create(m_reader->acinerella(), ac_flush_packet());
-		m_muxer->push(package, trackID);
+		auto acinerella = m_reader->acinerella();
+		if (!!acinerella)
+		{
+			RefPtr<Acinerella::AcinerellaPackage> package = Acinerella::AcinerellaPackage::create(m_reader->acinerella(), ac_flush_packet());
+			m_muxer->push(package, trackID);
+		}
 	}
 }
 
@@ -558,7 +562,9 @@ bool MediaSourceBufferPrivateMorphOS::initialize(InitializeMode mode)
     }
     else
     {
-    
+		m_mustReinitializeDecoders = true;
+		RefPtr<MediaSourceBufferPrivateMorphOS> me = Ref{*this};
+		mediaSource->onSourceBufferInitialized(me);
     }
 
     return true;
@@ -589,19 +595,78 @@ static void toMorphOSInfo(MediaPlayerMorphOSInfo& mInfo, const ac_stream_info &i
 
 bool MediaSourceBufferPrivateMorphOS::createDecoders()
 {
+    RefPtr<Acinerella::AcinerellaPointer> acinerella = m_reader->acinerella();
+    if (!acinerella)
+		return false;
+
+	if (m_muxer && m_mustReinitializeDecoders)
+	{
+		RefPtr<Acinerella::AcinerellaPointer> acinerella = m_reader->acinerella();
+		uint32_t audioDecoderMask = 0;
+		uint32_t decoderIndexMask = 0;
+
+		DI(dprintf("[MS]%s: reinitializing decoders cnt %d\n", __func__, m_reader->numDecoders()));
+
+		for (int i = 0; i < m_reader->numDecoders(); i++)
+		{
+			ac_stream_info info;
+			ac_get_stream_info(acinerella->instance(), i, &info);
+
+			switch (info.stream_type)
+			{
+			case AC_STREAM_TYPE_VIDEO:
+				decoderIndexMask |= (1UL << i);
+				break;
+			case AC_STREAM_TYPE_AUDIO:
+				decoderIndexMask |= (1UL << i);
+				audioDecoderMask |= (1UL << i);
+				break;
+			}
+		}
+
+		if (m_audioDecoderMask != audioDecoderMask || m_numDecoders != m_reader->numDecoders())
+		{
+			dprintf("[MS]%s: failed re-initializing decoders due to media mask change. Please report this Wayfarer error!\n", __func__);
+			return false;
+		}
+
+		for (int i = 0; i < m_reader->numDecoders(); i++)
+		{
+			ac_stream_info info;
+			ac_get_stream_info(acinerella->instance(), i, &info);
+
+			switch (info.stream_type)
+			{
+			case AC_STREAM_TYPE_VIDEO:
+				acinerella->setDecoder(i, ac_create_decoder(acinerella->instance(), i));
+				ac_decoder_fake_seek(acinerella->decoder(i));
+				break;
+			case AC_STREAM_TYPE_AUDIO:
+				acinerella->setDecoder(i, ac_create_decoder(acinerella->instance(), i));
+				ac_decoder_fake_seek(acinerella->decoder(i));
+				break;
+			}
+		}
+
+		m_audioDecoderMask = audioDecoderMask;
+		m_mustReinitializeDecoders = false;
+        warmUp();
+        return true;
+	}
+
     if (m_muxer)
         return true;
 
     double duration = 0.0;
     uint32_t decoderIndexMask = 0;
 
-    m_muxer = Acinerella::AcinerellaMuxedBuffer::create();
+	if (!m_muxer)
+		m_muxer = Acinerella::AcinerellaMuxedBuffer::create();
     DI(dprintf("[MS]%s: muxer created. decoders %d\n", __func__, m_reader->numDecoders()));
 
     m_audioDecoderMask = 0;
     m_numDecoders = m_reader->numDecoders();
-
-    RefPtr<Acinerella::AcinerellaPointer> acinerella = m_reader->acinerella();
+    m_mustReinitializeDecoders = false;
 
     MediaPlayerMorphOSInfo mInfo;
 

@@ -28,7 +28,7 @@
 #define DIO(x)
 #define DM(x) 
 #define DSAMPLES(x)
-#define DINIT(x)
+#define DINIT(x) 
 #define DNERR(x)
 #define DN 0
 #define DNVIDEOONLY 0
@@ -246,6 +246,9 @@ Ref<MediaSourceChunkReader::DecodePromise> MediaSourceChunkReader::decodeAsync(R
 }
 #endif
 
+        if (m_terminating)
+            return MediaSourceChunkReader::DecodePromise::createAndReject();
+
         if (!m_initializationDone)
         {
             DSAMPLES(dprintf("%s: received initialization buffer\n", __PRETTY_FUNCTION__));
@@ -273,14 +276,19 @@ Ref<MediaSourceChunkReader::DecodePromise> MediaSourceChunkReader::decodeAsync(R
             int tracks = analyzeHeader(buffer, streamInfo, sizeof(streamInfo) / sizeof(ac_initialization_segment_stream));
             if (tracks > 0)
             {
+                DSAMPLES(dprintf("%s: received reinitialization!!!\n", __PRETTY_FUNCTION__));
                 // this is re-initialization
                 m_numStreamInfo = std::min(tracks, int(Acinerella::AcinerellaMuxedBuffer::maxDecoders));
                 memcpy(m_streamInfo, streamInfo, m_numStreamInfo * sizeof(ac_initialization_segment_stream));
                 updateMetadata();
                 if (m_acinerella)
                 {
+                    m_dataProvider.push(SharedBuffer::create()); // used to fool read code in case there's no pending buffers
                     m_dataProvider.push(WTFMove(buffer), MediaSourceChunkReaderDataProvider::ChunkType::ReInitialization);
                     decodeAllMediaSamples(); // pull all the pending data until previous acinerella gets an EOF
+                    DSAMPLES(dprintf("%s: decoded until the end of previous package\n", __PRETTY_FUNCTION__));
+                    m_acinerella = nullptr;
+                    DSAMPLES(dprintf("%s: killed old acinerella\n", __PRETTY_FUNCTION__));
                     return MediaSourceChunkReader::DecodePromise::createAndResolve(DecodeResult::Reinitialize);
                 }
             }

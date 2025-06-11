@@ -171,6 +171,7 @@ private:
 	int                                           m_appendCompleteCount = 0;
 	bool                                          m_readerFailed = false;
 	bool                                          m_mustAppendInitializationSegment = false;
+    bool                                          m_mustReinitializeDecoders = false;
 };
 
 }

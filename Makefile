@@ -206,7 +206,10 @@ LINKFILES := \
 	$(ROOTPATH)/gen/host/libnix/lib/libopenjp2.a \
 	$(ROOTPATH)/gen/host/libnix/lib/libtasn1.a \
 	$(ROOTPATH)/gen/host/libnix/lib/libgcrypt.a \
-	$(ROOTPATH)/gen/host/libnix/lib/libgpg-error.a
+	$(ROOTPATH)/gen/host/libnix/lib/libgpg-error.a \
+	$(ROOTPATH)/gen/host/libnix/lib/libnghttp3.a \
+	$(ROOTPATH)/gen/host/libnix/lib/libngtcp2.a \
+	$(ROOTPATH)/gen/host/libnix/lib/libngtcp2_crypto_ossl.a
 
 .PHONY: linkpackage
 linkpackage:
