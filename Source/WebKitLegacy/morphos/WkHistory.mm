@@ -131,7 +131,7 @@
 	if (_client)
 	{
 		HistoryItemVector history;
-		_client->forwardListWithLimit(32, history);
+		_client->backListWithLimit(32, history);
 		OBMutableArray *out = [OBMutableArray arrayWithCapacity:history.size()];
 		for (auto it = history.begin(); it != history.end(); it++)
 		{
@@ -147,7 +147,7 @@
 	if (_client)
 	{
 		HistoryItemVector history;
-		_client->backListWithLimit(32, history);
+		_client->forwardListWithLimit(32, history);
 		OBMutableArray *out = [OBMutableArray arrayWithCapacity:history.size()];
 		for (auto it = history.begin(); it != history.end(); it++)
 		{
