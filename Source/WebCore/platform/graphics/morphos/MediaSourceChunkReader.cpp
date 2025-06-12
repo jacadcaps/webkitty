@@ -28,11 +28,11 @@
 #define DIO(x)
 #define DM(x) 
 #define DSAMPLES(x)
-#define DINIT(x) 
+#define DINIT(x)
 #define DNERR(x)
 #define DN 0
 #define DNVIDEOONLY 0
-#define DPROVIDER(x)
+#define DPROVIDER(x) 
 
 // #pragma GCC optimize ("O0")
 // #define DEBUG_FILE
@@ -284,7 +284,8 @@ Ref<MediaSourceChunkReader::DecodePromise> MediaSourceChunkReader::decodeAsync(R
         {
             ac_initialization_segment_stream streamInfo[Acinerella::AcinerellaMuxedBuffer::maxDecoders];
             int tracks = analyzeHeader(buffer, streamInfo, sizeof(streamInfo) / sizeof(ac_initialization_segment_stream));
-            if (tracks > 0)
+            // the duration check is for live streams. youtube-live will send chunks that detect as real streams but they're not
+            if (tracks > 0 && streamInfo[0].duration > 0)
             {
                 DSAMPLES(dprintf("%s: received reinitialization!!!\n", __PRETTY_FUNCTION__));
                 // this is re-initialization
