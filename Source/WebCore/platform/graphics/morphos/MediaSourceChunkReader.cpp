@@ -65,6 +65,7 @@ int MediaSourceChunkReaderDataProvider::pull(uint8_t *buf, int size)
 {
     DPROVIDER(dprintf("[MSDP][%p]%s: %ld\n", this, __func__, size));
     int readTotal = 0;
+    bool underrunSignalled = false;
 
     while (size > 0 && !m_terminated.loadRelaxed())
     {
@@ -120,6 +121,7 @@ int MediaSourceChunkReaderDataProvider::pull(uint8_t *buf, int size)
                     m_queue.remove(0);
                     m_bufferPosition = 0;
                     m_onDataUnderrun(); // wake up the client
+                    underrunSignalled = true;
                     return AVERROR_EOF;
                 }
             
@@ -144,8 +146,16 @@ int MediaSourceChunkReaderDataProvider::pull(uint8_t *buf, int size)
         if (needsToWait)
         {
             DPROVIDER(dprintf("[MSDP][%p]%s: underrun, rt %ld\n", this, __func__, readTotal));
-            m_onDataUnderrun();
+            if (!underrunSignalled)
+            {
+                m_onDataUnderrun();
+                underrunSignalled = true;
+            }
             m_event.waitFor(10_s);
+        }
+        else
+        {
+            underrunSignalled = false;
         }
     }
 
@@ -470,7 +480,10 @@ bool MediaSourceChunkReader::decodeAllMediaSamples()
 	m_queue.append(makeUnique<Function<void ()>>([this] {
         while (keepDecoding())
         {
-            RefPtr<Acinerella::AcinerellaPackage> package = Acinerella::AcinerellaPackage::create(m_acinerella, ac_read_package(m_acinerella->instance()));
+            RefPtr acinerella = m_acinerella;
+            if (!acinerella)
+                break;
+            RefPtr<Acinerella::AcinerellaPackage> package = Acinerella::AcinerellaPackage::create(acinerella, ac_read_package(acinerella->instance()));
             if (package.get() && package->package())
             {
                 TrackID trackID = package->index();
@@ -507,7 +520,7 @@ bool MediaSourceChunkReader::decodeAllMediaSamples()
         }
     }));
 
-    while (!m_underrunSignalled.loadRelaxed()) {
+    while (!m_underrunSignalled.loadRelaxed() && !m_terminating) {
         m_underrunEvent.waitFor(10_s);
     }
 
