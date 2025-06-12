@@ -3,7 +3,7 @@
 
 #undef __OBJC__
 #define __MORPHOS_DISABLE
-#import "BackForwardClient.h"
+#import "BackForwardList.h"
 #import <WebCore/HistoryItem.h>
 #import <wtf/URL.h>
 #define __OBJC__
@@ -85,7 +85,7 @@
 
 @implementation WkBackForwardListPrivate
 
-- (id)initWithClient:(WTF::RefPtr<WebKit::BackForwardClientMorphOS>)bf
+- (id)initWithClient:(WTF::RefPtr<WebKit::BackForwardList>)bf
 {
 	if ((self = [super init]))
 	{
@@ -95,12 +95,12 @@
 	return self;
 }
 
-+ (id)backForwardListPrivate:(WTF::RefPtr<WebKit::BackForwardClientMorphOS>)bf
++ (id)backForwardListPrivate:(WTF::RefPtr<WebKit::BackForwardList>)bf
 {
 	return [[[self alloc] initWithClient:bf] autorelease];
 }
 
-- (WTF::RefPtr<WebKit::BackForwardClientMorphOS>)client
+- (WTF::RefPtr<WebKit::BackForwardList>)client
 {
 	return _client;
 }

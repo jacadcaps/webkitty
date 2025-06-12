@@ -48,7 +48,7 @@ class WebViewPrintingContext;
 class WebChromeClient;
 class WebPageCreationParameters;
 class WebDocumentLoader;
-class BackForwardClientMorphOS;
+class BackForwardList;
 
 WebCore::Page* core(WebPage *webView);
 WebPage *kit(WebCore::Page* page);
@@ -188,7 +188,7 @@ public:
     WebCore::LocalFrame* mainFrame() const; // May return nullptr.
     WebCore::FrameView* mainFrameView() const; // May return nullptr.
 
-	WTF::RefPtr<WebKit::BackForwardClientMorphOS> backForwardClient();
+	WTF::RefPtr<WebKit::BackForwardList> backForwardClient();
 
     void goActive();
     void goInactive();

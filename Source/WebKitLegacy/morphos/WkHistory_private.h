@@ -1,6 +1,6 @@
 #undef __OBJC__
 #import "WebKit.h"
-#import "BackForwardClient.h"
+#import "BackForwardList.h"
 #define __OBJC__
 
 #import "WkHistory.h"
@@ -18,10 +18,10 @@
 
 @interface WkBackForwardListPrivate : WkBackForwardList
 {
-	WTF::RefPtr<WebKit::BackForwardClientMorphOS> _client;
+	WTF::RefPtr<WebKit::BackForwardList> _client;
 }
 
-+ (id)backForwardListPrivate:(WTF::RefPtr<WebKit::BackForwardClientMorphOS>)bf;
-- (WTF::RefPtr<WebKit::BackForwardClientMorphOS>)client;
++ (id)backForwardListPrivate:(WTF::RefPtr<WebKit::BackForwardList>)bf;
+- (WTF::RefPtr<WebKit::BackForwardList>)client;
 
 @end

@@ -134,7 +134,7 @@
 #include "WebCoreSupport/WebChromeClient.h"
 #include "WebCoreSupport/WebPluginInfoProvider.h"
 #include "WebCoreSupport/WebPageGroup.h"
-#include "BackForwardClient.h"
+#include "BackForwardList.h"
 #include <WebCoreSupport/WebVisitedLinkStore.h>
 #include "WebCoreSupport/WebPlatformStrategies.h"
 #include "WebCoreSupport/WebInspectorClient.h"
@@ -1212,7 +1212,7 @@ WebPage::WebPage(WebCore::PageIdentifier pageID, WebPageCreationParameters&& par
         WebCore::WebRTCProvider::create(),
         WebCore::CacheStorageProvider::create(),
         m_webPageGroup->userContentController(),
-        BackForwardClientMorphOS::create(this),
+        BackForwardList::create(this),
         WebCore::CookieJar::create(storageProvider.copyRef()),
         makeUniqueRef<WebProgressTrackerClient>(*this),
         WebCore::PageConfiguration::LocalMainFrameCreationParameters {
@@ -1570,9 +1570,9 @@ void WebPage::goToItem(WebCore::HistoryItem& item)
         m_page->goToItem(*localFrame, item, FrameLoadType::IndexedBackForward, ShouldTreatAsContinuingLoad::No);
 }
 
-WTF::RefPtr<WebKit::BackForwardClientMorphOS> WebPage::backForwardClient()
+WTF::RefPtr<WebKit::BackForwardList> WebPage::backForwardClient()
 {
-	Ref<BackForwardClientMorphOS> client(static_cast<BackForwardClientMorphOS&>(m_page->backForward().client()));
+	Ref<BackForwardList> client(static_cast<BackForwardList&>(m_page->backForward().client()));
 	return client;
 }
 

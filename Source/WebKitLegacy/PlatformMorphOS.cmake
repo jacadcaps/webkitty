@@ -28,7 +28,7 @@ list(APPEND WebKitLegacy_SOURCES_Classes
     morphos/WebFrame.cpp
     morphos/WebPage.cpp
     morphos/WebProcess.cpp
-    morphos/BackForwardClient.cpp
+    morphos/BackForwardList.cpp
     morphos/WebApplicationCache.cpp
     morphos/storage/WebDatabaseProvider.cpp
     morphos/storage/WebStorageTrackerClient.cpp

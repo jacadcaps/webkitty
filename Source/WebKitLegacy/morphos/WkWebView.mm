@@ -1266,7 +1266,7 @@ namespace  {
 {
 	if (nil == _backForwardList)
 	{
-		WTF::RefPtr<WebKit::BackForwardClientMorphOS> client = _page->backForwardClient();
+		WTF::RefPtr<WebKit::BackForwardList> client = _page->backForwardClient();
 		if (client.get())
 		{
 			_backForwardList = [[WkBackForwardListPrivate backForwardListPrivate:client] retain];
