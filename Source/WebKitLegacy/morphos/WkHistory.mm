@@ -158,6 +158,14 @@
 	return nil;
 }
 
+- (void)remove:(WkBackForwardListItem *)item
+{
+    if (!item || !_client)
+        return;
+    auto& innerItem = [(WkBackForwardListItemPrivate *)item item];
+    _client->removeItem(innerItem);
+}
+
 @end
 
 @implementation WkBackForwardList
@@ -185,6 +193,10 @@
 - (OBArray __wkListType *)forwardList
 {
 	return 0;
+}
+
+- (void)remove:(WkBackForwardListItem *)item
+{
 }
 
 @end

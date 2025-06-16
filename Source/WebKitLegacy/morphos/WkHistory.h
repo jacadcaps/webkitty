@@ -30,4 +30,6 @@
 - (OBArray __wkListType *)backList;
 - (OBArray __wkListType *)forwardList;
 
+- (void)remove:(WkBackForwardListItem *)item;
+
 @end
