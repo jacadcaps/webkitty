@@ -284,8 +284,22 @@ Ref<MediaSourceChunkReader::DecodePromise> MediaSourceChunkReader::decodeAsync(R
         {
             ac_initialization_segment_stream streamInfo[Acinerella::AcinerellaMuxedBuffer::maxDecoders];
             int tracks = analyzeHeader(buffer, streamInfo, sizeof(streamInfo) / sizeof(ac_initialization_segment_stream));
-            // the duration check is for live streams. youtube-live will send chunks that detect as real streams but they're not
-            if (tracks > 0 && streamInfo[0].duration > 0)
+
+            // this check is for yt live streams. youtube-live will send chunks that detect as real streams but they're not
+            if (tracks > 0 && streamInfo[0].duration <= 0)
+            {
+                if ((m_streamInfo[0].typeData.video.height != streamInfo[0].typeData.video.height && streamInfo[0].type == AC_STREAM_TYPE_VIDEO))
+                {
+                    // allow a quality change
+                }
+                else
+                {
+                    // ignore a quality change - this is the same stream
+                    tracks = -1;
+                }
+            }
+
+            if (tracks > 0)
             {
                 DSAMPLES(dprintf("%s: received reinitialization!!!\n", __PRETTY_FUNCTION__));
                 // this is re-initialization
