@@ -137,7 +137,12 @@
 	return out;
 }
 
-- (void)learnMissspelledWord
+- (void)learnMissspelledWord // old typo
+{
+	_page->learnMisspelled(*_hitTest);
+}
+
+- (void)learnMisspelledWord
 {
 	_page->learnMisspelled(*_hitTest);
 }
@@ -300,7 +305,7 @@
 	return nil;
 }
 
-- (void)learnMissspelledWord
+- (void)learnMisspelledWord
 {
 
 }

@@ -14,7 +14,7 @@
 - (OBArray /* OBString */ *)guessesForMisspelledWord;
 - (OBArray /* OBString */ *)availableDictionaries;
 - (OBString *)enabledDictionary;
-- (void)learnMissspelledWord;
+- (void)learnMisspelledWord;
 - (void)ignoreMisspelledWord;
 - (void)replaceMisspelledWord:(OBString *)correctWord;
 
