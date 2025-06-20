@@ -793,7 +793,13 @@ static constexpr bool unreachableForValue = false;
 #endif
 #define RELEASE_ASSERT_WITH_MESSAGE(assertion, ...) RELEASE_ASSERT(assertion)
 #define RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(assertion) RELEASE_ASSERT(assertion)
+#if OS(MORPHOS)
+#define RELEASE_ASSERT_NOT_REACHED(...) do { \
+    dprintf("WTFReleaseAssert in %s/%d\n", __FILE__, __LINE__); CRASH(); \
+} while (0)
+#else
 #define RELEASE_ASSERT_NOT_REACHED(...) CRASH_WITH_INFO(__VA_ARGS__)
+#endif
 #define RELEASE_ASSERT_NOT_REACHED_UNDER_CONSTEXPR_CONTEXT() CRASH_UNDER_CONSTEXPR_CONTEXT();
 #define RELEASE_ASSERT_UNDER_CONSTEXPR_CONTEXT(assertion) do { \
     if (UNLIKELY(!(assertion))) { \
