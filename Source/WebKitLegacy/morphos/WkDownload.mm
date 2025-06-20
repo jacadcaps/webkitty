@@ -746,6 +746,7 @@ void WebDownload::setUserPassword(const String& user, const String &password)
 @interface _WkDownloadBlob : WkDownload
 {
     WTF::URL _url;
+    RefPtr<WebCore::BlobData> _blobData;
     OBURL *_pageURL;
     id<WkDownloadDelegate> _delegate;
     OBString *_filename;
@@ -764,10 +765,16 @@ void WebDownload::setUserPassword(const String& user, const String &password)
 {
     if ((self = [super init]))
     {
+        auto registry = WebCore::platformStrategies()->blobRegistry()->blobRegistryImpl();
         _url = url;
         _pageURL = [pageurl retain];
         _delegate = delegate;
         _filename = [name copy];
+
+        auto blobReferences = registry->filesInBlob(_url);
+        if (blobReferences.size() == 0)
+            _blobData = registry->getBlobDataFromURL(_url);
+        D(dprintf("%s: blobreferences %ld blobdata %d\n", __PRETTY_FUNCTION__, blobReferences.size(), !!_blobData));
     }
     
     return self;
@@ -794,84 +801,74 @@ void WebDownload::setUserPassword(const String& user, const String &password)
 
 - (void)work
 {
-    auto registry = WebCore::platformStrategies()->blobRegistry()->blobRegistryImpl();
+    D(dprintf("%s: \n", __PRETTY_FUNCTION__));
+
     [_delegate downloadDidBegin:self];
 
-    Vector<RefPtr<WebCore::BlobDataFileReference>> blobReferences = registry->filesInBlob(_url);
-
-    // no files, just data chunks
-    if (blobReferences.size() == 0)
+    if (nullptr != _blobData)
     {
-        auto data = registry->getBlobDataFromURL(_url);
-        if (nullptr != data)
+        UQUAD size = 0;
+        auto items = _blobData->items();
+        for (auto& item : items)
         {
-            UQUAD size = 0;
-            auto items = data->items();
-            for (auto& item : items)
-            {
-                size += item.data()->size();
+            size += item.data()->size();
+        }
+
+        _size = size;
+        [_delegate didReceiveResponse:self];
+
+        OBString *name = [_delegate decideFilenameForDownload:self withSuggestedName:_filename];
+
+        D(dprintf("%s: decidedpath %s from name %s\n", __PRETTY_FUNCTION__, [name cString], [_filename cString]));
+
+        if (name)
+        {
+            [self setFilename:name];
+
+            FileSystem::PlatformFileHandle downloadFileHandle;
+
+            @synchronized (self) {
+                auto [filePath, fileHandle] = FileSystem::openTemporaryFile("download"_s);
+                _downloadPath = filePath;
+                downloadFileHandle = fileHandle;
             }
 
-            _size = size;
-            [_delegate didReceiveResponse:self];
-
-            OBString *name = [_delegate decideFilenameForDownload:self withSuggestedName:_filename];
-
-            D(dprintf("%s: decidedpath %s from name %s\n", __PRETTY_FUNCTION__, [name cString], [_filename cString]));
-
-            if (name)
+            if (downloadFileHandle != FileSystem::invalidPlatformFileHandle)
             {
-                [self setFilename:name];
-
-                FileSystem::PlatformFileHandle downloadFileHandle;
-
-                @synchronized (self) {
-                    auto [filePath, fileHandle] = FileSystem::openTemporaryFile("download"_s);
-                    _downloadPath = filePath;
-                    downloadFileHandle = fileHandle;
-                }
-
-                if (downloadFileHandle != FileSystem::invalidPlatformFileHandle)
+                for (auto& item : items)
                 {
-                    for (auto& item : items)
+                    D(dprintf("%s: item offset %lld size %d\n", __PRETTY_FUNCTION__, item.offset(), item.data()->size()));
+                
+                    if (-1 != FileSystem::writeToFile(downloadFileHandle, item.data()->span()))
                     {
-						D(dprintf("%s: item offset %lld size %d data %p\n", __PRETTY_FUNCTION__, item.offset(), item.data()->size(), item.data()->data()->data()));
-                    
-                        if (-1 != FileSystem::writeToFile(downloadFileHandle, item.data()->span()))
-						{
-							_downloadedSize += item.data()->size();
-							[_delegate download:self didReceiveBytes:item.data()->size()];
-						}
-						else
-						{
-							ULONG err = IoErr();
-							FileSystem::closeFile(downloadFileHandle);
-							FileSystem::deleteFile(_downloadPath);
-							[self finishedWithError:[WkError errorWithURL:[self url] errorType:WkErrorType_Write code:err]];
-							return;
-						}
-					}
+                        _downloadedSize += item.data()->size();
+                        [_delegate download:self didReceiveBytes:item.data()->size()];
+                    }
+                    else
+                    {
+                        ULONG err = IoErr();
+                        FileSystem::closeFile(downloadFileHandle);
+                        FileSystem::deleteFile(_downloadPath);
+                        [self finishedWithError:[WkError errorWithURL:[self url] errorType:WkErrorType_Write code:err]];
+                        return;
+                    }
+                }
 
-					FileSystem::closeFile(downloadFileHandle);
-					_isFinished = YES;
-					_isPending = NO;
-					[self finishedWithError:nil];
-					return;
-                }
-                else
-                {
-					ULONG err = IoErr();
-					[self finishedWithError:[WkError errorWithURL:[self url] errorType:WkErrorType_Write code:err]];
-                }
+                FileSystem::closeFile(downloadFileHandle);
+                _isFinished = YES;
+                _isPending = NO;
+                [self finishedWithError:nil];
+                return;
             }
             else
             {
-                [self finishedWithError:[WkError errorWithURL:[self url] errorType:WkErrorType_Cancellation code:0]];
+                ULONG err = IoErr();
+                [self finishedWithError:[WkError errorWithURL:[self url] errorType:WkErrorType_Write code:err]];
             }
         }
         else
         {
-            [self finishedWithError:[WkError errorWithURL:[self url] errorType:WkErrorType_General code:0]];
+            [self finishedWithError:[WkError errorWithURL:[self url] errorType:WkErrorType_Cancellation code:0]];
         }
     }
     else

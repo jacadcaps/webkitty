@@ -2727,7 +2727,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			}
 		};
 
-		webPage->_fDownloadAsk = [self](const WebCore::ResourceResponse& response, const WebCore::ResourceRequest&,
+		webPage->_fDownloadAsk = [self](const WebCore::ResourceResponse& response, const WebCore::ResourceRequest& request,
 			const WTF::String& downloadAttribute, WebCore::FramePolicyFunction&& function) {
 			validateObjCContext();
 			WkWebViewPrivate *privateObject = [self privateObject];
@@ -2736,6 +2736,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 			{
 				WkDownloadResponseDelegatePrivate *responsePrivate = [[[WkDownloadResponseDelegatePrivate alloc] initWithFunction:std::move(function)] autorelease];
 				auto uurl = response.url().string().utf8();
+
 				auto umime = response.mimeType().utf8();
 				auto uname = response.suggestedFilename().utf8();
 
@@ -2747,7 +2748,7 @@ static void populateContextMenu(MUIMenu *menu, const WTF::Vector<WebCore::Contex
 					uname = PAL::decodeURLEscapeSequences(response.url().lastPathComponent()).utf8();
 
 				[clientDelegate webView:self
-					confirmDownloadOfURL:[OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]]
+					confirmDownloadOfURL:request.url().protocolIsBlob() ? [self->_private url] : [OBURL URLWithString:[OBString stringWithUTF8String:uurl.data()]]
 					mimeType:[OBString stringWithUTF8String:umime.data()]
 					size:response.expectedContentLength()
 					withSuggestedName:[OBString stringWithUTF8String:uname.data()]
