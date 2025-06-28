@@ -263,7 +263,15 @@ void Acinerella::selectStream()
 			selected = info;
 		}
 	}
-	
+
+#if 0
+//    don't do this: a failing codec is a culprit here, would result in a broken stream
+    if (!selected.m_url.length() && hls->streams().size() > 0)
+    {
+        selected = hls->streams()[0];
+    }
+#endif
+
 	if (selected.m_url.length())
 	{
 		DINIT(dprintf("HLS stream selected: %dx%d %s\n", selected.m_width, selected.m_height, selected.m_url.utf8().data()));

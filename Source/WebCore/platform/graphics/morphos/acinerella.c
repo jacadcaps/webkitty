@@ -30,6 +30,8 @@
 
 #define FFMPEG_LOGS_ENABLED 0
 
+extern void dprintf(const char *, ...);
+
 #include "acinerella.h"
 #if LIBAVCODEC_VERSION_MAJOR < 57
 #define codecpar codec

@@ -11,10 +11,10 @@
 namespace WebCore {
 namespace Acinerella {
 
-#define D(x) 
-#define DCONTENTS(x) 
+#define D(x)
+#define DCONTENTS(x)
 #define DIO(x)
-#define DENC(x) 
+#define DENC(x)
 
 static const String rnReplace("\r\n"_s);
 static const String rnReplacement("\n"_s);
@@ -33,14 +33,20 @@ public:
 		// url
 		//
 		// So 4 lines at minimum, otherwise it won't be a valid playlist
-		if (lines.size() >= 4 && equalIgnoringASCIICase(lines[0], "#extm3u"_s))
+		if (lines.size() >= 3 && equalIgnoringASCIICase(lines[0], "#extm3u"_s))
 		{
 			// Format kida-verified. Look for Streams
 			HLSStreamInfo info;
 			bool hopingForM3U8 = false;
 			bool foundChunks = false;
+            size_t i = 1;
 
-			for (size_t i = 2; i < lines.size(); i++)
+            DCONTENTS(dprintf("[M]: found header\n"));
+
+            if (startsWithLettersIgnoringASCIICase(lines[1], "#ext-x-version"_s))
+                i ++;
+
+			for (; i < lines.size(); i++)
 			{
 				String& line = lines[i];
 
@@ -482,6 +488,12 @@ void AcinerellaNetworkBufferHLS::masterPlaylistReceived(bool succ)
 				m_hlsRequest = AcinerellaNetworkFileRequest::create(m_selectedStream.m_url, [this, protect = Ref{*this}](bool succ) { childPlaylistReceived(succ); });
 				return;
 			}
+
+            // fail if no sources were found
+            m_stopping = true;
+            m_event.signal();
+            m_hlsRequest = nullptr;
+            return;
 		}
 
 		m_hlsRequest = nullptr;
