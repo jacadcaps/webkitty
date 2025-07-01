@@ -205,80 +205,107 @@ String Acinerella::referrer()
 
 void Acinerella::selectStream()
 {
-	HLSStreamInfo selected;
-	auto *hls = static_cast<AcinerellaNetworkBufferHLS*>(m_networkBuffer.get());
+    HLSStreamInfo selected;
+    auto *hls = static_cast<AcinerellaNetworkBufferHLS*>(m_networkBuffer.get());
 
-	UQUAD clock = 0;
-	NewGetSystemAttrsA(&clock, sizeof(clock), SYSTEMINFOTYPE_PPC_CPUCLOCK, NULL);
+    UQUAD clock = 0;
+    NewGetSystemAttrsA(&clock, sizeof(clock), SYSTEMINFOTYPE_PPC_CPUCLOCK, NULL);
 
-	for (auto info : hls->streams())
-	{
-		DINIT(dprintf("HLS stream: %dx%d\n", info.m_width, info.m_height));
+    for (auto info : hls->streams())
+    {
+        DINIT(dprintf("HLS stream: %dx%d\n", info.m_width, info.m_height));
 
-		if (!m_client->accIsURLValid(info.m_url))
-			continue;
+        if (!m_client->accIsURLValid(info.m_url))
+            continue;
 
-		if (info.m_height > 720 || info.m_fps > 30)
-			continue;
-			
-		// drop 720 and otters on slower CPUs
-		if (clock < 1600000000 && info.m_height > 560)
-			continue;
+        bool codecsOK = true;
+        if (info.m_codecs.size())
+        {
+            for (const auto &codec : info.m_codecs)
+            {
+                if (!m_client || !m_client->accCodecSupported(codec))
+                {
+                    codecsOK = false;
+                    break;
+                }
+            }
+        }
+        if (!codecsOK)
+            continue;
 
-		// some heuristics for streams that only report bandwidth
-		if (info.m_height == 0 && info.m_bandwidth != 0)
-		{
-			// slower CPUs: limit to 2Mbps
-			if (clock < 1600000000 && info.m_bandwidth >= 2000000)
-				continue;
+        if (info.m_height > 720 || info.m_fps > 30)
+            continue;
 
-			// faster CPUs: limit to 3.2Mbps
-			if (info.m_bandwidth > 3200000)
-				continue;
-		}
+        // drop 720 and otters on slower CPUs
+        if (clock < 1600000000 && info.m_height > 576)
+            continue;
 
+        // some heuristics for streams that only report bandwidth
+        if (info.m_height == 0 && info.m_bandwidth != 0)
+        {
+            // slower CPUs: limit to 2Mbps
+            if (clock < 1600000000 && info.m_bandwidth >= 2000000)
+                continue;
 
-		bool codecsOK = true;
-		if (info.m_codecs.size())
-		{
-			for (const auto &codec : info.m_codecs)
-			{
-				if (!m_client || !m_client->accCodecSupported(codec))
-				{
-					codecsOK = false;
-					break;
-				}
-			}
-		}
-		if (!codecsOK)
-			continue;
+            // faster CPUs: limit to 3.2Mbps
+            if (info.m_bandwidth > 3200000)
+                continue;
+        }
 
-		if (!selected.m_url.length())
-		{
-			selected = info;
-		}
-		// try to pick the best bandwidth stream among the ones we have not ruled out already!
-		else if (selected.m_bandwidth < info.m_bandwidth)
-		{
-			selected = info;
-		}
-	}
+        if (!selected.m_url.length())
+        {
+            selected = info;
+        }
+        // try to pick the best bandwidth stream among the ones we have not ruled out already!
+        else if (selected.m_bandwidth < info.m_bandwidth)
+        {
+            selected = info;
+        }
+    }
 
-#if 0
-//    don't do this: a failing codec is a culprit here, would result in a broken stream
     if (!selected.m_url.length() && hls->streams().size() > 0)
     {
-        selected = hls->streams()[0];
-    }
-#endif
+        for (auto info : hls->streams())
+        {
+            DINIT(dprintf("HLS stream: %dx%d\n", info.m_width, info.m_height));
 
-	if (selected.m_url.length())
-	{
-		DINIT(dprintf("HLS stream selected: %dx%d %s\n", selected.m_width, selected.m_height, selected.m_url.utf8().data()));
-		DINIT(for (const auto &codec : selected.m_codecs) { dprintf("\t\tcodec: %s\n", codec.utf8().data()); });
-		m_hlsStreamURL = selected.m_url;
-		hls->selectStream(selected);
-	}
+            if (!m_client->accIsURLValid(info.m_url))
+                continue;
+
+            bool codecsOK = true;
+            if (info.m_codecs.size())
+            {
+                for (const auto &codec : info.m_codecs)
+                {
+                    if (!m_client || !m_client->accCodecSupported(codec))
+                    {
+                        codecsOK = false;
+                        break;
+                    }
+                }
+            }
+            if (!codecsOK)
+                continue;
+
+            if (!selected.m_url.length())
+            {
+                selected = info;
+            }
+            // try to pick the best bandwidth stream among the ones we have not ruled out already!
+            else if (selected.m_bandwidth < info.m_bandwidth)
+            {
+                selected = info;
+            }
+        }
+    }
+
+    if (selected.m_url.length())
+    {
+        DINIT(dprintf("HLS stream selected: %dx%d %s\n", selected.m_width, selected.m_height, selected.m_url.utf8().data()));
+        DINIT(for (const auto &codec : selected.m_codecs) { dprintf("\t\tcodec: %s\n", codec.utf8().data()); });
+        m_hlsStreamURL = selected.m_url;
+        hls->selectStream(selected);
+    }
 }
 
 void Acinerella::selectStream(const String& url, double position)

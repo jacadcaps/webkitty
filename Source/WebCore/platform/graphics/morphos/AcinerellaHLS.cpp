@@ -14,7 +14,7 @@ namespace Acinerella {
 #define D(x)
 #define DCONTENTS(x)
 #define DIO(x)
-#define DENC(x)
+#define DENC(x) 
 
 static const String rnReplace("\r\n"_s);
 static const String rnReplacement("\n"_s);
