@@ -119,13 +119,13 @@ void CurlRequestScheduler::wakeUpThreadIfPossible()
 void CurlRequestScheduler::stopThreadIfNoMoreJobRunning()
 {
     ASSERT(!isMainThread());
-//#if !OS(MORPHOS) keep this enabled or we won't be able to restart Wayfarer
+#if !OS(MORPHOS) // keep the thread running until stopCurlThread is called
     Locker locker { m_mutex };
     if (m_activeJobs.size() || m_taskQueue.size())
         return;
 
     m_runThread = false;
-//#endif
+#endif
 }
 
 #if OS(MORPHOS)
@@ -227,7 +227,6 @@ void CurlRequestScheduler::workerThread()
     {
         Locker locker { m_multiHandleMutex };
         m_curlMultiHandle.reset();
-        m_runThread = false;
     }
 }
 
