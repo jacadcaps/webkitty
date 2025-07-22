@@ -57,6 +57,10 @@
 #include <ppcinline/macros.h>
 extern "C" {
 void dprintf(const char *fmt, ... );
+void CurlThreadForcedShutdown()
+{
+	WebCore::CurlContext::singleton().stopThread();
+}
 };
 #define CURL_TRACES 0
 #define CURL_DUMPDATA 0
@@ -615,13 +619,11 @@ void CurlHandle::enableHttp(bool post)
         curl_easy_setopt(m_handle, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_3);
         curl_easy_setopt(m_handle, CURLOPT_PIPEWAIT, 1L);
         curl_easy_setopt(m_handle, CURLOPT_SSL_ENABLE_ALPN, 1L);
-        curl_easy_setopt(m_handle, CURLOPT_SSL_ENABLE_NPN, 0L);
     }
     else if (m_url.protocolIs("https"_s) && CurlContext::singleton().isHttp2Enabled(post)) {
         curl_easy_setopt(m_handle, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2TLS);
         curl_easy_setopt(m_handle, CURLOPT_PIPEWAIT, 1L);
         curl_easy_setopt(m_handle, CURLOPT_SSL_ENABLE_ALPN, 1L);
-        curl_easy_setopt(m_handle, CURLOPT_SSL_ENABLE_NPN, 0L);
     } else {
         curl_easy_setopt(m_handle, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
     }
@@ -706,13 +708,12 @@ void CurlHandle::enableAcceptEncoding()
 
 void CurlHandle::enableAllowedProtocols()
 {
-    static const long allowedProtocols = CURLPROTO_FILE |
+    static const char *allowedProtocols = "file,"
 #if ENABLE(FTPDIR)
-        CURLPROTO_FTP | CURLPROTO_FTPS |
+        "ftp,ftps,"
 #endif
-        CURLPROTO_HTTP | CURLPROTO_HTTPS;
-
-    curl_easy_setopt(m_handle, CURLOPT_PROTOCOLS, allowedProtocols);
+        "http,https";
+    curl_easy_setopt(m_handle, CURLOPT_PROTOCOLS_STR, allowedProtocols);
 }
 
 void CurlHandle::setHttpAuthUserPass(const String& user, const String& password, long authType)
