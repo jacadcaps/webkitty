@@ -2091,10 +2091,10 @@ static inline void validateObjCContext() {
 			// will send SIGBREAKF_CTRL_C to all sub-threads. They will take some
 			// time to shut down on the background, so better start the process
 			// as soon as possible.
-			pthread_t tid, self = pthread_self();
+			pthread_t tid, me = pthread_self();
 			for (tid = 1; tid < PTHREAD_THREADS_MAX; tid++)
 			{
-				if (tid != self)
+				if (tid != me)
 					pthread_kill(tid, SIGINT);
 			}
 		}
@@ -2121,6 +2121,7 @@ static inline void validateObjCContext() {
 			[WkCertificate shutdown];
 			[WkUserScripts shutdown];
 			CloseLibrary(FreetypeBase);
+			FreetypeBase = NULL;
 			return YES;
 		}
 	}
