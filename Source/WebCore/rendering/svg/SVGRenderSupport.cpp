@@ -590,7 +590,8 @@ FloatRect SVGRenderSupport::calculateApproximateStrokeBoundingBox(const RenderEl
             auto* usePath = renderer.nonScalingStrokePath(&renderer.path(), nonScalingTransform);
             auto strokeBoundingRect = calculateApproximateScalingStrokeBoundingBox(renderer, usePath->fastBoundingRect());
             strokeBoundingRect = inverse.value().mapRect(strokeBoundingRect);
-            strokeBoundingBox.unite(strokeBoundingRect);
+            if (!strokeBoundingRect.isNaN())
+                strokeBoundingBox.unite(strokeBoundingRect);
         }
         return strokeBoundingBox;
     };

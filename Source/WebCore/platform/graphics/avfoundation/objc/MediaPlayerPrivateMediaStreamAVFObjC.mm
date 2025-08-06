@@ -441,7 +441,7 @@ void MediaPlayerPrivateMediaStreamAVFObjC::layersAreInitialized(IntSize size, bo
     scheduleRenderingModeChanged();
 
     RefPtr sampleBufferDisplayLayer = m_sampleBufferDisplayLayer;
-    sampleBufferDisplayLayer->setLogIdentifier(makeString(hex(logIdentifier())));
+    sampleBufferDisplayLayer->setLogIdentifier(logIdentifier());
     if (m_storedBounds)
         sampleBufferDisplayLayer->updateBoundsAndPosition(*m_storedBounds);
 

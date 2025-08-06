@@ -487,10 +487,17 @@ void webkitWebViewBaseToplevelWindowIsActiveChanged(WebKitWebViewBase* webViewBa
 static void webkitWebViewBaseUpdateVisibility(WebKitWebViewBase* webViewBase)
 {
     WebKitWebViewBasePrivate* priv = webViewBase->priv;
-    const bool isVisible = gtk_widget_get_mapped(GTK_WIDGET(webViewBase))
-        && priv->toplevelOnScreenWindow->isInMonitor()
-        && !priv->toplevelOnScreenWindow->isMinimized()
-        && !priv->toplevelOnScreenWindow->isSuspended();
+    const bool isVisible = [&] {
+        if (!gtk_widget_get_mapped(GTK_WIDGET(webViewBase)))
+            return false;
+
+        if (!priv->toplevelOnScreenWindow)
+            return true;
+
+        return priv->toplevelOnScreenWindow->isInMonitor()
+            && !priv->toplevelOnScreenWindow->isMinimized()
+            && !priv->toplevelOnScreenWindow->isSuspended();
+    }();
 
     if (isVisible) {
         if (priv->activityState & ActivityState::IsVisible)
@@ -655,8 +662,10 @@ static void webkitWebViewBaseRealize(GtkWidget* widget)
     gtk_widget_set_window(widget, window);
     gdk_window_set_user_data(window, widget);
 
-    auto* monitor = gdk_display_get_monitor_at_window(gtk_widget_get_display(widget), window);
-    webkitWebViewBaseUpdateDisplayID(webView, monitor);
+    if (priv->toplevelOnScreenWindow) {
+        auto* monitor = gdk_display_get_monitor_at_window(gtk_widget_get_display(widget), window);
+        webkitWebViewBaseUpdateDisplayID(webView, monitor);
+    }
 #endif
 
     auto* imContext = priv->inputMethodFilter.context();

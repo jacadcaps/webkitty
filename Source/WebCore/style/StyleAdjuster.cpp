@@ -1054,6 +1054,12 @@ void Adjuster::adjustForSiteSpecificQuirks(RenderStyle& style) const
         animations.append(WTFMove(menuGrowLeftAnimation));
         animations.append(WTFMove(menuFadeInAnimation));
     }
+
+    if (m_document->quirks().needsFacebookRemoveNotSupportedQuirk()) {
+        static MainThreadNeverDestroyed<const AtomString> className("xnw9j1v"_s);
+        if (is<HTMLDivElement>(*m_element) && m_element->hasClassName(className))
+            style.setEffectiveDisplay(DisplayType::None);
+    }
 }
 
 void Adjuster::propagateToDocumentElementAndInitialContainingBlock(Update& update, const Document& document)

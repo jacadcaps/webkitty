@@ -45,6 +45,7 @@
 #endif
 
 #if USE(LIBDRM)
+#include "LibDRMUtilities.h"
 #include <drm_fourcc.h>
 #include <xf86drm.h>
 #endif
@@ -151,27 +152,7 @@ static gpointer wpeDisplayHeadlessGetEGLDisplay(WPEDisplay* display, GError** er
 static void wpeDisplayHeadlessInitializeDRMDevices(WPEDisplayHeadless* display)
 {
     auto* priv = display->priv;
-    priv->drmDevice = CString();
-    priv->drmRenderNode = CString();
-
-    drmDevicePtr devices[64];
-    memset(devices, 0, sizeof(devices));
-
-    int numDevices = drmGetDevices2(0, devices, std::size(devices));
-    if (numDevices <= 0)
-        return;
-
-    for (int i = 0; i < numDevices && priv->drmDevice->isNull(); ++i) {
-        drmDevice* device = devices[i];
-        if (!(device->available_nodes & (1 << DRM_NODE_PRIMARY | 1 << DRM_NODE_RENDER)))
-            continue;
-
-        if (device->available_nodes & (1 << DRM_NODE_RENDER))
-            priv->drmRenderNode = CString(device->nodes[DRM_NODE_RENDER]);
-        if (device->available_nodes & (1 << DRM_NODE_PRIMARY))
-            priv->drmDevice = CString(device->nodes[DRM_NODE_PRIMARY]);
-    }
-    drmFreeDevices(devices, numDevices);
+    std::tie(priv->drmDevice, priv->drmRenderNode) = lookupNodesWithLibDRM();
 }
 
 static const char* wpeDisplayHeadlessGetDRMDevice(WPEDisplay* display)

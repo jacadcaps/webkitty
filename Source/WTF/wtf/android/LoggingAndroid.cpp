@@ -1,7 +1,5 @@
 /*
- * Copyright (C) 2007 Alp Toker <alp@atoker.com>
- * Copyright (C) 2009 Gustavo Noronha Silva <gns@gnome.org>
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2025 Igalia S.L.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -21,13 +19,12 @@
 
 #include "config.h"
 
-#if !OS(ANDROID)
-
+#if OS(ANDROID)
 #include "Logging.h"
 
 #if !LOG_DISABLED || !RELEASE_LOG_DISABLED
 
-#include "LogInitialization.h"
+#include <sys/system_properties.h>
 #include <wtf/text/MakeString.h>
 #include <wtf/text/WTFString.h>
 
@@ -35,22 +32,24 @@ namespace WTF {
 
 String logLevelString()
 {
-    const char* logEnv = getenv("WEBKIT_DEBUG");
+    const char* propertyValue = nullptr;
 
-    // Disable all log channels if WEBKIT_DEBUG is unset.
-    if (!logEnv || !*logEnv)
+    if (const auto* propertyInfo = __system_property_find("debug." LOG_CHANNEL_WEBKIT_SUBSYSTEM ".log")) {
+        __system_property_read_callback(propertyInfo, [](void *userData, const char*, const char* value, unsigned) {
+            auto **propertyValue = static_cast<const char**>(userData);
+            *propertyValue = value;
+        }, &propertyValue);
+    }
+
+    // Disable all log channels if the property is unset or empty.
+    if (!propertyValue || !*propertyValue)
         return makeString("-all"_s);
 
-    // We set up the logs anyway because some of our logging, such as Soup's is available in release builds.
-#if defined(NDEBUG) && RELEASE_LOG_DISABLED
-    WTFLogAlways("WEBKIT_DEBUG is not empty, but this is a release build. Notice that many log messages will only appear in a debug build.");
-#endif
-
-    return String::fromLatin1(logEnv);
+    return String::fromLatin1(propertyValue);
 }
 
 } // namespace WTF
 
 #endif // !LOG_DISABLED || !RELEASE_LOG_DISABLED
 
-#endif // !OS(ANDROID)
+#endif // OS(ANDROID)

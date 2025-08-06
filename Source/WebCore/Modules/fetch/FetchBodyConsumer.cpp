@@ -440,12 +440,31 @@ RefPtr<JSC::ArrayBuffer> FetchBodyConsumer::takeAsArrayBuffer()
 
 Ref<Blob> FetchBodyConsumer::takeAsBlob(ScriptExecutionContext* context, const String& contentType)
 {
+    static constexpr size_t MaximumBlobSize = 512 * 1024 * 1024;
+
     String normalizedContentType = Blob::normalizedContentType(extractMIMETypeFromMediaType(contentType));
 
     if (!m_buffer)
         return Blob::create(context, Vector<uint8_t>(), normalizedContentType);
 
-    return blobFromData(context, m_buffer.take()->extractData(), normalizedContentType);
+    RefPtr buffer = m_buffer.take();
+    if (!context || buffer->isContiguous() || buffer->size() < MaximumBlobSize)
+        return blobFromData(context, buffer->extractData(), normalizedContentType);
+
+    Vector<RefPtr<SharedBuffer>> segments;
+    segments.reserveInitialCapacity(buffer->segmentsCount());
+    buffer->forEachSegmentAsSharedBuffer([&](Ref<SharedBuffer>&& sharedBuffer) {
+        segments.append(WTFMove(sharedBuffer));
+    });
+    buffer = nullptr; // So that the segments above hold each a single refcount to allow extractData to move the content.
+
+    Vector<BlobPartVariant> blobPartsFromBuffer { segments.size(), [&](auto index) {
+        RefPtr blob = Blob::create(context, std::exchange(segments[index], nullptr)->extractData(), normalizedContentType);
+        return blob;
+    } };
+
+    BlobPropertyBag propertyBag = { .type = normalizedContentType };
+    return Blob::create(*context, WTFMove(blobPartsFromBuffer), propertyBag);
 }
 
 String FetchBodyConsumer::takeAsText()

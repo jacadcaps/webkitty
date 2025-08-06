@@ -220,6 +220,8 @@ private:
     void dismissDigitalCredentialsPicker(WTF::CompletionHandler<void(bool)>&&) override;
 #endif
 
+    void dismissAnyOpenPicker() override;
+
     void disableDoubleTapGesturesDuringTapIfNecessary(WebKit::TapIdentifier) override;
     void handleSmartMagnificationInformationForPotentialTap(WebKit::TapIdentifier, const WebCore::FloatRect& renderRect, bool fitEntireRect, double viewportMinimumScale, double viewportMaximumScale, bool nodeIsRootLevel, bool nodeIsPluginElement) override;
 

@@ -243,14 +243,21 @@ void PlatformRawAudioData::copyTo(std::span<uint8_t> destination, AudioSampleFor
     GST_TRACE("Copying %s %s data at planeIndex %zu, destination format is %s %s, source offset: %zu", layoutToString(sourceLayout), gst_audio_format_to_string(gstSourceFormat), planeIndex, layoutToString(destinationLayout), destinationFormatDescription, sourceOffset);
 #endif
 
-    if (audioSampleElementFormat(sourceFormat) == audioSampleElementFormat(format) && (numberOfChannels() == 1 || (audioData.isInterleaved() && isDestinationInterleaved))) {
-        ASSERT(!planeIndex);
+    // Copy memory when:
+    // - formats fully match
+    // - sample format matches and source is mono (planar and interleaved have the same layout)
+    if (sourceFormat == format || (audioSampleElementFormat(sourceFormat) == audioSampleElementFormat(format) && numberOfChannels() == 1)) {
+        ASSERT(!isDestinationInterleaved || !planeIndex);
         GstMappedBuffer mappedBuffer(gst_sample_get_buffer(sourceSample.get()), GST_MAP_READ);
         auto source = mappedBuffer.span<uint8_t>();
         GUniquePtr<GstAudioInfo> sourceInfo(gst_audio_info_copy(audioData.info()));
-        size_t frameOffsetInBytes = frameOffset.value_or(0) * GST_AUDIO_INFO_BPF(sourceInfo.get());
-        RELEASE_ASSERT(frameOffsetInBytes <= source.size());
-        auto subSource = source.subspan(frameOffsetInBytes, source.size() - frameOffsetInBytes);
+        size_t sampleSize = GST_AUDIO_INFO_BPS(sourceInfo.get());
+        size_t frameSize = audioData.isInterleaved() ? GST_AUDIO_INFO_BPF(sourceInfo.get()) : sampleSize;
+        size_t planeOffset = planeIndex * numberOfFrames();
+        size_t frameOffsetInBytes = (planeOffset + frameOffset.value_or(0)) * frameSize;
+        size_t copyLengthInBytes = copyElementCount * sampleSize;
+        RELEASE_ASSERT(frameOffsetInBytes + copyLengthInBytes <= source.size());
+        auto subSource = source.subspan(frameOffsetInBytes, copyLengthInBytes);
         memcpySpan(destination, subSource);
         return;
     }

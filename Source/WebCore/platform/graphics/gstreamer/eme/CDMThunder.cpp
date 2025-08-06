@@ -622,7 +622,7 @@ void CDMInstanceSessionThunder::loadSession(LicenseType, const String& sessionID
             }
         } else {
             GST_ERROR("session %s not loaded", m_sessionID.utf8().data());
-            if (responseMessage->isEmpty())
+            if (!responseMessage || responseMessage->isEmpty())
                 callback(std::nullopt, std::nullopt, std::nullopt, SuccessValue::Failed, sessionLoadFailureFromThunder({ }));
             else {
                 auto responseData = responseMessage->extractData();
@@ -632,8 +632,10 @@ void CDMInstanceSessionThunder::loadSession(LicenseType, const String& sessionID
             }
         }
     });
-    if (!m_session || m_sessionID.isEmpty() || opencdm_session_load(m_session->get()))
+    if (!m_session || m_sessionID.isEmpty() || opencdm_session_load(m_session->get())) {
+        GST_DEBUG("loading failed");
         sessionFailure();
+    }
 }
 
 void CDMInstanceSessionThunder::closeSession(const String& sessionID, CloseSessionCallback&& callback)

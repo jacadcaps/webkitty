@@ -3256,11 +3256,14 @@ TEST(WKDownload, OriginatingFrameWhenConvertingNavigationInNewWindow)
         return openedWebView.get();
     };
 
+    __block bool isClientOrUserInitiated = false;
     __block bool checkedDownload { false };
     auto tryOpenerInitiatedDownloads = ^{
         checkedDownload = false;
+        isClientOrUserInitiated = true;
         [webView evaluateJavaScript:@"a = document.createElement('a'); a.href = 'https://webkit.org/download'; a.target = '_blank'; document.body.appendChild(a); a.click()" completionHandler:nil];
         Util::run(&checkedDownload);
+        isClientOrUserInitiated = false;
 
         checkedDownload = false;
         [webView evaluateJavaScript:@"w = window.open('https://webkit.org/download')" completionHandler:nil];
@@ -3281,7 +3284,15 @@ TEST(WKDownload, OriginatingFrameWhenConvertingNavigationInNewWindow)
     };
     navigationDelegate.get().navigationResponseDidBecomeDownload = ^(WKNavigationResponse *response, WKDownload *download) {
         frameInfoShouldBeEqual(response._navigationInitiatingFrame, openerMainFrame.get());
-        frameInfoShouldBeEqual(download.originatingFrame, openerMainFrame.get());
+
+        if (isClientOrUserInitiated) {
+            EXPECT_WK_STREQ(download.originatingFrame.request.URL.absoluteString, "about:blank");
+            EXPECT_WK_STREQ(download.originatingFrame.securityOrigin.host, "");
+
+            isClientOrUserInitiated = false;
+        } else
+            frameInfoShouldBeEqual(download.originatingFrame, openerMainFrame.get());
+
         checkedDownload = true;
     };
     tryOpenerInitiatedDownloads();
@@ -3334,6 +3345,108 @@ TEST(WKDownload, OriginatingFrameWhenNavigatingToNewDomainWithRedirect)
 
     [webView evaluateJavaScript:@"window.location.href = 'https://webkit.org/redirect'" completionHandler:nil];
     TestWebKitAPI::Util::run(&checkedDownload);
+}
+
+TEST(WKDownload, OriginatingFrameHostWhenDownloadComesFromGoBackNavigation)
+{
+    HTTPServer server({
+        { "/firstSite"_s, { "firstSite"_s } },
+        { "/secondSite"_s, { "secondSite"_s } }
+    }, HTTPServer::Protocol::HttpsProxy);
+
+    RetainPtr configuration = server.httpsProxyConfiguration();
+    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 300, 300) configuration:configuration.get()]);
+
+    RetainPtr navigationDelegate = adoptNS([TestNavigationDelegate new]);
+    [navigationDelegate allowAnyTLSCertificate];
+    [webView setNavigationDelegate:navigationDelegate.get()];
+
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://firstSite.com/firstSite"]]];
+    [navigationDelegate waitForDidFinishNavigation];
+
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://secondSite.com/secondSite"]]];
+    [navigationDelegate waitForDidFinishNavigation];
+
+    RetainPtr downloadDelegate = adoptNS([TestDownloadDelegate new]);
+    NSURL *expectedDownloadFile = tempFileThatDoesNotExist();
+    __block bool downloadDestinationDecided = false;
+
+    downloadDelegate.get().decideDestinationUsingResponse = ^(WKDownload *download, NSURLResponse *, NSString *, void (^completionHandler)(NSURL *)) {
+        EXPECT_STREQ(download.originatingFrame.securityOrigin.host.UTF8String, "");
+
+        downloadDestinationDecided = true;
+        completionHandler(expectedDownloadFile);
+    };
+
+    navigationDelegate.get().decidePolicyForNavigationAction = ^(WKNavigationAction *, void (^completionHandler)(WKNavigationActionPolicy)) {
+        completionHandler(WKNavigationActionPolicyDownload);
+    };
+
+    navigationDelegate.get().decidePolicyForNavigationResponse = ^(WKNavigationResponse *, void (^completionHandler)(WKNavigationResponsePolicy)) {
+        completionHandler(WKNavigationResponsePolicyDownload);
+    };
+
+    navigationDelegate.get().navigationActionDidBecomeDownload = ^(WKNavigationAction *, WKDownload *download) {
+        download.delegate = downloadDelegate.get();
+    };
+
+    navigationDelegate.get().navigationResponseDidBecomeDownload = ^(WKNavigationResponse *, WKDownload *download) {
+        download.delegate = downloadDelegate.get();
+    };
+
+    [webView goBack];
+    Util::run(&downloadDestinationDecided);
+}
+
+TEST(WKDownload, OriginatingFrameHostWhenDownloadComesFromClientInputNavigation)
+{
+    HTTPServer server({
+        { "/firstSite"_s, { "firstSite"_s } },
+        { "/secondSite"_s, { "secondSite"_s } },
+        { "/thirdSite"_s, { "thirdSite"_s } }
+    }, HTTPServer::Protocol::HttpsProxy);
+
+    RetainPtr configuration = server.httpsProxyConfiguration();
+    RetainPtr webView = adoptNS([[TestWKWebView alloc] initWithFrame:CGRectMake(0, 0, 300, 300) configuration:configuration.get()]);
+
+    RetainPtr navigationDelegate = adoptNS([TestNavigationDelegate new]);
+    [navigationDelegate allowAnyTLSCertificate];
+    [webView setNavigationDelegate:navigationDelegate.get()];
+
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://firstSite.com/firstSite"]]];
+    [navigationDelegate waitForDidFinishNavigation];
+
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://secondSite.com/secondSite"]]];
+    [navigationDelegate waitForDidFinishNavigation];
+
+    RetainPtr downloadDelegate = adoptNS([TestDownloadDelegate new]);
+    __block bool downloadDestinationDecided = false;
+
+    downloadDelegate.get().decideDestinationUsingResponse = ^(WKDownload *download, NSURLResponse *, NSString *, void (^completionHandler)(NSURL *)) {
+        EXPECT_STREQ(download.originatingFrame.securityOrigin.host.UTF8String, "");
+
+        downloadDestinationDecided = true;
+        completionHandler(tempFileThatDoesNotExist());
+    };
+
+    navigationDelegate.get().decidePolicyForNavigationAction = ^(WKNavigationAction *, void (^completionHandler)(WKNavigationActionPolicy)) {
+        completionHandler(WKNavigationActionPolicyDownload);
+    };
+
+    navigationDelegate.get().decidePolicyForNavigationResponse = ^(WKNavigationResponse *, void (^completionHandler)(WKNavigationResponsePolicy)) {
+        completionHandler(WKNavigationResponsePolicyDownload);
+    };
+
+    navigationDelegate.get().navigationActionDidBecomeDownload = ^(WKNavigationAction *, WKDownload *download) {
+        download.delegate = downloadDelegate.get();
+    };
+
+    navigationDelegate.get().navigationResponseDidBecomeDownload = ^(WKNavigationResponse *, WKDownload *download) {
+        download.delegate = downloadDelegate.get();
+    };
+
+    [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://thirdSite.com/thirdSite"]]];
+    Util::run(&downloadDestinationDecided);
 }
 
 }

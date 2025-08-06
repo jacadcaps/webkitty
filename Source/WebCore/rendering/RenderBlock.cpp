@@ -2790,9 +2790,13 @@ void RenderBlock::setCachedEnclosingFragmentedFlowNeedsUpdate()
 
 RenderFragmentedFlow* RenderBlock::updateCachedEnclosingFragmentedFlow(RenderFragmentedFlow* fragmentedFlow) const
 {
-    RenderBlockRareData& rareData = const_cast<RenderBlock&>(*this).ensureBlockRareData();
-    rareData.m_enclosingFragmentedFlow = fragmentedFlow;
+    if (!fragmentedFlow) {
+        if (auto* rareData = const_cast<RenderBlock&>(*this).getBlockRareData())
+            rareData->m_enclosingFragmentedFlow = { };
+        return { };
+    }
 
+    const_cast<RenderBlock&>(*this).ensureBlockRareData().m_enclosingFragmentedFlow = fragmentedFlow;
     return fragmentedFlow;
 }
 

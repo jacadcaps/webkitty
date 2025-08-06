@@ -49,6 +49,7 @@
 #include "HTMLTextAreaElement.h"
 #include "HTMLVideoElement.h"
 #include "JSEventListener.h"
+#include "KeyframeEffect.h"
 #include "LayoutUnit.h"
 #include "LocalDOMWindow.h"
 #include "LocalFrameView.h"
@@ -552,6 +553,13 @@ bool Quirks::needsPrimeVideoUserSelectNoneQuirk() const
 #else
     return false;
 #endif
+}
+
+// facebook.com https://webkit.org/b/295071
+// FIXME: https://webkit.org/b/295318
+bool Quirks::needsFacebookRemoveNotSupportedQuirk() const
+{
+    return needsQuirks() && m_quirksData.needsFacebookRemoveNotSupportedQuirk;
 }
 
 // youtube.com rdar://135886305
@@ -1609,6 +1617,7 @@ static AccessibilityRole accessibilityRole(const Element& element)
 }
 
 // walmart.com: rdar://123734840
+// live.outlook.com: rdar://152277211
 bool Quirks::shouldIgnoreContentObservationForClick(const Node& targetNode) const
 {
     if (!needsQuirks())
@@ -1618,12 +1627,19 @@ bool Quirks::shouldIgnoreContentObservationForClick(const Node& targetNode) cons
         return false;
 
     RefPtr target = dynamicDowncast<Element>(targetNode);
-    if (!target || accessibilityRole(*target) != AccessibilityRole::Button)
-        return false;
+    if (m_quirksData.isOutlook) {
+        if (target && target->getIdAttribute().startsWith("swatchColorPicker"_s))
+            return true;
+    }
 
-    RefPtr parent = target->parentElementInComposedTree();
-    if (!parent || accessibilityRole(*parent) != AccessibilityRole::ListItem)
-        return false;
+    if (m_quirksData.isWalmart) {
+        if (!target || accessibilityRole(*target) != AccessibilityRole::Button)
+            return false;
+
+        RefPtr parent = target->parentElementInComposedTree();
+        if (!parent || accessibilityRole(*parent) != AccessibilityRole::ListItem)
+            return false;
+    }
 
     return true;
 }
@@ -1797,6 +1813,16 @@ bool Quirks::needsWebKitMediaTextTrackDisplayQuirk() const
     return needsQuirks() && m_quirksData.needsWebKitMediaTextTrackDisplayQuirk;
 }
 
+// rdar://106770785
+bool Quirks::shouldPreventKeyframeEffectAcceleration(const KeyframeEffect& effect) const
+{
+    if (!needsQuirks() || !m_quirksData.isEA)
+        return false;
+
+    auto target = Ref { effect }->targetStyleable();
+    return target && Ref { target->element }->localName() == "ea-network-nav"_s;
+}
+
 URL Quirks::topDocumentURL() const
 {
     if (UNLIKELY(!m_topDocumentURLForTesting.isEmpty()))
@@ -1968,6 +1994,7 @@ static void handleWalmartQuirks(QuirksData& quirksData, const URL& quirksURL, co
     UNUSED_PARAM(documentURL);
     // walmart.com: rdar://123734840
     quirksData.mayNeedToIgnoreContentObservation = true;
+    quirksData.isWalmart = true;
 }
 
 static void handleYahooQuirks(QuirksData& quirksData, const URL& quirksURL, const String& quirksDomainString, const URL& documentURL)
@@ -2140,7 +2167,6 @@ static void handleSoylentQuirks(QuirksData& quirksData, const URL& quirksURL, co
 }
 #endif
 
-#if ENABLE(VIDEO_PRESENTATION_MODE)
 static void handleFacebookQuirks(QuirksData& quirksData, const URL& quirksURL, const String& quirksDomainString, const URL& documentURL)
 {
     if (quirksDomainString != "facebook.com"_s)
@@ -2149,10 +2175,15 @@ static void handleFacebookQuirks(QuirksData& quirksData, const URL& quirksURL, c
     UNUSED_PARAM(quirksURL);
     UNUSED_PARAM(documentURL);
     quirksData.isFacebook = true;
+    // facebook.com rdar://100871402
+    quirksData.needsFacebookRemoveNotSupportedQuirk = true;
+#if ENABLE(VIDEO_PRESENTATION_MODE)
     // facebook.com rdar://67273166
     quirksData.requiresUserGestureToPauseInPictureInPictureQuirk = true;
+#endif
 }
 
+#if ENABLE(VIDEO_PRESENTATION_MODE)
 static void handleForbesQuirks(QuirksData& quirksData, const URL& quirksURL, const String& quirksDomainString, const URL& documentURL)
 {
     if (quirksDomainString != "forbes.com"_s)
@@ -2256,6 +2287,16 @@ static void handleESPNQuirks(QuirksData& quirksData, const URL& quirksURL, const
 #endif
 }
 
+static void handleEAQuirks(QuirksData& quirksData, const URL& quirksURL, const String& quirksDomainString, const URL& documentURL)
+{
+    if (quirksDomainString != "ea.com"_s)
+        return;
+
+    UNUSED_PARAM(quirksURL);
+    UNUSED_PARAM(documentURL);
+    quirksData.isEA = true;
+}
+
 static void handleGoogleQuirks(QuirksData& quirksData, const URL& quirksURL, const String& quirksDomainString, const URL& documentURL)
 {
     UNUSED_PARAM(quirksDomainString);
@@ -2347,8 +2388,13 @@ static void handleLiveQuirks(QuirksData& quirksData, const URL& quirksURL, const
 
     UNUSED_PARAM(documentURL);
     auto topDocumentHost = quirksURL.host();
+    quirksData.isOutlook = topDocumentHost == "outlook.live.com"_s;
     // outlook.live.com: rdar://136624720
-    quirksData.needsMozillaFileTypeForDataTransferQuirk = topDocumentHost == "outlook.live.com"_s;
+    quirksData.needsMozillaFileTypeForDataTransferQuirk = quirksData.isOutlook;
+#if PLATFORM(IOS_FAMILY)
+    // outlook.live.com: rdar://152277211
+    quirksData.mayNeedToIgnoreContentObservation = quirksData.isOutlook;
+#endif
     // live.com rdar://52116170
     quirksData.shouldAvoidResizingWhenInputViewBoundsChangeQuirk = true;
     // Microsoft office online generates data URLs with incorrect padding on Safari only (rdar://114573089).
@@ -2720,9 +2766,10 @@ void Quirks::determineRelevantQuirks()
 #if ENABLE(DESKTOP_CONTENT_MODE_QUIRKS)
         { "disneyplus"_s, &handleDisneyPlusQuirks },
 #endif
+        { "ea"_s, &handleEAQuirks },
         { "espn"_s, &handleESPNQuirks },
-#if ENABLE(VIDEO_PRESENTATION_MODE)
         { "facebook"_s, &handleFacebookQuirks },
+#if ENABLE(VIDEO_PRESENTATION_MODE)
         { "forbes"_s, &handleForbesQuirks },
 #endif
 #if PLATFORM(IOS_FAMILY)

@@ -10,7 +10,7 @@ configure_file(wpe-platform-uninstalled.pc.in ${CMAKE_BINARY_DIR}/wpe-platform-$
 configure_file(wpe/WPEConfig.h.in ${WPEPlatform_DERIVED_SOURCES_DIR}/wpe/WPEConfig.h)
 configure_file(wpe/WPEVersion.h.in ${WPEPlatform_DERIVED_SOURCES_DIR}/wpe/WPEVersion.h)
 
-set(WPEPlatform_SOURCES
+set(WPEPlatform_SOURCES_FOR_INTROSPECTION
     ${WEBKIT_DIR}/WPEPlatform/wpe/WPEEvent.cpp
     ${WEBKIT_DIR}/WPEPlatform/wpe/WPEBuffer.cpp
     ${WEBKIT_DIR}/WPEPlatform/wpe/WPEBufferDMABuf.cpp
@@ -36,6 +36,11 @@ set(WPEPlatform_SOURCES
     ${WEBKIT_DIR}/WPEPlatform/wpe/WPEVersion.cpp
     ${WEBKIT_DIR}/WPEPlatform/wpe/WPEView.cpp
     ${WPEPlatform_DERIVED_SOURCES_DIR}/wpe/WPEEnumTypes.cpp
+)
+
+set(WPEPlatform_SOURCES
+    ${WPEPlatform_SOURCES_FOR_INTROSPECTION}
+    ${WEBKIT_DIR}/WPEPlatform/wpe/LibDRMUtilities.cpp
 )
 
 set(WPEPlatform_INSTALLED_HEADERS
@@ -147,7 +152,7 @@ GI_INTROSPECT(WPEPlatform ${WPE_API_VERSION} wpe/wpe-platform.h
         -I${WPEPlatform_DERIVED_SOURCES_DIR}
     SOURCES
         ${WPEPlatform_INSTALLED_HEADERS}
-        ${WPEPlatform_SOURCES}
+        ${WPEPlatform_SOURCES_FOR_INTROSPECTION}
     NO_IMPLICIT_SOURCES
 )
 

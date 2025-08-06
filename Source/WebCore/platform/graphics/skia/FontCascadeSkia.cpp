@@ -137,7 +137,14 @@ RefPtr<const Font> FontCascade::fontForCombiningCharacterSequence(StringView str
     char32_t baseCharacter = *codePointsIterator;
     ++codePointsIterator;
     bool isOnlySingleCodePoint = codePointsIterator == codePoints.end();
-    GlyphData baseCharacterGlyphData = glyphDataForCharacter(baseCharacter, false, NormalVariant);
+
+    char32_t baseCharacterForBaseFont = baseCharacter;
+    if (!isOnlySingleCodePoint && *codePointsIterator == emojiVariationSelector) {
+        // System fallback doesn't support character sequences, so here we override
+        // the base character with the cat emoji to try to force an emoji font.
+        baseCharacterForBaseFont = emojiCat;
+    }
+    GlyphData baseCharacterGlyphData = glyphDataForCharacter(baseCharacterForBaseFont, false, NormalVariant);
     if (!baseCharacterGlyphData.glyph)
         return nullptr;
 

@@ -56,6 +56,7 @@
 #include <epoxy/egl.h>
 
 #if USE(LIBDRM)
+#include "LibDRMUtilities.h"
 #include <xf86drm.h>
 #endif
 
@@ -341,8 +342,10 @@ static void wpeDisplayWaylandInitializeDRMDeviceFromEGL(WPEDisplayWayland* displ
     if (!eglInitialize(eglDisplay, nullptr, nullptr))
         return;
 
-    if (!epoxy_has_egl_extension(eglDisplay, "EGL_EXT_device_query"))
+    if (!epoxy_has_egl_extension(eglDisplay, "EGL_EXT_device_query")) {
+        g_debug("Driver does not support EGL_EXT_device_query");
         return;
+    }
 
     EGLDeviceEXT eglDevice;
     if (!eglQueryDisplayAttribEXT(eglDisplay, EGL_DEVICE_EXT, reinterpret_cast<EGLAttrib*>(&eglDevice)))
@@ -389,7 +392,8 @@ static gboolean wpeDisplayWaylandSetup(WPEDisplayWayland* display, GError** erro
         if (zwp_linux_dmabuf_v1_get_version(priv->linuxDMABuf) >= ZWP_LINUX_DMABUF_V1_GET_DEFAULT_FEEDBACK_SINCE_VERSION) {
             priv->dmabufFeedback = zwp_linux_dmabuf_v1_get_default_feedback(priv->linuxDMABuf);
             zwp_linux_dmabuf_feedback_v1_add_listener(priv->dmabufFeedback, &linuxDMABufFeedbackListener, display);
-        }
+        } else
+            g_debug("Compositor does not support zwp_linux_dmabuf_v1_get_default_feedback");
 #endif
         zwp_linux_dmabuf_v1_add_listener(priv->linuxDMABuf, &linuxDMABufListener, display);
         wl_display_roundtrip(priv->wlDisplay);
@@ -397,6 +401,10 @@ static gboolean wpeDisplayWaylandSetup(WPEDisplayWayland* display, GError** erro
 
     if (priv->drmDevice.isNull())
         wpeDisplayWaylandInitializeDRMDeviceFromEGL(display);
+#if USE(LIBDRM)
+    if (priv->drmDevice.isNull())
+        std::tie(priv->drmDevice, priv->drmRenderNode) = lookupNodesWithLibDRM();
+#endif
 
     return TRUE;
 }

@@ -163,6 +163,9 @@ void SVGTextPathElement::buildPendingResource()
     } else if (RefPtr pathElement = dynamicDowncast<SVGPathElement>(*target.element))
         pathElement->addReferencingElement(*this);
 
+    if (document().settings().layerBasedSVGEngineEnabled())
+        return;
+
     CheckedPtr renderer = this->renderer();
     if (!renderer)
         return;

@@ -1,4 +1,6 @@
 list(APPEND WTF_SOURCES
+    android/LoggingAndroid.cpp
+
     generic/MainThreadGeneric.cpp
     generic/MemoryFootprintGeneric.cpp
     generic/WorkQueueGeneric.cpp
@@ -66,6 +68,10 @@ list(APPEND WTF_LIBRARIES
 
 if (ENABLE_JOURNALD_LOG)
     list(APPEND WTF_LIBRARIES Journald::Journald)
+endif ()
+
+if (ANDROID)
+    list(APPEND WTF_LIBRARIES Android::Log)
 endif ()
 
 list(APPEND WTF_SYSTEM_INCLUDE_DIRECTORIES

@@ -61,6 +61,7 @@ constexpr UChar doubleHighReversed9QuotationMark = 0x201F;
 constexpr UChar doubleLowReversed9QuotationMark = 0x2E42;
 constexpr UChar doublePrimeQuotationMark = 0x301E;
 constexpr UChar emSpace = 0x2003;
+constexpr char32_t emojiCat = 0x1F408;
 constexpr UChar emojiVariationSelector = 0xFE0F; // Technical name is "VARIATION SELECTOR-16"
 constexpr UChar enDash = 0x2013;
 constexpr UChar ethiopicPrefaceColon = 0x1366;
@@ -201,6 +202,7 @@ using WTF::Unicode::doubleHighReversed9QuotationMark;
 using WTF::Unicode::doubleLowReversed9QuotationMark;
 using WTF::Unicode::doublePrimeQuotationMark;
 using WTF::Unicode::emSpace;
+using WTF::Unicode::emojiCat;
 using WTF::Unicode::emojiVariationSelector;
 using WTF::Unicode::enDash;
 using WTF::Unicode::ethiopicPrefaceColon;

@@ -1624,6 +1624,18 @@ static void testWebViewPreferredSize(WebViewTest* test, gconstpointer)
     g_assert_cmpint(naturalSize.width, ==, 325);
     g_assert_cmpint(naturalSize.height, ==, 615);
 }
+
+#if !USE(GTK4)
+static void testWebViewOffscreenWindow(WebViewTest* test, gconstpointer)
+{
+    GtkWidget* window = gtk_offscreen_window_new();
+    gtk_container_add(GTK_CONTAINER(window), GTK_WIDGET(test->webView()));
+    test->loadURI(gServer->getURIForPath("/").data());
+    test->waitUntilLoadFinished();
+    gtk_widget_show_all(window);
+    gtk_widget_destroy(window);
+}
+#endif
 #endif
 
 class WebViewTitleTest: public WebViewTest {
@@ -2089,6 +2101,9 @@ void beforeAll()
     WebViewTest::add("WebKitWebView", "background-color", testWebViewBackgroundColor);
 #if PLATFORM(GTK)
     WebViewTest::add("WebKitWebView", "preferred-size", testWebViewPreferredSize);
+#if !USE(GTK4)
+    WebViewTest::add("WebKitWebView", "offscreen-window", testWebViewOffscreenWindow);
+#endif
 #endif
     WebViewTitleTest::add("WebKitWebView", "title-change", testWebViewTitleChange);
 #if PLATFORM(WPE)

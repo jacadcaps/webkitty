@@ -117,7 +117,7 @@ ALLOW_NONLITERAL_FORMAT_END
     return StringImpl::create(buffer.subspan(0, buffer.size() - 1));
 }
 
-#if PLATFORM(COCOA)
+#if PLATFORM(COCOA) || OS(ANDROID)
 void disableForwardingVPrintfStdErrToOSLog()
 {
     g_wtfConfig.disableForwardingVPrintfStdErrToOSLog = true;
@@ -144,6 +144,8 @@ static void logToStderr([[maybe_unused]] WTFLogChannel* channel, const char* buf
 {
 #if PLATFORM(COCOA)
     os_log(channel ? channel->osLogChannel : webkitSubsystemForGenericOSLog(), "%s", buffer);
+#elif OS(ANDROID)
+    __android_log_write(ANDROID_LOG_VERBOSE, LOG_CHANNEL_WEBKIT_SUBSYSTEM, buffer);
 #endif
     fputs(buffer, stderr);
 }
@@ -174,6 +176,15 @@ ALLOW_NONLITERAL_FORMAT_END
         va_list copyOfArgs;
         va_copy(copyOfArgs, args);
         os_log_with_args(osLogChannel, OS_LOG_TYPE_DEFAULT, format, copyOfArgs, __builtin_return_address(0));
+        va_end(copyOfArgs);
+    }
+#endif
+
+#if OS(ANDROID)
+    if (!g_wtfConfig.disableForwardingVPrintfStdErrToOSLog) {
+        va_list copyOfArgs;
+        va_copy(copyOfArgs, args);
+        __android_log_vprint(ANDROID_LOG_ERROR, LOG_CHANNEL_WEBKIT_SUBSYSTEM, format, copyOfArgs);
         va_end(copyOfArgs);
     }
 #endif

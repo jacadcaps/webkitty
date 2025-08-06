@@ -775,9 +775,10 @@ template<typename ClientDataType, typename ClientsByIDType>
 void forEachClientForOriginImpl(const Vector<ScriptExecutionContextIdentifier>& identifiers, ClientsByIDType& clientsById, NOESCAPE const Function<void(ClientDataType&)>& apply)
 {
     for (auto& clientIdentifier : identifiers) {
-        auto clientIterator = clientsById.find(clientIdentifier);
-        ASSERT(clientIterator != clientsById.end());
-        apply(clientIterator->value);
+        if (auto clientIterator = clientsById.find(clientIdentifier); clientIterator != clientsById.end())
+            apply(clientIterator->value);
+        else
+            RELEASE_LOG_ERROR(ServiceWorker, "SWServer::forEachClientForOriginImpl: Unable to find identifier=%" PUBLIC_LOG_STRING " in map", clientIdentifier.toString().utf8().data());
     }
 }
 

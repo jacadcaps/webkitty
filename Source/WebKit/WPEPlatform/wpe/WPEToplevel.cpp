@@ -525,8 +525,10 @@ WPEBufferDMABufFormats* wpe_toplevel_get_preferred_dma_buf_formats(WPEToplevel* 
 #endif
 
     auto* toplevelClass = WPE_TOPLEVEL_GET_CLASS(toplevel);
-    if (toplevelClass->get_preferred_dma_buf_formats)
-        return toplevelClass->get_preferred_dma_buf_formats(toplevel);
+    if (toplevelClass->get_preferred_dma_buf_formats) {
+        if (auto* formats = toplevelClass->get_preferred_dma_buf_formats(toplevel))
+            return formats;
+    }
 
     return priv->display ? wpe_display_get_preferred_dma_buf_formats(priv->display.get()) : nullptr;
 }

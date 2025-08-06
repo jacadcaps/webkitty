@@ -221,6 +221,7 @@ public:
     DataSegmentVector::const_iterator begin() const { return m_segments.begin(); }
     DataSegmentVector::const_iterator end() const { return m_segments.end(); }
     bool hasOneSegment() const { return m_segments.size() == 1; }
+    size_t segmentsCount() const { return m_segments.size(); }
 
     // begin and end take O(1) time, this takes O(log(N)) time.
     WEBCORE_EXPORT SharedBufferDataView getSomeData(size_t position) const;

@@ -3281,6 +3281,7 @@ private:
     {
         static_assert(endState == ArrayEndVisitNamedMember || endState == ObjectEndVisitNamedMember);
         VM& vm = m_lexicalGlobalObject->vm();
+        auto scope = DECLARE_THROW_SCOPE(vm);
         CachedStringRef cachedString;
         bool wasTerminator = false;
         if (!readStringData(cachedString, wasTerminator, ShouldAtomize::Yes)) {
@@ -3299,8 +3300,13 @@ private:
         if constexpr (endState == ArrayEndVisitNamedMember)
             RELEASE_ASSERT(identifier != vm.propertyNames->length);
 
-        if (JSValue terminal = readTerminal()) {
+        JSValue terminal = readTerminal();
+        if (scope.exception()) [[unlikely]]
+            return VisitNamedMemberResult::Error;
+        if (terminal) {
             putProperty(outputObjectStack.last(), identifier, terminal);
+            if (scope.exception()) [[unlikely]]
+                return VisitNamedMemberResult::Error;
             return VisitNamedMemberResult::Start;
         }
 
@@ -3311,7 +3317,11 @@ private:
 
     ALWAYS_INLINE void objectEndVisitNamedMember(MarkedVector<JSObject*, 32>& outputObjectStack, Vector<Identifier, 16>& propertyNameStack, JSValue& outValue)
     {
+        VM& vm = m_lexicalGlobalObject->vm();
+        auto scope = DECLARE_THROW_SCOPE(vm);
         putProperty(outputObjectStack.last(), propertyNameStack.last(), outValue);
+        if (scope.exception()) [[unlikely]]
+            return;
         propertyNameStack.removeLast();
     }
 
@@ -4281,6 +4291,8 @@ private:
     template<class T>
     JSValue getJSValue(T&& nativeObj)
     {
+        if (!m_isDOMGlobalObject)
+            return { };
         return toJS(m_lexicalGlobalObject, jsCast<JSDOMGlobalObject*>(m_globalObject), std::forward<T>(nativeObj));
     }
 
@@ -4300,6 +4312,8 @@ private:
         if (!read(w))
             return { };
 
+        if (!m_isDOMGlobalObject)
+            return { };
         return toJSNewlyCreated(m_lexicalGlobalObject, jsCast<JSDOMGlobalObject*>(m_globalObject), T::create(x, y, z, w));
     }
 
@@ -4331,6 +4345,8 @@ private:
                 return { };
 
             TransformationMatrix matrix(m11, m12, m21, m22, m41, m42);
+            if (!m_isDOMGlobalObject)
+                return { };
             return toJSNewlyCreated(m_lexicalGlobalObject, jsCast<JSDOMGlobalObject*>(m_globalObject), T::create(WTFMove(matrix), DOMMatrixReadOnly::Is2D::Yes));
         } else {
             double m11;
@@ -4383,6 +4399,8 @@ private:
                 return { };
 
             TransformationMatrix matrix(m11, m12, m13, m14, m21, m22, m23, m24, m31, m32, m33, m34, m41, m42, m43, m44);
+            if (!m_isDOMGlobalObject)
+                return { };
             return toJSNewlyCreated(m_lexicalGlobalObject, jsCast<JSDOMGlobalObject*>(m_globalObject), T::create(WTFMove(matrix), DOMMatrixReadOnly::Is2D::No));
         }
     }
@@ -4403,6 +4421,8 @@ private:
         if (!read(height))
             return { };
 
+        if (!m_isDOMGlobalObject)
+            return { };
         return toJSNewlyCreated(m_lexicalGlobalObject, jsCast<JSDOMGlobalObject*>(m_globalObject), T::create(x, y, width, height));
     }
 
@@ -4436,6 +4456,8 @@ private:
         if (!p4)
             return JSValue();
 
+        if (!m_isDOMGlobalObject)
+            return { };
         return toJSNewlyCreated(m_lexicalGlobalObject, jsCast<JSDOMGlobalObject*>(m_globalObject), DOMQuad::create(p1.value(), p2.value(), p3.value(), p4.value()));
     }
 
@@ -5395,7 +5417,7 @@ private:
 DeserializationResult CloneDeserializer::deserialize()
 {
     VM& vm = m_lexicalGlobalObject->vm();
-    auto scope = DECLARE_THROW_SCOPE(vm);
+    auto scope = DECLARE_CATCH_SCOPE(vm);
 
     Vector<uint32_t, 16> indexStack;
     Vector<Identifier, 16> propertyNameStack;
@@ -5464,7 +5486,13 @@ DeserializationResult CloneDeserializer::deserialize()
                     goto arrayStartVisitNamedMember;
             }
 
-            if (JSValue terminal = readTerminal()) {
+            JSValue terminal = readTerminal();
+            if (scope.exception()) [[unlikely]] {
+                SERIALIZE_TRACE("FAIL deserialize");
+                fail();
+                goto error;
+            }
+            if (terminal) {
                 putProperty(outputObjectStack.last(), index, terminal);
                 goto arrayStartVisitIndexedMember;
             }
@@ -5482,7 +5510,13 @@ DeserializationResult CloneDeserializer::deserialize()
         }
         arrayStartVisitNamedMember:
         case ArrayStartVisitNamedMember: {
-            switch (startVisitNamedMember<ArrayEndVisitNamedMember>(outputObjectStack, propertyNameStack, stateStack, outValue)) {
+            auto result = startVisitNamedMember<ArrayEndVisitNamedMember>(outputObjectStack, propertyNameStack, stateStack, outValue);
+            if (scope.exception()) [[unlikely]] {
+                SERIALIZE_TRACE("FAIL deserialize");
+                fail();
+                goto error;
+            }
+            switch (result) {
             case VisitNamedMemberResult::Error:
                 goto error;
             case VisitNamedMemberResult::Break:
@@ -5496,6 +5530,11 @@ DeserializationResult CloneDeserializer::deserialize()
         }
         case ArrayEndVisitNamedMember: {
             objectEndVisitNamedMember(outputObjectStack, propertyNameStack, outValue);
+            if (scope.exception()) [[unlikely]] {
+                SERIALIZE_TRACE("FAIL deserialize");
+                fail();
+                goto error;
+            }
             goto arrayStartVisitNamedMember;
         }
         objectStartState:
@@ -5509,7 +5548,13 @@ DeserializationResult CloneDeserializer::deserialize()
         startVisitNamedMember:
         FALLTHROUGH;
         case ObjectStartVisitNamedMember: {
-            switch (startVisitNamedMember<ObjectEndVisitNamedMember>(outputObjectStack, propertyNameStack, stateStack, outValue)) {
+            auto result = startVisitNamedMember<ObjectEndVisitNamedMember>(outputObjectStack, propertyNameStack, stateStack, outValue);
+            if (scope.exception()) [[unlikely]] {
+                SERIALIZE_TRACE("FAIL deserialize");
+                fail();
+                goto error;
+            }
+            switch (result) {
             case VisitNamedMemberResult::Error:
                 goto error;
             case VisitNamedMemberResult::Break:
@@ -5523,6 +5568,11 @@ DeserializationResult CloneDeserializer::deserialize()
         }
         case ObjectEndVisitNamedMember: {
             objectEndVisitNamedMember(outputObjectStack, propertyNameStack, outValue);
+            if (scope.exception()) [[unlikely]] {
+                SERIALIZE_TRACE("FAIL deserialize");
+                fail();
+                goto error;
+            }
             goto startVisitNamedMember;
         }
         mapStartState: {
@@ -5584,7 +5634,13 @@ DeserializationResult CloneDeserializer::deserialize()
 
         stateUnknown:
         case StateUnknown:
-            if (JSValue terminal = readTerminal()) {
+            JSValue terminal = readTerminal();
+            if (scope.exception()) [[unlikely]] {
+                SERIALIZE_TRACE("FAIL deserialize");
+                fail();
+                goto error;
+            }
+            if (terminal) {
                 outValue = terminal;
                 break;
             }
@@ -6343,6 +6399,9 @@ JSValue SerializedScriptValue::deserialize(JSGlobalObject& lexicalGlobalObject, 
 
 JSValue SerializedScriptValue::deserialize(JSGlobalObject& lexicalGlobalObject, JSGlobalObject* globalObject, const Vector<Ref<MessagePort>>& messagePorts, const Vector<String>& blobURLs, const Vector<String>& blobFilePaths, SerializationErrorMode throwExceptions, bool* didFail)
 {
+    VM& vm = lexicalGlobalObject.vm();
+    auto scope = DECLARE_CATCH_SCOPE(vm);
+
     DeserializationResult result = CloneDeserializer::deserialize(&lexicalGlobalObject, globalObject, messagePorts, WTFMove(m_internals.detachedImageBitmaps)
 #if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
         , WTFMove(m_internals.detachedOffscreenCanvases)
@@ -6372,8 +6431,19 @@ JSValue SerializedScriptValue::deserialize(JSGlobalObject& lexicalGlobalObject, 
         );
     if (didFail)
         *didFail = result.second != SerializationReturnCode::SuccessfullyCompleted;
+
+    // Deserialize may throw an exception. Similar to serialize (SerializedScriptValue::create),
+    // we'll ensure that we raise this.
+    if (scope.exception()) [[unlikely]]
+        result.second = SerializationReturnCode::ValidationError;
+
+    if (scope.exception()) [[unlikely]]
+        maybeThrowExceptionIfSerializationFailed(lexicalGlobalObject, result.second);
     if (throwExceptions == SerializationErrorMode::Throwing)
         maybeThrowExceptionIfSerializationFailed(lexicalGlobalObject, result.second);
+
+    // Handling newly thrown exceptions is a bit simpler here since we don't deal with return codes.
+    RETURN_IF_EXCEPTION(scope, jsNull());
     return result.first ? result.first : jsNull();
 }
 

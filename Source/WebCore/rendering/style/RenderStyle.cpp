@@ -430,8 +430,13 @@ void RenderStyle::copyPseudoElementsFrom(const RenderStyle& other)
     if (!other.m_cachedPseudoStyles)
         return;
 
-    for (auto& [key, pseudoElementStyle] : other.m_cachedPseudoStyles->styles)
+    for (auto& [key, pseudoElementStyle] : other.m_cachedPseudoStyles->styles) {
+        if (!pseudoElementStyle) {
+            ASSERT_NOT_REACHED();
+            continue;
+        }
         addCachedPseudoStyle(makeUnique<RenderStyle>(cloneIncludingPseudoElements(*pseudoElementStyle)));
+    }
 }
 
 void RenderStyle::copyPseudoElementBitsFrom(const RenderStyle& other)

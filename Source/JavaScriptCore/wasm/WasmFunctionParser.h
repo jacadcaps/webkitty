@@ -3893,6 +3893,8 @@ auto FunctionParser<Context>::parseUnreachableExpression() -> PartialResult
     }
 
     case TryTable: {
+        m_unreachableBlocks++;
+
         BlockSignature unused;
         uint32_t numberOfCatches;
         WASM_PARSER_FAIL_IF(!parseBlockSignatureAndNotifySIMDUseIfNeeded(unused), "can't get try_table's signature in unreachable context"_s);
@@ -4092,8 +4094,13 @@ auto FunctionParser<Context>::parseUnreachableExpression() -> PartialResult
         WASM_PARSER_FAIL_IF(!parseVarUInt32(tableIndex), "can't parse table index"_s);
         FALLTHROUGH;
     }
-    case RefIsNull:
+    case RefIsNull: {
+        return { };
+    }
+
     case RefNull: {
+        int32_t unused;
+        WASM_PARSER_FAIL_IF(!parseHeapType(m_info, unused), "can't get heap type for "_s, m_currentOpcode, " in unreachable context"_s);
         return { };
     }
 

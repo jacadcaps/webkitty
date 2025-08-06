@@ -32,15 +32,18 @@ struct WEBCORE_EXPORT QuirksData {
     bool isBankOfAmerica { false };
     bool isBing { false };
     bool isCBSSports { false };
+    bool isEA { false };
     bool isESPN { false };
     bool isFacebook { false };
     bool isGoogleDocs { false };
     bool isGoogleProperty { false };
     bool isGoogleMaps { false };
     bool isNetflix { false };
+    bool isOutlook { false };
     bool isSoundCloud { false };
     bool isThesaurus { false };
     bool isVimeo { false };
+    bool isWalmart { false };
     bool isWebEx { false };
     bool isYouTube { false };
     bool isZoom { false };
@@ -52,6 +55,7 @@ struct WEBCORE_EXPORT QuirksData {
     bool needsBodyScrollbarWidthNoneDisabledQuirk { false };
     bool needsCanPlayAfterSeekedQuirk { false };
     bool needsChromeMediaControlsPseudoElementQuirk { false };
+    bool needsFacebookRemoveNotSupportedQuirk { false };
     bool needsHotelsAnimationQuirk { false };
     bool needsMozillaFileTypeForDataTransferQuirk { false };
     bool needsResettingTransitionCancelsRunningTransitionQuirk { false };

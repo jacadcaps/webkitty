@@ -924,6 +924,7 @@ void DocumentLoader::responseReceived(CachedResource& resource, const ResourceRe
     if (shouldClearContentSecurityPolicyForResponse(response))
         m_contentSecurityPolicy = nullptr;
     else {
+        // FIXME(294912): Clean up use of bare pointers for ReportingClient
         ReportingClient* reportingClient = nullptr;
         if (frame && frame->document())
             reportingClient = frame->document();
@@ -935,7 +936,7 @@ void DocumentLoader::responseReceived(CachedResource& resource, const ResourceRe
     if (frame && frame->document() && frame->document()->settings().crossOriginOpenerPolicyEnabled())
         m_responseCOOP = obtainCrossOriginOpenerPolicy(response);
 
-    if (frame->settings().clearSiteDataHTTPHeaderEnabled())
+    if (frame && frame->settings().clearSiteDataHTTPHeaderEnabled())
         m_responseClearSiteDataValues = parseClearSiteDataHeader(response);
 
     // FIXME(218779): Remove this quirk once microsoft.com completes their login flow redesign.
@@ -946,6 +947,7 @@ void DocumentLoader::responseReceived(CachedResource& resource, const ResourceRe
             if (auto loginDomains = NetworkStorageSession::subResourceDomainsInNeedOfStorageAccessForFirstParty(firstPartyDomain)) {
                 if (!Quirks::hasStorageAccessForAllLoginDomains(*loginDomains, firstPartyDomain)) {
                     frame->protectedNavigationScheduler()->scheduleRedirect(document, 0, microsoftTeamsRedirectURL(), IsMetaRefresh::No);
+                    completionHandler();
                     return;
                 }
             }
@@ -994,14 +996,18 @@ void DocumentLoader::responseReceived(const ResourceResponse& response, Completi
     if (m_substituteData.isValid() || !platformStrategies()->loaderStrategy()->havePerformedSecurityChecks(response)) {
         auto url = response.url();
         RefPtr frame = m_frame.get();
-        ContentSecurityPolicy contentSecurityPolicy(URL { url }, this, frame->document());
+        // FIXME(294912): Clean up use of bare pointers for ReportingClient
+        ReportingClient* reportingClient = nullptr;
+        if (frame && frame->document())
+            reportingClient = frame->document();
+        ContentSecurityPolicy contentSecurityPolicy(URL { url }, this, reportingClient);
         contentSecurityPolicy.didReceiveHeaders(ContentSecurityPolicyResponseHeaders { response }, m_request.httpReferrer());
-        if (!contentSecurityPolicy.allowFrameAncestors(*frame, url)) {
+        if (frame && !contentSecurityPolicy.allowFrameAncestors(*frame, url)) {
             stopLoadingAfterXFrameOptionsOrContentSecurityPolicyDenied(identifier, response);
             return;
         }
 
-        if (!contentSecurityPolicy.overridesXFrameOptions()) {
+        if (frame && !contentSecurityPolicy.overridesXFrameOptions()) {
             String frameOptions = response.httpHeaderFields().get(HTTPHeaderName::XFrameOptions);
             if (!frameOptions.isNull()) {
                 if (protectedFrameLoader()->shouldInterruptLoadForXFrameOptions(frameOptions, url, identifier)) {
@@ -1029,12 +1035,15 @@ void DocumentLoader::responseReceived(const ResourceResponse& response, Completi
     m_response = response;
 
     if (m_identifierForLoadWithoutResourceLoader) {
+        RefPtr frameLoader = this->frameLoader();
         if (m_mainResource && m_mainResource->wasRedirected()) {
             ASSERT(m_mainResource->status() == CachedResource::Status::Cached);
-            protectedFrameLoader()->protectedClient()->dispatchDidReceiveServerRedirectForProvisionalLoad();
+            if (frameLoader)
+                frameLoader->protectedClient()->dispatchDidReceiveServerRedirectForProvisionalLoad();
         }
         addResponse(m_response);
-        protectedFrameLoader()->notifier().dispatchDidReceiveResponse(this, *m_identifierForLoadWithoutResourceLoader, m_response, 0);
+        if (frameLoader)
+            frameLoader->notifier().dispatchDidReceiveResponse(this, *m_identifierForLoadWithoutResourceLoader, m_response, 0);
     }
 
     ASSERT(!m_waitingForContentPolicy);
@@ -1047,18 +1056,24 @@ void DocumentLoader::responseReceived(const ResourceResponse& response, Completi
         return;
     }
 
+    RefPtr frame = m_frame.get();
 #if ENABLE(FTPDIR)
     // Respect the hidden FTP Directory Listing pref so it can be tested even if the policy delegate might otherwise disallow it
-    if (m_frame->settings().forceFTPDirectoryListings() && m_response.mimeType() == "application/x-ftp-directory"_s) {
+    if (frame && frame->settings().forceFTPDirectoryListings() && m_response.mimeType() == "application/x-ftp-directory"_s) {
         continueAfterContentPolicy(PolicyAction::Use);
         return;
     }
 #endif
 
+    if (!frame) {
+        DOCUMENTLOADER_RELEASE_LOG("responseReceived by DocumentLoader with null frame");
+        return;
+    }
+
     RefPtr<SubresourceLoader> mainResourceLoader = this->mainResourceLoader();
     if (mainResourceLoader)
         mainResourceLoader->markInAsyncResponsePolicyCheck();
-    RefPtr protectedFrame { m_frame.get() };
+
     protectedFrameLoader()->checkContentPolicy(m_response, [this, protectedThis = Ref { *this }, mainResourceLoader = WTFMove(mainResourceLoader),
         completionHandler = completionHandlerCaller.release()] (PolicyAction policy) mutable {
         continueAfterContentPolicy(policy);

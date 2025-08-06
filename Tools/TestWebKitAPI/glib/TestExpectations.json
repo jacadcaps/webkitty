@@ -447,7 +447,7 @@
                 "expected": {"all": {"status": ["FAIL", "PASS"], "bug": "webkit.org/b/264507"}}
             },
             "/webkit/WebKitWebView/web-socket-tls-errors": {
-                "expected": {"all": {"status": ["TIMEOUT", "CRASH"], "bug": "webkit.org/b/286063"}}
+                "expected": {"all": {"status": ["TIMEOUT", "CRASH", "FAIL"], "bug": "webkit.org/b/286063"}}
             },
             "/webkit/WebKitWebView/web-socket-client-side-certificate": {
                 "expected": {"all": {"status": ["TIMEOUT", "CRASH"], "bug": "webkit.org/b/286063"}}

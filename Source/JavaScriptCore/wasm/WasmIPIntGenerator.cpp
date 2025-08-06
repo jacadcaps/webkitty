@@ -580,7 +580,7 @@ public:
         auto& target = m_controlStructuresAwaitingCoalescing[index];
         if (target.isLoop) {
             ASSERT(target.m_entryResolved);
-            IPInt::BlockMetadata md = { target.m_entryTarget.pc - loc.pc, target.m_entryTarget.mc - loc.mc };
+            IPInt::BlockMetadata md = { static_cast<int32_t>(target.m_entryTarget.pc - loc.pc), static_cast<int32_t>(target.m_entryTarget.mc - loc.mc) };
             WRITE_TO_METADATA(metadata + loc.mc, md, IPInt::BlockMetadata);
         } else {
             ASSERT(!target.m_exitResolved);
@@ -1999,7 +1999,7 @@ void IPIntGenerator::coalesceControlFlow(bool force)
         m_controlStructuresAwaitingCoalescing.shrink(0);
 
     for (auto& src : m_exitHandlersAwaitingCoalescing) {
-        IPInt::BlockMetadata md = { here.pc - src.pc, here.mc - src.mc };
+        IPInt::BlockMetadata md = { static_cast<int32_t>(here.pc - src.pc), static_cast<int32_t>(here.mc - src.mc) };
         WRITE_TO_METADATA(m_metadata->m_metadata.data() + src.mc, md, IPInt::BlockMetadata);
     }
     m_exitHandlersAwaitingCoalescing.shrink(0);
@@ -2011,12 +2011,12 @@ void IPIntGenerator::resolveEntryTarget(unsigned index, IPIntLocation loc)
     ASSERT(!control.m_entryResolved);
     for (auto& src : control.m_awaitingEntryTarget) {
         // write delta PC and delta MC
-        IPInt::BlockMetadata md = { loc.pc - src.pc, loc.mc - src.mc };
+        IPInt::BlockMetadata md = { static_cast<int32_t>(loc.pc - src.pc), static_cast<int32_t>(loc.mc - src.mc) };
         WRITE_TO_METADATA(m_metadata->m_metadata.data() + src.mc, md, IPInt::BlockMetadata);
     }
     if (control.isLoop) {
         for (auto& src : control.m_awaitingBranchTarget) {
-            IPInt::BlockMetadata md = { loc.pc - src.pc, loc.mc - src.mc };
+            IPInt::BlockMetadata md = { static_cast<int32_t>(loc.pc - src.pc), static_cast<int32_t>(loc.mc - src.mc) };
             WRITE_TO_METADATA(m_metadata->m_metadata.data() + src.mc, md, IPInt::BlockMetadata);
         }
         control.m_awaitingBranchTarget.clear();
@@ -2032,12 +2032,12 @@ void IPIntGenerator::resolveExitTarget(unsigned index, IPIntLocation loc)
     ASSERT(!control.m_exitResolved);
     for (auto& src : control.m_awaitingExitTarget) {
         // write delta PC and delta MC
-        IPInt::BlockMetadata md = { loc.pc - src.pc, loc.mc - src.mc };
+        IPInt::BlockMetadata md = { static_cast<int32_t>(loc.pc - src.pc), static_cast<int32_t>(loc.mc - src.mc) };
         WRITE_TO_METADATA(m_metadata->m_metadata.data() + src.mc, md, IPInt::BlockMetadata);
     }
     if (!control.isLoop) {
         for (auto& src : control.m_awaitingBranchTarget) {
-            IPInt::BlockMetadata md = { loc.pc - src.pc, loc.mc - src.mc };
+            IPInt::BlockMetadata md = { static_cast<int32_t>(loc.pc - src.pc), static_cast<int32_t>(loc.mc - src.mc) };
             WRITE_TO_METADATA(m_metadata->m_metadata.data() + src.mc, md, IPInt::BlockMetadata);
         }
         control.m_awaitingBranchTarget.clear();

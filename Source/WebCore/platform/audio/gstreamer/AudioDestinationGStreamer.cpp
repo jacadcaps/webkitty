@@ -154,7 +154,7 @@ AudioDestinationGStreamer::AudioDestinationGStreamer(AudioIOCallback& callback, 
     GstElement* audioResample = makeGStreamerElement("audioresample", nullptr);
 
     auto queue = gst_element_factory_make("queue", nullptr);
-    g_object_set(queue, "max-size-buffers", 2, "max-size-bytes", 0, "max-size-time", 0, nullptr);
+    g_object_set(queue, "max-size-buffers", 2, "max-size-bytes", 0, "max-size-time", static_cast<guint64>(0), nullptr);
 
     gst_bin_add_many(GST_BIN_CAST(m_pipeline.get()), m_src.get(), audioConvert, audioResample, queue, audioSink.get(), nullptr);
 

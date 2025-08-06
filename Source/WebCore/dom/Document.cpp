@@ -2886,6 +2886,22 @@ bool Document::updateStyleIfNeeded()
     return true;
 }
 
+bool Document::updateStyleIfNeededIgnoringPendingStylesheets()
+{
+    bool oldIgnore = m_ignorePendingStylesheets;
+    m_ignorePendingStylesheets = true;
+    // FIXME: This should just invalidate elements with missing styles.
+    if (m_hasNodesWithMissingStyle)
+        scheduleFullStyleRebuild();
+
+    updateRelevancyOfContentVisibilityElements();
+
+    bool result = updateStyleIfNeeded();
+
+    m_ignorePendingStylesheets = oldIgnore;
+    return result;
+}
+
 auto Document::updateLayoutIgnorePendingStylesheets(OptionSet<LayoutOptions> layoutOptions, const Element* context) -> UpdateLayoutResult
 {
     layoutOptions.add(LayoutOptions::IgnorePendingStylesheets);
@@ -11139,8 +11155,7 @@ void Document::updateRelevancyOfContentVisibilityElements()
 {
     if (m_contentRelevancyUpdate.isEmpty() || !isObservingContentVisibilityTargets())
         return;
-    if (m_contentVisibilityDocumentState->updateRelevancyOfContentVisibilityElements(m_contentRelevancyUpdate) == DidUpdateAnyContentRelevancy::Yes)
-        updateLayoutIgnorePendingStylesheets();
+    m_contentVisibilityDocumentState->updateRelevancyOfContentVisibilityElements(m_contentRelevancyUpdate);
     m_contentRelevancyUpdate = { };
 }
 

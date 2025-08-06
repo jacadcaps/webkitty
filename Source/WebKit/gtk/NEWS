@@ -1,4 +1,26 @@
 ================
+WebKitGTK 2.48.5
+================
+
+What's new in WebKitGTK 2.48.5?
+
+  - Fix several crashes.
+
+================
+WebKitGTK 2.48.4
+================
+
+What's new in WebKitGTK 2.48.4?
+
+  - Improve emoji font selection with USE_SKIA=ON.
+  - Improve playback of multimedia streams from blob URLs.
+  - Fix the build with USE_SKIA_OPENTYPE_SVG=ON and
+    USE_SYSPROF_CAPTURE=ON.
+  - Fix the build on LoongArch with USE_SKIA=ON.
+  - Fix crash when using a WebKitWebView widget in an offscreen window.
+  - Fix several crashes and rendering issues.
+
+================
 WebKitGTK 2.48.3
 ================
 

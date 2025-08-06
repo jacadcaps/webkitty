@@ -113,21 +113,23 @@ static inline bool shouldRenderInXMLTreeViewerMode(Document& document)
 
 #endif
 
-// xmlMalloc() is a macro that calls malloc() and thus cannot be called directly from
-// XMLMalloc::malloc() or it would cause infinite recusion.
+// xmlMalloc() and xmlFree() are macros that call malloc() and free(), respectively. Thus, they
+// cannot be called directly from XMLMalloc::malloc() and XMLMalloc::free() or they would cause
+// infinite recusion.
+
 static void* xmlMallocHelper(size_t size)
 {
     return xmlMalloc(size);
 }
 
+static void xmlFreeHelper(void* p)
+{
+    xmlFree(p);
+}
+
 struct XMLMalloc {
     static void* malloc(size_t size) { return xmlMallocHelper(size); }
-    static void free(void* p)
-    {
-        IGNORE_WARNINGS_BEGIN("deprecated-declarations")
-        xmlFree(p);
-        IGNORE_WARNINGS_END
-    }
+    static void free(void* p) { xmlFreeHelper(p); }
 };
 
 static std::span<xmlChar> unsafeSpanIncludingNullTerminator(xmlChar* string)
