@@ -39,7 +39,6 @@ class HistoryItemClient;
 class LocalFrame;
 class SerializedScriptValue;
 
-enum class ShouldGoToHistoryItem : uint8_t;
 enum class ShouldTreatAsContinuingLoad : uint8_t;
 
 struct NavigationAPIMethodTracker;
@@ -109,7 +108,7 @@ private:
     bool shouldStopLoadingForHistoryItem(HistoryItem&) const;
     void goToItem(HistoryItem&, FrameLoadType, ShouldTreatAsContinuingLoad);
     void goToItemForNavigationAPI(HistoryItem&, FrameLoadType, LocalFrame& triggeringFrame, NavigationAPIMethodTracker*);
-    void goToItemShared(HistoryItem&, CompletionHandler<void(ShouldGoToHistoryItem)>&&);
+    void goToItemShared(HistoryItem&, CompletionHandler<void(bool)>&&);
 
     void initializeItem(HistoryItem&, RefPtr<DocumentLoader>);
     Ref<HistoryItem> createItem(HistoryItemClient&, BackForwardItemIdentifier);

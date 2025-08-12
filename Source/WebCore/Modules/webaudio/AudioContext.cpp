@@ -690,19 +690,22 @@ void AudioContext::defaultDestinationWillBecomeConnected()
 
 void AudioContext::isActiveNowPlayingSessionChanged()
 {
+#if ENABLE(MEDIA_SESSION)
     if (RefPtr document = this->document()) {
         if (RefPtr page = document->protectedPage())
             page->hasActiveNowPlayingSessionChanged();
     }
+#endif
 }
 
 ProcessID AudioContext::presentingApplicationPID() const
 {
+#if ENABLE(MEDIA_SESSION)
     if (RefPtr document = this->document()) {
         if (RefPtr page = document->protectedPage())
             return page->presentingApplicationPID();
     }
-
+#endif
     return { };
 }
 

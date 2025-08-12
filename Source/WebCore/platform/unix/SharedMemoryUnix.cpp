@@ -28,7 +28,7 @@
 #include "config.h"
 #include "SharedMemory.h"
 
-#if USE(UNIX_DOMAIN_SOCKETS) && !OS(ANDROID)
+#if USE(UNIX_DOMAIN_SOCKETS)
 
 #include <errno.h>
 #include <fcntl.h>
@@ -191,4 +191,4 @@ auto SharedMemory::createHandle(Protection) -> std::optional<Handle>
 
 } // namespace WebCore
 
-#endif // !OS(ANDROID) && USE(UNIX_DOMAIN_SOCKETS)
+#endif

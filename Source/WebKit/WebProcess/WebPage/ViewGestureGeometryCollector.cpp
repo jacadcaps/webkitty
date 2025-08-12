@@ -42,7 +42,6 @@
 #include <WebCore/Range.h>
 #include <WebCore/RenderView.h>
 #include <WebCore/TextIterator.h>
-#include <wtf/HashCountedSet.h>
 #include <wtf/TZoneMallocInlines.h>
 
 #if PLATFORM(IOS_FAMILY)
@@ -151,14 +150,13 @@ void ViewGestureGeometryCollector::collectGeometryForSmartMagnificationGesture(F
 
 #if PLATFORM(IOS_FAMILY)
 
+struct FontSizeAndCount {
+    unsigned fontSize;
+    unsigned count;
+};
+
 std::optional<std::pair<double, double>> ViewGestureGeometryCollector::computeTextLegibilityScales(double& viewportMinimumScale, double& viewportMaximumScale)
 {
-    struct FontSizeAndCount {
-        unsigned fontSize { 0 };
-        unsigned count { 0 };
-    };
-    using FontSizeCounter = HashCountedSet<unsigned>;
-
     static const unsigned fontSizeBinningInterval = 2;
     static const double maximumNumberOfTextRunsToConsider = 200;
 
@@ -183,7 +181,7 @@ std::optional<std::pair<double, double>> ViewGestureGeometryCollector::computeTe
     document->updateLayout(LayoutOptions::IgnorePendingStylesheets);
 
     HashSet<Ref<Node>> allTextNodes;
-    FontSizeCounter fontSizeCounter;
+    HashMap<unsigned, unsigned> fontSizeToCountMap;
     unsigned numberOfIterations = 0;
     unsigned totalSampledTextLength = 0;
 
@@ -199,17 +197,15 @@ std::optional<std::pair<double, double>> ViewGestureGeometryCollector::computeTe
         if (!textLength || !textNode.renderer() || allTextNodes.contains(textNode))
             continue;
 
-        unsigned fontSizeBin = fontSizeBinningInterval * round(textNode.renderer()->style().fontCascade().size() / fontSizeBinningInterval);
-        if (!FontSizeCounter::isValidValue(fontSizeBin))
-            continue;
-
         allTextNodes.add(textNode);
 
-        fontSizeCounter.add(fontSizeBin, textLength);
+        unsigned fontSizeBin = fontSizeBinningInterval * round(textNode.renderer()->style().fontCascade().size() / fontSizeBinningInterval);
+        auto entry = fontSizeToCountMap.find(fontSizeBin);
+        fontSizeToCountMap.set(fontSizeBin, textLength + (entry == fontSizeToCountMap.end() ? 0 : entry->value));
         totalSampledTextLength += textLength;
     }
 
-    auto sortedFontSizesAndCounts = WTF::map(fontSizeCounter, [](auto& entry) {
+    auto sortedFontSizesAndCounts = WTF::map(fontSizeToCountMap, [](auto& entry) {
         return FontSizeAndCount { entry.key, entry.value };
     });
 

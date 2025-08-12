@@ -67,6 +67,10 @@
 #import <wtf/spi/cocoa/OSLogSPI.h>
 #endif
 
+#if OS(MORPHOS)
+extern "C" { void vdprintf(const char *, va_list); }
+#endif
+
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace WTF {
@@ -204,6 +208,10 @@ ALLOW_NONLITERAL_FORMAT_END
             size *= 2;
         } while (size > 1024);
     }
+#endif
+#if OS(MORPHOS)
+	vdprintf(format, args);
+	return;
 #endif
     vfprintf(stderr, format, args);
 }

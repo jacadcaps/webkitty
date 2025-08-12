@@ -106,7 +106,11 @@ void AVIFImageReader::decodeFrame(size_t frameIndex, ScalableImageDecoderFrame& 
 
     decodedRGBImage.depth = 8;
     decodedRGBImage.alphaPremultiplied = m_decoder->premultiplyAlpha();
+#if CPU(BIG_ENDIAN)
+    decodedRGBImage.format = AVIF_RGB_FORMAT_ARGB;
+#else
     decodedRGBImage.format = AVIF_RGB_FORMAT_BGRA;
+#endif
     decodedRGBImage.rowBytes = imageSize.width() * sizeof(uint32_t);
     decodedRGBImage.pixels = reinterpret_cast<uint8_t*>(buffer.backingStore()->pixelsStartingAt(0, 0).data());
 

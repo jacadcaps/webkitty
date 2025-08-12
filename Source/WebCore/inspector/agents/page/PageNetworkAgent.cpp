@@ -45,7 +45,7 @@ using namespace Inspector;
 WTF_MAKE_TZONE_ALLOCATED_IMPL(PageNetworkAgent);
 
 PageNetworkAgent::PageNetworkAgent(PageAgentContext& context, InspectorClient* client)
-    : InspectorNetworkAgent(context, context.inspectedPage->settings().inspectorMaximumResourcesContentSize())
+    : InspectorNetworkAgent(context)
     , m_inspectedPage(context.inspectedPage)
 #if ENABLE(INSPECTOR_NETWORK_THROTTLING)
     , m_client(client)

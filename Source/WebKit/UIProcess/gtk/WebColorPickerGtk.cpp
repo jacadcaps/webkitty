@@ -60,9 +60,11 @@ void WebColorPickerGtk::cancel()
 
 void WebColorPickerGtk::endPicker()
 {
-    g_clear_pointer(&m_colorChooser, gtk_widget_destroy);
+    if (!m_colorChooser)
+        return;
 
-    WebColorPicker::endPicker();
+    gtk_widget_destroy(m_colorChooser);
+    m_colorChooser = nullptr;
 }
 
 void WebColorPickerGtk::didChooseColor(const Color& color)

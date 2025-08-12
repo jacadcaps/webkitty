@@ -45,9 +45,7 @@ private:
 #endif
 
     EGLSync m_sync { nullptr };
-#if OS(UNIX)
     bool m_isExportable { false };
-#endif
 };
 
 } // namespace WebCore

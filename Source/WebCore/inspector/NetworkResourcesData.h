@@ -133,7 +133,7 @@ public:
         WallTime m_responseTimestamp;
     };
 
-    NetworkResourcesData(uint32_t maximumResourcesContentSize);
+    NetworkResourcesData();
     ~NetworkResourcesData();
 
     void resourceCreated(const String& requestId, const String& loaderId, InspectorPageAgent::ResourceType);

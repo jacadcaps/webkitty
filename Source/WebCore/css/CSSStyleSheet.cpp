@@ -90,9 +90,9 @@ static bool isAcceptableCSSStyleSheetParent(Node* parentNode)
 }
 #endif // ASSERT_ENABLED
 
-Ref<CSSStyleSheet> CSSStyleSheet::create(Ref<StyleSheetContents>&& sheet, CSSImportRule* ownerRule, std::optional<bool> isOriginClean)
+Ref<CSSStyleSheet> CSSStyleSheet::create(Ref<StyleSheetContents>&& sheet, CSSImportRule* ownerRule)
 {
-    return adoptRef(*new CSSStyleSheet(WTFMove(sheet), ownerRule, isOriginClean));
+    return adoptRef(*new CSSStyleSheet(WTFMove(sheet), ownerRule));
 }
 
 Ref<CSSStyleSheet> CSSStyleSheet::create(Ref<StyleSheetContents>&& sheet, Node& ownerNode, const std::optional<bool>& isCleanOrigin)
@@ -121,9 +121,8 @@ ExceptionOr<Ref<CSSStyleSheet>> CSSStyleSheet::create(Document& document, Init&&
     return adoptRef(*new CSSStyleSheet(StyleSheetContents::create(parserContext), document, WTFMove(init)));
 }
 
-CSSStyleSheet::CSSStyleSheet(Ref<StyleSheetContents>&& contents, CSSImportRule* ownerRule, std::optional<bool> isOriginClean)
+CSSStyleSheet::CSSStyleSheet(Ref<StyleSheetContents>&& contents, CSSImportRule* ownerRule)
     : m_contents(WTFMove(contents))
-    , m_isOriginClean(isOriginClean)
     , m_ownerRule(ownerRule)
 {
     if (auto* parent = parentStyleSheet())
@@ -231,7 +230,6 @@ void CSSStyleSheet::didMutateRules(RuleMutationType mutationType, ContentsCloned
 {
     ASSERT(m_contents->isMutable());
     ASSERT(m_contents->hasOneClient());
-    m_contents->setHasResolvedNesting(false);
 
     forEachStyleScope([&](Style::Scope& scope) {
         if ((mutationType == RuleInsertion || mutationType == RuleReplace) && contentsClonedForMutation == ContentsClonedForMutation::No && !scope.activeStyleSheetsContains(*this)) {
@@ -338,11 +336,9 @@ bool CSSStyleSheet::canAccessRules() const
     URL baseURL = m_contents->baseURL();
     if (baseURL.isEmpty())
         return true;
-
     Document* document = ownerDocument();
     if (!document)
-        return false;
-
+        return true;
     return document->protectedSecurityOrigin()->canRequest(baseURL, OriginAccessPatternsForWebProcess::singleton());
 }
 
@@ -351,9 +347,6 @@ ExceptionOr<unsigned> CSSStyleSheet::insertRule(const String& ruleString, unsign
     LOG_WITH_STREAM(StyleSheets, stream << "CSSStyleSheet " << this << " insertRule() " << ruleString << " at " << index);
 
     ASSERT(m_childRuleCSSOMWrappers.isEmpty() || m_childRuleCSSOMWrappers.size() == m_contents->ruleCount());
-
-    if (!canAccessRules())
-        return Exception { ExceptionCode::SecurityError, "Not allowed to insert rule into cross-origin stylesheet"_s };
 
     if (index > length())
         return Exception { ExceptionCode::IndexSizeError };
@@ -381,9 +374,6 @@ ExceptionOr<void> CSSStyleSheet::deleteRule(unsigned index)
     LOG_WITH_STREAM(StyleSheets, stream << "CSSStyleSheet " << this << " deleteRule(" << index << ")");
 
     ASSERT(m_childRuleCSSOMWrappers.isEmpty() || m_childRuleCSSOMWrappers.size() == m_contents->ruleCount());
-
-    if (!canAccessRules())
-        return Exception { ExceptionCode::SecurityError, "Not allowed to delete rule from cross-origin stylesheet"_s };
 
     if (index >= length())
         return Exception { ExceptionCode::IndexSizeError };

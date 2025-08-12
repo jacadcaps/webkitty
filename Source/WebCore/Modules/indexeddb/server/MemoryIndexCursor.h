@@ -39,7 +39,7 @@ class MemoryIndex;
 class MemoryIndexCursor : public MemoryCursor {
     WTF_MAKE_TZONE_ALLOCATED(MemoryIndexCursor);
 public:
-    MemoryIndexCursor(MemoryIndex&, const IDBCursorInfo&, MemoryBackingStoreTransaction&);
+    MemoryIndexCursor(MemoryIndex&, const IDBCursorInfo&);
     virtual ~MemoryIndexCursor();
 
     void indexRecordsAllChanged();

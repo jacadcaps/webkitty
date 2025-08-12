@@ -194,23 +194,24 @@ void CalleeGroup::compileAsync(VM& vm, AsyncCompilationCallback&& task)
 }
 
 #if ENABLE(WEBASSEMBLY_BBQJIT)
-RefPtr<BBQCallee> CalleeGroup::tryGetBBQCalleeForLoopOSR(const AbstractLocker&, VM& vm, FunctionCodeIndex functionIndex)
+BBQCallee* CalleeGroup::tryGetBBQCalleeForLoopOSR(const AbstractLocker&, VM& vm, FunctionCodeIndex functionIndex)
 {
     if (m_bbqCallees.isEmpty())
         return nullptr;
 
     auto& maybeCallee = m_bbqCallees[functionIndex];
+    if (maybeCallee.isStrong())
+        return maybeCallee.ptr();
+
     RefPtr bbqCallee = maybeCallee.get();
     if (!bbqCallee)
         return nullptr;
 
-    if (maybeCallee.isStrong())
-        return bbqCallee;
-
     // This means this callee has been released but hasn't yet been destroyed. We're safe to use it
     // as long as this VM knows to look for it the next time it scans for conservative roots.
-    vm.heap.reportWasmCalleePendingDestruction(Ref { *bbqCallee });
-    return bbqCallee;
+    BBQCallee* result = bbqCallee.get();
+    vm.heap.reportWasmCalleePendingDestruction(bbqCallee.releaseNonNull());
+    return result;
 }
 
 void CalleeGroup::releaseBBQCallee(const AbstractLocker&, FunctionCodeIndex functionIndex)
@@ -316,6 +317,9 @@ void CalleeGroup::updateCallsitesToCallUs(const AbstractLocker& locker, CodeLoca
 
     m_wasmIndirectCallEntryPoints[functionIndex] = entrypoint;
 
+    if (auto iter = m_jsEntrypointCallees.find(functionIndex); iter != m_jsEntrypointCallees.end())
+        iter->value->setReplacementTarget(entrypoint);
+
     // FIXME: This does an icache flush for each repatch but we
     // 1) only need one at the end.
     // 2) probably don't need one at all because we don't compile wasm on mutator threads so we don't have to worry about cache coherency.
@@ -367,11 +371,9 @@ TriState CalleeGroup::calleeIsReferenced(const AbstractLocker&, Wasm::Callee* ca
 #if ENABLE(WEBASSEMBLY_BBQJIT)
     case CompilationMode::BBQMode: {
         FunctionCodeIndex index = toCodeIndex(callee->index());
-        auto& calleeHandle = m_bbqCallees.at(index);
-        RefPtr bbqCallee = calleeHandle.get();
-        if (calleeHandle.isWeak())
-            return bbqCallee ? TriState::Indeterminate : TriState::False;
-        return triState(bbqCallee);
+        if (m_bbqCallees.at(index).isWeak())
+            return m_bbqCallees.at(index).get() ? TriState::Indeterminate : TriState::False;
+        return triState(m_bbqCallees.at(index).ptr());
     }
 #endif
 #if ENABLE(WEBASSEMBLY_OMGJIT)

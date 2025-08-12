@@ -31,8 +31,9 @@
 namespace WebCore {
 using namespace WebCore::Adwaita;
 
-ControlAdwaita::ControlAdwaita(ControlPart& owningPart, ControlFactoryAdwaita&)
+ControlAdwaita::ControlAdwaita(ControlPart& owningPart, ControlFactoryAdwaita& controlFactory)
     : PlatformControl(owningPart)
+    , m_controlFactory(controlFactory)
 {
 }
 

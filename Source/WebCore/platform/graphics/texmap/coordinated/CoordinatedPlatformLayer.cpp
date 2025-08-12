@@ -47,7 +47,6 @@
 
 #if USE(SKIA)
 #include "SkiaPaintingEngine.h"
-#include "SkiaRecordingResult.h"
 #endif
 
 namespace WebCore {
@@ -814,28 +813,9 @@ Ref<CoordinatedTileBuffer> CoordinatedPlatformLayer::paint(const IntRect& dirtyR
     m_client->paintingEngine().paint(*m_owner, buffer.get(), dirtyRect, enclosingIntRect(scaledDirtyRect), IntRect { { }, dirtyRect.size() }, m_contentsScale);
     return buffer;
 #elif USE(SKIA)
-    auto& paintingEngine = m_client->paintingEngine();
-    ASSERT(!paintingEngine.useThreadedRendering());
-    return paintingEngine.paint(*m_owner, dirtyRect, m_contentsOpaque, m_contentsScale);
+    return m_client->paintingEngine().paintLayer(*m_owner, dirtyRect, m_contentsOpaque, m_contentsScale);
 #endif
 }
-
-#if USE(SKIA)
-Ref<SkiaRecordingResult> CoordinatedPlatformLayer::record(const IntRect& recordRect)
-{
-    auto& paintingEngine = m_client->paintingEngine();
-    ASSERT(paintingEngine.useThreadedRendering());
-    return paintingEngine.record(*m_owner, recordRect, m_contentsOpaque, m_contentsScale);
-}
-
-Ref<CoordinatedTileBuffer> CoordinatedPlatformLayer::replay(const RefPtr<SkiaRecordingResult>& recording, const IntRect& dirtyRect)
-{
-    ASSERT(recording);
-    auto& paintingEngine = m_client->paintingEngine();
-    ASSERT(paintingEngine.useThreadedRendering());
-    return paintingEngine.replay(recording, dirtyRect);
-}
-#endif
 
 void CoordinatedPlatformLayer::waitUntilPaintingComplete()
 {

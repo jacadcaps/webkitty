@@ -84,8 +84,7 @@ TEST(WTF, StringViewEmptyVsNull)
     else
         SUCCEED();
 
-    String string { "hello"_s };
-    StringView viewWithCharacters(string);
+    StringView viewWithCharacters(String("hello"_s));
     EXPECT_FALSE(viewWithCharacters.isNull());
     EXPECT_FALSE(viewWithCharacters.isEmpty());
 

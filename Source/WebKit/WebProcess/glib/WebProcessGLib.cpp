@@ -93,7 +93,6 @@
 
 #if USE(SKIA)
 #include <WebCore/ProcessCapabilities.h>
-#include <wtf/ASCIICType.h>
 #endif
 
 #define RELEASE_LOG_SESSION_ID (m_sessionID ? m_sessionID->toUInt64() : 0)
@@ -173,16 +172,9 @@ void WebProcess::initializePlatformDisplayIfNeeded() const
 void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& parameters)
 {
 #if USE(SKIA)
-#if PLATFORM(WPE)
-    bool useAcceleratedBuffers = false;
-#else
-    bool useAcceleratedBuffers = true;
-#endif
-
-    if (const auto enableCPURendering = StringView::fromLatin1(g_getenv("WEBKIT_SKIA_ENABLE_CPU_RENDERING")).trim(isASCIIWhitespace<LChar>))
-        useAcceleratedBuffers = (enableCPURendering == "0"_s);
-
-    ProcessCapabilities::setCanUseAcceleratedBuffers(useAcceleratedBuffers);
+    const char* enableCPURendering = getenv("WEBKIT_SKIA_ENABLE_CPU_RENDERING");
+    if (enableCPURendering && strcmp(enableCPURendering, "0"))
+        ProcessCapabilities::setCanUseAcceleratedBuffers(false);
 #endif
 
 #if ENABLE(MEDIA_STREAM)

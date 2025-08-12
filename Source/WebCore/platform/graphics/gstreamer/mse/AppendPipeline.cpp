@@ -1093,7 +1093,6 @@ const char* AppendPipeline::streamTypeToString(StreamType streamType)
         return "(Unsupported stream type)";
     }
 }
-#endif
 
 const char* AppendPipeline::streamTypeToStringLower(StreamType streamType)
 {
@@ -1112,6 +1111,7 @@ const char* AppendPipeline::streamTypeToStringLower(StreamType streamType)
         return "(unsupported_stream_type)";
     }
 }
+#endif
 
 #if !LOG_DISABLED
 static GstPadProbeReturn appendPipelinePadProbeDebugInformation(GstPad* pad, GstPadProbeInfo* info, struct PadProbeInformation* padProbeInformation)

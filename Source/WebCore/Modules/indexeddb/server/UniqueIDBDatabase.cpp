@@ -1348,10 +1348,6 @@ RefPtr<UniqueIDBDatabaseTransaction> UniqueIDBDatabase::takeNextRunnableTransact
 {
     hadDeferredTransactions = false;
 
-    // Version change transaction should have exclusive access to database.
-    if (m_versionChangeTransaction)
-        return nullptr;
-
     if (m_pendingTransactions.isEmpty())
         return nullptr;
 

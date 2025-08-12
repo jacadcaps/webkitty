@@ -101,32 +101,28 @@ public:
         return *callee;
     }
 
-    RefPtr<JITCallee> replacement(const AbstractLocker&, FunctionSpaceIndex functionIndexSpace) WTF_REQUIRES_LOCK(m_lock)
+    JITCallee* replacement(const AbstractLocker&, FunctionSpaceIndex functionIndexSpace) WTF_REQUIRES_LOCK(m_lock)
     {
         ASSERT(runnable());
         ASSERT(functionIndexSpace >= functionImportCount());
         unsigned calleeIndex = functionIndexSpace - functionImportCount();
         UNUSED_PARAM(calleeIndex);
 #if ENABLE(WEBASSEMBLY_OMGJIT)
-        if (!m_omgCallees.isEmpty()) {
-            if (RefPtr callee = m_omgCallees[calleeIndex])
-                return callee;
-        }
+        if (!m_omgCallees.isEmpty() && m_omgCallees[calleeIndex])
+            return m_omgCallees[calleeIndex].get();
 #endif
 #if ENABLE(WEBASSEMBLY_BBQJIT)
-        if (!m_bbqCallees.isEmpty()) {
-            if (RefPtr callee = m_bbqCallees[calleeIndex].get())
-                return callee;
-        }
+        if (!m_bbqCallees.isEmpty() && m_bbqCallees[calleeIndex].ptr())
+            return m_bbqCallees[calleeIndex].ptr();
 #endif
         return nullptr;
     }
 
-    Ref<Callee> wasmEntrypointCalleeFromFunctionIndexSpace(const AbstractLocker& locker, FunctionSpaceIndex functionIndexSpace) WTF_REQUIRES_LOCK(m_lock)
+    Callee& wasmEntrypointCalleeFromFunctionIndexSpace(const AbstractLocker& locker, FunctionSpaceIndex functionIndexSpace) WTF_REQUIRES_LOCK(m_lock)
     {
 
-        if (RefPtr replacement = this->replacement(locker, functionIndexSpace))
-            return replacement.releaseNonNull();
+        if (auto* replacement = this->replacement(locker, functionIndexSpace))
+            return *replacement;
         unsigned calleeIndex = functionIndexSpace - functionImportCount();
         if (Options::useWasmIPInt())
             return m_ipintCallees->at(calleeIndex).get();
@@ -135,11 +131,21 @@ public:
 
 
 #if ENABLE(WEBASSEMBLY_BBQJIT)
-    RefPtr<BBQCallee> bbqCallee(const AbstractLocker&, FunctionCodeIndex functionIndex) WTF_REQUIRES_LOCK(m_lock)
+    BBQCallee& wasmBBQCalleeFromFunctionIndexSpace(FunctionSpaceIndex functionIndexSpace) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
+    {
+        // We do not look up without locking because this function is called from this BBQCallee itself.
+        ASSERT(runnable());
+        ASSERT(functionIndexSpace >= functionImportCount());
+        unsigned calleeIndex = functionIndexSpace - functionImportCount();
+        ASSERT(m_bbqCallees[calleeIndex].ptr());
+        return *m_bbqCallees[calleeIndex].ptr();
+    }
+
+    BBQCallee* bbqCallee(const AbstractLocker&, FunctionCodeIndex functionIndex) WTF_REQUIRES_LOCK(m_lock)
     {
         if (m_bbqCallees.isEmpty())
             return nullptr;
-        return m_bbqCallees[functionIndex].get();
+        return m_bbqCallees[functionIndex].ptr();
     }
 
     void setBBQCallee(const AbstractLocker&, FunctionCodeIndex functionIndex, Ref<BBQCallee>&& callee) WTF_REQUIRES_LOCK(m_lock)
@@ -149,7 +155,7 @@ public:
         m_bbqCallees[functionIndex] = WTFMove(callee);
     }
 
-    RefPtr<BBQCallee> tryGetBBQCalleeForLoopOSR(const AbstractLocker&, VM&, FunctionCodeIndex) WTF_REQUIRES_LOCK(m_lock);
+    BBQCallee* tryGetBBQCalleeForLoopOSR(const AbstractLocker&, VM&, FunctionCodeIndex) WTF_REQUIRES_LOCK(m_lock);
     void releaseBBQCallee(const AbstractLocker&, FunctionCodeIndex) WTF_REQUIRES_LOCK(m_lock);
 #endif
 
@@ -183,11 +189,11 @@ public:
     }
 
     // This is the callee used by LLInt/IPInt, not by the JS->Wasm entrypoint
-    RefPtr<Wasm::Callee> wasmCalleeFromFunctionIndexSpace(FunctionSpaceIndex functionIndexSpace)
+    Wasm::Callee* wasmCalleeFromFunctionIndexSpace(FunctionSpaceIndex functionIndexSpace)
     {
         RELEASE_ASSERT(functionIndexSpace >= functionImportCount());
         unsigned calleeIndex = functionIndexSpace - functionImportCount();
-        return m_wasmIndirectCallWasmCallees[calleeIndex];
+        return m_wasmIndirectCallWasmCallees[calleeIndex].get();
     }
 
     CodePtr<WasmEntryPtrTag> wasmToWasmExitStub(FunctionSpaceIndex functionIndex)

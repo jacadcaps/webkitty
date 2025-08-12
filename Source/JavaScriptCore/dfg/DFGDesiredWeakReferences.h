@@ -46,6 +46,7 @@ class CommonData;
 class DesiredWeakReferences {
 public:
     DesiredWeakReferences();
+    DesiredWeakReferences(CodeBlock*);
     ~DesiredWeakReferences();
 
     void addLazily(JSCell*);
@@ -59,6 +60,7 @@ public:
     template<typename Visitor> void visitChildren(Visitor&);
 
 private:
+    CodeBlock* m_codeBlock;
     UncheckedKeyHashSet<JSCell*> m_cells;
     UncheckedKeyHashSet<StructureID> m_structures;
     FixedVector<WriteBarrier<JSCell>> m_finalizedCells;

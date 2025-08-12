@@ -448,20 +448,10 @@ RefPtr<CDMInstanceSession> CDMInstanceClearKey::createSession()
 
 void CDMInstanceSessionClearKey::requestLicense(LicenseType, KeyGroupingStrategy, const AtomString& initDataType, Ref<SharedBuffer>&& initData, LicenseCallback&& callback)
 {
-    RefPtr parentInstance = protectedParentInstance();
-    if (!parentInstance) {
-        LOG(EME, "EME - ClearKey - session %s is in an invalid state", sessionId.utf8().data());
-        callOnMainThread(
-            [weakThis = WeakPtr { *this }, callback = WTFMove(callback), initData = WTFMove(initData)]() mutable {
-                if (!weakThis)
-                    return;
+    static uint32_t s_sessionIdValue = 0;
+    ++s_sessionIdValue;
 
-                callback(WTFMove(initData), weakThis->m_sessionID, false, Failed);
-            });
-        return;
-    }
-
-    m_sessionID = String::number(parentInstance->getNextSessionIdValue());
+    m_sessionID = String::number(s_sessionIdValue);
 
     if (equalLettersIgnoringASCIICase(initDataType, "cenc"_s))
         initData = extractKeyidsFromCencInitData(initData.get());

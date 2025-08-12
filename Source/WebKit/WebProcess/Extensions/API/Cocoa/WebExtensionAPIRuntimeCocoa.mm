@@ -592,11 +592,7 @@ static bool matches(WebFrame& frame, const std::optional<WebExtensionMessageTarg
     if (!targetParameters)
         return true;
 
-    // Skip all pages / frames / documents that don't match the target parameters.
-    auto& pageProxyIdentifier = targetParameters.value().pageProxyIdentifier;
-    if (pageProxyIdentifier && pageProxyIdentifier != frame.protectedPage()->webPageProxyIdentifier())
-        return false;
-
+    // Skip all frames / documents that don't match the target parameters.
     auto& frameIdentifier = targetParameters.value().frameIdentifier;
     if (frameIdentifier && !matchesFrame(frameIdentifier.value(), frame))
         return false;

@@ -3370,8 +3370,7 @@ bool AbstractInterpreter<AbstractStateType>::executeEffects(unsigned clobberLimi
             m_graph.globalObjectFor(node->origin.semantic)->arrayStructureForIndexingTypeDuringAllocation(node->indexingType()));
         break;
 
-    case NewArrayWithSpread: {
-        auto* globalObject = m_graph.globalObjectFor(node->origin.semantic);
+    case NewArrayWithSpread:
         if (m_graph.isWatchingHavingABadTimeWatchpoint(node)) {
             // We've compiled assuming we're not having a bad time, so to be consistent
             // with StructureRegisterationPhase we must say we produce an original array
@@ -3379,14 +3378,29 @@ bool AbstractInterpreter<AbstractStateType>::executeEffects(unsigned clobberLimi
 #if USE(JSVALUE64)
             BitVector* bitVector = node->bitVector();
             if (node->numChildren() == 1 && bitVector->get(0)) {
-                setForNode(node, globalObject->originalArrayStructureForIndexingType(CopyOnWriteArrayWithContiguous));
-                break;
+                Edge use = m_graph.varArgChild(node, 0);
+                if (use->op() == PhantomSpread) {
+                    if (use->child1()->op() == PhantomNewArrayBuffer) {
+                        auto* immutableButterfly = use->child1()->castOperand<JSImmutableButterfly*>();
+                        if (hasContiguous(immutableButterfly->indexingType())) {
+                            m_state.setShouldTryConstantFolding(true);
+                            setForNode(node, m_graph.globalObjectFor(node->origin.semantic)->originalArrayStructureForIndexingType(CopyOnWriteArrayWithContiguous));
+                            break;
+                        }
+                    }
+                } else {
+                    setForNode(node, m_graph.globalObjectFor(node->origin.semantic)->originalArrayStructureForIndexingType(CopyOnWriteArrayWithContiguous));
+                    break;
+                }
             }
 #endif
+            setForNode(node, m_graph.globalObjectFor(node->origin.semantic)->originalArrayStructureForIndexingType(ArrayWithContiguous));
+        } else {
+            setForNode(node, 
+                m_graph.globalObjectFor(node->origin.semantic)->arrayStructureForIndexingTypeDuringAllocation(ArrayWithContiguous));
         }
-        setForNode(node, globalObject->arrayStructureForIndexingTypeDuringAllocation(ArrayWithContiguous));
+
         break;
-    }
 
     case Spread:
         switch (node->child1()->op()) {

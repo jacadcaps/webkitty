@@ -657,8 +657,13 @@ static inline double roundeven(double operand)
 }
 #endif
 
+#if OS(MORPHOS)
+JSC_DEFINE_NOEXCEPT_JIT_OPERATION(f32_roundeven, float, (float operand)) { return __builtin_roundevenf(operand); }
+JSC_DEFINE_NOEXCEPT_JIT_OPERATION(f64_roundeven, double, (double operand)) { return __builtin_roundeven(operand); }
+#else
 JSC_DEFINE_NOEXCEPT_JIT_OPERATION(f32_roundeven, float, (float operand)) { return roundevenf(operand); }
 JSC_DEFINE_NOEXCEPT_JIT_OPERATION(f64_roundeven, double, (double operand)) { return roundeven(operand); }
+#endif
 JSC_DEFINE_NOEXCEPT_JIT_OPERATION(f32_trunc, float, (float operand)) { return std::trunc(operand); }
 JSC_DEFINE_NOEXCEPT_JIT_OPERATION(f64_trunc, double, (double operand)) { return std::trunc(operand); }
 

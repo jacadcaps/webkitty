@@ -51,7 +51,6 @@ public:
     uint64_t databaseVersion() final;
     void setDatabaseInfo(const IDBDatabaseInfo&);
     bool hasObjectStore(IDBObjectStoreIdentifier objectStoreIdentifier) { return !!infoForObjectStore(objectStoreIdentifier); }
-    MemoryObjectStore* objectStoreForName(const String& name) const;
 
     void renameObjectStoreForVersionChangeAbort(MemoryObjectStore&, const String& oldName);
     void removeObjectStoreForVersionChangeAbort(MemoryObjectStore&);
@@ -101,7 +100,8 @@ private:
     IDBDatabaseIdentifier m_identifier;
     std::unique_ptr<IDBDatabaseInfo> m_databaseInfo;
 
-    HashMap<IDBResourceIdentifier, Ref<MemoryBackingStoreTransaction>> m_transactions;
+    HashMap<IDBResourceIdentifier, std::unique_ptr<MemoryBackingStoreTransaction>> m_transactions;
+
     HashMap<IDBObjectStoreIdentifier, RefPtr<MemoryObjectStore>> m_objectStoresByIdentifier;
     HashMap<String, RefPtr<MemoryObjectStore>> m_objectStoresByName;
 };

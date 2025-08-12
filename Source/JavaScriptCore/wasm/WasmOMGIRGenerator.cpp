@@ -4948,11 +4948,6 @@ static inline void prepareForTailCallImpl(unsigned functionIndex, CCallHelpers& 
 
     JIT_COMMENT(jit, "SP[", safeAreaLowerBound, "] to SP[", stackUpperBound, "] form the safe portion of the stack to clobber; Scratches go from SP[0] to SP[", scratchAreaUpperBound, "].");
 
-    if (clobbersTmp) {
-        tmpSpill = allocateSpill(Width::Width64);
-        jit.storePtr(tmp, CCallHelpers::Address(MacroAssembler::stackPointerRegister, tmpSpill));
-    }
-
 #if ASSERT_ENABLED
     // Clobber all safe values to make debugging easier.
     for (int i = safeAreaLowerBound; i < stackUpperBound; i += sizeof(Register)) {
@@ -4966,8 +4961,14 @@ static inline void prepareForTailCallImpl(unsigned functionIndex, CCallHelpers& 
     Vector<std::tuple<int, int, Width>> spillsToMove;
     argsToMove.reserveInitialCapacity(wasmCalleeInfoAsCallee.params.size() + 1);
 
+    if (clobbersTmp) {
+        tmpSpill = allocateSpill(Width::Width64);
+        jit.storePtr(tmp, CCallHelpers::Address(MacroAssembler::stackPointerRegister, tmpSpill));
+    }
+
     // We will complete those moves who's source is closest to the danger frontier first.
     // That will move the danger frontier.
+
     for (unsigned i = 0; i < wasmCalleeInfoAsCallee.params.size(); ++i) {
         auto dst = wasmCalleeInfoAsCallee.params[i];
         if (dst.location.isGPR()) {
@@ -4983,11 +4984,7 @@ static inline void prepareForTailCallImpl(unsigned functionIndex, CCallHelpers& 
 
         intptr_t srcOffset = -1;
 
-        if (clobbersTmp && src.isGPR() && src.gpr() == tmp) {
-            // Before tmp may have been clobbered, it was spilled to tmpSpill.
-            ASSERT(dst.width <= Width::Width64);
-            srcOffset = tmpSpill;
-        } else if (src.isGPR()) {
+        if (src.isGPR()) {
             ASSERT(dst.width <= Width::Width64);
             srcOffset = allocateSpill(dst.width);
             jit.storePtr(src.gpr(), CCallHelpers::Address(MacroAssembler::stackPointerRegister, srcOffset));
@@ -5313,7 +5310,8 @@ auto OMGIRGenerator::emitInlineDirectCall(FunctionCodeIndex calleeFunctionIndex,
     std::optional<bool> inlineeHasExceptionHandlers;
     {
         Locker locker { m_calleeGroup.m_lock };
-        inlineeHasExceptionHandlers = m_calleeGroup.wasmEntrypointCalleeFromFunctionIndexSpace(locker, m_calleeGroup.toSpaceIndex(calleeFunctionIndex))->hasExceptionHandlers();
+        auto& inlineCallee = m_calleeGroup.wasmEntrypointCalleeFromFunctionIndexSpace(locker, m_calleeGroup.toSpaceIndex(calleeFunctionIndex));
+        inlineeHasExceptionHandlers = inlineCallee.hasExceptionHandlers();
     }
     m_protectedInlineeGenerators.append(makeUnique<OMGIRGenerator>(m_context, *this, *m_inlineRoot, m_calleeGroup, calleeFunctionIndex, inlineeHasExceptionHandlers, continuation, WTFMove(getArgs)));
     auto& irGenerator = *m_protectedInlineeGenerators.last();

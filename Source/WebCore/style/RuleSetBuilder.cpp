@@ -55,7 +55,7 @@ RuleSetBuilder::RuleSetBuilder(RuleSet& ruleSet, const MQ::MediaQueryEvaluator& 
     , m_mediaQueryCollector({ evaluator })
     , m_resolver(resolver)
     , m_shrinkToFit(shrinkToFit)
-    , m_builderShouldResolveNesting(shouldResolveNesting)
+    , m_shouldResolveNesting(shouldResolveNesting)
 {
 }
 
@@ -136,10 +136,10 @@ void RuleSetBuilder::addChildRule(Ref<StyleRuleBase> rule)
         // https://drafts.csswg.org/css-nesting/#nesting-at-scope
         // For the purposes of the style rules in its body and its own <scope-end> selector,
         // the @scope rule is treated as an ancestor style rule, matching the elements matched by its <scope-start> selector.
-        if (m_shouldResolveNestingForSheet) {
+        if (m_shouldResolveNesting == ShouldResolveNesting::Yes) {
             const CSSSelectorList* parentResolvedSelectorList = nullptr;
             if (m_selectorListStack.size())
-                parentResolvedSelectorList = m_selectorListStack.last();
+                parentResolvedSelectorList =  m_selectorListStack.last();
             if (!scopeRule->originalScopeStart().isEmpty())
                 scopeRule->setScopeStart(CSSSelectorParser::resolveNestingParent(scopeRule->originalScopeStart(), parentResolvedSelectorList));
             if (!scopeRule->originalScopeEnd().isEmpty())
@@ -246,8 +246,6 @@ void RuleSetBuilder::addChildRule(Ref<StyleRuleBase> rule)
 
 void RuleSetBuilder::addRulesFromSheetContents(const StyleSheetContents& sheet)
 {
-    auto nestingResolveScope = SetForScope { m_shouldResolveNestingForSheet, m_builderShouldResolveNesting == ShouldResolveNesting::Yes && !sheet.hasResolvedNesting() };
-
     for (auto& rule : sheet.layerRulesBeforeImportRules())
         registerLayers(rule->nameList());
 
@@ -274,15 +272,10 @@ void RuleSetBuilder::addRulesFromSheetContents(const StyleSheetContents& sheet)
     }
 
     addChildRules(sheet.childRules());
-
-    if (m_shouldResolveNestingForSheet)
-        sheet.setHasResolvedNesting(true);
 }
 
 void RuleSetBuilder::resolveSelectorListWithNesting(StyleRuleWithNesting& rule)
 {
-    ASSERT(m_shouldResolveNestingForSheet);
-
     const CSSSelectorList* parentResolvedSelectorList = nullptr;
     if (m_selectorListStack.size())
         parentResolvedSelectorList = m_selectorListStack.last();
@@ -310,7 +303,7 @@ void RuleSetBuilder::addStyleRuleWithSelectorList(const CSSSelectorList& selecto
 
 void RuleSetBuilder::addStyleRule(StyleRuleWithNesting& rule)
 {
-    if (m_shouldResolveNestingForSheet)
+    if (m_shouldResolveNesting == ShouldResolveNesting::Yes)
         resolveSelectorListWithNesting(rule);
 
     const auto& selectorList = rule.selectorList();
@@ -350,11 +343,9 @@ void RuleSetBuilder::addStyleRule(StyleRuleNestedDeclarations& rule)
             return *m_selectorListStack.last();
         ASSERT(m_ancestorStack.last() == CSSParserEnum::NestedContextType::Scope);
         return CSSSelectorList { MutableCSSSelectorList::from(whereScopeSelector()) };
-    };
+    }();
 
-    if (m_shouldResolveNestingForSheet)
-        rule.wrapperAdoptSelectorList(selectorList());
-
+    rule.wrapperAdoptSelectorList(WTFMove(selectorList));
     addStyleRuleWithSelectorList(rule.selectorList(), rule);
 }
 

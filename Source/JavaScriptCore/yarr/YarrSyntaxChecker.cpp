@@ -58,9 +58,6 @@ public:
     void quantifyAtom(unsigned, unsigned, bool) { }
     void disjunction(CreateDisjunctionPurpose) { }
     void resetForReparsing() { }
-
-    constexpr static bool abortedDueToError() { return false; }
-    constexpr static ErrorCode abortErrorCode() { return ErrorCode::NoError; }
 };
 static_assert(YarrSyntaxCheckable<SyntaxChecker>);
 

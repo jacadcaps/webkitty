@@ -378,9 +378,12 @@ CanvasRenderingContext2D* HTMLCanvasElement::getContext2d(const String& type, Ca
 {
     ASSERT_UNUSED(HTMLCanvasElement::is2dType(type), type);
 
+    if (m_context && !m_context->is2d())
+        return nullptr;
+
     if (!m_context)
         return createContext2d(type, WTFMove(settings));
-    return dynamicDowncast<CanvasRenderingContext2D>(m_context.get());
+    return downcast<CanvasRenderingContext2D>(m_context.get());
 }
 
 #if ENABLE(WEBGL)
@@ -469,17 +472,18 @@ WebGLRenderingContextBase* HTMLCanvasElement::getContextWebGL(WebGLVersion type,
     if (!shouldEnableWebGL(document().settings()))
         return nullptr;
 
-    if (!m_context)
-        return createContextWebGL(type, WTFMove(attrs));
+    if (m_context) {
+        auto* glContext = dynamicDowncast<WebGLRenderingContextBase>(*m_context);
+        if (!glContext)
+            return nullptr;
 
-    auto* glContext = dynamicDowncast<WebGLRenderingContextBase>(*m_context);
-    if (!glContext)
-        return nullptr;
+        if ((type == WebGLVersion::WebGL1) != glContext->isWebGL1())
+            return nullptr;
 
-    if ((type == WebGLVersion::WebGL1) != glContext->isWebGL1())
-        return nullptr;
+        return glContext;
+    }
 
-    return glContext;
+    return createContextWebGL(type, WTFMove(attrs));
 }
 
 #endif // ENABLE(WEBGL)
@@ -510,10 +514,9 @@ ImageBitmapRenderingContext* HTMLCanvasElement::createContextBitmapRenderer(cons
 ImageBitmapRenderingContext* HTMLCanvasElement::getContextBitmapRenderer(const String& type, ImageBitmapRenderingContextSettings&& settings)
 {
     ASSERT_UNUSED(type, HTMLCanvasElement::isBitmapRendererType(type));
-
     if (!m_context)
         return createContextBitmapRenderer(type, WTFMove(settings));
-    return dynamicDowncast<ImageBitmapRenderingContext>(m_context.get());
+    return downcast<ImageBitmapRenderingContext>(m_context.get());
 }
 
 bool HTMLCanvasElement::isWebGPUType(const String& type)
@@ -546,10 +549,13 @@ GPUCanvasContext* HTMLCanvasElement::getContextWebGPU(const String& type, GPU* g
     if (!document().settings().webGPUEnabled())
         return nullptr;
 
+    if (m_context && !m_context->isWebGPU())
+        return nullptr;
+
     if (!m_context)
         return createContextWebGPU(type, gpu);
 
-    return dynamicDowncast<GPUCanvasContext>(m_context.get());
+    return downcast<GPUCanvasContext>(m_context.get());
 }
 
 void HTMLCanvasElement::didDraw(const std::optional<FloatRect>& rect, ShouldApplyPostProcessingToDirtyRect shouldApplyPostProcessingToDirtyRect)

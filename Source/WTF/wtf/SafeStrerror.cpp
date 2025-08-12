@@ -43,6 +43,10 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 #if OS(WINDOWS)
     strerror_s(cstringBuffer.data(), cstringBuffer.size(), errnum);
+#elif OS(MORPHOS)
+    const char *message = strerror(errnum);
+    if (message)
+        stccpy(cstringBuffer.data(), message, cstringBuffer.size());
 #else
     auto ret = strerror_r(errnum, cstringBuffer.data(), cstringBuffer.size());
 

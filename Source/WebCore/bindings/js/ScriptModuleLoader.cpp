@@ -208,11 +208,7 @@ JSC::JSInternalPromise* ScriptModuleLoader::fetch(JSC::JSGlobalObject* jsGlobalO
     if (m_ownerType == OwnerType::Document) {
         auto loader = CachedModuleScriptLoader::create(*this, deferred.get(), *static_cast<CachedScriptFetcher*>(JSC::jsCast<JSC::JSScriptFetcher*>(scriptFetcher)->fetcher()), WTFMove(parameters));
         m_loaders.add(loader.copyRef());
-
-        // Prevent non-normal worlds from loading with a service worker.
-        auto serviceWorkersMode = currentWorld(*jsGlobalObject).isNormal() ? ServiceWorkersMode::All : ServiceWorkersMode::None;
-
-        if (!loader->load(downcast<Document>(*m_context), WTFMove(completedURL), serviceWorkersMode)) {
+        if (!loader->load(downcast<Document>(*m_context), WTFMove(completedURL))) {
             loader->clearClient();
             m_loaders.remove(WTFMove(loader));
             rejectToPropagateNetworkError(*m_context, WTFMove(deferred), ModuleFetchFailureKind::WasPropagatedError, "Importing a module script failed."_s);

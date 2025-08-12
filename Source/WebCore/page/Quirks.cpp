@@ -874,6 +874,9 @@ bool Quirks::shouldMakeEventListenerPassive(const EventTarget& eventTarget, cons
 // baidu.com rdar://56421276
 bool Quirks::shouldEnableLegacyGetUserMediaQuirk() const
 {
+#if OS(MORPHOS)
+    return true;
+#endif
     return needsQuirks() && m_quirksData.shouldEnableLegacyGetUserMediaQuirk;
 }
 
@@ -1808,11 +1811,6 @@ bool Quirks::needsNowPlayingFullscreenSwapQuirk() const
     return needsQuirks() && m_quirksData.needsNowPlayingFullscreenSwapQuirk;
 }
 
-bool Quirks::needsWebKitMediaTextTrackDisplayQuirk() const
-{
-    return needsQuirks() && m_quirksData.needsWebKitMediaTextTrackDisplayQuirk;
-}
-
 // rdar://106770785
 bool Quirks::shouldPreventKeyframeEffectAcceleration(const KeyframeEffect& effect) const
 {
@@ -2443,16 +2441,6 @@ static void handleMenloSecurityQuirks(QuirksData& quirksData, const URL& quirksU
     quirksData.shouldDisableWritingSuggestionsByDefaultQuirk = true;
 }
 
-static void handleNHLQuirks(QuirksData& quirksData, const URL& quirksURL, const String& quirksDomainString, const URL& documentURL)
-{
-    if (quirksDomainString != "nhl.com"_s)
-        return;
-
-    UNUSED_PARAM(quirksURL);
-    UNUSED_PARAM(documentURL);
-    quirksData.needsWebKitMediaTextTrackDisplayQuirk = true;
-}
-
 static void handleNetflixQuirks(QuirksData& quirksData, const URL& quirksURL, const String& quirksDomainString, const URL& documentURL)
 {
     if (quirksDomainString != "netflix.com"_s)
@@ -2797,7 +2785,6 @@ void Quirks::determineRelevantQuirks()
         { "medium"_s, &handleMediumQuirks },
         { "menlosecurity"_s, &handleMenloSecurityQuirks },
         { "netflix"_s, &handleNetflixQuirks },
-        { "nhl"_s, &handleNHLQuirks },
 #if PLATFORM(IOS) || PLATFORM(VISION)
         { "nytimes"_s, &handleNYTimesQuirks },
 #endif

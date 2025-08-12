@@ -41,6 +41,9 @@ public:
 
 protected:
     static Color accentColor(const ControlStyle&);
+
+private:
+    ControlFactoryAdwaita& m_controlFactory;
 };
 
 } // namespace WebCore

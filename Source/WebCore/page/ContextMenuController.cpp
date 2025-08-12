@@ -1005,7 +1005,7 @@ void ContextMenuController::populate()
     ContextMenuItem LookUpImageItem(ContextMenuItemType::Action, ContextMenuItemTagLookUpImage, contextMenuItemTagLookUpImage());
 #endif
 
-#if PLATFORM(GTK) || PLATFORM(WIN)
+#if PLATFORM(GTK) || PLATFORM(WIN) || OS(MORPHOS)
     ContextMenuItem ShareMenuItem;
 #else
     ContextMenuItem ShareMenuItem(ContextMenuItemType::Action, ContextMenuItemTagShareMenu, emptyString());

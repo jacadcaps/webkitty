@@ -71,7 +71,7 @@ void PolymorphicCallCase::dump(PrintStream& out) const
 }
 
 PolymorphicCallStubRoutine::PolymorphicCallStubRoutine(unsigned headerSize, unsigned trailingSize, const MacroAssemblerCodeRef<JITStubRoutinePtrTag>& code, VM& vm, JSCell* owner, CallFrame* callerFrame, CallLinkInfo& callLinkInfo, const Vector<CallSlot, 16>& callSlots, bool notUsingCounting, bool isClosureCall)
-    : GCAwareJITStubRoutine(Type::PolymorphicCallStubRoutineType, code, owner, /* isCodeImmutable */ true)
+    : GCAwareJITStubRoutine(Type::PolymorphicCallStubRoutineType, code, owner)
     , ButterflyArray<PolymorphicCallStubRoutine, PolymorphicCallNode, CallSlot>(headerSize, trailingSize)
     , m_callLinkInfo(&callLinkInfo)
     , m_notUsingCounting(notUsingCounting)
@@ -93,7 +93,8 @@ PolymorphicCallStubRoutine::PolymorphicCallStubRoutine(unsigned headerSize, unsi
     }
 
     WTF::storeStoreFence();
-    makeGCAware(vm);
+    bool isCodeImmutable = true;
+    makeGCAware(vm, isCodeImmutable);
 }
 
 bool PolymorphicCallStubRoutine::upgradeIfPossible(VM&, CodeBlock* oldCodeBlock, CodeBlock* newCodeBlock, uint8_t index)

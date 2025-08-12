@@ -717,7 +717,7 @@ end
 
 if JSVALUE64
     loadp Callee[cfr], memoryBase
-    transferp WebAssemblyFunction::m_boxedJSToWasmCallee[ws0], Callee[cfr]
+#    transferp WebAssemblyFunction::m_boxedJSToWasmCallee[ws0], Callee[cfr]
 else
     # Store old Callee to the stack temporarily
     loadp Callee[cfr], ws1
@@ -797,7 +797,7 @@ end
 
     # Set the callee's interpreter Wasm::Callee
 if JSVALUE64
-    transferp WebAssemblyFunction::m_boxedWasmCallee[ws1], constexpr (CallFrameSlot::callee - CallerFrameAndPC::sizeInRegisters) * 8[sp]
+#    transferp WebAssemblyFunction::m_boxedWasmCallee[ws1], constexpr (CallFrameSlot::callee - CallerFrameAndPC::sizeInRegisters) * 8[sp]
 else
     break
     # FIXME: Implement these instructions for armv7.

@@ -1,0 +1,10 @@
+cmake_minimum_required(VERSION 3.10)
+cmake_policy(SET CMP0057 NEW)
+project(WebKitty)
+set(COMPILER_IS_GCC_OR_CLANG ON)
+set(WTF_CPU_PPC 1)
+include(WebKitCommon)
+add_subdirectory(Source)
+add_subdirectory(Tools/morphos)
+PRINT_WEBKIT_OPTIONS()
+

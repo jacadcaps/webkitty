@@ -120,6 +120,7 @@ class SecurityOriginData;
 class ViewportConstraints;
 class Widget;
 class WorkerClient;
+class Storage;
 
 #if ENABLE(WEBGL)
 class GraphicsContextGL;
@@ -540,6 +541,10 @@ public:
     virtual void postAccessibilityNotification(AccessibilityObject&, AXNotification) = 0;
     virtual void postAccessibilityNodeTextChangeNotification(AccessibilityObject*, AXTextChange, unsigned, const String&) = 0;
     virtual void postAccessibilityFrameLoadingEventNotification(AccessibilityObject*, AXLoadingEvent) = 0;
+#endif
+
+#if OS(MORPHOS)
+    virtual void localStorageCreatedForDocument(const LocalFrame& documentFrame, Storage* storage) const = 0;
 #endif
 
     virtual bool selectItemWritingDirectionIsNatural() = 0;

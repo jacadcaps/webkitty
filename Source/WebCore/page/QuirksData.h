@@ -177,7 +177,6 @@ struct WEBCORE_EXPORT QuirksData {
 #endif
 
     bool needsNowPlayingFullscreenSwapQuirk { false };
-    bool needsWebKitMediaTextTrackDisplayQuirk { false };
 };
 
 } // namespace WebCore

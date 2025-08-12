@@ -45,7 +45,6 @@ public:
         , m_tag { JSValue::decode(value).tag() }
 #endif
     { }
-    CalleeBits(NativeCallee* nativeCallee) { *this = nativeCallee; }
 
     CalleeBits& operator=(JSCell* cell)
     {
@@ -54,16 +53,6 @@ public:
         m_tag = JSValue::CellTag;
 #endif
         ASSERT(isCell());
-        return *this;
-    }
-
-    CalleeBits& operator=(NativeCallee* nativeCallee)
-    {
-        m_ptr = boxNativeCalleeIfExists(nativeCallee);
-#if USE(JSVALUE32_64)
-        m_tag = JSValue::NativeCalleeTag;
-#endif
-        ASSERT_IMPLIES(nativeCallee, isNativeCallee());
         return *this;
     }
 
@@ -172,8 +161,6 @@ public:
     }
 
     void* rawPtr() const { return m_ptr; }
-    // For Ref/RefPtr support.
-    explicit operator bool() const { return m_ptr; }
 
 private:
     void* m_ptr { nullptr };

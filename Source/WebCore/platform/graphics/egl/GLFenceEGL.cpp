@@ -81,11 +81,9 @@ std::unique_ptr<GLFence> GLFenceEGL::importFD(UnixFileDescriptor&& fd)
 }
 #endif
 
-GLFenceEGL::GLFenceEGL(EGLSyncKHR sync, [[maybe_unused]] bool isExportable)
+GLFenceEGL::GLFenceEGL(EGLSyncKHR sync, bool isExportable)
     : m_sync(sync)
-#if OS(UNIX)
     , m_isExportable(isExportable)
-#endif
 {
 }
 

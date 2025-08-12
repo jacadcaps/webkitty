@@ -518,12 +518,11 @@ void WebAssemblyModuleRecord::initializeExports(JSGlobalObject* globalObject)
             //     b. Append func to funcs.
             //     c. Return func.
             auto& jsEntrypointCallee = calleeGroup->jsEntrypointCalleeFromFunctionIndexSpace(functionIndexSpace);
-            auto wasmCallee = calleeGroup->wasmCalleeFromFunctionIndexSpace(functionIndexSpace);
-            ASSERT(wasmCallee);
+            auto* wasmCallee = calleeGroup->wasmCalleeFromFunctionIndexSpace(functionIndexSpace);
             Wasm::WasmToWasmImportableFunction::LoadLocation entrypointLoadLocation = calleeGroup->entrypointLoadLocationFromFunctionIndexSpace(functionIndexSpace);
             Wasm::TypeIndex typeIndex = module->typeIndexFromFunctionIndexSpace(functionIndexSpace);
             const auto& signature = Wasm::TypeInformation::getFunctionSignature(typeIndex);
-            WebAssemblyFunction* function = WebAssemblyFunction::create(vm, globalObject, globalObject->webAssemblyFunctionStructure(), signature.argumentCount(), makeString(functionIndexSpace.rawIndex()), m_instance.get(), jsEntrypointCallee, *wasmCallee, entrypointLoadLocation, typeIndex, Wasm::TypeInformation::getCanonicalRTT(typeIndex));
+            WebAssemblyFunction* function = WebAssemblyFunction::create(vm, globalObject, globalObject->webAssemblyFunctionStructure(), signature.argumentCount(), makeString(functionIndexSpace.rawIndex()), m_instance.get(), jsEntrypointCallee, wasmCallee, entrypointLoadLocation, typeIndex, Wasm::TypeInformation::getCanonicalRTT(typeIndex));
             wrapper = function;
         }
 
@@ -765,10 +764,9 @@ void WebAssemblyModuleRecord::initializeExports(JSGlobalObject* globalObject)
             m_startFunction.set(vm, this, startFunction);
         } else {
             auto& jsEntrypointCallee = calleeGroup->jsEntrypointCalleeFromFunctionIndexSpace(startFunctionIndexSpace);
-            auto wasmCallee = calleeGroup->wasmCalleeFromFunctionIndexSpace(startFunctionIndexSpace);
-            ASSERT(wasmCallee);
+            auto* wasmCallee = calleeGroup->wasmCalleeFromFunctionIndexSpace(startFunctionIndexSpace);
             Wasm::WasmToWasmImportableFunction::LoadLocation entrypointLoadLocation = calleeGroup->entrypointLoadLocationFromFunctionIndexSpace(startFunctionIndexSpace);
-            WebAssemblyFunction* function = WebAssemblyFunction::create(vm, globalObject, globalObject->webAssemblyFunctionStructure(), signature.argumentCount(), "start"_s, m_instance.get(), jsEntrypointCallee, *wasmCallee, entrypointLoadLocation, typeIndex, Wasm::TypeInformation::getCanonicalRTT(typeIndex));
+            WebAssemblyFunction* function = WebAssemblyFunction::create(vm, globalObject, globalObject->webAssemblyFunctionStructure(), signature.argumentCount(), "start"_s, m_instance.get(), jsEntrypointCallee, wasmCallee, entrypointLoadLocation, typeIndex, Wasm::TypeInformation::getCanonicalRTT(typeIndex));
             m_startFunction.set(vm, this, function);
         }
     }

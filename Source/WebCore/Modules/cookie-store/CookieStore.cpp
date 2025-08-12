@@ -622,9 +622,6 @@ void CookieStore::stop()
 
 #if HAVE(COOKIE_CHANGE_LISTENER_API)
     auto host = document->url().host().toString();
-    if (host.isEmpty())
-        return;
-
     page->protectedCookieJar()->removeChangeListener(host, *this);
 #endif
     m_hasChangeEventListener = false;
@@ -652,10 +649,6 @@ void CookieStore::eventListenersDidChange()
     if (!document)
         return;
 
-    auto host = document->url().host().toString();
-    if (host.isEmpty())
-        return;
-
     bool hadChangeEventListener = m_hasChangeEventListener;
     m_hasChangeEventListener = hasEventListeners(eventNames().changeEvent);
 
@@ -668,6 +661,7 @@ void CookieStore::eventListenersDidChange()
 
 #if HAVE(COOKIE_CHANGE_LISTENER_API)
     Ref cookieJar = page->cookieJar();
+    auto host = document->url().host().toString();
     if (m_hasChangeEventListener)
         cookieJar->addChangeListener(*document, *this);
     else

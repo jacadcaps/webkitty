@@ -155,7 +155,7 @@ void LegacyRenderSVGResourceContainer::markAllClientLayersForInvalidation()
 
 void LegacyRenderSVGResourceContainer::markClientForInvalidation(RenderObject& client, InvalidationMode mode)
 {
-    ASSERT(!m_clients.isEmptyIgnoringNullReferences() || client.style().clipPath());
+    ASSERT(!m_clients.isEmptyIgnoringNullReferences());
 
     switch (mode) {
     case LayoutAndBoundariesInvalidation:

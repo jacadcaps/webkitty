@@ -126,6 +126,7 @@ wasm/WasmBBQJIT.cpp
 wasm/WasmBBQJIT64.cpp
 wasm/WasmBBQPlan.cpp
 wasm/WasmCallee.cpp
+wasm/WasmCalleeGroup.cpp
 wasm/WasmConstExprGenerator.cpp
 wasm/WasmFaultSignalHandler.cpp
 wasm/WasmFormat.h

@@ -45,7 +45,6 @@
 #import "WebExtensionTabIdentifier.h"
 #import "WebExtensionUtilities.h"
 #import "WebExtensionWindowIdentifier.h"
-#import "WebPageProxy.h"
 #import <WebCore/ImageBufferUtilitiesCG.h>
 #import <wtf/CallbackAggregator.h>
 
@@ -469,12 +468,6 @@ void WebExtensionContext::tabsSendMessage(WebExtensionTabIdentifier tabIdentifie
         return;
     }
 
-    auto *webView = tab->webView();
-    if (!webView) {
-        completionHandler({ });
-        return;
-    }
-
     auto targetContentWorldType = isURLForAnyExtension(tab->url()) ? WebExtensionContentWorldType::Main : WebExtensionContentWorldType::ContentScript;
 
     auto processes = tab->processes(WebExtensionEventListenerType::RuntimeOnMessage, targetContentWorldType);
@@ -484,12 +477,9 @@ void WebExtensionContext::tabsSendMessage(WebExtensionTabIdentifier tabIdentifie
     }
 
     ASSERT(processes.size() == 1);
-    RefPtr process = processes.takeAny();
+    auto process = processes.takeAny();
 
-    auto targetParametersCopy = targetParameters;
-    targetParametersCopy.pageProxyIdentifier = webView._protectedPage->identifier();
-
-    process->sendWithAsyncReply(Messages::WebExtensionContextProxy::DispatchRuntimeMessageEvent(targetContentWorldType, messageJSON, targetParametersCopy, senderParameters), [protectedThis = Ref { *this }, completionHandler = WTFMove(completionHandler)](String&& replyJSON) mutable {
+    process->sendWithAsyncReply(Messages::WebExtensionContextProxy::DispatchRuntimeMessageEvent(targetContentWorldType, messageJSON, targetParameters, senderParameters), [protectedThis = Ref { *this }, completionHandler = WTFMove(completionHandler)](String&& replyJSON) mutable {
         completionHandler(WTFMove(replyJSON));
     }, identifier());
 }

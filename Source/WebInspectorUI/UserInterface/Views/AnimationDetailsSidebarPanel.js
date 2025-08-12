@@ -137,6 +137,17 @@ WI.AnimationDetailsSidebarPanel = class AnimationDetailsSidebarPanel extends WI.
         this._refreshIdentitySection();
         this._refreshEffectSection();
         this._refreshBacktraceSection();
+
+        for (let codeMirror of this._codeMirrorSectionMap.values())
+            codeMirror.refresh();
+    }
+
+    attached()
+    {
+        super.attached();
+
+        for (let codeMirror of this._codeMirrorSectionMap.values())
+            codeMirror.refresh();
     }
 
     // Private
@@ -173,10 +184,8 @@ WI.AnimationDetailsSidebarPanel = class AnimationDetailsSidebarPanel extends WI.
         });
     }
 
-    async _refreshEffectSection()
+    _refreshEffectSection()
     {
-        await this._animation.ensureEffect();
-
         for (let section of this._codeMirrorSectionMap.keys())
             section.removeEventListener(WI.DetailsSection.Event.CollapsedStateChanged, this._handleDetailsSectionCollapsedStateChanged, this);
         this._codeMirrorSectionMap.clear();
@@ -256,11 +265,6 @@ WI.AnimationDetailsSidebarPanel = class AnimationDetailsSidebarPanel extends WI.
             keyframeSections.push(emptyRow);
         }
         this._keyframesGroup.rows = keyframeSections;
-
-        setTimeout(() => {
-            for (let codeMirror of this._codeMirrorSectionMap.values())
-                codeMirror.refresh();
-        });
     }
 
     _refreshBacktraceSection()

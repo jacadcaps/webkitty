@@ -50,7 +50,7 @@
 #endif
 
 #if USE(SKIA)
-class SkSurface;
+class GrDirectContext;
 #endif
 
 namespace WTF {
@@ -62,9 +62,9 @@ namespace WebCore {
 class BifurcatedGraphicsContext;
 class DynamicContentScalingDisplayList;
 class Filter;
-class GLFence;
 class GraphicsClient;
 class ScriptExecutionContext;
+
 class SerializedImageBuffer;
 
 struct ImageBufferCreationContext {
@@ -185,7 +185,19 @@ public:
 #endif
 
 #if USE(SKIA)
-    SkSurface* surface() const;
+    // During DisplayList recording a fence is created, so that we can wait until the SkSurface finished rendering
+    // before we attempt to access the GPU resource from a secondary thread during replay (in threaded GPU painting mode).
+    void finishAcceleratedRenderingAndCreateFence();
+    void waitForAcceleratedRenderingFenceCompletion();
+
+    const GrDirectContext* skiaGrContext() const;
+
+    // Use to copy an accelerated ImageBuffer, cloning the ImageBufferSkiaAcceleratedBackend, creating
+    // a new SkSurface tied to the current thread (and thus the thread-local GrDirectContext), but re-using
+    // the existing backend render target, of this ImageBuffer. This avoids any GPU->GPU copies and has the
+    // sole purpose to abe able to access an accelerated ImageBuffer from another thread, that is not
+    // the creation thread.
+    RefPtr<ImageBuffer> copyAcceleratedImageBufferBorrowingBackendRenderTarget() const;
 #endif
 
 #if ENABLE(RE_DYNAMIC_CONTENT_SCALING)
@@ -205,7 +217,7 @@ public:
     WEBCORE_EXPORT static RefPtr<ImageBuffer> sinkIntoBufferForDifferentThread(RefPtr<ImageBuffer>);
 #if USE(SKIA)
     static RefPtr<ImageBuffer> sinkIntoImageBufferForCrossThreadTransfer(RefPtr<ImageBuffer>);
-    static RefPtr<ImageBuffer> sinkIntoImageBufferAfterCrossThreadTransfer(RefPtr<ImageBuffer>, std::unique_ptr<GLFence>&&);
+    static RefPtr<ImageBuffer> sinkIntoImageBufferAfterCrossThreadTransfer(RefPtr<ImageBuffer>);
 #endif
     static std::unique_ptr<SerializedImageBuffer> sinkIntoSerializedImageBuffer(RefPtr<ImageBuffer>&&);
     WEBCORE_EXPORT static RefPtr<SharedBuffer> sinkIntoPDFDocument(RefPtr<ImageBuffer>);

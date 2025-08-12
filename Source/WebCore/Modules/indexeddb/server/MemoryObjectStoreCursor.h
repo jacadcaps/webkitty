@@ -38,7 +38,7 @@ class MemoryObjectStore;
 class MemoryObjectStoreCursor : public MemoryCursor {
     WTF_MAKE_TZONE_ALLOCATED(MemoryObjectStoreCursor);
 public:
-    MemoryObjectStoreCursor(MemoryObjectStore&, const IDBCursorInfo&, MemoryBackingStoreTransaction&);
+    MemoryObjectStoreCursor(MemoryObjectStore&, const IDBCursorInfo&);
 
     void objectStoreCleared();
     void keyDeleted(const IDBKeyData&);
