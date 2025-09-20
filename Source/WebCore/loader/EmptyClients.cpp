@@ -1017,9 +1017,9 @@ void EmptyFrameLoaderClient::updateGlobalHistoryRedirectLinks()
 {
 }
 
-ShouldGoToHistoryItem EmptyFrameLoaderClient::shouldGoToHistoryItem(HistoryItem&, IsSameDocumentNavigation) const
+bool EmptyFrameLoaderClient::shouldGoToHistoryItem(HistoryItem&, IsSameDocumentNavigation) const
 {
-    return ShouldGoToHistoryItem::No;
+    return false;
 }
 
 bool EmptyFrameLoaderClient::supportsAsyncShouldGoToHistoryItem() const
@@ -1027,7 +1027,7 @@ bool EmptyFrameLoaderClient::supportsAsyncShouldGoToHistoryItem() const
     return false;
 }
 
-void EmptyFrameLoaderClient::shouldGoToHistoryItemAsync(HistoryItem&, CompletionHandler<void(ShouldGoToHistoryItem)>&&) const
+void EmptyFrameLoaderClient::shouldGoToHistoryItemAsync(HistoryItem&, CompletionHandler<void(bool)>&&) const
 {
     RELEASE_ASSERT_NOT_REACHED();
 }

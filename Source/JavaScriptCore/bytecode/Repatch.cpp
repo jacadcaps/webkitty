@@ -494,9 +494,6 @@ static InlineCacheAction tryCacheGetBy(JSGlobalObject* globalObject, CodeBlock* 
                 newCase = AccessCase::create(vm, codeBlock, AccessCase::IndexedProxyObjectLoad, nullptr);
                 break;
             }
-            case GetByKind::PrivateName:
-            case GetByKind::PrivateNameById:
-                RELEASE_ASSERT_NOT_REACHED();
             default:
                 break;
             }
@@ -635,7 +632,6 @@ static InlineCacheAction tryCacheGetBy(JSGlobalObject* globalObject, CodeBlock* 
             else {
                 if (isPrivate) {
                     RELEASE_ASSERT(!slot.isUnset());
-                    RELEASE_ASSERT(conditionSet.isEmpty());
                     constexpr bool isGlobalProxy = false;
                     if (!slot.isCacheable())
                         return GiveUpOnCache;
@@ -1114,9 +1110,13 @@ static InlineCacheAction tryCachePutBy(JSGlobalObject* globalObject, CodeBlock* 
                     break;
                 }
                 case PutByKind::DefinePrivateNameById:
-                case PutByKind::DefinePrivateNameByVal:
+                case PutByKind::DefinePrivateNameByVal: {
                     ASSERT(ident.isPrivateName());
+                    conditionSet = generateConditionsForPropertyMiss(vm, codeBlock, globalObject, newStructure, ident.impl());
+                    if (!conditionSet.isValid())
+                        return GiveUpOnCache;
                     break;
+                }
                 case PutByKind::ByIdDirectStrict:
                 case PutByKind::ByIdDirectSloppy:
                 case PutByKind::ByValDirectStrict:
@@ -1210,13 +1210,12 @@ static InlineCacheAction tryCachePutBy(JSGlobalObject* globalObject, CodeBlock* 
             }
             case PutByKind::DefinePrivateNameById:
             case PutByKind::DefinePrivateNameByVal:
-            case PutByKind::SetPrivateNameById:
-            case PutByKind::SetPrivateNameByVal:
-                RELEASE_ASSERT_NOT_REACHED();
             case PutByKind::ByIdDirectStrict:
             case PutByKind::ByIdDirectSloppy:
             case PutByKind::ByValDirectStrict:
             case PutByKind::ByValDirectSloppy:
+            case PutByKind::SetPrivateNameById:
+            case PutByKind::SetPrivateNameByVal:
                 return GiveUpOnCache;
             }
         }
@@ -1564,7 +1563,7 @@ static InlineCacheAction tryCacheInBy(
                 break;
             }
             default:
-                RELEASE_ASSERT_NOT_REACHED();
+                break;
             }
         } else if (wasFound) {
             if (!structure->propertyAccessesAreCacheable())

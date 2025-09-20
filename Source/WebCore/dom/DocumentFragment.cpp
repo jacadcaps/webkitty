@@ -101,6 +101,7 @@ void DocumentFragment::parseHTML(const String& source, Element& contextElement, 
 #endif
         return;
     }
+
     if (hasChildNodes())
         removeChildren();
 

@@ -2003,13 +2003,9 @@ private:
         case SkipScope:
         case GetScope:
         case GetGetter:
-        case GetSetter: {
-            fixEdge<KnownCellUse>(node->child1());
-            break;
-        }
-
+        case GetSetter:
         case GetGlobalObject: {
-            fixEdge<ObjectUse>(node->child1());
+            fixEdge<KnownCellUse>(node->child1());
             break;
         }
 

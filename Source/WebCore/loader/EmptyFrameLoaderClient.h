@@ -158,9 +158,9 @@ private:
 
     void updateGlobalHistory() final;
     void updateGlobalHistoryRedirectLinks() final;
-    ShouldGoToHistoryItem shouldGoToHistoryItem(HistoryItem&, IsSameDocumentNavigation) const final;
+    bool shouldGoToHistoryItem(HistoryItem&, IsSameDocumentNavigation) const final;
     bool supportsAsyncShouldGoToHistoryItem() const final;
-    void shouldGoToHistoryItemAsync(HistoryItem&, CompletionHandler<void(ShouldGoToHistoryItem)>&&) const final;
+    void shouldGoToHistoryItemAsync(HistoryItem&, CompletionHandler<void(bool)>&&) const final;
 
     void saveViewStateToItem(HistoryItem&) final;
     bool canCachePage() const final;

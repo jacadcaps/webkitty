@@ -985,6 +985,7 @@ static bool tryFastParsingHTMLFragmentImpl(std::span<const CharacterType> source
     return parser.parse(contextElement);
 }
 
+#if !OS(MORPHOS)
 bool tryFastParsingHTMLFragment(StringView source, Document& document, ContainerNode& destinationParent, Element& contextElement, OptionSet<ParserContentPolicy> policy)
 {
     if (!canUseFastPath(contextElement, policy))
@@ -994,6 +995,7 @@ bool tryFastParsingHTMLFragment(StringView source, Document& document, Container
         return tryFastParsingHTMLFragmentImpl(source.span8(), document, destinationParent, contextElement);
     return tryFastParsingHTMLFragmentImpl(source.span16(), document, destinationParent, contextElement);
 }
+#endif
 
 #undef FOR_EACH_SUPPORTED_TAG
 

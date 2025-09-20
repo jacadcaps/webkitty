@@ -70,7 +70,6 @@ public:
 
     String databaseDirectoryRelativeToRoot(const String& rootDirectory, ASCIILiteral versionString = "v1"_s) const;
     WEBCORE_EXPORT static String databaseDirectoryRelativeToRoot(const ClientOrigin&, const String& rootDirectory, ASCIILiteral versionString);
-    WEBCORE_EXPORT static String optionalDatabaseDirectoryRelativeToRoot(const ClientOrigin&, const String& rootDirectory, ASCIILiteral versionString);
 
 #if !LOG_DISABLED
     String loggingString() const;

@@ -66,20 +66,13 @@ MAKE_JS_FILE_ARRAYS(
 )
 list(APPEND WebDriver_SOURCES ${WebDriver_DERIVED_SOURCES_DIR}/WebDriverAtoms.cpp)
 
-if (ANDROID AND (PORT STREQUAL WPE))
-    set(WebDriver_TARGET_TYPE LIBRARY)
-    set(WebDriver_LIBRARY_TYPE SHARED)
-else ()
-    set(WebDriver_TARGET_TYPE EXECUTABLE)
-endif ()
-
-cmake_language(CALL "WEBKIT_${WebDriver_TARGET_TYPE}_DECLARE" WebDriver)
+WEBKIT_EXECUTABLE_DECLARE(WebDriver)
 
 add_dependencies(WebDriver JavaScriptCoreSharedScripts)
 
 WEBKIT_INCLUDE_CONFIG_FILES_IF_EXISTS()
 
-cmake_language(CALL "WEBKIT_${WebDriver_TARGET_TYPE}" WebDriver)
+WEBKIT_EXECUTABLE(WebDriver)
 
 install(TARGETS WebDriver
     RUNTIME DESTINATION "${EXEC_INSTALL_DIR}"

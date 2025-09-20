@@ -193,7 +193,7 @@ private:
     bool m_shouldConfigureJSCForTesting { false };
     bool m_isJITEnabled { true };
     bool m_usesSingleWebProcess { false };
-#if PLATFORM(GTK) && !USE(GTK4) && USE(CAIRO)
+#if PLATFORM(GTK) && !USE(GTK4)
     bool m_useSystemAppearanceForScrollbars { false };
 #endif
 #if PLATFORM(PLAYSTATION)

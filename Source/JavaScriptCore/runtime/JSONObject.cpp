@@ -1295,12 +1295,7 @@ void FastStringifier<CharType, bufferMode>::append(JSValue value)
             }
         }
 
-        auto escapedLength = 1 + CheckedUint32 { stringLength } * 6 + 1;
-        if (UNLIKELY(escapedLength.hasOverflowed())) {
-            recordBufferFull();
-            return;
-        }
-        if (UNLIKELY(!hasRemainingCapacity(escapedLength.value()))) {
+        if (UNLIKELY(!hasRemainingCapacity(1 + static_cast<size_t>(stringLength) * 6 + 1))) {
             recordBufferFull();
             return;
         }

@@ -261,34 +261,14 @@ void MemoryIndex::removeEntriesWithValueKey(const IDBKeyData& valueKey)
     m_records->removeEntriesWithValueKey(*this, valueKey);
 }
 
-MemoryIndexCursor* MemoryIndex::maybeOpenCursor(const IDBCursorInfo& info, MemoryBackingStoreTransaction& transaction)
+MemoryIndexCursor* MemoryIndex::maybeOpenCursor(const IDBCursorInfo& info)
 {
-    if (transaction.isWriting()) {
-        RefPtr objectStore = m_objectStore.get();
-        if (!objectStore)
-            return nullptr;
-
-        if (objectStore->writeTransaction() != &transaction)
-            return nullptr;
-    }
-
     auto result = m_cursors.add(info.identifier(), nullptr);
     if (!result.isNewEntry)
         return nullptr;
 
-    result.iterator->value = makeUnique<MemoryIndexCursor>(*this, info, transaction);
+    result.iterator->value = makeUnique<MemoryIndexCursor>(*this, info);
     return result.iterator->value.get();
-}
-
-void MemoryIndex::transactionFinished(MemoryBackingStoreTransaction& transaction)
-{
-    m_cleanCursors.removeIf([&](auto cursor) {
-        return cursor->transaction() == &transaction;
-    });
-
-    m_cursors.removeIf([&](auto& pair) {
-        return pair.value->transaction() == &transaction;
-    });
 }
 
 } // namespace IDBServer

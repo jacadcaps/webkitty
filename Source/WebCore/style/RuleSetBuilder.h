@@ -89,8 +89,7 @@ private:
     RuleSet::CascadeLayerIdentifier m_currentCascadeLayerIdentifier { 0 };
     Vector<const CSSSelectorList*> m_selectorListStack;
     Vector<CSSParserEnum::NestedContextType> m_ancestorStack;
-    const ShouldResolveNesting m_builderShouldResolveNesting { ShouldResolveNesting::No };
-    bool m_shouldResolveNestingForSheet { false };
+    const ShouldResolveNesting m_shouldResolveNesting { ShouldResolveNesting::No };
 
     RuleSet::ContainerQueryIdentifier m_currentContainerQueryIdentifier { 0 };
     RuleSet::ScopeRuleIdentifier m_currentScopeIdentifier { 0 };

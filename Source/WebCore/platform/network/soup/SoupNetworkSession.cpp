@@ -143,10 +143,7 @@ SoupNetworkSession::SoupNetworkSession(PAL::SessionID sessionID)
     setupLogger();
 }
 
-SoupNetworkSession::~SoupNetworkSession()
-{
-    soup_session_abort(m_soupSession.get());
-}
+SoupNetworkSession::~SoupNetworkSession() = default;
 
 void SoupNetworkSession::setupLogger()
 {

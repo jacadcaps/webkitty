@@ -36,7 +36,6 @@ using namespace WebCore;
 
 struct WebKitMediaThunderDecryptPrivate {
     RefPtr<CDMProxyThunder> cdmProxy;
-    GRefPtr<GstCaps> inputCaps;
 };
 
 static const char* protectionSystemId(WebKitMediaCommonEncryptionDecrypt*);
@@ -105,25 +104,9 @@ static GRefPtr<GstCaps> createSinkPadTemplateCaps()
     return caps;
 }
 
-static void webkitMediaThunderDecryptorConstructed(GObject* object)
-{
-    G_OBJECT_CLASS(webkit_media_thunder_decrypt_parent_class)->constructed(object);
-
-    auto self = WEBKIT_MEDIA_THUNDER_DECRYPT(object);
-    auto baseTransform = GST_BASE_TRANSFORM_CAST(self);
-    self->priv->inputCaps = adoptGRef(gst_pad_get_current_caps(GST_BASE_TRANSFORM_SINK_PAD(baseTransform)));
-
-    g_signal_connect_swapped(GST_BASE_TRANSFORM_SINK_PAD(baseTransform), "notify::caps", G_CALLBACK(+[](WebKitMediaThunderDecrypt* self) {
-        self->priv->inputCaps = adoptGRef(gst_pad_get_current_caps(GST_BASE_TRANSFORM_SINK_PAD(GST_BASE_TRANSFORM_CAST(self))));
-    }), self);
-}
-
 static void webkit_media_thunder_decrypt_class_init(WebKitMediaThunderDecryptClass* klass)
 {
     GST_DEBUG_CATEGORY_INIT(webkitMediaThunderDecryptDebugCategory, "webkitthunderdecrypt", 0, "Thunder decrypt");
-
-    auto objectClass = G_OBJECT_CLASS(klass);
-    objectClass->constructed = webkitMediaThunderDecryptorConstructed;
 
     GstElementClass* elementClass = GST_ELEMENT_CLASS(klass);
     GRefPtr<GstCaps> gstSinkPadTemplateCaps = createSinkPadTemplateCaps();
@@ -178,7 +161,7 @@ static bool decrypt(WebKitMediaCommonEncryptionDecrypt* decryptor, GstBuffer* iv
     context.numSubsamples = subsampleCount;
     context.subsamplesBuffer = subsampleCount ? subsamplesBuffer : nullptr;
     context.cdmProxyDecryptionClient = webKitMediaCommonEncryptionDecryptGetCDMProxyDecryptionClient(decryptor);
-    bool result = priv->cdmProxy->decrypt(context, priv->inputCaps);
+    bool result = priv->cdmProxy->decrypt(context);
 
     return result;
 }

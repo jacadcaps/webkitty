@@ -76,6 +76,11 @@
 #endif
 #endif // USE(GSTREAMER)
 
+#if OS(MORPHOS)
+#include "morphos/MediaPlayerPrivateMorphOS.h"
+#define PlatformMediaEngineClassName MediaPlayerPrivateMorphOS
+#endif
+
 #if USE(MEDIA_FOUNDATION)
 #include "MediaPlayerPrivateMediaFoundation.h"
 #endif
@@ -347,6 +352,10 @@ static void buildMediaEnginesVector() WTF_REQUIRES_LOCK(mediaEngineVectorLock)
     MediaPlayerPrivateHolePunch::registerMediaEngine(addMediaEngine);
 #endif
 
+#if ENABLE(VIDEO) && OS(MORPHOS)
+    MediaPlayerPrivateMorphOS::registerMediaEngine(addMediaEngine);
+#endif
+
     haveMediaEnginesVector() = true;
 }
 
@@ -512,6 +521,10 @@ MediaPlayer::~MediaPlayer()
 void MediaPlayer::invalidate()
 {
     m_client = nullMediaPlayerClient();
+#if OS(MORPHOS)
+    if (m_private)
+        m_private->cancelLoad(); // force cleanup - some sites will heavily leak otherwise
+#endif
 }
 
 bool MediaPlayer::load(const URL& url, const LoadOptions& options)
@@ -587,6 +600,9 @@ const MediaPlayerFactory* MediaPlayer::nextBestMediaEngine(const MediaPlayerFact
     parameters.allowedMediaVideoCodecIDs = allowedMediaVideoCodecIDs();
     parameters.allowedMediaAudioCodecIDs = allowedMediaAudioCodecIDs();
     parameters.allowedMediaCaptionFormatTypes = allowedMediaCaptionFormatTypes();
+#if OS(MORPHOS)
+    parameters.page = client().mediaPlayerPage();
+#endif
 
     if (m_activeEngineIdentifier) {
         if (current)
@@ -1701,6 +1717,14 @@ void MediaPlayer::simulateAudioInterruption()
 bool MediaPlayer::isGStreamerHolePunchingEnabled()
 {
     return client().isGStreamerHolePunchingEnabled();
+}
+#endif
+
+#if OS(MORPHOS)
+void MediaPlayer::selectHLSStream(const String& url)
+{
+	if (m_private)
+		m_private->selectHLSStream(url);
 }
 #endif
 

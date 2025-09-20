@@ -30,6 +30,7 @@
 #if ENABLE(VIDEO) && USE(GSTREAMER)
 
 #include "AudioTrackPrivateGStreamer.h"
+#include "GLVideoSinkGStreamer.h"
 #include "GStreamerAudioMixer.h"
 #include "GStreamerCommon.h"
 #include "GStreamerQuirks.h"
@@ -108,10 +109,6 @@
 #include <gst/mpegts/mpegts.h>
 #undef GST_USE_UNSTABLE_API
 #endif // ENABLE(VIDEO) && USE(GSTREAMER_MPEGTS)
-
-#if USE(GSTREAMER_GL)
-#include "GLVideoSinkGStreamer.h"
-#endif // USE(GSTREAMER_GL)
 
 #if USE(COORDINATED_GRAPHICS)
 #include "BitmapTexture.h"
@@ -237,10 +234,8 @@ void MediaPlayerPrivateGStreamer::tearDown(bool clearMediaPlayer)
         g_signal_handlers_disconnect_matched(videoSinkPad.get(), G_SIGNAL_MATCH_DATA, 0, 0, nullptr, nullptr, this);
     }
 
-#if USE(GSTREAMER_GL)
     if (m_videoDecoderPlatform == GstVideoDecoderPlatform::Video4Linux)
         flushCurrentBuffer();
-#endif
 
     if (m_videoSink)
         g_signal_handlers_disconnect_matched(m_videoSink.get(), G_SIGNAL_MATCH_DATA, 0, 0, nullptr, nullptr, this);
@@ -468,7 +463,7 @@ void MediaPlayerPrivateGStreamer::play()
         if (player) {
             if (player->isLooping()) {
                 GST_DEBUG_OBJECT(pipeline(), "Scheduling initial SEGMENT seek");
-                doSeek(SeekTarget { playbackPosition() }, m_playbackRate, true);
+                doSeek(SeekTarget { playbackPosition() }, m_playbackRate);
             } else
                 updateDownloadBufferingFlag();
         }
@@ -539,7 +534,7 @@ bool MediaPlayerPrivateGStreamer::paused() const
     return !m_isPipelinePlaying;
 }
 
-bool MediaPlayerPrivateGStreamer::doSeek(const SeekTarget& target, float rate, bool isAsync)
+bool MediaPlayerPrivateGStreamer::doSeek(const SeekTarget& target, float rate)
 {
     RefPtr player = m_player.get();
 
@@ -587,20 +582,8 @@ bool MediaPlayerPrivateGStreamer::doSeek(const SeekTarget& target, float rate, b
 
     auto seekStart = toGstClockTime(startTime);
     auto seekStop = toGstClockTime(endTime);
-    GstEvent* event = gst_event_new_seek(rate, GST_FORMAT_TIME, m_seekFlags, GST_SEEK_TYPE_SET, seekStart, GST_SEEK_TYPE_SET, seekStop);
-
     GST_DEBUG_OBJECT(pipeline(), "[Seek] Performing actual seek to %" GST_TIMEP_FORMAT " (endTime: %" GST_TIMEP_FORMAT ") at rate %f", &seekStart, &seekStop, rate);
-
-    if (isAsync) {
-        gst_element_call_async(m_pipeline.get(), reinterpret_cast<GstElementCallAsyncFunc>(+[](GstElement* pipeline, gpointer userData) {
-            GstEvent* event = static_cast<GstEvent*>(userData);
-            gst_element_send_event(pipeline, event);
-        }), event, nullptr);
-
-        return true;
-    }
-
-    return gst_element_send_event(m_pipeline.get(), event);
+    return gst_element_seek(m_pipeline.get(), rate, GST_FORMAT_TIME, m_seekFlags, GST_SEEK_TYPE_SET, seekStart, GST_SEEK_TYPE_SET, seekStop);
 }
 
 void MediaPlayerPrivateGStreamer::seekToTarget(const SeekTarget& inTarget)
@@ -3744,7 +3727,7 @@ void MediaPlayerPrivateGStreamer::triggerRepaint(GRefPtr<GstSample>&& sample)
         shouldTriggerResize = !m_sample;
         if (!shouldTriggerResize) {
             auto previousBuffer = gst_sample_get_buffer(m_sample.get());
-            // We're omitting a !previousBuffer assert here because on some embedded platforms the buffer can't be deep copied by flushCurrentBuffer().
+            RELEASE_ASSERT(previousBuffer);
             isDuplicateSample = buffer == previousBuffer;
         }
         m_sample = WTFMove(sample);
@@ -3834,7 +3817,6 @@ void MediaPlayerPrivateGStreamer::repaintCancelledCallback(MediaPlayerPrivateGSt
     player->cancelRepaint();
 }
 
-#if USE(GSTREAMER_GL)
 void MediaPlayerPrivateGStreamer::flushCurrentBuffer()
 {
     Locker sampleLocker { m_sampleMutex };
@@ -3846,8 +3828,6 @@ void MediaPlayerPrivateGStreamer::flushCurrentBuffer()
         // might have to be reclaimed by a non-sysmem buffer pool.
         const GstStructure* info = gst_sample_get_info(m_sample.get());
         auto buffer = adoptGRef(gst_buffer_copy_deep(gst_sample_get_buffer(m_sample.get())));
-        if (!buffer)
-            GST_DEBUG_OBJECT(pipeline(), "Buffer couldn't be deep-copied on this platform, setting null buffer on the sample instead");
         m_sample = adoptGRef(gst_sample_new(buffer.get(), gst_sample_get_caps(m_sample.get()),
             gst_sample_get_segment(m_sample.get()), info ? gst_structure_copy(info) : nullptr));
     }
@@ -3858,7 +3838,6 @@ void MediaPlayerPrivateGStreamer::flushCurrentBuffer()
     m_contentsBufferProxy->dropCurrentBufferWhilePreservingTexture(shouldWait);
 #endif
 }
-#endif
 
 void MediaPlayerPrivateGStreamer::setVisibleInViewport(bool isVisible)
 {
@@ -4007,7 +3986,6 @@ MediaPlayer::MovieLoadType MediaPlayerPrivateGStreamer::movieLoadType() const
     return MediaPlayer::MovieLoadType::Download;
 }
 
-#if USE(GSTREAMER_GL)
 GstElement* MediaPlayerPrivateGStreamer::createVideoSinkGL()
 {
     const char* disableGLSink = g_getenv("WEBKIT_GST_DISABLE_GL_SINK");
@@ -4031,7 +4009,6 @@ GstElement* MediaPlayerPrivateGStreamer::createVideoSinkGL()
 
     return sink;
 }
-#endif // USE(GSTREAMER_GL)
 
 bool MediaPlayerPrivateGStreamer::isHolePunchRenderingEnabled() const
 {
@@ -4125,10 +4102,8 @@ GstElement* MediaPlayerPrivateGStreamer::createVideoSink()
         return m_videoSink.get();
     }
 
-#if USE(GSTREAMER_GL)
     if (!m_videoSink && m_canRenderingBeAccelerated)
         m_videoSink = createVideoSinkGL();
-#endif
 
     if (!m_videoSink) {
         m_isUsingFallbackVideoSink = true;

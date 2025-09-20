@@ -74,8 +74,6 @@ private:
     bool shouldConvertInvalidURLsToBlank() const;
     Ref<LocalFrame> protectedFrame() const;
 
-    bool canCreateSubFrame() const;
-
     bool m_containsPlugins { false };
     WeakRef<LocalFrame> m_frame;
 };

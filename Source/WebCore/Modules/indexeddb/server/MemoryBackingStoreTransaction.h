@@ -33,7 +33,6 @@
 #include <wtf/CheckedRef.h>
 #include <wtf/HashMap.h>
 #include <wtf/HashSet.h>
-#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
@@ -45,9 +44,11 @@ class MemoryObjectStore;
 
 typedef HashMap<IDBKeyData, ThreadSafeDataBuffer, IDBKeyDataHash, IDBKeyDataHashTraits> KeyValueMap;
 
-class MemoryBackingStoreTransaction : public RefCountedAndCanMakeWeakPtr<MemoryBackingStoreTransaction> {
+class MemoryBackingStoreTransaction final : public CanMakeThreadSafeCheckedPtr<MemoryBackingStoreTransaction> {
+    WTF_MAKE_TZONE_ALLOCATED(MemoryBackingStoreTransaction);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(MemoryBackingStoreTransaction);
 public:
-    static Ref<MemoryBackingStoreTransaction> create(MemoryIDBBackingStore&, const IDBTransactionInfo&);
+    static std::unique_ptr<MemoryBackingStoreTransaction> create(MemoryIDBBackingStore&, const IDBTransactionInfo&);
 
     MemoryBackingStoreTransaction(MemoryIDBBackingStore&, const IDBTransactionInfo&);
     ~MemoryBackingStoreTransaction();
@@ -93,7 +94,7 @@ private:
 
     HashMap<MemoryObjectStore*, uint64_t> m_originalKeyGenerators;
     HashMap<String, RefPtr<MemoryObjectStore>> m_deletedObjectStores;
-    HashSet<RefPtr<MemoryIndex>> m_deletedIndexes;
+    HashMap<String, RefPtr<MemoryIndex>> m_deletedIndexes;
     HashMap<MemoryObjectStore*, std::unique_ptr<KeyValueMap>> m_originalValues;
     HashMap<MemoryObjectStore*, std::unique_ptr<KeyValueMap>> m_clearedKeyValueMaps;
     HashMap<MemoryObjectStore*, std::unique_ptr<IDBKeyDataSet>> m_clearedOrderedKeys;

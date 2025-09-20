@@ -134,7 +134,7 @@ template<CSS::DimensionPercentageNumeric CSSType> struct PrimitiveNumeric<CSSTyp
     {
         return WTF::switchOn(m_value,
             []<std::same_as<T> U>(const U& alternative) -> T { return alternative; },
-            [](const auto&) -> T { RELEASE_ASSERT_NOT_REACHED(); }
+            [](const auto&) -> T { /* RELEASE_ASSERT_NOT_REACHED(); */ }
         );
     }
 

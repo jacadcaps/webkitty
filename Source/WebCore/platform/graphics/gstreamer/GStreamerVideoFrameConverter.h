@@ -45,13 +45,7 @@ private:
     class Pipeline {
         WTF_MAKE_TZONE_ALLOCATED(Pipeline);
     public:
-        enum class Type : uint8_t {
-            SystemMemory,
-#if USE(GSTREAMER_GL)
-            GLMemory,
-            DMABufMemory
-#endif
-        };
+        enum class Type : uint8_t { SystemMemory, GLMemory, DMABufMemory };
         Pipeline(Type);
         ~Pipeline();
 
@@ -67,19 +61,15 @@ private:
 
     Pipeline& ensurePipeline(GstCaps*);
     void releaseUnusedSystemMemoryPipelineTimerFired();
-#if USE(GSTREAMER_GL)
     void releaseUnusedGLMemoryPipelineTimerFired();
     void releaseUnusedDMABufMemoryPipelineTimerFired();
-#endif
 
     std::unique_ptr<Pipeline> m_systemMemoryPipeline;
     std::unique_ptr<RunLoop::Timer> m_releaseUnusedSystemMemoryPipelineTimer;
-#if USE(GSTREAMER_GL)
     std::unique_ptr<Pipeline> m_glMemoryPipeline;
     std::unique_ptr<RunLoop::Timer> m_releaseUnusedGLMemoryPipelineTimer;
     std::unique_ptr<Pipeline> m_dmabufMemoryPipeline;
     std::unique_ptr<RunLoop::Timer> m_releaseUnusedDMABufMemoryPipelineTimer;
-#endif
 };
 
 } // namespace WebCore

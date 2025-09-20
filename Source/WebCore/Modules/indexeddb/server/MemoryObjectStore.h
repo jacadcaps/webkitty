@@ -62,10 +62,8 @@ public:
 
     ~MemoryObjectStore();
 
-    void transactionFinished(MemoryBackingStoreTransaction&);
     void writeTransactionStarted(MemoryBackingStoreTransaction&);
     void writeTransactionFinished(MemoryBackingStoreTransaction&);
-
     MemoryBackingStoreTransaction* writeTransaction();
 
     IDBError createIndex(MemoryBackingStoreTransaction&, const IDBIndexInfo&);
@@ -96,7 +94,7 @@ public:
     const IDBObjectStoreInfo& info() const { return m_info; }
     IDBObjectStoreInfo& info() { return m_info; }
 
-    MemoryObjectStoreCursor* maybeOpenCursor(const IDBCursorInfo&, MemoryBackingStoreTransaction&);
+    MemoryObjectStoreCursor* maybeOpenCursor(const IDBCursorInfo&);
 
     IDBKeyDataSet* orderedKeys() { return m_orderedKeys.get(); }
 
@@ -122,7 +120,7 @@ private:
 
     IDBObjectStoreInfo m_info;
 
-    WeakPtr<MemoryBackingStoreTransaction> m_writeTransaction;
+    CheckedPtr<MemoryBackingStoreTransaction> m_writeTransaction;
     uint64_t m_keyGeneratorValue { 1 };
 
     std::unique_ptr<KeyValueMap> m_keyValueStore;

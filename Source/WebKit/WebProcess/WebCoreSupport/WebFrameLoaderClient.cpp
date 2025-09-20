@@ -99,16 +99,8 @@ std::optional<NavigationActionData> WebFrameLoaderClient::navigationActionData(c
     RefPtr coreLocalFrame = m_frame->coreLocalFrame();
     RefPtr document = coreLocalFrame ? coreLocalFrame->document() : nullptr;
 
-    auto originator = webPage->takeMainFrameNavigationInitiator();
-
-    bool originatingFrameIsMain = navigationAction.initiatedByMainFrame() == InitiatedByMainFrame::Yes;
-    if (!originatingFrameIsMain) {
-        if (RefPtr originatingFrame = WebProcess::singleton().webFrame(originatingFrameID))
-            originatingFrameIsMain = originatingFrame->isMainFrame();
-    }
-
-    auto originatingFrameInfoData = originator ? FrameInfoData { WTFMove(*originator) } : FrameInfoData {
-        originatingFrameIsMain,
+    FrameInfoData originatingFrameInfoData {
+        navigationAction.initiatedByMainFrame() == InitiatedByMainFrame::Yes,
         FrameType::Local,
         ResourceRequest { requester.url },
         requester.securityOrigin->data(),

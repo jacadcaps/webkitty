@@ -39,6 +39,8 @@
 
 #define PLATFORMMEDIASESSIONMANAGER_RELEASE_LOG(fmt, ...) RELEASE_LOG_FORWARDABLE(Media, fmt, ##__VA_ARGS__)
 
+#if ENABLE(VIDEO) || ENABLE(WEB_AUDIO)
+
 namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(PlatformMediaSessionManager);
@@ -946,3 +948,6 @@ void PlatformMediaSessionManager::dumpSessionStates()
 #endif
 
 } // namespace WebCore
+
+#endif
+

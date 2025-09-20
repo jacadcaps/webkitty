@@ -7957,15 +7957,9 @@ void SpeculativeJIT::compileGetGlobalObject(Node* node)
 {
     SpeculateCellOperand object(this, node->child1());
     GPRTemporary result(this);
-
-    GPRReg objectGPR = object.gpr();
-    GPRReg resultGPR = result.gpr();
-
-    speculateObject(node->child1(), objectGPR);
-
-    emitLoadStructure(vm(), objectGPR, resultGPR);
-    loadPtr(Address(resultGPR, Structure::globalObjectOffset()), resultGPR);
-    cellResult(resultGPR, node);
+    emitLoadStructure(vm(), object.gpr(), result.gpr());
+    loadPtr(Address(result.gpr(), Structure::globalObjectOffset()), result.gpr());
+    cellResult(result.gpr(), node);
 }
 
 void SpeculativeJIT::compileGetGlobalThis(Node* node)
@@ -15834,11 +15828,8 @@ void SpeculativeJIT::compileHasIndexedProperty(Node* node, S_JITOperation_GCZ sl
     addSlowPathGeneratorLambda([=, this, savePlans = WTFMove(savePlans), slowCases = WTFMove(slowCases)]() {
         slowCases.link(this);
 
-        if (preserveIndexReg) {
+        if (preserveIndexReg)
             pushToSave(indexGPR);
-            if (!isARM64())
-                pushToSave(indexGPR);
-        }
         silentSpill(savePlans);
 
         setupArguments<S_JITOperation_GCZ>(LinkableConstant::globalObject(*this, node), baseGPR, indexGPR);
@@ -15851,11 +15842,8 @@ void SpeculativeJIT::compileHasIndexedProperty(Node* node, S_JITOperation_GCZ sl
         setupResults(resultGPR);
 
         silentFill(savePlans);
-        if (preserveIndexReg) {
-            if (!isARM64())
-                popToRestore(indexGPR);
+        if (preserveIndexReg)
             popToRestore(indexGPR);
-        }
 
         if (exceptionReg)
             exceptionCheck(*exceptionReg);

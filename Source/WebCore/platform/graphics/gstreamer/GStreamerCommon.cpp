@@ -453,10 +453,8 @@ void registerWebKitGStreamerElements()
 
 #if ENABLE(VIDEO)
         gst_element_register(0, "webkitwebsrc", GST_RANK_PRIMARY + 100, WEBKIT_TYPE_WEB_SRC);
-        gst_element_register(0, "webkitvideosink", GST_RANK_NONE, WEBKIT_TYPE_VIDEO_SINK);
-#if USE(GSTREAMER_GL)
         gst_element_register(0, "webkitglvideosink", GST_RANK_NONE, WEBKIT_TYPE_GL_VIDEO_SINK);
-#endif
+        gst_element_register(0, "webkitvideosink", GST_RANK_NONE, WEBKIT_TYPE_VIDEO_SINK);
 #endif
         // We don't want autoaudiosink to autoplug our sink.
         gst_element_register(0, "webkitaudiosink", GST_RANK_NONE, WEBKIT_TYPE_AUDIO_SINK);
@@ -618,10 +616,9 @@ void WebCoreLogObserver::removeWatch(const Logger& logger)
 
 void deinitializeGStreamer()
 {
-#if USE(GSTREAMER_GL)
     if (auto* sharedDisplay = PlatformDisplay::sharedDisplayIfExists())
         sharedDisplay->clearGStreamerGLState();
-#endif
+
 #if ENABLE(MEDIA_STREAM)
     teardownGStreamerCaptureDeviceManagers();
 #endif
@@ -718,8 +715,7 @@ Ref<SharedBuffer> GstMappedOwnedBuffer::createSharedBuffer()
 
 GstMappedFrame::GstMappedFrame(GstBuffer* buffer, GstVideoInfo* info, GstMapFlags flags)
 {
-    // This cast can be removed once the GStreamer minimum version is raised to 1.20
-    gst_video_frame_map(&m_frame, const_cast<GstVideoInfo*>(info), buffer, flags);
+    gst_video_frame_map(&m_frame, info, buffer, flags);
 }
 
 GstMappedFrame::GstMappedFrame(const GRefPtr<GstSample>& sample, GstMapFlags flags)
@@ -951,10 +947,7 @@ void connectSimpleBusMessageCallback(GstElement* pipeline, Function<void(GstMess
             // This can happen if the latency of live elements changes, or
             // for one reason or another a new live element is added or
             // removed from the pipeline.
-            gst_element_call_async(pipeline.get(), reinterpret_cast<GstElementCallAsyncFunc>(+[](GstElement* pipeline, gpointer userData) {
-                UNUSED_PARAM(userData);
-                gst_bin_recalculate_latency(GST_BIN_CAST(pipeline));
-            }), nullptr, nullptr);
+            gst_bin_recalculate_latency(GST_BIN_CAST(pipeline.get()));
             break;
         default:
             break;
@@ -1904,7 +1897,6 @@ GRefPtr<GstCaps> buildDMABufCaps()
 }
 #endif // USE(GBM)
 
-#if USE(GSTREAMER_GL)
 static std::optional<GRefPtr<GstContext>> requestGLContext(const char* contextType)
 {
     auto& sharedDisplay = PlatformDisplay::sharedDisplay();
@@ -1941,7 +1933,6 @@ bool setGstElementGLContext(GstElement* element, const char* contextType)
     }
     return true;
 }
-#endif
 
 #undef GST_CAT_DEFAULT
 

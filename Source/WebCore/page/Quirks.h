@@ -249,8 +249,6 @@ public:
 
     WEBCORE_EXPORT bool needsNowPlayingFullscreenSwapQuirk() const;
 
-    bool needsWebKitMediaTextTrackDisplayQuirk() const;
-
     bool shouldPreventKeyframeEffectAcceleration(const KeyframeEffect&) const;
 
 private:

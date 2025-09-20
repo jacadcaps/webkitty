@@ -610,6 +610,7 @@ RenderLayerCompositor::~RenderLayerCompositor()
 
 void RenderLayerCompositor::enableCompositingMode(bool enable /* = true */)
 {
+#if !OS(MORPHOS)
     if (enable != m_compositing) {
         m_compositing = enable;
         
@@ -622,6 +623,7 @@ void RenderLayerCompositor::enableCompositingMode(bool enable /* = true */)
         
         m_renderView.layer()->setNeedsPostLayoutCompositingUpdate();
     }
+#endif
 }
 
 void RenderLayerCompositor::cacheAcceleratedCompositingFlags()
@@ -5979,15 +5981,7 @@ void RenderLayerCompositor::didAddScrollingLayer(RenderLayer& layer)
 
 ScrollingCoordinator* RenderLayerCompositor::scrollingCoordinator() const
 {
-    RefPtr frame = m_renderView.document().frame();
-    if (!frame)
-        return nullptr;
-
-    RefPtr page = frame->page();
-    if (!page)
-        return nullptr;
-
-    return page->scrollingCoordinator();
+    return protectedPage()->scrollingCoordinator();
 }
 
 GraphicsLayerFactory* RenderLayerCompositor::graphicsLayerFactory() const

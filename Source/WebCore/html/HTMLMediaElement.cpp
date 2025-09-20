@@ -788,6 +788,13 @@ std::optional<MediaPlayerIdentifier> HTMLMediaElement::playerIdentifier() const
     return m_player ? std::optional { m_player->identifier() } : std::nullopt;
 }
 
+#if OS(MORPHOS)
+WebCore::Page* HTMLMediaElement::mediaPlayerPage()
+{
+    return document().page();
+}
+#endif
+
 RefPtr<HTMLMediaElement> HTMLMediaElement::bestMediaElementForRemoteControls(MediaElementSession::PlaybackControlsPurpose purpose, const Document* document)
 {
     auto selectedSession = PlatformMediaSessionManager::singleton().bestEligibleSessionForRemoteControls([&document] (auto& session) {
@@ -1380,6 +1387,7 @@ String HTMLMediaElement::canPlayType(const String& mimeType) const
     parameters.allowedMediaAudioCodecIDs = allowedMediaAudioCodecIDs();
     parameters.allowedMediaCaptionFormatTypes = allowedMediaCaptionFormatTypes();
     parameters.supportsLimitedMatroska = limitedMatroskaSupportEnabled();
+    parameters.page = document().page();
 
     MediaPlayer::SupportsType support = MediaPlayer::supportsType(parameters);
     String canPlay;
@@ -5637,6 +5645,9 @@ URL HTMLMediaElement::selectNextSourceChild(ContentType* contentType, InvalidURL
             MediaEngineSupportParameters parameters;
             parameters.type = ContentType(type);
             parameters.url = mediaURL;
+#if OS(MORPHOS)
+            parameters.page = document().page();
+#endif
 #if ENABLE(MEDIA_SOURCE)
             parameters.isMediaSource = mediaURL.protocolIs(mediaSourceBlobProtocol) && MediaSource::lookup(mediaURL.string());
 #endif
@@ -9750,8 +9761,10 @@ bool HTMLMediaElement::isActiveNowPlayingSession() const
 
 void HTMLMediaElement::isActiveNowPlayingSessionChanged()
 {
+#if ENABLE(MEDIA_SESSION)
     if (RefPtr page = protectedDocument()->protectedPage())
         page->hasActiveNowPlayingSessionChanged();
+#endif
 }
 
 ProcessID HTMLMediaElement::presentingApplicationPID() const

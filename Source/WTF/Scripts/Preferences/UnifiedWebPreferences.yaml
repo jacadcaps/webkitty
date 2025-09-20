@@ -3035,17 +3035,17 @@ FileSystemWritableStreamEnabled:
 
 FilterLinkDecorationByDefaultEnabled:
   type: bool
-  status: testable
+  status: stable
   category: networking
   humanReadableName: "Filter Link Decoration"
   humanReadableDescription: "Enable Filtering Link Decoration"
   defaultValue:
     WebKitLegacy:
-      default: false
+      default: true
     WebKit:
-      default: false
+      default: true
     WebCore:
-      default: false
+      default: true
 
 FixedContainerEdgeSamplingEnabled:
   type: bool
@@ -3836,19 +3836,6 @@ InspectorAttachmentSide:
     WebKit:
       default: 0
 
-InspectorMaximumResourcesContentSize:
-  type: uint32_t
-  status: embedder
-  defaultValue:
-    WebKitLegacy:
-      default: 200
-    WebKit:
-      "PLATFORM(WPE)": 50
-      default: 200
-    WebCore:
-      "PLATFORM(WPE)": 50
-      default: 200
-
 InspectorStartsAttached:
   type: bool
   status: embedder
@@ -4507,18 +4494,18 @@ LocalStorageEnabled:
 
 LockdownFontParserEnabled:
   type: bool
-  status: testable
+  status: stable
   humanReadableName: "Lockdown Mode Safe Fonts"
   humanReadableDescription: "Try parsing Web fonts with safe font parser in Lockdown Mode"
   exposed: [ WebKit ]
   category: security
   defaultValue:
     WebKitLegacy:
-      default: false
+      default: true
     WebKit:
-      default: false
+      default: true
     WebCore:
-      default: false
+      default: true
   sharedPreferenceForWebProcess: true
 
 LoginStatusAPIEnabled:
@@ -5600,10 +5587,10 @@ OverscrollBehaviorEnabled:
     WebKitLegacy:
       default: false
     WebKit:
-      "PLATFORM(WIN)": false
+      "PLATFORM(WIN) || PLATFORM(GTK) || PLATFORM(WPE)": false
       default: true
     WebCore:
-      "PLATFORM(WIN)": false
+      "PLATFORM(WIN) || PLATFORM(GTK) || PLATFORM(WPE)": false
       default: true
 
 PDFJSViewerEnabled:

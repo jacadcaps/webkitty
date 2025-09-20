@@ -29,11 +29,9 @@
 
 #include "InternalFunction.h"
 #include "JSObject.h"
-#include "MemoryMode.h"
 
 namespace JSC {
 
-class JSWebAssemblyMemory;
 class WebAssemblyMemoryPrototype;
 
 class WebAssemblyMemoryConstructor final : public InternalFunction {
@@ -45,8 +43,6 @@ public:
     static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
     DECLARE_INFO;
-
-    JS_EXPORT_PRIVATE static JSWebAssemblyMemory* createMemoryFromDescriptor(JSGlobalObject*, Structure* webAssemblyMemoryStructure, JSObject* memoryDescriptor, std::optional<MemoryMode> desiredMemoryMode = std::nullopt);
 
 private:
     WebAssemblyMemoryConstructor(VM&, Structure*);

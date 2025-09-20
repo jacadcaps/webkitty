@@ -41,7 +41,9 @@
 #include "MediaElementSession.h"
 #include "MediaPlayer.h"
 #include "MediaProducer.h"
+#ifndef __MORPHOS_DISABLE
 #include "MediaResourceSniffer.h"
+#endif
 #include "MediaUniqueIdentifier.h"
 #include "ReducedResolutionSeconds.h"
 #include "TextTrackClient.h"
@@ -120,6 +122,7 @@ class VideoPlaybackQuality;
 class VideoTrackList;
 class VideoTrackPrivate;
 class WebKitMediaKeys;
+class MediaResourceSniffer;
 
 enum class DynamicRangeMode : uint8_t;
 
@@ -482,6 +485,10 @@ public:
     void isWirelessPlaybackTargetDisabledChanged();
     bool hasTargetAvailabilityListeners();
     bool hasEnabledTargetAvailabilityListeners();
+#endif
+
+#if OS(MORPHOS)
+    Page* mediaPlayerPage() final;
 #endif
 
     bool isPlayingToWirelessPlaybackTarget() const override { return m_isPlayingToWirelessTarget; };
@@ -1086,9 +1093,11 @@ private:
     void checkForAudioAndVideo();
 
     bool needsContentTypeToPlay() const;
+#ifndef __MORPHOS_DISABLE
     using SnifferPromise = MediaResourceSniffer::Promise;
     Ref<SnifferPromise> sniffForContentType(const URL&);
     void cancelSniffer();
+#endif
 
     void playPlayer();
     void pausePlayer();

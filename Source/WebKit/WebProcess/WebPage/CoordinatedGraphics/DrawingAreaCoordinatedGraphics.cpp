@@ -249,9 +249,8 @@ void DrawingAreaCoordinatedGraphics::backgroundColorDidChange()
 
 void DrawingAreaCoordinatedGraphics::setDeviceScaleFactor(float deviceScaleFactor, CompletionHandler<void()>&& completionHandler)
 {
-    Ref webPage = m_webPage.get();
-    webPage->setDeviceScaleFactor(deviceScaleFactor);
-    if (m_layerTreeHost && !webPage->size().isEmpty())
+    Ref { m_webPage.get() }->setDeviceScaleFactor(deviceScaleFactor);
+    if (m_layerTreeHost)
         m_layerTreeHost->sizeDidChange();
     completionHandler();
 }

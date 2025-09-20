@@ -171,23 +171,19 @@ AudioSampleFormat audioSampleElementFormat(AudioSampleFormat format)
 
 AudioSampleFormatSpan audioElementSpan(AudioSampleFormat format, std::span<uint8_t> buffer)
 {
-    auto bytesPerSample = computeBytesPerSample(format);
-    auto clampedBufferSize = buffer.size_bytes();
-    clampedBufferSize -= clampedBufferSize % bytesPerSample;
-
     switch (format) {
     case AudioSampleFormat::U8:
     case AudioSampleFormat::U8Planar:
         return buffer;
     case AudioSampleFormat::S16:
     case AudioSampleFormat::S16Planar:
-        return spanReinterpretCast<int16_t>(buffer.first(clampedBufferSize));
+        return spanReinterpretCast<int16_t>(buffer);
     case AudioSampleFormat::S32:
     case AudioSampleFormat::S32Planar:
-        return spanReinterpretCast<int32_t>(buffer.first(clampedBufferSize));
+        return spanReinterpretCast<int32_t>(buffer);
     case AudioSampleFormat::F32:
     case AudioSampleFormat::F32Planar:
-        return spanReinterpretCast<float>(buffer.first(clampedBufferSize));
+        return spanReinterpretCast<float>(buffer);
     }
     RELEASE_ASSERT_NOT_REACHED();
     return buffer;

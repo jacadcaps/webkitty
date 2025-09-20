@@ -80,11 +80,6 @@ WK_OBJECT_DISABLE_DISABLE_KVC_IVAR_ACCESS;
     return wrapper(RefPtr { _navigationResponse.get() }->protectedFrame().get());
 }
 
-- (WKFrameInfo *)_navigationInitiatingFrame
-{
-    return wrapper(_navigationResponse->navigationInitiatingFrame());
-}
-
 - (NSURLRequest *)_request
 {
     return _navigationResponse->request().nsURLRequest(WebCore::HTTPBodyUpdatePolicy::DoNotUpdateHTTPBody);

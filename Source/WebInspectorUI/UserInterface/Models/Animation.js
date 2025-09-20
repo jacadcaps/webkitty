@@ -25,7 +25,7 @@
 
 WI.Animation = class Animation extends WI.Object
 {
-    constructor(animationId, {name, cssAnimationName, cssTransitionProperty, stackTrace} = {})
+    constructor(animationId, {name, cssAnimationName, cssTransitionProperty, effect, stackTrace} = {})
     {
         super();
 
@@ -38,10 +38,8 @@ WI.Animation = class Animation extends WI.Object
         this._name = name || null;
         this._cssAnimationName = cssAnimationName || null;
         this._cssTransitionProperty = cssTransitionProperty || null;
+        this._updateEffect(effect);
         this._stackTrace = stackTrace || null;
-
-        this._effect = null;
-        this._ensureEffectCallbacks = null;
 
         this._effectTarget = undefined;
         this._requestEffectTargetCallbacks = null;
@@ -55,18 +53,13 @@ WI.Animation = class Animation extends WI.Object
         if (payload.backtrace)
             payload.stackTrace = {callFrames: payload.backtrace};
 
-        let animation = new WI.Animation(payload.animationId, {
+        return new WI.Animation(payload.animationId, {
             name: payload.name,
             cssAnimationName: payload.cssAnimationName,
             cssTransitionProperty: payload.cssTransitionProperty,
+            effect: payload.effect,
             stackTrace: WI.StackTrace.fromPayload(WI.assumingMainTarget(), payload.stackTrace),
         });
-
-        // COMPATIBILITY (iOS 18.X, macOS 15.X): `Animation` removed the `effect` property in favor of `Animation.requestEffect`.
-        if (payload.effect)
-            animation.effectChanged(payload.effect);
-
-        return animation;
     }
 
     static displayNameForAnimationType(animationType, plural)
@@ -144,47 +137,47 @@ WI.Animation = class Animation extends WI.Object
 
     get startDelay()
     {
-        return (this._effect && "startDelay" in this._effect) ? this._effect.startDelay : NaN;
+        return "startDelay" in this._effect ? this._effect.startDelay : NaN;
     }
 
     get endDelay()
     {
-        return (this._effect && "endDelay" in this._effect) ? this._effect.endDelay : NaN;
+        return "endDelay" in this._effect ? this._effect.endDelay : NaN;
     }
 
     get iterationCount()
     {
-        return (this._effect && "iterationCount" in this._effect) ? this._effect.iterationCount : NaN;
+        return "iterationCount" in this._effect ? this._effect.iterationCount : NaN;
     }
 
     get iterationStart()
     {
-        return (this._effect && "iterationStart" in this._effect) ? this._effect.iterationStart : NaN;
+        return "iterationStart" in this._effect ? this._effect.iterationStart : NaN;
     }
 
     get iterationDuration()
     {
-        return (this._effect && "iterationDuration" in this._effect) ? this._effect.iterationDuration : NaN;
+        return "iterationDuration" in this._effect ? this._effect.iterationDuration : NaN;
     }
 
     get timingFunction()
     {
-        return (this._effect && "timingFunction" in this._effect) ? this._effect.timingFunction : null;
+        return "timingFunction" in this._effect ? this._effect.timingFunction : null;
     }
 
     get playbackDirection()
     {
-        return (this._effect && "playbackDirection" in this._effect) ? this._effect.playbackDirection : null;
+        return "playbackDirection" in this._effect ? this._effect.playbackDirection : null;
     }
 
     get fillMode()
     {
-        return (this._effect && "fillMode" in this._effect) ? this._effect.fillMode : null;
+        return "fillMode" in this._effect ? this._effect.fillMode : null;
     }
 
     get keyframes()
     {
-        return (this._effect && "keyframes" in this._effect) ? this._effect.keyframes : [];
+        return "keyframes" in this._effect ? this._effect.keyframes : [];
     }
 
     get displayName()
@@ -201,43 +194,6 @@ WI.Animation = class Animation extends WI.Object
         if (!this._uniqueDisplayNameNumber)
             this._uniqueDisplayNameNumber = WI.Animation._nextUniqueDisplayNameNumber++;
         return WI.UIString("Animation %d").format(this._uniqueDisplayNameNumber);
-    }
-
-    ensureEffect(callback)
-    {
-        if (this._effect) {
-            if (callback) {
-                callback();
-                return;
-            }
-            return Promise.resolve();
-        }
-
-        let promise = undefined;
-        if (!callback) {
-            promise = new Promise((resolve, reject) => {
-                callback = resolve;
-            });
-        }
-
-        if (this._ensureEffectCallbacks) {
-            this._ensureEffectCallbacks.push(callback);
-            return promise;
-        }
-
-        this._ensureEffectCallbacks = [callback];
-
-        let target = WI.assumingMainTarget();
-        target.AnimationAgent.requestEffect(this._animationId, (error, effect) => {
-            if (error) {
-                WI.reportInternalError(error);
-                return;
-            }
-
-            this._updateEffect(effect);
-        });
-
-        return promise;
     }
 
     requestEffectTarget(callback)
@@ -282,13 +238,7 @@ WI.Animation = class Animation extends WI.Object
 
     effectChanged(effect)
     {
-        this._effect = null;
-
-        // COMPATIBILITY (iOS 18.X, macOS 15.X): `Animation.effectChanged` removed the `effect` parameter in favor of `Animation.requestEffect`.
-        if (!InspectorBackend.hasCommand("Animation.requestEffect"))
-            this._updateEffect(effect);
-
-        this.dispatchEventToListeners(WI.Animation.Event.EffectChanged);
+        this._updateEffect(effect);
     }
 
     targetChanged()
@@ -332,11 +282,7 @@ WI.Animation = class Animation extends WI.Object
             }
         }
 
-        if (this._ensureEffectCallbacks) {
-            for (let requestEffectCallback of this._ensureEffectCallbacks)
-                requestEffectCallback();
-            this._ensureEffectCallbacks = null;
-        }
+        this.dispatchEventToListeners(WI.Animation.Event.EffectChanged);
     }
 };
 
