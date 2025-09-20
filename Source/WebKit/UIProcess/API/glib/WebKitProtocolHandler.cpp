@@ -606,7 +606,7 @@ void WebKitProtocolHandler::handleGPU(WebKitURISchemeRequest* request)
             jsonObject->setObject("Hardware Acceleration Information (Render process)"_s, WTFMove(hardwareAccelerationObject));
 
             // Clear the contexts used by the display before it's destroyed.
-            platformDisplay->clearSharingGLContext();
+            platformDisplay->clearGLContexts();
         }
 
 #if USE(GBM)
@@ -657,7 +657,7 @@ void WebKitProtocolHandler::handleGPU(WebKitURISchemeRequest* request)
             stopTable();
             jsonObject->setObject("Hardware Acceleration Information (Render process)"_s, WTFMove(hardwareAccelerationObject));
 
-            platformDisplay->clearSharingGLContext();
+            platformDisplay->clearGLContexts();
         }
 
 #if USE(GBM)

@@ -467,6 +467,8 @@ public:
 
     WebCore::ShouldRelaxThirdPartyCookieBlocking shouldRelaxThirdPartyCookieBlockingForPage(std::optional<WebPageProxyIdentifier>) const;
 
+    void setDefaultRequestTimeoutInterval(double);
+
 private:
     void platformInitializeNetworkProcess(const NetworkProcessCreationParameters&);
 

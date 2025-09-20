@@ -276,4 +276,6 @@ messages -> NetworkProcess : AuxiliaryProcess WantsAsyncDispatchMessage {
 #if ENABLE(CONTENT_EXTENSIONS)
     ResetResourceMonitorThrottlerForTesting(PAL::SessionID sessionID) -> ();
 #endif
+
+    SetDefaultRequestTimeoutInterval(double timeoutInterval)
 }

@@ -115,6 +115,9 @@ void WebProcess::stopRunLoop()
     for (auto& webPage : copyToVector(m_pageMap.values()))
         webPage->close();
 
+    if (auto* display = PlatformDisplay::sharedDisplayIfExists())
+        display->clearGLContexts();
+
     AuxiliaryProcess::stopRunLoop();
 }
 

@@ -834,7 +834,7 @@ template<typename T, typename Traits> struct ArgumentCoder<WTF::Markable<T, Trai
     }
 
     template<typename Decoder>
-    static std::optional<WTF::Markable<T>> decode(Decoder& decoder)
+    static std::optional<WTF::Markable<T, Traits>> decode(Decoder& decoder)
     {
         auto isEmpty = decoder.template decode<bool>();
         if (UNLIKELY(!isEmpty))

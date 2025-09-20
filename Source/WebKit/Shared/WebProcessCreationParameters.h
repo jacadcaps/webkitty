@@ -37,6 +37,7 @@
 #include "WebProcessDataStoreParameters.h"
 #include <WebCore/CrossOriginMode.h>
 #include <wtf/HashMap.h>
+#include <wtf/Markable.h>
 #include <wtf/OptionSet.h>
 #include <wtf/ProcessID.h>
 #include <wtf/RetainPtr.h>
@@ -106,7 +107,7 @@ struct WebProcessCreationParameters {
 
     CacheModel cacheModel;
 
-    double defaultRequestTimeoutInterval { INT_MAX };
+    Markable<double, WTF::DoubleMarkableTraits> defaultRequestTimeoutInterval;
     unsigned backForwardCacheCapacity { 0 };
 
     bool shouldAlwaysUseComplexTextCodePath { false };

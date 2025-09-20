@@ -33,6 +33,7 @@
 #include "APIHTTPCookieStore.h"
 #include "APINavigation.h"
 #include "APIPageConfiguration.h"
+#include "APIURLRequest.h"
 #include "AuthenticationChallengeProxy.h"
 #include "AuthenticationManager.h"
 #include "BackgroundFetchState.h"
@@ -223,6 +224,8 @@ void NetworkProcessProxy::sendCreationParametersToNewProcess()
 #if ENABLE(ADVANCED_PRIVACY_PROTECTIONS)
     parameters.storageAccessPromptQuirksData = StorageAccessPromptQuirkController::sharedSingleton().cachedListData();
 #endif
+
+    parameters.defaultRequestTimeoutInterval = API::URLRequest::defaultTimeoutInterval();
 
     WebProcessPool::platformInitializeNetworkProcess(parameters);
     sendWithAsyncReply(Messages::NetworkProcess::InitializeNetworkProcess(WTFMove(parameters)), [weakThis = WeakPtr { *this }, initializationActivityAndGrant = initializationActivityAndGrant()] {
@@ -2026,6 +2029,12 @@ void NetworkProcessProxy::resetResourceMonitorThrottlerForTesting(PAL::SessionID
     sendWithAsyncReply(Messages::NetworkProcess::ResetResourceMonitorThrottlerForTesting(sessionID), WTFMove(completionHandler));
 }
 #endif
+
+void NetworkProcessProxy::setDefaultRequestTimeoutInterval(double timeoutInterval)
+{
+    if (canSendMessage())
+        send(Messages::NetworkProcess::SetDefaultRequestTimeoutInterval(timeoutInterval), 0);
+}
 
 } // namespace WebKit
 

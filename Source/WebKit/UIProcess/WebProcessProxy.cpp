@@ -2817,7 +2817,7 @@ void WebProcessProxy::getWebCryptoMasterKey(CompletionHandler<void(std::optional
     m_websiteDataStore->client().webCryptoMasterKey([completionHandler = WTFMove(completionHandler)](std::optional<Vector<uint8_t>>&& key) mutable {
         if (key)
             return completionHandler(WTFMove(key));
-        return completionHandler(WebCore::defaultWebCryptoMasterKey());
+        return WebCore::getDefaultWebCryptoMasterKey(WTFMove(completionHandler));
     });
 }
 

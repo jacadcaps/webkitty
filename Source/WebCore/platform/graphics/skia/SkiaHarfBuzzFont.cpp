@@ -156,6 +156,7 @@ hb_font_t* SkiaHarfBuzzFont::scaledFont(const FontPlatformData& fontPlatformData
     hb_font_set_scale(m_font.get(), scale, scale);
     hb_font_set_ptem(m_font.get(), size);
     m_scaledFont = fontPlatformData.skFont();
+    m_isColorBitmapFont = fontPlatformData.isColorBitmapFont();
     return m_font.get();
 }
 
@@ -169,6 +170,23 @@ std::optional<hb_codepoint_t> SkiaHarfBuzzFont::glyph(hb_codepoint_t unicode, st
     hb_codepoint_t returnValue;
     if (hb_font_get_glyph(hb_font_get_parent(m_font.get()), unicode, variation.value_or(0), &returnValue))
         return returnValue;
+
+    if (!variation)
+        return std::nullopt;
+
+    // If we failed to get a glyph with a variation, try to get a glyph without
+    // the variation unless emoji is requested and font doesn't support colors
+    // or text is requested and it's a color font.
+    // FIXME: it would be better to check if the font has a color/text glyph for
+    // the given codepoint, but we need Skia API for that.
+    // See https://issues.skia.org/issues/374078818.
+    if (*variation == emojiVariationSelector && !m_isColorBitmapFont)
+        return std::nullopt;
+    if (*variation == textVariationSelector && m_isColorBitmapFont)
+        return std::nullopt;
+    if (hb_font_get_glyph(hb_font_get_parent(m_font.get()), unicode, 0, &returnValue))
+        return returnValue;
+
     return std::nullopt;
 }
 

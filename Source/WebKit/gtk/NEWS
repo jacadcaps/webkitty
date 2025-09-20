@@ -1,4 +1,18 @@
 ================
+WebKitGTK 2.48.6
+================
+
+What's new in WebKitGTK 2.48.6?
+
+  - Fix emojis incorrectly rendered in their text variant.
+  - Add support for font collection / fragment identifiers.
+  - Fix web process deadlock on exit.
+  - Fix stuttering when playing WebP animations.
+  - Fix CSS animations with cubic-bezier timing function.
+  - Do not start the MemoryPressureMonitor if it's disabled.
+  - Fix several crashes and rendering issues.
+
+================
 WebKitGTK 2.48.5
 ================
 

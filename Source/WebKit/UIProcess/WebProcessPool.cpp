@@ -295,7 +295,8 @@ WebProcessPool::WebProcessPool(API::ProcessPoolConfiguration& configuration)
     platformInitialize(needsGlobalStaticInitialization);
 
 #if OS(LINUX)
-    MemoryPressureMonitor::singleton().start();
+    if (!MemoryPressureMonitor::disabled())
+        MemoryPressureMonitor::singleton().start();
 #endif
 
     addMessageReceiver(Messages::WebProcessPool::messageReceiverName(), *this);

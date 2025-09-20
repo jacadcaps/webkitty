@@ -1293,6 +1293,12 @@ void NetworkResourceLoader::willSendRedirectedRequestInternal(ResourceRequest&& 
         redirectRequest.setHTTPHeaderField(WebCore::HTTPHeaderName::Authorization, authorization);
     }
 
+    if (request.wasSchemeOptimisticallyUpgraded()) {
+        LOADER_RELEASE_LOG("willSendRedirectedRequest: Resetting request timeout to the default value after redirect");
+
+        redirectRequest.resetTimeoutInterval();
+    }
+
     if (RefPtr networkLoadChecker = m_networkLoadChecker) {
         if (privateClickMeasurementAttributionTriggerData)
             networkLoadChecker->enableContentExtensionsCheck();

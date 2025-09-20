@@ -15281,6 +15281,7 @@
 		93B248992990CD5F00B769E4 /* RectBase.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = RectBase.h; sourceTree = "<group>"; };
 		93B2D8150F9920D2006AE6B2 /* SuddenTermination.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = SuddenTermination.h; sourceTree = "<group>"; };
 		93B2D8170F9920EE006AE6B2 /* SuddenTermination.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = SuddenTermination.mm; sourceTree = "<group>"; };
+		93B2F9012E2330F1002DC86C /* SerializedCryptoKeyWrap.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = SerializedCryptoKeyWrap.cpp; sourceTree = "<group>"; };
 		93B38EB82582189900198E63 /* SpeechRecognizerCocoa.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = SpeechRecognizerCocoa.mm; sourceTree = "<group>"; };
 		93B38EB92582193A00198E63 /* WebSpeechRecognizerTaskMock.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = WebSpeechRecognizerTaskMock.mm; sourceTree = "<group>"; };
 		93B38EBA2582193B00198E63 /* WebSpeechRecognizerTask.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = WebSpeechRecognizerTask.h; sourceTree = "<group>"; };
@@ -37214,6 +37215,7 @@
 				57E233571DC7D24800F28D01 /* JsonWebKey.idl */,
 				57E233621DC7DA2400F28D01 /* RsaOtherPrimesInfo.h */,
 				57E233591DC7D37200F28D01 /* RsaOtherPrimesInfo.idl */,
+				93B2F9012E2330F1002DC86C /* SerializedCryptoKeyWrap.cpp */,
 				E18DF33418AAF12C00773E59 /* SerializedCryptoKeyWrap.h */,
 				5778BD831DA4817B009E3009 /* SubtleCrypto.cpp */,
 				5778BD811DA4802C009E3009 /* SubtleCrypto.h */,

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2025 Apple Inc. All rights reserved.
+ * Copyright (C) 2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,29 +23,24 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#pragma once
+#include "config.h"
+#include "SerializedCryptoKeyWrap.h"
 
-#include <wtf/Forward.h>
-#include <wtf/text/WTFString.h>
+#include <wtf/CompletionHandler.h>
+#include <wtf/NeverDestroyed.h>
+#include <wtf/WorkQueue.h>
 
 namespace WebCore {
 
-struct WrappedCryptoKey;
+void getDefaultWebCryptoMasterKey(CompletionHandler<void(std::optional<Vector<uint8_t>>&&)>&& handler)
+{
+    static NeverDestroyed<Ref<WorkQueue>> queue { WorkQueue::create("org.WebKit.WebCryptoMasterKey"_s) };
+    queue.get().get().dispatch([handler = WTFMove(handler)] mutable {
+        auto key = defaultWebCryptoMasterKey();
+        WorkQueue::protectedMain()->dispatch([handler = WTFMove(handler), key = WTFMove(key)] mutable {
+            handler(WTFMove(key));
+        });
+    });
+}
 
-// The purpose of the following APIs is to protect serialized CryptoKey data in IndexedDB or
-// any other local storage that go through the structured clone algorithm. However, a side effect
-// of this extra layer of protection is redundant communications between mainThread(document) and
-// workerThreads. Please refer to WorkerGlobalScope for detailed explanation. P.S. This extra layer
-// of protection is not required by the spec as of 11 December 2014:
-// https://www.w3.org/TR/WebCryptoAPI/#security-developers
-
-WEBCORE_EXPORT std::optional<Vector<uint8_t>> defaultWebCryptoMasterKey();
-WEBCORE_EXPORT void getDefaultWebCryptoMasterKey(CompletionHandler<void(std::optional<Vector<uint8_t>>&&)>&&);
-WEBCORE_EXPORT bool deleteDefaultWebCryptoMasterKey();
-
-WEBCORE_EXPORT bool wrapSerializedCryptoKey(const Vector<uint8_t>& masterKey, const Vector<uint8_t>& key, Vector<uint8_t>& result);
-
-WEBCORE_EXPORT std::optional<WrappedCryptoKey> readSerializedCryptoKey(const Vector<uint8_t>& wrappedKey);
-WEBCORE_EXPORT std::optional<Vector<uint8_t>> unwrapCryptoKey(const Vector<uint8_t>& masterKey, const struct WrappedCryptoKey& wrappedKey);
-
-} // namespace WebCore
+}

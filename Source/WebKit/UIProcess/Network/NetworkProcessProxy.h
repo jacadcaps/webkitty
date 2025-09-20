@@ -348,6 +348,8 @@ public:
     void resetResourceMonitorThrottlerForTesting(PAL::SessionID, CompletionHandler<void()>&&);
 #endif
 
+    void setDefaultRequestTimeoutInterval(double);
+
 private:
     explicit NetworkProcessProxy();
 

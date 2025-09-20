@@ -611,7 +611,8 @@ void WebProcess::initializeWebProcess(WebProcessCreationParameters&& parameters,
         WebExtensionMatchPattern::registerCustomURLScheme(scheme);
 #endif
 
-    setDefaultRequestTimeoutInterval(parameters.defaultRequestTimeoutInterval);
+    if (parameters.defaultRequestTimeoutInterval)
+        setDefaultRequestTimeoutInterval(*parameters.defaultRequestTimeoutInterval);
 
     setBackForwardCacheCapacity(parameters.backForwardCacheCapacity);
 

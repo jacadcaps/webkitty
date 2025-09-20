@@ -1896,7 +1896,8 @@ void WebPage::close()
 
     WEBPAGE_RELEASE_LOG(Loading, "close:");
 
-    WebProcess::singleton().ensureNetworkProcessConnection().protectedConnection()->send(Messages::NetworkConnectionToWebProcess::ClearPageSpecificData(m_identifier), 0);
+    if (auto networkProcessConnection = WebProcess::singleton().protectedNetworkProcessConnection())
+        networkProcessConnection->connection().send(Messages::NetworkConnectionToWebProcess::ClearPageSpecificData(m_identifier), 0);
 
     m_isClosed = true;
 

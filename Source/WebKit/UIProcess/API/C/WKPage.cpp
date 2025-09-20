@@ -2472,7 +2472,7 @@ void WKPageSetPageNavigationClient(WKPageRef pageRef, const WKPageNavigationClie
                 if (auto data = adoptRef(toImpl(m_client.copyWebCryptoMasterKey(toAPI(&page), m_client.base.clientInfo))))
                     return completionHandler(Vector(data->span()));
             }
-            return completionHandler(defaultWebCryptoMasterKey());
+            return WebCore::getDefaultWebCryptoMasterKey(WTFMove(completionHandler));
         }
 
         void navigationActionDidBecomeDownload(WebKit::WebPageProxy& page, API::NavigationAction& action, WebKit::DownloadProxy& download) override
